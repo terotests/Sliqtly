@@ -1,0 +1,33 @@
+Import "../markdown/web/markdown_web.rgr"
+class Probe {
+    sfn main:void () {
+        def text:string "---\ntheme: x\n---\n\n## Eka {#eka transition=slide seconds=0.4}\n\nJohdanto\n\n- yksi\n- kaksi\n  jatkuu\n- kolme\n{.build anim=fly}\n\n## Toka\n\nTeksti\n"
+        def md (new MarkdownWeb())
+        md.edit.open(text)
+        md.edit.slideMode = true
+        md.edit.sheetGap = 24.0
+        md.edit.stale = true
+        md.edit.ensureLayout()
+        def l:MdLayout md.edit.layout
+        print ("pages " + (to_string l.pageCount) + " size " + (to_string l.style.pageWidth) + "x" + (to_string l.style.pageHeight))
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            print ((to_string b.page) + " k" + (to_string b.kind) + " src" + (to_string b.srcStart) + " seg" + (to_string b.segSrc) + " y" + (to_string b.y) + " '" + b.text + "'")
+            i = (i + 1)
+        }
+        def doc:MdNode md.edit.doc
+        def c:int 0
+        while (c < (doc.childCount())) {
+            def ch:MdNode (doc.childAt(c))
+            print ("child " + ch.kind + " " + (to_string ch.srcStart) + "-" + (to_string ch.srcEnd) + " id=" + ch.nodeId + " attrs=" + (to_string (ch.attrCount())) + " build=" + (? (ch.hasClass("build")) "y" "n") + " tr=" + (ch.attrValue("transition")))
+            def k:int 0
+            while (k < (ch.childCount())) {
+                def it:MdNode (ch.childAt(k))
+                print ("   " + it.kind + " " + (to_string it.srcStart) + "-" + (to_string it.srcEnd))
+                k = (k + 1)
+            }
+            c = (c + 1)
+        }
+    }
+}

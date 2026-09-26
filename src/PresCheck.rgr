@@ -1,0 +1,104 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; Node checks for the deck and the timeline: `npm run check`.
+Import "PresTimeline.rgr"
+
+class PresCheck {
+    def fails:int 0
+    def passes:int 0
+
+    fn ok:void (cond:boolean what:string) {
+        if cond {
+            passes = (passes + 1)
+        } {
+            fails = (fails + 1)
+            print ("FAIL " + what)
+        }
+    }
+
+    sfn sample:string () {
+        return ("---\ntransition: fade\nslide-split-level: 2\n---\n\n"
+            + "## Eka {#eka transition=slide seconds=0.4 fx=starfield fx-density=1.6}\n\nJohdanto\n\n"
+            + "- yksi\n- kaksi\n  jatkuu\n- kolme\n{.build anim=fly}\n\n"
+            + "::: notes\nPuhe ensin. [[1]] Sitten.\n:::\n\n"
+            + "## Toka\n\nTeksti\n{anim=zoom}\n\n::: audio src=toka.wav\n:::\n")
+    }
+
+    fn run:void () {
+        def text:string (PresCheck.sample())
+        def src (new PresSource())
+        src.read(text)
+        this.ok(((strlen src.masked) == (strlen text)) "masking keeps the length")
+        this.ok(((indexOf src.masked "notes") < 0) "masking removes the notes fence")
+        this.ok(((array_length src.blocks) == 2) "two ::: blocks")
+        def nb:PresBlock (itemAt src.blocks 0)
+        this.ok((nb.body == "Puhe ensin. [[1]] Sitten.") ("notes body: " + nb.body))
+
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 2) ("two slides, got " + (to_string (deck.slideCount()))))
+        if ((deck.slideCount()) < 2) {
+            return
+        }
+        def s0:PresSlide (deck.slideAt(0))
+        def s1:PresSlide (deck.slideAt(1))
+        this.ok((s0.id == "eka") "slide id")
+        this.ok((s0.transition == "slide") "slide transition")
+        this.ok((s0.fx == "starfield") "slide fx")
+        this.ok(((array_length s0.fxNames) == 1) "fx parameter")
+        this.ok((s0.steps == 3) ("three build steps, got " + (to_string s0.steps)))
+        this.ok((s0.notes == "Puhe ensin. [[1]] Sitten.") ("notes on slide 1: " + s0.notes))
+        this.ok((s1.audio == "toka.wav") ("audio on slide 2: " + s1.audio))
+        this.ok((s1.transition == "fade") "front matter transition")
+        this.ok(((array_length s1.groups) == 1) "an anim block is a group")
+
+        ; Before step 1 the build items are not drawn; after the last they are.
+        def early:EVGDisplayList (PresTimeline.frame(deck 0 0.1))
+        def late:EVGDisplayList (PresTimeline.frame(deck 0 s0.duration))
+        this.ok(((PresCheck.texts(early "yksi")) == 0) "item 1 hidden before its step")
+        this.ok(((PresCheck.texts(early "•")) == 0) "its marker hidden with it")
+        this.ok(((PresCheck.texts(late "yksi")) == 1) "item 1 shown after its step")
+        this.ok(((PresCheck.texts(late "•")) == 3) "three markers at the end")
+        this.ok(((array_length late.fxIds) == 1) "the starfield instance is in the list")
+        this.ok(((indexOf (late.toJson()) "\"efx\"") > 0) "a command paints the effect")
+
+        ; The same time gives the same frame, whatever came before.
+        def a:string ((PresTimeline.frame(deck 0 1.37)).toJson())
+        def b0:string ((PresTimeline.frame(deck 0 3.0)).toJson())
+        def b:string ((PresTimeline.frame(deck 0 1.37)).toJson())
+        this.ok((a == b) "a frame is a function of its time")
+        this.ok((a != b0) "and a different time is a different frame")
+
+        ; Mid-transition the second slide has the first under it.
+        def mid:EVGDisplayList (PresTimeline.frame(deck 1 0.2))
+        this.ok(((PresCheck.texts(mid "Johdanto")) == 1) "previous slide under a fade")
+        this.ok(((PresCheck.texts(mid "Toka")) == 1) "current slide over it")
+        def after:EVGDisplayList (PresTimeline.frame(deck 1 2.0))
+        this.ok(((PresCheck.texts(after "Johdanto")) == 0) "previous slide gone after the fade")
+
+        this.ok(((PresTimeline.slideAtTime(deck (s0.duration + 0.01))) == 1) "deck time to slide")
+        this.ok(((deck.pageOfOffset((indexOf text "Toka"))) == 1) "source offset to slide")
+    }
+
+    sfn texts:int (l:EVGDisplayList word:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if ((c.kind == 3) && (c.text == word)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn main:void () {
+        def c (new PresCheck())
+        c.run()
+        print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
+        if (c.fails > 0) {
+            print "CHECK FAILED"
+        }
+    }
+}

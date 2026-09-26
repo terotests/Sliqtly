@@ -1,0 +1,499 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresDeck.rgr — the markdown, laid out as slides, with what moves on them.
+; ============================================================================
+;
+;   editor text ──► PresSource (lift ::: blocks) ──► MarkdownEdit (slides)
+;                                                        │
+;                   PresSlide[]  ◄── attributes, notes ──┤
+;                        │                               │
+;                        └──► PresTimeline ──► one EVGDisplayList per frame
+;
+; The layout is the markdown module's, unchanged: `layoutSlides` decides the
+; breaks, `MdToEvg.paintBox` draws each box. What this file adds is WHICH
+; boxes belong together on the timeline. A box knows the source offset it
+; came from, and a `{.build}` list's items know their source ranges, so a box
+; is given to the item whose range holds it. No second layout, no guessing
+; from positions — except for a list marker, which carries its list's offset
+; rather than its item's, and so goes with the item on its own line.
+;
+; Attributes this reads (all optional):
+;
+;   heading     {#id transition=fade|slide|zoom|none seconds=0.6
+;                duration=8 fx=starfield fx-density=1.6}
+;   any block   {.build}           reveal in steps (a list: one per item)
+;               {anim=fade|rise|fly|zoom seconds=0.5}
+;   front matter  transition, seconds, fx, fx-*, step (seconds between
+;                 build steps), hold (seconds after the last step)
+; ============================================================================
+
+Import "../markdown/web/markdown_web.rgr"
+Import "PresSource.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+
+class PresGroup {
+    def slide:int 0
+    ; 0 = arrives with the slide; 1.. = the build step that reveals it
+    def step:int 0
+    ; the source range whose boxes belong to it
+    def start:int 0
+    def end:int 0
+    def anim:string "rise"
+    def seconds:double 0.5
+    ; seconds after the slide starts; set by PresTimeline
+    def at:double 0.0
+    ; a short label for the track: the first words
+    def label:string ""
+}
+
+class PresSlide {
+    def index:int 0
+    def id:string ""
+    def title:string ""
+    def transition:string "fade"
+    def seconds:double 0.6
+    def fx:string ""
+    def fxNames:[string]
+    def fxValues:[string]
+    def notes:string ""
+    def audio:string ""
+    ; the first and last source offsets laid out on this slide
+    def srcStart:int -1
+    def srcEnd:int -1
+    ; seconds; set by PresTimeline
+    def duration:double 0.0
+    def wantDuration:double -1.0
+    def stepGap:double 1.2
+    def hold:double 2.5
+    def groups:[PresGroup]
+    def steps:int 0
+
+    Constructor () {
+        def a:[string]
+        fxNames = a
+        def b:[string]
+        fxValues = b
+        def g:[PresGroup]
+        groups = g
+    }
+}
+
+class PresDeck {
+    ; The engine: fonts, pictures, templates, the PDF and the PPTX.
+    def md:MarkdownWeb (new MarkdownWeb())
+    def src:PresSource (new PresSource())
+    def slides:[PresSlide]
+    def text:string ""
+    ; moves on every rebuild, so a host can keep what it built from the last one
+    def revision:int 0
+    def pageW:double 960.0
+    def pageH:double 540.0
+
+    Constructor () {
+        def s:[PresSlide]
+        slides = s
+    }
+
+    fn setText:void (t:string) {
+        text = t
+        this.rebuild()
+    }
+
+    fn rebuild:void () {
+        src.read(text)
+        def e:MarkdownEdit md.edit
+        e.open(src.masked)
+        e.slideMode = true
+        e.sheetGap = (MdToEvg.sheetGap())
+        e.stale = true
+        e.ensureLayout()
+        pageW = e.layout.style.pageWidth
+        pageH = e.layout.style.pageHeight
+        this.readSlides()
+        revision = (revision + 1)
+    }
+
+    fn layout:MdLayout () {
+        return md.edit.layout
+    }
+
+    fn slideCount:int () {
+        return (array_length slides)
+    }
+
+    fn slideAt:PresSlide (i:int) {
+        return (itemAt slides i)
+    }
+
+    ; ------------------------------------------------------------------
+    ; Which slide a source offset is on
+    ; ------------------------------------------------------------------
+    fn pageOfOffset:int (off:int) {
+        def l:MdLayout (this.layout())
+        def best:int 0
+        def bestSrc:int -1
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            def s:int (PresDeck.boxSrc(b))
+            if ((s <= off) && (s > bestSrc)) {
+                bestSrc = s
+                best = b.page
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; Where a box came from: its own run when it has one, its block otherwise.
+    sfn boxSrc:int (b:MdBox) {
+        if (b.segSrc >= 0) {
+            return b.segSrc
+        }
+        return b.srcStart
+    }
+
+    ; The page a block's first box landed on, or -1 when it drew nothing.
+    fn pageOfNode:int (n:MdNode) {
+        def l:MdLayout (this.layout())
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            def s:int (PresDeck.boxSrc(b))
+            if ((s >= n.srcStart) && (s < n.srcEnd)) {
+                return b.page
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; ------------------------------------------------------------------
+    ; The slides and what the document says about them
+    ; ------------------------------------------------------------------
+    fn readSlides:void () {
+        clear slides
+        def l:MdLayout (this.layout())
+        def doc:MdNode md.edit.doc
+        def meta:MdMeta (MdFrontMatter.of(doc))
+        def dTransition:string (meta.get("transition" "fade"))
+        def dSeconds:double (PresDeck.num((meta.get("seconds" "0.6")) 0.6))
+        def dFx:string (meta.get("fx" ""))
+        def dStep:double (PresDeck.num((meta.get("step" "1.2")) 1.2))
+        def dHold:double (PresDeck.num((meta.get("hold" "2.5")) 2.5))
+        def p:int 0
+        while (p < l.pageCount) {
+            def s (new PresSlide())
+            s.index = p
+            s.transition = dTransition
+            s.seconds = dSeconds
+            s.fx = dFx
+            s.stepGap = dStep
+            s.hold = dHold
+            PresDeck.fxFromMeta(s meta)
+            push slides s
+            p = (p + 1)
+        }
+        ; The source span of each slide, from its boxes.
+        def bi:int 0
+        while (bi < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes bi)
+            if ((b.page >= 0) && (b.page < (array_length slides))) {
+                def sl:PresSlide (itemAt slides b.page)
+                def at:int (PresDeck.boxSrc(b))
+                if (at >= 0) {
+                    if ((sl.srcStart < 0) || (at < sl.srcStart)) {
+                        sl.srcStart = at
+                    }
+                    if (at > sl.srcEnd) {
+                        sl.srcEnd = at
+                    }
+                }
+            }
+            bi = (bi + 1)
+        }
+        ; The blocks: a heading names its slide, a build or an anim makes groups.
+        def c:int 0
+        while (c < (doc.childCount())) {
+            def ch:MdNode (doc.childAt(c))
+            def pg:int (this.pageOfNode(ch))
+            if (pg >= 0) {
+                def slide:PresSlide (itemAt slides pg)
+                if ((ch.kind == "heading") && ((strlen slide.title) == 0)) {
+                    slide.title = (ch.plainText())
+                    this.readHeading(slide ch)
+                }
+                this.readGroups(slide ch)
+            }
+            c = (c + 1)
+        }
+        ; The notes and the audio go to the slide the block sits under.
+        def k:int 0
+        while (k < (array_length src.blocks)) {
+            def blk:PresBlock (itemAt src.blocks k)
+            def pg2:int (this.pageOfOffset(blk.start))
+            if ((pg2 >= 0) && (pg2 < (array_length slides))) {
+                def s2:PresSlide (itemAt slides pg2)
+                if (blk.kind == "notes") {
+                    if ((strlen s2.notes) > 0) {
+                        s2.notes = (s2.notes + "\n")
+                    }
+                    s2.notes = (s2.notes + blk.body)
+                }
+                if (blk.kind == "audio") {
+                    s2.audio = (PresSource.argValue(blk.args "src"))
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    sfn fxFromMeta:void (s:PresSlide meta:MdMeta) {
+        def i:int 0
+        while (i < (array_length meta.keys)) {
+            def key:string (itemAt meta.keys i)
+            if (((strlen key) > 3) && ((substring key 0 3) == "fx-")) {
+                PresDeck.setFx(s (substring key 3 (strlen key)) (itemAt meta.values i))
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn setFx:void (s:PresSlide name:string value:string) {
+        def i:int 0
+        while (i < (array_length s.fxNames)) {
+            if ((itemAt s.fxNames i) == name) {
+                set s.fxValues i value
+                return
+            }
+            i = (i + 1)
+        }
+        push s.fxNames name
+        push s.fxValues value
+    }
+
+    fn readHeading:void (s:PresSlide h:MdNode) {
+        s.id = h.nodeId
+        if (h.hasAttr("transition")) {
+            s.transition = (h.attrValue("transition"))
+        }
+        if (h.hasAttr("seconds")) {
+            s.seconds = (PresDeck.num((h.attrValue("seconds")) s.seconds))
+        }
+        if (h.hasAttr("duration")) {
+            s.wantDuration = (PresDeck.num((h.attrValue("duration")) -1.0))
+        }
+        if (h.hasAttr("step")) {
+            s.stepGap = (PresDeck.num((h.attrValue("step")) s.stepGap))
+        }
+        if (h.hasAttr("fx")) {
+            s.fx = (h.attrValue("fx"))
+        }
+        def i:int 0
+        while (i < (h.attrCount())) {
+            def key:string (itemAt h.attrKeys i)
+            if (((strlen key) > 3) && ((substring key 0 3) == "fx-")) {
+                PresDeck.setFx(s (substring key 3 (strlen key)) (itemAt h.attrVals i))
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn readGroups:void (s:PresSlide n:MdNode) {
+        def build:boolean (n.hasClass("build"))
+        def anim:string ""
+        if (n.hasAttr("anim")) {
+            anim = (n.attrValue("anim"))
+        }
+        if ((! build) && ((strlen anim) == 0)) {
+            return
+        }
+        if ((strlen anim) == 0) {
+            anim = "rise"
+        }
+        def secs:double 0.5
+        if (n.hasAttr("seconds")) {
+            secs = (PresDeck.num((n.attrValue("seconds")) 0.5))
+        }
+        if (build && (n.kind == "list")) {
+            def i:int 0
+            while (i < (n.childCount())) {
+                def it:MdNode (n.childAt(i))
+                s.steps = (s.steps + 1)
+                this.addGroup(s s.steps it.srcStart it.srcEnd anim secs (it.plainText()))
+                i = (i + 1)
+            }
+            return
+        }
+        def step:int 0
+        if build {
+            s.steps = (s.steps + 1)
+            step = s.steps
+        }
+        this.addGroup(s step n.srcStart n.srcEnd anim secs (n.plainText()))
+    }
+
+    fn addGroup:void (s:PresSlide step:int a:int b:int anim:string secs:double words:string) {
+        def g (new PresGroup())
+        g.slide = s.index
+        g.step = step
+        g.start = a
+        g.end = b
+        g.anim = anim
+        g.seconds = secs
+        def w:string (trim words)
+        if ((strlen w) > 24) {
+            w = ((substring w 0 23) + "…")
+        }
+        g.label = w
+        push s.groups g
+    }
+
+    ; Which group a box belongs to on its slide, or -1.
+    fn groupOf:int (s:PresSlide b:MdBox) {
+        def at:int (PresDeck.boxSrc(b))
+        def i:int 0
+        while (i < (array_length s.groups)) {
+            def g:PresGroup (itemAt s.groups i)
+            if ((at >= g.start) && (at < g.end)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn num:double (v:string fallback:double) {
+        def t:string (trim v)
+        if ((strlen t) == 0) {
+            return fallback
+        }
+        def d@(optional):double (str2double t)
+        if (null? d) {
+            return fallback
+        }
+        return (unwrap d)
+    }
+
+    ; ------------------------------------------------------------------
+    ; One slide as draw commands
+    ; ------------------------------------------------------------------
+    ;
+    ; `groupOfCmd` gets one entry per command: the group it animates with,
+    ; or -1 for what stands still. The list is in slide coordinates: (0, 0)
+    ; is the slide's top-left corner.
+    fn slideList:EVGDisplayList (i:int groupOfCmd:[int]) {
+        def l:MdLayout (this.layout())
+        def s:PresSlide (itemAt slides i)
+        def out:EVGDisplayList (new EVGDisplayList())
+        def painter (new MdToEvg())
+        def paper:string "#ffffff"
+        if ((strlen l.style.pageBackground) > 0) {
+            paper = l.style.pageBackground
+        }
+        painter.rect(out 0.0 0.0 pageW pageH paper)
+        painter.paper(out l 0.0 0.0 pageW pageH)
+        push groupOfCmd -1
+        while ((array_length groupOfCmd) < (array_length out.cmds)) {
+            push groupOfCmd -1
+        }
+        if ((strlen s.fx) > 0) {
+            this.addFx(out s paper)
+            while ((array_length groupOfCmd) < (array_length out.cmds)) {
+                push groupOfCmd -1
+            }
+        }
+        ; the group of the last box on each line, for a marker to join
+        def lastY:double -1.0
+        def lastGroup:int -1
+        def bi:int 0
+        while (bi < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes bi)
+            if (b.page == i) {
+                def g:int (this.groupOf(s b))
+                if ((g < 0) && (b.segSrc < 0)) {
+                    if ((lastGroup >= 0) && ((fabs (b.y - lastY)) < 0.5)) {
+                        g = lastGroup
+                    }
+                }
+                painter.paintBox(out l b 0.0)
+                while ((array_length groupOfCmd) < (array_length out.cmds)) {
+                    push groupOfCmd g
+                }
+                lastY = b.y
+                lastGroup = g
+            }
+            bi = (bi + 1)
+        }
+        return out
+    }
+
+    ; The slide's surface effect: an element as big as the slide, dressed by
+    ; the same `evg-surface-effect` CSS the rest of EVG reads, laid out and
+    ; built into commands. Its id is the slide's so two slides on screen at
+    ; once (a transition) keep two instances apart.
+    fn addFx:void (out:EVGDisplayList s:PresSlide paper:string) {
+        def css:string (".pres-fx { background-color: " + paper + "; evg-surface-effect: " + s.fx + "; evg-effect-on: always;")
+        def i:int 0
+        while (i < (array_length s.fxNames)) {
+            css = (css + " evg-fx-" + (itemAt s.fxNames i) + ": " + (itemAt s.fxValues i) + ";")
+            i = (i + 1)
+        }
+        css = (css + " }")
+        def root (new EVGElement())
+        root.id = ("fx-s" + (to_string s.index))
+        root.className = "pres-fx"
+        root.setAttribute("width" ((to_string pageW) + "px"))
+        root.setAttribute("height" ((to_string pageH) + "px"))
+        def sheet (new EVGStyleSheet())
+        sheet.parse(css)
+        sheet.setViewport(pageW pageH false)
+        sheet.applyTree(root "")
+        def lay (new EVGLayout())
+        lay.setPageSize(pageW pageH)
+        lay.layout(root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        PresDeck.appendAll(out dl)
+    }
+
+    ; Commands AND effect instances. `appendFrom` carries the commands only,
+    ; and a command whose `efx` names an instance the list does not have
+    ; draws nothing.
+    sfn appendAll:void (out:EVGDisplayList src:EVGDisplayList) {
+        out.appendFrom(src)
+        PresDeck.appendFx(out src)
+    }
+
+    ; The effect instances alone, for a list whose commands were copied by hand.
+    sfn appendFx:void (out:EVGDisplayList src:EVGDisplayList) {
+        def i:int 0
+        while (i < (array_length src.fxIds)) {
+            push out.fxIds (itemAt src.fxIds i)
+            push out.fxKinds (itemAt src.fxKinds i)
+            push out.fxTriggers (itemAt src.fxTriggers i)
+            push out.fxX (itemAt src.fxX i)
+            push out.fxY (itemAt src.fxY i)
+            push out.fxW (itemAt src.fxW i)
+            push out.fxH (itemAt src.fxH i)
+            push out.fxRadius (itemAt src.fxRadius i)
+            def start:int (array_length out.fxParamNames)
+            push out.fxParamStart start
+            def ps:int (itemAt src.fxParamStart i)
+            def pn:int (itemAt src.fxParamCount i)
+            def k:int 0
+            while (k < pn) {
+                push out.fxParamNames (itemAt src.fxParamNames (ps + k))
+                push out.fxParamValues (itemAt src.fxParamValues (ps + k))
+                k = (k + 1)
+            }
+            push out.fxParamCount pn
+            i = (i + 1)
+        }
+    }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "evg-presentation",
+  "version": "0.1.0",
+  "description": "Markdown → EVG slideshow: an editor on the left, the presentation with its timeline on the right",
+  "license": "AGPL-3.0-or-later",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "build": "node scripts/build.mjs",
+    "start": "node scripts/start.mjs",
+    "check": "node scripts/check.mjs",
+    "check:web": "node scripts/check-web.mjs"
+  }
+}
