@@ -15,6 +15,7 @@ Sovellus rakennetaan tähän repoon (EVGPresentation). Ranger (`gallery/markdown
 
 | Osa | Missä | Käyttö tässä |
 | --- | --- | --- |
+| Code editor + Markdown-kieli + esikatselu yhdellä EVG-canvasilla | `Ranger/gallery/r5` (`R5App`, `R5MdLanguage`, `R5Merge`), `gallery/datagrid/src/script/ScriptEditor.rgr` | Suora pohja: editori, slides-näkymä, kaksisuuntainen patch, host-rajapinta |
 | Markdown-editori (selain, WYSIWYG-esikatselu) | `Ranger/gallery/markdown/web/markdown_web.rgr` (`MarkdownEdit`), `web/standalone/` | Vasen paneeli ja slides-asettelu pohjaksi |
 | Slide-asettelu | `MdLayout.layoutSlides`, `{.slide}`, `{.c3}`, front matter (`theme`, `page`) | Dian rajat ja perusasettelu |
 | Markdown → EVG | `MdToEvg` → `EVGDisplayList` → `lib/evg/gl/evg-webgl.js` | Dian piirto |
@@ -59,7 +60,7 @@ Puuttuu: keyframe/aikajana-malli (vain suunnitelma `gallery/evg_video/PLAN_EVG_V
 
 ### Paneelit
 
-- **Vasen, Markdown.** Nykyinen editori. Kursori seuraa valittua diaa ja päinvastoin (dian vaihto esityksessä vierittää lähteen `MdSrcMap`illa). Gutterissa ikonit: 🔊 = dialla on ääni, ✦ = agentin muokkaama, 🔒 = lukittu (agentti ei koske).
+- **Vasen, Markdown.** Rangerin code editor (`ScriptEditor`, `gallery/datagrid`) Markdown-tokenisoijalla (`R5MdLanguage`), kuten r5:ssä: syntaksiväritys, minimap, undo, suggest (Ctrl+Space, tähän attribuutit `transition=`, `anim=` jne.). Kursori seuraa valittua diaa ja päinvastoin (dian vaihto esityksessä vierittää lähteen `MdSrcMap`illa). Gutterissa ikonit: 🔊 = dialla on ääni, ✦ = agentin muokkaama, 🔒 = lukittu (agentti ei koske).
 - **Oikea ylä, lava.** Valittu dia oikeassa kuvasuhteessa. Kaksi tilaa: *muokkaa* (WYSIWYG, elementin valinta, raahaus) ja *toista* (aikajana käy).
 - **Oikea keski, raidat** (valitun dian aikajana, vaakasuunnassa sekunteja):
   - *Teksti*: build-askeleet paloina; raahaamalla muutetaan järjestystä/ajoitusta.
@@ -73,6 +74,43 @@ Puuttuu: keyframe/aikajana-malli (vain suunnitelma `gallery/evg_video/PLAN_EVG_V
 Koko ruutu, näppäimet ←/→/välilyönti, `S` = puhujanäkymä (seuraava dia + muistiinpanot + kello), `A` = automaattitoisto äänen tahdissa / käsin eteneminen.
 
 Kapealla näytöllä paneelit välilehdiksi: *Markdown | Esitys | Raidat*.
+
+---
+
+## 2b. Toteutus: EVG renderöi, HTML liimaa
+
+Pohjana `gallery/r5`: sama rakenne on siellä jo toiminnassa (code editor + MarkdownWeb + slides yhdellä canvasilla, `MdEditController` omistaa tekstin ja editorin puskuri on sen näkymä).
+
+**EVG:llä piirretään (yksi WebGL-canvas, `evg-webgl.js`):**
+- Markdown-editori (`ScriptEditor` + `R5MdLanguage`, laajennettuna uusilla attribuuteilla ja `::: notes`/`::: audio`-lohkoilla)
+- Lava: dia muokkaus- ja toistotilassa
+- Raidat: build-palat, aaltomuoto, efektipalat, toistopää, cue-viivat
+- Filmstrip-pikkukuvat
+- Esitystila ja puhujanäkymä
+
+**HTML:llä (liima ja tavalliset UI-elementit):**
+- Yläpalkki: teema, kuvasuhde, Generoi, Esitä, Vie-valikko
+- Ominaisuuspaneeli (kesto, easing, siirtymä): `<input>`, `<select>`
+- Agenttipaneeli ja dialogit (TTS-ääni, vientiasetukset)
+- Selaimen rajapinnat: `<audio>`, `MediaRecorder`, `AnalyserNode`, tiedostonvalitsin, lataukset, `fetch`/SSE agentille
+- Piilotettu tekstikenttä näppäimistösyötteelle (kuten r5:n `main.js`)
+
+**Rajapinta Ranger-sovelluksen ja HTML:n välillä** r5:n mallin mukaan: sovellusluokka (`PresApp`) ottaa kutsut (`pointerDown`, `key`, `text`, `setSource`, `setTime`, `setAudioLevel`, `setAudioClip`, `applyPatch`) ja palauttaa JSONia (`frame()`, `paneRectsJson()`, `timelineJson()`) sekä `revision()`-laskurin. Selaimelle suunnatut pyynnöt (nauhoita, lataa tiedosto, soita, kysy agentilta) kulkevat `takeRequest()`-merkkijonoina, joten sama luokka ajetaan Nodessa testeissä ilman selainta. HTML-elementit asemoidaan canvasin päälle `paneRectsJson()`:n antamiin kohtiin.
+
+Äänen kello pysyy HTML-puolella (`<audio>.currentTime`), ja se syötetään joka framella `setTime`/`setAudioLevel`-kutsuilla. Ranger-puoli ei tiedä äänestä muuta kuin ajan, tason ja clipin pituuden.
+
+**Repo:**
+```
+EVGPresentation/
+  src/PresApp.rgr        sovellus: paneelit, syöte, tila
+  src/PresTimeline.rgr   aikajana (siirretään Rangerin lib/evg:hen kun vakiintuu)
+  src/PresTracks.rgr     raitojen piirto ja muokkaus
+  src/PresDeck.rgr       deck.md + deck.evg.json + media yhdistäminen
+  web/index.html         canvas + HTML-kontrollit
+  web/main.js            WebGL-frame, syöte, audio, agentti-SSE
+  web/pres.css
+  scripts/setup.mjs      Ranger (+ EvgHarness) .deps/-hakemistoon
+```
 
 ---
 
@@ -179,7 +217,7 @@ Runko otetaan EvgHarnessista (EVGPatch-opit, SSE-striimaus, valittava malli).
 
 ## 8. Vaiheet
 
-1. **Runko:** kaksipaneelinen sivu `MarkdownEdit`in päälle (slides-tila), filmstrip, dian valinta synkassa lähteen kanssa.
+1. **Runko:** `PresApp` r5:n pohjalta: code editor + lava + filmstrip yhdellä canvasilla, HTML-yläpalkki, dian valinta synkassa lähteen kanssa.
 2. **Syntaksi + PPTX-pikavoitto:** `#id`, `transition`, `.build`, `::: notes` parseriin; `MdToPptx` kirjoittaa ne PPTX:ään. Tämä on hyödyllinen jo ilman soitinta.
 3. **Soitin:** `EVGTimeline`, build-askeleet ja siirtymät lavalla, esitystila + puhujanäkymä.
 4. **Ääni:** nauhoitus/lataus, aaltomuotoraita, cue-merkit, `sync=audio`, sitten TTS.
@@ -191,6 +229,5 @@ Runko otetaan EvgHarnessista (EVGPatch-opit, SSE-striimaus, valittava malli).
 
 ## 9. Avoimet kysymykset
 
-- UI-toteutus: nykyinen tavallinen HTML + Ranger-bundle vai Rave?
 - TTS-palvelu (Gemini TTS, muu) ja ajetaanko agentti/TTS paikallisen palvelimen (kuten EvgHarness `serve.mjs`) kautta.
 - Kaksisuuntainen muokkaus: riittääkö, että lavalta muokataan vain tekstiä ja ajoitusta, ja visuaalinen kerros muuttuu vain agentin tai `deck.evg.json`:n kautta?
