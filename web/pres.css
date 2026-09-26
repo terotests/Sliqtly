@@ -1,0 +1,57 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The presentation editor's canvas chrome, as an EVG stylesheet. Dark, so
+ * the slide is the brightest thing on screen. Every box is placed by
+ * PresApp.rgr in pixels; this sheet only dresses them. Text elements carry
+ * a height, because EVG measures a line's width and the box says how tall
+ * it is.
+ */
+
+@vars {
+  --bg: #0b0f1e;
+  --panel: #121833;
+  --panel-2: #182044;
+  --line: #262f5c;
+  --ink: #e7eaff;
+  --ink-dim: #a3abd6;
+  --ink-mute: #6f78a8;
+  --accent: #7c8cff;
+  --text-clip: #3d5bd9;
+  --audio-clip: #1f8a70;
+  --anim-clip: #8a4fd6;
+  --fx-clip: #4a2f8a;
+}
+
+.app { background-color: var(--bg); font-family: Open Sans; }
+.present { background-color: #000000; font-family: Open Sans; }
+
+.sep { background-color: var(--line); cursor: col-resize; }
+.stage-area { background-color: var(--bg); }
+.slide-shadow { background-color: #000000; border-radius: 2px; }
+.empty { color: var(--ink-dim); font-size: 15px; height: 20px; }
+
+/* --- the tracks ------------------------------------------------------------ */
+.tracks { background-color: var(--panel); border-top: 1px solid var(--line); }
+.track-head { color: var(--ink); font-size: 12px; height: 16px; }
+.track-time { color: var(--ink-dim); font-size: 12px; height: 16px; }
+.track-name { color: var(--ink-dim); font-size: 11px; height: 14px; }
+.lane { background-color: var(--panel-2); border-radius: 4px; }
+.lane-hint { color: var(--ink-mute); font-size: 11px; height: 14px; }
+.clip { border-radius: 4px; }
+.clip-text { background-color: var(--text-clip); }
+.clip-audio { background-color: var(--audio-clip); }
+.clip-anim { background-color: var(--anim-clip); }
+.clip-fx { background-color: var(--fx-clip); }
+.clip-label { color: #ffffff; font-size: 11px; height: 14px; }
+.playhead { background-color: #ffcc4d; }
+
+/* --- the filmstrip --------------------------------------------------------- */
+.strip { background-color: var(--panel); border-top: 1px solid var(--line); }
+.thumb { background-color: var(--line); border-radius: 4px; cursor: pointer; }
+.thumb-on { background-color: var(--accent); }
+.thumb-num { color: var(--ink-dim); font-size: 11px; height: 14px; }
+
+/* --- the speaker view ------------------------------------------------------ */
+.sp-clock { color: #ffffff; font-size: 30px; height: 38px; }
+.sp-where { color: var(--ink-dim); font-size: 14px; height: 20px; }
+.sp-notes { color: var(--ink); font-size: 20px; line-height: 1.45; }

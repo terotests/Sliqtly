@@ -18,7 +18,7 @@ class PresCheck {
     sfn sample:string () {
         return ("---\ntransition: fade\nslide-split-level: 2\n---\n\n"
             + "## Eka {#eka transition=slide seconds=0.4 fx=starfield fx-density=1.6}\n\nJohdanto\n\n"
-            + "- yksi\n- kaksi\n  jatkuu\n- kolme\n{.build anim=fly}\n\n"
+            + "1. yksi\n2. kaksi\n   jatkuu\n3. kolme\n{.build anim=fly}\n\n"
             + "::: notes\nPuhe ensin. [[1]] Sitten.\n:::\n\n"
             + "## Toka\n\nTeksti\n{anim=zoom}\n\n::: audio src=toka.wav\n:::\n")
     }
@@ -56,9 +56,15 @@ class PresCheck {
         def early:EVGDisplayList (PresTimeline.frame(deck 0 0.1))
         def late:EVGDisplayList (PresTimeline.frame(deck 0 s0.duration))
         this.ok(((PresCheck.texts(early "yksi")) == 0) "item 1 hidden before its step")
-        this.ok(((PresCheck.texts(early "•")) == 0) "its marker hidden with it")
+        this.ok(((PresCheck.texts(early "1.")) == 0) "its number hidden with it")
+        this.ok(((PresCheck.texts(early "3.")) == 0) "a later number hidden too")
         this.ok(((PresCheck.texts(late "yksi")) == 1) "item 1 shown after its step")
-        this.ok(((PresCheck.texts(late "•")) == 3) "three markers at the end")
+        def one:double ((PresTimeline.stepDone(s0 1)) + 0.05)
+        def between:EVGDisplayList (PresTimeline.frame(deck 0 one))
+        this.ok(((PresCheck.texts(between "1.")) == 1) "after step 1 its number is there")
+        this.ok(((PresCheck.texts(between "2.")) == 0) "but not the next item's number")
+        this.ok(((PresCheck.texts(between "kaksi")) == 0) "nor the next item")
+        this.ok(((PresCheck.texts(late "3.")) == 1) "the numbers at the end")
         this.ok(((array_length late.fxIds) == 1) "the starfield instance is in the list")
         this.ok(((indexOf (late.toJson()) "\"efx\"") > 0) "a command paints the effect")
 

@@ -294,7 +294,23 @@ Vaihe 1 = kohdat 1–4 (runko, syntaksi, soitin, kuvitus ja efektit). Ääni ja 
 
 ---
 
+## 8b. Vaiheen 1 tila
+
+Tehty (`README.md` kertoo käytön):
+- Runko: `PresApp` (code editor + lava + raidat + filmstrip yhdellä EVG-canvasilla), HTML-yläpalkki, paikallinen palvelin (`npm start`).
+- Syntaksi: `{#id transition= seconds= duration= fx= fx-*=}` otsikossa, `{.build}` ja `{anim= seconds=}` lohkon perässä, `::: notes` ja `::: audio`, front matter -oletukset.
+- PPTX: muistiinpanot (cue-merkit poistettuina), siirtymät ja build-askel per listan kappale. Tehty EVGPresentationissa (`PresApp.dressSlide`); `MdToPptx` Rangerissa ei muuttunut.
+- Soitin: `PresTimeline` laskee kuvan suoraan ajasta; toisto, raidan scrubbaus, esitystila, puhujanäkymä (S), automaattinen eteneminen (A).
+- Kuvitus: kuvan liittäminen leikepöydältä ja raahaus canvasille; `fx=` ja `fx-*` diakohtaisesti; PDF-vienti kuvineen.
+- Efektien aika: isäntä asettaa `effects[].time` suoraan deckin ajasta, joten `evg-fx.js`:n `seek(t)`-muutosta ei tarvittu.
+
+Jäi vaiheesta 1 pois:
+- Efektivalikko esikatselukuvineen (efekti valitaan nyt kirjoittamalla `fx=`).
+- SVG:n ja EVG JSONin liittäminen (vain PNG/JPEG/GIF/WebP).
+- Raidoilta muokkaus (raahaus kirjoittaa attribuutit): vaihe 7.
+
+---
+
 ## 9. Avoimet kysymykset
 
-- Ajetaanko agentti ja TTS paikallisen palvelimen (kuten EvgHarness `serve.mjs`) kautta?
 - Kaksisuuntainen muokkaus: riittääkö, että lavalta muokataan vain tekstiä ja ajoitusta, ja visuaalinen kerros muuttuu vain agentin tai `deck.evg.json`:n kautta?

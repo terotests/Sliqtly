@@ -1,0 +1,94 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<html lang="fi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EVG Presentation</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%237c8cff'/%3E%3Cpath d='M12 9l12 7-12 7z' fill='white'/%3E%3C/svg%3E" />
+<style>
+  :root {
+    --bg: #0b0f1e; --bar: #121833; --line: #262f5c; --ink: #e7eaff; --dim: #a3abd6; --accent: #7c8cff;
+  }
+  html, body {
+    margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font: 13px/1.4 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    overflow: hidden; overscroll-behavior: none;
+  }
+  body { display: flex; flex-direction: column; }
+  /* The toolbar is HTML: buttons, selects and the file input are the
+     browser's own. Everything under it is one canvas drawn by EVG. */
+  #bar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 6px 12px; background: var(--bar); border-bottom: 1px solid var(--line);
+    min-height: 32px;
+  }
+  #bar .brand { font-weight: 600; margin-right: 6px; letter-spacing: .2px; }
+  #bar .grow { flex: 1; }
+  #bar label { color: var(--dim); display: inline-flex; align-items: center; gap: 4px; }
+  #bar button, #bar select {
+    background: #1b2350; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
+    padding: 5px 10px; font: inherit; cursor: pointer;
+  }
+  #bar button:hover, #bar select:hover { border-color: var(--accent); }
+  #bar button.primary { background: var(--accent); border-color: var(--accent); color: #0b0f1e; font-weight: 600; }
+  #bar .sepbar { width: 1px; height: 22px; background: var(--line); }
+  #status { color: var(--dim); white-space: nowrap; }
+  #stage { position: relative; flex: 1; min-height: 0; }
+  #c { display: block; width: 100%; height: 100%; touch-action: none; }
+  #keys {
+    position: absolute; top: 0; left: 0; width: 1px; height: 1px;
+    padding: 0; border: 0; outline: none; opacity: 0; resize: none;
+    overflow: hidden; white-space: pre; z-index: 1;
+  }
+  #hint {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    color: var(--dim); text-align: center; pointer-events: none;
+  }
+  #err {
+    position: fixed; left: 12px; bottom: 12px; right: 12px; color: #ff6b6b;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+    white-space: pre-wrap; pointer-events: none;
+  }
+  body.presenting #bar { display: none; }
+  body.presenting #c { cursor: none; }
+  @media (max-width: 700px) { #bar .wide { display: none; } }
+</style>
+</head>
+<body>
+<div id="bar">
+  <span class="brand">EVG Presentation</span>
+  <label class="wide">Esitys
+    <select id="sample"></select>
+  </label>
+  <label>Teema
+    <select id="theme">
+      <option value="aurora">aurora</option>
+      <option value="corporate">corporate</option>
+      <option value="editorial">editorial</option>
+      <option value="">dokumentin oma</option>
+    </select>
+  </label>
+  <span class="sepbar"></span>
+  <button id="play" title="Toista valitusta diasta (P)">▶ Toista</button>
+  <button id="present" class="primary" title="Esitä koko ruudulla (F5). S = puhujanäkymä, A = automaattinen eteneminen, Esc = lopeta">⛶ Esitä</button>
+  <span class="sepbar"></span>
+  <button id="open" class="wide" title="Avaa .md-tiedosto">Avaa</button>
+  <button id="save" class="wide" title="Tallenna Markdown">Tallenna .md</button>
+  <button id="pdf">PDF</button>
+  <button id="pptx">PPTX</button>
+  <span class="grow"></span>
+  <span id="status"></span>
+</div>
+<div id="stage">
+  <canvas id="c" aria-label="Esityksen editori"></canvas>
+  <textarea id="keys" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"
+            aria-label="Markdown — kirjoita tähän"></textarea>
+  <div id="hint">ladataan…</div>
+</div>
+<div id="err"></div>
+<input id="filepick" type="file" accept=".md,.markdown,text/markdown,text/plain" hidden />
+<script src="./pres_app.js?v=__BUILD__"></script>
+<script type="module" src="./main.js?v=__BUILD__"></script>
+</body>
+</html>

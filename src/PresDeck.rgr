@@ -407,27 +407,56 @@ class PresDeck {
                 push groupOfCmd -1
             }
         }
-        ; the group of the last box on each line, for a marker to join
-        def lastY:double -1.0
-        def lastGroup:int -1
+        ; Which group each of this slide's boxes is in. A list marker carries
+        ; its LIST's offset, not its item's, so it takes the group of a box
+        ; on its own line — before or after it, depending on the list kind.
+        def mine:[MdBox]
+        def groupOfBox:[int]
         def bi:int 0
         while (bi < (array_length l.boxes)) {
             def b:MdBox (itemAt l.boxes bi)
             if (b.page == i) {
-                def g:int (this.groupOf(s b))
-                if ((g < 0) && (b.segSrc < 0)) {
-                    if ((lastGroup >= 0) && ((fabs (b.y - lastY)) < 0.5)) {
-                        g = lastGroup
-                    }
+                push mine b
+                if ((b.kind == 0) && (b.segSrc < 0)) {
+                    ; a marker: decided by its line, below
+                    push groupOfBox -1
+                } {
+                    push groupOfBox (this.groupOf(s b))
                 }
-                painter.paintBox(out l b 0.0)
-                while ((array_length groupOfCmd) < (array_length out.cmds)) {
-                    push groupOfCmd g
-                }
-                lastY = b.y
-                lastGroup = g
             }
             bi = (bi + 1)
+        }
+        def m:int 0
+        while (m < (array_length mine)) {
+            def mb:MdBox (itemAt mine m)
+            if (((itemAt groupOfBox m) < 0) && ((mb.kind == 0) && (mb.segSrc < 0))) {
+                def best:int -1
+                def bestD:double 1000000.0
+                def o:int 0
+                while (o < (array_length mine)) {
+                    def og:int (itemAt groupOfBox o)
+                    def other:MdBox (itemAt mine o)
+                    if (((o != m) && (og >= 0)) && (other.segSrc >= 0)) {
+                        def ob:MdBox (itemAt mine o)
+                        def d:double (fabs ((ob.y + (ob.h * 0.5)) - (mb.y + (mb.h * 0.5))))
+                        if ((d < (mb.h * 0.6)) && (d < bestD)) {
+                            bestD = d
+                            best = og
+                        }
+                    }
+                    o = (o + 1)
+                }
+                set groupOfBox m best
+            }
+            m = (m + 1)
+        }
+        def k:int 0
+        while (k < (array_length mine)) {
+            painter.paintBox(out l (itemAt mine k) 0.0)
+            while ((array_length groupOfCmd) < (array_length out.cmds)) {
+                push groupOfCmd (itemAt groupOfBox k)
+            }
+            k = (k + 1)
         }
         return out
     }
