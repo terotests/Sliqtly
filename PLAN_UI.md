@@ -125,7 +125,7 @@ voice: fi-FI-female-1        # TTS-oletusääni
 autoplay: true               # etene äänen tahdissa
 ---
 
-## Miten botti **puhuu** palaverissa? {#puhe transition=fade seconds=0.6}
+## Miten botti **puhuu** palaverissa? {#puhe transition=fade seconds=0.6 fx=starfield fx-density=1.6}
 
 Puhe kokouksessa
 {.kicker}
@@ -158,6 +158,7 @@ Se kuulee äänen ja välittää sen Geminille. [[2]] ...
 | `{.build}` listalla/lohkolla | Kohdat tulevat näkyviin yksi kerrallaan | `PptxBuildStep` |
 | `anim=fade\|fly\|wave\|pulse…` | Elementin efekti | build step / (jatkuvat: vain HTML-toisto) |
 | `sync=audio` | Efektin voimakkuus äänen amplitudista | ei vastinetta, jää pois |
+| `fx=starfield fx-<param>=…` | EVG:n pintaefekti dian tai elementin taustaksi (ks. 5b) | ei vastinetta; PPTX:ään voi viedä pysäytyskuvan taustakuvana |
 | `::: notes` | Puhujan muistiinpanot ja TTS-käsikirjoitus | `PptxSlide.notes` |
 | `[[n]]` notesissa | Cue: build-askel n laukeaa tässä kohtaa puhetta | askeleen viive |
 | `::: audio src=…` | Dian ääni (nauhoitettu/ladattu/generoitu) | vaatii audio-tuen PptxWriteriin |
@@ -192,6 +193,51 @@ Runko otetaan EvgHarnessista (EVGPatch-opit, SSE-striimaus, valittava malli).
 
 ---
 
+## 5b. Kuvitus: liitä leikepöydältä ja EVG-efektit
+
+**Liitä leikepöydältä (Ctrl+V lavalla tai editorissa):**
+- Kuva (`image/png`, `image/jpeg`) → tallennetaan `media/paste-<n>.png` ja lisätään valitulle dialle `![](media/paste-<n>.png)` kursorin tai valitun lohkon kohdalle.
+- SVG-teksti → tallennetaan `media/*.svg` ja lisätään kuvana.
+- EVG JSON (esim. EvgHarnessista kopioitu) → lisätään dian kuvituskerrokseen `deck.evg.json`:iin.
+- Teksti/HTML → nykyinen r5:n `paste`-käsittely (`gallery/r5/web/main.js`) sellaisenaan.
+
+Liittäminen tapahtuu HTML-puolella (`paste`-tapahtuma, `clipboardData.items`), ja tiedosto viedään Ranger-sovellukselle `attachImage(name, bytes)`-kutsulla, kuten fontit nykyään.
+
+**EVG:n pintaefektit** (`lib/evg/PLAN_EFFECTS.md`) ovat CSS-ominaisuuksia, joten ne sopivat suoraan teeman `style.css`:ään tai dian attribuutteihin:
+
+```css
+.slide#puhe {
+  evg-surface-effect: starfield;
+  evg-effect-on: always;
+  evg-fx-density: 1.6;
+  evg-fx-hue: 228;
+}
+```
+
+Markdownissa lyhenne `{fx=starfield fx-density=1.6}` kirjoitetaan samoiksi ominaisuuksiksi. Käytettävissä: `starfield`, `plasma-wave`, `smoke`, `ambient-light` (taustat), `liquid-glass`, `raindrop` (lasi elementin päällä), `ripple` (suodin). UI:ssa efektit valitaan animaatioraidan valikosta esikatselukuvien kanssa, ja parametrit säädetään ominaisuuspaneelissa. Aikajana voi animoida efektin parametreja (esim. tähtien tiheys kasvaa dian aikana) samoilla keyframeilla kuin muutkin ominaisuudet.
+
+---
+
+## 5c. Determinismi ja videokaappaus
+
+Tavoite: sama esitys ja sama aika t → sama kuva, jotta video voidaan kaapata kuva kerrallaan eikä reaaliajassa.
+
+Nykytila:
+- **Efektishaderit** ovat jo puhtaita funktioita: ne lukevat vain `uTime`, parametrit ja tapahtumalistan, ja satunnaisuus tulee hash-funktioista (`fxHash21`), ei `Math.random`ista.
+- **`evg-fx.js`-ajuri** kasvattaa kelloa `clock += dt` joka framella. Tarvitaan `seek(t)`, joka asettaa kellon suoraan.
+- **`EVGTransition`** etenee `advance(el, dtMs)`-askelin eikä sillä ole omaa kelloa. Kiinteällä askeleella (1000/fps) tulos toistuu, mutta kelaus vaatii ajon alusta. `EVGTimeline` lasketaan suoraan ajasta t (keyframe-interpolointi), joten esityksen animaatiot eivät käytä `advance`-askeleita.
+- **Painalluksesta laukeavat efektit** (`ripple`) saavat esityksessä tapahtumansa aikajanalta eivätkä osoittimesta.
+
+Kaappaus:
+1. Toistosilmukka ajetaan virtuaalikellolla `t = frame / fps` eikä `requestAnimationFrame`illa.
+2. Jokaiselle framelle: `setTime(t)`, efektiajurille `seek(t)`, piirto, `readPixels` / `VideoFrame(canvas)`.
+3. Koodaus selaimessa WebCodecsin `VideoEncoder`illa ja MP4-muxerilla (`gallery/evg_video/PLAN_EVG_VIDEO.md`), tai vaihtoehtoisesti PNG-sarja headless Chromesta ja ffmpeg.
+4. Ääni miksataan klipeistä niiden tunnetuilla alkuajoilla.
+
+GPU:t voivat erota liukulukutarkkuudessa, joten tavutarkka toistettavuus luvataan saman koneen sisällä. CI:ssä käytetään headless Chromea SwiftShaderilla, jolloin tulos on sama joka ajolla. Testi: renderöi frame N kahdesti (myös kelauksen jälkeen) ja vertaa tiivisteitä.
+
+---
+
 ## 6. Toisto ja ääni
 
 - **Kello:** kun dialla on ääni, `<audio>.currentTime` on aikajanan kello; muuten `requestAnimationFrame`. Näin build-askeleet ja puhe pysyvät synkassa myös kelatessa.
@@ -200,7 +246,25 @@ Runko otetaan EvgHarnessista (EVGPatch-opit, SSE-striimaus, valittava malli).
 - **Äänen lähteet:**
   1. Nauhoitus selaimessa (`MediaRecorder`), dia kerrallaan, cue-merkit painamalla `→` puhuessa.
   2. Tiedoston lataus.
-  3. TTS muistiinpanoista palvelinpuolella (tiedosto tarvitaan vientiä varten; selaimen `speechSynthesis` käy vain pikaesikuunteluun). Cue-ajat TTS:n sanatason aikaleimoista.
+  3. TTS muistiinpanoista (ei vaiheessa 1). Ks. 6b.
+
+### 6b. TTS testaukseen
+
+Palvelinpuolen TTS tarvitaan, koska vientiin tarvitaan äänitiedosto; selaimen `speechSynthesis` käy vain pikaesikuunteluun (ääntä ei saa talteen, ja äänet vaihtelevat koneittain).
+
+| Vaihtoehto | Suomi | Hinta | Huom. |
+| --- | --- | --- | --- |
+| **Piper** (paikallinen, `pip install piper-tts`) | `fi_FI-harri-medium` | ilmainen | Ei avainta eikä verkkoa ajon aikana; sama syöte → sama tiedosto, joten sopii testeihin ja CI:hin. Äänimalli ladataan kerran Hugging Facesta. |
+| **Gemini TTS** (API) | kyllä | ilmainen kehitystaso rajoituksin | EvgHarness käyttää jo Gemini-avainta, joten yksi avain riittää. |
+| Google Cloud TTS | fi-FI (Standard/WaveNet) | kuukausittainen ilmaiskiintiö | Vaatii GCP-projektin. |
+| Azure Speech | fi-FI-NooraNeural, HarriNeural | ilmaistaso | Antaa sanatason aikaleimat. |
+| espeak-ng | kyllä | ilmainen | Robottimainen, mutta asentuu apt:lla; kelpaa savutestiin. |
+
+Suositus: Piper oletukseksi (testit, offline), Gemini TTS valinnaiseksi laadukkaammaksi ääneksi. Palvelinpuolen rajapinta on yksi: `POST /tts {text, voice} → wav`.
+
+Cue-ajat ilman palvelun aikaleimoja: muistiinpanot pilkotaan `[[n]]`-merkkien kohdalta, jokainen pala syntetisoidaan erikseen ja palat liitetään yhteen. Cue n = palojen 1..n yhteispituus. Toimii kaikilla palveluilla samalla tavalla.
+
+(Tässä ympäristössä Piperin äänimallin lataus Hugging Facesta estyi verkkorajoituksen takia, joten sitä ei ajettu täällä.)
 
 ---
 
@@ -217,17 +281,20 @@ Runko otetaan EvgHarnessista (EVGPatch-opit, SSE-striimaus, valittava malli).
 
 ## 8. Vaiheet
 
+Vaihe 1 = kohdat 1–4 (runko, syntaksi, soitin, kuvitus ja efektit). Ääni ja TTS tulevat sen jälkeen.
+
 1. **Runko:** `PresApp` r5:n pohjalta: code editor + lava + filmstrip yhdellä canvasilla, HTML-yläpalkki, dian valinta synkassa lähteen kanssa.
 2. **Syntaksi + PPTX-pikavoitto:** `#id`, `transition`, `.build`, `::: notes` parseriin; `MdToPptx` kirjoittaa ne PPTX:ään. Tämä on hyödyllinen jo ilman soitinta.
 3. **Soitin:** `EVGTimeline`, build-askeleet ja siirtymät lavalla, esitystila + puhujanäkymä.
-4. **Ääni:** nauhoitus/lataus, aaltomuotoraita, cue-merkit, `sync=audio`, sitten TTS.
-5. **Agentti:** EvgHarness-integraatio, `deck.evg.json`, per dia hyväksyntä, lukitus.
-6. **Muokkaus lavalta:** raitojen raahaus ja ominaisuuspaneeli kirjoittavat attribuutit takaisin Markdowniin.
-7. **Viennit:** HTML-soitin, PPTX-audio, MP4.
+4. **Kuvitus:** liitä leikepöydältä, `fx=`-efektit ja niiden valikko, efektiajurin `seek(t)`.
+5. **Ääni:** nauhoitus/lataus, aaltomuotoraita, cue-merkit, `sync=audio`, sitten TTS (Piper, valinnaisesti Gemini).
+6. **Agentti:** EvgHarness-integraatio, `deck.evg.json`, per dia hyväksyntä, lukitus.
+7. **Muokkaus lavalta:** raitojen raahaus ja ominaisuuspaneeli kirjoittavat attribuutit takaisin Markdowniin.
+8. **Viennit:** HTML-soitin, PPTX-audio, MP4 deterministisellä kaappauksella (5c).
 
 ---
 
 ## 9. Avoimet kysymykset
 
-- TTS-palvelu (Gemini TTS, muu) ja ajetaanko agentti/TTS paikallisen palvelimen (kuten EvgHarness `serve.mjs`) kautta.
+- Ajetaanko agentti ja TTS paikallisen palvelimen (kuten EvgHarness `serve.mjs`) kautta?
 - Kaksisuuntainen muokkaus: riittääkö, että lavalta muokataan vain tekstiä ja ajoitusta, ja visuaalinen kerros muuttuu vain agentin tai `deck.evg.json`:n kautta?
