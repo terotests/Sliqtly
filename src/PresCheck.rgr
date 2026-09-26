@@ -84,6 +84,47 @@ class PresCheck {
 
         this.ok(((PresTimeline.slideAtTime(deck (s0.duration + 0.01))) == 1) "deck time to slide")
         this.ok(((deck.pageOfOffset((indexOf text "Toka"))) == 1) "source offset to slide")
+        this.diagram()
+    }
+
+    ; A flowchart is drawn and toured rather than pasted in as a picture.
+    fn diagram:void () {
+        def text:string "---\nslide-split-level: 2\n---\n\n## Kulku\n\n```mermaid\nflowchart LR\n  A[Kokous] --> B[Selain]\n  B --> C[Gemini]\n  C --> B\n  B --> A\n```\n"
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 1) "one diagram slide")
+        def s:PresSlide (deck.slideAt(0))
+        this.ok(((array_length s.diagrams) == 1) "the fence is a toured diagram")
+        if ((array_length s.diagrams) == 0) {
+            return
+        }
+        def d:PresDiagram (itemAt s.diagrams 0).diagram
+        this.ok(((array_length d.nodes) == 3) ("three nodes, got " + (to_string (array_length d.nodes))))
+        this.ok(((array_length d.edges) == 4) ("four edges, got " + (to_string (array_length d.edges))))
+        this.ok(((array_length d.legs) >= 4) "a leg per edge")
+        this.ok((s.duration > d.total) "the slide lasts until the tour is over")
+        def e0:PresDEdge (itemAt d.edges 0)
+        def na:PresDNode (itemAt d.nodes e0.from)
+        this.ok((na.id == "A") ("the first edge leaves A, got " + na.id))
+        ; nothing at the start, the nodes by the end of the reveal
+        def early:EVGDisplayList (PresTimeline.frame(deck 0 0.0))
+        this.ok(((PresCheck.texts(early "Gemini")) == 0) "a node is not there before it pops in")
+        def shown:EVGDisplayList (PresTimeline.frame(deck 0 (d.revealEnd + 0.1)))
+        this.ok(((PresCheck.texts(shown "Gemini")) == 1) "and is there after the reveal")
+        ; in the middle of the tour the camera is in and the ball is out
+        def l1:PresLeg (itemAt d.legs 1)
+        def mid:double ((l1.t0 + (l1.dur * 0.5)) + (itemAt s.diagrams 0).start)
+        d.cameraAt((mid - (itemAt s.diagrams 0).start))
+        this.ok((d.camZ > 1.5) ("the camera zooms in on the tour, z=" + (to_string d.camZ)))
+        def a:string ((PresTimeline.frame(deck 0 mid)).toJson())
+        def b:string ((PresTimeline.frame(deck 0 mid)).toJson())
+        this.ok((a == b) "a toured frame is a function of its time")
+        this.ok(((indexOf a "\"gd\"") > 0) "the ball and the rim fade are gradients")
+        def fin:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        d.cameraAt(s.duration)
+        this.ok((d.camZ == 1.0) "the camera is back out at the end")
+        this.ok(((PresCheck.texts(fin "Kokous")) == 1) "the final frame shows the whole diagram")
     }
 
     sfn texts:int (l:EVGDisplayList word:string) {

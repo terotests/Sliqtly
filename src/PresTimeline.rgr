@@ -60,6 +60,26 @@ class PresTimeline {
             }
             i = (i + 1)
         }
+        ; A diagram starts with the group that reveals it, or with the slide,
+        ; and the slide lasts until its tour is over.
+        def di:int 0
+        while (di < (array_length s.diagrams)) {
+            def u:PresDiaUse (itemAt s.diagrams di)
+            u.start = (base * 0.5)
+            def gi:int 0
+            while (gi < (array_length s.groups)) {
+                def gg:PresGroup (itemAt s.groups gi)
+                if (gg.start == u.srcStart) {
+                    u.start = gg.at
+                }
+                gi = (gi + 1)
+            }
+            def dend:double (u.start + u.diagram.total)
+            if (dend > last) {
+                last = dend
+            }
+            di = (di + 1)
+        }
         def d:double (last + s.hold)
         if (s.wantDuration > 0.0) {
             d = s.wantDuration
@@ -374,7 +394,7 @@ class PresTimeline {
         if ((i > 0) && (t < secs)) {
             def prev:PresSlide (deck.slideAt((i - 1)))
             def pg:[int]
-            def pl:EVGDisplayList (deck.slideList((i - 1) pg))
+            def pl:EVGDisplayList (deck.slideList((i - 1) pg prev.duration))
             def pa:EVGDisplayList (PresTimeline.animate(prev pl pg prev.duration))
             def pp (new PresPose())
             PresTimeline.slidePose(s t false w h pp)
@@ -382,7 +402,7 @@ class PresTimeline {
             PresDeck.appendAll(out pa)
         }
         def cg:[int]
-        def cl:EVGDisplayList (deck.slideList(i cg))
+        def cl:EVGDisplayList (deck.slideList(i cg t))
         def ca:EVGDisplayList (PresTimeline.animate(s cl cg t))
         def cp (new PresPose())
         PresTimeline.slidePose(s t true w h cp)

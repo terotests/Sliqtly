@@ -52,6 +52,12 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 - `fx`: EVG surface effects (`starfield`, `plasma-wave`, `smoke`,
   `ambient-light`, `liquid-glass`, `raindrop`). `fx-<name>=<number>` is the
   same as `evg-fx-<name>` in CSS.
+- Diagrams (```mermaid, ```dot, ```d2, ```plantuml) are drawn in a
+  hand-drawn style and animated: nodes pop in, edges draw themselves, then a
+  ball bounces along the edges while the camera zooms in and follows it, and
+  the diagram fades at the rim of the view. Under the fence:
+  `{tour=off}`, `{ball=off}`, `{zoom=2.2}` or `{diagram=classic}` (the
+  original drawing). PDF and PPTX use the original drawing.
 - **Ctrl+V** in the editor pastes a picture from the clipboard. It is stored
   under `media/` and written into the Markdown as `![](media/…)`. Dropping an
   image onto the canvas does the same.
@@ -77,6 +83,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | --- | --- |
 | `src/PresSource.rgr` | Lifts `:::` blocks out of the Markdown (masks them without changing offsets) |
 | `src/PresDeck.rgr` | Markdown → slides with the markdown module's layout; slide attributes, groups, the effect layer |
+| `src/PresDiagram.rgr` | Diagram animation: hand-drawn style, reveal, the ball's route, the camera |
 | `src/PresTimeline.rgr` | (deck, slide, t) → display list. Deterministic: no clock of its own |
 | `src/PresApp.rgr` | The editor: panels, tracks, filmstrip, presenting, exports |
 | `src/PresCheck.rgr` | Node checks |

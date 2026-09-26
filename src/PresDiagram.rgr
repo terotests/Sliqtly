@@ -1,0 +1,1107 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresDiagram.rgr — a flowchart on a slide, drawn as a cartoon and toured.
+; ============================================================================
+;
+; The markdown module draws a diagram the way a document wants it: a white
+; card, thin grey lines, everything at once. On a slide that reads as a
+; screenshot. This draws the SAME scene — `MdDiagram.sceneFor`, the one the
+; PDF and the PPTX get — another way:
+;
+;   reveal   nodes pop in one after another (an overshooting ease), and each
+;            edge draws itself from its source to its target
+;   tour     a ball bounces along the edges in the order they appeared; the
+;            camera zooms in and follows it, and a node pulses when the ball
+;            lands; at the end the camera pulls back to the whole diagram
+;   style    hand-drawn: every line is two wobbly strokes that re-draw a few
+;            times a second ("boil"), nodes are coloured cards with a drop
+;            shadow, arrowheads are drawn rather than stamped; no card behind
+;   edges    while the camera is in, the diagram fades out at the rim of its
+;            box instead of being cut by it
+;
+; Every picture is a function of the time handed in. The wobble comes from a
+; hash of (seed, index), not from a random number generator, so frame N is
+; the same frame every time it is drawn.
+;
+; The scene's items carry tags: "node:<id>" for a node's shape and label,
+; "edge:<id>" for an edge's line, arrowhead and label. That is all this reads;
+; which node an edge joins is worked out from where its line starts and ends.
+; ============================================================================
+
+Import "../markdown/web/markdown_web.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
+
+class PresDNode {
+    def id:string ""
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def items:[SceneItem]
+    ; place in the reveal, and when it pops in (seconds from the diagram start)
+    def order:int -1
+    def at:double 0.0
+    def fill:string ""
+    ; when the ball lands on it, for the pulse; -1 = never
+    def landings:[double]
+
+    Constructor () {
+        def a:[SceneItem]
+        items = a
+        def l:[double]
+        landings = l
+    }
+
+    fn cx:double () {
+        return (x + (w * 0.5))
+    }
+
+    fn cy:double () {
+        return (y + (h * 0.5))
+    }
+}
+
+class PresDEdge {
+    def id:string ""
+    def from:int -1
+    def to:int -1
+    def line:[double]
+    def len:double 0.0
+    ; the label's box and text
+    def labels:[SceneItem]
+    def at:double -1.0
+    def draw:double 0.5
+
+    Constructor () {
+        def l:[double]
+        line = l
+        def s:[SceneItem]
+        labels = s
+    }
+}
+
+; One stretch of the ball's journey: along an edge, or a hop between two
+; places that no edge joins.
+class PresLeg {
+    def edge:int -1
+    def x0:double 0.0
+    def y0:double 0.0
+    def x1:double 0.0
+    def y1:double 0.0
+    def t0:double 0.0
+    def dur:double 1.0
+    def bounces:int 1
+    def lands:int -1
+}
+
+class PresDiagram {
+    def ok:boolean false
+    def note:string ""
+    def worldX:double 0.0
+    def worldY:double 0.0
+    def worldW:double 0.0
+    def worldH:double 0.0
+    def nodes:[PresDNode]
+    def edges:[PresDEdge]
+    def legs:[PresLeg]
+    ; untagged scene items (a cluster's frame, a title) drawn as they are
+    def rest:[SceneItem]
+
+    ; options, from the attribute line under the fence
+    def tour:boolean true
+    def ball:boolean true
+    def zoom:double 1.8
+
+    def revealEnd:double 0.0
+    def tourStart:double 0.0
+    def tourEnd:double 0.0
+    def total:double 0.0
+
+    Constructor () {
+        def n:[PresDNode]
+        nodes = n
+        def e:[PresDEdge]
+        edges = e
+        def g:[PresLeg]
+        legs = g
+        def r:[SceneItem]
+        rest = r
+    }
+
+    ; ------------------------------------------------------------------
+    ; Reading the scene
+    ; ------------------------------------------------------------------
+    sfn of:PresDiagram (notation:string text:string width:double) {
+        def d (new PresDiagram())
+        def sc:FlowScene (MdDiagram.sceneFor(notation text "default" width (MdDiagram.padding())))
+        if (sc.worldW <= 0.0) {
+            d.note = (MdDiagram.refusal(notation text))
+            return d
+        }
+        d.worldX = sc.worldX
+        d.worldY = sc.worldY
+        d.worldW = sc.worldW
+        d.worldH = sc.worldH
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def it:SceneItem (itemAt sc.items i)
+            def tag:string it.tag
+            if (((strlen tag) > 5) && ((substring tag 0 5) == "node:")) {
+                def nd:PresDNode (d.nodeNamed((substring tag 5 (strlen tag))))
+                push nd.items it
+            } {
+                if (((strlen tag) > 5) && ((substring tag 0 5) == "edge:")) {
+                    def ed:PresDEdge (d.edgeNamed((substring tag 5 (strlen tag))))
+                    if (((it.kind == 2) && (it.closed == false)) && ((array_length ed.line) == 0)) {
+                        def k:int 0
+                        while (k < (array_length it.pts)) {
+                            push ed.line (itemAt it.pts k)
+                            k = (k + 1)
+                        }
+                    } {
+                        if ((it.kind == 0) || (it.kind == 1)) {
+                            push ed.labels it
+                        }
+                    }
+                } {
+                    if ((it.kind == 0) || ((it.kind == 1) || (it.kind == 2))) {
+                        push d.rest it
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        d.measureNodes()
+        d.joinEdges()
+        d.ok = ((array_length d.nodes) > 0)
+        return d
+    }
+
+    fn nodeNamed:PresDNode (id:string) {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:PresDNode (itemAt nodes i)
+            if (n.id == id) {
+                return n
+            }
+            i = (i + 1)
+        }
+        def fresh (new PresDNode())
+        fresh.id = id
+        push nodes fresh
+        return fresh
+    }
+
+    fn edgeNamed:PresDEdge (id:string) {
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresDEdge (itemAt edges i)
+            if (e.id == id) {
+                return e
+            }
+            i = (i + 1)
+        }
+        def fresh (new PresDEdge())
+        fresh.id = id
+        push edges fresh
+        return fresh
+    }
+
+    ; A node's box is the bounds of what it drew.
+    fn measureNodes:void () {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:PresDNode (itemAt nodes i)
+            def x0:double 1000000.0
+            def y0:double 1000000.0
+            def x1:double -1000000.0
+            def y1:double -1000000.0
+            def k:int 0
+            while (k < (array_length n.items)) {
+                def it:SceneItem (itemAt n.items k)
+                if (it.kind == 2) {
+                    def p:int 0
+                    while ((p + 1) < (array_length it.pts)) {
+                        def px:double (itemAt it.pts p)
+                        def py:double (itemAt it.pts (p + 1))
+                        if (px < x0) { x0 = px }
+                        if (py < y0) { y0 = py }
+                        if (px > x1) { x1 = px }
+                        if (py > y1) { y1 = py }
+                        p = (p + 2)
+                    }
+                } {
+                    if (it.kind == 0) {
+                        if (it.x < x0) { x0 = it.x }
+                        if (it.y < y0) { y0 = it.y }
+                        if ((it.x + it.w) > x1) { x1 = (it.x + it.w) }
+                        if ((it.y + it.h) > y1) { y1 = (it.y + it.h) }
+                    }
+                }
+                k = (k + 1)
+            }
+            if (x1 > x0) {
+                n.x = x0
+                n.y = y0
+                n.w = (x1 - x0)
+                n.h = (y1 - y0)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Which node is nearest a point, by distance to its box.
+    fn nearestNode:int (px:double py:double) {
+        def best:int -1
+        def bestD:double 1000000000.0
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:PresDNode (itemAt nodes i)
+            def dx:double 0.0
+            if (px < n.x) { dx = (n.x - px) }
+            if (px > (n.x + n.w)) { dx = (px - (n.x + n.w)) }
+            def dy:double 0.0
+            if (py < n.y) { dy = (n.y - py) }
+            if (py > (n.y + n.h)) { dy = (py - (n.y + n.h)) }
+            def d:double ((dx * dx) + (dy * dy))
+            if (d < bestD) {
+                bestD = d
+                best = i
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    fn joinEdges:void () {
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresDEdge (itemAt edges i)
+            def n:int (array_length e.line)
+            if (n >= 4) {
+                e.from = (this.nearestNode((itemAt e.line 0) (itemAt e.line 1)))
+                e.to = (this.nearestNode((itemAt e.line (n - 2)) (itemAt e.line (n - 1))))
+                e.len = (FlowScene.polyLength(e.line))
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; ------------------------------------------------------------------
+    ; The plan: when everything appears, and the ball's journey
+    ; ------------------------------------------------------------------
+    fn plan:void () {
+        clear legs
+        def nn:int (array_length nodes)
+        def i:int 0
+        while (i < nn) {
+            def n0:PresDNode (itemAt nodes i)
+            n0.order = -1
+            clear n0.landings
+            i = (i + 1)
+        }
+        def ei:int 0
+        while (ei < (array_length edges)) {
+            def e0:PresDEdge (itemAt edges ei)
+            e0.at = -1.0
+            ei = (ei + 1)
+        }
+        ; breadth first from the nodes nothing points at, in the order the
+        ; source wrote them; whatever that does not reach comes after
+        def queue:[int]
+        def r:int 0
+        while (r < nn) {
+            if ((this.incoming(r)) == 0) {
+                push queue r
+            }
+            r = (r + 1)
+        }
+        if (((array_length queue) == 0) && (nn > 0)) {
+            push queue 0
+        }
+        def placed:int 0
+        def clock:double 0.0
+        def head:int 0
+        def seen:[boolean]
+        def s:int 0
+        while (s < nn) {
+            push seen false
+            s = (s + 1)
+        }
+        def q:int 0
+        while (q < (array_length queue)) {
+            set seen (itemAt queue q) true
+            q = (q + 1)
+        }
+        while (placed < nn) {
+            if (head >= (array_length queue)) {
+                ; an unreached node: start again from it
+                def u:int 0
+                while (u < nn) {
+                    if ((itemAt seen u) == false) {
+                        set seen u true
+                        push queue u
+                        break
+                    }
+                    u = (u + 1)
+                }
+            }
+            def at:int (itemAt queue head)
+            head = (head + 1)
+            def nd:PresDNode (itemAt nodes at)
+            nd.order = placed
+            nd.at = clock
+            placed = (placed + 1)
+            clock = (clock + 0.35)
+            def k:int 0
+            while (k < (array_length edges)) {
+                def e:PresDEdge (itemAt edges k)
+                if ((e.from == at) && (e.at < 0.0)) {
+                    e.at = clock
+                    e.draw = (0.35 + (e.len / 900.0))
+                    clock = (clock + (e.draw * 0.7))
+                    if ((e.to >= 0) && ((itemAt seen e.to) == false)) {
+                        set seen e.to true
+                        push queue e.to
+                    }
+                }
+                k = (k + 1)
+            }
+        }
+        ; an edge from nowhere draws last
+        def z:int 0
+        while (z < (array_length edges)) {
+            def ez:PresDEdge (itemAt edges z)
+            if (ez.at < 0.0) {
+                ez.at = clock
+                ez.draw = 0.5
+                clock = (clock + 0.3)
+            }
+            z = (z + 1)
+        }
+        revealEnd = (clock + 0.4)
+        ; the palette, in reveal order
+        def palette:[string] ([] _:string ("#ffd166" "#7ae7c7" "#8ecbff" "#ff9fb2" "#c9a7ff" "#ffb86b" "#b5f07a"))
+        def c:int 0
+        while (c < nn) {
+            def pn:PresDNode (itemAt nodes c)
+            def slot:int (pn.order - ((idiv pn.order 7) * 7))
+            pn.fill = (itemAt palette slot)
+            c = (c + 1)
+        }
+        this.planTour()
+        total = tourEnd
+        if tour {
+            total = (tourEnd + 0.9)
+        }
+    }
+
+    fn incoming:int (n:int) {
+        def c:int 0
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresDEdge (itemAt edges i)
+            if ((e.to == n) && (e.from != n)) {
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        return c
+    }
+
+    fn planTour:void () {
+        tourStart = (revealEnd + 0.2)
+        tourEnd = tourStart
+        if (! tour) {
+            tourEnd = revealEnd
+            return
+        }
+        ; A walk: from where the ball is, the next edge leaving that node
+        ; (earliest drawn first); when none is left there, the earliest edge
+        ; not yet travelled, reached by a hop.
+        def order:[int]
+        def left:int (array_length edges)
+        def used:[boolean]
+        def u:int 0
+        while (u < left) {
+            push used false
+            u = (u + 1)
+        }
+        def here:int -1
+        def k:int 0
+        while (k < left) {
+            def best:int -1
+            def bestAt:double 1000000.0
+            def pass:int 0
+            while ((pass < 2) && (best < 0)) {
+                def j:int 0
+                while (j < left) {
+                    def ej:PresDEdge (itemAt edges j)
+                    def fits:boolean ((pass == 1) || (ej.from == here))
+                    if ((((itemAt used j) == false) && fits) && ((ej.at < bestAt) && ((array_length ej.line) >= 4))) {
+                        best = j
+                        bestAt = ej.at
+                    }
+                    j = (j + 1)
+                }
+                pass = (pass + 1)
+            }
+            if (best < 0) {
+                break
+            }
+            set used best true
+            push order best
+            def went:PresDEdge (itemAt edges best)
+            here = went.to
+            k = (k + 1)
+        }
+        def t:double (tourStart + 0.7)
+        def hasPos:boolean false
+        def px:double 0.0
+        def py:double 0.0
+        def o:int 0
+        while (o < (array_length order)) {
+            def e:PresDEdge (itemAt edges (itemAt order o))
+            def n:int (array_length e.line)
+            def sx:double (itemAt e.line 0)
+            def sy:double (itemAt e.line 1)
+            if hasPos {
+                def gx:double (sx - px)
+                def gy:double (sy - py)
+                def gap:double (sqrt ((gx * gx) + (gy * gy)))
+                if (gap > 8.0) {
+                    def hop (new PresLeg())
+                    hop.x0 = px
+                    hop.y0 = py
+                    hop.x1 = sx
+                    hop.y1 = sy
+                    hop.t0 = t
+                    hop.dur = (0.45 + (gap / 1400.0))
+                    hop.bounces = 1
+                    push legs hop
+                    t = (t + hop.dur)
+                }
+            }
+            def leg (new PresLeg())
+            leg.edge = (itemAt order o)
+            leg.t0 = t
+            leg.dur = (0.7 + (e.len / 380.0))
+            def b:int (to_int ((e.len / 130.0) + 0.5))
+            if (b < 1) { b = 1 }
+            leg.bounces = b
+            leg.lands = e.to
+            push legs leg
+            t = (t + leg.dur)
+            if (e.to >= 0) {
+                def tn:PresDNode (itemAt nodes e.to)
+                push tn.landings t
+            }
+            px = (itemAt e.line (n - 2))
+            py = (itemAt e.line (n - 1))
+            hasPos = true
+            ; a short rest on the node before the next leg
+            t = (t + 0.25)
+            o = (o + 1)
+        }
+        tourEnd = t
+    }
+
+    ; ------------------------------------------------------------------
+    ; Easing and the wobble
+    ; ------------------------------------------------------------------
+    sfn clamp01:double (x:double) {
+        if (x < 0.0) { return 0.0 }
+        if (x > 1.0) { return 1.0 }
+        return x
+    }
+
+    sfn smooth:double (x:double) {
+        def u:double (PresDiagram.clamp01(x))
+        return ((u * u) * (3.0 - (2.0 * u)))
+    }
+
+    ; Past the target and back: what makes a thing POP rather than slide in.
+    sfn backOut:double (x:double) {
+        def u:double (PresDiagram.clamp01(x))
+        def c1:double 1.70158
+        def c3:double (c1 + 1.0)
+        def v:double (u - 1.0)
+        return ((1.0 + ((c3 * v) * (v * v))) + ((c1 * v) * v))
+    }
+
+    ; -1..1, the same for the same (seed, i) forever.
+    sfn jit:double (seed:double i:int) {
+        def v:double (sin ((seed * 12.9898) + ((to_double i) * 78.233)))
+        def big:double (v * 43758.5453)
+        def f:double (big - (to_double (floor big)))
+        return ((f * 2.0) - 1.0)
+    }
+
+    ; ------------------------------------------------------------------
+    ; Where the ball is
+    ; ------------------------------------------------------------------
+    def ballX:double 0.0
+    def ballY:double 0.0
+    def ballLift:double 0.0
+    ; 0 in the air, 1 flat on the ground
+    def ballSquash:double 0.0
+    def ballOn:boolean false
+
+    sfn pointAt:void (pts:[double] dist:double out:[double]) {
+        clear out
+        def n:int (array_length pts)
+        def acc:double 0.0
+        def i:int 0
+        while ((i + 3) < n) {
+            def ax:double (itemAt pts i)
+            def ay:double (itemAt pts (i + 1))
+            def bx:double (itemAt pts (i + 2))
+            def by:double (itemAt pts (i + 3))
+            def dx:double (bx - ax)
+            def dy:double (by - ay)
+            def seg:double (sqrt ((dx * dx) + (dy * dy)))
+            if (((acc + seg) >= dist) && (seg > 0.0)) {
+                def f:double ((dist - acc) / seg)
+                push out (ax + (dx * f))
+                push out (ay + (dy * f))
+                return
+            }
+            acc = (acc + seg)
+            i = (i + 2)
+        }
+        push out (itemAt pts (n - 2))
+        push out (itemAt pts (n - 1))
+    }
+
+    fn ballAt:void (t:double) {
+        ballOn = false
+        if ((! tour) || (! ball)) {
+            return
+        }
+        if ((array_length legs) == 0) {
+            return
+        }
+        def first:PresLeg (itemAt legs 0)
+        def last:PresLeg (itemAt legs ((array_length legs) - 1))
+        if ((t < (first.t0 - 0.3)) || (t > (last.t0 + last.dur + 0.6))) {
+            return
+        }
+        ballOn = true
+        def p:[double]
+        ; before the first leg: resting at its start; between legs: resting
+        ; where the previous one ended
+        def leg:PresLeg first
+        def u:double 0.0
+        def i:int 0
+        while (i < (array_length legs)) {
+            def l:PresLeg (itemAt legs i)
+            if (t >= l.t0) {
+                leg = l
+                u = ((t - l.t0) / l.dur)
+            }
+            i = (i + 1)
+        }
+        def f:double (PresDiagram.clamp01(u))
+        if (leg.edge >= 0) {
+            def e:PresDEdge (itemAt edges leg.edge)
+            def eased:double (PresDiagram.smooth(f))
+            PresDiagram.pointAt(e.line (eased * e.len) p)
+        } {
+            def eh:double (PresDiagram.smooth(f))
+            push p (leg.x0 + ((leg.x1 - leg.x0) * eh))
+            push p (leg.y0 + ((leg.y1 - leg.y0) * eh))
+        }
+        ballX = (itemAt p 0)
+        ballY = (itemAt p 1)
+        ; the hops: |sin| over the leg, lower each time, like a real bounce
+        def nb:double (to_double leg.bounces)
+        def phase:double ((f * nb) * 3.14159265)
+        def hop:double (fabs (sin phase))
+        def height:double 22.0
+        if (leg.edge < 0) {
+            height = 46.0
+        }
+        def decay:double (1.0 - (f * 0.35))
+        ballLift = ((hop * height) * decay)
+        if (f >= 1.0) {
+            ballLift = 0.0
+        }
+        ballSquash = (PresDiagram.clamp01((1.0 - (hop * 4.0))))
+        if ((f <= 0.0) || (f >= 1.0)) {
+            ballSquash = 0.0
+        }
+    }
+
+    ; ------------------------------------------------------------------
+    ; The camera
+    ; ------------------------------------------------------------------
+    def camX:double 0.0
+    def camY:double 0.0
+    def camZ:double 1.0
+
+    fn cameraAt:void (t:double) {
+        camX = (worldX + (worldW * 0.5))
+        camY = (worldY + (worldH * 0.5))
+        camZ = 1.0
+        if ((! tour) || (zoom <= 1.0)) {
+            return
+        }
+        def zin:double (PresDiagram.smooth(((t - tourStart) / 0.8)))
+        def zout:double (PresDiagram.smooth(((t - tourEnd) / 0.8)))
+        def k:double (zin * (1.0 - zout))
+        if (k <= 0.0) {
+            return
+        }
+        camZ = (1.0 + ((zoom - 1.0) * k))
+        ; follow the ball a moment behind it, which is what makes the camera
+        ; feel like it is being carried rather than bolted on
+        def lagT:double (t - 0.18)
+        this.ballAt(lagT)
+        def fx:double camX
+        def fy:double camY
+        if ballOn {
+            fx = ballX
+            fy = ballY
+        } {
+            if ((array_length legs) > 0) {
+                def l0:PresLeg (itemAt legs 0)
+                if (l0.edge >= 0) {
+                    def e0:PresDEdge (itemAt edges l0.edge)
+                    fx = (itemAt e0.line 0)
+                    fy = (itemAt e0.line 1)
+                }
+            }
+        }
+        camX = (camX + ((fx - camX) * k))
+        camY = (camY + ((fy - camY) * k))
+    }
+
+    ; ------------------------------------------------------------------
+    ; Painting
+    ; ------------------------------------------------------------------
+    ;
+    ; Into `out`, inside the box (bx, by, bw, bh) the layout gave the fence,
+    ; at `t` seconds after the diagram started. `ink` is the slide's text
+    ; colour and `paper` its ground.
+    fn paint:void (out:EVGDisplayList bx:double by:double bw:double bh:double t:double ink:string paper:string) {
+        if (! ok) {
+            return
+        }
+        this.cameraAt(t)
+        this.ballAt(t)
+        def fit:double (bw / worldW)
+        if ((worldH * fit) > bh) {
+            fit = (bh / worldH)
+        }
+        if (fit > 2.2) {
+            fit = 2.2
+        }
+        def sc:double (fit * camZ)
+        ; clamp so the view stays over the diagram
+        def viewW:double (bw / sc)
+        def viewH:double (bh / sc)
+        def cx:double camX
+        def cy:double camY
+        if (viewW < worldW) {
+            def lo:double (worldX + (viewW * 0.5))
+            def hi:double ((worldX + worldW) - (viewW * 0.5))
+            if (cx < lo) { cx = lo }
+            if (cx > hi) { cx = hi }
+        } {
+            cx = (worldX + (worldW * 0.5))
+        }
+        if (viewH < worldH) {
+            def lo2:double (worldY + (viewH * 0.5))
+            def hi2:double ((worldY + worldH) - (viewH * 0.5))
+            if (cy < lo2) { cy = lo2 }
+            if (cy > hi2) { cy = hi2 }
+        } {
+            cy = (worldY + (worldH * 0.5))
+        }
+        def dx:double ((bx + (bw * 0.5)) - (cx * sc))
+        def dy:double ((by + (bh * 0.5)) - (cy * sc))
+        ; the lines boil a few times a second
+        def boil:double (to_double (floor (t * 5.0)))
+        def inkC:EVGColor (EVGColor.parse(ink))
+        def world (new EVGDisplayList())
+        this.paintRest(world inkC)
+        this.paintEdges(world t inkC paper boil)
+        this.paintNodes(world t inkC boil)
+        this.paintBall(world inkC)
+        def clip (new EVGDrawCmd())
+        clip.kind = 4
+        clip.x = bx
+        clip.y = by
+        clip.w = bw
+        clip.h = bh
+        push out.cmds clip
+        def i:int 0
+        while (i < (array_length world.cmds)) {
+            def c:EVGDrawCmd (itemAt world.cmds i)
+            PresDiagram.xf(c 0.0 0.0 sc dx dy 1.0)
+            push out.cmds c
+            i = (i + 1)
+        }
+        ; the rim: the slide's own colour, fading in over the last few pixels,
+        ; strong only while the camera is in
+        def rim:double (PresDiagram.clamp01(((camZ - 1.0) * 3.0)))
+        if (rim > 0.01) {
+            def pc:EVGColor (EVGColor.parse(paper))
+            def fw:double (bw * 0.08)
+            def fh:double (bh * 0.12)
+            PresDiagram.fade(out bx by bw fh pc rim 0.0 0)
+            PresDiagram.fade(out bx ((by + bh) - fh) bw fh pc 0.0 rim 0)
+            PresDiagram.fade(out bx by fw bh pc rim 0.0 1)
+            PresDiagram.fade(out ((bx + bw) - fw) by fw bh pc 0.0 rim 1)
+        }
+        def pop (new EVGDrawCmd())
+        pop.kind = 5
+        push out.cmds pop
+    }
+
+    sfn fade:void (out:EVGDisplayList x:double y:double w:double h:double c:EVGColor a0:double a1:double dir:int) {
+        def r (new EVGDrawCmd())
+        r.kind = 0
+        r.x = x
+        r.y = y
+        r.w = w
+        r.h = h
+        r.r = (c.red())
+        r.g = (c.green())
+        r.b = (c.blue())
+        r.a = a0
+        r.hasGrad = true
+        r.gradDir = dir
+        r.r2 = (c.red())
+        r.g2 = (c.green())
+        r.b2 = (c.blue())
+        r.a2 = a1
+        push out.cmds r
+    }
+
+    ; Scale about (ox, oy), then move, then fade.
+    sfn xf:void (c:EVGDrawCmd ox:double oy:double sc:double dx:double dy:double alpha:double) {
+        c.x = ((ox + ((c.x - ox) * sc)) + dx)
+        c.y = ((oy + ((c.y - oy) * sc)) + dy)
+        c.w = (c.w * sc)
+        c.h = (c.h * sc)
+        c.radius = (c.radius * sc)
+        c.thickness = (c.thickness * sc)
+        c.fontSize = (c.fontSize * sc)
+        def n:int (array_length c.pts)
+        def k:int 0
+        while ((k + 1) < n) {
+            set c.pts k ((ox + (((itemAt c.pts k) - ox) * sc)) + dx)
+            set c.pts (k + 1) ((oy + (((itemAt c.pts (k + 1)) - oy) * sc)) + dy)
+            k = (k + 2)
+        }
+        if (alpha < 1.0) {
+            c.a = (c.a * alpha)
+            if c.hasGrad {
+                c.a2 = (c.a2 * alpha)
+            }
+        }
+    }
+
+    sfn tint:void (c:EVGDrawCmd col:EVGColor a:double) {
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = ((col.alpha()) * a)
+    }
+
+    ; A hand-drawn line: resampled, nudged sideways by the hash, drawn twice.
+    sfn sketch:void (out:EVGDisplayList pts:[double] th:double col:EVGColor alpha:double seed:double) {
+        def n:int (array_length pts)
+        if (n < 4) {
+            return
+        }
+        def pass:int 0
+        while (pass < 2) {
+            def line:[double]
+            def amp:double 1.3
+            def s:double (seed + ((to_double pass) * 17.0))
+            def i:int 0
+            def idx:int 0
+            while ((i + 3) < n) {
+                def ax:double (itemAt pts i)
+                def ay:double (itemAt pts (i + 1))
+                def bx:double (itemAt pts (i + 2))
+                def by:double (itemAt pts (i + 3))
+                def ddx:double (bx - ax)
+                def ddy:double (by - ay)
+                def len:double (sqrt ((ddx * ddx) + (ddy * ddy)))
+                def steps:int (to_int (len / 14.0))
+                if (steps < 1) { steps = 1 }
+                def nx:double 0.0
+                def ny:double 0.0
+                if (len > 0.0) {
+                    nx = (0.0 - (ddy / len))
+                    ny = (ddx / len)
+                }
+                def k:int 0
+                while (k < steps) {
+                    def f:double ((to_double k) / (to_double steps))
+                    def j:double (amp * (PresDiagram.jit(s idx)))
+                    push line ((ax + (ddx * f)) + (nx * j))
+                    push line ((ay + (ddy * f)) + (ny * j))
+                    idx = (idx + 1)
+                    k = (k + 1)
+                }
+                i = (i + 2)
+            }
+            def je:double (amp * (PresDiagram.jit(s idx)))
+            push line ((itemAt pts (n - 2)) + je)
+            push line ((itemAt pts (n - 1)) - je)
+            def thick:double th
+            def a:double alpha
+            if (pass == 1) {
+                thick = (th * 0.55)
+                a = (alpha * 0.55)
+            }
+            out.addPolyline(line thick col)
+            def last:EVGDrawCmd (itemAt out.cmds ((array_length out.cmds) - 1))
+            last.a = ((col.alpha()) * a)
+            last.strokeCap = 1
+            last.strokeJoin = 1
+            pass = (pass + 1)
+        }
+    }
+
+    ; A side of a box, a little longer than the side: the overshoot a pen
+    ; makes at a corner.
+    sfn side:[double] (ax:double ay:double bx:double by:double over:double) {
+        def dx:double (bx - ax)
+        def dy:double (by - ay)
+        def len:double (sqrt ((dx * dx) + (dy * dy)))
+        def ux:double 0.0
+        def uy:double 0.0
+        if (len > 0.0) {
+            ux = (dx / len)
+            uy = (dy / len)
+        }
+        def out:[double] ([] _:double ((ax - (ux * over)) (ay - (uy * over)) (bx + (ux * over)) (by + (uy * over))))
+        return out
+    }
+
+    fn paintRest:void (out:EVGDisplayList ink:EVGColor) {
+        def i:int 0
+        while (i < (array_length rest)) {
+            def it:SceneItem (itemAt rest i)
+            if ((it.kind == 2) && ((array_length it.pts) >= 4)) {
+                PresDiagram.sketch(out it.pts 1.6 ink 0.35 (to_double (i + 900)))
+            }
+            if (it.kind == 1) {
+                this.textOf(out it ink 0.7)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn textOf:void (out:EVGDisplayList it:SceneItem col:EVGColor alpha:double) {
+        def c (new EVGDrawCmd())
+        c.kind = 3
+        c.x = it.x
+        c.y = it.y
+        c.w = it.w
+        c.h = it.h
+        c.text = it.text
+        c.fontFamily = it.fontFamily
+        c.fontSize = it.fontSize
+        if it.bold {
+            c.fontWeight = "bold"
+        }
+        c.textAlign = it.align
+        PresDiagram.tint(c col alpha)
+        push out.cmds c
+    }
+
+    fn paintEdges:void (out:EVGDisplayList t:double ink:EVGColor paper:string boil:double) {
+        def paperC:EVGColor (EVGColor.parse(paper))
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresDEdge (itemAt edges i)
+            if (((array_length e.line) >= 4) && (t >= e.at)) {
+                def p:double (PresDiagram.smooth(((t - e.at) / e.draw)))
+                def drawn:[double] (FlowScene.sliceByLength(e.line 0.0 (e.len * p)))
+                PresDiagram.sketch(out drawn 2.6 ink 0.9 ((boil * 3.1) + (to_double i)))
+                if (p >= 0.98) {
+                    this.arrow(out e ink ((boil * 1.7) + (to_double i)))
+                }
+                ; the label arrives once the line is most of the way there
+                def la:double (PresDiagram.clamp01(((p - 0.6) / 0.4)))
+                if (la > 0.0) {
+                    def k:int 0
+                    while (k < (array_length e.labels)) {
+                        def it:SceneItem (itemAt e.labels k)
+                        if (it.kind == 0) {
+                            def r (new EVGDrawCmd())
+                            r.kind = 0
+                            r.x = (it.x - 3.0)
+                            r.y = (it.y - 1.0)
+                            r.w = (it.w + 6.0)
+                            r.h = (it.h + 2.0)
+                            r.radius = 6.0
+                            PresDiagram.tint(r paperC la)
+                            push out.cmds r
+                        } {
+                            this.textOf(out it ink la)
+                        }
+                        k = (k + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A drawn arrowhead: two strokes from the tip, not a stamped triangle.
+    fn arrow:void (out:EVGDisplayList e:PresDEdge ink:EVGColor seed:double) {
+        def n:int (array_length e.line)
+        def tx:double (itemAt e.line (n - 2))
+        def ty:double (itemAt e.line (n - 1))
+        def px:double (itemAt e.line (n - 4))
+        def py:double (itemAt e.line (n - 3))
+        def dx:double (tx - px)
+        def dy:double (ty - py)
+        def len:double (sqrt ((dx * dx) + (dy * dy)))
+        if (len <= 0.0) {
+            return
+        }
+        def ux:double (dx / len)
+        def uy:double (dy / len)
+        def size:double 11.0
+        def wing:double 6.5
+        def ax:double ((tx - (ux * size)) - (uy * wing))
+        def ay:double ((ty - (uy * size)) + (ux * wing))
+        def bx:double ((tx - (ux * size)) + (uy * wing))
+        def by:double ((ty - (uy * size)) - (ux * wing))
+        def head:[double] ([] _:double (ax ay tx ty bx by))
+        out.addPolygon(head ink)
+        PresDiagram.sketch(out head 2.2 ink 0.9 seed)
+    }
+
+    fn paintNodes:void (out:EVGDisplayList t:double ink:EVGColor boil:double) {
+        def dark:EVGColor (EVGColor.parse("#141833"))
+        def shadow:EVGColor (EVGColor.rgba(0 0 0 0.4))
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:PresDNode (itemAt nodes i)
+            if ((t >= n.at) && (n.w > 0.0)) {
+                def grow:double (PresDiagram.backOut(((t - n.at) / 0.45)))
+                ; the pulse when the ball lands
+                def k:int 0
+                while (k < (array_length n.landings)) {
+                    def lt:double (itemAt n.landings k)
+                    if ((t >= lt) && (t < (lt + 0.4))) {
+                        grow = (grow * (1.0 + (0.12 * (sin (((t - lt) / 0.4) * 3.14159265)))))
+                    }
+                    k = (k + 1)
+                }
+                if (grow > 0.01) {
+                    def one (new EVGDisplayList())
+                    def fill:EVGColor (EVGColor.parse(n.fill))
+                    def sh (new EVGDrawCmd())
+                    sh.kind = 0
+                    sh.x = (n.x + 5.0)
+                    sh.y = (n.y + 6.0)
+                    sh.w = n.w
+                    sh.h = n.h
+                    sh.radius = 8.0
+                    PresDiagram.tint(sh shadow 1.0)
+                    push one.cmds sh
+                    def body (new EVGDrawCmd())
+                    body.kind = 0
+                    body.x = n.x
+                    body.y = n.y
+                    body.w = n.w
+                    body.h = n.h
+                    body.radius = 8.0
+                    PresDiagram.tint(body fill 1.0)
+                    push one.cmds body
+                    def seed:double ((boil * 5.3) + ((to_double i) * 11.0))
+                    def x0:double n.x
+                    def y0:double n.y
+                    def x1:double (n.x + n.w)
+                    def y1:double (n.y + n.h)
+                    PresDiagram.sketch(one (PresDiagram.side(x0 y0 x1 y0 4.0)) 1.9 ink 0.95 seed)
+                    PresDiagram.sketch(one (PresDiagram.side(x1 y0 x1 y1 4.0)) 1.9 ink 0.95 (seed + 1.0))
+                    PresDiagram.sketch(one (PresDiagram.side(x1 y1 x0 y1 4.0)) 1.9 ink 0.95 (seed + 2.0))
+                    PresDiagram.sketch(one (PresDiagram.side(x0 y1 x0 y0 4.0)) 1.9 ink 0.95 (seed + 3.0))
+                    def m:int 0
+                    while (m < (array_length n.items)) {
+                        def it:SceneItem (itemAt n.items m)
+                        if (it.kind == 1) {
+                            this.textOf(one it dark 1.0)
+                        }
+                        m = (m + 1)
+                    }
+                    def fadeIn:double (PresDiagram.clamp01(((t - n.at) / 0.2)))
+                    def c:int 0
+                    while (c < (array_length one.cmds)) {
+                        def cmd:EVGDrawCmd (itemAt one.cmds c)
+                        PresDiagram.xf(cmd (n.cx()) (n.cy()) grow 0.0 0.0 fadeIn)
+                        push out.cmds cmd
+                        c = (c + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn paintBall:void (out:EVGDisplayList ink:EVGColor) {
+        if (! ballOn) {
+            return
+        }
+        def r:double 9.0
+        ; the shadow on the line, smaller the higher the ball is
+        def lift:double (PresDiagram.clamp01((ballLift / 40.0)))
+        def sw:double ((r * 2.2) * (1.0 - (lift * 0.5)))
+        def s (new EVGDrawCmd())
+        s.kind = 0
+        s.w = sw
+        s.h = (sw * 0.35)
+        s.x = (ballX - (sw * 0.5))
+        s.y = (ballY - (s.h * 0.5))
+        s.radius = (s.h * 0.5)
+        PresDiagram.tint(s (EVGColor.rgba(0 0 0 0.45)) (1.0 - (lift * 0.6)))
+        push out.cmds s
+        ; squash on the ground, stretch in the air
+        def sq:double ballSquash
+        def bw:double ((r * 2.0) * (1.0 + (sq * 0.3)))
+        def bh:double ((r * 2.0) * (1.0 - (sq * 0.25)))
+        def b (new EVGDrawCmd())
+        b.kind = 0
+        b.w = bw
+        b.h = bh
+        b.x = (ballX - (bw * 0.5))
+        b.y = ((ballY - ballLift) - bh)
+        b.radius = (bh * 0.5)
+        b.hasGrad = true
+        b.gradDir = 0
+        def top:EVGColor (EVGColor.parse("#fff1a8"))
+        def bottom:EVGColor (EVGColor.parse("#ff8a3d"))
+        b.r = (top.red())
+        b.g = (top.green())
+        b.b = (top.blue())
+        b.a = 1.0
+        b.r2 = (bottom.red())
+        b.g2 = (bottom.green())
+        b.b2 = (bottom.blue())
+        b.a2 = 1.0
+        push out.cmds b
+        def o (new EVGDrawCmd())
+        o.kind = 1
+        o.x = b.x
+        o.y = b.y
+        o.w = bw
+        o.h = bh
+        o.radius = (bh * 0.5)
+        o.thickness = 2.0
+        PresDiagram.tint(o (EVGColor.parse("#141833")) 1.0)
+        push out.cmds o
+    }
+}

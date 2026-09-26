@@ -30,6 +30,7 @@
 
 Import "../markdown/web/markdown_web.rgr"
 Import "PresSource.rgr"
+Import "PresDiagram.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGStyleSheet.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -48,6 +49,16 @@ class PresGroup {
     def at:double 0.0
     ; a short label for the track: the first words
     def label:string ""
+}
+
+; A diagram fence on a slide, drawn by PresDiagram rather than as a picture.
+class PresDiaUse {
+    def diagram:PresDiagram (new PresDiagram())
+    ; the fence's own text, which is what its layout box names
+    def source:string ""
+    def srcStart:int 0
+    ; seconds after the slide starts; set by PresTimeline
+    def start:double 0.0
 }
 
 class PresSlide {
@@ -71,8 +82,11 @@ class PresSlide {
     def hold:double 2.5
     def groups:[PresGroup]
     def steps:int 0
+    def diagrams:[PresDiaUse]
 
     Constructor () {
+        def du:[PresDiaUse]
+        diagrams = du
         def a:[string]
         fxNames = a
         def b:[string]
@@ -92,10 +106,116 @@ class PresDeck {
     def revision:int 0
     def pageW:double 960.0
     def pageH:double 540.0
+    ; Diagrams by (notation, width, text): a keystroke elsewhere in the
+    ; document must not lay every diagram out again.
+    def diaKeys:[string]
+    def diaVals:[PresDiagram]
 
     Constructor () {
         def s:[PresSlide]
         slides = s
+        def k:[string]
+        diaKeys = k
+        def v:[PresDiagram]
+        diaVals = v
+    }
+
+    fn diagramFor:PresDiagram (notation:string text:string width:double) {
+        def key:string (notation + "|" + (to_string width) + "|" + text)
+        def i:int 0
+        while (i < (array_length diaKeys)) {
+            if ((itemAt diaKeys i) == key) {
+                return (itemAt diaVals i)
+            }
+            i = (i + 1)
+        }
+        def d:PresDiagram (PresDiagram.of(notation text width))
+        push diaKeys key
+        push diaVals d
+        if ((array_length diaKeys) > 40) {
+            remove_index diaKeys 0
+            remove_index diaVals 0
+        }
+        return d
+    }
+
+    ; How tall a box may grow on its slide: down to the next box under it,
+    ; or to the bottom margin.
+    fn roomBelow:double (page:int box:MdBox) {
+        def l:MdLayout (this.layout())
+        def bottom:double (l.style.pageHeight - l.style.margin)
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.page == page) && (b.y >= ((box.y + box.h) - 0.5))) {
+                if (b.y < bottom) {
+                    bottom = (b.y - 12.0)
+                }
+            }
+            i = (i + 1)
+        }
+        if (bottom < (box.y + box.h)) {
+            return box.h
+        }
+        return (bottom - box.y)
+    }
+
+    ; The layout box a fence was laid out in, or -1.
+    fn embedBox:int (page:int text:string) {
+        def l:MdLayout (this.layout())
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (((b.page == page) && (b.kind == 3)) && (b.embedSource == text)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn readDiagram:void (s:PresSlide n:MdNode page:int) {
+        if (n.kind != "embed") {
+            return
+        }
+        def notation:string (MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(n.info))))
+        if (((strlen notation) == 0) || (notation == "vega")) {
+            return
+        }
+        if ((n.attrValue("diagram")) == "classic") {
+            return
+        }
+        def bi:int (this.embedBox(page n.literal))
+        if (bi < 0) {
+            return
+        }
+        def lay:MdLayout (this.layout())
+        def box:MdBox (itemAt lay.boxes bi)
+        def base:PresDiagram (this.diagramFor(notation n.literal box.w))
+        if (! base.ok) {
+            return
+        }
+        ; the options are the fence's, the scene is shared
+        def d (new PresDiagram())
+        d.ok = true
+        d.worldX = base.worldX
+        d.worldY = base.worldY
+        d.worldW = base.worldW
+        d.worldH = base.worldH
+        d.nodes = base.nodes
+        d.edges = base.edges
+        d.rest = base.rest
+        d.tour = ((n.attrValue("tour")) != "off")
+        d.ball = ((n.attrValue("ball")) != "off")
+        if (n.hasAttr("zoom")) {
+            d.zoom = (PresDeck.num((n.attrValue("zoom")) 1.8))
+        }
+        d.plan()
+        def u (new PresDiaUse())
+        u.diagram = d
+        u.source = n.literal
+        u.srcStart = n.srcStart
+        push s.diagrams u
     }
 
     fn setText:void (t:string) {
@@ -228,6 +348,7 @@ class PresDeck {
                     this.readHeading(slide ch)
                 }
                 this.readGroups(slide ch)
+                this.readDiagram(slide ch pg)
             }
             c = (c + 1)
         }
@@ -386,7 +507,7 @@ class PresDeck {
     ; `groupOfCmd` gets one entry per command: the group it animates with,
     ; or -1 for what stands still. The list is in slide coordinates: (0, 0)
     ; is the slide's top-left corner.
-    fn slideList:EVGDisplayList (i:int groupOfCmd:[int]) {
+    fn slideList:EVGDisplayList (i:int groupOfCmd:[int] t:double) {
         def l:MdLayout (this.layout())
         def s:PresSlide (itemAt slides i)
         def out:EVGDisplayList (new EVGDisplayList())
@@ -452,7 +573,27 @@ class PresDeck {
         }
         def k:int 0
         while (k < (array_length mine)) {
-            painter.paintBox(out l (itemAt mine k) 0.0)
+            def kb:MdBox (itemAt mine k)
+            def use:int -1
+            if (kb.kind == 3) {
+                def du:int 0
+                while (du < (array_length s.diagrams)) {
+                    if ((itemAt s.diagrams du).source == kb.embedSource) {
+                        use = du
+                    }
+                    du = (du + 1)
+                }
+            }
+            if (use >= 0) {
+                def dia:PresDiaUse (itemAt s.diagrams use)
+                ; The diagram gets the room below it, not just the box its
+                ; picture fitted: a wide flowchart is a thin strip, and a
+                ; camera zoomed into a strip shows a slot.
+                def room:double (this.roomBelow(i kb))
+                dia.diagram.paint(out kb.x kb.y kb.w room (t - dia.start) l.style.textColor paper)
+            } {
+                painter.paintBox(out l kb 0.0)
+            }
             while ((array_length groupOfCmd) < (array_length out.cmds)) {
                 push groupOfCmd (itemAt groupOfBox k)
             }

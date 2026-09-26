@@ -40,17 +40,19 @@ Ja kamerakuvana on hahmo, joka sykkii puheen tahdissa. [[4]]
 
 ## Kulku
 
-```dot
-digraph {
-  rankdir=LR;
-  node [shape=box];
-  kokous -> selain [label="ääni"];
-  selain -> gemini [label="ääni"];
-  gemini -> selain [label="vastaus"];
-  selain -> kokous [label="mikrofoni"];
-}
+```mermaid
+flowchart LR
+  K[Teams-kokous] -->|ääni| S[Botin selain]
+  S -->|ääni| G[Gemini Live]
+  G -->|vastaus| S
+  S -->|mikrofoni| K
 ```
-{anim=zoom seconds=0.8}
+{zoom=1.9}
+
+::: notes
+Pallo kulkee reitin: kokouksen ääni selaimelle, selaimelta Geminille, ja
+vastaus takaisin kokoukseen botin mikrofonina.
+:::
 
 ## Miten tätä muokataan
 
@@ -59,5 +61,6 @@ digraph {
 - `{anim=fade|rise|fly|zoom}` lohkon perässä animoi sen
 - `fx=starfield`, `plasma-wave`, `smoke`, `ambient-light` otsikossa antaa taustaefektin
 - `::: notes` … `:::` on puhujan muistiinpanot
+- Kaavio (```mermaid, ```dot) piirretään käsin piirretyn näköisenä ja kierretään pallolla; `{tour=off}`, `{ball=off}`, `{zoom=2}` tai `{diagram=classic}` fencen perässä
 - Ctrl+V liittää kuvan leikepöydältä
 {.build anim=fade}

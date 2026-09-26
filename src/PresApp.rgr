@@ -768,6 +768,19 @@ class PresApp {
             root.addChild((PresApp.div("trn" "clip clip-anim" laneX (ay + 3.0) tw (rowH - 6.0))))
             root.addChild((PresApp.label("trnl" "clip-label" s.transition (laneX + 5.0) (ay + 7.0))))
         }
+        def dg:int 0
+        while (dg < (array_length s.diagrams)) {
+            def du:PresDiaUse (itemAt s.diagrams dg)
+            def dx0:double (this.timeX(du.start dur))
+            def dx1:double (this.timeX((du.start + du.diagram.total) dur))
+            root.addChild((PresApp.div(("dia" + (to_string dg)) "clip clip-dia" dx0 (ay + 3.0) (dx1 - dx0) (rowH - 6.0))))
+            def dl:string "kaavio: piirto"
+            if du.diagram.tour {
+                dl = "kaavio: piirto + kierros"
+            }
+            root.addChild((PresApp.label(("dial" + (to_string dg)) "clip-label" dl (dx0 + 6.0) (ay + 7.0))))
+            dg = (dg + 1)
+        }
         if ((strlen s.fx) > 0) {
             def fx0:double (laneX + 90.0)
             root.addChild((PresApp.div("fxc" "clip clip-fx" fx0 (ay + 3.0) ((laneX + laneW) - fx0) (rowH - 6.0))))

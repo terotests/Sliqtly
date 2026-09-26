@@ -42,6 +42,7 @@
 .clip-audio { background-color: var(--audio-clip); }
 .clip-anim { background-color: var(--anim-clip); }
 .clip-fx { background-color: var(--fx-clip); }
+.clip-dia { background-color: #c2410c; }
 .clip-label { color: #ffffff; font-size: 11px; height: 14px; }
 .playhead { background-color: #ffcc4d; }
 
