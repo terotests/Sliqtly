@@ -115,14 +115,19 @@ class PresCheck {
         ; in the middle of the tour the camera is in and the ball is out
         def l1:PresLeg (itemAt d.legs 1)
         def mid:double ((l1.t0 + (l1.dur * 0.5)) + (itemAt s.diagrams 0).start)
-        d.cameraAt((mid - (itemAt s.diagrams 0).start))
+        d.cameraAt((mid - (itemAt s.diagrams 0).start) 800.0 400.0)
         this.ok((d.camZ > 1.5) ("the camera zooms in on the tour, z=" + (to_string d.camZ)))
+        ; on a keyframe the camera is centred on the node it stands on
+        def l0:PresLeg (itemAt d.legs 0)
+        d.cameraAt((l0.t0 + l0.dur) 800.0 400.0)
+        def lands:PresDNode (itemAt d.nodes l0.toNode)
+        this.ok(((fabs (d.camX - (lands.cx()))) < 0.01) "the camera is centred on the node the packet lands on")
         def a:string ((PresTimeline.frame(deck 0 mid)).toJson())
         def b:string ((PresTimeline.frame(deck 0 mid)).toJson())
         this.ok((a == b) "a toured frame is a function of its time")
         this.ok(((indexOf a "\"gd\"") > 0) "the ball and the rim fade are gradients")
         def fin:EVGDisplayList (PresTimeline.finalFrame(deck 0))
-        d.cameraAt(s.duration)
+        d.cameraAt(s.duration 800.0 400.0)
         this.ok((d.camZ == 1.0) "the camera is back out at the end")
         this.ok(((PresCheck.texts(fin "Kokous")) == 1) "the final frame shows the whole diagram")
     }

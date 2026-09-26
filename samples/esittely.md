@@ -47,7 +47,7 @@ flowchart LR
   G -->|vastaus| S
   S -->|mikrofoni| K
 ```
-{zoom=1.9}
+{style=holo}
 
 ::: notes
 Pallo kulkee reitin: kokouksen ääni selaimelle, selaimelta Geminille, ja
@@ -61,6 +61,6 @@ vastaus takaisin kokoukseen botin mikrofonina.
 - `{anim=fade|rise|fly|zoom}` lohkon perässä animoi sen
 - `fx=starfield`, `plasma-wave`, `smoke`, `ambient-light` otsikossa antaa taustaefektin
 - `::: notes` … `:::` on puhujan muistiinpanot
-- Kaavio (```mermaid, ```dot) piirretään käsin piirretyn näköisenä ja kierretään pallolla; `{tour=off}`, `{ball=off}`, `{zoom=2}` tai `{diagram=classic}` fencen perässä
+- Kaavio (```mermaid, ```dot) animoidaan: holo-tyyli oletuksena; `{style=sketch}`, `{tour=off}`, `{zoom=3}` tai `{diagram=classic}` fencen perässä
 - Ctrl+V liittää kuvan leikepöydältä
 {.build anim=fade}

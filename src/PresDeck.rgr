@@ -208,7 +208,10 @@ class PresDeck {
         d.tour = ((n.attrValue("tour")) != "off")
         d.ball = ((n.attrValue("ball")) != "off")
         if (n.hasAttr("zoom")) {
-            d.zoom = (PresDeck.num((n.attrValue("zoom")) 1.8))
+            d.zoom = (PresDeck.num((n.attrValue("zoom")) 3.0))
+        }
+        if ((n.attrValue("style")) == "sketch") {
+            d.style = "sketch"
         }
         d.plan()
         def u (new PresDiaUse())
@@ -590,7 +593,7 @@ class PresDeck {
                 ; picture fitted: a wide flowchart is a thin strip, and a
                 ; camera zoomed into a strip shows a slot.
                 def room:double (this.roomBelow(i kb))
-                dia.diagram.paint(out kb.x kb.y kb.w room (t - dia.start) l.style.textColor paper)
+                dia.diagram.paint(out kb.x kb.y kb.w room (t - dia.start) l.style.textColor paper l)
             } {
                 painter.paintBox(out l kb 0.0)
             }

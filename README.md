@@ -52,12 +52,17 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 - `fx`: EVG surface effects (`starfield`, `plasma-wave`, `smoke`,
   `ambient-light`, `liquid-glass`, `raindrop`). `fx-<name>=<number>` is the
   same as `evg-fx-<name>` in CSS.
-- Diagrams (```mermaid, ```dot, ```d2, ```plantuml) are drawn in a
-  hand-drawn style and animated: nodes pop in, edges draw themselves, then a
-  ball bounces along the edges while the camera zooms in and follows it, and
-  the diagram fades at the rim of the view. Under the fence:
-  `{tour=off}`, `{ball=off}`, `{zoom=2.2}` or `{diagram=classic}` (the
-  original drawing). PDF and PPTX use the original drawing.
+- Diagrams (```mermaid, ```dot, ```d2, ```plantuml) are animated on the
+  slide. The default style is `holo`: glass panels with corner brackets,
+  glowing curved edges with chevron arrowheads, a grid that moves with the
+  camera, and data flowing along the edges. Nodes appear with a scan line and
+  edges draw themselves. Then a packet of light travels the edges node by
+  node, and the camera centres on the node it lands on. That node fills about
+  40 % of the view and glows amber. The diagram fades at the rim of the view.
+  Under the fence: `{style=sketch}` (hand-drawn, a bouncing ball),
+  `{tour=off}`, `{ball=off}`, `{zoom=3}` (the maximum zoom) or
+  `{diagram=classic}` (the original drawing). PDF and PPTX use the original
+  drawing.
 - **Ctrl+V** in the editor pastes a picture from the clipboard. It is stored
   under `media/` and written into the Markdown as `![](media/…)`. Dropping an
   image onto the canvas does the same.
@@ -83,7 +88,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | --- | --- |
 | `src/PresSource.rgr` | Lifts `:::` blocks out of the Markdown (masks them without changing offsets) |
 | `src/PresDeck.rgr` | Markdown → slides with the markdown module's layout; slide attributes, groups, the effect layer |
-| `src/PresDiagram.rgr` | Diagram animation: hand-drawn style, reveal, the ball's route, the camera |
+| `src/PresDiagram.rgr` | Diagram animation: the holo and sketch styles, curved edges, reveal, the tour and the camera keyframes |
 | `src/PresTimeline.rgr` | (deck, slide, t) → display list. Deterministic: no clock of its own |
 | `src/PresApp.rgr` | The editor: panels, tracks, filmstrip, presenting, exports |
 | `src/PresCheck.rgr` | Node checks |
