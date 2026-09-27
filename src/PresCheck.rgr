@@ -260,7 +260,6 @@ class PresCheck {
             k = (k + 1)
         }
     }
-    }
 
     ; A long left-to-right chain: laid out top to bottom instead, every node
     ; shown by the end, and each held long enough to be read.

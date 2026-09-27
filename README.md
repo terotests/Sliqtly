@@ -17,8 +17,7 @@ npm run check:web    # the page in headless Chromium (build, typing, presenting,
 ```
 
 Ranger is cloned into `.deps/Ranger` on first run, from the branch in
-`presentation.config.json`. It currently points at `claude/nifty-dijkstra-vq2qit`,
-which has `FlowWrap`; set it back to `master` once that branch is merged. To use an existing
+`presentation.config.json` (`master`). To use an existing
 checkout instead, set `RANGER_DIR=/path/to/Ranger`. `src/` is linked into the
 checkout as `gallery/presentation`, the same way EvgHarness does it, and
 compiled with Ranger's own compiler.
