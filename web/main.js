@@ -358,13 +358,18 @@ const KEY_MAP = {
 const CLIPBOARD_CHORD = /^[cxvCXV]$/;
 let composing = false;
 
+// What the field was last set to. Anything else in it got there without
+// passing through beforeinput, and the input handler below carries it over.
+let mirrored = "";
 function mirrorLine() {
   if (app.focusTarget() !== "editor" || (lastLayout && lastLayout.mode === "present")) {
     if (keys.value !== "") keys.value = "";
+    mirrored = "";
     return;
   }
   const line = app.currentLine();
   if (keys.value !== line) keys.value = line;
+  mirrored = line;
   const col = Math.max(0, Math.min(line.length, app.caretCol()));
   let from = col;
   let to = col;
@@ -404,6 +409,9 @@ function afterInput() {
 }
 
 keys.addEventListener("keydown", (ev) => {
+  // A composition that ended without a compositionend (a dead key, an IME
+  // cancelled by a click) must not leave typing switched off.
+  if (!ev.isComposing && ev.keyCode !== 229) composing = false;
   const presenting = lastLayout && lastLayout.mode === "present";
   if (ev.key === "F5") {
     ev.preventDefault();
@@ -452,15 +460,36 @@ keys.addEventListener("compositionend", (ev) => {
 });
 
 keys.addEventListener("beforeinput", (ev) => {
-  if (composing) return;
+  if (composing || ev.isComposing) return;
   const type = ev.inputType;
-  ev.preventDefault();
+  let handled = true;
   if (type === "insertText" && ev.data) app.text(ev.data);
   else if (type === "insertLineBreak" || type === "insertParagraph") app.key("enter", false, false);
   else if (type === "deleteContentBackward") app.key("backspace", false, false);
   else if (type === "deleteContentForward") app.key("delete", false, false);
   else if (type === "historyUndo") app.undo();
   else if (type === "historyRedo") app.redo();
+  else handled = false;
+  if (!handled) return; // the input handler below takes what arrives
+  ev.preventDefault();
+  afterInput();
+});
+
+// The safety net: text that reached the field anyway (no beforeinput, a
+// browser that does not let it be cancelled, a composition that inserted
+// directly) is the difference between the field and what was mirrored.
+keys.addEventListener("input", (ev) => {
+  if (composing || ev.isComposing) return;
+  const now = keys.value;
+  if (now === mirrored) return;
+  let a = 0;
+  while (a < now.length && a < mirrored.length && now[a] === mirrored[a]) a += 1;
+  let z = 0;
+  while (z < now.length - a && z < mirrored.length - a && now[now.length - 1 - z] === mirrored[mirrored.length - 1 - z]) z += 1;
+  const removed = mirrored.length - a - z;
+  const inserted = now.slice(a, now.length - z);
+  for (let i = 0; i < removed; i += 1) app.key("backspace", false, false);
+  if (inserted) app.text(inserted);
   afterInput();
 });
 
@@ -492,7 +521,8 @@ keys.addEventListener("paste", (ev) => {
     afterInput();
   }
 });
-keys.addEventListener("focus", () => { mirrorLine(); needsPaint = true; });
+keys.addEventListener("focus", () => { composing = false; mirrorLine(); needsPaint = true; });
+keys.addEventListener("blur", () => { composing = false; });
 
 // --- the pointer ----------------------------------------------------------------------
 function at(ev) {

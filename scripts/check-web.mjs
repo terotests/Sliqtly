@@ -89,6 +89,36 @@ try {
   const shot = async (name) => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, name) }); } };
   await shot("1-editor.png");
 
+  // Real keys, not calls: letters arrive through beforeinput, Backspace
+  // through keydown, and a composition left open (a dead key, an IME
+  // cancelled by a click) must not switch typing off.
+  await page.mouse.click(300, 300);
+  const len0 = await page.evaluate(() => window.__app.source().length);
+  await page.keyboard.type("ab");
+  const len1 = await page.evaluate(() => window.__app.source().length);
+  await page.keyboard.press("Backspace");
+  const len2 = await page.evaluate(() => window.__app.source().length);
+  await page.evaluate(() => document.getElementById("keys").dispatchEvent(new CompositionEvent("compositionstart", { data: "" })));
+  await page.keyboard.type("cd");
+  const len3 = await page.evaluate(() => window.__app.source().length);
+  // text that lands in the field without a beforeinput is carried over too
+  await page.evaluate(() => {
+    const k = document.getElementById("keys");
+    const at = k.selectionStart;
+    k.value = k.value.slice(0, at) + "e" + k.value.slice(at);
+    k.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: "e" }));
+  });
+  const len4 = await page.evaluate(() => window.__app.source().length);
+  check("typed letters reach the editor", len1 === len0 + 2, `${len0} → ${len1}`);
+  check("backspace deletes one", len2 === len1 - 1, `${len1} → ${len2}`);
+  check("typing works after a composition that never ended", len3 === len2 + 2, `${len2} → ${len3}`);
+  check("text that bypassed beforeinput is carried over", len4 === len3 + 1, `${len3} → ${len4}`);
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("Backspace");
+  check("and the document is back as it was", (await page.evaluate(() => window.__app.source().length)) === len0);
+
   const r = await page.evaluate(() => {
     const a = window.__app;
     const out = {};
