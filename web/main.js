@@ -658,7 +658,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   lastDown = now;
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
-  if (where === "editor" || where === "sep" || where === "scrub") {
+  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage") {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
   focusKeys(where === "editor" ? "editor" : app.focusTarget());

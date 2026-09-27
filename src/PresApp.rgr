@@ -436,6 +436,7 @@ class PresApp {
         }
         clock = start
         playing = true
+        deck.resetExplore()
         chromeRev = (chromeRev + 1)
     }
 
@@ -508,7 +509,7 @@ class PresApp {
             return true
         }
         if (what == "fit") {
-            du.diagram.exploreFit()
+            du.diagram.exploreHome()
             chromeRev = (chromeRev + 1)
             return true
         }
@@ -586,7 +587,7 @@ class PresApp {
                 return true
             }
             if (name == "0") {
-                ue.diagram.exploreFit()
+                ue.diagram.exploreHome()
                 chromeRev = (chromeRev + 1)
                 return true
             }
@@ -668,6 +669,7 @@ class PresApp {
         pStep = 0
         clock = (PresTimeline.slideStart(deck selected))
         elapsed = 0.0
+        deck.resetExplore()
         push requests "fullscreen"
         chromeRev = (chromeRev + 1)
     }
@@ -1146,9 +1148,7 @@ class PresApp {
     fn pointerDown:string (x:double y:double shift:boolean clicks:int) {
         this.place()
         if (mode == "present") {
-            if (! (this.stagePress(x y))) {
-                this.next()
-            }
+            this.stageDown(x y)
             return "stage"
         }
         if (sepRect.has(x y)) {
@@ -1201,11 +1201,81 @@ class PresApp {
         }
         if (slideRect.has(x y)) {
             focus = "stage"
-            this.stagePress(x y)
+            this.stageDown(x y)
             chromeRev = (chromeRev + 1)
             return "stage"
         }
         return ""
+    }
+
+    ; A press on the stage is a click (on release, when the pointer has not
+    ; moved) or a drag that pans a diagram's view.
+    def stagePressed:boolean false
+    def stagePanning:boolean false
+    def stageDia:int -1
+    def downX:double 0.0
+    def downY:double 0.0
+    def lastX:double 0.0
+    def lastY:double 0.0
+
+    fn stageDown:void (x:double y:double) {
+        stagePressed = true
+        stagePanning = false
+        downX = x
+        downY = y
+        lastX = x
+        lastY = y
+        stageDia = -1
+        if (slideRect.has(x y)) {
+            this.slidePoint(x y)
+            stageDia = (deck.diagramAt(selected spX spY))
+        }
+    }
+
+    fn stageMove:void (x:double y:double) {
+        if (stageDia < 0) {
+            return
+        }
+        def hit@(optional):PresDiaUse (deck.diagramUse(selected stageDia))
+        if (null? hit) {
+            return
+        }
+        def u:PresDiaUse (unwrap hit)
+        if (! stagePanning) {
+            def mx:double (x - downX)
+            def my:double (y - downY)
+            if (((mx * mx) + (my * my)) < 36.0) {
+                return
+            }
+            stagePanning = true
+            u.diagram.uiNow = deck.uiNow
+            u.diagram.panStart()
+        }
+        def sc:double (this.slideScale())
+        u.diagram.uiNow = deck.uiNow
+        u.diagram.panBy(((x - lastX) / sc) ((y - lastY) / sc))
+        lastX = x
+        lastY = y
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn stageUp:void () {
+        if (! stagePressed) {
+            return
+        }
+        stagePressed = false
+        if stagePanning {
+            stagePanning = false
+            return
+        }
+        if (mode == "present") {
+            if (! (this.stagePress(downX downY))) {
+                this.next()
+            }
+        } {
+            this.stagePress(downX downY)
+        }
+        chromeRev = (chromeRev + 1)
     }
 
     fn scrubTo:void (x:double) {
@@ -1240,6 +1310,9 @@ class PresApp {
         if scrubDrag {
             this.scrubTo(x)
         }
+        if stagePressed {
+            this.stageMove(x y)
+        }
     }
 
     fn pointerUp:void () {
@@ -1249,6 +1322,7 @@ class PresApp {
         editorDrag = false
         splitDrag = false
         scrubDrag = false
+        this.stageUp()
     }
 
     fn wheel:boolean (x:double y:double dy:double) {

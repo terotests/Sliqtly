@@ -1611,13 +1611,13 @@ class PresDiagram {
             return -2
         }
         def cy:double ((by + bh) - 24.0)
-        if (PresDiagram.near(px py ((bx + bw) - 104.0) cy 17.0)) {
+        if (PresDiagram.near(px py ((bx + bw) - 150.0) cy 17.0)) {
             return -3
         }
-        if (PresDiagram.near(px py ((bx + bw) - 66.0) cy 17.0)) {
+        if (PresDiagram.near(px py ((bx + bw) - 112.0) cy 17.0)) {
             return -4
         }
-        if (PresDiagram.near(px py ((bx + bw) - 28.0) cy 17.0)) {
+        if ((((px >= ((bx + bw) - 80.0)) && (px <= ((bx + bw) - 12.0))) && (py >= (cy - 17.0))) && (py <= (cy + 17.0))) {
             return -5
         }
         if (! (this.asking(t))) {
@@ -1640,7 +1640,11 @@ class PresDiagram {
                     w = (w + 1)
                 }
             }
-            return (this.hitNode(t bx by bw bh px py))
+            def hn:int (this.hitNode(t bx by bw bh px py))
+            if (hn >= 0) {
+                return hn
+            }
+            return (this.hitLine(t bx by bw bh px py))
         }
         this.cameraAt(t bw bh)
         def sc:double ((this.fitOf(bw bh)) * camZ)
@@ -1657,6 +1661,35 @@ class PresDiagram {
             i = (i + 1)
         }
         return (this.hitNode(t bx by bw bh px py))
+    }
+
+    ; A drawn line under the point (within a few pixels): 3000 + edge.
+    fn hitLine:int (t:double bx:double by:double bw:double bh:double px:double py:double) {
+        if ((((px < bx) || (py < by)) || (px > (bx + bw))) || (py > (by + bh))) {
+            return -1
+        }
+        this.cameraAt(t bw bh)
+        def sc:double ((this.fitOf(bw bh)) * camZ)
+        if (sc <= 0.0) {
+            return -1
+        }
+        def wx:double ((px - ((bx + (bw * 0.5)) - (camX * sc))) / sc)
+        def wy:double ((py - ((by + (bh * 0.5)) - (camY * sc))) / sc)
+        def found:int -1
+        def best:double (9.0 / sc)
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresDEdge (itemAt edges i)
+            if ((e.at <= t) && ((array_length e.line) >= 4)) {
+                def d:double (PresDiagram.lineDistance(e.line wx wy))
+                if (d < best) {
+                    best = d
+                    found = (3000 + i)
+                }
+            }
+            i = (i + 1)
+        }
+        return found
     }
 
     ; A box that is on screen at t, under the point.
@@ -2476,6 +2509,75 @@ class PresDiagram {
         exploring = true
     }
 
+    ; Dragged: the view follows the hand at once, in slide units. The view
+    ; before the drag is kept for back.
+    fn panStart:void () {
+        this.exPush()
+        exTX = camX
+        exTY = camY
+        exTZ = camZ
+        exFromX = camX
+        exFromY = camY
+        exFromZ = camZ
+        exT0 = (uiNow - 10.0)
+        exReturn = false
+        exploring = true
+    }
+
+    fn panBy:void (dx:double dy:double) {
+        def sc:double (lastFit * exTZ)
+        if (sc <= 0.0) {
+            return
+        }
+        exTX = (exTX - (dx / sc))
+        exTY = (exTY - (dy / sc))
+        exFromX = exTX
+        exFromY = exTY
+        exFromZ = exTZ
+        exT0 = (uiNow - 10.0)
+    }
+
+    ; Back to the presentation's own camera: presenting or playing starts
+    ; from the walk, not from where the viewer left the view.
+    fn resetExplore:void () {
+        exploring = false
+        exReturn = false
+        exNode = -1
+        exSel = 0
+        clear exSX
+        clear exSY
+        clear exSZ
+        clear exSN
+    }
+
+    ; How far a point is from a polyline, along its segments.
+    sfn lineDistance:double (pts:[double] x:double y:double) {
+        def best:double 1000000000.0
+        def n:int (array_length pts)
+        def i:int 0
+        while ((i + 3) < n) {
+            def ax:double (itemAt pts i)
+            def ay:double (itemAt pts (i + 1))
+            def bx:double (itemAt pts (i + 2))
+            def by:double (itemAt pts (i + 3))
+            def vx:double (bx - ax)
+            def vy:double (by - ay)
+            def ll:double ((vx * vx) + (vy * vy))
+            def u:double 0.0
+            if (ll > 0.0) {
+                u = ((((x - ax) * vx) + ((y - ay) * vy)) / ll)
+            }
+            if (u < 0.0) { u = 0.0 }
+            if (u > 1.0) { u = 1.0 }
+            def qx:double ((ax + (vx * u)) - x)
+            def qy:double ((ay + (vy * u)) - y)
+            def d:double (sqrt ((qx * qx) + (qy * qy)))
+            if (d < best) { best = d }
+            i = (i + 2)
+        }
+        return best
+    }
+
     ; The whole diagram.
     fn exploreFit:void () {
         this.exPush()
@@ -2597,9 +2699,9 @@ class PresDiagram {
         }
         if showControls {
             def cy:double ((by + bh) - 24.0)
-            this.paintButton(out ((bx + bw) - 104.0) cy 1)
-            this.paintButton(out ((bx + bw) - 66.0) cy 2)
-            this.paintButton(out ((bx + bw) - 28.0) cy 3)
+            this.paintButton(out ((bx + bw) - 150.0) cy 1)
+            this.paintButton(out ((bx + bw) - 112.0) cy 2)
+            this.paintHome(out ((bx + bw) - 46.0) cy l)
         }
         def pop (new EVGDrawCmd())
         pop.kind = 5
@@ -2634,6 +2736,69 @@ class PresDiagram {
     }
 
     ; A zoom button: 1 in (+), 2 out (−), 3 fit (four corners).
+    ; "100 %": back to the presentation's own view, as a pill.
+    fn paintHome:void (out:EVGDisplayList cx:double cy:double l:MdLayout) {
+        def w:double 64.0
+        def h:double 30.0
+        def bg (new EVGDrawCmd())
+        bg.kind = 0
+        bg.x = (cx - (w * 0.5))
+        bg.y = (cy - (h * 0.5))
+        bg.w = w
+        bg.h = h
+        bg.radius = (h * 0.5)
+        PresDiagram.tint(bg (PresDiagram.rgba(bgR bgG bgB 0.8)) 1.0)
+        push out.cmds bg
+        def ring (new EVGDrawCmd())
+        ring.kind = 1
+        ring.x = bg.x
+        ring.y = bg.y
+        ring.w = w
+        ring.h = h
+        ring.radius = (h * 0.5)
+        ring.thickness = 1.3
+        if exploring {
+            PresDiagram.tint(ring (PresDiagram.rgba(wmR wmG wmB 0.9)) 1.0)
+        } {
+            PresDiagram.tint(ring (PresDiagram.rgba(dmR dmG dmB 0.8)) 1.0)
+        }
+        push out.cmds ring
+        def text:string "100 %"
+        def size:double 13.0
+        def tw:double (l.measureStyled(text "Open Sans" size true false))
+        def tc (new EVGDrawCmd())
+        tc.kind = 3
+        tc.x = (cx - (tw * 0.5))
+        tc.y = (cy - (size * 0.6))
+        tc.w = tw
+        tc.h = size
+        tc.text = text
+        tc.fontFamily = "Open Sans"
+        tc.fontSize = size
+        tc.fontWeight = "bold"
+        PresDiagram.tint(tc (PresDiagram.rgba(txR txG txB 0.95)) 1.0)
+        push out.cmds tc
+    }
+
+    ; Back to the presentation's own camera, from wherever the viewer took
+    ; the view: a short glide, and the views before are forgotten.
+    fn exploreHome:void () {
+        if (! exploring) {
+            return
+        }
+        clear exSX
+        clear exSY
+        clear exSZ
+        clear exSN
+        exNode = -1
+        exSel = 0
+        exFromX = camX
+        exFromY = camY
+        exFromZ = camZ
+        exT0 = uiNow
+        exReturn = true
+    }
+
     fn paintButton:void (out:EVGDisplayList cx:double cy:double kind:int) {
         def r:double 15.0
         def bg (new EVGDrawCmd())

@@ -90,7 +90,10 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | In a diagram: ‹ ring or Backspace | one step back (press again for more) |
 | In a diagram: click a box | the camera zooms to it (a class, not the package round it); ‹ at the top left goes back |
 | …then ←/→ + Enter, or click a way's label | the ways on from that box: select one (warm), go to the box it leads to |
-| In a diagram: + / − / ⛶ buttons, keys + − 0 | zoom in, out, whole diagram |
+| Click a line | go to the box it leads to |
+| Drag on a diagram | move the view (back returns to where it was) |
+| ▶ Play / ⛶ Present | the diagrams start again from their own camera |
+| In a diagram: + / − / 100 % buttons, keys + − 0 | zoom in, out; 100 % returns to the presentation's own view |
 | Teema | dark themes aurora, nebula (starfield), carbon, ember (ambient light), midnight; light corporate, editorial. A theme sets the diagram colours through `/* pres: accent=… warm=… fx=… */` |
 | 🔗 Jaa | copies a link with the Markdown compressed into the URL (`#md=…`); opening it loads the same deck |
 | PDF / PPTX | export. The PPTX includes notes, transitions and build steps per paragraph |

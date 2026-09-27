@@ -192,6 +192,9 @@ class PresDeck {
             if (r == -5) {
                 return ((to_string k) + ":fit")
             }
+            if (r >= 3000) {
+                return ((to_string k) + ":way" + (to_string (r - 3000)))
+            }
             if (r >= 2000) {
                 return ((to_string k) + ":way" + (to_string (r - 2000)))
             }
@@ -204,6 +207,38 @@ class PresDeck {
             k = (k + 1)
         }
         return ""
+    }
+
+    ; Every diagram back on its own camera.
+    fn resetExplore:void () {
+        def i:int 0
+        while (i < (array_length slides)) {
+            def s:PresSlide (itemAt slides i)
+            def k:int 0
+            while (k < (array_length s.diagrams)) {
+                def u:PresDiaUse (itemAt s.diagrams k)
+                u.diagram.resetExplore()
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The first diagram on slide i with slide point (px, py) in its area, or -1.
+    fn diagramAt:int (i:int px:double py:double) {
+        if ((i < 0) || (i >= (array_length slides))) {
+            return -1
+        }
+        def s:PresSlide (itemAt slides i)
+        def k:int 0
+        while (k < (array_length s.diagrams)) {
+            def u:PresDiaUse (itemAt s.diagrams k)
+            if ((((px >= u.bx) && (py >= u.by)) && (px <= (u.bx + u.bw))) && (py <= (u.by + u.bh))) {
+                return k
+            }
+            k = (k + 1)
+        }
+        return -1
     }
 
     fn uiBusy:boolean (i:int) {
