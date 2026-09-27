@@ -1616,26 +1616,37 @@ class PresApp {
     ; reads a picture from disk unless it is handed the pixels, and a browser
     ; has no disk — so every picture the slides use is decoded from the byte
     ; store and registered under the name the page element carries.
+    ; The deck as the stage draws it, one page per slide: the slide's own
+    ; colours and type, and each diagram at rest in the holo style, in the
+    ; direction the stage chose. It used to be the markdown module's print
+    ; layout — white paper, which lost a dark theme's light text, and the
+    ; plain diagram laid out as written, a strip on a long chain. A surface
+    ; effect cannot be printed and leaves the slide's own colour.
     fn pdf:buffer () {
         def mw:MarkdownWeb deck.md
         def e:MarkdownEdit mw.edit
-        def print:MdLayout (new MdLayout())
-        if (!null? mw.measurer) {
-            print.setMeasurer((unwrap mw.measurer))
+        def l:MdLayout (deck.layout())
+        def paper:string "#ffffff"
+        if ((strlen l.style.pageBackground) > 0) {
+            paper = l.style.pageBackground
         }
-        print.style = (new MdStyle())
-        e.sheet.applyTo(print.style)
-        print.setStyleSheet(e.styleCss)
-        if e.haveImages { print.setImages(e.imageStore "/") }
-        print.applyMeta(e.doc)
-        def cw:double (print.style.pageWidth - (print.style.margin * 2.0))
-        MdDiagram.prepare(e.doc print.embeds cw mw.styleName)
-        print.applySlideMeta(e.doc)
-        print.layoutSlides(e.doc)
-        def root:EVGElement (MdToEvg.buildPrint(print))
+        def bg:EVGColor (EVGColor.parse(paper))
+        def pw:double deck.pageW
+        def ph:double deck.pageH
+        def root:EVGElement (EVGListToElements.printRoot(pw ph))
+        def section:EVGElement (EVGListToElements.sectionOf(root))
+        deck.still = true
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def groups:[int]
+            def dl:EVGDisplayList (deck.slideList(i groups 0.0))
+            section.addChild((EVGListToElements.pageFrom(dl pw ph bg true)))
+            i = (i + 1)
+        }
+        deck.still = false
         def renderer (new EVGPDFRenderer())
         renderer.init(renderer)
-        renderer.setPageSize(print.style.pageWidth print.style.pageHeight)
+        renderer.setPageSize(pw ph)
         if (mw.faceCount > 0) {
             renderer.setFontManager(mw.fontManager)
             if (!null? mw.measurer) {
@@ -1643,9 +1654,9 @@ class PresApp {
             }
         }
         if e.haveImages {
-            def i:int 0
-            while (i < (array_length print.boxes)) {
-                def b:MdBox (itemAt print.boxes i)
+            def k:int 0
+            while (k < (array_length l.boxes)) {
+                def b:MdBox (itemAt l.boxes k)
                 if ((b.kind == 4) && ((strlen b.imagePath) > 0)) {
                     def bytes:buffer (e.imageStore.read(b.imagePath))
                     if ((buffer_length bytes) > 0) {
@@ -1655,7 +1666,7 @@ class PresApp {
                         }
                     }
                 }
-                i = (i + 1)
+                k = (k + 1)
             }
         }
         return (renderer.render(root))
