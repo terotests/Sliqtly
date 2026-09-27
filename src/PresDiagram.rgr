@@ -1024,7 +1024,16 @@ class PresDiagram {
             target = 0
         }
         def keep:int (itemAt stepC target)
-        def at:double (itemAt stepT target)
+        ; Not the instant the node arrives, but once it has finished arriving
+        ; (its pop, its fade, its scan line): the clock waits after a step
+        ; back, and a node frozen half way in reads as a glitch.
+        def at:double ((itemAt stepT target) + 0.65)
+        if (at > ((itemAt stepLeave target) - 0.05)) {
+            at = ((itemAt stepLeave target) - 0.05)
+        }
+        if (at < (itemAt stepT target)) {
+            at = (itemAt stepT target)
+        }
         while ((array_length choices) > keep) {
             remove_index choices ((array_length choices) - 1)
         }

@@ -201,6 +201,8 @@ class PresCheck {
         this.ok(((array_length d.choices) == 0) "going back undoes the choice")
         this.ok(d.waiting "and the question is asked again")
         this.ok((to < atC) "going back goes back in time")
+        def bb:PresDNode (d.nodeNamed("B"))
+        this.ok((to >= (bb.at + 0.6)) ("and lands where the node has finished arriving: " + (to_string to) + " vs " + (to_string bb.at)))
         this.sameTarget()
     }
 
