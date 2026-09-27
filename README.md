@@ -89,6 +89,10 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | While presenting: Esc | end |
 | At a diagram's question: click, ←/→ + Enter, or 1–9 | choose the way on |
 | In a diagram: ‹ ring or Backspace | one step back (press again for more) |
+| In a diagram: click a box | the camera zooms to it (a class, not the package round it); ‹ at the top left goes back |
+| In a diagram: + / − / ⛶ buttons, keys + − 0 | zoom in, out, whole diagram |
+| Teema | dark themes aurora, nebula (starfield), carbon, ember (ambient light), midnight; light corporate, editorial. A theme sets the diagram colours through `/* pres: accent=… warm=… fx=… */` |
+| 🔗 Jaa | copies a link with the Markdown compressed into the URL (`#md=…`); opening it loads the same deck |
 | PDF / PPTX | export. The PPTX includes notes, transitions and build steps per paragraph |
 
 ## Structure
@@ -102,5 +106,6 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | `src/PresApp.rgr` | The editor: panels, tracks, filmstrip, presenting, exports |
 | `src/PresCheck.rgr` | Node checks |
 | `web/` | `index.html` (toolbar), `main.js` (WebGL, clock, keyboard, paste), `pres.css` (EVG chrome) |
-| `themes/aurora.css` | Default theme (dark 16:9) |
+| `themes/*.css` | Themes; `aurora` is the default (dark 16:9) |
+| `.github/workflows/pages.yml` | Publishes `web/dist` to GitHub Pages as a playground (no server features) |
 | `scripts/` | setup, build, start (local server), check, check-web |

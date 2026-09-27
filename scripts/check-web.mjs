@@ -163,14 +163,14 @@ try {
   });
   check("chrome draws the three tracks", r.chromeTracks);
   check("editor draws the markdown", r.editorText);
-  check("the sample is five slides", r.slides === 5, String(r.slides));
+  check("the sample is six slides", r.slides === 6, String(r.slides));
   check("stage draws slide 1", r.stageTitle);
   check("slide 1 carries its starfield", r.stageFx === "starfield", r.stageFx);
   check("a build item is hidden before its step", !r.beforeStep);
   check("all four numbers at the end", r.afterAll === 4, String(r.afterAll));
   check("a frame is a function of its time", r.deterministic);
-  check("typing a heading makes a slide", r.slidesAfterTyping === 6, String(r.slidesAfterTyping));
-  check("the stage follows the caret to it", r.selectedAfterTyping === 5, String(r.selectedAfterTyping));
+  check("typing a heading makes a slide", r.slidesAfterTyping === 7, String(r.slidesAfterTyping));
+  check("the stage follows the caret to it", r.selectedAfterTyping === 6, String(r.selectedAfterTyping));
   check("present mode", r.presentMode === "present");
   check("title slide has no steps: two clicks reach slide 2's first step", r.afterTwoClicks === 1, String(r.afterTwoClicks));
   check("a click releases a build step", r.stepOnSecond === 2, String(r.stepOnSecond));
@@ -209,11 +209,51 @@ try {
   check("two quick backs undo the choice", q3.choices === 0, JSON.stringify(q3));
   await page.waitForFunction(() => window.__app.deck.askingAt(3, window.__app.stageTime()) >= 0, null, { timeout: 8000 }).catch(() => {});
   check("and the question is asked again", (await q()).asking === 0);
-  await page.evaluate(() => { window.__app.endPresent(); window.__app.takeRequest(); });
+  await page.evaluate(() => { window.__app.endPresent(); window.__app.takeRequest(); document.body.classList.remove("presenting"); });
+
+  // Themes: a dark one with its own effect, and a light one whose diagram
+  // draws dark lines.
+  const th = await page.evaluate(() => {
+    const sel = document.getElementById("theme");
+    const a = window.__app;
+    sel.value = "nebula";
+    sel.dispatchEvent(new Event("change"));
+    a.selectSlide(0);
+    a.localT = -1;
+    const fx = (JSON.parse(a.stageJson()).list.effects || []).map((e) => e.kind).join(",");
+    sel.value = "corporate";
+    sel.dispatchEvent(new Event("change"));
+    const d = a.deck.slideAt(3).diagrams[0].diagram;
+    const light = d.light;
+    sel.value = "aurora";
+    sel.dispatchEvent(new Event("change"));
+    return { fx, light };
+  });
+  check("the nebula theme brings its starfield", th.fx.includes("starfield"), th.fx);
+  check("a diagram on a light theme uses the light palette", th.light === true);
+
+  // Share: the markdown goes into the link, and the link opens it again.
+  await page.evaluate(() => window.__app.setSource(window.__app.source() + "\n\n## Jaettu dia\n\nÄäkkösiä ja 👀\n"));
+  await page.evaluate(() => document.getElementById("share").click());
+  await page.waitForFunction(() => !!window.__lastShare, null, { timeout: 5000 }).catch(() => {});
+  const shared = await page.evaluate(() => ({ url: window.__lastShare || "", src: window.__app.source() }));
+  check("share puts the document in the URL", /#md=/.test(shared.url), `${shared.url.length} chars`);
+  const page2 = await browser.newPage({ viewport: { width: 1200, height: 760 } });
+  await page2.goto(shared.url.replace(/^https?:\/\/[^/]+/, url.replace(/\/$/, "")));
+  await page2.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+  const reopened = await page2.evaluate(() => window.__app.source());
+  check("the shared link opens the same markdown", reopened === shared.src);
+  await page2.close();
 
   // A picture from the clipboard's point of view: bytes into the store,
   // markdown at the caret, a picture command on the slide.
   const pic = await page.evaluate(async () => {
+    // setSource put the caret at the top; a picture there would push the
+    // front matter down into a slide
+    const app = window.__app;
+    app.setFocus("editor");
+    for (let i = 0; i < 400; i += 1) app.key("down", false, false);
+    app.key("end", false, false);
     const c = document.createElement("canvas");
     c.width = 64;
     c.height = 40;

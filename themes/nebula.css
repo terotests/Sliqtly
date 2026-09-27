@@ -1,16 +1,16 @@
 /* ---------------------------------------------------------------------------
-   aurora.css — the presentation's default template: a dark 16:9 slide.
+   nebula.css — a deep violet slide under a slow starfield.
 
    The markdown module reads this (MdCss.rgr lists what it honours). A slide
    breaks at every `##`; `# Title` opens the deck.
    --------------------------------------------------------------------------- */
 
-/* pres: accent=#5ce1ff warm=#ffa546 */
+/* pres: fx=starfield fx-density=1.1 fx-hue=280 fx-hue2=320 accent=#c084fc warm=#fbbf24 */
 
-page      { width: 13.333in; height: 7.5in; padding: 0.75in; background-color: #0b1030 }
+page      { width: 13.333in; height: 7.5in; padding: 0.75in; background-color: #130a26 }
 deck      { split-level: 2; overflow: split; aspect-ratio: 16 / 9 }
 
-document  { font-family: Open Sans; font-size: 20pt; line-height: 1.4; color: #e8ecff }
+document  { font-family: Open Sans; font-size: 20pt; line-height: 1.4; color: #f3eaff }
 
 heading   { font-family: Open Sans; margin-top: 10pt; margin-bottom: 18pt }
 h1        { font-size: 48pt }
@@ -18,18 +18,18 @@ h2        { font-size: 36pt }
 h3        { font-size: 24pt }
 
 p         { margin-bottom: 14pt }
-a         { color: #a9b8ff }
-hr        { color: #2d3a7a }
+a         { color: #d8b4fe }
+hr        { color: #3b2366 }
 
 list      { padding-left: 30pt; margin-left: 10pt }
 li        { margin-bottom: 10pt }
 
-blockquote { color: #c3cbff; border-color: #7c8cff; border-width: 4pt; padding-left: 22pt; padding-top: 8pt }
+blockquote { color: #e9d5ff; border-color: #c084fc; border-width: 4pt; padding-left: 22pt; padding-top: 8pt }
 
 code      { font-family: Noto Sans; font-size: 15pt; line-height: 1.4; padding: 14pt;
-            background-color: #151c48; border-color: #2d3a7a }
+            background-color: #22123f; border-color: #3b2366 }
 
-table     { border-color: #2d3a7a; background-color: #151c48; padding-left: 12pt; padding-top: 8pt }
+table     { border-color: #3b2366; background-color: #22123f; padding-left: 12pt; padding-top: 8pt }
 
 .lead     { font-size: 26pt }
 .kicker   { font-size: 14pt }

@@ -54,6 +54,42 @@ Pallo kulkee reitin: kokouksen ääni selaimelle, selaimelta Geminille, ja
 vastaus takaisin kokoukseen botin mikrofonina.
 :::
 
+## Tietomalli {transition=fade}
+
+```plantuml
+@startuml
+package "tilaukset" {
+  abstract class Tilaus {
+    +id: int
+    #luotu: Date
+    {abstract} +summa(): Raha
+  }
+  class Verkkotilaus
+  class Rivi {
+    +tuote: string
+    +kpl: int
+  }
+}
+package "laskutus" {
+  interface Maksettava {
+    +veloita(summa: Raha): Kuitti
+  }
+}
+class Asiakas
+Tilaus <|-- Verkkotilaus
+Tilaus *-- "1..*" Rivi : sisältää
+Asiakas "1" o-- "monta" Tilaus : tekee
+Tilaus ..|> Maksettava
+@enduml
+```
+{tour=off width=480}
+
+::: notes
+Tässä ei ole kierrosta: klikkaa laatikkoa niin kamera zoomaa siihen.
+Takaisin-nappi vasemmalla ylhäällä, zoom-napit oikealla alhaalla,
+näppäimillä + − 0 ja Backspace.
+:::
+
 ## Miten tätä muokataan
 
 - `## Otsikko {transition=slide}` aloittaa dian ja valitsee siirtymän
@@ -61,6 +97,6 @@ vastaus takaisin kokoukseen botin mikrofonina.
 - `{anim=fade|rise|fly|zoom}` lohkon perässä animoi sen
 - `fx=starfield`, `plasma-wave`, `smoke`, `ambient-light` otsikossa antaa taustaefektin
 - `::: notes` … `:::` on puhujan muistiinpanot
-- Kaavio (```mermaid, ```dot) animoidaan: holo-tyyli oletuksena; `{style=sketch}`, `{tour=off}`, `{zoom=3}` tai `{diagram=classic}` fencen perässä
+- Kaavio (```mermaid, ```dot) animoidaan: holo-tyyli oletuksena; `{style=sketch}`, `{tour=off}` (klikkaa laatikkoa: zoom, ← takaisin), `{zoom=3}` tai `{diagram=classic}` fencen perässä
 - Ctrl+V liittää kuvan leikepöydältä
 {.build anim=fade}

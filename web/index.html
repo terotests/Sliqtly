@@ -50,6 +50,12 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
     white-space: pre-wrap; pointer-events: none;
   }
+  #toast {
+    position: fixed; left: 50%; top: 56px; transform: translateX(-50%);
+    background: #1b2350; color: var(--ink); border: 1px solid var(--accent); border-radius: 8px;
+    padding: 8px 14px; opacity: 0; transition: opacity .25s; pointer-events: none; max-width: 80vw;
+  }
+  #toast.on { opacity: 1; }
   body.presenting #bar { display: none; }
   body.presenting #c { cursor: none; }
   @media (max-width: 700px) { #bar .wide { display: none; } }
@@ -63,9 +69,17 @@
   </label>
   <label>Teema
     <select id="theme">
-      <option value="aurora">aurora</option>
-      <option value="corporate">corporate</option>
-      <option value="editorial">editorial</option>
+      <optgroup label="Tummat">
+        <option value="aurora">aurora</option>
+        <option value="nebula">nebula</option>
+        <option value="carbon">carbon</option>
+        <option value="ember">ember</option>
+        <option value="midnight">midnight</option>
+      </optgroup>
+      <optgroup label="Vaaleat">
+        <option value="corporate">corporate</option>
+        <option value="editorial">editorial</option>
+      </optgroup>
       <option value="">dokumentin oma</option>
     </select>
   </label>
@@ -77,6 +91,7 @@
   <button id="save" class="wide" title="Tallenna Markdown">Tallenna .md</button>
   <button id="pdf">PDF</button>
   <button id="pptx">PPTX</button>
+  <button id="share" title="Kopioi linkki, jonka osoitteeseen tämä Markdown on pakattu">🔗 Jaa</button>
   <span class="grow"></span>
   <span id="status"></span>
 </div>
@@ -87,6 +102,7 @@
   <div id="hint">ladataan…</div>
 </div>
 <div id="err"></div>
+<div id="toast" role="status" aria-live="polite"></div>
 <input id="filepick" type="file" accept=".md,.markdown,text/markdown,text/plain" hidden />
 <script src="./pres_app.js?v=__BUILD__"></script>
 <script type="module" src="./main.js?v=__BUILD__"></script>

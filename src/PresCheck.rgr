@@ -251,17 +251,15 @@ class PresCheck {
             this.ok(((gapY >= -1.0) && (gapY < 60.0)) ("choice " + (to_string (k0 + 1)) + " sits just under the question box: " + (to_string gapY)))
             k0 = (k0 + 1)
         }
-        ; each way on runs through its own pill
+        ; each way on points at its own pill: on the line, or by a leader from beside it
         def k:int 0
         while (k < 2) {
             def e:PresDEdge (itemAt d.edges (itemAt d.options k))
-            def mid:[double]
-            PresDiagram.pointAt(e.line (e.len * 0.5) mid)
-            def inX:boolean (((itemAt mid 0) >= (itemAt d.pillX k)) && ((itemAt mid 0) <= ((itemAt d.pillX k) + (itemAt d.pillW k))))
-            def inY:boolean (((itemAt mid 1) >= ((itemAt d.pillY k) - 4.0)) && ((itemAt mid 1) <= (((itemAt d.pillY k) + (itemAt d.pillH k)) + 4.0)))
-            this.ok((inX && inY) ("way " + (to_string (k + 1)) + " runs through its own choice"))
+            def gap:double (PresDiagram.distanceTo(e.line (itemAt d.pillLx k) (itemAt d.pillLy k)))
+            this.ok((gap < 3.0) ("way " + (to_string (k + 1)) + " is pointed at from its choice"))
             k = (k + 1)
         }
+    }
     }
 
     ; A long left-to-right chain: laid out top to bottom instead, every node

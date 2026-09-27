@@ -109,8 +109,17 @@ class PresDeck {
     def text:string ""
     ; moves on every rebuild, so a host can keep what it built from the last one
     def revision:int 0
+    ; the host's wall clock, for the viewer's camera moves, and whether the
+    ; list being built is the stage (controls drawn) or a thumbnail
+    def uiNow:double 0.0
+    def showControls:boolean false
     def pageW:double 960.0
     def pageH:double 540.0
+    ; What the template says about the presentation beyond what markdown
+    ; reads: a comment `/* pres: fx=starfield fx-hue=280 accent=#c084fc
+    ; warm=#fbbf24 */` anywhere in its CSS.
+    def themeKeys:[string]
+    def themeVals:[string]
     ; Diagrams by (notation, width, text): a keystroke elsewhere in the
     ; document must not lay every diagram out again.
     def diaKeys:[string]
@@ -119,6 +128,10 @@ class PresDeck {
     Constructor () {
         def s:[PresSlide]
         slides = s
+        def tk:[string]
+        themeKeys = tk
+        def tv:[string]
+        themeVals = tv
         def k:[string]
         diaKeys = k
         def v:[PresDiagram]
@@ -165,9 +178,22 @@ class PresDeck {
         def k:int 0
         while (k < (array_length s.diagrams)) {
             def u:PresDiaUse (itemAt s.diagrams k)
+            u.diagram.uiNow = uiNow
             def r:int (u.diagram.hit((t - u.start) u.bx u.by u.bw u.bh px py))
             if (r == -2) {
                 return ((to_string k) + ":back")
+            }
+            if (r == -3) {
+                return ((to_string k) + ":zin")
+            }
+            if (r == -4) {
+                return ((to_string k) + ":zout")
+            }
+            if (r == -5) {
+                return ((to_string k) + ":fit")
+            }
+            if (r >= 1000) {
+                return ((to_string k) + ":node" + (to_string (r - 1000)))
             }
             if (r >= 0) {
                 return ((to_string k) + ":" + (to_string r))
@@ -175,6 +201,23 @@ class PresDeck {
             k = (k + 1)
         }
         return ""
+    }
+
+    fn uiBusy:boolean (i:int) {
+        if ((i < 0) || (i >= (array_length slides))) {
+            return false
+        }
+        def s:PresSlide (itemAt slides i)
+        def k:int 0
+        while (k < (array_length s.diagrams)) {
+            def u:PresDiaUse (itemAt s.diagrams k)
+            u.diagram.uiNow = uiNow
+            if (u.diagram.uiBusy()) {
+                return true
+            }
+            k = (k + 1)
+        }
+        return false
     }
 
     ; The diagram on slide i that is asking a question at slide time t, or -1.
@@ -250,6 +293,33 @@ class PresDeck {
         return (bottom - box.y)
     }
 
+    ; Where a diagram paints across: the whole content width when nothing
+    ; else on the slide sits beside it (a `{width=…}` that only kept the
+    ; picture short enough to stay on its slide), else its own box. [x, w].
+    fn diagramSpan:[double] (page:int box:MdBox) {
+        def l:MdLayout (this.layout())
+        def room:double (this.roomBelow(page box))
+        def top:double box.y
+        def bottom:double (box.y + room)
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (((b.page == page) && (b != box)) && ((b.y < (bottom - 0.5)) && ((b.y + b.h) > (top + 0.5)))) {
+                def bx:double box.x
+                def bw:double box.w
+                return ([] _:double (bx bw))
+            }
+            i = (i + 1)
+        }
+        def x:double l.style.margin
+        def w:double (l.style.pageWidth - (l.style.margin * 2.0))
+        if (w < box.w) {
+            x = box.x
+            w = box.w
+        }
+        return ([] _:double (x w))
+    }
+
     ; The layout box a fence was laid out in, or -1.
     fn embedBox:int (page:int text:string) {
         def l:MdLayout (this.layout())
@@ -293,9 +363,10 @@ class PresDeck {
         ; `{layout=keep}` keeps what was written.
         if ((n.attrValue("layout")) != "keep") {
             def room:double (this.roomBelow(page box))
+            def span0:[double] (this.diagramSpan(page box))
             def aspect:double 1.5
             if (room > 0.0) {
-                aspect = (box.w / room)
+                aspect = ((itemAt span0 1) / room)
             }
             if (aspect > 1.5) { aspect = 1.5 }
             if (aspect < 0.6) { aspect = 0.6 }
@@ -354,16 +425,69 @@ class PresDeck {
             d.style = "sketch"
         }
         d.choose = ((n.attrValue("choose")) != "off")
+        def paper:string lay.style.pageBackground
+        if ((strlen paper) == 0) {
+            paper = "#ffffff"
+        }
+        d.setPalette(paper (this.themeValue("accent")) (this.themeValue("warm")))
+        d.rimFade = ((strlen s.fx) == 0)
         d.plan()
         def u (new PresDiaUse())
         u.diagram = d
         u.source = n.literal
         u.srcStart = n.srcStart
-        u.bx = box.x
+        def span:[double] (this.diagramSpan(page box))
+        u.bx = (itemAt span 0)
         u.by = box.y
-        u.bw = box.w
+        u.bw = (itemAt span 1)
         u.bh = (this.roomBelow(page box))
         push s.diagrams u
+    }
+
+    fn setTheme:void (css:string) {
+        clear themeKeys
+        clear themeVals
+        def at:int (indexOf css "/* pres:")
+        if (at < 0) {
+            return
+        }
+        def rest:string (substring css (at + 8) (strlen css))
+        def end:int (indexOf rest "*/")
+        if (end < 0) {
+            return
+        }
+        def body:string (substring rest 0 end)
+        ; key=value pairs separated by spaces or newlines
+        def n:int (strlen body)
+        def i:int 0
+        while (i < n) {
+            while ((i < n) && (((charAt body i) == 32) || (((charAt body i) == 10) || ((charAt body i) == 13)))) {
+                i = (i + 1)
+            }
+            def st:int i
+            while ((i < n) && (((charAt body i) != 32) && (((charAt body i) != 10) && ((charAt body i) != 13)))) {
+                i = (i + 1)
+            }
+            if (i > st) {
+                def pair:string (substring body st i)
+                def eq:int (indexOf pair "=")
+                if (eq > 0) {
+                    push themeKeys (substring pair 0 eq)
+                    push themeVals (substring pair (eq + 1) (strlen pair))
+                }
+            }
+        }
+    }
+
+    fn themeValue:string (key:string) {
+        def i:int 0
+        while (i < (array_length themeKeys)) {
+            if ((itemAt themeKeys i) == key) {
+                return (itemAt themeVals i)
+            }
+            i = (i + 1)
+        }
+        return ""
     }
 
     fn setText:void (t:string) {
@@ -462,6 +586,18 @@ class PresDeck {
             s.fx = dFx
             s.stepGap = dStep
             s.hold = dHold
+            if ((strlen dFx) == 0) {
+                ; the template's effect, with its own parameters
+                s.fx = (this.themeValue("fx"))
+                def ti:int 0
+                while (ti < (array_length themeKeys)) {
+                    def tkey:string (itemAt themeKeys ti)
+                    if (((strlen tkey) > 3) && ((substring tkey 0 3) == "fx-")) {
+                        PresDeck.setFx(s (substring tkey 3 (strlen tkey)) (itemAt themeVals ti))
+                    }
+                    ti = (ti + 1)
+                }
+            }
             PresDeck.fxFromMeta(s meta)
             push slides s
             p = (p + 1)
@@ -734,11 +870,14 @@ class PresDeck {
             }
             if (use >= 0) {
                 def dia:PresDiaUse (itemAt s.diagrams use)
+                dia.diagram.uiNow = uiNow
+                dia.diagram.showControls = showControls
                 ; The diagram gets the room below it, not just the box its
                 ; picture fitted: a wide flowchart is a thin strip, and a
                 ; camera zoomed into a strip shows a slot.
                 def room:double (this.roomBelow(i kb))
-                dia.diagram.paint(out kb.x kb.y kb.w room (t - dia.start) l.style.textColor paper l)
+                def span:[double] (this.diagramSpan(i kb))
+                dia.diagram.paint(out (itemAt span 0) kb.y (itemAt span 1) room (t - dia.start) l.style.textColor paper l)
             } {
                 painter.paintBox(out l kb 0.0)
             }

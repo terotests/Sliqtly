@@ -164,6 +164,7 @@ class PresApp {
     ; The reader's template, which beats what the document names; "" lets
     ; the document decide.
     fn setStyleSheet:void (css:string) {
+        deck.setTheme(css)
         deck.md.setStyleSheet(css)
         this.rebuildDeck()
     }
@@ -484,6 +485,39 @@ class PresApp {
         def kn@(optional):int (str2int (substring code 0 colon))
         def k:int (?? kn 0)
         def what:string (substring code (colon + 1) (strlen code))
+        def hitU@(optional):PresDiaUse (deck.diagramUse(selected k))
+        if (null? hitU) {
+            return false
+        }
+        def du:PresDiaUse (unwrap hitU)
+        if (what == "back") {
+            if (! (du.diagram.exploreBack())) {
+                this.diagramBack(k)
+            }
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        if (what == "zin") {
+            du.diagram.zoomBy(1.4)
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        if (what == "zout") {
+            du.diagram.zoomBy((1.0 / 1.4))
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        if (what == "fit") {
+            du.diagram.exploreFit()
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        if (((strlen what) > 4) && ((substring what 0 4) == "node")) {
+            def ni@(optional):int (str2int (substring what 4 (strlen what)))
+            du.diagram.explore((?? ni -1))
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         if (what == "back") {
             this.diagramBack(k)
         } {
@@ -532,6 +566,30 @@ class PresApp {
     fn diagramKey:boolean (name:string) {
         def t:double (this.stageTime())
         def k:int (deck.askingAt(selected t))
+        def sl0:PresSlide (deck.slideAt(selected))
+        if ((array_length sl0.diagrams) > 0) {
+            def ue:PresDiaUse (itemAt sl0.diagrams 0)
+            if ((name == "+") || (name == "=")) {
+                ue.diagram.zoomBy(1.4)
+                chromeRev = (chromeRev + 1)
+                return true
+            }
+            if (name == "-") {
+                ue.diagram.zoomBy((1.0 / 1.4))
+                chromeRev = (chromeRev + 1)
+                return true
+            }
+            if (name == "0") {
+                ue.diagram.exploreFit()
+                chromeRev = (chromeRev + 1)
+                return true
+            }
+            if ((name == "backspace") && ue.diagram.exploring) {
+                ue.diagram.exploreBack()
+                chromeRev = (chromeRev + 1)
+                return true
+            }
+        }
         if (name == "backspace") {
             def s:PresSlide (deck.slideAt(selected))
             if ((array_length s.diagrams) > 0) {
@@ -768,7 +826,19 @@ class PresApp {
     }
 
     fn stageJson:string () {
-        return (this.listJson((PresTimeline.frame(deck selected (this.stageTime())))))
+        deck.showControls = true
+        def out:string (this.listJson((PresTimeline.frame(deck selected (this.stageTime())))))
+        deck.showControls = false
+        return out
+    }
+
+    ; The host's wall clock, for the viewer's own camera moves in a diagram.
+    fn setUiTime:void (s:double) {
+        deck.uiNow = s
+    }
+
+    fn uiBusy:boolean () {
+        return (deck.uiBusy(selected))
     }
 
     fn slideJson:string (i:int) {
@@ -1348,6 +1418,15 @@ class PresApp {
         if ((strlen (trim line)) > 0) {
             editor.handleKey((UIKey.end()) false false)
             pre = "\n\n"
+        } {
+            ; an empty line right under a paragraph would still continue it
+            def ln:int editor.sel.caret.line
+            if (ln > 0) {
+                def above:string (editor.buf.lineAt((ln - 1)))
+                if ((strlen (trim above)) > 0) {
+                    pre = "\n"
+                }
+            }
         }
         editor.handleText((pre + "![" + alt + "](" + path + ")\n"))
         this.syncEditor()

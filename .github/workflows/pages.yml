@@ -1,0 +1,48 @@
+# The playground on GitHub Pages: web/dist is static (the editor, the
+# layout, the exports all run in the tab), so it is built here and published
+# as it is. Ranger is cloned by the build from presentation.config.json.
+#
+# One-time setting: Settings → Pages → Build and deployment → Source:
+# GitHub Actions.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build the page
+        run: node scripts/build.mjs
+      - name: Check the deck and the timeline
+        run: node scripts/check.mjs
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

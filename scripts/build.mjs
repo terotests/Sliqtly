@@ -33,7 +33,9 @@ export function build({ ranger } = {}) {
   for (const face of ["NotoSans-Regular", "NotoSans-Bold"]) {
     copy(path.join(ranger, `gallery/pdf_writer/assets/fonts/Noto_Sans/${face}.ttf`), path.join(distDir, `fonts/${face}.ttf`));
   }
-  copy(path.join(root, "themes/aurora.css"), path.join(distDir, "themes/aurora.css"));
+  for (const f of fs.readdirSync(path.join(root, "themes"))) copy(path.join(root, "themes", f), path.join(distDir, "themes", f));
+  // GitHub Pages serves the directory as it is; no Jekyll pass over it.
+  fs.writeFileSync(path.join(distDir, ".nojekyll"), "");
   for (const t of ["corporate", "editorial"]) {
     copy(path.join(ranger, `gallery/markdown/fixtures/themes/${t}.css`), path.join(distDir, `themes/${t}.css`));
   }

@@ -36,7 +36,7 @@ const FACES = [
   ["Noto Sans", "NotoSans-Regular.ttf"],
   ["Noto Sans-Bold", "NotoSans-Bold.ttf"],
 ];
-const THEMES = ["aurora", "corporate", "editorial"];
+const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "corporate", "editorial"];
 const SAMPLES = {
   esittely: ["Esittely: Gemini-botti", "./samples/esittely.md"],
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
@@ -220,6 +220,8 @@ function rebaseClock() {
 function frame() {
   try {
     const now = performance.now();
+    app.setUiTime(now / 1000);
+    if (app.uiBusy()) needsPaint = true;
     if (app.isPlaying()) {
       const want = clockBase + (now - clockAt) / 1000;
       const got = app.setTime(want);
@@ -333,6 +335,7 @@ document.getElementById("present").addEventListener("click", (ev) => {
   keys.focus({ preventScroll: true });
 });
 document.getElementById("open").addEventListener("click", () => filePick.click());
+document.getElementById("share").addEventListener("click", () => { shareLink().catch(fail); });
 document.getElementById("save").addEventListener("click", () => {
   window.__lastDownload = deliver(new TextEncoder().encode(app.source()), docName + ".md", "text/markdown");
 });
@@ -356,6 +359,87 @@ filePick.addEventListener("change", async () => {
   dropThumbs();
   needsPaint = true;
 });
+
+// --- sharing: the markdown in the URL ------------------------------------------
+// `#md=<deflate-raw, base64url>&theme=<name>`. Everything stays in the link:
+// the page has no server to keep a copy. Pictures pasted into the document
+// are bytes in this tab and do not travel with it.
+function b64url(bytes) {
+  let s = "";
+  const u = new Uint8Array(bytes);
+  for (let i = 0; i < u.length; i += 1) s += String.fromCharCode(u[i]);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function unb64url(text) {
+  const s = atob(text.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((text.length + 3) % 4));
+  const u = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i += 1) u[i] = s.charCodeAt(i);
+  return u;
+}
+async function packText(text) {
+  const stream = new Blob([new TextEncoder().encode(text)]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+  return b64url(await new Response(stream).arrayBuffer());
+}
+async function unpackText(code) {
+  const stream = new Blob([unb64url(code)]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new TextDecoder().decode(await new Response(stream).arrayBuffer());
+}
+function hashParams() {
+  return new URLSearchParams(location.hash.replace(/^#/, ""));
+}
+
+let toastTimer = 0;
+function toast(text) {
+  const el = document.getElementById("toast");
+  el.textContent = text;
+  el.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("on"), 3200);
+}
+
+async function shareLink() {
+  const text = app.source();
+  const code = await packText(text);
+  const q = new URLSearchParams();
+  q.set("md", code);
+  if (themeSel.value) q.set("theme", themeSel.value);
+  const url = location.origin + location.pathname + location.search + "#" + q.toString();
+  history.replaceState(null, "", url);
+  lastHash = location.hash;
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(url);
+    copied = true;
+  } catch (_) { /* no clipboard permission: the address bar has it */ }
+  const pictures = /\]\(media\//.test(text) ? " Liitetyt kuvat eivät kulje linkissä." : "";
+  toast((copied ? "Linkki kopioitu" : "Linkki on osoiterivillä") + ` (${url.length} merkkiä).` + pictures);
+  window.__lastShare = url;
+}
+
+let lastHash = "";
+async function openFromHash() {
+  const q = hashParams();
+  if (!q.has("md")) return false;
+  lastHash = location.hash;
+  try {
+    const text = await unpackText(q.get("md"));
+    if (q.has("theme")) {
+      const th = q.get("theme");
+      themeSel.value = th;
+      app.setStyleSheet(th ? themeCss[th] || "" : "");
+    }
+    docName = "jaettu";
+    app.setSource(text);
+    dropThumbs();
+    needsPaint = true;
+    return true;
+  } catch (e) {
+    toast("Linkin sisältöä ei voitu lukea.");
+    console.warn(e);
+    return false;
+  }
+}
+window.addEventListener("hashchange", () => { if (location.hash !== lastHash) openFromHash(); });
 
 const themeCss = {};
 function useTheme(key) {
@@ -649,9 +733,11 @@ async function start() {
   const theme = q.has("theme") ? q.get("theme") : "aurora";
   themeSel.value = theme;
   app.setStyleSheet(theme ? themeCss[theme] || "" : "");
-  const sample = SAMPLES[q.get("sample")] ? q.get("sample") : "esittely";
-  sampleSel.value = sample;
-  await openSample(sample);
+  if (!(await openFromHash())) {
+    const sample = SAMPLES[q.get("sample")] ? q.get("sample") : "esittely";
+    sampleSel.value = sample;
+    await openSample(sample);
+  }
 
   hintEl.remove();
   focusKeys("editor");
