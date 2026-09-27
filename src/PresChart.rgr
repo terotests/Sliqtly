@@ -1,0 +1,274 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+;
+; PresChart — a chart (a ```vega-lite fence) dressed for the stage.
+;
+; The markdown module draws a chart the way a report prints it: flat bars on
+; a white card. On a slide that reads as a screenshot. Here the commands it
+; produced are taken over after the fact: the card is dropped, the grid and
+; axes go into the theme's accent, and the bars become hard-edged columns of
+; light — the theme's warm colour burning down into rust, a bright cap with a
+; glow, fine machined grooves across them. On the timeline the columns rise
+; one after another, and a scan beam passes over the finished chart once.
+;
+; Deterministic like the rest: the picture is a function of `t`, the time
+; since the slide started. `still` (an export) is the finished chart.
+
+Import "PresDiagram.rgr"
+
+class PresChart {
+
+    sfn dress:void (out:EVGDisplayList from:int t:double still:boolean accentHex:string warmHex:string) {
+        def ac:EVGColor (PresChart.colour(accentHex "#5ce1ff"))
+        def wm:EVGColor (PresChart.colour(warmHex "#ffa546"))
+        def acR:int (ac.red())
+        def acG:int (ac.green())
+        def acB:int (ac.blue())
+        def wmR:int (wm.red())
+        def wmG:int (wm.green())
+        def wmB:int (wm.blue())
+        ; the rust the columns burn down into: the warm colour, darker and redder
+        def ruR:int (to_int ((to_double wmR) * 0.55))
+        def ruG:int (to_int ((to_double wmG) * 0.2))
+        def ruB:int (to_int ((to_double wmB) * 0.12))
+
+        def tail:[EVGDrawCmd]
+        def i:int from
+        while (i < (array_length out.cmds)) {
+            push tail (itemAt out.cmds i)
+            i = (i + 1)
+        }
+        while ((array_length out.cmds) > from) {
+            removeLast out.cmds
+        }
+
+        ; the columns, in the order they were drawn
+        def bars:[EVGDrawCmd]
+        def groundSeen:boolean false
+        def k:int 0
+        while (k < (array_length tail)) {
+            def c:EVGDrawCmd (itemAt tail k)
+            if (c.kind == 0) {
+                if (! groundSeen) {
+                    groundSeen = true
+                } {
+                    if ((c.w > 2.0) && (c.h > 0.5)) {
+                        push bars c
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        def nb:int (array_length bars)
+        def left:double 1000000.0
+        def right:double -1000000.0
+        def top:double 1000000.0
+        def base:double -1000000.0
+        def b:int 0
+        while (b < nb) {
+            def c:EVGDrawCmd (itemAt bars b)
+            if (c.x < left) { left = c.x }
+            if ((c.x + c.w) > right) { right = (c.x + c.w) }
+            if (c.y < top) { top = c.y }
+            if ((c.y + c.h) > base) { base = (c.y + c.h) }
+            b = (b + 1)
+        }
+        ; the finished chart's timing
+        def growStart:double 0.3
+        def growEach:double 0.1
+        def growDur:double 0.7
+        def scanStart:double ((growStart + (growEach * (to_double nb))) + growDur)
+        def scanDur:double 1.1
+        def tt:double t
+        if still {
+            tt = 1000000.0
+        }
+        def scanU:double ((tt - scanStart) / scanDur)
+        def scanX:double (left + ((right - left) * scanU))
+
+        ; everything but the columns, restyled, in its own order
+        def barAt:int 0
+        groundSeen = false
+        k = 0
+        while (k < (array_length tail)) {
+            def c:EVGDrawCmd (itemAt tail k)
+            if (c.kind == 0) {
+                if (! groundSeen) {
+                    ; the card: left out
+                    groundSeen = true
+                } {
+                    if ((c.w > 2.0) && (c.h > 0.5)) {
+                        PresChart.column(out c barAt tt growStart growEach growDur scanU scanX wmR wmG wmB ruR ruG ruB)
+                        barAt = (barAt + 1)
+                    } {
+                        c.r = acR
+                        c.g = acG
+                        c.b = acB
+                        c.a = 0.25
+                        push out.cmds c
+                    }
+                }
+            } {
+                if (c.kind == 7) {
+                    ; grid and axes: the accent, the grid faint, the axis less so
+                    def axis:boolean (c.r > 70)
+                    c.r = acR
+                    c.g = acG
+                    c.b = acB
+                    if axis {
+                        c.a = 0.5
+                    } {
+                        c.a = 0.16
+                    }
+                    push out.cmds c
+                } {
+                    if (c.kind == 3) {
+                        ; labels in a cooler, quieter light than the columns
+                        c.r = (PresDiagram.mixI(acR 230 0.55))
+                        c.g = (PresDiagram.mixI(acG 236 0.55))
+                        c.b = (PresDiagram.mixI(acB 245 0.55))
+                        c.a = 0.8
+                        push out.cmds c
+                    } {
+                        push out.cmds c
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+
+        ; the scan beam, once, over the finished chart
+        if ((nb > 0) && ((scanU > 0.0) && (scanU < 1.0))) {
+            def fade:double (1.0 - scanU)
+            def wide (new EVGDrawCmd())
+            wide.kind = 0
+            wide.x = (scanX - 18.0)
+            wide.y = (top - 12.0)
+            wide.w = 36.0
+            wide.h = ((base - top) + 12.0)
+            wide.hasGrad = true
+            wide.gradDir = 1
+            wide.r = acR
+            wide.g = acG
+            wide.b = acB
+            wide.a = 0.0
+            wide.r2 = acR
+            wide.g2 = acG
+            wide.b2 = acB
+            wide.a2 = (0.22 * fade)
+            push out.cmds wide
+            def beam (new EVGDrawCmd())
+            beam.kind = 0
+            beam.x = (scanX - 1.0)
+            beam.y = (top - 12.0)
+            beam.w = 2.0
+            beam.h = ((base - top) + 12.0)
+            beam.r = 230
+            beam.g = 250
+            beam.b = 255
+            beam.a = (0.85 * fade)
+            beam.hasShadow = true
+            beam.shadowBlur = 10.0
+            beam.shadowR = acR
+            beam.shadowG = acG
+            beam.shadowB = acB
+            beam.shadowA = (0.8 * fade)
+            push out.cmds beam
+        }
+    }
+
+    ; One column: rising from its base at its turn, a gradient from the warm
+    ; colour down into rust, grooves across it, a bright cap with a glow,
+    ; lit up a little while the beam is over it.
+    sfn column:void (out:EVGDisplayList c:EVGDrawCmd j:int t:double g0:double ge:double gd:double scanU:double scanX:double wR:int wG:int wB:int rR:int rG:int rB:int) {
+        def u:double ((t - (g0 + (ge * (to_double j)))) / gd)
+        if (u <= 0.0) {
+            return
+        }
+        if (u > 1.0) { u = 1.0 }
+        ; a quick rise that settles, not a bounce
+        def e:double (1.0 - ((1.0 - u) * (1.0 - u) * (1.0 - u)))
+        def bottom:double (c.y + c.h)
+        def h:double (c.h * e)
+        def y:double (bottom - h)
+        def x:double c.x
+        def w:double c.w
+        def lit:double 0.0
+        if ((scanU > 0.0) && (scanU < 1.0)) {
+            def d:double (fabs ((x + (w * 0.5)) - scanX))
+            if (d < (w * 0.9)) {
+                lit = (1.0 - (d / (w * 0.9)))
+            }
+        }
+        def body (new EVGDrawCmd())
+        body.kind = 0
+        body.x = x
+        body.y = y
+        body.w = w
+        body.h = h
+        body.hasGrad = true
+        body.gradDir = 0
+        body.r = wR
+        body.g = wG
+        body.b = wB
+        body.a = (0.78 + (0.2 * lit))
+        body.r2 = rR
+        body.g2 = rG
+        body.b2 = rB
+        body.a2 = 0.35
+        push out.cmds body
+        ; machined grooves across the column
+        def gy:double (y + 6.0)
+        while (gy < (bottom - 2.0)) {
+            def groove (new EVGDrawCmd())
+            groove.kind = 0
+            groove.x = (x + 2.0)
+            groove.y = gy
+            groove.w = (w - 4.0)
+            groove.h = 1.0
+            groove.r = 0
+            groove.g = 0
+            groove.b = 0
+            groove.a = 0.22
+            push out.cmds groove
+            gy = (gy + 5.0)
+        }
+        ; the edges, hard
+        def edge (new EVGDrawCmd())
+        edge.kind = 1
+        edge.x = x
+        edge.y = y
+        edge.w = w
+        edge.h = h
+        edge.thickness = 1.0
+        edge.r = wR
+        edge.g = wG
+        edge.b = wB
+        edge.a = 0.55
+        push out.cmds edge
+        ; the cap, burning
+        def cap (new EVGDrawCmd())
+        cap.kind = 0
+        cap.x = x
+        cap.y = (y - 1.0)
+        cap.w = w
+        cap.h = 3.0
+        cap.r = (PresDiagram.mixI(wR 255 0.55))
+        cap.g = (PresDiagram.mixI(wG 245 0.55))
+        cap.b = (PresDiagram.mixI(wB 220 0.55))
+        cap.a = 1.0
+        cap.hasShadow = true
+        cap.shadowBlur = (10.0 + (8.0 * lit))
+        cap.shadowR = wR
+        cap.shadowG = wG
+        cap.shadowB = wB
+        cap.shadowA = (0.7 + (0.3 * lit))
+        push out.cmds cap
+    }
+
+    sfn colour:EVGColor (hex:string fallback:string) {
+        if ((strlen hex) > 0) {
+            return (EVGColor.parse(hex))
+        }
+        return (EVGColor.parse(fallback))
+    }
+}

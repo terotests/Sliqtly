@@ -628,11 +628,132 @@ class PresDiagram {
                     push e.route (itemAt e.line k)
                     k = (k + 1)
                 }
-                e.line = (PresDiagram.curveOf(e.route))
-                e.len = (FlowScene.polyLength(e.line))
             }
             i = (i + 1)
         }
+        this.spreadRoutes()
+        i = 0
+        while (i < (array_length edges)) {
+            def e2:PresDEdge (itemAt edges i)
+            if ((array_length e2.route) >= 4) {
+                e2.line = (PresDiagram.curveOf(e2.route))
+                e2.len = (FlowScene.polyLength(e2.line))
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The router lets two lines share a run: two ways out of one box leave
+    ; it down the same stub, a way back runs along a way forward. Drawn,
+    ; that is one line where there are two. So a straight run of one line
+    ; that lies on a run of another is moved aside onto a lane of its own —
+    ; its two ends move together, which keeps the runs next to it at right
+    ; angles.
+    def occO:[int]
+    def occC:[double]
+    def occLo:[double]
+    def occHi:[double]
+    def occE:[int]
+
+    fn spreadRoutes:void () {
+        clear occO
+        clear occC
+        clear occLo
+        clear occHi
+        clear occE
+        def offs:[double] ([] _:double (0.0 7.0 -7.0 14.0 -14.0 21.0 -21.0))
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresDEdge (itemAt edges i)
+            def r:[double] e.route
+            def n:int (array_length r)
+            def k:int 0
+            while ((k + 3) < n) {
+                def ax:double (itemAt r k)
+                def ay:double (itemAt r (k + 1))
+                def bx:double (itemAt r (k + 2))
+                def by:double (itemAt r (k + 3))
+                def o:int -1
+                if (((fabs (ax - bx)) < 0.5) && ((fabs (ay - by)) >= 4.0)) {
+                    o = 1
+                }
+                if (((fabs (ay - by)) < 0.5) && ((fabs (ax - bx)) >= 4.0)) {
+                    o = 0
+                }
+                if (o >= 0) {
+                    def c:double ay
+                    def lo:double ax
+                    def hi:double bx
+                    if (o == 1) {
+                        c = ax
+                        lo = ay
+                        hi = by
+                    }
+                    if (lo > hi) {
+                        def sw:double lo
+                        lo = hi
+                        hi = sw
+                    }
+                    def pick:double 0.0
+                    def q:int 0
+                    def found:boolean false
+                    while ((q < (array_length offs)) && (! found)) {
+                        def d:double (itemAt offs q)
+                        def cd:double (c + d)
+                        def busy:boolean (this.occupied(o cd lo hi i))
+                        if (! busy) {
+                            pick = d
+                            found = true
+                        }
+                        q = (q + 1)
+                    }
+                    if (pick != 0.0) {
+                        if (o == 0) {
+                            set r (k + 1) (ay + pick)
+                            set r (k + 3) (by + pick)
+                        } {
+                            set r k (ax + pick)
+                            set r (k + 2) (bx + pick)
+                        }
+                    }
+                    push occO o
+                    push occC (c + pick)
+                    push occLo lo
+                    push occHi hi
+                    push occE i
+                }
+                k = (k + 2)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn occupied:boolean (o:int c:double lo:double hi:double edge:int) {
+        def i:int 0
+        while (i < (array_length occO)) {
+            if (((itemAt occO i) == o) && ((itemAt occE i) != edge)) {
+                if ((fabs ((itemAt occC i) - c)) < 3.0) {
+                    def a:double (itemAt occLo i)
+                    def b:double (itemAt occHi i)
+                    def over:double ((PresDiagram.minD(hi b)) - (PresDiagram.maxD(lo a)))
+                    if (over > 6.0) {
+                        return true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn minD:double (a:double b:double) {
+        if (a < b) { return a }
+        return b
+    }
+
+    sfn maxD:double (a:double b:double) {
+        if (a > b) { return a }
+        return b
     }
 
     ; Two edges between the same two nodes, one each way, are drawn as two

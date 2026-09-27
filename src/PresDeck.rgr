@@ -31,6 +31,7 @@
 Import "../markdown/web/markdown_web.rgr"
 Import "PresSource.rgr"
 Import "PresDiagram.rgr"
+Import "PresChart.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGStyleSheet.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -1081,7 +1082,7 @@ class PresDeck {
                 def before:int (array_length out.cmds)
                 painter.paintBox(out l kb 0.0)
                 if ((kb.kind == 3) && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(kb.embedKind)))) == "vega")) {
-                    PresDeck.clearGround(out before)
+                    PresChart.dress(out before t still (this.themeValue("accent")) (this.themeValue("warm")))
                 }
             }
             while ((array_length groupOfCmd) < (array_length out.cmds)) {
