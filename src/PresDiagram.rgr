@@ -134,6 +134,11 @@ class PresDiagram {
     def waitNode:int -1
     def options:[int]
     def optSel:int 0
+    ; each option's pill: where it sits on its edge, in diagram units
+    def pillX:[double]
+    def pillY:[double]
+    def pillW:[double]
+    def pillH:[double]
     ; every node the walk arrives at: when, when it leaves, and how many
     ; choices had been made by then — what "one step back" goes to
     def stepT:[double]
@@ -165,6 +170,14 @@ class PresDiagram {
         choices = ch
         def op:[int]
         options = op
+        def px:[double]
+        pillX = px
+        def py:[double]
+        pillY = py
+        def pw:[double]
+        pillW = pw
+        def ph:[double]
+        pillH = ph
         def st:[double]
         stepT = st
         def sl:[double]
@@ -930,6 +943,7 @@ class PresDiagram {
                         optSel = 0
                     }
                     waitAt = gT
+                    this.placePills()
                     this.keyframe((gT + 0.8) -2)
                     break
                 }
@@ -1038,13 +1052,108 @@ class PresDiagram {
     }
 
     ; Where an option's box is, in the diagram's own units.
-    fn optionRect:void (i:int) {
+    fn isOption:boolean (edge:int t:double) {
+        if (! (this.asking(t))) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length options)) {
+            if ((itemAt options i) == edge) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The text on an option: its number and its edge's name.
+    fn optionCaption:string (i:int) {
         def e:PresDEdge (itemAt edges (itemAt options i))
-        def n:PresDNode (itemAt nodes e.to)
-        rX = (n.x - 10.0)
-        rY = (n.y - 30.0)
-        rW = (n.w + 20.0)
-        rH = (n.h + 40.0)
+        def cap:string (to_string (i + 1))
+        def k:int 0
+        while (k < (array_length e.labels)) {
+            def lt:SceneItem (itemAt e.labels k)
+            if (lt.kind == 1) {
+                cap = (cap + "  " + lt.text)
+            }
+            k = (k + 1)
+        }
+        return cap
+    }
+
+    ; Each option sits ON ITS EDGE, where the edge's name was: two ways to
+    ; the same node are two places, not one. The width is estimated from the
+    ; caption (the hit test has no measurer), and pills that would overlap
+    ; are moved apart sideways.
+    fn placePills:void () {
+        clear pillX
+        clear pillY
+        clear pillW
+        clear pillH
+        def size:double 13.0
+        def i:int 0
+        while (i < (array_length options)) {
+            def e:PresDEdge (itemAt edges (itemAt options i))
+            def cx:double 0.0
+            def cy:double 0.0
+            def found:boolean false
+            def k:int 0
+            while (k < (array_length e.labels)) {
+                def lt:SceneItem (itemAt e.labels k)
+                if (lt.kind == 1) {
+                    cx = (lt.x + (lt.w * 0.5))
+                    cy = (lt.y + (lt.h * 0.5))
+                    found = true
+                }
+                k = (k + 1)
+            }
+            if (! found) {
+                def mid:[double]
+                PresDiagram.pointAt(e.line (e.len * 0.5) mid)
+                cx = (itemAt mid 0)
+                cy = (itemAt mid 1)
+            }
+            def w:double (((to_double (strlen (this.optionCaption(i)))) * (size * 0.6)) + 28.0)
+            def h:double (size + 14.0)
+            push pillX (cx - (w * 0.5))
+            push pillY (cy - (h * 0.5))
+            push pillW w
+            push pillH h
+            i = (i + 1)
+        }
+        ; apart: each pill clear of the ones before it
+        def a:int 1
+        while (a < (array_length pillX)) {
+            def b:int 0
+            while (b < a) {
+                def ax:double (itemAt pillX a)
+                def ay:double (itemAt pillY a)
+                def bx:double (itemAt pillX b)
+                def by:double (itemAt pillY b)
+                def aw:double (itemAt pillW a)
+                def bw2:double (itemAt pillW b)
+                def overlapX:boolean ((ax < (bx + bw2)) && (bx < (ax + aw)))
+                def overlapY:boolean ((ay < (by + (itemAt pillH b))) && (by < (ay + (itemAt pillH a))))
+                if (overlapX && overlapY) {
+                    if ((ax + (aw * 0.5)) >= (bx + (bw2 * 0.5))) {
+                        set pillX a ((bx + bw2) + 10.0)
+                    } {
+                        set pillX a ((bx - aw) - 10.0)
+                    }
+                    b = -1
+                }
+                b = (b + 1)
+            }
+            a = (a + 1)
+        }
+    }
+
+    ; Where option i is, in the diagram's own units.
+    fn optionRect:void (i:int) {
+        rX = (itemAt pillX i)
+        rY = (itemAt pillY i)
+        rW = (itemAt pillW i)
+        rH = (itemAt pillH i)
     }
 
     ; What a press at slide point (px, py) means at time t, for a diagram
@@ -1537,6 +1646,12 @@ class PresDiagram {
                 if (rY < y0) { y0 = rY }
                 if ((rX + rW) > x1) { x1 = (rX + rW) }
                 if ((rY + rH) > y1) { y1 = (rY + rH) }
+                def oe:PresDEdge (itemAt edges (itemAt options i))
+                def on:PresDNode (itemAt nodes oe.to)
+                if (on.x < x0) { x0 = on.x }
+                if (on.y < y0) { y0 = on.y }
+                if ((on.x + on.w) > x1) { x1 = (on.x + on.w) }
+                if ((on.y + on.h) > y1) { y1 = (on.y + on.h) }
                 i = (i + 1)
             }
             rX = x0
@@ -1761,16 +1876,20 @@ class PresDiagram {
         }
         def a:double (PresDiagram.clamp01(((t - waitAt) / 0.5)))
         def glowA:double (0.55 + (0.25 * (sin (t * 2.5))))
+        ; first the ways, faint, and where they lead, at half strength
         def i:int 0
         while (i < (array_length options)) {
             def e:PresDEdge (itemAt edges (itemAt options i))
             def n:PresDNode (itemAt nodes e.to)
-            ; the way there, as a faint line while it is not taken
+            def on:boolean (i == optSel)
             if (e.at > t) {
-                out.addPolyline(e.line 1.2 (PresDiagram.rgba(140 205 240 (0.45 * a))))
+                if on {
+                    out.addPolyline(e.line 1.8 (PresDiagram.rgba(255 165 70 (0.75 * a))))
+                } {
+                    out.addPolyline(e.line 1.2 (PresDiagram.rgba(140 205 240 (0.45 * a))))
+                }
                 PresDiagram.roundLast(out)
             }
-            ; the node there, as a ghost when it has not appeared
             if (n.at > t) {
                 def ghost (new EVGDrawCmd())
                 ghost.kind = 0
@@ -1779,30 +1898,45 @@ class PresDiagram {
                 ghost.w = n.w
                 ghost.h = n.h
                 ghost.radius = 6.0
-                PresDiagram.tint(ghost (PresDiagram.rgba(40 90 140 0.35)) a)
+                PresDiagram.tint(ghost (PresDiagram.rgba(40 90 140 0.5)) (a * 0.5))
                 push out.cmds ghost
+                def gf (new EVGDrawCmd())
+                gf.kind = 1
+                gf.x = n.x
+                gf.y = n.y
+                gf.w = n.w
+                gf.h = n.h
+                gf.radius = 6.0
+                gf.thickness = 1.0
+                PresDiagram.tint(gf (PresDiagram.rgba(140 205 240 0.5)) (a * 0.5))
+                push out.cmds gf
                 def m:int 0
                 while (m < (array_length n.items)) {
                     def it:SceneItem (itemAt n.items m)
                     if (it.kind == 1) {
-                        this.textOf(out it (PresDiagram.rgba(220 240 255 0.8)) a l)
+                        this.textOf(out it (PresDiagram.rgba(220 240 255 0.9)) (a * 0.5) l)
                     }
                     m = (m + 1)
                 }
             }
-            this.optionRect(i)
-            def on:boolean (i == optSel)
+            i = (i + 1)
+        }
+        ; then the choices themselves, on their edges
+        def j:int 0
+        while (j < (array_length options)) {
+            def on2:boolean (j == optSel)
+            this.optionRect(j)
             def box (new EVGDrawCmd())
             box.kind = 0
             box.x = rX
             box.y = rY
             box.w = rW
             box.h = rH
-            box.radius = 10.0
-            if on {
-                PresDiagram.tint(box (PresDiagram.rgba(255 165 70 0.10)) a)
+            box.radius = (rH * 0.5)
+            if on2 {
+                PresDiagram.tint(box (PresDiagram.rgba(40 24 8 0.92)) a)
             } {
-                PresDiagram.tint(box (PresDiagram.rgba(92 225 255 0.05)) a)
+                PresDiagram.tint(box (PresDiagram.rgba(6 18 40 0.92)) a)
             }
             push out.cmds box
             def frame (new EVGDrawCmd())
@@ -1811,8 +1945,8 @@ class PresDiagram {
             frame.y = rY
             frame.w = rW
             frame.h = rH
-            frame.radius = 10.0
-            if on {
+            frame.radius = (rH * 0.5)
+            if on2 {
                 frame.thickness = 3.0
                 PresDiagram.tint(frame (PresDiagram.rgba(255 165 70 1.0)) a)
             } {
@@ -1820,39 +1954,26 @@ class PresDiagram {
                 PresDiagram.tint(frame (PresDiagram.rgba(92 225 255 glowA)) a)
             }
             push out.cmds frame
-            ; the number and the edge's name along the top of the box
-            def cap:string (to_string (i + 1))
-            def name:string ""
-            def k:int 0
-            while (k < (array_length e.labels)) {
-                def lt:SceneItem (itemAt e.labels k)
-                if (lt.kind == 1) {
-                    name = lt.text
-                }
-                k = (k + 1)
-            }
-            if ((strlen name) > 0) {
-                cap = (cap + "  " + name)
-            }
+            def cap:string (this.optionCaption(j))
             def size:double 13.0
             def wd:double (l.measureStyled(cap "Open Sans" size true false))
             def tc (new EVGDrawCmd())
             tc.kind = 3
             tc.x = ((rX + (rW * 0.5)) - (wd * 0.5))
-            tc.y = (rY + 7.0)
+            tc.y = ((rY + (rH * 0.5)) - (size * 0.55))
             tc.w = wd
             tc.h = size
             tc.text = cap
             tc.fontFamily = "Open Sans"
             tc.fontSize = size
             tc.fontWeight = "bold"
-            if on {
-                PresDiagram.tint(tc (PresDiagram.rgba(255 200 140 1.0)) a)
+            if on2 {
+                PresDiagram.tint(tc (PresDiagram.rgba(255 210 160 1.0)) a)
             } {
-                PresDiagram.tint(tc (PresDiagram.rgba(180 235 255 0.95)) a)
+                PresDiagram.tint(tc (PresDiagram.rgba(190 238 255 1.0)) a)
             }
             push out.cmds tc
-            i = (i + 1)
+            j = (j + 1)
         }
     }
 
@@ -1876,6 +1997,20 @@ class PresDiagram {
         push out.cmds r
     }
 
+    ; A type size on a small fixed ladder. The glyph atlas holds one copy of
+    ; every size it is asked for, so a camera that zooms smoothly would add a
+    ; new size every frame and the atlas would grow (and be rebuilt) all the
+    ; way through the move; whole pixels (halves below 12) keep that set small.
+    sfn snapSize:double (v:double) {
+        if (v <= 0.0) {
+            return v
+        }
+        if (v < 12.0) {
+            return ((to_double (to_int ((v * 2.0) + 0.5))) * 0.5)
+        }
+        return (to_double (to_int (v + 0.5)))
+    }
+
     ; Scale about (ox, oy), then move, then fade.
     sfn xf:void (c:EVGDrawCmd ox:double oy:double sc:double dx:double dy:double alpha:double) {
         c.x = ((ox + ((c.x - ox) * sc)) + dx)
@@ -1884,7 +2019,7 @@ class PresDiagram {
         c.h = (c.h * sc)
         c.radius = (c.radius * sc)
         c.thickness = (c.thickness * sc)
-        c.fontSize = (c.fontSize * sc)
+        c.fontSize = (PresDiagram.snapSize((c.fontSize * sc)))
         def n:int (array_length c.pts)
         def k:int 0
         while ((k + 1) < n) {
@@ -2316,6 +2451,9 @@ class PresDiagram {
                     this.chevron(out e on)
                 }
                 def la:double (PresDiagram.clamp01(((p - 0.6) / 0.4)))
+                if (this.isOption(i t)) {
+                    la = 0.0
+                }
                 if (la > 0.0) {
                     if (! on) {
                         la = (la * 0.55)

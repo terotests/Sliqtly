@@ -164,38 +164,45 @@ function paintOnce() {
     thumbRev = layout.rev;
   }
   const t = effectClock(layout);
-  for (let pass = 0; pass < 2; pass += 1) {
-    let grew = false;
-    const chrome = JSON.parse(app.chromeJson());
-    window.__lastChrome = chrome;
-    const cf = prepareDisplayList(gl, chrome, { dpr });
-    const cs = cf.draw(null, null);
-    cf.dispose();
-    grew = grew || !!(cs && (cs.atlasRebuilt || cs.atlasAdded > 0));
-    if (layout.slides > 0) {
-      const st = withTime(JSON.parse(app.stageJson()), t);
-      window.__lastStage = st;
-      st.width = W;
-      st.height = H;
-      const sf = prepareDisplayList(gl, st, { dpr, images: pictures });
-      const ss = sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false });
-      sf.dispose();
-      grew = grew || !!(ss && (ss.atlasRebuilt || ss.atlasAdded > 0));
-    }
-    for (const [i, x, y, s] of layout.thumbs) {
-      let f = thumbs.get(i);
-      if (!f) {
-        const doc = withTime(JSON.parse(app.slideJson(i)), 2.0);
-        doc.width = W;
-        doc.height = H;
-        f = prepareDisplayList(gl, doc, { dpr, images: pictures });
-        thumbs.set(i, f);
-      }
-      f.draw(null, [x, y, s], { clear: false });
-    }
-    if (!grew || thumbs.size === 0) break;
-    dropThumbs();
+  // THE GLYPH ATLAS IS SHARED, and when a frame needs glyphs it does not hold
+  // it grows into a NEW texture and deletes the old one. A kept thumbnail
+  // still points at the old one, so drawing it after that is
+  // "bindTexture: attempt to use a deleted object". So: the chrome and the
+  // stage are built first, and if either grew the atlas the kept thumbnails
+  // are dropped before any is drawn; a thumbnail built now that grows it
+  // makes the others stale for the NEXT paint, so they are dropped after.
+  const grewBy = (stats) => !!(stats && (stats.atlasRebuilt || stats.atlasAdded > 0));
+  let grew = false;
+  const chrome = JSON.parse(app.chromeJson());
+  window.__lastChrome = chrome;
+  const cf = prepareDisplayList(gl, chrome, { dpr });
+  grew = grewBy(cf.draw(null, null)) || grew;
+  cf.dispose();
+  if (layout.slides > 0) {
+    const st = withTime(JSON.parse(app.stageJson()), t);
+    window.__lastStage = st;
+    st.width = W;
+    st.height = H;
+    const sf = prepareDisplayList(gl, st, { dpr, images: pictures });
+    grew = grewBy(sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false })) || grew;
+    sf.dispose();
   }
+  if (grew) dropThumbs();
+  let thumbsGrew = false;
+  for (const [i, x, y, s] of layout.thumbs) {
+    let f = thumbs.get(i);
+    const fresh = !f;
+    if (fresh) {
+      const doc = withTime(JSON.parse(app.slideJson(i)), 2.0);
+      doc.width = W;
+      doc.height = H;
+      f = prepareDisplayList(gl, doc, { dpr, images: pictures });
+      thumbs.set(i, f);
+    }
+    const stats = f.draw(null, [x, y, s], { clear: false });
+    if (fresh && grewBy(stats)) thumbsGrew = true;
+  }
+  if (thumbsGrew) dropThumbs();
   statusEl.textContent = app.statusText();
   playBtn.textContent = layout.playing && layout.mode === "edit" ? "⏸ Pysäytä" : "▶ Toista";
   return layout;

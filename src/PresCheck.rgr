@@ -201,6 +201,46 @@ class PresCheck {
         this.ok(((array_length d.choices) == 0) "going back undoes the choice")
         this.ok(d.waiting "and the question is asked again")
         this.ok((to < atC) "going back goes back in time")
+        this.sameTarget()
+    }
+
+    ; Two named ways to the same node are two choices in two places.
+    fn sameTarget:void () {
+        def text:string ("---\nslide-split-level: 2\npage: a4 landscape\n---\n\n## Sama\n\n```mermaid\nflowchart TB\n"
+            + "  A[Uusi projekti] --> B{Kuka tietää?}\n  B -->|Minä ehkä| C[Avaa README]\n  B -->|Ei kukaan| C\n  C --> D[Loppu]\n```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        ; a tall diagram may go on to the next slide: find it
+        def si:int 0
+        def at:int -1
+        while (si < (deck.slideCount())) {
+            def sl:PresSlide (deck.slideAt(si))
+            if ((array_length sl.diagrams) > 0) {
+                at = si
+            }
+            si = (si + 1)
+        }
+        if (at < 0) {
+            this.ok(false "the diagram is there")
+            return
+        }
+        def s:PresSlide (deck.slideAt(at))
+        def d:PresDiagram (itemAt s.diagrams 0).diagram
+        this.ok((d.waiting && ((array_length d.options) == 2)) "two ways to one node are asked about")
+        if ((array_length d.pillX) < 2) {
+            return
+        }
+        def ax:double (itemAt d.pillX 0)
+        def ay:double (itemAt d.pillY 0)
+        def bx:double (itemAt d.pillX 1)
+        def by:double (itemAt d.pillY 1)
+        def sepX:boolean (((ax + (itemAt d.pillW 0)) <= bx) || ((bx + (itemAt d.pillW 1)) <= ax))
+        def sepY:boolean (((ay + (itemAt d.pillH 0)) <= by) || ((by + (itemAt d.pillH 1)) <= ay))
+        this.ok((sepX || sepY) "their choices do not overlap")
+        def c:PresDNode (d.nodeNamed("C"))
+        def onNode:boolean (((ay >= c.y) && (ay <= (c.y + c.h))) && ((ax >= c.x) && (ax <= (c.x + c.w))))
+        this.ok((! onNode) "and sit on the edges, not on the node they lead to")
     }
 
     ; A long left-to-right chain: laid out top to bottom instead, every node
