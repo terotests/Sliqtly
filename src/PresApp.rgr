@@ -1671,6 +1671,26 @@ class PresApp {
     ; layout — white paper, which lost a dark theme's light text, and the
     ; plain diagram laid out as written, a strip on a long chain. A surface
     ; effect cannot be printed and leaves the slide's own colour.
+    ; What the deck calls itself, for an exported file's name: the front
+    ; matter's `title`, or the first heading when there is none, or "".
+    fn docTitle:string () {
+        def doc:MdNode deck.md.edit.doc
+        def meta:MdMeta (MdFrontMatter.of(doc))
+        def t:string (trim (meta.get("title" "")))
+        if ((strlen t) > 0) {
+            return t
+        }
+        def i:int 0
+        while (i < (doc.childCount())) {
+            def ch:MdNode (doc.childAt(i))
+            if (ch.kind == "heading") {
+                return (trim (ch.plainText()))
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
     fn pdf:buffer () {
         def mw:MarkdownWeb deck.md
         def e:MarkdownEdit mw.edit
