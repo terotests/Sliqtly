@@ -115,8 +115,11 @@ class PresCheck {
         ; in the middle of the tour the camera is in and the ball is out
         def l1:PresLeg (itemAt d.legs 1)
         def mid:double ((l1.t0 + (l1.dur * 0.5)) + (itemAt s.diagrams 0).start)
-        d.cameraAt((mid - (itemAt s.diagrams 0).start) 800.0 400.0)
-        this.ok((d.camZ > 1.5) ("the camera zooms in on the tour, z=" + (to_string d.camZ)))
+        d.cameraAt((l1.t0 + l1.dur) 800.0 400.0)
+        def zIn:double d.camZ
+        this.ok((zIn > 1.5) ("the camera is in on the node it lands on, z=" + (to_string zIn)))
+        d.cameraAt((l1.t0 + (l1.dur * 0.5)) 800.0 400.0)
+        this.ok((d.camZ <= zIn) "and backs off on the way, to keep both ends in view")
         ; on a keyframe the camera is centred on the node it stands on
         def l0:PresLeg (itemAt d.legs 0)
         d.cameraAt((l0.t0 + l0.dur) 800.0 400.0)

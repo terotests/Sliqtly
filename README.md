@@ -59,7 +59,9 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   arrow's time includes its label. At the end the camera pulls back to the
   whole diagram. The layout is tried both left-to-right and top-to-bottom,
   and whichever is nearer square is used. The default style is `holo`: glass
-  panels, glowing curved arrows, a grid that moves with the camera. Under the
+  panels and curved arrows. Only the arrow being travelled glows and moves, in a
+  warm orange; the others are thin, dim and still, so the eye has one place to
+  go. A grid moves with the camera. Under the
   fence: `{style=sketch}` (hand-drawn), `{tour=off}` (everything drawn at
   once), `{zoom=3}` (the largest scale a box is drawn at),
   `{layout=keep}` (the direction as written) or `{diagram=classic}` (the
