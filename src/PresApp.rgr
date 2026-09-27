@@ -498,6 +498,32 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return true
         }
+        if (what == "menu") {
+            du.diagram.menuOpen = (! du.diagram.menuOpen)
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        if (what == "none") {
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        if (what == "all") {
+            du.diagram.uiNow = deck.uiNow
+            du.diagram.showEverything()
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        if (what == "restart") {
+            du.diagram.restart()
+            PresTimeline.plan((deck.slideAt(selected)))
+            localT = du.start
+            if (localT < 0.0) {
+                localT = 0.0
+            }
+            this.play()
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         if (what == "zin") {
             du.diagram.zoomBy(1.4)
             chromeRev = (chromeRev + 1)

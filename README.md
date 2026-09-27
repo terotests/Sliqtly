@@ -92,6 +92,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | …then ←/→ + Enter, or click a way's label | the ways on from that box: select one (warm), go to the box it leads to |
 | Click a line | go to the box it leads to |
 | Drag on a diagram | move the view (back returns to where it was) |
+| ⋯ at a diagram's top right | Aloita alusta (the walk from the start, choices undone) or Näytä kaikki (every box and line, whole diagram; ‹ leaves) |
 | ▶ Play / ⛶ Present | the diagrams start again from their own camera |
 | In a diagram: + / − / 100 % buttons, keys + − 0 | zoom in, out; 100 % shows the whole diagram (‹ or a choice returns to the walk) |
 | Teema | dark themes aurora, nebula (starfield), carbon, ember (ambient light), midnight; light corporate, editorial. A theme sets the diagram colours through `/* pres: accent=… warm=… fx=… */` |

@@ -192,6 +192,18 @@ class PresDeck {
             if (r == -5) {
                 return ((to_string k) + ":fit")
             }
+            if (r == -6) {
+                return ((to_string k) + ":menu")
+            }
+            if (r == -7) {
+                return ((to_string k) + ":restart")
+            }
+            if (r == -8) {
+                return ((to_string k) + ":all")
+            }
+            if (r == -9) {
+                return ((to_string k) + ":none")
+            }
             if (r >= 3000) {
                 return ((to_string k) + ":way" + (to_string (r - 3000)))
             }

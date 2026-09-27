@@ -672,8 +672,9 @@ canvas.addEventListener("pointermove", (ev) => {
 });
 function endPointer() {
   app.pointerUp();
-  mirrorLine();
-  needsPaint = true;
+  // a click on the stage acts on release (a press that moves is a drag),
+  // so what it did to the clock is taken up here
+  afterInput();
 }
 canvas.addEventListener("pointerup", endPointer);
 canvas.addEventListener("pointercancel", endPointer);
