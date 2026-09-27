@@ -225,7 +225,9 @@ function frame() {
     if (app.isPlaying()) {
       const want = clockBase + (now - clockAt) / 1000;
       const got = app.setTime(want);
-      if (got < want - 1e-6) {
+      // held back (a step, a question) or moved on (a skipped question):
+      // the clock goes on from where the app put it
+      if (Math.abs(got - want) > 1e-6) {
         clockBase = got;
         clockAt = now;
       }

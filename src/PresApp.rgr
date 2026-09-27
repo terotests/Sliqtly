@@ -360,11 +360,27 @@ class PresApp {
                 on = (PresTimeline.slideAtTime(deck clock))
             }
             def dh:double (deck.diagramHold(on))
+            def held:boolean false
             if (dh >= 0.0) {
                 def stopAt:double ((PresTimeline.slideStart(deck on)) + dh)
                 if ((clock <= (stopAt + 0.001)) && (want > stopAt)) {
                     want = stopAt
+                    held = true
                 }
+            }
+            ; A question no one answers (or a loop no one leaves) does not
+            ; keep the room waiting: after `skipAfter` seconds it is skipped.
+            if held {
+                if (holdSince < 0.0) {
+                    holdSince = deck.uiNow
+                }
+                def left:double (skipAfter - (deck.uiNow - holdSince))
+                if (left <= 0.0) {
+                    return (this.skipQuestion(on))
+                }
+                deck.setSkipLeft(on left)
+            } {
+                holdSince = -1.0
             }
         }
         if (mode == "present") {
@@ -496,6 +512,14 @@ class PresApp {
                 this.diagramBack(k)
             }
             chromeRev = (chromeRev + 1)
+            return true
+        }
+        if (what == "skip") {
+            def on:int selected
+            if playing {
+                on = (PresTimeline.slideAtTime(deck clock))
+            }
+            this.skipQuestion(on)
             return true
         }
         if (what == "menu") {
@@ -882,10 +906,35 @@ class PresApp {
         return ("{\"width\":" + (EVGDisplayList.num(deck.pageW)) + ",\"height\":" + (EVGDisplayList.num(deck.pageH)) + ",\"list\":" + (l.toJson()) + "}")
     }
 
+    def holdSince:double -1.0
+    def skipAfter:double 8.0
+
+    ; Past the question on slide `on`, to the next slide. Returns the clock.
+    fn skipQuestion:double (on:int) {
+        deck.skipQuestions(on)
+        holdSince = -1.0
+        def last:int ((deck.slideCount()) - 1)
+        if (on < last) {
+            if (mode == "present") {
+                selected = (on + 1)
+                pStep = 0
+            }
+            clock = (PresTimeline.slideStart(deck (on + 1)))
+            if playing {
+                selected = (on + 1)
+                this.revealThumb(selected)
+            }
+        }
+        chromeRev = (chromeRev + 1)
+        return clock
+    }
+
     fn stageJson:string () {
+        deck.live = (this.isPlaying())
         deck.showControls = true
         def out:string (this.listJson((PresTimeline.frame(deck selected (this.stageTime())))))
         deck.showControls = false
+        deck.live = false
         return out
     }
 

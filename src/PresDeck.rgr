@@ -204,6 +204,9 @@ class PresDeck {
             if (r == -8) {
                 return ((to_string k) + ":all")
             }
+            if (r == -10) {
+                return ((to_string k) + ":skip")
+            }
             if (r == -9) {
                 return ((to_string k) + ":none")
             }
@@ -225,6 +228,42 @@ class PresDeck {
     }
 
     ; Every diagram back on its own camera.
+    ; Playing or presenting: questions offer a skip.
+    def live:boolean false
+
+    ; The seconds left before the waiting questions on slide i are skipped.
+    fn setSkipLeft:void (i:int left:double) {
+        if ((i < 0) || (i >= (array_length slides))) {
+            return
+        }
+        def s:PresSlide (itemAt slides i)
+        def k:int 0
+        while (k < (array_length s.diagrams)) {
+            def u:PresDiaUse (itemAt s.diagrams k)
+            if u.diagram.waiting {
+                u.diagram.skipLeft = left
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; Let the questions on slide i go: the clock runs on past them.
+    fn skipQuestions:void (i:int) {
+        if ((i < 0) || (i >= (array_length slides))) {
+            return
+        }
+        def s:PresSlide (itemAt slides i)
+        def k:int 0
+        while (k < (array_length s.diagrams)) {
+            def u:PresDiaUse (itemAt s.diagrams k)
+            if u.diagram.waiting {
+                u.diagram.skipped = true
+                u.diagram.skipLeft = -1.0
+            }
+            k = (k + 1)
+        }
+    }
+
     fn resetExplore:void () {
         def i:int 0
         while (i < (array_length slides)) {
@@ -300,7 +339,7 @@ class PresDeck {
         def k:int 0
         while (k < (array_length s.diagrams)) {
             def u:PresDiaUse (itemAt s.diagrams k)
-            if u.diagram.waiting {
+            if (u.diagram.waiting && (! u.diagram.skipped)) {
                 def at:double ((u.start + u.diagram.waitAt) + 0.8)
                 if ((best < 0.0) || (at < best)) {
                     best = at
@@ -975,6 +1014,7 @@ class PresDeck {
                 def dia:PresDiaUse (itemAt s.diagrams use)
                 dia.diagram.uiNow = uiNow
                 dia.diagram.showControls = showControls
+                dia.diagram.live = live
                 ; The diagram gets the room below it, not just the box its
                 ; picture fitted: a wide flowchart is a thin strip, and a
                 ; camera zoomed into a strip shows a slot.

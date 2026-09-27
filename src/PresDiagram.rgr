@@ -268,6 +268,12 @@ class PresDiagram {
     ; the highlight shows only once the viewer moves it with a key: until
     ; then every way on looks the same, none recommended
     def selShown:boolean false
+    ; Playing or presenting (not the editor's still stage): the question then
+    ; offers a skip, counting down `skipLeft` seconds (-1: no count). A
+    ; skipped question lets the clock go on.
+    def live:boolean false
+    def skipLeft:double -1.0
+    def skipped:boolean false
     ; each option's pill: where it sits on its edge, in diagram units
     def pillX:[double]
     def pillY:[double]
@@ -1241,6 +1247,8 @@ class PresDiagram {
         push choices (itemAt options i)
         optSel = 0
         selShown = false
+        skipped = false
+        skipLeft = -1.0
         this.plan()
         return true
     }
@@ -1645,6 +1653,12 @@ class PresDiagram {
     ; -2 back, -3 zoom in, -4 zoom out, -5 fit, 0.. an option, 1000+n box n,
     ; -1 nothing.
     fn hit:int (t:double bx:double by:double bw:double bh:double px:double py:double) {
+        ; -10 skip the question
+        if (live && (this.asking(t))) {
+            if ((((px >= ((bx + bw) - 138.0)) && (px <= ((bx + bw) - 12.0))) && (py >= ((by + bh) - 82.0))) && (py <= ((by + bh) - 50.0))) {
+                return -10
+            }
+        }
         ; -6 the ⋯ button, -7 restart, -8 show all, -9 a press that only
         ; closed the menu
         if (PresDiagram.near(px py ((bx + bw) - 22.0) (by + 22.0) 17.0)) {
@@ -2608,6 +2622,8 @@ class PresDiagram {
     ; Back to the presentation's own camera: presenting or playing starts
     ; from the walk, not from where the viewer left the view.
     fn resetExplore:void () {
+        skipped = false
+        skipLeft = -1.0
         showAll = false
         menuOpen = false
         exploring = false
@@ -2791,6 +2807,9 @@ class PresDiagram {
             this.paintHome(out ((bx + bw) - 46.0) cy l)
             this.paintMenu(out bx by bw l)
         }
+        if (this.asking(t)) {
+            this.paintAsk(out bx by bw bh l)
+        }
         def pop (new EVGDrawCmd())
         pop.kind = 5
         push out.cmds pop
@@ -2854,6 +2873,8 @@ class PresDiagram {
         clear choices
         optSel = 0
         selShown = false
+        skipped = false
+        skipLeft = -1.0
         this.plan()
     }
 
@@ -3011,6 +3032,94 @@ class PresDiagram {
     }
 
     ; A zoom button: 1 in (+), 2 out (−), 3 fit (four corners).
+    ; At a question: what to do, at the top, and (while playing) a way past
+    ; it at the bottom right, with the seconds left before it is taken.
+    fn paintAsk:void (out:EVGDisplayList bx:double by:double bw:double bh:double l:MdLayout) {
+        def n:int (array_length options)
+        def hint:string ("Valitse jatko: napauta vaihtoehtoa tai paina 1–" + (to_string n))
+        def hs:double 13.0
+        def hw:double (l.measureStyled(hint "Open Sans" hs false false))
+        def hx:double ((bx + (bw * 0.5)) - ((hw + 24.0) * 0.5))
+        def hy:double (by + 8.0)
+        def hb (new EVGDrawCmd())
+        hb.kind = 0
+        hb.x = hx
+        hb.y = hy
+        hb.w = (hw + 24.0)
+        hb.h = (hs + 12.0)
+        hb.radius = ((hs + 12.0) * 0.5)
+        PresDiagram.tint(hb (PresDiagram.rgba(bgR bgG bgB 0.8)) 1.0)
+        push out.cmds hb
+        def ht (new EVGDrawCmd())
+        ht.kind = 3
+        ht.x = (hx + 12.0)
+        ht.y = (hy + 5.0)
+        ht.w = hw
+        ht.h = hs
+        ht.text = hint
+        ht.fontFamily = "Open Sans"
+        ht.fontSize = hs
+        PresDiagram.tint(ht (PresDiagram.rgba(txR txG txB 0.85)) 1.0)
+        push out.cmds ht
+        if (! live) {
+            return
+        }
+        def label:string "Ohita »"
+        if (skipLeft >= 0.0) {
+            label = ("Ohita » " + (to_string (ceil skipLeft)))
+        }
+        def w:double 126.0
+        def h:double 32.0
+        def x:double ((bx + bw) - 138.0)
+        def y:double ((by + bh) - 82.0)
+        def bg (new EVGDrawCmd())
+        bg.kind = 0
+        bg.x = x
+        bg.y = y
+        bg.w = w
+        bg.h = h
+        bg.radius = (h * 0.5)
+        PresDiagram.tint(bg (PresDiagram.rgba(bgR bgG bgB 0.9)) 1.0)
+        push out.cmds bg
+        ; the count as a bar that empties along the pill's foot
+        if (skipLeft >= 0.0) {
+            def f:double (PresDiagram.clamp01((skipLeft / 8.0)))
+            def bar (new EVGDrawCmd())
+            bar.kind = 0
+            bar.x = (x + (h * 0.5))
+            bar.y = ((y + h) - 5.0)
+            bar.w = ((w - h) * f)
+            bar.h = 2.0
+            bar.radius = 1.0
+            PresDiagram.tint(bar (PresDiagram.rgba(acR acG acB 0.8)) 1.0)
+            push out.cmds bar
+        }
+        def ring (new EVGDrawCmd())
+        ring.kind = 1
+        ring.x = x
+        ring.y = y
+        ring.w = w
+        ring.h = h
+        ring.radius = (h * 0.5)
+        ring.thickness = 1.4
+        PresDiagram.tint(ring (PresDiagram.rgba(acR acG acB 0.8)) 1.0)
+        push out.cmds ring
+        def size:double 14.0
+        def tw:double (l.measureStyled(label "Open Sans" size true false))
+        def tc (new EVGDrawCmd())
+        tc.kind = 3
+        tc.x = ((x + (w * 0.5)) - (tw * 0.5))
+        tc.y = ((y + (h * 0.5)) - (size * 0.62))
+        tc.w = tw
+        tc.h = size
+        tc.text = label
+        tc.fontFamily = "Open Sans"
+        tc.fontSize = size
+        tc.fontWeight = "bold"
+        PresDiagram.tint(tc (PresDiagram.rgba(txR txG txB 0.95)) 1.0)
+        push out.cmds tc
+    }
+
     ; "100 %": back to the presentation's own view, as a pill.
     fn paintHome:void (out:EVGDisplayList cx:double cy:double l:MdLayout) {
         def w:double 64.0

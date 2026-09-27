@@ -91,6 +91,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | While presenting: A | steps advance by themselves |
 | While presenting: Esc | end |
 | At a diagram's question: click, ←/→ + Enter, or 1–9 | choose the way on |
+| While playing, at a question: Ohita » (bottom right) | skip to the next slide; untouched, it skips by itself after 8 s, so a loop never traps the room |
 | In a diagram: ‹ ring or Backspace | one step back (press again for more) |
 | In a diagram: click a box | the camera zooms to it (a class, not the package round it); ‹ at the top left goes back |
 | …then ←/→ + Enter, or click a way's label | the ways on from that box: select one (warm), go to the box it leads to |
