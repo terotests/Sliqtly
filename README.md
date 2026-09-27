@@ -93,7 +93,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | Click a line | go to the box it leads to |
 | Drag on a diagram | move the view (back returns to where it was) |
 | ▶ Play / ⛶ Present | the diagrams start again from their own camera |
-| In a diagram: + / − / 100 % buttons, keys + − 0 | zoom in, out; 100 % returns to the presentation's own view |
+| In a diagram: + / − / 100 % buttons, keys + − 0 | zoom in, out; 100 % shows the whole diagram (‹ or a choice returns to the walk) |
 | Teema | dark themes aurora, nebula (starfield), carbon, ember (ambient light), midnight; light corporate, editorial. A theme sets the diagram colours through `/* pres: accent=… warm=… fx=… */` |
 | 🔗 Jaa | copies a link with the Markdown compressed into the URL (`#md=…`); opening it loads the same deck |
 | PDF / PPTX | export. The PPTX includes notes, transitions and build steps per paragraph |

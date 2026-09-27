@@ -509,7 +509,7 @@ class PresApp {
             return true
         }
         if (what == "fit") {
-            du.diagram.exploreHome()
+            du.diagram.exploreOverview()
             chromeRev = (chromeRev + 1)
             return true
         }
@@ -541,6 +541,8 @@ class PresApp {
         }
         def u:PresDiaUse (unwrap hit)
         def local:double (this.stageTime())
+        ; a choice made: the walk's camera takes over again
+        u.diagram.exploreHome()
         if (u.diagram.pick(i)) {
             PresTimeline.plan((deck.slideAt(selected)))
             if (! (this.isPlaying())) {
@@ -557,6 +559,7 @@ class PresApp {
             return
         }
         def u:PresDiaUse (unwrap hit)
+        u.diagram.exploreHome()
         def local:double ((u.start) + (u.diagram.back(((this.stageTime()) - u.start))))
         PresTimeline.plan((deck.slideAt(selected)))
         if (this.isPlaying()) {
@@ -587,7 +590,7 @@ class PresApp {
                 return true
             }
             if (name == "0") {
-                ue.diagram.exploreHome()
+                ue.diagram.exploreOverview()
                 chromeRev = (chromeRev + 1)
                 return true
             }

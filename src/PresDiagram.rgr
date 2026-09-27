@@ -2842,6 +2842,24 @@ class PresDiagram {
         push out.cmds tc
     }
 
+    ; "100 %": the whole diagram in view, whatever the walk is framing (at a
+    ; question it frames just the question). The views before are
+    ; forgotten; back from here returns to the walk.
+    fn exploreOverview:void () {
+        clear exSX
+        clear exSY
+        clear exSZ
+        clear exSN
+        push exSX -1000000.0
+        push exSY 0.0
+        push exSZ 0.0
+        push exSN -1
+        exNode = -1
+        exSel = 0
+        this.exMove((this.focusX(-1)) (this.focusY(-1)) 1.0)
+        exploring = true
+    }
+
     ; Back to the presentation's own camera, from wherever the viewer took
     ; the view: a short glide, and the views before are forgotten.
     fn exploreHome:void () {
