@@ -348,14 +348,28 @@ document.getElementById("share").addEventListener("click", () => { shareLink().c
 document.getElementById("save").addEventListener("click", () => {
   window.__lastDownload = deliver(new TextEncoder().encode(app.source()), docName + ".md", "text/markdown");
 });
+// An export is named after the deck: its front matter title, else its first
+// heading, else the file it came from. Only what a file system refuses is
+// taken out; spaces and letters like ä stay.
+function exportName() {
+  const t = String(app.docTitle() || "")
+    .replace(/[\/\\:*?"<>|\u0000-\u001f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\.+|\.+$/g, "")
+    .slice(0, 120)
+    .trim();
+  return t || docName;
+}
+window.__exportName = exportName;
 document.getElementById("pdf").addEventListener("click", () => {
   try {
-    window.__lastDownload = deliver(app.pdf(), docName + ".pdf", "application/pdf");
+    window.__lastDownload = deliver(app.pdf(), exportName() + ".pdf", "application/pdf");
   } catch (e) { fail(e); }
 });
 document.getElementById("pptx").addEventListener("click", () => {
   try {
-    window.__lastDownload = deliver(app.pptx(), docName + ".pptx",
+    window.__lastDownload = deliver(app.pptx(), exportName() + ".pptx",
       "application/vnd.openxmlformats-officedocument.presentationml.presentation");
   } catch (e) { fail(e); }
 });
