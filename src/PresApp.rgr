@@ -1558,16 +1558,94 @@ class PresApp {
     fn pptx:buffer () {
         def d:PptxDeck (deck.md.buildDeck())
         def n:int (array_length d.pres.slides)
+        ; slide points per stage unit
+        def unit:double (d.pres.slideWidth / deck.pageW)
         def i:int 0
         while (i < n) {
             if (i < (deck.slideCount())) {
                 def ps:PptxSlide (itemAt d.pres.slides i)
                 def s:PresSlide (deck.slideAt(i))
+                this.stillDiagrams(ps s unit)
                 PresApp.dressSlide(ps s)
             }
             i = (i + 1)
         }
         return (d.save())
+    }
+
+    ; The diagrams as the stage draws them, at rest, in place of the markdown
+    ; module's plain drawing: the glass nodes, the lines of light and the
+    ; label pills, in the direction the stage chose and filling the room the
+    ; stage gives them. The plain drawing is laid out at the fence's written
+    ; direction and the column's width, so a long left-to-right chain came out
+    ; as a strip with labels too small to keep. The group keeps the plain
+    ; one's name, alt text and embedded source, so it still reads back.
+    fn stillDiagrams:void (ps:PptxSlide s:PresSlide unit:double) {
+        def l:MdLayout (deck.layout())
+        def paper:string "#ffffff"
+        if ((strlen l.style.pageBackground) > 0) {
+            paper = l.style.pageBackground
+        }
+        def k:int 0
+        while (k < (array_length s.diagrams)) {
+            def u:PresDiaUse (itemAt s.diagrams k)
+            def at:int -1
+            def j:int 0
+            while (j < (array_length ps.shapes)) {
+                def sh:PptxShape (itemAt ps.shapes j)
+                if ((at < 0) && (sh.embedSource == u.source)) {
+                    at = j
+                }
+                j = (j + 1)
+            }
+            if (at >= 0) {
+                def dl (new EVGDisplayList())
+                u.diagram.paintStill(dl u.bx u.by u.bw u.bh l.style.textColor paper l)
+                def conv (new PptxFromEvg())
+                conv.unit = unit
+                ; The stage reads small labels by zooming in; a still cannot,
+                ; so a small label is kept rather than left an empty pill.
+                conv.minFontPt = 1.0
+                def group:PptxShape (conv.build(dl 0.0 0.0))
+                if ((array_length group.children) > 0) {
+                    PresApp.tighten(group)
+                    def old:PptxShape (itemAt ps.shapes at)
+                    group.name = old.name
+                    group.altText = old.altText
+                    group.embedNotation = old.embedNotation
+                    group.embedSource = old.embedSource
+                    group.mdSrcStart = old.mdSrcStart
+                    group.mdSrcEnd = old.mdSrcEnd
+                    set ps.shapes at group
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; A group's box around what is in it, not from the slide's corner.
+    sfn tighten:void (group:PptxShape) {
+        def x0:double 1000000.0
+        def y0:double 1000000.0
+        def x1:double -1000000.0
+        def y1:double -1000000.0
+        def i:int 0
+        while (i < (array_length group.children)) {
+            def c:PptxShape (itemAt group.children i)
+            if (c.x < x0) { x0 = c.x }
+            if (c.y < y0) { y0 = c.y }
+            if ((c.x + c.width) > x1) { x1 = (c.x + c.width) }
+            if ((c.y + c.height) > y1) { y1 = (c.y + c.height) }
+            i = (i + 1)
+        }
+        group.x = x0
+        group.y = y0
+        group.width = (x1 - x0)
+        group.height = (y1 - y0)
+        group.chX = x0
+        group.chY = y0
+        group.chW = group.width
+        group.chH = group.height
     }
 
     sfn dressSlide:void (ps:PptxSlide s:PresSlide) {
