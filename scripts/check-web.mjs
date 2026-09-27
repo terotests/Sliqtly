@@ -296,6 +296,14 @@ try {
   const slide2 = pptx.get("ppt/slides/slide2.xml") || "";
   const notes = [...pptx.keys()].filter((k) => /notesSlides\/notesSlide\d+\.xml$/.test(k));
   check("PPTX has a notes page for the slides with notes", notes.length >= 2, notes.join(" "));
+  // Each notes page links back to its own slide and to a notes master;
+  // Keynote refuses the file otherwise.
+  const misLinked = notes.filter((k) => {
+    const n = k.match(/notesSlide(\d+)\.xml$/)[1];
+    const rels = pptx.get(k.replace("notesSlides/", "notesSlides/_rels/") + ".rels") || "";
+    return !rels.includes(`Target="../slides/slide${n}.xml"`) || !rels.includes("../notesMasters/notesMaster1.xml");
+  });
+  check("PPTX notes pages point at their own slide and a notes master", misLinked.length === 0 && pptx.has("ppt/notesMasters/notesMaster1.xml"), misLinked.join(" "));
   check("PPTX slide 2 has a push transition", /<p:transition[^>]*>[\s\S]*<p:push/.test(slide2));
   const paras = new Set((slide2.match(/<p:pRg st="(\d+)"/g) || []));
   check("PPTX slide 2 builds its four list items one paragraph at a time", paras.size === 4, [...paras].join(" "));
