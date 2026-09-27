@@ -113,6 +113,9 @@ class PresDeck {
     ; list being built is the stage (controls drawn) or a thumbnail
     def uiNow:double 0.0
     def showControls:boolean false
+    ; Painting for a page that does not move (the PDF): every diagram at
+    ; rest, whole, rather than where its walk is at a moment.
+    def still:boolean false
     def pageW:double 960.0
     def pageH:double 540.0
     ; What the template says about the presentation beyond what markdown
@@ -977,7 +980,11 @@ class PresDeck {
                 ; camera zoomed into a strip shows a slot.
                 def room:double (this.roomBelow(i kb))
                 def span:[double] (this.diagramSpan(i kb))
-                dia.diagram.paint(out (itemAt span 0) kb.y (itemAt span 1) room (t - dia.start) l.style.textColor paper l)
+                if still {
+                    dia.diagram.paintStill(out (itemAt span 0) kb.y (itemAt span 1) room l.style.textColor paper l)
+                } {
+                    dia.diagram.paint(out (itemAt span 0) kb.y (itemAt span 1) room (t - dia.start) l.style.textColor paper l)
+                }
             } {
                 painter.paintBox(out l kb 0.0)
             }
