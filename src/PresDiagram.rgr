@@ -944,6 +944,7 @@ class PresDiagram {
                     }
                     waitAt = gT
                     this.placePills()
+                    this.routeThroughPills()
                     this.keyframe((gT + 0.8) -2)
                     break
                 }
@@ -1145,6 +1146,49 @@ class PresDiagram {
                 b = (b + 1)
             }
             a = (a + 1)
+        }
+    }
+
+    ; Each option's edge through the middle of its own pill: a pill moved
+    ; aside to make room has to take its edge with it, or two ways on run
+    ; under one name. The edge keeps its ends; it is bent to pass straight
+    ; through the pill, along the way the edge runs.
+    fn routeThroughPills:void () {
+        def i:int 0
+        while (i < (array_length options)) {
+            def e:PresDEdge (itemAt edges (itemAt options i))
+            def n:int (array_length e.line)
+            if (n >= 4) {
+                def sx:double (itemAt e.line 0)
+                def sy:double (itemAt e.line 1)
+                def ex:double (itemAt e.line (n - 2))
+                def ey:double (itemAt e.line (n - 1))
+                def pw:double (itemAt pillW i)
+                def ph:double (itemAt pillH i)
+                def pcx:double ((itemAt pillX i) + (pw * 0.5))
+                def pcy:double ((itemAt pillY i) + (ph * 0.5))
+                def mid:[double]
+                PresDiagram.pointAt(e.line (e.len * 0.5) mid)
+                def ddx:double ((itemAt mid 0) - pcx)
+                def ddy:double ((itemAt mid 1) - pcy)
+                if (((ddx * ddx) + (ddy * ddy)) > 36.0) {
+                    def via:[double]
+                    if ((fabs (ex - sx)) > (fabs (ey - sy))) {
+                        via = ([] _:double (sx sy (pcx - (pw * 0.5)) pcy (pcx + (pw * 0.5)) pcy ex ey))
+                    } {
+                        via = ([] _:double (sx sy pcx (pcy - ph) pcx (pcy + ph) ex ey))
+                    }
+                    def it:int 0
+                    def pts:[double] via
+                    while (it < 4) {
+                        pts = (PresDiagram.chaikin(pts))
+                        it = (it + 1)
+                    }
+                    e.line = pts
+                    e.len = (FlowScene.polyLength(pts))
+                }
+            }
+            i = (i + 1)
         }
     }
 

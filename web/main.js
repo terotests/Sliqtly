@@ -278,17 +278,34 @@ function handleRequests() {
       requestAnimationFrame(resize);
     } else if (r === "exit-fullscreen") {
       document.body.classList.remove("presenting");
-      if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+      if (document.fullscreenElement && document.exitFullscreen) {
+        leavingByApp = true;
+        document.exitFullscreen().catch(() => { leavingByApp = false; });
+      }
       requestAnimationFrame(resize);
     }
   }
 }
 
+// Leaving full screen ends the presentation only when the VIEWER left it
+// (Esc handled by the browser). The app's own exit arrives here later, and
+// by then a new presentation may already have started: ending that one was
+// a race.
+let leavingByApp = false;
+let fullscreenOn = false;
 document.addEventListener("fullscreenchange", () => {
   keys.focus({ preventScroll: true });
-  if (!document.fullscreenElement && lastLayout && lastLayout.mode === "present") {
-    app.endPresent();
-    handleRequests();
+  if (document.fullscreenElement) {
+    fullscreenOn = true;
+  } else {
+    const byApp = leavingByApp;
+    leavingByApp = false;
+    const was = fullscreenOn;
+    fullscreenOn = false;
+    if (!byApp && was && app.isPlaying() && JSON.parse(app.layoutJson()).mode === "present") {
+      app.endPresent();
+      handleRequests();
+    }
   }
   requestAnimationFrame(resize);
 });

@@ -241,6 +241,17 @@ class PresCheck {
         def c:PresDNode (d.nodeNamed("C"))
         def onNode:boolean (((ay >= c.y) && (ay <= (c.y + c.h))) && ((ax >= c.x) && (ax <= (c.x + c.w))))
         this.ok((! onNode) "and sit on the edges, not on the node they lead to")
+        ; each way on runs through its own pill
+        def k:int 0
+        while (k < 2) {
+            def e:PresDEdge (itemAt d.edges (itemAt d.options k))
+            def mid:[double]
+            PresDiagram.pointAt(e.line (e.len * 0.5) mid)
+            def inX:boolean (((itemAt mid 0) >= (itemAt d.pillX k)) && ((itemAt mid 0) <= ((itemAt d.pillX k) + (itemAt d.pillW k))))
+            def inY:boolean (((itemAt mid 1) >= ((itemAt d.pillY k) - 4.0)) && ((itemAt mid 1) <= (((itemAt d.pillY k) + (itemAt d.pillH k)) + 4.0)))
+            this.ok((inX && inY) ("way " + (to_string (k + 1)) + " runs through its own choice"))
+            k = (k + 1)
+        }
     }
 
     ; A long left-to-right chain: laid out top to bottom instead, every node
