@@ -37,17 +37,34 @@ export function ensureRanger({ update = false } = {}) {
   const given = process.env.RANGER_DIR;
   const dir = given ? path.resolve(given) : path.join(depsDir, "Ranger");
   const ref = process.env.RANGER_REF || config.ranger.ref;
+  // Which ref the clone in .deps was last taken from. A clone made before
+  // the config named another branch is fetched again rather than silently
+  // compiled against the old one.
+  const marker = path.join(depsDir, "ranger-ref");
+  const had = fs.existsSync(marker) ? fs.readFileSync(marker, "utf8").trim() : "";
   if (!fs.existsSync(dir)) {
     if (given) throw new Error(`RANGER_DIR=${given} does not exist`);
     fs.mkdirSync(depsDir, { recursive: true });
     log(`clone  ${config.ranger.url} (${ref}) → ${path.relative(root, dir)}`);
     git(["clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), config.ranger.url, dir], root);
-  } else if (update && !given) {
-    log(`update Ranger (${ref})`);
+    fs.writeFileSync(marker, ref + "\n");
+  } else if (!given && (update || had !== ref)) {
+    log(`update Ranger (${had || "unknown"} → ${ref})`);
     git(["fetch", "--depth", "1", "origin", ref || "HEAD"], dir);
     git(["checkout", "-q", "-f", "--detach", "FETCH_HEAD"], dir);
+    fs.writeFileSync(marker, ref + "\n");
   }
   if (!fs.existsSync(path.join(dir, "dist", "rgrc.js"))) throw new Error(`${dir} is not a Ranger checkout (no dist/rgrc.js)`);
+  // What this checkout has to have. A checkout of your own (RANGER_DIR) is
+  // never switched for you, so say which branch it needs.
+  if (!fs.existsSync(path.join(dir, "gallery/rangerflow/layout/FlowWrap.rgr"))) {
+    throw new Error(
+      `${dir} has no gallery/rangerflow/layout/FlowWrap.rgr.\n` +
+        (given
+          ? `Check out ${ref} there (git fetch origin ${ref} && git checkout ${ref}), or unset RANGER_DIR to use .deps/Ranger.`
+          : `Run npm run setup -- --update.`),
+    );
+  }
   link(srcDir, path.join(dir, LINK));
   return dir;
 }
