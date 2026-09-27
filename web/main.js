@@ -38,7 +38,11 @@ const FACES = [
 ];
 const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "corporate", "editorial"];
 const SAMPLES = {
-  esittely: ["Esittely: Gemini-botti", "./samples/esittely.md"],
+  talous: ["Talous: oma talous haltuun", "./samples/talous.md"],
+  ymparisto: ["Ympäristö: hiilijalanjälki", "./samples/ymparisto.md"],
+  urheilu: ["Urheilu: 5 km juoksukoulu", "./samples/urheilu.md"],
+  kulttuuri: ["Kulttuuri: musiikin vuosikymmenet", "./samples/kulttuuri.md"],
+  ohjelmointi: ["Ohjelmointi: versionhallinta", "./samples/ohjelmointi.md"],
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
 };
 
@@ -317,6 +321,9 @@ document.addEventListener("fullscreenchange", () => {
 let docName = "esitys";
 
 // --- the toolbar ------------------------------------------------------------------
+// Not in the menu: the deck the page checks drive (npm run check:web opens
+// it with ?sample=esittely), kept as it is so the checks stay put.
+const HIDDEN_SAMPLES = { esittely: ["Esittely", "./samples/esittely.md"] };
 for (const [key, [label]] of Object.entries(SAMPLES)) {
   const o = document.createElement("option");
   o.value = key;
@@ -451,7 +458,7 @@ function useTheme(key) {
 }
 
 async function openSample(key) {
-  const s = SAMPLES[key];
+  const s = SAMPLES[key] || HIDDEN_SAMPLES[key];
   if (!s) return;
   try {
     docName = key;
@@ -748,8 +755,9 @@ async function start() {
   themeSel.value = theme;
   app.setStyleSheet(theme ? themeCss[theme] || "" : "");
   if (!(await openFromHash())) {
-    const sample = SAMPLES[q.get("sample")] ? q.get("sample") : "esittely";
-    sampleSel.value = sample;
+    const want = q.get("sample");
+    const sample = SAMPLES[want] || HIDDEN_SAMPLES[want] ? want : "talous";
+    if (SAMPLES[sample]) sampleSel.value = sample;
     await openSample(sample);
   }
 

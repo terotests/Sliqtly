@@ -83,7 +83,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1400, height: 820 } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto(url);
+  await page.goto(url + "?sample=esittely");
   await page.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
   await page.waitForTimeout(500);
   const shot = async (name) => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, name) }); } };

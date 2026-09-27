@@ -115,6 +115,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | `src/PresApp.rgr` | The editor: panels, tracks, filmstrip, presenting, exports |
 | `src/PresCheck.rgr` | Node checks |
 | `web/` | `index.html` (toolbar), `main.js` (WebGL, clock, keyboard, paste), `pres.css` (EVG chrome) |
+| `samples/*.md` | Example decks: talous (a Vega chart), ymparisto (a wrapped chain), urheilu and ohjelmointi (questions with a loop), kulttuuri (Graphviz). `esittely.md` is the deck `check:web` drives (`?sample=esittely`) |
 | `themes/*.css` | Themes; `aurora` is the default (dark 16:9) |
 | `.github/workflows/pages.yml` | Publishes `web/dist` to GitHub Pages as a playground (no server features) |
 | `scripts/` | setup, build, start (local server), check, check-web |

@@ -1226,14 +1226,16 @@ class PresDiagram {
                 }
                 w = (w + 1)
             }
-            ; a walk that ends at an end (a box with no way on) stays on it:
-            ; that is the answer; one that ends in a loop pulls back
+            ; a walk that ends at an end (a box with no way on) after a choice
+            ; stays on it: that is the answer; one that ends in a loop pulls back
             def last:int -1
             def kn:int (array_length kfN)
             if (kn > 0) {
                 last = (itemAt kfN (kn - 1))
             }
-            if ((last < 0) || ((this.outgoing(last)) > 0)) {
+            ; (a walk with no choice in it is a tour of the whole: it ends on
+            ; the whole diagram)
+            if (((last < 0) || ((this.outgoing(last)) > 0)) || ((array_length choices) == 0)) {
                 this.keyframe((gT + 1.0) -1)
             }
         }

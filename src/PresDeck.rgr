@@ -607,10 +607,62 @@ class PresDeck {
         e.layout.slideGrow = 1.6
         e.stale = true
         e.ensureLayout()
+        this.codeColours(e.layout)
         pageW = e.layout.style.pageWidth
         pageH = e.layout.style.pageHeight
         this.readSlides()
         revision = (revision + 1)
+    }
+
+    ; Listings in the slide's own light. The markdown module's token colours
+    ; are for a white page and the stylesheet has no word for them, so on a
+    ; dark slide the laid-out listing boxes get the dark set instead.
+    fn codeColours:void (l:MdLayout) {
+        def st:MdStyle l.style
+        def bg:string st.codeBackground
+        if ((strlen bg) == 0) {
+            bg = st.pageBackground
+        }
+        if ((strlen bg) == 0) {
+            return
+        }
+        def c:EVGColor (EVGColor.parse(bg))
+        def lum:double ((((to_double (c.red())) * 0.299) + ((to_double (c.green())) * 0.587)) + ((to_double (c.blue())) * 0.114))
+        if (lum >= 110.0) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 0) && (b.family == st.monoFamily)) {
+                def col:string (PresDeck.lower(b.color))
+                if (col == (PresDeck.lower(st.codePlain))) { b.color = "#e6edf3" }
+                if (col == (PresDeck.lower(st.codeKeyword))) { b.color = "#ff7b72" }
+                if (col == (PresDeck.lower(st.codeString))) { b.color = "#a5d6ff" }
+                if (col == (PresDeck.lower(st.codeComment))) { b.color = "#8b949e" }
+                if (col == (PresDeck.lower(st.codeNumber))) { b.color = "#79c0ff" }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn lower:string (v:string) {
+        return (MdChar.lower(v))
+    }
+
+    ; A chart's own ground (the diagram library's page colour) would be a
+    ; white card on a dark slide: it is left out, and the chart sits on the
+    ; slide's own ground.
+    sfn clearGround:void (out:EVGDisplayList from:int) {
+        def i:int from
+        while (i < (array_length out.cmds)) {
+            def cmd:EVGDrawCmd (itemAt out.cmds i)
+            if (cmd.kind == 0) {
+                cmd.a = 0.0
+                return
+            }
+            i = (i + 1)
+        }
     }
 
     fn layout:MdLayout () {
@@ -1026,7 +1078,11 @@ class PresDeck {
                     dia.diagram.paint(out (itemAt span 0) kb.y (itemAt span 1) room (t - dia.start) l.style.textColor paper l)
                 }
             } {
+                def before:int (array_length out.cmds)
                 painter.paintBox(out l kb 0.0)
+                if ((kb.kind == 3) && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(kb.embedKind)))) == "vega")) {
+                    PresDeck.clearGround(out before)
+                }
             }
             while ((array_length groupOfCmd) < (array_length out.cmds)) {
                 push groupOfCmd (itemAt groupOfBox k)
