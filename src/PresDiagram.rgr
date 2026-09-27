@@ -1082,6 +1082,92 @@ class PresDiagram {
         return cap
     }
 
+    ; A free place for a w x h box ON edge e: the middle of the line when
+    ; nothing is there, otherwise the nearest point along it that clears
+    ; every node and the first `upto` pills. Sets rX, rY; false when the line
+    ; has no such place (the middle is set then).
+    fn freeSpot:boolean (e:PresDEdge w:double h:double upto:int) {
+        def fracs:[double] ([] _:double (0.5 0.42 0.58 0.34 0.66 0.26 0.74 0.18 0.82 0.12 0.88))
+        def p:[double]
+        def i:int 0
+        while (i < (array_length fracs)) {
+            PresDiagram.pointAt(e.line (e.len * (itemAt fracs i)) p)
+            def x0:double ((itemAt p 0) - (w * 0.5))
+            def y0:double ((itemAt p 1) - (h * 0.5))
+            if (! (this.blocked(x0 y0 w h upto))) {
+                rX = x0
+                rY = y0
+                return true
+            }
+            i = (i + 1)
+        }
+        PresDiagram.pointAt(e.line (e.len * 0.5) p)
+        rX = ((itemAt p 0) - (w * 0.5))
+        rY = ((itemAt p 1) - (h * 0.5))
+        return false
+    }
+
+    ; A free place for an option's pill: as CLOSE TO THE BOX IT LEAVES as it
+    ; fits, however long the line is — the choice belongs to the question,
+    ; not to wherever the line happens to end. Walks out from the start of
+    ; the line; falls back to `freeSpot` when nothing near is free.
+    fn freeSpotNear:boolean (e:PresDEdge w:double h:double upto:int) {
+        def p:[double]
+        def d:double (h * 0.6)
+        def most:double (e.len * 0.6)
+        while (d <= most) {
+            PresDiagram.pointAt(e.line d p)
+            def x0:double ((itemAt p 0) - (w * 0.5))
+            def y0:double ((itemAt p 1) - (h * 0.5))
+            if (! (this.blocked(x0 y0 w h upto))) {
+                rX = x0
+                rY = y0
+                return true
+            }
+            d = (d + 8.0)
+        }
+        return (this.freeSpot(e w h upto))
+    }
+
+    fn blocked:boolean (x:double y:double w:double h:double upto:int) {
+        def pad:double 6.0
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:PresDNode (itemAt nodes i)
+            if ((((x < ((n.x + n.w) + pad)) && ((x + w) > (n.x - pad))) && (y < ((n.y + n.h) + pad))) && ((y + h) > (n.y - pad))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while ((k < upto) && (k < (array_length pillX))) {
+            def px:double (itemAt pillX k)
+            def py:double (itemAt pillY k)
+            if ((((x < ((px + (itemAt pillW k)) + pad)) && ((x + w) > (px - pad))) && (y < ((py + (itemAt pillH k)) + pad))) && ((y + h) > (py - pad))) {
+                return true
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    ; How far a point is from a line (to its nearest vertex; the curves are
+    ; dense enough for that).
+    sfn distanceTo:double (pts:[double] x:double y:double) {
+        def best:double 1000000000.0
+        def i:int 0
+        while ((i + 1) < (array_length pts)) {
+            def dx:double ((itemAt pts i) - x)
+            def dy:double ((itemAt pts (i + 1)) - y)
+            def d:double ((dx * dx) + (dy * dy))
+            if (d < best) {
+                best = d
+            }
+            i = (i + 2)
+        }
+        return (sqrt best)
+    }
+
     ; Each option sits ON ITS EDGE, where the edge's name was: two ways to
     ; the same node are two places, not one. The width is estimated from the
     ; caption (the hit test has no measurer), and pills that would overlap
@@ -1116,6 +1202,10 @@ class PresDiagram {
             }
             def w:double (((to_double (strlen (this.optionCaption(i)))) * (size * 0.6)) + 28.0)
             def h:double (size + 14.0)
+            if (this.freeSpotNear(e w h i)) {
+                cx = (rX + (w * 0.5))
+                cy = (rY + (h * 0.5))
+            }
             push pillX (cx - (w * 0.5))
             push pillY (cy - (h * 0.5))
             push pillW w
@@ -1167,11 +1257,7 @@ class PresDiagram {
                 def ph:double (itemAt pillH i)
                 def pcx:double ((itemAt pillX i) + (pw * 0.5))
                 def pcy:double ((itemAt pillY i) + (ph * 0.5))
-                def mid:[double]
-                PresDiagram.pointAt(e.line (e.len * 0.5) mid)
-                def ddx:double ((itemAt mid 0) - pcx)
-                def ddy:double ((itemAt mid 1) - pcy)
-                if (((ddx * ddx) + (ddy * ddy)) > 36.0) {
+                if ((PresDiagram.distanceTo(e.line pcx pcy)) > 6.0) {
                     def via:[double]
                     if ((fabs (ex - sx)) > (fabs (ey - sy))) {
                         via = ([] _:double (sx sy (pcx - (pw * 0.5)) pcy (pcx + (pw * 0.5)) pcy ex ey))
@@ -1677,6 +1763,9 @@ class PresDiagram {
     def rH:double 0.0
 
     fn rectOf:void (n:int) {
+        ; the question: its box and its choices, which sit next to it; the
+        ; nodes they lead to may be far away and would zoom the choices out
+        ; of reading size
         if (n == -2) {
             def a:PresDNode (itemAt nodes waitNode)
             def x0:double a.x
@@ -1690,12 +1779,6 @@ class PresDiagram {
                 if (rY < y0) { y0 = rY }
                 if ((rX + rW) > x1) { x1 = (rX + rW) }
                 if ((rY + rH) > y1) { y1 = (rY + rH) }
-                def oe:PresDEdge (itemAt edges (itemAt options i))
-                def on:PresDNode (itemAt nodes oe.to)
-                if (on.x < x0) { x0 = on.x }
-                if (on.y < y0) { y0 = on.y }
-                if ((on.x + on.w) > x1) { x1 = (on.x + on.w) }
-                if ((on.y + on.h) > y1) { y1 = (on.y + on.h) }
                 i = (i + 1)
             }
             rX = x0
@@ -2557,18 +2640,13 @@ class PresDiagram {
         if (! found) {
             return
         }
-        ; on the curve rather than where the router left it: the middle of the line
-        def mid:[double]
-        PresDiagram.pointAt(e.line (e.len * 0.5) mid)
-        def mx:double (itemAt mid 0)
-        def my:double ((itemAt mid 1) - (size * 1.1))
-        if ((fabs (my - cy)) > (size * 3.0)) {
-            mx = cx
-            my = cy
-        }
+        ; on the curve, at a place along it that no box covers
         def wd:double (l.measureStyled(text "Open Sans" size false false))
         def pw:double (wd + 14.0)
         def ph:double (size + 8.0)
+        this.freeSpot(e pw ph 0)
+        def mx:double (rX + (pw * 0.5))
+        def my:double (rY + (ph * 0.5))
         def bg (new EVGDrawCmd())
         bg.kind = 0
         bg.x = (mx - (pw * 0.5))

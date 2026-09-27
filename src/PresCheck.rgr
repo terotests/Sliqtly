@@ -241,6 +241,14 @@ class PresCheck {
         def c:PresDNode (d.nodeNamed("C"))
         def onNode:boolean (((ay >= c.y) && (ay <= (c.y + c.h))) && ((ax >= c.x) && (ax <= (c.x + c.w))))
         this.ok((! onNode) "and sit on the edges, not on the node they lead to")
+        ; …close to the box they leave
+        def bq:PresDNode (d.nodeNamed("B"))
+        def k0:int 0
+        while (k0 < 2) {
+            def gapY:double ((itemAt d.pillY k0) - (bq.y + bq.h))
+            this.ok(((gapY >= -1.0) && (gapY < 60.0)) ("choice " + (to_string (k0 + 1)) + " sits just under the question box: " + (to_string gapY)))
+            k0 = (k0 + 1)
+        }
         ; each way on runs through its own pill
         def k:int 0
         while (k < 2) {
