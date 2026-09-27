@@ -161,7 +161,9 @@ class PresCheck {
         this.ok((hold > 0.0) "the slide holds the clock there")
         this.ok((d.total < (d.waitAt + 1.5)) "and the diagram's own time ends at the question")
         def asked:EVGDisplayList (PresTimeline.frame(deck 0 (hold + 0.2)))
-        this.ok(((PresCheck.texts(asked "1  Vasen")) == 1) "the first way on is shown with its number and name")
+        this.ok(((PresCheck.texts(asked "Vasen")) >= 1) "the first way on is shown with its name")
+        this.ok(((PresCheck.texts(asked "1")) >= 1) "…and its number, apart from the name")
+        this.ok(((PresCheck.texts(asked "1  Vasen")) == 0) "not run into the name")
         this.ok(((PresCheck.texts(asked "Vasen tie")) == 1) "the node it leads to is shown as a ghost")
         ; a press inside the second option's box picks it
         def lt:double ((hold + 0.2) - u.start)

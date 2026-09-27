@@ -1313,17 +1313,33 @@ class PresDiagram {
         return false
     }
 
-    ; The text on an option: its number and its edge's name.
+    ; The text on an option: its edge's name, or the box it leads to when
+    ; the edge has none. Its number (the key that takes it) is drawn apart,
+    ; in a badge: run into the text, "2  12 riviä" reads as 212 rows.
     fn optionCaption:string (i:int) {
         def e:PresDEdge (itemAt edges (itemAt options i))
-        def cap:string (to_string (i + 1))
+        def cap:string ""
         def k:int 0
         while (k < (array_length e.labels)) {
             def lt:SceneItem (itemAt e.labels k)
             if (lt.kind == 1) {
-                cap = (cap + "  " + lt.text)
+                if ((strlen cap) > 0) {
+                    cap = (cap + " ")
+                }
+                cap = (cap + lt.text)
             }
             k = (k + 1)
+        }
+        if ((strlen cap) == 0) {
+            def n:PresDNode (itemAt nodes e.to)
+            def m:int 0
+            while (m < (array_length n.items)) {
+                def it:SceneItem (itemAt n.items m)
+                if (((it.kind == 1) && ((strlen it.text) > 0)) && ((strlen cap) == 0)) {
+                    cap = it.text
+                }
+                m = (m + 1)
+            }
         }
         return cap
     }
@@ -1493,7 +1509,7 @@ class PresDiagram {
                 cx = (itemAt mid 0)
                 cy = (itemAt mid 1)
             }
-            def w:double (((to_double (strlen (this.optionCaption(i)))) * (size * 0.6)) + 28.0)
+            def w:double ((((to_double (strlen (this.optionCaption(i)))) * (size * 0.6)) + 28.0) + (size + 8.0))
             def h:double (size + 14.0)
             def lxv:double cx
             def lyv:double cy
@@ -3246,12 +3262,49 @@ class PresDiagram {
                 PresDiagram.tint(frame (PresDiagram.rgba(acR acG acB glowA)) a)
             }
             push out.cmds frame
+            ; the key's number, in its own badge at the left end
+            def br:double (rH * 0.34)
+            def bcx:double ((rX + (rH * 0.5)) + 2.0)
+            def bcy:double (rY + (rH * 0.5))
+            def badge (new EVGDrawCmd())
+            badge.kind = 0
+            badge.x = (bcx - br)
+            badge.y = (bcy - br)
+            badge.w = (br * 2.0)
+            badge.h = (br * 2.0)
+            badge.radius = br
+            if on2 {
+                PresDiagram.tint(badge (PresDiagram.rgba(wmR wmG wmB 0.95)) a)
+            } {
+                PresDiagram.tint(badge (PresDiagram.rgba(acR acG acB 0.35)) a)
+            }
+            push out.cmds badge
+            def num:string (to_string (j + 1))
+            def ns:double (br * 1.15)
+            def nw:double (l.measureStyled(num "Open Sans" ns true false))
+            def nc (new EVGDrawCmd())
+            nc.kind = 3
+            nc.x = (bcx - (nw * 0.5))
+            nc.y = (bcy - (ns * 0.58))
+            nc.w = nw
+            nc.h = ns
+            nc.text = num
+            nc.fontFamily = "Open Sans"
+            nc.fontSize = ns
+            nc.fontWeight = "bold"
+            if on2 {
+                PresDiagram.tint(nc (PresDiagram.rgba(bgR bgG bgB 1.0)) a)
+            } {
+                PresDiagram.tint(nc (PresDiagram.rgba(txR txG txB 0.9)) a)
+            }
+            push out.cmds nc
             def cap:string (this.optionCaption(j))
             def size:double 13.0
             def wd:double (l.measureStyled(cap "Open Sans" size true false))
             def tc (new EVGDrawCmd())
             tc.kind = 3
-            tc.x = ((rX + (rW * 0.5)) - (wd * 0.5))
+            def textL:double ((bcx + br) + 4.0)
+            tc.x = ((textL + (((rX + rW) - textL) * 0.5)) - (wd * 0.5))
             tc.y = ((rY + (rH * 0.5)) - (size * 0.55))
             tc.w = wd
             tc.h = size
