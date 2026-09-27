@@ -53,16 +53,17 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   `ambient-light`, `liquid-glass`, `raindrop`). `fx-<name>=<number>` is the
   same as `evg-fx-<name>` in CSS.
 - Diagrams (```mermaid, ```dot, ```d2, ```plantuml) are animated on the
-  slide. The default style is `holo`: glass panels with corner brackets,
-  glowing curved edges with chevron arrowheads, a grid that moves with the
-  camera, and data flowing along the edges. Nodes appear with a scan line and
-  edges draw themselves. Then a packet of light travels the edges node by
-  node, and the camera centres on the node it lands on. That node fills about
-  40 % of the view and glows amber. The diagram fades at the rim of the view.
-  Under the fence: `{style=sketch}` (hand-drawn, a bouncing ball),
-  `{tour=off}`, `{ball=off}`, `{zoom=3}` (the maximum zoom) or
-  `{diagram=classic}` (the original drawing). PDF and PPTX use the original
-  drawing.
+  slide as one guided pass. The camera zooms in on each box as it appears and
+  holds it for its reading time (15 characters a second, at least 1.3 s). A
+  packet of light then travels the next arrow and draws it as it goes. The
+  arrow's time includes its label. At the end the camera pulls back to the
+  whole diagram. The layout is tried both left-to-right and top-to-bottom,
+  and whichever is nearer square is used. The default style is `holo`: glass
+  panels, glowing curved arrows, a grid that moves with the camera. Under the
+  fence: `{style=sketch}` (hand-drawn), `{tour=off}` (everything drawn at
+  once), `{zoom=3}` (the largest scale a box is drawn at),
+  `{layout=keep}` (the direction as written) or `{diagram=classic}` (the
+  original drawing). PDF and PPTX use the original drawing.
 - **Ctrl+V** in the editor pastes a picture from the clipboard. It is stored
   under `media/` and written into the Markdown as `![](media/…)`. Dropping an
   image onto the canvas does the same.

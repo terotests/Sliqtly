@@ -195,6 +195,18 @@ class PresDeck {
         if (! base.ok) {
             return
         }
+        ; The other direction too, and whichever is nearer square: a long
+        ; left-to-right chain is a strip on a slide, and top-to-bottom often
+        ; folds it into a block. `{layout=keep}` keeps what was written.
+        if ((n.attrValue("layout")) != "keep") {
+            def other:string (PresDiagram.flipped(notation n.literal))
+            if ((strlen other) > 0) {
+                def alt:PresDiagram (this.diagramFor(notation other box.w))
+                if (alt.ok && ((alt.squareness()) < (base.squareness()))) {
+                    base = alt
+                }
+            }
+        }
         ; the options are the fence's, the scene is shared
         def d (new PresDiagram())
         d.ok = true

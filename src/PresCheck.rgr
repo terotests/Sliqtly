@@ -130,6 +130,57 @@ class PresCheck {
         d.cameraAt(s.duration 800.0 400.0)
         this.ok((d.camZ == 1.0) "the camera is back out at the end")
         this.ok(((PresCheck.texts(fin "Kokous")) == 1) "the final frame shows the whole diagram")
+        this.longChain()
+    }
+
+    ; A long left-to-right chain: laid out top to bottom instead, every node
+    ; shown by the end, and each held long enough to be read.
+    fn longChain:void () {
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Uusi projekti\n\n```mermaid\nflowchart LR\n"
+            + "  A[Uusi projekti] --> B{Kuka tietää mitä tämä tekee?}\n  B -->|Minä ehkä| C[Avaa README]\n  B -->|Ei kukaan| C\n"
+            + "  C --> D{README ajan tasalla?}\n  D -->|Tietenkin ei| E[git log --oneline]\n  D -->|Yllättäen kyllä| F[Kokeillaan ajaa]\n"
+            + "  E --> F\n  F --> G{Käynnistyykö?}\n  G -->|Kyllä| H[Miksi tämä toimii?]\n  G -->|Ei| I[Katso erroria hiljaa 30 sekuntia]\n"
+            + "  I --> J[Google / Stack Overflow / AI]\n  J --> K[Ahaa... tietenkin.]\n  K --> F\n  H --> L[Lisätään yksi pieni muutos]\n"
+            + "  L --> M{Toimiiko vielä?}\n  M -->|Kyllä| N[LGTM]\n  M -->|Ei| I\n  N --> O[Projektin ymmärrys: noin 34 %]\n```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false "the chain is a toured diagram")
+            return
+        }
+        def d:PresDiagram (itemAt s.diagrams 0).diagram
+        this.ok(((d.worldH / d.worldW) > 0.5) ("laid out nearer square than a strip: " + (to_string d.worldW) + "x" + (to_string d.worldH)))
+        this.ok(((array_length d.nodes) == 15) ("fifteen nodes, got " + (to_string (array_length d.nodes))))
+        def hidden:int 0
+        def i:int 0
+        while (i < (array_length d.nodes)) {
+            def n:PresDNode (itemAt d.nodes i)
+            if (n.at > d.tourEnd) {
+                hidden = (hidden + 1)
+            }
+            i = (i + 1)
+        }
+        this.ok((hidden == 0) ("every node appears in the walk, missing " + (to_string hidden)))
+        ; the longest label is held at least its reading time
+        def nb:PresDNode (d.nodeNamed("I"))
+        def held:double 0.0
+        def k:int 0
+        while ((k + 1) < (array_length d.kfT)) {
+            if (((itemAt d.kfN k) == (itemAt d.kfN (k + 1))) && ((itemAt d.kfN k) >= 0)) {
+                def who:PresDNode (itemAt d.nodes (itemAt d.kfN k))
+                if (who.id == "I") {
+                    def span:double ((itemAt d.kfT (k + 1)) - (itemAt d.kfT k))
+                    if (span > held) {
+                        held = span
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        def need:double (d.readTime(30))
+        this.ok((held >= (need - 0.01)) ("a long node is held for reading: " + (to_string held) + " s"))
     }
 
     sfn texts:int (l:EVGDisplayList word:string) {
