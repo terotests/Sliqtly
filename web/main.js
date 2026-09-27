@@ -656,12 +656,23 @@ canvas.addEventListener("pointerdown", (ev) => {
   const now = performance.now();
   clicks = now - lastDown < 400 ? clicks + 1 : 1;
   lastDown = now;
+  // a finger wobbles: it has to travel further than a mouse before a tap
+  // on the stage becomes a drag
+  app.setDragSlop(ev.pointerType === "mouse" ? 6 : 16);
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
   if (where === "editor" || where === "sep" || where === "scrub" || where === "stage") {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
-  focusKeys(where === "editor" ? "editor" : app.focusTarget());
+  if (ev.pointerType !== "mouse" && where !== "editor") {
+    // A tap outside the editor must not focus the hidden text field: on a
+    // phone that opens the keyboard, the page resizes under the finger and
+    // the tap lands somewhere else when it is released.
+    app.setFocus(app.focusTarget());
+    keys.blur();
+  } else {
+    focusKeys(where === "editor" ? "editor" : app.focusTarget());
+  }
   afterInput();
 });
 canvas.addEventListener("pointermove", (ev) => {

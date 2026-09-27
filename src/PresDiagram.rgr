@@ -75,6 +75,10 @@ class PresDEdge {
     def draw:double 0.5
     ; the router's polyline, before it was rounded into `line`
     def route:[double]
+    ; where the line leaves its start box and enters its end box, along it
+    ; (-1: not measured yet); the parts inside a box are drawn dashed
+    def cut0:double -1.0
+    def cut1:double -1.0
     ; where its label was last drawn (lw 0: not drawn), for clicks
     def lx:double 0.0
     def ly:double 0.0
@@ -261,6 +265,9 @@ class PresDiagram {
     def waitNode:int -1
     def options:[int]
     def optSel:int 0
+    ; the highlight shows only once the viewer moves it with a key: until
+    ; then every way on looks the same, none recommended
+    def selShown:boolean false
     ; each option's pill: where it sits on its edge, in diagram units
     def pillX:[double]
     def pillY:[double]
@@ -1233,6 +1240,7 @@ class PresDiagram {
         }
         push choices (itemAt options i)
         optSel = 0
+        selShown = false
         this.plan()
         return true
     }
@@ -1275,6 +1283,7 @@ class PresDiagram {
             remove_index choices ((array_length choices) - 1)
         }
         optSel = 0
+        selShown = false
         this.plan()
         return at
     }
@@ -1293,6 +1302,7 @@ class PresDiagram {
         if (n == 0) {
             return
         }
+        selShown = true
         optSel = (optSel + d)
         if (optSel < 0) { optSel = (n - 1) }
         if (optSel >= n) { optSel = 0 }
@@ -2691,7 +2701,8 @@ class PresDiagram {
     }
 
     fn uiBusy:boolean () {
-        return (exploring && ((uiNow - exT0) < 0.7))
+        ; a question pulses its choices on the wall clock
+        return (waiting || (exploring && ((uiNow - exT0) < 0.7)))
     }
 
     ; ------------------------------------------------------------------
@@ -2842,6 +2853,7 @@ class PresDiagram {
         this.resetExplore()
         clear choices
         optSel = 0
+        selShown = false
         this.plan()
     }
 
@@ -3070,6 +3082,7 @@ class PresDiagram {
             i = (i + 1)
         }
         optSel = o.optSel
+        selShown = o.selShown
     }
 
     fn takeView:void (o:PresDiagram) {
@@ -3169,21 +3182,38 @@ class PresDiagram {
             return
         }
         def a:double (PresDiagram.clamp01(((t - waitAt) / 0.5)))
-        def glowA:double (0.55 + (0.25 * (sin (t * 2.5))))
+        ; Every way on in the same colour, none recommended. A slow pulse
+        ; runs through them in turn (the accent fading towards green and
+        ; back), so the eye sees they are the choices. On the wall clock:
+        ; the timeline stands still while a question waits.
+        def nOpt:int (array_length options)
+        def pkR:[int]
+        def pkG:[int]
+        def pkB:[int]
+        def pkV:[double]
+        def q:int 0
+        while (q < nOpt) {
+            def ph:double ((uiNow * 2.2) - (((to_double q) * 6.2832) / (to_double nOpt)))
+            def pk:double (0.5 + (0.5 * (sin ph)))
+            push pkV pk
+            push pkR (PresDiagram.mixI(acR 74 (pk * 0.75)))
+            push pkG (PresDiagram.mixI(acG 222 (pk * 0.75)))
+            push pkB (PresDiagram.mixI(acB 128 (pk * 0.75)))
+            q = (q + 1)
+        }
         ; first the ways, faint, and where they lead, at half strength
         def i:int 0
         while (i < (array_length options)) {
             def e:PresDEdge (itemAt edges (itemAt options i))
             def n:PresDNode (itemAt nodes e.to)
-            def on:boolean (i == optSel)
+            def on:boolean (selShown && (i == optSel))
             if (e.at > t) {
+                def pv:double (itemAt pkV i)
                 if on {
-                    PresDiagram.glow(out e.line (this.activeWidth()) wmR wmG wmB a)
-                    this.chevron(out e true)
+                    this.strokeEdge(out e e.len (this.activeWidth()) (itemAt pkR i) (itemAt pkG i) (itemAt pkB i) a true)
                 } {
-                    out.addPolyline(e.line 1.2 (PresDiagram.rgba(dmR dmG dmB (0.45 * a))))
+                    this.strokeEdge(out e e.len (1.3 + (pv * 0.9)) (itemAt pkR i) (itemAt pkG i) (itemAt pkB i) ((0.45 + (0.35 * pv)) * a) false)
                 }
-                PresDiagram.roundLast(out)
             }
             if (n.at > t) {
                 def ghost (new EVGDrawCmd())
@@ -3219,18 +3249,18 @@ class PresDiagram {
         ; then the choices themselves, on their edges
         def j:int 0
         while (j < (array_length options)) {
-            def on2:boolean (j == optSel)
+            def on2:boolean (selShown && (j == optSel))
+            def cR:int (itemAt pkR j)
+            def cG:int (itemAt pkG j)
+            def cB:int (itemAt pkB j)
+            def pj:double (itemAt pkV j)
             if (j < (array_length pillLx)) {
                 def pcx:double ((itemAt pillX j) + ((itemAt pillW j) * 0.5))
                 def pcy:double ((itemAt pillY j) + ((itemAt pillH j) * 0.5))
                 def lpx:double (itemAt pillLx j)
                 def lpy:double (itemAt pillLy j)
                 def lead:[double] ([] _:double (pcx pcy lpx lpy))
-                if on2 {
-                    out.addPolyline(lead 1.5 (PresDiagram.rgba(wmR wmG wmB (0.9 * a))))
-                } {
-                    out.addPolyline(lead 1.0 (PresDiagram.rgba(dmR dmG dmB (0.7 * a))))
-                }
+                out.addPolyline(lead (1.0 + (pj * 0.6)) (PresDiagram.rgba(cR cG cB ((0.6 + (0.3 * pj)) * a))))
                 PresDiagram.roundLast(out)
             }
             this.optionRect(j)
@@ -3241,11 +3271,7 @@ class PresDiagram {
             box.w = rW
             box.h = rH
             box.radius = (rH * 0.5)
-            if on2 {
-                PresDiagram.tint(box (PresDiagram.rgba(selR selG selB 0.92)) a)
-            } {
-                PresDiagram.tint(box (PresDiagram.rgba(bgR bgG bgB 0.92)) a)
-            }
+            PresDiagram.tint(box (PresDiagram.rgba(bgR bgG bgB 0.92)) a)
             push out.cmds box
             def frame (new EVGDrawCmd())
             frame.kind = 1
@@ -3254,14 +3280,23 @@ class PresDiagram {
             frame.w = rW
             frame.h = rH
             frame.radius = (rH * 0.5)
-            if on2 {
-                frame.thickness = 3.0
-                PresDiagram.tint(frame (PresDiagram.rgba(wmR wmG wmB 1.0)) a)
-            } {
-                frame.thickness = 1.5
-                PresDiagram.tint(frame (PresDiagram.rgba(acR acG acB glowA)) a)
-            }
+            frame.thickness = (1.6 + (pj * 1.2))
+            PresDiagram.tint(frame (PresDiagram.rgba(cR cG cB (0.7 + (0.3 * pj)))) a)
             push out.cmds frame
+            ; the key's highlight, once a key has moved it: a ring in the
+            ; text's colour around the pill, not a colour of its own
+            if on2 {
+                def ring (new EVGDrawCmd())
+                ring.kind = 1
+                ring.x = (rX - 5.0)
+                ring.y = (rY - 5.0)
+                ring.w = (rW + 10.0)
+                ring.h = (rH + 10.0)
+                ring.radius = ((rH + 10.0) * 0.5)
+                ring.thickness = 2.0
+                PresDiagram.tint(ring (PresDiagram.rgba(txR txG txB 0.9)) a)
+                push out.cmds ring
+            }
             ; the key's number, in its own badge at the left end
             def br:double (rH * 0.34)
             def bcx:double ((rX + (rH * 0.5)) + 2.0)
@@ -3273,11 +3308,7 @@ class PresDiagram {
             badge.w = (br * 2.0)
             badge.h = (br * 2.0)
             badge.radius = br
-            if on2 {
-                PresDiagram.tint(badge (PresDiagram.rgba(wmR wmG wmB 0.95)) a)
-            } {
-                PresDiagram.tint(badge (PresDiagram.rgba(acR acG acB 0.35)) a)
-            }
+            PresDiagram.tint(badge (PresDiagram.rgba(cR cG cB (0.3 + (0.35 * pj)))) a)
             push out.cmds badge
             def num:string (to_string (j + 1))
             def ns:double (br * 1.15)
@@ -3292,11 +3323,7 @@ class PresDiagram {
             nc.fontFamily = "Open Sans"
             nc.fontSize = ns
             nc.fontWeight = "bold"
-            if on2 {
-                PresDiagram.tint(nc (PresDiagram.rgba(bgR bgG bgB 1.0)) a)
-            } {
-                PresDiagram.tint(nc (PresDiagram.rgba(txR txG txB 0.9)) a)
-            }
+            PresDiagram.tint(nc (PresDiagram.rgba(txR txG txB 0.95)) a)
             push out.cmds nc
             def cap:string (this.optionCaption(j))
             def size:double 13.0
@@ -3312,11 +3339,7 @@ class PresDiagram {
             tc.fontFamily = "Open Sans"
             tc.fontSize = size
             tc.fontWeight = "bold"
-            if on2 {
-                PresDiagram.tint(tc (PresDiagram.rgba(stR stG stB 1.0)) a)
-            } {
-                PresDiagram.tint(tc (PresDiagram.rgba(txR txG txB 1.0)) a)
-            }
+            PresDiagram.tint(tc (PresDiagram.rgba(txR txG txB 1.0)) a)
             push out.cmds tc
             j = (j + 1)
         }
@@ -3771,6 +3794,93 @@ class PresDiagram {
     ; Only the edge being travelled moves or glows, and it is warm. Every
     ; other edge is a thin, dim, still line: the eye goes to what moves, and
     ; a screen where everything moves leaves it nowhere to go.
+    ; Where e's line leaves its start box and enters its end box.
+    fn cutsOf:void (e:PresDEdge) {
+        if (e.cut0 >= 0.0) {
+            return
+        }
+        e.cut0 = 0.0
+        e.cut1 = e.len
+        def p:[double]
+        def step:double 2.0
+        if ((e.from >= 0) && (e.from < (array_length nodes))) {
+            def a:PresDNode (itemAt nodes e.from)
+            def s0:double 0.0
+            while ((s0 < e.len) && (PresDiagram.inside(e.line s0 a p))) {
+                s0 = (s0 + step)
+            }
+            if (s0 < e.len) {
+                e.cut0 = s0
+            } {
+                e.cut0 = 0.0
+            }
+        }
+        if ((e.to >= 0) && (e.to < (array_length nodes))) {
+            def b:PresDNode (itemAt nodes e.to)
+            def s1:double e.len
+            while ((s1 > e.cut0) && (PresDiagram.inside(e.line s1 b p))) {
+                s1 = (s1 - step)
+            }
+            e.cut1 = s1
+        }
+    }
+
+    sfn inside:boolean (pts:[double] at:double n:PresDNode p:[double]) {
+        PresDiagram.pointAt(pts at p)
+        def x:double (itemAt p 0)
+        def y:double (itemAt p 1)
+        return ((((x > (n.x + 1.0)) && (x < ((n.x + n.w) - 1.0))) && (y > (n.y + 1.0))) && (y < ((n.y + n.h) - 1.0)))
+    }
+
+    ; e's line up to `upto` along it: solid between the boxes, a few short
+    ; dashes where it runs inside one (a line into a box is not drawn over
+    ; the box's text as if the box were not there).
+    fn strokeEdge:void (out:EVGDisplayList e:PresDEdge upto:double th:double r:int g:int b:int alpha:double lit:boolean) {
+        this.cutsOf(e)
+        def s0:double e.cut0
+        def s1:double e.cut1
+        if (s1 > upto) { s1 = upto }
+        if (s1 > s0) {
+            def mid:[double] (FlowScene.sliceByLength(e.line s0 s1))
+            if lit {
+                PresDiagram.glow(out mid th r g b alpha)
+            } {
+                out.addPolyline(mid th (PresDiagram.rgba(r g b alpha)))
+                PresDiagram.roundLast(out)
+            }
+        }
+        def dw:double (th * 0.8)
+        if (dw < 1.0) { dw = 1.0 }
+        def top:double s0
+        if (top > upto) { top = upto }
+        this.dashes(out e 0.0 top dw r g b (alpha * 0.8))
+        if (upto > e.cut1) {
+            this.dashes(out e e.cut1 upto dw r g b (alpha * 0.8))
+        }
+    }
+
+    fn dashes:void (out:EVGDisplayList e:PresDEdge from:double to:double th:double r:int g:int b:int alpha:double) {
+        if ((to - from) < 2.0) {
+            return
+        }
+        def on:double 4.0
+        def off:double 4.0
+        def s:double from
+        while (s < to) {
+            def s2:double (s + on)
+            if (s2 > to) { s2 = to }
+            def seg:[double] (FlowScene.sliceByLength(e.line s s2))
+            if ((array_length seg) >= 4) {
+                out.addPolyline(seg th (PresDiagram.rgba(r g b alpha)))
+            }
+            s = (s2 + off)
+        }
+    }
+
+    sfn mixI:int (a:int b:int f:double) {
+        return (to_int ((to_double a) + (((to_double b) - (to_double a)) * f)))
+    }
+
     fn holoEdges:void (out:EVGDisplayList t:double l:MdLayout) {
         ; at a question the chosen way is the one active line, not the way in
         def active:int (this.activeEdge(t))
@@ -3787,10 +3897,9 @@ class PresDiagram {
             def e:PresDEdge (itemAt edges i)
             if (((array_length e.line) >= 4) && (t >= e.at)) {
                 def p:double (PresDiagram.smooth(((t - e.at) / e.draw)))
-                def drawn:[double] (FlowScene.sliceByLength(e.line 0.0 (e.len * p)))
                 def on:boolean (i == active)
                 if on {
-                    PresDiagram.glow(out drawn (this.activeWidth()) wmR wmG wmB 1.0)
+                    this.strokeEdge(out e (e.len * p) (this.activeWidth()) wmR wmG wmB 1.0 true)
                     if (p < 1.0) {
                         def head:[double]
                         PresDiagram.pointAt(e.line (e.len * p) head)
@@ -3799,11 +3908,10 @@ class PresDiagram {
                     }
                 } {
                     if ((way >= 0) && (this.exIsWay(i t))) {
-                        out.addPolyline(drawn 1.6 (PresDiagram.rgba(acR acG acB 0.7)))
+                        this.strokeEdge(out e (e.len * p) 1.6 acR acG acB 0.7 false)
                     } {
-                        out.addPolyline(drawn 1.1 (PresDiagram.rgba(dmR dmG dmB 0.38)))
+                        this.strokeEdge(out e (e.len * p) 1.1 dmR dmG dmB 0.38 false)
                     }
-                    PresDiagram.roundLast(out)
                 }
                 if (p >= 0.98) {
                     this.chevron(out e on)
@@ -3869,11 +3977,18 @@ class PresDiagram {
 
     ; An arrowhead as a chevron of light, pointing along the curve's end.
     fn chevron:void (out:EVGDisplayList e:PresDEdge on:boolean) {
-        def n:int (array_length e.line)
-        def tx:double (itemAt e.line (n - 2))
-        def ty:double (itemAt e.line (n - 1))
+        ; at the box's edge, where the line goes in, not at its end inside
+        this.cutsOf(e)
+        def tipAt:double e.cut1
+        if ((tipAt < 12.0) || (tipAt > e.len)) {
+            tipAt = e.len
+        }
+        def tip:[double]
+        PresDiagram.pointAt(e.line tipAt tip)
+        def tx:double (itemAt tip 0)
+        def ty:double (itemAt tip 1)
         def back:[double]
-        PresDiagram.pointAt(e.line (e.len - 10.0) back)
+        PresDiagram.pointAt(e.line (tipAt - 10.0) back)
         def ddx:double (tx - (itemAt back 0))
         def ddy:double (ty - (itemAt back 1))
         def len:double (sqrt ((ddx * ddx) + (ddy * ddy)))

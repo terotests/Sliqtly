@@ -1261,6 +1261,12 @@ class PresApp {
         }
     }
 
+    def dragSlop:double 6.0
+
+    fn setDragSlop:void (px:double) {
+        dragSlop = px
+    }
+
     fn stageMove:void (x:double y:double) {
         if (stageDia < 0) {
             return
@@ -1273,7 +1279,7 @@ class PresApp {
         if (! stagePanning) {
             def mx:double (x - downX)
             def my:double (y - downY)
-            if (((mx * mx) + (my * my)) < 36.0) {
+            if (((mx * mx) + (my * my)) < (dragSlop * dragSlop)) {
                 return
             }
             stagePanning = true
