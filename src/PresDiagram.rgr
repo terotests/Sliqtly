@@ -240,6 +240,9 @@ class PresDiagram {
 
     ; Stop where the flow branches on named edges and let the viewer choose.
     def choose:boolean true
+    ; Painting for a page that does not move (PPTX): everything shown, the
+    ; camera on the whole diagram. Set only inside `paintStill`.
+    def still:boolean false
     ; the edge taken at each branch so far, in order
     def choices:[int]
     ; waiting at a branch: since when, at which node, the edges to choose from,
@@ -2164,10 +2167,17 @@ class PresDiagram {
     }
 
     fn fitOf:double (bw:double bh:double) {
-        ; inset by the rim, so the overview is not under its own fade
-        def fit:double ((bw * 0.84) / worldW)
-        if ((worldH * fit) > (bh * 0.76)) {
-            fit = ((bh * 0.76) / worldH)
+        ; inset by the rim, so the overview is not under its own fade; a still
+        ; has no rim, so it takes nearly all the room
+        def insetW:double 0.84
+        def insetH:double 0.76
+        if still {
+            insetW = 0.97
+            insetH = 0.95
+        }
+        def fit:double ((bw * insetW) / worldW)
+        if ((worldH * fit) > (bh * insetH)) {
+            fit = ((bh * insetH) / worldH)
         }
         if (fit > 2.2) {
             fit = 2.2
@@ -2685,6 +2695,11 @@ class PresDiagram {
         if ((style != "sketch") && (rim < 0.85)) {
             rim = 0.85
         }
+        ; the whole diagram is inside the fit's inset, and a fade in the
+        ; slide's colour would be a solid band on a slide whose ground is not
+        if still {
+            rim = 0.0
+        }
         if ((rim > 0.01) && rimFade) {
             def pc:EVGColor (EVGColor.parse(paper))
             def fw:double (bw * 0.08)
@@ -2706,6 +2721,53 @@ class PresDiagram {
         def pop (new EVGDrawCmd())
         pop.kind = 5
         push out.cmds pop
+    }
+
+    ; The diagram at rest, for an export: every node and edge drawn in full,
+    ; the camera on the whole of it, and nothing that belongs to the walk —
+    ; no packet, no highlighted step, no question, no way back. The reveal
+    ; times are put back afterwards, so the stage is as it was.
+    fn paintStill:void (out:EVGDisplayList bx:double by:double bw:double bh:double ink:string paper:string l:MdLayout) {
+        def nodeAt:[double]
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:PresDNode (itemAt nodes i)
+            push nodeAt n.at
+            n.at = -100.0
+            i = (i + 1)
+        }
+        def edgeAt:[double]
+        def j:int 0
+        while (j < (array_length edges)) {
+            def e:PresDEdge (itemAt edges j)
+            push edgeAt e.at
+            e.at = -100.0
+            j = (j + 1)
+        }
+        def wasTour:boolean tour
+        def wasWaiting:boolean waiting
+        def wasExploring:boolean exploring
+        tour = false
+        waiting = false
+        exploring = false
+        still = true
+        this.paint(out bx by bw bh 1000000.0 ink paper l)
+        still = false
+        tour = wasTour
+        waiting = wasWaiting
+        exploring = wasExploring
+        i = 0
+        while (i < (array_length nodes)) {
+            def n2:PresDNode (itemAt nodes i)
+            n2.at = (itemAt nodeAt i)
+            i = (i + 1)
+        }
+        j = 0
+        while (j < (array_length edges)) {
+            def e2:PresDEdge (itemAt edges j)
+            e2.at = (itemAt edgeAt j)
+            j = (j + 1)
+        }
     }
 
     ; The way back: a small ring at the left of the diagram, a chevron in it.
@@ -3454,7 +3516,7 @@ class PresDiagram {
                     la = 0.0
                 }
                 if (la > 0.0) {
-                    if ((! on) && (! ((way >= 0) && (this.exIsWay(i t))))) {
+                    if (((! on) && (! still)) && (! ((way >= 0) && (this.exIsWay(i t))))) {
                         la = (la * 0.55)
                     }
                     this.holoLabel(out e la l on)
