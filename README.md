@@ -57,8 +57,8 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   slide as one guided pass. The camera zooms in on each box as it appears and
   holds it for its reading time (15 characters a second, at least 1.3 s). A
   packet of light then travels the next arrow and draws it as it goes. The
-  arrow's time includes its label. At the end the camera pulls back to the
-  whole diagram. The layout is chosen among left-to-right, top-to-bottom, and a long
+  arrow's time includes its label. A walk that ends at an end box stays on it;
+  one that ends in a loop pulls back to the whole diagram. The layout is chosen among left-to-right, top-to-bottom, and a long
   top-to-bottom flow cut into columns by the flow engine (`FlowWrap` in
   Ranger's rangerflow). The one that draws the boxes largest in the space on
   the slide wins. The default style is `holo`: glass
@@ -89,6 +89,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | At a diagram's question: click, ←/→ + Enter, or 1–9 | choose the way on |
 | In a diagram: ‹ ring or Backspace | one step back (press again for more) |
 | In a diagram: click a box | the camera zooms to it (a class, not the package round it); ‹ at the top left goes back |
+| …then ←/→ + Enter, or click a way's label | the ways on from that box: select one (warm), go to the box it leads to |
 | In a diagram: + / − / ⛶ buttons, keys + − 0 | zoom in, out, whole diagram |
 | Teema | dark themes aurora, nebula (starfield), carbon, ember (ambient light), midnight; light corporate, editorial. A theme sets the diagram colours through `/* pres: accent=… warm=… fx=… */` |
 | 🔗 Jaa | copies a link with the Markdown compressed into the URL (`#md=…`); opening it loads the same deck |

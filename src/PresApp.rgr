@@ -512,6 +512,12 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return true
         }
+        if (((strlen what) > 3) && ((substring what 0 3) == "way")) {
+            def wi@(optional):int (str2int (substring what 3 (strlen what)))
+            du.diagram.exGo((?? wi -1) ((this.stageTime()) - du.start))
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         if (((strlen what) > 4) && ((substring what 0 4) == "node")) {
             def ni@(optional):int (str2int (substring what 4 (strlen what)))
             du.diagram.explore((?? ni -1))
@@ -583,6 +589,26 @@ class PresApp {
                 ue.diagram.exploreFit()
                 chromeRev = (chromeRev + 1)
                 return true
+            }
+            ; exploring: arrows choose the way on, Enter takes it
+            def te:double (t - ue.start)
+            if ((name == "left") || (name == "up")) {
+                if (ue.diagram.exMoveSel(-1 te)) {
+                    chromeRev = (chromeRev + 1)
+                    return true
+                }
+            }
+            if ((name == "right") || (name == "down")) {
+                if (ue.diagram.exMoveSel(1 te)) {
+                    chromeRev = (chromeRev + 1)
+                    return true
+                }
+            }
+            if ((name == "enter") || (name == "space")) {
+                if (ue.diagram.exGo(-1 te)) {
+                    chromeRev = (chromeRev + 1)
+                    return true
+                }
             }
             if ((name == "backspace") && ue.diagram.exploring) {
                 ue.diagram.exploreBack()

@@ -192,6 +192,9 @@ class PresDeck {
             if (r == -5) {
                 return ((to_string k) + ":fit")
             }
+            if (r >= 2000) {
+                return ((to_string k) + ":way" + (to_string (r - 2000)))
+            }
             if (r >= 1000) {
                 return ((to_string k) + ":node" + (to_string (r - 1000)))
             }

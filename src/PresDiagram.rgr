@@ -75,6 +75,11 @@ class PresDEdge {
     def draw:double 0.5
     ; the router's polyline, before it was rounded into `line`
     def route:[double]
+    ; where its label was last drawn (lw 0: not drawn), for clicks
+    def lx:double 0.0
+    def ly:double 0.0
+    def lw:double 0.0
+    def lh:double 0.0
 
     Constructor () {
         def r:[double]
@@ -172,6 +177,11 @@ class PresDiagram {
     def exSZ:[double]
     def uiNow:double 0.0
     def showControls:boolean false
+    ; the box the viewer went to, the way on from it they have selected,
+    ; and the boxes before (for back)
+    def exNode:int -1
+    def exSel:int 0
+    def exSN:[int]
     ; the last fit, for turning a box into a zoom
     def lastFit:double 1.0
     def lastBW:double 1.0
@@ -302,6 +312,8 @@ class PresDiagram {
         exSY = ex2
         def ex3:[double]
         exSZ = ex3
+        def ex4:[int]
+        exSN = ex4
     }
 
     ; ------------------------------------------------------------------
@@ -1189,7 +1201,16 @@ class PresDiagram {
                 }
                 w = (w + 1)
             }
-            this.keyframe((gT + 1.0) -1)
+            ; a walk that ends at an end (a box with no way on) stays on it:
+            ; that is the answer; one that ends in a loop pulls back
+            def last:int -1
+            def kn:int (array_length kfN)
+            if (kn > 0) {
+                last = (itemAt kfN (kn - 1))
+            }
+            if ((last < 0) || ((this.outgoing(last)) > 0)) {
+                this.keyframe((gT + 1.0) -1)
+            }
         }
     }
 
@@ -1600,6 +1621,25 @@ class PresDiagram {
             return -5
         }
         if (! (this.asking(t))) {
+            if ((this.exWay(t)) >= 0) {
+                this.cameraAt(t bw bh)
+                def sc0:double ((this.fitOf(bw bh)) * camZ)
+                def dx0:double ((bx + (bw * 0.5)) - (camX * sc0))
+                def dy0:double ((by + (bh * 0.5)) - (camY * sc0))
+                def ws:[int] (this.waysOf(exNode t))
+                def w:int 0
+                while (w < (array_length ws)) {
+                    def we:PresDEdge (itemAt edges (itemAt ws w))
+                    if (we.lw > 0.0) {
+                        def lx0:double ((we.lx * sc0) + dx0)
+                        def ly0:double ((we.ly * sc0) + dy0)
+                        if ((((px >= lx0) && (py >= ly0)) && (px <= (lx0 + (we.lw * sc0)))) && (py <= (ly0 + (we.lh * sc0)))) {
+                            return (2000 + (itemAt ws w))
+                        }
+                    }
+                    w = (w + 1)
+                }
+            }
             return (this.hitNode(t bx by bw bh px py))
         }
         this.cameraAt(t bw bh)
@@ -1648,6 +1688,19 @@ class PresDiagram {
             i = (i + 1)
         }
         return found
+    }
+
+    fn outgoing:int (n:int) {
+        def c:int 0
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresDEdge (itemAt edges i)
+            if ((e.from == n) && (e.to != n)) {
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        return c
     }
 
     fn incoming:int (n:int) {
@@ -2189,7 +2242,18 @@ class PresDiagram {
             camZ = (this.nodeZoom(-2 fit bw bh))
             return
         }
-        if ((t <= (itemAt kfT 0)) || (t >= (itemAt kfT ((array_length kfT) - 1)))) {
+        if (t <= (itemAt kfT 0)) {
+            return
+        }
+        if (t >= (itemAt kfT ((array_length kfT) - 1))) {
+            ; after the last keyframe: where it put the camera (an end box
+            ; stays in view; -1 is the overview set above)
+            def lastN:int (itemAt kfN ((array_length kfN) - 1))
+            if (lastN >= 0) {
+                camX = (this.focusX(lastN))
+                camY = (this.focusY(lastN))
+                camZ = (this.nodeZoom(lastN fit bw bh))
+            }
             return
         }
         def k:int 0
@@ -2273,6 +2337,7 @@ class PresDiagram {
     }
 
     fn exPush:void () {
+        push exSN exNode
         if exploring {
             push exSX exTX
             push exSY exTY
@@ -2291,9 +2356,118 @@ class PresDiagram {
             return
         }
         this.exPush()
-        def nd:PresDNode (itemAt nodes n)
-        this.exMove((nd.cx()) (nd.cy()) (this.nodeZoom(n lastFit lastBW lastBH)))
+        exNode = n
+        exSel = 0
+        this.exFrame(n)
         exploring = true
+    }
+
+    ; The ways on from box n that are drawn at t: edge indices.
+    fn waysOf:[int] (n:int t:double) {
+        def r:[int]
+        if (n < 0) {
+            return r
+        }
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresDEdge (itemAt edges i)
+            if (((e.from == n) && (e.to != n)) && (e.at <= t)) {
+                push r i
+            }
+            i = (i + 1)
+        }
+        return r
+    }
+
+    ; The camera on box n and the start of its ways on, their labels
+    ; included, so the next step can be chosen without zooming out.
+    fn exFrame:void (n:int) {
+        def nd:PresDNode (itemAt nodes n)
+        def x0:double nd.x
+        def y0:double nd.y
+        def x1:double (nd.x + nd.w)
+        def y1:double (nd.y + nd.h)
+        def reach:double (60.0 + ((nd.h + nd.w) * 0.15))
+        def p:[double]
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresDEdge (itemAt edges i)
+            if (((e.from == n) && (e.to != n)) && ((array_length e.line) >= 4)) {
+                def far:double reach
+                if (far > e.len) { far = e.len }
+                PresDiagram.pointAt(e.line far p)
+                def px:double (itemAt p 0)
+                def py:double (itemAt p 1)
+                if (px < x0) { x0 = px }
+                if (py < y0) { y0 = py }
+                if (px > x1) { x1 = px }
+                if (py > y1) { y1 = py }
+                if (e.lw > 0.0) {
+                    if (e.lx < x0) { x0 = e.lx }
+                    if (e.ly < y0) { y0 = e.ly }
+                    if ((e.lx + e.lw) > x1) { x1 = (e.lx + e.lw) }
+                    if ((e.ly + e.lh) > y1) { y1 = (e.ly + e.lh) }
+                }
+            }
+            i = (i + 1)
+        }
+        def z:double (this.nodeZoom(n lastFit lastBW lastBH))
+        if ((lastFit > 0.0) && ((x1 - x0) > 0.0)) {
+            def za:double ((lastBW * 0.8) / ((x1 - x0) * lastFit))
+            def zb:double ((lastBH * 0.8) / ((y1 - y0) * lastFit))
+            if (zb < za) { za = zb }
+            if (za < z) { z = za }
+        }
+        this.exMove(((x0 + x1) * 0.5) ((y0 + y1) * 0.5) z)
+    }
+
+    ; The selected way on from the box explored, or -1.
+    fn exWay:int (t:double) {
+        if ((((! exploring) || exReturn) || (exNode < 0)) || (this.asking(t))) {
+            return -1
+        }
+        def ws:[int] (this.waysOf(exNode t))
+        def n:int (array_length ws)
+        if (n == 0) {
+            return -1
+        }
+        if (exSel >= n) { exSel = (n - 1) }
+        if (exSel < 0) { exSel = 0 }
+        return (itemAt ws exSel)
+    }
+
+    fn exIsWay:boolean (edge:int t:double) {
+        if ((this.exWay(t)) < 0) {
+            return false
+        }
+        def e:PresDEdge (itemAt edges edge)
+        return ((e.from == exNode) && (e.to != exNode))
+    }
+
+    ; Arrows between the ways on; false when there is nothing to choose.
+    fn exMoveSel:boolean (d:int t:double) {
+        if ((this.exWay(t)) < 0) {
+            return false
+        }
+        def n:int (array_length (this.waysOf(exNode t)))
+        exSel = (exSel + d)
+        if (exSel < 0) { exSel = (n - 1) }
+        if (exSel >= n) { exSel = 0 }
+        return true
+    }
+
+    ; Take the selected way (or edge `edge` when >= 0): on to its box.
+    fn exGo:boolean (edge:int t:double) {
+        def e0:int edge
+        if (e0 < 0) {
+            e0 = (this.exWay(t))
+        }
+        if (e0 < 0) {
+            return false
+        }
+        def e:PresDEdge (itemAt edges e0)
+        this.explore(e.to)
+        return true
     }
 
     fn zoomBy:void (f:double) {
@@ -2305,6 +2479,7 @@ class PresDiagram {
     ; The whole diagram.
     fn exploreFit:void () {
         this.exPush()
+        exNode = -1
         this.exMove((this.focusX(-1)) (this.focusY(-1)) 1.0)
         exploring = true
     }
@@ -2316,6 +2491,12 @@ class PresDiagram {
             return false
         }
         def n:int (array_length exSX)
+        def sn:int (array_length exSN)
+        if (sn > 0) {
+            exNode = (itemAt exSN (sn - 1))
+            remove_index exSN (sn - 1)
+        }
+        exSel = 0
         if (n == 0) {
             exFromX = camX
             exFromY = camY
@@ -2510,7 +2691,7 @@ class PresDiagram {
             def on:boolean (i == optSel)
             if (e.at > t) {
                 if on {
-                    PresDiagram.glow(out e.line 3.2 wmR wmG wmB a)
+                    PresDiagram.glow(out e.line (this.activeWidth()) wmR wmG wmB a)
                     this.chevron(out e true)
                 } {
                     out.addPolyline(e.line 1.2 (PresDiagram.rgba(dmR dmG dmB (0.45 * a))))
@@ -3072,6 +3253,11 @@ class PresDiagram {
         if (this.asking(t)) {
             active = -1
         }
+        ; exploring: the way on the viewer has selected is the active line
+        def way:int (this.exWay(t))
+        if (way >= 0) {
+            active = way
+        }
         def i:int 0
         while (i < (array_length edges)) {
             def e:PresDEdge (itemAt edges i)
@@ -3080,7 +3266,7 @@ class PresDiagram {
                 def drawn:[double] (FlowScene.sliceByLength(e.line 0.0 (e.len * p)))
                 def on:boolean (i == active)
                 if on {
-                    PresDiagram.glow(out drawn 3.6 wmR wmG wmB 1.0)
+                    PresDiagram.glow(out drawn (this.activeWidth()) wmR wmG wmB 1.0)
                     if (p < 1.0) {
                         def head:[double]
                         PresDiagram.pointAt(e.line (e.len * p) head)
@@ -3088,7 +3274,11 @@ class PresDiagram {
                         PresDiagram.disc(out (itemAt head 0) (itemAt head 1) 3.0 (PresDiagram.rgba(255 240 220 1.0)))
                     }
                 } {
-                    out.addPolyline(drawn 1.1 (PresDiagram.rgba(dmR dmG dmB 0.38)))
+                    if ((way >= 0) && (this.exIsWay(i t))) {
+                        out.addPolyline(drawn 1.6 (PresDiagram.rgba(acR acG acB 0.7)))
+                    } {
+                        out.addPolyline(drawn 1.1 (PresDiagram.rgba(dmR dmG dmB 0.38)))
+                    }
                     PresDiagram.roundLast(out)
                 }
                 if (p >= 0.98) {
@@ -3099,7 +3289,7 @@ class PresDiagram {
                     la = 0.0
                 }
                 if (la > 0.0) {
-                    if (! on) {
+                    if ((! on) && (! ((way >= 0) && (this.exIsWay(i t))))) {
                         la = (la * 0.55)
                     }
                     this.holoLabel(out e la l on)
@@ -3139,6 +3329,20 @@ class PresDiagram {
         }
     }
 
+    ; The active line's width in diagram units: clearly thicker than the
+    ; others (1.1), but not a rope when the camera is close.
+    fn activeWidth:double () {
+        ; about 4 px on screen, whatever the zoom; never below the others
+        def sc:double (lastFit * camZ)
+        if (sc <= 0.0) {
+            return 3.6
+        }
+        def w:double (4.0 / sc)
+        if (w > 3.6) { w = 3.6 }
+        if (w < 1.5) { w = 1.5 }
+        return w
+    }
+
     ; An arrowhead as a chevron of light, pointing along the curve's end.
     fn chevron:void (out:EVGDisplayList e:PresDEdge on:boolean) {
         def n:int (array_length e.line)
@@ -3158,7 +3362,7 @@ class PresDiagram {
         def wing:double 6.0
         def pts:[double] ([] _:double (((tx - (ux * size)) - (uy * wing)) ((ty - (uy * size)) + (ux * wing)) tx ty ((tx - (ux * size)) + (uy * wing)) ((ty - (uy * size)) - (ux * wing))))
         if on {
-            PresDiagram.glow(out pts 3.2 wmR wmG wmB 1.0)
+            PresDiagram.glow(out pts ((this.activeWidth()) * 0.9) wmR wmG wmB 1.0)
         } {
             out.addPolyline(pts 1.1 (PresDiagram.rgba(dmR dmG dmB 0.45)))
             PresDiagram.roundLast(out)
@@ -3202,6 +3406,10 @@ class PresDiagram {
         }
         def mx:double (rX + (pw * 0.5))
         def my:double (rY + (ph * 0.5))
+        e.lx = rX
+        e.ly = rY
+        e.lw = pw
+        e.lh = ph
         def bg (new EVGDrawCmd())
         bg.kind = 0
         bg.x = (mx - (pw * 0.5))
@@ -3220,7 +3428,8 @@ class PresDiagram {
         bd.radius = (ph * 0.5)
         bd.thickness = 1.0
         if on {
-            PresDiagram.tint(bd (PresDiagram.rgba(wmR wmG wmB 0.9)) alpha)
+            bd.thickness = 2.0
+            PresDiagram.tint(bd (PresDiagram.rgba(wmR wmG wmB 0.95)) alpha)
         } {
             PresDiagram.tint(bd (PresDiagram.rgba(acR acG acB 0.4)) alpha)
         }
