@@ -292,6 +292,17 @@ try {
   });
   const pdf = Buffer.from(exp.pdf, "base64");
   check("PDF export", pdf.subarray(0, 5).toString() === "%PDF-", `${pdf.length} bytes`);
+  const names = await page.evaluate(() => {
+    const a = window.__app;
+    const src = a.source();
+    const fromTitle = window.__exportName();
+    a.setSource("# Eka otsikko: osa 1/2\n\nteksti\n");
+    const fromHeading = window.__exportName();
+    a.setSource(src);
+    return [fromTitle, fromHeading];
+  });
+  check("an export is named after the front matter title", names[0] === "Gemini-botti palaverissa", names[0]);
+  check("…or the first heading, without what a file name cannot hold", names[1] === "Eka otsikko osa 1 2", names[1]);
   const pptx = unzip(Buffer.from(exp.pptx, "base64"));
   const slide2 = pptx.get("ppt/slides/slide2.xml") || "";
   const notes = [...pptx.keys()].filter((k) => /notesSlides\/notesSlide\d+\.xml$/.test(k));
