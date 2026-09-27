@@ -265,6 +265,9 @@ function handleRequests() {
       if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
         document.documentElement.requestFullscreen().catch(() => {});
       }
+      // Going full screen can take the focus away from the field the keys
+      // arrive in; a presentation without keys is a slideshow nobody can drive.
+      keys.focus({ preventScroll: true });
       requestAnimationFrame(resize);
     } else if (r === "exit-fullscreen") {
       document.body.classList.remove("presenting");
@@ -275,6 +278,7 @@ function handleRequests() {
 }
 
 document.addEventListener("fullscreenchange", () => {
+  keys.focus({ preventScroll: true });
   if (!document.fullscreenElement && lastLayout && lastLayout.mode === "present") {
     app.endPresent();
     handleRequests();
@@ -450,6 +454,13 @@ keys.addEventListener("keydown", (ev) => {
       afterInput();
     }
   }
+});
+
+document.addEventListener("keydown", (ev) => {
+  if (ev.target === keys || !(lastLayout && lastLayout.mode === "present")) return;
+  keys.focus({ preventScroll: true });
+  keys.dispatchEvent(new KeyboardEvent("keydown", { key: ev.key, code: ev.code, shiftKey: ev.shiftKey, ctrlKey: ev.ctrlKey, metaKey: ev.metaKey, altKey: ev.altKey, bubbles: false, cancelable: true }));
+  ev.preventDefault();
 });
 
 keys.addEventListener("compositionstart", () => { composing = true; });

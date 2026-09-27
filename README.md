@@ -87,6 +87,8 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | While presenting: S | speaker view (next slide, notes, clock) |
 | While presenting: A | steps advance by themselves |
 | While presenting: Esc | end |
+| At a diagram's question: click, ←/→ + Enter, or 1–9 | choose the way on |
+| In a diagram: ‹ ring or Backspace | one step back (press again for more) |
 | PDF / PPTX | export. The PPTX includes notes, transitions and build steps per paragraph |
 
 ## Structure

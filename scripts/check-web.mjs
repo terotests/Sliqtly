@@ -182,6 +182,35 @@ try {
   await shot("2-speaker.png");
   await page.evaluate(() => window.__app.endPresent());
 
+  // A diagram that asks: present the Kulku slide, wait for the question,
+  // move the highlight with an arrow, take it with Enter, then go back two
+  // steps with two quick Backspaces and see the question again.
+  await page.evaluate(() => window.__app.selectSlide(3));
+  await page.keyboard.press("Shift+F5");
+  await page.waitForFunction(() => window.__app.deck.askingAt(3, window.__app.stageTime()) >= 0, null, { timeout: 15000 }).catch(() => {});
+  const q = () => page.evaluate(() => {
+    const a = window.__app;
+    const d = a.deck.slideAt(3).diagrams[0].diagram;
+    return { asking: a.deck.askingAt(3, a.stageTime()), sel: d.optSel, choices: d.choices.length, slide: a.slideShown() };
+  });
+  const q0 = await q();
+  check("the walk stops at the branch and asks", q0.asking === 0 && q0.slide === 3, JSON.stringify(q0));
+  await shot("4-question.png");
+  await page.keyboard.press("ArrowRight");
+  const q1 = await q();
+  check("an arrow moves the highlight, not the slide", q1.sel === 1 && q1.slide === 3, JSON.stringify(q1));
+  await page.keyboard.press("Enter");
+  const q2 = await q();
+  check("Enter takes the highlighted way", q2.choices === 1 && q2.asking < 0, JSON.stringify(q2));
+  await page.waitForTimeout(1600);
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("Backspace");
+  const q3 = await q();
+  check("two quick backs undo the choice", q3.choices === 0, JSON.stringify(q3));
+  await page.waitForFunction(() => window.__app.deck.askingAt(3, window.__app.stageTime()) >= 0, null, { timeout: 8000 }).catch(() => {});
+  check("and the question is asked again", (await q()).asking === 0);
+  await page.evaluate(() => { window.__app.endPresent(); window.__app.takeRequest(); });
+
   // A picture from the clipboard's point of view: bytes into the store,
   // markdown at the caret, a picture command on the slide.
   const pic = await page.evaluate(async () => {

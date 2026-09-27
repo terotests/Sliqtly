@@ -59,6 +59,11 @@ class PresDiaUse {
     def srcStart:int 0
     ; seconds after the slide starts; set by PresTimeline
     def start:double 0.0
+    ; where it is drawn on the slide
+    def bx:double 0.0
+    def by:double 0.0
+    def bw:double 0.0
+    def bh:double 0.0
 }
 
 class PresSlide {
@@ -145,6 +150,83 @@ class PresDeck {
             remove_index diaVals 0
         }
         return d
+    }
+
+    ; ------------------------------------------------------------------
+    ; A diagram the viewer steers
+    ; ------------------------------------------------------------------
+    ; What a press at slide point (px, py) at slide time t means: "k:i" for
+    ; option i of diagram k, "k:back", or "".
+    fn diagramHit:string (i:int t:double px:double py:double) {
+        if ((i < 0) || (i >= (array_length slides))) {
+            return ""
+        }
+        def s:PresSlide (itemAt slides i)
+        def k:int 0
+        while (k < (array_length s.diagrams)) {
+            def u:PresDiaUse (itemAt s.diagrams k)
+            def r:int (u.diagram.hit((t - u.start) u.bx u.by u.bw u.bh px py))
+            if (r == -2) {
+                return ((to_string k) + ":back")
+            }
+            if (r >= 0) {
+                return ((to_string k) + ":" + (to_string r))
+            }
+            k = (k + 1)
+        }
+        return ""
+    }
+
+    ; The diagram on slide i that is asking a question at slide time t, or -1.
+    fn askingAt:int (i:int t:double) {
+        if ((i < 0) || (i >= (array_length slides))) {
+            return -1
+        }
+        def s:PresSlide (itemAt slides i)
+        def k:int 0
+        while (k < (array_length s.diagrams)) {
+            def u:PresDiaUse (itemAt s.diagrams k)
+            if (u.diagram.asking((t - u.start))) {
+                return k
+            }
+            k = (k + 1)
+        }
+        return -1
+    }
+
+    ; The slide time the clock stops at for a question on slide i, or -1.
+    fn diagramHold:double (i:int) {
+        if ((i < 0) || (i >= (array_length slides))) {
+            return -1.0
+        }
+        def s:PresSlide (itemAt slides i)
+        def best:double -1.0
+        def k:int 0
+        while (k < (array_length s.diagrams)) {
+            def u:PresDiaUse (itemAt s.diagrams k)
+            if u.diagram.waiting {
+                def at:double ((u.start + u.diagram.waitAt) + 0.8)
+                if ((best < 0.0) || (at < best)) {
+                    best = at
+                }
+            }
+            k = (k + 1)
+        }
+        return best
+    }
+
+    fn diagramUse@(optional):PresDiaUse (i:int k:int) {
+        if ((i < 0) || (i >= (array_length slides))) {
+            def none@(optional):PresDiaUse
+            return none
+        }
+        def s:PresSlide (itemAt slides i)
+        if ((k < 0) || (k >= (array_length s.diagrams))) {
+            def none2@(optional):PresDiaUse
+            return none2
+        }
+        def u@(optional):PresDiaUse (itemAt s.diagrams k)
+        return u
     }
 
     ; How tall a box may grow on its slide: down to the next box under it,
@@ -271,11 +353,16 @@ class PresDeck {
         if ((n.attrValue("style")) == "sketch") {
             d.style = "sketch"
         }
+        d.choose = ((n.attrValue("choose")) != "off")
         d.plan()
         def u (new PresDiaUse())
         u.diagram = d
         u.source = n.literal
         u.srcStart = n.srcStart
+        u.bx = box.x
+        u.by = box.y
+        u.bw = box.w
+        u.bh = (this.roomBelow(page box))
         push s.diagrams u
     }
 

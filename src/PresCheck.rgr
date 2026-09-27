@@ -89,7 +89,7 @@ class PresCheck {
 
     ; A flowchart is drawn and toured rather than pasted in as a picture.
     fn diagram:void () {
-        def text:string "---\nslide-split-level: 2\n---\n\n## Kulku\n\n```mermaid\nflowchart LR\n  A[Kokous] --> B[Selain]\n  B --> C[Gemini]\n  C --> B\n  B --> A\n```\n"
+        def text:string "---\nslide-split-level: 2\n---\n\n## Kulku\n\n```mermaid\nflowchart LR\n  A[Kokous] --> B[Selain]\n  B --> C[Gemini]\n  C --> B\n  B --> A\n```\n{choose=off}\n"
         def deck (new PresDeck())
         deck.setText(text)
         PresTimeline.planAll(deck)
@@ -134,6 +134,73 @@ class PresCheck {
         this.ok((d.camZ == 1.0) "the camera is back out at the end")
         this.ok(((PresCheck.texts(fin "Kokous")) == 1) "the final frame shows the whole diagram")
         this.longChain()
+        this.steering()
+    }
+
+    ; A walk the viewer steers: it stops where named edges branch, shows the
+    ; ways on, takes the one picked, and goes back a step on request.
+    fn steering:void () {
+        def text:string ("---\nslide-split-level: 2\npage: a4 landscape\n---\n\n## Polku\n\n```mermaid\nflowchart LR\n"
+            + "  A[Alku] --> B{Valitse}\n  B -->|Vasen| C[Vasen tie]\n  B -->|Oikea| D[Oikea tie]\n"
+            + "  C --> E[Loppu]\n  D --> E\n  E --> F[Ohi]\n  E --> G[Myös]\n```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false "the steered diagram is there")
+            return
+        }
+        def u:PresDiaUse (itemAt s.diagrams 0)
+        def d:PresDiagram u.diagram
+        this.ok(d.waiting "the walk stops at the named branch")
+        this.ok(((array_length d.options) == 2) ("two ways on, got " + (to_string (array_length d.options))))
+        def bn:PresDNode (itemAt d.nodes d.waitNode)
+        this.ok((bn.id == "B") ("waiting at B, got " + bn.id))
+        def hold:double (deck.diagramHold(0))
+        this.ok((hold > 0.0) "the slide holds the clock there")
+        this.ok((d.total < (d.waitAt + 1.5)) "and the diagram's own time ends at the question")
+        def asked:EVGDisplayList (PresTimeline.frame(deck 0 (hold + 0.2)))
+        this.ok(((PresCheck.texts(asked "1  Vasen")) == 1) "the first way on is shown with its number and name")
+        this.ok(((PresCheck.texts(asked "Vasen tie")) == 1) "the node it leads to is shown as a ghost")
+        ; a press inside the second option's box picks it
+        def lt:double ((hold + 0.2) - u.start)
+        d.cameraAt(lt u.bw u.bh)
+        d.optionRect(1)
+        def sc:double ((d.fitOf(u.bw u.bh)) * d.camZ)
+        def dx:double ((u.bx + (u.bw * 0.5)) - (d.camX * sc))
+        def dy:double ((u.by + (u.bh * 0.5)) - (d.camY * sc))
+        def px:double (((d.rX + (d.rW * 0.5)) * sc) + dx)
+        def py:double (((d.rY + (d.rH * 0.5)) * sc) + dy)
+        def code:string (deck.diagramHit(0 (hold + 0.2) px py))
+        this.ok((code == "0:1") ("a press on the second option hits it: " + code))
+        d.moveSel(1)
+        this.ok((d.optSel == 1) "the keys move the highlight")
+        this.ok((d.pick(0)) "picking the first way on")
+        PresTimeline.plan(s)
+        this.ok(((array_length d.choices) == 1) "one choice made")
+        def seenC:boolean false
+        def seenD:boolean false
+        def i:int 0
+        while (i < (array_length d.nodes)) {
+            def n:PresDNode (itemAt d.nodes i)
+            if ((n.id == "C") && (n.at < d.tourEnd)) {
+                seenC = true
+            }
+            if ((n.id == "D") && (n.at < (d.tourEnd - 0.5))) {
+                seenD = true
+            }
+            i = (i + 1)
+        }
+        this.ok(seenC "the walk goes the chosen way")
+        this.ok((! seenD) "and not the other")
+        this.ok((! d.waiting) "unnamed branches (E) do not stop it")
+        ; back from the chosen node: to B, and the choice is undone
+        def atC:double (itemAt d.stepT 2)
+        def to:double (d.back((atC + 0.1)))
+        this.ok(((array_length d.choices) == 0) "going back undoes the choice")
+        this.ok(d.waiting "and the question is asked again")
+        this.ok((to < atC) "going back goes back in time")
     }
 
     ; A long left-to-right chain: laid out top to bottom instead, every node
@@ -144,7 +211,7 @@ class PresCheck {
             + "  C --> D{README ajan tasalla?}\n  D -->|Tietenkin ei| E[git log --oneline]\n  D -->|Yllättäen kyllä| F[Kokeillaan ajaa]\n"
             + "  E --> F\n  F --> G{Käynnistyykö?}\n  G -->|Kyllä| H[Miksi tämä toimii?]\n  G -->|Ei| I[Katso erroria hiljaa 30 sekuntia]\n"
             + "  I --> J[Google / Stack Overflow / AI]\n  J --> K[Ahaa... tietenkin.]\n  K --> F\n  H --> L[Lisätään yksi pieni muutos]\n"
-            + "  L --> M{Toimiiko vielä?}\n  M -->|Kyllä| N[LGTM]\n  M -->|Ei| I\n  N --> O[Projektin ymmärrys: noin 34 %]\n```\n")
+            + "  L --> M{Toimiiko vielä?}\n  M -->|Kyllä| N[LGTM]\n  M -->|Ei| I\n  N --> O[Projektin ymmärrys: noin 34 %]\n```\n{choose=off}\n")
         def deck (new PresDeck())
         deck.setText(text)
         PresTimeline.planAll(deck)
