@@ -560,6 +560,9 @@ class PresDeck {
         e.open(src.masked)
         e.slideMode = true
         e.sheetGap = (MdToEvg.sheetGap())
+        ; a slide with room is set larger (the front matter's `slide-grow`
+        ; overrides; `slide-grow: off` keeps the document's sizes)
+        e.layout.slideGrow = 1.6
         e.stale = true
         e.ensureLayout()
         pageW = e.layout.style.pageWidth

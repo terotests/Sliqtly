@@ -17,7 +17,8 @@ npm run check:web    # the page in headless Chromium (build, typing, presenting,
 ```
 
 Ranger is cloned into `.deps/Ranger` on first run, from the branch in
-`presentation.config.json` (`master`). To use an existing
+`presentation.config.json`. It points at `claude/nifty-dijkstra-vq2qit`, which has
+`FlowWrap`'s label room and `slide-grow`; set it back to `master` once that is merged. To use an existing
 checkout instead, set `RANGER_DIR=/path/to/Ranger`. `src/` is linked into the
 checkout as `gallery/presentation`, the same way EvgHarness does it, and
 compiled with Ranger's own compiler.
@@ -49,6 +50,10 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 ````
 
 - A slide starts at `#` and `##` (the aurora theme sets `deck { split-level: 2 }`).
+- A slide with room is set larger: text, headings and spacing together, up to
+  1.6×, as long as it fits and a one-line title stays one line. Slides with a
+  picture or a diagram keep their sizes. `slide-grow: 1.3` in the front matter
+  changes the limit, `slide-grow: off` turns it off.
 - `anim`: `fade`, `rise`, `fly` or `zoom`.
 - `fx`: EVG surface effects (`starfield`, `plasma-wave`, `smoke`,
   `ambient-light`, `liquid-glass`, `raindrop`). `fx-<name>=<number>` is the
