@@ -151,8 +151,19 @@ class PresDiagram {
     ; Reading the scene
     ; ------------------------------------------------------------------
     sfn of:PresDiagram (notation:string text:string width:double) {
-        def d (new PresDiagram())
         def sc:FlowScene (MdDiagram.sceneFor(notation text "default" width (MdDiagram.padding())))
+        return (PresDiagram.fromScene(sc notation text))
+    }
+
+    ; A long top-to-bottom flow cut into columns by the flow engine
+    ; (`FlowWrap`) for a room of `aspect`.
+    sfn wrapped:PresDiagram (notation:string text:string width:double aspect:double) {
+        def sc:FlowScene (MdDiagram.sceneForWrapped(notation text "default" width (MdDiagram.padding()) aspect))
+        return (PresDiagram.fromScene(sc notation text))
+    }
+
+    sfn fromScene:PresDiagram (sc:FlowScene notation:string text:string) {
+        def d (new PresDiagram())
         if (sc.worldW <= 0.0) {
             d.note = (MdDiagram.refusal(notation text))
             return d
@@ -262,6 +273,44 @@ class PresDiagram {
             r = (1.0 / r)
         }
         return r
+    }
+
+    ; ------------------------------------------------------------------
+    ; Choosing a layout
+    ; ------------------------------------------------------------------
+    ;
+    ; Candidates come out of `sceneFor` scaled to the column, so their world
+    ; units differ; what compares is how large a BOX draws: the fit in the
+    ; room times the typical box height.
+    ; How big the diagram draws in a room of this aspect (width / height),
+    ; per unit of room height. Larger is better.
+    fn fitIn:double (aspect:double) {
+        if ((worldW <= 0.0) || (worldH <= 0.0)) {
+            return 0.0
+        }
+        def a:double (aspect / worldW)
+        def b:double (1.0 / worldH)
+        if (b < a) {
+            return b
+        }
+        return a
+    }
+
+    fn boxSize:double () {
+        def sum:double 0.0
+        def i:int 0
+        while (i < (array_length nodes)) {
+            sum = (sum + (itemAt nodes i).h)
+            i = (i + 1)
+        }
+        if ((array_length nodes) == 0) {
+            return 0.0
+        }
+        return (sum / (to_double (array_length nodes)))
+    }
+
+    fn readability:double (aspect:double) {
+        return ((this.fitIn(aspect)) * (this.boxSize()))
     }
 
     fn nodeNamed:PresDNode (id:string) {
@@ -1096,9 +1145,10 @@ class PresDiagram {
     }
 
     fn fitOf:double (bw:double bh:double) {
-        def fit:double (bw / worldW)
-        if ((worldH * fit) > bh) {
-            fit = (bh / worldH)
+        ; inset by the rim, so the overview is not under its own fade
+        def fit:double ((bw * 0.84) / worldW)
+        if ((worldH * fit) > (bh * 0.76)) {
+            fit = ((bh * 0.76) / worldH)
         }
         if (fit > 2.2) {
             fit = 2.2

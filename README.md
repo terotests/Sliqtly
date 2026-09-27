@@ -16,7 +16,9 @@ npm run check        # deck + timeline checks under Node
 npm run check:web    # the page in headless Chromium (build, typing, presenting, exports)
 ```
 
-Ranger is cloned into `.deps/Ranger` on first run. To use an existing
+Ranger is cloned into `.deps/Ranger` on first run, from the branch in
+`presentation.config.json`. It currently points at `claude/nifty-dijkstra-vq2qit`,
+which has `FlowWrap`; set it back to `master` once that branch is merged. To use an existing
 checkout instead, set `RANGER_DIR=/path/to/Ranger`. `src/` is linked into the
 checkout as `gallery/presentation`, the same way EvgHarness does it, and
 compiled with Ranger's own compiler.
@@ -57,8 +59,10 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   holds it for its reading time (15 characters a second, at least 1.3 s). A
   packet of light then travels the next arrow and draws it as it goes. The
   arrow's time includes its label. At the end the camera pulls back to the
-  whole diagram. The layout is tried both left-to-right and top-to-bottom,
-  and whichever is nearer square is used. The default style is `holo`: glass
+  whole diagram. The layout is chosen among left-to-right, top-to-bottom, and a long
+  top-to-bottom flow cut into columns by the flow engine (`FlowWrap` in
+  Ranger's rangerflow). The one that draws the boxes largest in the space on
+  the slide wins. The default style is `holo`: glass
   panels and curved arrows. Only the arrow being travelled glows and moves, in a
   warm orange; the others are thin, dim and still, so the eye has one place to
   go. A grid moves with the camera. Under the

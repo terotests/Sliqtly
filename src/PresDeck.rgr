@@ -121,7 +121,12 @@ class PresDeck {
     }
 
     fn diagramFor:PresDiagram (notation:string text:string width:double) {
-        def key:string (notation + "|" + (to_string width) + "|" + text)
+        return (this.diagramAs(notation text width 0.0))
+    }
+
+    ; `aspect` > 0: the flow engine's column-wrapped layout for that room.
+    fn diagramAs:PresDiagram (notation:string text:string width:double aspect:double) {
+        def key:string (notation + "|" + (to_string width) + "|" + (to_string aspect) + "|" + text)
         def i:int 0
         while (i < (array_length diaKeys)) {
             if ((itemAt diaKeys i) == key) {
@@ -130,6 +135,9 @@ class PresDeck {
             i = (i + 1)
         }
         def d:PresDiagram (PresDiagram.of(notation text width))
+        if (aspect > 0.0) {
+            d = (PresDiagram.wrapped(notation text width aspect))
+        }
         push diaKeys key
         push diaVals d
         if ((array_length diaKeys) > 40) {
@@ -195,16 +203,54 @@ class PresDeck {
         if (! base.ok) {
             return
         }
-        ; The other direction too, and whichever is nearer square: a long
-        ; left-to-right chain is a strip on a slide, and top-to-bottom often
-        ; folds it into a block. `{layout=keep}` keeps what was written.
+        ; The layout that draws largest in the room it has, among: the
+        ; direction as written, the other direction, and the top-to-bottom
+        ; one wrapped into columns (a long chain is a strip either way round).
+        ; The room counts as at most half again as wide as it is tall, so a
+        ; squarer shape wins over a strip that happens to fit a wide slide.
+        ; `{layout=keep}` keeps what was written.
         if ((n.attrValue("layout")) != "keep") {
+            def room:double (this.roomBelow(page box))
+            def aspect:double 1.5
+            if (room > 0.0) {
+                aspect = (box.w / room)
+            }
+            if (aspect > 1.5) { aspect = 1.5 }
+            if (aspect < 0.6) { aspect = 0.6 }
+            def cands:[PresDiagram]
+            def texts:[string]
+            push cands base
+            push texts n.literal
             def other:string (PresDiagram.flipped(notation n.literal))
             if ((strlen other) > 0) {
                 def alt:PresDiagram (this.diagramFor(notation other box.w))
-                if (alt.ok && ((alt.squareness()) < (base.squareness()))) {
-                    base = alt
+                if alt.ok {
+                    push cands alt
+                    push texts other
                 }
+            }
+            ; the tall one, cut into columns by the flow engine
+            def ci:int 0
+            def m:int (array_length cands)
+            while (ci < m) {
+                def cd:PresDiagram (itemAt cands ci)
+                if (cd.worldH > cd.worldW) {
+                    def wr:PresDiagram (this.diagramAs(notation (itemAt texts ci) box.w aspect))
+                    if wr.ok {
+                        push cands wr
+                    }
+                }
+                ci = (ci + 1)
+            }
+            def bf:double (base.readability(aspect))
+            def cj:int 0
+            while (cj < (array_length cands)) {
+                def c2:PresDiagram (itemAt cands cj)
+                if ((c2.readability(aspect)) > (bf * 1.02)) {
+                    base = c2
+                    bf = (c2.readability(aspect))
+                }
+                cj = (cj + 1)
             }
         }
         ; the options are the fence's, the scene is shared

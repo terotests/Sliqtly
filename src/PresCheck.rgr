@@ -139,7 +139,7 @@ class PresCheck {
     ; A long left-to-right chain: laid out top to bottom instead, every node
     ; shown by the end, and each held long enough to be read.
     fn longChain:void () {
-        def text:string ("---\nslide-split-level: 2\n---\n\n## Uusi projekti\n\n```mermaid\nflowchart LR\n"
+        def text:string ("---\nslide-split-level: 2\npage: a4 landscape\n---\n\n## Uusi projekti\n\n```mermaid\nflowchart LR\n"
             + "  A[Uusi projekti] --> B{Kuka tietää mitä tämä tekee?}\n  B -->|Minä ehkä| C[Avaa README]\n  B -->|Ei kukaan| C\n"
             + "  C --> D{README ajan tasalla?}\n  D -->|Tietenkin ei| E[git log --oneline]\n  D -->|Yllättäen kyllä| F[Kokeillaan ajaa]\n"
             + "  E --> F\n  F --> G{Käynnistyykö?}\n  G -->|Kyllä| H[Miksi tämä toimii?]\n  G -->|Ei| I[Katso erroria hiljaa 30 sekuntia]\n"
@@ -154,7 +154,8 @@ class PresCheck {
             return
         }
         def d:PresDiagram (itemAt s.diagrams 0).diagram
-        this.ok(((d.worldH / d.worldW) > 0.5) ("laid out nearer square than a strip: " + (to_string d.worldW) + "x" + (to_string d.worldH)))
+        def ratio:double (d.worldW / d.worldH)
+        this.ok(((ratio > 0.5) && (ratio < 2.2)) ("wrapped into a block, not a strip: " + (to_string d.worldW) + "x" + (to_string d.worldH)))
         this.ok(((array_length d.nodes) == 15) ("fifteen nodes, got " + (to_string (array_length d.nodes))))
         def hidden:int 0
         def i:int 0
