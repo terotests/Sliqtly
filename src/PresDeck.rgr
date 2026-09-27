@@ -481,7 +481,16 @@ class PresDeck {
         }
         d.setPalette(paper (this.themeValue("accent")) (this.themeValue("warm")))
         d.rimFade = ((strlen s.fx) == 0)
-        d.plan()
+        def oi:int (this.takeOldUse(n.literal))
+        if (oi >= 0) {
+            def was:PresDiaUse (itemAt oldUses oi)
+            remove_index oldUses oi
+            d.takeChoices(was.diagram)
+            d.plan()
+            d.takeView(was.diagram)
+        } {
+            d.plan()
+        }
         def u (new PresDiaUse())
         u.diagram = d
         u.source = n.literal
@@ -617,7 +626,45 @@ class PresDeck {
     ; ------------------------------------------------------------------
     ; The slides and what the document says about them
     ; ------------------------------------------------------------------
+    ; The diagrams of the deck before this rebuild: an edit anywhere else
+    ; leaves a diagram's text as it was, and then the viewer's choices, view
+    ; and menu carry over instead of starting the walk again.
+    def oldUses:[PresDiaUse]
+
+    fn keepOldUses:void () {
+        clear oldUses
+        def i:int 0
+        while (i < (array_length slides)) {
+            def s:PresSlide (itemAt slides i)
+            def k:int 0
+            while (k < (array_length s.diagrams)) {
+                push oldUses (itemAt s.diagrams k)
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The old use of a fence with this text, taken so it is used once; -1.
+    fn takeOldUse:int (source:string) {
+        def i:int 0
+        while (i < (array_length oldUses)) {
+            def u:PresDiaUse (itemAt oldUses i)
+            if (u.source == source) {
+                return i
+            }
+            i = (i + 1)
+        }
+        ; an edit inside a fence: the next one in order (the diagram keeps
+        ; the view only when it still has the same boxes and lines)
+        if ((array_length oldUses) > 0) {
+            return 0
+        }
+        return -1
+    }
+
     fn readSlides:void () {
+        this.keepOldUses()
         clear slides
         def l:MdLayout (this.layout())
         def doc:MdNode md.edit.doc

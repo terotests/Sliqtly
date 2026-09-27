@@ -3042,6 +3042,50 @@ class PresDiagram {
         exploring = true
     }
 
+    ; Carried over from the same diagram before an edit (see PresDeck).
+    fn takeChoices:void (o:PresDiagram) {
+        if (((array_length o.nodes) != (array_length nodes)) || ((array_length o.edges) != (array_length edges))) {
+            return
+        }
+        clear choices
+        def i:int 0
+        while (i < (array_length o.choices)) {
+            push choices (itemAt o.choices i)
+            i = (i + 1)
+        }
+        optSel = o.optSel
+    }
+
+    fn takeView:void (o:PresDiagram) {
+        if (((array_length o.nodes) != (array_length nodes)) || ((array_length o.edges) != (array_length edges))) {
+            return
+        }
+        exploring = o.exploring
+        exReturn = o.exReturn
+        exTX = o.exTX
+        exTY = o.exTY
+        exTZ = o.exTZ
+        exFromX = o.exFromX
+        exFromY = o.exFromY
+        exFromZ = o.exFromZ
+        exT0 = o.exT0
+        exSX = o.exSX
+        exSY = o.exSY
+        exSZ = o.exSZ
+        exSN = o.exSN
+        exNode = o.exNode
+        exSel = o.exSel
+        showAll = o.showAll
+        menuOpen = o.menuOpen
+        uiNow = o.uiNow
+        lastFit = o.lastFit
+        lastBW = o.lastBW
+        lastBH = o.lastBH
+        camX = o.camX
+        camY = o.camY
+        camZ = o.camZ
+    }
+
     ; Back to the presentation's own camera, from wherever the viewer took
     ; the view: a short glide, and the views before are forgotten.
     fn exploreHome:void () {
