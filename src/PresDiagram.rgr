@@ -2945,6 +2945,8 @@ class PresDiagram {
         def wasTour:boolean tour
         def wasWaiting:boolean waiting
         def wasExploring:boolean exploring
+        def wasControls:boolean showControls
+        showControls = false
         tour = false
         waiting = false
         exploring = false
@@ -2954,6 +2956,7 @@ class PresDiagram {
         tour = wasTour
         waiting = wasWaiting
         exploring = wasExploring
+        showControls = wasControls
         i = 0
         while (i < (array_length nodes)) {
             def n2:PresDNode (itemAt nodes i)
