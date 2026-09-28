@@ -5,7 +5,13 @@
    breaks at every `##`; `# Title` opens the deck.
    --------------------------------------------------------------------------- */
 
-/* pres: fx=starfield fx-density=1.1 fx-hue=280 fx-hue2=320 accent=#c084fc warm=#fbbf24 */
+/* pres: fx=starfield fx-density=1.1 fx-hue=280 fx-hue2=320 */
+
+/* The stage's charts and diagrams: `color` the warm light (columns, the
+   active line), `accent-color` the cool one (grid, axes, boxes). */
+chart     { color: #fbbf24; accent-color: #c084fc }
+diagram   { color: #fbbf24; accent-color: #c084fc }
+
 
 page      { width: 13.333in; height: 7.5in; padding: 0.75in; background-color: #130a26 }
 deck      { split-level: 2; overflow: split; aspect-ratio: 16 / 9 }

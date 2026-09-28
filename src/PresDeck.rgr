@@ -250,7 +250,7 @@ class PresDeck {
         def dl (new EVGDisplayList())
         def painter (new MdToEvg())
         painter.paintBox(dl l b 0.0)
-        PresChart.dress(dl 0 1000000.0 true (this.themeValue("accent")) (this.themeValue("warm")) b.embedSource)
+        PresChart.dress(dl 0 1000000.0 true (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) b.embedSource)
         return dl
     }
 
@@ -548,7 +548,7 @@ class PresDeck {
         if ((strlen paper) == 0) {
             paper = "#ffffff"
         }
-        d.setPalette(paper (this.themeValue("accent")) (this.themeValue("warm")))
+        d.setPalette(paper (this.themeColour("diagram" "accent-color")) (this.themeColour("diagram" "color")))
         d.rimFade = ((strlen s.fx) == 0)
         def oi:int (this.takeOldUse(n.literal))
         if (oi >= 0) {
@@ -575,6 +575,9 @@ class PresDeck {
     fn setTheme:void (css:string) {
         clear themeKeys
         clear themeVals
+        clear ruleKeys
+        clear ruleVals
+        this.readRules(css)
         def at:int (indexOf css "/* pres:")
         if (at < 0) {
             return
@@ -605,6 +608,90 @@ class PresDeck {
                 }
             }
         }
+    }
+
+    ; `chart { color; accent-color }` and `diagram { … }` in the theme: the
+    ; stage's own selectors, which the markdown module does not know and
+    ; leaves alone. Kept as "selector/property" = value.
+    def ruleKeys:[string]
+    def ruleVals:[string]
+
+    fn readRules:void (css0:string) {
+        ; comments out first: a `{` in one is not a rule
+        def css:string ""
+        def n0:int (strlen css0)
+        def p:int 0
+        while (p < n0) {
+            def rest:string (substring css0 p n0)
+            def c0:int (indexOf rest "/*")
+            if (c0 < 0) {
+                css = (css + rest)
+                p = n0
+            } {
+                css = (css + (substring rest 0 c0))
+                def after:string (substring rest (c0 + 2) (strlen rest))
+                def c1:int (indexOf after "*/")
+                if (c1 < 0) {
+                    p = n0
+                } {
+                    p = ((p + c0) + (c1 + 4))
+                }
+            }
+        }
+        def n:int (strlen css)
+        def at:int 0
+        while (at < n) {
+            def tail:string (substring css at n)
+            def open:int (indexOf tail "{")
+            if (open < 0) {
+                return
+            }
+            def tail2:string (substring tail (open + 1) (strlen tail))
+            def close:int (indexOf tail2 "}")
+            if (close < 0) {
+                return
+            }
+            def sels:string (trim (substring tail 0 open))
+            def body:string (substring tail2 0 close)
+            def selList:[string] (strsplit sels ",")
+            def s:int 0
+            while (s < (array_length selList)) {
+                def sel:string (trim (itemAt selList s))
+                if ((sel == "chart") || (sel == "diagram")) {
+                    def decls:[string] (strsplit body ";")
+                    def d:int 0
+                    while (d < (array_length decls)) {
+                        def decl:string (itemAt decls d)
+                        def colon:int (indexOf decl ":")
+                        if (colon > 0) {
+                            push ruleKeys (sel + "/" + (trim (substring decl 0 colon)))
+                            push ruleVals (trim (substring decl (colon + 1) (strlen decl)))
+                        }
+                        d = (d + 1)
+                    }
+                }
+                s = (s + 1)
+            }
+            at = (((at + open) + 1) + (close + 1))
+        }
+    }
+
+    ; A colour for `what` ("chart" or "diagram"): `color` is the warm one
+    ; (columns, the active line), `accent-color` the cool one (grid, axes,
+    ; boxes). The rule wins over the old `/* pres: warm= accent= */` line.
+    fn themeColour:string (what:string prop:string) {
+        def key:string (what + "/" + prop)
+        def i:int ((array_length ruleKeys) - 1)
+        while (i >= 0) {
+            if ((itemAt ruleKeys i) == key) {
+                return (itemAt ruleVals i)
+            }
+            i = (i - 1)
+        }
+        if (prop == "color") {
+            return (this.themeValue("warm"))
+        }
+        return (this.themeValue("accent"))
     }
 
     fn themeValue:string (key:string) {
@@ -1108,7 +1195,7 @@ class PresDeck {
                 def before:int (array_length out.cmds)
                 painter.paintBox(out l kb 0.0)
                 if ((kb.kind == 3) && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(kb.embedKind)))) == "vega")) {
-                    PresChart.dress(out before t still (this.themeValue("accent")) (this.themeValue("warm")) kb.embedSource)
+                    PresChart.dress(out before t still (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) kb.embedSource)
                 }
             }
             while ((array_length groupOfCmd) < (array_length out.cmds)) {

@@ -5,7 +5,11 @@
    breaks at every `##`; `# Title` opens the deck.
    --------------------------------------------------------------------------- */
 
-/* pres: accent=#34d399 warm=#f472b6 */
+/* The stage's charts and diagrams: `color` the warm light (columns, the
+   active line), `accent-color` the cool one (grid, axes, boxes). */
+chart     { color: #f472b6; accent-color: #34d399 }
+diagram   { color: #f472b6; accent-color: #34d399 }
+
 
 page      { width: 13.333in; height: 7.5in; padding: 0.75in; background-color: #0a1628 }
 deck      { split-level: 2; overflow: split; aspect-ratio: 16 / 9 }
