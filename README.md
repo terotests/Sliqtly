@@ -101,7 +101,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | ▶ Play / ⛶ Present | the diagrams start again from their own camera |
 | In a diagram: + / − / 100 % buttons, keys + − 0 | zoom in, out; 100 % shows the whole diagram (‹ or a choice returns to the walk) |
 | Teema | dark themes aurora, nebula (starfield), carbon, ember (ambient light), midnight; light corporate, editorial. A theme sets the diagram colours through `/* pres: accent=… warm=… fx=… */` |
-| 🔗 Jaa | copies a link with the Markdown compressed into the URL (`#md=…`); opening it loads the same deck |
+| 🔗 Jaa | a dialog with two links, each with its own Kopioi: **Esitys** opens straight into the presentation (no toolbar or editor; ◀ ▶ ⛶ in a corner that fades; Esc only leaves full screen), **Muokkaus** opens the editor. The Markdown is compressed into the link (`#md=…`, `&mode=show` for the presentation) |
 | PDF / PPTX | export. The PPTX includes notes, transitions and build steps per paragraph |
 
 ## Structure

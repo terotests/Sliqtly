@@ -277,7 +277,7 @@ function handleRequests() {
       document.body.classList.add("presenting");
       presentStartedAt = performance.now();
       rebaseClock();
-      if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+      if (!viewer && document.documentElement.requestFullscreen && !document.fullscreenElement) {
         document.documentElement.requestFullscreen().catch(() => {});
       }
       // Going full screen can take the focus away from the field the keys
@@ -310,7 +310,7 @@ document.addEventListener("fullscreenchange", () => {
     leavingByApp = false;
     const was = fullscreenOn;
     fullscreenOn = false;
-    if (!byApp && was && app.isPlaying() && JSON.parse(app.layoutJson()).mode === "present") {
+    if (!viewer && !byApp && was && app.isPlaying() && JSON.parse(app.layoutJson()).mode === "present") {
       app.endPresent();
       handleRequests();
     }
@@ -420,24 +420,82 @@ function toast(text) {
   toastTimer = setTimeout(() => el.classList.remove("on"), 3200);
 }
 
+// Two links to the same deck: one that opens straight into the presentation
+// (no editor, no toolbar), one that opens the editor. The dialog shows both
+// and copies the one asked for.
+const shareDlg = document.getElementById("shareDlg");
 async function shareLink() {
   const text = app.source();
   const code = await packText(text);
   const q = new URLSearchParams();
   q.set("md", code);
   if (themeSel.value) q.set("theme", themeSel.value);
-  const url = location.origin + location.pathname + location.search + "#" + q.toString();
-  history.replaceState(null, "", url);
+  const base = location.origin + location.pathname;
+  const editUrl = base + "#" + q.toString();
+  q.set("mode", "show");
+  const showUrl = base + "#" + q.toString();
+  history.replaceState(null, "", editUrl);
   lastHash = location.hash;
+  document.getElementById("shareEdit").value = editUrl;
+  document.getElementById("shareShow").value = showUrl;
+  const pictures = /\]\(media\//.test(text) ? " Liitetyt kuvat eivät kulje linkissä." : "";
+  document.getElementById("shareNote").textContent = `${editUrl.length} merkkiä.` + pictures;
+  window.__lastShare = editUrl;
+  window.__lastShareShow = showUrl;
+  if (shareDlg.showModal && !shareDlg.open) shareDlg.showModal();
+}
+shareDlg.addEventListener("click", async (ev) => {
+  const id = ev.target && ev.target.dataset && ev.target.dataset.copy;
+  if (ev.target === shareDlg || ev.target.id === "shareClose") {
+    shareDlg.close();
+    return;
+  }
+  if (!id) return;
+  const field = document.getElementById(id);
   let copied = false;
   try {
-    await navigator.clipboard.writeText(url);
+    await navigator.clipboard.writeText(field.value);
     copied = true;
-  } catch (_) { /* no clipboard permission: the address bar has it */ }
-  const pictures = /\]\(media\//.test(text) ? " Liitetyt kuvat eivät kulje linkissä." : "";
-  toast((copied ? "Linkki kopioitu" : "Linkki on osoiterivillä") + ` (${url.length} merkkiä).` + pictures);
-  window.__lastShare = url;
+  } catch (_) {
+    field.select();
+    copied = document.execCommand && document.execCommand("copy");
+  }
+  ev.target.textContent = copied ? "Kopioitu ✓" : "Valitse ja kopioi";
+  setTimeout(() => { ev.target.textContent = "Kopioi"; }, 1600);
+});
+shareDlg.addEventListener("close", () => focusKeys(app.focusTarget()));
+
+// --- a shared presentation (#…&mode=show) ---------------------------------------
+// The slides only: no toolbar, no editor, and no way back to one. Full screen
+// is offered, not forced — a browser gives it only to a tap of the viewer's own.
+let viewer = false;
+let idleTimer = 0;
+function enterViewer() {
+  viewer = true;
+  document.body.classList.add("viewer");
+  app.present(true);
+  handleRequests();
+  wakeViewer();
 }
+function wakeViewer() {
+  document.body.classList.remove("idle");
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => document.body.classList.add("idle"), 2500);
+}
+// Esc leaves full screen (the browser does that), never the presentation:
+// there is no editor to go back to.
+window.addEventListener("keydown", (ev) => {
+  if (viewer && ev.key === "Escape") ev.stopImmediatePropagation();
+}, true);
+for (const ev of ["pointermove", "pointerdown", "keydown"]) {
+  window.addEventListener(ev, () => { if (viewer) wakeViewer(); }, { passive: true });
+}
+document.getElementById("vPrev").addEventListener("click", () => { app.prev(); afterInput(); });
+document.getElementById("vNext").addEventListener("click", () => { app.next(); afterInput(); });
+document.getElementById("vFull").addEventListener("click", () => {
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+});
 
 let lastHash = "";
 async function openFromHash() {
@@ -455,6 +513,7 @@ async function openFromHash() {
     app.setSource(text);
     dropThumbs();
     needsPaint = true;
+    if (q.get("mode") === "show") enterViewer();
     return true;
   } catch (e) {
     toast("Linkin sisältöä ei voitu lukea.");

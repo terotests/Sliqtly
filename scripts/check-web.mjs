@@ -244,6 +244,25 @@ try {
   const reopened = await page2.evaluate(() => window.__app.source());
   check("the shared link opens the same markdown", reopened === shared.src);
   await page2.close();
+  // …and the presentation link: straight into the show, no toolbar, and Esc
+  // does not lead back to an editor
+  const showUrl = await page.evaluate(() => window.__lastShareShow || "");
+  await page.evaluate(() => document.getElementById("shareDlg").close());
+  check("share offers a presentation link", /mode=show/.test(showUrl));
+  const page3 = await browser.newPage({ viewport: { width: 1200, height: 760 } });
+  await page3.goto(showUrl.replace(/^https?:\/\/[^/]+/, url.replace(/\/$/, "")));
+  await page3.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+  await page3.waitForTimeout(300);
+  const shown = await page3.evaluate(() => ({
+    mode: JSON.parse(window.__app.layoutJson()).mode,
+    bar: getComputedStyle(document.getElementById("bar")).display,
+    viewer: document.body.classList.contains("viewer"),
+  }));
+  check("the presentation link opens presenting, without the toolbar", shown.mode === "present" && shown.bar === "none" && shown.viewer, JSON.stringify(shown));
+  await page3.keyboard.press("Escape");
+  await page3.waitForTimeout(200);
+  check("Esc does not leave the shared presentation", (await page3.evaluate(() => JSON.parse(window.__app.layoutJson()).mode)) === "present");
+  await page3.close();
 
   // A picture from the clipboard's point of view: bytes into the store,
   // markdown at the caret, a picture command on the slide.
