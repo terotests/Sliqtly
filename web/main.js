@@ -829,6 +829,13 @@ async function start() {
     }
   }));
   setFontFallback(FACES.filter((_, i) => got[i]).map(([name]) => name));
+  // The PDF writer's fallback for emoji (monochrome Noto Emoji). Only the
+  // writer gets it: the screen keeps the browser's own colour emoji. Loaded
+  // after start-up because it is large; a PDF made before it arrives just
+  // has no emoji. The dash in the name puts it in the fallback pool.
+  bytesOf("./fonts/NotoEmoji-Regular.ttf")
+    .then((bytes) => app.attachFont("Noto Emoji-Regular", asRangerBuffer(bytes.slice(0))))
+    .catch((e) => console.warn("emoji face not loaded", e));
 
   for (const name of THEMES) {
     try {

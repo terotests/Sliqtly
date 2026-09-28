@@ -84,6 +84,17 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   Formulas are drawn as outlines of the KaTeX fonts, so the stage, the PDF
   and the PPTX show the same shapes with no font to install. `$5` and `$10`
   stay text.
+- HTML in the Markdown: `<mark>`, `<u>`, `<s>`, `<sub>`, `<sup>`, `<kbd>`,
+  `<abbr>`, `<small>`, `<br>` and colours in a `style` change the text instead
+  of showing as markup; `<div>`/`<p>`/`<center>` with `align` or
+  `text-align` align what is inside them; `<table>` is drawn with `rowspan`,
+  `colspan` and `<thead>`/`<th>` headers. In the PPTX these HTML blocks are
+  drawn shapes, and inline formatting inside native text boxes is plain.
+- A list item is never cut between two slides. When a slide runs over by a
+  little (at most 30 % of a slide), it is set up to 20 % smaller instead of
+  getting a continuation slide.
+- Emoji in the PDF come from Noto Emoji (monochrome), which the page loads
+  in the background after start-up; the stage keeps the browser's colour emoji.
 - **Ctrl+V** in the editor pastes a picture from the clipboard. It is stored
   under `media/` and written into the Markdown as `![](media/…)`. Dropping an
   image onto the canvas does the same.
