@@ -1,6 +1,6 @@
 {
   "ranger": {
     "url": "https://github.com/terotests/Ranger",
-    "ref": "claude/nifty-dijkstra-vq2qit"
+    "ref": "master"
   }
 }
