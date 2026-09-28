@@ -250,7 +250,7 @@ class PresDeck {
         def dl (new EVGDisplayList())
         def painter (new MdToEvg())
         painter.paintBox(dl l b 0.0)
-        PresChart.dress(dl 0 1000000.0 true (this.themeValue("accent")) (this.themeValue("warm")))
+        PresChart.dress(dl 0 1000000.0 true (this.themeValue("accent")) (this.themeValue("warm")) b.embedSource)
         return dl
     }
 
@@ -1108,7 +1108,7 @@ class PresDeck {
                 def before:int (array_length out.cmds)
                 painter.paintBox(out l kb 0.0)
                 if ((kb.kind == 3) && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(kb.embedKind)))) == "vega")) {
-                    PresChart.dress(out before t still (this.themeValue("accent")) (this.themeValue("warm")))
+                    PresChart.dress(out before t still (this.themeValue("accent")) (this.themeValue("warm")) kb.embedSource)
                 }
             }
             while ((array_length groupOfCmd) < (array_length out.cmds)) {

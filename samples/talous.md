@@ -31,11 +31,7 @@ tulee ensin ja miten aika tekee säästämisestä helppoa.
   "width": 640,
   "height": 250,
   "background": "rgba(0,0,0,0)",
-  "config": {
-    "axis": {"labelColor": "#c8d0ff", "titleColor": "#c8d0ff", "gridColor": "#2d3a7a", "domainColor": "#56608f", "tickColor": "#56608f", "labelFontSize": 13, "titleFontSize": 13},
-    "view": {"stroke": null}
-  },
-  "mark": {"type": "bar", "color": "#5ce1ff", "cornerRadiusTopLeft": 3, "cornerRadiusTopRight": 3},
+  "mark": "bar",
   "encoding": {
     "x": {"field": "kulu", "type": "nominal", "sort": null, "title": null},
     "y": {"field": "osuus", "type": "quantitative", "title": "% nettotuloista"}

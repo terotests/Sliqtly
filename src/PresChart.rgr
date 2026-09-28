@@ -17,9 +17,19 @@ Import "PresDiagram.rgr"
 
 class PresChart {
 
-    sfn dress:void (out:EVGDisplayList from:int t:double still:boolean accentHex:string warmHex:string) {
+    ; `spec` is the fence's own text. What it says outright wins over the
+    ; theme: a mark "color" is the columns' colour (still dressed: the burn,
+    ; the cap, the grooves), a labelColor/titleColor keeps the words as the
+    ; chart drew them, a gridColor/domainColor/tickColor the lines.
+    sfn dress:void (out:EVGDisplayList from:int t:double still:boolean accentHex:string warmHex:string spec:string) {
         def ac:EVGColor (PresChart.colour(accentHex "#5ce1ff"))
+        def markHex:string (PresChart.specString(spec "color"))
         def wm:EVGColor (PresChart.colour(warmHex "#ffa546"))
+        if ((strlen markHex) > 0) {
+            wm = (EVGColor.parse(markHex))
+        }
+        def keepText:boolean (((indexOf spec "\"labelColor\"") >= 0) || ((indexOf spec "\"titleColor\"") >= 0))
+        def keepLines:boolean ((((indexOf spec "\"gridColor\"") >= 0) || ((indexOf spec "\"domainColor\"") >= 0)) || ((indexOf spec "\"tickColor\"") >= 0))
         def acR:int (ac.red())
         def acG:int (ac.green())
         def acB:int (ac.blue())
@@ -110,18 +120,20 @@ class PresChart {
             } {
                 if (c.kind == 7) {
                     ; grid and axes: the accent, the grid faint, the axis less so
-                    def axis:boolean (c.r > 70)
-                    c.r = acR
-                    c.g = acG
-                    c.b = acB
-                    if axis {
-                        c.a = 0.5
-                    } {
-                        c.a = 0.16
+                    if (! keepLines) {
+                        def axis:boolean (c.r > 70)
+                        c.r = acR
+                        c.g = acG
+                        c.b = acB
+                        if axis {
+                            c.a = 0.5
+                        } {
+                            c.a = 0.16
+                        }
                     }
                     push out.cmds c
                 } {
-                    if (c.kind == 3) {
+                    if ((c.kind == 3) && (! keepText)) {
                         ; labels in a cooler, quieter light than the columns
                         c.r = (PresDiagram.mixI(acR 230 0.55))
                         c.g = (PresDiagram.mixI(acG 236 0.55))
@@ -263,6 +275,34 @@ class PresChart {
         cap.shadowB = wB
         cap.shadowA = (0.7 + (0.3 * lit))
         push out.cmds cap
+    }
+
+    ; The first `"key": "value"` in a JSON text whose value is a string, or
+    ; "". Enough for the few colour keys looked for here; not a JSON reader.
+    sfn specString:string (spec:string key:string) {
+        def pat:string ("\"" + key + "\"")
+        def n:int (strlen spec)
+        def from:int 0
+        while (from < n) {
+            def rest:string (substring spec from n)
+            def at:int (indexOf rest pat)
+            if (at < 0) {
+                return ""
+            }
+            def i:int ((from + at) + (strlen pat))
+            while ((i < n) && (((charAt spec i) == 32) || (((charAt spec i) == 58) || (((charAt spec i) == 10) || ((charAt spec i) == 9))))) {
+                i = (i + 1)
+            }
+            if ((i < n) && ((charAt spec i) == 34)) {
+                def j:int (i + 1)
+                while ((j < n) && ((charAt spec j) != 34)) {
+                    j = (j + 1)
+                }
+                return (substring spec (i + 1) j)
+            }
+            from = i
+        }
+        return ""
     }
 
     sfn colour:EVGColor (hex:string fallback:string) {
