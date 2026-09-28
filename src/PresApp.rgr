@@ -33,6 +33,7 @@ Import "../datagrid/src/script/ScriptEditor.rgr"
 Import "../game_engine/ui/UITextRenderer.rgr"
 Import "../game_engine/ui/UIInput.rgr"
 Import "../r5/src/R5MdLanguage.rgr"
+Import "PresCssLanguage.rgr"
 Import "../ui/src/TabsCtl.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -74,7 +75,7 @@ class PresApp {
     ; always reads `mdEditor`.
     def mdEditor:ScriptEditor (new ScriptEditor())
     def cssEditor:ScriptEditor (new ScriptEditor())
-    def cssLang:EditorLanguage (new EditorLanguage())
+    def cssLang:PresCssLanguage (new PresCssLanguage())
     def edTab:string "md"
     def cssSynced:int -1
     def themeText:string ""
