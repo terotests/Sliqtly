@@ -33,6 +33,7 @@ Import "../datagrid/src/script/ScriptEditor.rgr"
 Import "../game_engine/ui/UITextRenderer.rgr"
 Import "../game_engine/ui/UIInput.rgr"
 Import "../r5/src/R5MdLanguage.rgr"
+Import "../ui/src/TabsCtl.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
@@ -67,6 +68,19 @@ class PresApp {
     def editor:ScriptEditor (new ScriptEditor())
     def tr:UITextRenderer (new UITextRenderer())
     def lang:R5MdLanguage (new R5MdLanguage())
+    ; Two texts behind one editor pane, chosen by the tabs above it: the
+    ; deck's Markdown and the theme's CSS. `editor` is whichever is showing,
+    ; so keys, pointer and paint need no second path; building the deck
+    ; always reads `mdEditor`.
+    def mdEditor:ScriptEditor (new ScriptEditor())
+    def cssEditor:ScriptEditor (new ScriptEditor())
+    def cssLang:EditorLanguage (new EditorLanguage())
+    def edTab:string "md"
+    def cssSynced:int -1
+    def themeText:string ""
+    def tabs:TabsCtl (new TabsCtl())
+    def tabRect:PresRect (new PresRect())
+    def tabH:double 34.0
     def sheet:EVGStyleSheet (new EVGStyleSheet())
     def measurer@(optional):TTFTextMeasurer
     def chromeRoot@(optional):EVGElement
@@ -132,6 +146,14 @@ class PresApp {
     ; =========================================================================
     fn init:void (css:string w:double h:double) {
         sheet.parse(css)
+        mdEditor = editor
+        cssEditor.setLanguage(cssLang)
+        cssEditor.autoComplete = false
+        cssEditor.fontFamily = "Open Sans"
+        cssEditor.layout.fontSize = 13.0
+        cssEditor.init("")
+        cssSynced = cssEditor.buf.version
+        this.makeTabs()
         editor.setLanguage(lang)
         editor.autoComplete = false
         editor.fontFamily = "Open Sans"
@@ -164,14 +186,59 @@ class PresApp {
     ; The reader's template, which beats what the document names; "" lets
     ; the document decide.
     fn setStyleSheet:void (css:string) {
+        themeText = css
+        cssEditor.init(css)
+        cssSynced = cssEditor.buf.version
+        this.applyTheme(css)
+    }
+
+    fn applyTheme:void (css:string) {
         deck.setTheme(css)
         deck.md.setStyleSheet(css)
         this.rebuildDeck()
     }
 
+    ; The theme as it stands in the CSS tab (the host keeps an edited one).
+    fn themeCss:string () {
+        return (cssEditor.text())
+    }
+
+    ; Fresh elements each time: the chrome stylesheet sets a matched class's
+    ; properties and never takes them back, so a tab kept from the last
+    ; build would keep the active look after it lost the class.
+    fn makeTabs:void () {
+        tabs = (new TabsCtl())
+        tabs.tid = "edtabs"
+        tabs.name = "Editori"
+        tabs.addItem("md" "Markdown" "" false)
+        tabs.addItem("css" "Teema (CSS)" "" false)
+        tabs.value = edTab
+        tabs.build()
+    }
+
+    fn editorTab:string () {
+        return edTab
+    }
+
+    fn showTab:void (v:string) {
+        if ((v != "md") && (v != "css")) {
+            return
+        }
+        edTab = v
+        this.makeTabs()
+        if (v == "css") {
+            editor = cssEditor
+        } {
+            editor = mdEditor
+        }
+        focus = "editor"
+        chromeRev = (chromeRev + 1)
+    }
+
     fn setSource:void (text:string) {
-        editor.init(text)
-        bufSynced = editor.buf.version
+        this.showTab("md")
+        mdEditor.init(text)
+        bufSynced = mdEditor.buf.version
         selected = 0
         localT = -1.0
         playing = false
@@ -180,7 +247,7 @@ class PresApp {
     }
 
     fn source:string () {
-        return (editor.text())
+        return (mdEditor.text())
     }
 
     fn setPageSize:void (w:double h:double) {
@@ -190,7 +257,7 @@ class PresApp {
     }
 
     fn rebuildDeck:void () {
-        deck.setText((editor.text()))
+        deck.setText((mdEditor.text()))
         PresTimeline.planAll(deck)
         if (selected >= (deck.slideCount())) {
             selected = ((deck.slideCount()) - 1)
@@ -203,20 +270,31 @@ class PresApp {
 
     ; The buffer moved; the deck follows, and the selection follows the caret.
     fn syncEditor:void () {
-        if (editor.buf.version == bufSynced) {
+        if (edTab == "css") {
+            ; the theme, live: the slides follow each keystroke
+            if (cssEditor.buf.version != cssSynced) {
+                cssSynced = cssEditor.buf.version
+                themeText = (cssEditor.text())
+                this.applyTheme(themeText)
+                push requests "theme-edited"
+            }
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        if (mdEditor.buf.version == bufSynced) {
             this.followCaret()
             return
         }
-        bufSynced = editor.buf.version
+        bufSynced = mdEditor.buf.version
         this.rebuildDeck()
         this.followCaret()
     }
 
     fn followCaret:void () {
-        if (playing || (mode == "present")) {
+        if ((playing || (mode == "present")) || (edTab != "md")) {
             return
         }
-        def off:int (this.offsetOf(editor.sel.caret.line editor.sel.caret.col))
+        def off:int (this.offsetOf(mdEditor.sel.caret.line mdEditor.sel.caret.col))
         def s:int (deck.pageOfOffset(off))
         if (s != selected) {
             selected = s
@@ -229,12 +307,12 @@ class PresApp {
     fn offsetOf:int (line:int col:int) {
         def off:int 0
         def i:int 0
-        def n:int (editor.buf.lineCount())
+        def n:int (mdEditor.buf.lineCount())
         while (i < line) {
             if (i >= n) {
                 break
             }
-            off = ((off + (strlen (editor.buf.lineAt(i)))) + 1)
+            off = ((off + (strlen (mdEditor.buf.lineAt(i)))) + 1)
             i = (i + 1)
         }
         return (off + col)
@@ -272,10 +350,10 @@ class PresApp {
         def s:PresSlide (deck.slideAt(i))
         if (s.srcStart >= 0) {
             ; The line the slide's first box came from — its heading, as a rule.
-            this.posOf((editor.text()) s.srcStart)
-            editor.sel.setCaret(posLine 0)
-            editor.sel.collapseToCaret()
-            editor.layout.ensureCaretVisible(editor.buf editor.sel)
+            this.posOf((mdEditor.text()) s.srcStart)
+            mdEditor.sel.setCaret(posLine 0)
+            mdEditor.sel.collapseToCaret()
+            mdEditor.layout.ensureCaretVisible(mdEditor.buf mdEditor.sel)
         }
         this.revealThumb(i)
         chromeRev = (chromeRev + 1)
@@ -791,7 +869,8 @@ class PresApp {
         def edW:double (W * split)
         if (edW < 280.0) { edW = 280.0 }
         if (edW > (W - 360.0)) { edW = (W - 360.0) }
-        edRect.set(0.0 0.0 edW H)
+        tabRect.set(0.0 0.0 edW tabH)
+        edRect.set(0.0 tabH edW (H - tabH))
         sepRect.set(edW 0.0 6.0 H)
         def rx:double (edW + 6.0)
         def rw:double (W - rx)
@@ -807,6 +886,7 @@ class PresApp {
 
     fn placePresent:void () {
         edRect.set(0.0 0.0 0.0 0.0)
+        tabRect.set(0.0 0.0 0.0 0.0)
         sepRect.set(0.0 0.0 0.0 0.0)
         trackRect.set(0.0 0.0 0.0 0.0)
         stripRect.set(0.0 0.0 0.0 0.0)
@@ -1006,6 +1086,11 @@ class PresApp {
             this.presentChrome(root)
             return root
         }
+        ; the tabs over the editor pane: Ranger UI's TabsCtl, styled in pres.css
+        def tabBar:EVGElement (PresApp.div("ed-tabs" "ed-tabs" tabRect.x tabRect.y tabRect.w tabRect.h))
+        this.makeTabs()
+        tabBar.addChild((unwrap tabs.rootEl))
+        root.addChild(tabBar)
         root.addChild((PresApp.div("sep" "sep" sepRect.x sepRect.y sepRect.w sepRect.h)))
         root.addChild((PresApp.div("stage-area" "stage-area" stageArea.x stageArea.y stageArea.w stageArea.h)))
         root.addChild((PresApp.div("slide-shadow" "slide-shadow" (slideRect.x - 1.0) (slideRect.y - 1.0) (slideRect.w + 2.0) (slideRect.h + 2.0))))
@@ -1233,6 +1318,13 @@ class PresApp {
             splitDrag = true
             return "sep"
         }
+        if (tabRect.has(x y)) {
+            def hitTab:string (this.tabAt(x))
+            if ((strlen hitTab) > 0) {
+                this.showTab(hitTab)
+            }
+            return "editor"
+        }
         if (edRect.has(x y)) {
             def px:int (to_int x)
             def py:int (to_int y)
@@ -1433,10 +1525,29 @@ class PresApp {
         return false
     }
 
+    ; Which tab is under x: its box as the chrome's last layout placed it.
+    fn tabAt:string (x:double) {
+        def i:int 0
+        while (i < (array_length tabs.items)) {
+            def it:UiItem (itemAt tabs.items i)
+            def el:EVGElement (unwrap it.el)
+            if ((x >= el.calculatedX) && (x <= (el.calculatedX + el.calculatedWidth))) {
+                return it.value
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
     fn cursorAt:string (x:double y:double) {
         this.place()
         if (mode == "present") {
             return "default"
+        }
+        if (tabRect.has(x y)) {
+            if ((strlen (this.tabAt(x))) > 0) {
+                return "pointer"
+            }
         }
         if (sepRect.has(x y)) {
             return "col-resize"

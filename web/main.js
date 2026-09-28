@@ -284,6 +284,9 @@ function handleRequests() {
       // arrive in; a presentation without keys is a slideshow nobody can drive.
       keys.focus({ preventScroll: true });
       requestAnimationFrame(resize);
+    } else if (r === "theme-edited") {
+      editedCss[themeSel.value || ""] = app.themeCss();
+      dropThumbs();
     } else if (r === "exit-fullscreen") {
       document.body.classList.remove("presenting");
       if (document.fullscreenElement && document.exitFullscreen) {
@@ -430,6 +433,7 @@ async function shareLink() {
   const q = new URLSearchParams();
   q.set("md", code);
   if (themeSel.value) q.set("theme", themeSel.value);
+  if ((themeSel.value || "") in editedCss) q.set("css", await packText(editedCss[themeSel.value || ""]));
   const base = location.origin + location.pathname;
   const editUrl = base + "#" + q.toString();
   q.set("mode", "show");
@@ -509,6 +513,11 @@ async function openFromHash() {
       themeSel.value = th;
       app.setStyleSheet(th ? themeCss[th] || "" : "");
     }
+    if (q.has("css")) {
+      const css = await unpackText(q.get("css"));
+      editedCss[themeSel.value || ""] = css;
+      app.setStyleSheet(css);
+    }
     docName = "jaettu";
     app.setSource(text);
     dropThumbs();
@@ -524,8 +533,12 @@ async function openFromHash() {
 window.addEventListener("hashchange", () => { if (location.hash !== lastHash) openFromHash(); });
 
 const themeCss = {};
+// A theme edited in the CSS tab: kept for the session under its name (the
+// original is still in themeCss), and carried by a share link.
+const editedCss = {};
 function useTheme(key) {
-  app.setStyleSheet(key ? themeCss[key] || "" : "");
+  const k = key || "";
+  app.setStyleSheet(k in editedCss ? editedCss[k] : (key ? themeCss[key] || "" : ""));
   dropThumbs();
   needsPaint = true;
 }

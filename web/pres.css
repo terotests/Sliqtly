@@ -56,3 +56,11 @@
 .sp-clock { color: #ffffff; font-size: 30px; height: 38px; }
 .sp-where { color: var(--ink-dim); font-size: 14px; height: 20px; }
 .sp-notes { color: var(--ink); font-size: 20px; line-height: 1.45; }
+
+/* The tabs over the editor pane (Ranger UI TabsCtl) */
+.ed-tabs { background-color: var(--panel); border-bottom: 1px solid var(--line); padding-left: 10px; padding-top: 5px; }
+.ui-tabs { display: flex; flex-direction: column; }
+.ui-tablist { display: flex; flex-direction: row; align-items: center; gap: 4px; }
+.ui-tab { color: var(--ink-dim); font-size: 13px; height: 18px; padding-left: 12px; padding-right: 12px; padding-top: 4px; padding-bottom: 2px; border-radius: 6px; cursor: pointer; }
+.ui-tab-state-active { background-color: var(--panel-2); color: var(--ink); }
+.ui-tabpanel { display: none; }

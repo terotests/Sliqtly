@@ -211,6 +211,30 @@ try {
   check("and the question is asked again", (await q()).asking === 0);
   await page.evaluate(() => { window.__app.endPresent(); window.__app.takeRequest(); document.body.classList.remove("presenting"); });
 
+  // The CSS tab: the theme is edited in place and the slides follow; the
+  // Markdown tab brings the document back, untouched
+  const tabbed = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.selectSlide(1);
+    a.localT = -1;
+    const size = () => (JSON.parse(a.stageJson()).list.cmds.find((c) => c.k === 3 && c.text && c.text.startsWith("Miten botti")) || {}).size;
+    const before = size();
+    a.showTab("css");
+    a.setFocus("editor");
+    a.key("pageDown", false, true);
+    for (let i = 0; i < 200; i += 1) a.key("down", false, false);
+    a.key("end", false, false);
+    a.text("\nh2 { font-size: 18pt }\n");
+    const after = size();
+    const css = a.themeCss();
+    a.showTab("md");
+    return { before, after, css: css.includes("18pt"), same: a.source() === src0, tab: a.editorTab() };
+  });
+  check("the CSS tab edits the theme and the slide follows", tabbed.css && tabbed.after < tabbed.before, JSON.stringify(tabbed));
+  check("the Markdown tab brings the document back", tabbed.same && tabbed.tab === "md");
+  await page.evaluate(() => { const sel = document.getElementById("theme"); sel.value = "aurora"; sel.dispatchEvent(new Event("change")); });
+
   // Themes: a dark one with its own effect, and a light one whose diagram
   // draws dark lines.
   const th = await page.evaluate(() => {
