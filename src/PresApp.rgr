@@ -1788,14 +1788,38 @@ class PresApp {
         return false
     }
 
-    ; Columns a..b of a line become `text`, as one edit.
+    ; What the browser draws a character the editor's face lacks (an emoji)
+    ; at, in ems — so the caret after one is where the text ends.
+    fn setMissingGlyphEm:void (em:double) {
+        tr.setMissingGlyphEm(em)
+        mdEditor.contentWPx = 0
+        cssEditor.contentWPx = 0
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; Columns a..b of a line become `text`, as one edit. The caret stays
+    ; where the writer left it — a popover's edit is not a place to type
+    ; from — moved only by the change in length when it sits after the edit
+    ; on the same line.
     fn replaceRange:void (line:int a:int b:int text:string) {
         if ((line < 0) || (line >= (editor.buf.lineCount()))) {
             return
         }
+        def cl:int editor.sel.caret.line
+        def cc:int editor.sel.caret.col
         editor.moveCaret(line a false)
         editor.moveCaret(line b true)
         editor.insert(text)
+        if (cl == line) {
+            if (cc >= b) {
+                cc = ((cc + (strlen text)) - (b - a))
+            } {
+                if (cc > (a + (strlen text))) {
+                    cc = (a + (strlen text))
+                }
+            }
+        }
+        editor.moveCaret(cl cc false)
         this.syncEditor()
         chromeRev = (chromeRev + 1)
     }

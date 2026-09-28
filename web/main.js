@@ -1011,6 +1011,15 @@ async function start() {
     }
   }));
   setFontFallback(FACES.filter((_, i) => got[i]).map(([name]) => name));
+  // An emoji is drawn from the platform's emoji face; the editor measures
+  // with Open Sans, which has none. Told the real width, its caret stays
+  // at the end of a line that has one.
+  try {
+    const m = document.createElement("canvas").getContext("2d");
+    m.font = "100px 'Open Sans'";
+    const em = m.measureText("\u{1F600}").width / 100;
+    if (em > 0.3 && em < 3) app.setMissingGlyphEm(em);
+  } catch (_) { /* measured as the face says */ }
   // The PDF writer's fallback for emoji (monochrome Noto Emoji). Only the
   // writer gets it: the screen keeps the browser's own colour emoji. Loaded
   // after start-up because it is large; a PDF made before it arrives just

@@ -387,6 +387,17 @@ try {
   check("the theme's colours, sizes and faces have hints", hints.color && hints.number && hints.font, JSON.stringify(hints));
   check("the theme CSS is one declaration per line", hints.pretty, JSON.stringify(hints));
 
+  // An emoji is measured as wide as the browser draws it, so the caret after
+  // one is at the end of the text
+  const emoji = await page.evaluate(() => {
+    const a = window.__app;
+    const c = document.createElement("canvas").getContext("2d");
+    c.font = "13px 'Open Sans'";
+    const s = "## ✨ Key Features 📈 {fx=a}";
+    return { ours: a.tr.measureWidth(s, 13), browser: c.measureText(s).width };
+  });
+  check("a line with emoji is measured as the browser draws it", Math.abs(emoji.ours - emoji.browser) < 1.5, JSON.stringify(emoji));
+
   // The editor never sits scrolled sideways past every line on screen, and a
   // sideways swipe scrolls it sideways
   const hs = await page.evaluate(() => {
