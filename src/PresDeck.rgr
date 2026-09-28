@@ -250,7 +250,12 @@ class PresDeck {
         def dl (new EVGDisplayList())
         def painter (new MdToEvg())
         painter.paintBox(dl l b 0.0)
-        PresChart.dress(dl 0 1000000.0 true (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) b.embedSource)
+        PresChart.dress(dl 0 1000000.0 true (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) b.embedSource (this.themeRule("chart" "chart-style")))
+        def ground:string l.style.pageBackground
+        if ((strlen ground) == 0) {
+            ground = "#ffffff"
+        }
+        PresChart.flatten(dl 0 ground)
         return dl
     }
 
@@ -679,6 +684,19 @@ class PresDeck {
     ; A colour for `what` ("chart" or "diagram"): `color` is the warm one
     ; (columns, the active line), `accent-color` the cool one (grid, axes,
     ; boxes). The rule wins over the old `/* pres: warm= accent= */` line.
+    ; A property of the theme's `chart` / `diagram` rule, or "".
+    fn themeRule:string (what:string prop:string) {
+        def key:string (what + "/" + prop)
+        def i:int ((array_length ruleKeys) - 1)
+        while (i >= 0) {
+            if ((itemAt ruleKeys i) == key) {
+                return (itemAt ruleVals i)
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+
     fn themeColour:string (what:string prop:string) {
         def key:string (what + "/" + prop)
         def i:int ((array_length ruleKeys) - 1)
@@ -1195,7 +1213,10 @@ class PresDeck {
                 def before:int (array_length out.cmds)
                 painter.paintBox(out l kb 0.0)
                 if ((kb.kind == 3) && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(kb.embedKind)))) == "vega")) {
-                    PresChart.dress(out before t still (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) kb.embedSource)
+                    PresChart.dress(out before t still (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) kb.embedSource (this.themeRule("chart" "chart-style")))
+                    if still {
+                        PresChart.flatten(out before paper)
+                    }
                 }
             }
             while ((array_length groupOfCmd) < (array_length out.cmds)) {

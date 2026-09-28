@@ -8,8 +8,9 @@
 /* pres: fx=starfield fx-density=1.1 fx-hue=280 fx-hue2=320 */
 
 /* The stage's charts and diagrams: `color` the warm light (columns, the
-   active line), `accent-color` the cool one (grid, axes, boxes). */
-chart     { color: #fbbf24; accent-color: #c084fc }
+   active line), `accent-color` the cool one (grid, axes, boxes). A chart's
+   `chart-style` is flat (the default), forge, neon or glass. */
+chart     { color: #fbbf24; accent-color: #c084fc; chart-style: neon }
 diagram   { color: #fbbf24; accent-color: #c084fc }
 
 

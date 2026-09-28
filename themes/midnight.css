@@ -6,8 +6,9 @@
    --------------------------------------------------------------------------- */
 
 /* The stage's charts and diagrams: `color` the warm light (columns, the
-   active line), `accent-color` the cool one (grid, axes, boxes). */
-chart     { color: #f472b6; accent-color: #34d399 }
+   active line), `accent-color` the cool one (grid, axes, boxes). A chart's
+   `chart-style` is flat (the default), forge, neon or glass. */
+chart     { color: #f472b6; accent-color: #34d399; chart-style: glass }
 diagram   { color: #f472b6; accent-color: #34d399 }
 
 

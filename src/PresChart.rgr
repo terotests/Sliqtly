@@ -21,7 +21,15 @@ class PresChart {
     ; theme: a mark "color" is the columns' colour (still dressed: the burn,
     ; the cap, the grooves), a labelColor/titleColor keeps the words as the
     ; chart drew them, a gridColor/domainColor/tickColor the lines.
-    sfn dress:void (out:EVGDisplayList from:int t:double still:boolean accentHex:string warmHex:string spec:string) {
+    ; `style` is the theme's `chart { chart-style }`: flat (plain columns, the
+    ; default), forge (burning down into rust, grooves, a glowing cap, a
+    ; scan pass), neon (lit edges round a faint body) or glass (a clear
+    ; gradient with a bright rim).
+    sfn dress:void (out:EVGDisplayList from:int t:double still:boolean accentHex:string warmHex:string spec:string style:string) {
+        def st:string "flat"
+        if (((style == "forge") || (style == "neon")) || (style == "glass")) {
+            st = style
+        }
         def ac:EVGColor (PresChart.colour(accentHex "#5ce1ff"))
         def markHex:string (PresChart.specString(spec "color"))
         def wm:EVGColor (PresChart.colour(warmHex "#ffa546"))
@@ -107,7 +115,7 @@ class PresChart {
                     groundSeen = true
                 } {
                     if ((c.w > 2.0) && (c.h > 0.5)) {
-                        PresChart.column(out c barAt tt growStart growEach growDur scanU scanX wmR wmG wmB ruR ruG ruB)
+                        PresChart.column(out c barAt tt growStart growEach growDur scanU scanX wmR wmG wmB ruR ruG ruB st)
                         barAt = (barAt + 1)
                     } {
                         c.r = acR
@@ -149,7 +157,7 @@ class PresChart {
         }
 
         ; the scan beam, once, over the finished chart
-        if ((nb > 0) && ((scanU > 0.0) && (scanU < 1.0))) {
+        if (((nb > 0) && ((scanU > 0.0) && (scanU < 1.0))) && ((st == "forge") || (st == "neon"))) {
             def fade:double (1.0 - scanU)
             def wide (new EVGDrawCmd())
             wide.kind = 0
@@ -191,7 +199,7 @@ class PresChart {
     ; One column: rising from its base at its turn, a gradient from the warm
     ; colour down into rust, grooves across it, a bright cap with a glow,
     ; lit up a little while the beam is over it.
-    sfn column:void (out:EVGDisplayList c:EVGDrawCmd j:int t:double g0:double ge:double gd:double scanU:double scanX:double wR:int wG:int wB:int rR:int rG:int rB:int) {
+    sfn column:void (out:EVGDisplayList c:EVGDrawCmd j:int t:double g0:double ge:double gd:double scanU:double scanX:double wR:int wG:int wB:int rR:int rG:int rB:int st:string) {
         def u:double ((t - (g0 + (ge * (to_double j)))) / gd)
         if (u <= 0.0) {
             return
@@ -210,6 +218,18 @@ class PresChart {
             if (d < (w * 0.9)) {
                 lit = (1.0 - (d / (w * 0.9)))
             }
+        }
+        if (st == "flat") {
+            PresChart.flatColumn(out x y w h wR wG wB)
+            return
+        }
+        if (st == "neon") {
+            PresChart.neonColumn(out x y w h wR wG wB lit)
+            return
+        }
+        if (st == "glass") {
+            PresChart.glassColumn(out x y w h wR wG wB)
+            return
         }
         def body (new EVGDrawCmd())
         body.kind = 0
@@ -303,6 +323,108 @@ class PresChart {
             from = i
         }
         return ""
+    }
+
+    ; For an export: the see-through outlines and gradients from `from` on mixed onto the
+    ; slide's ground and made solid. The PDF path drops the alpha of an
+    ; outline and of a gradient's stops, so a neon glow came out as a thick
+    ; solid frame and a glass column as solid paint. Mixed here, the file
+    ; looks as the stage does; what it loses is a grid line showing through
+    ; a clear column.
+    sfn flatten:void (out:EVGDisplayList from:int groundHex:string) {
+        def g:EVGColor (EVGColor.parse(groundHex))
+        def gr:int (g.red())
+        def gg:int (g.green())
+        def gb:int (g.blue())
+        def i:int from
+        while (i < (array_length out.cmds)) {
+            def c:EVGDrawCmd (itemAt out.cmds i)
+            ; only what loses its alpha on the way: outlines and gradients
+            ; (a plain see-through fill keeps it, and a groove has to darken
+            ; the column under it, not show the ground)
+            def lossy:boolean ((c.kind == 1) || c.hasGrad)
+            if ((lossy && (c.a < 0.999)) && (c.a > 0.0)) {
+                c.r = (PresDiagram.mixI(gr c.r c.a))
+                c.g = (PresDiagram.mixI(gg c.g c.a))
+                c.b = (PresDiagram.mixI(gb c.b c.a))
+                c.a = 1.0
+            }
+            if (c.hasGrad && (c.a2 < 0.999)) {
+                c.r2 = (PresDiagram.mixI(gr c.r2 c.a2))
+                c.g2 = (PresDiagram.mixI(gg c.g2 c.a2))
+                c.b2 = (PresDiagram.mixI(gb c.b2 c.a2))
+                c.a2 = 1.0
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn rectCmd:EVGDrawCmd (x:double y:double w:double h:double r:int g:int b:int a:double) {
+        def c (new EVGDrawCmd())
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.r = r
+        c.g = g
+        c.b = b
+        c.a = a
+        return c
+    }
+
+    sfn edgeCmd:EVGDrawCmd (x:double y:double w:double h:double th:double r:int g:int b:int a:double) {
+        def c (new EVGDrawCmd())
+        c.kind = 1
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.thickness = th
+        c.r = r
+        c.g = g
+        c.b = b
+        c.a = a
+        return c
+    }
+
+    ; flat: a plain column in the colour, as a report would draw it
+    sfn flatColumn:void (out:EVGDisplayList x:double y:double w:double h:double r:int g:int b:int) {
+        push out.cmds (PresChart.rectCmd(x y w h r g b 0.92))
+    }
+
+    ; neon: a faint body inside edges of light, the light spilling round them
+    sfn neonColumn:void (out:EVGDisplayList x:double y:double w:double h:double r:int g:int b:int lit:double) {
+        push out.cmds (PresChart.rectCmd(x y w h r g b (0.1 + (0.1 * lit))))
+        push out.cmds (PresChart.edgeCmd((x - 4.0) (y - 4.0) (w + 8.0) (h + 4.0) 4.0 r g b 0.08))
+        push out.cmds (PresChart.edgeCmd((x - 2.0) (y - 2.0) (w + 4.0) (h + 2.0) 3.0 r g b 0.2))
+        def tube:EVGDrawCmd (PresChart.edgeCmd(x y w h 1.6 (PresDiagram.mixI(r 255 0.35)) (PresDiagram.mixI(g 255 0.35)) (PresDiagram.mixI(b 255 0.35)) 0.95))
+        push out.cmds tube
+        def cap:EVGDrawCmd (PresChart.rectCmd(x (y - 1.0) w 2.0 255 255 255 0.9))
+        cap.hasShadow = true
+        cap.shadowBlur = 12.0
+        cap.shadowR = r
+        cap.shadowG = g
+        cap.shadowB = b
+        cap.shadowA = 0.9
+        push out.cmds cap
+    }
+
+    ; glass: clear at the base, the colour gathering towards the top, a
+    ; highlight down one side and a bright rim along the top
+    sfn glassColumn:void (out:EVGDisplayList x:double y:double w:double h:double r:int g:int b:int) {
+        def body:EVGDrawCmd (PresChart.rectCmd(x y w h r g b 0.55))
+        body.hasGrad = true
+        body.gradDir = 0
+        body.r2 = r
+        body.g2 = g
+        body.b2 = b
+        body.a2 = 0.1
+        body.radius = 3.0
+        push out.cmds body
+        push out.cmds (PresChart.rectCmd((x + 3.0) (y + 3.0) 3.0 (h - 6.0) 255 255 255 0.22))
+        push out.cmds (PresChart.edgeCmd(x y w h 1.0 r g b 0.45))
+        push out.cmds (PresChart.rectCmd(x y w 1.5 (PresDiagram.mixI(r 255 0.6)) (PresDiagram.mixI(g 255 0.6)) (PresDiagram.mixI(b 255 0.6)) 0.95))
     }
 
     sfn colour:EVGColor (hex:string fallback:string) {

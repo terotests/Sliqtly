@@ -8,8 +8,9 @@
 /* pres: fx=ambient-light */
 
 /* The stage's charts and diagrams: `color` the warm light (columns, the
-   active line), `accent-color` the cool one (grid, axes, boxes). */
-chart     { color: #fde047; accent-color: #fb923c }
+   active line), `accent-color` the cool one (grid, axes, boxes). A chart's
+   `chart-style` is flat (the default), forge, neon or glass. */
+chart     { color: #fde047; accent-color: #fb923c; chart-style: forge }
 diagram   { color: #fde047; accent-color: #fb923c }
 
 
