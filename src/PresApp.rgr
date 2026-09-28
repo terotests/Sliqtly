@@ -34,6 +34,7 @@ Import "../game_engine/ui/UITextRenderer.rgr"
 Import "../game_engine/ui/UIInput.rgr"
 Import "../r5/src/R5MdLanguage.rgr"
 Import "PresCssLanguage.rgr"
+Import "PresHints.rgr"
 Import "../ui/src/TabsCtl.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -1697,6 +1698,106 @@ class PresApp {
         this.syncEditor()
         chromeRev = (chromeRev + 1)
         return took
+    }
+
+    ; ------------------------------------------------------------------
+    ; Hints: what the value under the pointer is and could be
+    ; ------------------------------------------------------------------
+    ;
+    ; `hintAt` answers for a point over the editor, `hintAtCaret` for the
+    ; caret; both as PresHints' JSON with the value's box on the page added
+    ; ("x", "y", "w", "h") and the line it is on ("line", "tab"). "" when
+    ; there is nothing to say. `replaceRange` is how the page's popover
+    ; writes a choice back: an ordinary edit, undone with Ctrl+Z.
+    fn hintAt:string (x:double y:double) {
+        if ((mode == "present") || ((edRect.has(x y)) == false)) {
+            return ""
+        }
+        def px:int (to_int x)
+        def py:int (to_int y)
+        def hit:EditorPos (editor.layout.hitTest(tr editor.buf px py))
+        ; over the text itself, not the empty space after a line's end
+        def endX:int (editor.caretViewX(tr hit.line (strlen (editor.buf.lineAt(hit.line)))))
+        if (px > (endX + 2)) {
+            return ""
+        }
+        return (this.hintFor(hit.line hit.col))
+    }
+
+    fn hintAtCaret:string () {
+        if (mode == "present") {
+            return ""
+        }
+        return (this.hintFor(editor.sel.caret.line editor.sel.caret.col))
+    }
+
+    fn hintFor:string (line:int col:int) {
+        if ((line < 0) || (line >= (editor.buf.lineCount()))) {
+            return ""
+        }
+        def text:string (editor.buf.lineAt(line))
+        def md:string "md"
+        if (edTab == "css") {
+            md = "css"
+        }
+        def j:string (PresHints.forLine(md text col (this.inFrontMatter(line))))
+        if ((strlen j) == 0) {
+            return ""
+        }
+        def st:int (?? (str2int (PresApp.jsonNum(j "start"))) 0)
+        def en:int (?? (str2int (PresApp.jsonNum(j "end"))) st)
+        def x0:int (editor.caretViewX(tr line st))
+        def x1:int (editor.caretViewX(tr line en))
+        def y0:int (editor.layout.caretPixelY(line))
+        def extra:string (",\"line\":" + (to_string line) + ",\"tab\":\"" + edTab + "\",\"x\":" + (to_string x0) + ",\"y\":" + (to_string y0) + ",\"w\":" + (to_string (x1 - x0)) + ",\"h\":" + (to_string editor.layout.lineHeight) + ",\"text\":" + (PresHint.q(text)) + "}")
+        return ((substring j 0 ((strlen j) - 1)) + extra)
+    }
+
+    ; The number after `"key":` in a flat JSON object.
+    sfn jsonNum:string (j:string key:string) {
+        def at:int (indexOf j ("\"" + key + "\":"))
+        if (at < 0) {
+            return ""
+        }
+        def a:int ((at + (strlen key)) + 3)
+        def b:int a
+        while ((b < (strlen j)) && ((((charAt j b) >= 48) && ((charAt j b) <= 57)) || ((charAt j b) == 45))) {
+            b = (b + 1)
+        }
+        return (substring j a b)
+    }
+
+    ; Is the line inside the `---` front matter at the top?
+    fn inFrontMatter:boolean (line:int) {
+        if (edTab != "md") {
+            return false
+        }
+        if ((editor.buf.lineCount()) == 0) {
+            return false
+        }
+        if ((trim (editor.buf.lineAt(0))) != "---") {
+            return false
+        }
+        def i:int 1
+        while (i < (editor.buf.lineCount())) {
+            if ((trim (editor.buf.lineAt(i))) == "---") {
+                return ((line > 0) && (line < i))
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Columns a..b of a line become `text`, as one edit.
+    fn replaceRange:void (line:int a:int b:int text:string) {
+        if ((line < 0) || (line >= (editor.buf.lineCount()))) {
+            return
+        }
+        editor.moveCaret(line a false)
+        editor.moveCaret(line b true)
+        editor.insert(text)
+        this.syncEditor()
+        chromeRev = (chromeRev + 1)
     }
 
     fn undo:void () {

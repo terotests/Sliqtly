@@ -10,35 +10,114 @@
 /* The stage's charts and diagrams: `color` the warm light (columns, the
    active line), `accent-color` the cool one (grid, axes, boxes). A chart's
    `chart-style` is flat (the default), forge, neon or glass. */
-chart     { color: #fbbf24; accent-color: #c084fc; chart-style: neon }
-diagram   { color: #fbbf24; accent-color: #c084fc }
+chart {
+  color: #fbbf24;
+  accent-color: #c084fc;
+  chart-style: neon;
+}
 
+diagram {
+  color: #fbbf24;
+  accent-color: #c084fc;
+}
 
-page      { width: 13.333in; height: 7.5in; padding: 0.75in; background-color: #130a26 }
-deck      { split-level: 2; overflow: split; aspect-ratio: 16 / 9 }
+page {
+  width: 13.333in;
+  height: 7.5in;
+  padding: 0.75in;
+  background-color: #130a26;
+}
 
-document  { font-family: Open Sans; font-size: 20pt; line-height: 1.4; color: #f3eaff }
+deck {
+  split-level: 2;
+  overflow: split;
+  aspect-ratio: 16 / 9;
+}
 
-heading   { font-family: Open Sans; margin-top: 10pt; margin-bottom: 18pt }
-h1        { font-size: 48pt }
-h2        { font-size: 36pt }
-h3        { font-size: 24pt }
+document {
+  font-family: Open Sans;
+  font-size: 20pt;
+  line-height: 1.4;
+  color: #f3eaff;
+}
 
-p         { margin-bottom: 14pt }
-a         { color: #d8b4fe }
-hr        { color: #3b2366 }
+heading {
+  font-family: Open Sans;
+  margin-top: 10pt;
+  margin-bottom: 18pt;
+}
 
-list      { padding-left: 30pt; margin-left: 10pt }
-li        { margin-bottom: 10pt }
+h1 {
+  font-size: 48pt;
+}
 
-blockquote { color: #e9d5ff; border-color: #c084fc; border-width: 4pt; padding-left: 22pt; padding-top: 8pt }
+h2 {
+  font-size: 36pt;
+}
 
-code      { font-family: Noto Sans; font-size: 15pt; line-height: 1.4; padding: 14pt;
-            background-color: #22123f; border-color: #3b2366 }
+h3 {
+  font-size: 24pt;
+}
 
-table     { border-color: #3b2366; background-color: #22123f; padding-left: 12pt; padding-top: 8pt }
+p {
+  margin-bottom: 14pt;
+}
 
-.lead     { font-size: 26pt }
-.kicker   { font-size: 14pt }
-.c2       { column-count: 2; column-gap: 36pt }
-.c3       { column-count: 3; column-gap: 28pt }
+a {
+  color: #d8b4fe;
+}
+
+hr {
+  color: #3b2366;
+}
+
+list {
+  padding-left: 30pt;
+  margin-left: 10pt;
+}
+
+li {
+  margin-bottom: 10pt;
+}
+
+blockquote {
+  color: #e9d5ff;
+  border-color: #c084fc;
+  border-width: 4pt;
+  padding-left: 22pt;
+  padding-top: 8pt;
+}
+
+code {
+  font-family: Noto Sans;
+  font-size: 15pt;
+  line-height: 1.4;
+  padding: 14pt;
+  background-color: #22123f;
+  border-color: #3b2366;
+}
+
+table {
+  border-color: #3b2366;
+  background-color: #22123f;
+  padding-left: 12pt;
+  padding-top: 8pt;
+}
+
+.lead {
+  font-size: 26pt;
+}
+
+.kicker {
+  font-size: 14pt;
+}
+
+.c2 {
+  column-count: 2;
+  column-gap: 36pt;
+}
+
+.c3 {
+  column-count: 3;
+  column-gap: 28pt;
+}

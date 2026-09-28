@@ -617,6 +617,7 @@ function afterInput() {
 }
 
 keys.addEventListener("keydown", (ev) => {
+  if (hint && ev.key !== "Shift" && ev.key !== "Control" && ev.key !== "Alt" && ev.key !== "Meta") closeHint();
   // A composition that ended without a compositionend (a dead key, an IME
   // cancelled by a click) must not leave typing switched off.
   if (!ev.isComposing && ev.keyCode !== 229) composing = false;
@@ -760,6 +761,16 @@ canvas.addEventListener("pointerdown", (ev) => {
   if (where === "editor" || where === "sep" || where === "scrub" || where === "stage") {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
+  if (where === "editor" && clicks === 1) {
+    setTimeout(() => {
+      let h = null;
+      try { h = JSON.parse(app.hintAtCaret() || "null"); } catch (_) { h = null; }
+      if (h) showHint(h);
+      else closeHint();
+    }, 0);
+  } else if (where !== "editor") {
+    closeHint();
+  }
   if (ev.pointerType !== "mouse" && where !== "editor") {
     // A tap outside the editor must not focus the hidden text field: on a
     // phone that opens the keyboard, the page resizes under the finger and
@@ -776,7 +787,172 @@ canvas.addEventListener("pointermove", (ev) => {
   app.pointerMove(x, y);
   canvas.style.cursor = app.cursorAt(x, y);
   if (ev.buttons) needsPaint = true;
+  else if (ev.pointerType === "mouse") hintHover(x, y);
 });
+
+// --- hints: what a value under the pointer does, and what else it can be ------------
+//
+// Over `{fx=starfield}` in the Markdown or `chart-style: forge` in the theme,
+// a small popover says what the value is for and offers the others: a list
+// for a word with a fixed set, a colour picker, a slider with a number, the
+// faces there are. A choice is written into the text as an ordinary edit
+// (Ctrl+Z undoes it). A click on a value opens it too, which is how it opens
+// on a touch screen.
+const valEl = document.getElementById("valHint");
+let hint = null;
+let hintTimer = 0;
+let hintCloseTimer = 0;
+let hintKey = "";
+
+function hintId(h) {
+  return h ? h.tab + ":" + h.line + ":" + h.start + ":" + h.name : "";
+}
+
+function hintHover(x, y) {
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => {
+    let h = null;
+    try { h = JSON.parse(app.hintAt(x, y) || "null"); } catch (_) { h = null; }
+    if (h && hintId(h) === hintKey && valEl.classList.contains("on")) {
+      clearTimeout(hintCloseTimer);
+      return;
+    }
+    if (h) showHint(h);
+    else if (!valEl.matches(":hover")) scheduleHintClose();
+  }, 380);
+}
+
+function scheduleHintClose() {
+  clearTimeout(hintCloseTimer);
+  hintCloseTimer = setTimeout(() => {
+    if (!valEl.matches(":hover") && !valEl.contains(document.activeElement)) closeHint();
+  }, 450);
+}
+
+function closeHint() {
+  clearTimeout(hintTimer);
+  clearTimeout(hintCloseTimer);
+  valEl.classList.remove("on");
+  valEl.replaceChildren();
+  hint = null;
+  hintKey = "";
+}
+
+valEl.addEventListener("pointerleave", scheduleHintClose);
+valEl.addEventListener("pointerenter", () => clearTimeout(hintCloseTimer));
+valEl.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") {
+    closeHint();
+    focusKeys("editor");
+  }
+});
+
+// The value's text written back, and the hint moved on to the new text.
+function writeHint(text) {
+  if (!hint) return;
+  app.replaceRange(hint.line, hint.start, hint.end, text);
+  hint.text = hint.text.slice(0, hint.start) + text + hint.text.slice(hint.end);
+  if (hint.wholeEnd >= 0) hint.wholeEnd += text.length - (hint.end - hint.start);
+  hint.end = hint.start + text.length;
+  hint.value = text;
+  needsPaint = true;
+  afterInput();
+}
+
+function el(tag, attrs, kids) {
+  const e = document.createElement(tag);
+  for (const k in attrs || {}) {
+    if (k === "text") e.textContent = attrs[k];
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), attrs[k]);
+    else e.setAttribute(k, attrs[k]);
+  }
+  for (const c of kids || []) e.append(c);
+  return e;
+}
+
+function hexOf(v) {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec((v || "").trim());
+  if (!m) return "#ffffff";
+  const h = m[1];
+  return "#" + (h.length === 3 ? h.split("").map((c) => c + c).join("") : h).toLowerCase();
+}
+
+function showHint(h) {
+  clearTimeout(hintCloseTimer);
+  hint = h;
+  hintKey = hintId(h);
+  const kids = [];
+  kids.push(el("div", { class: "hd" }, [el("b", { text: h.name }), el("span", { text: h.value })]));
+  if (h.doc) kids.push(el("div", { class: "doc", text: h.doc }));
+
+  const chips = (list, cur, pick) => el("div", { class: "chips" }, list.map((o) =>
+    el("button", { class: o === cur ? "cur" : "", text: o, onclick: () => pick(o) })));
+
+  if (h.kind === "enum" || h.kind === "class" || h.kind === "font") {
+    const box = chips(h.options, h.value, (o) => {
+      writeHint(o);
+      for (const b of box.children) b.className = b.textContent === o ? "cur" : "";
+    });
+    kids.push(box);
+  }
+  if (h.kind === "color") {
+    const pick = el("input", { type: "color", value: hexOf(h.value) });
+    const txt = el("input", { type: "text", value: h.value, spellcheck: "false" });
+    pick.addEventListener("input", () => { txt.value = pick.value; writeHint(pick.value); });
+    txt.addEventListener("change", () => { writeHint(txt.value.trim()); pick.value = hexOf(txt.value); });
+    kids.push(el("div", { class: "row" }, [pick, txt]));
+  }
+  if (h.kind === "number") {
+    const m = /^(-?[0-9.]+)(.*)$/.exec(h.value) || [null, "0", h.unit || ""];
+    const unit = h.unit || m[2] || "";
+    const num = parseFloat(m[1]) || 0;
+    const min = Math.min(h.min ?? 0, num);
+    const max = Math.max(h.max ?? 100, num);
+    const step = h.step ?? 1;
+    const range = el("input", { type: "range", min, max, step, value: num });
+    const field = el("input", { type: "number", min, max, step, value: num });
+    const decimals = String(step).includes(".") ? String(step).split(".")[1].length : 0;
+    const put = (v) => writeHint((+(+v).toFixed(decimals)).toString() + unit);
+    range.addEventListener("input", () => { field.value = range.value; put(range.value); });
+    field.addEventListener("input", () => { if (field.value !== "") { range.value = field.value; put(field.value); } });
+    kids.push(el("div", { class: "row" }, [range, field].concat(unit ? [el("span", { text: unit })] : [])));
+  }
+  if (h.adds && h.adds.length) {
+    const have = h.text || "";
+    const left = h.adds.filter((a) => !have.includes(a.split("=")[0] + "="));
+    if (left.length) {
+      kids.push(el("div", { class: "lbl", text: "Lisää parametri:" }));
+      const box = chips(left, "", (a) => {
+        app.replaceRange(hint.line, hint.wholeEnd, hint.wholeEnd, " " + a);
+        needsPaint = true;
+        afterInput();
+        closeHint();
+      });
+      kids.push(box);
+    }
+  }
+  if (h.wholeStart >= 0 && h.wholeEnd > h.wholeStart) {
+    kids.push(el("div", { class: "foot" }, [el("button", { class: "del", text: "Poista", onclick: () => {
+      app.replaceRange(hint.line, hint.wholeStart, hint.wholeEnd, "");
+      needsPaint = true;
+      afterInput();
+      closeHint();
+    } })]));
+  }
+  valEl.replaceChildren(...kids);
+  valEl.classList.add("on");
+  // under the value, kept on the screen
+  const r = canvas.getBoundingClientRect();
+  const w = valEl.offsetWidth;
+  const hh = valEl.offsetHeight;
+  let left = r.left + h.x;
+  let top = r.top + h.y + h.h + 4;
+  if (left + w > window.innerWidth - 8) left = window.innerWidth - 8 - w;
+  if (top + hh > window.innerHeight - 8) top = r.top + h.y - hh - 4;
+  valEl.style.left = Math.max(8, left) + "px";
+  valEl.style.top = Math.max(8, top) + "px";
+}
+
 function endPointer() {
   app.pointerUp();
   // a click on the stage acts on release (a press that moves is a drag),

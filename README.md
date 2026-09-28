@@ -95,6 +95,13 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   getting a continuation slide.
 - Emoji in the PDF come from Noto Emoji (monochrome), which the page loads
   in the background after start-up; the stage keeps the browser's colour emoji.
+- Hints in the editor: hover over (or click) a value in an attribute block
+  (`{fx=starfield}`), the front matter, a class, a fence's language or a
+  theme's CSS property, and a popover says what it does and offers the
+  alternatives — a list for a fixed set, a colour picker, a slider with a
+  number, the faces there are — plus the effect's parameters to add and a
+  button to remove the item. A choice is an ordinary edit (Ctrl+Z undoes it).
+  The themes are written one declaration per line.
 - **Ctrl+V** in the editor pastes a picture from the clipboard. It is stored
   under `media/` and written into the Markdown as `![](media/…)`. Dropping an
   image onto the canvas does the same.

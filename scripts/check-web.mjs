@@ -337,6 +337,56 @@ try {
   });
   check("a formula is drawn as outlines, not as its TeX", math.paths >= 2 && !math.raw, JSON.stringify(math));
 
+  // Hints: what a value is and what it can be, and a choice written back
+  const hints = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.showTab("md");
+    a.setSource("---\ntransition: fade\n---\n\n# Otsikko {fx=starfield fx-density=1.2}\n\nTeksti\n{.lead}\n");
+    const at = (line, word, off) => {
+      const text = a.source().split("\n")[line];
+      a.editor.moveCaret(line, text.indexOf(word) + (off || 1), false);
+      const j = a.hintAtCaret();
+      return j ? JSON.parse(j) : null;
+    };
+    const out = {};
+    const fx = at(4, "starfield");
+    out.fx = fx && fx.kind === "enum" && fx.options.includes("smoke") && fx.adds.some((x) => x.startsWith("fx-hue="));
+    a.replaceRange(4, fx.start, fx.end, "smoke");
+    out.picked = a.source().split("\n")[4].includes("{fx=smoke fx-density=1.2}");
+    const dens = at(4, "1.2");
+    out.density = dens && dens.kind === "number" && dens.max > 1.2;
+    a.replaceRange(4, dens.wholeStart, dens.wholeEnd, "");
+    out.removed = a.source().split("\n")[4].endsWith("{fx=smoke}");
+    const front = at(1, "fade");
+    out.front = front && front.kind === "enum" && front.options.includes("zoom");
+    const cls = at(7, "lead");
+    out.cls = cls && cls.kind === "class";
+    out.plain = at(6, "Teksti") === null;
+    a.setSource(src0);
+    a.showTab("css");
+    const lines = a.themeCss().split("\n");
+    const find = (re) => lines.findIndex((l) => re.test(l));
+    const hint = (re, off) => {
+      const li = find(re);
+      a.editor.moveCaret(li, lines[li].indexOf(":") + (off || 3), false);
+      const j = a.hintAtCaret();
+      return j ? JSON.parse(j) : null;
+    };
+    out.color = (hint(/^\s*accent-color:/) || {}).kind === "color";
+    out.number = (hint(/^\s*font-size:/) || {}).unit === "pt";
+    out.font = ((hint(/^\s*font-family:/) || {}).options || []).includes("Noto Sans");
+    out.pretty = lines.some((l) => /^\s+chart-style: \w+;$/.test(l));
+    a.showTab("md");
+    return out;
+  });
+  check("an effect's hint lists the others and its parameters", hints.fx, JSON.stringify(hints));
+  check("a choice is written into the text", hints.picked && hints.removed, JSON.stringify(hints));
+  check("a parameter is a number with a range", hints.density, JSON.stringify(hints));
+  check("front matter and classes have hints; plain text none", hints.front && hints.cls && hints.plain, JSON.stringify(hints));
+  check("the theme's colours, sizes and faces have hints", hints.color && hints.number && hints.font, JSON.stringify(hints));
+  check("the theme CSS is one declaration per line", hints.pretty, JSON.stringify(hints));
+
   // The editor never sits scrolled sideways past every line on screen, and a
   // sideways swipe scrolls it sideways
   const hs = await page.evaluate(() => {

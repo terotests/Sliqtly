@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { ensureRanger, compile, root, webDir, distDir, log } from "./lib.mjs";
+import { formatCss } from "./format-css.mjs";
 
 export function build({ ranger } = {}) {
   ranger = ranger || ensureRanger();
@@ -38,7 +39,10 @@ export function build({ ranger } = {}) {
   // GitHub Pages serves the directory as it is; no Jekyll pass over it.
   fs.writeFileSync(path.join(distDir, ".nojekyll"), "");
   for (const t of ["corporate", "editorial"]) {
-    copy(path.join(ranger, `gallery/markdown/fixtures/themes/${t}.css`), path.join(distDir, `themes/${t}.css`));
+    // one declaration per line, as the editor's CSS tab shows our own themes
+    fs.mkdirSync(path.join(distDir, "themes"), { recursive: true });
+    fs.writeFileSync(path.join(distDir, `themes/${t}.css`),
+      formatCss(fs.readFileSync(path.join(ranger, `gallery/markdown/fixtures/themes/${t}.css`), "utf8")));
   }
   for (const f of fs.readdirSync(path.join(root, "samples"))) copy(path.join(root, "samples", f), path.join(distDir, "samples", f));
   copy(path.join(ranger, "gallery/markdown/fixtures/deck.md"), path.join(distDir, "samples/deck.md"));
