@@ -80,7 +80,7 @@ Pysähdytään valintaan: mitä tehdä ylimääräisellä rahalla? Yleisö saa v
 | 100 € | 15 500 € | 46 000 € | 100 000 € |
 | 200 € | 31 000 € | 92 000 € | 200 000 € |
 
-Laskettu 5 % vuosituotolla, pyöristetty.
+Laskettu 5 % vuosituotolla, pyöristetty: $FV = PMT \cdot \frac{(1+r)^n - 1}{r}$
 {.kicker}
 
 ::: notes

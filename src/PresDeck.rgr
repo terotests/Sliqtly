@@ -539,8 +539,16 @@ class PresDeck {
         d.worldH = base.worldH
         d.nodes = base.nodes
         d.edges = base.edges
+        d.straight = base.straight
         d.rest = base.rest
         d.tour = ((n.attrValue("tour")) != "off")
+        ; A sequence diagram is read top to bottom, message by message; its
+        ; "nodes" are lifelines, and a tour from one to the next would zoom
+        ; into a thin line. It is shown whole, with no choices to make.
+        def seq:boolean base.straight
+        if seq {
+            d.tour = false
+        }
         d.ball = ((n.attrValue("ball")) != "off")
         if (n.hasAttr("zoom")) {
             d.zoom = (PresDeck.num((n.attrValue("zoom")) 3.0))
@@ -549,6 +557,9 @@ class PresDeck {
             d.style = "sketch"
         }
         d.choose = ((n.attrValue("choose")) != "off")
+        if seq {
+            d.choose = false
+        }
         def paper:string lay.style.pageBackground
         if ((strlen paper) == 0) {
             paper = "#ffffff"

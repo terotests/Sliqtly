@@ -43,6 +43,7 @@ const SAMPLES = {
   urheilu: ["Urheilu: 5 km juoksukoulu", "./samples/urheilu.md"],
   kulttuuri: ["Kulttuuri: musiikin vuosikymmenet", "./samples/kulttuuri.md"],
   ohjelmointi: ["Ohjelmointi: versionhallinta", "./samples/ohjelmointi.md"],
+  matematiikka: ["Matematiikka: kaavat kalvoilla", "./samples/matematiikka.md"],
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
 };
 

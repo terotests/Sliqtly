@@ -17,7 +17,8 @@ npm run check:web    # the page in headless Chromium (build, typing, presenting,
 ```
 
 Ranger is cloned into `.deps/Ranger` on first run, from the branch in
-`presentation.config.json` (`master`). To use an existing
+`presentation.config.json`. It points at `claude/nifty-dijkstra-vq2qit`, which has
+TeX math and the sequence-diagram fix; set it back to `master` once that is merged. To use an existing
 checkout instead, set `RANGER_DIR=/path/to/Ranger`. `src/` is linked into the
 checkout as `gallery/presentation`, the same way EvgHarness does it, and
 compiled with Ranger's own compiler.
@@ -73,6 +74,16 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   once), `{zoom=3}` (the largest scale a box is drawn at),
   `{layout=keep}` (the direction as written) or `{diagram=classic}` (the
   original drawing). PDF and PPTX use the original drawing.
+- A sequence diagram is shown whole, with its messages as straight rows and
+  no tour.
+- TeX math: `$…$` in a line, `$$…$$` as a display (on its own line, or right
+  under the sentence that introduces it), and ```math fences. The subset
+  covers scripts, fractions, roots, sums and integrals with limits,
+  `\left…\right`, accents, `\text`, `\mathbf` / `\mathbb` / `\mathcal`,
+  `\color`, and the `matrix` / `pmatrix` / `cases` / `aligned` environments.
+  Formulas are drawn as outlines of the KaTeX fonts, so the stage, the PDF
+  and the PPTX show the same shapes with no font to install. `$5` and `$10`
+  stay text.
 - **Ctrl+V** in the editor pastes a picture from the clipboard. It is stored
   under `media/` and written into the Markdown as `![](media/…)`. Dropping an
   image onto the canvas does the same.

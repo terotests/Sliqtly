@@ -322,6 +322,21 @@ try {
   check("…and drawn on the slide", pic.image);
   await shot("3-picture.png");
 
+  // TeX math: $…$ in a line and a $$ display are drawn as filled outlines
+  const math = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.setSource("# M\n\n## Kaava\n\nPinta-ala $A = \\pi r^2$ ja\n\n$$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$\n");
+    a.selectSlide(1);
+    a.localT = -1;
+    const cmds = JSON.parse(a.stageJson()).list.cmds;
+    const paths = cmds.filter((c) => c.k === 6).length;
+    const raw = cmds.some((c) => c.k === 3 && c.text && c.text.includes("\\frac"));
+    a.setSource(src0);
+    return { paths, raw };
+  });
+  check("a formula is drawn as outlines, not as its TeX", math.paths >= 2 && !math.raw, JSON.stringify(math));
+
   const exp = await page.evaluate(() => {
     const a = window.__app;
     a.setSource(a.source());

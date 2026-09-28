@@ -118,6 +118,10 @@ class PresDiagram {
     def worldX:double 0.0
     def worldY:double 0.0
     def worldW:double 0.0
+    ; Lines exactly as the router placed them: no lanes, no curves. A
+    ; sequence diagram's messages are straight rows between lifelines, and
+    ; bending them apart turns the rows into a tangle.
+    def straight:boolean false
     def worldH:double 0.0
     def nodes:[PresDNode]
     def edges:[PresDEdge]
@@ -366,6 +370,7 @@ class PresDiagram {
         d.worldY = sc.worldY
         d.worldW = sc.worldW
         d.worldH = sc.worldH
+        d.straight = (PresDiagram.isSequence(notation text))
         def i:int 0
         while (i < (array_length sc.items)) {
             def it:SceneItem (itemAt sc.items i)
@@ -410,6 +415,16 @@ class PresDiagram {
         d.separateTwins()
         d.ok = ((array_length d.nodes) > 0)
         return d
+    }
+
+    sfn isSequence:boolean (notation:string text:string) {
+        if (notation == "mermaid") {
+            return ((MermaidRender.kindOf(text)) == "sequence")
+        }
+        if (notation == "plantuml") {
+            return ((PlantUmlRender.kindOf(text)) == "sequence")
+        }
+        return false
     }
 
     ; The same diagram laid out the other way round: left-to-right becomes
@@ -631,6 +646,15 @@ class PresDiagram {
             }
             i = (i + 1)
         }
+        if straight {
+            i = 0
+            while (i < (array_length edges)) {
+                def e1:PresDEdge (itemAt edges i)
+                e1.len = (FlowScene.polyLength(e1.line))
+                i = (i + 1)
+            }
+            return
+        }
         this.spreadRoutes()
         i = 0
         while (i < (array_length edges)) {
@@ -761,6 +785,9 @@ class PresDiagram {
     ; of the line between the centres. Routed separately, the two ran across
     ; each other.
     fn separateTwins:void () {
+        if straight {
+            return
+        }
         def i:int 0
         while (i < (array_length edges)) {
             def a:PresDEdge (itemAt edges i)
@@ -1685,10 +1712,14 @@ class PresDiagram {
             push pillH h
             i = (i + 1)
         }
-        ; apart: each pill clear of the ones before it
+        ; apart: each pill clear of the ones before it. A pill keeps moving the
+        ; way it moved first: pushed right past one and left past the next it
+        ; could bounce between them for ever, and that hung the page.
         def a:int 1
         while (a < (array_length pillX)) {
             def b:int 0
+            def dir:int 0
+            def moves:int 0
             while (b < a) {
                 def ax:double (itemAt pillX a)
                 def ay:double (itemAt pillY a)
@@ -1698,12 +1729,19 @@ class PresDiagram {
                 def bw2:double (itemAt pillW b)
                 def overlapX:boolean ((ax < (bx + bw2)) && (bx < (ax + aw)))
                 def overlapY:boolean ((ay < (by + (itemAt pillH b))) && (by < (ay + (itemAt pillH a))))
-                if (overlapX && overlapY) {
-                    if ((ax + (aw * 0.5)) >= (bx + (bw2 * 0.5))) {
+                if ((overlapX && overlapY) && (moves < 64)) {
+                    if (dir == 0) {
+                        dir = -1
+                        if ((ax + (aw * 0.5)) >= (bx + (bw2 * 0.5))) {
+                            dir = 1
+                        }
+                    }
+                    if (dir > 0) {
                         set pillX a ((bx + bw2) + 10.0)
                     } {
                         set pillX a ((bx - aw) - 10.0)
                     }
+                    moves = (moves + 1)
                     b = -1
                 }
                 b = (b + 1)
