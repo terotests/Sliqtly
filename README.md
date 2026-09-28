@@ -17,7 +17,8 @@ npm run check:web    # the page in headless Chromium (build, typing, presenting,
 ```
 
 Ranger is cloned into `.deps/Ranger` on first run, from the branch in
-`presentation.config.json` (`master`). To use an existing
+`presentation.config.json`. It points at `claude/nifty-dijkstra-vq2qit`, which has
+the PPTX build fixes Keynote needs; set it back to `master` once that is merged. To use an existing
 checkout instead, set `RANGER_DIR=/path/to/Ranger`. `src/` is linked into the
 checkout as `gallery/presentation`, the same way EvgHarness does it, and
 compiled with Ranger's own compiler.
@@ -102,7 +103,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | In a diagram: + / − / 100 % buttons, keys + − 0 | zoom in, out; 100 % shows the whole diagram (‹ or a choice returns to the walk) |
 | Teema | dark themes aurora, nebula (starfield), carbon, ember (ambient light), midnight; light corporate, editorial. A theme sets the diagram colours through `/* pres: accent=… warm=… fx=… */` |
 | 🔗 Jaa | a dialog with two links, each with its own Kopioi: **Esitys** opens straight into the presentation (no toolbar or editor; ◀ ▶ ⛶ in a corner that fades; Esc only leaves full screen), **Muokkaus** opens the editor. The Markdown is compressed into the link (`#md=…`, `&mode=show` for the presentation) |
-| PDF / PPTX | export. The PPTX includes notes, transitions and build steps per paragraph |
+| PDF / PPTX | export. The PPTX includes notes, transitions and build steps per paragraph, and opens in Keynote; its text is set in Arial (the page's own faces are not on every machine) |
 
 ## Structure
 

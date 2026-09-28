@@ -1757,9 +1757,60 @@ class PresApp {
                 this.stillDiagrams(ps s unit)
                 PresApp.dressSlide(ps s)
             }
+            PresApp.fontsIn(((itemAt d.pres.slides i).shapes))
             i = (i + 1)
         }
+        d.pres.theme.majorFont = "Arial"
+        d.pres.theme.minorFont = "Arial"
         return (d.save())
+    }
+
+    ; The faces the stage draws with are shipped with the page, not with
+    ; Keynote or PowerPoint: a file that names them opens with "missing font".
+    ; Arial is on every Mac and every Windows machine, and it is narrower than
+    ; Open Sans, so every line still fits the box it was measured for.
+    sfn exportFont:string (f:string) {
+        if ((strlen f) == 0) {
+            return f
+        }
+        ; …and the generic "sans-serif" a chart's labels ask for, which comes
+        ; out as Calibri or as a made-up face name
+        def low:string (MdChar.lower(f))
+        if (((indexOf low "sans") >= 0) || ((indexOf low "calibri") >= 0)) {
+            return "Arial"
+        }
+        return f
+    }
+
+    sfn fontsInBody:void (body:PptxTextBody) {
+        def p:int 0
+        while (p < (array_length body.paragraphs)) {
+            def para:PptxParagraph (itemAt body.paragraphs p)
+            para.bulletFont = (PresApp.exportFont(para.bulletFont))
+            def r:int 0
+            while (r < (array_length para.runs)) {
+                def run:PptxTextRun (itemAt para.runs r)
+                run.fontFamily = (PresApp.exportFont(run.fontFamily))
+                r = (r + 1)
+            }
+            p = (p + 1)
+        }
+    }
+
+    sfn fontsIn:void (shapes:[PptxShape]) {
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            PresApp.fontsInBody(sh.text)
+            def c:int 0
+            while (c < (array_length sh.tableCells)) {
+                def cell:PptxTableCell (itemAt sh.tableCells c)
+                PresApp.fontsInBody(cell.body)
+                c = (c + 1)
+            }
+            PresApp.fontsIn(sh.children)
+            i = (i + 1)
+        }
     }
 
     ; The diagrams as the stage draws them, at rest, in place of the markdown

@@ -337,6 +337,12 @@ try {
   check("PPTX slide 2 has a push transition", /<p:transition[^>]*>[\s\S]*<p:push/.test(slide2));
   const paras = new Set((slide2.match(/<p:pRg st="(\d+)"/g) || []));
   check("PPTX slide 2 builds its four list items one paragraph at a time", paras.size === 4, [...paras].join(" "));
+  // Keynote imports a build only with its build list and group ids, and
+  // warns about any face it does not have
+  check("PPTX slide 2 declares its paragraph build", /<p:bldLst><p:bldP spid="\d+" grpId="0" build="p"\/>/.test(slide2) && /grpId="0" nodeType="clickEffect"/.test(slide2));
+  const faces = new Set();
+  for (const [k, v] of pptx) if (k.endsWith(".xml")) for (const m of v.matchAll(/typeface="([^"]+)"/g)) if (m[1]) faces.add(m[1]);
+  check("PPTX names only faces every machine has", [...faces].every((f) => f === "Arial"), [...faces].join(", "));
   const n2 = notes.map((k) => pptx.get(k)).join(" ");
   check("the notes are the speaker's words without the cue marks", n2.includes("linkin saanut") && !n2.includes("[[1]]"));
 
