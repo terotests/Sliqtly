@@ -788,8 +788,14 @@ canvas.addEventListener("pointercancel", endPointer);
 canvas.addEventListener("wheel", (ev) => {
   const [x, y] = at(ev);
   const step = ev.deltaMode === 1 ? 18 : ev.deltaMode === 2 ? 400 : 1;
-  const d = Math.abs(ev.deltaY) >= Math.abs(ev.deltaX) ? ev.deltaY : ev.deltaX;
-  if (app.wheel(x, y, d * step)) {
+  // sideways: a trackpad swipe, a tilt wheel, or Shift with a plain wheel
+  let dx = ev.deltaX;
+  let dy = ev.deltaY;
+  if (ev.shiftKey && dx === 0) {
+    dx = dy;
+    dy = 0;
+  }
+  if (app.wheelXY(x, y, dx * step, dy * step)) {
     ev.preventDefault();
     needsPaint = true;
   }

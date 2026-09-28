@@ -1502,6 +1502,21 @@ class PresApp {
         this.stageUp()
     }
 
+    ; A wheel or a trackpad: mostly sideways over the editor scrolls it
+    ; sideways, everything else goes where a vertical wheel goes.
+    fn wheelXY:boolean (x:double y:double dx:double dy:double) {
+        if (((mode != "present") && (edRect.has(x y))) && ((fabs dx) > (fabs dy))) {
+            editor.scrollByX((to_int dx))
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        def d:double dy
+        if ((fabs dx) > (fabs dy)) {
+            d = dx
+        }
+        return (this.wheel(x y d))
+    }
+
     fn wheel:boolean (x:double y:double dy:double) {
         if (mode == "present") {
             return false

@@ -337,6 +337,43 @@ try {
   });
   check("a formula is drawn as outlines, not as its TeX", math.paths >= 2 && !math.raw, JSON.stringify(math));
 
+  // The editor never sits scrolled sideways past every line on screen, and a
+  // sideways swipe scrolls it sideways
+  const hs = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    const lines = ["# Pitkä rivi", "x".repeat(400)];
+    for (let i = 0; i < 80; i += 1) lines.push("lyhyt " + i);
+    a.setSource(lines.join("\n"));
+    a.showTab("md");
+    a.setFocus("editor");
+    a.key("pageUp", false, true);
+    a.key("down", false, false);
+    a.key("end", false, false);
+    const lay = () => a.editor.layout.scrollX;
+    const out = { atEnd: lay() };
+    a.key("down", false, false);
+    out.shortLine = lay();
+    a.key("up", false, false);
+    a.key("end", false, false);
+    const r = a.edRect;
+    const cx = r.x + r.w / 2;
+    const cy = r.y + r.h / 2;
+    a.wheelXY(cx, cy, 0, 400);
+    out.scrolledDown = lay();
+    a.wheelXY(cx, cy, 0, -2000);
+    a.wheelXY(cx, cy, 300, 0);
+    out.swipe = lay();
+    a.wheelXY(cx, cy, -5000, 0);
+    out.swipeBack = lay();
+    a.setSource(src0);
+    return out;
+  });
+  check("the view follows the caret to the end of a long line", hs.atEnd > 0, JSON.stringify(hs));
+  check("…and comes back when the caret moves to a short line", hs.shortLine === 0, JSON.stringify(hs));
+  check("scrolled down among short lines the view is not left empty", hs.scrolledDown === 0, JSON.stringify(hs));
+  check("a sideways swipe scrolls the editor sideways, both ways", hs.swipe > 0 && hs.swipeBack === 0, JSON.stringify(hs));
+
   const exp = await page.evaluate(() => {
     const a = window.__app;
     a.setSource(a.source());
