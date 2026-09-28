@@ -69,7 +69,7 @@ class PresChart {
                 if (! groundSeen) {
                     groundSeen = true
                 } {
-                    if ((c.w > 2.0) && (c.h > 0.5)) {
+                    if (PresChart.isBar(c)) {
                         push bars c
                     }
                 }
@@ -77,6 +77,19 @@ class PresChart {
             k = (k + 1)
         }
         def nb:int (array_length bars)
+        ; Coloured by category: more than one fill among the columns. Then
+        ; each keeps its own colour — the legend says what they mean — and
+        ; only the style is the theme's.
+        def perBar:boolean false
+        def pb:int 1
+        while (pb < nb) {
+            def c0:EVGDrawCmd (itemAt bars 0)
+            def cb:EVGDrawCmd (itemAt bars pb)
+            if (((c0.r != cb.r) || (c0.g != cb.g)) || (c0.b != cb.b)) {
+                perBar = true
+            }
+            pb = (pb + 1)
+        }
         def left:double 1000000.0
         def right:double -1000000.0
         def top:double 1000000.0
@@ -114,10 +127,23 @@ class PresChart {
                     ; the card: left out
                     groundSeen = true
                 } {
-                    if ((c.w > 2.0) && (c.h > 0.5)) {
-                        PresChart.column(out c barAt tt growStart growEach growDur scanU scanX wmR wmG wmB ruR ruG ruB st)
+                    if (PresChart.isBar(c)) {
+                        if perBar {
+                            def oR:int c.r
+                            def oG:int c.g
+                            def oB:int c.b
+                            PresChart.column(out c barAt tt growStart growEach growDur scanU scanX oR oG oB (to_int ((to_double oR) * 0.55)) (to_int ((to_double oG) * 0.2)) (to_int ((to_double oB) * 0.12)) st)
+                        } {
+                            PresChart.column(out c barAt tt growStart growEach growDur scanU scanX wmR wmG wmB ruR ruG ruB st)
+                        }
                         barAt = (barAt + 1)
                     } {
+                        if (c.radius > 0.0) {
+                            ; a legend swatch or a point: its own colour
+                            push out.cmds c
+                            k = (k + 1)
+                            continue
+                        }
                         c.r = acR
                         c.g = acG
                         c.b = acB
@@ -194,6 +220,12 @@ class PresChart {
             beam.shadowA = (0.8 * fade)
             push out.cmds beam
         }
+    }
+
+    ; A column of a bar chart: a filled, square-cornered box of some size.
+    ; Rounded ones are symbols — a legend's swatches, a scatter's points.
+    sfn isBar:boolean (c:EVGDrawCmd) {
+        return (((c.w > 2.0) && (c.h > 0.5)) && (c.radius <= 0.0))
     }
 
     ; One column: rising from its base at its turn, a gradient from the warm
