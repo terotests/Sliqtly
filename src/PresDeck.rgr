@@ -228,6 +228,32 @@ class PresDeck {
         return ""
     }
 
+    ; The charts (```vega-lite) laid out on slide i, as layout box indices.
+    fn chartBoxes:[int] (i:int) {
+        def out:[int]
+        def l:MdLayout (this.layout())
+        def k:int 0
+        while (k < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes k)
+            if (((b.page == i) && (b.kind == 3)) && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(b.embedKind)))) == "vega")) {
+                push out k
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; A chart as the stage shows it when it has finished, for an export.
+    fn chartStill:EVGDisplayList (bi:int) {
+        def l:MdLayout (this.layout())
+        def b:MdBox (itemAt l.boxes bi)
+        def dl (new EVGDisplayList())
+        def painter (new MdToEvg())
+        painter.paintBox(dl l b 0.0)
+        PresChart.dress(dl 0 1000000.0 true (this.themeValue("accent")) (this.themeValue("warm")))
+        return dl
+    }
+
     ; Every diagram back on its own camera.
     ; Playing or presenting: questions offer a skip.
     def live:boolean false

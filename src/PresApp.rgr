@@ -1755,6 +1755,7 @@ class PresApp {
                 def ps:PptxSlide (itemAt d.pres.slides i)
                 def s:PresSlide (deck.slideAt(i))
                 this.stillDiagrams(ps s unit)
+                this.stillCharts(ps i unit)
                 PresApp.dressSlide(ps s)
             }
             PresApp.fontsIn(((itemAt d.pres.slides i).shapes))
@@ -1845,6 +1846,47 @@ class PresApp {
                 conv.unit = unit
                 ; The stage reads small labels by zooming in; a still cannot,
                 ; so a small label is kept rather than left an empty pill.
+                conv.minFontPt = 1.0
+                def group:PptxShape (conv.build(dl 0.0 0.0))
+                if ((array_length group.children) > 0) {
+                    PresApp.tighten(group)
+                    def old:PptxShape (itemAt ps.shapes at)
+                    group.name = old.name
+                    group.altText = old.altText
+                    group.embedNotation = old.embedNotation
+                    group.embedSource = old.embedSource
+                    group.mdSrcStart = old.mdSrcStart
+                    group.mdSrcEnd = old.mdSrcEnd
+                    set ps.shapes at group
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; The charts as the stage draws them when they have finished (PresChart:
+    ; the warm columns, the accent grid), in place of the markdown module's
+    ; flat drawing, keeping its name, alt text and embedded source.
+    fn stillCharts:void (ps:PptxSlide i:int unit:double) {
+        def l:MdLayout (deck.layout())
+        def boxes:[int] (deck.chartBoxes(i))
+        def k:int 0
+        while (k < (array_length boxes)) {
+            def bi:int (itemAt boxes k)
+            def b:MdBox (itemAt l.boxes bi)
+            def at:int -1
+            def j:int 0
+            while (j < (array_length ps.shapes)) {
+                def sh:PptxShape (itemAt ps.shapes j)
+                if ((at < 0) && (sh.embedSource == b.embedSource)) {
+                    at = j
+                }
+                j = (j + 1)
+            }
+            if (at >= 0) {
+                def dl:EVGDisplayList (deck.chartStill(bi))
+                def conv (new PptxFromEvg())
+                conv.unit = unit
                 conv.minFontPt = 1.0
                 def group:PptxShape (conv.build(dl 0.0 0.0))
                 if ((array_length group.children) > 0) {
