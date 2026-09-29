@@ -23,6 +23,13 @@ checkout instead, set `RANGER_DIR=/path/to/Ranger`. `src/` is linked into the
 checkout as `gallery/presentation`, the same way EvgHarness does it, and
 compiled with Ranger's own compiler.
 
+EVG (`lib/evg`) is no longer tracked in Ranger: Ranger's `npm run deps`
+fetches it from [terotests/evg](https://github.com/terotests/evg) at the
+commit its root `ranger.json` pins. `npm run setup` (and every script that
+needs Ranger) runs it in the checkout when the checkout has it, so
+`src/ranger.json` keeps `"evg": { "path": "../../lib/evg" }` and the slides
+get the same EVG as the Ranger modules they import.
+
 ## Markdown
 
 ````markdown
