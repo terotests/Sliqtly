@@ -83,3 +83,17 @@
   .theme-tb .ui-select-trigger { height: 36px; }
   .theme-tb .ui-select-item { height: 40px; line-height: 40px; }
 }
+/* a label never wraps ("100 %" split at its space), and a button does not
+   shrink below its label */
+.theme-tb .ui-button-label { white-space: nowrap; }
+.theme-tb .ui-button { flex-shrink: 0; }
+/* The card is rebuilt on every change, so a transition would replay from its
+   start each time (a checked switch sliding in again, a pressed control
+   squeezing): state is shown at once instead. */
+.theme-tb .ui-switch-track, .theme-tb .ui-switch-thumb, .theme-tb .ui-tab, .theme-tb .ui-slider-thumb, .theme-tb .ui-checkbox-box, .theme-tb .ui-button { transition: none; }
+.theme-tb .ui-switch-track:active, .theme-tb .ui-tab:active, .theme-tb .ui-checkbox-box:active { transform: none; }
+.theme-tb .ui-button-state-pressed { transform: none; }
+.theme-tb .ui-switch-thumb-state-checked { transform: translate(18px, 0); }
+/* text leaves get their size and face stated, not inherited: an inherited
+   size came out differently between passes and the rows moved */
+.theme-tb .ui-switch-label { font-family: Open Sans; font-size: 13px; }

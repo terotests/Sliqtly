@@ -42,7 +42,7 @@
 .theme-hp .hp-onprimary { color: #fafafa; }
 .theme-hp .hp-ondanger { color: #ffffff; }
 
-.theme-hp .hp-slider { width: 160px; min-width: 160px; }
+.theme-hp .ui-slider { width: 160px; min-width: 160px; flex-shrink: 0; }
 .theme-hp .ui-slider-track { width: 160px; background-color: #e4e4e7; }
 .theme-hp .ui-slider-thumb:hover { transform: scale(1.1); }
 .theme-hp .ui-slider-thumb:active { transform: scale(1.1); }
@@ -54,3 +54,20 @@
 .theme-hp .hp-focus { border-color: #a1a1aa; }
 .theme-hp .cp-panel { width: 290px; border: 0; padding: 0; }
 .theme-hp .hp-numfield { width: 72px; min-width: 72px; flex-grow: 0; flex-shrink: 0; }
+/* a label never wraps ("100 %" split at its space), and a button does not
+   shrink below its label */
+.theme-hp .ui-button-label { white-space: nowrap; }
+.theme-hp .ui-button { flex-shrink: 0; }
+/* a field is one line: a long value is clipped, not wrapped under the box */
+.theme-hp .ui-input { overflow: hidden; }
+.theme-hp .ui-input-text { white-space: nowrap; }
+/* The card is rebuilt on every change, so a transition would replay from its
+   start each time (a checked switch sliding in again, a pressed control
+   squeezing): state is shown at once instead. */
+.theme-hp .ui-switch-track, .theme-hp .ui-switch-thumb, .theme-hp .ui-tab, .theme-hp .ui-slider-thumb, .theme-hp .ui-checkbox-box, .theme-hp .ui-button { transition: none; }
+.theme-hp .ui-switch-track:active, .theme-hp .ui-tab:active, .theme-hp .ui-checkbox-box:active { transform: none; }
+.theme-hp .ui-button-state-pressed { transform: none; }
+.theme-hp .ui-switch-thumb-state-checked { transform: translate(18px, 0); }
+/* text leaves get their size and face stated, not inherited: an inherited
+   size came out differently between passes and the rows moved */
+.theme-hp .ui-switch-label { font-family: Open Sans; font-size: 13px; }

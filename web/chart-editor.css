@@ -86,7 +86,9 @@
 .theme-ce .ui-switch-label { color: #3f3f46; }
 .theme-ce .ui-switch-track { background-color: #e4e4e7; border-color: #e4e4e7; }
 .theme-ce .ui-switch-track-state-checked { background-color: #18181b; border-color: #18181b; }
-.theme-ce .ce-slider { width: 260px; }
+/* on .ui-slider, not a class of our own: the slider rebuilds its root with
+   only its own class while it is dragged */
+.theme-ce .ui-slider { width: 260px; min-width: 260px; flex-shrink: 0; }
 .theme-ce .ui-slider-track { width: 260px; }
 .theme-ce .ui-slider-track { background-color: #e4e4e7; }
 .theme-ce .ui-slider-range { background-color: #18181b; }
@@ -396,3 +398,20 @@
 
 .theme-ce .ui-slider-thumb:hover { transform: scale(1.1); }
 .theme-ce .ui-slider-thumb:active { transform: scale(1.1); }
+/* a label never wraps ("100 %" split at its space), and a button does not
+   shrink below its label */
+.theme-ce .ui-button-label { white-space: nowrap; }
+.theme-ce .ui-button { flex-shrink: 0; }
+/* a field is one line: a long value is clipped, not wrapped under the box */
+.theme-ce .ui-input { overflow: hidden; }
+.theme-ce .ui-input-text { white-space: nowrap; }
+/* The card is rebuilt on every change, so a transition would replay from its
+   start each time (a checked switch sliding in again, a pressed control
+   squeezing): state is shown at once instead. */
+.theme-ce .ui-switch-track, .theme-ce .ui-switch-thumb, .theme-ce .ui-tab, .theme-ce .ui-slider-thumb, .theme-ce .ui-checkbox-box, .theme-ce .ui-button { transition: none; }
+.theme-ce .ui-switch-track:active, .theme-ce .ui-tab:active, .theme-ce .ui-checkbox-box:active { transform: none; }
+.theme-ce .ui-button-state-pressed { transform: none; }
+.theme-ce .ui-switch-thumb-state-checked { transform: translate(18px, 0); }
+/* text leaves get their size and face stated, not inherited: an inherited
+   size came out differently between passes and the rows moved */
+.theme-ce .ui-switch-label { font-family: Open Sans; font-size: 13px; }

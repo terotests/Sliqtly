@@ -78,3 +78,20 @@
 .theme-pn .ui-input-text { color: #3f3f46; font-size: 12px; font-family: Open Sans; }
 .theme-pn .pn-url { width: 360px; min-width: 360px; }
 .theme-pn .ui-input-caret { width: 0px; background-color: rgba(0,0,0,0); }
+/* a label never wraps ("100 %" split at its space), and a button does not
+   shrink below its label */
+.theme-pn .ui-button-label { white-space: nowrap; }
+.theme-pn .ui-button { flex-shrink: 0; }
+/* a field is one line: a long value is clipped, not wrapped under the box */
+.theme-pn .ui-input { overflow: hidden; }
+.theme-pn .ui-input-text { white-space: nowrap; }
+/* The card is rebuilt on every change, so a transition would replay from its
+   start each time (a checked switch sliding in again, a pressed control
+   squeezing): state is shown at once instead. */
+.theme-pn .ui-switch-track, .theme-pn .ui-switch-thumb, .theme-pn .ui-tab, .theme-pn .ui-slider-thumb, .theme-pn .ui-checkbox-box, .theme-pn .ui-button { transition: none; }
+.theme-pn .ui-switch-track:active, .theme-pn .ui-tab:active, .theme-pn .ui-checkbox-box:active { transform: none; }
+.theme-pn .ui-button-state-pressed { transform: none; }
+.theme-pn .ui-switch-thumb-state-checked { transform: translate(18px, 0); }
+/* text leaves get their size and face stated, not inherited: an inherited
+   size came out differently between passes and the rows moved */
+.theme-pn .ui-switch-label { font-family: Open Sans; font-size: 13px; }
