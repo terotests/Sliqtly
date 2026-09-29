@@ -667,10 +667,10 @@ try {
       return { compact: a.isCompact(), pdfShown: !!pdf && pdf.calculatedWidth > 0 };
     });
     await page.setViewportSize({ width: 560, height: 760 });
-    await page.waitForTimeout(400);
+    await page.waitForFunction(() => window.__app.isCompact(), null, { timeout: 5000 }).catch(() => {});
     const narrow = await narrowBar();
     await page.setViewportSize(vp);
-    await page.waitForTimeout(400);
+    await page.waitForFunction(() => !window.__app.isCompact(), null, { timeout: 5000 }).catch(() => {});
     const wide = await narrowBar();
     check("a narrow window shows the slides only and a shorter bar; widening brings the editor back", narrow.compact && !narrow.pdfShown && !wide.compact && wide.pdfShown, JSON.stringify({ narrow, wide }));
   }
