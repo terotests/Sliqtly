@@ -65,6 +65,14 @@ export function ensureRanger({ update = false } = {}) {
           : `Run npm run setup -- --update.`),
     );
   }
+  // lib/evg is not in Ranger's git: its `npm run deps` fetches it from the
+  // commit its ranger.json pins (terotests/evg), and fetches nothing when it
+  // is already in place. An older checkout still tracks lib/evg and has no
+  // scripts/deps.mjs.
+  if (fs.existsSync(path.join(dir, "scripts", "deps.mjs"))) {
+    const r = spawnSync(process.execPath, [path.join(dir, "scripts", "deps.mjs")], { cwd: dir, stdio: "inherit" });
+    if (r.status !== 0) throw new Error(`npm run deps failed in ${dir}`);
+  }
   link(srcDir, path.join(dir, LINK));
   return dir;
 }
