@@ -581,6 +581,10 @@ async function copyShare(which) {
 // is offered, not forced — a browser gives it only to a tap of the viewer's own.
 let viewer = false;
 let idleTimer = 0;
+function isPhone() {
+  const coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+  return !!coarse && Math.min(window.innerWidth, window.innerHeight) < 600;
+}
 function enterViewer() {
   viewer = true;
   document.body.classList.add("viewer");
@@ -1129,8 +1133,14 @@ async function start() {
     await openSample(sample);
   }
 
+  // A phone gets the presentation, not the editor: its keyboard covers half
+  // the screen and the editor cannot be used under it. ?edit opens the
+  // editor anyway.
+  if (!viewer && isPhone() && !q.has("edit")) enterViewer();
+  if (viewer) keys.blur();
+
   hintEl.remove();
-  focusKeys("editor");
+  if (!viewer) focusKeys("editor");
   window.__pageStarted = true;
   requestAnimationFrame(frame);
 }

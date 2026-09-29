@@ -35,12 +35,18 @@
 }
 .theme-tb .ui-select-value { font-family: Open Sans; font-size: 13px; color: #09090b; }
 .tb-select-sample .ui-select-trigger { width: 230px; }
+/* The list, as EVGUI's dropdown card: 4px padding, 12px corners, rows of a
+   fixed height so a long label never wraps into the next one. */
 .theme-tb .ui-select-content {
-  gap: 1px; padding: 5px;
-  border: 1px solid #e4e4e7; border-radius: 8px;
+  gap: 1px; padding: 4px;
+  width: 224px;
+  display: flex; flex-direction: column; align-items: stretch;
+  border: 1px solid #e4e4e7; border-radius: 12px;
   background-color: #ffffff;
-  shadow-color: rgba(0, 0, 0, 0.16); shadow-radius: 16px; shadow-offset-y: 6px;
+  shadow-color: rgba(0, 0, 0, 0.12); shadow-radius: 18px; shadow-offset-y: 6px;
 }
-.theme-tb .ui-select-item { font-family: Open Sans; font-size: 13px; color: #09090b; padding: 6px 12px; border-radius: 5px; }
-.theme-tb .ui-select-item-state-checked { background-color: #f4f4f5; }
-.theme-tb .ui-select-item-disabled { opacity: 1; color: #a1a1aa; font-size: 11px; padding: 8px 12px 2px; }
+.theme-tb .ui-select-item { font-family: Open Sans; font-size: 13px; color: #18181b; height: 32px; line-height: 32px; padding: 0 10px; border-radius: 8px; white-space: nowrap; width: 100%; }
+.theme-tb .ui-select-item-state-checked { background-color: #f4f4f5; font-weight: 600; }
+.theme-tb .ui-select-item-disabled { opacity: 1; color: #a1a1aa; font-size: 11px; font-weight: 600; height: 26px; line-height: 30px; padding: 0 10px; }
+.theme-tb .ui-select-item:hover { background-color: #f4f4f5; }
+.theme-tb .ui-select-item:focus { background-color: #f4f4f5; }

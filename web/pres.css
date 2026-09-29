@@ -59,9 +59,11 @@
 .sp-notes { color: var(--ink); font-size: 20px; line-height: 1.45; }
 
 /* The tabs over the editor pane (Ranger UI TabsCtl) */
-.ed-tabs { background-color: var(--panel); border-bottom: 1px solid var(--line); padding-left: 10px; padding-top: 5px; }
+.ed-tabs { background-color: var(--panel); border-bottom: 1px solid var(--line); padding-left: 10px; padding-top: 1px; }
+/* EVGUI's pill tabs: a muted track, the active tab a white raised pill. The
+   tab is a text leaf, so its height and line-height place the label. */
 .ui-tabs { display: flex; flex-direction: column; }
-.ui-tablist { display: flex; flex-direction: row; align-items: center; gap: 4px; }
-.ui-tab { color: var(--ink-dim); font-size: 13px; height: 18px; padding-left: 12px; padding-right: 12px; padding-top: 4px; padding-bottom: 2px; border-radius: 6px; cursor: pointer; }
-.ui-tab-state-active { background-color: var(--panel-2); color: var(--ink); border: 1px solid var(--line); }
+.ui-tablist { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 2px; padding: 3px; height: 32px; border-radius: 8px; background-color: #f4f4f5; }
+.ui-tab { color: #71717a; font-size: 13px; font-weight: 500; height: 24px; line-height: 24px; padding: 0 12px; border-radius: 6px; border: 1px solid #f4f4f5; background-color: #f4f4f5; cursor: pointer; }
+.ui-tab-state-active { background-color: #ffffff; color: #09090b; border-color: #e4e4e7; shadow-color: rgba(0, 0, 0, 0.10); shadow-radius: 3px; shadow-offset-y: 1px; }
 .ui-tabpanel { display: none; }
