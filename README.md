@@ -127,8 +127,8 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 - In the theme, hovering or clicking a selector (`page`, `code`, `.lead`…)
   lists the properties it has and the ones it can have, with what each does;
   a click adds or opens one with its value popover.
-- **Chart settings**: the "Muokkaa kaaviota…" button in a ```` ```vega-lite ````
-  fence's popover, or a double click on the chart on the stage, opens a
+- **Chart settings**: a click on the `vega-lite` word of a ```` ```vega-lite ````
+  fence, or a double click on the chart on the stage, opens a
   movable window (gallery/ui's `WindowCtl`, `ButtonCtl`, `InputCtl`,
   `CheckboxCtl`). It has the chart's kind (20, the ones the table cannot make
   disabled), title, legend, colour scheme and its data as a table: categories

@@ -476,6 +476,20 @@ try {
   check("…a click outside closes it; a chart it cannot tabulate says why", ce.closed && ce.refused, JSON.stringify(ce));
   check("…its look: a palette, a glow and a picked text colour go into the fence", ce.looks, JSON.stringify(ce));
 
+  // A click on the fence's `vega-lite` opens the chart editor, not the language list
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    await page.evaluate(() => { const a = window.__app; a.showTab("md"); a.setSource("# D\n\n## O\n\n```vega-lite\n{\"data\": {\"values\": [{\"f\": \"A\", \"u\": 1}, {\"f\": \"B\", \"u\": 2}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"f\", \"type\": \"nominal\"}, \"y\": {\"field\": \"u\", \"type\": \"quantitative\"}}}\n```\n"); });
+    await page.waitForTimeout(300);
+    const h = await page.evaluate(() => JSON.parse(window.__app.hintFor(4, 5)));
+    const cb = await page.locator("#c").boundingBox();
+    await page.mouse.click(cb.x + h.x + 10, cb.y + h.y + 8);
+    await page.waitForTimeout(300);
+    const res = await page.evaluate(() => ({ open: window.__app.chartIsOpen(), popover: document.getElementById("valHint").classList.contains("on") }));
+    await page.evaluate((s) => { const a = window.__app; a.key("escape", false, false); a.setSource(s); }, src0);
+    check("a click on the fence's vega-lite opens the chart editor", res.open && !res.popover, JSON.stringify(res));
+  }
+
   // The help panel: only what the slide has, and a property opened in the theme
   const help = await page.evaluate(() => {
     const a = window.__app;

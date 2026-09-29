@@ -817,7 +817,13 @@ canvas.addEventListener("pointerdown", (ev) => {
     setTimeout(() => {
       let h = null;
       try { h = JSON.parse(app.hintAtCaret() || "null"); } catch (_) { h = null; }
-      if (h) showHint(h);
+      if (h && isChartFence(h)) {
+        // a chart's fence opens the chart editor, not a list of languages
+        closeHint();
+        app.openChartEditor(h.line);
+        focusKeys("editor");
+        afterInput();
+      } else if (h) showHint(h);
       else closeHint();
     }, 0);
   } else if (where !== "editor") {
@@ -856,6 +862,11 @@ let hintTimer = 0;
 let hintCloseTimer = 0;
 let hintKey = "";
 
+// The ```vega-lite fence's language word: a click there opens the chart editor.
+function isChartFence(h) {
+  return h.name === "kieli" && /^vega-?lite$/.test(h.value);
+}
+
 function hintId(h) {
   return h ? h.tab + ":" + h.line + ":" + h.start + ":" + h.name : "";
 }
@@ -869,6 +880,7 @@ function hintHover(x, y) {
       clearTimeout(hintCloseTimer);
       return;
     }
+    if (h && isChartFence(h)) h = null;
     if (h) showHint(h);
     else if (!valEl.matches(":hover")) scheduleHintClose();
   }, 380);
@@ -956,15 +968,6 @@ function showHint(h) {
   const chips = (list, cur, pick) => el("div", { class: "chips" }, list.map((o) =>
     el("button", { class: o === cur ? "cur" : "", text: o, onclick: () => pick(o) })));
 
-  if (h.name === "kieli" && /^vega-?lite$/.test(h.value)) {
-    kids.push(el("div", { class: "chips" }, [el("button", { class: "cur", text: "Muokkaa kaaviota…", onclick: () => {
-      const line = hint.line;
-      closeHint();
-      app.openChartEditor(line);
-      focusKeys("editor");
-      afterInput();
-    } })]));
-  }
   if (h.kind === "enum" || h.kind === "class" || h.kind === "font") {
     const box = chips(h.options, h.value, (o) => {
       writeHint(o);
