@@ -214,6 +214,12 @@ class PresHelp {
         if (prop == "border-width") { return "3pt" }
         if (prop == "column-count") { return "2" }
         if (prop == "chart-style") { return "flat" }
+        if (prop == "background-image") { return "none" }
+        if (prop == "width") { return "13.333in" }
+        if (prop == "height") { return "7.5in" }
+        if (prop == "split-level") { return "2" }
+        if (prop == "overflow") { return "split" }
+        if (prop == "aspect-ratio") { return "16 / 9" }
         return "12pt"
     }
 
@@ -237,7 +243,55 @@ class PresHelp {
         if (prop == "padding-left") { return "Sisennys vasemmalta." }
         if (prop == "padding-top") { return "Sisennys ylhäältä." }
         if (prop == "border-width") { return "Reunan leveys." }
+        if (prop == "background-image") { return "Taustakuva: url(media/kuva.png), kuva liitetään editoriin Ctrl+V:llä. none: ei kuvaa." }
+        if ((sel == "page") && (prop == "width")) { return "Dian leveys (esim. 13.333in = 16:9)." }
+        if ((sel == "page") && (prop == "height")) { return "Dian korkeus (esim. 7.5in)." }
         return (PresHints.cssDoc(prop))
+    }
+
+    ; Every property the layout reads for a selector, "a,b,c"; "" for one it
+    ; does not know.
+    sfn knownProps:string (sel:string) {
+        if (sel == "page") { return "width,height,padding,background-color,background-image" }
+        if ((sel == "document") || (sel == "body")) { return "font-family,font-size,line-height,color" }
+        if (sel == "heading") { return "font-family,margin-top,margin-bottom" }
+        if (((strlen sel) == 2) && (((charAt sel 0) == 104) && (((charAt sel 1) >= 49) && ((charAt sel 1) <= 54)))) { return "font-size" }
+        if (sel == "p") { return "margin-bottom" }
+        if (sel == "code") { return "font-family,font-size,line-height,padding,background-color,border-color" }
+        if (sel == "mark") { return "background-color,color" }
+        if (sel == "kbd") { return "background-color,border-color" }
+        if (sel == "a") { return "color" }
+        if (sel == "hr") { return "color" }
+        if (sel == "blockquote") { return "color,border-color,border-width,padding-left,padding-top" }
+        if (sel == "list") { return "padding-left,margin-left" }
+        if (sel == "li") { return "margin-bottom" }
+        if (sel == "table") { return "border-color,background-color,padding-left,padding-top" }
+        if (sel == "deck") { return "split-level,overflow,aspect-ratio" }
+        if (sel == "chart") { return "color,accent-color,chart-style" }
+        if (sel == "diagram") { return "color,accent-color" }
+        if (((strlen sel) > 1) && ((charAt sel 0) == 46)) { return "font-size,color,column-count,column-gap" }
+        return ""
+    }
+
+    ; The rule for a selector as the CSS editor's popover shows it: what can
+    ; be set, what is set, and what each does. The theme's own properties
+    ; the list does not name come last.
+    sfn selectorRule:string (css0:string sel:string) {
+        def css:string (PresHelp.noComments(css0))
+        def props:string (PresHelp.knownProps(sel))
+        def extra:[string] (strsplit (PresHelp.propsOf(css sel)) ",")
+        def i:int 0
+        while (i < (array_length extra)) {
+            def p:string (itemAt extra i)
+            if (((strlen p) > 0) && ((indexOf ("," + props + ",") ("," + p + ",")) < 0)) {
+                if ((strlen props) > 0) {
+                    props = (props + ",")
+                }
+                props = (props + p)
+            }
+            i = (i + 1)
+        }
+        return (PresHelp.rule(css sel (PresHints.selectorDoc(sel)) props))
     }
 
     ; --- JSON -------------------------------------------------------------------

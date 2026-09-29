@@ -364,6 +364,38 @@ try {
     check("…and the drops go over the slide's content", stage.fxAt > stage.textAt && stage.textAt >= 0, JSON.stringify(stage));
   }
 
+  // A pasted document starts from its first slide; a paste into text does not move
+  const paste = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.showTab("md");
+    a.setSource("");
+    a.setFocus("editor");
+    a.pasteText("# Uusi\n\n## Eka\n\nteksti\n\n## Toka\n\nlisää\n\n## Kolmas\n\nloppu\n");
+    const whole = [a.caretLine(), a.caretCol(), a.slideShown()];
+    a.setSource("abc\n");
+    a.setFocus("editor");
+    a.key("End", false, false);
+    a.pasteText("\nlisä\nrivi");
+    const inside = [a.caretLine(), a.caretCol()];
+    a.setSource(src0);
+    return { whole, inside };
+  });
+  check("a pasted document opens at its first slide", paste.whole.join(",") === "0,0,0", JSON.stringify(paste));
+  check("…and a paste into text leaves the caret after it", paste.inside.join(",") === "2,4", JSON.stringify(paste));
+
+  // A selector in the theme lists what it can have, set and not yet set
+  const selHint = await page.evaluate(() => {
+    const a = window.__app;
+    a.showTab("css");
+    const lines = a.themeCss().split("\n");
+    const ln = lines.findIndex((l) => /^page\s*\{/.test(l));
+    const h = JSON.parse(a.hintFor(ln, 1) || "null");
+    a.showTab("md");
+    return h && { kind: h.kind, props: h.rule.props.map((p) => p.name + (p.value ? "=" : "+")) };
+  });
+  check("a selector's popover lists its properties", !!selHint && selHint.kind === "selector" && selHint.props.includes("padding=") && selHint.props.includes("background-image+"), JSON.stringify(selHint));
+
   // The help panel: only what the slide has, and a property opened in the theme
   const help = await page.evaluate(() => {
     const a = window.__app;

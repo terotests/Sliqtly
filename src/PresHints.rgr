@@ -206,6 +206,13 @@ class PresHints {
         if (sel == "code") { return "Koodilohkot." }
         if (sel == "table") { return "Taulukot." }
         if (sel == "blockquote") { return "Lainaukset." }
+        if ((sel == "h1") || ((sel == "h2") || ((sel == "h3") || ((sel == "h4") || ((sel == "h5") || (sel == "h6")))))) { return ("Tason " + (substring sel 1 2) + " otsikon koko.") }
+        if (sel == "body") { return "Kaiken tekstin oletukset (sama kuin document)." }
+        if (sel == "p") { return "Kappaleet." }
+        if (sel == "mark") { return "Korostus: <mark>…</mark>." }
+        if (sel == "kbd") { return "Näppäin: <kbd>…</kbd>." }
+        if (sel == "a") { return "Linkit." }
+        if (sel == "hr") { return "Vaakaviiva ja otsikon alla oleva viiva." }
         if (((strlen sel) > 0) && ((charAt sel 0) == 46)) { return (PresHints.classDoc(sel)) }
         return ""
     }

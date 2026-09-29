@@ -1688,6 +1688,44 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; Pasted text. A paste that REPLACES the document — into an empty editor,
+    ; or over a selection of all of it — is a new document, and a new
+    ; document is read from its first slide: the caret goes to the top
+    ; rather than being left at the end of what came in.
+    fn pasteText:void (s:string) {
+        if ((mode == "present") || (focus != "editor")) {
+            return
+        }
+        def whole:boolean false
+        if ((edTab == "md") && ((indexOf s "\n") >= 0)) {
+            if ((strlen (trim (editor.text()))) == 0) {
+                whole = true
+            }
+            if ((editor.sel.isCollapsed()) == false) {
+                def last:int ((editor.buf.lineCount()) - 1)
+                def endCol:int (strlen (editor.buf.lineAt(last)))
+                def a:EditorPos editor.sel.anchor
+                def c:EditorPos editor.sel.caret
+                def fromTop:boolean (((a.line == 0) && (a.col == 0)) || ((c.line == 0) && (c.col == 0)))
+                def toEnd:boolean (((a.line == last) && (a.col == endCol)) || ((c.line == last) && (c.col == endCol)))
+                if (fromTop && toEnd) {
+                    whole = true
+                }
+            }
+        }
+        editor.handleText(s)
+        this.syncEditor()
+        if whole {
+            editor.moveCaret(0 0 false)
+            editor.sel.collapseToCaret()
+            editor.layout.scrollLine = 0
+            editor.layout.scrollX = 0
+            editor.layout.ensureCaretVisible(editor.buf editor.sel)
+            this.selectSlide(0)
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
     fn chord:boolean (ch:string) {
         if (mode == "present") {
             return false
@@ -1741,7 +1779,13 @@ class PresApp {
         if (edTab == "css") {
             md = "css"
         }
-        def j:string (PresHints.forLine(md text col (this.inFrontMatter(line))))
+        def j:string ""
+        if (edTab == "css") {
+            j = (this.selectorHint(text col))
+        }
+        if ((strlen j) == 0) {
+            j = (PresHints.forLine(md text col (this.inFrontMatter(line))))
+        }
         if ((strlen j) == 0) {
             return ""
         }
@@ -1752,6 +1796,43 @@ class PresApp {
         def y0:int (editor.layout.caretPixelY(line))
         def extra:string (",\"line\":" + (to_string line) + ",\"tab\":\"" + edTab + "\",\"x\":" + (to_string x0) + ",\"y\":" + (to_string y0) + ",\"w\":" + (to_string (x1 - x0)) + ",\"h\":" + (to_string editor.layout.lineHeight) + ",\"text\":" + (PresHint.q(text)) + "}")
         return ((substring j 0 ((strlen j) - 1)) + extra)
+    }
+
+    ; A selector under the column (`page` in `page {`): what it styles, and
+    ; the properties it can have — set ones with their values, the rest to
+    ; add.
+    fn selectorHint:string (text:string col:int) {
+        def open:int (indexOf text "{")
+        if ((open < 0) || (col > open)) {
+            return ""
+        }
+        def cm:int (indexOf text "/*")
+        if ((cm >= 0) && (cm < open)) {
+            return ""
+        }
+        def a:int col
+        while ((a > 0) && (PresApp.selChar((charAt text (a - 1))))) {
+            a = (a - 1)
+        }
+        def b:int col
+        while ((b < open) && (PresApp.selChar((charAt text b)))) {
+            b = (b + 1)
+        }
+        if (b <= a) {
+            return ""
+        }
+        def sel:string (substring text a b)
+        def h:PresHint (PresHint.make("selector" sel "" a b))
+        h.doc = (PresHints.selectorDoc(sel))
+        def j:string (h.json())
+        return ((substring j 0 ((strlen j) - 1)) + ",\"rule\":" + (PresHelp.selectorRule((this.themeCss()) sel)) + "}")
+    }
+
+    sfn selChar:boolean (c:int) {
+        if ((c >= 97) && (c <= 122)) { return true }
+        if ((c >= 65) && (c <= 90)) { return true }
+        if ((c >= 48) && (c <= 57)) { return true }
+        return ((c == 45) || ((c == 46) || ((c == 95) || (c == 35))))
     }
 
     ; The number after `"key":` in a flat JSON object.

@@ -734,7 +734,7 @@ keys.addEventListener("paste", (ev) => {
   }
   const text = ev.clipboardData?.getData("text/plain") || "";
   if (text) {
-    app.text(text);
+    app.pasteText(text);
     afterInput();
   }
 });
@@ -911,6 +911,28 @@ function showHint(h) {
       for (const b of box.children) b.className = b.textContent === o ? "cur" : "";
     });
     kids.push(box);
+  }
+  if (h.kind === "selector" && h.rule) {
+    const set = h.rule.props.filter((p) => p.value);
+    const unset = h.rule.props.filter((p) => !p.value);
+    const tip = el("div", { class: "pdoc", text: "Vie hiiri ominaisuuden päälle nähdäksesi, mitä se tekee." });
+    const row = (p) => el("div", { class: "prop", title: p.doc || "", onclick: () => helpEdit(h.name, p.name, p.def),
+      onmouseenter: () => { tip.textContent = p.doc ? `${p.name}: ${p.doc}` : p.name; } }, [
+      el("span", { class: "nm", text: p.name }),
+      p.value
+        ? el("span", { class: "val" }, (isColour(p.value) ? [el("span", { class: "sw", style: "background:" + p.value })] : []).concat([p.value]))
+        : el("span", { class: "add", text: "+ lisää" }),
+    ]);
+    if (set.length) {
+      kids.push(el("div", { class: "lbl", text: "Asetettu:" }));
+      kids.push(el("div", { class: "props" }, set.map(row)));
+    }
+    if (unset.length) {
+      kids.push(el("div", { class: "lbl", text: "Voit lisätä:" }));
+      kids.push(el("div", { class: "props" }, unset.map(row)));
+    }
+    if (h.rule.props.length) kids.push(tip);
+    else kids.push(el("div", { class: "doc", text: "Tätä valitsinta ei tunneta: sen ominaisuudet eivät vaikuta dioihin." }));
   }
   if (h.kind === "color") {
     const pick = el("input", { type: "color", value: hexOf(h.value) });
