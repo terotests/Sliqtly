@@ -1,59 +1,71 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ============================================================================
-; PresChartEditor.rgr — the chart settings editor, in EVG controls
+; PresChartEditor.rgr — the chart settings window, in EVGUI controls
 ; ============================================================================
 ;
-; Opened on a ```vega-lite fence: the chart's kind as a row of buttons (the
-; ones the table cannot make are disabled, and say what they need), its
-; title, legend and colours, and its data as a grid of fields — a header row
-; naming the series, a row per category. Every change is written straight
-; back into the fence (PresChartModel.toSpec), so the slide beside the editor
-; is the preview and Ctrl+Z undoes a change like any other edit.
+; Opened on a ```vega-lite fence. A movable window (WindowCtl) with three
+; tabs (TabsCtl):
 ;
-; The controls are gallery/ui's: ButtonCtl, InputCtl and CheckboxCtl in a
-; UiHost of their own, styled by the kit's theme and the few rules in
-; web/chart-editor.css. The host lays them out with the app's font measurer
-; and hands back a display list the page draws over everything else; the app
-; routes the pointer and the keys here while the editor is open.
+;   Kaavio    the size (two sliders, SliderCtl), the kind (a row of toggle
+;             buttons: the ones the table cannot make are disabled and say
+;             what they need), the title and the legend (SwitchCtl)
+;   Ulkoasu   the colours: the theme's, a palette, or one colour from EVGUI's
+;             colour picker (ColorPickerCtl, drawn by PresColorPanel as its
+;             demo draws it); the text colour the same way; the stage style,
+;             glow, shadow and gradient (switches) and a line's width (slider)
+;   Tiedot    the data, a grid of fields: categories down the side, a column
+;             per series
+;
+; Every change is written straight back into the fence (PresChartModel's
+; toSpec), so the slide beside the window is the preview and Ctrl+Z undoes a
+; change like any other edit. The controls sit in a UiHost of their own as
+; big as the app; the window is an overlay in it. The host lays them out with
+; the app's font measurer and hands back a display list the page draws over
+; everything; the app routes the pointer and the keys here while it is open.
+; The look is the EVGUI playground's: white cards, zinc greys, black primary
+; (web/chart-editor.css, over the kit's theme).
 ; ============================================================================
 
 Import "PresChartModel.rgr"
+Import "PresColorPanel.rgr"
 Import "../ui/src/UiHost.rgr"
-Import "ColorPickerCtl.rgr"
 
 class PresChartEditor {
     def host:UiHost (new UiHost())
     def model:PresChartModel (new PresChartModel())
     def css:string ""
     def isOpen:boolean false
-    ; the window's top-left corner and the page it moves on, in app
-    ; coordinates: the host is as big as the app, the window an overlay in it
+    ; the window's top-left corner and the page it moves on (the app's), in
+    ; app coordinates
     def x:double 0.0
     def y:double 0.0
     def w:double 1200.0
     def h:double 700.0
     def win:WindowCtl (new WindowCtl())
+    def tabs:TabsCtl (new TabsCtl())
+    def tab:string "kaavio"
     def dragX:double 0.0
     def dragY:double 0.0
     def inputs:[InputCtl]
+    def sliders:[SliderCtl]
     def focusTid:string ""
     ; the model changed since the fence was last written
     def changed:boolean false
-    ; set by a button that wants the editor closed, or a fresh table
+    ; set by a control that wants the editor closed, or a fresh table
     def wantsClose:boolean false
     def wantsFresh:boolean false
     def message:string ""
     def rev:int 0
     def measurer@(optional):TTFTextMeasurer
-    ; the colour picker (EVGUI's ColorPickerCtl, drawn here), what it is
-    ; picking for ("color" the marks, "text" the words, "" closed), and the
-    ; part being dragged ("sv", "hue")
+    ; the colour picker, what it picks for ("color" the marks, "text" the
+    ; words, "" closed) and the part being dragged ("sv", "hue", "alpha")
     def picker:ColorPickerCtl (new ColorPickerCtl())
+    def cp:PresColorPanel (new PresColorPanel())
     def pickFor:string ""
     def dragPart:string ""
-    ; the tab showing: "kaavio", "ulkoasu", "tiedot"
-    def tab:string "kaavio"
+    ; a slider being dragged, by its host
+    def sliding:boolean false
 
     Constructor () {
     }
@@ -70,6 +82,7 @@ class PresChartEditor {
         changed = false
         message = ""
         focusTid = ""
+        pickFor = ""
         this.rebuild()
     }
 
@@ -81,6 +94,15 @@ class PresChartEditor {
 
     ; Inside the window (its frame as last laid out).
     fn has:boolean (px:double py:double) {
+        if ((strlen pickFor) > 0) {
+            def pc@(optional):EVGElement (this.cardEl())
+            if (!null? pc) {
+                def c:EVGElement (unwrap pc)
+                if ((((px >= c.calculatedX) && (px <= (c.calculatedX + c.calculatedWidth))) && ((py >= c.calculatedY) && (py <= (c.calculatedY + c.calculatedHeight))))) {
+                    return true
+                }
+            }
+        }
         def f:EVGElement (unwrap win.frameEl)
         if (f.calculatedWidth <= 0.0) {
             return false
@@ -88,14 +110,34 @@ class PresChartEditor {
         return (((px >= f.calculatedX) && (px <= (f.calculatedX + f.calculatedWidth))) && ((py >= f.calculatedY) && (py <= (f.calculatedY + f.calculatedHeight))))
     }
 
-    fn dragging:boolean () {
-        return (win.dragging || ((strlen dragPart) > 0))
+    fn cardEl@(optional):EVGElement () {
+        def none@(optional):EVGElement
+        def r:EVGElement (unwrap host.root)
+        def i:int 0
+        while (i < (r.getChildCount())) {
+            def k:EVGElement (r.getChild(i))
+            if (k.id == "ce-pickcard") {
+                def hit@(optional):EVGElement k
+                return hit
+            }
+            i = (i + 1)
+        }
+        return none
     }
 
-    ; The title bar, dragged: the window moves by the pointer's delta.
+    fn dragging:boolean () {
+        return ((win.dragging || sliding) || ((strlen dragPart) > 0))
+    }
+
     fn dragTo:void (px:double py:double) {
         if ((strlen dragPart) > 0) {
             this.pickAt(px py)
+            return
+        }
+        if sliding {
+            host.pointerMove(px py)
+            this.takeSliders()
+            rev = (rev + 1)
             return
         }
         if (win.dragging == false) {
@@ -106,6 +148,18 @@ class PresChartEditor {
         dragY = py
         x = win.x
         y = win.y
+        if ((strlen pickFor) > 0) {
+            def c@(optional):EVGElement (this.cardEl())
+            if (!null? c) {
+                def ce:EVGElement (unwrap c)
+                def px2:double ((x + 560.0) + 12.0)
+                if ((px2 + 280.0) > w) {
+                    px2 = ((x - 280.0) - 12.0)
+                }
+                ce.overlayX = px2
+                ce.overlayY = (y + 44.0)
+            }
+        }
         rev = (rev + 1)
     }
 
@@ -113,6 +167,12 @@ class PresChartEditor {
         if win.dragging {
             win.release()
             rev = (rev + 1)
+        }
+        if sliding {
+            sliding = false
+            host.pointerUp()
+            this.takeSliders()
+            this.rebuild()
         }
         if ((strlen dragPart) > 0) {
             dragPart = ""
@@ -145,11 +205,29 @@ class PresChartEditor {
         c.name = name
         c.variant = variant
         c.build()
-        UiTree.addClass((unwrap c.rootEl) "ce-small")
-        if (name == "×") {
-            UiTree.addClass((unwrap c.rootEl) "ce-x")
-        }
+        this.dressButton(c)
         this.put(c parent)
+        return c
+    }
+
+    ; The label is its own text node and takes no colour from the button, so
+    ; a black button says so to its label.
+    fn dressButton:void (c:ButtonCtl) {
+        def r:EVGElement (unwrap c.rootEl)
+        UiTree.addClass(r "ce-small")
+        if ((c.variant == "primary") && ((r.getChildCount()) > 0)) {
+            UiTree.addClass((r.getChild(0)) "ce-onprimary")
+        }
+    }
+
+    ; A toggle among others: the pressed one is the primary.
+    fn chip:ButtonCtl (tid:string name:string on:boolean parent:EVGElement) {
+        def v:string "outline"
+        if on {
+            v = "primary"
+        }
+        def c:ButtonCtl (this.button(tid name v parent))
+        UiTree.addClass((unwrap c.rootEl) "ce-chip")
         return c
     }
 
@@ -173,8 +251,8 @@ class PresChartEditor {
         return c
     }
 
-    fn check:CheckboxCtl (tid:string name:string on:boolean parent:EVGElement) {
-        def c (new CheckboxCtl())
+    fn switchOf:SwitchCtl (tid:string name:string on:boolean parent:EVGElement) {
+        def c (new SwitchCtl())
         c.tid = tid
         c.name = name
         if on {
@@ -185,149 +263,51 @@ class PresChartEditor {
         return c
     }
 
+    fn slider:SliderCtl (tid:string name:string v:int lo:int hi:int st:int parent:EVGElement) {
+        def c (new SliderCtl())
+        c.tid = tid
+        c.name = name
+        c.minValue = lo
+        c.maxValue = hi
+        c.step = st
+        c.value = v
+        c.build()
+        UiTree.addClass((unwrap c.rootEl) "ce-slider")
+        this.put(c parent)
+        push sliders c
+        return c
+    }
+
     fn swatch:EVGElement (hex:string) {
         def d:EVGElement (this.div("ce-swatch"))
         UiTree.inline(d "background-color" hex)
         return d
     }
 
-    ; The picker, as its demo draws it: the saturation / brightness area (a
-    ; white-to-hue ramp under a clear-to-black one) with its handle, the hue
-    ; bar in six ramps with its handle, the hex field and a row of presets.
-    fn pickerPanel:EVGElement () {
-        def c:ColorPickerCtl picker
-        def panel:EVGElement (this.div("ce-picker"))
-        def sv:EVGElement (this.div("cp-sv"))
-        sv.id = (c.svTid())
-        UiTree.inline(sv "gradient-from" "#ffffff")
-        UiTree.inline(sv "gradient-to" (c.hueHex()))
-        UiTree.inline(sv "gradient-dir" "1")
-        def shade:EVGElement (this.div("cp-shade"))
-        shade.id = ((c.svTid()) + "-shade")
-        UiTree.inline(shade "gradient-from" "rgba(0, 0, 0, 0)")
-        UiTree.inline(shade "gradient-to" "#000000")
-        UiTree.inline(shade "gradient-dir" "0")
-        sv.addChild(shade)
-        def th:EVGElement (this.div("cp-thumb"))
-        th.id = (c.svThumbTid())
-        UiTree.inline(th "left" (((to_string (to_int ((c.sat * 240.0) - 7.0)))) + "px"))
-        UiTree.inline(th "top" (((to_string (to_int (((1.0 - c.val) * 120.0) - 7.0)))) + "px"))
-        UiTree.inline(th "background-color" (c.hex6()))
-        sv.addChild(th)
-        panel.addChild(sv)
-        def hue:EVGElement (this.div("cp-hue"))
-        hue.id = (c.hueTid())
-        def stops:[string] (strsplit "#ff0000,#ffff00,#00ff00,#00ffff,#0000ff,#ff00ff,#ff0000" ",")
-        def i:int 0
-        while (i < 6) {
-            def seg:EVGElement (this.div("cp-seg"))
-            seg.id = ((c.hueTid()) + "-seg-" + (to_string i))
-            UiTree.inline(seg "gradient-from" (itemAt stops i))
-            UiTree.inline(seg "gradient-to" (itemAt stops (i + 1)))
-            UiTree.inline(seg "gradient-dir" "1")
-            hue.addChild(seg)
-            i = (i + 1)
-        }
-        def ht:EVGElement (this.div("cp-hthumb"))
-        ht.id = ((c.hueTid()) + "-thumb")
-        UiTree.inline(ht "left" (((to_string (to_int (((c.hueFrac()) * 240.0) - 4.0)))) + "px"))
-        hue.addChild(ht)
-        panel.addChild(hue)
-        def row:EVGElement (this.div("ce-row"))
-        row.addChild((this.swatch((c.hex6()))))
-        this.input("ce-hex" "Väri" (c.hex6()) "ce-cell" row)
-        this.button("ce-pick-done" "OK" "primary" row)
-        panel.addChild(row)
-        def pre:EVGElement (this.div("ce-chips"))
-        def presets:[string] (strsplit "#ffa546,#ff6b6b,#f7d154,#5ce1ff,#7c8cff,#b18cff,#4ade80,#ffffff,#94a3b8,#1f2937" ",")
-        def p:int 0
-        while (p < (array_length presets)) {
-            def sw:EVGElement (this.swatch((itemAt presets p)))
-            sw.id = ("ce-preset-" + (itemAt presets p))
-            UiTree.addClass(sw "ce-preset")
-            pre.addChild(sw)
-            p = (p + 1)
-        }
-        panel.addChild(pre)
-        push host.ctls picker
-        return panel
+    ; A labelled row: the words on the left, the control on the right.
+    fn field:EVGElement (label:string) {
+        def r:EVGElement (this.div("ce-field"))
+        r.addChild((this.text("ce-flabel" label)))
+        return r
     }
 
-    ; A press or a drag on the area or the bar, as a fraction of its box.
-    fn pickAt:void (px:double py:double) {
-        def id:string (picker.svTid())
-        if (dragPart == "hue") {
-            id = (picker.hueTid())
-        }
-        def box@(optional):EVGElement (this.byId(id))
-        if (null? box) {
-            return
-        }
-        def b:EVGElement (unwrap box)
-        if (b.calculatedWidth <= 0.0) {
-            return
-        }
-        def fx:double ((px - b.calculatedX) / b.calculatedWidth)
-        def fy:double ((py - b.calculatedY) / b.calculatedHeight)
-        if (dragPart == "hue") {
-            picker.setHueFrac(fx)
-        } {
-            picker.setSV(fx fy)
-        }
-        this.takeColour((picker.hex6()))
-        this.rebuild()
-        this.page()
-    }
-
-    fn takeColour:void (hex:string) {
-        if (pickFor == "text") {
-            model.textColor = hex
-        } {
-            model.color = hex
-            model.scheme = ""
-        }
-        changed = true
-    }
-
-    fn byId@(optional):EVGElement (id:string) {
-        def found@(optional):EVGElement
-        if (null? host.lastPage) {
-            return found
-        }
-        def hit (new EVGHitTest())
-        def order:[EVGElement] (hit.paintOrder((unwrap host.lastPage)))
-        def i:int 0
-        while (i < (array_length order)) {
-            def el:EVGElement (itemAt order i)
-            if (el.id == id) {
-                found = el
-            }
-            i = (i + 1)
-        }
-        return found
-    }
-
-    fn openPicker:void (what:string hex:string) {
-        pickFor = what
-        def start:string hex
-        if ((strlen start) == 0) {
-            start = "#ffa546"
-            if (what == "text") {
-                start = "#e7eaff"
-            }
-        }
-        picker.setup("ce-cp" "Väri" start false)
-        this.rebuild()
+    fn section:EVGElement (root:EVGElement title:string) {
+        root.addChild((this.text("ce-section" title)))
+        def s:EVGElement (this.div("ce-group"))
+        root.addChild(s)
+        return s
     }
 
     fn rebuild:void () {
         def fresh (new UiHost())
         host = fresh
         host.addStyleSheet(css)
-        host.setTheme("dark ce")
+        host.setTheme("ce")
         host.setPageSize(w h)
         def none:[InputCtl]
         inputs = none
+        def noSliders:[SliderCtl]
+        sliders = noSliders
         def page0:EVGElement (unwrap host.root)
         page0.className = "ui-root ce-page"
         def w0 (new WindowCtl())
@@ -342,14 +322,16 @@ class PresChartEditor {
         win.pageW = w
         win.pageH = h
         win.openWindow()
-        ; the window's body is where everything below goes
-        def root:EVGElement (unwrap win.bodyEl)
-        root.className = "chart-ed"
-        UiTree.clearChildren(root)
-        this.fillBody(root)
+        def body:EVGElement (unwrap win.bodyEl)
+        body.className = "ce-body"
+        UiTree.clearChildren(body)
+        this.fillBody(body)
         win.build()
         push host.ctls win
         page0.addChild((unwrap win.rootEl))
+        if ((strlen pickFor) > 0) {
+            page0.addChild((this.pickerCard()))
+        }
         if ((strlen focusTid) > 0) {
             host.focus(focusTid)
         }
@@ -361,209 +343,223 @@ class PresChartEditor {
             root.addChild((this.text("ce-note" model.note)))
             root.addChild((this.text("ce-doc" "Voit aloittaa uuden taulukon: kaavion nykyinen sisältö korvataan esimerkkitaulukolla.")))
             def row0:EVGElement (this.div("ce-row"))
-            this.button("ce-fresh" "Aloita taulukosta" "secondary" row0)
-            this.button("ce-done" "Sulje" "secondary" row0)
+            this.button("ce-fresh" "Aloita taulukosta" "primary" row0)
+            this.button("ce-done" "Sulje" "outline" row0)
             root.addChild(row0)
             return
         }
+        ; the tabs
+        def t0 (new TabsCtl())
+        tabs = t0
+        tabs.tid = "ce-tabs"
+        tabs.name = "Kaavion asetukset"
+        tabs.addItem("kaavio" "Kaavio" "" false)
+        tabs.addItem("ulkoasu" "Ulkoasu" "" false)
+        tabs.addItem("tiedot" "Tiedot" "" false)
+        tabs.value = tab
+        tabs.build()
+        UiTree.addClass((unwrap tabs.rootEl) "ce-tabs")
+        this.put(tabs root)
 
-        ; the tabs: what the chart is, how it looks, what it shows
-        def tabRow:EVGElement (this.div("ce-tabs"))
-        def tabIds:[string] (strsplit "kaavio,ulkoasu,tiedot" ",")
-        def tabNames:[string] (strsplit "Kaavio,Ulkoasu,Tiedot" ",")
-        def ti:int 0
-        while (ti < (array_length tabIds)) {
-            def tvar:string "ghost"
-            if ((itemAt tabIds ti) == tab) {
-                tvar = "primary"
-            }
-            this.button(("ce-tab-" + (itemAt tabIds ti)) (itemAt tabNames ti) tvar tabRow)
-            ti = (ti + 1)
-        }
-        root.addChild(tabRow)
+        def pane:EVGElement (this.div("ce-pane"))
         if (tab == "kaavio") {
-            ; the kind
-            root.addChild((this.text("ce-label" "Tyyppi")))
-            def kinds:EVGElement (this.div("ce-chips"))
-            def k:int 1
-            while (k <= 20) {
-                def variant:string "secondary"
-                if (k == model.kind) {
-                    variant = "primary"
-                }
-                def b:ButtonCtl (new ButtonCtl())
-                b.tid = ("ce-kind-" + (to_string k))
-                b.name = (PresChartModel.kindLabel(k))
-                b.variant = variant
-                if ((k != model.kind) && ((model.suits(k)) == false)) {
-                    b.disabled = true
-                }
-                b.build()
-                UiTree.addClass((unwrap b.rootEl) "ce-small")
-                this.put(b kinds)
-                k = (k + 1)
-            }
-            root.addChild(kinds)
-            if ((model.suits(model.kind)) == false) {
-                root.addChild((this.text("ce-warn" ((PresChartModel.kindLabel(model.kind)) + " tarvitsee " + (PresChartModel.kindNeeds(model.kind)) + "."))))
-            }
-
-            ; title and legend
-            def tl:EVGElement (this.div("ce-row"))
-            tl.addChild((this.text("ce-label" "Otsikko")))
-            this.input("ce-titlein" "Otsikko" model.title "ce-wide" tl)
-            def lg (new CheckboxCtl())
-            lg.tid = "ce-legend"
-            lg.name = "Selite"
-            if model.legend {
-                lg.checkState = 1
-            }
-            lg.build()
-            this.put(lg tl)
-            root.addChild(tl)
-
+            this.chartTab(pane)
         }
         if (tab == "ulkoasu") {
-            ; colours
-            root.addChild((this.text("ce-label" "Värit")))
-            def cols:EVGElement (this.div("ce-chips"))
-            def tv:string "secondary"
-            if (((strlen model.scheme) == 0) && ((strlen model.color) == 0)) {
-                tv = "primary"
-            }
-            this.button("ce-scheme-" "Teeman" tv cols)
-            def ov:string "secondary"
-            if ((strlen model.color) > 0) {
-                ov = "primary"
-            }
-            this.button("ce-pick-color" "Oma väri" ov cols)
-            if ((strlen model.color) > 0) {
-                cols.addChild((this.swatch(model.color)))
-            }
-            def names:[string] (strsplit (PresChartModel.schemes()) " ")
-            def s:int 0
-            while (s < (array_length names)) {
-                def nm:string (itemAt names s)
-                def v:string "secondary"
-                if (nm == model.scheme) {
-                    v = "primary"
-                }
-                this.button(("ce-scheme-" + nm) nm v cols)
-                s = (s + 1)
-            }
-            root.addChild(cols)
-            if (pickFor == "color") {
-                root.addChild((this.pickerPanel()))
-            }
-
-            ; the words
-            def tr:EVGElement (this.div("ce-row"))
-            tr.addChild((this.text("ce-label" "Tekstin väri")))
-            def tt:string "secondary"
-            if ((strlen model.textColor) == 0) {
-                tt = "primary"
-            }
-            this.button("ce-text-theme" "Teeman" tt tr)
-            def to:string "secondary"
-            if ((strlen model.textColor) > 0) {
-                to = "primary"
-            }
-            this.button("ce-pick-text" "Oma väri" to tr)
-            if ((strlen model.textColor) > 0) {
-                tr.addChild((this.swatch(model.textColor)))
-            }
-            root.addChild(tr)
-            if (pickFor == "text") {
-                root.addChild((this.pickerPanel()))
-            }
-
-            ; the stage's dressing
-            root.addChild((this.text("ce-label" "Tyyli diassa")))
-            def ef:EVGElement (this.div("ce-chips"))
-            def effects:[string] (strsplit ",flat,forge,neon,glass" ",")
-            def effectNames:[string] (strsplit "Teeman,Tasainen,Ahjo,Neon,Lasi" ",")
-            def e:int 0
-            while (e < (array_length effects)) {
-                def ev:string "secondary"
-                if ((itemAt effects e) == model.effect) {
-                    ev = "primary"
-                }
-                this.button(("ce-effect-" + (itemAt effects e)) (itemAt effectNames e) ev ef)
-                e = (e + 1)
-            }
-            root.addChild(ef)
-            def fxr:EVGElement (this.div("ce-row"))
-            this.check("ce-glow" "Hehku" model.glow fxr)
-            this.check("ce-shadow" "Varjo" model.shadow fxr)
-            this.check("ce-gradient" "Liukuväri" model.gradient fxr)
-            root.addChild(fxr)
-            if ((model.kind >= 6) && (model.kind <= 9)) {
-                def wr:EVGElement (this.div("ce-row"))
-                wr.addChild((this.text("ce-label" "Viivan paksuus")))
-                def widths:[string] (strsplit "0,1,2,3,4,6,8" ",")
-                def wi:int 0
-                while (wi < (array_length widths)) {
-                    def wv:string (itemAt widths wi)
-                    def cur:double (?? (str2double wv) 0.0)
-                    def wvar:string "secondary"
-                    if ((fabs (cur - model.strokeWidth)) < 0.01) {
-                        wvar = "primary"
-                    }
-                    def label:string wv
-                    if (wv == "0") {
-                        label = "Oletus"
-                    }
-                    this.button(("ce-width-" + wv) label wvar wr)
-                    wi = (wi + 1)
-                }
-                root.addChild(wr)
-            }
-
+            this.looksTab(pane)
         }
         if (tab == "tiedot") {
-            ; the data
-            root.addChild((this.text("ce-label" "Tiedot  (ensimmäinen sarake: luokat, muut: sarjat)")))
-            def grid:EVGElement (this.div("ce-grid"))
-            def hr:EVGElement (this.div("ce-gridrow"))
-            def c:int 0
-            while (c < (model.cols())) {
-                this.input(("ce-h-" + (to_string c)) "Sarake" (itemAt model.header c) "ce-cell ce-head" hr)
-                c = (c + 1)
-            }
-            this.button("ce-addcol" "+ sarja" "ghost" hr)
-            grid.addChild(hr)
-            def r:int 0
-            while (r < (model.rows())) {
-                def row:EVGElement (this.div("ce-gridrow"))
-                def cc:int 0
-                while (cc < (model.cols())) {
-                    def cls:string "ce-cell"
-                    if (cc == 0) {
-                        cls = "ce-cell ce-cat"
-                    }
-                    this.input(("ce-c-" + (to_string r) + "-" + (to_string cc)) "Solu" (model.cell(r cc)) cls row)
-                    cc = (cc + 1)
-                }
-                this.button(("ce-delrow-" + (to_string r)) "×" "ghost" row)
-                grid.addChild(row)
-                r = (r + 1)
-            }
-            def foot:EVGElement (this.div("ce-gridrow"))
-            this.button("ce-addrow" "+ rivi" "ghost" foot)
-            if ((model.cols()) > 2) {
-                this.button("ce-delcol" "− viimeinen sarja" "ghost" foot)
-            }
-            grid.addChild(foot)
-            root.addChild(grid)
-            if ((strlen message) > 0) {
-                root.addChild((this.text("ce-doc" message)))
-            }
+            this.dataTab(pane)
         }
-        def bottom:EVGElement (this.div("ce-top"))
-        bottom.addChild((this.text("ce-doc" "Muutokset näkyvät diassa heti. Ctrl+Z kumoaa ne ikkunan sulkemisen jälkeen.")))
+        root.addChild(pane)
+
+        def bottom:EVGElement (this.div("ce-foot"))
+        def note:string "Muutokset näkyvät diassa heti. Ctrl+Z kumoaa ne ikkunan sulkemisen jälkeen."
+        if ((strlen message) > 0) {
+            note = message
+        }
+        bottom.addChild((this.text("ce-doc" note)))
         bottom.addChild((this.div("ce-grow")))
         this.button("ce-done" "Valmis" "primary" bottom)
         root.addChild(bottom)
+    }
+
+    fn sizeW:int () {
+        if (model.width > 0) {
+            return model.width
+        }
+        return 640
+    }
+
+    fn sizeH:int () {
+        if (model.height > 0) {
+            return model.height
+        }
+        return 300
+    }
+
+    fn chartTab:void (pane:EVGElement) {
+        ; the size first: it is what a slide asks of a chart most
+        def size:EVGElement (this.section(pane "Koko"))
+        def wr:EVGElement (this.field("Leveys"))
+        this.slider("ce-width" "Leveys" (this.sizeW()) 200 960 10 wr)
+        wr.addChild((this.text("ce-value" ((to_string (this.sizeW())) + " px"))))
+        size.addChild(wr)
+        def hr:EVGElement (this.field("Korkeus"))
+        this.slider("ce-height" "Korkeus" (this.sizeH()) 120 600 10 hr)
+        hr.addChild((this.text("ce-value" ((to_string (this.sizeH())) + " px"))))
+        size.addChild(hr)
+        if ((model.width <= 0) && (model.height <= 0)) {
+            size.addChild((this.text("ce-doc" "Nyt kaavio saa koon diasta; liukusäädin asettaa oman.")))
+        } {
+            def ar:EVGElement (this.div("ce-row"))
+            this.button("ce-autosize" "Koko diasta" "outline" ar)
+            size.addChild(ar)
+        }
+
+        def kind:EVGElement (this.section(pane "Tyyppi"))
+        def kinds:EVGElement (this.div("ce-chips"))
+        def k:int 1
+        while (k <= 20) {
+            def b:ButtonCtl (this.chip(("ce-kind-" + (to_string k)) (PresChartModel.kindLabel(k)) (k == model.kind) kinds))
+            if ((k != model.kind) && ((model.suits(k)) == false)) {
+                b.disabled = true
+                b.build()
+                this.dressButton(b)
+                UiTree.addClass((unwrap b.rootEl) "ce-chip")
+            }
+            k = (k + 1)
+        }
+        kind.addChild(kinds)
+        if ((model.suits(model.kind)) == false) {
+            kind.addChild((this.text("ce-warn" ((PresChartModel.kindLabel(model.kind)) + " tarvitsee " + (PresChartModel.kindNeeds(model.kind)) + "."))))
+        }
+
+        def words:EVGElement (this.section(pane "Otsikko ja selite"))
+        def tl:EVGElement (this.field("Otsikko"))
+        this.input("ce-titlein" "Otsikko" model.title "ce-wide" tl)
+        words.addChild(tl)
+        this.switchOf("ce-legend" "Näytä selite" model.legend words)
+    }
+
+    fn looksTab:void (pane:EVGElement) {
+        def col:EVGElement (this.section(pane "Värit"))
+        def cols:EVGElement (this.div("ce-chips"))
+        this.chip("ce-scheme-" "Teeman" (((strlen model.scheme) == 0) && ((strlen model.color) == 0)) cols)
+        this.chip("ce-pick-color" "Oma väri" ((strlen model.color) > 0) cols)
+        if ((strlen model.color) > 0) {
+            cols.addChild((this.swatch(model.color)))
+        }
+        def names:[string] (strsplit (PresChartModel.schemes()) " ")
+        def s:int 0
+        while (s < (array_length names)) {
+            def nm:string (itemAt names s)
+            this.chip(("ce-scheme-" + nm) nm (nm == model.scheme) cols)
+            s = (s + 1)
+        }
+        col.addChild(cols)
+
+        def tx:EVGElement (this.section(pane "Tekstin väri"))
+        def tr:EVGElement (this.div("ce-chips"))
+        this.chip("ce-text-theme" "Teeman" ((strlen model.textColor) == 0) tr)
+        this.chip("ce-pick-text" "Oma väri" ((strlen model.textColor) > 0) tr)
+        if ((strlen model.textColor) > 0) {
+            tr.addChild((this.swatch(model.textColor)))
+        }
+        tx.addChild(tr)
+
+        def st:EVGElement (this.section(pane "Tyyli diassa"))
+        def ef:EVGElement (this.div("ce-chips"))
+        def effects:[string] (strsplit ",flat,forge,neon,glass" ",")
+        def effectNames:[string] (strsplit "Teeman,Tasainen,Ahjo,Neon,Lasi" ",")
+        def e:int 0
+        while (e < (array_length effects)) {
+            this.chip(("ce-effect-" + (itemAt effects e)) (itemAt effectNames e) ((itemAt effects e) == model.effect) ef)
+            e = (e + 1)
+        }
+        st.addChild(ef)
+        def sw:EVGElement (this.div("ce-row ce-switches"))
+        this.switchOf("ce-glow" "Hehku" model.glow sw)
+        this.switchOf("ce-shadow" "Varjo" model.shadow sw)
+        this.switchOf("ce-gradient" "Liukuväri" model.gradient sw)
+        st.addChild(sw)
+        if ((model.kind >= 6) && (model.kind <= 9)) {
+            def wr:EVGElement (this.field("Viivan paksuus"))
+            this.slider("ce-stroke" "Viivan paksuus" (to_int model.strokeWidth) 0 10 1 wr)
+            def label:string ((to_string (to_int model.strokeWidth)) + " px")
+            if (model.strokeWidth <= 0.0) {
+                label = "oletus"
+            }
+            wr.addChild((this.text("ce-value" label)))
+            st.addChild(wr)
+        }
+    }
+
+    ; The picker: a card of its own beside the window (on its left when
+    ; there is no room on the right), so the window keeps its height.
+    fn pickerCard:EVGElement () {
+        picker.inline = true
+        def card:EVGElement (this.div("ce-pickcard"))
+        card.id = "ce-pickcard"
+        def head:EVGElement (this.div("ce-pickhead"))
+        def what:string "Kaavion väri"
+        if (pickFor == "text") {
+            what = "Tekstin väri"
+        }
+        head.addChild((this.text("ce-picktitle" what)))
+        head.addChild((this.div("ce-grow")))
+        this.button("ce-pick-done" "Valmis" "primary" head)
+        card.addChild(head)
+        card.addChild((cp.panel(picker)))
+        push host.ctls picker
+        def px:double ((x + 560.0) + 12.0)
+        if ((px + 280.0) > w) {
+            px = ((x - 280.0) - 12.0)
+        }
+        if (px < 0.0) {
+            px = (w - 280.0)
+        }
+        UiTree.surface(card "free" "start")
+        card.overlayX = px
+        card.overlayY = (y + 44.0)
+        return card
+    }
+
+    fn dataTab:void (pane:EVGElement) {
+        pane.addChild((this.text("ce-doc" "Ensimmäinen sarake: luokat. Muut sarakkeet: sarjat.")))
+        def grid:EVGElement (this.div("ce-grid"))
+        def hr:EVGElement (this.div("ce-gridrow ce-gridhead"))
+        def c:int 0
+        while (c < (model.cols())) {
+            this.input(("ce-h-" + (to_string c)) "Sarake" (itemAt model.header c) "ce-cell ce-head" hr)
+            c = (c + 1)
+        }
+        this.button("ce-addcol" "+ Sarja" "ghost" hr)
+        grid.addChild(hr)
+        def r:int 0
+        while (r < (model.rows())) {
+            def row:EVGElement (this.div("ce-gridrow"))
+            def cc:int 0
+            while (cc < (model.cols())) {
+                def cls:string "ce-cell"
+                if (cc == 0) {
+                    cls = "ce-cell ce-cat"
+                }
+                this.input(("ce-c-" + (to_string r) + "-" + (to_string cc)) "Solu" (model.cell(r cc)) cls row)
+                cc = (cc + 1)
+            }
+            def x0:ButtonCtl (this.button(("ce-delrow-" + (to_string r)) "×" "ghost" row))
+            UiTree.addClass((unwrap x0.rootEl) "ce-x")
+            grid.addChild(row)
+            r = (r + 1)
+        }
+        pane.addChild(grid)
+        def foot:EVGElement (this.div("ce-row"))
+        this.button("ce-addrow" "+ Rivi" "outline" foot)
+        if ((model.cols()) > 2) {
+            this.button("ce-delcol" "− Viimeinen sarja" "outline" foot)
+        }
+        pane.addChild(foot)
     }
 
     ; --- drawing ------------------------------------------------------------------
@@ -585,6 +581,7 @@ class PresChartEditor {
         }
         ; the focused field's caret where its caret is, not after the text
         def eng:EVGTextEngine (lay.getTextEngine())
+        cp.eng = eng
         def i:int 0
         while (i < (array_length inputs)) {
             def c:InputCtl (itemAt inputs i)
@@ -594,14 +591,17 @@ class PresChartEditor {
                 def box:EVGElement (unwrap c.rootEl)
                 box.position = "relative"
                 car.position = "absolute"
-                car.left = (EVGUnit.px(((8.0 + (c.caretXAt(eng c.caret))) - c.scrollX)))
-                car.top = (EVGUnit.px(7.0))
+                car.left = (EVGUnit.px(((10.0 + (c.caretXAt(eng c.caret))) - c.scrollX)))
+                car.top = (EVGUnit.px(6.0))
             } {
                 car.width = (EVGUnit.px(0.0))
             }
             i = (i + 1)
         }
         lay.layout(pg)
+        if ((strlen pickFor) > 0) {
+            cp.placeThumbs(pg picker)
+        }
         host.lastPage = pg
         return pg
     }
@@ -639,6 +639,7 @@ class PresChartEditor {
             def pc:InputCtl (unwrap prev)
             UiTree.removeClass((unwrap pc.rootEl) "ce-focus")
         }
+        cp.leaveField(picker)
         focusTid = tid
         def next@(optional):InputCtl (this.inputFor(tid))
         if (!null? next) {
@@ -650,8 +651,12 @@ class PresChartEditor {
         rev = (rev + 1)
     }
 
-    ; A press in panel coordinates. What it did is in the model (and
-    ; `changed`), or in `wantsClose` / `wantsFresh` for the app to act on.
+    sfn isSlider:boolean (tid:string) {
+        return ((((indexOf tid "ce-width") == 0) || ((indexOf tid "ce-height") == 0)) || ((indexOf tid "ce-stroke") == 0))
+    }
+
+    ; A press in app coordinates. What it did is in the model (and `changed`),
+    ; or in `wantsClose` / `wantsFresh` for the app to act on.
     fn press:void (px:double py:double) {
         if ((this.has(px py)) == false) {
             return
@@ -660,13 +665,6 @@ class PresChartEditor {
             this.page()
         }
         def tid:string (host.hitTest(px py))
-        def preset:string (this.presetAt(px py))
-        if ((strlen preset) > 0) {
-            picker.setFromString(preset)
-            this.takeColour(preset)
-            this.rebuild()
-            return
-        }
         if ((strlen tid) == 0) {
             return
         }
@@ -681,25 +679,48 @@ class PresChartEditor {
             rev = (rev + 1)
             return
         }
-        if ((strlen pickFor) > 0) {
-            if ((indexOf tid (picker.svTid())) == 0) {
-                dragPart = "sv"
-                this.pickAt(px py)
-                return
-            }
-            if ((indexOf tid (picker.hueTid())) == 0) {
-                dragPart = "hue"
-                this.pickAt(px py)
-                return
-            }
-        }
-        ; the part of a control that was hit (a field's text, a box's tick)
-        ; carries its own id: the control's is the root's
+        ; the part of a control that was hit carries its own id: the control's
+        ; is the root's
         def ctlTid:string tid
         def maybe@(optional):UiCtl (host.ctlFor(tid))
         if (!null? maybe) {
             def owner:UiCtl (unwrap maybe)
             ctlTid = owner.tid
+        }
+        ; the colour picker's parts
+        if (((strlen pickFor) > 0) && (ctlTid == picker.tid)) {
+            if ((strlen focusTid) > 0) {
+                this.focusInput("")
+            }
+            def what:string (cp.press((unwrap host.lastPage) picker tid px py))
+            if (((what == "sv") || (what == "hue")) || (what == "alpha")) {
+                dragPart = what
+                this.takeColour((picker.hex()))
+            }
+            if (what == "changed") {
+                this.takeColour((picker.hex()))
+            }
+            this.rebuild()
+            return
+        }
+        cp.leaveField(picker)
+        ; a slider: pressed and dragged through its host
+        if (PresChartEditor.isSlider(ctlTid)) {
+            host.pressAt(px py)
+            sliding = true
+            this.takeSliders()
+            rev = (rev + 1)
+            return
+        }
+        if (ctlTid == tabs.tid) {
+            host.click(tid)
+            if (tabs.value != tab) {
+                tab = tabs.value
+                focusTid = ""
+                pickFor = ""
+                this.rebuild()
+            }
+            return
         }
         def asInput@(optional):InputCtl (this.inputFor(ctlTid))
         if (!null? asInput) {
@@ -709,24 +730,89 @@ class PresChartEditor {
         this.act(ctlTid)
     }
 
-    ; A preset swatch under the point (plain boxes, not controls), or "".
-    fn presetAt:string (px:double py:double) {
-        if (((strlen pickFor) == 0) || (null? host.lastPage)) {
-            return ""
-        }
-        def hit (new EVGHitTest())
-        def order:[EVGElement] (hit.paintOrder((unwrap host.lastPage)))
+    fn sliderValue:int (tid:string dflt:int) {
         def i:int 0
-        while (i < (array_length order)) {
-            def el:EVGElement (itemAt order i)
-            if ((indexOf el.id "ce-preset-") == 0) {
-                if (host.containsPoint(el px py)) {
-                    return (substring el.id 10 (strlen el.id))
-                }
+        while (i < (array_length sliders)) {
+            def sc:SliderCtl (itemAt sliders i)
+            if (sc.tid == tid) {
+                return sc.value
             }
             i = (i + 1)
         }
-        return ""
+        return dflt
+    }
+
+    ; The sliders' values into the model.
+    fn takeSliders:void () {
+        if (tab == "kaavio") {
+            def sw:int (this.sliderValue("ce-width" (this.sizeW())))
+            def sh:int (this.sliderValue("ce-height" (this.sizeH())))
+            if ((sw != (this.sizeW())) || (sh != (this.sizeH()))) {
+                model.width = sw
+                model.height = sh
+                changed = true
+            }
+        }
+        if (tab == "ulkoasu") {
+            def ss:int (this.sliderValue("ce-stroke" (to_int model.strokeWidth)))
+            if ((to_double ss) != model.strokeWidth) {
+                model.strokeWidth = (to_double ss)
+                changed = true
+            }
+        }
+    }
+
+    ; A press or a drag in the picker's area or bars.
+    fn pickAt:void (px:double py:double) {
+        if (null? host.lastPage) {
+            return
+        }
+        cp.dragAt((unwrap host.lastPage) picker dragPart px py)
+        this.takeColour((picker.hex()))
+        this.rebuild()
+        this.page()
+    }
+
+    fn takeColour:void (hex:string) {
+        if (pickFor == "text") {
+            if (model.textColor != hex) {
+                model.textColor = hex
+                changed = true
+            }
+        } {
+            if (model.color != hex) {
+                model.color = hex
+                model.scheme = ""
+                changed = true
+            }
+        }
+    }
+
+    fn openPicker:void (what:string hex:string) {
+        pickFor = what
+        focusTid = ""
+        def start:string hex
+        if ((strlen start) == 0) {
+            start = "#f97316"
+            if (what == "text") {
+                start = "#e7eaff"
+            }
+        }
+        def fresh (new ColorPickerCtl())
+        picker = fresh
+        picker.setup("ce-cp" "Väri" start (what == "color"))
+        picker.inline = true
+        picker.hexBoxW = 150.0
+        picker.numBoxW = 30.0
+        def presets:[string] (strsplit "#ef4444,#f97316,#eab308,#22c55e,#06b6d4,#3b82f6,#8b5cf6,#ec4899" ",")
+        def i:int 0
+        while (i < (array_length presets)) {
+            push picker.swatches (itemAt presets i)
+            i = (i + 1)
+        }
+        picker.syncFields()
+        this.takeColour((picker.hex()))
+        this.rebuild()
     }
 
     fn act:void (tid:string) {
@@ -737,6 +823,13 @@ class PresChartEditor {
         }
         if (tid == "ce-fresh") {
             wantsFresh = true
+            return
+        }
+        if (tid == "ce-autosize") {
+            model.width = 0
+            model.height = 0
+            changed = true
+            this.rebuild()
             return
         }
         if ((indexOf tid "ce-kind-") == 0) {
@@ -760,12 +853,6 @@ class PresChartEditor {
             this.rebuild()
             return
         }
-        if ((indexOf tid "ce-tab-") == 0) {
-            tab = (substring tid 7 (strlen tid))
-            focusTid = ""
-            this.rebuild()
-            return
-        }
         if (tid == "ce-pick-color") {
             this.openPicker("color" model.color)
             return
@@ -775,8 +862,8 @@ class PresChartEditor {
             return
         }
         if (tid == "ce-pick-done") {
+            cp.leaveField(picker)
             pickFor = ""
-            focusTid = ""
             this.rebuild()
             return
         }
@@ -795,8 +882,8 @@ class PresChartEditor {
             this.rebuild()
             return
         }
-        if ((indexOf tid "ce-width-") == 0) {
-            model.strokeWidth = (?? (str2double (substring tid 9 (strlen tid))) 0.0)
+        if (tid == "ce-legend") {
+            model.legend = (model.legend == false)
             changed = true
             this.rebuild()
             return
@@ -815,12 +902,6 @@ class PresChartEditor {
         }
         if (tid == "ce-gradient") {
             model.gradient = (model.gradient == false)
-            changed = true
-            this.rebuild()
-            return
-        }
-        if (tid == "ce-legend") {
-            model.legend = (model.legend == false)
             changed = true
             this.rebuild()
             return
@@ -865,13 +946,6 @@ class PresChartEditor {
         if (focusTid == "ce-titlein") {
             model.title = v
         }
-        if (focusTid == "ce-hex") {
-            if (picker.setFromString(v)) {
-                this.takeColour((picker.hex6()))
-            }
-            rev = (rev + 1)
-            return
-        }
         if ((indexOf focusTid "ce-h-") == 0) {
             model.setHeader((?? (str2int (substring focusTid 5 (strlen focusTid))) -1) v)
         }
@@ -886,18 +960,28 @@ class PresChartEditor {
     }
 
     fn type:void (s:string) {
-        if ((strlen focusTid) == 0) {
-            return
-        }
         def i:int 0
         while (i < (strlen s)) {
             def ch:string (substring s i (i + 1))
             if ((ch != (strfromcode 10)) && (ch != (strfromcode 13))) {
-                host.type(ch)
+                if ((strlen cp.focused) > 0) {
+                    cp.type(picker ch)
+                } {
+                    if ((strlen focusTid) > 0) {
+                        host.type(ch)
+                    }
+                }
             }
             i = (i + 1)
         }
-        this.take()
+        if ((strlen cp.focused) > 0) {
+            this.takeColour((picker.hex()))
+            this.rebuild()
+            return
+        }
+        if ((strlen focusTid) > 0) {
+            this.take()
+        }
     }
 
     ; The fields in reading order, for Tab and Enter.
@@ -929,8 +1013,37 @@ class PresChartEditor {
         return cj.tid
     }
 
+    sfn kitKey:string (name:string) {
+        if (name == "left") { return "ArrowLeft" }
+        if (name == "right") { return "ArrowRight" }
+        if (name == "up") { return "ArrowUp" }
+        if (name == "down") { return "ArrowDown" }
+        if (name == "home") { return "Home" }
+        if (name == "end") { return "End" }
+        if (name == "backspace") { return "Backspace" }
+        if (name == "delete") { return "Delete" }
+        if (name == "enter") { return "Enter" }
+        if (name == "escape") { return "Escape" }
+        return ""
+    }
+
     ; A key by the app's names. True when the editor used it.
     fn key:boolean (name:string shift:boolean ctrl:boolean) {
+        ; a field of the picker
+        if ((strlen cp.focused) > 0) {
+            if (name == "escape") {
+                cp.leaveField(picker)
+                this.rebuild()
+                return true
+            }
+            def k:string (PresChartEditor.kitKey(name))
+            if ((strlen k) > 0) {
+                cp.keyWith(picker k shift ctrl)
+                this.takeColour((picker.hex()))
+                this.rebuild()
+            }
+            return true
+        }
         if (name == "escape") {
             wantsClose = true
             return true
@@ -944,14 +1057,8 @@ class PresChartEditor {
         if ((strlen focusTid) == 0) {
             return true
         }
-        def kit:string ""
-        if (name == "left") { kit = "ArrowLeft" }
-        if (name == "right") { kit = "ArrowRight" }
-        if (name == "home") { kit = "Home" }
-        if (name == "end") { kit = "End" }
-        if (name == "backspace") { kit = "Backspace" }
-        if (name == "delete") { kit = "Delete" }
-        if ((strlen kit) > 0) {
+        def kit:string (PresChartEditor.kitKey(name))
+        if (((strlen kit) > 0) && ((kit != "ArrowUp") && (kit != "ArrowDown"))) {
             host.keyWith(kit shift ctrl)
             if ((name == "backspace") || (name == "delete")) {
                 this.take()
@@ -978,6 +1085,16 @@ class PresChartEditor {
         def maybe@(optional):UiCtl (host.ctlFor(tid))
         if (!null? maybe) {
             def owner:UiCtl (unwrap maybe)
+            if (owner.tid == picker.tid) {
+                def part:string (picker.partOf(tid))
+                if ((part == "f0") || ((part == "f1") || ((part == "f2") || (part == "f3")))) {
+                    return "text"
+                }
+                if (part == "sv") {
+                    return "crosshair"
+                }
+                return "pointer"
+            }
             def asInput@(optional):InputCtl (this.inputFor(owner.tid))
             if (!null? asInput) {
                 return "text"

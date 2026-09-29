@@ -409,7 +409,7 @@ try {
       const e = walk(c.host.lastPage);
       return [e.calculatedX + 8, e.calculatedY + 8];
     };
-    let p = at("ce-tab-kaavio");
+    let p = at("ce-tabs-tab-kaavio");
     a.pointerDown(p[0], p[1], false, 1);
     a.pointerUp();
     a.chartJson();
@@ -418,7 +418,7 @@ try {
     a.pointerUp();
     const line = a.source().includes('"mark": "line"');
     a.chartJson();
-    p = at("ce-tab-tiedot");
+    p = at("ce-tabs-tab-tiedot");
     a.pointerDown(p[0], p[1], false, 1);
     a.pointerUp();
     a.chartJson();
@@ -454,20 +454,36 @@ try {
     a.setSource("# D\n\n## O\n\n```vega-lite\n{\"data\": {\"values\": [{\"f\": \"A\", \"u\": 90}, {\"f\": \"B\", \"u\": 75}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"f\", \"type\": \"nominal\"}, \"y\": {\"field\": \"u\", \"type\": \"quantitative\"}}}\n```\n");
     a.openChartEditor(5);
     const press = (id, dx = 6, dy = 6) => { a.chartJson(); const q = at(id); a.pointerDown(q[0] - 8 + dx, q[1] - 8 + dy, false, 1); a.pointerUp(); };
-    press("ce-tab-ulkoasu");
+    press("ce-tabs-tab-ulkoasu");
     press("ce-scheme-tableau10");
     press("ce-glow");
     press("ce-pick-text");
     a.chartJson();
     const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
-    const sw = walk(a.chart.host.lastPage, "ce-preset-#f7d154");
+    // EVGUI's picker: a preset, then a drag across the area
+    const sw = walk(a.chart.host.lastPage, "ce-cp-preset-2");
     a.pointerDown(sw.calculatedX + 5, sw.calculatedY + 5, false, 1);
     a.pointerUp();
+    const preset = /"labelColor":"#eab308"/.test(a.source());
+    a.chartJson();
+    const area = walk(a.chart.host.lastPage, "ce-cp-sv");
+    a.pointerDown(area.calculatedX + 10, area.calculatedY + 10, false, 1);
+    a.pointerMove(area.calculatedX + area.calculatedWidth - 2, area.calculatedY + 2);
+    a.pointerUp();
+    const dragged = a.chart.model.textColor;
     const styled = a.source();
-    const looks = /"scheme":"tableau10"/.test(styled) && /"presGlow":true/.test(styled) && /"labelColor":"#f7d154"/.test(styled);
+    const looks = preset && /"scheme":"tableau10"/.test(styled) && /"presGlow":true/.test(styled) && styled.includes('"labelColor":"' + dragged + '"') && dragged !== "#eab308";
+    // the size, by its slider
+    press("ce-tabs-tab-kaavio");
+    a.chartJson();
+    const sl = walk(a.chart.host.lastPage, "ce-width");
+    a.pointerDown(sl.calculatedX + sl.calculatedWidth * 0.5, sl.calculatedY + 8, false, 1);
+    a.pointerMove(sl.calculatedX + sl.calculatedWidth * 0.75, sl.calculatedY + 8);
+    a.pointerUp();
+    const sized = /"width": 7\d0,/.test(a.source());
     a.key("escape", false, false);
     a.setSource(src0);
-    return { opened, drawn, line, typed, moved, stillOpen, closed, refused, looks };
+    return { opened, drawn, line, typed, moved, stillOpen, closed, refused, looks, sized, dragged };
   });
   check("the chart editor opens on a vega-lite fence and draws", ce.opened && ce.drawn > 50, JSON.stringify(ce));
   check("…a kind picked rewrites the fence", ce.line, JSON.stringify(ce));
@@ -475,6 +491,7 @@ try {
   check("…its window moves by the title bar", ce.moved === 100 && ce.stillOpen, JSON.stringify(ce));
   check("…a click outside closes it; a chart it cannot tabulate says why", ce.closed && ce.refused, JSON.stringify(ce));
   check("…its look: a palette, a glow and a picked text colour go into the fence", ce.looks, JSON.stringify(ce));
+  check("…its width, from its slider", ce.sized, JSON.stringify(ce));
 
   // A click on the fence's `vega-lite` opens the chart editor, not the language list
   {

@@ -128,23 +128,27 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   lists the properties it has and the ones it can have, with what each does;
   a click adds or opens one with its value popover.
 - **Chart settings**: a click on the `vega-lite` word of a ```` ```vega-lite ````
-  fence, or a double click on the chart on the stage, opens a
-  movable window (gallery/ui's `WindowCtl`, `ButtonCtl`, `InputCtl`,
-  `CheckboxCtl`). It has the chart's kind (20, the ones the table cannot make
-  disabled), title, legend, colour scheme and its data as a table: categories
-  down the side, a column per series, rows and series added and removed.
+  fence, or a double click on the chart on the stage, opens a movable window
+  built from gallery/ui controls in the EVGUI playground's light look
+  (`WindowCtl`, `TabsCtl`, `SliderCtl`, `SwitchCtl`, `ButtonCtl`, `InputCtl`):
+  - *Kaavio*: the width and height (sliders), the kind (20; the ones the
+    table cannot make are disabled and say why), the title and the legend.
+  - *Ulkoasu*: a palette (one series of bars gets a colour per bar), or one
+    colour and the text colour from EVGUI's colour picker (`ColorPickerCtl`,
+    copied into `src/`, drawn by `PresColorPanel` as EVGUI's demo draws it:
+    the area, hue and alpha, HEX / RGB / HSL fields, presets) in a card beside
+    the window; the stage style (flat / forge / neon / glass), glow, shadow and
+    gradient, and a line's width.
+  - *Tiedot*: the data as a table, categories down the side and a column per
+    series, rows and series added and removed.
+
   Every change rewrites the fence through the spreadsheet's chart generator
   (gallery/datagrid `ChartData.specJson`, drawn by Vela), so the slide is the
-  preview; Ctrl+Z undoes it after the window is closed. Drag it by the title
-  bar; a click outside, Esc or "Valmis" closes it. A chart with layers,
-  transforms or data from a URL is not a table and the window says so.
-  The "Ulkoasu" tab: a palette (one series of bars gets a colour per bar) or
-  one colour and the text colour from a colour picker (EVGUI's
-  `ColorPickerCtl`, copied into `src/`), the stage style for this chart
-  (flat / forge / neon / glass), glow, shadow and gradient, and a line's
-  width. The stage settings travel in the spec's `usermeta`; every other
-  renderer ignores them. The theme can turn the effects on for all charts:
-  `chart { chart-effects: glow gradient; }`.
+  preview; Ctrl+Z undoes it after the window is closed. The stage settings
+  travel in the spec's `usermeta`; other renderers ignore them. The theme can
+  turn the effects on for every chart: `chart { chart-effects: glow gradient; }`.
+  A chart with layers, transforms or data from a URL is not a table and the
+  window says so.
 - **Ctrl+V** in the editor pastes a picture from the clipboard. It is stored
   under `media/` and written into the Markdown as `![](media/…)`. Dropping an
   image onto the canvas does the same.
