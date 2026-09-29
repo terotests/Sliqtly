@@ -218,6 +218,19 @@ function paintOnce() {
     if (fresh && grewBy(stats)) thumbsGrew = true;
   }
   if (thumbsGrew) dropThumbs();
+  // the top bar, over the chrome (its lists open over everything under it)
+  if (canvasBar) {
+    syncToolbar();
+    const tj = app.toolbarJson();
+    if (tj) {
+      const tb = JSON.parse(tj);
+      tb.width = W;
+      tb.height = H;
+      const tf = prepareDisplayList(gl, tb, { dpr });
+      if (grewBy(tf.draw(null, [0, 0, 1], { clear: false }))) dropThumbs();
+      tf.dispose();
+    }
+  }
   // the chart editor, over everything
   if (app.chartIsOpen()) {
     const cj = JSON.parse(app.chartJson());
@@ -306,6 +319,17 @@ function handleRequests() {
       // arrive in; a presentation without keys is a slideshow nobody can drive.
       keys.focus({ preventScroll: true });
       requestAnimationFrame(resize);
+    } else if (r.startsWith("click:")) {
+      // the canvas bar: the page's own button does what it always did
+      const b = document.getElementById(r.slice(6));
+      if (b) b.click();
+    } else if (r.startsWith("select:")) {
+      const [, id, ...rest] = r.split(":");
+      const sel = document.getElementById(id);
+      if (sel) {
+        sel.value = rest.join(":");
+        sel.dispatchEvent(new Event("change"));
+      }
     } else if (r === "theme-edited") {
       editedCss[themeSel.value || ""] = app.themeCss();
       dropThumbs();
@@ -1110,9 +1134,9 @@ function toggleHelp(on) {
 }
 
 function placeHelp() {
-  const bar = document.getElementById("bar").getBoundingClientRect();
-  helpEl.style.top = bar.bottom + "px";
-  helpEl.style.height = (window.innerHeight - bar.bottom) + "px";
+  const top = canvasBar ? 48 : document.getElementById("bar").getBoundingClientRect().bottom;
+  helpEl.style.top = top + "px";
+  helpEl.style.height = (window.innerHeight - top) + "px";
 }
 
 function helpTick(now) {
@@ -1216,10 +1240,42 @@ canvas.addEventListener("drop", (ev) => {
 });
 
 // --- start ------------------------------------------------------------------------------
+// The bar on the canvas (PresToolbar) shows the page's own selects: their
+// options go over as "value<TAB>label<TAB>group" rows whenever they change.
+let canvasBar = false;
+let barSynced = "";
+function selectRows(sel) {
+  const rows = [];
+  for (const o of sel.options) {
+    const g = o.parentElement && o.parentElement.tagName === "OPTGROUP" ? o.parentElement.label : "";
+    rows.push([o.value, o.textContent.trim(), g].join("\t"));
+  }
+  return rows.join("\n");
+}
+function syncToolbar() {
+  const s = selectRows(sampleSel);
+  const t = selectRows(themeSel);
+  const key = s + "|" + sampleSel.value + "|" + t + "|" + themeSel.value;
+  if (key === barSynced) return;
+  barSynced = key;
+  app.setToolbarOptions("sample", s, sampleSel.value);
+  app.setToolbarOptions("theme", t, themeSel.value);
+}
+
 async function start() {
   const css = await textOf("./pres.css");
   // the chart editor's controls: the kit's theme, then the app's colours
-  textOf("./ui.css").then(async (kit) => app.setChartCss(kit + "\n" + (await textOf("./chart-editor.css")))).catch(() => {});
+  const kit = await textOf("./ui.css").catch(() => "");
+  textOf("./chart-editor.css").then((c) => app.setChartCss(kit + "\n" + c)).catch(() => {});
+  if (!viewer) {
+    // the bar moves onto the canvas: the HTML one stays, hidden, as what it
+    // presses (its buttons and selects keep every behaviour they had)
+    app.setToolbarCss(kit + "\n" + (await textOf("./toolbar.css")));
+    document.body.classList.add("canvas-bar");
+    canvasBar = true;
+    app.useToolbar(true);
+    requestAnimationFrame(resize);
+  }
   const r = stageEl.getBoundingClientRect();
   app.init(css, Math.max(320, r.width), Math.max(240, r.height));
   resize();

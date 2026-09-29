@@ -1,0 +1,307 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresToolbar.rgr — the app's top bar, in EVGUI controls on the canvas
+; ============================================================================
+;
+; The bar the page used to draw in HTML — the presentation and the theme to
+; pick, play and present, open / save / PDF / PPTX / share / help, the status
+; — as gallery/ui controls (SelectCtl, ButtonCtl) in a UiHost of its own, as
+; big as the app, so a select's list opens over everything under it.
+;
+; The bar does not DO anything itself. A press is a request the page acts on
+; the way it always has: a button is "click:<id>" (the page clicks the button
+; of that id, kept but hidden), a choice is "select:<id>:<value>" (the page
+; sets that select and says it changed). So opening a file, a download or a
+; share keeps its user gesture, and the page's own logic stays where it is.
+;
+; What the selects offer comes from the page too: `setOptions(id, rows)`,
+; one "value<TAB>label<TAB>group" row per line.
+; ============================================================================
+
+Import "../ui/src/UiHost.rgr"
+
+class PresToolbar {
+    def host:UiHost (new UiHost())
+    def css:string ""
+    def w:double 1200.0
+    def h:double 700.0
+    def barH:double 48.0
+    def sample:SelectCtl (new SelectCtl())
+    def theme:SelectCtl (new SelectCtl())
+    ; "value<TAB>label<TAB>group" rows, per select
+    def sampleRows:string ""
+    def themeRows:string ""
+    def sampleValue:string ""
+    def themeValue:string ""
+    def playing:boolean false
+    def status:string ""
+    def requests:[string]
+    def rev:int 0
+    def measurer@(optional):TTFTextMeasurer
+
+    Constructor () {
+    }
+
+    fn setOptions:void (id:string rows:string current:string) {
+        if (id == "sample") {
+            sampleRows = rows
+            sampleValue = current
+        }
+        if (id == "theme") {
+            themeRows = rows
+            themeValue = current
+        }
+        this.rebuild()
+    }
+
+    fn setState:void (isPlaying:boolean words:string) {
+        if ((isPlaying != playing) || (words != status)) {
+            playing = isPlaying
+            status = words
+            this.rebuild()
+        }
+    }
+
+    ; --- building ---------------------------------------------------------------
+    fn text:EVGElement (cls:string words:string) {
+        def s (EVGElement.createSpan())
+        s.className = cls
+        s.textContent = words
+        return s
+    }
+
+    fn div:EVGElement (cls:string) {
+        def d (EVGElement.createDiv())
+        d.className = cls
+        return d
+    }
+
+    fn put:void (c:UiCtl parent:EVGElement) {
+        push host.ctls c
+        parent.addChild((unwrap c.rootEl))
+    }
+
+    fn button:ButtonCtl (id:string name:string variant:string parent:EVGElement) {
+        def c (new ButtonCtl())
+        c.tid = ("tb-" + id)
+        c.name = name
+        c.variant = variant
+        c.build()
+        def r:EVGElement (unwrap c.rootEl)
+        UiTree.addClass(r "tb-button")
+        if ((variant == "primary") && ((r.getChildCount()) > 0)) {
+            UiTree.addClass((r.getChild(0)) "tb-onprimary")
+        }
+        this.put(c parent)
+        return c
+    }
+
+    ; A select from its rows: a group starts with a disabled heading.
+    fn select:SelectCtl (id:string name:string rows:string current:string parent:EVGElement) {
+        def c (new SelectCtl())
+        c.tid = ("tb-" + id)
+        c.name = name
+        def lines:[string] (strsplit rows (strfromcode 10))
+        def group:string ""
+        def i:int 0
+        while (i < (array_length lines)) {
+            def parts:[string] (strsplit (itemAt lines i) (strfromcode 9))
+            if ((array_length parts) >= 2) {
+                def g:string ""
+                if ((array_length parts) >= 3) {
+                    g = (itemAt parts 2)
+                }
+                if ((g != group) && ((strlen g) > 0)) {
+                    c.addItem(("--" + g) g true)
+                }
+                group = g
+                c.addItem((itemAt parts 0) (itemAt parts 1) false)
+            }
+            i = (i + 1)
+        }
+        c.value = current
+        c.build()
+        UiTree.addClass((unwrap c.rootEl) ("tb-select tb-select-" + id))
+        this.put(c parent)
+        return c
+    }
+
+    fn rebuild:void () {
+        def keepSample:boolean sample.open
+        def keepTheme:boolean theme.open
+        def fresh (new UiHost())
+        host = fresh
+        host.addStyleSheet(css)
+        host.setTheme("tb")
+        host.setPageSize(w h)
+        def root:EVGElement (unwrap host.root)
+        root.className = "ui-root tb-page"
+        def bar:EVGElement (this.div("tb-bar"))
+        bar.addChild((this.text("tb-brand" "EVG Presentation")))
+        bar.addChild((this.text("tb-label" "Esitys")))
+        sample = (this.select("sample" "Esitys" sampleRows sampleValue bar))
+        bar.addChild((this.text("tb-label" "Teema")))
+        theme = (this.select("theme" "Teema" themeRows themeValue bar))
+        bar.addChild((this.div("tb-sep")))
+        def play:string "▶ Toista"
+        if playing {
+            play = "⏸ Pysäytä"
+        }
+        this.button("play" play "outline" bar)
+        this.button("present" "⛶ Esitä" "primary" bar)
+        bar.addChild((this.div("tb-sep")))
+        this.button("open" "Avaa" "ghost" bar)
+        this.button("save" "Tallenna .md" "ghost" bar)
+        this.button("pdf" "PDF" "ghost" bar)
+        this.button("pptx" "PPTX" "ghost" bar)
+        this.button("share" "Jaa" "ghost" bar)
+        this.button("helpBtn" "Ohje" "ghost" bar)
+        bar.addChild((this.div("tb-grow")))
+        bar.addChild((this.text("tb-status" status)))
+        root.addChild(bar)
+        if keepSample {
+            sample.openList()
+            sample.build()
+        }
+        if keepTheme {
+            theme.openList()
+            theme.build()
+        }
+        rev = (rev + 1)
+    }
+
+    ; --- drawing ------------------------------------------------------------------
+    fn page:EVGElement () {
+        def r:EVGElement (unwrap host.root)
+        def s:EVGStyleSheet (unwrap host.sheet)
+        s.setViewport(w h false)
+        host.markStates(r)
+        s.applyTree(r host.theme)
+        def pg (EVGElement.createDiv())
+        pg.id = "page"
+        pg.width = (EVGUnit.px(w))
+        pg.height = (EVGUnit.px(h))
+        pg.addChild(r)
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        lay.layout(pg)
+        host.lastPage = pg
+        return pg
+    }
+
+    fn displayList:EVGDisplayList () {
+        def pg:EVGElement (this.page())
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(pg)
+        return dl
+    }
+
+    ; --- the pointer --------------------------------------------------------------
+    fn listOpen:boolean () {
+        return (sample.open || theme.open)
+    }
+
+    ; The bar, or anywhere while a list is open (a press outside closes it).
+    fn has:boolean (px:double py:double) {
+        return ((py < barH) || (this.listOpen()))
+    }
+
+    fn press:void (px:double py:double) {
+        if (null? host.lastPage) {
+            this.page()
+        }
+        def tid:string (host.hitTest(px py))
+        def ctlTid:string ""
+        def maybe@(optional):UiCtl (host.ctlFor(tid))
+        if (!null? maybe) {
+            def owner:UiCtl (unwrap maybe)
+            ctlTid = owner.tid
+        }
+        ; a press outside an open list closes it and does nothing else
+        if ((this.listOpen()) && ((ctlTid != sample.tid) && (ctlTid != theme.tid))) {
+            this.closeLists()
+            return
+        }
+        if ((ctlTid == sample.tid) || (ctlTid == theme.tid)) {
+            def sel:SelectCtl sample
+            def other:SelectCtl theme
+            if (ctlTid == theme.tid) {
+                sel = theme
+                other = sample
+            }
+            if other.open {
+                other.closeList()
+                other.build()
+            }
+            def before:string sel.value
+            host.click(tid)
+            sel.build()
+            if ((sel.value != before) && ((indexOf sel.value "--") != 0)) {
+                def id:string (substring sel.tid 3 (strlen sel.tid))
+                push requests ("select:" + id + ":" + sel.value)
+                if (id == "sample") {
+                    sampleValue = sel.value
+                } {
+                    themeValue = sel.value
+                }
+            }
+            rev = (rev + 1)
+            return
+        }
+        if ((indexOf ctlTid "tb-") == 0) {
+            push requests ("click:" + (substring ctlTid 3 (strlen ctlTid)))
+        }
+    }
+
+    fn closeLists:void () {
+        if sample.open {
+            sample.closeList()
+            sample.build()
+        }
+        if theme.open {
+            theme.closeList()
+            theme.build()
+        }
+        rev = (rev + 1)
+    }
+
+    ; The pointer over the bar or an open list: what it is over lights up.
+    fn hoverAt:void (px:double py:double) {
+        if (null? host.lastPage) {
+            return
+        }
+        def tid:string ""
+        if (this.has(px py)) {
+            tid = (host.hitTest(px py))
+        }
+        if (tid != host.hoverTid) {
+            if ((strlen tid) > 0) {
+                host.hover(tid)
+            } {
+                host.unhover()
+            }
+            rev = (rev + 1)
+        }
+    }
+
+    fn cursorAt:string (px:double py:double) {
+        if (null? host.lastPage) {
+            return ""
+        }
+        def tid:string (host.hitTest(px py))
+        if ((strlen tid) == 0) {
+            return "default"
+        }
+        return "pointer"
+    }
+}

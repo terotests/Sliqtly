@@ -37,6 +37,7 @@ Import "PresCssLanguage.rgr"
 Import "PresHints.rgr"
 Import "PresHelp.rgr"
 Import "PresChartEditor.rgr"
+Import "PresToolbar.rgr"
 Import "../ui/src/TabsCtl.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -147,6 +148,10 @@ class PresApp {
     def chart:PresChartEditor (new PresChartEditor())
     def chartStart:int -1
     def chartWinX:double -1.0
+    ; The top bar, drawn on the canvas; `barH` is the band it takes (0 when
+    ; the page keeps its own, or in a shared presentation).
+    def toolbar:PresToolbar (new PresToolbar())
+    def barH:double 0.0
     def chartWinY:double -1.0
     def chartEnd:int -1
     def stillRgba:[buffer]
@@ -928,9 +933,9 @@ class PresApp {
         def edW:double (W * split)
         if (edW < 280.0) { edW = 280.0 }
         if (edW > (W - 360.0)) { edW = (W - 360.0) }
-        tabRect.set(0.0 0.0 edW tabH)
-        edRect.set(0.0 tabH edW (H - tabH))
-        sepRect.set(edW 0.0 6.0 H)
+        tabRect.set(0.0 barH edW tabH)
+        edRect.set(0.0 (barH + tabH) edW ((H - tabH) - barH))
+        sepRect.set(edW barH 6.0 (H - barH))
         def rx:double (edW + 6.0)
         def rw:double (W - rx)
         def stripH:double (thumbH + 34.0)
@@ -939,7 +944,7 @@ class PresApp {
         trackRect.set(rx ((H - stripH) - trackH) rw trackH)
         laneX = (rx + 92.0)
         laneW = (rw - 108.0)
-        stageArea.set(rx 0.0 rw ((H - stripH) - trackH))
+        stageArea.set(rx barH rw (((H - stripH) - trackH) - barH))
         this.fitSlide(stageArea 20.0)
     }
 
@@ -1351,7 +1356,7 @@ class PresApp {
         out = (out + ":" + (to_string editor.sel.anchor.line) + "," + (to_string editor.sel.anchor.col))
         out = (out + ":" + (to_string editor.layout.scrollLine) + ":" + (to_string blink))
         out = (out + ":" + focus + ":" + mode + ":" + (EVGDisplayList.num(W)) + "x" + (EVGDisplayList.num(H)))
-        out = (out + ":c" + (to_string chart.rev))
+        out = (out + ":c" + (to_string chart.rev) + ":t" + (to_string toolbar.rev))
         return out
     }
 
@@ -1381,6 +1386,11 @@ class PresApp {
                 return "chart"
             }
             this.closeChart()
+        }
+        if ((barH > 0.0) && (toolbar.has(x y))) {
+            toolbar.press(x y)
+            this.takeToolbar()
+            return "bar"
         }
         if (sepRect.has(x y)) {
             splitDrag = true
@@ -1542,6 +1552,9 @@ class PresApp {
     }
 
     fn pointerMove:void (x:double y:double) {
+        if ((barH > 0.0) && (mode != "present")) {
+            toolbar.hoverAt(x y)
+        }
         if (chart.isOpen && (chart.dragging())) {
             chart.dragTo(x y)
             chromeRev = (chromeRev + 1)
@@ -1649,6 +1662,9 @@ class PresApp {
                 return cc
             }
         }
+        if ((barH > 0.0) && (toolbar.has(x y))) {
+            return (toolbar.cursorAt(x y))
+        }
         if (tabRect.has(x y)) {
             if ((strlen (this.tabAt(x))) > 0) {
                 return "pointer"
@@ -1692,6 +1708,11 @@ class PresApp {
     }
 
     fn key:boolean (name:string shift:boolean ctrl:boolean) {
+        if (((barH > 0.0) && (toolbar.listOpen())) && (name == "escape")) {
+            toolbar.closeLists()
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         if (chart.isOpen && (mode != "present")) {
             def used:boolean (chart.key(name shift ctrl))
             this.afterChart()
@@ -2110,6 +2131,54 @@ class PresApp {
         focus = "editor"
         this.syncEditor()
         chromeRev = (chromeRev + 1)
+    }
+
+    ; --- the top bar ----------------------------------------------------------------
+    fn useToolbar:void (on:boolean) {
+        if on {
+            barH = toolbar.barH
+        } {
+            barH = 0.0
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn setToolbarCss:void (css:string) {
+        toolbar.css = css
+        toolbar.rebuild()
+    }
+
+    ; One "value<TAB>label<TAB>group" row per line, and the chosen value.
+    fn setToolbarOptions:void (id:string rows:string current:string) {
+        toolbar.setOptions(id rows current)
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn takeToolbar:void () {
+        def i:int 0
+        while (i < (array_length toolbar.requests)) {
+            push requests (itemAt toolbar.requests i)
+            i = (i + 1)
+        }
+        def none:[string]
+        toolbar.requests = none
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The bar as a display list over the page: "" when there is none.
+    fn toolbarJson:string () {
+        if ((barH <= 0.0) || (mode == "present")) {
+            return ""
+        }
+        toolbar.measurer = measurer
+        if ((toolbar.w != W) || (toolbar.h != H)) {
+            toolbar.w = W
+            toolbar.h = H
+            toolbar.rebuild()
+        }
+        toolbar.setState(playing (this.statusText()))
+        def dl:EVGDisplayList (toolbar.displayList())
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
 
     ; --- the chart settings editor ----------------------------------------------

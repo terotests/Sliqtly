@@ -1,0 +1,46 @@
+/* ---------------------------------------------------------------------------
+   The top bar (src/PresToolbar.rgr): gallery/ui's buttons and selects in the
+   EVGUI playground's look, on the canvas. The kit's theme (ui.css) comes
+   first; `.theme-tb` rules apply because the bar's host runs under the theme
+   "tb" (EVG's sheet has no descendant selectors).
+   --------------------------------------------------------------------------- */
+.theme-tb .ui-root { padding: 0; gap: 0; background-color: rgba(0,0,0,0); }
+.tb-bar {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 8px;
+  width: 100%; height: 48px;
+  padding: 0 14px;
+  background-color: #ffffff;
+  border-bottom: 1px solid #e4e4e7;
+  font-family: Open Sans;
+}
+.tb-brand { font-size: 14px; font-weight: 700; color: #09090b; margin-right: 8px; }
+.tb-label { font-size: 12px; color: #71717a; }
+.tb-sep { width: 1px; height: 22px; background-color: #e4e4e7; margin: 0 2px; }
+.tb-grow { flex-grow: 1; }
+.tb-status { font-size: 12px; color: #71717a; }
+
+.theme-tb .ui-button { font-family: Open Sans; border-radius: 6px; height: 32px; padding: 0 12px; align-self: center; }
+.theme-tb .ui-button-primary { background-color: #18181b; border-color: #18181b; }
+.theme-tb .ui-button-secondary { background-color: #ffffff; border: 1px solid #e4e4e7; }
+.theme-tb .ui-button-ghost { background-color: rgba(0,0,0,0); border-color: rgba(0,0,0,0); }
+.theme-tb .ui-button-label { font-weight: 500; font-size: 13px; color: #09090b; }
+.theme-tb .tb-onprimary { color: #fafafa; }
+
+.theme-tb .ui-select-trigger {
+  display: flex; flex-direction: row; align-items: center;
+  height: 32px; padding: 0 12px;
+  border: 1px solid #e4e4e7; border-radius: 6px;
+  background-color: #ffffff;
+}
+.theme-tb .ui-select-value { font-family: Open Sans; font-size: 13px; color: #09090b; }
+.tb-select-sample .ui-select-trigger { width: 230px; }
+.theme-tb .ui-select-content {
+  gap: 1px; padding: 5px;
+  border: 1px solid #e4e4e7; border-radius: 8px;
+  background-color: #ffffff;
+  shadow-color: rgba(0, 0, 0, 0.16); shadow-radius: 16px; shadow-offset-y: 6px;
+}
+.theme-tb .ui-select-item { font-family: Open Sans; font-size: 13px; color: #09090b; padding: 6px 12px; border-radius: 5px; }
+.theme-tb .ui-select-item-state-checked { background-color: #f4f4f5; }
+.theme-tb .ui-select-item-disabled { opacity: 1; color: #a1a1aa; font-size: 11px; padding: 8px 12px 2px; }

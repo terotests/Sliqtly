@@ -70,9 +70,9 @@
 .theme-ce .ui-tabpanel { display: none; }
 
 /* buttons: black primary, white outline, quiet ghost */
-.theme-ce .ui-button { font-family: Open Sans; border-radius: 6px; }
+.theme-ce .ui-button { font-family: Open Sans; border-radius: 6px; align-self: center; }
 .theme-ce .ui-button-primary { background-color: #18181b; color: #fafafa; border-color: #18181b; }
-.theme-ce .ui-button-outline { background-color: #ffffff; color: #09090b; border: 1px solid #e4e4e7; }
+.theme-ce .ui-button-secondary { background-color: #ffffff; color: #09090b; border: 1px solid #e4e4e7; }
 .theme-ce .ui-button-ghost { background-color: rgba(0,0,0,0); color: #3f3f46; border-color: rgba(0,0,0,0); }
 .theme-ce .ui-button-disabled { opacity: 0.4; }
 .theme-ce .ui-button-label { font-weight: 500; font-size: 13px; color: #09090b; }

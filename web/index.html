@@ -57,6 +57,8 @@
   }
   #toast.on { opacity: 1; }
   body.presenting #bar { display: none; }
+  /* the bar is drawn on the canvas (PresToolbar); this one is what it presses */
+  body.canvas-bar #bar { display: none; }
   /* The share dialog: which link, for whom. */
   #shareDlg {
     background: var(--bar); color: var(--ink); border: 1px solid var(--line); border-radius: 12px;

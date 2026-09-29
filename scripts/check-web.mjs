@@ -507,6 +507,32 @@ try {
     check("a click on the fence's vega-lite opens the chart editor", res.open && !res.popover, JSON.stringify(res));
   }
 
+  // The top bar is on the canvas: a theme picked from its list, a button pressed
+  {
+    const bar = await page.evaluate(async () => {
+      const a = window.__app;
+      const t = a.toolbar;
+      a.toolbarJson();
+      const find = (id) => { const walk = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k); if (r) return r; } return null; }; return walk(t.host.lastPage); };
+      const press = (id) => { a.toolbarJson(); const e = find(id); a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      const theme0 = document.getElementById("theme").value;
+      press("tb-theme-trigger");
+      const opened = t.theme.open;
+      press("tb-theme-item-editorial");
+      const reqs = [];
+      for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
+      press("tb-helpBtn");
+      const help = [];
+      for (;;) { const r = a.takeRequest(); if (!r) break; help.push(r); }
+      return { opened, reqs, help, drawn: JSON.parse(a.toolbarJson()).list.cmds.length, theme0, htmlBarHidden: getComputedStyle(document.getElementById("bar")).display === "none" };
+    });
+    check("the top bar is drawn on the canvas, the HTML one hidden", bar.drawn > 20 && bar.htmlBarHidden, JSON.stringify(bar));
+    check("…its theme list opens and a choice becomes the page's select change", bar.opened && bar.reqs.includes("select:theme:editorial"), JSON.stringify(bar));
+    check("…a button is the page's button pressed", bar.help.includes("click:helpBtn"), JSON.stringify(bar));
+    await page.evaluate((th) => { const s = document.getElementById("theme"); s.value = th; s.dispatchEvent(new Event("change")); }, bar.theme0);
+    await page.waitForTimeout(300);
+  }
+
   // The help panel: only what the slide has, and a property opened in the theme
   const help = await page.evaluate(() => {
     const a = window.__app;
