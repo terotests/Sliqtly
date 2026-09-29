@@ -409,10 +409,18 @@ try {
       const e = walk(c.host.lastPage);
       return [e.calculatedX + 8, e.calculatedY + 8];
     };
-    let p = at("ce-kind-6");
+    let p = at("ce-tab-kaavio");
+    a.pointerDown(p[0], p[1], false, 1);
+    a.pointerUp();
+    a.chartJson();
+    p = at("ce-kind-6");
     a.pointerDown(p[0], p[1], false, 1);
     a.pointerUp();
     const line = a.source().includes('"mark": "line"');
+    a.chartJson();
+    p = at("ce-tab-tiedot");
+    a.pointerDown(p[0], p[1], false, 1);
+    a.pointerUp();
     a.chartJson();
     p = at("ce-c-0-1");
     a.pointerDown(p[0], p[1], false, 1);
@@ -442,14 +450,31 @@ try {
     a.openChartEditor(5);
     const refused = a.chart.model.ok === false && a.chart.model.note.length > 0;
     a.key("escape", false, false);
+    // the look: a palette, the effects, the text colour from the picker
+    a.setSource("# D\n\n## O\n\n```vega-lite\n{\"data\": {\"values\": [{\"f\": \"A\", \"u\": 90}, {\"f\": \"B\", \"u\": 75}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"f\", \"type\": \"nominal\"}, \"y\": {\"field\": \"u\", \"type\": \"quantitative\"}}}\n```\n");
+    a.openChartEditor(5);
+    const press = (id, dx = 6, dy = 6) => { a.chartJson(); const q = at(id); a.pointerDown(q[0] - 8 + dx, q[1] - 8 + dy, false, 1); a.pointerUp(); };
+    press("ce-tab-ulkoasu");
+    press("ce-scheme-tableau10");
+    press("ce-glow");
+    press("ce-pick-text");
+    a.chartJson();
+    const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+    const sw = walk(a.chart.host.lastPage, "ce-preset-#f7d154");
+    a.pointerDown(sw.calculatedX + 5, sw.calculatedY + 5, false, 1);
+    a.pointerUp();
+    const styled = a.source();
+    const looks = /"scheme":"tableau10"/.test(styled) && /"presGlow":true/.test(styled) && /"labelColor":"#f7d154"/.test(styled);
+    a.key("escape", false, false);
     a.setSource(src0);
-    return { opened, drawn, line, typed, moved, stillOpen, closed, refused };
+    return { opened, drawn, line, typed, moved, stillOpen, closed, refused, looks };
   });
   check("the chart editor opens on a vega-lite fence and draws", ce.opened && ce.drawn > 50, JSON.stringify(ce));
   check("…a kind picked rewrites the fence", ce.line, JSON.stringify(ce));
   check("…a number typed into the table goes into the chart", ce.typed, JSON.stringify(ce));
   check("…its window moves by the title bar", ce.moved === 100 && ce.stillOpen, JSON.stringify(ce));
   check("…a click outside closes it; a chart it cannot tabulate says why", ce.closed && ce.refused, JSON.stringify(ce));
+  check("…its look: a palette, a glow and a picked text colour go into the fence", ce.looks, JSON.stringify(ce));
 
   // The help panel: only what the slide has, and a property opened in the theme
   const help = await page.evaluate(() => {

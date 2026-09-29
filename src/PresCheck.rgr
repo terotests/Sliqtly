@@ -124,6 +124,23 @@ class PresCheck {
         def layered:PresChartModel (PresChartModel.fromSpec("{\"layer\": []}"))
         this.ok(((layered.ok == false) && ((strlen layered.note) > 0)) "a layered chart is refused with a reason")
         this.ok((((l.suits(16)) == false) && (pm.suits(16))) "a pie wants exactly one series")
+        ; the look, written and read back
+        l.color = "#ff00aa"
+        l.textColor = "#ffffff"
+        l.strokeWidth = 4.0
+        l.effect = "neon"
+        l.glow = true
+        l.gradient = true
+        def styled:PresChartModel (PresChartModel.fromSpec((l.toSpec())))
+        this.ok(((styled.color == "#ff00aa") && (styled.textColor == "#ffffff")) ("colours survive: " + styled.color + " " + styled.textColor))
+        this.ok((((styled.strokeWidth == 4.0) && (styled.effect == "neon")) && (styled.glow && (styled.gradient && (styled.shadow == false)))) "line width, stage style and effects survive")
+        ; a scheme on one series of bars colours each bar
+        def one:PresChartModel (PresChartModel.fromSpec(wide))
+        one.scheme = "category10"
+        def byCat:string (one.toSpec())
+        this.ok((((indexOf byCat "\"scheme\":\"category10\"") > 0) && ((indexOf byCat "\"color\": {\"field\":\"cat\"") > 0)) ("one series by category: " + byCat))
+        def back1:PresChartModel (PresChartModel.fromSpec(byCat))
+        this.ok((((back1.cols()) == 2) && (back1.scheme == "category10")) "…and reads back as one series")
     }
 
     ; A flowchart is drawn and toured rather than pasted in as a picture.

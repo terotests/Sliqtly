@@ -138,6 +138,13 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   preview; Ctrl+Z undoes it after the window is closed. Drag it by the title
   bar; a click outside, Esc or "Valmis" closes it. A chart with layers,
   transforms or data from a URL is not a table and the window says so.
+  The "Ulkoasu" tab: a palette (one series of bars gets a colour per bar) or
+  one colour and the text colour from a colour picker (EVGUI's
+  `ColorPickerCtl`, copied into `src/`), the stage style for this chart
+  (flat / forge / neon / glass), glow, shadow and gradient, and a line's
+  width. The stage settings travel in the spec's `usermeta`; every other
+  renderer ignores them. The theme can turn the effects on for all charts:
+  `chart { chart-effects: glow gradient; }`.
 - **Ctrl+V** in the editor pastes a picture from the clipboard. It is stored
   under `media/` and written into the Markdown as `![](media/…)`. Dropping an
   image onto the canvas does the same.

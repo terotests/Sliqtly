@@ -149,6 +149,7 @@ class PresHints {
         if (prop == "font-size") { return "Tekstin koko." }
         if (prop == "line-height") { return "Riviväli tekstin koon kerrannaisena." }
         if (prop == "chart-style") { return "Kaavioiden tyyli: flat, forge, neon tai glass." }
+        if (prop == "chart-effects") { return "Kaikkien kaavioiden lisäefektit: glow (hehku), shadow (varjo), gradient (liukuväri). Esim. glow gradient." }
         if (prop == "split-level") { return "Monennenko tason otsikko aloittaa dian." }
         if (prop == "overflow") { return "Mitä tehdään liian täydelle dialle." }
         if (prop == "aspect-ratio") { return "Dian kuvasuhde." }

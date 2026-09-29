@@ -26,12 +26,52 @@ class PresChart {
     ; scan pass), neon (lit edges round a faint body) or glass (a clear
     ; gradient with a bright rim).
     sfn dress:void (out:EVGDisplayList from:int t:double still:boolean accentHex:string warmHex:string spec:string style:string) {
+        ; `style` is the theme's chart-style and, after it, its chart-effects
+        ; ("forge glow gradient")
+        def words:[string] (strsplit (trim style) " ")
+        def style0:string ""
+        if ((array_length words) > 0) {
+            style0 = (itemAt words 0)
+        }
         def st:string "flat"
-        if (((style == "forge") || (style == "neon")) || (style == "glass")) {
-            st = style
+        if (((style0 == "forge") || (style0 == "neon")) || (style0 == "glass")) {
+            st = style0
+        }
+        ; the chart's own dressing (the editor writes it into `usermeta`)
+        def own:string (PresChart.specString(spec "presStyle"))
+        if ((((own == "flat") || (own == "forge")) || (own == "neon")) || (own == "glass")) {
+            st = own
+        }
+        def fx:string ""
+        def wi:int 1
+        while (wi < (array_length words)) {
+            def wd:string (itemAt words wi)
+            if (((wd == "glow") || (wd == "shadow")) || (wd == "gradient")) {
+                fx = (fx + " " + wd)
+            }
+            wi = (wi + 1)
+        }
+        if (PresChart.specTrue(spec "presGlow")) {
+            fx = (fx + " glow")
+        }
+        if (PresChart.specTrue(spec "presShadow")) {
+            fx = (fx + " shadow")
+        }
+        if (PresChart.specTrue(spec "presGradient")) {
+            fx = (fx + " gradient")
         }
         def ac:EVGColor (PresChart.colour(accentHex "#5ce1ff"))
-        def markHex:string (PresChart.specString(spec "color"))
+        ; the mark's colour: looked for in the mark alone, not in a title's
+        def markAt:int (indexOf spec "\"mark\"")
+        def markHex:string ""
+        if (markAt >= 0) {
+            def markText:string (substring spec markAt (strlen spec))
+            def encAt:int (indexOf markText "\"encoding\"")
+            if (encAt > 0) {
+                markText = (substring markText 0 encAt)
+            }
+            markHex = (PresChart.specString(markText "color"))
+        }
         def wm:EVGColor (PresChart.colour(warmHex "#ffa546"))
         if ((strlen markHex) > 0) {
             wm = (EVGColor.parse(markHex))
@@ -116,6 +156,34 @@ class PresChart {
         def scanU:double ((tt - scanStart) / scanDur)
         def scanX:double (left + ((right - left) * scanU))
 
+        ; the lines of the series: coloured apart, or all one; and where the
+        ; plot's floor is, for a fill under them
+        def perLine:boolean false
+        def firstLine:int -1
+        def plotBottom:double -1000000.0
+        def q:int 0
+        while (q < (array_length tail)) {
+            def lc:EVGDrawCmd (itemAt tail q)
+            if (lc.kind == 7) {
+                if (PresChart.isDataLine(lc)) {
+                    if (firstLine < 0) {
+                        firstLine = q
+                    } {
+                        def l0:EVGDrawCmd (itemAt tail firstLine)
+                        if (((l0.r != lc.r) || (l0.g != lc.g)) || (l0.b != lc.b)) {
+                            perLine = true
+                        }
+                    }
+                } {
+                    def yb:double (PresChart.flatY(lc))
+                    if (yb > plotBottom) {
+                        plotBottom = yb
+                    }
+                }
+            }
+            q = (q + 1)
+        }
+
         ; everything but the columns, restyled, in its own order
         def barAt:int 0
         groundSeen = false
@@ -132,9 +200,9 @@ class PresChart {
                             def oR:int c.r
                             def oG:int c.g
                             def oB:int c.b
-                            PresChart.column(out c barAt tt growStart growEach growDur scanU scanX oR oG oB (to_int ((to_double oR) * 0.55)) (to_int ((to_double oG) * 0.2)) (to_int ((to_double oB) * 0.12)) st)
+                            PresChart.column(out c barAt tt growStart growEach growDur scanU scanX oR oG oB (to_int ((to_double oR) * 0.55)) (to_int ((to_double oG) * 0.2)) (to_int ((to_double oB) * 0.12)) st fx)
                         } {
-                            PresChart.column(out c barAt tt growStart growEach growDur scanU scanX wmR wmG wmB ruR ruG ruB st)
+                            PresChart.column(out c barAt tt growStart growEach growDur scanU scanX wmR wmG wmB ruR ruG ruB st fx)
                         }
                         barAt = (barAt + 1)
                     } {
@@ -152,6 +220,36 @@ class PresChart {
                     }
                 }
             } {
+                if ((c.kind == 7) && (PresChart.isDataLine(c))) {
+                    ; a series' line: its own colour when the lines differ,
+                    ; the warm colour when there is one; and what the chart
+                    ; asked for under it
+                    if ((perLine == false) && ((strlen markHex) == 0)) {
+                        c.r = wmR
+                        c.g = wmG
+                        c.b = wmB
+                    }
+                    ; a slide is read from further away than a report
+                    if ((c.thickness < 2.5) && ((indexOf spec "\"strokeWidth\"") < 0)) {
+                        c.thickness = 3.0
+                    }
+                    PresChart.lineUnder(out c plotBottom fx st)
+                    push out.cmds c
+                    k = (k + 1)
+                    continue
+                }
+                if ((c.kind == 6) && ((indexOf fx "gradient") >= 0)) {
+                    ; an area, fading down into the ground
+                    c.hasGrad = true
+                    c.gradDir = 0
+                    c.r2 = c.r
+                    c.g2 = c.g
+                    c.b2 = c.b
+                    c.a2 = 0.04
+                    push out.cmds c
+                    k = (k + 1)
+                    continue
+                }
                 if (c.kind == 7) {
                     ; grid and axes: the accent, the grid faint, the axis less so
                     if (! keepLines) {
@@ -222,6 +320,132 @@ class PresChart {
         }
     }
 
+    ; A stroke that is data rather than furniture: coloured (the grid and the
+    ; axes are grey), or a run of more than one segment.
+    sfn isDataLine:boolean (c:EVGDrawCmd) {
+        def grey:boolean (((PresChart.absI((c.r - c.g))) < 14) && ((PresChart.absI((c.g - c.b))) < 14))
+        if (grey == false) {
+            return true
+        }
+        return ((array_length c.pts) > 6)
+    }
+
+    ; The y of a horizontal stroke (a grid line, the axis), or a very small
+    ; number for one that is not.
+    sfn flatY:double (c:EVGDrawCmd) {
+        def n:int (array_length c.pts)
+        if (n < 4) {
+            return -1000000.0
+        }
+        def y0:double (itemAt c.pts 1)
+        def i:int 3
+        while (i < n) {
+            if ((fabs ((itemAt c.pts i) - y0)) > 0.5) {
+                return -1000000.0
+            }
+            i = (i + 2)
+        }
+        return y0
+    }
+
+    sfn stroke:EVGDrawCmd (c:EVGDrawCmd dx:double dy:double) {
+        def s (new EVGDrawCmd())
+        s.kind = 7
+        s.thickness = c.thickness
+        s.strokeCap = 1
+        s.strokeJoin = 1
+        s.r = c.r
+        s.g = c.g
+        s.b = c.b
+        s.a = c.a
+        def i:int 0
+        while (i < (array_length c.pts)) {
+            push s.pts ((itemAt c.pts i) + dx)
+            push s.pts ((itemAt c.pts (i + 1)) + dy)
+            i = (i + 2)
+        }
+        def k:int 0
+        while (k < (array_length c.ringEnds)) {
+            push s.ringEnds (itemAt c.ringEnds k)
+            k = (k + 1)
+        }
+        return s
+    }
+
+    ; What goes under a series' line: a fill fading to the floor, a shadow,
+    ; a glow (neon glows by itself).
+    sfn lineUnder:void (out:EVGDisplayList c:EVGDrawCmd floor:double fx:string st:string) {
+        c.strokeCap = 1
+        c.strokeJoin = 1
+        def n:int (array_length c.pts)
+        if (((indexOf fx "gradient") >= 0) && ((n >= 4) && (floor > -1000.0))) {
+            def f (new EVGDrawCmd())
+            f.kind = 6
+            def i:int 0
+            while (i < n) {
+                push f.pts (itemAt c.pts i)
+                push f.pts (itemAt c.pts (i + 1))
+                i = (i + 2)
+            }
+            push f.pts (itemAt c.pts (n - 2))
+            push f.pts floor
+            push f.pts (itemAt c.pts 0)
+            push f.pts floor
+            push f.ringEnds (array_length f.pts)
+            f.r = c.r
+            f.g = c.g
+            f.b = c.b
+            f.a = 0.42
+            f.hasGrad = true
+            f.gradDir = 0
+            f.r2 = c.r
+            f.g2 = c.g
+            f.b2 = c.b
+            f.a2 = 0.0
+            push out.cmds f
+        }
+        if ((indexOf fx "shadow") >= 0) {
+            def sh:EVGDrawCmd (PresChart.stroke(c 3.0 4.0))
+            sh.r = 0
+            sh.g = 0
+            sh.b = 0
+            sh.a = 0.35
+            sh.thickness = (c.thickness + 1.0)
+            push out.cmds sh
+        }
+        if (((indexOf fx "glow") >= 0) || (st == "neon")) {
+            def g1:EVGDrawCmd (PresChart.stroke(c 0.0 0.0))
+            g1.thickness = (c.thickness + 12.0)
+            g1.a = 0.08
+            push out.cmds g1
+            def g2:EVGDrawCmd (PresChart.stroke(c 0.0 0.0))
+            g2.thickness = (c.thickness + 6.0)
+            g2.a = 0.16
+            push out.cmds g2
+        }
+    }
+
+    sfn absI:int (v:int) {
+        if (v < 0) {
+            return (0 - v)
+        }
+        return v
+    }
+
+    ; `"key": true` anywhere in the text.
+    sfn specTrue:boolean (spec:string key:string) {
+        def at:int (indexOf spec ("\"" + key + "\""))
+        if (at < 0) {
+            return false
+        }
+        def i:int ((at + (strlen key)) + 2)
+        def n:int (strlen spec)
+        while ((i < n) && (((charAt spec i) == 32) || ((charAt spec i) == 58))) {
+            i = (i + 1)
+        }
+        return ((indexOf (substring spec i (strlen spec)) "true") == 0)
+    }
+
     ; A column of a bar chart: a filled, square-cornered box of some size.
     ; Rounded ones are symbols — a legend's swatches, a scatter's points.
     sfn isBar:boolean (c:EVGDrawCmd) {
@@ -231,7 +455,7 @@ class PresChart {
     ; One column: rising from its base at its turn, a gradient from the warm
     ; colour down into rust, grooves across it, a bright cap with a glow,
     ; lit up a little while the beam is over it.
-    sfn column:void (out:EVGDisplayList c:EVGDrawCmd j:int t:double g0:double ge:double gd:double scanU:double scanX:double wR:int wG:int wB:int rR:int rG:int rB:int st:string) {
+    sfn column:void (out:EVGDisplayList c:EVGDrawCmd j:int t:double g0:double ge:double gd:double scanU:double scanX:double wR:int wG:int wB:int rR:int rG:int rB:int st:string fx:string) {
         def u:double ((t - (g0 + (ge * (to_double j)))) / gd)
         if (u <= 0.0) {
             return
@@ -251,7 +475,63 @@ class PresChart {
                 lit = (1.0 - (d / (w * 0.9)))
             }
         }
+        ; under the column: a shadow cast down and right, a glow around it
+        if ((indexOf fx "shadow") >= 0) {
+            def sh (new EVGDrawCmd())
+            sh.kind = 0
+            sh.x = (x + 5.0)
+            sh.y = (y + 5.0)
+            sh.w = w
+            sh.h = h
+            sh.r = 0
+            sh.g = 0
+            sh.b = 0
+            sh.a = 0.3
+            sh.hasShadow = true
+            sh.shadowBlur = 10.0
+            sh.shadowA = 0.45
+            push out.cmds sh
+        }
+        if ((indexOf fx "glow") >= 0) {
+            def gl (new EVGDrawCmd())
+            gl.kind = 0
+            gl.x = x
+            gl.y = y
+            gl.w = w
+            gl.h = h
+            gl.r = wR
+            gl.g = wG
+            gl.b = wB
+            gl.a = 0.6
+            gl.hasShadow = true
+            gl.shadowBlur = 22.0
+            gl.shadowR = wR
+            gl.shadowG = wG
+            gl.shadowB = wB
+            gl.shadowA = 0.85
+            push out.cmds gl
+        }
         if (st == "flat") {
+            if ((indexOf fx "gradient") >= 0) {
+                def gb (new EVGDrawCmd())
+                gb.kind = 0
+                gb.x = x
+                gb.y = y
+                gb.w = w
+                gb.h = h
+                gb.hasGrad = true
+                gb.gradDir = 0
+                gb.r = (PresDiagram.mixI(wR 255 0.25))
+                gb.g = (PresDiagram.mixI(wG 255 0.25))
+                gb.b = (PresDiagram.mixI(wB 255 0.25))
+                gb.a = 1.0
+                gb.r2 = rR
+                gb.g2 = rG
+                gb.b2 = rB
+                gb.a2 = 0.85
+                push out.cmds gb
+                return
+            }
             PresChart.flatColumn(out x y w h wR wG wB)
             return
         }

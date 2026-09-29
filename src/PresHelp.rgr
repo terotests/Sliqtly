@@ -214,6 +214,7 @@ class PresHelp {
         if (prop == "border-width") { return "3pt" }
         if (prop == "column-count") { return "2" }
         if (prop == "chart-style") { return "flat" }
+        if (prop == "chart-effects") { return "glow gradient" }
         if (prop == "background-image") { return "none" }
         if (prop == "width") { return "13.333in" }
         if (prop == "height") { return "7.5in" }
@@ -267,7 +268,7 @@ class PresHelp {
         if (sel == "li") { return "margin-bottom" }
         if (sel == "table") { return "border-color,background-color,padding-left,padding-top" }
         if (sel == "deck") { return "split-level,overflow,aspect-ratio" }
-        if (sel == "chart") { return "color,accent-color,chart-style" }
+        if (sel == "chart") { return "color,accent-color,chart-style,chart-effects" }
         if (sel == "diagram") { return "color,accent-color" }
         if (((strlen sel) > 1) && ((charAt sel 0) == 46)) { return "font-size,color,column-count,column-gap" }
         return ""
@@ -683,7 +684,7 @@ class PresHelp {
             push out (PresHelp.feature("diagram" "Kaavio" "```mermaid {tour=off style=sketch} … ```" "Mermaid-, DOT-, D2- ja PlantUML-kaaviot. Kaaviokohtaiset asetukset aaltosulkeissa lohkon ensimmäisellä rivillä." (PresHelp.rule(css "diagram" "Kaavioiden värit." "color,accent-color"))))
         }
         if sc.chart {
-            push out (PresHelp.feature("chart" "Vega-Lite-kaavio" "```vega-lite { … } ```" "" (PresHelp.rule(css "chart" "Kaavioiden värit ja tyyli." "color,accent-color,chart-style"))))
+            push out (PresHelp.feature("chart" "Vega-Lite-kaavio" "```vega-lite { … } ```" "" (PresHelp.rule(css "chart" "Kaavioiden värit ja tyyli." "color,accent-color,chart-style,chart-effects"))))
         }
         ; classes
         def cls:[string] (strsplit (trim sc.classes) " ")

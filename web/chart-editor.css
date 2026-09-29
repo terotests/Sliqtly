@@ -65,3 +65,16 @@
 .ce-cat { width: 110px; }
 
 .ce-wide { width: 240px; }
+
+/* colours: a swatch beside its button, the picker's parts (EVGUI's
+   ColorPickerCtl, drawn by PresChartEditor.pickerPanel) */
+.ce-swatch { width: 22px; height: 22px; min-width: 22px; border-radius: 5px; border: 1px solid #7c8cff; }
+.ce-preset { width: 20px; height: 20px; min-width: 20px; border: 1px solid #262f5c; }
+.ce-picker { display: flex; flex-direction: column; gap: 8px; padding: 10px; background-color: #0b0f1e; border: 1px solid #262f5c; border-radius: 8px; }
+.cp-sv { position: relative; width: 240px; height: 120px; border-radius: 6px; }
+.cp-shade { position: absolute; left: 0; top: 0; width: 240px; height: 120px; border-radius: 6px; }
+.cp-thumb { position: absolute; width: 14px; height: 14px; border-radius: 7px; border: 2px solid #ffffff; }
+.cp-hue { position: relative; display: flex; flex-direction: row; flex-wrap: nowrap; width: 240px; height: 14px; }
+.cp-seg { width: 40px; height: 14px; }
+.cp-hthumb { position: absolute; top: -2px; width: 8px; height: 18px; border-radius: 3px; border: 2px solid #ffffff; }
+.ce-tabs { display: flex; flex-direction: row; gap: 4px; padding-bottom: 6px; margin-bottom: 2px; border-bottom: 1px solid #262f5c; width: 100%; }

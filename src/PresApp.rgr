@@ -1530,6 +1530,7 @@ class PresApp {
     fn pointerUp:void () {
         if chart.isOpen {
             chart.release()
+            this.writeChart()
         }
         if editorDrag {
             this.followCaret()
@@ -2195,7 +2196,10 @@ class PresApp {
             chart.changed = true
             chart.rebuild()
         }
-        this.writeChart()
+        ; a drag in the picker writes the fence when it ends, not at every move
+        if ((chart.dragging()) == false) {
+            this.writeChart()
+        }
         if chart.wantsClose {
             chart.wantsClose = false
             this.closeChart()

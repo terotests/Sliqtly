@@ -47,6 +47,20 @@ class PresChartModel {
     ; series (the headers then name the series, not the measure)
     def valueTitle:string ""
     def seriesTitle:string ""
+    ; --- the look -------------------------------------------------------------
+    ; one colour for the marks ("" : the theme's, or the scheme's)
+    def color:string ""
+    ; the words: labels, titles, legend ("" : the theme's)
+    def textColor:string ""
+    ; a line's width in px (0 : Vega-Lite's)
+    def strokeWidth:double 0.0
+    ; the stage's dressing: "" (the theme's chart-style), flat, forge, neon,
+    ; glass — and what goes on top of any of them. Carried in `usermeta`, which
+    ; Vega-Lite keeps for exactly this and every renderer ignores.
+    def effect:string ""
+    def glow:boolean false
+    def shadow:boolean false
+    def gradient:boolean false
 
     Constructor () {
     }
@@ -315,16 +329,85 @@ class PresChartModel {
                 e = (e + 1)
             }
         }
-        if ((strlen scheme) > 0) {
-            def s:VlJson (VlJson.objectValue())
-            s.setMember("scheme" (VlJson.stringValue(scheme)))
-            def cat:VlJson (VlJson.objectValue())
-            cat.setMember("category" s)
-            def range:VlJson (VlJson.objectValue())
-            range.setMember("range" cat)
-            out.setMember("config" range)
-        }
+        this.dress(out)
         return (PresChartModel.write(out))
+    }
+
+    ; The look, onto a generated specification.
+    fn dress:void (out:VlJson) {
+        ; the mark's own options
+        def mv:VlJson (out.get("mark"))
+        def mark:VlJson (VlJson.objectValue())
+        if (mv.isString()) {
+            mark.setMember("type" mv)
+        } {
+            mark = mv
+        }
+        def isLine:boolean ((kind >= 6) && (kind <= 9))
+        if ((strlen color) > 0) {
+            mark.setMember("color" (VlJson.stringValue(color)))
+        }
+        if (isLine && (strokeWidth > 0.0)) {
+            mark.setMember("strokeWidth" (VlJson.numberValue(strokeWidth)))
+        }
+        if ((array_length mark.keys) > 1) {
+            out.setMember("mark" mark)
+        }
+        ; a scheme: on the colour channel there is, or — one series of bars
+        ; or points — one made from the categories, so each gets its colour
+        def enc:VlJson (out.get("encoding"))
+        if (((strlen scheme) > 0) && (enc.isObject())) {
+            def sc:VlJson (VlJson.objectValue())
+            sc.setMember("scheme" (VlJson.stringValue(scheme)))
+            def ch:VlJson (enc.get("color"))
+            if (ch.isObject()) {
+                ch.setMember("scale" sc)
+            } {
+                if ((kind == 1) || ((kind == 2) || (kind == 15))) {
+                    def byCat:VlJson (VlJson.objectValue())
+                    byCat.setMember("field" (VlJson.stringValue("cat")))
+                    byCat.setMember("type" (VlJson.stringValue("nominal")))
+                    byCat.setMember("sort" (VlJson.nullValue()))
+                    byCat.setMember("legend" (VlJson.nullValue()))
+                    byCat.setMember("scale" sc)
+                    enc.setMember("color" byCat)
+                }
+            }
+        }
+        ; the words
+        if ((strlen textColor) > 0) {
+            def tc:VlJson (VlJson.stringValue(textColor))
+            def cfg:VlJson (VlJson.objectValue())
+            def axis:VlJson (VlJson.objectValue())
+            axis.setMember("labelColor" tc)
+            axis.setMember("titleColor" tc)
+            cfg.setMember("axis" axis)
+            def lg:VlJson (VlJson.objectValue())
+            lg.setMember("labelColor" tc)
+            lg.setMember("titleColor" tc)
+            cfg.setMember("legend" lg)
+            def ti:VlJson (VlJson.objectValue())
+            ti.setMember("color" tc)
+            cfg.setMember("title" ti)
+            out.setMember("config" cfg)
+        }
+        ; the stage's dressing
+        if ((((strlen effect) > 0) || glow) || (shadow || gradient)) {
+            def um:VlJson (VlJson.objectValue())
+            if ((strlen effect) > 0) {
+                um.setMember("presStyle" (VlJson.stringValue(effect)))
+            }
+            if glow {
+                um.setMember("presGlow" (VlJson.boolValue(true)))
+            }
+            if shadow {
+                um.setMember("presShadow" (VlJson.boolValue(true)))
+            }
+            if gradient {
+                um.setMember("presGradient" (VlJson.boolValue(true)))
+            }
+            out.setMember("usermeta" um)
+        }
     }
 
     ; Readable in a fence: one member per line, one data row per line, and
@@ -487,6 +570,18 @@ class PresChartModel {
         if ((enc.isObject()) == false) {
             m.note = "Kaaviolla ei ole koodausta (encoding)."
             return m
+        }
+        ; the look
+        m.color = (mopt.stringOr("color" ""))
+        m.strokeWidth = (mopt.doubleOr("strokeWidth" 0.0))
+        def axisCfg:VlJson ((spec.get("config")).get("axis"))
+        m.textColor = (axisCfg.stringOr("labelColor" ""))
+        def um:VlJson (spec.get("usermeta"))
+        if (um.isObject()) {
+            m.effect = (um.stringOr("presStyle" ""))
+            m.glow = (um.boolOr("presGlow" false))
+            m.shadow = (um.boolOr("presShadow" false))
+            m.gradient = (um.boolOr("presGradient" false))
         }
         ; colours
         def cfg:VlJson (spec.get("config"))
