@@ -58,14 +58,24 @@ function asRangerBuffer(ab) {
   return ab;
 }
 
+// The build's stamp (scripts/build.mjs writes it in). Every file of the
+// page's own is fetched with it, so a new build is never drawn with an old
+// stylesheet the browser kept — the chart editor's sheets were, and a new
+// editor came up in the old one's colours.
+const BUILD = "__BUILD__";
+function fresh(url) {
+  if (!url.startsWith("./") || BUILD.startsWith("__")) return url;
+  return url + (url.includes("?") ? "&" : "?") + "v=" + BUILD;
+}
+
 async function bytesOf(url) {
-  const res = await fetch(url);
+  const res = await fetch(fresh(url));
   if (!res.ok) throw new Error(url + " → " + res.status);
   return await res.arrayBuffer();
 }
 
 async function textOf(url) {
-  const res = await fetch(url);
+  const res = await fetch(fresh(url));
   if (!res.ok) throw new Error(url + " → " + res.status);
   return await res.text();
 }

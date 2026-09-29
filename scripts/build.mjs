@@ -52,14 +52,15 @@ export function build({ ranger } = {}) {
   // Every URL the page loads carries the hash of the build, so a reload
   // never mixes an old script with a new one.
   const h = crypto.createHash("sha1");
-  for (const f of ["pres_app.js", "main.js", "pres.css", "chart-editor.css", "gl/evg-webgl.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
+  for (const f of ["pres_app.js", "main.js", "pres.css", "chart-editor.css", "ui.css", "gl/evg-webgl.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
+  for (const f of fs.readdirSync(path.join(distDir, "themes"))) h.update(fs.readFileSync(path.join(distDir, "themes", f)));
   const stamp = h.digest("hex").slice(0, 10);
   const html = path.join(distDir, "index.html");
   fs.writeFileSync(html, fs.readFileSync(html, "utf8").split("__BUILD__").join(stamp));
   const main = path.join(distDir, "main.js");
   fs.writeFileSync(main, fs.readFileSync(main, "utf8")
     .replace("./gl/evg-webgl.js", "./gl/evg-webgl.js?v=" + stamp)
-    .replace('"./pres.css"', '"./pres.css?v=' + stamp + '"'));
+    .split("__BUILD__").join(stamp));
   log(`build  web/dist (${stamp})`);
   return stamp;
 }
