@@ -155,6 +155,8 @@ class PresApp {
     def toolbar:PresToolbar (new PresToolbar())
     def hint:PresHintPopover (new PresHintPopover())
     def panels:PresPanels (new PresPanels())
+    ; the page is used with a finger: `@media (pointer: coarse)`
+    def coarse:boolean false
     def panelsKey:string ""
     def barH:double 0.0
     def chartWinY:double -1.0
@@ -940,22 +942,56 @@ class PresApp {
         if (panels.helpOpen && (barH > 0.0)) {
             AW = (W - panels.helpW)
         }
-        def edW:double (AW * split)
-        if (edW < 280.0) { edW = 280.0 }
-        if (edW > (AW - 360.0)) { edW = (AW - 360.0) }
-        tabRect.set(0.0 barH edW tabH)
-        edRect.set(0.0 (barH + tabH) edW ((H - tabH) - barH))
-        sepRect.set(edW barH 6.0 (H - barH))
-        def rx:double (edW + 6.0)
-        def rw:double (AW - rx)
+        if ((AW < 320.0) && (AW < W)) {
+            AW = W
+        }
         def stripH:double (thumbH + 34.0)
         def trackH:double 118.0
+        def rx:double 0.0
+        if (this.isCompact()) {
+            ; narrow (a phone, a small window): the slides only, no editor
+            ; and no timeline; widening brings them back
+            tabRect.set(0.0 barH 0.0 0.0)
+            edRect.set(0.0 barH 0.0 0.0)
+            sepRect.set(0.0 barH 0.0 0.0)
+            trackH = 0.0
+            if (focus == "editor") {
+                focus = "stage"
+            }
+        } {
+            def edW:double (AW * split)
+            if (edW < 280.0) { edW = 280.0 }
+            if (edW > (AW - 360.0)) { edW = (AW - 360.0) }
+            tabRect.set(0.0 barH edW tabH)
+            edRect.set(0.0 (barH + tabH) edW ((H - tabH) - barH))
+            sepRect.set(edW barH 6.0 (H - barH))
+            rx = (edW + 6.0)
+        }
+        def rw:double (AW - rx)
         stripRect.set(rx (H - stripH) rw stripH)
         trackRect.set(rx ((H - stripH) - trackH) rw trackH)
         laneX = (rx + 92.0)
         laneW = (rw - 108.0)
         stageArea.set(rx barH rw (((H - stripH) - trackH) - barH))
         this.fitSlide(stageArea 20.0)
+    }
+
+    ; Narrower than an editor and a slide side by side need.
+    fn isCompact:boolean () {
+        def AW:double W
+        if (panels.helpOpen && (barH > 0.0)) {
+            AW = (W - panels.helpW)
+            if (AW < 320.0) {
+                AW = W
+            }
+        }
+        return (AW < 700.0)
+    }
+
+    fn setCoarse:void (on:boolean) {
+        coarse = on
+        toolbar.coarse = on
+        chromeRev = (chromeRev + 1)
     }
 
     fn placePresent:void () {
@@ -1161,17 +1197,21 @@ class PresApp {
             return root
         }
         ; the tabs over the editor pane: Ranger UI's TabsCtl, styled in pres.css
-        def tabBar:EVGElement (PresApp.div("ed-tabs" "ed-tabs" tabRect.x tabRect.y tabRect.w tabRect.h))
-        this.makeTabs()
-        tabBar.addChild((unwrap tabs.rootEl))
-        root.addChild(tabBar)
-        root.addChild((PresApp.div("sep" "sep" sepRect.x sepRect.y sepRect.w sepRect.h)))
+        if (edRect.w > 0.0) {
+            def tabBar:EVGElement (PresApp.div("ed-tabs" "ed-tabs" tabRect.x tabRect.y tabRect.w tabRect.h))
+            this.makeTabs()
+            tabBar.addChild((unwrap tabs.rootEl))
+            root.addChild(tabBar)
+            root.addChild((PresApp.div("sep" "sep" sepRect.x sepRect.y sepRect.w sepRect.h)))
+        }
         root.addChild((PresApp.div("stage-area" "stage-area" stageArea.x stageArea.y stageArea.w stageArea.h)))
         root.addChild((PresApp.div("slide-shadow" "slide-shadow" (slideRect.x - 1.0) (slideRect.y - 1.0) (slideRect.w + 2.0) (slideRect.h + 2.0))))
         if ((deck.slideCount()) == 0) {
             root.addChild((PresApp.label("empty" "empty" "Kirjoita vasemmalle: ## Otsikko aloittaa dian" (stageArea.x + 24.0) (stageArea.y + 24.0))))
         }
-        this.tracks(root)
+        if (trackRect.h > 0.0) {
+            this.tracks(root)
+        }
         this.filmstrip(root)
         return root
     }
@@ -1332,7 +1372,7 @@ class PresApp {
 
     fn layoutChrome:EVGLayout () {
         def root:EVGElement (this.chromeTree())
-        sheet.setViewport(W H false)
+        sheet.setViewport(W H coarse)
         sheet.applyTree(root "")
         def lay (new EVGLayout())
         lay.setPageSize(W H)
@@ -1350,7 +1390,7 @@ class PresApp {
         def dl (new EVGDisplayList())
         dl.setTextEngine((lay.getTextEngine()))
         dl.build(root)
-        if (mode == "edit") {
+        if ((mode == "edit") && (edRect.w > 0.0)) {
             editor.focused = (focus == "editor")
             editor.layout.showLineNumbers = (edRect.w >= 360.0)
             editor.setBounds((to_int edRect.x) (to_int edRect.y) (to_int edRect.w) (to_int edRect.h))

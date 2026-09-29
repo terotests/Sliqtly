@@ -39,6 +39,8 @@ class PresToolbar {
     def requests:[string]
     def rev:int 0
     def measurer@(optional):TTFTextMeasurer
+    ; a finger rather than a mouse: `@media (pointer: coarse)`
+    def coarse:boolean false
 
     Constructor () {
     }
@@ -89,7 +91,7 @@ class PresToolbar {
         c.variant = variant
         c.build()
         def r:EVGElement (unwrap c.rootEl)
-        UiTree.addClass(r "tb-button")
+        UiTree.addClass(r ("tb-button tb-b-" + id))
         if ((variant == "primary") && ((r.getChildCount()) > 0)) {
             UiTree.addClass((r.getChild(0)) "tb-onprimary")
         }
@@ -122,7 +124,12 @@ class PresToolbar {
         }
         c.value = current
         c.build()
-        UiTree.addClass((unwrap c.rootEl) ("tb-select tb-select-" + id))
+        def sr:EVGElement (unwrap c.rootEl)
+        UiTree.addClass(sr ("tb-select tb-select-" + id))
+        ; the trigger has a class of its own, for its width per select
+        if ((sr.getChildCount()) > 0) {
+            UiTree.addClass((sr.getChild(0)) ("tb-trig-" + id))
+        }
         this.put(c parent)
         return c
     }
@@ -175,7 +182,7 @@ class PresToolbar {
     fn page:EVGElement () {
         def r:EVGElement (unwrap host.root)
         def s:EVGStyleSheet (unwrap host.sheet)
-        s.setViewport(w h false)
+        s.setViewport(w h coarse)
         host.markStates(r)
         s.applyTree(r host.theme)
         def pg (EVGElement.createDiv())

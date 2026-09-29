@@ -655,6 +655,26 @@ try {
     check("h2 { color } colours the slide titles, heading { color } the rest", hc.h2 && hc.h1, JSON.stringify(hc));
   }
 
+  // Narrow and back: the slides only under 700px, the editor again when wider,
+  // and the bar's @media rules follow the width
+  {
+    const vp = page.viewportSize();
+    const narrowBar = async () => page.evaluate(() => {
+      const a = window.__app;
+      a.toolbarJson();
+      const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      const pdf = walk(a.toolbar.host.lastPage, "tb-pdf");
+      return { compact: a.isCompact(), pdfShown: !!pdf && pdf.calculatedWidth > 0 };
+    });
+    await page.setViewportSize({ width: 560, height: 760 });
+    await page.waitForTimeout(400);
+    const narrow = await narrowBar();
+    await page.setViewportSize(vp);
+    await page.waitForTimeout(400);
+    const wide = await narrowBar();
+    check("a narrow window shows the slides only and a shorter bar; widening brings the editor back", narrow.compact && !narrow.pdfShown && !wide.compact && wide.pdfShown, JSON.stringify({ narrow, wide }));
+  }
+
   // The help panel: only what the slide has, and a property opened in the theme
   const help = await page.evaluate(() => {
     const a = window.__app;

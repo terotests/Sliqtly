@@ -581,9 +581,12 @@ async function copyShare(which) {
 // is offered, not forced — a browser gives it only to a tap of the viewer's own.
 let viewer = false;
 let idleTimer = 0;
-function isPhone() {
-  const coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
-  return !!coarse && Math.min(window.innerWidth, window.innerHeight) < 600;
+// A finger rather than a mouse; followed when it changes (a tablet with a
+// keyboard attached), for the sheets' `@media (pointer: coarse)`.
+const coarseQuery = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
+function isCoarse() { return !!(coarseQuery && coarseQuery.matches); }
+if (coarseQuery && coarseQuery.addEventListener) {
+  coarseQuery.addEventListener("change", () => { app.setCoarse(isCoarse()); needsPaint = true; });
 }
 function enterViewer() {
   viewer = true;
@@ -1082,6 +1085,7 @@ async function start() {
   }
   const r = stageEl.getBoundingClientRect();
   app.init(css, Math.max(320, r.width), Math.max(240, r.height));
+  app.setCoarse(isCoarse());
   resize();
   window.addEventListener("resize", resize);
 
@@ -1133,14 +1137,13 @@ async function start() {
     await openSample(sample);
   }
 
-  // A phone gets the presentation, not the editor: its keyboard covers half
-  // the screen and the editor cannot be used under it. ?edit opens the
-  // editor anyway.
-  if (!viewer && isPhone() && !q.has("edit")) enterViewer();
-  if (viewer) keys.blur();
+  // A narrow window gets the slides without the editor (PresApp.isCompact,
+  // decided on every layout, so it follows the window); on a touch screen
+  // the hidden text field is not focused, so no keyboard comes up.
+  if (viewer || isCoarse()) keys.blur();
 
   hintEl.remove();
-  if (!viewer) focusKeys("editor");
+  if (!viewer && !isCoarse()) focusKeys("editor");
   window.__pageStarted = true;
   requestAnimationFrame(frame);
 }
