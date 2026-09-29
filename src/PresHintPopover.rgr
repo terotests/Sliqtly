@@ -83,6 +83,8 @@ class PresHintPopover {
     def sliding:boolean false
     def field:InputCtl (new InputCtl())
     def fieldOn:boolean false
+    ; the value in the header, updated in place while the slider is dragged
+    def valueEl:EVGElement (EVGElement.createSpan())
 
     Constructor () {
     }
@@ -253,7 +255,8 @@ class PresHintPopover {
         card.id = "hp-card"
         def head:EVGElement (this.div("hp-head"))
         head.addChild((this.words("hp-name" name)))
-        head.addChild((this.words("hp-value" value)))
+        valueEl = (this.words("hp-value" value))
+        head.addChild(valueEl)
         card.addChild(head)
         if ((strlen doc) > 0) {
             card.addChild((this.words("hp-doc" doc)))
@@ -697,10 +700,14 @@ class PresHintPopover {
             return
         }
         if sliding {
+            ; the host keeps the drag: the card is not rebuilt until release
             host.pointerMove(px py)
             this.takeSlider()
-            this.rebuild()
-            this.page()
+            def parts:[string] (this.numberParts())
+            field.setValue((itemAt parts 0))
+            field.build()
+            valueEl.textContent = value
+            rev = (rev + 1)
         }
     }
 

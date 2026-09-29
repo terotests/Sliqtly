@@ -255,8 +255,8 @@ class PresHelp {
     sfn knownProps:string (sel:string) {
         if (sel == "page") { return "width,height,padding,background-color,background-image" }
         if ((sel == "document") || (sel == "body")) { return "font-family,font-size,line-height,color" }
-        if (sel == "heading") { return "font-family,margin-top,margin-bottom" }
-        if (((strlen sel) == 2) && (((charAt sel 0) == 104) && (((charAt sel 1) >= 49) && ((charAt sel 1) <= 54)))) { return "font-size" }
+        if (sel == "heading") { return "font-family,color,margin-top,margin-bottom" }
+        if (((strlen sel) == 2) && (((charAt sel 0) == 104) && (((charAt sel 1) >= 49) && ((charAt sel 1) <= 54)))) { return "font-size,color" }
         if (sel == "p") { return "margin-bottom" }
         if (sel == "code") { return "font-family,font-size,line-height,padding,background-color,border-color" }
         if (sel == "mark") { return "background-color,color" }
@@ -564,19 +564,26 @@ class PresHelp {
         return ((indexOf sc.tags (" " + t + " ")) >= 0)
     }
 
+    sfn levelDoc:string (lv:int) {
+        if (lv == 1) { return "Esityksen otsikko: # Otsikko." }
+        if (lv == 2) { return "Dian otsikko: ## Otsikko aloittaa dian." }
+        if (lv == 3) { return "Väliotsikko dian sisällä: ### Otsikko." }
+        return ("Tason " + (to_string lv) + " otsikko.")
+    }
+
     sfn forSlide:string (text:string title:string css0:string) {
         def css:string (PresHelp.noComments(css0))
         def sc:PresSlideScan (PresHelp.scan(text))
         def out:[string]
         push out (PresHelp.feature("slide" "Dia ja teksti" "## Otsikko aloittaa uuden dian" "Dian tausta ja reunat sekä kaiken tekstin kirjasin, koko ja väri." ((PresHelp.rule(css "page" "Dian tausta ja marginaali." "background-color,padding")) + "," + (PresHelp.rule(css "document" "Kaiken tekstin oletukset." "font-family,font-size,line-height,color")))))
         if (((strlen title) > 0) || ((strlen sc.levels) > 0)) {
-            def rules:string (PresHelp.rule(css "heading" "Kaikki otsikot." "font-family,margin-top,margin-bottom"))
+            def rules:string (PresHelp.rule(css "heading" "Kaikki otsikot." "font-family,color,margin-top,margin-bottom"))
             def lv:int 1
             def syn:string ""
             while (lv <= 6) {
                 def ls:string (to_string lv)
                 if (((indexOf sc.levels ls) >= 0) || ((lv == 2) && ((strlen sc.levels) == 0))) {
-                    rules = (rules + "," + (PresHelp.rule(css ("h" + ls) ("Tason " + ls + " otsikko.") "font-size")))
+                    rules = (rules + "," + (PresHelp.rule(css ("h" + ls) (PresHelp.levelDoc(lv)) "font-size,color")))
                     def hashes:string ""
                     def k:int 0
                     while (k < lv) {
@@ -590,7 +597,7 @@ class PresHelp {
                 }
                 lv = (lv + 1)
             }
-            push out (PresHelp.feature("heading" "Otsikot" syn "Otsikon väri on tekstin väri (document). Otsikon alla oleva viiva on hr-säännön värinen." rules))
+            push out (PresHelp.feature("heading" "Otsikot" syn "# on esityksen otsikko (h1, avausdia), ## aloittaa uuden dian ja on sen otsikko (h2), ### on väliotsikko dian sisällä (h3). Väri: hN { color } tai kaikille heading { color }; muuten tekstin väri. Viiva h1:n ja h2:n alla on hr-säännön värinen." rules))
         }
         if sc.para {
             push out (PresHelp.feature("p" "Kappale" "Tekstiä, tyhjä rivi erottaa kappaleet." "" (PresHelp.rule(css "p" "Kappale." "margin-bottom"))))

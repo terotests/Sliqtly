@@ -394,3 +394,5 @@
 
 /* --- the value lines ----------------------------------------------------------------- */
 
+.theme-ce .ui-slider-thumb:hover { transform: scale(1.1); }
+.theme-ce .ui-slider-thumb:active { transform: scale(1.1); }

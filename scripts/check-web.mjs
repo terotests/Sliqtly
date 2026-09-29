@@ -582,18 +582,26 @@ try {
       const before = a.themeCss().split("\n")[nl];
       const sl = find("hp-slider");
       a.pointerDown(sl.calculatedX + sl.calculatedWidth * 0.5, sl.calculatedY + 8, false, 1);
+      a.pointerMove(sl.calculatedX + sl.calculatedWidth * 0.7, sl.calculatedY + 8);
+      const mid = a.themeCss().split("\n")[nl];
+      a.hintJson();
+      const num = find("hp-num");
+      const unitY = (() => { const w = (e) => { if (e.className === "hp-unit") return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.hint.host.lastPage); })();
+      const oneLine = !!unitY && Math.abs((unitY.calculatedY + unitY.calculatedHeight / 2) - (num.calculatedY + num.calculatedHeight / 2)) < 6;
       a.pointerMove(sl.calculatedX + sl.calculatedWidth * 0.9, sl.calculatedY + 8);
       a.pointerUp();
       const after = a.themeCss().split("\n")[nl];
+      const twoMoves = mid !== before && after !== mid;
       a.closeHint();
       a.setStyleSheet(css0);
       a.showTab("md");
       a.setSource(src0);
-      return { opened, drawn, chip, closed, kind, colour, slid: before !== after, before, after, htmlGone: !document.getElementById("valHint") };
+      return { opened, drawn, chip, closed, kind, colour, slid: before !== after, twoMoves, oneLine, before, mid, after, htmlGone: !document.getElementById("valHint") };
     });
     check("the value popover is drawn on the canvas", hp.opened && hp.drawn > 10 && hp.htmlGone, JSON.stringify(hp));
     check("…a chip writes the value, Escape closes it", hp.chip && hp.closed, JSON.stringify(hp));
     check("…a colour from EVGUI's picker, a number from its slider", hp.kind === "color" && hp.colour && hp.slid, JSON.stringify(hp));
+    check("…the slider follows every move of one drag, its unit stays on the line", hp.twoMoves && hp.oneLine, JSON.stringify(hp));
   }
 
   // The help panel is on the canvas: docked on the right, a property opens in the theme
@@ -626,6 +634,25 @@ try {
     });
     check("the help panel is drawn on the canvas", hp.open && hp.drawn > 30, JSON.stringify(hp));
     check("…a property opens in the theme with its popover; ✕ closes the panel", hp.tab === "css" && hp.hint && hp.closed, JSON.stringify(hp));
+  }
+
+  // A heading's colour: h2 { color } and heading { color }
+  {
+    const hc = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      const css0 = a.themeCss();
+      a.setSource("# Esitys\n\n## Dia\n\nTeksti\n");
+      a.setStyleSheet(css0 + "\nh2 {\n  color: #ddacac;\n}\nheading {\n  color: #22c55e;\n}\n");
+      a.selectSlide(1);
+      const st = JSON.stringify(JSON.parse(a.stageJson()).list);
+      a.selectSlide(0);
+      const st0 = JSON.stringify(JSON.parse(a.stageJson()).list);
+      a.setStyleSheet(css0);
+      a.setSource(src0);
+      return { h2: st.includes("[221,172,172"), h1: st0.includes("[34,197,94") };
+    });
+    check("h2 { color } colours the slide titles, heading { color } the rest", hc.h2 && hc.h1, JSON.stringify(hc));
   }
 
   // The help panel: only what the slide has, and a property opened in the theme

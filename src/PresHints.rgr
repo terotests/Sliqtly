@@ -207,7 +207,7 @@ class PresHints {
         if (sel == "code") { return "Koodilohkot." }
         if (sel == "table") { return "Taulukot." }
         if (sel == "blockquote") { return "Lainaukset." }
-        if ((sel == "h1") || ((sel == "h2") || ((sel == "h3") || ((sel == "h4") || ((sel == "h5") || (sel == "h6")))))) { return ("Tason " + (substring sel 1 2) + " otsikon koko.") }
+        if ((sel == "h1") || ((sel == "h2") || ((sel == "h3") || ((sel == "h4") || ((sel == "h5") || (sel == "h6")))))) { return ("Tason " + (substring sel 1 2) + " otsikko: koko ja väri. h1 = # (esityksen otsikko), h2 = ## (dian otsikko), h3 = ###.") }
         if (sel == "body") { return "Kaiken tekstin oletukset (sama kuin document)." }
         if (sel == "p") { return "Kappaleet." }
         if (sel == "mark") { return "Korostus: <mark>…</mark>." }
