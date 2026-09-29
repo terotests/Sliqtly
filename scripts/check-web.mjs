@@ -396,6 +396,61 @@ try {
   });
   check("a selector's popover lists its properties", !!selHint && selHint.kind === "selector" && selHint.props.includes("padding=") && selHint.props.includes("background-image+"), JSON.stringify(selHint));
 
+  // The chart editor: a ```vega-lite fence as a kind and a table, written back
+  const ce = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.setSource("# D\n\n## O\n\n```vega-lite\n{\"data\": {\"values\": [{\"f\": \"A\", \"u\": 90}, {\"f\": \"B\", \"u\": 75}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"f\", \"type\": \"nominal\"}, \"y\": {\"field\": \"u\", \"type\": \"quantitative\"}}}\n```\n");
+    const opened = a.openChartEditor(5);
+    const drawn = JSON.parse(a.chartJson()).list.cmds.length;
+    const c = a.chart;
+    const at = (id) => {
+      const walk = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k); if (r) return r; } return null; };
+      const e = walk(c.host.lastPage);
+      return [e.calculatedX + 8, e.calculatedY + 8];
+    };
+    let p = at("ce-kind-6");
+    a.pointerDown(p[0], p[1], false, 1);
+    a.pointerUp();
+    const line = a.source().includes('"mark": "line"');
+    a.chartJson();
+    p = at("ce-c-0-1");
+    a.pointerDown(p[0], p[1], false, 1);
+    a.pointerUp();
+    a.key("backspace", false, false);
+    a.key("backspace", false, false);
+    a.text("60");
+    const typed = /"value":60/.test(a.source());
+    // the window moves by its title bar, and a click outside it closes it
+    a.chartJson();
+    p = at("ce-win-titlebar");
+    const x0 = c.x;
+    a.pointerDown(p[0] + 40, p[1], false, 1);
+    a.pointerMove(p[0] + 140, p[1] + 30);
+    a.pointerUp();
+    const moved = c.x - x0;
+    a.chartJson();
+    p = at("ce-win-titlebar");
+    a.pointerDown(p[0] + 40, p[1], false, 1);
+    const stillOpen = a.chartIsOpen();
+    a.pointerUp();
+    a.pointerDown(a.chart.win.frameEl.calculatedX + a.chart.win.frameEl.calculatedWidth + 30, 5, false, 1);
+    a.pointerUp();
+    const closed = !a.chartIsOpen();
+    // a fence that is not a table says why, and can start from one
+    a.setSource("# D\n\n## O\n\n```vega-lite\n{\"layer\": []}\n```\n");
+    a.openChartEditor(5);
+    const refused = a.chart.model.ok === false && a.chart.model.note.length > 0;
+    a.key("escape", false, false);
+    a.setSource(src0);
+    return { opened, drawn, line, typed, moved, stillOpen, closed, refused };
+  });
+  check("the chart editor opens on a vega-lite fence and draws", ce.opened && ce.drawn > 50, JSON.stringify(ce));
+  check("…a kind picked rewrites the fence", ce.line, JSON.stringify(ce));
+  check("…a number typed into the table goes into the chart", ce.typed, JSON.stringify(ce));
+  check("…its window moves by the title bar", ce.moved === 100 && ce.stillOpen, JSON.stringify(ce));
+  check("…a click outside closes it; a chart it cannot tabulate says why", ce.closed && ce.refused, JSON.stringify(ce));
+
   // The help panel: only what the slide has, and a property opened in the theme
   const help = await page.evaluate(() => {
     const a = window.__app;

@@ -1,0 +1,13 @@
+import { chromium } from "playwright-core";
+const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium", args:["--use-angle=swiftshader","--enable-unsafe-swiftshader"] });
+const p = await b.newPage({ viewport: { width: 1400, height: 860 } });
+p.on("pageerror", e => console.log("PAGEERR", e.message, (e.stack||"").split("\n").slice(0,4).join(" | ")));
+p.on("console", m => { if (m.type() === "error" || m.type()==="warning") console.log("CONSOLE", m.type(), m.text().slice(0,300)); });
+await p.goto("http://localhost:8770/");
+await p.waitForFunction(() => window.__app, null, {timeout: 30000});
+await p.waitForTimeout(1500);
+const src = "# D\n\n## Ominaisuudet\n\n```vega-lite\n{\n  \"data\": {\"values\": [\n    {\"feature\": \"Otsikot\", \"use\": 90},\n    {\"feature\": \"Listat\", \"use\": 75},\n    {\"feature\": \"Kuvat\", \"use\": 40},\n    {\"feature\": \"Kaaviot\", \"use\": 25}\n  ]},\n  \"width\": 640,\n  \"height\": 250,\n  \"mark\": \"bar\",\n  \"encoding\": {\n    \"x\": {\"field\": \"feature\", \"type\": \"nominal\", \"sort\": null, \"title\": null},\n    \"y\": {\"field\": \"use\", \"type\": \"quantitative\", \"title\": \"% of slides\"}\n  }\n}\n```\n";
+await p.evaluate((src) => { const a = window.__app; a.setSource(src); a.openChartEditor(5); }, src);
+await p.waitForTimeout(1200);
+await p.screenshot({ path: process.argv[2] + "/ce1.png" });
+await b.close();

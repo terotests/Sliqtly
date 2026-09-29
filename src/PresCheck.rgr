@@ -1,6 +1,7 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 ; Node checks for the deck and the timeline: `npm run check`.
 Import "PresTimeline.rgr"
+Import "PresChartModel.rgr"
 
 class PresCheck {
     def fails:int 0
@@ -85,6 +86,44 @@ class PresCheck {
         this.ok(((PresTimeline.slideAtTime(deck (s0.duration + 0.01))) == 1) "deck time to slide")
         this.ok(((deck.pageOfOffset((indexOf text "Toka"))) == 1) "source offset to slide")
         this.diagram()
+        this.chartModel()
+    }
+
+    ; The chart editor's model: a fence read as a table and written back.
+    fn chartModel:void () {
+        ; wide rows: a category and two measures
+        def wide:string "{\"width\": 400, \"data\": {\"values\": [{\"q\": \"Q1\", \"a\": 3, \"b\": 5}, {\"q\": \"Q2\", \"a\": 4, \"b\": 1}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"q\", \"type\": \"nominal\"}, \"y\": {\"field\": \"a\", \"type\": \"quantitative\", \"title\": \"Määrä\"}}}"
+        def m:PresChartModel (PresChartModel.fromSpec(wide))
+        this.ok(m.ok ("a bar chart reads as a table: " + m.note))
+        this.ok(((m.cols()) == 2) ("category and one measure, got " + (to_string (m.cols()))))
+        this.ok(((m.rows()) == 2) "two rows")
+        this.ok(((m.cell(1 1)) == "4") ("the value of Q2: " + (m.cell(1 1))))
+        this.ok((m.kind == 1) "columns")
+        this.ok((m.width == 400) "its width kept")
+        ; the long form a colour splits: pivoted into a column per series
+        def long:string "{\"data\": {\"values\": [{\"k\": \"x\", \"s\": \"A\", \"v\": 1}, {\"k\": \"x\", \"s\": \"B\", \"v\": 2}, {\"k\": \"y\", \"s\": \"A\", \"v\": 3}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"k\", \"type\": \"nominal\"}, \"y\": {\"field\": \"v\", \"type\": \"quantitative\", \"aggregate\": \"sum\"}, \"color\": {\"field\": \"s\"}}}"
+        def l:PresChartModel (PresChartModel.fromSpec(long))
+        this.ok(((l.cols()) == 3) ("two series as columns, got " + (to_string (l.cols()))))
+        this.ok((l.kind == 3) "stacked, as Vega-Lite stacks a coloured bar")
+        this.ok(((l.cell(1 2)) == "") "a missing pair is an empty cell")
+        ; a pie
+        def pie:string "{\"data\": {\"values\": [{\"c\": \"a\", \"n\": 2}, {\"c\": \"b\", \"n\": 3}]}, \"mark\": {\"type\": \"arc\", \"innerRadius\": 30}, \"encoding\": {\"theta\": {\"field\": \"n\", \"type\": \"quantitative\"}, \"color\": {\"field\": \"c\"}}}"
+        def pm:PresChartModel (PresChartModel.fromSpec(pie))
+        this.ok((pm.ok && (pm.kind == 17)) "a donut is a donut")
+        ; written back, and read again as the same table
+        l.kind = 6
+        l.title = "Otsikko"
+        def out:string (l.toSpec())
+        this.ok(((indexOf out "\"mark\": \"line\"") >= 0) ("a line spec: " + out))
+        this.ok(((indexOf out "\"config\"") < 0) "no spreadsheet palette on a slide")
+        def back:PresChartModel (PresChartModel.fromSpec(out))
+        this.ok((back.ok && ((back.kind == 6) && ((back.cols()) == 3))) ("read back: kind " + (to_string back.kind) + " cols " + (to_string (back.cols())) + " " + back.note))
+        this.ok(((back.cell(0 2)) == "2") ("the B of x survives: " + (back.cell(0 2))))
+        this.ok((back.title == "Otsikko") "and its title")
+        ; what cannot be a table says why
+        def layered:PresChartModel (PresChartModel.fromSpec("{\"layer\": []}"))
+        this.ok(((layered.ok == false) && ((strlen layered.note) > 0)) "a layered chart is refused with a reason")
+        this.ok((((l.suits(16)) == false) && (pm.suits(16))) "a pie wants exactly one series")
     }
 
     ; A flowchart is drawn and toured rather than pasted in as a picture.

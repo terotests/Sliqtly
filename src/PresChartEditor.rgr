@@ -1,0 +1,621 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresChartEditor.rgr — the chart settings editor, in EVG controls
+; ============================================================================
+;
+; Opened on a ```vega-lite fence: the chart's kind as a row of buttons (the
+; ones the table cannot make are disabled, and say what they need), its
+; title, legend and colours, and its data as a grid of fields — a header row
+; naming the series, a row per category. Every change is written straight
+; back into the fence (PresChartModel.toSpec), so the slide beside the editor
+; is the preview and Ctrl+Z undoes a change like any other edit.
+;
+; The controls are gallery/ui's: ButtonCtl, InputCtl and CheckboxCtl in a
+; UiHost of their own, styled by the kit's theme and the few rules in
+; web/chart-editor.css. The host lays them out with the app's font measurer
+; and hands back a display list the page draws over everything else; the app
+; routes the pointer and the keys here while the editor is open.
+; ============================================================================
+
+Import "PresChartModel.rgr"
+Import "../ui/src/UiHost.rgr"
+
+class PresChartEditor {
+    def host:UiHost (new UiHost())
+    def model:PresChartModel (new PresChartModel())
+    def css:string ""
+    def isOpen:boolean false
+    ; the window's top-left corner and the page it moves on, in app
+    ; coordinates: the host is as big as the app, the window an overlay in it
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 1200.0
+    def h:double 700.0
+    def win:WindowCtl (new WindowCtl())
+    def dragX:double 0.0
+    def dragY:double 0.0
+    def inputs:[InputCtl]
+    def focusTid:string ""
+    ; the model changed since the fence was last written
+    def changed:boolean false
+    ; set by a button that wants the editor closed, or a fresh table
+    def wantsClose:boolean false
+    def wantsFresh:boolean false
+    def message:string ""
+    def rev:int 0
+    def measurer@(optional):TTFTextMeasurer
+
+    Constructor () {
+    }
+
+    fn open:void (m:PresChartModel px:double py:double pw:double ph:double) {
+        model = m
+        x = px
+        y = py
+        w = pw
+        h = ph
+        isOpen = true
+        wantsClose = false
+        wantsFresh = false
+        changed = false
+        message = ""
+        focusTid = ""
+        this.rebuild()
+    }
+
+    fn close:void () {
+        isOpen = false
+        focusTid = ""
+        rev = (rev + 1)
+    }
+
+    ; Inside the window (its frame as last laid out).
+    fn has:boolean (px:double py:double) {
+        def f:EVGElement (unwrap win.frameEl)
+        if (f.calculatedWidth <= 0.0) {
+            return false
+        }
+        return (((px >= f.calculatedX) && (px <= (f.calculatedX + f.calculatedWidth))) && ((py >= f.calculatedY) && (py <= (f.calculatedY + f.calculatedHeight))))
+    }
+
+    fn dragging:boolean () {
+        return win.dragging
+    }
+
+    ; The title bar, dragged: the window moves by the pointer's delta.
+    fn dragTo:void (px:double py:double) {
+        if (win.dragging == false) {
+            return
+        }
+        win.dragBy((px - dragX) (py - dragY))
+        dragX = px
+        dragY = py
+        x = win.x
+        y = win.y
+        rev = (rev + 1)
+    }
+
+    fn release:void () {
+        if win.dragging {
+            win.release()
+            rev = (rev + 1)
+        }
+    }
+
+    ; --- building ---------------------------------------------------------------
+    fn div:EVGElement (cls:string) {
+        def d (EVGElement.createDiv())
+        d.className = cls
+        return d
+    }
+
+    fn text:EVGElement (cls:string words:string) {
+        def s (EVGElement.createSpan())
+        s.className = cls
+        s.textContent = words
+        return s
+    }
+
+    fn put:void (c:UiCtl parent:EVGElement) {
+        push host.ctls c
+        parent.addChild((unwrap c.rootEl))
+    }
+
+    fn button:ButtonCtl (tid:string name:string variant:string parent:EVGElement) {
+        def c (new ButtonCtl())
+        c.tid = tid
+        c.name = name
+        c.variant = variant
+        c.build()
+        UiTree.addClass((unwrap c.rootEl) "ce-small")
+        if (name == "×") {
+            UiTree.addClass((unwrap c.rootEl) "ce-x")
+        }
+        this.put(c parent)
+        return c
+    }
+
+    fn input:InputCtl (tid:string name:string value:string cls:string parent:EVGElement) {
+        def c (new InputCtl())
+        c.tid = tid
+        c.name = name
+        c.fontFamily = "Open Sans"
+        c.fontSize = 13.0
+        c.boxWidth = 80.0
+        c.setValue(value)
+        c.moveTo((strlen value) false)
+        c.build()
+        def r:EVGElement (unwrap c.rootEl)
+        UiTree.addClass(r cls)
+        if (tid == focusTid) {
+            UiTree.addClass(r "ce-focus")
+        }
+        this.put(c parent)
+        push inputs c
+        return c
+    }
+
+    fn rebuild:void () {
+        def fresh (new UiHost())
+        host = fresh
+        host.addStyleSheet(css)
+        host.setTheme("dark ce")
+        host.setPageSize(w h)
+        def none:[InputCtl]
+        inputs = none
+        def page0:EVGElement (unwrap host.root)
+        page0.className = "ui-root ce-page"
+        def w0 (new WindowCtl())
+        win = w0
+        win.tid = "ce-win"
+        win.name = "Kaavion asetukset"
+        win.title = "Kaavion asetukset"
+        win.closeLabel = "Sulje"
+        win.isModal = false
+        win.x = x
+        win.y = y
+        win.pageW = w
+        win.pageH = h
+        win.openWindow()
+        ; the window's body is where everything below goes
+        def root:EVGElement (unwrap win.bodyEl)
+        root.className = "chart-ed"
+        UiTree.clearChildren(root)
+        this.fillBody(root)
+        win.build()
+        push host.ctls win
+        page0.addChild((unwrap win.rootEl))
+        if ((strlen focusTid) > 0) {
+            host.focus(focusTid)
+        }
+        rev = (rev + 1)
+    }
+
+    fn fillBody:void (root:EVGElement) {
+        if (model.ok == false) {
+            root.addChild((this.text("ce-note" model.note)))
+            root.addChild((this.text("ce-doc" "Voit aloittaa uuden taulukon: kaavion nykyinen sisältö korvataan esimerkkitaulukolla.")))
+            def row0:EVGElement (this.div("ce-row"))
+            this.button("ce-fresh" "Aloita taulukosta" "secondary" row0)
+            this.button("ce-done" "Sulje" "secondary" row0)
+            root.addChild(row0)
+            return
+        }
+
+        ; the kind
+        root.addChild((this.text("ce-label" "Tyyppi")))
+        def kinds:EVGElement (this.div("ce-chips"))
+        def k:int 1
+        while (k <= 20) {
+            def variant:string "secondary"
+            if (k == model.kind) {
+                variant = "primary"
+            }
+            def b:ButtonCtl (new ButtonCtl())
+            b.tid = ("ce-kind-" + (to_string k))
+            b.name = (PresChartModel.kindLabel(k))
+            b.variant = variant
+            if ((k != model.kind) && ((model.suits(k)) == false)) {
+                b.disabled = true
+            }
+            b.build()
+            UiTree.addClass((unwrap b.rootEl) "ce-small")
+            this.put(b kinds)
+            k = (k + 1)
+        }
+        root.addChild(kinds)
+        if ((model.suits(model.kind)) == false) {
+            root.addChild((this.text("ce-warn" ((PresChartModel.kindLabel(model.kind)) + " tarvitsee " + (PresChartModel.kindNeeds(model.kind)) + "."))))
+        }
+
+        ; title and legend
+        def tl:EVGElement (this.div("ce-row"))
+        tl.addChild((this.text("ce-label" "Otsikko")))
+        this.input("ce-titlein" "Otsikko" model.title "ce-wide" tl)
+        def lg (new CheckboxCtl())
+        lg.tid = "ce-legend"
+        lg.name = "Selite"
+        if model.legend {
+            lg.checkState = 1
+        }
+        lg.build()
+        this.put(lg tl)
+        root.addChild(tl)
+
+        ; colours
+        root.addChild((this.text("ce-label" "Värit")))
+        def cols:EVGElement (this.div("ce-chips"))
+        def tv:string "secondary"
+        if ((strlen model.scheme) == 0) {
+            tv = "primary"
+        }
+        this.button("ce-scheme-" "Teeman värit" tv cols)
+        def names:[string] (strsplit (PresChartModel.schemes()) " ")
+        def s:int 0
+        while (s < (array_length names)) {
+            def nm:string (itemAt names s)
+            def v:string "secondary"
+            if (nm == model.scheme) {
+                v = "primary"
+            }
+            this.button(("ce-scheme-" + nm) nm v cols)
+            s = (s + 1)
+        }
+        root.addChild(cols)
+
+        ; the data
+        root.addChild((this.text("ce-label" "Tiedot  (ensimmäinen sarake: luokat, muut: sarjat)")))
+        def grid:EVGElement (this.div("ce-grid"))
+        def hr:EVGElement (this.div("ce-gridrow"))
+        def c:int 0
+        while (c < (model.cols())) {
+            this.input(("ce-h-" + (to_string c)) "Sarake" (itemAt model.header c) "ce-cell ce-head" hr)
+            c = (c + 1)
+        }
+        this.button("ce-addcol" "+ sarja" "ghost" hr)
+        grid.addChild(hr)
+        def r:int 0
+        while (r < (model.rows())) {
+            def row:EVGElement (this.div("ce-gridrow"))
+            def cc:int 0
+            while (cc < (model.cols())) {
+                def cls:string "ce-cell"
+                if (cc == 0) {
+                    cls = "ce-cell ce-cat"
+                }
+                this.input(("ce-c-" + (to_string r) + "-" + (to_string cc)) "Solu" (model.cell(r cc)) cls row)
+                cc = (cc + 1)
+            }
+            this.button(("ce-delrow-" + (to_string r)) "×" "ghost" row)
+            grid.addChild(row)
+            r = (r + 1)
+        }
+        def foot:EVGElement (this.div("ce-gridrow"))
+        this.button("ce-addrow" "+ rivi" "ghost" foot)
+        if ((model.cols()) > 2) {
+            this.button("ce-delcol" "− viimeinen sarja" "ghost" foot)
+        }
+        grid.addChild(foot)
+        root.addChild(grid)
+        if ((strlen message) > 0) {
+            root.addChild((this.text("ce-doc" message)))
+        }
+        def bottom:EVGElement (this.div("ce-top"))
+        bottom.addChild((this.text("ce-doc" "Muutokset näkyvät diassa heti. Ctrl+Z kumoaa ne ikkunan sulkemisen jälkeen.")))
+        bottom.addChild((this.div("ce-grow")))
+        this.button("ce-done" "Valmis" "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    ; --- drawing ------------------------------------------------------------------
+    fn page:EVGElement () {
+        def r:EVGElement (unwrap host.root)
+        def s:EVGStyleSheet (unwrap host.sheet)
+        s.setViewport(w h false)
+        host.markStates(r)
+        s.applyTree(r host.theme)
+        def pg (EVGElement.createDiv())
+        pg.id = "page"
+        pg.width = (EVGUnit.px(w))
+        pg.height = (EVGUnit.px(h))
+        pg.addChild(r)
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        ; the focused field's caret where its caret is, not after the text
+        def eng:EVGTextEngine (lay.getTextEngine())
+        def i:int 0
+        while (i < (array_length inputs)) {
+            def c:InputCtl (itemAt inputs i)
+            def car:EVGElement (unwrap c.caretEl)
+            if (c.tid == focusTid) {
+                c.ensureCaretVisible(eng)
+                def box:EVGElement (unwrap c.rootEl)
+                box.position = "relative"
+                car.position = "absolute"
+                car.left = (EVGUnit.px(((8.0 + (c.caretXAt(eng c.caret))) - c.scrollX)))
+                car.top = (EVGUnit.px(7.0))
+            } {
+                car.width = (EVGUnit.px(0.0))
+            }
+            i = (i + 1)
+        }
+        lay.layout(pg)
+        host.lastPage = pg
+        return pg
+    }
+
+    fn displayList:EVGDisplayList () {
+        def pg:EVGElement (this.page())
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(pg)
+        return dl
+    }
+
+    ; --- input --------------------------------------------------------------------
+    fn inputFor@(optional):InputCtl (tid:string) {
+        def found@(optional):InputCtl
+        def i:int 0
+        while (i < (array_length inputs)) {
+            def c:InputCtl (itemAt inputs i)
+            if (c.tid == tid) {
+                found = c
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    fn focusInput:void (tid:string) {
+        def prev@(optional):InputCtl (this.inputFor(focusTid))
+        if (!null? prev) {
+            def pc:InputCtl (unwrap prev)
+            UiTree.removeClass((unwrap pc.rootEl) "ce-focus")
+        }
+        focusTid = tid
+        def next@(optional):InputCtl (this.inputFor(tid))
+        if (!null? next) {
+            def nc:InputCtl (unwrap next)
+            UiTree.addClass((unwrap nc.rootEl) "ce-focus")
+            nc.moveTo((strlen nc.value) false)
+            host.focus(tid)
+        }
+        rev = (rev + 1)
+    }
+
+    ; A press in panel coordinates. What it did is in the model (and
+    ; `changed`), or in `wantsClose` / `wantsFresh` for the app to act on.
+    fn press:void (px:double py:double) {
+        if ((this.has(px py)) == false) {
+            return
+        }
+        if (null? host.lastPage) {
+            this.page()
+        }
+        def tid:string (host.hitTest(px py))
+        if ((strlen tid) == 0) {
+            return
+        }
+        if (tid == (win.closeTid())) {
+            wantsClose = true
+            return
+        }
+        if (win.isHandle(tid)) {
+            win.press(tid)
+            dragX = px
+            dragY = py
+            rev = (rev + 1)
+            return
+        }
+        ; the part of a control that was hit (a field's text, a box's tick)
+        ; carries its own id: the control's is the root's
+        def ctlTid:string tid
+        def maybe@(optional):UiCtl (host.ctlFor(tid))
+        if (!null? maybe) {
+            def owner:UiCtl (unwrap maybe)
+            ctlTid = owner.tid
+        }
+        def asInput@(optional):InputCtl (this.inputFor(ctlTid))
+        if (!null? asInput) {
+            this.focusInput(ctlTid)
+            return
+        }
+        this.act(ctlTid)
+    }
+
+    fn act:void (tid:string) {
+        message = ""
+        if (tid == "ce-done") {
+            wantsClose = true
+            return
+        }
+        if (tid == "ce-fresh") {
+            wantsFresh = true
+            return
+        }
+        if ((indexOf tid "ce-kind-") == 0) {
+            def k:int (?? (str2int (substring tid 8 (strlen tid))) 0)
+            if ((k > 0) && ((k == model.kind) || (model.suits(k)))) {
+                model.kind = k
+                changed = true
+            } {
+                message = ((PresChartModel.kindLabel(k)) + " tarvitsee " + (PresChartModel.kindNeeds(k)) + ".")
+            }
+            this.rebuild()
+            return
+        }
+        if ((indexOf tid "ce-scheme-") == 0) {
+            model.scheme = (substring tid 10 (strlen tid))
+            changed = true
+            this.rebuild()
+            return
+        }
+        if (tid == "ce-legend") {
+            model.legend = (model.legend == false)
+            changed = true
+            this.rebuild()
+            return
+        }
+        if (tid == "ce-addrow") {
+            model.addRow()
+            focusTid = ("ce-c-" + (to_string ((model.rows()) - 1)) + "-0")
+            changed = true
+            this.rebuild()
+            return
+        }
+        if (tid == "ce-addcol") {
+            model.addCol(("Sarja " + (to_string (model.cols()))))
+            changed = true
+            this.rebuild()
+            return
+        }
+        if (tid == "ce-delcol") {
+            model.removeCol(((model.cols()) - 1))
+            focusTid = ""
+            changed = true
+            this.rebuild()
+            return
+        }
+        if ((indexOf tid "ce-delrow-") == 0) {
+            model.removeRow((?? (str2int (substring tid 10 (strlen tid))) -1))
+            focusTid = ""
+            changed = true
+            this.rebuild()
+            return
+        }
+    }
+
+    ; The focused field's text into the model.
+    fn take:void () {
+        def maybe@(optional):InputCtl (this.inputFor(focusTid))
+        if (null? maybe) {
+            return
+        }
+        def c:InputCtl (unwrap maybe)
+        def v:string c.value
+        if (focusTid == "ce-titlein") {
+            model.title = v
+        }
+        if ((indexOf focusTid "ce-h-") == 0) {
+            model.setHeader((?? (str2int (substring focusTid 5 (strlen focusTid))) -1) v)
+        }
+        if ((indexOf focusTid "ce-c-") == 0) {
+            def parts:[string] (strsplit (substring focusTid 5 (strlen focusTid)) "-")
+            if ((array_length parts) == 2) {
+                model.setCell((?? (str2int (itemAt parts 0)) -1) (?? (str2int (itemAt parts 1)) -1) v)
+            }
+        }
+        changed = true
+        rev = (rev + 1)
+    }
+
+    fn type:void (s:string) {
+        if ((strlen focusTid) == 0) {
+            return
+        }
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:string (substring s i (i + 1))
+            if ((ch != (strfromcode 10)) && (ch != (strfromcode 13))) {
+                host.type(ch)
+            }
+            i = (i + 1)
+        }
+        this.take()
+    }
+
+    ; The fields in reading order, for Tab and Enter.
+    fn nextField:string (from:string back:boolean) {
+        def i:int 0
+        def at:int -1
+        while (i < (array_length inputs)) {
+            def ci:InputCtl (itemAt inputs i)
+            if (ci.tid == from) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        def n:int (array_length inputs)
+        if (n == 0) {
+            return ""
+        }
+        def j:int (at + 1)
+        if back {
+            j = (at - 1)
+        }
+        if (j < 0) {
+            j = (n - 1)
+        }
+        if (j >= n) {
+            j = 0
+        }
+        def cj:InputCtl (itemAt inputs j)
+        return cj.tid
+    }
+
+    ; A key by the app's names. True when the editor used it.
+    fn key:boolean (name:string shift:boolean ctrl:boolean) {
+        if (name == "escape") {
+            wantsClose = true
+            return true
+        }
+        if ((name == "tab") || (name == "enter")) {
+            if ((strlen focusTid) > 0) {
+                this.focusInput((this.nextField(focusTid shift)))
+            }
+            return true
+        }
+        if ((strlen focusTid) == 0) {
+            return true
+        }
+        def kit:string ""
+        if (name == "left") { kit = "ArrowLeft" }
+        if (name == "right") { kit = "ArrowRight" }
+        if (name == "home") { kit = "Home" }
+        if (name == "end") { kit = "End" }
+        if (name == "backspace") { kit = "Backspace" }
+        if (name == "delete") { kit = "Delete" }
+        if ((strlen kit) > 0) {
+            host.keyWith(kit shift ctrl)
+            if ((name == "backspace") || (name == "delete")) {
+                this.take()
+            }
+            rev = (rev + 1)
+        }
+        return true
+    }
+
+    fn cursorAt:string (px:double py:double) {
+        if ((this.has(px py)) == false) {
+            return ""
+        }
+        if (null? host.lastPage) {
+            return "default"
+        }
+        def tid:string (host.hitTest(px py))
+        if ((strlen tid) == 0) {
+            return "default"
+        }
+        if (win.isHandle(tid)) {
+            return "move"
+        }
+        def maybe@(optional):UiCtl (host.ctlFor(tid))
+        if (!null? maybe) {
+            def owner:UiCtl (unwrap maybe)
+            def asInput@(optional):InputCtl (this.inputFor(owner.tid))
+            if (!null? asInput) {
+                return "text"
+            }
+        }
+        return "pointer"
+    }
+}

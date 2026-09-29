@@ -1,0 +1,855 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresChartModel.rgr — a ```vega-lite fence as a table and a kind
+; ============================================================================
+;
+; The chart editor does not edit a specification. It edits what a person
+; thinks a chart is: a table (categories down the side, one column per
+; series), a kind (columns, lines, a pie…), a title, whether there is a
+; legend, and which colours. The specification is regenerated from those
+; after every change by the spreadsheet's own generator (`ChartData.specJson`
+; in gallery/datagrid) — the one the grid's chart dialog and the pasted
+; charts of the DOCX editor already go through, and whose output Vela draws
+; the same as the reference compiler does.
+;
+; Reading a fence back into a table is the part that has to guess. It
+; understands the shapes that a table can make: one row per category with a
+; column per measure, or the long form (category, series, value) that a
+; colour channel splits — which is also what the generator writes, so a
+; chart the editor made reads back as the table it was made from. Anything
+; else (layers, facets, data from a URL, transforms) is left as it is, and
+; `ok` says so with a reason.
+; ============================================================================
+
+Import "../datagrid/src/GridChart.rgr"
+Import "../vela/src/VlJson.rgr"
+
+class PresChartModel {
+    def ok:boolean false
+    def note:string ""
+    ; header[0] names the categories, header[1..] the series
+    def header:[string]
+    ; row-major, `cols()` per row, category first
+    def cells:[string]
+    def kind:int 1
+    def title:string ""
+    def legend:boolean true
+    ; a named Vega colour scheme, or "" for the slide theme's colours
+    def scheme:string ""
+    def width:int 0
+    def height:int 0
+    ; members of the original carried through unchanged
+    def schema:string ""
+    def description:string ""
+    def background:string ""
+    ; what the measure and the series are called when there are several
+    ; series (the headers then name the series, not the measure)
+    def valueTitle:string ""
+    def seriesTitle:string ""
+
+    Constructor () {
+    }
+
+    fn cols:int () {
+        return (array_length header)
+    }
+
+    fn rows:int () {
+        if ((this.cols()) == 0) {
+            return 0
+        }
+        return (idiv (array_length cells) (this.cols()))
+    }
+
+    fn cell:string (r:int c:int) {
+        def i:int ((r * (this.cols())) + c)
+        if ((i < 0) || (i >= (array_length cells))) {
+            return ""
+        }
+        return (itemAt cells i)
+    }
+
+    fn setCell:void (r:int c:int v:string) {
+        def i:int ((r * (this.cols())) + c)
+        if ((i >= 0) && (i < (array_length cells))) {
+            set_at cells i v
+        }
+    }
+
+    fn setHeader:void (c:int v:string) {
+        if ((c >= 0) && (c < (array_length header))) {
+            set_at header c v
+        }
+    }
+
+    fn addRow:void () {
+        def c:int 0
+        while (c < (this.cols())) {
+            push cells ""
+            c = (c + 1)
+        }
+    }
+
+    fn removeRow:void (r:int) {
+        if (((this.rows()) <= 1) || (r < 0) || (r >= (this.rows()))) {
+            return
+        }
+        def n:int (this.cols())
+        def out:[string]
+        def i:int 0
+        while (i < (array_length cells)) {
+            if ((idiv i n) != r) {
+                push out (itemAt cells i)
+            }
+            i = (i + 1)
+        }
+        cells = out
+    }
+
+    fn addCol:void (name:string) {
+        def n:int (this.cols())
+        def rs:int (this.rows())
+        def out:[string]
+        def r:int 0
+        while (r < rs) {
+            def c:int 0
+            while (c < n) {
+                push out (this.cell(r c))
+                c = (c + 1)
+            }
+            push out ""
+            r = (r + 1)
+        }
+        push header name
+        cells = out
+    }
+
+    fn removeCol:void (col:int) {
+        def n:int (this.cols())
+        if ((n <= 2) || (col <= 0) || (col >= n)) {
+            return
+        }
+        def rs:int (this.rows())
+        def out:[string]
+        def r:int 0
+        while (r < rs) {
+            def c:int 0
+            while (c < n) {
+                if (c != col) {
+                    push out (this.cell(r c))
+                }
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        def h:[string]
+        def k:int 0
+        while (k < n) {
+            if (k != col) {
+                push h (itemAt header k)
+            }
+            k = (k + 1)
+        }
+        header = h
+        cells = out
+    }
+
+    ; --- the kinds, in Finnish --------------------------------------------------
+    sfn kindLabel:string (kind:int) {
+        if (kind == 1) { return "Pylväs" }
+        if (kind == 2) { return "Vaakapylväs" }
+        if (kind == 3) { return "Pinottu" }
+        if (kind == 4) { return "100 %" }
+        if (kind == 5) { return "Histogrammi" }
+        if (kind == 6) { return "Viiva" }
+        if (kind == 7) { return "Viiva + pisteet" }
+        if (kind == 8) { return "Porras" }
+        if (kind == 9) { return "Pehmeä viiva" }
+        if (kind == 10) { return "Alue" }
+        if (kind == 11) { return "Pinottu alue" }
+        if (kind == 12) { return "Virta" }
+        if (kind == 13) { return "Hajonta" }
+        if (kind == 14) { return "Kupla" }
+        if (kind == 15) { return "Viivat" }
+        if (kind == 16) { return "Piirakka" }
+        if (kind == 17) { return "Donitsi" }
+        if (kind == 18) { return "Säde" }
+        if (kind == 19) { return "Lämpökartta" }
+        if (kind == 20) { return "Laatikko" }
+        return (ChartKind.label(kind))
+    }
+
+    ; What a kind needs of the table, said when the table does not have it.
+    sfn kindNeeds:string (kind:int) {
+        if ((kind == 3) || ((kind == 4) || ((kind == 11) || ((kind == 12) || (kind == 19))))) { return "vähintään kaksi sarjaa (saraketta)" }
+        if ((kind == 16) || ((kind == 17) || (kind == 18))) { return "tasan yhden sarjan (sarakkeen)" }
+        if (kind == 13) { return "kaksi numerosaraketta (x ja y)" }
+        if (kind == 14) { return "kolme numerosaraketta (x, y ja koko)" }
+        if (kind == 20) { return "vähintään kolme riviä" }
+        if (kind == 5) { return "vähintään kolme lukua" }
+        return "vähintään kaksi riviä"
+    }
+
+    sfn schemes:string () {
+        return "tableau10 category10 set2 dark2 pastel1 blues greens oranges purples"
+    }
+
+    ; --- the table as a sheet, for the generator ----------------------------------
+    fn sheet:SpreadsheetModel () {
+        def m (new SpreadsheetModel())
+        def c:int 0
+        while (c < (this.cols())) {
+            m.setCell(0 c (itemAt header c))
+            c = (c + 1)
+        }
+        def r:int 0
+        while (r < (this.rows())) {
+            def k:int 0
+            while (k < (this.cols())) {
+                m.setCell((r + 1) k (this.cell(r k)))
+                k = (k + 1)
+            }
+            r = (r + 1)
+        }
+        return m
+    }
+
+    fn gridChart:GridChart (kind0:int) {
+        def ch (new GridChart())
+        ch.kind = kind0
+        ch.style = 1
+        ch.title = title
+        ch.showLegend = legend
+        ch.r0 = 0
+        ch.c0 = 0
+        ch.r1 = (this.rows())
+        ch.c1 = ((this.cols()) - 1)
+        ch.useHeaderRow = true
+        ch.useHeaderCol = true
+        return ch
+    }
+
+    fn suits:boolean (kind0:int) {
+        if ((this.cols()) < 2) {
+            return false
+        }
+        def data (new ChartData())
+        if ((data.extract((this.sheet()) (this.gridChart(kind0)))) == false) {
+            return false
+        }
+        return (data.suits(kind0))
+    }
+
+    ; The fence's new text: the generator's specification, without the
+    ; spreadsheet's paper and furniture (on a slide the theme draws those),
+    ; with the size and the colours this model asks for. "" when the table
+    ; cannot make a chart at all.
+    fn toSpec:string () {
+        if ((this.cols()) < 2) {
+            return ""
+        }
+        def data (new ChartData())
+        def ch:GridChart (this.gridChart(kind))
+        if ((data.extract((this.sheet()) ch)) == false) {
+            return ""
+        }
+        def w:int width
+        def h:int height
+        if (w <= 0) {
+            w = 640
+        }
+        if (h <= 0) {
+            h = 300
+        }
+        def text:string (data.specJson(ch w h))
+        def p (new VlJsonParser())
+        def gen:VlJson (p.parse(text))
+        if ((gen.isObject()) == false) {
+            return ""
+        }
+        def out:VlJson (VlJson.objectValue())
+        if ((strlen schema) > 0) {
+            out.setMember("$schema" (VlJson.stringValue(schema)))
+        }
+        if ((strlen description) > 0) {
+            out.setMember("description" (VlJson.stringValue(description)))
+        }
+        def i:int 0
+        while (i < (array_length gen.keys)) {
+            def k:string (itemAt gen.keys i)
+            def keep:boolean true
+            if ((k == "config") || (k == "background")) {
+                keep = false
+            }
+            if ((k == "width") && (width <= 0)) {
+                keep = false
+            }
+            if ((k == "height") && (height <= 0)) {
+                keep = false
+            }
+            if keep {
+                out.setMember(k (gen.get(k)))
+            }
+            i = (i + 1)
+        }
+        if ((strlen background) > 0) {
+            out.setMember("background" (VlJson.stringValue(background)))
+        }
+        ; the generator's placeholders for the titles it could not know
+        def enc:VlJson (out.get("encoding"))
+        if (enc.isObject()) {
+            def e:int 0
+            while (e < (array_length enc.keys)) {
+                def chv:VlJson (enc.get((itemAt enc.keys e)))
+                if (chv.isObject()) {
+                    def t:string (chv.stringOr("title" "-"))
+                    def f:string (chv.stringOr("field" ""))
+                    if ((t == "Series") && (f == "series")) {
+                        chv.setMember("title" (VlJson.stringValue(seriesTitle)))
+                    }
+                    if (((t == "") && (f == "value")) && ((strlen valueTitle) > 0)) {
+                        chv.setMember("title" (VlJson.stringValue(valueTitle)))
+                    }
+                }
+                e = (e + 1)
+            }
+        }
+        if ((strlen scheme) > 0) {
+            def s:VlJson (VlJson.objectValue())
+            s.setMember("scheme" (VlJson.stringValue(scheme)))
+            def cat:VlJson (VlJson.objectValue())
+            cat.setMember("category" s)
+            def range:VlJson (VlJson.objectValue())
+            range.setMember("range" cat)
+            out.setMember("config" range)
+        }
+        return (PresChartModel.write(out))
+    }
+
+    ; Readable in a fence: one member per line, one data row per line, and
+    ; everything smaller on the line it belongs to.
+    sfn write:string (spec:VlJson) {
+        def w (new VlJsonWriter())
+        def nl:string (strfromcode 10)
+        def out:string ("{" + nl)
+        def i:int 0
+        def n:int (array_length spec.keys)
+        while (i < n) {
+            def k:string (itemAt spec.keys i)
+            def v:VlJson (spec.get(k))
+            out = (out + "  " + (w.quote(k)) + ": ")
+            def values:VlJson (v.get("values"))
+            if (((k == "data") && (v.isObject())) && (values.isArray())) {
+                out = (out + "{\"values\": [" + nl)
+                def r:int 0
+                while (r < (values.count())) {
+                    out = (out + "    " + (w.write((values.at(r)))))
+                    if (r < ((values.count()) - 1)) {
+                        out = (out + ",")
+                    }
+                    out = (out + nl)
+                    r = (r + 1)
+                }
+                out = (out + "  ]}")
+            } {
+                if ((k == "encoding") && (v.isObject())) {
+                    out = (out + "{" + nl)
+                    def e:int 0
+                    while (e < (array_length v.keys)) {
+                        def ek:string (itemAt v.keys e)
+                        out = (out + "    " + (w.quote(ek)) + ": " + (w.write((v.get(ek)))))
+                        if (e < ((array_length v.keys) - 1)) {
+                            out = (out + ",")
+                        }
+                        out = (out + nl)
+                        e = (e + 1)
+                    }
+                    out = (out + "  }")
+                } {
+                    out = (out + (w.write(v)))
+                }
+            }
+            if (i < (n - 1)) {
+                out = (out + ",")
+            }
+            out = (out + nl)
+            i = (i + 1)
+        }
+        return (out + "}")
+    }
+
+    ; --- reading a fence ----------------------------------------------------------
+    sfn textOf:string (v:VlJson) {
+        if (v.isString()) {
+            return v.str
+        }
+        if (v.isNumber()) {
+            return (VlJson.numberToText(v.num v.isInt))
+        }
+        if (v.isBool()) {
+            if v.b {
+                return "true"
+            }
+            return "false"
+        }
+        return ""
+    }
+
+    sfn fieldOf:string (enc:VlJson ch:string) {
+        def c:VlJson (enc.get(ch))
+        if (c.isObject()) {
+            return (c.stringOr("field" ""))
+        }
+        return ""
+    }
+
+    sfn titleOf:string (enc:VlJson ch:string) {
+        def c:VlJson (enc.get(ch))
+        if (c.isObject()) {
+            def t:VlJson (c.get("title"))
+            if (t.isString()) {
+                return t.str
+            }
+            return (c.stringOr("field" ""))
+        }
+        return ""
+    }
+
+    sfn isQuant:boolean (enc:VlJson ch:string) {
+        def c:VlJson (enc.get(ch))
+        if (c.isObject()) {
+            def t:string (c.stringOr("type" ""))
+            if (t == "quantitative") {
+                return true
+            }
+            if (c.has("aggregate")) {
+                return true
+            }
+        }
+        return false
+    }
+
+    sfn fromSpec:PresChartModel (text:string) {
+        def m (new PresChartModel())
+        def p (new VlJsonParser())
+        def spec:VlJson (p.parse(text))
+        if ((spec.isObject()) == false) {
+            m.note = "Kaavion JSON ei ole kelvollinen."
+            return m
+        }
+        if ((spec.has("layer")) || ((spec.has("facet")) || ((spec.has("hconcat")) || ((spec.has("vconcat")) || ((spec.has("concat")) || (spec.has("repeat"))))))) {
+            m.note = "Monikerroksista tai jaettua kaaviota ei voi muokata taulukkona."
+            return m
+        }
+        if (spec.has("transform")) {
+            m.note = "Kaavio muuntaa tietonsa (transform), joten sitä ei voi muokata taulukkona."
+            return m
+        }
+        def data:VlJson (spec.get("data"))
+        def values:VlJson (data.get("values"))
+        if ((values.isArray()) == false) {
+            m.note = "Kaavion tiedot eivät ole kaaviossa itsessään (data.values)."
+            return m
+        }
+        m.schema = (spec.stringOr("$schema" ""))
+        m.description = (spec.stringOr("description" ""))
+        if ((spec.get("background")).isString()) {
+            m.background = (spec.stringOr("background" ""))
+        }
+        def tv:VlJson (spec.get("title"))
+        if (tv.isString()) {
+            m.title = tv.str
+        }
+        if (tv.isObject()) {
+            m.title = (tv.stringOr("text" ""))
+        }
+        def wv:VlJson (spec.get("width"))
+        if (wv.isNumber()) {
+            m.width = (to_int wv.num)
+        }
+        def hv:VlJson (spec.get("height"))
+        if (hv.isNumber()) {
+            m.height = (to_int hv.num)
+        }
+        ; the mark and its options
+        def mv:VlJson (spec.get("mark"))
+        def mark:string ""
+        def mopt:VlJson (VlJson.objectValue())
+        if (mv.isString()) {
+            mark = mv.str
+        }
+        if (mv.isObject()) {
+            mark = (mv.stringOr("type" ""))
+            mopt = mv
+        }
+        def enc:VlJson (spec.get("encoding"))
+        if ((enc.isObject()) == false) {
+            m.note = "Kaaviolla ei ole koodausta (encoding)."
+            return m
+        }
+        ; colours
+        def cfg:VlJson (spec.get("config"))
+        def rng:VlJson ((cfg.get("range")).get("category"))
+        if (rng.isObject()) {
+            m.scheme = (rng.stringOr("scheme" ""))
+        }
+        def colour:VlJson (enc.get("color"))
+        if (colour.isObject()) {
+            def sc:VlJson (colour.get("scale"))
+            if (sc.isObject()) {
+                if ((strlen (sc.stringOr("scheme" ""))) > 0) {
+                    m.scheme = (sc.stringOr("scheme" ""))
+                }
+            }
+            if ((colour.has("legend")) && ((colour.get("legend")).isNull())) {
+                m.legend = false
+            }
+        }
+        ; which field is what
+        def catF:string ""
+        def valF:string ""
+        def serF:string ""
+        def catT:string ""
+        def valT:string ""
+        def horizontal:boolean false
+        def kind:int 1
+        def xf:string (PresChartModel.fieldOf(enc "x"))
+        def yf:string (PresChartModel.fieldOf(enc "y"))
+        def cf:string (PresChartModel.fieldOf(enc "color"))
+        if (mark == "arc") {
+            valF = (PresChartModel.fieldOf(enc "theta"))
+            valT = (PresChartModel.titleOf(enc "theta"))
+            catF = cf
+            catT = (PresChartModel.titleOf(enc "color"))
+            kind = 16
+            if (enc.has("radius")) {
+                kind = 18
+            } {
+                if ((mopt.doubleOr("innerRadius" 0.0)) > 0.0) {
+                    kind = 17
+                }
+            }
+        } {
+            if (mark == "rect") {
+                catF = xf
+                catT = (PresChartModel.titleOf(enc "x"))
+                serF = yf
+                valF = cf
+                valT = (PresChartModel.titleOf(enc "color"))
+                kind = 19
+            } {
+                ; x and y: the one that counts is the value
+                if ((PresChartModel.isQuant(enc "y")) || ((PresChartModel.isQuant(enc "x")) == false)) {
+                    catF = xf
+                    catT = (PresChartModel.titleOf(enc "x"))
+                    valF = yf
+                    valT = (PresChartModel.titleOf(enc "y"))
+                } {
+                    catF = yf
+                    catT = (PresChartModel.titleOf(enc "y"))
+                    valF = xf
+                    valT = (PresChartModel.titleOf(enc "x"))
+                    horizontal = true
+                }
+                if ((strlen cf) > 0) {
+                    if ((cf != catF) && ((PresChartModel.isQuant(enc "color")) == false)) {
+                        serF = cf
+                        m.seriesTitle = (PresChartModel.titleOf(enc "color"))
+                    }
+                }
+                def ych:VlJson (enc.get("y"))
+                if horizontal {
+                    ych = (enc.get("x"))
+                }
+                def stack:string (ych.stringOr("stack" ""))
+                if (mark == "bar") {
+                    kind = 1
+                    if horizontal {
+                        kind = 2
+                    }
+                    if (((strlen serF) > 0) && ((enc.has("xOffset")) == false)) {
+                        kind = 3
+                        if (stack == "normalize") {
+                            kind = 4
+                        }
+                        if horizontal {
+                            kind = 2
+                        }
+                    }
+                    def xch:VlJson (enc.get("x"))
+                    if (xch.has("bin")) {
+                        kind = 5
+                        valF = xf
+                        valT = (PresChartModel.titleOf(enc "x"))
+                        catF = ""
+                    }
+                }
+                if (mark == "line") {
+                    kind = 6
+                    if ((mopt.get("point")).isDefined()) {
+                        if ((mopt.get("point")).b) {
+                            kind = 7
+                        }
+                    }
+                    def ip:string (mopt.stringOr("interpolate" ""))
+                    if ((indexOf ip "step") == 0) {
+                        kind = 8
+                    }
+                    if (((ip == "monotone") || (ip == "basis")) || (ip == "cardinal")) {
+                        kind = 9
+                    }
+                }
+                if (mark == "area") {
+                    kind = 10
+                    if ((strlen serF) > 0) {
+                        kind = 11
+                        if (stack == "center") {
+                            kind = 12
+                        }
+                    }
+                }
+                if (mark == "tick") {
+                    kind = 15
+                }
+                if (mark == "boxplot") {
+                    kind = 20
+                    serF = xf
+                    catF = ""
+                    valF = yf
+                    valT = (PresChartModel.titleOf(enc "y"))
+                }
+                if (((mark == "point") || (mark == "circle")) || (mark == "square")) {
+                    if ((PresChartModel.isQuant(enc "x")) && (PresChartModel.isQuant(enc "y"))) {
+                        kind = 13
+                        if ((strlen (PresChartModel.fieldOf(enc "size"))) > 0) {
+                            kind = 14
+                        }
+                    } {
+                        kind = 7
+                    }
+                }
+            }
+        }
+        m.kind = kind
+        if ((kind == 13) || (kind == 14)) {
+            return (PresChartModel.readXY(m values enc))
+        }
+        if ((kind == 5) || (kind == 20)) {
+            return (PresChartModel.readColumns(m values serF valF valT))
+        }
+        if ((strlen valF) == 0) {
+            m.note = "Kaaviosta ei löydy mitattavaa kenttää."
+            return m
+        }
+        return (PresChartModel.readTable(m values catF catT serF valF valT))
+    }
+
+    ; One row per category, a column per series: straight from rows that
+    ; have both, pivoted from the long form where a colour splits them.
+    ; Repeated (category, series) pairs are added up.
+    sfn readTable:PresChartModel (m:PresChartModel values:VlJson catF:string catT:string serF:string valF:string valT:string) {
+        def cats:[string]
+        def sers:[string]
+        def sums:[string:double]
+        def seen:[string:boolean]
+        def i:int 0
+        while (i < (values.count())) {
+            def row:VlJson (values.at(i))
+            def cat:string (to_string (i + 1))
+            if ((strlen catF) > 0) {
+                cat = (PresChartModel.textOf((row.get(catF))))
+            }
+            def ser:string valT
+            if ((strlen serF) > 0) {
+                ser = (PresChartModel.textOf((row.get(serF))))
+            }
+            if ((strlen ser) == 0) {
+                ser = valF
+            }
+            if (! (has seen ("c:" + cat))) {
+                set seen ("c:" + cat) true
+                push cats cat
+            }
+            if (! (has seen ("s:" + ser))) {
+                set seen ("s:" + ser) true
+                push sers ser
+            }
+            def vv:VlJson (row.get(valF))
+            if (vv.isNumber()) {
+                def key:string (cat + (strfromcode 1) + ser)
+                def was:double 0.0
+                if (has sums key) {
+                    was = (unwrap (get sums key))
+                }
+                set sums key (was + vv.num)
+            }
+            i = (i + 1)
+        }
+        def first:string catT
+        if ((strlen first) == 0) {
+            first = catF
+        }
+        if ((strlen serF) > 0) {
+            m.valueTitle = valT
+            if ((strlen m.seriesTitle) == 0) {
+                m.seriesTitle = serF
+            }
+        }
+        push m.header first
+        def s:int 0
+        while (s < (array_length sers)) {
+            push m.header (itemAt sers s)
+            s = (s + 1)
+        }
+        def c:int 0
+        while (c < (array_length cats)) {
+            def cat:string (itemAt cats c)
+            push m.cells cat
+            def k:int 0
+            while (k < (array_length sers)) {
+                def key:string (cat + (strfromcode 1) + (itemAt sers k))
+                if (has sums key) {
+                    push m.cells (VlJson.formatNumber((unwrap (get sums key)) 6))
+                } {
+                    push m.cells ""
+                }
+                k = (k + 1)
+            }
+            c = (c + 1)
+        }
+        m.ok = ((array_length cats) > 0)
+        if (m.ok == false) {
+            m.note = "Kaaviossa ei ole rivejä."
+        }
+        return m
+    }
+
+    ; A column per group, one observation per row: a histogram's numbers, a
+    ; boxplot's groups.
+    sfn readColumns:PresChartModel (m:PresChartModel values:VlJson groupF:string valF:string valT:string) {
+        def groups:[string]
+        def seen:[string:int]
+        def lists:[string]
+        def counts:[int]
+        def i:int 0
+        while (i < (values.count())) {
+            def row:VlJson (values.at(i))
+            def g:string valT
+            if ((strlen groupF) > 0) {
+                g = (PresChartModel.textOf((row.get(groupF))))
+            }
+            if ((strlen g) == 0) {
+                g = valF
+            }
+            if (! (has seen g)) {
+                set seen g (array_length groups)
+                push groups g
+                push counts 0
+            }
+            i = (i + 1)
+        }
+        def ng:int (array_length groups)
+        def maxRows:int 0
+        def cols:[string]
+        i = 0
+        while (i < (values.count())) {
+            def row:VlJson (values.at(i))
+            def g:string valT
+            if ((strlen groupF) > 0) {
+                g = (PresChartModel.textOf((row.get(groupF))))
+            }
+            if ((strlen g) == 0) {
+                g = valF
+            }
+            def gi:int (unwrap (get seen g))
+            def at:int (itemAt counts gi)
+            set_at counts gi (at + 1)
+            if ((at + 1) > maxRows) {
+                maxRows = (at + 1)
+            }
+            push cols ((to_string gi) + (strfromcode 1) + (to_string at) + (strfromcode 1) + (PresChartModel.textOf((row.get(valF)))))
+            i = (i + 1)
+        }
+        push m.header "#"
+        def g2:int 0
+        while (g2 < ng) {
+            push m.header (itemAt groups g2)
+            g2 = (g2 + 1)
+        }
+        def r:int 0
+        while (r < maxRows) {
+            push m.cells (to_string (r + 1))
+            def k:int 0
+            while (k < ng) {
+                push m.cells ""
+                k = (k + 1)
+            }
+            r = (r + 1)
+        }
+        def j:int 0
+        while (j < (array_length cols)) {
+            def parts:[string] (strsplit (itemAt cols j) (strfromcode 1))
+            def gi2:int (?? (str2int (itemAt parts 0)) 0)
+            def ri:int (?? (str2int (itemAt parts 1)) 0)
+            m.setCell(ri (gi2 + 1) (itemAt parts 2))
+            j = (j + 1)
+        }
+        m.ok = (maxRows > 0)
+        return m
+    }
+
+    ; x, y (and a size) per point, a label column first.
+    sfn readXY:PresChartModel (m:PresChartModel values:VlJson enc:VlJson) {
+        def xf:string (PresChartModel.fieldOf(enc "x"))
+        def yf:string (PresChartModel.fieldOf(enc "y"))
+        def sf:string (PresChartModel.fieldOf(enc "size"))
+        def lf:string (PresChartModel.fieldOf(enc "color"))
+        if ((strlen lf) == 0) {
+            lf = (PresChartModel.fieldOf(enc "text"))
+        }
+        push m.header lf
+        if ((strlen lf) == 0) {
+            set_at m.header 0 "#"
+        }
+        push m.header (PresChartModel.titleOf(enc "x"))
+        push m.header (PresChartModel.titleOf(enc "y"))
+        if ((strlen sf) > 0) {
+            push m.header (PresChartModel.titleOf(enc "size"))
+        }
+        def i:int 0
+        while (i < (values.count())) {
+            def row:VlJson (values.at(i))
+            if ((strlen lf) > 0) {
+                push m.cells (PresChartModel.textOf((row.get(lf))))
+            } {
+                push m.cells (to_string (i + 1))
+            }
+            push m.cells (PresChartModel.textOf((row.get(xf))))
+            push m.cells (PresChartModel.textOf((row.get(yf))))
+            if ((strlen sf) > 0) {
+                push m.cells (PresChartModel.textOf((row.get(sf))))
+            }
+            i = (i + 1)
+        }
+        m.ok = ((values.count()) > 0)
+        return m
+    }
+
+    ; A table to start from when a fence is new or unreadable as one.
+    sfn sample:PresChartModel () {
+        def m (new PresChartModel())
+        push m.header "Kvartaali"
+        push m.header "Myynti"
+        push m.header "Kulut"
+        def rows:[string] (strsplit "Q1,12,8,Q2,15,9,Q3,11,10,Q4,18,11" ",")
+        def i:int 0
+        while (i < (array_length rows)) {
+            push m.cells (itemAt rows i)
+            i = (i + 1)
+        }
+        m.kind = 1
+        m.ok = true
+        return m
+    }
+}

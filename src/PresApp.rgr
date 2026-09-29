@@ -36,6 +36,7 @@ Import "../r5/src/R5MdLanguage.rgr"
 Import "PresCssLanguage.rgr"
 Import "PresHints.rgr"
 Import "PresHelp.rgr"
+Import "PresChartEditor.rgr"
 Import "../ui/src/TabsCtl.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -141,6 +142,13 @@ class PresApp {
     ; Effects rendered to pictures by the host for an export: slide index,
     ; pixels (RGBA, top row first) for the PDF, a JPEG for the PPTX.
     def stillIdx:[int]
+    ; The chart settings editor, and the fence it is editing: the lines of
+    ; its opening and closing ``` in the Markdown.
+    def chart:PresChartEditor (new PresChartEditor())
+    def chartStart:int -1
+    def chartWinX:double -1.0
+    def chartWinY:double -1.0
+    def chartEnd:int -1
     def stillRgba:[buffer]
     def stillW:[int]
     def stillH:[int]
@@ -1302,6 +1310,7 @@ class PresApp {
         out = (out + ":" + (to_string editor.sel.anchor.line) + "," + (to_string editor.sel.anchor.col))
         out = (out + ":" + (to_string editor.layout.scrollLine) + ":" + (to_string blink))
         out = (out + ":" + focus + ":" + mode + ":" + (EVGDisplayList.num(W)) + "x" + (EVGDisplayList.num(H)))
+        out = (out + ":c" + (to_string chart.rev))
         return out
     }
 
@@ -1323,6 +1332,14 @@ class PresApp {
         if (mode == "present") {
             this.stageDown(x y)
             return "stage"
+        }
+        if chart.isOpen {
+            if (chart.has(x y)) {
+                chart.press(x y)
+                this.afterChart()
+                return "chart"
+            }
+            this.closeChart()
         }
         if (sepRect.has(x y)) {
             splitDrag = true
@@ -1380,6 +1397,10 @@ class PresApp {
             return ""
         }
         if (slideRect.has(x y)) {
+            ; a double click on a chart opens its settings
+            if ((clicks == 2) && (this.openChartAt(x y))) {
+                return "chart"
+            }
             focus = "stage"
             this.stageDown(x y)
             chromeRev = (chromeRev + 1)
@@ -1480,6 +1501,11 @@ class PresApp {
     }
 
     fn pointerMove:void (x:double y:double) {
+        if (chart.isOpen && (chart.dragging())) {
+            chart.dragTo(x y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if splitDrag {
             def f:double (x / W)
             if (f < 0.2) { f = 0.2 }
@@ -1502,6 +1528,9 @@ class PresApp {
     }
 
     fn pointerUp:void () {
+        if chart.isOpen {
+            chart.release()
+        }
         if editorDrag {
             this.followCaret()
         }
@@ -1514,6 +1543,9 @@ class PresApp {
     ; A wheel or a trackpad: mostly sideways over the editor scrolls it
     ; sideways, everything else goes where a vertical wheel goes.
     fn wheelXY:boolean (x:double y:double dx:double dy:double) {
+        if (chart.isOpen && (chart.has(x y))) {
+            return true
+        }
         if (((mode != "present") && (edRect.has(x y))) && ((fabs dx) > (fabs dy))) {
             editor.scrollByX((to_int dx))
             chromeRev = (chromeRev + 1)
@@ -1569,6 +1601,12 @@ class PresApp {
         if (mode == "present") {
             return "default"
         }
+        if chart.isOpen {
+            def cc:string (chart.cursorAt(x y))
+            if ((strlen cc) > 0) {
+                return cc
+            }
+        }
         if (tabRect.has(x y)) {
             if ((strlen (this.tabAt(x))) > 0) {
                 return "pointer"
@@ -1612,6 +1650,11 @@ class PresApp {
     }
 
     fn key:boolean (name:string shift:boolean ctrl:boolean) {
+        if (chart.isOpen && (mode != "present")) {
+            def used:boolean (chart.key(name shift ctrl))
+            this.afterChart()
+            return used
+        }
         if ((mode == "present") || (focus == "stage")) {
             if (this.diagramKey(name)) {
                 return true
@@ -1664,6 +1707,11 @@ class PresApp {
     }
 
     fn text:void (s:string) {
+        if (chart.isOpen && (mode != "present")) {
+            chart.type(s)
+            this.afterChart()
+            return
+        }
         if ((mode == "present") || (focus == "stage")) {
             def asKey:string s
             if (s == " ") {
@@ -1700,6 +1748,11 @@ class PresApp {
     ; document is read from its first slide: the caret goes to the top
     ; rather than being left at the end of what came in.
     fn pasteText:void (s:string) {
+        if (chart.isOpen && (mode != "present")) {
+            chart.type(s)
+            this.afterChart()
+            return
+        }
         if ((mode == "present") || (focus != "editor")) {
             return
         }
@@ -1737,6 +1790,11 @@ class PresApp {
         if (mode == "present") {
             return false
         }
+        ; the editor's fields have no undo of their own, and an undo in the
+        ; Markdown under it would move the fence it is writing
+        if chart.isOpen {
+            return true
+        }
         if ((strlen ch) != 1) {
             return false
         }
@@ -1756,7 +1814,7 @@ class PresApp {
     ; there is nothing to say. `replaceRange` is how the page's popover
     ; writes a choice back: an ordinary edit, undone with Ctrl+Z.
     fn hintAt:string (x:double y:double) {
-        if ((mode == "present") || ((edRect.has(x y)) == false)) {
+        if (((mode == "present") || ((edRect.has(x y)) == false)) || chart.isOpen) {
             return ""
         }
         def px:int (to_int x)
@@ -2012,6 +2070,178 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; --- the chart settings editor ----------------------------------------------
+    fn setChartCss:void (css:string) {
+        chart.css = css
+    }
+
+    sfn isChartFence:boolean (t:string) {
+        def s:string (trim t)
+        if (((strlen s) < 3) || ((substring s 0 3) != "```")) {
+            return false
+        }
+        def lang:string (trim (substring s 3 (strlen s)))
+        return (((indexOf lang "vega-lite") == 0) || ((indexOf lang "vegalite") == 0))
+    }
+
+    ; Open the editor on the ```vega-lite fence at or around `line`. False
+    ; when there is none there.
+    fn openChartEditor:boolean (line:int) {
+        if (mode == "present") {
+            return false
+        }
+        this.showTab("md")
+        def n:int (mdEditor.buf.lineCount())
+        def start:int -1
+        def i:int line
+        if (i >= n) {
+            i = (n - 1)
+        }
+        while ((i >= 0) && (start < 0)) {
+            def t:string (mdEditor.buf.lineAt(i))
+            if (PresApp.isChartFence(t)) {
+                start = i
+            } {
+                if ((i < line) && ((indexOf (trim t) "```") == 0)) {
+                    ; a fence closes above the line: it is not in a chart
+                    i = -1
+                }
+            }
+            i = (i - 1)
+        }
+        if (start < 0) {
+            return false
+        }
+        def end:int -1
+        def k:int (start + 1)
+        while ((k < n) && (end < 0)) {
+            if ((indexOf (trim (mdEditor.buf.lineAt(k))) "```") == 0) {
+                end = k
+            }
+            k = (k + 1)
+        }
+        if (end < 0) {
+            return false
+        }
+        chartStart = start
+        chartEnd = end
+        def body:string ""
+        def b:int (start + 1)
+        while (b < end) {
+            body = (body + (mdEditor.buf.lineAt(b)) + "\n")
+            b = (b + 1)
+        }
+        def m:PresChartModel (PresChartModel.fromSpec(body))
+        this.place()
+        ; where the window was left, or over the Markdown beside the slide
+        if (chartWinX < 0.0) {
+            chartWinX = (edRect.x + 12.0)
+            chartWinY = (edRect.y + 8.0)
+        }
+        if (chartWinX > (W - 120.0)) {
+            chartWinX = (W - 120.0)
+        }
+        if (chartWinY > (H - 60.0)) {
+            chartWinY = (H - 60.0)
+        }
+        chart.measurer = measurer
+        chart.open(m chartWinX chartWinY W H)
+        ; the slide the chart is on, beside it
+        this.selectSlide((deck.pageOfOffset((this.offsetOf(start 0)))))
+        mdEditor.sel.setCaret(start 0)
+        mdEditor.sel.collapseToCaret()
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The chart under a point of the stage, opened in the editor.
+    fn openChartAt:boolean (x:double y:double) {
+        this.slidePoint(x y)
+        def l:MdLayout (deck.layout())
+        def boxes:[int] (deck.chartBoxes(selected))
+        def k:int 0
+        while (k < (array_length boxes)) {
+            def b:MdBox (itemAt l.boxes (itemAt boxes k))
+            if ((((spX >= b.x) && (spX <= (b.x + b.w))) && ((spY >= b.y) && (spY <= (b.y + b.h)))) && (b.srcStart >= 0)) {
+                this.posOf((mdEditor.text()) b.srcStart)
+                return (this.openChartEditor(posLine))
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    fn closeChart:void () {
+        this.writeChart()
+        chartWinX = chart.x
+        chartWinY = chart.y
+        chart.close()
+        focus = "editor"
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn chartIsOpen:boolean () {
+        return chart.isOpen
+    }
+
+    ; What a routed input asked for, and the fence rewritten when the model
+    ; changed.
+    fn afterChart:void () {
+        if chart.wantsFresh {
+            chart.wantsFresh = false
+            def fresh:PresChartModel (PresChartModel.sample())
+            chart.model = fresh
+            chart.changed = true
+            chart.rebuild()
+        }
+        this.writeChart()
+        if chart.wantsClose {
+            chart.wantsClose = false
+            this.closeChart()
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The fence's body replaced with the model's specification, as one edit.
+    fn writeChart:void () {
+        if (chart.changed == false) {
+            return
+        }
+        chart.changed = false
+        def spec:string (chart.model.toSpec())
+        if (((strlen spec) == 0) || (chartStart < 0)) {
+            return
+        }
+        def was:string edTab
+        def keep:ScriptEditor editor
+        editor = mdEditor
+        mdEditor.moveCaret((chartStart + 1) 0 false)
+        mdEditor.moveCaret(chartEnd 0 true)
+        mdEditor.insert((spec + "\n"))
+        chartEnd = ((chartStart + 1) + (array_length (strsplit spec "\n")))
+        mdEditor.moveCaret(chartStart 0 false)
+        mdEditor.sel.collapseToCaret()
+        editor = keep
+        edTab = was
+        bufSynced = mdEditor.buf.version
+        this.rebuildDeck()
+    }
+
+    ; The editor as a display list, placed on the page: "" while it is closed.
+    fn chartJson:string () {
+        if (chart.isOpen == false) {
+            return ""
+        }
+        if ((chart.w != W) || (chart.h != H)) {
+            chart.w = W
+            chart.h = H
+            chart.rebuild()
+        }
+        def dl:EVGDisplayList (chart.displayList())
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(chart.w)) + ",\"height\":" + (EVGDisplayList.num(chart.h)) + ",\"list\":" + (dl.toJson()) + "}")
+    }
+
     ; What the browser draws a character the editor's face lacks (an emoji)
     ; at, in ems — so the caret after one is where the text ends.
     fn setMissingGlyphEm:void (em:double) {
@@ -2118,6 +2348,11 @@ class PresApp {
     }
 
     fn setFocus:void (where:string) {
+        ; the keys stay with the chart editor while it is open
+        if (chart.isOpen && (where == "editor")) {
+            focus = "chart"
+            return
+        }
         if (where == focus) {
             return
         }

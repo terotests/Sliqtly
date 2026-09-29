@@ -26,7 +26,9 @@ export function build({ ranger } = {}) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
   };
-  for (const f of ["index.html", "main.js", "pres.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  for (const f of ["index.html", "main.js", "pres.css", "chart-editor.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  // the controls' own theme, for the chart editor
+  copy(path.join(ranger, "gallery/ui/theme/base.css"), path.join(distDir, "ui.css"));
   copy(path.join(ranger, "lib/evg/gl/evg-webgl.js"), path.join(distDir, "gl/evg-webgl.js"));
   for (const face of ["OpenSans-Regular", "OpenSans-Bold", "OpenSans-Italic", "OpenSans-BoldItalic"]) {
     copy(path.join(ranger, `gallery/pdf_writer/assets/fonts/Open_Sans/${face}.ttf`), path.join(distDir, `fonts/${face}.ttf`));
@@ -50,7 +52,7 @@ export function build({ ranger } = {}) {
   // Every URL the page loads carries the hash of the build, so a reload
   // never mixes an old script with a new one.
   const h = crypto.createHash("sha1");
-  for (const f of ["pres_app.js", "main.js", "pres.css", "gl/evg-webgl.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
+  for (const f of ["pres_app.js", "main.js", "pres.css", "chart-editor.css", "gl/evg-webgl.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
   const stamp = h.digest("hex").slice(0, 10);
   const html = path.join(distDir, "index.html");
   fs.writeFileSync(html, fs.readFileSync(html, "utf8").split("__BUILD__").join(stamp));

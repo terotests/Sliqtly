@@ -208,6 +208,16 @@ function paintOnce() {
     if (fresh && grewBy(stats)) thumbsGrew = true;
   }
   if (thumbsGrew) dropThumbs();
+  // the chart editor, over everything
+  if (app.chartIsOpen()) {
+    const cj = JSON.parse(app.chartJson());
+    // placed like a thumbnail: a page the size of the canvas, moved by the camera
+    cj.width = W;
+    cj.height = H;
+    const ce = prepareDisplayList(gl, cj, { dpr });
+    if (grewBy(ce.draw(null, [cj.x, cj.y, 1], { clear: false }))) dropThumbs();
+    ce.dispose();
+  }
   statusEl.textContent = app.statusText();
   playBtn.textContent = layout.playing && layout.mode === "edit" ? "⏸ Pysäytä" : "▶ Toista";
   return layout;
@@ -679,9 +689,9 @@ keys.addEventListener("keydown", (ev) => {
   const mod = ev.ctrlKey || ev.metaKey;
   const special = KEY_MAP[ev.key];
   if (special) {
-    if (special === "tab" && app.focusTarget() !== "editor") return;
+    if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart") return;
     if (app.key(special, ev.shiftKey, mod)) ev.preventDefault();
-    else if (app.focusTarget() === "editor") ev.preventDefault();
+    else if (app.focusTarget() === "editor" || app.focusTarget() === "chart") ev.preventDefault();
     afterInput();
     return;
   }
@@ -800,7 +810,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   app.setDragSlop(ev.pointerType === "mouse" ? 6 : 16);
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
-  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage") {
+  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart") {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
   if (where === "editor" && clicks === 1) {
@@ -946,6 +956,15 @@ function showHint(h) {
   const chips = (list, cur, pick) => el("div", { class: "chips" }, list.map((o) =>
     el("button", { class: o === cur ? "cur" : "", text: o, onclick: () => pick(o) })));
 
+  if (h.name === "kieli" && /^vega-?lite$/.test(h.value)) {
+    kids.push(el("div", { class: "chips" }, [el("button", { class: "cur", text: "Muokkaa kaaviota…", onclick: () => {
+      const line = hint.line;
+      closeHint();
+      app.openChartEditor(line);
+      focusKeys("editor");
+      afterInput();
+    } })]));
+  }
   if (h.kind === "enum" || h.kind === "class" || h.kind === "font") {
     const box = chips(h.options, h.value, (o) => {
       writeHint(o);
@@ -1186,6 +1205,8 @@ canvas.addEventListener("drop", (ev) => {
 // --- start ------------------------------------------------------------------------------
 async function start() {
   const css = await textOf("./pres.css");
+  // the chart editor's controls: the kit's theme, then the app's colours
+  textOf("./ui.css").then(async (kit) => app.setChartCss(kit + "\n" + (await textOf("./chart-editor.css")))).catch(() => {});
   const r = stageEl.getBoundingClientRect();
   app.init(css, Math.max(320, r.width), Math.max(240, r.height));
   resize();

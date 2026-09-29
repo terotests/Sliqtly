@@ -1,0 +1,21 @@
+import { chromium } from "playwright-core";
+const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium", args:["--use-angle=swiftshader","--enable-unsafe-swiftshader"] });
+const p = await b.newPage({ viewport: { width: 1400, height: 860 } });
+p.on("pageerror", e => console.log("PAGEERR", e.message, (e.stack||"").split("\n").slice(0,4).join(" | ")));
+await p.goto("http://localhost:8770/");
+await p.waitForFunction(() => window.__app, null, {timeout: 30000});
+await p.waitForTimeout(1500);
+const src = "# D\n\n## O\n\n```vega-lite\n{\"data\": {\"values\": [{\"f\": \"A\", \"u\": 90}, {\"f\": \"B\", \"u\": 75}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"f\", \"type\": \"nominal\"}, \"y\": {\"field\": \"u\", \"type\": \"quantitative\"}}}\n```\n";
+console.log(await p.evaluate((src) => {
+  const a = window.__app; a.setSource(src); a.openChartEditor(5); a.chartJson();
+  const c = a.chart;
+  const out = [];
+  const b0 = c.inputs[4].rootEl;
+  const cx = c.x + b0.calculatedX + 20, cy = c.y + b0.calculatedY + 10;
+  out.push("down " + a.pointerDown(cx, cy, false, 1) + " focus " + c.focusTid + " hostfocus " + c.host.focusId);
+  a.key("backspace", false, false); a.key("backspace", false, false); a.text("6"); a.text("0");
+  out.push("value " + c.inputs[4].value + " model " + c.model.cell(0, 1));
+  out.push(a.source().split("\n").filter(l => l.includes('"A"')).join(" "));
+  return out.join("\n");
+}, src));
+await b.close();
