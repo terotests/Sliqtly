@@ -189,6 +189,9 @@ class PresHelp {
             if (prop == "border-color") { return (PresHelp.valueOf(css "code" "border-color")) }
         }
         if ((sel == "blockquote") && (prop == "color")) { return (PresHelp.valueOf(css "document" "color")) }
+        if (((strlen sel) > 0) && ((charAt sel 0) == 46)) {
+            if ((prop == "font-size") || (prop == "color")) { return (PresHelp.valueOf(css "document" prop)) }
+        }
         return ""
     }
 
@@ -220,6 +223,7 @@ class PresHelp {
         if ((sel == "mark") && (prop == "background-color")) { return "Korostuksen taustaväri." }
         if ((sel == "mark") && (prop == "color")) { return "Korostetun tekstin väri." }
         if ((sel == "table") && (prop == "background-color")) { return "Otsikkorivin tausta." }
+        if ((sel == "code") && (prop == "background-color")) { return "Koodin tausta. Läpinäkyvä: #151c4833 (kaksi viimeistä numeroa ovat peittävyys) tai none." }
         if ((sel == "page") && (prop == "padding")) { return "Marginaali dian reunoilla." }
         if ((sel == "hr") && (prop == "color")) { return "Viivan väri (myös otsikon alla)." }
         if ((sel == "blockquote") && (prop == "border-color")) { return "Pystypalkin väri." }
@@ -633,7 +637,7 @@ class PresHelp {
         while (c < (array_length cls)) {
             def cl:string (trim (itemAt cls c))
             if ((strlen cl) > 1) {
-                def props:string ""
+                def props:string "font-size,color"
                 if ((cl == ".c2") || ((cl == ".c3") || (cl == ".c4"))) {
                     props = "column-count,column-gap"
                 }
@@ -654,10 +658,7 @@ class PresHelp {
                 if ((strlen props) > 0) {
                     rules2 = (PresHelp.rule(css cl (PresHints.classDoc(cl)) props))
                 }
-                def cdoc:string (PresHints.classDoc(cl))
-                if ((cl == ".lead") || (cl == ".kicker")) {
-                    cdoc = (cdoc + " Luokan font-size ei vielä vaikuta dioihin.")
-                }
+                def cdoc:string ((PresHints.classDoc(cl)) + " Koko: pt, em (1.3em) tai % tekstin koosta.")
                 push out (PresHelp.feature(("class" + cl) ("Luokka " + cl) (cl + " aaltosulkeissa: {" + cl + "} kappaleen jälkeen tai otsikon perässä") cdoc rules2))
             }
             c = (c + 1)

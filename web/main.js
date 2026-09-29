@@ -872,10 +872,26 @@ function el(tag, attrs, kids) {
 }
 
 function hexOf(v) {
-  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec((v || "").trim());
+  const m = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec((v || "").trim());
   if (!m) return "#ffffff";
-  const h = m[1];
-  return "#" + (h.length === 3 ? h.split("").map((c) => c + c).join("") : h).toLowerCase();
+  let h = m[1];
+  if (h.length <= 4) h = h.split("").map((c) => c + c).join("");
+  return "#" + h.slice(0, 6).toLowerCase();
+}
+
+// Opacity of a colour value in percent: #rrggbbaa / #rgba carry it, none is 0.
+function alphaOf(v) {
+  const t = (v || "").trim().toLowerCase();
+  if (t === "none" || t === "transparent") return 0;
+  const m = /^#([0-9a-f]{4}|[0-9a-f]{8})$/i.exec(t);
+  if (!m) return 100;
+  const a = m[1].length === 4 ? m[1][3] + m[1][3] : m[1].slice(6);
+  return Math.round(parseInt(a, 16) / 2.55);
+}
+
+function withAlpha(hex, pct) {
+  if (pct >= 100) return hex;
+  return hex + Math.round(pct * 2.55).toString(16).padStart(2, "0");
 }
 
 function showHint(h) {
@@ -899,9 +915,33 @@ function showHint(h) {
   if (h.kind === "color") {
     const pick = el("input", { type: "color", value: hexOf(h.value) });
     const txt = el("input", { type: "text", value: h.value, spellcheck: "false" });
-    pick.addEventListener("input", () => { txt.value = pick.value; writeHint(pick.value); });
-    txt.addEventListener("change", () => { writeHint(txt.value.trim()); pick.value = hexOf(txt.value); });
+    const op = el("input", { type: "range", min: 0, max: 100, step: 1, value: alphaOf(h.value), title: "Peittävyys" });
+    const opNum = el("span", { text: alphaOf(h.value) + " %" });
+    const put = () => {
+      const v = withAlpha(pick.value, +op.value);
+      txt.value = v;
+      opNum.textContent = op.value + " %";
+      writeHint(v);
+    };
+    pick.addEventListener("input", put);
+    op.addEventListener("input", put);
+    txt.addEventListener("change", () => {
+      writeHint(txt.value.trim());
+      pick.value = hexOf(txt.value);
+      op.value = alphaOf(txt.value);
+      opNum.textContent = op.value + " %";
+    });
     kids.push(el("div", { class: "row" }, [pick, txt]));
+    kids.push(el("div", { class: "lbl", text: "Peittävyys" }));
+    kids.push(el("div", { class: "row" }, [op, opNum]));
+    if (/background/.test(h.name)) {
+      kids.push(el("div", { class: "chips" }, [el("button", { text: "none", title: "Ei taustaa", onclick: () => {
+        txt.value = "none";
+        op.value = 0;
+        opNum.textContent = "0 %";
+        writeHint("none");
+      } })]));
+    }
   }
   if (h.kind === "number") {
     const m = /^(-?[0-9.]+)(.*)$/.exec(h.value) || [null, "0", h.unit || ""];

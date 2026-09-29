@@ -143,7 +143,7 @@ class PresHints {
     sfn cssDoc:string (prop:string) {
         if (prop == "color") { return "Tekstin väri (chart ja diagram: lämmin korostusväri)." }
         if (prop == "accent-color") { return "Kylmä korostusväri: ruudukko, akselit, laatikot." }
-        if (prop == "background-color") { return "Taustaväri." }
+        if (prop == "background-color") { return "Taustaväri. #rrggbbaa antaa peittävyyden, none poistaa taustan." }
         if (prop == "border-color") { return "Reunan väri." }
         if (prop == "font-family") { return "Kirjasin." }
         if (prop == "font-size") { return "Tekstin koko." }
