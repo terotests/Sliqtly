@@ -107,6 +107,39 @@
   }
   #valHint input[type=color] { width: 42px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
   #valHint .foot { display: flex; justify-content: flex-end; margin-top: 10px; }
+  /* The help panel: what the selected slide is made of, and the theme
+     rules that draw it. It takes its width from the stage. */
+  #help {
+    position: fixed; right: 0; width: 380px; display: none; z-index: 20; box-sizing: border-box;
+    background: var(--bar); color: var(--ink); border-left: 1px solid var(--line);
+    font: 13px/1.45 system-ui, sans-serif; overflow-y: auto; padding: 0 14px 20px;
+  }
+  body.helpOpen #help { display: block; }
+  body.helpOpen #stage { margin-right: 380px; }
+  body.presenting #help, body.viewer #help { display: none; }
+  body.presenting #stage, body.viewer #stage { margin-right: 0; }
+  #help .top { position: sticky; top: 0; background: var(--bar); display: flex; align-items: center; gap: 8px; padding: 10px 0 8px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+  #help .top b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #help .top button { background: none; border: 1px solid var(--line); color: var(--ink); border-radius: 6px; cursor: pointer; padding: 2px 8px; }
+  #help .intro { color: var(--dim); margin: 6px 0 4px; }
+  #help section { border-bottom: 1px solid var(--line); padding: 10px 0; }
+  #help h3 { margin: 0 0 4px; font-size: 14px; }
+  #help .syn { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+  #help .syn code { background: #0b0f1e; border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font: 12px ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
+  #help .doc { color: var(--dim); margin: 4px 0; }
+  #help .rule { margin-top: 8px; font-family: ui-monospace, monospace; font-size: 12px; }
+  #help .rule .sel { color: #c792ea; }
+  #help .rule .sd { color: var(--dim); font-family: system-ui, sans-serif; margin-left: 6px; }
+  #help .prop { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 8px; margin: 3px 0 3px 14px;
+    padding: 3px 6px; border-radius: 6px; cursor: pointer; }
+  #help .prop:hover { background: #1b2350; }
+  #help .prop .nm { color: #82aaff; }
+  #help .prop .val { display: inline-flex; align-items: center; gap: 5px; color: #ffcb6b; }
+  #help .prop .val.none { color: var(--dim); font-style: italic; font-family: system-ui, sans-serif; }
+  #help .prop .sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line); display: inline-block; }
+  #help .prop .pd { grid-column: 1 / 3; color: var(--dim); font-family: system-ui, sans-serif; font-size: 12px; }
+  #help .attr { margin: 3px 0 3px 14px; font-family: ui-monospace, monospace; font-size: 12px; }
+  #help .attr .pd { color: var(--dim); font-family: system-ui, sans-serif; }
   /* A shared presentation: the slides only, and a small bar that fades. */
   #viewBar {
     position: fixed; right: 16px; bottom: 16px; display: none; gap: 8px; z-index: 5;
@@ -155,6 +188,7 @@
   <button id="pdf">PDF</button>
   <button id="pptx">PPTX</button>
   <button id="share" title="Kopioi linkki, jonka osoitteeseen tämä Markdown on pakattu">🔗 Jaa</button>
+  <button id="helpBtn" title="Mitä valitulla dialla on ja millä teeman CSS-säännöillä sitä muutetaan">? Ohje</button>
   <span class="grow"></span>
   <span id="status"></span>
 </div>
@@ -170,6 +204,7 @@
   <button id="vFull" title="Koko näyttö">⛶</button>
 </div>
 <div id="valHint" role="dialog" aria-label="Arvon vaihtoehdot"></div>
+<aside id="help" aria-label="Dian ohje"></aside>
 <dialog id="shareDlg">
   <h2>Jaa esitys</h2>
   <div class="opt">

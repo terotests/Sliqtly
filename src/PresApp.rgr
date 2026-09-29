@@ -35,6 +35,7 @@ Import "../game_engine/ui/UIInput.rgr"
 Import "../r5/src/R5MdLanguage.rgr"
 Import "PresCssLanguage.rgr"
 Import "PresHints.rgr"
+Import "PresHelp.rgr"
 Import "../ui/src/TabsCtl.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -1786,6 +1787,141 @@ class PresApp {
             i = (i + 1)
         }
         return false
+    }
+
+    ; What the selected slide is made of and the theme rules that draw it,
+    ; as JSON for the help panel (PresHelp.rgr).
+    fn slideHelp:string () {
+        if ((deck.slideCount()) == 0) {
+            return "[]"
+        }
+        def s:PresSlide (deck.slideAt(selected))
+        def text:string (mdEditor.text())
+        def a:int s.srcStart
+        if (a < 0) {
+            a = 0
+        }
+        def b:int (strlen text)
+        def i:int (selected + 1)
+        while (i < (deck.slideCount())) {
+            def n:PresSlide (deck.slideAt(i))
+            if (n.srcStart > a) {
+                b = n.srcStart
+                break
+            }
+            i = (i + 1)
+        }
+        if (b < a) {
+            b = a
+        }
+        return (PresHelp.forSlide((substring text a b) s.title (this.themeCss())))
+    }
+
+    ; The help panel's "change this": the theme opens at `prop` in the rule
+    ; for `sel`, added with `def` when the theme does not have it yet, and
+    ; the caret waits on the value so its popover can be opened there.
+    fn helpEdit:void (sel:string prop:string def0:string) {
+        this.showTab("css")
+        def ed:ScriptEditor cssEditor
+        def n:int (ed.buf.lineCount())
+        def ruleLine:int -1
+        def endLine:int -1
+        def propLine:int -1
+        def propCol:int -1
+        def i:int 0
+        while (i < n) {
+            def t:string (ed.buf.lineAt(i))
+            def open:int (indexOf t "{")
+            if ((open > 0) && (PresHelp.names((substring t 0 open) sel))) {
+                def e:int i
+                while ((e < n) && ((indexOf (ed.buf.lineAt(e)) "}") < 0)) {
+                    e = (e + 1)
+                }
+                if (e >= n) {
+                    e = (n - 1)
+                }
+                ruleLine = i
+                endLine = e
+                def k:int i
+                while (k <= e) {
+                    def lt:string (ed.buf.lineAt(k))
+                    def from:int 0
+                    if (k == i) {
+                        from = (open + 1)
+                    }
+                    def at:int (indexOfFrom lt (prop + ":") from)
+                    while (at >= 0) {
+                        def before:int 32
+                        if (at > 0) {
+                            before = (charAt lt (at - 1))
+                        }
+                        if ((before == 32) || ((before == 9) || ((before == 59) || (before == 123)))) {
+                            def v:int (at + (strlen prop) + 1)
+                            while ((v < (strlen lt)) && ((charAt lt v) == 32)) {
+                                v = (v + 1)
+                            }
+                            propLine = k
+                            propCol = v
+                        }
+                        at = (indexOfFrom lt (prop + ":") (at + 1))
+                    }
+                    k = (k + 1)
+                }
+                i = e
+            }
+            i = (i + 1)
+        }
+        if (propLine < 0) {
+            if (ruleLine < 0) {
+                ; a rule of its own at the end
+                def last:int (n - 1)
+                def lastText:string (ed.buf.lineAt(last))
+                def lead:string "\n\n"
+                if ((strlen (trim lastText)) == 0) {
+                    lead = "\n"
+                }
+                ed.moveCaret(last (strlen lastText) false)
+                ed.insert((lead + sel + " {\n  " + prop + ": " + def0 + ";\n}\n"))
+                if ((strlen (trim lastText)) == 0) {
+                    propLine = (last + 2)
+                } {
+                    propLine = (last + 3)
+                }
+                propCol = ((strlen prop) + 4)
+            } {
+                def endText:string (ed.buf.lineAt(endLine))
+                def close:int (indexOf endText "}")
+                if (endLine == ruleLine) {
+                    ; `sel { a: b }` on one line
+                    def before:string (trim (substring endText 0 close))
+                    def sep:string " "
+                    if (((strlen before) > 0) && (((charAt before ((strlen before) - 1)) != 59) && ((charAt before ((strlen before) - 1)) != 123))) {
+                        sep = "; "
+                    }
+                    def ins:string (sep + prop + ": " + def0 + "; ")
+                    def at2:int close
+                    while ((at2 > 0) && ((charAt endText (at2 - 1)) == 32)) {
+                        at2 = (at2 - 1)
+                    }
+                    ed.moveCaret(endLine at2 false)
+                    ed.moveCaret(endLine close true)
+                    ed.insert(ins)
+                    propLine = endLine
+                    propCol = ((at2 + (strlen sep)) + ((strlen prop) + 2))
+                } {
+                    ed.moveCaret(endLine 0 false)
+                    ed.insert(("  " + prop + ": " + def0 + ";\n"))
+                    propLine = endLine
+                    propCol = ((strlen prop) + 4)
+                }
+            }
+        }
+        ed.moveCaret(propLine propCol false)
+        ed.sel.collapseToCaret()
+        ed.layout.ensureCaretVisible(ed.buf ed.sel)
+        focus = "editor"
+        this.syncEditor()
+        chromeRev = (chromeRev + 1)
     }
 
     ; What the browser draws a character the editor's face lacks (an emoji)

@@ -102,6 +102,13 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   number, the faces there are — plus the effect's parameters to add and a
   button to remove the item. A choice is an ordinary edit (Ctrl+Z undoes it).
   The themes are written one declaration per line.
+- **? Ohje** opens a panel listing what the selected slide is made of — a
+  highlight, key caps, a list, a table, formulas, a chart — each with how it
+  is written and the theme rules that style it (`mark { background-color;
+  color }`, `kbd { background-color; border-color }`, `list`, `code`, …) at
+  their current values. Only what the slide has is listed. Clicking a
+  property opens the theme at that line (adding it if the theme has none)
+  with its value popover.
 - **Ctrl+V** in the editor pastes a picture from the clipboard. It is stored
   under `media/` and written into the Markdown as `![](media/…)`. Dropping an
   image onto the canvas does the same.

@@ -337,6 +337,28 @@ try {
   });
   check("a formula is drawn as outlines, not as its TeX", math.paths >= 2 && !math.raw, JSON.stringify(math));
 
+  // The help panel: only what the slide has, and a property opened in the theme
+  const help = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    const css0 = a.themeCss();
+    a.setSource("# M\n\n## Muotoilu\n\n- <mark>tärkeä</mark> ja <kbd>Ctrl</kbd>\n\n## Kaava\n\nPinta-ala $A = \\pi r^2$\n");
+    a.selectSlide(1);
+    const first = JSON.parse(a.slideHelp()).map((f) => f.key);
+    a.selectSlide(2);
+    const second = JSON.parse(a.slideHelp()).map((f) => f.key);
+    a.helpEdit("mark", "background-color", "#ffe766");
+    const tab = a.editorTab();
+    const hint = JSON.parse(a.hintAtCaret() || "null");
+    const added = /mark \{\s*background-color: #ffe766;\s*\}/.test(a.themeCss());
+    a.setStyleSheet(css0);
+    a.setSource(src0);
+    return { first, second, tab, hint: hint && hint.name, added };
+  });
+  check("help lists the slide's highlight and key, not formulas", help.first.includes("mark") && help.first.includes("kbd") && help.first.includes("list") && !help.first.includes("math"), help.first.join(","));
+  check("…and formulas only where there is one", help.second.includes("math") && !help.second.includes("mark"), help.second.join(","));
+  check("a property from the help opens in the theme with its popover", help.added && help.tab === "css" && help.hint === "background-color", JSON.stringify(help));
+
   // Hints: what a value is and what it can be, and a choice written back
   const hints = await page.evaluate(() => {
     const a = window.__app;

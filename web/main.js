@@ -247,6 +247,7 @@ function frame() {
       paintOnce();
       handleRequests();
     }
+    helpTick(now);
   } catch (e) {
     fail(e);
   }
@@ -952,6 +953,95 @@ function showHint(h) {
   valEl.style.left = Math.max(8, left) + "px";
   valEl.style.top = Math.max(8, top) + "px";
 }
+
+// --- the help panel ---------------------------------------------------------------
+// What the selected slide is made of — a highlight, a list, a formula — with
+// how each is written and the theme's CSS rules that change how it looks,
+// at the values the theme gives them now. Only what the slide has is
+// listed. A property opens the theme at its line (added when the theme has
+// none) with its value popover.
+const helpEl = document.getElementById("help");
+let helpJson = "";
+let helpAt = 0;
+
+function helpOpen() { return document.body.classList.contains("helpOpen"); }
+
+function toggleHelp(on) {
+  document.body.classList.toggle("helpOpen", on ?? !helpOpen());
+  helpJson = "";
+  placeHelp();
+  requestAnimationFrame(resize);
+  if (helpOpen()) renderHelp();
+}
+
+function placeHelp() {
+  const bar = document.getElementById("bar").getBoundingClientRect();
+  helpEl.style.top = bar.bottom + "px";
+  helpEl.style.height = (window.innerHeight - bar.bottom) + "px";
+}
+
+function helpTick(now) {
+  if (!helpOpen() || now - helpAt < 300) return;
+  helpAt = now;
+  renderHelp();
+}
+
+function isColour(v) { return /^(#[0-9a-f]{3,8}|rgba?\(.*\))$/i.test((v || "").trim()); }
+
+function renderHelp() {
+  const j = app.slideHelp();
+  if (j === helpJson) return;
+  helpJson = j;
+  let feats = [];
+  try { feats = JSON.parse(j); } catch (_) { feats = []; }
+  const shown = app.slideShown();
+  const kids = [el("div", { class: "top" }, [
+    el("b", { text: `Ohje: dia ${shown + 1}` }),
+    el("button", { text: "✕", title: "Sulje ohje", onclick: () => toggleHelp(false) }),
+  ])];
+  kids.push(el("div", { class: "intro", text: "Tällä dialla on nämä osat. Napsauta ominaisuutta muuttaaksesi sitä teeman CSS:ssä." }));
+  for (const f of feats) {
+    const sec = [el("h3", { text: f.title })];
+    if (f.syntax) sec.push(el("div", { class: "syn" }, f.syntax.split("   ").map((x) => el("code", { text: x }))));
+    if (f.doc) sec.push(el("div", { class: "doc", text: f.doc }));
+    for (const r of f.rules) {
+      const rule = [el("div", {}, [el("span", { class: "sel", text: r.sel + " { }" }), el("span", { class: "sd", text: r.doc })])];
+      for (const p of r.props) {
+        const val = p.value
+          ? el("span", { class: "val" }, (isColour(p.value) ? [el("span", { class: "sw", style: "background:" + p.value })] : []).concat([p.value]))
+          : p.eff
+            ? el("span", { class: "val none" }, (isColour(p.eff) ? [el("span", { class: "sw", style: "background:" + p.eff })] : []).concat(["oletus " + p.eff + " – lisää"]))
+            : el("span", { class: "val none", text: "ei asetettu – lisää" });
+        rule.push(el("div", { class: "prop", title: p.value ? "Muokkaa teemassa" : "Lisää teemaan: " + p.name + ": " + p.def,
+          onclick: () => helpEdit(r.sel, p.name, p.def) }, [
+          el("span", { class: "nm", text: p.name }), val,
+          ...(p.doc ? [el("span", { class: "pd", text: p.doc })] : []),
+        ]));
+      }
+      sec.push(el("div", { class: "rule" }, rule));
+    }
+    for (const a of f.attrs || []) {
+      sec.push(el("div", { class: "attr" }, [a.name + "=" + a.value + " ", el("span", { class: "pd", text: a.doc })]));
+    }
+    kids.push(el("section", {}, sec));
+  }
+  const top = helpEl.scrollTop;
+  helpEl.replaceChildren(...kids);
+  helpEl.scrollTop = top;
+}
+
+function helpEdit(sel, prop, def) {
+  closeHint();
+  app.helpEdit(sel, prop, def);
+  afterInput();
+  focusKeys("editor");
+  paintOnce();
+  const h = JSON.parse(app.hintAtCaret() || "null");
+  if (h) showHint(h);
+}
+
+document.getElementById("helpBtn").addEventListener("click", () => toggleHelp());
+window.addEventListener("resize", () => { if (helpOpen()) placeHelp(); });
 
 function endPointer() {
   app.pointerUp();

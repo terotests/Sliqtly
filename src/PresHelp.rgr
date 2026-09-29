@@ -1,0 +1,696 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresHelp.rgr — what is on this slide, and which theme rules draw it
+; ============================================================================
+;
+; The help panel lists the things the selected slide is made of — a
+; highlight, a key cap, a list, a formula, a chart — each with how it is
+; written in the Markdown and the CSS rules and properties that change how
+; it looks, with the value the theme gives them now. Only what the slide
+; has is listed: a slide without a formula says nothing about formulas.
+;
+; `forSlide(text title css)` reads the slide's Markdown and answers as JSON:
+;
+;   [ { "key": "mark", "title": "Korostus", "syntax": "<mark>…</mark>",
+;       "doc": "…",
+;       "rules": [ { "sel": "mark", "doc": "…",
+;                    "props": [ { "name": "background-color",
+;                                 "value": "", "def": "#ffe766",
+;                                 "eff": "#ffe766",
+;                                 "doc": "…" } ] } ],
+;       "attrs": [ { "name": "fx", "value": "starfield", "doc": "…" } ] } ]
+;
+; `value` is "" when the theme does not set the property; `def` is what is
+; written into the theme when the property is added from the panel; `eff`
+; what the slide draws while it is not set, when that is known.
+; ============================================================================
+
+Import "PresHints.rgr"
+
+class PresSlideScan {
+    def levels:string ""
+    def para:boolean false
+    def list:boolean false
+    def quote:boolean false
+    def code:boolean false
+    def inlineCode:boolean false
+    def table:boolean false
+    def htmlTable:boolean false
+    def link:boolean false
+    def hr:boolean false
+    def mark:boolean false
+    def kbd:boolean false
+    def emph:boolean false
+    def math:boolean false
+    def diagram:boolean false
+    def chart:boolean false
+    def image:boolean false
+    ; inline HTML tag names met, " u sub sup " style
+    def tags:string " "
+    ; `.lead` style classes met, space separated with a leading space
+    def classes:string " "
+    def attrNames:[string]
+    def attrValues:[string]
+
+    Constructor () {
+    }
+
+    fn addTag:void (t:string) {
+        if ((indexOf tags (" " + t + " ")) < 0) {
+            tags = (tags + t + " ")
+        }
+    }
+
+    fn addClass:void (c:string) {
+        if ((indexOf classes (" " + c + " ")) < 0) {
+            classes = (classes + c + " ")
+        }
+    }
+
+    fn addAttr:void (k:string v:string) {
+        def i:int 0
+        while (i < (array_length attrNames)) {
+            if ((itemAt attrNames i) == k) {
+                return
+            }
+            i = (i + 1)
+        }
+        push attrNames k
+        push attrValues v
+    }
+}
+
+class PresHelp {
+    ; --- the theme's values -----------------------------------------------------
+    sfn noComments:string (css:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen css)
+        while (i < n) {
+            if (((i + 1) < n) && (((charAt css i) == 47) && ((charAt css (i + 1)) == 42))) {
+                def e:int (indexOfFrom css "*/" (i + 2))
+                if (e < 0) {
+                    return out
+                }
+                i = (e + 2)
+            } {
+                out = (out + (strfromcode (charAt css i)))
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; Does a selector list ("h1, h2") name `sel`?
+    sfn names:boolean (selectors:string sel:string) {
+        def parts:[string] (strsplit selectors ",")
+        def i:int 0
+        while (i < (array_length parts)) {
+            if ((trim (itemAt parts i)) == sel) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; What the last rule for `sel` says `prop` is, or "".
+    sfn valueOf:string (css:string sel:string prop:string) {
+        def found:string ""
+        def rules:[string] (strsplit css "}")
+        def i:int 0
+        while (i < (array_length rules)) {
+            def r:string (itemAt rules i)
+            def open:int (indexOf r "{")
+            if (open > 0) {
+                if (PresHelp.names((substring r 0 open) sel)) {
+                    def decls:[string] (strsplit (substring r (open + 1) (strlen r)) ";")
+                    def k:int 0
+                    while (k < (array_length decls)) {
+                        def d:string (itemAt decls k)
+                        def colon:int (indexOf d ":")
+                        if (colon > 0) {
+                            if ((trim (substring d 0 colon)) == prop) {
+                                found = (trim (substring d (colon + 1) (strlen d)))
+                            }
+                        }
+                        k = (k + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    ; The properties a rule for `sel` sets, "a,b,c".
+    sfn propsOf:string (css:string sel:string) {
+        def out:string ""
+        def rules:[string] (strsplit css "}")
+        def i:int 0
+        while (i < (array_length rules)) {
+            def r:string (itemAt rules i)
+            def open:int (indexOf r "{")
+            if (open > 0) {
+                if (PresHelp.names((substring r 0 open) sel)) {
+                    def decls:[string] (strsplit (substring r (open + 1) (strlen r)) ";")
+                    def k:int 0
+                    while (k < (array_length decls)) {
+                        def d:string (itemAt decls k)
+                        def colon:int (indexOf d ":")
+                        if (colon > 0) {
+                            def p:string (trim (substring d 0 colon))
+                            if ((indexOf ("," + out + ",") ("," + p + ",")) < 0) {
+                                if ((strlen out) > 0) {
+                                    out = (out + ",")
+                                }
+                                out = (out + p)
+                            }
+                        }
+                        k = (k + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; What the slide draws when the theme leaves the property out, when that
+    ; is known; "" otherwise.
+    sfn effectiveOf:string (css:string sel:string prop:string) {
+        if (sel == "mark") {
+            if (prop == "background-color") { return "#ffe766" }
+            if (prop == "color") { return "#1f2328" }
+        }
+        if (sel == "kbd") {
+            if (prop == "background-color") { return (PresHelp.valueOf(css "code" "background-color")) }
+            if (prop == "border-color") { return (PresHelp.valueOf(css "code" "border-color")) }
+        }
+        if ((sel == "blockquote") && (prop == "color")) { return (PresHelp.valueOf(css "document" "color")) }
+        return ""
+    }
+
+    ; What a property gets when it is added from the panel: what the slide
+    ; shows now, so adding it changes nothing until the value is edited.
+    sfn defaultOf:string (css:string sel:string prop:string) {
+        def eff:string (PresHelp.effectiveOf(css sel prop))
+        if ((strlen eff) > 0) {
+            return eff
+        }
+        if (sel == "mark") {
+            if (prop == "background-color") { return "#ffe766" }
+            if (prop == "color") { return "#1f2328" }
+        }
+        if (prop == "accent-color") { return "#5ce1ff" }
+        if (PresHints.isColorProp(prop)) { return "#ffffff" }
+        if (prop == "font-family") { return "Open Sans" }
+        if (prop == "font-size") { return "20pt" }
+        if (prop == "line-height") { return "1.4" }
+        if (prop == "border-width") { return "3pt" }
+        if (prop == "column-count") { return "2" }
+        if (prop == "chart-style") { return "flat" }
+        return "12pt"
+    }
+
+    sfn propDoc:string (sel:string prop:string) {
+        if ((sel == "kbd") && (prop == "background-color")) { return "Näppäimen pinta (oletus: koodin tausta)." }
+        if ((sel == "kbd") && (prop == "border-color")) { return "Näppäimen reuna (oletus: koodin reuna)." }
+        if ((sel == "mark") && (prop == "background-color")) { return "Korostuksen taustaväri." }
+        if ((sel == "mark") && (prop == "color")) { return "Korostetun tekstin väri." }
+        if ((sel == "table") && (prop == "background-color")) { return "Otsikkorivin tausta." }
+        if ((sel == "page") && (prop == "padding")) { return "Marginaali dian reunoilla." }
+        if ((sel == "hr") && (prop == "color")) { return "Viivan väri (myös otsikon alla)." }
+        if ((sel == "blockquote") && (prop == "border-color")) { return "Pystypalkin väri." }
+        if ((sel == "blockquote") && (prop == "border-width")) { return "Pystypalkin leveys." }
+        if ((sel == "list") && (prop == "margin-left")) { return "Luettelomerkin ja tekstin väli." }
+        if ((sel == "li") && (prop == "margin-bottom")) { return "Väli kohtien välillä." }
+        if (prop == "margin-top") { return "Tyhjä tila yläpuolella." }
+        if (prop == "margin-bottom") { return "Tyhjä tila alapuolella." }
+        if (prop == "margin-left") { return "Tyhjä tila vasemmalla." }
+        if (prop == "padding") { return "Sisennys reunoista." }
+        if (prop == "padding-left") { return "Sisennys vasemmalta." }
+        if (prop == "padding-top") { return "Sisennys ylhäältä." }
+        if (prop == "border-width") { return "Reunan leveys." }
+        return (PresHints.cssDoc(prop))
+    }
+
+    ; --- JSON -------------------------------------------------------------------
+    sfn rule:string (css:string sel:string doc:string props:string) {
+        def out:string ("{\"sel\":" + (PresHint.q(sel)) + ",\"doc\":" + (PresHint.q(doc)) + ",\"props\":[")
+        def ps:[string] (strsplit props ",")
+        def i:int 0
+        def first:boolean true
+        while (i < (array_length ps)) {
+            def p:string (trim (itemAt ps i))
+            if ((strlen p) > 0) {
+                if (first == false) {
+                    out = (out + ",")
+                }
+                first = false
+                out = (out + "{\"name\":" + (PresHint.q(p)) + ",\"value\":" + (PresHint.q((PresHelp.valueOf(css sel p)))) + ",\"def\":" + (PresHint.q((PresHelp.defaultOf(css sel p)))) + ",\"eff\":" + (PresHint.q((PresHelp.effectiveOf(css sel p)))) + ",\"doc\":" + (PresHint.q((PresHelp.propDoc(sel p)))) + "}")
+            }
+            i = (i + 1)
+        }
+        return (out + "]}")
+    }
+
+    sfn feature:string (key:string title:string syntax:string doc:string rules:string) {
+        return ("{\"key\":" + (PresHint.q(key)) + ",\"title\":" + (PresHint.q(title)) + ",\"syntax\":" + (PresHint.q(syntax)) + ",\"doc\":" + (PresHint.q(doc)) + ",\"rules\":[" + rules + "],\"attrs\":[]}")
+    }
+
+    ; --- reading the slide --------------------------------------------------------
+    sfn startsWith:boolean (s:string p:string) {
+        if ((strlen s) < (strlen p)) {
+            return false
+        }
+        return ((substring s 0 (strlen p)) == p)
+    }
+
+    sfn isListLine:boolean (t:string) {
+        if ((PresHelp.startsWith(t "- ")) || ((PresHelp.startsWith(t "* ")) || (PresHelp.startsWith(t "+ ")))) {
+            return true
+        }
+        def i:int 0
+        def n:int (strlen t)
+        while ((i < n) && (((charAt t i) >= 48) && ((charAt t i) <= 57))) {
+            i = (i + 1)
+        }
+        if ((i > 0) && ((i + 1) < n)) {
+            def c:int (charAt t i)
+            if (((c == 46) || (c == 41)) && ((charAt t (i + 1)) == 32)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; A `$` that opens a formula: another `$` later on the line, and not a
+    ; price (`$10`).
+    sfn hasMath:boolean (t:string) {
+        def a:int (indexOf t "$")
+        while (a >= 0) {
+            if ((a + 1) < (strlen t)) {
+                def c:int (charAt t (a + 1))
+                def isDigit:boolean ((c >= 48) && (c <= 57))
+                if (((isDigit == false) && (c != 32)) && ((indexOfFrom t "$" (a + 1)) > a)) {
+                    return true
+                }
+            }
+            a = (indexOfFrom t "$" (a + 1))
+        }
+        return false
+    }
+
+    ; `{.lead fx=starfield #id}` at the end of a line (or alone on it).
+    sfn attrsOf:void (sc:PresSlideScan t:string) {
+        def open:int (lastIndexOf t "{")
+        if (open < 0) {
+            return
+        }
+        def close:int (indexOfFrom t "}" open)
+        if (close < 0) {
+            return
+        }
+        def items:[string] (strsplit (substring t (open + 1) close) " ")
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:string (trim (itemAt items i))
+            if ((strlen it) > 1) {
+                if ((charAt it 0) == 46) {
+                    sc.addClass(it)
+                } {
+                    def eq:int (indexOf it "=")
+                    if (eq > 0) {
+                        sc.addAttr((substring it 0 eq) (substring it (eq + 1) (strlen it)))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn inline:void (sc:PresSlideScan t:string) {
+        if ((indexOf t "`") >= 0) {
+            sc.inlineCode = true
+        }
+        def img:int (indexOf t "![")
+        if (img >= 0) {
+            sc.image = true
+        }
+        ; a `](` whose `[` is not a picture's `![`
+        def lk:int (indexOf t "](")
+        while (lk > 0) {
+            def open:int (lastIndexOf (substring t 0 lk) "[")
+            if (open >= 0) {
+                if ((open == 0) || ((charAt t (open - 1)) != 33)) {
+                    sc.link = true
+                }
+            }
+            lk = (indexOfFrom t "](" (lk + 2))
+        }
+        if (PresHelp.hasMath(t)) {
+            sc.math = true
+        }
+        if (((indexOf t "**") >= 0) || (((indexOf t " *") >= 0) || ((indexOf t " _") >= 0))) {
+            sc.emph = true
+        }
+        if ((indexOf t "~~") >= 0) {
+            sc.addTag("~~")
+        }
+        ; the HTML tags in it
+        def lower:string (MdHtml.lower(t))
+        def at:int (MdHtml.nextTag(lower 0))
+        while (at >= 0) {
+            def tg:MdHtmlTag (MdHtml.tagAt(lower at))
+            if (tg.close == false) {
+                def nm:string tg.name
+                if (nm == "mark") {
+                    sc.mark = true
+                } {
+                    if (nm == "kbd") {
+                        sc.kbd = true
+                    } {
+                        if (nm == "a") {
+                            sc.link = true
+                        } {
+                            if (nm == "table") {
+                                sc.htmlTable = true
+                            } {
+                                if ((strlen nm) > 0) {
+                                    sc.addTag(nm)
+                                }
+                            }
+                        }
+                    }
+                }
+                if ((strlen (tg.attr("style"))) > 0) {
+                    sc.addTag("style")
+                }
+            }
+            at = (MdHtml.nextTag(lower tg.end))
+        }
+    }
+
+    sfn scan:PresSlideScan (text:string) {
+        def sc:PresSlideScan (new PresSlideScan())
+        def lines:[string] (strsplit text "\n")
+        def inFence:boolean false
+        def fenceMark:string ""
+        def inMath:boolean false
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (itemAt lines i)
+            def t:string (trim raw)
+            i = (i + 1)
+            if inFence {
+                if (PresHelp.startsWith(t fenceMark)) {
+                    inFence = false
+                }
+                continue
+            }
+            if inMath {
+                if ((indexOf t "$$") >= 0) {
+                    inMath = false
+                }
+                continue
+            }
+            if ((strlen t) == 0) {
+                continue
+            }
+            if ((PresHelp.startsWith(t "```")) || (PresHelp.startsWith(t "~~~"))) {
+                inFence = true
+                fenceMark = (substring t 0 3)
+                def lang:string (MdHtml.lower((trim (substring t 3 (strlen t)))))
+                def sp:int (indexOf lang " ")
+                if (sp > 0) {
+                    lang = (substring lang 0 sp)
+                }
+                def br:int (indexOf lang "{")
+                if (br >= 0) {
+                    lang = (trim (substring lang 0 br))
+                }
+                PresHelp.attrsOf(sc t)
+                if ((lang == "math") || (lang == "latex") || (lang == "tex")) {
+                    sc.math = true
+                } {
+                    if ((lang == "mermaid") || ((lang == "dot") || ((lang == "graphviz") || ((lang == "d2") || ((lang == "plantuml") || (lang == "puml")))))) {
+                        sc.diagram = true
+                    } {
+                        if ((lang == "vega-lite") || ((lang == "vegalite") || (lang == "vega"))) {
+                            sc.chart = true
+                        } {
+                            sc.code = true
+                        }
+                    }
+                }
+                continue
+            }
+            if ((charAt t 0) == 35) {
+                def lv:int 0
+                while ((lv < (strlen t)) && ((charAt t lv) == 35)) {
+                    lv = (lv + 1)
+                }
+                if ((lv <= 6) && ((indexOf sc.levels (to_string lv)) < 0)) {
+                    sc.levels = (sc.levels + (to_string lv))
+                }
+                PresHelp.attrsOf(sc t)
+                PresHelp.inline(sc t)
+                continue
+            }
+            if (((charAt t 0) == 123) && ((charAt t ((strlen t) - 1)) == 125)) {
+                PresHelp.attrsOf(sc t)
+                continue
+            }
+            if (PresHelp.startsWith(t "$$")) {
+                sc.math = true
+                if (((strlen t) == 2) || ((indexOfFrom t "$$" 2) < 0)) {
+                    inMath = true
+                }
+                continue
+            }
+            if (((t == "---") || (t == "***")) || (t == "___")) {
+                sc.hr = true
+                continue
+            }
+            if ((charAt t 0) == 62) {
+                sc.quote = true
+            } {
+                if (PresHelp.isListLine(t)) {
+                    sc.list = true
+                    if (((indexOf t "[ ]") >= 0) || ((indexOf t "[x]") >= 0)) {
+                        sc.addTag("task")
+                    }
+                } {
+                    if ((charAt t 0) == 124) {
+                        sc.table = true
+                    } {
+                        if ((PresHelp.startsWith(t "![")) == false) {
+                            if ((charAt t 0) != 60) {
+                                sc.para = true
+                            }
+                        }
+                    }
+                }
+            }
+            PresHelp.attrsOf(sc t)
+            PresHelp.inline(sc t)
+        }
+        return sc
+    }
+
+    ; --- the answer ---------------------------------------------------------------
+    sfn hasTag:boolean (sc:PresSlideScan t:string) {
+        return ((indexOf sc.tags (" " + t + " ")) >= 0)
+    }
+
+    sfn forSlide:string (text:string title:string css0:string) {
+        def css:string (PresHelp.noComments(css0))
+        def sc:PresSlideScan (PresHelp.scan(text))
+        def out:[string]
+        push out (PresHelp.feature("slide" "Dia ja teksti" "## Otsikko aloittaa uuden dian" "Dian tausta ja reunat sekä kaiken tekstin kirjasin, koko ja väri." ((PresHelp.rule(css "page" "Dian tausta ja marginaali." "background-color,padding")) + "," + (PresHelp.rule(css "document" "Kaiken tekstin oletukset." "font-family,font-size,line-height,color")))))
+        if (((strlen title) > 0) || ((strlen sc.levels) > 0)) {
+            def rules:string (PresHelp.rule(css "heading" "Kaikki otsikot." "font-family,margin-top,margin-bottom"))
+            def lv:int 1
+            def syn:string ""
+            while (lv <= 6) {
+                def ls:string (to_string lv)
+                if (((indexOf sc.levels ls) >= 0) || ((lv == 2) && ((strlen sc.levels) == 0))) {
+                    rules = (rules + "," + (PresHelp.rule(css ("h" + ls) ("Tason " + ls + " otsikko.") "font-size")))
+                    def hashes:string ""
+                    def k:int 0
+                    while (k < lv) {
+                        hashes = (hashes + "#")
+                        k = (k + 1)
+                    }
+                    if ((strlen syn) > 0) {
+                        syn = (syn + "   ")
+                    }
+                    syn = (syn + hashes + " Otsikko")
+                }
+                lv = (lv + 1)
+            }
+            push out (PresHelp.feature("heading" "Otsikot" syn "Otsikon väri on tekstin väri (document). Otsikon alla oleva viiva on hr-säännön värinen." rules))
+        }
+        if sc.para {
+            push out (PresHelp.feature("p" "Kappale" "Tekstiä, tyhjä rivi erottaa kappaleet." "" (PresHelp.rule(css "p" "Kappale." "margin-bottom"))))
+        }
+        if sc.emph {
+            push out (PresHelp.feature("emph" "Lihavointi ja kursiivi" "**lihavoitu**   *kursiivi*   ***molemmat***" "Käyttää tekstin kirjasimen lihavoitua ja kursiivia leikkausta. Omaa CSS-sääntöä ei ole." ""))
+        }
+        if sc.list {
+            def ls:string "- kohta   1. numeroitu kohta   sisennys kahdella välilyönnillä"
+            if (PresHelp.hasTag(sc "task")) {
+                ls = (ls + "   - [ ] tehtävä   - [x] tehty")
+            }
+            push out (PresHelp.feature("list" "Luettelo" ls "Kohta ei katkea kahdelle dialle; jos yksi kohta ei mahdu, dian tekstiä pienennetään hieman." ((PresHelp.rule(css "list" "Koko luettelo." "padding-left,margin-left")) + "," + (PresHelp.rule(css "li" "Yksi kohta." "margin-bottom")))))
+        }
+        if sc.quote {
+            push out (PresHelp.feature("quote" "Lainaus" "> lainattu teksti" "" (PresHelp.rule(css "blockquote" "Lainaus ja sen palkki." "color,border-color,border-width,padding-left,padding-top"))))
+        }
+        if (sc.code || sc.inlineCode) {
+            def cs:string "`koodi` rivin sisällä"
+            if sc.code {
+                cs = (cs + "   ```js … ``` lohkona")
+            }
+            push out (PresHelp.feature("code" "Koodi" cs "Sama sääntö koskee koodilohkoja ja rivinsisäistä koodia." (PresHelp.rule(css "code" "Koodi." "font-family,font-size,line-height,padding,background-color,border-color"))))
+        }
+        if (sc.table || sc.htmlTable) {
+            def ts:string ""
+            if sc.table {
+                ts = "| A | B |   |---|---|   | 1 | 2 |"
+            }
+            if sc.htmlTable {
+                if ((strlen ts) > 0) {
+                    ts = (ts + "   ")
+                }
+                ts = (ts + "<table> <tr><th colspan=\"2\">…</th></tr> <td rowspan=\"2\">…</td>")
+            }
+            push out (PresHelp.feature("table" "Taulukko" ts "Solun tasaus: :---: sarakkeen erotinrivillä tai align=\"center\" HTML-solussa." (PresHelp.rule(css "table" "Taulukon viivat, otsikkorivi ja solujen väli." "border-color,background-color,padding-left,padding-top"))))
+        }
+        if sc.link {
+            push out (PresHelp.feature("link" "Linkki" "[teksti](https://…)   <a href=\"…\">teksti</a>" "" (PresHelp.rule(css "a" "Linkki." "color"))))
+        }
+        if sc.hr {
+            push out (PresHelp.feature("hr" "Vaakaviiva" "---" "" (PresHelp.rule(css "hr" "Viiva." "color"))))
+        }
+        if sc.mark {
+            push out (PresHelp.feature("mark" "Korostus" "<mark>korostettu</mark>" "" (PresHelp.rule(css "mark" "Korostettu teksti." "background-color,color"))))
+        }
+        if sc.kbd {
+            push out (PresHelp.feature("kbd" "Näppäin" "<kbd>Ctrl</kbd> + <kbd>C</kbd>" "Teksti on koodin kirjasimella (code { font-family })." (PresHelp.rule(css "kbd" "Näppäimen kuva." "background-color,border-color"))))
+        }
+        ; the inline HTML that has no rule of its own
+        def known:string "u ins s del strike ~~ sub sup small big abbr acronym q br span font style em strong b i"
+        def parts:[string] (strsplit known " ")
+        def syn2:string ""
+        def k2:int 0
+        while (k2 < (array_length parts)) {
+            def tg:string (itemAt parts k2)
+            if (PresHelp.hasTag(sc tg)) {
+                def ex:string ""
+                if ((tg == "u") || (tg == "ins")) { ex = "<u>alleviivattu</u>" }
+                if ((tg == "s") || ((tg == "del") || (tg == "strike"))) { ex = "<s>yliviivattu</s>" }
+                if (tg == "~~") { ex = "~~yliviivattu~~" }
+                if (tg == "sub") { ex = "H<sub>2</sub>O" }
+                if (tg == "sup") { ex = "x<sup>2</sup>" }
+                if (tg == "small") { ex = "<small>pieni teksti</small> (85 %)" }
+                if (tg == "big") { ex = "<big>iso teksti</big> (115 %)" }
+                if ((tg == "abbr") || (tg == "acronym")) { ex = "<abbr title=\"selitys\">GUI</abbr> (katkoviiva alla)" }
+                if (tg == "q") { ex = "<q>lainaus</q>" }
+                if (tg == "br") { ex = "rivinvaihto<br>" }
+                if ((tg == "span") || ((tg == "font") || (tg == "style"))) { ex = "<span style=\"color: #ff8800\">oma väri</span>" }
+                if ((tg == "em") || (tg == "i")) { ex = "<em>kursiivi</em>" }
+                if ((tg == "strong") || (tg == "b")) { ex = "<strong>lihavoitu</strong>" }
+                if (((strlen ex) > 0) && ((indexOf syn2 ex) < 0)) {
+                    if ((strlen syn2) > 0) {
+                        syn2 = (syn2 + "   ")
+                    }
+                    syn2 = (syn2 + ex)
+                }
+            }
+            k2 = (k2 + 1)
+        }
+        if ((strlen syn2) > 0) {
+            push out (PresHelp.feature("html" "HTML-muotoilut" syn2 "Näillä ei ole omaa teeman sääntöä: väri tulee tekstistä (document { color }). Yksittäisen kohdan värin voi antaa style=\"color: …\" -määrittelyllä mihin tahansa näistä tageista." ""))
+        }
+        if sc.math {
+            push out (PresHelp.feature("math" "Kaavat" "$E = mc^2$ rivin sisällä   $$\\frac{a}{b}$$ omalla rivillään   ```math … ```" "Kaava piirretään ympäröivän tekstin koossa ja värissä. Värin voi vaihtaa kaavan sisällä: \\color{red}{x}." (PresHelp.rule(css "document" "Kaavan koko ja väri tulevat tekstistä." "font-size,color"))))
+        }
+        if sc.image {
+            push out (PresHelp.feature("image" "Kuva" "![kuvaus](kuva.png)" "Kuvan voi vetää editoriin tai liittää leikepöydältä. Teemassa ei ole kuvien sääntöä." ""))
+        }
+        if sc.diagram {
+            push out (PresHelp.feature("diagram" "Kaavio" "```mermaid {tour=off style=sketch} … ```" "Mermaid-, DOT-, D2- ja PlantUML-kaaviot. Kaaviokohtaiset asetukset aaltosulkeissa lohkon ensimmäisellä rivillä." (PresHelp.rule(css "diagram" "Kaavioiden värit." "color,accent-color"))))
+        }
+        if sc.chart {
+            push out (PresHelp.feature("chart" "Vega-Lite-kaavio" "```vega-lite { … } ```" "" (PresHelp.rule(css "chart" "Kaavioiden värit ja tyyli." "color,accent-color,chart-style"))))
+        }
+        ; classes
+        def cls:[string] (strsplit (trim sc.classes) " ")
+        def c:int 0
+        while (c < (array_length cls)) {
+            def cl:string (trim (itemAt cls c))
+            if ((strlen cl) > 1) {
+                def props:string ""
+                if ((cl == ".c2") || ((cl == ".c3") || (cl == ".c4"))) {
+                    props = "column-count,column-gap"
+                }
+                def extra:string (PresHelp.propsOf(css cl))
+                def eps:[string] (strsplit extra ",")
+                def e:int 0
+                while (e < (array_length eps)) {
+                    def ep:string (itemAt eps e)
+                    if (((strlen ep) > 0) && ((indexOf ("," + props + ",") ("," + ep + ",")) < 0)) {
+                        if ((strlen props) > 0) {
+                            props = (props + ",")
+                        }
+                        props = (props + ep)
+                    }
+                    e = (e + 1)
+                }
+                def rules2:string ""
+                if ((strlen props) > 0) {
+                    rules2 = (PresHelp.rule(css cl (PresHints.classDoc(cl)) props))
+                }
+                def cdoc:string (PresHints.classDoc(cl))
+                if ((cl == ".lead") || (cl == ".kicker")) {
+                    cdoc = (cdoc + " Luokan font-size ei vielä vaikuta dioihin.")
+                }
+                push out (PresHelp.feature(("class" + cl) ("Luokka " + cl) (cl + " aaltosulkeissa: {" + cl + "} kappaleen jälkeen tai otsikon perässä") cdoc rules2))
+            }
+            c = (c + 1)
+        }
+        ; the slide's own settings
+        if ((array_length sc.attrNames) > 0) {
+            def f:string (PresHelp.feature("attrs" "Dian asetukset" "## Otsikko {transition=zoom fx=starfield}" "Nämä ovat Markdownissa, eivät teemassa. Vie hiiri arvon päälle editorissa vaihtaaksesi sen." ""))
+            def a:string ""
+            def i:int 0
+            while (i < (array_length sc.attrNames)) {
+                def nm:string (itemAt sc.attrNames i)
+                def d:string (PresHints.attrDoc(nm))
+                if (((strlen d) == 0) && (PresHelp.startsWith(nm "fx-"))) {
+                    d = "Taustaefektin parametri."
+                }
+                if ((strlen a) > 0) {
+                    a = (a + ",")
+                }
+                a = (a + "{\"name\":" + (PresHint.q(nm)) + ",\"value\":" + (PresHint.q((itemAt sc.attrValues i))) + ",\"doc\":" + (PresHint.q(d)) + "}")
+                i = (i + 1)
+            }
+            f = ((substring f 0 ((strlen f) - 3)) + "[" + a + "]}")
+            push out f
+        }
+        def json:string "["
+        def j:int 0
+        while (j < (array_length out)) {
+            if (j > 0) {
+                json = (json + ",")
+            }
+            json = (json + (itemAt out j))
+            j = (j + 1)
+        }
+        return (json + "]")
+    }
+}
