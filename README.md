@@ -109,6 +109,17 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   their current values. Only what the slide has is listed. Clicking a
   property opens the theme at that line (adding it if the theme has none)
   with its value popover.
+- A slide's background effect (`{fx=…}`) goes into the PDF and the PPTX as a
+  picture: before an export each effect is drawn in the browser at the moment
+  the thumbnails show it, and put under the slide's content (PDF) or as the
+  slide background (PPTX). Text and shapes stay editable on top. Raindrop and
+  liquid glass are drawn over the bare paper there, so in the exports the
+  drops do not bend the text as they do on the stage.
+- Pasting a whole document (into an empty editor or over a select-all) opens
+  it at the first slide.
+- In the theme, hovering or clicking a selector (`page`, `code`, `.lead`…)
+  lists the properties it has and the ones it can have, with what each does;
+  a click adds or opens one with its value popover.
 - **Ctrl+V** in the editor pastes a picture from the clipboard. It is stored
   under `media/` and written into the Markdown as `![](media/…)`. Dropping an
   image onto the canvas does the same.

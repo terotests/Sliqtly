@@ -367,17 +367,58 @@ function exportName() {
   return t || docName;
 }
 window.__exportName = exportName;
-document.getElementById("pdf").addEventListener("click", () => {
-  try {
-    window.__lastDownload = deliver(app.pdf(), exportName() + ".pdf", "application/pdf");
-  } catch (e) { fail(e); }
-});
-document.getElementById("pptx").addEventListener("click", () => {
-  try {
-    window.__lastDownload = deliver(app.pptx(), exportName() + ".pptx",
-      "application/vnd.openxmlformats-officedocument.presentationml.presentation");
-  } catch (e) { fail(e); }
-});
+// A slide's effect is a shader, which neither a PDF nor a PowerPoint file can
+// hold. Before an export each one is drawn here, on its slide's paper and at
+// the moment the thumbnails show it, into a canvas of its own; the app puts
+// the picture under the slide's content (the PDF) or behind it as the slide
+// background (the PPTX). Text and shapes stay vector on top.
+const FX_STILL_W = 1600;
+async function renderFxStills() {
+  app.clearFxStills();
+  const list = JSON.parse(app.fxSlidesJson());
+  if (!list.length) return;
+  toast(`Piirretään ${list.length} dian efektit vientiä varten…`);
+  // the toast gets a frame to show before the work starts
+  await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+  const c = document.createElement("canvas");
+  const g = c.getContext("webgl2", { antialias: false, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!g) return;
+  for (const i of list) {
+    const doc = withTime(JSON.parse(app.fxJson(i)), 2.0);
+    const k = FX_STILL_W / doc.width;
+    c.width = FX_STILL_W;
+    c.height = Math.round(doc.height * k);
+    const f = prepareDisplayList(g, doc, { dpr: k });
+    f.draw(null, null);
+    const w = c.width;
+    const h = c.height;
+    const up = new Uint8Array(w * h * 4);
+    g.readPixels(0, 0, w, h, g.RGBA, g.UNSIGNED_BYTE, up);
+    f.dispose();
+    // GL rows run bottom up; a picture's run top down, and opaque
+    const rgba = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y++) rgba.set(up.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4);
+    for (let p = 3; p < rgba.length; p += 4) rgba[p] = 255;
+    const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.9));
+    const jpeg = blob ? await blob.arrayBuffer() : new ArrayBuffer(0);
+    app.setFxStill(i, asRangerBuffer(rgba.buffer), w, h, asRangerBuffer(jpeg));
+  }
+  const lose = g.getExtension("WEBGL_lose_context");
+  if (lose) lose.loseContext();
+}
+window.__renderFxStills = renderFxStills;
+
+async function exportPdf() {
+  await renderFxStills();
+  window.__lastDownload = deliver(app.pdf(), exportName() + ".pdf", "application/pdf");
+}
+async function exportPptx() {
+  await renderFxStills();
+  window.__lastDownload = deliver(app.pptx(), exportName() + ".pptx",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+}
+document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
+document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
 filePick.addEventListener("change", async () => {
   const file = filePick.files && filePick.files[0];
   if (!file) return;

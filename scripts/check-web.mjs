@@ -529,6 +529,30 @@ try {
   });
   const pdf = Buffer.from(exp.pdf, "base64");
   check("PDF export", pdf.subarray(0, 5).toString() === "%PDF-", `${pdf.length} bytes`);
+  // A slide's effect goes into both exports as a picture under the content
+  const fxExp = await page.evaluate(async () => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.setSource("# E\n\n## Tähdet {fx=starfield}\n\nteksti\n\n## Sade {fx=raindrop}\n\nteksti\n\n## Ilman\n\nteksti\n");
+    const toB64 = (buf) => {
+      const u = new Uint8Array(buf);
+      let s = "";
+      for (let i = 0; i < u.length; i += 1) s += String.fromCharCode(u[i]);
+      return btoa(s);
+    };
+    await window.__renderFxStills();
+    const pdf = toB64(a.pdf());
+    await window.__renderFxStills();
+    const pptx = toB64(a.pptx());
+    a.setSource(src0);
+    return { pdf, pptx };
+  });
+  const fxPdf = Buffer.from(fxExp.pdf, "base64").toString("latin1");
+  const fxImages = (fxPdf.match(/\/Subtype \/Image/g) || []).length;
+  check("PDF: each slide's effect is a picture", fxImages === 2, `${fxImages} images`);
+  const fxPptx = unzip(Buffer.from(fxExp.pptx, "base64"));
+  const bgs = [2, 3, 4].map((n) => /<p:bg><p:bgPr><a:blipFill>/.test(fxPptx.get(`ppt/slides/slide${n}.xml`) || ""));
+  check("PPTX: the effect is the slide's background, only where there is one", bgs.join(",") === "true,true,false", bgs.join(","));
   const names = await page.evaluate(() => {
     const a = window.__app;
     const src = a.source();

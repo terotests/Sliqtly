@@ -117,6 +117,9 @@ class PresDeck {
     ; Painting for a page that does not move (the PDF): every diagram at
     ; rest, whole, rather than where its walk is at a moment.
     def still:boolean false
+    ; Slides whose effect the host rendered to a picture for an export
+    ; (`fxStillPath`); a still list draws the picture in place of the effect.
+    def fxStills:[int]
     def pageW:double 960.0
     def pageH:double 540.0
     ; What the template says about the presentation beyond what markdown
@@ -1143,7 +1146,22 @@ class PresDeck {
         while ((array_length groupOfCmd) < (array_length out.cmds)) {
             push groupOfCmd -1
         }
-        if (((strlen s.fx) > 0) && ((PresDeck.fxOnTop(s.fx)) == false)) {
+        def useStill:boolean (still && (this.hasFxStill(i)))
+        if useStill {
+            def pic:EVGDrawCmd (new EVGDrawCmd())
+            pic.kind = 2
+            pic.x = 0.0
+            pic.y = 0.0
+            pic.w = pageW
+            pic.h = pageH
+            pic.src = (PresDeck.fxStillPath(i))
+            pic.a = 1.0
+            push out.cmds pic
+            while ((array_length groupOfCmd) < (array_length out.cmds)) {
+                push groupOfCmd -1
+            }
+        }
+        if ((((strlen s.fx) > 0) && ((PresDeck.fxOnTop(s.fx)) == false)) && (useStill == false)) {
             this.addFx(out s paper)
             while ((array_length groupOfCmd) < (array_length out.cmds)) {
                 push groupOfCmd -1
@@ -1238,10 +1256,49 @@ class PresDeck {
         ; An effect that refracts what is behind it goes over the finished
         ; slide, with no background of its own: under the content it read the
         ; bare paper and the slide was then painted over it, so nothing showed.
-        if (((strlen s.fx) > 0) && (PresDeck.fxOnTop(s.fx))) {
+        if ((((strlen s.fx) > 0) && (PresDeck.fxOnTop(s.fx))) && (useStill == false)) {
             this.addFx(out s "")
             while ((array_length groupOfCmd) < (array_length out.cmds)) {
                 push groupOfCmd -1
+            }
+        }
+        return out
+    }
+
+    fn hasFxStill:boolean (i:int) {
+        def k:int 0
+        while (k < (array_length fxStills)) {
+            if ((itemAt fxStills k) == i) {
+                return true
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    sfn fxStillPath:string (i:int) {
+        return ("fx-still-" + (to_string i) + ".jpg")
+    }
+
+    ; A slide's paper and its effect alone, for the host to render the
+    ; effect as a picture the exports can carry. An effect that reads the
+    ; page under it gets the paper to read.
+    fn fxOnlyList:EVGDisplayList (i:int) {
+        def l:MdLayout (this.layout())
+        def s:PresSlide (itemAt slides i)
+        def out:EVGDisplayList (new EVGDisplayList())
+        def painter (new MdToEvg())
+        def paper:string "#ffffff"
+        if ((strlen l.style.pageBackground) > 0) {
+            paper = l.style.pageBackground
+        }
+        painter.rect(out 0.0 0.0 pageW pageH paper)
+        painter.paper(out l 0.0 0.0 pageW pageH)
+        if ((strlen s.fx) > 0) {
+            if (PresDeck.fxOnTop(s.fx)) {
+                this.addFx(out s "")
+            } {
+                this.addFx(out s paper)
             }
         }
         return out
