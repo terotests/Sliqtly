@@ -1,25 +1,26 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later
  *
- * The presentation editor's canvas chrome, as an EVG stylesheet. Dark, so
- * the slide is the brightest thing on screen. Every box is placed by
+ * The presentation editor's canvas chrome, as an EVG stylesheet, in the
+ * EVGUI playground's light look: white panels on a zinc ground, the slide
+ * lifted off it by a soft shadow. Every box is placed by
  * PresApp.rgr in pixels; this sheet only dresses them. Text elements carry
  * a height, because EVG measures a line's width and the box says how tall
  * it is.
  */
 
 @vars {
-  --bg: #0b0f1e;
-  --panel: #121833;
-  --panel-2: #182044;
-  --line: #262f5c;
-  --ink: #e7eaff;
-  --ink-dim: #a3abd6;
-  --ink-mute: #6f78a8;
-  --accent: #7c8cff;
-  --text-clip: #3d5bd9;
-  --audio-clip: #1f8a70;
-  --anim-clip: #8a4fd6;
-  --fx-clip: #4a2f8a;
+  --bg: #f4f4f5;
+  --panel: #ffffff;
+  --panel-2: #f4f4f5;
+  --line: #e4e4e7;
+  --ink: #09090b;
+  --ink-dim: #52525b;
+  --ink-mute: #a1a1aa;
+  --accent: #18181b;
+  --text-clip: #3b82f6;
+  --audio-clip: #10b981;
+  --anim-clip: #8b5cf6;
+  --fx-clip: #6366f1;
 }
 
 .app { background-color: var(--bg); font-family: Open Sans; }
@@ -27,7 +28,7 @@
 
 .sep { background-color: var(--line); cursor: col-resize; }
 .stage-area { background-color: var(--bg); }
-.slide-shadow { background-color: #000000; border-radius: 2px; }
+.slide-shadow { background-color: #d4d4d8; border-radius: 3px; shadow-color: rgba(0, 0, 0, 0.18); shadow-radius: 18px; shadow-offset-y: 6px; }
 .empty { color: var(--ink-dim); font-size: 15px; height: 20px; }
 
 /* --- the tracks ------------------------------------------------------------ */
@@ -44,7 +45,7 @@
 .clip-fx { background-color: var(--fx-clip); }
 .clip-dia { background-color: #c2410c; }
 .clip-label { color: #ffffff; font-size: 11px; height: 14px; }
-.playhead { background-color: #ffcc4d; }
+.playhead { background-color: #f59e0b; }
 
 /* --- the filmstrip --------------------------------------------------------- */
 .strip { background-color: var(--panel); border-top: 1px solid var(--line); }
@@ -62,5 +63,5 @@
 .ui-tabs { display: flex; flex-direction: column; }
 .ui-tablist { display: flex; flex-direction: row; align-items: center; gap: 4px; }
 .ui-tab { color: var(--ink-dim); font-size: 13px; height: 18px; padding-left: 12px; padding-right: 12px; padding-top: 4px; padding-bottom: 2px; border-radius: 6px; cursor: pointer; }
-.ui-tab-state-active { background-color: var(--panel-2); color: var(--ink); }
+.ui-tab-state-active { background-color: var(--panel-2); color: var(--ink); border: 1px solid var(--line); }
 .ui-tabpanel { display: none; }

@@ -178,6 +178,8 @@ class PresApp {
         editor.layout.fontSize = 13.0
         editor.init("")
         bufSynced = editor.buf.version
+        PresApp.lightEditor(editor)
+        PresApp.lightEditor(cssEditor)
         W = w
         H = h
     }
@@ -199,6 +201,45 @@ class PresApp {
 
     fn addTemplate:void (name:string css:string) {
         deck.md.addTheme(name css)
+    }
+
+    ; The editors in the app's light look: white paper, zinc greys, and the
+    ; syntax in the colours of a light code theme.
+    sfn lightEditor:void (ed:ScriptEditor) {
+        def t:ScriptEditorTheme ed.theme
+        t.bg = (EVGColor.rgb(255 255 255))
+        t.gutterBg = (EVGColor.rgb(250 250 250))
+        t.gutterText = (EVGColor.rgb(161 161 170))
+        t.gutterActive = (EVGColor.rgb(63 63 70))
+        t.currentLine = (EVGColor.rgb(244 244 245))
+        t.selection = (EVGColor.rgba(59 130 246 0.22))
+        t.caret = (EVGColor.rgb(24 24 27))
+        t.border = (EVGColor.rgb(228 228 231))
+        t.plain = (EVGColor.rgb(36 41 47))
+        t.keyword = (EVGColor.rgb(130 80 223))
+        t.builtin = (EVGColor.rgb(5 80 174))
+        t.number = (EVGColor.rgb(149 56 0))
+        t.text = (EVGColor.rgb(10 48 105))
+        t.comment = (EVGColor.rgb(110 119 129))
+        t.punct = (EVGColor.rgb(5 80 174))
+        t.tag = (EVGColor.rgb(207 34 46))
+        t.attr = (EVGColor.rgb(149 56 0))
+        t.popupBg = (EVGColor.rgb(255 255 255))
+        t.popupEdge = (EVGColor.rgb(228 228 231))
+        t.popupPick = (EVGColor.rgb(244 244 245))
+        t.popupDetail = (EVGColor.rgb(113 113 122))
+        t.findBg = (EVGColor.rgb(255 255 255))
+        t.findEdge = (EVGColor.rgb(228 228 231))
+        t.findInk = (EVGColor.rgb(24 24 27))
+        t.findDim = (EVGColor.rgb(113 113 122))
+        t.errorInk = (EVGColor.rgb(207 34 46))
+        t.warningInk = (EVGColor.rgb(154 103 0))
+        t.minimapBg = (EVGColor.rgb(250 250 250))
+        t.minimapSlider = (EVGColor.rgba(24 24 27 0.08))
+        t.minimapEdge = (EVGColor.rgb(228 228 231))
+        t.hBarTrack = (EVGColor.rgb(250 250 250))
+        t.hBarThumb = (EVGColor.rgba(24 24 27 0.28))
+        t.hBarEdge = (EVGColor.rgb(228 228 231))
     }
 
     ; The reader's template, which beats what the document names; "" lets

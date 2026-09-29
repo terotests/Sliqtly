@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%237c8cff'/%3E%3Cpath d='M12 9l12 7-12 7z' fill='white'/%3E%3C/svg%3E" />
 <style>
   :root {
-    --bg: #0b0f1e; --bar: #121833; --line: #262f5c; --ink: #e7eaff; --dim: #a3abd6; --accent: #7c8cff;
+    --bg: #f4f4f5; --bar: #ffffff; --line: #e4e4e7; --ink: #09090b; --dim: #71717a; --accent: #18181b;
   }
   html, body {
     margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--ink);
@@ -27,11 +27,11 @@
   #bar .grow { flex: 1; }
   #bar label { color: var(--dim); display: inline-flex; align-items: center; gap: 4px; }
   #bar button, #bar select {
-    background: #1b2350; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
+    background: #ffffff; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
     padding: 5px 10px; font: inherit; cursor: pointer;
   }
   #bar button:hover, #bar select:hover { border-color: var(--accent); }
-  #bar button.primary { background: var(--accent); border-color: var(--accent); color: #0b0f1e; font-weight: 600; }
+  #bar button.primary { background: var(--accent); border-color: var(--accent); color: #fafafa; font-weight: 600; }
   #bar .sepbar { width: 1px; height: 22px; background: var(--line); }
   #status { color: var(--dim); white-space: nowrap; }
   #stage { position: relative; flex: 1; min-height: 0; }
@@ -46,13 +46,13 @@
     color: var(--dim); text-align: center; pointer-events: none;
   }
   #err {
-    position: fixed; left: 12px; bottom: 12px; right: 12px; color: #ff6b6b;
+    position: fixed; left: 12px; bottom: 12px; right: 12px; color: #dc2626;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
     white-space: pre-wrap; pointer-events: none;
   }
   #toast {
     position: fixed; left: 50%; top: 56px; transform: translateX(-50%);
-    background: #1b2350; color: var(--ink); border: 1px solid var(--accent); border-radius: 8px;
+    background: #ffffff; color: var(--ink); border: 1px solid var(--accent); border-radius: 8px;
     padding: 8px 14px; opacity: 0; transition: opacity .25s; pointer-events: none; max-width: 80vw;
   }
   #toast.on { opacity: 1; }
@@ -62,7 +62,7 @@
     background: var(--bar); color: var(--ink); border: 1px solid var(--line); border-radius: 12px;
     padding: 18px 20px; width: min(560px, calc(100vw - 32px)); box-sizing: border-box;
   }
-  #shareDlg::backdrop { background: rgba(4, 6, 18, 0.6); }
+  #shareDlg::backdrop { background: rgba(9, 9, 11, 0.35); }
   #shareDlg h2 { margin: 0 0 12px; font-size: 16px; }
   #shareDlg .opt { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
   #shareDlg .opt b { display: block; margin-bottom: 2px; }
@@ -73,16 +73,16 @@
     border-radius: 6px; padding: 5px 8px; font: 12px ui-monospace, Menlo, monospace;
   }
   #shareDlg button {
-    background: #1b2350; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
+    background: #ffffff; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
     padding: 5px 12px; font: inherit; cursor: pointer;
   }
-  #shareDlg button.primary { background: var(--accent); border-color: var(--accent); color: #0b0f1e; font-weight: 600; }
+  #shareDlg button.primary { background: var(--accent); border-color: var(--accent); color: #fafafa; font-weight: 600; }
   #shareDlg .foot { display: flex; justify-content: space-between; align-items: center; color: var(--dim); gap: 10px; }
   /* A hint over the editor: what a value does and what else it can be. */
   #valHint {
     position: fixed; z-index: 30; display: none; max-width: 340px; box-sizing: border-box;
     background: var(--bar); color: var(--ink); border: 1px solid var(--line); border-radius: 10px;
-    padding: 10px 12px; font: 13px/1.4 system-ui, sans-serif; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+    padding: 10px 12px; font: 13px/1.4 system-ui, sans-serif; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.14);
   }
   #valHint.on { display: block; }
   #valHint .hd { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
@@ -93,25 +93,25 @@
   #valHint .chips + .chips { margin-top: 8px; }
   #valHint .lbl { color: var(--dim); font-size: 12px; margin: 8px 0 4px; }
   #valHint button {
-    background: #1b2350; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
+    background: #ffffff; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
     padding: 3px 9px; font: 12px ui-monospace, monospace; cursor: pointer;
   }
   #valHint button:hover { border-color: var(--accent); }
-  #valHint button.cur { background: var(--accent); border-color: var(--accent); color: #0b0f1e; }
-  #valHint button.del { font-family: system-ui, sans-serif; color: #ffb4b4; }
+  #valHint button.cur { background: var(--accent); border-color: var(--accent); color: #fafafa; }
+  #valHint button.del { font-family: system-ui, sans-serif; color: #dc2626; }
   #valHint .row { display: flex; align-items: center; gap: 8px; }
   #valHint input[type=range] { flex: 1; accent-color: var(--accent); }
   #valHint input[type=number], #valHint input[type=text] {
-    width: 86px; background: #0b0f1e; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
+    width: 86px; background: #ffffff; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
     padding: 3px 6px; font: 12px ui-monospace, monospace;
   }
   #valHint input[type=color] { width: 42px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
   #valHint .foot { display: flex; justify-content: flex-end; margin-top: 10px; }
   #valHint .props { display: flex; flex-direction: column; gap: 1px; max-height: 320px; overflow-y: auto; }
   #valHint .prop { display: flex; justify-content: space-between; gap: 12px; padding: 3px 6px; border-radius: 6px; cursor: pointer; font: 12px ui-monospace, monospace; }
-  #valHint .prop:hover { background: #1b2350; }
-  #valHint .prop .nm { color: #82aaff; }
-  #valHint .prop .val { display: inline-flex; align-items: center; gap: 5px; color: #ffcb6b; }
+  #valHint .prop:hover { background: #f4f4f5; }
+  #valHint .prop .nm { color: #0550ae; }
+  #valHint .prop .val { display: inline-flex; align-items: center; gap: 5px; color: #953800; }
   #valHint .prop .sw { width: 11px; height: 11px; border-radius: 3px; border: 1px solid var(--line); display: inline-block; }
   #valHint .pdoc { color: var(--dim); font-size: 12px; margin-top: 8px; min-height: 2.8em; border-top: 1px solid var(--line); padding-top: 6px; }
   #valHint .prop .add { color: var(--accent); font-family: system-ui, sans-serif; }
@@ -133,16 +133,16 @@
   #help section { border-bottom: 1px solid var(--line); padding: 10px 0; }
   #help h3 { margin: 0 0 4px; font-size: 14px; }
   #help .syn { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
-  #help .syn code { background: #0b0f1e; border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font: 12px ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
+  #help .syn code { background: #ffffff; border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font: 12px ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
   #help .doc { color: var(--dim); margin: 4px 0; }
   #help .rule { margin-top: 8px; font-family: ui-monospace, monospace; font-size: 12px; }
-  #help .rule .sel { color: #c792ea; }
+  #help .rule .sel { color: #8250df; }
   #help .rule .sd { color: var(--dim); font-family: system-ui, sans-serif; margin-left: 6px; }
   #help .prop { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 8px; margin: 3px 0 3px 14px;
     padding: 3px 6px; border-radius: 6px; cursor: pointer; }
-  #help .prop:hover { background: #1b2350; }
-  #help .prop .nm { color: #82aaff; }
-  #help .prop .val { display: inline-flex; align-items: center; gap: 5px; color: #ffcb6b; }
+  #help .prop:hover { background: #f4f4f5; }
+  #help .prop .nm { color: #0550ae; }
+  #help .prop .val { display: inline-flex; align-items: center; gap: 5px; color: #953800; }
   #help .prop .val.none { color: var(--dim); font-style: italic; font-family: system-ui, sans-serif; }
   #help .prop .sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line); display: inline-block; }
   #help .prop .pd { grid-column: 1 / 3; color: var(--dim); font-family: system-ui, sans-serif; font-size: 12px; }
