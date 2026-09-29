@@ -231,6 +231,16 @@ function paintOnce() {
       tf.dispose();
     }
   }
+  // the value popover, over the editor and the bar
+  const hj = app.hintJson();
+  if (hj) {
+    const hp = JSON.parse(hj);
+    hp.width = W;
+    hp.height = H;
+    const hf = prepareDisplayList(gl, hp, { dpr });
+    if (grewBy(hf.draw(null, [0, 0, 1], { clear: false }))) dropThumbs();
+    hf.dispose();
+  }
   // the chart editor, over everything
   if (app.chartIsOpen()) {
     const cj = JSON.parse(app.chartJson());
@@ -703,7 +713,7 @@ function afterInput() {
 }
 
 keys.addEventListener("keydown", (ev) => {
-  if (hint && ev.key !== "Shift" && ev.key !== "Control" && ev.key !== "Alt" && ev.key !== "Meta") closeHint();
+  if (hint && !app.hintHasKeys() && ev.key !== "Escape" && ev.key !== "Shift" && ev.key !== "Control" && ev.key !== "Alt" && ev.key !== "Meta") closeHint();
   // A composition that ended without a compositionend (a dead key, an IME
   // cancelled by a click) must not leave typing switched off.
   if (!ev.isComposing && ev.keyCode !== 229) composing = false;
@@ -844,7 +854,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   app.setDragSlop(ev.pointerType === "mouse" ? 6 : 16);
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
-  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart") {
+  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint") {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
   if (where === "editor" && clicks === 1) {
@@ -860,9 +870,10 @@ canvas.addEventListener("pointerdown", (ev) => {
       } else if (h) showHint(h);
       else closeHint();
     }, 0);
-  } else if (where !== "editor") {
+  } else if (where !== "editor" && where !== "hint") {
     closeHint();
   }
+  if (where === "hint" && !app.hintIsOpen()) { hint = null; hintKey = ""; }
   if (ev.pointerType !== "mouse" && where !== "editor") {
     // A tap outside the editor must not focus the hidden text field: on a
     // phone that opens the keyboard, the page resizes under the finger and
@@ -890,11 +901,11 @@ canvas.addEventListener("pointermove", (ev) => {
 // faces there are. A choice is written into the text as an ordinary edit
 // (Ctrl+Z undoes it). A click on a value opens it too, which is how it opens
 // on a touch screen.
-const valEl = document.getElementById("valHint");
 let hint = null;
 let hintTimer = 0;
 let hintCloseTimer = 0;
 let hintKey = "";
+let pointerAt = [-1, -1];
 
 // The ```vega-lite fence's language word: a click there opens the chart editor.
 function isChartFence(h) {
@@ -905,56 +916,55 @@ function hintId(h) {
   return h ? h.tab + ":" + h.line + ":" + h.start + ":" + h.name : "";
 }
 
+// Over the card itself (or typing in it) the popover stays.
+function overHint() {
+  return app.hintIsOpen() && (app.hintHas(pointerAt[0], pointerAt[1]) || app.hintHasKeys());
+}
+
 function hintHover(x, y) {
+  pointerAt = [x, y];
   clearTimeout(hintTimer);
+  if (app.hintIsOpen() && app.hintHas(x, y)) {
+    clearTimeout(hintCloseTimer);
+    return;
+  }
   hintTimer = setTimeout(() => {
     let h = null;
     try { h = JSON.parse(app.hintAt(x, y) || "null"); } catch (_) { h = null; }
-    if (h && hintId(h) === hintKey && valEl.classList.contains("on")) {
+    if (h && hintId(h) === hintKey && app.hintIsOpen()) {
       clearTimeout(hintCloseTimer);
       return;
     }
     if (h && isChartFence(h)) h = null;
     if (h) showHint(h);
-    else if (!valEl.matches(":hover")) scheduleHintClose();
+    else if (!overHint()) scheduleHintClose();
   }, 380);
 }
 
 function scheduleHintClose() {
   clearTimeout(hintCloseTimer);
   hintCloseTimer = setTimeout(() => {
-    if (!valEl.matches(":hover") && !valEl.contains(document.activeElement)) closeHint();
+    if (!overHint()) closeHint();
   }, 450);
 }
 
 function closeHint() {
   clearTimeout(hintTimer);
   clearTimeout(hintCloseTimer);
-  valEl.classList.remove("on");
-  valEl.replaceChildren();
+  app.closeHint();
   hint = null;
   hintKey = "";
+  needsPaint = true;
 }
 
-valEl.addEventListener("pointerleave", scheduleHintClose);
-valEl.addEventListener("pointerenter", () => clearTimeout(hintCloseTimer));
-valEl.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape") {
-    closeHint();
-    focusKeys("editor");
-  }
-});
-
-// The value's text written back, and the hint moved on to the new text.
-function writeHint(text) {
-  if (!hint) return;
-  app.replaceRange(hint.line, hint.start, hint.end, text);
-  hint.text = hint.text.slice(0, hint.start) + text + hint.text.slice(hint.end);
-  if (hint.wholeEnd >= 0) hint.wholeEnd += text.length - (hint.end - hint.start);
-  hint.end = hint.start + text.length;
-  hint.value = text;
+// The popover is drawn on the canvas (src/PresHintPopover.rgr); a choice in
+// it is written into the text by the app, as an ordinary edit.
+function showHint(h) {
+  clearTimeout(hintCloseTimer);
+  hint = h;
+  hintKey = hintId(h);
+  app.openHint(JSON.stringify(h));
   needsPaint = true;
-  afterInput();
 }
 
 function el(tag, attrs, kids) {
@@ -966,151 +976,6 @@ function el(tag, attrs, kids) {
   }
   for (const c of kids || []) e.append(c);
   return e;
-}
-
-function hexOf(v) {
-  const m = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec((v || "").trim());
-  if (!m) return "#ffffff";
-  let h = m[1];
-  if (h.length <= 4) h = h.split("").map((c) => c + c).join("");
-  return "#" + h.slice(0, 6).toLowerCase();
-}
-
-// Opacity of a colour value in percent: #rrggbbaa / #rgba carry it, none is 0.
-function alphaOf(v) {
-  const t = (v || "").trim().toLowerCase();
-  if (t === "none" || t === "transparent") return 0;
-  const m = /^#([0-9a-f]{4}|[0-9a-f]{8})$/i.exec(t);
-  if (!m) return 100;
-  const a = m[1].length === 4 ? m[1][3] + m[1][3] : m[1].slice(6);
-  return Math.round(parseInt(a, 16) / 2.55);
-}
-
-function withAlpha(hex, pct) {
-  if (pct >= 100) return hex;
-  return hex + Math.round(pct * 2.55).toString(16).padStart(2, "0");
-}
-
-function showHint(h) {
-  clearTimeout(hintCloseTimer);
-  hint = h;
-  hintKey = hintId(h);
-  const kids = [];
-  kids.push(el("div", { class: "hd" }, [el("b", { text: h.name }), el("span", { text: h.value })]));
-  if (h.doc) kids.push(el("div", { class: "doc", text: h.doc }));
-
-  const chips = (list, cur, pick) => el("div", { class: "chips" }, list.map((o) =>
-    el("button", { class: o === cur ? "cur" : "", text: o, onclick: () => pick(o) })));
-
-  if (h.kind === "enum" || h.kind === "class" || h.kind === "font") {
-    const box = chips(h.options, h.value, (o) => {
-      writeHint(o);
-      for (const b of box.children) b.className = b.textContent === o ? "cur" : "";
-    });
-    kids.push(box);
-  }
-  if (h.kind === "selector" && h.rule) {
-    const set = h.rule.props.filter((p) => p.value);
-    const unset = h.rule.props.filter((p) => !p.value);
-    const tip = el("div", { class: "pdoc", text: "Vie hiiri ominaisuuden päälle nähdäksesi, mitä se tekee." });
-    const row = (p) => el("div", { class: "prop", title: p.doc || "", onclick: () => helpEdit(h.name, p.name, p.def),
-      onmouseenter: () => { tip.textContent = p.doc ? `${p.name}: ${p.doc}` : p.name; } }, [
-      el("span", { class: "nm", text: p.name }),
-      p.value
-        ? el("span", { class: "val" }, (isColour(p.value) ? [el("span", { class: "sw", style: "background:" + p.value })] : []).concat([p.value]))
-        : el("span", { class: "add", text: "+ lisää" }),
-    ]);
-    if (set.length) {
-      kids.push(el("div", { class: "lbl", text: "Asetettu:" }));
-      kids.push(el("div", { class: "props" }, set.map(row)));
-    }
-    if (unset.length) {
-      kids.push(el("div", { class: "lbl", text: "Voit lisätä:" }));
-      kids.push(el("div", { class: "props" }, unset.map(row)));
-    }
-    if (h.rule.props.length) kids.push(tip);
-    else kids.push(el("div", { class: "doc", text: "Tätä valitsinta ei tunneta: sen ominaisuudet eivät vaikuta dioihin." }));
-  }
-  if (h.kind === "color") {
-    const pick = el("input", { type: "color", value: hexOf(h.value) });
-    const txt = el("input", { type: "text", value: h.value, spellcheck: "false" });
-    const op = el("input", { type: "range", min: 0, max: 100, step: 1, value: alphaOf(h.value), title: "Peittävyys" });
-    const opNum = el("span", { text: alphaOf(h.value) + " %" });
-    const put = () => {
-      const v = withAlpha(pick.value, +op.value);
-      txt.value = v;
-      opNum.textContent = op.value + " %";
-      writeHint(v);
-    };
-    pick.addEventListener("input", put);
-    op.addEventListener("input", put);
-    txt.addEventListener("change", () => {
-      writeHint(txt.value.trim());
-      pick.value = hexOf(txt.value);
-      op.value = alphaOf(txt.value);
-      opNum.textContent = op.value + " %";
-    });
-    kids.push(el("div", { class: "row" }, [pick, txt]));
-    kids.push(el("div", { class: "lbl", text: "Peittävyys" }));
-    kids.push(el("div", { class: "row" }, [op, opNum]));
-    if (/background/.test(h.name)) {
-      kids.push(el("div", { class: "chips" }, [el("button", { text: "none", title: "Ei taustaa", onclick: () => {
-        txt.value = "none";
-        op.value = 0;
-        opNum.textContent = "0 %";
-        writeHint("none");
-      } })]));
-    }
-  }
-  if (h.kind === "number") {
-    const m = /^(-?[0-9.]+)(.*)$/.exec(h.value) || [null, "0", h.unit || ""];
-    const unit = h.unit || m[2] || "";
-    const num = parseFloat(m[1]) || 0;
-    const min = Math.min(h.min ?? 0, num);
-    const max = Math.max(h.max ?? 100, num);
-    const step = h.step ?? 1;
-    const range = el("input", { type: "range", min, max, step, value: num });
-    const field = el("input", { type: "number", min, max, step, value: num });
-    const decimals = String(step).includes(".") ? String(step).split(".")[1].length : 0;
-    const put = (v) => writeHint((+(+v).toFixed(decimals)).toString() + unit);
-    range.addEventListener("input", () => { field.value = range.value; put(range.value); });
-    field.addEventListener("input", () => { if (field.value !== "") { range.value = field.value; put(field.value); } });
-    kids.push(el("div", { class: "row" }, [range, field].concat(unit ? [el("span", { text: unit })] : [])));
-  }
-  if (h.adds && h.adds.length) {
-    const have = h.text || "";
-    const left = h.adds.filter((a) => !have.includes(a.split("=")[0] + "="));
-    if (left.length) {
-      kids.push(el("div", { class: "lbl", text: "Lisää parametri:" }));
-      const box = chips(left, "", (a) => {
-        app.replaceRange(hint.line, hint.wholeEnd, hint.wholeEnd, " " + a);
-        needsPaint = true;
-        afterInput();
-        closeHint();
-      });
-      kids.push(box);
-    }
-  }
-  if (h.wholeStart >= 0 && h.wholeEnd > h.wholeStart) {
-    kids.push(el("div", { class: "foot" }, [el("button", { class: "del", text: "Poista", onclick: () => {
-      app.replaceRange(hint.line, hint.wholeStart, hint.wholeEnd, "");
-      needsPaint = true;
-      afterInput();
-      closeHint();
-    } })]));
-  }
-  valEl.replaceChildren(...kids);
-  valEl.classList.add("on");
-  // under the value, kept on the screen
-  const r = canvas.getBoundingClientRect();
-  const w = valEl.offsetWidth;
-  const hh = valEl.offsetHeight;
-  let left = r.left + h.x;
-  let top = r.top + h.y + h.h + 4;
-  if (left + w > window.innerWidth - 8) left = window.innerWidth - 8 - w;
-  if (top + hh > window.innerHeight - 8) top = r.top + h.y - hh - 4;
-  valEl.style.left = Math.max(8, left) + "px";
-  valEl.style.top = Math.max(8, top) + "px";
 }
 
 // --- the help panel ---------------------------------------------------------------
@@ -1194,7 +1059,6 @@ function helpEdit(sel, prop, def) {
   app.helpEdit(sel, prop, def);
   afterInput();
   focusKeys("editor");
-  paintOnce();
   const h = JSON.parse(app.hintAtCaret() || "null");
   if (h) showHint(h);
 }
@@ -1266,7 +1130,9 @@ async function start() {
   const css = await textOf("./pres.css");
   // the chart editor's controls: the kit's theme, then the app's colours
   const kit = await textOf("./ui.css").catch(() => "");
-  textOf("./chart-editor.css").then((c) => app.setChartCss(kit + "\n" + c)).catch(() => {});
+  const chartCss = await textOf("./chart-editor.css").catch(() => "");
+  app.setChartCss(kit + "\n" + chartCss);
+  textOf("./hint.css").then((c) => app.setHintCss(kit + "\n" + chartCss + "\n" + c)).catch(() => {});
   if (!viewer) {
     // the bar moves onto the canvas: the HTML one stays, hidden, as what it
     // presses (its buttons and selects keep every behaviour they had)

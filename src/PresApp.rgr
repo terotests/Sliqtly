@@ -38,6 +38,7 @@ Import "PresHints.rgr"
 Import "PresHelp.rgr"
 Import "PresChartEditor.rgr"
 Import "PresToolbar.rgr"
+Import "PresHintPopover.rgr"
 Import "../ui/src/TabsCtl.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -151,6 +152,7 @@ class PresApp {
     ; The top bar, drawn on the canvas; `barH` is the band it takes (0 when
     ; the page keeps its own, or in a shared presentation).
     def toolbar:PresToolbar (new PresToolbar())
+    def hint:PresHintPopover (new PresHintPopover())
     def barH:double 0.0
     def chartWinY:double -1.0
     def chartEnd:int -1
@@ -1356,7 +1358,7 @@ class PresApp {
         out = (out + ":" + (to_string editor.sel.anchor.line) + "," + (to_string editor.sel.anchor.col))
         out = (out + ":" + (to_string editor.layout.scrollLine) + ":" + (to_string blink))
         out = (out + ":" + focus + ":" + mode + ":" + (EVGDisplayList.num(W)) + "x" + (EVGDisplayList.num(H)))
-        out = (out + ":c" + (to_string chart.rev) + ":t" + (to_string toolbar.rev))
+        out = (out + ":c" + (to_string chart.rev) + ":t" + (to_string toolbar.rev) + ":h" + (to_string hint.rev))
         return out
     }
 
@@ -1386,6 +1388,14 @@ class PresApp {
                 return "chart"
             }
             this.closeChart()
+        }
+        if hint.isOpen {
+            if (hint.has(x y)) {
+                hint.press(x y)
+                this.afterHint()
+                return "hint"
+            }
+            this.closeHint()
         }
         if ((barH > 0.0) && (toolbar.has(x y))) {
             toolbar.press(x y)
@@ -1555,6 +1565,18 @@ class PresApp {
         if ((barH > 0.0) && (mode != "present")) {
             toolbar.hoverAt(x y)
         }
+        if hint.isOpen {
+            if (hint.dragging()) {
+                hint.dragTo(x y)
+                this.afterHint()
+                return
+            }
+            def tipBefore:int hint.rev
+            hint.hoverAt(x y)
+            if (hint.rev != tipBefore) {
+                chromeRev = (chromeRev + 1)
+            }
+        }
         if (chart.isOpen && (chart.dragging())) {
             chart.dragTo(x y)
             chromeRev = (chromeRev + 1)
@@ -1582,6 +1604,10 @@ class PresApp {
     }
 
     fn pointerUp:void () {
+        if (hint.isOpen && (hint.dragging())) {
+            hint.release()
+            this.afterHint()
+        }
         if chart.isOpen {
             chart.release()
             this.writeChart()
@@ -1656,6 +1682,12 @@ class PresApp {
         if (mode == "present") {
             return "default"
         }
+        if hint.isOpen {
+            def hc:string (hint.cursorAt(x y))
+            if ((strlen hc) > 0) {
+                return hc
+            }
+        }
         if chart.isOpen {
             def cc:string (chart.cursorAt(x y))
             if ((strlen cc) > 0) {
@@ -1712,6 +1744,17 @@ class PresApp {
             toolbar.closeLists()
             chromeRev = (chromeRev + 1)
             return true
+        }
+        if (hint.isOpen && (mode != "present")) {
+            if (name == "escape") {
+                this.closeHint()
+                return true
+            }
+            if (hint.hasKeys()) {
+                def usedH:boolean (hint.key(name shift ctrl))
+                this.afterHint()
+                return usedH
+            }
         }
         if (chart.isOpen && (mode != "present")) {
             def used:boolean (chart.key(name shift ctrl))
@@ -2178,6 +2221,93 @@ class PresApp {
         }
         toolbar.setState(playing (this.statusText()))
         def dl:EVGDisplayList (toolbar.displayList())
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
+    }
+
+    ; --- the value popover --------------------------------------------------------
+    fn setHintCss:void (css:string) {
+        hint.css = css
+    }
+
+    ; Open the popover on a hint (hintAt / hintAtCaret's JSON); "" closes it.
+    fn openHint:boolean (json:string) {
+        if ((strlen json) == 0) {
+            this.closeHint()
+            return false
+        }
+        if (hint.same(json)) {
+            return true
+        }
+        hint.measurer = measurer
+        def ok:boolean (hint.open(json W H))
+        chromeRev = (chromeRev + 1)
+        return ok
+    }
+
+    fn openHintAtCaret:boolean () {
+        return (this.openHint((this.hintAtCaret())))
+    }
+
+    fn closeHint:void () {
+        if hint.isOpen {
+            hint.close()
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    fn hintIsOpen:boolean () {
+        return hint.isOpen
+    }
+
+    fn hintHas:boolean (x:double y:double) {
+        return (hint.has(x y))
+    }
+
+    fn hintHasKeys:boolean () {
+        return (hint.isOpen && (hint.hasKeys()))
+    }
+
+    ; What the popover asked for: its edits into the text, a close, a
+    ; selector's property opened in its rule (with its own popover there).
+    fn afterHint:void () {
+        def i:int 0
+        while (i < (array_length hint.edits)) {
+            def e:PresHintEdit (itemAt hint.edits i)
+            if (hint.tab == edTab) {
+                this.replaceRange(e.line e.a e.b e.text)
+            }
+            i = (i + 1)
+        }
+        def none:[PresHintEdit]
+        hint.edits = none
+        if hint.wantsClose {
+            hint.wantsClose = false
+            this.closeHint()
+        }
+        if ((strlen hint.wantsProp) > 0) {
+            def parts:[string] (strsplit hint.wantsProp (strfromcode 9))
+            hint.wantsProp = ""
+            this.closeHint()
+            if ((array_length parts) >= 3) {
+                this.helpEdit((itemAt parts 0) (itemAt parts 1) (itemAt parts 2))
+                this.openHintAtCaret()
+            }
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The popover as a display list over the page: "" when it is closed.
+    fn hintJson:string () {
+        if ((hint.isOpen == false) || (mode == "present")) {
+            return ""
+        }
+        hint.measurer = measurer
+        if ((hint.w != W) || (hint.h != H)) {
+            hint.w = W
+            hint.h = H
+            hint.rebuild()
+        }
+        def dl:EVGDisplayList (hint.displayList())
         return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
 

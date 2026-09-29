@@ -502,7 +502,7 @@ try {
     const cb = await page.locator("#c").boundingBox();
     await page.mouse.click(cb.x + h.x + 10, cb.y + h.y + 8);
     await page.waitForTimeout(300);
-    const res = await page.evaluate(() => ({ open: window.__app.chartIsOpen(), popover: document.getElementById("valHint").classList.contains("on") }));
+    const res = await page.evaluate(() => ({ open: window.__app.chartIsOpen(), popover: window.__app.hintIsOpen() }));
     await page.evaluate((s) => { const a = window.__app; a.key("escape", false, false); a.setSource(s); }, src0);
     check("a click on the fence's vega-lite opens the chart editor", res.open && !res.popover, JSON.stringify(res));
   }
@@ -531,6 +531,56 @@ try {
     check("…a button is the page's button pressed", bar.help.includes("click:helpBtn"), JSON.stringify(bar));
     await page.evaluate((th) => { const s = document.getElementById("theme"); s.value = th; s.dispatchEvent(new Event("change")); }, bar.theme0);
     await page.waitForTimeout(300);
+  }
+
+  // The value popover is on the canvas: a chip, the colour picker and a slider write the text
+  {
+    const hp = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      const css0 = a.themeCss();
+      const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      const find = (id) => { a.hintJson(); return walk(a.hint.host.lastPage, id); };
+      const click = (e, dx = 6, dy = 6) => { a.pointerDown(e.calculatedX + dx, e.calculatedY + dy, false, 1); a.pointerUp(); };
+      a.showTab("md");
+      a.setSource("# D\n\n## O {fx=starfield}\n\nTeksti\n");
+      const line = a.source().split("\n").findIndex((l) => l.includes("fx=starfield"));
+      a.editor.moveCaret(line, a.source().split("\n")[line].indexOf("starfield") + 2, false);
+      const opened = a.openHintAtCaret();
+      const drawn = JSON.parse(a.hintJson()).list.cmds.length;
+      const pick = a.hint.options.find((o) => o !== "starfield");
+      click(find("hp-opt-" + a.hint.options.indexOf(pick)));
+      const chip = a.source().includes("{fx=" + pick + "}") && a.hintIsOpen();
+      a.key("escape", false, false);
+      const closed = !a.hintIsOpen();
+      // a colour: EVGUI's picker, a preset
+      a.showTab("css");
+      const cl = a.themeCss().split("\n").findIndex((l) => /^\s*accent-color:/.test(l));
+      a.editor.moveCaret(cl, a.themeCss().split("\n")[cl].indexOf(":") + 3, false);
+      a.openHintAtCaret();
+      const kind = a.hint.kind;
+      click(find("hp-cp-preset-2"), 5, 5);
+      const colour = /accent-color: #eab308/i.test(a.themeCss());
+      a.closeHint();
+      // a number: its slider
+      const nl = a.themeCss().split("\n").findIndex((l) => /^\s*font-size:/.test(l));
+      a.editor.moveCaret(nl, a.themeCss().split("\n")[nl].indexOf(":") + 3, false);
+      a.openHintAtCaret();
+      const before = a.themeCss().split("\n")[nl];
+      const sl = find("hp-slider");
+      a.pointerDown(sl.calculatedX + sl.calculatedWidth * 0.5, sl.calculatedY + 8, false, 1);
+      a.pointerMove(sl.calculatedX + sl.calculatedWidth * 0.9, sl.calculatedY + 8);
+      a.pointerUp();
+      const after = a.themeCss().split("\n")[nl];
+      a.closeHint();
+      a.setStyleSheet(css0);
+      a.showTab("md");
+      a.setSource(src0);
+      return { opened, drawn, chip, closed, kind, colour, slid: before !== after, before, after, htmlGone: !document.getElementById("valHint") };
+    });
+    check("the value popover is drawn on the canvas", hp.opened && hp.drawn > 10 && hp.htmlGone, JSON.stringify(hp));
+    check("…a chip writes the value, Escape closes it", hp.chip && hp.closed, JSON.stringify(hp));
+    check("…a colour from EVGUI's picker, a number from its slider", hp.kind === "color" && hp.colour && hp.slid, JSON.stringify(hp));
   }
 
   // The help panel: only what the slide has, and a property opened in the theme

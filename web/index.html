@@ -80,43 +80,6 @@
   }
   #shareDlg button.primary { background: var(--accent); border-color: var(--accent); color: #fafafa; font-weight: 600; }
   #shareDlg .foot { display: flex; justify-content: space-between; align-items: center; color: var(--dim); gap: 10px; }
-  /* A hint over the editor: what a value does and what else it can be. */
-  #valHint {
-    position: fixed; z-index: 30; display: none; max-width: 340px; box-sizing: border-box;
-    background: var(--bar); color: var(--ink); border: 1px solid var(--line); border-radius: 10px;
-    padding: 10px 12px; font: 13px/1.4 system-ui, sans-serif; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.14);
-  }
-  #valHint.on { display: block; }
-  #valHint .hd { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
-  #valHint .hd b { font-family: ui-monospace, monospace; font-weight: 600; }
-  #valHint .hd span { color: var(--dim); font-family: ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #valHint .doc { color: var(--dim); margin-bottom: 8px; }
-  #valHint .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  #valHint .chips + .chips { margin-top: 8px; }
-  #valHint .lbl { color: var(--dim); font-size: 12px; margin: 8px 0 4px; }
-  #valHint button {
-    background: #ffffff; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
-    padding: 3px 9px; font: 12px ui-monospace, monospace; cursor: pointer;
-  }
-  #valHint button:hover { border-color: var(--accent); }
-  #valHint button.cur { background: var(--accent); border-color: var(--accent); color: #fafafa; }
-  #valHint button.del { font-family: system-ui, sans-serif; color: #dc2626; }
-  #valHint .row { display: flex; align-items: center; gap: 8px; }
-  #valHint input[type=range] { flex: 1; accent-color: var(--accent); }
-  #valHint input[type=number], #valHint input[type=text] {
-    width: 86px; background: #ffffff; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
-    padding: 3px 6px; font: 12px ui-monospace, monospace;
-  }
-  #valHint input[type=color] { width: 42px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
-  #valHint .foot { display: flex; justify-content: flex-end; margin-top: 10px; }
-  #valHint .props { display: flex; flex-direction: column; gap: 1px; max-height: 320px; overflow-y: auto; }
-  #valHint .prop { display: flex; justify-content: space-between; gap: 12px; padding: 3px 6px; border-radius: 6px; cursor: pointer; font: 12px ui-monospace, monospace; }
-  #valHint .prop:hover { background: #f4f4f5; }
-  #valHint .prop .nm { color: #0550ae; }
-  #valHint .prop .val { display: inline-flex; align-items: center; gap: 5px; color: #953800; }
-  #valHint .prop .sw { width: 11px; height: 11px; border-radius: 3px; border: 1px solid var(--line); display: inline-block; }
-  #valHint .pdoc { color: var(--dim); font-size: 12px; margin-top: 8px; min-height: 2.8em; border-top: 1px solid var(--line); padding-top: 6px; }
-  #valHint .prop .add { color: var(--accent); font-family: system-ui, sans-serif; }
   /* The help panel: what the selected slide is made of, and the theme
      rules that draw it. It takes its width from the stage. */
   #help {
@@ -213,7 +176,6 @@
   <button id="vNext" title="Seuraava (→, välilyönti)">▶</button>
   <button id="vFull" title="Koko näyttö">⛶</button>
 </div>
-<div id="valHint" role="dialog" aria-label="Arvon vaihtoehdot"></div>
 <aside id="help" aria-label="Dian ohje"></aside>
 <dialog id="shareDlg">
   <h2>Jaa esitys</h2>
