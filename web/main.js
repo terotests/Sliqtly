@@ -241,6 +241,16 @@ function paintOnce() {
     if (grewBy(hf.draw(null, [0, 0, 1], { clear: false }))) dropThumbs();
     hf.dispose();
   }
+  // the help panel, the share dialog, the toast
+  const pj = app.panelsJson();
+  if (pj) {
+    const pn = JSON.parse(pj);
+    pn.width = W;
+    pn.height = H;
+    const pf = prepareDisplayList(gl, pn, { dpr });
+    if (grewBy(pf.draw(null, [0, 0, 1], { clear: false }))) dropThumbs();
+    pf.dispose();
+  }
   // the chart editor, over everything
   if (app.chartIsOpen()) {
     const cj = JSON.parse(app.chartJson());
@@ -290,7 +300,6 @@ function frame() {
       paintOnce();
       handleRequests();
     }
-    helpTick(now);
   } catch (e) {
     fail(e);
   }
@@ -333,6 +342,8 @@ function handleRequests() {
       // the canvas bar: the page's own button does what it always did
       const b = document.getElementById(r.slice(6));
       if (b) b.click();
+    } else if (r.startsWith("copy:")) {
+      copyShare(r.slice(5)).catch(fail);
     } else if (r.startsWith("select:")) {
       const [, id, ...rest] = r.split(":");
       const sel = document.getElementById(id);
@@ -513,17 +524,15 @@ function hashParams() {
 
 let toastTimer = 0;
 function toast(text) {
-  const el = document.getElementById("toast");
-  el.textContent = text;
-  el.classList.add("on");
+  app.toast(text);
+  needsPaint = true;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove("on"), 3200);
+  toastTimer = setTimeout(() => { app.toast(""); needsPaint = true; }, 3200);
 }
 
 // Two links to the same deck: one that opens straight into the presentation
 // (no editor, no toolbar), one that opens the editor. The dialog shows both
 // and copies the one asked for.
-const shareDlg = document.getElementById("shareDlg");
 async function shareLink() {
   const text = app.source();
   const code = await packText(text);
@@ -537,34 +546,35 @@ async function shareLink() {
   const showUrl = base + "#" + q.toString();
   history.replaceState(null, "", editUrl);
   lastHash = location.hash;
-  document.getElementById("shareEdit").value = editUrl;
-  document.getElementById("shareShow").value = showUrl;
   const pictures = /\]\(media\//.test(text) ? " Liitetyt kuvat eivät kulje linkissä." : "";
-  document.getElementById("shareNote").textContent = `${editUrl.length} merkkiä.` + pictures;
+  app.openShare(showUrl, editUrl, `${editUrl.length} merkkiä.` + pictures);
   window.__lastShare = editUrl;
   window.__lastShareShow = showUrl;
-  if (shareDlg.showModal && !shareDlg.open) shareDlg.showModal();
+  needsPaint = true;
 }
-shareDlg.addEventListener("click", async (ev) => {
-  const id = ev.target && ev.target.dataset && ev.target.dataset.copy;
-  if (ev.target === shareDlg || ev.target.id === "shareClose") {
-    shareDlg.close();
-    return;
-  }
-  if (!id) return;
-  const field = document.getElementById(id);
+
+// A copy button in the share dialog (drawn on the canvas): the browser copies.
+let copiedTimer = 0;
+async function copyShare(which) {
+  const text = which === "show" ? window.__lastShareShow : window.__lastShare;
   let copied = false;
   try {
-    await navigator.clipboard.writeText(field.value);
+    await navigator.clipboard.writeText(text);
     copied = true;
   } catch (_) {
-    field.select();
-    copied = document.execCommand && document.execCommand("copy");
+    const t = document.createElement("textarea");
+    t.value = text;
+    document.body.append(t);
+    t.select();
+    copied = !!(document.execCommand && document.execCommand("copy"));
+    t.remove();
+    focusKeys(app.focusTarget());
   }
-  ev.target.textContent = copied ? "Kopioitu ✓" : "Valitse ja kopioi";
-  setTimeout(() => { ev.target.textContent = "Kopioi"; }, 1600);
-});
-shareDlg.addEventListener("close", () => focusKeys(app.focusTarget()));
+  app.shareCopied(which, copied);
+  needsPaint = true;
+  clearTimeout(copiedTimer);
+  copiedTimer = setTimeout(() => { app.shareCopied("", true); needsPaint = true; }, 1600);
+}
 
 // --- a shared presentation (#…&mode=show) ---------------------------------------
 // The slides only: no toolbar, no editor, and no way back to one. Full screen
@@ -967,91 +977,15 @@ function showHint(h) {
   needsPaint = true;
 }
 
-function el(tag, attrs, kids) {
-  const e = document.createElement(tag);
-  for (const k in attrs || {}) {
-    if (k === "text") e.textContent = attrs[k];
-    else if (k.startsWith("on")) e.addEventListener(k.slice(2), attrs[k]);
-    else e.setAttribute(k, attrs[k]);
-  }
-  for (const c of kids || []) e.append(c);
-  return e;
-}
-
 // --- the help panel ---------------------------------------------------------------
 // What the selected slide is made of — a highlight, a list, a formula — with
 // how each is written and the theme's CSS rules that change how it looks,
 // at the values the theme gives them now. Only what the slide has is
 // listed. A property opens the theme at its line (added when the theme has
 // none) with its value popover.
-const helpEl = document.getElementById("help");
-let helpJson = "";
-let helpAt = 0;
-
-function helpOpen() { return document.body.classList.contains("helpOpen"); }
-
 function toggleHelp(on) {
-  document.body.classList.toggle("helpOpen", on ?? !helpOpen());
-  helpJson = "";
-  placeHelp();
-  requestAnimationFrame(resize);
-  if (helpOpen()) renderHelp();
-}
-
-function placeHelp() {
-  const top = canvasBar ? 48 : document.getElementById("bar").getBoundingClientRect().bottom;
-  helpEl.style.top = top + "px";
-  helpEl.style.height = (window.innerHeight - top) + "px";
-}
-
-function helpTick(now) {
-  if (!helpOpen() || now - helpAt < 300) return;
-  helpAt = now;
-  renderHelp();
-}
-
-function isColour(v) { return /^(#[0-9a-f]{3,8}|rgba?\(.*\))$/i.test((v || "").trim()); }
-
-function renderHelp() {
-  const j = app.slideHelp();
-  if (j === helpJson) return;
-  helpJson = j;
-  let feats = [];
-  try { feats = JSON.parse(j); } catch (_) { feats = []; }
-  const shown = app.slideShown();
-  const kids = [el("div", { class: "top" }, [
-    el("b", { text: `Ohje: dia ${shown + 1}` }),
-    el("button", { text: "✕", title: "Sulje ohje", onclick: () => toggleHelp(false) }),
-  ])];
-  kids.push(el("div", { class: "intro", text: "Tällä dialla on nämä osat. Napsauta ominaisuutta muuttaaksesi sitä teeman CSS:ssä." }));
-  for (const f of feats) {
-    const sec = [el("h3", { text: f.title })];
-    if (f.syntax) sec.push(el("div", { class: "syn" }, f.syntax.split("   ").map((x) => el("code", { text: x }))));
-    if (f.doc) sec.push(el("div", { class: "doc", text: f.doc }));
-    for (const r of f.rules) {
-      const rule = [el("div", {}, [el("span", { class: "sel", text: r.sel + " { }" }), el("span", { class: "sd", text: r.doc })])];
-      for (const p of r.props) {
-        const val = p.value
-          ? el("span", { class: "val" }, (isColour(p.value) ? [el("span", { class: "sw", style: "background:" + p.value })] : []).concat([p.value]))
-          : p.eff
-            ? el("span", { class: "val none" }, (isColour(p.eff) ? [el("span", { class: "sw", style: "background:" + p.eff })] : []).concat(["oletus " + p.eff + " – lisää"]))
-            : el("span", { class: "val none", text: "ei asetettu – lisää" });
-        rule.push(el("div", { class: "prop", title: p.value ? "Muokkaa teemassa" : "Lisää teemaan: " + p.name + ": " + p.def,
-          onclick: () => helpEdit(r.sel, p.name, p.def) }, [
-          el("span", { class: "nm", text: p.name }), val,
-          ...(p.doc ? [el("span", { class: "pd", text: p.doc })] : []),
-        ]));
-      }
-      sec.push(el("div", { class: "rule" }, rule));
-    }
-    for (const a of f.attrs || []) {
-      sec.push(el("div", { class: "attr" }, [a.name + "=" + a.value + " ", el("span", { class: "pd", text: a.doc })]));
-    }
-    kids.push(el("section", {}, sec));
-  }
-  const top = helpEl.scrollTop;
-  helpEl.replaceChildren(...kids);
-  helpEl.scrollTop = top;
+  app.setHelp(on ?? !app.helpIsOpen());
+  needsPaint = true;
 }
 
 function helpEdit(sel, prop, def) {
@@ -1064,7 +998,6 @@ function helpEdit(sel, prop, def) {
 }
 
 document.getElementById("helpBtn").addEventListener("click", () => toggleHelp());
-window.addEventListener("resize", () => { if (helpOpen()) placeHelp(); });
 
 function endPointer() {
   app.pointerUp();
@@ -1133,6 +1066,7 @@ async function start() {
   const chartCss = await textOf("./chart-editor.css").catch(() => "");
   app.setChartCss(kit + "\n" + chartCss);
   textOf("./hint.css").then((c) => app.setHintCss(kit + "\n" + chartCss + "\n" + c)).catch(() => {});
+  textOf("./panels.css").then((c) => app.setPanelsCss(kit + "\n" + c)).catch(() => {});
   if (!viewer) {
     // the bar moves onto the canvas: the HTML one stays, hidden, as what it
     // presses (its buttons and selects keep every behaviour they had)

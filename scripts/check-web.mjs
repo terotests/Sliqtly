@@ -271,8 +271,21 @@ try {
   // …and the presentation link: straight into the show, no toolbar, and Esc
   // does not lead back to an editor
   const showUrl = await page.evaluate(() => window.__lastShareShow || "");
-  await page.evaluate(() => document.getElementById("shareDlg").close());
+  const dlg = await page.evaluate(() => {
+    const a = window.__app;
+    const open = a.shareIsOpen();
+    const drawn = JSON.parse(a.panelsJson() || "{\"list\":{\"cmds\":[]}}").list.cmds.length;
+    const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+    const b = walk(a.panels.host.lastPage, "pn-copy-show");
+    a.pointerDown(b.calculatedX + 8, b.calculatedY + 8, false, 1);
+    a.pointerUp();
+    const req = a.takeRequest();
+    a.pointerDown(4, 4, false, 1);
+    a.pointerUp();
+    return { open, drawn, req, closed: !a.shareIsOpen(), html: !!document.getElementById("shareDlg") };
+  });
   check("share offers a presentation link", /mode=show/.test(showUrl));
+  check("the share dialog is drawn on the canvas; a copy button asks the page to copy", dlg.open && dlg.drawn > 20 && dlg.req === "copy:show" && dlg.closed && !dlg.html, JSON.stringify(dlg));
   const page3 = await browser.newPage({ viewport: { width: 1200, height: 760 } });
   await page3.goto(showUrl.replace(/^https?:\/\/[^/]+/, url.replace(/\/$/, "")));
   await page3.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
@@ -581,6 +594,38 @@ try {
     check("the value popover is drawn on the canvas", hp.opened && hp.drawn > 10 && hp.htmlGone, JSON.stringify(hp));
     check("…a chip writes the value, Escape closes it", hp.chip && hp.closed, JSON.stringify(hp));
     check("…a colour from EVGUI's picker, a number from its slider", hp.kind === "color" && hp.colour && hp.slid, JSON.stringify(hp));
+  }
+
+  // The help panel is on the canvas: docked on the right, a property opens in the theme
+  {
+    const hp = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      const css0 = a.themeCss();
+      a.setSource("# M\n\n## Muotoilu\n\n- <mark>tärkeä</mark> ja <kbd>Ctrl</kbd>\n");
+      a.selectSlide(1);
+      document.getElementById("helpBtn").click();
+      const open = a.helpIsOpen();
+      const j = JSON.parse(a.panelsJson());
+      const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      const row = walk(a.panels.host.lastPage, "pn-prop-0");
+      const key = a.panels.helpKeys[0];
+      a.pointerDown(row.calculatedX + 10, row.calculatedY + 6, false, 1);
+      a.pointerUp();
+      const tab = a.editorTab();
+      const hint = a.hintIsOpen();
+      const x = walk(a.panels.host.lastPage, "pn-help-close");
+      a.pointerDown(x.calculatedX + 6, x.calculatedY + 6, false, 1);
+      a.pointerUp();
+      const closed = !a.helpIsOpen();
+      a.closeHint();
+      a.setStyleSheet(css0);
+      a.showTab("md");
+      a.setSource(src0);
+      return { open, drawn: j.list.cmds.length, key, tab, hint, closed };
+    });
+    check("the help panel is drawn on the canvas", hp.open && hp.drawn > 30, JSON.stringify(hp));
+    check("…a property opens in the theme with its popover; ✕ closes the panel", hp.tab === "css" && hp.hint && hp.closed, JSON.stringify(hp));
   }
 
   // The help panel: only what the slide has, and a property opened in the theme

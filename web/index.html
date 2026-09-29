@@ -50,69 +50,9 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
     white-space: pre-wrap; pointer-events: none;
   }
-  #toast {
-    position: fixed; left: 50%; top: 56px; transform: translateX(-50%);
-    background: #ffffff; color: var(--ink); border: 1px solid var(--accent); border-radius: 8px;
-    padding: 8px 14px; opacity: 0; transition: opacity .25s; pointer-events: none; max-width: 80vw;
-  }
-  #toast.on { opacity: 1; }
   body.presenting #bar { display: none; }
   /* the bar is drawn on the canvas (PresToolbar); this one is what it presses */
   body.canvas-bar #bar { display: none; }
-  /* The share dialog: which link, for whom. */
-  #shareDlg {
-    background: var(--bar); color: var(--ink); border: 1px solid var(--line); border-radius: 12px;
-    padding: 18px 20px; width: min(560px, calc(100vw - 32px)); box-sizing: border-box;
-  }
-  #shareDlg::backdrop { background: rgba(9, 9, 11, 0.35); }
-  #shareDlg h2 { margin: 0 0 12px; font-size: 16px; }
-  #shareDlg .opt { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
-  #shareDlg .opt b { display: block; margin-bottom: 2px; }
-  #shareDlg .opt span { color: var(--dim); }
-  #shareDlg .row { display: flex; gap: 8px; margin-top: 8px; }
-  #shareDlg input {
-    flex: 1; min-width: 0; background: var(--bg); color: var(--dim); border: 1px solid var(--line);
-    border-radius: 6px; padding: 5px 8px; font: 12px ui-monospace, Menlo, monospace;
-  }
-  #shareDlg button {
-    background: #ffffff; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
-    padding: 5px 12px; font: inherit; cursor: pointer;
-  }
-  #shareDlg button.primary { background: var(--accent); border-color: var(--accent); color: #fafafa; font-weight: 600; }
-  #shareDlg .foot { display: flex; justify-content: space-between; align-items: center; color: var(--dim); gap: 10px; }
-  /* The help panel: what the selected slide is made of, and the theme
-     rules that draw it. It takes its width from the stage. */
-  #help {
-    position: fixed; right: 0; width: 380px; display: none; z-index: 20; box-sizing: border-box;
-    background: var(--bar); color: var(--ink); border-left: 1px solid var(--line);
-    font: 13px/1.45 system-ui, sans-serif; overflow-y: auto; padding: 0 14px 20px;
-  }
-  body.helpOpen #help { display: block; }
-  body.helpOpen #stage { margin-right: 380px; }
-  body.presenting #help, body.viewer #help { display: none; }
-  body.presenting #stage, body.viewer #stage { margin-right: 0; }
-  #help .top { position: sticky; top: 0; background: var(--bar); display: flex; align-items: center; gap: 8px; padding: 10px 0 8px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
-  #help .top b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #help .top button { background: none; border: 1px solid var(--line); color: var(--ink); border-radius: 6px; cursor: pointer; padding: 2px 8px; }
-  #help .intro { color: var(--dim); margin: 6px 0 4px; }
-  #help section { border-bottom: 1px solid var(--line); padding: 10px 0; }
-  #help h3 { margin: 0 0 4px; font-size: 14px; }
-  #help .syn { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
-  #help .syn code { background: #ffffff; border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font: 12px ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
-  #help .doc { color: var(--dim); margin: 4px 0; }
-  #help .rule { margin-top: 8px; font-family: ui-monospace, monospace; font-size: 12px; }
-  #help .rule .sel { color: #8250df; }
-  #help .rule .sd { color: var(--dim); font-family: system-ui, sans-serif; margin-left: 6px; }
-  #help .prop { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 8px; margin: 3px 0 3px 14px;
-    padding: 3px 6px; border-radius: 6px; cursor: pointer; }
-  #help .prop:hover { background: #f4f4f5; }
-  #help .prop .nm { color: #0550ae; }
-  #help .prop .val { display: inline-flex; align-items: center; gap: 5px; color: #953800; }
-  #help .prop .val.none { color: var(--dim); font-style: italic; font-family: system-ui, sans-serif; }
-  #help .prop .sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line); display: inline-block; }
-  #help .prop .pd { grid-column: 1 / 3; color: var(--dim); font-family: system-ui, sans-serif; font-size: 12px; }
-  #help .attr { margin: 3px 0 3px 14px; font-family: ui-monospace, monospace; font-size: 12px; }
-  #help .attr .pd { color: var(--dim); font-family: system-ui, sans-serif; }
   /* A shared presentation: the slides only, and a small bar that fades. */
   #viewBar {
     position: fixed; right: 16px; bottom: 16px; display: none; gap: 8px; z-index: 5;
@@ -176,23 +116,7 @@
   <button id="vNext" title="Seuraava (→, välilyönti)">▶</button>
   <button id="vFull" title="Koko näyttö">⛶</button>
 </div>
-<aside id="help" aria-label="Dian ohje"></aside>
-<dialog id="shareDlg">
-  <h2>Jaa esitys</h2>
-  <div class="opt">
-    <b>Esitys</b>
-    <span>Avautuu suoraan esitystilaan, ilman editoria ja muokkausnappeja.</span>
-    <div class="row"><input id="shareShow" readonly /><button class="primary" data-copy="shareShow">Kopioi</button></div>
-  </div>
-  <div class="opt">
-    <b>Muokkaus</b>
-    <span>Avautuu editoriin: vastaanottaja voi muokata omaa kopiotaan.</span>
-    <div class="row"><input id="shareEdit" readonly /><button data-copy="shareEdit">Kopioi</button></div>
-  </div>
-  <div class="foot"><span id="shareNote"></span><button id="shareClose">Sulje</button></div>
-</dialog>
 <div id="err"></div>
-<div id="toast" role="status" aria-live="polite"></div>
 <input id="filepick" type="file" accept=".md,.markdown,text/markdown,text/plain" hidden />
 <script src="./pres_app.js?v=__BUILD__"></script>
 <script type="module" src="./main.js?v=__BUILD__"></script>

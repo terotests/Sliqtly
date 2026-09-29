@@ -39,6 +39,7 @@ Import "PresHelp.rgr"
 Import "PresChartEditor.rgr"
 Import "PresToolbar.rgr"
 Import "PresHintPopover.rgr"
+Import "PresPanels.rgr"
 Import "../ui/src/TabsCtl.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -153,6 +154,8 @@ class PresApp {
     ; the page keeps its own, or in a shared presentation).
     def toolbar:PresToolbar (new PresToolbar())
     def hint:PresHintPopover (new PresHintPopover())
+    def panels:PresPanels (new PresPanels())
+    def panelsKey:string ""
     def barH:double 0.0
     def chartWinY:double -1.0
     def chartEnd:int -1
@@ -932,14 +935,19 @@ class PresApp {
             this.placePresent()
             return
         }
-        def edW:double (W * split)
+        ; the help panel, when it is open, takes the right edge
+        def AW:double W
+        if (panels.helpOpen && (barH > 0.0)) {
+            AW = (W - panels.helpW)
+        }
+        def edW:double (AW * split)
         if (edW < 280.0) { edW = 280.0 }
-        if (edW > (W - 360.0)) { edW = (W - 360.0) }
+        if (edW > (AW - 360.0)) { edW = (AW - 360.0) }
         tabRect.set(0.0 barH edW tabH)
         edRect.set(0.0 (barH + tabH) edW ((H - tabH) - barH))
         sepRect.set(edW barH 6.0 (H - barH))
         def rx:double (edW + 6.0)
-        def rw:double (W - rx)
+        def rw:double (AW - rx)
         def stripH:double (thumbH + 34.0)
         def trackH:double 118.0
         stripRect.set(rx (H - stripH) rw stripH)
@@ -1358,7 +1366,7 @@ class PresApp {
         out = (out + ":" + (to_string editor.sel.anchor.line) + "," + (to_string editor.sel.anchor.col))
         out = (out + ":" + (to_string editor.layout.scrollLine) + ":" + (to_string blink))
         out = (out + ":" + focus + ":" + mode + ":" + (EVGDisplayList.num(W)) + "x" + (EVGDisplayList.num(H)))
-        out = (out + ":c" + (to_string chart.rev) + ":t" + (to_string toolbar.rev) + ":h" + (to_string hint.rev))
+        out = (out + ":c" + (to_string chart.rev) + ":t" + (to_string toolbar.rev) + ":h" + (to_string hint.rev) + ":p" + (to_string panels.rev))
         return out
     }
 
@@ -1396,6 +1404,11 @@ class PresApp {
                 return "hint"
             }
             this.closeHint()
+        }
+        if (panels.has(x y)) {
+            panels.press(x y)
+            this.takePanels()
+            return "panel"
         }
         if ((barH > 0.0) && (toolbar.has(x y))) {
             toolbar.press(x y)
@@ -1565,6 +1578,9 @@ class PresApp {
         if ((barH > 0.0) && (mode != "present")) {
             toolbar.hoverAt(x y)
         }
+        if (panels.any()) {
+            panels.hoverAt(x y)
+        }
         if hint.isOpen {
             if (hint.dragging()) {
                 hint.dragTo(x y)
@@ -1643,6 +1659,14 @@ class PresApp {
         if (mode == "present") {
             return false
         }
+        if (panels.shareOpen) {
+            return true
+        }
+        if (panels.helpHas(x y)) {
+            panels.scrollBy(dy)
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         if (edRect.has(x y)) {
             def lines:int (to_int (dy / 20.0))
             if (lines == 0) {
@@ -1681,6 +1705,12 @@ class PresApp {
         this.place()
         if (mode == "present") {
             return "default"
+        }
+        if (panels.any()) {
+            def pc:string (panels.cursorAt(x y))
+            if ((strlen pc) > 0) {
+                return pc
+            }
         }
         if hint.isOpen {
             def hc:string (hint.cursorAt(x y))
@@ -1740,6 +1770,13 @@ class PresApp {
     }
 
     fn key:boolean (name:string shift:boolean ctrl:boolean) {
+        if (panels.shareOpen && (mode != "present")) {
+            if (name == "escape") {
+                panels.closeShare()
+                chromeRev = (chromeRev + 1)
+            }
+            return true
+        }
         if (((barH > 0.0) && (toolbar.listOpen())) && (name == "escape")) {
             toolbar.closeLists()
             chromeRev = (chromeRev + 1)
@@ -2308,6 +2345,99 @@ class PresApp {
             hint.rebuild()
         }
         def dl:EVGDisplayList (hint.displayList())
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
+    }
+
+    ; --- the help panel, the share dialog, the toast --------------------------------
+    fn setPanelsCss:void (css:string) {
+        panels.css = css
+        panels.rebuild()
+    }
+
+    fn setHelp:void (on:boolean) {
+        panels.setHelp(on)
+        panelsKey = ""
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn helpIsOpen:boolean () {
+        return panels.helpOpen
+    }
+
+    fn openShare:void (showUrl:string editUrl:string note:string) {
+        this.closeHint()
+        panels.openShare(showUrl editUrl note)
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn closeShare:void () {
+        panels.closeShare()
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn shareIsOpen:boolean () {
+        return panels.shareOpen
+    }
+
+    ; "show" / "edit" copied (or not); "" puts the buttons back.
+    fn shareCopied:void (which:string ok:boolean) {
+        panels.setCopied(which ok)
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn toast:void (text:string) {
+        panels.toast(text)
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn takePanels:void () {
+        def i:int 0
+        while (i < (array_length panels.requests)) {
+            def r:string (itemAt panels.requests i)
+            if ((indexOf r "help:") == 0) {
+                def parts:[string] (strsplit (substring r 5 (strlen r)) (strfromcode 9))
+                if ((array_length parts) >= 3) {
+                    this.closeHint()
+                    this.helpEdit((itemAt parts 0) (itemAt parts 1) (itemAt parts 2))
+                    this.openHintAtCaret()
+                }
+            } {
+                if (r == "help-close") {
+                    this.setHelp(false)
+                } {
+                    push requests r
+                }
+            }
+            i = (i + 1)
+        }
+        def none:[string]
+        panels.requests = none
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The panels as a display list over the page: "" when none is showing.
+    fn panelsJson:string () {
+        if ((panels.any()) == false) {
+            return ""
+        }
+        panels.measurer = measurer
+        panels.barH = barH
+        def q:boolean (mode == "present")
+        if (((panels.w != W) || (panels.h != H)) || (q != panels.quiet)) {
+            panels.w = W
+            panels.h = H
+            panels.quiet = q
+            panels.rebuild()
+        }
+        if (panels.helpOpen && (q == false)) {
+            ; the slide's parts, looked at again only when something changed
+            def key:string ((to_string chromeRev) + ":" + (to_string editor.buf.version) + ":" + (to_string (this.slideShown())))
+            if (key != panelsKey) {
+                panelsKey = key
+                panels.setHelpData((this.slideHelp()) (this.slideShown()))
+            }
+        }
+        def dl:EVGDisplayList (panels.displayList())
         return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
 
