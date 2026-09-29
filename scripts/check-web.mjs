@@ -337,6 +337,33 @@ try {
   });
   check("a formula is drawn as outlines, not as its TeX", math.paths >= 2 && !math.raw, JSON.stringify(math));
 
+  // A backdrop effect (raindrop, liquid glass) renders the slide offscreen;
+  // the editor drawn before it has to survive the frame, and the drops have
+  // to show over the slide rather than under its paper.
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const gutter = { x: 4, y: 90, width: 40, height: 160 };
+    const cb = await page.locator("#c").boundingBox();
+    const clip = { x: cb.x + gutter.x, y: cb.y + gutter.y, width: gutter.width, height: gutter.height };
+    const put = async (fx) => {
+      await page.evaluate((fx) => { const a = window.__app; a.showTab("md"); a.setSource("# D\n\n## Otsikko {fx=" + fx + "}\n\nTeksti\n"); a.selectSlide(1); }, fx);
+      await page.waitForTimeout(700);
+    };
+    await put("starfield");
+    const before = await page.screenshot({ clip });
+    await put("raindrop");
+    const after = await page.screenshot({ clip });
+    const stage = await page.evaluate(() => {
+      const cmds = window.__lastStage.list.cmds;
+      const fxAt = cmds.findIndex((c) => c.efx);
+      const textAt = cmds.map((c) => !!c.text).lastIndexOf(true);
+      return { fxAt, textAt };
+    });
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    check("a raindrop slide leaves the editor drawn", before.equals(after));
+    check("…and the drops go over the slide's content", stage.fxAt > stage.textAt && stage.textAt >= 0, JSON.stringify(stage));
+  }
+
   // The help panel: only what the slide has, and a property opened in the theme
   const help = await page.evaluate(() => {
     const a = window.__app;

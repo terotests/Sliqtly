@@ -1143,7 +1143,7 @@ class PresDeck {
         while ((array_length groupOfCmd) < (array_length out.cmds)) {
             push groupOfCmd -1
         }
-        if ((strlen s.fx) > 0) {
+        if (((strlen s.fx) > 0) && ((PresDeck.fxOnTop(s.fx)) == false)) {
             this.addFx(out s paper)
             while ((array_length groupOfCmd) < (array_length out.cmds)) {
                 push groupOfCmd -1
@@ -1235,7 +1235,22 @@ class PresDeck {
             }
             k = (k + 1)
         }
+        ; An effect that refracts what is behind it goes over the finished
+        ; slide, with no background of its own: under the content it read the
+        ; bare paper and the slide was then painted over it, so nothing showed.
+        if (((strlen s.fx) > 0) && (PresDeck.fxOnTop(s.fx))) {
+            this.addFx(out s "")
+            while ((array_length groupOfCmd) < (array_length out.cmds)) {
+                push groupOfCmd -1
+            }
+        }
         return out
+    }
+
+    ; The effects that read the page under them (a `backdrop` layer in the
+    ; WebGL painter) rather than paint a picture of their own.
+    sfn fxOnTop:boolean (fx:string) {
+        return ((fx == "liquid-glass") || (fx == "raindrop"))
     }
 
     ; The slide's surface effect: an element as big as the slide, dressed by
@@ -1243,7 +1258,10 @@ class PresDeck {
     ; built into commands. Its id is the slide's so two slides on screen at
     ; once (a transition) keep two instances apart.
     fn addFx:void (out:EVGDisplayList s:PresSlide paper:string) {
-        def css:string (".pres-fx { background-color: " + paper + "; evg-surface-effect: " + s.fx + "; evg-effect-on: always;")
+        def css:string (".pres-fx { evg-surface-effect: " + s.fx + "; evg-effect-on: always;")
+        if ((strlen paper) > 0) {
+            css = (".pres-fx { background-color: " + paper + "; evg-surface-effect: " + s.fx + "; evg-effect-on: always;")
+        }
         def i:int 0
         while (i < (array_length s.fxNames)) {
             css = (css + " evg-fx-" + (itemAt s.fxNames i) + ": " + (itemAt s.fxValues i) + ";")
