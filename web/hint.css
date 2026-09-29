@@ -53,7 +53,9 @@
 .theme-hp .ui-input-caret { background-color: #09090b; height: 16px; }
 .theme-hp .hp-focus { border-color: #a1a1aa; }
 .theme-hp .cp-panel { width: 290px; border: 0; padding: 0; }
-.theme-hp .hp-numfield { width: 72px; min-width: 72px; flex-grow: 0; flex-shrink: 0; }
+/* on .ui-input, not a class of ours: the field rebuilds its root with only
+   its own class while the slider moves */
+.theme-hp .ui-input { width: 72px; min-width: 72px; flex-grow: 0; flex-shrink: 0; }
 /* a label never wraps ("100 %" split at its space), and a button does not
    shrink below its label */
 .theme-hp .ui-button-label { white-space: nowrap; }

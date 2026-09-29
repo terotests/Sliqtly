@@ -269,9 +269,22 @@ class PresHints {
         while ((a < n) && ((charAt line a) == 32)) {
             a = (a + 1)
         }
+        ; a YAML comment (` # …`) is not part of the value
         def b:int n
-        while ((b > a) && ((charAt line (b - 1)) == 32)) {
+        def k:int a
+        while (k < n) {
+            if (((charAt line k) == 35) && ((k == a) || (((charAt line (k - 1)) == 32) || ((charAt line (k - 1)) == 9)))) {
+                b = k
+                k = n
+            }
+            k = (k + 1)
+        }
+        while ((b > a) && (((charAt line (b - 1)) == 32) || ((charAt line (b - 1)) == 9))) {
             b = (b - 1)
+        }
+        if ((col > b) && (b < n)) {
+            ; over the comment
+            return ""
         }
         if (col < a) {
             ; over the key: say what it is

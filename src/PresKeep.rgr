@@ -1,0 +1,76 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresKeep.rgr — the app's own classes on a control, kept across its rebuilds
+; ============================================================================
+;
+; A gallery/ui control rebuilds its root when its state changes — a slider
+; dragged, a field typed into — and `build()` sets the root's className to the
+; control's own ("ui-slider", "ui-input"), dropping any class the app added
+; for its size or look. The slider then fell back to the kit's width while
+; its track kept the app's, and a table cell to the kit's field width.
+;
+; `remember` notes the app's tokens (not "ui-…", not a state) on every
+; control's root after a card is built; `restore` puts back any a rebuild
+; dropped. Called after each host call that can rebuild a control.
+; ============================================================================
+
+Import "../ui/src/UiHost.rgr"
+
+class PresKeep {
+    def els:[EVGElement]
+    def extra:[string]
+
+    Constructor () {
+    }
+
+    fn remember:void (host:UiHost) {
+        def e0:[EVGElement]
+        def x0:[string]
+        els = e0
+        extra = x0
+        def i:int 0
+        while (i < (array_length host.ctls)) {
+            def c:UiCtl (itemAt host.ctls i)
+            if (!null? c.rootEl) {
+                this.note((unwrap c.rootEl))
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn note:void (el:EVGElement) {
+        def toks:[string] (strsplit el.className " ")
+        def keep:string ""
+        def i:int 0
+        while (i < (array_length toks)) {
+            def t:string (trim (itemAt toks i))
+            if ((((strlen t) > 0) && ((indexOf t "ui-") != 0)) && ((indexOf t "state-") != 0)) {
+                keep = (keep + " " + t)
+            }
+            i = (i + 1)
+        }
+        if ((strlen keep) > 0) {
+            push els el
+            push extra (trim keep)
+        }
+    }
+
+    fn restore:void () {
+        def i:int 0
+        while (i < (array_length els)) {
+            def el:EVGElement (itemAt els i)
+            def have:string (" " + el.className + " ")
+            def toks:[string] (strsplit (itemAt extra i) " ")
+            def k:int 0
+            while (k < (array_length toks)) {
+                def t:string (itemAt toks k)
+                if ((indexOf have (" " + t + " ")) < 0) {
+                    UiTree.addClass(el t)
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+    }
+}

@@ -30,6 +30,7 @@
 Import "PresChartModel.rgr"
 Import "PresColorPanel.rgr"
 Import "../ui/src/UiHost.rgr"
+Import "PresKeep.rgr"
 
 class PresChartEditor {
     def host:UiHost (new UiHost())
@@ -57,6 +58,7 @@ class PresChartEditor {
     def wantsFresh:boolean false
     def message:string ""
     def rev:int 0
+    def keep:PresKeep (new PresKeep())
     def measurer@(optional):TTFTextMeasurer
     ; the colour picker, what it picks for ("color" the marks, "text" the
     ; words, "" closed) and the part being dragged ("sv", "hue", "alpha")
@@ -136,6 +138,7 @@ class PresChartEditor {
         }
         if sliding {
             host.pointerMove(px py)
+            keep.restore()
             this.takeSliders()
             rev = (rev + 1)
             return
@@ -171,6 +174,7 @@ class PresChartEditor {
         if sliding {
             sliding = false
             host.pointerUp()
+            keep.restore()
             this.takeSliders()
             this.rebuild()
         }
@@ -335,6 +339,7 @@ class PresChartEditor {
         if ((strlen focusTid) > 0) {
             host.focus(focusTid)
         }
+        keep.remember(host)
         rev = (rev + 1)
     }
 
@@ -707,6 +712,7 @@ class PresChartEditor {
         ; a slider: pressed and dragged through its host
         if (PresChartEditor.isSlider(ctlTid)) {
             host.pressAt(px py)
+            keep.restore()
             sliding = true
             this.takeSliders()
             rev = (rev + 1)
@@ -714,6 +720,7 @@ class PresChartEditor {
         }
         if (ctlTid == tabs.tid) {
             host.click(tid)
+            keep.restore()
             if (tabs.value != tab) {
                 tab = tabs.value
                 focusTid = ""
@@ -969,6 +976,7 @@ class PresChartEditor {
                 } {
                     if ((strlen focusTid) > 0) {
                         host.type(ch)
+                        keep.restore()
                     }
                 }
             }
@@ -1060,6 +1068,7 @@ class PresChartEditor {
         def kit:string (PresChartEditor.kitKey(name))
         if (((strlen kit) > 0) && ((kit != "ArrowUp") && (kit != "ArrowDown"))) {
             host.keyWith(kit shift ctrl)
+            keep.restore()
             if ((name == "backspace") || (name == "delete")) {
                 this.take()
             }

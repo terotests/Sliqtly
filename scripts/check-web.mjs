@@ -675,6 +675,50 @@ try {
     check("a narrow window shows the slides only and a shorter bar; widening brings the editor back", narrow.compact && !narrow.pdfShown && !wide.compact && wide.pdfShown, JSON.stringify({ narrow, wide }));
   }
 
+  // Controls keep their size while they change: the popover's number field
+  // during a slide, a chart table cell while typed into; a front-matter value
+  // stops at its comment
+  {
+    const ks = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      a.showTab("md");
+      a.setSource("---\nstep: 1.8   # seconds between steps\n---\n\n## O\n\n```vega-lite\n{\"data\": {\"values\": [{\"f\": \"A\", \"u\": 1}, {\"f\": \"B\", \"u\": 2}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"f\", \"type\": \"nominal\"}, \"y\": {\"field\": \"u\", \"type\": \"quantitative\"}}}\n```\n");
+      a.editor.moveCaret(1, 7, false);
+      a.openHintAtCaret();
+      const value = a.hint.value;
+      a.hintJson();
+      const w0 = walk(a.hint.host.lastPage, "hp-num").calculatedWidth;
+      const sl = walk(a.hint.host.lastPage, "hp-slider");
+      a.pointerDown(sl.calculatedX + sl.calculatedWidth * 0.3, sl.calculatedY + 8, false, 1);
+      a.pointerMove(sl.calculatedX + sl.calculatedWidth * 0.6, sl.calculatedY + 8);
+      a.hintJson();
+      const w1 = walk(a.hint.host.lastPage, "hp-num").calculatedWidth;
+      const line1 = a.source().split("\n")[1];
+      a.pointerUp();
+      a.closeHint();
+      a.openChartEditor(6);
+      a.chartJson();
+      const t = walk(a.chart.host.lastPage, "ce-tabs-tab-tiedot");
+      a.pointerDown(t.calculatedX + 6, t.calculatedY + 6, false, 1); a.pointerUp();
+      a.chartJson();
+      const cellId = Object.keys((() => { const m = {}; const w = (e) => { if (/^ce-c-[0-9]+-[0-9]+$/.test(e.id || "")) m[e.id] = 1; for (const k of e.children || []) w(k); }; w(a.chart.host.lastPage); return m; })())[1];
+      const c0 = walk(a.chart.host.lastPage, cellId);
+      const cw0 = c0.calculatedWidth;
+      a.pointerDown(c0.calculatedX + 10, c0.calculatedY + 8, false, 1); a.pointerUp();
+      a.text("7");
+      a.chartJson();
+      const cw1 = walk(a.chart.host.lastPage, cellId).calculatedWidth;
+      a.key("escape", false, false);
+      a.setSource(src0);
+      return { value, w0, w1, line1, cellId, cw0, cw1 };
+    });
+    check("a front-matter value stops at its comment, which the slider keeps", ks.value === "1.8" && /# seconds between steps$/.test(ks.line1), JSON.stringify(ks));
+    check("the popover's number field keeps its width while the slider moves", Math.abs(ks.w0 - ks.w1) < 0.5, JSON.stringify(ks));
+    check("a chart table cell keeps its width while typed into", !!ks.cellId && Math.abs(ks.cw0 - ks.cw1) < 0.5, JSON.stringify(ks));
+  }
+
   // The help panel: only what the slide has, and a property opened in the theme
   const help = await page.evaluate(() => {
     const a = window.__app;

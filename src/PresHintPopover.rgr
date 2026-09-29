@@ -26,6 +26,7 @@
 
 Import "PresColorPanel.rgr"
 Import "../ui/src/UiHost.rgr"
+Import "PresKeep.rgr"
 Import "../vela/src/VlJson.rgr"
 
 class PresHintEdit {
@@ -75,6 +76,7 @@ class PresHintPopover {
     ; the doc line of the selector property under the pointer
     def tip:string ""
     def rev:int 0
+    def keep:PresKeep (new PresKeep())
     def measurer@(optional):TTFTextMeasurer
     def picker:ColorPickerCtl (new ColorPickerCtl())
     def cp:PresColorPanel (new PresColorPanel())
@@ -321,6 +323,7 @@ class PresHintPopover {
         card.overlayX = cx
         card.overlayY = ((ay + ah) + 4.0)
         root.addChild(card)
+        keep.remember(host)
         rev = (rev + 1)
     }
 
@@ -605,6 +608,7 @@ class PresHintPopover {
         if (ctlTid == "hp-slider") {
             this.leaveField()
             host.pressAt(px py)
+            keep.restore()
             sliding = true
             this.takeSlider()
             return
@@ -702,6 +706,7 @@ class PresHintPopover {
         if sliding {
             ; the host keeps the drag: the card is not rebuilt until release
             host.pointerMove(px py)
+            keep.restore()
             this.takeSlider()
             def parts:[string] (this.numberParts())
             field.setValue((itemAt parts 0))
@@ -715,6 +720,7 @@ class PresHintPopover {
         if sliding {
             sliding = false
             host.pointerUp()
+            keep.restore()
             this.rebuild()
         }
         if ((strlen dragPart) > 0) {
@@ -773,6 +779,7 @@ class PresHintPopover {
             }
             if (((strlen k) > 0) && ((k != "ArrowUp") && (k != "ArrowDown"))) {
                 host.keyWith(k shift ctrl)
+                keep.restore()
                 this.takeField()
                 this.rebuild()
             }
@@ -796,6 +803,7 @@ class PresHintPopover {
             def j:int 0
             while (j < (strlen s)) {
                 host.type((substring s j (j + 1)))
+                keep.restore()
                 j = (j + 1)
             }
             this.takeField()
