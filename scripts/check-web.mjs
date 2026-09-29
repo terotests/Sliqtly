@@ -719,6 +719,51 @@ try {
     check("a chart table cell keeps its width while typed into", !!ks.cellId && Math.abs(ks.cw0 - ks.cw1) < 0.5, JSON.stringify(ks));
   }
 
+  // The keyboard and a screen reader: the canvas mirrored as DOM, F6 between
+  // regions, Ctrl+Space into the value popover, Esc back to the editor
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    await page.evaluate(() => { const a = window.__app; a.showTab("md"); a.setSource("# D\n\n## O {fx=starfield}\n\nTeksti\n"); });
+    await page.evaluate(() => document.getElementById("keys").focus());
+    await page.waitForTimeout(300);
+    const act = () => page.evaluate(() => { const e = document.activeElement; return (e.dataset && e.dataset.a11yId) || e.id; });
+    const seen = [];
+    for (let i = 0; i < 4; i += 1) { await page.keyboard.press("F6"); seen.push(await act()); }
+    await page.evaluate(() => { const a = window.__app; a.showTab("md"); a.editor.moveCaret(2, 10, false); document.getElementById("keys").focus(); });
+    await page.keyboard.press("Control+Space");
+    await page.waitForTimeout(200);
+    const inHint = await act();
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(200);
+    const line = await page.evaluate(() => window.__app.source().split("\n")[2]);
+    await page.keyboard.press("Escape");
+    const back = await act();
+    const dom = await page.evaluate(() => ({
+      nodes: document.querySelectorAll(".evg-a11y [data-a11y-id]").length,
+      bar: [...document.querySelectorAll(".evg-a11y button")].some((b) => /Esitä/.test(b.textContent + (b.getAttribute("aria-label") || ""))),
+      slides: document.querySelectorAll('.evg-a11y [data-a11y-id^="thumb-"]').length,
+      status: [...document.querySelectorAll(".evg-a11y [role=status]")].map((e) => e.textContent).join("|"),
+      canvasHidden: document.getElementById("c").getAttribute("aria-hidden") === "true",
+    }));
+    // the chart editor from the keyboard: Ctrl+Space on the fence, Tab to a slider, arrows move it
+    await page.evaluate(() => { const a = window.__app; a.setSource("# D\n\n## O\n\n```vega-lite\n{\"data\": {\"values\": [{\"f\": \"A\", \"u\": 1}, {\"f\": \"B\", \"u\": 2}]}, \"mark\": \"bar\", \"width\": 640, \"encoding\": {\"x\": {\"field\": \"f\", \"type\": \"nominal\"}, \"y\": {\"field\": \"u\", \"type\": \"quantitative\"}}}\n```\n"); a.showTab("md"); a.chart.tab = "kaavio"; a.editor.moveCaret(4, 5, false); document.getElementById("keys").focus(); });
+    await page.keyboard.press("Control+Space");
+    await page.waitForTimeout(200);
+    for (let i = 0; i < 12 && (await act()) !== "ce-width-thumb"; i += 1) await page.keyboard.press("Tab");
+    const w0 = await page.evaluate(() => +/"width": ?(\d+)/.exec(window.__app.source())[1]);
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(100);
+    const w1 = await page.evaluate(() => +/"width": ?(\d+)/.exec(window.__app.source())[1]);
+    await page.keyboard.press("Escape");
+    const chartBack = await act();
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    check("the chart editor from the keyboard: Tab to a slider, an arrow moves it, Esc closes", w1 > w0 && chartBack === "keys", JSON.stringify({ w0, w1, chartBack }));
+    check("F6 goes from region to region (slides, bar, tabs, editor)", seen.some((x) => /^thumb-/.test(x)) && seen.some((x) => /^tb-/.test(x)) && seen.some((x) => /^edtabs/.test(x)) && seen.includes("keys"), seen.join(","));
+    check("Ctrl+Space opens the value popover with the keyboard in it; Enter picks, Esc returns", /^hp-opt-/.test(inHint) && !/fx=starfield/.test(line) && /fx=/.test(line) && back === "keys", JSON.stringify({ inHint, line, back }));
+    check("the canvas is mirrored for a screen reader: the bar, the slides, where we are", dom.nodes > 10 && dom.bar && dom.slides >= 2 && /Dia \d+ \/ \d+/.test(dom.status) && dom.canvasHidden, JSON.stringify(dom));
+  }
+
   // The help panel: only what the slide has, and a property opened in the theme
   const help = await page.evaluate(() => {
     const a = window.__app;

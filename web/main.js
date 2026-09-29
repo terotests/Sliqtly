@@ -16,6 +16,7 @@
 // What anything MEANS is PresApp.rgr's.
 
 import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
+import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 
 const canvas = document.getElementById("c");
 const stageEl = document.getElementById("stage");
@@ -275,6 +276,173 @@ function rebaseClock() {
   clockAt = performance.now();
 }
 
+// --- accessibility and the keyboard ------------------------------------------------
+// The canvas is one empty graphic to a screen reader, so the app publishes what
+// it shows as a tree (PresApp.a11yJson: the bar, the editor's tabs, the slides,
+// the open popover, dialog or panel) and evg-a11y.js mirrors it as real DOM over
+// the canvas: buttons a reader can find and press, and a keyboard order.
+//
+//   F6 / Shift+F6    the next / previous region: bar, editor tabs, editor,
+//                    slides, the help panel (an open popover or dialog keeps
+//                    the keyboard inside it)
+//   Tab, arrows      from control to control inside a region
+//   Enter, Space     press it (a reader's activation does the same)
+//   arrows on a slider  move it
+//   Esc              back to the editor (closing a popover or dialog first)
+//   Ctrl+Space       the value popover at the caret, with the keyboard in it
+let lastA11yRev = "";
+let a11yTree = null;
+const mirror = createA11yMirror(stageEl, {
+  canvas,
+  label: "EVG Presentation. F6 siirtyy alueelta toiselle, Esc palaa editoriin.",
+  tabbable: "all",
+  onActivate: (node) => {
+    pressAtCentre(node, (x, y) => {
+      app.pointerDown(x, y, false, 1);
+      app.pointerUp();
+    });
+    afterInput();
+    needsPaint = true;
+    paintOnce();
+    mirrorA11y();
+    // what was pressed may be gone (a popover that closed): the keyboard goes
+    // back to the editor rather than to nowhere
+    requestAnimationFrame(() => {
+      const el = mirror.elementOf(node.id);
+      if (!el || !el.isConnected) {
+        const reg = regionOf(node.id);
+        if (!focusRegion(reg)) focusKeys(app.focusTarget());
+      }
+    });
+  },
+  onFocus: (node) => app.setA11yFocus(node.id),
+});
+function mirrorA11y() {
+  try {
+    a11yTree = JSON.parse(app.a11yJson());
+    a11yTree.byId = new Map(a11yTree.nodes.map((n) => [n.id, n]));
+    mirror.update(a11yTree);
+  } catch (e) {
+    console.warn(e);
+  }
+}
+function regionOf(id) {
+  if (!id) return "";
+  if (id.startsWith("tb-")) return "bar";
+  if (id.startsWith("edtabs")) return "tabs";
+  if (id.startsWith("thumb-")) return "slides";
+  if (id.startsWith("pn-")) return "panels";
+  if (id.startsWith("hp-")) return "hint";
+  if (id.startsWith("ce-")) return "chart";
+  return "";
+}
+function focusables(region) {
+  if (!a11yTree) return [];
+  return a11yTree.nodes.filter((n) => n.focusable && !n.disabled && regionOf(n.id) === region && mirror.elementOf(n.id));
+}
+function focusNode(node) {
+  app.setA11yFocus(node.id);
+  const el = mirror.elementOf(node.id);
+  if (el) el.focus({ preventScroll: true });
+}
+function focusRegion(region) {
+  if (region === "editor") {
+    if (JSON.parse(app.layoutJson()).mode === "present") return false;
+    app.setA11yFocus("");
+    focusKeys("editor");
+    return true;
+  }
+  mirrorA11y();
+  const list = focusables(region);
+  if (!list.length) return false;
+  focusNode(list.find((n) => n.selected) || list[0]);
+  return true;
+}
+function currentRegion() {
+  const el = document.activeElement;
+  if (el === keys) return "editor";
+  const id = el && el.dataset ? el.dataset.a11yId : "";
+  return regionOf(id);
+}
+// An open popover or dialog holds the keyboard; otherwise the regions in order.
+function regionOrder() {
+  if (app.chartIsOpen()) return ["chart"];
+  if (app.shareIsOpen()) return ["panels"];
+  if (app.hintIsOpen() && currentRegion() === "hint") return ["hint", "editor"];
+  return ["bar", "tabs", "editor", "slides", "panels"];
+}
+function cycleRegion(back) {
+  const order = regionOrder();
+  const at = order.indexOf(currentRegion());
+  for (let k = 1; k <= order.length; k += 1) {
+    const r = order[(at + (back ? -k : k) + order.length * 2) % order.length];
+    if (focusRegion(r)) return;
+  }
+}
+function moveInRegion(step) {
+  const el = document.activeElement;
+  const id = el && el.dataset ? el.dataset.a11yId : "";
+  const list = focusables(regionOf(id));
+  if (!list.length) return;
+  const at = list.findIndex((n) => n.id === id);
+  focusNode(list[(at + step + list.length) % list.length]);
+}
+mirror.root.addEventListener("keydown", (ev) => {
+  const el = ev.target;
+  const id = el && el.dataset ? el.dataset.a11yId : "";
+  if (!id) return;
+  const node = a11yTree && a11yTree.byId.get(id);
+  if (ev.key === "F6") {
+    ev.preventDefault();
+    cycleRegion(ev.shiftKey);
+    return;
+  }
+  if (ev.key === "Tab") {
+    ev.preventDefault();
+    moveInRegion(ev.shiftKey ? -1 : 1);
+    return;
+  }
+  if (node && node.role === "slider" && /^Arrow/.test(ev.key)) {
+    ev.preventDefault();
+    const up = ev.key === "ArrowRight" || ev.key === "ArrowUp";
+    if (app.a11ySlide(id, up ? 1 : -1)) {
+      afterInput();
+      needsPaint = true;
+      paintOnce();
+      mirrorA11y();
+      focusNode(node);
+    }
+    return;
+  }
+  if (ev.key === "ArrowRight" || ev.key === "ArrowDown") {
+    ev.preventDefault();
+    moveInRegion(1);
+    return;
+  }
+  if (ev.key === "ArrowLeft" || ev.key === "ArrowUp") {
+    ev.preventDefault();
+    moveInRegion(-1);
+    return;
+  }
+  if (ev.key === " " && el.tagName !== "BUTTON") {
+    ev.preventDefault();
+    el.click();
+    return;
+  }
+  if (ev.key === "Escape") {
+    ev.preventDefault();
+    const reg = regionOf(id);
+    if (reg === "hint") app.closeHint();
+    else if (reg === "chart") app.key("escape", false, false);
+    else if (reg === "panels" && app.shareIsOpen()) app.closeShare();
+    else if (reg === "bar") app.key("escape", false, false);
+    afterInput();
+    app.setA11yFocus("");
+    focusKeys(app.focusTarget() === "stage" ? "stage" : "editor");
+    needsPaint = true;
+  }
+});
+
 function frame() {
   try {
     const now = performance.now();
@@ -299,6 +467,10 @@ function frame() {
       lastRev = rev;
       paintOnce();
       handleRequests();
+      if (rev !== lastA11yRev) {
+        lastA11yRev = rev;
+        mirrorA11y();
+      }
     }
   } catch (e) {
     fail(e);
@@ -716,6 +888,7 @@ function restartBlink() {
 }
 
 function focusKeys(where) {
+  app.setA11yFocus("");
   app.setFocus(where);
   keys.focus({ preventScroll: true });
   mirrorLine();
@@ -730,6 +903,28 @@ function afterInput() {
 }
 
 keys.addEventListener("keydown", (ev) => {
+  if (ev.key === "F6") {
+    ev.preventDefault();
+    cycleRegion(ev.shiftKey);
+    return;
+  }
+  if (ev.ctrlKey && (ev.key === " " || ev.code === "Space") && app.editorTab && !app.chartIsOpen()) {
+    // the value popover at the caret, with the keyboard in it
+    ev.preventDefault();
+    let h = null;
+    try { h = JSON.parse(app.hintAtCaret() || "null"); } catch (_) { h = null; }
+    if (h && isChartFence(h)) {
+      app.openChartEditor(h.line);
+      afterInput();
+      paintOnce();
+      focusRegion("chart");
+    } else if (h) {
+      showHint(h);
+      paintOnce();
+      focusRegion("hint");
+    }
+    return;
+  }
   if (hint && !app.hintHasKeys() && ev.key !== "Escape" && ev.key !== "Shift" && ev.key !== "Control" && ev.key !== "Alt" && ev.key !== "Meta") closeHint();
   // A composition that ended without a compositionend (a dead key, an IME
   // cancelled by a click) must not leave typing switched off.

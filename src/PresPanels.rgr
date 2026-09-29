@@ -207,6 +207,7 @@ class PresPanels {
         view.height = (EVGUnit.px(((h - barH) - 49.0)))
         def body:EVGElement (this.div("pn-body"))
         body.addChild((this.words("pn-intro" "Tällä dialla on nämä osat. Napsauta ominaisuutta muuttaaksesi sitä teeman CSS:ssä.")))
+        body.addChild((this.words("pn-intro" "Näppäimet: F6 siirtyy alueelta toiselle (palkki, välilehdet, editori, diat, ohje), nuolet ja Tab alueen sisällä, Enter valitsee, Ctrl+Välilyönti avaa kursorin kohdalla olevan arvon valinnat, Esc palaa editoriin.")))
         def p0 (new VlJsonParser())
         def feats:VlJson (p0.parse(helpJson))
         def i:int 0

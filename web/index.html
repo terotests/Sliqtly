@@ -51,6 +51,10 @@
     white-space: pre-wrap; pointer-events: none;
   }
   body.presenting #bar { display: none; }
+  /* The keyboard's place on the canvas: the mirrored controls (evg-a11y.js)
+     are transparent and sit on the drawn ones, so their focus outline is the
+     ring around what the canvas drew. */
+  .evg-a11y :focus-visible { outline: 2px solid #2563eb !important; outline-offset: 2px; border-radius: 6px; }
   /* the bar is drawn on the canvas (PresToolbar); this one is what it presses */
   body.canvas-bar #bar { display: none; }
   /* A shared presentation: the slides only, and a small bar that fades. */
