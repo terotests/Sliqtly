@@ -908,9 +908,15 @@ keys.addEventListener("keydown", (ev) => {
     cycleRegion(ev.shiftKey);
     return;
   }
-  if (ev.ctrlKey && (ev.key === " " || ev.code === "Space") && app.editorTab && !app.chartIsOpen()) {
+  if (ev.ctrlKey && (ev.key === " " || ev.code === "Space")) {
     // the value popover at the caret, with the keyboard in it
     ev.preventDefault();
+    if (app.chartIsOpen()) {
+      // the chart editor is already open: the keyboard goes into it
+      paintOnce();
+      focusRegion("chart");
+      return;
+    }
     let h = null;
     try { h = JSON.parse(app.hintAtCaret() || "null"); } catch (_) { h = null; }
     if (h && isChartFence(h)) {

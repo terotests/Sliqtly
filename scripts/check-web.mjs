@@ -711,6 +711,7 @@ try {
       a.chartJson();
       const cw1 = walk(a.chart.host.lastPage, cellId).calculatedWidth;
       a.key("escape", false, false);
+      if (a.chartIsOpen()) a.closeChart();
       a.setSource(src0);
       return { value, w0, w1, line1, cellId, cw0, cw1 };
     });
@@ -747,10 +748,11 @@ try {
       canvasHidden: document.getElementById("c").getAttribute("aria-hidden") === "true",
     }));
     // the chart editor from the keyboard: Ctrl+Space on the fence, Tab to a slider, arrows move it
-    await page.evaluate(() => { const a = window.__app; a.setSource("# D\n\n## O\n\n```vega-lite\n{\"data\": {\"values\": [{\"f\": \"A\", \"u\": 1}, {\"f\": \"B\", \"u\": 2}]}, \"mark\": \"bar\", \"width\": 640, \"encoding\": {\"x\": {\"field\": \"f\", \"type\": \"nominal\"}, \"y\": {\"field\": \"u\", \"type\": \"quantitative\"}}}\n```\n"); a.showTab("md"); a.chart.tab = "kaavio"; a.editor.moveCaret(4, 5, false); document.getElementById("keys").focus(); });
+    await page.evaluate(() => { const a = window.__app; a.setSource("# D\n\n## O\n\n```vega-lite\n{\"data\": {\"values\": [{\"f\": \"A\", \"u\": 1}, {\"f\": \"B\", \"u\": 2}]}, \"mark\": \"bar\", \"width\": 640, \"encoding\": {\"x\": {\"field\": \"f\", \"type\": \"nominal\"}, \"y\": {\"field\": \"u\", \"type\": \"quantitative\"}}}\n```\n"); if (a.chartIsOpen()) a.closeChart(); a.showTab("md"); a.chart.tab = "kaavio"; a.editor.moveCaret(4, 5, false); document.getElementById("keys").focus(); });
     await page.keyboard.press("Control+Space");
     await page.waitForTimeout(200);
-    for (let i = 0; i < 12 && (await act()) !== "ce-width-thumb"; i += 1) await page.keyboard.press("Tab");
+    const tabPath = [await act()];
+    for (let i = 0; i < 12 && (await act()) !== "ce-width-thumb"; i += 1) { await page.keyboard.press("Tab"); tabPath.push(await act()); }
     const w0 = await page.evaluate(() => +/"width": ?(\d+)/.exec(window.__app.source())[1]);
     await page.keyboard.press("ArrowRight");
     await page.waitForTimeout(100);
@@ -758,10 +760,39 @@ try {
     await page.keyboard.press("Escape");
     const chartBack = await act();
     await page.evaluate((s) => window.__app.setSource(s), src0);
-    check("the chart editor from the keyboard: Tab to a slider, an arrow moves it, Esc closes", w1 > w0 && chartBack === "keys", JSON.stringify({ w0, w1, chartBack }));
+    check("the chart editor from the keyboard: Tab to a slider, an arrow moves it, Esc closes", w1 > w0 && chartBack === "keys", JSON.stringify({ w0, w1, chartBack, tabPath }));
     check("F6 goes from region to region (slides, bar, tabs, editor)", seen.some((x) => /^thumb-/.test(x)) && seen.some((x) => /^tb-/.test(x)) && seen.some((x) => /^edtabs/.test(x)) && seen.includes("keys"), seen.join(","));
     check("Ctrl+Space opens the value popover with the keyboard in it; Enter picks, Esc returns", /^hp-opt-/.test(inHint) && !/fx=starfield/.test(line) && /fx=/.test(line) && back === "keys", JSON.stringify({ inHint, line, back }));
     check("the canvas is mirrored for a screen reader: the bar, the slides, where we are", dom.nodes > 10 && dom.bar && dom.slides >= 2 && /Dia \d+ \/ \d+/.test(dom.status) && dom.canvasHidden, JSON.stringify(dom));
+  }
+
+  // A chart slider shows on the slide while it moves, and one undo takes the whole drag back
+  {
+    const lv = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      a.showTab("md");
+      a.setSource("# D\n\n## O\n\n```vega-lite\n{\"data\": {\"values\": [{\"f\": \"A\", \"u\": 1}, {\"f\": \"B\", \"u\": 2}]}, \"mark\": \"bar\", \"width\": 640, \"encoding\": {\"x\": {\"field\": \"f\", \"type\": \"nominal\"}, \"y\": {\"field\": \"u\", \"type\": \"quantitative\"}}}\n```\n");
+      const before = a.source();
+      a.chart.tab = "kaavio";
+      a.openChartEditor(4);
+      a.chartJson();
+      const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      const w = () => { const m = /"width": ?(\d+)/.exec(a.source()); return m ? +m[1] : 0; };
+      const sl = walk(a.chart.host.lastPage, "ce-width");
+      let t = 500;
+      a.setUiTime(t);
+      a.pointerDown(sl.calculatedX + sl.calculatedWidth * 0.5, sl.calculatedY + 8, false, 1);
+      const seen = [];
+      for (const f of [0.6, 0.7, 0.8]) { t += 0.1; a.setUiTime(t); a.pointerMove(sl.calculatedX + sl.calculatedWidth * f, sl.calculatedY + 8); seen.push(w()); }
+      a.pointerUp();
+      a.key("escape", false, false);
+      a.undo();
+      const undone = a.source() === before;
+      a.setSource(src0);
+      return { seen, undone };
+    });
+    check("a chart slider writes the fence while it moves; one undo takes the drag back", lv.seen[0] !== 640 && lv.seen[1] > lv.seen[0] && lv.seen[2] > lv.seen[1] && lv.undone, JSON.stringify(lv));
   }
 
   // The help panel: only what the slide has, and a property opened in the theme

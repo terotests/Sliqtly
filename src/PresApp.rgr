@@ -161,6 +161,11 @@ class PresApp {
     ; the mirrored control the keyboard is on ("" = the editor or the stage)
     def a11yFocus:string ""
     def a11yGen:int 0
+    ; when the chart was last written during a drag (deck.uiNow, seconds)
+    def chartLiveAt:double -1.0
+    ; the undo stack's length when a drag's first live write was made: the
+    ; drag's writes are merged into one undo step (-1 = no drag writing)
+    def chartUndoBase:int -1
     def panelsKey:string ""
     def barH:double 0.0
     def chartWinY:double -1.0
@@ -1639,6 +1644,17 @@ class PresApp {
         }
         if (chart.isOpen && (chart.dragging())) {
             chart.dragTo(x y)
+            ; a slider or the picker shows on the slide as it moves, not only
+            ; when it is let go (at most every 50 ms: each write lays the
+            ; deck out again)
+            if ((chart.win.dragging == false) && ((deck.uiNow - chartLiveAt) >= 0.05)) {
+                chartLiveAt = deck.uiNow
+                if (chartUndoBase < 0) {
+                    chartUndoBase = (array_length mdEditor.buf.undoStack)
+                }
+                this.writeChart()
+                this.mergeChartUndo()
+            }
             chromeRev = (chromeRev + 1)
             return
         }
@@ -1671,7 +1687,9 @@ class PresApp {
         if chart.isOpen {
             chart.release()
             this.writeChart()
+            this.mergeChartUndo()
         }
+        chartUndoBase = -1
         if editorDrag {
             this.followCaret()
         }
@@ -2829,6 +2847,28 @@ class PresApp {
             this.closeChart()
         }
         chromeRev = (chromeRev + 1)
+    }
+
+    ; The writes of one drag as one undo step. Each replaced the whole fence
+    ; body from the same place, so the first write's removed text and the
+    ; last one's inserted text are the whole change.
+    fn mergeChartUndo:void () {
+        if (chartUndoBase < 0) {
+            return
+        }
+        def st:[EditorUndoOp] mdEditor.buf.undoStack
+        def n:int (array_length st)
+        if (n <= (chartUndoBase + 1)) {
+            return
+        }
+        def first:EditorUndoOp (itemAt st chartUndoBase)
+        def last:EditorUndoOp (itemAt st (n - 1))
+        first.inserted = last.inserted
+        first.endLine = last.endLine
+        first.endCol = last.endCol
+        while ((array_length st) > (chartUndoBase + 1)) {
+            removeLast st
+        }
     }
 
     ; The fence's body replaced with the model's specification, as one edit.
