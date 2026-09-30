@@ -60,6 +60,7 @@ class PresChart {
         if (PresChart.specTrue(spec "presGradient")) {
             fx = (fx + " gradient")
         }
+        def dark:boolean ((indexOf (" " + style + " ") " dark ") >= 0)
         def ac:EVGColor (PresChart.colour(accentHex "#5ce1ff"))
         ; the mark's colour: looked for in the mark alone, not in a title's
         def markAt:int (indexOf spec "\"mark\"")
@@ -99,6 +100,9 @@ class PresChart {
             removeLast out.cmds
         }
 
+        ; a continuous colour legend's ramp, drawn as a stack of small rects:
+        ; not columns
+        def ramp:[boolean] (PresChart.rampStripes(tail))
         ; the columns, in the order they were drawn
         def bars:[EVGDrawCmd]
         def groundSeen:boolean false
@@ -109,7 +113,7 @@ class PresChart {
                 if (! groundSeen) {
                     groundSeen = true
                 } {
-                    if ((PresChart.isBar(c)) && ((PresChart.rectChart(spec)) == false)) {
+                    if (((PresChart.isBar(c)) && ((PresChart.rectChart(spec)) == false)) && ((itemAt ramp k) == false)) {
                         push bars c
                     }
                 }
@@ -212,7 +216,7 @@ class PresChart {
                     ; the card: left out
                     groundSeen = true
                 } {
-                    if ((PresChart.isBar(c)) && ((PresChart.rectChart(spec)) == false)) {
+                    if (((PresChart.isBar(c)) && ((PresChart.rectChart(spec)) == false)) && ((itemAt ramp k) == false)) {
                         if perBar {
                             def oR:int c.r
                             def oG:int c.g
@@ -228,6 +232,15 @@ class PresChart {
                         ; …and a rule in a data colour (an error bar, a mean line)
                         def thin:boolean ((c.w < 2.5) || (c.h < 2.5))
                         def grey:boolean (((PresChart.absI((c.r - c.g))) < 14) && ((PresChart.absI((c.g - c.b))) < 14))
+                        if (dark && ((PresChart.nearBlack(c)) && (c.hasGrad == false))) {
+                            ; a black point or rule, on a dark slide
+                            c.r = 232
+                            c.g = 236
+                            c.b = 245
+                            push out.cmds c
+                            k = (k + 1)
+                            continue
+                        }
                         if ((((c.radius > 0.0) || (PresChart.rectChart(spec))) || c.hasGrad) || (thin && (grey == false))) {
                             push out.cmds c
                             k = (k + 1)
@@ -241,6 +254,20 @@ class PresChart {
                     }
                 }
             } {
+                ; Black data on a dark slide (points, rules, error bars a
+                ; chart coloured black for white paper): drawn light instead
+                ; of invisible, and not taken for a grid line.
+                if (dark && ((((c.kind == 7) || (c.kind == 1)) || (c.kind == 0)) && (PresChart.nearBlack(c)))) {
+                    c.r = 232
+                    c.g = 236
+                    c.b = 245
+                    if ((c.kind == 7) && (c.thickness < 1.5)) {
+                        c.thickness = 1.5
+                    }
+                    push out.cmds c
+                    k = (k + 1)
+                    continue
+                }
                 ; a line's point (a dot ringed in the line's colour): the
                 ; ring takes the colour the line is given here
                 if (((((c.kind == 1) && (c.radius > 0.0)) && (c.w < 40.0)) && ((perLine == false) && ((strlen markHex) == 0))) && (((c.r == lineR) && (c.g == lineG)) && (c.b == lineB))) {
@@ -481,8 +508,54 @@ class PresChart {
 
     ; A column of a bar chart: a filled, square-cornered box of some size.
     ; Rounded ones are symbols — a legend's swatches, a scatter's points.
+    sfn nearBlack:boolean (c:EVGDrawCmd) {
+        return ((((c.r + c.g) + c.b) < 90) && (c.a > 0.05))
+    }
+
+    ; For each command, whether it is a stripe of a gradient legend: one of
+    ; eight or more small rects sharing a column (or a row) edge to edge.
+    sfn rampStripes:[boolean] (tail:[EVGDrawCmd]) {
+        def out:[boolean]
+        def keys:[string]
+        def counts:[string:int]
+        def i:int 0
+        while (i < (array_length tail)) {
+            def c:EVGDrawCmd (itemAt tail i)
+            def key:string ""
+            if (c.kind == 0) {
+                if ((c.w <= 24.0) && (c.h <= 8.0)) {
+                    key = ("v" + (to_string (to_int c.x)) + ":" + (to_string (to_int c.w)))
+                } {
+                    if ((c.h <= 24.0) && (c.w <= 8.0)) {
+                        key = ("h" + (to_string (to_int c.y)) + ":" + (to_string (to_int c.h)))
+                    }
+                }
+            }
+            push keys key
+            if ((strlen key) > 0) {
+                set counts key ((?? (get counts key) 0) + 1)
+            }
+            i = (i + 1)
+        }
+        i = 0
+        while (i < (array_length keys)) {
+            def key:string (itemAt keys i)
+            def many:boolean false
+            if ((strlen key) > 0) {
+                many = ((?? (get counts key) 0) >= 8)
+            }
+            push out many
+            i = (i + 1)
+        }
+        return out
+    }
+
     sfn isBar:boolean (c:EVGDrawCmd) {
         ; a gradient (a colour legend's ramp) is not a column
+        ; nor is a rule drawn as a thin rect (a lollipop's stem)
+        if (((c.h < 1.6) && (c.w > 8.0)) || ((c.w < 1.6) && (c.h > 8.0))) {
+            return false
+        }
         return ((((c.w > 2.0) && (c.h > 0.5)) && (c.radius <= 0.0)) && (c.hasGrad == false))
     }
 

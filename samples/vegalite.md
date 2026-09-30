@@ -369,3 +369,308 @@ Jokainen dia on yksi Vega-Lite-esimerkki. Tiedostoista luetut aineistot (`"url":
   }
 }
 ```
+
+## Säteittäinen (radial)
+
+```vega-lite
+{
+  "data": {"values": [12, 23, 47, 6, 52, 19]},
+  "layer": [
+    {"mark": {"type": "arc", "innerRadius": 20, "stroke": "#fff"}},
+    {"mark": {"type": "text", "radiusOffset": 10}, "encoding": {"text": {"field": "data", "type": "quantitative"}}}
+  ],
+  "encoding": {
+    "theta": {"field": "data", "type": "quantitative", "stack": true},
+    "radius": {"field": "data", "scale": {"type": "sqrt", "zero": true, "rangeMin": 20}},
+    "color": {"field": "data", "type": "nominal", "legend": null}
+  }
+}
+```
+
+## Normalisoitu pinottu pylväs
+
+```vega-lite
+{
+  "data": {"url": "data/barley.json"},
+  "mark": "bar",
+  "width": 520,
+  "encoding": {
+    "y": {"field": "site", "type": "nominal"},
+    "x": {"aggregate": "sum", "field": "yield", "stack": "normalize"},
+    "color": {"field": "variety", "type": "nominal"}
+  }
+}
+```
+
+## Hajaantuva pylväs (negatiiviset)
+
+```vega-lite
+{
+  "data": {"values": [
+    {"a": "A", "b": -28}, {"a": "B", "b": 55}, {"a": "C", "b": -33},
+    {"a": "D", "b": 91}, {"a": "E", "b": 81}, {"a": "F", "b": 53},
+    {"a": "G", "b": -19}, {"a": "H", "b": 87}, {"a": "I", "b": 52}
+  ]},
+  "mark": "bar",
+  "width": 560,
+  "encoding": {
+    "x": {"field": "a", "type": "nominal", "axis": {"labelAngle": 0}},
+    "y": {"field": "b", "type": "quantitative"},
+    "color": {"condition": {"test": "datum.b < 0", "value": "#e45756"}, "value": "#4c78a8"}
+  }
+}
+```
+
+## Gantt (aikajana)
+
+```vega-lite
+{
+  "data": {"values": [
+    {"task": "Suunnittelu", "start": 1, "end": 3},
+    {"task": "Toteutus", "start": 3, "end": 8},
+    {"task": "Testaus", "start": 6, "end": 9},
+    {"task": "Julkaisu", "start": 9, "end": 10}
+  ]},
+  "mark": "bar",
+  "width": 520,
+  "encoding": {
+    "y": {"field": "task", "type": "ordinal", "sort": null},
+    "x": {"field": "start", "type": "quantitative", "title": "viikko"},
+    "x2": {"field": "end"}
+  }
+}
+```
+
+## Tikkari (lollipop)
+
+```vega-lite
+{
+  "data": {"values": [
+    {"k": "A", "v": 28}, {"k": "B", "v": 55}, {"k": "C", "v": 43},
+    {"k": "D", "v": 91}, {"k": "E", "v": 81}, {"k": "F", "v": 53}
+  ]},
+  "width": 520,
+  "encoding": {
+    "y": {"field": "k", "type": "nominal"},
+    "x": {"field": "v", "type": "quantitative"}
+  },
+  "layer": [
+    {"mark": "rule", "encoding": {"x2": {"datum": 0}}},
+    {"mark": {"type": "circle", "size": 160}}
+  ]
+}
+```
+
+## Kynttilä (candlestick)
+
+```vega-lite
+{
+  "data": {"url": "data/ohlc.json"},
+  "width": 560,
+  "encoding": {
+    "x": {"field": "date", "type": "temporal", "title": "Date in 2009", "axis": {"format": "%m/%d"}},
+    "y": {"type": "quantitative", "scale": {"zero": false}, "title": "Price"},
+    "color": {"condition": {"test": "datum.open < datum.close", "value": "#06982d"}, "value": "#ae1325"}
+  },
+  "layer": [
+    {"mark": "rule", "encoding": {"y": {"field": "low"}, "y2": {"field": "high"}}},
+    {"mark": "bar", "encoding": {"y": {"field": "open"}, "y2": {"field": "close"}}}
+  ]
+}
+```
+
+## Regressiosuora
+
+```vega-lite
+{
+  "data": {"url": "data/movies.json"},
+  "width": 520,
+  "layer": [
+    {"mark": {"type": "point", "filled": true, "opacity": 0.3},
+     "encoding": {"x": {"field": "Rotten Tomatoes Rating", "type": "quantitative"}, "y": {"field": "IMDB Rating", "type": "quantitative"}}},
+    {"mark": {"type": "line", "color": "firebrick", "strokeWidth": 3},
+     "transform": [{"regression": "IMDB Rating", "on": "Rotten Tomatoes Rating"}],
+     "encoding": {"x": {"field": "Rotten Tomatoes Rating", "type": "quantitative"}, "y": {"field": "IMDB Rating", "type": "quantitative"}}}
+  ]
+}
+```
+
+## Tiheys (density)
+
+```vega-lite
+{
+  "data": {"url": "data/movies.json"},
+  "width": 520,
+  "transform": [{"density": "IMDB Rating", "bandwidth": 0.3}],
+  "mark": "area",
+  "encoding": {
+    "x": {"field": "value", "type": "quantitative", "title": "IMDB Rating"},
+    "y": {"field": "density", "type": "quantitative"}
+  }
+}
+```
+
+## Virhenauha (errorband)
+
+```vega-lite
+{
+  "data": {"url": "data/cars.json"},
+  "width": 520,
+  "encoding": {"x": {"field": "Year", "timeUnit": "year"}},
+  "layer": [
+    {"mark": {"type": "errorband", "extent": "ci"},
+     "encoding": {"y": {"field": "Miles_per_Gallon", "type": "quantitative", "title": "Mean of Miles per Gallon (95% CIs)"}}},
+    {"mark": "line", "encoding": {"y": {"aggregate": "mean", "field": "Miles_per_Gallon"}}}
+  ]
+}
+```
+
+## Kaltevuus (slope)
+
+```vega-lite
+{
+  "data": {"url": "data/barley.json"},
+  "width": 300,
+  "mark": "line",
+  "encoding": {
+    "x": {"field": "year", "type": "ordinal", "scale": {"padding": 0.5}},
+    "y": {"aggregate": "median", "field": "yield", "type": "quantitative"},
+    "color": {"field": "site", "type": "nominal"}
+  }
+}
+```
+
+## Sijoitus (bump)
+
+```vega-lite
+{
+  "data": {"values": [
+    {"build": 1, "result": "PASSED"}, {"build": 2, "result": "PASSED"}, {"build": 3, "result": "FAILED"},
+    {"build": 4, "result": "FAILED"}, {"build": 5, "result": "SKIPPED"}, {"build": 6, "result": "PASSED"},
+    {"build": 7, "result": "PASSED"}, {"build": 8, "result": "FAILED"}, {"build": 9, "result": "SKIPPED"}
+  ]},
+  "width": 520,
+  "mark": {"type": "line", "point": true},
+  "encoding": {
+    "x": {"field": "build", "type": "ordinal"},
+    "y": {"field": "result", "type": "nominal", "sort": ["PASSED", "SKIPPED", "FAILED"]}
+  }
+}
+```
+
+## Binnattu hajonta (ympyrät)
+
+```vega-lite
+{
+  "data": {"url": "data/movies.json"},
+  "mark": "circle",
+  "width": 520,
+  "encoding": {
+    "x": {"bin": {"maxbins": 10}, "field": "IMDB Rating"},
+    "y": {"bin": {"maxbins": 10}, "field": "Rotten Tomatoes Rating"},
+    "size": {"aggregate": "count"}
+  }
+}
+```
+
+## Rinnakkain (hconcat)
+
+```vega-lite
+{
+  "data": {"url": "data/weather.csv"},
+  "transform": [{"filter": "datum.location === 'Seattle'"}],
+  "hconcat": [
+    {"mark": "bar", "encoding": {"x": {"timeUnit": "month", "field": "date", "type": "ordinal"}, "y": {"aggregate": "mean", "field": "precipitation"}}},
+    {"mark": "point", "encoding": {"x": {"field": "temp_min", "bin": true}, "y": {"field": "temp_max", "bin": true}, "size": {"aggregate": "count"}}}
+  ]
+}
+```
+
+## Toisto (repeat)
+
+```vega-lite
+{
+  "data": {"url": "data/cars.json"},
+  "repeat": ["Horsepower", "Miles_per_Gallon", "Acceleration"],
+  "columns": 3,
+  "spec": {
+    "width": 160,
+    "height": 140,
+    "mark": "bar",
+    "encoding": {
+      "x": {"field": {"repeat": "repeat"}, "bin": true},
+      "y": {"aggregate": "count"},
+      "color": {"field": "Origin"}
+    }
+  }
+}
+```
+
+## Vesiputous (waterfall)
+
+```vega-lite
+{
+  "data": {"values": [
+    {"label": "Alku", "amount": 4000},
+    {"label": "Tammi", "amount": 1707}, {"label": "Helmi", "amount": -1425},
+    {"label": "Maalis", "amount": -1030}, {"label": "Huhti", "amount": 1812},
+    {"label": "Touko", "amount": -1067}, {"label": "Loppu", "amount": 0}
+  ]},
+  "width": 560,
+  "transform": [
+    {"window": [{"op": "sum", "field": "amount", "as": "sum"}]},
+    {"window": [{"op": "lead", "field": "label", "as": "lead"}]},
+    {"calculate": "datum.lead === null ? datum.label : datum.lead", "as": "lead"},
+    {"calculate": "datum.label === 'Loppu' ? 0 : datum.sum - datum.amount", "as": "previous_sum"},
+    {"calculate": "datum.label === 'Loppu' ? datum.sum : datum.amount", "as": "amount"},
+    {"calculate": "(datum.label !== 'Alku' && datum.label !== 'Loppu' && datum.amount > 0 ? '+' : '') + datum.amount", "as": "text_amount"},
+    {"calculate": "(datum.sum + datum.previous_sum) / 2", "as": "center"}
+  ],
+  "encoding": {"x": {"field": "label", "type": "ordinal", "sort": null, "axis": {"labelAngle": 0}}},
+  "layer": [
+    {"mark": {"type": "bar", "size": 45},
+     "encoding": {
+       "y": {"field": "previous_sum", "type": "quantitative", "title": "Saldo"},
+       "y2": {"field": "sum"},
+       "color": {"condition": [
+         {"test": "datum.label === 'Alku' || datum.label === 'Loppu'", "value": "#f7e0b6"},
+         {"test": "datum.sum < datum.previous_sum", "value": "#f78a64"}
+       ], "value": "#93c4aa"}
+     }},
+    {"mark": {"type": "text", "fontWeight": "bold", "baseline": "middle"},
+     "encoding": {"y": {"field": "center", "type": "quantitative"}, "text": {"field": "text_amount", "type": "nominal"}}}
+  ]
+}
+```
+
+## Kartta (pisteet)
+
+```vega-lite
+{
+  "width": 560,
+  "height": 320,
+  "data": {"url": "data/airports.csv"},
+  "projection": {"type": "albersUsa"},
+  "mark": {"type": "circle", "size": 10, "opacity": 0.7},
+  "encoding": {
+    "longitude": {"field": "longitude", "type": "quantitative"},
+    "latitude": {"field": "latitude", "type": "quantitative"}
+  }
+}
+```
+
+## Tekstitaulukko
+
+```vega-lite
+{
+  "data": {"url": "data/cars.json"},
+  "transform": [{"aggregate": [{"op": "mean", "field": "Horsepower", "as": "hp"}], "groupby": ["Origin", "Cylinders"]}],
+  "mark": {"type": "text", "fontSize": 16},
+  "width": 420,
+  "encoding": {
+    "y": {"field": "Origin", "type": "nominal"},
+    "x": {"field": "Cylinders", "type": "ordinal"},
+    "text": {"field": "hp", "type": "quantitative", "format": ".0f"}
+  }
+}
+```

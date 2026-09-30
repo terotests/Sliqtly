@@ -256,7 +256,7 @@ class PresDeck {
         def dl (new EVGDisplayList())
         def painter (new MdToEvg())
         painter.paintBox(dl l b 0.0)
-        PresChart.dress(dl 0 1000000.0 true (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) b.embedSource ((this.themeRule("chart" "chart-style")) + " " + (this.themeRule("chart" "chart-effects"))))
+        PresChart.dress(dl 0 1000000.0 true (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) b.embedSource (this.chartStyleWords()))
         def ground:string l.style.pageBackground
         if ((strlen ground) == 0) {
             ground = "#ffffff"
@@ -716,6 +716,21 @@ class PresDeck {
         }
     }
 
+    ; The theme's chart-style and chart-effects, and "dark" on a dark slide
+    ; (black marks are then drawn light, not left invisible).
+    fn chartStyleWords:string () {
+        def w:string ((this.themeRule("chart" "chart-style")) + " " + (this.themeRule("chart" "chart-effects")))
+        def paper:string (this.layout()).style.pageBackground
+        if ((strlen paper) > 0) {
+            def c:EVGColor (EVGColor.parse(paper))
+            def lum:double ((((to_double (c.red())) * 0.299) + ((to_double (c.green())) * 0.587)) + ((to_double (c.blue())) * 0.114))
+            if (lum < 110.0) {
+                w = (w + " dark")
+            }
+        }
+        return w
+    }
+
     ; "#mihin-raha-menee chart" as "#mihin-raha-menee"; any other selector as
     ; it is.
     sfn scopedSel:string (sel:string) {
@@ -948,6 +963,10 @@ class PresDeck {
         ; heading's own (`#anchor chart { … }`)
         def emb:MdEmbedCache e.layout.embeds
         emb.chartConfig = (this.chartDefaults("chart" true))
+        ; a slide's chart fills its room (a small plot asked for larger)
+        emb.chartGrow = 2.5
+        ; but no taller than a slide under its heading
+        emb.chartMaxH = ((e.layout.style.pageHeight - (e.layout.style.margin * 2.0)) - 120.0)
         def none1:[string]
         def none2:[string]
         emb.chartScopes = none1
@@ -1454,7 +1473,7 @@ class PresDeck {
                 def before:int (array_length out.cmds)
                 painter.paintBox(out l kb 0.0)
                 if ((kb.kind == 3) && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(kb.embedKind)))) == "vega")) {
-                    PresChart.dress(out before t still (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) kb.embedSource ((this.themeRule("chart" "chart-style")) + " " + (this.themeRule("chart" "chart-effects"))))
+                    PresChart.dress(out before t still (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) kb.embedSource (this.chartStyleWords()))
                     if still {
                         PresChart.flatten(out before paper)
                     }
