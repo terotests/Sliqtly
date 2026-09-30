@@ -433,10 +433,27 @@ class PresApp {
             this.posOf((mdEditor.text()) s.srcStart)
             mdEditor.sel.setCaret(posLine 0)
             mdEditor.sel.collapseToCaret()
-            mdEditor.layout.ensureCaretVisible(mdEditor.buf mdEditor.sel)
+            this.headingInView(posLine)
         }
         this.revealThumb(i)
         chromeRev = (chromeRev + 1)
+    }
+
+    ; The slide's heading about 15% from the editor's top, so the lines above
+    ; it show that the document goes on upwards. Left where it is when it is
+    ; already comfortably in view; the first lines stay at the top.
+    fn headingInView:void (line:int) {
+        def lay:EditorLayout mdEditor.layout
+        def vis:int (lay.visibleLineCount())
+        def lead:int (to_int ((to_double vis) * 0.15))
+        if ((line >= (lay.scrollLine + lead)) && (line <= ((lay.scrollLine + vis) - 4))) {
+            return
+        }
+        def top:int (line - lead)
+        if (top < 0) {
+            top = 0
+        }
+        lay.jumpToLine(mdEditor.buf top)
     }
 
     fn revealThumb:void (i:int) {

@@ -307,9 +307,14 @@ const mirror = createA11yMirror(stageEl, {
     mirrorA11y();
     // what was pressed may be gone (a popover that closed): the keyboard goes
     // back to the editor rather than to nowhere
+    const pressedEl = mirror.elementOf(node.id);
     requestAnimationFrame(() => {
       const el = mirror.elementOf(node.id);
-      if (!el || !el.isConnected) {
+      const act = document.activeElement;
+      // only when the keyboard is really lost: focus moved on since (another
+      // shortcut, a click) is left alone
+      const lost = !act || act === document.body || act === pressedEl;
+      if (lost && (!el || !el.isConnected)) {
         const reg = regionOf(node.id);
         if (!focusRegion(reg)) focusKeys(app.focusTarget());
       }
@@ -387,6 +392,7 @@ function moveInRegion(step) {
   const at = list.findIndex((n) => n.id === id);
   focusNode(list[(at + step + list.length) % list.length]);
 }
+window.__kb = { focusables, focusRegion, currentRegion };
 mirror.root.addEventListener("keydown", (ev) => {
   const el = ev.target;
   const id = el && el.dataset ? el.dataset.a11yId : "";

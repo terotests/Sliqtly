@@ -751,7 +751,7 @@ try {
     await page.evaluate(() => { const a = window.__app; a.setSource("# D\n\n## O\n\n```vega-lite\n{\"data\": {\"values\": [{\"f\": \"A\", \"u\": 1}, {\"f\": \"B\", \"u\": 2}]}, \"mark\": \"bar\", \"width\": 640, \"encoding\": {\"x\": {\"field\": \"f\", \"type\": \"nominal\"}, \"y\": {\"field\": \"u\", \"type\": \"quantitative\"}}}\n```\n"); if (a.chartIsOpen()) a.closeChart(); a.showTab("md"); a.chart.tab = "kaavio"; a.editor.moveCaret(4, 5, false); document.getElementById("keys").focus(); });
     await page.keyboard.press("Control+Space");
     await page.waitForTimeout(200);
-    const tabPath = [await act()];
+    const tabPath = [await act(), await page.evaluate(() => { const a = window.__app; return "open=" + a.chartIsOpen() + " src4=" + a.source().split("\n")[4] + " caret=" + a.editor.sel.caret.line + ":" + a.editor.sel.caret.col + " tab=" + a.editorTab() + " n=" + document.querySelectorAll('.evg-a11y [data-a11y-id^="ce-"]').length + " foc=" + window.__kb.focusables("chart").map((x) => x.id).slice(0, 3).join("/") + " a11y=" + window.__app.a11yFocus + " active=" + (document.activeElement && document.activeElement.id); })];
     for (let i = 0; i < 12 && (await act()) !== "ce-width-thumb"; i += 1) { await page.keyboard.press("Tab"); tabPath.push(await act()); }
     const w0 = await page.evaluate(() => +/"width": ?(\d+)/.exec(window.__app.source())[1]);
     await page.keyboard.press("ArrowRight");
@@ -760,7 +760,7 @@ try {
     await page.keyboard.press("Escape");
     const chartBack = await act();
     await page.evaluate((s) => window.__app.setSource(s), src0);
-    check("the chart editor from the keyboard: Tab to a slider, an arrow moves it, Esc closes", w1 > w0 && chartBack === "keys", JSON.stringify({ w0, w1, chartBack, tabPath }));
+    check("the chart editor from the keyboard: Tab to a slider, an arrow moves it, Esc closes", w1 > w0 && chartBack === "keys", JSON.stringify({ w0, w1, chartBack, tabPath: tabPath.slice(0, 3) }));
     check("F6 goes from region to region (slides, bar, tabs, editor)", seen.some((x) => /^thumb-/.test(x)) && seen.some((x) => /^tb-/.test(x)) && seen.some((x) => /^edtabs/.test(x)) && seen.includes("keys"), seen.join(","));
     check("Ctrl+Space opens the value popover with the keyboard in it; Enter picks, Esc returns", /^hp-opt-/.test(inHint) && !/fx=starfield/.test(line) && /fx=/.test(line) && back === "keys", JSON.stringify({ inHint, line, back }));
     check("the canvas is mirrored for a screen reader: the bar, the slides, where we are", dom.nodes > 10 && dom.bar && dom.slides >= 2 && /Dia \d+ \/ \d+/.test(dom.status) && dom.canvasHidden, JSON.stringify(dom));
@@ -793,6 +793,31 @@ try {
       return { seen, undone };
     });
     check("a chart slider writes the fence while it moves; one undo takes the drag back", lv.seen[0] !== 640 && lv.seen[1] > lv.seen[0] && lv.seen[2] > lv.seen[1] && lv.undone, JSON.stringify(lv));
+  }
+
+  // A slide picked from the strip puts its heading about 15% from the editor's top
+  {
+    const hv = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      a.showTab("md");
+      let md = "# Alku\n\n";
+      for (let k = 1; k <= 8; k += 1) { md += "## Dia " + k + "\n\n"; for (let j = 0; j < 12; j += 1) md += "Rivi " + j + "\n\n"; }
+      a.setSource(md);
+      a.editor.layout.scrollLine = 0;
+      const n = a.deck.slideCount();
+      a.selectSlide(Math.floor(n / 2));
+      const lay = a.editor.layout;
+      const line = a.editor.sel.caret.line;
+      const vis = lay.visibleLineCount();
+      const at = (line - lay.scrollLine) / vis;
+      const heading = a.editor.buf.lineAt(line);
+      a.selectSlide(0);
+      const top = lay.scrollLine;
+      a.setSource(src0);
+      return { at: Math.round(at * 100) / 100, heading, vis, top };
+    });
+    check("a slide picked from the strip has its heading near the editor's top, not its bottom", hv.at >= 0.1 && hv.at <= 0.2 && hv.top === 0, JSON.stringify(hv));
   }
 
   // The help panel: only what the slide has, and a property opened in the theme
