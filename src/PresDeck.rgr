@@ -675,8 +675,10 @@ class PresDeck {
             def selList:[string] (strsplit sels ",")
             def s:int 0
             while (s < (array_length selList)) {
-                def sel:string (trim (itemAt selList s))
-                if ((sel == "chart") || (sel == "diagram")) {
+                def sel0:string (trim (itemAt selList s))
+                ; `#anchor chart`: the charts under one heading
+                def sel:string (PresDeck.scopedSel(sel0))
+                if (((sel == "chart") || (sel == "diagram")) || ((indexOf sel "#") == 0)) {
                     def decls:[string] (strsplit body ";")
                     def d:int 0
                     while (d < (array_length decls)) {
@@ -693,6 +695,115 @@ class PresDeck {
             }
             at = (((at + open) + 1) + (close + 1))
         }
+    }
+
+    ; "#mihin-raha-menee chart" as "#mihin-raha-menee"; any other selector as
+    ; it is.
+    sfn scopedSel:string (sel:string) {
+        if ((indexOf sel "#") != 0) {
+            return sel
+        }
+        def parts:[string] (strsplit sel " ")
+        def words:[string]
+        def i:int 0
+        while (i < (array_length parts)) {
+            def w:string (trim (itemAt parts i))
+            if ((strlen w) > 0) {
+                push words w
+            }
+            i = (i + 1)
+        }
+        if (((array_length words) == 2) && ((itemAt words 1) == "chart")) {
+            return (itemAt words 0)
+        }
+        return ""
+    }
+
+    ; A length's number: "18px", "18pt" and "18" are 18; "" when there is none.
+    sfn lengthOf:string (v:string) {
+        def t:string (trim v)
+        def i:int 0
+        def n:int (strlen t)
+        while ((i < n) && ((((charAt t i) >= 48) && ((charAt t i) <= 57)) || ((charAt t i) == 46))) {
+            i = (i + 1)
+        }
+        return (substring t 0 i)
+    }
+
+    ; The chart defaults a rule states, as the JSON the markdown module lays
+    ; the charts over (MdVegaRender.withDefaults): `font-size` the axis and
+    ; legend labels (their titles one larger), `title-font-size` and
+    ; `title-gap` the chart's title, `padding` the room round it. `key` is
+    ; "chart" for every chart or "#anchor" for the charts under one heading;
+    ; `roomy` adds the presentation's own defaults under the stated ones.
+    fn chartDefaults:string (key:string roomy:boolean) {
+        def fs:string (PresDeck.lengthOf((this.themeRule(key "font-size"))))
+        def tfs:string (PresDeck.lengthOf((this.themeRule(key "title-font-size"))))
+        def tg:string (PresDeck.lengthOf((this.themeRule(key "title-gap"))))
+        def pad:string (PresDeck.lengthOf((this.themeRule(key "padding"))))
+        if roomy {
+            if ((strlen fs) == 0) { fs = "15" }
+            if ((strlen tfs) == 0) { tfs = "22" }
+            if ((strlen tg) == 0) { tg = "18" }
+            if ((strlen pad) == 0) { pad = "14" }
+        }
+        def cfg:string ""
+        if ((strlen tfs) > 0) {
+            cfg = (cfg + "\"fontSize\": " + tfs)
+        }
+        if ((strlen tg) > 0) {
+            if ((strlen cfg) > 0) { cfg = (cfg + ", ") }
+            cfg = (cfg + "\"offset\": " + tg)
+        }
+        def parts:string ""
+        if ((strlen cfg) > 0) {
+            parts = ("\"title\": {" + cfg + "}")
+        }
+        if ((strlen fs) > 0) {
+            def f:double (?? (str2double fs) 12.0)
+            def ft:string (VlJson.formatNumber((f + 1.0) 1))
+            def guide:string ("{\"labelFontSize\": " + fs + ", \"titleFontSize\": " + ft + "}")
+            if ((strlen parts) > 0) { parts = (parts + ", ") }
+            parts = (parts + "\"axis\": " + guide + ", \"legend\": " + guide)
+        }
+        def out:string ""
+        if ((strlen parts) > 0) {
+            out = ("\"config\": {" + parts + "}")
+        }
+        if ((strlen pad) > 0) {
+            if ((strlen out) > 0) { out = (out + ", ") }
+            out = (out + "\"padding\": " + pad)
+        }
+        if ((strlen out) == 0) {
+            return ""
+        }
+        return ("{" + out + "}")
+    }
+
+    ; The anchors the theme has chart rules for ("#a", "#b").
+    fn chartScopes:[string] () {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length ruleKeys)) {
+            def k:string (itemAt ruleKeys i)
+            if ((indexOf k "#") == 0) {
+                def slash:int (indexOf k "/")
+                def sc:string (substring k 0 slash)
+                def seen:boolean false
+                def j:int 0
+                while (j < (array_length out)) {
+                    if ((itemAt out j) == sc) {
+                        seen = true
+                    }
+                    j = (j + 1)
+                }
+                if (seen == false) {
+                    push out sc
+                }
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     ; A colour for `what` ("chart" or "diagram"): `color` is the warm one
@@ -751,6 +862,22 @@ class PresDeck {
         ; a slide with room is set larger (the front matter's `slide-grow`
         ; overrides; `slide-grow: off` keeps the document's sizes)
         e.layout.slideGrow = 1.6
+        ; the charts over the theme's defaults: every chart's, then each
+        ; heading's own (`#anchor chart { … }`)
+        def emb:MdEmbedCache e.layout.embeds
+        emb.chartConfig = (this.chartDefaults("chart" true))
+        def none1:[string]
+        def none2:[string]
+        emb.chartScopes = none1
+        emb.chartScopeConfig = none2
+        def scopes:[string] (this.chartScopes())
+        def si:int 0
+        while (si < (array_length scopes)) {
+            def sc:string (itemAt scopes si)
+            push emb.chartScopes (substring sc 1 (strlen sc))
+            push emb.chartScopeConfig (this.chartDefaults(sc false))
+            si = (si + 1)
+        }
         e.stale = true
         e.ensureLayout()
         this.codeColours(e.layout)

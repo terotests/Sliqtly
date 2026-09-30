@@ -820,6 +820,31 @@ try {
     check("a slide picked from the strip has its heading near the editor's top, not its bottom", hv.at >= 0.1 && hv.at <= 0.2 && hv.top === 0, JSON.stringify(hv));
   }
 
+  // Charts: roomier defaults, the theme's chart { } sizes, and one slide's own
+  // (#anchor chart { }), named by its heading's anchor
+  {
+    const cc = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      const css0 = a.themeCss();
+      const chart = "```vega-lite\n{\"title\": \"Otsikko\", \"data\": {\"values\": [{\"a\": \"x\", \"b\": 1}, {\"a\": \"y\", \"b\": 2}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"a\", \"type\": \"nominal\"}, \"y\": {\"field\": \"b\", \"type\": \"quantitative\"}}}\n```\n";
+      a.setSource("# D\n\n## Mihin raha menee?\n\n" + chart + "\n## Toinen dia\n\n" + chart.replace("Otsikko", "Toinen"));
+      // the drawn chart's own height (the box on the slide is fitted to the room)
+      const box = (i) => { const es = a.deck.md.edit.layout.embeds.entries; const want = i === 1 ? "Otsikko" : "Toinen"; const e = es.find((x) => x.source.includes(want)); return e ? Math.round(e.height * 10) / 10 : -1; };
+      const h1 = box(1), h2 = box(2);
+      a.selectSlide(1);
+      const help = JSON.parse(a.slideHelp()).find((f) => f.key === "chart");
+      const sels = help ? help.rules.map((r) => r.sel) : [];
+      a.setStyleSheet(css0 + "\n#mihin-raha-menee chart {\n  title-font-size: 44px;\n  title-gap: 40px;\n}\n");
+      const s1 = box(1), s2 = box(2);
+      a.setStyleSheet(css0);
+      a.setSource(src0);
+      return { h1, h2, s1, s2, sels };
+    });
+    check("the help names the slide's own chart rule by its heading's anchor", cc.sels.includes("#mihin-raha-menee chart"), JSON.stringify(cc));
+    check("#anchor chart { } sizes only that slide's chart", cc.s1 > cc.h1 + 20 && Math.abs(cc.s2 - cc.h2) < 1, JSON.stringify(cc));
+  }
+
   // The help panel: only what the slide has, and a property opened in the theme
   const help = await page.evaluate(() => {
     const a = window.__app;

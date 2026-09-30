@@ -27,6 +27,7 @@
 ; ============================================================================
 
 Import "PresHints.rgr"
+Import "../markdown/src/MdAnchor.rgr"
 
 class PresSlideScan {
     def levels:string ""
@@ -268,7 +269,9 @@ class PresHelp {
         if (sel == "li") { return "margin-bottom" }
         if (sel == "table") { return "border-color,background-color,padding-left,padding-top" }
         if (sel == "deck") { return "split-level,overflow,aspect-ratio" }
-        if (sel == "chart") { return "color,accent-color,chart-style,chart-effects" }
+        if (sel == "chart") { return "color,accent-color,chart-style,chart-effects,font-size,title-font-size,title-gap,padding" }
+        ; `#anchor chart`: the charts under one heading
+        if (((indexOf sel "#") == 0) && ((indexOf sel " chart") > 0)) { return "font-size,title-font-size,title-gap,padding" }
         if (sel == "diagram") { return "color,accent-color" }
         if (((strlen sel) > 1) && ((charAt sel 0) == 46)) { return "font-size,color,column-count,column-gap" }
         return ""
@@ -691,7 +694,15 @@ class PresHelp {
             push out (PresHelp.feature("diagram" "Kaavio" "```mermaid {tour=off style=sketch} … ```" "Mermaid-, DOT-, D2- ja PlantUML-kaaviot. Kaaviokohtaiset asetukset aaltosulkeissa lohkon ensimmäisellä rivillä." (PresHelp.rule(css "diagram" "Kaavioiden värit." "color,accent-color"))))
         }
         if sc.chart {
-            push out (PresHelp.feature("chart" "Vega-Lite-kaavio" "```vega-lite { … } ```" "" (PresHelp.rule(css "chart" "Kaavioiden värit ja tyyli." "color,accent-color,chart-style,chart-effects"))))
+            ; the charts of this slide alone: its heading's anchor
+            def anchor:string (MdAnchor.slug(title))
+            def rules:string (PresHelp.rule(css "chart" "Kaavioiden värit, tyyli ja koot." "color,accent-color,chart-style,chart-effects,font-size,title-font-size,title-gap,padding"))
+            def doc:string "Kaavion omat asetukset (\"config\", \"padding\") voittavat teeman."
+            if ((strlen anchor) > 0) {
+                rules = (rules + "," + (PresHelp.rule(css ("#" + anchor + " chart") "Vain tämän dian kaaviot (otsikon ankkuri)." "font-size,title-font-size,title-gap,padding")))
+                doc = ("Vain tämän dian kaaviot: #" + anchor + " chart { … } – nimi on otsikon ankkuri, sama kuin linkissä #" + anchor + ". " + doc)
+            }
+            push out (PresHelp.feature("chart" "Vega-Lite-kaavio" "```vega-lite { … } ```" doc rules))
         }
         ; classes
         def cls:[string] (strsplit (trim sc.classes) " ")
