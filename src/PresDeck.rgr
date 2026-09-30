@@ -867,6 +867,69 @@ class PresDeck {
         return ""
     }
 
+    ; Files the charts read (`"data": {"url": …}`), fetched by the page.
+    def dataUrls:[string]
+    def dataTexts:[string]
+
+    fn setChartData:void (url:string body:string) {
+        def i:int 0
+        while (i < (array_length dataUrls)) {
+            if ((itemAt dataUrls i) == url) {
+                set_at dataTexts i body
+                this.rebuild()
+                return
+            }
+            i = (i + 1)
+        }
+        push dataUrls url
+        push dataTexts body
+        this.rebuild()
+    }
+
+    ; The files the document's charts read that the page has not handed over,
+    ; one per line.
+    fn chartDataWanted:string () {
+        def out:string ""
+        def doc:MdNode md.edit.doc
+        def urls:[string]
+        this.wantedIn(doc urls)
+        def i:int 0
+        while (i < (array_length urls)) {
+            def u:string (itemAt urls i)
+            def have:boolean false
+            def k:int 0
+            while (k < (array_length dataUrls)) {
+                if ((itemAt dataUrls k) == u) {
+                    have = true
+                }
+                k = (k + 1)
+            }
+            if (have == false) {
+                out = (out + u + (strfromcode 10))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn wantedIn:void (n:MdNode urls:[string]) {
+        if (n.kind == "embed") {
+            if ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(n.info)))) == "vega") {
+                def us:[string] (MdVegaRender.urlsOf(n.literal))
+                def j:int 0
+                while (j < (array_length us)) {
+                    push urls (itemAt us j)
+                    j = (j + 1)
+                }
+            }
+        }
+        def c:int 0
+        while (c < (n.childCount())) {
+            this.wantedIn((n.childAt(c)) urls)
+            c = (c + 1)
+        }
+    }
+
     fn setText:void (t:string) {
         text = t
         this.rebuild()
@@ -897,6 +960,9 @@ class PresDeck {
             push emb.chartScopeConfig (this.chartDefaults(sc false))
             si = (si + 1)
         }
+        ; the files the charts read, as far as the page has fetched them
+        emb.dataUrls = dataUrls
+        emb.dataTexts = dataTexts
         e.stale = true
         e.ensureLayout()
         this.codeColours(e.layout)

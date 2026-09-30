@@ -109,7 +109,7 @@ class PresChart {
                 if (! groundSeen) {
                     groundSeen = true
                 } {
-                    if (PresChart.isBar(c)) {
+                    if ((PresChart.isBar(c)) && ((PresChart.rectChart(spec)) == false)) {
                         push bars c
                     }
                 }
@@ -145,7 +145,13 @@ class PresChart {
         }
         ; the finished chart's timing
         def growStart:double 0.3
+        ; one after another, but all up within a second and a half however
+        ; many there are (sixty stacked pieces took six seconds and the slide
+        ; ended with the last months not drawn)
         def growEach:double 0.1
+        if (nb > 15) {
+            growEach = (1.5 / (to_double nb))
+        }
         def growDur:double 0.7
         def scanStart:double ((growStart + (growEach * (to_double nb))) + growDur)
         def scanDur:double 1.1
@@ -183,6 +189,17 @@ class PresChart {
             }
             q = (q + 1)
         }
+        ; the first line's own colour, before it is dressed: a dot ringed in
+        ; it is that line's point
+        def lineR:int -1
+        def lineG:int -1
+        def lineB:int -1
+        if (firstLine >= 0) {
+            def fl:EVGDrawCmd (itemAt tail firstLine)
+            lineR = fl.r
+            lineG = fl.g
+            lineB = fl.b
+        }
 
         ; everything but the columns, restyled, in its own order
         def barAt:int 0
@@ -195,7 +212,7 @@ class PresChart {
                     ; the card: left out
                     groundSeen = true
                 } {
-                    if (PresChart.isBar(c)) {
+                    if ((PresChart.isBar(c)) && ((PresChart.rectChart(spec)) == false)) {
                         if perBar {
                             def oR:int c.r
                             def oG:int c.g
@@ -206,8 +223,12 @@ class PresChart {
                         }
                         barAt = (barAt + 1)
                     } {
-                        if (c.radius > 0.0) {
-                            ; a legend swatch or a point: its own colour
+                        ; a legend swatch or a point, a heat map's cell, a colour
+                        ; ramp: its own colour
+                        ; …and a rule in a data colour (an error bar, a mean line)
+                        def thin:boolean ((c.w < 2.5) || (c.h < 2.5))
+                        def grey:boolean (((PresChart.absI((c.r - c.g))) < 14) && ((PresChart.absI((c.g - c.b))) < 14))
+                        if ((((c.radius > 0.0) || (PresChart.rectChart(spec))) || c.hasGrad) || (thin && (grey == false))) {
                             push out.cmds c
                             k = (k + 1)
                             continue
@@ -222,7 +243,7 @@ class PresChart {
             } {
                 ; a line's point (a dot ringed in the line's colour): the
                 ; ring takes the colour the line is given here
-                if ((((c.kind == 1) && (c.radius > 0.0)) && (c.w < 40.0)) && ((perLine == false) && ((strlen markHex) == 0))) {
+                if (((((c.kind == 1) && (c.radius > 0.0)) && (c.w < 40.0)) && ((perLine == false) && ((strlen markHex) == 0))) && (((c.r == lineR) && (c.g == lineG)) && (c.b == lineB))) {
                     c.r = wmR
                     c.g = wmG
                     c.b = wmB
@@ -280,7 +301,9 @@ class PresChart {
                         c.r = (PresDiagram.mixI(acR 230 0.55))
                         c.g = (PresDiagram.mixI(acG 236 0.55))
                         c.b = (PresDiagram.mixI(acB 245 0.55))
-                        c.a = 0.8
+                        ; quieter, never shown when hidden: an axis hides the
+                        ; labels that would overprint (opacity 0)
+                        c.a = (c.a * 0.8)
                         push out.cmds c
                     } {
                         push out.cmds c
@@ -459,7 +482,14 @@ class PresChart {
     ; A column of a bar chart: a filled, square-cornered box of some size.
     ; Rounded ones are symbols — a legend's swatches, a scatter's points.
     sfn isBar:boolean (c:EVGDrawCmd) {
-        return (((c.w > 2.0) && (c.h > 0.5)) && (c.radius <= 0.0))
+        ; a gradient (a colour legend's ramp) is not a column
+        return ((((c.w > 2.0) && (c.h > 0.5)) && (c.radius <= 0.0)) && (c.hasGrad == false))
+    }
+
+    ; A chart of `rect` marks (a heat map): its cells are data coloured by
+    ; value, not columns to dress.
+    sfn rectChart:boolean (spec:string) {
+        return (((indexOf spec "\"mark\": \"rect\"") >= 0) || (((indexOf spec "\"mark\":\"rect\"") >= 0) || ((indexOf spec "\"type\": \"rect\"") >= 0)))
     }
 
     ; One column: rising from its base at its turn, a gradient from the warm

@@ -45,6 +45,7 @@ const SAMPLES = {
   kulttuuri: ["Kulttuuri: musiikin vuosikymmenet", "./samples/kulttuuri.md"],
   ohjelmointi: ["Ohjelmointi: versionhallinta", "./samples/ohjelmointi.md"],
   matematiikka: ["Matematiikka: kaavat kalvoilla", "./samples/matematiikka.md"],
+  vegalite: ["Vega-Lite: kaaviotyypit", "./samples/vegalite.md"],
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
 };
 
@@ -449,6 +450,41 @@ mirror.root.addEventListener("keydown", (ev) => {
   }
 });
 
+// --- files the charts read -------------------------------------------------------
+// A chart may take its rows from a file (`"data": {"url": "data/movies.json"}`,
+// as the Vega-Lite examples do). The page fetches each one once: beside the
+// page first, then — for a relative path — from the Vega example datasets.
+const chartFiles = new Map();
+let chartFilesRev = -1;
+function fetchChartFiles(rev) {
+  if (rev === chartFilesRev) return;
+  chartFilesRev = rev;
+  const wanted = (app.chartDataWanted() || "").split("\n").filter(Boolean);
+  for (const url of wanted) {
+    if (chartFiles.has(url)) continue;
+    const tries = /^https?:/.test(url) ? [url] : ["./" + url.replace(/^\.?\//, ""), "https://cdn.jsdelivr.net/npm/vega-datasets@2/" + url.replace(/^\.?\//, "")];
+    const got = (async () => {
+      for (const u of tries) {
+        try {
+          const r = await fetch(u);
+          if (r.ok) return await r.text();
+        } catch (_) { /* the next place */ }
+      }
+      return null;
+    })();
+    chartFiles.set(url, got);
+    got.then((text) => {
+      if (text == null) {
+        toast("Kaavion tiedostoa ei saatu: " + url);
+        return;
+      }
+      app.setChartData(url, text);
+      dropThumbs();
+      needsPaint = true;
+    });
+  }
+}
+
 function frame() {
   try {
     const now = performance.now();
@@ -473,6 +509,7 @@ function frame() {
       lastRev = rev;
       paintOnce();
       handleRequests();
+      if (lastLayout) fetchChartFiles(lastLayout.rev);
       if (rev !== lastA11yRev) {
         lastA11yRev = rev;
         mirrorA11y();

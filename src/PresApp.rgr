@@ -2768,6 +2768,21 @@ class PresApp {
         return false
     }
 
+    ; --- files the charts read --------------------------------------------------
+    ; The page fetches what `chartDataWanted` lists (one url per line) and
+    ; hands each over; the charts on it are drawn again.
+    fn chartDataWanted:string () {
+        return (deck.chartDataWanted())
+    }
+
+    fn setChartData:void (url:string body:string) {
+        deck.setChartData(url body)
+        ; the slides are new objects: timed again, or every one lasts 0 s
+        ; and its charts stay at the start of their animation
+        PresTimeline.planAll(deck)
+        chromeRev = (chromeRev + 1)
+    }
+
     ; --- the chart settings editor ----------------------------------------------
     fn setChartCss:void (css:string) {
         chart.css = css

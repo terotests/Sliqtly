@@ -73,6 +73,9 @@ const { chromium } = await import("playwright-core").catch(() => {
 });
 
 build();
+// a file a chart reads (`"data": {"url": "data/…"}`), served beside the page
+fs.mkdirSync(path.join(distDir, "data"), { recursive: true });
+fs.writeFileSync(path.join(distDir, "data", "check-sales.csv"), "month,sales,date\nJan,12,2012-01-01\nFeb,30,2012-02-01\nMar,21,2012-03-01\n");
 const server = await serve();
 const url = `http://127.0.0.1:${server.address().port}/`;
 const browser = await chromium.launch({
@@ -874,6 +877,23 @@ try {
       return { monotone: /"interpolate": ?"monotone"/.test(spec), point: /"point": ?\{/.test(spec), most, dots };
     });
     check("a smooth line is drawn as a curve, with dots on its points when asked", sm.monotone && sm.point && sm.most > 20 && sm.dots >= 4, JSON.stringify(sm));
+  }
+
+  // A chart that reads a file: the page fetches it and the chart draws from it
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    await page.evaluate(() => window.__app.setSource("# D\n\n## Tiedosto\n\n```vega-lite\n{\"data\": {\"url\": \"data/check-sales.csv\"}, \"mark\": \"bar\", \"width\": 400, \"encoding\": {\"x\": {\"field\": \"month\", \"type\": \"nominal\", \"sort\": null}, \"y\": {\"field\": \"sales\", \"type\": \"quantitative\"}}}\n```\n"));
+    await page.waitForFunction(() => window.__app.chartDataWanted() === "" , null, { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(400);
+    const fd = await page.evaluate(() => {
+      const a = window.__app;
+      a.selectSlide(1);
+      const st = JSON.parse(a.stageJson());
+      const bars = st.list.cmds.filter((c) => c.k === 0 && c.w > 20 && c.h > 20 && c.w < 200).length;
+      return { wanted: a.chartDataWanted(), bars, duration: a.deck.slideAt(1).duration };
+    });
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    check("a chart's url data is fetched and drawn, the slide timed", fd.wanted === "" && fd.bars >= 3 && fd.duration > 0, JSON.stringify(fd));
   }
 
   // The help panel: only what the slide has, and a property opened in the theme
