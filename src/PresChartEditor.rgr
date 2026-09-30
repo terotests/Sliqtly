@@ -497,6 +497,9 @@ class PresChartEditor {
             }
             wr.addChild((this.text("ce-value" label)))
             st.addChild(wr)
+            def pr:EVGElement (this.div("ce-row ce-switches"))
+            this.switchOf("ce-points" "Pisteet" model.points pr)
+            st.addChild(pr)
         }
     }
 
@@ -891,6 +894,12 @@ class PresChartEditor {
         }
         if (tid == "ce-legend") {
             model.legend = (model.legend == false)
+            changed = true
+            this.rebuild()
+            return
+        }
+        if (tid == "ce-points") {
+            model.points = (model.points == false)
             changed = true
             this.rebuild()
             return

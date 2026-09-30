@@ -853,6 +853,29 @@ try {
     check("#anchor chart { } sizes only that slide's chart", cc.s1 > cc.h1 + 20 && Math.abs(cc.s2 - cc.h2) < 1, JSON.stringify(cc));
   }
 
+  // A smooth line is drawn curved, and its points can be dots
+  {
+    const sm = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      a.setSource("# D\n\n## O\n\n```vega-lite\n{\"data\": {\"values\": [{\"f\": \"A\", \"u\": 38}, {\"f\": \"B\", \"u\": 17}, {\"f\": \"C\", \"u\": 21}, {\"f\": \"D\", \"u\": 24}]}, \"mark\": \"line\", \"width\": 500, \"encoding\": {\"x\": {\"field\": \"f\", \"type\": \"nominal\"}, \"y\": {\"field\": \"u\", \"type\": \"quantitative\"}}}\n```\n");
+      a.openChartEditor(4);
+      a.chart.model.kind = 9;
+      a.chart.model.points = true;
+      a.chart.changed = true;
+      a.writeChart();
+      a.closeChart();
+      const spec = a.source();
+      a.selectSlide(1);
+      const st = JSON.parse(a.stageJson());
+      const most = Math.max(...st.list.cmds.filter((c) => c.k === 7).map((c) => (c.pts || []).length));
+      const dots = st.list.cmds.filter((c) => c.k === 1 && c.r > 0 && c.w < 40).length;
+      a.setSource(src0);
+      return { monotone: /"interpolate": ?"monotone"/.test(spec), point: /"point": ?\{/.test(spec), most, dots };
+    });
+    check("a smooth line is drawn as a curve, with dots on its points when asked", sm.monotone && sm.point && sm.most > 20 && sm.dots >= 4, JSON.stringify(sm));
+  }
+
   // The help panel: only what the slide has, and a property opened in the theme
   const help = await page.evaluate(() => {
     const a = window.__app;

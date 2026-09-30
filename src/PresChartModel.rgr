@@ -54,6 +54,9 @@ class PresChartModel {
     def textColor:string ""
     ; a line's width in px (0 : Vega-Lite's)
     def strokeWidth:double 0.0
+    ; a line's measured points as dots: white, about twice the line's width,
+    ; ringed in the line's colour
+    def points:boolean false
     ; the stage's dressing: "" (the theme's chart-style), flat, forge, neon,
     ; glass — and what goes on top of any of them. Carried in `usermeta`, which
     ; Vega-Lite keeps for exactly this and every renderer ignores.
@@ -350,6 +353,32 @@ class PresChartModel {
         if (isLine && (strokeWidth > 0.0)) {
             mark.setMember("strokeWidth" (VlJson.numberValue(strokeWidth)))
         }
+        if isLine {
+            if points {
+                ; an unfilled point takes the line's colour for its ring
+                def lw:double strokeWidth
+                if (lw <= 0.0) {
+                    lw = 2.0
+                }
+                def d:double (lw * 2.0)
+                if (d < 8.0) {
+                    d = 8.0
+                }
+                def ring:double (lw * 0.45)
+                if (ring < 1.5) {
+                    ring = 1.5
+                }
+                def pt:VlJson (VlJson.objectValue())
+                pt.setMember("filled" (VlJson.boolValue(false)))
+                pt.setMember("fill" (VlJson.stringValue("#ffffff")))
+                pt.setMember("fillOpacity" (VlJson.numberValue(1.0)))
+                pt.setMember("strokeWidth" (VlJson.numberValue(ring)))
+                pt.setMember("size" (VlJson.numberValue((d * d))))
+                mark.setMember("point" pt)
+            } {
+                mark.removeMember("point")
+            }
+        }
         if ((array_length mark.keys) > 1) {
             out.setMember("mark" mark)
         }
@@ -574,6 +603,8 @@ class PresChartModel {
         ; the look
         m.color = (mopt.stringOr("color" ""))
         m.strokeWidth = (mopt.doubleOr("strokeWidth" 0.0))
+        def pv:VlJson (mopt.get("point"))
+        m.points = ((pv.isObject()) || ((pv.isBool()) && (pv.asBool())))
         def axisCfg:VlJson ((spec.get("config")).get("axis"))
         m.textColor = (axisCfg.stringOr("labelColor" ""))
         def um:VlJson (spec.get("usermeta"))

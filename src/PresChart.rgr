@@ -220,6 +220,16 @@ class PresChart {
                     }
                 }
             } {
+                ; a line's point (a dot ringed in the line's colour): the
+                ; ring takes the colour the line is given here
+                if ((((c.kind == 1) && (c.radius > 0.0)) && (c.w < 40.0)) && ((perLine == false) && ((strlen markHex) == 0))) {
+                    c.r = wmR
+                    c.g = wmG
+                    c.b = wmB
+                    push out.cmds c
+                    k = (k + 1)
+                    continue
+                }
                 if ((c.kind == 7) && (PresChart.isDataLine(c))) {
                     ; a series' line: its own colour when the lines differ,
                     ; the warm colour when there is one; and what the chart
