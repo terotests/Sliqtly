@@ -131,6 +131,10 @@ class PresDiagram {
 
     ; options, from the attribute line under the fence
     def tour:boolean true
+    ; whether this diagram has a tour to offer at all (a sequence diagram has
+    ; none), and whether the viewer started it (▶, or T when presenting)
+    def canTour:boolean true
+    def userTour:boolean false
     def ball:boolean true
     ; the largest the camera draws a node: slide units per diagram unit
     def zoom:double 3.0
@@ -1847,6 +1851,10 @@ class PresDiagram {
             return -2
         }
         def cy:double ((by + bh) - 24.0)
+        ; -11 ▶ / ■: the tour, started or stopped
+        if (canTour && (PresDiagram.near(px py ((bx + bw) - 188.0) cy 17.0))) {
+            return -11
+        }
         if (PresDiagram.near(px py ((bx + bw) - 150.0) cy 17.0)) {
             return -3
         }
@@ -2963,6 +2971,13 @@ class PresDiagram {
         }
         if showControls {
             def cy:double ((by + bh) - 24.0)
+            if canTour {
+                def pk:int 4
+                if tour {
+                    pk = 5
+                }
+                this.paintButton(out ((bx + bw) - 188.0) cy pk)
+            }
             this.paintButton(out ((bx + bw) - 150.0) cy 1)
             this.paintButton(out ((bx + bw) - 112.0) cy 2)
             this.paintHome(out ((bx + bw) - 46.0) cy l)
@@ -3024,6 +3039,17 @@ class PresDiagram {
         menuOpen = false
         showAll = true
         this.exploreOverview()
+    }
+
+    ; The tour started (▶) or stopped (■) by the viewer. Stopped, the whole
+    ; diagram is shown; started, the walk begins again from the top.
+    fn setTour:void (on:boolean) {
+        if (canTour == false) {
+            return
+        }
+        tour = on
+        userTour = on
+        this.restart()
     }
 
     ; Start the walk again: no choices made, the viewer's views forgotten.
@@ -3436,6 +3462,16 @@ class PresDiagram {
         }
         if (kind == 1) {
             out.addPolyline(([] _:double (cx (cy - a) cx (cy + a))) 2.0 ink)
+            PresDiagram.roundLast(out)
+        }
+        if (kind == 4) {
+            ; ▶ the tour
+            out.addPolyline(([] _:double ((cx - 3.5) (cy - 6.0) (cx + 6.0) cy (cx - 3.5) (cy + 6.0) (cx - 3.5) (cy - 6.0))) 2.0 ink)
+            PresDiagram.roundLast(out)
+        }
+        if (kind == 5) {
+            ; ■ stop it
+            out.addPolyline(([] _:double ((cx - 5.0) (cy - 5.0) (cx + 5.0) (cy - 5.0) (cx + 5.0) (cy + 5.0) (cx - 5.0) (cy + 5.0) (cx - 5.0) (cy - 5.0))) 2.0 ink)
             PresDiagram.roundLast(out)
         }
         if (kind == 3) {

@@ -145,7 +145,7 @@ class PresCheck {
 
     ; A flowchart is drawn and toured rather than pasted in as a picture.
     fn diagram:void () {
-        def text:string "---\nslide-split-level: 2\n---\n\n## Kulku\n\n```mermaid\nflowchart LR\n  A[Kokous] --> B[Selain]\n  B --> C[Gemini]\n  C --> B\n  B --> A\n```\n{choose=off}\n"
+        def text:string "---\nslide-split-level: 2\n---\n\n## Kulku\n\n```mermaid\nflowchart LR\n  A[Kokous] --> B[Selain]\n  B --> C[Gemini]\n  C --> B\n  B --> A\n```\n{choose=off tour=on}\n"
         def deck (new PresDeck())
         deck.setText(text)
         PresTimeline.planAll(deck)
@@ -198,7 +198,7 @@ class PresCheck {
     fn steering:void () {
         def text:string ("---\nslide-split-level: 2\npage: a4 landscape\n---\n\n## Polku\n\n```mermaid\nflowchart LR\n"
             + "  A[Alku] --> B{Valitse}\n  B -->|Vasen| C[Vasen tie]\n  B -->|Oikea| D[Oikea tie]\n"
-            + "  C --> E[Loppu]\n  D --> E\n  E --> F[Ohi]\n  E --> G[Myös]\n```\n")
+            + "  C --> E[Loppu]\n  D --> E\n  E --> F[Ohi]\n  E --> G[Myös]\n```\n{tour=on}\n")
         def deck (new PresDeck())
         deck.setText(text)
         PresTimeline.planAll(deck)
@@ -267,7 +267,7 @@ class PresCheck {
     ; Two named ways to the same node are two choices in two places.
     fn sameTarget:void () {
         def text:string ("---\nslide-split-level: 2\npage: a4 landscape\n---\n\n## Sama\n\n```mermaid\nflowchart TB\n"
-            + "  A[Uusi projekti] --> B{Kuka tietää?}\n  B -->|Minä ehkä| C[Avaa README]\n  B -->|Ei kukaan| C\n  C --> D[Loppu]\n```\n")
+            + "  A[Uusi projekti] --> B{Kuka tietää?}\n  B -->|Minä ehkä| C[Avaa README]\n  B -->|Ei kukaan| C\n  C --> D[Loppu]\n```\n{tour=on}\n")
         def deck (new PresDeck())
         deck.setText(text)
         PresTimeline.planAll(deck)
@@ -327,7 +327,7 @@ class PresCheck {
             + "  C --> D{README ajan tasalla?}\n  D -->|Tietenkin ei| E[git log --oneline]\n  D -->|Yllättäen kyllä| F[Kokeillaan ajaa]\n"
             + "  E --> F\n  F --> G{Käynnistyykö?}\n  G -->|Kyllä| H[Miksi tämä toimii?]\n  G -->|Ei| I[Katso erroria hiljaa 30 sekuntia]\n"
             + "  I --> J[Google / Stack Overflow / AI]\n  J --> K[Ahaa... tietenkin.]\n  K --> F\n  H --> L[Lisätään yksi pieni muutos]\n"
-            + "  L --> M{Toimiiko vielä?}\n  M -->|Kyllä| N[LGTM]\n  M -->|Ei| I\n  N --> O[Projektin ymmärrys: noin 34 %]\n```\n{choose=off}\n")
+            + "  L --> M{Toimiiko vielä?}\n  M -->|Kyllä| N[LGTM]\n  M -->|Ei| I\n  N --> O[Projektin ymmärrys: noin 34 %]\n```\n{choose=off tour=on}\n")
         def deck (new PresDeck())
         deck.setText(text)
         PresTimeline.planAll(deck)

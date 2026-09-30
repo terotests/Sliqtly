@@ -187,6 +187,14 @@ try {
   // steps with two quick Backspaces and see the question again.
   await page.evaluate(() => window.__app.selectSlide(3));
   await page.keyboard.press("Shift+F5");
+  // no tour of its own: the whole diagram, and nothing to answer
+  await page.waitForTimeout(1500);
+  const still = await page.evaluate(() => { const a = window.__app; const d = a.deck.slideAt(3).diagrams[0].diagram; return { asking: a.deck.askingAt(3, a.stageTime()), tour: d.tour, can: d.canTour }; });
+  check("a diagram does not tour on its own: the whole of it, no question", still.asking < 0 && !still.tour && still.can, JSON.stringify(still));
+  const playHit = await page.evaluate(() => { const a = window.__app; const u = a.deck.slideAt(3).diagrams[0]; return a.deck.diagramHit(3, a.stageTime(), u.bx + u.bw - 188, u.by + u.bh - 24); });
+  check("the ▶ beside the zoom buttons is the tour", playHit === "0:tour", playHit);
+  // T starts the tour
+  await page.keyboard.press("t");
   await page.waitForFunction(() => window.__app.deck.askingAt(3, window.__app.stageTime()) >= 0, null, { timeout: 15000 }).catch(() => {});
   const q = () => page.evaluate(() => {
     const a = window.__app;

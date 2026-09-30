@@ -211,6 +211,9 @@ class PresDeck {
             if (r == -10) {
                 return ((to_string k) + ":skip")
             }
+            if (r == -11) {
+                return ((to_string k) + ":tour")
+            }
             if (r == -9) {
                 return ((to_string k) + ":none")
             }
@@ -485,8 +488,8 @@ class PresDeck {
         ; The layout that draws largest in the room it has, among: the
         ; direction as written, the other direction, and the top-to-bottom
         ; one wrapped into columns (a long chain is a strip either way round).
-        ; The room counts as at most half again as wide as it is tall, so a
-        ; squarer shape wins over a strip that happens to fit a wide slide.
+        ; For a tour the room counts as at most half again as wide as it is
+        ; tall, so a squarer shape wins over a strip that fits a wide slide.
         ; `{layout=keep}` keeps what was written.
         if ((n.attrValue("layout")) != "keep") {
             def room:double (this.roomBelow(page box))
@@ -495,7 +498,14 @@ class PresDeck {
             if (room > 0.0) {
                 aspect = ((itemAt span0 1) / room)
             }
-            if (aspect > 1.5) { aspect = 1.5 }
+            ; Toured, the camera goes in close, and a squarer shape reads
+            ; better; shown whole, the room's own shape decides, so the
+            ; diagram is as large as the slide allows.
+            def most:double 4.0
+            if ((n.attrValue("tour")) == "on") {
+                most = 1.5
+            }
+            if (aspect > most) { aspect = most }
             if (aspect < 0.6) { aspect = 0.6 }
             def cands:[PresDiagram]
             def texts:[string]
@@ -544,11 +554,15 @@ class PresDeck {
         d.edges = base.edges
         d.straight = base.straight
         d.rest = base.rest
-        d.tour = ((n.attrValue("tour")) != "off")
+        ; The tour is the viewer's to start (▶ beside the zoom, T when
+        ; presenting); `{tour=on}` starts it with the slide. Without it the
+        ; whole diagram is shown, as large as it fits.
+        d.tour = ((n.attrValue("tour")) == "on")
         ; A sequence diagram is read top to bottom, message by message; its
         ; "nodes" are lifelines, and a tour from one to the next would zoom
         ; into a thin line. It is shown whole, with no choices to make.
         def seq:boolean base.straight
+        d.canTour = (seq == false)
         if seq {
             d.tour = false
         }
@@ -574,6 +588,11 @@ class PresDeck {
             def was:PresDiaUse (itemAt oldUses oi)
             remove_index oldUses oi
             d.takeChoices(was.diagram)
+            ; a tour the viewer started goes on through an edit
+            if (was.diagram.userTour && d.canTour) {
+                d.tour = true
+                d.userTour = true
+            }
             d.plan()
             d.takeView(was.diagram)
         } {

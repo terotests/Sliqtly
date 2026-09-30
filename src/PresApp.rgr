@@ -712,6 +712,10 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return true
         }
+        if (what == "tour") {
+            this.toggleTour(k)
+            return true
+        }
         if (what == "restart") {
             du.diagram.restart()
             PresTimeline.plan((deck.slideAt(selected)))
@@ -756,6 +760,34 @@ class PresApp {
             def on@(optional):int (str2int what)
             this.diagramPick(k (?? on 0))
         }
+        return true
+    }
+
+    ; ▶ / ■ on a diagram (or T when presenting): the tour started from the
+    ; top, or stopped with the whole diagram shown.
+    fn toggleTour:boolean (k:int) {
+        def hit@(optional):PresDiaUse (deck.diagramUse(selected k))
+        if (null? hit) {
+            return false
+        }
+        def du:PresDiaUse (unwrap hit)
+        if (du.diagram.canTour == false) {
+            return false
+        }
+        def on:boolean (du.diagram.tour == false)
+        du.diagram.setTour(on)
+        PresTimeline.plan((deck.slideAt(selected)))
+        if on {
+            localT = du.start
+            if (localT < 0.0) {
+                localT = 0.0
+            }
+            this.play()
+        } {
+            ; stopped: the diagram as it stands at the end of its reveal
+            localT = (du.start + du.diagram.total)
+        }
+        chromeRev = (chromeRev + 1)
         return true
     }
 
@@ -1933,6 +1965,12 @@ class PresApp {
             chart.type(s)
             this.afterChart()
             return
+        }
+        ; T: the diagram's tour on this slide, started or stopped
+        if (((mode == "present") || (focus == "stage")) && ((s == "t") || (s == "T"))) {
+            if (this.toggleTour(0)) {
+                return
+            }
         }
         if ((mode == "present") || (focus == "stage")) {
             def asKey:string s

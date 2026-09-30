@@ -691,7 +691,7 @@ class PresHelp {
             push out (PresHelp.feature("image" "Kuva" "![kuvaus](kuva.png)" "Kuvan voi vetää editoriin tai liittää leikepöydältä. Teemassa ei ole kuvien sääntöä." ""))
         }
         if sc.diagram {
-            push out (PresHelp.feature("diagram" "Kaavio" "```mermaid {tour=off style=sketch} … ```" "Mermaid-, DOT-, D2- ja PlantUML-kaaviot. Kaaviokohtaiset asetukset aaltosulkeissa lohkon ensimmäisellä rivillä." (PresHelp.rule(css "diagram" "Kaavioiden värit." "color,accent-color"))))
+            push out (PresHelp.feature("diagram" "Kaavio" "```mermaid {tour=on style=sketch} … ```" "Mermaid-, DOT-, D2- ja PlantUML-kaaviot, kokonaisina. ▶ zoom-nappien vieressä (esityksessä T) käy kaavion läpi; tour=on aloittaa kierroksen itsestään. Kaaviokohtaiset asetukset aaltosulkeissa lohkon ensimmäisellä rivillä." (PresHelp.rule(css "diagram" "Kaavioiden värit." "color,accent-color"))))
         }
         if sc.chart {
             ; the charts of this slide alone: its heading's anchor

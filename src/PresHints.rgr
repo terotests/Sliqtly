@@ -80,7 +80,7 @@ class PresHints {
         if (key == "width") { return "Kaavion leveys pisteinä (enintään palstan leveys)." }
         if (key == "diagram") { return "classic: kaavion alkuperäinen piirros ilman kiertokäyntiä." }
         if (key == "layout") { return "keep: kaavion suunta niin kuin se on kirjoitettu." }
-        if (key == "tour") { return "off: koko kaavio kerralla, ilman kiertokäyntiä." }
+        if (key == "tour") { return "on: kiertokäynti alkaa itsestään dian mukana. Oletuksena kaavio näytetään kokonaan, ja ▶ zoom-nappien vieressä (esityksessä T) käynnistää kierroksen." }
         if (key == "ball") { return "off: ei valopalloa nuolia pitkin." }
         if (key == "choose") { return "off: haarautumissa ei kysytä suuntaa." }
         if (key == "zoom") { return "Suurin mittakaava, jolla kaavion laatikko piirretään." }

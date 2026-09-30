@@ -97,6 +97,6 @@ näppäimillä + − 0 ja Backspace.
 - `{anim=fade|rise|fly|zoom}` lohkon perässä animoi sen
 - `fx=starfield`, `plasma-wave`, `smoke`, `ambient-light` otsikossa antaa taustaefektin
 - `::: notes` … `:::` on puhujan muistiinpanot
-- Kaavio (```mermaid, ```dot) animoidaan: holo-tyyli oletuksena; `{style=sketch}`, `{tour=off}` (klikkaa laatikkoa: zoom, ← takaisin), `{zoom=3}` tai `{diagram=classic}` fencen perässä
+- Kaavio (```mermaid, ```dot) animoidaan: holo-tyyli oletuksena; `{style=sketch}`, ▶ tai T käy kaavion läpi, `{tour=on}` aloittaa kierroksen itsestään (klikkaa laatikkoa: zoom, ← takaisin), `{zoom=3}` tai `{diagram=classic}` fencen perässä
 - Ctrl+V liittää kuvan leikepöydältä
 {.build anim=fade}
