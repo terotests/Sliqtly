@@ -57,6 +57,9 @@
   .evg-a11y :focus-visible { outline: 2px solid #2563eb !important; outline-offset: 2px; border-radius: 6px; }
   /* the bar is drawn on the canvas (PresToolbar); this one is what it presses */
   body.canvas-bar #bar { display: none; }
+  /* Until the canvas is ready only "ladataan…" shows: the HTML bar would
+     appear first and then give way to the one drawn on the canvas. */
+  body.booting #bar { display: none; }
   /* A shared presentation: the slides only, and a small bar that fades. */
   #viewBar {
     position: fixed; right: 16px; bottom: 16px; display: none; gap: 8px; z-index: 5;
@@ -73,8 +76,16 @@
   body.presenting #c { cursor: none; }
   @media (max-width: 700px) { #bar .wide { display: none; } }
 </style>
+<!-- The faces the first frame needs: fetched while pres_app.js loads, at the
+     same URLs main.js asks for. -->
+<link rel="preload" href="./fonts/OpenSans-Regular.ttf?v=__BUILD__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/OpenSans-Bold.ttf?v=__BUILD__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/OpenSans-Italic.ttf?v=__BUILD__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/OpenSans-BoldItalic.ttf?v=__BUILD__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/NotoSans-Regular.ttf?v=__BUILD__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/NotoSans-Bold.ttf?v=__BUILD__" as="fetch" crossorigin />
 </head>
-<body>
+<body class="booting">
 <div id="bar">
   <span class="brand">EVG Presentation</span>
   <label class="wide">Esitys

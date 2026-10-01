@@ -30,6 +30,9 @@ const fileAdd = document.getElementById("fileadd");
 const sampleSel = document.getElementById("sample");
 const themeSel = document.getElementById("theme");
 const playBtn = document.getElementById("play");
+// The app's name is the one index.html gives its bar: a page built on this
+// one renames it there, and the canvas follows.
+const APP_NAME = document.querySelector("#bar .brand")?.textContent.trim() || "EVG Presentation";
 
 const FACES = [
   ["Open Sans", "OpenSans-Regular.ttf"],
@@ -95,6 +98,7 @@ if (typeof globalThis.PresApp !== "function") {
 }
 const app = new globalThis.PresApp();
 window.__app = app;
+app.setAppName(APP_NAME);
 
 let dpr = Math.min(window.devicePixelRatio || 1, 2);
 let W = 0;
@@ -532,7 +536,7 @@ let lastA11yRev = "";
 let a11yTree = null;
 const mirror = createA11yMirror(stageEl, {
   canvas,
-  label: "EVG Presentation. F6 siirtyy alueelta toiselle, Esc palaa editoriin.",
+  label: APP_NAME + ". F6 siirtyy alueelta toiselle, Esc palaa editoriin.",
   tabbable: "all",
   onActivate: (node) => {
     pressAtCentre(node, (x, y) => {
@@ -1601,17 +1605,24 @@ function syncToolbar() {
 }
 
 async function start() {
-  const css = await textOf("./pres.css");
+  // everything start-up reads is asked for at once
+  const toolbarCss = viewer ? null : textOf("./toolbar.css");
+  toolbarCss?.catch(() => {});
+  const themesGot = THEMES.map((name) => textOf("./themes/" + name + ".css"));
+  for (const p of themesGot) p.catch(() => {});
   // the chart editor's controls: the kit's theme, then the app's colours
-  const kit = await textOf("./ui.css").catch(() => "");
-  const chartCss = await textOf("./chart-editor.css").catch(() => "");
+  const [css, kit, chartCss] = await Promise.all([
+    textOf("./pres.css"),
+    textOf("./ui.css").catch(() => ""),
+    textOf("./chart-editor.css").catch(() => ""),
+  ]);
   app.setChartCss(kit + "\n" + chartCss);
   textOf("./hint.css").then((c) => app.setHintCss(kit + "\n" + chartCss + "\n" + c)).catch(() => {});
   textOf("./panels.css").then((c) => app.setPanelsCss(kit + "\n" + c)).catch(() => {});
   if (!viewer) {
     // the bar moves onto the canvas: the HTML one stays, hidden, as what it
     // presses (its buttons and selects keep every behaviour they had)
-    app.setToolbarCss(kit + "\n" + (await textOf("./toolbar.css")));
+    app.setToolbarCss(kit + "\n" + (await toolbarCss));
     document.body.classList.add("canvas-bar");
     canvasBar = true;
     app.useToolbar(true);
@@ -1653,9 +1664,9 @@ async function start() {
     .then((bytes) => app.attachFont("Noto Emoji-Regular", asRangerBuffer(bytes.slice(0))))
     .catch((e) => console.warn("emoji face not loaded", e));
 
-  for (const name of THEMES) {
+  for (const [i, name] of THEMES.entries()) {
     try {
-      themeCss[name] = await textOf("./themes/" + name + ".css");
+      themeCss[name] = await themesGot[i];
       app.addTemplate(name, themeCss[name]);
     } catch (_) { /* one template fewer */ }
   }
@@ -1683,6 +1694,7 @@ async function start() {
   if (viewer || isCoarse()) keys.blur();
 
   hintEl.remove();
+  document.body.classList.remove("booting");
   if (!viewer && !isCoarse()) focusKeys("editor");
   window.__pageStarted = true;
   requestAnimationFrame(frame);

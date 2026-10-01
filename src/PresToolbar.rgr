@@ -24,6 +24,8 @@ Import "../ui/src/UiHost.rgr"
 class PresToolbar {
     def host:UiHost (new UiHost())
     def css:string ""
+    ; the name at the start of the bar: the page's own (PresApp.setAppName)
+    def brand:string "EVG Presentation"
     def w:double 1200.0
     def h:double 700.0
     def barH:double 48.0
@@ -145,7 +147,7 @@ class PresToolbar {
         def root:EVGElement (unwrap host.root)
         root.className = "ui-root tb-page"
         def bar:EVGElement (this.div("tb-bar"))
-        bar.addChild((this.text("tb-brand" "EVG Presentation")))
+        bar.addChild((this.text("tb-brand" brand)))
         bar.addChild((this.text("tb-label" "Esitys")))
         sample = (this.select("sample" "Esitys" sampleRows sampleValue bar))
         bar.addChild((this.text("tb-label" "Teema")))

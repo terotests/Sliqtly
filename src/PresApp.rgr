@@ -165,6 +165,8 @@ class PresApp {
     ; The top bar, drawn on the canvas; `barH` is the band it takes (0 when
     ; the page keeps its own, or in a shared presentation).
     def toolbar:PresToolbar (new PresToolbar())
+    ; what the page calls the app: the bar's name and the canvas's label
+    def appName:string "EVG Presentation"
     def hint:PresHintPopover (new PresHintPopover())
     def panels:PresPanels (new PresPanels())
     ; the page is used with a finger: `@media (pointer: coarse)`
@@ -2404,6 +2406,15 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    fn setAppName:void (name:string) {
+        appName = name
+        toolbar.brand = name
+        if ((strlen toolbar.css) > 0) {
+            toolbar.rebuild()
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
     fn setToolbarCss:void (css:string) {
         toolbar.css = css
         toolbar.rebuild()
@@ -2739,7 +2750,7 @@ class PresApp {
         def t (new EVGA11yTree())
         a11yGen = (a11yGen + 1)
         t.generation = a11yGen
-        def root:EVGA11yNode (t.group("app" "" "EVG Presentation"))
+        def root:EVGA11yNode (t.group("app" "" appName))
         t.place(root 0 0 (to_int W) (to_int H))
         def n:int (deck.slideCount())
         def shown:int (this.slideShown())
