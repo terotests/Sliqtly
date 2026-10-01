@@ -17,16 +17,19 @@ export function build({ ranger } = {}) {
   const appJs = path.join(distDir, "pres_app.js");
   compile(ranger, "PresApp.rgr", appJs);
 
-  // Loaded without require(), beside ES modules: publish one name.
+  // Loaded without require(), beside ES modules: publish the app and the
+  // interface's words (PresI18n, filled before the app is made).
   const src = fs.readFileSync(appJs, "utf8");
-  fs.writeFileSync(appJs, "// scoped: the page loads this beside other scripts, so it publishes one name.\n"
-    + "(function () {\n" + src + "\n;globalThis.PresApp = PresApp;\n})();\n");
+  fs.writeFileSync(appJs, "// scoped: the page loads this beside other scripts, so it publishes two names.\n"
+    + "(function () {\n" + src + "\n;globalThis.PresApp = PresApp;\nglobalThis.PresI18n = PresI18n;\n})();\n");
 
   const copy = (from, to) => {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
   };
-  for (const f of ["index.html", "main.js", "vfs.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  for (const f of ["index.html", "main.js", "vfs.js", "i18n.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  // the interface in other languages (web/i18n.js)
+  for (const f of fs.readdirSync(path.join(webDir, "i18n")).filter((f) => f.endsWith(".json"))) copy(path.join(webDir, "i18n", f), path.join(distDir, "i18n", f));
   // the controls' own theme, for the chart editor
   copy(path.join(ranger, "gallery/ui/theme/base.css"), path.join(distDir, "ui.css"));
   copy(path.join(root, "brand/sliqtly-icon.svg"), path.join(distDir, "favicon.svg"));
@@ -54,8 +57,9 @@ export function build({ ranger } = {}) {
   // Every URL the page loads carries the hash of the build, so a reload
   // never mixes an old script with a new one.
   const h = crypto.createHash("sha1");
-  for (const f of ["pres_app.js", "main.js", "vfs.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css", "ui.css", "gl/evg-webgl.js", "gl/evg-a11y.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
+  for (const f of ["pres_app.js", "main.js", "vfs.js", "i18n.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css", "ui.css", "gl/evg-webgl.js", "gl/evg-a11y.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
   for (const f of fs.readdirSync(path.join(distDir, "themes"))) h.update(fs.readFileSync(path.join(distDir, "themes", f)));
+  for (const f of fs.readdirSync(path.join(distDir, "i18n"))) h.update(fs.readFileSync(path.join(distDir, "i18n", f)));
   const stamp = h.digest("hex").slice(0, 10);
   const html = path.join(distDir, "index.html");
   fs.writeFileSync(html, fs.readFileSync(html, "utf8").split("__BUILD__").join(stamp));
@@ -63,7 +67,11 @@ export function build({ ranger } = {}) {
   fs.writeFileSync(main, fs.readFileSync(main, "utf8")
     .replace("./gl/evg-webgl.js", "./gl/evg-webgl.js?v=" + stamp)
     .replace("./gl/evg-a11y.js", "./gl/evg-a11y.js?v=" + stamp)
+    .replace('"./i18n.js"', '"./i18n.js?v=' + stamp + '"')
     .split("__BUILD__").join(stamp));
+  // sliqtly.js shares main.js's i18n module: the same URL, one instance
+  const pro = path.join(distDir, "sliqtly.js");
+  fs.writeFileSync(pro, fs.readFileSync(pro, "utf8").replace('"./i18n.js"', '"./i18n.js?v=' + stamp + '"'));
   log(`build  web/dist (${stamp})`);
   return stamp;
 }

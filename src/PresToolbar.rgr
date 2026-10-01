@@ -20,6 +20,7 @@
 ; ============================================================================
 
 Import "../ui/src/UiHost.rgr"
+Import "PresI18n.rgr"
 
 class PresToolbar {
     def host:UiHost (new UiHost())
@@ -161,24 +162,24 @@ class PresToolbar {
         root.className = "ui-root tb-page"
         def bar:EVGElement (this.div("tb-bar"))
         bar.addChild((this.text("tb-brand" brand)))
-        bar.addChild((this.text("tb-label" "Esitys")))
-        sample = (this.select("sample" "Esitys" sampleRows sampleValue bar))
-        bar.addChild((this.text("tb-label" "Teema")))
-        theme = (this.select("theme" "Teema" themeRows themeValue bar))
+        bar.addChild((this.text("tb-label" (PresI18n.t("Presentation")))))
+        sample = (this.select("sample" (PresI18n.t("Presentation")) sampleRows sampleValue bar))
+        bar.addChild((this.text("tb-label" (PresI18n.t("Theme")))))
+        theme = (this.select("theme" (PresI18n.t("Theme")) themeRows themeValue bar))
         bar.addChild((this.div("tb-sep")))
-        def play:string "▶ Toista"
+        def play:string (PresI18n.t("▶ Play"))
         if playing {
-            play = "⏸ Pysäytä"
+            play = (PresI18n.t("⏸ Pause"))
         }
         this.button("play" play "outline" bar)
-        this.button("present" "⛶ Esitä" "primary" bar)
+        this.button("present" (PresI18n.t("⛶ Present")) "primary" bar)
         bar.addChild((this.div("tb-sep")))
-        this.button("open" "Avaa" "ghost" bar)
-        this.button("save" "Tallenna .md" "ghost" bar)
+        this.button("open" (PresI18n.t("Open")) "ghost" bar)
+        this.button("save" (PresI18n.t("Save .md")) "ghost" bar)
         this.button("pdf" "PDF" "ghost" bar)
         this.button("pptx" "PPTX" "ghost" bar)
-        this.button("share" "Jaa" "ghost" bar)
-        this.button("helpBtn" "Ohje" "ghost" bar)
+        this.button("share" (PresI18n.t("Share")) "ghost" bar)
+        this.button("helpBtn" (PresI18n.t("Help")) "ghost" bar)
         def rows:[string] (strsplit extras (strfromcode 10))
         def k:int 0
         while (k < (array_length rows)) {

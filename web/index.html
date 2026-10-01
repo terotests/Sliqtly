@@ -1,9 +1,10 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-<html lang="fi">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="build" content="__BUILD__" />
 <title>Sliqtly</title>
 <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
 <style>
@@ -88,49 +89,50 @@
 <body class="booting">
 <div id="bar">
   <span class="brand">Sliqtly</span>
-  <label class="wide">Esitys
+  <label class="wide"><span data-i18n>Presentation</span>
     <select id="sample"></select>
   </label>
-  <label>Teema
+  <label><span data-i18n>Theme</span>
     <select id="theme">
-      <optgroup label="Tummat">
+      <optgroup label="Dark">
         <option value="aurora">aurora</option>
         <option value="nebula">nebula</option>
         <option value="carbon">carbon</option>
         <option value="ember">ember</option>
         <option value="midnight">midnight</option>
       </optgroup>
-      <optgroup label="Vaaleat">
+      <optgroup label="Light">
         <option value="corporate">corporate</option>
         <option value="editorial">editorial</option>
       </optgroup>
-      <option value="">dokumentin oma</option>
+      <option value="" data-i18n>Document's own</option>
     </select>
   </label>
   <span class="sepbar"></span>
-  <button id="play" title="Toista valitusta diasta (P)">▶ Toista</button>
-  <button id="present" class="primary" title="Esitä koko ruudulla (F5). S = puhujanäkymä, A = automaattinen eteneminen, Esc = lopeta">⛶ Esitä</button>
+  <button id="play" title="Play from the selected slide (P)" data-i18n-title data-i18n>▶ Play</button>
+  <button id="present" class="primary" title="Present full screen (F5). S = speaker view, A = auto-advance, Esc = stop" data-i18n-title data-i18n>⛶ Present</button>
   <span class="sepbar"></span>
-  <button id="open" class="wide" title="Avaa .md-tiedosto">Avaa</button>
-  <button id="save" class="wide" title="Tallenna Markdown">Tallenna .md</button>
+  <button id="open" class="wide" title="Open a .md file" data-i18n-title data-i18n>Open</button>
+  <button id="save" class="wide" title="Save as Markdown" data-i18n-title data-i18n>Save .md</button>
   <button id="pdf">PDF</button>
   <button id="pptx">PPTX</button>
-  <button id="share" title="Kopioi linkki, jonka osoitteeseen tämä Markdown on pakattu">🔗 Jaa</button>
-  <button id="helpBtn" title="Mitä valitulla dialla on ja millä teeman CSS-säännöillä sitä muutetaan">? Ohje</button>
-  <button id="pro" data-canvas="accent" title="Kirjaudu Google-tilillä">PRO</button>
+  <button id="share" title="Copy a link with this Markdown packed into its address" data-i18n-title data-i18n>🔗 Share</button>
+  <button id="helpBtn" title="What the selected slide contains and which theme CSS rules change it" data-i18n-title data-i18n>? Help</button>
+  <button id="pro" data-canvas="accent" title="Sign in with Google" data-i18n-title>PRO</button>
+  <button id="langBtn" data-canvas="ghost">🌐 EN</button>
   <span class="grow"></span>
   <span id="status"></span>
 </div>
 <div id="stage">
-  <canvas id="c" aria-label="Esityksen editori"></canvas>
+  <canvas id="c" aria-label="Presentation editor" data-i18n-aria></canvas>
   <textarea id="keys" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"
-            aria-label="Markdown — kirjoita tähän"></textarea>
-  <div id="hint">ladataan…</div>
+            aria-label="Markdown — type here" data-i18n-aria></textarea>
+  <div id="hint" data-i18n>loading…</div>
 </div>
-<div id="viewBar" aria-label="Esityksen ohjaimet">
-  <button id="vPrev" title="Edellinen (←)">◀</button>
-  <button id="vNext" title="Seuraava (→, välilyönti)">▶</button>
-  <button id="vFull" title="Koko näyttö">⛶</button>
+<div id="viewBar" aria-label="Presentation controls" data-i18n-aria>
+  <button id="vPrev" title="Previous (←)" data-i18n-title>◀</button>
+  <button id="vNext" title="Next (→, Space)" data-i18n-title>▶</button>
+  <button id="vFull" title="Full screen" data-i18n-title>⛶</button>
 </div>
 <div id="err"></div>
 <input id="filepick" type="file" accept=".md,.markdown,text/markdown,text/plain" hidden />

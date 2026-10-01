@@ -1,0 +1,56 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PresI18n.rgr — the words of the interface, in the reader's language
+; ==============================================================================
+;
+; Every string a person reads is written in the source in English and passed
+; through `PresI18n.t`. The page (web/i18n.js) picks the language and hands
+; its table over before the app is built: for English there is none, for
+; another language `web/i18n/<code>.json` maps each English string to its
+; translation. A string with no entry stays English, so a table can be
+; partial and a new string never shows up empty.
+;
+; A string with a value in it is translated in pieces: the fixed words go
+; through `t`, the value is joined on after ("Slide " + n).
+;
+; One table per compiled module (a singleton), set once at start: the page
+; reloads to change language, so nothing built earlier is left in the old one.
+; ==============================================================================
+
+class PresI18n @singleton(true) {
+    def table:[string:string]
+    def code:string "en"
+
+    ; `pairs`: the English and its translation separated by \u0001, the
+    ; entries by \u0002 (no JSON to parse here: the page has done that)
+    sfn use:void (lang:string pairs:string) {
+        def r:PresI18n (PresI18n.__singleton())
+        def fresh:[string:string]
+        r.table = fresh
+        r.code = lang
+        def entries:[string] (strsplit pairs (strfromcode 2))
+        def i:int 0
+        while (i < (array_length entries)) {
+            def kv:[string] (strsplit (itemAt entries i) (strfromcode 1))
+            if ((array_length kv) == 2) {
+                set r.table (itemAt kv 0) (itemAt kv 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn t:string (s:string) {
+        def r:PresI18n (PresI18n.__singleton())
+        def hit@(optional):string (get r.table s)
+        if (!null? hit) {
+            return (unwrap hit)
+        }
+        return s
+    }
+
+    sfn lang:string () {
+        def r:PresI18n (PresI18n.__singleton())
+        return r.code
+    }
+}

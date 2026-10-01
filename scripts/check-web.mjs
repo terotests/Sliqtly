@@ -128,7 +128,7 @@ try {
     const out = {};
     const texts = (doc) => doc.list.cmds.filter((c) => c.k === 3).map((c) => c.text);
     const chrome = JSON.parse(a.chromeJson());
-    out.chromeTracks = texts(chrome).includes("Teksti") && texts(chrome).includes("Animaatio");
+    out.chromeTracks = texts(chrome).includes("Text") && texts(chrome).includes("Animation");
     out.editorText = texts(chrome).some((t) => t.startsWith("# Gemini"));
     out.slides = a.deck.slideCount();
     const stage = JSON.parse(a.stageJson());
@@ -754,7 +754,7 @@ try {
     const back = await act();
     const dom = await page.evaluate(() => ({
       nodes: document.querySelectorAll(".evg-a11y [data-a11y-id]").length,
-      bar: [...document.querySelectorAll(".evg-a11y button")].some((b) => /Esitä/.test(b.textContent + (b.getAttribute("aria-label") || ""))),
+      bar: [...document.querySelectorAll(".evg-a11y button")].some((b) => /Present/.test(b.textContent + (b.getAttribute("aria-label") || ""))),
       slides: document.querySelectorAll('.evg-a11y [data-a11y-id^="thumb-"]').length,
       status: [...document.querySelectorAll(".evg-a11y [role=status]")].map((e) => e.textContent).join("|"),
       canvasHidden: document.getElementById("c").getAttribute("aria-hidden") === "true",
@@ -775,7 +775,7 @@ try {
     check("the chart editor from the keyboard: Tab to a slider, an arrow moves it, Esc closes", w1 > w0 && chartBack === "keys", JSON.stringify({ w0, w1, chartBack, tabPath: tabPath.slice(0, 3) }));
     check("F6 goes from region to region (slides, bar, tabs, editor)", seen.some((x) => /^thumb-/.test(x)) && seen.some((x) => /^tb-/.test(x)) && seen.some((x) => /^edtabs/.test(x)) && seen.includes("keys"), seen.join(","));
     check("Ctrl+Space opens the value popover with the keyboard in it; Enter picks, Esc returns", /^hp-opt-/.test(inHint) && !/fx=starfield/.test(line) && /fx=/.test(line) && back === "keys", JSON.stringify({ inHint, line, back }));
-    check("the canvas is mirrored for a screen reader: the bar, the slides, where we are", dom.nodes > 10 && dom.bar && dom.slides >= 2 && /Dia \d+ \/ \d+/.test(dom.status) && dom.canvasHidden, JSON.stringify(dom));
+    check("the canvas is mirrored for a screen reader: the bar, the slides, where we are", dom.nodes > 10 && dom.bar && dom.slides >= 2 && /Slide \d+ \/ \d+/.test(dom.status) && dom.canvasHidden, JSON.stringify(dom));
   }
 
   // A chart slider shows on the slide while it moves, and one undo takes the whole drag back
@@ -1216,6 +1216,19 @@ try {
   check("PPTX names only faces every machine has", [...faces].every((f) => f === "Arial" || f.startsWith("+")), [...faces].join(", "));
   const n2 = notes.map((k) => pptx.get(k)).join(" ");
   check("the notes are the speaker's words without the cue marks", n2.includes("linkin saanut") && !n2.includes("[[1]]"));
+
+  // the interface in another language: ?lang=fi, the canvas bar and the page alike
+  const pageFi = await browser.newPage({ viewport: { width: 1200, height: 760 } });
+  await pageFi.goto(url + "?lang=fi&sample=talous");
+  await pageFi.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+  const fi = await pageFi.evaluate(() => ({
+    lang: document.documentElement.lang,
+    bar: window.__app.toolbarJson().includes("Esitä"),
+    html: document.getElementById("present").textContent,
+    langBtn: document.getElementById("langBtn").textContent,
+  }));
+  await pageFi.close();
+  check("?lang=fi: the bar drawn and the page's own words in Finnish", fi.lang === "fi" && fi.bar && /Esitä/.test(fi.html) && /FI/.test(fi.langBtn), JSON.stringify(fi));
 
   check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {

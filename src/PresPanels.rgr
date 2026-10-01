@@ -22,6 +22,7 @@
 
 Import "../ui/src/UiHost.rgr"
 Import "../vela/src/VlJson.rgr"
+Import "PresI18n.rgr"
 
 class PresPanels {
     def host:UiHost (new UiHost())
@@ -247,7 +248,7 @@ class PresPanels {
         p.width = (EVGUnit.px(helpW))
         p.height = (EVGUnit.px((h - barH)))
         def top:EVGElement (this.div("pn-top"))
-        top.addChild((this.words("pn-title" ("Ohje: dia " + (to_string (helpSlide + 1))))))
+        top.addChild((this.words("pn-title" ((PresI18n.t("Help: slide ")) + (to_string (helpSlide + 1))))))
         top.addChild((this.div("pn-grow")))
         this.button("pn-help-close" "✕" "ghost" top)
         p.addChild(top)
@@ -257,8 +258,8 @@ class PresPanels {
         view.scrollTop = helpScroll
         view.height = (EVGUnit.px(((h - barH) - 49.0)))
         def body:EVGElement (this.div("pn-body"))
-        body.addChild((this.words("pn-intro" "Tällä dialla on nämä osat. Napsauta ominaisuutta muuttaaksesi sitä teeman CSS:ssä.")))
-        body.addChild((this.words("pn-intro" "Näppäimet: F6 siirtyy alueelta toiselle (palkki, välilehdet, editori, diat, ohje), nuolet ja Tab alueen sisällä, Enter valitsee, Ctrl+Välilyönti avaa kursorin kohdalla olevan arvon valinnat, Esc palaa editoriin.")))
+        body.addChild((this.words("pn-intro" (PresI18n.t("This slide has these parts. Click a property to change it in the theme CSS.")))))
+        body.addChild((this.words("pn-intro" (PresI18n.t("Keys: F6 moves between areas (bar, tabs, editor, slides, help), arrows and Tab within an area, Enter selects, Ctrl+Space opens the choices for the value at the cursor, Esc returns to the editor.")))))
         def p0 (new VlJsonParser())
         def feats:VlJson (p0.parse(helpJson))
         def i:int 0
@@ -341,9 +342,9 @@ class PresPanels {
                     if (PresPanels.isColour(eff)) {
                         line.addChild((this.swatch(eff)))
                     }
-                    line.addChild((this.words("pn-unset" ("oletus " + eff + " – lisää"))))
+                    line.addChild((this.words("pn-unset" ((PresI18n.t("default ")) + eff + (PresI18n.t(" – add"))))))
                 } {
-                    line.addChild((this.words("pn-unset" "ei asetettu – lisää")))
+                    line.addChild((this.words("pn-unset" (PresI18n.t("not set – add")))))
                 }
             }
             row.addChild(line)
@@ -371,10 +372,10 @@ class PresPanels {
             ; a file in the editor: a bar to go back by
             p.height = (EVGUnit.px((PresPanels.filesBarH())))
             def bar:EVGElement (this.div("pf-top"))
-            this.button("pf-back" "← Tiedostot" "ghost" bar)
+            this.button("pf-back" (PresI18n.t("← Files")) "ghost" bar)
             bar.addChild((this.words("pf-path" filesOpenPath)))
             bar.addChild((this.div("pn-grow")))
-            bar.addChild((this.words("pf-saved" "tallentuu automaattisesti")))
+            bar.addChild((this.words("pf-saved" (PresI18n.t("saves automatically")))))
             p.addChild(bar)
             return p
         }
@@ -382,9 +383,9 @@ class PresPanels {
         def p0 (new VlJsonParser())
         def data:VlJson (p0.parse(filesJson))
         def top:EVGElement (this.div("pf-top"))
-        top.addChild((this.words("pn-title" "Tiedostot")))
+        top.addChild((this.words("pn-title" (PresI18n.t("Files")))))
         top.addChild((this.div("pn-grow")))
-        this.button("pf-add" "Lisää tiedostoja…" "secondary" top)
+        this.button("pf-add" (PresI18n.t("Add files…")) "secondary" top)
         p.addChild(top)
         def view:EVGElement (this.div("pn-view"))
         view.id = "pf-view"
@@ -393,7 +394,7 @@ class PresPanels {
         view.height = (EVGUnit.px((filesH - 49.0)))
         def body:EVGElement (this.div("pf-body"))
         if ((p0.ok == false) || ((data.isObject()) == false)) {
-            body.addChild((this.words("pn-intro" "Tiedostoja ladataan…")))
+            body.addChild((this.words("pn-intro" (PresI18n.t("Loading files…")))))
             view.addChild(body)
             p.addChild(view)
             return p
@@ -413,7 +414,7 @@ class PresPanels {
             }
             body.addChild(box)
         }
-        body.addChild((this.words("pf-h" ("Tämä esitys: " + (data.stringOr("doc" ""))))))
+        body.addChild((this.words("pf-h" ((PresI18n.t("This presentation: ")) + (data.stringOr("doc" ""))))))
         ; the files, a folder's under its name
         def files:VlJson (data.get("files"))
         def folder:string "-"
@@ -436,7 +437,7 @@ class PresPanels {
             i = (i + 1)
         }
         if ((files.count()) == 0) {
-            body.addChild((this.words("pn-intro" "Ei vielä tiedostoja.")))
+            body.addChild((this.words("pn-intro" (PresI18n.t("No files yet.")))))
         }
         def note:string (data.stringOr("note" ""))
         if ((strlen note) > 0) {
@@ -444,9 +445,9 @@ class PresPanels {
         }
         ; the documents kept in this browser
         def dh:EVGElement (this.div("pf-hrow"))
-        dh.addChild((this.words("pf-h" "Esitykset tässä selaimessa")))
+        dh.addChild((this.words("pf-h" (PresI18n.t("Presentations in this browser")))))
         dh.addChild((this.div("pn-grow")))
-        this.button("pf-new" "Uusi esitys" "secondary" dh)
+        this.button("pf-new" (PresI18n.t("New presentation")) "secondary" dh)
         body.addChild(dh)
         def docs:VlJson (data.get("docs"))
         def d:int 0
@@ -455,7 +456,7 @@ class PresPanels {
             d = (d + 1)
         }
         if ((docs.count()) == 0) {
-            body.addChild((this.words("pn-intro" "Esitys tallentuu tänne, kun muokkaat sitä.")))
+            body.addChild((this.words("pn-intro" (PresI18n.t("A presentation is saved here when you edit it.")))))
         }
         view.addChild(body)
         p.addChild(view)
@@ -479,12 +480,12 @@ class PresPanels {
             return ""
         }
         if (n < 1024) {
-            return ((to_string n) + " t")
+            return ((to_string n) + (PresI18n.t(" B")))
         }
         if (n < (1024 * 1024)) {
-            return ((to_string (idiv n 1024)) + " kt")
+            return ((to_string (idiv n 1024)) + (PresI18n.t(" KB")))
         }
-        return ((to_string (idiv n (1024 * 1024))) + " Mt")
+        return ((to_string (idiv n (1024 * 1024))) + (PresI18n.t(" MB")))
     }
 
     ; A button standing for `action` on `what`.
@@ -502,7 +503,7 @@ class PresPanels {
         def tag:string "TXT"
         if (kind == "md") { tag = "MD" }
         if (kind == "css") { tag = "CSS" }
-        if (kind == "image") { tag = "KUVA" }
+        if (kind == "image") { tag = (PresI18n.t("IMAGE")) }
         if (kind == "chart") { tag = "VL" }
         if (kind == "data") { tag = "DATA" }
         row.addChild((this.words(("pf-tag pf-tag-" + kind) tag)))
@@ -515,20 +516,20 @@ class PresPanels {
         row.addChild(nm)
         row.addChild((this.div("pn-grow")))
         if ((kind == "md") || (kind == "css")) {
-            this.act("tab" kind "Muokkaa" "secondary" row)
+            this.act("tab" kind (PresI18n.t("Edit")) "secondary" row)
             return row
         }
         if (kind == "image") {
-            this.act("insert" path "Lisää diaan" "secondary" row)
+            this.act("insert" path (PresI18n.t("Add to slide")) "secondary" row)
         } {
-            this.act("open" path "Avaa" "secondary" row)
+            this.act("open" path (PresI18n.t("Open")) "secondary" row)
             if (kind == "chart") {
-                this.act("insert" path "Lisää diaan" "secondary" row)
+                this.act("insert" path (PresI18n.t("Add to slide")) "secondary" row)
             }
         }
         def armed:boolean (filesArmed == ("del" + (strfromcode 9) + path))
         if armed {
-            this.act("del" path "Poista?" "primary" row)
+            this.act("del" path (PresI18n.t("Delete?")) "primary" row)
         } {
             this.act("del" path "✕" "ghost" row)
         }
@@ -544,13 +545,13 @@ class PresPanels {
         row.addChild(nm)
         row.addChild((this.div("pn-grow")))
         if (d.boolOr("current" false)) {
-            row.addChild((this.words("pf-current" "auki")))
+            row.addChild((this.words("pf-current" (PresI18n.t("open")))))
             return row
         }
-        this.act("doc" id "Avaa" "secondary" row)
+        this.act("doc" id (PresI18n.t("Open")) "secondary" row)
         def armed:boolean (filesArmed == ("deldoc" + (strfromcode 9) + id))
         if armed {
-            this.act("deldoc" id "Poista?" "primary" row)
+            this.act("deldoc" id (PresI18n.t("Delete?")) "primary" row)
         } {
             this.act("deldoc" id "✕" "ghost" row)
         }
@@ -627,13 +628,13 @@ class PresPanels {
         UiTree.surface(d "free" "start")
         d.overlayX = ((w - 520.0) * 0.5)
         d.overlayY = ((h - 330.0) * 0.5)
-        d.addChild((this.words("pn-dtitle" "Jaa esitys")))
-        d.addChild((this.shareOption("show" "Esitys" "Avautuu suoraan esitystilaan, ilman editoria ja muokkausnappeja." shareShow "primary")))
-        d.addChild((this.shareOption("edit" "Muokkaus" "Avautuu editoriin: vastaanottaja voi muokata omaa kopiotaan." shareEdit "secondary")))
+        d.addChild((this.words("pn-dtitle" (PresI18n.t("Share presentation")))))
+        d.addChild((this.shareOption("show" (PresI18n.t("Presentation")) (PresI18n.t("Opens straight into presentation mode, without the editor or edit buttons.")) shareShow "primary")))
+        d.addChild((this.shareOption("edit" (PresI18n.t("Editing")) (PresI18n.t("Opens in the editor: the recipient can edit their own copy.")) shareEdit "secondary")))
         def foot:EVGElement (this.div("pn-dfoot"))
         foot.addChild((this.words("pn-note" shareNote)))
         foot.addChild((this.div("pn-grow")))
-        this.button("pn-share-close" "Sulje" "secondary" foot)
+        this.button("pn-share-close" (PresI18n.t("Close")) "secondary" foot)
         d.addChild(foot)
         return d
     }
@@ -657,9 +658,9 @@ class PresPanels {
         def car:EVGElement (unwrap f.caretEl)
         car.width = (EVGUnit.px(0.0))
         this.put(f row)
-        def label:string "Kopioi"
+        def label:string (PresI18n.t("Copy"))
         if (copied == which) {
-            label = (? copyOk "Kopioitu ✓" "Valitse ja kopioi")
+            label = (? copyOk (PresI18n.t("Copied ✓")) (PresI18n.t("Select and copy")))
         }
         this.button(("pn-copy-" + which) label variant row)
         o.addChild(row)

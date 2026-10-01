@@ -10,6 +10,8 @@
 // reserved /__/firebase/init.js, so nothing about the project is in this file.
 // Served anywhere but Firebase Hosting, sign-in is simply not available.
 
+import { t } from "./i18n.js";
+
 const SDK = "https://www.gstatic.com/firebasejs/10.14.1/";
 const pro = document.getElementById("pro");
 let user = null;
@@ -44,7 +46,7 @@ function auth() {
 function show() {
   const first = (user?.displayName || user?.email || "").split(/[\s@]/)[0];
   pro.textContent = user ? `PRO · ${first}` : "PRO";
-  pro.title = user ? `Kirjautuneena: ${user.displayName || user.email}` : "Kirjaudu Google-tilillä";
+  pro.title = user ? t("Signed in as ") + (user.displayName || user.email) : t("Sign in with Google");
 }
 
 pro.addEventListener("click", async () => {
@@ -52,13 +54,13 @@ pro.addEventListener("click", async () => {
     const a = await auth();
     if (!user) {
       await a.signInWithPopup(new globalThis.firebase.auth.GoogleAuthProvider());
-    } else if (confirm(`Kirjautuneena: ${user.displayName || user.email}\n\nKirjaudutaanko ulos?`)) {
+    } else if (confirm(t("Signed in as ") + (user.displayName || user.email) + "\n\n" + t("Sign out?"))) {
       await a.signOut();
     }
   } catch (e) {
     if (e?.code === "auth/popup-closed-by-user" || e?.code === "auth/cancelled-popup-request") return;
     console.error(e);
-    alert("Kirjautuminen ei onnistunut: " + (e?.message || e));
+    alert(t("Sign-in failed: ") + (e?.message || e));
   }
 });
 

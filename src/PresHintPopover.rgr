@@ -24,6 +24,7 @@
 ; (web/hint.css over the kit's theme).
 ; ============================================================================
 
+Import "PresI18n.rgr"
 Import "PresColorPanel.rgr"
 Import "../ui/src/UiHost.rgr"
 Import "PresKeep.rgr"
@@ -163,7 +164,7 @@ class PresHintPopover {
             if ((PresHintPopover.isHex(value)) == false) {
                 start0 = "#ffffff"
             }
-            picker.setup("hp-cp" "Väri" start0 true)
+            picker.setup("hp-cp" (PresI18n.t("Color")) start0 true)
             picker.inline = true
             picker.hexBoxW = 150.0
             picker.numBoxW = 30.0
@@ -295,7 +296,7 @@ class PresHintPopover {
         if ((array_length adds) > 0) {
             def left:[string] (this.addsLeft())
             if ((array_length left) > 0) {
-                card.addChild((this.words("hp-label" "Lisää parametri")))
+                card.addChild((this.words("hp-label" (PresI18n.t("Add parameter")))))
                 def ar:EVGElement (this.div("hp-chips"))
                 def k:int 0
                 while (k < (array_length left)) {
@@ -308,7 +309,7 @@ class PresHintPopover {
         if ((wholeStart >= 0) && (wholeEnd > wholeStart)) {
             def foot:EVGElement (this.div("hp-foot"))
             foot.addChild((this.div("hp-grow")))
-            this.button("hp-remove" "Poista" "danger" foot)
+            this.button("hp-remove" (PresI18n.t("Remove")) "danger" foot)
             card.addChild(foot)
         }
         ; under the value, kept on the screen (flipped above when it would not fit)
@@ -436,26 +437,26 @@ class PresHintPopover {
                 setBox.addChild(row)
                 nSet = (nSet + 1)
             } {
-                row.addChild((this.words("hp-padd" "+ lisää")))
+                row.addChild((this.words("hp-padd" (PresI18n.t("+ add")))))
                 unsetBox.addChild(row)
                 nUnset = (nUnset + 1)
             }
             i = (i + 1)
         }
         if (nSet > 0) {
-            card.addChild((this.words("hp-label" "Asetettu")))
+            card.addChild((this.words("hp-label" (PresI18n.t("Set")))))
             card.addChild(setBox)
         }
         if (nUnset > 0) {
-            card.addChild((this.words("hp-label" "Voit lisätä")))
+            card.addChild((this.words("hp-label" (PresI18n.t("Can be added")))))
             card.addChild(unsetBox)
         }
         if ((nSet + nUnset) == 0) {
-            card.addChild((this.words("hp-doc" "Tätä valitsinta ei tunneta: sen ominaisuudet eivät vaikuta dioihin.")))
+            card.addChild((this.words("hp-doc" (PresI18n.t("Unknown selector: its properties don't affect the slides.")))))
         } {
             def t:string tip
             if ((strlen t) == 0) {
-                t = "Vie hiiri ominaisuuden päälle nähdäksesi, mitä se tekee."
+                t = (PresI18n.t("Hover over a property to see what it does."))
             }
             card.addChild((this.words("hp-tip" t)))
         }

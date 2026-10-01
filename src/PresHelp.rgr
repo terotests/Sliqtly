@@ -28,6 +28,7 @@
 
 Import "PresHints.rgr"
 Import "../markdown/src/MdAnchor.rgr"
+Import "PresI18n.rgr"
 
 class PresSlideScan {
     def levels:string ""
@@ -226,28 +227,28 @@ class PresHelp {
     }
 
     sfn propDoc:string (sel:string prop:string) {
-        if ((sel == "kbd") && (prop == "background-color")) { return "Näppäimen pinta (oletus: koodin tausta)." }
-        if ((sel == "kbd") && (prop == "border-color")) { return "Näppäimen reuna (oletus: koodin reuna)." }
-        if ((sel == "mark") && (prop == "background-color")) { return "Korostuksen taustaväri." }
-        if ((sel == "mark") && (prop == "color")) { return "Korostetun tekstin väri." }
-        if ((sel == "table") && (prop == "background-color")) { return "Otsikkorivin tausta." }
-        if ((sel == "code") && (prop == "background-color")) { return "Koodin tausta. Läpinäkyvä: #151c4833 (kaksi viimeistä numeroa ovat peittävyys) tai none." }
-        if ((sel == "page") && (prop == "padding")) { return "Marginaali dian reunoilla." }
-        if ((sel == "hr") && (prop == "color")) { return "Viivan väri (myös otsikon alla)." }
-        if ((sel == "blockquote") && (prop == "border-color")) { return "Pystypalkin väri." }
-        if ((sel == "blockquote") && (prop == "border-width")) { return "Pystypalkin leveys." }
-        if ((sel == "list") && (prop == "margin-left")) { return "Luettelomerkin ja tekstin väli." }
-        if ((sel == "li") && (prop == "margin-bottom")) { return "Väli kohtien välillä." }
-        if (prop == "margin-top") { return "Tyhjä tila yläpuolella." }
-        if (prop == "margin-bottom") { return "Tyhjä tila alapuolella." }
-        if (prop == "margin-left") { return "Tyhjä tila vasemmalla." }
-        if (prop == "padding") { return "Sisennys reunoista." }
-        if (prop == "padding-left") { return "Sisennys vasemmalta." }
-        if (prop == "padding-top") { return "Sisennys ylhäältä." }
-        if (prop == "border-width") { return "Reunan leveys." }
-        if (prop == "background-image") { return "Taustakuva: url(media/kuva.png), kuva liitetään editoriin Ctrl+V:llä. none: ei kuvaa." }
-        if ((sel == "page") && (prop == "width")) { return "Dian leveys (esim. 13.333in = 16:9)." }
-        if ((sel == "page") && (prop == "height")) { return "Dian korkeus (esim. 7.5in)." }
+        if ((sel == "kbd") && (prop == "background-color")) { return (PresI18n.t("Key cap face (default: the code background).")) }
+        if ((sel == "kbd") && (prop == "border-color")) { return (PresI18n.t("Key cap border (default: the code border).")) }
+        if ((sel == "mark") && (prop == "background-color")) { return (PresI18n.t("Highlight background color.")) }
+        if ((sel == "mark") && (prop == "color")) { return (PresI18n.t("Highlighted text color.")) }
+        if ((sel == "table") && (prop == "background-color")) { return (PresI18n.t("Header row background.")) }
+        if ((sel == "code") && (prop == "background-color")) { return (PresI18n.t("Code background. Translucent: #151c4833 (the last two digits are the opacity) or none.")) }
+        if ((sel == "page") && (prop == "padding")) { return (PresI18n.t("Margin at the slide edges.")) }
+        if ((sel == "hr") && (prop == "color")) { return (PresI18n.t("Rule color (also under headings).")) }
+        if ((sel == "blockquote") && (prop == "border-color")) { return (PresI18n.t("Vertical bar color.")) }
+        if ((sel == "blockquote") && (prop == "border-width")) { return (PresI18n.t("Vertical bar width.")) }
+        if ((sel == "list") && (prop == "margin-left")) { return (PresI18n.t("Space between the bullet and the text.")) }
+        if ((sel == "li") && (prop == "margin-bottom")) { return (PresI18n.t("Space between items.")) }
+        if (prop == "margin-top") { return (PresI18n.t("Space above.")) }
+        if (prop == "margin-bottom") { return (PresI18n.t("Space below.")) }
+        if (prop == "margin-left") { return (PresI18n.t("Space on the left.")) }
+        if (prop == "padding") { return (PresI18n.t("Padding from the edges.")) }
+        if (prop == "padding-left") { return (PresI18n.t("Padding on the left.")) }
+        if (prop == "padding-top") { return (PresI18n.t("Padding at the top.")) }
+        if (prop == "border-width") { return (PresI18n.t("Border width.")) }
+        if (prop == "background-image") { return (PresI18n.t("Background image: url(media/image.png); paste an image into the editor with Ctrl+V. none: no image.")) }
+        if ((sel == "page") && (prop == "width")) { return (PresI18n.t("Slide width (e.g. 13.333in = 16:9).")) }
+        if ((sel == "page") && (prop == "height")) { return (PresI18n.t("Slide height (e.g. 7.5in).")) }
         return (PresHints.cssDoc(prop))
     }
 
@@ -570,19 +571,19 @@ class PresHelp {
     }
 
     sfn levelDoc:string (lv:int) {
-        if (lv == 1) { return "Esityksen otsikko: # Otsikko." }
-        if (lv == 2) { return "Dian otsikko: ## Otsikko aloittaa dian." }
-        if (lv == 3) { return "Väliotsikko dian sisällä: ### Otsikko." }
-        return ("Tason " + (to_string lv) + " otsikko.")
+        if (lv == 1) { return (PresI18n.t("Presentation title: # Title.")) }
+        if (lv == 2) { return (PresI18n.t("Slide title: ## Title starts a slide.")) }
+        if (lv == 3) { return (PresI18n.t("Subheading within a slide: ### Title.")) }
+        return ((PresI18n.t("Level ")) + (to_string lv) + (PresI18n.t(" heading.")))
     }
 
     sfn forSlide:string (text:string title:string css0:string) {
         def css:string (PresHelp.noComments(css0))
         def sc:PresSlideScan (PresHelp.scan(text))
         def out:[string]
-        push out (PresHelp.feature("slide" "Dia ja teksti" "## Otsikko aloittaa uuden dian" "Dian tausta ja reunat sekä kaiken tekstin kirjasin, koko ja väri." ((PresHelp.rule(css "page" "Dian tausta ja marginaali." "background-color,padding")) + "," + (PresHelp.rule(css "document" "Kaiken tekstin oletukset." "font-family,font-size,line-height,color")))))
+        push out (PresHelp.feature("slide" (PresI18n.t("Slide and text")) (PresI18n.t("## Title starts a new slide")) (PresI18n.t("The slide's background and margins, and the font, size and color of all text.")) ((PresHelp.rule(css "page" (PresI18n.t("Slide background and margin.")) "background-color,padding")) + "," + (PresHelp.rule(css "document" (PresI18n.t("Defaults for all text.")) "font-family,font-size,line-height,color")))))
         if (((strlen title) > 0) || ((strlen sc.levels) > 0)) {
-            def rules:string (PresHelp.rule(css "heading" "Kaikki otsikot." "font-family,color,margin-top,margin-bottom"))
+            def rules:string (PresHelp.rule(css "heading" (PresI18n.t("All headings.")) "font-family,color,margin-top,margin-bottom"))
             def lv:int 1
             def syn:string ""
             while (lv <= 6) {
@@ -598,34 +599,34 @@ class PresHelp {
                     if ((strlen syn) > 0) {
                         syn = (syn + "   ")
                     }
-                    syn = (syn + hashes + " Otsikko")
+                    syn = (syn + hashes + (PresI18n.t(" Title")))
                 }
                 lv = (lv + 1)
             }
-            push out (PresHelp.feature("heading" "Otsikot" syn "# on esityksen otsikko (h1, avausdia), ## aloittaa uuden dian ja on sen otsikko (h2), ### on väliotsikko dian sisällä (h3). Väri: hN { color } tai kaikille heading { color }; muuten tekstin väri. Viiva h1:n ja h2:n alla on hr-säännön värinen." rules))
+            push out (PresHelp.feature("heading" (PresI18n.t("Headings")) syn (PresI18n.t("# is the presentation title (h1, opening slide), ## starts a new slide and is its title (h2), ### is a subheading within a slide (h3). Color: hN { color }, or heading { color } for all; otherwise the text color. The rule under h1 and h2 takes the hr rule's color.")) rules))
         }
         if sc.para {
-            push out (PresHelp.feature("p" "Kappale" "Tekstiä, tyhjä rivi erottaa kappaleet." "" (PresHelp.rule(css "p" "Kappale." "margin-bottom"))))
+            push out (PresHelp.feature("p" (PresI18n.t("Paragraph")) (PresI18n.t("Text; a blank line separates paragraphs.")) "" (PresHelp.rule(css "p" (PresI18n.t("Paragraph.")) "margin-bottom"))))
         }
         if sc.emph {
-            push out (PresHelp.feature("emph" "Lihavointi ja kursiivi" "**lihavoitu**   *kursiivi*   ***molemmat***" "Käyttää tekstin kirjasimen lihavoitua ja kursiivia leikkausta. Omaa CSS-sääntöä ei ole." ""))
+            push out (PresHelp.feature("emph" (PresI18n.t("Bold and italic")) (PresI18n.t("**bold**   *italic*   ***both***")) (PresI18n.t("Uses the bold and italic faces of the text font. It has no CSS rule of its own.")) ""))
         }
         if sc.list {
-            def ls:string "- kohta   1. numeroitu kohta   sisennys kahdella välilyönnillä"
+            def ls:string (PresI18n.t("- item   1. numbered item   indent with two spaces"))
             if (PresHelp.hasTag(sc "task")) {
-                ls = (ls + "   - [ ] tehtävä   - [x] tehty")
+                ls = (ls + (PresI18n.t("   - [ ] task   - [x] done")))
             }
-            push out (PresHelp.feature("list" "Luettelo" ls "Kohta ei katkea kahdelle dialle; jos yksi kohta ei mahdu, dian tekstiä pienennetään hieman." ((PresHelp.rule(css "list" "Koko luettelo." "padding-left,margin-left")) + "," + (PresHelp.rule(css "li" "Yksi kohta." "margin-bottom")))))
+            push out (PresHelp.feature("list" (PresI18n.t("List")) ls (PresI18n.t("An item is never split across two slides; if one item doesn't fit, the slide's text is made slightly smaller.")) ((PresHelp.rule(css "list" (PresI18n.t("The whole list.")) "padding-left,margin-left")) + "," + (PresHelp.rule(css "li" (PresI18n.t("One item.")) "margin-bottom")))))
         }
         if sc.quote {
-            push out (PresHelp.feature("quote" "Lainaus" "> lainattu teksti" "" (PresHelp.rule(css "blockquote" "Lainaus ja sen palkki." "color,border-color,border-width,padding-left,padding-top"))))
+            push out (PresHelp.feature("quote" (PresI18n.t("Quote")) (PresI18n.t("> quoted text")) "" (PresHelp.rule(css "blockquote" (PresI18n.t("The quote and its bar.")) "color,border-color,border-width,padding-left,padding-top"))))
         }
         if (sc.code || sc.inlineCode) {
-            def cs:string "`koodi` rivin sisällä"
+            def cs:string (PresI18n.t("`code` inline"))
             if sc.code {
-                cs = (cs + "   ```js … ``` lohkona")
+                cs = (cs + (PresI18n.t("   ```js … ``` as a block")))
             }
-            push out (PresHelp.feature("code" "Koodi" cs "Sama sääntö koskee koodilohkoja ja rivinsisäistä koodia." (PresHelp.rule(css "code" "Koodi." "font-family,font-size,line-height,padding,background-color,border-color"))))
+            push out (PresHelp.feature("code" (PresI18n.t("Code")) cs (PresI18n.t("The same rule applies to code blocks and inline code.")) (PresHelp.rule(css "code" (PresI18n.t("Code.")) "font-family,font-size,line-height,padding,background-color,border-color"))))
         }
         if (sc.table || sc.htmlTable) {
             def ts:string ""
@@ -638,19 +639,19 @@ class PresHelp {
                 }
                 ts = (ts + "<table> <tr><th colspan=\"2\">…</th></tr> <td rowspan=\"2\">…</td>")
             }
-            push out (PresHelp.feature("table" "Taulukko" ts "Solun tasaus: :---: sarakkeen erotinrivillä tai align=\"center\" HTML-solussa." (PresHelp.rule(css "table" "Taulukon viivat, otsikkorivi ja solujen väli." "border-color,background-color,padding-left,padding-top"))))
+            push out (PresHelp.feature("table" (PresI18n.t("Table")) ts (PresI18n.t("Cell alignment: :---: in the column separator row, or align=\"center\" in an HTML cell.")) (PresHelp.rule(css "table" (PresI18n.t("Table lines, header row and cell spacing.")) "border-color,background-color,padding-left,padding-top"))))
         }
         if sc.link {
-            push out (PresHelp.feature("link" "Linkki" "[teksti](https://…)   <a href=\"…\">teksti</a>" "" (PresHelp.rule(css "a" "Linkki." "color"))))
+            push out (PresHelp.feature("link" (PresI18n.t("Link")) (PresI18n.t("[text](https://…)   <a href=\"…\">text</a>")) "" (PresHelp.rule(css "a" (PresI18n.t("Link.")) "color"))))
         }
         if sc.hr {
-            push out (PresHelp.feature("hr" "Vaakaviiva" "---" "" (PresHelp.rule(css "hr" "Viiva." "color"))))
+            push out (PresHelp.feature("hr" (PresI18n.t("Horizontal rule")) "---" "" (PresHelp.rule(css "hr" (PresI18n.t("Rule.")) "color"))))
         }
         if sc.mark {
-            push out (PresHelp.feature("mark" "Korostus" "<mark>korostettu</mark>" "" (PresHelp.rule(css "mark" "Korostettu teksti." "background-color,color"))))
+            push out (PresHelp.feature("mark" (PresI18n.t("Highlight")) (PresI18n.t("<mark>highlighted</mark>")) "" (PresHelp.rule(css "mark" (PresI18n.t("Highlighted text.")) "background-color,color"))))
         }
         if sc.kbd {
-            push out (PresHelp.feature("kbd" "Näppäin" "<kbd>Ctrl</kbd> + <kbd>C</kbd>" "Teksti on koodin kirjasimella (code { font-family })." (PresHelp.rule(css "kbd" "Näppäimen kuva." "background-color,border-color"))))
+            push out (PresHelp.feature("kbd" (PresI18n.t("Key")) "<kbd>Ctrl</kbd> + <kbd>C</kbd>" (PresI18n.t("The text uses the code font (code { font-family }).")) (PresHelp.rule(css "kbd" (PresI18n.t("The key cap.")) "background-color,border-color"))))
         }
         ; the inline HTML that has no rule of its own
         def known:string "u ins s del strike ~~ sub sup small big abbr acronym q br span font style em strong b i"
@@ -661,19 +662,19 @@ class PresHelp {
             def tg:string (itemAt parts k2)
             if (PresHelp.hasTag(sc tg)) {
                 def ex:string ""
-                if ((tg == "u") || (tg == "ins")) { ex = "<u>alleviivattu</u>" }
-                if ((tg == "s") || ((tg == "del") || (tg == "strike"))) { ex = "<s>yliviivattu</s>" }
-                if (tg == "~~") { ex = "~~yliviivattu~~" }
+                if ((tg == "u") || (tg == "ins")) { ex = (PresI18n.t("<u>underlined</u>")) }
+                if ((tg == "s") || ((tg == "del") || (tg == "strike"))) { ex = (PresI18n.t("<s>struck through</s>")) }
+                if (tg == "~~") { ex = (PresI18n.t("~~struck through~~")) }
                 if (tg == "sub") { ex = "H<sub>2</sub>O" }
                 if (tg == "sup") { ex = "x<sup>2</sup>" }
-                if (tg == "small") { ex = "<small>pieni teksti</small> (85 %)" }
-                if (tg == "big") { ex = "<big>iso teksti</big> (115 %)" }
-                if ((tg == "abbr") || (tg == "acronym")) { ex = "<abbr title=\"selitys\">GUI</abbr> (katkoviiva alla)" }
-                if (tg == "q") { ex = "<q>lainaus</q>" }
-                if (tg == "br") { ex = "rivinvaihto<br>" }
-                if ((tg == "span") || ((tg == "font") || (tg == "style"))) { ex = "<span style=\"color: #ff8800\">oma väri</span>" }
-                if ((tg == "em") || (tg == "i")) { ex = "<em>kursiivi</em>" }
-                if ((tg == "strong") || (tg == "b")) { ex = "<strong>lihavoitu</strong>" }
+                if (tg == "small") { ex = (PresI18n.t("<small>small text</small> (85%)")) }
+                if (tg == "big") { ex = (PresI18n.t("<big>big text</big> (115%)")) }
+                if ((tg == "abbr") || (tg == "acronym")) { ex = (PresI18n.t("<abbr title=\"explanation\">GUI</abbr> (dashed underline)")) }
+                if (tg == "q") { ex = (PresI18n.t("<q>quote</q>")) }
+                if (tg == "br") { ex = (PresI18n.t("line break<br>")) }
+                if ((tg == "span") || ((tg == "font") || (tg == "style"))) { ex = (PresI18n.t("<span style=\"color: #ff8800\">custom color</span>")) }
+                if ((tg == "em") || (tg == "i")) { ex = (PresI18n.t("<em>italic</em>")) }
+                if ((tg == "strong") || (tg == "b")) { ex = (PresI18n.t("<strong>bold</strong>")) }
                 if (((strlen ex) > 0) && ((indexOf syn2 ex) < 0)) {
                     if ((strlen syn2) > 0) {
                         syn2 = (syn2 + "   ")
@@ -684,27 +685,27 @@ class PresHelp {
             k2 = (k2 + 1)
         }
         if ((strlen syn2) > 0) {
-            push out (PresHelp.feature("html" "HTML-muotoilut" syn2 "Näillä ei ole omaa teeman sääntöä: väri tulee tekstistä (document { color }). Yksittäisen kohdan värin voi antaa style=\"color: …\" -määrittelyllä mihin tahansa näistä tageista." ""))
+            push out (PresHelp.feature("html" (PresI18n.t("HTML formatting")) syn2 (PresI18n.t("These have no theme rule of their own: the color comes from the text (document { color }). To color a single spot, add style=\"color: …\" to any of these tags.")) ""))
         }
         if sc.math {
-            push out (PresHelp.feature("math" "Kaavat" "$E = mc^2$ rivin sisällä   $$\\frac{a}{b}$$ omalla rivillään   ```math … ```" "Kaava piirretään ympäröivän tekstin koossa ja värissä. Värin voi vaihtaa kaavan sisällä: \\color{red}{x}." (PresHelp.rule(css "document" "Kaavan koko ja väri tulevat tekstistä." "font-size,color"))))
+            push out (PresHelp.feature("math" (PresI18n.t("Formulas")) (PresI18n.t("$E = mc^2$ inline   $$\\frac{a}{b}$$ on its own line   ```math … ```")) (PresI18n.t("A formula is drawn in the size and color of the surrounding text. To change its color inside the formula: \\color{red}{x}.")) (PresHelp.rule(css "document" (PresI18n.t("The formula's size and color come from the text.")) "font-size,color"))))
         }
         if sc.image {
-            push out (PresHelp.feature("image" "Kuva" "![kuvaus](kuva.png)   {width=60% height=50% align=center}" "Napsauta kuvan riviä editorissa tai kaksoisnapsauta kuvaa diassa: Kuvan asetukset (koko, paikka, kuvaus, taustakuvaksi). Kuva pienenee mahtumaan diaan. Kuvan voi vetää editoriin, liittää leikepöydältä tai lisätä Tiedostot-välilehdeltä." ((PresHelp.rule(css "img" "Kaikki kuvat." "justify-content,max-height")) + "," + (PresHelp.rule(css "page" "Kaikkien diojen taustakuva." "background-image")))))
+            push out (PresHelp.feature("image" (PresI18n.t("Image")) (PresI18n.t("![description](image.png)   {width=60% height=50% align=center}")) (PresI18n.t("Click the image's line in the editor or double-click the image on the slide: Image settings (size, position, description, use as background). The image shrinks to fit the slide. Drag an image into the editor, paste it from the clipboard or add it from the Files tab.")) ((PresHelp.rule(css "img" (PresI18n.t("All images.")) "justify-content,max-height")) + "," + (PresHelp.rule(css "page" (PresI18n.t("Background image for all slides.")) "background-image")))))
         }
         if sc.diagram {
-            push out (PresHelp.feature("diagram" "Kaavio" "```mermaid {tour=on style=sketch} … ```" "Mermaid-, DOT-, D2- ja PlantUML-kaaviot, kokonaisina. ▶ zoom-nappien vieressä (esityksessä T) käy kaavion läpi; tour=on aloittaa kierroksen itsestään. Kaaviokohtaiset asetukset aaltosulkeissa lohkon ensimmäisellä rivillä." (PresHelp.rule(css "diagram" "Kaavioiden värit." "color,accent-color"))))
+            push out (PresHelp.feature("diagram" (PresI18n.t("Diagram")) "```mermaid {tour=on style=sketch} … ```" (PresI18n.t("Mermaid, DOT, D2 and PlantUML diagrams, shown whole. ▶ next to the zoom buttons (T in the presentation) walks through the diagram; tour=on starts the tour on its own. Per-diagram settings go in braces on the block's first line.")) (PresHelp.rule(css "diagram" (PresI18n.t("Diagram colors.")) "color,accent-color"))))
         }
         if sc.chart {
             ; the charts of this slide alone: its heading's anchor
             def anchor:string (MdAnchor.slug(title))
-            def rules:string (PresHelp.rule(css "chart" "Kaavioiden värit, tyyli ja koot." "color,accent-color,label-color,contrast,chart-style,chart-effects,font-size,title-font-size,title-gap,padding,justify-content"))
-            def doc:string "Kaavion omat asetukset (\"config\", \"padding\") voittavat teeman."
+            def rules:string (PresHelp.rule(css "chart" (PresI18n.t("Chart colors, style and sizes.")) "color,accent-color,label-color,contrast,chart-style,chart-effects,font-size,title-font-size,title-gap,padding,justify-content"))
+            def doc:string (PresI18n.t("The chart's own settings (\"config\", \"padding\") override the theme."))
             if ((strlen anchor) > 0) {
-                rules = (rules + "," + (PresHelp.rule(css ("#" + anchor + " chart") "Vain tämän dian kaaviot (otsikon ankkuri)." "font-size,title-font-size,title-gap,padding,justify-content")))
-                doc = ("Vain tämän dian kaaviot: #" + anchor + " chart { … } – nimi on otsikon ankkuri, sama kuin linkissä #" + anchor + ". " + doc)
+                rules = (rules + "," + (PresHelp.rule(css ("#" + anchor + " chart") (PresI18n.t("Only this slide's charts (the heading's anchor).")) "font-size,title-font-size,title-gap,padding,justify-content")))
+                doc = ((PresI18n.t("Only this slide's charts: #")) + anchor + (PresI18n.t(" chart { … } – the name is the heading's anchor, the same as in a link #")) + anchor + ". " + doc)
             }
-            push out (PresHelp.feature("chart" "Vega-Lite-kaavio" "```vega-lite { … } ```" doc rules))
+            push out (PresHelp.feature("chart" (PresI18n.t("Vega-Lite chart")) "```vega-lite { … } ```" doc rules))
         }
         ; classes
         def cls:[string] (strsplit (trim sc.classes) " ")
@@ -733,23 +734,23 @@ class PresHelp {
                 if ((strlen props) > 0) {
                     rules2 = (PresHelp.rule(css cl (PresHints.classDoc(cl)) props))
                 }
-                def cdoc:string ((PresHints.classDoc(cl)) + " Koko: pt, em (1.3em) tai % tekstin koosta.")
-                push out (PresHelp.feature(("class" + cl) ("Luokka " + cl) (cl + " aaltosulkeissa: {" + cl + "} kappaleen jälkeen tai otsikon perässä") cdoc rules2))
+                def cdoc:string ((PresHints.classDoc(cl)) + (PresI18n.t(" Size: pt, em (1.3em) or % of the text size.")))
+                push out (PresHelp.feature(("class" + cl) ((PresI18n.t("Class ")) + cl) (cl + (PresI18n.t(" in braces: {")) + cl + (PresI18n.t("} after a paragraph or at the end of a heading"))) cdoc rules2))
             }
             c = (c + 1)
         }
         ; what every slide carries at its top and bottom
-        push out (PresHelp.feature("furniture" "Ylä- ja alaosa" "---   header: Yritys Oy   footer: {page} / {pages}   header-image: media/logo.png   ---" "Front matterissa (dokumentin alussa) tai teemassa. {page}, {pages} ja {title} täyttyvät jokaisella dialla. Dian oma taustakuva: ## Otsikko {bg=media/kuva.jpg bg-dim=0.4}." ((PresHelp.rule(css "header" "Jokaisen dian yläosa." "content,background-image,text-align,font-size,color,height")) + "," + (PresHelp.rule(css "footer" "Jokaisen dian alaosa." "content,background-image,text-align,font-size,color,height")))))
+        push out (PresHelp.feature("furniture" (PresI18n.t("Header and footer")) (PresI18n.t("---   header: Company Ltd   footer: {page} / {pages}   header-image: media/logo.png   ---")) (PresI18n.t("In the front matter (at the start of the document) or in the theme. {page}, {pages} and {title} are filled in on every slide. A slide's own background image: ## Title {bg=media/image.jpg bg-dim=0.4}.")) ((PresHelp.rule(css "header" (PresI18n.t("The top of every slide.")) "content,background-image,text-align,font-size,color,height")) + "," + (PresHelp.rule(css "footer" (PresI18n.t("The bottom of every slide.")) "content,background-image,text-align,font-size,color,height")))))
         ; the slide's own settings
         if ((array_length sc.attrNames) > 0) {
-            def f:string (PresHelp.feature("attrs" "Dian asetukset" "## Otsikko {transition=zoom fx=starfield}" "Nämä ovat Markdownissa, eivät teemassa. Vie hiiri arvon päälle editorissa vaihtaaksesi sen." ""))
+            def f:string (PresHelp.feature("attrs" (PresI18n.t("Slide settings")) (PresI18n.t("## Title {transition=zoom fx=starfield}")) (PresI18n.t("These are in the Markdown, not the theme. Hover over a value in the editor to change it.")) ""))
             def a:string ""
             def i:int 0
             while (i < (array_length sc.attrNames)) {
                 def nm:string (itemAt sc.attrNames i)
                 def d:string (PresHints.attrDoc(nm))
                 if (((strlen d) == 0) && (PresHelp.startsWith(nm "fx-"))) {
-                    d = "Taustaefektin parametri."
+                    d = (PresI18n.t("A background effect parameter."))
                 }
                 if ((strlen a) > 0) {
                     a = (a + ",")

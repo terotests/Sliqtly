@@ -200,6 +200,19 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | `.github/workflows/deploy.yml` | On a push to `main`: build, checks, deploy `web/dist` to Firebase Hosting (`sliqtly.web.app`) |
 | `scripts/` | setup, build, start (local server), check, check-web |
 
+## Languages
+
+The interface is written in English in the source: `PresI18n.t("…")` in
+`src/*.rgr`, `t("…")` in `web/*.js`, `data-i18n` attributes in
+`web/index.html`. `web/i18n/<code>.json` maps each English string to another
+language (`fi.json` now); a missing entry stays English. The language comes
+from `?lang=`, the one chosen before with the bar's 🌐 button, or the
+browser's preference.
+
+A new language: copy `fi.json` to `<code>.json`, translate the values, add the
+code to `LANGS` in `web/i18n.js`. `npm run i18n` lists the strings a table
+lacks and the entries nothing uses any more.
+
 ## Deploy (Firebase Hosting)
 
 The project is `sliqtly` (`.firebaserc`); `firebase.json` serves `web/dist`.

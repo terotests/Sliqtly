@@ -29,6 +29,7 @@
 ; ============================================================================
 
 Import "PresTimeline.rgr"
+Import "PresI18n.rgr"
 Import "../datagrid/src/script/ScriptEditor.rgr"
 Import "../game_engine/ui/UITextRenderer.rgr"
 Import "../game_engine/ui/UIInput.rgr"
@@ -309,10 +310,10 @@ class PresApp {
     fn makeTabs:void () {
         tabs = (new TabsCtl())
         tabs.tid = "edtabs"
-        tabs.name = "Editori"
+        tabs.name = (PresI18n.t("Editor"))
         tabs.addItem("md" "Markdown" "" false)
-        tabs.addItem("css" "Teema (CSS)" "" false)
-        tabs.addItem("files" "Tiedostot" "" false)
+        tabs.addItem("css" (PresI18n.t("Theme (CSS)")) "" false)
+        tabs.addItem("files" (PresI18n.t("Files")) "" false)
         tabs.value = edTab
         tabs.build()
     }
@@ -1306,7 +1307,7 @@ class PresApp {
         root.addChild((PresApp.div("stage-area" "stage-area" stageArea.x stageArea.y stageArea.w stageArea.h)))
         root.addChild((PresApp.div("slide-shadow" "slide-shadow" (slideRect.x - 1.0) (slideRect.y - 1.0) (slideRect.w + 2.0) (slideRect.h + 2.0))))
         if ((deck.slideCount()) == 0) {
-            root.addChild((PresApp.label("empty" "empty" "Kirjoita vasemmalle: ## Otsikko aloittaa dian" (stageArea.x + 24.0) (stageArea.y + 24.0))))
+            root.addChild((PresApp.label("empty" "empty" (PresI18n.t("Type on the left: ## Title starts a slide")) (stageArea.x + 24.0) (stageArea.y + 24.0))))
         }
         if (trackRect.h > 0.0) {
             this.tracks(root)
@@ -1324,7 +1325,7 @@ class PresApp {
         }
         def s:PresSlide (deck.slideAt(selected))
         def dur:double s.duration
-        def head:string ("Dia " + (to_string (selected + 1)) + " / " + (to_string (deck.slideCount())))
+        def head:string ((PresI18n.t("Slide ")) + (to_string (selected + 1)) + " / " + (to_string (deck.slideCount())))
         if ((strlen s.title) > 0) {
             head = (head + " — " + s.title)
         }
@@ -1332,11 +1333,12 @@ class PresApp {
         root.addChild((PresApp.label("tr-time" "track-time" ((PresApp.secs((this.stageTime()))) + " / " + (PresApp.secs(dur))) ((r.x + r.w) - 110.0) (r.y + 6.0))))
         def rowY:double (r.y + 28.0)
         def rowH:double 26.0
-        def names:[string] ([] _:string ("Teksti" "Puhe" "Animaatio"))
+        ; i18n: "Text" "Speech" "Animation" (translated where drawn)
+        def names:[string] ([] _:string ("Text" "Speech" "Animation"))
         def k:int 0
         while (k < 3) {
             def y:double (rowY + ((to_double k) * (rowH + 2.0)))
-            root.addChild((PresApp.label(("tr-name" + (to_string k)) "track-name" (itemAt names k) (r.x + 12.0) (y + 5.0))))
+            root.addChild((PresApp.label(("tr-name" + (to_string k)) "track-name" (PresI18n.t((itemAt names k))) (r.x + 12.0) (y + 5.0))))
             root.addChild((PresApp.div(("lane" + (to_string k)) "lane" laneX y laneW rowH)))
             k = (k + 1)
         }
@@ -1364,9 +1366,9 @@ class PresApp {
             root.addChild((PresApp.div("aud" "clip clip-audio" laneX (sy + 3.0) laneW (rowH - 6.0))))
             root.addChild((PresApp.label("audl" "clip-label" s.audio (laneX + 6.0) (sy + 7.0))))
         } {
-            def hint:string "ei ääntä"
+            def hint:string (PresI18n.t("no audio"))
             if ((strlen s.notes) > 0) {
-                hint = "muistiinpanot valmiina, ääni tulee vaiheessa 5"
+                hint = (PresI18n.t("notes ready, audio comes in phase 5"))
             }
             root.addChild((PresApp.label("audl" "lane-hint" hint (laneX + 8.0) (sy + 7.0))))
         }
@@ -1386,9 +1388,9 @@ class PresApp {
             def dx0:double (this.timeX(du.start dur))
             def dx1:double (this.timeX((du.start + du.diagram.total) dur))
             root.addChild((PresApp.div(("dia" + (to_string dg)) "clip clip-dia" dx0 (ay + 3.0) (dx1 - dx0) (rowH - 6.0))))
-            def dl:string "kaavio: piirto"
+            def dl:string (PresI18n.t("diagram: draw"))
             if du.diagram.tour {
-                dl = "kaavio: piirto + kierros"
+                dl = (PresI18n.t("diagram: draw + tour"))
             }
             root.addChild((PresApp.label(("dial" + (to_string dg)) "clip-label" dl (dx0 + 6.0) (ay + 7.0))))
             dg = (dg + 1)
@@ -1438,20 +1440,20 @@ class PresApp {
         def s:PresSlide (deck.slideAt(selected))
         def nx:double nextRect.x
         root.addChild((PresApp.label("sp-clock" "sp-clock" (PresApp.clockText(elapsed)) nx 18.0)))
-        def where:string ("Dia " + (to_string (selected + 1)) + " / " + (to_string (deck.slideCount())))
+        def where:string ((PresI18n.t("Slide ")) + (to_string (selected + 1)) + " / " + (to_string (deck.slideCount())))
         if (s.steps > 0) {
-            where = (where + "  ·  askel " + (to_string pStep) + " / " + (to_string s.steps))
+            where = (where + (PresI18n.t("  ·  step ")) + (to_string pStep) + " / " + (to_string s.steps))
         }
         root.addChild((PresApp.label("sp-where" "sp-where" where (nx + 110.0) 24.0)))
         def ny:double ((nextRect.y + nextRect.h) + 18.0)
         if ((selected + 1) >= (deck.slideCount())) {
             ny = nextRect.y
-            root.addChild((PresApp.label("sp-end" "sp-where" "Viimeinen dia" nx ny)))
+            root.addChild((PresApp.label("sp-end" "sp-where" (PresI18n.t("Last slide")) nx ny)))
             ny = (ny + 28.0)
         }
         def notes:string s.notes
         if ((strlen notes) == 0) {
-            notes = "(ei muistiinpanoja)"
+            notes = (PresI18n.t("(no notes)"))
         }
         def box:EVGElement (PresApp.div("sp-notes" "sp-notes" nx ny nextRect.w ((H - ny) - 24.0)))
         box.textContent = notes
@@ -2764,27 +2766,27 @@ class PresApp {
             def cur:PresSlide (deck.slideAt(shown))
             title = cur.title
         }
-        def where:string ("Dia " + (to_string (shown + 1)) + " / " + (to_string n) + ": " + title)
+        def where:string ((PresI18n.t("Slide ")) + (to_string (shown + 1)) + " / " + (to_string n) + ": " + title)
         if (mode != "present") {
             if (barH > 0.0) {
                 def bar:EVGA11yNode (t.node("bar" "app" (EVGA11yRole.toolbar())))
-                bar.name = "Työkalupalkki"
+                bar.name = (PresI18n.t("Toolbar"))
                 t.place(bar 0 0 (to_int W) (to_int barH))
                 PresA11y.addHost(t toolbar.host "bar")
             }
             if ((edRect.w > 0.0) && (!null? chromeRoot)) {
                 def page:EVGElement (unwrap chromeRoot)
                 def tl:EVGA11yNode (t.node("edtabs" "app" (EVGA11yRole.tabList())))
-                tl.name = "Editori"
+                tl.name = (PresI18n.t("Editor"))
                 t.place(tl (to_int tabRect.x) (to_int tabRect.y) (to_int tabRect.w) (to_int tabRect.h))
                 this.a11yTab(t page "md" "Markdown")
-                this.a11yTab(t page "css" "Teema (CSS)")
-                this.a11yTab(t page "files" "Tiedostot")
+                this.a11yTab(t page "css" (PresI18n.t("Theme (CSS)")))
+                this.a11yTab(t page "files" (PresI18n.t("Files")))
             }
             if (!null? chromeRoot) {
                 def page2:EVGElement (unwrap chromeRoot)
                 def list:EVGA11yNode (t.node("slides" "app" (EVGA11yRole.list())))
-                list.name = "Diat"
+                list.name = (PresI18n.t("Slides"))
                 t.place(list (to_int stripRect.x) (to_int stripRect.y) (to_int stripRect.w) (to_int stripRect.h))
                 def i:int 0
                 while (i < n) {
@@ -2792,7 +2794,7 @@ class PresApp {
                     def el@(optional):EVGElement (PresA11y.find(page2 ("thumb" + (to_string i))))
                     if (!null? el) {
                         def e:EVGElement (unwrap el)
-                        def b:EVGA11yNode (t.button(("thumb-" + (to_string i)) "slides" ("Dia " + (to_string (i + 1)) + ": " + s.title)))
+                        def b:EVGA11yNode (t.button(("thumb-" + (to_string i)) "slides" ((PresI18n.t("Slide ")) + (to_string (i + 1)) + ": " + s.title)))
                         b.selected = (i == selected)
                         PresA11y.placeAt(b e)
                     }
@@ -2835,14 +2837,14 @@ class PresApp {
                     def q:int 0
                     while (q < (props.count())) {
                         def pj:VlJson (props.at(q))
-                        PresA11y.buttonAt(t hp ("hp-prop-" + (to_string q)) "hint" ((pj.stringOr("name" "")) + " " + (pj.stringOr("value" "lisää"))))
+                        PresA11y.buttonAt(t hp ("hp-prop-" + (to_string q)) "hint" ((pj.stringOr("name" "")) + " " + (pj.stringOr("value" (PresI18n.t("add"))))))
                         q = (q + 1)
                     }
                 }
             }
             if chart.isOpen {
                 def cn:EVGA11yNode (t.node("chart" "app" (EVGA11yRole.dialog())))
-                cn.name = "Kaavion asetukset"
+                cn.name = (PresI18n.t("Chart settings"))
                 t.place(cn 0 0 (to_int W) (to_int H))
                 PresA11y.addHost(t chart.host "chart")
             }
@@ -2890,7 +2892,7 @@ class PresApp {
             def l:string (trim (itemAt lines k))
             if ((indexOf l "```") == 0) {
                 if (inFence == false) {
-                    push out "[kaavio tai koodi]"
+                    push out (PresI18n.t("[chart or code]"))
                 }
                 inFence = (inFence == false)
             } {
@@ -3985,6 +3987,6 @@ class PresApp {
 
     fn statusText:string () {
         def n:int (deck.slideCount())
-        return ((to_string n) + " diaa · " + (PresApp.secs((PresTimeline.total(deck)))))
+        return ((to_string n) + (PresI18n.t(" slides · ")) + (PresApp.secs((PresTimeline.total(deck)))))
     }
 }

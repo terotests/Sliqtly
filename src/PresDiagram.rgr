@@ -32,6 +32,7 @@
 Import "../markdown/web/markdown_web.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
 Import "pkg:evg/EVGColor.rgr"
+Import "PresI18n.rgr"
 
 class PresDNode {
     def id:string ""
@@ -3122,8 +3123,8 @@ class PresDiagram {
         frame.thickness = 1.2
         PresDiagram.tint(frame (PresDiagram.rgba(acR acG acB 0.6)) 1.0)
         push out.cmds frame
-        this.menuItem(out (mx + 16.0) (my + 10.0) "↺  Aloita alusta" l)
-        this.menuItem(out (mx + 16.0) (my + 42.0) "◎  Näytä kaikki" l)
+        this.menuItem(out (mx + 16.0) (my + 10.0) ("↺  " + (PresI18n.t("Start over"))) l)
+        this.menuItem(out (mx + 16.0) (my + 42.0) ("◎  " + (PresI18n.t("Show all"))) l)
     }
 
     fn menuItem:void (out:EVGDisplayList x:double y:double text:string l:MdLayout) {
@@ -3223,7 +3224,7 @@ class PresDiagram {
     ; it at the bottom right, with the seconds left before it is taken.
     fn paintAsk:void (out:EVGDisplayList bx:double by:double bw:double bh:double l:MdLayout) {
         def n:int (array_length options)
-        def hint:string ("Valitse jatko: napauta vaihtoehtoa tai paina 1–" + (to_string n))
+        def hint:string ((PresI18n.t("Choose what comes next: tap an option or press 1–")) + (to_string n))
         def hs:double 13.0
         def hw:double (l.measureStyled(hint "Open Sans" hs false false))
         def hx:double ((bx + (bw * 0.5)) - ((hw + 24.0) * 0.5))
@@ -3251,9 +3252,9 @@ class PresDiagram {
         if (! live) {
             return
         }
-        def label:string "Ohita »"
+        def label:string (PresI18n.t("Skip »"))
         if (skipLeft >= 0.0) {
-            label = ("Ohita » " + (to_string (ceil skipLeft)))
+            label = ((PresI18n.t("Skip » ")) + (to_string (ceil skipLeft)))
         }
         def w:double 126.0
         def h:double 32.0

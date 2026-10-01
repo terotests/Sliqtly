@@ -24,6 +24,7 @@
 ; An empty string when there is nothing to say.
 ; ============================================================================
 
+Import "PresI18n.rgr"
 Import "../markdown/src/MdHtml.rgr"
 
 class PresHints {
@@ -45,12 +46,12 @@ class PresHints {
     }
 
     sfn fxDoc:string (fx:string) {
-        if (fx == "starfield") { return "Tähtikenttä, joka liikkuu hitaasti; sumu ja tuike." }
-        if (fx == "plasma-wave") { return "Aaltoilevat valonauhat." }
-        if (fx == "smoke") { return "Hitaasti nouseva savu." }
-        if (fx == "ambient-light") { return "Pehmeät, liikkuvat valopallot." }
-        if (fx == "liquid-glass") { return "Lasimainen taittuva reunus." }
-        if (fx == "raindrop") { return "Pisarat lasin pinnalla." }
+        if (fx == "starfield") { return (PresI18n.t("A slowly drifting starfield with nebula and twinkle.")) }
+        if (fx == "plasma-wave") { return (PresI18n.t("Waving ribbons of light.")) }
+        if (fx == "smoke") { return (PresI18n.t("Slowly rising smoke.")) }
+        if (fx == "ambient-light") { return (PresI18n.t("Soft, drifting orbs of light.")) }
+        if (fx == "liquid-glass") { return (PresI18n.t("A glassy, refracting edge.")) }
+        if (fx == "raindrop") { return (PresI18n.t("Drops on a pane of glass.")) }
         return ""
     }
 
@@ -70,32 +71,32 @@ class PresHints {
     }
 
     sfn attrDoc:string (key:string) {
-        if (key == "transition") { return "Siirtymä tälle dialle." }
-        if (key == "seconds") { return "Siirtymän kesto sekunteina." }
-        if (key == "duration") { return "Dian kesto toistossa, sekunteina." }
-        if (key == "step") { return "Aika rakentuvien kohtien välillä, sekunteina." }
-        if (key == "hold") { return "Aika viimeisen kohdan jälkeen, sekunteina." }
-        if (key == "fx") { return "Taustaefekti (EVG). Parametrit: fx-<nimi>=<luku>." }
-        if (key == "anim") { return "Miten kohdat tulevat näkyviin." }
-        if (key == "width") { return "Leveys: pisteinä (400) tai prosentteina palstasta (60%). Kuva ja kaavio pysyvät muodossaan." }
-        if (key == "height") { return "Kuvan korkeus: pisteinä tai prosentteina dian sisällön korkeudesta (50%)." }
-        if (key == "align") { return "Kuvan paikka palstassa: left, center tai right." }
-        if (key == "bg") { return "Dian taustakuva, peittää koko dian: bg=media/kuva.jpg" }
-        if (key == "bg-dim") { return "Kuinka paljon dian pohjaväriä taustakuvan päälle (0–1), jotta teksti erottuu." }
-        if (key == "header") { return "Jokaisen dian yläosan teksti. {page}, {pages} ja {title} täyttyvät." }
-        if (key == "footer") { return "Jokaisen dian alaosan teksti, esim. {page} / {pages}." }
-        if ((key == "header-image") || (key == "footer-image")) { return "Kuva ylä- tai alaosan tekstin viereen, esim. media/logo.png." }
-        if ((key == "header-align") || (key == "footer-align")) { return "left, center tai right." }
-        if (key == "diagram") { return "classic: kaavion alkuperäinen piirros ilman kiertokäyntiä." }
-        if (key == "layout") { return "keep: kaavion suunta niin kuin se on kirjoitettu." }
-        if (key == "tour") { return "on: kiertokäynti alkaa itsestään dian mukana. Oletuksena kaavio näytetään kokonaan, ja ▶ zoom-nappien vieressä (esityksessä T) käynnistää kierroksen." }
-        if (key == "ball") { return "off: ei valopalloa nuolia pitkin." }
-        if (key == "choose") { return "off: haarautumissa ei kysytä suuntaa." }
-        if (key == "zoom") { return "Suurin mittakaava, jolla kaavion laatikko piirretään." }
-        if (key == "style") { return "Kaavion tyyli: holo (lasi) tai sketch (käsin piirretty)." }
-        if (key == "slide-grow") { return "Kuinka paljon väljä dia saa kasvaa (off: ei ollenkaan)." }
-        if (key == "slide-split-level") { return "Monennenko tason otsikko aloittaa dian." }
-        if (key == "title") { return "Esityksen nimi." }
+        if (key == "transition") { return (PresI18n.t("Transition for this slide.")) }
+        if (key == "seconds") { return (PresI18n.t("Transition length in seconds.")) }
+        if (key == "duration") { return (PresI18n.t("How long the slide shows in playback, in seconds.")) }
+        if (key == "step") { return (PresI18n.t("Time between build steps, in seconds.")) }
+        if (key == "hold") { return (PresI18n.t("Time after the last step, in seconds.")) }
+        if (key == "fx") { return (PresI18n.t("Background effect (EVG). Parameters: fx-<name>=<number>.")) }
+        if (key == "anim") { return (PresI18n.t("How items appear.")) }
+        if (key == "width") { return (PresI18n.t("Width: in points (400) or as a percentage of the column (60%). Images and charts keep their proportions.")) }
+        if (key == "height") { return (PresI18n.t("Image height: in points or as a percentage of the slide's content height (50%).")) }
+        if (key == "align") { return (PresI18n.t("Image position in the column: left, center or right.")) }
+        if (key == "bg") { return (PresI18n.t("Slide background image, covers the whole slide: bg=media/kuva.jpg")) }
+        if (key == "bg-dim") { return (PresI18n.t("How much of the slide's base color goes over the background image (0–1), so text stands out.")) }
+        if (key == "header") { return (PresI18n.t("Header text on every slide. {page}, {pages} and {title} are filled in.")) }
+        if (key == "footer") { return (PresI18n.t("Footer text on every slide, e.g. {page} / {pages}.")) }
+        if ((key == "header-image") || (key == "footer-image")) { return (PresI18n.t("Image next to the header or footer text, e.g. media/logo.png.")) }
+        if ((key == "header-align") || (key == "footer-align")) { return (PresI18n.t("left, center or right.")) }
+        if (key == "diagram") { return (PresI18n.t("classic: the diagram's original drawing, without a tour.")) }
+        if (key == "layout") { return (PresI18n.t("keep: the diagram's direction as written.")) }
+        if (key == "tour") { return (PresI18n.t("on: the tour starts on its own with the slide. By default the whole diagram is shown, and ▶ next to the zoom buttons (T while presenting) starts the tour.")) }
+        if (key == "ball") { return (PresI18n.t("off: no ball of light along the arrows.")) }
+        if (key == "choose") { return (PresI18n.t("off: don't ask which way to go at branches.")) }
+        if (key == "zoom") { return (PresI18n.t("Largest scale a diagram box is drawn at.")) }
+        if (key == "style") { return (PresI18n.t("Diagram style: holo (glass) or sketch (hand-drawn).")) }
+        if (key == "slide-grow") { return (PresI18n.t("How much a sparse slide may grow (off: not at all).")) }
+        if (key == "slide-split-level") { return (PresI18n.t("Which heading level starts a new slide.")) }
+        if (key == "title") { return (PresI18n.t("Presentation title.")) }
         return ""
     }
 
@@ -125,12 +126,12 @@ class PresHints {
     }
 
     sfn classDoc:string (c:string) {
-        if (c == ".build") { return "Kohdat tulevat näkyviin yksi kerrallaan." }
-        if (c == ".lead") { return "Ingressi: suurempi teksti." }
-        if (c == ".kicker") { return "Pieni lisärivi." }
-        if (c == ".c2") { return "Kahteen palstaan." }
-        if (c == ".c3") { return "Kolmeen palstaan." }
-        return "Luokka, jonka teeman CSS määrittelee."
+        if (c == ".build") { return (PresI18n.t("Items appear one at a time.")) }
+        if (c == ".lead") { return (PresI18n.t("Lead: larger text.")) }
+        if (c == ".kicker") { return (PresI18n.t("A small extra line.")) }
+        if (c == ".c2") { return (PresI18n.t("In two columns.")) }
+        if (c == ".c3") { return (PresI18n.t("In three columns.")) }
+        return (PresI18n.t("A class defined by the theme's CSS."))
     }
 
     ; A number range for an effect parameter, from its default and its name.
@@ -150,31 +151,31 @@ class PresHints {
 
     ; --- what the theme knows -------------------------------------------------
     sfn cssDoc:string (prop:string) {
-        if (prop == "color") { return "Tekstin väri (chart ja diagram: lämmin korostusväri)." }
-        if (prop == "accent-color") { return "Kylmä korostusväri: ruudukko, akselit, laatikot." }
-        if (prop == "background-color") { return "Taustaväri. #rrggbbaa antaa peittävyyden, none poistaa taustan." }
-        if (prop == "border-color") { return "Reunan väri." }
-        if (prop == "font-family") { return "Kirjasin." }
-        if (prop == "font-size") { return "Tekstin koko." }
-        if (prop == "line-height") { return "Riviväli tekstin koon kerrannaisena." }
-        if (prop == "chart-style") { return "Kaavioiden tyyli: flat, forge, neon tai glass." }
-        if (prop == "title-font-size") { return "Kaavion otsikon koko." }
-        if (prop == "title-gap") { return "Kaavion otsikon ja kaavion väli." }
-        if (prop == "justify-content") { return "Kaavion tai kuvan paikka vaakasuunnassa, kun se on kapeampi kuin dia: center (oletus), flex-start tai flex-end." }
-        if (prop == "content") { return "Ylä- tai alaosan teksti lainausmerkeissä. {page}, {pages} ja {title} täyttyvät: \"{page} / {pages}\"." }
-        if (prop == "max-height") { return "Kuvan suurin korkeus." }
-        if (prop == "label-color") { return "Kaavion tekstien (akselit, selite) väri." }
-        if (prop == "contrast") { return "auto: kaavion tekstit dian tekstin värillä vaalealla dialla (oletus). off: teeman vaalea tekstiväri." }
-        if (prop == "padding") { return "Tyhjä tila reunoilla (kaaviossa: kaavion ympärillä)." }
-        if (prop == "chart-effects") { return "Kaikkien kaavioiden lisäefektit: glow (hehku), shadow (varjo), gradient (liukuväri). Esim. glow gradient." }
-        if (prop == "split-level") { return "Monennenko tason otsikko aloittaa dian." }
-        if (prop == "overflow") { return "Mitä tehdään liian täydelle dialle." }
-        if (prop == "aspect-ratio") { return "Dian kuvasuhde." }
-        if (prop == "column-count") { return "Palstojen määrä." }
-        if (prop == "column-gap") { return "Palstojen väli." }
-        if (prop == "text-align") { return "Tekstin tasaus." }
-        if (prop == "width") { return "Sivun leveys." }
-        if (prop == "height") { return "Sivun korkeus." }
+        if (prop == "color") { return (PresI18n.t("Text color (chart and diagram: warm accent color).")) }
+        if (prop == "accent-color") { return (PresI18n.t("Cool accent color: grid, axes, boxes.")) }
+        if (prop == "background-color") { return (PresI18n.t("Background color. #rrggbbaa sets opacity, none removes the background.")) }
+        if (prop == "border-color") { return (PresI18n.t("Border color.")) }
+        if (prop == "font-family") { return (PresI18n.t("Font.")) }
+        if (prop == "font-size") { return (PresI18n.t("Text size.")) }
+        if (prop == "line-height") { return (PresI18n.t("Line spacing as a multiple of the text size.")) }
+        if (prop == "chart-style") { return (PresI18n.t("Chart style: flat, forge, neon or glass.")) }
+        if (prop == "title-font-size") { return (PresI18n.t("Chart title size.")) }
+        if (prop == "title-gap") { return (PresI18n.t("Space between the chart title and the chart.")) }
+        if (prop == "justify-content") { return (PresI18n.t("Horizontal position of a chart or image narrower than the slide: center (default), flex-start or flex-end.")) }
+        if (prop == "content") { return (PresI18n.t("Header or footer text in quotes. {page}, {pages} and {title} are filled in: \"{page} / {pages}\".")) }
+        if (prop == "max-height") { return (PresI18n.t("Maximum image height.")) }
+        if (prop == "label-color") { return (PresI18n.t("Color of chart text (axes, legend).")) }
+        if (prop == "contrast") { return (PresI18n.t("auto: chart text uses the slide's text color on a light slide (default). off: the theme's light text color.")) }
+        if (prop == "padding") { return (PresI18n.t("Empty space at the edges (for a chart: around the chart).")) }
+        if (prop == "chart-effects") { return (PresI18n.t("Extra effects for all charts: glow, shadow, gradient. E.g. glow gradient.")) }
+        if (prop == "split-level") { return (PresI18n.t("Which heading level starts a new slide.")) }
+        if (prop == "overflow") { return (PresI18n.t("What to do with an overfull slide.")) }
+        if (prop == "aspect-ratio") { return (PresI18n.t("Slide aspect ratio.")) }
+        if (prop == "column-count") { return (PresI18n.t("Number of columns.")) }
+        if (prop == "column-gap") { return (PresI18n.t("Space between columns.")) }
+        if (prop == "text-align") { return (PresI18n.t("Text alignment.")) }
+        if (prop == "width") { return (PresI18n.t("Page width.")) }
+        if (prop == "height") { return (PresI18n.t("Page height.")) }
         return ""
     }
 
@@ -215,25 +216,25 @@ class PresHints {
     }
 
     sfn selectorDoc:string (sel:string) {
-        if (sel == "page") { return "Dian koko, marginaali ja tausta." }
-        if (sel == "deck") { return "Miten dokumentti jaetaan dioiksi." }
-        if (sel == "document") { return "Kaiken tekstin oletukset." }
-        if (sel == "heading") { return "Kaikki otsikot." }
-        if (sel == "chart") { return "Vega-Lite-kaaviot lavalla, PDF:ssä ja PPTX:ssä." }
-        if (sel == "diagram") { return "Mermaid-, DOT-, D2- ja PlantUML-kaaviot lavalla." }
-        if (sel == "list") { return "Luettelot." }
-        if (sel == "li") { return "Luettelon kohta." }
-        if (((indexOf sel "#") == 0) && ((indexOf sel " chart") > 0)) { return "Yhden otsikon alla olevat kaaviot: #ankkuri on otsikon nimi pienillä kirjaimilla, välit viivoina." }
-        if (sel == "code") { return "Koodilohkot." }
-        if (sel == "table") { return "Taulukot." }
-        if (sel == "blockquote") { return "Lainaukset." }
-        if ((sel == "h1") || ((sel == "h2") || ((sel == "h3") || ((sel == "h4") || ((sel == "h5") || (sel == "h6")))))) { return ("Tason " + (substring sel 1 2) + " otsikko: koko ja väri. h1 = # (esityksen otsikko), h2 = ## (dian otsikko), h3 = ###.") }
-        if (sel == "body") { return "Kaiken tekstin oletukset (sama kuin document)." }
-        if (sel == "p") { return "Kappaleet." }
-        if (sel == "mark") { return "Korostus: <mark>…</mark>." }
-        if (sel == "kbd") { return "Näppäin: <kbd>…</kbd>." }
-        if (sel == "a") { return "Linkit." }
-        if (sel == "hr") { return "Vaakaviiva ja otsikon alla oleva viiva." }
+        if (sel == "page") { return (PresI18n.t("Slide size, margin and background.")) }
+        if (sel == "deck") { return (PresI18n.t("How the document is split into slides.")) }
+        if (sel == "document") { return (PresI18n.t("Defaults for all text.")) }
+        if (sel == "heading") { return (PresI18n.t("All headings.")) }
+        if (sel == "chart") { return (PresI18n.t("Vega-Lite charts on stage, in PDF and in PPTX.")) }
+        if (sel == "diagram") { return (PresI18n.t("Mermaid, DOT, D2 and PlantUML diagrams on stage.")) }
+        if (sel == "list") { return (PresI18n.t("Lists.")) }
+        if (sel == "li") { return (PresI18n.t("List item.")) }
+        if (((indexOf sel "#") == 0) && ((indexOf sel " chart") > 0)) { return (PresI18n.t("Charts under one heading: #anchor is the heading in lowercase, spaces as hyphens.")) }
+        if (sel == "code") { return (PresI18n.t("Code blocks.")) }
+        if (sel == "table") { return (PresI18n.t("Tables.")) }
+        if (sel == "blockquote") { return (PresI18n.t("Quotes.")) }
+        if ((sel == "h1") || ((sel == "h2") || ((sel == "h3") || ((sel == "h4") || ((sel == "h5") || (sel == "h6")))))) { return ((PresI18n.t("Level ")) + (substring sel 1 2) + (PresI18n.t(" heading: size and color. h1 = # (presentation title), h2 = ## (slide title), h3 = ###."))) }
+        if (sel == "body") { return (PresI18n.t("Defaults for all text (same as document).")) }
+        if (sel == "p") { return (PresI18n.t("Paragraphs.")) }
+        if (sel == "mark") { return (PresI18n.t("Highlight: <mark>…</mark>.")) }
+        if (sel == "kbd") { return (PresI18n.t("Key: <kbd>…</kbd>.")) }
+        if (sel == "a") { return (PresI18n.t("Links.")) }
+        if (sel == "hr") { return (PresI18n.t("Horizontal rule and the line under a heading.")) }
         if (((strlen sel) > 0) && ((charAt sel 0) == 46)) { return (PresHints.classDoc(sel)) }
         return ""
     }
@@ -271,8 +272,8 @@ class PresHints {
         if ((col < a) || (col > b) || (b == a)) {
             return ""
         }
-        def h:PresHint (PresHint.make("enum" "kieli" (substring line a b) a b))
-        h.doc = "Mitä lohko on: kaavio, kaava tai koodi."
+        def h:PresHint (PresHint.make("enum" (PresI18n.t("language")) (substring line a b) a b))
+        h.doc = (PresI18n.t("What the block is: a diagram, a formula or code."))
         h.options = "mermaid dot plantuml d2 vega-lite math js python bash json"
         return (h.json())
     }
@@ -425,7 +426,7 @@ class PresHints {
         if (((strlen key) > 3) && ((substring key 0 3) == "fx-")) {
             def param:string (substring key 3 (strlen key))
             h.kind = "number"
-            h.doc = ("Efektin parametri " + param + ".")
+            h.doc = ((PresI18n.t("Effect parameter ")) + param + ".")
             h.range = (PresHints.fxRange(param "1"))
             ; the effect's own default names the scale
             def fxs:[string] (strsplit (PresHints.fxNames()) " ")
@@ -434,7 +435,7 @@ class PresHints {
                 def d0:string (PresHints.fxDefault((itemAt fxs k) param))
                 if ((strlen d0) > 0) {
                     h.range = (PresHints.fxRange(param d0))
-                    h.doc = ("Efektin parametri " + param + ", oletus " + d0 + ".")
+                    h.doc = ((PresI18n.t("Effect parameter ")) + param + (PresI18n.t(", default ")) + d0 + ".")
                     k = (array_length fxs)
                 }
                 k = (k + 1)

@@ -18,6 +18,7 @@
 import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
+import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
 
 const canvas = document.getElementById("c");
 const stageEl = document.getElementById("stage");
@@ -30,6 +31,17 @@ const fileAdd = document.getElementById("fileadd");
 const sampleSel = document.getElementById("sample");
 const themeSel = document.getElementById("theme");
 const playBtn = document.getElementById("play");
+// The language button: the next language, the page reloaded in it.
+const langBtn = document.getElementById("langBtn");
+if (langBtn) {
+  langBtn.textContent = "🌐 " + lang.toUpperCase();
+  langBtn.title = LANGS.map(([, name]) => name).join(" · ");
+  langBtn.addEventListener("click", () => {
+    const i = LANGS.findIndex(([c]) => c === lang);
+    chooseLang(LANGS[(i + 1) % LANGS.length][0]);
+  });
+}
+
 // The app's name is the one index.html gives its bar: a page built on this
 // one renames it there, and the canvas follows.
 const APP_NAME = document.querySelector("#bar .brand")?.textContent.trim() || "EVG Presentation";
@@ -89,13 +101,18 @@ async function textOf(url) {
 
 const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
 if (!gl) {
-  hintEl.textContent = "WebGL 2 ei ole käytettävissä tässä selaimessa.";
+  hintEl.textContent = t("WebGL 2 is not available in this browser.");
   throw new Error("no WebGL 2");
 }
 if (typeof globalThis.PresApp !== "function") {
-  hintEl.textContent = "pres_app.js puuttuu. Aja `npm run build`.";
+  hintEl.textContent = t("pres_app.js is missing. Run `npm run build`.");
   throw new Error("engine bundle not loaded");
 }
+// the interface's language, before anything is built in it
+globalThis.PresI18n.use(lang, pairs());
+translateDom();
+// i18n: "Dark" "Light" (the theme list's groups)
+for (const g of document.querySelectorAll("optgroup[label]")) g.label = t(g.label);
 const app = new globalThis.PresApp();
 window.__app = app;
 app.setAppName(APP_NAME);
@@ -159,7 +176,7 @@ async function addPictureFile(file) {
   app.addImage("/" + rel, asRangerBuffer(bytes.slice(0)), type, w, h);
   await registerPicture("/" + rel, bytes, type);
   await keepFile({ path: rel, type, size: bytes.byteLength, data: new Blob([bytes], { type }) });
-  app.insertPicture(rel, file.name && file.name !== "image.png" ? file.name.replace(/\.[^.]+$/, "") : "kuva");
+  app.insertPicture(rel, file.name && file.name !== "image.png" ? file.name.replace(/\.[^.]+$/, "") : "image");
   dropThumbs();
   afterInput();
 }
@@ -276,7 +293,7 @@ async function openDoc(id) {
   if (d.css != null) editedCss[d.theme || ""] = d.css;
   useTheme(themeSel.value);
   for (const f of await vfs.listFiles(doc.id)) await useFile(f);
-  docName = d.name || "esitys";
+  docName = d.name || "presentation";
   app.setSource(d.md);
   savedText = d.md;
   savedCss = d.css == null ? null : d.css;
@@ -308,25 +325,25 @@ async function refreshFiles() {
         const db = b.path.includes("/") ? 1 : 0;
         return da - db || a.path.localeCompare(b.path);
       });
-    const name = (docName || "esitys").replace(/\s+/g, "-");
+    const name = (docName || "presentation").replace(/\s+/g, "-");
     const head = [{ path: name + ".md", size: new TextEncoder().encode(app.source()).length, kind: "md" }];
     const key = themeSel.value || "";
-    head.push({ path: (key || "teema") + ".css", size: -1, kind: "css" });
+    head.push({ path: (key || "theme") + ".css", size: -1, kind: "css" });
     const docs = (await vfs.listDocs())
       .sort((a, b) => (b.updated || 0) - (a.updated || 0))
-      .map((d) => ({ id: d.id, name: d.name || "esitys", when: whenText(d.updated), current: d.id === doc.id }));
+      .map((d) => ({ id: d.id, name: d.name || "presentation", when: whenText(d.updated), current: d.id === doc.id }));
     let note = vfs.persistent
-      ? "Tiedostot ovat vain tässä selaimessa (IndexedDB). Jakolinkki vie vain tekstin ja teeman, ei kuvia eikä datatiedostoja."
-      : "Selain ei salli tallennusta: tiedostot ovat tallessa vain tämän sivun ajan.";
+      ? t("Files live only in this browser (IndexedDB). Share links carry only the text and theme, not images or data files.")
+      : t("This browser does not allow storage: files are kept only while this page is open.");
     // PRO (sliqtly.js): the files in the cloud, offered at the top
     const promo = !window.sliqtly ? null : window.sliqtly.user()
-      ? { title: "PRO on käytössä", text: "Pilvitallennus ja tiedostojen jakaminen tulevat tähän pian.", button: "" }
+      ? { title: t("PRO is active"), text: t("Cloud storage and file sharing are coming here soon."), button: "" }
       : {
-        title: "Jaa myös kuvat ja data: ota käyttöön PRO",
-        text: "Nyt tiedostot ovat vain tässä selaimessa, ja jakolinkki vie vain tekstin ja teeman. PRO:lla esitykset tallentuvat pilveen tiedostoineen, ja jakolinkki tuo mukanaan kuvat sekä CSV- ja JSON-datan, josta kaaviot ja taulukot piirretään.",
-        button: "Ota PRO käyttöön",
+        title: t("Share images and data with PRO"),
+        text: t("PRO keeps your decks and their files in the cloud. Share links then carry images, plus the CSV and JSON data behind your charts and tables."),
+        button: t("Get PRO"),
       };
-    if (!doc.persisted) note = "Tätä esitystä ei ole vielä tallennettu: se tallentuu, kun muutat sitä. " + note;
+    if (!doc.persisted) note = t("This presentation is not saved yet: it saves when you change it. ") + note;
     app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), docs, note, ...(promo ? { promo } : {}) }));
     needsPaint = true;
   } finally {
@@ -340,7 +357,7 @@ async function addDocFile(file) {
     await saveDoc();
     const text = await file.text();
     beginDoc(text);
-    docName = file.name.replace(/\.(md|markdown)$/i, "") || "esitys";
+    docName = file.name.replace(/\.(md|markdown)$/i, "") || "presentation";
     app.setSource(text);
     dropThumbs();
     needsPaint = true;
@@ -373,9 +390,9 @@ async function fileRequest(r) {
     document.getElementById("pro")?.click();
   } else if (action === "new") {
     await saveDoc();
-    const text = "# Uusi esitys\n\nKirjoita tähän.\n";
+    const text = t("# New presentation") + "\n\n" + t("Write here.") + "\n";
     beginDoc(text);
-    docName = "uusi";
+    docName = "new";
     app.setSource(text);
     app.showTab("md");
     dropThumbs();
@@ -383,14 +400,14 @@ async function fileRequest(r) {
     const f = (await docFiles()).find((x) => x.path === what);
     if (!f) return;
     const text = typeof f.data === "string" ? f.data : (isText(f.path, f.type) ? await f.data.text() : null);
-    if (text == null) { toast("Tätä tiedostoa ei voi avata tekstinä."); return; }
+    if (text == null) { toast(t("This file cannot be opened as text.")); return; }
     app.openFile(f.path, text);
   } else if (action === "del") {
     pending.delete(what);
     if (doc.persisted) await vfs.deleteFile(doc.id, what);
     if (app.openFilePath() === what) app.closeFile();
   } else if (action === "doc") {
-    if (!(await openDoc(what))) toast("Esitystä ei löytynyt.");
+    if (!(await openDoc(what))) toast(t("Presentation not found."));
   } else if (action === "deldoc") {
     if (what !== doc.id) await vfs.deleteDoc(what);
   }
@@ -443,7 +460,7 @@ function paintOnce() {
     dropThumbs();
     thumbRev = layout.rev;
   }
-  const t = effectClock(layout);
+  const clock = effectClock(layout);
   // THE GLYPH ATLAS IS SHARED, and when a frame needs glyphs it does not hold
   // it grows into a NEW texture and deletes the old one. A kept thumbnail
   // still points at the old one, so drawing it after that is
@@ -459,7 +476,7 @@ function paintOnce() {
   grew = grewBy(cf.draw(null, null)) || grew;
   cf.dispose();
   if (layout.slides > 0) {
-    const st = withTime(JSON.parse(app.stageJson()), t);
+    const st = withTime(JSON.parse(app.stageJson()), clock);
     window.__lastStage = st;
     st.width = W;
     st.height = H;
@@ -527,7 +544,7 @@ function paintOnce() {
     ce.dispose();
   }
   statusEl.textContent = app.statusText();
-  playBtn.textContent = layout.playing && layout.mode === "edit" ? "⏸ Pysäytä" : "▶ Toista";
+  playBtn.textContent = layout.playing && layout.mode === "edit" ? t("⏸ Pause") : t("▶ Play");
   return layout;
 }
 
@@ -558,7 +575,7 @@ let lastA11yRev = "";
 let a11yTree = null;
 const mirror = createA11yMirror(stageEl, {
   canvas,
-  label: APP_NAME + ". F6 siirtyy alueelta toiselle, Esc palaa editoriin.",
+  label: APP_NAME + t(". F6 moves between areas, Esc returns to the editor."),
   tabbable: "all",
   onActivate: (node) => {
     pressAtCentre(node, (x, y) => {
@@ -741,7 +758,7 @@ function fetchChartFiles(rev) {
     chartFiles.set(url, got);
     got.then((text) => {
       if (text == null) {
-        toast("Kaavion tiedostoa ei saatu: " + url);
+        toast(t("Could not load the chart file: ") + url);
         return;
       }
       app.setChartData(url, text);
@@ -887,7 +904,7 @@ document.addEventListener("fullscreenchange", () => {
   requestAnimationFrame(resize);
 });
 
-let docName = "esitys";
+let docName = "presentation";
 
 // --- the toolbar ------------------------------------------------------------------
 // Not in the menu: the deck the page checks drive (npm run check:web opens
@@ -941,7 +958,7 @@ async function renderFxStills() {
   app.clearFxStills();
   const list = JSON.parse(app.fxSlidesJson());
   if (!list.length) return;
-  toast(`Piirretään ${list.length} dian efektit vientiä varten…`);
+  toast(t("Rendering effects of ") + list.length + t(" slides for export…"));
   // the toast gets a frame to show before the work starts
   await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
   const c = document.createElement("canvas");
@@ -986,7 +1003,7 @@ document.getElementById("pptx").addEventListener("click", () => { exportPptx().c
 filePick.addEventListener("change", async () => {
   const file = filePick.files && filePick.files[0];
   if (!file) return;
-  docName = file.name.replace(/\.(md|markdown|txt)$/i, "") || "esitys";
+  docName = file.name.replace(/\.(md|markdown|txt)$/i, "") || "presentation";
   await saveDoc();
   const text = await file.text();
   beginDoc(text);
@@ -1064,8 +1081,8 @@ async function shareLink() {
   const showUrl = base + "#" + q.toString();
   history.replaceState(null, "", editUrl);
   lastHash = location.hash;
-  const pictures = /\]\(media\//.test(text) ? " Liitetyt kuvat eivät kulje linkissä." : "";
-  app.openShare(showUrl, editUrl, `${editUrl.length} merkkiä.` + pictures);
+  const pictures = /\]\(media\//.test(text) ? t(" Attached images are not included in the link.") : "";
+  app.openShare(showUrl, editUrl, editUrl.length + t(" characters.") + pictures);
   window.__lastShare = editUrl;
   window.__lastShareShow = showUrl;
   needsPaint = true;
@@ -1152,14 +1169,14 @@ async function openFromHash() {
       editedCss[themeSel.value || ""] = css;
       app.setStyleSheet(css);
     }
-    docName = "jaettu";
+    docName = "shared";
     app.setSource(text);
     dropThumbs();
     needsPaint = true;
     if (q.get("mode") === "show") enterViewer();
     return true;
   } catch (e) {
-    toast("Linkin sisältöä ei voitu lukea.");
+    toast(t("Could not read the link's contents."));
     console.warn(e);
     return false;
   }
@@ -1488,7 +1505,7 @@ let pointerAt = [-1, -1];
 
 // The ```vega-lite fence's language word: a click there opens the chart editor.
 function isChartFence(h) {
-  return h.name === "kieli" && /^vega-?lite$/.test(h.value);
+  return h.name === t("language") && /^vega-?lite$/.test(h.value);
 }
 
 function hintId(h) {

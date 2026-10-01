@@ -15,6 +15,7 @@
 ; web/chart-editor.css.
 ; ============================================================================
 
+Import "PresI18n.rgr"
 Import "ColorPickerCtl.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGUnit.rgr"
@@ -113,7 +114,7 @@ class PresColorPanel {
     fn swatchBox:EVGElement (c:ColorPickerCtl id:string cls:string) {
         def el (tree Cp (Current (props (id id))))
         el.className = cls
-        el.a11yLabel = ("Current color " + (c.hex()))
+        el.a11yLabel = ((PresI18n.t("Current color ")) + (c.hex()))
         def sm:string ""
         if (cls != "cp-current") {
             sm = "-sm"
@@ -258,7 +259,7 @@ class PresColorPanel {
             i = (i + 1)
         }
         def fmt (tree Cp (FmtBtn (props (id (c.fmtTid())))))
-        fmt.a11yLabel = ("Color format " + (c.formatName()) + ", switch")
+        fmt.a11yLabel = ((PresI18n.t("Color format ")) + (c.formatName()) + (PresI18n.t(", switch")))
         fmt.addChild((this.icon("M8 9 L12 5 L16 9 M8 15 L12 19 L16 15")))
         row.addChild(fmt)
         return row

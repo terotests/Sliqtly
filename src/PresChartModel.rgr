@@ -24,6 +24,7 @@
 
 Import "../datagrid/src/GridChart.rgr"
 Import "../vela/src/VlJson.rgr"
+Import "PresI18n.rgr"
 
 class PresChartModel {
     def ok:boolean false
@@ -184,38 +185,38 @@ class PresChartModel {
 
     ; --- the kinds, in Finnish --------------------------------------------------
     sfn kindLabel:string (kind:int) {
-        if (kind == 1) { return "Pylväs" }
-        if (kind == 2) { return "Vaakapylväs" }
-        if (kind == 3) { return "Pinottu" }
-        if (kind == 4) { return "100 %" }
-        if (kind == 5) { return "Histogrammi" }
-        if (kind == 6) { return "Viiva" }
-        if (kind == 7) { return "Viiva + pisteet" }
-        if (kind == 8) { return "Porras" }
-        if (kind == 9) { return "Pehmeä viiva" }
-        if (kind == 10) { return "Alue" }
-        if (kind == 11) { return "Pinottu alue" }
-        if (kind == 12) { return "Virta" }
-        if (kind == 13) { return "Hajonta" }
-        if (kind == 14) { return "Kupla" }
-        if (kind == 15) { return "Viivat" }
-        if (kind == 16) { return "Piirakka" }
-        if (kind == 17) { return "Donitsi" }
-        if (kind == 18) { return "Säde" }
-        if (kind == 19) { return "Lämpökartta" }
-        if (kind == 20) { return "Laatikko" }
+        if (kind == 1) { return (PresI18n.t("Bar")) }
+        if (kind == 2) { return (PresI18n.t("Horizontal bar")) }
+        if (kind == 3) { return (PresI18n.t("Stacked")) }
+        if (kind == 4) { return (PresI18n.t("100% stacked")) }
+        if (kind == 5) { return (PresI18n.t("Histogram")) }
+        if (kind == 6) { return (PresI18n.t("Line")) }
+        if (kind == 7) { return (PresI18n.t("Line + points")) }
+        if (kind == 8) { return (PresI18n.t("Step")) }
+        if (kind == 9) { return (PresI18n.t("Smooth line")) }
+        if (kind == 10) { return (PresI18n.t("Area")) }
+        if (kind == 11) { return (PresI18n.t("Stacked area")) }
+        if (kind == 12) { return (PresI18n.t("Stream")) }
+        if (kind == 13) { return (PresI18n.t("Scatter")) }
+        if (kind == 14) { return (PresI18n.t("Bubble")) }
+        if (kind == 15) { return (PresI18n.t("Lines")) }
+        if (kind == 16) { return (PresI18n.t("Pie")) }
+        if (kind == 17) { return (PresI18n.t("Donut")) }
+        if (kind == 18) { return (PresI18n.t("Radial")) }
+        if (kind == 19) { return (PresI18n.t("Heatmap")) }
+        if (kind == 20) { return (PresI18n.t("Box plot")) }
         return (ChartKind.label(kind))
     }
 
     ; What a kind needs of the table, said when the table does not have it.
     sfn kindNeeds:string (kind:int) {
-        if ((kind == 3) || ((kind == 4) || ((kind == 11) || ((kind == 12) || (kind == 19))))) { return "vähintään kaksi sarjaa (saraketta)" }
-        if ((kind == 16) || ((kind == 17) || (kind == 18))) { return "tasan yhden sarjan (sarakkeen)" }
-        if (kind == 13) { return "kaksi numerosaraketta (x ja y)" }
-        if (kind == 14) { return "kolme numerosaraketta (x, y ja koko)" }
-        if (kind == 20) { return "vähintään kolme riviä" }
-        if (kind == 5) { return "vähintään kolme lukua" }
-        return "vähintään kaksi riviä"
+        if ((kind == 3) || ((kind == 4) || ((kind == 11) || ((kind == 12) || (kind == 19))))) { return (PresI18n.t("at least two series (columns)")) }
+        if ((kind == 16) || ((kind == 17) || (kind == 18))) { return (PresI18n.t("exactly one series (column)")) }
+        if (kind == 13) { return (PresI18n.t("two number columns (x and y)")) }
+        if (kind == 14) { return (PresI18n.t("three number columns (x, y and size)")) }
+        if (kind == 20) { return (PresI18n.t("at least three rows")) }
+        if (kind == 5) { return (PresI18n.t("at least three numbers")) }
+        return (PresI18n.t("at least two rows"))
     }
 
     sfn schemes:string () {
@@ -560,22 +561,22 @@ class PresChartModel {
         def p (new VlJsonParser())
         def spec:VlJson (p.parse(text))
         if ((spec.isObject()) == false) {
-            m.note = "Kaavion JSON ei ole kelvollinen."
+            m.note = (PresI18n.t("The chart's JSON is not valid."))
             return m
         }
         if ((spec.has("facet")) || ((spec.has("hconcat")) || ((spec.has("vconcat")) || ((spec.has("concat")) || (spec.has("repeat")))))) {
-            return (PresChartModel.looks(m spec text "Kaavio on jaettu useaan osaan, joten sen tietoja ei muokata taulukkona."))
+            return (PresChartModel.looks(m spec text (PresI18n.t("The chart is split into several parts, so its data can't be edited as a table."))))
         }
         if (spec.has("layer")) {
-            return (PresChartModel.looks(m spec text "Kaaviossa on kerroksia, joten sen tietoja ei muokata taulukkona."))
+            return (PresChartModel.looks(m spec text (PresI18n.t("The chart has layers, so its data can't be edited as a table."))))
         }
         if (spec.has("transform")) {
-            return (PresChartModel.looks(m spec text "Kaavio muuntaa tietonsa (transform), joten niitä ei muokata taulukkona."))
+            return (PresChartModel.looks(m spec text (PresI18n.t("The chart transforms its data (transform), so it can't be edited as a table."))))
         }
         def data:VlJson (spec.get("data"))
         def values:VlJson (data.get("values"))
         if ((values.isArray()) == false) {
-            return (PresChartModel.looks(m spec text "Kaavion tiedot eivät ole kaaviossa itsessään."))
+            return (PresChartModel.looks(m spec text (PresI18n.t("The chart's data is not in the chart itself."))))
         }
         m.schema = (spec.stringOr("$schema" ""))
         m.description = (spec.stringOr("description" ""))
@@ -610,7 +611,7 @@ class PresChartModel {
         }
         def enc:VlJson (spec.get("encoding"))
         if ((enc.isObject()) == false) {
-            m.note = "Kaaviolla ei ole koodausta (encoding)."
+            m.note = (PresI18n.t("The chart has no encoding."))
             return m
         }
         ; the look
@@ -778,7 +779,7 @@ class PresChartModel {
             return (PresChartModel.readColumns(m values serF valF valT))
         }
         if ((strlen valF) == 0) {
-            m.note = "Kaaviosta ei löydy mitattavaa kenttää."
+            m.note = (PresI18n.t("The chart has no field to measure."))
             return m
         }
         return (PresChartModel.readTable(m values catF catT serF valF valT))
@@ -859,7 +860,7 @@ class PresChartModel {
         }
         m.ok = ((array_length cats) > 0)
         if (m.ok == false) {
-            m.note = "Kaaviossa ei ole rivejä."
+            m.note = (PresI18n.t("The chart has no rows."))
         }
         return m
     }

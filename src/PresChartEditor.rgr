@@ -32,6 +32,7 @@ Import "PresImageModel.rgr"
 Import "PresColorPanel.rgr"
 Import "../ui/src/UiHost.rgr"
 Import "PresKeep.rgr"
+Import "PresI18n.rgr"
 
 class PresChartEditor {
     def host:UiHost (new UiHost())
@@ -340,13 +341,13 @@ class PresChartEditor {
         def w0 (new WindowCtl())
         win = w0
         win.tid = "ce-win"
-        win.name = "Kaavion asetukset"
-        win.title = "Kaavion asetukset"
+        win.name = (PresI18n.t("Chart settings"))
+        win.title = (PresI18n.t("Chart settings"))
         if (mode == "image") {
-            win.name = "Kuvan asetukset"
-            win.title = "Kuvan asetukset"
+            win.name = (PresI18n.t("Image settings"))
+            win.title = (PresI18n.t("Image settings"))
         }
-        win.closeLabel = "Sulje"
+        win.closeLabel = (PresI18n.t("Close"))
         win.isModal = false
         win.x = x
         win.y = y
@@ -377,10 +378,10 @@ class PresChartEditor {
         }
         if (model.ok == false) {
             root.addChild((this.text("ce-note" model.note)))
-            root.addChild((this.text("ce-doc" "Voit aloittaa uuden taulukon: kaavion nykyinen sisältö korvataan esimerkkitaulukolla.")))
+            root.addChild((this.text("ce-doc" (PresI18n.t("You can start a new table: the chart's current content is replaced with a sample table.")))))
             def row0:EVGElement (this.div("ce-row"))
-            this.button("ce-fresh" "Aloita taulukosta" "primary" row0)
-            this.button("ce-done" "Sulje" "outline" row0)
+            this.button("ce-fresh" (PresI18n.t("Start from a table")) "primary" row0)
+            this.button("ce-done" (PresI18n.t("Close")) "outline" row0)
             root.addChild(row0)
             return
         }
@@ -388,10 +389,10 @@ class PresChartEditor {
         def t0 (new TabsCtl())
         tabs = t0
         tabs.tid = "ce-tabs"
-        tabs.name = "Kaavion asetukset"
-        tabs.addItem("kaavio" "Kaavio" "" false)
-        tabs.addItem("ulkoasu" "Ulkoasu" "" false)
-        tabs.addItem("tiedot" "Tiedot" "" false)
+        tabs.name = (PresI18n.t("Chart settings"))
+        tabs.addItem("kaavio" (PresI18n.t("Chart")) "" false)
+        tabs.addItem("ulkoasu" (PresI18n.t("Appearance")) "" false)
+        tabs.addItem("tiedot" (PresI18n.t("Data")) "" false)
         tabs.value = tab
         tabs.build()
         UiTree.addClass((unwrap tabs.rootEl) "ce-tabs")
@@ -410,13 +411,13 @@ class PresChartEditor {
         root.addChild(pane)
 
         def bottom:EVGElement (this.div("ce-foot"))
-        def note:string "Muutokset näkyvät diassa heti. Ctrl+Z kumoaa ne ikkunan sulkemisen jälkeen."
+        def note:string (PresI18n.t("Changes show on the slide right away. Ctrl+Z undoes them after you close the window."))
         if ((strlen message) > 0) {
             note = message
         }
         bottom.addChild((this.text("ce-doc" note)))
         bottom.addChild((this.div("ce-grow")))
-        this.button("ce-done" "Valmis" "primary" bottom)
+        this.button("ce-done" (PresI18n.t("Done")) "primary" bottom)
         root.addChild(bottom)
     }
 
@@ -425,17 +426,17 @@ class PresChartEditor {
         def pane:EVGElement (this.div("ce-pane"))
         root.addChild(pane)
         pane.addChild((this.text("ce-doc" img.path)))
-        def size:EVGElement (this.section(pane "Koko"))
+        def size:EVGElement (this.section(pane (PresI18n.t("Size"))))
         def wp:int (PresImageModel.percent(img.width))
-        def wr:EVGElement (this.field("Leveys"))
+        def wr:EVGElement (this.field((PresI18n.t("Width"))))
         def wv:int wp
         if (wv <= 0) {
             wv = 100
         }
-        this.slider("ie-width" "Leveys" wv 10 100 5 wr)
+        this.slider("ie-width" (PresI18n.t("Width")) wv 10 100 5 wr)
         def wl:string ((to_string wp) + " %")
         if ((strlen img.width) == 0) {
-            wl = "oma koko"
+            wl = (PresI18n.t("original size"))
         } {
             if (wp <= 0) {
                 wl = img.width
@@ -444,11 +445,11 @@ class PresChartEditor {
         wr.addChild((this.text("ce-value" wl)))
         size.addChild(wr)
         def hp:int (PresImageModel.percent(img.height))
-        def hr:EVGElement (this.field("Korkeus"))
-        this.slider("ie-height" "Korkeus" hp 0 100 5 hr)
-        def hl:string ((to_string hp) + " % diasta")
+        def hr:EVGElement (this.field((PresI18n.t("Height"))))
+        this.slider("ie-height" (PresI18n.t("Height")) hp 0 100 5 hr)
+        def hl:string ((to_string hp) + (PresI18n.t(" % of the slide")))
         if ((strlen img.height) == 0) {
-            hl = "mahtuu diaan"
+            hl = (PresI18n.t("fits the slide"))
         } {
             if (hp <= 0) {
                 hl = img.height
@@ -457,35 +458,35 @@ class PresChartEditor {
         hr.addChild((this.text("ce-value" hl)))
         size.addChild(hr)
         def nr:EVGElement (this.div("ce-row"))
-        this.button("ie-natural" "Oma koko" "outline" nr)
+        this.button("ie-natural" (PresI18n.t("Original size")) "outline" nr)
         size.addChild(nr)
-        size.addChild((this.text("ce-doc" "Kuva pysyy muodossaan: leveys on palstan leveydestä, korkeus dian sisällön korkeudesta, ja pienempi niistä ratkaisee.")))
+        size.addChild((this.text("ce-doc" (PresI18n.t("The image keeps its proportions: width is a share of the column width, height of the slide content height, and the smaller one wins.")))))
 
-        def place:EVGElement (this.section(pane "Paikka"))
+        def place:EVGElement (this.section(pane (PresI18n.t("Position"))))
         def chips:EVGElement (this.div("ce-chips"))
-        this.chip("ie-align-" "Teeman" ((strlen img.align) == 0) chips)
-        this.chip("ie-align-left" "Vasen" (img.align == "left") chips)
-        this.chip("ie-align-center" "Keskellä" (img.align == "center") chips)
-        this.chip("ie-align-right" "Oikea" (img.align == "right") chips)
+        this.chip("ie-align-" (PresI18n.t("From theme")) ((strlen img.align) == 0) chips)
+        this.chip("ie-align-left" (PresI18n.t("Left")) (img.align == "left") chips)
+        this.chip("ie-align-center" (PresI18n.t("Center")) (img.align == "center") chips)
+        this.chip("ie-align-right" (PresI18n.t("Right")) (img.align == "right") chips)
         place.addChild(chips)
 
-        def words:EVGElement (this.section(pane "Vaihtoehtoinen teksti"))
-        def al:EVGElement (this.field("Kuvaus"))
-        this.input("ie-alt" "Kuvaus" img.alt "ce-wide" al)
+        def words:EVGElement (this.section(pane (PresI18n.t("Alt text"))))
+        def al:EVGElement (this.field((PresI18n.t("Description"))))
+        this.input("ie-alt" (PresI18n.t("Description")) img.alt "ce-wide" al)
         words.addChild(al)
-        words.addChild((this.text("ce-doc" "Ruudunlukija lukee tämän, ja se näkyy, jos kuvaa ei löydy.")))
+        words.addChild((this.text("ce-doc" (PresI18n.t("Screen readers read this, and it shows if the image can't be found.")))))
 
-        def bg:EVGElement (this.section(pane "Taustakuvaksi"))
+        def bg:EVGElement (this.section(pane (PresI18n.t("Use as background"))))
         def br:EVGElement (this.div("ce-row"))
-        this.button("ie-bg-slide" "Tämän dian tausta" "outline" br)
-        this.button("ie-bg-all" "Kaikkien diojen tausta" "outline" br)
+        this.button("ie-bg-slide" (PresI18n.t("This slide's background")) "outline" br)
+        this.button("ie-bg-all" (PresI18n.t("Background for all slides")) "outline" br)
         bg.addChild(br)
-        bg.addChild((this.text("ce-doc" "Kuva siirtyy dian otsikon bg-asetukseksi tai teeman page-säännön background-imageksi ja peittää koko dian. bg-dim=0.4 otsikossa himmentää sitä tekstin alla.")))
+        bg.addChild((this.text("ce-doc" (PresI18n.t("The image becomes the bg setting on the slide's heading, or the background-image of the theme's page rule, and covers the whole slide. bg-dim=0.4 in the heading dims it behind the text.")))))
 
         def bottom:EVGElement (this.div("ce-foot"))
-        this.button("ie-remove" "Poista kuva" "outline" bottom)
+        this.button("ie-remove" (PresI18n.t("Remove image")) "outline" bottom)
         bottom.addChild((this.div("ce-grow")))
-        this.button("ce-done" "Valmis" "primary" bottom)
+        this.button("ce-done" (PresI18n.t("Done")) "primary" bottom)
         root.addChild(bottom)
     }
 
@@ -537,34 +538,34 @@ class PresChartEditor {
 
     fn chartTab:void (pane:EVGElement) {
         ; the size first: it is what a slide asks of a chart most
-        def size:EVGElement (this.section(pane "Koko"))
-        def wr:EVGElement (this.field("Leveys"))
-        this.slider("ce-width" "Leveys" (this.sizeW()) 200 960 10 wr)
+        def size:EVGElement (this.section(pane (PresI18n.t("Size"))))
+        def wr:EVGElement (this.field((PresI18n.t("Width"))))
+        this.slider("ce-width" (PresI18n.t("Width")) (this.sizeW()) 200 960 10 wr)
         wr.addChild((this.text("ce-value" ((to_string (this.sizeW())) + " px"))))
         size.addChild(wr)
-        def hr:EVGElement (this.field("Korkeus"))
-        this.slider("ce-height" "Korkeus" (this.sizeH()) 120 600 10 hr)
+        def hr:EVGElement (this.field((PresI18n.t("Height"))))
+        this.slider("ce-height" (PresI18n.t("Height")) (this.sizeH()) 120 600 10 hr)
         hr.addChild((this.text("ce-value" ((to_string (this.sizeH())) + " px"))))
         size.addChild(hr)
         if ((model.width <= 0) && (model.height <= 0)) {
-            size.addChild((this.text("ce-doc" "Nyt kaavio saa koon diasta; liukusäädin asettaa oman.")))
+            size.addChild((this.text("ce-doc" (PresI18n.t("The chart now takes its size from the slide; the sliders set a custom size.")))))
         } {
             def ar:EVGElement (this.div("ce-row"))
-            this.button("ce-autosize" "Koko diasta" "outline" ar)
+            this.button("ce-autosize" (PresI18n.t("Size from slide")) "outline" ar)
             size.addChild(ar)
         }
 
         if model.lookOnly {
             ; the kind is the specification's own: the table that would
             ; choose another is not there
-            def words0:EVGElement (this.section(pane "Otsikko ja selite"))
-            def tl0:EVGElement (this.field("Otsikko"))
-            this.input("ce-titlein" "Otsikko" model.title "ce-wide" tl0)
+            def words0:EVGElement (this.section(pane (PresI18n.t("Title and legend"))))
+            def tl0:EVGElement (this.field((PresI18n.t("Title"))))
+            this.input("ce-titlein" (PresI18n.t("Title")) model.title "ce-wide" tl0)
             words0.addChild(tl0)
-            this.switchOf("ce-legend" "Näytä selite" model.legend words0)
+            this.switchOf("ce-legend" (PresI18n.t("Show legend")) model.legend words0)
             return
         }
-        def kind:EVGElement (this.section(pane "Tyyppi"))
+        def kind:EVGElement (this.section(pane (PresI18n.t("Type"))))
         def kinds:EVGElement (this.div("ce-chips"))
         def k:int 1
         while (k <= 20) {
@@ -579,21 +580,21 @@ class PresChartEditor {
         }
         kind.addChild(kinds)
         if ((model.suits(model.kind)) == false) {
-            kind.addChild((this.text("ce-warn" ((PresChartModel.kindLabel(model.kind)) + " tarvitsee " + (PresChartModel.kindNeeds(model.kind)) + "."))))
+            kind.addChild((this.text("ce-warn" ((PresChartModel.kindLabel(model.kind)) + (PresI18n.t(" needs ")) + (PresChartModel.kindNeeds(model.kind)) + "."))))
         }
 
-        def words:EVGElement (this.section(pane "Otsikko ja selite"))
-        def tl:EVGElement (this.field("Otsikko"))
-        this.input("ce-titlein" "Otsikko" model.title "ce-wide" tl)
+        def words:EVGElement (this.section(pane (PresI18n.t("Title and legend"))))
+        def tl:EVGElement (this.field((PresI18n.t("Title"))))
+        this.input("ce-titlein" (PresI18n.t("Title")) model.title "ce-wide" tl)
         words.addChild(tl)
-        this.switchOf("ce-legend" "Näytä selite" model.legend words)
+        this.switchOf("ce-legend" (PresI18n.t("Show legend")) model.legend words)
     }
 
     fn looksTab:void (pane:EVGElement) {
-        def col:EVGElement (this.section(pane "Värit"))
+        def col:EVGElement (this.section(pane (PresI18n.t("Colors"))))
         def cols:EVGElement (this.div("ce-chips"))
-        this.chip("ce-scheme-" "Teeman" (((strlen model.scheme) == 0) && ((strlen model.color) == 0)) cols)
-        this.chip("ce-pick-color" "Oma väri" ((strlen model.color) > 0) cols)
+        this.chip("ce-scheme-" (PresI18n.t("From theme")) (((strlen model.scheme) == 0) && ((strlen model.color) == 0)) cols)
+        this.chip("ce-pick-color" (PresI18n.t("Custom color")) ((strlen model.color) > 0) cols)
         if ((strlen model.color) > 0) {
             cols.addChild((this.swatch(model.color)))
         }
@@ -606,19 +607,19 @@ class PresChartEditor {
         }
         col.addChild(cols)
 
-        def tx:EVGElement (this.section(pane "Tekstin väri"))
+        def tx:EVGElement (this.section(pane (PresI18n.t("Text color"))))
         def tr:EVGElement (this.div("ce-chips"))
-        this.chip("ce-text-theme" "Teeman" ((strlen model.textColor) == 0) tr)
-        this.chip("ce-pick-text" "Oma väri" ((strlen model.textColor) > 0) tr)
+        this.chip("ce-text-theme" (PresI18n.t("From theme")) ((strlen model.textColor) == 0) tr)
+        this.chip("ce-pick-text" (PresI18n.t("Custom color")) ((strlen model.textColor) > 0) tr)
         if ((strlen model.textColor) > 0) {
             tr.addChild((this.swatch(model.textColor)))
         }
         tx.addChild(tr)
 
-        def st:EVGElement (this.section(pane "Tyyli diassa"))
+        def st:EVGElement (this.section(pane (PresI18n.t("Style on slide"))))
         def ef:EVGElement (this.div("ce-chips"))
         def effects:[string] (strsplit ",flat,forge,neon,glass" ",")
-        def effectNames:[string] (strsplit "Teeman,Tasainen,Ahjo,Neon,Lasi" ",")
+        def effectNames:[string] (strsplit ((PresI18n.t("From theme")) + "," + (PresI18n.t("Flat")) + "," + (PresI18n.t("Forge")) + "," + (PresI18n.t("Neon")) + "," + (PresI18n.t("Glass"))) ",")
         def e:int 0
         while (e < (array_length effects)) {
             this.chip(("ce-effect-" + (itemAt effects e)) (itemAt effectNames e) ((itemAt effects e) == model.effect) ef)
@@ -626,21 +627,21 @@ class PresChartEditor {
         }
         st.addChild(ef)
         def sw:EVGElement (this.div("ce-row ce-switches"))
-        this.switchOf("ce-glow" "Hehku" model.glow sw)
-        this.switchOf("ce-shadow" "Varjo" model.shadow sw)
-        this.switchOf("ce-gradient" "Liukuväri" model.gradient sw)
+        this.switchOf("ce-glow" (PresI18n.t("Glow")) model.glow sw)
+        this.switchOf("ce-shadow" (PresI18n.t("Shadow")) model.shadow sw)
+        this.switchOf("ce-gradient" (PresI18n.t("Gradient")) model.gradient sw)
         st.addChild(sw)
         if ((model.kind >= 6) && (model.kind <= 9)) {
-            def wr:EVGElement (this.field("Viivan paksuus"))
-            this.slider("ce-stroke" "Viivan paksuus" (to_int model.strokeWidth) 0 10 1 wr)
+            def wr:EVGElement (this.field((PresI18n.t("Line width"))))
+            this.slider("ce-stroke" (PresI18n.t("Line width")) (to_int model.strokeWidth) 0 10 1 wr)
             def label:string ((to_string (to_int model.strokeWidth)) + " px")
             if (model.strokeWidth <= 0.0) {
-                label = "oletus"
+                label = (PresI18n.t("default"))
             }
             wr.addChild((this.text("ce-value" label)))
             st.addChild(wr)
             def pr:EVGElement (this.div("ce-row ce-switches"))
-            this.switchOf("ce-points" "Pisteet" model.points pr)
+            this.switchOf("ce-points" (PresI18n.t("Points")) model.points pr)
             st.addChild(pr)
         }
     }
@@ -652,13 +653,13 @@ class PresChartEditor {
         def card:EVGElement (this.div("ce-pickcard"))
         card.id = "ce-pickcard"
         def head:EVGElement (this.div("ce-pickhead"))
-        def what:string "Kaavion väri"
+        def what:string (PresI18n.t("Chart color"))
         if (pickFor == "text") {
-            what = "Tekstin väri"
+            what = (PresI18n.t("Text color"))
         }
         head.addChild((this.text("ce-picktitle" what)))
         head.addChild((this.div("ce-grow")))
-        this.button("ce-pick-done" "Valmis" "primary" head)
+        this.button("ce-pick-done" (PresI18n.t("Done")) "primary" head)
         card.addChild(head)
         card.addChild((cp.panel(picker)))
         push host.ctls picker
@@ -679,30 +680,30 @@ class PresChartEditor {
         if model.lookOnly {
             pane.addChild((this.text("ce-doc" model.why)))
             if ((strlen model.dataFile) > 0) {
-                def src:EVGElement (this.field("Tiedosto"))
+                def src:EVGElement (this.field((PresI18n.t("File"))))
                 src.addChild((this.text("ce-value" model.dataFile)))
                 pane.addChild(src)
-                pane.addChild((this.text("ce-doc" "Tiedot ovat esityksen tiedostossa: muokkaa niitä Tiedostot-välilehdellä. Kaavio piirtyy uudelleen, kun tiedosto muuttuu.")))
+                pane.addChild((this.text("ce-doc" (PresI18n.t("The data is in a file of the presentation: edit it on the Files tab. The chart redraws when the file changes.")))))
             } {
-                pane.addChild((this.text("ce-doc" "Tiedot ja niiden käsittely ovat kaavion JSONissa Markdown-välilehdellä.")))
+                pane.addChild((this.text("ce-doc" (PresI18n.t("The data and how it is processed are in the chart's JSON on the Markdown tab.")))))
             }
             def row:EVGElement (this.div("ce-row"))
             if ((strlen model.dataFile) > 0) {
-                this.button("ce-openfile" "Avaa tiedosto" "primary" row)
+                this.button("ce-openfile" (PresI18n.t("Open file")) "primary" row)
             }
-            this.button("ce-fresh" "Korvaa esimerkkitaulukolla" "outline" row)
+            this.button("ce-fresh" (PresI18n.t("Replace with sample table")) "outline" row)
             pane.addChild(row)
             return
         }
-        pane.addChild((this.text("ce-doc" "Ensimmäinen sarake: luokat. Muut sarakkeet: sarjat.")))
+        pane.addChild((this.text("ce-doc" (PresI18n.t("First column: categories. Other columns: series.")))))
         def grid:EVGElement (this.div("ce-grid"))
         def hr:EVGElement (this.div("ce-gridrow ce-gridhead"))
         def c:int 0
         while (c < (model.cols())) {
-            this.input(("ce-h-" + (to_string c)) "Sarake" (itemAt model.header c) "ce-cell ce-head" hr)
+            this.input(("ce-h-" + (to_string c)) (PresI18n.t("Column")) (itemAt model.header c) "ce-cell ce-head" hr)
             c = (c + 1)
         }
-        this.button("ce-addcol" "+ Sarja" "ghost" hr)
+        this.button("ce-addcol" (PresI18n.t("+ Series")) "ghost" hr)
         grid.addChild(hr)
         def r:int 0
         while (r < (model.rows())) {
@@ -713,7 +714,7 @@ class PresChartEditor {
                 if (cc == 0) {
                     cls = "ce-cell ce-cat"
                 }
-                this.input(("ce-c-" + (to_string r) + "-" + (to_string cc)) "Solu" (model.cell(r cc)) cls row)
+                this.input(("ce-c-" + (to_string r) + "-" + (to_string cc)) (PresI18n.t("Cell")) (model.cell(r cc)) cls row)
                 cc = (cc + 1)
             }
             def x0:ButtonCtl (this.button(("ce-delrow-" + (to_string r)) "×" "ghost" row))
@@ -723,9 +724,9 @@ class PresChartEditor {
         }
         pane.addChild(grid)
         def foot:EVGElement (this.div("ce-row"))
-        this.button("ce-addrow" "+ Rivi" "outline" foot)
+        this.button("ce-addrow" (PresI18n.t("+ Row")) "outline" foot)
         if ((model.cols()) > 2) {
-            this.button("ce-delcol" "− Viimeinen sarja" "outline" foot)
+            this.button("ce-delcol" (PresI18n.t("− Last series")) "outline" foot)
         }
         pane.addChild(foot)
     }
@@ -989,7 +990,7 @@ class PresChartEditor {
         }
         def fresh (new ColorPickerCtl())
         picker = fresh
-        picker.setup("ce-cp" "Väri" start (what == "color"))
+        picker.setup("ce-cp" (PresI18n.t("Color")) start (what == "color"))
         picker.inline = true
         picker.hexBoxW = 150.0
         picker.numBoxW = 30.0
@@ -1035,7 +1036,7 @@ class PresChartEditor {
                 model.kind = k
                 changed = true
             } {
-                message = ((PresChartModel.kindLabel(k)) + " tarvitsee " + (PresChartModel.kindNeeds(k)) + ".")
+                message = ((PresChartModel.kindLabel(k)) + (PresI18n.t(" needs ")) + (PresChartModel.kindNeeds(k)) + ".")
             }
             this.rebuild()
             return

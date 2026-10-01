@@ -62,6 +62,7 @@
 ; demo reads the values and the `applyX(el)` helpers write the semantics.
 ; =============================================================================
 
+Import "PresI18n.rgr"
 Import "../ui/src/UiCtl.rgr"
 Import "../ui/src/UiTree.rgr"
 Import "../ui/src/PopoverCtl.rgr"
@@ -91,7 +92,7 @@ class ColorPickerCtl extends UiCtl {
     ; Presets, or the recent colours when `recent` is set (a commit then puts
     ; the colour at the front).
     def swatches:[string]
-    def swatchTitle:string "Presets"
+    def swatchTitle:string (PresI18n.t("Presets"))
     def recent:boolean false
     def maxSwatches:int 8
     ; The fields, and the one whose text the person owns right now.
@@ -786,11 +787,11 @@ class ColorPickerCtl extends UiCtl {
     }
 
     fn svText:string () {
-        return ("Saturation " + (to_string (ColorPickerCtl.roundi((sat * 100.0)))) + "%, Brightness " + (to_string (ColorPickerCtl.roundi((val * 100.0)))) + "%")
+        return ((PresI18n.t("Saturation ")) + (to_string (ColorPickerCtl.roundi((sat * 100.0)))) + (PresI18n.t("%, Brightness ")) + (to_string (ColorPickerCtl.roundi((val * 100.0)))) + "%")
     }
 
     fn hueText:string () {
-        return ((to_string (ColorPickerCtl.roundi(hue))) + " degrees")
+        return ((to_string (ColorPickerCtl.roundi(hue))) + (PresI18n.t(" degrees")))
     }
 
     fn alphaText:string () {
@@ -872,27 +873,27 @@ class ColorPickerCtl extends UiCtl {
 
     fn fieldName:string (i:int) {
         if (format == 0) {
-            return "Hex"
+            return (PresI18n.t("Hex"))
         }
         if (i == 3) {
-            return "Alpha, percent"
+            return (PresI18n.t("Alpha, percent"))
         }
         if (format == 1) {
             if (i == 0) {
-                return "Red"
+                return (PresI18n.t("Red"))
             }
             if (i == 1) {
-                return "Green"
+                return (PresI18n.t("Green"))
             }
-            return "Blue"
+            return (PresI18n.t("Blue"))
         }
         if (i == 0) {
-            return "Hue, degrees"
+            return (PresI18n.t("Hue, degrees"))
         }
         if (i == 1) {
-            return "Saturation, percent"
+            return (PresI18n.t("Saturation, percent"))
         }
-        return "Lightness, percent"
+        return (PresI18n.t("Lightness, percent"))
     }
 
     fn fieldMax:int (i:int) {
@@ -1525,8 +1526,8 @@ class ColorPickerCtl extends UiCtl {
     fn applySV:void (el:EVGElement) {
         el.id = (this.svTid())
         el.role = "slider"
-        el.a11yLabel = (name + ", saturation and brightness")
-        el.a11yRoleDescription = "2D slider"
+        el.a11yLabel = (name + (PresI18n.t(", saturation and brightness")))
+        el.a11yRoleDescription = (PresI18n.t("2D slider"))
         el.a11yFocusable = true
         el.a11yHasValue = true
         el.a11yValueNow = (ColorPickerCtl.roundi((sat * 100.0)))
@@ -1539,7 +1540,7 @@ class ColorPickerCtl extends UiCtl {
     fn applyHue:void (el:EVGElement) {
         el.id = (this.hueTid())
         el.role = "slider"
-        el.a11yLabel = (name + ", hue")
+        el.a11yLabel = (name + (PresI18n.t(", hue")))
         el.a11yFocusable = true
         el.a11yOrientation = "horizontal"
         el.a11yHasValue = true
@@ -1553,7 +1554,7 @@ class ColorPickerCtl extends UiCtl {
     fn applyAlpha:void (el:EVGElement) {
         el.id = (this.alphaTid())
         el.role = "slider"
-        el.a11yLabel = (name + ", alpha")
+        el.a11yLabel = (name + (PresI18n.t(", alpha")))
         el.a11yFocusable = true
         el.a11yOrientation = "horizontal"
         el.a11yHasValue = true
