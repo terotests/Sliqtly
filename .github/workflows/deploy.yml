@@ -45,6 +45,9 @@ jobs:
           node-version: 20
       - name: Build the page
         working-directory: app
+        # The Ranger compiler needs more than Node's default 2 GB heap.
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: node scripts/build.mjs
       - name: Check the deck and the timeline
         working-directory: app
