@@ -9,6 +9,8 @@ this repository says which version of it is published and where.
 - `firebase.json`: Hosting serves the build output, `app/web/dist`.
 - `brand/`: the logo (`make_logo.py` writes the SVGs) and `scripts/brand.mjs`,
   which puts the name and the icon on the built page.
+- `web/sliqtly.js`: PRO, Google sign-in through Firebase Auth (the button is
+  put in the bar by `scripts/brand.mjs`).
 - `.github/workflows/deploy.yml`: on a push to `main`, or run by hand
   (Actions → Deploy → Run workflow, optionally with another ref), it checks
   out the editor into `app/`, builds and checks it, and deploys it live.
@@ -23,6 +25,15 @@ pin a new commit in `sliqtly.config.json` and push.
    the role **Firebase Hosting Admin** and download a JSON key.
 3. In this repository, Settings → Secrets and variables → Actions:
    - secret `FIREBASE_SERVICE_ACCOUNT`: the whole JSON key
+
+## Google sign-in (PRO)
+
+Firebase Console, once:
+1. Project settings → General → Your apps → add a **Web app** (its config is
+   what Hosting serves at `/__/firebase/init.js`).
+2. Authentication → Sign-in method → enable **Google**.
+3. Authentication → Settings → Authorized domains: add `sliqtly.com` when the
+   domain is connected (`sliqtly.web.app` is there already).
 
 ## Domain (Cloudflare)
 
