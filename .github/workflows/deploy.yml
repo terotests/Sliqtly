@@ -1,0 +1,56 @@
+# Builds the editor from the repository and ref in sliqtly.config.json
+# (EVGPresentation) and deploys its web/dist to Firebase Hosting.
+#
+# One-time settings (Settings → Secrets and variables → Actions):
+#   variable FIREBASE_PROJECT_ID       the Firebase project id
+#   secret   FIREBASE_SERVICE_ACCOUNT  the JSON key of a service account
+#                                      with the "Firebase Hosting Admin" role
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "EVGPresentation branch, tag or commit (empty: the one in sliqtly.config.json)"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read sliqtly.config.json
+        id: app
+        env:
+          INPUT_REF: ${{ inputs.ref }}
+        run: |
+          echo "repository=$(jq -r .app.repository sliqtly.config.json)" >> "$GITHUB_OUTPUT"
+          echo "ref=${INPUT_REF:-$(jq -r .app.ref sliqtly.config.json)}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.app.outputs.repository }}
+          ref: ${{ steps.app.outputs.ref }}
+          path: app
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build the page
+        working-directory: app
+        run: node scripts/build.mjs
+      - name: Check the deck and the timeline
+        working-directory: app
+        run: node scripts/check.mjs
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: ${{ vars.FIREBASE_PROJECT_ID }}
+          channelId: live
