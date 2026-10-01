@@ -75,6 +75,24 @@ DEFS = """
   </defs>"""
 
 
+def tapered(c0, r0, c1, r1):
+    """Two circles joined by their outer tangents: a stroke from r0 to r1."""
+    (x0, y0), (x1, y1) = c0, c1
+    dx, dy = x1 - x0, y1 - y0
+    d = math.hypot(dx, dy)
+    a = math.atan2(dy, dx)
+    b = math.acos((r0 - r1) / d)
+    p = lambda c, r, t: (c[0] + r * math.cos(t), c[1] + r * math.sin(t))
+    a0, a1 = p(c0, r0, a + b), p(c0, r0, a - b)
+    b0, b1 = p(c1, r1, a + b), p(c1, r1, a - b)
+    f = lambda q: f"{q[0]:.2f} {q[1]:.2f}"
+    return (f"M{f(a1)}L{f(b1)}A{r1} {r1} 0 0 1 {f(b0)}L{f(a0)}A{r0} {r0} 0 0 1 {f(a1)}Z")
+
+
+# the i's tittle: a stroke leaning right, thin at the foot, round at the head
+DOT = tapered((362.5, 83), 5.5, (377, 65.5), 10.5)
+
+
 def wordmark(ink):
     return f"""
   <path d="{DOT}{REST}" fill="{ink}"/>
