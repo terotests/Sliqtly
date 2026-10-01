@@ -120,9 +120,23 @@ class PresCheck {
         this.ok((back.ok && ((back.kind == 6) && ((back.cols()) == 3))) ("read back: kind " + (to_string back.kind) + " cols " + (to_string (back.cols())) + " " + back.note))
         this.ok(((back.cell(0 2)) == "2") ("the B of x survives: " + (back.cell(0 2))))
         this.ok((back.title == "Otsikko") "and its title")
-        ; what cannot be a table says why
+        ; what cannot be a table is edited for its look alone, and says why
         def layered:PresChartModel (PresChartModel.fromSpec("{\"layer\": []}"))
-        this.ok(((layered.ok == false) && ((strlen layered.note) > 0)) "a layered chart is refused with a reason")
+        this.ok(((layered.ok && layered.lookOnly) && ((strlen layered.why) > 0)) "a layered chart opens for its look, with the reason")
+        def fromFile:string "{\"data\": {\"url\": \"data/cars.json\"}, \"transform\": [{\"filter\": \"datum.x > 1\"}], \"mark\": \"point\", \"encoding\": {\"x\": {\"field\": \"a\", \"type\": \"quantitative\"}, \"color\": {\"field\": \"o\", \"type\": \"nominal\"}}, \"config\": {\"axis\": {\"grid\": false}}}"
+        def fm:PresChartModel (PresChartModel.fromSpec(fromFile))
+        this.ok((fm.lookOnly && (fm.dataFile == "data/cars.json")) ("a chart reading a file opens for its look: " + fm.dataFile))
+        fm.title = "Autot"
+        fm.width = 500
+        fm.scheme = "tableau10"
+        fm.textColor = "#334455"
+        fm.legend = false
+        fm.effect = "neon"
+        def fout:string (fm.toSpec())
+        def fback:PresChartModel (PresChartModel.fromSpec(fout))
+        this.ok((((indexOf fout "data/cars.json") > 0) && ((indexOf fout "datum.x > 1") > 0)) "its data and transform are kept as they were")
+        this.ok(((indexOf fout "\"grid\":false") > 0) "and its own config")
+        this.ok(((((fback.title == "Autot") && (fback.width == 500)) && ((fback.scheme == "tableau10") && (fback.textColor == "#334455"))) && ((fback.legend == false) && (fback.effect == "neon"))) ("the look is written onto it: " + fout))
         this.ok((((l.suits(16)) == false) && (pm.suits(16))) "a pie wants exactly one series")
         ; the look, written and read back
         l.color = "#ff00aa"

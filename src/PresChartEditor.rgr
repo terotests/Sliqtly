@@ -56,6 +56,8 @@ class PresChartEditor {
     ; set by a control that wants the editor closed, or a fresh table
     def wantsClose:boolean false
     def wantsFresh:boolean false
+    ; the chart's data file, asked to be opened in the files tab
+    def wantsFile:string ""
     def message:string ""
     def rev:int 0
     def keep:PresKeep (new PresKeep())
@@ -422,6 +424,16 @@ class PresChartEditor {
             size.addChild(ar)
         }
 
+        if model.lookOnly {
+            ; the kind is the specification's own: the table that would
+            ; choose another is not there
+            def words0:EVGElement (this.section(pane "Otsikko ja selite"))
+            def tl0:EVGElement (this.field("Otsikko"))
+            this.input("ce-titlein" "Otsikko" model.title "ce-wide" tl0)
+            words0.addChild(tl0)
+            this.switchOf("ce-legend" "Näytä selite" model.legend words0)
+            return
+        }
         def kind:EVGElement (this.section(pane "Tyyppi"))
         def kinds:EVGElement (this.div("ce-chips"))
         def k:int 1
@@ -534,6 +546,24 @@ class PresChartEditor {
     }
 
     fn dataTab:void (pane:EVGElement) {
+        if model.lookOnly {
+            pane.addChild((this.text("ce-doc" model.why)))
+            if ((strlen model.dataFile) > 0) {
+                def src:EVGElement (this.field("Tiedosto"))
+                src.addChild((this.text("ce-value" model.dataFile)))
+                pane.addChild(src)
+                pane.addChild((this.text("ce-doc" "Tiedot ovat esityksen tiedostossa: muokkaa niitä Tiedostot-välilehdellä. Kaavio piirtyy uudelleen, kun tiedosto muuttuu.")))
+            } {
+                pane.addChild((this.text("ce-doc" "Tiedot ja niiden käsittely ovat kaavion JSONissa Markdown-välilehdellä.")))
+            }
+            def row:EVGElement (this.div("ce-row"))
+            if ((strlen model.dataFile) > 0) {
+                this.button("ce-openfile" "Avaa tiedosto" "primary" row)
+            }
+            this.button("ce-fresh" "Korvaa esimerkkitaulukolla" "outline" row)
+            pane.addChild(row)
+            return
+        }
         pane.addChild((this.text("ce-doc" "Ensimmäinen sarake: luokat. Muut sarakkeet: sarjat.")))
         def grid:EVGElement (this.div("ce-grid"))
         def hr:EVGElement (this.div("ce-gridrow ce-gridhead"))
@@ -833,6 +863,11 @@ class PresChartEditor {
         }
         if (tid == "ce-fresh") {
             wantsFresh = true
+            return
+        }
+        if (tid == "ce-openfile") {
+            wantsFile = model.dataFile
+            wantsClose = true
             return
         }
         if (tid == "ce-autosize") {

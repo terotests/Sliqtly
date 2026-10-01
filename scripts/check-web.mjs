@@ -470,10 +470,10 @@ try {
     a.pointerDown(a.chart.win.frameEl.calculatedX + a.chart.win.frameEl.calculatedWidth + 30, 5, false, 1);
     a.pointerUp();
     const closed = !a.chartIsOpen();
-    // a fence that is not a table says why, and can start from one
+    // a fence that is not a table opens for its look and says why
     a.setSource("# D\n\n## O\n\n```vega-lite\n{\"layer\": []}\n```\n");
     a.openChartEditor(5);
-    const refused = a.chart.model.ok === false && a.chart.model.note.length > 0;
+    const refused = a.chartIsOpen() && a.chart.model.lookOnly && a.chart.model.why.length > 0;
     a.key("escape", false, false);
     // the look: a palette, the effects, the text colour from the picker
     a.setSource("# D\n\n## O\n\n```vega-lite\n{\"data\": {\"values\": [{\"f\": \"A\", \"u\": 90}, {\"f\": \"B\", \"u\": 75}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"f\", \"type\": \"nominal\"}, \"y\": {\"field\": \"u\", \"type\": \"quantitative\"}}}\n```\n");
@@ -514,7 +514,7 @@ try {
   check("…a kind picked rewrites the fence", ce.line, JSON.stringify(ce));
   check("…a number typed into the table goes into the chart", ce.typed, JSON.stringify(ce));
   check("…its window moves by the title bar", ce.moved === 100 && ce.stillOpen, JSON.stringify(ce));
-  check("…a click outside closes it; a chart it cannot tabulate says why", ce.closed && ce.refused, JSON.stringify(ce));
+  check("…a click outside closes it; a chart it cannot tabulate opens for its look and says why", ce.closed && ce.refused, JSON.stringify(ce));
   check("…its look: a palette, a glow and a picked text colour go into the fence", ce.looks, JSON.stringify(ce));
   check("…its width, from its slider", ce.sized, JSON.stringify(ce));
 
@@ -933,17 +933,33 @@ try {
     await page.evaluate(() => { const a = window.__app; a.fileEditor.init("kk,euroa\ntammi,120\nhelmi,180\nmaalis,90\nhuhti,300\n"); a.syncEditor(); });
     await page.waitForTimeout(1000);
     const bars2 = await barsOf();
+    // the chart editor on a fence that names a file: it opens on the file's
+    // spec, and its changes go into the file, not into the fence
+    const viaFile = await page.evaluate(() => {
+      const a = window.__app;
+      a.showTab("md");
+      const lines = a.source().split("\n");
+      const at = lines.findIndex((l) => l.startsWith("```vega-lite"));
+      const opened = a.openChartEditor(at);
+      const look = a.chart.model.lookOnly;
+      a.chart.model.title = "Myynti tiedostosta";
+      a.chart.changed = true;
+      a.closeChart();
+      return { opened, look, fence: a.source().includes("charts/vfs-chart.json"), file: a.chartFileBody() };
+    });
     await page.waitForTimeout(1800);
     // a reload with no sample asked for opens this deck again, files and all
     await page.goto(url);
     await page.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
     await page.waitForTimeout(1500);
     const back = await page.evaluate(() => window.__app.source());
+    const fileBack = await page.evaluate(() => window.__app.deck.dataTexts.join("\n"));
     const bars3 = await barsOf();
     check("a changed deck is kept in the browser", kept >= 1, String(kept));
     check("files added in the files tab are listed in their folders", listed.includes("data/vfs-sales.csv") && listed.includes("charts/vfs-chart.json"), listed.slice(0, 200));
     check("a chart kept in a file draws from the document's data", bars1.length === 3, JSON.stringify(bars1));
     check("an edited data file redraws the chart", bars2.length === 4, JSON.stringify(bars2));
+    check("the chart editor edits a chart kept in a file, in the file", viaFile.opened && viaFile.fence && viaFile.file.includes("Myynti tiedostosta") && fileBack.includes("Myynti tiedostosta"), JSON.stringify(viaFile).slice(0, 160));
     check("a reload opens the deck worked on last, with its files", back.includes("charts/vfs-chart.json") && bars3.length === 4, JSON.stringify(bars3));
     await page.goto(url + "?sample=esittely");
     await page.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });

@@ -64,6 +64,16 @@ class PresChartModel {
     def glow:boolean false
     def shadow:boolean false
     def gradient:boolean false
+    ; --- a chart the table cannot hold ----------------------------------------
+    ; Its data from a file, transformed, or in layers: only the look is
+    ; edited (size, title, legend, colours, the stage's dressing), written
+    ; onto the specification as it was, data and encoding untouched.
+    def lookOnly:boolean false
+    def original:string ""
+    ; the file the data comes from ("" : none, or not one file)
+    def dataFile:string ""
+    ; why the table is not offered
+    def why:string ""
 
     Constructor () {
     }
@@ -263,6 +273,9 @@ class PresChartModel {
     ; with the size and the colours this model asks for. "" when the table
     ; cannot make a chart at all.
     fn toSpec:string () {
+        if lookOnly {
+            return (this.lookSpec())
+        }
         if ((this.cols()) < 2) {
             return ""
         }
@@ -550,19 +563,19 @@ class PresChartModel {
             m.note = "Kaavion JSON ei ole kelvollinen."
             return m
         }
-        if ((spec.has("layer")) || ((spec.has("facet")) || ((spec.has("hconcat")) || ((spec.has("vconcat")) || ((spec.has("concat")) || (spec.has("repeat"))))))) {
-            m.note = "Monikerroksista tai jaettua kaaviota ei voi muokata taulukkona."
-            return m
+        if ((spec.has("facet")) || ((spec.has("hconcat")) || ((spec.has("vconcat")) || ((spec.has("concat")) || (spec.has("repeat")))))) {
+            return (PresChartModel.looks(m spec text "Kaavio on jaettu useaan osaan, joten sen tietoja ei muokata taulukkona."))
+        }
+        if (spec.has("layer")) {
+            return (PresChartModel.looks(m spec text "Kaaviossa on kerroksia, joten sen tietoja ei muokata taulukkona."))
         }
         if (spec.has("transform")) {
-            m.note = "Kaavio muuntaa tietonsa (transform), joten sitä ei voi muokata taulukkona."
-            return m
+            return (PresChartModel.looks(m spec text "Kaavio muuntaa tietonsa (transform), joten niitä ei muokata taulukkona."))
         }
         def data:VlJson (spec.get("data"))
         def values:VlJson (data.get("values"))
         if ((values.isArray()) == false) {
-            m.note = "Kaavion tiedot eivät ole kaaviossa itsessään (data.values)."
-            return m
+            return (PresChartModel.looks(m spec text "Kaavion tiedot eivät ole kaaviossa itsessään."))
         }
         m.schema = (spec.stringOr("$schema" ""))
         m.description = (spec.stringOr("description" ""))
@@ -963,6 +976,248 @@ class PresChartModel {
     }
 
     ; A table to start from when a fence is new or unreadable as one.
+    ; The look of a chart the table cannot hold, read from it.
+    sfn looks:PresChartModel (m:PresChartModel spec:VlJson text:string why:string) {
+        m.ok = true
+        m.lookOnly = true
+        m.original = text
+        m.why = why
+        m.dataFile = ((spec.get("data")).stringOr("url" ""))
+        def tv:VlJson (spec.get("title"))
+        if (tv.isString()) {
+            m.title = tv.str
+        }
+        if (tv.isObject()) {
+            m.title = (tv.stringOr("text" ""))
+        }
+        def wv:VlJson (spec.get("width"))
+        if (wv.isNumber()) {
+            m.width = (to_int wv.num)
+        }
+        def hv:VlJson (spec.get("height"))
+        if (hv.isNumber()) {
+            m.height = (to_int hv.num)
+        }
+        def mv:VlJson (spec.get("mark"))
+        if (mv.isObject()) {
+            m.color = (mv.stringOr("color" ""))
+            m.strokeWidth = (mv.doubleOr("strokeWidth" 0.0))
+        }
+        def cfg:VlJson (spec.get("config"))
+        m.textColor = ((cfg.get("axis")).stringOr("labelColor" ""))
+        m.scheme = (((cfg.get("range")).get("category")).stringOr("scheme" ""))
+        def colour:VlJson ((spec.get("encoding")).get("color"))
+        if (colour.isObject()) {
+            def sc:VlJson (colour.get("scale"))
+            if ((strlen (sc.stringOr("scheme" ""))) > 0) {
+                m.scheme = (sc.stringOr("scheme" ""))
+            }
+            if ((colour.has("legend")) && ((colour.get("legend")).isNull())) {
+                m.legend = false
+            }
+        }
+        def um:VlJson (spec.get("usermeta"))
+        if (um.isObject()) {
+            m.effect = (um.stringOr("presStyle" ""))
+            m.glow = (um.boolOr("presGlow" false))
+            m.shadow = (um.boolOr("presShadow" false))
+            m.gradient = (um.boolOr("presGradient" false))
+        }
+        def mark:string (mv.stringOr("type" ""))
+        if (mv.isString()) {
+            mark = mv.str
+        }
+        if (mark == "line") {
+            m.kind = 6
+        }
+        return m
+    }
+
+    ; The look written onto the specification as it was.
+    fn lookSpec:string () {
+        def p (new VlJsonParser())
+        def spec:VlJson (p.parse(original))
+        if ((spec.isObject()) == false) {
+            return ""
+        }
+        if ((strlen title) > 0) {
+            def tv:VlJson (spec.get("title"))
+            if (tv.isObject()) {
+                tv.setMember("text" (VlJson.stringValue(title)))
+            } {
+                spec.setMember("title" (VlJson.stringValue(title)))
+            }
+        } {
+            spec.removeMember("title")
+        }
+        if (width > 0) {
+            spec.setMember("width" (VlJson.numberValue((to_double width))))
+        } {
+            spec.removeMember("width")
+        }
+        if (height > 0) {
+            spec.setMember("height" (VlJson.numberValue((to_double height))))
+        } {
+            spec.removeMember("height")
+        }
+        ; the mark's colour and line: a single mark only (a layer's marks are
+        ; each their own)
+        def mv:VlJson (spec.get("mark"))
+        if ((mv.isString()) || (mv.isObject())) {
+            def mark:VlJson (VlJson.objectValue())
+            if (mv.isString()) {
+                mark.setMember("type" mv)
+            } {
+                mark = mv
+            }
+            if ((strlen color) > 0) {
+                mark.setMember("color" (VlJson.stringValue(color)))
+            } {
+                mark.removeMember("color")
+            }
+            if (strokeWidth > 0.0) {
+                mark.setMember("strokeWidth" (VlJson.numberValue(strokeWidth)))
+            } {
+                mark.removeMember("strokeWidth")
+            }
+            if ((array_length mark.keys) > 1) {
+                spec.setMember("mark" mark)
+            } {
+                spec.setMember("mark" (mark.get("type")))
+            }
+        }
+        ; the colour channel's scheme and legend, where there is one
+        def enc:VlJson (spec.get("encoding"))
+        def colour:VlJson (enc.get("color"))
+        def cfg:VlJson (spec.get("config"))
+        if ((cfg.isObject()) == false) {
+            cfg = (VlJson.objectValue())
+        }
+        if (colour.isObject()) {
+            def sc:VlJson (colour.get("scale"))
+            if ((strlen scheme) > 0) {
+                if ((sc.isObject()) == false) {
+                    sc = (VlJson.objectValue())
+                    colour.setMember("scale" sc)
+                }
+                sc.setMember("scheme" (VlJson.stringValue(scheme)))
+            } {
+                if (sc.isObject()) {
+                    sc.removeMember("scheme")
+                    if ((array_length sc.keys) == 0) {
+                        colour.removeMember("scale")
+                    }
+                }
+            }
+            if legend {
+                if ((colour.get("legend")).isNull()) {
+                    colour.removeMember("legend")
+                }
+            } {
+                colour.setMember("legend" (VlJson.nullValue()))
+            }
+        } {
+            def rng:VlJson (cfg.get("range"))
+            if ((strlen scheme) > 0) {
+                if ((rng.isObject()) == false) {
+                    rng = (VlJson.objectValue())
+                    cfg.setMember("range" rng)
+                }
+                def cat:VlJson (VlJson.objectValue())
+                cat.setMember("scheme" (VlJson.stringValue(scheme)))
+                rng.setMember("category" cat)
+            } {
+                if (rng.isObject()) {
+                    rng.removeMember("category")
+                }
+            }
+        }
+        ; the words' colour, merged into what the config already says
+        def groups:[string] (strsplit "axis,legend" ",")
+        def g:int 0
+        while (g < (array_length groups)) {
+            def gv:VlJson (cfg.get((itemAt groups g)))
+            if ((strlen textColor) > 0) {
+                if ((gv.isObject()) == false) {
+                    gv = (VlJson.objectValue())
+                    cfg.setMember((itemAt groups g) gv)
+                }
+                gv.setMember("labelColor" (VlJson.stringValue(textColor)))
+                gv.setMember("titleColor" (VlJson.stringValue(textColor)))
+            } {
+                if (gv.isObject()) {
+                    gv.removeMember("labelColor")
+                    gv.removeMember("titleColor")
+                }
+            }
+            g = (g + 1)
+        }
+        def tc:VlJson (cfg.get("title"))
+        if ((strlen textColor) > 0) {
+            if ((tc.isObject()) == false) {
+                tc = (VlJson.objectValue())
+                cfg.setMember("title" tc)
+            }
+            tc.setMember("color" (VlJson.stringValue(textColor)))
+        } {
+            if (tc.isObject()) {
+                tc.removeMember("color")
+            }
+        }
+        PresChartModel.dropEmpty(cfg)
+        if ((array_length cfg.keys) > 0) {
+            spec.setMember("config" cfg)
+        } {
+            spec.removeMember("config")
+        }
+        ; the stage's dressing, over what usermeta already carries
+        def um:VlJson (spec.get("usermeta"))
+        if ((um.isObject()) == false) {
+            um = (VlJson.objectValue())
+        }
+        um.removeMember("presStyle")
+        um.removeMember("presGlow")
+        um.removeMember("presShadow")
+        um.removeMember("presGradient")
+        if ((strlen effect) > 0) {
+            um.setMember("presStyle" (VlJson.stringValue(effect)))
+        }
+        if glow {
+            um.setMember("presGlow" (VlJson.boolValue(true)))
+        }
+        if shadow {
+            um.setMember("presShadow" (VlJson.boolValue(true)))
+        }
+        if gradient {
+            um.setMember("presGradient" (VlJson.boolValue(true)))
+        }
+        if ((array_length um.keys) > 0) {
+            spec.setMember("usermeta" um)
+        } {
+            spec.removeMember("usermeta")
+        }
+        return (PresChartModel.write(spec))
+    }
+
+    ; config groups left empty by the removals
+    sfn dropEmpty:void (cfg:VlJson) {
+        def gone:[string]
+        def i:int 0
+        while (i < (array_length cfg.keys)) {
+            def k:string (itemAt cfg.keys i)
+            def v:VlJson (cfg.get(k))
+            if ((v.isObject()) && ((array_length v.keys) == 0)) {
+                push gone k
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length gone)) {
+            cfg.removeMember((itemAt gone j))
+            j = (j + 1)
+        }
+    }
+
     sfn sample:PresChartModel () {
         def m (new PresChartModel())
         push m.header "Kvartaali"

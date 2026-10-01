@@ -88,6 +88,9 @@ class PresApp {
     def fileEditor:ScriptEditor (new ScriptEditor())
     def filePath:string ""
     def fileSynced:int 0
+    ; the chart editor's chart, when it lives in a file of the document
+    def chartFile:string ""
+    def chartFileText:string ""
     def jsonLang:JsLanguage (new JsLanguage())
     def plainLang:EditorLanguage (new EditorLanguage())
     def cssLang:PresCssLanguage (new PresCssLanguage())
@@ -2561,6 +2564,10 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    fn chartFileBody:string () {
+        return chartFileText
+    }
+
     fn openFilePath:string () {
         return filePath
     }
@@ -3010,6 +3017,12 @@ class PresApp {
             body = (body + (mdEditor.buf.lineAt(b)) + "\n")
             b = (b + 1)
         }
+        ; a fence naming a chart file: the file's spec is what is edited, and
+        ; what is written back
+        chartFile = (MdVegaRender.specFile(body))
+        if ((strlen chartFile) > 0) {
+            body = (MdVegaRender.fromFile(body deck.dataUrls deck.dataTexts))
+        }
         def m:PresChartModel (PresChartModel.fromSpec(body))
         this.place()
         ; where the window was left, or over the Markdown beside the slide
@@ -3082,6 +3095,12 @@ class PresApp {
             chart.wantsClose = false
             this.closeChart()
         }
+        ; the chart's data file, in the files tab's editor
+        if ((strlen chart.wantsFile) > 0) {
+            def f:string (MdVegaRender.bareUrl(chart.wantsFile))
+            chart.wantsFile = ""
+            push requests ("files:open:" + f)
+        }
         chromeRev = (chromeRev + 1)
     }
 
@@ -3115,6 +3134,13 @@ class PresApp {
         chart.changed = false
         def spec:string (chart.model.toSpec())
         if (((strlen spec) == 0) || (chartStart < 0)) {
+            return
+        }
+        if ((strlen chartFile) > 0) {
+            ; the chart's own file changes, the fence that names it does not
+            chartFileText = spec
+            this.setChartData(chartFile spec)
+            push requests ("chart-file:" + chartFile)
             return
         }
         def was:string edTab

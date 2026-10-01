@@ -819,6 +819,12 @@ function handleRequests() {
       refreshFiles();
     } else if (r.startsWith("files:")) {
       fileRequest(r.slice(6)).catch(fail);
+    } else if (r.startsWith("chart-file:")) {
+      const path = bare(r.slice(11));
+      const text = app.chartFileBody();
+      keepFile({ path, type: "application/json", size: text.length, data: text }).catch(fail);
+      chartFiles.set(path, Promise.resolve(text));
+      dropThumbs();
     } else if (r.startsWith("file-save:")) {
       saveOpenFile(r.slice(10)).catch(fail);
     } else if (r === "exit-fullscreen") {
