@@ -213,6 +213,7 @@
   "Key: <kbd>…</kbd>.": "Näppäin: <kbd>…</kbd>.",
   "Keys: F6 moves between areas (bar, tabs, editor, slides, help), arrows and Tab within an area, Enter selects, Ctrl+Space opens the choices for the value at the cursor, Esc returns to the editor.": "Näppäimet: F6 siirtyy alueelta toiselle (palkki, välilehdet, editori, diat, ohje), nuolet ja Tab alueen sisällä, Enter valitsee, Ctrl+Välilyönti avaa kursorin kohdalla olevan arvon valinnat, Esc palaa editoriin.",
   "language": "kieli",
+  "Language": "Kieli",
   "Largest scale a diagram box is drawn at.": "Suurin mittakaava, jolla kaavion laatikko piirretään.",
   "Last slide": "Viimeinen dia",
   "Lead: larger text.": "Ingressi: suurempi teksti.",

@@ -45,7 +45,17 @@
   #hint {
     position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
     color: var(--dim); text-align: center; pointer-events: none;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    transition: opacity .25s;
   }
+  #hint.done { opacity: 0; }
+  /* the logo turns while the editor loads: a turn, then a breath */
+  #hint .spinner { animation: spin 1.1s cubic-bezier(.6, 0, .3, 1) infinite; }
+  @keyframes spin {
+    0% { transform: perspective(300px) rotateY(0deg); }
+    55%, 100% { transform: perspective(300px) rotateY(360deg); }
+  }
+  @media (prefers-reduced-motion: reduce) { #hint .spinner { animation: none; } }
   #err {
     position: fixed; left: 12px; bottom: 12px; right: 12px; color: #dc2626;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
@@ -119,7 +129,7 @@
   <button id="share" title="Copy a link with this Markdown packed into its address" data-i18n-title data-i18n>🔗 Share</button>
   <button id="helpBtn" title="What the selected slide contains and which theme CSS rules change it" data-i18n-title data-i18n>? Help</button>
   <button id="pro" data-canvas="accent" title="Sign in with Google" data-i18n-title>PRO</button>
-  <button id="langBtn" data-canvas="ghost">🌐 EN</button>
+  <select id="lang" aria-label="Language" data-i18n-aria></select>
   <span class="grow"></span>
   <span id="status"></span>
 </div>
@@ -127,7 +137,7 @@
   <canvas id="c" aria-label="Presentation editor" data-i18n-aria></canvas>
   <textarea id="keys" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"
             aria-label="Markdown — type here" data-i18n-aria></textarea>
-  <div id="hint" data-i18n>loading…</div>
+  <div id="hint"><img class="spinner" src="./favicon.svg" alt="" width="72" height="72" /><span data-i18n>loading…</span></div>
 </div>
 <div id="viewBar" aria-label="Presentation controls" data-i18n-aria>
   <button id="vPrev" title="Previous (←)" data-i18n-title>◀</button>

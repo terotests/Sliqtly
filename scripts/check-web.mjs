@@ -1225,10 +1225,11 @@ try {
     lang: document.documentElement.lang,
     bar: window.__app.toolbarJson().includes("Esitä"),
     html: document.getElementById("present").textContent,
-    langBtn: document.getElementById("langBtn").textContent,
+    langSel: document.getElementById("lang").value,
+    langBar: window.__app.toolbarJson().includes("Suomi"),
   }));
   await pageFi.close();
-  check("?lang=fi: the bar drawn and the page's own words in Finnish", fi.lang === "fi" && fi.bar && /Esitä/.test(fi.html) && /FI/.test(fi.langBtn), JSON.stringify(fi));
+  check("?lang=fi: the bar drawn and the page's own words in Finnish", fi.lang === "fi" && fi.bar && /Esitä/.test(fi.html) && fi.langSel === "fi" && fi.langBar, JSON.stringify(fi));
 
   check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {

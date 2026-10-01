@@ -31,16 +31,12 @@ const fileAdd = document.getElementById("fileadd");
 const sampleSel = document.getElementById("sample");
 const themeSel = document.getElementById("theme");
 const playBtn = document.getElementById("play");
-// The language button: the next language, the page reloaded in it.
-const langBtn = document.getElementById("langBtn");
-if (langBtn) {
-  langBtn.textContent = "🌐 " + lang.toUpperCase();
-  langBtn.title = LANGS.map(([, name]) => name).join(" · ");
-  langBtn.addEventListener("click", () => {
-    const i = LANGS.findIndex(([c]) => c === lang);
-    chooseLang(LANGS[(i + 1) % LANGS.length][0]);
-  });
-}
+// The language: a select in the bar (drawn on the canvas bar too); choosing
+// one reloads the page in it.
+const langSel = document.getElementById("lang");
+for (const [code, name] of LANGS) langSel.add(new Option(name, code));
+langSel.value = lang;
+langSel.addEventListener("change", () => { if (langSel.value !== lang) chooseLang(langSel.value); });
 
 // The app's name is the one index.html gives its bar: a page built on this
 // one renames it there, and the canvas follows.
@@ -1636,11 +1632,13 @@ function selectRows(sel) {
 function syncToolbar() {
   const s = selectRows(sampleSel);
   const t = selectRows(themeSel);
-  const key = s + "|" + sampleSel.value + "|" + t + "|" + themeSel.value;
+  const l = selectRows(langSel);
+  const key = s + "|" + sampleSel.value + "|" + t + "|" + themeSel.value + "|" + langSel.value;
   if (key === barSynced) return;
   barSynced = key;
   app.setToolbarOptions("sample", s, sampleSel.value);
   app.setToolbarOptions("theme", t, themeSel.value);
+  app.setToolbarOptions("lang", l, langSel.value);
 }
 
 async function start() {
@@ -1735,7 +1733,11 @@ async function start() {
   // the hidden text field is not focused, so no keyboard comes up.
   if (viewer || isCoarse()) keys.blur();
 
-  hintEl.remove();
+  // the loader has its moment: at least one turn of the logo (0.6 s from
+  // the page's start), then it fades as the editor appears
+  await new Promise((r) => setTimeout(r, Math.max(0, 600 - performance.now())));
+  hintEl.classList.add("done");
+  setTimeout(() => hintEl.remove(), 260);
   document.body.classList.remove("booting");
   if (!viewer && !isCoarse()) focusKeys("editor");
   window.__pageStarted = true;

@@ -35,6 +35,10 @@ class PresToolbar {
     def barH:double 48.0
     def sample:SelectCtl (new SelectCtl())
     def theme:SelectCtl (new SelectCtl())
+    ; the interface's language, after the page's own buttons (rows from the page)
+    def langSel:SelectCtl (new SelectCtl())
+    def langRows:string ""
+    def langValue:string ""
     ; "value<TAB>label<TAB>group" rows, per select
     def sampleRows:string ""
     def themeRows:string ""
@@ -59,6 +63,10 @@ class PresToolbar {
         if (id == "theme") {
             themeRows = rows
             themeValue = current
+        }
+        if (id == "lang") {
+            langRows = rows
+            langValue = current
         }
         this.rebuild()
     }
@@ -153,6 +161,7 @@ class PresToolbar {
     fn rebuild:void () {
         def keepSample:boolean sample.open
         def keepTheme:boolean theme.open
+        def keepLang:boolean langSel.open
         def fresh (new UiHost())
         host = fresh
         host.addStyleSheet(css)
@@ -189,6 +198,9 @@ class PresToolbar {
             }
             k = (k + 1)
         }
+        if ((strlen langRows) > 0) {
+            langSel = (this.select("lang" (PresI18n.t("Language")) langRows langValue bar))
+        }
         bar.addChild((this.div("tb-grow")))
         bar.addChild((this.text("tb-status" status)))
         root.addChild(bar)
@@ -199,6 +211,10 @@ class PresToolbar {
         if keepTheme {
             theme.openList()
             theme.build()
+        }
+        if keepLang {
+            langSel.openList()
+            langSel.build()
         }
         rev = (rev + 1)
     }
@@ -240,7 +256,7 @@ class PresToolbar {
 
     ; --- the pointer --------------------------------------------------------------
     fn listOpen:boolean () {
-        return (sample.open || theme.open)
+        return ((sample.open || theme.open) || langSel.open)
     }
 
     ; The bar, or anywhere while a list is open (a press outside closes it).
@@ -259,21 +275,32 @@ class PresToolbar {
             def owner:UiCtl (unwrap maybe)
             ctlTid = owner.tid
         }
+        def isSel:boolean (((strlen ctlTid) > 0) && (((ctlTid == sample.tid) || (ctlTid == theme.tid)) || (ctlTid == langSel.tid)))
         ; a press outside an open list closes it and does nothing else
-        if ((this.listOpen()) && ((ctlTid != sample.tid) && (ctlTid != theme.tid))) {
+        if ((this.listOpen()) && (isSel == false)) {
             this.closeLists()
             return
         }
-        if ((ctlTid == sample.tid) || (ctlTid == theme.tid)) {
+        if isSel {
             def sel:SelectCtl sample
-            def other:SelectCtl theme
             if (ctlTid == theme.tid) {
                 sel = theme
-                other = sample
             }
-            if other.open {
-                other.closeList()
-                other.build()
+            if (ctlTid == langSel.tid) {
+                sel = langSel
+            }
+            ; another open list closes
+            if (sample.open && (sel.tid != sample.tid)) {
+                sample.closeList()
+                sample.build()
+            }
+            if (theme.open && (sel.tid != theme.tid)) {
+                theme.closeList()
+                theme.build()
+            }
+            if (langSel.open && (sel.tid != langSel.tid)) {
+                langSel.closeList()
+                langSel.build()
             }
             def before:string sel.value
             host.click(tid)
@@ -283,8 +310,12 @@ class PresToolbar {
                 push requests ("select:" + id + ":" + sel.value)
                 if (id == "sample") {
                     sampleValue = sel.value
-                } {
+                }
+                if (id == "theme") {
                     themeValue = sel.value
+                }
+                if (id == "lang") {
+                    langValue = sel.value
                 }
             }
             rev = (rev + 1)
@@ -303,6 +334,10 @@ class PresToolbar {
         if theme.open {
             theme.closeList()
             theme.build()
+        }
+        if langSel.open {
+            langSel.closeList()
+            langSel.build()
         }
         rev = (rev + 1)
     }
