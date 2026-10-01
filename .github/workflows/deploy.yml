@@ -41,3 +41,14 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           projectId: sliqtly
           channelId: live
+      # The Firestore and Storage rules (firestore.rules, storage.rules). Needs
+      # Firestore and Storage created in the console; until then this step
+      # fails without stopping the page's deploy above.
+      - name: Firestore and Storage rules
+        continue-on-error: true
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          printf '%s' "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json" \
+            npx --yes firebase-tools@13 deploy --only firestore:rules,storage --project sliqtly --non-interactive

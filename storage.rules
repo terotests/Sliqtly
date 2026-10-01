@@ -1,0 +1,17 @@
+rules_version = '2';
+
+// A share's pictures and data files: read like the share (anyone with its
+// id), written and deleted only by the owner its Firestore copy names.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /shares/{shareId}/{path=**} {
+      function owner() {
+        return request.auth != null
+          && firestore.get(/databases/(default)/documents/shares/$(shareId)).data.owner == request.auth.uid;
+      }
+      allow read: if true;
+      allow create, update: if owner() && request.resource.size < 20 * 1024 * 1024;
+      allow delete: if owner();
+    }
+  }
+}

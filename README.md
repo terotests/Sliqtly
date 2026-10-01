@@ -230,6 +230,24 @@ Firebase Hosting. In the Firebase Console, once:
 3. Authentication → Settings → Authorized domains: add `sliqtly.com` when the
    domain is connected (`sliqtly.web.app` is there already).
 
+## Sharing (PRO)
+
+Signed in, **Share** keeps the deck as its owner's in Firestore
+(`decks/{deckId}`) and makes a copy under a short random id
+(`shares/{id}`, its pictures and data files in Storage under `shares/{id}/`).
+The link is `/s/{id}`: anyone with it sees the presentation, nobody can list
+the ids, only the owner can change or delete the copy (`firestore.rules`,
+`storage.rules`). `/s/{id}?edit` opens the copy as a new deck of the reader's
+own. Signed out, Share still packs the text into the link as before.
+
+Firebase Console, once:
+1. Firestore Database → Create database (production mode).
+2. Storage → Get started (needs the Blaze plan). When the Storage rules are
+   first deployed, allow them to read Firestore if the console asks.
+3. The Deploy workflow then deploys both rule files (its last step). The
+   service account needs the role **Firebase Rules Admin** (the Admin SDK
+   account generated in Project settings → Service accounts has it).
+
 ## Domain (Cloudflare)
 
 1. Firebase Console → Hosting → Add custom domain → `sliqtly.com`.

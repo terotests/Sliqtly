@@ -1064,7 +1064,44 @@ function toast(text) {
 // Two links to the same deck: one that opens straight into the presentation
 // (no editor, no toolbar), one that opens the editor. The dialog shows both
 // and copies the one asked for.
+// PRO (sliqtly.js), once it has run: module scripts run in order, but a
+// caller may come before.
+function pro() {
+  return window.sliqtly ? Promise.resolve(window.sliqtly)
+    : new Promise((ok) => window.addEventListener("sliqtly:ready", () => ok(window.sliqtly), { once: true }));
+}
+
+// Signed in to PRO: the deck is kept as its owner's in the cloud and a copy
+// is shared under a short id, pictures and data files with it. The copy is
+// read-only: the edit link opens it as a new deck of the reader's own.
+async function shareCloud() {
+  const p = window.sliqtly;
+  if (!p?.user?.()) return false;
+  try {
+    toast(t("Sharing…"));
+    await saveDoc(true);
+    const key = themeSel.value || "";
+    const id = await p.share({
+      deckId: doc.id, name: exportName(), md: app.source(), theme: key,
+      css: key in editedCss ? editedCss[key] : null,
+      files: (await docFiles()).map((f) => ({ path: f.path, type: f.type || "", data: f.data })),
+    });
+    const showUrl = location.origin + "/s/" + id;
+    const editUrl = showUrl + "?edit";
+    app.openShare(showUrl, editUrl, t("A short link to a copy in the cloud, with its images and data. Only you can change the original."));
+    window.__lastShare = editUrl;
+    window.__lastShareShow = showUrl;
+    needsPaint = true;
+    return true;
+  } catch (e) {
+    console.warn(e);
+    toast(t("Cloud sharing failed; sharing the text in the link instead."));
+    return false;
+  }
+}
+
 async function shareLink() {
+  if (await shareCloud()) return;
   const text = app.source();
   const code = await packText(text);
   const q = new URLSearchParams();
@@ -1178,6 +1215,52 @@ async function openFromHash() {
   }
 }
 window.addEventListener("hashchange", () => { if (location.hash !== lastHash) openFromHash(); });
+
+// /s/{id}: a deck shared through PRO, read from the cloud. Shown as a
+// presentation; with ?edit, opened as a new deck of the reader's own.
+async function openFromShare() {
+  const m = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(location.pathname);
+  if (!m) return false;
+  try {
+    const shared = await (await pro()).loadShare(m[1]);
+    if (!shared) {
+      toast(t("This shared presentation was not found."));
+      return false;
+    }
+    const editing = new URLSearchParams(location.search).has("edit");
+    beginDoc(shared.md || "");
+    if (shared.theme != null) {
+      themeSel.value = shared.theme;
+      app.setStyleSheet(shared.theme ? themeCss[shared.theme] || "" : "");
+    }
+    if (shared.css != null) {
+      editedCss[themeSel.value || ""] = shared.css;
+      app.setStyleSheet(shared.css);
+    }
+    for (const f of shared.files || []) {
+      try {
+        const res = await fetch(f.url);
+        const data = isText(f.path, f.type) ? await res.text() : await res.blob();
+        const rec = { doc: doc.id, path: f.path, type: f.type, size: f.size, data, updated: Date.now() };
+        // the reader's copy keeps them: they are saved with it on its first change
+        if (editing) pending.set(rec.path, rec);
+        await useFile(rec);
+      } catch (e) {
+        console.warn("shared file not loaded: " + f.path, e);
+      }
+    }
+    docName = shared.name || "shared";
+    app.setSource(shared.md || "");
+    dropThumbs();
+    needsPaint = true;
+    if (!editing) enterViewer();
+    return true;
+  } catch (e) {
+    console.warn(e);
+    toast(t("Could not open the shared presentation."));
+    return false;
+  }
+}
 
 const themeCss = {};
 // A theme edited in the CSS tab: kept for the session under its name (the
@@ -1716,7 +1799,7 @@ async function start() {
   themeSel.value = theme;
   app.setStyleSheet(theme ? themeCss[theme] || "" : "");
   if (!viewer) vfs = await openVfs();
-  if (!(await openFromHash())) {
+  if (!(await openFromShare()) && !(await openFromHash())) {
     const want = q.get("sample");
     // no sample asked for: the deck worked on last, if this browser kept one
     let last = null;
