@@ -15,15 +15,14 @@ DOT, REST = LETTERS.split("Z", 1)
 DOT += "Z"
 REST = "M323.92 64.72" + REST[len("m-39.72 3.83"):]
 # the q, drawn in place of the traced Q: a bowl of the letters' stroke and a
-# stem whose foot turns out to the right the way the y's tail turns left
+# stem whose foot turns back under the bowl, the way the y's tail turns left
 Q_BOWL = (
     "M423 90a37.5 38.5 0 1 0 0.001 0Z"   # outside
     "M423 110.5a17 18 0 1 1 -0.001 0Z"   # the counter
 )
 Q_STEM = (
-    "M440 93.5Q440 90.5 443 90.5L458 90.5Q461 90.5 461 93.5L461 165"
-    "C461 173.5 465 178 472.5 178L476 178Q479 178 479 181L479 193Q479 196 476 196L463 196"
-    "C448.5 196 440 187 440 172Z"
+    "M440 93.5Q440 90.5 443 90.5L458 90.5Q461 90.5 461 93.5L461 193Q461 196 458 196"
+    "L443 196Q440 196 440 193Z"
 )
 
 
@@ -89,8 +88,17 @@ def tapered(c0, r0, c1, r1):
     return (f"M{f(a1)}L{f(b1)}A{r1} {r1} 0 0 1 {f(b0)}L{f(a0)}A{r0} {r0} 0 0 1 {f(a1)}Z")
 
 
-# the i's tittle: a stroke leaning right, thin at the foot, round at the head
-DOT = tapered((362.5, 83), 5.5, (377, 65.5), 10.5)
+# the i's tittle: a wedge leaning left, wide at the head, sharp-cornered
+def wedge(head, foot, wh, wf):
+    (x0, y0), (x1, y1) = head, foot
+    d = math.hypot(x1 - x0, y1 - y0)
+    nx, ny = -(y1 - y0) / d, (x1 - x0) / d
+    pts = [(x0 + nx * wh / 2, y0 + ny * wh / 2), (x1 + nx * wf / 2, y1 + ny * wf / 2),
+           (x1 - nx * wf / 2, y1 - ny * wf / 2), (x0 - nx * wh / 2, y0 - ny * wh / 2)]
+    return "M" + "L".join(f"{x:.2f} {y:.2f}" for x, y in pts) + "Z"
+
+
+DOT = wedge((362, 61), (375.5, 85), 19, 7)
 
 
 def wordmark(ink):
