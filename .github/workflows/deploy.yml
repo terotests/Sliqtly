@@ -26,6 +26,10 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # The Ranger compiler needs more than the 2 GB heap Node gets by default
+    # on a private repository's runner (7 GB of memory).
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v4
       - name: Read sliqtly.config.json
@@ -45,9 +49,6 @@ jobs:
           node-version: 20
       - name: Build the page
         working-directory: app
-        # The Ranger compiler needs more than Node's default 2 GB heap.
-        env:
-          NODE_OPTIONS: --max-old-space-size=6144
         run: node scripts/build.mjs
       - name: Check the deck and the timeline
         working-directory: app
