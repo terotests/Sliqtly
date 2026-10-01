@@ -61,6 +61,16 @@ class PresChart {
             fx = (fx + " gradient")
         }
         def dark:boolean ((indexOf (" " + style + " ") " dark ") >= 0)
+        ; the labels' own colour ("label=#334155" among the words)
+        def labelHex:string ""
+        def li:int 0
+        while (li < (array_length words)) {
+            def lw:string (itemAt words li)
+            if ((indexOf lw "label=") == 0) {
+                labelHex = (substring lw 6 (strlen lw))
+            }
+            li = (li + 1)
+        }
         def ac:EVGColor (PresChart.colour(accentHex "#5ce1ff"))
         ; the mark's colour: looked for in the mark alone, not in a title's
         def markAt:int (indexOf spec "\"mark\"")
@@ -325,12 +335,22 @@ class PresChart {
                 } {
                     if ((c.kind == 3) && (! keepText)) {
                         ; labels in a cooler, quieter light than the columns
-                        c.r = (PresDiagram.mixI(acR 230 0.55))
-                        c.g = (PresDiagram.mixI(acG 236 0.55))
-                        c.b = (PresDiagram.mixI(acB 245 0.55))
-                        ; quieter, never shown when hidden: an axis hides the
-                        ; labels that would overprint (opacity 0)
-                        c.a = (c.a * 0.8)
+                        if ((strlen labelHex) > 0) {
+                            ; a light slide's labels in its own text colour,
+                            ; at full strength: a quiet grey on white is
+                            ; hard to read
+                            def lc:EVGColor (EVGColor.parse(labelHex))
+                            c.r = (lc.red())
+                            c.g = (lc.green())
+                            c.b = (lc.blue())
+                        } {
+                            c.r = (PresDiagram.mixI(acR 230 0.55))
+                            c.g = (PresDiagram.mixI(acG 236 0.55))
+                            c.b = (PresDiagram.mixI(acB 245 0.55))
+                            ; quieter, never shown when hidden: an axis hides
+                            ; the labels that would overprint (opacity 0)
+                            c.a = (c.a * 0.8)
+                        }
                         push out.cmds c
                     } {
                         push out.cmds c

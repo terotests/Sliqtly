@@ -151,6 +151,9 @@ class PresHints {
         if (prop == "chart-style") { return "Kaavioiden tyyli: flat, forge, neon tai glass." }
         if (prop == "title-font-size") { return "Kaavion otsikon koko." }
         if (prop == "title-gap") { return "Kaavion otsikon ja kaavion väli." }
+        if (prop == "justify-content") { return "Kaavion paikka vaakasuunnassa, kun se on kapeampi kuin dia: center (oletus), flex-start tai flex-end." }
+        if (prop == "label-color") { return "Kaavion tekstien (akselit, selite) väri." }
+        if (prop == "contrast") { return "auto: kaavion tekstit dian tekstin värillä vaalealla dialla (oletus). off: teeman vaalea tekstiväri." }
         if (prop == "padding") { return "Tyhjä tila reunoilla (kaaviossa: kaavion ympärillä)." }
         if (prop == "chart-effects") { return "Kaikkien kaavioiden lisäefektit: glow (hehku), shadow (varjo), gradient (liukuväri). Esim. glow gradient." }
         if (prop == "split-level") { return "Monennenko tason otsikko aloittaa dian." }
@@ -166,6 +169,8 @@ class PresHints {
 
     sfn cssEnum:string (prop:string) {
         if (prop == "chart-style") { return "flat forge neon glass" }
+        if (prop == "justify-content") { return "center flex-start flex-end" }
+        if (prop == "contrast") { return "auto off" }
         if (prop == "overflow") { return "split shrink" }
         if (prop == "text-align") { return "left center right" }
         if (prop == "font-weight") { return "normal bold" }

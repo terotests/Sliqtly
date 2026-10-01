@@ -720,13 +720,26 @@ class PresDeck {
     ; (black marks are then drawn light, not left invisible).
     fn chartStyleWords:string () {
         def w:string ((this.themeRule("chart" "chart-style")) + " " + (this.themeRule("chart" "chart-effects")))
-        def paper:string (this.layout()).style.pageBackground
+        def st:MdStyle (this.layout()).style
+        def paper:string st.pageBackground
+        def isDark:boolean false
         if ((strlen paper) > 0) {
             def c:EVGColor (EVGColor.parse(paper))
             def lum:double ((((to_double (c.red())) * 0.299) + ((to_double (c.green())) * 0.587)) + ((to_double (c.blue())) * 0.114))
             if (lum < 110.0) {
                 w = (w + " dark")
+                isDark = true
             }
+        }
+        ; the labels' colour: the chart rule's `label-color`, else (`contrast:
+        ; auto`) the page's own text colour on a light slide
+        def lc:string (trim (this.themeRule("chart" "label-color")))
+        def contrast:string (trim (this.themeRule("chart" "contrast")))
+        if (((strlen lc) == 0) && ((isDark == false) && (contrast != "off"))) {
+            lc = st.textColor
+        }
+        if (((strlen lc) > 0) && ((indexOf lc " ") < 0)) {
+            w = (w + " label=" + lc)
         }
         return w
     }
@@ -807,6 +820,23 @@ class PresDeck {
         if ((strlen pad) > 0) {
             if ((strlen out) > 0) { out = (out + ", ") }
             out = (out + "\"padding\": " + pad)
+        }
+        ; where a chart narrower than the slide sits, as a flex row would put
+        ; it: `chart { justify-content: center | flex-start | flex-end }`
+        ; (centred unless told otherwise)
+        def jc:string (trim (this.themeRule(key "justify-content")))
+        if ((strlen jc) == 0) {
+            jc = (trim (this.themeRule(key "text-align")))
+        }
+        if (((strlen jc) == 0) && roomy) {
+            jc = "center"
+        }
+        if ((strlen jc) > 0) {
+            def al:string "start"
+            if ((jc == "center") || (jc == "space-around")) { al = "center" }
+            if (((jc == "flex-end") || (jc == "end")) || (jc == "right")) { al = "end" }
+            if ((strlen out) > 0) { out = (out + ", ") }
+            out = (out + "\"usermeta\": {\"presAlign\": \"" + al + "\"}")
         }
         if ((strlen out) == 0) {
             return ""

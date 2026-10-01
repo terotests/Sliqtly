@@ -269,9 +269,9 @@ class PresHelp {
         if (sel == "li") { return "margin-bottom" }
         if (sel == "table") { return "border-color,background-color,padding-left,padding-top" }
         if (sel == "deck") { return "split-level,overflow,aspect-ratio" }
-        if (sel == "chart") { return "color,accent-color,chart-style,chart-effects,font-size,title-font-size,title-gap,padding" }
+        if (sel == "chart") { return "color,accent-color,label-color,contrast,chart-style,chart-effects,font-size,title-font-size,title-gap,padding,justify-content" }
         ; `#anchor chart`: the charts under one heading
-        if (((indexOf sel "#") == 0) && ((indexOf sel " chart") > 0)) { return "font-size,title-font-size,title-gap,padding" }
+        if (((indexOf sel "#") == 0) && ((indexOf sel " chart") > 0)) { return "font-size,title-font-size,title-gap,padding,justify-content" }
         if (sel == "diagram") { return "color,accent-color" }
         if (((strlen sel) > 1) && ((charAt sel 0) == 46)) { return "font-size,color,column-count,column-gap" }
         return ""
@@ -696,10 +696,10 @@ class PresHelp {
         if sc.chart {
             ; the charts of this slide alone: its heading's anchor
             def anchor:string (MdAnchor.slug(title))
-            def rules:string (PresHelp.rule(css "chart" "Kaavioiden värit, tyyli ja koot." "color,accent-color,chart-style,chart-effects,font-size,title-font-size,title-gap,padding"))
+            def rules:string (PresHelp.rule(css "chart" "Kaavioiden värit, tyyli ja koot." "color,accent-color,label-color,contrast,chart-style,chart-effects,font-size,title-font-size,title-gap,padding,justify-content"))
             def doc:string "Kaavion omat asetukset (\"config\", \"padding\") voittavat teeman."
             if ((strlen anchor) > 0) {
-                rules = (rules + "," + (PresHelp.rule(css ("#" + anchor + " chart") "Vain tämän dian kaaviot (otsikon ankkuri)." "font-size,title-font-size,title-gap,padding")))
+                rules = (rules + "," + (PresHelp.rule(css ("#" + anchor + " chart") "Vain tämän dian kaaviot (otsikon ankkuri)." "font-size,title-font-size,title-gap,padding,justify-content")))
                 doc = ("Vain tämän dian kaaviot: #" + anchor + " chart { … } – nimi on otsikon ankkuri, sama kuin linkissä #" + anchor + ". " + doc)
             }
             push out (PresHelp.feature("chart" "Vega-Lite-kaavio" "```vega-lite { … } ```" doc rules))
