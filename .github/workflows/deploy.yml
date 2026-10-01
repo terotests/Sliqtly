@@ -50,6 +50,8 @@ jobs:
       - name: Build the page
         working-directory: app
         run: node scripts/build.mjs
+      - name: Sliqtly's name and icon
+        run: node scripts/brand.mjs
       - name: Check the deck and the timeline
         working-directory: app
         run: node scripts/check.mjs

@@ -7,6 +7,8 @@ this repository says which version of it is published and where.
 - `sliqtly.config.json`: the repository and ref (branch, tag or commit) that is built.
 - `.firebaserc`: the Firebase project, `sliqtly`.
 - `firebase.json`: Hosting serves the build output, `app/web/dist`.
+- `brand/`: the logo (`make_logo.py` writes the SVGs) and `scripts/brand.mjs`,
+  which puts the name and the icon on the built page.
 - `.github/workflows/deploy.yml`: on a push to `main`, or run by hand
   (Actions → Deploy → Run workflow, optionally with another ref), it checks
   out the editor into `app/`, builds and checks it, and deploys it live.

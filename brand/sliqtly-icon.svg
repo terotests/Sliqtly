@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="12 6 225 225" role="img" aria-label="Sliqtly"><title>Sliqtly</title>
+  <defs>
+    <linearGradient id="g-card" x1="95" y1="25" x2="225" y2="190" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00B6FF"/><stop offset=".5" stop-color="#2D5BFA"/><stop offset="1" stop-color="#9A24F0"/>
+    </linearGradient>
+    <linearGradient id="g-ghost2" x1="49" y1="47" x2="95" y2="178" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5ED4FB"/><stop offset="1" stop-color="#A6B6FA"/>
+    </linearGradient>
+    <linearGradient id="g-ghost1" x1="21" y1="75" x2="50" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#C6BAF8"/><stop offset="1" stop-color="#B9B4F8"/>
+    </linearGradient>
+    <linearGradient id="g-play" x1="140" y1="75" x2="160" y2="160" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/><stop offset=".55" stop-color="#F2F1FC"/><stop offset="1" stop-color="#B9BDF5"/>
+    </linearGradient>
+    <linearGradient id="g-accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00B6FF"/><stop offset="1" stop-color="#8A2BF2"/>
+    </linearGradient>
+    <linearGradient id="g-tail" x1="440" y1="143" x2="466" y2="171" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00B6FF"/><stop offset="1" stop-color="#8A2BF2"/>
+    </linearGradient>
+  </defs>
+  <path d="M21.00 85.41Q21.00 75.33 30.87 77.35L69.51 85.28Q79.38 87.30 79.38 97.38L79.38 127.62Q79.38 137.70 69.51 139.72L30.87 147.65Q21.00 149.67 21.00 139.59Z" fill="url(#g-ghost1)"/>
+  <path d="M49.00 65.41Q49.00 47.89 66.16 51.41L133.31 65.18Q150.47 68.70 150.47 86.22L150.47 138.78Q150.47 156.30 133.31 159.82L66.16 173.59Q49.00 177.11 49.00 159.59Z" fill="url(#g-ghost2)"/>
+  <path d="M89.00 48.00Q89.00 24.00 112.51 28.82L204.49 47.68Q228.00 52.50 228.00 76.50L228.00 148.50Q228.00 172.50 204.49 177.32L112.51 196.18Q89.00 201.00 89.00 177.00Z" fill="url(#g-card)"/>
+  <path d="M131.00 86.00Q131.00 73.00 142.23 79.55L191.77 108.45Q203.00 115.00 191.77 121.55L142.23 150.45Q131.00 157.00 131.00 144.00Z" fill="url(#g-play)"/>
+</svg>
