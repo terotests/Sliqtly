@@ -9,6 +9,7 @@
  * `--shots=DIR` also writes screenshots.
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 import zlib from "node:zlib";
@@ -894,6 +895,60 @@ try {
     });
     await page.evaluate((s) => window.__app.setSource(s), src0);
     check("a chart's url data is fetched and drawn, the slide timed", fd.wanted === "" && fd.bars >= 3 && fd.duration > 0, JSON.stringify(fd));
+  }
+
+  // The document's own files (web/vfs.js): a changed deck is kept in the
+  // browser, files added in the files tab go with it, a chart can live in a
+  // file, an edited data file redraws the charts, and a reload opens the deck
+  // worked on last.
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const idbDocs = () => page.evaluate(() => new Promise((res) => {
+      const r = indexedDB.open("evg-presentation");
+      r.onsuccess = () => { const q = r.result.transaction("docs").objectStore("docs").getAll(); q.onsuccess = () => res(q.result); };
+      r.onerror = () => res([]);
+    }));
+    await page.waitForTimeout(1800);
+    const kept = (await idbDocs()).length;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evgp-"));
+    fs.writeFileSync(path.join(dir, "vfs-sales.csv"), "kk,euroa\ntammi,120\nhelmi,180\nmaalis,90\n");
+    fs.writeFileSync(path.join(dir, "vfs-chart.json"), JSON.stringify({ $schema: "https://vega.github.io/schema/vega-lite/v6.json", width: 300, data: { url: "data/vfs-sales.csv" }, mark: "bar", encoding: { x: { field: "kk", type: "nominal", sort: null }, y: { field: "euroa", type: "quantitative" } } }));
+    await page.evaluate(() => window.__app.showTab("files"));
+    await page.setInputFiles("#fileadd", [path.join(dir, "vfs-sales.csv"), path.join(dir, "vfs-chart.json")]);
+    await page.waitForFunction(() => window.__app.panels.filesJson.includes("charts/vfs-chart.json"), null, { timeout: 8000 }).catch(() => {});
+    const listed = await page.evaluate(() => window.__app.panels.filesJson);
+    await shot("vfs-files.png");
+    await page.evaluate(() => { window.__app.showTab("md"); window.__app.setSource("# V\n\n## Tiedostosta\n\n```vega-lite\ncharts/vfs-chart.json\n```\n"); });
+    await page.waitForTimeout(800);
+    const barsOf = () => page.evaluate(() => {
+      const a = window.__app;
+      a.selectSlide(1);
+      const st = JSON.parse(a.stageJson());
+      return st.list.cmds.filter((c) => c.k === 0 && c.w > 10 && c.h > 10 && c.w < 200).map((c) => Math.round(c.h));
+    });
+    const bars1 = await barsOf();
+    // the data file edited in the files tab: the chart follows
+    await page.evaluate(() => { const a = window.__app; a.panels.requests.push("files:open:data/vfs-sales.csv"); a.takePanels(); });
+    await page.waitForFunction(() => window.__app.openFilePath() === "data/vfs-sales.csv", null, { timeout: 5000 }).catch(() => {});
+    await page.evaluate(() => { const a = window.__app; a.fileEditor.init("kk,euroa\ntammi,120\nhelmi,180\nmaalis,90\nhuhti,300\n"); a.syncEditor(); });
+    await page.waitForTimeout(1000);
+    const bars2 = await barsOf();
+    await page.waitForTimeout(1800);
+    // a reload with no sample asked for opens this deck again, files and all
+    await page.goto(url);
+    await page.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await page.waitForTimeout(1500);
+    const back = await page.evaluate(() => window.__app.source());
+    const bars3 = await barsOf();
+    check("a changed deck is kept in the browser", kept >= 1, String(kept));
+    check("files added in the files tab are listed in their folders", listed.includes("data/vfs-sales.csv") && listed.includes("charts/vfs-chart.json"), listed.slice(0, 200));
+    check("a chart kept in a file draws from the document's data", bars1.length === 3, JSON.stringify(bars1));
+    check("an edited data file redraws the chart", bars2.length === 4, JSON.stringify(bars2));
+    check("a reload opens the deck worked on last, with its files", back.includes("charts/vfs-chart.json") && bars3.length === 4, JSON.stringify(bars3));
+    await page.goto(url + "?sample=esittely");
+    await page.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await page.waitForTimeout(500);
+    await page.evaluate((s) => window.__app.setSource(s), src0);
   }
 
   // The help panel: only what the slide has, and a property opened in the theme

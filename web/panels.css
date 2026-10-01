@@ -95,3 +95,41 @@
 /* text leaves get their size and face stated, not inherited: an inherited
    size came out differently between passes and the rows moved */
 .theme-pn .ui-switch-label { font-family: Open Sans; font-size: 13px; }
+
+/* the files tab (in the editor's place) */
+.pf-panel {
+  display: flex; flex-direction: column; align-items: stretch;
+  background-color: #ffffff;
+  font-family: Open Sans;
+}
+.pf-top {
+  display: flex; flex-direction: row; align-items: center; gap: 8px;
+  height: 44px; min-height: 44px; padding: 0 12px 0 14px;
+  border-bottom: 1px solid #e4e4e7;
+}
+.pf-path { font-size: 13px; font-weight: 600; color: #09090b; white-space: nowrap; }
+.pf-saved { font-size: 11px; color: #a1a1aa; white-space: nowrap; }
+.pf-body { display: flex; flex-direction: column; gap: 2px; padding: 6px 14px 24px; flex-shrink: 0; }
+.pf-h { font-size: 13px; font-weight: 700; color: #09090b; padding: 10px 0 4px; flex-shrink: 0; }
+.pf-hrow { display: flex; flex-direction: row; align-items: center; gap: 8px; margin-top: 14px; padding-top: 6px; border-top: 1px solid #f4f4f5; flex-shrink: 0; }
+.pf-dir { font-size: 12px; font-weight: 600; color: #52525b; padding: 8px 0 2px; flex-shrink: 0; }
+.pf-row {
+  display: flex; flex-direction: row; align-items: center; gap: 8px;
+  min-height: 38px; padding: 3px 6px; border-radius: 6px; background-color: #fafafa; flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+.pf-name { display: flex; flex-direction: column; gap: 0; flex-shrink: 1; }
+.pf-fname { font-size: 13px; color: #18181b; white-space: nowrap; }
+.pf-fsize { font-size: 11px; color: #a1a1aa; white-space: nowrap; }
+.pf-tag {
+  font-size: 10px; font-weight: 700; color: #3f3f46; background-color: #e4e4e7;
+  border-radius: 4px; padding: 1px 5px; min-width: 30px; text-align: center; white-space: nowrap;
+}
+.pf-tag-md { background-color: #dbeafe; color: #1e40af; }
+.pf-tag-css { background-color: #fce7f3; color: #9d174d; }
+.pf-tag-image { background-color: #dcfce7; color: #166534; }
+.pf-tag-chart { background-color: #fef3c7; color: #92400e; }
+.pf-tag-data { background-color: #ede9fe; color: #5b21b6; }
+.pf-current { font-size: 11px; color: #16a34a; font-weight: 600; }
+.pf-note { font-size: 11px; color: #71717a; padding: 10px 0 0; flex-shrink: 0; }
+.theme-pn .pf-act { height: 26px; padding: 0 9px; }

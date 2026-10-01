@@ -17,6 +17,7 @@
 
 import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
+import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 
 const canvas = document.getElementById("c");
 const stageEl = document.getElementById("stage");
@@ -25,6 +26,7 @@ const hintEl = document.getElementById("hint");
 const errEl = document.getElementById("err");
 const statusEl = document.getElementById("status");
 const filePick = document.getElementById("filepick");
+const fileAdd = document.getElementById("fileadd");
 const sampleSel = document.getElementById("sample");
 const themeSel = document.getElementById("theme");
 const playBtn = document.getElementById("play");
@@ -141,9 +143,244 @@ async function addPictureFile(file) {
   } catch (_) { /* sized by the layout's default */ }
   app.addImage("/" + rel, asRangerBuffer(bytes.slice(0)), type, w, h);
   await registerPicture("/" + rel, bytes, type);
+  await keepFile({ path: rel, type, size: bytes.byteLength, data: new Blob([bytes], { type }) });
   app.insertPicture(rel, file.name && file.name !== "image.png" ? file.name.replace(/\.[^.]+$/, "") : "kuva");
   dropThumbs();
   afterInput();
+}
+
+async function imageSize(bytes, type) {
+  try {
+    const bmp = await createImageBitmap(new Blob([bytes], { type }));
+    const size = [bmp.width, bmp.height];
+    bmp.close();
+    return size;
+  } catch (_) {
+    return [0, 0];
+  }
+}
+
+// --- the documents and their files ---------------------------------------------
+// Every presentation is a record in this browser (web/vfs.js) with its files
+// beside it: pictures under media/, the files its charts read under data/,
+// chart specs kept as files under charts/. A deck is stored the first time it
+// is changed (an opened sample nobody touched is not); from then on every
+// change is saved a moment after it is made. The files of a deck not stored
+// yet wait in `pending` and go in with it.
+let vfs = null;
+const doc = { id: newId(), persisted: false, created: Date.now(), openedText: "" };
+const pending = new Map();
+let savedText = null;
+let savedCss = null;
+let savedTheme = null;
+let saving = null;
+
+function beginDoc(text) {
+  doc.id = newId();
+  doc.persisted = false;
+  doc.created = Date.now();
+  doc.openedText = text;
+  pending.clear();
+  savedText = null;
+  savedCss = null;
+  for (const k of Object.keys(editedCss)) delete editedCss[k];
+  chartFiles.clear();
+  chartFilesRev = -1;
+  app.clearChartData();
+  if (app.openFilePath()) app.closeFile();
+}
+
+function bare(path) {
+  return String(path).replace(/^\.?\//, "");
+}
+
+async function keepFile(rec) {
+  const file = { doc: doc.id, updated: Date.now(), ...rec, path: bare(rec.path) };
+  if (doc.persisted && vfs) await vfs.putFile(file);
+  else pending.set(file.path, file);
+  refreshFiles();
+}
+
+async function docFiles() {
+  const out = new Map();
+  if (doc.persisted && vfs) for (const f of await vfs.listFiles(doc.id)) out.set(f.path, f);
+  for (const [k, f] of pending) out.set(k, f);
+  return [...out.values()];
+}
+
+async function saveDoc(force) {
+  if (!vfs || viewer) return;
+  if (saving) await saving;
+  const md = app.source();
+  const key = themeSel.value || "";
+  const css = key in editedCss ? editedCss[key] : null;
+  if (md === savedText && css === savedCss && key === savedTheme && !force) return;
+  // a deck as it was opened is not kept until someone changes it, nor an
+  // empty one
+  if (!doc.persisted && !force && ((md === doc.openedText && css === null) || !md.trim())) return;
+  saving = (async () => {
+    await vfs.putDoc({ id: doc.id, name: exportName(), md, theme: key, css, created: doc.created, updated: Date.now() });
+    if (!doc.persisted) {
+      doc.persisted = true;
+      for (const f of pending.values()) await vfs.putFile({ ...f, doc: doc.id });
+      pending.clear();
+    }
+    savedText = md;
+    savedCss = css;
+    savedTheme = key;
+    try { localStorage.setItem("evgp.doc", doc.id); } catch (_) { /* the next start opens a sample */ }
+  })();
+  try { await saving; } finally { saving = null; }
+  refreshFiles();
+}
+
+// A file of the document put to use: a picture registered for the slides, a
+// text file handed to the charts.
+async function useFile(f) {
+  if (kindOf(f.path, f.type) === "image" && f.data instanceof Blob) {
+    const bytes = await f.data.arrayBuffer();
+    const [w, h] = await imageSize(bytes, f.type);
+    app.addImage("/" + f.path, asRangerBuffer(bytes.slice(0)), f.type || "image/png", w, h);
+    await registerPicture("/" + f.path, bytes, f.type || "image/png");
+  } else if (typeof f.data === "string") {
+    chartFiles.set(f.path, Promise.resolve(f.data));
+    app.setChartData(f.path, f.data);
+  }
+}
+
+async function openDoc(id) {
+  if (!vfs) return false;
+  await saveDoc();
+  const d = await vfs.getDoc(id);
+  if (!d) return false;
+  beginDoc(d.md);
+  doc.id = d.id;
+  doc.persisted = true;
+  doc.created = d.created || Date.now();
+  themeSel.value = d.theme || "";
+  if (d.css != null) editedCss[d.theme || ""] = d.css;
+  useTheme(themeSel.value);
+  for (const f of await vfs.listFiles(doc.id)) await useFile(f);
+  docName = d.name || "esitys";
+  app.setSource(d.md);
+  savedText = d.md;
+  savedCss = d.css == null ? null : d.css;
+  savedTheme = d.theme || "";
+  try { localStorage.setItem("evgp.doc", doc.id); } catch (_) { /* fine */ }
+  dropThumbs();
+  needsPaint = true;
+  refreshFiles();
+  return true;
+}
+
+function whenText(t) {
+  const d = new Date(t || 0);
+  const two = (n) => String(n).padStart(2, "0");
+  return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()} ${two(d.getHours())}:${two(d.getMinutes())}`;
+}
+
+// The files tab's list, when it shows.
+let filesListing = false;
+async function refreshFiles() {
+  if (!vfs || app.editorTab() !== "files" || filesListing) return;
+  filesListing = true;
+  try {
+    const files = (await docFiles())
+      .map((f) => ({ path: f.path, size: f.size == null ? -1 : f.size, kind: kindOf(f.path, f.type) }))
+      .sort((a, b) => {
+        const da = a.path.includes("/") ? 1 : 0;
+        const db = b.path.includes("/") ? 1 : 0;
+        return da - db || a.path.localeCompare(b.path);
+      });
+    const name = (docName || "esitys").replace(/\s+/g, "-");
+    const head = [{ path: name + ".md", size: new TextEncoder().encode(app.source()).length, kind: "md" }];
+    const key = themeSel.value || "";
+    head.push({ path: (key || "teema") + ".css", size: -1, kind: "css" });
+    const docs = (await vfs.listDocs())
+      .sort((a, b) => (b.updated || 0) - (a.updated || 0))
+      .map((d) => ({ id: d.id, name: d.name || "esitys", when: whenText(d.updated), current: d.id === doc.id }));
+    let note = vfs.persistent
+      ? "Tiedostot tallentuvat tähän selaimeen (IndexedDB). Jakolinkki vie vain tekstin ja teeman, ei kuvia eikä datatiedostoja."
+      : "Selain ei salli tallennusta: tiedostot ovat tallessa vain tämän sivun ajan.";
+    if (!doc.persisted) note = "Tätä esitystä ei ole vielä tallennettu: se tallentuu, kun muutat sitä. " + note;
+    app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), docs, note }));
+    needsPaint = true;
+  } finally {
+    filesListing = false;
+  }
+}
+
+async function addDocFile(file) {
+  const type = file.type || "";
+  if (/\.(md|markdown)$/i.test(file.name)) {
+    await saveDoc();
+    const text = await file.text();
+    beginDoc(text);
+    docName = file.name.replace(/\.(md|markdown)$/i, "") || "esitys";
+    app.setSource(text);
+    dropThumbs();
+    needsPaint = true;
+    return;
+  }
+  if (kindOf(file.name, type) === "image") {
+    const bytes = await file.arrayBuffer();
+    const path = placeFor(file.name, type);
+    const [w, h] = await imageSize(bytes, type);
+    app.addImage("/" + path, asRangerBuffer(bytes.slice(0)), type || "image/png", w, h);
+    await registerPicture("/" + path, bytes, type || "image/png");
+    await keepFile({ path, type: type || "image/png", size: bytes.byteLength, data: new Blob([bytes], { type }) });
+    return;
+  }
+  const text = await file.text();
+  let path = placeFor(file.name, type);
+  if (/\.json$/i.test(file.name) && /vega\.github\.io\/schema\/vega/.test(text)) path = "charts/" + file.name;
+  await keepFile({ path, type: type || "text/plain", size: text.length, data: text });
+  chartFiles.set(path, Promise.resolve(text));
+  app.setChartData(path, text);
+  dropThumbs();
+}
+
+async function fileRequest(r) {
+  const [action, ...rest] = r.split(":");
+  const what = rest.join(":");
+  if (action === "add") {
+    fileAdd.click();
+  } else if (action === "new") {
+    await saveDoc();
+    const text = "# Uusi esitys\n\nKirjoita tähän.\n";
+    beginDoc(text);
+    docName = "uusi";
+    app.setSource(text);
+    app.showTab("md");
+    dropThumbs();
+  } else if (action === "open") {
+    const f = (await docFiles()).find((x) => x.path === what);
+    if (!f) return;
+    const text = typeof f.data === "string" ? f.data : (isText(f.path, f.type) ? await f.data.text() : null);
+    if (text == null) { toast("Tätä tiedostoa ei voi avata tekstinä."); return; }
+    app.openFile(f.path, text);
+  } else if (action === "del") {
+    pending.delete(what);
+    if (doc.persisted) await vfs.deleteFile(doc.id, what);
+    if (app.openFilePath() === what) app.closeFile();
+  } else if (action === "doc") {
+    if (!(await openDoc(what))) toast("Esitystä ei löytynyt.");
+  } else if (action === "deldoc") {
+    if (what !== doc.id) await vfs.deleteDoc(what);
+  }
+  refreshFiles();
+  needsPaint = true;
+}
+
+// A file edited in the files tab: kept, and handed to the charts again.
+async function saveOpenFile(path) {
+  const text = app.fileText();
+  const f = (await docFiles()).find((x) => x.path === path);
+  await keepFile({ path, type: (f && f.type) || "text/plain", size: text.length, data: text });
+  chartFiles.set(path, Promise.resolve(text));
+  app.setChartData(path, text);
+  dropThumbs();
+  needsPaint = true;
 }
 
 // --- painting -------------------------------------------------------------------
@@ -464,6 +701,9 @@ function fetchChartFiles(rev) {
     if (chartFiles.has(url)) continue;
     const tries = /^https?:/.test(url) ? [url] : ["./" + url.replace(/^\.?\//, ""), "https://cdn.jsdelivr.net/npm/vega-datasets@2/" + url.replace(/^\.?\//, "")];
     const got = (async () => {
+      // the document's own copy, when it has one
+      const mine = (await docFiles()).find((f) => f.path === bare(url));
+      if (mine && typeof mine.data === "string") return mine.data;
       for (const u of tries) {
         try {
           const r = await fetch(u);
@@ -481,6 +721,12 @@ function fetchChartFiles(rev) {
       app.setChartData(url, text);
       dropThumbs();
       needsPaint = true;
+      // kept with the document, so it opens without the network next time
+      if (!/^https?:/.test(url)) {
+        docFiles().then((have) => {
+          if (!have.some((f) => f.path === bare(url))) keepFile({ path: bare(url), type: "text/plain", size: text.length, data: text }).catch(fail);
+        });
+      }
     });
   }
 }
@@ -569,6 +815,12 @@ function handleRequests() {
     } else if (r === "theme-edited") {
       editedCss[themeSel.value || ""] = app.themeCss();
       dropThumbs();
+    } else if (r === "files-list") {
+      refreshFiles();
+    } else if (r.startsWith("files:")) {
+      fileRequest(r.slice(6)).catch(fail);
+    } else if (r.startsWith("file-save:")) {
+      saveOpenFile(r.slice(10)).catch(fail);
     } else if (r === "exit-fullscreen") {
       document.body.classList.remove("presenting");
       if (document.fullscreenElement && document.exitFullscreen) {
@@ -703,10 +955,29 @@ filePick.addEventListener("change", async () => {
   const file = filePick.files && filePick.files[0];
   if (!file) return;
   docName = file.name.replace(/\.(md|markdown|txt)$/i, "") || "esitys";
-  app.setSource(await file.text());
+  await saveDoc();
+  const text = await file.text();
+  beginDoc(text);
+  app.setSource(text);
   filePick.value = "";
   dropThumbs();
   needsPaint = true;
+});
+
+fileAdd.addEventListener("change", async () => {
+  const list = [...(fileAdd.files || [])];
+  fileAdd.value = "";
+  for (const f of list) await addDocFile(f);
+  if (list.length) await saveDoc(true);
+  refreshFiles();
+  needsPaint = true;
+});
+
+// A change is saved a moment after it is made, whichever way it came (the
+// editor, the chart editor, the theme); and once more as the page goes.
+setInterval(() => { saveDoc().catch(fail); }, 1500);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") saveDoc().catch(() => {});
 });
 
 // --- sharing: the markdown in the URL ------------------------------------------
@@ -837,6 +1108,8 @@ async function openFromHash() {
   lastHash = location.hash;
   try {
     const text = await unpackText(q.get("md"));
+    await saveDoc();
+    beginDoc(text);
     if (q.has("theme")) {
       const th = q.get("theme");
       themeSel.value = th;
@@ -877,7 +1150,10 @@ async function openSample(key) {
   if (!s) return;
   try {
     docName = key;
-    app.setSource(await textOf(s[1]));
+    await saveDoc();
+    const text = await textOf(s[1]);
+    beginDoc(text);
+    app.setSource(text);
     dropThumbs();
     needsPaint = true;
   } catch (e) {
@@ -1281,9 +1557,7 @@ canvas.addEventListener("drop", (ev) => {
   const files = ev.dataTransfer ? [...ev.dataTransfer.files] : [];
   for (const f of files) {
     if (/^image\//.test(f.type)) addPictureFile(f).catch(fail);
-    else if (/\.(md|markdown|txt)$/i.test(f.name)) {
-      f.text().then((t) => { docName = f.name.replace(/\.[^.]+$/, ""); app.setSource(t); dropThumbs(); needsPaint = true; });
-    }
+    else addDocFile(f).catch(fail);
   }
 });
 
@@ -1374,11 +1648,17 @@ async function start() {
   const theme = q.has("theme") ? q.get("theme") : "aurora";
   themeSel.value = theme;
   app.setStyleSheet(theme ? themeCss[theme] || "" : "");
+  if (!viewer) vfs = await openVfs();
   if (!(await openFromHash())) {
     const want = q.get("sample");
-    const sample = SAMPLES[want] || HIDDEN_SAMPLES[want] ? want : "talous";
-    if (SAMPLES[sample]) sampleSel.value = sample;
-    await openSample(sample);
+    // no sample asked for: the deck worked on last, if this browser kept one
+    let last = null;
+    try { last = localStorage.getItem("evgp.doc"); } catch (_) { /* none */ }
+    if (want || !last || !(await openDoc(last))) {
+      const sample = SAMPLES[want] || HIDDEN_SAMPLES[want] ? want : "talous";
+      if (SAMPLES[sample]) sampleSel.value = sample;
+      await openSample(sample);
+    }
   }
 
   // A narrow window gets the slides without the editor (PresApp.isCompact,

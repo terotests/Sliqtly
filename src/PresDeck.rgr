@@ -916,6 +916,14 @@ class PresDeck {
     def dataUrls:[string]
     def dataTexts:[string]
 
+    ; Another document: none of the files the last one's charts read.
+    fn clearChartData:void () {
+        def u:[string]
+        def t:[string]
+        dataUrls = u
+        dataTexts = t
+    }
+
     fn setChartData:void (url:string body:string) {
         def i:int 0
         while (i < (array_length dataUrls)) {
@@ -944,7 +952,7 @@ class PresDeck {
             def have:boolean false
             def k:int 0
             while (k < (array_length dataUrls)) {
-                if ((itemAt dataUrls k) == u) {
+                if ((MdVegaRender.bareUrl((itemAt dataUrls k))) == (MdVegaRender.bareUrl(u))) {
                     have = true
                 }
                 k = (k + 1)
@@ -960,6 +968,16 @@ class PresDeck {
     fn wantedIn:void (n:MdNode urls:[string]) {
         if (n.kind == "embed") {
             if ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(n.info)))) == "vega") {
+                ; a chart kept in a file reads the files that file names
+                def spec:string (MdVegaRender.fromFile(n.literal dataUrls dataTexts))
+                if (spec != n.literal) {
+                    def inner:[string] (MdVegaRender.urlsOf(spec))
+                    def q:int 0
+                    while (q < (array_length inner)) {
+                        push urls (itemAt inner q)
+                        q = (q + 1)
+                    }
+                }
                 def us:[string] (MdVegaRender.urlsOf(n.literal))
                 def j:int 0
                 while (j < (array_length us)) {
