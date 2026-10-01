@@ -967,6 +967,64 @@ try {
     await page.evaluate((s) => window.__app.setSource(s), src0);
   }
 
+  // Pictures: a size and a place from the attribute line, fitted into the
+  // slide; the picture window rewrites that line and can make the picture a
+  // slide's background; a header and a footer on every slide.
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const png = (w, h) => {
+      const crc = (buf) => { let c = ~0; for (const b of buf) { c ^= b; for (let k = 0; k < 8; k += 1) c = (c >>> 1) ^ (0xedb88320 & -(c & 1)); } return ~c >>> 0; };
+      const chunk = (type, data) => { const t = Buffer.from(type); const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const c = Buffer.alloc(4); c.writeUInt32BE(crc(Buffer.concat([t, data]))); return Buffer.concat([len, t, data, c]); };
+      const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+      const raw = Buffer.alloc((w * 3 + 1) * h); for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) { const o = y * (w * 3 + 1) + 1 + x * 3; raw[o] = 250; raw[o + 1] = 120 + y; raw[o + 2] = 60; }
+      return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+    };
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evgp-img-"));
+    fs.writeFileSync(path.join(dir, "check-pic.png"), png(300, 200));
+    await page.setInputFiles("#fileadd", [path.join(dir, "check-pic.png")]);
+    await page.waitForTimeout(800);
+    await page.evaluate(() => {
+      const a = window.__app;
+      a.showTab("md");
+      a.setSource("---\nheader: ACME Oy\nfooter: {page} / {pages}\n---\n\n# K\n\n## Kuva\n\n![kuva](media/check-pic.png)\n{width=30% align=right}\n\n## Toinen\n\nTekstiä.\n");
+    });
+    await page.waitForTimeout(600);
+    const pic = await page.evaluate(() => {
+      const a = window.__app;
+      a.selectSlide(1);
+      const st = JSON.parse(a.stageJson());
+      const img = st.list.cmds.find((c) => c.k === 2 && /check-pic/.test(c.src || ""));
+      const texts = st.list.cmds.filter((c) => c.k === 3).map((c) => c.text || "");
+      return { img: img ? [Math.round(img.x), Math.round(img.w), Math.round(img.h)] : null, header: texts.includes("ACME Oy"), footer: texts.includes("2 / 3"), w: a.deck.pageW };
+    });
+    // the picture window: the place, then the slide's background
+    const ed = await page.evaluate(() => {
+      const a = window.__app;
+      const lines = a.source().split("\n");
+      const at = lines.findIndex((l) => l.startsWith("![kuva]"));
+      const opened = a.openImageEditor(at);
+      a.chart.img.align = "center";
+      a.chart.img.width = "50%";
+      a.chart.changed = true;
+      a.closeChart();
+      const after = a.source().split("\n")[at + 1];
+      a.openImageEditor(at);
+      a.chart.wantsBg = "slide";
+      a.chart.wantsClose = true;
+      a.afterChart();
+      const src = a.source();
+      a.selectSlide(1);
+      const st = JSON.parse(a.stageJson());
+      const bg = st.list.cmds.find((c) => c.k === 2 && /check-pic/.test(c.src || "") && c.w >= a.deck.pageW - 1);
+      return { opened, after, heading: src.includes("## Kuva {bg=media/check-pic.png}"), gone: !src.includes("![kuva]"), bg: !!bg };
+    });
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    check("a picture's width and place come from its attribute line", pic.img && Math.abs(pic.img[1] - (pic.w - 2 * 54) * 0.3) < 40 && pic.img[0] > pic.w * 0.5, JSON.stringify(pic));
+    check("a header and a footer are on every slide, the page numbers filled in", pic.header && pic.footer, JSON.stringify(pic));
+    check("the picture window rewrites the attribute line", ed.opened && ed.after === "{width=50% align=center}", JSON.stringify(ed));
+    check("…and makes the picture the slide's background, covering it", ed.heading && ed.gone && ed.bg, JSON.stringify(ed));
+  }
+
   // The help panel: only what the slide has, and a property opened in the theme
   const help = await page.evaluate(() => {
     const a = window.__app;

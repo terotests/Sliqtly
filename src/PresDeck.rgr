@@ -74,6 +74,11 @@ class PresSlide {
     def transition:string "fade"
     def seconds:double 0.6
     def fx:string ""
+    ; a picture behind this slide (`{bg=media/kansi.jpg}`), covering it, and
+    ; how much of the paper is laid over it to keep the text readable
+    ; (`{bg-dim=0.4}`)
+    def bg:string ""
+    def bgDim:double 0.0
     def fxNames:[string]
     def fxValues:[string]
     def notes:string ""
@@ -1317,6 +1322,12 @@ class PresDeck {
         if (h.hasAttr("fx")) {
             s.fx = (h.attrValue("fx"))
         }
+        if (h.hasAttr("bg")) {
+            s.bg = (h.attrValue("bg"))
+        }
+        if (h.hasAttr("bg-dim")) {
+            s.bgDim = (PresDeck.num((h.attrValue("bg-dim")) 0.0))
+        }
         def i:int 0
         while (i < (h.attrCount())) {
             def key:string (itemAt h.attrKeys i)
@@ -1421,6 +1432,7 @@ class PresDeck {
         }
         painter.rect(out 0.0 0.0 pageW pageH paper)
         painter.paper(out l 0.0 0.0 pageW pageH)
+        this.slideBackground(out l s paper)
         push groupOfCmd -1
         while ((array_length groupOfCmd) < (array_length out.cmds)) {
             push groupOfCmd -1
@@ -1559,6 +1571,62 @@ class PresDeck {
         return ("fx-still-" + (to_string i) + ".jpg")
     }
 
+    ; The slide's own picture over the paper, covering the slide, and the
+    ; paper again over it as far as `bg-dim` asks.
+    fn slideBackground:void (out:EVGDisplayList l:MdLayout s:PresSlide paper:string) {
+        if ((strlen s.bg) == 0) {
+            return
+        }
+        if (l.haveImages == false) {
+            return
+        }
+        def path:string (l.images.resolve(s.bg l.docDir))
+        if ((strlen path) == 0) {
+            return
+        }
+        def st:VfsStat (l.images.stat(path))
+        if (st.found == false) {
+            return
+        }
+        def c:EVGDrawCmd (new EVGDrawCmd())
+        c.kind = 2
+        c.x = 0.0
+        c.y = 0.0
+        c.w = pageW
+        c.h = pageH
+        c.src = path
+        c.a = 1.0
+        ; cover: the middle of the picture, in the slide's shape
+        if ((st.pixelW > 0) && (st.pixelH > 0)) {
+            def pr:double ((to_double st.pixelW) / (to_double st.pixelH))
+            def sr:double (pageW / pageH)
+            c.hasCrop = true
+            if (pr > sr) {
+                c.cropW = (sr / pr)
+                c.cropX = ((1.0 - c.cropW) * 0.5)
+            } {
+                c.cropH = (pr / sr)
+                c.cropY = ((1.0 - c.cropH) * 0.5)
+            }
+        }
+        push out.cmds c
+        if (s.bgDim > 0.0) {
+            def d:EVGDrawCmd (new EVGDrawCmd())
+            d.kind = 0
+            d.w = pageW
+            d.h = pageH
+            def pc:EVGColor (EVGColor.parse(paper))
+            d.r = (pc.red())
+            d.g = (pc.green())
+            d.b = (pc.blue())
+            d.a = s.bgDim
+            if (d.a > 1.0) {
+                d.a = 1.0
+            }
+            push out.cmds d
+        }
+    }
+
     ; A slide's paper and its effect alone, for the host to render the
     ; effect as a picture the exports can carry. An effect that reads the
     ; page under it gets the paper to read.
@@ -1573,6 +1641,7 @@ class PresDeck {
         }
         painter.rect(out 0.0 0.0 pageW pageH paper)
         painter.paper(out l 0.0 0.0 pageW pageH)
+        this.slideBackground(out l s paper)
         if ((strlen s.fx) > 0) {
             if (PresDeck.fxOnTop(s.fx)) {
                 this.addFx(out s "")

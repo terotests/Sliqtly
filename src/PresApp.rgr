@@ -1617,6 +1617,10 @@ class PresApp {
             if ((clicks == 2) && (this.openChartAt(x y))) {
                 return "chart"
             }
+            ; …and on a picture, the picture's
+            if ((clicks == 2) && (this.openImageAt(x y))) {
+                return "chart"
+            }
             focus = "stage"
             this.stageDown(x y)
             chromeRev = (chromeRev + 1)
@@ -3047,6 +3051,214 @@ class PresApp {
         return true
     }
 
+    ; --- a picture's settings (the same window, in its image mode) ------------------
+    ; The picture on Markdown line `line` (`![alt](path)` alone on it).
+    fn openImageEditor:boolean (line:int) {
+        def n:int (mdEditor.buf.lineCount())
+        if ((line < 0) || (line >= n)) {
+            return false
+        }
+        def t:string (mdEditor.buf.lineAt(line))
+        def attr:string ""
+        def attrLine:int -1
+        if ((line + 1) < n) {
+            def next:string (mdEditor.buf.lineAt((line + 1)))
+            if (PresImageModel.isAttrLine(next)) {
+                attr = next
+                attrLine = (line + 1)
+            }
+        }
+        def m:PresImageModel (PresImageModel.read(t attr))
+        if ((m.ok()) == false) {
+            return false
+        }
+        m.line = line
+        m.attrLine = attrLine
+        this.place()
+        if (chartWinX < 0.0) {
+            chartWinX = (edRect.x + 12.0)
+            chartWinY = (edRect.y + 8.0)
+        }
+        if (chartWinX > (W - 120.0)) {
+            chartWinX = (W - 120.0)
+        }
+        if (chartWinY > (H - 60.0)) {
+            chartWinY = (H - 60.0)
+        }
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        chart.openImage(m chartWinX chartWinY W H)
+        this.selectSlide((deck.pageOfOffset((this.offsetOf(line 0)))))
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The picture on the caret's line, when the Markdown tab shows.
+    fn openImageAtCaret:boolean () {
+        if (edTab != "md") {
+            return false
+        }
+        return (this.openImageEditor(mdEditor.sel.caret.line))
+    }
+
+    ; The picture under a point of the stage.
+    fn openImageAt:boolean (x:double y:double) {
+        this.slidePoint(x y)
+        def l:MdLayout (deck.layout())
+        def k:int 0
+        while (k < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes k)
+            if (((b.page == selected) && (b.kind == 4)) && (b.srcStart >= 0)) {
+                if (((spX >= b.x) && (spX <= (b.x + b.w))) && ((spY >= b.y) && (spY <= (b.y + b.h)))) {
+                    this.posOf((mdEditor.text()) b.srcStart)
+                    if (this.openImageEditor(posLine)) {
+                        return true
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    ; Lines `from`..`to` of the Markdown replaced with `text` ("" takes them
+    ; out), as one edit.
+    fn replaceLines:void (from:int to:int text:string) {
+        def keep:ScriptEditor editor
+        editor = mdEditor
+        def n:int (mdEditor.buf.lineCount())
+        mdEditor.moveCaret(from 0 false)
+        if ((to + 1) < n) {
+            mdEditor.moveCaret((to + 1) 0 true)
+            if ((strlen text) > 0) {
+                mdEditor.insert((text + "\n"))
+            } {
+                mdEditor.insert("")
+            }
+        } {
+            mdEditor.moveCaret(to (strlen (mdEditor.buf.lineAt(to))) true)
+            mdEditor.insert(text)
+        }
+        mdEditor.sel.collapseToCaret()
+        editor = keep
+        bufSynced = mdEditor.buf.version
+        this.rebuildDeck()
+    }
+
+    ; The picture's lines rewritten from the window's model.
+    fn writeImage:void () {
+        def m:PresImageModel chart.img
+        if (m.line < 0) {
+            return
+        }
+        def last:int m.line
+        if (m.attrLine >= 0) {
+            last = m.attrLine
+        }
+        def text:string (m.markdown())
+        this.replaceLines(m.line last text)
+        if ((indexOf text "\n") > 0) {
+            m.attrLine = (m.line + 1)
+        } {
+            m.attrLine = -1
+        }
+    }
+
+    ; What the window asked of the picture once it closed: to be taken out, or
+    ; to become the slide's or every slide's background.
+    fn imageAfterClose:void () {
+        def m:PresImageModel chart.img
+        def bg:string chart.wantsBg
+        def rm:boolean chart.wantsRemove
+        chart.wantsBg = ""
+        chart.wantsRemove = false
+        if ((((strlen bg) == 0) && (rm == false)) || (m.line < 0)) {
+            return
+        }
+        def last:int m.line
+        if (m.attrLine >= 0) {
+            last = m.attrLine
+        }
+        def head:int -1
+        if (bg == "slide") {
+            ; the slide's heading: the nearest one above the picture
+            def k:int m.line
+            while ((k >= 0) && (head < 0)) {
+                if ((indexOf (mdEditor.buf.lineAt(k)) "#") == 0) {
+                    head = k
+                }
+                k = (k - 1)
+            }
+        }
+        this.replaceLines(m.line last "")
+        if (bg == "slide") {
+            if (head >= 0) {
+                this.replaceLines(head head (PresApp.withAttr((mdEditor.buf.lineAt(head)) "bg" m.path)))
+            }
+        }
+        if (bg == "all") {
+            this.cssSet("page" "background-image" ("url(" + m.path + ")"))
+        }
+        m.line = -1
+    }
+
+    ; A heading line with `key=value` in its `{…}` (replacing the key's old
+    ; value), or a new `{key=value}` after it.
+    sfn withAttr:string (line:string key:string value:string) {
+        def t:string line
+        def n:int (strlen t)
+        def open:int (PresApp.lastIndexOf(t " {"))
+        if (((open > 0) && (n > 0)) && ((charAt t (n - 1)) == 125)) {
+            def inner:string (substring t (open + 2) (n - 1))
+            def words:[string] (strsplit inner " ")
+            def out:string (key + "=" + value)
+            def i:int 0
+            while (i < (array_length words)) {
+                def w:string (trim (itemAt words i))
+                if (((strlen w) > 0) && ((indexOf w (key + "=")) != 0)) {
+                    out = (out + " " + w)
+                }
+                i = (i + 1)
+            }
+            return ((substring t 0 open) + " {" + out + "}")
+        }
+        return (t + " {" + key + "=" + value + "}")
+    }
+
+    sfn lastIndexOf:int (t:string what:string) {
+        def at:int -1
+        def from:int (indexOf t what)
+        while (from >= 0) {
+            at = from
+            from = (indexOfFrom t what (from + 1))
+        }
+        return at
+    }
+
+    ; One property of one theme rule set to `value`, the rule made when there
+    ; is none; the slides follow.
+    fn cssSet:void (sel:string prop:string value:string) {
+        def was:string edTab
+        this.helpEdit(sel prop value)
+        def ed:ScriptEditor cssEditor
+        def ln:int ed.sel.caret.line
+        def col:int ed.sel.caret.col
+        def lt:string (ed.buf.lineAt(ln))
+        def end:int (indexOfFrom lt ";" col)
+        if (end < 0) {
+            end = (strlen lt)
+        }
+        if ((substring lt col end) != value) {
+            ed.moveCaret(ln col false)
+            ed.moveCaret(ln end true)
+            ed.insert(value)
+            this.syncEditor()
+        }
+        this.showTab(was)
+    }
+
     ; The chart under a point of the stage, opened in the editor.
     fn openChartAt:boolean (x:double y:double) {
         this.slidePoint(x y)
@@ -3094,6 +3306,9 @@ class PresApp {
         if chart.wantsClose {
             chart.wantsClose = false
             this.closeChart()
+            if (chart.mode == "image") {
+                this.imageAfterClose()
+            }
         }
         ; the chart's data file, in the files tab's editor
         if ((strlen chart.wantsFile) > 0) {
@@ -3132,6 +3347,10 @@ class PresApp {
             return
         }
         chart.changed = false
+        if (chart.mode == "image") {
+            this.writeImage()
+            return
+        }
         def spec:string (chart.model.toSpec())
         if (((strlen spec) == 0) || (chartStart < 0)) {
             return

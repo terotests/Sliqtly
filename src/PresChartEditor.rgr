@@ -28,6 +28,7 @@
 ; ============================================================================
 
 Import "PresChartModel.rgr"
+Import "PresImageModel.rgr"
 Import "PresColorPanel.rgr"
 Import "../ui/src/UiHost.rgr"
 Import "PresKeep.rgr"
@@ -58,6 +59,13 @@ class PresChartEditor {
     def wantsFresh:boolean false
     ; the chart's data file, asked to be opened in the files tab
     def wantsFile:string ""
+    ; The same window for a picture's settings: `mode` "image", the picture
+    ; in `img`. A picture asked to become a background ("slide", "all") or
+    ; to be taken out goes to the app, which owns the Markdown and the theme.
+    def mode:string "chart"
+    def img:PresImageModel (new PresImageModel())
+    def wantsBg:string ""
+    def wantsRemove:boolean false
     def message:string ""
     def rev:int 0
     def keep:PresKeep (new PresKeep())
@@ -74,8 +82,21 @@ class PresChartEditor {
     Constructor () {
     }
 
+    fn openImage:void (m:PresImageModel px:double py:double pw:double ph:double) {
+        mode = "image"
+        img = m
+        wantsBg = ""
+        wantsRemove = false
+        this.openAt(px py pw ph)
+    }
+
     fn open:void (m:PresChartModel px:double py:double pw:double ph:double) {
+        mode = "chart"
         model = m
+        this.openAt(px py pw ph)
+    }
+
+    fn openAt:void (px:double py:double pw:double ph:double) {
         x = px
         y = py
         w = pw
@@ -321,6 +342,10 @@ class PresChartEditor {
         win.tid = "ce-win"
         win.name = "Kaavion asetukset"
         win.title = "Kaavion asetukset"
+        if (mode == "image") {
+            win.name = "Kuvan asetukset"
+            win.title = "Kuvan asetukset"
+        }
         win.closeLabel = "Sulje"
         win.isModal = false
         win.x = x
@@ -346,6 +371,10 @@ class PresChartEditor {
     }
 
     fn fillBody:void (root:EVGElement) {
+        if (mode == "image") {
+            this.imageBody(root)
+            return
+        }
         if (model.ok == false) {
             root.addChild((this.text("ce-note" model.note)))
             root.addChild((this.text("ce-doc" "Voit aloittaa uuden taulukon: kaavion nykyinen sisältö korvataan esimerkkitaulukolla.")))
@@ -389,6 +418,107 @@ class PresChartEditor {
         bottom.addChild((this.div("ce-grow")))
         this.button("ce-done" "Valmis" "primary" bottom)
         root.addChild(bottom)
+    }
+
+    ; --- a picture ---------------------------------------------------------------
+    fn imageBody:void (root:EVGElement) {
+        def pane:EVGElement (this.div("ce-pane"))
+        root.addChild(pane)
+        pane.addChild((this.text("ce-doc" img.path)))
+        def size:EVGElement (this.section(pane "Koko"))
+        def wp:int (PresImageModel.percent(img.width))
+        def wr:EVGElement (this.field("Leveys"))
+        def wv:int wp
+        if (wv <= 0) {
+            wv = 100
+        }
+        this.slider("ie-width" "Leveys" wv 10 100 5 wr)
+        def wl:string ((to_string wp) + " %")
+        if ((strlen img.width) == 0) {
+            wl = "oma koko"
+        } {
+            if (wp <= 0) {
+                wl = img.width
+            }
+        }
+        wr.addChild((this.text("ce-value" wl)))
+        size.addChild(wr)
+        def hp:int (PresImageModel.percent(img.height))
+        def hr:EVGElement (this.field("Korkeus"))
+        this.slider("ie-height" "Korkeus" hp 0 100 5 hr)
+        def hl:string ((to_string hp) + " % diasta")
+        if ((strlen img.height) == 0) {
+            hl = "mahtuu diaan"
+        } {
+            if (hp <= 0) {
+                hl = img.height
+            }
+        }
+        hr.addChild((this.text("ce-value" hl)))
+        size.addChild(hr)
+        def nr:EVGElement (this.div("ce-row"))
+        this.button("ie-natural" "Oma koko" "outline" nr)
+        size.addChild(nr)
+        size.addChild((this.text("ce-doc" "Kuva pysyy muodossaan: leveys on palstan leveydestä, korkeus dian sisällön korkeudesta, ja pienempi niistä ratkaisee.")))
+
+        def place:EVGElement (this.section(pane "Paikka"))
+        def chips:EVGElement (this.div("ce-chips"))
+        this.chip("ie-align-" "Teeman" ((strlen img.align) == 0) chips)
+        this.chip("ie-align-left" "Vasen" (img.align == "left") chips)
+        this.chip("ie-align-center" "Keskellä" (img.align == "center") chips)
+        this.chip("ie-align-right" "Oikea" (img.align == "right") chips)
+        place.addChild(chips)
+
+        def words:EVGElement (this.section(pane "Vaihtoehtoinen teksti"))
+        def al:EVGElement (this.field("Kuvaus"))
+        this.input("ie-alt" "Kuvaus" img.alt "ce-wide" al)
+        words.addChild(al)
+        words.addChild((this.text("ce-doc" "Ruudunlukija lukee tämän, ja se näkyy, jos kuvaa ei löydy.")))
+
+        def bg:EVGElement (this.section(pane "Taustakuvaksi"))
+        def br:EVGElement (this.div("ce-row"))
+        this.button("ie-bg-slide" "Tämän dian tausta" "outline" br)
+        this.button("ie-bg-all" "Kaikkien diojen tausta" "outline" br)
+        bg.addChild(br)
+        bg.addChild((this.text("ce-doc" "Kuva siirtyy dian otsikon bg-asetukseksi tai teeman page-säännön background-imageksi ja peittää koko dian. bg-dim=0.4 otsikossa himmentää sitä tekstin alla.")))
+
+        def bottom:EVGElement (this.div("ce-foot"))
+        this.button("ie-remove" "Poista kuva" "outline" bottom)
+        bottom.addChild((this.div("ce-grow")))
+        this.button("ce-done" "Valmis" "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    fn imageAct:boolean (tid:string) {
+        if (tid == "ie-natural") {
+            img.width = ""
+            img.height = ""
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if ((indexOf tid "ie-align-") == 0) {
+            img.align = (substring tid 9 (strlen tid))
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if (tid == "ie-bg-slide") {
+            wantsBg = "slide"
+            wantsClose = true
+            return true
+        }
+        if (tid == "ie-bg-all") {
+            wantsBg = "all"
+            wantsClose = true
+            return true
+        }
+        if (tid == "ie-remove") {
+            wantsRemove = true
+            wantsClose = true
+            return true
+        }
+        return false
     }
 
     fn sizeW:int () {
@@ -690,7 +820,7 @@ class PresChartEditor {
     }
 
     sfn isSlider:boolean (tid:string) {
-        return ((((indexOf tid "ce-width") == 0) || ((indexOf tid "ce-height") == 0)) || ((indexOf tid "ce-stroke") == 0))
+        return (((((indexOf tid "ce-width") == 0) || ((indexOf tid "ce-height") == 0)) || ((indexOf tid "ce-stroke") == 0)) || ((tid == "ie-width") || (tid == "ie-height")))
     }
 
     ; A press in app coordinates. What it did is in the model (and `changed`),
@@ -784,6 +914,25 @@ class PresChartEditor {
 
     ; The sliders' values into the model.
     fn takeSliders:void () {
+        if (mode == "image") {
+            def wp:int (PresImageModel.percent(img.width))
+            def wv:int (this.sliderValue("ie-width" -1))
+            if ((wv > 0) && ((wv != wp) && ((wv != 100) || ((strlen img.width) > 0)))) {
+                img.width = ((to_string wv) + "%")
+                changed = true
+            }
+            def hp:int (PresImageModel.percent(img.height))
+            def hv:int (this.sliderValue("ie-height" -1))
+            if ((hv >= 0) && (hv != hp)) {
+                if (hv == 0) {
+                    img.height = ""
+                } {
+                    img.height = ((to_string hv) + "%")
+                }
+                changed = true
+            }
+            return
+        }
         if (tab == "kaavio") {
             def sw:int (this.sliderValue("ce-width" (this.sizeW())))
             def sh:int (this.sliderValue("ce-height" (this.sizeH())))
@@ -857,6 +1006,9 @@ class PresChartEditor {
 
     fn act:void (tid:string) {
         message = ""
+        if ((mode == "image") && (this.imageAct(tid))) {
+            return
+        }
         if (tid == "ce-done") {
             wantsClose = true
             return
@@ -996,6 +1148,9 @@ class PresChartEditor {
         def v:string c.value
         if (focusTid == "ce-titlein") {
             model.title = v
+        }
+        if (focusTid == "ie-alt") {
+            img.alt = v
         }
         if ((indexOf focusTid "ce-h-") == 0) {
             model.setHeader((?? (str2int (substring focusTid 5 (strlen focusTid))) -1) v)

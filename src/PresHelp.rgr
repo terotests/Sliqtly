@@ -255,6 +255,8 @@ class PresHelp {
     ; does not know.
     sfn knownProps:string (sel:string) {
         if (sel == "page") { return "width,height,padding,background-color,background-image" }
+        if (sel == "img") { return "justify-content,max-height" }
+        if ((sel == "header") || (sel == "footer")) { return "content,background-image,text-align,font-size,color,height" }
         if ((sel == "document") || (sel == "body")) { return "font-family,font-size,line-height,color" }
         if (sel == "heading") { return "font-family,color,margin-top,margin-bottom" }
         if (((strlen sel) == 2) && (((charAt sel 0) == 104) && (((charAt sel 1) >= 49) && ((charAt sel 1) <= 54)))) { return "font-size,color" }
@@ -688,7 +690,7 @@ class PresHelp {
             push out (PresHelp.feature("math" "Kaavat" "$E = mc^2$ rivin sisällä   $$\\frac{a}{b}$$ omalla rivillään   ```math … ```" "Kaava piirretään ympäröivän tekstin koossa ja värissä. Värin voi vaihtaa kaavan sisällä: \\color{red}{x}." (PresHelp.rule(css "document" "Kaavan koko ja väri tulevat tekstistä." "font-size,color"))))
         }
         if sc.image {
-            push out (PresHelp.feature("image" "Kuva" "![kuvaus](kuva.png)" "Kuvan voi vetää editoriin tai liittää leikepöydältä. Teemassa ei ole kuvien sääntöä." ""))
+            push out (PresHelp.feature("image" "Kuva" "![kuvaus](kuva.png)   {width=60% height=50% align=center}" "Napsauta kuvan riviä editorissa tai kaksoisnapsauta kuvaa diassa: Kuvan asetukset (koko, paikka, kuvaus, taustakuvaksi). Kuva pienenee mahtumaan diaan. Kuvan voi vetää editoriin, liittää leikepöydältä tai lisätä Tiedostot-välilehdeltä." ((PresHelp.rule(css "img" "Kaikki kuvat." "justify-content,max-height")) + "," + (PresHelp.rule(css "page" "Kaikkien diojen taustakuva." "background-image")))))
         }
         if sc.diagram {
             push out (PresHelp.feature("diagram" "Kaavio" "```mermaid {tour=on style=sketch} … ```" "Mermaid-, DOT-, D2- ja PlantUML-kaaviot, kokonaisina. ▶ zoom-nappien vieressä (esityksessä T) käy kaavion läpi; tour=on aloittaa kierroksen itsestään. Kaaviokohtaiset asetukset aaltosulkeissa lohkon ensimmäisellä rivillä." (PresHelp.rule(css "diagram" "Kaavioiden värit." "color,accent-color"))))
@@ -736,6 +738,8 @@ class PresHelp {
             }
             c = (c + 1)
         }
+        ; what every slide carries at its top and bottom
+        push out (PresHelp.feature("furniture" "Ylä- ja alaosa" "---   header: Yritys Oy   footer: {page} / {pages}   header-image: media/logo.png   ---" "Front matterissa (dokumentin alussa) tai teemassa. {page}, {pages} ja {title} täyttyvät jokaisella dialla. Dian oma taustakuva: ## Otsikko {bg=media/kuva.jpg bg-dim=0.4}." ((PresHelp.rule(css "header" "Jokaisen dian yläosa." "content,background-image,text-align,font-size,color,height")) + "," + (PresHelp.rule(css "footer" "Jokaisen dian alaosa." "content,background-image,text-align,font-size,color,height")))))
         ; the slide's own settings
         if ((array_length sc.attrNames) > 0) {
             def f:string (PresHelp.feature("attrs" "Dian asetukset" "## Otsikko {transition=zoom fx=starfield}" "Nämä ovat Markdownissa, eivät teemassa. Vie hiiri arvon päälle editorissa vaihtaaksesi sen." ""))

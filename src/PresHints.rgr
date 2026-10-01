@@ -77,7 +77,15 @@ class PresHints {
         if (key == "hold") { return "Aika viimeisen kohdan jälkeen, sekunteina." }
         if (key == "fx") { return "Taustaefekti (EVG). Parametrit: fx-<nimi>=<luku>." }
         if (key == "anim") { return "Miten kohdat tulevat näkyviin." }
-        if (key == "width") { return "Kaavion leveys pisteinä (enintään palstan leveys)." }
+        if (key == "width") { return "Leveys: pisteinä (400) tai prosentteina palstasta (60%). Kuva ja kaavio pysyvät muodossaan." }
+        if (key == "height") { return "Kuvan korkeus: pisteinä tai prosentteina dian sisällön korkeudesta (50%)." }
+        if (key == "align") { return "Kuvan paikka palstassa: left, center tai right." }
+        if (key == "bg") { return "Dian taustakuva, peittää koko dian: bg=media/kuva.jpg" }
+        if (key == "bg-dim") { return "Kuinka paljon dian pohjaväriä taustakuvan päälle (0–1), jotta teksti erottuu." }
+        if (key == "header") { return "Jokaisen dian yläosan teksti. {page}, {pages} ja {title} täyttyvät." }
+        if (key == "footer") { return "Jokaisen dian alaosan teksti, esim. {page} / {pages}." }
+        if ((key == "header-image") || (key == "footer-image")) { return "Kuva ylä- tai alaosan tekstin viereen, esim. media/logo.png." }
+        if ((key == "header-align") || (key == "footer-align")) { return "left, center tai right." }
         if (key == "diagram") { return "classic: kaavion alkuperäinen piirros ilman kiertokäyntiä." }
         if (key == "layout") { return "keep: kaavion suunta niin kuin se on kirjoitettu." }
         if (key == "tour") { return "on: kiertokäynti alkaa itsestään dian mukana. Oletuksena kaavio näytetään kokonaan, ja ▶ zoom-nappien vieressä (esityksessä T) käynnistää kierroksen." }
@@ -99,6 +107,7 @@ class PresHints {
         if (key == "layout") { return "keep" }
         if ((key == "tour") || ((key == "ball") || (key == "choose"))) { return "on off" }
         if (key == "style") { return "holo sketch" }
+        if (((key == "align") || (key == "header-align")) || (key == "footer-align")) { return "left center right" }
         return ""
     }
 
@@ -151,7 +160,9 @@ class PresHints {
         if (prop == "chart-style") { return "Kaavioiden tyyli: flat, forge, neon tai glass." }
         if (prop == "title-font-size") { return "Kaavion otsikon koko." }
         if (prop == "title-gap") { return "Kaavion otsikon ja kaavion väli." }
-        if (prop == "justify-content") { return "Kaavion paikka vaakasuunnassa, kun se on kapeampi kuin dia: center (oletus), flex-start tai flex-end." }
+        if (prop == "justify-content") { return "Kaavion tai kuvan paikka vaakasuunnassa, kun se on kapeampi kuin dia: center (oletus), flex-start tai flex-end." }
+        if (prop == "content") { return "Ylä- tai alaosan teksti lainausmerkeissä. {page}, {pages} ja {title} täyttyvät: \"{page} / {pages}\"." }
+        if (prop == "max-height") { return "Kuvan suurin korkeus." }
         if (prop == "label-color") { return "Kaavion tekstien (akselit, selite) väri." }
         if (prop == "contrast") { return "auto: kaavion tekstit dian tekstin värillä vaalealla dialla (oletus). off: teeman vaalea tekstiväri." }
         if (prop == "padding") { return "Tyhjä tila reunoilla (kaaviossa: kaavion ympärillä)." }

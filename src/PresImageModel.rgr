@@ -1,0 +1,136 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresImageModel.rgr — a picture in the Markdown, as the settings it has
+; ============================================================================
+;
+; `![alt](media/kuva.png)` on a line of its own, and under it, optionally,
+; the paragraph's attributes: `{width=60% height=40% align=center .rounded}`.
+; The image editor changes the size, the place and the words; what else the
+; attribute line says (classes, an id, keys this does not know) is carried
+; through as it was.
+; ============================================================================
+
+class PresImageModel {
+    def alt:string ""
+    def path:string ""
+    ; `width=` / `height=` as written ("60%", "400", "" none)
+    def width:string ""
+    def height:string ""
+    ; "" (the theme's), "left", "center", "right"
+    def align:string ""
+    ; the attribute line's other words, in order
+    def other:[string]
+    ; the lines in the Markdown: the picture's and, when there is one, its
+    ; attribute line's (-1: none)
+    def line:int -1
+    def attrLine:int -1
+
+    Constructor () {
+    }
+
+    ; `![alt](path)` alone on the line (spaces round it allowed): the model,
+    ; or one with an empty path when the line is not a picture.
+    sfn read:PresImageModel (imgLine:string attrText:string) {
+        def m (new PresImageModel())
+        def t:string (trim imgLine)
+        if ((indexOf t "![") != 0) {
+            return m
+        }
+        def close:int (indexOf t "](")
+        if (close < 2) {
+            return m
+        }
+        def n:int (strlen t)
+        if ((charAt t (n - 1)) != 41) {
+            return m
+        }
+        m.alt = (substring t 2 close)
+        def dest:string (trim (substring t (close + 2) (n - 1)))
+        ; a title after the path ("…" in quotes) is not part of it
+        def sp:int (indexOf dest " ")
+        if (sp > 0) {
+            dest = (substring dest 0 sp)
+        }
+        m.path = dest
+        def a:string (trim attrText)
+        def an:int (strlen a)
+        if ((an >= 2) && (((charAt a 0) == 123) && ((charAt a (an - 1)) == 125))) {
+            def words:[string] (strsplit (trim (substring a 1 (an - 1))) " ")
+            def i:int 0
+            while (i < (array_length words)) {
+                def w:string (trim (itemAt words i))
+                if ((strlen w) > 0) {
+                    if ((indexOf w "width=") == 0) {
+                        m.width = (substring w 6 (strlen w))
+                    } {
+                        if ((indexOf w "height=") == 0) {
+                            m.height = (substring w 7 (strlen w))
+                        } {
+                            if ((indexOf w "align=") == 0) {
+                                m.align = (substring w 6 (strlen w))
+                            } {
+                                push m.other w
+                            }
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+        }
+        return m
+    }
+
+    sfn isAttrLine:boolean (t:string) {
+        def a:string (trim t)
+        def n:int (strlen a)
+        return ((n >= 2) && (((charAt a 0) == 123) && ((charAt a (n - 1)) == 125)))
+    }
+
+    fn ok:boolean () {
+        return ((strlen path) > 0)
+    }
+
+    ; A size as a percentage, or 0 when it is not one.
+    sfn percent:int (v:string) {
+        def n:int (strlen v)
+        if ((n < 2) || ((charAt v (n - 1)) != 37)) {
+            return 0
+        }
+        return (?? (str2int (substring v 0 (n - 1))) 0)
+    }
+
+    ; The picture's line, and the attribute line under it when it says
+    ; anything.
+    fn markdown:string () {
+        def out:string ("![" + alt + "](" + path + ")")
+        def words:[string]
+        if ((strlen width) > 0) {
+            push words ("width=" + width)
+        }
+        if ((strlen height) > 0) {
+            push words ("height=" + height)
+        }
+        if ((strlen align) > 0) {
+            push words ("align=" + align)
+        }
+        def i:int 0
+        while (i < (array_length other)) {
+            push words (itemAt other i)
+            i = (i + 1)
+        }
+        if ((array_length words) > 0) {
+            def line:string ""
+            def k:int 0
+            while (k < (array_length words)) {
+                if (k > 0) {
+                    line = (line + " ")
+                }
+                line = (line + (itemAt words k))
+                k = (k + 1)
+            }
+            out = (out + "\n{" + line + "}")
+        }
+        return out
+    }
+}

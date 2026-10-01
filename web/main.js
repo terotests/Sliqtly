@@ -1249,6 +1249,11 @@ keys.addEventListener("keydown", (ev) => {
       afterInput();
       paintOnce();
       focusRegion("chart");
+    } else if (app.openImageAtCaret()) {
+      // a picture's line: its settings
+      afterInput();
+      paintOnce();
+      focusRegion("chart");
     } else if (h) {
       showHint(h);
       paintOnce();
@@ -1408,6 +1413,11 @@ canvas.addEventListener("pointerdown", (ev) => {
         // a chart's fence opens the chart editor, not a list of languages
         closeHint();
         app.openChartEditor(h.line);
+        focusKeys("editor");
+        afterInput();
+      } else if (app.openImageAtCaret()) {
+        // a picture's line opens the picture's settings
+        closeHint();
         focusKeys("editor");
         afterInput();
       } else if (h) showHint(h);
