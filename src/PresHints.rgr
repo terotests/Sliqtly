@@ -1,0 +1,707 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresHints.rgr — what the thing under the pointer is, and what it could be
+; ============================================================================
+;
+; The editor shows a hint for a value it knows: an attribute in a
+; `{fx=starfield fx-density=1.6}` block or in the front matter, a class, a
+; fence's language, and in the theme a CSS property's value. The hint says
+; what the value does, and what it can be: a list for a word with a fixed
+; set, a colour, a number with its range and unit, a face. The page draws it
+; as a popover and edits the text through `PresApp.replaceRange`.
+;
+; This file is the knowledge and the reading; it knows nothing of pixels.
+; `forLine` answers for one line of text and a column, as JSON:
+;
+;   { "kind": "enum" | "color" | "number" | "font" | "class" | "doc",
+;     "name": "fx", "doc": "…", "value": "starfield",
+;     "start": 18, "end": 27,          the value's columns, to replace
+;     "wholeStart": 17, "wholeEnd": 27, the whole item, to remove ("" none)
+;     "options": […], "min": 0, "max": 4, "step": 0.1, "unit": "pt",
+;     "adds": ["fx-density=1", …] }     items that could be added after it
+;
+; An empty string when there is nothing to say.
+; ============================================================================
+
+Import "../markdown/src/MdHtml.rgr"
+
+class PresHints {
+    ; --- what the Markdown knows ----------------------------------------------
+    sfn fxNames:string () {
+        return "starfield plasma-wave smoke ambient-light liquid-glass raindrop"
+    }
+
+    ; An effect's parameters and their defaults, as the WebGL painter's effect
+    ; definitions have them (lib/evg/gl/evg-webgl.js).
+    sfn fxParams:string (fx:string) {
+        if (fx == "starfield") { return "density=1 speed=6 angle=200 twinkle=1 glow=1 nebula=0.6 hue=225 hue2=300 seed=1" }
+        if (fx == "plasma-wave") { return "ribbons=5 speed=0.35 amp=0.22 freq=1.7 width=2.2 glow=26 sheet=0.16 hue=225 hue2=285 grain=0.35 seed=1" }
+        if (fx == "smoke") { return "density=1.2 rise=0.05 wind=0 swirl=2.6 scale=190 detail=5 height=0.9 softness=0.55 shade=0.6 angle=-60 hue=205 tint=0.1 seed=1" }
+        if (fx == "ambient-light") { return "hue=190 hue2=268 sat=0.5 tilt=25 depth=0.5 orbs=7 size=0.55 softness=1.6 speed=0.06 glow=0.45 seed=1" }
+        if (fx == "liquid-glass") { return "thickness=24 strength=32 power=2.2 disperse=0.07 shine=0.6 angle=-60 tint=0.05" }
+        if (fx == "raindrop") { return "density=1 size=0.5 refract=14 shine=0.85 angle=-55 rim=0.55 speed=0 seed=1" }
+        return ""
+    }
+
+    sfn fxDoc:string (fx:string) {
+        if (fx == "starfield") { return "Tähtikenttä, joka liikkuu hitaasti; sumu ja tuike." }
+        if (fx == "plasma-wave") { return "Aaltoilevat valonauhat." }
+        if (fx == "smoke") { return "Hitaasti nouseva savu." }
+        if (fx == "ambient-light") { return "Pehmeät, liikkuvat valopallot." }
+        if (fx == "liquid-glass") { return "Lasimainen taittuva reunus." }
+        if (fx == "raindrop") { return "Pisarat lasin pinnalla." }
+        return ""
+    }
+
+    ; The default of one parameter of one effect, or "" when it has none.
+    sfn fxDefault:string (fx:string param:string) {
+        def all:[string] (strsplit (PresHints.fxParams(fx)) " ")
+        def i:int 0
+        while (i < (array_length all)) {
+            def kv:string (itemAt all i)
+            def eq:int (indexOf kv "=")
+            if ((eq > 0) && ((substring kv 0 eq) == param)) {
+                return (substring kv (eq + 1) (strlen kv))
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn attrDoc:string (key:string) {
+        if (key == "transition") { return "Siirtymä tälle dialle." }
+        if (key == "seconds") { return "Siirtymän kesto sekunteina." }
+        if (key == "duration") { return "Dian kesto toistossa, sekunteina." }
+        if (key == "step") { return "Aika rakentuvien kohtien välillä, sekunteina." }
+        if (key == "hold") { return "Aika viimeisen kohdan jälkeen, sekunteina." }
+        if (key == "fx") { return "Taustaefekti (EVG). Parametrit: fx-<nimi>=<luku>." }
+        if (key == "anim") { return "Miten kohdat tulevat näkyviin." }
+        if (key == "width") { return "Leveys: pisteinä (400) tai prosentteina palstasta (60%). Kuva ja kaavio pysyvät muodossaan." }
+        if (key == "height") { return "Kuvan korkeus: pisteinä tai prosentteina dian sisällön korkeudesta (50%)." }
+        if (key == "align") { return "Kuvan paikka palstassa: left, center tai right." }
+        if (key == "bg") { return "Dian taustakuva, peittää koko dian: bg=media/kuva.jpg" }
+        if (key == "bg-dim") { return "Kuinka paljon dian pohjaväriä taustakuvan päälle (0–1), jotta teksti erottuu." }
+        if (key == "header") { return "Jokaisen dian yläosan teksti. {page}, {pages} ja {title} täyttyvät." }
+        if (key == "footer") { return "Jokaisen dian alaosan teksti, esim. {page} / {pages}." }
+        if ((key == "header-image") || (key == "footer-image")) { return "Kuva ylä- tai alaosan tekstin viereen, esim. media/logo.png." }
+        if ((key == "header-align") || (key == "footer-align")) { return "left, center tai right." }
+        if (key == "diagram") { return "classic: kaavion alkuperäinen piirros ilman kiertokäyntiä." }
+        if (key == "layout") { return "keep: kaavion suunta niin kuin se on kirjoitettu." }
+        if (key == "tour") { return "on: kiertokäynti alkaa itsestään dian mukana. Oletuksena kaavio näytetään kokonaan, ja ▶ zoom-nappien vieressä (esityksessä T) käynnistää kierroksen." }
+        if (key == "ball") { return "off: ei valopalloa nuolia pitkin." }
+        if (key == "choose") { return "off: haarautumissa ei kysytä suuntaa." }
+        if (key == "zoom") { return "Suurin mittakaava, jolla kaavion laatikko piirretään." }
+        if (key == "style") { return "Kaavion tyyli: holo (lasi) tai sketch (käsin piirretty)." }
+        if (key == "slide-grow") { return "Kuinka paljon väljä dia saa kasvaa (off: ei ollenkaan)." }
+        if (key == "slide-split-level") { return "Monennenko tason otsikko aloittaa dian." }
+        if (key == "title") { return "Esityksen nimi." }
+        return ""
+    }
+
+    sfn attrEnum:string (key:string) {
+        if (key == "transition") { return "fade slide zoom none" }
+        if (key == "fx") { return (PresHints.fxNames()) }
+        if (key == "anim") { return "fade rise fly zoom" }
+        if (key == "diagram") { return "classic" }
+        if (key == "layout") { return "keep" }
+        if ((key == "tour") || ((key == "ball") || (key == "choose"))) { return "on off" }
+        if (key == "style") { return "holo sketch" }
+        if (((key == "align") || (key == "header-align")) || (key == "footer-align")) { return "left center right" }
+        return ""
+    }
+
+    ; min max step for a numeric attribute, or "".
+    sfn attrRange:string (key:string value:string) {
+        if (key == "seconds") { return "0.1 3 0.1" }
+        if (key == "duration") { return "1 60 0.5" }
+        if (key == "step") { return "0.2 5 0.1" }
+        if (key == "hold") { return "0 10 0.5" }
+        if (key == "width") { return "100 1200 10" }
+        if (key == "zoom") { return "1 6 0.1" }
+        if (key == "slide-grow") { return "1 2 0.05" }
+        if (key == "slide-split-level") { return "1 3 1" }
+        return ""
+    }
+
+    sfn classDoc:string (c:string) {
+        if (c == ".build") { return "Kohdat tulevat näkyviin yksi kerrallaan." }
+        if (c == ".lead") { return "Ingressi: suurempi teksti." }
+        if (c == ".kicker") { return "Pieni lisärivi." }
+        if (c == ".c2") { return "Kahteen palstaan." }
+        if (c == ".c3") { return "Kolmeen palstaan." }
+        return "Luokka, jonka teeman CSS määrittelee."
+    }
+
+    ; A number range for an effect parameter, from its default and its name.
+    sfn fxRange:string (param:string def0:string) {
+        if ((param == "hue") || (param == "hue2")) { return "0 360 1" }
+        if (param == "seed") { return "1 100 1" }
+        if ((param == "angle") || ((param == "tilt") || (param == "sweep-angle"))) { return "-180 180 1" }
+        def d:double (fabs (?? (str2double def0) 1.0))
+        if (d >= 10.0) {
+            return ("0 " + (PresHints.num((d * 4.0))) + " 1")
+        }
+        if (d >= 2.0) {
+            return ("0 " + (PresHints.num((d * 4.0))) + " 0.1")
+        }
+        return "0 4 0.01"
+    }
+
+    ; --- what the theme knows -------------------------------------------------
+    sfn cssDoc:string (prop:string) {
+        if (prop == "color") { return "Tekstin väri (chart ja diagram: lämmin korostusväri)." }
+        if (prop == "accent-color") { return "Kylmä korostusväri: ruudukko, akselit, laatikot." }
+        if (prop == "background-color") { return "Taustaväri. #rrggbbaa antaa peittävyyden, none poistaa taustan." }
+        if (prop == "border-color") { return "Reunan väri." }
+        if (prop == "font-family") { return "Kirjasin." }
+        if (prop == "font-size") { return "Tekstin koko." }
+        if (prop == "line-height") { return "Riviväli tekstin koon kerrannaisena." }
+        if (prop == "chart-style") { return "Kaavioiden tyyli: flat, forge, neon tai glass." }
+        if (prop == "title-font-size") { return "Kaavion otsikon koko." }
+        if (prop == "title-gap") { return "Kaavion otsikon ja kaavion väli." }
+        if (prop == "justify-content") { return "Kaavion tai kuvan paikka vaakasuunnassa, kun se on kapeampi kuin dia: center (oletus), flex-start tai flex-end." }
+        if (prop == "content") { return "Ylä- tai alaosan teksti lainausmerkeissä. {page}, {pages} ja {title} täyttyvät: \"{page} / {pages}\"." }
+        if (prop == "max-height") { return "Kuvan suurin korkeus." }
+        if (prop == "label-color") { return "Kaavion tekstien (akselit, selite) väri." }
+        if (prop == "contrast") { return "auto: kaavion tekstit dian tekstin värillä vaalealla dialla (oletus). off: teeman vaalea tekstiväri." }
+        if (prop == "padding") { return "Tyhjä tila reunoilla (kaaviossa: kaavion ympärillä)." }
+        if (prop == "chart-effects") { return "Kaikkien kaavioiden lisäefektit: glow (hehku), shadow (varjo), gradient (liukuväri). Esim. glow gradient." }
+        if (prop == "split-level") { return "Monennenko tason otsikko aloittaa dian." }
+        if (prop == "overflow") { return "Mitä tehdään liian täydelle dialle." }
+        if (prop == "aspect-ratio") { return "Dian kuvasuhde." }
+        if (prop == "column-count") { return "Palstojen määrä." }
+        if (prop == "column-gap") { return "Palstojen väli." }
+        if (prop == "text-align") { return "Tekstin tasaus." }
+        if (prop == "width") { return "Sivun leveys." }
+        if (prop == "height") { return "Sivun korkeus." }
+        return ""
+    }
+
+    sfn cssEnum:string (prop:string) {
+        if (prop == "chart-style") { return "flat forge neon glass" }
+        if (prop == "justify-content") { return "center flex-start flex-end" }
+        if (prop == "contrast") { return "auto off" }
+        if (prop == "overflow") { return "split shrink" }
+        if (prop == "text-align") { return "left center right" }
+        if (prop == "font-weight") { return "normal bold" }
+        if (prop == "font-style") { return "normal italic" }
+        return ""
+    }
+
+    sfn fonts:string () {
+        return "Open Sans|Noto Sans"
+    }
+
+    sfn isColorProp:boolean (prop:string) {
+        def n:int (strlen prop)
+        if (prop == "color") { return true }
+        if (n > 6) {
+            return ((substring prop (n - 6) n) == "-color")
+        }
+        return false
+    }
+
+    ; A number range and unit for a length-like property, by name and unit.
+    sfn cssRange:string (prop:string unit:string) {
+        if (prop == "line-height") { return "1 2.2 0.05" }
+        if (prop == "column-count") { return "1 4 1" }
+        if (prop == "split-level") { return "1 3 1" }
+        if (unit == "in") { return "0 20 0.05" }
+        if (unit == "px") { return "0 200 1" }
+        if (unit == "em") { return "0 4 0.05" }
+        if (prop == "font-size") { return "8 96 1" }
+        return "0 80 1"
+    }
+
+    sfn selectorDoc:string (sel:string) {
+        if (sel == "page") { return "Dian koko, marginaali ja tausta." }
+        if (sel == "deck") { return "Miten dokumentti jaetaan dioiksi." }
+        if (sel == "document") { return "Kaiken tekstin oletukset." }
+        if (sel == "heading") { return "Kaikki otsikot." }
+        if (sel == "chart") { return "Vega-Lite-kaaviot lavalla, PDF:ssä ja PPTX:ssä." }
+        if (sel == "diagram") { return "Mermaid-, DOT-, D2- ja PlantUML-kaaviot lavalla." }
+        if (sel == "list") { return "Luettelot." }
+        if (sel == "li") { return "Luettelon kohta." }
+        if (((indexOf sel "#") == 0) && ((indexOf sel " chart") > 0)) { return "Yhden otsikon alla olevat kaaviot: #ankkuri on otsikon nimi pienillä kirjaimilla, välit viivoina." }
+        if (sel == "code") { return "Koodilohkot." }
+        if (sel == "table") { return "Taulukot." }
+        if (sel == "blockquote") { return "Lainaukset." }
+        if ((sel == "h1") || ((sel == "h2") || ((sel == "h3") || ((sel == "h4") || ((sel == "h5") || (sel == "h6")))))) { return ("Tason " + (substring sel 1 2) + " otsikko: koko ja väri. h1 = # (esityksen otsikko), h2 = ## (dian otsikko), h3 = ###.") }
+        if (sel == "body") { return "Kaiken tekstin oletukset (sama kuin document)." }
+        if (sel == "p") { return "Kappaleet." }
+        if (sel == "mark") { return "Korostus: <mark>…</mark>." }
+        if (sel == "kbd") { return "Näppäin: <kbd>…</kbd>." }
+        if (sel == "a") { return "Linkit." }
+        if (sel == "hr") { return "Vaakaviiva ja otsikon alla oleva viiva." }
+        if (((strlen sel) > 0) && ((charAt sel 0) == 46)) { return (PresHints.classDoc(sel)) }
+        return ""
+    }
+
+    ; --- reading a line ----------------------------------------------------------
+    ;
+    ; `mode` is "md" or "css"; `front` says the line is in the front matter.
+    sfn forLine:string (mode:string line:string col:int front:boolean) {
+        if (mode == "css") {
+            return (PresHints.cssAt(line col))
+        }
+        if front {
+            return (PresHints.frontAt(line col))
+        }
+        def f:string (PresHints.fenceAt(line col))
+        if ((strlen f) > 0) {
+            return f
+        }
+        return (PresHints.attrAt(line col))
+    }
+
+    ; ```mermaid — the languages a fence can name.
+    sfn fenceAt:string (line:string col:int) {
+        def t:string (trim line)
+        if (((strlen t) < 4) || ((substring t 0 3) != "```")) {
+            return ""
+        }
+        def lead:int (indexOf line "```")
+        def a:int (lead + 3)
+        def b:int a
+        def n:int (strlen line)
+        while ((b < n) && (((charAt line b) != 32) && ((charAt line b) != 123))) {
+            b = (b + 1)
+        }
+        if ((col < a) || (col > b) || (b == a)) {
+            return ""
+        }
+        def h:PresHint (PresHint.make("enum" "kieli" (substring line a b) a b))
+        h.doc = "Mitä lohko on: kaavio, kaava tai koodi."
+        h.options = "mermaid dot plantuml d2 vega-lite math js python bash json"
+        return (h.json())
+    }
+
+    ; `key: value` in the front matter.
+    sfn frontAt:string (line:string col:int) {
+        def colon:int (indexOf line ":")
+        if (colon <= 0) {
+            return ""
+        }
+        def key:string (trim (substring line 0 colon))
+        def a:int (colon + 1)
+        def n:int (strlen line)
+        while ((a < n) && ((charAt line a) == 32)) {
+            a = (a + 1)
+        }
+        ; a YAML comment (` # …`) is not part of the value
+        def b:int n
+        def k:int a
+        while (k < n) {
+            if (((charAt line k) == 35) && ((k == a) || (((charAt line (k - 1)) == 32) || ((charAt line (k - 1)) == 9)))) {
+                b = k
+                k = n
+            }
+            k = (k + 1)
+        }
+        while ((b > a) && (((charAt line (b - 1)) == 32) || ((charAt line (b - 1)) == 9))) {
+            b = (b - 1)
+        }
+        if ((col > b) && (b < n)) {
+            ; over the comment
+            return ""
+        }
+        if (col < a) {
+            ; over the key: say what it is
+            def dk:string (PresHints.attrDoc(key))
+            if ((strlen dk) == 0) {
+                return ""
+            }
+            def hk:PresHint (PresHint.make("doc" key (substring line a b) a b))
+            hk.doc = dk
+            return (hk.json())
+        }
+        return (PresHints.valueHint(key (substring line a b) a b -1 -1))
+    }
+
+    ; An item of a `{…}` attribute block.
+    sfn attrAt:string (line:string col:int) {
+        def open:int -1
+        def i:int col
+        if (i >= (strlen line)) {
+            i = ((strlen line) - 1)
+        }
+        while (i >= 0) {
+            def c:int (charAt line i)
+            if ((c == 125) && (i < col)) {
+                return ""
+            }
+            if (c == 123) {
+                open = i
+                i = -1
+            } {
+                i = (i - 1)
+            }
+        }
+        if (open < 0) {
+            return ""
+        }
+        def n:int (strlen line)
+        def close:int (open + 1)
+        while ((close < n) && ((charAt line close) != 125)) {
+            close = (close + 1)
+        }
+        if ((close >= n) || (col > close)) {
+            return ""
+        }
+        return (PresHints.itemsAt(line (open + 1) close col))
+    }
+
+    ; The space-separated item of line[from, to) the column is in.
+    sfn itemsAt:string (line:string from:int close:int col:int) {
+        def a:int from
+        while (a < close) {
+            while ((a < close) && ((charAt line a) == 32)) {
+                a = (a + 1)
+            }
+            def b:int a
+            def inQuote:boolean false
+            while ((b < close) && ((inQuote || ((charAt line b) != 32)))) {
+                if ((charAt line b) == 34) {
+                    inQuote = (! inQuote)
+                }
+                b = (b + 1)
+            }
+            if ((b > a) && ((col >= a) && (col <= b))) {
+                return (PresHints.itemHint(line a b))
+            }
+            a = b
+        }
+        return ""
+    }
+
+    sfn itemHint:string (line:string a:int b:int) {
+        def item:string (substring line a b)
+        ; the whole item and the space before it, to remove
+        def wa:int a
+        if ((wa > 0) && ((charAt line (wa - 1)) == 32)) {
+            wa = (wa - 1)
+        }
+        if ((charAt item 0) == 46) {
+            def hc:PresHint (PresHint.make("class" item item a b))
+            hc.doc = (PresHints.classDoc(item))
+            hc.options = ".build .lead .kicker .c2 .c3"
+            hc.wholeStart = wa
+            hc.wholeEnd = b
+            return (hc.json())
+        }
+        def eq:int (indexOf item "=")
+        if (eq <= 0) {
+            return ""
+        }
+        def key:string (substring item 0 eq)
+        def va:int ((a + eq) + 1)
+        def vb:int b
+        if ((va < vb) && ((charAt line va) == 34)) {
+            va = (va + 1)
+            if ((charAt line (vb - 1)) == 34) {
+                vb = (vb - 1)
+            }
+        }
+        return (PresHints.valueHint(key (substring line va vb) va vb wa b))
+    }
+
+    ; What a key's value is and can be.
+    sfn valueHint:string (key:string value:string a:int b:int wa:int wb:int) {
+        def h:PresHint (PresHint.make("doc" key value a b))
+        h.wholeStart = wa
+        h.wholeEnd = wb
+        h.doc = (PresHints.attrDoc(key))
+        def en:string (PresHints.attrEnum(key))
+        if ((strlen en) > 0) {
+            h.kind = "enum"
+            h.options = en
+            if (key == "fx") {
+                h.doc = ((PresHints.attrDoc(key)) + " " + (PresHints.fxDoc(value)))
+                h.adds = (PresHints.fxAdds(value))
+            }
+            return (h.json())
+        }
+        if (((strlen key) > 3) && ((substring key 0 3) == "fx-")) {
+            def param:string (substring key 3 (strlen key))
+            h.kind = "number"
+            h.doc = ("Efektin parametri " + param + ".")
+            h.range = (PresHints.fxRange(param "1"))
+            ; the effect's own default names the scale
+            def fxs:[string] (strsplit (PresHints.fxNames()) " ")
+            def k:int 0
+            while (k < (array_length fxs)) {
+                def d0:string (PresHints.fxDefault((itemAt fxs k) param))
+                if ((strlen d0) > 0) {
+                    h.range = (PresHints.fxRange(param d0))
+                    h.doc = ("Efektin parametri " + param + ", oletus " + d0 + ".")
+                    k = (array_length fxs)
+                }
+                k = (k + 1)
+            }
+            return (h.json())
+        }
+        def rg:string (PresHints.attrRange(key value))
+        if ((strlen rg) > 0) {
+            h.kind = "number"
+            h.range = rg
+            return (h.json())
+        }
+        if ((strlen h.doc) > 0) {
+            return (h.json())
+        }
+        return ""
+    }
+
+    ; The parameters an effect has, as items to add.
+    sfn fxAdds:string (fx:string) {
+        def all:[string] (strsplit (PresHints.fxParams(fx)) " ")
+        def out:string ""
+        def i:int 0
+        while (i < (array_length all)) {
+            def kv:string (itemAt all i)
+            if ((strlen kv) > 0) {
+                if ((strlen out) > 0) {
+                    out = (out + " ")
+                }
+                out = (out + "fx-" + kv)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; `prop: value` in a CSS line, or a selector.
+    sfn cssAt:string (line:string col:int) {
+        def n:int (strlen line)
+        ; `/* pres: fx=starfield fx-density=1.1 */`: the deck's own settings
+        ; in a theme, read like an attribute block
+        def pi:int (indexOf line "/* pres:")
+        if ((pi >= 0) && (col >= (pi + 8))) {
+            def pe:int (indexOf line "*/")
+            if (pe < 0) {
+                pe = n
+            }
+            if (col <= pe) {
+                return (PresHints.itemsAt(line (pi + 8) pe col))
+            }
+        }
+        ; inside a comment: nothing
+        def cs:int (indexOf line "/*")
+        if ((cs >= 0) && (col >= cs)) {
+            def ce:int (indexOf line "*/")
+            if ((ce < 0) || (col <= (ce + 2))) {
+                return ""
+            }
+        }
+        ; the declaration the column is in: from the `;` or `{` before it to
+        ; the `;` or `}` after it
+        def a:int col
+        if (a > n) {
+            a = n
+        }
+        while ((a > 0) && (((charAt line (a - 1)) != 59) && ((charAt line (a - 1)) != 123))) {
+            a = (a - 1)
+        }
+        def b:int col
+        while ((b < n) && (((charAt line b) != 59) && ((charAt line b) != 125))) {
+            b = (b + 1)
+        }
+        def decl:string (substring line a b)
+        def colon:int (indexOf decl ":")
+        if (colon < 0) {
+            ; a selector
+            def brace:int (indexOf line "{")
+            def selEnd:int n
+            if (brace >= 0) {
+                selEnd = brace
+            }
+            if (col > selEnd) {
+                return ""
+            }
+            def sel:string (trim (substring line 0 selEnd))
+            def sd:string (PresHints.selectorDoc(sel))
+            if ((strlen sd) == 0) {
+                return ""
+            }
+            def hs:PresHint (PresHint.make("doc" sel sel 0 selEnd))
+            hs.doc = sd
+            return (hs.json())
+        }
+        def prop:string (MdHtml.lower((trim (substring decl 0 colon))))
+        def va:int ((a + colon) + 1)
+        while ((va < b) && ((charAt line va) == 32)) {
+            va = (va + 1)
+        }
+        def vb:int b
+        while ((vb > va) && ((charAt line (vb - 1)) == 32)) {
+            vb = (vb - 1)
+        }
+        def value:string (substring line va vb)
+        ; the declaration with its `;`, to remove
+        def wa:int a
+        while ((wa < va) && ((charAt line wa) == 32)) {
+            wa = (wa + 1)
+        }
+        def wb:int b
+        if ((wb < n) && ((charAt line wb) == 59)) {
+            wb = (wb + 1)
+        }
+        def h:PresHint (PresHint.make("doc" prop value va vb))
+        h.wholeStart = wa
+        h.wholeEnd = wb
+        h.doc = (PresHints.cssDoc(prop))
+        if ((PresHints.isColorProp(prop)) || (((strlen value) > 0) && ((charAt value 0) == 35))) {
+            h.kind = "color"
+            return (h.json())
+        }
+        if (prop == "font-family") {
+            h.kind = "font"
+            h.options = (PresHints.fonts())
+            return (h.json())
+        }
+        def en:string (PresHints.cssEnum(prop))
+        if ((strlen en) > 0) {
+            h.kind = "enum"
+            h.options = en
+            return (h.json())
+        }
+        if (prop == "aspect-ratio") {
+            h.kind = "enum"
+            h.options = "16 / 9|4 / 3|16 / 10"
+            return (h.json())
+        }
+        ; a number with a unit
+        def num:int 0
+        while ((num < (strlen value)) && (PresHints.isNumChar((charAt value num)))) {
+            num = (num + 1)
+        }
+        if ((num > 0) && ((indexOf value " ") < 0)) {
+            def unit:string (substring value num (strlen value))
+            h.kind = "number"
+            h.unit = unit
+            h.range = (PresHints.cssRange(prop unit))
+            return (h.json())
+        }
+        if ((strlen h.doc) > 0) {
+            return (h.json())
+        }
+        return ""
+    }
+
+    sfn isNumChar:boolean (c:int) {
+        return ((((c >= 48) && (c <= 57)) || (c == 46)) || (c == 45))
+    }
+
+    ; Two decimals at most, no trailing zeros.
+    sfn num:string (v:double) {
+        def c:int (to_int ((fabs v) * 100.0 + 0.5))
+        def whole:int (idiv c 100)
+        def frac:int (c - (whole * 100))
+        def s:string (to_string whole)
+        if (frac > 0) {
+            if ((frac % 10) == 0) {
+                s = (s + "." + (to_string (idiv frac 10)))
+            } {
+                if (frac < 10) {
+                    s = (s + ".0" + (to_string frac))
+                } {
+                    s = (s + "." + (to_string frac))
+                }
+            }
+        }
+        if ((v < 0.0) && (c > 0)) {
+            s = ("-" + s)
+        }
+        return s
+    }
+}
+
+; One hint, and its JSON.
+class PresHint {
+    def kind:string ""
+    def name:string ""
+    def doc:string ""
+    def value:string ""
+    def start:int 0
+    def end:int 0
+    def wholeStart:int -1
+    def wholeEnd:int -1
+    ; space-separated, or `|`-separated when a choice has spaces in it
+    def options:string ""
+    ; "min max step"
+    def range:string ""
+    def unit:string ""
+    def adds:string ""
+
+    Constructor () {
+    }
+
+    sfn make:PresHint (kind:string name:string value:string a:int b:int) {
+        def h:PresHint (new PresHint())
+        h.kind = kind
+        h.name = name
+        h.value = value
+        h.start = a
+        h.end = b
+        return h
+    }
+
+    sfn q:string (s:string) {
+        def out:string "\""
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if ((c == 34) || (c == 92)) {
+                out = (out + "\\")
+            }
+            if (c < 32) {
+                out = (out + " ")
+            } {
+                out = (out + (strfromcode c))
+            }
+            i = (i + 1)
+        }
+        return (out + "\"")
+    }
+
+    sfn list:string (s:string) {
+        if ((strlen s) == 0) {
+            return "[]"
+        }
+        def sep:string " "
+        if ((indexOf s "|") >= 0) {
+            sep = "|"
+        }
+        def parts:[string] (strsplit s sep)
+        def out:string "["
+        def i:int 0
+        def first:boolean true
+        while (i < (array_length parts)) {
+            def p:string (trim (itemAt parts i))
+            if ((strlen p) > 0) {
+                if (first == false) {
+                    out = (out + ",")
+                }
+                out = (out + (PresHint.q(p)))
+                first = false
+            }
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
+    fn json:string () {
+        def out:string ("{\"kind\":" + (PresHint.q(kind)) + ",\"name\":" + (PresHint.q(name)) + ",\"doc\":" + (PresHint.q(doc)) + ",\"value\":" + (PresHint.q(value)))
+        out = (out + ",\"start\":" + (to_string start) + ",\"end\":" + (to_string end))
+        out = (out + ",\"wholeStart\":" + (to_string wholeStart) + ",\"wholeEnd\":" + (to_string wholeEnd))
+        out = (out + ",\"options\":" + (PresHint.list(options)) + ",\"adds\":" + (PresHint.list(adds)) + ",\"unit\":" + (PresHint.q(unit)))
+        if ((strlen range) > 0) {
+            def r:[string] (strsplit range " ")
+            if ((array_length r) == 3) {
+                out = (out + ",\"min\":" + (itemAt r 0) + ",\"max\":" + (itemAt r 1) + ",\"step\":" + (itemAt r 2))
+            }
+        }
+        return (out + "}")
+    }
+}

@@ -1,1 +1,5 @@
-app/
+.deps/
+node_modules/
+web/dist/
+bin/
+*.log

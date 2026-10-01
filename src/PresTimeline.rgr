@@ -1,0 +1,426 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresTimeline.rgr — what the stage shows at time t, and nothing else.
+; ============================================================================
+;
+; Every frame is a PURE FUNCTION of (deck, slide, t). There is no clock in
+; here and nothing is advanced by a delta: the host says what time it is and
+; gets the picture for that time. That is what lets a scrub, a jump back and
+; a video capture frame N all draw the same thing — `PLAN_UI.md` §5c.
+;
+;   slide start ─┬─ transition (seconds) ─┬─ step 1 ── step 2 ── … ─┬─ hold ─┤
+;                │  previous slide leaves │  groups arrive          │        │
+;                0                      seconds                            duration
+; ============================================================================
+
+Import "PresDeck.rgr"
+
+class PresPose {
+    def alpha:double 1.0
+    def dx:double 0.0
+    def dy:double 0.0
+    def scale:double 1.0
+    ; what it scales about
+    def ox:double 0.0
+    def oy:double 0.0
+
+    fn still:boolean () {
+        return ((((alpha >= 1.0) && (dx == 0.0)) && (dy == 0.0)) && (scale == 1.0))
+    }
+}
+
+class PresTimeline {
+
+    ; ------------------------------------------------------------------
+    ; Times
+    ; ------------------------------------------------------------------
+    sfn transitionSeconds:double (s:PresSlide) {
+        if ((s.transition == "none") || (s.index == 0)) {
+            return 0.0
+        }
+        return s.seconds
+    }
+
+    ; When each group arrives and how long the slide lasts.
+    sfn plan:void (s:PresSlide) {
+        def base:double (PresTimeline.transitionSeconds(s))
+        def last:double base
+        def i:int 0
+        while (i < (array_length s.groups)) {
+            def g:PresGroup (itemAt s.groups i)
+            if (g.step == 0) {
+                g.at = (base * 0.5)
+            } {
+                g.at = (base + 0.3 + ((to_double (g.step - 1)) * s.stepGap))
+            }
+            def end:double (g.at + g.seconds)
+            if (end > last) {
+                last = end
+            }
+            i = (i + 1)
+        }
+        ; A diagram starts with the group that reveals it, or with the slide,
+        ; and the slide lasts until its tour is over.
+        def di:int 0
+        while (di < (array_length s.diagrams)) {
+            def u:PresDiaUse (itemAt s.diagrams di)
+            u.start = (base * 0.5)
+            def gi:int 0
+            while (gi < (array_length s.groups)) {
+                def gg:PresGroup (itemAt s.groups gi)
+                if (gg.start == u.srcStart) {
+                    u.start = gg.at
+                }
+                gi = (gi + 1)
+            }
+            def dend:double (u.start + u.diagram.total)
+            if (dend > last) {
+                last = dend
+            }
+            di = (di + 1)
+        }
+        def d:double (last + s.hold)
+        if (s.wantDuration > 0.0) {
+            d = s.wantDuration
+            if (d < last) {
+                d = last
+            }
+        }
+        s.duration = d
+    }
+
+    sfn planAll:void (deck:PresDeck) {
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            PresTimeline.plan((deck.slideAt(i)))
+            i = (i + 1)
+        }
+    }
+
+    ; When build step k (1-based) begins on its slide.
+    sfn stepTime:double (s:PresSlide k:int) {
+        def i:int 0
+        while (i < (array_length s.groups)) {
+            def g:PresGroup (itemAt s.groups i)
+            if (g.step == k) {
+                return g.at
+            }
+            i = (i + 1)
+        }
+        return 0.0
+    }
+
+    ; …and when it has finished arriving.
+    sfn stepDone:double (s:PresSlide k:int) {
+        def out:double 0.0
+        def i:int 0
+        while (i < (array_length s.groups)) {
+            def g:PresGroup (itemAt s.groups i)
+            if (g.step == k) {
+                def e:double (g.at + g.seconds)
+                if (e > out) {
+                    out = e
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn slideStart:double (deck:PresDeck i:int) {
+        def t:double 0.0
+        def k:int 0
+        while (k < i) {
+            t = (t + (deck.slideAt(k)).duration)
+            k = (k + 1)
+        }
+        return t
+    }
+
+    sfn total:double (deck:PresDeck) {
+        return (PresTimeline.slideStart(deck (deck.slideCount())))
+    }
+
+    ; Which slide a deck time falls in.
+    sfn slideAtTime:int (deck:PresDeck t:double) {
+        def acc:double 0.0
+        def k:int 0
+        def n:int (deck.slideCount())
+        while (k < n) {
+            def d:double (deck.slideAt(k)).duration
+            if (t < (acc + d)) {
+                return k
+            }
+            acc = (acc + d)
+            k = (k + 1)
+        }
+        if (n == 0) {
+            return 0
+        }
+        return (n - 1)
+    }
+
+    ; ------------------------------------------------------------------
+    ; Poses
+    ; ------------------------------------------------------------------
+    sfn ease:double (x:double) {
+        if (x <= 0.0) {
+            return 0.0
+        }
+        if (x >= 1.0) {
+            return 1.0
+        }
+        def u:double (1.0 - x)
+        return (1.0 - ((u * u) * u))
+    }
+
+    sfn progress:double (t:double at:double seconds:double) {
+        if (t < at) {
+            return -1.0
+        }
+        if (seconds <= 0.0) {
+            return 1.0
+        }
+        return (PresTimeline.ease(((t - at) / seconds)))
+    }
+
+    ; A group at local time t. Hidden (alpha 0) before it arrives.
+    sfn groupPose:void (g:PresGroup t:double p:PresPose) {
+        def q:double (PresTimeline.progress(t g.at g.seconds))
+        p.dx = 0.0
+        p.dy = 0.0
+        p.scale = 1.0
+        if (q < 0.0) {
+            p.alpha = 0.0
+            return
+        }
+        p.alpha = q
+        def r:double (1.0 - q)
+        if (g.anim == "rise") {
+            p.dy = (r * 28.0)
+        }
+        if (g.anim == "fly") {
+            p.dx = (0.0 - (r * 90.0))
+        }
+        if (g.anim == "zoom") {
+            p.scale = (0.6 + (0.4 * q))
+        }
+    }
+
+    ; The slide arriving (`incoming`) or the previous one leaving, at local
+    ; time t of the arriving slide.
+    sfn slidePose:void (s:PresSlide t:double incoming:boolean w:double h:double p:PresPose) {
+        p.alpha = 1.0
+        p.dx = 0.0
+        p.dy = 0.0
+        p.scale = 1.0
+        p.ox = (w * 0.5)
+        p.oy = (h * 0.5)
+        def secs:double (PresTimeline.transitionSeconds(s))
+        if (secs <= 0.0) {
+            return
+        }
+        def q:double (PresTimeline.progress(t 0.0 secs))
+        if (q < 0.0) {
+            q = 0.0
+        }
+        if (s.transition == "slide") {
+            if incoming {
+                p.dx = ((1.0 - q) * w)
+            } {
+                p.dx = (0.0 - (q * w))
+            }
+            return
+        }
+        if (s.transition == "zoom") {
+            if incoming {
+                p.alpha = q
+                p.scale = (0.88 + (0.12 * q))
+            } {
+                p.scale = (1.0 + (0.06 * q))
+            }
+            return
+        }
+        ; fade, and anything this does not know
+        if incoming {
+            p.alpha = q
+        }
+    }
+
+    ; ------------------------------------------------------------------
+    ; Applying a pose to commands
+    ; ------------------------------------------------------------------
+    sfn poseCmd:void (c:EVGDrawCmd p:PresPose) {
+        def sc:double p.scale
+        if (sc != 1.0) {
+            c.x = (p.ox + ((c.x - p.ox) * sc))
+            c.y = (p.oy + ((c.y - p.oy) * sc))
+            c.w = (c.w * sc)
+            c.h = (c.h * sc)
+            c.radius = (c.radius * sc)
+            c.thickness = (c.thickness * sc)
+            c.fontSize = (c.fontSize * sc)
+        }
+        c.x = (c.x + p.dx)
+        c.y = (c.y + p.dy)
+        def n:int (array_length c.pts)
+        if (n > 0) {
+            def k:int 0
+            while ((k + 1) < n) {
+                def px:double (itemAt c.pts k)
+                def py:double (itemAt c.pts (k + 1))
+                set c.pts k ((p.ox + ((px - p.ox) * sc)) + p.dx)
+                set c.pts (k + 1) ((p.oy + ((py - p.oy) * sc)) + p.dy)
+                k = (k + 2)
+            }
+        }
+        if (p.alpha < 1.0) {
+            c.a = (c.a * p.alpha)
+            if c.hasGrad {
+                c.a2 = (c.a2 * p.alpha)
+            }
+        }
+    }
+
+    ; The middle of everything a group drew, which is what `zoom` grows from.
+    sfn centreOf:void (list:EVGDisplayList groupOfCmd:[int] g:int p:PresPose) {
+        def x0:double 1000000.0
+        def y0:double 1000000.0
+        def x1:double -1000000.0
+        def y1:double -1000000.0
+        def i:int 0
+        while (i < (array_length list.cmds)) {
+            if ((itemAt groupOfCmd i) == g) {
+                def c:EVGDrawCmd (itemAt list.cmds i)
+                if (c.x < x0) { x0 = c.x }
+                if (c.y < y0) { y0 = c.y }
+                if ((c.x + c.w) > x1) { x1 = (c.x + c.w) }
+                if ((c.y + c.h) > y1) { y1 = (c.y + c.h) }
+            }
+            i = (i + 1)
+        }
+        if (x1 < x0) {
+            return
+        }
+        p.ox = ((x0 + x1) * 0.5)
+        p.oy = ((y0 + y1) * 0.5)
+    }
+
+    ; Every group at local time t. A group that has not arrived is dropped
+    ; rather than drawn at alpha 0, so the list the painter gets is short.
+    sfn animate:EVGDisplayList (s:PresSlide list:EVGDisplayList groupOfCmd:[int] t:double) {
+        def n:int (array_length s.groups)
+        def poses:[PresPose]
+        def g:int 0
+        while (g < n) {
+            def p (new PresPose())
+            PresTimeline.groupPose((itemAt s.groups g) t p)
+            if (p.scale != 1.0) {
+                PresTimeline.centreOf(list groupOfCmd g p)
+            }
+            push poses p
+            g = (g + 1)
+        }
+        def out:EVGDisplayList (new EVGDisplayList())
+        def i:int 0
+        while (i < (array_length list.cmds)) {
+            def c:EVGDrawCmd (itemAt list.cmds i)
+            def gi:int (itemAt groupOfCmd i)
+            if (gi < 0) {
+                push out.cmds c
+            } {
+                def pose:PresPose (itemAt poses gi)
+                if (pose.alpha > 0.0) {
+                    if (! (pose.still())) {
+                        PresTimeline.poseCmd(c pose)
+                    }
+                    push out.cmds c
+                }
+            }
+            i = (i + 1)
+        }
+        PresDeck.appendFx(out list)
+        return out
+    }
+
+    sfn poseAll:void (list:EVGDisplayList p:PresPose) {
+        if (p.still()) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length list.cmds)) {
+            PresTimeline.poseCmd((itemAt list.cmds i) p)
+            i = (i + 1)
+        }
+        def sc:double p.scale
+        def k:int 0
+        while (k < (array_length list.fxIds)) {
+            def x:double (itemAt list.fxX k)
+            def y:double (itemAt list.fxY k)
+            set list.fxX k ((p.ox + ((x - p.ox) * sc)) + p.dx)
+            set list.fxY k ((p.oy + ((y - p.oy) * sc)) + p.dy)
+            set list.fxW k ((itemAt list.fxW k) * sc)
+            set list.fxH k ((itemAt list.fxH k) * sc)
+            k = (k + 1)
+        }
+    }
+
+    ; ------------------------------------------------------------------
+    ; The frame
+    ; ------------------------------------------------------------------
+    ;
+    ; Slide i at its local time t: the previous slide leaving under it while
+    ; the transition runs, the groups that have arrived, all inside a clip of
+    ; the slide's own rectangle so a slide coming in from the side does not
+    ; paint over the editor next to the stage.
+    sfn frame:EVGDisplayList (deck:PresDeck i:int t:double) {
+        def w:double deck.pageW
+        def h:double deck.pageH
+        def out:EVGDisplayList (new EVGDisplayList())
+        def clip (new EVGDrawCmd())
+        clip.kind = 4
+        clip.w = w
+        clip.h = h
+        push out.cmds clip
+        if ((i < 0) || (i >= (deck.slideCount()))) {
+            def pop0 (new EVGDrawCmd())
+            pop0.kind = 5
+            push out.cmds pop0
+            return out
+        }
+        def s:PresSlide (deck.slideAt(i))
+        def secs:double (PresTimeline.transitionSeconds(s))
+        if ((i > 0) && (t < secs)) {
+            def prev:PresSlide (deck.slideAt((i - 1)))
+            def pg:[int]
+            def pl:EVGDisplayList (deck.slideList((i - 1) pg prev.duration))
+            def pa:EVGDisplayList (PresTimeline.animate(prev pl pg prev.duration))
+            def pp (new PresPose())
+            PresTimeline.slidePose(s t false w h pp)
+            PresTimeline.poseAll(pa pp)
+            PresDeck.appendAll(out pa)
+        }
+        def cg:[int]
+        def cl:EVGDisplayList (deck.slideList(i cg t))
+        def ca:EVGDisplayList (PresTimeline.animate(s cl cg t))
+        def cp (new PresPose())
+        PresTimeline.slidePose(s t true w h cp)
+        PresTimeline.poseAll(ca cp)
+        PresDeck.appendAll(out ca)
+        def pop (new EVGDrawCmd())
+        pop.kind = 5
+        push out.cmds pop
+        return out
+    }
+
+    ; The slide as it stands once everything has arrived: the thumbnail, the
+    ; PDF page, the stage while editing.
+    sfn finalFrame:EVGDisplayList (deck:PresDeck i:int) {
+        if ((i < 0) || (i >= (deck.slideCount()))) {
+            return (new EVGDisplayList())
+        }
+        def s:PresSlide (deck.slideAt(i))
+        return (PresTimeline.frame(deck i s.duration))
+    }
+}

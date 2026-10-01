@@ -1,0 +1,182 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PresCssLanguage.rgr — colours for the theme tab
+; ==============================================================================
+;
+; The theme editor is the same ScriptEditor as the markdown one; all it needs
+; to colour CSS is a `tokenize`. Selectors are tags, property names attributes,
+; numbers and #colours numbers, strings text, at-rules keywords. Two things
+; carry from line to line: an open comment and the brace depth, because a rule
+; is usually written over several lines.
+; ==============================================================================
+
+Import "../datagrid/src/script/lang/EditorLanguage.rgr"
+
+class PresCssLanguage {
+    Extends(EditorLanguage)
+
+    Constructor () {
+    }
+
+    fn id:string () {
+        return "css"
+    }
+
+    fn label:string () {
+        return "CSS"
+    }
+
+    fn handlesFile:boolean (name:string) {
+        def n:int (strlen name)
+        if (n < 4) {
+            return false
+        }
+        return ((substring name (n - 4) n) == ".css")
+    }
+
+    fn tokenize:[CodeTokenLine] (lines:[string]) {
+        def out:[CodeTokenLine]
+        def inComment:boolean false
+        def depth:int 0
+        def inValue:boolean false
+        def li:int 0
+        def ln:int (array_length lines)
+        while (li < ln) {
+            def s:string (itemAt lines li)
+            def line:CodeTokenLine (new CodeTokenLine)
+            def n:int (strlen s)
+            def i:int 0
+            while (i < n) {
+                def ch:int (charAt s i)
+                def start:int i
+                if inComment {
+                    def e:int (PresCssLanguage.commentEnd(s i))
+                    if (e < 0) {
+                        i = n
+                    } {
+                        i = (e + 2)
+                        inComment = false
+                    }
+                    push line.tokens (CodeToken.create(start (i - start) (CodeTokenKind.comment())))
+                } {
+                    def next:int 0
+                    if ((i + 1) < n) {
+                        next = (charAt s (i + 1))
+                    }
+                    if ((ch == 47) && (next == 42)) {
+                        ; `/*`
+                        inComment = true
+                        i = (i + 2)
+                        def e2:int (PresCssLanguage.commentEnd(s i))
+                        if (e2 < 0) {
+                            i = n
+                        } {
+                            i = (e2 + 2)
+                            inComment = false
+                        }
+                        push line.tokens (CodeToken.create(start (i - start) (CodeTokenKind.comment())))
+                    } {
+                        if ((ch == 34) || (ch == 39)) {
+                            i = (i + 1)
+                            while ((i < n) && ((charAt s i) != ch)) {
+                                i = (i + 1)
+                            }
+                            if (i < n) {
+                                i = (i + 1)
+                            }
+                            push line.tokens (CodeToken.create(start (i - start) (CodeTokenKind.text())))
+                        } {
+                            if ((ch == 123) || (ch == 125) || (ch == 58) || (ch == 59) || (ch == 44)) {
+                                ; { } : ; ,
+                                if (ch == 123) {
+                                    depth = (depth + 1)
+                                    inValue = false
+                                }
+                                if (ch == 125) {
+                                    if (depth > 0) {
+                                        depth = (depth - 1)
+                                    }
+                                    inValue = false
+                                }
+                                if ((ch == 58) && (depth > 0)) {
+                                    inValue = true
+                                }
+                                if (ch == 59) {
+                                    inValue = false
+                                }
+                                i = (i + 1)
+                                push line.tokens (CodeToken.create(start 1 (CodeTokenKind.punct())))
+                            } {
+                                if ((ch == 32) || (ch == 9)) {
+                                    i = (i + 1)
+                                } {
+                                    i = (PresCssLanguage.wordEnd(s i))
+                                    if (i == start) {
+                                        i = (i + 1)
+                                    }
+                                    push line.tokens (CodeToken.create(start (i - start) (this.kindOf(s start depth inValue))))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            push out line
+            li = (li + 1)
+        }
+        return out
+    }
+
+    fn kindOf:int (s:string start:int depth:int inValue:boolean) {
+        def ch:int (charAt s start)
+        if (ch == 64) {
+            ; @media, @import
+            return (CodeTokenKind.keyword())
+        }
+        if (depth == 0) {
+            return (CodeTokenKind.tag())
+        }
+        if (inValue == false) {
+            return (CodeTokenKind.attr())
+        }
+        if (ch == 35) {
+            return (CodeTokenKind.number())
+        }
+        if (((ch >= 48) && (ch <= 57)) || (ch == 46) || (ch == 45)) {
+            return (CodeTokenKind.number())
+        }
+        return (CodeTokenKind.builtin())
+    }
+
+    ; Where `*/` starts at or after `from`, or -1.
+    sfn commentEnd:int (s:string from:int) {
+        def i:int from
+        def n:int (strlen s)
+        while ((i + 1) < n) {
+            if (((charAt s i) == 42) && ((charAt s (i + 1)) == 47)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; One word: anything up to whitespace, punctuation or a quote. `(` and `)`
+    ; stay inside so rgba(0,0,0) is split only at its commas.
+    sfn wordEnd:int (s:string from:int) {
+        def i:int from
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if ((ch == 32) || (ch == 9) || (ch == 123) || (ch == 125) || (ch == 58) || (ch == 59) || (ch == 44) || (ch == 34) || (ch == 39)) {
+                return i
+            }
+            if ((ch == 47) && ((i + 1) < n) && ((charAt s (i + 1)) == 42)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return i
+    }
+}

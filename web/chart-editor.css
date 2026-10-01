@@ -1,0 +1,417 @@
+/* ---------------------------------------------------------------------------
+   The chart settings window (src/PresChartEditor.rgr): gallery/ui's controls
+   in the EVGUI playground's look — white cards, zinc greys, a black primary.
+   The kit's own theme (ui.css) comes first. EVG's sheet has no descendant
+   selectors: a `.theme-ce` rule applies because the editor's host runs under
+   the theme "ce", and it outranks the kit's unscoped rules. The colour
+   picker's rules (`cp-*`) are the EVGUI demo's own (demo/colorpicker.css).
+   --------------------------------------------------------------------------- */
+
+/* the host is as big as the app and shows nothing but the window */
+.theme-ce .ui-root { padding: 0; gap: 0; background-color: rgba(0,0,0,0); }
+.ui-window-trigger { display: none; }
+.ui-window-content {
+  display: flex; flex-direction: column;
+  width: 560px;
+  background-color: #ffffff;
+  border: 1px solid #e4e4e7;
+  border-radius: 12px;
+  shadow-color: rgba(0, 0, 0, 0.28);
+  shadow-radius: 28px;
+  shadow-offset-y: 10px;
+}
+.ui-window-titlebar {
+  display: flex; flex-direction: row; align-items: center;
+  width: 100%; height: 44px;
+  background-color: #ffffff;
+  border-bottom: 1px solid #f4f4f5;
+  border-radius: 12px 12px 0 0;
+}
+.ui-window-handle { display: flex; flex-direction: row; align-items: center; flex-grow: 1; height: 44px; padding: 0 16px; }
+.ui-window-handle-dragging { background-color: #fafafa; }
+.ui-window-title { font-family: Open Sans; font-size: 14px; font-weight: 600; color: #09090b; }
+.ui-window-close { font-family: Open Sans; font-size: 18px; color: #71717a; padding: 0 16px; height: 44px; line-height: 44px; }
+.ui-window-body { padding: 0; }
+
+.ce-body {
+  display: flex; flex-direction: column; align-items: flex-start;
+  padding: 14px 16px 16px;
+  gap: 10px;
+  font-family: Open Sans;
+  color: #09090b;
+  width: 100%;
+}
+.ce-pane { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; width: 100%; }
+.ce-section { font-size: 12px; font-weight: 600; color: #71717a; margin-top: 6px; }
+.ce-group {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  background-color: #ffffff;
+}
+.ce-field { display: flex; flex-direction: row; align-items: center; gap: 12px; width: 100%; }
+.ce-flabel { width: 110px; min-width: 110px; font-size: 13px; color: #3f3f46; }
+.ce-value { font-size: 12px; color: #71717a; width: 60px; }
+.ce-foot { display: flex; flex-direction: row; align-items: center; gap: 10px; width: 100%; padding-top: 10px; border-top: 1px solid #f4f4f5; }
+.ce-grow { flex-grow: 1; }
+.ce-note { font-size: 13px; color: #b45309; }
+.ce-warn { font-size: 12px; color: #b45309; }
+.ce-doc { font-size: 12px; color: #71717a; }
+.ce-row { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+.ce-chips { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+
+/* tabs: a grey track with the active one lifted out of it */
+.theme-ce .ui-tabs { gap: 0; }
+.theme-ce .ui-tablist { gap: 2px; padding: 3px; background-color: #f4f4f5; border-radius: 8px; }
+.theme-ce .ui-tab { border: 1px solid rgba(0,0,0,0); background-color: rgba(0,0,0,0); color: #71717a; padding: 5px 14px; border-radius: 6px; font-family: Open Sans; font-size: 13px; }
+.theme-ce .ui-tab-state-active { background-color: #ffffff; color: #09090b; border-color: #e4e4e7; }
+.theme-ce .ui-tabpanel { display: none; }
+
+/* buttons: black primary, white outline, quiet ghost */
+.theme-ce .ui-button { font-family: Open Sans; border-radius: 6px; align-self: center; }
+.theme-ce .ui-button-primary { background-color: #18181b; color: #fafafa; border-color: #18181b; }
+.theme-ce .ui-button-secondary { background-color: #ffffff; color: #09090b; border: 1px solid #e4e4e7; }
+.theme-ce .ui-button-ghost { background-color: rgba(0,0,0,0); color: #3f3f46; border-color: rgba(0,0,0,0); }
+.theme-ce .ui-button-disabled { opacity: 0.4; }
+.theme-ce .ui-button-label { font-weight: 500; font-size: 13px; color: #09090b; }
+.theme-ce .ce-onprimary { color: #fafafa; }
+.theme-ce .ce-small { height: 30px; padding: 0 12px; }
+.theme-ce .ce-chip { height: 28px; padding: 0 10px; }
+.theme-ce .ce-x { height: 26px; width: 28px; padding: 0; }
+
+/* switches and sliders in black on zinc */
+.theme-ce .ui-switch { color: #09090b; font-size: 13px; }
+.theme-ce .ui-switch-label { color: #3f3f46; }
+.theme-ce .ui-switch-track { background-color: #e4e4e7; border-color: #e4e4e7; }
+.theme-ce .ui-switch-track-state-checked { background-color: #18181b; border-color: #18181b; }
+/* on .ui-slider, not a class of our own: the slider rebuilds its root with
+   only its own class while it is dragged */
+.theme-ce .ui-slider { width: 260px; min-width: 260px; flex-shrink: 0; }
+.theme-ce .ui-slider-track { width: 260px; }
+.theme-ce .ui-slider-track { background-color: #e4e4e7; }
+.theme-ce .ui-slider-range { background-color: #18181b; }
+.theme-ce .ui-slider-thumb { background-color: #ffffff; border-color: #18181b; }
+
+/* fields */
+.theme-ce .ui-input { background-color: #ffffff; border: 1px solid #e4e4e7; border-radius: 6px; height: 30px; padding: 0 10px; }
+.theme-ce .ui-input-text { color: #09090b; font-size: 13px; font-family: Open Sans; }
+.theme-ce .ui-input-caret { background-color: #09090b; height: 16px; }
+.theme-ce .ce-focus { border-color: #a1a1aa; }
+.ce-wide { width: 280px; }
+
+/* the data grid */
+.ce-grid { display: flex; flex-direction: column; gap: 4px; }
+.ce-gridrow { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 4px; }
+.ce-cell { width: 92px; }
+.ce-cat { width: 124px; }
+.theme-ce .ce-head { background-color: #fafafa; }
+
+/* colours */
+.ce-swatch { width: 24px; height: 24px; min-width: 24px; border-radius: 6px; border: 1px solid #e4e4e7; }
+.ce-switches { gap: 22px; }
+.ce-pickcard {
+  display: flex; flex-direction: column; gap: 10px;
+  width: 280px; padding: 12px 14px 14px;
+  background-color: #ffffff;
+  border: 1px solid #e4e4e7; border-radius: 12px;
+  shadow-color: rgba(0, 0, 0, 0.28); shadow-radius: 28px; shadow-offset-y: 10px;
+}
+.ce-pickhead { display: flex; flex-direction: row; align-items: center; width: 100%; }
+.ce-picktitle { font-family: Open Sans; font-size: 14px; font-weight: 600; color: #09090b; }
+.theme-ce .cp-panel { width: 250px; border: 0; padding: 0; }
+
+/* --- EVGUI's colour picker (demo/colorpicker.css) -------------------------- */
+.cp-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: #3f3f46;
+  stroke-width: 2;
+}
+.cp-chev { stroke: #a1a1aa; }
+
+/* --- the panel ------------------------------------------------------------------ */
+
+.cp-panel {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 12px;
+  width: 240px;
+  padding: 12px;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  background-color: #ffffff;
+}
+.cp-panel-pop {
+  shadow-color: rgba(0, 0, 0, 0.16);
+  shadow-radius: 14px;
+  shadow-offset-y: 6px;
+}
+
+/* White -> hue across (inline), transparent -> black down (the shade). */
+.cp-sv {
+  position: relative;
+  width: 100%;
+  height: 150px;
+  border-radius: 6px;
+  cursor: crosshair;
+}
+.cp-sv-shade {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  right: 0px;
+  height: 150px;
+  border-radius: 6px;
+}
+
+.cp-thumb {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #ffffff;
+  border-radius: 7px;
+  shadow-color: rgba(0, 0, 0, 0.45);
+  shadow-radius: 3px;
+  shadow-offset-y: 0px;
+}
+.cp-thumb-sv { width: 16px; height: 16px; border-radius: 8px; }
+
+.cp-tools {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+}
+
+.cp-iconbtn {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  background-color: #ffffff;
+  cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+.cp-iconbtn:hover { background-color: #f4f4f5; }
+.cp-iconbtn-on { background-color: #e0e7ff; border-color: #6366f1; }
+
+/* The current colour over a two-square checkerboard. */
+.cp-current {
+  position: relative;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 15px;
+  background-color: #ffffff;
+}
+.cp-check {
+  position: absolute;
+  width: 50%;
+  height: 50%;
+  background-color: #d4d4d8;
+}
+.cp-check-tl { top: 0px; left: 0px; border-radius: 15px 0 0 0; }
+.cp-check-br { bottom: 0px; right: 0px; border-radius: 0 0 15px 0; }
+.cp-check-tl-sm { border-radius: 4px 0 0 0; }
+.cp-check-br-sm { border-radius: 0 0 4px 0; }
+.cp-fill {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  right: 0px;
+  height: 30px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 15px;
+}
+.cp-fill-sm { height: 20px; border-radius: 4px; }
+
+.cp-sliders {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 8px;
+  flex-grow: 1;
+  min-width: 0px;
+}
+
+.cp-track {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  height: 10px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.cp-seg { position: relative; flex-grow: 1; flex-basis: 0px; height: 10px; }
+.cp-seg-fill { position: absolute; top: 0px; left: 0px; right: -1px; height: 10px; }
+.cp-seg-first { border-radius: 5px 0 0 5px; }
+.cp-seg-last { right: 0px; border-radius: 0 5px 5px 0; }
+
+/* The alpha checkerboard: 24 columns, a grey square top or bottom in each. */
+.cp-cell {
+  position: relative;
+  flex-grow: 1;
+  flex-basis: 0px;
+  height: 10px;
+  background-color: #ffffff;
+}
+.cp-cell-first { border-radius: 5px 0 0 5px; }
+.cp-cell-last { border-radius: 0 5px 5px 0; }
+.cp-cell-dark {
+  position: absolute;
+  left: 0px;
+  right: 0px;
+  height: 5px;
+  background-color: #d4d4d8;
+}
+.cp-cell-dark-top { top: 0px; }
+.cp-cell-dark-bottom { top: 5px; }
+.cp-alpha-grad {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  right: 0px;
+  height: 10px;
+  border-radius: 5px;
+}
+.cp-thumb-bar { top: -2px; }
+
+/* --- the fields ------------------------------------------------------------------- */
+
+.cp-fields {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 6px;
+}
+.cp-fcol {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 3px;
+  flex-grow: 1;
+  flex-basis: 0px;
+  min-width: 0px;
+}
+.cp-box {
+  position: relative;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid #d4d4d8;
+  border-radius: 5px;
+  background-color: #ffffff;
+  cursor: text;
+}
+.cp-box:focus { border-color: #3b82f6; }
+.cp-text {
+  color: #09090b;
+  font-family: Arial;
+  font-size: 12px;
+  white-space: pre;
+  height: 24px;
+  line-height: 24px;
+}
+.cp-caret {
+  position: absolute;
+  top: 5px;
+  width: 1px;
+  height: 14px;
+  background-color: #09090b;
+}
+.cp-band {
+  position: absolute;
+  top: 5px;
+  height: 14px;
+  background-color: #bfdbfe;
+}
+.cp-flabel {
+  width: 100%;
+  color: #71717a;
+  font-size: 10px;
+  font-weight: 500;
+  height: 12px;
+  line-height: 12px;
+  text-align: center;
+}
+
+.cp-fmt {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 26px;
+  border-radius: 5px;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+.cp-fmt:hover { background-color: #f4f4f5; }
+
+/* --- swatches ---------------------------------------------------------------------- */
+
+.cp-presets {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+.cp-ptitle {
+  color: #71717a;
+  font-size: 11px;
+  font-weight: 500;
+  height: 14px;
+  line-height: 14px;
+}
+.cp-prow {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 7px;
+}
+.cp-preset {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.cp-preset-on { border: 2px solid #18181b; }
+
+/* --- the value lines ----------------------------------------------------------------- */
+
+.theme-ce .ui-slider-thumb:hover { transform: scale(1.1); }
+.theme-ce .ui-slider-thumb:active { transform: scale(1.1); }
+/* a label never wraps ("100 %" split at its space), and a button does not
+   shrink below its label */
+.theme-ce .ui-button-label { white-space: nowrap; }
+.theme-ce .ui-button { flex-shrink: 0; }
+/* a field is one line: a long value is clipped, not wrapped under the box */
+.theme-ce .ui-input { overflow: hidden; }
+.theme-ce .ui-input-text { white-space: nowrap; }
+/* The card is rebuilt on every change, so a transition would replay from its
+   start each time (a checked switch sliding in again, a pressed control
+   squeezing): state is shown at once instead. */
+.theme-ce .ui-switch-track, .theme-ce .ui-switch-thumb, .theme-ce .ui-tab, .theme-ce .ui-slider-thumb, .theme-ce .ui-checkbox-box, .theme-ce .ui-button { transition: none; }
+.theme-ce .ui-switch-track:active, .theme-ce .ui-tab:active, .theme-ce .ui-checkbox-box:active { transform: none; }
+.theme-ce .ui-button-state-pressed { transform: none; }
+.theme-ce .ui-switch-thumb-state-checked { transform: translate(18px, 0); }
+/* text leaves get their size and face stated, not inherited: an inherited
+   size came out differently between passes and the rows moved */
+.theme-ce .ui-switch-label { font-family: Open Sans; font-size: 13px; }

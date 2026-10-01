@@ -1,0 +1,69 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The presentation editor's canvas chrome, as an EVG stylesheet, in the
+ * EVGUI playground's light look: white panels on a zinc ground, the slide
+ * lifted off it by a soft shadow. Every box is placed by
+ * PresApp.rgr in pixels; this sheet only dresses them. Text elements carry
+ * a height, because EVG measures a line's width and the box says how tall
+ * it is.
+ */
+
+@vars {
+  --bg: #f4f4f5;
+  --panel: #ffffff;
+  --panel-2: #f4f4f5;
+  --line: #e4e4e7;
+  --ink: #09090b;
+  --ink-dim: #52525b;
+  --ink-mute: #a1a1aa;
+  --accent: #18181b;
+  --text-clip: #3b82f6;
+  --audio-clip: #10b981;
+  --anim-clip: #8b5cf6;
+  --fx-clip: #6366f1;
+}
+
+.app { background-color: var(--bg); font-family: Open Sans; }
+.present { background-color: #000000; font-family: Open Sans; }
+
+.sep { background-color: var(--line); cursor: col-resize; }
+.stage-area { background-color: var(--bg); }
+.slide-shadow { background-color: #d4d4d8; border-radius: 3px; shadow-color: rgba(0, 0, 0, 0.18); shadow-radius: 18px; shadow-offset-y: 6px; }
+.empty { color: var(--ink-dim); font-size: 15px; height: 20px; }
+
+/* --- the tracks ------------------------------------------------------------ */
+.tracks { background-color: var(--panel); border-top: 1px solid var(--line); }
+.track-head { color: var(--ink); font-size: 12px; height: 16px; }
+.track-time { color: var(--ink-dim); font-size: 12px; height: 16px; }
+.track-name { color: var(--ink-dim); font-size: 11px; height: 14px; }
+.lane { background-color: var(--panel-2); border-radius: 4px; }
+.lane-hint { color: var(--ink-mute); font-size: 11px; height: 14px; }
+.clip { border-radius: 4px; }
+.clip-text { background-color: var(--text-clip); }
+.clip-audio { background-color: var(--audio-clip); }
+.clip-anim { background-color: var(--anim-clip); }
+.clip-fx { background-color: var(--fx-clip); }
+.clip-dia { background-color: #c2410c; }
+.clip-label { color: #ffffff; font-size: 11px; height: 14px; }
+.playhead { background-color: #f59e0b; }
+
+/* --- the filmstrip --------------------------------------------------------- */
+.strip { background-color: var(--panel); border-top: 1px solid var(--line); }
+.thumb { background-color: var(--line); border-radius: 4px; cursor: pointer; }
+.thumb-on { background-color: var(--accent); }
+.thumb-num { color: var(--ink-dim); font-size: 11px; height: 14px; }
+
+/* --- the speaker view ------------------------------------------------------ */
+.sp-clock { color: #ffffff; font-size: 30px; height: 38px; }
+.sp-where { color: var(--ink-dim); font-size: 14px; height: 20px; }
+.sp-notes { color: var(--ink); font-size: 20px; line-height: 1.45; }
+
+/* The tabs over the editor pane (Ranger UI TabsCtl) */
+.ed-tabs { background-color: var(--panel); border-bottom: 1px solid var(--line); padding-left: 10px; padding-top: 1px; }
+/* EVGUI's pill tabs: a muted track, the active tab a white raised pill. The
+   tab is a text leaf, so its height and line-height place the label. */
+.ui-tabs { display: flex; flex-direction: column; }
+.ui-tablist { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 2px; padding: 3px; height: 32px; border-radius: 8px; background-color: #f4f4f5; }
+.ui-tab { color: #71717a; font-size: 13px; font-weight: 500; height: 24px; line-height: 24px; padding: 0 12px; border-radius: 6px; border: 1px solid #f4f4f5; background-color: #f4f4f5; cursor: pointer; }
+.ui-tab-state-active { background-color: #ffffff; color: #09090b; border-color: #e4e4e7; shadow-color: rgba(0, 0, 0, 0.10); shadow-radius: 3px; shadow-offset-y: 1px; }
+.ui-tabpanel { display: none; }

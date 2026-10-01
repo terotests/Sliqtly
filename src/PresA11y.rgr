@@ -1,0 +1,114 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresA11y.rgr — what the canvas means, for a screen reader and the keyboard
+; ============================================================================
+;
+; Everything the app shows is drawn on one canvas, and a canvas is one empty
+; graphic to a screen reader. PresApp.a11yJson builds an EVGA11yTree of it —
+; the bar, the editor's tabs, the slides, the open popover, dialog or panel —
+; and the page mirrors that tree as real DOM over the canvas with
+; lib/evg/gl/evg-a11y.js: buttons a reader can find and press, and a Tab and
+; arrow-key order for the keyboard.
+;
+; The controls come from gallery/ui hosts, which say what each node MEANS
+; (`allRows`); this file places those rows at the boxes the app's own layout
+; gave them. (UiHost.a11yTree would lay the host out again on its own terms,
+; without the app's overlay placement.)
+; ============================================================================
+
+Import "../ui/src/UiHost.rgr"
+
+class PresA11y {
+
+    ; A host's rows under `parent`, at the boxes of its last layout. A row
+    ; whose element is not laid out (display: none in a narrow bar) is left
+    ; out: a reader cannot be sent to what is not there.
+    sfn addHost:void (t:EVGA11yTree host:UiHost parent:string) {
+        if (null? host.lastPage) {
+            return
+        }
+        def page:EVGElement (unwrap host.lastPage)
+        def rows:[UiRow] (host.allRows())
+        def i:int 0
+        while (i < (array_length rows)) {
+            def row:UiRow (itemAt rows i)
+            def maybe@(optional):EVGElement (host.findEl(page row.tid))
+            if maybe {
+                def el:EVGElement (unwrap maybe)
+                if ((el.calculatedWidth > 0.0) && (el.calculatedHeight > 0.0)) {
+                    def p:string parent
+                    if (((strlen row.parentTid) > 0) && (t.has(row.parentTid))) {
+                        p = row.parentTid
+                    }
+                    def n:EVGA11yNode (t.node(row.tid p row.role))
+                    if (row.role != (EVGA11yRole.none())) {
+                        n.name = row.name
+                    }
+                    n.roleDescription = row.roleDescription
+                    n.description = row.description
+                    n.hasValueNow = row.hasValueNow
+                    n.valueNow = row.valueNow
+                    n.hasValueRange = row.hasRange
+                    n.valueMin = row.valueMin
+                    n.valueMax = row.valueMax
+                    n.disabled = row.disabled
+                    n.focusable = row.focusable
+                    n.modal = row.modal
+                    n.checked = row.checked
+                    n.expanded = row.expanded
+                    n.level = row.level
+                    n.setSize = row.setSize
+                    n.posInSet = row.setPos
+                    if (row.selected == 2) {
+                        n.selected = true
+                    }
+                    if row.focusable {
+                        n.actActivate = true
+                    }
+                    PresA11y.placeAt(n el)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn placeAt:void (n:EVGA11yNode el:EVGElement) {
+        n.x = (to_int el.calculatedX)
+        n.y = (to_int el.calculatedY)
+        n.w = (to_int el.calculatedWidth)
+        n.h = (to_int el.calculatedHeight)
+    }
+
+    ; A plain box with an id (a property row, a thumbnail) as a button.
+    sfn buttonAt:void (t:EVGA11yTree page:EVGElement id:string parent:string name:string) {
+        def el@(optional):EVGElement (PresA11y.find(page id))
+        if (null? el) {
+            return
+        }
+        def e:EVGElement (unwrap el)
+        if ((e.calculatedWidth <= 0.0) || (e.calculatedHeight <= 0.0)) {
+            return
+        }
+        def n:EVGA11yNode (t.button(id parent name))
+        PresA11y.placeAt(n e)
+    }
+
+    sfn find@(optional):EVGElement (el:EVGElement id:string) {
+        if (el.id == id) {
+            def hit@(optional):EVGElement el
+            return hit
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def c:EVGElement (itemAt el.children i)
+            def got@(optional):EVGElement (PresA11y.find(c id))
+            if got {
+                return got
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):EVGElement
+        return miss
+    }
+}

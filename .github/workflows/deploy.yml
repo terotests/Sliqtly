@@ -1,20 +1,17 @@
-# Builds the editor from the repository and ref in sliqtly.config.json
-# (EVGPresentation) and deploys its web/dist to Firebase Hosting.
+# Builds the editor (web/dist is static: the editor, the layout and the
+# exports all run in the tab) and deploys it to Firebase Hosting, project
+# `sliqtly` (.firebaserc). Ranger is cloned by the build from
+# presentation.config.json.
 #
-# The Firebase project is the default one in .firebaserc.
 # One-time setting (Settings → Secrets and variables → Actions):
-#   secret   FIREBASE_SERVICE_ACCOUNT  the JSON key of a service account
-#                                      with the "Firebase Hosting Admin" role
+#   secret FIREBASE_SERVICE_ACCOUNT  the JSON key of a service account
+#                                    with the "Firebase Hosting Admin" role
 name: Deploy
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      ref:
-        description: "EVGPresentation branch, tag or commit (empty: the one in sliqtly.config.json)"
-        required: false
 
 permissions:
   contents: read
@@ -32,28 +29,12 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v4
-      - name: Read sliqtly.config.json
-        id: app
-        env:
-          INPUT_REF: ${{ inputs.ref }}
-        run: |
-          echo "repository=$(jq -r .app.repository sliqtly.config.json)" >> "$GITHUB_OUTPUT"
-          echo "ref=${INPUT_REF:-$(jq -r .app.ref sliqtly.config.json)}" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ steps.app.outputs.repository }}
-          ref: ${{ steps.app.outputs.ref }}
-          path: app
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - name: Build the page
-        working-directory: app
         run: node scripts/build.mjs
-      - name: Sliqtly's name and icon
-        run: node scripts/brand.mjs
       - name: Check the deck and the timeline
-        working-directory: app
         run: node scripts/check.mjs
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:

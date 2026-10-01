@@ -1,0 +1,835 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresHintPopover.rgr — what a value is and what it could be, in EVGUI
+; ============================================================================
+;
+; Over `{fx=starfield}` in the Markdown or `chart-style: forge` in the theme,
+; a small card says what the value does and offers the others:
+;
+;   enum, class, font   the choices, as a row of toggle buttons
+;   color               EVGUI's colour picker (ColorPickerCtl, drawn by
+;                       PresColorPanel), alpha included; `none` for a
+;                       background
+;   number              a slider and the number, in the value's own unit
+;   adds                the parameters an effect could still take
+;   wholeStart..End     a button that removes the item
+;   selector            (`page {` in the theme) the properties it has and the
+;                       ones it could have; one opens in the rule
+;
+; The hint itself is PresHints' JSON (PresApp.hintFor). A choice is written
+; into the text as an ordinary edit: the card queues it (`edits`) and the app
+; applies it with replaceRange, so Ctrl+Z undoes it. The card is a UiHost of
+; its own as big as the app, drawn over it, in the EVGUI playground's look
+; (web/hint.css over the kit's theme).
+; ============================================================================
+
+Import "PresColorPanel.rgr"
+Import "../ui/src/UiHost.rgr"
+Import "PresKeep.rgr"
+Import "../vela/src/VlJson.rgr"
+
+class PresHintEdit {
+    def line:int 0
+    def a:int 0
+    def b:int 0
+    def text:string ""
+    Constructor () {
+    }
+}
+
+class PresHintPopover {
+    def host:UiHost (new UiHost())
+    def css:string ""
+    def isOpen:boolean false
+    def w:double 1200.0
+    def h:double 700.0
+    ; where the card goes: under the value's box, in app coordinates
+    def ax:double 0.0
+    def ay:double 0.0
+    def ah:double 20.0
+    ; the hint
+    def kind:string ""
+    def name:string ""
+    def value:string ""
+    def doc:string ""
+    def unit:string ""
+    def tab:string "md"
+    def line:int 0
+    def start:int 0
+    def end:int 0
+    def wholeStart:int -1
+    def wholeEnd:int -1
+    def text:string ""
+    def options:[string]
+    def adds:[string]
+    def hasRange:boolean false
+    def rmin:double 0.0
+    def rmax:double 100.0
+    def rstep:double 1.0
+    def rule:VlJson (VlJson.nullValue())
+    ; what the app is asked to do
+    def edits:[PresHintEdit]
+    def wantsClose:boolean false
+    ; "sel<TAB>prop<TAB>default" when a property of a selector was picked
+    def wantsProp:string ""
+    ; the doc line of the selector property under the pointer
+    def tip:string ""
+    def rev:int 0
+    def keep:PresKeep (new PresKeep())
+    def measurer@(optional):TTFTextMeasurer
+    def picker:ColorPickerCtl (new ColorPickerCtl())
+    def cp:PresColorPanel (new PresColorPanel())
+    def dragPart:string ""
+    def slider:SliderCtl (new SliderCtl())
+    def sliding:boolean false
+    def field:InputCtl (new InputCtl())
+    def fieldOn:boolean false
+    ; the value in the header, updated in place while the slider is dragged
+    def valueEl:EVGElement (EVGElement.createSpan())
+
+    Constructor () {
+    }
+
+    ; --- opening ------------------------------------------------------------------
+    ; The same hint as the one showing: nothing to rebuild.
+    fn same:boolean (json:string) {
+        if (isOpen == false) {
+            return false
+        }
+        def p (new VlJsonParser())
+        def j:VlJson (p.parse(json))
+        return ((((j.intOr("line" -1)) == line) && ((j.intOr("start" -1)) == start)) && (((j.stringOr("name" "")) == name) && ((j.stringOr("tab" "")) == tab)))
+    }
+
+    fn open:boolean (json:string pw:double ph:double) {
+        def p (new VlJsonParser())
+        def j:VlJson (p.parse(json))
+        if ((j.isObject()) == false) {
+            return false
+        }
+        w = pw
+        h = ph
+        kind = (j.stringOr("kind" ""))
+        name = (j.stringOr("name" ""))
+        value = (j.stringOr("value" ""))
+        doc = (j.stringOr("doc" ""))
+        unit = (j.stringOr("unit" ""))
+        tab = (j.stringOr("tab" "md"))
+        line = (j.intOr("line" 0))
+        start = (j.intOr("start" 0))
+        end = (j.intOr("end" 0))
+        wholeStart = (j.intOr("wholeStart" -1))
+        wholeEnd = (j.intOr("wholeEnd" -1))
+        text = (j.stringOr("text" ""))
+        ax = (j.doubleOr("x" 0.0))
+        ay = (j.doubleOr("y" 0.0))
+        ah = (j.doubleOr("h" 20.0))
+        def o:[string]
+        def ov:VlJson (j.get("options"))
+        def i:int 0
+        while (i < (ov.count())) {
+            push o ((ov.at(i)).asString())
+            i = (i + 1)
+        }
+        options = o
+        def ad:[string]
+        def av:VlJson (j.get("adds"))
+        i = 0
+        while (i < (av.count())) {
+            push ad ((av.at(i)).asString())
+            i = (i + 1)
+        }
+        adds = ad
+        hasRange = ((j.has("min")) && (j.has("max")))
+        rmin = (j.doubleOr("min" 0.0))
+        rmax = (j.doubleOr("max" 100.0))
+        rstep = (j.doubleOr("step" 1.0))
+        if (rstep <= 0.0) {
+            rstep = 1.0
+        }
+        rule = (j.get("rule"))
+        tip = ""
+        wantsClose = false
+        wantsProp = ""
+        dragPart = ""
+        sliding = false
+        fieldOn = false
+        cp.focused = ""
+        if (kind == "color") {
+            def fresh (new ColorPickerCtl())
+            picker = fresh
+            def start0:string value
+            if ((PresHintPopover.isHex(value)) == false) {
+                start0 = "#ffffff"
+            }
+            picker.setup("hp-cp" "Väri" start0 true)
+            picker.inline = true
+            picker.hexBoxW = 150.0
+            picker.numBoxW = 30.0
+            def presets:[string] (strsplit "#ef4444,#f97316,#eab308,#22c55e,#06b6d4,#3b82f6,#8b5cf6,#ec4899" ",")
+            def pi:int 0
+            while (pi < (array_length presets)) {
+                push picker.swatches (itemAt presets pi)
+                pi = (pi + 1)
+            }
+            picker.syncFields()
+        }
+        isOpen = true
+        this.rebuild()
+        return true
+    }
+
+    fn close:void () {
+        isOpen = false
+        rev = (rev + 1)
+    }
+
+    sfn isHex:boolean (v:string) {
+        def t:string (trim v)
+        return (((strlen t) >= 4) && ((charAt t 0) == 35))
+    }
+
+    ; --- the text --------------------------------------------------------------------
+    ; The value's text written back, and the hint moved on to the new text.
+    fn write:void (t:string) {
+        def e (new PresHintEdit())
+        e.line = line
+        e.a = start
+        e.b = end
+        e.text = t
+        push edits e
+        text = ((substring text 0 start) + t + (substring text end (strlen text)))
+        if (wholeEnd >= 0) {
+            wholeEnd = (wholeEnd + ((strlen t) - (end - start)))
+        }
+        end = (start + (strlen t))
+        value = t
+        rev = (rev + 1)
+    }
+
+    ; --- building --------------------------------------------------------------------
+    fn div:EVGElement (cls:string) {
+        def d (EVGElement.createDiv())
+        d.className = cls
+        return d
+    }
+
+    fn words:EVGElement (cls:string t:string) {
+        def s (EVGElement.createSpan())
+        s.className = cls
+        s.textContent = t
+        return s
+    }
+
+    fn put:void (c:UiCtl parent:EVGElement) {
+        push host.ctls c
+        parent.addChild((unwrap c.rootEl))
+    }
+
+    fn button:ButtonCtl (tid:string label:string variant:string parent:EVGElement) {
+        def c (new ButtonCtl())
+        c.tid = tid
+        c.name = label
+        c.variant = variant
+        c.build()
+        def r:EVGElement (unwrap c.rootEl)
+        UiTree.addClass(r "hp-button")
+        if ((variant == "primary") && ((r.getChildCount()) > 0)) {
+            UiTree.addClass((r.getChild(0)) "hp-onprimary")
+        }
+        if ((variant == "danger") && ((r.getChildCount()) > 0)) {
+            UiTree.addClass((r.getChild(0)) "hp-ondanger")
+        }
+        this.put(c parent)
+        return c
+    }
+
+    fn rebuild:void () {
+        def fresh (new UiHost())
+        host = fresh
+        host.addStyleSheet(css)
+        host.setTheme("hp")
+        host.setPageSize(w h)
+        def root:EVGElement (unwrap host.root)
+        root.className = "ui-root hp-page"
+        def card:EVGElement (this.div("hp-card"))
+        card.id = "hp-card"
+        def head:EVGElement (this.div("hp-head"))
+        head.addChild((this.words("hp-name" name)))
+        valueEl = (this.words("hp-value" value))
+        head.addChild(valueEl)
+        card.addChild(head)
+        if ((strlen doc) > 0) {
+            card.addChild((this.words("hp-doc" doc)))
+        }
+        if (kind == "selector") {
+            this.selectorRows(card)
+        }
+        if (((kind == "enum") || (kind == "class")) || (kind == "font")) {
+            def chips:EVGElement (this.div("hp-chips"))
+            def i:int 0
+            while (i < (array_length options)) {
+                def o:string (itemAt options i)
+                def v:string "secondary"
+                if (o == value) {
+                    v = "primary"
+                }
+                this.button(("hp-opt-" + (to_string i)) o v chips)
+                i = (i + 1)
+            }
+            card.addChild(chips)
+        }
+        if (kind == "color") {
+            card.addChild((cp.panel(picker)))
+            push host.ctls picker
+            if ((indexOf name "background") >= 0) {
+                def row:EVGElement (this.div("hp-chips"))
+                this.button("hp-none" "none" "secondary" row)
+                card.addChild(row)
+            }
+        }
+        if (kind == "number") {
+            this.numberRow(card)
+        }
+        if ((array_length adds) > 0) {
+            def left:[string] (this.addsLeft())
+            if ((array_length left) > 0) {
+                card.addChild((this.words("hp-label" "Lisää parametri")))
+                def ar:EVGElement (this.div("hp-chips"))
+                def k:int 0
+                while (k < (array_length left)) {
+                    this.button(("hp-add-" + (to_string k)) (itemAt left k) "secondary" ar)
+                    k = (k + 1)
+                }
+                card.addChild(ar)
+            }
+        }
+        if ((wholeStart >= 0) && (wholeEnd > wholeStart)) {
+            def foot:EVGElement (this.div("hp-foot"))
+            foot.addChild((this.div("hp-grow")))
+            this.button("hp-remove" "Poista" "danger" foot)
+            card.addChild(foot)
+        }
+        ; under the value, kept on the screen (flipped above when it would not fit)
+        UiTree.surface(card "free" "start")
+        def cx:double ax
+        if ((cx + 320.0) > (w - 8.0)) {
+            cx = ((w - 8.0) - 320.0)
+        }
+        if (cx < 8.0) {
+            cx = 8.0
+        }
+        card.overlayX = cx
+        card.overlayY = ((ay + ah) + 4.0)
+        root.addChild(card)
+        keep.remember(host)
+        rev = (rev + 1)
+    }
+
+    ; The adds not in the text yet.
+    fn addsLeft:[string] () {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length adds)) {
+            def a:string (itemAt adds i)
+            def eq:int (indexOf a "=")
+            def key:string a
+            if (eq > 0) {
+                key = (substring a 0 eq)
+            }
+            if ((indexOf text (key + "=")) < 0) {
+                push out a
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn numberParts:[string] () {
+        ; the number and what follows it
+        def t:string (trim value)
+        def i:int 0
+        def n:int (strlen t)
+        while ((i < n) && ((((charAt t i) >= 48) && ((charAt t i) <= 57)) || (((charAt t i) == 46) || ((charAt t i) == 45)))) {
+            i = (i + 1)
+        }
+        def out:[string]
+        push out (substring t 0 i)
+        push out (substring t i n)
+        return out
+    }
+
+    fn numberRow:void (card:EVGElement) {
+        def parts:[string] (this.numberParts())
+        def num:double (?? (str2double (itemAt parts 0)) 0.0)
+        def u:string unit
+        if ((strlen u) == 0) {
+            u = (itemAt parts 1)
+        }
+        def lo:double rmin
+        def hi:double rmax
+        if (hasRange == false) {
+            lo = 0.0
+            hi = 100.0
+        }
+        if (num < lo) {
+            lo = num
+        }
+        if (num > hi) {
+            hi = num
+        }
+        def row:EVGElement (this.div("hp-row"))
+        def s (new SliderCtl())
+        slider = s
+        slider.tid = "hp-slider"
+        slider.name = name
+        slider.minValue = (to_int (lo / rstep))
+        slider.maxValue = (to_int ((hi / rstep) + 0.5))
+        slider.step = 1
+        slider.value = (to_int ((num / rstep) + 0.5))
+        slider.build()
+        UiTree.addClass((unwrap slider.rootEl) "hp-slider")
+        this.put(slider row)
+        def f (new InputCtl())
+        field = f
+        field.tid = "hp-num"
+        field.name = name
+        field.fontFamily = "Open Sans"
+        field.fontSize = 13.0
+        field.boxWidth = 60.0
+        field.setValue((itemAt parts 0))
+        field.moveTo((strlen (itemAt parts 0)) false)
+        field.build()
+        UiTree.addClass((unwrap field.rootEl) "hp-numfield")
+        if fieldOn {
+            UiTree.addClass((unwrap field.rootEl) "hp-focus")
+        }
+        this.put(field row)
+        if ((strlen u) > 0) {
+            row.addChild((this.words("hp-unit" u)))
+        }
+        card.addChild(row)
+    }
+
+    fn selectorRows:void (card:EVGElement) {
+        def props:VlJson (rule.get("props"))
+        def setBox:EVGElement (this.div("hp-props"))
+        def unsetBox:EVGElement (this.div("hp-props"))
+        def nSet:int 0
+        def nUnset:int 0
+        def i:int 0
+        while (i < (props.count())) {
+            def p:VlJson (props.at(i))
+            def pv:string (p.stringOr("value" ""))
+            def row:EVGElement (this.div("hp-prop"))
+            row.id = ("hp-prop-" + (to_string i))
+            row.addChild((this.words("hp-pname" (p.stringOr("name" "")))))
+            row.addChild((this.div("hp-grow")))
+            if ((strlen pv) > 0) {
+                if (PresHintPopover.isHex(pv)) {
+                    def sw:EVGElement (this.div("hp-swatch"))
+                    UiTree.inline(sw "background-color" pv)
+                    row.addChild(sw)
+                }
+                row.addChild((this.words("hp-pvalue" pv)))
+                setBox.addChild(row)
+                nSet = (nSet + 1)
+            } {
+                row.addChild((this.words("hp-padd" "+ lisää")))
+                unsetBox.addChild(row)
+                nUnset = (nUnset + 1)
+            }
+            i = (i + 1)
+        }
+        if (nSet > 0) {
+            card.addChild((this.words("hp-label" "Asetettu")))
+            card.addChild(setBox)
+        }
+        if (nUnset > 0) {
+            card.addChild((this.words("hp-label" "Voit lisätä")))
+            card.addChild(unsetBox)
+        }
+        if ((nSet + nUnset) == 0) {
+            card.addChild((this.words("hp-doc" "Tätä valitsinta ei tunneta: sen ominaisuudet eivät vaikuta dioihin.")))
+        } {
+            def t:string tip
+            if ((strlen t) == 0) {
+                t = "Vie hiiri ominaisuuden päälle nähdäksesi, mitä se tekee."
+            }
+            card.addChild((this.words("hp-tip" t)))
+        }
+    }
+
+    ; --- drawing ------------------------------------------------------------------------
+    fn page:EVGElement () {
+        def r:EVGElement (unwrap host.root)
+        def s:EVGStyleSheet (unwrap host.sheet)
+        s.setViewport(w h false)
+        host.markStates(r)
+        s.applyTree(r host.theme)
+        def pg (EVGElement.createDiv())
+        pg.id = "page"
+        pg.width = (EVGUnit.px(w))
+        pg.height = (EVGUnit.px(h))
+        pg.addChild(r)
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        def eng:EVGTextEngine (lay.getTextEngine())
+        cp.eng = eng
+        if (kind == "number") {
+            def car:EVGElement (unwrap field.caretEl)
+            if fieldOn {
+                field.ensureCaretVisible(eng)
+                def box:EVGElement (unwrap field.rootEl)
+                box.position = "relative"
+                car.position = "absolute"
+                car.left = (EVGUnit.px(((8.0 + (field.caretXAt(eng field.caret))) - field.scrollX)))
+                car.top = (EVGUnit.px(6.0))
+            } {
+                car.width = (EVGUnit.px(0.0))
+            }
+        }
+        lay.layout(pg)
+        ; above the value when there is no room under it
+        def c:EVGElement (this.cardEl())
+        if (((c.calculatedY + c.calculatedHeight) > (h - 8.0)) && (((ay - c.calculatedHeight) - 4.0) > 8.0)) {
+            c.overlayY = ((ay - c.calculatedHeight) - 4.0)
+            lay.layout(pg)
+        }
+        if (kind == "color") {
+            cp.placeThumbs(pg picker)
+        }
+        host.lastPage = pg
+        return pg
+    }
+
+    fn displayList:EVGDisplayList () {
+        def pg:EVGElement (this.page())
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(pg)
+        return dl
+    }
+
+    fn cardEl:EVGElement () {
+        def r:EVGElement (unwrap host.root)
+        def i:int 0
+        while (i < (r.getChildCount())) {
+            def k:EVGElement (r.getChild(i))
+            if (k.id == "hp-card") {
+                return k
+            }
+            i = (i + 1)
+        }
+        return r
+    }
+
+    ; --- the pointer ---------------------------------------------------------------------
+    fn has:boolean (px:double py:double) {
+        if (isOpen == false) {
+            return false
+        }
+        if (null? host.lastPage) {
+            this.page()
+        }
+        def c:EVGElement (this.cardEl())
+        return (((px >= c.calculatedX) && (px <= (c.calculatedX + c.calculatedWidth))) && ((py >= c.calculatedY) && (py <= (c.calculatedY + c.calculatedHeight))))
+    }
+
+    fn dragging:boolean () {
+        return (sliding || ((strlen dragPart) > 0))
+    }
+
+    ; A plain box under the point with an id (a selector's property row).
+    fn rowAt:string (px:double py:double) {
+        if (null? host.lastPage) {
+            return ""
+        }
+        def hit (new EVGHitTest())
+        def order:[EVGElement] (hit.paintOrder((unwrap host.lastPage)))
+        def i:int ((array_length order) - 1)
+        while (i >= 0) {
+            def el:EVGElement (itemAt order i)
+            if ((indexOf el.id "hp-prop-") == 0) {
+                if (host.containsPoint(el px py)) {
+                    return el.id
+                }
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+
+    fn press:void (px:double py:double) {
+        if (null? host.lastPage) {
+            this.page()
+        }
+        ; a selector's property: opened in its rule
+        def row:string (this.rowAt(px py))
+        if ((strlen row) > 0) {
+            def idx:int (?? (str2int (substring row 8 (strlen row))) -1)
+            def p:VlJson ((rule.get("props")).at(idx))
+            wantsProp = ((rule.stringOr("sel" name)) + (strfromcode 9) + (p.stringOr("name" "")) + (strfromcode 9) + (p.stringOr("def" "")))
+            return
+        }
+        def tid:string (host.hitTest(px py))
+        if ((strlen tid) == 0) {
+            this.leaveField()
+            return
+        }
+        def ctlTid:string tid
+        def maybe@(optional):UiCtl (host.ctlFor(tid))
+        if (!null? maybe) {
+            def owner:UiCtl (unwrap maybe)
+            ctlTid = owner.tid
+        }
+        if ((kind == "color") && (ctlTid == picker.tid)) {
+            def what:string (cp.press((unwrap host.lastPage) picker tid px py))
+            if (((what == "sv") || (what == "hue")) || (what == "alpha")) {
+                dragPart = what
+                this.write((picker.hex()))
+            }
+            if (what == "changed") {
+                this.write((picker.hex()))
+            }
+            this.rebuild()
+            return
+        }
+        cp.leaveField(picker)
+        if (ctlTid == "hp-slider") {
+            this.leaveField()
+            host.pressAt(px py)
+            keep.restore()
+            sliding = true
+            this.takeSlider()
+            return
+        }
+        if (ctlTid == "hp-num") {
+            fieldOn = true
+            host.focus("hp-num")
+            this.rebuild()
+            return
+        }
+        this.leaveField()
+        if ((indexOf ctlTid "hp-opt-") == 0) {
+            def oi:int (?? (str2int (substring ctlTid 7 (strlen ctlTid))) -1)
+            if ((oi >= 0) && (oi < (array_length options))) {
+                this.write((itemAt options oi))
+                this.rebuild()
+            }
+            return
+        }
+        if (ctlTid == "hp-none") {
+            this.write("none")
+            this.rebuild()
+            return
+        }
+        if ((indexOf ctlTid "hp-add-") == 0) {
+            def left:[string] (this.addsLeft())
+            def ai:int (?? (str2int (substring ctlTid 7 (strlen ctlTid))) -1)
+            if ((ai >= 0) && (ai < (array_length left))) {
+                def e (new PresHintEdit())
+                e.line = line
+                e.a = wholeEnd
+                e.b = wholeEnd
+                e.text = (" " + (itemAt left ai))
+                push edits e
+                wantsClose = true
+            }
+            return
+        }
+        if (ctlTid == "hp-remove") {
+            def e2 (new PresHintEdit())
+            e2.line = line
+            e2.a = wholeStart
+            e2.b = wholeEnd
+            e2.text = ""
+            push edits e2
+            wantsClose = true
+            return
+        }
+    }
+
+    fn leaveField:void () {
+        if fieldOn {
+            fieldOn = false
+            this.rebuild()
+        }
+    }
+
+    fn numberText:string (v:double) {
+        def decimals:int 0
+        def st:string (to_string rstep)
+        def dot:int (indexOf st ".")
+        if (dot >= 0) {
+            decimals = (((strlen st) - dot) - 1)
+            if (decimals > 3) {
+                decimals = 3
+            }
+        }
+        return (VlJson.formatNumber(v decimals))
+    }
+
+    fn unitText:string () {
+        if ((strlen unit) > 0) {
+            return unit
+        }
+        def parts:[string] (this.numberParts())
+        return (itemAt parts 1)
+    }
+
+    fn takeSlider:void () {
+        def v:double ((to_double slider.value) * rstep)
+        def t:string ((this.numberText(v)) + (this.unitText()))
+        if (t != value) {
+            this.write(t)
+        }
+    }
+
+    fn dragTo:void (px:double py:double) {
+        if ((strlen dragPart) > 0) {
+            cp.dragAt((unwrap host.lastPage) picker dragPart px py)
+            this.write((picker.hex()))
+            this.rebuild()
+            this.page()
+            return
+        }
+        if sliding {
+            ; the host keeps the drag: the card is not rebuilt until release
+            host.pointerMove(px py)
+            keep.restore()
+            this.takeSlider()
+            def parts:[string] (this.numberParts())
+            field.setValue((itemAt parts 0))
+            field.build()
+            valueEl.textContent = value
+            rev = (rev + 1)
+        }
+    }
+
+    fn release:void () {
+        if sliding {
+            sliding = false
+            host.pointerUp()
+            keep.restore()
+            this.rebuild()
+        }
+        if ((strlen dragPart) > 0) {
+            dragPart = ""
+            this.rebuild()
+        }
+    }
+
+    ; The doc line follows the pointer over a selector's properties.
+    fn hoverAt:void (px:double py:double) {
+        if (kind != "selector") {
+            return
+        }
+        def row:string (this.rowAt(px py))
+        def t:string ""
+        if ((strlen row) > 0) {
+            def idx:int (?? (str2int (substring row 8 (strlen row))) -1)
+            def p:VlJson ((rule.get("props")).at(idx))
+            t = ((p.stringOr("name" "")) + ": " + (p.stringOr("doc" "")))
+        }
+        if (t != tip) {
+            tip = t
+            this.rebuild()
+        }
+    }
+
+    ; --- keys ---------------------------------------------------------------------------
+    ; Keys and text go here while a field of the card has them.
+    fn hasKeys:boolean () {
+        return (fieldOn || ((strlen cp.focused) > 0))
+    }
+
+    fn key:boolean (name0:string shift:boolean ctrl:boolean) {
+        def k:string ""
+        if (name0 == "left") { k = "ArrowLeft" }
+        if (name0 == "right") { k = "ArrowRight" }
+        if (name0 == "up") { k = "ArrowUp" }
+        if (name0 == "down") { k = "ArrowDown" }
+        if (name0 == "home") { k = "Home" }
+        if (name0 == "end") { k = "End" }
+        if (name0 == "backspace") { k = "Backspace" }
+        if (name0 == "delete") { k = "Delete" }
+        if (name0 == "enter") { k = "Enter" }
+        if ((strlen cp.focused) > 0) {
+            if ((strlen k) > 0) {
+                cp.keyWith(picker k shift ctrl)
+                this.write((picker.hex()))
+                this.rebuild()
+            }
+            return true
+        }
+        if fieldOn {
+            if (name0 == "enter") {
+                this.leaveField()
+                return true
+            }
+            if (((strlen k) > 0) && ((k != "ArrowUp") && (k != "ArrowDown"))) {
+                host.keyWith(k shift ctrl)
+                keep.restore()
+                this.takeField()
+                this.rebuild()
+            }
+            return true
+        }
+        return false
+    }
+
+    fn type:void (s:string) {
+        if ((strlen cp.focused) > 0) {
+            def i:int 0
+            while (i < (strlen s)) {
+                cp.type(picker (substring s i (i + 1)))
+                i = (i + 1)
+            }
+            this.write((picker.hex()))
+            this.rebuild()
+            return
+        }
+        if fieldOn {
+            def j:int 0
+            while (j < (strlen s)) {
+                host.type((substring s j (j + 1)))
+                keep.restore()
+                j = (j + 1)
+            }
+            this.takeField()
+            this.rebuild()
+        }
+    }
+
+    fn takeField:void () {
+        def v:string (trim field.value)
+        def d@(optional):double (str2double v)
+        if (!null? d) {
+            this.write((v + (this.unitText())))
+        }
+    }
+
+    fn cursorAt:string (px:double py:double) {
+        if ((this.has(px py)) == false) {
+            return ""
+        }
+        if ((strlen (this.rowAt(px py))) > 0) {
+            return "pointer"
+        }
+        def tid:string (host.hitTest(px py))
+        if ((strlen tid) == 0) {
+            return "default"
+        }
+        return "pointer"
+    }
+}

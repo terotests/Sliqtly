@@ -1,0 +1,408 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; Node checks for the deck and the timeline: `npm run check`.
+Import "PresTimeline.rgr"
+Import "PresChartModel.rgr"
+
+class PresCheck {
+    def fails:int 0
+    def passes:int 0
+
+    fn ok:void (cond:boolean what:string) {
+        if cond {
+            passes = (passes + 1)
+        } {
+            fails = (fails + 1)
+            print ("FAIL " + what)
+        }
+    }
+
+    sfn sample:string () {
+        return ("---\ntransition: fade\nslide-split-level: 2\n---\n\n"
+            + "## Eka {#eka transition=slide seconds=0.4 fx=starfield fx-density=1.6}\n\nJohdanto\n\n"
+            + "1. yksi\n2. kaksi\n   jatkuu\n3. kolme\n{.build anim=fly}\n\n"
+            + "::: notes\nPuhe ensin. [[1]] Sitten.\n:::\n\n"
+            + "## Toka\n\nTeksti\n{anim=zoom}\n\n::: audio src=toka.wav\n:::\n")
+    }
+
+    fn run:void () {
+        def text:string (PresCheck.sample())
+        def src (new PresSource())
+        src.read(text)
+        this.ok(((strlen src.masked) == (strlen text)) "masking keeps the length")
+        this.ok(((indexOf src.masked "notes") < 0) "masking removes the notes fence")
+        this.ok(((array_length src.blocks) == 2) "two ::: blocks")
+        def nb:PresBlock (itemAt src.blocks 0)
+        this.ok((nb.body == "Puhe ensin. [[1]] Sitten.") ("notes body: " + nb.body))
+
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 2) ("two slides, got " + (to_string (deck.slideCount()))))
+        if ((deck.slideCount()) < 2) {
+            return
+        }
+        def s0:PresSlide (deck.slideAt(0))
+        def s1:PresSlide (deck.slideAt(1))
+        this.ok((s0.id == "eka") "slide id")
+        this.ok((s0.transition == "slide") "slide transition")
+        this.ok((s0.fx == "starfield") "slide fx")
+        this.ok(((array_length s0.fxNames) == 1) "fx parameter")
+        this.ok((s0.steps == 3) ("three build steps, got " + (to_string s0.steps)))
+        this.ok((s0.notes == "Puhe ensin. [[1]] Sitten.") ("notes on slide 1: " + s0.notes))
+        this.ok((s1.audio == "toka.wav") ("audio on slide 2: " + s1.audio))
+        this.ok((s1.transition == "fade") "front matter transition")
+        this.ok(((array_length s1.groups) == 1) "an anim block is a group")
+
+        ; Before step 1 the build items are not drawn; after the last they are.
+        def early:EVGDisplayList (PresTimeline.frame(deck 0 0.1))
+        def late:EVGDisplayList (PresTimeline.frame(deck 0 s0.duration))
+        this.ok(((PresCheck.texts(early "yksi")) == 0) "item 1 hidden before its step")
+        this.ok(((PresCheck.texts(early "1.")) == 0) "its number hidden with it")
+        this.ok(((PresCheck.texts(early "3.")) == 0) "a later number hidden too")
+        this.ok(((PresCheck.texts(late "yksi")) == 1) "item 1 shown after its step")
+        def one:double ((PresTimeline.stepDone(s0 1)) + 0.05)
+        def between:EVGDisplayList (PresTimeline.frame(deck 0 one))
+        this.ok(((PresCheck.texts(between "1.")) == 1) "after step 1 its number is there")
+        this.ok(((PresCheck.texts(between "2.")) == 0) "but not the next item's number")
+        this.ok(((PresCheck.texts(between "kaksi")) == 0) "nor the next item")
+        this.ok(((PresCheck.texts(late "3.")) == 1) "the numbers at the end")
+        this.ok(((array_length late.fxIds) == 1) "the starfield instance is in the list")
+        this.ok(((indexOf (late.toJson()) "\"efx\"") > 0) "a command paints the effect")
+
+        ; The same time gives the same frame, whatever came before.
+        def a:string ((PresTimeline.frame(deck 0 1.37)).toJson())
+        def b0:string ((PresTimeline.frame(deck 0 3.0)).toJson())
+        def b:string ((PresTimeline.frame(deck 0 1.37)).toJson())
+        this.ok((a == b) "a frame is a function of its time")
+        this.ok((a != b0) "and a different time is a different frame")
+
+        ; Mid-transition the second slide has the first under it.
+        def mid:EVGDisplayList (PresTimeline.frame(deck 1 0.2))
+        this.ok(((PresCheck.texts(mid "Johdanto")) == 1) "previous slide under a fade")
+        this.ok(((PresCheck.texts(mid "Toka")) == 1) "current slide over it")
+        def after:EVGDisplayList (PresTimeline.frame(deck 1 2.0))
+        this.ok(((PresCheck.texts(after "Johdanto")) == 0) "previous slide gone after the fade")
+
+        this.ok(((PresTimeline.slideAtTime(deck (s0.duration + 0.01))) == 1) "deck time to slide")
+        this.ok(((deck.pageOfOffset((indexOf text "Toka"))) == 1) "source offset to slide")
+        this.diagram()
+        this.chartModel()
+    }
+
+    ; The chart editor's model: a fence read as a table and written back.
+    fn chartModel:void () {
+        ; wide rows: a category and two measures
+        def wide:string "{\"width\": 400, \"data\": {\"values\": [{\"q\": \"Q1\", \"a\": 3, \"b\": 5}, {\"q\": \"Q2\", \"a\": 4, \"b\": 1}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"q\", \"type\": \"nominal\"}, \"y\": {\"field\": \"a\", \"type\": \"quantitative\", \"title\": \"Määrä\"}}}"
+        def m:PresChartModel (PresChartModel.fromSpec(wide))
+        this.ok(m.ok ("a bar chart reads as a table: " + m.note))
+        this.ok(((m.cols()) == 2) ("category and one measure, got " + (to_string (m.cols()))))
+        this.ok(((m.rows()) == 2) "two rows")
+        this.ok(((m.cell(1 1)) == "4") ("the value of Q2: " + (m.cell(1 1))))
+        this.ok((m.kind == 1) "columns")
+        this.ok((m.width == 400) "its width kept")
+        ; the long form a colour splits: pivoted into a column per series
+        def long:string "{\"data\": {\"values\": [{\"k\": \"x\", \"s\": \"A\", \"v\": 1}, {\"k\": \"x\", \"s\": \"B\", \"v\": 2}, {\"k\": \"y\", \"s\": \"A\", \"v\": 3}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"k\", \"type\": \"nominal\"}, \"y\": {\"field\": \"v\", \"type\": \"quantitative\", \"aggregate\": \"sum\"}, \"color\": {\"field\": \"s\"}}}"
+        def l:PresChartModel (PresChartModel.fromSpec(long))
+        this.ok(((l.cols()) == 3) ("two series as columns, got " + (to_string (l.cols()))))
+        this.ok((l.kind == 3) "stacked, as Vega-Lite stacks a coloured bar")
+        this.ok(((l.cell(1 2)) == "") "a missing pair is an empty cell")
+        ; a pie
+        def pie:string "{\"data\": {\"values\": [{\"c\": \"a\", \"n\": 2}, {\"c\": \"b\", \"n\": 3}]}, \"mark\": {\"type\": \"arc\", \"innerRadius\": 30}, \"encoding\": {\"theta\": {\"field\": \"n\", \"type\": \"quantitative\"}, \"color\": {\"field\": \"c\"}}}"
+        def pm:PresChartModel (PresChartModel.fromSpec(pie))
+        this.ok((pm.ok && (pm.kind == 17)) "a donut is a donut")
+        ; written back, and read again as the same table
+        l.kind = 6
+        l.title = "Otsikko"
+        def out:string (l.toSpec())
+        this.ok(((indexOf out "\"mark\": \"line\"") >= 0) ("a line spec: " + out))
+        this.ok(((indexOf out "\"config\"") < 0) "no spreadsheet palette on a slide")
+        def back:PresChartModel (PresChartModel.fromSpec(out))
+        this.ok((back.ok && ((back.kind == 6) && ((back.cols()) == 3))) ("read back: kind " + (to_string back.kind) + " cols " + (to_string (back.cols())) + " " + back.note))
+        this.ok(((back.cell(0 2)) == "2") ("the B of x survives: " + (back.cell(0 2))))
+        this.ok((back.title == "Otsikko") "and its title")
+        ; what cannot be a table is edited for its look alone, and says why
+        def layered:PresChartModel (PresChartModel.fromSpec("{\"layer\": []}"))
+        this.ok(((layered.ok && layered.lookOnly) && ((strlen layered.why) > 0)) "a layered chart opens for its look, with the reason")
+        def fromFile:string "{\"data\": {\"url\": \"data/cars.json\"}, \"transform\": [{\"filter\": \"datum.x > 1\"}], \"mark\": \"point\", \"encoding\": {\"x\": {\"field\": \"a\", \"type\": \"quantitative\"}, \"color\": {\"field\": \"o\", \"type\": \"nominal\"}}, \"config\": {\"axis\": {\"grid\": false}}}"
+        def fm:PresChartModel (PresChartModel.fromSpec(fromFile))
+        this.ok((fm.lookOnly && (fm.dataFile == "data/cars.json")) ("a chart reading a file opens for its look: " + fm.dataFile))
+        fm.title = "Autot"
+        fm.width = 500
+        fm.scheme = "tableau10"
+        fm.textColor = "#334455"
+        fm.legend = false
+        fm.effect = "neon"
+        def fout:string (fm.toSpec())
+        def fback:PresChartModel (PresChartModel.fromSpec(fout))
+        this.ok((((indexOf fout "data/cars.json") > 0) && ((indexOf fout "datum.x > 1") > 0)) "its data and transform are kept as they were")
+        this.ok(((indexOf fout "\"grid\":false") > 0) "and its own config")
+        this.ok(((((fback.title == "Autot") && (fback.width == 500)) && ((fback.scheme == "tableau10") && (fback.textColor == "#334455"))) && ((fback.legend == false) && (fback.effect == "neon"))) ("the look is written onto it: " + fout))
+        this.ok((((l.suits(16)) == false) && (pm.suits(16))) "a pie wants exactly one series")
+        ; the look, written and read back
+        l.color = "#ff00aa"
+        l.textColor = "#ffffff"
+        l.strokeWidth = 4.0
+        l.effect = "neon"
+        l.glow = true
+        l.gradient = true
+        def styled:PresChartModel (PresChartModel.fromSpec((l.toSpec())))
+        this.ok(((styled.color == "#ff00aa") && (styled.textColor == "#ffffff")) ("colours survive: " + styled.color + " " + styled.textColor))
+        this.ok((((styled.strokeWidth == 4.0) && (styled.effect == "neon")) && (styled.glow && (styled.gradient && (styled.shadow == false)))) "line width, stage style and effects survive")
+        ; a scheme on one series of bars colours each bar
+        def one:PresChartModel (PresChartModel.fromSpec(wide))
+        one.scheme = "category10"
+        def byCat:string (one.toSpec())
+        this.ok((((indexOf byCat "\"scheme\":\"category10\"") > 0) && ((indexOf byCat "\"color\": {\"field\":\"cat\"") > 0)) ("one series by category: " + byCat))
+        def back1:PresChartModel (PresChartModel.fromSpec(byCat))
+        this.ok((((back1.cols()) == 2) && (back1.scheme == "category10")) "…and reads back as one series")
+    }
+
+    ; A flowchart is drawn and toured rather than pasted in as a picture.
+    fn diagram:void () {
+        def text:string "---\nslide-split-level: 2\n---\n\n## Kulku\n\n```mermaid\nflowchart LR\n  A[Kokous] --> B[Selain]\n  B --> C[Gemini]\n  C --> B\n  B --> A\n```\n{choose=off tour=on}\n"
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 1) "one diagram slide")
+        def s:PresSlide (deck.slideAt(0))
+        this.ok(((array_length s.diagrams) == 1) "the fence is a toured diagram")
+        if ((array_length s.diagrams) == 0) {
+            return
+        }
+        def d:PresDiagram (itemAt s.diagrams 0).diagram
+        this.ok(((array_length d.nodes) == 3) ("three nodes, got " + (to_string (array_length d.nodes))))
+        this.ok(((array_length d.edges) == 4) ("four edges, got " + (to_string (array_length d.edges))))
+        this.ok(((array_length d.legs) >= 4) "a leg per edge")
+        this.ok((s.duration > d.total) "the slide lasts until the tour is over")
+        def e0:PresDEdge (itemAt d.edges 0)
+        def na:PresDNode (itemAt d.nodes e0.from)
+        this.ok((na.id == "A") ("the first edge leaves A, got " + na.id))
+        ; nothing at the start, the nodes by the end of the reveal
+        def early:EVGDisplayList (PresTimeline.frame(deck 0 0.0))
+        this.ok(((PresCheck.texts(early "Gemini")) == 0) "a node is not there before it pops in")
+        def shown:EVGDisplayList (PresTimeline.frame(deck 0 (d.revealEnd + 0.1)))
+        this.ok(((PresCheck.texts(shown "Gemini")) == 1) "and is there after the reveal")
+        ; in the middle of the tour the camera is in and the ball is out
+        def l1:PresLeg (itemAt d.legs 1)
+        def mid:double ((l1.t0 + (l1.dur * 0.5)) + (itemAt s.diagrams 0).start)
+        d.cameraAt((l1.t0 + l1.dur) 800.0 400.0)
+        def zIn:double d.camZ
+        this.ok((zIn > 1.5) ("the camera is in on the node it lands on, z=" + (to_string zIn)))
+        d.cameraAt((l1.t0 + (l1.dur * 0.5)) 800.0 400.0)
+        this.ok((d.camZ <= zIn) "and backs off on the way, to keep both ends in view")
+        ; on a keyframe the camera is centred on the node it stands on
+        def l0:PresLeg (itemAt d.legs 0)
+        d.cameraAt((l0.t0 + l0.dur) 800.0 400.0)
+        def lands:PresDNode (itemAt d.nodes l0.toNode)
+        this.ok(((fabs (d.camX - (lands.cx()))) < 0.01) "the camera is centred on the node the packet lands on")
+        def a:string ((PresTimeline.frame(deck 0 mid)).toJson())
+        def b:string ((PresTimeline.frame(deck 0 mid)).toJson())
+        this.ok((a == b) "a toured frame is a function of its time")
+        this.ok(((indexOf a "\"gd\"") > 0) "the ball and the rim fade are gradients")
+        def fin:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        d.cameraAt(s.duration 800.0 400.0)
+        this.ok((d.camZ == 1.0) "the camera is back out at the end")
+        this.ok(((PresCheck.texts(fin "Kokous")) == 1) "the final frame shows the whole diagram")
+        this.longChain()
+        this.steering()
+    }
+
+    ; A walk the viewer steers: it stops where named edges branch, shows the
+    ; ways on, takes the one picked, and goes back a step on request.
+    fn steering:void () {
+        def text:string ("---\nslide-split-level: 2\npage: a4 landscape\n---\n\n## Polku\n\n```mermaid\nflowchart LR\n"
+            + "  A[Alku] --> B{Valitse}\n  B -->|Vasen| C[Vasen tie]\n  B -->|Oikea| D[Oikea tie]\n"
+            + "  C --> E[Loppu]\n  D --> E\n  E --> F[Ohi]\n  E --> G[Myös]\n```\n{tour=on}\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false "the steered diagram is there")
+            return
+        }
+        def u:PresDiaUse (itemAt s.diagrams 0)
+        def d:PresDiagram u.diagram
+        this.ok(d.waiting "the walk stops at the named branch")
+        this.ok(((array_length d.options) == 2) ("two ways on, got " + (to_string (array_length d.options))))
+        def bn:PresDNode (itemAt d.nodes d.waitNode)
+        this.ok((bn.id == "B") ("waiting at B, got " + bn.id))
+        def hold:double (deck.diagramHold(0))
+        this.ok((hold > 0.0) "the slide holds the clock there")
+        this.ok((d.total < (d.waitAt + 1.5)) "and the diagram's own time ends at the question")
+        def asked:EVGDisplayList (PresTimeline.frame(deck 0 (hold + 0.2)))
+        this.ok(((PresCheck.texts(asked "Vasen")) >= 1) "the first way on is shown with its name")
+        this.ok(((PresCheck.texts(asked "1")) >= 1) "…and its number, apart from the name")
+        this.ok(((PresCheck.texts(asked "1  Vasen")) == 0) "not run into the name")
+        this.ok(((PresCheck.texts(asked "Vasen tie")) == 1) "the node it leads to is shown as a ghost")
+        ; a press inside the second option's box picks it
+        def lt:double ((hold + 0.2) - u.start)
+        d.cameraAt(lt u.bw u.bh)
+        d.optionRect(1)
+        def sc:double ((d.fitOf(u.bw u.bh)) * d.camZ)
+        def dx:double ((u.bx + (u.bw * 0.5)) - (d.camX * sc))
+        def dy:double ((u.by + (u.bh * 0.5)) - (d.camY * sc))
+        def px:double (((d.rX + (d.rW * 0.5)) * sc) + dx)
+        def py:double (((d.rY + (d.rH * 0.5)) * sc) + dy)
+        def code:string (deck.diagramHit(0 (hold + 0.2) px py))
+        this.ok((code == "0:1") ("a press on the second option hits it: " + code))
+        d.moveSel(1)
+        this.ok((d.optSel == 1) "the keys move the highlight")
+        this.ok((d.pick(0)) "picking the first way on")
+        PresTimeline.plan(s)
+        this.ok(((array_length d.choices) == 1) "one choice made")
+        def seenC:boolean false
+        def seenD:boolean false
+        def i:int 0
+        while (i < (array_length d.nodes)) {
+            def n:PresDNode (itemAt d.nodes i)
+            if ((n.id == "C") && (n.at < d.tourEnd)) {
+                seenC = true
+            }
+            if ((n.id == "D") && (n.at < (d.tourEnd - 0.5))) {
+                seenD = true
+            }
+            i = (i + 1)
+        }
+        this.ok(seenC "the walk goes the chosen way")
+        this.ok((! seenD) "and not the other")
+        this.ok((! d.waiting) "unnamed branches (E) do not stop it")
+        ; back from the chosen node: to B, and the choice is undone
+        def atC:double (itemAt d.stepT 2)
+        def to:double (d.back((atC + 0.1)))
+        this.ok(((array_length d.choices) == 0) "going back undoes the choice")
+        this.ok(d.waiting "and the question is asked again")
+        this.ok((to < atC) "going back goes back in time")
+        def bb:PresDNode (d.nodeNamed("B"))
+        this.ok((to >= (bb.at + 0.6)) ("and lands where the node has finished arriving: " + (to_string to) + " vs " + (to_string bb.at)))
+        this.sameTarget()
+    }
+
+    ; Two named ways to the same node are two choices in two places.
+    fn sameTarget:void () {
+        def text:string ("---\nslide-split-level: 2\npage: a4 landscape\n---\n\n## Sama\n\n```mermaid\nflowchart TB\n"
+            + "  A[Uusi projekti] --> B{Kuka tietää?}\n  B -->|Minä ehkä| C[Avaa README]\n  B -->|Ei kukaan| C\n  C --> D[Loppu]\n```\n{tour=on}\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        ; a tall diagram may go on to the next slide: find it
+        def si:int 0
+        def at:int -1
+        while (si < (deck.slideCount())) {
+            def sl:PresSlide (deck.slideAt(si))
+            if ((array_length sl.diagrams) > 0) {
+                at = si
+            }
+            si = (si + 1)
+        }
+        if (at < 0) {
+            this.ok(false "the diagram is there")
+            return
+        }
+        def s:PresSlide (deck.slideAt(at))
+        def d:PresDiagram (itemAt s.diagrams 0).diagram
+        this.ok((d.waiting && ((array_length d.options) == 2)) "two ways to one node are asked about")
+        if ((array_length d.pillX) < 2) {
+            return
+        }
+        def ax:double (itemAt d.pillX 0)
+        def ay:double (itemAt d.pillY 0)
+        def bx:double (itemAt d.pillX 1)
+        def by:double (itemAt d.pillY 1)
+        def sepX:boolean (((ax + (itemAt d.pillW 0)) <= bx) || ((bx + (itemAt d.pillW 1)) <= ax))
+        def sepY:boolean (((ay + (itemAt d.pillH 0)) <= by) || ((by + (itemAt d.pillH 1)) <= ay))
+        this.ok((sepX || sepY) "their choices do not overlap")
+        def c:PresDNode (d.nodeNamed("C"))
+        def onNode:boolean (((ay >= c.y) && (ay <= (c.y + c.h))) && ((ax >= c.x) && (ax <= (c.x + c.w))))
+        this.ok((! onNode) "and sit on the edges, not on the node they lead to")
+        ; …close to the box they leave
+        def bq:PresDNode (d.nodeNamed("B"))
+        def k0:int 0
+        while (k0 < 2) {
+            def gapY:double ((itemAt d.pillY k0) - (bq.y + bq.h))
+            this.ok(((gapY >= -1.0) && (gapY < 60.0)) ("choice " + (to_string (k0 + 1)) + " sits just under the question box: " + (to_string gapY)))
+            k0 = (k0 + 1)
+        }
+        ; each way on points at its own pill: on the line, or by a leader from beside it
+        def k:int 0
+        while (k < 2) {
+            def e:PresDEdge (itemAt d.edges (itemAt d.options k))
+            def gap:double (PresDiagram.distanceTo(e.line (itemAt d.pillLx k) (itemAt d.pillLy k)))
+            this.ok((gap < 3.0) ("way " + (to_string (k + 1)) + " is pointed at from its choice"))
+            k = (k + 1)
+        }
+    }
+
+    ; A long left-to-right chain: laid out top to bottom instead, every node
+    ; shown by the end, and each held long enough to be read.
+    fn longChain:void () {
+        def text:string ("---\nslide-split-level: 2\npage: a4 landscape\n---\n\n## Uusi projekti\n\n```mermaid\nflowchart LR\n"
+            + "  A[Uusi projekti] --> B{Kuka tietää mitä tämä tekee?}\n  B -->|Minä ehkä| C[Avaa README]\n  B -->|Ei kukaan| C\n"
+            + "  C --> D{README ajan tasalla?}\n  D -->|Tietenkin ei| E[git log --oneline]\n  D -->|Yllättäen kyllä| F[Kokeillaan ajaa]\n"
+            + "  E --> F\n  F --> G{Käynnistyykö?}\n  G -->|Kyllä| H[Miksi tämä toimii?]\n  G -->|Ei| I[Katso erroria hiljaa 30 sekuntia]\n"
+            + "  I --> J[Google / Stack Overflow / AI]\n  J --> K[Ahaa... tietenkin.]\n  K --> F\n  H --> L[Lisätään yksi pieni muutos]\n"
+            + "  L --> M{Toimiiko vielä?}\n  M -->|Kyllä| N[LGTM]\n  M -->|Ei| I\n  N --> O[Projektin ymmärrys: noin 34 %]\n```\n{choose=off tour=on}\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false "the chain is a toured diagram")
+            return
+        }
+        def d:PresDiagram (itemAt s.diagrams 0).diagram
+        def ratio:double (d.worldW / d.worldH)
+        this.ok(((ratio > 0.5) && (ratio < 2.2)) ("wrapped into a block, not a strip: " + (to_string d.worldW) + "x" + (to_string d.worldH)))
+        this.ok(((array_length d.nodes) == 15) ("fifteen nodes, got " + (to_string (array_length d.nodes))))
+        def hidden:int 0
+        def i:int 0
+        while (i < (array_length d.nodes)) {
+            def n:PresDNode (itemAt d.nodes i)
+            if (n.at > d.tourEnd) {
+                hidden = (hidden + 1)
+            }
+            i = (i + 1)
+        }
+        this.ok((hidden == 0) ("every node appears in the walk, missing " + (to_string hidden)))
+        ; the longest label is held at least its reading time
+        def nb:PresDNode (d.nodeNamed("I"))
+        def held:double 0.0
+        def k:int 0
+        while ((k + 1) < (array_length d.kfT)) {
+            if (((itemAt d.kfN k) == (itemAt d.kfN (k + 1))) && ((itemAt d.kfN k) >= 0)) {
+                def who:PresDNode (itemAt d.nodes (itemAt d.kfN k))
+                if (who.id == "I") {
+                    def span:double ((itemAt d.kfT (k + 1)) - (itemAt d.kfT k))
+                    if (span > held) {
+                        held = span
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        def need:double (d.readTime(30))
+        this.ok((held >= (need - 0.01)) ("a long node is held for reading: " + (to_string held) + " s"))
+    }
+
+    sfn texts:int (l:EVGDisplayList word:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if ((c.kind == 3) && (c.text == word)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn main:void () {
+        def c (new PresCheck())
+        c.run()
+        print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
+        if (c.fails > 0) {
+            print "CHECK FAILED"
+        }
+    }
+}

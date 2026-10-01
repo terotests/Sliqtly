@@ -1,0 +1,475 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresColorPanel.rgr — EVGUI's colour picker, drawn as its demo draws it
+; ============================================================================
+;
+; The picker's behaviour is `ColorPickerCtl` (src/ColorPickerCtl.rgr, from
+; terotests/EVGUI). This is the drawing and the pointer that its demo
+; (EVGUI demo/ColorPickerDemo.rgr) wraps around it, taken over nearly as it
+; is: the saturation / brightness area with its round thumb, the hue and alpha
+; sliders beside the current colour over a checkerboard, the value as HEX /
+; RGB / HSL fields with the format button, and a row of presets. Left out:
+; the eyedropper (it needs the host's pixels) and the popover (the chart
+; editor shows the panel open, in place). Styled by the demo's own sheet,
+; web/chart-editor.css.
+; ============================================================================
+
+Import "ColorPickerCtl.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGTextEngine.rgr"
+
+treefactory Cp {
+    child addChild
+    text  textContent
+
+    tag Page     EVGElement (props (className "cp-page"))
+    tag Card     EVGElement (props (className "cp-card"))
+    tag Caption  EVGElement (props (className "cp-caption") (elementType 1) (role "heading") (a11yLevel 2))
+    tag Stage    EVGElement (props (className "cp-stage"))
+    tag Row      EVGElement (props (className "cp-row"))
+    tag Col      EVGElement (props (className "cp-col"))
+    tag Slot     EVGElement (props (className "cp-slot"))
+    tag Tx       EVGElement (props (className "cp-tx") (elementType 1) (role "text"))
+    tag Hint     EVGElement (props (className "cp-hint") (elementType 1) (role "text"))
+    tag Status   EVGElement (props (className "cp-status") (elementType 1) (role "status"))
+
+    ; --- triggers ---
+    tag Trigger  EVGElement (props (className "cp-trigger"))
+    tag TrigFill EVGElement (props (className "cp-trigger-fill") (a11yHidden true))
+    tag TrigTx   EVGElement (props (className "cp-trigger-text") (elementType 1) (a11yHidden true))
+    tag Icon     EVGElement (props (className "cp-icon") (tagName "path") (elementType 3) (viewBox "0 0 24 24") (a11yHidden true))
+
+    ; --- the panel ---
+    tag Panel    EVGElement (props (className "cp-panel"))
+    tag SV       EVGElement (props (className "cp-sv"))
+    tag Layer    EVGElement (props (className "cp-sv-shade") (a11yHidden true))
+    tag Thumb    EVGElement (props (className "cp-thumb") (a11yHidden true))
+    tag Tools    EVGElement (props (className "cp-tools"))
+    tag IconBtn  EVGElement (props (className "cp-iconbtn") (role "button") (a11yFocusable true))
+    tag Current  EVGElement (props (className "cp-current") (role "img"))
+    tag Check    EVGElement (props (className "cp-check") (a11yHidden true))
+    tag Fill     EVGElement (props (className "cp-fill") (a11yHidden true))
+    tag Sliders  EVGElement (props (className "cp-sliders"))
+    tag Track    EVGElement (props (className "cp-track"))
+    tag Seg      EVGElement (props (className "cp-seg") (a11yHidden true))
+    tag Cell     EVGElement (props (className "cp-cell") (a11yHidden true))
+    tag Fields   EVGElement (props (className "cp-fields"))
+    tag FCol     EVGElement (props (className "cp-fcol"))
+    tag Box      EVGElement (props (className "cp-box") (role "textbox"))
+    tag Text     EVGElement (props (className "cp-text") (elementType 1))
+    tag Caret    EVGElement (props (className "cp-caret") (a11yHidden true))
+    tag Band     EVGElement (props (className "cp-band") (a11yHidden true))
+    tag FLabel   EVGElement (props (className "cp-flabel") (elementType 1) (a11yHidden true))
+    tag FmtBtn   EVGElement (props (className "cp-fmt") (role "button") (a11yFocusable true))
+    tag Presets  EVGElement (props (className "cp-presets") (role "radiogroup"))
+    tag PTitle   EVGElement (props (className "cp-ptitle") (elementType 1) (a11yHidden true))
+    tag PRow     EVGElement (props (className "cp-prow"))
+    tag Preset   EVGElement (props (className "cp-preset") (role "radio"))
+
+    ; --- values ---
+    tag Values   EVGElement (props (className "cp-values"))
+    tag VRow     EVGElement (props (className "cp-vrow"))
+    tag VKey     EVGElement (props (className "cp-vkey") (elementType 1) (a11yHidden true))
+    tag VVal     EVGElement (props (className "cp-vval") (elementType 1) (role "text"))
+
+    ; --- the scene ---
+    tag Scene    EVGElement (props (className "cp-scene") (role "img"))
+    tag Sky      EVGElement (props (className "cp-sky") (a11yHidden true))
+    tag Sun      EVGElement (props (className "cp-sun") (a11yHidden true))
+    tag Hill     EVGElement (props (className "cp-hill") (tagName "path") (elementType 3) (viewBox "0 0 400 100") (a11yHidden true))
+    tag Ground   EVGElement (props (className "cp-ground") (a11yHidden true))
+    tag Tiles    EVGElement (props (className "cp-tiles") (a11yHidden true))
+    tag Tile     EVGElement (props (className "cp-tile") (a11yHidden true))
+}
+
+class PresColorPanel {
+    ; the field holding the keys, "" for none
+    def focused:string ""
+    def eng@(optional):EVGTextEngine
+
+    Constructor () {
+    }
+
+    fn engine:EVGTextEngine () {
+        if (null? eng) {
+            def l (new EVGLayout())
+            eng = (l.getTextEngine())
+        }
+        return (unwrap eng)
+    }
+
+    sfn px:string (v:double) {
+        return ((to_string (to_int v)) + "px")
+    }
+
+    fn rgbaOf:string (c:ColorPickerCtl a:double) {
+        def v:[int] (c.rgb())
+        return ("rgba(" + (to_string (itemAt v 0)) + ", " + (to_string (itemAt v 1)) + ", " + (to_string (itemAt v 2)) + ", " + (ColorPickerCtl.short2(a)) + ")")
+    }
+
+    ; The current colour over a checkerboard, so a transparent one shows.
+    fn swatchBox:EVGElement (c:ColorPickerCtl id:string cls:string) {
+        def el (tree Cp (Current (props (id id))))
+        el.className = cls
+        el.a11yLabel = ("Current color " + (c.hex()))
+        def sm:string ""
+        if (cls != "cp-current") {
+            sm = "-sm"
+            ; Inside the trigger, which is already named with the colour.
+            el.a11yHidden = true
+        }
+        el.addChild((tree Cp (Check (props (className ("cp-check cp-check-tl cp-check-tl" + sm))))))
+        el.addChild((tree Cp (Check (props (className ("cp-check cp-check-br cp-check-br" + sm))))))
+        def f (tree Cp (Fill (props (className ("cp-fill cp-fill" + sm)))))
+        UiTree.inline(f "background-color" (this.rgbaOf(c c.alpha)))
+        el.addChild(f)
+        return el
+    }
+
+    fn icon:EVGElement (path:string) {
+        return (tree Cp (Icon (props (svgPath path))))
+    }
+
+    fn svArea:EVGElement (c:ColorPickerCtl) {
+        def sv (tree Cp (SV))
+        c.applySV(sv)
+        UiTree.inline(sv "gradient-from" "#ffffff")
+        UiTree.inline(sv "gradient-to" (c.hueHex()))
+        UiTree.inline(sv "gradient-dir" "1")
+        def shade (tree Cp (Layer (props (id (c.svTid() + "-shade")))))
+        UiTree.inline(shade "gradient-from" "rgba(0, 0, 0, 0)")
+        UiTree.inline(shade "gradient-to" "#000000")
+        UiTree.inline(shade "gradient-dir" "0")
+        sv.addChild(shade)
+        def th (tree Cp (Thumb (props (id (c.svThumbTid())) (className "cp-thumb cp-thumb-sv"))))
+        UiTree.inline(th "background-color" (c.hex6()))
+        sv.addChild(th)
+        return sv
+    }
+
+    fn hueTrack:EVGElement (c:ColorPickerCtl) {
+        def t (tree Cp (Track (props (className "cp-track cp-track-hue"))))
+        c.applyHue(t)
+        def stops:[string]
+        push stops "#ff0000"
+        push stops "#ffff00"
+        push stops "#00ff00"
+        push stops "#00ffff"
+        push stops "#0000ff"
+        push stops "#ff00ff"
+        push stops "#ff0000"
+        def i:int 0
+        while (i < 6) {
+            ; The slot in the row, and in it the gradient, one pixel wider
+            ; so the next one covers the seam two antialiased edges would
+            ; leave (a flow sibling may not overlap; an absolute child may).
+            def seg (tree Cp (Seg (props (id (c.hueTid() + "-seg-" + (to_string i))))))
+            def fill (tree Cp (Seg (props (id (c.hueTid() + "-seg-" + (to_string i) + "-fill")) (className "cp-seg-fill"))))
+            if (i == 0) {
+                fill.className = "cp-seg-fill cp-seg-first"
+            }
+            if (i == 5) {
+                fill.className = "cp-seg-fill cp-seg-last"
+            }
+            UiTree.inline(fill "gradient-from" (itemAt stops i))
+            UiTree.inline(fill "gradient-to" (itemAt stops (i + 1)))
+            UiTree.inline(fill "gradient-dir" "1")
+            seg.addChild(fill)
+            t.addChild(seg)
+            i = (i + 1)
+        }
+        def th (tree Cp (Thumb (props (id (c.hueTid() + "-thumb")) (className "cp-thumb cp-thumb-bar"))))
+        UiTree.inline(th "background-color" (c.hueHex()))
+        t.addChild(th)
+        return t
+    }
+
+    fn alphaTrack:EVGElement (c:ColorPickerCtl) {
+        def t (tree Cp (Track (props (className "cp-track cp-track-alpha"))))
+        c.applyAlpha(t)
+        def n:int 24
+        def i:int 0
+        while (i < n) {
+            def cls:string "cp-cell"
+            if (i == 0) {
+                cls = "cp-cell cp-cell-first"
+            }
+            if (i == (n - 1)) {
+                cls = "cp-cell cp-cell-last"
+            }
+            def col (tree Cp (Cell (props (id (c.alphaTid() + "-c" + (to_string i))) (className cls))))
+            def dark:string "cp-cell-dark cp-cell-dark-top"
+            if ((i % 2) == 1) {
+                dark = "cp-cell-dark cp-cell-dark-bottom"
+            }
+            def d (tree Cp (Cell (props (className dark))))
+            col.addChild(d)
+            t.addChild(col)
+            i = (i + 1)
+        }
+        def g (tree Cp (Layer (props (id (c.alphaTid() + "-grad")) (className "cp-alpha-grad"))))
+        UiTree.inline(g "gradient-from" (this.rgbaOf(c 0.0)))
+        UiTree.inline(g "gradient-to" (this.rgbaOf(c 1.0)))
+        UiTree.inline(g "gradient-dir" "1")
+        t.addChild(g)
+        def th (tree Cp (Thumb (props (id (c.alphaTid() + "-thumb")) (className "cp-thumb cp-thumb-bar"))))
+        UiTree.inline(th "background-color" (this.rgbaOf(c c.alpha)))
+        t.addChild(th)
+        return t
+    }
+
+    ; One text box, as PopoverDemo draws them: a band under the selection,
+    ; the text, and the caret while it has the focus.
+    fn boxFor:EVGElement (f:InputCtl) {
+        def box (tree Cp (Box (props (id f.tid) (a11yLabel f.name))))
+        box.a11yValue = f.value
+        box.a11yFocusable = true
+        def eng:EVGTextEngine (this.engine())
+        if ((focused == f.tid) && (f.hasSelection())) {
+            def s:double (f.caretXAt(eng (f.selStart())))
+            def e:double (f.caretXAt(eng (f.selEnd())))
+            def band (tree Cp (Band))
+            band.left = (EVGUnit.px((s - f.scrollX)))
+            band.width = (EVGUnit.px((e - s)))
+            box.addChild(band)
+        }
+        box.addChild((tree Cp (Text (props (id (f.tid + "-text"))) (f.glyphText()))))
+        if (focused == f.tid) {
+            def cx:double (f.caretXAt(eng f.caret))
+            def car (tree Cp (Caret))
+            car.left = (EVGUnit.px((cx - f.scrollX)))
+            box.addChild(car)
+        }
+        return box
+    }
+
+    fn fields:EVGElement (c:ColorPickerCtl) {
+        def row (tree Cp (Fields (props (id (c.tid + "-fields")))))
+        def i:int 0
+        while (i < (c.fieldCount())) {
+            def f:InputCtl (c.fieldAt(i))
+            def col (tree Cp (FCol (props (id (f.tid + "-col")))))
+            col.addChild((this.boxFor(f)))
+            def lbl:string (c.fieldLabel(i))
+            col.addChild((tree Cp (FLabel (props (id (f.tid + "-label"))) lbl)))
+            row.addChild(col)
+            i = (i + 1)
+        }
+        def fmt (tree Cp (FmtBtn (props (id (c.fmtTid())))))
+        fmt.a11yLabel = ("Color format " + (c.formatName()) + ", switch")
+        fmt.addChild((this.icon("M8 9 L12 5 L16 9 M8 15 L12 19 L16 15")))
+        row.addChild(fmt)
+        return row
+    }
+
+    fn presetRow:EVGElement (c:ColorPickerCtl) {
+        def box (tree Cp (Presets (props (id (c.presetsTid())) (a11yLabel (c.name + ", " + (to_lowercase c.swatchTitle))))))
+        box.addChild((tree Cp (PTitle (props (id (c.presetsTid() + "-title"))) c.swatchTitle)))
+        def row (tree Cp (PRow (props (id (c.presetsTid() + "-row")))))
+        def i:int 0
+        while (i < (c.swatchCount())) {
+            def hx:string (c.swatchAt(i))
+            def p (tree Cp (Preset (props (id (c.presetTid(i))) (a11yLabel hx))))
+            p.a11yFocusable = true
+            p.a11yPosInSet = (i + 1)
+            p.a11ySetSize = (c.swatchCount())
+            if (c.swatchChecked(i)) {
+                p.a11yChecked = (EVGA11yTri.yes())
+                p.className = "cp-preset cp-preset-on"
+            } {
+                p.a11yChecked = (EVGA11yTri.no())
+            }
+            UiTree.inline(p "background-color" hx)
+            row.addChild(p)
+            i = (i + 1)
+        }
+        box.addChild(row)
+        return box
+    }
+
+    fn panel:EVGElement (c:ColorPickerCtl) {
+        def p (tree Cp (Panel (props (id (c.panelTid())))))
+        if (c.inline == false) {
+            p.className = "cp-panel cp-panel-pop"
+            p.role = "dialog"
+            p.a11yLabel = c.name
+            UiTree.surface(p "bottom" "start")
+        } {
+            p.role = "group"
+            p.a11yLabel = c.name
+        }
+        p.addChild((this.svArea(c)))
+
+        def tools (tree Cp (Tools (props (id (c.tid + "-tools")))))
+        tools.addChild((this.swatchBox(c (c.swatchTid()) "cp-current")))
+        def sl (tree Cp (Sliders (props (id (c.tid + "-sliders")))))
+        sl.addChild((this.hueTrack(c)))
+        if c.withAlpha {
+            sl.addChild((this.alphaTrack(c)))
+        }
+        tools.addChild(sl)
+        p.addChild(tools)
+
+        p.addChild((this.fields(c)))
+        if ((c.swatchCount()) > 0) {
+            p.addChild((this.presetRow(c)))
+        }
+        return p
+    }
+
+    ; --- after layout -------------------------------------------------------------
+    sfn byId:EVGElement (el:EVGElement tid:string) {
+        if (el.id == tid) {
+            return el
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def kid:EVGElement (PresColorPanel.byId((el.getChild(i)) tid))
+            if (kid.id == tid) {
+                return kid
+            }
+            i = (i + 1)
+        }
+        return el
+    }
+
+    ; A thumb onto its track: the centre at `fx` of the track's width (inset
+    ; by `inset` at both ends) and, for the area, `fy` of its height.
+    fn placeThumb:void (r:EVGElement trackId:string thumbId:string fx:double fy:double inset:double) {
+        def t:EVGElement (PresColorPanel.byId(r trackId))
+        def th:EVGElement (PresColorPanel.byId(r thumbId))
+        if ((t.id != trackId) || (th.id != thumbId)) {
+            return
+        }
+        def cx:double ((t.calculatedX + inset) + (fx * (t.calculatedWidth - (2.0 * inset))))
+        def cy:double (t.calculatedY + (fy * t.calculatedHeight))
+        def dx:double ((cx - (th.calculatedWidth / 2.0)) - th.calculatedX)
+        def dy:double ((cy - (th.calculatedHeight / 2.0)) - th.calculatedY)
+        th.moveSubtree(dx dy)
+    }
+
+    fn placeThumbs:void (r:EVGElement c:ColorPickerCtl) {
+        this.placeThumb(r (c.svTid()) (c.svThumbTid()) c.sat (1.0 - c.val) 0.0)
+        this.placeThumb(r (c.hueTid()) (c.hueTid() + "-thumb") (c.hueFrac()) 0.5 7.0)
+        if c.withAlpha {
+            this.placeThumb(r (c.alphaTid()) (c.alphaTid() + "-thumb") c.alpha 0.5 7.0)
+        }
+    }
+
+    ; --- the pointer --------------------------------------------------------------
+    fn fracIn:double (r:EVGElement id:string px:double py:double axis:int inset:double) {
+        def t:EVGElement (PresColorPanel.byId(r id))
+        if (t.id != id) {
+            return 0.0
+        }
+        if (axis == 1) {
+            if (t.calculatedHeight <= 0.0) {
+                return 0.0
+            }
+            return (ColorPickerCtl.clampd(((py - t.calculatedY) / t.calculatedHeight) 0.0 1.0))
+        }
+        def w:double (t.calculatedWidth - (2.0 * inset))
+        if (w <= 0.0) {
+            return 0.0
+        }
+        return (ColorPickerCtl.clampd((((px - t.calculatedX) - inset) / w) 0.0 1.0))
+    }
+
+    ; A part dragged to (px, py): "sv", "hue" or "alpha".
+    fn dragAt:void (r:EVGElement c:ColorPickerCtl part:string px:double py:double) {
+        if (part == "sv") {
+            c.setSV((this.fracIn(r (c.svTid()) px py 0 0.0)) (this.fracIn(r (c.svTid()) px py 1 0.0)))
+        }
+        if (part == "hue") {
+            c.setHueFrac((this.fracIn(r (c.hueTid()) px py 0 7.0)))
+        }
+        if (part == "alpha") {
+            c.setAlphaFrac((this.fracIn(r (c.alphaTid()) px py 0 7.0)))
+        }
+    }
+
+    ; A press on one of the picker's parts. Answers the part to drag ("sv",
+    ; "hue", "alpha"), "field" when a field took the focus, "changed" when
+    ; the colour changed (a preset, the format), or "".
+    fn press:string (r:EVGElement c:ColorPickerCtl target:string px:double py:double) {
+        def part:string (c.partOf(target))
+        if (((part == "sv") || (part == "hue")) || (part == "alpha")) {
+            this.leaveField(c)
+            this.dragAt(r c part px py)
+            return part
+        }
+        if ((part == "f0") || ((part == "f1") || ((part == "f2") || (part == "f3")))) {
+            def ftid:string (c.tid + "-" + part)
+            def fi:int (c.fieldIndex(ftid))
+            if (fi >= 0) {
+                if (focused != ftid) {
+                    this.leaveField(c)
+                }
+                focused = ftid
+                def f:InputCtl (c.fieldAt(fi))
+                def box:EVGElement (PresColorPanel.byId(r f.tid))
+                if (box.id == f.tid) {
+                    def idx:int (InputCtl.indexAtPageX((this.engine()) f box px))
+                    if (idx >= 0) {
+                        f.placeCaret(idx false)
+                    }
+                }
+                return "field"
+            }
+        }
+        this.leaveField(c)
+        def before:string (c.hex())
+        c.activate(target)
+        if ((c.hex()) != before) {
+            return "changed"
+        }
+        if (part == "fmt") {
+            return "field"
+        }
+        return ""
+    }
+
+    ; The focus leaves a field: what it holds is committed (or put back).
+    fn leaveField:void (c:ColorPickerCtl) {
+        if ((strlen focused) > 0) {
+            c.commitField(focused)
+            focused = ""
+        }
+    }
+
+    ; Keys for the focused field. True when used.
+    fn keyWith:boolean (c:ColorPickerCtl k:string shift:boolean ctrl:boolean) {
+        def fi:int (c.fieldIndex(focused))
+        if (fi < 0) {
+            return false
+        }
+        def f:InputCtl (c.fieldAt(fi))
+        if (((c.fieldTakes(focused k)) || (k == "Enter")) || (k == "Escape")) {
+            c.keyWith(focused k shift)
+            return true
+        }
+        def before:string f.value
+        f.keyDownWith(focused k shift ctrl)
+        f.ensureCaretVisible((this.engine()))
+        if (f.value != before) {
+            c.fieldEdited(fi)
+        }
+        return true
+    }
+
+    fn type:boolean (c:ColorPickerCtl ch:string) {
+        def fi:int (c.fieldIndex(focused))
+        if (fi < 0) {
+            return false
+        }
+        def f:InputCtl (c.fieldAt(fi))
+        def took:boolean (f.typeChar(focused ch))
+        if took {
+            f.ensureCaretVisible((this.engine()))
+            c.fieldEdited(fi)
+        }
+        return took
+    }
+}

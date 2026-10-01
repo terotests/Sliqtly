@@ -1,0 +1,852 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresPanels.rgr — the help panel, the share dialog and the toast, in EVGUI
+; ============================================================================
+;
+; What the page used to draw in HTML around the canvas, drawn on it in the
+; EVGUI playground's look (web/panels.css over the kit's theme):
+;
+;   help    docked on the right under the bar: what the selected slide is
+;           made of (PresApp.slideHelp's JSON), the theme rules that draw
+;           each part at their values now; a property opens in the theme
+;   share   a modal card with the two links (presenting / editing), each
+;           with a copy button
+;   toast   a short line at the bottom, taken away by the page's timer
+;
+; Like the bar, the panels do not act themselves: a press is a request
+; ("help:<sel>\t<prop>\t<default>", "copy:show", "copy:edit") the app or
+; the page acts on. The links come from the page (`openShare`), which also
+; does the copying, since the clipboard is the browser's.
+; ============================================================================
+
+Import "../ui/src/UiHost.rgr"
+Import "../vela/src/VlJson.rgr"
+
+class PresPanels {
+    def host:UiHost (new UiHost())
+    def css:string ""
+    def w:double 1200.0
+    def h:double 700.0
+    def barH:double 48.0
+    def helpW:double 380.0
+    ; the help panel
+    def helpOpen:boolean false
+    def helpJson:string ""
+    def helpSlide:int 0
+    def helpScroll:double 0.0
+    def helpKeys:[string]
+    ; the share dialog
+    def shareOpen:boolean false
+    def shareShow:string ""
+    def shareEdit:string ""
+    def shareNote:string ""
+    ; "show" or "edit": the button that says it copied
+    def copied:string ""
+    def copyOk:boolean true
+    ; the files tab: the document's files and the stored documents, in the
+    ; editor's place (`filesX`…`filesH`). `filesJson` comes from the page:
+    ;   {"doc": name, "files": [{"path", "size", "kind"}], "docs": [{"id",
+    ;    "name", "when", "current"}], "note": text}
+    ; With a file open in the editor (`filesOpenPath`) only a bar over it.
+    def filesOpen:boolean false
+    def filesX:double 0.0
+    def filesY:double 0.0
+    def filesW:double 400.0
+    def filesH:double 400.0
+    def filesJson:string ""
+    def filesOpenPath:string ""
+    def filesScroll:double 0.0
+    ; what each row's button stands for: "<action>\t<path or id>"
+    def filesKeys:[string]
+    ; a delete pressed once, waiting for the second press
+    def filesArmed:string ""
+    ; the toast
+    def toastText:string ""
+    ; presenting: only the toast shows
+    def quiet:boolean false
+    def requests:[string]
+    def rev:int 0
+    def measurer@(optional):TTFTextMeasurer
+
+    Constructor () {
+    }
+
+    ; --- what is showing ---------------------------------------------------------
+    fn any:boolean () {
+        return (((helpOpen || shareOpen) || filesOpen) || ((strlen toastText) > 0))
+    }
+
+    ; --- the files tab ----------------------------------------------------------------
+    fn setFiles:void (on:boolean x:double y:double fw:double fh:double openPath:string) {
+        if ((((on != filesOpen) || (openPath != filesOpenPath)) || ((x != filesX) || (y != filesY))) || ((fw != filesW) || (fh != filesH))) {
+            if (on != filesOpen) {
+                filesScroll = 0.0
+                filesArmed = ""
+            }
+            filesOpen = on
+            filesX = x
+            filesY = y
+            filesW = fw
+            filesH = fh
+            filesOpenPath = openPath
+            this.rebuild()
+        }
+    }
+
+    fn setFilesData:void (json:string) {
+        if (json != filesJson) {
+            filesJson = json
+            filesArmed = ""
+            this.rebuild()
+        }
+    }
+
+    ; the bar over an open file
+    sfn filesBarH:double () {
+        return 44.0
+    }
+
+    fn setHelp:void (on:boolean) {
+        if (on != helpOpen) {
+            helpOpen = on
+            helpScroll = 0.0
+            this.rebuild()
+        }
+    }
+
+    ; The slide's parts, rebuilt only when they changed.
+    fn setHelpData:void (json:string slide:int) {
+        if ((json != helpJson) || (slide != helpSlide)) {
+            if (slide != helpSlide) {
+                helpScroll = 0.0
+            }
+            helpJson = json
+            helpSlide = slide
+            this.rebuild()
+        }
+    }
+
+    fn openShare:void (showUrl:string editUrl:string note:string) {
+        shareShow = showUrl
+        shareEdit = editUrl
+        shareNote = note
+        shareOpen = true
+        copied = ""
+        this.rebuild()
+    }
+
+    fn closeShare:void () {
+        if shareOpen {
+            shareOpen = false
+            this.rebuild()
+        }
+    }
+
+    fn setCopied:void (which:string ok:boolean) {
+        copied = which
+        copyOk = ok
+        this.rebuild()
+    }
+
+    fn toast:void (t:string) {
+        if (t != toastText) {
+            toastText = t
+            this.rebuild()
+        }
+    }
+
+    ; --- building -------------------------------------------------------------------
+    fn div:EVGElement (cls:string) {
+        def d (EVGElement.createDiv())
+        d.className = cls
+        return d
+    }
+
+    fn words:EVGElement (cls:string t:string) {
+        def s (EVGElement.createSpan())
+        s.className = cls
+        s.textContent = t
+        return s
+    }
+
+    fn put:void (c:UiCtl parent:EVGElement) {
+        push host.ctls c
+        parent.addChild((unwrap c.rootEl))
+    }
+
+    fn button:ButtonCtl (tid:string label:string variant:string parent:EVGElement) {
+        def c (new ButtonCtl())
+        c.tid = tid
+        c.name = label
+        c.variant = variant
+        c.build()
+        def r:EVGElement (unwrap c.rootEl)
+        UiTree.addClass(r "pn-button")
+        if ((variant == "primary") && ((r.getChildCount()) > 0)) {
+            UiTree.addClass((r.getChild(0)) "pn-onprimary")
+        }
+        this.put(c parent)
+        return c
+    }
+
+    sfn isColour:boolean (v:string) {
+        def t:string (trim v)
+        return ((((strlen t) >= 4) && ((charAt t 0) == 35)) || ((indexOf t "rgb") == 0))
+    }
+
+    fn swatch:EVGElement (colour:string) {
+        def sw:EVGElement (this.div("pn-swatch"))
+        UiTree.inline(sw "background-color" colour)
+        return sw
+    }
+
+    fn rebuild:void () {
+        def fresh (new UiHost())
+        host = fresh
+        host.addStyleSheet(css)
+        host.setTheme("pn")
+        host.setPageSize(w h)
+        def root:EVGElement (unwrap host.root)
+        root.className = "ui-root pn-page"
+        if (helpOpen && (quiet == false)) {
+            root.addChild((this.helpPanel()))
+        }
+        if (filesOpen && (quiet == false)) {
+            root.addChild((this.filesPanel()))
+        }
+        if ((strlen toastText) > 0) {
+            def t:EVGElement (this.div("pn-toast"))
+            t.id = "pn-toast"
+            t.addChild((this.words("pn-toast-text" toastText)))
+            UiTree.surface(t "free" "start")
+            t.overlayX = ((w * 0.5) - 180.0)
+            t.overlayY = (h - 70.0)
+            root.addChild(t)
+        }
+        if (shareOpen && (quiet == false)) {
+            def back:EVGElement (this.div("pn-backdrop"))
+            back.id = "pn-backdrop"
+            UiTree.backdrop(back)
+            root.addChild(back)
+            root.addChild((this.shareDialog()))
+        }
+        rev = (rev + 1)
+    }
+
+    ; --- the help panel -------------------------------------------------------------
+    fn helpPanel:EVGElement () {
+        def keys:[string]
+        helpKeys = keys
+        def p:EVGElement (this.div("pn-help"))
+        p.id = "pn-help"
+        UiTree.surface(p "free" "start")
+        p.overlayX = (w - helpW)
+        p.overlayY = barH
+        p.width = (EVGUnit.px(helpW))
+        p.height = (EVGUnit.px((h - barH)))
+        def top:EVGElement (this.div("pn-top"))
+        top.addChild((this.words("pn-title" ("Ohje: dia " + (to_string (helpSlide + 1))))))
+        top.addChild((this.div("pn-grow")))
+        this.button("pn-help-close" "✕" "ghost" top)
+        p.addChild(top)
+        def view:EVGElement (this.div("pn-view"))
+        view.id = "pn-view"
+        view.setAttribute("overflow" "hidden")
+        view.scrollTop = helpScroll
+        view.height = (EVGUnit.px(((h - barH) - 49.0)))
+        def body:EVGElement (this.div("pn-body"))
+        body.addChild((this.words("pn-intro" "Tällä dialla on nämä osat. Napsauta ominaisuutta muuttaaksesi sitä teeman CSS:ssä.")))
+        body.addChild((this.words("pn-intro" "Näppäimet: F6 siirtyy alueelta toiselle (palkki, välilehdet, editori, diat, ohje), nuolet ja Tab alueen sisällä, Enter valitsee, Ctrl+Välilyönti avaa kursorin kohdalla olevan arvon valinnat, Esc palaa editoriin.")))
+        def p0 (new VlJsonParser())
+        def feats:VlJson (p0.parse(helpJson))
+        def i:int 0
+        while (i < (feats.count())) {
+            body.addChild((this.feature((feats.at(i)))))
+            i = (i + 1)
+        }
+        view.addChild(body)
+        p.addChild(view)
+        return p
+    }
+
+    fn feature:EVGElement (f:VlJson) {
+        def sec:EVGElement (this.div("pn-sec"))
+        sec.addChild((this.words("pn-h3" (f.stringOr("title" "")))))
+        def syn:string (f.stringOr("syntax" ""))
+        if ((strlen syn) > 0) {
+            def row:EVGElement (this.div("pn-syn"))
+            def parts:[string] (strsplit syn "   ")
+            def k:int 0
+            while (k < (array_length parts)) {
+                def t:string (trim (itemAt parts k))
+                if ((strlen t) > 0) {
+                    row.addChild((this.words("pn-code" t)))
+                }
+                k = (k + 1)
+            }
+            sec.addChild(row)
+        }
+        def doc:string (f.stringOr("doc" ""))
+        if ((strlen doc) > 0) {
+            sec.addChild((this.words("pn-doc" doc)))
+        }
+        def rules:VlJson (f.get("rules"))
+        def r:int 0
+        while (r < (rules.count())) {
+            sec.addChild((this.rule((rules.at(r)))))
+            r = (r + 1)
+        }
+        def attrs:VlJson (f.get("attrs"))
+        def a:int 0
+        while (a < (attrs.count())) {
+            def at:VlJson (attrs.at(a))
+            def row2:EVGElement (this.div("pn-attr"))
+            row2.addChild((this.words("pn-code" ((at.stringOr("name" "")) + "=" + (at.stringOr("value" ""))))))
+            row2.addChild((this.words("pn-pd" (at.stringOr("doc" "")))))
+            sec.addChild(row2)
+            a = (a + 1)
+        }
+        return sec
+    }
+
+    fn rule:EVGElement (r:VlJson) {
+        def box:EVGElement (this.div("pn-rule"))
+        def sel:string (r.stringOr("sel" ""))
+        def head:EVGElement (this.div("pn-rhead"))
+        head.addChild((this.words("pn-sel" (sel + " { }"))))
+        head.addChild((this.words("pn-sd" (r.stringOr("doc" "")))))
+        box.addChild(head)
+        def props:VlJson (r.get("props"))
+        def i:int 0
+        while (i < (props.count())) {
+            def p:VlJson (props.at(i))
+            def name:string (p.stringOr("name" ""))
+            def value:string (p.stringOr("value" ""))
+            def eff:string (p.stringOr("eff" ""))
+            def row:EVGElement (this.div("pn-prop"))
+            row.id = ("pn-prop-" + (to_string (array_length helpKeys)))
+            push helpKeys (sel + (strfromcode 9) + name + (strfromcode 9) + (p.stringOr("def" "")))
+            def line:EVGElement (this.div("pn-pline"))
+            line.addChild((this.words("pn-nm" name)))
+            line.addChild((this.div("pn-grow")))
+            if ((strlen value) > 0) {
+                if (PresPanels.isColour(value)) {
+                    line.addChild((this.swatch(value)))
+                }
+                line.addChild((this.words("pn-val" value)))
+            } {
+                if ((strlen eff) > 0) {
+                    if (PresPanels.isColour(eff)) {
+                        line.addChild((this.swatch(eff)))
+                    }
+                    line.addChild((this.words("pn-unset" ("oletus " + eff + " – lisää"))))
+                } {
+                    line.addChild((this.words("pn-unset" "ei asetettu – lisää")))
+                }
+            }
+            row.addChild(line)
+            def pd:string (p.stringOr("doc" ""))
+            if ((strlen pd) > 0) {
+                row.addChild((this.words("pn-pd" pd)))
+            }
+            box.addChild(row)
+            i = (i + 1)
+        }
+        return box
+    }
+
+    ; --- the files tab ---------------------------------------------------------------
+    fn filesPanel:EVGElement () {
+        def keys:[string]
+        filesKeys = keys
+        def p:EVGElement (this.div("pf-panel"))
+        p.id = "pf-panel"
+        UiTree.surface(p "free" "start")
+        p.overlayX = filesX
+        p.overlayY = filesY
+        p.width = (EVGUnit.px(filesW))
+        if ((strlen filesOpenPath) > 0) {
+            ; a file in the editor: a bar to go back by
+            p.height = (EVGUnit.px((PresPanels.filesBarH())))
+            def bar:EVGElement (this.div("pf-top"))
+            this.button("pf-back" "← Tiedostot" "ghost" bar)
+            bar.addChild((this.words("pf-path" filesOpenPath)))
+            bar.addChild((this.div("pn-grow")))
+            bar.addChild((this.words("pf-saved" "tallentuu automaattisesti")))
+            p.addChild(bar)
+            return p
+        }
+        p.height = (EVGUnit.px(filesH))
+        def p0 (new VlJsonParser())
+        def data:VlJson (p0.parse(filesJson))
+        def top:EVGElement (this.div("pf-top"))
+        top.addChild((this.words("pn-title" "Tiedostot")))
+        top.addChild((this.div("pn-grow")))
+        this.button("pf-add" "Lisää tiedostoja…" "secondary" top)
+        p.addChild(top)
+        def view:EVGElement (this.div("pn-view"))
+        view.id = "pf-view"
+        view.setAttribute("overflow" "hidden")
+        view.scrollTop = filesScroll
+        view.height = (EVGUnit.px((filesH - 49.0)))
+        def body:EVGElement (this.div("pf-body"))
+        if ((p0.ok == false) || ((data.isObject()) == false)) {
+            body.addChild((this.words("pn-intro" "Tiedostoja ladataan…")))
+            view.addChild(body)
+            p.addChild(view)
+            return p
+        }
+        body.addChild((this.words("pf-h" ("Tämä esitys: " + (data.stringOr("doc" ""))))))
+        ; the files, a folder's under its name
+        def files:VlJson (data.get("files"))
+        def folder:string "-"
+        def i:int 0
+        while (i < (files.count())) {
+            def f:VlJson (files.at(i))
+            def path:string (f.stringOr("path" ""))
+            def slash:int (PresPanels.lastSlash(path))
+            def dir:string ""
+            if (slash > 0) {
+                dir = (substring path 0 (slash + 1))
+            }
+            if (dir != folder) {
+                folder = dir
+                if ((strlen dir) > 0) {
+                    body.addChild((this.words("pf-dir" dir)))
+                }
+            }
+            body.addChild((this.fileRow(f (substring path (slash + 1) (strlen path)))))
+            i = (i + 1)
+        }
+        if ((files.count()) == 0) {
+            body.addChild((this.words("pn-intro" "Ei vielä tiedostoja.")))
+        }
+        def note:string (data.stringOr("note" ""))
+        if ((strlen note) > 0) {
+            body.addChild((this.words("pf-note" note)))
+        }
+        ; the documents kept in this browser
+        def dh:EVGElement (this.div("pf-hrow"))
+        dh.addChild((this.words("pf-h" "Esitykset tässä selaimessa")))
+        dh.addChild((this.div("pn-grow")))
+        this.button("pf-new" "Uusi esitys" "secondary" dh)
+        body.addChild(dh)
+        def docs:VlJson (data.get("docs"))
+        def d:int 0
+        while (d < (docs.count())) {
+            body.addChild((this.docRow((docs.at(d)))))
+            d = (d + 1)
+        }
+        if ((docs.count()) == 0) {
+            body.addChild((this.words("pn-intro" "Esitys tallentuu tänne, kun muokkaat sitä.")))
+        }
+        view.addChild(body)
+        p.addChild(view)
+        return p
+    }
+
+    sfn lastSlash:int (path:string) {
+        def at:int -1
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        return at
+    }
+
+    sfn sizeText:string (n:int) {
+        if (n < 0) {
+            return ""
+        }
+        if (n < 1024) {
+            return ((to_string n) + " t")
+        }
+        if (n < (1024 * 1024)) {
+            return ((to_string (idiv n 1024)) + " kt")
+        }
+        return ((to_string (idiv n (1024 * 1024))) + " Mt")
+    }
+
+    ; A button standing for `action` on `what`.
+    fn act:void (action:string what:string label:string variant:string parent:EVGElement) {
+        def k:int (array_length filesKeys)
+        push filesKeys (action + (strfromcode 9) + what)
+        def b:ButtonCtl (this.button(("pf-k-" + (to_string k)) label variant parent))
+        UiTree.addClass((unwrap b.rootEl) "pf-act")
+    }
+
+    fn fileRow:EVGElement (f:VlJson name:string) {
+        def path:string (f.stringOr("path" ""))
+        def kind:string (f.stringOr("kind" ""))
+        def row:EVGElement (this.div("pf-row"))
+        def tag:string "TXT"
+        if (kind == "md") { tag = "MD" }
+        if (kind == "css") { tag = "CSS" }
+        if (kind == "image") { tag = "KUVA" }
+        if (kind == "chart") { tag = "VL" }
+        if (kind == "data") { tag = "DATA" }
+        row.addChild((this.words(("pf-tag pf-tag-" + kind) tag)))
+        def nm:EVGElement (this.div("pf-name"))
+        nm.addChild((this.words("pf-fname" name)))
+        def size:string (PresPanels.sizeText((f.intOr("size" -1))))
+        if ((strlen size) > 0) {
+            nm.addChild((this.words("pf-fsize" size)))
+        }
+        row.addChild(nm)
+        row.addChild((this.div("pn-grow")))
+        if ((kind == "md") || (kind == "css")) {
+            this.act("tab" kind "Muokkaa" "secondary" row)
+            return row
+        }
+        if (kind == "image") {
+            this.act("insert" path "Lisää diaan" "secondary" row)
+        } {
+            this.act("open" path "Avaa" "secondary" row)
+            if (kind == "chart") {
+                this.act("insert" path "Lisää diaan" "secondary" row)
+            }
+        }
+        def armed:boolean (filesArmed == ("del" + (strfromcode 9) + path))
+        if armed {
+            this.act("del" path "Poista?" "primary" row)
+        } {
+            this.act("del" path "✕" "ghost" row)
+        }
+        return row
+    }
+
+    fn docRow:EVGElement (d:VlJson) {
+        def id:string (d.stringOr("id" ""))
+        def row:EVGElement (this.div("pf-row"))
+        def nm:EVGElement (this.div("pf-name"))
+        nm.addChild((this.words("pf-fname" (d.stringOr("name" "")))))
+        nm.addChild((this.words("pf-fsize" (d.stringOr("when" "")))))
+        row.addChild(nm)
+        row.addChild((this.div("pn-grow")))
+        if (d.boolOr("current" false)) {
+            row.addChild((this.words("pf-current" "auki")))
+            return row
+        }
+        this.act("doc" id "Avaa" "secondary" row)
+        def armed:boolean (filesArmed == ("deldoc" + (strfromcode 9) + id))
+        if armed {
+            this.act("deldoc" id "Poista?" "primary" row)
+        } {
+            this.act("deldoc" id "✕" "ghost" row)
+        }
+        return row
+    }
+
+    fn filesHas:boolean (px:double py:double) {
+        if ((filesOpen == false) || quiet) {
+            return false
+        }
+        def hh:double filesH
+        if ((strlen filesOpenPath) > 0) {
+            hh = (PresPanels.filesBarH())
+        }
+        return ((((px >= filesX) && (px <= (filesX + filesW))) && (py >= filesY)) && (py <= (filesY + hh)))
+    }
+
+    fn filesPress:void (px:double py:double) {
+        def c:string (this.ownerAt(px py))
+        if (c == "pf-back") {
+            push requests "files:back"
+            return
+        }
+        if (c == "pf-add") {
+            push requests "files:add"
+            return
+        }
+        if (c == "pf-new") {
+            push requests "files:new"
+            return
+        }
+        if ((indexOf c "pf-k-") == 0) {
+            def k:int (?? (str2int (substring c 5 (strlen c))) -1)
+            if ((k >= 0) && (k < (array_length filesKeys))) {
+                def key:string (itemAt filesKeys k)
+                def tab:int (indexOf key (strfromcode 9))
+                def action:string (substring key 0 tab)
+                def what:string (substring key (tab + 1) (strlen key))
+                if ((action == "del") || (action == "deldoc")) {
+                    if (filesArmed != key) {
+                        ; the first press only asks
+                        filesArmed = key
+                        this.rebuild()
+                        return
+                    }
+                    filesArmed = ""
+                }
+                push requests ("files:" + action + ":" + what)
+                return
+            }
+        }
+        if (filesArmed != "") {
+            filesArmed = ""
+            this.rebuild()
+        }
+    }
+
+    fn filesScrollBy:void (dy:double) {
+        filesScroll = (filesScroll + dy)
+        if (filesScroll < 0.0) {
+            filesScroll = 0.0
+        }
+        this.rebuild()
+    }
+
+    ; --- the share dialog -------------------------------------------------------------
+    fn shareDialog:EVGElement () {
+        def d:EVGElement (this.div("pn-dialog"))
+        d.id = "pn-dialog"
+        UiTree.surface(d "free" "start")
+        d.overlayX = ((w - 520.0) * 0.5)
+        d.overlayY = ((h - 330.0) * 0.5)
+        d.addChild((this.words("pn-dtitle" "Jaa esitys")))
+        d.addChild((this.shareOption("show" "Esitys" "Avautuu suoraan esitystilaan, ilman editoria ja muokkausnappeja." shareShow "primary")))
+        d.addChild((this.shareOption("edit" "Muokkaus" "Avautuu editoriin: vastaanottaja voi muokata omaa kopiotaan." shareEdit "secondary")))
+        def foot:EVGElement (this.div("pn-dfoot"))
+        foot.addChild((this.words("pn-note" shareNote)))
+        foot.addChild((this.div("pn-grow")))
+        this.button("pn-share-close" "Sulje" "secondary" foot)
+        d.addChild(foot)
+        return d
+    }
+
+    fn shareOption:EVGElement (which:string title:string desc:string url:string variant:string) {
+        def o:EVGElement (this.div("pn-opt"))
+        o.addChild((this.words("pn-otitle" title)))
+        o.addChild((this.words("pn-odesc" desc)))
+        def row:EVGElement (this.div("pn-orow"))
+        def f (new InputCtl())
+        f.tid = ("pn-url-" + which)
+        f.name = title
+        f.fontFamily = "Open Sans"
+        f.fontSize = 12.0
+        f.boxWidth = 360.0
+        f.setValue(url)
+        f.build()
+        def fr:EVGElement (unwrap f.rootEl)
+        UiTree.addClass(fr "pn-url")
+        fr.setAttribute("overflow" "hidden")
+        def car:EVGElement (unwrap f.caretEl)
+        car.width = (EVGUnit.px(0.0))
+        this.put(f row)
+        def label:string "Kopioi"
+        if (copied == which) {
+            label = (? copyOk "Kopioitu ✓" "Valitse ja kopioi")
+        }
+        this.button(("pn-copy-" + which) label variant row)
+        o.addChild(row)
+        return o
+    }
+
+    ; --- drawing ------------------------------------------------------------------------
+    fn page:EVGElement () {
+        def r:EVGElement (unwrap host.root)
+        def s:EVGStyleSheet (unwrap host.sheet)
+        s.setViewport(w h false)
+        host.markStates(r)
+        s.applyTree(r host.theme)
+        def pg (EVGElement.createDiv())
+        pg.id = "page"
+        pg.width = (EVGUnit.px(w))
+        pg.height = (EVGUnit.px(h))
+        pg.addChild(r)
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        lay.layout(pg)
+        ; the dialog in the middle, now that its height is known
+        if shareOpen {
+            def d@(optional):EVGElement (host.findEl(r "pn-dialog"))
+            if (!null? d) {
+                def de:EVGElement (unwrap d)
+                de.overlayY = ((h - de.calculatedHeight) * 0.5)
+                lay.layout(pg)
+            }
+        }
+        ; the scroll as the layout clamped it
+        if helpOpen {
+            def v@(optional):EVGElement (host.findEl(r "pn-view"))
+            if (!null? v) {
+                def ve:EVGElement (unwrap v)
+                helpScroll = ve.scrollTop
+            }
+        }
+        if (filesOpen && ((strlen filesOpenPath) == 0)) {
+            def fv@(optional):EVGElement (host.findEl(r "pf-view"))
+            if (!null? fv) {
+                def fe:EVGElement (unwrap fv)
+                filesScroll = fe.scrollTop
+            }
+        }
+        host.lastPage = pg
+        return pg
+    }
+
+    fn displayList:EVGDisplayList () {
+        def pg:EVGElement (this.page())
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(pg)
+        return dl
+    }
+
+    ; --- the pointer ---------------------------------------------------------------------
+    fn helpHas:boolean (px:double py:double) {
+        return (((helpOpen && (quiet == false)) && (px >= (w - helpW))) && (py >= barH))
+    }
+
+    ; The dialog is modal: while it is open every press is its.
+    fn has:boolean (px:double py:double) {
+        if (shareOpen && (quiet == false)) {
+            return true
+        }
+        if (this.helpHas(px py)) {
+            return true
+        }
+        if (this.filesHas(px py)) {
+            return true
+        }
+        if ((strlen toastText) > 0) {
+            return (this.inEl("pn-toast" px py))
+        }
+        return false
+    }
+
+    fn inEl:boolean (id:string px:double py:double) {
+        if (null? host.lastPage) {
+            this.page()
+        }
+        def e@(optional):EVGElement (host.findEl((unwrap host.lastPage) id))
+        if (null? e) {
+            return false
+        }
+        def el:EVGElement (unwrap e)
+        return (host.containsPoint(el px py))
+    }
+
+    ; A property row of the help under the point: its index, or -1.
+    fn propAt:int (px:double py:double) {
+        if (null? host.lastPage) {
+            return -1
+        }
+        if ((this.inEl("pn-view" px py)) == false) {
+            return -1
+        }
+        def hit (new EVGHitTest())
+        def order:[EVGElement] (hit.paintOrder((unwrap host.lastPage)))
+        def i:int ((array_length order) - 1)
+        while (i >= 0) {
+            def el:EVGElement (itemAt order i)
+            if ((indexOf el.id "pn-prop-") == 0) {
+                if (host.containsPoint(el px py)) {
+                    return (?? (str2int (substring el.id 8 (strlen el.id))) -1)
+                }
+            }
+            i = (i - 1)
+        }
+        return -1
+    }
+
+    fn ownerAt:string (px:double py:double) {
+        def tid:string (host.hitTest(px py))
+        if ((strlen tid) == 0) {
+            return ""
+        }
+        def maybe@(optional):UiCtl (host.ctlFor(tid))
+        if (!null? maybe) {
+            def owner:UiCtl (unwrap maybe)
+            return owner.tid
+        }
+        return tid
+    }
+
+    fn press:void (px:double py:double) {
+        if (null? host.lastPage) {
+            this.page()
+        }
+        if (shareOpen && (quiet == false)) {
+            def c:string (this.ownerAt(px py))
+            if ((c == "pn-copy-show") || (c == "pn-copy-edit")) {
+                push requests ("copy:" + (substring c 8 (strlen c)))
+                return
+            }
+            if ((c == "pn-share-close") || ((this.inEl("pn-dialog" px py)) == false)) {
+                this.closeShare()
+            }
+            return
+        }
+        if (this.filesHas(px py)) {
+            this.filesPress(px py)
+            return
+        }
+        if (this.helpHas(px py)) {
+            def c2:string (this.ownerAt(px py))
+            if (c2 == "pn-help-close") {
+                push requests "help-close"
+                return
+            }
+            def k:int (this.propAt(px py))
+            if ((k >= 0) && (k < (array_length helpKeys))) {
+                push requests ("help:" + (itemAt helpKeys k))
+            }
+        }
+    }
+
+    fn scrollBy:void (dy:double) {
+        helpScroll = (helpScroll + dy)
+        if (helpScroll < 0.0) {
+            helpScroll = 0.0
+        }
+        this.rebuild()
+    }
+
+    fn hoverAt:void (px:double py:double) {
+        if (null? host.lastPage) {
+            return
+        }
+        def tid:string ""
+        if (this.has(px py)) {
+            tid = (host.hitTest(px py))
+        }
+        if (tid != host.hoverTid) {
+            if ((strlen tid) > 0) {
+                host.hover(tid)
+            } {
+                host.unhover()
+            }
+            rev = (rev + 1)
+        }
+    }
+
+    fn cursorAt:string (px:double py:double) {
+        if ((this.has(px py)) == false) {
+            return ""
+        }
+        if ((this.propAt(px py)) >= 0) {
+            return "pointer"
+        }
+        def tid:string (host.hitTest(px py))
+        if ((strlen tid) == 0) {
+            return "default"
+        }
+        if ((indexOf tid "pn-url-") == 0) {
+            return "text"
+        }
+        return "pointer"
+    }
+}

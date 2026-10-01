@@ -1,0 +1,184 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresSource.rgr — the presentation's own blocks, lifted out of the markdown.
+; ============================================================================
+;
+;   ::: notes
+;   What the speaker says. [[1]] marks where build step 1 lands.
+;   :::
+;
+; A `:::` block is not CommonMark, and the markdown module would lay it out as
+; a paragraph of colons. So before the markdown sees the text, every such
+; block is MASKED: its characters become spaces and its newlines stay. The
+; masked text has exactly the length and the line breaks of the original, so
+; every offset the layout hands back (a box's `srcStart`, a click's caret)
+; is an offset into the text the editor holds. Nothing has to be mapped.
+;
+; What a block said is kept here, with where it started, so the deck can give
+; it to the slide it sits under.
+; ============================================================================
+
+class PresBlock {
+    ; "notes", "audio", or whatever word followed the colons
+    def kind:string ""
+    ; the rest of the opening line, e.g. `src=puhe-3.mp3`
+    def args:string ""
+    ; the lines between the fences, joined with "\n"
+    def body:string ""
+    ; offset of the opening `:::` in the source
+    def start:int 0
+    ; offset just past the closing fence's line (or the end of the text)
+    def end:int 0
+}
+
+class PresSource {
+    def masked:string ""
+    def blocks:[PresBlock]
+
+    Constructor () {
+        def b:[PresBlock]
+        blocks = b
+    }
+
+    ; Is this line (already trimmed) an opening fence: `:::` and a word?
+    sfn openingWord:string (t:string) {
+        if ((strlen t) < 4) {
+            return ""
+        }
+        if ((substring t 0 3) != ":::") {
+            return ""
+        }
+        def rest:string (trim (substring t 3 (strlen t)))
+        if ((strlen rest) == 0) {
+            return ""
+        }
+        def sp:int (indexOf rest " ")
+        if (sp < 0) {
+            return rest
+        }
+        return (substring rest 0 sp)
+    }
+
+    sfn openingArgs:string (t:string) {
+        def rest:string (trim (substring t 3 (strlen t)))
+        def sp:int (indexOf rest " ")
+        if (sp < 0) {
+            return ""
+        }
+        return (trim (substring rest sp (strlen rest)))
+    }
+
+    sfn isClosing:boolean (t:string) {
+        return (t == ":::")
+    }
+
+    ; Spaces for every character in [a, b) that is not a newline.
+    sfn blank:string (text:string a:int b:int) {
+        def out:string ""
+        def i:int a
+        while (i < b) {
+            def c:int (charAt text i)
+            if (c == 10) {
+                out = (out + "\n")
+            } {
+                if (c == 13) {
+                    out = (out + "\r")
+                } {
+                    out = (out + " ")
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn read:void (text:string) {
+        clear blocks
+        def n:int (strlen text)
+        def out:string ""
+        ; where the text not yet copied to `out` begins
+        def copied:int 0
+        def lineStart:int 0
+        def open@(optional):PresBlock
+        def bodyStart:int 0
+        ; inside a ``` fence nothing is a block
+        def inFence:boolean false
+        while (lineStart < n) {
+            def nl:int lineStart
+            while ((nl < n) && ((charAt text nl) != 10)) {
+                nl = (nl + 1)
+            }
+            def next:int nl
+            if (next < n) {
+                next = (next + 1)
+            }
+            def line:string (trim (substring text lineStart nl))
+            if (null? open) {
+                if ((strlen line) >= 3) {
+                    def head:string (substring line 0 3)
+                    if ((head == "```") || (head == "~~~")) {
+                        inFence = (! inFence)
+                    }
+                }
+                if (! inFence) {
+                    def word:string (PresSource.openingWord(line))
+                    if ((strlen word) > 0) {
+                        def b (new PresBlock())
+                        b.kind = word
+                        b.args = (PresSource.openingArgs(line))
+                        b.start = lineStart
+                        open = b
+                        bodyStart = next
+                    }
+                }
+            } {
+                if (PresSource.isClosing(line)) {
+                    def ob:PresBlock (unwrap open)
+                    def body:string ""
+                    if (lineStart > bodyStart) {
+                        body = (substring text bodyStart lineStart)
+                    }
+                    ob.body = (trim body)
+                    ob.end = next
+                    push blocks ob
+                    out = (out + (substring text copied ob.start) + (PresSource.blank(text ob.start next)))
+                    copied = next
+                    def none@(optional):PresBlock
+                    open = none
+                }
+            }
+            lineStart = next
+        }
+        ; An unclosed block runs to the end of the text, the way an unclosed
+        ; code fence does.
+        if (!null? open) {
+            def ob2:PresBlock (unwrap open)
+            ob2.body = (trim (substring text bodyStart n))
+            ob2.end = n
+            push blocks ob2
+            out = (out + (substring text copied ob2.start) + (PresSource.blank(text ob2.start n)))
+            copied = n
+        }
+        if (copied < n) {
+            out = (out + (substring text copied n))
+        }
+        masked = out
+    }
+
+    ; A block's `key=value` argument, e.g. `src` of `::: audio src=a.mp3`.
+    sfn argValue:string (args:string key:string) {
+        def want:string (key + "=")
+        def i:int (indexOf args want)
+        if (i < 0) {
+            return ""
+        }
+        def s:int (i + (strlen want))
+        def e:int s
+        def n:int (strlen args)
+        while ((e < n) && ((charAt args e) != 32)) {
+            e = (e + 1)
+        }
+        return (substring args s e)
+    }
+}

@@ -1,0 +1,75 @@
+/* ---------------------------------------------------------------------------
+   The value popover (src/PresHintPopover.rgr): gallery/ui's controls in the
+   EVGUI playground's look, on the canvas. Loaded after the kit's theme
+   (ui.css) and chart-editor.css (the colour picker's `cp-*` rules); the
+   `.theme-hp` rules apply because the popover's host runs under "hp".
+   --------------------------------------------------------------------------- */
+.theme-hp .ui-root { padding: 0; gap: 0; background-color: rgba(0,0,0,0); }
+.hp-card {
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 8px;
+  width: 320px;
+  padding: 12px 14px;
+  background-color: #ffffff;
+  border: 1px solid #e4e4e7; border-radius: 10px;
+  shadow-color: rgba(0, 0, 0, 0.16); shadow-radius: 18px; shadow-offset-y: 6px;
+  font-family: Open Sans;
+}
+.hp-head { display: flex; flex-direction: row; align-items: center; gap: 8px; width: 100%; }
+.hp-name { font-size: 13px; font-weight: 700; color: #09090b; }
+.hp-value { font-size: 12px; color: #71717a; }
+.hp-doc { font-size: 12px; color: #52525b; width: 100%; }
+.hp-label { font-size: 11px; font-weight: 600; color: #71717a; margin-top: 2px; }
+.hp-chips { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; width: 100%; }
+.hp-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; width: 100%; }
+.hp-unit { font-size: 12px; color: #71717a; white-space: nowrap; flex-shrink: 0; }
+.hp-foot { display: flex; flex-direction: row; align-items: center; width: 100%; padding-top: 8px; border-top: 1px solid #f4f4f5; }
+.hp-grow { flex-grow: 1; }
+.hp-tip { font-size: 11px; color: #71717a; width: 100%; }
+
+.hp-props { display: flex; flex-direction: column; gap: 1px; width: 100%; }
+.hp-prop { display: flex; flex-direction: row; align-items: center; gap: 6px; width: 100%; padding: 4px 8px; border-radius: 5px; background-color: #fafafa; }
+.hp-pname { font-size: 12px; color: #09090b; }
+.hp-pvalue { font-size: 12px; color: #52525b; }
+.hp-padd { font-size: 11px; color: #4f46e5; }
+.hp-swatch { width: 12px; height: 12px; min-width: 12px; border-radius: 3px; border: 1px solid #e4e4e7; }
+
+.theme-hp .ui-button { font-family: Open Sans; border-radius: 6px; height: 28px; padding: 0 10px; align-self: center; }
+.theme-hp .ui-button-primary { background-color: #18181b; border-color: #18181b; }
+.theme-hp .ui-button-secondary { background-color: #ffffff; border: 1px solid #e4e4e7; }
+.theme-hp .ui-button-danger { background-color: #dc2626; border-color: #dc2626; }
+.theme-hp .ui-button-label { font-weight: 500; font-size: 12px; color: #09090b; }
+.theme-hp .hp-onprimary { color: #fafafa; }
+.theme-hp .hp-ondanger { color: #ffffff; }
+
+.theme-hp .ui-slider { width: 160px; min-width: 160px; flex-shrink: 0; }
+.theme-hp .ui-slider-track { width: 160px; background-color: #e4e4e7; }
+.theme-hp .ui-slider-thumb:hover { transform: scale(1.1); }
+.theme-hp .ui-slider-thumb:active { transform: scale(1.1); }
+.theme-hp .ui-slider-range { background-color: #18181b; }
+.theme-hp .ui-slider-thumb { background-color: #ffffff; border-color: #18181b; }
+.theme-hp .ui-input { background-color: #ffffff; border: 1px solid #e4e4e7; border-radius: 6px; height: 28px; padding: 0 8px; }
+.theme-hp .ui-input-text { color: #09090b; font-size: 13px; font-family: Open Sans; }
+.theme-hp .ui-input-caret { background-color: #09090b; height: 16px; }
+.theme-hp .hp-focus { border-color: #a1a1aa; }
+.theme-hp .cp-panel { width: 290px; border: 0; padding: 0; }
+/* on .ui-input, not a class of ours: the field rebuilds its root with only
+   its own class while the slider moves */
+.theme-hp .ui-input { width: 72px; min-width: 72px; flex-grow: 0; flex-shrink: 0; }
+/* a label never wraps ("100 %" split at its space), and a button does not
+   shrink below its label */
+.theme-hp .ui-button-label { white-space: nowrap; }
+.theme-hp .ui-button { flex-shrink: 0; }
+/* a field is one line: a long value is clipped, not wrapped under the box */
+.theme-hp .ui-input { overflow: hidden; }
+.theme-hp .ui-input-text { white-space: nowrap; }
+/* The card is rebuilt on every change, so a transition would replay from its
+   start each time (a checked switch sliding in again, a pressed control
+   squeezing): state is shown at once instead. */
+.theme-hp .ui-switch-track, .theme-hp .ui-switch-thumb, .theme-hp .ui-tab, .theme-hp .ui-slider-thumb, .theme-hp .ui-checkbox-box, .theme-hp .ui-button { transition: none; }
+.theme-hp .ui-switch-track:active, .theme-hp .ui-tab:active, .theme-hp .ui-checkbox-box:active { transform: none; }
+.theme-hp .ui-button-state-pressed { transform: none; }
+.theme-hp .ui-switch-thumb-state-checked { transform: translate(18px, 0); }
+/* text leaves get their size and face stated, not inherited: an inherited
+   size came out differently between passes and the rows moved */
+.theme-hp .ui-switch-label { font-family: Open Sans; font-size: 13px; }
