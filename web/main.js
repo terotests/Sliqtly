@@ -294,8 +294,9 @@ function whenText(t) {
   return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()} ${two(d.getHours())}:${two(d.getMinutes())}`;
 }
 
-// The files tab's list, when it shows.
+// The files tab's list, when it shows; again when PRO signs in or out.
 let filesListing = false;
+window.addEventListener("sliqtly:user", () => refreshFiles());
 async function refreshFiles() {
   if (!vfs || app.editorTab() !== "files" || filesListing) return;
   filesListing = true;
@@ -315,8 +316,12 @@ async function refreshFiles() {
       .sort((a, b) => (b.updated || 0) - (a.updated || 0))
       .map((d) => ({ id: d.id, name: d.name || "esitys", when: whenText(d.updated), current: d.id === doc.id }));
     let note = vfs.persistent
-      ? "Tiedostot tallentuvat tähän selaimeen (IndexedDB). Jakolinkki vie vain tekstin ja teeman, ei kuvia eikä datatiedostoja."
+      ? "Tiedostot ovat vain tässä selaimessa (IndexedDB). Jakolinkki vie vain tekstin ja teeman, ei kuvia eikä datatiedostoja."
       : "Selain ei salli tallennusta: tiedostot ovat tallessa vain tämän sivun ajan.";
+    // PRO (sliqtly.js): the files in the cloud
+    note += window.sliqtly?.user?.()
+      ? " PRO on käytössä: pilvitallennus tulee tähän pian."
+      : " Ota käyttöön PRO (yläpalkista), jos haluat tallentaa tiedostot pilvipalveluun ja jakaa ne linkillä.";
     if (!doc.persisted) note = "Tätä esitystä ei ole vielä tallennettu: se tallentuu, kun muutat sitä. " + note;
     app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), docs, note }));
     needsPaint = true;

@@ -34,6 +34,7 @@ function auth() {
     a.onAuthStateChanged((u) => {
       user = u;
       show();
+      window.dispatchEvent(new Event("sliqtly:user"));
     });
     return a;
   })();
