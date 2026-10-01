@@ -5,6 +5,7 @@ Deploys the Sliqtly editor to Firebase Hosting. The editor itself lives in
 this repository says which version of it is published and where.
 
 - `sliqtly.config.json`: the repository and ref (branch, tag or commit) that is built.
+- `.firebaserc`: the Firebase project, `sliqtly`.
 - `firebase.json`: Hosting serves the build output, `app/web/dist`.
 - `.github/workflows/deploy.yml`: on a push to `main`, or run by hand
   (Actions → Deploy → Run workflow, optionally with another ref), it checks
@@ -20,7 +21,6 @@ pin a new commit in `sliqtly.config.json` and push.
    the role **Firebase Hosting Admin** and download a JSON key.
 3. In this repository, Settings → Secrets and variables → Actions:
    - secret `FIREBASE_SERVICE_ACCOUNT`: the whole JSON key
-   - variable `FIREBASE_PROJECT_ID`: the Firebase project id
 
 ## Domain (Cloudflare)
 

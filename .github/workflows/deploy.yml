@@ -1,8 +1,8 @@
 # Builds the editor from the repository and ref in sliqtly.config.json
 # (EVGPresentation) and deploys its web/dist to Firebase Hosting.
 #
-# One-time settings (Settings → Secrets and variables → Actions):
-#   variable FIREBASE_PROJECT_ID       the Firebase project id
+# The Firebase project is the default one in .firebaserc.
+# One-time setting (Settings → Secrets and variables → Actions):
 #   secret   FIREBASE_SERVICE_ACCOUNT  the JSON key of a service account
 #                                      with the "Firebase Hosting Admin" role
 name: Deploy
@@ -56,5 +56,5 @@ jobs:
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          projectId: ${{ vars.FIREBASE_PROJECT_ID }}
+          projectId: sliqtly
           channelId: live
