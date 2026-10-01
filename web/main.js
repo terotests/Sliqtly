@@ -100,6 +100,17 @@ const app = new globalThis.PresApp();
 window.__app = app;
 app.setAppName(APP_NAME);
 
+// A page built on this one can add buttons of its own to the bar: an element
+// in #bar with data-canvas="<variant>" is drawn on the canvas bar after Ohje
+// (with its text, followed as it changes), and pressing it clicks it.
+function syncBarExtras() {
+  const rows = [...document.querySelectorAll("#bar [data-canvas]")]
+    .filter((el) => el.id && !el.hidden)
+    .map((el) => [el.id, el.textContent.trim().replace(/\s+/g, " "), el.dataset.canvas || "secondary"].join("\t"));
+  app.setToolbarExtras(rows.join("\n"));
+  needsPaint = true;
+}
+
 let dpr = Math.min(window.devicePixelRatio || 1, 2);
 let W = 0;
 let H = 0;
@@ -1625,6 +1636,9 @@ async function start() {
     app.setToolbarCss(kit + "\n" + (await toolbarCss));
     document.body.classList.add("canvas-bar");
     canvasBar = true;
+    syncBarExtras();
+    new MutationObserver(syncBarExtras).observe(document.getElementById("bar"),
+      { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["hidden", "data-canvas"] });
     app.useToolbar(true);
     requestAnimationFrame(resize);
   }

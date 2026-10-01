@@ -2415,6 +2415,11 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    fn setToolbarExtras:void (rows:string) {
+        toolbar.setExtras(rows)
+        chromeRev = (chromeRev + 1)
+    }
+
     fn setToolbarCss:void (css:string) {
         toolbar.css = css
         toolbar.rebuild()

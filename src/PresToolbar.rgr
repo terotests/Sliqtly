@@ -26,6 +26,9 @@ class PresToolbar {
     def css:string ""
     ; the name at the start of the bar: the page's own (PresApp.setAppName)
     def brand:string "EVG Presentation"
+    ; the page's own buttons after Ohje: "id<TAB>label<TAB>variant" rows
+    ; (PresApp.setToolbarExtras); a press asks the page to click #id
+    def extras:string ""
     def w:double 1200.0
     def h:double 700.0
     def barH:double 48.0
@@ -57,6 +60,13 @@ class PresToolbar {
             themeValue = current
         }
         this.rebuild()
+    }
+
+    fn setExtras:void (rows:string) {
+        if (rows != extras) {
+            extras = rows
+            this.rebuild()
+        }
     }
 
     fn setState:void (isPlaying:boolean words:string) {
@@ -94,7 +104,10 @@ class PresToolbar {
         c.build()
         def r:EVGElement (unwrap c.rootEl)
         UiTree.addClass(r ("tb-button tb-b-" + id))
-        if ((variant == "primary") && ((r.getChildCount()) > 0)) {
+        if (variant == "accent") {
+            UiTree.addClass(r "tb-accent")
+        }
+        if (((variant == "primary") || (variant == "accent")) && ((r.getChildCount()) > 0)) {
             UiTree.addClass((r.getChild(0)) "tb-onprimary")
         }
         this.put(c parent)
@@ -166,6 +179,15 @@ class PresToolbar {
         this.button("pptx" "PPTX" "ghost" bar)
         this.button("share" "Jaa" "ghost" bar)
         this.button("helpBtn" "Ohje" "ghost" bar)
+        def rows:[string] (strsplit extras (strfromcode 10))
+        def k:int 0
+        while (k < (array_length rows)) {
+            def parts:[string] (strsplit (itemAt rows k) (strfromcode 9))
+            if ((array_length parts) >= 3) {
+                this.button((itemAt parts 0) (itemAt parts 1) (itemAt parts 2) bar)
+            }
+            k = (k + 1)
+        }
         bar.addChild((this.div("tb-grow")))
         bar.addChild((this.text("tb-status" status)))
         root.addChild(bar)
