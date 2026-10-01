@@ -1074,34 +1074,39 @@ function pro() {
 // Signed in to PRO: the deck is kept as its owner's in the cloud and a copy
 // is shared under a short id, pictures and data files with it. The copy is
 // read-only: the edit link opens it as a new deck of the reader's own.
+// Resolves to the share's id; rejects with the reason it could not.
 async function shareCloud() {
   const p = window.sliqtly;
-  if (!p?.user?.()) return false;
-  try {
-    toast(t("Sharing…"));
-    await saveDoc(true);
-    const key = themeSel.value || "";
-    const id = await p.share({
-      deckId: doc.id, name: exportName(), md: app.source(), theme: key,
-      css: key in editedCss ? editedCss[key] : null,
-      files: (await docFiles()).map((f) => ({ path: f.path, type: f.type || "", data: f.data })),
-    });
-    const showUrl = location.origin + "/s/" + id;
-    const editUrl = showUrl + "?edit";
-    app.openShare(showUrl, editUrl, t("A short link to a copy in the cloud, with its images and data. Only you can change the original."));
-    window.__lastShare = editUrl;
-    window.__lastShareShow = showUrl;
-    needsPaint = true;
-    return true;
-  } catch (e) {
-    console.warn(e);
-    toast(t("Cloud sharing failed; sharing the text in the link instead."));
-    return false;
-  }
+  await saveDoc(true);
+  const key = themeSel.value || "";
+  // Firestore waits quietly when it cannot write (no database yet, rules
+  // that refuse): a share that has not happened in 20 s has failed
+  const timeout = new Promise((_, no) => setTimeout(() => no(Object.assign(new Error("timeout"), { code: "timeout" })), 20000));
+  return Promise.race([timeout, p.share({
+    deckId: doc.id, name: exportName(), md: app.source(), theme: key,
+    css: key in editedCss ? editedCss[key] : null,
+    files: (await docFiles()).map((f) => ({ path: f.path, type: f.type || "", data: f.data })),
+  })]);
 }
 
+function cloudFailure(e) {
+  console.warn("cloud sharing failed", e);
+  const why = e?.code === "permission-denied" || e?.code === "storage/unauthorized" ? t("the cloud refused it (rules not set up?)")
+    : e?.code === "timeout" ? t("no answer from the cloud (is Firestore created?)")
+    : (e?.code || e?.message || String(e));
+  return t("Cloud sharing failed: ") + why + ". " + t("Sharing the text in the link instead.");
+}
+
+function showShare(showUrl, editUrl, note) {
+  app.openShare(showUrl, editUrl, note);
+  window.__lastShare = editUrl;
+  window.__lastShareShow = showUrl;
+  needsPaint = true;
+}
+
+// The dialog opens at once with the text packed into the link; signed in to
+// PRO, it says a short link is on its way and shows it when the cloud has it.
 async function shareLink() {
-  if (await shareCloud()) return;
   const text = app.source();
   const code = await packText(text);
   const q = new URLSearchParams();
@@ -1115,10 +1120,19 @@ async function shareLink() {
   history.replaceState(null, "", editUrl);
   lastHash = location.hash;
   const pictures = /\]\(media\//.test(text) ? t(" Attached images are not included in the link.") : "";
-  app.openShare(showUrl, editUrl, editUrl.length + t(" characters.") + pictures);
-  window.__lastShare = editUrl;
-  window.__lastShareShow = showUrl;
-  needsPaint = true;
+  const textNote = editUrl.length + t(" characters.") + pictures;
+  if (!window.sliqtly?.user?.()) {
+    showShare(showUrl, editUrl, textNote);
+    return;
+  }
+  showShare(showUrl, editUrl, t("Creating a short link in the cloud…"));
+  try {
+    const id = await shareCloud();
+    const short = location.origin + "/s/" + id;
+    showShare(short, short + "?edit", t("A short link to a copy in the cloud, with its images and data. Only you can change the original."));
+  } catch (e) {
+    showShare(showUrl, editUrl, cloudFailure(e) + " " + textNote);
+  }
 }
 
 // A copy button in the share dialog (drawn on the canvas): the browser copies.
