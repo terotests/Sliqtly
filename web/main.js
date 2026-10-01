@@ -318,12 +318,16 @@ async function refreshFiles() {
     let note = vfs.persistent
       ? "Tiedostot ovat vain tässä selaimessa (IndexedDB). Jakolinkki vie vain tekstin ja teeman, ei kuvia eikä datatiedostoja."
       : "Selain ei salli tallennusta: tiedostot ovat tallessa vain tämän sivun ajan.";
-    // PRO (sliqtly.js): the files in the cloud
-    note += window.sliqtly?.user?.()
-      ? " PRO on käytössä: pilvitallennus tulee tähän pian."
-      : " Ota käyttöön PRO (yläpalkista), jos haluat tallentaa tiedostot pilvipalveluun ja jakaa ne linkillä.";
+    // PRO (sliqtly.js): the files in the cloud, offered at the top
+    const promo = !window.sliqtly ? null : window.sliqtly.user()
+      ? { title: "PRO on käytössä", text: "Pilvitallennus ja tiedostojen jakaminen tulevat tähän pian.", button: "" }
+      : {
+        title: "Jaa myös kuvat ja data: ota käyttöön PRO",
+        text: "Nyt tiedostot ovat vain tässä selaimessa, ja jakolinkki vie vain tekstin ja teeman. PRO:lla esitykset tallentuvat pilveen tiedostoineen, ja jakolinkki tuo mukanaan kuvat sekä CSV- ja JSON-datan, josta kaaviot ja taulukot piirretään.",
+        button: "Ota PRO käyttöön",
+      };
     if (!doc.persisted) note = "Tätä esitystä ei ole vielä tallennettu: se tallentuu, kun muutat sitä. " + note;
-    app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), docs, note }));
+    app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), docs, note, ...(promo ? { promo } : {}) }));
     needsPaint = true;
   } finally {
     filesListing = false;
@@ -365,6 +369,8 @@ async function fileRequest(r) {
   const what = rest.join(":");
   if (action === "add") {
     fileAdd.click();
+  } else if (action === "promo") {
+    document.getElementById("pro")?.click();
   } else if (action === "new") {
     await saveDoc();
     const text = "# Uusi esitys\n\nKirjoita tähän.\n";

@@ -47,7 +47,8 @@ class PresPanels {
     ; the files tab: the document's files and the stored documents, in the
     ; editor's place (`filesX`…`filesH`). `filesJson` comes from the page:
     ;   {"doc": name, "files": [{"path", "size", "kind"}], "docs": [{"id",
-    ;    "name", "when", "current"}], "note": text}
+    ;    "name", "when", "current"}], "note": text,
+    ;    "promo": {"title", "text", "button"} (optional, drawn first)}
     ; With a file open in the editor (`filesOpenPath`) only a bar over it.
     def filesOpen:boolean false
     def filesX:double 0.0
@@ -397,6 +398,21 @@ class PresPanels {
             p.addChild(view)
             return p
         }
+        ; the page's offer above everything (Sliqtly: PRO), {"title", "text", "button"}
+        def promo:VlJson (data.get("promo"))
+        if (promo.isObject()) {
+            def box:EVGElement (this.div("pf-promo"))
+            box.addChild((this.words("pf-promo-title" (promo.stringOr("title" "")))))
+            box.addChild((this.words("pf-promo-text" (promo.stringOr("text" "")))))
+            def label:string (promo.stringOr("button" ""))
+            if ((strlen label) > 0) {
+                def row:EVGElement (this.div("pf-promo-row"))
+                def b:ButtonCtl (this.button("pf-promo" label "primary" row))
+                UiTree.addClass((unwrap b.rootEl) "pf-promo-btn")
+                box.addChild(row)
+            }
+            body.addChild(box)
+        }
         body.addChild((this.words("pf-h" ("Tämä esitys: " + (data.stringOr("doc" ""))))))
         ; the files, a folder's under its name
         def files:VlJson (data.get("files"))
@@ -564,6 +580,10 @@ class PresPanels {
         }
         if (c == "pf-new") {
             push requests "files:new"
+            return
+        }
+        if (c == "pf-promo") {
+            push requests "files:promo"
             return
         }
         if ((indexOf c "pf-k-") == 0) {
