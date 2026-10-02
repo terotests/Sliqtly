@@ -389,14 +389,52 @@ try {
     keys.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
     await new Promise((res) => setTimeout(res, 600));
     const a = window.__app;
+    // the image window first: the picture in the crop, nothing in the deck yet
+    const dialog = a.chartIsOpen();
+    const win = JSON.parse(a.chartJson());
+    const shown = win.list.cmds.find((c) => c.k === 2 && String(c.src || "").startsWith("/__paste/"));
+    const before = a.source().includes("](media/liitetty-");
+    // the frame's bottom-right handle dragged to the middle: the left-top
+    // quarter of the picture is kept
+    if (shown) {
+      a.pointerDown(shown.x + shown.w - 1, shown.y + shown.h - 1, false, 1);
+      a.pointerMove(shown.x + shown.w * 0.5, shown.y + shown.h * 0.5);
+      a.pointerUp();
+    }
+    const plan = JSON.parse(a.pastePlan());
+    // Enter adds it
+    a.key("enter", false, false);
+    window.__handleRequests();
+    // cut and kept asynchronously (a canvas, IndexedDB)
+    for (let i = 0; i < 80 && !a.source().includes("](media/liitetty-"); i += 1) await new Promise((res) => setTimeout(res, 100));
     const stage = JSON.parse(a.stageJson());
+    const src = a.source();
+    const rel = (src.match(/\]\((media\/liitetty-[^)]+)\)/) || [])[1] || "";
+    const bmp = rel ? await window.__pictureSize("/" + rel) : [0, 0];
     return {
-      md: a.source().includes("](media/liitetty-"),
+      dialog, shown: !!shown, before, plan,
+      md: !!rel,
       image: stage.list.cmds.some((c) => c.k === 2 && String(c.src || "").includes("media/liitetty-")),
+      size: bmp,
     };
   });
-  check("a pasted picture is written into the markdown", pic.md);
-  check("…and drawn on the slide", pic.image);
+  check("a pasted picture opens the image window with the picture in it", pic.dialog && pic.shown && !pic.before, JSON.stringify(pic));
+  check("…the crop frame follows a handle", pic.plan.crop === "0,0,32,20", JSON.stringify(pic.plan));
+  check("…and Add writes it into the markdown", pic.md);
+  check("…drawn on the slide", pic.image);
+  check("…cut to the part kept", pic.size.join("x") === "32x20", JSON.stringify(pic.size));
+
+  // the same picture as the background of the slide at the caret
+  const bg = await page.evaluate(() => {
+    const a = window.__app;
+    const line = a.caretLine();
+    a.placePicture("media/tausta.png", "", "bg-slide");
+    const lines = a.source().split("\n");
+    let k = Math.min(line, lines.length - 1);
+    while (k >= 0 && !lines[k].startsWith("#")) k -= 1;
+    return k >= 0 ? lines[k] : "";
+  });
+  check("a picture placed as the slide's background goes on its heading", /\bbg=media\/tausta\.png\b/.test(bg), bg);
   await shot("3-picture.png");
 
   // TeX math: $…$ in a line and a $$ display are drawn as filled outlines
