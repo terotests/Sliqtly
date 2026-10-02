@@ -250,6 +250,23 @@ class PresToolbar {
         return ""
     }
 
+    ; The clock, for a submenu the pointer rests on: it opens once MenuCtl's
+    ; delay has passed, as a browser's menu does. Only while one is waiting.
+    fn tick:void (dtMs:double) {
+        def i:int 0
+        while (i < (array_length menus)) {
+            def m:MenuCtl (itemAt menus i)
+            if ((strlen m.pendingTid) > 0) {
+                host.tick(dtMs)
+                if ((strlen m.pendingTid) == 0) {
+                    rev = (rev + 1)
+                }
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
     fn closeMenus:void () {
         def i:int 0
         while (i < (array_length menus)) {
@@ -337,7 +354,7 @@ class PresToolbar {
             file.addItem("openbox" (PresI18n.t("Open…")) false)
             file.addItem("save" (PresI18n.t("Save .md")) false)
             def slide:MenuCtl (this.dropdown("slide" (PresI18n.t("Slide"))))
-            def th:UiItem (slide.addSub("theme" ((PresI18n.t("Theme")) + "   ▸") false))
+            def th:UiItem (slide.addSub("theme" (PresI18n.t("Theme")) false))
             this.subRows(th "t-" themeRows themeValue)
             slide.addItem("css" (PresI18n.t("Edit theme CSS…")) false)
             def ex:MenuCtl (this.dropdown("export" (PresI18n.t("Export"))))
