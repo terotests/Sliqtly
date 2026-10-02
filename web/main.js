@@ -684,8 +684,10 @@ function paintOnce() {
     st.width = W;
     st.height = H;
     const sf = prepareDisplayList(gl, st, { dpr, images: pictures, contrastGuard: true });
-    grew = grewBy(sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false })) || grew;
+    const stageStats = sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false });
+    grew = grewBy(stageStats) || grew;
     sf.dispose();
+    warnLowContrast(stageStats && stageStats.lowContrast);
   }
   if (grew) dropThumbs();
   let thumbsGrew = false;
@@ -1379,6 +1381,24 @@ function hashParams() {
 }
 
 let toastTimer = 0;
+// Text the painter found too faint against what is under it (WCAG 4.5:1, 3:1
+// for large text). It already drew an outline round it; the author is told
+// once, when the set of such lines on the stage changes, so a changed colour
+// or picture that makes a line hard to read does not pass unnoticed.
+let lowContrastKey = "";
+function warnLowContrast(list) {
+  const runs = list || [];
+  const key = runs.map((r) => r.text).join("\n");
+  if (key === lowContrastKey) return;
+  lowContrastKey = key;
+  if (!runs.length) return;
+  const worst = runs.reduce((a, b) => (b.ratio < a.ratio ? b : a));
+  const words = worst.text.length > 40 ? worst.text.slice(0, 39) + "…" : worst.text;
+  const more = runs.length > 1 ? t(" and ") + (runs.length - 1) + t(" more") : "";
+  toast(t("Low contrast: ") + "“" + words + "”" + more + " " + worst.ratio.toFixed(1) + ":1, " +
+    t("needs ") + worst.need + ":1. " + t("An outline was added; a darker or lighter colour reads better."));
+}
+
 function toast(text) {
   app.toast(text);
   needsPaint = true;
