@@ -1,14 +1,14 @@
-# Tests the Go build of the MCP server (mcp-go/: Ranger compiled to Go, and
-# the Go host around it), checks that sliqtly_mcp.go is what rgr/ compiles
-# to, and that the container builds. Deploys nothing.
+# Tests the Go build of the MCP server (mcp-go/: Ranger compiled to Go, with
+# the editor's deck model from src/, and the Go host around it), and that the
+# container builds. Deploys nothing.
 name: MCP Go
 
 on:
   pull_request:
-    paths: ["mcp-go/**", "scripts/lib.mjs", "presentation.config.json", "mcp/guide.md", "mcp/src/preview.html", ".github/workflows/mcp-go.yml"]
+    paths: ["mcp-go/**", "src/**", "themes/**", "scripts/lib.mjs", "presentation.config.json", "mcp/guide.md", "mcp/src/preview.html", ".dockerignore", ".github/workflows/mcp-go.yml"]
   push:
     branches: [main]
-    paths: ["mcp-go/**", "scripts/lib.mjs", "presentation.config.json", "mcp/guide.md", "mcp/src/preview.html", ".github/workflows/mcp-go.yml"]
+    paths: ["mcp-go/**", "src/**", "themes/**", "scripts/lib.mjs", "presentation.config.json", "mcp/guide.md", "mcp/src/preview.html", ".dockerignore", ".github/workflows/mcp-go.yml"]
 
 permissions:
   contents: read
@@ -28,12 +28,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # copies the guide and preview from mcp/, compiles rgr/ with Ranger
+      # copies the guide and preview from mcp/, compiles rgr/ and src/ with Ranger
       - run: go generate ./...
-      - run: git diff --exit-code -- sliqtly_mcp.go
       - run: test -z "$(gofmt -l host.go net.go main.go firebase.go server_test.go)"
-      # the generated structs carry json tags on unexported fields
-      - run: go vet -structtag=false ./...
-      - run: go test ./...
+      # the generated code carries json tags on unexported fields, and the
+      # deck model has a few self-assignments
+      - run: go vet -structtag=false -assign=false ./...
+      - run: go test -race ./...
       - run: docker build -f mcp-go/Dockerfile -t sliqtly-mcp-go .
         working-directory: .

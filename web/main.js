@@ -277,6 +277,10 @@ async function imageSize(bytes, type) {
 // yet wait in `pending` and go in with it.
 let vfs = null;
 const doc = { id: newId(), persisted: false, created: Date.now(), openedText: "" };
+// PRO: the share the deck lives in (cloud), its text as last written or read
+// there (cloudMd), the files as sent (cloudStamps: path → stamp), and what
+// was last sent (cloudSig). cloudHalt: changed elsewhere, not written over.
+Object.assign(doc, { cloud: null, cloudMd: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
 const pending = new Map();
 let savedText = null;
 let savedCss = null;
@@ -288,6 +292,7 @@ function beginDoc(text) {
   doc.persisted = false;
   doc.created = Date.now();
   doc.openedText = text;
+  Object.assign(doc, { cloud: null, cloudMd: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
   pending.clear();
   savedText = null;
   savedCss = null;
@@ -310,6 +315,7 @@ async function keepFile(rec) {
   if (doc.persisted && vfs) await vfs.putFile(file);
   else pending.set(file.path, file);
   refreshFiles();
+  cloudSoon();
 }
 
 async function docFiles() {
@@ -330,7 +336,7 @@ async function saveDoc(force) {
   // empty one
   if (!doc.persisted && !force && ((md === doc.openedText && css === null) || !md.trim())) return;
   saving = (async () => {
-    await vfs.putDoc({ id: doc.id, name: exportName(), md, theme: key, css, created: doc.created, updated: Date.now() });
+    await vfs.putDoc({ id: doc.id, name: exportName(), md, theme: key, css, created: doc.created, updated: Date.now(), cloud: doc.cloud, cloudMd: doc.cloudMd });
     if (!doc.persisted) {
       doc.persisted = true;
       for (const f of pending.values()) await vfs.putFile({ ...f, doc: doc.id });
@@ -344,12 +350,19 @@ async function saveDoc(force) {
   })();
   try { await saving; } finally { saving = null; }
   refreshFiles();
+  cloudSoon();
 }
 
 // A deck opened from a link (#md=…, /s/{id}?edit, ?sample=…) is the reader's
 // own once it is saved: the address loses the link, so a reload opens the
 // saved deck, pictures and all, and not the link's text again.
 function plainAddress() {
+  // a PRO deck: its own address, which a reload opens from the cloud
+  if (doc.cloud) {
+    history.replaceState(null, "", "/s/" + doc.cloud + "?edit");
+    lastHash = "";
+    return;
+  }
   const q = new URLSearchParams(location.search);
   const shared = /^\/s\//.test(location.pathname);
   if (!location.hash && !shared && !q.has("sample") && !q.has("deck")) return;
@@ -385,6 +398,8 @@ async function openDoc(id) {
   doc.id = d.id;
   doc.persisted = true;
   doc.created = d.created || Date.now();
+  doc.cloud = d.cloud || null;
+  doc.cloudMd = d.cloudMd ?? null;
   themeSel.value = d.theme || "";
   if (d.css != null) editedCss[d.theme || ""] = d.css;
   useTheme(themeSel.value);
@@ -395,6 +410,7 @@ async function openDoc(id) {
   savedCss = d.css == null ? null : d.css;
   savedTheme = d.theme || "";
   try { localStorage.setItem("evgp.doc", doc.id); } catch (_) { /* fine */ }
+  plainAddress();
   dropThumbs();
   needsPaint = true;
   refreshFiles();
@@ -433,7 +449,7 @@ async function refreshFiles() {
       : t("This browser does not allow storage: files are kept only while this page is open.");
     // PRO (sliqtly.js): the files in the cloud, offered at the top
     const promo = !window.sliqtly ? null : window.sliqtly.user()
-      ? { title: t("PRO is active"), text: t("Cloud storage and file sharing are coming here soon."), button: "" }
+      ? { title: t("PRO is active"), text: t("Your presentations and their pictures and data are saved in the cloud as you work."), button: "" }
       : {
         title: t("Share images and data with PRO"),
         text: t("PRO keeps your decks and their files in the cloud. Share links then carry images, plus the CSV and JSON data behind your charts and tables."),
@@ -605,6 +621,7 @@ async function fileRequest(r) {
     pending.delete(what);
     if (doc.persisted) await vfs.deleteFile(doc.id, what);
     if (app.openFilePath() === what) app.closeFile();
+    cloudSoon();
   } else if (action === "doc") {
     if (!(await openDoc(what))) toast(t("Presentation not found."));
   } else if (action === "deldoc") {
@@ -684,8 +701,10 @@ function paintOnce() {
     st.width = W;
     st.height = H;
     const sf = prepareDisplayList(gl, st, { dpr, images: pictures, contrastGuard: true });
-    grew = grewBy(sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false })) || grew;
+    const stageStats = sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false });
+    grew = grewBy(stageStats) || grew;
     sf.dispose();
+    warnLowContrast(stageStats && stageStats.lowContrast);
   }
   if (grew) dropThumbs();
   let thumbsGrew = false;
@@ -1379,6 +1398,24 @@ function hashParams() {
 }
 
 let toastTimer = 0;
+// Text the painter found too faint against what is under it (WCAG 4.5:1, 3:1
+// for large text). It already drew an outline round it; the author is told
+// once, when the set of such lines on the stage changes, so a changed colour
+// or picture that makes a line hard to read does not pass unnoticed.
+let lowContrastKey = "";
+function warnLowContrast(list) {
+  const runs = list || [];
+  const key = runs.map((r) => r.text).join("\n");
+  if (key === lowContrastKey) return;
+  lowContrastKey = key;
+  if (!runs.length) return;
+  const worst = runs.reduce((a, b) => (b.ratio < a.ratio ? b : a));
+  const words = worst.text.length > 40 ? worst.text.slice(0, 39) + "…" : worst.text;
+  const more = runs.length > 1 ? t(" and ") + (runs.length - 1) + t(" more") : "";
+  toast(t("Low contrast: ") + "“" + words + "”" + more + " " + worst.ratio.toFixed(1) + ":1, " +
+    t("needs ") + worst.need + ":1. " + t("An outline was added; a darker or lighter colour reads better."));
+}
+
 function toast(text) {
   app.toast(text);
   needsPaint = true;
@@ -1396,22 +1433,141 @@ function pro() {
     : new Promise((ok) => window.addEventListener("sliqtly:ready", () => ok(window.sliqtly), { once: true }));
 }
 
-// Signed in to PRO: the deck is kept as its owner's in the cloud and a copy
-// is shared under a short id, pictures and data files with it. The copy is
-// read-only: the edit link opens it as a new deck of the reader's own.
-// Resolves to the share's id; rejects with the reason it could not.
-async function shareCloud() {
-  const p = window.sliqtly;
-  await saveDoc(true);
+// Signed in to PRO, a deck lives in the cloud as a share (web/sliqtly.js):
+// made on its first save, written again a moment after every change, and
+// opened from there at /s/{id}?edit, the address the editor then shows. The
+// same share is what Share links to and what an assistant edits (mcp/).
+function stampOf(f) {
+  return (f.size ?? "") + ":" + (f.updated ?? "");
+}
+function cloudReady() {
+  return !!(vfs && !viewer && doc.persisted && window.sliqtly?.user?.());
+}
+let cloudTimer = 0;
+function cloudSoon() {
+  if (!cloudReady() || doc.cloudHalt) return;
+  clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(() => { cloudSync().catch(cloudTrouble); }, 2000);
+}
+let cloudBusy = null;
+let cloudWarned = false;
+function cloudTrouble(e) {
+  console.warn("cloud save failed", e);
+  if (cloudWarned) return;
+  cloudWarned = true;
+  toast(t("Saving to the cloud failed: ") + (e?.code || e?.message || String(e)) + ". " + t("The presentation is kept in this browser."));
+}
+// The deck as the cloud keeps it, and a signature of it.
+async function cloudDeck() {
   const key = themeSel.value || "";
+  const deck = {
+    deckId: doc.id, name: exportName(), md: app.source(), theme: key,
+    css: key in editedCss ? editedCss[key] : null,
+    files: (await docFiles()).map((f) => ({ path: f.path, type: f.type || "", data: f.data, stamp: stampOf(f) })),
+  };
+  return { deck, sig: JSON.stringify([deck.name, deck.md, deck.theme, deck.css, deck.files.map((f) => f.path + "=" + f.stamp)]) };
+}
+// Writes the deck to its share, making the share first if it has none.
+// Resolves to the share's id.
+async function cloudSync() {
+  if (cloudBusy) await cloudBusy.catch(() => {});
+  if (!cloudReady()) return null;
+  clearTimeout(cloudTimer);
+  const p = window.sliqtly;
+  const { deck, sig } = await cloudDeck();
+  if (doc.cloud && (sig === doc.cloudSig || doc.cloudHalt)) return doc.cloud;
+  const which = doc.id;
+  cloudBusy = (async () => {
+    let id = doc.cloud;
+    if (!id) {
+      id = await p.share(deck);
+    } else {
+      try {
+        await p.saveShare(id, deck, { md: doc.cloudMd, stamps: doc.cloudStamps });
+      } catch (e) {
+        if (e?.code !== "changed-elsewhere") throw e;
+        if (doc.id === which) doc.cloudHalt = true;
+        toast(t("This presentation was changed elsewhere (by an assistant?). Your changes here are not saved to the cloud: reload to get the newer version."));
+        return id;
+      }
+    }
+    if (doc.id !== which) return id; // another deck was opened meanwhile
+    doc.cloud = id;
+    doc.cloudMd = deck.md;
+    doc.cloudSig = sig;
+    doc.cloudStamps = new Map(deck.files.map((f) => [f.path, f.stamp]));
+    cloudWarned = false;
+    await vfs.putDoc({ ...(await vfs.getDoc(doc.id)), cloud: id, cloudMd: deck.md });
+    plainAddress();
+    return id;
+  })();
+  try { return await cloudBusy; } finally { cloudBusy = null; }
+}
+window.addEventListener("sliqtly:user", () => cloudSoon());
+
+// Opens the signed-in owner's deck from its share (/s/{id}?edit): the cloud
+// has the latest, an assistant's changes included. Kept in this browser
+// under the id it had here, or a new one. False when it is not theirs.
+async function openOwnCloud(id) {
+  const p = await pro();
+  const who = await Promise.race([p.signedIn(), new Promise((ok) => setTimeout(() => ok(null), 8000))]);
+  if (!who || !vfs) return false;
+  const shared = await p.loadShare(id);
+  if (!shared || shared.owner !== who.uid) return false;
+  const local = (await vfs.listDocs()).find((d) => d.cloud === id);
+  // changes made here that the cloud does not have yet, and nobody changed
+  // it since: this browser's copy is the newer, and goes up on the next save
+  if (local && local.md !== local.cloudMd && shared.md === local.cloudMd) return openDoc(local.id);
+  await saveDoc();
+  beginDoc(shared.md || "");
+  doc.id = local?.id || newId();
+  if (local) await vfs.deleteDoc(local.id); // the cloud's files replace this browser's
+  doc.created = local?.created || Date.now();
+  if (shared.theme != null) {
+    themeSel.value = shared.theme;
+    app.setStyleSheet(shared.theme ? themeCss[shared.theme] || "" : "");
+  }
+  if (shared.css != null) {
+    editedCss[themeSel.value || ""] = shared.css;
+    app.setStyleSheet(shared.css);
+  }
+  const missing = [];
+  for (const f of shared.files || []) {
+    try {
+      const res = await fetch(f.url);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = isText(f.path, f.type) ? await res.text() : await res.blob();
+      const rec = { doc: doc.id, path: f.path, type: f.type, size: f.size, data, updated: Date.now() };
+      pending.set(rec.path, rec);
+      await useFile(rec);
+    } catch (e) {
+      console.warn("cloud file not loaded: " + f.path, e);
+      missing.push(f.path);
+    }
+  }
+  if (missing.length) toast(t("Some pictures or data files of this presentation could not be loaded: ") + missing.join(", "));
+  docName = shared.name || "presentation";
+  app.setSource(shared.md || "");
+  doc.cloud = id;
+  doc.cloudMd = shared.md || "";
+  // the files that did come are what the share has; one that did not is
+  // not sent back, so the share keeps it
+  doc.cloudStamps = new Map([...pending.values()].map((f) => [f.path, stampOf(f)]));
+  await saveDoc(true);
+  doc.cloudSig = (await cloudDeck()).sig;
+  plainAddress();
+  dropThumbs();
+  needsPaint = true;
+  return true;
+}
+
+// Share, signed in: the deck's own share, saved first. → the share's id
+async function shareCloud() {
+  await saveDoc(true);
   // Firestore waits quietly when it cannot write (no database yet, rules
   // that refuse): a share that has not happened in 20 s has failed
   const timeout = new Promise((_, no) => setTimeout(() => no(Object.assign(new Error("timeout"), { code: "timeout" })), 20000));
-  return Promise.race([timeout, p.share({
-    deckId: doc.id, name: exportName(), md: app.source(), theme: key,
-    css: key in editedCss ? editedCss[key] : null,
-    files: (await docFiles()).map((f) => ({ path: f.path, type: f.type || "", data: f.data })),
-  })]);
+  return Promise.race([timeout, cloudSync().then((id) => id || Promise.reject(new Error("not saved")))]);
 }
 
 function cloudFailure(e) {
@@ -1438,7 +1594,8 @@ async function shareLink() {
   q.set("md", code);
   if (themeSel.value) q.set("theme", themeSel.value);
   if ((themeSel.value || "") in editedCss) q.set("css", await packText(editedCss[themeSel.value || ""]));
-  const base = location.origin + location.pathname;
+  // the page's own address, also when it is at /s/{id}?edit
+  const base = new URL(".", document.baseURI).href;
   const editUrl = base + "#" + q.toString();
   q.set("mode", "show");
   const showUrl = base + "#" + q.toString();
@@ -1493,11 +1650,11 @@ async function editInAI(which) {
     const text = app.source();
     const user = window.sliqtly?.user?.();
     let id = null;
-    if (originShare && originShare.md === text && (!user || originShare.owner === user.uid)) {
-      id = originShare.id;
-    } else if (user) {
-      toast(t("Saving a copy in the cloud for the assistant…"));
+    if (user) {
+      if (!doc.cloud) toast(t("Saving a copy in the cloud for the assistant…"));
       id = await shareCloud();
+    } else if (originShare && originShare.md === text) {
+      id = originShare.id;
     }
     const connect = t("If you have no Sliqtly tools, tell me to add the Sliqtly connector: ") + SITE + "/connect.html";
     let prompt;
@@ -1675,7 +1832,7 @@ vMenu.addEventListener("click", (ev) => {
     else EXPORTS[act]().catch(fail);
   } else if (act === "new") createFromViewed();
   else if (act === "edit" && ownsShare()) {
-    siteLink(siteUrl("?deck=" + encodeURIComponent(viewShare.deck) + "&from=" + viewShare.id));
+    siteLink(siteUrl("s/" + viewShare.id + "?edit"));
   }
 });
 vMenu.addEventListener("keydown", (ev) => {
@@ -2365,13 +2522,21 @@ async function start() {
   app.setStyleSheet(theme ? themeCss[theme] || "" : "");
   if (!viewer && !hashShare()) vfs = await openVfs();
   const own = ownDeck();
-  if (own && vfs && (await ownIsNewer(own)) && (await openDoc(own.deck))) plainAddress();
+  // /s/{id}?edit (or an older ?deck=…&from={id}) of the signed-in owner's
+  // own deck: opened from the cloud, where it lives
+  const editId = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(location.pathname)?.[1] || own?.from;
+  const editing = !!own || (!!editId && q.has("edit"));
+  if (editing && editId && (await openOwnCloud(editId).catch((e) => { console.warn(e); return false; }))) { /* opened */ }
+  else if (own && vfs && (await ownIsNewer(own)) && (await openDoc(own.deck))) plainAddress();
   else if (!(await openFromShare()) && !(await openFromHash())) {
     const want = q.get("sample");
-    // no sample asked for: the deck worked on last, if this browser kept one
+    // no sample asked for: the deck worked on last, if this browser kept one,
+    // from the cloud when it lives there
     let last = null;
     try { last = localStorage.getItem("evgp.doc"); } catch (_) { /* none */ }
-    if (want || !last || !(await openDoc(last))) {
+    const lastCloud = !want && last && vfs ? (await vfs.getDoc(last))?.cloud : null;
+    if (lastCloud && (await openOwnCloud(lastCloud).catch(() => false))) { /* opened */ }
+    else if (want || !last || !(await openDoc(last))) {
       const sample = SAMPLES[want] || HIDDEN_SAMPLES[want] ? want : "talous";
       if (SAMPLES[sample]) sampleSel.value = sample;
       await openSample(sample);

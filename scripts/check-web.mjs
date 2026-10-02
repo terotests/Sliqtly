@@ -1553,6 +1553,118 @@ try {
     await pd.close();
   }
 
+  // PRO: a signed-in user's deck lives in the cloud (a share), against a
+  // stand-in for Firebase kept here: saved on change under /s/{id}?edit,
+  // opened from there on reload with its pictures, an assistant's change
+  // picked up, a later edit written back, and a change made elsewhere not
+  // written over.
+  {
+    const fakeDb = new Map();
+    const fakeFiles = new Map();
+    let puts = 0;
+    const stamp = (o) => { for (const k of Object.keys(o)) if (o[k] && o[k].__ts) o[k] = Date.now(); return o; };
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+    await ctx.exposeFunction("__fakeFirebase", (op, a) => {
+      if (op === "get") return fakeDb.get(a.k) ?? null;
+      if (op === "set") fakeDb.set(a.k, stamp(a.merge ? { ...fakeDb.get(a.k), ...a.data } : a.data));
+      else if (op === "update") {
+        if (!fakeDb.has(a.k)) throw new Error("no document " + a.k);
+        fakeDb.set(a.k, stamp({ ...fakeDb.get(a.k), ...a.data }));
+      } else if (op === "put") { puts += 1; fakeFiles.set(a.p, { type: a.type, buf: Buffer.from(a.b64, "base64") }); }
+      else if (op === "del") fakeFiles.delete(a.p);
+      return null;
+    });
+    const fake = `(() => {
+      const user = { uid: "u1", displayName: "Testi", email: "t@example.com" };
+      const call = (op, a) => window.__fakeFirebase(op, a);
+      const ref = (c, id) => ({
+        set: (data, o) => call("set", { k: c + "/" + id, data, merge: !!(o && o.merge) }),
+        update: (data) => call("update", { k: c + "/" + id, data }),
+        get: async () => { const d = await call("get", { k: c + "/" + id }); return { exists: d != null, data: () => d }; },
+      });
+      const db = { collection: (c) => ({ doc: (id) => ref(c, id) }) };
+      const firestore = () => db;
+      firestore.FieldValue = { serverTimestamp: () => ({ __ts: true }) };
+      const storage = () => ({ ref: (p) => ({
+        put: async (blob, meta) => { let s = ""; for (const x of new Uint8Array(await blob.arrayBuffer())) s += String.fromCharCode(x); return call("put", { p, type: (meta && meta.contentType) || blob.type, b64: btoa(s) }); },
+        getDownloadURL: async () => location.origin + "/__fakefiles/" + encodeURIComponent(p),
+        delete: () => call("del", { p }),
+      }) });
+      const auth = () => ({ onAuthStateChanged(cb) { setTimeout(() => cb(user), 0); return () => {}; }, signOut() {} });
+      window.firebase = { auth, firestore, storage };
+    })();`;
+    await ctx.route(/^https:\/\/www\.gstatic\.com\/firebasejs\//, (r) => r.fulfill({ contentType: "text/javascript", body: /app-compat/.test(r.request().url()) ? fake : "" }));
+    await ctx.route(/\/__\/firebase\/init\.js/, (r) => r.fulfill({ contentType: "text/javascript", body: "" }));
+    await ctx.route(/\/__fakefiles\//, (r) => {
+      const f = fakeFiles.get(decodeURIComponent(new URL(r.request().url()).pathname.replace(/^\/__fakefiles\//, "")));
+      return f ? r.fulfill({ status: 200, contentType: f.type, body: f.buf }) : r.fulfill({ status: 404, body: "" });
+    });
+    await ctx.route(/\/s\/[A-Za-z0-9]+(\?|$)/, (r) => r.fulfill({ contentType: "text/html", body: fs.readFileSync(path.join(distDir, "index.html")) }));
+    const pc = await ctx.newPage();
+    const perr = [];
+    pc.on("pageerror", (e) => perr.push(e.message));
+    const started = async () => {
+      await pc.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+      await pc.waitForTimeout(400);
+    };
+    const shareId = () => [...fakeDb.keys()].filter((k) => k.startsWith("shares/")).map((k) => k.slice(7));
+    const filesListed = async (name) => {
+      await pc.evaluate(() => window.__app.showTab("files"));
+      await pc.waitForFunction((n) => window.__app.panels.filesJson.includes(n), name, { timeout: 8000 }).catch(() => {});
+      return pc.evaluate((n) => window.__app.panels.filesJson.includes(n), name);
+    };
+    await pc.goto(url);
+    await started();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evgp-cloud-"));
+    fs.writeFileSync(path.join(dir, "cloud-pic.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+    await pc.evaluate(() => window.__app.setSource("# Pilvi\n\n## Kuva\n\n![kuva](media/cloud-pic.png)\n"));
+    await pc.setInputFiles("#fileadd", [path.join(dir, "cloud-pic.png")]);
+    await pc.waitForFunction(() => /^\/s\/[A-Za-z0-9]+$/.test(location.pathname), null, { timeout: 15000 }).catch(() => {});
+    await pc.waitForTimeout(2500);
+    const ids = shareId();
+    const id = ids[0] || "";
+    const first = { ids, address: await pc.evaluate(() => location.pathname + location.search), share: fakeDb.get("shares/" + id) };
+    check("PRO: a changed deck is saved to the cloud and the address names it",
+      ids.length === 1 && first.address === "/s/" + id + "?edit" && first.share?.owner === "u1" && first.share.md.includes("## Kuva") && (first.share.files || []).some((f) => f.path === "media/cloud-pic.png"),
+      JSON.stringify({ ids, address: first.address, files: first.share?.files }));
+
+    await pc.reload();
+    await started();
+    const back = { md: await pc.evaluate(() => window.__app.source()), pic: await filesListed("media/cloud-pic.png") };
+    check("PRO: a reload opens the deck from the cloud, its picture with it", back.md.includes("## Kuva") && back.pic, JSON.stringify(back).slice(0, 160));
+
+    // an assistant changes it in the cloud; the editor opened at its plain
+    // address gets the change
+    fakeDb.set("shares/" + id, { ...fakeDb.get("shares/" + id), md: back.md + "\n## Avustajan dia\n\nTeksti.\n", updated: Date.now() });
+    await pc.goto(url);
+    await started();
+    const viaAi = await pc.evaluate(() => ({ md: window.__app.source(), at: location.pathname }));
+    check("PRO: the deck worked on last opens from the cloud, with an assistant's change", viaAi.md.includes("## Avustajan dia") && viaAi.at === "/s/" + id, JSON.stringify(viaAi).slice(0, 160));
+
+    // an edit in the editor goes to the cloud; the unchanged picture is not sent again
+    const putsBefore = puts;
+    await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Editorin dia\n\nMuokattu.\n"));
+    await pc.waitForTimeout(5000);
+    const edited = fakeDb.get("shares/" + id);
+    check("PRO: an edit in the editor is written to the cloud", edited.md.includes("## Editorin dia") && edited.md.includes("## Avustajan dia") && puts === putsBefore && shareId().length === 1,
+      JSON.stringify({ puts: puts - putsBefore, shares: shareId().length }));
+
+    // Share links to the same cloud deck, no new copy
+    await pc.evaluate(() => { window.__lastShare = ""; document.getElementById("share").click(); });
+    await pc.waitForFunction(() => /\/s\/[A-Za-z0-9]+\?edit$/.test(window.__lastShare || ""), null, { timeout: 10000 }).catch(() => {});
+    const link = await pc.evaluate(() => window.__lastShare || "");
+    check("PRO: Share links to the deck's own cloud copy", link.endsWith("/s/" + id + "?edit") && shareId().length === 1, link);
+    await pc.evaluate(() => window.__app.closeShare());
+
+    // changed elsewhere meanwhile: not written over
+    fakeDb.set("shares/" + id, { ...fakeDb.get("shares/" + id), md: "# Muualla muutettu\n", updated: Date.now() });
+    await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Vielä yksi\n"));
+    await pc.waitForTimeout(5000);
+    check("PRO: a deck changed elsewhere is not written over", fakeDb.get("shares/" + id).md === "# Muualla muutettu\n");
+    check("no page errors with PRO", perr.length === 0, perr.join(" | "));
+    await ctx.close();
+  }
+
   // the interface in another language: ?lang=fi, the canvas bar and the page alike
   const pageFi = await browser.newPage({ viewport: { width: 1200, height: 760 } });
   await pageFi.goto(url + "?lang=fi&sample=talous");

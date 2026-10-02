@@ -77,6 +77,12 @@ operators {
             go ( (e 1) ".Err()" )
         }
     }
+    ; forgets it, for a failure the request goes on without
+    host_clear_error _:void (h:McpHost) {
+        templates {
+            go ( (e 1) ".ClearErr()" nl )
+        }
+    }
 
     ; --- Firestore: documents as JSON; {"$serverTime":true} writes the server
     ; time, timestamps read back as milliseconds
@@ -141,6 +147,13 @@ operators {
     host_theme_css _:string (h:McpHost theme:string) {
         templates {
             go ( (e 1) ".ThemeCSS(" (e 2) ")" )
+        }
+    }
+    ; the site's Firebase config (public) as JSON, cached per instance; ""
+    ; when it cannot be read, which is no error
+    host_web_config _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".WebConfig()" )
         }
     }
     ; {"status":n,"body":"…"} of a GET on a public address; status 0 on failure
