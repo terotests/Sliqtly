@@ -1,0 +1,716 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresTable.rgr — a table read from a data file, one page at a time.
+; ============================================================================
+;
+;   ```table data/myynti.csv
+;   rows: 8
+;   columns: Kuukausi, Myynti
+;   page: 1
+;   ```
+;
+; The file is one of the document's data files (CSV, TSV, or JSON as an array
+; of objects or of rows), handed over by the page the same way a chart's
+; `"data": {"url": …}` is. All options are optional: `rows` per page (10),
+; which `columns` by header name or 1-based number (all), and the `page` the
+; table opens on and the PDF and PPTX show (1). The path may also be given as
+; `src: data/x.csv` in the body.
+;
+; The fence is not drawn as code. After the markdown is parsed and before it
+; is laid out, `PresTables.expand` turns the fence's node into an ordinary
+; `table` node holding the header and the rows of the page being shown. So
+; the stage, the thumbnails, the PDF and the PPTX all lay out and draw it the
+; way they do a table written in Markdown, and it never runs onto a second
+; slide: a page has at most `rows` rows, and a short last page is padded with
+; empty rows so the table keeps its height as it is paged. Every node made
+; carries the fence's own source offsets, so a click on the table puts the
+; caret on the fence and a `{.build}` after it still applies.
+;
+; Which page each table shows lives here, keyed by the fence's text, so
+; editing elsewhere keeps the page and editing the fence starts it over. The
+; deck draws ‹ n / m › under a table with more than one page and pages it on
+; a click (PresDeck.tableHit).
+; ============================================================================
+
+Import "../markdown/web/markdown_web.rgr"
+Import "../vela/src/VlJson.rgr"
+Import "PresI18n.rgr"
+
+; A data file as a grid of strings: the header, then the rows, row-major.
+class PresTableData {
+    def header:[string]
+    def cells:[string]
+    def cols:int 0
+    def rows:int 0
+    def error:string ""
+
+    Constructor () {
+        def h:[string]
+        header = h
+        def c:[string]
+        cells = c
+    }
+
+    fn cell:string (r:int c:int) {
+        if ((r < 0) || (r >= rows)) {
+            return ""
+        }
+        if ((c < 0) || (c >= cols)) {
+            return ""
+        }
+        return (itemAt cells ((r * cols) + c))
+    }
+
+    ; Rows of any length made rectangular: the header decides the width.
+    fn addRow:void (row:[string]) {
+        def c:int 0
+        while (c < cols) {
+            if (c < (array_length row)) {
+                push cells (itemAt row c)
+            } {
+                push cells ""
+            }
+            c = (c + 1)
+        }
+        rows = (rows + 1)
+    }
+
+    sfn fromText:PresTableData (path:string text:string) {
+        def t:string (trim text)
+        if (((strlen t) > 0) && (((substring t 0 1) == "[") || ((substring t 0 1) == "{"))) {
+            return (PresTableData.fromJson(t))
+        }
+        return (PresTableData.fromCsv(text (PresTableData.delimiterOf(path text))))
+    }
+
+    ; Tab for .tsv or a first line with tabs and no commas; a semicolon for a
+    ; first line with semicolons and no commas (a spreadsheet saved with a
+    ; decimal comma writes those); a comma otherwise.
+    sfn delimiterOf:int (path:string text:string) {
+        def lower:string (MdChar.lower(path))
+        def n:int (strlen lower)
+        if ((n > 4) && ((substring lower (n - 4) n) == ".tsv")) {
+            return 9
+        }
+        def nl:int (indexOf text (strfromcode 10))
+        def first:string text
+        if (nl >= 0) {
+            first = (substring text 0 nl)
+        }
+        def hasComma:boolean ((indexOf first ",") >= 0)
+        if ((hasComma == false) && ((indexOf first (strfromcode 9)) >= 0)) {
+            return 9
+        }
+        if ((hasComma == false) && ((indexOf first ";") >= 0)) {
+            return 59
+        }
+        return 44
+    }
+
+    ; RFC 4180: quoted fields may hold the delimiter, newlines and "" for a
+    ; quote. Blank lines are skipped. The first row is the header.
+    sfn fromCsv:PresTableData (text:string delim:int) {
+        def out:PresTableData (new PresTableData())
+        def n:int (strlen text)
+        def i:int 0
+        def field:string ""
+        def row:[string]
+        def quoted:boolean false
+        def any:boolean false
+        def haveHeader:boolean false
+        while (i <= n) {
+            def c:int -1
+            if (i < n) {
+                c = (charAt text i)
+            }
+            if quoted {
+                if (c == 34) {
+                    if (((i + 1) < n) && ((charAt text (i + 1)) == 34)) {
+                        field = (field + (strfromcode 34))
+                        i = (i + 1)
+                    } {
+                        quoted = false
+                    }
+                } {
+                    if (c < 0) {
+                        quoted = false
+                    } {
+                        field = (field + (strfromcode c))
+                    }
+                }
+                i = (i + 1)
+                continue
+            }
+            if ((c == 34) && ((strlen field) == 0)) {
+                quoted = true
+                any = true
+                i = (i + 1)
+                continue
+            }
+            if (c == delim) {
+                push row field
+                field = ""
+                any = true
+                i = (i + 1)
+                continue
+            }
+            if (((c == 10) || (c == 13)) || (c < 0)) {
+                if (any || ((strlen field) > 0)) {
+                    push row field
+                    if haveHeader {
+                        out.addRow(row)
+                    } {
+                        def k:int 0
+                        while (k < (array_length row)) {
+                            push out.header (trim (itemAt row k))
+                            k = (k + 1)
+                        }
+                        out.cols = (array_length row)
+                        haveHeader = true
+                    }
+                }
+                def fresh:[string]
+                row = fresh
+                field = ""
+                any = false
+                if (((c == 13) && ((i + 1) < n)) && ((charAt text (i + 1)) == 10)) {
+                    i = (i + 1)
+                }
+                i = (i + 1)
+                continue
+            }
+            field = (field + (strfromcode c))
+            i = (i + 1)
+        }
+        if (haveHeader == false) {
+            out.error = "empty"
+        }
+        return out
+    }
+
+    ; An array of objects (the keys of all of them, in the order first seen,
+    ; are the columns) or an array of arrays (the first is the header).
+    sfn fromJson:PresTableData (text:string) {
+        def out:PresTableData (new PresTableData())
+        def p (new VlJsonParser())
+        def v:VlJson (p.parse(text))
+        if ((p.ok == false) || ((v.isArray()) == false)) {
+            out.error = "not a JSON array"
+            return out
+        }
+        def n:int (v.count())
+        if (n == 0) {
+            out.error = "empty"
+            return out
+        }
+        def first:VlJson (v.at(0))
+        if (first.isArray()) {
+            def h:int 0
+            while (h < (first.count())) {
+                push out.header (PresTableData.textOf((first.at(h))))
+                h = (h + 1)
+            }
+            out.cols = (array_length out.header)
+            def r:int 1
+            while (r < n) {
+                def rv:VlJson (v.at(r))
+                def row:[string]
+                def c:int 0
+                while (c < (rv.count())) {
+                    push row (PresTableData.textOf((rv.at(c))))
+                    c = (c + 1)
+                }
+                out.addRow(row)
+                r = (r + 1)
+            }
+            return out
+        }
+        def i:int 0
+        while (i < n) {
+            def o:VlJson (v.at(i))
+            if (o.isObject()) {
+                def k:int 0
+                while (k < (array_length o.keys)) {
+                    def key:string (itemAt o.keys k)
+                    def seen:boolean false
+                    def j:int 0
+                    while (j < (array_length out.header)) {
+                        if ((itemAt out.header j) == key) {
+                            seen = true
+                        }
+                        j = (j + 1)
+                    }
+                    if (seen == false) {
+                        push out.header key
+                    }
+                    k = (k + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        out.cols = (array_length out.header)
+        def r2:int 0
+        while (r2 < n) {
+            def o2:VlJson (v.at(r2))
+            def row2:[string]
+            def c2:int 0
+            while (c2 < out.cols) {
+                def key2:string (itemAt out.header c2)
+                if ((o2.isObject()) && (o2.has(key2))) {
+                    push row2 (PresTableData.textOf((o2.get(key2))))
+                } {
+                    push row2 ""
+                }
+                c2 = (c2 + 1)
+            }
+            out.addRow(row2)
+            r2 = (r2 + 1)
+        }
+        return out
+    }
+
+    sfn textOf:string (v:VlJson) {
+        if (v.isNull()) {
+            return ""
+        }
+        if (v.isNumber()) {
+            return (VlJson.numberToText(v.num v.isInt))
+        }
+        if (v.isBool()) {
+            if v.b {
+                return "true"
+            }
+            return "false"
+        }
+        return (v.asString())
+    }
+
+    ; Digits with at most a sign, separators, a decimal point or comma, and
+    ; a unit or percent at either end: such a column is set to the right.
+    sfn isNumber:boolean (s0:string) {
+        def s:string (trim s0)
+        def n:int (strlen s)
+        if (n == 0) {
+            return false
+        }
+        def digits:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c >= 48) && (c <= 57)) {
+                digits = (digits + 1)
+            } {
+                def okc:boolean ((((((c == 45) || (c == 43)) || (c == 46)) || (c == 44)) || (c == 32)) || (c == 37))
+                if ((okc || (c == 8364)) || ((c == 36) || (c == 160))) {
+                    ; a sign, separator or unit
+                } {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return (digits > 0)
+    }
+}
+
+; One ```table fence as the last layout saw it.
+class PresTableUse {
+    ; the fence's info line and body: the key its page is kept under
+    def key:string ""
+    def url:string ""
+    def srcStart:int 0
+    def srcEnd:int 0
+    ; 0-based; and how many there are (0 while the data is not there)
+    def page:int 0
+    def pages:int 0
+    ; the page the fence asks for (`page:`), 0-based
+    def home:int 0
+    ; where the deck drew its pager on the slide: ‹ and ›, x y w h each
+    def slide:int -1
+    def prevX:double 0.0
+    def nextX:double 0.0
+    def btnY:double 0.0
+    def btnW:double 0.0
+    def btnH:double 0.0
+}
+
+class PresTables {
+    ; this layout's tables, in document order
+    def uses:[PresTableUse]
+    ; the page each fence was left on, by its key; kept across layouts
+    def keptKeys:[string]
+    def keptPages:[int]
+    ; the data files, shared with the charts (PresDeck.setChartData)
+    def dataUrls:[string]
+    def dataTexts:[string]
+
+    Constructor () {
+        def u:[PresTableUse]
+        uses = u
+        def k:[string]
+        keptKeys = k
+        def p:[int]
+        keptPages = p
+        def du:[string]
+        dataUrls = du
+        def dt:[string]
+        dataTexts = dt
+    }
+
+    sfn isFence:boolean (n:MdNode) {
+        if ((n.kind != "code_block") || (n.fenced == false)) {
+            return false
+        }
+        return ((MdEmbedKinds.firstWord(n.info)) == "table")
+    }
+
+    ; `key: value` from the fence body, or "" when it does not say.
+    sfn option:string (body:string key:string) {
+        def lines:[string] (strsplit body (strfromcode 10))
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:string (trim (itemAt lines i))
+            def colon:int (indexOf ln ":")
+            if (colon > 0) {
+                if ((MdChar.lower((trim (substring ln 0 colon)))) == key) {
+                    return (trim (substring ln (colon + 1) (strlen ln)))
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn urlOf:string (n:MdNode) {
+        def info:string (trim n.info)
+        def word:string (MdEmbedKinds.firstWord(info))
+        def rest:string (trim (substring info (strlen word) (strlen info)))
+        ; attributes after the path ({…}) are not part of it
+        def brace:int (indexOf rest "{")
+        if (brace >= 0) {
+            rest = (trim (substring rest 0 brace))
+        }
+        if ((strlen rest) > 0) {
+            return rest
+        }
+        return (PresTables.option(n.literal "src"))
+    }
+
+    sfn intOption:int (body:string key:string dflt:int) {
+        def v:string (PresTables.option(body key))
+        if ((strlen v) == 0) {
+            return dflt
+        }
+        def got@(optional):int (str2int v)
+        return (?? got dflt)
+    }
+
+    fn keptPage:int (key:string) {
+        def i:int 0
+        while (i < (array_length keptKeys)) {
+            if ((itemAt keptKeys i) == key) {
+                return (itemAt keptPages i)
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn keepPage:void (key:string page:int) {
+        def i:int 0
+        while (i < (array_length keptKeys)) {
+            if ((itemAt keptKeys i) == key) {
+                set keptPages i page
+                return
+            }
+            i = (i + 1)
+        }
+        push keptKeys key
+        push keptPages page
+    }
+
+    ; Every table back on the page its fence asks for (before an export).
+    ; True when one moved.
+    fn toHome:boolean () {
+        def moved:boolean false
+        def i:int 0
+        while (i < (array_length uses)) {
+            def u:PresTableUse (itemAt uses i)
+            if ((u.pages > 0) && (u.page != u.home)) {
+                this.keepPage(u.key u.home)
+                moved = true
+            }
+            i = (i + 1)
+        }
+        return moved
+    }
+
+    fn dataFor:string (url:string) {
+        def want:string (MdVegaRender.bareUrl(url))
+        def i:int 0
+        while (i < (array_length dataUrls)) {
+            if ((MdVegaRender.bareUrl((itemAt dataUrls i))) == want) {
+                return (itemAt dataTexts i)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn haveData:boolean (url:string) {
+        def want:string (MdVegaRender.bareUrl(url))
+        def i:int 0
+        while (i < (array_length dataUrls)) {
+            if ((MdVegaRender.bareUrl((itemAt dataUrls i))) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The data files the tables read that the page has not handed over.
+    fn wanted:[string] () {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length uses)) {
+            def u:PresTableUse (itemAt uses i)
+            if (((strlen u.url) > 0) && ((this.haveData(u.url)) == false)) {
+                push out u.url
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn expand:void (doc:MdNode) {
+        def none:[PresTableUse]
+        uses = none
+        this.walk(doc)
+    }
+
+    fn walk:void (n:MdNode) {
+        if (PresTables.isFence(n)) {
+            this.expandOne(n)
+            return
+        }
+        def c:int 0
+        while (c < (n.childCount())) {
+            this.walk((n.childAt(c)))
+            c = (c + 1)
+        }
+    }
+
+    fn expandOne:void (n:MdNode) {
+        def u:PresTableUse (new PresTableUse())
+        u.key = (n.info + (strfromcode 10) + n.literal)
+        u.url = (PresTables.urlOf(n))
+        u.srcStart = n.srcStart
+        u.srcEnd = n.srcEnd
+        push uses u
+        def body:string n.literal
+        def per:int (PresTables.intOption(body "rows" 10))
+        if (per < 1) {
+            per = 1
+        }
+        u.home = ((PresTables.intOption(body "page" 1)) - 1)
+        if (u.home < 0) {
+            u.home = 0
+        }
+        def none:[MdNode]
+        n.children = none
+        n.kind = "table"
+        n.literal = ""
+        n.clearMap()
+        if ((strlen u.url) == 0) {
+            this.message(n (PresI18n.t("Name a data file: ```table data/file.csv")))
+            return
+        }
+        if ((this.haveData(u.url)) == false) {
+            this.message(n ("…  " + u.url))
+            return
+        }
+        def data:PresTableData (PresTableData.fromText(u.url (this.dataFor(u.url))))
+        if (((strlen data.error) > 0) || (data.cols == 0)) {
+            this.message(n (u.url + ": " + data.error))
+            return
+        }
+        def cols:[int] (PresTables.pickColumns(data (PresTables.option(body "columns"))))
+        u.pages = (idiv ((data.rows + per) - 1) per)
+        if (u.pages < 1) {
+            u.pages = 1
+        }
+        def page:int (this.keptPage(u.key))
+        if (page < 0) {
+            page = u.home
+        }
+        if (page >= u.pages) {
+            page = (u.pages - 1)
+        }
+        u.page = page
+        ; a column of numbers is set to the right
+        def aligns:[string]
+        def ci:int 0
+        while (ci < (array_length cols)) {
+            def col:int (itemAt cols ci)
+            def numeric:boolean true
+            def seen:int 0
+            def r:int 0
+            while (r < data.rows) {
+                def v:string (data.cell(r col))
+                if ((strlen (trim v)) > 0) {
+                    seen = (seen + 1)
+                    if ((PresTableData.isNumber(v)) == false) {
+                        numeric = false
+                    }
+                }
+                r = (r + 1)
+            }
+            if (numeric && (seen > 0)) {
+                push aligns "right"
+            } {
+                push aligns ""
+            }
+            ci = (ci + 1)
+        }
+        def head:MdNode (this.made("table_row" n))
+        head.isHeader = true
+        def hc:int 0
+        while (hc < (array_length cols)) {
+            def cell:MdNode (this.cellOf((itemAt data.header (itemAt cols hc)) n))
+            cell.isHeader = true
+            cell.align = (itemAt aligns hc)
+            head.add(cell)
+            hc = (hc + 1)
+        }
+        n.add(head)
+        def first:int (page * per)
+        def k:int 0
+        while (k < per) {
+            def ri:int (first + k)
+            ; a short last page is padded, so the pager does not jump
+            if ((ri >= data.rows) && (u.pages == 1)) {
+                break
+            }
+            def row:MdNode (this.made("table_row" n))
+            def c2:int 0
+            while (c2 < (array_length cols)) {
+                def cell2:MdNode (this.cellOf((data.cell(ri (itemAt cols c2))) n))
+                cell2.align = (itemAt aligns c2)
+                row.add(cell2)
+                c2 = (c2 + 1)
+            }
+            n.add(row)
+            k = (k + 1)
+        }
+    }
+
+    ; `columns:` as header names or 1-based numbers, comma separated; the
+    ; ones that name nothing are left out. All of them when it is empty or
+    ; names nothing.
+    sfn pickColumns:[int] (data:PresTableData spec:string) {
+        def out:[int]
+        if ((strlen (trim spec)) > 0) {
+            def parts:[string] (strsplit spec ",")
+            def i:int 0
+            while (i < (array_length parts)) {
+                def want:string (trim (itemAt parts i))
+                def found:int -1
+                def c:int 0
+                while (c < data.cols) {
+                    if ((MdChar.lower((itemAt data.header c))) == (MdChar.lower(want))) {
+                        found = c
+                    }
+                    c = (c + 1)
+                }
+                if (found < 0) {
+                    def num@(optional):int (str2int want)
+                    def nv:int (?? num 0)
+                    if ((nv >= 1) && (nv <= data.cols)) {
+                        found = (nv - 1)
+                    }
+                }
+                if (found >= 0) {
+                    push out found
+                }
+                i = (i + 1)
+            }
+        }
+        if ((array_length out) == 0) {
+            def a:int 0
+            while (a < data.cols) {
+                push out a
+                a = (a + 1)
+            }
+        }
+        return out
+    }
+
+    ; A one-cell table saying what is missing, in place of the data.
+    fn message:void (n:MdNode text:string) {
+        def head:MdNode (this.made("table_row" n))
+        head.isHeader = true
+        def cell:MdNode (this.cellOf(text n))
+        cell.isHeader = true
+        head.add(cell)
+        n.add(head)
+    }
+
+    fn made:MdNode (kind:string n:MdNode) {
+        def m:MdNode (MdNode.create(kind))
+        m.srcStart = n.srcStart
+        m.srcEnd = n.srcStart
+        return m
+    }
+
+    fn cellOf:MdNode (text:string n:MdNode) {
+        def cell:MdNode (this.made("table_cell" n))
+        if ((strlen text) > 0) {
+            def t:MdNode (this.made("text" n))
+            t.literal = text
+            cell.add(t)
+        }
+        return cell
+    }
+}
+
+; The markdown module's editor with the tables filled in between the parse
+; and the layout. `chooseSheet` is the one call `ensureLayout` makes on the
+; fresh tree before laying it out; this is that method as the module has it,
+; then the expansion.
+class PresEdit {
+    Extends(MarkdownEdit)
+
+    def tables:PresTables (new PresTables())
+
+    fn chooseSheet:void (doc:MdNode) {
+        def emb:MdEmbedCache this.layout.embeds
+        tables.dataUrls = emb.dataUrls
+        tables.dataTexts = emb.dataTexts
+        tables.expand(doc)
+        if ((strlen styleCss) > 0) {
+            themeUsed = ""
+            themeSource = "the reader"
+            return
+        }
+        def want:string (MdThemes.nameIn(doc))
+        if ((strlen want) == 0) {
+            if ((strlen themeUsed) > 0) {
+                themeUsed = ""
+                this.useSheet("" "no template")
+            }
+            return
+        }
+        if (want == themeUsed) {
+            return
+        }
+        def css:string (themes.sheetFor(want))
+        themeUsed = want
+        if ((strlen css) == 0) {
+            this.useSheet("" (("no template called " + want)))
+            return
+        }
+        this.useSheet(css (("the document, which asked for " + want)))
+    }
+}

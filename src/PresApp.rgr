@@ -711,6 +711,27 @@ class PresApp {
             return false
         }
         this.slidePoint(x y)
+        ; a paged table's ‹ and ›
+        def tcode:string (deck.tableHit(selected spX spY))
+        if ((strlen tcode) > 0) {
+            def tcolon:int (indexOf tcode ":")
+            def tkn@(optional):int (str2int (substring tcode 0 tcolon))
+            def tk:int (?? tkn -1)
+            def twhat:string (substring tcode (tcolon + 1) (strlen tcode))
+            def moved:boolean false
+            if (twhat == "prev") {
+                moved = (deck.tablePage(tk -1))
+            }
+            if (twhat == "next") {
+                moved = (deck.tablePage(tk 1))
+            }
+            if moved {
+                ; the slides are new objects: timed again
+                PresTimeline.planAll(deck)
+            }
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         def code:string (deck.diagramHit(selected (this.stageTime()) spX spY))
         if ((strlen code) == 0) {
             return false
@@ -3624,7 +3645,17 @@ class PresApp {
         push deck.fxStills i
     }
 
+    ; A paged table as its fence asks for it (`page:`), not where the stage
+    ; left it: what an export shows.
+    fn tablesHome:void () {
+        if (deck.tablesHome()) {
+            PresTimeline.planAll(deck)
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
     fn pdf:buffer () {
+        this.tablesHome()
         def mw:MarkdownWeb deck.md
         def e:MarkdownEdit mw.edit
         def l:MdLayout (deck.layout())
@@ -3690,6 +3721,7 @@ class PresApp {
     ; presentation adds on each slide: the speaker's notes, the transition,
     ; and a build step per `{.build}` item.
     fn pptx:buffer () {
+        this.tablesHome()
         def d:PptxDeck (deck.md.buildDeck())
         def n:int (array_length d.pres.slides)
         ; slide points per stage unit

@@ -32,6 +32,7 @@ Import "../markdown/web/markdown_web.rgr"
 Import "PresSource.rgr"
 Import "PresDiagram.rgr"
 Import "PresChart.rgr"
+Import "PresTable.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGStyleSheet.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -136,8 +137,12 @@ class PresDeck {
     ; document must not lay every diagram out again.
     def diaKeys:[string]
     def diaVals:[PresDiagram]
+    ; The markdown editor with ```table fences filled from their data files
+    ; (PresTable.rgr); the same object as `md.edit`.
+    def edit:PresEdit (new PresEdit())
 
     Constructor () {
+        md.edit = edit
         def s:[PresSlide]
         slides = s
         def tk:[string]
@@ -237,6 +242,196 @@ class PresDeck {
             k = (k + 1)
         }
         return ""
+    }
+
+    ; =========================================================================
+    ; Paged tables (```table, PresTable.rgr)
+    ; =========================================================================
+
+    ; Where a table's boxes are on slide i: x y w h, or empty when none are.
+    fn tableExtent:[double] (i:int u:PresTableUse) {
+        def out:[double]
+        def l:MdLayout (this.layout())
+        def x0:double 1000000.0
+        def y0:double 1000000.0
+        def x1:double -1000000.0
+        def y1:double -1000000.0
+        def found:boolean false
+        def k:int 0
+        while (k < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes k)
+            if ((b.page == i) && (b.srcStart == u.srcStart)) {
+                found = true
+                if (b.x < x0) {
+                    x0 = b.x
+                }
+                if (b.y < y0) {
+                    y0 = b.y
+                }
+                if ((b.x + b.w) > x1) {
+                    x1 = (b.x + b.w)
+                }
+                if ((b.y + b.h) > y1) {
+                    y1 = (b.y + b.h)
+                }
+            }
+            k = (k + 1)
+        }
+        if found {
+            push out x0
+            push out y0
+            push out (x1 - x0)
+            push out (y1 - y0)
+        }
+        return out
+    }
+
+    ; The pager of every table on slide i with more than one page, at the
+    ; table's lower right (above it when the slide has no room below).
+    fn paintPagers:void (out:EVGDisplayList i:int l:MdLayout) {
+        def uses:[PresTableUse] edit.tables.uses
+        def ink:EVGColor (EVGColor.parse(l.style.textColor))
+        def paper:string "#ffffff"
+        if ((strlen l.style.pageBackground) > 0) {
+            paper = l.style.pageBackground
+        }
+        def ground:EVGColor (EVGColor.parse(paper))
+        def k:int 0
+        while (k < (array_length uses)) {
+            def u:PresTableUse (itemAt uses k)
+            u.slide = -1
+            def ext:[double] (this.tableExtent(i u))
+            if ((u.pages > 1) && ((array_length ext) == 4)) {
+                def size:double 14.0
+                def label:string ((to_string (u.page + 1)) + " / " + (to_string u.pages))
+                def lw:double ((l.measureStyled(label "Open Sans" size false false)) + 18.0)
+                def bw:double 32.0
+                def h:double 30.0
+                def w:double ((bw * 2.0) + lw)
+                def x:double (((itemAt ext 0) + (itemAt ext 2)) - w)
+                def y:double (((itemAt ext 1) + (itemAt ext 3)) + 8.0)
+                if ((y + h) > (pageH - 4.0)) {
+                    y = ((itemAt ext 1) - (h + 8.0))
+                    if (y < 4.0) {
+                        y = (((itemAt ext 1) + (itemAt ext 3)) - (h + 4.0))
+                    }
+                }
+                def bg (new EVGDrawCmd())
+                bg.kind = 0
+                bg.x = x
+                bg.y = y
+                bg.w = w
+                bg.h = h
+                bg.radius = (h * 0.5)
+                PresDiagram.tint(bg ground 0.92)
+                push out.cmds bg
+                def ring (new EVGDrawCmd())
+                ring.kind = 1
+                ring.x = x
+                ring.y = y
+                ring.w = w
+                ring.h = h
+                ring.radius = (h * 0.5)
+                ring.thickness = 1.2
+                PresDiagram.tint(ring ink 0.35)
+                push out.cmds ring
+                def a:double 5.0
+                def cy:double (y + (h * 0.5))
+                def pa:double 1.0
+                if (u.page == 0) {
+                    pa = 0.3
+                }
+                def lx:double (x + (bw * 0.5) + 2.0)
+                out.addPolyline(([] _:double ((lx + (a * 0.6)) (cy - a) (lx - (a * 0.6)) cy (lx + (a * 0.6)) (cy + a))) 2.0 (EVGColor.rgba((ink.red()) (ink.green()) (ink.blue()) pa)))
+                PresDiagram.roundLast(out)
+                def na:double 1.0
+                if ((u.page + 1) >= u.pages) {
+                    na = 0.3
+                }
+                def rx:double (((x + w) - (bw * 0.5)) - 2.0)
+                out.addPolyline(([] _:double ((rx - (a * 0.6)) (cy - a) (rx + (a * 0.6)) cy (rx - (a * 0.6)) (cy + a))) 2.0 (EVGColor.rgba((ink.red()) (ink.green()) (ink.blue()) na)))
+                PresDiagram.roundLast(out)
+                def tc (new EVGDrawCmd())
+                tc.kind = 3
+                tc.x = ((x + bw) + 9.0)
+                tc.y = (cy - (size * 0.62))
+                tc.w = (lw - 18.0)
+                tc.h = size
+                tc.text = label
+                tc.fontFamily = "Open Sans"
+                tc.fontSize = size
+                PresDiagram.tint(tc ink 0.9)
+                push out.cmds tc
+                u.slide = i
+                u.prevX = x
+                u.nextX = ((x + w) - bw)
+                u.btnY = y
+                u.btnW = bw
+                u.btnH = h
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; A press on a table's pager on slide i: "k:prev" or "k:next", or "".
+    fn tableHit:string (i:int px:double py:double) {
+        def uses:[PresTableUse] edit.tables.uses
+        def k:int 0
+        while (k < (array_length uses)) {
+            def u:PresTableUse (itemAt uses k)
+            if (((u.slide == i) && (py >= u.btnY)) && (py <= (u.btnY + u.btnH))) {
+                if ((px >= u.prevX) && (px <= (u.prevX + u.btnW))) {
+                    return ((to_string k) + ":prev")
+                }
+                if ((px >= u.nextX) && (px <= (u.nextX + u.btnW))) {
+                    return ((to_string k) + ":next")
+                }
+                if ((px > (u.prevX + u.btnW)) && (px < u.nextX)) {
+                    return ((to_string k) + ":none")
+                }
+            }
+            k = (k + 1)
+        }
+        return ""
+    }
+
+    ; Table k a page on (by > 0) or back; false when it is already there.
+    fn tablePage:boolean (k:int by:int) {
+        def uses:[PresTableUse] edit.tables.uses
+        if ((k < 0) || (k >= (array_length uses))) {
+            return false
+        }
+        def u:PresTableUse (itemAt uses k)
+        def want:int (u.page + by)
+        if (want < 0) {
+            want = 0
+        }
+        if (want >= u.pages) {
+            want = (u.pages - 1)
+        }
+        if (want == u.page) {
+            return false
+        }
+        edit.tables.keepPage(u.key want)
+        this.rebuild()
+        return true
+    }
+
+    fn tableCount:int () {
+        return (array_length edit.tables.uses)
+    }
+
+    fn tableUse:PresTableUse (k:int) {
+        return (itemAt edit.tables.uses k)
+    }
+
+    ; Every table on the page its fence asks for, as an export shows it.
+    fn tablesHome:boolean () {
+        if (edit.tables.toHome()) {
+            this.rebuild()
+            return true
+        }
+        return false
     }
 
     ; The charts (```vega-lite) laid out on slide i, as layout box indices.
@@ -967,6 +1162,16 @@ class PresDeck {
             }
             i = (i + 1)
         }
+        ; …and the files the ```table fences read
+        def tw:[string] (edit.tables.wanted())
+        def ti:int 0
+        while (ti < (array_length tw)) {
+            def tu:string (itemAt tw ti)
+            if ((indexOf out (tu + (strfromcode 10))) < 0) {
+                out = (out + tu + (strfromcode 10))
+            }
+            ti = (ti + 1)
+        }
         return out
     }
 
@@ -1543,6 +1748,13 @@ class PresDeck {
                 push groupOfCmd (itemAt groupOfBox k)
             }
             k = (k + 1)
+        }
+        ; ‹ n / m › under a paged ```table, on the stage only
+        if (showControls && (still == false)) {
+            this.paintPagers(out i l)
+            while ((array_length groupOfCmd) < (array_length out.cmds)) {
+                push groupOfCmd -1
+            }
         }
         ; An effect that refracts what is behind it goes over the finished
         ; slide, with no background of its own: under the content it read the

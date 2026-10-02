@@ -149,6 +149,16 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   turn the effects on for every chart: `chart { chart-effects: glow gradient; }`.
   A chart with layers, transforms or data from a URL is not a table and the
   window says so.
+- **Tables from a data file**: a ```` ```table data/myynti.csv ```` fence
+  draws the file (CSV, TSV, a `;` CSV, or JSON as an array of objects or of
+  rows) as a table, one page at a time, so it never runs onto another slide.
+  The body takes `rows: 8` (rows a page, 10 by default), `columns: Kuukausi,
+  Myynti` (by header name or 1-based number; all by default) and `page: 2`
+  (the page it opens on and the PDF and PPTX show; 1 by default). On the stage
+  and while presenting, ‹ n / m › under the table pages it; the page is kept
+  while the fence is unchanged. A column of numbers is set to the right. The
+  fence becomes an ordinary Markdown table before layout (`src/PresTable.rgr`),
+  so the theme's table rules, the PDF and the PPTX treat it like one.
 - **Ctrl+V** in the editor pastes a picture from the clipboard. It is stored
   under `media/` and written into the Markdown as `![](media/…)`. Dropping an
   image onto the canvas does the same.
@@ -188,6 +198,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | `src/PresSource.rgr` | Lifts `:::` blocks out of the Markdown (masks them without changing offsets) |
 | `src/PresDeck.rgr` | Markdown → slides with the markdown module's layout; slide attributes, groups, the effect layer |
 | `src/PresDiagram.rgr` | Diagram animation: the holo and sketch styles, curved edges, reveal, the tour and the camera keyframes |
+| `src/PresTable.rgr` | ```` ```table ```` fences: the data file read (CSV, TSV, JSON), one page of it turned into a Markdown table node between parse and layout, the page each table is on |
 | `src/PresChart.rgr` | (colours the spec states itself win: a mark `color`, `labelColor`/`titleColor`, `gridColor`/`domainColor`/`tickColor`) A ```vega-lite chart dressed for the stage: grid in the accent, columns of warm light burning into rust with a glowing cap, rising in turn, one scan pass |
 | `src/PresTimeline.rgr` | (deck, slide, t) → display list. Deterministic: no clock of its own |
 | `src/PresApp.rgr` | The editor: panels, tracks, filmstrip, presenting, exports |

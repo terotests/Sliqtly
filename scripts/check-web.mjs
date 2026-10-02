@@ -908,7 +908,34 @@ try {
     check("a chart's url data is fetched and drawn, the slide timed", fd.wanted === "" && fd.bars >= 3 && fd.duration > 0, JSON.stringify(fd));
   }
 
-  // The document's own files (web/vfs.js): a changed deck is kept in the
+  // A ```table fence reads its file, shows one page and pages on a press of ›
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    await page.evaluate(() => window.__app.setSource("# D\n\n## Taulukko\n\n```table data/check-sales.csv\nrows: 2\ncolumns: month, sales\n```\n"));
+    await page.waitForFunction(() => window.__app.chartDataWanted() === "", null, { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(400);
+    const tb = await page.evaluate(() => {
+      const a = window.__app;
+      a.selectSlide(1);
+      const first = a.stageJson();
+      const u = a.deck.tableUse(0);
+      const sc = a.slideScale();
+      const pressed = a.stagePress(a.slideRect.x + (u.nextX + 6) * sc, a.slideRect.y + (u.btnY + 6) * sc);
+      const second = a.stageJson();
+      return {
+        wanted: a.chartDataWanted(),
+        pages: u.pages,
+        pressed,
+        p1: first.includes("\"1 / 2\"") && first.includes("\"Jan\"") && !first.includes("\"Mar\"") && !first.includes("\"2012-01-01\""),
+        p2: second.includes("\"2 / 2\"") && second.includes("\"Mar\"") && !second.includes("\"Jan\""),
+      };
+    });
+    await shot("table-paged.png");
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    check("a table fence shows a page of its file and pages on a press", tb.wanted === "" && tb.pages === 2 && tb.pressed && tb.p1 && tb.p2, JSON.stringify(tb));
+  }
+
+
   // browser, files added in the files tab go with it, a chart can live in a
   // file, an edited data file redraws the charts, and a reload opens the deck
   // worked on last.

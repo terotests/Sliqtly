@@ -87,6 +87,57 @@ class PresCheck {
         this.ok(((deck.pageOfOffset((indexOf text "Toka"))) == 1) "source offset to slide")
         this.diagram()
         this.chartModel()
+        this.dataTable()
+    }
+
+    ; A ```table fence: the rows of one page from its data file, paged on the
+    ; stage, back on its own page for an export.
+    fn dataTable:void () {
+        def csv:string "kk,euroa,huom\ntammi,120,\"a, b\"\nhelmi,180,\nmaalis,90,\nhuhti,75,\nheinä,60,\n"
+        def d:PresTableData (PresTableData.fromCsv(csv 44))
+        this.ok(((d.cols == 3) && (d.rows == 5)) ("csv: 3 columns, 5 rows, got " + (to_string d.cols) + " x " + (to_string d.rows)))
+        this.ok(((d.cell(0 2)) == "a, b") "a quoted field keeps its comma")
+        def semi:PresTableData (PresTableData.fromText("data/x.csv" "a;b\n1,5;2\n"))
+        this.ok(((semi.cols == 2) && ((semi.cell(0 0)) == "1,5")) "a semicolon file with decimal commas")
+        def js:PresTableData (PresTableData.fromText("data/x.json" "[{\"n\": \"x\", \"v\": 2}, {\"n\": \"y\", \"w\": true}]"))
+        this.ok(((js.cols == 3) && ((js.cell(1 2)) == "true")) "json objects: every key is a column")
+        this.ok(((PresTableData.isNumber("1 200,50 €")) && ((PresTableData.isNumber("Q1")) == false)) "numbers are told from words")
+
+        def text:string "---\nslide-split-level: 2\n---\n\n# T\n\n## Myynti\n\n```table data/myynti.csv\nrows: 2\ncolumns: kk, euroa\n```\n\n## Loppu\n\nteksti\n"
+        def deck (new PresDeck())
+        deck.setText(text)
+        this.ok(((indexOf (deck.chartDataWanted()) "data/myynti.csv") >= 0) "the table asks for its file")
+        deck.setChartData("data/myynti.csv" csv)
+        PresTimeline.planAll(deck)
+        def si:int (deck.pageOfOffset((indexOf text "```table")))
+        this.ok((si == 1) ("the table is on the slide of its heading, got " + (to_string si)))
+        this.ok(((deck.slideCount()) == 3) ("a long table makes no extra slide, got " + (to_string (deck.slideCount()))))
+        def shown:EVGDisplayList (PresTimeline.frame(deck si 5.0))
+        this.ok(((PresCheck.texts(shown "tammi")) == 1) "page 1 shows the first row")
+        this.ok(((PresCheck.texts(shown "maalis")) == 0) "but not the third")
+        this.ok(((PresCheck.texts(shown "huom")) == 0) "columns: leaves the others out")
+        this.ok(((deck.tableCount()) == 1) "one table")
+        def u:PresTableUse (deck.tableUse(0))
+        this.ok((u.pages == 3) ("five rows two a page is three pages, got " + (to_string u.pages)))
+        deck.showControls = true
+        def staged:EVGDisplayList (PresTimeline.frame(deck si 5.0))
+        this.ok(((PresCheck.texts(staged "1 / 3")) == 1) "the stage shows the pager")
+        def hit:string (deck.tableHit(si (u.nextX + 4.0) (u.btnY + 4.0)))
+        this.ok((hit == "0:next") ("the next button is hit, got " + hit))
+        deck.showControls = false
+        this.ok(((PresCheck.texts(shown "1 / 3")) == 0) "a thumbnail has no pager")
+        this.ok((deck.tablePage(0 1)) "paged on")
+        this.ok((deck.tablePage(0 -5)) "paged back")
+        deck.tablePage(0 2)
+        def last:EVGDisplayList (PresTimeline.frame(deck si 5.0))
+        this.ok(((PresCheck.texts(last "heinä")) == 1) "the last page shows the last row")
+        this.ok(((PresCheck.texts(last "tammi")) == 0) "and not the first")
+        deck.setText((text + "\nlisää\n"))
+        def kept:EVGDisplayList (PresTimeline.frame(deck si 5.0))
+        this.ok(((PresCheck.texts(kept "heinä")) == 1) "an edit elsewhere keeps the page")
+        deck.tablesHome()
+        def home:EVGDisplayList (PresTimeline.frame(deck si 5.0))
+        this.ok(((PresCheck.texts(home "tammi")) == 1) "an export shows the page the fence asks for")
     }
 
     ; The chart editor's model: a fence read as a table and written back.
