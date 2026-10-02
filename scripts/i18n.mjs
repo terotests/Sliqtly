@@ -29,13 +29,13 @@ function collect() {
     const s = fs.readFileSync(path.join(root, "src", f), "utf8");
     for (const m of s.matchAll(new RegExp(String.raw`PresI18n\.t\(\s*` + LIT, "g"))) keys.add(unquote(m[1]));
   }
-  for (const f of ["main.js", "sliqtly.js"]) {
+  for (const f of ["main.js", "sliqtly.js", "sheets-live.js"]) {
     const s = fs.readFileSync(path.join(root, "web", f), "utf8");
     for (const m of s.matchAll(new RegExp(String.raw`\bt\(\s*` + LIT, "g"))) keys.add(unquote(m[1]));
   }
   // strings the code translates through a variable, named in a comment:
   // `; i18n: "Text" "Speech"` (Ranger) or `// i18n: "Dark" "Light"` (JS)
-  for (const f of [...fs.readdirSync(path.join(root, "src")).map((f) => "src/" + f), "web/main.js", "web/sliqtly.js"]) {
+  for (const f of [...fs.readdirSync(path.join(root, "src")).map((f) => "src/" + f), "web/main.js", "web/sliqtly.js", "web/sheets-live.js"]) {
     for (const line of fs.readFileSync(path.join(root, f), "utf8").split("\n")) {
       const at = line.search(/(;|\/\/)\s*i18n:/);
       if (at >= 0) for (const m of line.slice(at).matchAll(new RegExp(LIT, "g"))) keys.add(unquote(m[1]));

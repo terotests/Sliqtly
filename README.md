@@ -185,6 +185,44 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   turn the effects on for every chart: `chart { chart-effects: glow gradient; }`.
   A chart with layers, transforms or data from a URL is not a table and the
   window says so.
+- **Live spreadsheets** ([EVGSheets](https://github.com/terotests/EVGSheets)).
+  When you drop an `.xlsx`, the import dialog offers *Live spreadsheet*. The
+  workbook is kept under `data/` next to one CSV per sheet, and this fence is
+  inserted:
+
+  ````markdown
+  ```sheet
+  data/sales.xlsx
+  sheet: Sales
+  data: data/sales-Sales.csv
+  rows: 8
+  ```
+  ````
+
+  - **On the slide:** the slide paints the sheet's CSV as a table. Exports,
+    thumbnails and transitions use that picture.
+  - **While presenting:** once the slide has stopped moving, the workbook itself
+    is laid over the box, read-only. It is inert, so the arrows still turn
+    slides.
+  - **Editing:** *Edit* on the sheet, or **E**, moves the keyboard into the
+    sheet, where the arrows move between cells. Typing edits a cell, and a
+    short ribbon appears.
+  - **Leaving:** *Done*, **Esc** (when no cell is being edited) or
+    **Ctrl+Enter** returns the keyboard to the slides. In full screen the
+    browser keeps Esc for itself, so there Esc leaves the sheet and full screen,
+    not the presentation.
+  - **Saving:** an edited workbook is saved back to `data/` together with its
+    CSVs, so the next export shows the change.
+  - **Accessibility:** a reader hears "A spreadsheet is on this slide. Press E…".
+    The open sheet has its own accessibility tree, with the grid, the cells and
+    the ribbon.
+  - **Files tab:** opening an `.xlsx` there shows the full editor in a dialog.
+
+  EVGSheets is loaded from beside the page (`web/dist/sheets/`) when the build
+  finds a built copy (`EVGSHEETS_DIST=<EVGSheets>/dist npm run build`, or
+  `.deps/EVGSheets/dist`). Otherwise it comes from `presentation.config.json`
+  `evgsheets.base`, which defaults to `https://terotests.github.io/EVGSheets/`.
+  The page-side code is `web/sheets-live.js`.
 - **Ctrl+V** in the editor pastes a picture from the clipboard. It is stored
   under `media/` and written into the Markdown as `![](media/…)`. Dropping an
   image onto the canvas does the same.
@@ -228,7 +266,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | `src/PresTimeline.rgr` | (deck, slide, t) → display list. Deterministic: no clock of its own |
 | `src/PresApp.rgr` | The editor: panels, tracks, filmstrip, presenting, exports |
 | `src/PresCheck.rgr` | Node checks |
-| `web/` | `index.html` (toolbar), `main.js` (WebGL, clock, keyboard, paste), `pres.css` (EVG chrome) |
+| `web/` | `index.html` (toolbar), `main.js` (WebGL, clock, keyboard, paste), `pres.css` (EVG chrome), `sheets-live.js` (live spreadsheets: EVGSheets over a ```sheet box, and the .xlsx editor dialog) |
 | `samples/*.md` | Example decks: talous (a Vega chart), ymparisto (a wrapped chain), urheilu and ohjelmointi (questions with a loop), kulttuuri (Graphviz). `<key>.en.md` is the English deck, shown unless the interface is in Finnish (`<key>.md`). `esittely.md` is the deck `check:web` drives (`?sample=esittely`) |
 | `themes/*.css` | Themes; `aurora` is the default (dark 16:9) |
 | `web/sliqtly.js` | PRO: Google sign-in through Firebase Auth, behind the bar's PRO button |

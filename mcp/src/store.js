@@ -81,6 +81,12 @@ export class FirebaseStore {
     return snap.exists ? snap.data() : null;
   }
 
+  // the bytes of one of a deck's files (shares/<id>/<path> in Storage)
+  async fileBytes(id, path) {
+    const [buf] = await this.bucket.file(`shares/${id}/${path}`).download();
+    return buf;
+  }
+
   // the user's shares, newest first (an equality filter needs no index)
   async list(uid, limit = 50) {
     const snap = await this.db.collection("shares").where("owner", "==", uid).get();

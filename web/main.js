@@ -19,6 +19,7 @@ import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
+import { createLiveSheets } from "./sheets-live.js";
 
 const canvas = document.getElementById("c");
 const stageEl = document.getElementById("stage");
@@ -315,6 +316,112 @@ async function keepFile(rec) {
   cloudSoon();
 }
 
+// --- live spreadsheets (EVGSheets) -------------------------------------------------
+// Where EVGSheets is served from: beside this page when the build put it
+// there (sheets/), or its own site. See web/sheets-live.js.
+const SHEETS_BASE = "__SHEETS_BASE__";
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+async function readDocFile(path) {
+  const f = (await docFiles()).find((x) => x.path === bare(path));
+  if (!f) return null;
+  return typeof f.data === "string" ? new Blob([f.data]) : f.data;
+}
+
+// An edited workbook back into the deck: the .xlsx itself, and the CSV of
+// each sheet, which the stills, tables and charts read.
+// An edited workbook back into the deck. Only the .xlsx is kept; its sheets'
+// CSVs (stills, tables, charts) are handed over in memory. A live sheet over a
+// plain CSV writes that CSV back instead.
+async function saveWorkbook(file, raw, sheetName) {
+  const path = bare(file);
+  const PresData = await loadPresData();
+  const got = workbookSheets(/\.xlsx$/i.test(path) ? path : path.replace(/\.[^.\/]+$/, ".xlsx"), PresData, raw);
+  if (got.error) {
+    toast(t("Could not read the workbook: ") + got.error);
+    return;
+  }
+  if (/\.xlsx$/i.test(path)) {
+    await keepFile({ path, type: XLSX_MIME, size: raw.byteLength, data: new Blob([raw], { type: XLSX_MIME }) });
+    for (const sh of got.sheets) {
+      chartFiles.set(sh.path, Promise.resolve(sh.csv));
+      app.setChartData(sh.path, sh.csv);
+    }
+  } else if (got.sheets.length) {
+    const csv = got.sheets[0].csv;
+    await keepFile({ path, type: "text/csv", size: csv.length, data: csv });
+    chartFiles.set(path, Promise.resolve(csv));
+    app.setChartData(path, csv);
+  }
+  await saveDoc(true);
+  dropThumbs();
+  needsPaint = true;
+  toast(t("Saved ") + path.split("/").pop());
+}
+
+// A workbook is kept as itself. The CSV of each sheet — what tables, charts
+// and a live sheet's still read — is derived from it when it is needed and
+// never stored: `data/<book>-<Sheet>.csv` (or `data/<book>.csv` for a
+// one-sheet book) names a sheet of `data/<book>.xlsx`.
+function workbookSheets(xlsxPath, PresData, raw) {
+  const r = JSON.parse(PresData.xlsxSheets(asRangerBuffer(raw.slice(0))));
+  if (r.error) return { error: r.error, sheets: [] };
+  const used = r.sheets.filter((sh) => sh.csv.replace(/[,\s]/g, "") !== "");
+  const base = bare(xlsxPath).replace(/\.xlsx$/i, "");
+  return {
+    error: "",
+    sheets: used.map((sh) => {
+      const csv = tidyCsv(sh.csv);
+      const path = used.length > 1 ? `${base}-${sh.name.replace(/[\\/:*?"<>|\s]+/g, "-")}.csv` : base + ".csv";
+      return { name: sh.name, path, csv, text: csv };
+    }),
+  };
+}
+
+// a kept workbook (path @ when it was saved) → Promise<Map(csv path → csv)>
+const derived = new Map();
+function sheetsOfWorkbook(f) {
+  const key = f.path + "@" + (f.updated || 0);
+  if (!derived.has(key)) {
+    derived.set(key, (async () => {
+      const PresData = await loadPresData();
+      const blob = typeof f.data === "string" ? new Blob([f.data]) : f.data;
+      const out = new Map();
+      for (const sh of workbookSheets(f.path, PresData, await blob.arrayBuffer()).sheets) out.set(sh.path, sh.csv);
+      return out;
+    })().catch(() => new Map()));
+  }
+  return derived.get(key);
+}
+
+/** A sheet's CSV, derived from the workbook it names, or null. */
+async function derivedCsv(url) {
+  const want = bare(url);
+  for (const f of await docFiles()) {
+    if (!/\.xlsx$/i.test(f.path)) continue;
+    const base = f.path.replace(/\.xlsx$/i, "");
+    if (want !== base + ".csv" && !want.startsWith(base + "-")) continue;
+    const got = (await sheetsOfWorkbook(f)).get(want);
+    if (got != null) return got;
+  }
+  return null;
+}
+
+const liveSheets = createLiveSheets({
+  stageEl,
+  canvas,
+  keys,
+  base: SHEETS_BASE,
+  readFile: readDocFile,
+  saveWorkbook,
+  t,
+  toast: (m) => toast(m),
+  onChange: () => { needsPaint = true; },
+});
+window.__liveSheets = liveSheets;
+// for check:web: what the document keeps as files
+window.__docFiles = () => docFiles().then((fs) => fs.map((f) => f.path));
+
 async function docFiles() {
   const out = new Map();
   if (doc.persisted && vfs) for (const f of await vfs.listFiles(doc.id)) out.set(f.path, f);
@@ -561,20 +668,17 @@ function jsonCsv(text) {
 async function importData(file, ask) {
   const base = file.name.replace(/\.[^.]+$/, "").replace(/[\\/:*?"<>|]+/g, "-");
   let sheets;
+  let xlsx = null;
   if (/\.xlsx$/i.test(file.name)) {
     const PresData = await loadPresData();
     const bytes = await file.arrayBuffer();
-    const r = JSON.parse(PresData.xlsxSheets(asRangerBuffer(bytes.slice(0))));
-    if (r.error) {
-      toast(t("Could not read the workbook: ") + r.error);
+    xlsx = { path: placeFor(file.name, XLSX_MIME), bytes: bytes.slice(0), kept: false };
+    const got = workbookSheets(xlsx.path, PresData, bytes);
+    if (got.error) {
+      toast(t("Could not read the workbook: ") + got.error);
       return true;
     }
-    const used = r.sheets.filter((sh) => sh.csv.replace(/[,\s]/g, "") !== "");
-    sheets = used.map((sh) => {
-      const csv = tidyCsv(sh.csv);
-      const name = used.length > 1 ? `${base}-${sh.name.replace(/[\\/:*?"<>|\s]+/g, "-")}.csv` : base + ".csv";
-      return { name: sh.name, path: placeFor(name, "text/csv"), csv, text: csv };
-    });
+    sheets = got.sheets;
   } else {
     const text = await file.text();
     let csv = text;
@@ -589,12 +693,12 @@ async function importData(file, ask) {
     toast(t("No rows in this file."));
     return true;
   }
-  importing = { sheets };
+  importing = { sheets, xlsx };
   if (!ask) {
     for (let i = 0; i < sheets.length; i++) await keepData(i);
     return true;
   }
-  app.openImport(JSON.stringify({ name: file.name, sheets: sheets.map(({ name, path, csv }) => ({ name, path, csv })) }));
+  app.openImport(JSON.stringify({ name: file.name, xlsx: xlsx ? xlsx.path : "", sheets: sheets.map(({ name, path, csv }) => ({ name, path, csv })) }));
   needsPaint = true;
   return true;
 }
@@ -653,6 +757,25 @@ async function keepData(i) {
     needsPaint = true;
     return;
   }
+  // The workbook itself too, once: a live sheet (```sheet) opens it, and the
+  // files tab edits it.
+  const wb = importing.xlsx;
+  if (wb) {
+    // only the workbook is a file; its sheets are read from it
+    if (!wb.kept) {
+      wb.kept = true;
+      await keepFile({ path: wb.path, type: XLSX_MIME, size: wb.bytes.byteLength, data: new Blob([wb.bytes], { type: XLSX_MIME }) });
+    }
+    for (const one of importing.sheets) {
+      chartFiles.set(one.path, Promise.resolve(one.text));
+      app.setChartData(one.path, one.text);
+    }
+    await saveDoc(true);
+    dropThumbs();
+    refreshFiles();
+    needsPaint = true;
+    return;
+  }
   await keepFile({ path: sh.path, type: /\.json$/i.test(sh.path) ? "application/json" : "text/csv", size: sh.text.length, data: sh.text });
   chartFiles.set(sh.path, Promise.resolve(sh.text));
   app.setChartData(sh.path, sh.text);
@@ -680,6 +803,16 @@ async function fileRequest(r) {
   } else if (action === "open") {
     const f = (await docFiles()).find((x) => x.path === what);
     if (!f) return;
+    if (/\.xlsx$/i.test(f.path)) {
+      const blob = typeof f.data === "string" ? new Blob([f.data]) : f.data;
+      liveSheets.openDialog({
+        name: f.path.split("/").pop(),
+        bytes: await blob.arrayBuffer(),
+        onSave: (raw) => saveWorkbook(f.path, raw),
+        onClose: () => { keys.focus({ preventScroll: true }); needsPaint = true; },
+      }).catch((e) => toast(t("The spreadsheet editor did not load: ") + (e.message || e)));
+      return;
+    }
     const text = typeof f.data === "string" ? f.data : (isText(f.path, f.type) ? await f.data.text() : null);
     if (text == null) { toast(t("This file cannot be opened as text.")); return; }
     app.openFile(f.path, text);
@@ -741,6 +874,7 @@ function paintOnce() {
   errEl.textContent = "";
   const layout = JSON.parse(app.layoutJson());
   lastLayout = layout;
+  liveSheets.sync(layout);
   if (layout.rev !== thumbRev) {
     dropThumbs();
     thumbRev = layout.rev;
@@ -1253,10 +1387,17 @@ function fetchChartFiles(rev) {
       continue;
     }
     const tries = ["./" + url.replace(/^\.?\//, ""), "https://cdn.jsdelivr.net/npm/vega-datasets@2/" + url.replace(/^\.?\//, "")];
+    let fromWorkbook = false;
     const got = (async () => {
       // the document's own copy, when it has one
       const mine = (await docFiles()).find((f) => f.path === bare(url));
       if (mine && typeof mine.data === "string") return mine.data;
+      // a sheet of a workbook the document keeps
+      const sheet = /\.csv$/i.test(url) ? await derivedCsv(url) : null;
+      if (sheet != null) {
+        fromWorkbook = true;
+        return sheet;
+      }
       for (const u of tries) {
         try {
           const r = await fetch(u);
@@ -1275,6 +1416,8 @@ function fetchChartFiles(rev) {
       dropThumbs();
       needsPaint = true;
       // kept with the document, so it opens without the network next time
+      // (a workbook's sheet is the workbook's: nothing to keep)
+      if (fromWorkbook) return;
       docFiles().then((have) => {
         if (!have.some((f) => f.path === bare(url))) keepFile({ path: bare(url), type: "text/plain", size: text.length, data: text }).catch(fail);
       });
@@ -1395,6 +1538,8 @@ function handleRequests() {
       placePasted().catch(fail);
     } else if (r === "picture-cancel") {
       dropPasting();
+    } else if (r === "sheet-edit") {
+      liveSheets.editFirst();
     } else if (r.startsWith("data-keep:")) {
       keepData(+r.slice(10)).catch(fail);
     } else if (r.startsWith("file-save:")) {
@@ -1425,7 +1570,10 @@ document.addEventListener("fullscreenchange", () => {
     leavingByApp = false;
     const was = fullscreenOn;
     fullscreenOn = false;
-    if (!viewer && !byApp && was && app.isPlaying() && JSON.parse(app.layoutJson()).mode === "present") {
+    if (liveSheets.editing()) {
+      // Esc in full screen is the browser's: it was meant for the sheet
+      liveSheets.finishEditing();
+    } else if (!viewer && !byApp && was && app.isPlaying() && JSON.parse(app.layoutJson()).mode === "present") {
       app.endPresent();
       handleRequests();
     }
@@ -2339,6 +2487,8 @@ document.addEventListener("keydown", (ev) => {
   if (ev.target === keys || !(lastLayout && lastLayout.mode === "present")) return;
   // the viewer's buttons and menu keep their own keys (Enter, Tab, arrows)
   if (ev.target.closest?.("#viewBar")) return;
+  // a live sheet being edited (or the workbook dialog) has the keyboard
+  if (liveSheets.owns(ev.target)) return;
   keys.focus({ preventScroll: true });
   keys.dispatchEvent(new KeyboardEvent("keydown", { key: ev.key, code: ev.code, shiftKey: ev.shiftKey, ctrlKey: ev.ctrlKey, metaKey: ev.metaKey, altKey: ev.altKey, bubbles: false, cancelable: true }));
   ev.preventDefault();
@@ -2634,7 +2784,11 @@ function endPointer(ev) {
   touches.delete(ev.pointerId);
   if (pinch) {
     // the pinch lasts until the last finger is lifted
-    if (touches.size === 0) pinch = null;
+    if (touches.size === 0) {
+      pinch = null;
+      app.viewSettle();
+      needsPaint = true;
+    }
     return;
   }
   app.pointerUp();
@@ -2651,6 +2805,15 @@ function endPointer(ev) {
   // so what it did to the clock is taken up here
   afterInput();
 }
+// The page itself must not move under a gesture on the canvas: no bounce,
+// no browser zoom (iOS Safari zooms on a pinch despite touch-action and the
+// viewport tag), no address bar sliding in and out and resizing the canvas
+// mid-pinch.
+canvas.addEventListener("touchmove", (ev) => ev.preventDefault(), { passive: false });
+for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
+  document.addEventListener(g, (ev) => ev.preventDefault(), { passive: false });
+}
+
 let diagramTold = false;
 let diagramTimer = 0;
 canvas.addEventListener("pointerup", endPointer);
