@@ -1,4 +1,4 @@
-// Cloud Function `mcp` (2nd gen), served by Hosting at https://sliqtly.web.app/mcp
+// Cloud Function `mcp` (2nd gen), served by Hosting at https://sliqtly.com/mcp
 // (firebase.json rewrites /mcp to it). Firestore and Storage are the ones
 // the editor's Share button writes to.
 
@@ -19,5 +19,5 @@ const store = new FirebaseStore({
 
 export const mcp = onRequest(
   { region: "europe-west1", invoker: "public", memory: "512MiB", timeoutSeconds: 60, maxInstances: 10, concurrency: 40 },
-  mcpHandler({ store, baseUrl: process.env.SLIQTLY_URL || "https://sliqtly.web.app" }),
+  mcpHandler({ store, baseUrl: process.env.SLIQTLY_URL || "https://sliqtly.com" }),
 );

@@ -4,7 +4,7 @@ Lets an AI assistant (Claude, ChatGPT, Cursor, any MCP client) make a Sliqtly
 presentation: it sends Markdown, a theme, extra CSS and pictures, and gets
 back a link that opens the presentation, plus a link that opens a copy in the
 editor. The instructions page for people is [`web/connect.html`](../web/connect.html)
-(`https://sliqtly.web.app/connect.html`).
+(`https://sliqtly.com/connect.html`; `sliqtly.web.app` serves the same).
 
 Remote MCP over Streamable HTTP, stateless (`POST` only; `GET` from a browser
 is sent to the instructions page). No sign-in.
@@ -59,15 +59,10 @@ or by hand from the repository root:
 firebase deploy --only functions:mcp --project sliqtly
 ```
 
-Then `firebase.json` gets the rewrite that serves it at
-`https://sliqtly.web.app/mcp`:
-
-```json
-{ "source": "/mcp", "function": { "functionId": "mcp", "region": "europe-west1" } }
-```
-
-The rewrite comes after the first deploy, because a Hosting deploy fails on a
-rewrite to a function that does not exist yet.
+`firebase.json` rewrites `/mcp` to it, so it answers at
+`https://sliqtly.com/mcp` (and `https://sliqtly.web.app/mcp`). A Hosting
+deploy fails on a rewrite to a function that does not exist, so on a new
+project the function is deployed before the page.
 
 ## Directories
 

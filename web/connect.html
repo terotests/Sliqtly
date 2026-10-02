@@ -57,7 +57,7 @@
   <h1>Sliqtly for AI assistants</h1>
   <p class="lead">Connect Sliqtly to your assistant and ask it for a presentation. It writes the slides in Markdown, picks a theme, adds CSS, pictures, charts and diagrams, and gives you a link that opens the finished presentation.</p>
 
-  <div class="url"><code id="server">https://sliqtly.web.app/mcp</code><button class="copy" data-copy="server">Copy</button></div>
+  <div class="url"><code id="server">https://sliqtly.com/mcp</code><button class="copy" data-copy="server">Copy</button></div>
 
   <nav aria-label="Clients">
     <a href="#claude">Claude</a>
@@ -75,7 +75,7 @@
     <ol>
       <li>Open <b>Customize → Connectors</b> (in older versions <b>Settings → Connectors</b>).</li>
       <li>Click <b>Add custom connector</b>.</li>
-      <li>Name: <code>Sliqtly</code>. URL: <code>https://sliqtly.web.app/mcp</code>. If asked for authentication, choose <b>No sign-in</b>.</li>
+      <li>Name: <code>Sliqtly</code>. URL: <code>https://sliqtly.com/mcp</code>. If asked for authentication, choose <b>No sign-in</b>.</li>
       <li>Click <b>Add</b>.</li>
     </ol>
     <h3>Team and Enterprise</h3>
@@ -86,7 +86,7 @@
 
   <section id="claude-code">
     <h2>Claude Code</h2>
-    <pre><code id="cc">claude mcp add --transport http sliqtly https://sliqtly.web.app/mcp</code><button class="copy" data-copy="cc">Copy</button></pre>
+    <pre><code id="cc">claude mcp add --transport http sliqtly https://sliqtly.com/mcp</code><button class="copy" data-copy="cc">Copy</button></pre>
     <p class="note">Add <code>--scope user</code> to have it in every project.</p>
   </section>
 
@@ -95,7 +95,7 @@
     <ol>
       <li>Open <b>Settings → Apps &amp; Connectors → Advanced settings</b> and turn on <b>Developer mode</b>. On Business and Enterprise a workspace owner has to allow it first.</li>
       <li>Back in <b>Apps &amp; Connectors</b>, click <b>Create</b>.</li>
-      <li>Name: <code>Sliqtly</code>. Description: <i>Makes slide presentations from Markdown.</i> MCP server URL: <code>https://sliqtly.web.app/mcp</code>. Authentication: <b>No authentication</b>.</li>
+      <li>Name: <code>Sliqtly</code>. Description: <i>Makes slide presentations from Markdown.</i> MCP server URL: <code>https://sliqtly.com/mcp</code>. Authentication: <b>No authentication</b>.</li>
       <li>Tick that you trust the application and click <b>Create</b>.</li>
     </ol>
     <p>In a new chat, open <b>+</b> → <b>Developer mode</b> (or <b>More</b>) and choose Sliqtly. ChatGPT asks before it makes a presentation; allow it.</p>
@@ -107,7 +107,7 @@
     <pre><code id="oai">{
   "type": "mcp",
   "server_label": "sliqtly",
-  "server_url": "https://sliqtly.web.app/mcp",
+  "server_url": "https://sliqtly.com/mcp",
   "require_approval": "never"
 }</code><button class="copy" data-copy="oai">Copy</button></pre>
     <p class="note">Put it in the request's <code>tools</code> list. In the Agents SDK use <code>HostedMCPTool</code> with the same <code>tool_config</code>.</p>
@@ -119,7 +119,7 @@
     <pre><code id="cursor-json">{
   "mcpServers": {
     "sliqtly": {
-      "url": "https://sliqtly.web.app/mcp"
+      "url": "https://sliqtly.com/mcp"
     }
   }
 }</code><button class="copy" data-copy="cursor-json">Copy</button></pre>
@@ -133,25 +133,25 @@
     <pre><code id="vscode">// .vscode/mcp.json
 {
   "servers": {
-    "sliqtly": { "type": "http", "url": "https://sliqtly.web.app/mcp" }
+    "sliqtly": { "type": "http", "url": "https://sliqtly.com/mcp" }
   }
 }</code><button class="copy" data-copy="vscode">Copy</button></pre>
     <h3>Windsurf</h3>
     <pre><code id="windsurf">// ~/.codeium/windsurf/mcp_config.json
 {
   "mcpServers": {
-    "sliqtly": { "serverUrl": "https://sliqtly.web.app/mcp" }
+    "sliqtly": { "serverUrl": "https://sliqtly.com/mcp" }
   }
 }</code><button class="copy" data-copy="windsurf">Copy</button></pre>
     <h3>Gemini CLI</h3>
     <pre><code id="gemini">// ~/.gemini/settings.json
 {
   "mcpServers": {
-    "sliqtly": { "httpUrl": "https://sliqtly.web.app/mcp" }
+    "sliqtly": { "httpUrl": "https://sliqtly.com/mcp" }
   }
 }</code><button class="copy" data-copy="gemini">Copy</button></pre>
     <h3>A client that only runs local servers</h3>
-    <pre><code id="remote">npx -y mcp-remote https://sliqtly.web.app/mcp</code><button class="copy" data-copy="remote">Copy</button></pre>
+    <pre><code id="remote">npx -y mcp-remote https://sliqtly.com/mcp</code><button class="copy" data-copy="remote">Copy</button></pre>
   </section>
 
   <section id="use">
