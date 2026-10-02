@@ -1322,6 +1322,47 @@ try {
     check("…and a copy is kept with the deck for its readers", res.copy === 6, JSON.stringify(res));
   }
 
+  // A private sheet pasted where the browser blocks Google's window (the
+  // press spent on the fetch): a card asks for one more press, which opens it
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const route = (r) => r.fulfill({ status: 200, contentType: "text/html", headers: { "access-control-allow-origin": "*" }, body: "<!doctype html><title>Sign in</title>" });
+    await page.context().route(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate(() => {
+      const s = window.sliqtly;
+      window.__was = { user: s.user, readSheet: s.readSheet, askSheets: s.askSheets };
+      let tok = null;
+      s.user = () => ({ uid: "u1", email: "u@example.com" });
+      s.askSheets = async () => { tok = "tok"; return tok; };
+      s.readSheet = async () => {
+        if (!tok) throw Object.assign(new Error("blocked"), { code: "auth/popup-blocked" });
+        return "Kk,Km\nTammi,10\nHelmi,20\n";
+      };
+      const a = window.__app;
+      a.setSource("# D\n\n## Km\n\n");
+      a.showTab("md");
+      a.editor.moveCaret(4, 0, false);
+      const keys = document.getElementById("keys");
+      keys.focus();
+      const dt = new DataTransfer();
+      dt.setData("text/plain", "https://docs.google.com/spreadsheets/d/PRIV2/edit#gid=0");
+      keys.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    const card = await page.waitForSelector("#gTap button.primary", { timeout: 5000 }).then(() => true).catch(() => false);
+    if (card) await page.click("#gTap button.primary");
+    await page.waitForFunction(() => window.__app.shareIsOpen(), null, { timeout: 5000 }).catch(() => {});
+    const after = await page.evaluate(() => {
+      const a = window.__app;
+      const r = { open: a.shareIsOpen(), live: !!(a.panels.imp && a.panels.imp.live), rows: a.panels.imp ? a.panels.imp.rows : -1, card: !!document.getElementById("gTap") };
+      if (a.shareIsOpen()) a.closeShare();
+      Object.assign(window.sliqtly, window.__was);
+      return r;
+    });
+    await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    check("a blocked Google window: a card asks for a press, then the sheet is linked", card && after.open && after.live && after.rows === 2 && !after.card, JSON.stringify({ card, ...after }));
+  }
+
   // A sheet link pasted into the editor: "Link live data", then a chart and a
   // table that read the sheet live
   {

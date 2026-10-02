@@ -1122,6 +1122,37 @@ async function liveCopy(url) {
   const have = (await docFiles()).find((f) => f.path === path);
   return have && typeof have.data === "string" ? have.data : null;
 }
+// Google's permission window opens only from a press, and a browser (Safari
+// on a phone) counts a press as spent once the page has waited on the
+// network. Then a small card asks for one more press, and that press opens
+// the window at once (sliqtly.js askSheets). → true when a token came.
+let tapping = null;
+function googleTap() {
+  tapping ??= new Promise((ok) => {
+    const box = document.createElement("div");
+    box.id = "gTap";
+    box.setAttribute("role", "dialog");
+    box.setAttribute("aria-label", t("Google Sheets"));
+    const text = document.createElement("p");
+    text.textContent = t("This Google Sheet is private. Google asks once whether Sliqtly may read the sheets you pick.");
+    const go = document.createElement("button");
+    go.className = "primary";
+    go.textContent = t("Continue with Google");
+    const no = document.createElement("button");
+    no.textContent = t("Cancel");
+    const done = (v) => { box.remove(); tapping = null; ok(v); };
+    go.addEventListener("click", () => {
+      // no await before this call: the window opens within the press
+      window.sliqtly.askSheets().then((tok) => done(!!tok), () => done(false));
+    });
+    no.addEventListener("click", () => done(false));
+    box.append(text, go, no);
+    document.body.appendChild(box);
+    go.focus();
+  });
+  return tapping;
+}
+
 async function readLive(url, ask) {
   let text = null;
   let why = null;
@@ -1135,6 +1166,14 @@ async function readLive(url, ask) {
       text = await window.sliqtly.readSheet(url, ask);
     } catch (e) {
       why = e;
+      // the press was spent on the fetch before it (Safari): a press of its own
+      if (ask && e?.code === "auth/popup-blocked" && (await googleTap())) {
+        try {
+          text = await window.sliqtly.readSheet(url, true);
+        } catch (e2) {
+          why = e2;
+        }
+      }
     }
   }
   if (text != null) {

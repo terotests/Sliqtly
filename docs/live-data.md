@@ -72,6 +72,9 @@ as the signed-in PRO user (`web/sliqtly.js` `readSheet`):
 - The scope is `drive.file`: Sliqtly may read only the files you pick in
   Google's Picker, nothing else on your Drive. Pasting the link the first
   time opens a Google popup (permission) and the Picker, open on that sheet.
+  When the browser blocks that popup (Safari on phones, after the first
+  fetch), a card asks for one press on "Continue with Google" and opens it
+  from that press.
 - The token lasts an hour and is kept for the tab only. On open without one
   the editor shows the saved copy; R while presenting signs in again.
 - Every good read is kept with the deck as `data/live/<hash>.csv` (only when

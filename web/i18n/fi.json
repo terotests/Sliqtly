@@ -554,5 +554,8 @@
   "Text in that place of every slide's header; a picture as ![](media/logo.png). {page}, {pages} and {title} are filled in.": "Teksti jokaisen dian yläosan tähän kohtaan; kuva muodossa ![](media/logo.png). {page}, {pages} ja {title} täyttyvät.",
   "Text weight: normal or bold.": "Tekstin paksuus: normal tai bold.",
   "off: no header or footer on this slide.": "off: ei ylä- eikä alaosaa tällä dialla.",
-  "Height of the header or footer picture, e.g. 30pt.": "Ylä- tai alaosan kuvan korkeus, esim. 30pt."
+  "Height of the header or footer picture, e.g. 30pt.": "Ylä- tai alaosan kuvan korkeus, esim. 30pt.",
+  "Google Sheets": "Google Sheets",
+  "This Google Sheet is private. Google asks once whether Sliqtly may read the sheets you pick.": "Tämä Google Sheet on yksityinen. Google kysyy kerran, saako Sliqtly lukea valitsemiasi sheettejä.",
+  "Continue with Google": "Jatka Googlella"
 }
