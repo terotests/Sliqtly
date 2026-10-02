@@ -1,0 +1,6 @@
+.git
+.deps
+node_modules
+web/dist
+mcp-go/assets
+mcp-go/sliqtly_mcp.go

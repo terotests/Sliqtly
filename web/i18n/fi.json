@@ -511,5 +511,19 @@
   "Saving to the cloud failed: ": "Tallennus pilveen epäonnistui: ",
   "The presentation is kept in this browser.": "Esitys on tallessa tässä selaimessa.",
   "This presentation was changed elsewhere (by an assistant?). Your changes here are not saved to the cloud: reload to get the newer version.": "Tätä esitystä on muutettu muualla (avustaja?). Täällä tehtyjä muutoksia ei tallenneta pilveen: lataa sivu uudelleen saadaksesi uudemman version.",
-  "Your presentations and their pictures and data are saved in the cloud as you work.": "Esityksesi kuvineen ja datoineen tallentuvat pilveen sitä mukaa kun työskentelet."
+  "Your presentations and their pictures and data are saved in the cloud as you work.": "Esityksesi kuvineen ja datoineen tallentuvat pilveen sitä mukaa kun työskentelet.",
+  "Crop image": "Rajaa kuva",
+  "Add image": "Lisää kuva",
+  "Drag the frame or its corners to choose the part that shows. Arrow keys move it, Shift+arrows resize it.": "Vedä kehystä tai sen kulmia valitaksesi näkyvän osan. Nuolinäppäimet siirtävät kehystä, Shift+nuolet muuttavat sen kokoa.",
+  "Shape": "Muoto",
+  "Free": "Vapaa",
+  "Whole image": "Koko kuva",
+  "Use as": "Käyttö",
+  "Image on this slide": "Kuva tälle dialle",
+  "PRO: the image is saved to your cloud files with this presentation, and a copy stays in this browser.": "PRO: kuva tallennetaan pilvitiedostoihisi tämän esityksen mukana, ja kopio jää tähän selaimeen.",
+  "The image is saved in this browser only (IndexedDB). Sign in with PRO to keep it in the cloud.": "Kuva tallennetaan vain tähän selaimeen (IndexedDB). Kirjaudu PRO:hon, niin se tallentuu pilveen.",
+  "This browser does not allow storage: the image is kept only while this page is open.": "Tämä selain ei salli tallennusta: kuva säilyy vain niin kauan kuin sivu on auki.",
+  "Image saved to your PRO cloud files.": "Kuva tallennettu PRO-pilvitiedostoihisi.",
+  "The image could not be saved to the cloud; it is kept in this browser.": "Kuvaa ei voitu tallentaa pilveen; se säilyy tässä selaimessa.",
+  "Preparing the download…": "Valmistellaan latausta…"
 }

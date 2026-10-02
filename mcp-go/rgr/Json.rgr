@@ -63,6 +63,64 @@ class JOut {
         push parts "}"
     }
 
+    ; as JSON.stringify(v, null, 2)
+    fn writePretty:void (v:MfJ ind:string) {
+        if (v.kind == 4) {
+            def n:int (array_length v.arr)
+            if (n == 0) {
+                push parts "[]"
+                return
+            }
+            def inner:string (ind + "  ")
+            push parts "["
+            def i:int 0
+            while (i < n) {
+                if (i > 0) {
+                    push parts ","
+                }
+                push parts ("\n" + inner)
+                def item:MfJ (itemAt v.arr i)
+                this.writePretty(item inner)
+                i = (i + 1)
+            }
+            push parts ("\n" + ind)
+            push parts "]"
+            return
+        }
+        if (v.kind == 5) {
+            def m:int (array_length v.ks)
+            if (m == 0) {
+                push parts "{}"
+                return
+            }
+            def inner2:string (ind + "  ")
+            push parts "{"
+            def j:int 0
+            while (j < m) {
+                if (j > 0) {
+                    push parts ","
+                }
+                push parts ("\n" + inner2)
+                def k:string (itemAt v.ks j)
+                push parts (MfJ.quote(k))
+                push parts ": "
+                def fv:MfJ (itemAt v.vs j)
+                this.writePretty(fv inner2)
+                j = (j + 1)
+            }
+            push parts ("\n" + ind)
+            push parts "}"
+            return
+        }
+        this.write(v)
+    }
+
+    sfn pretty:string (v:MfJ) {
+        def w (new JOut)
+        w.writePretty(v "")
+        return (join w.parts "")
+    }
+
     sfn text:string (v:MfJ) {
         def w (new JOut)
         w.write(v)

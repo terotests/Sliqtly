@@ -154,27 +154,107 @@ async function registerPicture(path, bytes, type) {
   });
 }
 
+// A picture pasted or dropped on the canvas opens the image window
+// (PresChartEditor's "paste" mode): the part to keep (CropCtl), and whether it
+// goes on the slide or behind this slide or every slide. Until Add is pressed
+// it is only registered for drawing, under a path of its own; nothing is kept.
 let pasteCount = 0;
+let pasting = null;
 async function addPictureFile(file) {
   const type = file.type || "image/png";
+  const bytes = await file.arrayBuffer();
+  const [w, h] = await imageSize(bytes, type);
+  const alt = file.name && file.name !== "image.png" ? file.name.replace(/\.[^.]+$/, "") : "image";
+  if (w > 0 && h > 0) {
+    dropPasting();
+    pasteCount += 1;
+    const preview = `/__paste/${Date.now().toString(36)}-${pasteCount}`;
+    await registerPicture(preview, bytes, type);
+    pasting = { bytes, type, w, h, preview };
+    if (app.openPaste(preview, w, h, alt, storageNote())) {
+      needsPaint = true;
+      return;
+    }
+    dropPasting();
+  }
+  // no size to crop by (or presenting): straight onto the slide, as before
+  const rel = await keepPicture(bytes, type, w, h);
+  app.insertPicture(rel, alt);
+  dropThumbs();
+  afterInput();
+}
+
+function dropPasting() {
+  if (pasting) pictures.delete(pasting.preview);
+  pasting = null;
+}
+
+// Where a picture added now is kept, as the window says it.
+function signedIn() {
+  return !!(window.sliqtly && window.sliqtly.user());
+}
+function storageNote() {
+  if (signedIn()) return t("PRO: the image is saved to your cloud files with this presentation, and a copy stays in this browser.");
+  return vfs && vfs.persistent
+    ? t("The image is saved in this browser only (IndexedDB). Sign in with PRO to keep it in the cloud.")
+    : t("This browser does not allow storage: the image is kept only while this page is open.");
+}
+
+// The picture as the window left it: the part kept cut out (the original
+// bytes when nothing was cut), kept, and placed.
+async function placePasted() {
+  const p = pasting;
+  if (!p) return;
+  const plan = JSON.parse(app.pastePlan());
+  dropPasting();
+  let { bytes, type, w, h } = p;
+  if (!plan.whole) {
+    const [x, y, cw, ch] = String(plan.crop).split(",").map(Number);
+    if (cw > 0 && ch > 0) {
+      const bmp = await createImageBitmap(new Blob([bytes], { type }), x, y, cw, ch);
+      const c = document.createElement("canvas");
+      c.width = cw;
+      c.height = ch;
+      c.getContext("2d").drawImage(bmp, 0, 0);
+      bmp.close();
+      // a photo stays a JPEG; anything else (a screenshot, a GIF) a PNG
+      const out = /^image\/(jpeg|webp)$/.test(type) ? type : "image/png";
+      const blob = await new Promise((r) => c.toBlob(r, out, 0.92));
+      if (blob) {
+        bytes = await blob.arrayBuffer();
+        type = blob.type || out;
+        w = cw;
+        h = ch;
+      }
+    }
+  }
+  const rel = await keepPicture(bytes, type, w, h);
+  app.placePicture(rel, plan.alt || "image", plan.to);
+  dropThumbs();
+  afterInput();
+}
+
+// A new picture of the deck: registered for the slides and kept in this
+// browser; signed in to PRO, also put in the cloud as the deck's file.
+async function keepPicture(bytes, type, w, h) {
   const ext = (type.split("/")[1] || "png").replace("jpeg", "jpg").replace("svg+xml", "svg");
   pasteCount += 1;
   const rel = `media/liitetty-${Date.now().toString(36)}-${pasteCount}.${ext}`;
-  const bytes = await file.arrayBuffer();
-  let w = 0;
-  let h = 0;
-  try {
-    const bmp = await createImageBitmap(new Blob([bytes], { type }));
-    w = bmp.width;
-    h = bmp.height;
-    bmp.close();
-  } catch (_) { /* sized by the layout's default */ }
   app.addImage("/" + rel, asRangerBuffer(bytes.slice(0)), type, w, h);
   await registerPicture("/" + rel, bytes, type);
-  await keepFile({ path: rel, type, size: bytes.byteLength, data: new Blob([bytes], { type }) });
-  app.insertPicture(rel, file.name && file.name !== "image.png" ? file.name.replace(/\.[^.]+$/, "") : "image");
-  dropThumbs();
-  afterInput();
+  const data = new Blob([bytes], { type });
+  const rec = { path: rel, type, size: bytes.byteLength, data };
+  if (signedIn()) {
+    try {
+      rec.cloud = await window.sliqtly.putFile(doc.id, rel, data);
+      toast(t("Image saved to your PRO cloud files."));
+    } catch (e) {
+      console.warn("cloud upload failed", e);
+      toast(t("The image could not be saved to the cloud; it is kept in this browser."));
+    }
+  }
+  await keepFile(rec);
+  return rel;
 }
 
 async function imageSize(bytes, type) {
@@ -681,7 +761,8 @@ function paintOnce() {
     // placed like a thumbnail: a page the size of the canvas, moved by the camera
     cj.width = W;
     cj.height = H;
-    const ce = prepareDisplayList(gl, cj, { dpr });
+    // with the pictures: the image window shows the one being added
+    const ce = prepareDisplayList(gl, cj, { dpr, images: pictures });
     if (grewBy(ce.draw(null, [cj.x, cj.y, 1], { clear: false }))) dropThumbs();
     ce.dispose();
   }
@@ -1047,6 +1128,13 @@ function deliver(bytes, name, mime) {
 }
 window.__lastDownload = "";
 
+// for scripts/check-web.mjs: the requests run now, a picture's pixel size
+window.__handleRequests = () => handleRequests();
+window.__pictureSize = (p) => {
+  const img = pictures.get(p);
+  return img ? [img.naturalWidth, img.naturalHeight] : [0, 0];
+};
+
 function handleRequests() {
   for (;;) {
     const r = app.takeRequest();
@@ -1096,6 +1184,10 @@ function handleRequests() {
       keepFile({ path, type: "application/json", size: text.length, data: text }).catch(fail);
       chartFiles.set(path, Promise.resolve(text));
       dropThumbs();
+    } else if (r === "picture-place") {
+      placePasted().catch(fail);
+    } else if (r === "picture-cancel") {
+      dropPasting();
     } else if (r.startsWith("data-keep:")) {
       keepData(+r.slice(10)).catch(fail);
     } else if (r.startsWith("file-save:")) {
@@ -1642,13 +1734,19 @@ document.getElementById("vFull").addEventListener("click", () => {
 // The … menu: the deck as PDF, PPTX or Markdown (the editor's exports), a new
 // deck of the reader's own based on this one, and, for the signed-in owner of
 // a cloud share, Edit, which opens their own deck in the editor.
-// The page may be a blob: copy of index.html (the AI preview); its <base> is
-// the site, so the links are made against it and open in a new tab.
+// Embedded in an assistant's preview (mcp/src/preview.html writes the page as
+// srcdoc, with <meta name="sliqtly-link">) the page has no address and its
+// sandbox allows no downloads or windows: every item opens sliqtly.com in a
+// new tab through the preview (window.__sliqtlyOpenLink, the host's
+// ui/open-link), exports with ?export=pdf|pptx|md, which the site runs on load.
 const vMenu = document.getElementById("vMenu");
 const vMore = document.getElementById("vMore");
 const vExportSub = document.getElementById("vExportSub");
 const vExport = document.getElementById("vExport");
-const framed = location.protocol === "blob:";
+const framed = location.protocol === "blob:" || !!document.querySelector('meta[name="sliqtly-link"]');
+function siteUrl(path) {
+  return new URL(path, framed ? SITE + "/" : document.baseURI).href;
+}
 let viewShare = null; // { id, owner, deck } of a cloud share being shown
 function ownsShare() {
   const u = window.sliqtly?.user?.();
@@ -1668,19 +1766,33 @@ function toggleViewMenu(open) {
 }
 window.addEventListener("sliqtly:user", () => { document.getElementById("vEdit").hidden = !ownsShare(); });
 function siteLink(url) {
-  if (framed) window.open(url, "_blank", "noopener");
-  else {
+  if (framed) {
+    let open = null;
+    try { open = window.parent !== window && window.parent.__sliqtlyOpenLink; } catch (_) { /* another origin */ }
+    if (typeof open === "function") open(url);
+    else window.open(url, "_blank", "noopener");
+  } else {
     location.assign(url);
     // only the hash changed: the page would stay the viewer
     if (new URL(url).pathname === location.pathname && !new URL(url).search) location.reload();
   }
 }
 function createFromViewed() {
-  if (viewShare) return siteLink(new URL("s/" + viewShare.id + "?edit", document.baseURI).href);
+  if (viewShare) return siteLink(siteUrl("s/" + viewShare.id + "?edit"));
   const q = hashParams();
   q.delete("mode");
-  siteLink(new URL(document.baseURI).href.replace(/#.*$/, "") + "#" + q.toString());
+  q.delete("export");
+  siteLink(siteUrl("").replace(/#.*$/, "") + "#" + q.toString());
 }
+// the shown deck on the site, exporting itself there
+function exportOnSite(kind) {
+  if (viewShare) return siteLink(siteUrl("s/" + viewShare.id + "?export=" + kind));
+  const q = hashParams();
+  q.set("mode", "show");
+  q.set("export", kind);
+  siteLink(siteUrl("").replace(/#.*$/, "") + "#" + q.toString());
+}
+const EXPORTS = { pdf: () => exportPdf(), pptx: () => exportPptx(), md: () => exportMd() };
 async function exportMd() {
   window.__lastDownload = deliver(new TextEncoder().encode(app.source()), exportName() + ".md", "text/markdown");
 }
@@ -1695,12 +1807,12 @@ vMenu.addEventListener("click", (ev) => {
   const act = ev.target.closest("[data-act]")?.dataset.act;
   if (!act) return;
   toggleViewMenu(false);
-  if (act === "pdf") exportPdf().catch(fail);
-  else if (act === "pptx") exportPptx().catch(fail);
-  else if (act === "md") exportMd().catch(fail);
-  else if (act === "new") createFromViewed();
+  if (EXPORTS[act]) {
+    if (framed) exportOnSite(act);
+    else EXPORTS[act]().catch(fail);
+  } else if (act === "new") createFromViewed();
   else if (act === "edit" && ownsShare()) {
-    siteLink(new URL("s/" + viewShare.id + "?edit", document.baseURI).href);
+    siteLink(siteUrl("s/" + viewShare.id + "?edit"));
   }
 });
 vMenu.addEventListener("keydown", (ev) => {
@@ -2424,6 +2536,20 @@ async function start() {
   document.body.classList.remove("booting");
   if (!viewer && !isCoarse()) focusKeys("editor");
   window.__pageStarted = true;
+  // ?export=pdf|pptx|md (or in the #…): an export asked for from the
+  // assistant's preview, which cannot download
+  const ask = q.get("export") || hashParams().get("export");
+  if (viewer && !framed && EXPORTS[ask]) {
+    toast(t("Preparing the download…"));
+    EXPORTS[ask]().catch(fail);
+    // once: a reload shows the deck without downloading it again
+    const h = hashParams();
+    h.delete("export");
+    q.delete("export");
+    const search = q.toString();
+    history.replaceState(null, "", location.pathname + (search ? "?" + search : "") + (location.hash ? "#" + h.toString() : ""));
+    lastHash = location.hash;
+  }
   requestAnimationFrame(frame);
 }
 
