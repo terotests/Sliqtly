@@ -675,7 +675,8 @@ class PresPanels {
         return d
     }
 
-    ; Open: a Markdown file from the computer, or one of the sample decks.
+    ; Open: a presentation, data or a picture from the computer, or one of the
+    ; sample decks.
     fn openDialog:EVGElement () {
         def d:EVGElement (this.div("pn-dialog"))
         d.id = "pn-dialog"
@@ -685,7 +686,7 @@ class PresPanels {
         d.addChild((this.words("pn-dtitle" (PresI18n.t("Open")))))
         def f:EVGElement (this.div("pn-opt"))
         f.addChild((this.words("pn-otitle" (PresI18n.t("From your computer")))))
-        f.addChild((this.words("pn-odesc" (PresI18n.t("A Markdown file (.md), such as one saved with Save .md.")))))
+        f.addChild((this.words("pn-odesc" (PresI18n.t("A presentation (.md), or data (Excel, CSV, JSON) and pictures, which go to Files.")))))
         def fr:EVGElement (this.div("pn-orow"))
         this.button("pn-open-file" (PresI18n.t("Choose file…")) "primary" fr)
         f.addChild(fr)
