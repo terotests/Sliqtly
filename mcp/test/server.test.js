@@ -219,6 +219,7 @@ test("optional sign-in: OAuth with PKCE, own decks, refresh", async () => {
     const page = await authorize(client_id, "http://127.0.0.1:6123/cb");
     assert.equal(page.origin + page.pathname, `${BASE}/oauth.html`);
     assert.equal(page.searchParams.get("client"), "Claude");
+    assert.equal(page.searchParams.get("to"), "this computer");
     const request = page.searchParams.get("request");
 
     const wrongGoogle = await fetch(`${root}/oauth/approve`, json({ request, id_token: "nope" }));
@@ -277,6 +278,7 @@ test("optional sign-in: OAuth with PKCE, own decks, refresh", async () => {
     // a client known by its metadata document URL
     const cimd = await authorize("https://client.test/meta.json", "https://client.test/cb");
     assert.equal(cimd.searchParams.get("client"), "Test Client");
+    assert.equal(cimd.searchParams.get("to"), "client.test");
     const wrongRedirect = await fetch(`${root}/oauth/authorize?${new URLSearchParams({ response_type: "code", client_id: "https://client.test/meta.json", redirect_uri: "https://evil.test/cb", code_challenge: challenge, code_challenge_method: "S256" })}`, { redirect: "manual" });
     assert.equal(wrongRedirect.status, 400);
     // denying sends the client an error

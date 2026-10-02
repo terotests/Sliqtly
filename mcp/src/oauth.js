@@ -153,7 +153,11 @@ export function createOAuth({ db, verifyIdToken, fetchImpl = fetch, now = () => 
       state: q.state ? String(q.state) : null, code_challenge: String(q.code_challenge),
       resource: q.resource ? String(q.resource) : null, origin, exp: now() + REQUEST_TTL,
     });
-    return { redirect: `${origin}/oauth.html?request=${rid}&client=${encodeURIComponent(c.client_name)}` };
+    // the page names where the code goes, since a registered name is the
+    // client's own claim
+    const to = new URL(redirect);
+    const where = loopback(to) ? "this computer" : to.protocol === "https:" ? to.host : to.protocol.replace(/:$/, "") + " app";
+    return { redirect: `${origin}/oauth.html?request=${rid}&client=${encodeURIComponent(c.client_name)}&to=${encodeURIComponent(where)}` };
   }
 
   // /oauth.html: { request, id_token } or { request, deny: true } → { redirect }

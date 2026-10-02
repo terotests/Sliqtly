@@ -36,6 +36,7 @@
   <header><img src="/favicon.svg" alt="">Sliqtly</header>
   <h1 id="title">Sign in to Sliqtly</h1>
   <p id="lead"><span class="who" id="client">Your assistant</span> wants to make presentations in your Sliqtly account. They are saved as yours, and the assistant can list and change them.</p>
+  <p id="dest" hidden>After sign-in you return to <span class="who" id="to"></span>. Continue only if you started this from your assistant.</p>
   <p id="as" hidden>Signed in as <span class="who" id="email"></span>.</p>
   <button class="primary" id="go" disabled>Continue with Google</button>
   <button class="secondary" id="other" hidden>Use another Google account</button>
@@ -50,6 +51,7 @@
   const request = q.get("request") || "";
   const $ = (id) => document.getElementById(id);
   if (q.get("client")) $("client").textContent = q.get("client");
+  if (q.get("to")) { $("to").textContent = q.get("to"); $("dest").hidden = false; }
 
   function fail(text) {
     $("err").textContent = text;
