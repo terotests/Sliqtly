@@ -5,6 +5,10 @@ export const MAX_MD = 300 * 1024;
 export const MAX_CSS = 100 * 1024;
 export const MAX_IMAGE = 5 * 1024 * 1024;
 export const MAX_IMAGES = 20;
+export const MAX_DATA = 10 * 1024 * 1024;
+export const MAX_DATA_FILES = 10;
+export const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const DATA_TYPES = { xlsx: XLSX_MIME, csv: "text/csv", tsv: "text/tab-separated-values", json: "application/json", txt: "text/plain" };
 
 const TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml" };
 
@@ -63,6 +67,53 @@ function privateHost(host) {
     || h === "::1" || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80");
 }
 
+async function fetchBytes(raw, label, fetchImpl, max, accept) {
+  let u;
+  try { u = new URL(raw); } catch { throw new InputError(`${label}: "${raw}" is not a URL.`); }
+  if (u.protocol !== "https:" || privateHost(u.hostname)) throw new InputError(`${label}: only public https URLs are fetched.`);
+  const res = await fetchImpl(u, { signal: AbortSignal.timeout(15000), headers: { "user-agent": "Sliqtly-MCP/1.0" } });
+  if (!res.ok) throw new InputError(`${label}: ${u.hostname} answered ${res.status}.`);
+  const ct = (res.headers.get("content-type") || "").split(";")[0].trim();
+  const why = accept(ct);
+  if (why) throw new InputError(`${label}: the URL gave ${ct}, ${why}.`);
+  if (Number(res.headers.get("content-length") || 0) > max) throw new InputError(`${label} is larger than ${max / 1024 / 1024} MB.`);
+  return { data: Buffer.from(await res.arrayBuffer()), ct };
+}
+
+// Data files (.xlsx, .csv, .tsv, .json, .txt) as { name, path: "data/<name>",
+// type, data: Buffer }, kept where the editor keeps a dropped file
+// (web/vfs.js placeFor). A workbook must open.
+export async function loadDataFiles(list, fetchImpl = fetch, checkWorkbook = null) {
+  if (!list || !list.length) return [];
+  if (list.length > MAX_DATA_FILES) throw new InputError(`At most ${MAX_DATA_FILES} data files per call.`);
+  const out = [];
+  for (const f of list) {
+    const name = cleanName(String(f.name || "").replace(/^data\//, ""));
+    if (!name) throw new InputError(`File name "${f.name}" is not usable: use letters, digits, ".", "-" and "_".`);
+    const ext = (/\.([a-z0-9]+)$/.exec(name) || [])[1];
+    const type = DATA_TYPES[ext];
+    if (!type) throw new InputError(`File ${name}: data files are .xlsx, .csv, .tsv, .json or .txt.`);
+    const given = [f.text != null, !!f.data_base64, !!f.url].filter(Boolean).length;
+    if (given !== 1) throw new InputError(`File ${name}: give one of text, data_base64 or url.`);
+    let data;
+    if (f.text != null) {
+      if (ext === "xlsx") throw new InputError(`File ${name}: a workbook is sent as data_base64 or url, not text.`);
+      data = Buffer.from(String(f.text), "utf8");
+    } else if (f.data_base64) {
+      data = Buffer.from(String(f.data_base64).replace(/^data:[^;,]*;base64,/, ""), "base64");
+    } else {
+      ({ data } = await fetchBytes(f.url, `File ${name}`, fetchImpl, MAX_DATA, (ct) => (/^(image|video|audio)\//.test(ct) || ct === "text/html" ? "not data" : null)));
+    }
+    if (!data.length) throw new InputError(`File ${name} is empty.`);
+    if (data.length > MAX_DATA) throw new InputError(`File ${name} is larger than 10 MB.`);
+    if (ext === "xlsx" && checkWorkbook) {
+      try { checkWorkbook(data); } catch (e) { throw new InputError(`File ${name} is not a workbook Sliqtly can read: ${e.message}`); }
+    }
+    out.push({ name, path: "data/" + name, type, data });
+  }
+  return out;
+}
+
 // The pictures as { name, type, data: Buffer }, fetched or decoded.
 export async function loadImages(list, fetchImpl = fetch) {
   if (!list || !list.length) return [];
@@ -77,16 +128,9 @@ export async function loadImages(list, fetchImpl = fetch) {
       const b64 = String(img.data_base64).replace(/^data:([^;,]+);base64,/, (_, t) => { type = type || typeOf(name, t); return ""; });
       data = Buffer.from(b64, "base64");
     } else if (img.url) {
-      let u;
-      try { u = new URL(img.url); } catch { throw new InputError(`Image ${name}: "${img.url}" is not a URL.`); }
-      if (u.protocol !== "https:" || privateHost(u.hostname)) throw new InputError(`Image ${name}: only public https URLs are fetched.`);
-      const res = await fetchImpl(u, { signal: AbortSignal.timeout(15000), headers: { "user-agent": "Sliqtly-MCP/1.0" } });
-      if (!res.ok) throw new InputError(`Image ${name}: ${u.hostname} answered ${res.status}.`);
-      const ct = (res.headers.get("content-type") || "").split(";")[0].trim();
-      if (ct && !ct.startsWith("image/")) throw new InputError(`Image ${name}: the URL gave ${ct}, not a picture.`);
-      if (Number(res.headers.get("content-length") || 0) > MAX_IMAGE) throw new InputError(`Image ${name} is larger than 5 MB.`);
-      data = Buffer.from(await res.arrayBuffer());
-      type = type || typeOf(name, ct);
+      const got = await fetchBytes(img.url, `Image ${name}`, fetchImpl, MAX_IMAGE, (ct) => (ct && !ct.startsWith("image/") ? "not a picture" : null));
+      data = got.data;
+      type = type || typeOf(name, got.ct);
     } else {
       throw new InputError(`Image ${name}: give either url or data_base64.`);
     }
