@@ -101,7 +101,8 @@ try {
     await touch("touchEnd", []);
     const l1 = await lay();
     check("a swipe scrolls the filmstrip without picking a slide", l1.thumbs[0][0] > 0 && l1.slide === 0, `first ${l1.thumbs[0][0]}`);
-    const th = l1.thumbs[0];
+    check("a thumbnail cut by the strip's edge is still drawn", l1.thumbs.some((t) => t[5] === 1), JSON.stringify(l1.thumbs.map((t) => [t[0], t[5]])));
+    const th = l1.thumbs.find((t) => !t[5]);
     await touch("touchStart", [[th[1] + 40, th[2] + 20]]);
     await touch("touchEnd", []);
     l = await lay();
