@@ -630,6 +630,42 @@ try {
     check("…over the Files tab the File menu is on top, and its row takes the press", onFiles.onTop && onFiles.underPanel && onFiles.reqs.includes("click:save") && onFiles.closed, JSON.stringify(onFiles));
   }
 
+  // Edit in Claude / ChatGPT: File menu rows; signed out, the assistant opens
+  // in a new tab with the deck's Markdown in its prompt
+  {
+    const rows = await page.evaluate(() => {
+      const a = window.__app;
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      for (;;) { if (!a.takeRequest()) break; }
+      const reqs = [];
+      for (const id of ["aiClaude", "aiChatgpt"]) {
+        press(find("tb-m-file-trigger"));
+        const row = find("tb-m-file-item-" + id);
+        if (row) press(row);
+        for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
+      }
+      return reqs;
+    });
+    await page.context().route(/^https:\/\/(claude\.ai|chatgpt\.com)\//, (r) => r.fulfill({ status: 200, contentType: "text/html", body: "<title>ai</title>" }));
+    const urls = [];
+    for (const id of ["aiClaude", "aiChatgpt"]) {
+      const popup = page.waitForEvent("popup", { timeout: 5000 });
+      await page.evaluate((id) => document.getElementById(id).click(), id);
+      const p = await popup;
+      await p.waitForURL(/^https:/, { timeout: 5000 }).catch(() => {});
+      urls.push(p.url());
+      await p.close();
+    }
+    const src = await page.evaluate(() => window.__app.source());
+    const q = (u) => { try { return new URL(u).searchParams.get("q") || ""; } catch (_) { return ""; } };
+    check("File → Edit in Claude / ChatGPT open the assistant with the deck's Markdown and the connector's tools in the prompt",
+      rows.includes("click:aiClaude") && rows.includes("click:aiChatgpt")
+      && urls[0].startsWith("https://claude.ai/new?q=") && urls[1].startsWith("https://chatgpt.com/?q=")
+      && urls.every((u) => q(u).includes("create_presentation") && q(u).includes(src.split("\n").find((l) => l.trim()) || "")),
+      JSON.stringify({ rows, urls: urls.map((u) => u.slice(0, 80)) }));
+  }
+
   // The value popover is on the canvas: a chip, the colour picker and a slider write the text
   {
     const hp = await page.evaluate(() => {
