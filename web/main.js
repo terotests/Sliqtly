@@ -599,8 +599,8 @@ function paintOnce() {
     if (fresh && grewBy(stats)) thumbsGrew = true;
   }
   if (thumbsGrew) dropThumbs();
-  // the top bar, over the chrome (its lists open over everything under it)
-  if (canvasBar) {
+  // the top bar, over the chrome; with a menu or a list open, over everything
+  const paintBar = () => {
     syncToolbar();
     const tj = app.toolbarJson();
     if (tj) {
@@ -611,7 +611,9 @@ function paintOnce() {
       if (grewBy(tf.draw(null, [0, 0, 1], { clear: false }))) dropThumbs();
       tf.dispose();
     }
-  }
+  };
+  const barOnTop = canvasBar && app.toolbarOnTop();
+  if (canvasBar && !barOnTop) paintBar();
   // the value popover, over the editor and the bar
   const hj = app.hintJson();
   if (hj) {
@@ -642,6 +644,7 @@ function paintOnce() {
     if (grewBy(ce.draw(null, [cj.x, cj.y, 1], { clear: false }))) dropThumbs();
     ce.dispose();
   }
+  if (barOnTop) paintBar();
   statusEl.textContent = app.statusText();
   playBtn.textContent = layout.playing && layout.mode === "edit" ? t("⏸ Pause") : t("▶ Play");
   return layout;

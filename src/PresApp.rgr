@@ -1542,6 +1542,13 @@ class PresApp {
             this.stageDown(x y)
             return "stage"
         }
+        ; an open menu or list of the bar is drawn over everything (toolbarOnTop),
+        ; so it takes the press first: a row, or anywhere else to close it
+        if (this.toolbarOnTop()) {
+            toolbar.press(x y)
+            this.takeToolbar()
+            return "bar"
+        }
         if chart.isOpen {
             if (chart.has(x y)) {
                 chart.press(x y)
@@ -2449,6 +2456,12 @@ class PresApp {
         def none:[string]
         toolbar.requests = none
         chromeRev = (chromeRev + 1)
+    }
+
+    ; A menu or a list of the bar is open: the page draws the bar last, over
+    ; the panels, the popover and the chart editor.
+    fn toolbarOnTop:boolean () {
+        return (((barH > 0.0) && (mode != "present")) && (toolbar.listOpen()))
     }
 
     ; The bar as a display list over the page: "" when there is none.
