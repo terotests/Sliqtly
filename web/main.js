@@ -584,9 +584,59 @@ async function importData(file, ask) {
   return true;
 }
 
+// A Google Sheet's link, or the address of a CSV / TSV / JSON file, pasted on
+// its own into the editor: the import dialog, as "Link live data", asks
+// whether it becomes a chart or a table that reads it live (or is only
+// pasted as text). Live data is PRO (liveAllowed).
+function dataLink(text) {
+  const u = text.trim();
+  if (!/^https:\/\/\S+$/.test(u)) return false;
+  return /^https:\/\/docs\.google\.com\/spreadsheets\/d\//.test(u) || /\.(csv|tsv|json)([?#]|$)/i.test(u);
+}
+async function linkData(link) {
+  if (!liveAllowed()) {
+    toast(t("Live chart data is a PRO feature: sign in with PRO to fetch it."));
+    app.pasteText(link);
+    afterInput();
+    return;
+  }
+  const url = app.liveUrl(link);
+  let text;
+  try {
+    text = await fetchLive(url);
+  } catch (_) {
+    liveFailed(url);
+    return;
+  }
+  let csv = text;
+  if (/^\s*[[{]/.test(text)) {
+    csv = jsonCsv(text);
+    if (csv == null) {
+      toast(t("No rows in this file."));
+      return;
+    }
+  } else if (/\.tsv([?#]|$)/i.test(link)) {
+    csv = text.split("\n").map((l) => l.split("\t").map((c) => /[",]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c).join(",")).join("\n");
+  }
+  csv = tidyCsv(csv);
+  const name = /docs\.google\.com/.test(link) ? "Google Sheet" : decodeURIComponent(link.split(/[?#]/)[0].split("/").pop() || link);
+  importing = { live: true, url, sheets: [{ name, path: link, csv, text }] };
+  app.openImport(JSON.stringify({ name, live: true, sheets: [{ name, path: link, csv }] }));
+  needsPaint = true;
+}
+
 async function keepData(i) {
   const sh = importing && importing.sheets[i];
   if (!sh) return;
+  // a link read live: drawn now, never kept with the deck
+  if (importing.live) {
+    chartFiles.set(importing.url, Promise.resolve(sh.text));
+    app.setChartData(importing.url, sh.text);
+    showLiveButton();
+    dropThumbs();
+    needsPaint = true;
+    return;
+  }
   await keepFile({ path: sh.path, type: /\.json$/i.test(sh.path) ? "application/json" : "text/csv", size: sh.text.length, data: sh.text });
   chartFiles.set(sh.path, Promise.resolve(sh.text));
   app.setChartData(sh.path, sh.text);
@@ -2222,6 +2272,10 @@ keys.addEventListener("paste", (ev) => {
     return;
   }
   const text = ev.clipboardData?.getData("text/plain") || "";
+  if (text && app.focusTarget() === "editor" && dataLink(text)) {
+    linkData(text.trim()).catch(fail);
+    return;
+  }
   if (text) {
     app.pasteText(text);
     afterInput();

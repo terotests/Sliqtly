@@ -2713,11 +2713,24 @@ class PresApp {
         return true
     }
 
+    ; The address a chart's or table's link is fetched from (a Google Sheet's
+    ; CSV export for a sheet link), for the page.
+    fn liveUrl:string (u:string) {
+        return (MdVegaRender.resolveUrl(u))
+    }
+
     fn dataRequest:void (what:string) {
         def imp:PresImport panels.imp
         def path:string (imp.path())
         push requests ("data-keep:" + (to_string imp.sheet))
         if (what == "file") {
+            ; a pasted link, only as text after all
+            if imp.live {
+                this.showTab("md")
+                editor.handleText(path)
+                this.syncEditor()
+                chromeRev = (chromeRev + 1)
+            }
             return
         }
         this.showTab("md")
@@ -2727,6 +2740,12 @@ class PresApp {
         }
         def m:PresChartModel (imp.chartModel())
         def spec:string (m.toSpec())
+        if imp.live {
+            def ls:string (imp.liveSpec(path))
+            if ((strlen ls) > 0) {
+                spec = ls
+            }
+        }
         if ((strlen spec) == 0) {
             return
         }

@@ -735,10 +735,13 @@ class PresPanels {
         UiTree.surface(d "free" "start")
         d.overlayX = ((w - 640.0) * 0.5)
         d.overlayY = ((h - 520.0) * 0.5)
-        d.addChild((this.words("pn-dtitle" (PresI18n.t("Import data")))))
+        d.addChild((this.words("pn-dtitle" (? imp.live (PresI18n.t("Link live data")) (PresI18n.t("Import data"))))))
         def info:string ((((imp.name + " · ") + (to_string imp.rows)) + " ") + (PresI18n.t("rows")))
         info = (((info + " · ") + (to_string (imp.cols()))) + " ") + (PresI18n.t("columns"))
         d.addChild((this.words("pn-odesc" info)))
+        if imp.live {
+            d.addChild((this.words("pn-odesc" (PresI18n.t("The chart or table reads this address each time the presentation opens, so it shows what the sheet has then. Nothing is copied into the presentation.")))))
+        }
         if ((imp.sheetCount()) > 1) {
             def sr:EVGElement (this.div("pn-field"))
             sr.addChild((this.words("pn-flabel" (PresI18n.t("Sheet")))))
@@ -816,7 +819,11 @@ class PresPanels {
     fn pickStep:void (d:EVGElement) {
         d.addChild((this.dataChoice("chart" (PresI18n.t("Chart")) (PresI18n.t("Pick the columns; Sliqtly suggests the chart type.")) (PresI18n.t("Make a chart")) "primary")))
         d.addChild((this.dataChoice("table" (PresI18n.t("Table")) (PresI18n.t("All rows on one slide, page by page: ‹ 1/5 › in the show.")) (PresI18n.t("Make a table")) "secondary")))
-        d.addChild((this.dataChoice("file" (PresI18n.t("Just the file")) (PresI18n.t("Kept under data/ for charts and tables to use.")) (PresI18n.t("Add file")) "secondary")))
+        if imp.live {
+            d.addChild((this.dataChoice("file" (PresI18n.t("Just the address")) (PresI18n.t("Pasted into the text as it is.")) (PresI18n.t("Paste as text")) "secondary")))
+        } {
+            d.addChild((this.dataChoice("file" (PresI18n.t("Just the file")) (PresI18n.t("Kept under data/ for charts and tables to use.")) (PresI18n.t("Add file")) "secondary")))
+        }
         def foot:EVGElement (this.div("pn-dfoot"))
         foot.addChild((this.div("pn-grow")))
         this.button("pn-d-close" (PresI18n.t("Cancel")) "secondary" foot)
