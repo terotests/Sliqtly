@@ -762,11 +762,33 @@ async function linkData(link) {
     return;
   }
   const url = app.liveUrl(link);
+  if (isSheet(url)) {
+    // asked first; read while the card is up, so a sheet shared by link needs
+    // no Google window and a private one gets it from the press
+    let open = null;
+    const pub = fetchLive(url).then((x) => (open = x), () => null);
+    const go = await pressCard("gLink", t("Link this Google Sheet directly to this document? Its data is read again each time the deck opens."),
+      t("Link the sheet"), t("Paste as text"),
+      () => {
+        if (open == null && window.sliqtly?.user?.() && !window.sliqtly.sheetsToken()) {
+          // a closed window cancels; a blocked one leaves it to googleTap
+          return window.sliqtly.askSheets().then(() => true, (e) => e?.code === "auth/popup-blocked");
+        }
+        return true;
+      });
+    if (!go) {
+      app.pasteText(link);
+      afterInput();
+      return;
+    }
+    await pub;
+  }
   let text;
   try {
     text = await readLive(url, true);
   } catch (e) {
-    if (e?.code === "auth/popup-blocked") toast(t("The browser blocked Google's sign-in window: allow pop-ups for this site and paste the link again."));
+    if (e?.code === "picker") toast(t("Google's file picker did not open. The site's Google API key must allow the Google Picker API."));
+    else if (e?.code === "auth/popup-blocked") toast(t("The browser blocked Google's sign-in window: allow pop-ups for this site and paste the link again."));
     else if (e?.code !== "auth/popup-closed-by-user" && e?.code !== "auth/cancelled-popup-request") liveFailed(url);
     return;
   }
@@ -1297,34 +1319,43 @@ async function liveCopy(url) {
   const have = (await docFiles()).find((f) => f.path === path);
   return have && typeof have.data === "string" ? have.data : null;
 }
-// Google's permission window opens only from a press, and a browser (Safari
-// on a phone) counts a press as spent once the page has waited on the
-// network. Then a small card asks for one more press, and that press opens
-// the window at once (sliqtly.js askSheets). → true when a token came.
-let tapping = null;
-function googleTap() {
-  tapping ??= new Promise((ok) => {
+// A small card that asks for a press. `onPress` runs within the press, so a
+// Google window it opens is not blocked (Safari on a phone counts a press as
+// spent once the page has waited on the network). → what onPress gives, or
+// false on the second button.
+function pressCard(id, message, okLabel, noLabel, onPress) {
+  return new Promise((ok) => {
+    document.getElementById(id)?.remove();
     const box = document.createElement("div");
-    box.id = "gTap";
+    box.id = id;
+    box.className = "gCard";
     box.setAttribute("role", "dialog");
     box.setAttribute("aria-label", t("Google Sheets"));
     const text = document.createElement("p");
-    text.textContent = t("This Google Sheet is private. Google asks once whether Sliqtly may read the sheets you pick.");
+    text.textContent = message;
     const go = document.createElement("button");
     go.className = "primary";
-    go.textContent = t("Continue with Google");
+    go.textContent = okLabel;
     const no = document.createElement("button");
-    no.textContent = t("Cancel");
-    const done = (v) => { box.remove(); tapping = null; ok(v); };
+    no.textContent = noLabel;
+    const done = (v) => { box.remove(); ok(v); };
     go.addEventListener("click", () => {
-      // no await before this call: the window opens within the press
-      window.sliqtly.askSheets().then((tok) => done(!!tok), () => done(false));
+      // no await before onPress: the window opens within the press
+      Promise.resolve(onPress()).then(done, () => done(false));
     });
     no.addEventListener("click", () => done(false));
     box.append(text, go, no);
     document.body.appendChild(box);
     go.focus();
   });
+}
+// Google's window blocked after all: one more press opens it. → true when a
+// token came.
+let tapping = null;
+function googleTap() {
+  tapping ??= pressCard("gTap", t("This Google Sheet is private. Google asks once whether Sliqtly may read the sheets you pick."),
+    t("Continue with Google"), t("Cancel"),
+    () => window.sliqtly.askSheets().then((tok) => !!tok)).finally(() => { tapping = null; });
   return tapping;
 }
 
