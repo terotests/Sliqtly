@@ -33,8 +33,12 @@ const deckFields = {
   images: z.array(imageSchema).optional().describe("Pictures the Markdown refers to as media/<name>"),
 };
 
+// Sign-in is optional (ChatGPT reads this to offer both)
+const EITHER = [{ type: "noauth" }, { type: "oauth2", scopes: ["decks"] }];
+
 function uiMeta() {
   return {
+    securitySchemes: EITHER,
     ui: { resourceUri: PREVIEW_URI },
     "ui/resourceUri": PREVIEW_URI,
     "openai/outputTemplate": PREVIEW_URI,
@@ -46,9 +50,11 @@ function fail(message) {
   return { isError: true, content: [{ type: "text", text: message }] };
 }
 
-// opts: { store, baseUrl, fetchImpl, limit(kind) → string|null }
+// opts: { store, baseUrl, fetchImpl, limit(kind) → string|null,
+//         user: { uid, name } when signed in, signIn: resource metadata URL }
 export function createServer(opts) {
   const { store, baseUrl } = opts;
+  const user = opts.user || null;
   const fetchImpl = opts.fetchImpl || fetch;
   const themeCache = new Map();
   const frames = [...new Set([baseUrl, ...SITES])];
@@ -90,6 +96,7 @@ export function createServer(opts) {
       `Presentation: ${out.share_url}`,
       `Open in the editor: ${out.edit_url}`,
     ];
+    if (user) lines.push(`Saved in the Sliqtly account of ${user.name || "the signed-in user"}.`);
     if (out.deck_id) lines.push(`deck_id: ${out.deck_id}`);
     if (out.edit_key) lines.push(`edit_key: ${out.edit_key} (needed for update_presentation; do not show it to others)`);
     for (const w of out.warnings) lines.push(`Note: ${w}`);
@@ -120,6 +127,7 @@ export function createServer(opts) {
     description: "How to write a Sliqtly deck: slide structure, build animations, effects, pictures, charts (Vega-Lite), diagrams (Mermaid, Graphviz), math, themes and the CSS selectors. Read before the first create_presentation.",
     inputSchema: {},
     annotations: { readOnlyHint: true, openWorldHint: false },
+    _meta: { securitySchemes: EITHER },
   }, async () => ({ content: [{ type: "text", text: GUIDE }] }));
 
   server.registerTool("create_presentation", {
@@ -143,7 +151,7 @@ export function createServer(opts) {
       if (imgs.length) base.warnings.push("Pictures are not stored on this server (no cloud storage configured); the slides show without them.");
       return result({ ...base, ...linkOnly(markdown, theme, css2) }, "Created");
     }
-    const { id, key } = await store.create({ name: title, md: markdown, theme, css: css2, images: imgs });
+    const { id, key } = await store.create({ name: title, md: markdown, theme, css: css2, images: imgs, owner: user ? user.uid : "mcp" });
     return result({ ...base, ...links(id), deck_id: id, edit_key: key }, "Created");
   }));
 
@@ -152,7 +160,7 @@ export function createServer(opts) {
     description: "Change a presentation made with create_presentation, keeping its link. Send only what changes: markdown replaces the whole text; images are added (or replace pictures of the same name).",
     inputSchema: {
       deck_id: z.string().describe("deck_id from create_presentation"),
-      edit_key: z.string().describe("edit_key from create_presentation"),
+      edit_key: z.string().optional().describe("edit_key from create_presentation; not needed when signed in as the presentation's owner"),
       title: z.string().max(200).optional(),
       markdown: z.string().optional().describe("The whole deck as Sliqtly Markdown"),
       ...deckFields,
@@ -163,12 +171,14 @@ export function createServer(opts) {
     if (store.kind === "link") throw new InputError("This server keeps no decks (no cloud storage configured): call create_presentation again with the whole deck.");
     if (markdown != null && markdown.length > MAX_MD) throw new InputError("markdown is larger than 300 KB.");
     const cur = await store.get(deck_id);
-    if (!cur || cur.source !== "mcp") throw new InputError(`No presentation ${deck_id} made through this server.`);
+    const mine = !!(cur && user && cur.owner === user.uid);
+    if (!cur || (cur.source !== "mcp" && !mine)) throw new InputError(`No presentation ${deck_id} that this server can change.`);
+    if (!mine && !edit_key) throw new InputError("edit_key is needed: the presentation is not this signed-in user's own.");
     const th = theme ?? cur.theme ?? "aurora";
     // a new theme with no new css drops the old theme's sheet
     const css2 = css != null ? await sheet(th, css, css_mode) : theme != null && theme !== cur.theme ? null : undefined;
     const imgs = await loadImages(images, fetchImpl);
-    const saved = await store.update(deck_id, edit_key, { name: title, md: markdown, theme, css: css2, images: imgs });
+    const saved = await store.update(deck_id, mine ? null : edit_key, { name: title, md: markdown, theme, css: css2, images: imgs });
     if (!saved) throw new InputError("The edit_key does not match this presentation.");
     const stored = (saved.files || []).map((f) => f.path.replace(/^media\//, ""));
     return result({
@@ -183,6 +193,7 @@ export function createServer(opts) {
     description: "Read a Sliqtly presentation's Markdown, theme, CSS and picture list by its deck_id (the id in https://sliqtly.com/s/<id>), to revise it.",
     inputSchema: { deck_id: z.string().describe("The id in the share link /s/<id>") },
     annotations: { readOnlyHint: true, openWorldHint: false },
+    _meta: { securitySchemes: EITHER },
   }, guarded("get_presentation", async ({ deck_id }) => {
     if (store.kind === "link") throw new InputError("This server keeps no decks (no cloud storage configured).");
     if (!/^[A-Za-z0-9]{6,32}$/.test(deck_id)) throw new InputError("deck_id is the 10-character id in the share link.");
@@ -200,6 +211,28 @@ export function createServer(opts) {
       out.css != null ? "```css\n" + out.css + "\n```" : "",
     ].filter(Boolean).join("\n");
     return { content: [{ type: "text", text }], structuredContent: out };
+  }));
+
+  server.registerTool("list_presentations", {
+    title: "List my presentations",
+    description: "List the signed-in user's own Sliqtly presentations (newest first) with their links and deck_ids. Needs sign-in.",
+    inputSchema: {},
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    _meta: { securitySchemes: [{ type: "oauth2", scopes: ["decks"] }] },
+  }, guarded("list_presentations", async () => {
+    if (!user) {
+      return {
+        isError: true,
+        content: [{ type: "text", text: "Listing presentations needs sign-in. Connect Sliqtly with sign-in (Google) to keep presentations in your own account." }],
+        _meta: opts.signIn ? { "mcp/www_authenticate": [`Bearer resource_metadata="${opts.signIn}", error="insufficient_scope", error_description="Sign in to Sliqtly to list your presentations"`] } : undefined,
+      };
+    }
+    if (store.kind === "link") throw new InputError("This server keeps no decks (no cloud storage configured).");
+    const decks = (await store.list(user.uid)).map((d) => ({ deck_id: d.id, title: d.name || "", theme: d.theme || "", updated: d.updated || d.created || null, ...links(d.id) }));
+    const text = decks.length
+      ? decks.map((d) => `- ${d.title || "(untitled)"} (${d.deck_id}): ${d.share_url}`).join("\n")
+      : "No presentations yet.";
+    return { content: [{ type: "text", text }], structuredContent: { presentations: decks } };
   }));
 
   server.registerResource("preview", PREVIEW_URI, {

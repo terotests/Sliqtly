@@ -51,6 +51,41 @@
         }
       },
       {
+        "source": "/oauth/**",
+        "function": {
+          "functionId": "mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/.well-known/oauth-protected-resource",
+        "function": {
+          "functionId": "mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/.well-known/oauth-protected-resource/**",
+        "function": {
+          "functionId": "mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/.well-known/oauth-authorization-server",
+        "function": {
+          "functionId": "mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/.well-known/openid-configuration",
+        "function": {
+          "functionId": "mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/s/**",
         "destination": "/index.html"
       }

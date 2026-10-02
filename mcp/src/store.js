@@ -42,21 +42,25 @@ export class FirebaseStore {
     this.kind = "cloud";
   }
 
-  async create({ name, md, theme, css, images }) {
+  // owner: the signed-in user's uid, or "mcp"
+  async create({ name, md, theme, css, images, owner = "mcp" }) {
     const id = shortId();
     const key = shortId(24);
     const now = this.FieldValue.serverTimestamp();
     const doc = this.db.collection("shares").doc(id);
     await this.db.collection("mcp_keys").doc(id).set({ hash: hashKey(key), created: now });
     const files = await this.#upload(id, images);
-    await doc.set({ name, md, theme, css, owner: "mcp", deck: "mcp", source: "mcp", files, created: now });
+    await doc.set({ name, md, theme, css, owner, deck: "mcp", source: "mcp", files, created: now });
     return { id, key };
   }
 
-  // null when the id or the key does not match
+  // null when the id or the key does not match; key null: the caller has
+  // already checked that the signed-in user owns it
   async update(id, key, { name, md, theme, css, images }) {
-    const keyDoc = await this.db.collection("mcp_keys").doc(id).get();
-    if (!keyDoc.exists || keyDoc.data().hash !== hashKey(key)) return null;
+    if (key != null) {
+      const keyDoc = await this.db.collection("mcp_keys").doc(id).get();
+      if (!keyDoc.exists || keyDoc.data().hash !== hashKey(key)) return null;
+    }
     const doc = this.db.collection("shares").doc(id);
     const snap = await doc.get();
     if (!snap.exists) return null;
@@ -75,6 +79,16 @@ export class FirebaseStore {
   async get(id) {
     const snap = await this.db.collection("shares").doc(id).get();
     return snap.exists ? snap.data() : null;
+  }
+
+  // the user's shares, newest first (an equality filter needs no index)
+  async list(uid, limit = 50) {
+    const snap = await this.db.collection("shares").where("owner", "==", uid).get();
+    const ms = (t) => (t && typeof t.toMillis === "function" ? t.toMillis() : typeof t === "number" ? t : 0);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => ms(b.updated || b.created) - ms(a.updated || a.created))
+      .slice(0, limit)
+      .map((d) => ({ ...d, updated: ms(d.updated || d.created) ? new Date(ms(d.updated || d.created)).toISOString() : null }));
   }
 
   async #upload(id, images) {

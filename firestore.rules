@@ -3,8 +3,8 @@ rules_version = '2';
 // decks: a presentation, its owner's alone.
 // shares: the copy made when a deck is shared. Anyone holding the short id
 // reads it; nobody can list the ids; only its owner changes or deletes it.
-// mcp_keys: the edit keys of shares the MCP server made (mcp/). No rule
-// matches it, so only the Admin SDK reads or writes it.
+// mcp_keys, mcp_oauth_*: the MCP server's edit keys and sign-in state
+// (mcp/). No rule matches them, so only the Admin SDK reads or writes them.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
