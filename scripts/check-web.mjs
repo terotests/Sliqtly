@@ -327,10 +327,22 @@ try {
   await page3.keyboard.press("Escape");
   await page3.waitForTimeout(200);
   check("Esc does not leave the shared presentation", (await page3.evaluate(() => JSON.parse(window.__app.layoutJson()).mode)) === "present");
+  // The bar fades when the pointer rests for 2.5 s, and a slow frame can
+  // take that long: each press moves the pointer first, and tries again if
+  // the bar faded before the click landed.
+  async function tapViewer(pg, sel) {
+    for (let i = 0; ; i += 1) {
+      await pg.mouse.move(300 + i, 300);
+      try {
+        await pg.click(sel, { timeout: 4000 });
+        return;
+      } catch (e) {
+        if (i >= 5) throw e;
+      }
+    }
+  }
   // the … menu: exports through the keyboard, Edit only for a signed-in owner.
-  // The bar fades when the pointer rests; a move brings it back.
-  await page3.mouse.move(300, 300);
-  await page3.click("#vMore");
+  await tapViewer(page3, "#vMore");
   await page3.keyboard.press("Enter");
   await page3.waitForTimeout(100);
   const menu = await page3.evaluate(() => ({
@@ -347,11 +359,10 @@ try {
   await page3.waitForTimeout(200);
   const md = await page3.evaluate(() => ({ dl: window.__lastDownload, closed: document.getElementById("vMenu").hidden }));
   check("the viewer exports Markdown from the … menu", md.dl === "downloaded" && md.closed, JSON.stringify(md));
-  await page3.mouse.move(310, 300);
-  await page3.click("#vMore");
-  await page3.click("#vExport");
+  await tapViewer(page3, "#vMore");
+  await tapViewer(page3, "#vExport");
   await page3.evaluate(() => { window.__lastDownload = ""; });
-  await page3.click('#vMenu [data-act="pdf"]');
+  await tapViewer(page3, '#vMenu [data-act="pdf"]');
   const pdfAt = Date.now();
   await page3.waitForFunction(() => window.__lastDownload !== "", null, { timeout: 180000 }).catch(() => {});
   const pdfGot = await page3.evaluate(() => [window.__lastDownload, document.getElementById("err").textContent]);
@@ -365,8 +376,7 @@ try {
   check("an ?export=md link downloads the shown deck once", auto.dl === "downloaded" && !auto.hash && auto.viewer, JSON.stringify(auto));
   await page4.close();
   const shownMd = await page3.evaluate(() => window.__app.source());
-  await page3.mouse.move(320, 300);
-  await page3.click("#vMore");
+  await tapViewer(page3, "#vMore");
   await Promise.all([page3.waitForEvent("load", { timeout: 30000 }), page3.click('#vMenu [data-act="new"]')]);
   await page3.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
   const made = await page3.evaluate(() => ({ viewer: document.body.classList.contains("viewer"), mode: JSON.parse(window.__app.layoutJson()).mode, md: window.__app.source() }));
