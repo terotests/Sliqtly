@@ -61,11 +61,12 @@ export function createServer(opts) {
   const fetchImpl = opts.fetchImpl || fetch;
   const themeCache = new Map();
   const frames = [...new Set([baseUrl, ...SITES])];
-  // the preview runs Sliqtly's viewer itself (preview.html): its scripts and
-  // fonts from the site and Firebase's CDN, the share from Firestore, the
-  // pictures from Storage
+  // the preview runs Sliqtly's viewer itself (preview.html): it fetches the
+  // site's scripts and fonts, Firebase's from its CDN, the share from
+  // Firestore and the pictures from Storage. Claude honors connectDomains
+  // only; ChatGPT both.
   const resources = [...frames, "https://www.gstatic.com"];
-  const connects = [...frames, "https://firestore.googleapis.com", "https://firebasestorage.googleapis.com"];
+  const connects = [...frames, "https://www.gstatic.com", "https://firestore.googleapis.com", "https://firebasestorage.googleapis.com"];
   const csp = { frameDomains: frames, resourceDomains: resources, connectDomains: connects };
 
   async function themeCss(theme) {
@@ -99,7 +100,19 @@ export function createServer(opts) {
     return { share_url: `${baseUrl}/#${q}`, edit_url: edit };
   }
 
-  function result(out, verb) {
+  // the web app's Firebase config (public), for the preview: it cannot
+  // read Hosting's /__/firebase/init.js across origins
+  let firebaseConfig = null;
+  async function webConfig() {
+    if (!firebaseConfig) {
+      firebaseConfig = fetchImpl(`${baseUrl}/__/firebase/init.json`, { signal: AbortSignal.timeout(5000) })
+        .then((r) => (r.ok ? r.json() : null)).catch(() => null)
+        .then((c) => { if (!c) firebaseConfig = null; return c; });
+    }
+    return firebaseConfig;
+  }
+
+  async function result(out, verb) {
     const lines = [
       `${verb}: "${out.title}" (${out.slides} slides, theme ${out.theme}).`,
       `Presentation: ${out.share_url}`,
@@ -110,7 +123,8 @@ export function createServer(opts) {
     if (out.edit_key) lines.push(`edit_key: ${out.edit_key} (needed for update_presentation; do not show it to others)`);
     for (const w of out.warnings) lines.push(`Note: ${w}`);
     lines.push("Give the user the presentation link.");
-    return { content: [{ type: "text", text: lines.join("\n") }], structuredContent: out, _meta: uiMeta() };
+    const cfg = out.deck_id ? await webConfig() : null;
+    return { content: [{ type: "text", text: lines.join("\n") }], structuredContent: out, _meta: { ...uiMeta(), ...(cfg ? { "sliqtly/firebase": cfg } : {}) } };
   }
 
   // the stored deck, if this caller may change it; throws otherwise
@@ -123,10 +137,10 @@ export function createServer(opts) {
     return { cur, mine };
   }
 
-  function updated(deckId, saved, note) {
+  async function updated(deckId, saved, note) {
     if (!saved) throw new InputError("The edit_key does not match this presentation.");
     const stored = (saved.files || []).map((f) => f.path.replace(/^media\//, ""));
-    const out = result({
+    const out = await result({
       title: saved.name, theme: saved.theme, slides: outline(saved.md).titles.length,
       warnings: warnings(saved.md, [], stored).filter((w) => !w.startsWith("Image")),
       ...links(deckId), deck_id: deckId,
@@ -232,7 +246,7 @@ export function createServer(opts) {
     const bound = bindChartData(cur.md || "", chart, source);
     if (bound.md.length > MAX_MD) throw new InputError("markdown would be larger than 300 KB.");
     const saved = await store.update(deck_id, mine ? null : edit_key, { md: bound.md });
-    const out = updated(deck_id, saved, `Chart ${bound.index}${bound.title ? ` (on "${bound.title}")` : ""} now reads ${JSON.stringify(bound.spec.data)}. PDF and PPTX exports are snapshots of the data when exported.`);
+    const out = await updated(deck_id, saved, `Chart ${bound.index}${bound.title ? ` (on "${bound.title}")` : ""} now reads ${JSON.stringify(bound.spec.data)}. PDF and PPTX exports are snapshots of the data when exported.`);
     out.structuredContent = { ...out.structuredContent, chart: bound.index, spec: bound.spec };
     return out;
   }));

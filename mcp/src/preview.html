@@ -55,29 +55,111 @@
   }
 
   // The slides are Sliqtly's own viewer. Claude does not let a widget frame
-  // another site (nor, it turns out, a blob: URL), but it does let it load
-  // scripts and data from the domains the resource declares (server.js): so
-  // the viewer's page is fetched, pointed back at its site with <base>, and
-  // given to an iframe as srcdoc, which needs no navigation. The link's
-  // #share=… / #md=… goes in <meta name="sliqtly-link"> (web/main.js).
-  // Where the page cannot be fetched, ChatGPT frames the link itself.
+  // another site (nor, it turns out, a blob: URL), so the viewer's page is
+  // fetched and given to an iframe as srcdoc, which needs no navigation.
+  // The link's #share=… / #md=… goes in <meta name="sliqtly-link">
+  // (web/main.js). Where the page cannot be fetched, ChatGPT frames the
+  // link itself.
+  // Claude's widget CSP also ignores resourceDomains: scripts may run only
+  // inline or from blob:/data: URLs, pictures from data:/blob:, while
+  // fetch() reaches the connectDomains. So every script the viewer runs is
+  // fetched and handed over inline or as a data: URL — the modules through
+  // an import map, their imports rewritten to absolute URLs — and
+  // Firebase's scripts through window.__sliqtlyLoadScript (web/sliqtly.js).
   let page = null;
-  async function viewerPage(shareUrl) {
+  const enc = (bytes) => {
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  };
+  const dataUrl = (type, bytes) => "data:" + type + ";base64," + enc(bytes);
+  async function get(url) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(new URL(url).pathname + ": HTTP " + r.status);
+    return r;
+  }
+  // a module and what it imports, depth first: abs URL → data: URL (the
+  // frame may not load the widget's blob: URLs when its origin is opaque)
+  async function modules(url, map) {
+    if (map.has(url)) return;
+    map.set(url, null);
+    const deps = [];
+    const text = (await (await get(url)).text()).replace(/(\b(?:from|import)\s*\(?\s*)(["'])(\.{1,2}\/[^"']+)\2/g, (_, pre, q, rel) => {
+      const abs = new URL(rel, url).href;
+      deps.push(abs);
+      return pre + q + abs + q;
+    });
+    for (const d of deps) await modules(d, map);
+    map.set(url, dataUrl("text/javascript", new TextEncoder().encode(text)));
+  }
+  async function build(origin) {
+    let html = await (await get(origin + "/index.html")).text();
+    const base = origin + "/";
+    const map = new Map();
+    const classic = new Map();
+    const tag = /<script\b([^>]*)\ssrc="([^"]+)"([^>]*)><\/script>/g;
+    for (const m of html.matchAll(tag)) {
+      const abs = new URL(m[2], base).href;
+      if (/type="module"/.test(m[1] + m[3])) await modules(abs, map);
+      // a classic script runs inline; "</script" inside it is only ever in
+      // a string or a regex, where "<\/script" means the same
+      else classic.set(abs, (await (await get(abs)).text()).replace(/<\/script/gi, "<\\/script"));
+    }
+    html = html.replace(tag, (all, a, src, b) => {
+      const abs = new URL(src, base).href;
+      return classic.has(abs) ? "<script" + a + b + ">" + classic.get(abs) + "<\/script>"
+        : "<script" + a + ' src="' + (map.get(abs) || abs) + '"' + b + "><\/script>";
+    });
+    for (const m of html.matchAll(/<img\b[^>]*\ssrc="([^"]+)"/g)) {
+      const abs = new URL(m[1], base).href;
+      try {
+        const r = await get(abs);
+        const url = dataUrl(r.headers.get("content-type") || "image/svg+xml", new Uint8Array(await r.arrayBuffer()));
+        html = html.split('src="' + m[1] + '"').join('src="' + url + '"');
+      } catch (_) { /* a picture fewer */ }
+    }
+    // <base> is refused (base-uri 'self'), and the preloads and icon would
+    // resolve against about:srcdoc
+    html = html.replace(/<base\b[^>]*>/i, "").replace(/<link\b[^>]*>/gi, "");
+    const imports = Object.fromEntries([...map].filter(([, v]) => v));
+    return { html, importmap: JSON.stringify({ imports }) };
+  }
+  function loader(origin, firebaseConfig) {
+    // runs in the viewer. Claude's CSP has base-uri 'self', so no <base>:
+    // the page's relative fetches go to the site instead
+    const site = origin + "/";
+    const fetch0 = window.fetch.bind(window);
+    window.fetch = (input, init) => fetch0(typeof input === "string" && !/^[a-z][a-z0-9+.-]*:/i.test(input) ? new URL(input, site).href : input, init);
+    // Firebase's <script src> run inline; the project's config comes
+    // with the tool result, since Hosting's /__/firebase/init.js may not be
+    // readable cross-origin
+    window.__sliqtlyLoadScript = (src) => /\/__\/firebase\/init\.js$/.test(src) && firebaseConfig
+      ? Promise.resolve().then(() => { if (!firebase.apps.length) firebase.initializeApp(firebaseConfig); })
+      : window.fetch(src).then((r) => {
+      if (!r.ok) throw new Error("could not load " + src);
+      return r.text();
+    }).then((t) => {
+      const s = document.createElement("script");
+      s.textContent = t;
+      document.head.append(s);
+    });
+  }
+  async function viewerPage(shareUrl, firebaseConfig) {
     const u = new URL(shareUrl);
     const id = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(u.pathname);
     // a share, or a link that carries the Markdown itself (#md=…)
     const hash = id ? "#share=" + id[1] : /[#&]md=/.test(u.hash) ? u.hash : null;
     if (!hash) throw new Error("not a presentation link");
-    page ??= fetch(u.origin + "/index.html").then((r) => {
-      if (!r.ok) throw new Error("index.html: HTTP " + r.status);
-      return r.text();
-    });
-    let html;
-    try { html = await page; } catch (e) { page = null; throw e; }
+    page ??= build(u.origin);
+    let built;
+    try { built = await page; } catch (e) { page = null; throw e; }
     const attr = (v) => v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-    const head = '<base href="' + attr(u.origin) + '/" /><meta name="sliqtly-link" content="' + attr(hash) + '" />';
-    html = html.replace(/<base\b[^>]*>/i, "");
-    return html.replace(/<head>/i, "<head>" + head);
+    // first in the page: what the host's CSP refuses it, and its errors,
+    // for the note in trouble()
+    const watch = "<script>window.__trouble=[];addEventListener('securitypolicyviolation',function(e){__trouble.push(e.effectiveDirective+' '+e.blockedURI)});addEventListener('error',function(e){__trouble.push(e.message||(e.target&&(e.target.src||e.target.href))||'error')},true);(" + loader + ")(" + JSON.stringify(u.origin) + "," + JSON.stringify(firebaseConfig || null).replace(/</g, "\\u003c") + ")<\/script>";
+    const head = watch + '<script type="importmap">' + built.importmap.replace(/</g, "\\u003c") + "<\/script>" +
+      '<meta name="sliqtly-link" content="' + attr(hash) + '" />';
+    return built.html.replace(/<head>/i, "<head>" + head);
   }
 
   let shown = 0;
@@ -91,9 +173,10 @@
         const w = frame.contentWindow;
         if (w.__pageStarted) return;
         const err = w.document.getElementById("err");
-        where = (err && err.textContent.trim()) || (w.document.body && w.document.body.className ? "viewer: " + w.document.body.className : "viewer did not run");
+        const seen = [...new Set(w.__trouble || [])].slice(0, 4).join("; ");
+        where = [seen, err && err.textContent.trim()].filter(Boolean).join(" | ") || "viewer did not start";
       } catch (e) { return; /* not ours to look at */ }
-      fail(document.querySelector(".stage"), "The preview could not load here (" + where.slice(0, 200) + ").");
+      fail(document.querySelector(".stage"), "The preview could not load here (" + where.slice(0, 400) + ").");
     }, 25000);
   }
   // in place of the stage: what went wrong, and the way out
@@ -109,7 +192,7 @@
     stage.replaceChildren(note);
   }
 
-  async function show(out) {
+  async function show(out, meta) {
     if (!out || !out.share_url || (deck && JSON.stringify(deck) === JSON.stringify(out))) return;
     deck = out;
     const n = ++shown;
@@ -121,7 +204,7 @@
     let local = false;
     let why = "";
     let doc = null;
-    try { doc = await viewerPage(out.share_url); local = true; } catch (e) { why = String((e && e.message) || e); console.warn("Sliqtly preview: framing the link", e); }
+    try { doc = await viewerPage(out.share_url, meta && meta["sliqtly/firebase"]); local = true; } catch (e) { why = String((e && e.message) || e); console.warn("Sliqtly preview: framing the link", e); }
     if (n !== shown) return;
     const stage = document.querySelector(".stage");
     // Claude frames no other site, so there the link is no way out
@@ -141,8 +224,8 @@
   document.getElementById("edit").onclick = () => deck && openLink(deck.edit_url);
 
   if (window.openai) {
-    show(window.openai.toolOutput);
-    window.addEventListener("openai:set_globals", (e) => show((e.detail && e.detail.globals && e.detail.globals.toolOutput) || window.openai.toolOutput));
+    show(window.openai.toolOutput, window.openai.toolResponseMetadata);
+    window.addEventListener("openai:set_globals", (e) => show((e.detail && e.detail.globals && e.detail.globals.toolOutput) || window.openai.toolOutput, window.openai.toolResponseMetadata));
     return;
   }
 
@@ -154,7 +237,7 @@
       pending.delete(m.id);
       return;
     }
-    if (m.method === "ui/notifications/tool-result") show(m.params && m.params.structuredContent);
+    if (m.method === "ui/notifications/tool-result") show(m.params && m.params.structuredContent, m.params && m.params._meta);
     else if (m.method && m.id != null) send({ jsonrpc: "2.0", id: m.id, result: {} });
   });
 
