@@ -3,6 +3,10 @@
     "url": "https://github.com/terotests/Ranger",
     "ref": "claude/nifty-dijkstra-vq2qit"
   },
+  "evgui": {
+    "url": "https://github.com/terotests/EVGUI",
+    "ref": "main"
+  },
   "evgsheets": {
     "base": "https://terotests.github.io/EVGSheets/"
   }

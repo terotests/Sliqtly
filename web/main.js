@@ -52,14 +52,17 @@ const FACES = [
   ["Noto Sans-Bold", "NotoSans-Bold.ttf"],
 ];
 const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "corporate", "editorial"];
+// The sample decks in the interface's language: samples/<key>.md is Finnish,
+// samples/<key>.en.md English (any other language gets the English ones).
+const sample = (key, en, fi) => lang === "fi" ? [fi, `./samples/${key}.md`] : [en, `./samples/${key}.en.md`];
 const SAMPLES = {
-  talous: ["Talous: oma talous haltuun", "./samples/talous.md"],
-  ymparisto: ["Ympäristö: hiilijalanjälki", "./samples/ymparisto.md"],
-  urheilu: ["Urheilu: 5 km juoksukoulu", "./samples/urheilu.md"],
-  kulttuuri: ["Kulttuuri: musiikin vuosikymmenet", "./samples/kulttuuri.md"],
-  ohjelmointi: ["Ohjelmointi: versionhallinta", "./samples/ohjelmointi.md"],
-  matematiikka: ["Matematiikka: kaavat kalvoilla", "./samples/matematiikka.md"],
-  vegalite: ["Vega-Lite: kaaviotyypit", "./samples/vegalite.md"],
+  talous: sample("talous", "Finance: take charge of your money", "Talous: oma talous haltuun"),
+  ymparisto: sample("ymparisto", "Environment: your carbon footprint", "Ympäristö: hiilijalanjälki"),
+  urheilu: sample("urheilu", "Sports: a 5 km running course", "Urheilu: 5 km juoksukoulu"),
+  kulttuuri: sample("kulttuuri", "Culture: decades of music", "Kulttuuri: musiikin vuosikymmenet"),
+  ohjelmointi: sample("ohjelmointi", "Programming: version control", "Ohjelmointi: versionhallinta"),
+  matematiikka: sample("matematiikka", "Mathematics: formulas on slides", "Matematiikka: kaavat kalvoilla"),
+  vegalite: sample("vegalite", "Vega-Lite: chart types", "Vega-Lite: kaaviotyypit"),
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
 };
 
@@ -155,27 +158,97 @@ async function registerPicture(path, bytes, type) {
   });
 }
 
+// A picture pasted or dropped on the canvas opens the image window
+// (PresChartEditor's "paste" mode): the part to keep (CropCtl), and whether it
+// goes on the slide or behind this slide or every slide. Until Add is pressed
+// it is only registered for drawing, under a path of its own; nothing is kept.
 let pasteCount = 0;
+let pasting = null;
 async function addPictureFile(file) {
   const type = file.type || "image/png";
+  const bytes = await file.arrayBuffer();
+  const [w, h] = await imageSize(bytes, type);
+  const alt = file.name && file.name !== "image.png" ? file.name.replace(/\.[^.]+$/, "") : "image";
+  if (w > 0 && h > 0) {
+    dropPasting();
+    pasteCount += 1;
+    const preview = `/__paste/${Date.now().toString(36)}-${pasteCount}`;
+    await registerPicture(preview, bytes, type);
+    pasting = { bytes, type, w, h, preview };
+    if (app.openPaste(preview, w, h, alt, storageNote())) {
+      needsPaint = true;
+      return;
+    }
+    dropPasting();
+  }
+  // no size to crop by (or presenting): straight onto the slide, as before
+  const rel = await keepPicture(bytes, type, w, h);
+  app.insertPicture(rel, alt);
+  dropThumbs();
+  afterInput();
+}
+
+function dropPasting() {
+  if (pasting) pictures.delete(pasting.preview);
+  pasting = null;
+}
+
+// Where a picture added now is kept, as the window says it.
+function signedIn() {
+  return !!(window.sliqtly && window.sliqtly.user());
+}
+function storageNote() {
+  if (signedIn()) return t("PRO: the image is saved to your cloud files with this presentation, and a copy stays in this browser.");
+  return vfs && vfs.persistent
+    ? t("The image is saved in this browser only (IndexedDB). Sign in with PRO to keep it in the cloud.")
+    : t("This browser does not allow storage: the image is kept only while this page is open.");
+}
+
+// The picture as the window left it: the part kept cut out (the original
+// bytes when nothing was cut), kept, and placed.
+async function placePasted() {
+  const p = pasting;
+  if (!p) return;
+  const plan = JSON.parse(app.pastePlan());
+  dropPasting();
+  let { bytes, type, w, h } = p;
+  if (!plan.whole) {
+    const [x, y, cw, ch] = String(plan.crop).split(",").map(Number);
+    if (cw > 0 && ch > 0) {
+      const bmp = await createImageBitmap(new Blob([bytes], { type }), x, y, cw, ch);
+      const c = document.createElement("canvas");
+      c.width = cw;
+      c.height = ch;
+      c.getContext("2d").drawImage(bmp, 0, 0);
+      bmp.close();
+      // a photo stays a JPEG; anything else (a screenshot, a GIF) a PNG
+      const out = /^image\/(jpeg|webp)$/.test(type) ? type : "image/png";
+      const blob = await new Promise((r) => c.toBlob(r, out, 0.92));
+      if (blob) {
+        bytes = await blob.arrayBuffer();
+        type = blob.type || out;
+        w = cw;
+        h = ch;
+      }
+    }
+  }
+  const rel = await keepPicture(bytes, type, w, h);
+  app.placePicture(rel, plan.alt || "image", plan.to);
+  dropThumbs();
+  afterInput();
+}
+
+// A new picture of the deck: registered for the slides and kept in this
+// browser; signed in to PRO, the deck's cloud save takes it with the deck.
+async function keepPicture(bytes, type, w, h) {
   const ext = (type.split("/")[1] || "png").replace("jpeg", "jpg").replace("svg+xml", "svg");
   pasteCount += 1;
   const rel = `media/liitetty-${Date.now().toString(36)}-${pasteCount}.${ext}`;
-  const bytes = await file.arrayBuffer();
-  let w = 0;
-  let h = 0;
-  try {
-    const bmp = await createImageBitmap(new Blob([bytes], { type }));
-    w = bmp.width;
-    h = bmp.height;
-    bmp.close();
-  } catch (_) { /* sized by the layout's default */ }
   app.addImage("/" + rel, asRangerBuffer(bytes.slice(0)), type, w, h);
   await registerPicture("/" + rel, bytes, type);
-  await keepFile({ path: rel, type, size: bytes.byteLength, data: new Blob([bytes], { type }) });
-  app.insertPicture(rel, file.name && file.name !== "image.png" ? file.name.replace(/\.[^.]+$/, "") : "image");
-  dropThumbs();
-  afterInput();
+  const data = new Blob([bytes], { type });
+  await keepFile({ path: rel, type, size: bytes.byteLength, data });
+  return rel;
 }
 
 async function imageSize(bytes, type) {
@@ -198,6 +271,10 @@ async function imageSize(bytes, type) {
 // yet wait in `pending` and go in with it.
 let vfs = null;
 const doc = { id: newId(), persisted: false, created: Date.now(), openedText: "" };
+// PRO: the share the deck lives in (cloud), its text as last written or read
+// there (cloudMd), the files as sent (cloudStamps: path → stamp), and what
+// was last sent (cloudSig). cloudHalt: changed elsewhere, not written over.
+Object.assign(doc, { cloud: null, cloudMd: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
 const pending = new Map();
 let savedText = null;
 let savedCss = null;
@@ -209,13 +286,17 @@ function beginDoc(text) {
   doc.persisted = false;
   doc.created = Date.now();
   doc.openedText = text;
+  Object.assign(doc, { cloud: null, cloudMd: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
   pending.clear();
   savedText = null;
   savedCss = null;
   for (const k of Object.keys(editedCss)) delete editedCss[k];
   chartFiles.clear();
   chartFilesRev = -1;
+  liveFromShare = false;
+  liveNoted = false;
   app.clearChartData();
+  showLiveButton();
   if (app.openFilePath()) app.closeFile();
 }
 
@@ -228,6 +309,7 @@ async function keepFile(rec) {
   if (doc.persisted && vfs) await vfs.putFile(file);
   else pending.set(file.path, file);
   refreshFiles();
+  cloudSoon();
 }
 
 // --- live spreadsheets (EVGSheets) -------------------------------------------------
@@ -307,7 +389,7 @@ async function saveDoc(force) {
   // empty one
   if (!doc.persisted && !force && ((md === doc.openedText && css === null) || !md.trim())) return;
   saving = (async () => {
-    await vfs.putDoc({ id: doc.id, name: exportName(), md, theme: key, css, created: doc.created, updated: Date.now() });
+    await vfs.putDoc({ id: doc.id, name: exportName(), md, theme: key, css, created: doc.created, updated: Date.now(), cloud: doc.cloud, cloudMd: doc.cloudMd });
     if (!doc.persisted) {
       doc.persisted = true;
       for (const f of pending.values()) await vfs.putFile({ ...f, doc: doc.id });
@@ -321,17 +403,26 @@ async function saveDoc(force) {
   })();
   try { await saving; } finally { saving = null; }
   refreshFiles();
+  cloudSoon();
 }
 
 // A deck opened from a link (#md=…, /s/{id}?edit, ?sample=…) is the reader's
 // own once it is saved: the address loses the link, so a reload opens the
 // saved deck, pictures and all, and not the link's text again.
 function plainAddress() {
+  // a PRO deck: its own address, which a reload opens from the cloud
+  if (doc.cloud) {
+    history.replaceState(null, "", "/s/" + doc.cloud + "?edit");
+    lastHash = "";
+    return;
+  }
   const q = new URLSearchParams(location.search);
   const shared = /^\/s\//.test(location.pathname);
-  if (!location.hash && !shared && !q.has("sample")) return;
+  if (!location.hash && !shared && !q.has("sample") && !q.has("deck")) return;
   q.delete("sample");
   q.delete("edit");
+  q.delete("deck");
+  q.delete("from");
   const search = q.toString();
   history.replaceState(null, "", (shared ? "/" : location.pathname) + (search ? "?" + search : ""));
   lastHash = "";
@@ -360,6 +451,8 @@ async function openDoc(id) {
   doc.id = d.id;
   doc.persisted = true;
   doc.created = d.created || Date.now();
+  doc.cloud = d.cloud || null;
+  doc.cloudMd = d.cloudMd ?? null;
   themeSel.value = d.theme || "";
   if (d.css != null) editedCss[d.theme || ""] = d.css;
   useTheme(themeSel.value);
@@ -370,6 +463,7 @@ async function openDoc(id) {
   savedCss = d.css == null ? null : d.css;
   savedTheme = d.theme || "";
   try { localStorage.setItem("evgp.doc", doc.id); } catch (_) { /* fine */ }
+  plainAddress();
   dropThumbs();
   needsPaint = true;
   refreshFiles();
@@ -382,10 +476,27 @@ function whenText(t) {
   return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()} ${two(d.getHours())}:${two(d.getMinutes())}`;
 }
 
+// File → Recent: the decks of this browser edited last, the open one left
+// out (a PRO deck is among them: the cloud save keeps it here as well).
+let recentSynced = "";
+async function refreshRecent() {
+  if (!vfs || viewer) return;
+  const rows = (await vfs.listDocs())
+    .filter((d) => d.id !== doc.id)
+    .sort((a, b) => (b.updated || 0) - (a.updated || 0))
+    .slice(0, 8)
+    .map((d) => d.id + "\t" + String(d.name || "presentation").replace(/[\t\n\r]+/g, " "));
+  const key = rows.join("\n");
+  if (key === recentSynced) return;
+  recentSynced = key;
+  app.setToolbarOptions("recent", key, "");
+}
+
 // The files tab's list, when it shows; again when PRO signs in or out.
 let filesListing = false;
 window.addEventListener("sliqtly:user", () => refreshFiles());
 async function refreshFiles() {
+  refreshRecent().catch(() => {});
   if (!vfs || app.editorTab() !== "files" || filesListing) return;
   filesListing = true;
   try {
@@ -408,7 +519,7 @@ async function refreshFiles() {
       : t("This browser does not allow storage: files are kept only while this page is open.");
     // PRO (sliqtly.js): the files in the cloud, offered at the top
     const promo = !window.sliqtly ? null : window.sliqtly.user()
-      ? { title: t("PRO is active"), text: t("Cloud storage and file sharing are coming here soon."), button: "" }
+      ? { title: t("PRO is active"), text: t("Your presentations and their pictures and data are saved in the cloud as you work."), button: "" }
       : {
         title: t("Share images and data with PRO"),
         text: t("PRO keeps your decks and their files in the cloud. Share links then carry images, plus the CSV and JSON data behind your charts and tables."),
@@ -545,9 +656,59 @@ async function importData(file, ask) {
   return true;
 }
 
+// A Google Sheet's link, or the address of a CSV / TSV / JSON file, pasted on
+// its own into the editor: the import dialog, as "Link live data", asks
+// whether it becomes a chart or a table that reads it live (or is only
+// pasted as text). Live data is PRO (liveAllowed).
+function dataLink(text) {
+  const u = text.trim();
+  if (!/^https:\/\/\S+$/.test(u)) return false;
+  return /^https:\/\/docs\.google\.com\/spreadsheets\/d\//.test(u) || /\.(csv|tsv|json)([?#]|$)/i.test(u);
+}
+async function linkData(link) {
+  if (!liveAllowed()) {
+    toast(t("Live chart data is a PRO feature: sign in with PRO to fetch it."));
+    app.pasteText(link);
+    afterInput();
+    return;
+  }
+  const url = app.liveUrl(link);
+  let text;
+  try {
+    text = await fetchLive(url);
+  } catch (_) {
+    liveFailed(url);
+    return;
+  }
+  let csv = text;
+  if (/^\s*[[{]/.test(text)) {
+    csv = jsonCsv(text);
+    if (csv == null) {
+      toast(t("No rows in this file."));
+      return;
+    }
+  } else if (/\.tsv([?#]|$)/i.test(link)) {
+    csv = text.split("\n").map((l) => l.split("\t").map((c) => /[",]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c).join(",")).join("\n");
+  }
+  csv = tidyCsv(csv);
+  const name = /docs\.google\.com/.test(link) ? "Google Sheet" : decodeURIComponent(link.split(/[?#]/)[0].split("/").pop() || link);
+  importing = { live: true, url, sheets: [{ name, path: link, csv, text }] };
+  app.openImport(JSON.stringify({ name, live: true, sheets: [{ name, path: link, csv }] }));
+  needsPaint = true;
+}
+
 async function keepData(i) {
   const sh = importing && importing.sheets[i];
   if (!sh) return;
+  // a link read live: drawn now, never kept with the deck
+  if (importing.live) {
+    chartFiles.set(importing.url, Promise.resolve(sh.text));
+    app.setChartData(importing.url, sh.text);
+    showLiveButton();
+    dropThumbs();
+    needsPaint = true;
+    return;
+  }
   // The workbook itself too, once: a live sheet (```sheet) opens it, and the
   // files tab edits it.
   const wb = importing.xlsx;
@@ -599,6 +760,7 @@ async function fileRequest(r) {
     pending.delete(what);
     if (doc.persisted) await vfs.deleteFile(doc.id, what);
     if (app.openFilePath() === what) app.closeFile();
+    cloudSoon();
   } else if (action === "doc") {
     if (!(await openDoc(what))) toast(t("Presentation not found."));
   } else if (action === "deldoc") {
@@ -679,8 +841,18 @@ function paintOnce() {
     st.width = W;
     st.height = H;
     const sf = prepareDisplayList(gl, st, { dpr, images: pictures, contrastGuard: true });
-    grew = grewBy(sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false })) || grew;
+    const stageStats = sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false });
+    grew = grewBy(stageStats) || grew;
     sf.dispose();
+    // Only while editing: not to an audience, and not mid-animation, where a
+    // fading line is briefly faint by design.
+    if (layout.mode !== "present" && !viewer && !app.isPlaying()) {
+      // Runs too faint on their slide: marked in the editors' gutters, not
+      // laid over the slide. A change shows on the next paint.
+      try {
+        if (app.setContrast(JSON.stringify((stageStats && stageStats.lowContrast) || []))) needsPaint = true;
+      } catch (e) { console.warn("contrast notes", e); }
+    }
   }
   if (grew) dropThumbs();
   let thumbsGrew = false;
@@ -739,7 +911,8 @@ function paintOnce() {
     // placed like a thumbnail: a page the size of the canvas, moved by the camera
     cj.width = W;
     cj.height = H;
-    const ce = prepareDisplayList(gl, cj, { dpr });
+    // with the pictures: the image window shows the one being added
+    const ce = prepareDisplayList(gl, cj, { dpr, images: pictures });
     if (grewBy(ce.draw(null, [cj.x, cj.y, 1], { clear: false }))) dropThumbs();
     ce.dispose();
   }
@@ -935,15 +1108,94 @@ mirror.root.addEventListener("keydown", (ev) => {
 // A chart may take its rows from a file (`"data": {"url": "data/movies.json"}`,
 // as the Vega-Lite examples do). The page fetches each one once: beside the
 // page first, then — for a relative path — from the Vega example datasets.
+// A chart's live data (`"url": "https://…"`, or a Google Sheet, which the
+// markdown module turns into the sheet's CSV address) is fetched fresh each
+// time the presentation opens and again on R / ⟳ while presenting
+// (refreshLiveData). It is never kept with the document: an export (PDF, PPTX)
+// is a snapshot of what was on the slides when it was made.
 const chartFiles = new Map();
 let chartFilesRev = -1;
+const isLive = (url) => /^https?:/.test(url);
+// Live data is PRO: fetched for a signed-in user, in a deck opened from a
+// cloud share (/s/{id}: made by a PRO owner), and in local development.
+let liveFromShare = false;
+let liveAuthKnown = false;
+let liveNoted = false;
+function liveAllowed() {
+  return liveFromShare || /^(localhost|127\.0\.0\.1)$/.test(location.hostname) || !!window.sliqtly?.user?.();
+}
+// signed in or out: the live data is looked at again
+window.addEventListener("sliqtly:user", () => {
+  liveAuthKnown = true;
+  chartFilesRev = -1;
+  needsPaint = true;
+});
+async function fetchLive(url) {
+  const r = await fetch(url, { cache: "no-store" });
+  if (!r.ok) throw new Error(String(r.status));
+  const text = await r.text();
+  // a sheet nobody may read without signing in answers with a page, not CSV
+  if (/^\s*</.test(text) && !/\.(xml|svg)(\?|$)/i.test(url)) throw new Error("html");
+  return text;
+}
+function liveFailed(url) {
+  toast(/docs\.google\.com\/spreadsheets/.test(url)
+    ? t("Could not read the Google Sheet. Share it as \"Anyone with the link\": ") + url
+    : t("Could not load the chart file: ") + url);
+}
+function showLiveButton() {
+  const b = document.getElementById("vData");
+  if (b) b.hidden = ![...chartFiles.keys()].some(isLive);
+}
+let refreshing = null;
+function refreshLiveData() {
+  const urls = [...chartFiles.keys()].filter(isLive);
+  if (!urls.length || refreshing) return refreshing;
+  refreshing = (async () => {
+    let failed = 0;
+    await Promise.all(urls.map(async (url) => {
+      try {
+        const text = await fetchLive(url);
+        chartFiles.set(url, Promise.resolve(text));
+        app.setChartData(url, text);
+      } catch (_) {
+        failed += 1;
+        liveFailed(url);
+      }
+    }));
+    dropThumbs();
+    needsPaint = true;
+    if (!failed) toast(t("Data refreshed"));
+    refreshing = null;
+  })();
+  return refreshing;
+}
 function fetchChartFiles(rev) {
   if (rev === chartFilesRev) return;
   chartFilesRev = rev;
   const wanted = (app.chartDataWanted() || "").split("\n").filter(Boolean);
   for (const url of wanted) {
     if (chartFiles.has(url)) continue;
-    const tries = /^https?:/.test(url) ? [url] : ["./" + url.replace(/^\.?\//, ""), "https://cdn.jsdelivr.net/npm/vega-datasets@2/" + url.replace(/^\.?\//, "")];
+    if (isLive(url)) {
+      if (!liveAllowed()) {
+        if (liveAuthKnown && !liveNoted) {
+          liveNoted = true;
+          toast(t("Live chart data is a PRO feature: sign in with PRO to fetch it."));
+        }
+        continue;
+      }
+      const got = fetchLive(url).catch(() => null);
+      chartFiles.set(url, got);
+      showLiveButton();
+      got.then((text) => {
+        if (text == null) return liveFailed(url);
+        app.setChartData(url, text);
+        dropThumbs();
+        needsPaint = true;
+      });
+      continue;
+    }
+    const tries = ["./" + url.replace(/^\.?\//, ""), "https://cdn.jsdelivr.net/npm/vega-datasets@2/" + url.replace(/^\.?\//, "")];
     const got = (async () => {
       // the document's own copy, when it has one
       const mine = (await docFiles()).find((f) => f.path === bare(url));
@@ -966,11 +1218,9 @@ function fetchChartFiles(rev) {
       dropThumbs();
       needsPaint = true;
       // kept with the document, so it opens without the network next time
-      if (!/^https?:/.test(url)) {
-        docFiles().then((have) => {
-          if (!have.some((f) => f.path === bare(url))) keepFile({ path: bare(url), type: "text/plain", size: text.length, data: text }).catch(fail);
-        });
-      }
+      docFiles().then((have) => {
+        if (!have.some((f) => f.path === bare(url))) keepFile({ path: bare(url), type: "text/plain", size: text.length, data: text }).catch(fail);
+      });
     });
   }
 }
@@ -1028,6 +1278,13 @@ function deliver(bytes, name, mime) {
 }
 window.__lastDownload = "";
 
+// for scripts/check-web.mjs: the requests run now, a picture's pixel size
+window.__handleRequests = () => handleRequests();
+window.__pictureSize = (p) => {
+  const img = pictures.get(p);
+  return img ? [img.naturalWidth, img.naturalHeight] : [0, 0];
+};
+
 function handleRequests() {
   for (;;) {
     const r = app.takeRequest();
@@ -1035,6 +1292,7 @@ function handleRequests() {
     if (r === "fullscreen") {
       document.body.classList.add("presenting");
       presentStartedAt = performance.now();
+      refreshLiveData();
       rebaseClock();
       if (!viewer && document.documentElement.requestFullscreen && !document.fullscreenElement) {
         document.documentElement.requestFullscreen().catch(() => {});
@@ -1076,6 +1334,10 @@ function handleRequests() {
       keepFile({ path, type: "application/json", size: text.length, data: text }).catch(fail);
       chartFiles.set(path, Promise.resolve(text));
       dropThumbs();
+    } else if (r === "picture-place") {
+      placePasted().catch(fail);
+    } else if (r === "picture-cancel") {
+      dropPasting();
     } else if (r === "sheet-edit") {
       liveSheets.editFirst();
     } else if (r.startsWith("data-keep:")) {
@@ -1280,11 +1542,16 @@ async function unpackText(code) {
   const stream = new Blob([unb64url(code)]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
   return new TextDecoder().decode(await new Response(stream).arrayBuffer());
 }
+// the address's #…, or where the page has no address of its own (the
+// assistant's preview writes it as srcdoc) the one it was given in
+// <meta name="sliqtly-link">
 function hashParams() {
-  return new URLSearchParams(location.hash.replace(/^#/, ""));
+  const given = document.querySelector('meta[name="sliqtly-link"]');
+  return new URLSearchParams((given ? given.content : location.hash).replace(/^#/, ""));
 }
 
 let toastTimer = 0;
+
 function toast(text) {
   app.toast(text);
   needsPaint = true;
@@ -1302,22 +1569,141 @@ function pro() {
     : new Promise((ok) => window.addEventListener("sliqtly:ready", () => ok(window.sliqtly), { once: true }));
 }
 
-// Signed in to PRO: the deck is kept as its owner's in the cloud and a copy
-// is shared under a short id, pictures and data files with it. The copy is
-// read-only: the edit link opens it as a new deck of the reader's own.
-// Resolves to the share's id; rejects with the reason it could not.
-async function shareCloud() {
-  const p = window.sliqtly;
-  await saveDoc(true);
+// Signed in to PRO, a deck lives in the cloud as a share (web/sliqtly.js):
+// made on its first save, written again a moment after every change, and
+// opened from there at /s/{id}?edit, the address the editor then shows. The
+// same share is what Share links to and what an assistant edits (mcp/).
+function stampOf(f) {
+  return (f.size ?? "") + ":" + (f.updated ?? "");
+}
+function cloudReady() {
+  return !!(vfs && !viewer && doc.persisted && window.sliqtly?.user?.());
+}
+let cloudTimer = 0;
+function cloudSoon() {
+  if (!cloudReady() || doc.cloudHalt) return;
+  clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(() => { cloudSync().catch(cloudTrouble); }, 2000);
+}
+let cloudBusy = null;
+let cloudWarned = false;
+function cloudTrouble(e) {
+  console.warn("cloud save failed", e);
+  if (cloudWarned) return;
+  cloudWarned = true;
+  toast(t("Saving to the cloud failed: ") + (e?.code || e?.message || String(e)) + ". " + t("The presentation is kept in this browser."));
+}
+// The deck as the cloud keeps it, and a signature of it.
+async function cloudDeck() {
   const key = themeSel.value || "";
+  const deck = {
+    deckId: doc.id, name: exportName(), md: app.source(), theme: key,
+    css: key in editedCss ? editedCss[key] : null,
+    files: (await docFiles()).map((f) => ({ path: f.path, type: f.type || "", data: f.data, stamp: stampOf(f) })),
+  };
+  return { deck, sig: JSON.stringify([deck.name, deck.md, deck.theme, deck.css, deck.files.map((f) => f.path + "=" + f.stamp)]) };
+}
+// Writes the deck to its share, making the share first if it has none.
+// Resolves to the share's id.
+async function cloudSync() {
+  if (cloudBusy) await cloudBusy.catch(() => {});
+  if (!cloudReady()) return null;
+  clearTimeout(cloudTimer);
+  const p = window.sliqtly;
+  const { deck, sig } = await cloudDeck();
+  if (doc.cloud && (sig === doc.cloudSig || doc.cloudHalt)) return doc.cloud;
+  const which = doc.id;
+  cloudBusy = (async () => {
+    let id = doc.cloud;
+    if (!id) {
+      id = await p.share(deck);
+    } else {
+      try {
+        await p.saveShare(id, deck, { md: doc.cloudMd, stamps: doc.cloudStamps });
+      } catch (e) {
+        if (e?.code !== "changed-elsewhere") throw e;
+        if (doc.id === which) doc.cloudHalt = true;
+        toast(t("This presentation was changed elsewhere (by an assistant?). Your changes here are not saved to the cloud: reload to get the newer version."));
+        return id;
+      }
+    }
+    if (doc.id !== which) return id; // another deck was opened meanwhile
+    doc.cloud = id;
+    doc.cloudMd = deck.md;
+    doc.cloudSig = sig;
+    doc.cloudStamps = new Map(deck.files.map((f) => [f.path, f.stamp]));
+    cloudWarned = false;
+    await vfs.putDoc({ ...(await vfs.getDoc(doc.id)), cloud: id, cloudMd: deck.md });
+    plainAddress();
+    return id;
+  })();
+  try { return await cloudBusy; } finally { cloudBusy = null; }
+}
+window.addEventListener("sliqtly:user", () => cloudSoon());
+
+// Opens the signed-in owner's deck from its share (/s/{id}?edit): the cloud
+// has the latest, an assistant's changes included. Kept in this browser
+// under the id it had here, or a new one. False when it is not theirs.
+async function openOwnCloud(id) {
+  const p = await pro();
+  const who = await Promise.race([p.signedIn(), new Promise((ok) => setTimeout(() => ok(null), 8000))]);
+  if (!who || !vfs) return false;
+  const shared = await p.loadShare(id);
+  if (!shared || shared.owner !== who.uid) return false;
+  const local = (await vfs.listDocs()).find((d) => d.cloud === id);
+  // changes made here that the cloud does not have yet, and nobody changed
+  // it since: this browser's copy is the newer, and goes up on the next save
+  if (local && local.md !== local.cloudMd && shared.md === local.cloudMd) return openDoc(local.id);
+  await saveDoc();
+  beginDoc(shared.md || "");
+  doc.id = local?.id || newId();
+  if (local) await vfs.deleteDoc(local.id); // the cloud's files replace this browser's
+  doc.created = local?.created || Date.now();
+  if (shared.theme != null) {
+    themeSel.value = shared.theme;
+    app.setStyleSheet(shared.theme ? themeCss[shared.theme] || "" : "");
+  }
+  if (shared.css != null) {
+    editedCss[themeSel.value || ""] = shared.css;
+    app.setStyleSheet(shared.css);
+  }
+  const missing = [];
+  for (const f of shared.files || []) {
+    try {
+      const res = await fetch(f.url);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = isText(f.path, f.type) ? await res.text() : await res.blob();
+      const rec = { doc: doc.id, path: f.path, type: f.type, size: f.size, data, updated: Date.now() };
+      pending.set(rec.path, rec);
+      await useFile(rec);
+    } catch (e) {
+      console.warn("cloud file not loaded: " + f.path, e);
+      missing.push(f.path);
+    }
+  }
+  if (missing.length) toast(t("Some pictures or data files of this presentation could not be loaded: ") + missing.join(", "));
+  docName = shared.name || "presentation";
+  app.setSource(shared.md || "");
+  doc.cloud = id;
+  doc.cloudMd = shared.md || "";
+  // the files that did come are what the share has; one that did not is
+  // not sent back, so the share keeps it
+  doc.cloudStamps = new Map([...pending.values()].map((f) => [f.path, stampOf(f)]));
+  await saveDoc(true);
+  doc.cloudSig = (await cloudDeck()).sig;
+  plainAddress();
+  dropThumbs();
+  needsPaint = true;
+  return true;
+}
+
+// Share, signed in: the deck's own share, saved first. → the share's id
+async function shareCloud() {
+  await saveDoc(true);
   // Firestore waits quietly when it cannot write (no database yet, rules
   // that refuse): a share that has not happened in 20 s has failed
   const timeout = new Promise((_, no) => setTimeout(() => no(Object.assign(new Error("timeout"), { code: "timeout" })), 20000));
-  return Promise.race([timeout, p.share({
-    deckId: doc.id, name: exportName(), md: app.source(), theme: key,
-    css: key in editedCss ? editedCss[key] : null,
-    files: (await docFiles()).map((f) => ({ path: f.path, type: f.type || "", data: f.data })),
-  })]);
+  return Promise.race([timeout, cloudSync().then((id) => id || Promise.reject(new Error("not saved")))]);
 }
 
 function cloudFailure(e) {
@@ -1344,7 +1730,8 @@ async function shareLink() {
   q.set("md", code);
   if (themeSel.value) q.set("theme", themeSel.value);
   if ((themeSel.value || "") in editedCss) q.set("css", await packText(editedCss[themeSel.value || ""]));
-  const base = location.origin + location.pathname;
+  // the page's own address, also when it is at /s/{id}?edit
+  const base = new URL(".", document.baseURI).href;
   const editUrl = base + "#" + q.toString();
   q.set("mode", "show");
   const showUrl = base + "#" + q.toString();
@@ -1363,6 +1750,72 @@ async function shareLink() {
     showShare(showUrl, editUrl, cloudFailure(e) + " " + textNote);
   }
 }
+
+// Edit in Claude / ChatGPT: the assistant opens with a prompt that names the
+// deck, and edits it through the Sliqtly connector (mcp/): get_presentation
+// reads a share, update_presentation saves it when the assistant is signed
+// in as the share's owner (or holds its edit key). So the deck handed over
+// is a share: the one this page was opened from when it is the reader's own
+// and unchanged, else a fresh share of the deck (signed in). Signed out, the
+// Markdown goes in the prompt for create_presentation. The changes land in
+// the share, not in this page's deck: /s/{id}?edit opens them here again.
+let originShare = null;
+// the links in the prompt: always the site's own address, also when the
+// page was opened at sliqtly.web.app or on a local server
+const SITE = "https://sliqtly.com";
+const AI = {
+  claude: (q) => "https://claude.ai/new?q=" + encodeURIComponent(q),
+  chatgpt: (q) => "https://chatgpt.com/?q=" + encodeURIComponent(q),
+};
+// what fits in an address with room to spare
+const AI_MAX_PROMPT = 6000;
+
+async function editInAI(which) {
+  // opened now, while the press still counts as one; pointed at the
+  // assistant once the prompt is ready
+  const win = window.open("", "_blank");
+  const go = (url) => {
+    if (win && !win.closed) {
+      win.opener = null;
+      win.location.href = url;
+    } else {
+      window.open(url, "_blank", "noopener");
+    }
+  };
+  try {
+    const text = app.source();
+    const user = window.sliqtly?.user?.();
+    let id = null;
+    if (user) {
+      if (!doc.cloud) toast(t("Saving a copy in the cloud for the assistant…"));
+      id = await shareCloud();
+    } else if (originShare && originShare.md === text) {
+      id = originShare.id;
+    }
+    const connect = t("If you have no Sliqtly tools, tell me to add the Sliqtly connector: ") + SITE + "/connect.html";
+    let prompt;
+    if (id) {
+      prompt = t("Edit my Sliqtly presentation {id} ({link}) with the Sliqtly connector. Load it with get_presentation (deck_id {id}), summarize it briefly and ask what to change. Save each change with update_presentation (deck_id {id}). If saving is refused, make a new presentation with create_presentation instead. After saving, give me the link {edit} to open it in the editor.")
+        .replaceAll("{id}", id).replaceAll("{link}", SITE + "/s/" + id).replaceAll("{edit}", SITE + "/s/" + id + "?edit");
+    } else {
+      prompt = t("Make this Markdown a Sliqtly presentation with create_presentation from the Sliqtly connector (theme {theme}), give me its link and ask what to change. Save later changes with update_presentation.")
+        .replaceAll("{theme}", themeSel.value || "-") + "\n\n```markdown\n" + text + "\n```";
+      if (prompt.length > AI_MAX_PROMPT) {
+        if (win) win.close();
+        toast(t("This presentation is too long to hand over in a link. Sign in with PRO first."));
+        return;
+      }
+      if (/\]\(media\//.test(text)) toast(t("Pictures are not handed over without PRO sign-in."));
+    }
+    go(AI[which](prompt + "\n\n" + connect));
+  } catch (e) {
+    if (win) win.close();
+    console.warn("handing over to the assistant failed", e);
+    toast(t("Could not save a copy for the assistant: ") + (e?.code || e?.message || String(e)));
+  }
+}
+document.getElementById("aiClaude").addEventListener("click", () => { editInAI("claude"); });
+document.getElementById("aiChatgpt").addEventListener("click", () => { editInAI("chatgpt"); });
 
 // A copy button in the share dialog (drawn on the canvas): the browser copies.
 let copiedTimer = 0;
@@ -1409,21 +1862,129 @@ function enterViewer() {
 function wakeViewer() {
   document.body.classList.remove("idle");
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => document.body.classList.add("idle"), 2500);
+  // the bar stays while its menu is open
+  idleTimer = setTimeout(() => { if (vMenu.hidden) document.body.classList.add("idle"); }, 2500);
 }
 // Esc leaves full screen (the browser does that), never the presentation:
 // there is no editor to go back to.
 window.addEventListener("keydown", (ev) => {
-  if (viewer && ev.key === "Escape") ev.stopImmediatePropagation();
+  if (viewer && ev.key === "Escape") {
+    ev.stopImmediatePropagation();
+    if (!vMenu.hidden) {
+      toggleViewMenu(false);
+      vMore.focus();
+    }
+  }
 }, true);
 for (const ev of ["pointermove", "pointerdown", "keydown"]) {
   window.addEventListener(ev, () => { if (viewer) wakeViewer(); }, { passive: true });
 }
 document.getElementById("vPrev").addEventListener("click", () => { app.prev(); afterInput(); });
 document.getElementById("vNext").addEventListener("click", () => { app.next(); afterInput(); });
+document.getElementById("vData").addEventListener("click", () => refreshLiveData());
 document.getElementById("vFull").addEventListener("click", () => {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+});
+
+// The … menu: the deck as PDF, PPTX or Markdown (the editor's exports), a new
+// deck of the reader's own based on this one, and, for the signed-in owner of
+// a cloud share, Edit, which opens their own deck in the editor.
+// Embedded in an assistant's preview (mcp/src/preview.html writes the page as
+// srcdoc, with <meta name="sliqtly-link">) the page has no address and its
+// sandbox allows no downloads or windows: every item opens sliqtly.com in a
+// new tab through the preview (window.__sliqtlyOpenLink, the host's
+// ui/open-link), exports with ?export=pdf|pptx|md, which the site runs on load.
+const vMenu = document.getElementById("vMenu");
+const vMore = document.getElementById("vMore");
+const vExportSub = document.getElementById("vExportSub");
+const vExport = document.getElementById("vExport");
+const framed = location.protocol === "blob:" || !!document.querySelector('meta[name="sliqtly-link"]');
+function siteUrl(path) {
+  return new URL(path, framed ? SITE + "/" : document.baseURI).href;
+}
+let viewShare = null; // { id, owner, deck } of a cloud share being shown
+function ownsShare() {
+  const u = window.sliqtly?.user?.();
+  return !!(u && viewShare && viewShare.deck && viewShare.owner === u.uid);
+}
+function toggleViewMenu(open) {
+  vMenu.hidden = !open;
+  vMore.setAttribute("aria-expanded", String(open));
+  if (!open) {
+    vExportSub.hidden = true;
+    vExport.setAttribute("aria-expanded", "false");
+    return;
+  }
+  document.getElementById("vEdit").hidden = !ownsShare();
+  wakeViewer();
+  vMenu.querySelector("button:not([hidden])").focus();
+}
+window.addEventListener("sliqtly:user", () => { document.getElementById("vEdit").hidden = !ownsShare(); });
+function siteLink(url) {
+  if (framed) {
+    let open = null;
+    try { open = window.parent !== window && window.parent.__sliqtlyOpenLink; } catch (_) { /* another origin */ }
+    if (typeof open === "function") open(url);
+    else window.open(url, "_blank", "noopener");
+  } else {
+    location.assign(url);
+    // only the hash changed: the page would stay the viewer
+    if (new URL(url).pathname === location.pathname && !new URL(url).search) location.reload();
+  }
+}
+function createFromViewed() {
+  if (viewShare) return siteLink(siteUrl("s/" + viewShare.id + "?edit"));
+  const q = hashParams();
+  q.delete("mode");
+  q.delete("export");
+  siteLink(siteUrl("").replace(/#.*$/, "") + "#" + q.toString());
+}
+// the shown deck on the site, exporting itself there
+function exportOnSite(kind) {
+  if (viewShare) return siteLink(siteUrl("s/" + viewShare.id + "?export=" + kind));
+  const q = hashParams();
+  q.set("mode", "show");
+  q.set("export", kind);
+  siteLink(siteUrl("").replace(/#.*$/, "") + "#" + q.toString());
+}
+const EXPORTS = { pdf: () => exportPdf(), pptx: () => exportPptx(), md: () => exportMd() };
+async function exportMd() {
+  window.__lastDownload = deliver(new TextEncoder().encode(app.source()), exportName() + ".md", "text/markdown");
+}
+window.__viewMenu = { toggle: toggleViewMenu, ownsShare, share: () => viewShare };
+vMore.addEventListener("click", () => toggleViewMenu(vMenu.hidden));
+vExport.addEventListener("click", () => {
+  vExportSub.hidden = !vExportSub.hidden;
+  vExport.setAttribute("aria-expanded", String(!vExportSub.hidden));
+  if (!vExportSub.hidden) vExportSub.querySelector("button").focus();
+});
+vMenu.addEventListener("click", (ev) => {
+  const act = ev.target.closest("[data-act]")?.dataset.act;
+  if (!act) return;
+  toggleViewMenu(false);
+  if (EXPORTS[act]) {
+    if (framed) exportOnSite(act);
+    else EXPORTS[act]().catch(fail);
+  } else if (act === "new") createFromViewed();
+  else if (act === "edit" && ownsShare()) {
+    siteLink(siteUrl("s/" + viewShare.id + "?edit"));
+  }
+});
+vMenu.addEventListener("keydown", (ev) => {
+  const items = [...vMenu.querySelectorAll("button")].filter((b) => b.offsetParent);
+  const at = items.indexOf(document.activeElement);
+  if (ev.key === "Escape") {
+    toggleViewMenu(false);
+    vMore.focus();
+  } else if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+    items[(at + (ev.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
+  } else return;
+  ev.preventDefault();
+  ev.stopPropagation();
+});
+document.addEventListener("pointerdown", (ev) => {
+  if (!vMenu.hidden && !ev.target.closest("#viewBar")) toggleViewMenu(false);
 });
 
 let lastHash = "";
@@ -1462,16 +2023,43 @@ window.addEventListener("hashchange", () => { if (location.hash !== lastHash) op
 // /s/{id}: a deck shared through PRO, read from the cloud. Shown as a
 // presentation; with ?edit, opened as a new deck of the reader's own.
 // #share={id}: the same presentation where the page is not at its own
-// address — the preview an AI assistant shows (mcp/src/preview.html) loads
-// this page from a blob: URL, since the assistant does not let it frame
-// sliqtly.com. Always only shown.
+// address — the preview an AI assistant shows (mcp/src/preview.html) runs
+// this page as an iframe's srcdoc, since the assistant does not let it
+// frame sliqtly.com. Always only shown.
 function hashShare() {
   const id = hashParams().get("share");
   return id && /^[A-Za-z0-9]{6,32}$/.test(id) ? id : null;
 }
+// ?deck={deckId}&from={shareId}: the owner's Edit from a shared presentation.
+// The deck itself when this browser keeps it; else the share's copy, kept
+// under the deck's id so sharing it again updates the same cloud deck.
+function ownDeck() {
+  const q = new URLSearchParams(location.search);
+  const deck = q.get("deck");
+  const from = q.get("from");
+  if (!deck || !/^[A-Za-z0-9_-]{1,64}$/.test(deck)) return null;
+  return { deck, from: from && /^[A-Za-z0-9]{6,32}$/.test(from) ? from : null };
+}
+// This browser's copy of the owner's deck wins unless the share has changed
+// since (an assistant saves to the share).
+async function ownIsNewer(own) {
+  const local = await vfs.getDoc(own.deck);
+  if (!local) return false;
+  if (!own.from) return true;
+  try {
+    const shared = await (await pro()).loadShare(own.from);
+    if (!shared) return true;
+    const at = shared.updated || shared.created;
+    const ms = at?.toMillis ? at.toMillis() : Number(at) || 0;
+    return local.md === shared.md || (local.updated || 0) >= ms;
+  } catch (_) {
+    return true;
+  }
+}
 async function openFromShare() {
   const m = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(location.pathname);
-  const id = m ? m[1] : hashShare();
+  const own = m || hashShare() ? null : ownDeck();
+  const id = m ? m[1] : hashShare() || own?.from;
   if (!id) return false;
   try {
     const shared = await (await pro()).loadShare(id);
@@ -1479,8 +2067,12 @@ async function openFromShare() {
       toast(t("This shared presentation was not found."));
       return false;
     }
-    const editing = !!m && new URLSearchParams(location.search).has("edit");
+    const editing = (!!m && new URLSearchParams(location.search).has("edit")) || !!own;
+    if (editing) originShare = { id, owner: shared.owner || "", md: shared.md || "" };
     beginDoc(shared.md || "");
+    liveFromShare = !editing;
+    if (own) doc.id = own.deck;
+    else if (!editing) viewShare = { id, owner: shared.owner, deck: shared.deck };
     if (shared.theme != null) {
       themeSel.value = shared.theme;
       app.setStyleSheet(shared.theme ? themeCss[shared.theme] || "" : "");
@@ -1669,6 +2261,11 @@ keys.addEventListener("keydown", (ev) => {
     return;
   }
   if (presenting) {
+    if ((ev.key === "r" || ev.key === "R") && !mod && !ev.altKey) {
+      ev.preventDefault();
+      refreshLiveData();
+      return;
+    }
     if (ev.key.length === 1) {
       ev.preventDefault();
       app.text(ev.key);
@@ -1688,6 +2285,8 @@ keys.addEventListener("keydown", (ev) => {
 
 document.addEventListener("keydown", (ev) => {
   if (ev.target === keys || !(lastLayout && lastLayout.mode === "present")) return;
+  // the viewer's buttons and menu keep their own keys (Enter, Tab, arrows)
+  if (ev.target.closest?.("#viewBar")) return;
   // a live sheet being edited (or the workbook dialog) has the keyboard
   if (liveSheets.owns(ev.target)) return;
   keys.focus({ preventScroll: true });
@@ -1759,6 +2358,10 @@ keys.addEventListener("paste", (ev) => {
     return;
   }
   const text = ev.clipboardData?.getData("text/plain") || "";
+  if (text && app.focusTarget() === "editor" && dataLink(text)) {
+    linkData(text.trim()).catch(fail);
+    return;
+  }
   if (text) {
     app.pasteText(text);
     afterInput();
@@ -2060,17 +2663,28 @@ async function start() {
   themeSel.value = theme;
   app.setStyleSheet(theme ? themeCss[theme] || "" : "");
   if (!viewer && !hashShare()) vfs = await openVfs();
-  if (!(await openFromShare()) && !(await openFromHash())) {
+  const own = ownDeck();
+  // /s/{id}?edit (or an older ?deck=…&from={id}) of the signed-in owner's
+  // own deck: opened from the cloud, where it lives
+  const editId = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(location.pathname)?.[1] || own?.from;
+  const editing = !!own || (!!editId && q.has("edit"));
+  if (editing && editId && (await openOwnCloud(editId).catch((e) => { console.warn(e); return false; }))) { /* opened */ }
+  else if (own && vfs && (await ownIsNewer(own)) && (await openDoc(own.deck))) plainAddress();
+  else if (!(await openFromShare()) && !(await openFromHash())) {
     const want = q.get("sample");
-    // no sample asked for: the deck worked on last, if this browser kept one
+    // no sample asked for: the deck worked on last, if this browser kept one,
+    // from the cloud when it lives there
     let last = null;
     try { last = localStorage.getItem("evgp.doc"); } catch (_) { /* none */ }
-    if (want || !last || !(await openDoc(last))) {
+    const lastCloud = !want && last && vfs ? (await vfs.getDoc(last))?.cloud : null;
+    if (lastCloud && (await openOwnCloud(lastCloud).catch(() => false))) { /* opened */ }
+    else if (want || !last || !(await openDoc(last))) {
       const sample = SAMPLES[want] || HIDDEN_SAMPLES[want] ? want : "talous";
       if (SAMPLES[sample]) sampleSel.value = sample;
       await openSample(sample);
     }
   }
+  refreshRecent().catch(() => {});
 
   // A narrow window gets the slides without the editor (PresApp.isCompact,
   // decided on every layout, so it follows the window); on a touch screen
@@ -2085,6 +2699,20 @@ async function start() {
   document.body.classList.remove("booting");
   if (!viewer && !isCoarse()) focusKeys("editor");
   window.__pageStarted = true;
+  // ?export=pdf|pptx|md (or in the #…): an export asked for from the
+  // assistant's preview, which cannot download
+  const ask = q.get("export") || hashParams().get("export");
+  if (viewer && !framed && EXPORTS[ask]) {
+    toast(t("Preparing the download…"));
+    EXPORTS[ask]().catch(fail);
+    // once: a reload shows the deck without downloading it again
+    const h = hashParams();
+    h.delete("export");
+    q.delete("export");
+    const search = q.toString();
+    history.replaceState(null, "", location.pathname + (search ? "?" + search : "") + (location.hash ? "#" + h.toString() : ""));
+    lastHash = location.hash;
+  }
   requestAnimationFrame(frame);
 }
 

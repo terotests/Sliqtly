@@ -1,3 +1,5 @@
 assets/
 /server
 *.test
+/mcp-go
+/sliqtly_mcp.go

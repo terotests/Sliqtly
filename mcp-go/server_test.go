@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -25,7 +27,13 @@ import (
 
 const BASE = "https://sliqtly.test"
 
+// a store for cases that do not look at it
+var fb0 = fakeFirebase()
+
 var PNG, _ = base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+
+// the deck's mermaid fence draws nothing, and the editor's own model says so
+const EMPTY_FLOW = "The mermaid block on slide \"Cat\" is not shown: a flowchart diagram — read, but nothing drew it."
 
 const DECK = "# Hello\n\nFirst.\n{.lead}\n\n## Cat {bg=media/cat.png}\n\n![](media/dot.png)\n\n```mermaid\nflowchart LR\n## not a slide\n```\n"
 
@@ -153,16 +161,27 @@ func respond(status int, ct, body string) *http.Response {
 	return &http.Response{StatusCode: status, Header: h, Body: io.NopCloser(strings.NewReader(body))}
 }
 
+// the site's own sheet, so the checks lay the deck out as the player does
+var auroraCSS = func() string {
+	b, err := os.ReadFile("../themes/aurora.css")
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}()
+
 var fakeNet = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
 	switch r.URL.String() {
 	case BASE + "/themes/aurora.css":
-		return respond(200, "text/css", "page { background-color: #0b1030; }"), nil
+		return respond(200, "text/css", auroraCSS), nil
 	case BASE + "/themes/corporate.css":
-		return respond(200, "text/css", "page { background-color: #fff; }"), nil
+		return respond(200, "text/css", "page { background-color: #fff; }\ndeck { split-level: 2; }"), nil
 	case "https://images.test/cat.png":
 		return respond(200, "image/png", string(PNG)), nil
 	case "https://client.test/meta.json":
 		return respond(200, "application/json", `{"client_id":"https://client.test/meta.json","client_name":"Test Client","redirect_uris":["https://client.test/cb"]}`), nil
+	case BASE + "/__/firebase/init.json":
+		return respond(200, "application/json", `{"projectId":"sliqtly-test","apiKey":"k"}`), nil
 	case "https://images.test/page.html":
 		return respond(200, "text/html", "<html>"), nil
 	}
@@ -172,13 +191,30 @@ var fakeNet = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Res
 type fb struct {
 	db     *fakeDB
 	bucket *fakeBucket
-	store  *FirebaseStore
 }
 
 func fakeFirebase() fb {
-	db := newFakeDB()
-	b := &fakeBucket{saved: map[string]savedFile{}}
-	return fb{db, b, &FirebaseStore{DB: db, Bucket: b}}
+	return fb{newFakeDB(), &fakeBucket{saved: map[string]savedFile{}}}
+}
+
+// the server with Firestore and Storage faked; nothing kept when f is nil
+func testEnv(f *fb, limiter func(string) string) *Env {
+	e := &Env{BaseURL: BASE, Client: fakeNet, ThemeClient: fakeNet, Limiter: limiter}
+	if f != nil {
+		e.DB, e.Bucket = f.db, f.bucket
+	}
+	return e
+}
+
+func withSignIn(e *Env) *Env {
+	e.OAuth = true
+	e.VerifyIDToken = func(_ context.Context, tok string) (*IDToken, error) {
+		if tok != "google-ok" {
+			return nil, fmt.Errorf("bad")
+		}
+		return &IDToken{UID: "u1", Name: "Tero"}, nil
+	}
+	return e
 }
 
 type testServer struct {
@@ -198,9 +234,9 @@ func (w withToken) RoundTrip(r *http.Request) (*http.Response, error) {
 	return w.next.RoundTrip(r)
 }
 
-func start(t *testing.T, store Store, limiter func(string) string, oauth *OAuth, token string) *testServer {
+func start(t *testing.T, env *Env, token string) *testServer {
 	t.Helper()
-	app := NewApp(AppOpts{Store: store, BaseURL: BASE, Client: fakeNet, ThemeClient: fakeNet, Limiter: limiter, OAuth: oauth})
+	app := NewApp(env)
 	srv := httptest.NewServer(app)
 	hc := &http.Client{}
 	if token != "" {
@@ -252,7 +288,7 @@ func match(t *testing.T, s, re string) {
 // --- the cases
 
 func TestToolsUIMetadataAndPreview(t *testing.T) {
-	s := start(t, fakeFirebase().store, nil, nil, "")
+	s := start(t, testEnv(&fb0, nil), "")
 	defer s.close()
 	ctx := context.Background()
 	tools, err := s.session.ListTools(ctx, nil)
@@ -268,12 +304,13 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	eq(t, names, []string{"create_presentation", "get_presentation", "list_presentations", "sliqtly_guide", "update_presentation"})
-	eq(t, create.Meta["ui"].(map[string]any)["resourceUri"], PREVIEW_URI)
-	eq(t, create.Meta["openai/outputTemplate"], PREVIEW_URI)
+	eq(t, names, []string{"bind_chart_data", "create_presentation", "get_presentation", "list_presentations", "sliqtly_guide", "update_presentation"})
+	uri, _ := create.Meta["ui"].(map[string]any)["resourceUri"].(string)
+	match(t, uri, `^ui://sliqtly/preview-[0-9a-f]{10}\.html$`)
+	eq(t, create.Meta["openai/outputTemplate"], uri)
 	schema, _ := json.Marshal(create.InputSchema)
 	match(t, string(schema), `"enum":\[[^\]]*"editorial"`)
-	r, err := s.session.ReadResource(ctx, &mcp.ReadResourceParams{URI: PREVIEW_URI})
+	r, err := s.session.ReadResource(ctx, &mcp.ReadResourceParams{URI: uri})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +327,7 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 
 func TestCreateUpdateReadWithPictures(t *testing.T) {
 	f := fakeFirebase()
-	s := start(t, f.store, nil, nil, "")
+	s := start(t, testEnv(&f, nil), "")
 	defer s.close()
 	c := call(t, s, "create_presentation", map[string]any{
 		"title": "Cats", "markdown": DECK, "css": "h1 { font-size: 60pt; }",
@@ -305,7 +342,7 @@ func TestCreateUpdateReadWithPictures(t *testing.T) {
 	out := sc(c)
 	id := out["deck_id"].(string)
 	eq(t, out["slides"], 2)
-	eq(t, out["warnings"], []string{})
+	eq(t, out["warnings"], []string{EMPTY_FLOW})
 	eq(t, out["share_url"], BASE+"/s/"+id)
 	eq(t, out["edit_url"], BASE+"/s/"+id+"?edit")
 	share := f.db.doc("shares/" + id)
@@ -333,11 +370,14 @@ func TestCreateUpdateReadWithPictures(t *testing.T) {
 	uo := sc(u)
 	eq(t, uo["share_url"], out["share_url"])
 	eq(t, uo["slides"], 3)
-	eq(t, uo["warnings"], []string{"media/new.png is used in the Markdown but no image by that name was sent."})
+	eq(t, uo["warnings"], []string{"media/new.png is used in the Markdown but no image by that name was sent.", EMPTY_FLOW})
 	after := f.db.doc("shares/" + id)
 	eq(t, after["theme"], "corporate")
 	eq(t, after["css"], nil, "a new theme without css drops the old theme's sheet")
 	eq(t, len(list(after["files"])), 2)
+
+	// the preview reads the stored deck with the site's Firebase config
+	eq(t, u.Meta["sliqtly/firebase"], map[string]any{"projectId": "sliqtly-test", "apiKey": "k"})
 
 	g := sc(call(t, s, "get_presentation", map[string]any{"deck_id": id}))
 	eq(t, g["markdown"], after["md"])
@@ -346,7 +386,7 @@ func TestCreateUpdateReadWithPictures(t *testing.T) {
 }
 
 func TestRefusesWhatItShouldNotFetchOrStore(t *testing.T) {
-	s := start(t, fakeFirebase().store, nil, nil, "")
+	s := start(t, testEnv(&fb0, nil), "")
 	defer s.close()
 	for _, c := range []struct {
 		img map[string]any
@@ -382,7 +422,7 @@ func TestPublicClientRefusesPrivateAddresses(t *testing.T) {
 }
 
 func TestDeckTravelsInTheLinkWithoutCloudStorage(t *testing.T) {
-	s := start(t, LinkStore{}, nil, nil, "")
+	s := start(t, testEnv(nil, nil), "")
 	defer s.close()
 	c := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": DECK, "theme": "ember"})
 	if c.IsError {
@@ -404,7 +444,7 @@ func TestDeckTravelsInTheLinkWithoutCloudStorage(t *testing.T) {
 }
 
 func TestRateLimitAndBrowserVisit(t *testing.T) {
-	s := start(t, fakeFirebase().store, rateLimiter(1, 10*time.Minute), nil, "")
+	s := start(t, testEnv(&fb0, rateLimiter(1, 10*time.Minute)), "")
 	defer s.close()
 	if call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": "# x"}).IsError {
 		t.Fatal("first create refused")
@@ -424,13 +464,7 @@ func TestRateLimitAndBrowserVisit(t *testing.T) {
 
 func TestOptionalSignIn(t *testing.T) {
 	f := fakeFirebase()
-	oauth := &OAuth{DB: f.db, Client: fakeNet, VerifyIDToken: func(_ context.Context, tok string) (*IDToken, error) {
-		if tok != "google-ok" {
-			return nil, fmt.Errorf("bad")
-		}
-		return &IDToken{UID: "u1", Name: "Tero"}, nil
-	}}
-	anon := start(t, f.store, nil, oauth, "")
+	anon := start(t, withSignIn(testEnv(&f, nil)), "")
 	defer anon.close()
 	root := anon.root
 	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -492,7 +526,8 @@ func TestOptionalSignIn(t *testing.T) {
 	clientID := reg["client_id"].(string)
 
 	verifier := strings.Repeat("v", 50)
-	challenge := s256(verifier)
+	sum := sha256.Sum256([]byte(verifier))
+	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
 	authorize := func(cid, redirect string) *url.URL {
 		q := url.Values{"response_type": {"code"}, "client_id": {cid}, "redirect_uri": {redirect}, "code_challenge": {challenge}, "code_challenge_method": {"S256"}, "state": {"st"}, "resource": {BASE + "/mcp"}}
 		res, err := noRedirect.Get(root + "/oauth/authorize?" + q.Encode())
@@ -534,7 +569,7 @@ func TestOptionalSignIn(t *testing.T) {
 	eq(t, again["error"], "invalid_grant")
 
 	// signed in: the deck is the user's, changed without an edit key, listed
-	me := start(t, f.store, nil, oauth, tok["access_token"].(string))
+	me := start(t, withSignIn(testEnv(&f, nil)), tok["access_token"].(string))
 	c := call(t, me, "create_presentation", map[string]any{"title": "Mine", "markdown": "# m"})
 	if c.IsError {
 		t.Fatal(textOf(c))
@@ -590,10 +625,185 @@ func TestOptionalSignIn(t *testing.T) {
 }
 
 func TestOutline(t *testing.T) {
-	titles, media := outline(DECK)
-	eq(t, titles, []string{"Hello", "Cat"})
-	eq(t, media, []string{"cat.png", "dot.png"})
-	eq(t, cleanName("team photo.JPG"), "team-photo.jpg")
-	eq(t, cleanName("../a.png"), "")
-	eq(t, encodeURIComponent("shares/a b/media/x(1).png"), "shares%2Fa%20b%2Fmedia%2Fx(1).png")
+	o := Deck_static_outline(DECK)
+	eq(t, o.titles, []string{"Hello", "Cat"})
+	eq(t, o.media, []string{"cat.png", "dot.png"})
+	eq(t, Deck_static_cleanName("team photo.JPG"), "team-photo.jpg")
+	eq(t, Deck_static_cleanName("../a.png"), "")
+	eq(t, Deck_static_cleanName("media/My Pic.PNG"), "My-Pic.png")
+	eq(t, (&McpHost{}).URIEncode("shares/a b/media/x(1).png"), "shares%2Fa%20b%2Fmedia%2Fx(1).png")
+	eq(t, Deck_static_headingOf("## Cat {bg=media/cat.png}"), "Cat")
+	eq(t, Deck_static_privateHost("172.20.1.1"), true)
+	eq(t, Deck_static_privateHost("172.32.1.1"), false)
+}
+
+// --- loosely typed values of a stored document
+
+func str(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+func list(v any) []any {
+	l, _ := v.([]any)
+	return l
+}
+
+func mapOf(v any) map[string]any {
+	m, _ := v.(map[string]any)
+	return m
+}
+
+func rpc(t *testing.T, root, body string) (int, map[string]any) {
+	t.Helper()
+	req, _ := http.NewRequest("POST", root+"/mcp", strings.NewReader(body))
+	req.Header.Set("content-type", "application/json")
+	req.Header.Set("accept", "application/json, text/event-stream")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var m map[string]any
+	json.NewDecoder(res.Body).Decode(&m)
+	return res.StatusCode, m
+}
+
+func TestProtocolEdges(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, testEnv(&f, nil), "")
+	defer s.close()
+	// escaped non-ASCII, a surrogate pair among it, comes back as written
+	st, r := rpc(t, s.root, `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"create_presentation","arguments":{"title":"Hyvä","markdown":"# Hyvä 😀\n\n## \"Toka\" \\ dia"}}}`)
+	eq(t, st, 200)
+	out := mapOf(mapOf(r["result"])["structuredContent"])
+	eq(t, f.db.doc("shares/" + out["deck_id"].(string))["md"], "# Hyvä 😀\n\n## \"Toka\" \\ dia")
+	eq(t, out["title"], "Hyvä")
+	eq(t, out["slides"], 2)
+	eq(t, r["id"], 7)
+
+	st, r = rpc(t, s.root, `{"jsonrpc":"2.0","id":"a","method":"tools/call","params":{"name":"nope","arguments":{}}}`)
+	eq(t, mapOf(r["error"])["code"], -32602)
+	st, r = rpc(t, s.root, `{"jsonrpc":"2.0","id":1,"method":"prompts/list"}`)
+	eq(t, mapOf(r["error"])["code"], -32601)
+	st, _ = rpc(t, s.root, `{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	eq(t, st, 202)
+	st, r = rpc(t, s.root, `{"jsonrpc":"2.0","id":1,`)
+	eq(t, st, 400)
+	eq(t, mapOf(r["error"])["code"], -32700)
+	st, r = rpc(t, s.root, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_presentation","arguments":{"title":5,"markdown":"# x"}}}`)
+	eq(t, mapOf(r["result"])["isError"], true)
+}
+
+// The deck as the editor's own model (PresDeck, compiled from src/) reads it:
+// the player's slide count, a slide that runs over, a chart that is not JSON.
+// Many calls at once, so `go test -race` covers the model being shared.
+func TestDeckIsCheckedByTheEditorsModel(t *testing.T) {
+	s := start(t, testEnv(nil, nil), "")
+	defer s.close()
+	long := "## Long\n\n"
+	for i := 1; i <= 30; i++ {
+		long += fmt.Sprintf("%d. item %d\n", i, i)
+	}
+	md := "# T\n\n## Chart\n\n```vega-lite\n{\"mark\": \"bar\", \"data\": {\"values\": [1,2}\n```\n\n" + long
+	var wg sync.WaitGroup
+	results := make([]map[string]any, 8)
+	for i := range results {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			c := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": md})
+			if c.IsError {
+				t.Error(textOf(c))
+				return
+			}
+			results[i] = sc(c)
+		}(i)
+	}
+	wg.Wait()
+	for _, out := range results {
+		if out == nil {
+			continue
+		}
+		ws := fmt.Sprint(out["warnings"])
+		match(t, ws, `The vega-lite block on slide "Chart" is not shown: that is not JSON\.`)
+		match(t, ws, `Slide "Long" does not fit and goes on over \d+ more slides?`)
+		if n, _ := out["slides"].(float64); n < 4 {
+			t.Fatalf("slides %v: the long slide is laid out over more than one", out["slides"])
+		}
+		eq(t, out["slides"], results[0]["slides"])
+	}
+}
+
+func TestBindChartDataPointsAChartAtLiveData(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, testEnv(&f, nil), "")
+	defer s.close()
+	j := func(v any) string { b, _ := json.Marshal(v); return string(b) }
+	md := "# Q3\n\n## Revenue\n\n```vega-lite\n" + j(map[string]any{"mark": "bar", "data": map[string]any{"values": []any{map[string]any{"m": "Jan", "v": 1}}}, "encoding": map[string]any{"x": map[string]any{"field": "m"}}}) +
+		"\n```\n\n## Costs\n\n```vega-lite\n" + j(map[string]any{"layer": []any{map[string]any{"mark": "line", "data": map[string]any{"values": []any{}}}}}) + "\n```\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Q3", "markdown": md})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id, key := sc(c)["deck_id"].(string), sc(c)["edit_key"].(string)
+
+	a := call(t, s, "bind_chart_data", map[string]any{"deck_id": id, "edit_key": key, "chart": "revenue", "source": map[string]any{"google_sheets": "SHEET1", "range": "Monthly!A:B"}})
+	if a.IsError {
+		t.Fatal(textOf(a))
+	}
+	ao := sc(a)
+	eq(t, ao["chart"], 1)
+	spec := mapOf(ao["spec"])
+	eq(t, spec["data"], map[string]any{"source": "google-sheets", "id": "SHEET1", "range": "Monthly!A:B"})
+	eq(t, spec["encoding"], map[string]any{"x": map[string]any{"field": "m"}})
+	eq(t, ao["share_url"], sc(c)["share_url"])
+	match(t, textOf(a), `Chart 1 \(on "Revenue"\) now reads \{"source":"google-sheets","id":"SHEET1","range":"Monthly!A:B"\}\. PDF and PPTX`)
+
+	b := call(t, s, "bind_chart_data", map[string]any{"deck_id": id, "edit_key": key, "chart": 2, "source": "https://data.test/costs.csv"})
+	if b.IsError {
+		t.Fatal(textOf(b))
+	}
+	eq(t, sc(b)["spec"], map[string]any{"layer": []any{map[string]any{"mark": "line"}}, "data": map[string]any{"url": "https://data.test/costs.csv"}})
+	stored := f.db.doc("shares/" + id)["md"].(string)
+	match(t, stored, `"id": "SHEET1"`)
+	match(t, stored, `costs\.csv`)
+	match(t, stored, `## Costs`)
+	// written as JSON.stringify(spec, null, 2)
+	match(t, stored, "```vega-lite\n\\{\n  \"layer\": \\[\n    \\{\n      \"mark\": \"line\"\n    \\}\n  \\],\n  \"data\": \\{\n    \"url\": \"https://data.test/costs.csv\"\n  \\}\n\\}\n```")
+
+	for _, tc := range []struct {
+		args map[string]any
+		re   string
+	}{
+		{map[string]any{"chart": 3, "source": "https://data.test/x.csv"}, `has 2 charts`},
+		{map[string]any{"chart": "Nope", "source": "https://data.test/x.csv"}, `No chart on a slide titled`},
+		{map[string]any{"chart": 1, "source": "http://data.test/x.csv"}, `https URL`},
+		{map[string]any{"chart": 1, "source": "https://data.test/x.csv", "edit_key": "wrong"}, `edit_key does not match`},
+	} {
+		args := map[string]any{"deck_id": id, "edit_key": key}
+		for k, v := range tc.args {
+			args[k] = v
+		}
+		r := call(t, s, "bind_chart_data", args)
+		if !r.IsError {
+			t.Fatalf("%v did not fail", tc.args)
+		}
+		match(t, textOf(r), tc.re)
+	}
+	eq(t, f.db.doc("shares/" + id)["md"], stored)
+}
+
+func TestWarnsOfUnknownEncodingTypes(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, testEnv(&f, nil), "")
+	defer s.close()
+	md := "# Day\n\n## Wake-up\n\n```vega-lite\n" +
+		`{"data":{"values":[{"m":"Jan","h":7.5}]},"layer":[{"mark":"line","encoding":{"x":{"field":"m","type":"point"},"y":{"field":"h","type":"quantitative"}}}]}` +
+		"\n```\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Day", "markdown": md})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	match(t, textOf(c), `Note: Chart 1 on "Wake-up": encoding x has type "point"; Vega-Lite types are quantitative, ordinal, nominal and temporal`)
 }

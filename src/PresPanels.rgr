@@ -20,10 +20,25 @@
 ; does the copying, since the clipboard is the browser's.
 ; ============================================================================
 
-Import "../ui/src/UiHost.rgr"
+Import "../evgui/src/UiHost.rgr"
 Import "../vela/src/VlJson.rgr"
 Import "PresI18n.rgr"
 Import "PresImport.rgr"
+
+; A select that says what it is for while nothing is chosen. SelectCtl draws
+; the chosen item's label in its trigger, so a prompt there used to be a
+; disabled first item, which then showed up as a row in the open list.
+class PresPromptSelect extends SelectCtl {
+    def prompt:string ""
+
+    fn labelOf:string (v:string) {
+        if ((this.indexOfValue(v)) < 0) {
+            return prompt
+        }
+        def it:UiItem (itemAt items (this.indexOfValue(v)))
+        return it.name
+    }
+}
 
 class PresPanels {
     def host:UiHost (new UiHost())
@@ -47,8 +62,8 @@ class PresPanels {
     ; the computer or a sample deck, `openRows` "value<TAB>label" lines)
     def dialogKind:string "share"
     def openRows:string ""
-    ; the Open dialog's sample decks: a select whose first row says what it is
-    def samplePick:SelectCtl (new SelectCtl())
+    ; the Open dialog's sample decks: a select whose trigger says what it is
+    def samplePick:PresPromptSelect (new PresPromptSelect())
     ; the import dialog ("data"): the dropped file and its selects, one of
     ; which may be open (`dataOpenSel`, its tid)
     def imp:PresImport (new PresImport())
@@ -694,10 +709,10 @@ class PresPanels {
         def o:EVGElement (this.div("pn-opt"))
         o.addChild((this.words("pn-otitle" (PresI18n.t("Sample documents")))))
         def keepOpen:boolean samplePick.open
-        def sel (new SelectCtl())
+        def sel (new PresPromptSelect())
         sel.tid = "pn-samples"
         sel.name = (PresI18n.t("Open sample document…"))
-        sel.addItem("" (PresI18n.t("Open sample document…")) true)
+        sel.prompt = sel.name
         def lines:[string] (strsplit openRows (strfromcode 10))
         def i:int 0
         while (i < (array_length lines)) {
@@ -735,10 +750,13 @@ class PresPanels {
         UiTree.surface(d "free" "start")
         d.overlayX = ((w - 640.0) * 0.5)
         d.overlayY = ((h - 520.0) * 0.5)
-        d.addChild((this.words("pn-dtitle" (PresI18n.t("Import data")))))
+        d.addChild((this.words("pn-dtitle" (? imp.live (PresI18n.t("Link live data")) (PresI18n.t("Import data"))))))
         def info:string ((((imp.name + " · ") + (to_string imp.rows)) + " ") + (PresI18n.t("rows")))
         info = (((info + " · ") + (to_string (imp.cols()))) + " ") + (PresI18n.t("columns"))
         d.addChild((this.words("pn-odesc" info)))
+        if imp.live {
+            d.addChild((this.words("pn-odesc" (PresI18n.t("The chart or table reads this address each time the presentation opens, so it shows what the sheet has then. Nothing is copied into the presentation.")))))
+        }
         if ((imp.sheetCount()) > 1) {
             def sr:EVGElement (this.div("pn-field"))
             sr.addChild((this.words("pn-flabel" (PresI18n.t("Sheet")))))
@@ -816,10 +834,14 @@ class PresPanels {
     fn pickStep:void (d:EVGElement) {
         d.addChild((this.dataChoice("chart" (PresI18n.t("Chart")) (PresI18n.t("Pick the columns; Sliqtly suggests the chart type.")) (PresI18n.t("Make a chart")) "primary")))
         if ((strlen imp.xlsx) > 0) {
-            d.addChild((this.dataChoice("live" (PresI18n.t("Live spreadsheet")) (PresI18n.t("The workbook itself on the slide: explore it, or edit it, while presenting.")) (PresI18n.t("Put on a slide")) "secondary")))
+            d.addChild((this.dataChoice("workbook" (PresI18n.t("Live spreadsheet")) (PresI18n.t("The workbook itself on the slide: explore it, or edit it, while presenting.")) (PresI18n.t("Put on a slide")) "secondary")))
         }
         d.addChild((this.dataChoice("table" (PresI18n.t("Table")) (PresI18n.t("All rows on one slide, page by page: ‹ 1/5 › in the show.")) (PresI18n.t("Make a table")) "secondary")))
-        d.addChild((this.dataChoice("file" (PresI18n.t("Just the file")) (PresI18n.t("Kept under data/ for charts and tables to use.")) (PresI18n.t("Add file")) "secondary")))
+        if imp.live {
+            d.addChild((this.dataChoice("file" (PresI18n.t("Just the address")) (PresI18n.t("Pasted into the text as it is.")) (PresI18n.t("Paste as text")) "secondary")))
+        } {
+            d.addChild((this.dataChoice("file" (PresI18n.t("Just the file")) (PresI18n.t("Kept under data/ for charts and tables to use.")) (PresI18n.t("Add file")) "secondary")))
+        }
         def foot:EVGElement (this.div("pn-dfoot"))
         foot.addChild((this.div("pn-grow")))
         this.button("pn-d-close" (PresI18n.t("Cancel")) "secondary" foot)
@@ -1014,7 +1036,7 @@ class PresPanels {
             }
             return
         }
-        if ((oc == "pn-d-table") || (oc == "pn-d-file") || (oc == "pn-d-live")) {
+        if ((oc == "pn-d-table") || (oc == "pn-d-file") || (oc == "pn-d-workbook")) {
             push requests ("data:" + (substring oc 5 (strlen oc)))
             this.closeShare()
             return

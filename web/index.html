@@ -80,10 +80,30 @@
   }
   body.viewer #viewBar { display: flex; }
   body.viewer.idle #viewBar { opacity: 0; pointer-events: none; }
-  #viewBar button {
+  #viewBar > button[hidden] { display: none; }
+  #viewBar > button {
     width: 44px; height: 44px; border-radius: 22px; border: 1px solid rgba(255, 255, 255, 0.25);
     background: rgba(24, 24, 27, 0.72); color: #fafafa; font-size: 18px; cursor: pointer;
   }
+  /* the … menu: exports, a new deck from this one, and the owner's Edit */
+  #vMenu {
+    position: absolute; right: 0; bottom: 54px; min-width: 220px; padding: 6px;
+    display: flex; flex-direction: column; border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(24, 24, 27, 0.94);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+    font: 14px/1.2 "Open Sans", system-ui, sans-serif;
+  }
+  #vMenu .sub { display: flex; flex-direction: column; }
+  #vMenu[hidden], #vMenu [hidden] { display: none; }
+  #vExport[aria-expanded="true"] span:last-child { transform: rotate(90deg); }
+  #vMenu button {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 9px 12px; border: 0; border-radius: 8px; background: none;
+    color: #fafafa; font: inherit; text-align: left; cursor: pointer;
+  }
+  #vMenu button:hover, #vMenu button:focus-visible { background: rgba(255, 255, 255, 0.12); outline: none; }
+  #vMenu .sub button { padding-left: 28px; }
+  #vMenu hr { width: 100%; border: 0; border-top: 1px solid rgba(255, 255, 255, 0.14); margin: 4px 0; }
   body.viewer #c { cursor: default; }
   body.viewer.idle #c { cursor: none; }
   body.presenting #c { cursor: none; }
@@ -129,6 +149,8 @@
   <button id="pdf">PDF</button>
   <button id="pptx">PPTX</button>
   <button id="share" title="Copy a link with this Markdown packed into its address" data-i18n-title data-i18n>🔗 Share</button>
+  <button id="aiClaude" hidden>Claude</button>
+  <button id="aiChatgpt" hidden>ChatGPT</button>
   <button id="helpBtn" title="What the selected slide contains and which theme CSS rules change it" data-i18n-title data-i18n>? Help</button>
   <button id="pro" data-canvas="accent" title="Sign in with Google" data-i18n-title>PRO</button>
   <select id="lang" aria-label="Language" data-i18n-aria></select>
@@ -139,12 +161,27 @@
   <canvas id="c" aria-label="Presentation editor" data-i18n-aria></canvas>
   <textarea id="keys" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"
             aria-label="Markdown — type here" data-i18n-aria></textarea>
-  <div id="hint"><img class="spinner" src="./favicon.svg" alt="" width="72" height="72" /><span data-i18n>loading…</span></div>
+  <div id="hint"><img class="spinner" src="./favicon.svg" alt="" width="72" height="72" /><span id="tagline">loading…</span></div>
+  <!-- one of the taglines while the editor loads (also in mcp/src/preview.html) -->
+  <script>(function (t) { document.getElementById("tagline").textContent = t[Math.floor(Math.random() * t.length)]; })(["Sliqtly better slides.","That looks Sliqtly off.","Make it Sliqtly smarter.","Go Sliqtly further.","Sliqtly obsessed with good slides.","Things just got Sliqtly better."]);</script>
 </div>
 <div id="viewBar" aria-label="Presentation controls" data-i18n-aria>
   <button id="vPrev" title="Previous (←)" data-i18n-title>◀</button>
   <button id="vNext" title="Next (→, Space)" data-i18n-title>▶</button>
+  <button id="vData" title="Fetch the charts' data again (R)" data-i18n-title hidden>⟳</button>
   <button id="vFull" title="Full screen" data-i18n-title>⛶</button>
+  <button id="vMore" title="More" aria-haspopup="menu" aria-expanded="false" aria-controls="vMenu" data-i18n-title>⋯</button>
+  <div id="vMenu" role="menu" hidden>
+    <button id="vExport" role="menuitem" aria-haspopup="menu" aria-expanded="false"><span data-i18n>Export</span><span aria-hidden="true">›</span></button>
+    <div class="sub" id="vExportSub" role="group" hidden>
+      <button role="menuitem" data-act="pdf">PDF</button>
+      <button role="menuitem" data-act="pptx">PowerPoint (.pptx)</button>
+      <button role="menuitem" data-act="md">Markdown (.md)</button>
+    </div>
+    <hr />
+    <button role="menuitem" data-act="new" title="A new presentation of your own, based on this one" data-i18n-title data-i18n>Create New…</button>
+    <button role="menuitem" data-act="edit" id="vEdit" title="Edit this presentation" data-i18n-title data-i18n hidden>Edit</button>
+  </div>
 </div>
 <div id="err"></div>
 <input id="filepick" type="file" multiple accept=".md,.markdown,.txt,text/markdown,text/plain,.xlsx,.csv,.tsv,.json,image/png,image/jpeg,image/gif,image/webp,image/svg+xml" hidden />

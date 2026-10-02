@@ -2,6 +2,7 @@ rules_version = '2';
 
 // A share's pictures and data files: read like the share (anyone with its
 // id), written and deleted only by the owner its Firestore copy names.
+// A user's own files: that user's alone.
 service firebase.storage {
   match /b/{bucket}/o {
     match /shares/{shareId}/{path=**} {
@@ -12,6 +13,14 @@ service firebase.storage {
       allow read: if true;
       allow create, update: if owner() && request.resource.size < 20 * 1024 * 1024;
       allow delete: if owner();
+    }
+
+    // A signed-in user's own files (pictures added to a deck, web/sliqtly.js
+    // putFile): read and written by that user only.
+    match /users/{uid}/{path=**} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null && request.auth.uid == uid
+                            && request.resource.size < 20 * 1024 * 1024;
     }
   }
 }

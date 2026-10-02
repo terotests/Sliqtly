@@ -1,0 +1,607 @@
+// The Go side of the server: what Ranger's Go target does not have, behind
+// the operators of rgr/McpHost.rgr. The server itself (MCP, the tools, OAuth,
+// the checks) is Ranger, compiled to sliqtly_mcp.go by `go generate`.
+//
+// Env lasts for the instance: the clients, the rate limiter, the theme
+// cache. McpHost is one request's view of it, holding that request's first
+// error and the bytes of its pictures.
+
+package main
+
+import (
+	"bytes"
+	"compress/flate"
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	_ "embed"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"mime"
+	"net"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+//go:generate sh -c "mkdir -p assets && cp ../mcp/guide.md ../mcp/src/preview.html assets/"
+//go:generate node gen.mjs
+//go:embed assets/guide.md
+var guideMD string
+
+//go:embed assets/preview.html
+var previewHTML string
+
+// Doc is a Firestore document as plain values: string, int64, float64, bool,
+// time.Time, []any, map[string]any, nil.
+type Doc = map[string]any
+
+// DB is the little of Firestore the server uses; firebase.go has the real
+// one, the tests a map.
+type DB interface {
+	Get(ctx context.Context, col, id string) (Doc, error) // nil, nil when missing
+	Set(ctx context.Context, col, id string, d Doc) error
+	Update(ctx context.Context, col, id string, d Doc) error
+	Delete(ctx context.Context, col, id string) error
+	WhereEq(ctx context.Context, col, field string, value any) ([]Doc, []string, error)
+	ServerTime() any
+}
+
+// Bucket is the little of Cloud Storage the server uses.
+type Bucket interface {
+	Name() string
+	Save(ctx context.Context, path, contentType string, data []byte, metadata map[string]string) error
+}
+
+// IDToken is what a verified Firebase ID token says about the person.
+type IDToken struct{ UID, Name, Email string }
+
+type Env struct {
+	DB            DB     // nil: nothing is kept, the deck travels in the link
+	Bucket        Bucket // with DB
+	OAuth         bool   // sign-in, which needs DB
+	VerifyIDToken func(ctx context.Context, token string) (*IDToken, error)
+	BaseURL       string
+	TrustHost     bool
+	Client        *http.Client // pictures and client metadata: public addresses only
+	ThemeClient   *http.Client // the site's own theme sheets
+	Limiter       func(who string) string
+
+	themesMu sync.Mutex
+	themes   map[string]string
+	webCfg   string // the site's /__/firebase/init.json once it has been read
+}
+
+// The whole server as one handler.
+func NewApp(env *Env) http.Handler {
+	if env.Limiter == nil {
+		env.Limiter = rateLimiter(60, 10*time.Minute)
+	}
+	if env.ThemeClient == nil {
+		env.ThemeClient = &http.Client{Timeout: 10 * time.Second}
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 40<<20)
+		h := &McpHost{env: env, r: r, ctx: r.Context(), images: map[int64][]byte{}}
+		defer func() {
+			if p := recover(); p != nil {
+				log.Printf("request failed: %v", p)
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				w.WriteHeader(500)
+				io.WriteString(w, `{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error"},"id":null}`)
+			}
+		}()
+		App_static_serve(h, r, w)
+	})
+}
+
+// Writes per caller: a sliding window, per instance. Enough to stop a loop,
+// not a quota system.
+func rateLimiter(max int, window time.Duration) func(who string) string {
+	var mu sync.Mutex
+	hits := map[string][]time.Time{}
+	return func(who string) string {
+		mu.Lock()
+		defer mu.Unlock()
+		now := time.Now()
+		keep := []time.Time{}
+		for _, t := range hits[who] {
+			if now.Sub(t) < window {
+				keep = append(keep, t)
+			}
+		}
+		if len(keep) >= max {
+			hits[who] = keep
+			return "Too many presentations from here in a short time; try again in a few minutes."
+		}
+		hits[who] = append(keep, now)
+		if len(hits) > 5000 {
+			for k, v := range hits {
+				if len(v) == 0 || now.Sub(v[len(v)-1]) >= window {
+					delete(hits, k)
+				}
+			}
+		}
+		return ""
+	}
+}
+
+type McpHost struct {
+	env    *Env
+	r      *http.Request
+	ctx    context.Context
+	err    error
+	images map[int64][]byte
+	next   int64
+}
+
+func (h *McpHost) fail(err error) {
+	if err != nil && h.err == nil {
+		h.err = err
+	}
+}
+
+func (h *McpHost) Err() string {
+	if h.err == nil {
+		return ""
+	}
+	return h.err.Error()
+}
+
+func (h *McpHost) ClearErr() { h.err = nil }
+
+func toJSON(v any) string {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.Encode(v)
+	return strings.TrimSuffix(buf.String(), "\n")
+}
+
+// --- the request and the configuration
+
+func (h *McpHost) BodyJSON() string {
+	b, err := io.ReadAll(h.r.Body)
+	if err != nil {
+		return ""
+	}
+	ct, _, _ := mime.ParseMediaType(h.r.Header.Get("content-type"))
+	if ct == "application/x-www-form-urlencoded" {
+		v, _ := url.ParseQuery(string(b))
+		out := map[string]any{}
+		for k := range v {
+			out[k] = v.Get(k)
+		}
+		return toJSON(out)
+	}
+	// JSON as sent, with what a client escaped (ä, surrogate pairs)
+	// written out, which is what the Ranger reader expects
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var v any
+	if dec.Decode(&v) != nil || dec.More() {
+		return ""
+	}
+	return toJSON(v)
+}
+
+func queryJSON(r *http.Request) string {
+	out := map[string]any{}
+	for k, v := range r.URL.Query() {
+		out[k] = v[0]
+	}
+	return toJSON(out)
+}
+
+func (h *McpHost) RemoteIP() string {
+	ip, _, err := net.SplitHostPort(h.r.RemoteAddr)
+	if err != nil {
+		return h.r.RemoteAddr
+	}
+	return ip
+}
+
+func (h *McpHost) TLS() bool       { return h.r.TLS != nil }
+func (h *McpHost) BaseURL() string { return h.env.BaseURL }
+func (h *McpHost) TrustHost() bool { return h.env.TrustHost }
+func (h *McpHost) OAuthOn() bool   { return h.env.OAuth && h.env.DB != nil }
+func (h *McpHost) Log(msg string)  { log.Print(msg) }
+func (h *McpHost) NowMS() int64    { return time.Now().UnixMilli() }
+func (h *McpHost) StoreKind() string {
+	if h.env.DB == nil {
+		return "link"
+	}
+	return "cloud"
+}
+
+func (h *McpHost) Asset(name string) string {
+	switch name {
+	case "guide.md":
+		return guideMD
+	case "preview.html":
+		return previewHTML
+	}
+	return ""
+}
+
+// --- Firestore
+
+// stored values → JSON values: timestamps as milliseconds
+func plain(v any) any {
+	switch x := v.(type) {
+	case time.Time:
+		return x.UnixMilli()
+	case map[string]any:
+		out := map[string]any{}
+		for k, e := range x {
+			out[k] = plain(e)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = plain(e)
+		}
+		return out
+	}
+	return v
+}
+
+// JSON values → stored values: whole numbers as integers, as the Node SDK
+// stores a JavaScript number, and {"$serverTime":true} as the server's time
+func (h *McpHost) stored(v any) any {
+	switch x := v.(type) {
+	case json.Number:
+		if i, err := x.Int64(); err == nil {
+			return i
+		}
+		f, _ := x.Float64()
+		return f
+	case map[string]any:
+		if len(x) == 1 && x["$serverTime"] == true {
+			return h.env.DB.ServerTime()
+		}
+		out := map[string]any{}
+		for k, e := range x {
+			out[k] = h.stored(e)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = h.stored(e)
+		}
+		return out
+	}
+	return v
+}
+
+func (h *McpHost) parseDoc(text string) Doc {
+	dec := json.NewDecoder(strings.NewReader(text))
+	dec.UseNumber()
+	var d map[string]any
+	if err := dec.Decode(&d); err != nil {
+		h.fail(fmt.Errorf("bad document: %w", err))
+		return nil
+	}
+	return h.stored(d).(map[string]any)
+}
+
+func (h *McpHost) db() bool {
+	if h.env.DB == nil {
+		h.fail(fmt.Errorf("no cloud storage configured"))
+		return false
+	}
+	return true
+}
+
+func (h *McpHost) GetDoc(col, id string) string {
+	if !h.db() {
+		return ""
+	}
+	d, err := h.env.DB.Get(h.ctx, col, id)
+	if err != nil || d == nil {
+		h.fail(err)
+		return ""
+	}
+	return toJSON(plain(d))
+}
+
+func (h *McpHost) SetDoc(col, id, text string) {
+	if d := h.parseDoc(text); d != nil && h.db() {
+		h.fail(h.env.DB.Set(h.ctx, col, id, d))
+	}
+}
+
+func (h *McpHost) UpdateDoc(col, id, text string) {
+	if d := h.parseDoc(text); d != nil && h.db() {
+		h.fail(h.env.DB.Update(h.ctx, col, id, d))
+	}
+}
+
+func (h *McpHost) DeleteDoc(col, id string) {
+	if h.db() {
+		h.fail(h.env.DB.Delete(h.ctx, col, id))
+	}
+}
+
+func (h *McpHost) QueryEq(col, field, value string) string {
+	if !h.db() {
+		return "[]"
+	}
+	docs, ids, err := h.env.DB.WhereEq(h.ctx, col, field, value)
+	if err != nil {
+		h.fail(err)
+		return "[]"
+	}
+	out := []any{}
+	for i, d := range docs {
+		p := plain(d).(map[string]any)
+		p["id"] = ids[i]
+		out = append(out, p)
+	}
+	return toJSON(out)
+}
+
+// --- pictures
+
+func (h *McpHost) keep(data []byte) int64 {
+	h.next++
+	h.images[h.next] = data
+	return h.next
+}
+
+func (h *McpHost) ImageFromBase64(data string) string {
+	b := decodeBase64(data)
+	return toJSON(map[string]any{"handle": h.keep(b), "size": len(b)})
+}
+
+func (h *McpHost) ImageFromURL(u string, limit int64) string {
+	ctx, cancel := context.WithTimeout(h.ctx, 15*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return `{"status":0}`
+	}
+	req.Header.Set("user-agent", "Sliqtly-MCP/1.0")
+	res, err := h.env.Client.Do(req)
+	if err != nil {
+		return toJSON(map[string]any{"status": 0, "error": err.Error()})
+	}
+	defer res.Body.Close()
+	ct := strings.TrimSpace(strings.Split(res.Header.Get("content-type"), ";")[0])
+	length, _ := strconv.ParseInt(res.Header.Get("content-length"), 10, 64)
+	out := map[string]any{"status": res.StatusCode, "type": ct, "length": length, "size": 0, "handle": 0}
+	if res.StatusCode >= 200 && res.StatusCode <= 299 && length <= limit {
+		b, err := io.ReadAll(io.LimitReader(res.Body, limit))
+		if err != nil {
+			return toJSON(map[string]any{"status": 0, "error": err.Error()})
+		}
+		out["size"], out["handle"] = len(b), h.keep(b)
+	}
+	return toJSON(out)
+}
+
+func (h *McpHost) Upload(handle int64, path, contentType, token string) {
+	if h.env.Bucket == nil {
+		h.fail(fmt.Errorf("no cloud storage configured"))
+		return
+	}
+	h.fail(h.env.Bucket.Save(h.ctx, path, contentType, h.images[handle], map[string]string{"firebaseStorageDownloadTokens": token}))
+}
+
+func (h *McpHost) Bucket() string {
+	if h.env.Bucket == nil {
+		return ""
+	}
+	return h.env.Bucket.Name()
+}
+
+// --- the network
+
+func (h *McpHost) ThemeCSS(theme string) string {
+	e := h.env
+	e.themesMu.Lock()
+	css, ok := e.themes[theme]
+	e.themesMu.Unlock()
+	if ok {
+		return css
+	}
+	ctx, cancel := context.WithTimeout(h.ctx, 10*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/themes/%s.css", e.BaseURL, theme), nil)
+	res, err := e.ThemeClient.Do(req)
+	if err != nil {
+		h.fail(fmt.Errorf("theme %s: %w", theme, err))
+		return ""
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode > 299 {
+		h.fail(fmt.Errorf("theme %s: %d", theme, res.StatusCode))
+		return ""
+	}
+	b, err := io.ReadAll(res.Body)
+	if err != nil {
+		h.fail(err)
+		return ""
+	}
+	e.themesMu.Lock()
+	if e.themes == nil {
+		e.themes = map[string]string{}
+	}
+	e.themes[theme] = string(b)
+	e.themesMu.Unlock()
+	return string(b)
+}
+
+// The web app's Firebase config (public) for the preview, which cannot read
+// Hosting's /__/firebase/init.js across origins; "" while it cannot be read.
+func (h *McpHost) WebConfig() string {
+	e := h.env
+	e.themesMu.Lock()
+	cfg := e.webCfg
+	e.themesMu.Unlock()
+	if cfg != "" {
+		return cfg
+	}
+	ctx, cancel := context.WithTimeout(h.ctx, 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", e.BaseURL+"/__/firebase/init.json", nil)
+	res, err := e.ThemeClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer res.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(res.Body, 64<<10))
+	var obj map[string]any
+	if err != nil || res.StatusCode != 200 || json.Unmarshal(b, &obj) != nil || obj == nil {
+		return ""
+	}
+	e.themesMu.Lock()
+	e.webCfg = string(b)
+	e.themesMu.Unlock()
+	return string(b)
+}
+
+func (h *McpHost) FetchText(u, accept string, limit int64) string {
+	ctx, cancel := context.WithTimeout(h.ctx, 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return `{"status":0}`
+	}
+	req.Header.Set("accept", accept)
+	res, err := h.env.Client.Do(req)
+	if err != nil {
+		return `{"status":0}`
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(res.Body, limit))
+	return toJSON(map[string]any{"status": res.StatusCode, "body": string(b)})
+}
+
+func (h *McpHost) VerifyIDToken(token string) string {
+	if h.env.VerifyIDToken == nil {
+		return ""
+	}
+	t, err := h.env.VerifyIDToken(h.ctx, token)
+	if err != nil || t == nil {
+		return ""
+	}
+	return toJSON(map[string]any{"uid": t.UID, "name": t.Name, "email": t.Email})
+}
+
+// --- small things
+
+func (h *McpHost) SHA256Hex(s string) string {
+	x := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(x[:])
+}
+
+func (h *McpHost) SHA256B64URL(s string) string {
+	x := sha256.Sum256([]byte(s))
+	return base64.RawURLEncoding.EncodeToString(x[:])
+}
+
+const abc = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+// n characters of a-z, A-Z, 0-9, as the editor's shortId()
+func (h *McpHost) ShortID(n int64) string {
+	b := make([]byte, n)
+	rand.Read(b)
+	for i := range b {
+		b[i] = abc[int(b[i])%len(abc)]
+	}
+	return string(b)
+}
+
+func (h *McpHost) UUID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
+
+// a flate writer costs about 1 MB to set up, so they are kept
+var flaters = sync.Pool{New: func() any { w, _ := flate.NewWriter(nil, 6); return w }}
+
+// the editor's packText(): deflate-raw, then base64url
+func (h *McpHost) PackText(text string) string {
+	var buf bytes.Buffer
+	w := flaters.Get().(*flate.Writer)
+	defer flaters.Put(w)
+	w.Reset(&buf)
+	w.Write([]byte(text))
+	w.Close()
+	return base64.RawURLEncoding.EncodeToString(buf.Bytes())
+}
+
+func unpackText(code string) (string, error) {
+	b, err := base64.RawURLEncoding.DecodeString(code)
+	if err != nil {
+		return "", err
+	}
+	out, err := io.ReadAll(flate.NewReader(bytes.NewReader(b)))
+	return string(out), err
+}
+
+func (h *McpHost) RateLimit(who string) string { return h.env.Limiter(who) }
+
+func (h *McpHost) ISOTime(ms int64) string {
+	return time.UnixMilli(ms).UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
+// JavaScript's encodeURIComponent
+func (h *McpHost) URIEncode(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || strings.IndexByte("-_.!~*'()", c) >= 0 {
+			b.WriteByte(c)
+		} else {
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return b.String()
+}
+
+func (h *McpHost) ParseURL(s string) string {
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme == "" {
+		return ""
+	}
+	if (u.Scheme == "http" || u.Scheme == "https") && u.Host == "" {
+		return ""
+	}
+	search := ""
+	if u.RawQuery != "" {
+		search = "?" + u.RawQuery
+	}
+	return toJSON(map[string]any{
+		"scheme": strings.ToLower(u.Scheme), "host": strings.ToLower(u.Host), "hostname": strings.ToLower(u.Hostname()),
+		"port": u.Port(), "path": u.EscapedPath(), "search": search, "hash": u.Fragment,
+	})
+}
+
+func (h *McpHost) URLSet(s, params string) string {
+	u, err := url.Parse(s)
+	if err != nil {
+		return s
+	}
+	var p map[string]string
+	json.Unmarshal([]byte(params), &p)
+	q := u.Query()
+	for k, v := range p {
+		q.Set(k, v)
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}

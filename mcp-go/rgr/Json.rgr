@@ -1,0 +1,211 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; JSON for the server: the value and the reader are Ranger's own MfJ
+; (gallery/mfiles, plain Ranger, the same on every target). The writer is
+; here: MfJ.emit appends to a list it is handed, which the Go target passes
+; by value, so on Go it writes nothing. JOut keeps its list in a field.
+
+Import "../mfiles/src/vault/MfJson.rgr"
+
+class JOut {
+    def parts:[string]
+
+    fn write:void (v:MfJ) {
+        if (v.kind == 0) {
+            push parts "null"
+            return
+        }
+        if (v.kind == 1) {
+            if v.flag {
+                push parts "true"
+            } {
+                push parts "false"
+            }
+            return
+        }
+        if (v.kind == 2) {
+            push parts (MfJ.numText(v.num))
+            return
+        }
+        if (v.kind == 3) {
+            push parts (MfJ.quote(v.str))
+            return
+        }
+        if (v.kind == 4) {
+            push parts "["
+            def n:int (array_length v.arr)
+            def i:int 0
+            while (i < n) {
+                if (i > 0) {
+                    push parts ","
+                }
+                def item:MfJ (itemAt v.arr i)
+                this.write(item)
+                i = (i + 1)
+            }
+            push parts "]"
+            return
+        }
+        push parts "{"
+        def m:int (array_length v.ks)
+        def j:int 0
+        while (j < m) {
+            if (j > 0) {
+                push parts ","
+            }
+            def k:string (itemAt v.ks j)
+            push parts (MfJ.quote(k))
+            push parts ":"
+            def fv:MfJ (itemAt v.vs j)
+            this.write(fv)
+            j = (j + 1)
+        }
+        push parts "}"
+    }
+
+    ; as JSON.stringify(v, null, 2)
+    fn writePretty:void (v:MfJ ind:string) {
+        if (v.kind == 4) {
+            def n:int (array_length v.arr)
+            if (n == 0) {
+                push parts "[]"
+                return
+            }
+            def inner:string (ind + "  ")
+            push parts "["
+            def i:int 0
+            while (i < n) {
+                if (i > 0) {
+                    push parts ","
+                }
+                push parts ("\n" + inner)
+                def item:MfJ (itemAt v.arr i)
+                this.writePretty(item inner)
+                i = (i + 1)
+            }
+            push parts ("\n" + ind)
+            push parts "]"
+            return
+        }
+        if (v.kind == 5) {
+            def m:int (array_length v.ks)
+            if (m == 0) {
+                push parts "{}"
+                return
+            }
+            def inner2:string (ind + "  ")
+            push parts "{"
+            def j:int 0
+            while (j < m) {
+                if (j > 0) {
+                    push parts ","
+                }
+                push parts ("\n" + inner2)
+                def k:string (itemAt v.ks j)
+                push parts (MfJ.quote(k))
+                push parts ": "
+                def fv:MfJ (itemAt v.vs j)
+                this.writePretty(fv inner2)
+                j = (j + 1)
+            }
+            push parts ("\n" + ind)
+            push parts "}"
+            return
+        }
+        this.write(v)
+    }
+
+    sfn pretty:string (v:MfJ) {
+        def w (new JOut)
+        w.writePretty(v "")
+        return (join w.parts "")
+    }
+
+    sfn text:string (v:MfJ) {
+        def w (new JOut)
+        w.write(v)
+        return (join w.parts "")
+    }
+}
+
+; Small builders, so the code that answers reads like the answer.
+class J {
+    sfn obj:MfJ () {
+        return (MfJ.newObj())
+    }
+    sfn arr:MfJ () {
+        return (MfJ.newArr())
+    }
+    sfn s:MfJ (v:string) {
+        return (MfJ.ofStr(v))
+    }
+    sfn n:MfJ (v:int) {
+        return (MfJ.ofInt(v))
+    }
+    sfn b:MfJ (v:boolean) {
+        return (MfJ.ofBool(v))
+    }
+    sfn nul:MfJ () {
+        return (new MfJ)
+    }
+    sfn strs:MfJ (list:[string]) {
+        def a:MfJ (MfJ.newArr())
+        for list s:string i {
+            a.add((MfJ.ofStr(s)))
+        }
+        return a
+    }
+    ; the strings of an array value, other items left out
+    sfn strList:[string] (v:MfJ) {
+        def out:[string]
+        if (v.kind == 4) {
+            for v.arr item:MfJ i {
+                if (item.kind == 3) {
+                    push out item.str
+                }
+            }
+        }
+        return out
+    }
+    ; a JSON text, or an empty object when it is not one
+    sfn parse:MfJ (text:string) {
+        if ((strlen text) == 0) {
+            return (new MfJ)
+        }
+        return (MfJ.parse(text))
+    }
+    ; a field as a string: strings as they are, numbers written out, nothing
+    ; else ("" for null or missing), as String(x) of a body value
+    sfn textOf:string (v:MfJ key:string) {
+        def f:MfJ (v.field(key))
+        if (f.kind == 3) {
+            return f.str
+        }
+        if (f.kind == 2) {
+            return (MfJ.numText(f.num))
+        }
+        if (f.kind == 1) {
+            if f.flag {
+                return "true"
+            }
+            return "false"
+        }
+        return ""
+    }
+    ; a value's truth, as JavaScript sees it
+    sfn truthy:boolean (v:MfJ) {
+        if (v.kind == 0) {
+            return false
+        }
+        if (v.kind == 1) {
+            return v.flag
+        }
+        if (v.kind == 2) {
+            return (v.num != 0.0)
+        }
+        if (v.kind == 3) {
+            return ((strlen v.str) > 0)
+        }
+        return true
+    }
+}

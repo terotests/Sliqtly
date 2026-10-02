@@ -327,6 +327,60 @@ try {
   await page3.keyboard.press("Escape");
   await page3.waitForTimeout(200);
   check("Esc does not leave the shared presentation", (await page3.evaluate(() => JSON.parse(window.__app.layoutJson()).mode)) === "present");
+  // The bar fades when the pointer rests for 2.5 s, and a slow frame can
+  // take that long: each press moves the pointer first, and tries again if
+  // the bar faded before the click landed.
+  async function tapViewer(pg, sel) {
+    for (let i = 0; ; i += 1) {
+      await pg.mouse.move(300 + i, 300);
+      try {
+        await pg.click(sel, { timeout: 4000 });
+        return;
+      } catch (e) {
+        if (i >= 5) throw e;
+      }
+    }
+  }
+  // the … menu: exports through the keyboard, Edit only for a signed-in owner.
+  await tapViewer(page3, "#vMore");
+  await page3.keyboard.press("Enter");
+  await page3.waitForTimeout(100);
+  const menu = await page3.evaluate(() => ({
+    open: !document.getElementById("vMenu").hidden,
+    sub: !document.getElementById("vExportSub").hidden,
+    edit: !document.getElementById("vEdit").hidden,
+    focus: document.activeElement?.dataset.act || "",
+  }));
+  check("the viewer's … menu opens Export from the keyboard; no Edit for a reader", menu.open && menu.sub && !menu.edit && menu.focus === "pdf", JSON.stringify(menu));
+  await page3.keyboard.press("ArrowDown");
+  await page3.keyboard.press("ArrowDown");
+  await page3.evaluate(() => { window.__lastDownload = ""; });
+  await page3.keyboard.press("Enter");
+  await page3.waitForTimeout(200);
+  const md = await page3.evaluate(() => ({ dl: window.__lastDownload, closed: document.getElementById("vMenu").hidden }));
+  check("the viewer exports Markdown from the … menu", md.dl === "downloaded" && md.closed, JSON.stringify(md));
+  await tapViewer(page3, "#vMore");
+  await tapViewer(page3, "#vExport");
+  await page3.evaluate(() => { window.__lastDownload = ""; });
+  await tapViewer(page3, '#vMenu [data-act="pdf"]');
+  const pdfAt = Date.now();
+  await page3.waitForFunction(() => window.__lastDownload !== "", null, { timeout: 180000 }).catch(() => {});
+  const pdfGot = await page3.evaluate(() => [window.__lastDownload, document.getElementById("err").textContent]);
+  check("the viewer exports a PDF from the … menu", pdfGot[0] === "downloaded", JSON.stringify(pdfGot) + " " + (Date.now() - pdfAt) + " ms");
+  // ?export=… (what the assistant's preview opens): the site downloads it on load, once
+  const page4 = await browser.newPage({ viewport: { width: 1000, height: 640 } });
+  await page4.goto(showUrl.replace(/^https?:\/\/[^/]+/, url.replace(/\/$/, "")) + "&export=md");
+  await page4.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+  await page4.waitForFunction(() => window.__lastDownload !== "", null, { timeout: 30000 }).catch(() => {});
+  const auto = await page4.evaluate(() => ({ dl: window.__lastDownload, hash: /export=/.test(location.hash), viewer: document.body.classList.contains("viewer") }));
+  check("an ?export=md link downloads the shown deck once", auto.dl === "downloaded" && !auto.hash && auto.viewer, JSON.stringify(auto));
+  await page4.close();
+  const shownMd = await page3.evaluate(() => window.__app.source());
+  await tapViewer(page3, "#vMore");
+  await Promise.all([page3.waitForEvent("load", { timeout: 30000 }), page3.click('#vMenu [data-act="new"]')]);
+  await page3.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+  const made = await page3.evaluate(() => ({ viewer: document.body.classList.contains("viewer"), mode: JSON.parse(window.__app.layoutJson()).mode, md: window.__app.source() }));
+  check("Create New… opens the shown deck in the editor", !made.viewer && made.mode !== "present" && made.md === shownMd, JSON.stringify({ ...made, md: made.md.slice(0, 40) }));
   await page3.close();
 
   // A picture from the clipboard's point of view: bytes into the store,
@@ -353,14 +407,52 @@ try {
     keys.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
     await new Promise((res) => setTimeout(res, 600));
     const a = window.__app;
+    // the image window first: the picture in the crop, nothing in the deck yet
+    const dialog = a.chartIsOpen();
+    const win = JSON.parse(a.chartJson());
+    const shown = win.list.cmds.find((c) => c.k === 2 && String(c.src || "").startsWith("/__paste/"));
+    const before = a.source().includes("](media/liitetty-");
+    // the frame's bottom-right handle dragged to the middle: the left-top
+    // quarter of the picture is kept
+    if (shown) {
+      a.pointerDown(shown.x + shown.w - 1, shown.y + shown.h - 1, false, 1);
+      a.pointerMove(shown.x + shown.w * 0.5, shown.y + shown.h * 0.5);
+      a.pointerUp();
+    }
+    const plan = JSON.parse(a.pastePlan());
+    // Enter adds it
+    a.key("enter", false, false);
+    window.__handleRequests();
+    // cut and kept asynchronously (a canvas, IndexedDB)
+    for (let i = 0; i < 80 && !a.source().includes("](media/liitetty-"); i += 1) await new Promise((res) => setTimeout(res, 100));
     const stage = JSON.parse(a.stageJson());
+    const src = a.source();
+    const rel = (src.match(/\]\((media\/liitetty-[^)]+)\)/) || [])[1] || "";
+    const bmp = rel ? await window.__pictureSize("/" + rel) : [0, 0];
     return {
-      md: a.source().includes("](media/liitetty-"),
+      dialog, shown: !!shown, before, plan,
+      md: !!rel,
       image: stage.list.cmds.some((c) => c.k === 2 && String(c.src || "").includes("media/liitetty-")),
+      size: bmp,
     };
   });
-  check("a pasted picture is written into the markdown", pic.md);
-  check("…and drawn on the slide", pic.image);
+  check("a pasted picture opens the image window with the picture in it", pic.dialog && pic.shown && !pic.before, JSON.stringify(pic));
+  check("…the crop frame follows a handle", pic.plan.crop === "0,0,32,20", JSON.stringify(pic.plan));
+  check("…and Add writes it into the markdown", pic.md);
+  check("…drawn on the slide", pic.image);
+  check("…cut to the part kept", pic.size.join("x") === "32x20", JSON.stringify(pic.size));
+
+  // the same picture as the background of the slide at the caret
+  const bg = await page.evaluate(() => {
+    const a = window.__app;
+    const line = a.caretLine();
+    a.placePicture("media/tausta.png", "", "bg-slide");
+    const lines = a.source().split("\n");
+    let k = Math.min(line, lines.length - 1);
+    while (k >= 0 && !lines[k].startsWith("#")) k -= 1;
+    return k >= 0 ? lines[k] : "";
+  });
+  check("a picture placed as the slide's background goes on its heading", /\bbg=media\/tausta\.png\b/.test(bg), bg);
   await shot("3-picture.png");
 
   // TeX math: $…$ in a line and a $$ display are drawn as filled outlines
@@ -628,6 +720,96 @@ try {
       return { onTop, underPanel, reqs, closed };
     });
     check("…over the Files tab the File menu is on top, and its row takes the press", onFiles.onTop && onFiles.underPanel && onFiles.reqs.includes("click:save") && onFiles.closed, JSON.stringify(onFiles));
+
+    // the File menu's groups: new | open | save | the assistants, lines between them
+    // that take no press
+    const seps = await page.evaluate(() => {
+      const a = window.__app;
+      const all = () => { a.toolbarJson(); const out = []; const w = (e) => { if ((e.className || "").includes("ui-dropdownmenu-separator")) out.push(e); for (const k of e.children || []) w(k); }; w(a.toolbar.host.lastPage); return out; };
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY, false, 1); a.pointerUp(); };
+      press(find("tb-m-file-trigger"));
+      const lines = all();
+      const ys = ["new", "openbox", "save", "aiClaude"].map((id) => find("tb-m-file-item-" + id).calculatedY);
+      const between = lines.length === 3 && lines.every((l, i) => l.calculatedY > ys[i] && l.calculatedY < ys[i + 1] && l.calculatedHeight === 1);
+      for (;;) { if (!a.takeRequest()) break; }
+      press(lines[0]);
+      const reqs = [];
+      for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
+      const stillOpen = a.toolbar.openMenu() !== "";
+      a.key("escape", false, false);
+      return { n: lines.length, between, reqs, stillOpen };
+    });
+    check("…the File menu is grouped by three lines, and a line takes no press", seps.between && seps.reqs.length === 0 && seps.stillOpen, JSON.stringify(seps));
+
+    // File → Recent: Browse all… first (the Files tab), a line, then the decks
+    const recent = await page.evaluate(async () => {
+      const a = window.__app;
+      a.setToolbarOptions("recent", "deck-a\tOld deck\ndeck-b\tOlder deck", "");
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      const shut = () => { for (let n = 0; n < 3 && a.toolbar.openMenu() !== ""; n++) a.key("escape", false, false); };
+      const pick = async (id) => {
+        shut();
+        press(find("tb-m-file-trigger"));
+        press(find("tb-m-file-item-recent"));
+        let row = null;
+        for (let n = 0; n < 40 && !row; n++) { row = find("tb-m-file-item-recent-item-" + id); if (!row) await new Promise((r) => setTimeout(r, 100)); }
+        if (!row) return null;
+        for (;;) { if (!a.takeRequest()) break; }
+        press(row);
+        const reqs = [];
+        for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
+        shut();
+        return reqs;
+      };
+      const content = () => { const c = find("tb-m-file-item-recent-content"); return c ? (c.children || []).map((k) => k.id) : []; };
+      press(find("tb-m-file-trigger"));
+      press(find("tb-m-file-item-recent"));
+      let order = [];
+      for (let n = 0; n < 40 && order.length === 0; n++) { order = content(); if (!order.length) await new Promise((r) => setTimeout(r, 100)); }
+      shut();
+      const browse = await pick("browse");
+      const deck = await pick("r-deck-a");
+      return { order, browse, deck };
+    });
+    check("…File → Recent lists Browse all… first, then the decks, and each opens", recent.order.length === 4 && /browse$/.test(recent.order[0]) && /sep-1$/.test(recent.order[1]) && /r-deck-a$/.test(recent.order[2]) && (recent.browse || []).includes("showtab:files") && (recent.deck || []).includes("files:doc:deck-a"), JSON.stringify(recent));
+  }
+
+  // Edit in Claude / ChatGPT: File menu rows; signed out, the assistant opens
+  // in a new tab with the deck's Markdown in its prompt
+  {
+    const rows = await page.evaluate(() => {
+      const a = window.__app;
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      for (;;) { if (!a.takeRequest()) break; }
+      const reqs = [];
+      for (const id of ["aiClaude", "aiChatgpt"]) {
+        press(find("tb-m-file-trigger"));
+        const row = find("tb-m-file-item-" + id);
+        if (row) press(row);
+        for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
+      }
+      return reqs;
+    });
+    await page.context().route(/^https:\/\/(claude\.ai|chatgpt\.com)\//, (r) => r.fulfill({ status: 200, contentType: "text/html", body: "<title>ai</title>" }));
+    const urls = [];
+    for (const id of ["aiClaude", "aiChatgpt"]) {
+      const popup = page.waitForEvent("popup", { timeout: 5000 });
+      await page.evaluate((id) => document.getElementById(id).click(), id);
+      const p = await popup;
+      await p.waitForURL(/^https:/, { timeout: 5000 }).catch(() => {});
+      urls.push(p.url());
+      await p.close();
+    }
+    const src = await page.evaluate(() => window.__app.source());
+    const q = (u) => { try { return new URL(u).searchParams.get("q") || ""; } catch (_) { return ""; } };
+    check("File → Edit in Claude / ChatGPT open the assistant with the deck's Markdown and the connector's tools in the prompt",
+      rows.includes("click:aiClaude") && rows.includes("click:aiChatgpt")
+      && urls[0].startsWith("https://claude.ai/new?q=") && urls[1].startsWith("https://chatgpt.com/?q=")
+      && urls.every((u) => q(u).includes("create_presentation") && q(u).includes(src.split("\n").find((l) => l.trim()) || "")),
+      JSON.stringify({ rows, urls: urls.map((u) => u.slice(0, 80)) }));
   }
 
   // The value popover is on the canvas: a chip, the colour picker and a slider write the text
@@ -969,6 +1151,89 @@ try {
     await page.evaluate((s) => window.__app.setSource(s), src0);
     check("a chart's url data is fetched and drawn, the slide timed", fd.wanted === "" && fd.bars >= 3 && fd.duration > 0, JSON.stringify(fd));
   }
+
+  // Live data: a Google Sheet (its CSV, as gviz serves it) is fetched when the
+  // deck opens, and again on R while presenting.
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    let rows = [["Jan", 120], ["Feb", 95.5], ["Mar", 140]];
+    const asked = [];
+    const route = (r) => {
+      asked.push(r.request().url());
+      r.fulfill({ status: 200, contentType: "text/csv", headers: { "access-control-allow-origin": "*" }, body: "\"month\",\"km\"\n" + rows.map(([m, k]) => `"${m}","${k}"`).join("\n") + "\n" });
+    };
+    await page.context().route(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    const barsNow = () => page.evaluate(() => {
+      const a = window.__app;
+      a.selectSlide(1);
+      const st = JSON.parse(a.stageJson());
+      return st.list.cmds.filter((c) => c.k === 0 && c.w > 20 && c.h > 20 && c.w < 200).length;
+    });
+    await page.evaluate(() => window.__app.setSource("# D\n\n## Km\n\n```vega-lite\n{\"data\": {\"source\": \"google-sheets\", \"id\": \"SHEET1\", \"range\": \"Monthly!A:B\"}, \"mark\": \"bar\", \"width\": 400, \"encoding\": {\"x\": {\"field\": \"month\", \"type\": \"nominal\", \"sort\": null}, \"y\": {\"field\": \"km\", \"type\": \"quantitative\"}}}\n```\n"));
+    await page.waitForFunction(() => window.__app.chartDataWanted() === "", null, { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(400);
+    const first = await barsNow();
+    // while presenting the columns are still rising: count the rows the deck holds
+    const rowsHeld = () => page.evaluate(() => {
+      const d = window.__app.deck;
+      const i = d.dataUrls.findIndex((u) => /SHEET1/.test(u));
+      return i < 0 ? -1 : d.dataTexts[i].trim().split("\n").length - 1;
+    });
+    rows = [...rows, ["Apr", 80], ["May", 160]];
+    await page.evaluate(() => window.__app.selectSlide(1));
+    await page.keyboard.press("Shift+F5");
+    await page.waitForTimeout(500);
+    const onPresent = await rowsHeld();
+    rows = [...rows, ["Jun", 60]];
+    await page.keyboard.press("r");
+    await page.waitForTimeout(500);
+    const onR = await rowsHeld();
+    await page.evaluate(() => window.__app.endPresent());
+    await page.waitForTimeout(200);
+    const after = await barsNow();
+    await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    const url = asked[0] || "";
+    check("a Google Sheet is read as its CSV (tab and range from the fence)", url === "https://docs.google.com/spreadsheets/d/SHEET1/gviz/tq?tqx=out:csv&headers=1&sheet=Monthly&range=A%3AB", url);
+    check("live data: drawn on open, fetched again on presenting and on R", first === 3 && onPresent === 5 && onR === 6 && after === 6, JSON.stringify({ first, onPresent, onR, after, asked: asked.length }));
+  }
+  // A sheet link pasted into the editor: "Link live data", then a chart and a
+  // table that read the sheet live
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const route = (r) => r.fulfill({ status: 200, contentType: "text/csv", headers: { "access-control-allow-origin": "*" }, body: '"Kuukausi","Km"\n"Tammi","120"\n"Helmi","95"\n"Tammi","30"\n"Maalis","140"\n' });
+    await page.context().route(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    const link = "https://docs.google.com/spreadsheets/d/SHEET2/edit?gid=0#gid=0";
+    const res = await page.evaluate(async (link) => {
+      const a = window.__app;
+      a.setSource("# D\n\n## Km\n\n");
+      a.showTab("md");
+      a.editor.moveCaret(4, 0, false);
+      const keys = document.getElementById("keys");
+      keys.focus();
+      const dt = new DataTransfer();
+      dt.setData("text/plain", link);
+      keys.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+      for (let i = 0; i < 50 && !a.shareIsOpen(); i += 1) await new Promise((r) => setTimeout(r, 100));
+      const imp = a.panels.imp;
+      const dialog = { open: a.shareIsOpen(), live: imp && imp.live, rows: imp && imp.rows, pasted: a.source().includes("docs.google.com") };
+      a.panels.requests.push("data:chart");
+      a.takePanels();
+      window.__handleRequests && window.__handleRequests();
+      if (a.chartIsOpen()) a.closeChart();
+      await new Promise((r) => setTimeout(r, 600));
+      const src = a.source();
+      a.selectSlide(1);
+      const st = JSON.parse(a.stageJson());
+      const bars = st.list.cmds.filter((c) => c.k === 0 && c.w > 20 && c.h > 20 && c.w < 300).length;
+      return { dialog, fence: /"url": ?"https:\/\/docs\.google\.com\/spreadsheets\/d\/SHEET2\/edit/.test(src) && /"fold"/.test(src) && !/"values"/.test(src), bars, kept: src.length };
+    }, link);
+    await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    check("a pasted sheet link opens Link live data before anything is pasted", res.dialog.open && res.dialog.live && res.dialog.rows === 4 && !res.dialog.pasted, JSON.stringify(res.dialog));
+    check("…and makes a chart that reads the sheet (no copied values), drawn", res.fence && res.bars === 3, JSON.stringify(res));
+  }
+
 
   // The document's own files (web/vfs.js): a changed deck is kept in the
   // browser, files added in the files tab go with it, a chart can live in a
@@ -1352,7 +1617,7 @@ try {
       // put a copy beside the page — EVGSHEETS_DIST or .deps/EVGSheets/dist).
       if (fs.existsSync(path.join(distDir, "sheets", "evgsheets.mjs"))) {
         await pd.evaluate(() => { const a = window.__app; a.setSource(a.source() + "\n\n## Live sheet\n\n"); a.mdEditor.moveCaret(a.mdEditor.buf.lineCount() - 1, 0, false); });
-        await press("pn-d-live");
+        await press("pn-d-workbook");
         await pd.waitForTimeout(1500);
         const fence = await pd.evaluate(() => {
           const a = window.__app;
@@ -1396,7 +1661,8 @@ try {
     await pd.evaluate(() => window.__app.closeShare());
     await pd.evaluate(() => window.__app.showTab("md"));
     await pd.setInputFiles("#filepick", { name: "check-open.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n") + "\n") });
-    await pd.waitForFunction(() => window.__app.shareIsOpen() && window.__app.panels.imp.name === "check-open.csv", null, { timeout: 5000 }).catch(() => {});
+    // the dialog opens first; the Files tab once the deck is saved
+    await pd.waitForFunction(() => window.__app.shareIsOpen() && window.__app.panels.imp.name === "check-open.csv" && window.__app.editorTab() === "files", null, { timeout: 5000 }).catch(() => {});
     const opened = await pd.evaluate(() => ({ dlg: window.__app.shareIsOpen() && window.__app.panels.imp.name === "check-open.csv", tab: window.__app.editorTab() }));
     await pd.evaluate(() => window.__app.closeShare());
     const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -1409,6 +1675,130 @@ try {
     await pd.close();
   }
 
+  // PRO: a signed-in user's deck lives in the cloud (a share), against a
+  // stand-in for Firebase kept here: saved on change under /s/{id}?edit,
+  // opened from there on reload with its pictures, an assistant's change
+  // picked up, a later edit written back, and a change made elsewhere not
+  // written over.
+  {
+    const fakeDb = new Map();
+    const fakeFiles = new Map();
+    let puts = 0;
+    const stamp = (o) => { for (const k of Object.keys(o)) if (o[k] && o[k].__ts) o[k] = Date.now(); return o; };
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+    await ctx.exposeFunction("__fakeFirebase", (op, a) => {
+      if (op === "get") return fakeDb.get(a.k) ?? null;
+      if (op === "set") fakeDb.set(a.k, stamp(a.merge ? { ...fakeDb.get(a.k), ...a.data } : a.data));
+      else if (op === "update") {
+        if (!fakeDb.has(a.k)) throw new Error("no document " + a.k);
+        fakeDb.set(a.k, stamp({ ...fakeDb.get(a.k), ...a.data }));
+      } else if (op === "put") { puts += 1; fakeFiles.set(a.p, { type: a.type, buf: Buffer.from(a.b64, "base64") }); }
+      else if (op === "del") fakeFiles.delete(a.p);
+      return null;
+    });
+    const fake = `(() => {
+      const user = { uid: "u1", displayName: "Testi", email: "t@example.com" };
+      const call = (op, a) => window.__fakeFirebase(op, a);
+      const ref = (c, id) => ({
+        set: (data, o) => call("set", { k: c + "/" + id, data, merge: !!(o && o.merge) }),
+        update: (data) => call("update", { k: c + "/" + id, data }),
+        get: async () => { const d = await call("get", { k: c + "/" + id }); return { exists: d != null, data: () => d }; },
+      });
+      const db = { collection: (c) => ({ doc: (id) => ref(c, id) }) };
+      const firestore = () => db;
+      firestore.FieldValue = { serverTimestamp: () => ({ __ts: true }) };
+      const storage = () => ({ ref: (p) => ({
+        put: async (blob, meta) => { let s = ""; for (const x of new Uint8Array(await blob.arrayBuffer())) s += String.fromCharCode(x); return call("put", { p, type: (meta && meta.contentType) || blob.type, b64: btoa(s) }); },
+        getDownloadURL: async () => location.origin + "/__fakefiles/" + encodeURIComponent(p),
+        delete: () => call("del", { p }),
+      }) });
+      const auth = () => ({ onAuthStateChanged(cb) { setTimeout(() => cb(user), 0); return () => {}; }, signOut() {} });
+      window.firebase = { auth, firestore, storage };
+    })();`;
+    await ctx.route(/^https:\/\/www\.gstatic\.com\/firebasejs\//, (r) => r.fulfill({ contentType: "text/javascript", body: /app-compat/.test(r.request().url()) ? fake : "" }));
+    await ctx.route(/\/__\/firebase\/init\.js/, (r) => r.fulfill({ contentType: "text/javascript", body: "" }));
+    await ctx.route(/\/__fakefiles\//, (r) => {
+      const f = fakeFiles.get(decodeURIComponent(new URL(r.request().url()).pathname.replace(/^\/__fakefiles\//, "")));
+      return f ? r.fulfill({ status: 200, contentType: f.type, body: f.buf }) : r.fulfill({ status: 404, body: "" });
+    });
+    await ctx.route(/\/s\/[A-Za-z0-9]+(\?|$)/, (r) => r.fulfill({ contentType: "text/html", body: fs.readFileSync(path.join(distDir, "index.html")) }));
+    const pc = await ctx.newPage();
+    const perr = [];
+    pc.on("pageerror", (e) => perr.push(e.message));
+    const started = async () => {
+      await pc.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+      await pc.waitForTimeout(400);
+    };
+    const shareId = () => [...fakeDb.keys()].filter((k) => k.startsWith("shares/")).map((k) => k.slice(7));
+    const filesListed = async (name) => {
+      await pc.evaluate(() => window.__app.showTab("files"));
+      await pc.waitForFunction((n) => window.__app.panels.filesJson.includes(n), name, { timeout: 8000 }).catch(() => {});
+      return pc.evaluate((n) => window.__app.panels.filesJson.includes(n), name);
+    };
+    await pc.goto(url);
+    await started();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evgp-cloud-"));
+    fs.writeFileSync(path.join(dir, "cloud-pic.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+    await pc.evaluate(() => window.__app.setSource("# Pilvi\n\n## Kuva\n\n![kuva](media/cloud-pic.png)\n"));
+    await pc.setInputFiles("#fileadd", [path.join(dir, "cloud-pic.png")]);
+    await pc.waitForFunction(() => /^\/s\/[A-Za-z0-9]+$/.test(location.pathname), null, { timeout: 15000 }).catch(() => {});
+    await pc.waitForTimeout(2500);
+    const ids = shareId();
+    const id = ids[0] || "";
+    const first = { ids, address: await pc.evaluate(() => location.pathname + location.search), share: fakeDb.get("shares/" + id) };
+    check("PRO: a changed deck is saved to the cloud and the address names it",
+      ids.length === 1 && first.address === "/s/" + id + "?edit" && first.share?.owner === "u1" && first.share.md.includes("## Kuva") && (first.share.files || []).some((f) => f.path === "media/cloud-pic.png"),
+      JSON.stringify({ ids, address: first.address, files: first.share?.files }));
+
+    await pc.reload();
+    await started();
+    const back = { md: await pc.evaluate(() => window.__app.source()), pic: await filesListed("media/cloud-pic.png") };
+    check("PRO: a reload opens the deck from the cloud, its picture with it", back.md.includes("## Kuva") && back.pic, JSON.stringify(back).slice(0, 160));
+
+    // an assistant changes it in the cloud; the editor opened at its plain
+    // address gets the change
+    fakeDb.set("shares/" + id, { ...fakeDb.get("shares/" + id), md: back.md + "\n## Avustajan dia\n\nTeksti.\n", updated: Date.now() });
+    await pc.goto(url);
+    await started();
+    const viaAi = await pc.evaluate(() => ({ md: window.__app.source(), at: location.pathname }));
+    check("PRO: the deck worked on last opens from the cloud, with an assistant's change", viaAi.md.includes("## Avustajan dia") && viaAi.at === "/s/" + id, JSON.stringify(viaAi).slice(0, 160));
+
+    // an edit in the editor goes to the cloud; the unchanged picture is not sent again
+    const putsBefore = puts;
+    await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Editorin dia\n\nMuokattu.\n"));
+    await pc.waitForTimeout(5000);
+    const edited = fakeDb.get("shares/" + id);
+    check("PRO: an edit in the editor is written to the cloud", edited.md.includes("## Editorin dia") && edited.md.includes("## Avustajan dia") && puts === putsBefore && shareId().length === 1,
+      JSON.stringify({ puts: puts - putsBefore, shares: shareId().length }));
+
+    // Share links to the same cloud deck, no new copy
+    await pc.evaluate(() => { window.__lastShare = ""; document.getElementById("share").click(); });
+    await pc.waitForFunction(() => /\/s\/[A-Za-z0-9]+\?edit$/.test(window.__lastShare || ""), null, { timeout: 10000 }).catch(() => {});
+    const link = await pc.evaluate(() => window.__lastShare || "");
+    check("PRO: Share links to the deck's own cloud copy", link.endsWith("/s/" + id + "?edit") && shareId().length === 1, link);
+    await pc.evaluate(() => window.__app.closeShare());
+
+    // changed elsewhere meanwhile: not written over
+    fakeDb.set("shares/" + id, { ...fakeDb.get("shares/" + id), md: "# Muualla muutettu\n", updated: Date.now() });
+    await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Vielä yksi\n"));
+    await pc.waitForTimeout(5000);
+    check("PRO: a deck changed elsewhere is not written over", fakeDb.get("shares/" + id).md === "# Muualla muutettu\n");
+    check("no page errors with PRO", perr.length === 0, perr.join(" | "));
+    await ctx.close();
+  }
+
+  // Open → Sample documents: English decks for an English interface, and the
+  // prompt is the trigger's text, not a row in the list
+  const samples = await page.evaluate(() => {
+    const a = window.__app;
+    a.openOpen([...document.getElementById("sample").options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
+    const sel = a.panels.samplePick;
+    const out = { trigger: sel.labelOf(sel.value), rows: sel.items.map((it) => it.value + "=" + it.name) };
+    a.closeShare();
+    return out;
+  });
+  check("Open: the samples list starts with a deck, the prompt only on the trigger", samples.trigger === "Open sample document…" && samples.rows[0] === "talous=Finance: take charge of your money" && !samples.rows.some((r) => r.startsWith("=")), JSON.stringify(samples));
+
   // the interface in another language: ?lang=fi, the canvas bar and the page alike
   const pageFi = await browser.newPage({ viewport: { width: 1200, height: 760 } });
   await pageFi.goto(url + "?lang=fi&sample=talous");
@@ -1419,9 +1809,10 @@ try {
     html: document.getElementById("present").textContent,
     langSel: document.getElementById("lang").value,
     langBar: window.__app.toolbarJson().includes("Suomi"),
+    sample: window.__app.source().includes("# Oma talous haltuun"),
   }));
   await pageFi.close();
-  check("?lang=fi: the bar drawn and the page's own words in Finnish", fi.lang === "fi" && fi.bar && /Esitä/.test(fi.html) && fi.langSel === "fi" && fi.langBar, JSON.stringify(fi));
+  check("?lang=fi: the bar drawn and the page's own words in Finnish", fi.lang === "fi" && fi.bar && /Esitä/.test(fi.html) && fi.langSel === "fi" && fi.langBar && fi.sample, JSON.stringify(fi));
 
   check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {

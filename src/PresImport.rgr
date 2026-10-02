@@ -47,6 +47,9 @@ class PresImport {
     ; the type the columns suggested, marked in the dialog's list
     def suggested:int 1
     def title:string ""
+    ; a link pasted in (a Google Sheet, a CSV/JSON address): the chart and the
+    ; table read it live instead of a copy under data/
+    def live:boolean false
 
     Constructor () {
     }
@@ -60,6 +63,7 @@ class PresImport {
         }
         name = (j.stringOr("name" ""))
         xlsx = (j.stringOr("xlsx" ""))
+        live = (j.boolOr("live" false))
         def none:[string]
         sheetNames = none
         def none2:[string]
@@ -280,6 +284,91 @@ class PresImport {
 
     ; The chart editor's table: the categories down the side, a column per
     ; measure, each cell the combined value. Not ok when nothing can be drawn.
+    ; The chart as it would be made, reading `url` live: the same marks and
+    ; encoding, its rows the address's own (the value columns folded into
+    ; series / value, summed or averaged by the category as the dialog says).
+    ; "" when the chart cannot read the rows as they come (each row on its
+    ; own, an x/y chart).
+    fn liveSpec:string (url:string) {
+        if (catCol < 0) {
+            return ""
+        }
+        def m:PresChartModel (this.chartModel())
+        if (m.ok == false) {
+            return ""
+        }
+        def text:string (m.toSpec())
+        def p (new VlJsonParser())
+        def j:VlJson (p.parse(text))
+        if ((p.ok == false) || ((j.isObject()) == false)) {
+            return ""
+        }
+        def enc:VlJson (j.get("encoding"))
+        if ((enc.isObject()) == false) {
+            return ""
+        }
+        def catName:string (itemAt headers catCol)
+        def seen:boolean false
+        def e:int 0
+        while (e < (array_length enc.keys)) {
+            def ch:VlJson (enc.get((itemAt enc.keys e)))
+            if ((ch.isObject()) && ((ch.stringOr("field" "")) == "cat")) {
+                ch.setMember("field" (VlJson.stringValue(catName)))
+                seen = true
+            }
+            e = (e + 1)
+        }
+        if (seen == false) {
+            return ""
+        }
+        def fold (VlJson.arrayValue())
+        def k:int 0
+        while (k < (this.cols())) {
+            if ((k != catCol) && (itemAt valueOn k)) {
+                push fold.arr (VlJson.stringValue((itemAt headers k)))
+            }
+            k = (k + 1)
+        }
+        if ((fold.count()) == 0) {
+            return ""
+        }
+        def ts (VlJson.arrayValue())
+        def ft (VlJson.objectValue())
+        ft.setMember("fold" fold)
+        def as (VlJson.arrayValue())
+        push as.arr (VlJson.stringValue("series"))
+        push as.arr (VlJson.stringValue("value"))
+        ft.setMember("as" as)
+        push ts.arr ft
+        def op:string "sum"
+        if (agg == "avg") {
+            op = "mean"
+        }
+        if (agg == "count") {
+            op = "count"
+        }
+        if (agg != "none") {
+            def one (VlJson.objectValue())
+            one.setMember("op" (VlJson.stringValue(op)))
+            one.setMember("field" (VlJson.stringValue("value")))
+            one.setMember("as" (VlJson.stringValue("value")))
+            def ops (VlJson.arrayValue())
+            push ops.arr one
+            def by (VlJson.arrayValue())
+            push by.arr (VlJson.stringValue(catName))
+            push by.arr (VlJson.stringValue("series"))
+            def at (VlJson.objectValue())
+            at.setMember("aggregate" ops)
+            at.setMember("groupby" by)
+            push ts.arr at
+        }
+        def d (VlJson.objectValue())
+        d.setMember("url" (VlJson.stringValue(url)))
+        j.setMember("data" d)
+        j.setMember("transform" ts)
+        return (PresChartModel.write(j))
+    }
+
     fn chartModel:PresChartModel () {
         def m (new PresChartModel())
         def ch:GridChart (this.plan())

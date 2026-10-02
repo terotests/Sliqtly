@@ -1,0 +1,556 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Optional sign-in (mcp/src/oauth.js): the MCP server is its own OAuth 2.1
+; authorization server, and the person signs in with the Google account they
+; use for PRO (Firebase Auth) on /oauth.html. Without a token every tool still
+; works; with one, presentations are the person's own.
+;
+;   /.well-known/oauth-protected-resource[/mcp]   RFC 9728
+;   /.well-known/oauth-authorization-server       RFC 8414
+;   POST /oauth/register     dynamic client registration (RFC 7591)
+;   GET  /oauth/authorize    checks the request, sends the browser to /oauth.html
+;   POST /oauth/approve      /oauth.html hands back a Firebase ID token → code
+;   POST /oauth/token        code + PKCE (S256) → tokens; refresh_token rotates
+;
+; Codes and tokens are random; Firestore keeps only their SHA-256, under
+; mcp_oauth_…, which no client rule reaches. The documents are the ones the
+; Node server writes, so either server can finish a sign-in the other began.
+
+Import "McpHost.rgr"
+Import "Json.rgr"
+Import "Deck.rgr"
+
+; what an endpoint answers: a redirect, plain text, or JSON
+class HttpOut {
+    def status:int 200
+    def redirect:string ""
+    def text:string ""
+    def json:MfJ (new MfJ)
+    def noStore:boolean false
+
+    sfn bad:HttpOut (error:string description:string) {
+        def o (new HttpOut)
+        o.status = 400
+        o.json = (MfJ.newObj())
+        o.json.putStr("error" error)
+        if ((strlen description) > 0) {
+            o.json.putStr("error_description" description)
+        }
+        o.noStore = true
+        return o
+    }
+    sfn of:HttpOut (status:int json:MfJ) {
+        def o (new HttpOut)
+        o.status = status
+        o.json = json
+        o.noStore = true
+        return o
+    }
+    sfn redirectTo:HttpOut (url:string) {
+        def o (new HttpOut)
+        o.status = 302
+        o.redirect = url
+        return o
+    }
+    sfn plain:HttpOut (status:int text:string) {
+        def o (new HttpOut)
+        o.status = status
+        o.text = text
+        return o
+    }
+    sfn fail:HttpOut () {
+        def o (new HttpOut)
+        o.status = 500
+        o.json = (MfJ.newObj())
+        o.json.putStr("error" "server_error")
+        return o
+    }
+}
+
+; who a bearer token belongs to
+class Who {
+    ; 0 no token, 1 signed in, 2 a token that does not hold, 3 storage error
+    def state:int 0
+    def uid:string ""
+    def name:string ""
+}
+
+class OAuth {
+    sfn SCOPE:string () {
+        return "decks"
+    }
+    sfn CODE_TTL:int () {
+        return 600000
+    }
+    sfn REQUEST_TTL:int () {
+        return 900000
+    }
+    sfn ACCESS_TTL:int () {
+        return 3600000
+    }
+    sfn REFRESH_TTL:int () {
+        return 5184000000
+    }
+
+    sfn col:string (name:string) {
+        return ("mcp_oauth_" + name)
+    }
+
+    sfn loopback:boolean (u:MfJ) {
+        def h:string (u.str_("hostname"))
+        return (((u.str_("scheme")) == "http") && (((h == "localhost") || (h == "127.0.0.1")) || (h == "::1")))
+    }
+
+    ; https anywhere, http only on this machine, or an app's own scheme (cursor://)
+    sfn redirectAllowed:boolean (host:McpHost uri:string) {
+        if ((indexOf uri "#") >= 0) {
+            return false
+        }
+        def u:MfJ (J.parse((host_parse_url host uri)))
+        if ((u.isObj()) == false) {
+            return false
+        }
+        def scheme:string (u.str_("scheme"))
+        if ((scheme == "https") || (OAuth.loopback(u))) {
+            return true
+        }
+        if ((((scheme == "http") || (scheme == "javascript")) || ((scheme == "data") || (scheme == "file"))) || ((scheme == "vbscript") || (scheme == "blob"))) {
+            return false
+        }
+        return (OAuth.schemeName(scheme))
+    }
+
+    ; [a-z][a-z0-9+.-]*
+    sfn schemeName:boolean (s:string) {
+        def n:int (strlen s)
+        if (n == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            def ok:boolean ((c >= 97) && (c <= 122))
+            if (i > 0) {
+                if ((((c >= 48) && (c <= 57)) || (c == 43)) || ((c == 46) || (c == 45))) {
+                    ok = true
+                }
+            }
+            if (ok == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; A loopback redirect may come back on any port (RFC 8252 §7.3).
+    sfn sameRedirect:boolean (host:McpHost registered:string given:string) {
+        if (registered == given) {
+            return true
+        }
+        def a:MfJ (J.parse((host_parse_url host registered)))
+        def b:MfJ (J.parse((host_parse_url host given)))
+        if (((a.isObj()) == false) || ((b.isObj()) == false)) {
+            return false
+        }
+        if (((OAuth.loopback(a)) == false) || ((OAuth.loopback(b)) == false)) {
+            return false
+        }
+        return ((((a.str_("hostname")) == (b.str_("hostname"))) && ((a.str_("path")) == (b.str_("path")))) && ((a.str_("search")) == (b.str_("search"))))
+    }
+
+    sfn clientIdChars:boolean (id:string) {
+        def n:int (strlen id)
+        return (((n >= 8) && (n <= 64)) && (Deck.allAlnum(id)))
+    }
+
+    ; the client: a registered one, or one known by its metadata document URL;
+    ; a null value when there is none
+    sfn client:MfJ (host:McpHost clientId:string) {
+        if (startsWith clientId "https://") {
+            def u:MfJ (J.parse((host_parse_url host clientId)))
+            if ((u.isObj()) == false) {
+                return (new MfJ)
+            }
+            def hn:string (u.str_("hostname"))
+            if (((Deck.privateHost(hn)) || (startsWith (u.str_("host")) "[")) || (startsWith hn "0.")) {
+                return (new MfJ)
+            }
+            def got:MfJ (J.parse((host_fetch_text host clientId "application/json" 20001)))
+            def status:int (got.int_("status" 0))
+            if ((status < 200) || (status > 299)) {
+                return (new MfJ)
+            }
+            def text:string (got.str_("body"))
+            if ((strlen text) > 20000) {
+                return (new MfJ)
+            }
+            def meta:MfJ (J.parse(text))
+            if (((meta.isObj()) == false) || ((meta.str_("client_id")) != clientId)) {
+                return (new MfJ)
+            }
+            def uris:MfJ (meta.field("redirect_uris"))
+            if ((uris.isArr()) == false) {
+                return (new MfJ)
+            }
+            def allowed:MfJ (MfJ.newArr())
+            for uris.arr r:MfJ i {
+                if (r.kind == 3) {
+                    if (OAuth.redirectAllowed(host r.str)) {
+                        allowed.add(r)
+                    }
+                }
+            }
+            def name:string (meta.str_("client_name"))
+            if ((strlen name) == 0) {
+                name = hn
+            }
+            def c:MfJ (MfJ.newObj())
+            c.putStr("client_id" clientId)
+            c.putStr("client_name" name)
+            c.put("redirect_uris" allowed)
+            return c
+        }
+        if ((OAuth.clientIdChars(clientId)) == false) {
+            return (new MfJ)
+        }
+        return (J.parse((host_get_doc host (OAuth.col("clients")) clientId)))
+    }
+
+    sfn metadata:MfJ (origin:string) {
+        def m:MfJ (MfJ.newObj())
+        m.putStr("issuer" origin)
+        m.putStr("authorization_endpoint" (origin + "/oauth/authorize"))
+        m.putStr("token_endpoint" (origin + "/oauth/token"))
+        m.putStr("registration_endpoint" (origin + "/oauth/register"))
+        m.put("response_types_supported" (J.strs(([] _:string ("code")))))
+        m.put("grant_types_supported" (J.strs(([] _:string ("authorization_code" "refresh_token")))))
+        m.put("code_challenge_methods_supported" (J.strs(([] _:string ("S256")))))
+        m.put("token_endpoint_auth_methods_supported" (J.strs(([] _:string ("none")))))
+        m.put("scopes_supported" (J.strs(([] _:string ("decks")))))
+        m.putBool("client_id_metadata_document_supported" true)
+        m.putStr("service_documentation" (origin + "/connect.html"))
+        return m
+    }
+
+    sfn resourceMetadata:MfJ (origin:string) {
+        def m:MfJ (MfJ.newObj())
+        m.putStr("resource" (origin + "/mcp"))
+        m.put("authorization_servers" (J.strs(([] _:string (origin)))))
+        m.put("scopes_supported" (J.strs(([] _:string ("decks")))))
+        m.put("bearer_methods_supported" (J.strs(([] _:string ("header")))))
+        m.putStr("resource_name" "Sliqtly")
+        m.putStr("resource_documentation" (origin + "/connect.html"))
+        return m
+    }
+
+    sfn register:HttpOut (host:McpHost body:MfJ) {
+        def given:MfJ (body.field("redirect_uris"))
+        def uris:MfJ (MfJ.newArr())
+        def ok:boolean (given.isArr())
+        if ok {
+            for given.arr r:MfJ i {
+                def s:string (JOut.text(r))
+                if (r.kind == 3) {
+                    s = r.str
+                }
+                uris.add((MfJ.ofStr(s)))
+                if ((OAuth.redirectAllowed(host s)) == false) {
+                    ok = false
+                }
+            }
+        }
+        if (((uris.count()) == 0) || ((uris.count()) > 10)) {
+            ok = false
+        }
+        if (ok == false) {
+            return (HttpOut.bad("invalid_redirect_uri" "redirect_uris: https, a loopback http address, or an app scheme"))
+        }
+        def name:string (J.textOf(body "client_name"))
+        if ((strlen name) == 0) {
+            name = "MCP client"
+        }
+        if ((strlen name) > 100) {
+            name = (substring name 0 100)
+        }
+        def created:int (host_now_ms host)
+        def id:string (host_short_id host 24)
+        def doc:MfJ (MfJ.newObj())
+        doc.putStr("client_id" id)
+        doc.putStr("client_name" name)
+        doc.put("redirect_uris" uris)
+        doc.putInt("created" created)
+        host_set_doc host (OAuth.col("clients")) id (JOut.text(doc))
+        if ((strlen (host_error host)) > 0) {
+            return (HttpOut.fail())
+        }
+        def out:MfJ (MfJ.newObj())
+        out.putStr("client_id" id)
+        out.putStr("client_name" name)
+        out.put("redirect_uris" uris)
+        out.putInt("client_id_issued_at" (idiv created 1000))
+        out.put("grant_types" (J.strs(([] _:string ("authorization_code" "refresh_token")))))
+        out.put("response_types" (J.strs(([] _:string ("code")))))
+        out.putStr("token_endpoint_auth_method" "none")
+        out.putStr("scope" "decks")
+        return (HttpOut.of(201 out))
+    }
+
+    ; → a redirect to the sign-in page, or plain text when the request cannot
+    ; be sent back to the client at all
+    sfn authorize:HttpOut (host:McpHost q:MfJ origin:string) {
+        def c:MfJ (new MfJ)
+        def cid:string (q.str_("client_id"))
+        if ((strlen cid) > 0) {
+            c = (OAuth.client(host cid))
+        }
+        if ((c.isObj()) == false) {
+            return (HttpOut.plain(400 "Unknown client_id."))
+        }
+        def registered:[string] (J.strList((c.field("redirect_uris"))))
+        def redirect:string (q.str_("redirect_uri"))
+        if (((strlen redirect) == 0) && ((array_length registered) == 1)) {
+            redirect = (itemAt registered 0)
+        }
+        def known:boolean false
+        for registered r:string i {
+            if (OAuth.sameRedirect(host r redirect)) {
+                known = true
+            }
+        }
+        if (((strlen redirect) == 0) || (known == false)) {
+            return (HttpOut.plain(400 "redirect_uri is not registered for this client."))
+        }
+        if ((q.str_("response_type")) != "code") {
+            return (OAuth.back(host redirect q origin "unsupported_response_type" ""))
+        }
+        if (((strlen (q.str_("code_challenge"))) == 0) || ((q.str_("code_challenge_method")) != "S256")) {
+            return (OAuth.back(host redirect q origin "invalid_request" "PKCE with S256 is required"))
+        }
+        def rid:string (host_short_id host 24)
+        def req:MfJ (MfJ.newObj())
+        req.put("client_id" (c.field("client_id")))
+        req.put("client_name" (c.field("client_name")))
+        req.putStr("redirect_uri" redirect)
+        req.put("state" (OAuth.orNull((q.str_("state")))))
+        req.putStr("code_challenge" (q.str_("code_challenge")))
+        req.put("resource" (OAuth.orNull((q.str_("resource")))))
+        req.putStr("origin" origin)
+        req.putInt("exp" ((host_now_ms host) + (OAuth.REQUEST_TTL())))
+        host_set_doc host (OAuth.col("requests")) rid (JOut.text(req))
+        if ((strlen (host_error host)) > 0) {
+            return (HttpOut.fail())
+        }
+        ; the page names where the code goes, since a registered name is the
+        ; client's own claim
+        def to:MfJ (J.parse((host_parse_url host redirect)))
+        def where:string ((to.str_("scheme")) + " app")
+        if (OAuth.loopback(to)) {
+            where = "this computer"
+        } {
+            if ((to.str_("scheme")) == "https") {
+                where = (to.str_("host"))
+            }
+        }
+        return (HttpOut.redirectTo((origin + "/oauth.html?request=" + rid + "&client=" + (host_uri_encode host (c.str_("client_name"))) + "&to=" + (host_uri_encode host where))))
+    }
+
+    sfn back:HttpOut (host:McpHost redirect:string q:MfJ origin:string error:string description:string) {
+        def p:MfJ (MfJ.newObj())
+        p.putStr("error" error)
+        if ((strlen description) > 0) {
+            p.putStr("error_description" description)
+        }
+        def state:string (q.str_("state"))
+        if ((strlen state) > 0) {
+            p.putStr("state" state)
+        }
+        p.putStr("iss" origin)
+        return (HttpOut.redirectTo((host_url_set host redirect (JOut.text(p)))))
+    }
+
+    sfn orNull:MfJ (s:string) {
+        if ((strlen s) == 0) {
+            return (new MfJ)
+        }
+        return (MfJ.ofStr(s))
+    }
+
+    ; /oauth.html: { request, id_token } or { request, deny: true } → { redirect }
+    sfn approve:HttpOut (host:McpHost body:MfJ) {
+        def rid:string (J.textOf(body "request"))
+        if (((strlen rid) != 24) || ((Deck.allAlnum(rid)) == false)) {
+            def e:MfJ (MfJ.newObj())
+            e.putStr("error" "invalid_request")
+            return (HttpOut.of(400 e))
+        }
+        def r:MfJ (J.parse((host_get_doc host (OAuth.col("requests")) rid)))
+        if ((strlen (host_error host)) > 0) {
+            return (HttpOut.fail())
+        }
+        if ((r.isObj()) == false) {
+            return (HttpOut.bad("invalid_request" "The sign-in request has expired. Start again from your assistant."))
+        }
+        if ((r.num_("exp" 0.0)) < (to_double (host_now_ms host))) {
+            host_delete_doc host (OAuth.col("requests")) rid
+            return (HttpOut.bad("invalid_request" "The sign-in request has expired. Start again from your assistant."))
+        }
+        def p:MfJ (MfJ.newObj())
+        def state:string (r.str_("state"))
+        if ((strlen state) > 0) {
+            p.putStr("state" state)
+        }
+        p.putStr("iss" (r.str_("origin")))
+        if (J.truthy((body.field("deny")))) {
+            host_delete_doc host (OAuth.col("requests")) rid
+            p.putStr("error" "access_denied")
+            def d:MfJ (MfJ.newObj())
+            d.putStr("redirect" (host_url_set host (r.str_("redirect_uri")) (JOut.text(p))))
+            return (HttpOut.of(200 d))
+        }
+        ; a failed Google check leaves the request for another try
+        def who:MfJ (J.parse((host_verify_id_token host (J.textOf(body "id_token")))))
+        if ((who.isObj()) == false) {
+            def e2:MfJ (MfJ.newObj())
+            e2.putStr("error" "invalid_token")
+            e2.putStr("error_description" "Google sign-in could not be verified.")
+            return (HttpOut.of(401 e2))
+        }
+        host_delete_doc host (OAuth.col("requests")) rid
+        def code:string (host_short_id host 32)
+        def name:string (who.str_("name"))
+        if ((strlen name) == 0) {
+            name = (who.str_("email"))
+        }
+        def c:MfJ (MfJ.newObj())
+        c.putStr("uid" (who.str_("uid")))
+        c.putStr("name" name)
+        c.put("client_id" (r.field("client_id")))
+        c.put("redirect_uri" (r.field("redirect_uri")))
+        c.put("code_challenge" (r.field("code_challenge")))
+        c.put("resource" (r.field("resource")))
+        c.putInt("exp" ((host_now_ms host) + (OAuth.CODE_TTL())))
+        host_set_doc host (OAuth.col("codes")) (host_sha256_hex host code) (JOut.text(c))
+        if ((strlen (host_error host)) > 0) {
+            return (HttpOut.fail())
+        }
+        p.putStr("code" code)
+        def ok:MfJ (MfJ.newObj())
+        ok.putStr("redirect" (host_url_set host (r.str_("redirect_uri")) (JOut.text(p))))
+        return (HttpOut.of(200 ok))
+    }
+
+    sfn issue:HttpOut (host:McpHost from:MfJ) {
+        def access:string (host_short_id host 32)
+        def refresh:string (host_short_id host 40)
+        def now:int (host_now_ms host)
+        def a:MfJ (OAuth.grant(from))
+        a.putStr("kind" "access")
+        a.putInt("exp" (now + (OAuth.ACCESS_TTL())))
+        def r:MfJ (OAuth.grant(from))
+        r.putStr("kind" "refresh")
+        r.putInt("exp" (now + (OAuth.REFRESH_TTL())))
+        host_set_doc host (OAuth.col("tokens")) (host_sha256_hex host access) (JOut.text(a))
+        host_set_doc host (OAuth.col("tokens")) (host_sha256_hex host refresh) (JOut.text(r))
+        if ((strlen (host_error host)) > 0) {
+            return (HttpOut.fail())
+        }
+        def out:MfJ (MfJ.newObj())
+        out.putStr("access_token" access)
+        out.putStr("token_type" "Bearer")
+        out.putInt("expires_in" (idiv (OAuth.ACCESS_TTL()) 1000))
+        out.putStr("refresh_token" refresh)
+        out.putStr("scope" "decks")
+        return (HttpOut.of(200 out))
+    }
+
+    sfn grant:MfJ (from:MfJ) {
+        def g:MfJ (MfJ.newObj())
+        g.put("uid" (from.field("uid")))
+        g.put("name" (from.field("name")))
+        g.put("client_id" (from.field("client_id")))
+        g.put("resource" (from.field("resource")))
+        return g
+    }
+
+    sfn token:HttpOut (host:McpHost b:MfJ) {
+        def grantType:string (J.textOf(b "grant_type"))
+        def now:double (to_double (host_now_ms host))
+        if (grantType == "authorization_code") {
+            def id:string (host_sha256_hex host (J.textOf(b "code")))
+            def c:MfJ (J.parse((host_get_doc host (OAuth.col("codes")) id)))
+            if ((strlen (host_error host)) > 0) {
+                return (HttpOut.fail())
+            }
+            if ((c.isObj()) == false) {
+                return (HttpOut.bad("invalid_grant" ""))
+            }
+            host_delete_doc host (OAuth.col("codes")) id
+            if ((c.num_("exp" 0.0)) < now) {
+                return (HttpOut.bad("invalid_grant" "code expired"))
+            }
+            def cid:string (J.textOf(b "client_id"))
+            if (((strlen cid) > 0) && (cid != (c.str_("client_id")))) {
+                return (HttpOut.bad("invalid_grant" "client_id does not match"))
+            }
+            def ru:string (J.textOf(b "redirect_uri"))
+            if (((strlen ru) == 0) || ((OAuth.sameRedirect(host (c.str_("redirect_uri")) ru)) == false)) {
+                return (HttpOut.bad("invalid_grant" "redirect_uri does not match"))
+            }
+            def v:string (J.textOf(b "code_verifier"))
+            if (((strlen v) == 0) || ((host_sha256_b64url host v) != (c.str_("code_challenge")))) {
+                return (HttpOut.bad("invalid_grant" "PKCE verification failed"))
+            }
+            return (OAuth.issue(host c))
+        }
+        if (grantType == "refresh_token") {
+            def id2:string (host_sha256_hex host (J.textOf(b "refresh_token")))
+            def t:MfJ (J.parse((host_get_doc host (OAuth.col("tokens")) id2)))
+            if ((strlen (host_error host)) > 0) {
+                return (HttpOut.fail())
+            }
+            if (((t.isObj()) == false) || ((t.str_("kind")) != "refresh")) {
+                return (HttpOut.bad("invalid_grant" ""))
+            }
+            host_delete_doc host (OAuth.col("tokens")) id2
+            if ((t.num_("exp" 0.0)) < now) {
+                return (HttpOut.bad("invalid_grant" "refresh token expired"))
+            }
+            def cid2:string (J.textOf(b "client_id"))
+            if (((strlen cid2) > 0) && (cid2 != (t.str_("client_id")))) {
+                return (HttpOut.bad("invalid_grant" "client_id does not match"))
+            }
+            return (OAuth.issue(host t))
+        }
+        return (HttpOut.bad("unsupported_grant_type" ""))
+    }
+
+    ; Authorization: Bearer …
+    sfn who:Who (host:McpHost header:string) {
+        def w (new Who)
+        def h:string (trim header)
+        if ((strlen h) < 8) {
+            return w
+        }
+        if ((to_lowercase (substring h 0 7)) != "bearer ") {
+            return w
+        }
+        def tok:string (trim (substring h 7 (strlen h)))
+        if (((strlen tok) == 0) || ((indexOf tok " ") >= 0)) {
+            return w
+        }
+        def t:MfJ (J.parse((host_get_doc host (OAuth.col("tokens")) (host_sha256_hex host tok))))
+        if ((strlen (host_error host)) > 0) {
+            w.state = 3
+            return w
+        }
+        if ((((t.isObj()) == false) || ((t.str_("kind")) != "access")) || ((t.num_("exp" 0.0)) < (to_double (host_now_ms host)))) {
+            w.state = 2
+            return w
+        }
+        w.state = 1
+        w.uid = (t.str_("uid"))
+        w.name = (t.str_("name"))
+        return w
+    }
+}

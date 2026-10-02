@@ -68,7 +68,7 @@ test("tools, UI metadata and the preview resource", async () => {
   const t = await start(store);
   try {
     const { tools } = await t.client.listTools();
-    assert.deepEqual(tools.map((x) => x.name).sort(), ["create_presentation", "get_presentation", "list_presentations", "sliqtly_guide", "update_presentation"]);
+    assert.deepEqual(tools.map((x) => x.name).sort(), ["bind_chart_data", "create_presentation", "get_presentation", "list_presentations", "sliqtly_guide", "update_presentation"]);
     const create = tools.find((x) => x.name === "create_presentation");
     assert.match(create._meta.ui.resourceUri, /^ui:\/\/sliqtly\/preview-[0-9a-f]{10}\.html$/);
     assert.equal(create._meta["openai/outputTemplate"], create._meta.ui.resourceUri);
@@ -128,6 +128,58 @@ test("create, update and read a deck with pictures", async () => {
     const g = await t.client.callTool({ name: "get_presentation", arguments: { deck_id: out.deck_id } });
     assert.equal(g.structuredContent.markdown, after.md);
     assert.deepEqual(g.structuredContent.images.map((i) => i.name), ["cat.png", "dot.png"]);
+  } finally { await t.close(); }
+});
+
+test("bind_chart_data points a chart at live data", async () => {
+  const { store, data } = fakeFirebase();
+  const t = await start(store, rateLimiter());
+  try {
+    const md = "# Q3\n\n## Revenue\n\n```vega-lite\n" + JSON.stringify({ mark: "bar", data: { values: [{ m: "Jan", v: 1 }] }, encoding: { x: { field: "m" } } }) +
+      "\n```\n\n## Costs\n\n```vega-lite\n" + JSON.stringify({ layer: [{ mark: "line", data: { values: [] } }] }) + "\n```\n";
+    const c = await t.client.callTool({ name: "create_presentation", arguments: { title: "Q3", markdown: md } });
+    const { deck_id, edit_key } = c.structuredContent;
+
+    const a = await t.client.callTool({ name: "bind_chart_data", arguments: { deck_id, edit_key, chart: "revenue", source: { google_sheets: "SHEET1", range: "Monthly!A:B" } } });
+    assert.ok(!a.isError, a.content[0].text);
+    assert.equal(a.structuredContent.chart, 1);
+    assert.deepEqual(a.structuredContent.spec.data, { source: "google-sheets", id: "SHEET1", range: "Monthly!A:B" });
+    assert.deepEqual(a.structuredContent.spec.encoding, { x: { field: "m" } });
+    assert.equal(a.structuredContent.share_url, c.structuredContent.share_url);
+
+    const b = await t.client.callTool({ name: "bind_chart_data", arguments: { deck_id, edit_key, chart: 2, source: "https://data.test/costs.csv" } });
+    assert.ok(!b.isError, b.content[0].text);
+    assert.deepEqual(b.structuredContent.spec, { layer: [{ mark: "line" }], data: { url: "https://data.test/costs.csv" } });
+    const stored = data.get(`shares/${deck_id}`).md;
+    assert.match(stored, /"id": "SHEET1"/);
+    assert.match(stored, /costs\.csv/);
+    assert.match(stored, /## Costs/);
+
+    for (const [args, re] of [
+      [{ chart: 3, source: "https://data.test/x.csv" }, /has 2 charts/],
+      [{ chart: "Nope", source: "https://data.test/x.csv" }, /No chart on a slide titled/],
+      [{ chart: 1, source: "http://data.test/x.csv" }, /https URL/],
+      [{ chart: 1, source: "https://data.test/x.csv", edit_key: "wrong" }, /edit_key does not match/],
+    ]) {
+      const r = await t.client.callTool({ name: "bind_chart_data", arguments: { deck_id, edit_key, ...args } });
+      assert.ok(r.isError);
+      assert.match(r.content[0].text, re);
+    }
+    assert.equal(data.get(`shares/${deck_id}`).md, stored);
+  } finally { await t.close(); }
+});
+
+test("warns about an encoding type Vega-Lite does not know", async () => {
+  const { store } = fakeFirebase();
+  const t = await start(store, rateLimiter());
+  try {
+    const spec = { data: { values: [{ m: "Jan", h: 7.5 }] }, layer: [{ mark: "line", encoding: { x: { field: "m", type: "point" }, y: { field: "h", type: "quantitative" } } }] };
+    const md = "# T\n\n## Wake-up\n\n```vega-lite\n" + JSON.stringify(spec) + "\n```\n";
+    const c = await t.client.callTool({ name: "create_presentation", arguments: { title: "T", markdown: md } });
+    assert.ok(!c.isError, c.content[0].text);
+    assert.match(c.content[0].text, /Note: Chart 1 on "Wake-up": encoding x has type "point"; Vega-Lite types are quantitative, ordinal, nominal and temporal/);
+    const ok = await t.client.callTool({ name: "update_presentation", arguments: { deck_id: c.structuredContent.deck_id, edit_key: c.structuredContent.edit_key, markdown: md.replace('"point"', '"ordinal"') } });
+    assert.deepEqual(ok.structuredContent.warnings, []);
   } finally { await t.close(); }
 });
 

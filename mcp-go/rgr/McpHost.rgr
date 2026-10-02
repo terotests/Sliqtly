@@ -1,0 +1,252 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; McpHost — what the server needs that Ranger's Go target does not have
+; =============================================================================
+; The server itself is Ranger (Mcp.rgr, Tools.rgr, OAuth.rgr, Store.rgr,
+; Deck.rgr, App.rgr). These operators are the thin wrapper around the rest:
+; Firestore, Cloud Storage, Firebase Auth, outbound HTTP, SHA-256, random ids,
+; deflate and the clock, implemented by the Go type McpHost in ../host.go.
+;
+; Values cross as strings: documents as JSON text, numbers as int. A Go error
+; is kept on the host and read with host_error, so the Ranger code decides
+; what the caller is told.
+;
+; One McpHost per request; what lasts between requests (the clients, the rate
+; limiter, the theme cache) lives behind it in Go.
+; =============================================================================
+
+systemclass McpHost {
+    go "*McpHost"
+}
+
+operators {
+    ; --- the request and the configuration
+
+    ; the body as a JSON object: JSON as sent (non-ASCII unescaped), a form
+    ; as an object of strings; "" when a JSON body does not parse
+    host_body_json _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".BodyJSON()" )
+        }
+    }
+    host_remote_ip _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".RemoteIP()" )
+        }
+    }
+    host_tls _:boolean (h:McpHost) {
+        templates {
+            go ( (e 1) ".TLS()" )
+        }
+    }
+    host_base_url _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".BaseURL()" )
+        }
+    }
+    host_trust_host _:boolean (h:McpHost) {
+        templates {
+            go ( (e 1) ".TrustHost()" )
+        }
+    }
+    ; "cloud" (Firestore and Storage) or "link" (nothing kept)
+    host_store_kind _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".StoreKind()" )
+        }
+    }
+    host_oauth _:boolean (h:McpHost) {
+        templates {
+            go ( (e 1) ".OAuthOn()" )
+        }
+    }
+    host_asset _:string (h:McpHost name:string) {
+        templates {
+            go ( (e 1) ".Asset(" (e 2) ")" )
+        }
+    }
+    host_log _:void (h:McpHost msg:string) {
+        templates {
+            go ( (e 1) ".Log(" (e 2) ")" nl )
+        }
+    }
+    ; the first Go error of this request, "" while there is none
+    host_error _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".Err()" )
+        }
+    }
+    ; forgets it, for a failure the request goes on without
+    host_clear_error _:void (h:McpHost) {
+        templates {
+            go ( (e 1) ".ClearErr()" nl )
+        }
+    }
+
+    ; --- Firestore: documents as JSON; {"$serverTime":true} writes the server
+    ; time, timestamps read back as milliseconds
+
+    host_get_doc _:string (h:McpHost col:string id:string) {
+        templates {
+            go ( (e 1) ".GetDoc(" (e 2) ", " (e 3) ")" )
+        }
+    }
+    host_set_doc _:void (h:McpHost col:string id:string json:string) {
+        templates {
+            go ( (e 1) ".SetDoc(" (e 2) ", " (e 3) ", " (e 4) ")" nl )
+        }
+    }
+    host_update_doc _:void (h:McpHost col:string id:string json:string) {
+        templates {
+            go ( (e 1) ".UpdateDoc(" (e 2) ", " (e 3) ", " (e 4) ")" nl )
+        }
+    }
+    host_delete_doc _:void (h:McpHost col:string id:string) {
+        templates {
+            go ( (e 1) ".DeleteDoc(" (e 2) ", " (e 3) ")" nl )
+        }
+    }
+    ; [{"id": …, …fields}] of the documents whose field equals value
+    host_query_eq _:string (h:McpHost col:string field:string value:string) {
+        templates {
+            go ( (e 1) ".QueryEq(" (e 2) ", " (e 3) ", " (e 4) ")" )
+        }
+    }
+
+    ; --- pictures: the bytes stay in Go, Ranger holds a handle
+
+    ; {"handle":n,"size":n}; size 0 when it does not decode
+    host_image_base64 _:string (h:McpHost data:string) {
+        templates {
+            go ( (e 1) ".ImageFromBase64(" (e 2) ")" )
+        }
+    }
+    ; {"handle","size","status","type","length","error"}: a GET on a public
+    ; address only, at most limit bytes kept
+    host_image_url _:string (h:McpHost url:string limit:int) {
+        templates {
+            go ( (e 1) ".ImageFromURL(" (e 2) ", " (e 3) ")" )
+        }
+    }
+    ; Storage object `path` with the handle's bytes and a download token
+    host_upload _:void (h:McpHost handle:int path:string contentType:string token:string) {
+        templates {
+            go ( (e 1) ".Upload(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" nl )
+        }
+    }
+    host_bucket _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".Bucket()" )
+        }
+    }
+
+    ; --- the network
+
+    ; the theme's sheet from the site, cached per instance; "" on failure
+    host_theme_css _:string (h:McpHost theme:string) {
+        templates {
+            go ( (e 1) ".ThemeCSS(" (e 2) ")" )
+        }
+    }
+    ; the site's Firebase config (public) as JSON, cached per instance; ""
+    ; when it cannot be read, which is no error
+    host_web_config _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".WebConfig()" )
+        }
+    }
+    ; {"status":n,"body":"…"} of a GET on a public address; status 0 on failure
+    host_fetch_text _:string (h:McpHost url:string accept:string limit:int) {
+        templates {
+            go ( (e 1) ".FetchText(" (e 2) ", " (e 3) ", " (e 4) ")" )
+        }
+    }
+    ; {"uid","name","email"} of a valid Firebase ID token, "" otherwise
+    host_verify_id_token _:string (h:McpHost token:string) {
+        templates {
+            go ( (e 1) ".VerifyIDToken(" (e 2) ")" )
+        }
+    }
+
+    ; --- small things
+
+    host_sha256_hex _:string (h:McpHost s:string) {
+        templates {
+            go ( (e 1) ".SHA256Hex(" (e 2) ")" )
+        }
+    }
+    host_sha256_b64url _:string (h:McpHost s:string) {
+        templates {
+            go ( (e 1) ".SHA256B64URL(" (e 2) ")" )
+        }
+    }
+    ; n characters of a-z, A-Z, 0-9
+    host_short_id _:string (h:McpHost n:int) {
+        templates {
+            go ( (e 1) ".ShortID(" (e 2) ")" )
+        }
+    }
+    host_uuid _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".UUID()" )
+        }
+    }
+    ; deflate-raw + base64url, the editor's packText()
+    host_pack_text _:string (h:McpHost s:string) {
+        templates {
+            go ( (e 1) ".PackText(" (e 2) ")" )
+        }
+    }
+    host_now_ms _:int (h:McpHost) {
+        templates {
+            go ( (e 1) ".NowMS()" )
+        }
+    }
+    ; "" or why the caller is refused (sliding window per instance)
+    host_rate_limit _:string (h:McpHost who:string) {
+        templates {
+            go ( (e 1) ".RateLimit(" (e 2) ")" )
+        }
+    }
+    ; encodeURIComponent
+    host_uri_encode _:string (h:McpHost s:string) {
+        templates {
+            go ( (e 1) ".URIEncode(" (e 2) ")" )
+        }
+    }
+    ; {"scheme","host","hostname","port","path","query":{…},"hash"}, "" when
+    ; it is not an absolute URL
+    host_parse_url _:string (h:McpHost url:string) {
+        templates {
+            go ( (e 1) ".ParseURL(" (e 2) ")" )
+        }
+    }
+    ; url with the params of a JSON object set in its query (URL.searchParams.set)
+    host_url_set _:string (h:McpHost url:string params:string) {
+        templates {
+            go ( (e 1) ".URLSet(" (e 2) ", " (e 3) ")" )
+        }
+    }
+    ; milliseconds as 2006-01-02T15:04:05.000Z
+    host_iso_time _:string (h:McpHost ms:int) {
+        templates {
+            go ( (e 1) ".ISOTime(" (e 2) ")" )
+        }
+    }
+
+    ; --- what Lang.rgr's HttpRequest operators leave out
+
+    ; the Host the request was sent to (Go keeps it out of the headers)
+    http_request_host _:string (req:HttpRequest) {
+        templates {
+            go ( (e 1) ".Host" )
+        }
+    }
+    ; the query string as a JSON object of its first values
+    http_query_json _:string (req:HttpRequest) {
+        templates {
+            go ( "queryJSON(" (e 1) ")" )
+        }
+    }
+}

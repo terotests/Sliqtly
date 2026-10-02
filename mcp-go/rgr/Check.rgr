@@ -1,0 +1,74 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; The deck read by the editor's own model (src/PresDeck.rgr, linked into
+; Ranger as gallery/presentation): the slides as the player lays them out,
+; and the charts and diagrams it could not draw, so a model hears about them
+; before anyone opens the link.
+
+Import "McpHost.rgr"
+Import "../presentation/PresDeck.rgr"
+
+class Checked {
+    ; the theme's sheet was there: without it the slide count is not the
+    ; player's (the sheet says which headings start a slide)
+    def laidOut:boolean false
+    def slides:int 0
+    def warnings:[string]
+}
+
+class Check {
+    sfn deck:Checked (md:string css:string) {
+        def c (new Checked)
+        def d (new PresDeck)
+        if ((strlen css) > 0) {
+            d.setTheme(css)
+            d.md.setStyleSheet(css)
+            c.laidOut = true
+        }
+        d.setText(md)
+        c.slides = (d.slideCount())
+        ; a slide that runs over goes on in untitled slides after it
+        def i:int 0
+        while (i < c.slides) {
+            def s:PresSlide (d.slideAt(i))
+            def j:int (i + 1)
+            while ((j < c.slides) && ((strlen ((d.slideAt(j)).title)) == 0)) {
+                j = (j + 1)
+            }
+            if ((c.laidOut && (j > (i + 1))) && ((strlen s.title) > 0)) {
+                def more:int (j - (i + 1))
+                def what:string "slide"
+                if (more > 1) {
+                    what = "slides"
+                }
+                push c.warnings ("Slide \"" + s.title + "\" does not fit and goes on over " + more + " more " + what + ": shorten it or split it with a ## heading.")
+            }
+            i = j
+        }
+        def l:MdLayout (d.layout())
+        for l.embeds.entries e:MdEmbedEntry k {
+            if e.ok {
+                continue
+            }
+            def where:string ""
+            def at:int (indexOf md e.source)
+            if (at >= 0) {
+                def page:int (d.pageOfOffset(at))
+                if ((page >= 0) && (page < c.slides)) {
+                    def t:string ((d.slideAt(page)).title)
+                    if ((strlen t) > 0) {
+                        where = (" on slide \"" + t + "\"")
+                    } {
+                        where = (" on slide " + (page + 1))
+                    }
+                }
+            }
+            def why:string e.note
+            if ((strlen why) == 0) {
+                why = "it could not be drawn"
+            }
+            push c.warnings ("The " + e.kind + " block" + where + " is not shown: " + why + ".")
+        }
+        return c
+    }
+}

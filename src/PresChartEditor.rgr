@@ -30,7 +30,7 @@
 Import "PresChartModel.rgr"
 Import "PresImageModel.rgr"
 Import "PresColorPanel.rgr"
-Import "../ui/src/UiHost.rgr"
+Import "../evgui/src/UiHost.rgr"
 Import "PresKeep.rgr"
 Import "PresI18n.rgr"
 
@@ -79,6 +79,17 @@ class PresChartEditor {
     def dragPart:string ""
     ; a slider being dragged, by its host
     def sliding:boolean false
+    ; A picture pasted or dropped (`mode` "paste"): the part of it to keep
+    ; (CropCtl) and where it goes ("slide", "bg-slide", "bg-all"). `pasteShape`
+    ; is the crop's aspect ("free", "slide", "4:3", "1:1"); `pasteNote` says
+    ; where the picture is kept. Add sets `wantsPlace` and closes.
+    def crop:CropCtl (new CropCtl())
+    def pasteTo:string "slide"
+    def pasteShape:string "free"
+    def pasteAlt:string ""
+    def pasteNote:string ""
+    def slideAspect:double 1.7777777
+    def wantsPlace:boolean false
 
     Constructor () {
     }
@@ -88,6 +99,28 @@ class PresChartEditor {
         img = m
         wantsBg = ""
         wantsRemove = false
+        this.openAt(px py pw ph)
+    }
+
+    ; A picture that is not in the Markdown yet: `path` is where the page
+    ; registered it for drawing, `pw` × `ph` its pixels.
+    fn openPaste:void (path:string iw:double ih:double alt:string note:string aspect:double px:double py:double pw:double ph:double) {
+        mode = "paste"
+        def c (new CropCtl())
+        crop = c
+        crop.tid = "pe-crop"
+        crop.name = (PresI18n.t("Crop image"))
+        crop.maxW = 528.0
+        crop.maxH = 300.0
+        crop.setImage(path iw ih)
+        pasteTo = "slide"
+        pasteShape = "free"
+        pasteAlt = alt
+        pasteNote = note
+        if (aspect > 0.0) {
+            slideAspect = aspect
+        }
+        wantsPlace = false
         this.openAt(px py pw ph)
     }
 
@@ -152,10 +185,32 @@ class PresChartEditor {
     }
 
     fn dragging:boolean () {
-        return ((win.dragging || sliding) || ((strlen dragPart) > 0))
+        return (((win.dragging || sliding) || ((strlen dragPart) > 0)) || ((mode == "paste") && (crop.dragging())))
+    }
+
+    ; A point as fractions of the crop's rectangle, as last laid out.
+    fn cropFx:double (px:double) {
+        def r:EVGElement (unwrap crop.rootEl)
+        if (r.calculatedWidth <= 0.0) {
+            return 0.0
+        }
+        return ((px - r.calculatedX) / r.calculatedWidth)
+    }
+
+    fn cropFy:double (py:double) {
+        def r:EVGElement (unwrap crop.rootEl)
+        if (r.calculatedHeight <= 0.0) {
+            return 0.0
+        }
+        return ((py - r.calculatedY) / r.calculatedHeight)
     }
 
     fn dragTo:void (px:double py:double) {
+        if ((mode == "paste") && (crop.dragging())) {
+            crop.dragAt((this.cropFx(px)) (this.cropFy(py)))
+            rev = (rev + 1)
+            return
+        }
         if ((strlen dragPart) > 0) {
             this.pickAt(px py)
             return
@@ -191,6 +246,10 @@ class PresChartEditor {
     }
 
     fn release:void () {
+        if ((mode == "paste") && (crop.dragging())) {
+            crop.release()
+            rev = (rev + 1)
+        }
         if win.dragging {
             win.release()
             rev = (rev + 1)
@@ -347,6 +406,10 @@ class PresChartEditor {
             win.name = (PresI18n.t("Image settings"))
             win.title = (PresI18n.t("Image settings"))
         }
+        if (mode == "paste") {
+            win.name = (PresI18n.t("Add image"))
+            win.title = (PresI18n.t("Add image"))
+        }
         win.closeLabel = (PresI18n.t("Close"))
         win.isModal = false
         win.x = x
@@ -372,6 +435,10 @@ class PresChartEditor {
     }
 
     fn fillBody:void (root:EVGElement) {
+        if (mode == "paste") {
+            this.pasteBody(root)
+            return
+        }
         if (mode == "image") {
             this.imageBody(root)
             return
@@ -488,6 +555,96 @@ class PresChartEditor {
         bottom.addChild((this.div("ce-grow")))
         this.button("ce-done" (PresI18n.t("Done")) "primary" bottom)
         root.addChild(bottom)
+    }
+
+    ; --- a picture on its way in ------------------------------------------------
+    fn pasteBody:void (root:EVGElement) {
+        def pane:EVGElement (this.div("ce-pane"))
+        root.addChild(pane)
+        crop.build()
+        this.put(crop pane)
+        pane.addChild((this.text("ce-doc" (PresI18n.t("Drag the frame or its corners to choose the part that shows. Arrow keys move it, Shift+arrows resize it.")))))
+
+        def shape:EVGElement (this.section(pane (PresI18n.t("Shape"))))
+        def sc:EVGElement (this.div("ce-chips"))
+        this.chip("pe-shape-free" (PresI18n.t("Free")) (pasteShape == "free") sc)
+        this.chip("pe-shape-slide" (PresI18n.t("Slide")) (pasteShape == "slide") sc)
+        this.chip("pe-shape-4:3" "4:3" (pasteShape == "4:3") sc)
+        this.chip("pe-shape-1:1" "1:1" (pasteShape == "1:1") sc)
+        this.button("pe-reset" (PresI18n.t("Whole image")) "ghost" sc)
+        shape.addChild(sc)
+
+        def to:EVGElement (this.section(pane (PresI18n.t("Use as"))))
+        def tc:EVGElement (this.div("ce-chips"))
+        this.chip("pe-to-slide" (PresI18n.t("Image on this slide")) (pasteTo == "slide") tc)
+        this.chip("pe-to-bg-slide" (PresI18n.t("This slide's background")) (pasteTo == "bg-slide") tc)
+        this.chip("pe-to-bg-all" (PresI18n.t("Background for all slides")) (pasteTo == "bg-all") tc)
+        to.addChild(tc)
+        if (pasteTo == "slide") {
+            def al:EVGElement (this.field((PresI18n.t("Description"))))
+            this.input("pe-alt" (PresI18n.t("Description")) pasteAlt "ce-wide" al)
+            to.addChild(al)
+        }
+        if ((strlen pasteNote) > 0) {
+            pane.addChild((this.text("ce-doc" pasteNote)))
+        }
+
+        def bottom:EVGElement (this.div("ce-foot"))
+        this.button("pe-cancel" (PresI18n.t("Cancel")) "outline" bottom)
+        bottom.addChild((this.div("ce-grow")))
+        this.button("pe-add" (PresI18n.t("Add image")) "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    fn shapeAspect:double (k:string) {
+        if (k == "slide") {
+            return slideAspect
+        }
+        if (k == "4:3") {
+            return (4.0 / 3.0)
+        }
+        if (k == "1:1") {
+            return 1.0
+        }
+        return 0.0
+    }
+
+    fn pasteAct:boolean (tid:string) {
+        if ((indexOf tid "pe-shape-") == 0) {
+            pasteShape = (substring tid 9 (strlen tid))
+            crop.setAspect((this.shapeAspect(pasteShape)))
+            this.rebuild()
+            return true
+        }
+        if (tid == "pe-reset") {
+            pasteShape = "free"
+            crop.setAspect(0.0)
+            crop.reset()
+            this.rebuild()
+            return true
+        }
+        if ((indexOf tid "pe-to-") == 0) {
+            pasteTo = (substring tid 6 (strlen tid))
+            ; a background covers the slide: cut to the slide's shape, unless a
+            ; shape was already picked
+            if (((indexOf pasteTo "bg-") == 0) && (pasteShape == "free")) {
+                pasteShape = "slide"
+                crop.setAspect(slideAspect)
+            }
+            focusTid = ""
+            this.rebuild()
+            return true
+        }
+        if (tid == "pe-cancel") {
+            wantsClose = true
+            return true
+        }
+        if (tid == "pe-add") {
+            wantsPlace = true
+            wantsClose = true
+            return true
+        }
+        return false
     }
 
     fn imageAct:boolean (tid:string) {
@@ -689,16 +846,23 @@ class PresChartEditor {
     fn dataTab:void (pane:EVGElement) {
         if model.lookOnly {
             pane.addChild((this.text("ce-doc" model.why)))
-            if ((strlen model.dataFile) > 0) {
+            if model.dataLive {
+                def live:EVGElement (this.field((PresI18n.t("Data source"))))
+                live.addChild((this.text("ce-value" model.dataFile)))
+                pane.addChild(live)
+                pane.addChild((this.text("ce-doc" (PresI18n.t("The data is fetched from this address each time the presentation opens. While presenting, R (or ⟳) fetches it again. PDF and PPTX keep the data as it was when exported.")))))
+            }
+            if (((strlen model.dataFile) > 0) && (model.dataLive == false)) {
                 def src:EVGElement (this.field((PresI18n.t("File"))))
                 src.addChild((this.text("ce-value" model.dataFile)))
                 pane.addChild(src)
                 pane.addChild((this.text("ce-doc" (PresI18n.t("The data is in a file of the presentation: edit it on the Files tab. The chart redraws when the file changes.")))))
-            } {
+            }
+            if ((strlen model.dataFile) == 0) {
                 pane.addChild((this.text("ce-doc" (PresI18n.t("The data and how it is processed are in the chart's JSON on the Markdown tab.")))))
             }
             def row:EVGElement (this.div("ce-row"))
-            if ((strlen model.dataFile) > 0) {
+            if (((strlen model.dataFile) > 0) && (model.dataLive == false)) {
                 this.button("ce-openfile" (PresI18n.t("Open file")) "primary" row)
             }
             this.button("ce-fresh" (PresI18n.t("Replace with sample table")) "outline" row)
@@ -883,6 +1047,18 @@ class PresChartEditor {
             return
         }
         cp.leaveField(picker)
+        ; the crop: a handle or the frame, measured against its rectangle
+        if ((mode == "paste") && (ctlTid == crop.tid)) {
+            if ((strlen focusTid) > 0) {
+                this.focusInput("")
+            }
+            def f:string (crop.pressAt(tid (this.cropFx(px)) (this.cropFy(py))))
+            if ((strlen f) > 0) {
+                host.focus(f)
+            }
+            rev = (rev + 1)
+            return
+        }
         ; a slider: pressed and dragged through its host
         if (PresChartEditor.isSlider(ctlTid)) {
             host.pressAt(px py)
@@ -1018,6 +1194,9 @@ class PresChartEditor {
     fn act:void (tid:string) {
         message = ""
         if ((mode == "image") && (this.imageAct(tid))) {
+            return
+        }
+        if ((mode == "paste") && (this.pasteAct(tid))) {
             return
         }
         if (tid == "ce-done") {
@@ -1163,6 +1342,9 @@ class PresChartEditor {
         if (focusTid == "ie-alt") {
             img.alt = v
         }
+        if (focusTid == "pe-alt") {
+            pasteAlt = v
+        }
         if ((indexOf focusTid "ce-h-") == 0) {
             model.setHeader((?? (str2int (substring focusTid 5 (strlen focusTid))) -1) v)
         }
@@ -1266,6 +1448,20 @@ class PresChartEditor {
             wantsClose = true
             return true
         }
+        ; the picture on its way in: arrows move the crop, Enter adds it
+        if ((mode == "paste") && ((strlen focusTid) == 0)) {
+            if (name == "enter") {
+                wantsPlace = true
+                wantsClose = true
+                return true
+            }
+            def ak:string (PresChartEditor.kitKey(name))
+            if ((((ak == "ArrowLeft") || (ak == "ArrowRight")) || (ak == "ArrowUp")) || (ak == "ArrowDown")) {
+                crop.keyDownWith((crop.boxTid()) ak shift ctrl)
+                rev = (rev + 1)
+                return true
+            }
+        }
         if ((name == "tab") || (name == "enter")) {
             if ((strlen focusTid) > 0) {
                 this.focusInput((this.nextField(focusTid shift)))
@@ -1287,6 +1483,25 @@ class PresChartEditor {
         return true
     }
 
+    sfn cropCursor:string (part:string) {
+        if (part == "move") {
+            return "move"
+        }
+        if ((part == "nw") || (part == "se")) {
+            return "nwse-resize"
+        }
+        if ((part == "ne") || (part == "sw")) {
+            return "nesw-resize"
+        }
+        if ((part == "n") || (part == "s")) {
+            return "ns-resize"
+        }
+        if ((part == "e") || (part == "w")) {
+            return "ew-resize"
+        }
+        return "default"
+    }
+
     fn cursorAt:string (px:double py:double) {
         if ((this.has(px py)) == false) {
             return ""
@@ -1304,6 +1519,9 @@ class PresChartEditor {
         def maybe@(optional):UiCtl (host.ctlFor(tid))
         if (!null? maybe) {
             def owner:UiCtl (unwrap maybe)
+            if ((mode == "paste") && (owner.tid == crop.tid)) {
+                return (PresChartEditor.cropCursor((crop.partOf(tid))))
+            }
             if (owner.tid == picker.tid) {
                 def part:string (picker.partOf(tid))
                 if ((part == "f0") || ((part == "f1") || ((part == "f2") || (part == "f3")))) {

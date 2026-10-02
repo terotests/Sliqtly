@@ -784,7 +784,7 @@ class PresDeck {
                 def sel0:string (trim (itemAt selList s))
                 ; `#anchor chart`: the charts under one heading
                 def sel:string (PresDeck.scopedSel(sel0))
-                if (((sel == "chart") || (sel == "diagram")) || ((indexOf sel "#") == 0)) {
+                if ((((sel == "chart") || (sel == "diagram")) || ((indexOf sel "#") == 0)) || (sel == "page")) {
                     def decls:[string] (strsplit body ";")
                     def d:int 0
                     while (d < (array_length decls)) {
@@ -961,6 +961,12 @@ class PresDeck {
     ; (columns, the active line), `accent-color` the cool one (grid, axes,
     ; boxes). The rule wins over the old `/* pres: warm= accent= */` line.
     ; A property of the theme's `chart` / `diagram` rule, or "".
+    ; A `background-image` value that draws nothing.
+    sfn noPicture:boolean (v:string) {
+        def t:string (trim v)
+        return (((strlen t) == 0) || (t == "none"))
+    }
+
     fn themeRule:string (what:string prop:string) {
         def key:string (what + "/" + prop)
         def i:int ((array_length ruleKeys) - 1)
@@ -1040,7 +1046,7 @@ class PresDeck {
         def ti:int 0
         while (ti < (array_length tables)) {
             def tu:PresTableUse (itemAt tables ti)
-            push urls tu.path
+            push urls (MdVegaRender.resolveUrl(tu.path))
             ti = (ti + 1)
         }
         def i:int 0
@@ -1341,8 +1347,9 @@ class PresDeck {
             s.fx = dFx
             s.stepGap = dStep
             s.hold = dHold
-            if ((strlen dFx) == 0) {
-                ; the template's effect, with its own parameters
+            ; the template's effect, with its own parameters; not over a picture
+            ; the theme's page rule puts behind every slide, which it would hide
+            if (((strlen dFx) == 0) && (PresDeck.noPicture((this.themeRule("page" "background-image"))))) {
                 s.fx = (this.themeValue("fx"))
                 def ti:int 0
                 while (ti < (array_length themeKeys)) {
@@ -1455,6 +1462,11 @@ class PresDeck {
         }
         if (h.hasAttr("bg")) {
             s.bg = (h.attrValue("bg"))
+            ; the slide's own picture is what it shows: the deck's or the
+            ; theme's effect would cover it, one named on the heading stays
+            if ((h.hasAttr("fx")) == false) {
+                s.fx = ""
+            }
         }
         if (h.hasAttr("bg-dim")) {
             s.bgDim = (PresDeck.num((h.attrValue("bg-dim")) 0.0))
