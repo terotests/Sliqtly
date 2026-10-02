@@ -274,6 +274,13 @@ Firebase Hosting. In the Firebase Console, once:
 2. Authentication → Sign-in method → enable **Google**.
 3. Authentication → Settings → Authorized domains: add `sliqtly.com` when the
    domain is connected (`sliqtly.web.app` is there already).
+4. Google Cloud Console → APIs & Services → Credentials → the **Web client
+   (auto created by Google Service)** → Authorized redirect URIs: add
+   `https://sliqtly.com/__/auth/handler` and
+   `https://sliqtly.web.app/__/auth/handler`. When a phone's browser blocks
+   Google's sign-in window (or Sliqtly runs from the home screen), sign-in
+   goes by redirect through the site's own handler, since Safari keeps no
+   storage for `sliqtly.firebaseapp.com` inside `sliqtly.com`.
 
 ## Sharing (PRO)
 
