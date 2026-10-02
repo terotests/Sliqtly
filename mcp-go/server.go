@@ -43,7 +43,7 @@ const (
 	APP_MIME    = "text/html;profile=mcp-app"
 )
 
-// the preview frames the share link; both of the site's domains serve it
+// the preview loads Sliqtly from the site (or frames it); both domains serve it
 var SITES = []string{"https://sliqtly.com", "https://sliqtly.web.app"}
 
 // Sign-in is optional (ChatGPT reads this to offer both)
@@ -582,7 +582,12 @@ func NewServer(o ServerOpts) *mcp.Server {
 		return &mcp.CallToolResult{Content: text(txt), StructuredContent: map[string]any{"presentations": decks}}, nil
 	}))
 
-	csp := map[string]any{"csp": map[string]any{"frameDomains": frames}, "prefersBorder": false}
+	// the preview runs Sliqtly's viewer itself (preview.html): its scripts and
+	// fonts from the site and Firebase's CDN, the share from Firestore, the
+	// pictures from Storage
+	resources := append(slices.Clone(frames), "https://www.gstatic.com")
+	connects := append(slices.Clone(frames), "https://firestore.googleapis.com", "https://firebasestorage.googleapis.com")
+	csp := map[string]any{"csp": map[string]any{"frameDomains": frames, "resourceDomains": resources, "connectDomains": connects}, "prefersBorder": false}
 	server.AddResource(&mcp.Resource{
 		Name:        "preview",
 		URI:         PREVIEW_URI,
@@ -597,7 +602,7 @@ func NewServer(o ServerOpts) *mcp.Server {
 			Text:     PREVIEW,
 			Meta: mcp.Meta{
 				"ui":                         csp,
-				"openai/widgetCSP":           map[string]any{"connect_domains": []string{}, "resource_domains": []string{}, "frame_domains": frames},
+				"openai/widgetCSP":           map[string]any{"connect_domains": connects, "resource_domains": resources, "frame_domains": frames},
 				"openai/widgetDescription":   "The Sliqtly presentation, playable inline.",
 				"openai/widgetPrefersBorder": true,
 			},

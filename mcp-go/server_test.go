@@ -280,6 +280,11 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 	eq(t, r.Contents[0].MIMEType, "text/html;profile=mcp-app")
 	match(t, r.Contents[0].Text, `ui/initialize`)
 	eq(t, r.Contents[0].Meta["ui"].(map[string]any)["csp"].(map[string]any)["frameDomains"], []string{BASE, "https://sliqtly.com", "https://sliqtly.web.app"})
+	// Claude frames nothing but blob:, so the preview loads the viewer itself
+	uiCSP := r.Contents[0].Meta["ui"].(map[string]any)["csp"].(map[string]any)
+	match(t, fmt.Sprint(uiCSP["resourceDomains"]), `https://www\.gstatic\.com`)
+	match(t, fmt.Sprint(uiCSP["connectDomains"]), `https://firestore\.googleapis\.com`)
+	eq(t, r.Contents[0].Meta["openai/widgetCSP"].(map[string]any)["connect_domains"], uiCSP["connectDomains"])
 	match(t, textOf(call(t, s, "sliqtly_guide", map[string]any{})), `## Pictures`)
 }
 
