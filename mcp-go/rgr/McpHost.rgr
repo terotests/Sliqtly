@@ -77,6 +77,12 @@ operators {
             go ( (e 1) ".Err()" )
         }
     }
+    ; forgets it, for a failure the request goes on without
+    host_clear_error _:void (h:McpHost) {
+        templates {
+            go ( (e 1) ".ClearErr()" nl )
+        }
+    }
 
     ; --- Firestore: documents as JSON; {"$serverTime":true} writes the server
     ; time, timestamps read back as milliseconds

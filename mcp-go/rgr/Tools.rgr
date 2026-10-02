@@ -11,6 +11,7 @@
 Import "McpHost.rgr"
 Import "Json.rgr"
 Import "Deck.rgr"
+Import "Check.rgr"
 Import "Store.rgr"
 
 ; who is asking, for one request
@@ -404,6 +405,25 @@ class Tools {
         return s
     }
 
+    ; the deck as the player reads it, with the sheet it is shown with: its
+    ; own, or the theme's (fetched once); with neither, the outline's count
+    sfn checkDeck:Checked (host:McpHost md:string theme:string hasCss:boolean css:string) {
+        def sheet:string css
+        if (hasCss == false) {
+            sheet = (host_theme_css host theme)
+            if ((strlen (host_error host)) > 0) {
+                host_log host ("theme for the checks: " + (host_error host))
+                host_clear_error host
+                sheet = ""
+            }
+        }
+        def c:Checked (Check.deck(md sheet))
+        if (c.laidOut == false) {
+            c.slides = (array_length ((Deck.outline(md)).titles))
+        }
+        return c
+    }
+
     ; --- the calls; a null value for an unknown tool
 
     sfn call:MfJ (host:McpHost caller:Caller name:string args:MfJ) {
@@ -492,12 +512,15 @@ class Tools {
             push names im.name
         }
         def none:[string]
-        def o:Outline (Deck.outline(md))
         def ws:[string] (Deck.warnings(md names none))
+        def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css))
+        for ck.warnings cw:string ci {
+            push ws cw
+        }
         def out:MfJ (MfJ.newObj())
         out.putStr("title" (a.str_("title")))
         out.putStr("theme" theme)
-        out.putInt("slides" (array_length o.titles))
+        out.putInt("slides" ck.slides)
         def base:string (host_base_url host)
         if ((host_store_kind host) == "link") {
             if ((array_length loaded.imgs) > 0) {
@@ -624,11 +647,15 @@ class Tools {
                 push ws w
             }
         }
-        def o:Outline (Deck.outline(md))
+        def savedCss:MfJ (saved.field("css"))
+        def ck:Checked (Tools.checkDeck(host md (saved.str_("theme")) (savedCss.kind == 3) (saved.str_("css"))))
+        for ck.warnings cw:string ci {
+            push ws cw
+        }
         def out:MfJ (MfJ.newObj())
         out.put("title" (saved.field("name")))
         out.put("theme" (saved.field("theme")))
-        out.putInt("slides" (array_length o.titles))
+        out.putInt("slides" ck.slides)
         out.put("warnings" (J.strs(ws)))
         Tools.links(out (host_base_url host) id)
         out.putStr("deck_id" id)

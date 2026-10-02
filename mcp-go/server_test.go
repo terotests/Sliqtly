@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -30,6 +31,9 @@ const BASE = "https://sliqtly.test"
 var fb0 = fakeFirebase()
 
 var PNG, _ = base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+
+// the deck's mermaid fence draws nothing, and the editor's own model says so
+const EMPTY_FLOW = "The mermaid block on slide \"Cat\" is not shown: a flowchart diagram — read, but nothing drew it."
 
 const DECK = "# Hello\n\nFirst.\n{.lead}\n\n## Cat {bg=media/cat.png}\n\n![](media/dot.png)\n\n```mermaid\nflowchart LR\n## not a slide\n```\n"
 
@@ -157,12 +161,21 @@ func respond(status int, ct, body string) *http.Response {
 	return &http.Response{StatusCode: status, Header: h, Body: io.NopCloser(strings.NewReader(body))}
 }
 
+// the site's own sheet, so the checks lay the deck out as the player does
+var auroraCSS = func() string {
+	b, err := os.ReadFile("../themes/aurora.css")
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}()
+
 var fakeNet = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
 	switch r.URL.String() {
 	case BASE + "/themes/aurora.css":
-		return respond(200, "text/css", "page { background-color: #0b1030; }"), nil
+		return respond(200, "text/css", auroraCSS), nil
 	case BASE + "/themes/corporate.css":
-		return respond(200, "text/css", "page { background-color: #fff; }"), nil
+		return respond(200, "text/css", "page { background-color: #fff; }\ndeck { split-level: 2; }"), nil
 	case "https://images.test/cat.png":
 		return respond(200, "image/png", string(PNG)), nil
 	case "https://client.test/meta.json":
@@ -327,7 +340,7 @@ func TestCreateUpdateReadWithPictures(t *testing.T) {
 	out := sc(c)
 	id := out["deck_id"].(string)
 	eq(t, out["slides"], 2)
-	eq(t, out["warnings"], []string{})
+	eq(t, out["warnings"], []string{EMPTY_FLOW})
 	eq(t, out["share_url"], BASE+"/s/"+id)
 	eq(t, out["edit_url"], BASE+"/s/"+id+"?edit")
 	share := f.db.doc("shares/" + id)
@@ -355,7 +368,7 @@ func TestCreateUpdateReadWithPictures(t *testing.T) {
 	uo := sc(u)
 	eq(t, uo["share_url"], out["share_url"])
 	eq(t, uo["slides"], 3)
-	eq(t, uo["warnings"], []string{"media/new.png is used in the Markdown but no image by that name was sent."})
+	eq(t, uo["warnings"], []string{"media/new.png is used in the Markdown but no image by that name was sent.", EMPTY_FLOW})
 	after := f.db.doc("shares/" + id)
 	eq(t, after["theme"], "corporate")
 	eq(t, after["css"], nil, "a new theme without css drops the old theme's sheet")
@@ -675,4 +688,44 @@ func TestProtocolEdges(t *testing.T) {
 	eq(t, mapOf(r["error"])["code"], -32700)
 	st, r = rpc(t, s.root, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_presentation","arguments":{"title":5,"markdown":"# x"}}}`)
 	eq(t, mapOf(r["result"])["isError"], true)
+}
+
+// The deck as the editor's own model (PresDeck, compiled from src/) reads it:
+// the player's slide count, a slide that runs over, a chart that is not JSON.
+// Many calls at once, so `go test -race` covers the model being shared.
+func TestDeckIsCheckedByTheEditorsModel(t *testing.T) {
+	s := start(t, testEnv(nil, nil), "")
+	defer s.close()
+	long := "## Long\n\n"
+	for i := 1; i <= 30; i++ {
+		long += fmt.Sprintf("%d. item %d\n", i, i)
+	}
+	md := "# T\n\n## Chart\n\n```vega-lite\n{\"mark\": \"bar\", \"data\": {\"values\": [1,2}\n```\n\n" + long
+	var wg sync.WaitGroup
+	results := make([]map[string]any, 8)
+	for i := range results {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			c := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": md})
+			if c.IsError {
+				t.Error(textOf(c))
+				return
+			}
+			results[i] = sc(c)
+		}(i)
+	}
+	wg.Wait()
+	for _, out := range results {
+		if out == nil {
+			continue
+		}
+		ws := fmt.Sprint(out["warnings"])
+		match(t, ws, `The vega-lite block on slide "Chart" is not shown: that is not JSON\.`)
+		match(t, ws, `Slide "Long" does not fit and goes on over \d+ more slides?`)
+		if n, _ := out["slides"].(float64); n < 4 {
+			t.Fatalf("slides %v: the long slide is laid out over more than one", out["slides"])
+		}
+		eq(t, out["slides"], results[0]["slides"])
+	}
 }

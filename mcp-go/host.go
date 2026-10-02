@@ -154,6 +154,8 @@ func (h *McpHost) Err() string {
 	return h.err.Error()
 }
 
+func (h *McpHost) ClearErr() { h.err = nil }
+
 func toJSON(v any) string {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
