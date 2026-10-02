@@ -574,6 +574,55 @@ try {
   });
   check("a selector's popover lists its properties", !!selHint && selHint.kind === "selector" && selHint.props.includes("padding=") && selHint.props.includes("background-image+"), JSON.stringify(selHint));
 
+  // …and its doc line under the pointer never moves the rows: the card keeps the
+  // tallest line's height, also when it sits above the value near the bottom
+  const selHover = await page.evaluate(() => {
+    const a = window.__app;
+    a.showTab("css");
+    const lines = a.themeCss().split("\n");
+    const ln = lines.findIndex((l) => /^page\s*\{/.test(l));
+    const h = JSON.parse(a.hintFor(ln, 1) || "null");
+    const walk = (e, f, out = []) => { if (f(e)) out.push(e); for (const k of e.children || []) walk(k, f, out); return out; };
+    const res = [];
+    for (const y of [h.y, a.hint.h - 40]) {
+      a.openHint(JSON.stringify({ ...h, y }));
+      a.hintJson();
+      const ys = () => walk(a.hint.host.lastPage, (e) => /^hp-prop-/.test(e.id || "")).map((e) => Math.round(e.calculatedY));
+      const y0 = ys().join(",");
+      let moved = 0;
+      for (const r of walk(a.hint.host.lastPage, (e) => /^hp-prop-/.test(e.id || ""))) {
+        a.pointerMove(r.calculatedX + 10, r.calculatedY + 6);
+        a.hintJson();
+        if (ys().join(",") !== y0) moved++;
+      }
+      res.push({ rows: y0.split(",").length, moved, tip: a.hint.tip.length > 0 });
+      a.closeHint();
+    }
+    a.showTab("md");
+    return res;
+  });
+  check("…and hovering its properties never moves the rows (also flipped above)", selHover.every((r) => r.rows > 3 && r.moved === 0 && r.tip), JSON.stringify(selHover));
+
+  // chart-effects takes any of its words together: a chip turns one on or off
+  const fx = await page.evaluate(() => {
+    const a = window.__app;
+    const css0 = a.themeCss();
+    a.showTab("css");
+    a.setStyleSheet("chart {\n  chart-effects: glow gradient;\n}\n");
+    const h = JSON.parse(a.hintFor(1, 20) || "null");
+    a.openHint(a.hintFor(1, 20));
+    const walk = (e, id) => { if (e.id === id || e.tid === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+    a.hintJson();
+    const chip = walk(a.hint.host.lastPage, "hp-flag-1");
+    if (chip) { a.pointerDown(chip.calculatedX + 6, chip.calculatedY + 6, false, 1); a.pointerUp(); }
+    const after = a.themeCss().split("\n")[1].trim();
+    a.closeHint();
+    a.setStyleSheet(css0);
+    a.showTab("md");
+    return { kind: h && h.kind, options: h && h.options, chip: !!chip, after };
+  });
+  check("chart-effects opens as toggles and a chip adds its word", fx.kind === "flags" && fx.after === "chart-effects: glow shadow gradient;", JSON.stringify(fx));
+
   // The chart editor: a ```vega-lite fence as a kind and a table, written back
   const ce = await page.evaluate(() => {
     const a = window.__app;

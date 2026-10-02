@@ -201,6 +201,12 @@ class PresHints {
         return ""
     }
 
+    ; Words a property takes any of, together ("glow gradient"): toggles.
+    sfn cssFlags:string (prop:string) {
+        if (prop == "chart-effects") { return "glow shadow gradient" }
+        return ""
+    }
+
     sfn fonts:string () {
         return "Open Sans|Noto Sans"
     }
@@ -570,6 +576,12 @@ class PresHints {
         if (prop == "font-family") {
             h.kind = "font"
             h.options = (PresHints.fonts())
+            return (h.json())
+        }
+        def fl:string (PresHints.cssFlags(prop))
+        if ((strlen fl) > 0) {
+            h.kind = "flags"
+            h.options = fl
             return (h.json())
         }
         def en:string (PresHints.cssEnum(prop))
