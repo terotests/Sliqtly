@@ -541,11 +541,21 @@ class PresChartEditor {
         def size:EVGElement (this.section(pane (PresI18n.t("Size"))))
         def wr:EVGElement (this.field((PresI18n.t("Width"))))
         this.slider("ce-width" (PresI18n.t("Width")) (this.sizeW()) 200 960 10 wr)
-        wr.addChild((this.text("ce-value" ((to_string (this.sizeW())) + " px"))))
+        ; a size the chart does not state is the slide's: the slider's 640 is
+        ; only where the handle starts, not what is drawn
+        def wl:string ((to_string (this.sizeW())) + " px")
+        if (model.width <= 0) {
+            wl = (PresI18n.t("from slide"))
+        }
+        wr.addChild((this.text("ce-value" wl)))
         size.addChild(wr)
         def hr:EVGElement (this.field((PresI18n.t("Height"))))
         this.slider("ce-height" (PresI18n.t("Height")) (this.sizeH()) 120 600 10 hr)
-        hr.addChild((this.text("ce-value" ((to_string (this.sizeH())) + " px"))))
+        def hl:string ((to_string (this.sizeH())) + " px")
+        if (model.height <= 0) {
+            hl = (PresI18n.t("from slide"))
+        }
+        hr.addChild((this.text("ce-value" hl)))
         size.addChild(hr)
         if ((model.width <= 0) && (model.height <= 0)) {
             size.addChild((this.text("ce-doc" (PresI18n.t("The chart now takes its size from the slide; the sliders set a custom size.")))))
