@@ -198,7 +198,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | `src/PresApp.rgr` | The editor: panels, tracks, filmstrip, presenting, exports |
 | `src/PresCheck.rgr` | Node checks |
 | `web/` | `index.html` (toolbar), `main.js` (WebGL, clock, keyboard, paste), `pres.css` (EVG chrome) |
-| `samples/*.md` | Example decks: talous (a Vega chart), ymparisto (a wrapped chain), urheilu and ohjelmointi (questions with a loop), kulttuuri (Graphviz). `esittely.md` is the deck `check:web` drives (`?sample=esittely`) |
+| `samples/*.md` | Example decks: talous (a Vega chart), ymparisto (a wrapped chain), urheilu and ohjelmointi (questions with a loop), kulttuuri (Graphviz). `<key>.en.md` is the English deck, shown unless the interface is in Finnish (`<key>.md`). `esittely.md` is the deck `check:web` drives (`?sample=esittely`) |
 | `themes/*.css` | Themes; `aurora` is the default (dark 16:9) |
 | `web/sliqtly.js` | PRO: Google sign-in through Firebase Auth, behind the bar's PRO button |
 | `brand/` | The logo as SVG; `make_logo.py` writes them. The build copies the icon as `favicon.svg` |
