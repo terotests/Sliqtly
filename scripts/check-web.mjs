@@ -279,6 +279,22 @@ try {
   await page2.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
   const reopened = await page2.evaluate(() => window.__app.source());
   check("the shared link opens the same markdown", reopened === shared.src);
+  // a picture added to the opened link is kept: once saved, the address
+  // loses the link, so a reload opens the saved deck and not the link again
+  {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evgp-link-"));
+    fs.writeFileSync(path.join(dir, "link-pic.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+    await page2.setInputFiles("#fileadd", [path.join(dir, "link-pic.png")]);
+    await page2.waitForTimeout(1800);
+    const before = await page2.evaluate(() => location.href);
+    await page2.reload();
+    await page2.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await page2.waitForTimeout(500);
+    await page2.evaluate(() => window.__app.showTab("files"));
+    await page2.waitForFunction(() => window.__app.panels.filesJson.includes("media/link-pic.png"), null, { timeout: 8000 }).catch(() => {});
+    const after = await page2.evaluate(() => window.__app.panels.filesJson);
+    check("a picture added to a shared link's deck survives a reload", !/#md=/.test(before) && after.includes("media/link-pic.png"), before.slice(0, 80));
+  }
   await page2.close();
   // …and the presentation link: straight into the show, no toolbar, and Esc
   // does not lead back to an editor

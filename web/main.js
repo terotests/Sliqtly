@@ -252,6 +252,7 @@ async function saveDoc(force) {
       doc.persisted = true;
       for (const f of pending.values()) await vfs.putFile({ ...f, doc: doc.id });
       pending.clear();
+      plainAddress();
     }
     savedText = md;
     savedCss = css;
@@ -260,6 +261,20 @@ async function saveDoc(force) {
   })();
   try { await saving; } finally { saving = null; }
   refreshFiles();
+}
+
+// A deck opened from a link (#md=…, /s/{id}?edit, ?sample=…) is the reader's
+// own once it is saved: the address loses the link, so a reload opens the
+// saved deck, pictures and all, and not the link's text again.
+function plainAddress() {
+  const q = new URLSearchParams(location.search);
+  const shared = /^\/s\//.test(location.pathname);
+  if (!location.hash && !shared && !q.has("sample")) return;
+  q.delete("sample");
+  q.delete("edit");
+  const search = q.toString();
+  history.replaceState(null, "", (shared ? "/" : location.pathname) + (search ? "?" + search : ""));
+  lastHash = "";
 }
 
 // A file of the document put to use: a picture registered for the slides, a
@@ -1244,8 +1259,6 @@ async function shareLink() {
   const editUrl = base + "#" + q.toString();
   q.set("mode", "show");
   const showUrl = base + "#" + q.toString();
-  history.replaceState(null, "", editUrl);
-  lastHash = location.hash;
   const pictures = /\]\(media\//.test(text) ? t(" Attached images are not included in the link.") : "";
   const textNote = editUrl.length + t(" characters.") + pictures;
   if (!window.sliqtly?.user?.()) {
