@@ -569,6 +569,10 @@ function paintOnce() {
   // makes the others stale for the NEXT paint, so they are dropped after.
   const grewBy = (stats) => !!(stats && (stats.atlasRebuilt || stats.atlasAdded > 0));
   let grew = false;
+  // Slides and thumbnails are drawn with EVG's contrast guard: a run of text
+  // that does not stand out from the picture under it (WCAG 4.5:1, 3:1 for
+  // large text) gets a thin outline in black or white. The chrome has no
+  // pictures under its text and is drawn without it.
   const chrome = JSON.parse(app.chromeJson());
   window.__lastChrome = chrome;
   const cf = prepareDisplayList(gl, chrome, { dpr });
@@ -579,7 +583,7 @@ function paintOnce() {
     window.__lastStage = st;
     st.width = W;
     st.height = H;
-    const sf = prepareDisplayList(gl, st, { dpr, images: pictures });
+    const sf = prepareDisplayList(gl, st, { dpr, images: pictures, contrastGuard: true });
     grew = grewBy(sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false })) || grew;
     sf.dispose();
   }
@@ -592,7 +596,7 @@ function paintOnce() {
       const doc = withTime(JSON.parse(app.slideJson(i)), 2.0);
       doc.width = W;
       doc.height = H;
-      f = prepareDisplayList(gl, doc, { dpr, images: pictures });
+      f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true });
       thumbs.set(i, f);
     }
     const stats = f.draw(null, [x, y, s], { clear: false });
