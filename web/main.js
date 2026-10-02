@@ -751,6 +751,12 @@ async function refreshFiles() {
         text: t("PRO keeps your decks and their files in the cloud. Share links then carry images, plus the CSV and JSON data behind your charts and tables."),
         button: t("Get PRO"),
       };
+    // PRO: the deck and its files live in the cloud share, and go with its links
+    if (signedIn()) {
+      note = doc.cloudHalt
+        ? t("This presentation was changed elsewhere, so it is not saved to the cloud now. A copy stays in this browser.")
+        : t("PRO: this presentation and its files are saved to your cloud and go with share links. A copy stays in this browser.");
+    }
     if (!doc.persisted) note = t("This presentation is not saved yet: it saves when you change it. ") + note;
     app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), docs, note, ...(promo ? { promo } : {}) }));
     needsPaint = true;
