@@ -1372,16 +1372,25 @@ window.addEventListener("hashchange", () => { if (location.hash !== lastHash) op
 
 // /s/{id}: a deck shared through PRO, read from the cloud. Shown as a
 // presentation; with ?edit, opened as a new deck of the reader's own.
+// #share={id}: the same presentation where the page is not at its own
+// address — the preview an AI assistant shows (mcp/src/preview.html) loads
+// this page from a blob: URL, since the assistant does not let it frame
+// sliqtly.com. Always only shown.
+function hashShare() {
+  const id = hashParams().get("share");
+  return id && /^[A-Za-z0-9]{6,32}$/.test(id) ? id : null;
+}
 async function openFromShare() {
   const m = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(location.pathname);
-  if (!m) return false;
+  const id = m ? m[1] : hashShare();
+  if (!id) return false;
   try {
-    const shared = await (await pro()).loadShare(m[1]);
+    const shared = await (await pro()).loadShare(id);
     if (!shared) {
       toast(t("This shared presentation was not found."));
       return false;
     }
-    const editing = new URLSearchParams(location.search).has("edit");
+    const editing = !!m && new URLSearchParams(location.search).has("edit");
     beginDoc(shared.md || "");
     if (shared.theme != null) {
       themeSel.value = shared.theme;
@@ -1959,7 +1968,7 @@ async function start() {
   const theme = q.has("theme") ? q.get("theme") : "aurora";
   themeSel.value = theme;
   app.setStyleSheet(theme ? themeCss[theme] || "" : "");
-  if (!viewer) vfs = await openVfs();
+  if (!viewer && !hashShare()) vfs = await openVfs();
   if (!(await openFromShare()) && !(await openFromHash())) {
     const want = q.get("sample");
     // no sample asked for: the deck worked on last, if this browser kept one

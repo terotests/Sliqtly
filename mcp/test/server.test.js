@@ -77,6 +77,10 @@ test("tools, UI metadata and the preview resource", async () => {
     assert.equal(r.contents[0].mimeType, "text/html;profile=mcp-app");
     assert.match(r.contents[0].text, /ui\/initialize/);
     assert.deepEqual(r.contents[0]._meta.ui.csp.frameDomains, [BASE, "https://sliqtly.com", "https://sliqtly.web.app"]);
+    // Claude frames nothing but blob:, so the preview loads the viewer itself
+    assert.ok(r.contents[0]._meta.ui.csp.resourceDomains.includes("https://www.gstatic.com"));
+    assert.ok(r.contents[0]._meta.ui.csp.connectDomains.includes("https://firestore.googleapis.com"));
+    assert.deepEqual(r.contents[0]._meta["openai/widgetCSP"].connect_domains, r.contents[0]._meta.ui.csp.connectDomains);
     const g = await t.client.callTool({ name: "sliqtly_guide", arguments: {} });
     assert.match(g.content[0].text, /## Pictures/);
   } finally { await t.close(); }

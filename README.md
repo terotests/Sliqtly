@@ -258,7 +258,9 @@ Firebase Console, once:
    account generated in Project settings → Service accounts has it).
 4. The bucket's CORS (`storage.cors.json`): a shared deck fetches its
    pictures and data files from Storage, and without it the browser refuses
-   them (the slides open without their background images). The Deploy
+   them (the slides open without their background images). Any origin may
+   read them, since the preview in an AI assistant runs the viewer on the
+   assistant's own domain (mcp/src/preview.html). The Deploy
    workflow sets it when its service account has the role **Storage Admin**;
    by hand, in Cloud Shell:
    `gcloud storage buckets update gs://sliqtly.firebasestorage.app --cors-file=storage.cors.json`

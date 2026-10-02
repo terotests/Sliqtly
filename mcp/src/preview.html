@@ -10,7 +10,8 @@
   html, body { margin: 0; background: transparent; color: var(--fg); font: 14px/1.4 system-ui, sans-serif; }
   .stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #0b1030; border-radius: 10px; overflow: hidden; }
   .stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-  .wait { position: absolute; inset: 0; display: grid; place-items: center; color: #9aa3c7; }
+  .wait { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; color: #9aa3c7; }
+  .wait button.link { color: #8fa0ff; }
   .bar { display: flex; gap: 12px; align-items: center; padding: 8px 2px 2px; flex-wrap: wrap; }
   .title { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .meta { color: var(--muted); }
@@ -53,21 +54,68 @@
     notify("ui/notifications/size-changed", { width: Math.ceil(r.width), height: Math.ceil(r.height) });
   }
 
-  function show(out) {
-    if (!out || !out.share_url || (deck && deck.share_url === out.share_url && deck.slides === out.slides)) return;
+  // The slides are Sliqtly's own viewer. Claude does not let a widget frame
+  // another site, but it does let it load scripts and data from the domains
+  // the resource declares (server.js): so the viewer's page is fetched,
+  // pointed back at its site with <base>, and framed from a blob: URL, which
+  // opens the share by #share=… (web/main.js). Where that fails, the share
+  // link is framed directly, which ChatGPT's frame_domains allow.
+  let page = null;
+  async function viewerUrl(shareUrl) {
+    const u = new URL(shareUrl);
+    const id = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(u.pathname);
+    // a share, or a link that carries the Markdown itself (#md=…)
+    const hash = id ? "#share=" + id[1] : /[#&]md=/.test(u.hash) ? u.hash : null;
+    if (!hash) throw new Error("not a presentation link");
+    page ??= fetch(u.origin + "/index.html").then((r) => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.text();
+    });
+    let html;
+    try { html = await page; } catch (e) { page = null; throw e; }
+    const base = '<base href="' + u.origin + '/" />';
+    html = /<base\b[^>]*>/i.test(html) ? html.replace(/<base\b[^>]*>/i, base) : html.replace(/<head>/i, "<head>" + base);
+    return URL.createObjectURL(new Blob([html], { type: "text/html" })) + hash;
+  }
+
+  let shown = 0;
+  function trouble(frame, n) {
+    // the viewer is same-origin when it came from a blob: say so when it
+    // has not started, since the stage alone looks like an empty slide
+    setTimeout(() => {
+      if (n !== shown) return;
+      let started = true;
+      try { started = !!frame.contentWindow.__pageStarted; } catch (_) { /* not ours to look at */ }
+      if (started) return;
+      const note = document.createElement("div");
+      note.className = "wait";
+      note.innerHTML = 'The preview could not load here. <button class="link">Open the presentation ↗</button>';
+      note.querySelector("button").onclick = () => deck && openLink(deck.share_url);
+      frame.replaceWith(note);
+    }, 25000);
+  }
+
+  async function show(out) {
+    if (!out || !out.share_url || (deck && JSON.stringify(deck) === JSON.stringify(out))) return;
     deck = out;
-    const stage = document.querySelector(".stage");
-    stage.innerHTML = "";
-    const frame = document.createElement("iframe");
-    frame.src = out.share_url;
-    frame.title = out.title || "Presentation";
-    frame.allow = "fullscreen; clipboard-write";
-    frame.allowFullscreen = true;
-    stage.append(frame);
+    const n = ++shown;
     document.getElementById("title").textContent = out.title || "";
     document.getElementById("meta").textContent = out.slides ? out.slides + " slides" : "";
     document.getElementById("bar").hidden = false;
     reportSize();
+    let src = out.share_url;
+    let local = false;
+    try { src = await viewerUrl(out.share_url); local = true; } catch (e) { console.warn("Sliqtly preview: framing the link", e); }
+    if (n !== shown) return;
+    const stage = document.querySelector(".stage");
+    stage.innerHTML = '<div class="wait">Loading the slides…</div>';
+    const frame = document.createElement("iframe");
+    frame.src = src;
+    frame.title = out.title || "Presentation";
+    frame.allow = "fullscreen; clipboard-write";
+    frame.allowFullscreen = true;
+    stage.append(frame);
+    if (local) trouble(frame, n);
   }
 
   document.getElementById("open").onclick = () => deck && openLink(deck.share_url);

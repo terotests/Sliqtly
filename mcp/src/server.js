@@ -16,7 +16,7 @@ const PREVIEW = fs.readFileSync(new URL("./preview.html", import.meta.url), "utf
 export const VERSION = "1.0.0";
 const PREVIEW_URI = "ui://sliqtly/preview.html";
 const APP_MIME = "text/html;profile=mcp-app";
-// the preview frames the share link; both of the site's domains serve it
+// the preview loads Sliqtly from the site (or frames it); both domains serve it
 const SITES = ["https://sliqtly.com", "https://sliqtly.web.app"];
 
 const imageSchema = z.object({
@@ -58,6 +58,12 @@ export function createServer(opts) {
   const fetchImpl = opts.fetchImpl || fetch;
   const themeCache = new Map();
   const frames = [...new Set([baseUrl, ...SITES])];
+  // the preview runs Sliqtly's viewer itself (preview.html): its scripts and
+  // fonts from the site and Firebase's CDN, the share from Firestore, the
+  // pictures from Storage
+  const resources = [...frames, "https://www.gstatic.com"];
+  const connects = [...frames, "https://firestore.googleapis.com", "https://firebasestorage.googleapis.com"];
+  const csp = { frameDomains: frames, resourceDomains: resources, connectDomains: connects };
 
   async function themeCss(theme) {
     if (!themeCache.has(theme)) {
@@ -239,15 +245,15 @@ export function createServer(opts) {
     title: "Sliqtly presentation",
     description: "Shows the presentation inline",
     mimeType: APP_MIME,
-    _meta: { ui: { csp: { frameDomains: frames }, prefersBorder: false } },
+    _meta: { ui: { csp, prefersBorder: false } },
   }, async () => ({
     contents: [{
       uri: PREVIEW_URI,
       mimeType: APP_MIME,
       text: PREVIEW,
       _meta: {
-        ui: { csp: { frameDomains: frames }, prefersBorder: false },
-        "openai/widgetCSP": { connect_domains: [], resource_domains: [], frame_domains: frames },
+        ui: { csp, prefersBorder: false },
+        "openai/widgetCSP": { connect_domains: connects, resource_domains: resources, frame_domains: frames },
         "openai/widgetDescription": "The Sliqtly presentation, playable inline.",
         "openai/widgetPrefersBorder": true,
       },
