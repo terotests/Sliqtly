@@ -241,6 +241,51 @@ try {
   await shot("2-speaker.png");
   await page.evaluate(() => window.__app.endPresent());
 
+  // The "+" after the last thumbnail: pressed, it offers an empty slide or a
+  // copy of the selected one, each put after the selected slide and selected.
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const at = async (part) => page.evaluate((part) => {
+      const a = window.__app;
+      a.selectSlide(1);
+      a.scrollStrip(1e6);
+      a.layoutJson();
+      const c = document.getElementById("c").getBoundingClientRect();
+      const x = a.thumbX(a.deck.slideCount()) + a.thumbW / 2;
+      const y = a.thumbY() + (part === "dup" ? a.thumbH * 0.75 : a.thumbH * 0.25);
+      return [c.left + x, c.top + y];
+    }, part);
+    const state = () => page.evaluate(() => {
+      const a = window.__app;
+      return { n: a.deck.slideCount(), sel: a.selected, open: a.addOpen, sel1: a.deck.slideAt(1).title, title: a.deck.slideAt(a.selected).title, words: a.copySelection() };
+    });
+    const s0 = await state();
+    await page.evaluate(() => { window.__app.selectSlide(1); window.__app.scrollStrip(1e6); });
+    await page.waitForTimeout(300);
+    await shot("slide-add.png");
+    let p = await at("open");
+    await page.mouse.click(p[0], p[1]);
+    const s1 = await state();
+    check("the + after the thumbnails offers its two choices", s1.open && s1.n === s0.n, JSON.stringify(s1));
+    await shot("slide-add-open.png");
+    p = await at("empty");
+    await page.mouse.click(p[0], p[1]);
+    const s2 = await state();
+    check("…Empty slide puts a new slide after the selected one and selects its heading", !s2.open && s2.n === s0.n + 1 && s2.sel === 2 && s2.title === "New slide" && s2.words === "New slide", JSON.stringify(s2));
+    p = await at("open");
+    await page.mouse.click(p[0], p[1]);
+    p = await at("dup");
+    await page.mouse.click(p[0], p[1]);
+    const s3 = await state();
+    check("…Duplicate slide copies the selected slide after it", s3.n === s0.n + 2 && s3.sel === 2 && s3.title === s3.sel1, JSON.stringify(s3));
+    p = await at("open");
+    await page.mouse.click(p[0], p[1]);
+    await page.mouse.click(700, 200);
+    check("…a press elsewhere closes the choices", !(await state()).open);
+    await page.evaluate((t) => window.__app.setSource(t), src0);
+    await page.waitForTimeout(200);
+  }
+
   // A diagram that asks: present the Kulku slide, wait for the question,
   // move the highlight with an arrow, take it with Enter, then go back two
   // steps with two quick Backspaces and see the question again.
