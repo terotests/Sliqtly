@@ -134,6 +134,26 @@ class PresApp {
     def thumbH:double 72.0
     def thumbGap:double 10.0
     def stripScroll:double 0.0
+    ; A press on the filmstrip: a drag scrolls it, a press let go where it
+    ; was selects the thumbnail it landed on.
+    def stripPressed:boolean false
+    def stripDragging:boolean false
+    def stripIdx:int -1
+    def stripDownX:double 0.0
+    def stripLastX:double 0.0
+    ; The stage seen closer: how many times the fitted size, and which point
+    ; of the slide (0..1 across and down) is at the middle of the fitted
+    ; rectangle. 1.0 is the slide as it fits.
+    def viewZoom:double 1.0
+    def viewU:double 0.5
+    def viewV:double 0.5
+    def viewBase:PresRect (new PresRect())
+    ; The press is a finger. A finger on a diagram does not pan it until the
+    ; diagram has been tapped (activeDia), so a slide is not knocked about
+    ; by a thumb that only meant to scroll or zoom.
+    def touch:boolean false
+    def activeDia:int -1
+    def activatedNow:boolean false
     def editorDrag:boolean false
     def scrubDrag:boolean false
 
@@ -470,6 +490,10 @@ class PresApp {
     fn selectSlide:void (i:int) {
         if ((i < 0) || (i >= (deck.slideCount()))) {
             return
+        }
+        if (i != selected) {
+            this.viewReset()
+            activeDia = -1
         }
         selected = i
         localT = -1.0
@@ -972,6 +996,8 @@ class PresApp {
     ; =========================================================================
     fn present:void (fromStart:boolean) {
         mode = "present"
+        this.viewReset()
+        activeDia = -1
         playing = false
         if fromStart {
             selected = 0
@@ -989,6 +1015,8 @@ class PresApp {
             return
         }
         mode = "edit"
+        this.viewReset()
+        activeDia = -1
         localT = -1.0
         push requests "exit-fullscreen"
         this.selectSlide(selected)
@@ -1016,6 +1044,8 @@ class PresApp {
         } {
             if (selected < ((deck.slideCount()) - 1)) {
                 selected = (selected + 1)
+                this.viewReset()
+                activeDia = -1
                 pStep = 0
                 clock = (PresTimeline.slideStart(deck selected))
             }
@@ -1031,6 +1061,8 @@ class PresApp {
             return
         }
         selected = (selected - 1)
+        this.viewReset()
+        activeDia = -1
         def s:PresSlide (deck.slideAt(selected))
         pStep = s.steps
         clock = ((PresTimeline.slideStart(deck selected)) + s.duration)
@@ -1133,6 +1165,113 @@ class PresApp {
         def w:double (deck.pageW * sc)
         def h:double (deck.pageH * sc)
         slideRect.set((area.x + ((area.w - w) * 0.5)) (area.y + ((area.h - h) * 0.5)) w h)
+        viewBase.set(slideRect.x slideRect.y w h)
+        if (viewZoom > 1.0) {
+            def zw:double (w * viewZoom)
+            def zh:double (h * viewZoom)
+            def cx:double (slideRect.x + (w * 0.5))
+            def cy:double (slideRect.y + (h * 0.5))
+            slideRect.set((cx - (viewU * zw)) (cy - (viewV * zh)) zw zh)
+        }
+    }
+
+    ; =========================================================================
+    ; Seeing the slide closer: a pinch, a double tap, Ctrl + wheel
+    ; =========================================================================
+    ; Zoom by `f` about (px, py) and move by (dx, dy): the point of the slide
+    ; that was under (px - dx, py - dy) ends up under (px, py).
+    fn viewPinch:void (px:double py:double f:double dx:double dy:double) {
+        this.place()
+        if ((slideRect.w <= 0.0) || (slideRect.h <= 0.0)) {
+            return
+        }
+        def u:double ((((px - dx) - slideRect.x)) / slideRect.w)
+        def v:double ((((py - dy) - slideRect.y)) / slideRect.h)
+        def z:double (viewZoom * f)
+        if (z > 6.0) { z = 6.0 }
+        if (z < 1.02) {
+            this.viewReset()
+            return
+        }
+        def zw:double (viewBase.w * z)
+        def zh:double (viewBase.h * z)
+        def x1:double (px - (u * zw))
+        def y1:double (py - (v * zh))
+        viewZoom = z
+        viewU = (((viewBase.x + (viewBase.w * 0.5)) - x1) / zw)
+        viewV = (((viewBase.y + (viewBase.h * 0.5)) - y1) / zh)
+        def half:double (0.5 / z)
+        if (viewU < half) { viewU = half }
+        if (viewU > (1.0 - half)) { viewU = (1.0 - half) }
+        if (viewV < half) { viewV = half }
+        if (viewV > (1.0 - half)) { viewV = (1.0 - half) }
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn viewReset:void () {
+        if (viewZoom != 1.0) {
+            chromeRev = (chromeRev + 1)
+        }
+        viewZoom = 1.0
+        viewU = 0.5
+        viewV = 0.5
+    }
+
+    fn viewZoomed:boolean () {
+        return (viewZoom > 1.0)
+    }
+
+    ; A double tap: in to 2.5 times at the tap, or back out when already in.
+    fn viewToggle:void (px:double py:double) {
+        ; the first tap may have picked a diagram: a drag now moves the view
+        activeDia = -1
+        if (viewZoom > 1.0) {
+            this.viewReset()
+            return
+        }
+        this.viewPinch(px py 2.5 0.0 0.0)
+    }
+
+    ; Where a pinch or a double tap reaches the stage: not over a window or
+    ; a panel drawn on top of it.
+    fn canZoomAt:boolean (x:double y:double) {
+        this.place()
+        if (this.toolbarOnTop()) {
+            return false
+        }
+        if (chart.isOpen && (chart.has(x y))) {
+            return false
+        }
+        if (hint.isOpen && (hint.has(x y))) {
+            return false
+        }
+        if (panels.has(x y)) {
+            return false
+        }
+        return (stageArea.has(x y))
+    }
+
+    ; A second finger came down: the first one's press is forgotten, so the
+    ; pinch neither clicks nor drags anything.
+    fn cancelPress:void () {
+        stagePressed = false
+        stagePanning = false
+        stripPressed = false
+        stripDragging = false
+        scrubDrag = false
+        editorDrag = false
+        splitDrag = false
+    }
+
+    fn setTouch:void (on:boolean) {
+        touch = on
+    }
+
+    ; True once after a tap made a diagram the one a finger pans.
+    fn takeActivated:boolean () {
+        def was:boolean activatedNow
+        activatedNow = false
+        return was
     }
 
     fn slideScale:double () {
@@ -1230,10 +1369,37 @@ class PresApp {
     fn stageJson:string () {
         deck.live = (this.isPlaying())
         deck.showControls = true
-        def out:string (this.listJson((PresTimeline.frame(deck selected (this.stageTime())))))
+        def l:EVGDisplayList (PresTimeline.frame(deck selected (this.stageTime())))
+        if (viewZoom > 1.0) {
+            this.clipToStage(l)
+        }
+        def out:string (this.listJson(l))
         deck.showControls = false
         deck.live = false
         return out
+    }
+
+    ; Zoomed in, the slide is larger than the stage: the list is clipped to
+    ; the stage (in page units) so it does not cover the strip or the bar.
+    fn clipToStage:void (l:EVGDisplayList) {
+        def sc:double (this.slideScale())
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 4
+        c.x = ((stageArea.x - slideRect.x) / sc)
+        c.y = ((stageArea.y - slideRect.y) / sc)
+        c.w = (stageArea.w / sc)
+        c.h = (stageArea.h / sc)
+        def all:[EVGDrawCmd]
+        push all c
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            push all (itemAt l.cmds i)
+            i = (i + 1)
+        }
+        def e:EVGDrawCmd (new EVGDrawCmd)
+        e.kind = 5
+        push all e
+        l.cmds = all
     }
 
     ; The host's wall clock, for the viewer's own camera moves in a diagram.
@@ -1620,19 +1786,22 @@ class PresApp {
             return ""
         }
         if (stripRect.has(x y)) {
+            stripIdx = -1
             def i:int 0
             while (i < (deck.slideCount())) {
                 def tx:double (this.thumbX(i))
                 if ((x >= tx) && (x <= (tx + thumbW))) {
-                    if playing {
-                        playing = false
-                    }
-                    this.selectSlide(i)
-                    return "thumb"
+                    stripIdx = i
                 }
                 i = (i + 1)
             }
-            return ""
+            ; selected when let go without having moved (pointerUp); a drag
+            ; scrolls the strip
+            stripPressed = true
+            stripDragging = false
+            stripDownX = x
+            stripLastX = x
+            return "thumb"
         }
         if (slideRect.has(x y)) {
             ; a double click on a chart opens its settings
@@ -1669,11 +1838,18 @@ class PresApp {
         lastX = x
         lastY = y
         stageDia = -1
+        tapDia = -1
         if (slideRect.has(x y)) {
             this.slidePoint(x y)
             stageDia = (deck.diagramAt(selected spX spY))
+            tapDia = stageDia
+            ; a finger pans a diagram only once it has been tapped
+            if (touch && (stageDia != activeDia)) {
+                stageDia = -1
+            }
         }
     }
+    def tapDia:int -1
 
     def dragSlop:double 6.0
 
@@ -1682,6 +1858,21 @@ class PresApp {
     }
 
     fn stageMove:void (x:double y:double) {
+        if ((stageDia < 0) && (viewZoom > 1.0)) {
+            ; zoomed in: a drag off a diagram moves the view
+            if (! stagePanning) {
+                def vx:double (x - downX)
+                def vy:double (y - downY)
+                if (((vx * vx) + (vy * vy)) < (dragSlop * dragSlop)) {
+                    return
+                }
+                stagePanning = true
+            }
+            this.viewPinch(x y 1.0 (x - lastX) (y - lastY))
+            lastX = x
+            lastY = y
+            return
+        }
         if (stageDia < 0) {
             return
         }
@@ -1716,6 +1907,10 @@ class PresApp {
         if stagePanning {
             stagePanning = false
             return
+        }
+        if (touch && (tapDia != activeDia)) {
+            activeDia = tapDia
+            activatedNow = ((tapDia >= 0) && (mode == "edit"))
         }
         if (mode == "present") {
             if (! (this.stagePress(downX downY))) {
@@ -1793,6 +1988,17 @@ class PresApp {
         if scrubDrag {
             this.scrubTo(x)
         }
+        if stripPressed {
+            if (! stripDragging) {
+                if ((fabs (x - stripDownX)) < dragSlop) {
+                    return
+                }
+                stripDragging = true
+            }
+            this.scrollStrip((stripLastX - x))
+            stripLastX = x
+            return
+        }
         if stagePressed {
             this.stageMove(x y)
         }
@@ -1815,7 +2021,25 @@ class PresApp {
         editorDrag = false
         splitDrag = false
         scrubDrag = false
+        if stripPressed {
+            stripPressed = false
+            if ((! stripDragging) && (stripIdx >= 0)) {
+                if playing {
+                    playing = false
+                }
+                this.selectSlide(stripIdx)
+            }
+            stripDragging = false
+        }
         this.stageUp()
+    }
+
+    fn scrollStrip:void (d:double) {
+        stripScroll = (stripScroll + d)
+        def most:double (((to_double (deck.slideCount())) * (thumbW + thumbGap)) - (stripRect.w - 24.0))
+        if (stripScroll > most) { stripScroll = most }
+        if (stripScroll < 0.0) { stripScroll = 0.0 }
+        chromeRev = (chromeRev + 1)
     }
 
     ; A wheel or a trackpad: mostly sideways over the editor scrolls it
@@ -1865,11 +2089,7 @@ class PresApp {
             return true
         }
         if (stripRect.has(x y)) {
-            stripScroll = (stripScroll + dy)
-            def most:double (((to_double (deck.slideCount())) * (thumbW + thumbGap)) - (stripRect.w - 24.0))
-            if (stripScroll > most) { stripScroll = most }
-            if (stripScroll < 0.0) { stripScroll = 0.0 }
-            chromeRev = (chromeRev + 1)
+            this.scrollStrip(dy)
             return true
         }
         return false

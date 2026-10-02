@@ -84,6 +84,50 @@ const browser = await chromium.launch({
   args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
 });
 try {
+  // A phone: the filmstrip swipes, a tap picks a thumbnail, two fingers
+  // zoom the slide (clipped to the stage) and a double tap goes back out.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 760 }, hasTouch: true, isMobile: true });
+    const phone = await ctx.newPage();
+    await phone.goto(url + "?sample=esittely");
+    await phone.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const cdp = await ctx.newCDPSession(phone);
+    const touch = (type, pts) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+    const lay = () => phone.evaluate(() => JSON.parse(window.__app.layoutJson()));
+    let l = await lay();
+    const sy = l.thumbs[0][2] + 30;
+    await touch("touchStart", [[300, sy]]);
+    for (let x = 300; x >= 60; x -= 20) await touch("touchMove", [[x, sy]]);
+    await touch("touchEnd", []);
+    const l1 = await lay();
+    check("a swipe scrolls the filmstrip without picking a slide", l1.thumbs[0][0] > 0 && l1.slide === 0, `first ${l1.thumbs[0][0]}`);
+    const th = l1.thumbs[0];
+    await touch("touchStart", [[th[1] + 40, th[2] + 20]]);
+    await touch("touchEnd", []);
+    l = await lay();
+    check("a tap on a thumbnail picks its slide", l.slide === th[0], `${l.slide}`);
+    const cx = l.clip[0] + l.clip[2] / 2, cy = l.clip[1] + l.clip[3] / 2;
+    await touch("touchStart", [[cx - 20, cy], [cx + 20, cy]]);
+    for (let d = 30; d <= 80; d += 10) await touch("touchMove", [[cx - d, cy], [cx + d, cy]]);
+    await touch("touchEnd", []);
+    const l2 = await lay();
+    check("a pinch zooms the slide", l2.stage[2] > l.stage[2] * 3, `${l.stage[2].toFixed(2)} → ${l2.stage[2].toFixed(2)}`);
+    const clipped = await phone.evaluate(() => JSON.parse(window.__app.stageJson()).list.cmds?.[0]?.k);
+    check("the zoomed slide is clipped to the stage", clipped === 4, String(clipped));
+    await phone.evaluate(([x, y]) => {
+      const c = document.getElementById("c");
+      const r = c.getBoundingClientRect();
+      for (let k = 0; k < 2; k++) {
+        const o = { pointerId: 90 + k, pointerType: "touch", clientX: r.left + x, clientY: r.top + y, bubbles: true, isPrimary: true };
+        c.dispatchEvent(new PointerEvent("pointerdown", o));
+        c.dispatchEvent(new PointerEvent("pointerup", o));
+      }
+    }, [cx, cy]);
+    const l3 = await lay();
+    check("a double tap goes back to the whole slide", Math.abs(l3.stage[2] - l.stage[2]) < 1e-6, `${l3.stage[2].toFixed(2)}`);
+    await ctx.close();
+  }
+
   const page = await browser.newPage({ viewport: { width: 1400, height: 820 } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
