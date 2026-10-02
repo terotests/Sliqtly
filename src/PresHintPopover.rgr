@@ -217,6 +217,44 @@ class PresHintPopover {
         rev = (rev + 1)
     }
 
+    fn hasFlag:boolean (f:string) {
+        def ws:[string] (strsplit value " ")
+        def i:int 0
+        while (i < (array_length ws)) {
+            if ((itemAt ws i) == f) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The value with `f` turned on or off, in the options' order; "none" when
+    ; nothing is left.
+    fn toggledFlags:string (f:string) {
+        def on:boolean (this.hasFlag(f))
+        def out:string ""
+        def i:int 0
+        while (i < (array_length options)) {
+            def o:string (itemAt options i)
+            def keep:boolean (this.hasFlag(o))
+            if (o == f) {
+                keep = (on == false)
+            }
+            if keep {
+                if ((strlen out) > 0) {
+                    out = (out + " ")
+                }
+                out = (out + o)
+            }
+            i = (i + 1)
+        }
+        if ((strlen out) == 0) {
+            return "none"
+        }
+        return out
+    }
+
     ; --- building --------------------------------------------------------------------
     fn div:EVGElement (cls:string) {
         def d (EVGElement.createDiv())
@@ -291,6 +329,21 @@ class PresHintPopover {
                 i = (i + 1)
             }
             card.addChild(chips)
+        }
+        ; any of the words together: each chip turns its word on or off
+        if (kind == "flags") {
+            def fchips:EVGElement (this.div("hp-chips"))
+            def fi:int 0
+            while (fi < (array_length options)) {
+                def fo:string (itemAt options fi)
+                def fv:string "secondary"
+                if (this.hasFlag(fo)) {
+                    fv = "primary"
+                }
+                this.button(("hp-flag-" + (to_string fi)) fo fv fchips)
+                fi = (fi + 1)
+            }
+            card.addChild(fchips)
         }
         if (kind == "color") {
             card.addChild((cp.panel(picker)))
@@ -672,6 +725,14 @@ class PresHintPopover {
             def oi:int (?? (str2int (substring ctlTid 7 (strlen ctlTid))) -1)
             if ((oi >= 0) && (oi < (array_length options))) {
                 this.write((itemAt options oi))
+                this.rebuild()
+            }
+            return
+        }
+        if ((indexOf ctlTid "hp-flag-") == 0) {
+            def fi:int (?? (str2int (substring ctlTid 8 (strlen ctlTid))) -1)
+            if ((fi >= 0) && (fi < (array_length options))) {
+                this.write((this.toggledFlags((itemAt options fi))))
                 this.rebuild()
             }
             return

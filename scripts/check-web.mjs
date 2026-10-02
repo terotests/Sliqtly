@@ -602,6 +602,26 @@ try {
   });
   check("…and hovering its properties never moves the rows (also flipped above)", selHover.every((r) => r.rows > 3 && r.moved === 0 && r.tip), JSON.stringify(selHover));
 
+  // chart-effects takes any of its words together: a chip turns one on or off
+  const fx = await page.evaluate(() => {
+    const a = window.__app;
+    const css0 = a.themeCss();
+    a.showTab("css");
+    a.setStyleSheet("chart {\n  chart-effects: glow gradient;\n}\n");
+    const h = JSON.parse(a.hintFor(1, 20) || "null");
+    a.openHint(a.hintFor(1, 20));
+    const walk = (e, id) => { if (e.id === id || e.tid === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+    a.hintJson();
+    const chip = walk(a.hint.host.lastPage, "hp-flag-1");
+    if (chip) { a.pointerDown(chip.calculatedX + 6, chip.calculatedY + 6, false, 1); a.pointerUp(); }
+    const after = a.themeCss().split("\n")[1].trim();
+    a.closeHint();
+    a.setStyleSheet(css0);
+    a.showTab("md");
+    return { kind: h && h.kind, options: h && h.options, chip: !!chip, after };
+  });
+  check("chart-effects opens as toggles and a chip adds its word", fx.kind === "flags" && fx.after === "chart-effects: glow shadow gradient;", JSON.stringify(fx));
+
   // The chart editor: a ```vega-lite fence as a kind and a table, written back
   const ce = await page.evaluate(() => {
     const a = window.__app;
