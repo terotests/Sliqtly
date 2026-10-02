@@ -573,6 +573,35 @@ try {
   });
   check("a selector's popover lists its properties", !!selHint && selHint.kind === "selector" && selHint.props.includes("padding=") && selHint.props.includes("background-image+"), JSON.stringify(selHint));
 
+  // …and its doc line under the pointer never moves the rows: the card keeps the
+  // tallest line's height, also when it sits above the value near the bottom
+  const selHover = await page.evaluate(() => {
+    const a = window.__app;
+    a.showTab("css");
+    const lines = a.themeCss().split("\n");
+    const ln = lines.findIndex((l) => /^page\s*\{/.test(l));
+    const h = JSON.parse(a.hintFor(ln, 1) || "null");
+    const walk = (e, f, out = []) => { if (f(e)) out.push(e); for (const k of e.children || []) walk(k, f, out); return out; };
+    const res = [];
+    for (const y of [h.y, a.hint.h - 40]) {
+      a.openHint(JSON.stringify({ ...h, y }));
+      a.hintJson();
+      const ys = () => walk(a.hint.host.lastPage, (e) => /^hp-prop-/.test(e.id || "")).map((e) => Math.round(e.calculatedY));
+      const y0 = ys().join(",");
+      let moved = 0;
+      for (const r of walk(a.hint.host.lastPage, (e) => /^hp-prop-/.test(e.id || ""))) {
+        a.pointerMove(r.calculatedX + 10, r.calculatedY + 6);
+        a.hintJson();
+        if (ys().join(",") !== y0) moved++;
+      }
+      res.push({ rows: y0.split(",").length, moved, tip: a.hint.tip.length > 0 });
+      a.closeHint();
+    }
+    a.showTab("md");
+    return res;
+  });
+  check("…and hovering its properties never moves the rows (also flipped above)", selHover.every((r) => r.rows > 3 && r.moved === 0 && r.tip), JSON.stringify(selHover));
+
   // The chart editor: a ```vega-lite fence as a kind and a table, written back
   const ce = await page.evaluate(() => {
     const a = window.__app;
