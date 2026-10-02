@@ -6,7 +6,7 @@
 ;
 ; The bar the page used to draw in HTML — the presentation and the theme to
 ; pick, play and present, open / save / PDF / PPTX / share / help, the status
-; — as gallery/ui controls (SelectCtl, ButtonCtl) in a UiHost of its own, as
+; — as EVGUI controls (SelectCtl, ButtonCtl) in a UiHost of its own, as
 ; big as the app, so a select's list opens over everything under it.
 ;
 ; The bar does not DO anything itself. A press is a request the page acts on
@@ -19,7 +19,7 @@
 ; one "value<TAB>label<TAB>group" row per line.
 ; ============================================================================
 
-Import "../ui/src/UiHost.rgr"
+Import "../evgui/src/UiHost.rgr"
 Import "PresI18n.rgr"
 
 class PresToolbar {
@@ -53,6 +53,8 @@ class PresToolbar {
     def themeRows:string ""
     def sampleValue:string ""
     def themeValue:string ""
+    ; File → Recent: "<deck id>\t<name>" a line, the latest first
+    def recentRows:string ""
     def playing:boolean false
     def status:string ""
     def requests:[string]
@@ -72,6 +74,9 @@ class PresToolbar {
         if (id == "theme") {
             themeRows = rows
             themeValue = current
+        }
+        if (id == "recent") {
+            recentRows = rows
         }
         if (id == "lang") {
             langRows = rows
@@ -191,6 +196,12 @@ class PresToolbar {
         if (id == "openbox") {
             return "openbox"
         }
+        if (id == "browse") {
+            return "showtab:files"
+        }
+        if ((indexOf id "r-") == 0) {
+            return ("files:doc:" + (substring id 2 (strlen id)))
+        }
         if ((indexOf id "s-") == 0) {
             return ("select:sample:" + (substring id 2 (strlen id)))
         }
@@ -232,6 +243,25 @@ class PresToolbar {
                     mark = "✓  "
                 }
                 MenuCtl.addKid(parent (prefix + v) (mark + (itemAt parts 1)) false)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Recent's rows: every deck first (the Files tab), then the latest ones.
+    fn recentKids:void (parent:UiItem) {
+        MenuCtl.addKid(parent "browse" (PresI18n.t("Browse all…")) false)
+        def lines:[string] (strsplit recentRows (strfromcode 10))
+        def first:boolean true
+        def i:int 0
+        while (i < (array_length lines)) {
+            def parts:[string] (strsplit (itemAt lines i) (strfromcode 9))
+            if ((array_length parts) >= 2) {
+                if first {
+                    MenuCtl.addKidSeparator(parent)
+                    first = false
+                }
+                MenuCtl.addKid(parent ("r-" + (itemAt parts 0)) (itemAt parts 1) false)
             }
             i = (i + 1)
         }
@@ -350,14 +380,21 @@ class PresToolbar {
         } {
             bar.addChild((this.text("tb-brand" brand)))
             def file:MenuCtl (this.dropdown("file" (PresI18n.t("File"))))
+            ; groups as in a desktop app: new | open | save | the assistants
             file.addItem("new" (PresI18n.t("New presentation")) false)
+            file.addSeparator()
             file.addItem("openbox" (PresI18n.t("Open…")) false)
+            def rc:UiItem (file.addSub("recent" (PresI18n.t("Recent")) false))
+            this.recentKids(rc)
+            file.addSeparator()
             file.addItem("save" (PresI18n.t("Save .md")) false)
+            file.addSeparator()
             file.addItem("aiClaude" (PresI18n.t("Edit in Claude…")) false)
             file.addItem("aiChatgpt" (PresI18n.t("Edit in ChatGPT…")) false)
             def slide:MenuCtl (this.dropdown("slide" (PresI18n.t("Slide"))))
             def th:UiItem (slide.addSub("theme" (PresI18n.t("Theme")) false))
             this.subRows(th "t-" themeRows themeValue)
+            slide.addSeparator()
             slide.addItem("css" (PresI18n.t("Edit theme CSS…")) false)
             def ex:MenuCtl (this.dropdown("export" (PresI18n.t("Export"))))
             ex.addItem("pdf" (PresI18n.t("PDF")) false)
@@ -417,8 +454,12 @@ class PresToolbar {
             this.button("dr-share" (PresI18n.t("Share")) "ghost" body)
             body.addChild((this.text("tb-dr-label" (PresI18n.t("File")))))
             this.button("dr-new" (PresI18n.t("New presentation")) "ghost" body)
+            body.addChild((this.div("tb-dr-sep")))
             this.button("dr-openbox" (PresI18n.t("Open…")) "ghost" body)
+            this.button("dr-browse" (PresI18n.t("Browse all…")) "ghost" body)
+            body.addChild((this.div("tb-dr-sep")))
             this.button("dr-save" (PresI18n.t("Save .md")) "ghost" body)
+            body.addChild((this.div("tb-dr-sep")))
             this.button("dr-aiClaude" (PresI18n.t("Edit in Claude…")) "ghost" body)
             this.button("dr-aiChatgpt" (PresI18n.t("Edit in ChatGPT…")) "ghost" body)
             body.addChild((this.div("tb-dr-sep")))

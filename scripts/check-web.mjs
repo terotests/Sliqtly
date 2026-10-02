@@ -327,10 +327,22 @@ try {
   await page3.keyboard.press("Escape");
   await page3.waitForTimeout(200);
   check("Esc does not leave the shared presentation", (await page3.evaluate(() => JSON.parse(window.__app.layoutJson()).mode)) === "present");
+  // The bar fades when the pointer rests for 2.5 s, and a slow frame can
+  // take that long: each press moves the pointer first, and tries again if
+  // the bar faded before the click landed.
+  async function tapViewer(pg, sel) {
+    for (let i = 0; ; i += 1) {
+      await pg.mouse.move(300 + i, 300);
+      try {
+        await pg.click(sel, { timeout: 4000 });
+        return;
+      } catch (e) {
+        if (i >= 5) throw e;
+      }
+    }
+  }
   // the … menu: exports through the keyboard, Edit only for a signed-in owner.
-  // The bar fades when the pointer rests; a move brings it back.
-  await page3.mouse.move(300, 300);
-  await page3.click("#vMore");
+  await tapViewer(page3, "#vMore");
   await page3.keyboard.press("Enter");
   await page3.waitForTimeout(100);
   const menu = await page3.evaluate(() => ({
@@ -347,11 +359,10 @@ try {
   await page3.waitForTimeout(200);
   const md = await page3.evaluate(() => ({ dl: window.__lastDownload, closed: document.getElementById("vMenu").hidden }));
   check("the viewer exports Markdown from the … menu", md.dl === "downloaded" && md.closed, JSON.stringify(md));
-  await page3.mouse.move(310, 300);
-  await page3.click("#vMore");
-  await page3.click("#vExport");
+  await tapViewer(page3, "#vMore");
+  await tapViewer(page3, "#vExport");
   await page3.evaluate(() => { window.__lastDownload = ""; });
-  await page3.click('#vMenu [data-act="pdf"]');
+  await tapViewer(page3, '#vMenu [data-act="pdf"]');
   const pdfAt = Date.now();
   await page3.waitForFunction(() => window.__lastDownload !== "", null, { timeout: 180000 }).catch(() => {});
   const pdfGot = await page3.evaluate(() => [window.__lastDownload, document.getElementById("err").textContent]);
@@ -365,8 +376,7 @@ try {
   check("an ?export=md link downloads the shown deck once", auto.dl === "downloaded" && !auto.hash && auto.viewer, JSON.stringify(auto));
   await page4.close();
   const shownMd = await page3.evaluate(() => window.__app.source());
-  await page3.mouse.move(320, 300);
-  await page3.click("#vMore");
+  await tapViewer(page3, "#vMore");
   await Promise.all([page3.waitForEvent("load", { timeout: 30000 }), page3.click('#vMenu [data-act="new"]')]);
   await page3.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
   const made = await page3.evaluate(() => ({ viewer: document.body.classList.contains("viewer"), mode: JSON.parse(window.__app.layoutJson()).mode, md: window.__app.source() }));
@@ -710,6 +720,60 @@ try {
       return { onTop, underPanel, reqs, closed };
     });
     check("…over the Files tab the File menu is on top, and its row takes the press", onFiles.onTop && onFiles.underPanel && onFiles.reqs.includes("click:save") && onFiles.closed, JSON.stringify(onFiles));
+
+    // the File menu's groups: new | open | save | the assistants, lines between them
+    // that take no press
+    const seps = await page.evaluate(() => {
+      const a = window.__app;
+      const all = () => { a.toolbarJson(); const out = []; const w = (e) => { if ((e.className || "").includes("ui-dropdownmenu-separator")) out.push(e); for (const k of e.children || []) w(k); }; w(a.toolbar.host.lastPage); return out; };
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY, false, 1); a.pointerUp(); };
+      press(find("tb-m-file-trigger"));
+      const lines = all();
+      const ys = ["new", "openbox", "save", "aiClaude"].map((id) => find("tb-m-file-item-" + id).calculatedY);
+      const between = lines.length === 3 && lines.every((l, i) => l.calculatedY > ys[i] && l.calculatedY < ys[i + 1] && l.calculatedHeight === 1);
+      for (;;) { if (!a.takeRequest()) break; }
+      press(lines[0]);
+      const reqs = [];
+      for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
+      const stillOpen = a.toolbar.openMenu() !== "";
+      a.key("escape", false, false);
+      return { n: lines.length, between, reqs, stillOpen };
+    });
+    check("…the File menu is grouped by three lines, and a line takes no press", seps.between && seps.reqs.length === 0 && seps.stillOpen, JSON.stringify(seps));
+
+    // File → Recent: Browse all… first (the Files tab), a line, then the decks
+    const recent = await page.evaluate(async () => {
+      const a = window.__app;
+      a.setToolbarOptions("recent", "deck-a\tOld deck\ndeck-b\tOlder deck", "");
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      const shut = () => { for (let n = 0; n < 3 && a.toolbar.openMenu() !== ""; n++) a.key("escape", false, false); };
+      const pick = async (id) => {
+        shut();
+        press(find("tb-m-file-trigger"));
+        press(find("tb-m-file-item-recent"));
+        let row = null;
+        for (let n = 0; n < 40 && !row; n++) { row = find("tb-m-file-item-recent-item-" + id); if (!row) await new Promise((r) => setTimeout(r, 100)); }
+        if (!row) return null;
+        for (;;) { if (!a.takeRequest()) break; }
+        press(row);
+        const reqs = [];
+        for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
+        shut();
+        return reqs;
+      };
+      const content = () => { const c = find("tb-m-file-item-recent-content"); return c ? (c.children || []).map((k) => k.id) : []; };
+      press(find("tb-m-file-trigger"));
+      press(find("tb-m-file-item-recent"));
+      let order = [];
+      for (let n = 0; n < 40 && order.length === 0; n++) { order = content(); if (!order.length) await new Promise((r) => setTimeout(r, 100)); }
+      shut();
+      const browse = await pick("browse");
+      const deck = await pick("r-deck-a");
+      return { order, browse, deck };
+    });
+    check("…File → Recent lists Browse all… first, then the decks, and each opens", recent.order.length === 4 && /browse$/.test(recent.order[0]) && /sep-1$/.test(recent.order[1]) && /r-deck-a$/.test(recent.order[2]) && (recent.browse || []).includes("showtab:files") && (recent.deck || []).includes("files:doc:deck-a"), JSON.stringify(recent));
   }
 
   // Edit in Claude / ChatGPT: File menu rows; signed out, the assistant opens
@@ -1681,6 +1745,18 @@ try {
     await ctx.close();
   }
 
+  // Open → Sample documents: English decks for an English interface, and the
+  // prompt is the trigger's text, not a row in the list
+  const samples = await page.evaluate(() => {
+    const a = window.__app;
+    a.openOpen([...document.getElementById("sample").options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
+    const sel = a.panels.samplePick;
+    const out = { trigger: sel.labelOf(sel.value), rows: sel.items.map((it) => it.value + "=" + it.name) };
+    a.closeShare();
+    return out;
+  });
+  check("Open: the samples list starts with a deck, the prompt only on the trigger", samples.trigger === "Open sample document…" && samples.rows[0] === "talous=Finance: take charge of your money" && !samples.rows.some((r) => r.startsWith("=")), JSON.stringify(samples));
+
   // the interface in another language: ?lang=fi, the canvas bar and the page alike
   const pageFi = await browser.newPage({ viewport: { width: 1200, height: 760 } });
   await pageFi.goto(url + "?lang=fi&sample=talous");
@@ -1691,9 +1767,10 @@ try {
     html: document.getElementById("present").textContent,
     langSel: document.getElementById("lang").value,
     langBar: window.__app.toolbarJson().includes("Suomi"),
+    sample: window.__app.source().includes("# Oma talous haltuun"),
   }));
   await pageFi.close();
-  check("?lang=fi: the bar drawn and the page's own words in Finnish", fi.lang === "fi" && fi.bar && /Esitä/.test(fi.html) && fi.langSel === "fi" && fi.langBar, JSON.stringify(fi));
+  check("?lang=fi: the bar drawn and the page's own words in Finnish", fi.lang === "fi" && fi.bar && /Esitä/.test(fi.html) && fi.langSel === "fi" && fi.langBar && fi.sample, JSON.stringify(fi));
 
   check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {

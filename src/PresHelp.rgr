@@ -238,6 +238,7 @@ class PresHelp {
         if ((sel == "blockquote") && (prop == "border-color")) { return (PresI18n.t("Vertical bar color.")) }
         if ((sel == "blockquote") && (prop == "border-width")) { return (PresI18n.t("Vertical bar width.")) }
         if ((sel == "list") && (prop == "margin-left")) { return (PresI18n.t("Space between the bullet and the text.")) }
+        if ((sel == "list") && (prop == "color")) { return (PresI18n.t("Bullet and number colour.")) }
         if ((sel == "li") && (prop == "margin-bottom")) { return (PresI18n.t("Space between items.")) }
         if (prop == "margin-top") { return (PresI18n.t("Space above.")) }
         if (prop == "margin-bottom") { return (PresI18n.t("Space below.")) }
@@ -268,7 +269,7 @@ class PresHelp {
         if (sel == "a") { return "color" }
         if (sel == "hr") { return "color" }
         if (sel == "blockquote") { return "color,border-color,border-width,padding-left,padding-top" }
-        if (sel == "list") { return "padding-left,margin-left" }
+        if (sel == "list") { return "padding-left,margin-left,color" }
         if (sel == "li") { return "margin-bottom" }
         if (sel == "table") { return "border-color,background-color,padding-left,padding-top" }
         if (sel == "deck") { return "split-level,overflow,aspect-ratio" }
@@ -616,7 +617,7 @@ class PresHelp {
             if (PresHelp.hasTag(sc "task")) {
                 ls = (ls + (PresI18n.t("   - [ ] task   - [x] done")))
             }
-            push out (PresHelp.feature("list" (PresI18n.t("List")) ls (PresI18n.t("An item is never split across two slides; if one item doesn't fit, the slide's text is made slightly smaller.")) ((PresHelp.rule(css "list" (PresI18n.t("The whole list.")) "padding-left,margin-left")) + "," + (PresHelp.rule(css "li" (PresI18n.t("One item.")) "margin-bottom")))))
+            push out (PresHelp.feature("list" (PresI18n.t("List")) ls (PresI18n.t("An item is never split across two slides; if one item doesn't fit, the slide's text is made slightly smaller.")) ((PresHelp.rule(css "list" (PresI18n.t("The whole list.")) "padding-left,margin-left,color")) + "," + (PresHelp.rule(css "li" (PresI18n.t("One item.")) "margin-bottom")))))
         }
         if sc.quote {
             push out (PresHelp.feature("quote" (PresI18n.t("Quote")) (PresI18n.t("> quoted text")) "" (PresHelp.rule(css "blockquote" (PresI18n.t("The quote and its bar.")) "color,border-color,border-width,padding-left,padding-top"))))

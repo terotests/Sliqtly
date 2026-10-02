@@ -51,15 +51,18 @@ const FACES = [
   ["Noto Sans-Bold", "NotoSans-Bold.ttf"],
 ];
 const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "corporate", "editorial"];
+// The sample decks in the interface's language: samples/<key>.md is Finnish,
+// samples/<key>.en.md English (any other language gets the English ones).
+const sample = (key, en, fi) => lang === "fi" ? [fi, `./samples/${key}.md`] : [en, `./samples/${key}.en.md`];
 const SAMPLES = {
-  talous: ["Talous: oma talous haltuun", "./samples/talous.md"],
-  ymparisto: ["Ympäristö: hiilijalanjälki", "./samples/ymparisto.md"],
-  urheilu: ["Urheilu: 5 km juoksukoulu", "./samples/urheilu.md"],
-  kulttuuri: ["Kulttuuri: musiikin vuosikymmenet", "./samples/kulttuuri.md"],
-  ohjelmointi: ["Ohjelmointi: versionhallinta", "./samples/ohjelmointi.md"],
-  matematiikka: ["Matematiikka: kaavat kalvoilla", "./samples/matematiikka.md"],
-  vegalite: ["Vega-Lite: kaaviotyypit", "./samples/vegalite.md"],
-  raportti: ["Raportti: ylä- ja alaosa, sivunumerot", "./samples/raportti.md"],
+  talous: sample("talous", "Finance: take charge of your money", "Talous: oma talous haltuun"),
+  ymparisto: sample("ymparisto", "Environment: your carbon footprint", "Ympäristö: hiilijalanjälki"),
+  urheilu: sample("urheilu", "Sports: a 5 km running course", "Urheilu: 5 km juoksukoulu"),
+  kulttuuri: sample("kulttuuri", "Culture: decades of music", "Kulttuuri: musiikin vuosikymmenet"),
+  ohjelmointi: sample("ohjelmointi", "Programming: version control", "Ohjelmointi: versionhallinta"),
+  matematiikka: sample("matematiikka", "Mathematics: formulas on slides", "Matematiikka: kaavat kalvoilla"),
+  vegalite: sample("vegalite", "Vega-Lite: chart types", "Vega-Lite: kaaviotyypit"),
+  raportti: sample("raportti", "Report: header, footer, page numbers", "Raportti: ylä- ja alaosa, sivunumerot"),
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
 };
 
@@ -236,7 +239,7 @@ async function placePasted() {
 }
 
 // A new picture of the deck: registered for the slides and kept in this
-// browser; signed in to PRO, also put in the cloud as the deck's file.
+// browser; signed in to PRO, the deck's cloud save takes it with the deck.
 async function keepPicture(bytes, type, w, h) {
   const ext = (type.split("/")[1] || "png").replace("jpeg", "jpg").replace("svg+xml", "svg");
   pasteCount += 1;
@@ -244,17 +247,7 @@ async function keepPicture(bytes, type, w, h) {
   app.addImage("/" + rel, asRangerBuffer(bytes.slice(0)), type, w, h);
   await registerPicture("/" + rel, bytes, type);
   const data = new Blob([bytes], { type });
-  const rec = { path: rel, type, size: bytes.byteLength, data };
-  if (signedIn()) {
-    try {
-      rec.cloud = await window.sliqtly.putFile(doc.id, rel, data);
-      toast(t("Image saved to your PRO cloud files."));
-    } catch (e) {
-      console.warn("cloud upload failed", e);
-      toast(t("The image could not be saved to the cloud; it is kept in this browser."));
-    }
-  }
-  await keepFile(rec);
+  await keepFile({ path: rel, type, size: bytes.byteLength, data });
   return rel;
 }
 
@@ -424,10 +417,27 @@ function whenText(t) {
   return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()} ${two(d.getHours())}:${two(d.getMinutes())}`;
 }
 
+// File → Recent: the decks of this browser edited last, the open one left
+// out (a PRO deck is among them: the cloud save keeps it here as well).
+let recentSynced = "";
+async function refreshRecent() {
+  if (!vfs || viewer) return;
+  const rows = (await vfs.listDocs())
+    .filter((d) => d.id !== doc.id)
+    .sort((a, b) => (b.updated || 0) - (a.updated || 0))
+    .slice(0, 8)
+    .map((d) => d.id + "\t" + String(d.name || "presentation").replace(/[\t\n\r]+/g, " "));
+  const key = rows.join("\n");
+  if (key === recentSynced) return;
+  recentSynced = key;
+  app.setToolbarOptions("recent", key, "");
+}
+
 // The files tab's list, when it shows; again when PRO signs in or out.
 let filesListing = false;
 window.addEventListener("sliqtly:user", () => refreshFiles());
 async function refreshFiles() {
+  refreshRecent().catch(() => {});
   if (!vfs || app.editorTab() !== "files" || filesListing) return;
   filesListing = true;
   try {
@@ -757,7 +767,13 @@ function paintOnce() {
     sf.dispose();
     // Only while editing: not to an audience, and not mid-animation, where a
     // fading line is briefly faint by design.
-    if (layout.mode !== "present" && !viewer && !app.isPlaying()) warnLowContrast(stageStats && stageStats.lowContrast);
+    if (layout.mode !== "present" && !viewer && !app.isPlaying()) {
+      // Runs too faint on their slide: marked in the editors' gutters, not
+      // laid over the slide. A change shows on the next paint.
+      try {
+        if (app.setContrast(JSON.stringify((stageStats && stageStats.lowContrast) || []))) needsPaint = true;
+      } catch (e) { console.warn("contrast notes", e); }
+    }
   }
   if (grew) dropThumbs();
   let thumbsGrew = false;
@@ -1451,23 +1467,6 @@ function hashParams() {
 }
 
 let toastTimer = 0;
-// Text the painter found too faint against what is under it (WCAG 4.5:1, 3:1
-// for large text). It already drew an outline round it; the author is told
-// once, when the set of such lines on the stage changes, so a changed colour
-// or picture that makes a line hard to read does not pass unnoticed.
-let lowContrastKey = "";
-function warnLowContrast(list) {
-  const runs = list || [];
-  const key = runs.map((r) => r.text).join("\n");
-  if (key === lowContrastKey) return;
-  lowContrastKey = key;
-  if (!runs.length) return;
-  const worst = runs.reduce((a, b) => (b.ratio < a.ratio ? b : a));
-  const words = worst.text.length > 40 ? worst.text.slice(0, 39) + "…" : worst.text;
-  const more = runs.length > 1 ? t(" and ") + (runs.length - 1) + t(" more") : "";
-  toast(t("Low contrast: ") + "“" + words + "”" + more + " " + worst.ratio.toFixed(1) + ":1, " +
-    t("needs ") + worst.need + ":1. " + t("An outline was added; a darker or lighter colour reads better."));
-}
 
 function toast(text) {
   app.toast(text);
@@ -2599,6 +2598,7 @@ async function start() {
       await openSample(sample);
     }
   }
+  refreshRecent().catch(() => {});
 
   // A narrow window gets the slides without the editor (PresApp.isCompact,
   // decided on every layout, so it follows the window); on a touch screen
