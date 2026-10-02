@@ -1510,7 +1510,8 @@ try {
     await pd.evaluate(() => window.__app.closeShare());
     await pd.evaluate(() => window.__app.showTab("md"));
     await pd.setInputFiles("#filepick", { name: "check-open.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n") + "\n") });
-    await pd.waitForFunction(() => window.__app.shareIsOpen() && window.__app.panels.imp.name === "check-open.csv", null, { timeout: 5000 }).catch(() => {});
+    // the dialog opens first; the Files tab once the deck is saved
+    await pd.waitForFunction(() => window.__app.shareIsOpen() && window.__app.panels.imp.name === "check-open.csv" && window.__app.editorTab() === "files", null, { timeout: 5000 }).catch(() => {});
     const opened = await pd.evaluate(() => ({ dlg: window.__app.shareIsOpen() && window.__app.panels.imp.name === "check-open.csv", tab: window.__app.editorTab() }));
     await pd.evaluate(() => window.__app.closeShare());
     const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
