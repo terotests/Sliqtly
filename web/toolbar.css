@@ -52,31 +52,41 @@
 .theme-tb .ui-select-item:hover { background-color: #f4f4f5; }
 .theme-tb .ui-select-item:focus { background-color: #f4f4f5; }
 
-/* ---------------------------------------------------------------------------
-   Narrower windows: the bar gives up what it can do without, in steps. The
-   app's own layout drops the editor and the timeline under 700px (PresApp
-   isCompact), so the file buttons and the help go with them.
-   --------------------------------------------------------------------------- */
-@media (max-width: 1280px) {
-  .tb-brand, .tb-status { display: none; }
+/* File and Help: a menubar in the bar's look, its menus as the select's card */
+.theme-tb .ui-menubar { background-color: rgba(0,0,0,0); padding: 0; gap: 2px; align-self: center; }
+.theme-tb .ui-menubar-trigger { font-family: Open Sans; font-size: 13px; font-weight: 500; color: #09090b; height: 32px; line-height: 32px; padding: 0 10px; border-radius: 6px; }
+.theme-tb .ui-menubar-trigger:hover { background-color: #f4f4f5; }
+.theme-tb .ui-menubar-trigger-state-open { background-color: #f4f4f5; }
+.theme-tb .ui-menubar-content {
+  gap: 1px; padding: 4px; width: 220px;
+  border: 1px solid #e4e4e7; border-radius: 12px; background-color: #ffffff;
+  shadow-color: rgba(0, 0, 0, 0.12); shadow-radius: 18px; shadow-offset-y: 6px;
 }
-@media (max-width: 1080px) {
+.theme-tb .ui-menubar-item { font-family: Open Sans; font-size: 13px; color: #18181b; height: 32px; line-height: 32px; padding: 0 10px; border-radius: 8px; white-space: nowrap; }
+.theme-tb .ui-menubar-item:hover { background-color: #f4f4f5; }
+.theme-tb .ui-menubar-item:focus { background-color: #f4f4f5; }
+
+/* The drawer (a narrow window or a finger): the rest of the bar as a list */
+.theme-tb .ui-drawer-panel {
+  gap: 6px; padding: 14px 12px;
+  border: 0px; border-right: 1px solid #e4e4e7; border-radius: 0px;
+  shadow-color: rgba(0, 0, 0, 0.16); shadow-radius: 24px; shadow-offset-x: 6px;
+  font-family: Open Sans;
+}
+.theme-tb .ui-drawer-title { font-family: Open Sans; font-size: 15px; color: #09090b; padding: 0 6px; }
+.theme-tb .ui-drawer-close { font-family: Open Sans; font-size: 13px; background-color: #ffffff; border: 1px solid #e4e4e7; color: #09090b; }
+.theme-tb .ui-drawer-body { gap: 2px; }
+.theme-tb .tb-drb { width: 100%; justify-content: flex-start; }
+.tb-dr-label { font-size: 11px; font-weight: 600; color: #71717a; padding: 8px 6px 2px; }
+.tb-dr-sep { height: 1px; background-color: #f4f4f5; margin: 6px 0; flex-shrink: 0; }
+
+/* Narrower windows: labels and the status give way first */
+@media (max-width: 1280px) {
+  .tb-status { display: none; }
+}
+@media (max-width: 1180px) {
   .tb-label { display: none; }
   .theme-tb .tb-trig-sample { width: 190px; }
-}
-@media (max-width: 960px) {
-  .tb-b-pdf, .tb-b-pptx { display: none; }
-}
-@media (max-width: 820px) {
-  .tb-b-open, .tb-b-save { display: none; }
-}
-@media (max-width: 700px) {
-  .tb-b-helpBtn, .tb-sep { display: none; }
-  .tb-bar { gap: 6px; padding: 0 8px; }
-  .theme-tb .tb-trig-sample { width: 150px; }
-}
-@media (max-width: 520px) {
-  .tb-b-play, .tb-select-theme { display: none; }
 }
 /* a finger needs a bigger target */
 @media (pointer: coarse) {

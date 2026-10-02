@@ -546,14 +546,15 @@ try {
       press("tb-theme-item-editorial");
       const reqs = [];
       for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
-      press("tb-helpBtn");
+      press("tb-mb-help-trigger");
+      press("tb-mb-help-item-helpBtn");
       const help = [];
       for (;;) { const r = a.takeRequest(); if (!r) break; help.push(r); }
       return { opened, reqs, help, drawn: JSON.parse(a.toolbarJson()).list.cmds.length, theme0, htmlBarHidden: getComputedStyle(document.getElementById("bar")).display === "none" };
     });
     check("the top bar is drawn on the canvas, the HTML one hidden", bar.drawn > 20 && bar.htmlBarHidden, JSON.stringify(bar));
     check("…its theme list opens and a choice becomes the page's select change", bar.opened && bar.reqs.includes("select:theme:editorial"), JSON.stringify(bar));
-    check("…a button is the page's button pressed", bar.help.includes("click:helpBtn"), JSON.stringify(bar));
+    check("…a menu's row is the page's button pressed", bar.help.includes("click:helpBtn"), JSON.stringify(bar));
     await page.evaluate((th) => { const s = document.getElementById("theme"); s.value = th; s.dispatchEvent(new Event("change")); }, bar.theme0);
     await page.waitForTimeout(300);
   }
@@ -675,8 +676,9 @@ try {
       const a = window.__app;
       a.toolbarJson();
       const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
-      const pdf = walk(a.toolbar.host.lastPage, "tb-pdf");
-      return { compact: a.isCompact(), pdfShown: !!pdf && pdf.calculatedWidth > 0 };
+      const file = walk(a.toolbar.host.lastPage, "tb-mb-file-trigger");
+      const menu = walk(a.toolbar.host.lastPage, "tb-menu");
+      return { compact: a.isCompact(), fileShown: !!file && file.calculatedWidth > 0, menuShown: !!menu && menu.calculatedWidth > 0 };
     });
     await page.setViewportSize({ width: 560, height: 760 });
     await page.waitForFunction(() => window.__app.isCompact(), null, { timeout: 5000 }).catch(() => {});
@@ -684,7 +686,7 @@ try {
     await page.setViewportSize(vp);
     await page.waitForFunction(() => !window.__app.isCompact(), null, { timeout: 5000 }).catch(() => {});
     const wide = await narrowBar();
-    check("a narrow window shows the slides only and a shorter bar; widening brings the editor back", narrow.compact && !narrow.pdfShown && !wide.compact && wide.pdfShown, JSON.stringify({ narrow, wide }));
+    check("a narrow window shows the slides only and the menu button for a drawer; widening brings the editor and the menus back", narrow.compact && !narrow.fileShown && narrow.menuShown && !wide.compact && wide.fileShown && !wide.menuShown, JSON.stringify({ narrow, wide }));
   }
 
   // Controls keep their size while they change: the popover's number field

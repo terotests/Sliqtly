@@ -39,6 +39,11 @@ class PresToolbar {
     def langSel:SelectCtl (new SelectCtl())
     def langRows:string ""
     def langValue:string ""
+    ; File and Help (a wide window), and the drawer the menu button opens
+    ; (a narrow one, or a finger)
+    def menubar:MenubarCtl (new MenubarCtl())
+    def drawer:DrawerCtl (new DrawerCtl())
+    def drawerOpen:boolean false
     ; "value<TAB>label<TAB>group" rows, per select
     def sampleRows:string ""
     def themeRows:string ""
@@ -116,6 +121,10 @@ class PresToolbar {
         if (variant == "accent") {
             UiTree.addClass(r "tb-accent")
         }
+        ; a row of the drawer: full width, its label at the start
+        if ((indexOf id "dr-") == 0) {
+            UiTree.addClass(r "tb-drb")
+        }
         if (((variant == "primary") || (variant == "accent")) && ((r.getChildCount()) > 0)) {
             UiTree.addClass((r.getChild(0)) "tb-onprimary")
         }
@@ -158,10 +167,38 @@ class PresToolbar {
         return c
     }
 
+    ; A narrow window or a finger: the bar keeps the menu button, the name,
+    ; Present and the page's own buttons; the rest is in the drawer.
+    fn compact:boolean () {
+        return ((w < 980.0) || coarse)
+    }
+
+    ; What a menu's or the drawer's row asks of the page.
+    sfn requestFor:string (id:string) {
+        if (id == "new") {
+            return "files:new"
+        }
+        return ("click:" + id)
+    }
+
+    ; The page's own buttons (PresApp.setToolbarExtras), in order.
+    fn extraButtons:void (parent:EVGElement) {
+        def rows:[string] (strsplit extras (strfromcode 10))
+        def k:int 0
+        while (k < (array_length rows)) {
+            def parts:[string] (strsplit (itemAt rows k) (strfromcode 9))
+            if ((array_length parts) >= 3) {
+                this.button((itemAt parts 0) (itemAt parts 1) (itemAt parts 2) parent)
+            }
+            k = (k + 1)
+        }
+    }
+
     fn rebuild:void () {
         def keepSample:boolean sample.open
         def keepTheme:boolean theme.open
         def keepLang:boolean langSel.open
+        def keepMenu:string menubar.openValue
         def fresh (new UiHost())
         host = fresh
         host.addStyleSheet(css)
@@ -170,40 +207,96 @@ class PresToolbar {
         def root:EVGElement (unwrap host.root)
         root.className = "ui-root tb-page"
         def bar:EVGElement (this.div("tb-bar"))
-        bar.addChild((this.text("tb-brand" brand)))
-        bar.addChild((this.text("tb-label" (PresI18n.t("Presentation")))))
-        sample = (this.select("sample" (PresI18n.t("Presentation")) sampleRows sampleValue bar))
-        bar.addChild((this.text("tb-label" (PresI18n.t("Theme")))))
-        theme = (this.select("theme" (PresI18n.t("Theme")) themeRows themeValue bar))
-        bar.addChild((this.div("tb-sep")))
         def play:string (PresI18n.t("▶ Play"))
         if playing {
             play = (PresI18n.t("⏸ Pause"))
         }
-        this.button("play" play "outline" bar)
-        this.button("present" (PresI18n.t("⛶ Present")) "primary" bar)
-        bar.addChild((this.div("tb-sep")))
-        this.button("open" (PresI18n.t("Open")) "ghost" bar)
-        this.button("save" (PresI18n.t("Save .md")) "ghost" bar)
-        this.button("pdf" "PDF" "ghost" bar)
-        this.button("pptx" "PPTX" "ghost" bar)
-        this.button("share" (PresI18n.t("Share")) "ghost" bar)
-        this.button("helpBtn" (PresI18n.t("Help")) "ghost" bar)
-        def rows:[string] (strsplit extras (strfromcode 10))
-        def k:int 0
-        while (k < (array_length rows)) {
-            def parts:[string] (strsplit (itemAt rows k) (strfromcode 9))
-            if ((array_length parts) >= 3) {
-                this.button((itemAt parts 0) (itemAt parts 1) (itemAt parts 2) bar)
+        def small:boolean (this.compact())
+        if small {
+            this.button("menu" "☰" "ghost" bar)
+            bar.addChild((this.text("tb-brand" brand)))
+            bar.addChild((this.div("tb-grow")))
+            this.button("present" (PresI18n.t("⛶ Present")) "primary" bar)
+            this.extraButtons(bar)
+        } {
+            bar.addChild((this.text("tb-brand" brand)))
+            def mb (new MenubarCtl())
+            mb.tid = "tb-mb"
+            mb.addMenu("file" (PresI18n.t("File")))
+            mb.addItem("file" "new" (PresI18n.t("New presentation")) false)
+            mb.addItem("file" "open" (PresI18n.t("Open…")) false)
+            mb.addItem("file" "save" (PresI18n.t("Save .md")) false)
+            mb.addItem("file" "pdf" (PresI18n.t("Export PDF")) false)
+            mb.addItem("file" "pptx" (PresI18n.t("Export PPTX")) false)
+            mb.addMenu("help" (PresI18n.t("Help")))
+            mb.addItem("help" "helpBtn" (PresI18n.t("Help for this slide")) false)
+            mb.openValue = keepMenu
+            mb.build()
+            menubar = mb
+            this.put(mb bar)
+            bar.addChild((this.div("tb-sep")))
+            bar.addChild((this.text("tb-label" (PresI18n.t("Presentation")))))
+            sample = (this.select("sample" (PresI18n.t("Presentation")) sampleRows sampleValue bar))
+            bar.addChild((this.text("tb-label" (PresI18n.t("Theme")))))
+            theme = (this.select("theme" (PresI18n.t("Theme")) themeRows themeValue bar))
+            bar.addChild((this.div("tb-sep")))
+            this.button("play" play "outline" bar)
+            this.button("present" (PresI18n.t("⛶ Present")) "primary" bar)
+            this.button("share" (PresI18n.t("Share")) "secondary" bar)
+            bar.addChild((this.div("tb-grow")))
+            bar.addChild((this.text("tb-status" status)))
+            this.extraButtons(bar)
+            if ((strlen langRows) > 0) {
+                langSel = (this.select("lang" (PresI18n.t("Language")) langRows langValue bar))
             }
-            k = (k + 1)
         }
-        if ((strlen langRows) > 0) {
-            langSel = (this.select("lang" (PresI18n.t("Language")) langRows langValue bar))
-        }
-        bar.addChild((this.div("tb-grow")))
-        bar.addChild((this.text("tb-status" status)))
         root.addChild(bar)
+
+        ; the drawer: everything the narrow bar leaves out, as a list
+        def dr (new DrawerCtl())
+        dr.tid = "tb-drawer"
+        dr.side = "left"
+        dr.title = brand
+        dr.closeLabel = (PresI18n.t("Close"))
+        def dw:double 300.0
+        if (dw > (w - 24.0)) {
+            dw = (w - 24.0)
+        }
+        dr.width = dw
+        dr.top = barH
+        dr.panelHeight = (h - barH)
+        dr.durationMs = 0.0
+        def showDrawer:boolean (drawerOpen && small)
+        if showDrawer {
+            dr.open = true
+            dr.progress = 1.0
+        }
+        dr.build()
+        drawer = dr
+        push host.ctls dr
+        root.addChild((unwrap dr.rootEl))
+        if showDrawer {
+            def body:EVGElement (dr.body())
+            body.addChild((this.text("tb-dr-label" (PresI18n.t("Presentation")))))
+            sample = (this.select("sample" (PresI18n.t("Presentation")) sampleRows sampleValue body))
+            body.addChild((this.text("tb-dr-label" (PresI18n.t("Theme")))))
+            theme = (this.select("theme" (PresI18n.t("Theme")) themeRows themeValue body))
+            body.addChild((this.div("tb-dr-sep")))
+            this.button("dr-play" play "ghost" body)
+            this.button("dr-share" (PresI18n.t("Share")) "ghost" body)
+            body.addChild((this.div("tb-dr-sep")))
+            this.button("dr-new" (PresI18n.t("New presentation")) "ghost" body)
+            this.button("dr-open" (PresI18n.t("Open…")) "ghost" body)
+            this.button("dr-save" (PresI18n.t("Save .md")) "ghost" body)
+            this.button("dr-pdf" (PresI18n.t("Export PDF")) "ghost" body)
+            this.button("dr-pptx" (PresI18n.t("Export PPTX")) "ghost" body)
+            body.addChild((this.div("tb-dr-sep")))
+            this.button("dr-helpBtn" (PresI18n.t("Help for this slide")) "ghost" body)
+            if ((strlen langRows) > 0) {
+                body.addChild((this.text("tb-dr-label" (PresI18n.t("Language")))))
+                langSel = (this.select("lang" (PresI18n.t("Language")) langRows langValue body))
+            }
+        }
         if keepSample {
             sample.openList()
             sample.build()
@@ -256,7 +349,7 @@ class PresToolbar {
 
     ; --- the pointer --------------------------------------------------------------
     fn listOpen:boolean () {
-        return ((sample.open || theme.open) || langSel.open)
+        return (((sample.open || theme.open) || langSel.open) || (((strlen menubar.openValue) > 0) || drawerOpen))
     }
 
     ; The bar, or anywhere while a list is open (a press outside closes it).
@@ -276,9 +369,53 @@ class PresToolbar {
             ctlTid = owner.tid
         }
         def isSel:boolean (((strlen ctlTid) > 0) && (((ctlTid == sample.tid) || (ctlTid == theme.tid)) || (ctlTid == langSel.tid)))
-        ; a press outside an open list closes it and does nothing else
-        if ((this.listOpen()) && (isSel == false)) {
+        def isMenu:boolean (ctlTid == "tb-mb")
+        def inDrawer:boolean ((ctlTid == "tb-drawer") || ((indexOf ctlTid "tb-dr-") == 0))
+        ; the menu button opens and closes the drawer
+        if (ctlTid == "tb-menu") {
+            drawerOpen = (drawerOpen == false)
+            this.closeSelects()
+            this.rebuild()
+            return
+        }
+        ; an open drawer: a press outside it closes it and does nothing else
+        if (drawerOpen && ((inDrawer || isSel) == false)) {
             this.closeLists()
+            return
+        }
+        ; a press outside an open list or menu closes it and does nothing else
+        def selOpen:boolean ((sample.open || theme.open) || langSel.open)
+        def menuOpen:boolean ((strlen menubar.openValue) > 0)
+        if ((selOpen && (isSel == false)) || (menuOpen && (isMenu == false))) {
+            this.closeSelects()
+            if menuOpen {
+                menubar.closeMenu()
+            }
+            rev = (rev + 1)
+            return
+        }
+        if isMenu {
+            ; the row chosen, read before the click closes the menu
+            def item:string (menubar.itemOf(tid))
+            host.click(tid)
+            if ((strlen item) > 0) {
+                push requests (PresToolbar.requestFor(item))
+            }
+            rev = (rev + 1)
+            return
+        }
+        if (ctlTid == "tb-drawer") {
+            host.click(tid)
+            if (drawer.open == false) {
+                drawerOpen = false
+                this.rebuild()
+            }
+            return
+        }
+        if ((indexOf ctlTid "tb-dr-") == 0) {
+            push requests (PresToolbar.requestFor((substring ctlTid 6 (strlen ctlTid))))
+            drawerOpen = false
+            this.rebuild()
             return
         }
         if isSel {
@@ -327,6 +464,18 @@ class PresToolbar {
     }
 
     fn closeLists:void () {
+        this.closeSelects()
+        if ((strlen menubar.openValue) > 0) {
+            menubar.closeMenu()
+        }
+        if drawerOpen {
+            drawerOpen = false
+            this.rebuild()
+        }
+        rev = (rev + 1)
+    }
+
+    fn closeSelects:void () {
         if sample.open {
             sample.closeList()
             sample.build()
