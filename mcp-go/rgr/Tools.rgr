@@ -4,7 +4,7 @@
 ; a presentation at sliqtly.com, and its link back.
 ;
 ; Tools: sliqtly_guide, create_presentation, update_presentation,
-; get_presentation, list_presentations. create/update also name a UI
+; bind_chart_data, get_presentation, list_presentations. create/update also name a UI
 ; resource (MCP Apps, and the same template for ChatGPT) that shows the deck
 ; inline in the chat.
 
@@ -12,6 +12,7 @@ Import "McpHost.rgr"
 Import "Json.rgr"
 Import "Deck.rgr"
 Import "Check.rgr"
+Import "Charts.rgr"
 Import "Store.rgr"
 
 ; who is asking, for one request
@@ -23,6 +24,14 @@ class Caller {
     def signIn:string ""
     ; the rate limit key: "uid:…" or the address
     def who:string ""
+}
+
+; the stored deck a caller may change, or why not
+class Editable {
+    def fail:string ""
+    def cur:MfJ (new MfJ)
+    def mine:boolean false
+    def key:string ""
 }
 
 class Tools {
@@ -174,6 +183,34 @@ class Tools {
         Tools.deckFields(up)
         tools.add((Tools.tool("update_presentation" "Update a presentation" "Change a presentation made with create_presentation, keeping its link. Send only what changes: markdown replaces the whole text; images are added (or replace pictures of the same name)." (Tools.schema(up ([] _:string ("deck_id")))) (Tools.annotations(false 1 true true)) (Tools.uiMeta(host)))))
 
+        def bp:MfJ (MfJ.newObj())
+        bp.put("deck_id" (Tools.prop("string" "deck_id from create_presentation")))
+        bp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
+        def num:MfJ (MfJ.newObj())
+        num.putStr("type" "integer")
+        num.putInt("minimum" 1)
+        def chartOf:MfJ (MfJ.newArr())
+        chartOf.add(num)
+        def chartName:MfJ (MfJ.newObj())
+        chartName.putStr("type" "string")
+        chartOf.add(chartName)
+        def chart:MfJ (MfJ.newObj())
+        chart.put("anyOf" chartOf)
+        chart.putStr("description" "Which chart: its number among the deck's vega-lite charts (1 = first), or the title of the slide it is on")
+        bp.put("chart" chart)
+        def gs:MfJ (MfJ.newObj())
+        gs.put("google_sheets" (Tools.prop("string" "The sheet's id or link")))
+        gs.put("sheet" (Tools.prop("string" "Tab name, e.g. Monthly")))
+        gs.put("range" (Tools.prop("string" "Cells, e.g. \"A:B\" or \"Monthly!A:B\"")))
+        def srcOf:MfJ (MfJ.newArr())
+        srcOf.add((Tools.prop("string" "https URL of a CSV or JSON file, a Google Sheets link (…/spreadsheets/d/<id>/edit#gid=0), or sheet://<id>/<Sheet>!A:B")))
+        srcOf.add((Tools.schema(gs ([] _:string ("google_sheets")))))
+        def src:MfJ (MfJ.newObj())
+        src.put("anyOf" srcOf)
+        src.putStr("description" "Where the chart's data comes from")
+        bp.put("source" src)
+        tools.add((Tools.tool("bind_chart_data" "Connect a chart to live data" "Point one ```vega-lite chart of a presentation at live data: a CSV or JSON URL, or a Google Sheet shared as \"Anyone with the link\". The data is read when the deck opens; the rest of the chart's spec stays. Keeps the presentation's link." (Tools.schema(bp ([] _:string ("deck_id" "chart" "source")))) (Tools.annotations(false 1 true true)) (Tools.uiMeta(host)))))
+
         def gp:MfJ (MfJ.newObj())
         gp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
         tools.add((Tools.tool("get_presentation" "Read a presentation" "Read a Sliqtly presentation's Markdown, theme, CSS and picture list by its deck_id (the id in https://sliqtly.com/s/<id>), to revise it." (Tools.schema(gp ([] _:string ("deck_id")))) (Tools.annotations(true -1 false false)) eitherMeta)))
@@ -303,7 +340,15 @@ class Tools {
         def r:MfJ (MfJ.newObj())
         r.put("content" (Tools.text((join lines "\n"))))
         r.put("structuredContent" out)
-        r.put("_meta" (Tools.uiMeta(host)))
+        def meta:MfJ (Tools.uiMeta(host))
+        ; the preview reads a stored deck from Firestore with the site's config
+        if (out.has("deck_id")) {
+            def cfg:MfJ (J.parse((host_web_config host)))
+            if (cfg.isObj()) {
+                meta.put("sliqtly/firebase" cfg)
+            }
+        }
+        r.put("_meta" meta)
         return r
     }
 
@@ -335,6 +380,31 @@ class Tools {
         def mode:MfJ (a.field("css_mode"))
         if ((mode.kind == 3) && ((mode.str != "extend") && (mode.str != "replace"))) {
             return "Invalid arguments: css_mode is extend or replace."
+        }
+        def chart:MfJ (a.field("chart"))
+        if (chart.kind == 2) {
+            if ((chart.num < 1.0) || (chart.num != (to_double (to_int chart.num)))) {
+                return "Invalid arguments: chart is a whole number from 1."
+            }
+        }
+        if ((chart.kind != 0) && ((chart.kind != 2) && (chart.kind != 3))) {
+            return "Invalid arguments: chart is a number or a slide title."
+        }
+        def source:MfJ (a.field("source"))
+        if (source.isObj()) {
+            if ((source.field("google_sheets")).kind != 3) {
+                return "Invalid arguments: source.google_sheets is required."
+            }
+            for ([] _:string ("sheet" "range")) sk:string sj {
+                def sv:MfJ (source.field(sk))
+                if ((sv.kind != 0) && (sv.kind != 3)) {
+                    return ("Invalid arguments: source." + sk + " is a string.")
+                }
+            }
+        } {
+            if ((source.kind != 0) && (source.kind != 3)) {
+                return "Invalid arguments: source is a URL or { google_sheets }."
+            }
         }
         def images:MfJ (a.field("images"))
         if ((images.kind != 0) && (images.kind != 4)) {
@@ -444,6 +514,9 @@ class Tools {
         }
         if (name == "update_presentation") {
             r = (Tools.update(host caller args))
+        }
+        if (name == "bind_chart_data") {
+            r = (Tools.bindChart(host caller args))
         }
         if (name == "get_presentation") {
             r = (Tools.get(host caller args))
@@ -563,18 +636,16 @@ class Tools {
             return (Tools.fail("markdown is larger than 300 KB."))
         }
         def id:string (a.str_("deck_id"))
-        def cur:MfJ (Store.get(host id))
+        def ed:Editable (Tools.editable(host caller id (a.str_("edit_key"))))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "update_presentation" (host_error host)))
         }
-        def mine:boolean (((cur.isObj()) && caller.signedIn) && ((cur.str_("owner")) == caller.uid))
-        if (((cur.isObj()) == false) || (((cur.str_("source")) != "mcp") && (mine == false))) {
-            return (Tools.fail(("No presentation " + id + " that this server can change.")))
+        if ((strlen ed.fail) > 0) {
+            return (Tools.fail(ed.fail))
         }
-        def key:string (a.str_("edit_key"))
-        if ((mine == false) && ((strlen key) == 0)) {
-            return (Tools.fail("edit_key is needed: the presentation is not this signed-in user's own."))
-        }
+        def cur:MfJ ed.cur
+        def mine:boolean ed.mine
+        def key:string ed.key
         def th:string "aurora"
         if (Tools.has(a "theme")) {
             th = (a.str_("theme"))
@@ -628,6 +699,33 @@ class Tools {
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "update_presentation" (host_error host)))
         }
+        return (Tools.updated(host caller id saved ""))
+    }
+
+    ; the stored deck, if this caller may change it (a host error stops it too)
+    sfn editable:Editable (host:McpHost caller:Caller id:string key:string) {
+        def ed (new Editable)
+        ed.key = key
+        def cur:MfJ (Store.get(host id))
+        if ((strlen (host_error host)) > 0) {
+            return ed
+        }
+        def mine:boolean (((cur.isObj()) && caller.signedIn) && ((cur.str_("owner")) == caller.uid))
+        if (((cur.isObj()) == false) || (((cur.str_("source")) != "mcp") && (mine == false))) {
+            ed.fail = ("No presentation " + id + " that this server can change.")
+            return ed
+        }
+        if ((mine == false) && ((strlen key) == 0)) {
+            ed.fail = "edit_key is needed: the presentation is not this signed-in user's own."
+            return ed
+        }
+        ed.cur = cur
+        ed.mine = mine
+        return ed
+    }
+
+    ; the answer to a change; note goes on its own line after the rest
+    sfn updated:MfJ (host:McpHost caller:Caller id:string saved:MfJ note:string) {
         if ((saved.isObj()) == false) {
             return (Tools.fail("The edit_key does not match this presentation."))
         }
@@ -659,7 +757,65 @@ class Tools {
         out.put("warnings" (J.strs(ws)))
         Tools.links(out (host_base_url host) id)
         out.putStr("deck_id" id)
-        return (Tools.result(host caller out "Updated"))
+        def r:MfJ (Tools.result(host caller out "Updated"))
+        if ((strlen note) > 0) {
+            def c0:MfJ (itemAt (r.list("content")) 0)
+            c0.putStr("text" ((c0.str_("text")) + "\n" + note))
+        }
+        return r
+    }
+
+    sfn bindChart:MfJ (host:McpHost caller:Caller a:MfJ) {
+        if ((host_store_kind host) == "link") {
+            return (Tools.fail("This server keeps no decks (no cloud storage configured): call create_presentation again with the whole deck."))
+        }
+        def bad:string (Tools.checkArgs(a ([] _:string ("deck_id"))))
+        if ((strlen bad) > 0) {
+            return (Tools.fail(bad))
+        }
+        def chart:MfJ (a.field("chart"))
+        if (chart.kind == 0) {
+            return (Tools.fail("Invalid arguments: chart is required."))
+        }
+        def source:MfJ (a.field("source"))
+        if (source.kind == 0) {
+            return (Tools.fail("Invalid arguments: source is required."))
+        }
+        def id:string (a.str_("deck_id"))
+        def ed:Editable (Tools.editable(host caller id (a.str_("edit_key"))))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "bind_chart_data" (host_error host)))
+        }
+        if ((strlen ed.fail) > 0) {
+            return (Tools.fail(ed.fail))
+        }
+        def bound:Bound (Charts.bind((ed.cur.str_("md")) chart source))
+        if ((strlen bound.err) > 0) {
+            return (Tools.fail(bound.err))
+        }
+        if ((strlen bound.md) > (Deck.MAX_MD())) {
+            return (Tools.fail("markdown would be larger than 300 KB."))
+        }
+        def p (new DeckPatch)
+        p.hasMd = true
+        p.md = bound.md
+        def noImgs:[Img]
+        def saved:MfJ (Store.update(host id (ed.mine == false) ed.key p noImgs))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "bind_chart_data" (host_error host)))
+        }
+        def on:string ""
+        if ((strlen bound.title) > 0) {
+            on = (" (on \"" + bound.title + "\")")
+        }
+        def note:string ("Chart " + bound.index + on + " now reads " + (JOut.text((bound.spec.field("data")))) + ". PDF and PPTX exports are snapshots of the data when exported.")
+        def r:MfJ (Tools.updated(host caller id saved note))
+        def sc:MfJ (r.field("structuredContent"))
+        if (sc.isObj()) {
+            sc.putInt("chart" bound.index)
+            sc.put("spec" bound.spec)
+        }
+        return r
     }
 
     sfn get:MfJ (host:McpHost caller:Caller a:MfJ) {

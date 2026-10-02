@@ -1,0 +1,342 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; bind_chart_data (mcp/src/deck.js charts, dataSource, bindChartData): one
+; ```vega-lite chart of a deck pointed at live data, the rest of its spec kept.
+
+Import "McpHost.rgr"
+Import "Json.rgr"
+
+; a ```vega-lite fence: its line numbers, the spec's text and the title of
+; the slide it is on
+class ChartFence {
+    def open:int 0
+    def close:int 0
+    def text:string ""
+    def title:string ""
+}
+
+class Bound {
+    def err:string ""
+    def md:string ""
+    def spec:MfJ (new MfJ)
+    def index:int 0
+    def title:string ""
+}
+
+class Charts {
+    sfn lines:[string] (md:string) {
+        def out:[string]
+        for (strsplit md "\n") raw:string i {
+            def line:string raw
+            if (endsWith line "\r") {
+                line = (substring line 0 ((strlen line) - 1))
+            }
+            push out line
+        }
+        return out
+    }
+
+    sfn isSpace:boolean (c:int) {
+        return ((((c == 32) || (c == 9)) || ((c == 13) || (c == 10))) || ((c == 11) || (c == 12)))
+    }
+
+    ; the fence mark of a line (``` or ~~~, three or more), "" when it is not
+    ; one; `lang` gets the info word
+    sfn fenceMark:string (line:string lang:[string]) {
+        def n:int (strlen line)
+        def i:int 0
+        while ((i < n) && (Charts.isSpace((charAt line i)))) {
+            i = (i + 1)
+        }
+        if (i >= n) {
+            return ""
+        }
+        def c:int (charAt line i)
+        if ((c != 96) && (c != 126)) {
+            return ""
+        }
+        def st:int i
+        while ((i < n) && ((charAt line i) == c)) {
+            i = (i + 1)
+        }
+        if ((i - st) < 3) {
+            return ""
+        }
+        def mark:string (substring line st i)
+        while ((i < n) && (Charts.isSpace((charAt line i)))) {
+            i = (i + 1)
+        }
+        def ws:int i
+        while ((i < n) && (((Charts.isSpace((charAt line i))) == false) && ((charAt line i) != 96))) {
+            i = (i + 1)
+        }
+        push lang (substring line ws i)
+        return mark
+    }
+
+    ; a # or ## heading's title, without its {…} attributes; "" when the line
+    ; is not one
+    sfn headingTitle:string (line:string) {
+        def n:int (strlen line)
+        def h:int 0
+        while ((h < n) && ((charAt line h) == 35)) {
+            h = (h + 1)
+        }
+        if ((h < 1) || (h > 2)) {
+            return ""
+        }
+        if ((h >= n) || ((Charts.isSpace((charAt line h))) == false)) {
+            return ""
+        }
+        def t:string (trim (substring line h n))
+        if (endsWith t "}") {
+            def open:int (lastIndexOf t "{")
+            if (open >= 0) {
+                def inner:string (substring t (open + 1) ((strlen t) - 1))
+                if ((indexOf inner "}") < 0) {
+                    t = (trim (substring t 0 open))
+                }
+            }
+        }
+        return t
+    }
+
+    sfn all:[ChartFence] (md:string) {
+        def ls:[string] (Charts.lines(md))
+        def out:[ChartFence]
+        def inFence:boolean false
+        def mark:string ""
+        def lang:string ""
+        def open:int 0
+        def title:string ""
+        def i:int 0
+        def n:int (array_length ls)
+        while (i < n) {
+            def line:string (itemAt ls i)
+            def words:[string]
+            def m:string (Charts.fenceMark(line words))
+            if ((strlen m) > 0) {
+                def word:string (itemAt words 0)
+                if (inFence == false) {
+                    inFence = true
+                    mark = m
+                    lang = (to_lowercase word)
+                    open = i
+                } {
+                    if ((((charAt m 0) == (charAt mark 0)) && ((strlen m) >= (strlen mark))) && ((strlen word) == 0)) {
+                        if ((lang == "vega-lite") || (lang == "vegalite")) {
+                            def f (new ChartFence)
+                            f.open = open
+                            f.close = i
+                            def body:[string]
+                            def k:int (open + 1)
+                            while (k < i) {
+                                push body (itemAt ls k)
+                                k = (k + 1)
+                            }
+                            f.text = (join body "\n")
+                            f.title = title
+                            push out f
+                        }
+                        inFence = false
+                    }
+                }
+                i = (i + 1)
+                continue
+            }
+            if (inFence == false) {
+                def t:string (Charts.headingTitle(line))
+                if ((strlen t) > 0) {
+                    title = t
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn schemeOk:boolean (s:string) {
+        def n:int (strlen s)
+        if (n == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            def letter:boolean (((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90)))
+            def other:boolean ((((c >= 48) && (c <= 57)) || (c == 43)) || ((c == 46) || (c == 45)))
+            if ((letter == false) && ((i == 0) || (other == false))) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; the chart's data as the deck writes it; `err` gets why not
+    sfn source:MfJ (src:MfJ err:[string]) {
+        if (src.kind == 3) {
+            def s:string (trim src.str)
+            def colon:int (indexOf s ":")
+            def scheme:string ""
+            if (colon > 0) {
+                scheme = (to_lowercase (substring s 0 colon))
+            }
+            def isUrl:boolean ((Charts.schemeOk(scheme)) && ((indexOf s " ") < 0))
+            if (isUrl && ((scheme == "https") || (scheme == "http"))) {
+                def rest:string (substring s (colon + 1) (strlen s))
+                isUrl = ((startsWith rest "//") && ((strlen rest) > 2))
+            }
+            if (isUrl == false) {
+                push err ("source \"" + s + "\" is not a URL.")
+                return (new MfJ)
+            }
+            if ((scheme != "https") && (scheme != "sheet")) {
+                push err "source: an https URL (CSV, JSON or a Google Sheets link) or sheet://<id>/<range>."
+                return (new MfJ)
+            }
+            def u:MfJ (MfJ.newObj())
+            u.putStr("url" s)
+            return u
+        }
+        def id:string ""
+        if (src.isObj()) {
+            id = (trim (J.textOf(src "google_sheets")))
+        }
+        if ((strlen id) == 0) {
+            push err "source: a URL, or { google_sheets: <sheet id or link>, sheet?, range? }."
+            return (new MfJ)
+        }
+        def out:MfJ (MfJ.newObj())
+        out.putStr("source" "google-sheets")
+        out.putStr("id" id)
+        if (J.truthy((src.field("sheet")))) {
+            out.putStr("sheet" (J.textOf(src "sheet")))
+        }
+        if (J.truthy((src.field("range")))) {
+            out.putStr("range" (J.textOf(src "range")))
+        }
+        return out
+    }
+
+    sfn without:MfJ (o:MfJ key:string) {
+        def out:MfJ (MfJ.newObj())
+        def i:int 0
+        while (i < (array_length o.ks)) {
+            def k:string (itemAt o.ks i)
+            if (k != key) {
+                out.put(k (itemAt o.vs i))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn plural:string (n:int) {
+        if (n > 1) {
+            return "s"
+        }
+        return ""
+    }
+
+    ; md with one chart's `data` replaced; chart is its 1-based number among
+    ; the deck's charts, or the title of the slide it is on
+    sfn bind:Bound (md:string chart:MfJ src:MfJ) {
+        def b (new Bound)
+        def all:[ChartFence] (Charts.all(md))
+        def n:int (array_length all)
+        if (n == 0) {
+            b.err = "The presentation has no ```vega-lite chart."
+            return b
+        }
+        def at:int -1
+        if (chart.kind == 2) {
+            def k:int (to_int chart.num)
+            if ((k >= 1) && (k <= n)) {
+                at = (k - 1)
+            } {
+                b.err = ("chart " + (MfJ.numText(chart.num)) + ": the presentation has " + n + " chart" + (Charts.plural(n)) + ".")
+                return b
+            }
+        } {
+            def want:string (to_lowercase (trim chart.str))
+            def on:[int]
+            for all f:ChartFence i {
+                if ((to_lowercase f.title) == want) {
+                    push on i
+                }
+            }
+            if ((array_length on) == 0) {
+                def names:[string]
+                for all f2:ChartFence j {
+                    def t:string f2.title
+                    if ((strlen t) == 0) {
+                        t = "(untitled)"
+                    }
+                    push names ((j + 1) + ". " + t)
+                }
+                b.err = ("No chart on a slide titled \"" + chart.str + "\". Charts are on: " + (join names "; ") + ".")
+                return b
+            }
+            if ((array_length on) > 1) {
+                def nums:[string]
+                for on oi:int q {
+                    push nums (to_string (oi + 1))
+                }
+                b.err = ("The slide \"" + chart.str + "\" has " + (array_length on) + " charts: give chart as its number (" + (join nums " or ") + ").")
+                return b
+            }
+            at = (itemAt on 0)
+        }
+        def hit:ChartFence (itemAt all at)
+        def num:string (to_string (at + 1))
+        def spec:MfJ (J.parse(hit.text))
+        if (spec.kind == 0) {
+            b.err = ("Chart " + num + " is not valid JSON.")
+            return b
+        }
+        if ((spec.isObj()) == false) {
+            b.err = ("Chart " + num + " is not a Vega-Lite spec object.")
+            return b
+        }
+        def why:[string]
+        def data:MfJ (Charts.source(src why))
+        if ((array_length why) > 0) {
+            b.err = (itemAt why 0)
+            return b
+        }
+        spec.put("data" data)
+        ; a layer's own data would win over the new one
+        def layer:MfJ (spec.field("layer"))
+        if (layer.isArr()) {
+            def li:int 0
+            while (li < (array_length layer.arr)) {
+                def l:MfJ (itemAt layer.arr li)
+                if (l.isObj()) {
+                    set layer.arr li (Charts.without(l "data"))
+                }
+                li = (li + 1)
+            }
+        }
+        def ls:[string] (Charts.lines(md))
+        def out:[string]
+        def i:int 0
+        while (i <= hit.open) {
+            push out (itemAt ls i)
+            i = (i + 1)
+        }
+        for (strsplit (JOut.pretty(spec)) "\n") pl:string p {
+            push out pl
+        }
+        i = hit.close
+        while (i < (array_length ls)) {
+            push out (itemAt ls i)
+            i = (i + 1)
+        }
+        b.md = (join out "\n")
+        b.spec = spec
+        b.index = (at + 1)
+        b.title = hit.title
+        return b
+    }
+}

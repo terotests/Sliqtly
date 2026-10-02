@@ -149,6 +149,13 @@ operators {
             go ( (e 1) ".ThemeCSS(" (e 2) ")" )
         }
     }
+    ; the site's Firebase config (public) as JSON, cached per instance; ""
+    ; when it cannot be read, which is no error
+    host_web_config _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".WebConfig()" )
+        }
+    }
     ; {"status":n,"body":"…"} of a GET on a public address; status 0 on failure
     host_fetch_text _:string (h:McpHost url:string accept:string limit:int) {
         templates {

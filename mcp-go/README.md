@@ -16,10 +16,11 @@ Not deployed. `mcp/` (the Cloud Function, Node.js) is still what
 | --- | --- |
 | [`rgr/App.rgr`](rgr/App.rgr) | routing, CORS, the `/mcp` transport checks, sign-in on a request |
 | [`rgr/Mcp.rgr`](rgr/Mcp.rgr) | MCP: JSON-RPC, `initialize`, `tools/*`, `resources/*` |
-| [`rgr/Tools.rgr`](rgr/Tools.rgr) | the five tools, their schemas and UI metadata, the preview resource |
+| [`rgr/Tools.rgr`](rgr/Tools.rgr) | the six tools, their schemas and UI metadata, the preview resource |
 | [`rgr/OAuth.rgr`](rgr/OAuth.rgr) | the OAuth 2.1 server: registration, authorize, approve, token, refresh |
 | [`rgr/Store.rgr`](rgr/Store.rgr) | shares, edit keys, pictures, listing |
 | [`rgr/Deck.rgr`](rgr/Deck.rgr) | the checks: picture names and types, outline, warnings |
+| [`rgr/Charts.rgr`](rgr/Charts.rgr) | `bind_chart_data`: finds a deck's ```` ```vega-lite ```` charts and points one at a CSV/JSON URL or a Google Sheet (as `mcp/src/deck.js`) |
 | [`rgr/Check.rgr`](rgr/Check.rgr) | the deck read by the editor's own model ([`src/PresDeck.rgr`](../src/PresDeck.rgr)): slide count, slides that run over, charts and diagrams that are not drawn |
 | [`rgr/Json.rgr`](rgr/Json.rgr) | JSON: Ranger's own `MfJ` (gallery/mfiles) and a writer |
 | [`rgr/McpHost.rgr`](rgr/McpHost.rgr) | the operators the Go host implements |

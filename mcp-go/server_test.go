@@ -180,6 +180,8 @@ var fakeNet = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Res
 		return respond(200, "image/png", string(PNG)), nil
 	case "https://client.test/meta.json":
 		return respond(200, "application/json", `{"client_id":"https://client.test/meta.json","client_name":"Test Client","redirect_uris":["https://client.test/cb"]}`), nil
+	case BASE + "/__/firebase/init.json":
+		return respond(200, "application/json", `{"projectId":"sliqtly-test","apiKey":"k"}`), nil
 	case "https://images.test/page.html":
 		return respond(200, "text/html", "<html>"), nil
 	}
@@ -302,7 +304,7 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	eq(t, names, []string{"create_presentation", "get_presentation", "list_presentations", "sliqtly_guide", "update_presentation"})
+	eq(t, names, []string{"bind_chart_data", "create_presentation", "get_presentation", "list_presentations", "sliqtly_guide", "update_presentation"})
 	uri, _ := create.Meta["ui"].(map[string]any)["resourceUri"].(string)
 	match(t, uri, `^ui://sliqtly/preview-[0-9a-f]{10}\.html$`)
 	eq(t, create.Meta["openai/outputTemplate"], uri)
@@ -373,6 +375,9 @@ func TestCreateUpdateReadWithPictures(t *testing.T) {
 	eq(t, after["theme"], "corporate")
 	eq(t, after["css"], nil, "a new theme without css drops the old theme's sheet")
 	eq(t, len(list(after["files"])), 2)
+
+	// the preview reads the stored deck with the site's Firebase config
+	eq(t, u.Meta["sliqtly/firebase"], map[string]any{"projectId": "sliqtly-test", "apiKey": "k"})
 
 	g := sc(call(t, s, "get_presentation", map[string]any{"deck_id": id}))
 	eq(t, g["markdown"], after["md"])
@@ -728,4 +733,63 @@ func TestDeckIsCheckedByTheEditorsModel(t *testing.T) {
 		}
 		eq(t, out["slides"], results[0]["slides"])
 	}
+}
+
+func TestBindChartDataPointsAChartAtLiveData(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, testEnv(&f, nil), "")
+	defer s.close()
+	j := func(v any) string { b, _ := json.Marshal(v); return string(b) }
+	md := "# Q3\n\n## Revenue\n\n```vega-lite\n" + j(map[string]any{"mark": "bar", "data": map[string]any{"values": []any{map[string]any{"m": "Jan", "v": 1}}}, "encoding": map[string]any{"x": map[string]any{"field": "m"}}}) +
+		"\n```\n\n## Costs\n\n```vega-lite\n" + j(map[string]any{"layer": []any{map[string]any{"mark": "line", "data": map[string]any{"values": []any{}}}}}) + "\n```\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Q3", "markdown": md})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id, key := sc(c)["deck_id"].(string), sc(c)["edit_key"].(string)
+
+	a := call(t, s, "bind_chart_data", map[string]any{"deck_id": id, "edit_key": key, "chart": "revenue", "source": map[string]any{"google_sheets": "SHEET1", "range": "Monthly!A:B"}})
+	if a.IsError {
+		t.Fatal(textOf(a))
+	}
+	ao := sc(a)
+	eq(t, ao["chart"], 1)
+	spec := mapOf(ao["spec"])
+	eq(t, spec["data"], map[string]any{"source": "google-sheets", "id": "SHEET1", "range": "Monthly!A:B"})
+	eq(t, spec["encoding"], map[string]any{"x": map[string]any{"field": "m"}})
+	eq(t, ao["share_url"], sc(c)["share_url"])
+	match(t, textOf(a), `Chart 1 \(on "Revenue"\) now reads \{"source":"google-sheets","id":"SHEET1","range":"Monthly!A:B"\}\. PDF and PPTX`)
+
+	b := call(t, s, "bind_chart_data", map[string]any{"deck_id": id, "edit_key": key, "chart": 2, "source": "https://data.test/costs.csv"})
+	if b.IsError {
+		t.Fatal(textOf(b))
+	}
+	eq(t, sc(b)["spec"], map[string]any{"layer": []any{map[string]any{"mark": "line"}}, "data": map[string]any{"url": "https://data.test/costs.csv"}})
+	stored := f.db.doc("shares/" + id)["md"].(string)
+	match(t, stored, `"id": "SHEET1"`)
+	match(t, stored, `costs\.csv`)
+	match(t, stored, `## Costs`)
+	// written as JSON.stringify(spec, null, 2)
+	match(t, stored, "```vega-lite\n\\{\n  \"layer\": \\[\n    \\{\n      \"mark\": \"line\"\n    \\}\n  \\],\n  \"data\": \\{\n    \"url\": \"https://data.test/costs.csv\"\n  \\}\n\\}\n```")
+
+	for _, tc := range []struct {
+		args map[string]any
+		re   string
+	}{
+		{map[string]any{"chart": 3, "source": "https://data.test/x.csv"}, `has 2 charts`},
+		{map[string]any{"chart": "Nope", "source": "https://data.test/x.csv"}, `No chart on a slide titled`},
+		{map[string]any{"chart": 1, "source": "http://data.test/x.csv"}, `https URL`},
+		{map[string]any{"chart": 1, "source": "https://data.test/x.csv", "edit_key": "wrong"}, `edit_key does not match`},
+	} {
+		args := map[string]any{"deck_id": id, "edit_key": key}
+		for k, v := range tc.args {
+			args[k] = v
+		}
+		r := call(t, s, "bind_chart_data", args)
+		if !r.IsError {
+			t.Fatalf("%v did not fail", tc.args)
+		}
+		match(t, textOf(r), tc.re)
+	}
+	eq(t, f.db.doc("shares/" + id)["md"], stored)
 }
