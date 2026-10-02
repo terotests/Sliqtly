@@ -3739,6 +3739,39 @@ class PresApp {
         return true
     }
 
+    ; --- a new presentation ------------------------------------------------------
+    ; File → New presentation: the window asks the name, the theme (`rows`,
+    ; the page's "value<TAB>label" lines; `theme` the one in use) and what
+    ; data it starts with. Create is "newdeck-create" to the page, which
+    ; reads `newDeckPlan`; Cancel and Esc leave the deck that is open as it is.
+    fn openNewDeck:boolean (rows:string theme:string name:string) {
+        if (mode == "present") {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 560.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        def py:double (barH + 24.0)
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        chart.openNewDeck(rows theme name px py W H)
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; {"name": text, "theme": key, "data": "none"|"sample"|"file"}
+    fn newDeckPlan:string () {
+        return ("{\"name\":" + (PresApp.jsonStr(chart.ndName)) + ",\"theme\":" + (PresApp.jsonStr(chart.ndTheme)) + ",\"data\":" + (PresApp.jsonStr(chart.ndData)) + "}")
+    }
+
     ; {"to": "slide"|"bg-slide"|"bg-all", "crop": "x,y,w,h" in pixels,
     ;  "whole": true when nothing was cut away, "alt": the description}
     fn pastePlan:string () {
@@ -4055,6 +4088,10 @@ class PresApp {
             if (chart.mode == "image") {
                 this.imageAfterClose()
             }
+            if ((chart.mode == "newdeck") && chart.wantsCreate) {
+                chart.wantsCreate = false
+                push requests "newdeck-create"
+            }
             if (chart.mode == "paste") {
                 if chart.wantsPlace {
                     chart.wantsPlace = false
@@ -4101,7 +4138,7 @@ class PresApp {
             return
         }
         chart.changed = false
-        if (chart.mode == "paste") {
+        if ((chart.mode == "paste") || (chart.mode == "newdeck")) {
             return
         }
         if (chart.mode == "image") {

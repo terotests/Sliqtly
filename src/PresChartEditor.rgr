@@ -90,6 +90,17 @@ class PresChartEditor {
     def pasteNote:string ""
     def slideAspect:double 1.7777777
     def wantsPlace:boolean false
+    ; A new presentation (`mode` "newdeck"): its name, theme and what data it
+    ; starts with ("none", "sample" a chart with a sample table, "file" a
+    ; data file picked after it is made). `ndRows` are the page's themes,
+    ; "value<TAB>label" lines; `ndTab` the tab showing. Create sets
+    ; `wantsCreate` and closes; Cancel and Esc only close.
+    def ndName:string ""
+    def ndTheme:string ""
+    def ndRows:string ""
+    def ndData:string "none"
+    def ndTab:string "name"
+    def wantsCreate:boolean false
 
     Constructor () {
     }
@@ -122,6 +133,18 @@ class PresChartEditor {
         }
         wantsPlace = false
         this.openAt(px py pw ph)
+    }
+
+    fn openNewDeck:void (rows:string theme:string name:string px:double py:double pw:double ph:double) {
+        mode = "newdeck"
+        ndRows = rows
+        ndTheme = theme
+        ndName = name
+        ndData = "none"
+        ndTab = "name"
+        wantsCreate = false
+        this.openAt(px py pw ph)
+        this.focusInput("nd-name")
     }
 
     fn open:void (m:PresChartModel px:double py:double pw:double ph:double) {
@@ -319,9 +342,14 @@ class PresChartEditor {
     }
 
     fn input:InputCtl (tid:string name:string value:string cls:string parent:EVGElement) {
+        return this.inputWith(tid name value "" cls parent)
+    }
+
+    fn inputWith:InputCtl (tid:string name:string value:string hint:string cls:string parent:EVGElement) {
         def c (new InputCtl())
         c.tid = tid
         c.name = name
+        c.placeholder = hint
         c.fontFamily = "Open Sans"
         c.fontSize = 13.0
         c.boxWidth = 80.0
@@ -410,6 +438,10 @@ class PresChartEditor {
             win.name = (PresI18n.t("Add image"))
             win.title = (PresI18n.t("Add image"))
         }
+        if (mode == "newdeck") {
+            win.name = (PresI18n.t("New presentation"))
+            win.title = (PresI18n.t("New presentation"))
+        }
         win.closeLabel = (PresI18n.t("Close"))
         win.isModal = false
         win.x = x
@@ -435,6 +467,10 @@ class PresChartEditor {
     }
 
     fn fillBody:void (root:EVGElement) {
+        if (mode == "newdeck") {
+            this.newDeckBody(root)
+            return
+        }
         if (mode == "paste") {
             this.pasteBody(root)
             return
@@ -594,6 +630,93 @@ class PresChartEditor {
         bottom.addChild((this.div("ce-grow")))
         this.button("pe-add" (PresI18n.t("Add image")) "primary" bottom)
         root.addChild(bottom)
+    }
+
+    ; --- a new presentation --------------------------------------------------------
+    fn newDeckBody:void (root:EVGElement) {
+        def t0 (new TabsCtl())
+        tabs = t0
+        tabs.tid = "nd-tabs"
+        tabs.name = (PresI18n.t("New presentation"))
+        tabs.addItem("name" (PresI18n.t("Name")) "" false)
+        tabs.addItem("theme" (PresI18n.t("Theme")) "" false)
+        tabs.addItem("data" (PresI18n.t("Data sources")) "" false)
+        tabs.value = ndTab
+        tabs.build()
+        UiTree.addClass((unwrap tabs.rootEl) "ce-tabs")
+        this.put(tabs root)
+
+        def pane:EVGElement (this.div("ce-pane"))
+        if (ndTab == "name") {
+            def sec:EVGElement (this.section(pane (PresI18n.t("Presentation"))))
+            def nr:EVGElement (this.field((PresI18n.t("Name"))))
+            this.inputWith("nd-name" (PresI18n.t("Name")) ndName (PresI18n.t("New presentation")) "ce-wide" nr)
+            sec.addChild(nr)
+            sec.addChild((this.text("ce-doc" (PresI18n.t("The name becomes the first slide's heading. You can change it later in the Markdown.")))))
+        }
+        if (ndTab == "theme") {
+            def sec2:EVGElement (this.section(pane (PresI18n.t("Theme"))))
+            def chips:EVGElement (this.div("ce-chips"))
+            def rows:[string] (strsplit ndRows (strfromcode 10))
+            def i:int 0
+            while (i < (array_length rows)) {
+                def row:string (itemAt rows i)
+                def cells:[string] (strsplit row (strfromcode 9))
+                if ((array_length cells) >= 2) {
+                    def v:string (itemAt cells 0)
+                    this.chip(("nd-theme-" + v) (itemAt cells 1) (v == ndTheme) chips)
+                }
+                i = (i + 1)
+            }
+            sec2.addChild(chips)
+            sec2.addChild((this.text("ce-doc" (PresI18n.t("The theme sets the colours, fonts and layout of every slide. The Theme menu changes it later.")))))
+        }
+        if (ndTab == "data") {
+            def sec3:EVGElement (this.section(pane (PresI18n.t("Start with"))))
+            def dc:EVGElement (this.div("ce-chips"))
+            this.chip("nd-data-none" (PresI18n.t("No data")) (ndData == "none") dc)
+            this.chip("nd-data-sample" (PresI18n.t("A sample chart")) (ndData == "sample") dc)
+            this.chip("nd-data-file" (PresI18n.t("A data file (CSV, XLSX)")) (ndData == "file") dc)
+            sec3.addChild(dc)
+            def why:string (PresI18n.t("Charts and tables can read data you add later in the Files tab, or a Google Sheet or CSV link pasted into the Markdown."))
+            if (ndData == "sample") {
+                why = (PresI18n.t("A slide with a bar chart and its table, ready to edit in the chart settings."))
+            }
+            if (ndData == "file") {
+                why = (PresI18n.t("After Create you pick a file from your computer, and choose what to make of it."))
+            }
+            sec3.addChild((this.text("ce-doc" why)))
+        }
+        root.addChild(pane)
+
+        def bottom:EVGElement (this.div("ce-foot"))
+        this.button("nd-cancel" (PresI18n.t("Cancel")) "outline" bottom)
+        bottom.addChild((this.div("ce-grow")))
+        this.button("nd-create" (PresI18n.t("Create")) "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    fn newDeckAct:boolean (tid:string) {
+        if ((indexOf tid "nd-theme-") == 0) {
+            ndTheme = (substring tid 9 (strlen tid))
+            this.rebuild()
+            return true
+        }
+        if ((indexOf tid "nd-data-") == 0) {
+            ndData = (substring tid 8 (strlen tid))
+            this.rebuild()
+            return true
+        }
+        if (tid == "nd-cancel") {
+            wantsClose = true
+            return true
+        }
+        if (tid == "nd-create") {
+            wantsCreate = true
+            wantsClose = true
+            return true
+        }
+        return false
     }
 
     fn shapeAspect:double (k:string) {
@@ -1068,6 +1191,19 @@ class PresChartEditor {
             rev = (rev + 1)
             return
         }
+        if ((mode == "newdeck") && (ctlTid == tabs.tid)) {
+            host.click(tid)
+            keep.restore()
+            if (tabs.value != ndTab) {
+                ndTab = tabs.value
+                focusTid = ""
+                if (ndTab == "name") {
+                    focusTid = "nd-name"
+                }
+                this.rebuild()
+            }
+            return
+        }
         if (ctlTid == tabs.tid) {
             host.click(tid)
             keep.restore()
@@ -1197,6 +1333,9 @@ class PresChartEditor {
             return
         }
         if ((mode == "paste") && (this.pasteAct(tid))) {
+            return
+        }
+        if ((mode == "newdeck") && (this.newDeckAct(tid))) {
             return
         }
         if (tid == "ce-done") {
@@ -1345,6 +1484,9 @@ class PresChartEditor {
         if (focusTid == "pe-alt") {
             pasteAlt = v
         }
+        if (focusTid == "nd-name") {
+            ndName = v
+        }
         if ((indexOf focusTid "ce-h-") == 0) {
             model.setHeader((?? (str2int (substring focusTid 5 (strlen focusTid))) -1) v)
         }
@@ -1445,6 +1587,12 @@ class PresChartEditor {
             return true
         }
         if (name == "escape") {
+            wantsClose = true
+            return true
+        }
+        ; a new presentation: Enter makes it
+        if ((mode == "newdeck") && (name == "enter")) {
+            wantsCreate = true
             wantsClose = true
             return true
         }

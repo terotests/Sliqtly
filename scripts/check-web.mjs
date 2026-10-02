@@ -1980,6 +1980,34 @@ try {
     await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Vielä yksi\n"));
     await pc.waitForTimeout(5000);
     check("PRO: a deck changed elsewhere is not written over", fakeDb.get("shares/" + id).md === "# Muualla muutettu\n");
+
+    // File → New presentation asks first: Esc leaves the deck as it is
+    const before = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search) };
+    await pc.evaluate(() => window.__fileRequest("new"));
+    await pc.waitForTimeout(300);
+    const asked = await pc.evaluate(() => window.__app.chartIsOpen());
+    await pc.keyboard.press("Escape");
+    await pc.waitForTimeout(500);
+    const kept = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search) };
+    check("PRO: New presentation asks first, and Esc keeps the deck", asked && kept.md === before.md && kept.at === before.at, JSON.stringify(kept.at));
+    // made: a share and an address of its own; the deck before stays as it was
+    await pc.evaluate(() => window.__fileRequest("new"));
+    await pc.waitForTimeout(300);
+    await pc.keyboard.type("Uusi pakka");
+    await pc.keyboard.press("Enter");
+    await pc.waitForTimeout(3000);
+    const made = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search), ids: shareId() };
+    const newId = made.ids.find((k) => k !== id) || "";
+    check("PRO: a new presentation gets its own share and address", made.ids.length === 2 && made.at === "/s/" + newId + "?edit" && made.md.startsWith("# Uusi pakka") && fakeDb.get("shares/" + newId)?.md === made.md && fakeDb.get("shares/" + id).md === "# Muualla muutettu\n",
+      JSON.stringify({ at: made.at, ids: made.ids }));
+    // the last change of a deck reaches its share although another is made at once
+    await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Viimeinen muutos\n"));
+    await pc.waitForTimeout(1700);
+    await pc.evaluate(() => window.__fileRequest("new"));
+    await pc.waitForTimeout(300);
+    await pc.keyboard.press("Enter");
+    await pc.waitForTimeout(3000);
+    check("PRO: a deck's last change is saved to its share before a new one is made", fakeDb.get("shares/" + newId).md.includes("## Viimeinen muutos") && shareId().length === 3);
     check("no page errors with PRO", perr.length === 0, perr.join(" | "));
     await ctx.close();
   }
