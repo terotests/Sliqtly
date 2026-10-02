@@ -326,36 +326,81 @@ async function readDocFile(path) {
 
 // An edited workbook back into the deck: the .xlsx itself, and the CSV of
 // each sheet, which the stills, tables and charts read.
+// An edited workbook back into the deck. Only the .xlsx is kept; its sheets'
+// CSVs (stills, tables, charts) are handed over in memory. A live sheet over a
+// plain CSV writes that CSV back instead.
 async function saveWorkbook(file, raw, sheetName) {
   const path = bare(file);
-  if (/\.xlsx$/i.test(path)) {
-    await keepFile({ path, type: XLSX_MIME, size: raw.byteLength, data: new Blob([raw], { type: XLSX_MIME }) });
-  }
   const PresData = await loadPresData();
-  const r = JSON.parse(PresData.xlsxSheets(asRangerBuffer(raw.slice(0))));
-  if (r.error) {
-    toast(t("Could not read the workbook: ") + r.error);
+  const got = workbookSheets(/\.xlsx$/i.test(path) ? path : path.replace(/\.[^.\/]+$/, ".xlsx"), PresData, raw);
+  if (got.error) {
+    toast(t("Could not read the workbook: ") + got.error);
     return;
   }
-  const used = r.sheets.filter((sh) => sh.csv.replace(/[,\s]/g, "") !== "");
-  const base = path.replace(/\.[^.\/]+$/, "");
-  for (const sh of used) {
-    let target;
-    if (/\.csv$/i.test(path)) {
-      if (sh !== used[0]) continue;
-      target = path;
-    } else {
-      target = used.length > 1 ? `${base}-${sh.name.replace(/[\\/:*?"<>|\s]+/g, "-")}.csv` : base + ".csv";
+  if (/\.xlsx$/i.test(path)) {
+    await keepFile({ path, type: XLSX_MIME, size: raw.byteLength, data: new Blob([raw], { type: XLSX_MIME }) });
+    for (const sh of got.sheets) {
+      chartFiles.set(sh.path, Promise.resolve(sh.csv));
+      app.setChartData(sh.path, sh.csv);
     }
-    const csv = tidyCsv(sh.csv);
-    await keepFile({ path: target, type: "text/csv", size: csv.length, data: csv });
-    chartFiles.set(target, Promise.resolve(csv));
-    app.setChartData(target, csv);
+  } else if (got.sheets.length) {
+    const csv = got.sheets[0].csv;
+    await keepFile({ path, type: "text/csv", size: csv.length, data: csv });
+    chartFiles.set(path, Promise.resolve(csv));
+    app.setChartData(path, csv);
   }
   await saveDoc(true);
   dropThumbs();
   needsPaint = true;
   toast(t("Saved ") + path.split("/").pop());
+}
+
+// A workbook is kept as itself. The CSV of each sheet — what tables, charts
+// and a live sheet's still read — is derived from it when it is needed and
+// never stored: `data/<book>-<Sheet>.csv` (or `data/<book>.csv` for a
+// one-sheet book) names a sheet of `data/<book>.xlsx`.
+function workbookSheets(xlsxPath, PresData, raw) {
+  const r = JSON.parse(PresData.xlsxSheets(asRangerBuffer(raw.slice(0))));
+  if (r.error) return { error: r.error, sheets: [] };
+  const used = r.sheets.filter((sh) => sh.csv.replace(/[,\s]/g, "") !== "");
+  const base = bare(xlsxPath).replace(/\.xlsx$/i, "");
+  return {
+    error: "",
+    sheets: used.map((sh) => {
+      const csv = tidyCsv(sh.csv);
+      const path = used.length > 1 ? `${base}-${sh.name.replace(/[\\/:*?"<>|\s]+/g, "-")}.csv` : base + ".csv";
+      return { name: sh.name, path, csv, text: csv };
+    }),
+  };
+}
+
+// a kept workbook (path @ when it was saved) → Promise<Map(csv path → csv)>
+const derived = new Map();
+function sheetsOfWorkbook(f) {
+  const key = f.path + "@" + (f.updated || 0);
+  if (!derived.has(key)) {
+    derived.set(key, (async () => {
+      const PresData = await loadPresData();
+      const blob = typeof f.data === "string" ? new Blob([f.data]) : f.data;
+      const out = new Map();
+      for (const sh of workbookSheets(f.path, PresData, await blob.arrayBuffer()).sheets) out.set(sh.path, sh.csv);
+      return out;
+    })().catch(() => new Map()));
+  }
+  return derived.get(key);
+}
+
+/** A sheet's CSV, derived from the workbook it names, or null. */
+async function derivedCsv(url) {
+  const want = bare(url);
+  for (const f of await docFiles()) {
+    if (!/\.xlsx$/i.test(f.path)) continue;
+    const base = f.path.replace(/\.xlsx$/i, "");
+    if (want !== base + ".csv" && !want.startsWith(base + "-")) continue;
+    const got = (await sheetsOfWorkbook(f)).get(want);
+    if (got != null) return got;
+  }
+  return null;
 }
 
 const liveSheets = createLiveSheets({
@@ -370,6 +415,8 @@ const liveSheets = createLiveSheets({
   onChange: () => { needsPaint = true; },
 });
 window.__liveSheets = liveSheets;
+// for check:web: what the document keeps as files
+window.__docFiles = () => docFiles().then((fs) => fs.map((f) => f.path));
 
 async function docFiles() {
   const out = new Map();
@@ -621,17 +668,12 @@ async function importData(file, ask) {
     const PresData = await loadPresData();
     const bytes = await file.arrayBuffer();
     xlsx = { path: placeFor(file.name, XLSX_MIME), bytes: bytes.slice(0), kept: false };
-    const r = JSON.parse(PresData.xlsxSheets(asRangerBuffer(bytes.slice(0))));
-    if (r.error) {
-      toast(t("Could not read the workbook: ") + r.error);
+    const got = workbookSheets(xlsx.path, PresData, bytes);
+    if (got.error) {
+      toast(t("Could not read the workbook: ") + got.error);
       return true;
     }
-    const used = r.sheets.filter((sh) => sh.csv.replace(/[,\s]/g, "") !== "");
-    sheets = used.map((sh) => {
-      const csv = tidyCsv(sh.csv);
-      const name = used.length > 1 ? `${base}-${sh.name.replace(/[\\/:*?"<>|\s]+/g, "-")}.csv` : base + ".csv";
-      return { name: sh.name, path: placeFor(name, "text/csv"), csv, text: csv };
-    });
+    sheets = got.sheets;
   } else {
     const text = await file.text();
     let csv = text;
@@ -712,9 +754,21 @@ async function keepData(i) {
   // The workbook itself too, once: a live sheet (```sheet) opens it, and the
   // files tab edits it.
   const wb = importing.xlsx;
-  if (wb && !wb.kept) {
-    wb.kept = true;
-    await keepFile({ path: wb.path, type: XLSX_MIME, size: wb.bytes.byteLength, data: new Blob([wb.bytes], { type: XLSX_MIME }) });
+  if (wb) {
+    // only the workbook is a file; its sheets are read from it
+    if (!wb.kept) {
+      wb.kept = true;
+      await keepFile({ path: wb.path, type: XLSX_MIME, size: wb.bytes.byteLength, data: new Blob([wb.bytes], { type: XLSX_MIME }) });
+    }
+    for (const one of importing.sheets) {
+      chartFiles.set(one.path, Promise.resolve(one.text));
+      app.setChartData(one.path, one.text);
+    }
+    await saveDoc(true);
+    dropThumbs();
+    refreshFiles();
+    needsPaint = true;
+    return;
   }
   await keepFile({ path: sh.path, type: /\.json$/i.test(sh.path) ? "application/json" : "text/csv", size: sh.text.length, data: sh.text });
   chartFiles.set(sh.path, Promise.resolve(sh.text));
@@ -1196,10 +1250,17 @@ function fetchChartFiles(rev) {
       continue;
     }
     const tries = ["./" + url.replace(/^\.?\//, ""), "https://cdn.jsdelivr.net/npm/vega-datasets@2/" + url.replace(/^\.?\//, "")];
+    let fromWorkbook = false;
     const got = (async () => {
       // the document's own copy, when it has one
       const mine = (await docFiles()).find((f) => f.path === bare(url));
       if (mine && typeof mine.data === "string") return mine.data;
+      // a sheet of a workbook the document keeps
+      const sheet = /\.csv$/i.test(url) ? await derivedCsv(url) : null;
+      if (sheet != null) {
+        fromWorkbook = true;
+        return sheet;
+      }
       for (const u of tries) {
         try {
           const r = await fetch(u);
@@ -1218,6 +1279,8 @@ function fetchChartFiles(rev) {
       dropThumbs();
       needsPaint = true;
       // kept with the document, so it opens without the network next time
+      // (a workbook's sheet is the workbook's: nothing to keep)
+      if (fromWorkbook) return;
       docFiles().then((have) => {
         if (!have.some((f) => f.path === bare(url))) keepFile({ path: bare(url), type: "text/plain", size: text.length, data: text }).catch(fail);
       });

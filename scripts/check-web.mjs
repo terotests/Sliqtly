@@ -1625,6 +1625,8 @@ try {
           return u ? { src: /```sheet\ndata\/check-book\.xlsx\nsheet: Sales\ndata: data\/check-book-Sales\.csv/.test(a.source()), loaded: u.loaded, rows: u.rows } : null;
         });
         check("Live spreadsheet: a ```sheet fence naming the kept workbook, its still drawn from the sheet's CSV", fence && fence.src && fence.loaded && fence.rows > 0, JSON.stringify(fence));
+        const kept = (await pd.evaluate(() => window.__docFiles())).filter((p) => p.startsWith("data/check-book"));
+        check("a workbook is kept as itself: the .xlsx, and no CSV files of its sheets", kept.includes("data/check-book.xlsx") && !kept.some((p) => p.endsWith(".csv")), JSON.stringify(kept));
         const last = await pd.evaluate(() => window.__app.deck.slideCount() - 1);
         await pd.evaluate((i) => { const a = window.__app; a.selectSlide(i); a.present(false); }, last);
         await pd.waitForFunction(() => { const e = document.querySelector(".sheet-live"); return e && e.querySelector("canvas") && e.style.visibility === "visible"; }, null, { timeout: 30000 }).catch(() => {});
