@@ -19,7 +19,8 @@ without a key, and `list_presentations` lists them.
 | `create_presentation` | `title`, `markdown`, `theme`, `css`, `css_mode`, `images` → `share_url`, `edit_url`, `deck_id`, `edit_key` |
 | `update_presentation` | `deck_id` + `edit_key`, and what changes; the link stays |
 | `bind_chart_data` | `deck_id` + `edit_key`, `chart` (number or slide title), `source` (CSV/JSON URL or Google Sheet): the chart reads that data live |
-| `get_presentation` | `deck_id` → the Markdown, theme, CSS and picture list |
+| `get_presentation` | `deck_id` → the Markdown, theme, CSS, pictures and files |
+| `list_files` | `deck_id` → every file the deck keeps; for each `.xlsx`, its sheets, columns, row counts and the CSV name a sheet is read by |
 | `list_presentations` | the signed-in user's decks (asks for sign-in otherwise) |
 
 ## Sign-in
