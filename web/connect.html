@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sliqtly for AI assistants</title>
+<meta name="description" content="Connect Sliqtly to Claude, ChatGPT, Cursor and other MCP clients, and have your assistant make slide presentations from Markdown.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #f6f7fb; --card: #ffffff; --fg: #1d2233; --muted: #5d6480; --line: #dfe3ef;
+    --accent: #4b5bdc; --code-bg: #eef0f8; --warm: #c46a12;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0b1030; --card: #121944; --fg: #e8ecff; --muted: #9aa3c7; --line: #2d3a7a;
+      --accent: #8fa0ff; --code-bg: #0b1030; --warm: #ffa546;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  header img { width: 36px; height: 36px; }
+  header a { color: inherit; text-decoration: none; font-weight: 700; font-size: 20px; }
+  h1 { font-size: 30px; line-height: 1.2; margin: 24px 0 8px; }
+  h2 { font-size: 22px; margin: 0 0 4px; display: flex; gap: 10px; align-items: baseline; }
+  h3 { font-size: 16px; margin: 18px 0 6px; }
+  p, li { color: var(--fg); }
+  .lead { color: var(--muted); font-size: 18px; margin: 0 0 24px; }
+  .url { display: flex; gap: 8px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 0 0 28px; }
+  .url code { flex: 1; font-size: 17px; background: none; padding: 0; overflow-wrap: anywhere; }
+  button.copy { border: 1px solid var(--line); background: var(--code-bg); color: var(--fg); border-radius: 7px; padding: 4px 10px; font: inherit; font-size: 14px; cursor: pointer; }
+  button.copy:hover { border-color: var(--accent); }
+  nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 28px; }
+  nav a { border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: 999px; padding: 4px 14px; text-decoration: none; font-size: 15px; }
+  nav a:hover { border-color: var(--accent); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; margin: 0 0 18px; }
+  .tag { font-size: 13px; font-weight: 500; color: var(--muted); }
+  ol, ul { padding-left: 22px; margin: 8px 0; }
+  li { margin: 4px 0; }
+  code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.92em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  pre { position: relative; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 8px 0; }
+  pre code { background: none; padding: 0; font-size: 14px; }
+  pre button.copy { position: absolute; top: 6px; right: 6px; }
+  .note { color: var(--muted); font-size: 15px; }
+  a { color: var(--accent); }
+  .tools td { padding: 4px 12px 4px 0; vertical-align: top; }
+  .tools td:first-child { white-space: nowrap; }
+  blockquote { margin: 8px 0; padding: 8px 14px; border-left: 3px solid var(--warm); background: var(--code-bg); border-radius: 0 8px 8px 0; }
+</style>
+</head>
+<body>
+<main>
+  <header><img src="/favicon.svg" alt=""><a href="/">Sliqtly</a></header>
+
+  <h1>Sliqtly for AI assistants</h1>
+  <p class="lead">Connect Sliqtly to your assistant and ask it for a presentation. It writes the slides in Markdown, picks a theme, adds CSS, pictures, charts and diagrams, and gives you a link that opens the finished presentation.</p>
+
+  <div class="url"><code id="server">https://sliqtly.web.app/mcp</code><button class="copy" data-copy="server">Copy</button></div>
+
+  <nav aria-label="Clients">
+    <a href="#claude">Claude</a>
+    <a href="#claude-code">Claude Code</a>
+    <a href="#chatgpt">ChatGPT</a>
+    <a href="#openai-api">OpenAI API</a>
+    <a href="#cursor">Cursor</a>
+    <a href="#others">VS Code, Windsurf, Gemini CLI…</a>
+    <a href="#use">Using it</a>
+  </nav>
+
+  <section id="claude">
+    <h2>Claude <span class="tag">claude.ai, desktop and mobile apps</span></h2>
+    <h3>Free, Pro and Max</h3>
+    <ol>
+      <li>Open <b>Customize → Connectors</b> (in older versions <b>Settings → Connectors</b>).</li>
+      <li>Click <b>Add custom connector</b>.</li>
+      <li>Name: <code>Sliqtly</code>. URL: <code>https://sliqtly.web.app/mcp</code>. If asked for authentication, choose <b>No sign-in</b>.</li>
+      <li>Click <b>Add</b>.</li>
+    </ol>
+    <h3>Team and Enterprise</h3>
+    <p>An owner adds it once under <b>Organization settings → Connectors → Add → Custom</b> (type <b>Web</b>) with the same URL. Members then find it under <b>Customize → Connectors</b> and click <b>Connect</b>.</p>
+    <h3>In a chat</h3>
+    <p>Open the <b>+</b> menu → <b>Connectors</b> and turn Sliqtly on. The presentation appears in the conversation and its link opens it full size.</p>
+  </section>
+
+  <section id="claude-code">
+    <h2>Claude Code</h2>
+    <pre><code id="cc">claude mcp add --transport http sliqtly https://sliqtly.web.app/mcp</code><button class="copy" data-copy="cc">Copy</button></pre>
+    <p class="note">Add <code>--scope user</code> to have it in every project.</p>
+  </section>
+
+  <section id="chatgpt">
+    <h2>ChatGPT <span class="tag">Plus, Pro, Business, Enterprise, Edu; web</span></h2>
+    <ol>
+      <li>Open <b>Settings → Apps &amp; Connectors → Advanced settings</b> and turn on <b>Developer mode</b>. On Business and Enterprise a workspace owner has to allow it first.</li>
+      <li>Back in <b>Apps &amp; Connectors</b>, click <b>Create</b>.</li>
+      <li>Name: <code>Sliqtly</code>. Description: <i>Makes slide presentations from Markdown.</i> MCP server URL: <code>https://sliqtly.web.app/mcp</code>. Authentication: <b>No authentication</b>.</li>
+      <li>Tick that you trust the application and click <b>Create</b>.</li>
+    </ol>
+    <p>In a new chat, open <b>+</b> → <b>Developer mode</b> (or <b>More</b>) and choose Sliqtly. ChatGPT asks before it makes a presentation; allow it.</p>
+    <p class="note">The menu names move between ChatGPT versions. If you do not find Developer mode under Apps &amp; Connectors, look under Settings → Connectors → Advanced.</p>
+  </section>
+
+  <section id="openai-api">
+    <h2>OpenAI API <span class="tag">Responses API, Agents SDK</span></h2>
+    <pre><code id="oai">{
+  "type": "mcp",
+  "server_label": "sliqtly",
+  "server_url": "https://sliqtly.web.app/mcp",
+  "require_approval": "never"
+}</code><button class="copy" data-copy="oai">Copy</button></pre>
+    <p class="note">Put it in the request's <code>tools</code> list. In the Agents SDK use <code>HostedMCPTool</code> with the same <code>tool_config</code>.</p>
+  </section>
+
+  <section id="cursor">
+    <h2>Cursor</h2>
+    <p>Settings → <b>Tools &amp; MCP</b> → <b>New MCP server</b>, or add this to <code>~/.cursor/mcp.json</code> (every project) or <code>.cursor/mcp.json</code> (one project):</p>
+    <pre><code id="cursor-json">{
+  "mcpServers": {
+    "sliqtly": {
+      "url": "https://sliqtly.web.app/mcp"
+    }
+  }
+}</code><button class="copy" data-copy="cursor-json">Copy</button></pre>
+    <p class="note">In Agent mode, ask for a presentation; Cursor asks before calling the tool.</p>
+  </section>
+
+  <section id="others">
+    <h2>Other MCP clients</h2>
+    <p>Any client that speaks MCP over Streamable HTTP works with the URL above. No sign-in is needed.</p>
+    <h3>VS Code (GitHub Copilot)</h3>
+    <pre><code id="vscode">// .vscode/mcp.json
+{
+  "servers": {
+    "sliqtly": { "type": "http", "url": "https://sliqtly.web.app/mcp" }
+  }
+}</code><button class="copy" data-copy="vscode">Copy</button></pre>
+    <h3>Windsurf</h3>
+    <pre><code id="windsurf">// ~/.codeium/windsurf/mcp_config.json
+{
+  "mcpServers": {
+    "sliqtly": { "serverUrl": "https://sliqtly.web.app/mcp" }
+  }
+}</code><button class="copy" data-copy="windsurf">Copy</button></pre>
+    <h3>Gemini CLI</h3>
+    <pre><code id="gemini">// ~/.gemini/settings.json
+{
+  "mcpServers": {
+    "sliqtly": { "httpUrl": "https://sliqtly.web.app/mcp" }
+  }
+}</code><button class="copy" data-copy="gemini">Copy</button></pre>
+    <h3>A client that only runs local servers</h3>
+    <pre><code id="remote">npx -y mcp-remote https://sliqtly.web.app/mcp</code><button class="copy" data-copy="remote">Copy</button></pre>
+  </section>
+
+  <section id="use">
+    <h2>Using it</h2>
+    <p>Ask in your own words, for example:</p>
+    <blockquote>Make a 6-slide presentation of our Q3 results with the ember theme: a bar chart of revenue by month, a diagram of the sales process, and this photo on the title slide: https://…/team.jpg</blockquote>
+    <blockquote>Change slide 3 to a two-column comparison and make the headings orange.</blockquote>
+    <p>The assistant gets these tools:</p>
+    <table class="tools">
+      <tr><td><code>sliqtly_guide</code></td><td>The Markdown syntax, themes and CSS selectors.</td></tr>
+      <tr><td><code>create_presentation</code></td><td>Makes the presentation and returns its link, plus a link that opens a copy in the Sliqtly editor.</td></tr>
+      <tr><td><code>update_presentation</code></td><td>Changes it later, keeping the same link.</td></tr>
+      <tr><td><code>get_presentation</code></td><td>Reads a presentation back by its link's id.</td></tr>
+    </table>
+    <p class="note">Anyone with a presentation's link can view it, so do not put anything secret in it. Pictures are fetched from public https addresses or sent by the assistant, up to 5 MB each.</p>
+  </section>
+</main>
+<script>
+  for (const b of document.querySelectorAll("button.copy")) {
+    b.addEventListener("click", async () => {
+      const text = document.getElementById(b.dataset.copy).textContent;
+      try { await navigator.clipboard.writeText(text); b.textContent = "Copied"; } catch { b.textContent = "Select and copy"; }
+      setTimeout(() => { b.textContent = "Copy"; }, 1600);
+    });
+  }
+</script>
+</body>
+</html>

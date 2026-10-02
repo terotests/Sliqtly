@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sliqtly</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1d2233; --muted: #667; --bg: #f6f7fb; --accent: #4b5bdc; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e8ecff; --muted: #9aa3c7; --bg: #0b1030; --accent: #8fa0ff; } }
+  html, body { margin: 0; background: transparent; color: var(--fg); font: 14px/1.4 system-ui, sans-serif; }
+  .stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #0b1030; border-radius: 10px; overflow: hidden; }
+  .stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .wait { position: absolute; inset: 0; display: grid; place-items: center; color: #9aa3c7; }
+  .bar { display: flex; gap: 12px; align-items: center; padding: 8px 2px 2px; flex-wrap: wrap; }
+  .title { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { color: var(--muted); }
+  a, button.link { color: var(--accent); background: none; border: 0; padding: 0; font: inherit; cursor: pointer; text-decoration: none; }
+  a:hover, button.link:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="stage"><div class="wait" id="wait">Making the presentation…</div></div>
+<div class="bar" id="bar" hidden>
+  <span class="title" id="title"></span>
+  <span class="meta" id="meta"></span>
+  <button class="link" id="open">Open ↗</button>
+  <button class="link" id="edit">Edit in Sliqtly ↗</button>
+</div>
+<script>
+(() => {
+  let deck = null;
+  let nextId = 1;
+  const pending = new Map();
+  const mcpApps = !window.openai;
+
+  function send(msg) { window.parent.postMessage(msg, "*"); }
+  function request(method, params) {
+    const id = nextId++;
+    send({ jsonrpc: "2.0", id, method, params });
+    return new Promise((ok) => pending.set(id, ok));
+  }
+  function notify(method, params) { send({ jsonrpc: "2.0", method, params }); }
+
+  function openLink(url) {
+    if (window.openai && window.openai.openExternal) window.openai.openExternal({ href: url });
+    else if (mcpApps) request("ui/open-link", { url });
+    else window.open(url, "_blank", "noopener");
+  }
+
+  function reportSize() {
+    if (!mcpApps) return;
+    const r = document.documentElement.getBoundingClientRect();
+    notify("ui/notifications/size-changed", { width: Math.ceil(r.width), height: Math.ceil(r.height) });
+  }
+
+  function show(out) {
+    if (!out || !out.share_url || (deck && deck.share_url === out.share_url && deck.slides === out.slides)) return;
+    deck = out;
+    const stage = document.querySelector(".stage");
+    stage.innerHTML = "";
+    const frame = document.createElement("iframe");
+    frame.src = out.share_url;
+    frame.title = out.title || "Presentation";
+    frame.allow = "fullscreen; clipboard-write";
+    frame.allowFullscreen = true;
+    stage.append(frame);
+    document.getElementById("title").textContent = out.title || "";
+    document.getElementById("meta").textContent = out.slides ? out.slides + " slides" : "";
+    document.getElementById("bar").hidden = false;
+    reportSize();
+  }
+
+  document.getElementById("open").onclick = () => deck && openLink(deck.share_url);
+  document.getElementById("edit").onclick = () => deck && openLink(deck.edit_url);
+
+  if (window.openai) {
+    show(window.openai.toolOutput);
+    window.addEventListener("openai:set_globals", (e) => show((e.detail && e.detail.globals && e.detail.globals.toolOutput) || window.openai.toolOutput));
+    return;
+  }
+
+  window.addEventListener("message", (e) => {
+    const m = e.data;
+    if (!m || m.jsonrpc !== "2.0") return;
+    if (m.id != null && pending.has(m.id) && !m.method) {
+      pending.get(m.id)(m.result);
+      pending.delete(m.id);
+      return;
+    }
+    if (m.method === "ui/notifications/tool-result") show(m.params && m.params.structuredContent);
+    else if (m.method && m.id != null) send({ jsonrpc: "2.0", id: m.id, result: {} });
+  });
+
+  request("ui/initialize", {
+    protocolVersion: "2026-01-26",
+    appInfo: { name: "sliqtly-preview", version: "1.0.0" },
+    appCapabilities: {},
+  }).then(() => { notify("ui/notifications/initialized", {}); reportSize(); });
+  new ResizeObserver(reportSize).observe(document.documentElement);
+})();
+</script>
+</body>
+</html>

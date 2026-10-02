@@ -199,6 +199,15 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | `brand/` | The logo as SVG; `make_logo.py` writes them. The build copies the icon as `favicon.svg` |
 | `.github/workflows/deploy.yml` | On a push to `main`: build, checks, deploy `web/dist` to Firebase Hosting (`sliqtly.web.app`) |
 | `scripts/` | setup, build, start (local server), check, check-web |
+| `mcp/` | The MCP server for AI assistants (a Cloud Function) |
+| `web/connect.html` | How to connect Claude, ChatGPT, Cursor and others to it |
+
+## For AI assistants (MCP)
+
+`mcp/` is an MCP server: Claude, ChatGPT, Cursor and other MCP clients make a
+presentation from Markdown, a theme, CSS and pictures and get its share link
+back. How to connect each client: `web/connect.html`
+(`/connect.html`). How it works, tests and deploy: [mcp/README.md](mcp/README.md).
 
 ## Languages
 
