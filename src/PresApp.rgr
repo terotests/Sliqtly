@@ -2623,6 +2623,10 @@ class PresApp {
         if (((mode == "present") || ((edRect.has(x y)) == false)) || chart.isOpen) {
             return ""
         }
+        def gutter:string (this.contrastHintAt(x y))
+        if ((strlen gutter) > 0) {
+            return gutter
+        }
         def px:int (to_int x)
         def py:int (to_int y)
         def hit:EditorPos (editor.layout.hitTest(tr editor.buf px py))
@@ -2656,18 +2660,6 @@ class PresApp {
         }
         if ((strlen j) == 0) {
             j = (PresHints.forLine(md text col (this.inFrontMatter(line))))
-        }
-        ; a line with a contrast warning: the warning, in whatever popover the
-        ; line has, or in one of its own
-        def note:string ""
-        if (edTab != "files") {
-            note = (this.contrastNote(line))
-        }
-        if ((strlen note) > 0) {
-            if ((strlen j) == 0) {
-                j = ("{\"kind\":\"warn\",\"name\":" + (PresHint.q((PresI18n.t("Low contrast")))) + ",\"start\":0,\"end\":" + (to_string (strlen text)) + "}")
-            }
-            j = ((substring j 0 ((strlen j) - 1)) + ",\"warn\":" + (PresHint.q(note)) + "}")
         }
         if ((strlen j) == 0) {
             return ""
@@ -3373,6 +3365,32 @@ class PresApp {
         }
         ; a negative end column: the whole line, marked in the gutter only
         push out (EditorDiagnostic.span(line 0 -1 (DiagnosticSeverity.warning()) message "contrast"))
+    }
+
+    ; The popover for the warning mark under the pointer, or "": only over
+    ; the gutter's triangle, so typing on the line does not bring it up.
+    fn contrastHintAt:string (x:double y:double) {
+        if ((((mode == "present") || (edTab == "files")) || ((edRect.has(x y)) == false)) || chart.isOpen) {
+            return ""
+        }
+        def px:int (to_int x)
+        def py:int (to_int y)
+        if ((px < editor.layout.x) || (px >= (editor.layout.x + 24))) {
+            return ""
+        }
+        def hit:EditorPos (editor.layout.hitTest(tr editor.buf px py))
+        def line:int hit.line
+        def note:string (this.contrastNote(line))
+        if ((strlen note) == 0) {
+            return ""
+        }
+        def lead:string (PresI18n.t("Low contrast: "))
+        if ((indexOf note lead) == 0) {
+            note = (substring note (strlen lead) (strlen note))
+        }
+        def y0:int (editor.layout.caretPixelY(line))
+        def gx:int (editor.layout.x + 4)
+        return ("{\"kind\":\"warn\",\"name\":" + (PresHint.q((PresI18n.t("Low contrast")))) + ",\"warn\":" + (PresHint.q(note)) + ",\"start\":0,\"end\":0,\"line\":" + (to_string line) + ",\"tab\":\"" + edTab + "\",\"x\":" + (to_string gx) + ",\"y\":" + (to_string y0) + ",\"w\":12,\"h\":" + (to_string editor.layout.lineHeight) + ",\"text\":\"\"}")
     }
 
     ; The warning on a line of the editor showing, or "".

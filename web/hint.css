@@ -15,7 +15,7 @@
   shadow-color: rgba(0, 0, 0, 0.16); shadow-radius: 18px; shadow-offset-y: 6px;
   font-family: Open Sans;
 }
-.hp-head { display: flex; flex-direction: row; align-items: center; gap: 8px; width: 100%; }
+.hp-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; width: 100%; }
 .hp-name { font-size: 13px; font-weight: 700; color: #09090b; }
 .hp-value { font-size: 12px; color: #71717a; }
 .hp-doc { font-size: 12px; color: #52525b; width: 100%; }
@@ -26,6 +26,8 @@
 .hp-unit { font-size: 12px; color: #71717a; white-space: nowrap; flex-shrink: 0; }
 .hp-foot { display: flex; flex-direction: row; align-items: center; width: 100%; padding-top: 8px; border-top: 1px solid #f4f4f5; }
 .hp-grow { flex-grow: 1; }
+.hp-warnhead { padding-top: 0; border-top: 0px solid #ffffff; }
+.theme-hp .hp-x { height: 22px; width: 22px; min-width: 22px; padding: 0; flex-shrink: 0; border-color: #ffffff; }
 .hp-tip { font-size: 11px; color: #71717a; width: 100%; }
 
 .hp-props { display: flex; flex-direction: column; gap: 1px; width: 100%; }

@@ -2781,6 +2781,10 @@ canvas.addEventListener("pointerdown", (ev) => {
   }
   if (where === "editor" && clicks === 1) {
     setTimeout(() => {
+      // a low-contrast mark in the gutter: its warning, and nothing else
+      let g = null;
+      try { g = JSON.parse(app.contrastHintAt(x, y) || "null"); } catch (_) { g = null; }
+      if (g) { showHint(g); return; }
       let h = null;
       try { h = JSON.parse(app.hintAtCaret() || "null"); } catch (_) { h = null; }
       if (h && isChartFence(h)) {

@@ -305,7 +305,15 @@ class PresHintPopover {
         def head:EVGElement (this.div("hp-head"))
         head.addChild((this.words("hp-name" name)))
         valueEl = (this.words("hp-value" value))
-        head.addChild(valueEl)
+        if (kind == "warn") {
+            ; a warning is only read: it closes from its corner
+            head.className = "hp-foot hp-warnhead"
+            head.addChild((this.div("hp-grow")))
+            def x:ButtonCtl (this.button("hp-close" "×" "secondary" head))
+            UiTree.addClass((unwrap x.rootEl) "hp-x")
+        } {
+            head.addChild(valueEl)
+        }
         card.addChild(head)
         if ((strlen warn) > 0) {
             card.addChild((this.words("hp-warn" warn)))
@@ -735,6 +743,10 @@ class PresHintPopover {
                 this.write((this.toggledFlags((itemAt options fi))))
                 this.rebuild()
             }
+            return
+        }
+        if (ctlTid == "hp-close") {
+            wantsClose = true
             return
         }
         if (ctlTid == "hp-none") {
