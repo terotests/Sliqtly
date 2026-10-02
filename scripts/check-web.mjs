@@ -327,6 +327,42 @@ try {
   await page3.keyboard.press("Escape");
   await page3.waitForTimeout(200);
   check("Esc does not leave the shared presentation", (await page3.evaluate(() => JSON.parse(window.__app.layoutJson()).mode)) === "present");
+  // the … menu: exports through the keyboard, Edit only for a signed-in owner.
+  // The bar fades when the pointer rests; a move brings it back.
+  await page3.mouse.move(300, 300);
+  await page3.click("#vMore");
+  await page3.keyboard.press("Enter");
+  await page3.waitForTimeout(100);
+  const menu = await page3.evaluate(() => ({
+    open: !document.getElementById("vMenu").hidden,
+    sub: !document.getElementById("vExportSub").hidden,
+    edit: !document.getElementById("vEdit").hidden,
+    focus: document.activeElement?.dataset.act || "",
+  }));
+  check("the viewer's … menu opens Export from the keyboard; no Edit for a reader", menu.open && menu.sub && !menu.edit && menu.focus === "pdf", JSON.stringify(menu));
+  await page3.keyboard.press("ArrowDown");
+  await page3.keyboard.press("ArrowDown");
+  await page3.evaluate(() => { window.__lastDownload = ""; });
+  await page3.keyboard.press("Enter");
+  await page3.waitForTimeout(200);
+  const md = await page3.evaluate(() => ({ dl: window.__lastDownload, closed: document.getElementById("vMenu").hidden }));
+  check("the viewer exports Markdown from the … menu", md.dl === "downloaded" && md.closed, JSON.stringify(md));
+  await page3.mouse.move(310, 300);
+  await page3.click("#vMore");
+  await page3.click("#vExport");
+  await page3.evaluate(() => { window.__lastDownload = ""; });
+  await page3.click('#vMenu [data-act="pdf"]');
+  const pdfAt = Date.now();
+  await page3.waitForFunction(() => window.__lastDownload !== "", null, { timeout: 180000 }).catch(() => {});
+  const pdfGot = await page3.evaluate(() => [window.__lastDownload, document.getElementById("err").textContent]);
+  check("the viewer exports a PDF from the … menu", pdfGot[0] === "downloaded", JSON.stringify(pdfGot) + " " + (Date.now() - pdfAt) + " ms");
+  const shownMd = await page3.evaluate(() => window.__app.source());
+  await page3.mouse.move(320, 300);
+  await page3.click("#vMore");
+  await Promise.all([page3.waitForEvent("load", { timeout: 30000 }), page3.click('#vMenu [data-act="new"]')]);
+  await page3.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+  const made = await page3.evaluate(() => ({ viewer: document.body.classList.contains("viewer"), mode: JSON.parse(window.__app.layoutJson()).mode, md: window.__app.source() }));
+  check("Create New… opens the shown deck in the editor", !made.viewer && made.mode !== "present" && made.md === shownMd, JSON.stringify({ ...made, md: made.md.slice(0, 40) }));
   await page3.close();
 
   // A picture from the clipboard's point of view: bytes into the store,

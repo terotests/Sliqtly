@@ -498,5 +498,9 @@
   "Make this Markdown a Sliqtly presentation with create_presentation from the Sliqtly connector (theme {theme}), give me its link and ask what to change. Save later changes with update_presentation.": "Tee tästä Markdownista Sliqtly-esitys Sliqtly-yhdistimen create_presentation-työkalulla (teema {theme}), anna minulle sen linkki ja kysy mitä muutetaan. Tallenna myöhemmät muutokset update_presentation-työkalulla.",
   "This presentation is too long to hand over in a link. Sign in with PRO first.": "Esitys on liian pitkä välitettäväksi linkissä. Kirjaudu ensin PRO-tilillä.",
   "Pictures are not handed over without PRO sign-in.": "Kuvat eivät siirry ilman PRO-kirjautumista.",
-  "Could not save a copy for the assistant: ": "Kopiota ei voitu tallentaa avustajalle: "
+  "Could not save a copy for the assistant: ": "Kopiota ei voitu tallentaa avustajalle: ",
+  "More": "Lisää",
+  "Create New…": "Luo uusi…",
+  "A new presentation of your own, based on this one": "Uusi oma esitys tämän pohjalta",
+  "Edit this presentation": "Muokkaa tätä esitystä"
 }
