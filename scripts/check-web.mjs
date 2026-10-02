@@ -591,6 +591,27 @@ try {
       return { before, after, closed: a.toolbar.openMenu() === "" };
     }, { trig: find("tb-m-slide-trigger"), row: find("tb-m-slide-item-theme"), sub: find("tb-m-slide-item-theme-content") });
     check("…resting the pointer on Theme opens its submenu, after a short delay", !rest.before && rest.after, JSON.stringify(rest));
+
+    // over the Files tab: the File menu is drawn on top and a row under it is pressed
+    await page.evaluate(() => window.__app.showTab("files"));
+    await page.waitForTimeout(600);
+    const onFiles = await page.evaluate(() => {
+      const a = window.__app;
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      press(find("tb-m-file-trigger"));
+      const onTop = a.toolbarOnTop();
+      const row = find("tb-m-file-item-save");
+      const underPanel = a.panels.has(row.calculatedX + 10, row.calculatedY + 8);
+      for (;;) { if (!a.takeRequest()) break; }
+      press(row);
+      const reqs = [];
+      for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
+      const closed = !a.toolbarOnTop();
+      a.showTab("md");
+      return { onTop, underPanel, reqs, closed };
+    });
+    check("…over the Files tab the File menu is on top, and its row takes the press", onFiles.onTop && onFiles.underPanel && onFiles.reqs.includes("click:save") && onFiles.closed, JSON.stringify(onFiles));
   }
 
   // The value popover is on the canvas: a chip, the colour picker and a slider write the text
