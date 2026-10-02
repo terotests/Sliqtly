@@ -485,7 +485,7 @@ try {
     const rel = (src.match(/\]\((media\/liitetty-[^)]+)\)/) || [])[1] || "";
     const bmp = rel ? await window.__pictureSize("/" + rel) : [0, 0];
     return {
-      dialog, shown: !!shown, before, plan,
+      dialog, shown: !!shown, before, plan, rel,
       md: !!rel,
       image: stage.list.cmds.some((c) => c.k === 2 && String(c.src || "").includes("media/liitetty-")),
       size: bmp,
@@ -509,6 +509,55 @@ try {
   });
   check("a picture placed as the slide's background goes on its heading", /\bbg=media\/tausta\.png\b/.test(bg), bg);
   await shot("3-picture.png");
+
+  // The files tab: the picture's row shows it on hover, and a click opens
+  // the image editor, whose Save writes the adjusted picture over the file.
+  const ed = await page.evaluate(async (rel) => {
+    const a = window.__app;
+    a.showTab("files");
+    window.__handleRequests();
+    const name = rel.split("/").pop();
+    let row = null;
+    for (let i = 0; i < 40 && !row; i += 1) {
+      await new Promise((res) => setTimeout(res, 100));
+      const pj = a.panelsJson();
+      row = pj ? JSON.parse(pj).list.cmds.find((c) => c.k === 3 && c.text === name) : null;
+    }
+    if (!row) return { row: false };
+    a.pointerMove(row.x + 4, row.y + 4);
+    const cmds = JSON.parse(a.panelsJson()).list.cmds;
+    const hover = cmds.some((c) => c.k === 2 && c.src === "/" + rel);
+    const before = window.__picturePixel("/" + rel, 2, 2);
+    a.pointerDown(row.x + 4, row.y + 4, false, 1);
+    a.pointerUp();
+    window.__handleRequests();
+    for (let i = 0; i < 40 && !a.chartIsOpen(); i += 1) {
+      await new Promise((res) => setTimeout(res, 100));
+      window.__handleRequests();
+    }
+    const open = a.chartIsOpen();
+    const win = open ? JSON.parse(a.chartJson()) : null;
+    const shown = !!(win && win.list.cmds.find((c) => c.k === 2 && String(c.src || "").startsWith("/__adjust/")));
+    // darker and greyer, as the sliders would set it
+    a.chart.adjBright = -50;
+    a.chart.adjSat = -100;
+    a.chart.adjDirty = true;
+    const plan = JSON.parse(a.adjustPlan());
+    a.key("enter", false, false);
+    window.__handleRequests();
+    let after = before;
+    for (let i = 0; i < 60; i += 1) {
+      await new Promise((res) => setTimeout(res, 100));
+      after = window.__picturePixel("/" + rel, 2, 2);
+      if (after.join() !== before.join()) break;
+    }
+    a.showTab("md");
+    return { row: true, hover, open, shown, plan, before, after, closed: !a.chartIsOpen() };
+  }, pic.rel);
+  check("a picture in the files tab shows a preview on hover", ed.row && ed.hover, JSON.stringify(ed));
+  check("…a click opens the image editor with the picture in it", ed.open && ed.shown, JSON.stringify(ed));
+  const grey = ed.after && Math.abs(ed.after[0] - ed.after[1]) < 4 && Math.abs(ed.after[1] - ed.after[2]) < 4;
+  check("…and Save writes the adjusted picture over the file", ed.closed && grey && ed.after[0] < ed.before[0], JSON.stringify({ before: ed.before, after: ed.after, plan: ed.plan }));
 
   // TeX math: $…$ in a line and a $$ display are drawn as filled outlines
   const math = await page.evaluate(() => {

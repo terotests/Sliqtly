@@ -586,5 +586,19 @@
   "Q3": "Q3",
   "Q4": "Q4",
   "quarter": "neljännes",
-  "sales": "myynti"
+  "sales": "myynti",
+  "Edit image": "Muokkaa kuvaa",
+  "Drag the frame or its corners to crop. ": "Rajaa vetämällä kehystä tai sen kulmia. ",
+  "Exposure": "Valotus",
+  "Brightness": "Kirkkaus",
+  "Contrast": "Kontrasti",
+  "Saturation": "Värikylläisyys",
+  "Warmth": "Lämpötila",
+  "Tint": "Sävy",
+  "Save replaces the file: every slide that shows this image changes.": "Tallennus korvaa tiedoston: kuva muuttuu kaikilla dioilla, joilla se on.",
+  "Reset": "Palauta",
+  "Click to edit": "Muokkaa klikkaamalla",
+  "This file cannot be opened as an image.": "Tiedostoa ei voi avata kuvana.",
+  "The image could not be saved.": "Kuvaa ei voitu tallentaa.",
+  "Image saved: ": "Kuva tallennettu: "
 }

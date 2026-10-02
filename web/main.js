@@ -20,6 +20,7 @@ import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
+import { scaled, previewOf, render } from "./image-adjust.js";
 
 const canvas = document.getElementById("c");
 const stageEl = document.getElementById("stage");
@@ -237,6 +238,75 @@ async function placePasted() {
   app.placePicture(rel, plan.alt || "image", plan.to);
   dropThumbs();
   afterInput();
+}
+
+// A picture of the files tab, clicked: the image editor (PresChartEditor's
+// "adjust" mode) crops it and changes its light and colours. The preview is
+// the picture scaled down, drawn again as the sliders move; Save writes the
+// whole picture back over its file, so every slide that shows it changes.
+let adjusting = null;
+async function openImageEditor(path) {
+  const f = (await docFiles()).find((x) => x.path === path);
+  if (!f || !(f.data instanceof Blob)) { toast(t("This file cannot be opened as an image.")); return; }
+  const blob = f.data.type ? f.data : new Blob([f.data], { type: f.type || "image/png" });
+  let bmp;
+  try {
+    bmp = await createImageBitmap(blob);
+  } catch (_) {
+    toast(t("This file cannot be opened as an image."));
+    return;
+  }
+  const w = bmp.width;
+  const h = bmp.height;
+  const base = scaled(bmp, 1200);
+  bmp.close();
+  dropAdjusting();
+  pasteCount += 1;
+  const preview = `/__adjust/${Date.now().toString(36)}-${pasteCount}`;
+  pictures.set(preview, previewOf(base, null));
+  adjusting = { path, blob, w, h, base, preview, queued: false };
+  if (!app.openAdjust(preview, path, w, h)) dropAdjusting();
+  needsPaint = true;
+}
+
+function dropAdjusting() {
+  if (adjusting) pictures.delete(adjusting.preview);
+  adjusting = null;
+}
+
+// The preview again, at most once a frame however fast the sliders move.
+function adjustPreview() {
+  const a = adjusting;
+  if (!a || a.queued) return;
+  a.queued = true;
+  requestAnimationFrame(() => {
+    a.queued = false;
+    if (adjusting !== a) return;
+    pictures.set(a.preview, previewOf(a.base, JSON.parse(app.adjustPlan())));
+    needsPaint = true;
+  });
+}
+
+async function saveAdjusted() {
+  const a = adjusting;
+  if (!a) return;
+  const plan = JSON.parse(app.adjustPlan());
+  dropAdjusting();
+  let crop = null;
+  if (!plan.whole) {
+    const [x, y, cw, ch] = String(plan.crop).split(",").map(Number);
+    if (cw > 0 && ch > 0) crop = [x, y, cw, ch];
+  }
+  const neutral = !plan.bright && !plan.contrast && !plan.sat && !plan.temp && !plan.tint;
+  if (!crop && neutral) return;
+  const out = await render(a.blob, crop, plan);
+  if (!out) { toast(t("The image could not be saved.")); return; }
+  app.addImage("/" + a.path, asRangerBuffer(out.bytes.slice(0)), out.type, out.w, out.h);
+  await registerPicture("/" + a.path, out.bytes, out.type);
+  await keepFile({ path: a.path, type: out.type, size: out.bytes.byteLength, data: new Blob([out.bytes], { type: out.type }) });
+  dropThumbs();
+  needsPaint = true;
+  toast(t("Image saved: ") + a.path);
 }
 
 // A new picture of the deck: registered for the slides and kept in this
@@ -595,7 +665,13 @@ async function refreshFiles() {
   filesListing = true;
   try {
     const files = (await docFiles())
-      .map((f) => ({ path: f.path, size: f.size == null ? -1 : f.size, kind: kindOf(f.path, f.type) }))
+      .map((f) => {
+        const row = { path: f.path, size: f.size == null ? -1 : f.size, kind: kindOf(f.path, f.type) };
+        // a picture's pixels, for the preview beside the row
+        const img = row.kind === "image" ? pictures.get("/" + f.path) : null;
+        if (img) Object.assign(row, { w: img.naturalWidth, h: img.naturalHeight });
+        return row;
+      })
       .sort((a, b) => {
         const da = a.path.includes("/") ? 1 : 0;
         const db = b.path.includes("/") ? 1 : 0;
@@ -855,6 +931,9 @@ async function fileRequest(r) {
     const text = typeof f.data === "string" ? f.data : (isText(f.path, f.type) ? await f.data.text() : null);
     if (text == null) { toast(t("This file cannot be opened as text.")); return; }
     app.openFile(f.path, text);
+  } else if (action === "imgedit") {
+    await openImageEditor(what);
+    return;
   } else if (action === "del") {
     pending.delete(what);
     if (doc.persisted) await vfs.deleteFile(doc.id, what);
@@ -1029,7 +1108,8 @@ function paintOnce() {
     const pn = JSON.parse(pj);
     pn.width = W;
     pn.height = H;
-    const pf = prepareDisplayList(gl, pn, { dpr });
+    // with the pictures: the files tab previews the one under the pointer
+    const pf = prepareDisplayList(gl, pn, { dpr, images: pictures });
     if (grewBy(pf.draw(null, [0, 0, 1], { clear: false }))) dropThumbs();
     pf.dispose();
   }
@@ -1521,6 +1601,16 @@ window.__lastDownload = "";
 
 // for scripts/check-web.mjs: the requests run now, a picture's pixel size
 window.__handleRequests = () => handleRequests();
+window.__picturePixel = (p, x, y) => {
+  const img = pictures.get(p);
+  if (!img) return [];
+  const c = document.createElement("canvas");
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const g = c.getContext("2d");
+  g.drawImage(img, 0, 0);
+  return [...g.getImageData(x, y, 1, 1).data];
+};
 window.__pictureSize = (p) => {
   const img = pictures.get(p);
   return img ? [img.naturalWidth, img.naturalHeight] : [0, 0];
@@ -1588,6 +1678,12 @@ function handleRequests() {
       placePasted().catch(fail);
     } else if (r === "picture-cancel") {
       dropPasting();
+    } else if (r === "image-adjust") {
+      adjustPreview();
+    } else if (r === "image-save") {
+      saveAdjusted().catch(fail);
+    } else if (r === "image-cancel") {
+      dropAdjusting();
     } else if (r === "sheet-edit") {
       liveSheets.editFirst();
     } else if (r.startsWith("data-keep:")) {
