@@ -236,6 +236,42 @@ try {
   check("the clock holds at the next step", r.heldAt < 1000, String(r.heldAt));
   check("escape ends the presentation", r.backToEdit === "edit");
 
+  // Past the last slide a panel offers the first slide, the one before, or out.
+  {
+    const toEnd = () => page.evaluate(() => {
+      const a = window.__app;
+      for (let i = 0; i < 200 && !a.atEnd(); i += 1) a.next();
+      return a.atEnd();
+    });
+    const state = () => page.evaluate(() => ({
+      shown: !document.getElementById("endPanel").hidden,
+      end: window.__app.atEnd(),
+      slide: window.__app.slideShown(),
+      count: window.__app.deck.slideCount(),
+      mode: JSON.parse(window.__app.layoutJson()).mode,
+    }));
+    await page.evaluate(() => { window.__app.present(true); window.__app.takeRequest(); });
+    await page.waitForTimeout(100);
+    const before = await state();
+    const reached = await toEnd();
+    await page.waitForTimeout(150);
+    const atEnd = await state();
+    await page.click("#endPrev");
+    const prev = await state();
+    await toEnd();
+    await page.waitForTimeout(150);
+    await page.click("#endRestart");
+    const restart = await state();
+    await toEnd();
+    await page.waitForTimeout(150);
+    await page.click("#endExit");
+    await page.waitForTimeout(100);
+    const exit = await state();
+    check("the end panel waits until the last slide is passed", !before.shown && reached && atEnd.shown && atEnd.slide === atEnd.count - 1, JSON.stringify({ before, atEnd }));
+    check("end panel: Previous slide, From the start, Exit", !prev.shown && prev.slide === prev.count - 2 && restart.slide === 0 && !restart.end && exit.mode === "edit" && !exit.shown, JSON.stringify({ prev, restart, exit }));
+    await page.evaluate(() => { while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+  }
+
   await page.evaluate(() => { window.__app.present(true); window.__app.takeRequest(); window.__app.speaker = true; window.__app.next(); });
   await page.waitForTimeout(300);
   await shot("2-speaker.png");
@@ -382,6 +418,15 @@ try {
   await page3.keyboard.press("Escape");
   await page3.waitForTimeout(200);
   check("Esc does not leave the shared presentation", (await page3.evaluate(() => JSON.parse(window.__app.layoutJson()).mode)) === "present");
+  {
+    await page3.evaluate(() => { const a = window.__app; for (let i = 0; i < 200 && !a.atEnd(); i += 1) a.next(); });
+    await page3.waitForTimeout(150);
+    const end = await page3.evaluate(() => ({ shown: !document.getElementById("endPanel").hidden, exit: document.getElementById("endExit").textContent }));
+    await page3.click("#endExit");
+    const after = await page3.evaluate(() => ({ shown: !document.getElementById("endPanel").hidden, mode: JSON.parse(window.__app.layoutJson()).mode, last: window.__app.slideShown() === window.__app.deck.slideCount() - 1 }));
+    check("a shared deck's end panel closes to its last slide", end.shown && /Close/.test(end.exit) && !after.shown && after.mode === "present" && after.last, JSON.stringify({ end, after }));
+    await page3.evaluate(() => window.__app.restart());
+  }
   // The bar fades when the pointer rests for 2.5 s, and a slow frame can
   // take that long: each press moves the pointer first, and tries again if
   // the bar faded before the click landed.
