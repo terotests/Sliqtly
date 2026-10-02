@@ -37,8 +37,8 @@ export function build({ ranger } = {}) {
   for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
   // the interface in other languages (web/i18n.js)
   for (const f of fs.readdirSync(path.join(webDir, "i18n")).filter((f) => f.endsWith(".json"))) copy(path.join(webDir, "i18n", f), path.join(distDir, "i18n", f));
-  // the controls' own theme, for the chart editor
-  copy(path.join(ranger, "gallery/ui/theme/base.css"), path.join(distDir, "ui.css"));
+  // the controls' own theme (EVGUI), for the chart editor
+  copy(path.join(ranger, "gallery/evgui/theme/base.css"), path.join(distDir, "ui.css"));
   copy(path.join(root, "brand/sliqtly-icon.svg"), path.join(distDir, "favicon.svg"));
   copy(path.join(ranger, "lib/evg/gl/evg-webgl.js"), path.join(distDir, "gl/evg-webgl.js"));
   copy(path.join(ranger, "lib/evg/gl/evg-a11y.js"), path.join(distDir, "gl/evg-a11y.js"));

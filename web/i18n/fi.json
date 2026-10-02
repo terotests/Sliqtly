@@ -538,5 +538,8 @@
   "Use a lighter colour here, or a lighter background.": "Käytä tässä vaaleampaa väriä tai vaaleampaa taustaa.",
   "Use a darker text colour in the theme (CSS), or darken the background (a darker picture, or a scrim over it).": "Käytä teemassa (CSS) tummempaa tekstiväriä tai tummenna taustaa (tummempi kuva tai tummentava kerros sen päälle).",
   "Use a darker colour here, or darken the background (a darker picture, or a scrim over it).": "Käytä tässä tummempaa väriä tai tummenna taustaa (tummempi kuva tai tummentava kerros sen päälle).",
-  "Bullet and number colour.": "Luettelomerkkien ja numeroiden väri."
+  "Bullet and number colour.": "Luettelomerkkien ja numeroiden väri.",
+  "Preparing the download…": "Valmistellaan latausta…",
+  "Recent": "Viimeisimmät",
+  "Browse all…": "Selaa kaikkia…"
 }

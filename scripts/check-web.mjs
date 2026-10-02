@@ -720,6 +720,60 @@ try {
       return { onTop, underPanel, reqs, closed };
     });
     check("…over the Files tab the File menu is on top, and its row takes the press", onFiles.onTop && onFiles.underPanel && onFiles.reqs.includes("click:save") && onFiles.closed, JSON.stringify(onFiles));
+
+    // the File menu's groups: new | open | save | the assistants, lines between them
+    // that take no press
+    const seps = await page.evaluate(() => {
+      const a = window.__app;
+      const all = () => { a.toolbarJson(); const out = []; const w = (e) => { if ((e.className || "").includes("ui-dropdownmenu-separator")) out.push(e); for (const k of e.children || []) w(k); }; w(a.toolbar.host.lastPage); return out; };
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY, false, 1); a.pointerUp(); };
+      press(find("tb-m-file-trigger"));
+      const lines = all();
+      const ys = ["new", "openbox", "save", "aiClaude"].map((id) => find("tb-m-file-item-" + id).calculatedY);
+      const between = lines.length === 3 && lines.every((l, i) => l.calculatedY > ys[i] && l.calculatedY < ys[i + 1] && l.calculatedHeight === 1);
+      for (;;) { if (!a.takeRequest()) break; }
+      press(lines[0]);
+      const reqs = [];
+      for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
+      const stillOpen = a.toolbar.openMenu() !== "";
+      a.key("escape", false, false);
+      return { n: lines.length, between, reqs, stillOpen };
+    });
+    check("…the File menu is grouped by three lines, and a line takes no press", seps.between && seps.reqs.length === 0 && seps.stillOpen, JSON.stringify(seps));
+
+    // File → Recent: Browse all… first (the Files tab), a line, then the decks
+    const recent = await page.evaluate(async () => {
+      const a = window.__app;
+      a.setToolbarOptions("recent", "deck-a\tOld deck\ndeck-b\tOlder deck", "");
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      const shut = () => { for (let n = 0; n < 3 && a.toolbar.openMenu() !== ""; n++) a.key("escape", false, false); };
+      const pick = async (id) => {
+        shut();
+        press(find("tb-m-file-trigger"));
+        press(find("tb-m-file-item-recent"));
+        let row = null;
+        for (let n = 0; n < 40 && !row; n++) { row = find("tb-m-file-item-recent-item-" + id); if (!row) await new Promise((r) => setTimeout(r, 100)); }
+        if (!row) return null;
+        for (;;) { if (!a.takeRequest()) break; }
+        press(row);
+        const reqs = [];
+        for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
+        shut();
+        return reqs;
+      };
+      const content = () => { const c = find("tb-m-file-item-recent-content"); return c ? (c.children || []).map((k) => k.id) : []; };
+      press(find("tb-m-file-trigger"));
+      press(find("tb-m-file-item-recent"));
+      let order = [];
+      for (let n = 0; n < 40 && order.length === 0; n++) { order = content(); if (!order.length) await new Promise((r) => setTimeout(r, 100)); }
+      shut();
+      const browse = await pick("browse");
+      const deck = await pick("r-deck-a");
+      return { order, browse, deck };
+    });
+    check("…File → Recent lists Browse all… first, then the decks, and each opens", recent.order.length === 4 && /browse$/.test(recent.order[0]) && /sep-1$/.test(recent.order[1]) && /r-deck-a$/.test(recent.order[2]) && (recent.browse || []).includes("showtab:files") && (recent.deck || []).includes("files:doc:deck-a"), JSON.stringify(recent));
   }
 
   // Edit in Claude / ChatGPT: File menu rows; signed out, the assistant opens
@@ -1691,6 +1745,18 @@ try {
     await ctx.close();
   }
 
+  // Open → Sample documents: English decks for an English interface, and the
+  // prompt is the trigger's text, not a row in the list
+  const samples = await page.evaluate(() => {
+    const a = window.__app;
+    a.openOpen([...document.getElementById("sample").options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
+    const sel = a.panels.samplePick;
+    const out = { trigger: sel.labelOf(sel.value), rows: sel.items.map((it) => it.value + "=" + it.name) };
+    a.closeShare();
+    return out;
+  });
+  check("Open: the samples list starts with a deck, the prompt only on the trigger", samples.trigger === "Open sample document…" && samples.rows[0] === "talous=Finance: take charge of your money" && !samples.rows.some((r) => r.startsWith("=")), JSON.stringify(samples));
+
   // the interface in another language: ?lang=fi, the canvas bar and the page alike
   const pageFi = await browser.newPage({ viewport: { width: 1200, height: 760 } });
   await pageFi.goto(url + "?lang=fi&sample=talous");
@@ -1701,9 +1767,10 @@ try {
     html: document.getElementById("present").textContent,
     langSel: document.getElementById("lang").value,
     langBar: window.__app.toolbarJson().includes("Suomi"),
+    sample: window.__app.source().includes("# Oma talous haltuun"),
   }));
   await pageFi.close();
-  check("?lang=fi: the bar drawn and the page's own words in Finnish", fi.lang === "fi" && fi.bar && /Esitä/.test(fi.html) && fi.langSel === "fi" && fi.langBar, JSON.stringify(fi));
+  check("?lang=fi: the bar drawn and the page's own words in Finnish", fi.lang === "fi" && fi.bar && /Esitä/.test(fi.html) && fi.langSel === "fi" && fi.langBar && fi.sample, JSON.stringify(fi));
 
   check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {

@@ -66,6 +66,8 @@
 .theme-tb .ui-dropdownmenu-item { font-family: Open Sans; font-size: 13px; color: #18181b; width: 210px; height: 32px; line-height: 32px; padding: 0 10px; border-radius: 8px; white-space: nowrap; }
 .theme-tb .ui-dropdownmenu-item:hover { background-color: #f4f4f5; }
 .theme-tb .ui-dropdownmenu-item:focus { background-color: #f4f4f5; }
+/* a line between a menu's groups (MenuCtl.addSeparator) */
+.theme-tb .ui-dropdownmenu-separator { width: 210px; height: 1px; background-color: #e4e4e7; margin: 4px 0; }
 .theme-tb .ui-dropdownmenu-subtrigger-state-open { background-color: #f4f4f5; }
 .theme-tb .ui-dropdownmenu-subtrigger { display: flex; flex-direction: row; flex-wrap: nowrap; justify-content: space-between; align-items: center; }
 .theme-tb .ui-dropdownmenu-item-label { font-family: Open Sans; font-size: 13px; color: #18181b; height: 32px; line-height: 32px; white-space: nowrap; }

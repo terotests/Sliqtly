@@ -20,10 +20,25 @@
 ; does the copying, since the clipboard is the browser's.
 ; ============================================================================
 
-Import "../ui/src/UiHost.rgr"
+Import "../evgui/src/UiHost.rgr"
 Import "../vela/src/VlJson.rgr"
 Import "PresI18n.rgr"
 Import "PresImport.rgr"
+
+; A select that says what it is for while nothing is chosen. SelectCtl draws
+; the chosen item's label in its trigger, so a prompt there used to be a
+; disabled first item, which then showed up as a row in the open list.
+class PresPromptSelect extends SelectCtl {
+    def prompt:string ""
+
+    fn labelOf:string (v:string) {
+        if ((this.indexOfValue(v)) < 0) {
+            return prompt
+        }
+        def it:UiItem (itemAt items (this.indexOfValue(v)))
+        return it.name
+    }
+}
 
 class PresPanels {
     def host:UiHost (new UiHost())
@@ -47,8 +62,8 @@ class PresPanels {
     ; the computer or a sample deck, `openRows` "value<TAB>label" lines)
     def dialogKind:string "share"
     def openRows:string ""
-    ; the Open dialog's sample decks: a select whose first row says what it is
-    def samplePick:SelectCtl (new SelectCtl())
+    ; the Open dialog's sample decks: a select whose trigger says what it is
+    def samplePick:PresPromptSelect (new PresPromptSelect())
     ; the import dialog ("data"): the dropped file and its selects, one of
     ; which may be open (`dataOpenSel`, its tid)
     def imp:PresImport (new PresImport())
@@ -694,10 +709,10 @@ class PresPanels {
         def o:EVGElement (this.div("pn-opt"))
         o.addChild((this.words("pn-otitle" (PresI18n.t("Sample documents")))))
         def keepOpen:boolean samplePick.open
-        def sel (new SelectCtl())
+        def sel (new PresPromptSelect())
         sel.tid = "pn-samples"
         sel.name = (PresI18n.t("Open sample document…"))
-        sel.addItem("" (PresI18n.t("Open sample document…")) true)
+        sel.prompt = sel.name
         def lines:[string] (strsplit openRows (strfromcode 10))
         def i:int 0
         while (i < (array_length lines)) {

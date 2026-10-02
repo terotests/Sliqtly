@@ -23,6 +23,13 @@ checkout instead, set `RANGER_DIR=/path/to/Ranger`. `src/` is linked into the
 checkout as `gallery/presentation`, the same way EvgHarness does it, and
 compiled with Ranger's own compiler.
 
+The UI controls (UiHost, the menus, the windows, the crop control…) come
+from [terotests/EVGUI](https://github.com/terotests/EVGUI), not from
+Ranger's `gallery/ui` (Ranger is the compiler; its gallery holds examples).
+EVGUI is cloned into `.deps/EVGUI` from the ref in `presentation.config.json`
+(`EVGUI_DIR=/path/to/EVGUI` uses a checkout of your own) and linked into the
+Ranger checkout as `gallery/evgui`; `src/` imports it as `../evgui/src/`.
+
 EVG (`lib/evg`) is no longer tracked in Ranger: Ranger's `npm run deps`
 fetches it from [terotests/evg](https://github.com/terotests/evg) at the
 commit its root `ranger.json` pins. `npm run setup` (and every script that
@@ -134,7 +141,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   [docs/live-data.md](docs/live-data.md), which also has the V2–V4 roadmap.
 - **Chart settings**: a click on the `vega-lite` word of a ```` ```vega-lite ````
   fence, or a double click on the chart on the stage, opens a movable window
-  built from gallery/ui controls in the EVGUI playground's light look
+  built from EVGUI controls in the EVGUI playground's light look
   (`WindowCtl`, `TabsCtl`, `SliderCtl`, `SwitchCtl`, `ButtonCtl`, `InputCtl`):
   - *Kaavio*: the width and height (sliders), the kind (20; the ones the
     table cannot make are disabled and say why), the title and the legend.
@@ -198,7 +205,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | `src/PresApp.rgr` | The editor: panels, tracks, filmstrip, presenting, exports |
 | `src/PresCheck.rgr` | Node checks |
 | `web/` | `index.html` (toolbar), `main.js` (WebGL, clock, keyboard, paste), `pres.css` (EVG chrome) |
-| `samples/*.md` | Example decks: talous (a Vega chart), ymparisto (a wrapped chain), urheilu and ohjelmointi (questions with a loop), kulttuuri (Graphviz). `esittely.md` is the deck `check:web` drives (`?sample=esittely`) |
+| `samples/*.md` | Example decks: talous (a Vega chart), ymparisto (a wrapped chain), urheilu and ohjelmointi (questions with a loop), kulttuuri (Graphviz). `<key>.en.md` is the English deck, shown unless the interface is in Finnish (`<key>.md`). `esittely.md` is the deck `check:web` drives (`?sample=esittely`) |
 | `themes/*.css` | Themes; `aurora` is the default (dark 16:9) |
 | `web/sliqtly.js` | PRO: Google sign-in through Firebase Auth, behind the bar's PRO button |
 | `brand/` | The logo as SVG; `make_logo.py` writes them. The build copies the icon as `favicon.svg` |
