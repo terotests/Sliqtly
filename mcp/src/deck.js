@@ -52,6 +52,7 @@ export function warnings(md, imageNames, storedNames = []) {
   const out = [];
   for (const m of media) if (!have.has(m)) out.push(`media/${m} is used in the Markdown but no image by that name was sent.`);
   for (const n of imageNames) if (!media.includes(n)) out.push(`Image ${n} was sent but the Markdown does not use media/${n}.`);
+  out.push(...typeWarnings(md));
   return out;
 }
 
@@ -167,4 +168,31 @@ export function bindChartData(md, chart, source) {
   const lines = md.split(/\r?\n/);
   lines.splice(hit.open + 1, hit.close - hit.open - 1, ...JSON.stringify(spec, null, 2).split("\n"));
   return { md: lines.join("\n"), spec, index: all.indexOf(hit) + 1, title: hit.title };
+}
+
+// Encoding types Vega-Lite knows; any other (a model's "point") puts every
+// mark at 0 on that axis. Looked for in layers, concats and facet specs too.
+const VL_TYPES = ["quantitative", "ordinal", "nominal", "temporal", "geojson"];
+function badTypes(v, out) {
+  if (Array.isArray(v)) { for (const x of v) badTypes(x, out); return; }
+  if (!v || typeof v !== "object") return;
+  if (v.encoding && typeof v.encoding === "object") {
+    for (const [ch, def] of Object.entries(v.encoding)) {
+      if (def && typeof def === "object" && typeof def.type === "string" && !VL_TYPES.includes(def.type)) out.push(`encoding ${ch} has type "${def.type}"`);
+    }
+  }
+  for (const k of ["layer", "concat", "hconcat", "vconcat", "spec"]) badTypes(v[k], out);
+}
+
+// a warning per chart whose spec has an unknown encoding type
+export function typeWarnings(md) {
+  const out = [];
+  charts(md).forEach((c, i) => {
+    let spec;
+    try { spec = JSON.parse(c.text); } catch { return; }
+    const bad = [];
+    badTypes(spec, bad);
+    if (bad.length) out.push(`Chart ${i + 1}${c.title ? ` on "${c.title}"` : ""}: ${bad.join(", ")}; Vega-Lite types are quantitative, ordinal, nominal and temporal. Points on an axis of an unknown type all fall at 0.`);
+  });
+  return out;
 }

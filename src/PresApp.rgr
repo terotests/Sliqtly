@@ -3227,6 +3227,114 @@ class PresApp {
         return true
     }
 
+    ; --- a picture pasted or dropped -------------------------------------------------
+    ; The page has registered it for drawing at `path` (not kept yet): the
+    ; window asks which part of it to keep and where it goes. `note` says
+    ; where it will be kept. Add is "picture-place" to the page, which reads
+    ; `pastePlan`, cuts and keeps the picture and calls `placePicture`;
+    ; anything else is "picture-cancel".
+    fn openPaste:boolean (path:string iw:int ih:int alt:string note:string) {
+        if (mode == "present") {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 560.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        def py:double (barH + 24.0)
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        def aspect:double 0.0
+        if (deck.pageH > 0.0) {
+            aspect = (deck.pageW / deck.pageH)
+        }
+        chart.openPaste(path (to_double iw) (to_double ih) alt note aspect px py W H)
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; {"to": "slide"|"bg-slide"|"bg-all", "crop": "x,y,w,h" in pixels,
+    ;  "whole": true when nothing was cut away, "alt": the description}
+    fn pastePlan:string () {
+        def whole:string "false"
+        if (chart.crop.isWhole()) {
+            whole = "true"
+        }
+        return ("{\"to\":\"" + chart.pasteTo + "\",\"crop\":\"" + (chart.crop.cropPixels()) + "\",\"whole\":" + whole + ",\"alt\":" + (PresApp.jsonStr(chart.pasteAlt)) + "}")
+    }
+
+    sfn jsonStr:string (v:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen v)) {
+            def c:int (charAt v i)
+            if ((c == 34) || (c == 92)) {
+                out = (out + "\\" + (strfromcode c))
+            } {
+                if (c < 32) {
+                    out = (out + " ")
+                } {
+                    out = (out + (substring v i (i + 1)))
+                }
+            }
+            i = (i + 1)
+        }
+        return ("\"" + out + "\"")
+    }
+
+    ; The kept picture into the deck: on the slide at the caret, as the
+    ; background of the caret's slide, or of every slide.
+    fn placePicture:void (path:string alt:string to:string) {
+        if (to == "bg-all") {
+            this.cssSet("page" "background-image" ("url(" + path + ")"))
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        if (to == "bg-slide") {
+            def head:int (this.slideHeadAt(mdEditor.sel.caret.line))
+            if (head >= 0) {
+                ; the picture is what the slide shows: an effect would cover it
+                this.replaceLines(head head (PresApp.withAttr((PresApp.withoutFx((mdEditor.buf.lineAt(head)))) "bg" path)))
+                chromeRev = (chromeRev + 1)
+                return
+            }
+        }
+        this.showTab("md")
+        this.insertPicture(path alt)
+    }
+
+    ; The heading of the slide Markdown line `line` is on: the nearest one at
+    ; or above it, or the first one below when it is above them all. -1 when
+    ; the deck has none.
+    fn slideHeadAt:int (line:int) {
+        def k:int line
+        def n:int (mdEditor.buf.lineCount())
+        if (k >= n) {
+            k = (n - 1)
+        }
+        while (k >= 0) {
+            if ((indexOf (mdEditor.buf.lineAt(k)) "#") == 0) {
+                return k
+            }
+            k = (k - 1)
+        }
+        k = (line + 1)
+        while (k < n) {
+            if ((indexOf (mdEditor.buf.lineAt(k)) "#") == 0) {
+                return k
+            }
+            k = (k + 1)
+        }
+        return -1
+    }
+
     ; The picture on the caret's line, when the Markdown tab shows.
     fn openImageAtCaret:boolean () {
         if (edTab != "md") {
@@ -3336,6 +3444,33 @@ class PresApp {
         m.line = -1
     }
 
+    ; A heading line without `fx=` and `fx-…=` in its `{…}`.
+    sfn withoutFx:string (line:string) {
+        def t:string line
+        def n:int (strlen t)
+        def open:int (PresApp.lastIndexOf(t " {"))
+        if ((open <= 0) || ((charAt t (n - 1)) != 125)) {
+            return t
+        }
+        def words:[string] (strsplit (substring t (open + 2) (n - 1)) " ")
+        def out:string ""
+        def i:int 0
+        while (i < (array_length words)) {
+            def w:string (trim (itemAt words i))
+            if (((strlen w) > 0) && (((indexOf w "fx=") != 0) && ((indexOf w "fx-") != 0))) {
+                if ((strlen out) > 0) {
+                    out = (out + " ")
+                }
+                out = (out + w)
+            }
+            i = (i + 1)
+        }
+        if ((strlen out) == 0) {
+            return (substring t 0 open)
+        }
+        return ((substring t 0 open) + " {" + out + "}")
+    }
+
     ; A heading line with `key=value` in its `{…}` (replacing the key's old
     ; value), or a new `{key=value}` after it.
     sfn withAttr:string (line:string key:string value:string) {
@@ -3441,6 +3576,14 @@ class PresApp {
             if (chart.mode == "image") {
                 this.imageAfterClose()
             }
+            if (chart.mode == "paste") {
+                if chart.wantsPlace {
+                    chart.wantsPlace = false
+                    push requests "picture-place"
+                } {
+                    push requests "picture-cancel"
+                }
+            }
         }
         ; the chart's data file, in the files tab's editor
         if ((strlen chart.wantsFile) > 0) {
@@ -3479,6 +3622,9 @@ class PresApp {
             return
         }
         chart.changed = false
+        if (chart.mode == "paste") {
+            return
+        }
         if (chart.mode == "image") {
             this.writeImage()
             return
