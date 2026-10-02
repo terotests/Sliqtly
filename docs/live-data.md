@@ -50,6 +50,16 @@ rows: 8
 ```
 ````
 
+### Linking by pasting
+
+Paste a Google Sheet's link (or a `.csv` / `.tsv` / `.json` address) on its
+own into the editor. Sliqtly reads it and opens **Link live data** with the
+first rows: **Make a chart** (pick the columns as in the file import),
+**Make a table**, or **Paste as text**. The chart it makes reads the link
+live: the sheet's own columns, folded into series and summed or averaged by
+the category the dialog picked, no numbers copied into the deck. A chart of
+"each row on its own" or an x/y chart is still made from a copy of the rows.
+
 ### Google Sheets
 
 The sheet must be shared as **Anyone with the link → Viewer** (or published
