@@ -258,7 +258,7 @@ class PresHelp {
     sfn knownProps:string (sel:string) {
         if (sel == "page") { return "width,height,padding,background-color,background-image" }
         if (sel == "img") { return "justify-content,max-height" }
-        if ((sel == "header") || (sel == "footer")) { return "content,background-image,text-align,font-size,color,height" }
+        if ((sel == "header") || (sel == "footer")) { return "content,content-left,content-center,content-right,background-image,text-align,font-size,font-weight,color,background-color,border-color,height" }
         if ((sel == "document") || (sel == "body")) { return "font-family,font-size,line-height,color" }
         if (sel == "heading") { return "font-family,color,margin-top,margin-bottom" }
         if (((strlen sel) == 2) && (((charAt sel 0) == 104) && (((charAt sel 1) >= 49) && ((charAt sel 1) <= 54)))) { return "font-size,color" }
@@ -741,7 +741,7 @@ class PresHelp {
             c = (c + 1)
         }
         ; what every slide carries at its top and bottom
-        push out (PresHelp.feature("furniture" (PresI18n.t("Header and footer")) (PresI18n.t("---   header: Company Ltd   footer: {page} / {pages}   header-image: media/logo.png   ---")) (PresI18n.t("In the front matter (at the start of the document) or in the theme. {page}, {pages} and {title} are filled in on every slide. A slide's own background image: ## Title {bg=media/image.jpg bg-dim=0.4}.")) ((PresHelp.rule(css "header" (PresI18n.t("The top of every slide.")) "content,background-image,text-align,font-size,color,height")) + "," + (PresHelp.rule(css "footer" (PresI18n.t("The bottom of every slide.")) "content,background-image,text-align,font-size,color,height")))))
+        push out (PresHelp.feature("furniture" (PresI18n.t("Header and footer")) (PresI18n.t("---   header-left: Company Ltd   header-right: ![](media/logo.png)   footer-right: {page} / {pages}   footer-skip: first last   ---")) (PresI18n.t("In the front matter (at the start of the document) or in the theme. Each edge has three places: -left, -center and -right. {page}, {pages} and {title} are filled in on every slide. footer-skip: first last leaves the first and last slide without it; ## Title {header=off} one slide. A slide's own background image: ## Title {bg=media/image.jpg bg-dim=0.4}.")) ((PresHelp.rule(css "header" (PresI18n.t("The top of every slide.")) "content,content-left,content-right,font-weight,color,background-color,border-color")) + "," + (PresHelp.rule(css "footer" (PresI18n.t("The bottom of every slide.")) "content,content-left,content-right,font-weight,color,background-color,border-color")))))
         ; the slide's own settings
         if ((array_length sc.attrNames) > 0) {
             def f:string (PresHelp.feature("attrs" (PresI18n.t("Slide settings")) (PresI18n.t("## Title {transition=zoom fx=starfield}")) (PresI18n.t("These are in the Markdown, not the theme. Hover over a value in the editor to change it.")) ""))

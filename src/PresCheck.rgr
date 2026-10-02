@@ -401,6 +401,29 @@ class PresCheck {
         this.ok((held >= (need - 0.01)) ("a long node is held for reading: " + (to_string held) + " s"))
     }
 
+    ; The header and the footer: on the slides, before the first build step,
+    ; and not where the front matter or the heading leaves them off.
+    fn edges:void () {
+        def text:string ("---\nslide-split-level: 2\nheader-left: ACME Oy\nfooter-right: \"{page} / {pages}\"\nfooter-skip: first\n---\n\n"
+            + "## Kansi\n\nAlku\n\n## Toka\n\n1. yksi\n2. kaksi\n{.build}\n\n## Kolmas {header=off}\n\nLoppu\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 3) "three slides with a header")
+        if ((deck.slideCount()) < 3) {
+            return
+        }
+        def first:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(first "ACME Oy")) == 1) "the header on the first slide")
+        this.ok(((PresCheck.texts(first "1 / 3")) == 0) "footer-skip: first leaves its footer off")
+        def early:EVGDisplayList (PresTimeline.frame(deck 1 ((deck.slideAt(1)).seconds + 0.05)))
+        this.ok(((PresCheck.texts(early "2 / 3")) == 1) "the page number arrives with the slide")
+        this.ok(((PresCheck.texts(early "yksi")) == 0) "before the build step")
+        def last:EVGDisplayList (PresTimeline.finalFrame(deck 2))
+        this.ok(((PresCheck.texts(last "ACME Oy")) == 0) "{header=off} on a heading")
+        this.ok(((PresCheck.texts(last "3 / 3")) == 1) "that slide keeps its footer")
+    }
+
     sfn texts:int (l:EVGDisplayList word:string) {
         def n:int 0
         def i:int 0
@@ -417,6 +440,7 @@ class PresCheck {
     sfn main:void () {
         def c (new PresCheck())
         c.run()
+        c.edges()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

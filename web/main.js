@@ -62,6 +62,7 @@ const SAMPLES = {
   ohjelmointi: sample("ohjelmointi", "Programming: version control", "Ohjelmointi: versionhallinta"),
   matematiikka: sample("matematiikka", "Mathematics: formulas on slides", "Matematiikka: kaavat kalvoilla"),
   vegalite: sample("vegalite", "Vega-Lite: chart types", "Vega-Lite: kaaviotyypit"),
+  raportti: sample("raportti", "Report: header, footer, page numbers", "Raportti: ylä- ja alaosa, sivunumerot"),
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
 };
 

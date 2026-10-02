@@ -83,8 +83,16 @@ class PresHints {
         if (key == "align") { return (PresI18n.t("Image position in the column: left, center or right.")) }
         if (key == "bg") { return (PresI18n.t("Slide background image, covers the whole slide: bg=media/kuva.jpg")) }
         if (key == "bg-dim") { return (PresI18n.t("How much of the slide's base color goes over the background image (0–1), so text stands out.")) }
-        if (key == "header") { return (PresI18n.t("Header text on every slide. {page}, {pages} and {title} are filled in.")) }
-        if (key == "footer") { return (PresI18n.t("Footer text on every slide, e.g. {page} / {pages}.")) }
+        if (key == "header") { return (PresI18n.t("Header text on every slide. {page}, {pages} and {title} are filled in. On a heading, header=off leaves it off that slide.")) }
+        if (((key == "header-left") || (key == "header-center")) || (key == "header-right")) { return (PresI18n.t("Text in that place of every slide's header; a picture as ![](media/logo.png). {page}, {pages} and {title} are filled in.")) }
+        if (((key == "footer-left") || (key == "footer-center")) || (key == "footer-right")) { return (PresI18n.t("Text in that place of every slide's footer; a picture as ![](media/logo.png). {page}, {pages} and {title} are filled in.")) }
+        if ((key == "header-skip") || (key == "footer-skip")) { return (PresI18n.t("Slides without it: first, last or slide numbers, e.g. first last.")) }
+        if ((key == "header-color") || (key == "footer-color")) { return (PresI18n.t("Header or footer text color.")) }
+        if ((key == "header-background") || (key == "footer-background")) { return (PresI18n.t("A band of color behind the header or footer, to the slide's edge.")) }
+        if ((key == "header-image-height") || (key == "footer-image-height")) { return (PresI18n.t("Height of the header or footer picture, e.g. 30pt.")) }
+        if ((key == "header-size") || (key == "footer-size")) { return (PresI18n.t("Header or footer text size, e.g. 12pt.")) }
+        if (key == "furniture") { return (PresI18n.t("off: no header or footer on this slide.")) }
+        if (key == "footer") { return (PresI18n.t("Footer text on every slide, e.g. {page} / {pages}. On a heading, footer=off leaves it off that slide.")) }
         if ((key == "header-image") || (key == "footer-image")) { return (PresI18n.t("Image next to the header or footer text, e.g. media/logo.png.")) }
         if ((key == "header-align") || (key == "footer-align")) { return (PresI18n.t("left, center or right.")) }
         if (key == "diagram") { return (PresI18n.t("classic: the diagram's original drawing, without a tour.")) }
@@ -108,6 +116,7 @@ class PresHints {
         if (key == "layout") { return "keep" }
         if ((key == "tour") || ((key == "ball") || (key == "choose"))) { return "on off" }
         if (key == "style") { return "holo sketch" }
+        if (key == "furniture") { return "off" }
         if (((key == "align") || (key == "header-align")) || (key == "footer-align")) { return "left center right" }
         return ""
     }
@@ -163,6 +172,8 @@ class PresHints {
         if (prop == "title-gap") { return (PresI18n.t("Space between the chart title and the chart.")) }
         if (prop == "justify-content") { return (PresI18n.t("Horizontal position of a chart or image narrower than the slide: center (default), flex-start or flex-end.")) }
         if (prop == "content") { return (PresI18n.t("Header or footer text in quotes. {page}, {pages} and {title} are filled in: \"{page} / {pages}\".")) }
+        if (((prop == "content-left") || (prop == "content-center")) || (prop == "content-right")) { return (PresI18n.t("Header or footer text in that place, in quotes; a picture as ![](media/logo.png).")) }
+        if (prop == "font-weight") { return (PresI18n.t("Text weight: normal or bold.")) }
         if (prop == "max-height") { return (PresI18n.t("Maximum image height.")) }
         if (prop == "label-color") { return (PresI18n.t("Color of chart text (axes, legend).")) }
         if (prop == "contrast") { return (PresI18n.t("auto: chart text uses the slide's text color on a light slide (default). off: the theme's light text color.")) }
