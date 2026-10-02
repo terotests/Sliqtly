@@ -17,7 +17,8 @@ fs.symlinkSync(path.join(here, "rgr"), at, process.platform === "win32" ? "junct
 
 const outDir = path.join(ranger, "gallery", "sliqtly-mcp-build");
 fs.rmSync(outDir, { recursive: true, force: true });
-const r = spawnSync(process.execPath, ["dist/rgrc.js", "-l=go", "./gallery/sliqtly-mcp/App.rgr", "-d=./gallery/sliqtly-mcp-build", "-o=sliqtly_mcp.go", "-nodecli"], {
+// the deck model makes this compile need more than node's default heap
+const r = spawnSync(process.execPath, ["--max-old-space-size=6144", "dist/rgrc.js", "-l=go", "./gallery/sliqtly-mcp/App.rgr", "-d=./gallery/sliqtly-mcp-build", "-o=sliqtly_mcp.go", "-nodecli"], {
   cwd: ranger, encoding: "utf8", maxBuffer: 64 * 1024 * 1024,
 });
 const text = `${r.stdout || ""}${r.stderr || ""}`;
