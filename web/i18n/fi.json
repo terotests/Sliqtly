@@ -504,5 +504,9 @@
   "Could not read the Google Sheet. Share it as \"Anyone with the link\": ": "Google Sheetiä ei voitu lukea. Jaa se asetuksella \"Kaikki, joilla on linkki\": ",
   "Data refreshed": "Tiedot päivitetty",
   "Fetch the charts' data again (R)": "Hae kaavioiden tiedot uudelleen (R)",
-  "Live chart data is a PRO feature: sign in with PRO to fetch it.": "Kaavioiden live-data on PRO-ominaisuus: kirjaudu PRO:hon, niin tiedot haetaan."
+  "Live chart data is a PRO feature: sign in with PRO to fetch it.": "Kaavioiden live-data on PRO-ominaisuus: kirjaudu PRO:hon, niin tiedot haetaan.",
+  "More": "Lisää",
+  "Create New…": "Luo uusi…",
+  "A new presentation of your own, based on this one": "Uusi oma esitys tämän pohjalta",
+  "Edit this presentation": "Muokkaa tätä esitystä"
 }

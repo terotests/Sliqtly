@@ -272,9 +272,11 @@ async function saveDoc(force) {
 function plainAddress() {
   const q = new URLSearchParams(location.search);
   const shared = /^\/s\//.test(location.pathname);
-  if (!location.hash && !shared && !q.has("sample")) return;
+  if (!location.hash && !shared && !q.has("sample") && !q.has("deck")) return;
   q.delete("sample");
   q.delete("edit");
+  q.delete("deck");
+  q.delete("from");
   const search = q.toString();
   history.replaceState(null, "", (shared ? "/" : location.pathname) + (search ? "?" + search : ""));
   lastHash = "";
@@ -1473,12 +1475,19 @@ function enterViewer() {
 function wakeViewer() {
   document.body.classList.remove("idle");
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => document.body.classList.add("idle"), 2500);
+  // the bar stays while its menu is open
+  idleTimer = setTimeout(() => { if (vMenu.hidden) document.body.classList.add("idle"); }, 2500);
 }
 // Esc leaves full screen (the browser does that), never the presentation:
 // there is no editor to go back to.
 window.addEventListener("keydown", (ev) => {
-  if (viewer && ev.key === "Escape") ev.stopImmediatePropagation();
+  if (viewer && ev.key === "Escape") {
+    ev.stopImmediatePropagation();
+    if (!vMenu.hidden) {
+      toggleViewMenu(false);
+      vMore.focus();
+    }
+  }
 }, true);
 for (const ev of ["pointermove", "pointerdown", "keydown"]) {
   window.addEventListener(ev, () => { if (viewer) wakeViewer(); }, { passive: true });
@@ -1489,6 +1498,86 @@ document.getElementById("vData").addEventListener("click", () => refreshLiveData
 document.getElementById("vFull").addEventListener("click", () => {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+});
+
+// The … menu: the deck as PDF, PPTX or Markdown (the editor's exports), a new
+// deck of the reader's own based on this one, and, for the signed-in owner of
+// a cloud share, Edit, which opens their own deck in the editor.
+// The page may be a blob: copy of index.html (the AI preview); its <base> is
+// the site, so the links are made against it and open in a new tab.
+const vMenu = document.getElementById("vMenu");
+const vMore = document.getElementById("vMore");
+const vExportSub = document.getElementById("vExportSub");
+const vExport = document.getElementById("vExport");
+const framed = location.protocol === "blob:";
+let viewShare = null; // { id, owner, deck } of a cloud share being shown
+function ownsShare() {
+  const u = window.sliqtly?.user?.();
+  return !!(u && viewShare && viewShare.deck && viewShare.owner === u.uid);
+}
+function toggleViewMenu(open) {
+  vMenu.hidden = !open;
+  vMore.setAttribute("aria-expanded", String(open));
+  if (!open) {
+    vExportSub.hidden = true;
+    vExport.setAttribute("aria-expanded", "false");
+    return;
+  }
+  document.getElementById("vEdit").hidden = !ownsShare();
+  wakeViewer();
+  vMenu.querySelector("button:not([hidden])").focus();
+}
+window.addEventListener("sliqtly:user", () => { document.getElementById("vEdit").hidden = !ownsShare(); });
+function siteLink(url) {
+  if (framed) window.open(url, "_blank", "noopener");
+  else {
+    location.assign(url);
+    // only the hash changed: the page would stay the viewer
+    if (new URL(url).pathname === location.pathname && !new URL(url).search) location.reload();
+  }
+}
+function createFromViewed() {
+  if (viewShare) return siteLink(new URL("s/" + viewShare.id + "?edit", document.baseURI).href);
+  const q = hashParams();
+  q.delete("mode");
+  siteLink(new URL(document.baseURI).href.replace(/#.*$/, "") + "#" + q.toString());
+}
+async function exportMd() {
+  window.__lastDownload = deliver(new TextEncoder().encode(app.source()), exportName() + ".md", "text/markdown");
+}
+window.__viewMenu = { toggle: toggleViewMenu, ownsShare, share: () => viewShare };
+vMore.addEventListener("click", () => toggleViewMenu(vMenu.hidden));
+vExport.addEventListener("click", () => {
+  vExportSub.hidden = !vExportSub.hidden;
+  vExport.setAttribute("aria-expanded", String(!vExportSub.hidden));
+  if (!vExportSub.hidden) vExportSub.querySelector("button").focus();
+});
+vMenu.addEventListener("click", (ev) => {
+  const act = ev.target.closest("[data-act]")?.dataset.act;
+  if (!act) return;
+  toggleViewMenu(false);
+  if (act === "pdf") exportPdf().catch(fail);
+  else if (act === "pptx") exportPptx().catch(fail);
+  else if (act === "md") exportMd().catch(fail);
+  else if (act === "new") createFromViewed();
+  else if (act === "edit" && ownsShare()) {
+    siteLink(new URL("?deck=" + encodeURIComponent(viewShare.deck) + "&from=" + viewShare.id, document.baseURI).href);
+  }
+});
+vMenu.addEventListener("keydown", (ev) => {
+  const items = [...vMenu.querySelectorAll("button")].filter((b) => b.offsetParent);
+  const at = items.indexOf(document.activeElement);
+  if (ev.key === "Escape") {
+    toggleViewMenu(false);
+    vMore.focus();
+  } else if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+    items[(at + (ev.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
+  } else return;
+  ev.preventDefault();
+  ev.stopPropagation();
+});
+document.addEventListener("pointerdown", (ev) => {
+  if (!vMenu.hidden && !ev.target.closest("#viewBar")) toggleViewMenu(false);
 });
 
 let lastHash = "";
@@ -1534,9 +1623,36 @@ function hashShare() {
   const id = hashParams().get("share");
   return id && /^[A-Za-z0-9]{6,32}$/.test(id) ? id : null;
 }
+// ?deck={deckId}&from={shareId}: the owner's Edit from a shared presentation.
+// The deck itself when this browser keeps it; else the share's copy, kept
+// under the deck's id so sharing it again updates the same cloud deck.
+function ownDeck() {
+  const q = new URLSearchParams(location.search);
+  const deck = q.get("deck");
+  const from = q.get("from");
+  if (!deck || !/^[A-Za-z0-9_-]{1,64}$/.test(deck)) return null;
+  return { deck, from: from && /^[A-Za-z0-9]{6,32}$/.test(from) ? from : null };
+}
+// This browser's copy of the owner's deck wins unless the share has changed
+// since (an assistant saves to the share).
+async function ownIsNewer(own) {
+  const local = await vfs.getDoc(own.deck);
+  if (!local) return false;
+  if (!own.from) return true;
+  try {
+    const shared = await (await pro()).loadShare(own.from);
+    if (!shared) return true;
+    const at = shared.updated || shared.created;
+    const ms = at?.toMillis ? at.toMillis() : Number(at) || 0;
+    return local.md === shared.md || (local.updated || 0) >= ms;
+  } catch (_) {
+    return true;
+  }
+}
 async function openFromShare() {
   const m = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(location.pathname);
-  const id = m ? m[1] : hashShare();
+  const own = m || hashShare() ? null : ownDeck();
+  const id = m ? m[1] : hashShare() || own?.from;
   if (!id) return false;
   try {
     const shared = await (await pro()).loadShare(id);
@@ -1544,10 +1660,12 @@ async function openFromShare() {
       toast(t("This shared presentation was not found."));
       return false;
     }
-    const editing = !!m && new URLSearchParams(location.search).has("edit");
+    const editing = (!!m && new URLSearchParams(location.search).has("edit")) || !!own;
     if (editing) originShare = { id, owner: shared.owner || "", md: shared.md || "" };
     beginDoc(shared.md || "");
     liveFromShare = !editing;
+    if (own) doc.id = own.deck;
+    else if (!editing) viewShare = { id, owner: shared.owner, deck: shared.deck };
     if (shared.theme != null) {
       themeSel.value = shared.theme;
       app.setStyleSheet(shared.theme ? themeCss[shared.theme] || "" : "");
@@ -1760,6 +1878,8 @@ keys.addEventListener("keydown", (ev) => {
 
 document.addEventListener("keydown", (ev) => {
   if (ev.target === keys || !(lastLayout && lastLayout.mode === "present")) return;
+  // the viewer's buttons and menu keep their own keys (Enter, Tab, arrows)
+  if (ev.target.closest?.("#viewBar")) return;
   keys.focus({ preventScroll: true });
   keys.dispatchEvent(new KeyboardEvent("keydown", { key: ev.key, code: ev.code, shiftKey: ev.shiftKey, ctrlKey: ev.ctrlKey, metaKey: ev.metaKey, altKey: ev.altKey, bubbles: false, cancelable: true }));
   ev.preventDefault();
@@ -2130,7 +2250,9 @@ async function start() {
   themeSel.value = theme;
   app.setStyleSheet(theme ? themeCss[theme] || "" : "");
   if (!viewer && !hashShare()) vfs = await openVfs();
-  if (!(await openFromShare()) && !(await openFromHash())) {
+  const own = ownDeck();
+  if (own && vfs && (await ownIsNewer(own)) && (await openDoc(own.deck))) plainAddress();
+  else if (!(await openFromShare()) && !(await openFromHash())) {
     const want = q.get("sample");
     // no sample asked for: the deck worked on last, if this browser kept one
     let last = null;
