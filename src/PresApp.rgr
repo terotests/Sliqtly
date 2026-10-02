@@ -1922,6 +1922,8 @@ class PresApp {
     def tapDia:int -1
 
     def dragSlop:double 6.0
+    ; how far a finger moves sideways for a swipe to change the slide
+    def swipeMin:double 40.0
 
     fn setDragSlop:void (px:double) {
         dragSlop = px
@@ -1944,6 +1946,9 @@ class PresApp {
             return
         }
         if (stageDia < 0) {
+            ; where the press went: a swipe changes the slide on release
+            lastX = x
+            lastY = y
             return
         }
         def hit@(optional):PresDiaUse (deck.diagramUse(selected stageDia))
@@ -1983,6 +1988,26 @@ class PresApp {
             activatedNow = ((tapDia >= 0) && (mode == "edit"))
         }
         if (mode == "present") {
+            ; a swipe sideways: left for the next slide, right for the one
+            ; before (from the end panel straight to it); a press that went
+            ; elsewhere does nothing
+            def dx:double (lastX - downX)
+            def dy:double (lastY - downY)
+            def adx:double (fabs dx)
+            def ady:double (fabs dy)
+            if ((adx >= swipeMin) && (adx > (ady * 1.2))) {
+                if (dx < 0.0) {
+                    this.next()
+                } {
+                    ended = false
+                    this.prev()
+                }
+                chromeRev = (chromeRev + 1)
+                return
+            }
+            if (((adx * adx) + (ady * ady)) >= (swipeMin * swipeMin)) {
+                return
+            }
             if (! (this.stagePress(downX downY))) {
                 this.next()
             }

@@ -264,9 +264,25 @@ try {
     const restart = await state();
     await toEnd();
     await page.waitForTimeout(150);
+    // a finger sideways on the slide: right for the slide before (from the
+    // end panel too), left for the next
+    const swipe = (dx) => page.evaluate((dx) => {
+      const a = window.__app;
+      const w = innerWidth / 2, h = innerHeight / 2;
+      a.pointerDown(w, h, false, 1);
+      a.pointerMove(w + dx / 2, h + 4);
+      a.pointerMove(w + dx, h + 6);
+      a.pointerUp();
+      return { slide: a.slideShown(), end: a.atEnd() };
+    }, dx);
+    const swipedBack = await swipe(120);
+    const swipedOn = await swipe(-120);
+    await toEnd();
+    await page.waitForTimeout(150);
     await page.click("#endExit");
     await page.waitForTimeout(100);
     const exit = await state();
+    check("a swipe right goes back a slide, a swipe left on", !swipedBack.end && swipedBack.slide === prev.count - 2 && swipedOn.slide === prev.count - 1, JSON.stringify({ swipedBack, swipedOn }));
     check("the end panel waits until the last slide is passed", !before.shown && reached && atEnd.shown && atEnd.slide === atEnd.count - 1, JSON.stringify({ before, atEnd }));
     check("end panel: Previous slide, From the start, Exit", !prev.shown && prev.slide === prev.count - 2 && restart.slide === 0 && !restart.end && exit.mode === "edit" && !exit.shown, JSON.stringify({ prev, restart, exit }));
     await page.evaluate(() => { while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
