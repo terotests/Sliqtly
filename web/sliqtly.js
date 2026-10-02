@@ -191,5 +191,111 @@ async function saveShare(id, deck, since) {
   return kept;
 }
 
-window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, loadShare };
+// --- private Google Sheets ---------------------------------------------------------
+// A sheet that is not shared by link is read through the Sheets API as the
+// signed-in user, with the drive.file scope: Sliqtly may read only the files
+// the user picks in Google's Picker, nothing else on their Drive. The token
+// comes from a second Google popup on the same account (Firebase keeps no
+// Google token of its own) and lasts an hour; it is kept for this tab only.
+const DRIVE_FILE = "https://www.googleapis.com/auth/drive.file";
+let sheetToken = null;
+try { sheetToken = JSON.parse(sessionStorage.getItem("sliqtly:sheets") || "null"); } catch (_) { /* none */ }
+
+function tokenValid() {
+  return sheetToken && sheetToken.exp > Date.now() + 60000 ? sheetToken.token : null;
+}
+
+// The access token; a popup when there is none and `ask` (a press or a
+// paste, so the browser lets the popup open), else null.
+async function sheetsToken(ask) {
+  const have = tokenValid();
+  if (have || !ask || !user) return have;
+  const p = new globalThis.firebase.auth.GoogleAuthProvider();
+  p.addScope(DRIVE_FILE);
+  if (user.email) p.setCustomParameters({ login_hint: user.email });
+  const res = await user.reauthenticateWithPopup(p);
+  const token = res?.credential?.accessToken;
+  if (!token) return null;
+  sheetToken = { token, exp: Date.now() + 55 * 60000 };
+  try { sessionStorage.setItem("sliqtly:sheets", JSON.stringify(sheetToken)); } catch (_) { /* this page only */ }
+  return token;
+}
+
+// Google's Picker, open on `fileId` when given: the file picked is the one
+// drive.file lets Sliqtly read. → its id, or null when cancelled.
+let pickerLoaded = null;
+async function pickSheet(fileId, token) {
+  const fb = await firebaseApp();
+  const opts = fb.app().options || {};
+  pickerLoaded ??= (async () => {
+    await load("https://apis.google.com/js/api.js");
+    await new Promise((ok) => globalThis.gapi.load("picker", ok));
+  })();
+  await pickerLoaded;
+  const g = globalThis.google.picker;
+  const key = document.querySelector('meta[name="google-picker-key"]')?.content || opts.apiKey;
+  const view = new g.DocsView(g.ViewId.SPREADSHEETS).setMode(g.DocsViewMode.LIST);
+  if (fileId && typeof view.setFileIds === "function") view.setFileIds(fileId);
+  return new Promise((ok) => {
+    new g.PickerBuilder()
+      .addView(view)
+      .setOAuthToken(token)
+      .setDeveloperKey(key)
+      .setAppId(opts.messagingSenderId)
+      .setTitle(t("Pick the sheet Sliqtly may read"))
+      .setCallback((d) => {
+        if (d.action === g.Action.PICKED) ok(d.docs?.[0]?.id || null);
+        else if (d.action === g.Action.CANCEL) ok(null);
+      })
+      .build()
+      .setVisible(true);
+  });
+}
+
+function csvCell(v) {
+  const s = v == null ? "" : String(v);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+// A sheet's CSV as the signed-in user: `gviz` is the address the chart reads
+// (MdVegaRender.sheetCsv: /d/<id>/gviz/tq?…&sheet=…&gid=…&range=…). `ask`
+// allows the popup and the Picker. Throws { code: "auth" } when there is no
+// token, { code: "access" } when the user may not or did not pick it.
+async function readSheet(gviz, ask) {
+  const m = /\/spreadsheets\/d\/([^/?#]+)/.exec(gviz);
+  if (!m || !user) throw Object.assign(new Error("not signed in"), { code: "auth" });
+  const id = m[1];
+  const q = new URL(gviz).searchParams;
+  let token = await sheetsToken(ask);
+  if (!token) throw Object.assign(new Error("no token"), { code: "auth" });
+  const api = "https://sheets.googleapis.com/v4/spreadsheets/" + encodeURIComponent(id);
+  const get = (u) => fetch(u, { headers: { Authorization: "Bearer " + token }, cache: "no-store" });
+  let tab = q.get("sheet") || "";
+  // a tab named by its gid: its title from the spreadsheet's tabs
+  let r = await get(api + "?fields=sheets.properties(sheetId,title)");
+  if ((r.status === 403 || r.status === 404) && ask) {
+    // not one of the files drive.file covers yet: the user picks it
+    const picked = await pickSheet(id, token);
+    if (picked !== id) throw Object.assign(new Error("not picked"), { code: "access" });
+    r = await get(api + "?fields=sheets.properties(sheetId,title)");
+  }
+  if (r.status === 401) {
+    sheetToken = null;
+    throw Object.assign(new Error("token expired"), { code: "auth" });
+  }
+  if (!r.ok) throw Object.assign(new Error("HTTP " + r.status), { code: "access" });
+  const tabs = ((await r.json()).sheets || []).map((x) => x.properties);
+  if (!tab) {
+    const gid = q.get("gid");
+    tab = (tabs.find((x) => String(x.sheetId) === gid) || tabs[0] || {}).title || "";
+  }
+  const range = (tab ? "'" + tab.replace(/'/g, "''") + "'!" : "") + (q.get("range") || "A:ZZ");
+  const v = await get(api + "/values/" + encodeURIComponent(range) + "?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING");
+  if (!v.ok) throw Object.assign(new Error("HTTP " + v.status), { code: "access" });
+  const rows = (await v.json()).values || [];
+  const width = rows.reduce((n, row) => Math.max(n, row.length), 0);
+  return rows.map((row) => Array.from({ length: width }, (_, i) => csvCell(row[i])).join(",")).join("\n") + "\n";
+}
+
+window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, loadShare, readSheet, sheetsToken: () => tokenValid() };
 window.dispatchEvent(new Event("sliqtly:ready"));

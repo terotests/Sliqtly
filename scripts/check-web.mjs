@@ -84,6 +84,51 @@ const browser = await chromium.launch({
   args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
 });
 try {
+  // A phone: the filmstrip swipes, a tap picks a thumbnail, two fingers
+  // zoom the slide (clipped to the stage) and a double tap goes back out.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 760 }, hasTouch: true, isMobile: true });
+    const phone = await ctx.newPage();
+    await phone.goto(url + "?sample=esittely");
+    await phone.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const cdp = await ctx.newCDPSession(phone);
+    const touch = (type, pts) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+    const lay = () => phone.evaluate(() => JSON.parse(window.__app.layoutJson()));
+    let l = await lay();
+    const sy = l.thumbs[0][2] + 30;
+    await touch("touchStart", [[300, sy]]);
+    for (let x = 300; x >= 60; x -= 20) await touch("touchMove", [[x, sy]]);
+    await touch("touchEnd", []);
+    const l1 = await lay();
+    check("a swipe scrolls the filmstrip without picking a slide", l1.thumbs[0][0] > 0 && l1.slide === 0, `first ${l1.thumbs[0][0]}`);
+    check("a thumbnail cut by the strip's edge is still drawn", l1.thumbs.some((t) => t[5] === 1), JSON.stringify(l1.thumbs.map((t) => [t[0], t[5]])));
+    const th = l1.thumbs.find((t) => !t[5]);
+    await touch("touchStart", [[th[1] + 40, th[2] + 20]]);
+    await touch("touchEnd", []);
+    l = await lay();
+    check("a tap on a thumbnail picks its slide", l.slide === th[0], `${l.slide}`);
+    const cx = l.clip[0] + l.clip[2] / 2, cy = l.clip[1] + l.clip[3] / 2;
+    await touch("touchStart", [[cx - 20, cy], [cx + 20, cy]]);
+    for (let d = 30; d <= 80; d += 10) await touch("touchMove", [[cx - d, cy], [cx + d, cy]]);
+    await touch("touchEnd", []);
+    const l2 = await lay();
+    check("a pinch zooms the slide", l2.stage[2] > l.stage[2] * 3, `${l.stage[2].toFixed(2)} → ${l2.stage[2].toFixed(2)}`);
+    const clipped = await phone.evaluate(() => JSON.parse(window.__app.stageJson()).list.cmds?.[0]?.k);
+    check("the zoomed slide is clipped to the stage", clipped === 4, String(clipped));
+    await phone.evaluate(([x, y]) => {
+      const c = document.getElementById("c");
+      const r = c.getBoundingClientRect();
+      for (let k = 0; k < 2; k++) {
+        const o = { pointerId: 90 + k, pointerType: "touch", clientX: r.left + x, clientY: r.top + y, bubbles: true, isPrimary: true };
+        c.dispatchEvent(new PointerEvent("pointerdown", o));
+        c.dispatchEvent(new PointerEvent("pointerup", o));
+      }
+    }, [cx, cy]);
+    const l3 = await lay();
+    check("a double tap goes back to the whole slide", Math.abs(l3.stage[2] - l.stage[2]) < 1e-6, `${l3.stage[2].toFixed(2)}`);
+    await ctx.close();
+  }
+
   const page = await browser.newPage({ viewport: { width: 1400, height: 820 } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -1197,6 +1242,37 @@ try {
     check("a Google Sheet is read as its CSV (tab and range from the fence)", url === "https://docs.google.com/spreadsheets/d/SHEET1/gviz/tq?tqx=out:csv&headers=1&sheet=Monthly&range=A%3AB", url);
     check("live data: drawn on open, fetched again on presenting and on R", first === 3 && onPresent === 5 && onR === 6 && after === 6, JSON.stringify({ first, onPresent, onR, after, asked: asked.length }));
   }
+  // A private sheet: the address answers with Google's sign-in page, the
+  // signed-in owner's Sheets API read (stubbed here) gives the rows, and a
+  // copy is kept with the deck for readers who cannot read the sheet
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const route = (r) => r.fulfill({ status: 200, contentType: "text/html", headers: { "access-control-allow-origin": "*" }, body: "<!doctype html><title>Sign in</title>" });
+    await page.context().route(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    const res = await page.evaluate(async () => {
+      const s = window.sliqtly;
+      const was = { user: s.user, readSheet: s.readSheet };
+      const asked = [];
+      s.user = () => ({ uid: "u1", email: "u@example.com" });
+      s.readSheet = async (url, ask) => { asked.push([url, ask]); return "Kk,Km\nTammi,10\nHelmi,20\nMaalis,30\nHuhti,40\n"; };
+      const a = window.__app;
+      a.setSource("# D\n\n## Km\n\n```vega-lite\n{\"data\": {\"url\": \"https://docs.google.com/spreadsheets/d/PRIV1/edit#gid=0\"}, \"mark\": \"bar\", \"width\": 400, \"encoding\": {\"x\": {\"field\": \"Kk\", \"type\": \"nominal\", \"sort\": null}, \"y\": {\"field\": \"Km\", \"type\": \"quantitative\"}}}\n```\n");
+      for (let i = 0; i < 40 && a.chartDataWanted() !== ""; i += 1) await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 400));
+      a.selectSlide(1);
+      const st = JSON.parse(a.stageJson());
+      const bars = st.list.cmds.filter((c) => c.k === 0 && c.w > 20 && c.h > 20 && c.w < 300).length;
+      const copy = await window.__liveCopy("https://docs.google.com/spreadsheets/d/PRIV1/gviz/tq?tqx=out:csv&headers=1&gid=0");
+      s.user = was.user;
+      s.readSheet = was.readSheet;
+      return { bars, asked, copy: (copy || "").split("\n").length };
+    });
+    await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    check("a private sheet is read as its signed-in owner, without a popup on open", res.bars === 4 && res.asked.length === 1 && res.asked[0][1] === false && /PRIV1\/gviz/.test(res.asked[0][0]), JSON.stringify(res));
+    check("…and a copy is kept with the deck for its readers", res.copy === 6, JSON.stringify(res));
+  }
+
   // A sheet link pasted into the editor: "Link live data", then a chart and a
   // table that read the sheet live
   {
@@ -1552,6 +1628,25 @@ try {
   const faces = new Set();
   for (const [k, v] of pptx) if (k.endsWith(".xml")) for (const m of v.matchAll(/typeface="([^"]+)"/g)) if (m[1]) faces.add(m[1]);
   check("PPTX names only faces every machine has", [...faces].every((f) => f === "Arial" || f.startsWith("+")), [...faces].join(", "));
+  // A formula in a line is an equation PowerPoint can edit (Office Math in
+  // the a14 choice) and Unicode text in the fallback, never its TeX source.
+  // Equations are set in Cambria Math, which every Office install has.
+  const mathB64 = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.setSource("# M\n\n## Korko\n\nLaskettu: $FV = PMT \\cdot \\frac{(1+r)^n - 1}{r}$\n");
+    const u = new Uint8Array(a.pptx());
+    let s = "";
+    for (let i = 0; i < u.length; i += 1) s += String.fromCharCode(u[i]);
+    a.setSource(src0);
+    return btoa(s);
+  });
+  const mathBuf = Buffer.from(mathB64, "base64");
+  if (shots) { fs.mkdirSync(shots, { recursive: true }); fs.writeFileSync(path.join(shots, "formula.pptx"), mathBuf); }
+  const mathSlides = [...unzip(mathBuf)].filter(([k]) => /slides\/slide\d+\.xml$/.test(k)).map(([, v]) => v).join("");
+  check("PPTX: a formula in a line is an equation", /<mc:Choice[^>]*Requires="a14"><p:sp>[\s\S]*<a14:m><m:oMath[\s\S]*<m:f><m:num>/.test(mathSlides));
+  check("…with its Unicode text as the fallback, and no TeX", mathSlides.includes("FV = PMT ⋅ ((1 + r)ⁿ − 1)/r") && !mathSlides.includes("\\frac"));
+  check("…set in Cambria Math", /<a:latin typeface="Cambria Math"/.test(mathSlides));
   const n2 = notes.map((k) => pptx.get(k)).join(" ");
   check("the notes are the speaker's words without the cue marks", n2.includes("linkin saanut") && !n2.includes("[[1]]"));
 
