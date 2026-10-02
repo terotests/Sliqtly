@@ -52,19 +52,22 @@
 .theme-tb .ui-select-item:hover { background-color: #f4f4f5; }
 .theme-tb .ui-select-item:focus { background-color: #f4f4f5; }
 
-/* File and Help: a menubar in the bar's look, its menus as the select's card */
-.theme-tb .ui-menubar { background-color: rgba(0,0,0,0); padding: 0; gap: 2px; align-self: center; }
-.theme-tb .ui-menubar-trigger { font-family: Open Sans; font-size: 13px; font-weight: 500; color: #09090b; height: 32px; line-height: 32px; padding: 0 10px; border-radius: 6px; }
-.theme-tb .ui-menubar-trigger:hover { background-color: #f4f4f5; }
-.theme-tb .ui-menubar-trigger-state-open { background-color: #f4f4f5; }
-.theme-tb .ui-menubar-content {
+/* File, Slide, Export, Help: dropdown menus in the bar's look, their cards
+   as the select's; a submenu opens beside its row */
+.theme-tb .ui-dropdownmenu { display: flex; align-self: center; }
+.theme-tb .ui-dropdownmenu-trigger { font-family: Open Sans; font-size: 13px; font-weight: 500; color: #09090b; height: 32px; line-height: 32px; padding: 0 10px; border: 0px; border-radius: 6px; background-color: rgba(0,0,0,0); }
+.theme-tb .ui-dropdownmenu-trigger:hover { background-color: #f4f4f5; }
+.theme-tb .ui-dropdownmenu-trigger-state-open { background-color: #f4f4f5; }
+.theme-tb .ui-dropdownmenu-content {
   gap: 1px; padding: 4px; width: 220px;
   border: 1px solid #e4e4e7; border-radius: 12px; background-color: #ffffff;
   shadow-color: rgba(0, 0, 0, 0.12); shadow-radius: 18px; shadow-offset-y: 6px;
 }
-.theme-tb .ui-menubar-item { font-family: Open Sans; font-size: 13px; color: #18181b; height: 32px; line-height: 32px; padding: 0 10px; border-radius: 8px; white-space: nowrap; }
-.theme-tb .ui-menubar-item:hover { background-color: #f4f4f5; }
-.theme-tb .ui-menubar-item:focus { background-color: #f4f4f5; }
+.theme-tb .ui-dropdownmenu-item { font-family: Open Sans; font-size: 13px; color: #18181b; width: 210px; height: 32px; line-height: 32px; padding: 0 10px; border-radius: 8px; white-space: nowrap; }
+.theme-tb .ui-dropdownmenu-item:hover { background-color: #f4f4f5; }
+.theme-tb .ui-dropdownmenu-item:focus { background-color: #f4f4f5; }
+.theme-tb .ui-dropdownmenu-subtrigger-state-open { background-color: #f4f4f5; }
+.theme-tb .ui-dropdownmenu-item-disabled { opacity: 1; color: #a1a1aa; font-size: 11px; font-weight: 600; height: 26px; line-height: 30px; }
 
 /* The drawer (a narrow window or a finger): the rest of the bar as a list */
 .theme-tb .ui-drawer-panel {
@@ -77,6 +80,7 @@
 .theme-tb .ui-drawer-close { font-family: Open Sans; font-size: 13px; background-color: #ffffff; border: 1px solid #e4e4e7; color: #09090b; }
 .theme-tb .ui-drawer-body { gap: 2px; }
 .theme-tb .tb-drb { width: 100%; justify-content: flex-start; }
+.theme-tb .tb-drsub { padding-left: 28px; }
 .tb-dr-label { font-size: 11px; font-weight: 600; color: #71717a; padding: 8px 6px 2px; }
 .tb-dr-sep { height: 1px; background-color: #f4f4f5; margin: 6px 0; flex-shrink: 0; }
 

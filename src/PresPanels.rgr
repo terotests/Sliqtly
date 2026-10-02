@@ -46,6 +46,8 @@ class PresPanels {
     ; the computer or a sample deck, `openRows` "value<TAB>label" lines)
     def dialogKind:string "share"
     def openRows:string ""
+    ; the Open dialog's sample decks: a select whose first row says what it is
+    def samplePick:SelectCtl (new SelectCtl())
     ; "show" or "edit": the button that says it copied
     def copied:string ""
     def copyOk:boolean true
@@ -671,16 +673,29 @@ class PresPanels {
         f.addChild(fr)
         d.addChild(f)
         def o:EVGElement (this.div("pn-opt"))
-        o.addChild((this.words("pn-otitle" (PresI18n.t("Open sample document")))))
+        o.addChild((this.words("pn-otitle" (PresI18n.t("Sample documents")))))
+        def keepOpen:boolean samplePick.open
+        def sel (new SelectCtl())
+        sel.tid = "pn-samples"
+        sel.name = (PresI18n.t("Open sample document…"))
+        sel.addItem("" (PresI18n.t("Open sample document…")) true)
         def lines:[string] (strsplit openRows (strfromcode 10))
         def i:int 0
         while (i < (array_length lines)) {
             def parts:[string] (strsplit (itemAt lines i) (strfromcode 9))
             if ((array_length parts) >= 2) {
-                def b:ButtonCtl (this.button(("pn-sample-" + (itemAt parts 0)) (itemAt parts 1) "ghost" o))
-                UiTree.addClass((unwrap b.rootEl) "pn-rowbtn")
+                sel.addItem((itemAt parts 0) (itemAt parts 1) false)
             }
             i = (i + 1)
+        }
+        sel.value = ""
+        sel.build()
+        UiTree.addClass((unwrap sel.rootEl) "pn-samplesel")
+        samplePick = sel
+        this.put(sel o)
+        if keepOpen {
+            sel.openList()
+            sel.build()
         }
         d.addChild(o)
         def foot:EVGElement (this.div("pn-dfoot"))
@@ -858,9 +873,23 @@ class PresPanels {
                 this.closeShare()
                 return
             }
-            if ((indexOf oc "pn-sample-") == 0) {
-                push requests ("select:sample:" + (substring oc 10 (strlen oc)))
-                this.closeShare()
+            if (oc == samplePick.tid) {
+                ; the list opens over the dialog's edge: a press in it is the select's
+                host.click((host.hitTest(px py)))
+                samplePick.build()
+                if ((strlen samplePick.value) > 0) {
+                    push requests ("select:sample:" + samplePick.value)
+                    samplePick.open = false
+                    this.closeShare()
+                    return
+                }
+                rev = (rev + 1)
+                return
+            }
+            if samplePick.open {
+                samplePick.closeList()
+                samplePick.build()
+                rev = (rev + 1)
                 return
             }
             if ((oc == "pn-open-close") || ((this.inEl("pn-dialog" px py)) == false)) {

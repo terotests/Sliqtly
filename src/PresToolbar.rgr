@@ -41,9 +41,13 @@ class PresToolbar {
     def langValue:string ""
     ; File and Help (a wide window), and the drawer the menu button opens
     ; (a narrow one, or a finger)
-    def menubar:MenubarCtl (new MenubarCtl())
+    ; File, Slide, Export and Help: dropdown menus (MenuCtl, which has
+    ; submenus: Slide → Theme → the themes)
+    def menus:[MenuCtl]
     def drawer:DrawerCtl (new DrawerCtl())
     def drawerOpen:boolean false
+    ; the drawer's Theme row opened: the themes listed under it
+    def drawerThemes:boolean false
     ; "value<TAB>label<TAB>group" rows, per select
     def sampleRows:string ""
     def themeRows:string ""
@@ -196,12 +200,18 @@ class PresToolbar {
         return ("click:" + id)
     }
 
-    ; A select's rows as menu rows: a group's name a heading (disabled), the
-    ; current one ticked.
-    fn menuRows:void (mb:MenubarCtl menu:string prefix:string rows:string current:string heading:string) {
-        if ((strlen heading) > 0) {
-            mb.addItem(menu ("h-" + prefix) heading true)
-        }
+    ; A menu of the bar: a trigger with the menu's name, rows added after.
+    fn dropdown:MenuCtl (id:string name:string) {
+        def m (new MenuCtl())
+        m.tid = ("tb-m-" + id)
+        m.name = name
+        push menus m
+        return m
+    }
+
+    ; A select's rows as a submenu's rows: a group's name a heading
+    ; (disabled), the current one ticked.
+    fn subRows:void (parent:UiItem prefix:string rows:string current:string) {
         def lines:[string] (strsplit rows (strfromcode 10))
         def group:string ""
         def i:int 0
@@ -213,7 +223,7 @@ class PresToolbar {
                     g = (itemAt parts 2)
                 }
                 if ((g != group) && ((strlen g) > 0)) {
-                    mb.addItem(menu ((("h-" + prefix) + "-") + g) g true)
+                    MenuCtl.addKid(parent ((("h-" + prefix) + "-") + g) g true)
                 }
                 group = g
                 def v:string (itemAt parts 0)
@@ -221,7 +231,31 @@ class PresToolbar {
                 if (v == current) {
                     mark = "✓  "
                 }
-                mb.addItem(menu (prefix + v) (mark + (itemAt parts 1)) false)
+                MenuCtl.addKid(parent (prefix + v) (mark + (itemAt parts 1)) false)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The open menu, if any.
+    fn openMenu:string () {
+        def i:int 0
+        while (i < (array_length menus)) {
+            def m:MenuCtl (itemAt menus i)
+            if m.open {
+                return m.tid
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn closeMenus:void () {
+        def i:int 0
+        while (i < (array_length menus)) {
+            def m:MenuCtl (itemAt menus i)
+            if m.open {
+                m.closeMenu()
             }
             i = (i + 1)
         }
@@ -239,7 +273,8 @@ class PresToolbar {
                 if (v == current) {
                     mark = "✓  "
                 }
-                this.button((("dr-" + prefix) + v) (mark + (itemAt parts 1)) "ghost" body)
+                def rb:ButtonCtl (this.button((("dr-" + prefix) + v) (mark + (itemAt parts 1)) "ghost" body))
+                UiTree.addClass((unwrap rb.rootEl) "tb-drsub")
             }
             i = (i + 1)
         }
@@ -262,7 +297,20 @@ class PresToolbar {
         def keepSample:boolean sample.open
         def keepTheme:boolean theme.open
         def keepLang:boolean langSel.open
-        def keepMenu:string menubar.openValue
+        ; the menu open, and its open submenus, carried over the rebuild
+        def keepMenu:string ""
+        def keepPath:[string]
+        def mi:int 0
+        while (mi < (array_length menus)) {
+            def om:MenuCtl (itemAt menus mi)
+            if om.open {
+                keepMenu = om.tid
+                keepPath = om.openPath
+            }
+            mi = (mi + 1)
+        }
+        def noMenus:[MenuCtl]
+        menus = noMenus
         def fresh (new UiHost())
         host = fresh
         host.addStyleSheet(css)
@@ -284,24 +332,30 @@ class PresToolbar {
             this.extraButtons(bar)
         } {
             bar.addChild((this.text("tb-brand" brand)))
-            def mb (new MenubarCtl())
-            mb.tid = "tb-mb"
-            mb.addMenu("file" (PresI18n.t("File")))
-            mb.addItem("file" "new" (PresI18n.t("New presentation")) false)
-            mb.addItem("file" "openbox" (PresI18n.t("Open…")) false)
-            mb.addItem("file" "save" (PresI18n.t("Save .md")) false)
-            mb.addMenu("slide" (PresI18n.t("Slide")))
-            this.menuRows(mb "slide" "t-" themeRows themeValue (PresI18n.t("Theme")))
-            mb.addItem("slide" "css" (PresI18n.t("Edit theme CSS…")) false)
-            mb.addMenu("export" (PresI18n.t("Export")))
-            mb.addItem("export" "pdf" (PresI18n.t("PDF")) false)
-            mb.addItem("export" "pptx" (PresI18n.t("PowerPoint (PPTX)")) false)
-            mb.addMenu("help" (PresI18n.t("Help")))
-            mb.addItem("help" "helpBtn" (PresI18n.t("Help for this slide")) false)
-            mb.openValue = keepMenu
-            mb.build()
-            menubar = mb
-            this.put(mb bar)
+            def file:MenuCtl (this.dropdown("file" (PresI18n.t("File"))))
+            file.addItem("new" (PresI18n.t("New presentation")) false)
+            file.addItem("openbox" (PresI18n.t("Open…")) false)
+            file.addItem("save" (PresI18n.t("Save .md")) false)
+            def slide:MenuCtl (this.dropdown("slide" (PresI18n.t("Slide"))))
+            def th:UiItem (slide.addSub("theme" ((PresI18n.t("Theme")) + "   ▸") false))
+            this.subRows(th "t-" themeRows themeValue)
+            slide.addItem("css" (PresI18n.t("Edit theme CSS…")) false)
+            def ex:MenuCtl (this.dropdown("export" (PresI18n.t("Export"))))
+            ex.addItem("pdf" (PresI18n.t("PDF")) false)
+            ex.addItem("pptx" (PresI18n.t("PowerPoint (PPTX)")) false)
+            def hp:MenuCtl (this.dropdown("help" (PresI18n.t("Help"))))
+            hp.addItem("helpBtn" (PresI18n.t("Help for this slide")) false)
+            def k:int 0
+            while (k < (array_length menus)) {
+                def m:MenuCtl (itemAt menus k)
+                if (m.tid == keepMenu) {
+                    m.open = true
+                    m.openPath = keepPath
+                }
+                m.build()
+                this.put(m bar)
+                k = (k + 1)
+            }
             bar.addChild((this.div("tb-sep")))
             this.button("play" play "outline" bar)
             this.button("present" (PresI18n.t("⛶ Present")) "primary" bar)
@@ -346,8 +400,15 @@ class PresToolbar {
             this.button("dr-new" (PresI18n.t("New presentation")) "ghost" body)
             this.button("dr-openbox" (PresI18n.t("Open…")) "ghost" body)
             this.button("dr-save" (PresI18n.t("Save .md")) "ghost" body)
-            body.addChild((this.text("tb-dr-label" (PresI18n.t("Slide")))))
-            this.drawerRows(body "t-" themeRows themeValue)
+            body.addChild((this.div("tb-dr-sep")))
+            def arrow:string "▸  "
+            if drawerThemes {
+                arrow = "▾  "
+            }
+            this.button("dr-themes" (arrow + (PresI18n.t("Theme"))) "ghost" body)
+            if drawerThemes {
+                this.drawerRows(body "t-" themeRows themeValue)
+            }
             this.button("dr-css" (PresI18n.t("Edit theme CSS…")) "ghost" body)
             body.addChild((this.text("tb-dr-label" (PresI18n.t("Export")))))
             this.button("dr-pdf" (PresI18n.t("PDF")) "ghost" body)
@@ -411,7 +472,7 @@ class PresToolbar {
 
     ; --- the pointer --------------------------------------------------------------
     fn listOpen:boolean () {
-        return (((sample.open || theme.open) || langSel.open) || (((strlen menubar.openValue) > 0) || drawerOpen))
+        return (((sample.open || theme.open) || langSel.open) || (((strlen (this.openMenu())) > 0) || drawerOpen))
     }
 
     ; The bar, or anywhere while a list is open (a press outside closes it).
@@ -431,7 +492,7 @@ class PresToolbar {
             ctlTid = owner.tid
         }
         def isSel:boolean (((strlen ctlTid) > 0) && (((ctlTid == sample.tid) || (ctlTid == theme.tid)) || (ctlTid == langSel.tid)))
-        def isMenu:boolean (ctlTid == "tb-mb")
+        def isMenu:boolean ((indexOf ctlTid "tb-m-") == 0)
         def inDrawer:boolean ((ctlTid == "tb-drawer") || ((indexOf ctlTid "tb-dr-") == 0))
         ; the menu button opens and closes the drawer
         if (ctlTid == "tb-menu") {
@@ -447,21 +508,40 @@ class PresToolbar {
         }
         ; a press outside an open list or menu closes it and does nothing else
         def selOpen:boolean ((sample.open || theme.open) || langSel.open)
-        def menuOpen:boolean ((strlen menubar.openValue) > 0)
+        def menuOpen:boolean ((strlen (this.openMenu())) > 0)
         if ((selOpen && (isSel == false)) || (menuOpen && (isMenu == false))) {
             this.closeSelects()
-            if menuOpen {
-                menubar.closeMenu()
-            }
+            this.closeMenus()
             rev = (rev + 1)
             return
         }
         if isMenu {
-            ; the row chosen, read before the click closes the menu
-            def item:string (menubar.itemOf(tid))
-            host.click(tid)
-            if ((strlen item) > 0) {
-                push requests (PresToolbar.requestFor(item))
+            def i:int 0
+            while (i < (array_length menus)) {
+                def m:MenuCtl (itemAt menus i)
+                if (m.tid == ctlTid) {
+                    ; another menu's trigger: the open one closes first
+                    if ((m.open == false) && menuOpen) {
+                        this.closeMenus()
+                    }
+                    ; the row chosen, read before the click closes the menu
+                    def idx:int (m.rowIndexOf(tid))
+                    def choice:string ""
+                    if (idx >= 0) {
+                        if (((itemAt m.rowIsSub idx) == false) && ((itemAt m.rowDisabled idx) == false)) {
+                            def it:UiItem (itemAt m.rowItem idx)
+                            choice = it.value
+                        }
+                    }
+                    host.click(tid)
+                    if ((strlen choice) > 0) {
+                        if m.open {
+                            m.closeMenu()
+                        }
+                        push requests (PresToolbar.requestFor(choice))
+                    }
+                }
+                i = (i + 1)
             }
             rev = (rev + 1)
             return
@@ -472,6 +552,11 @@ class PresToolbar {
                 drawerOpen = false
                 this.rebuild()
             }
+            return
+        }
+        if (ctlTid == "tb-dr-themes") {
+            drawerThemes = (drawerThemes == false)
+            this.rebuild()
             return
         }
         if ((indexOf ctlTid "tb-dr-") == 0) {
@@ -527,9 +612,7 @@ class PresToolbar {
 
     fn closeLists:void () {
         this.closeSelects()
-        if ((strlen menubar.openValue) > 0) {
-            menubar.closeMenu()
-        }
+        this.closeMenus()
         if drawerOpen {
             drawerOpen = false
             this.rebuild()
