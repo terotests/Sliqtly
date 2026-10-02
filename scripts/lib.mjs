@@ -8,6 +8,10 @@
  * from there.
  *
  * Ranger is cloned into .deps/Ranger unless RANGER_DIR points at a checkout.
+ *
+ * The UI controls (UiHost, MenuCtl, CropCtl…) come from EVGUI, linked into
+ * the same checkout as gallery/evgui, where its own ranger.json finds lib/evg.
+ * EVGUI is cloned into .deps/EVGUI unless EVGUI_DIR points at a checkout.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -20,6 +24,7 @@ export const webDir = path.join(root, "web");
 export const distDir = path.join(webDir, "dist");
 export const depsDir = path.join(root, ".deps");
 export const LINK = "gallery/presentation";
+export const EVGUI_LINK = "gallery/evgui";
 
 const config = JSON.parse(fs.readFileSync(path.join(root, "presentation.config.json"), "utf8"));
 
@@ -73,7 +78,31 @@ export function ensureRanger({ update = false } = {}) {
     const r = spawnSync(process.execPath, [path.join(dir, "scripts", "deps.mjs")], { cwd: dir, stdio: "inherit" });
     if (r.status !== 0) throw new Error(`npm run deps failed in ${dir}`);
   }
+  link(ensureEvgui({ update }), path.join(dir, EVGUI_LINK));
   link(srcDir, path.join(dir, LINK));
+  return dir;
+}
+
+/** EVGUI (the UI controls): EVGUI_DIR, or a clone in .deps at config.evgui.ref. */
+export function ensureEvgui({ update = false } = {}) {
+  const given = process.env.EVGUI_DIR;
+  const dir = given ? path.resolve(given) : path.join(depsDir, "EVGUI");
+  const ref = process.env.EVGUI_REF || config.evgui.ref;
+  const marker = path.join(depsDir, "evgui-ref");
+  const had = fs.existsSync(marker) ? fs.readFileSync(marker, "utf8").trim() : "";
+  if (!fs.existsSync(dir)) {
+    if (given) throw new Error(`EVGUI_DIR=${given} does not exist`);
+    fs.mkdirSync(depsDir, { recursive: true });
+    log(`clone  ${config.evgui.url} (${ref}) → ${path.relative(root, dir)}`);
+    git(["clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), config.evgui.url, dir], root);
+    fs.writeFileSync(marker, ref + "\n");
+  } else if (!given && (update || had !== ref)) {
+    log(`update EVGUI (${had || "unknown"} → ${ref})`);
+    git(["fetch", "--depth", "1", "origin", ref || "HEAD"], dir);
+    git(["checkout", "-q", "-f", "--detach", "FETCH_HEAD"], dir);
+    fs.writeFileSync(marker, ref + "\n");
+  }
+  if (!fs.existsSync(path.join(dir, "src", "UiHost.rgr"))) throw new Error(`${dir} is not an EVGUI checkout (no src/UiHost.rgr)`);
   return dir;
 }
 

@@ -11,13 +11,13 @@
 ; lib/evg/gl/evg-a11y.js: buttons a reader can find and press, and a Tab and
 ; arrow-key order for the keyboard.
 ;
-; The controls come from gallery/ui hosts, which say what each node MEANS
+; The controls come from EVGUI hosts, which say what each node MEANS
 ; (`allRows`); this file places those rows at the boxes the app's own layout
 ; gave them. (UiHost.a11yTree would lay the host out again on its own terms,
 ; without the app's overlay placement.)
 ; ============================================================================
 
-Import "../ui/src/UiHost.rgr"
+Import "../evgui/src/UiHost.rgr"
 
 class PresA11y {
 

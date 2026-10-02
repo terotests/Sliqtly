@@ -26,7 +26,7 @@
 
 Import "PresI18n.rgr"
 Import "PresColorPanel.rgr"
-Import "../ui/src/UiHost.rgr"
+Import "../evgui/src/UiHost.rgr"
 Import "PresKeep.rgr"
 Import "../vela/src/VlJson.rgr"
 

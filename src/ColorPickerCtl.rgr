@@ -1,8 +1,8 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 ;
-; Copied unchanged but for the imports from terotests/EVGUI src/ColorPickerCtl.rgr
-; (commit fa4df38); gallery/ui in Ranger does not have it yet. The two
-; PopoverCtl members Ranger's copy lacks (align, initialFocus) are left out.
+; Copied from terotests/EVGUI src/ColorPickerCtl.rgr (commit fa4df38), with
+; its words through PresI18n. The popover's align / initialFocus are left
+; out: the chart editor draws the picker inline and never opens it.
 
 ; =============================================================================
 ; ColorPickerCtl — a colour picker, after Chrome's native <input type=color>
@@ -63,10 +63,10 @@
 ; =============================================================================
 
 Import "PresI18n.rgr"
-Import "../ui/src/UiCtl.rgr"
-Import "../ui/src/UiTree.rgr"
-Import "../ui/src/PopoverCtl.rgr"
-Import "../ui/src/InputCtl.rgr"
+Import "../evgui/src/UiCtl.rgr"
+Import "../evgui/src/UiTree.rgr"
+Import "../evgui/src/PopoverCtl.rgr"
+Import "../evgui/src/InputCtl.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGA11yTree.rgr"
 
@@ -117,8 +117,8 @@ class ColorPickerCtl extends UiCtl {
         withAlpha = alphaToo
         pop.tid = id
         pop.name = label
-        ; (gallery/ui's PopoverCtl has no `align` / `initialFocus` yet;
-        ; the chart editor draws the picker inline and never opens it)
+        ; (no `align` / `initialFocus`: the chart editor draws the picker
+        ; inline and never opens it)
         f0.tid = (id + "-f0")
         f1.tid = (id + "-f1")
         f2.tid = (id + "-f2")

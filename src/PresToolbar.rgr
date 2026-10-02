@@ -6,7 +6,7 @@
 ;
 ; The bar the page used to draw in HTML — the presentation and the theme to
 ; pick, play and present, open / save / PDF / PPTX / share / help, the status
-; — as gallery/ui controls (SelectCtl, ButtonCtl) in a UiHost of its own, as
+; — as EVGUI controls (SelectCtl, ButtonCtl) in a UiHost of its own, as
 ; big as the app, so a select's list opens over everything under it.
 ;
 ; The bar does not DO anything itself. A press is a request the page acts on
@@ -19,7 +19,7 @@
 ; one "value<TAB>label<TAB>group" row per line.
 ; ============================================================================
 
-Import "../ui/src/UiHost.rgr"
+Import "../evgui/src/UiHost.rgr"
 Import "PresI18n.rgr"
 
 class PresToolbar {
