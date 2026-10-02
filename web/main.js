@@ -704,7 +704,9 @@ function paintOnce() {
     const stageStats = sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false });
     grew = grewBy(stageStats) || grew;
     sf.dispose();
-    warnLowContrast(stageStats && stageStats.lowContrast);
+    // Only while editing: not to an audience, and not mid-animation, where a
+    // fading line is briefly faint by design.
+    if (layout.mode !== "present" && !viewer && !app.isPlaying()) warnLowContrast(stageStats && stageStats.lowContrast);
   }
   if (grew) dropThumbs();
   let thumbsGrew = false;
