@@ -313,6 +313,7 @@ async function pickSheet(fileId, token) {
       .setCallback((d) => {
         if (d.action === g.Action.PICKED) ok(d.docs?.[0]?.id || null);
         else if (d.action === g.Action.CANCEL) ok(null);
+        else if (d.action === "error") ok(false); // e.g. the developer key does not allow the Picker API
       })
       .build()
       .setVisible(true);
@@ -343,6 +344,7 @@ async function readSheet(gviz, ask) {
   if ((r.status === 403 || r.status === 404) && ask) {
     // not one of the files drive.file covers yet: the user picks it
     const picked = await pickSheet(id, token);
+    if (picked === false) throw Object.assign(new Error("picker failed"), { code: "picker" });
     if (picked !== id) throw Object.assign(new Error("not picked"), { code: "access" });
     r = await get(api + "?fields=sheets.properties(sheetId,title)");
   }

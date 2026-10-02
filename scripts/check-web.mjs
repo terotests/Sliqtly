@@ -1343,7 +1343,14 @@ try {
       window.__was = { user: s.user, readSheet: s.readSheet, askSheets: s.askSheets };
       let tok = null;
       s.user = () => ({ uid: "u1", email: "u@example.com" });
-      s.askSheets = async () => { tok = "tok"; return tok; };
+      let asks = 0;
+      // the first window (from the confirm card's press) blocked, the second opens
+      s.askSheets = async () => {
+        asks += 1;
+        if (asks === 1) throw Object.assign(new Error("blocked"), { code: "auth/popup-blocked" });
+        tok = "tok";
+        return tok;
+      };
       s.readSheet = async () => {
         if (!tok) throw Object.assign(new Error("blocked"), { code: "auth/popup-blocked" });
         return "Kk,Km\nTammi,10\nHelmi,20\n";
@@ -1358,6 +1365,8 @@ try {
       dt.setData("text/plain", "https://docs.google.com/spreadsheets/d/PRIV2/edit#gid=0");
       keys.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
     });
+    const asked = await page.waitForSelector("#gLink button.primary", { timeout: 5000 }).then(() => true).catch(() => false);
+    if (asked) await page.click("#gLink button.primary");
     const card = await page.waitForSelector("#gTap button.primary", { timeout: 5000 }).then(() => true).catch(() => false);
     if (card) await page.click("#gTap button.primary");
     await page.waitForFunction(() => window.__app.shareIsOpen(), null, { timeout: 5000 }).catch(() => {});
@@ -1370,7 +1379,7 @@ try {
     });
     await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
     await page.evaluate((s) => window.__app.setSource(s), src0);
-    check("a blocked Google window: a card asks for a press, then the sheet is linked", card && after.open && after.live && after.rows === 2 && !after.card, JSON.stringify({ card, ...after }));
+    check("a blocked Google window: a card asks for a press, then the sheet is linked", asked && card && after.open && after.live && after.rows === 2 && !after.card, JSON.stringify({ asked, card, ...after }));
   }
 
   // A sheet link pasted into the editor: "Link live data", then a chart and a
@@ -1390,9 +1399,14 @@ try {
       const dt = new DataTransfer();
       dt.setData("text/plain", link);
       keys.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+      // first asked whether the sheet is linked to the document
+      let card = null;
+      for (let i = 0; i < 50 && !(card = document.querySelector("#gLink button.primary")); i += 1) await new Promise((r) => setTimeout(r, 100));
+      const asked = !!card && !a.shareIsOpen() && !a.source().includes("docs.google.com");
+      if (card) card.click();
       for (let i = 0; i < 50 && !a.shareIsOpen(); i += 1) await new Promise((r) => setTimeout(r, 100));
       const imp = a.panels.imp;
-      const dialog = { open: a.shareIsOpen(), live: imp && imp.live, rows: imp && imp.rows, pasted: a.source().includes("docs.google.com") };
+      const dialog = { asked, open: a.shareIsOpen(), live: imp && imp.live, rows: imp && imp.rows, pasted: a.source().includes("docs.google.com") };
       a.panels.requests.push("data:chart");
       a.takePanels();
       window.__handleRequests && window.__handleRequests();
@@ -1406,8 +1420,32 @@ try {
     }, link);
     await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
     await page.evaluate((s) => window.__app.setSource(s), src0);
-    check("a pasted sheet link opens Link live data before anything is pasted", res.dialog.open && res.dialog.live && res.dialog.rows === 4 && !res.dialog.pasted, JSON.stringify(res.dialog));
+    check("a pasted sheet link asks first, then opens Link live data before anything is pasted", res.dialog.asked && res.dialog.open && res.dialog.live && res.dialog.rows === 4 && !res.dialog.pasted, JSON.stringify(res.dialog));
     check("…and makes a chart that reads the sheet (no copied values), drawn", res.fence && res.bars === 3, JSON.stringify(res));
+  }
+  // …and "Paste as text" on that question only pastes the link
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const res = await page.evaluate(async () => {
+      const a = window.__app;
+      a.setSource("# D\n\n## Km\n\n");
+      a.showTab("md");
+      a.editor.moveCaret(4, 0, false);
+      const keys = document.getElementById("keys");
+      keys.focus();
+      const dt = new DataTransfer();
+      if (a.shareIsOpen()) a.closeShare?.();
+      const before = a.shareIsOpen();
+      dt.setData("text/plain", "https://docs.google.com/spreadsheets/d/SHEET3/edit");
+      keys.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+      let no = null;
+      for (let i = 0; i < 50 && !(no = document.querySelector("#gLink button:not(.primary)")); i += 1) await new Promise((r) => setTimeout(r, 100));
+      if (no) no.click();
+      await new Promise((r) => setTimeout(r, 300));
+      return { card: !!no, pasted: a.source().includes("spreadsheets/d/SHEET3/edit"), dialog: a.shareIsOpen() && !before, gone: !document.getElementById("gLink") };
+    });
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    check("…and Paste as text on that question pastes the link only", res.card && res.pasted && !res.dialog && res.gone, JSON.stringify(res));
   }
 
 
