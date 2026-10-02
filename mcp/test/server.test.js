@@ -1,6 +1,7 @@
 // The server end to end over Streamable HTTP, with Firestore, Storage and
 // the network replaced by fakes.
 
+import zlib from "node:zlib";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -34,7 +35,7 @@ function fakeFirebase() {
       }),
     }),
   };
-  const bucket = { name: "bucket.test", file: (name) => ({ name, save: async (buf, o) => { saved.set(name, { buf, o }); } }) };
+  const bucket = { name: "bucket.test", file: (name) => ({ name, save: async (buf, o) => { saved.set(name, { buf, o }); }, download: async () => [saved.get(name).buf] }) };
   let clock = 1000;
   const store = new FirebaseStore({ db, bucket, FieldValue: { serverTimestamp: () => clock++ } });
   return { data, saved, db, store };
@@ -68,7 +69,7 @@ test("tools, UI metadata and the preview resource", async () => {
   const t = await start(store);
   try {
     const { tools } = await t.client.listTools();
-    assert.deepEqual(tools.map((x) => x.name).sort(), ["bind_chart_data", "create_presentation", "get_presentation", "list_presentations", "sliqtly_guide", "update_presentation"]);
+    assert.deepEqual(tools.map((x) => x.name).sort(), ["bind_chart_data", "create_presentation", "get_presentation", "list_files", "list_presentations", "sliqtly_guide", "update_presentation"]);
     const create = tools.find((x) => x.name === "create_presentation");
     assert.match(create._meta.ui.resourceUri, /^ui:\/\/sliqtly\/preview-[0-9a-f]{10}\.html$/);
     assert.equal(create._meta["openai/outputTemplate"], create._meta.ui.resourceUri);
@@ -341,4 +342,67 @@ test("optional sign-in: OAuth with PKCE, own decks, refresh", async () => {
     const den = await (await fetch(`${root}/oauth/approve`, json({ request: cimd.searchParams.get("request"), deny: true }))).json();
     assert.equal(new URL(den.redirect).searchParams.get("error"), "access_denied");
   } finally { await anon.close(); }
+});
+
+// A zip of stored entries, enough to stand in for an .xlsx.
+function zipStored(entries) {
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+  for (const [name, text] of entries) {
+    const data = Buffer.from(text, "utf8");
+    const nameBuf = Buffer.from(name, "utf8");
+    const crc = zlib.crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18); local.writeUInt32LE(data.length, 22); local.writeUInt16LE(nameBuf.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6); central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(data.length, 20); central.writeUInt32LE(data.length, 24); central.writeUInt16LE(nameBuf.length, 28);
+    central.writeUInt32LE(offset, 42);
+    locals.push(local, nameBuf, data);
+    centrals.push(central, nameBuf);
+    offset += 30 + nameBuf.length + data.length;
+  }
+  const dir = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(dir.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, dir, end]);
+}
+
+test("list_files: the files a deck keeps, and what is in its workbooks", async () => {
+  const { store, data, saved } = fakeFirebase();
+  const sheetXml = (rows) => `<worksheet><sheetData>${rows}</sheetData></worksheet>`;
+  const book = zipStored([
+    ["xl/workbook.xml", '<workbook><sheets><sheet name="Sales" sheetId="1" r:id="rId1"/><sheet name="Q &amp; A" sheetId="2" r:id="rId2"/><sheet name="Empty" sheetId="3" r:id="rId3"/></sheets></workbook>'],
+    ["xl/_rels/workbook.xml.rels", '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Target="worksheets/sheet3.xml"/></Relationships>'],
+    ["xl/sharedStrings.xml", "<sst><si><t>Sales 2024</t></si><si><t>Region</t></si><si><t>Revenue</t></si><si><t>North</t></si><si><r><t>So</t></r><r><t>uth</t></r></si></sst>"],
+    ["xl/worksheets/sheet1.xml", sheetXml('<row r="1"><c r="A1" t="s"><v>0</v></c></row><row r="2"><c r="A2" t="s"><v>1</v></c><c r="B2" t="s"><v>2</v></c></row><row r="3"><c r="A3" t="s"><v>3</v></c><c r="B3"><v>120</v></c></row><row r="4"><c r="A4" t="s"><v>4</v></c><c r="B4"><v>80</v></c></row>')],
+    ["xl/worksheets/sheet2.xml", sheetXml('<row r="1"><c r="A1" t="inlineStr"><is><t>Question</t></is></c><c r="C1" t="inlineStr"><is><t>Answer</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>Why?</t></is></c><c r="C2" t="b"><v>1</v></c></row>')],
+    ["xl/worksheets/sheet3.xml", sheetXml("")],
+  ]);
+  data.set("shares/abcDEF1234", { name: "Data deck", md: "# D\n", theme: "aurora", files: [
+    { path: "media/cat.png", type: "image/png", size: 68 },
+    { path: "data/book.xlsx", type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size: book.length },
+    { path: "data/notes.csv", type: "text/csv", size: 10 },
+  ] });
+  saved.set("shares/abcDEF1234/data/book.xlsx", { buf: book });
+  const t = await start(store);
+  try {
+    const r = await t.client.callTool({ name: "list_files", arguments: { deck_id: "abcDEF1234" } });
+    assert.ok(!r.isError, r.content[0].text);
+    const files = r.structuredContent.files;
+    assert.deepEqual(files.map((f) => [f.path, f.kind]), [["media/cat.png", "picture"], ["data/book.xlsx", "workbook"], ["data/notes.csv", "data"]]);
+    const wb = files[1];
+    assert.deepEqual(wb.sheets, [
+      { name: "Sales", columns: ["Region", "Revenue"], rows: 2, csv: "data/book-Sales.csv" },
+      { name: "Q & A", columns: ["Question", "", "Answer"], rows: 1, csv: "data/book-Q-&-A.csv" },
+    ]);
+    assert.match(r.content[0].text, /sheet "Sales": 2 rows; columns "Region", "Revenue"; read as data\/book-Sales\.csv/);
+    const g = await t.client.callTool({ name: "get_presentation", arguments: { deck_id: "abcDEF1234" } });
+    assert.deepEqual(g.structuredContent.images.map((i) => i.name), ["cat.png"]);
+    assert.equal(g.structuredContent.files[1].sheets[0].name, "Sales");
+    assert.match(g.content[0].text, /data\/book\.xlsx \(workbook/);
+  } finally { await t.close(); }
 });

@@ -6,5 +6,8 @@
   "evgui": {
     "url": "https://github.com/terotests/EVGUI",
     "ref": "main"
+  },
+  "evgsheets": {
+    "base": "https://terotests.github.io/EVGSheets/"
   }
 }
