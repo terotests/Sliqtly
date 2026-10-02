@@ -69,7 +69,7 @@ test("tools, UI metadata and the preview resource", async () => {
   const t = await start(store);
   try {
     const { tools } = await t.client.listTools();
-    assert.deepEqual(tools.map((x) => x.name).sort(), ["bind_chart_data", "create_presentation", "get_presentation", "list_files", "list_presentations", "sliqtly_guide", "update_presentation"]);
+    assert.deepEqual(tools.map((x) => x.name).sort(), ["bind_chart_data", "create_presentation", "get_presentation", "list_files", "list_presentations", "read_file", "sliqtly_guide", "update_presentation"]);
     const create = tools.find((x) => x.name === "create_presentation");
     assert.match(create._meta.ui.resourceUri, /^ui:\/\/sliqtly\/preview-[0-9a-f]{10}\.html$/);
     assert.equal(create._meta["openai/outputTemplate"], create._meta.ui.resourceUri);
@@ -404,5 +404,105 @@ test("list_files: the files a deck keeps, and what is in its workbooks", async (
     assert.deepEqual(g.structuredContent.images.map((i) => i.name), ["cat.png"]);
     assert.equal(g.structuredContent.files[1].sheets[0].name, "Sales");
     assert.match(g.content[0].text, /data\/book\.xlsx \(workbook/);
+  } finally { await t.close(); }
+});
+
+// A workbook with a title row over the header, a float and a second sheet.
+function testBook() {
+  const sheetXml = (rows) => `<worksheet><sheetData>${rows}</sheetData></worksheet>`;
+  const rows = ['<row r="1"><c r="A1" t="inlineStr"><is><t>Card risk</t></is></c></row>',
+    '<row r="2"><c r="A2" t="inlineStr"><is><t>Month</t></is></c><c r="B2" t="inlineStr"><is><t>Cards</t></is></c></row>'];
+  for (let i = 1; i <= 12; i++) rows.push(`<row r="${i + 2}"><c r="A${i + 2}"><v>${i}</v></c><c r="B${i + 2}"><v>${i === 3 ? "0.30000000000000004" : i * 10}</v></c></row>`);
+  return zipStored([
+    ["xl/workbook.xml", '<workbook><sheets><sheet name="Monthly" sheetId="1" r:id="rId1"/><sheet name="Notes" sheetId="2" r:id="rId2"/></sheets></workbook>'],
+    ["xl/_rels/workbook.xml.rels", '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet2.xml"/></Relationships>'],
+    ["xl/worksheets/sheet1.xml", sheetXml(rows.join(""))],
+    ["xl/worksheets/sheet2.xml", sheetXml('<row r="1"><c r="A1" t="inlineStr"><is><t>Key</t></is></c><c r="B1" t="inlineStr"><is><t>Value</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>source</t></is></c><c r="B2" t="inlineStr"><is><t>bank, "core"</t></is></c></row>')],
+  ]);
+}
+
+test("read_file: a workbook's sheets, CSV, JSON, in windows", async () => {
+  const { store, data, saved } = fakeFirebase();
+  const book = testBook();
+  data.set("shares/abcDEF1234", { name: "Risk", md: "# R\n", theme: "aurora", files: [
+    { path: "media/cat.png", type: "image/png", size: 68 },
+    { path: "data/risk.xlsx", type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size: book.length },
+    { path: "data/notes.csv", type: "text/csv", size: 30 },
+    { path: "data/spec.json", type: "application/json", size: 9 },
+  ] });
+  saved.set("shares/abcDEF1234/data/risk.xlsx", { buf: book });
+  saved.set("shares/abcDEF1234/data/notes.csv", { buf: Buffer.from('a,b\r\n"x, y",2\n\n3,"q"""\n') });
+  saved.set("shares/abcDEF1234/data/spec.json", { buf: Buffer.from('{"a": 1}') });
+  const t = await start(store);
+  const read = (args) => t.client.callTool({ name: "read_file", arguments: { deck_id: "abcDEF1234", ...args } });
+  try {
+    const r = await read({ path: "data/risk.xlsx", limit: 5 });
+    assert.ok(!r.isError, r.content[0].text);
+    assert.deepEqual(r.structuredContent.sheet, { name: "Monthly", csv: "data/risk-Monthly.csv" });
+    assert.deepEqual(r.structuredContent.columns, ["Month", "Cards"]);
+    assert.equal(r.structuredContent.total_rows, 12);
+    assert.deepEqual(r.structuredContent.rows[2], ["3", "0.3"]);
+    assert.equal(r.structuredContent.next_offset, 5);
+    assert.match(r.content[0].text, /Rows 1–5 of 12; next: offset 5/);
+    assert.match(r.content[0].text, /Other sheets: "Notes"/);
+    const last = await read({ path: "data/risk.xlsx", offset: 10 });
+    assert.deepEqual(last.structuredContent.rows, [["11", "110"], ["12", "120"]]);
+    assert.equal(last.structuredContent.next_offset, null);
+    // by the name the deck reads the sheet by, and by sheet name
+    const byCsv = await read({ path: "data/risk-Notes.csv" });
+    assert.deepEqual(byCsv.structuredContent.rows, [["source", 'bank, "core"']]);
+    assert.match(byCsv.content[0].text, /source,"bank, ""core"""/);
+    const bySheet = await read({ path: "data/risk.xlsx", sheet: "notes" });
+    assert.equal(bySheet.structuredContent.sheet.name, "Notes");
+    const noSheet = await read({ path: "data/risk.xlsx", sheet: "Yearly" });
+    assert.ok(noSheet.isError);
+    assert.match(noSheet.content[0].text, /no sheet "Yearly". Its sheets: "Monthly", "Notes"/);
+    const csv = await read({ path: "data/notes.csv" });
+    assert.deepEqual(csv.structuredContent.columns, ["a", "b"]);
+    assert.deepEqual(csv.structuredContent.rows, [["x, y", "2"], ["3", 'q"']]);
+    const json = await read({ path: "data/spec.json" });
+    assert.equal(json.structuredContent.text, '{"a": 1}');
+    const pic = await read({ path: "media/cat.png" });
+    assert.match(pic.content[0].text, /is a picture/);
+    const none = await read({ path: "data/other.csv" });
+    assert.match(none.content[0].text, /No file data\/other\.csv .* Its files: data\/risk\.xlsx, data\/notes\.csv, data\/spec\.json/);
+  } finally { await t.close(); }
+});
+
+test("create and update keep data files the deck reads", async () => {
+  const { store, data, saved } = fakeFirebase();
+  const t = await start(store);
+  try {
+    const md = '# Risk\n\n## Monthly\n\n```vega-lite\n{"data": {"url": "data/risk-Monthly.csv"}, "mark": "bar"}\n```\n';
+    const r = await t.client.callTool({ name: "create_presentation", arguments: {
+      title: "Risk", markdown: md,
+      files: [{ name: "risk.xlsx", data_base64: testBook().toString("base64") }, { name: "data/extra.csv", text: "a,b\n1,2\n" }],
+    } });
+    assert.ok(!r.isError, r.content[0].text);
+    const id = r.structuredContent.deck_id;
+    assert.match(r.content[0].text, /data\/risk\.xlsx: sheet "Monthly" \(12 rows; columns "Month", "Cards"\) read as data\/risk-Monthly\.csv/);
+    assert.deepEqual(data.get(`shares/${id}`).files.map((f) => [f.path, f.type]), [
+      ["data/risk.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"], ["data/extra.csv", "text/csv"]]);
+    assert.equal(saved.get(`shares/${id}/data/extra.csv`).buf.toString(), "a,b\n1,2\n");
+    const back = await t.client.callTool({ name: "read_file", arguments: { deck_id: id, path: "data/risk-Monthly.csv", limit: 1 } });
+    assert.deepEqual(back.structuredContent.rows, [["1", "10"]]);
+    // update adds a file and replaces one of the same name
+    const u = await t.client.callTool({ name: "update_presentation", arguments: {
+      deck_id: id, edit_key: r.structuredContent.edit_key, files: [{ name: "extra.csv", text: "a,b\n3,4\n" }, { name: "more.json", text: "[1]" }],
+    } });
+    assert.ok(!u.isError, u.content[0].text);
+    assert.deepEqual(data.get(`shares/${id}`).files.map((f) => f.path), ["data/risk.xlsx", "data/extra.csv", "data/more.json"]);
+    assert.equal(saved.get(`shares/${id}/data/extra.csv`).buf.toString(), "a,b\n3,4\n");
+    // refused: not a workbook, a type that is not data, two sources
+    for (const [f, why] of [
+      [{ name: "bad.xlsx", data_base64: Buffer.from("nope").toString("base64") }, /not a workbook Sliqtly can read/],
+      [{ name: "run.exe", text: "x" }, /data files are \.xlsx, \.csv/],
+      [{ name: "a.csv", text: "x", url: "https://images.test/a.csv" }, /give one of text, data_base64 or url/],
+      [{ name: "a.xlsx", text: "x" }, /sent as data_base64 or url/],
+    ]) {
+      const bad = await t.client.callTool({ name: "create_presentation", arguments: { title: "x", markdown: "# x", files: [f] } });
+      assert.ok(bad.isError);
+      assert.match(bad.content[0].text, why);
+    }
   } finally { await t.close(); }
 });

@@ -16,11 +16,12 @@ without a key, and `list_presentations` lists them.
 | Tool | |
 | --- | --- |
 | `sliqtly_guide` | The Markdown syntax, themes and CSS selectors ([`guide.md`](guide.md)) |
-| `create_presentation` | `title`, `markdown`, `theme`, `css`, `css_mode`, `images` → `share_url`, `edit_url`, `deck_id`, `edit_key` |
+| `create_presentation` | `title`, `markdown`, `theme`, `css`, `css_mode`, `images`, `files` (`.xlsx`, `.csv`, `.json` kept under `data/`) → `share_url`, `edit_url`, `deck_id`, `edit_key` |
 | `update_presentation` | `deck_id` + `edit_key`, and what changes; the link stays |
 | `bind_chart_data` | `deck_id` + `edit_key`, `chart` (number or slide title), `source` (CSV/JSON URL or Google Sheet): the chart reads that data live |
 | `get_presentation` | `deck_id` → the Markdown, theme, CSS, pictures and files |
 | `list_files` | `deck_id` → every file the deck keeps; for each `.xlsx`, its sheets, columns, row counts and the CSV name a sheet is read by |
+| `read_file` | `deck_id`, `path` (a data file, a workbook with `sheet`, or a sheet's CSV name), `offset`, `limit` → its rows as CSV, or a JSON/text file's text |
 | `list_presentations` | the signed-in user's decks (asks for sign-in otherwise) |
 
 ## Sign-in

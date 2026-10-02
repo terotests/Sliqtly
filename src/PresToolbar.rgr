@@ -184,11 +184,14 @@ class PresToolbar {
 
     ; What a menu's or the drawer's row asks of the page: a sample
     ; ("s-<key>") and a theme ("t-<key>") are the page's selects changed,
-    ; "css" opens the theme's CSS tab, "new" a new deck, the rest the page's
-    ; button of that id.
+    ; "css" opens the theme's CSS tab, "new" a new deck, "duplicate" a copy
+    ; of this one, the rest the page's button of that id.
     sfn requestFor:string (id:string) {
         if (id == "new") {
             return "files:new"
+        }
+        if (id == "duplicate") {
+            return "files:duplicate"
         }
         if (id == "css") {
             return "showtab:css"
@@ -382,6 +385,7 @@ class PresToolbar {
             def file:MenuCtl (this.dropdown("file" (PresI18n.t("File"))))
             ; groups as in a desktop app: new | open | save | the assistants
             file.addItem("new" (PresI18n.t("New presentation")) false)
+            file.addItem("duplicate" (PresI18n.t("Duplicate")) false)
             file.addSeparator()
             file.addItem("openbox" (PresI18n.t("Open…")) false)
             def rc:UiItem (file.addSub("recent" (PresI18n.t("Recent")) false))
@@ -454,6 +458,7 @@ class PresToolbar {
             this.button("dr-share" (PresI18n.t("Share")) "ghost" body)
             body.addChild((this.text("tb-dr-label" (PresI18n.t("File")))))
             this.button("dr-new" (PresI18n.t("New presentation")) "ghost" body)
+            this.button("dr-duplicate" (PresI18n.t("Duplicate")) "ghost" body)
             body.addChild((this.div("tb-dr-sep")))
             this.button("dr-openbox" (PresI18n.t("Open…")) "ghost" body)
             this.button("dr-browse" (PresI18n.t("Browse all…")) "ghost" body)

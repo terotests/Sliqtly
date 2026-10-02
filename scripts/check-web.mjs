@@ -2046,6 +2046,23 @@ try {
     await pc.keyboard.press("Enter");
     await pc.waitForTimeout(3000);
     check("PRO: a deck's last change is saved to its share before a new one is made", fakeDb.get("shares/" + newId).md.includes("## Viimeinen muutos") && shareId().length === 3);
+    // File → Duplicate: the deck saved first, then a copy with its own share
+    // and address, its Markdown retitled and its files with it
+    await pc.evaluate(() => window.__app.setSource("# Alkuperäinen\n\n## Kuva\n\n![kuva](media/cloud-pic.png)\n"));
+    await pc.setInputFiles("#fileadd", [path.join(dir, "cloud-pic.png")]);
+    await pc.waitForTimeout(800);
+    const origAt = await pc.evaluate(() => location.pathname);
+    const origId = origAt.replace(/^\/s\//, "");
+    await pc.evaluate(() => window.__fileRequest("duplicate"));
+    await pc.waitForTimeout(3000);
+    const dup = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search), ids: shareId() };
+    const dupId = dup.ids.find((k) => k !== id && k !== newId && k !== origId) || "";
+    const orig = fakeDb.get("shares/" + origId);
+    check("PRO: Duplicate makes a copy with its own share, address, files and name",
+      dup.ids.length === 4 && dup.at === "/s/" + dupId + "?edit" && /^# Alkuperäinen \((copy|kopio)\)\n/.test(dup.md) && dup.md.includes("## Kuva")
+        && fakeDb.get("shares/" + dupId)?.md === dup.md && (fakeDb.get("shares/" + dupId)?.files || []).some((f) => f.path === "media/cloud-pic.png")
+        && orig?.md.startsWith("# Alkuperäinen\n") && (orig.files || []).some((f) => f.path === "media/cloud-pic.png"),
+      JSON.stringify({ at: dup.at, ids: dup.ids, md: dup.md.slice(0, 40) }));
     check("no page errors with PRO", perr.length === 0, perr.join(" | "));
     await ctx.close();
   }

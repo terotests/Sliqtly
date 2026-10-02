@@ -492,6 +492,62 @@ async function newDeck(plan) {
   refreshFiles();
   needsPaint = true;
 }
+// File → Duplicate: a new deck from this one, its Markdown, theme CSS and
+// files copied, named "<name> (copy)". This one is saved first; the copy is
+// kept at once under an id of its own (a PRO deck gets its own share).
+async function duplicateDeck() {
+  await leaveDoc();
+  const key = themeSel.value || "";
+  const css = key in editedCss ? editedCss[key] : null;
+  const files = await docFiles();
+  const name = exportName() + " " + t("(copy)");
+  const text = retitled(app.source(), name);
+  beginDoc(text);
+  docName = name;
+  if (css != null) editedCss[key] = css;
+  useTheme(key);
+  for (const f of files) {
+    const rec = { ...f, doc: doc.id, updated: Date.now() };
+    pending.set(rec.path, rec);
+    await useFile(rec);
+  }
+  app.setSource(text);
+  dropThumbs();
+  await saveDoc(true);
+  if (cloudReady()) await cloudSync().catch(cloudTrouble);
+  refreshFiles();
+  needsPaint = true;
+  toast(t("Duplicated as ") + name);
+}
+// The deck's title (front matter title:, else the first heading) as `name`.
+function retitled(md, name) {
+  const lines = md.split("\n");
+  if (/^---\s*$/.test(lines[0] || "")) {
+    for (let i = 1; i < lines.length && !/^(---|\.\.\.)\s*$/.test(lines[i]); i++) {
+      const m = /^title\s*:\s*(.*)$/.exec(lines[i]);
+      if (m && m[1].trim()) {
+        lines[i] = "title: " + JSON.stringify(name);
+        return lines.join("\n");
+      }
+    }
+  }
+  let fence = "";
+  for (let i = 0; i < lines.length; i++) {
+    const f = /^\s*(`{3,}|~{3,})/.exec(lines[i]);
+    if (f) {
+      if (!fence) fence = f[1][0];
+      else if (f[1][0] === fence) fence = "";
+      continue;
+    }
+    // a heading's {.class} stays
+    const h = !fence && /^(#{1,6})\s+\S.*?(\s+\{[^{}]*\})?\s*$/.exec(lines[i]);
+    if (h) {
+      lines[i] = h[1] + " " + name + (h[2] || "");
+      return lines.join("\n");
+    }
+  }
+  return md;
+}
 function sampleChartSlide() {
   const rows = [[t("Q1"), 28], [t("Q2"), 55], [t("Q3"), 43], [t("Q4"), 91]]
     .map(([a, b]) => `    {"${t("quarter")}": ${JSON.stringify(a)}, "${t("sales")}": ${b}}`).join(",\n");
@@ -861,6 +917,9 @@ async function fileRequest(r) {
     // asked first: an accidental press is cancelled and the deck stays
     const rows = [...themeSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n");
     app.openNewDeck(rows, themeSel.value || "", "");
+  } else if (action === "duplicate") {
+    makingDeck = duplicateDeck().catch((e) => toast(t("Duplicating failed: ") + (e.message || e))).finally(() => { makingDeck = null; });
+    await makingDeck;
   } else if (action === "open") {
     const f = (await docFiles()).find((x) => x.path === what);
     if (!f) return;

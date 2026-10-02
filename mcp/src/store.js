@@ -100,7 +100,8 @@ export class FirebaseStore {
   async #upload(id, images) {
     const out = [];
     for (const img of images || []) {
-      const path = `media/${img.name}`;
+      // pictures go under media/, data files (loadDataFiles) name their own path
+      const path = img.path || `media/${img.name}`;
       const file = this.bucket.file(`shares/${id}/${path}`);
       // the token is what getDownloadURL() hands the editor for its own uploads
       const token = crypto.randomUUID();
