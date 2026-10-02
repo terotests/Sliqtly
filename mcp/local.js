@@ -9,7 +9,7 @@ import { mcpHandler } from "./src/http.js";
 import { FirebaseStore, LinkStore } from "./src/store.js";
 
 const port = Number(process.env.PORT || 8790);
-const baseUrl = process.env.SLIQTLY_URL || "https://sliqtly.web.app";
+const baseUrl = process.env.SLIQTLY_URL || "https://sliqtly.com";
 
 async function makeStore() {
   if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) return new LinkStore();

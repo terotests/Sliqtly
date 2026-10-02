@@ -1,7 +1,7 @@
 # Writing a Sliqtly deck
 
 A Sliqtly presentation is one Markdown document plus a theme (CSS). The
-slides are drawn by the Sliqtly player at https://sliqtly.web.app.
+slides are drawn by the Sliqtly player at https://sliqtly.com.
 
 ## Structure
 

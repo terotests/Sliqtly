@@ -66,7 +66,7 @@ test("tools, UI metadata and the preview resource", async () => {
     const r = await t.client.readResource({ uri: "ui://sliqtly/preview.html" });
     assert.equal(r.contents[0].mimeType, "text/html;profile=mcp-app");
     assert.match(r.contents[0].text, /ui\/initialize/);
-    assert.deepEqual(r.contents[0]._meta.ui.csp.frameDomains, [BASE]);
+    assert.deepEqual(r.contents[0]._meta.ui.csp.frameDomains, [BASE, "https://sliqtly.com", "https://sliqtly.web.app"]);
     const g = await t.client.callTool({ name: "sliqtly_guide", arguments: {} });
     assert.match(g.content[0].text, /## Pictures/);
   } finally { await t.close(); }

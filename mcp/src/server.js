@@ -1,5 +1,5 @@
 // The Sliqtly MCP server: tools that turn Markdown (+ a theme, CSS and
-// pictures) into a presentation at sliqtly.web.app and hand back its link.
+// pictures) into a presentation at sliqtly.com and hand back its link.
 //
 // Tools: sliqtly_guide, create_presentation, update_presentation,
 // get_presentation. create/update also name a UI resource (MCP Apps, and the
@@ -16,6 +16,8 @@ const PREVIEW = fs.readFileSync(new URL("./preview.html", import.meta.url), "utf
 export const VERSION = "1.0.0";
 const PREVIEW_URI = "ui://sliqtly/preview.html";
 const APP_MIME = "text/html;profile=mcp-app";
+// the preview frames the share link; both of the site's domains serve it
+const SITES = ["https://sliqtly.com", "https://sliqtly.web.app"];
 
 const imageSchema = z.object({
   name: z.string().describe('File name the Markdown uses as media/<name>, e.g. "team.jpg" → ![](media/team.jpg)'),
@@ -49,6 +51,7 @@ export function createServer(opts) {
   const { store, baseUrl } = opts;
   const fetchImpl = opts.fetchImpl || fetch;
   const themeCache = new Map();
+  const frames = [...new Set([baseUrl, ...SITES])];
 
   async function themeCss(theme) {
     if (!themeCache.has(theme)) {
@@ -177,7 +180,7 @@ export function createServer(opts) {
 
   server.registerTool("get_presentation", {
     title: "Read a presentation",
-    description: "Read a Sliqtly presentation's Markdown, theme, CSS and picture list by its deck_id (the id in https://sliqtly.web.app/s/<id>), to revise it.",
+    description: "Read a Sliqtly presentation's Markdown, theme, CSS and picture list by its deck_id (the id in https://sliqtly.com/s/<id>), to revise it.",
     inputSchema: { deck_id: z.string().describe("The id in the share link /s/<id>") },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, guarded("get_presentation", async ({ deck_id }) => {
@@ -203,15 +206,15 @@ export function createServer(opts) {
     title: "Sliqtly presentation",
     description: "Shows the presentation inline",
     mimeType: APP_MIME,
-    _meta: { ui: { csp: { frameDomains: [baseUrl] }, prefersBorder: false } },
+    _meta: { ui: { csp: { frameDomains: frames }, prefersBorder: false } },
   }, async () => ({
     contents: [{
       uri: PREVIEW_URI,
       mimeType: APP_MIME,
       text: PREVIEW,
       _meta: {
-        ui: { csp: { frameDomains: [baseUrl] }, prefersBorder: false },
-        "openai/widgetCSP": { connect_domains: [], resource_domains: [], frame_domains: [baseUrl] },
+        ui: { csp: { frameDomains: frames }, prefersBorder: false },
+        "openai/widgetCSP": { connect_domains: [], resource_domains: [], frame_domains: frames },
         "openai/widgetDescription": "The Sliqtly presentation, playable inline.",
         "openai/widgetPrefersBorder": true,
       },
