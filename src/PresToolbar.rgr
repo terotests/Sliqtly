@@ -353,6 +353,8 @@ class PresToolbar {
             file.addItem("new" (PresI18n.t("New presentation")) false)
             file.addItem("openbox" (PresI18n.t("Open…")) false)
             file.addItem("save" (PresI18n.t("Save .md")) false)
+            file.addItem("aiClaude" (PresI18n.t("Edit in Claude…")) false)
+            file.addItem("aiChatgpt" (PresI18n.t("Edit in ChatGPT…")) false)
             def slide:MenuCtl (this.dropdown("slide" (PresI18n.t("Slide"))))
             def th:UiItem (slide.addSub("theme" (PresI18n.t("Theme")) false))
             this.subRows(th "t-" themeRows themeValue)
@@ -417,6 +419,8 @@ class PresToolbar {
             this.button("dr-new" (PresI18n.t("New presentation")) "ghost" body)
             this.button("dr-openbox" (PresI18n.t("Open…")) "ghost" body)
             this.button("dr-save" (PresI18n.t("Save .md")) "ghost" body)
+            this.button("dr-aiClaude" (PresI18n.t("Edit in Claude…")) "ghost" body)
+            this.button("dr-aiChatgpt" (PresI18n.t("Edit in ChatGPT…")) "ghost" body)
             body.addChild((this.div("tb-dr-sep")))
             def arrow:string "▸  "
             if drawerThemes {

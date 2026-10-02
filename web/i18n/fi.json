@@ -489,5 +489,14 @@
   "Width": "Leveys",
   "Width: in points (400) or as a percentage of the column (60%). Images and charts keep their proportions.": "Leveys: pisteinä (400) tai prosentteina palstasta (60%). Kuva ja kaavio pysyvät muodossaan.",
   "Write here.": "Kirjoita tähän.",
-  "You can start a new table: the chart's current content is replaced with a sample table.": "Voit aloittaa uuden taulukon: kaavion nykyinen sisältö korvataan esimerkkitaulukolla."
+  "You can start a new table: the chart's current content is replaced with a sample table.": "Voit aloittaa uuden taulukon: kaavion nykyinen sisältö korvataan esimerkkitaulukolla.",
+  "Edit in Claude…": "Muokkaa Claudessa…",
+  "Edit in ChatGPT…": "Muokkaa ChatGPT:ssä…",
+  "Saving a copy in the cloud for the assistant…": "Tallennetaan kopio pilveen avustajaa varten…",
+  "If you have no Sliqtly tools, tell me to add the Sliqtly connector: ": "Jos sinulla ei ole Sliqtly-työkaluja, pyydä minua lisäämään Sliqtly-yhdistin: ",
+  "Edit my Sliqtly presentation {id} ({link}) with the Sliqtly connector. Load it with get_presentation (deck_id {id}), summarize it briefly and ask what to change. Save each change with update_presentation (deck_id {id}). If saving is refused, make a new presentation with create_presentation instead. After saving, give me the link {edit} to open it in the editor.": "Muokkaa Sliqtly-esitystäni {id} ({link}) Sliqtly-yhdistimellä. Lataa se get_presentation-työkalulla (deck_id {id}), tiivistä se lyhyesti ja kysy mitä muutetaan. Tallenna jokainen muutos update_presentation-työkalulla (deck_id {id}). Jos tallennus ei onnistu, tee sen sijaan uusi esitys create_presentation-työkalulla. Tallennuksen jälkeen anna minulle linkki {edit}, jolla avaan sen editorissa.",
+  "Make this Markdown a Sliqtly presentation with create_presentation from the Sliqtly connector (theme {theme}), give me its link and ask what to change. Save later changes with update_presentation.": "Tee tästä Markdownista Sliqtly-esitys Sliqtly-yhdistimen create_presentation-työkalulla (teema {theme}), anna minulle sen linkki ja kysy mitä muutetaan. Tallenna myöhemmät muutokset update_presentation-työkalulla.",
+  "This presentation is too long to hand over in a link. Sign in with PRO first.": "Esitys on liian pitkä välitettäväksi linkissä. Kirjaudu ensin PRO-tilillä.",
+  "Pictures are not handed over without PRO sign-in.": "Kuvat eivät siirry ilman PRO-kirjautumista.",
+  "Could not save a copy for the assistant: ": "Kopiota ei voitu tallentaa avustajalle: "
 }

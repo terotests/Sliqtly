@@ -1279,6 +1279,70 @@ async function shareLink() {
   }
 }
 
+// Edit in Claude / ChatGPT: the assistant opens with a prompt that names the
+// deck, and edits it through the Sliqtly connector (mcp/): get_presentation
+// reads a share, update_presentation saves it when the assistant is signed
+// in as the share's owner (or holds its edit key). So the deck handed over
+// is a share: the one this page was opened from when it is the reader's own
+// and unchanged, else a fresh share of the deck (signed in). Signed out, the
+// Markdown goes in the prompt for create_presentation. The changes land in
+// the share, not in this page's deck: /s/{id}?edit opens them here again.
+let originShare = null;
+const SITE = location.protocol === "https:" ? location.origin : "https://sliqtly.com";
+const AI = {
+  claude: (q) => "https://claude.ai/new?q=" + encodeURIComponent(q),
+  chatgpt: (q) => "https://chatgpt.com/?q=" + encodeURIComponent(q),
+};
+// what fits in an address with room to spare
+const AI_MAX_PROMPT = 6000;
+
+async function editInAI(which) {
+  // opened now, while the press still counts as one; pointed at the
+  // assistant once the prompt is ready
+  const win = window.open("", "_blank");
+  const go = (url) => {
+    if (win && !win.closed) {
+      win.opener = null;
+      win.location.href = url;
+    } else {
+      window.open(url, "_blank", "noopener");
+    }
+  };
+  try {
+    const text = app.source();
+    const user = window.sliqtly?.user?.();
+    let id = null;
+    if (originShare && originShare.md === text && (!user || originShare.owner === user.uid)) {
+      id = originShare.id;
+    } else if (user) {
+      toast(t("Saving a copy in the cloud for the assistant…"));
+      id = await shareCloud();
+    }
+    const connect = t("If you have no Sliqtly tools, tell me to add the Sliqtly connector: ") + SITE + "/connect.html";
+    let prompt;
+    if (id) {
+      prompt = t("Edit my Sliqtly presentation {id} ({link}) with the Sliqtly connector. Load it with get_presentation (deck_id {id}), summarize it briefly and ask what to change. Save each change with update_presentation (deck_id {id}). If saving is refused, make a new presentation with create_presentation instead. After saving, give me the link {edit} to open it in the editor.")
+        .replaceAll("{id}", id).replaceAll("{link}", SITE + "/s/" + id).replaceAll("{edit}", SITE + "/s/" + id + "?edit");
+    } else {
+      prompt = t("Make this Markdown a Sliqtly presentation with create_presentation from the Sliqtly connector (theme {theme}), give me its link and ask what to change. Save later changes with update_presentation.")
+        .replaceAll("{theme}", themeSel.value || "-") + "\n\n```markdown\n" + text + "\n```";
+      if (prompt.length > AI_MAX_PROMPT) {
+        if (win) win.close();
+        toast(t("This presentation is too long to hand over in a link. Sign in with PRO first."));
+        return;
+      }
+      if (/\]\(media\//.test(text)) toast(t("Pictures are not handed over without PRO sign-in."));
+    }
+    go(AI[which](prompt + "\n\n" + connect));
+  } catch (e) {
+    if (win) win.close();
+    console.warn("handing over to the assistant failed", e);
+    toast(t("Could not save a copy for the assistant: ") + (e?.code || e?.message || String(e)));
+  }
+}
+document.getElementById("aiClaude").addEventListener("click", () => { editInAI("claude"); });
+document.getElementById("aiChatgpt").addEventListener("click", () => { editInAI("chatgpt"); });
+
 // A copy button in the share dialog (drawn on the canvas): the browser copies.
 let copiedTimer = 0;
 async function copyShare(which) {
@@ -1395,6 +1459,7 @@ async function openFromShare() {
       return false;
     }
     const editing = !!m && new URLSearchParams(location.search).has("edit");
+    if (editing) originShare = { id, owner: shared.owner || "", md: shared.md || "" };
     beginDoc(shared.md || "");
     if (shared.theme != null) {
       themeSel.value = shared.theme;
