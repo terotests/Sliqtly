@@ -2291,17 +2291,59 @@ function at(ev) {
 
 let clicks = 0;
 let lastDown = 0;
+let lastDownAt = [0, 0];
+
+// Fingers on the canvas. Two on the stage are a pinch: the slide is seen
+// closer (or further) and moved with them, and nothing under them is
+// pressed. The page itself does not zoom (touch-action: none), so this is
+// how a phone gets to read a slide's small print.
+const touches = new Map();
+let pinch = null;
+function pinchSpan() {
+  const [a, b] = [...touches.values()];
+  return { d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, mx: (a[0] + b[0]) / 2, my: (a[1] + b[1]) / 2 };
+}
+
 canvas.addEventListener("pointerdown", (ev) => {
   const [x, y] = at(ev);
+  const finger = ev.pointerType !== "mouse";
+  if (finger) touches.set(ev.pointerId, [x, y]);
+  if (finger && touches.size === 2) {
+    const p = pinchSpan();
+    if (app.canZoomAt(p.mx, p.my)) {
+      app.cancelPress();
+      pinch = p;
+      clicks = 0;
+      ev.preventDefault();
+      try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
+      needsPaint = true;
+      return;
+    }
+  }
+  if (pinch) return;
   const now = performance.now();
-  clicks = now - lastDown < 400 ? clicks + 1 : 1;
+  const near = Math.hypot(x - lastDownAt[0], y - lastDownAt[1]) < 40;
+  clicks = now - lastDown < 400 && (!finger || near) ? clicks + 1 : 1;
   lastDown = now;
+  lastDownAt = [x, y];
+  // a double tap on the slide while editing: in to read it, or back out
+  if (finger && clicks === 2 && !(lastLayout && lastLayout.mode === "present") && app.canZoomAt(x, y)) {
+    ev.preventDefault();
+    app.cancelPress();
+    app.viewToggle(x, y);
+    // the first tap's note about the diagram is not wanted
+    clearTimeout(diagramTimer);
+    clicks = 0;
+    needsPaint = true;
+    return;
+  }
   // a finger wobbles: it has to travel further than a mouse before a tap
   // on the stage becomes a drag
-  app.setDragSlop(ev.pointerType === "mouse" ? 6 : 16);
+  app.setDragSlop(finger ? 16 : 6);
+  app.setTouch(finger);
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
-  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint") {
+  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb") {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
   if (where === "editor" && clicks === 1) {
@@ -2339,6 +2381,16 @@ canvas.addEventListener("pointerdown", (ev) => {
 });
 canvas.addEventListener("pointermove", (ev) => {
   const [x, y] = at(ev);
+  if (touches.has(ev.pointerId)) touches.set(ev.pointerId, [x, y]);
+  if (pinch) {
+    if (touches.size >= 2) {
+      const p = pinchSpan();
+      app.viewPinch(p.mx, p.my, p.d / pinch.d, p.mx - pinch.mx, p.my - pinch.my);
+      pinch = p;
+      needsPaint = true;
+    }
+    return;
+  }
   app.pointerMove(x, y);
   canvas.style.cursor = app.cursorAt(x, y);
   if (ev.buttons) needsPaint = true;
@@ -2441,16 +2493,40 @@ function helpEdit(sel, prop, def) {
 
 document.getElementById("helpBtn").addEventListener("click", () => toggleHelp());
 
-function endPointer() {
+function endPointer(ev) {
+  touches.delete(ev.pointerId);
+  if (pinch) {
+    // the pinch lasts until the last finger is lifted
+    if (touches.size === 0) pinch = null;
+    return;
+  }
   app.pointerUp();
+  // a tap that made a diagram the one a finger moves says so, once
+  // (after a moment: the tap may be the first of a double tap)
+  if (app.takeActivated() && !diagramTold) {
+    clearTimeout(diagramTimer);
+    diagramTimer = setTimeout(() => {
+      diagramTold = true;
+      toast(t("Diagram selected: drag to move it, pinch to zoom the slide"));
+    }, 420);
+  }
   // a click on the stage acts on release (a press that moves is a drag),
   // so what it did to the clock is taken up here
   afterInput();
 }
+let diagramTold = false;
+let diagramTimer = 0;
 canvas.addEventListener("pointerup", endPointer);
 canvas.addEventListener("pointercancel", endPointer);
 canvas.addEventListener("wheel", (ev) => {
   const [x, y] = at(ev);
+  // a trackpad pinch (or Ctrl + wheel) over the slide sees it closer
+  if (ev.ctrlKey && app.canZoomAt(x, y)) {
+    ev.preventDefault();
+    app.viewPinch(x, y, Math.exp(-ev.deltaY * 0.01), 0, 0);
+    needsPaint = true;
+    return;
+  }
   const step = ev.deltaMode === 1 ? 18 : ev.deltaMode === 2 ? 400 : 1;
   // sideways: a trackpad swipe, a tilt wheel, or Shift with a plain wheel
   let dx = ev.deltaX;

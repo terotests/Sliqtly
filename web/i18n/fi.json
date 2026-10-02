@@ -164,6 +164,7 @@
   "Description": "Kuvaus",
   "Diagram": "Kaavio",
   "Diagram colors.": "Kaavioiden värit.",
+  "Diagram selected: drag to move it, pinch to zoom the slide": "Kaavio valittu: siirrä vetämällä, zoomaa diaa nipistämällä",
   "Diagram style: holo (glass) or sketch (hand-drawn).": "Kaavion tyyli: holo (lasi) tai sketch (käsin piirretty).",
   "diagram: draw": "kaavio: piirto",
   "diagram: draw + tour": "kaavio: piirto + kierros",
