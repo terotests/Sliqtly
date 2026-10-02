@@ -1,0 +1,339 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresImport.rgr — a data file dropped on the editor, and what to make of it
+; ============================================================================
+;
+; A .csv, a .json or a .xlsx (one CSV per sheet, made by PresData in its own
+; bundle) arrives here as rows of text. The import dialog shows the first of
+; them and asks what they are for: a chart, a table, or only a file the deck
+; keeps.
+;
+; For a chart the columns are read the way the spreadsheet reads a
+; selection (datagrid's ChartInference): which column the numbers are broken
+; down BY, which columns are the numbers, whether rows that repeat a
+; category are summed or averaged, and the type that fits. The dialog shows
+; that answer and lets the person change any part of it; the chart that comes
+; out is the aggregated table, the same one the chart editor edits.
+; ============================================================================
+
+Import "../datagrid/src/ChartInference.rgr"
+Import "PresChartModel.rgr"
+Import "PresI18n.rgr"
+
+class PresImport {
+    ; the file as it was dropped ("sales.xlsx")
+    def name:string ""
+    ; one entry per sheet (a CSV or JSON file is one sheet)
+    def sheetNames:[string]
+    def sheetPaths:[string]
+    def sheetCsv:[string]
+    def sheet:int 0
+    ; the sheet: row 0 the header, rows 1..rows the data
+    def model:SpreadsheetModel (new SpreadsheetModel())
+    def headers:[string]
+    def roles:[string]
+    def rows:int 0
+    ; "pick" (what to make) or "chart" (its columns)
+    def step:string "pick"
+    ; --- the chart's question -------------------------------------------------
+    def catCol:int -1
+    def valueOn:[boolean]
+    ; "auto" (each measure by its own rule), "sum", "avg", "count", "none"
+    def agg:string "auto"
+    def kind:int 1
+    ; the type the columns suggested, marked in the dialog's list
+    def suggested:int 1
+    def title:string ""
+
+    Constructor () {
+    }
+
+    ; {"name": "...", "sheets": [{"name", "path", "csv"}]}
+    fn load:boolean (json:string) {
+        def p (new VlJsonParser())
+        def j:VlJson (p.parse(json))
+        if ((p.ok == false) || ((j.isObject()) == false)) {
+            return false
+        }
+        name = (j.stringOr("name" ""))
+        def none:[string]
+        sheetNames = none
+        def none2:[string]
+        sheetPaths = none2
+        def none3:[string]
+        sheetCsv = none3
+        def list:VlJson (j.get("sheets"))
+        def i:int 0
+        while (i < (list.count())) {
+            def s:VlJson (list.at(i))
+            push sheetNames (s.stringOr("name" ""))
+            push sheetPaths (s.stringOr("path" ""))
+            push sheetCsv (s.stringOr("csv" ""))
+            i = (i + 1)
+        }
+        if ((array_length sheetCsv) == 0) {
+            return false
+        }
+        step = "pick"
+        this.useSheet(0)
+        return true
+    }
+
+    fn sheetCount:int () {
+        return (array_length sheetCsv)
+    }
+
+    fn path:string () {
+        return (itemAt sheetPaths sheet)
+    }
+
+    fn cols:int () {
+        return (array_length headers)
+    }
+
+    ; The sheet's rows into the model, and the chart the columns suggest.
+    fn useSheet:void (i:int) {
+        sheet = i
+        model = (new SpreadsheetModel())
+        def nh:[string]
+        headers = nh
+        rows = 0
+        def lines:[string] (strsplit (itemAt sheetCsv i) (strfromcode 10))
+        def r:int 0
+        def row:int 0
+        while (r < (array_length lines)) {
+            def line:string (itemAt lines r)
+            if ((strlen (trim line)) > 0) {
+                def cs:[string] (MdVegaRender.cells(line 44))
+                if (row == 0) {
+                    def c:int 0
+                    while (c < (array_length cs)) {
+                        def h:string (trim (itemAt cs c))
+                        if ((strlen h) == 0) {
+                            h = ((PresI18n.t("Column")) + " " + (to_string (c + 1)))
+                        }
+                        push headers h
+                        model.setCellRaw(0 c h)
+                        c = (c + 1)
+                    }
+                } {
+                    def k:int 0
+                    while ((k < (array_length cs)) && (k < (array_length headers))) {
+                        model.setCellRaw(row k (itemAt cs k))
+                        k = (k + 1)
+                    }
+                }
+                row = (row + 1)
+            }
+            r = (r + 1)
+        }
+        rows = (row - 1)
+        if (rows < 0) {
+            rows = 0
+        }
+        this.infer()
+    }
+
+    ; --- the columns, read ------------------------------------------------------
+    fn infer:void () {
+        def nr:[string]
+        roles = nr
+        def nv:[boolean]
+        valueOn = nv
+        def c:int 0
+        while (c < (this.cols())) {
+            def f:ColumnFacts (ChartInference.factsFor(model c 1 rows (itemAt headers c)))
+            push roles f.role
+            push valueOn false
+            c = (c + 1)
+        }
+        catCol = -1
+        agg = "auto"
+        kind = 1
+        suggested = 1
+        title = ""
+        if ((rows == 0) || ((this.cols()) == 0)) {
+            return
+        }
+        def ch:GridChart (this.range())
+        if (ChartInference.planWith(model ch true)) {
+            catCol = ch.catCol
+            def i:int 0
+            while (i < (array_length ch.valueCols)) {
+                set_at valueOn (itemAt ch.valueCols i) true
+                i = (i + 1)
+            }
+            if (ch.agg == "count") {
+                agg = "count"
+            }
+            kind = (PresImport.editorKind(ch.kind))
+            suggested = kind
+            title = ch.title
+        }
+    }
+
+    ; The spreadsheet's kinds are the editor's, apart from the ones the
+    ; editor's table cannot hold.
+    ; A data table's rows per page on a slide.
+    sfn pageRows:int () {
+        return 8
+    }
+
+    sfn editorKind:int (k:int) {
+        if ((k == 13) || ((k == 14) || ((k == 15) || ((k == 19) || (k == 20))))) {
+            return 1
+        }
+        return k
+    }
+
+    ; The kinds offered: the ones a category-and-series table makes.
+    sfn kinds:[int] () {
+        def out:[int]
+        push out 1
+        push out 2
+        push out 3
+        push out 4
+        push out 6
+        push out 7
+        push out 9
+        push out 10
+        push out 11
+        push out 16
+        push out 17
+        return out
+    }
+
+    fn range:GridChart () {
+        def ch (new GridChart())
+        ch.r0 = 0
+        ch.c0 = 0
+        ch.r1 = rows
+        ch.c1 = ((this.cols()) - 1)
+        ch.useHeaderRow = true
+        ch.useHeaderCol = false
+        return ch
+    }
+
+    ; A column that holds numbers can be charted.
+    fn isMeasure:boolean (c:int) {
+        def r:string (itemAt roles c)
+        return ((r == "measure") || (r == "identifier"))
+    }
+
+    fn valueCount:int () {
+        def n:int 0
+        def c:int 0
+        while (c < (array_length valueOn)) {
+            if (itemAt valueOn c) {
+                n = (n + 1)
+            }
+            c = (c + 1)
+        }
+        return n
+    }
+
+    fn toggleValue:void (c:int) {
+        if ((c >= 0) && (c < (array_length valueOn))) {
+            set_at valueOn c ((itemAt valueOn c) == false)
+        }
+    }
+
+    ; --- the chart ----------------------------------------------------------------
+    ; The question as the generator asks it: the category, the measures and
+    ; how rows that share a category combine.
+    fn plan:GridChart () {
+        def ch:GridChart (this.range())
+        ch.catCol = catCol
+        ch.seriesCol = -1
+        def c:int 0
+        while (c < (array_length valueOn)) {
+            if ((itemAt valueOn c) && (c != catCol)) {
+                push ch.valueCols c
+                def f:ColumnFacts (ChartInference.factsFor(model c 1 rows (itemAt headers c)))
+                if (agg == "avg") {
+                    push ch.valueAggs "avg"
+                } {
+                    if ((agg == "auto") && f.rate) {
+                        push ch.valueAggs "avg"
+                    } {
+                        push ch.valueAggs "sum"
+                    }
+                }
+            }
+            c = (c + 1)
+        }
+        ch.agg = "auto"
+        if (agg == "count") {
+            ch.agg = "count"
+        }
+        if (agg == "none") {
+            ch.agg = ""
+        }
+        ch.kind = kind
+        ch.title = title
+        return ch
+    }
+
+    ; The chart editor's table: the categories down the side, a column per
+    ; measure, each cell the combined value. Not ok when nothing can be drawn.
+    fn chartModel:PresChartModel () {
+        def m (new PresChartModel())
+        def ch:GridChart (this.plan())
+        if ((ch.planned()) == false) {
+            m.note = (PresI18n.t("Pick at least one column of numbers."))
+            return m
+        }
+        def data (new ChartData())
+        if ((data.extract(model ch)) == false) {
+            m.note = (PresI18n.t("These columns make no chart."))
+            return m
+        }
+        def catName:string data.catTitle
+        if ((strlen catName) == 0) {
+            if (catCol >= 0) {
+                catName = (itemAt headers catCol)
+            } {
+                catName = (PresI18n.t("Row"))
+            }
+        }
+        push m.header catName
+        def s:int 0
+        while (s < (data.seriesCount())) {
+            push m.header (itemAt data.series s)
+            s = (s + 1)
+        }
+        def ns:int (data.seriesCount())
+        def k:int 0
+        while (k < (data.catCount())) {
+            push m.cells (itemAt data.cats k)
+            def j:int 0
+            while (j < ns) {
+                def at:int ((k * ns) + j)
+                def v:string ""
+                if ((at < (array_length data.filled)) && (itemAt data.filled at)) {
+                    v = (PresImport.number((itemAt data.values at)))
+                }
+                push m.cells v
+                j = (j + 1)
+            }
+            k = (k + 1)
+        }
+        m.kind = kind
+        m.title = title
+        m.valueTitle = data.valueTitle
+        m.seriesTitle = data.seriesTitle
+        m.ok = true
+        return m
+    }
+
+    ; A combined value as a person writes it: no 0.30000000000000004.
+    sfn number:string (v:double) {
+        def r:double ((to_double (floor ((v * 1000000.0) + 0.5))) / 1000000.0)
+        def i:int (to_int r)
+        if ((to_double i) == r) {
+            return (to_string i)
+        }
+        return (to_string r)
+    }
+}

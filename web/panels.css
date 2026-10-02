@@ -144,3 +144,16 @@
 .theme-pn .pf-act { height: 26px; padding: 0 9px; }
 /* the Open dialog's sample decks: a select as wide as its longest title */
 .theme-pn .ui-select-trigger { width: 300px; }
+
+/* the import dialog: the first rows, then what to make of them */
+.pn-grid { display: flex; flex-direction: column; padding: 6px 0px; border: 1px solid #e4e4e7; border-radius: 8px; background-color: #fafafa; }
+.pn-grid-row { display: flex; flex-direction: row; padding: 3px 10px; }
+.pn-ghead { display: flex; flex-direction: row; padding: 3px 10px 6px 10px; border-bottom: 1px solid #e4e4e7; }
+.pn-cell { font-size: 12px; color: #3f3f46; }
+.pn-hcell { font-size: 12px; font-weight: 700; color: #09090b; }
+.pn-gmore { font-size: 11px; color: #a1a1aa; padding: 4px 10px 0px 10px; }
+.pn-choice { display: flex; flex-direction: row; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid #e4e4e7; border-radius: 10px; }
+.pn-ctext { display: flex; flex-direction: column; gap: 2px; width: 440px; }
+.pn-field { display: flex; flex-direction: row; align-items: center; gap: 12px; }
+.pn-flabel { font-size: 12px; font-weight: 700; color: #3f3f46; width: 90px; }
+.pn-chips { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; width: 500px; }

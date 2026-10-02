@@ -32,6 +32,7 @@ Import "../markdown/web/markdown_web.rgr"
 Import "PresSource.rgr"
 Import "PresDiagram.rgr"
 Import "PresChart.rgr"
+Import "PresTable.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGStyleSheet.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -254,11 +255,55 @@ class PresDeck {
         return out
     }
 
+    ; The table a laid-out box draws, if it is one.
+    fn tableOf@(optional):PresTableUse (b:MdBox) {
+        if (b.kind == 3) {
+            def src0:string (trim b.embedSource)
+            def i:int 0
+            while (i < (array_length tables)) {
+                def u:PresTableUse (itemAt tables i)
+                if (u.key == src0) {
+                    def hit@(optional):PresTableUse u
+                    return hit
+                }
+                i = (i + 1)
+            }
+        }
+        def miss@(optional):PresTableUse
+        return miss
+    }
+
+    ; A press on slide i that turned a table's page.
+    fn tablePress:boolean (i:int x:double y:double) {
+        def k:int 0
+        while (k < (array_length tables)) {
+            def u:PresTableUse (itemAt tables k)
+            if (u.slide == i) {
+                def d:int (PresTable.hit(u x y))
+                if (d != 0) {
+                    def p:int (u.page + d)
+                    if ((p >= 0) && (p < (u.pages()))) {
+                        u.page = p
+                    }
+                    return true
+                }
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
     ; A chart as the stage shows it when it has finished, for an export.
     fn chartStill:EVGDisplayList (bi:int) {
         def l:MdLayout (this.layout())
         def b:MdBox (itemAt l.boxes bi)
         def dl (new EVGDisplayList())
+        def tu@(optional):PresTableUse (this.tableOf(b))
+        if (!null? tu) {
+            def tb:PresTableUse (unwrap tu)
+            PresTable.paint(dl tb b.x b.y b.w b.h tb.stillPage false l.style.textColor (this.themeColour("chart" "accent-color")) l)
+            return dl
+        }
         def painter (new MdToEvg())
         painter.paintBox(dl l b 0.0)
         PresChart.dress(dl 0 1000000.0 true (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) b.embedSource (this.chartStyleWords()))
@@ -920,6 +965,10 @@ class PresDeck {
     ; Files the charts read (`"data": {"url": …}`), fetched by the page.
     def dataUrls:[string]
     def dataTexts:[string]
+    ; the ```table fences (PresTable), and the page each was left on, by
+    ; "<path>#<ordinal>"
+    def tables:[PresTableUse]
+    def tablePages:[string:int]
 
     ; Another document: none of the files the last one's charts read.
     fn clearChartData:void () {
@@ -951,10 +1000,25 @@ class PresDeck {
         def doc:MdNode md.edit.doc
         def urls:[string]
         this.wantedIn(doc urls)
+        def ti:int 0
+        while (ti < (array_length tables)) {
+            def tu:PresTableUse (itemAt tables ti)
+            push urls tu.path
+            ti = (ti + 1)
+        }
         def i:int 0
         while (i < (array_length urls)) {
             def u:string (itemAt urls i)
             def have:boolean false
+            ; a table's own key is no file
+            def tk:int 0
+            while (tk < (array_length tables)) {
+                def tu:PresTableUse (itemAt tables tk)
+                if (tu.key == u) {
+                    have = true
+                }
+                tk = (tk + 1)
+            }
             def k:int 0
             while (k < (array_length dataUrls)) {
                 if ((MdVegaRender.bareUrl((itemAt dataUrls k))) == (MdVegaRender.bareUrl(u))) {
@@ -1005,8 +1069,38 @@ class PresDeck {
 
     fn rebuild:void () {
         src.read(text)
+        ; the tables, masked into charts of their own (PresTable)
+        def k0:int 0
+        while (k0 < (array_length tables)) {
+            def was:PresTableUse (itemAt tables k0)
+            set tablePages ((was.path + "#") + (to_string was.ordinal)) was.page
+            k0 = (k0 + 1)
+        }
+        def fresh:[PresTableUse]
+        tables = fresh
+        def masked:string (PresTable.mask(src.masked tables))
+        def urls:[string]
+        def texts:[string]
+        def di:int 0
+        while (di < (array_length dataUrls)) {
+            push urls (itemAt dataUrls di)
+            push texts (itemAt dataTexts di)
+            di = (di + 1)
+        }
+        def tk:int 0
+        while (tk < (array_length tables)) {
+            def u:PresTableUse (itemAt tables tk)
+            def pk:string ((u.path + "#") + (to_string u.ordinal))
+            if (has tablePages pk) {
+                u.page = (unwrap (get tablePages pk))
+            }
+            PresTable.load(u dataUrls dataTexts)
+            push urls u.key
+            push texts (PresTable.spec(u))
+            tk = (tk + 1)
+        }
         def e:MarkdownEdit md.edit
-        e.open(src.masked)
+        e.open(masked)
         e.slideMode = true
         e.sheetGap = (MdToEvg.sheetGap())
         ; a slide with room is set larger (the front matter's `slide-grow`
@@ -1033,8 +1127,8 @@ class PresDeck {
             si = (si + 1)
         }
         ; the files the charts read, as far as the page has fetched them
-        emb.dataUrls = dataUrls
-        emb.dataTexts = dataTexts
+        emb.dataUrls = urls
+        emb.dataTexts = texts
         e.stale = true
         e.ensureLayout()
         this.codeColours(e.layout)
@@ -1530,6 +1624,12 @@ class PresDeck {
                     dia.diagram.paint(out (itemAt span 0) kb.y (itemAt span 1) room (t - dia.start) l.style.textColor paper l)
                 }
             } {
+                def tu@(optional):PresTableUse (this.tableOf(kb))
+                if (!null? tu) {
+                    def tb:PresTableUse (unwrap tu)
+                    tb.slide = i
+                    PresTable.paint(out tb kb.x kb.y kb.w kb.h (? still tb.stillPage tb.page) (showControls && (still == false)) l.style.textColor (this.themeColour("chart" "accent-color")) l)
+                } {
                 def before:int (array_length out.cmds)
                 painter.paintBox(out l kb 0.0)
                 if ((kb.kind == 3) && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(kb.embedKind)))) == "vega")) {
@@ -1537,6 +1637,7 @@ class PresDeck {
                     if still {
                         PresChart.flatten(out before paper)
                     }
+                }
                 }
             }
             while ((array_length groupOfCmd) < (array_length out.cmds)) {

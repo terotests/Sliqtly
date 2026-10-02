@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 import zlib from "node:zlib";
-import { distDir, log } from "./lib.mjs";
+import { distDir, log, ensureRanger } from "./lib.mjs";
 import { build } from "./build.mjs";
 
 const shotsArg = process.argv.find((a) => a.startsWith("--shots="));
@@ -1227,6 +1227,69 @@ try {
   check("PPTX names only faces every machine has", [...faces].every((f) => f === "Arial" || f.startsWith("+")), [...faces].join(", "));
   const n2 = notes.map((k) => pptx.get(k)).join(" ");
   check("the notes are the speaker's words without the cue marks", n2.includes("linkin saanut") && !n2.includes("[[1]]"));
+
+  // A data file dropped on the editor: the import dialog, a chart made from
+  // its columns, and a paged table (a .xlsx through its own bundle).
+  {
+    const pd = await browser.newPage({ viewport: { width: 1400, height: 820 } });
+    const perr = [];
+    pd.on("pageerror", (e) => perr.push(e.message));
+    await pd.goto(url + "?sample=esittely");
+    await pd.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const drop = (name, b64, type) => pd.evaluate(([name, b64, type]) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const dt = new DataTransfer();
+      dt.items.add(new File([bytes], name, { type }));
+      document.querySelector("canvas").dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+    }, [name, b64, type]);
+    const press = (id) => pd.evaluate((id) => {
+      const a = window.__app;
+      a.panelsJson();
+      const walk = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k); if (r) return r; } return null; };
+      const b = walk(a.panels.host.lastPage);
+      if (!b) return false;
+      a.pointerDown(b.calculatedX + 8, b.calculatedY + 8, false, 1);
+      a.pointerUp();
+      return true;
+    }, id);
+    const rows = ["Region,Product,Revenue"];
+    for (let i = 0; i < 20; i++) rows.push(`${["North", "South", "East", "West"][i % 4]},P${i},${100 + i * 10}`);
+    await drop("check-import.csv", Buffer.from(rows.join("\n") + "\n").toString("base64"), "text/csv");
+    await pd.waitForFunction(() => window.__app.shareIsOpen() && window.__app.panels.dialogKind === "data", null, { timeout: 5000 }).catch(() => {});
+    const dlgOpen = await pd.evaluate(() => window.__app.shareIsOpen() && window.__app.panels.dialogKind === "data");
+    await press("pn-d-chart");
+    const plan = await pd.evaluate(() => { const i = window.__app.panels.imp; return { cat: i.catCol, rev: i.valueOn[2] }; });
+    await press("pn-d-make");
+    await pd.waitForTimeout(500);
+    const chart = await pd.evaluate(() => ({ open: window.__app.chartIsOpen(), fence: /```vega-lite[\s\S]*North[\s\S]*1000/.test(window.__app.source()) }));
+    check("a dropped CSV asks what to make; Chart groups Revenue by Region and opens the chart editor", dlgOpen && plan.cat === 0 && plan.rev && chart.open && chart.fence, JSON.stringify({ dlgOpen, plan, chart }));
+    await pd.evaluate(() => { const a = window.__app; a.closeChart(); a.setSource(a.source() + "\n\n## Data table\n\n"); a.mdEditor.moveCaret(a.mdEditor.buf.lineCount() - 1, 0, false); });
+    await drop("check-import.csv", Buffer.from(rows.join("\n") + "\n").toString("base64"), "text/csv");
+    await pd.waitForTimeout(300);
+    await press("pn-d-table");
+    await pd.waitForTimeout(800);
+    const table = await pd.evaluate(() => {
+      const a = window.__app;
+      const u = a.deck.tables[0];
+      if (!u) return { none: true };
+      a.selectSlide(u.slide);
+      const texts = () => JSON.parse(a.stageJson()).list.cmds.filter((c) => c.k === 3).map((c) => c.text);
+      const p1 = texts();
+      const turned = a.deck.tablePress(u.slide, u.nextX + 4, u.prevY + 4);
+      const p2 = texts();
+      return { fence: a.source().includes("```table\ndata/check-import.csv"), pages: u.pages(), p1: p1.includes("P0") && p1.includes("1 / 3"), turned, p2: p2.includes("P8") && !p2.includes("P0") && p2.includes("2 / 3") };
+    });
+    check("Table: a ```table fence, eight rows a page, ‹ › turns the page", table.fence && table.pages === 3 && table.p1 && table.turned && table.p2, JSON.stringify(table));
+    const xlsx = path.join(ensureRanger(), "gallery/datagrid/fixtures/sales.xlsx");
+    if (fs.existsSync(xlsx)) {
+      await drop("check-book.xlsx", fs.readFileSync(xlsx).toString("base64"), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      await pd.waitForFunction(() => window.__app.shareIsOpen() && window.__app.panels.imp.name === "check-book.xlsx", null, { timeout: 15000 }).catch(() => {});
+      const book = await pd.evaluate(() => { const i = window.__app.panels.imp; return { sheets: i.sheetNames.join(","), head: i.headers.join(","), path: i.sheetPaths[0] }; });
+      check("a .xlsx: one CSV per sheet, title rows above the header dropped", book.sheets === "Sales,Summary" && book.head === "Product,Qty,Price,Total" && book.path === "data/check-book-Sales.csv", JSON.stringify(book));
+    }
+    check("no page errors in the data import", perr.length === 0, perr.join(" | "));
+    await pd.close();
+  }
 
   // the interface in another language: ?lang=fi, the canvas bar and the page alike
   const pageFi = await browser.newPage({ viewport: { width: 1200, height: 760 } });

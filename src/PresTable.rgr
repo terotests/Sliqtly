@@ -1,0 +1,528 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresTable.rgr — a data file as a table on a slide, a page at a time
+; ============================================================================
+;
+;   ```table
+;   data/sales.csv
+;   rows: 8
+;   columns: Region, Revenue
+;   page: 1
+;   ```
+;
+; A table of two hundred rows does not belong on twenty slides. It stays on
+; one, a page of `rows` at a time, with ‹ 1/25 › under it to turn the pages
+; while presenting. An export (PDF, PPTX) shows the page the fence names
+; (`page:`, the first by default).
+;
+; The markdown module does not know the fence. Like the `:::` blocks
+; (PresSource), it is masked before the markdown sees it — and masked into a
+; chart: ```vega naming a file of its own (`T1.json`), whose specification is
+; an empty plot the table's size. The layout then gives the table a box of
+; its own, in the flow, with offsets untouched; the deck draws the table in
+; that box instead of the empty plot.
+; ============================================================================
+
+Import "../markdown/src/MdVegaRender.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "PresI18n.rgr"
+
+class PresTableUse {
+    ; the file the fence names, and the name its box is known by
+    def path:string ""
+    def key:string ""
+    ; which table of the document this is (for the page it was left on)
+    def ordinal:int 0
+    def perPage:int 8
+    def page:int 0
+    ; the page the fence asks an export for
+    def stillPage:int 0
+    def want:[string]
+    def header:[string]
+    ; row-major, `header` columns per row
+    def cells:[string]
+    def rows:int 0
+    def numeric:[boolean]
+    def loaded:boolean false
+    ; where it was drawn last, on which slide, and its two page buttons
+    def slide:int -1
+    def prevX:double 0.0
+    def prevY:double 0.0
+    def nextX:double 0.0
+    def btnW:double 0.0
+    def btnH:double 0.0
+
+    Constructor () {
+    }
+
+    fn pages:int () {
+        if ((rows <= 0) || (perPage <= 0)) {
+            return 1
+        }
+        def q:int (to_int ((to_double (rows - 1)) / (to_double perPage)))
+        return (q + 1)
+    }
+
+    fn cell:string (r:int c:int) {
+        def i:int ((r * (array_length header)) + c)
+        if (i < (array_length cells)) {
+            return (itemAt cells i)
+        }
+        return ""
+    }
+}
+
+class PresTable {
+
+    ; --- reading the fence -------------------------------------------------------
+    sfn isOpening:boolean (t:string) {
+        return ((indexOf t "```table") == 0)
+    }
+
+    ; `key: value` (a body line) or `key=value` (an argument on the opening
+    ; line): the option, or "".
+    sfn option:string (line:string) {
+        def t:string (trim line)
+        def c:int (indexOf t ":")
+        def e:int (indexOf t "=")
+        if ((c < 0) || ((e >= 0) && (e < c))) {
+            c = e
+        }
+        if (c <= 0) {
+            return ""
+        }
+        return (MdChar.lower((trim (substring t 0 c))))
+    }
+
+    sfn optionValue:string (line:string) {
+        def t:string (trim line)
+        def c:int (indexOf t ":")
+        def e:int (indexOf t "=")
+        if ((c < 0) || ((e >= 0) && (e < c))) {
+            c = e
+        }
+        return (trim (substring t (c + 1) (strlen t)))
+    }
+
+    sfn applyOption:void (u:PresTableUse line:string) {
+        def k:string (PresTable.option(line))
+        def v:string (PresTable.optionValue(line))
+        if (k == "rows") {
+            def n:int (?? (str2int v) 8)
+            if (n < 1) {
+                n = 1
+            }
+            if (n > 40) {
+                n = 40
+            }
+            u.perPage = n
+        }
+        if (k == "page") {
+            def p:int (?? (str2int v) 1)
+            if (p < 1) {
+                p = 1
+            }
+            u.stillPage = (p - 1)
+        }
+        if (k == "columns") {
+            def none:[string]
+            u.want = none
+            def parts:[string] (strsplit v ",")
+            def i:int 0
+            while (i < (array_length parts)) {
+                def w:string (trim (itemAt parts i))
+                if ((strlen w) > 0) {
+                    push u.want w
+                }
+                i = (i + 1)
+            }
+        }
+    }
+
+    sfn spaces:string (n:int) {
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            out = (out + " ")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The text with every ```table fence turned into a ```vega one naming the
+    ; table's key, the length and the line breaks kept. The tables found are
+    ; pushed onto `uses`.
+    sfn mask:string (text:string uses:[PresTableUse]) {
+        def lines:[string] (strsplit text "\n")
+        def out:string ""
+        def i:int 0
+        def n:int (array_length lines)
+        def inFence:boolean false
+        while (i < n) {
+            def line:string (itemAt lines i)
+            def t:string (trim line)
+            if ((inFence == false) && (PresTable.isOpening(t))) {
+                ; the fence's lines, up to its closing one
+                def close:int -1
+                def j:int (i + 1)
+                while ((j < n) && (close < 0)) {
+                    if ((indexOf (trim (itemAt lines j)) "```") == 0) {
+                        close = j
+                    }
+                    j = (j + 1)
+                }
+                def u (new PresTableUse())
+                u.ordinal = (array_length uses)
+                u.key = ("T" + (to_string ((array_length uses) + 1)) + ".json")
+                def argv:[string] (strsplit (trim (substring t 8 (strlen t))) " ")
+                def a:int 0
+                while (a < (array_length argv)) {
+                    PresTable.applyOption(u (itemAt argv a))
+                    a = (a + 1)
+                }
+                def last:int close
+                if (last < 0) {
+                    last = n
+                }
+                def pathLine:int -1
+                def b:int (i + 1)
+                while (b < last) {
+                    def bt:string (trim (itemAt lines b))
+                    if ((strlen bt) > 0) {
+                        if (((strlen (PresTable.option(bt))) > 0) && ((indexOf bt "/") < 0)) {
+                            PresTable.applyOption(u bt)
+                        } {
+                            if (pathLine < 0) {
+                                pathLine = b
+                                u.path = bt
+                            }
+                        }
+                    }
+                    b = (b + 1)
+                }
+                def lead:int (indexOf line "`")
+                def ok:boolean ((pathLine >= 0) && ((strlen (itemAt lines pathLine)) >= (strlen u.key)))
+                if ((ok == false) || (close < 0)) {
+                    ; not a table yet (no file, or still being typed): as written
+                    inFence = true
+                    out = (out + line)
+                    if (i < (n - 1)) {
+                        out = (out + "\n")
+                    }
+                    i = (i + 1)
+                } {
+                    push uses u
+                    out = ((((out + (substring line 0 lead)) + "```vega") + (PresTable.spaces(((strlen line) - lead) - 7))) + "\n")
+                    def k:int (i + 1)
+                    while (k < close) {
+                        def bl:string (itemAt lines k)
+                        if (k == pathLine) {
+                            out = ((out + u.key) + (PresTable.spaces(((strlen bl) - (strlen u.key)))))
+                        } {
+                            out = (out + (PresTable.spaces((strlen bl))))
+                        }
+                        out = (out + "\n")
+                        k = (k + 1)
+                    }
+                    out = (out + (itemAt lines close))
+                    if (close < (n - 1)) {
+                        out = (out + "\n")
+                    }
+                    i = (close + 1)
+                }
+            } {
+                if ((indexOf t "```") == 0) {
+                    inFence = (! inFence)
+                }
+                out = (out + line)
+                if (i < (n - 1)) {
+                    out = (out + "\n")
+                }
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; --- the rows ----------------------------------------------------------------
+    ; The file's rows (CSV, TSV or JSON, as a chart reads them), the columns
+    ; the fence asked for.
+    sfn load:void (u:PresTableUse urls:[string] texts:[string]) {
+        def none:[string]
+        u.header = none
+        def none2:[string]
+        u.cells = none2
+        def none3:[boolean]
+        u.numeric = none3
+        u.rows = 0
+        u.loaded = false
+        def d:VlJson (VlJson.objectValue())
+        d.setMember("url" (VlJson.stringValue(u.path)))
+        def rows:VlJson (MdVegaRender.fileRows(d urls texts))
+        if ((rows.isArray()) == false) {
+            return
+        }
+        u.loaded = true
+        if ((rows.count()) == 0) {
+            return
+        }
+        def first:VlJson (rows.at(0))
+        if ((first.isObject()) == false) {
+            return
+        }
+        if ((array_length u.want) > 0) {
+            def w:int 0
+            while (w < (array_length u.want)) {
+                def name:string (itemAt u.want w)
+                def low:string (MdChar.lower(name))
+                def k:int 0
+                while (k < (array_length first.keys)) {
+                    def key:string (itemAt first.keys k)
+                    if ((MdChar.lower(key)) == low) {
+                        push u.header key
+                    }
+                    k = (k + 1)
+                }
+                w = (w + 1)
+            }
+        }
+        if ((array_length u.header) == 0) {
+            def k2:int 0
+            while (k2 < (array_length first.keys)) {
+                push u.header (itemAt first.keys k2)
+                k2 = (k2 + 1)
+            }
+        }
+        def nc:int (array_length u.header)
+        def numCount:[int]
+        def c0:int 0
+        while (c0 < nc) {
+            push numCount 0
+            c0 = (c0 + 1)
+        }
+        def r:int 0
+        while (r < (rows.count())) {
+            def row:VlJson (rows.at(r))
+            def c:int 0
+            while (c < nc) {
+                def v:VlJson (row.get((itemAt u.header c)))
+                if (v.isNumber()) {
+                    set_at numCount c ((itemAt numCount c) + 1)
+                }
+                push u.cells (v.asString())
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        u.rows = (rows.count())
+        def c1:int 0
+        while (c1 < nc) {
+            push u.numeric (((itemAt numCount c1) * 2) > u.rows)
+            c1 = (c1 + 1)
+        }
+        if (u.page >= (u.pages())) {
+            u.page = ((u.pages()) - 1)
+        }
+    }
+
+    ; The empty plot the layout makes room with: the table's own proportions.
+    sfn spec:string (u:PresTableUse) {
+        def h:int ((44 + (u.perPage * 34)) + 36)
+        return (("{\"width\":640,\"height\":" + (to_string h)) + ",\"data\":{\"values\":[{\"t\":\"\"}]},\"mark\":\"text\",\"encoding\":{\"text\":{\"field\":\"t\"}},\"config\":{\"view\":{\"stroke\":null},\"axis\":{\"disable\":true}}}")
+    }
+
+    ; --- drawing -------------------------------------------------------------------
+    sfn rect:void (out:EVGDisplayList x:double y:double w:double h:double col:EVGColor a:double) {
+        def c (new EVGDrawCmd())
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = ((col.alpha()) * a)
+        push out.cmds c
+    }
+
+    sfn text:void (out:EVGDisplayList x:double y:double s:string size:double bold:boolean col:EVGColor a:double l:MdLayout) {
+        def tc (new EVGDrawCmd())
+        tc.kind = 3
+        tc.x = x
+        tc.y = y
+        tc.w = (l.measureStyled(s "Open Sans" size bold false))
+        tc.h = size
+        tc.text = s
+        tc.fontFamily = "Open Sans"
+        tc.fontSize = size
+        if bold {
+            tc.fontWeight = "bold"
+        }
+        tc.r = (col.red())
+        tc.g = (col.green())
+        tc.b = (col.blue())
+        tc.a = ((col.alpha()) * a)
+        push out.cmds tc
+    }
+
+    ; `s` cut to fit `w`, with an ellipsis.
+    sfn fit:string (s:string w:double size:double bold:boolean l:MdLayout) {
+        if ((l.measureStyled(s "Open Sans" size bold false)) <= w) {
+            return s
+        }
+        def n:int (strlen s)
+        while (n > 1) {
+            n = (n - 1)
+            def t:string ((substring s 0 n) + "…")
+            if ((l.measureStyled(t "Open Sans" size bold false)) <= w) {
+                return t
+            }
+        }
+        return "…"
+    }
+
+    ; The page `pg` in the box: a header over a rule in the accent, rows on
+    ; faint stripes, numbers to the right; under it the page and, on the
+    ; stage, the buttons that turn it.
+    sfn paint:void (out:EVGDisplayList u:PresTableUse bx:double by:double bw:double bh:double pg:int controls:boolean ink:string accent:string l:MdLayout) {
+        def inkC:EVGColor (EVGColor.parse(ink))
+        def accC:EVGColor (EVGColor.parse(accent))
+        if ((strlen accent) == 0) {
+            accC = inkC
+        }
+        def nc:int (array_length u.header)
+        if (nc == 0) {
+            def msg:string (? u.loaded (PresI18n.t("No rows in")) (PresI18n.t("Loading")))
+            PresTable.text(out bx (by + 8.0) ((msg + " ") + u.path) 16.0 false inkC 0.6 l)
+            return
+        }
+        def pagerH:double 34.0
+        def rowsH:double (bh - pagerH)
+        def rh:double (rowsH / (to_double (u.perPage + 1)))
+        if (rh > 54.0) {
+            rh = 54.0
+        }
+        def size:double (rh * 0.42)
+        if (size > 22.0) {
+            size = 22.0
+        }
+        if (size < 10.0) {
+            size = 10.0
+        }
+        def pad:double (size * 0.7)
+        def first:int (pg * u.perPage)
+        def last:int (first + u.perPage)
+        if (last > u.rows) {
+            last = u.rows
+        }
+        ; the columns share the width as their longest text asks
+        def wants:[double]
+        def total:double 0.0
+        def c:int 0
+        while (c < nc) {
+            def m:double (l.measureStyled((itemAt u.header c) "Open Sans" size true false))
+            def r:int first
+            while (r < last) {
+                def mw:double (l.measureStyled((u.cell(r c)) "Open Sans" size false false))
+                if (mw > m) {
+                    m = mw
+                }
+                r = (r + 1)
+            }
+            m = (m + (pad * 2.0))
+            if (m > (bw * 0.5)) {
+                m = (bw * 0.5)
+            }
+            push wants m
+            total = (total + m)
+            c = (c + 1)
+        }
+        def scale:double 1.0
+        if (total > 0.0) {
+            scale = (bw / total)
+        }
+        ; the header
+        def ty:double (by + ((rh - size) * 0.5))
+        def x:double bx
+        c = 0
+        while (c < nc) {
+            def cw:double ((itemAt wants c) * scale)
+            def h:string (PresTable.fit((itemAt u.header c) (cw - (pad * 2.0)) size true l))
+            def hx:double (x + pad)
+            if (itemAt u.numeric c) {
+                hx = ((x + cw) - (pad + (l.measureStyled(h "Open Sans" size true false))))
+            }
+            PresTable.text(out hx ty h size true inkC 1.0 l)
+            x = (x + cw)
+            c = (c + 1)
+        }
+        PresTable.rect(out bx ((by + rh) - 2.0) bw 2.0 accC 0.9)
+        ; the rows
+        def r2:int first
+        while (r2 < last) {
+            def ry:double (by + (rh * (to_double ((r2 - first) + 1))))
+            if ((((r2 - first) % 2)) == 1) {
+                PresTable.rect(out bx ry bw rh inkC 0.05)
+            }
+            def x2:double bx
+            def c2:int 0
+            while (c2 < nc) {
+                def cw2:double ((itemAt wants c2) * scale)
+                def v:string (PresTable.fit((u.cell(r2 c2)) (cw2 - (pad * 2.0)) size false l))
+                def vx:double (x2 + pad)
+                if (itemAt u.numeric c2) {
+                    vx = ((x2 + cw2) - (pad + (l.measureStyled(v "Open Sans" size false false))))
+                }
+                PresTable.text(out vx (ry + ((rh - size) * 0.5)) v size false inkC 0.88 l)
+                x2 = (x2 + cw2)
+                c2 = (c2 + 1)
+            }
+            r2 = (r2 + 1)
+        }
+        ; the page
+        def pages:int (u.pages())
+        if (pages <= 1) {
+            return
+        }
+        def py:double ((by + (rh * (to_double ((last - first) + 1)))) + 8.0)
+        def ps:double 14.0
+        def label:string (((to_string (pg + 1)) + " / ") + (to_string pages))
+        def lw:double (l.measureStyled(label "Open Sans" ps false false))
+        def bwid:double 30.0
+        def bhgt:double 26.0
+        def right:double (bx + bw)
+        if controls {
+            def nx:double (right - bwid)
+            def lx:double ((nx - 10.0) - lw)
+            def pvx:double ((lx - 10.0) - bwid)
+            PresTable.rect(out pvx py bwid bhgt inkC (? (pg > 0) 0.10 0.04))
+            PresTable.rect(out nx py bwid bhgt inkC (? (pg < (pages - 1)) 0.10 0.04))
+            PresTable.text(out (pvx + 10.0) (py + 4.0) "‹" 16.0 true inkC (? (pg > 0) 0.9 0.3) l)
+            PresTable.text(out (nx + 11.0) (py + 4.0) "›" 16.0 true inkC (? (pg < (pages - 1)) 0.9 0.3) l)
+            PresTable.text(out lx (py + 5.0) label ps false inkC 0.7 l)
+            u.prevX = pvx
+            u.nextX = nx
+            u.prevY = py
+            u.btnW = bwid
+            u.btnH = bhgt
+        } {
+            PresTable.text(out (right - lw) (py + 5.0) label ps false inkC 0.6 l)
+        }
+    }
+
+    ; -1 (‹), 1 (›) or 0: what a press at (x, y) on the slide turned.
+    sfn hit:int (u:PresTableUse x:double y:double) {
+        if ((u.btnW <= 0.0) || ((y < u.prevY) || (y > (u.prevY + u.btnH)))) {
+            return 0
+        }
+        if ((x >= u.prevX) && (x <= (u.prevX + u.btnW))) {
+            return -1
+        }
+        if ((x >= u.nextX) && (x <= (u.nextX + u.btnW))) {
+            return 1
+        }
+        return 0
+    }
+}

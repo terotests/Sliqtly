@@ -347,7 +347,9 @@ async function refreshFiles() {
   }
 }
 
-async function addDocFile(file) {
+// `ask`: a dropped data file opens the import dialog; one added in the files
+// tab is only kept.
+async function addDocFile(file, ask = false) {
   const type = file.type || "";
   if (/\.(md|markdown)$/i.test(file.name)) {
     await saveDoc();
@@ -368,6 +370,7 @@ async function addDocFile(file) {
     await keepFile({ path, type: type || "image/png", size: bytes.byteLength, data: new Blob([bytes], { type }) });
     return;
   }
+  if ((ask || /\.xlsx$/i.test(file.name)) && /\.(csv|json|xlsx)$/i.test(file.name) && (await importData(file, ask))) return;
   const text = await file.text();
   let path = placeFor(file.name, type);
   if (/\.json$/i.test(file.name) && /vega\.github\.io\/schema\/vega/.test(text)) path = "charts/" + file.name;
@@ -375,6 +378,106 @@ async function addDocFile(file) {
   chartFiles.set(path, Promise.resolve(text));
   app.setChartData(path, text);
   dropThumbs();
+}
+
+// --- data files ------------------------------------------------------------------
+// A .csv, .json or .xlsx opens the import dialog (PresImport): a chart, a
+// table or just the file. Nothing is kept until the dialog says which sheet
+// (`data-keep:<i>`). A workbook is read by its own bundle, loaded the first
+// time one arrives.
+let importing = null;
+let presData = null;
+function loadPresData() {
+  if (!presData) {
+    presData = new Promise((ok, bad) => {
+      const s = document.createElement("script");
+      s.src = "./pres_data.js?v=" + BUILD;
+      s.onload = () => ok(globalThis.PresData);
+      s.onerror = () => { presData = null; bad(new Error("pres_data.js did not load")); };
+      document.head.appendChild(s);
+    });
+  }
+  return presData;
+}
+
+// A sheet's CSV as a chart reads it: title rows above the header dropped,
+// and a formula's 59.699999999999996 written as 59.7.
+function tidyCsv(csv) {
+  const lines = csv.split("\n");
+  const filled = (l) => l.split(",").filter((c) => c.trim() !== "").length;
+  let top = 0;
+  while (top < lines.length - 1 && filled(lines[top]) < 2 && lines.slice(top + 1).some((l) => filled(l) >= 2)) top++;
+  return lines.slice(top).join("\n")
+    .replace(/(^|,)(-?\d+\.\d{12,})(?=,|$)/gm, (m, a, n) => a + String(+Number(n).toPrecision(12)));
+}
+
+// JSON rows as CSV: an array of objects, or the first array inside an object.
+function jsonCsv(text) {
+  let j;
+  try { j = JSON.parse(text); } catch { return null; }
+  if (!Array.isArray(j) && j && typeof j === "object") j = Object.values(j).find(Array.isArray);
+  if (!Array.isArray(j) || !j.length || typeof j[0] !== "object" || j[0] === null) return null;
+  const cols = [];
+  for (const row of j.slice(0, 200)) for (const k of Object.keys(row || {})) if (!cols.includes(k)) cols.push(k);
+  const cell = (v) => {
+    const s = v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  return [cols.map(cell).join(","), ...j.map((row) => cols.map((k) => cell(row && row[k])).join(","))].join("\n") + "\n";
+}
+
+// False when the file is not data after all (a Vega-Lite spec, say).
+async function importData(file, ask) {
+  const base = file.name.replace(/\.[^.]+$/, "").replace(/[\\/:*?"<>|]+/g, "-");
+  let sheets;
+  if (/\.xlsx$/i.test(file.name)) {
+    const PresData = await loadPresData();
+    const bytes = await file.arrayBuffer();
+    const r = JSON.parse(PresData.xlsxSheets(asRangerBuffer(bytes.slice(0))));
+    if (r.error) {
+      toast(t("Could not read the workbook: ") + r.error);
+      return true;
+    }
+    const used = r.sheets.filter((sh) => sh.csv.replace(/[,\s]/g, "") !== "");
+    sheets = used.map((sh) => {
+      const csv = tidyCsv(sh.csv);
+      const name = used.length > 1 ? `${base}-${sh.name.replace(/[\\/:*?"<>|\s]+/g, "-")}.csv` : base + ".csv";
+      return { name: sh.name, path: placeFor(name, "text/csv"), csv, text: csv };
+    });
+  } else {
+    const text = await file.text();
+    let csv = text;
+    if (/\.json$/i.test(file.name)) {
+      if (/vega\.github\.io\/schema\/vega/.test(text)) return false;
+      csv = jsonCsv(text);
+      if (csv == null) return false;
+    }
+    sheets = [{ name: file.name, path: placeFor(file.name, file.type || ""), csv, text }];
+  }
+  if (!sheets.length) {
+    toast(t("No rows in this file."));
+    return true;
+  }
+  importing = { sheets };
+  if (!ask) {
+    for (let i = 0; i < sheets.length; i++) await keepData(i);
+    return true;
+  }
+  app.openImport(JSON.stringify({ name: file.name, sheets: sheets.map(({ name, path, csv }) => ({ name, path, csv })) }));
+  needsPaint = true;
+  return true;
+}
+
+async function keepData(i) {
+  const sh = importing && importing.sheets[i];
+  if (!sh) return;
+  await keepFile({ path: sh.path, type: /\.json$/i.test(sh.path) ? "application/json" : "text/csv", size: sh.text.length, data: sh.text });
+  chartFiles.set(sh.path, Promise.resolve(sh.text));
+  app.setChartData(sh.path, sh.text);
+  await saveDoc(true);
+  dropThumbs();
+  refreshFiles();
+  needsPaint = true;
 }
 
 async function fileRequest(r) {
@@ -871,6 +974,8 @@ function handleRequests() {
       keepFile({ path, type: "application/json", size: text.length, data: text }).catch(fail);
       chartFiles.set(path, Promise.resolve(text));
       dropThumbs();
+    } else if (r.startsWith("data-keep:")) {
+      keepData(+r.slice(10)).catch(fail);
     } else if (r.startsWith("file-save:")) {
       saveOpenFile(r.slice(10)).catch(fail);
     } else if (r === "exit-fullscreen") {
@@ -1716,7 +1821,7 @@ canvas.addEventListener("drop", (ev) => {
   const files = ev.dataTransfer ? [...ev.dataTransfer.files] : [];
   for (const f of files) {
     if (/^image\//.test(f.type)) addPictureFile(f).catch(fail);
-    else addDocFile(f).catch(fail);
+    else addDocFile(f, true).catch(fail);
   }
 });
 

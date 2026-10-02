@@ -711,6 +711,10 @@ class PresApp {
             return false
         }
         this.slidePoint(x y)
+        if (deck.tablePress(selected spX spY)) {
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         def code:string (deck.diagramHit(selected (this.stageTime()) spX spY))
         if ((strlen code) == 0) {
             return false
@@ -2679,6 +2683,70 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; A data file dropped or added: {"name", "sheets": [{"name", "path",
+    ; "csv"}]}. The dialog asks what to make of it; the file is kept only
+    ; when something is made (`data-keep:<sheet>` to the page).
+    fn openImport:boolean (json:string) {
+        this.closeHint()
+        def i (new PresImport())
+        if ((i.load(json)) == false) {
+            return false
+        }
+        panels.openData(i)
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    fn dataRequest:void (what:string) {
+        def imp:PresImport panels.imp
+        def path:string (imp.path())
+        push requests ("data-keep:" + (to_string imp.sheet))
+        if (what == "file") {
+            return
+        }
+        this.showTab("md")
+        if (what == "table") {
+            this.insertBlock((((("```table\n" + path) + "\nrows: ") + (to_string (PresImport.pageRows()))) + "\n```\n"))
+            return
+        }
+        def m:PresChartModel (imp.chartModel())
+        def spec:string (m.toSpec())
+        if ((strlen spec) == 0) {
+            return
+        }
+        this.insertBlock((("```vega-lite\n" + spec) + "\n```\n"))
+        ; the caret is under the fence: the editor opens on it
+        this.openChartEditor(((editor.sel.caret.line) - 2))
+    }
+
+    ; A fenced block, on its own lines, at the caret.
+    fn insertBlock:void (text:string) {
+        ; not inside the front matter: at the end of the document instead
+        if (((editor.buf.lineCount()) > 0) && ((trim (editor.buf.lineAt(0))) == "---")) {
+            def fm:int 1
+            def fmEnd:int -1
+            while ((fm < (editor.buf.lineCount())) && (fmEnd < 0)) {
+                if ((trim (editor.buf.lineAt(fm))) == "---") {
+                    fmEnd = fm
+                }
+                fm = (fm + 1)
+            }
+            if (editor.sel.caret.line <= fmEnd) {
+                def lastLine:int ((editor.buf.lineCount()) - 1)
+                editor.moveCaret(lastLine (strlen (editor.buf.lineAt(lastLine))) false)
+            }
+        }
+        def line:string (editor.buf.lineAt(editor.sel.caret.line))
+        def pre:string ""
+        if ((strlen (trim line)) > 0) {
+            editor.handleKey((UIKey.end()) false false)
+            pre = "\n\n"
+        }
+        editor.handleText((pre + text))
+        this.syncEditor()
+        chromeRev = (chromeRev + 1)
+    }
+
     fn closeShare:void () {
         panels.closeShare()
         chromeRev = (chromeRev + 1)
@@ -2717,7 +2785,11 @@ class PresApp {
                     if ((indexOf r "files:") == 0) {
                         this.filesRequest((substring r 6 (strlen r)))
                     } {
+                      if ((indexOf r "data:") == 0) {
+                        this.dataRequest((substring r 5 (strlen r)))
+                      } {
                         push requests r
+                      }
                     }
                 }
             }

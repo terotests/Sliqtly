@@ -23,6 +23,13 @@ export function build({ ranger } = {}) {
   fs.writeFileSync(appJs, "// scoped: the page loads this beside other scripts, so it publishes two names.\n"
     + "(function () {\n" + src + "\n;globalThis.PresApp = PresApp;\nglobalThis.PresI18n = PresI18n;\n})();\n");
 
+  // A dropped .xlsx is read by its own bundle (the workbook reader is large,
+  // and most decks never need it): loaded the first time one arrives.
+  const dataJs = path.join(distDir, "pres_data.js");
+  compile(ranger, "PresData.rgr", dataJs);
+  fs.writeFileSync(dataJs, "// loaded on demand: a .xlsx as CSV, one per sheet.\n"
+    + "(function () {\n" + fs.readFileSync(dataJs, "utf8") + "\n;globalThis.PresData = PresData;\n})();\n");
+
   const copy = (from, to) => {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
@@ -57,7 +64,7 @@ export function build({ ranger } = {}) {
   // Every URL the page loads carries the hash of the build, so a reload
   // never mixes an old script with a new one.
   const h = crypto.createHash("sha1");
-  for (const f of ["pres_app.js", "main.js", "vfs.js", "i18n.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css", "ui.css", "gl/evg-webgl.js", "gl/evg-a11y.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
+  for (const f of ["pres_app.js", "pres_data.js", "main.js", "vfs.js", "i18n.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css", "ui.css", "gl/evg-webgl.js", "gl/evg-a11y.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
   for (const f of fs.readdirSync(path.join(distDir, "themes"))) h.update(fs.readFileSync(path.join(distDir, "themes", f)));
   for (const f of fs.readdirSync(path.join(distDir, "i18n"))) h.update(fs.readFileSync(path.join(distDir, "i18n", f)));
   const stamp = h.digest("hex").slice(0, 10);
@@ -68,6 +75,7 @@ export function build({ ranger } = {}) {
     .replace("./gl/evg-webgl.js", "./gl/evg-webgl.js?v=" + stamp)
     .replace("./gl/evg-a11y.js", "./gl/evg-a11y.js?v=" + stamp)
     .replace('"./i18n.js"', '"./i18n.js?v=' + stamp + '"')
+    .replace('"./pres_data.js"', '"./pres_data.js?v=' + stamp + '"')
     .split("__BUILD__").join(stamp));
   // sliqtly.js shares main.js's i18n module: the same URL, one instance
   const pro = path.join(distDir, "sliqtly.js");

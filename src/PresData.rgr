@@ -1,0 +1,154 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresData.rgr — a spreadsheet dropped on the editor, as the deck's CSV
+; ============================================================================
+;
+; A deck's charts and tables read CSV and JSON files. A .xlsx is turned into
+; one CSV per sheet here, with Ranger's own workbook reader (datagrid's
+; XlsxLoader), so nothing has to be installed and the result is the same
+; file a chart already knows how to read.
+;
+; A cell is written as its value: a number as the number (not "1 234,00 €"),
+; a date as the date its format shows, text as text. The used range is the
+; sheet's own (usedRow / usedCol), so the empty thousand rows a sheet is
+; declared with are not written.
+; ============================================================================
+
+Import "../datagrid/src/xlsx/XlsxLoader.rgr"
+Import "../datagrid/src/XlsxNumberFormat.rgr"
+
+class PresData {
+
+    ; {"error": "...", "sheets": [{"name": "...", "rows": n, "csv": "..."}]}
+    sfn xlsxSheets:string (bytes:buffer) {
+        def book (new WorkbookModel())
+        def loader (new XlsxLoader())
+        if ((loader.loadBytes(bytes book)) == false) {
+            def why:string loader.lastError
+            if ((strlen why) == 0) {
+                why = "could not read the workbook"
+            }
+            return (("{\"error\":" + (PresData.quote(why))) + ",\"sheets\":[]}")
+        }
+        def out:string "{\"error\":\"\",\"sheets\":["
+        def i:int 0
+        while (i < (array_length book.sheets)) {
+            def sh:SpreadsheetModel (itemAt book.sheets i)
+            def rows:int ((sh.usedRow()) + 1)
+            def csv:string (PresData.sheetCsv(sh))
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (((((((out + "{\"name\":") + (PresData.quote(sh.name))) + ",\"rows\":") + (to_string rows)) + ",\"csv\":") + (PresData.quote(csv))) + "}")
+            i = (i + 1)
+        }
+        return (out + "]}")
+    }
+
+    sfn sheetCsv:string (sh:SpreadsheetModel) {
+        def lastR:int (sh.usedRow())
+        def lastC:int (sh.usedCol())
+        def out:string ""
+        def r:int 0
+        while (r <= lastR) {
+            def line:string ""
+            def c:int 0
+            while (c <= lastC) {
+                if (c > 0) {
+                    line = (line + ",")
+                }
+                line = (line + (PresData.csvField((PresData.valueOf(sh r c)))))
+                c = (c + 1)
+            }
+            out = ((out + line) + (strfromcode 10))
+            r = (r + 1)
+        }
+        return out
+    }
+
+    ; the cell's value: a date as its format shows it, anything else raw
+    sfn valueOf:string (sh:SpreadsheetModel r:int c:int) {
+        def raw:string (sh.getCell(r c))
+        if ((strlen raw) == 0) {
+            return ""
+        }
+        def st:CellStyle (sh.getCellStyle(r c))
+        if (XlsxNumberFormat.isDatePattern(st.numFmt)) {
+            return (sh.getDisplay(r c))
+        }
+        return raw
+    }
+
+    sfn csvField:string (v:string) {
+        def needs:boolean false
+        if ((indexOf v ",") >= 0) {
+            needs = true
+        }
+        if ((indexOf v "\"") >= 0) {
+            needs = true
+        }
+        if ((indexOf v (strfromcode 10)) >= 0) {
+            needs = true
+        }
+        if ((indexOf v (strfromcode 13)) >= 0) {
+            needs = true
+        }
+        if (needs == false) {
+            return v
+        }
+        return (("\"" + (PresData.replaceAll(v "\"" "\"\""))) + "\"")
+    }
+
+    sfn replaceAll:string (s:string from:string to:string) {
+        def parts:[string] (strsplit s from)
+        def out:string ""
+        def i:int 0
+        while (i < (array_length parts)) {
+            if (i > 0) {
+                out = (out + to)
+            }
+            out = (out + (itemAt parts i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; a JSON string literal
+    sfn quote:string (s:string) {
+        def out:string "\""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def ch:string (substring s i (i + 1))
+            def code:int (charAt s i)
+            if (ch == "\"") {
+                out = (out + "\\\"")
+            } {
+                if (ch == "\\") {
+                    out = (out + "\\\\")
+                } {
+                    if (code == 10) {
+                        out = (out + "\\n")
+                    } {
+                        if (code == 13) {
+                            out = (out + "\\r")
+                        } {
+                            if (code == 9) {
+                                out = (out + "\\t")
+                            } {
+                                if (code < 32) {
+                                    out = (out + " ")
+                                } {
+                                    out = (out + ch)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "\"")
+    }
+}
