@@ -58,7 +58,9 @@ public `https` URL or base64 data. PNG, JPEG, GIF, WebP and SVG, up to 5 MB.
 
 - Charts: a ```` ```vega-lite ```` fence with a Vega-Lite JSON spec. Bar,
   line, area, point, arc (pie) and more. Use
-  `"background": "rgba(0,0,0,0)"` so the theme shows through. The data is
+  `"background": "rgba(0,0,0,0)"` so the theme shows through. An encoding's
+  `type` is `quantitative`, `ordinal`, `nominal` or `temporal` (never
+  `"point"`: that puts every mark at 0). The data is
   inline `data.values`, or live, read each time the deck opens:
   `"data": {"url": "https://…/x.csv"}` (or `.json`), a Google Sheet
   `{"source": "google-sheets", "id": "<id or link>", "sheet": "Monthly", "range": "A:B"}`

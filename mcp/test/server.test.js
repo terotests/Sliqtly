@@ -169,6 +169,20 @@ test("bind_chart_data points a chart at live data", async () => {
   } finally { await t.close(); }
 });
 
+test("warns about an encoding type Vega-Lite does not know", async () => {
+  const { store } = fakeFirebase();
+  const t = await start(store, rateLimiter());
+  try {
+    const spec = { data: { values: [{ m: "Jan", h: 7.5 }] }, layer: [{ mark: "line", encoding: { x: { field: "m", type: "point" }, y: { field: "h", type: "quantitative" } } }] };
+    const md = "# T\n\n## Wake-up\n\n```vega-lite\n" + JSON.stringify(spec) + "\n```\n";
+    const c = await t.client.callTool({ name: "create_presentation", arguments: { title: "T", markdown: md } });
+    assert.ok(!c.isError, c.content[0].text);
+    assert.match(c.content[0].text, /Note: Chart 1 on "Wake-up": encoding x has type "point"; Vega-Lite types are quantitative, ordinal, nominal and temporal/);
+    const ok = await t.client.callTool({ name: "update_presentation", arguments: { deck_id: c.structuredContent.deck_id, edit_key: c.structuredContent.edit_key, markdown: md.replace('"point"', '"ordinal"') } });
+    assert.deepEqual(ok.structuredContent.warnings, []);
+  } finally { await t.close(); }
+});
+
 test("refuses what it should not fetch or store", async () => {
   const { store } = fakeFirebase();
   const t = await start(store);
