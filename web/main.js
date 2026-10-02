@@ -1378,9 +1378,14 @@ async function openFromShare() {
       editedCss[themeSel.value || ""] = shared.css;
       app.setStyleSheet(shared.css);
     }
+    // the files come from Storage by fetch(), which the bucket must allow
+    // for this origin (storage.cors.json); a picture that does not come is
+    // said, not left out in silence
+    const missing = [];
     for (const f of shared.files || []) {
       try {
         const res = await fetch(f.url);
+        if (!res.ok) throw new Error("HTTP " + res.status);
         const data = isText(f.path, f.type) ? await res.text() : await res.blob();
         const rec = { doc: doc.id, path: f.path, type: f.type, size: f.size, data, updated: Date.now() };
         // the reader's copy keeps them: they are saved with it on its first change
@@ -1388,8 +1393,10 @@ async function openFromShare() {
         await useFile(rec);
       } catch (e) {
         console.warn("shared file not loaded: " + f.path, e);
+        missing.push(f.path);
       }
     }
+    if (missing.length) toast(t("Some pictures or data files of this presentation could not be loaded: ") + missing.join(", "));
     docName = shared.name || "shared";
     app.setSource(shared.md || "");
     dropThumbs();

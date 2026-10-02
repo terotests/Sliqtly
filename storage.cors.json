@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://sliqtly.web.app", "https://sliqtly.firebaseapp.com", "https://sliqtly.com"],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Type"],
+    "maxAgeSeconds": 3600
+  }
+]
