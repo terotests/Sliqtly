@@ -1241,6 +1241,37 @@ try {
     check("a Google Sheet is read as its CSV (tab and range from the fence)", url === "https://docs.google.com/spreadsheets/d/SHEET1/gviz/tq?tqx=out:csv&headers=1&sheet=Monthly&range=A%3AB", url);
     check("live data: drawn on open, fetched again on presenting and on R", first === 3 && onPresent === 5 && onR === 6 && after === 6, JSON.stringify({ first, onPresent, onR, after, asked: asked.length }));
   }
+  // A private sheet: the address answers with Google's sign-in page, the
+  // signed-in owner's Sheets API read (stubbed here) gives the rows, and a
+  // copy is kept with the deck for readers who cannot read the sheet
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const route = (r) => r.fulfill({ status: 200, contentType: "text/html", headers: { "access-control-allow-origin": "*" }, body: "<!doctype html><title>Sign in</title>" });
+    await page.context().route(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    const res = await page.evaluate(async () => {
+      const s = window.sliqtly;
+      const was = { user: s.user, readSheet: s.readSheet };
+      const asked = [];
+      s.user = () => ({ uid: "u1", email: "u@example.com" });
+      s.readSheet = async (url, ask) => { asked.push([url, ask]); return "Kk,Km\nTammi,10\nHelmi,20\nMaalis,30\nHuhti,40\n"; };
+      const a = window.__app;
+      a.setSource("# D\n\n## Km\n\n```vega-lite\n{\"data\": {\"url\": \"https://docs.google.com/spreadsheets/d/PRIV1/edit#gid=0\"}, \"mark\": \"bar\", \"width\": 400, \"encoding\": {\"x\": {\"field\": \"Kk\", \"type\": \"nominal\", \"sort\": null}, \"y\": {\"field\": \"Km\", \"type\": \"quantitative\"}}}\n```\n");
+      for (let i = 0; i < 40 && a.chartDataWanted() !== ""; i += 1) await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 400));
+      a.selectSlide(1);
+      const st = JSON.parse(a.stageJson());
+      const bars = st.list.cmds.filter((c) => c.k === 0 && c.w > 20 && c.h > 20 && c.w < 300).length;
+      const copy = await window.__liveCopy("https://docs.google.com/spreadsheets/d/PRIV1/gviz/tq?tqx=out:csv&headers=1&gid=0");
+      s.user = was.user;
+      s.readSheet = was.readSheet;
+      return { bars, asked, copy: (copy || "").split("\n").length };
+    });
+    await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    check("a private sheet is read as its signed-in owner, without a popup on open", res.bars === 4 && res.asked.length === 1 && res.asked[0][1] === false && /PRIV1\/gviz/.test(res.asked[0][0]), JSON.stringify(res));
+    check("…and a copy is kept with the deck for its readers", res.copy === 6, JSON.stringify(res));
+  }
+
   // A sheet link pasted into the editor: "Link live data", then a chart and a
   // table that read the sheet live
   {
