@@ -793,3 +793,17 @@ func TestBindChartDataPointsAChartAtLiveData(t *testing.T) {
 	}
 	eq(t, f.db.doc("shares/" + id)["md"], stored)
 }
+
+func TestWarnsOfUnknownEncodingTypes(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, testEnv(&f, nil), "")
+	defer s.close()
+	md := "# Day\n\n## Wake-up\n\n```vega-lite\n" +
+		`{"data":{"values":[{"m":"Jan","h":7.5}]},"layer":[{"mark":"line","encoding":{"x":{"field":"m","type":"point"},"y":{"field":"h","type":"quantitative"}}}]}` +
+		"\n```\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Day", "markdown": md})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	match(t, textOf(c), `Note: Chart 1 on "Wake-up": encoding x has type "point"; Vega-Lite types are quantitative, ordinal, nominal and temporal`)
+}

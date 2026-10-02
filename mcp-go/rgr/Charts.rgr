@@ -339,4 +339,55 @@ class Charts {
         b.title = hit.title
         return b
     }
+
+    ; encoding types Vega-Lite does not know ("point" puts every value at 0)
+    sfn badTypes:void (v:MfJ out:[string]) {
+        if (v.isArr()) {
+            for v.arr item:MfJ i {
+                Charts.badTypes(item out)
+            }
+            return
+        }
+        if ((v.isObj()) == false) {
+            return
+        }
+        def enc:MfJ (v.field("encoding"))
+        if (enc.isObj()) {
+            def n:int (array_length enc.ks)
+            def k:int 0
+            while (k < n) {
+                def ch:MfJ (itemAt enc.vs k)
+                def t:MfJ (ch.field("type"))
+                if ((ch.isObj()) && (t.kind == 3)) {
+                    def ok:[string] ([] _:string ("quantitative" "ordinal" "nominal" "temporal" "geojson"))
+                    if ((indexOf ok t.str) < 0) {
+                        push out ("encoding " + (itemAt enc.ks k) + " has type \"" + t.str + "\"")
+                    }
+                }
+                k = (k + 1)
+            }
+        }
+        for ([] _:string ("layer" "concat" "hconcat" "vconcat" "spec")) key:string j {
+            Charts.badTypes((v.field(key)) out)
+        }
+    }
+
+    ; a warning per chart whose spec has an unknown encoding type
+    sfn typeWarnings:[string] (md:string) {
+        def ws:[string]
+        def all:[ChartFence] (Charts.all(md))
+        for all f:ChartFence i {
+            def spec:MfJ (J.parse(f.text))
+            def bad:[string]
+            Charts.badTypes(spec bad)
+            if ((array_length bad) > 0) {
+                def on:string ""
+                if ((strlen f.title) > 0) {
+                    on = (" on \"" + f.title + "\"")
+                }
+                push ws ("Chart " + (i + 1) + on + ": " + (join bad ", ") + "; Vega-Lite types are quantitative, ordinal, nominal and temporal. Points on an axis of an unknown type all fall at 0.")
+            }
+        }
+        return ws
+    }
 }

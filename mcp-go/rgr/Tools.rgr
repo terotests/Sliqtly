@@ -488,6 +488,9 @@ class Tools {
             }
         }
         def c:Checked (Check.deck(md sheet))
+        for (Charts.typeWarnings(md)) tw:string ti {
+            push c.warnings tw
+        }
         if (c.laidOut == false) {
             c.slides = (array_length ((Deck.outline(md)).titles))
         }
