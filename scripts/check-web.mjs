@@ -356,6 +356,14 @@ try {
   await page3.waitForFunction(() => window.__lastDownload !== "", null, { timeout: 180000 }).catch(() => {});
   const pdfGot = await page3.evaluate(() => [window.__lastDownload, document.getElementById("err").textContent]);
   check("the viewer exports a PDF from the … menu", pdfGot[0] === "downloaded", JSON.stringify(pdfGot) + " " + (Date.now() - pdfAt) + " ms");
+  // ?export=… (what the assistant's preview opens): the site downloads it on load, once
+  const page4 = await browser.newPage({ viewport: { width: 1000, height: 640 } });
+  await page4.goto(showUrl.replace(/^https?:\/\/[^/]+/, url.replace(/\/$/, "")) + "&export=md");
+  await page4.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+  await page4.waitForFunction(() => window.__lastDownload !== "", null, { timeout: 30000 }).catch(() => {});
+  const auto = await page4.evaluate(() => ({ dl: window.__lastDownload, hash: /export=/.test(location.hash), viewer: document.body.classList.contains("viewer") }));
+  check("an ?export=md link downloads the shown deck once", auto.dl === "downloaded" && !auto.hash && auto.viewer, JSON.stringify(auto));
+  await page4.close();
   const shownMd = await page3.evaluate(() => window.__app.source());
   await page3.mouse.move(320, 300);
   await page3.click("#vMore");
