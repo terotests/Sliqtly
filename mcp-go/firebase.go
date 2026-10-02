@@ -84,29 +84,31 @@ func (g gcsBucket) Save(ctx context.Context, path, contentType string, data []by
 
 // The Firebase project's Firestore, Storage and Auth, with Application
 // Default Credentials (the Cloud Run service account).
-func connectFirebase(ctx context.Context, projectID, bucket string) (Store, func(context.Context, string) (*IDToken, error), DB, error) {
+func connectFirebase(ctx context.Context, env *Env, projectID, bucket string) error {
 	app, err := firebase.NewApp(ctx, &firebase.Config{ProjectID: projectID, StorageBucket: bucket})
 	if err != nil {
-		return nil, nil, nil, err
+		return err
 	}
 	fs, err := app.Firestore(ctx)
 	if err != nil {
-		return nil, nil, nil, err
+		return err
 	}
 	st, err := app.Storage(ctx)
 	if err != nil {
-		return nil, nil, nil, err
+		return err
 	}
 	b, err := st.Bucket(bucket)
 	if err != nil {
-		return nil, nil, nil, err
+		return err
 	}
 	auth, err := app.Auth(ctx)
 	if err != nil {
-		return nil, nil, nil, err
+		return err
 	}
-	db := firestoreDB{fs}
-	verify := func(ctx context.Context, idToken string) (*IDToken, error) {
+	env.DB = firestoreDB{fs}
+	env.Bucket = gcsBucket{b}
+	env.OAuth = true
+	env.VerifyIDToken = func(ctx context.Context, idToken string) (*IDToken, error) {
 		t, err := auth.VerifyIDToken(ctx, idToken)
 		if err != nil {
 			return nil, err
@@ -115,5 +117,5 @@ func connectFirebase(ctx context.Context, projectID, bucket string) (Store, func
 		email, _ := t.Claims["email"].(string)
 		return &IDToken{UID: t.UID, Name: name, Email: email}, nil
 	}
-	return &FirebaseStore{DB: db, Bucket: gcsBucket{b}}, verify, db, nil
+	return nil
 }

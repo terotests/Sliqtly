@@ -1,13 +1,14 @@
-# Tests the Go prototype of the MCP server (mcp-go/) and checks that its
-# container builds. Deploys nothing.
+# Tests the Go build of the MCP server (mcp-go/: Ranger compiled to Go, and
+# the Go host around it), checks that sliqtly_mcp.go is what rgr/ compiles
+# to, and that the container builds. Deploys nothing.
 name: MCP Go
 
 on:
   pull_request:
-    paths: ["mcp-go/**", "mcp/guide.md", "mcp/src/preview.html", ".github/workflows/mcp-go.yml"]
+    paths: ["mcp-go/**", "scripts/lib.mjs", "presentation.config.json", "mcp/guide.md", "mcp/src/preview.html", ".github/workflows/mcp-go.yml"]
   push:
     branches: [main]
-    paths: ["mcp-go/**", "mcp/guide.md", "mcp/src/preview.html", ".github/workflows/mcp-go.yml"]
+    paths: ["mcp-go/**", "scripts/lib.mjs", "presentation.config.json", "mcp/guide.md", "mcp/src/preview.html", ".github/workflows/mcp-go.yml"]
 
 permissions:
   contents: read
@@ -24,9 +25,15 @@ jobs:
         with:
           go-version-file: mcp-go/go.mod
           cache-dependency-path: mcp-go/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # copies the guide and preview from mcp/, compiles rgr/ with Ranger
       - run: go generate ./...
-      - run: test -z "$(gofmt -l .)"
-      - run: go vet ./...
+      - run: git diff --exit-code -- sliqtly_mcp.go
+      - run: test -z "$(gofmt -l host.go net.go main.go firebase.go server_test.go)"
+      # the generated structs carry json tags on unexported fields
+      - run: go vet -structtag=false ./...
       - run: go test ./...
       - run: docker build -f mcp-go/Dockerfile -t sliqtly-mcp-go .
         working-directory: .
