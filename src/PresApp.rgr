@@ -144,6 +144,9 @@ class PresApp {
     ; The "+" after the last thumbnail: pressed, it offers an empty slide or
     ; a copy of the selected one. `stripAdd` is what the press on it asks
     ; for: "open", "empty", "dup" or "".
+    ; slideLines' answer
+    def linesFrom:int -1
+    def linesAt:int 0
     def addOpen:boolean false
     def stripAdd:string ""
     ; The stage seen closer: how many times the fitted size, and which point
@@ -522,24 +525,19 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
-    ; A new slide after the selected one: a copy of it (`dup`), or an empty
-    ; one with a heading at the selected slide's level, its words selected
-    ; to be typed over. The new slide is selected.
-    fn addSlide:void (dup:boolean) {
-        addOpen = false
-        if (edTab != "md") {
-            this.showTab("md")
-        }
+    ; Slide i's Markdown lines, into `linesFrom` (its first line, -1 when it
+    ; has none) and `linesAt` (the next slide's first line, or the line
+    ; count after the last). A slide the overflow went on to counts from its
+    ; heading's slide, so a slide is always its whole section.
+    fn slideLines:void (i:int) {
         def text:string (mdEditor.text())
         def lc:int (mdEditor.buf.lineCount())
         def n:int (deck.slideCount())
-        ; the selected slide's lines: from its first line up to the next
-        ; slide's (the end, after the last)
-        def from:int -1
-        def at:int lc
-        if ((n > 0) && (selected < n)) {
+        linesFrom = -1
+        linesAt = lc
+        if ((n > 0) && ((i >= 0) && (i < n))) {
             ; a slide the overflow went on to starts on its heading's slide
-            def k:int selected
+            def k:int i
             while (k > 0) {
                 def sk:PresSlide (deck.slideAt(k))
                 def sp:PresSlide (deck.slideAt((k - 1)))
@@ -555,14 +553,14 @@ class PresApp {
             def s:PresSlide (deck.slideAt(k))
             if (s.srcStart >= 0) {
                 this.posOf(text s.srcStart)
-                from = posLine
-                def j:int (selected + 1)
+                linesFrom = posLine
+                def j:int (i + 1)
                 while (j < n) {
                     def sj:PresSlide (deck.slideAt(j))
                     if (sj.srcStart >= 0) {
                         this.posOf(text sj.srcStart)
-                        if ((posLine > from) && ((PresApp.isHeading((mdEditor.buf.lineAt(posLine)))) || (sj.title != s.title))) {
-                            at = posLine
+                        if ((posLine > linesFrom) && ((PresApp.isHeading((mdEditor.buf.lineAt(posLine)))) || (sj.title != s.title))) {
+                            linesAt = posLine
                             break
                         }
                     }
@@ -570,6 +568,24 @@ class PresApp {
                 }
             }
         }
+    }
+
+    ; A new slide after the selected one: a copy of it (`dup`), or an empty
+    ; one with a heading at the selected slide's level, its words selected
+    ; to be typed over. The new slide is selected.
+    fn addSlide:void (dup:boolean) {
+        addOpen = false
+        if (edTab != "md") {
+            this.showTab("md")
+        }
+        def text:string (mdEditor.text())
+        def lc:int (mdEditor.buf.lineCount())
+        def n:int (deck.slideCount())
+        ; the selected slide's lines: from its first line up to the next
+        ; slide's (the end, after the last)
+        this.slideLines(selected)
+        def from:int linesFrom
+        def at:int linesAt
         def level:string "#"
         if (from >= 0) {
             def hl:string (mdEditor.buf.lineAt(from))
@@ -4446,6 +4462,14 @@ class PresApp {
             return false
         }
         this.showTab("md")
+        if (what == "new") {
+            this.addSlide(false)
+            return true
+        }
+        if (what == "duplicate") {
+            this.addSlide(true)
+            return true
+        }
         if (what == "delete") {
             return (this.deleteSlide(selected))
         }
@@ -4456,31 +4480,35 @@ class PresApp {
         return false
     }
 
-    ; The slide's Markdown, its heading to the next slide's heading, taken
+    ; The slide's Markdown (its whole section, as slideLines finds it) taken
     ; out. The last slide of a deck stays: a deck has at least one.
     fn deleteSlide:boolean (i:int) {
         def n:int (deck.slideCount())
         if ((n < 2) || ((i < 0) || (i >= n))) {
             return false
         }
-        def s:PresSlide (deck.slideAt(i))
-        if (s.srcStart < 0) {
+        this.slideLines(i)
+        if (linesFrom < 0) {
             return false
         }
-        def text:string (mdEditor.text())
-        def endAt:int (strlen text)
-        if ((i + 1) < n) {
-            def next:PresSlide (deck.slideAt((i + 1)))
-            if (next.srcStart > s.srcStart) {
-                endAt = next.srcStart
+        def lc:int (mdEditor.buf.lineCount())
+        if (linesAt < lc) {
+            mdEditor.moveCaret(linesFrom 0 false)
+            mdEditor.moveCaret(linesAt 0 true)
+        } {
+            ; the last: from the end of what is above it, so no blank lines
+            ; are left trailing
+            def top:int (linesFrom - 1)
+            while ((top > 0) && ((strlen (trim (mdEditor.buf.lineAt(top)))) == 0)) {
+                top = (top - 1)
             }
+            if (top >= 0) {
+                mdEditor.moveCaret(top (strlen (mdEditor.buf.lineAt(top))) false)
+            } {
+                mdEditor.moveCaret(0 0 false)
+            }
+            mdEditor.moveCaret((lc - 1) (strlen (mdEditor.buf.lineAt((lc - 1)))) true)
         }
-        this.posOf(text s.srcStart)
-        def l0:int posLine
-        def c0:int posCol
-        this.posOf(text endAt)
-        mdEditor.moveCaret(l0 c0 false)
-        mdEditor.moveCaret(posLine posCol true)
         mdEditor.deleteSelection()
         this.syncEditor()
         def to:int i
