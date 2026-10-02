@@ -509,5 +509,10 @@
   "Create New…": "Luo uusi…",
   "A new presentation of your own, based on this one": "Uusi oma esitys tämän pohjalta",
   "Edit this presentation": "Muokkaa tätä esitystä",
-  "Preparing the download…": "Valmistellaan latausta…"
+  "Preparing the download…": "Valmistellaan latausta…",
+  "Link live data": "Linkitä live-data",
+  "The chart or table reads this address each time the presentation opens, so it shows what the sheet has then. Nothing is copied into the presentation.": "Kaavio tai taulukko lukee tämän osoitteen aina, kun esitys avataan, joten se näyttää sen hetkiset tiedot. Esitykseen ei kopioida mitään.",
+  "Just the address": "Pelkkä osoite",
+  "Pasted into the text as it is.": "Liitetään tekstiin sellaisenaan.",
+  "Paste as text": "Liitä tekstinä"
 }

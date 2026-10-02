@@ -1095,6 +1095,43 @@ try {
     check("a Google Sheet is read as its CSV (tab and range from the fence)", url === "https://docs.google.com/spreadsheets/d/SHEET1/gviz/tq?tqx=out:csv&headers=1&sheet=Monthly&range=A%3AB", url);
     check("live data: drawn on open, fetched again on presenting and on R", first === 3 && onPresent === 5 && onR === 6 && after === 6, JSON.stringify({ first, onPresent, onR, after, asked: asked.length }));
   }
+  // A sheet link pasted into the editor: "Link live data", then a chart and a
+  // table that read the sheet live
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const route = (r) => r.fulfill({ status: 200, contentType: "text/csv", headers: { "access-control-allow-origin": "*" }, body: '"Kuukausi","Km"\n"Tammi","120"\n"Helmi","95"\n"Tammi","30"\n"Maalis","140"\n' });
+    await page.context().route(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    const link = "https://docs.google.com/spreadsheets/d/SHEET2/edit?gid=0#gid=0";
+    const res = await page.evaluate(async (link) => {
+      const a = window.__app;
+      a.setSource("# D\n\n## Km\n\n");
+      a.showTab("md");
+      a.editor.moveCaret(4, 0, false);
+      const keys = document.getElementById("keys");
+      keys.focus();
+      const dt = new DataTransfer();
+      dt.setData("text/plain", link);
+      keys.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+      for (let i = 0; i < 50 && !a.shareIsOpen(); i += 1) await new Promise((r) => setTimeout(r, 100));
+      const imp = a.panels.imp;
+      const dialog = { open: a.shareIsOpen(), live: imp && imp.live, rows: imp && imp.rows, pasted: a.source().includes("docs.google.com") };
+      a.panels.requests.push("data:chart");
+      a.takePanels();
+      window.__handleRequests && window.__handleRequests();
+      if (a.chartIsOpen()) a.closeChart();
+      await new Promise((r) => setTimeout(r, 600));
+      const src = a.source();
+      a.selectSlide(1);
+      const st = JSON.parse(a.stageJson());
+      const bars = st.list.cmds.filter((c) => c.k === 0 && c.w > 20 && c.h > 20 && c.w < 300).length;
+      return { dialog, fence: /"url": ?"https:\/\/docs\.google\.com\/spreadsheets\/d\/SHEET2\/edit/.test(src) && /"fold"/.test(src) && !/"values"/.test(src), bars, kept: src.length };
+    }, link);
+    await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    check("a pasted sheet link opens Link live data before anything is pasted", res.dialog.open && res.dialog.live && res.dialog.rows === 4 && !res.dialog.pasted, JSON.stringify(res.dialog));
+    check("…and makes a chart that reads the sheet (no copied values), drawn", res.fence && res.bars === 3, JSON.stringify(res));
+  }
+
 
   // The document's own files (web/vfs.js): a changed deck is kept in the
   // browser, files added in the files tab go with it, a chart can live in a
