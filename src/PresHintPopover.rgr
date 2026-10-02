@@ -565,7 +565,7 @@ class PresHintPopover {
                 def box:EVGElement (unwrap field.rootEl)
                 box.position = "relative"
                 car.position = "absolute"
-                car.left = (EVGUnit.px(((8.0 + (field.caretXAt(eng field.caret))) - field.scrollX)))
+                car.left = (EVGUnit.px(((field.caretXAt(eng field.caret)) - field.scrollX)))
                 car.top = (EVGUnit.px(6.0))
             } {
                 car.width = (EVGUnit.px(0.0))

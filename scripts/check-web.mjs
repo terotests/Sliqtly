@@ -2073,6 +2073,33 @@ try {
     await pc.waitForTimeout(5000);
     check("PRO: a deck changed elsewhere is not written over", fakeDb.get("shares/" + id).md === "# Muualla muutettu\n");
 
+    // the window's Name field: a drag selects and typing replaces it,
+    // Ctrl+A selects all, and the × at its end empties it
+    {
+      await pc.evaluate(() => window.__fileRequest("new"));
+      await pc.waitForTimeout(300);
+      const nameOf = () => pc.evaluate(() => JSON.parse(window.__app.newDeckPlan()).name);
+      await pc.keyboard.type("Myynti 2026");
+      await pc.mouse.move(584, 235);
+      await pc.mouse.down();
+      await pc.mouse.move(610, 235);
+      await pc.mouse.move(628, 235);
+      await pc.mouse.up();
+      await pc.keyboard.type("Tulos");
+      const replaced = await nameOf();
+      await pc.keyboard.press("Control+a");
+      await pc.keyboard.type("Uusi");
+      const all = await nameOf();
+      await pc.mouse.click(832, 235);
+      await pc.waitForTimeout(200);
+      const cleared = await nameOf();
+      await pc.keyboard.type("Z");
+      const after = await nameOf();
+      check("New presentation: a drag in Name selects, Ctrl+A selects all, × clears", replaced.startsWith("Tulos") && replaced.endsWith("2026") && all === "Uusi" && cleared === "" && after === "Z",
+        JSON.stringify({ replaced, all, cleared, after }));
+      await pc.keyboard.press("Escape");
+      await pc.waitForTimeout(300);
+    }
     // File → New presentation asks first: Esc leaves the deck as it is
     const before = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search) };
     await pc.evaluate(() => window.__fileRequest("new"));
