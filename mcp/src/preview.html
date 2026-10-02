@@ -55,43 +55,49 @@
   }
 
   // The slides are Sliqtly's own viewer. Claude does not let a widget frame
-  // another site, but it does let it load scripts and data from the domains
-  // the resource declares (server.js): so the viewer's page is fetched,
-  // pointed back at its site with <base>, and framed from a blob: URL, which
-  // opens the share by #share=… (web/main.js). Where that fails, the share
-  // link is framed directly, which ChatGPT's frame_domains allow.
+  // another site (nor, it turns out, a blob: URL), but it does let it load
+  // scripts and data from the domains the resource declares (server.js): so
+  // the viewer's page is fetched, pointed back at its site with <base>, and
+  // given to an iframe as srcdoc, which needs no navigation. The link's
+  // #share=… / #md=… goes in <meta name="sliqtly-link"> (web/main.js).
+  // Where the page cannot be fetched, ChatGPT frames the link itself.
   let page = null;
-  async function viewerUrl(shareUrl) {
+  async function viewerPage(shareUrl) {
     const u = new URL(shareUrl);
     const id = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(u.pathname);
     // a share, or a link that carries the Markdown itself (#md=…)
     const hash = id ? "#share=" + id[1] : /[#&]md=/.test(u.hash) ? u.hash : null;
     if (!hash) throw new Error("not a presentation link");
     page ??= fetch(u.origin + "/index.html").then((r) => {
-      if (!r.ok) throw new Error("HTTP " + r.status);
+      if (!r.ok) throw new Error("index.html: HTTP " + r.status);
       return r.text();
     });
     let html;
     try { html = await page; } catch (e) { page = null; throw e; }
-    const base = '<base href="' + u.origin + '/" />';
-    html = /<base\b[^>]*>/i.test(html) ? html.replace(/<base\b[^>]*>/i, base) : html.replace(/<head>/i, "<head>" + base);
-    return URL.createObjectURL(new Blob([html], { type: "text/html" })) + hash;
+    const attr = (v) => v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+    const head = '<base href="' + attr(u.origin) + '/" /><meta name="sliqtly-link" content="' + attr(hash) + '" />';
+    html = html.replace(/<base\b[^>]*>/i, "");
+    return html.replace(/<head>/i, "<head>" + head);
   }
 
   let shown = 0;
   function trouble(frame, n) {
-    // the viewer is same-origin when it came from a blob: say so when it
+    // the viewer is the widget's own origin: say where it stopped when it
     // has not started, since the stage alone looks like an empty slide
     setTimeout(() => {
       if (n !== shown) return;
-      let started = true;
-      try { started = !!frame.contentWindow.__pageStarted; } catch (_) { /* not ours to look at */ }
-      if (started) return;
-      fail(frame, "The preview could not load here.");
+      let where = "";
+      try {
+        const w = frame.contentWindow;
+        if (w.__pageStarted) return;
+        const err = w.document.getElementById("err");
+        where = (err && err.textContent.trim()) || (w.document.body && w.document.body.className ? "viewer: " + w.document.body.className : "viewer did not run");
+      } catch (e) { return; /* not ours to look at */ }
+      fail(document.querySelector(".stage"), "The preview could not load here (" + where.slice(0, 200) + ").");
     }, 25000);
   }
-  // in place of the stage or the frame: what went wrong, and the way out
-  function fail(el, text) {
+  // in place of the stage: what went wrong, and the way out
+  function fail(stage, text) {
     const note = document.createElement("div");
     note.className = "wait";
     note.append(text + " ");
@@ -100,8 +106,7 @@
     b.textContent = "Open the presentation ↗";
     b.onclick = () => deck && openLink(deck.share_url);
     note.append(b);
-    if (el.classList.contains("stage")) el.replaceChildren(note);
-    else el.replaceWith(note);
+    stage.replaceChildren(note);
   }
 
   async function show(out) {
@@ -115,14 +120,16 @@
     let src = out.share_url;
     let local = false;
     let why = "";
-    try { src = await viewerUrl(out.share_url); local = true; } catch (e) { why = String((e && e.message) || e); console.warn("Sliqtly preview: framing the link", e); }
+    let doc = null;
+    try { doc = await viewerPage(out.share_url); local = true; } catch (e) { why = String((e && e.message) || e); console.warn("Sliqtly preview: framing the link", e); }
     if (n !== shown) return;
     const stage = document.querySelector(".stage");
     // Claude frames no other site, so there the link is no way out
     if (!local && mcpApps) return fail(stage, "The preview could not load the viewer (" + why + ").");
     stage.innerHTML = '<div class="wait">Loading the slides…</div>';
     const frame = document.createElement("iframe");
-    frame.src = src;
+    if (local) frame.srcdoc = doc;
+    else frame.src = src;
     frame.title = out.title || "Presentation";
     frame.allow = "fullscreen; clipboard-write";
     frame.allowFullscreen = true;
