@@ -89,7 +89,7 @@ class Mcp {
         }
         if (method == "tools/list") {
             def tl:MfJ (MfJ.newObj())
-            tl.put("tools" (Tools.list()))
+            tl.put("tools" (Tools.list(host)))
             return (Mcp.ok(id tl))
         }
         if (method == "tools/call") {
@@ -102,7 +102,7 @@ class Mcp {
         }
         if (method == "resources/list") {
             def rl:MfJ (MfJ.newObj())
-            rl.put("resources" (Tools.resources((host_base_url host))))
+            rl.put("resources" (Tools.resources(host (host_base_url host))))
             return (Mcp.ok(id rl))
         }
         if (method == "resources/templates/list") {

@@ -25,8 +25,11 @@ class Caller {
 }
 
 class Tools {
-    sfn PREVIEW_URI:string () {
-        return "ui://sliqtly/preview.html"
+    ; named by its contents, as in mcp/: a client that kept an older preview
+    ; by its URI asks for this one anew
+    sfn previewUri:string (host:McpHost) {
+        def h:string (host_sha256_hex host (host_asset host "preview.html"))
+        return ("ui://sliqtly/preview-" + (substring h 0 10) + ".html")
     }
     sfn APP_MIME:string () {
         return "text/html;profile=mcp-app"
@@ -61,14 +64,14 @@ class Tools {
         return o
     }
 
-    sfn uiMeta:MfJ () {
+    sfn uiMeta:MfJ (host:McpHost) {
         def m:MfJ (MfJ.newObj())
         m.put("securitySchemes" (Tools.either()))
         def ui:MfJ (MfJ.newObj())
-        ui.putStr("resourceUri" (Tools.PREVIEW_URI()))
+        ui.putStr("resourceUri" (Tools.previewUri(host)))
         m.put("ui" ui)
-        m.putStr("ui/resourceUri" (Tools.PREVIEW_URI()))
-        m.putStr("openai/outputTemplate" (Tools.PREVIEW_URI()))
+        m.putStr("ui/resourceUri" (Tools.previewUri(host)))
+        m.putStr("openai/outputTemplate" (Tools.previewUri(host)))
         m.putBool("openai/widgetAccessible" false)
         return m
     }
@@ -145,7 +148,7 @@ class Tools {
         return t
     }
 
-    sfn list:MfJ () {
+    sfn list:MfJ (host:McpHost) {
         def none:[string]
         def eitherMeta:MfJ (MfJ.newObj())
         eitherMeta.put("securitySchemes" (Tools.either()))
@@ -158,7 +161,7 @@ class Tools {
         cp.put("title" title)
         cp.put("markdown" (Tools.prop("string" "The whole deck as Sliqtly Markdown")))
         Tools.deckFields(cp)
-        tools.add((Tools.tool("create_presentation" "Create a presentation" "Create a Sliqtly slide presentation from Markdown (# title slide, ## per slide), an optional theme, extra CSS and pictures. Returns a link that opens the presentation and a link to edit a copy in the Sliqtly editor." (Tools.schema(cp ([] _:string ("title" "markdown")))) (Tools.annotations(false 0 false true)) (Tools.uiMeta()))))
+        tools.add((Tools.tool("create_presentation" "Create a presentation" "Create a Sliqtly slide presentation from Markdown (# title slide, ## per slide), an optional theme, extra CSS and pictures. Returns a link that opens the presentation and a link to edit a copy in the Sliqtly editor." (Tools.schema(cp ([] _:string ("title" "markdown")))) (Tools.annotations(false 0 false true)) (Tools.uiMeta(host)))))
 
         def up:MfJ (MfJ.newObj())
         up.put("deck_id" (Tools.prop("string" "deck_id from create_presentation")))
@@ -168,7 +171,7 @@ class Tools {
         up.put("title" title2)
         up.put("markdown" (Tools.prop("string" "The whole deck as Sliqtly Markdown")))
         Tools.deckFields(up)
-        tools.add((Tools.tool("update_presentation" "Update a presentation" "Change a presentation made with create_presentation, keeping its link. Send only what changes: markdown replaces the whole text; images are added (or replace pictures of the same name)." (Tools.schema(up ([] _:string ("deck_id")))) (Tools.annotations(false 1 true true)) (Tools.uiMeta()))))
+        tools.add((Tools.tool("update_presentation" "Update a presentation" "Change a presentation made with create_presentation, keeping its link. Send only what changes: markdown replaces the whole text; images are added (or replace pictures of the same name)." (Tools.schema(up ([] _:string ("deck_id")))) (Tools.annotations(false 1 true true)) (Tools.uiMeta(host)))))
 
         def gp:MfJ (MfJ.newObj())
         gp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
@@ -208,9 +211,9 @@ class Tools {
         return ui
     }
 
-    sfn resources:MfJ (base:string) {
+    sfn resources:MfJ (host:McpHost base:string) {
         def r:MfJ (MfJ.newObj())
-        r.putStr("uri" (Tools.PREVIEW_URI()))
+        r.putStr("uri" (Tools.previewUri(host)))
         r.putStr("name" "preview")
         r.putStr("title" "Sliqtly presentation")
         r.putStr("description" "Shows the presentation inline")
@@ -225,7 +228,7 @@ class Tools {
 
     ; the contents of a resource, or a null value for an unknown uri
     sfn read:MfJ (host:McpHost uri:string) {
-        if (uri != (Tools.PREVIEW_URI())) {
+        if (uri != (Tools.previewUri(host))) {
             return (new MfJ)
         }
         def base:string (host_base_url host)
@@ -274,7 +277,7 @@ class Tools {
         out.putStr("edit_url" (base + "/s/" + id + "?edit"))
     }
 
-    sfn result:MfJ (caller:Caller out:MfJ verb:string) {
+    sfn result:MfJ (host:McpHost caller:Caller out:MfJ verb:string) {
         def lines:[string]
         push lines (verb + ": \"" + (out.str_("title")) + "\" (" + (out.str_("slides")) + " slides, theme " + (out.str_("theme")) + ").")
         push lines ("Presentation: " + (out.str_("share_url")))
@@ -299,7 +302,7 @@ class Tools {
         def r:MfJ (MfJ.newObj())
         r.put("content" (Tools.text((join lines "\n"))))
         r.put("structuredContent" out)
-        r.put("_meta" (Tools.uiMeta()))
+        r.put("_meta" (Tools.uiMeta(host)))
         return r
     }
 
@@ -508,7 +511,7 @@ class Tools {
             }
             out.putStr("share_url" (base + "/#" + q + "&mode=show"))
             out.putStr("edit_url" (base + "/#" + q))
-            return (Tools.result(caller out "Created"))
+            return (Tools.result(host caller out "Created"))
         }
         out.put("warnings" (J.strs(ws)))
         def owner:string "mcp"
@@ -522,7 +525,7 @@ class Tools {
         Tools.links(out base made.id)
         out.putStr("deck_id" made.id)
         out.putStr("edit_key" made.key)
-        return (Tools.result(caller out "Created"))
+        return (Tools.result(host caller out "Created"))
     }
 
     sfn update:MfJ (host:McpHost caller:Caller a:MfJ) {
@@ -629,7 +632,7 @@ class Tools {
         out.put("warnings" (J.strs(ws)))
         Tools.links(out (host_base_url host) id)
         out.putStr("deck_id" id)
-        return (Tools.result(caller out "Updated"))
+        return (Tools.result(host caller out "Updated"))
     }
 
     sfn get:MfJ (host:McpHost caller:Caller a:MfJ) {

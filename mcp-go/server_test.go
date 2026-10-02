@@ -290,11 +290,12 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 	}
 	sort.Strings(names)
 	eq(t, names, []string{"create_presentation", "get_presentation", "list_presentations", "sliqtly_guide", "update_presentation"})
-	eq(t, create.Meta["ui"].(map[string]any)["resourceUri"], "ui://sliqtly/preview.html")
-	eq(t, create.Meta["openai/outputTemplate"], "ui://sliqtly/preview.html")
+	uri, _ := create.Meta["ui"].(map[string]any)["resourceUri"].(string)
+	match(t, uri, `^ui://sliqtly/preview-[0-9a-f]{10}\.html$`)
+	eq(t, create.Meta["openai/outputTemplate"], uri)
 	schema, _ := json.Marshal(create.InputSchema)
 	match(t, string(schema), `"enum":\[[^\]]*"editorial"`)
-	r, err := s.session.ReadResource(ctx, &mcp.ReadResourceParams{URI: "ui://sliqtly/preview.html"})
+	r, err := s.session.ReadResource(ctx, &mcp.ReadResourceParams{URI: uri})
 	if err != nil {
 		t.Fatal(err)
 	}

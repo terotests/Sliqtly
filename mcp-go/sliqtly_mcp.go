@@ -1966,8 +1966,9 @@ func CreateNew_Tools() *Tools {
   me := new(Tools)
   return me;
 }
-func Tools_static_PREVIEW_URI() string {
-  return "ui://sliqtly/preview.html"
+func Tools_static_previewUri(host *McpHost) string {
+  var h string= host.SHA256Hex(host.Asset("preview.html"));
+  return ("ui://sliqtly/preview-" + h[int64(0):int64(10)]) + ".html"
 }
 func Tools_static_APP_MIME() string {
   return "text/html;profile=mcp-app"
@@ -1997,14 +1998,14 @@ func Tools_static_oauthScheme() *MfJ {
   o.put("scopes", J_static_strs([]string {"decks"}));
   return o
 }
-func Tools_static_uiMeta() *MfJ {
+func Tools_static_uiMeta(host *McpHost) *MfJ {
   var m *MfJ= MfJ_static_newObj();
   m.put("securitySchemes", Tools_static_either());
   var ui *MfJ= MfJ_static_newObj();
-  ui.putStr("resourceUri", Tools_static_PREVIEW_URI());
+  ui.putStr("resourceUri", Tools_static_previewUri(host));
   m.put("ui", ui);
-  m.putStr("ui/resourceUri", Tools_static_PREVIEW_URI());
-  m.putStr("openai/outputTemplate", Tools_static_PREVIEW_URI());
+  m.putStr("ui/resourceUri", Tools_static_previewUri(host));
+  m.putStr("openai/outputTemplate", Tools_static_previewUri(host));
   m.putBool("openai/widgetAccessible", false);
   return m
 }
@@ -2073,7 +2074,7 @@ func Tools_static_tool(name string, title string, desc string, schema *MfJ, ann 
   t.put("_meta", meta);
   return t
 }
-func Tools_static_list() *MfJ {
+func Tools_static_list(host *McpHost) *MfJ {
   var none []string = make([]string, 0);
   var eitherMeta *MfJ= MfJ_static_newObj();
   eitherMeta.put("securitySchemes", Tools_static_either());
@@ -2098,7 +2099,7 @@ func Tools_static_list() *MfJ {
     "Create a Sliqtly slide presentation from Markdown (# title slide, ## per slide), an optional theme, extra CSS and pictures. Returns a link that opens the presentation and a link to edit a copy in the Sliqtly editor.",
     Tools_static_schema(cp, []string {"title", "markdown"}),
     Tools_static_annotations(false, int64(0), false, true),
-    Tools_static_uiMeta(),
+    Tools_static_uiMeta(host),
   ));
   var up *MfJ= MfJ_static_newObj();
   up.put("deck_id", Tools_static_prop("string", "deck_id from create_presentation"));
@@ -2114,7 +2115,7 @@ func Tools_static_list() *MfJ {
     "Change a presentation made with create_presentation, keeping its link. Send only what changes: markdown replaces the whole text; images are added (or replace pictures of the same name).",
     Tools_static_schema(up, []string {"deck_id"}),
     Tools_static_annotations(false, int64(1), true, true),
-    Tools_static_uiMeta(),
+    Tools_static_uiMeta(host),
   ));
   var gp *MfJ= MfJ_static_newObj();
   gp.put("deck_id", Tools_static_prop("string", "The id in the share link /s/<id>"));
@@ -2159,9 +2160,9 @@ func Tools_static_uiCsp(base string) *MfJ {
   ui.putBool("prefersBorder", false);
   return ui
 }
-func Tools_static_resources(base string) *MfJ {
+func Tools_static_resources(host *McpHost, base string) *MfJ {
   var r *MfJ= MfJ_static_newObj();
-  r.putStr("uri", Tools_static_PREVIEW_URI());
+  r.putStr("uri", Tools_static_previewUri(host));
   r.putStr("name", "preview");
   r.putStr("title", "Sliqtly presentation");
   r.putStr("description", "Shows the presentation inline");
@@ -2174,7 +2175,7 @@ func Tools_static_resources(base string) *MfJ {
   return a
 }
 func Tools_static_read(host *McpHost, uri string) *MfJ {
-  if  uri != Tools_static_PREVIEW_URI() {
+  if  uri != Tools_static_previewUri(host) {
     return CreateNew_MfJ()
   }
   var base string= host.BaseURL();
@@ -2217,7 +2218,7 @@ func Tools_static_links(out *MfJ, base string, id string) () {
   out.putStr("share_url", (base + "/s/") + id);
   out.putStr("edit_url", ((base + "/s/") + id) + "?edit");
 }
-func Tools_static_result(caller *Caller, out *MfJ, verb string) *MfJ {
+func Tools_static_result(host *McpHost, caller *Caller, out *MfJ, verb string) *MfJ {
   var lines []string = make([]string, 0);
   lines = append(lines,((((((verb + ": \"") + out.str_("title")) + "\" (") + out.str_("slides")) + " slides, theme ") + out.str_("theme")) + ")."); 
   lines = append(lines,"Presentation: " + out.str_("share_url")); 
@@ -2244,7 +2245,7 @@ func Tools_static_result(caller *Caller, out *MfJ, verb string) *MfJ {
   var r *MfJ= MfJ_static_newObj();
   r.put("content", Tools_static_text(strings.Join(lines, "\n")));
   r.put("structuredContent", out);
-  r.put("_meta", Tools_static_uiMeta());
+  r.put("_meta", Tools_static_uiMeta(host));
   return r
 }
 func Tools_static_checkArgs(a *MfJ, required []string) string {
@@ -2444,7 +2445,7 @@ func Tools_static_create(host *McpHost, caller *Caller, a *MfJ) *MfJ {
     }
     out.putStr("share_url", ((base + "/#") + q) + "&mode=show");
     out.putStr("edit_url", (base + "/#") + q);
-    return Tools_static_result(caller, out, "Created")
+    return Tools_static_result(host, caller, out, "Created")
   }
   out.put("warnings", J_static_strs(ws));
   var owner string= "mcp";
@@ -2467,7 +2468,7 @@ func Tools_static_create(host *McpHost, caller *Caller, a *MfJ) *MfJ {
   Tools_static_links(out, base, made.id);
   out.putStr("deck_id", made.id);
   out.putStr("edit_key", made.key);
-  return Tools_static_result(caller, out, "Created")
+  return Tools_static_result(host, caller, out, "Created")
 }
 func Tools_static_update(host *McpHost, caller *Caller, a *MfJ) *MfJ {
   if  host.StoreKind() == "link" {
@@ -2577,7 +2578,7 @@ func Tools_static_update(host *McpHost, caller *Caller, a *MfJ) *MfJ {
   out.put("warnings", J_static_strs(ws));
   Tools_static_links(out, host.BaseURL(), id);
   out.putStr("deck_id", id);
-  return Tools_static_result(caller, out, "Updated")
+  return Tools_static_result(host, caller, out, "Updated")
 }
 func Tools_static_get(host *McpHost, caller *Caller, a *MfJ) *MfJ {
   if  host.StoreKind() == "link" {
@@ -2800,7 +2801,7 @@ func Mcp_static_handle(host *McpHost, caller *Caller, msg *MfJ) *MfJ {
   }
   if  method == "tools/list" {
     var tl *MfJ= MfJ_static_newObj();
-    tl.put("tools", Tools_static_list());
+    tl.put("tools", Tools_static_list(host));
     return Mcp_static_ok(id, tl)
   }
   if  method == "tools/call" {
@@ -2817,7 +2818,7 @@ func Mcp_static_handle(host *McpHost, caller *Caller, msg *MfJ) *MfJ {
   }
   if  method == "resources/list" {
     var rl *MfJ= MfJ_static_newObj();
-    rl.put("resources", Tools_static_resources(host.BaseURL()));
+    rl.put("resources", Tools_static_resources(host, host.BaseURL()));
     return Mcp_static_ok(id, rl)
   }
   if  method == "resources/templates/list" {
