@@ -136,6 +136,15 @@ try {
     const right = l4.stage[0] + l4.stage[2] * pageW;
     check("a small zoom still covers the stage's edges", l4.stage[2] > l.stage[2] * 1.1 && l4.stage[0] <= l4.clip[0] + 0.5 && right >= l4.clip[0] + l4.clip[2] - 0.5,
       `${l4.stage[0].toFixed(1)}..${right.toFixed(1)} vs ${l4.clip[0]}..${l4.clip[0] + l4.clip[2]}, scale ${(l4.stage[2] / l.stage[2]).toFixed(2)}`);
+    // the slide is drawn at the scale the clip was worked out from (a scale
+    // rounded to 0.01 drew it short of the stage's edge, a stripe that
+    // flickered as the zoom changed)
+    const meet = await phone.evaluate(() => {
+      const L = JSON.parse(window.__app.layoutJson());
+      const c = JSON.parse(window.__app.stageJson()).list.cmds[0];
+      return [L.stage[0] + (c.x + c.w) * L.stage[2], L.clip[0] + L.clip[2]];
+    });
+    check("the zoomed slide's clip meets the stage's edge", Math.abs(meet[0] - meet[1]) < 0.05, `${meet[0].toFixed(3)} vs ${meet[1]}`);
     await ctx.close();
   }
 
