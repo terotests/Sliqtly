@@ -590,5 +590,11 @@
   "Q3": "Q3",
   "Q4": "Q4",
   "quarter": "neljännes",
-  "sales": "myynti"
+  "sales": "myynti",
+  "New slide": "Uusi dia",
+  "Duplicate slide": "Monista dia",
+  "Delete slide": "Poista dia",
+  "Orientation": "Suunta",
+  "Landscape": "Vaaka",
+  "Portrait": "Pysty"
 }
