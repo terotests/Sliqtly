@@ -294,6 +294,9 @@ function beginDoc(text) {
   chartFilesRev = -1;
   liveFromShare = false;
   liveNoted = false;
+  liveCopies.clear();
+  copyNoted = false;
+  privateNoted = false;
   app.clearChartData();
   showLiveButton();
   if (app.openFilePath()) app.closeFile();
@@ -377,6 +380,7 @@ async function useFile(f) {
     app.addImage("/" + f.path, asRangerBuffer(bytes.slice(0)), f.type || "image/png", w, h);
     await registerPicture("/" + f.path, bytes, f.type || "image/png");
   } else if (typeof f.data === "string") {
+    if (f.path.startsWith("data/live/")) liveCopies.set(f.path, f.data);
     chartFiles.set(f.path, Promise.resolve(f.data));
     app.setChartData(f.path, f.data);
   }
@@ -613,9 +617,10 @@ async function linkData(link) {
   const url = app.liveUrl(link);
   let text;
   try {
-    text = await fetchLive(url);
-  } catch (_) {
-    liveFailed(url);
+    text = await readLive(url, true);
+  } catch (e) {
+    if (e?.code === "auth/popup-blocked") toast(t("The browser blocked Google's sign-in window: allow pop-ups for this site and paste the link again."));
+    else if (e?.code !== "auth/popup-closed-by-user" && e?.code !== "auth/cancelled-popup-request") liveFailed(url);
     return;
   }
   let csv = text;
@@ -1058,9 +1063,74 @@ async function fetchLive(url) {
   if (/^\s*</.test(text) && !/\.(xml|svg)(\?|$)/i.test(url)) throw new Error("html");
   return text;
 }
+// A live source's data: fetched as it is; a Google Sheet that is not shared by
+// link, through the Sheets API as the signed-in owner (sliqtly.js readSheet;
+// `ask`: a press or a paste, which may open Google's popup and Picker).
+// Each good read is kept with the deck under data/live/ (only when it
+// changed), and that copy is what shows when the source cannot be read:
+// a reader of a shared deck, who may not read the owner's sheet, sees the
+// copy the owner's editor last kept.
+const isSheet = (url) => /^https:\/\/docs\.google\.com\/spreadsheets\/d\//.test(url);
+const liveCopies = new Map();
+let copyNoted = false;
+let privateNoted = false;
+function copyPath(url) {
+  let h = 2166136261;
+  for (let i = 0; i < url.length; i++) h = Math.imul(h ^ url.charCodeAt(i), 16777619) >>> 0;
+  return "data/live/" + h.toString(36) + ".csv";
+}
+async function keepLiveCopy(url, text) {
+  if (viewer) return;
+  const path = copyPath(url);
+  if (liveCopies.get(path) === text) return;
+  liveCopies.set(path, text);
+  const have = (await docFiles()).find((f) => f.path === path);
+  if (have && have.data === text) return;
+  await keepFile({ path, type: "text/csv", size: text.length, data: text });
+}
+async function liveCopy(url) {
+  const path = copyPath(url);
+  if (liveCopies.has(path)) return liveCopies.get(path);
+  const have = (await docFiles()).find((f) => f.path === path);
+  return have && typeof have.data === "string" ? have.data : null;
+}
+async function readLive(url, ask) {
+  let text = null;
+  let why = null;
+  try {
+    text = await fetchLive(url);
+  } catch (e) {
+    why = e;
+  }
+  if (text == null && isSheet(url) && window.sliqtly?.user?.()) {
+    try {
+      text = await window.sliqtly.readSheet(url, ask);
+    } catch (e) {
+      why = e;
+    }
+  }
+  if (text != null) {
+    keepLiveCopy(url, text).catch(fail);
+    return text;
+  }
+  const copy = await liveCopy(url);
+  if (copy != null) {
+    if (isSheet(url) && why?.code === "auth" && !privateNoted && !viewer) {
+      privateNoted = true;
+      toast(t("A private Google Sheet: the saved copy is shown. Press R while presenting to sign in to Google and read it again."));
+    } else if (!copyNoted && !(isSheet(url) && why?.code === "auth")) {
+      copyNoted = true;
+      toast(t("The data source could not be read: the saved copy is shown."));
+    }
+    return copy;
+  }
+  throw why || new Error("unreadable");
+}
+// for scripts/check-web.mjs: the copy kept of a live source
+window.__liveCopy = (url) => liveCopy(url);
 function liveFailed(url) {
   toast(/docs\.google\.com\/spreadsheets/.test(url)
-    ? t("Could not read the Google Sheet. Share it as \"Anyone with the link\": ") + url
+    ? (window.sliqtly?.user?.() ? t("Could not read the Google Sheet. Paste its link again to pick it in Google's file picker, or share it as \"Anyone with the link\": ") : t("Could not read the Google Sheet. Share it as \"Anyone with the link\": ")) + url
     : t("Could not load the chart file: ") + url);
 }
 function showLiveButton() {
@@ -1075,7 +1145,7 @@ function refreshLiveData() {
     let failed = 0;
     await Promise.all(urls.map(async (url) => {
       try {
-        const text = await fetchLive(url);
+        const text = await readLive(url, true);
         chartFiles.set(url, Promise.resolve(text));
         app.setChartData(url, text);
       } catch (_) {
@@ -1104,7 +1174,7 @@ function fetchChartFiles(rev) {
         }
         continue;
       }
-      const got = fetchLive(url).catch(() => null);
+      const got = readLive(url, false).catch(() => null);
       chartFiles.set(url, got);
       showLiveButton();
       got.then((text) => {
