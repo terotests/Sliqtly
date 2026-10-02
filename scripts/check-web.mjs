@@ -1552,6 +1552,25 @@ try {
   const faces = new Set();
   for (const [k, v] of pptx) if (k.endsWith(".xml")) for (const m of v.matchAll(/typeface="([^"]+)"/g)) if (m[1]) faces.add(m[1]);
   check("PPTX names only faces every machine has", [...faces].every((f) => f === "Arial" || f.startsWith("+")), [...faces].join(", "));
+  // A formula in a line is an equation PowerPoint can edit (Office Math in
+  // the a14 choice) and Unicode text in the fallback, never its TeX source.
+  // Equations are set in Cambria Math, which every Office install has.
+  const mathB64 = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.setSource("# M\n\n## Korko\n\nLaskettu: $FV = PMT \\cdot \\frac{(1+r)^n - 1}{r}$\n");
+    const u = new Uint8Array(a.pptx());
+    let s = "";
+    for (let i = 0; i < u.length; i += 1) s += String.fromCharCode(u[i]);
+    a.setSource(src0);
+    return btoa(s);
+  });
+  const mathBuf = Buffer.from(mathB64, "base64");
+  if (shots) { fs.mkdirSync(shots, { recursive: true }); fs.writeFileSync(path.join(shots, "formula.pptx"), mathBuf); }
+  const mathSlides = [...unzip(mathBuf)].filter(([k]) => /slides\/slide\d+\.xml$/.test(k)).map(([, v]) => v).join("");
+  check("PPTX: a formula in a line is an equation", /<mc:Choice[^>]*Requires="a14"><p:sp>[\s\S]*<a14:m><m:oMath[\s\S]*<m:f><m:num>/.test(mathSlides));
+  check("…with its Unicode text as the fallback, and no TeX", mathSlides.includes("FV = PMT ⋅ ((1 + r)ⁿ − 1)/r") && !mathSlides.includes("\\frac"));
+  check("…set in Cambria Math", /<a:latin typeface="Cambria Math"/.test(mathSlides));
   const n2 = notes.map((k) => pptx.get(k)).join(" ");
   check("the notes are the speaker's words without the cue marks", n2.includes("linkin saanut") && !n2.includes("[[1]]"));
 
