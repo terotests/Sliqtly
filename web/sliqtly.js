@@ -364,5 +364,5 @@ async function readSheet(gviz, ask) {
   return rows.map((row) => Array.from({ length: width }, (_, i) => csvCell(row[i])).join(",")).join("\n") + "\n";
 }
 
-window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, loadShare, readSheet, sheetsToken: () => tokenValid() };
+window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, loadShare, readSheet, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true) };
 window.dispatchEvent(new Event("sliqtly:ready"));
