@@ -2628,6 +2628,10 @@ class PresApp {
         ; the editor's fields have no undo of their own, and an undo in the
         ; Markdown under it would move the fence it is writing
         if chart.isOpen {
+            if (ch == "a") {
+                chart.selectAllInField()
+                chromeRev = (chromeRev + 1)
+            }
             return true
         }
         if ((strlen ch) != 1) {
