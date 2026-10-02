@@ -4,7 +4,7 @@
 ; PresKeep.rgr — the app's own classes on a control, kept across its rebuilds
 ; ============================================================================
 ;
-; A gallery/ui control rebuilds its root when its state changes — a slider
+; An EVGUI control rebuilds its root when its state changes — a slider
 ; dragged, a field typed into — and `build()` sets the root's className to the
 ; control's own ("ui-slider", "ui-input"), dropping any class the app added
 ; for its size or look. The slider then fell back to the kit's width while
@@ -15,7 +15,7 @@
 ; dropped. Called after each host call that can rebuild a control.
 ; ============================================================================
 
-Import "../ui/src/UiHost.rgr"
+Import "../evgui/src/UiHost.rgr"
 
 class PresKeep {
     def els:[EVGElement]

@@ -30,7 +30,7 @@
 Import "PresChartModel.rgr"
 Import "PresImageModel.rgr"
 Import "PresColorPanel.rgr"
-Import "../ui/src/UiHost.rgr"
+Import "../evgui/src/UiHost.rgr"
 Import "PresKeep.rgr"
 Import "PresI18n.rgr"
 

@@ -238,7 +238,7 @@ async function placePasted() {
 }
 
 // A new picture of the deck: registered for the slides and kept in this
-// browser; signed in to PRO, also put in the cloud as the deck's file.
+// browser; signed in to PRO, the deck's cloud save takes it with the deck.
 async function keepPicture(bytes, type, w, h) {
   const ext = (type.split("/")[1] || "png").replace("jpeg", "jpg").replace("svg+xml", "svg");
   pasteCount += 1;
@@ -246,17 +246,7 @@ async function keepPicture(bytes, type, w, h) {
   app.addImage("/" + rel, asRangerBuffer(bytes.slice(0)), type, w, h);
   await registerPicture("/" + rel, bytes, type);
   const data = new Blob([bytes], { type });
-  const rec = { path: rel, type, size: bytes.byteLength, data };
-  if (signedIn()) {
-    try {
-      rec.cloud = await window.sliqtly.putFile(doc.id, rel, data);
-      toast(t("Image saved to your PRO cloud files."));
-    } catch (e) {
-      console.warn("cloud upload failed", e);
-      toast(t("The image could not be saved to the cloud; it is kept in this browser."));
-    }
-  }
-  await keepFile(rec);
+  await keepFile({ path: rel, type, size: bytes.byteLength, data });
   return rel;
 }
 
@@ -426,10 +416,27 @@ function whenText(t) {
   return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()} ${two(d.getHours())}:${two(d.getMinutes())}`;
 }
 
+// File → Recent: the decks of this browser edited last, the open one left
+// out (a PRO deck is among them: the cloud save keeps it here as well).
+let recentSynced = "";
+async function refreshRecent() {
+  if (!vfs || viewer) return;
+  const rows = (await vfs.listDocs())
+    .filter((d) => d.id !== doc.id)
+    .sort((a, b) => (b.updated || 0) - (a.updated || 0))
+    .slice(0, 8)
+    .map((d) => d.id + "\t" + String(d.name || "presentation").replace(/[\t\n\r]+/g, " "));
+  const key = rows.join("\n");
+  if (key === recentSynced) return;
+  recentSynced = key;
+  app.setToolbarOptions("recent", key, "");
+}
+
 // The files tab's list, when it shows; again when PRO signs in or out.
 let filesListing = false;
 window.addEventListener("sliqtly:user", () => refreshFiles());
 async function refreshFiles() {
+  refreshRecent().catch(() => {});
   if (!vfs || app.editorTab() !== "files" || filesListing) return;
   filesListing = true;
   try {
@@ -2601,6 +2608,7 @@ async function start() {
       await openSample(sample);
     }
   }
+  refreshRecent().catch(() => {});
 
   // A narrow window gets the slides without the editor (PresApp.isCompact,
   // decided on every layout, so it follows the window); on a touch screen
