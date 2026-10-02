@@ -529,8 +529,6 @@
   "PRO: the image is saved to your cloud files with this presentation, and a copy stays in this browser.": "PRO: kuva tallennetaan pilvitiedostoihisi tämän esityksen mukana, ja kopio jää tähän selaimeen.",
   "The image is saved in this browser only (IndexedDB). Sign in with PRO to keep it in the cloud.": "Kuva tallennetaan vain tähän selaimeen (IndexedDB). Kirjaudu PRO:hon, niin se tallentuu pilveen.",
   "This browser does not allow storage: the image is kept only while this page is open.": "Tämä selain ei salli tallennusta: kuva säilyy vain niin kauan kuin sivu on auki.",
-  "Image saved to your PRO cloud files.": "Kuva tallennettu PRO-pilvitiedostoihisi.",
-  "The image could not be saved to the cloud; it is kept in this browser.": "Kuvaa ei voitu tallentaa pilveen; se säilyy tässä selaimessa.",
   "Low contrast: ": "Heikko kontrasti: ",
   "needs ": "tarvitaan ",
   "Low contrast": "Heikko kontrasti",
@@ -539,7 +537,6 @@
   "Use a darker text colour in the theme (CSS), or darken the background (a darker picture, or a scrim over it).": "Käytä teemassa (CSS) tummempaa tekstiväriä tai tummenna taustaa (tummempi kuva tai tummentava kerros sen päälle).",
   "Use a darker colour here, or darken the background (a darker picture, or a scrim over it).": "Käytä tässä tummempaa väriä tai tummenna taustaa (tummempi kuva tai tummentava kerros sen päälle).",
   "Bullet and number colour.": "Luettelomerkkien ja numeroiden väri.",
-  "Preparing the download…": "Valmistellaan latausta…",
   "Recent": "Viimeisimmät",
   "Browse all…": "Selaa kaikkia…"
 }
