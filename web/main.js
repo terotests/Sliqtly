@@ -562,6 +562,62 @@ async function newDeck(plan) {
   refreshFiles();
   needsPaint = true;
 }
+// File → Duplicate: a new deck from this one, its Markdown, theme CSS and
+// files copied, named "<name> (copy)". This one is saved first; the copy is
+// kept at once under an id of its own (a PRO deck gets its own share).
+async function duplicateDeck() {
+  await leaveDoc();
+  const key = themeSel.value || "";
+  const css = key in editedCss ? editedCss[key] : null;
+  const files = await docFiles();
+  const name = exportName() + " " + t("(copy)");
+  const text = retitled(app.source(), name);
+  beginDoc(text);
+  docName = name;
+  if (css != null) editedCss[key] = css;
+  useTheme(key);
+  for (const f of files) {
+    const rec = { ...f, doc: doc.id, updated: Date.now() };
+    pending.set(rec.path, rec);
+    await useFile(rec);
+  }
+  app.setSource(text);
+  dropThumbs();
+  await saveDoc(true);
+  if (cloudReady()) await cloudSync().catch(cloudTrouble);
+  refreshFiles();
+  needsPaint = true;
+  toast(t("Duplicated as ") + name);
+}
+// The deck's title (front matter title:, else the first heading) as `name`.
+function retitled(md, name) {
+  const lines = md.split("\n");
+  if (/^---\s*$/.test(lines[0] || "")) {
+    for (let i = 1; i < lines.length && !/^(---|\.\.\.)\s*$/.test(lines[i]); i++) {
+      const m = /^title\s*:\s*(.*)$/.exec(lines[i]);
+      if (m && m[1].trim()) {
+        lines[i] = "title: " + JSON.stringify(name);
+        return lines.join("\n");
+      }
+    }
+  }
+  let fence = "";
+  for (let i = 0; i < lines.length; i++) {
+    const f = /^\s*(`{3,}|~{3,})/.exec(lines[i]);
+    if (f) {
+      if (!fence) fence = f[1][0];
+      else if (f[1][0] === fence) fence = "";
+      continue;
+    }
+    // a heading's {.class} stays
+    const h = !fence && /^(#{1,6})\s+\S.*?(\s+\{[^{}]*\})?\s*$/.exec(lines[i]);
+    if (h) {
+      lines[i] = h[1] + " " + name + (h[2] || "");
+      return lines.join("\n");
+    }
+  }
+  return md;
+}
 function sampleChartSlide() {
   const rows = [[t("Q1"), 28], [t("Q2"), 55], [t("Q3"), 43], [t("Q4"), 91]]
     .map(([a, b]) => `    {"${t("quarter")}": ${JSON.stringify(a)}, "${t("sales")}": ${b}}`).join(",\n");
@@ -838,11 +894,33 @@ async function linkData(link) {
     return;
   }
   const url = app.liveUrl(link);
+  if (isSheet(url)) {
+    // asked first; read while the card is up, so a sheet shared by link needs
+    // no Google window and a private one gets it from the press
+    let open = null;
+    const pub = fetchLive(url).then((x) => (open = x), () => null);
+    const go = await pressCard("gLink", t("Link this Google Sheet directly to this document? Its data is read again each time the deck opens."),
+      t("Link the sheet"), t("Paste as text"),
+      () => {
+        if (open == null && window.sliqtly?.user?.() && !window.sliqtly.sheetsToken()) {
+          // a closed window cancels; a blocked one leaves it to googleTap
+          return window.sliqtly.askSheets().then(() => true, (e) => e?.code === "auth/popup-blocked");
+        }
+        return true;
+      });
+    if (!go) {
+      app.pasteText(link);
+      afterInput();
+      return;
+    }
+    await pub;
+  }
   let text;
   try {
     text = await readLive(url, true);
   } catch (e) {
-    if (e?.code === "auth/popup-blocked") toast(t("The browser blocked Google's sign-in window: allow pop-ups for this site and paste the link again."));
+    if (e?.code === "picker") toast(t("Google's file picker did not open. The site's Google API key must allow the Google Picker API."));
+    else if (e?.code === "auth/popup-blocked") toast(t("The browser blocked Google's sign-in window: allow pop-ups for this site and paste the link again."));
     else if (e?.code !== "auth/popup-closed-by-user" && e?.code !== "auth/cancelled-popup-request") liveFailed(url);
     return;
   }
@@ -915,6 +993,9 @@ async function fileRequest(r) {
     // asked first: an accidental press is cancelled and the deck stays
     const rows = [...themeSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n");
     app.openNewDeck(rows, themeSel.value || "", "");
+  } else if (action === "duplicate") {
+    makingDeck = duplicateDeck().catch((e) => toast(t("Duplicating failed: ") + (e.message || e))).finally(() => { makingDeck = null; });
+    await makingDeck;
   } else if (action === "open") {
     const f = (await docFiles()).find((x) => x.path === what);
     if (!f) return;
@@ -1377,34 +1458,43 @@ async function liveCopy(url) {
   const have = (await docFiles()).find((f) => f.path === path);
   return have && typeof have.data === "string" ? have.data : null;
 }
-// Google's permission window opens only from a press, and a browser (Safari
-// on a phone) counts a press as spent once the page has waited on the
-// network. Then a small card asks for one more press, and that press opens
-// the window at once (sliqtly.js askSheets). → true when a token came.
-let tapping = null;
-function googleTap() {
-  tapping ??= new Promise((ok) => {
+// A small card that asks for a press. `onPress` runs within the press, so a
+// Google window it opens is not blocked (Safari on a phone counts a press as
+// spent once the page has waited on the network). → what onPress gives, or
+// false on the second button.
+function pressCard(id, message, okLabel, noLabel, onPress) {
+  return new Promise((ok) => {
+    document.getElementById(id)?.remove();
     const box = document.createElement("div");
-    box.id = "gTap";
+    box.id = id;
+    box.className = "gCard";
     box.setAttribute("role", "dialog");
     box.setAttribute("aria-label", t("Google Sheets"));
     const text = document.createElement("p");
-    text.textContent = t("This Google Sheet is private. Google asks once whether Sliqtly may read the sheets you pick.");
+    text.textContent = message;
     const go = document.createElement("button");
     go.className = "primary";
-    go.textContent = t("Continue with Google");
+    go.textContent = okLabel;
     const no = document.createElement("button");
-    no.textContent = t("Cancel");
-    const done = (v) => { box.remove(); tapping = null; ok(v); };
+    no.textContent = noLabel;
+    const done = (v) => { box.remove(); ok(v); };
     go.addEventListener("click", () => {
-      // no await before this call: the window opens within the press
-      window.sliqtly.askSheets().then((tok) => done(!!tok), () => done(false));
+      // no await before onPress: the window opens within the press
+      Promise.resolve(onPress()).then(done, () => done(false));
     });
     no.addEventListener("click", () => done(false));
     box.append(text, go, no);
     document.body.appendChild(box);
     go.focus();
   });
+}
+// Google's window blocked after all: one more press opens it. → true when a
+// token came.
+let tapping = null;
+function googleTap() {
+  tapping ??= pressCard("gTap", t("This Google Sheet is private. Google asks once whether Sliqtly may read the sheets you pick."),
+    t("Continue with Google"), t("Cancel"),
+    () => window.sliqtly.askSheets().then((tok) => !!tok)).finally(() => { tapping = null; });
   return tapping;
 }
 
