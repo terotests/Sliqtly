@@ -513,7 +513,12 @@ class PresToolbar {
             this.closeSelects()
             this.closeMenus()
             rev = (rev + 1)
-            return
+            ; a press on another control of the bar does its thing as well (the
+            ; menu closing first); one anywhere else only closes the menu
+            if (((strlen ctlTid) == 0) || (py >= barH)) {
+                return
+            }
+            menuOpen = false
         }
         if isMenu {
             def i:int 0

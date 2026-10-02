@@ -551,11 +551,19 @@ try {
       press("tb-m-help-item-helpBtn");
       const help = [];
       for (;;) { const r = a.takeRequest(); if (!r) break; help.push(r); }
-      return { opened, reqs, help, drawn: JSON.parse(a.toolbarJson()).list.cmds.length, theme0, htmlBarHidden: getComputedStyle(document.getElementById("bar")).display === "none" };
+      // a menu open, then another button of the bar: the menu closes and the button acts
+      press("tb-m-export-trigger");
+      press("tb-share");
+      const through = [];
+      for (;;) { const r = a.takeRequest(); if (!r) break; through.push(r); }
+      help.push(...through.map((r) => "after-menu:" + r));
+      const closedAfter = t.openMenu() === "";
+      return { opened, reqs, help, closedAfter, drawn: JSON.parse(a.toolbarJson()).list.cmds.length, theme0, htmlBarHidden: getComputedStyle(document.getElementById("bar")).display === "none" };
     });
     check("the top bar is drawn on the canvas, the HTML one hidden", bar.drawn > 20 && bar.htmlBarHidden, JSON.stringify(bar));
     check("…Slide → Theme opens and a theme chosen becomes the page's select change", bar.opened && bar.reqs.includes("select:theme:editorial"), JSON.stringify(bar));
     check("…a menu's row is the page's button pressed", bar.help.includes("click:helpBtn"), JSON.stringify(bar));
+    check("…with a menu open, another button of the bar acts on the first press (and the menu closes)", bar.help.includes("after-menu:click:share") && bar.closedAfter, JSON.stringify(bar));
     await page.evaluate((th) => { const s = document.getElementById("theme"); s.value = th; s.dispatchEvent(new Event("change")); }, bar.theme0);
     await page.waitForTimeout(300);
   }
