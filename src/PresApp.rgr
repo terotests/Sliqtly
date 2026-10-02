@@ -1234,6 +1234,9 @@ class PresApp {
 
     ; The host's wall clock, for the viewer's own camera moves in a diagram.
     fn setUiTime:void (s:double) {
+        if ((deck.uiNow > 0.0) && (s > deck.uiNow)) {
+            toolbar.tick(((s - deck.uiNow) * 1000.0))
+        }
         deck.uiNow = s
     }
 

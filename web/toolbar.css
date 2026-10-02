@@ -67,6 +67,9 @@
 .theme-tb .ui-dropdownmenu-item:hover { background-color: #f4f4f5; }
 .theme-tb .ui-dropdownmenu-item:focus { background-color: #f4f4f5; }
 .theme-tb .ui-dropdownmenu-subtrigger-state-open { background-color: #f4f4f5; }
+.theme-tb .ui-dropdownmenu-subtrigger { display: flex; flex-direction: row; flex-wrap: nowrap; justify-content: space-between; align-items: center; }
+.theme-tb .ui-dropdownmenu-item-label { font-family: Open Sans; font-size: 13px; color: #18181b; height: 32px; line-height: 32px; white-space: nowrap; }
+.theme-tb .ui-dropdownmenu-subtrigger-chevron { font-family: Open Sans; font-size: 13px; color: #71717a; height: 32px; line-height: 32px; }
 .theme-tb .ui-dropdownmenu-item-disabled { opacity: 1; color: #a1a1aa; font-size: 11px; font-weight: 600; height: 26px; line-height: 30px; }
 
 /* The drawer (a narrow window or a finger): the rest of the bar as a list */
