@@ -51,14 +51,17 @@ const FACES = [
   ["Noto Sans-Bold", "NotoSans-Bold.ttf"],
 ];
 const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "corporate", "editorial"];
+// The sample decks in the interface's language: samples/<key>.md is Finnish,
+// samples/<key>.en.md English (any other language gets the English ones).
+const sample = (key, en, fi) => lang === "fi" ? [fi, `./samples/${key}.md`] : [en, `./samples/${key}.en.md`];
 const SAMPLES = {
-  talous: ["Talous: oma talous haltuun", "./samples/talous.md"],
-  ymparisto: ["Ympäristö: hiilijalanjälki", "./samples/ymparisto.md"],
-  urheilu: ["Urheilu: 5 km juoksukoulu", "./samples/urheilu.md"],
-  kulttuuri: ["Kulttuuri: musiikin vuosikymmenet", "./samples/kulttuuri.md"],
-  ohjelmointi: ["Ohjelmointi: versionhallinta", "./samples/ohjelmointi.md"],
-  matematiikka: ["Matematiikka: kaavat kalvoilla", "./samples/matematiikka.md"],
-  vegalite: ["Vega-Lite: kaaviotyypit", "./samples/vegalite.md"],
+  talous: sample("talous", "Finance: take charge of your money", "Talous: oma talous haltuun"),
+  ymparisto: sample("ymparisto", "Environment: your carbon footprint", "Ympäristö: hiilijalanjälki"),
+  urheilu: sample("urheilu", "Sports: a 5 km running course", "Urheilu: 5 km juoksukoulu"),
+  kulttuuri: sample("kulttuuri", "Culture: decades of music", "Kulttuuri: musiikin vuosikymmenet"),
+  ohjelmointi: sample("ohjelmointi", "Programming: version control", "Ohjelmointi: versionhallinta"),
+  matematiikka: sample("matematiikka", "Mathematics: formulas on slides", "Matematiikka: kaavat kalvoilla"),
+  vegalite: sample("vegalite", "Vega-Lite: chart types", "Vega-Lite: kaaviotyypit"),
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
 };
 

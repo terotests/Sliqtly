@@ -1691,6 +1691,18 @@ try {
     await ctx.close();
   }
 
+  // Open → Sample documents: English decks for an English interface, and the
+  // prompt is the trigger's text, not a row in the list
+  const samples = await page.evaluate(() => {
+    const a = window.__app;
+    a.openOpen([...document.getElementById("sample").options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
+    const sel = a.panels.samplePick;
+    const out = { trigger: sel.labelOf(sel.value), rows: sel.items.map((it) => it.value + "=" + it.name) };
+    a.closeShare();
+    return out;
+  });
+  check("Open: the samples list starts with a deck, the prompt only on the trigger", samples.trigger === "Open sample document…" && samples.rows[0] === "talous=Finance: take charge of your money" && !samples.rows.some((r) => r.startsWith("=")), JSON.stringify(samples));
+
   // the interface in another language: ?lang=fi, the canvas bar and the page alike
   const pageFi = await browser.newPage({ viewport: { width: 1200, height: 760 } });
   await pageFi.goto(url + "?lang=fi&sample=talous");
@@ -1701,9 +1713,10 @@ try {
     html: document.getElementById("present").textContent,
     langSel: document.getElementById("lang").value,
     langBar: window.__app.toolbarJson().includes("Suomi"),
+    sample: window.__app.source().includes("# Oma talous haltuun"),
   }));
   await pageFi.close();
-  check("?lang=fi: the bar drawn and the page's own words in Finnish", fi.lang === "fi" && fi.bar && /Esitä/.test(fi.html) && fi.langSel === "fi" && fi.langBar, JSON.stringify(fi));
+  check("?lang=fi: the bar drawn and the page's own words in Finnish", fi.lang === "fi" && fi.bar && /Esitä/.test(fi.html) && fi.langSel === "fi" && fi.langBar && fi.sample, JSON.stringify(fi));
 
   check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {
