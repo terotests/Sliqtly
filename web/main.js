@@ -154,27 +154,107 @@ async function registerPicture(path, bytes, type) {
   });
 }
 
+// A picture pasted or dropped on the canvas opens the image window
+// (PresChartEditor's "paste" mode): the part to keep (CropCtl), and whether it
+// goes on the slide or behind this slide or every slide. Until Add is pressed
+// it is only registered for drawing, under a path of its own; nothing is kept.
 let pasteCount = 0;
+let pasting = null;
 async function addPictureFile(file) {
   const type = file.type || "image/png";
+  const bytes = await file.arrayBuffer();
+  const [w, h] = await imageSize(bytes, type);
+  const alt = file.name && file.name !== "image.png" ? file.name.replace(/\.[^.]+$/, "") : "image";
+  if (w > 0 && h > 0) {
+    dropPasting();
+    pasteCount += 1;
+    const preview = `/__paste/${Date.now().toString(36)}-${pasteCount}`;
+    await registerPicture(preview, bytes, type);
+    pasting = { bytes, type, w, h, preview };
+    if (app.openPaste(preview, w, h, alt, storageNote())) {
+      needsPaint = true;
+      return;
+    }
+    dropPasting();
+  }
+  // no size to crop by (or presenting): straight onto the slide, as before
+  const rel = await keepPicture(bytes, type, w, h);
+  app.insertPicture(rel, alt);
+  dropThumbs();
+  afterInput();
+}
+
+function dropPasting() {
+  if (pasting) pictures.delete(pasting.preview);
+  pasting = null;
+}
+
+// Where a picture added now is kept, as the window says it.
+function signedIn() {
+  return !!(window.sliqtly && window.sliqtly.user());
+}
+function storageNote() {
+  if (signedIn()) return t("PRO: the image is saved to your cloud files with this presentation, and a copy stays in this browser.");
+  return vfs && vfs.persistent
+    ? t("The image is saved in this browser only (IndexedDB). Sign in with PRO to keep it in the cloud.")
+    : t("This browser does not allow storage: the image is kept only while this page is open.");
+}
+
+// The picture as the window left it: the part kept cut out (the original
+// bytes when nothing was cut), kept, and placed.
+async function placePasted() {
+  const p = pasting;
+  if (!p) return;
+  const plan = JSON.parse(app.pastePlan());
+  dropPasting();
+  let { bytes, type, w, h } = p;
+  if (!plan.whole) {
+    const [x, y, cw, ch] = String(plan.crop).split(",").map(Number);
+    if (cw > 0 && ch > 0) {
+      const bmp = await createImageBitmap(new Blob([bytes], { type }), x, y, cw, ch);
+      const c = document.createElement("canvas");
+      c.width = cw;
+      c.height = ch;
+      c.getContext("2d").drawImage(bmp, 0, 0);
+      bmp.close();
+      // a photo stays a JPEG; anything else (a screenshot, a GIF) a PNG
+      const out = /^image\/(jpeg|webp)$/.test(type) ? type : "image/png";
+      const blob = await new Promise((r) => c.toBlob(r, out, 0.92));
+      if (blob) {
+        bytes = await blob.arrayBuffer();
+        type = blob.type || out;
+        w = cw;
+        h = ch;
+      }
+    }
+  }
+  const rel = await keepPicture(bytes, type, w, h);
+  app.placePicture(rel, plan.alt || "image", plan.to);
+  dropThumbs();
+  afterInput();
+}
+
+// A new picture of the deck: registered for the slides and kept in this
+// browser; signed in to PRO, also put in the cloud as the deck's file.
+async function keepPicture(bytes, type, w, h) {
   const ext = (type.split("/")[1] || "png").replace("jpeg", "jpg").replace("svg+xml", "svg");
   pasteCount += 1;
   const rel = `media/liitetty-${Date.now().toString(36)}-${pasteCount}.${ext}`;
-  const bytes = await file.arrayBuffer();
-  let w = 0;
-  let h = 0;
-  try {
-    const bmp = await createImageBitmap(new Blob([bytes], { type }));
-    w = bmp.width;
-    h = bmp.height;
-    bmp.close();
-  } catch (_) { /* sized by the layout's default */ }
   app.addImage("/" + rel, asRangerBuffer(bytes.slice(0)), type, w, h);
   await registerPicture("/" + rel, bytes, type);
-  await keepFile({ path: rel, type, size: bytes.byteLength, data: new Blob([bytes], { type }) });
-  app.insertPicture(rel, file.name && file.name !== "image.png" ? file.name.replace(/\.[^.]+$/, "") : "image");
-  dropThumbs();
-  afterInput();
+  const data = new Blob([bytes], { type });
+  const rec = { path: rel, type, size: bytes.byteLength, data };
+  if (signedIn()) {
+    try {
+      rec.cloud = await window.sliqtly.putFile(doc.id, rel, data);
+      toast(t("Image saved to your PRO cloud files."));
+    } catch (e) {
+      console.warn("cloud upload failed", e);
+      toast(t("The image could not be saved to the cloud; it is kept in this browser."));
+    }
+  }
+  await keepFile(rec);
+  return rel;
 }
 
 async function imageSize(bytes, type) {
@@ -664,7 +744,8 @@ function paintOnce() {
     // placed like a thumbnail: a page the size of the canvas, moved by the camera
     cj.width = W;
     cj.height = H;
-    const ce = prepareDisplayList(gl, cj, { dpr });
+    // with the pictures: the image window shows the one being added
+    const ce = prepareDisplayList(gl, cj, { dpr, images: pictures });
     if (grewBy(ce.draw(null, [cj.x, cj.y, 1], { clear: false }))) dropThumbs();
     ce.dispose();
   }
@@ -1030,6 +1111,13 @@ function deliver(bytes, name, mime) {
 }
 window.__lastDownload = "";
 
+// for scripts/check-web.mjs: the requests run now, a picture's pixel size
+window.__handleRequests = () => handleRequests();
+window.__pictureSize = (p) => {
+  const img = pictures.get(p);
+  return img ? [img.naturalWidth, img.naturalHeight] : [0, 0];
+};
+
 function handleRequests() {
   for (;;) {
     const r = app.takeRequest();
@@ -1079,6 +1167,10 @@ function handleRequests() {
       keepFile({ path, type: "application/json", size: text.length, data: text }).catch(fail);
       chartFiles.set(path, Promise.resolve(text));
       dropThumbs();
+    } else if (r === "picture-place") {
+      placePasted().catch(fail);
+    } else if (r === "picture-cancel") {
+      dropPasting();
     } else if (r.startsWith("data-keep:")) {
       keepData(+r.slice(10)).catch(fail);
     } else if (r.startsWith("file-save:")) {

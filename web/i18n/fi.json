@@ -509,5 +509,18 @@
   "Create New…": "Luo uusi…",
   "A new presentation of your own, based on this one": "Uusi oma esitys tämän pohjalta",
   "Edit this presentation": "Muokkaa tätä esitystä",
+  "Crop image": "Rajaa kuva",
+  "Add image": "Lisää kuva",
+  "Drag the frame or its corners to choose the part that shows. Arrow keys move it, Shift+arrows resize it.": "Vedä kehystä tai sen kulmia valitaksesi näkyvän osan. Nuolinäppäimet siirtävät kehystä, Shift+nuolet muuttavat sen kokoa.",
+  "Shape": "Muoto",
+  "Free": "Vapaa",
+  "Whole image": "Koko kuva",
+  "Use as": "Käyttö",
+  "Image on this slide": "Kuva tälle dialle",
+  "PRO: the image is saved to your cloud files with this presentation, and a copy stays in this browser.": "PRO: kuva tallennetaan pilvitiedostoihisi tämän esityksen mukana, ja kopio jää tähän selaimeen.",
+  "The image is saved in this browser only (IndexedDB). Sign in with PRO to keep it in the cloud.": "Kuva tallennetaan vain tähän selaimeen (IndexedDB). Kirjaudu PRO:hon, niin se tallentuu pilveen.",
+  "This browser does not allow storage: the image is kept only while this page is open.": "Tämä selain ei salli tallennusta: kuva säilyy vain niin kauan kuin sivu on auki.",
+  "Image saved to your PRO cloud files.": "Kuva tallennettu PRO-pilvitiedostoihisi.",
+  "The image could not be saved to the cloud; it is kept in this browser.": "Kuvaa ei voitu tallentaa pilveen; se säilyy tässä selaimessa.",
   "Preparing the download…": "Valmistellaan latausta…"
 }
