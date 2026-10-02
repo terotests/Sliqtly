@@ -1006,6 +1006,52 @@ try {
     check("a chart's url data is fetched and drawn, the slide timed", fd.wanted === "" && fd.bars >= 3 && fd.duration > 0, JSON.stringify(fd));
   }
 
+  // Live data: a Google Sheet (its CSV, as gviz serves it) is fetched when the
+  // deck opens, and again on R while presenting.
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    let rows = [["Jan", 120], ["Feb", 95.5], ["Mar", 140]];
+    const asked = [];
+    const route = (r) => {
+      asked.push(r.request().url());
+      r.fulfill({ status: 200, contentType: "text/csv", headers: { "access-control-allow-origin": "*" }, body: "\"month\",\"km\"\n" + rows.map(([m, k]) => `"${m}","${k}"`).join("\n") + "\n" });
+    };
+    await page.context().route(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    const barsNow = () => page.evaluate(() => {
+      const a = window.__app;
+      a.selectSlide(1);
+      const st = JSON.parse(a.stageJson());
+      return st.list.cmds.filter((c) => c.k === 0 && c.w > 20 && c.h > 20 && c.w < 200).length;
+    });
+    await page.evaluate(() => window.__app.setSource("# D\n\n## Km\n\n```vega-lite\n{\"data\": {\"source\": \"google-sheets\", \"id\": \"SHEET1\", \"range\": \"Monthly!A:B\"}, \"mark\": \"bar\", \"width\": 400, \"encoding\": {\"x\": {\"field\": \"month\", \"type\": \"nominal\", \"sort\": null}, \"y\": {\"field\": \"km\", \"type\": \"quantitative\"}}}\n```\n"));
+    await page.waitForFunction(() => window.__app.chartDataWanted() === "", null, { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(400);
+    const first = await barsNow();
+    // while presenting the columns are still rising: count the rows the deck holds
+    const rowsHeld = () => page.evaluate(() => {
+      const d = window.__app.deck;
+      const i = d.dataUrls.findIndex((u) => /SHEET1/.test(u));
+      return i < 0 ? -1 : d.dataTexts[i].trim().split("\n").length - 1;
+    });
+    rows = [...rows, ["Apr", 80], ["May", 160]];
+    await page.evaluate(() => window.__app.selectSlide(1));
+    await page.keyboard.press("Shift+F5");
+    await page.waitForTimeout(500);
+    const onPresent = await rowsHeld();
+    rows = [...rows, ["Jun", 60]];
+    await page.keyboard.press("r");
+    await page.waitForTimeout(500);
+    const onR = await rowsHeld();
+    await page.evaluate(() => window.__app.endPresent());
+    await page.waitForTimeout(200);
+    const after = await barsNow();
+    await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    const url = asked[0] || "";
+    check("a Google Sheet is read as its CSV (tab and range from the fence)", url === "https://docs.google.com/spreadsheets/d/SHEET1/gviz/tq?tqx=out:csv&headers=1&sheet=Monthly&range=A%3AB", url);
+    check("live data: drawn on open, fetched again on presenting and on R", first === 3 && onPresent === 5 && onR === 6 && after === 6, JSON.stringify({ first, onPresent, onR, after, asked: asked.length }));
+  }
+
   // The document's own files (web/vfs.js): a changed deck is kept in the
   // browser, files added in the files tab go with it, a chart can live in a
   // file, an edited data file redraws the charts, and a reload opens the deck

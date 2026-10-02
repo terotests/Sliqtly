@@ -1003,7 +1003,7 @@ class PresDeck {
         def ti:int 0
         while (ti < (array_length tables)) {
             def tu:PresTableUse (itemAt tables ti)
-            push urls tu.path
+            push urls (MdVegaRender.resolveUrl(tu.path))
             ti = (ti + 1)
         }
         def i:int 0
