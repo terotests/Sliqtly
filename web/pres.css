@@ -52,6 +52,9 @@
 .thumb { background-color: var(--line); border-radius: 4px; cursor: pointer; }
 .thumb-on { background-color: var(--accent); }
 .thumb-num { color: var(--ink-dim); font-size: 11px; height: 14px; }
+/* the "+" after the last thumbnail, and its two choices once pressed */
+.thumb-add { background-color: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; color: var(--ink-dim); font-size: 40px; text-align: center; cursor: pointer; }
+.thumb-add-btn { background-color: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; color: var(--ink); font-size: 12px; font-weight: 600; text-align: center; cursor: pointer; }
 
 /* --- the speaker view ------------------------------------------------------ */
 .sp-clock { color: #ffffff; font-size: 30px; height: 38px; }

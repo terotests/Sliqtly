@@ -593,5 +593,9 @@
   "Q3": "Q3",
   "Q4": "Q4",
   "quarter": "neljännes",
-  "sales": "myynti"
+  "sales": "myynti",
+  "Add a slide": "Lisää dia",
+  "Duplicate slide": "Kopioi dia",
+  "Empty slide": "Tyhjä dia",
+  "New slide": "Uusi dia"
 }
