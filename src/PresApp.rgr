@@ -1282,8 +1282,14 @@ class PresApp {
         return (((stripRect.x + 12.0) + ((to_double i) * (thumbW + thumbGap))) - stripScroll)
     }
 
-    ; Only whole thumbnails: the host draws them without a clip.
+    ; A thumbnail with any part inside the strip is drawn; one cut by an
+    ; edge is clipped there (the chrome by the strip's own box, the slide by
+    ; the host, see `thumbWhole`).
     fn thumbFits:boolean (x:double) {
+        return (((x + thumbW) > (stripRect.x + 4.0)) && (x < ((stripRect.x + stripRect.w) - 4.0)))
+    }
+
+    fn thumbWhole:boolean (x:double) {
         return ((x >= (stripRect.x + 4.0)) && ((x + thumbW) <= ((stripRect.x + stripRect.w) - 4.0)))
     }
 
@@ -1303,6 +1309,7 @@ class PresApp {
         out = (out + ",\"playing\":" + (? (this.isPlaying()) "true" "false"))
         out = (out + ",\"stage\":[" + (PresApp.nums4(slideRect.x slideRect.y sc 0.0)) + "]")
         out = (out + ",\"clip\":[" + (PresApp.nums4(stageArea.x stageArea.y stageArea.w stageArea.h)) + "]")
+        out = (out + ",\"strip\":[" + (PresApp.nums4((stripRect.x + 4.0) stripRect.y (stripRect.w - 8.0) stripRect.h)) + "]")
         out = (out + ",\"thumbs\":[")
         def first:boolean true
         if (mode == "edit") {
@@ -1315,7 +1322,7 @@ class PresApp {
                         out = (out + ",")
                     }
                     first = false
-                    out = (out + "[" + (to_string i) + "," + (PresApp.nums4(x (this.thumbY()) ts 0.0)) + "]")
+                    out = (out + "[" + (to_string i) + "," + (PresApp.nums4(x (this.thumbY()) ts 0.0)) + "," + (? (this.thumbWhole(x)) "0" "1") + "]")
                 }
                 i = (i + 1)
             }
@@ -1592,6 +1599,11 @@ class PresApp {
     fn filmstrip:void (root:EVGElement) {
         def r:PresRect stripRect
         root.addChild((PresApp.div("strip" "strip" r.x r.y r.w r.h)))
+        ; the thumbnails' frames and numbers, cut at the strip's inner edges
+        def ox:double (r.x + 4.0)
+        def box:EVGElement (PresApp.div("strip-in" "" ox r.y (r.w - 8.0) r.h))
+        box.setAttribute("overflow" "hidden")
+        root.addChild(box)
         def i:int 0
         while (i < (deck.slideCount())) {
             def x:double (this.thumbX(i))
@@ -1600,8 +1612,8 @@ class PresApp {
                 if (i == selected) {
                     cls = "thumb thumb-on"
                 }
-                root.addChild((PresApp.div(("thumb" + (to_string i)) cls (x - 3.0) ((this.thumbY()) - 3.0) (thumbW + 6.0) (thumbH + 6.0))))
-                root.addChild((PresApp.label(("tn" + (to_string i)) "thumb-num" (to_string (i + 1)) x (r.y + 4.0))))
+                box.addChild((PresApp.div(("thumb" + (to_string i)) cls ((x - 3.0) - ox) (((this.thumbY()) - 3.0) - r.y) (thumbW + 6.0) (thumbH + 6.0))))
+                box.addChild((PresApp.label(("tn" + (to_string i)) "thumb-num" (to_string (i + 1)) (x - ox) 4.0)))
             }
             i = (i + 1)
         }

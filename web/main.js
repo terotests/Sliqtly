@@ -714,6 +714,9 @@ async function saveOpenFile(path) {
 // that grows the atlas drops the kept ones and draws again.
 let thumbs = new Map();
 let thumbRev = -1;
+// the slide lists of thumbnails cut by the strip's edge, as JSON text
+let thumbDocs = new Map();
+let thumbDocsRev = -1;
 function dropThumbs() {
   for (const f of thumbs.values()) f.dispose();
   thumbs = new Map();
@@ -781,7 +784,31 @@ function paintOnce() {
   }
   if (grew) dropThumbs();
   let thumbsGrew = false;
-  for (const [i, x, y, s] of layout.thumbs) {
+  if (layout.rev !== thumbDocsRev) {
+    thumbDocs = new Map();
+    thumbDocsRev = layout.rev;
+  }
+  for (const [i, x, y, s, , cut] of layout.thumbs) {
+    if (cut) {
+      // cut by the strip's edge: drawn from its own list with a clip at the
+      // edge, rebuilt each paint (one or two at a time)
+      let text = thumbDocs.get(i);
+      if (!text) {
+        text = app.slideJson(i);
+        thumbDocs.set(i, text);
+      }
+      const doc = withTime(JSON.parse(text), 2.0);
+      doc.width = W;
+      doc.height = H;
+      const [cx, cy, cw, ch] = layout.strip;
+      const none = [0, 0, 0, 0];
+      doc.list.cmds.unshift({ k: 4, x: (cx - x) / s, y: (cy - y) / s, w: cw / s, h: ch / s, c: none });
+      doc.list.cmds.push({ k: 5, x: 0, y: 0, w: 0, h: 0, c: none });
+      const cf = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true });
+      if (grewBy(cf.draw(null, [x, y, s], { clear: false }))) thumbsGrew = true;
+      cf.dispose();
+      continue;
+    }
     let f = thumbs.get(i);
     const fresh = !f;
     if (fresh) {
