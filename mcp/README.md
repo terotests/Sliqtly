@@ -45,7 +45,7 @@ theme's own sheet (fetched from `/themes/<theme>.css`), so the deck stores the
 whole stylesheet as the editor does for an edited theme.
 
 `create_presentation` and `update_presentation` name a UI resource,
-`ui://sliqtly/preview.html` ([`src/preview.html`](src/preview.html)): MCP Apps
+`ui://sliqtly/preview-<hash>.html` ([`src/preview.html`](src/preview.html), named by its contents): MCP Apps
 hosts (Claude) and ChatGPT show the presentation inline in the chat, in a
 frame of the share link.
 
