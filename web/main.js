@@ -457,6 +457,48 @@ async function saveDoc(force) {
   cloudSoon();
 }
 
+// Before another deck is opened in its place: this one kept, and a PRO
+// deck's last changes written to its share (they would wait for the next
+// visit of this deck otherwise). The cloud gets a while, not forever.
+async function leaveDoc() {
+  await saveDoc();
+  if (!doc.cloudHalt && cloudReady() && (cloudTimer || cloudBusy)) {
+    clearTimeout(cloudTimer);
+    cloudTimer = 0;
+    const wait = new Promise((ok) => setTimeout(ok, 8000));
+    await Promise.race([wait, cloudSync().catch(cloudTrouble)]);
+  }
+}
+
+// File → New presentation, made: { name, theme, data } from the window.
+// Kept at once under an id of its own, so the address names this deck and
+// not the one before (a PRO deck gets its own share). `data` "sample" adds
+// a slide with a chart; "file" was the file picker, opened by the press.
+let makingDeck = null;
+async function newDeck(plan) {
+  await leaveDoc();
+  const name = String(plan.name || "").replace(/\s+/g, " ").trim() || t("New presentation");
+  let text = "# " + name + "\n\n" + t("Write here.") + "\n";
+  if (plan.data === "sample") text += "\n" + sampleChartSlide();
+  beginDoc(text);
+  docName = name;
+  if (plan.theme != null && [...themeSel.options].some((o) => o.value === plan.theme)) themeSel.value = plan.theme;
+  useTheme(themeSel.value);
+  app.setSource(text);
+  app.showTab("md");
+  dropThumbs();
+  await saveDoc(true);
+  if (cloudReady()) await cloudSync().catch(cloudTrouble);
+  refreshFiles();
+  needsPaint = true;
+}
+function sampleChartSlide() {
+  const rows = [[t("Q1"), 28], [t("Q2"), 55], [t("Q3"), 43], [t("Q4"), 91]]
+    .map(([a, b]) => `    {"${t("quarter")}": ${JSON.stringify(a)}, "${t("sales")}": ${b}}`).join(",\n");
+  return "## " + t("Chart") + "\n\n```vega-lite\n{\n  \"data\": {\"values\": [\n" + rows + "\n  ]},\n  \"mark\": \"bar\",\n  \"width\": 560,\n"
+    + `  "encoding": {\n    "x": {"field": "${t("quarter")}", "type": "nominal", "axis": {"labelAngle": 0}},\n    "y": {"field": "${t("sales")}", "type": "quantitative"}\n  }\n}\n` + "```\n";
+}
+
 // A deck opened from a link (#md=…, /s/{id}?edit, ?sample=…) is the reader's
 // own once it is saved: the address loses the link, so a reload opens the
 // saved deck, pictures and all, and not the link's text again.
@@ -496,7 +538,7 @@ async function useFile(f) {
 
 async function openDoc(id) {
   if (!vfs) return false;
-  await saveDoc();
+  await leaveDoc();
   const d = await vfs.getDoc(id);
   if (!d) return false;
   beginDoc(d.md);
@@ -590,7 +632,7 @@ async function refreshFiles() {
 async function addDocFile(file, ask = false) {
   const type = file.type || "";
   if (/\.(md|markdown)$/i.test(file.name)) {
-    await saveDoc();
+    await leaveDoc();
     const text = await file.text();
     beginDoc(text);
     docName = file.name.replace(/\.(md|markdown)$/i, "") || "presentation";
@@ -789,17 +831,14 @@ async function fileRequest(r) {
   const [action, ...rest] = r.split(":");
   const what = rest.join(":");
   if (action === "add") {
+    addAsks = false;
     fileAdd.click();
   } else if (action === "promo") {
     document.getElementById("pro")?.click();
   } else if (action === "new") {
-    await saveDoc();
-    const text = t("# New presentation") + "\n\n" + t("Write here.") + "\n";
-    beginDoc(text);
-    docName = "new";
-    app.setSource(text);
-    app.showTab("md");
-    dropThumbs();
+    // asked first: an accidental press is cancelled and the deck stays
+    const rows = [...themeSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n");
+    app.openNewDeck(rows, themeSel.value || "", "");
   } else if (action === "open") {
     const f = (await docFiles()).find((x) => x.path === what);
     if (!f) return;
@@ -829,6 +868,8 @@ async function fileRequest(r) {
   refreshFiles();
   needsPaint = true;
 }
+
+window.__fileRequest = (r) => fileRequest(r);
 
 // A file edited in the files tab: kept, and handed to the charts again.
 async function saveOpenFile(path) {
@@ -1534,6 +1575,15 @@ function handleRequests() {
       keepFile({ path, type: "application/json", size: text.length, data: text }).catch(fail);
       chartFiles.set(path, Promise.resolve(text));
       dropThumbs();
+    } else if (r === "newdeck-create") {
+      const plan = JSON.parse(app.newDeckPlan());
+      // the picker now, while the press still counts as one; the file goes
+      // into the new deck once it is made
+      if (plan.data === "file") {
+        addAsks = true;
+        fileAdd.click();
+      }
+      makingDeck = newDeck(plan).catch(fail).finally(() => { makingDeck = null; });
     } else if (r === "picture-place") {
       placePasted().catch(fail);
     } else if (r === "picture-cancel") {
@@ -1702,10 +1752,16 @@ filePick.addEventListener("change", async () => {
   needsPaint = true;
 });
 
+// a file picked for a new deck's data: the import dialog asks what to make
+let addAsks = false;
+fileAdd.addEventListener("cancel", () => { addAsks = false; });
 fileAdd.addEventListener("change", async () => {
   const list = [...(fileAdd.files || [])];
   fileAdd.value = "";
-  for (const f of list) await addDocFile(f);
+  const ask = addAsks && list.length === 1;
+  addAsks = false;
+  if (makingDeck) await makingDeck;
+  for (const f of list) await addDocFile(f, ask);
   if (list.length) await saveDoc(true);
   refreshFiles();
   needsPaint = true;
@@ -1854,7 +1910,7 @@ async function openOwnCloud(id) {
   // changes made here that the cloud does not have yet, and nobody changed
   // it since: this browser's copy is the newer, and goes up on the next save
   if (local && local.md !== local.cloudMd && shared.md === local.cloudMd) return openDoc(local.id);
-  await saveDoc();
+  await leaveDoc();
   beginDoc(shared.md || "");
   doc.id = local?.id || newId();
   if (local) await vfs.deleteDoc(local.id); // the cloud's files replace this browser's
@@ -2194,7 +2250,7 @@ async function openFromHash() {
   lastHash = location.hash;
   try {
     const text = await unpackText(q.get("md"));
-    await saveDoc();
+    await leaveDoc();
     beginDoc(text);
     if (q.has("theme")) {
       const th = q.get("theme");
@@ -2329,7 +2385,7 @@ async function openSample(key) {
   if (!s) return;
   try {
     docName = key;
-    await saveDoc();
+    await leaveDoc();
     const text = await textOf(s[1]);
     beginDoc(text);
     app.setSource(text);
