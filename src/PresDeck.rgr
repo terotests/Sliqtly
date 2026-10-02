@@ -37,6 +37,7 @@ Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGStyleSheet.rgr"
 Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
 
 class PresGroup {
     def slide:int 0
@@ -271,6 +272,42 @@ class PresDeck {
         }
         def miss@(optional):PresTableUse
         return miss
+    }
+
+    ; The live sheets (```sheet) laid out on slide i, in slide coordinates, as
+    ; JSON for the page: it puts the workbook over each box while presenting.
+    fn liveSheetsJson:string (i:int) {
+        def l:MdLayout (this.layout())
+        def out:string "["
+        def first:boolean true
+        def bi:int 0
+        while (bi < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes bi)
+            if (b.page == i) {
+                def tu@(optional):PresTableUse (this.tableOf(b))
+                if (!null? tu) {
+                    def u:PresTableUse (unwrap tu)
+                    if u.live {
+                        if (first == false) {
+                            out = (out + ",")
+                        }
+                        first = false
+                        out = (out + "{\"key\":" + (EVGA11yTree.jsonString(u.key)))
+                        out = (out + ",\"file\":" + (EVGA11yTree.jsonString(u.file)))
+                        out = (out + ",\"sheet\":" + (EVGA11yTree.jsonString(u.sheet)))
+                        out = (out + ",\"data\":" + (EVGA11yTree.jsonString(u.path)))
+                        out = (out + ",\"box\":[" + (EVGDisplayList.num(b.x)) + "," + (EVGDisplayList.num(b.y)) + "," + (EVGDisplayList.num(b.w)) + "," + (EVGDisplayList.num(b.h)) + "]}")
+                    }
+                }
+            }
+            bi = (bi + 1)
+        }
+        return (out + "]")
+    }
+
+    ; Does slide i have a live sheet on it?
+    fn hasLiveSheet:boolean (i:int) {
+        return ((this.liveSheetsJson(i)) != "[]")
     }
 
     ; A press on slide i that turned a table's page.

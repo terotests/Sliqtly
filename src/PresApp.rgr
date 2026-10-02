@@ -1393,7 +1393,19 @@ class PresApp {
         }
         out = (out + "]")
         out = (out + ",\"strip\":[" + (PresApp.nums4(stripRect.x stripRect.y stripRect.w stripRect.h)) + "]")
-        out = (out + ",\"focus\":\"" + focus + "\"}")
+        out = (out + ",\"focus\":\"" + focus + "\"")
+        ; The live sheets on the shown slide, while presenting, and whether
+        ; the slide has come to rest (the page shows them only then: a
+        ; transition moves the picture, not the workbook over it).
+        if ((mode == "present") && (selected >= 0) && (selected < (deck.slideCount()))) {
+            def sl:PresSlide (deck.slideAt(selected))
+            def rest:boolean ((this.stageTime()) >= (PresTimeline.transitionSeconds(sl)))
+            out = (out + ",\"sheets\":" + (deck.liveSheetsJson(selected)))
+            out = (out + ",\"settled\":" + (? rest "true" "false"))
+        } {
+            out = (out + ",\"sheets\":[],\"settled\":false")
+        }
+        out = (out + "}")
         return out
     }
 
@@ -2389,6 +2401,12 @@ class PresApp {
                 auto = (! auto)
                 chromeRev = (chromeRev + 1)
             }
+            ; E: into the live sheet on this slide (the page moves the keyboard)
+            if ((s == "e") || (s == "E")) {
+                if (deck.hasLiveSheet(selected)) {
+                    push requests "sheet-edit"
+                }
+            }
             return
         }
         if (focus != "editor") {
@@ -3070,6 +3088,11 @@ class PresApp {
             this.insertBlock((((("```table\n" + path) + "\nrows: ") + (to_string (PresImport.pageRows()))) + "\n```\n"))
             return
         }
+        if (what == "workbook") {
+            def sn:string (itemAt imp.sheetNames imp.sheet)
+            this.insertBlock((((((((("```sheet\n" + imp.xlsx) + "\nsheet: ") + sn) + "\ndata: ") + path) + "\nrows: ") + (to_string (PresImport.pageRows()))) + "\n```\n"))
+            return
+        }
         def m:PresChartModel (imp.chartModel())
         def spec:string (m.toSpec())
         if imp.live {
@@ -3435,6 +3458,12 @@ class PresApp {
             def ln:EVGA11yNode (t.label(("stage-" + (to_string k)) "stage" (itemAt lines k)))
             t.place(ln (to_int slideRect.x) (to_int slideRect.y) (to_int slideRect.w) 1)
             k = (k + 1)
+        }
+        ; A live sheet says what it is and how to get into it; the page puts
+        ; the workbook (with a tree of its own) over the box once it is opened.
+        if ((mode == "present") && (deck.hasLiveSheet(shown))) {
+            def hintNode:EVGA11yNode (t.label("stage-sheet" "stage" (PresI18n.t("A spreadsheet is on this slide. Press E to explore or edit it."))))
+            t.place(hintNode (to_int slideRect.x) (to_int slideRect.y) (to_int slideRect.w) 1)
         }
         if (mode != "present") {
             if (panels.any()) {

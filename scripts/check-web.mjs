@@ -28,7 +28,7 @@ function chromiumPath() {
 }
 
 function serve() {
-  const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".md": "text/markdown", ".ttf": "font/ttf" };
+  const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".md": "text/markdown", ".ttf": "font/ttf" };
   const server = http.createServer((req, res) => {
     let rel = decodeURIComponent(new URL(req.url, "http://x").pathname);
     if (rel.endsWith("/")) rel += "index.html";
@@ -1828,6 +1828,50 @@ try {
       await pd.waitForFunction(() => window.__app.shareIsOpen() && window.__app.panels.imp.name === "check-book.xlsx", null, { timeout: 15000 }).catch(() => {});
       const book = await pd.evaluate(() => { const i = window.__app.panels.imp; return { sheets: i.sheetNames.join(","), head: i.headers.join(","), path: i.sheetPaths[0] }; });
       check("a .xlsx: one CSV per sheet, title rows above the header dropped", book.sheets === "Sales,Summary" && book.head === "Product,Qty,Price,Total" && book.path === "data/check-book-Sales.csv", JSON.stringify(book));
+      // Live spreadsheet: the workbook on the slide (EVGSheets, when the build
+      // put a copy beside the page — EVGSHEETS_DIST or .deps/EVGSheets/dist).
+      if (fs.existsSync(path.join(distDir, "sheets", "evgsheets.mjs"))) {
+        await pd.evaluate(() => { const a = window.__app; a.setSource(a.source() + "\n\n## Live sheet\n\n"); a.mdEditor.moveCaret(a.mdEditor.buf.lineCount() - 1, 0, false); });
+        await press("pn-d-workbook");
+        await pd.waitForTimeout(1500);
+        const fence = await pd.evaluate(() => {
+          const a = window.__app;
+          const u = a.deck.tables.find((x) => x.live);
+          return u ? { src: /```sheet\ndata\/check-book\.xlsx\nsheet: Sales\ndata: data\/check-book-Sales\.csv/.test(a.source()), loaded: u.loaded, rows: u.rows } : null;
+        });
+        check("Live spreadsheet: a ```sheet fence naming the kept workbook, its still drawn from the sheet's CSV", fence && fence.src && fence.loaded && fence.rows > 0, JSON.stringify(fence));
+        const kept = (await pd.evaluate(() => window.__docFiles())).filter((p) => p.startsWith("data/check-book"));
+        check("a workbook is kept as itself: the .xlsx, and no CSV files of its sheets", kept.includes("data/check-book.xlsx") && !kept.some((p) => p.endsWith(".csv")), JSON.stringify(kept));
+        const last = await pd.evaluate(() => window.__app.deck.slideCount() - 1);
+        await pd.evaluate((i) => { const a = window.__app; a.selectSlide(i); a.present(false); }, last);
+        await pd.waitForFunction(() => { const e = document.querySelector(".sheet-live"); return e && e.querySelector("canvas") && e.style.visibility === "visible"; }, null, { timeout: 30000 }).catch(() => {});
+        const shown = await pd.evaluate(() => { const e = document.querySelector(".sheet-live"); return e ? { inert: e.hasAttribute("inert"), canvas: !!e.querySelector("canvas"), w: parseInt(e.style.width, 10) } : null; });
+        check("presenting: the workbook is over the box, inert until Edit", shown && shown.inert && shown.canvas && shown.w > 200, JSON.stringify(shown));
+        const slideBefore = await pd.evaluate(() => JSON.parse(window.__app.layoutJson()).slide);
+        await pd.keyboard.press("e");
+        await pd.waitForFunction(() => window.__liveSheets.editing(), null, { timeout: 15000 }).catch(() => {});
+        await pd.waitForTimeout(400);
+        // A1 is the book's title and A2 its header: A3 is the first product.
+        await pd.keyboard.press("ArrowDown");
+        await pd.keyboard.press("ArrowDown");
+        await pd.keyboard.type("4242");
+        await pd.keyboard.press("Enter");
+        await pd.waitForTimeout(300);
+        const during = await pd.evaluate(() => ({ editing: window.__liveSheets.editing(), slide: JSON.parse(window.__app.layoutJson()).slide }));
+        check("E hands the keyboard to the sheet: arrows move cells, not slides", during.editing && during.slide === slideBefore, JSON.stringify(during));
+        await pd.keyboard.press("Escape");
+        await pd.waitForTimeout(1500);
+        const after = await pd.evaluate(() => {
+          const u = window.__app.deck.tables.find((x) => x.live);
+          let cells = [];
+          for (let r = 0; r < Math.min(u.rows, 4); r++) cells.push(u.cell(r, 0));
+          return { editing: window.__liveSheets.editing(), cells };
+        });
+        check("Esc hands it back, and the edit is saved into the workbook and the slide's still", !after.editing && after.cells.includes("4242"), JSON.stringify(after));
+        await pd.evaluate(() => window.__app.endPresent());
+      } else {
+        log("skip live spreadsheet checks: no web/dist/sheets (set EVGSHEETS_DIST to an EVGSheets build)");
+      }
     }
     // File → Open takes data and pictures too: they go to the Files tab, a
     // single data file through the same import dialog as a drop.

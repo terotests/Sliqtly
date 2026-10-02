@@ -2,9 +2,10 @@
 // pictures) into a presentation at sliqtly.com and hand back its link.
 //
 // Tools: sliqtly_guide, create_presentation, update_presentation,
-// bind_chart_data, get_presentation, list_presentations. create/update also name a UI resource (MCP Apps, and the
+// bind_chart_data, get_presentation, list_files, list_presentations. create/update also name a UI resource (MCP Apps, and the
 // same template for ChatGPT) that shows the deck inline in the chat.
 
+import { workbookInfo } from "./xlsx.js";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -253,7 +254,7 @@ export function createServer(opts) {
 
   server.registerTool("get_presentation", {
     title: "Read a presentation",
-    description: "Read a Sliqtly presentation's Markdown, theme, CSS and picture list by its deck_id (the id in https://sliqtly.com/s/<id>), to revise it.",
+    description: "Read a Sliqtly presentation's Markdown, theme, CSS, pictures and files (with what is in its .xlsx workbooks) by its deck_id (the id in https://sliqtly.com/s/<id>), to revise it.",
     inputSchema: { deck_id: z.string().describe("The id in the share link /s/<id>") },
     annotations: { readOnlyHint: true, openWorldHint: false },
     _meta: { securitySchemes: EITHER },
@@ -262,18 +263,66 @@ export function createServer(opts) {
     if (!/^[A-Za-z0-9]{6,32}$/.test(deck_id)) throw new InputError("deck_id is the 10-character id in the share link.");
     const d = await store.get(deck_id);
     if (!d) throw new InputError(`No presentation ${deck_id}.`);
+    const files = await filesOf(deck_id, d);
     const out = {
       title: d.name || "", theme: d.theme || "", markdown: d.md || "", css: d.css ?? null,
-      images: (d.files || []).map((f) => ({ name: f.path.replace(/^media\//, ""), type: f.type, size: f.size })),
+      images: (d.files || []).filter((f) => /^media\//.test(f.path)).map((f) => ({ name: f.path.replace(/^media\//, ""), type: f.type, size: f.size })),
+      files,
       ...links(deck_id),
     };
+    const others = files.filter((f) => f.kind !== "picture");
     const text = [
       `"${out.title}", theme ${out.theme || "(document's own)"}, ${out.images.length} pictures: ${out.images.map((i) => i.name).join(", ") || "none"}.`,
+      others.length ? "Files:\n" + filesText(others) : "",
       out.css != null ? "It has its own stylesheet (css below)." : "",
       "```markdown", out.markdown, "```",
       out.css != null ? "```css\n" + out.css + "\n```" : "",
     ].filter(Boolean).join("\n");
     return { content: [{ type: "text", text }], structuredContent: out };
+  }));
+
+  // Every file a deck keeps, and what is in its workbooks. Shared by
+  // list_files and get_presentation.
+  async function filesOf(deck_id, d) {
+    const kindOf = (p) => /^media\//.test(p) ? "picture" : /\.xlsx$/i.test(p) ? "workbook" : /^charts\//.test(p) ? "chart" : /^data\//.test(p) ? "data" : "file";
+    const files = (d.files || []).map((f) => ({ path: f.path, kind: kindOf(f.path), type: f.type || "", size: f.size || 0 }));
+    for (const f of files) {
+      if (f.kind !== "workbook") continue;
+      if (f.size > 20 * 1024 * 1024) { f.note = "too large to read here"; continue; }
+      try {
+        f.sheets = workbookInfo(await store.fileBytes(deck_id, f.path), f.path);
+      } catch (e) {
+        f.note = "could not read the workbook: " + (e && e.message ? e.message : e);
+      }
+    }
+    return files;
+  }
+
+  function filesText(files) {
+    if (!files.length) return "No files.";
+    const lines = [];
+    for (const f of files) {
+      lines.push(`- ${f.path} (${f.kind}, ${f.size} bytes)${f.note ? " — " + f.note : ""}`);
+      for (const s of f.sheets || []) {
+        lines.push(`  - sheet "${s.name}": ${s.rows} rows; columns ${s.columns.map((c) => JSON.stringify(c)).join(", ") || "(none)"}; read as ${s.csv}`);
+      }
+    }
+    return lines.join("\n");
+  }
+
+  server.registerTool("list_files", {
+    title: "List a presentation's files",
+    description: "List the files a Sliqtly presentation keeps — pictures (media/), data (data/), chart specs (charts/) and workbooks (.xlsx) — by its deck_id. For each workbook: its sheets, their columns and row counts, and the CSV name a ```table, ```sheet or vega-lite chart reads a sheet by (the editor derives those CSVs from the workbook; they are not separate files).",
+    inputSchema: { deck_id: z.string().describe("The id in the share link /s/<id>") },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    _meta: { securitySchemes: EITHER },
+  }, guarded("list_files", async ({ deck_id }) => {
+    if (store.kind === "link") throw new InputError("This server keeps no decks (no cloud storage configured).");
+    if (!/^[A-Za-z0-9]{6,32}$/.test(deck_id)) throw new InputError("deck_id is the 10-character id in the share link.");
+    const d = await store.get(deck_id);
+    if (!d) throw new InputError(`No presentation ${deck_id}.`);
+    const files = await filesOf(deck_id, d);
+    return { content: [{ type: "text", text: filesText(files) }], structuredContent: { files } };
   }));
 
   server.registerTool("list_presentations", {

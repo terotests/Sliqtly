@@ -73,6 +73,31 @@ public `https` URL or base64 data. PNG, JPEG, GIF, WebP and SVG, up to 5 MB.
   Under the fence: `{style=sketch}`, `{tour=off}`, `{layout=keep}`.
 - Math: `$…$` inline, `$$…$$` as a display, or a ```` ```math ```` fence (TeX).
 - Tables: ordinary Markdown tables, or HTML `<table>` with `rowspan`/`colspan`.
+- The deck's own data: `list_files` (and `get_presentation`) list the files a
+  deck keeps. For each `.xlsx` workbook they give its sheets, columns and row
+  counts, and the name a sheet is read by (e.g. `data/sales-Sales.csv`). The
+  editor derives that CSV from the workbook; it is not a separate file. Use
+  the name in a chart (`"data": {"url": "data/sales-Sales.csv"}`), in a paged
+  table:
+
+  ````markdown
+  ```table
+  data/sales-Sales.csv
+  rows: 8
+  columns: Region, Revenue
+  ```
+  ````
+
+  or as the workbook itself on the slide, which a presenter can open and edit
+  during the show (press E):
+
+  ````markdown
+  ```sheet
+  data/sales.xlsx
+  sheet: Sales
+  rows: 8
+  ```
+  ````
 - Inline HTML: `<mark>`, `<u>`, `<s>`, `<sub>`, `<sup>`, `<kbd>`, `<small>`,
   `<br>`, and `<span style="color:#e33">`.
 
