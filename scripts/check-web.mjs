@@ -126,6 +126,16 @@ try {
     }, [cx, cy]);
     const l3 = await lay();
     check("a double tap goes back to the whole slide", Math.abs(l3.stage[2] - l.stage[2]) < 1e-6, `${l3.stage[2].toFixed(2)}`);
+    // a little zoom near the slide's left side: on a portrait phone the
+    // fitted slide has room beside it, which must not show as a stripe
+    await touch("touchStart", [[cx - 120, cy], [cx - 80, cy]]);
+    for (let d = 22; d <= 28; d += 2) await touch("touchMove", [[cx - 100 - d, cy], [cx - 100 + d, cy]]);
+    await touch("touchEnd", []);
+    const l4 = await lay();
+    const pageW = await phone.evaluate(() => JSON.parse(window.__app.stageJson()).width);
+    const right = l4.stage[0] + l4.stage[2] * pageW;
+    check("a small zoom still covers the stage's edges", l4.stage[2] > l.stage[2] * 1.1 && l4.stage[0] <= l4.clip[0] + 0.5 && right >= l4.clip[0] + l4.clip[2] - 0.5,
+      `${l4.stage[0].toFixed(1)}..${right.toFixed(1)} vs ${l4.clip[0]}..${l4.clip[0] + l4.clip[2]}, scale ${(l4.stage[2] / l.stage[2]).toFixed(2)}`);
     await ctx.close();
   }
 

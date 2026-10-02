@@ -1171,8 +1171,30 @@ class PresApp {
             def zh:double (h * viewZoom)
             def cx:double (slideRect.x + (w * 0.5))
             def cy:double (slideRect.y + (h * 0.5))
-            slideRect.set((cx - (viewU * zw)) (cy - (viewV * zh)) zw zh)
+            ; Held against the stage, not the fitted slide: a slide wider than
+            ; the stage keeps both stage edges covered (no strip of the
+            ; stage's own colour at an edge), a narrower one stays centred.
+            def zx:double (PresApp.keepIn((cx - (viewU * zw)) zw area.x area.w))
+            def zy:double (PresApp.keepIn((cy - (viewV * zh)) zh area.y area.h))
+            viewU = ((cx - zx) / zw)
+            viewV = ((cy - zy) / zh)
+            slideRect.set(zx zy zw zh)
         }
+    }
+
+    ; Where a span `size` long starting at `at` goes so it covers the room
+    ; from `lo` (`len` long), or sits in its middle when it is shorter.
+    sfn keepIn:double (at:double size:double lo:double len:double) {
+        if (size <= len) {
+            return (lo + ((len - size) * 0.5))
+        }
+        if (at > lo) {
+            return lo
+        }
+        if ((at + size) < (lo + len)) {
+            return ((lo + len) - size)
+        }
+        return at
     }
 
     ; =========================================================================
@@ -1189,10 +1211,10 @@ class PresApp {
         def v:double ((((py - dy) - slideRect.y)) / slideRect.h)
         def z:double (viewZoom * f)
         if (z > 6.0) { z = 6.0 }
-        if (z < 1.02) {
-            this.viewReset()
-            return
-        }
+        ; out to the fitted size and no further; settled there when the
+        ; fingers are lifted (viewSettle), so the slide does not jump back
+        ; and forth around it during a pinch
+        if (z < 1.0001) { z = 1.0001 }
         def zw:double (viewBase.w * z)
         def zh:double (viewBase.h * z)
         def x1:double (px - (u * zw))
@@ -1200,12 +1222,14 @@ class PresApp {
         viewZoom = z
         viewU = (((viewBase.x + (viewBase.w * 0.5)) - x1) / zw)
         viewV = (((viewBase.y + (viewBase.h * 0.5)) - y1) / zh)
-        def half:double (0.5 / z)
-        if (viewU < half) { viewU = half }
-        if (viewU > (1.0 - half)) { viewU = (1.0 - half) }
-        if (viewV < half) { viewV = half }
-        if (viewV > (1.0 - half)) { viewV = (1.0 - half) }
         chromeRev = (chromeRev + 1)
+    }
+
+    ; The pinch is over: barely zoomed is the slide as it fits.
+    fn viewSettle:void () {
+        if (viewZoom < 1.08) {
+            this.viewReset()
+        }
     }
 
     fn viewReset:void () {

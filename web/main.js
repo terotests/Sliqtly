@@ -2595,7 +2595,11 @@ function endPointer(ev) {
   touches.delete(ev.pointerId);
   if (pinch) {
     // the pinch lasts until the last finger is lifted
-    if (touches.size === 0) pinch = null;
+    if (touches.size === 0) {
+      pinch = null;
+      app.viewSettle();
+      needsPaint = true;
+    }
     return;
   }
   app.pointerUp();
@@ -2612,6 +2616,15 @@ function endPointer(ev) {
   // so what it did to the clock is taken up here
   afterInput();
 }
+// The page itself must not move under a gesture on the canvas: no bounce,
+// no browser zoom (iOS Safari zooms on a pinch despite touch-action and the
+// viewport tag), no address bar sliding in and out and resizing the canvas
+// mid-pinch.
+canvas.addEventListener("touchmove", (ev) => ev.preventDefault(), { passive: false });
+for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
+  document.addEventListener(g, (ev) => ev.preventDefault(), { passive: false });
+}
+
 let diagramTold = false;
 let diagramTimer = 0;
 canvas.addEventListener("pointerup", endPointer);
