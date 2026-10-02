@@ -53,6 +53,8 @@ class PresToolbar {
     def themeRows:string ""
     def sampleValue:string ""
     def themeValue:string ""
+    ; File → Recent: "<deck id>\t<name>" a line, the latest first
+    def recentRows:string ""
     def playing:boolean false
     def status:string ""
     def requests:[string]
@@ -72,6 +74,9 @@ class PresToolbar {
         if (id == "theme") {
             themeRows = rows
             themeValue = current
+        }
+        if (id == "recent") {
+            recentRows = rows
         }
         if (id == "lang") {
             langRows = rows
@@ -191,6 +196,12 @@ class PresToolbar {
         if (id == "openbox") {
             return "openbox"
         }
+        if (id == "browse") {
+            return "showtab:files"
+        }
+        if ((indexOf id "r-") == 0) {
+            return ("files:doc:" + (substring id 2 (strlen id)))
+        }
         if ((indexOf id "s-") == 0) {
             return ("select:sample:" + (substring id 2 (strlen id)))
         }
@@ -232,6 +243,25 @@ class PresToolbar {
                     mark = "✓  "
                 }
                 MenuCtl.addKid(parent (prefix + v) (mark + (itemAt parts 1)) false)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Recent's rows: every deck first (the Files tab), then the latest ones.
+    fn recentKids:void (parent:UiItem) {
+        MenuCtl.addKid(parent "browse" (PresI18n.t("Browse all…")) false)
+        def lines:[string] (strsplit recentRows (strfromcode 10))
+        def first:boolean true
+        def i:int 0
+        while (i < (array_length lines)) {
+            def parts:[string] (strsplit (itemAt lines i) (strfromcode 9))
+            if ((array_length parts) >= 2) {
+                if first {
+                    MenuCtl.addKidSeparator(parent)
+                    first = false
+                }
+                MenuCtl.addKid(parent ("r-" + (itemAt parts 0)) (itemAt parts 1) false)
             }
             i = (i + 1)
         }
@@ -354,6 +384,8 @@ class PresToolbar {
             file.addItem("new" (PresI18n.t("New presentation")) false)
             file.addSeparator()
             file.addItem("openbox" (PresI18n.t("Open…")) false)
+            def rc:UiItem (file.addSub("recent" (PresI18n.t("Recent")) false))
+            this.recentKids(rc)
             file.addSeparator()
             file.addItem("save" (PresI18n.t("Save .md")) false)
             file.addSeparator()
@@ -424,6 +456,7 @@ class PresToolbar {
             this.button("dr-new" (PresI18n.t("New presentation")) "ghost" body)
             body.addChild((this.div("tb-dr-sep")))
             this.button("dr-openbox" (PresI18n.t("Open…")) "ghost" body)
+            this.button("dr-browse" (PresI18n.t("Browse all…")) "ghost" body)
             body.addChild((this.div("tb-dr-sep")))
             this.button("dr-save" (PresI18n.t("Save .md")) "ghost" body)
             body.addChild((this.div("tb-dr-sep")))

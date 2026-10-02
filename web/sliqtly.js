@@ -135,18 +135,6 @@ async function share(deck) {
   return id;
 }
 
-// A file of the signed-in user's deck, kept in Storage under
-// users/{uid}/decks/{deckId}/{path} (storage.rules: the user's own) →
-// { path, url } of the stored copy.
-async function putFile(deckId, path, blob) {
-  if (!user) throw new Error("not signed in");
-  const { files } = await store();
-  const where = `users/${user.uid}/decks/${deckId}/${path}`;
-  const ref = files.ref(where);
-  await ref.put(blob, { contentType: blob.type || "application/octet-stream" });
-  return { path: where, url: await ref.getDownloadURL() };
-}
-
 // A shared copy: { name, md, theme, css, files: [{ path, type, size, url }] },
 // or null when there is none by that id.
 async function loadShare(id) {
@@ -203,5 +191,5 @@ async function saveShare(id, deck, since) {
   return kept;
 }
 
-window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, loadShare, putFile };
+window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, loadShare };
 window.dispatchEvent(new Event("sliqtly:ready"));

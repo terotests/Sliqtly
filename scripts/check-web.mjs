@@ -731,6 +731,39 @@ try {
       return { n: lines.length, between, reqs, stillOpen };
     });
     check("…the File menu is grouped by three lines, and a line takes no press", seps.between && seps.reqs.length === 0 && seps.stillOpen, JSON.stringify(seps));
+
+    // File → Recent: Browse all… first (the Files tab), a line, then the decks
+    const recent = await page.evaluate(async () => {
+      const a = window.__app;
+      a.setToolbarOptions("recent", "deck-a\tOld deck\ndeck-b\tOlder deck", "");
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      const shut = () => { for (let n = 0; n < 3 && a.toolbar.openMenu() !== ""; n++) a.key("escape", false, false); };
+      const pick = async (id) => {
+        shut();
+        press(find("tb-m-file-trigger"));
+        press(find("tb-m-file-item-recent"));
+        let row = null;
+        for (let n = 0; n < 40 && !row; n++) { row = find("tb-m-file-item-recent-item-" + id); if (!row) await new Promise((r) => setTimeout(r, 100)); }
+        if (!row) return null;
+        for (;;) { if (!a.takeRequest()) break; }
+        press(row);
+        const reqs = [];
+        for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
+        shut();
+        return reqs;
+      };
+      const content = () => { const c = find("tb-m-file-item-recent-content"); return c ? (c.children || []).map((k) => k.id) : []; };
+      press(find("tb-m-file-trigger"));
+      press(find("tb-m-file-item-recent"));
+      let order = [];
+      for (let n = 0; n < 40 && order.length === 0; n++) { order = content(); if (!order.length) await new Promise((r) => setTimeout(r, 100)); }
+      shut();
+      const browse = await pick("browse");
+      const deck = await pick("r-deck-a");
+      return { order, browse, deck };
+    });
+    check("…File → Recent lists Browse all… first, then the decks, and each opens", recent.order.length === 4 && /browse$/.test(recent.order[0]) && /sep-1$/.test(recent.order[1]) && /r-deck-a$/.test(recent.order[2]) && (recent.browse || []).includes("showtab:files") && (recent.deck || []).includes("files:doc:deck-a"), JSON.stringify(recent));
   }
 
   // Edit in Claude / ChatGPT: File menu rows; signed out, the assistant opens
