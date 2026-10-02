@@ -11,6 +11,19 @@
 ;   page: 1
 ;   ```
 ;
+;   ```sheet
+;   data/sales.xlsx
+;   sheet: Sales
+;   rows: 10
+;   ```
+;
+; ```sheet is the same box, live: the slide paints the table as below (the
+; picture exports and transitions use), and while presenting the page puts
+; the workbook itself over it — EVGSheets, read-only until someone presses
+; Edit (or E). `sheet:` names the sheet to show, and `data:` the CSV the still
+; picture is drawn from; for a workbook it defaults to the one the import
+; kept beside it, `data/<book>-<sheet>.csv`.
+;
 ; A table of two hundred rows does not belong on twenty slides. It stays on
 ; one, a page of `rows` at a time, with ‹ 1/25 › under it to turn the pages
 ; while presenting. An export (PDF, PPTX) shows the page the fence names
@@ -34,6 +47,13 @@ class PresTableUse {
     def key:string ""
     ; which table of the document this is (for the page it was left on)
     def ordinal:int 0
+    ; a ```sheet: the live workbook goes over the box while presenting
+    def live:boolean false
+    ; the file the fence names (a workbook, or the CSV itself)
+    def file:string ""
+    def sheet:string ""
+    ; the CSV the still is drawn from, when the fence says
+    def data:string ""
     def perPage:int 8
     def page:int 0
     ; the page the fence asks an export for
@@ -77,7 +97,45 @@ class PresTable {
 
     ; --- reading the fence -------------------------------------------------------
     sfn isOpening:boolean (t:string) {
-        return ((indexOf t "```table") == 0)
+        return (((indexOf t "```table") == 0) || ((indexOf t "```sheet") == 0))
+    }
+
+    ; Options that hold a path or a name with a slash in it: never the file.
+    sfn isNamedOption:boolean (line:string) {
+        def k:string (PresTable.option(line))
+        return ((k == "data") || (k == "sheet"))
+    }
+
+    ; The CSV a workbook's sheet was kept as by the import (main.js names
+    ; them `<book>-<sheet>.csv`, or `<book>.csv` for a one-sheet book).
+    sfn sheetCsv:string (file:string sheet:string) {
+        def n:int (strlen file)
+        if ((n < 5) || ((MdChar.lower((substring file (n - 5) n))) != ".xlsx")) {
+            return file
+        }
+        def base:string (substring file 0 (n - 5))
+        if ((strlen sheet) == 0) {
+            return (base + ".csv")
+        }
+        ; a run of characters a file name cannot hold is one dash, as the
+        ; import's /[\\/:*?"<>|\s]+/ makes it
+        def clean:string ""
+        def dash:boolean false
+        def i:int 0
+        while (i < (strlen sheet)) {
+            def ch:int (charAt sheet i)
+            if ((ch == 32) || (ch == 47) || (ch == 92) || (ch == 58) || (ch == 42) || (ch == 63) || (ch == 34) || (ch == 60) || (ch == 62) || (ch == 124) || (ch == 9) || (ch == 10) || (ch == 13)) {
+                if (dash == false) {
+                    clean = (clean + "-")
+                }
+                dash = true
+            } {
+                clean = (clean + (substring sheet i (i + 1)))
+                dash = false
+            }
+            i = (i + 1)
+        }
+        return ((base + "-") + clean) + ".csv"
     }
 
     ; `key: value` (a body line) or `key=value` (an argument on the opening
@@ -124,6 +182,12 @@ class PresTable {
                 p = 1
             }
             u.stillPage = (p - 1)
+        }
+        if (k == "sheet") {
+            u.sheet = v
+        }
+        if (k == "data") {
+            u.data = v
         }
         if (k == "columns") {
             def none:[string]
@@ -190,7 +254,7 @@ class PresTable {
                 while (b < last) {
                     def bt:string (trim (itemAt lines b))
                     if ((strlen bt) > 0) {
-                        if (((strlen (PresTable.option(bt))) > 0) && ((indexOf bt "/") < 0)) {
+                        if ((((strlen (PresTable.option(bt))) > 0) && ((indexOf bt "/") < 0)) || (PresTable.isNamedOption(bt))) {
                             PresTable.applyOption(u bt)
                         } {
                             if (pathLine < 0) {
@@ -212,6 +276,15 @@ class PresTable {
                     }
                     i = (i + 1)
                 } {
+                    u.live = ((indexOf t "```sheet") == 0)
+                    u.file = u.path
+                    if ((strlen u.data) > 0) {
+                        u.path = u.data
+                    } {
+                        if u.live {
+                            u.path = (PresTable.sheetCsv(u.file u.sheet))
+                        }
+                    }
                     push uses u
                     out = ((((out + (substring line 0 lead)) + "```vega") + (PresTable.spaces(((strlen line) - lead) - 7))) + "\n")
                     def k:int (i + 1)

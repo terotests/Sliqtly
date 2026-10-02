@@ -34,7 +34,7 @@ export function build({ ranger } = {}) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
   };
-  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
   // the interface in other languages (web/i18n.js)
   for (const f of fs.readdirSync(path.join(webDir, "i18n")).filter((f) => f.endsWith(".json"))) copy(path.join(webDir, "i18n", f), path.join(distDir, "i18n", f));
   // the controls' own theme, for the chart editor
@@ -50,6 +50,20 @@ export function build({ ranger } = {}) {
   }
   copy(path.join(ranger, "gallery/pdf_writer/assets/fonts/Noto_Emoji/NotoEmoji-Regular.ttf"), path.join(distDir, "fonts/NotoEmoji-Regular.ttf"));
   for (const f of fs.readdirSync(path.join(root, "themes"))) copy(path.join(root, "themes", f), path.join(distDir, "themes", f));
+  // Live spreadsheets (```sheet, .xlsx in Files) are EVGSheets. A built copy
+  // goes beside the page when there is one — $EVGSHEETS_DIST, or
+  // .deps/EVGSheets/dist — and otherwise the page loads it from its own
+  // site (presentation.config.json "evgsheets.base").
+  const config = JSON.parse(fs.readFileSync(path.join(root, "presentation.config.json"), "utf8"));
+  let sheetsBase = (config.evgsheets && config.evgsheets.base) || "https://terotests.github.io/EVGSheets/";
+  const sheetsDist = process.env.EVGSHEETS_DIST || path.join(root, ".deps", "EVGSheets", "dist");
+  if (fs.existsSync(path.join(sheetsDist, "evgsheets.mjs"))) {
+    fs.cpSync(sheetsDist, path.join(distDir, "sheets"), { recursive: true });
+    sheetsBase = "./sheets/";
+    log(`sheets ${sheetsDist} → web/dist/sheets`);
+  } else {
+    log(`sheets loaded from ${sheetsBase}`);
+  }
   // GitHub Pages serves the directory as it is; no Jekyll pass over it.
   fs.writeFileSync(path.join(distDir, ".nojekyll"), "");
   for (const t of ["corporate", "editorial"]) {
@@ -64,7 +78,7 @@ export function build({ ranger } = {}) {
   // Every URL the page loads carries the hash of the build, so a reload
   // never mixes an old script with a new one.
   const h = crypto.createHash("sha1");
-  for (const f of ["pres_app.js", "pres_data.js", "main.js", "vfs.js", "i18n.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css", "ui.css", "gl/evg-webgl.js", "gl/evg-a11y.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
+  for (const f of ["pres_app.js", "pres_data.js", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css", "ui.css", "gl/evg-webgl.js", "gl/evg-a11y.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
   for (const f of fs.readdirSync(path.join(distDir, "themes"))) h.update(fs.readFileSync(path.join(distDir, "themes", f)));
   for (const f of fs.readdirSync(path.join(distDir, "i18n"))) h.update(fs.readFileSync(path.join(distDir, "i18n", f)));
   const stamp = h.digest("hex").slice(0, 10);
@@ -76,6 +90,8 @@ export function build({ ranger } = {}) {
     .replace("./gl/evg-a11y.js", "./gl/evg-a11y.js?v=" + stamp)
     .replace('"./i18n.js"', '"./i18n.js?v=' + stamp + '"')
     .replace('"./pres_data.js"', '"./pres_data.js?v=' + stamp + '"')
+    .replace('"./sheets-live.js"', '"./sheets-live.js?v=' + stamp + '"')
+    .split("__SHEETS_BASE__").join(sheetsBase)
     .split("__BUILD__").join(stamp));
   // sliqtly.js shares main.js's i18n module: the same URL, one instance
   const pro = path.join(distDir, "sliqtly.js");

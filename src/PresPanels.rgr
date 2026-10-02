@@ -815,6 +815,9 @@ class PresPanels {
 
     fn pickStep:void (d:EVGElement) {
         d.addChild((this.dataChoice("chart" (PresI18n.t("Chart")) (PresI18n.t("Pick the columns; Sliqtly suggests the chart type.")) (PresI18n.t("Make a chart")) "primary")))
+        if ((strlen imp.xlsx) > 0) {
+            d.addChild((this.dataChoice("live" (PresI18n.t("Live spreadsheet")) (PresI18n.t("The workbook itself on the slide: explore it, or edit it, while presenting.")) (PresI18n.t("Put on a slide")) "secondary")))
+        }
         d.addChild((this.dataChoice("table" (PresI18n.t("Table")) (PresI18n.t("All rows on one slide, page by page: ‹ 1/5 › in the show.")) (PresI18n.t("Make a table")) "secondary")))
         d.addChild((this.dataChoice("file" (PresI18n.t("Just the file")) (PresI18n.t("Kept under data/ for charts and tables to use.")) (PresI18n.t("Add file")) "secondary")))
         def foot:EVGElement (this.div("pn-dfoot"))
@@ -1011,7 +1014,7 @@ class PresPanels {
             }
             return
         }
-        if ((oc == "pn-d-table") || (oc == "pn-d-file")) {
+        if ((oc == "pn-d-table") || (oc == "pn-d-file") || (oc == "pn-d-live")) {
             push requests ("data:" + (substring oc 5 (strlen oc)))
             this.closeShare()
             return

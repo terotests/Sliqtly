@@ -24,6 +24,8 @@ Import "PresI18n.rgr"
 class PresImport {
     ; the file as it was dropped ("sales.xlsx")
     def name:string ""
+    ; where the workbook itself was kept, for a dropped .xlsx ("" otherwise)
+    def xlsx:string ""
     ; one entry per sheet (a CSV or JSON file is one sheet)
     def sheetNames:[string]
     def sheetPaths:[string]
@@ -57,6 +59,7 @@ class PresImport {
             return false
         }
         name = (j.stringOr("name" ""))
+        xlsx = (j.stringOr("xlsx" ""))
         def none:[string]
         sheetNames = none
         def none2:[string]

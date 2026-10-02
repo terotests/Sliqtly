@@ -2,5 +2,8 @@
   "ranger": {
     "url": "https://github.com/terotests/Ranger",
     "ref": "claude/nifty-dijkstra-vq2qit"
+  },
+  "evgsheets": {
+    "base": "https://terotests.github.io/EVGSheets/"
   }
 }
