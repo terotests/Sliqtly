@@ -842,6 +842,9 @@ function handleRequests() {
       // the canvas bar: the page's own button does what it always did
       const b = document.getElementById(r.slice(6));
       if (b) b.click();
+    } else if (r.startsWith("showtab:")) {
+      app.showTab(r.slice(8));
+      needsPaint = true;
     } else if (r.startsWith("copy:")) {
       copyShare(r.slice(5)).catch(fail);
     } else if (r.startsWith("select:")) {

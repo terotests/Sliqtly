@@ -173,12 +173,55 @@ class PresToolbar {
         return ((w < 980.0) || coarse)
     }
 
-    ; What a menu's or the drawer's row asks of the page.
+    ; What a menu's or the drawer's row asks of the page: a sample
+    ; ("s-<key>") and a theme ("t-<key>") are the page's selects changed,
+    ; "css" opens the theme's CSS tab, "new" a new deck, the rest the page's
+    ; button of that id.
     sfn requestFor:string (id:string) {
         if (id == "new") {
             return "files:new"
         }
+        if (id == "css") {
+            return "showtab:css"
+        }
+        if ((indexOf id "s-") == 0) {
+            return ("select:sample:" + (substring id 2 (strlen id)))
+        }
+        if ((indexOf id "t-") == 0) {
+            return ("select:theme:" + (substring id 2 (strlen id)))
+        }
         return ("click:" + id)
+    }
+
+    ; A select's rows as menu rows: a group's name a heading (disabled), the
+    ; current one ticked.
+    fn menuRows:void (mb:MenubarCtl menu:string prefix:string rows:string current:string heading:string) {
+        if ((strlen heading) > 0) {
+            mb.addItem(menu ("h-" + prefix) heading true)
+        }
+        def lines:[string] (strsplit rows (strfromcode 10))
+        def group:string ""
+        def i:int 0
+        while (i < (array_length lines)) {
+            def parts:[string] (strsplit (itemAt lines i) (strfromcode 9))
+            if ((array_length parts) >= 2) {
+                def g:string ""
+                if ((array_length parts) >= 3) {
+                    g = (itemAt parts 2)
+                }
+                if ((g != group) && ((strlen g) > 0)) {
+                    mb.addItem(menu ((("h-" + prefix) + "-") + g) g true)
+                }
+                group = g
+                def v:string (itemAt parts 0)
+                def mark:string "    "
+                if (v == current) {
+                    mark = "✓  "
+                }
+                mb.addItem(menu (prefix + v) (mark + (itemAt parts 1)) false)
+            }
+            i = (i + 1)
+        }
     }
 
     ; The page's own buttons (PresApp.setToolbarExtras), in order.
@@ -226,19 +269,19 @@ class PresToolbar {
             mb.addItem("file" "new" (PresI18n.t("New presentation")) false)
             mb.addItem("file" "open" (PresI18n.t("Open…")) false)
             mb.addItem("file" "save" (PresI18n.t("Save .md")) false)
-            mb.addItem("file" "pdf" (PresI18n.t("Export PDF")) false)
-            mb.addItem("file" "pptx" (PresI18n.t("Export PPTX")) false)
+            this.menuRows(mb "file" "s-" sampleRows sampleValue (PresI18n.t("Samples")))
+            mb.addMenu("slide" (PresI18n.t("Slide")))
+            this.menuRows(mb "slide" "t-" themeRows themeValue (PresI18n.t("Theme")))
+            mb.addItem("slide" "css" (PresI18n.t("Edit theme CSS…")) false)
+            mb.addMenu("export" (PresI18n.t("Export")))
+            mb.addItem("export" "pdf" (PresI18n.t("PDF")) false)
+            mb.addItem("export" "pptx" (PresI18n.t("PowerPoint (PPTX)")) false)
             mb.addMenu("help" (PresI18n.t("Help")))
             mb.addItem("help" "helpBtn" (PresI18n.t("Help for this slide")) false)
             mb.openValue = keepMenu
             mb.build()
             menubar = mb
             this.put(mb bar)
-            bar.addChild((this.div("tb-sep")))
-            bar.addChild((this.text("tb-label" (PresI18n.t("Presentation")))))
-            sample = (this.select("sample" (PresI18n.t("Presentation")) sampleRows sampleValue bar))
-            bar.addChild((this.text("tb-label" (PresI18n.t("Theme")))))
-            theme = (this.select("theme" (PresI18n.t("Theme")) themeRows themeValue bar))
             bar.addChild((this.div("tb-sep")))
             this.button("play" play "outline" bar)
             this.button("present" (PresI18n.t("⛶ Present")) "primary" bar)
