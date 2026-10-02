@@ -57,6 +57,30 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 ````
 
 - A slide starts at `#` and `##` (the aurora theme sets `deck { split-level: 2 }`).
+- **Header and footer** on every slide, from the front matter or the theme.
+  Each edge has three places, `-left`, `-center` and `-right`; `{page}`,
+  `{pages}` and `{title}` are filled in, and a place can hold a picture
+  written as in the text:
+
+  ```yaml
+  header-left: "{title}"
+  header-right: ![](media/logo.png)
+  footer-left: Luottamuksellinen
+  footer-right: "{page} / {pages}"
+  header-skip: first last      # no header on the cover and the last slide
+  footer-skip: first           # first, last, slide numbers (3 7)
+  footer-background: "#1e1b4b" # a band to the slide's edge
+  ```
+
+  Also `header-color`, `header-size`, `header-image-height` (and the
+  footer's). `## Title {header=off}`, `{footer=off}` or `{furniture=off}`
+  leaves a slide without it. In the theme: `footer { content-left: "…";
+  content-right: "{page}"; color; font-size; font-weight: bold;
+  background-color; border-color (a hairline); height (the picture) }`. A
+  tall header or logo widens the margin so it does not cover the content.
+  The stage, the PDF and the PPTX draw the same header and footer; it is
+  laid out by Ranger's markdown module (`MdLayout.emitHeadFoot`).
+  `samples/raportti.md` shows it.
 - A slide with room is set larger: text, headings and spacing together, up to
   1.6×, as long as it fits and a one-line title stays one line. Slides with a
   picture or a diagram keep their sizes. `slide-grow: 1.3` in the front matter

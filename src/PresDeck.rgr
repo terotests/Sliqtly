@@ -1574,11 +1574,16 @@ class PresDeck {
             def b:MdBox (itemAt l.boxes bi)
             if (b.page == i) {
                 push mine b
+                if (b.furniture > 0) {
+                    ; the header and the footer arrive with the slide
+                    push groupOfBox -1
+                } {
                 if ((b.kind == 0) && (b.segSrc < 0)) {
                     ; a marker: decided by its line, below
                     push groupOfBox -1
                 } {
                     push groupOfBox (this.groupOf(s b))
+                }
                 }
             }
             bi = (bi + 1)
@@ -1586,7 +1591,7 @@ class PresDeck {
         def m:int 0
         while (m < (array_length mine)) {
             def mb:MdBox (itemAt mine m)
-            if (((itemAt groupOfBox m) < 0) && ((mb.kind == 0) && (mb.segSrc < 0))) {
+            if (((itemAt groupOfBox m) < 0) && (((mb.kind == 0) && (mb.segSrc < 0)) && (mb.furniture == 0))) {
                 def best:int -1
                 def bestD:double 1000000.0
                 def o:int 0

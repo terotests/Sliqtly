@@ -59,6 +59,7 @@ const SAMPLES = {
   ohjelmointi: ["Ohjelmointi: versionhallinta", "./samples/ohjelmointi.md"],
   matematiikka: ["Matematiikka: kaavat kalvoilla", "./samples/matematiikka.md"],
   vegalite: ["Vega-Lite: kaaviotyypit", "./samples/vegalite.md"],
+  raportti: ["Raportti: ylä- ja alaosa, sivunumerot", "./samples/raportti.md"],
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
 };
 
