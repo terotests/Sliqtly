@@ -710,6 +710,27 @@ try {
       return { onTop, underPanel, reqs, closed };
     });
     check("…over the Files tab the File menu is on top, and its row takes the press", onFiles.onTop && onFiles.underPanel && onFiles.reqs.includes("click:save") && onFiles.closed, JSON.stringify(onFiles));
+
+    // the File menu's groups: new | open | save | the assistants, lines between them
+    // that take no press
+    const seps = await page.evaluate(() => {
+      const a = window.__app;
+      const all = () => { a.toolbarJson(); const out = []; const w = (e) => { if ((e.className || "").includes("ui-dropdownmenu-separator")) out.push(e); for (const k of e.children || []) w(k); }; w(a.toolbar.host.lastPage); return out; };
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY, false, 1); a.pointerUp(); };
+      press(find("tb-m-file-trigger"));
+      const lines = all();
+      const ys = ["new", "openbox", "save", "aiClaude"].map((id) => find("tb-m-file-item-" + id).calculatedY);
+      const between = lines.length === 3 && lines.every((l, i) => l.calculatedY > ys[i] && l.calculatedY < ys[i + 1] && l.calculatedHeight === 1);
+      for (;;) { if (!a.takeRequest()) break; }
+      press(lines[0]);
+      const reqs = [];
+      for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
+      const stillOpen = a.toolbar.openMenu() !== "";
+      a.key("escape", false, false);
+      return { n: lines.length, between, reqs, stillOpen };
+    });
+    check("…the File menu is grouped by three lines, and a line takes no press", seps.between && seps.reqs.length === 0 && seps.stillOpen, JSON.stringify(seps));
   }
 
   // Edit in Claude / ChatGPT: File menu rows; signed out, the assistant opens
