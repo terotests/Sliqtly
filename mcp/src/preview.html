@@ -47,6 +47,9 @@
     else if (mcpApps) request("ui/open-link", { url });
     else window.open(url, "_blank", "noopener");
   }
+  // the viewer's ⋯ menu (web/main.js): srcdoc is this page's origin, and
+  // the sandbox lets only the host open a tab
+  window.__sliqtlyOpenLink = openLink;
 
   function reportSize() {
     if (!mcpApps) return;

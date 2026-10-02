@@ -1505,13 +1505,19 @@ document.getElementById("vFull").addEventListener("click", () => {
 // The … menu: the deck as PDF, PPTX or Markdown (the editor's exports), a new
 // deck of the reader's own based on this one, and, for the signed-in owner of
 // a cloud share, Edit, which opens their own deck in the editor.
-// The page may be a blob: copy of index.html (the AI preview); its <base> is
-// the site, so the links are made against it and open in a new tab.
+// Embedded in an assistant's preview (mcp/src/preview.html writes the page as
+// srcdoc, with <meta name="sliqtly-link">) the page has no address and its
+// sandbox allows no downloads or windows: every item opens sliqtly.com in a
+// new tab through the preview (window.__sliqtlyOpenLink, the host's
+// ui/open-link), exports with ?export=pdf|pptx|md, which the site runs on load.
 const vMenu = document.getElementById("vMenu");
 const vMore = document.getElementById("vMore");
 const vExportSub = document.getElementById("vExportSub");
 const vExport = document.getElementById("vExport");
-const framed = location.protocol === "blob:";
+const framed = location.protocol === "blob:" || !!document.querySelector('meta[name="sliqtly-link"]');
+function siteUrl(path) {
+  return new URL(path, framed ? SITE + "/" : document.baseURI).href;
+}
 let viewShare = null; // { id, owner, deck } of a cloud share being shown
 function ownsShare() {
   const u = window.sliqtly?.user?.();
@@ -1531,19 +1537,33 @@ function toggleViewMenu(open) {
 }
 window.addEventListener("sliqtly:user", () => { document.getElementById("vEdit").hidden = !ownsShare(); });
 function siteLink(url) {
-  if (framed) window.open(url, "_blank", "noopener");
-  else {
+  if (framed) {
+    let open = null;
+    try { open = window.parent !== window && window.parent.__sliqtlyOpenLink; } catch (_) { /* another origin */ }
+    if (typeof open === "function") open(url);
+    else window.open(url, "_blank", "noopener");
+  } else {
     location.assign(url);
     // only the hash changed: the page would stay the viewer
     if (new URL(url).pathname === location.pathname && !new URL(url).search) location.reload();
   }
 }
 function createFromViewed() {
-  if (viewShare) return siteLink(new URL("s/" + viewShare.id + "?edit", document.baseURI).href);
+  if (viewShare) return siteLink(siteUrl("s/" + viewShare.id + "?edit"));
   const q = hashParams();
   q.delete("mode");
-  siteLink(new URL(document.baseURI).href.replace(/#.*$/, "") + "#" + q.toString());
+  q.delete("export");
+  siteLink(siteUrl("").replace(/#.*$/, "") + "#" + q.toString());
 }
+// the shown deck on the site, exporting itself there
+function exportOnSite(kind) {
+  if (viewShare) return siteLink(siteUrl("s/" + viewShare.id + "?export=" + kind));
+  const q = hashParams();
+  q.set("mode", "show");
+  q.set("export", kind);
+  siteLink(siteUrl("").replace(/#.*$/, "") + "#" + q.toString());
+}
+const EXPORTS = { pdf: () => exportPdf(), pptx: () => exportPptx(), md: () => exportMd() };
 async function exportMd() {
   window.__lastDownload = deliver(new TextEncoder().encode(app.source()), exportName() + ".md", "text/markdown");
 }
@@ -1558,12 +1578,12 @@ vMenu.addEventListener("click", (ev) => {
   const act = ev.target.closest("[data-act]")?.dataset.act;
   if (!act) return;
   toggleViewMenu(false);
-  if (act === "pdf") exportPdf().catch(fail);
-  else if (act === "pptx") exportPptx().catch(fail);
-  else if (act === "md") exportMd().catch(fail);
-  else if (act === "new") createFromViewed();
+  if (EXPORTS[act]) {
+    if (framed) exportOnSite(act);
+    else EXPORTS[act]().catch(fail);
+  } else if (act === "new") createFromViewed();
   else if (act === "edit" && ownsShare()) {
-    siteLink(new URL("?deck=" + encodeURIComponent(viewShare.deck) + "&from=" + viewShare.id, document.baseURI).href);
+    siteLink(siteUrl("?deck=" + encodeURIComponent(viewShare.deck) + "&from=" + viewShare.id));
   }
 });
 vMenu.addEventListener("keydown", (ev) => {
@@ -2279,6 +2299,20 @@ async function start() {
   document.body.classList.remove("booting");
   if (!viewer && !isCoarse()) focusKeys("editor");
   window.__pageStarted = true;
+  // ?export=pdf|pptx|md (or in the #…): an export asked for from the
+  // assistant's preview, which cannot download
+  const ask = q.get("export") || hashParams().get("export");
+  if (viewer && !framed && EXPORTS[ask]) {
+    toast(t("Preparing the download…"));
+    EXPORTS[ask]().catch(fail);
+    // once: a reload shows the deck without downloading it again
+    const h = hashParams();
+    h.delete("export");
+    q.delete("export");
+    const search = q.toString();
+    history.replaceState(null, "", location.pathname + (search ? "?" + search : "") + (location.hash ? "#" + h.toString() : ""));
+    lastHash = location.hash;
+  }
   requestAnimationFrame(frame);
 }
 
