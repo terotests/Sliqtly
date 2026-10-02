@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"mime"
 	"net"
 	"net/http"
@@ -29,6 +30,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/terotests/sliqtly/mcp-go/presdata"
 )
 
 //go:generate sh -c "mkdir -p assets && cp ../mcp/guide.md ../mcp/src/preview.html assets/"
@@ -58,6 +61,7 @@ type DB interface {
 type Bucket interface {
 	Name() string
 	Save(ctx context.Context, path, contentType string, data []byte, metadata map[string]string) error
+	Read(ctx context.Context, path string, limit int64) ([]byte, error)
 }
 
 // IDToken is what a verified Firebase ID token says about the person.
@@ -395,6 +399,41 @@ func (h *McpHost) Upload(handle int64, path, contentType, token string) {
 		return
 	}
 	h.fail(h.env.Bucket.Save(h.ctx, path, contentType, h.images[handle], map[string]string{"firebaseStorageDownloadTokens": token}))
+}
+
+// a deck's data files are read whole, up to this
+const maxFileRead = 20 << 20
+
+func (h *McpHost) FileBytes(id, path string) string {
+	if h.env.Bucket == nil {
+		h.fail(fmt.Errorf("no cloud storage configured"))
+		return `{"handle":0,"size":0}`
+	}
+	b, err := h.env.Bucket.Read(h.ctx, "shares/"+id+"/"+path, maxFileRead)
+	if err != nil {
+		h.fail(err)
+		return `{"handle":0,"size":0}`
+	}
+	return toJSON(map[string]any{"handle": h.keep(b), "size": len(b)})
+}
+
+func (h *McpHost) KeepText(text string) int64 { return h.keep([]byte(text)) }
+func (h *McpHost) Text(handle int64) string   { return string(h.images[handle]) }
+
+func (h *McpHost) XlsxSheets(handle int64) string {
+	return presdata.PresData_static_xlsxSheets(h.images[handle])
+}
+
+func (h *McpHost) Precision(n string, digits int64) string {
+	f, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
+	if err != nil {
+		return n
+	}
+	f, _ = strconv.ParseFloat(strconv.FormatFloat(f, 'g', int(digits), 64), 64)
+	if a := math.Abs(f); a >= 1e21 || (a != 0 && a < 1e-6) {
+		return strconv.FormatFloat(f, 'g', -1, 64)
+	}
+	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
 func (h *McpHost) Bucket() string {

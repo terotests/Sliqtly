@@ -16,11 +16,13 @@ Not deployed. `mcp/` (the Cloud Function, Node.js) is still what
 | --- | --- |
 | [`rgr/App.rgr`](rgr/App.rgr) | routing, CORS, the `/mcp` transport checks, sign-in on a request |
 | [`rgr/Mcp.rgr`](rgr/Mcp.rgr) | MCP: JSON-RPC, `initialize`, `tools/*`, `resources/*` |
-| [`rgr/Tools.rgr`](rgr/Tools.rgr) | the six tools, their schemas and UI metadata, the preview resource |
+| [`rgr/Tools.rgr`](rgr/Tools.rgr) | the eight tools, their schemas and UI metadata, the preview resource |
 | [`rgr/OAuth.rgr`](rgr/OAuth.rgr) | the OAuth 2.1 server: registration, authorize, approve, token, refresh |
 | [`rgr/Store.rgr`](rgr/Store.rgr) | shares, edit keys, pictures, listing |
 | [`rgr/Deck.rgr`](rgr/Deck.rgr) | the checks: picture names and types, outline, warnings |
 | [`rgr/Charts.rgr`](rgr/Charts.rgr) | `bind_chart_data`: finds a deck's ```` ```vega-lite ```` charts and points one at a CSV/JSON URL or a Google Sheet (as `mcp/src/deck.js`) |
+| [`rgr/Files.rgr`](rgr/Files.rgr) | a deck's data files: `list_files`, `read_file` and `files` on create/update; workbooks read and tidied as the editor reads them |
+| [`rgr/PresDataGo.rgr`](rgr/PresDataGo.rgr) | the editor's workbook reader ([`src/PresData.rgr`](../src/PresData.rgr), datagrid's XlsxLoader) compiled on its own to the package `presdata/` (generated, not committed): its XmlLite and the deck model's XmlCore both define `XmlAttr`, so they cannot share one compile |
 | [`rgr/Check.rgr`](rgr/Check.rgr) | the deck read by the editor's own model ([`src/PresDeck.rgr`](../src/PresDeck.rgr)): slide count, slides that run over, charts and diagrams that are not drawn |
 | [`rgr/Json.rgr`](rgr/Json.rgr) | JSON: Ranger's own `MfJ` (gallery/mfiles) and a writer |
 | [`rgr/McpHost.rgr`](rgr/McpHost.rgr) | the operators the Go host implements |
@@ -112,8 +114,9 @@ Each step needs Tero's go-ahead; nothing here has been run.
    Generating the Go code takes about 3.6 GB of memory (Node's heap is raised
    to 6 GB in `gen.mjs`), so the machine that builds the image needs more
    than 4 GB.
-   The service account needs Cloud Datastore User and Storage Object Creator
-   on the `sliqtly` project; verifying Google ID tokens needs no role.
+   The service account needs Cloud Datastore User and Storage Object Admin
+   (it writes pictures and data files and reads workbooks back) on the
+   `sliqtly` project; verifying Google ID tokens needs no role.
 2. **Test it on its `run.app` URL** with the MCP Inspector and Claude: create,
    update, read, list, sign-in. The decks it writes are real shares.
 3. **Switch the rewrites** in `firebase.json` from the function to the service

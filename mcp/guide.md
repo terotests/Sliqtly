@@ -101,8 +101,8 @@ public `https` URL or base64 data. PNG, JPEG, GIF, WebP and SVG, up to 5 MB.
 - Reading data: `read_file` with the deck_id and a path from `list_files`
   gives the values: a workbook's sheet (`data/sales.xlsx` with `sheet`, or
   `data/sales-Sales.csv`) or a CSV as rows, 200 at a time (`offset`,
-  `limit` up to 2000); a JSON or text file as its text. Dates in a workbook
-  are Excel serial numbers (days since 1899-12-30).
+  `limit` up to 2000); a JSON or text file as its text. The answer says how
+  a workbook's dates are written.
 - Adding data: `create_presentation` and `update_presentation` take `files`:
   `{ "name": "sales.xlsx", "data_base64": "…" }` (or `url`), or
   `{ "name": "sales.csv", "text": "Region,Revenue\nNorth,120\n" }`. Each is

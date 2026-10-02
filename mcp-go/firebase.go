@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 
 	"cloud.google.com/go/firestore"
 	"cloud.google.com/go/storage"
@@ -80,6 +81,15 @@ func (g gcsBucket) Save(ctx context.Context, path, contentType string, data []by
 		return err
 	}
 	return w.Close()
+}
+
+func (g gcsBucket) Read(ctx context.Context, path string, limit int64) ([]byte, error) {
+	r, err := g.b.Object(path).NewReader(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	return io.ReadAll(io.LimitReader(r, limit))
 }
 
 // The Firebase project's Firestore, Storage and Auth, with Application

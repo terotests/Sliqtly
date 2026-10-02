@@ -3,3 +3,4 @@ assets/
 *.test
 /mcp-go
 /sliqtly_mcp.go
+/presdata/presdata.go
