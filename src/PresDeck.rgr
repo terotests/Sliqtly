@@ -129,6 +129,12 @@ class PresDeck {
     def fxStills:[int]
     def pageW:double 960.0
     def pageH:double 540.0
+    ; The front matter's `orientation` ("portrait", "landscape" or ""), and
+    ; the theme's page turned on its side ("540x960pt") for the stylesheet
+    ; it was measured with.
+    def orientation:string ""
+    def themeSizeOf:string ""
+    def themeSizeTurned:string ""
     ; What the template says about the presentation beyond what markdown
     ; reads: a comment `/* pres: fx=starfield fx-hue=280 accent=#c084fc
     ; warm=#fbbf24 */` anywhere in its CSS.
@@ -1172,8 +1178,30 @@ class PresDeck {
         ; the files the charts read, as far as the page has fetched them
         emb.dataUrls = urls
         emb.dataTexts = texts
+        ; `orientation: portrait` in the front matter: the theme's page
+        ; turned on its side. The theme's size is only known from a layout,
+        ; so it is kept from the last one made with it; a theme not seen yet
+        ; (or changed) costs one layout more.
+        orientation = (PresDeck.frontValue(text "orientation"))
+        def portrait:boolean (orientation == "portrait")
+        def sheetNow:string (e.sheet.text())
+        e.pageSize = ""
+        if (portrait && (sheetNow == themeSizeOf)) {
+            e.pageSize = themeSizeTurned
+        }
         e.stale = true
         e.ensureLayout()
+        if ((strlen e.pageSize) == 0) {
+            def lw:double e.layout.style.pageWidth
+            def lh:double e.layout.style.pageHeight
+            themeSizeOf = (e.sheet.text())
+            themeSizeTurned = (((to_string lh) + "x") + (to_string lw)) + "pt"
+            if (portrait && (lw > lh)) {
+                e.pageSize = themeSizeTurned
+                e.stale = true
+                e.ensureLayout()
+            }
+        }
         this.codeColours(e.layout)
         pageW = e.layout.style.pageWidth
         pageH = e.layout.style.pageHeight
@@ -1543,6 +1571,31 @@ class PresDeck {
             i = (i + 1)
         }
         return -1
+    }
+
+    ; A key of the front matter (the `---` block the text opens with), its
+    ; value trimmed and in lower case; "" when it is not there.
+    sfn frontValue:string (t:string key:string) {
+        def lines:[string] (strsplit t (strfromcode 10))
+        if ((array_length lines) == 0) {
+            return ""
+        }
+        if ((trim (itemAt lines 0)) != "---") {
+            return ""
+        }
+        def want:string (key + ":")
+        def i:int 1
+        while (i < (array_length lines)) {
+            def ln:string (trim (itemAt lines i))
+            if ((ln == "---") || (ln == "...")) {
+                return ""
+            }
+            if ((indexOf ln want) == 0) {
+                return (MdChar.lower((trim (substring ln (strlen want) (strlen ln)))))
+            }
+            i = (i + 1)
+        }
+        return ""
     }
 
     sfn num:double (v:string fallback:double) {

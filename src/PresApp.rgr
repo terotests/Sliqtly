@@ -144,6 +144,9 @@ class PresApp {
     ; The "+" after the last thumbnail: pressed, it offers an empty slide or
     ; a copy of the selected one. `stripAdd` is what the press on it asks
     ; for: "open", "empty", "dup" or "".
+    ; slideLines' answer
+    def linesFrom:int -1
+    def linesAt:int 0
     def addOpen:boolean false
     def stripAdd:string ""
     ; The stage seen closer: how many times the fitted size, and which point
@@ -398,6 +401,14 @@ class PresApp {
     fn rebuildDeck:void () {
         deck.setText((mdEditor.text()))
         PresTimeline.planAll(deck)
+        ; the Slide menu's Orientation ticks what the deck is
+        def tall:boolean (deck.pageH > deck.pageW)
+        if (toolbar.portrait != tall) {
+            toolbar.portrait = tall
+            if ((strlen toolbar.css) > 0) {
+                toolbar.rebuild()
+            }
+        }
         if (selected >= (deck.slideCount())) {
             selected = ((deck.slideCount()) - 1)
         }
@@ -514,24 +525,19 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
-    ; A new slide after the selected one: a copy of it (`dup`), or an empty
-    ; one with a heading at the selected slide's level, its words selected
-    ; to be typed over. The new slide is selected.
-    fn addSlide:void (dup:boolean) {
-        addOpen = false
-        if (edTab != "md") {
-            this.showTab("md")
-        }
+    ; Slide i's Markdown lines, into `linesFrom` (its first line, -1 when it
+    ; has none) and `linesAt` (the next slide's first line, or the line
+    ; count after the last). A slide the overflow went on to counts from its
+    ; heading's slide, so a slide is always its whole section.
+    fn slideLines:void (i:int) {
         def text:string (mdEditor.text())
         def lc:int (mdEditor.buf.lineCount())
         def n:int (deck.slideCount())
-        ; the selected slide's lines: from its first line up to the next
-        ; slide's (the end, after the last)
-        def from:int -1
-        def at:int lc
-        if ((n > 0) && (selected < n)) {
+        linesFrom = -1
+        linesAt = lc
+        if ((n > 0) && ((i >= 0) && (i < n))) {
             ; a slide the overflow went on to starts on its heading's slide
-            def k:int selected
+            def k:int i
             while (k > 0) {
                 def sk:PresSlide (deck.slideAt(k))
                 def sp:PresSlide (deck.slideAt((k - 1)))
@@ -547,14 +553,14 @@ class PresApp {
             def s:PresSlide (deck.slideAt(k))
             if (s.srcStart >= 0) {
                 this.posOf(text s.srcStart)
-                from = posLine
-                def j:int (selected + 1)
+                linesFrom = posLine
+                def j:int (i + 1)
                 while (j < n) {
                     def sj:PresSlide (deck.slideAt(j))
                     if (sj.srcStart >= 0) {
                         this.posOf(text sj.srcStart)
-                        if ((posLine > from) && ((PresApp.isHeading((mdEditor.buf.lineAt(posLine)))) || (sj.title != s.title))) {
-                            at = posLine
+                        if ((posLine > linesFrom) && ((PresApp.isHeading((mdEditor.buf.lineAt(posLine)))) || (sj.title != s.title))) {
+                            linesAt = posLine
                             break
                         }
                     }
@@ -562,6 +568,24 @@ class PresApp {
                 }
             }
         }
+    }
+
+    ; A new slide after the selected one: a copy of it (`dup`), or an empty
+    ; one with a heading at the selected slide's level, its words selected
+    ; to be typed over. The new slide is selected.
+    fn addSlide:void (dup:boolean) {
+        addOpen = false
+        if (edTab != "md") {
+            this.showTab("md")
+        }
+        def text:string (mdEditor.text())
+        def lc:int (mdEditor.buf.lineCount())
+        def n:int (deck.slideCount())
+        ; the selected slide's lines: from its first line up to the next
+        ; slide's (the end, after the last)
+        this.slideLines(selected)
+        def from:int linesFrom
+        def at:int linesAt
         def level:string "#"
         if (from >= 0) {
             def hl:string (mdEditor.buf.lineAt(from))
@@ -1484,7 +1508,12 @@ class PresApp {
         out = (out + ",\"thumbs\":[")
         def first:boolean true
         if (mode == "edit") {
+            ; a portrait deck's thumbnails fit the strip's height, centred
             def ts:double (thumbW / deck.pageW)
+            if ((deck.pageH * ts) > thumbH) {
+                ts = (thumbH / deck.pageH)
+            }
+            def inset:double ((thumbW - (deck.pageW * ts)) / 2.0)
             def i:int 0
             while (i < (deck.slideCount())) {
                 def x:double (this.thumbX(i))
@@ -1493,7 +1522,7 @@ class PresApp {
                         out = (out + ",")
                     }
                     first = false
-                    out = (out + "[" + (to_string i) + "," + (PresApp.nums4(x (this.thumbY()) ts 0.0)) + "," + (? (this.thumbWhole(x)) "0" "1") + "]")
+                    out = (out + "[" + (to_string i) + "," + (PresApp.nums4((x + inset) (this.thumbY()) ts 0.0)) + "," + (? (this.thumbWhole(x)) "0" "1") + "]")
                 }
                 i = (i + 1)
             }
@@ -2916,9 +2945,12 @@ class PresApp {
     }
 
     fn takeToolbar:void () {
+        def tr:[string] toolbar.requests
+        def none0:[string]
+        toolbar.requests = none0
         def i:int 0
-        while (i < (array_length toolbar.requests)) {
-            push requests (itemAt toolbar.requests i)
+        while (i < (array_length tr)) {
+            this.request((itemAt tr i))
             i = (i + 1)
         }
         def none:[string]
@@ -4434,6 +4466,159 @@ class PresApp {
         editor.moveCaret(cl cc false)
         this.syncEditor()
         chromeRev = (chromeRev + 1)
+    }
+
+    ; --- the Slide menu ------------------------------------------------------------
+    ; "new", "duplicate", "delete", "portrait" and "landscape", from the menu
+    ; or from their keys. Each is one edit of the Markdown, so it undoes as
+    ; one. False when nothing was done (presenting, the chart editor open).
+    fn slideCommand:boolean (what:string) {
+        if (mode == "present") {
+            return false
+        }
+        if chart.isOpen {
+            return false
+        }
+        this.showTab("md")
+        if (what == "new") {
+            this.addSlide(false)
+            return true
+        }
+        if (what == "duplicate") {
+            this.addSlide(true)
+            return true
+        }
+        if (what == "delete") {
+            return (this.deleteSlide(selected))
+        }
+        if ((what == "portrait") || (what == "landscape")) {
+            this.setOrientation(what)
+            return true
+        }
+        return false
+    }
+
+    ; The slide's Markdown (its whole section, as slideLines finds it) taken
+    ; out. The last slide of a deck stays: a deck has at least one.
+    fn deleteSlide:boolean (i:int) {
+        def n:int (deck.slideCount())
+        if ((n < 2) || ((i < 0) || (i >= n))) {
+            return false
+        }
+        this.slideLines(i)
+        if (linesFrom < 0) {
+            return false
+        }
+        def lc:int (mdEditor.buf.lineCount())
+        if (linesAt < lc) {
+            mdEditor.moveCaret(linesFrom 0 false)
+            mdEditor.moveCaret(linesAt 0 true)
+        } {
+            ; the last: from the end of what is above it, so no blank lines
+            ; are left trailing
+            def top:int (linesFrom - 1)
+            while ((top > 0) && ((strlen (trim (mdEditor.buf.lineAt(top)))) == 0)) {
+                top = (top - 1)
+            }
+            if (top >= 0) {
+                mdEditor.moveCaret(top (strlen (mdEditor.buf.lineAt(top))) false)
+            } {
+                mdEditor.moveCaret(0 0 false)
+            }
+            mdEditor.moveCaret((lc - 1) (strlen (mdEditor.buf.lineAt((lc - 1)))) true)
+        }
+        mdEditor.deleteSelection()
+        this.syncEditor()
+        def to:int i
+        if (to >= (deck.slideCount())) {
+            to = ((deck.slideCount()) - 1)
+        }
+        this.selectSlide(to)
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The deck's orientation, as `orientation:` in the front matter: written
+    ; for portrait, taken out for landscape (the theme's own, the default).
+    ; A deck with no front matter gets one.
+    fn setOrientation:void (o:string) {
+        def portrait:boolean (o == "portrait")
+        def n:int (mdEditor.buf.lineCount())
+        def cl:int mdEditor.sel.caret.line
+        def cc:int mdEditor.sel.caret.col
+        def close:int -1
+        def at:int -1
+        if ((n > 0) && ((trim (mdEditor.buf.lineAt(0))) == "---")) {
+            def k:int 1
+            while ((k < n) && (close < 0)) {
+                def ln:string (trim (mdEditor.buf.lineAt(k)))
+                if ((ln == "---") || (ln == "...")) {
+                    close = k
+                } {
+                    if ((indexOf ln "orientation:") == 0) {
+                        at = k
+                    }
+                }
+                k = (k + 1)
+            }
+        }
+        def moved:int 0
+        if (at >= 0) {
+            mdEditor.moveCaret(at 0 false)
+            if portrait {
+                mdEditor.moveCaret(at (strlen (mdEditor.buf.lineAt(at))) true)
+                mdEditor.insert("orientation: portrait")
+            } {
+                mdEditor.moveCaret((at + 1) 0 true)
+                mdEditor.deleteSelection()
+                moved = -1
+            }
+        } {
+            if (portrait == false) {
+                return
+            }
+            if (close > 0) {
+                mdEditor.moveCaret(close 0 false)
+                mdEditor.insert("orientation: portrait\n")
+                moved = 1
+            } {
+                mdEditor.moveCaret(0 0 false)
+                mdEditor.insert("---\norientation: portrait\n---\n\n")
+                moved = 4
+            }
+        }
+        if (cl > at) {
+            cl = (cl + moved)
+        }
+        mdEditor.moveCaret(cl cc false)
+        this.syncEditor()
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; What the deck's orientation is now: "portrait" or "landscape".
+    fn orientation:string () {
+        if (deck.pageH > deck.pageW) {
+            return "portrait"
+        }
+        return "landscape"
+    }
+
+    ; A request from the page's keys, as a menu row would make it: "slide:…"
+    ; is done here, the rest goes to the page with the others.
+    fn request:void (r:string) {
+        if ((indexOf r "slide:") == 0) {
+            this.slideCommand((substring r 6 (strlen r)))
+            return
+        }
+        push requests r
+    }
+
+    ; The menus' key caps: ⌘ on a Mac, Ctrl elsewhere.
+    fn setMac:void (on:boolean) {
+        if (toolbar.mac != on) {
+            toolbar.mac = on
+            toolbar.rebuild()
+        }
     }
 
     fn undo:void () {
