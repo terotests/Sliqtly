@@ -1,6 +1,6 @@
 // The Sliqtly MCP server for Cloud Run: one static binary, listening on
-// $PORT. A Go port of mcp/ (the Cloud Function), with the same tools, the same
-// Firestore documents and Storage paths, and the same OAuth endpoints.
+// $PORT. The server is Ranger (rgr/, compiled to sliqtly_mcp.go); this file,
+// host.go, net.go and firebase.go are the Go around it.
 //
 // On Cloud Run (K_SERVICE set) or with GOOGLE_APPLICATION_CREDENTIALS it
 // writes real shares and offers sign-in. Otherwise, as `node local.js`, the
@@ -25,32 +25,23 @@ func env(name, def string) string {
 
 func main() {
 	start := time.Now()
-	ctx := context.Background()
-	port := env("PORT", "8080")
-	baseURL := env("SLIQTLY_URL", "https://sliqtly.com")
-	client := newPublicClient()
-
-	opts := AppOpts{Store: LinkStore{}, BaseURL: baseURL, Client: client}
+	e := &Env{BaseURL: env("SLIQTLY_URL", "https://sliqtly.com"), Client: newPublicClient()}
 	cloud := os.Getenv("K_SERVICE") != "" || os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") != "" || os.Getenv("FIRESTORE_EMULATOR_HOST") != ""
 	if env("SLIQTLY_STORE", "") == "link" {
 		cloud = false
 	}
+	kind := "link"
 	if cloud {
-		store, verify, db, err := connectFirebase(ctx, env("GOOGLE_CLOUD_PROJECT", env("GCLOUD_PROJECT", "sliqtly")), env("SLIQTLY_BUCKET", "sliqtly.firebasestorage.app"))
+		err := connectFirebase(context.Background(), e, env("GOOGLE_CLOUD_PROJECT", env("GCLOUD_PROJECT", "sliqtly")), env("SLIQTLY_BUCKET", "sliqtly.firebasestorage.app"))
 		if err != nil {
 			log.Fatalf("firebase: %v", err)
 		}
-		opts.Store = store
-		opts.OAuth = &OAuth{DB: db, VerifyIDToken: verify, Client: client}
+		kind = "cloud"
 	} else {
-		opts.TrustHost = true
+		e.TrustHost = true
 	}
-
-	srv := &http.Server{
-		Addr:              ":" + port,
-		Handler:           NewApp(opts),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-	log.Printf("Sliqtly MCP (%s) on :%s, ready in %s", opts.Store.Kind(), port, time.Since(start).Round(time.Microsecond))
+	port := env("PORT", "8080")
+	srv := &http.Server{Addr: ":" + port, Handler: NewApp(e), ReadHeaderTimeout: 10 * time.Second}
+	log.Printf("Sliqtly MCP (%s) on :%s, ready in %s", kind, port, time.Since(start).Round(time.Microsecond))
 	log.Fatal(srv.ListenAndServe())
 }

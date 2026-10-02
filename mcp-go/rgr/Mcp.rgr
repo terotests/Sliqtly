@@ -1,0 +1,161 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; The Model Context Protocol, the part this server speaks: JSON-RPC over
+; Streamable HTTP, stateless, answers as JSON (no event stream). Every POST
+; stands alone, so any instance can answer any request.
+
+Import "McpHost.rgr"
+Import "Json.rgr"
+Import "Tools.rgr"
+
+class Mcp {
+    sfn VERSIONS:[string] () {
+        return ([] _:string ("2025-11-25" "2025-06-18" "2025-03-26" "2024-11-05" "2024-10-07"))
+    }
+    sfn SERVER_VERSION:string () {
+        return "1.0.0"
+    }
+
+    sfn error:MfJ (id:MfJ code:int message:string) {
+        def e:MfJ (MfJ.newObj())
+        e.putInt("code" code)
+        e.putStr("message" message)
+        def r:MfJ (MfJ.newObj())
+        r.putStr("jsonrpc" "2.0")
+        r.put("id" id)
+        r.put("error" e)
+        return r
+    }
+
+    sfn ok:MfJ (id:MfJ result:MfJ) {
+        def r:MfJ (MfJ.newObj())
+        r.putStr("jsonrpc" "2.0")
+        r.put("id" id)
+        r.put("result" result)
+        return r
+    }
+
+    sfn initialize:MfJ (host:McpHost params:MfJ) {
+        def asked:string (params.str_("protocolVersion"))
+        def version:string (itemAt (Mcp.VERSIONS()) 0)
+        if (Deck.inList((Mcp.VERSIONS()) asked)) {
+            version = asked
+        }
+        def caps:MfJ (MfJ.newObj())
+        def tools:MfJ (MfJ.newObj())
+        tools.putBool("listChanged" true)
+        caps.put("tools" tools)
+        def res:MfJ (MfJ.newObj())
+        res.putBool("listChanged" true)
+        caps.put("resources" res)
+        def info:MfJ (MfJ.newObj())
+        info.putStr("name" "sliqtly")
+        info.putStr("title" "Sliqtly")
+        info.putStr("version" (Mcp.SERVER_VERSION()))
+        info.putStr("websiteUrl" (host_base_url host))
+        def out:MfJ (MfJ.newObj())
+        out.putStr("protocolVersion" version)
+        out.put("capabilities" caps)
+        out.put("serverInfo" info)
+        out.putStr("instructions" "Sliqtly turns Markdown into animated slide presentations. Call sliqtly_guide once for the syntax, then create_presentation. Always give the user the returned presentation link.")
+        return out
+    }
+
+    ; the answer to one message, or a null value for a notification
+    sfn handle:MfJ (host:McpHost caller:Caller msg:MfJ) {
+        if ((msg.isObj()) == false) {
+            return (Mcp.error((new MfJ) -32600 "Invalid Request"))
+        }
+        def method:string (msg.str_("method"))
+        def hasId:boolean (msg.has("id"))
+        def id:MfJ (msg.field("id"))
+        if ((strlen method) == 0) {
+            if ((msg.has("result")) || (msg.has("error"))) {
+                ; a client's answer: this server asks nothing
+                return (new MfJ)
+            }
+            return (Mcp.error(id -32600 "Invalid Request"))
+        }
+        if (hasId == false) {
+            ; notifications/initialized, notifications/cancelled, …
+            return (new MfJ)
+        }
+        def params:MfJ (msg.field("params"))
+        if (method == "initialize") {
+            return (Mcp.ok(id (Mcp.initialize(host params))))
+        }
+        if (method == "ping") {
+            return (Mcp.ok(id (MfJ.newObj())))
+        }
+        if (method == "tools/list") {
+            def tl:MfJ (MfJ.newObj())
+            tl.put("tools" (Tools.list()))
+            return (Mcp.ok(id tl))
+        }
+        if (method == "tools/call") {
+            def name:string (params.str_("name"))
+            def r:MfJ (Tools.call(host caller name (params.field("arguments"))))
+            if (r.kind == 0) {
+                return (Mcp.error(id -32602 ("MCP error -32602: Tool " + name + " not found")))
+            }
+            return (Mcp.ok(id r))
+        }
+        if (method == "resources/list") {
+            def rl:MfJ (MfJ.newObj())
+            rl.put("resources" (Tools.resources((host_base_url host))))
+            return (Mcp.ok(id rl))
+        }
+        if (method == "resources/templates/list") {
+            def tl2:MfJ (MfJ.newObj())
+            tl2.put("resourceTemplates" (MfJ.newArr()))
+            return (Mcp.ok(id tl2))
+        }
+        if (method == "resources/read") {
+            def uri:string (params.str_("uri"))
+            def rr:MfJ (Tools.read(host uri))
+            if (rr.kind == 0) {
+                return (Mcp.error(id -32002 ("Resource " + uri + " not found")))
+            }
+            return (Mcp.ok(id rr))
+        }
+        return (Mcp.error(id -32601 "Method not found"))
+    }
+
+    ; the HTTP answer to a POST body: status and JSON ("" for 202)
+    sfn post:McpReply (host:McpHost caller:Caller body:string) {
+        def reply (new McpReply)
+        if ((strlen body) == 0) {
+            reply.status = 400
+            reply.body = (JOut.text((Mcp.error((new MfJ) -32700 "Parse error: Invalid JSON"))))
+            return reply
+        }
+        def msg:MfJ (MfJ.parse(body))
+        if (msg.isArr()) {
+            def answers:MfJ (MfJ.newArr())
+            for msg.arr m:MfJ i {
+                def a:MfJ (Mcp.handle(host caller m))
+                if (a.kind != 0) {
+                    answers.add(a)
+                }
+            }
+            if ((answers.count()) == 0) {
+                reply.status = 202
+                return reply
+            }
+            reply.body = (JOut.text(answers))
+            return reply
+        }
+        def one:MfJ (Mcp.handle(host caller msg))
+        if (one.kind == 0) {
+            reply.status = 202
+            return reply
+        }
+        reply.body = (JOut.text(one))
+        return reply
+    }
+}
+
+class McpReply {
+    def status:int 200
+    def body:string ""
+}
