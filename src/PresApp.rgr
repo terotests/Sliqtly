@@ -1321,8 +1321,10 @@ class PresApp {
             ; Held against the stage, not the fitted slide: a slide wider than
             ; the stage keeps both stage edges covered (no strip of the
             ; stage's own colour at an edge), a narrower one stays centred.
-            def zx:double (PresApp.keepIn((cx - (viewU * zw)) zw area.x area.w))
-            def zy:double (PresApp.keepIn((cy - (viewV * zh)) zh area.y area.h))
+            ; 2 px past each edge: the slide's anti-aliased edge stays
+            ; outside the stage's clip instead of showing as a light hairline
+            def zx:double (PresApp.keepIn((cx - (viewU * zw)) zw (area.x - 2.0) (area.w + 4.0)))
+            def zy:double (PresApp.keepIn((cy - (viewV * zh)) zh (area.y - 2.0) (area.h + 4.0)))
             viewU = ((cx - zx) / zw)
             viewV = ((cy - zy) / zh)
             slideRect.set(zx zy zw zh)
@@ -1502,7 +1504,7 @@ class PresApp {
         out = (out + ",\"slides\":" + (to_string (deck.slideCount())))
         out = (out + ",\"time\":" + (EVGDisplayList.num((this.currentTime()))))
         out = (out + ",\"playing\":" + (? (this.isPlaying()) "true" "false"))
-        out = (out + ",\"stage\":[" + (PresApp.nums4(slideRect.x slideRect.y sc 0.0)) + "]")
+        out = (out + ",\"stage\":[" + (PresApp.placeAt(slideRect.x slideRect.y sc)) + "]")
         out = (out + ",\"clip\":[" + (PresApp.nums4(stageArea.x stageArea.y stageArea.w stageArea.h)) + "]")
         out = (out + ",\"strip\":[" + (PresApp.nums4((stripRect.x + 4.0) stripRect.y (stripRect.w - 8.0) stripRect.h)) + "]")
         out = (out + ",\"thumbs\":[")
@@ -1522,7 +1524,7 @@ class PresApp {
                         out = (out + ",")
                     }
                     first = false
-                    out = (out + "[" + (to_string i) + "," + (PresApp.nums4((x + inset) (this.thumbY()) ts 0.0)) + "," + (? (this.thumbWhole(x)) "0" "1") + "]")
+                    out = (out + "[" + (to_string i) + "," + (PresApp.placeAt((x + inset) (this.thumbY()) ts)) + "," + (? (this.thumbWhole(x)) "0" "1") + "]")
                 }
                 i = (i + 1)
             }
@@ -1530,7 +1532,7 @@ class PresApp {
         if ((mode == "present") && speaker) {
             if (selected < ((deck.slideCount()) - 1)) {
                 def ns:double (nextRect.w / deck.pageW)
-                out = (out + "[" + (to_string (selected + 1)) + "," + (PresApp.nums4(nextRect.x nextRect.y ns 0.0)) + "]")
+                out = (out + "[" + (to_string (selected + 1)) + "," + (PresApp.placeAt(nextRect.x nextRect.y ns)) + "]")
             }
         }
         out = (out + "]")
@@ -1549,6 +1551,15 @@ class PresApp {
         }
         out = (out + "}")
         return out
+    }
+
+    ; Where a page is drawn: x, y and its scale, and a 0 kept for the hosts
+    ; that read four numbers. Six decimals, not `num`'s two: the scale is
+    ; multiplied by the page's width, so 1.1124 written as 1.11 drew a
+    ; zoomed slide 2 px short of the clip worked out from the exact value,
+    ; a stripe at the stage's edge that came and went as the zoom changed.
+    sfn placeAt:string (x:double y:double s:double) {
+        return ((EVGDisplayList.fine(x)) + "," + (EVGDisplayList.fine(y)) + "," + (EVGDisplayList.fine(s)) + ",0")
     }
 
     sfn nums4:string (a:double b:double c:double d:double) {
@@ -1701,7 +1712,11 @@ class PresApp {
             root.addChild((PresApp.div("sep" "sep" sepRect.x sepRect.y sepRect.w sepRect.h)))
         }
         root.addChild((PresApp.div("stage-area" "stage-area" stageArea.x stageArea.y stageArea.w stageArea.h)))
-        root.addChild((PresApp.div("slide-shadow" "slide-shadow" (slideRect.x - 1.0) (slideRect.y - 1.0) (slideRect.w + 2.0) (slideRect.h + 2.0))))
+        ; zoomed in, the slide runs under the stage's edges: its grey rim and
+        ; shadow would show there as a light line, so they are left out
+        if (viewZoom <= 1.0) {
+            root.addChild((PresApp.div("slide-shadow" "slide-shadow" (slideRect.x - 1.0) (slideRect.y - 1.0) (slideRect.w + 2.0) (slideRect.h + 2.0))))
+        }
         if ((deck.slideCount()) == 0) {
             root.addChild((PresApp.label("empty" "empty" (PresI18n.t("Type on the left: ## Title starts a slide")) (stageArea.x + 24.0) (stageArea.y + 24.0))))
         }
