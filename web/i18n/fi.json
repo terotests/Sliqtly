@@ -129,7 +129,6 @@
   "Click the image's line in the editor or double-click the image on the slide: Image settings (size, position, description, use as background). The image shrinks to fit the slide. Drag an image into the editor, paste it from the clipboard or add it from the Files tab.": "Napsauta kuvan riviä editorissa tai kaksoisnapsauta kuvaa diassa: Kuvan asetukset (koko, paikka, kuvaus, taustakuvaksi). Kuva pienenee mahtumaan diaan. Kuvan voi vetää editoriin, liittää leikepöydältä tai lisätä Tiedostot-välilehdeltä.",
   "Close": "Sulje",
   "Cloud sharing failed: ": "Pilvijako epäonnistui: ",
-  "Cloud storage and file sharing are coming here soon.": "Pilvitallennus ja tiedostojen jakaminen tulevat tähän pian.",
   "Code": "Koodi",
   "Code background. Translucent: #151c4833 (the last two digits are the opacity) or none.": "Koodin tausta. Läpinäkyvä: #151c4833 (kaksi viimeistä numeroa ovat peittävyys) tai none.",
   "Code blocks.": "Koodilohkot.",
@@ -515,6 +514,10 @@
   "Just the address": "Pelkkä osoite",
   "Pasted into the text as it is.": "Liitetään tekstiin sellaisenaan.",
   "Paste as text": "Liitä tekstinä",
+  "Saving to the cloud failed: ": "Tallennus pilveen epäonnistui: ",
+  "The presentation is kept in this browser.": "Esitys on tallessa tässä selaimessa.",
+  "This presentation was changed elsewhere (by an assistant?). Your changes here are not saved to the cloud: reload to get the newer version.": "Tätä esitystä on muutettu muualla (avustaja?). Täällä tehtyjä muutoksia ei tallenneta pilveen: lataa sivu uudelleen saadaksesi uudemman version.",
+  "Your presentations and their pictures and data are saved in the cloud as you work.": "Esityksesi kuvineen ja datoineen tallentuvat pilveen sitä mukaa kun työskentelet.",
   "Crop image": "Rajaa kuva",
   "Add image": "Lisää kuva",
   "Drag the frame or its corners to choose the part that shows. Arrow keys move it, Shift+arrows resize it.": "Vedä kehystä tai sen kulmia valitaksesi näkyvän osan. Nuolinäppäimet siirtävät kehystä, Shift+nuolet muuttavat sen kokoa.",
@@ -528,5 +531,10 @@
   "This browser does not allow storage: the image is kept only while this page is open.": "Tämä selain ei salli tallennusta: kuva säilyy vain niin kauan kuin sivu on auki.",
   "Image saved to your PRO cloud files.": "Kuva tallennettu PRO-pilvitiedostoihisi.",
   "The image could not be saved to the cloud; it is kept in this browser.": "Kuvaa ei voitu tallentaa pilveen; se säilyy tässä selaimessa.",
-  "Preparing the download…": "Valmistellaan latausta…"
+  "Preparing the download…": "Valmistellaan latausta…",
+  "Low contrast: ": "Heikko kontrasti: ",
+  "needs ": "tarvitaan ",
+  "An outline was added; a darker or lighter colour reads better.": "Tekstiin lisättiin ääriviiva; tummempi tai vaaleampi väri erottuu paremmin.",
+  " and ": " ja ",
+  " more": " muuta"
 }

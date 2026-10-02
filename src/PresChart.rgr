@@ -264,6 +264,23 @@ class PresChart {
                     }
                 }
             } {
+                ; A column's value label waits for its column: it fades in
+                ; as the column settles, rather than hanging over a column
+                ; that is still growing toward it.
+                if (c.kind == 3) {
+                    def lb:int (PresChart.labelBar(c bars))
+                    if (lb >= 0) {
+                        def done:double ((growStart + (growEach * (to_double lb))) + (growDur * 0.8))
+                        def la:double ((tt - done) / 0.35)
+                        if (la <= 0.0) {
+                            k = (k + 1)
+                            continue
+                        }
+                        if (la < 1.0) {
+                            c.a = (c.a * la)
+                        }
+                    }
+                }
                 ; Black data on a dark slide (points, rules, error bars a
                 ; chart coloured black for white paper): drawn light instead
                 ; of invisible, and not taken for a grid line.
@@ -398,6 +415,23 @@ class PresChart {
             beam.shadowA = (0.8 * fade)
             push out.cmds beam
         }
+    }
+
+    ; The column a text names the value of: the one it stands over or inside,
+    ; centred on it. An axis label sits below the floor and a legend's off to
+    ; the side, so neither is taken for one. -1 when it is none.
+    sfn labelBar:int (c:EVGDrawCmd bars:[EVGDrawCmd]) {
+        def cx:double (c.x + (c.w * 0.5))
+        def cy:double (c.y + (c.h * 0.5))
+        def j:int 0
+        while (j < (array_length bars)) {
+            def b:EVGDrawCmd (itemAt bars j)
+            if (((cx >= b.x) && (cx <= (b.x + b.w))) && ((cy >= (b.y - 40.0)) && (cy <= ((b.y + b.h) - 4.0)))) {
+                return j
+            }
+            j = (j + 1)
+        }
+        return -1
     }
 
     ; A stroke that is data rather than furniture: coloured (the grid and the

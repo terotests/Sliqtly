@@ -155,5 +155,53 @@ async function loadShare(id) {
   return snap.exists ? snap.data() : null;
 }
 
-window.sliqtly = { auth, user: () => user, share, loadShare, putFile };
+// The signed-in user once the session from an earlier visit is known (null
+// when nobody is, or sign-in is not available here).
+let known = null;
+function signedIn() {
+  known ??= auth().then((a) => new Promise((ok) => {
+    const off = a.onAuthStateChanged((u) => { off(); ok(u); });
+  })).catch(() => null);
+  return known;
+}
+
+// A PRO deck lives in its share: every change in the editor is written to
+// shares/{id}, files to Storage, so /s/{id} and an assistant (mcp/) see it.
+// since: { md, stamps } as this page last wrote or read it. The share's text
+// having moved on from since.md means someone else (an assistant) changed it:
+// that is refused with code "changed-elsewhere" rather than written over.
+// A file whose stamp is unchanged is not sent again. → the share's files
+async function saveShare(id, deck, since) {
+  if (!user) throw new Error("not signed in");
+  const { db, files } = await store();
+  const ref = db.collection("shares").doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw Object.assign(new Error("share not found"), { code: "not-found" });
+  const cur = snap.data();
+  if (cur.owner !== user.uid) throw Object.assign(new Error("not the owner"), { code: "permission-denied" });
+  if (since.md != null && cur.md !== since.md) throw Object.assign(new Error("changed elsewhere"), { code: "changed-elsewhere" });
+  const had = new Map((cur.files || []).map((f) => [f.path, f]));
+  const kept = [];
+  for (const f of deck.files) {
+    const prev = had.get(f.path);
+    if (prev && since.stamps?.get(f.path) === f.stamp) {
+      kept.push(prev);
+      continue;
+    }
+    const blob = f.data instanceof Blob ? f.data : new Blob([f.data ?? ""], { type: f.type || "text/plain" });
+    const obj = files.ref(`shares/${id}/${f.path}`);
+    await obj.put(blob, { contentType: f.type || blob.type || "application/octet-stream" });
+    kept.push({ path: f.path, type: f.type || blob.type || "", size: blob.size, url: await obj.getDownloadURL() });
+  }
+  for (const path of had.keys()) {
+    if (!deck.files.some((f) => f.path === path)) files.ref(`shares/${id}/${path}`).delete().catch(() => {});
+  }
+  await ref.update({
+    name: deck.name, md: deck.md, theme: deck.theme || "", css: deck.css ?? null, files: kept,
+    updated: globalThis.firebase.firestore.FieldValue.serverTimestamp(),
+  });
+  return kept;
+}
+
+window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, loadShare, putFile };
 window.dispatchEvent(new Event("sliqtly:ready"));

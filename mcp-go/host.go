@@ -76,6 +76,7 @@ type Env struct {
 
 	themesMu sync.Mutex
 	themes   map[string]string
+	webCfg   string // the site's /__/firebase/init.json once it has been read
 }
 
 // The whole server as one handler.
@@ -153,6 +154,8 @@ func (h *McpHost) Err() string {
 	}
 	return h.err.Error()
 }
+
+func (h *McpHost) ClearErr() { h.err = nil }
 
 func toJSON(v any) string {
 	var buf bytes.Buffer
@@ -434,6 +437,35 @@ func (h *McpHost) ThemeCSS(theme string) string {
 		e.themes = map[string]string{}
 	}
 	e.themes[theme] = string(b)
+	e.themesMu.Unlock()
+	return string(b)
+}
+
+// The web app's Firebase config (public) for the preview, which cannot read
+// Hosting's /__/firebase/init.js across origins; "" while it cannot be read.
+func (h *McpHost) WebConfig() string {
+	e := h.env
+	e.themesMu.Lock()
+	cfg := e.webCfg
+	e.themesMu.Unlock()
+	if cfg != "" {
+		return cfg
+	}
+	ctx, cancel := context.WithTimeout(h.ctx, 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", e.BaseURL+"/__/firebase/init.json", nil)
+	res, err := e.ThemeClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer res.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(res.Body, 64<<10))
+	var obj map[string]any
+	if err != nil || res.StatusCode != 200 || json.Unmarshal(b, &obj) != nil || obj == nil {
+		return ""
+	}
+	e.themesMu.Lock()
+	e.webCfg = string(b)
 	e.themesMu.Unlock()
 	return string(b)
 }
