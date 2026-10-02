@@ -109,6 +109,9 @@ Each step needs Tero's go-ahead; nothing here has been run.
      --region europe-west1 --project sliqtly --allow-unauthenticated \
      --cpu 1 --memory 256Mi --concurrency 80 --max-instances 10 --cpu-boost
    ```
+   Generating the Go code takes about 3.6 GB of memory (Node's heap is raised
+   to 6 GB in `gen.mjs`), so the machine that builds the image needs more
+   than 4 GB.
    The service account needs Cloud Datastore User and Storage Object Creator
    on the `sliqtly` project; verifying Google ID tokens needs no role.
 2. **Test it on its `run.app` URL** with the MCP Inspector and Claude: create,
