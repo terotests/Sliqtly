@@ -1375,7 +1375,9 @@ async function shareLink() {
 // Markdown goes in the prompt for create_presentation. The changes land in
 // the share, not in this page's deck: /s/{id}?edit opens them here again.
 let originShare = null;
-const SITE = location.protocol === "https:" ? location.origin : "https://sliqtly.com";
+// the links in the prompt: always the site's own address, also when the
+// page was opened at sliqtly.web.app or on a local server
+const SITE = "https://sliqtly.com";
 const AI = {
   claude: (q) => "https://claude.ai/new?q=" + encodeURIComponent(q),
   chatgpt: (q) => "https://chatgpt.com/?q=" + encodeURIComponent(q),
