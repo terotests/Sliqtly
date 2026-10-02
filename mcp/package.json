@@ -1,0 +1,23 @@
+{
+  "name": "sliqtly-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sliqtly as an MCP server: Markdown slide decks from Claude, ChatGPT, Cursor and other MCP clients",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "start": "node local.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "firebase-admin": "^14.5.0",
+    "firebase-functions": "^7.4.0",
+    "zod": "^4.6.5",
+    "express": "^5.2.1"
+  }
+}
