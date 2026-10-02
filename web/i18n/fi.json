@@ -164,6 +164,7 @@
   "Description": "Kuvaus",
   "Diagram": "Kaavio",
   "Diagram colors.": "Kaavioiden värit.",
+  "Diagram selected: drag to move it, pinch to zoom the slide": "Kaavio valittu: siirrä vetämällä, zoomaa diaa nipistämällä",
   "Diagram style: holo (glass) or sketch (hand-drawn).": "Kaavion tyyli: holo (lasi) tai sketch (käsin piirretty).",
   "diagram: draw": "kaavio: piirto",
   "diagram: draw + tour": "kaavio: piirto + kierros",
@@ -550,5 +551,10 @@
   "Use a darker colour here, or darken the background (a darker picture, or a scrim over it).": "Käytä tässä tummempaa väriä tai tummenna taustaa (tummempi kuva tai tummentava kerros sen päälle).",
   "Bullet and number colour.": "Luettelomerkkien ja numeroiden väri.",
   "Recent": "Viimeisimmät",
-  "Browse all…": "Selaa kaikkia…"
+  "Browse all…": "Selaa kaikkia…",
+  "Pick the sheet Sliqtly may read": "Valitse sheet, jota Sliqtly saa lukea",
+  "A private Google Sheet: the saved copy is shown. Press R while presenting to sign in to Google and read it again.": "Yksityinen Google Sheet: näytetään tallennettu kopio. Paina esittäessä R, niin voit kirjautua Googleen ja lukea sen uudelleen.",
+  "The data source could not be read: the saved copy is shown.": "Tietolähdettä ei voitu lukea: näytetään tallennettu kopio.",
+  "Could not read the Google Sheet. Paste its link again to pick it in Google's file picker, or share it as \"Anyone with the link\": ": "Google Sheetiä ei voitu lukea. Liitä linkki uudelleen ja valitse sheet Googlen tiedostonvalitsimessa, tai jaa se asetuksella \"Kaikki, joilla on linkki\": ",
+  "The browser blocked Google's sign-in window: allow pop-ups for this site and paste the link again.": "Selain esti Googlen kirjautumisikkunan: salli ponnahdusikkunat tälle sivustolle ja liitä linkki uudelleen."
 }

@@ -86,7 +86,24 @@ class PresCheck {
         this.ok(((PresTimeline.slideAtTime(deck (s0.duration + 0.01))) == 1) "deck time to slide")
         this.ok(((deck.pageOfOffset((indexOf text "Toka"))) == 1) "source offset to slide")
         this.diagram()
+        this.bigTitle()
         this.chartModel()
+    }
+
+    ; A title set large enough to wrap keeps the diagram under it on its own
+    ; slide: no second slide with the title said again.
+    fn bigTitle:void () {
+        def text:string "---\nslide-split-level: 2\n---\n\n## Keskilämpötila kuukausittain\n\n```mermaid\nflowchart LR\n  A[Kokous] --> B[Selain]\n  B --> C[Gemini]\n```\n"
+        def deck (new PresDeck())
+        def chart:string "---\nslide-split-level: 2\n---\n\n## Keskilämpötila kuukausittain\n\n```vega-lite\n{\"width\": 900, \"height\": 380, \"data\": {\"values\": [{\"k\": \"Tammi\", \"v\": -3.1}, {\"k\": \"Helmi\", \"v\": -3.8}, {\"k\": \"Maalis\", \"v\": -0.7}]}, \"mark\": \"line\", \"encoding\": {\"x\": {\"field\": \"k\", \"type\": \"nominal\"}, \"y\": {\"field\": \"v\", \"type\": \"quantitative\"}}}\n```\n"
+        deck.md.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 } h2 { font-size: 80pt }")
+        deck.setText(chart)
+        this.ok(((deck.slideCount()) == 1) ("a big title and its chart are one slide, got " + (to_string (deck.slideCount()))))
+        deck.setText(text)
+        this.ok(((deck.slideCount()) == 1) ("a big title and its diagram are one slide, got " + (to_string (deck.slideCount()))))
+        deck.md.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 } h2 { font-size: 160pt }")
+        deck.setText(text)
+        this.ok(((deck.slideCount()) == 1) ("a title taller than the slide is set smaller, got " + (to_string (deck.slideCount()))))
     }
 
     ; The chart editor's model: a fence read as a table and written back.

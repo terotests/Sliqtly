@@ -62,10 +62,26 @@ the category the dialog picked, no numbers copied into the deck. A chart of
 
 ### Google Sheets
 
-The sheet must be shared as **Anyone with the link → Viewer** (or published
-to the web). Sliqtly reads it through the sheet's CSV export
-(`/gviz/tq?tqx=out:csv`) with no Google sign-in. A private sheet fails with a
-message saying so. Signed-in access to private sheets is V4.
+A sheet shared as **Anyone with the link → Viewer** (or published to the
+web) is read through its CSV export (`/gviz/tq?tqx=out:csv`) with no Google
+sign-in.
+
+A **private sheet** (only on your own Drive) is read through the Sheets API
+as the signed-in PRO user (`web/sliqtly.js` `readSheet`):
+
+- The scope is `drive.file`: Sliqtly may read only the files you pick in
+  Google's Picker, nothing else on your Drive. Pasting the link the first
+  time opens a Google popup (permission) and the Picker, open on that sheet.
+- The token lasts an hour and is kept for the tab only. On open without one
+  the editor shows the saved copy; R while presenting signs in again.
+- Every good read is kept with the deck as `data/live/<hash>.csv` (only when
+  it changed). Readers of a shared deck cannot read your sheet, so they see
+  the copy your editor last kept; it is as fresh as your last open.
+
+Google Cloud setup (once): Sheets API and Google Picker API enabled in the
+Firebase project; the OAuth consent screen with sliqtly.com and
+sliqtly.web.app; the Picker uses the Firebase web API key unless
+`<meta name="google-picker-key">` in `web/index.html` names another.
 
 The resolution of a source to an address is
 `MdVegaRender.sourceUrl` in Ranger's markdown module (`gallery/markdown`),
@@ -131,8 +147,8 @@ presenting), and "data as of …" shown in the presenter view.
 
 ### V4: more connectors
 
-Signed-in Google Sheets (private sheets, OAuth through the existing PRO
-sign-in), SQL (through a small proxy, never credentials in the deck),
+A server that reads private sheets for readers of shared decks (the
+owner's refresh token kept server side) instead of the saved copy, SQL (through a small proxy, never credentials in the deck),
 Airtable, Notion databases, analytics APIs (GA4, Plausible). Credentials stay
 server side; the deck only names the connection.
 
