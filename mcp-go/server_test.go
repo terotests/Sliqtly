@@ -4,6 +4,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -147,6 +148,18 @@ func (b *fakeBucket) Save(_ context.Context, path, ct string, data []byte, _ map
 	defer b.mu.Unlock()
 	b.saved[path] = savedFile{data, ct}
 	return nil
+}
+func (b *fakeBucket) Read(_ context.Context, path string, limit int64) ([]byte, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	f, ok := b.saved[path]
+	if !ok {
+		return nil, fmt.Errorf("storage: object doesn't exist")
+	}
+	if int64(len(f.data)) > limit {
+		return f.data[:limit], nil
+	}
+	return f.data, nil
 }
 
 type roundTrip func(*http.Request) (*http.Response, error)
@@ -304,7 +317,7 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	eq(t, names, []string{"bind_chart_data", "create_presentation", "get_presentation", "list_presentations", "sliqtly_guide", "update_presentation"})
+	eq(t, names, []string{"bind_chart_data", "create_presentation", "get_presentation", "list_files", "list_presentations", "read_file", "sliqtly_guide", "update_presentation"})
 	uri, _ := create.Meta["ui"].(map[string]any)["resourceUri"].(string)
 	match(t, uri, `^ui://sliqtly/preview-[0-9a-f]{10}\.html$`)
 	eq(t, create.Meta["openai/outputTemplate"], uri)
@@ -806,4 +819,164 @@ func TestWarnsOfUnknownEncodingTypes(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	match(t, textOf(c), `Note: Chart 1 on "Wake-up": encoding x has type "point"; Vega-Lite types are quantitative, ordinal, nominal and temporal`)
+}
+
+// A workbook as Excel writes one: a title row over the header, dates, a long
+// decimal, and a second sheet.
+func testBook(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	z := zip.NewWriter(&buf)
+	put := func(name, text string) {
+		w, err := z.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.WriteString(w, text)
+	}
+	const ns = `xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"`
+	put("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>`)
+	put("_rels/.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`)
+	put("xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8"?><workbook `+ns+` xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Monthly" sheetId="1" r:id="rId1"/><sheet name="Notes" sheetId="2" r:id="rId2"/></sheets></workbook>`)
+	put("xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>`)
+	put("xl/styles.xml", `<?xml version="1.0" encoding="UTF-8"?><styleSheet `+ns+`><fonts count="1"><font><sz val="11"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14" applyNumberFormat="1"/></cellXfs></styleSheet>`)
+	put("xl/sharedStrings.xml", `<?xml version="1.0" encoding="UTF-8"?><sst `+ns+`><si><t>Card risk 2022</t></si><si><t>month</t></si><si><t>cards</t></si><si><t>Key</t></si><si><t>Value</t></si><si><t>source</t></si><si><t>bank, "core"</t></si></sst>`)
+	rows := `<row r="1"><c r="A1" t="s"><v>0</v></c></row><row r="2"><c r="A2" t="s"><v>1</v></c><c r="B2" t="s"><v>2</v></c></row>`
+	for i := 1; i <= 12; i++ {
+		v := fmt.Sprint(i * 10)
+		if i == 3 {
+			v = "0.30000000000000004"
+		}
+		rows += fmt.Sprintf(`<row r="%d"><c r="A%d" s="1"><v>%d</v></c><c r="B%d"><v>%s</v></c></row>`, i+2, i+2, 44562+(i-1)*31, i+2, v)
+	}
+	put("xl/worksheets/sheet1.xml", `<?xml version="1.0" encoding="UTF-8"?><worksheet `+ns+`><sheetData>`+rows+`</sheetData></worksheet>`)
+	put("xl/worksheets/sheet2.xml", `<?xml version="1.0" encoding="UTF-8"?><worksheet `+ns+`><sheetData><row r="1"><c r="A1" t="s"><v>3</v></c><c r="B1" t="s"><v>4</v></c></row><row r="2"><c r="A2" t="s"><v>5</v></c><c r="B2" t="s"><v>6</v></c></row></sheetData></worksheet>`)
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestReadFileWorkbookSheetsCSVAndJSON(t *testing.T) {
+	f := fakeFirebase()
+	book := testBook(t)
+	f.db.data["shares/abcDEF1234"] = Doc{"name": "Risk", "md": "# R\n", "theme": "aurora", "files": []any{
+		map[string]any{"path": "media/cat.png", "type": "image/png", "size": int64(68)},
+		map[string]any{"path": "data/risk.xlsx", "type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "size": int64(len(book))},
+		map[string]any{"path": "data/notes.csv", "type": "text/csv", "size": int64(30)},
+		map[string]any{"path": "data/spec.json", "type": "application/json", "size": int64(9)},
+	}}
+	f.bucket.saved["shares/abcDEF1234/data/risk.xlsx"] = savedFile{book, ""}
+	f.bucket.saved["shares/abcDEF1234/data/notes.csv"] = savedFile{[]byte("a,b\r\n\"x, y\",2\n\n3,\"q\"\"\"\n"), ""}
+	f.bucket.saved["shares/abcDEF1234/data/spec.json"] = savedFile{[]byte(`{"a": 1}`), ""}
+	s := start(t, testEnv(&f, nil), "")
+	defer s.close()
+	read := func(args map[string]any) *mcp.CallToolResult {
+		args["deck_id"] = "abcDEF1234"
+		return call(t, s, "read_file", args)
+	}
+
+	l := call(t, s, "list_files", map[string]any{"deck_id": "abcDEF1234"})
+	if l.IsError {
+		t.Fatal(textOf(l))
+	}
+	files := list(sc(l)["files"])
+	eq(t, mapOf(files[1])["kind"], "workbook")
+	eq(t, mapOf(files[1])["sheets"], []any{
+		map[string]any{"name": "Monthly", "columns": []string{"month", "cards"}, "rows": 12, "csv": "data/risk-Monthly.csv"},
+		map[string]any{"name": "Notes", "columns": []string{"Key", "Value"}, "rows": 1, "csv": "data/risk-Notes.csv"},
+	})
+	match(t, textOf(l), `sheet "Monthly": 12 rows; columns "month", "cards"; read as data/risk-Monthly\.csv`)
+
+	r := read(map[string]any{"path": "data/risk.xlsx", "limit": 5})
+	if r.IsError {
+		t.Fatal(textOf(r))
+	}
+	o := sc(r)
+	eq(t, o["sheet"], map[string]any{"name": "Monthly", "csv": "data/risk-Monthly.csv"})
+	eq(t, o["columns"], []string{"month", "cards"})
+	eq(t, o["total_rows"], 12)
+	// dates as the workbook shows them, a long decimal as the editor tidies it
+	eq(t, list(o["rows"])[0], []string{"01/01/2022", "10"})
+	eq(t, list(o["rows"])[2], []string{"03/04/2022", "0.3"})
+	eq(t, o["next_offset"], 5)
+	match(t, textOf(r), `Rows 1–5 of 12; next: offset 5`)
+	match(t, textOf(r), `Other sheets: "Notes"`)
+	last := sc(read(map[string]any{"path": "data/risk.xlsx", "offset": 10}))
+	eq(t, len(list(last["rows"])), 2)
+	eq(t, last["next_offset"], nil)
+
+	byCSV := read(map[string]any{"path": "data/risk-Notes.csv"})
+	eq(t, sc(byCSV)["rows"], [][]string{{"source", `bank, "core"`}})
+	match(t, textOf(byCSV), `source,"bank, ""core"""`)
+	eq(t, sc(read(map[string]any{"path": "data/risk.xlsx", "sheet": "notes"}))["sheet"].(map[string]any)["name"], "Notes")
+	no := read(map[string]any{"path": "data/risk.xlsx", "sheet": "Yearly"})
+	if !no.IsError {
+		t.Fatal("an unknown sheet was read")
+	}
+	match(t, textOf(no), `no sheet "Yearly"\. Its sheets: "Monthly", "Notes"`)
+
+	c := sc(read(map[string]any{"path": "data/notes.csv"}))
+	eq(t, c["columns"], []string{"a", "b"})
+	eq(t, c["rows"], [][]string{{"x, y", "2"}, {"3", `q"`}})
+	eq(t, sc(read(map[string]any{"path": "data/spec.json"}))["text"], `{"a": 1}`)
+	match(t, textOf(read(map[string]any{"path": "media/cat.png"})), `is a picture`)
+	match(t, textOf(read(map[string]any{"path": "data/other.csv"})), `No file data/other\.csv .* Its files: data/risk\.xlsx, data/notes\.csv, data/spec\.json`)
+
+	g := sc(call(t, s, "get_presentation", map[string]any{"deck_id": "abcDEF1234"}))
+	eq(t, len(list(g["images"])), 1)
+	eq(t, mapOf(list(g["files"])[1])["sheets"].([]any)[0].(map[string]any)["name"], "Monthly")
+}
+
+func TestCreateAndUpdateKeepDataFiles(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, testEnv(&f, nil), "")
+	defer s.close()
+	md := "# Risk\n\n## Monthly\n\n```vega-lite\n{\"data\": {\"url\": \"data/risk-Monthly.csv\"}, \"mark\": \"bar\"}\n```\n"
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "Risk", "markdown": md,
+		"files": []any{
+			map[string]any{"name": "risk.xlsx", "data_base64": base64.StdEncoding.EncodeToString(testBook(t))},
+			map[string]any{"name": "data/extra.csv", "text": "a,b\n1,2\n"},
+		},
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	match(t, textOf(c), `data/risk\.xlsx: sheet "Monthly" \(12 rows; columns "month", "cards"\) read as data/risk-Monthly\.csv`)
+	files := list(f.db.doc("shares/" + id)["files"])
+	eq(t, []any{mapOf(files[0])["path"], mapOf(files[0])["type"], mapOf(files[1])["path"], mapOf(files[1])["type"]},
+		[]string{"data/risk.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "data/extra.csv", "text/csv"})
+	eq(t, string(f.bucket.saved["shares/"+id+"/data/extra.csv"].data), "a,b\n1,2\n")
+	back := sc(call(t, s, "read_file", map[string]any{"deck_id": id, "path": "data/risk-Monthly.csv", "limit": 1}))
+	eq(t, back["rows"], [][]string{{"01/01/2022", "10"}})
+
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": sc(c)["edit_key"],
+		"files": []any{map[string]any{"name": "extra.csv", "text": "a,b\n3,4\n"}, map[string]any{"name": "more.json", "text": "[1]"}}})
+	if u.IsError {
+		t.Fatal(textOf(u))
+	}
+	paths := []any{}
+	for _, x := range list(f.db.doc("shares/" + id)["files"]) {
+		paths = append(paths, mapOf(x)["path"])
+	}
+	eq(t, paths, []string{"data/risk.xlsx", "data/extra.csv", "data/more.json"})
+	eq(t, string(f.bucket.saved["shares/"+id+"/data/extra.csv"].data), "a,b\n3,4\n")
+
+	for _, bad := range []struct {
+		file map[string]any
+		why  string
+	}{
+		{map[string]any{"name": "bad.xlsx", "data_base64": base64.StdEncoding.EncodeToString([]byte("nope"))}, `not a workbook Sliqtly can read`},
+		{map[string]any{"name": "run.exe", "text": "x"}, `data files are \.xlsx, \.csv`},
+		{map[string]any{"name": "a.csv", "text": "x", "url": "https://images.test/a.csv"}, `give one of text, data_base64 or url`},
+		{map[string]any{"name": "a.xlsx", "text": "x"}, `sent as data_base64 or url`},
+	} {
+		r := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": "# x", "files": []any{bad.file}})
+		if !r.IsError {
+			t.Fatalf("%v was kept", bad.file)
+		}
+		match(t, textOf(r), bad.why)
+	}
 }

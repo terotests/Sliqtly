@@ -215,6 +215,9 @@ class Store {
         def out:MfJ (MfJ.newArr())
         for imgs img:Img i {
             def path:string ("media/" + img.name)
+            if ((strlen img.path) > 0) {
+                path = img.path
+            }
             def name:string ("shares/" + id + "/" + path)
             ; the token is what getDownloadURL() hands the editor for its own uploads
             def token:string (host_uuid host)
