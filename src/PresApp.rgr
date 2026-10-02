@@ -312,7 +312,11 @@ class PresApp {
         tabs.tid = "edtabs"
         tabs.name = (PresI18n.t("Editor"))
         tabs.addItem("md" "Markdown" "" false)
-        tabs.addItem("css" (PresI18n.t("Theme (CSS)")) "" false)
+        def cssLabel:string (PresI18n.t("Theme (CSS)"))
+        if (cssContrastCount > 0) {
+            cssLabel = (cssLabel + " ⚠")
+        }
+        tabs.addItem("css" cssLabel "" false)
         tabs.addItem("files" (PresI18n.t("Files")) "" false)
         tabs.value = edTab
         tabs.build()
@@ -2193,6 +2197,18 @@ class PresApp {
         if ((strlen j) == 0) {
             j = (PresHints.forLine(md text col (this.inFrontMatter(line))))
         }
+        ; a line with a contrast warning: the warning, in whatever popover the
+        ; line has, or in one of its own
+        def note:string ""
+        if (edTab != "files") {
+            note = (this.contrastNote(line))
+        }
+        if ((strlen note) > 0) {
+            if ((strlen j) == 0) {
+                j = ("{\"kind\":\"warn\",\"name\":" + (PresHint.q((PresI18n.t("Low contrast")))) + ",\"start\":0,\"end\":" + (to_string (strlen text)) + "}")
+            }
+            j = ((substring j 0 ((strlen j) - 1)) + ",\"warn\":" + (PresHint.q(note)) + "}")
+        }
         if ((strlen j) == 0) {
             return ""
         }
@@ -2800,6 +2816,184 @@ class PresApp {
     fn toast:void (text:string) {
         panels.toast(text)
         chromeRev = (chromeRev + 1)
+    }
+
+    ; =========================================================================
+    ; Text too faint on its slide
+    ; =========================================================================
+    ; The painter judges every run of text against what is under it (WCAG
+    ; 4.5:1, 3:1 for large text) and lists the ones that fall short; the page
+    ; hands that list here, as JSON: [{text, ratio, need}]. Each is found on
+    ; the slide, and a warning goes on the Markdown line it came from and on
+    ; every line of the theme that sets its colour, with what to do about it.
+    ; Shown as a mark in the editors' gutter and, on a click on the line, in
+    ; the popover; nothing is laid over the slide.
+    def contrastKey:string ""
+    def cssContrastCount:int 0
+
+    fn setContrast:boolean (json:string) {
+        def key:string (json + "|" + (to_string mdEditor.buf.version) + "|" + (to_string cssEditor.buf.version) + "|" + (to_string selected))
+        if (key == contrastKey) {
+            return false
+        }
+        contrastKey = key
+        def mdOut:[EditorDiagnostic]
+        def cssOut:[EditorDiagnostic]
+        def p (new VlJsonParser())
+        def j:VlJson (p.parse(json))
+        def l:MdLayout (deck.layout())
+        def i:int 0
+        while (i < (j.count())) {
+            def r:VlJson (j.at(i))
+            def text:string (r.stringOr("text" ""))
+            def ratio:double (r.doubleOr("ratio" 0.0))
+            def need:double (r.doubleOr("need" 4.5))
+            def b:int 0
+            def found:int -1
+            while (b < (array_length l.boxes)) {
+                def box:MdBox (itemAt l.boxes b)
+                if ((box.page == selected) && (box.text == text)) {
+                    found = b
+                    break
+                }
+                b = (b + 1)
+            }
+            if (found >= 0) {
+                def box:MdBox (itemAt l.boxes found)
+                def head:string (PresI18n.t("Low contrast: ") + (PresApp.ratioWords(ratio)) + ":1, " + (PresI18n.t("needs ")) + (PresApp.ratioWords(need)) + ":1.")
+                def light:boolean (PresApp.isLight(box.color))
+                def mdFix:string (PresI18n.t("Use a lighter text colour in the theme (CSS), or a lighter background."))
+                def cssFix:string (PresI18n.t("Use a lighter colour here, or a lighter background."))
+                if light {
+                    mdFix = (PresI18n.t("Use a darker text colour in the theme (CSS), or darken the background (a darker picture, or a scrim over it)."))
+                    cssFix = (PresI18n.t("Use a darker colour here, or darken the background (a darker picture, or a scrim over it)."))
+                }
+                def line:int (this.mdLineOf((PresDeck.boxSrc(box))))
+                if (line >= 0) {
+                    PresApp.warnOnce(mdOut line ((head + " ") + mdFix))
+                }
+                def words:string text
+                if ((strlen words) > 40) {
+                    words = ((substring words 0 39) + "…")
+                }
+                def cl:int 0
+                while (cl < (cssEditor.buf.lineCount())) {
+                    if (PresApp.setsColour((cssEditor.buf.lineAt(cl)) box.color)) {
+                        PresApp.warnOnce(cssOut cl (PresI18n.t("Low contrast: ") + "“" + words + "” " + (PresApp.ratioWords(ratio)) + ":1, " + (PresI18n.t("needs ")) + (PresApp.ratioWords(need)) + ":1. " + cssFix))
+                    }
+                    cl = (cl + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        mdEditor.setHostDiagnostics(mdOut)
+        cssEditor.setHostDiagnostics(cssOut)
+        if ((array_length cssOut) != cssContrastCount) {
+            cssContrastCount = (array_length cssOut)
+            this.makeTabs()
+        }
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; One warning per line: a second run from the same line says nothing new.
+    sfn warnOnce:void (out:[EditorDiagnostic] line:int message:string) {
+        def i:int 0
+        while (i < (array_length out)) {
+            def d:EditorDiagnostic (itemAt out i)
+            if (d.line == line) {
+                return
+            }
+            i = (i + 1)
+        }
+        ; a negative end column: the whole line, marked in the gutter only
+        push out (EditorDiagnostic.span(line 0 -1 (DiagnosticSeverity.warning()) message "contrast"))
+    }
+
+    ; The warning on a line of the editor showing, or "".
+    fn contrastNote:string (line:int) {
+        def ds:[EditorDiagnostic] editor.hostDiagnostics
+        def i:int 0
+        while (i < (array_length ds)) {
+            def d:EditorDiagnostic (itemAt ds i)
+            if (d.line == line) {
+                return d.message
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; The Markdown line a source offset is on.
+    fn mdLineOf:int (offset:int) {
+        if (offset < 0) {
+            return -1
+        }
+        def off:int 0
+        def i:int 0
+        def n:int (mdEditor.buf.lineCount())
+        while (i < n) {
+            def next:int ((off + (strlen (mdEditor.buf.lineAt(i)))) + 1)
+            if (offset < next) {
+                return i
+            }
+            off = next
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Does this line of CSS set a text colour (`color:`, not `background-color`)
+    ; to the given one?
+    sfn setsColour:boolean (text:string hex:string) {
+        def want:EVGColor (EVGColor.parse(hex))
+        def n:int (strlen text)
+        def at:int (indexOf text "color")
+        while (at >= 0) {
+            def before:int 32
+            if (at > 0) {
+                before = (charAt text (at - 1))
+            }
+            def k:int (at + 5)
+            while ((k < n) && ((charAt text k) == 32)) {
+                k = (k + 1)
+            }
+            if ((((before == 32) || (before == 9)) || ((before == 59) || (before == 123))) && ((k < n) && ((charAt text k) == 58))) {
+                def e:int (k + 1)
+                while ((e < n) && (((charAt text e) != 59) && ((charAt text e) != 125))) {
+                    e = (e + 1)
+                }
+                def got:EVGColor (CssValue.color((trim (substring text (k + 1) e))))
+                if got.isSet {
+                    if ((((got.red()) == (want.red())) && ((got.green()) == (want.green()))) && ((got.blue()) == (want.blue()))) {
+                        return true
+                    }
+                }
+            }
+            def rest:int (indexOf (substring text (at + 5) n) "color")
+            if (rest < 0) {
+                at = -1
+            } {
+                at = ((at + 5) + rest)
+            }
+        }
+        return false
+    }
+
+    sfn isLight:boolean (hex:string) {
+        def c:EVGColor (EVGColor.parse(hex))
+        def y:double ((((0.2126 * (to_double (c.red()))) + (0.7152 * (to_double (c.green())))) + (0.0722 * (to_double (c.blue())))) / 255.0)
+        return (y > 0.5)
+    }
+
+    sfn ratioWords:string (v:double) {
+        def t:int (to_int ((v * 10.0) + 0.5))
+        def whole:int (to_int ((to_double t) / 10.0))
+        def tenth:int (t - (whole * 10))
+        if (tenth == 0) {
+            return (to_string whole)
+        }
+        return ((to_string whole) + "." + (to_string tenth))
     }
 
     fn takePanels:void () {

@@ -766,7 +766,13 @@ function paintOnce() {
     sf.dispose();
     // Only while editing: not to an audience, and not mid-animation, where a
     // fading line is briefly faint by design.
-    if (layout.mode !== "present" && !viewer && !app.isPlaying()) warnLowContrast(stageStats && stageStats.lowContrast);
+    if (layout.mode !== "present" && !viewer && !app.isPlaying()) {
+      // Runs too faint on their slide: marked in the editors' gutters, not
+      // laid over the slide. A change shows on the next paint.
+      try {
+        if (app.setContrast(JSON.stringify((stageStats && stageStats.lowContrast) || []))) needsPaint = true;
+      } catch (e) { console.warn("contrast notes", e); }
+    }
   }
   if (grew) dropThumbs();
   let thumbsGrew = false;
@@ -1460,23 +1466,6 @@ function hashParams() {
 }
 
 let toastTimer = 0;
-// Text the painter found too faint against what is under it (WCAG 4.5:1, 3:1
-// for large text). It already drew an outline round it; the author is told
-// once, when the set of such lines on the stage changes, so a changed colour
-// or picture that makes a line hard to read does not pass unnoticed.
-let lowContrastKey = "";
-function warnLowContrast(list) {
-  const runs = list || [];
-  const key = runs.map((r) => r.text).join("\n");
-  if (key === lowContrastKey) return;
-  lowContrastKey = key;
-  if (!runs.length) return;
-  const worst = runs.reduce((a, b) => (b.ratio < a.ratio ? b : a));
-  const words = worst.text.length > 40 ? worst.text.slice(0, 39) + "…" : worst.text;
-  const more = runs.length > 1 ? t(" and ") + (runs.length - 1) + t(" more") : "";
-  toast(t("Low contrast: ") + "“" + words + "”" + more + " " + worst.ratio.toFixed(1) + ":1, " +
-    t("needs ") + worst.need + ":1. " + t("An outline was added; a darker or lighter colour reads better."));
-}
 
 function toast(text) {
   app.toast(text);

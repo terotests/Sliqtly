@@ -54,6 +54,8 @@ class PresHintPopover {
     def name:string ""
     def value:string ""
     def doc:string ""
+    ; a warning about the line (text too faint on its slide), above the rest
+    def warn:string ""
     def unit:string ""
     def tab:string "md"
     def line:int 0
@@ -115,6 +117,7 @@ class PresHintPopover {
         name = (j.stringOr("name" ""))
         value = (j.stringOr("value" ""))
         doc = (j.stringOr("doc" ""))
+        warn = (j.stringOr("warn" ""))
         unit = (j.stringOr("unit" ""))
         tab = (j.stringOr("tab" "md"))
         line = (j.intOr("line" 0))
@@ -261,6 +264,9 @@ class PresHintPopover {
         valueEl = (this.words("hp-value" value))
         head.addChild(valueEl)
         card.addChild(head)
+        if ((strlen warn) > 0) {
+            card.addChild((this.words("hp-warn" warn)))
+        }
         if ((strlen doc) > 0) {
             card.addChild((this.words("hp-doc" doc)))
         }
