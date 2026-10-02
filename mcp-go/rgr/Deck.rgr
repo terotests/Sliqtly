@@ -1,0 +1,419 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Checks on what a model sends, before anything is stored (mcp/src/deck.js).
+
+Import "McpHost.rgr"
+Import "Json.rgr"
+
+class Img {
+    def name:string ""
+    def type:string ""
+    def handle:int 0
+    def size:int 0
+}
+
+; pictures, or why not
+class Loaded {
+    def err:string ""
+    def imgs:[Img]
+}
+
+class Outline {
+    def titles:[string]
+    def media:[string]
+}
+
+class Deck {
+    sfn THEMES:[string] () {
+        return ([] _:string ("aurora" "nebula" "carbon" "ember" "midnight" "corporate" "editorial"))
+    }
+    sfn MAX_MD:int () {
+        return 307200
+    }
+    sfn MAX_CSS:int () {
+        return 102400
+    }
+    sfn MAX_IMAGE:int () {
+        return 5242880
+    }
+    sfn MAX_IMAGES:int () {
+        return 20
+    }
+
+    sfn isSpace:boolean (c:int) {
+        return ((((c == 32) || (c == 9)) || ((c == 10) || (c == 13))) || ((c == 11) || (c == 12)))
+    }
+    sfn isAlnum:boolean (c:int) {
+        return ((((c >= 48) && (c <= 57)) || ((c >= 65) && (c <= 90))) || ((c >= 97) && (c <= 122)))
+    }
+    sfn nameChar:boolean (c:int) {
+        return (((Deck.isAlnum(c)) || (c == 46)) || ((c == 95) || (c == 45)))
+    }
+
+    ; "team photo.JPG" → "team-photo.jpg"; "" when nothing usable is left
+    sfn cleanName:string (name:string) {
+        def t:string (trim name)
+        if (startsWith t "media/") {
+            t = (substring t 6 (strlen t))
+        }
+        def parts:[string]
+        def n:int (strlen t)
+        def i:int 0
+        def inSpace:boolean false
+        while (i < n) {
+            def c:int (charAt t i)
+            if (Deck.isSpace(c)) {
+                if (inSpace == false) {
+                    push parts "-"
+                }
+                inSpace = true
+            } {
+                inSpace = false
+                if (Deck.nameChar(c)) {
+                    push parts (substring t i (i + 1))
+                }
+            }
+            i = (i + 1)
+        }
+        def s:string (join parts "")
+        if ((((strlen s) == 0) || (startsWith s ".")) || ((strlen s) > 80)) {
+            return ""
+        }
+        ; the extension in lower case, when it is letters and digits
+        def dot:int (lastIndexOf s ".")
+        if (dot >= 0) {
+            def ext:string (substring s (dot + 1) (strlen s))
+            if ((strlen ext) > 0) {
+                if (Deck.allAlnum(ext)) {
+                    return ((substring s 0 (dot + 1)) + (to_lowercase ext))
+                }
+            }
+        }
+        return s
+    }
+
+    sfn allAlnum:boolean (s:string) {
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            if ((Deck.isAlnum((charAt s i))) == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    sfn typeOf:string (name:string given:string) {
+        if ((((given == "image/png") || (given == "image/jpeg")) || ((given == "image/gif") || (given == "image/webp"))) || (given == "image/svg+xml")) {
+            return given
+        }
+        def dot:int (lastIndexOf name ".")
+        if (dot < 0) {
+            return ""
+        }
+        def ext:string (substring name (dot + 1) (strlen name))
+        if ((ext == "png")) {
+            return "image/png"
+        }
+        if ((ext == "jpg") || (ext == "jpeg")) {
+            return "image/jpeg"
+        }
+        if (ext == "gif") {
+            return "image/gif"
+        }
+        if (ext == "webp") {
+            return "image/webp"
+        }
+        if (ext == "svg") {
+            return "image/svg+xml"
+        }
+        return ""
+    }
+
+    ; ``` or ~~~ (three or more) after leading space, "" otherwise
+    sfn fenceOf:string (line:string) {
+        def n:int (strlen line)
+        def i:int 0
+        while ((i < n) && (Deck.isSpace((charAt line i)))) {
+            i = (i + 1)
+        }
+        if (i >= n) {
+            return ""
+        }
+        def c:int (charAt line i)
+        if ((c != 96) && (c != 126)) {
+            return ""
+        }
+        def j:int i
+        while ((j < n) && ((charAt line j) == c)) {
+            j = (j + 1)
+        }
+        if ((j - i) < 3) {
+            return ""
+        }
+        return (substring line i j)
+    }
+
+    ; a `#` or `##` heading's title (its {attributes} cut), or "" with ok false
+    sfn headingOf:string (line:string) {
+        def n:int (strlen line)
+        def h:int 0
+        while ((h < n) && ((charAt line h) == 35)) {
+            h = (h + 1)
+        }
+        if ((h < 1) || (h > 2)) {
+            return ""
+        }
+        if (h >= n) {
+            return ""
+        }
+        if ((Deck.isSpace((charAt line h))) == false) {
+            return ""
+        }
+        def k:int h
+        while ((k < n) && (Deck.isSpace((charAt line k)))) {
+            k = (k + 1)
+        }
+        def title:string (Deck.trimEnd((substring line k n)))
+        ; `\s*\{[^}]*\}\s*$`: from the first { after the last } but one
+        if (endsWith title "}") {
+            def body:string (substring title 0 ((strlen title) - 1))
+            def lastClose:int (lastIndexOf body "}")
+            def from:int (lastClose + 1)
+            def rest:string (substring body from (strlen body))
+            def open:int (indexOf rest "{")
+            if (open >= 0) {
+                title = (substring title 0 (from + open))
+            }
+        }
+        return (trim title)
+    }
+
+    sfn trimEnd:string (s:string) {
+        def n:int (strlen s)
+        while ((n > 0) && (Deck.isSpace((charAt s (n - 1))))) {
+            n = (n - 1)
+        }
+        return (substring s 0 n)
+    }
+
+    ; What the slides are: titles of `#` / `##` headings outside fences, and
+    ; the media/… the text points at.
+    sfn outline:Outline (md:string) {
+        def out (new Outline)
+        def fence:string ""
+        def lines:[string] (strsplit md "\n")
+        for lines raw:string li {
+            def line:string raw
+            if (endsWith line "\r") {
+                line = (substring line 0 ((strlen line) - 1))
+            }
+            def f:string (Deck.fenceOf(line))
+            if ((strlen f) > 0) {
+                if ((strlen fence) == 0) {
+                    fence = f
+                } {
+                    if (((charAt f 0) == (charAt fence 0)) && ((strlen f) >= (strlen fence))) {
+                        fence = ""
+                    }
+                }
+                continue
+            }
+            if ((strlen fence) > 0) {
+                continue
+            }
+            if (startsWith line "#") {
+                def n:int (strlen line)
+                def h:int 0
+                while ((h < n) && ((charAt line h) == 35)) {
+                    h = (h + 1)
+                }
+                if (((h == 1) || (h == 2)) && (h < n)) {
+                    if (Deck.isSpace((charAt line h))) {
+                        push out.titles (Deck.headingOf(line))
+                    }
+                }
+            }
+            Deck.mediaIn(line out)
+        }
+        return out
+    }
+
+    sfn mediaIn:void (line:string out:Outline) {
+        def at:int (indexOf line "media/")
+        while (at >= 0) {
+            def start:int (at + 6)
+            def n:int (strlen line)
+            def e:int start
+            while ((e < n) && (Deck.nameChar((charAt line e)))) {
+                e = (e + 1)
+            }
+            if (e > start) {
+                def m:string (substring line start e)
+                if ((Deck.inList(out.media m)) == false) {
+                    push out.media m
+                }
+            }
+            def rest:string (substring line start n)
+            def next:int (indexOf rest "media/")
+            if (next < 0) {
+                at = -1
+            } {
+                at = (start + next)
+            }
+        }
+    }
+
+    sfn inList:boolean (list:[string] s:string) {
+        for list x:string i {
+            if (x == s) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; Notes for the model: pictures the text names but nobody sent, and the
+    ; other way round.
+    sfn warnings:[string] (md:string imageNames:[string] storedNames:[string]) {
+        def o:Outline (Deck.outline(md))
+        def out:[string]
+        for o.media m:string i {
+            if (((Deck.inList(imageNames m)) == false) && ((Deck.inList(storedNames m)) == false)) {
+                push out ("media/" + m + " is used in the Markdown but no image by that name was sent.")
+            }
+        }
+        for imageNames nm:string j {
+            if ((Deck.inList(o.media nm)) == false) {
+                push out ("Image " + nm + " was sent but the Markdown does not use media/" + nm + ".")
+            }
+        }
+        return out
+    }
+
+    sfn privateHost:boolean (host:string) {
+        def h:string (to_lowercase host)
+        if ((startsWith h "[") && (endsWith h "]")) {
+            h = (substring h 1 ((strlen h) - 1))
+        }
+        if (((h == "localhost") || (endsWith h ".localhost")) || ((endsWith h ".internal") || (endsWith h ".local"))) {
+            return true
+        }
+        if ((((startsWith h "127.") || (startsWith h "10.")) || ((startsWith h "0.") || (startsWith h "169.254."))) || (startsWith h "192.168.")) {
+            return true
+        }
+        if (startsWith h "172.") {
+            def rest:string (substring h 4 (strlen h))
+            def dot:int (indexOf rest ".")
+            if (dot > 0) {
+                def second@(optional):int (str2int (substring rest 0 dot))
+                if (!null? second) {
+                    def v:int (unwrap second)
+                    if ((v >= 16) && (v <= 31)) {
+                        return true
+                    }
+                }
+            }
+        }
+        if (((h == "::1") || (startsWith h "fc")) || ((startsWith h "fd") || (startsWith h "fe80"))) {
+            return true
+        }
+        return false
+    }
+
+    ; The pictures, fetched or decoded; the bytes stay with the host.
+    sfn loadImages:Loaded (host:McpHost list:[MfJ]) {
+        def res (new Loaded)
+        if ((array_length list) > (Deck.MAX_IMAGES())) {
+            res.err = ("At most " + (to_string (Deck.MAX_IMAGES())) + " images per call.")
+            return res
+        }
+        for list img:MfJ i {
+            def given:string (img.str_("name"))
+            def name:string (Deck.cleanName(given))
+            if ((strlen name) == 0) {
+                res.err = ("Image name \"" + given + "\" is not usable: use letters, digits, \".\", \"-\" and \"_\".")
+                return res
+            }
+            def type:string (Deck.typeOf(name (img.str_("mime_type"))))
+            def handle:int 0
+            def size:int 0
+            def b64:string (img.str_("data_base64"))
+            def url:string (img.str_("url"))
+            if ((strlen b64) > 0) {
+                if (startsWith b64 "data:") {
+                    def semi:int (indexOf b64 ";base64,")
+                    if (semi > 0) {
+                        if ((strlen type) == 0) {
+                            type = (Deck.typeOf(name (substring b64 5 semi)))
+                        }
+                        b64 = (substring b64 (semi + 8) (strlen b64))
+                    }
+                }
+                def got:MfJ (J.parse((host_image_base64 host b64)))
+                handle = (got.int_("handle" 0))
+                size = (got.int_("size" 0))
+            } {
+                if ((strlen url) > 0) {
+                    def u:MfJ (J.parse((host_parse_url host url)))
+                    if (u.isObj() == false) {
+                        res.err = ("Image " + name + ": \"" + url + "\" is not a URL.")
+                        return res
+                    }
+                    def hostname:string (u.str_("hostname"))
+                    if (((u.str_("scheme")) != "https") || (Deck.privateHost(hostname))) {
+                        res.err = ("Image " + name + ": only public https URLs are fetched.")
+                        return res
+                    }
+                    def got:MfJ (J.parse((host_image_url host url ((Deck.MAX_IMAGE()) + 1))))
+                    def status:int (got.int_("status" 0))
+                    if (status == 0) {
+                        res.err = ("Image " + name + ": " + hostname + " could not be fetched.")
+                        return res
+                    }
+                    if ((status < 200) || (status > 299)) {
+                        res.err = ("Image " + name + ": " + hostname + " answered " + (to_string status) + ".")
+                        return res
+                    }
+                    def ct:string (got.str_("type"))
+                    if (((strlen ct) > 0) && ((startsWith ct "image/") == false)) {
+                        res.err = ("Image " + name + ": the URL gave " + ct + ", not a picture.")
+                        return res
+                    }
+                    if ((got.int_("length" 0)) > (Deck.MAX_IMAGE())) {
+                        res.err = ("Image " + name + " is larger than 5 MB.")
+                        return res
+                    }
+                    handle = (got.int_("handle" 0))
+                    size = (got.int_("size" 0))
+                    if ((strlen type) == 0) {
+                        type = (Deck.typeOf(name ct))
+                    }
+                } {
+                    res.err = ("Image " + name + ": give either url or data_base64.")
+                    return res
+                }
+            }
+            if (size == 0) {
+                res.err = ("Image " + name + " is empty.")
+                return res
+            }
+            if (size > (Deck.MAX_IMAGE())) {
+                res.err = ("Image " + name + " is larger than 5 MB.")
+                return res
+            }
+            if ((strlen type) == 0) {
+                res.err = ("Image " + name + ": unknown picture type; name it .png, .jpg, .gif, .webp or .svg.")
+                return res
+            }
+            def im (new Img)
+            im.name = name
+            im.type = type
+            im.handle = handle
+            im.size = size
+            push res.imgs im
+        }
+        return res
+    }
+}

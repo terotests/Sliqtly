@@ -2,14 +2,14 @@
 // pictures) into a presentation at sliqtly.com and hand back its link.
 //
 // Tools: sliqtly_guide, create_presentation, update_presentation,
-// get_presentation. create/update also name a UI resource (MCP Apps, and the
+// bind_chart_data, get_presentation, list_presentations. create/update also name a UI resource (MCP Apps, and the
 // same template for ChatGPT) that shows the deck inline in the chat.
 
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { THEMES, MAX_MD, MAX_CSS, InputError, loadImages, outline, warnings } from "./deck.js";
+import { THEMES, MAX_MD, MAX_CSS, InputError, bindChartData, loadImages, outline, warnings } from "./deck.js";
 import { packText } from "./store.js";
 
 const GUIDE = fs.readFileSync(new URL("../guide.md", import.meta.url), "utf8");
@@ -113,6 +113,28 @@ export function createServer(opts) {
     return { content: [{ type: "text", text: lines.join("\n") }], structuredContent: out, _meta: uiMeta() };
   }
 
+  // the stored deck, if this caller may change it; throws otherwise
+  async function editable(deckId, editKey) {
+    if (store.kind === "link") throw new InputError("This server keeps no decks (no cloud storage configured): call create_presentation again with the whole deck.");
+    const cur = await store.get(deckId);
+    const mine = !!(cur && user && cur.owner === user.uid);
+    if (!cur || (cur.source !== "mcp" && !mine)) throw new InputError(`No presentation ${deckId} that this server can change.`);
+    if (!mine && !editKey) throw new InputError("edit_key is needed: the presentation is not this signed-in user's own.");
+    return { cur, mine };
+  }
+
+  function updated(deckId, saved, note) {
+    if (!saved) throw new InputError("The edit_key does not match this presentation.");
+    const stored = (saved.files || []).map((f) => f.path.replace(/^media\//, ""));
+    const out = result({
+      title: saved.name, theme: saved.theme, slides: outline(saved.md).titles.length,
+      warnings: warnings(saved.md, [], stored).filter((w) => !w.startsWith("Image")),
+      ...links(deckId), deck_id: deckId,
+    }, "Updated");
+    if (note) out.content[0].text += "\n" + note;
+    return out;
+  }
+
   function guarded(kind, fn) {
     return async (args, extra) => {
       const why = opts.limit ? opts.limit(kind, extra) : null;
@@ -177,24 +199,42 @@ export function createServer(opts) {
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     _meta: uiMeta(),
   }, guarded("update_presentation", async ({ deck_id, edit_key, title, markdown, theme, css, css_mode = "extend", images }) => {
-    if (store.kind === "link") throw new InputError("This server keeps no decks (no cloud storage configured): call create_presentation again with the whole deck.");
     if (markdown != null && markdown.length > MAX_MD) throw new InputError("markdown is larger than 300 KB.");
-    const cur = await store.get(deck_id);
-    const mine = !!(cur && user && cur.owner === user.uid);
-    if (!cur || (cur.source !== "mcp" && !mine)) throw new InputError(`No presentation ${deck_id} that this server can change.`);
-    if (!mine && !edit_key) throw new InputError("edit_key is needed: the presentation is not this signed-in user's own.");
+    const { cur, mine } = await editable(deck_id, edit_key);
     const th = theme ?? cur.theme ?? "aurora";
     // a new theme with no new css drops the old theme's sheet
     const css2 = css != null ? await sheet(th, css, css_mode) : theme != null && theme !== cur.theme ? null : undefined;
     const imgs = await loadImages(images, fetchImpl);
     const saved = await store.update(deck_id, mine ? null : edit_key, { name: title, md: markdown, theme, css: css2, images: imgs });
-    if (!saved) throw new InputError("The edit_key does not match this presentation.");
-    const stored = (saved.files || []).map((f) => f.path.replace(/^media\//, ""));
-    return result({
-      title: saved.name, theme: saved.theme, slides: outline(saved.md).titles.length,
-      warnings: warnings(saved.md, [], stored).filter((w) => !w.startsWith("Image")),
-      ...links(deck_id), deck_id,
-    }, "Updated");
+    return updated(deck_id, saved);
+  }));
+
+  server.registerTool("bind_chart_data", {
+    title: "Connect a chart to live data",
+    description: "Point one ```vega-lite chart of a presentation at live data: a CSV or JSON URL, or a Google Sheet shared as \"Anyone with the link\". The data is read when the deck opens; the rest of the chart's spec stays. Keeps the presentation's link.",
+    inputSchema: {
+      deck_id: z.string().describe("deck_id from create_presentation"),
+      edit_key: z.string().optional().describe("edit_key from create_presentation; not needed when signed in as the presentation's owner"),
+      chart: z.union([z.number().int().min(1), z.string()]).describe("Which chart: its number among the deck's vega-lite charts (1 = first), or the title of the slide it is on"),
+      source: z.union([
+        z.string().describe("https URL of a CSV or JSON file, a Google Sheets link (…/spreadsheets/d/<id>/edit#gid=0), or sheet://<id>/<Sheet>!A:B"),
+        z.object({
+          google_sheets: z.string().describe("The sheet's id or link"),
+          sheet: z.string().optional().describe("Tab name, e.g. Monthly"),
+          range: z.string().optional().describe('Cells, e.g. "A:B" or "Monthly!A:B"'),
+        }),
+      ]).describe("Where the chart's data comes from"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+    _meta: uiMeta(),
+  }, guarded("bind_chart_data", async ({ deck_id, edit_key, chart, source }) => {
+    const { cur, mine } = await editable(deck_id, edit_key);
+    const bound = bindChartData(cur.md || "", chart, source);
+    if (bound.md.length > MAX_MD) throw new InputError("markdown would be larger than 300 KB.");
+    const saved = await store.update(deck_id, mine ? null : edit_key, { md: bound.md });
+    const out = updated(deck_id, saved, `Chart ${bound.index}${bound.title ? ` (on "${bound.title}")` : ""} now reads ${JSON.stringify(bound.spec.data)}. PDF and PPTX exports are snapshots of the data when exported.`);
+    out.structuredContent = { ...out.structuredContent, chart: bound.index, spec: bound.spec };
+    return out;
   }));
 
   server.registerTool("get_presentation", {

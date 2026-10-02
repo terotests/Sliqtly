@@ -56,9 +56,16 @@ public `https` URL or base64 data. PNG, JPEG, GIF, WebP and SVG, up to 5 MB.
 
 ## Charts, diagrams, math, tables
 
-- Charts: a ```` ```vega-lite ```` fence with a Vega-Lite JSON spec and inline
-  `data.values`. Bar, line, area, point, arc (pie) and more. Use
-  `"background": "rgba(0,0,0,0)"` so the theme shows through.
+- Charts: a ```` ```vega-lite ```` fence with a Vega-Lite JSON spec. Bar,
+  line, area, point, arc (pie) and more. Use
+  `"background": "rgba(0,0,0,0)"` so the theme shows through. The data is
+  inline `data.values`, or live, read each time the deck opens:
+  `"data": {"url": "https://…/x.csv"}` (or `.json`), a Google Sheet
+  `{"source": "google-sheets", "id": "<id or link>", "sheet": "Monthly", "range": "A:B"}`
+  (or `"range": "Monthly!A:B"`, or `"gid": 123`), or its link as `url`. The
+  sheet must be shared as "Anyone with the link". `bind_chart_data` points
+  an existing chart at such a source. PDF and PPTX exports are snapshots of
+  the data when exported.
 - Diagrams: ```` ```mermaid ````, ```` ```dot ```` (Graphviz), ```` ```d2 ````,
   ```` ```plantuml ````. They are animated as a guided tour, box by box.
   Under the fence: `{style=sketch}`, `{tour=off}`, `{layout=keep}`.

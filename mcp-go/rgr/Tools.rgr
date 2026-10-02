@@ -1,0 +1,772 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; The tools (mcp/src/server.js): Markdown (+ a theme, CSS and pictures) into
+; a presentation at sliqtly.com, and its link back.
+;
+; Tools: sliqtly_guide, create_presentation, update_presentation,
+; get_presentation, list_presentations. create/update also name a UI
+; resource (MCP Apps, and the same template for ChatGPT) that shows the deck
+; inline in the chat.
+
+Import "McpHost.rgr"
+Import "Json.rgr"
+Import "Deck.rgr"
+Import "Store.rgr"
+
+; who is asking, for one request
+class Caller {
+    def signedIn:boolean false
+    def uid:string ""
+    def name:string ""
+    ; resource metadata URL when sign-in is on, "" otherwise
+    def signIn:string ""
+    ; the rate limit key: "uid:…" or the address
+    def who:string ""
+}
+
+class Tools {
+    ; named by its contents, as in mcp/: a client that kept an older preview
+    ; by its URI asks for this one anew
+    sfn previewUri:string (host:McpHost) {
+        def h:string (host_sha256_hex host (host_asset host "preview.html"))
+        return ("ui://sliqtly/preview-" + (substring h 0 10) + ".html")
+    }
+    sfn APP_MIME:string () {
+        return "text/html;profile=mcp-app"
+    }
+
+    ; the site's domains, the configured one first
+    sfn frames:[string] (base:string) {
+        def out:[string]
+        push out base
+        if (base != "https://sliqtly.com") {
+            push out "https://sliqtly.com"
+        }
+        if (base != "https://sliqtly.web.app") {
+            push out "https://sliqtly.web.app"
+        }
+        return out
+    }
+
+    ; Sign-in is optional (ChatGPT reads this to offer both)
+    sfn either:MfJ () {
+        def a:MfJ (MfJ.newArr())
+        def n:MfJ (MfJ.newObj())
+        n.putStr("type" "noauth")
+        a.add(n)
+        a.add((Tools.oauthScheme()))
+        return a
+    }
+    sfn oauthScheme:MfJ () {
+        def o:MfJ (MfJ.newObj())
+        o.putStr("type" "oauth2")
+        o.put("scopes" (J.strs(([] _:string ("decks")))))
+        return o
+    }
+
+    sfn uiMeta:MfJ (host:McpHost) {
+        def m:MfJ (MfJ.newObj())
+        m.put("securitySchemes" (Tools.either()))
+        def ui:MfJ (MfJ.newObj())
+        ui.putStr("resourceUri" (Tools.previewUri(host)))
+        m.put("ui" ui)
+        m.putStr("ui/resourceUri" (Tools.previewUri(host)))
+        m.putStr("openai/outputTemplate" (Tools.previewUri(host)))
+        m.putBool("openai/widgetAccessible" false)
+        return m
+    }
+
+    ; --- input schemas, as the Node server's zod gives them
+
+    sfn prop:MfJ (type:string desc:string) {
+        def p:MfJ (MfJ.newObj())
+        p.putStr("type" type)
+        if ((strlen desc) > 0) {
+            p.putStr("description" desc)
+        }
+        return p
+    }
+
+    sfn schema:MfJ (props:MfJ required:[string]) {
+        def s:MfJ (MfJ.newObj())
+        s.putStr("type" "object")
+        s.put("properties" props)
+        if ((array_length required) > 0) {
+            s.put("required" (J.strs(required)))
+        }
+        s.putBool("additionalProperties" false)
+        s.putStr("$schema" "http://json-schema.org/draft-07/schema#")
+        return s
+    }
+
+    sfn deckFields:void (p:MfJ) {
+        def theme:MfJ (Tools.prop("string" "Theme: aurora (default), nebula, carbon, ember, midnight (dark); corporate, editorial (light)"))
+        theme.put("enum" (J.strs((Deck.THEMES()))))
+        p.put("theme" theme)
+        p.put("css" (Tools.prop("string" "CSS rules added on top of the theme (selectors: page, document, h1, h2, p, list, li, code, table, chart, diagram, .lead …). See sliqtly_guide.")))
+        def mode:MfJ (Tools.prop("string" "extend (default): css is added after the theme's rules. replace: css is the whole stylesheet."))
+        mode.put("enum" (J.strs(([] _:string ("extend" "replace")))))
+        p.put("css_mode" mode)
+        def ip:MfJ (MfJ.newObj())
+        ip.put("name" (Tools.prop("string" "File name the Markdown uses as media/<name>, e.g. \"team.jpg\" → ![](media/team.jpg)")))
+        ip.put("url" (Tools.prop("string" "A public https URL of the picture")))
+        ip.put("data_base64" (Tools.prop("string" "The picture's bytes as base64 (instead of url)")))
+        ip.put("mime_type" (Tools.prop("string" "image/png, image/jpeg, image/gif, image/webp or image/svg+xml; inferred from the name when left out")))
+        def item:MfJ (MfJ.newObj())
+        item.putStr("type" "object")
+        item.put("properties" ip)
+        item.put("required" (J.strs(([] _:string ("name")))))
+        def images:MfJ (Tools.prop("array" "Pictures the Markdown refers to as media/<name>"))
+        images.put("items" item)
+        p.put("images" images)
+    }
+
+    sfn annotations:MfJ (readOnly:boolean destructive:int idempotent:boolean openWorld:boolean) {
+        def a:MfJ (MfJ.newObj())
+        a.putBool("readOnlyHint" readOnly)
+        if (destructive == 0) {
+            a.putBool("destructiveHint" false)
+        }
+        if (destructive == 1) {
+            a.putBool("destructiveHint" true)
+        }
+        if (idempotent || (readOnly == false)) {
+            a.putBool("idempotentHint" idempotent)
+        }
+        a.putBool("openWorldHint" openWorld)
+        return a
+    }
+
+    sfn tool:MfJ (name:string title:string desc:string schema:MfJ ann:MfJ meta:MfJ) {
+        def t:MfJ (MfJ.newObj())
+        t.putStr("name" name)
+        t.putStr("title" title)
+        t.putStr("description" desc)
+        t.put("inputSchema" schema)
+        t.put("annotations" ann)
+        t.put("_meta" meta)
+        return t
+    }
+
+    sfn list:MfJ (host:McpHost) {
+        def none:[string]
+        def eitherMeta:MfJ (MfJ.newObj())
+        eitherMeta.put("securitySchemes" (Tools.either()))
+        def tools:MfJ (MfJ.newArr())
+        tools.add((Tools.tool("sliqtly_guide" "Sliqtly syntax guide" "How to write a Sliqtly deck: slide structure, build animations, effects, pictures, charts (Vega-Lite), diagrams (Mermaid, Graphviz), math, themes and the CSS selectors. Read before the first create_presentation." (Tools.schema((MfJ.newObj()) none)) (Tools.annotations(true -1 false false)) eitherMeta)))
+
+        def cp:MfJ (MfJ.newObj())
+        def title:MfJ (Tools.prop("string" "The presentation's name"))
+        title.putInt("maxLength" 200)
+        cp.put("title" title)
+        cp.put("markdown" (Tools.prop("string" "The whole deck as Sliqtly Markdown")))
+        Tools.deckFields(cp)
+        tools.add((Tools.tool("create_presentation" "Create a presentation" "Create a Sliqtly slide presentation from Markdown (# title slide, ## per slide), an optional theme, extra CSS and pictures. Returns a link that opens the presentation and a link to edit a copy in the Sliqtly editor." (Tools.schema(cp ([] _:string ("title" "markdown")))) (Tools.annotations(false 0 false true)) (Tools.uiMeta(host)))))
+
+        def up:MfJ (MfJ.newObj())
+        up.put("deck_id" (Tools.prop("string" "deck_id from create_presentation")))
+        up.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
+        def title2:MfJ (Tools.prop("string" ""))
+        title2.putInt("maxLength" 200)
+        up.put("title" title2)
+        up.put("markdown" (Tools.prop("string" "The whole deck as Sliqtly Markdown")))
+        Tools.deckFields(up)
+        tools.add((Tools.tool("update_presentation" "Update a presentation" "Change a presentation made with create_presentation, keeping its link. Send only what changes: markdown replaces the whole text; images are added (or replace pictures of the same name)." (Tools.schema(up ([] _:string ("deck_id")))) (Tools.annotations(false 1 true true)) (Tools.uiMeta(host)))))
+
+        def gp:MfJ (MfJ.newObj())
+        gp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
+        tools.add((Tools.tool("get_presentation" "Read a presentation" "Read a Sliqtly presentation's Markdown, theme, CSS and picture list by its deck_id (the id in https://sliqtly.com/s/<id>), to revise it." (Tools.schema(gp ([] _:string ("deck_id")))) (Tools.annotations(true -1 false false)) eitherMeta)))
+
+        def listMeta:MfJ (MfJ.newObj())
+        def only:MfJ (MfJ.newArr())
+        only.add((Tools.oauthScheme()))
+        listMeta.put("securitySchemes" only)
+        tools.add((Tools.tool("list_presentations" "List my presentations" "List the signed-in user's own Sliqtly presentations (newest first) with their links and deck_ids. Needs sign-in." (Tools.schema((MfJ.newObj()) none)) (Tools.annotations(true -1 false false)) listMeta)))
+        return tools
+    }
+
+    ; --- the preview resource
+
+    sfn csp:MfJ (base:string) {
+        def frames:[string] (Tools.frames(base))
+        ; the preview runs Sliqtly's viewer itself (preview.html): its scripts
+        ; and fonts from the site and Firebase's CDN, the share from Firestore,
+        ; the pictures from Storage
+        def resources:[string] (Tools.frames(base))
+        push resources "https://www.gstatic.com"
+        def connects:[string] (Tools.frames(base))
+        push connects "https://firestore.googleapis.com"
+        push connects "https://firebasestorage.googleapis.com"
+        def c:MfJ (MfJ.newObj())
+        c.put("frameDomains" (J.strs(frames)))
+        c.put("resourceDomains" (J.strs(resources)))
+        c.put("connectDomains" (J.strs(connects)))
+        return c
+    }
+
+    sfn uiCsp:MfJ (base:string) {
+        def ui:MfJ (MfJ.newObj())
+        ui.put("csp" (Tools.csp(base)))
+        ui.putBool("prefersBorder" false)
+        return ui
+    }
+
+    sfn resources:MfJ (host:McpHost base:string) {
+        def r:MfJ (MfJ.newObj())
+        r.putStr("uri" (Tools.previewUri(host)))
+        r.putStr("name" "preview")
+        r.putStr("title" "Sliqtly presentation")
+        r.putStr("description" "Shows the presentation inline")
+        r.putStr("mimeType" (Tools.APP_MIME()))
+        def meta:MfJ (MfJ.newObj())
+        meta.put("ui" (Tools.uiCsp(base)))
+        r.put("_meta" meta)
+        def a:MfJ (MfJ.newArr())
+        a.add(r)
+        return a
+    }
+
+    ; the contents of a resource, or a null value for an unknown uri
+    sfn read:MfJ (host:McpHost uri:string) {
+        if (uri != (Tools.previewUri(host))) {
+            return (new MfJ)
+        }
+        def base:string (host_base_url host)
+        def c:MfJ (MfJ.newObj())
+        c.putStr("uri" uri)
+        c.putStr("mimeType" (Tools.APP_MIME()))
+        c.putStr("text" (host_asset host "preview.html"))
+        def meta:MfJ (MfJ.newObj())
+        meta.put("ui" (Tools.uiCsp(base)))
+        def csp:MfJ (Tools.csp(base))
+        def w:MfJ (MfJ.newObj())
+        w.put("connect_domains" (csp.field("connectDomains")))
+        w.put("resource_domains" (csp.field("resourceDomains")))
+        w.put("frame_domains" (csp.field("frameDomains")))
+        meta.put("openai/widgetCSP" w)
+        meta.putStr("openai/widgetDescription" "The Sliqtly presentation, playable inline.")
+        meta.putBool("openai/widgetPrefersBorder" true)
+        c.put("_meta" meta)
+        def contents:MfJ (MfJ.newArr())
+        contents.add(c)
+        def out:MfJ (MfJ.newObj())
+        out.put("contents" contents)
+        return out
+    }
+
+    ; --- results
+
+    sfn text:MfJ (s:string) {
+        def c:MfJ (MfJ.newObj())
+        c.putStr("type" "text")
+        c.putStr("text" s)
+        def a:MfJ (MfJ.newArr())
+        a.add(c)
+        return a
+    }
+
+    sfn fail:MfJ (message:string) {
+        def r:MfJ (MfJ.newObj())
+        r.put("content" (Tools.text(message)))
+        r.putBool("isError" true)
+        return r
+    }
+
+    sfn links:void (out:MfJ base:string id:string) {
+        out.putStr("share_url" (base + "/s/" + id))
+        out.putStr("edit_url" (base + "/s/" + id + "?edit"))
+    }
+
+    sfn result:MfJ (host:McpHost caller:Caller out:MfJ verb:string) {
+        def lines:[string]
+        push lines (verb + ": \"" + (out.str_("title")) + "\" (" + (out.str_("slides")) + " slides, theme " + (out.str_("theme")) + ").")
+        push lines ("Presentation: " + (out.str_("share_url")))
+        push lines ("Open in the editor: " + (out.str_("edit_url")))
+        if caller.signedIn {
+            def who:string caller.name
+            if ((strlen who) == 0) {
+                who = "the signed-in user"
+            }
+            push lines ("Saved in the Sliqtly account of " + who + ".")
+        }
+        if (out.has("deck_id")) {
+            push lines ("deck_id: " + (out.str_("deck_id")))
+        }
+        if (out.has("edit_key")) {
+            push lines ("edit_key: " + (out.str_("edit_key")) + " (needed for update_presentation; do not show it to others)")
+        }
+        for (J.strList((out.field("warnings")))) w:string i {
+            push lines ("Note: " + w)
+        }
+        push lines "Give the user the presentation link."
+        def r:MfJ (MfJ.newObj())
+        r.put("content" (Tools.text((join lines "\n"))))
+        r.put("structuredContent" out)
+        r.put("_meta" (Tools.uiMeta(host)))
+        return r
+    }
+
+    ; --- the checks zod makes on the Node server; "" when the arguments hold
+
+    sfn checkArgs:string (a:MfJ required:[string]) {
+        if ((a.kind != 5) && (a.kind != 0)) {
+            return "Invalid arguments: expected an object."
+        }
+        for required r:string i {
+            if ((a.field(r)).kind != 3) {
+                return ("Invalid arguments: " + r + " is required.")
+            }
+        }
+        for ([] _:string ("title" "markdown" "theme" "css" "css_mode" "deck_id" "edit_key")) k:string j {
+            def v:MfJ (a.field(k))
+            if ((v.kind != 0) && (v.kind != 3)) {
+                return ("Invalid arguments: " + k + " is a string.")
+            }
+        }
+        def title:MfJ (a.field("title"))
+        if ((title.kind == 3) && ((Tools.chars(title.str)) > 200)) {
+            return "Invalid arguments: title is longer than 200 characters."
+        }
+        def theme:MfJ (a.field("theme"))
+        if ((theme.kind == 3) && ((Deck.inList((Deck.THEMES()) theme.str)) == false)) {
+            return ("Invalid arguments: theme is one of " + (join (Deck.THEMES()) ", ") + ".")
+        }
+        def mode:MfJ (a.field("css_mode"))
+        if ((mode.kind == 3) && ((mode.str != "extend") && (mode.str != "replace"))) {
+            return "Invalid arguments: css_mode is extend or replace."
+        }
+        def images:MfJ (a.field("images"))
+        if ((images.kind != 0) && (images.kind != 4)) {
+            return "Invalid arguments: images is a list."
+        }
+        for images.arr img:MfJ k2 {
+            if ((img.isObj()) == false) {
+                return "Invalid arguments: every image is an object."
+            }
+            if ((img.field("name")).kind != 3) {
+                return "Invalid arguments: every image needs a name."
+            }
+            for ([] _:string ("url" "data_base64" "mime_type")) f:string m {
+                def fv:MfJ (img.field(f))
+                if ((fv.kind != 0) && (fv.kind != 3)) {
+                    return ("Invalid arguments: image " + f + " is a string.")
+                }
+            }
+        }
+        return ""
+    }
+
+    ; characters, not bytes: UTF-8 lead bytes
+    sfn chars:int (s:string) {
+        def n:int (strlen s)
+        def count:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c < 128) || (c >= 192)) {
+                count = (count + 1)
+            }
+            i = (i + 1)
+        }
+        return count
+    }
+
+    sfn has:boolean (a:MfJ key:string) {
+        return ((a.field(key)).kind == 3)
+    }
+
+    ; --- the stylesheet stored with the deck: hasCss false keeps the theme
+
+    sfn sheet:Sheet (host:McpHost theme:string a:MfJ mode:string) {
+        def s (new Sheet)
+        def css:string (a.str_("css"))
+        if (((Tools.has(a "css")) == false) || ((strlen (trim css)) == 0)) {
+            if (mode == "replace") {
+                s.hasCss = true
+            }
+            return s
+        }
+        if ((strlen css) > (Deck.MAX_CSS())) {
+            s.err = "css is larger than 100 KB."
+            return s
+        }
+        s.hasCss = true
+        if (mode == "replace") {
+            s.css = css
+            return s
+        }
+        def base:string (host_theme_css host theme)
+        if ((strlen (host_error host)) > 0) {
+            s.fatal = (host_error host)
+            return s
+        }
+        s.css = (base + "\n/* --- added for this deck --- */\n" + css + "\n")
+        return s
+    }
+
+    ; --- the calls; a null value for an unknown tool
+
+    sfn call:MfJ (host:McpHost caller:Caller name:string args:MfJ) {
+        if (name == "sliqtly_guide") {
+            def g:MfJ (MfJ.newObj())
+            g.put("content" (Tools.text((host_asset host "guide.md"))))
+            return g
+        }
+        if ((name == "create_presentation") || (name == "update_presentation")) {
+            def why:string (host_rate_limit host caller.who)
+            if ((strlen why) > 0) {
+                return (Tools.fail(why))
+            }
+        }
+        def r:MfJ (new MfJ)
+        if (name == "create_presentation") {
+            r = (Tools.create(host caller args))
+        }
+        if (name == "update_presentation") {
+            r = (Tools.update(host caller args))
+        }
+        if (name == "get_presentation") {
+            r = (Tools.get(host caller args))
+        }
+        if (name == "list_presentations") {
+            r = (Tools.listMine(host caller))
+        }
+        if (r.kind == 0) {
+            return r
+        }
+        ; a storage or network failure that the tool did not turn into an answer
+        def err:string (host_error host)
+        if (((strlen err) > 0) && ((r.bool_("isError" false)) == false)) {
+            host_log host (name + " failed: " + err)
+            return (Tools.fail(("Sliqtly could not " + (Tools.verb(name)) + ": " + err)))
+        }
+        return r
+    }
+
+    sfn verb:string (name:string) {
+        def u:int (indexOf name "_")
+        if (u < 0) {
+            return name
+        }
+        return ((substring name 0 u) + " " + (substring name (u + 1) (strlen name)))
+    }
+
+    sfn failed:MfJ (host:McpHost name:string err:string) {
+        host_log host (name + " failed: " + err)
+        return (Tools.fail(("Sliqtly could not " + (Tools.verb(name)) + ": " + err)))
+    }
+
+    sfn create:MfJ (host:McpHost caller:Caller a:MfJ) {
+        def bad:string (Tools.checkArgs(a ([] _:string ("title" "markdown"))))
+        if ((strlen bad) > 0) {
+            return (Tools.fail(bad))
+        }
+        def md:string (a.str_("markdown"))
+        def theme:string "aurora"
+        if (Tools.has(a "theme")) {
+            theme = (a.str_("theme"))
+        }
+        def mode:string "extend"
+        if (Tools.has(a "css_mode")) {
+            mode = (a.str_("css_mode"))
+        }
+        if ((strlen md) > (Deck.MAX_MD())) {
+            return (Tools.fail("markdown is larger than 300 KB."))
+        }
+        if ((strlen (trim md)) == 0) {
+            return (Tools.fail("markdown is empty."))
+        }
+        def sh:Sheet (Tools.sheet(host theme a mode))
+        if ((strlen sh.err) > 0) {
+            return (Tools.fail(sh.err))
+        }
+        if ((strlen sh.fatal) > 0) {
+            return (Tools.failed(host "create_presentation" sh.fatal))
+        }
+        def loaded:Loaded (Deck.loadImages(host (a.list("images"))))
+        if ((strlen loaded.err) > 0) {
+            return (Tools.fail(loaded.err))
+        }
+        def names:[string]
+        for loaded.imgs im:Img i {
+            push names im.name
+        }
+        def none:[string]
+        def o:Outline (Deck.outline(md))
+        def ws:[string] (Deck.warnings(md names none))
+        def out:MfJ (MfJ.newObj())
+        out.putStr("title" (a.str_("title")))
+        out.putStr("theme" theme)
+        out.putInt("slides" (array_length o.titles))
+        def base:string (host_base_url host)
+        if ((host_store_kind host) == "link") {
+            if ((array_length loaded.imgs) > 0) {
+                push ws "Pictures are not stored on this server (no cloud storage configured); the slides show without them."
+            }
+            out.put("warnings" (J.strs(ws)))
+            def q:string ("md=" + (host_pack_text host md))
+            q = (q + "&theme=" + (host_uri_encode host theme))
+            if sh.hasCss {
+                q = (q + "&css=" + (host_pack_text host sh.css))
+            }
+            out.putStr("share_url" (base + "/#" + q + "&mode=show"))
+            out.putStr("edit_url" (base + "/#" + q))
+            return (Tools.result(host caller out "Created"))
+        }
+        out.put("warnings" (J.strs(ws)))
+        def owner:string "mcp"
+        if caller.signedIn {
+            owner = caller.uid
+        }
+        def made:Created (Store.create(host (a.str_("title")) md theme sh.hasCss sh.css loaded.imgs owner))
+        if ((strlen made.err) > 0) {
+            return (Tools.failed(host "create_presentation" made.err))
+        }
+        Tools.links(out base made.id)
+        out.putStr("deck_id" made.id)
+        out.putStr("edit_key" made.key)
+        return (Tools.result(host caller out "Created"))
+    }
+
+    sfn update:MfJ (host:McpHost caller:Caller a:MfJ) {
+        if ((host_store_kind host) == "link") {
+            return (Tools.fail("This server keeps no decks (no cloud storage configured): call create_presentation again with the whole deck."))
+        }
+        def bad:string (Tools.checkArgs(a ([] _:string ("deck_id"))))
+        if ((strlen bad) > 0) {
+            return (Tools.fail(bad))
+        }
+        if ((Tools.has(a "markdown")) && ((strlen (a.str_("markdown"))) > (Deck.MAX_MD()))) {
+            return (Tools.fail("markdown is larger than 300 KB."))
+        }
+        def id:string (a.str_("deck_id"))
+        def cur:MfJ (Store.get(host id))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "update_presentation" (host_error host)))
+        }
+        def mine:boolean (((cur.isObj()) && caller.signedIn) && ((cur.str_("owner")) == caller.uid))
+        if (((cur.isObj()) == false) || (((cur.str_("source")) != "mcp") && (mine == false))) {
+            return (Tools.fail(("No presentation " + id + " that this server can change.")))
+        }
+        def key:string (a.str_("edit_key"))
+        if ((mine == false) && ((strlen key) == 0)) {
+            return (Tools.fail("edit_key is needed: the presentation is not this signed-in user's own."))
+        }
+        def th:string "aurora"
+        if (Tools.has(a "theme")) {
+            th = (a.str_("theme"))
+        } {
+            if ((cur.field("theme")).kind == 3) {
+                th = (cur.str_("theme"))
+            }
+        }
+        def p (new DeckPatch)
+        ; a new theme with no new css drops the old theme's sheet
+        if (Tools.has(a "css")) {
+            def mode:string "extend"
+            if (Tools.has(a "css_mode")) {
+                mode = (a.str_("css_mode"))
+            }
+            def sh:Sheet (Tools.sheet(host th a mode))
+            if ((strlen sh.err) > 0) {
+                return (Tools.fail(sh.err))
+            }
+            if ((strlen sh.fatal) > 0) {
+                return (Tools.failed(host "update_presentation" sh.fatal))
+            }
+            if sh.hasCss {
+                p.cssMode = 1
+                p.css = sh.css
+            } {
+                p.cssMode = 2
+            }
+        } {
+            if ((Tools.has(a "theme")) && ((a.str_("theme")) != (cur.str_("theme")))) {
+                p.cssMode = 2
+            }
+        }
+        if (Tools.has(a "title")) {
+            p.hasName = true
+            p.name = (a.str_("title"))
+        }
+        if (Tools.has(a "markdown")) {
+            p.hasMd = true
+            p.md = (a.str_("markdown"))
+        }
+        if (Tools.has(a "theme")) {
+            p.hasTheme = true
+            p.theme = (a.str_("theme"))
+        }
+        def loaded:Loaded (Deck.loadImages(host (a.list("images"))))
+        if ((strlen loaded.err) > 0) {
+            return (Tools.fail(loaded.err))
+        }
+        def saved:MfJ (Store.update(host id (mine == false) key p loaded.imgs))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "update_presentation" (host_error host)))
+        }
+        if ((saved.isObj()) == false) {
+            return (Tools.fail("The edit_key does not match this presentation."))
+        }
+        def stored:[string]
+        for (saved.list("files")) f:MfJ i {
+            def path:string (f.str_("path"))
+            if (startsWith path "media/") {
+                path = (substring path 6 (strlen path))
+            }
+            push stored path
+        }
+        def md:string (saved.str_("md"))
+        def none:[string]
+        def ws:[string]
+        for (Deck.warnings(md none stored)) w:string j {
+            if ((startsWith w "Image") == false) {
+                push ws w
+            }
+        }
+        def o:Outline (Deck.outline(md))
+        def out:MfJ (MfJ.newObj())
+        out.put("title" (saved.field("name")))
+        out.put("theme" (saved.field("theme")))
+        out.putInt("slides" (array_length o.titles))
+        out.put("warnings" (J.strs(ws)))
+        Tools.links(out (host_base_url host) id)
+        out.putStr("deck_id" id)
+        return (Tools.result(host caller out "Updated"))
+    }
+
+    sfn get:MfJ (host:McpHost caller:Caller a:MfJ) {
+        if ((host_store_kind host) == "link") {
+            return (Tools.fail("This server keeps no decks (no cloud storage configured)."))
+        }
+        def bad:string (Tools.checkArgs(a ([] _:string ("deck_id"))))
+        if ((strlen bad) > 0) {
+            return (Tools.fail(bad))
+        }
+        def id:string (a.str_("deck_id"))
+        if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
+            return (Tools.fail("deck_id is the 10-character id in the share link."))
+        }
+        def d:MfJ (Store.get(host id))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "get_presentation" (host_error host)))
+        }
+        if ((d.isObj()) == false) {
+            return (Tools.fail(("No presentation " + id + ".")))
+        }
+        def images:MfJ (MfJ.newArr())
+        def names:[string]
+        for (d.list("files")) f:MfJ i {
+            def n:string (f.str_("path"))
+            if (startsWith n "media/") {
+                n = (substring n 6 (strlen n))
+            }
+            push names n
+            def im:MfJ (MfJ.newObj())
+            im.putStr("name" n)
+            im.put("type" (f.field("type")))
+            im.put("size" (f.field("size")))
+            images.add(im)
+        }
+        def css:MfJ (d.field("css"))
+        def hasCss:boolean (css.kind == 3)
+        def out:MfJ (MfJ.newObj())
+        out.putStr("title" (d.str_("name")))
+        out.putStr("theme" (d.str_("theme")))
+        out.putStr("markdown" (d.str_("md")))
+        if hasCss {
+            out.put("css" css)
+        } {
+            out.put("css" (new MfJ))
+        }
+        out.put("images" images)
+        Tools.links(out (host_base_url host) id)
+        def themeName:string (d.str_("theme"))
+        if ((strlen themeName) == 0) {
+            themeName = "(document's own)"
+        }
+        def pics:string (join names ", ")
+        if ((strlen pics) == 0) {
+            pics = "none"
+        }
+        def parts:[string]
+        push parts ("\"" + (out.str_("title")) + "\", theme " + themeName + ", " + (to_string (array_length names)) + " pictures: " + pics + ".")
+        if hasCss {
+            push parts "It has its own stylesheet (css below)."
+        }
+        push parts "```markdown"
+        def md:string (d.str_("md"))
+        if ((strlen md) > 0) {
+            push parts md
+        }
+        push parts "```"
+        if hasCss {
+            push parts ("```css\n" + css.str + "\n```")
+        }
+        def r:MfJ (MfJ.newObj())
+        r.put("content" (Tools.text((join parts "\n"))))
+        r.put("structuredContent" out)
+        return r
+    }
+
+    sfn listMine:MfJ (host:McpHost caller:Caller) {
+        if (caller.signedIn == false) {
+            def r:MfJ (Tools.fail("Listing presentations needs sign-in. Connect Sliqtly with sign-in (Google) to keep presentations in your own account."))
+            if ((strlen caller.signIn) > 0) {
+                def meta:MfJ (MfJ.newObj())
+                meta.put("mcp/www_authenticate" (J.strs(([] _:string (("Bearer resource_metadata=\"" + caller.signIn + "\", error=\"insufficient_scope\", error_description=\"Sign in to Sliqtly to list your presentations\""))))))
+                r.put("_meta" meta)
+            }
+            return r
+        }
+        if ((host_store_kind host) == "link") {
+            return (Tools.fail("This server keeps no decks (no cloud storage configured)."))
+        }
+        def docs:[MfJ] (Store.list(host caller.uid))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "list_presentations" (host_error host)))
+        }
+        def base:string (host_base_url host)
+        def decks:MfJ (MfJ.newArr())
+        def lines:[string]
+        for docs d:MfJ i {
+            def id:string (d.str_("id"))
+            def deck:MfJ (MfJ.newObj())
+            deck.putStr("deck_id" id)
+            deck.putStr("title" (d.str_("name")))
+            deck.putStr("theme" (d.str_("theme")))
+            def t:double (Store.stamp(d))
+            if (t > 0.0) {
+                deck.putStr("updated" (host_iso_time host (to_int t)))
+            } {
+                deck.put("updated" (new MfJ))
+            }
+            Tools.links(deck base id)
+            decks.add(deck)
+            def title:string (d.str_("name"))
+            if ((strlen title) == 0) {
+                title = "(untitled)"
+            }
+            push lines ("- " + title + " (" + id + "): " + (deck.str_("share_url")))
+        }
+        def txt:string (join lines "\n")
+        if ((array_length lines) == 0) {
+            txt = "No presentations yet."
+        }
+        def sc:MfJ (MfJ.newObj())
+        sc.put("presentations" decks)
+        def r2:MfJ (MfJ.newObj())
+        r2.put("content" (Tools.text(txt)))
+        r2.put("structuredContent" sc)
+        return r2
+    }
+}
+
+; the deck's stylesheet: hasCss false stores none; err is the model's
+; mistake, fatal the site's
+class Sheet {
+    def hasCss:boolean false
+    def css:string ""
+    def err:string ""
+    def fatal:string ""
+}

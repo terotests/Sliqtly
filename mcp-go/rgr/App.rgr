@@ -1,0 +1,217 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; The Sliqtly MCP server (mcp/src/http.js): /mcp, and with sign-in the OAuth
+; endpoints. Compiled to Go; ../host.go hands every request to App.serve with
+; an McpHost for it.
+;
+; Streamable HTTP, stateless. A browser opening /mcp is sent to the
+; instructions page. Sign-in is optional: see OAuth.rgr.
+; =============================================================================
+
+Import "McpHost.rgr"
+Import "Json.rgr"
+Import "OAuth.rgr"
+Import "Tools.rgr"
+Import "Mcp.rgr"
+
+class App {
+    sfn cors:void (res:HttpResponse) {
+        http_set_header res "Access-Control-Allow-Origin" "*"
+        http_set_header res "Access-Control-Allow-Headers" "content-type, mcp-session-id, mcp-protocol-version, authorization, last-event-id"
+        http_set_header res "Access-Control-Expose-Headers" "mcp-session-id, mcp-protocol-version, www-authenticate"
+        http_set_header res "Access-Control-Allow-Methods" "GET, POST, DELETE, OPTIONS"
+    }
+
+    sfn sendJson:void (res:HttpResponse status:int body:string) {
+        http_set_header res "Content-Type" "application/json; charset=utf-8"
+        http_set_status res status
+        http_send res body
+    }
+
+    sfn redirect:void (res:HttpResponse url:string) {
+        http_set_header res "Location" url
+        http_set_status res 302
+    }
+
+    sfn send:void (res:HttpResponse out:HttpOut) {
+        if ((strlen out.redirect) > 0) {
+            App.redirect(res out.redirect)
+            return
+        }
+        if ((strlen out.text) > 0) {
+            http_set_header res "Content-Type" "text/plain; charset=utf-8"
+            http_set_status res out.status
+            http_send res out.text
+            return
+        }
+        if out.noStore {
+            http_set_header res "Cache-Control" "no-store"
+        }
+        App.sendJson(res out.status (JOut.text(out.json)))
+    }
+
+    ; The site's own addresses: the OAuth issuer and the resource follow the
+    ; one the client used, so both domains work.
+    sfn originOf:string (host:McpHost req:HttpRequest) {
+        def base:string (host_base_url host)
+        def h:string (http_get_header req "X-Forwarded-Host")
+        if ((strlen h) == 0) {
+            h = (http_get_header req "Host")
+        }
+        if ((strlen h) == 0) {
+            h = (http_request_host req)
+        }
+        def comma:int (indexOf h ",")
+        if (comma >= 0) {
+            h = (substring h 0 comma)
+        }
+        h = (trim h)
+        def https:string ("https://" + h)
+        if (((https == "https://sliqtly.com") || (https == "https://sliqtly.web.app")) || (https == base)) {
+            return https
+        }
+        if ((host_trust_host host) && ((strlen h) > 0)) {
+            if (host_tls host) {
+                return ("https://" + h)
+            }
+            return ("http://" + h)
+        }
+        return base
+    }
+
+    sfn rpcError:string (code:int message:string) {
+        return (JOut.text((Mcp.error((new MfJ) code message))))
+    }
+
+    sfn serve:void (host:McpHost req:HttpRequest res:HttpResponse) {
+        App.cors(res)
+        def method:string (http_get_method req)
+        def path:string (http_get_path req)
+        if (method == "OPTIONS") {
+            http_set_status res 204
+            return
+        }
+        if (host_oauth host) {
+            if (App.serveOAuth(host req res method path)) {
+                return
+            }
+        }
+        if (path == "/mcp") {
+            App.serveMcp(host req res method)
+            return
+        }
+        http_set_header res "Content-Type" "text/plain; charset=utf-8"
+        http_set_status res 404
+        http_send res ("Cannot " + method + " " + path)
+    }
+
+    ; true when the path was an OAuth one
+    sfn serveOAuth:boolean (host:McpHost req:HttpRequest res:HttpResponse method:string path:string) {
+        if (method == "GET") {
+            if ((path == "/.well-known/oauth-protected-resource") || (path == "/.well-known/oauth-protected-resource/mcp")) {
+                App.sendJson(res 200 (JOut.text((OAuth.resourceMetadata((App.originOf(host req)))))))
+                return true
+            }
+            if ((path == "/.well-known/oauth-authorization-server") || (path == "/.well-known/openid-configuration")) {
+                App.sendJson(res 200 (JOut.text((OAuth.metadata((App.originOf(host req)))))))
+                return true
+            }
+            if (path == "/oauth/authorize") {
+                def q:MfJ (J.parse((http_query_json req)))
+                App.send(res (OAuth.authorize(host q (App.originOf(host req)))))
+                return true
+            }
+            return false
+        }
+        if (method != "POST") {
+            return false
+        }
+        if (((path != "/oauth/register") && (path != "/oauth/approve")) && (path != "/oauth/token")) {
+            return false
+        }
+        def body:MfJ (J.parse((host_body_json host)))
+        if ((body.isObj()) == false) {
+            body = (MfJ.newObj())
+        }
+        if (path == "/oauth/register") {
+            App.send(res (OAuth.register(host body)))
+        }
+        if (path == "/oauth/approve") {
+            App.send(res (OAuth.approve(host body)))
+        }
+        if (path == "/oauth/token") {
+            App.send(res (OAuth.token(host body)))
+        }
+        return true
+    }
+
+    sfn serveMcp:void (host:McpHost req:HttpRequest res:HttpResponse method:string) {
+        def accept:string (http_get_header req "Accept")
+        if ((method == "GET") && ((indexOf accept "text/event-stream") < 0)) {
+            App.redirect(res ((host_base_url host) + "/connect.html"))
+            return
+        }
+        if (method != "POST") {
+            http_set_header res "Allow" "POST"
+            App.sendJson(res 405 (App.rpcError(-32000 "Method not allowed: this server is stateless, POST only.")))
+            return
+        }
+        ; no token: anonymous; a token that does not hold: 401, so the client
+        ; refreshes it or signs in again
+        def caller (new Caller)
+        if (host_oauth host) {
+            def origin:string (App.originOf(host req))
+            def w:Who (OAuth.who(host (http_get_header req "Authorization")))
+            if (w.state == 3) {
+                host_log host ("token check failed: " + (host_error host))
+                App.sendJson(res 500 (App.rpcError(-32603 "Internal error")))
+                return
+            }
+            if (w.state == 2) {
+                http_set_header res "WWW-Authenticate" ("Bearer error=\"invalid_token\", resource_metadata=\"" + origin + "/.well-known/oauth-protected-resource/mcp\"")
+                App.sendJson(res 401 (App.rpcError(-32001 "The sign-in has expired.")))
+                return
+            }
+            if (w.state == 1) {
+                caller.signedIn = true
+                caller.uid = w.uid
+                caller.name = w.name
+            }
+            caller.signIn = (origin + "/.well-known/oauth-protected-resource/mcp")
+        }
+        def ip:string (http_get_header req "X-Forwarded-For")
+        def comma:int (indexOf ip ",")
+        if (comma >= 0) {
+            ip = (substring ip 0 comma)
+        }
+        ip = (trim ip)
+        if ((strlen ip) == 0) {
+            ip = (host_remote_ip host)
+        }
+        caller.who = ip
+        if caller.signedIn {
+            caller.who = ("uid:" + caller.uid)
+        }
+        ; what the transport asks of a client
+        if (((indexOf accept "application/json") < 0) || ((indexOf accept "text/event-stream") < 0)) {
+            App.sendJson(res 406 (App.rpcError(-32000 "Not Acceptable: Client must accept both application/json and text/event-stream")))
+            return
+        }
+        if ((indexOf (to_lowercase (http_get_header req "Content-Type")) "application/json") < 0) {
+            App.sendJson(res 415 (App.rpcError(-32000 "Unsupported Media Type: Content-Type must be application/json")))
+            return
+        }
+        def pv:string (http_get_header req "Mcp-Protocol-Version")
+        if (((strlen pv) > 0) && ((Deck.inList((Mcp.VERSIONS()) pv)) == false)) {
+            App.sendJson(res 400 (App.rpcError(-32000 ("Bad Request: Unsupported protocol version: " + pv))))
+            return
+        }
+        def reply:McpReply (Mcp.post(host caller (host_body_json host)))
+        if (reply.status == 202) {
+            http_set_status res 202
+            return
+        }
+        App.sendJson(res reply.status reply.body)
+    }
+}

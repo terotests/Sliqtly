@@ -1,0 +1,234 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Where a deck is kept (mcp/src/store.js).
+;
+; The same share the editor's Share button makes (web/sliqtly.js):
+; shares/{id} in Firestore, its pictures in Storage under shares/{id}/media/…,
+; so /s/{id} opens it with no change to the page. The edit key's hash lives
+; apart, in mcp_keys/{id}, which only the server reaches.
+;
+; Without cloud storage ("link") nothing is kept: the deck travels in the link.
+
+Import "McpHost.rgr"
+Import "Json.rgr"
+Import "Deck.rgr"
+
+class Created {
+    def id:string ""
+    def key:string ""
+    def err:string ""
+}
+
+; what update_presentation changes; css: 0 leave, 1 set to cssText, 2 clear
+class DeckPatch {
+    def hasName:boolean false
+    def name:string ""
+    def hasMd:boolean false
+    def md:string ""
+    def hasTheme:boolean false
+    def theme:string ""
+    def cssMode:int 0
+    def css:string ""
+}
+
+class Store {
+    sfn serverTime:MfJ () {
+        def t:MfJ (MfJ.newObj())
+        t.putBool("$serverTime" true)
+        return t
+    }
+
+    sfn validId:boolean (id:string) {
+        def n:int (strlen id)
+        if ((n < 1) || (n > 64)) {
+            return false
+        }
+        return (Deck.allAlnum(id))
+    }
+
+    ; owner: the signed-in user's uid, or "mcp"; css "" with hasCss false
+    ; stores null
+    sfn create:Created (host:McpHost name:string md:string theme:string hasCss:boolean css:string imgs:[Img] owner:string) {
+        def out (new Created)
+        def id:string (host_short_id host 10)
+        def key:string (host_short_id host 24)
+        def k:MfJ (MfJ.newObj())
+        k.putStr("hash" (host_sha256_hex host key))
+        k.put("created" (Store.serverTime()))
+        host_set_doc host "mcp_keys" id (JOut.text(k))
+        def e1:string (host_error host)
+        if ((strlen e1) > 0) {
+            out.err = e1
+            return out
+        }
+        def files:MfJ (Store.upload(host id imgs))
+        def e2:string (host_error host)
+        if ((strlen e2) > 0) {
+            out.err = e2
+            return out
+        }
+        def doc:MfJ (MfJ.newObj())
+        doc.putStr("name" name)
+        doc.putStr("md" md)
+        doc.putStr("theme" theme)
+        if hasCss {
+            doc.putStr("css" css)
+        } {
+            doc.put("css" (new MfJ))
+        }
+        doc.putStr("owner" owner)
+        doc.putStr("deck" "mcp")
+        doc.putStr("source" "mcp")
+        doc.put("files" files)
+        doc.put("created" (Store.serverTime()))
+        host_set_doc host "shares" id (JOut.text(doc))
+        def e3:string (host_error host)
+        if ((strlen e3) > 0) {
+            out.err = e3
+            return out
+        }
+        out.id = id
+        out.key = key
+        return out
+    }
+
+    ; the deck as saved, or a null value when the id or the key does not
+    ; match; checkKey false: the caller has checked that the signed-in user
+    ; owns it. A storage error is left on the host.
+    sfn update:MfJ (host:McpHost id:string checkKey:boolean key:string p:DeckPatch imgs:[Img]) {
+        if ((Store.validId(id)) == false) {
+            return (new MfJ)
+        }
+        if checkKey {
+            def kd:MfJ (J.parse((host_get_doc host "mcp_keys" id)))
+            if ((kd.isObj()) == false) {
+                return (new MfJ)
+            }
+            if ((kd.str_("hash")) != (host_sha256_hex host key)) {
+                return (new MfJ)
+            }
+        }
+        def cur:MfJ (J.parse((host_get_doc host "shares" id)))
+        if ((cur.isObj()) == false) {
+            return (new MfJ)
+        }
+        def added:MfJ (Store.upload(host id imgs))
+        if ((strlen (host_error host)) > 0) {
+            return (new MfJ)
+        }
+        def files:MfJ (MfJ.newArr())
+        for (cur.list("files")) f:MfJ i {
+            def path:string (f.str_("path"))
+            def replaced:boolean false
+            for added.arr a:MfJ j {
+                if ((a.str_("path")) == path) {
+                    replaced = true
+                }
+            }
+            if (replaced == false) {
+                files.add(f)
+            }
+        }
+        for added.arr a2:MfJ k {
+            files.add(a2)
+        }
+        def patch:MfJ (MfJ.newObj())
+        patch.put("files" files)
+        patch.put("updated" (Store.serverTime()))
+        if p.hasName {
+            patch.putStr("name" p.name)
+        }
+        if p.hasMd {
+            patch.putStr("md" p.md)
+        }
+        if p.hasTheme {
+            patch.putStr("theme" p.theme)
+        }
+        if (p.cssMode == 1) {
+            patch.putStr("css" p.css)
+        }
+        if (p.cssMode == 2) {
+            patch.put("css" (new MfJ))
+        }
+        host_update_doc host "shares" id (JOut.text(patch))
+        if ((strlen (host_error host)) > 0) {
+            return (new MfJ)
+        }
+        for patch.ks pk:string m {
+            cur.put(pk (patch.field(pk)))
+        }
+        return cur
+    }
+
+    sfn get:MfJ (host:McpHost id:string) {
+        if ((Store.validId(id)) == false) {
+            return (new MfJ)
+        }
+        return (J.parse((host_get_doc host "shares" id)))
+    }
+
+    ; the user's shares, newest first, at most 50
+    sfn list:[MfJ] (host:McpHost uid:string) {
+        def all:MfJ (J.parse((host_query_eq host "shares" "owner" uid)))
+        def docs:[MfJ]
+        for all.arr d:MfJ i {
+            push docs d
+        }
+        ; newest first: insertion sort on updated, else created
+        def n:int (array_length docs)
+        def a:int 1
+        while (a < n) {
+            def cur:MfJ (itemAt docs a)
+            def t:double (Store.stamp(cur))
+            def b:int (a - 1)
+            def going:boolean true
+            while ((b >= 0) && going) {
+                def prev:MfJ (itemAt docs b)
+                if ((Store.stamp(prev)) < t) {
+                    set docs (b + 1) prev
+                    b = (b - 1)
+                } {
+                    going = false
+                }
+            }
+            set docs (b + 1) cur
+            a = (a + 1)
+        }
+        def out:[MfJ]
+        for docs d2:MfJ j {
+            if (j < 50) {
+                push out d2
+            }
+        }
+        return out
+    }
+
+    sfn stamp:double (d:MfJ) {
+        def u:double (d.num_("updated" 0.0))
+        if (u != 0.0) {
+            return u
+        }
+        return (d.num_("created" 0.0))
+    }
+
+    sfn upload:MfJ (host:McpHost id:string imgs:[Img]) {
+        def out:MfJ (MfJ.newArr())
+        for imgs img:Img i {
+            def path:string ("media/" + img.name)
+            def name:string ("shares/" + id + "/" + path)
+            ; the token is what getDownloadURL() hands the editor for its own uploads
+            def token:string (host_uuid host)
+            host_upload host img.handle name img.type token
+            if ((strlen (host_error host)) > 0) {
+                return out
+            }
+            def f:MfJ (MfJ.newObj())
+            f.putStr("path" path)
+            f.putStr("type" img.type)
+            f.putInt("size" img.size)
+            f.putStr("url" ("https://firebasestorage.googleapis.com/v0/b/" + (host_bucket host) + "/o/" + (host_uri_encode host name) + "?alt=media&token=" + token))
+            out.add(f)
+        }
+        return out
+    }
+}

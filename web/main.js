@@ -1276,8 +1276,12 @@ async function unpackText(code) {
   const stream = new Blob([unb64url(code)]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
   return new TextDecoder().decode(await new Response(stream).arrayBuffer());
 }
+// the address's #…, or where the page has no address of its own (the
+// assistant's preview writes it as srcdoc) the one it was given in
+// <meta name="sliqtly-link">
 function hashParams() {
-  return new URLSearchParams(location.hash.replace(/^#/, ""));
+  const given = document.querySelector('meta[name="sliqtly-link"]');
+  return new URLSearchParams((given ? given.content : location.hash).replace(/^#/, ""));
 }
 
 let toastTimer = 0;
@@ -1523,9 +1527,9 @@ window.addEventListener("hashchange", () => { if (location.hash !== lastHash) op
 // /s/{id}: a deck shared through PRO, read from the cloud. Shown as a
 // presentation; with ?edit, opened as a new deck of the reader's own.
 // #share={id}: the same presentation where the page is not at its own
-// address — the preview an AI assistant shows (mcp/src/preview.html) loads
-// this page from a blob: URL, since the assistant does not let it frame
-// sliqtly.com. Always only shown.
+// address — the preview an AI assistant shows (mcp/src/preview.html) runs
+// this page as an iframe's srcdoc, since the assistant does not let it
+// frame sliqtly.com. Always only shown.
 function hashShare() {
   const id = hashParams().get("share");
   return id && /^[A-Za-z0-9]{6,32}$/.test(id) ? id : null;
