@@ -2672,6 +2672,13 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; Open: a file from the computer or a sample deck ("value<TAB>label" rows)
+    fn openOpen:void (rows:string) {
+        this.closeHint()
+        panels.openOpen(rows)
+        chromeRev = (chromeRev + 1)
+    }
+
     fn closeShare:void () {
         panels.closeShare()
         chromeRev = (chromeRev + 1)

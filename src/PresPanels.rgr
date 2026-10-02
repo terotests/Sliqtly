@@ -42,6 +42,10 @@ class PresPanels {
     def shareShow:string ""
     def shareEdit:string ""
     def shareNote:string ""
+    ; which modal dialog `shareOpen` shows: "share", or "open" (a file from
+    ; the computer or a sample deck, `openRows` "value<TAB>label" lines)
+    def dialogKind:string "share"
+    def openRows:string ""
     ; "show" or "edit": the button that says it copied
     def copied:string ""
     def copyOk:boolean true
@@ -133,8 +137,16 @@ class PresPanels {
         shareShow = showUrl
         shareEdit = editUrl
         shareNote = note
+        dialogKind = "share"
         shareOpen = true
         copied = ""
+        this.rebuild()
+    }
+
+    fn openOpen:void (rows:string) {
+        openRows = rows
+        dialogKind = "open"
+        shareOpen = true
         this.rebuild()
     }
 
@@ -231,7 +243,11 @@ class PresPanels {
             back.id = "pn-backdrop"
             UiTree.backdrop(back)
             root.addChild(back)
-            root.addChild((this.shareDialog()))
+            if (dialogKind == "open") {
+                root.addChild((this.openDialog()))
+            } {
+                root.addChild((this.shareDialog()))
+            }
         }
         rev = (rev + 1)
     }
@@ -639,6 +655,41 @@ class PresPanels {
         return d
     }
 
+    ; Open: a Markdown file from the computer, or one of the sample decks.
+    fn openDialog:EVGElement () {
+        def d:EVGElement (this.div("pn-dialog"))
+        d.id = "pn-dialog"
+        UiTree.surface(d "free" "start")
+        d.overlayX = ((w - 520.0) * 0.5)
+        d.overlayY = ((h - 480.0) * 0.5)
+        d.addChild((this.words("pn-dtitle" (PresI18n.t("Open")))))
+        def f:EVGElement (this.div("pn-opt"))
+        f.addChild((this.words("pn-otitle" (PresI18n.t("From your computer")))))
+        f.addChild((this.words("pn-odesc" (PresI18n.t("A Markdown file (.md), such as one saved with Save .md.")))))
+        def fr:EVGElement (this.div("pn-orow"))
+        this.button("pn-open-file" (PresI18n.t("Choose file…")) "primary" fr)
+        f.addChild(fr)
+        d.addChild(f)
+        def o:EVGElement (this.div("pn-opt"))
+        o.addChild((this.words("pn-otitle" (PresI18n.t("Open sample document")))))
+        def lines:[string] (strsplit openRows (strfromcode 10))
+        def i:int 0
+        while (i < (array_length lines)) {
+            def parts:[string] (strsplit (itemAt lines i) (strfromcode 9))
+            if ((array_length parts) >= 2) {
+                def b:ButtonCtl (this.button(("pn-sample-" + (itemAt parts 0)) (itemAt parts 1) "ghost" o))
+                UiTree.addClass((unwrap b.rootEl) "pn-rowbtn")
+            }
+            i = (i + 1)
+        }
+        d.addChild(o)
+        def foot:EVGElement (this.div("pn-dfoot"))
+        foot.addChild((this.div("pn-grow")))
+        this.button("pn-open-close" (PresI18n.t("Close")) "secondary" foot)
+        d.addChild(foot)
+        return d
+    }
+
     fn shareOption:EVGElement (which:string title:string desc:string url:string variant:string) {
         def o:EVGElement (this.div("pn-opt"))
         o.addChild((this.words("pn-otitle" title)))
@@ -799,6 +850,23 @@ class PresPanels {
     fn press:void (px:double py:double) {
         if (null? host.lastPage) {
             this.page()
+        }
+        if ((shareOpen && (quiet == false)) && (dialogKind == "open")) {
+            def oc:string (this.ownerAt(px py))
+            if (oc == "pn-open-file") {
+                push requests "click:open"
+                this.closeShare()
+                return
+            }
+            if ((indexOf oc "pn-sample-") == 0) {
+                push requests ("select:sample:" + (substring oc 10 (strlen oc)))
+                this.closeShare()
+                return
+            }
+            if ((oc == "pn-open-close") || ((this.inEl("pn-dialog" px py)) == false)) {
+                this.closeShare()
+            }
+            return
         }
         if (shareOpen && (quiet == false)) {
             def c:string (this.ownerAt(px py))

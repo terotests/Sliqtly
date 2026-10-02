@@ -842,6 +842,10 @@ function handleRequests() {
       // the canvas bar: the page's own button does what it always did
       const b = document.getElementById(r.slice(6));
       if (b) b.click();
+    } else if (r === "openbox") {
+      // Open: a file from the computer, or a sample deck
+      app.openOpen([...sampleSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
+      needsPaint = true;
     } else if (r.startsWith("showtab:")) {
       app.showTab(r.slice(8));
       needsPaint = true;

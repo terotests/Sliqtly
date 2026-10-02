@@ -184,6 +184,9 @@ class PresToolbar {
         if (id == "css") {
             return "showtab:css"
         }
+        if (id == "openbox") {
+            return "openbox"
+        }
         if ((indexOf id "s-") == 0) {
             return ("select:sample:" + (substring id 2 (strlen id)))
         }
@@ -219,6 +222,24 @@ class PresToolbar {
                     mark = "✓  "
                 }
                 mb.addItem(menu (prefix + v) (mark + (itemAt parts 1)) false)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A select's rows as the drawer's rows, the current one ticked.
+    fn drawerRows:void (body:EVGElement prefix:string rows:string current:string) {
+        def lines:[string] (strsplit rows (strfromcode 10))
+        def i:int 0
+        while (i < (array_length lines)) {
+            def parts:[string] (strsplit (itemAt lines i) (strfromcode 9))
+            if ((array_length parts) >= 2) {
+                def v:string (itemAt parts 0)
+                def mark:string "    "
+                if (v == current) {
+                    mark = "✓  "
+                }
+                this.button((("dr-" + prefix) + v) (mark + (itemAt parts 1)) "ghost" body)
             }
             i = (i + 1)
         }
@@ -267,9 +288,8 @@ class PresToolbar {
             mb.tid = "tb-mb"
             mb.addMenu("file" (PresI18n.t("File")))
             mb.addItem("file" "new" (PresI18n.t("New presentation")) false)
-            mb.addItem("file" "open" (PresI18n.t("Open…")) false)
+            mb.addItem("file" "openbox" (PresI18n.t("Open…")) false)
             mb.addItem("file" "save" (PresI18n.t("Save .md")) false)
-            this.menuRows(mb "file" "s-" sampleRows sampleValue (PresI18n.t("Samples")))
             mb.addMenu("slide" (PresI18n.t("Slide")))
             this.menuRows(mb "slide" "t-" themeRows themeValue (PresI18n.t("Theme")))
             mb.addItem("slide" "css" (PresI18n.t("Edit theme CSS…")) false)
@@ -320,20 +340,19 @@ class PresToolbar {
         root.addChild((unwrap dr.rootEl))
         if showDrawer {
             def body:EVGElement (dr.body())
-            body.addChild((this.text("tb-dr-label" (PresI18n.t("Presentation")))))
-            sample = (this.select("sample" (PresI18n.t("Presentation")) sampleRows sampleValue body))
-            body.addChild((this.text("tb-dr-label" (PresI18n.t("Theme")))))
-            theme = (this.select("theme" (PresI18n.t("Theme")) themeRows themeValue body))
-            body.addChild((this.div("tb-dr-sep")))
             this.button("dr-play" play "ghost" body)
             this.button("dr-share" (PresI18n.t("Share")) "ghost" body)
-            body.addChild((this.div("tb-dr-sep")))
+            body.addChild((this.text("tb-dr-label" (PresI18n.t("File")))))
             this.button("dr-new" (PresI18n.t("New presentation")) "ghost" body)
-            this.button("dr-open" (PresI18n.t("Open…")) "ghost" body)
+            this.button("dr-openbox" (PresI18n.t("Open…")) "ghost" body)
             this.button("dr-save" (PresI18n.t("Save .md")) "ghost" body)
-            this.button("dr-pdf" (PresI18n.t("Export PDF")) "ghost" body)
-            this.button("dr-pptx" (PresI18n.t("Export PPTX")) "ghost" body)
-            body.addChild((this.div("tb-dr-sep")))
+            body.addChild((this.text("tb-dr-label" (PresI18n.t("Slide")))))
+            this.drawerRows(body "t-" themeRows themeValue)
+            this.button("dr-css" (PresI18n.t("Edit theme CSS…")) "ghost" body)
+            body.addChild((this.text("tb-dr-label" (PresI18n.t("Export")))))
+            this.button("dr-pdf" (PresI18n.t("PDF")) "ghost" body)
+            this.button("dr-pptx" (PresI18n.t("PowerPoint (PPTX)")) "ghost" body)
+            body.addChild((this.text("tb-dr-label" (PresI18n.t("Help")))))
             this.button("dr-helpBtn" (PresI18n.t("Help for this slide")) "ghost" body)
             if ((strlen langRows) > 0) {
                 body.addChild((this.text("tb-dr-label" (PresI18n.t("Language")))))

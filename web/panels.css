@@ -142,3 +142,5 @@
 .theme-pn .pf-promo-btn { background-color: #4f46e5; border-color: #4f46e5; }
 .pf-note { font-size: 11px; color: #71717a; padding: 10px 0 0; flex-shrink: 0; }
 .theme-pn .pf-act { height: 26px; padding: 0 9px; }
+/* the Open dialog's sample decks: rows, their labels at the start */
+.theme-pn .pn-rowbtn { width: 100%; justify-content: flex-start; }
