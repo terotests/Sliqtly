@@ -247,6 +247,12 @@ Firebase Console, once:
 3. The Deploy workflow then deploys both rule files (its last step). The
    service account needs the role **Firebase Rules Admin** (the Admin SDK
    account generated in Project settings → Service accounts has it).
+4. The bucket's CORS (`storage.cors.json`): a shared deck fetches its
+   pictures and data files from Storage, and without it the browser refuses
+   them (the slides open without their background images). The Deploy
+   workflow sets it when its service account has the role **Storage Admin**;
+   by hand, in Cloud Shell:
+   `gcloud storage buckets update gs://sliqtly.firebasestorage.app --cors-file=storage.cors.json`
 
 ## Domain (Cloudflare)
 

@@ -147,6 +147,7 @@
   "Copy a link with this Markdown packed into its address": "Kopioi linkki, jonka osoitteeseen tämä Markdown on pakattu",
   "Could not load the chart file: ": "Kaavion tiedostoa ei saatu: ",
   "Could not open the shared presentation.": "Jaettua esitystä ei voitu avata.",
+  "Some pictures or data files of this presentation could not be loaded: ": "Osaa esityksen kuvista tai datatiedostoista ei voitu ladata: ",
   "Could not read the link's contents.": "Linkin sisältöä ei voitu lukea.",
   "Could not read the workbook: ": "Työkirjaa ei voitu lukea: ",
   "Count rows": "Rivien määrä",
