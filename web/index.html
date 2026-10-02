@@ -80,6 +80,7 @@
   }
   body.viewer #viewBar { display: flex; }
   body.viewer.idle #viewBar { opacity: 0; pointer-events: none; }
+  #viewBar > button[hidden] { display: none; }
   #viewBar > button {
     width: 44px; height: 44px; border-radius: 22px; border: 1px solid rgba(255, 255, 255, 0.25);
     background: rgba(24, 24, 27, 0.72); color: #fafafa; font-size: 18px; cursor: pointer;
@@ -165,6 +166,7 @@
 <div id="viewBar" aria-label="Presentation controls" data-i18n-aria>
   <button id="vPrev" title="Previous (←)" data-i18n-title>◀</button>
   <button id="vNext" title="Next (→, Space)" data-i18n-title>▶</button>
+  <button id="vData" title="Fetch the charts' data again (R)" data-i18n-title hidden>⟳</button>
   <button id="vFull" title="Full screen" data-i18n-title>⛶</button>
   <button id="vMore" title="More" aria-haspopup="menu" aria-expanded="false" aria-controls="vMenu" data-i18n-title>⋯</button>
   <div id="vMenu" role="menu" hidden>

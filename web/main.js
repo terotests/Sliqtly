@@ -214,7 +214,10 @@ function beginDoc(text) {
   for (const k of Object.keys(editedCss)) delete editedCss[k];
   chartFiles.clear();
   chartFilesRev = -1;
+  liveFromShare = false;
+  liveNoted = false;
   app.clearChartData();
+  showLiveButton();
   if (app.openFilePath()) app.closeFile();
 }
 
@@ -857,15 +860,94 @@ mirror.root.addEventListener("keydown", (ev) => {
 // A chart may take its rows from a file (`"data": {"url": "data/movies.json"}`,
 // as the Vega-Lite examples do). The page fetches each one once: beside the
 // page first, then — for a relative path — from the Vega example datasets.
+// A chart's live data (`"url": "https://…"`, or a Google Sheet, which the
+// markdown module turns into the sheet's CSV address) is fetched fresh each
+// time the presentation opens and again on R / ⟳ while presenting
+// (refreshLiveData). It is never kept with the document: an export (PDF, PPTX)
+// is a snapshot of what was on the slides when it was made.
 const chartFiles = new Map();
 let chartFilesRev = -1;
+const isLive = (url) => /^https?:/.test(url);
+// Live data is PRO: fetched for a signed-in user, in a deck opened from a
+// cloud share (/s/{id}: made by a PRO owner), and in local development.
+let liveFromShare = false;
+let liveAuthKnown = false;
+let liveNoted = false;
+function liveAllowed() {
+  return liveFromShare || /^(localhost|127\.0\.0\.1)$/.test(location.hostname) || !!window.sliqtly?.user?.();
+}
+// signed in or out: the live data is looked at again
+window.addEventListener("sliqtly:user", () => {
+  liveAuthKnown = true;
+  chartFilesRev = -1;
+  needsPaint = true;
+});
+async function fetchLive(url) {
+  const r = await fetch(url, { cache: "no-store" });
+  if (!r.ok) throw new Error(String(r.status));
+  const text = await r.text();
+  // a sheet nobody may read without signing in answers with a page, not CSV
+  if (/^\s*</.test(text) && !/\.(xml|svg)(\?|$)/i.test(url)) throw new Error("html");
+  return text;
+}
+function liveFailed(url) {
+  toast(/docs\.google\.com\/spreadsheets/.test(url)
+    ? t("Could not read the Google Sheet. Share it as \"Anyone with the link\": ") + url
+    : t("Could not load the chart file: ") + url);
+}
+function showLiveButton() {
+  const b = document.getElementById("vData");
+  if (b) b.hidden = ![...chartFiles.keys()].some(isLive);
+}
+let refreshing = null;
+function refreshLiveData() {
+  const urls = [...chartFiles.keys()].filter(isLive);
+  if (!urls.length || refreshing) return refreshing;
+  refreshing = (async () => {
+    let failed = 0;
+    await Promise.all(urls.map(async (url) => {
+      try {
+        const text = await fetchLive(url);
+        chartFiles.set(url, Promise.resolve(text));
+        app.setChartData(url, text);
+      } catch (_) {
+        failed += 1;
+        liveFailed(url);
+      }
+    }));
+    dropThumbs();
+    needsPaint = true;
+    if (!failed) toast(t("Data refreshed"));
+    refreshing = null;
+  })();
+  return refreshing;
+}
 function fetchChartFiles(rev) {
   if (rev === chartFilesRev) return;
   chartFilesRev = rev;
   const wanted = (app.chartDataWanted() || "").split("\n").filter(Boolean);
   for (const url of wanted) {
     if (chartFiles.has(url)) continue;
-    const tries = /^https?:/.test(url) ? [url] : ["./" + url.replace(/^\.?\//, ""), "https://cdn.jsdelivr.net/npm/vega-datasets@2/" + url.replace(/^\.?\//, "")];
+    if (isLive(url)) {
+      if (!liveAllowed()) {
+        if (liveAuthKnown && !liveNoted) {
+          liveNoted = true;
+          toast(t("Live chart data is a PRO feature: sign in with PRO to fetch it."));
+        }
+        continue;
+      }
+      const got = fetchLive(url).catch(() => null);
+      chartFiles.set(url, got);
+      showLiveButton();
+      got.then((text) => {
+        if (text == null) return liveFailed(url);
+        app.setChartData(url, text);
+        dropThumbs();
+        needsPaint = true;
+      });
+      continue;
+    }
+    const tries = ["./" + url.replace(/^\.?\//, ""), "https://cdn.jsdelivr.net/npm/vega-datasets@2/" + url.replace(/^\.?\//, "")];
     const got = (async () => {
       // the document's own copy, when it has one
       const mine = (await docFiles()).find((f) => f.path === bare(url));
@@ -888,11 +970,9 @@ function fetchChartFiles(rev) {
       dropThumbs();
       needsPaint = true;
       // kept with the document, so it opens without the network next time
-      if (!/^https?:/.test(url)) {
-        docFiles().then((have) => {
-          if (!have.some((f) => f.path === bare(url))) keepFile({ path: bare(url), type: "text/plain", size: text.length, data: text }).catch(fail);
-        });
-      }
+      docFiles().then((have) => {
+        if (!have.some((f) => f.path === bare(url))) keepFile({ path: bare(url), type: "text/plain", size: text.length, data: text }).catch(fail);
+      });
     });
   }
 }
@@ -957,6 +1037,7 @@ function handleRequests() {
     if (r === "fullscreen") {
       document.body.classList.add("presenting");
       presentStartedAt = performance.now();
+      refreshLiveData();
       rebaseClock();
       if (!viewer && document.documentElement.requestFullscreen && !document.fullscreenElement) {
         document.documentElement.requestFullscreen().catch(() => {});
@@ -1413,6 +1494,7 @@ for (const ev of ["pointermove", "pointerdown", "keydown"]) {
 }
 document.getElementById("vPrev").addEventListener("click", () => { app.prev(); afterInput(); });
 document.getElementById("vNext").addEventListener("click", () => { app.next(); afterInput(); });
+document.getElementById("vData").addEventListener("click", () => refreshLiveData());
 document.getElementById("vFull").addEventListener("click", () => {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
@@ -1581,6 +1663,7 @@ async function openFromShare() {
     const editing = (!!m && new URLSearchParams(location.search).has("edit")) || !!own;
     if (editing) originShare = { id, owner: shared.owner || "", md: shared.md || "" };
     beginDoc(shared.md || "");
+    liveFromShare = !editing;
     if (own) doc.id = own.deck;
     else if (!editing) viewShare = { id, owner: shared.owner, deck: shared.deck };
     if (shared.theme != null) {
@@ -1771,6 +1854,11 @@ keys.addEventListener("keydown", (ev) => {
     return;
   }
   if (presenting) {
+    if ((ev.key === "r" || ev.key === "R") && !mod && !ev.altKey) {
+      ev.preventDefault();
+      refreshLiveData();
+      return;
+    }
     if (ev.key.length === 1) {
       ev.preventDefault();
       app.text(ev.key);

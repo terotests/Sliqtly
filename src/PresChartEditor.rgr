@@ -689,16 +689,23 @@ class PresChartEditor {
     fn dataTab:void (pane:EVGElement) {
         if model.lookOnly {
             pane.addChild((this.text("ce-doc" model.why)))
-            if ((strlen model.dataFile) > 0) {
+            if model.dataLive {
+                def live:EVGElement (this.field((PresI18n.t("Data source"))))
+                live.addChild((this.text("ce-value" model.dataFile)))
+                pane.addChild(live)
+                pane.addChild((this.text("ce-doc" (PresI18n.t("The data is fetched from this address each time the presentation opens. While presenting, R (or ⟳) fetches it again. PDF and PPTX keep the data as it was when exported.")))))
+            }
+            if (((strlen model.dataFile) > 0) && (model.dataLive == false)) {
                 def src:EVGElement (this.field((PresI18n.t("File"))))
                 src.addChild((this.text("ce-value" model.dataFile)))
                 pane.addChild(src)
                 pane.addChild((this.text("ce-doc" (PresI18n.t("The data is in a file of the presentation: edit it on the Files tab. The chart redraws when the file changes.")))))
-            } {
+            }
+            if ((strlen model.dataFile) == 0) {
                 pane.addChild((this.text("ce-doc" (PresI18n.t("The data and how it is processed are in the chart's JSON on the Markdown tab.")))))
             }
             def row:EVGElement (this.div("ce-row"))
-            if ((strlen model.dataFile) > 0) {
+            if (((strlen model.dataFile) > 0) && (model.dataLive == false)) {
                 this.button("ce-openfile" (PresI18n.t("Open file")) "primary" row)
             }
             this.button("ce-fresh" (PresI18n.t("Replace with sample table")) "outline" row)

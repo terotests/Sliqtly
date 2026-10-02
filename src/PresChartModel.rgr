@@ -73,6 +73,9 @@ class PresChartModel {
     def original:string ""
     ; the file the data comes from ("" : none, or not one file)
     def dataFile:string ""
+    ; the data is fetched from an address (a CSV/JSON URL, a Google Sheet)
+    ; each time the presentation opens: `dataFile` is that address
+    def dataLive:boolean false
     ; why the table is not offered
     def why:string ""
 
@@ -983,7 +986,14 @@ class PresChartModel {
         m.lookOnly = true
         m.original = text
         m.why = why
-        m.dataFile = ((spec.get("data")).stringOr("url" ""))
+        def dv:VlJson (spec.get("data"))
+        m.dataFile = (dv.stringOr("url" ""))
+        if ((dv.has("source")) || (((indexOf m.dataFile "http") == 0) || ((indexOf m.dataFile "sheet://") == 0))) {
+            m.dataLive = true
+            if ((strlen m.dataFile) == 0) {
+                m.dataFile = (((dv.stringOr("source" "")) + " ") + (dv.stringOr("id" "")))
+            }
+        }
         def tv:VlJson (spec.get("title"))
         if (tv.isString()) {
             m.title = tv.str
