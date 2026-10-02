@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sign in to Sliqtly</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  /* The sign-in an AI assistant sends a person to (mcp/src/oauth.js): the
+     PRO account's Google sign-in, then back to the assistant with a code. */
+  :root { --bg: #f6f7fb; --card: #fff; --fg: #1d2233; --muted: #5d6480; --line: #dfe3ef; --accent: #4b5bdc; --on-accent: #fff; --bad: #b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #0b1030; --card: #121944; --fg: #e8ecff; --muted: #9aa3c7; --line: #2d3a7a; --accent: #8fa0ff; --on-accent: #0b1030; --bad: #ff8a80; }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 16px; }
+  main { width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 28px 24px; }
+  header { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; margin-bottom: 18px; }
+  header img { width: 30px; height: 30px; }
+  h1 { font-size: 22px; line-height: 1.25; margin: 0 0 10px; }
+  p { margin: 0 0 14px; color: var(--muted); }
+  .who { color: var(--fg); font-weight: 600; }
+  button { display: block; width: 100%; border-radius: 9px; padding: 11px 14px; font: inherit; font-weight: 600; cursor: pointer; margin-top: 10px; }
+  .primary { background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); }
+  .secondary { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .error { color: var(--bad); margin-top: 14px; }
+  .small { font-size: 14px; margin-top: 18px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header><img src="/favicon.svg" alt="">Sliqtly</header>
+  <h1 id="title">Sign in to Sliqtly</h1>
+  <p id="lead"><span class="who" id="client">Your assistant</span> wants to make presentations in your Sliqtly account. They are saved as yours, and the assistant can list and change them.</p>
+  <p id="dest" hidden>After sign-in you return to <span class="who" id="to"></span>. Continue only if you started this from your assistant.</p>
+  <p id="as" hidden>Signed in as <span class="who" id="email"></span>.</p>
+  <button class="primary" id="go" disabled>Continue with Google</button>
+  <button class="secondary" id="other" hidden>Use another Google account</button>
+  <button class="secondary" id="deny">Cancel</button>
+  <p class="error" id="err" hidden></p>
+  <p class="small">Sign-in is optional: the assistant can also make presentations without it. <a href="/connect.html">How Sliqtly works with assistants</a></p>
+</main>
+<script>
+(async () => {
+  const SDK = "https://www.gstatic.com/firebasejs/10.14.1/";
+  const q = new URLSearchParams(location.search);
+  const request = q.get("request") || "";
+  const $ = (id) => document.getElementById(id);
+  if (q.get("client")) $("client").textContent = q.get("client");
+  if (q.get("to")) { $("to").textContent = q.get("to"); $("dest").hidden = false; }
+
+  function fail(text) {
+    $("err").textContent = text;
+    $("err").hidden = false;
+    for (const b of ["go", "other", "deny"]) $(b).disabled = false;
+  }
+  if (!/^[A-Za-z0-9]{24}$/.test(request)) {
+    $("go").hidden = true;
+    fail("This page opens from your assistant's sign-in. Start again from there.");
+    return;
+  }
+
+  async function send(body) {
+    for (const b of ["go", "other", "deny"]) $(b).disabled = true;
+    const res = await fetch("/oauth/approve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ request, ...body }) });
+    const out = await res.json().catch(() => ({}));
+    if (out.redirect) { location.replace(out.redirect); return; }
+    fail(out.error_description || "Sign-in did not go through. Start again from your assistant.");
+  }
+
+  $("deny").onclick = () => send({ deny: true }).catch((e) => fail(e.message));
+
+  function load(src) {
+    return new Promise((ok, no) => {
+      const s = document.createElement("script");
+      s.src = src; s.onload = ok; s.onerror = () => no(new Error("could not load " + src));
+      document.head.append(s);
+    });
+  }
+  let auth;
+  try {
+    await load(SDK + "firebase-app-compat.js");
+    await load("/__/firebase/init.js");
+    await load(SDK + "firebase-auth-compat.js");
+    auth = firebase.auth();
+  } catch (e) {
+    fail("Google sign-in is not available here.");
+    return;
+  }
+
+  let current = null;
+  auth.onAuthStateChanged((u) => {
+    current = u;
+    $("as").hidden = !u;
+    $("other").hidden = !u;
+    if (u) $("email").textContent = u.email || u.displayName || "";
+    $("go").textContent = u ? "Continue" : "Continue with Google";
+    $("go").disabled = false;
+  });
+
+  async function signIn(pick) {
+    const p = new firebase.auth.GoogleAuthProvider();
+    if (pick) p.setCustomParameters({ prompt: "select_account" });
+    return (await auth.signInWithPopup(p)).user;
+  }
+  async function approve(pick) {
+    try {
+      const u = pick || !current ? await signIn(pick) : current;
+      await send({ id_token: await u.getIdToken(true) });
+    } catch (e) {
+      fail(e && e.code === "auth/popup-closed-by-user" ? "The Google window was closed. Try again." : "Google sign-in failed: " + (e.message || e));
+    }
+  }
+  $("go").onclick = () => approve(false);
+  $("other").onclick = () => approve(true);
+})();
+</script>
+</body>
+</html>

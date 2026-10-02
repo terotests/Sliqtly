@@ -7,7 +7,11 @@ editor. The instructions page for people is [`web/connect.html`](../web/connect.
 (`https://sliqtly.com/connect.html`; `sliqtly.web.app` serves the same).
 
 Remote MCP over Streamable HTTP, stateless (`POST` only; `GET` from a browser
-is sent to the instructions page). No sign-in.
+is sent to the instructions page). Sign-in is optional ([`src/oauth.js`](src/oauth.js)):
+without it everything works as before and decks belong to no one
+(`owner: "mcp"`, changed with the `edit_key`); signed in with the PRO
+account's Google login, decks are the person's own (`owner: <uid>`), changed
+without a key, and `list_presentations` lists them.
 
 | Tool | |
 | --- | --- |
@@ -15,6 +19,23 @@ is sent to the instructions page). No sign-in.
 | `create_presentation` | `title`, `markdown`, `theme`, `css`, `css_mode`, `images` → `share_url`, `edit_url`, `deck_id`, `edit_key` |
 | `update_presentation` | `deck_id` + `edit_key`, and what changes; the link stays |
 | `get_presentation` | `deck_id` → the Markdown, theme, CSS and picture list |
+| `list_presentations` | the signed-in user's decks (asks for sign-in otherwise) |
+
+## Sign-in
+
+The server is its own OAuth 2.1 authorization server: `/.well-known/oauth-protected-resource[/mcp]`,
+`/.well-known/oauth-authorization-server`, `/oauth/register` (dynamic
+registration), `/oauth/authorize`, `/oauth/token` (PKCE S256, refresh tokens
+rotate). Clients may also be known by a client ID metadata document URL.
+`/oauth/authorize` sends the browser to `web/oauth.html`, which signs in with
+Firebase Auth (Google) and posts the ID token to `/oauth/approve`; the server
+verifies it with the Admin SDK and hands the client a code. Requests, codes and
+tokens are kept as SHA-256 hashes in `mcp_oauth_requests`, `mcp_oauth_codes`,
+`mcp_oauth_tokens` and the registered clients in `mcp_oauth_clients` (no
+client rule reaches them). A request carries no token → anonymous; a token
+that does not hold → 401 with `WWW-Authenticate`, so the client refreshes or
+signs in again. Google sign-in needs `sliqtly.com` among Firebase Auth's
+authorized domains.
 
 A deck is the same share the editor's Share button makes (`web/sliqtly.js`):
 `shares/{id}` in Firestore with `owner: "mcp"`, `source: "mcp"`, its pictures
@@ -68,5 +89,5 @@ project the function is deployed before the page.
 
 When it works from the instructions page, the next step is the listings:
 Anthropic's connector directory, OpenAI's app directory (Apps SDK), Cursor's
-MCP directory. They ask for a privacy policy, a support contact and,
-for the directories, usually OAuth, so a sign-in would come with that.
+MCP directory. They ask for a privacy policy and a support contact; the
+OAuth sign-in they expect is in place.

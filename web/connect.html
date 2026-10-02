@@ -75,8 +75,9 @@
     <ol>
       <li>Open <b>Customize → Connectors</b> (in older versions <b>Settings → Connectors</b>).</li>
       <li>Click <b>Add custom connector</b>.</li>
-      <li>Name: <code>Sliqtly</code>. URL: <code>https://sliqtly.com/mcp</code>. If asked for authentication, choose <b>No sign-in</b>.</li>
-      <li>Click <b>Add</b>.</li>
+      <li>Name: <code>Sliqtly</code>. URL: <code>https://sliqtly.com/mcp</code>.</li>
+      <li>Authentication: <b>Sign in now</b> keeps the presentations in your own Sliqtly account (Google, the same as PRO in the editor). <b>No sign-in</b> works too; the presentations are then open to anyone with their link and belong to no account.</li>
+      <li>Click <b>Add</b>, and with sign-in, <b>Connect</b>: a Sliqtly page asks you to continue with Google.</li>
     </ol>
     <h3>Team and Enterprise</h3>
     <p>An owner adds it once under <b>Organization settings → Connectors → Add → Custom</b> (type <b>Web</b>) with the same URL. Members then find it under <b>Customize → Connectors</b> and click <b>Connect</b>.</p>
@@ -95,8 +96,8 @@
     <ol>
       <li>Open <b>Settings → Apps &amp; Connectors → Advanced settings</b> and turn on <b>Developer mode</b>. On Business and Enterprise a workspace owner has to allow it first.</li>
       <li>Back in <b>Apps &amp; Connectors</b>, click <b>Create</b>.</li>
-      <li>Name: <code>Sliqtly</code>. Description: <i>Makes slide presentations from Markdown.</i> MCP server URL: <code>https://sliqtly.com/mcp</code>. Authentication: <b>No authentication</b>.</li>
-      <li>Tick that you trust the application and click <b>Create</b>.</li>
+      <li>Name: <code>Sliqtly</code>. Description: <i>Makes slide presentations from Markdown.</i> MCP server URL: <code>https://sliqtly.com/mcp</code>. Authentication: <b>OAuth</b> to keep the presentations in your own Sliqtly account, or <b>No authentication</b>.</li>
+      <li>Tick that you trust the application and click <b>Create</b>. With OAuth, ChatGPT then opens the Sliqtly sign-in page.</li>
     </ol>
     <p>In a new chat, open <b>+</b> → <b>Developer mode</b> (or <b>More</b>) and choose Sliqtly. ChatGPT asks before it makes a presentation; allow it.</p>
     <p class="note">The menu names move between ChatGPT versions. If you do not find Developer mode under Apps &amp; Connectors, look under Settings → Connectors → Advanced.</p>
@@ -128,7 +129,7 @@
 
   <section id="others">
     <h2>Other MCP clients</h2>
-    <p>Any client that speaks MCP over Streamable HTTP works with the URL above. No sign-in is needed.</p>
+    <p>Any client that speaks MCP over Streamable HTTP works with the URL above. They connect without sign-in; clients that support MCP's OAuth sign-in can also sign in.</p>
     <h3>VS Code (GitHub Copilot)</h3>
     <pre><code id="vscode">// .vscode/mcp.json
 {
@@ -165,8 +166,9 @@
       <tr><td><code>create_presentation</code></td><td>Makes the presentation and returns its link, plus a link that opens a copy in the Sliqtly editor.</td></tr>
       <tr><td><code>update_presentation</code></td><td>Changes it later, keeping the same link.</td></tr>
       <tr><td><code>get_presentation</code></td><td>Reads a presentation back by its link's id.</td></tr>
+      <tr><td><code>list_presentations</code></td><td>Lists your own presentations (signed in).</td></tr>
     </table>
-    <p class="note">Anyone with a presentation's link can view it, so do not put anything secret in it. Pictures are fetched from public https addresses or sent by the assistant, up to 5 MB each.</p>
+    <p class="note">Signed in, a presentation is yours: the assistant can list and change it later, and you can change it in the editor with the same Google account. Anyone with a presentation's link can view it, so do not put anything secret in it. Pictures are fetched from public https addresses or sent by the assistant, up to 5 MB each.</p>
   </section>
 </main>
 <script>
