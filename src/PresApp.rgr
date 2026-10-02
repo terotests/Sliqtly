@@ -141,6 +141,11 @@ class PresApp {
     def stripIdx:int -1
     def stripDownX:double 0.0
     def stripLastX:double 0.0
+    ; The "+" after the last thumbnail: pressed, it offers an empty slide or
+    ; a copy of the selected one. `stripAdd` is what the press on it asks
+    ; for: "open", "empty", "dup" or "".
+    def addOpen:boolean false
+    def stripAdd:string ""
     ; The stage seen closer: how many times the fitted size, and which point
     ; of the slide (0..1 across and down) is at the middle of the fitted
     ; rectangle. 1.0 is the slide as it fits.
@@ -515,6 +520,124 @@ class PresApp {
         }
         this.revealThumb(i)
         chromeRev = (chromeRev + 1)
+    }
+
+    ; A new slide after the selected one: a copy of it (`dup`), or an empty
+    ; one with a heading at the selected slide's level, its words selected
+    ; to be typed over. The new slide is selected.
+    fn addSlide:void (dup:boolean) {
+        addOpen = false
+        if (edTab != "md") {
+            this.showTab("md")
+        }
+        def text:string (mdEditor.text())
+        def lc:int (mdEditor.buf.lineCount())
+        def n:int (deck.slideCount())
+        ; the selected slide's lines: from its first line up to the next
+        ; slide's (the end, after the last)
+        def from:int -1
+        def at:int lc
+        if ((n > 0) && (selected < n)) {
+            ; a slide the overflow went on to starts on its heading's slide
+            def k:int selected
+            while (k > 0) {
+                def sk:PresSlide (deck.slideAt(k))
+                def sp:PresSlide (deck.slideAt((k - 1)))
+                if ((sk.srcStart < 0) || (sk.title != sp.title)) {
+                    break
+                }
+                this.posOf(text sk.srcStart)
+                if (PresApp.isHeading((mdEditor.buf.lineAt(posLine)))) {
+                    break
+                }
+                k = (k - 1)
+            }
+            def s:PresSlide (deck.slideAt(k))
+            if (s.srcStart >= 0) {
+                this.posOf(text s.srcStart)
+                from = posLine
+                def j:int (selected + 1)
+                while (j < n) {
+                    def sj:PresSlide (deck.slideAt(j))
+                    if (sj.srcStart >= 0) {
+                        this.posOf(text sj.srcStart)
+                        if ((posLine > from) && ((PresApp.isHeading((mdEditor.buf.lineAt(posLine)))) || (sj.title != s.title))) {
+                            at = posLine
+                            break
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+        }
+        def level:string "#"
+        if (from >= 0) {
+            def hl:string (mdEditor.buf.lineAt(from))
+            def h:int 0
+            while ((h < (strlen hl)) && ((charAt hl h) == 35)) {
+                h = (h + 1)
+            }
+            if (h > 0) {
+                level = (substring hl 0 h)
+            }
+        }
+        def title:string (PresI18n.t("New slide"))
+        def body:string ((level + " ") + title)
+        if (dup && (from >= 0)) {
+            ; its lines, the blank ones at its end left out
+            def last:int (at - 1)
+            while ((last > from) && ((strlen (trim (mdEditor.buf.lineAt(last)))) == 0)) {
+                last = (last - 1)
+            }
+            body = ""
+            def li:int from
+            while (li <= last) {
+                if (li > from) {
+                    body = (body + "\n")
+                }
+                body = (body + (mdEditor.buf.lineAt(li)))
+                li = (li + 1)
+            }
+        }
+        def keep:ScriptEditor editor
+        editor = mdEditor
+        def line:int at
+        if (at < lc) {
+            ; before the next slide, a blank line between
+            mdEditor.moveCaret(at 0 false)
+            mdEditor.insert((body + "\n\n"))
+        } {
+            ; at the end, after a blank line
+            def end:int (lc - 1)
+            def endText:string (mdEditor.buf.lineAt(end))
+            mdEditor.moveCaret(end (strlen endText) false)
+            if ((strlen (trim text)) == 0) {
+                mdEditor.insert((body + "\n"))
+                line = end
+            } {
+                if ((strlen (trim endText)) == 0) {
+                    mdEditor.insert(("\n" + body + "\n"))
+                    line = (end + 1)
+                } {
+                    mdEditor.insert(("\n\n" + body + "\n"))
+                    line = (end + 2)
+                }
+            }
+        }
+        editor = keep
+        bufSynced = mdEditor.buf.version
+        this.rebuildDeck()
+        this.selectSlide((deck.pageOfOffset((this.offsetOf(line 0)))))
+        if ((dup == false) || (from < 0)) {
+            ; the heading's words selected, ready to be typed over
+            mdEditor.moveCaret(line ((strlen level) + 1) false)
+            mdEditor.moveCaret(line (strlen body) true)
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    sfn isHeading:boolean (line:string) {
+        return (((strlen line) > 0) && ((charAt line 0) == 35))
     }
 
     ; The slide's heading about 15% from the editor's top, so the lines above
@@ -1290,6 +1413,7 @@ class PresApp {
         stagePanning = false
         stripPressed = false
         stripDragging = false
+        stripAdd = ""
         scrubDrag = false
         editorDrag = false
         splitDrag = false
@@ -1323,6 +1447,29 @@ class PresApp {
 
     fn thumbWhole:boolean (x:double) {
         return ((x >= (stripRect.x + 4.0)) && ((x + thumbW) <= ((stripRect.x + stripRect.w) - 4.0)))
+    }
+
+    ; What a press at x, y asks of the "+" after the thumbnails: "open"
+    ; (the "+" itself), "empty" or "dup" (its two choices), or "".
+    fn addAt:string (x:double y:double) {
+        if ((mode != "edit") || (stripRect.has(x y) == false)) {
+            return ""
+        }
+        def ax:double (this.thumbX((deck.slideCount())))
+        def ty:double (this.thumbY())
+        if ((((x < ax) || (x > (ax + thumbW))) || (y < ty)) || (y > (ty + thumbH))) {
+            return ""
+        }
+        if ((x < (stripRect.x + 4.0)) || (x > ((stripRect.x + stripRect.w) - 4.0))) {
+            return ""
+        }
+        if (addOpen == false) {
+            return "open"
+        }
+        if (y < (ty + (thumbH / 2.0))) {
+            return "empty"
+        }
+        return "dup"
     }
 
     fn thumbY:double () {
@@ -1666,6 +1813,26 @@ class PresApp {
             }
             i = (i + 1)
         }
+        ; the "+" after the last one, or its two choices once pressed
+        def ax:double (this.thumbX((deck.slideCount())))
+        if (this.thumbFits(ax)) {
+            def ay:double ((this.thumbY()) - r.y)
+            if addOpen {
+                def hh:double ((thumbH - 4.0) / 2.0)
+                box.addChild((PresApp.box("slide-add-empty" "thumb-add-btn" (PresI18n.t("Empty slide")) (ax - ox) ay thumbW hh)))
+                box.addChild((PresApp.box("slide-add-dup" "thumb-add-btn" (PresI18n.t("Duplicate slide")) (ax - ox) ((ay + hh) + 4.0) thumbW hh)))
+            } {
+                box.addChild((PresApp.box("slide-add" "thumb-add" "+" (ax - ox) ay thumbW thumbH)))
+            }
+        }
+    }
+
+    ; A box with its words in the middle (`line-height` is its height).
+    sfn box:EVGElement (id:string cls:string words:string x:double y:double w:double h:double) {
+        def el:EVGElement (PresApp.div(id cls x y w h))
+        el.textContent = words
+        el.setAttribute("line-height" ((EVGDisplayList.num(h)) + "px"))
+        return el
     }
 
     fn presentChrome:void (root:EVGElement) {
@@ -1772,6 +1939,11 @@ class PresApp {
         if (mode == "present") {
             this.stageDown(x y)
             return "stage"
+        }
+        stripAdd = (this.addAt(x y))
+        if (addOpen && ((strlen stripAdd) == 0)) {
+            addOpen = false
+            chromeRev = (chromeRev + 1)
         }
         ; an open menu or list of the bar is drawn over everything (toolbarOnTop),
         ; so it takes the press first: a row, or anywhere else to close it
@@ -2090,6 +2262,19 @@ class PresApp {
                 }
                 this.selectSlide(stripIdx)
             }
+            if ((! stripDragging) && ((strlen stripAdd) > 0)) {
+                if playing {
+                    playing = false
+                }
+                if ((stripAdd == "open") && ((deck.slideCount()) > 0)) {
+                    addOpen = true
+                    this.revealThumb((deck.slideCount()))
+                    chromeRev = (chromeRev + 1)
+                } {
+                    this.addSlide((stripAdd == "dup"))
+                }
+            }
+            stripAdd = ""
             stripDragging = false
         }
         this.stageUp()
@@ -2097,7 +2282,8 @@ class PresApp {
 
     fn scrollStrip:void (d:double) {
         stripScroll = (stripScroll + d)
-        def most:double (((to_double (deck.slideCount())) * (thumbW + thumbGap)) - (stripRect.w - 24.0))
+        ; the thumbnails and the "+" after them
+        def most:double (((to_double ((deck.slideCount()) + 1)) * (thumbW + thumbGap)) - (stripRect.w - 24.0))
         if (stripScroll > most) { stripScroll = most }
         if (stripScroll < 0.0) { stripScroll = 0.0 }
         chromeRev = (chromeRev + 1)
@@ -3402,6 +3588,17 @@ class PresApp {
                         PresA11y.placeAt(b e)
                     }
                     i = (i + 1)
+                }
+                def adds:[string] ([] _:string ("slide-add" "slide-add-empty" "slide-add-dup"))
+                def names:[string] ([] _:string ((PresI18n.t("Add a slide")) (PresI18n.t("Empty slide")) (PresI18n.t("Duplicate slide"))))
+                def ai:int 0
+                while (ai < (array_length adds)) {
+                    def ael@(optional):EVGElement (PresA11y.find(page2 (itemAt adds ai)))
+                    if (!null? ael) {
+                        def ab:EVGA11yNode (t.button(("thumb-" + (itemAt adds ai)) "slides" (itemAt names ai)))
+                        PresA11y.placeAt(ab (unwrap ael))
+                    }
+                    ai = (ai + 1)
                 }
             }
         }
