@@ -1,0 +1,32 @@
+# Tests the Go prototype of the MCP server (mcp-go/) and checks that its
+# container builds. Deploys nothing.
+name: MCP Go
+
+on:
+  pull_request:
+    paths: ["mcp-go/**", "mcp/guide.md", "mcp/src/preview.html", ".github/workflows/mcp-go.yml"]
+  push:
+    branches: [main]
+    paths: ["mcp-go/**", "mcp/guide.md", "mcp/src/preview.html", ".github/workflows/mcp-go.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp-go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: mcp-go/go.mod
+          cache-dependency-path: mcp-go/go.sum
+      - run: go generate ./...
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test ./...
+      - run: docker build -f mcp-go/Dockerfile -t sliqtly-mcp-go .
+        working-directory: .
