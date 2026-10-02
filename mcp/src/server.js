@@ -6,6 +6,7 @@
 // same template for ChatGPT) that shows the deck inline in the chat.
 
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { THEMES, MAX_MD, MAX_CSS, InputError, loadImages, outline, warnings } from "./deck.js";
@@ -14,7 +15,9 @@ import { packText } from "./store.js";
 const GUIDE = fs.readFileSync(new URL("../guide.md", import.meta.url), "utf8");
 const PREVIEW = fs.readFileSync(new URL("./preview.html", import.meta.url), "utf8");
 export const VERSION = "1.0.0";
-const PREVIEW_URI = "ui://sliqtly/preview.html";
+// named by its contents: a client that kept an older preview by its URI
+// asks for this one anew
+const PREVIEW_URI = `ui://sliqtly/preview-${crypto.createHash("sha256").update(PREVIEW).digest("hex").slice(0, 10)}.html`;
 const APP_MIME = "text/html;profile=mcp-app";
 // the preview loads Sliqtly from the site (or frames it); both domains serve it
 const SITES = ["https://sliqtly.com", "https://sliqtly.web.app"];

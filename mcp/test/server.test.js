@@ -70,10 +70,10 @@ test("tools, UI metadata and the preview resource", async () => {
     const { tools } = await t.client.listTools();
     assert.deepEqual(tools.map((x) => x.name).sort(), ["create_presentation", "get_presentation", "list_presentations", "sliqtly_guide", "update_presentation"]);
     const create = tools.find((x) => x.name === "create_presentation");
-    assert.equal(create._meta.ui.resourceUri, "ui://sliqtly/preview.html");
-    assert.equal(create._meta["openai/outputTemplate"], "ui://sliqtly/preview.html");
+    assert.match(create._meta.ui.resourceUri, /^ui:\/\/sliqtly\/preview-[0-9a-f]{10}\.html$/);
+    assert.equal(create._meta["openai/outputTemplate"], create._meta.ui.resourceUri);
     assert.ok(create.inputSchema.properties.theme.enum.includes("editorial"));
-    const r = await t.client.readResource({ uri: "ui://sliqtly/preview.html" });
+    const r = await t.client.readResource({ uri: create._meta.ui.resourceUri });
     assert.equal(r.contents[0].mimeType, "text/html;profile=mcp-app");
     assert.match(r.contents[0].text, /ui\/initialize/);
     assert.deepEqual(r.contents[0]._meta.ui.csp.frameDomains, [BASE, "https://sliqtly.com", "https://sliqtly.web.app"]);
