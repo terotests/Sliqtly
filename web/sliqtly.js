@@ -63,6 +63,8 @@ function store() {
   return data;
 }
 
+let authNow = null; // the Auth once it is ready, so a press can use it at once
+
 function auth() {
   ready ??= (async () => {
     const fb = await firebaseApp();
@@ -73,6 +75,7 @@ function auth() {
       show();
       window.dispatchEvent(new Event("sliqtly:user"));
     });
+    authNow = a;
     return a;
   })();
   return ready;
@@ -84,23 +87,87 @@ function show() {
   pro.title = user ? t("Signed in as ") + (user.displayName || user.email) : t("Sign in with Google");
 }
 
-pro.addEventListener("click", async () => {
+// --- sign-in on phones -------------------------------------------------------------
+// Safari (iPhone, iPad) opens Google's window only when it is asked for in
+// the press itself: the popup is asked for before anything else is waited on.
+// When the browser still blocks it, or the page runs from the home screen
+// (where a popup cannot come back), the sign-in goes by redirect instead.
+// A redirect comes back through this site's own /__/auth/handler (Firebase
+// Hosting serves it on every domain): Safari keeps no storage for
+// sliqtly.firebaseapp.com inside sliqtly.com, so a redirect through the
+// project's default auth domain would come back signed out. That handler is
+// a second, same-site Firebase app whose Google credential then signs in the
+// page's own app. Needs https://sliqtly.com/__/auth/handler (and
+// sliqtly.web.app's) among the OAuth client's redirect URIs.
+const REDIRECT_HOSTS = ["sliqtly.com", "www.sliqtly.com", "sliqtly.web.app", "sliqtly.firebaseapp.com"];
+const REDIRECT_FLAG = "sliqtly:redirect";
+const standalone = navigator.standalone === true || globalThis.matchMedia?.("(display-mode: standalone)").matches;
+
+function canRedirect() {
+  return REDIRECT_HOSTS.includes(location.hostname);
+}
+
+// the same-site app the redirect goes through
+async function redirectAuth() {
+  const fb = await firebaseApp();
+  await auth();
+  const name = "sliqtly-redirect";
+  const app = fb.apps.find((x) => x.name === name) || fb.initializeApp({ ...fb.app().options, authDomain: location.host }, name);
+  const a = app.auth();
+  await a.setPersistence(fb.auth.Auth.Persistence.NONE);
+  return a;
+}
+
+async function signInByRedirect() {
+  try { sessionStorage.setItem(REDIRECT_FLAG, "1"); } catch (_) { /* the result is still read below */ }
+  const a = await redirectAuth();
+  await a.signInWithRedirect(new globalThis.firebase.auth.GoogleAuthProvider());
+}
+
+// back from Google's page: its credential signs in the page's own app
+async function finishRedirect() {
+  let flagged = false;
+  try { flagged = sessionStorage.getItem(REDIRECT_FLAG) === "1"; sessionStorage.removeItem(REDIRECT_FLAG); } catch (_) { /* none */ }
+  if (!flagged || !canRedirect()) return;
   try {
-    const a = await auth();
-    if (!user) {
-      await a.signInWithPopup(new globalThis.firebase.auth.GoogleAuthProvider());
-    } else if (confirm(t("Signed in as ") + (user.displayName || user.email) + "\n\n" + t("Sign out?"))) {
-      await a.signOut();
-    }
+    const r = await (await redirectAuth()).getRedirectResult();
+    if (r?.credential) await (await auth()).signInWithCredential(r.credential);
   } catch (e) {
-    if (e?.code === "auth/popup-closed-by-user" || e?.code === "auth/cancelled-popup-request") return;
     console.error(e);
     alert(t("Sign-in failed: ") + (e?.message || e));
   }
+}
+
+function signInFailed(e) {
+  if (e?.code === "auth/popup-closed-by-user" || e?.code === "auth/cancelled-popup-request") return;
+  if (e?.code === "auth/popup-blocked" && canRedirect()) {
+    signInByRedirect().catch(signInFailed);
+    return;
+  }
+  console.error(e);
+  alert(t("Sign-in failed: ") + (e?.message || e));
+}
+
+function signIn(a) {
+  if (standalone && canRedirect()) return signInByRedirect().catch(signInFailed);
+  // no await before this: the window opens within the press
+  return a.signInWithPopup(new globalThis.firebase.auth.GoogleAuthProvider()).catch(signInFailed);
+}
+
+pro.addEventListener("click", () => {
+  if (authNow && !user) {
+    signIn(authNow);
+    return;
+  }
+  auth().then((a) => {
+    if (!user) return signIn(a);
+    if (confirm(t("Signed in as ") + (user.displayName || user.email) + "\n\n" + t("Sign out?"))) return a.signOut();
+  }).catch(signInFailed);
 });
 
 // a session from an earlier visit comes back without a press
 auth().catch((e) => console.warn("sign-in not available:", e.message));
+finishRedirect();
 show();
 
 // a share's id: 10 characters of a-z, A-Z, 0-9 (about 59 bits)
