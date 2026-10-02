@@ -25,7 +25,10 @@ const pro = document.getElementById("pro");
 let user = null;
 let ready = null;
 
+// An AI assistant's preview (mcp/src/preview.html) may load scripts only
+// from blob: URLs, and gives the page its own loader for that.
 function load(src) {
+  if (globalThis.__sliqtlyLoadScript) return globalThis.__sliqtlyLoadScript(src);
   return new Promise((resolve, reject) => {
     const s = document.createElement("script");
     s.src = src;
