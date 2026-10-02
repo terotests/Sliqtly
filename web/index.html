@@ -124,7 +124,7 @@
   <button id="play" title="Play from the selected slide (P)" data-i18n-title data-i18n>▶ Play</button>
   <button id="present" class="primary" title="Present full screen (F5). S = speaker view, A = auto-advance, Esc = stop" data-i18n-title data-i18n>⛶ Present</button>
   <span class="sepbar"></span>
-  <button id="open" class="wide" title="Open a .md file" data-i18n-title data-i18n>Open</button>
+  <button id="open" class="wide" title="Open a presentation, data or a picture" data-i18n-title data-i18n>Open</button>
   <button id="save" class="wide" title="Save as Markdown" data-i18n-title data-i18n>Save .md</button>
   <button id="pdf">PDF</button>
   <button id="pptx">PPTX</button>
@@ -147,7 +147,7 @@
   <button id="vFull" title="Full screen" data-i18n-title>⛶</button>
 </div>
 <div id="err"></div>
-<input id="filepick" type="file" accept=".md,.markdown,text/markdown,text/plain" hidden />
+<input id="filepick" type="file" multiple accept=".md,.markdown,.txt,text/markdown,text/plain,.xlsx,.csv,.tsv,.json,image/png,image/jpeg,image/gif,image/webp,image/svg+xml" hidden />
 <input id="fileadd" type="file" multiple hidden />
 <script src="./pres_app.js?v=__BUILD__"></script>
 <script type="module" src="./main.js?v=__BUILD__"></script>

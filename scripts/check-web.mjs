@@ -1333,6 +1333,20 @@ try {
       const book = await pd.evaluate(() => { const i = window.__app.panels.imp; return { sheets: i.sheetNames.join(","), head: i.headers.join(","), path: i.sheetPaths[0] }; });
       check("a .xlsx: one CSV per sheet, title rows above the header dropped", book.sheets === "Sales,Summary" && book.head === "Product,Qty,Price,Total" && book.path === "data/check-book-Sales.csv", JSON.stringify(book));
     }
+    // File → Open takes data and pictures too: they go to the Files tab, a
+    // single data file through the same import dialog as a drop.
+    await pd.evaluate(() => window.__app.closeShare());
+    await pd.evaluate(() => window.__app.showTab("md"));
+    await pd.setInputFiles("#filepick", { name: "check-open.csv", mimeType: "text/csv", buffer: Buffer.from(rows.join("\n") + "\n") });
+    await pd.waitForFunction(() => window.__app.shareIsOpen() && window.__app.panels.imp.name === "check-open.csv", null, { timeout: 5000 }).catch(() => {});
+    const opened = await pd.evaluate(() => ({ dlg: window.__app.shareIsOpen() && window.__app.panels.imp.name === "check-open.csv", tab: window.__app.editorTab() }));
+    await pd.evaluate(() => window.__app.closeShare());
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    await pd.setInputFiles("#filepick", { name: "check-open.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
+    await pd.waitForFunction(() => JSON.stringify(window.__app.panelsJson()).includes("check-open.png"), null, { timeout: 5000 }).catch(() => {});
+    opened.picture = await pd.evaluate(() => JSON.stringify(window.__app.panelsJson()).includes("check-open.png"));
+    opened.deck = await pd.evaluate(() => !window.__app.source().startsWith("Region,"));
+    check("File → Open: a CSV opens the import dialog on the Files tab; a picture is listed in Files", opened.dlg && opened.tab === "files" && opened.picture && opened.deck, JSON.stringify(opened));
     check("no page errors in the data import", perr.length === 0, perr.join(" | "));
     await pd.close();
   }

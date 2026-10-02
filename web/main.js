@@ -1111,16 +1111,28 @@ async function exportPptx() {
 }
 document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
+// Open: a presentation (.md) replaces the deck; data (Excel, CSV, JSON) and
+// pictures go to the Files tab as if dropped there. One data file opens the
+// import dialog, like a drop on the editor; several are only kept.
 filePick.addEventListener("change", async () => {
-  const file = filePick.files && filePick.files[0];
-  if (!file) return;
-  docName = file.name.replace(/\.(md|markdown|txt)$/i, "") || "presentation";
-  await saveDoc();
-  const text = await file.text();
-  beginDoc(text);
-  app.setSource(text);
+  const list = [...(filePick.files || [])];
   filePick.value = "";
-  dropThumbs();
+  const doc = list.find((f) => /\.(md|markdown|txt)$/i.test(f.name));
+  if (doc) {
+    docName = doc.name.replace(/\.(md|markdown|txt)$/i, "") || "presentation";
+    await saveDoc();
+    const text = await doc.text();
+    beginDoc(text);
+    app.setSource(text);
+    dropThumbs();
+  }
+  const rest = list.filter((f) => f !== doc);
+  if (rest.length) {
+    for (const f of rest) await addDocFile(f, rest.length === 1);
+    await saveDoc(true);
+    app.showTab("files");
+    refreshFiles();
+  }
   needsPaint = true;
 });
 
