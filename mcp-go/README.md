@@ -102,7 +102,8 @@ forces the link-only mode.
 
 Each step needs Tero's go-ahead; nothing here has been run.
 
-1. **Deploy beside the function**, no traffic:
+1. **Deploy beside the function**, no traffic: Actions → **Deploy MCP (Go)**
+   (`.github/workflows/deploy-mcp-go.yml`) runs the tests and these steps:
    ```
    IMAGE=europe-west1-docker.pkg.dev/sliqtly/mcp/sliqtly-mcp-go
    docker build -f mcp-go/Dockerfile -t $IMAGE .     # from the repository root
