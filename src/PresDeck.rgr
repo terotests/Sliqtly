@@ -1343,8 +1343,11 @@ class PresDeck {
         emb.figure = figStyle
         ; a slide's chart fills its room (a small plot asked for larger)
         emb.chartGrow = 2.5
-        ; but no taller than a slide under its heading
-        emb.chartMaxH = ((e.layout.style.pageHeight - (e.layout.style.margin * 2.0)) - 120.0)
+        ; but no taller than a slide under its heading: the room the heading
+        ; keeps, and the layout works the height out of the page it lays out
+        ; (this style is still the last layout's, which is the other page
+        ; when `orientation:` turned it)
+        emb.chartRoomKept = 120.0
         def none1:[string]
         def none2:[string]
         emb.chartScopes = none1
