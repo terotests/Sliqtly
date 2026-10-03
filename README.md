@@ -260,6 +260,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | Click a thumbnail | select the slide (the editor caret moves to it) |
 | Click / drag a track | move the playhead within the slide |
 | ▶ Play, Ctrl+Enter | play from the selected slide |
+| In the editor: ⌃⌘Space (Mac), Ctrl+Shift+Space | the emoji picker at the caret (EVGUI's EmojiPickerCtl): the emojis the slides and their PDF can draw, Recent first; type to search (English or Finnish names), arrows + Enter or a click writes it, Tab changes the group, Esc closes |
 | ⛶ Present, F5 | full screen from the start (Shift: from the current slide) |
 | While presenting: → / space / click | next build step or slide |
 | While presenting: ← | previous slide |

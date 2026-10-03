@@ -3731,6 +3731,23 @@ const KEY_MAP = {
   Home: "home", End: "end", PageUp: "pageUp", PageDown: "pageDown", Escape: "escape",
 };
 const CLIPBOARD_CHORD = /^[cxvCXV]$/;
+// The emoji picker's key: ⌃⌘Space, the Mac's own, and Ctrl+Shift+Space
+// everywhere. The picker (EVGUI's) offers the emojis the slides and their PDF
+// can draw. Ctrl+Space alone is the value popover.
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform || navigator.platform || "");
+function isEmojiChord(ev) {
+  if (!(ev.key === " " || ev.code === "Space") || !ev.ctrlKey || ev.altKey) return false;
+  return IS_MAC ? ev.metaKey || ev.shiftKey : ev.shiftKey && !ev.metaKey;
+}
+// Recent emojis, kept by this browser.
+const EMOJI_RECENT = "sliqtly.emoji.recent";
+let emojiRecent = "";
+function keepEmojiRecent() {
+  const now = app.emojiRecent();
+  if (now === emojiRecent) return;
+  emojiRecent = now;
+  try { localStorage.setItem(EMOJI_RECENT, now); } catch (_) { /* not kept */ }
+}
 let composing = false;
 
 // What the field was last set to. Anything else in it got there without
@@ -3778,6 +3795,7 @@ function focusKeys(where) {
 }
 
 function afterInput() {
+  keepEmojiRecent();
   mirrorLine();
   handleRequests();
   rebaseClock();
@@ -3788,6 +3806,19 @@ keys.addEventListener("keydown", (ev) => {
   if (ev.key === "F6") {
     ev.preventDefault();
     cycleRegion(ev.shiftKey);
+    return;
+  }
+  if (isEmojiChord(ev)) {
+    ev.preventDefault();
+    if (app.emojiIsOpen()) closeHint();
+    else if (app.openEmojiAtCaret()) {
+      // nothing the pointer started replaces it
+      clearTimeout(hintTimer);
+      clearTimeout(hintCloseTimer);
+      hint = null;
+    }
+    afterInput();
+    paintOnce();
     return;
   }
   if (ev.ctrlKey && (ev.key === " " || ev.code === "Space")) {
@@ -4038,7 +4069,10 @@ canvas.addEventListener("pointerdown", (ev) => {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
   if (where === "editor" && clicks === 1) {
+    const emojiAtPress = app.emojiIsOpen();
     setTimeout(() => {
+      // the emoji picker opened from the keyboard since the press: it stays
+      if (!emojiAtPress && app.emojiIsOpen()) return;
       // a low-contrast mark in the gutter: its warning, and nothing else
       let g = null;
       try { g = JSON.parse(app.contrastHintAt(x, y) || "null"); } catch (_) { g = null; }
@@ -4141,7 +4175,8 @@ function hintHover(x, y) {
     return;
   }
   hintTimer = setTimeout(() => {
-    // a card opened from the slide meanwhile (Style, a band) is not the hover's
+    // a card opened from the slide meanwhile (Style, a band) or the emoji
+    // picker from the keyboard is not the hover's
     if (app.hintPinned()) return;
     let h = null;
     try { h = JSON.parse(app.hintAt(x, y) || "null"); } catch (_) { h = null; }
@@ -4369,7 +4404,9 @@ async function start() {
   app.init(css, Math.max(320, r.width), Math.max(240, r.height));
   if (!viewer) applySkin();
   app.setCoarse(isCoarse());
-  app.setMac(/Mac|iPhone|iPad/.test(navigator.userAgentData?.platform || navigator.platform || ""));
+  app.setMac(IS_MAC);
+  try { emojiRecent = localStorage.getItem(EMOJI_RECENT) || ""; } catch (_) { emojiRecent = ""; }
+  app.setEmojiRecent(emojiRecent);
   resize();
   window.addEventListener("resize", resize);
 
