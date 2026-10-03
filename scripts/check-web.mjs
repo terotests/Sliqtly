@@ -2537,8 +2537,9 @@ try {
     const first = await pw.evaluate(() => ({
       md: window.__app.source().slice(0, 200),
       card: !!document.getElementById("welcomeCard"),
+      theme: document.getElementById("theme").value,
     }));
-    check("first visit: the welcome deck opens, in English, with the welcome card", first.md.includes("# Sliqtly Better Slides") && first.card, JSON.stringify(first));
+    check("first visit: the welcome deck opens, in English on the white theme, with the welcome card", first.md.includes("# Sliqtly Better Slides") && first.card && first.theme === "corporate", JSON.stringify(first));
     await pw.click("#welcomeCard button.primary");
     await pw.waitForTimeout(300);
     const started = await pw.evaluate(() => ({ open: window.__app.chartIsOpen(), mode: window.__app.chart.mode, card: !!document.getElementById("welcomeCard") }));

@@ -9,7 +9,7 @@ footer-right: "{page} / {pages}"
 footer-skip: first last
 ---
 
-# Sliqtly Better Slides {fx=starfield fx-density=1.2 fx-hue=228}
+# Sliqtly Better Slides {fx=smoke}
 
 Näyttävät diat Markdownista — PPTX- ja PDF-viennillä, Excel-datalähteillä ja täysin muokattavilla teemoilla.
 {.lead}
@@ -181,7 +181,7 @@ footer-skip: first last
 Näiden diojen alaosa on kirjoitettu esityksen alkuun näin.
 {.kicker}
 
-## Aloita oma esityksesi {fx=starfield fx-density=1.2 fx-hue=228}
+## Aloita oma esityksesi {fx=smoke}
 
 1. **Tiedosto → Uusi esitys** antaa tyhjän esityksen
 2. Tai valitse valikosta esimerkki ja muokkaa sitä

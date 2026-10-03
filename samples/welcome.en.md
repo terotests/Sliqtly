@@ -9,7 +9,7 @@ footer-right: "{page} / {pages}"
 footer-skip: first last
 ---
 
-# Sliqtly Better Slides {fx=starfield fx-density=1.2 fx-hue=228}
+# Sliqtly Better Slides {fx=smoke}
 
 Beautiful slides from Markdown — with PPTX & PDF export, Excel data sources, and fully customizable themes.
 {.lead}
@@ -181,7 +181,7 @@ footer-skip: first last
 That is the footer on these slides, written in the deck's front matter.
 {.kicker}
 
-## Start your own deck {fx=starfield fx-density=1.2 fx-hue=228}
+## Start your own deck {fx=smoke}
 
 1. **File → New presentation** gives you a clean deck
 2. Or pick a sample from the menu and change it

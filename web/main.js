@@ -57,7 +57,8 @@ const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "corporate", 
 // samples/<key>.en.md English (any other language gets the English ones).
 const sample = (key, en, fi) => lang === "fi" ? [fi, `./samples/${key}.md`] : [en, `./samples/${key}.en.md`];
 const SAMPLES = {
-  welcome: sample("welcome", "Welcome: what Sliqtly can do", "Tervetuloa: mitä Sliqtlyllä voi tehdä"),
+  // the first visit's deck, on a white theme of its own
+  welcome: [...sample("welcome", "Welcome: what Sliqtly can do", "Tervetuloa: mitä Sliqtlyllä voi tehdä"), "corporate"],
   talous: sample("talous", "Finance: take charge of your money", "Talous: oma talous haltuun"),
   ymparisto: sample("ymparisto", "Environment: your carbon footprint", "Ympäristö: hiilijalanjälki"),
   urheilu: sample("urheilu", "Sports: a 5 km running course", "Urheilu: 5 km juoksukoulu"),
@@ -2914,6 +2915,10 @@ async function openSample(key) {
     docName = key;
     await leaveDoc();
     const text = await textOf(s[1]);
+    if (s[2]) {
+      themeSel.value = s[2];
+      useTheme(s[2]);
+    }
     beginDoc(text);
     app.setSource(text);
     dropThumbs();
