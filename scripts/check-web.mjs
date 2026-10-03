@@ -1708,6 +1708,47 @@ try {
     check("…and a copy is kept with the deck for its readers", res.copy === 6, JSON.stringify(res));
   }
 
+  // Files: the copy kept of a linked sheet is named after the sheet and its
+  // tab, shown as linked data, and Unlink makes the chart read it as a file
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const route = (r) => r.fulfill({ status: 200, contentType: "text/html", headers: { "access-control-allow-origin": "*" }, body: "<!doctype html><title>Sign in</title>" });
+    await page.context().route(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate(async () => {
+      const s = window.sliqtly;
+      window.__was = { user: s.user, readSheet: s.readSheet, sheetName: s.sheetName };
+      s.user = () => ({ uid: "u1", email: "u@example.com" });
+      s.readSheet = async () => "Kk,Km\nTammi,10\nHelmi,20\n";
+      s.sheetName = () => ({ title: "Budjetti", tab: "Syyskuu" });
+      const a = window.__app;
+      a.setSource("# D\n\n## Km\n\n```vega-lite\n{\"data\": {\"url\": \"https://docs.google.com/spreadsheets/d/PRIV3/edit#gid=0\"}, \"mark\": \"bar\", \"width\": 400, \"encoding\": {\"x\": {\"field\": \"Kk\", \"type\": \"nominal\"}, \"y\": {\"field\": \"Km\", \"type\": \"quantitative\"}}}\n```\n");
+      for (let i = 0; i < 40 && a.chartDataWanted() !== ""; i += 1) await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 400));
+      a.showTab("files");
+    });
+    await page.waitForFunction(() => window.__app.panels.filesJson.includes("Budjetti"), null, { timeout: 8000 }).catch(() => {});
+    const row = await page.evaluate(() => {
+      try { return JSON.parse(window.__app.panels.filesJson).files.find((f) => f.path.startsWith("data/live/")) || null; } catch (_) { return null; }
+    });
+    const res = await page.evaluate(async (path) => {
+      if (path) await window.__fileRequest("unlink:" + path);
+      await new Promise((r) => setTimeout(r, 400));
+      const files = await window.__docFiles();
+      const a = window.__app;
+      const md = a.source();
+      a.selectSlide(1);
+      const st = JSON.parse(a.stageJson());
+      const bars = st.list.cmds.filter((c) => c.k === 0 && c.w > 20 && c.h > 20 && c.w < 300).length;
+      Object.assign(window.sliqtly, window.__was);
+      a.showTab("md");
+      return { file: files.includes("data/Budjetti-Syyskuu.csv"), copy: files.includes(path), md: /"url": ?"data\/Budjetti-Syyskuu\.csv"/.test(md), bars };
+    }, row && row.path);
+    await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    check("Files: a linked sheet's copy is named after the sheet and tab, with its source", !!row && row.kind === "live" && row.title === "Budjetti · Syyskuu" && row.tag === "SHEET" && /PRIV3/.test(row.source) && /Google Sheets · /.test(row.note), JSON.stringify(row));
+    check("…and Unlink makes the chart read it as an ordinary data file", res.file && !res.copy && res.md && res.bars === 2, JSON.stringify(res));
+  }
+
   // A private sheet pasted where the browser blocks Google's window (the
   // press spent on the fetch): a card asks for one more press, which opens it
   {
@@ -1896,7 +1937,27 @@ try {
     });
     const bars1 = await barsOf();
     // the data file edited in the files tab: the chart follows
-    await page.evaluate(() => { const a = window.__app; a.panels.requests.push("files:open:data/vfs-sales.csv"); a.takePanels(); });
+    // Open on a CSV: the spreadsheet editor (EVGSheets), its rows in the cells
+    await page.evaluate(() => {
+      const ls = window.__liveSheets;
+      const was = ls.openDialog;
+      ls.openDialog = (o) => { window.__sheetAsked = { name: o.name, csv: o.csv }; ls.openDialog = was; return was(o); };
+      const a = window.__app;
+      a.panels.requests.push("files:open:data/vfs-sales.csv");
+      a.takePanels();
+    });
+    await page.waitForFunction(() => !!document.querySelector(".sheet-dialog canvas") || window.__app.openFilePath() === "data/vfs-sales.csv", null, { timeout: 30000 }).catch(() => {});
+    const csvOpen = await page.evaluate(() => ({ asked: window.__sheetAsked || null, dialog: !!document.querySelector(".sheet-dialog canvas"), name: document.querySelector(".sheet-dialog-bar strong")?.textContent || "", asText: window.__app.openFilePath() === "data/vfs-sales.csv" }));
+    await page.evaluate(() => [...document.querySelectorAll(".sheet-dialog-bar button")].find((b) => !b.classList.contains("primary"))?.click());
+    await page.waitForTimeout(300);
+    // without EVGSheets (no copy beside the page, its site out of reach) the
+    // text editor is the fallback
+    const sheetsHere = fs.existsSync(path.join(distDir, "sheets", "evgsheets.mjs"));
+    const asked = csvOpen.asked && csvOpen.asked.name === "vfs-sales.csv" && /^kk,euroa/i.test(csvOpen.asked.csv || "");
+    check("Open on a CSV file: the spreadsheet editor, not the text" + (sheetsHere ? "" : " (EVGSheets unreachable: asked, then the text)"),
+      asked && (sheetsHere ? csvOpen.dialog && csvOpen.name === "vfs-sales.csv" && !csvOpen.asText : csvOpen.asText), JSON.stringify(csvOpen).slice(0, 200));
+    // the text editor still edits a data file (JSON, or a CSV without EVGSheets)
+    await page.evaluate(() => { const a = window.__app; a.showTab("files"); a.openFile("data/vfs-sales.csv", "kk,euroa\n"); });
     await page.waitForFunction(() => window.__app.openFilePath() === "data/vfs-sales.csv", null, { timeout: 5000 }).catch(() => {});
     await page.evaluate(() => { const a = window.__app; a.fileEditor.init("kk,euroa\ntammi,120\nhelmi,180\nmaalis,90\nhuhti,300\n"); a.syncEditor(); });
     await page.waitForTimeout(1000);

@@ -421,6 +421,9 @@ function csvCell(v) {
 // (MdVegaRender.sheetCsv: /d/<id>/gviz/tq?…&sheet=…&gid=…&range=…). `ask`
 // allows the popup and the Picker. Throws { code: "auth" } when there is no
 // token, { code: "access" } when the user may not or did not pick it.
+// the spreadsheet's and the tab's names, by the address read (Files names
+// the kept copy after them)
+const sheetNames = new Map();
 async function readSheet(gviz, ask) {
   const m = /\/spreadsheets\/d\/([^/?#]+)/.exec(gviz);
   if (!m || !user) throw Object.assign(new Error("not signed in"), { code: "auth" });
@@ -432,24 +435,27 @@ async function readSheet(gviz, ask) {
   const get = (u) => fetch(u, { headers: { Authorization: "Bearer " + token }, cache: "no-store" });
   let tab = q.get("sheet") || "";
   // a tab named by its gid: its title from the spreadsheet's tabs
-  let r = await get(api + "?fields=sheets.properties(sheetId,title)");
+  const fields = "?fields=properties.title,sheets.properties(sheetId,title)";
+  let r = await get(api + fields);
   if ((r.status === 403 || r.status === 404) && ask) {
     // not one of the files drive.file covers yet: the user picks it
     const picked = await pickSheet(id, token);
     if (picked === false) throw Object.assign(new Error("picker failed"), { code: "picker" });
     if (picked !== id) throw Object.assign(new Error("not picked"), { code: "access" });
-    r = await get(api + "?fields=sheets.properties(sheetId,title)");
+    r = await get(api + fields);
   }
   if (r.status === 401) {
     sheetToken = null;
     throw Object.assign(new Error("token expired"), { code: "auth" });
   }
   if (!r.ok) throw Object.assign(new Error("HTTP " + r.status), { code: "access" });
-  const tabs = ((await r.json()).sheets || []).map((x) => x.properties);
+  const meta = await r.json();
+  const tabs = (meta.sheets || []).map((x) => x.properties);
   if (!tab) {
     const gid = q.get("gid");
     tab = (tabs.find((x) => String(x.sheetId) === gid) || tabs[0] || {}).title || "";
   }
+  sheetNames.set(gviz, { title: meta.properties?.title || "", tab });
   const range = (tab ? "'" + tab.replace(/'/g, "''") + "'!" : "") + (q.get("range") || "A:ZZ");
   const v = await get(api + "/values/" + encodeURIComponent(range) + "?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING");
   if (!v.ok) throw Object.assign(new Error("HTTP " + v.status), { code: "access" });
@@ -458,5 +464,5 @@ async function readSheet(gviz, ask) {
   return rows.map((row) => Array.from({ length: width }, (_, i) => csvCell(row[i])).join(",")).join("\n") + "\n";
 }
 
-window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, listMine, readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true) };
+window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, listMine, readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
 window.dispatchEvent(new Event("sliqtly:ready"));

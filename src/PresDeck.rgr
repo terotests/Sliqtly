@@ -54,6 +54,16 @@ class PresGroup {
     def label:string ""
 }
 
+; A chart fence on a slide: its columns rise and its beam passes from when
+; the group that reveals it arrives (or the slide does), and the slide is
+; not held — at its end or at the next build step — before that is over.
+class PresChartUse {
+    def source:string ""
+    def srcStart:int 0
+    ; seconds after the slide starts; set by PresTimeline (-1: not yet)
+    def start:double -1.0
+}
+
 ; A diagram fence on a slide, drawn by PresDiagram rather than as a picture.
 class PresDiaUse {
     def diagram:PresDiagram (new PresDiagram())
@@ -81,6 +91,11 @@ class PresSlide {
     ; (`{bg-dim=0.4}`)
     def bg:string ""
     def bgDim:double 0.0
+    ; line art drawn behind the slide (`{art=waves}`, MdFigure.art) and the
+    ; number that moves its curves (`{art-seed=3}`; the slide's own by
+    ; default, so two slides with waves are not the same picture)
+    def art:string ""
+    def artSeed:int -1
     def fxNames:[string]
     def fxValues:[string]
     def notes:string ""
@@ -96,10 +111,13 @@ class PresSlide {
     def groups:[PresGroup]
     def steps:int 0
     def diagrams:[PresDiaUse]
+    def charts:[PresChartUse]
 
     Constructor () {
         def du:[PresDiaUse]
         diagrams = du
+        def cu:[PresChartUse]
+        charts = cu
         def a:[string]
         fxNames = a
         def b:[string]
@@ -124,6 +142,12 @@ class PresDeck {
     ; Painting for a page that does not move (the PDF): every diagram at
     ; rest, whole, rather than where its walk is at a moment.
     def still:boolean false
+    ; The layouts drawn from lists (```process, ```swot, ```timeline) and
+    ; the slides' line art are PRO: the page says whether they are drawn
+    ; (`PresApp.setPro`). Not drawn, a fence's slot says so.
+    def figuresAllowed:boolean false
+    ; the theme's colours for them, as last read (`figureStyle`)
+    def figStyle:MdFigureStyle (new MdFigureStyle)
     ; Slides whose effect the host rendered to a picture for an export
     ; (`fxStillPath`); a still list draws the picture in place of the effect.
     def fxStills:[int]
@@ -557,12 +581,41 @@ class PresDeck {
         return -1
     }
 
+    ; The chart fences in a block, nested ones too (a chart inside a `:::`).
+    fn readCharts:void (s:PresSlide n:MdNode) {
+        if ((n.kind == "embed") && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(n.info)))) == "vega")) {
+            def u (new PresChartUse())
+            u.source = n.literal
+            u.srcStart = n.srcStart
+            push s.charts u
+            return
+        }
+        def i:int 0
+        while (i < (n.childCount())) {
+            this.readCharts(s (n.childAt(i)))
+            i = (i + 1)
+        }
+    }
+
+    ; When a chart's motion starts on its slide (0.0 for one not read).
+    fn chartStart:double (s:PresSlide source:string) {
+        def i:int 0
+        while (i < (array_length s.charts)) {
+            def u:PresChartUse (itemAt s.charts i)
+            if ((u.source == source) && (u.start >= 0.0)) {
+                return u.start
+            }
+            i = (i + 1)
+        }
+        return 0.0
+    }
+
     fn readDiagram:void (s:PresSlide n:MdNode page:int) {
         if (n.kind != "embed") {
             return
         }
         def notation:string (MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(n.info))))
-        if (((strlen notation) == 0) || (notation == "vega")) {
+        if ((((strlen notation) == 0) || (notation == "vega")) || (notation == "figure")) {
             return
         }
         if ((n.attrValue("diagram")) == "classic") {
@@ -790,7 +843,7 @@ class PresDeck {
                 def sel0:string (trim (itemAt selList s))
                 ; `#anchor chart`: the charts under one heading
                 def sel:string (PresDeck.scopedSel(sel0))
-                if ((((sel == "chart") || (sel == "diagram")) || ((indexOf sel "#") == 0)) || (sel == "page")) {
+                if (((((sel == "chart") || (sel == "diagram")) || ((indexOf sel "#") == 0)) || (sel == "page")) || ((sel == "figure") || (sel == "document"))) {
                     def decls:[string] (strsplit body ";")
                     def d:int 0
                     while (d < (array_length decls)) {
@@ -1173,6 +1226,9 @@ class PresDeck {
         ; heading's own (`#anchor chart { … }`)
         def emb:MdEmbedCache e.layout.embeds
         emb.chartConfig = (this.chartDefaults("chart" true))
+        ; the figures in the theme's colours, and only for PRO
+        figStyle = (this.figureStyle())
+        emb.figure = figStyle
         ; a slide's chart fills its room (a small plot asked for larger)
         emb.chartGrow = 2.5
         ; but no taller than a slide under its heading
@@ -1378,6 +1434,8 @@ class PresDeck {
         def dTransition:string (meta.get("transition" "fade"))
         def dSeconds:double (PresDeck.num((meta.get("seconds" "0.6")) 0.6))
         def dFx:string (meta.get("fx" ""))
+        def dArt:string (meta.get("art" ""))
+        def dArtSeed:int (to_int (PresDeck.num((meta.get("art-seed" "-1")) -1.0)))
         def dStep:double (PresDeck.num((meta.get("step" "1.2")) 1.2))
         def dHold:double (PresDeck.num((meta.get("hold" "2.5")) 2.5))
         def p:int 0
@@ -1387,6 +1445,8 @@ class PresDeck {
             s.transition = dTransition
             s.seconds = dSeconds
             s.fx = dFx
+            s.art = dArt
+            s.artSeed = dArtSeed
             s.stepGap = dStep
             s.hold = dHold
             ; the template's effect, with its own parameters; not over a picture
@@ -1437,6 +1497,7 @@ class PresDeck {
                 }
                 this.readGroups(slide ch)
                 this.readDiagram(slide ch pg)
+                this.readCharts(slide ch)
             }
             c = (c + 1)
         }
@@ -1512,6 +1573,15 @@ class PresDeck {
         }
         if (h.hasAttr("bg-dim")) {
             s.bgDim = (PresDeck.num((h.attrValue("bg-dim")) 0.0))
+        }
+        if (h.hasAttr("art")) {
+            s.art = (h.attrValue("art"))
+            if (s.art == "off") {
+                s.art = ""
+            }
+        }
+        if (h.hasAttr("art-seed")) {
+            s.artSeed = (to_int (PresDeck.num((h.attrValue("art-seed")) -1.0)))
         }
         def i:int 0
         while (i < (h.attrCount())) {
@@ -1643,6 +1713,7 @@ class PresDeck {
         painter.rect(out 0.0 0.0 pageW pageH paper)
         painter.paper(out l 0.0 0.0 pageW pageH)
         this.slideBackground(out l s paper)
+        this.slideArt(out s i)
         push groupOfCmd -1
         while ((array_length groupOfCmd) < (array_length out.cmds)) {
             push groupOfCmd -1
@@ -1756,7 +1827,7 @@ class PresDeck {
                 def before:int (array_length out.cmds)
                 painter.paintBox(out l kb 0.0)
                 if ((kb.kind == 3) && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(kb.embedKind)))) == "vega")) {
-                    PresChart.dress(out before t still (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) kb.embedSource (this.chartStyleWords()))
+                    PresChart.dress(out before (t - (this.chartStart(s kb.embedSource))) still (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) kb.embedSource (this.chartStyleWords()))
                     if still {
                         PresChart.flatten(out before paper)
                     }
@@ -1778,6 +1849,124 @@ class PresDeck {
             }
         }
         return out
+    }
+
+    ; The slide's line art (`{art=waves}`), over its picture and under the
+    ; content, or nothing when it has none or figures are not allowed.
+    fn artScene:FlowScene (s:PresSlide i:int) {
+        if (((strlen s.art) == 0) || (figuresAllowed == false)) {
+            def none (new FlowScene)
+            return none
+        }
+        def seed:int s.artSeed
+        if (seed < 0) {
+            seed = (i + 1)
+        }
+        return (MdFigure.art(s.art figStyle pageW pageH seed))
+    }
+
+    fn slideArt:void (out:EVGDisplayList s:PresSlide i:int) {
+        def sc:FlowScene (this.artScene(s i))
+        sc.emitInto(out)
+    }
+
+    ; How the figures look in this theme:
+    ;
+    ;   figure {
+    ;     colors: #1f6feb #0f9d8a #7c4dff #f08c00;   the series, in order
+    ;     color: #ffa546;  accent-color: #5ce1ff;   or the first two
+    ;     font-size: 18pt;                          the titles in them
+    ;   }
+    ;
+    ; With no `figure` rule the chart's colours are used. Text and paper are
+    ; the document's.
+    fn figureStyle:MdFigureStyle () {
+        def st (new MdFigureStyle)
+        def cols:[string]
+        def list:string (trim (this.themeRule("figure" "colors")))
+        if ((strlen list) > 0) {
+            def parts:[string] (strsplit list " ")
+            def pi:int 0
+            while (pi < (array_length parts)) {
+                def c:string (PresDeck.unComma((trim (itemAt parts pi))))
+                if ((strlen c) > 0) {
+                    push cols c
+                }
+                pi = (pi + 1)
+            }
+        }
+        if ((array_length cols) == 0) {
+            def c1:string (trim (this.themeRule("figure" "color")))
+            def c2:string (trim (this.themeRule("figure" "accent-color")))
+            if ((strlen c1) == 0) {
+                c1 = (trim (this.themeColour("chart" "color")))
+            }
+            if ((strlen c2) == 0) {
+                c2 = (trim (this.themeColour("chart" "accent-color")))
+            }
+            if ((strlen c1) > 0) {
+                push cols c1
+            }
+            if ((strlen c2) > 0) {
+                push cols c2
+            }
+        }
+        if ((array_length cols) > 0) {
+            st.colors = cols
+        }
+        def ink:string (trim (this.themeRule("document" "color")))
+        if ((strlen ink) > 0) {
+            st.ink = ink
+            st.muted = ink
+        }
+        def paper:string (trim (this.themeRule("page" "background-color")))
+        if ((strlen paper) > 0) {
+            st.paper = paper
+        }
+        def font:string (trim (this.themeRule("document" "font-family")))
+        if ((strlen font) > 0) {
+            st.font = (PresDeck.unQuote(font))
+        }
+        ; in points, the layout's unit; without a size of its own a figure
+        ; takes the document's, a little smaller: its titles are labels, not
+        ; headings (on a slide with room it is set larger again, up to the
+        ; room under the heading — MdFigure.sceneFit)
+        def fs:string (PresDeck.lengthOf((this.themeRule("figure" "font-size"))))
+        def scale:double 1.0
+        if ((strlen fs) == 0) {
+            fs = (PresDeck.lengthOf((this.themeRule("document" "font-size"))))
+            scale = 0.85
+        }
+        if ((strlen fs) > 0) {
+            st.size = ((PresDeck.num(fs 18.0)) * scale)
+        } {
+            st.size = 16.0
+        }
+        st.allowed = figuresAllowed
+        st.lockedNote = (PresI18n.t("PRO: sign in to draw this layout."))
+        return st
+    }
+
+    sfn unComma:string (c:string) {
+        def n:int (strlen c)
+        if ((n > 0) && ((charAt c (n - 1)) == 44)) {
+            return (substring c 0 (n - 1))
+        }
+        return c
+    }
+
+    ; the first face of a font-family list, without its quotes
+    sfn unQuote:string (f:string) {
+        def t:string (trim f)
+        def comma:int (indexOf t ",")
+        if (comma > 0) {
+            t = (trim (substring t 0 comma))
+        }
+        def n:int (strlen t)
+        if ((n >= 2) && (((charAt t 0) == 34) || ((charAt t 0) == 39))) {
+            return (substring t 1 (n - 1))
+        }
+        return t
     }
 
     fn hasFxStill:boolean (i:int) {
