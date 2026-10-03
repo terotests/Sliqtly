@@ -195,6 +195,44 @@ class PresRange {
         return ((to_double n) * step)
     }
 
+    ; What a number typed into the popover's field writes into the sheet, or
+    ; "" when it is not a value. The field shows the number and the unit
+    ; beside it, so "20" means 20 in that unit; a unit typed after the
+    ; number is the unit meant. The unit used to be added whatever was
+    ; typed, and "2020px" in a px field went into the theme as "2020pxpx".
+    sfn typed:string (text:string unit:string) {
+        def t:string (trim text)
+        def n:int (strlen t)
+        def i:int 0
+        if ((n > 0) && (((charAt t 0) == 45) || ((charAt t 0) == 43))) {
+            i = 1
+        }
+        def digits:int 0
+        while ((i < n) && ((((charAt t i) >= 48) && ((charAt t i) <= 57)) || ((charAt t i) == 46))) {
+            if ((charAt t i) != 46) {
+                digits = (digits + 1)
+            }
+            i = (i + 1)
+        }
+        if (digits == 0) { return "" }
+        def num:string (substring t 0 i)
+        def d@(optional):double (str2double num)
+        if (null? d) { return "" }
+        def u:string (trim (substring t i n))
+        if ((strlen u) == 0) {
+            u = unit
+        }
+        if (! (PresRange.isUnit(u))) { return "" }
+        return (num + u)
+    }
+
+    ; The units a value in the theme may be written in.
+    sfn isUnit:boolean (u:string) {
+        if ((strlen u) == 0) { return true }
+        if ((PresRange.ptPer(u)) > 0.0) { return true }
+        return ((u == "em") || ((u == "rem") || ((u == "%") || ((u == "deg") || ((u == "s") || (u == "ms"))))))
+    }
+
     ; Up to three decimals, no trailing zeros.
     sfn num:string (v:double) {
         def c:int (to_int (((fabs v) * 1000.0) + 0.5))
