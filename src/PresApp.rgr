@@ -3086,7 +3086,7 @@ class PresApp {
         }
         def inFm:boolean (this.inFrontMatter(line))
         if ((strlen j) == 0) {
-            j = (PresHints.forLine(md text col inFm))
+            j = (PresHints.forLineIn(md text col inFm (this.ruleAt(line col)) (this.rangeBox())))
         }
         ; a `---` of the front matter: what the block is
         def fence:boolean (this.frontMatterFence(line))
@@ -3109,6 +3109,25 @@ class PresApp {
         def y0:int (editor.layout.caretPixelY(line))
         def extra:string (",\"line\":" + (to_string line) + ",\"tab\":\"" + edTab + "\",\"x\":" + (to_string x0) + ",\"y\":" + (to_string y0) + ",\"w\":" + (to_string (x1 - x0)) + ",\"h\":" + (to_string editor.layout.lineHeight) + ",\"text\":" + (PresHint.q(text)) + "}")
         return ((substring j 0 ((strlen j) - 1)) + extra)
+    }
+
+    ; The theme rule a column of the CSS tab is in ("" in the Markdown).
+    fn ruleAt:string (line:int col:int) {
+        if (edTab != "css") {
+            return ""
+        }
+        return (PresRange.selectorAt((editor.text()) line col))
+    }
+
+    ; What a length's slider is measured against: the slide, and the picked
+    ; element (before the slide grew, as the theme's values are).
+    fn rangeBox:PresRangeBox () {
+        def b:PresRangeBox (PresRangeBox.slide(deck.pageW deck.pageH))
+        if (pick.on && (pick.grow > 0.0)) {
+            b.elemW = (pick.w / pick.grow)
+            b.elemH = (pick.h / pick.grow)
+        }
+        return b
     }
 
     ; A selector under the column (`page` in `page {`): what it styles, and
@@ -3688,10 +3707,12 @@ class PresApp {
         def h:PresHint (PresHint.make("selector" pick.sel "" 0 0))
         h.doc = (PresHints.selectorDoc(pick.sel))
         def j:string (h.json())
-        j = ((substring j 0 ((strlen j) - 1)) + ",\"rule\":" + (pick.ruleJson((this.themeCss()))) + ",\"line\":-1,\"tab\":\"css\",\"x\":" + (EVGDisplayList.num(pick.sx2)) + ",\"y\":" + (EVGDisplayList.num(pick.reachTop)) + ",\"h\":" + (EVGDisplayList.num((pick.reachBottom - pick.reachTop))) + ",\"keepX\":" + (EVGDisplayList.num(pick.ox)) + ",\"keepW\":" + (EVGDisplayList.num(pick.ow)) + ",\"text\":\"\"}")
+        ; a menu of its button: hanging from Style (above it when there is no
+        ; room under it), not across the slide from it
+        j = ((substring j 0 ((strlen j) - 1)) + ",\"rule\":" + (pick.ruleJson((this.themeCss()))) + ",\"line\":-1,\"tab\":\"css\",\"x\":" + (EVGDisplayList.num(pick.sx2)) + ",\"y\":" + (EVGDisplayList.num(pick.by)) + ",\"h\":" + (EVGDisplayList.num(pick.bh)) + ",\"text\":\"\"}")
         stageHintX = pick.sx2
-        stageHintY = pick.reachTop
-        stageHintH = (pick.reachBottom - pick.reachTop)
+        stageHintY = pick.by
+        stageHintH = pick.bh
         this.openHint(j)
         hintFromStage = true
     }
@@ -3703,12 +3724,13 @@ class PresApp {
         this.closeHint()
         this.helpEdit(b.sel b.prop (PresSelect.ptText(b.value)))
         this.openHintAtCaret()
-        this.anchorHintAtStage(b.sel)
+        this.anchorHintAtStage(b.sel false)
     }
 
     ; The popover moved from the editor's caret to where it was asked for on
-    ; the stage.
-    fn anchorHintAtStage:void (sel:string) {
+    ; the stage; `back`: it was opened from the element's Style list, which
+    ; its ‹ opens again.
+    fn anchorHintAtStage:void (sel:string back:boolean) {
         if (hint.isOpen == false) {
             return
         }
@@ -3721,8 +3743,14 @@ class PresApp {
         hint.ax = stageHintX
         hint.ay = stageHintY
         hint.ah = stageHintH
+        ; a property from the Style list stays where the list was; a band's
+        ; card stays off the element
         hint.keepX = pick.ox
         hint.keepW = pick.ow
+        if back {
+            hint.keepX = -1.0
+        }
+        hint.canBack = back
         hint.rebuild()
         hintFromStage = true
         chromeRev = (chromeRev + 1)
@@ -3852,6 +3880,13 @@ class PresApp {
             hint.wantsClose = false
             this.closeHint()
         }
+        if hint.wantsBack {
+            hint.wantsBack = false
+            this.closeHint()
+            if (this.pickValid()) {
+                this.pickStyle()
+            }
+        }
         if hint.wantsDoc {
             hint.wantsDoc = false
             this.closeHint()
@@ -3866,7 +3901,7 @@ class PresApp {
                 this.helpEdit((itemAt parts 0) (itemAt parts 1) (itemAt parts 2))
                 this.openHintAtCaret()
                 if fromStage {
-                    this.anchorHintAtStage((itemAt parts 0))
+                    this.anchorHintAtStage((itemAt parts 0) true)
                 }
             }
         }
@@ -5036,6 +5071,32 @@ class PresApp {
         return true
     }
 
+    ; File → Duplicate: the same window, asking only the copy's name (`name`,
+    ; the suggestion, all selected). Duplicate is "newdeck-create" too; the
+    ; plan's "dup" says which.
+    fn openDupDeck:boolean (name:string) {
+        if (mode == "present") {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 560.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        def py:double (barH + 24.0)
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        chart.openDupDeck(name px py W H)
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
     ; --- the document's settings --------------------------------------------------
     ; The front matter as a window: title, transition, header and footer.
     ; `pics` is the deck's pictures, one path a line, for the logo. Each change
@@ -5236,9 +5297,14 @@ class PresApp {
         return true
     }
 
-    ; {"name": text, "theme": key, "data": "none"|"sample"|"file"}
+    ; {"name": text, "theme": key, "data": "none"|"sample"|"file", "dup": a
+    ;  copy of the open deck (File → Duplicate)}
     fn newDeckPlan:string () {
-        return ("{\"name\":" + (PresApp.jsonStr(chart.ndName)) + ",\"theme\":" + (PresApp.jsonStr(chart.ndTheme)) + ",\"data\":" + (PresApp.jsonStr(chart.ndData)) + "}")
+        def dup:string "false"
+        if chart.ndDup {
+            dup = "true"
+        }
+        return ("{\"name\":" + (PresApp.jsonStr(chart.ndName)) + ",\"theme\":" + (PresApp.jsonStr(chart.ndTheme)) + ",\"data\":" + (PresApp.jsonStr(chart.ndData)) + ",\"dup\":" + dup + "}")
     }
 
     ; {"to": "slide"|"bg-slide"|"bg-all", "crop": "x,y,w,h" in pixels,

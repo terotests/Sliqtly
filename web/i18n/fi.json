@@ -811,6 +811,9 @@
   "What changed (optional)": "Mitä muuttui (valinnainen)",
   "Waiting for your other Sliqtly tabs. Close or reload the ones opened before the update.": "Odotetaan muita Sliqtly-välilehtiäsi. Sulje tai lataa uudelleen ne, jotka avattiin ennen päivitystä.",
   "Sliqtly was updated in another tab. Reload this page to keep saving.": "Sliqtly päivittyi toisessa välilehdessä. Lataa tämä sivu uudelleen, jotta tallennus jatkuu.",
+  "Duplicate presentation": "Monista esitys",
+  "The copy gets the slides, theme and files of this presentation. The name becomes its first slide's heading.": "Kopioon tulevat tämän esityksen diat, teema ja tiedostot. Nimestä tulee sen ensimmäisen dian otsikko.",
+  "The copy": "Kopio",
   "Emoji": "Emoji",
   "Search emoji": "Hae emojia",
   "No emoji found": "Emojia ei löytynyt"

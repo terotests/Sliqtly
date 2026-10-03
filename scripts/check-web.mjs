@@ -151,8 +151,15 @@ try {
   const page = await browser.newPage({ viewport: { width: 1400, height: 820 } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  await page.addInitScript(() => document.addEventListener("DOMContentLoaded", () => {
+    const el = document.getElementById("brandIntro");
+    window.__loadScreen = !el.hidden && !!el.querySelector(".name")?.textContent && !document.getElementById("hint");
+  }));
   await page.goto(url + "?sample=esittely");
   await page.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+  await page.waitForFunction(() => document.getElementById("brandIntro").hidden, null, { timeout: 20000 }).catch(() => {});
+  const loading = await page.evaluate(() => ({ screen: window.__loadScreen === true, gone: document.getElementById("brandIntro").hidden }));
+  check("the editor loads behind Sliqtly's logo and name, which then go", loading.screen && loading.gone, JSON.stringify(loading));
   await page.waitForTimeout(500);
   const shot = async (name) => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, name) }); } };
   await shot("1-editor.png");
@@ -1142,6 +1149,91 @@ try {
     return out;
   });
   check("Style opened with the Files tab: drawn over the files panel, and a press on it is the popover's", zo.tab === "files" && /panels.*hint/.test(zo.order) && zo.at === "hint" && zo.files === "panels" && zo.docked && !/hint/.test(zo.closed), JSON.stringify(zo));
+
+  // A property opened from an element's Style list closes from its corner
+  // and its ‹ goes back to the list; a page's padding slider stays on the slide
+  const back = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    const css0 = a.themeCss();
+    a.showTab("md");
+    a.setSource("# D\n\n## Otsikko\n\nTeksti\n");
+    a.selectSlide(1);
+    a.place();
+    const l = a.deck.layout();
+    const r = a.slideRect, sc = a.slideScale();
+    const bx = l.boxes.find((b) => b.page === a.selected && b.kind === 0 && b.text.startsWith("Otsikko"));
+    a.pointerDown(r.x + (bx.x + 4) * sc, r.y + (bx.y + bx.h / 2) * sc, false, 1);
+    a.pointerUp();
+    a.pickStyle();
+    const walk = (e, f) => { if (f(e)) return e; for (const k of e.children || []) { const x = walk(k, f); if (x) return x; } return null; };
+    const press = (el) => { a.pointerDown(el.calculatedX + 6, el.calculatedY + 6, false, 1); a.pointerUp(); };
+    const find = (f) => { a.hintJson(); return walk(a.hint.host.lastPage, f); };
+    let i = 0;
+    for (; i < 40; i++) { const p = a.hint.rule.get("props").at(i); if (!p || !p.isObject || !p.isObject()) { i = -1; break; } if (p.stringOr("name", "") === "color") break; }
+    const out = {};
+    press(find((e) => e.id === "hp-prop-" + i));
+    out.color = [a.hint.kind, a.hint.canBack];
+    const ids = [];
+    find((e) => { if (e.tid) ids.push(e.tid); return false; });
+    const bk = a.hint.host.lastPage && walk(a.hint.host.lastPage, (e) => (e.className || "").includes("hp-x") && e.calculatedX < a.hint.cardEl().calculatedX + 40);
+    if (bk) press(bk);
+    out.back = [a.hintIsOpen(), a.hint.kind];
+    press(find((e) => e.id === "hp-prop-" + i));
+    const cards = [];
+    find((e) => { if ((e.className || "").includes("hp-x")) cards.push(e); return false; });
+    if (cards.length) press(cards[cards.length - 1]);
+    out.closed = !a.hintIsOpen();
+    a.showTab("css");
+    a.setStyleSheet("page {\n  padding: 2.25in;\n}\n");
+    const h = JSON.parse(a.hintFor(1, 13) || "null");
+    out.pad = h ? [h.min, h.max, h.step] : null;
+    out.slideIn = Math.min(a.deck.pageW, a.deck.pageH) / 72;
+    a.setSource(src0);
+    a.setStyleSheet(css0);
+    a.showTab("md");
+    return out;
+  });
+  check("a property from an element's Style list has ‹ back to the list", back.color.join(",") === "color,true" && back.back.join(",") === "true,selector", JSON.stringify(back));
+  check("…and × closes it", back.closed === true, JSON.stringify(back));
+  check("a page padding slider ends where half of the slide is left", !!back.pad && back.pad[1] <= back.slideIn / 4 && back.pad[1] > back.slideIn / 5 && back.pad[2] <= 0.05, JSON.stringify(back));
+
+  // A card opened from the slide is not the hover's: a hover timer started
+  // on the way to the band must not close it while the pointer travels on
+  const travel = await (async () => {
+    const pts = await page.evaluate(() => {
+      const a = window.__app;
+      window.__src0 = a.source();
+      a.closeHint();
+      a.showTab("md");
+      a.setSource("# D\n\n## Otsikko\n\nTeksti\n");
+      a.selectSlide(1);
+      a.place();
+      const l = a.deck.layout();
+      const r = a.slideRect, sc = a.slideScale();
+      const bx = l.boxes.find((b) => b.page === a.selected && b.kind === 0 && b.text.startsWith("Otsikko"));
+      a.pointerDown(r.x + (bx.x + 4) * sc, r.y + (bx.y + bx.h / 2) * sc, false, 1);
+      a.pointerUp();
+      a.pickJson();
+      const b = a.pick.bands.find((b) => b.prop === "margin-top");
+      return { band: [b.sx + b.sw / 2, b.sy + b.sh / 2], away: [r.x + r.w - 20, r.y + r.h - 20] };
+    });
+    await page.mouse.move(pts.away[0], pts.away[1], { steps: 4 });
+    await page.mouse.move(pts.band[0], pts.band[1], { steps: 6 });
+    await page.mouse.down();
+    await page.mouse.up();
+    await page.mouse.move(pts.away[0], pts.away[1], { steps: 12 });
+    await page.waitForTimeout(1000);
+    return page.evaluate(() => {
+      const a = window.__app;
+      const out = [a.hintIsOpen(), a.hint.kind];
+      a.closeHint();
+      a.pick.clear();
+      a.setSource(window.__src0);
+      return out;
+    });
+  })();
+  check("a band's card stays open while the pointer moves on", travel.join(",") === "true,number", JSON.stringify(travel));
 
   // chart-effects takes any of its words together: a chip turns one on or off
   const fx = await page.evaluate(() => {
@@ -2735,7 +2827,7 @@ try {
     const b = await open();
     await a.waitForTimeout(3000);
     const before = await Promise.all([a, b].map((pg) => pg.evaluate(() => ({
-      started: window.__pageStarted === true, line: document.getElementById("tagline")?.textContent || "",
+      started: window.__pageStarted === true, line: document.getElementById("loadNote")?.textContent || "",
     }))));
     await old.close();
     const started = await Promise.all([a, b].map((pg) => pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 }).then(() => true, () => false)));
@@ -2950,6 +3042,18 @@ try {
     const origAt = await pc.evaluate(() => location.pathname);
     const origId = origAt.replace(/^\/s\//, "");
     await pc.evaluate(() => window.__fileRequest("duplicate"));
+    await pc.waitForTimeout(300);
+    // the copy's name is asked first: the suggestion, all selected; Esc
+    // makes nothing
+    const dupAsk = await pc.evaluate(() => JSON.parse(window.__app.newDeckPlan()));
+    await pc.keyboard.press("Escape");
+    await pc.waitForTimeout(800);
+    check("PRO: Duplicate asks the copy's name, suggested; Esc keeps the deck",
+      dupAsk.dup === true && /^Alkuperäinen \((copy|kopio)\)$/.test(dupAsk.name) && shareId().length === 3 && (await pc.evaluate(() => location.pathname)) === origAt,
+      JSON.stringify({ dupAsk, ids: shareId() }));
+    await pc.evaluate(() => window.__fileRequest("duplicate"));
+    await pc.waitForTimeout(300);
+    await pc.keyboard.press("Enter");
     await pc.waitForTimeout(3000);
     const dup = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search), ids: shareId() };
     const dupId = dup.ids.find((k) => k !== id && k !== newId && k !== origId) || "";
@@ -2986,6 +3090,10 @@ try {
       const before = shareId();
       failPuts = 1;
       await pc.evaluate(() => window.__fileRequest("duplicate"));
+      await pc.waitForTimeout(300);
+      // a name typed over the selected suggestion is the copy's
+      await pc.keyboard.type("Toinen kopio");
+      await pc.keyboard.press("Enter");
       await pc.waitForTimeout(3500);
       const ids1 = shareId().filter((k) => !before.includes(k));
       const at1 = await pc.evaluate(() => location.pathname);
@@ -2994,7 +3102,7 @@ try {
       const ids2 = shareId().filter((k) => !before.includes(k));
       const sh = ids2.length ? fakeDb.get("shares/" + ids2[0]) : null;
       check("PRO: a share whose file failed is kept, and the file goes on the next save",
-        ids1.length === 1 && ids2.length === 1 && at1 === "/s/" + ids1[0] && (sh?.files || []).some((f) => f.path === "data/sheet-1.xlsx") && sh.md.includes("## Uudelleen"),
+        ids1.length === 1 && ids2.length === 1 && at1 === "/s/" + ids1[0] && (sh?.files || []).some((f) => f.path === "data/sheet-1.xlsx") && sh.md.includes("## Uudelleen") && sh.md.startsWith("# Toinen kopio\n"),
         JSON.stringify({ ids1, ids2, at1, files: (sh?.files || []).map((f) => f.path) }));
     }
     // the user's own shares this browser does not keep: listed, and opened

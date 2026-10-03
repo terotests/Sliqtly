@@ -84,6 +84,12 @@ class PresHintPopover {
     ; what the app is asked to do
     def edits:[PresHintEdit]
     def wantsClose:boolean false
+    ; opened from a selector's list on the slide: ‹ goes back to that list
+    def canBack:boolean false
+    ; the head, and the × placed in its corner once the head is laid out
+    def headEl@(optional):EVGElement
+    def closeEl@(optional):EVGElement
+    def wantsBack:boolean false
     ; the hint is in the front matter: a button opens the document settings
     def docset:boolean false
     def wantsDoc:boolean false
@@ -178,6 +184,8 @@ class PresHintPopover {
         tip = ""
         tipH = -1.0
         wantsClose = false
+        wantsBack = false
+        canBack = false
         wantsDoc = false
         wantsProp = ""
         dragPart = ""
@@ -332,6 +340,9 @@ class PresHintPopover {
         if (kind == "emoji") {
             card.className = "hp-card hp-emojicard"
             cardW = 344.0
+            def noEl@(optional):EVGElement
+            headEl = noEl
+            closeEl = noEl
             emoji.build()
             push host.ctls emoji
             card.addChild((unwrap emoji.rootEl))
@@ -339,17 +350,21 @@ class PresHintPopover {
             return
         }
         def head:EVGElement (this.div("hp-head"))
+        if canBack {
+            def bk:ButtonCtl (this.button("hp-back" "‹" "secondary" head))
+            UiTree.addClass((unwrap bk.rootEl) "hp-x")
+        }
         head.addChild((this.words("hp-name" name)))
         valueEl = (this.words("hp-value" value))
         if (kind == "warn") {
-            ; a warning is only read: it closes from its corner
             head.className = "hp-foot hp-warnhead"
-            head.addChild((this.div("hp-grow")))
-            def x:ButtonCtl (this.button("hp-close" "×" "secondary" head))
-            UiTree.addClass((unwrap x.rootEl) "hp-x")
         } {
             head.addChild(valueEl)
         }
+        ; room in the head for the × drawn in its corner (built last, below)
+        head.addChild((this.div("hp-grow")))
+        head.addChild((this.div("hp-xroom")))
+        headEl = head
         card.addChild(head)
         if ((strlen warn) > 0) {
             card.addChild((this.words("hp-warn" warn)))
@@ -426,6 +441,14 @@ class PresHintPopover {
             }
             card.addChild(foot)
         }
+        ; every card closes from its corner (Esc and a press outside close it
+        ; too); last in the card, so the keyboard reaches the values first
+        card.position = "relative"
+        def x:ButtonCtl (this.button("hp-close" "×" "secondary" card))
+        def xe:EVGElement (unwrap x.rootEl)
+        UiTree.addClass(xe "hp-x")
+        xe.position = "absolute"
+        closeEl = xe
         this.place(root card cardW)
     }
 
@@ -665,6 +688,13 @@ class PresHintPopover {
             }
         }
         lay.layout(pg)
+        if ((!null? headEl) && (!null? closeEl)) {
+            def hd:EVGElement (unwrap headEl)
+            def xb:EVGElement (unwrap closeEl)
+            xb.left = (EVGUnit.px((hd.calculatedWidth - xb.calculatedWidth)))
+            xb.top = (EVGUnit.px(((hd.calculatedHeight - xb.calculatedHeight) / 2.0)))
+            lay.layout(pg)
+        }
         if ((kind == "selector") && (tipH < 0.0)) {
             this.measureTip(lay pg)
         }
@@ -878,6 +908,10 @@ class PresHintPopover {
         }
         if (ctlTid == "hp-close") {
             wantsClose = true
+            return
+        }
+        if (ctlTid == "hp-back") {
+            wantsBack = true
             return
         }
         if (ctlTid == "hp-none") {

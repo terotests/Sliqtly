@@ -44,20 +44,6 @@
     padding: 0; border: 0; outline: none; opacity: 0; resize: none;
     overflow: hidden; white-space: pre; z-index: 1;
   }
-  #hint {
-    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-    color: var(--dim); text-align: center; pointer-events: none;
-    display: flex; flex-direction: column; align-items: center; gap: 14px;
-    transition: opacity .25s;
-  }
-  #hint.done { opacity: 0; }
-  /* the logo turns while the editor loads: a turn, then a breath */
-  #hint .spinner { animation: spin 1.1s cubic-bezier(.6, 0, .3, 1) infinite; }
-  @keyframes spin {
-    0% { transform: perspective(300px) rotateY(0deg); }
-    55%, 100% { transform: perspective(300px) rotateY(360deg); }
-  }
-  @media (prefers-reduced-motion: reduce) { #hint .spinner { animation: none; } }
   /* web/main.js closedByUpdate: this tab's store was taken over by a newer page */
   #tabNotice {
     position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 30;
@@ -69,6 +55,7 @@
     position: fixed; left: 12px; bottom: 12px; right: 12px; color: #dc2626;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
     white-space: pre-wrap; pointer-events: none;
+    z-index: 40; /* over the Sliqtly screen, which stays when the page cannot start */
   }
   body.presenting #bar { display: none; }
   /* The keyboard's place on the canvas: the mirrored controls (evg-a11y.js)
@@ -77,13 +64,15 @@
   .evg-a11y :focus-visible { outline: 2px solid #2563eb !important; outline-offset: 2px; border-radius: 6px; }
   /* the bar is drawn on the canvas (PresToolbar); this one is what it presses */
   body.canvas-bar #bar { display: none; }
-  /* Until the canvas is ready only "ladataan…" shows: the HTML bar would
-     appear first and then give way to the one drawn on the canvas. */
+  /* Until the canvas is ready only the Sliqtly screen shows: the HTML bar
+     would appear first and then give way to the one drawn on the canvas. */
   body.booting #bar { display: none; }
-  /* Sliqtly's intro on every shared presentation (web/brand.js,
-     main.js playIntro): the logo turns once and the name comes in, large
-     enough to read across a room; main.js ends it INTRO_MS after it showed.
-     .on: skippable (main.js has its keys and taps). */
+  /* Sliqtly's logo and name, from the page's first paint: the screen while
+     the page loads, and on a shared presentation its intro (web/brand.js,
+     main.js playIntro) until INTRO_MS from that paint. The logo turns once
+     and the name comes in, large enough to read across a room. .on:
+     skippable (main.js has its keys and taps). #loadNote: what keeps the
+     page from starting (no WebGL, an older tab in the way). */
   #brandIntro {
     position: fixed; inset: 0; z-index: 30; cursor: pointer;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -93,6 +82,8 @@
     transition: opacity .35s;
   }
   #brandIntro[hidden] { display: none; }
+  #brandIntro .note { max-width: min(520px, calc(100vw - 32px)); text-align: center; font-size: 15px; opacity: .8; }
+  #brandIntro .note:empty { display: none; }
   #brandIntro.out { opacity: 0; pointer-events: none; }
   #brandIntro .logo {
     width: clamp(96px, 24vmin, 220px); height: auto;
@@ -315,18 +306,8 @@
   <canvas id="c" aria-label="Presentation editor" data-i18n-aria></canvas>
   <textarea id="keys" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"
             aria-label="Markdown — type here" data-i18n-aria></textarea>
-  <div id="brandIntro" hidden role="img" aria-label="Sliqtly"><img class="logo" src="./favicon.svg" alt="" width="220" height="220" /><span class="name">Sliqtly</span><span class="site">sliqtly.com</span></div>
-  <!-- a shared presentation (/s/{id}, #…&mode=show, #share={id}): the intro
-       shows at once, while the page loads, in place of the loader
-       (main.js playIntro ends it, or hides it when nothing is shown) -->
-  <script>(function () {
-    var h = location.hash, shared = /[#&](mode=show|share=)/.test(h)
-      || (/^\/s\/[A-Za-z0-9]{6,32}\/?$/.test(location.pathname) && !/[?&]edit(=|&|$)/.test(location.search));
-    if (shared) { document.getElementById("brandIntro").hidden = false; window.__introAt = performance.now(); }
-  })();</script>
-  <div id="hint"><img class="spinner" src="./favicon.svg" alt="" width="72" height="72" /><span id="tagline">loading…</span></div>
-  <!-- one of the taglines while the editor loads (also in mcp/src/preview.html) -->
-  <script>(function (t) { document.getElementById("tagline").textContent = t[Math.floor(Math.random() * t.length)]; })(["Sliqtly better slides.","That looks Sliqtly off.","Make it Sliqtly smarter.","Go Sliqtly further.","Sliqtly obsessed with good slides.","Things just got Sliqtly better."]);</script>
+  <div id="brandIntro" role="img" aria-label="Sliqtly"><img class="logo" src="./favicon.svg" alt="" width="220" height="220" /><span class="name">Sliqtly</span><span class="site">sliqtly.com</span><span id="loadNote" class="note" role="status"></span></div>
+  <script>window.__introAt = performance.now();</script>
 </div>
 <div id="endPanel" role="dialog" aria-labelledby="endTitle" hidden>
   <div class="end-title" id="endTitle" data-i18n>End of presentation</div>

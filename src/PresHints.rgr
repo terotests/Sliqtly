@@ -26,6 +26,7 @@
 
 Import "PresI18n.rgr"
 Import "../markdown/src/MdHtml.rgr"
+Import "PresRange.rgr"
 
 class PresHints {
     ; --- what the Markdown knows ----------------------------------------------
@@ -231,8 +232,13 @@ class PresHints {
         return false
     }
 
-    ; A number range and unit for a length-like property, by name and unit.
-    sfn cssRange:string (prop:string unit:string) {
+    ; A number range for a property, by name and unit; a length from what
+    ; it eats of its box (PresRange), the rest by name.
+    sfn cssRange:string (prop:string unit:string rule:string box:PresRangeBox) {
+        def lr@(optional):PresRange (PresRange.forLength(prop unit rule box))
+        if (!null? lr) {
+            return (lr.text())
+        }
         if (prop == "line-height") { return "1 2.2 0.05" }
         if (prop == "column-count") { return "1 4 1" }
         if (prop == "split-level") { return "1 3 1" }
@@ -285,8 +291,14 @@ class PresHints {
     ;
     ; `mode` is "md" or "css"; `front` says the line is in the front matter.
     sfn forLine:string (mode:string line:string col:int front:boolean) {
+        return (PresHints.forLineIn(mode line col front "" (new PresRangeBox())))
+    }
+
+    ; The same, with what a length's range is measured against: the rule's
+    ; selector (`page`) and the slide (and element) it is for.
+    sfn forLineIn:string (mode:string line:string col:int front:boolean sel:string box:PresRangeBox) {
         if (mode == "css") {
-            return (PresHints.cssAt(line col))
+            return (PresHints.cssAt(line col sel box))
         }
         if front {
             return (PresHints.frontAt(line col))
@@ -515,7 +527,7 @@ class PresHints {
     }
 
     ; `prop: value` in a CSS line, or a selector.
-    sfn cssAt:string (line:string col:int) {
+    sfn cssAt:string (line:string col:int rule:string box:PresRangeBox) {
         def n:int (strlen line)
         ; `/* pres: fx=starfield fx-density=1.1 */`: the deck's own settings
         ; in a theme, read like an attribute block
@@ -629,7 +641,7 @@ class PresHints {
             def unit:string (substring value num (strlen value))
             h.kind = "number"
             h.unit = unit
-            h.range = (PresHints.cssRange(prop unit))
+            h.range = (PresHints.cssRange(prop unit rule box))
             return (h.json())
         }
         if ((strlen h.doc) > 0) {

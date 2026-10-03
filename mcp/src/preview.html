@@ -212,10 +212,9 @@
     const stage = document.querySelector(".stage");
     // Claude frames no other site, so there the link is no way out
     if (!local && mcpApps) return fail(stage, "The preview could not load the viewer (" + why + ").");
-    // one of the taglines while the viewer loads (also in web/index.html)
-    const taglines = ["Sliqtly better slides.","That looks Sliqtly off.","Make it Sliqtly smarter.","Go Sliqtly further.","Sliqtly obsessed with good slides.","Things just got Sliqtly better."];
-    stage.innerHTML = '<div class="wait"></div>';
-    stage.firstChild.textContent = taglines[Math.floor(Math.random() * taglines.length)];
+    // the name while the viewer loads; the viewer then opens on Sliqtly's
+    // logo and name (web/index.html)
+    stage.innerHTML = '<div class="wait">Sliqtly</div>';
     const frame = document.createElement("iframe");
     if (local) frame.srcdoc = doc;
     else frame.src = src;

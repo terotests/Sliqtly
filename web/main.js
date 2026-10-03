@@ -42,7 +42,7 @@ import { wantsIntro, INTRO_MS } from "./brand.js";
 const canvas = document.getElementById("c");
 const stageEl = document.getElementById("stage");
 const keys = document.getElementById("keys");
-const hintEl = document.getElementById("hint");
+const loadNote = document.getElementById("loadNote");
 const errEl = document.getElementById("err");
 const statusEl = document.getElementById("status");
 const filePick = document.getElementById("filepick");
@@ -135,11 +135,11 @@ async function textOf(url) {
 
 const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
 if (!gl) {
-  hintEl.textContent = t("WebGL 2 is not available in this browser.");
+  loadNote.textContent = t("WebGL 2 is not available in this browser.");
   throw new Error("no WebGL 2");
 }
 if (typeof globalThis.PresApp !== "function") {
-  hintEl.textContent = t("pres_app.js is missing. Run `npm run build`.");
+  loadNote.textContent = t("pres_app.js is missing. Run `npm run build`.");
   throw new Error("engine bundle not loaded");
 }
 // the interface's language, before anything is built in it
@@ -660,15 +660,19 @@ async function newDeck(plan) {
   refreshFiles();
   needsPaint = true;
 }
-// File → Duplicate: a new deck from this one, its Markdown, theme CSS and
-// files copied, named "<name> (copy)". This one is saved first; the copy is
-// kept at once under an id of its own (a PRO deck gets its own share).
-async function duplicateDeck() {
+// File → Duplicate, its name asked first: a new deck from this one, its
+// Markdown, theme CSS and files copied, named `asked` (empty: "<name>
+// (copy)"). This one is saved first; the copy is kept at once under an id of
+// its own (a PRO deck gets its own share).
+function copyName() {
+  return exportName() + " " + t("(copy)");
+}
+async function duplicateDeck(asked) {
   await leaveDoc();
   const key = themeSel.value || "";
   const css = key in editedCss ? editedCss[key] : null;
   const files = await docFiles();
-  const name = exportName() + " " + t("(copy)");
+  const name = String(asked || "").replace(/\s+/g, " ").trim() || copyName();
   const text = retitled(app.source(), name);
   beginDoc(text);
   docName = name;
@@ -1284,8 +1288,8 @@ async function fileRequest(r) {
   } else if (action === "newsheet") {
     await newSheet();
   } else if (action === "duplicate") {
-    makingDeck = duplicateDeck().catch((e) => toast(t("Duplicating failed: ") + (e.message || e))).finally(() => { makingDeck = null; });
-    await makingDeck;
+    // the copy's name asked first, as for a new deck
+    app.openDupDeck(copyName());
   } else if (action === "open") {
     const f = (await docFiles()).find((x) => x.path === what);
     if (!f) return;
@@ -2292,13 +2296,17 @@ function handleRequests() {
       deleteDeck().catch(fail);
     } else if (r === "newdeck-create") {
       const plan = JSON.parse(app.newDeckPlan());
-      // the picker now, while the press still counts as one; the file goes
-      // into the new deck once it is made
-      if (plan.data === "file") {
-        addAsks = true;
-        fileAdd.click();
+      if (plan.dup) {
+        makingDeck = duplicateDeck(plan.name).catch((e) => toast(t("Duplicating failed: ") + (e.message || e))).finally(() => { makingDeck = null; });
+      } else {
+        // the picker now, while the press still counts as one; the file goes
+        // into the new deck once it is made
+        if (plan.data === "file") {
+          addAsks = true;
+          fileAdd.click();
+        }
+        makingDeck = newDeck(plan).catch(fail).finally(() => { makingDeck = null; });
       }
-      makingDeck = newDeck(plan).catch(fail).finally(() => { makingDeck = null; });
     } else if (r === "picture-place") {
       placePasted().catch(fail);
     } else if (r === "picture-cancel") {
@@ -4086,7 +4094,10 @@ canvas.addEventListener("pointerdown", (ev) => {
       else closeHint();
     }, 0);
   } else if (where === "select") {
-    // a button or a band of the picked element: the app opened its popover
+    // a button or a band of the picked element: the app opened its popover,
+    // which stays until Esc, × or a press outside; a hover's timers are done
+    clearTimeout(hintTimer);
+    clearTimeout(hintCloseTimer);
     hint = null;
     hintKey = "";
   } else if (where !== "editor" && where !== "hint") {
@@ -4164,7 +4175,8 @@ function hintHover(x, y) {
     return;
   }
   hintTimer = setTimeout(() => {
-    // pinned since (the emoji picker opened under a resting pointer)
+    // a card opened from the slide meanwhile (Style, a band) or the emoji
+    // picker from the keyboard is not the hover's
     if (app.hintPinned()) return;
     let h = null;
     try { h = JSON.parse(app.hintAt(x, y) || "null"); } catch (_) { h = null; }
@@ -4181,7 +4193,7 @@ function hintHover(x, y) {
 function scheduleHintClose() {
   clearTimeout(hintCloseTimer);
   hintCloseTimer = setTimeout(() => {
-    if (!overHint()) closeHint();
+    if (!overHint() && !app.hintPinned()) closeHint();
   }, 450);
 }
 
@@ -4338,10 +4350,9 @@ function syncToolbar() {
 
 // This browser's store is opened at a newer version than a tab loaded
 // before an update has it open at: the page waits for that tab (web/vfs.js)
-// and says so where the loader is.
+// and says so on the loading screen.
 function tabsInTheWay() {
-  const line = document.getElementById("tagline");
-  if (line) line.textContent = t("Waiting for your other Sliqtly tabs. Close or reload the ones opened before the update.");
+  loadNote.textContent = t("Waiting for your other Sliqtly tabs. Close or reload the ones opened before the update.");
 }
 // A newer Sliqtly in another tab took the store over: this page can no
 // longer save, and says so until it is reloaded.
@@ -4470,11 +4481,10 @@ async function start() {
   // the hidden text field is not focused, so no keyboard comes up.
   if (viewer || isCoarse()) keys.blur();
 
-  // the loader has its moment: at least one turn of the logo (0.6 s from
-  // the page's start), then it fades as the editor appears
-  await new Promise((r) => setTimeout(r, Math.max(0, 600 - performance.now())));
-  hintEl.classList.add("done");
-  setTimeout(() => hintEl.remove(), 260);
+  // the loading screen has its moment: the logo's turn (1.2 s from the
+  // page's start), then it fades as the editor appears; a shared
+  // presentation keeps it as its intro
+  if (!introPending) await new Promise((r) => setTimeout(r, Math.max(0, 1200 - performance.now())));
   document.body.classList.remove("booting");
   if (!viewer && !isCoarse()) focusKeys("editor");
   window.__pageStarted = true;
@@ -4482,8 +4492,6 @@ async function start() {
     playIntro().then(introPending);
     introPending = null;
   } else {
-    // shown by index.html for an address that turned out to show nothing
-    // (a share not found): the page as it is
     window.__introAt = undefined;
     hideIntro();
   }
