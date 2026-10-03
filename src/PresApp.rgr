@@ -4344,6 +4344,19 @@ class PresApp {
         deck.clearChartData()
     }
 
+    ; PRO or not (the page: signed in, a cloud share, local development).
+    ; The layouts drawn from lists and the slides' line art are drawn only
+    ; for PRO; the slides are laid out again when it changes.
+    fn setPro:void (on:boolean) {
+        if (deck.figuresAllowed == on) {
+            return
+        }
+        deck.figuresAllowed = on
+        deck.rebuild()
+        PresTimeline.planAll(deck)
+        chromeRev = (chromeRev + 1)
+    }
+
     fn setChartData:void (url:string body:string) {
         deck.setChartData(url body)
         ; the slides are new objects: timed again, or every one lasts 0 s
@@ -5941,6 +5954,7 @@ class PresApp {
                 def s:PresSlide (deck.slideAt(i))
                 this.stillDiagrams(ps s unit)
                 this.stillCharts(ps i unit)
+                this.slideArt(ps s i unit)
                 PresApp.dressSlide(ps s)
                 ; the slide's effect, rendered by the host, as its background
                 def si:int 0
@@ -6016,6 +6030,33 @@ class PresApp {
     ; direction and the column's width, so a long left-to-right chain came out
     ; as a strip with labels too small to keep. The group keeps the plain
     ; one's name, alt text and embedded source, so it still reads back.
+    ; The slide's line art (`{art=waves}`) as strokes behind everything else
+    ; on it, so it stays a vector a reader can recolour or delete.
+    fn slideArt:void (ps:PptxSlide s:PresSlide i:int unit:double) {
+        def sc:FlowScene (deck.artScene(s i))
+        if ((array_length sc.items) == 0) {
+            return
+        }
+        def dl (new EVGDisplayList())
+        sc.emitInto(dl)
+        def conv (new PptxFromEvg())
+        conv.unit = unit
+        def group:PptxShape (conv.build(dl 0.0 0.0))
+        if ((array_length group.children) == 0) {
+            return
+        }
+        group.name = ("Background art: " + s.art)
+        group.altText = ""
+        def all:[PptxShape]
+        push all group
+        def k:int 0
+        while (k < (array_length ps.shapes)) {
+            push all (itemAt ps.shapes k)
+            k = (k + 1)
+        }
+        ps.shapes = all
+    }
+
     fn stillDiagrams:void (ps:PptxSlide s:PresSlide unit:double) {
         def l:MdLayout (deck.layout())
         def paper:string "#ffffff"
