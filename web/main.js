@@ -21,6 +21,7 @@ import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
 import { scaled, previewOf, render } from "./image-adjust.js";
+import { decodePicture, isSvg } from "./picture.js";
 import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versions.js";
 import { showHistory, askMerge } from "./versions-ui.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
@@ -183,13 +184,16 @@ function resize() {
 // --- pictures -------------------------------------------------------------------
 const pictures = new Map();
 async function registerPicture(path, bytes, type) {
-  const url = URL.createObjectURL(new Blob([bytes], { type }));
-  await new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => { pictures.set(path, img); resolve(); };
-    img.onerror = () => { pictures.set(path, null); resolve(); };
-    img.src = url;
-  });
+  pictures.set(path, (await decodePicture(bytes, type, path)).img);
+}
+
+// A picture of the deck handed to the slides: drawn for the screen, and its
+// bytes (an SVG's PNG, web/picture.js) for the PDF and PPTX writers.
+async function addPicture(path, bytes, type) {
+  const p = await decodePicture(bytes, type || "image/png", path);
+  app.addImage(path, asRangerBuffer(p.bytes.slice(0)), p.type || "image/png", p.w, p.h);
+  pictures.set(path, p.img);
+  return p;
 }
 
 // A picture pasted or dropped on the canvas opens the image window
@@ -201,7 +205,7 @@ let pasting = null;
 async function addPictureFile(file) {
   const type = file.type || "image/png";
   const bytes = await file.arrayBuffer();
-  const [w, h] = await imageSize(bytes, type);
+  const [w, h] = isSvg(type, file.name) ? [0, 0] : await imageSize(bytes, type);
   const alt = file.name && file.name !== "image.png" ? file.name.replace(/\.[^.]+$/, "") : "image";
   if (w > 0 && h > 0) {
     dropPasting();
@@ -216,7 +220,7 @@ async function addPictureFile(file) {
     dropPasting();
   }
   // no size to crop by (or presenting): straight onto the slide, as before
-  const rel = await keepPicture(bytes, type, w, h);
+  const rel = await keepPicture(bytes, type);
   app.insertPicture(rel, alt);
   dropThumbs();
   afterInput();
@@ -245,7 +249,7 @@ async function placePasted() {
   if (!p) return;
   const plan = JSON.parse(app.pastePlan());
   dropPasting();
-  let { bytes, type, w, h } = p;
+  let { bytes, type } = p;
   if (!plan.whole) {
     const [x, y, cw, ch] = String(plan.crop).split(",").map(Number);
     if (cw > 0 && ch > 0) {
@@ -261,12 +265,10 @@ async function placePasted() {
       if (blob) {
         bytes = await blob.arrayBuffer();
         type = blob.type || out;
-        w = cw;
-        h = ch;
       }
     }
   }
-  const rel = await keepPicture(bytes, type, w, h);
+  const rel = await keepPicture(bytes, type);
   app.placePicture(rel, plan.alt || "image", plan.to);
   dropThumbs();
   afterInput();
@@ -377,12 +379,11 @@ async function renderPlans(orig, plans, type) {
 
 // A new picture of the deck: registered for the slides and kept in this
 // browser; signed in to PRO, the deck's cloud save takes it with the deck.
-async function keepPicture(bytes, type, w, h) {
+async function keepPicture(bytes, type) {
   const ext = (type.split("/")[1] || "png").replace("jpeg", "jpg").replace("svg+xml", "svg");
   pasteCount += 1;
   const rel = `media/liitetty-${Date.now().toString(36)}-${pasteCount}.${ext}`;
-  app.addImage("/" + rel, asRangerBuffer(bytes.slice(0)), type, w, h);
-  await registerPicture("/" + rel, bytes, type);
+  await addPicture("/" + rel, bytes, type);
   const data = new Blob([bytes], { type });
   await keepFile({ path: rel, type, size: bytes.byteLength, data });
   return rel;
@@ -895,9 +896,7 @@ async function useFile(f) {
   usedStamps.set(f.path, stampOf(f));
   if (kindOf(f.path, f.type) === "image" && f.data instanceof Blob) {
     const bytes = await f.data.arrayBuffer();
-    const [w, h] = await imageSize(bytes, f.type);
-    app.addImage("/" + f.path, asRangerBuffer(bytes.slice(0)), f.type || "image/png", w, h);
-    await registerPicture("/" + f.path, bytes, f.type || "image/png");
+    await addPicture("/" + f.path, bytes, f.type);
   } else if (typeof f.data === "string") {
     if (f.path.startsWith("data/live/")) liveCopies.set(f.path, f.data);
     chartFiles.set(f.path, Promise.resolve(f.data));
@@ -1068,9 +1067,7 @@ async function addDocFile(file, ask = false) {
   if (kindOf(file.name, type) === "image") {
     const bytes = await file.arrayBuffer();
     const path = placeFor(file.name, type);
-    const [w, h] = await imageSize(bytes, type);
-    app.addImage("/" + path, asRangerBuffer(bytes.slice(0)), type || "image/png", w, h);
-    await registerPicture("/" + path, bytes, type || "image/png");
+    await addPicture("/" + path, bytes, type);
     await keepFile({ path, type: type || "image/png", size: bytes.byteLength, data: new Blob([bytes], { type }) });
     return;
   }

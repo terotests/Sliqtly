@@ -42,7 +42,7 @@
         ]
       },
       {
-        "source": "/@(pres_app|pres_data|main|vfs|i18n|sheets-live|image-adjust|sliqtly).js",
+        "source": "/@(pres_app|pres_data|main|vfs|i18n|sheets-live|image-adjust|picture|sliqtly).js",
         "headers": [
           {
             "key": "Cache-Control",
