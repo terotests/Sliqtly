@@ -215,6 +215,9 @@ class PresToolbar {
         if (id == "openbox") {
             return "openbox"
         }
+        if (id == "settings") {
+            return "settings"
+        }
         if (id == "browse") {
             return "showtab:files"
         }
@@ -420,7 +423,7 @@ class PresToolbar {
         } {
             bar.addChild((this.text("tb-brand" brand)))
             def file:MenuCtl (this.dropdown("file" (PresI18n.t("File"))))
-            ; groups as in a desktop app: new | open | save | the assistants
+            ; groups as in a desktop app: new | open | save | the assistants | settings
             file.addItem("new" (PresI18n.t("New presentation")) false)
             file.addItem("duplicate" (PresI18n.t("Duplicate")) false)
             file.addSeparator()
@@ -432,6 +435,8 @@ class PresToolbar {
             file.addSeparator()
             file.addItem("aiClaude" (PresI18n.t("Edit in Claude…")) false)
             file.addItem("aiChatgpt" (PresI18n.t("Edit in ChatGPT…")) false)
+            file.addSeparator()
+            file.addItem("settings" (PresI18n.t("Settings…")) false)
             file.setShortcut("openbox" (this.modKey("O")))
             file.setShortcut("save" (this.modKey("S")))
             def slide:MenuCtl (this.dropdown("slide" (PresI18n.t("Slide"))))
@@ -516,6 +521,7 @@ class PresToolbar {
             body.addChild((this.div("tb-dr-sep")))
             this.button("dr-aiClaude" (PresI18n.t("Edit in Claude…")) "ghost" body)
             this.button("dr-aiChatgpt" (PresI18n.t("Edit in ChatGPT…")) "ghost" body)
+            this.button("dr-settings" (PresI18n.t("Settings…")) "ghost" body)
             body.addChild((this.div("tb-dr-sep")))
             def arrow:string "▸  "
             if drawerThemes {

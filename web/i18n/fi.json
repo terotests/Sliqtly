@@ -602,5 +602,13 @@
   "Orientation": "Suunta",
   "Landscape": "Vaaka",
   "Portrait": "Pysty",
-  "Clear": "Tyhjennä"
+  "Clear": "Tyhjennä",
+  "Settings…": "Asetukset…",
+  "Settings": "Asetukset",
+  "Automatic contrast correction": "Automaattinen kontrastikorjaus",
+  "Text too faint on its slide is made readable: small text gets a lighter or darker colour, big text a thin outline. Your own colours stay as they are wherever they already read well.": "Liian heikosti erottuva teksti tehdään luettavaksi: pieni teksti saa vaaleamman tai tummemman värin, iso teksti ohuen ääriviivan. Omat värisi säilyvät kaikkialla, missä ne jo erottuvat hyvin.",
+  "On": "Päällä",
+  "Off": "Pois",
+  "On the slide it is shown in a corrected colour.": "Dialla se näytetään korjatulla värillä.",
+  "On the slide it has an outline.": "Dialla sillä on ääriviiva."
 }

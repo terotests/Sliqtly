@@ -968,6 +968,10 @@ async function saveOpenFile(path) {
 // and kept; the stage and the chrome are built every paint. A kept frame is
 // only good while the glyph atlas it was built against stands, so a paint
 // that grows the atlas drops the kept ones and draws again.
+// File → Settings: automatic contrast correction, on unless turned off here.
+let autoContrast = true;
+try { autoContrast = localStorage.getItem("sliqtly.autoContrast") !== "off"; } catch (_) { /* on */ }
+
 let thumbs = new Map();
 let thumbRev = -1;
 // the slide lists of thumbnails cut by the strip's edge, as JSON text
@@ -1012,9 +1016,10 @@ function paintOnce() {
   const grewBy = (stats) => !!(stats && (stats.atlasRebuilt || stats.atlasAdded > 0));
   let grew = false;
   // Slides and thumbnails are drawn with EVG's contrast guard: a run of text
-  // that does not stand out from the picture under it (WCAG 4.5:1, 3:1 for
-  // large text) gets a thin outline in black or white. The chrome has no
-  // pictures under its text and is drawn without it.
+  // that does not stand out from what is under it (WCAG 4.5:1, 3:1 for large
+  // text) is drawn in a colour that reads, or, on big letters, with a thin
+  // outline. File → Settings turns the correction off (the runs are still
+  // listed for the editor's warnings). The chrome is drawn without it.
   const chrome = JSON.parse(app.chromeJson());
   window.__lastChrome = chrome;
   const cf = prepareDisplayList(gl, chrome, { dpr });
@@ -1025,7 +1030,7 @@ function paintOnce() {
     window.__lastStage = st;
     st.width = W;
     st.height = H;
-    const sf = prepareDisplayList(gl, st, { dpr, images: pictures, contrastGuard: true });
+    const sf = prepareDisplayList(gl, st, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
     const stageStats = sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false });
     grew = grewBy(stageStats) || grew;
     sf.dispose();
@@ -1061,7 +1066,7 @@ function paintOnce() {
       const none = [0, 0, 0, 0];
       doc.list.cmds.unshift({ k: 4, x: (cx - x) / s, y: (cy - y) / s, w: cw / s, h: ch / s, c: none });
       doc.list.cmds.push({ k: 5, x: 0, y: 0, w: 0, h: 0, c: none });
-      const cf = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true });
+      const cf = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
       if (grewBy(cf.draw(null, [x, y, s], { clear: false }))) thumbsGrew = true;
       cf.dispose();
       continue;
@@ -1072,7 +1077,7 @@ function paintOnce() {
       const doc = withTime(JSON.parse(app.slideJson(i)), 2.0);
       doc.width = W;
       doc.height = H;
-      f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true });
+      f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
       thumbs.set(i, f);
     }
     const stats = f.draw(null, [x, y, s], { clear: false });
@@ -1636,6 +1641,14 @@ function handleRequests() {
       // the canvas bar: the page's own button does what it always did
       const b = document.getElementById(r.slice(6));
       if (b) b.click();
+    } else if (r === "settings") {
+      app.openSettings(autoContrast);
+      needsPaint = true;
+    } else if (r.startsWith("setting:contrast:")) {
+      autoContrast = r.endsWith(":on");
+      try { localStorage.setItem("sliqtly.autoContrast", autoContrast ? "on" : "off"); } catch (_) { /* this session only */ }
+      dropThumbs();
+      needsPaint = true;
     } else if (r === "openbox") {
       // Open: a file from the computer, or a sample deck
       app.openOpen([...sampleSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
