@@ -546,6 +546,75 @@ class PresCheck {
         this.ink(css6 md "p" ".lead" "Iso" ".lead" "a .lead paragraph")
     }
 
+    ; A chart's columns rise and a beam crosses it once. Presenting, the
+    ; clock holds at the slide's end and at each build step; it held before
+    ; the beam was across, and the beam stayed half way over the chart.
+    fn chartMotion:void () {
+        def vals:string ""
+        def v:int 0
+        while (v < 20) {
+            if (v > 0) {
+                vals = (vals + ",")
+            }
+            vals = (vals + "{\"m\":\"k" + (to_string v) + "\",\"e\":" + (to_string (100 + (v * 7))) + "}")
+            v = (v + 1)
+        }
+        def fence:string ("```vega-lite\n{\"usermeta\":{\"presStyle\":\"forge\"},\"data\":{\"values\":[" + vals
+            + "]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"m\",\"type\":\"nominal\"},\"y\":{\"field\":\"e\",\"type\":\"quantitative\"}}}\n```\n")
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Menot\n\n" + fence
+            + "\n## Askeleet\n\n" + fence + "\n1. yksi\n2. kaksi\n{.build}\n"
+            + "\n## Myöhemmin\n\n1. eka\n{.build}\n\n" + fence + "{.build}\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        if ((deck.slideCount()) < 3) {
+            this.ok(false ("three chart slides, got " + (to_string (deck.slideCount()))))
+            return
+        }
+        def motion:double (PresChart.motionSeconds())
+        ; with the slide: it lasts until the beam is across, and is clear then
+        def s0:PresSlide (deck.slideAt(0))
+        this.ok(((array_length s0.charts) == 1) "the chart is read")
+        if ((array_length s0.charts) == 0) {
+            return
+        }
+        def u0:PresChartUse (itemAt s0.charts 0)
+        this.ok((s0.duration >= (u0.start + motion)) ("the slide lasts until the chart has finished: " + (to_string s0.duration)))
+        def mid:double (u0.start + (motion - ((PresChart.scanDur()) * 0.5)))
+        this.ok(((PresCheck.beams((PresTimeline.frame(deck 0 mid)))) == 1) "the beam is over the chart half way across")
+        this.ok(((PresCheck.beams((PresTimeline.frame(deck 0 s0.duration)))) == 0) "and gone where the slide holds")
+        ; before a build step: the step waits for the chart
+        def s1:PresSlide (deck.slideAt(1))
+        def u1:PresChartUse (itemAt s1.charts 0)
+        def first:double (PresTimeline.stepTime(s1 1))
+        this.ok((first >= (u1.start + motion)) ("step 1 waits for the chart: " + (to_string first)))
+        this.ok(((PresCheck.beams((PresTimeline.frame(deck 1 first)))) == 0) "no beam where step 1 holds")
+        this.ok(((fabs (((PresTimeline.stepTime(s1 2)) - first) - s1.stepGap)) < 0.000001) "later steps keep their gap")
+        ; revealed by a step: it starts moving when it arrives
+        def s2:PresSlide (deck.slideAt(2))
+        this.ok(((array_length s2.charts) == 1) "the chart under a step is read")
+        if ((array_length s2.charts) == 0) {
+            return
+        }
+        def u2:PresChartUse (itemAt s2.charts 0)
+        this.ok((u2.start == (PresTimeline.stepTime(s2 2))) ("a chart starts with its step: " + (to_string u2.start)))
+        this.ok((s2.duration >= (u2.start + motion)) "and the slide waits for it")
+    }
+
+    ; The scan beam's bright core in a frame.
+    sfn beams:int (l:EVGDisplayList) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if ((((c.kind == 0) && (c.w == 2.0)) && (((c.r == 230) && (c.g == 250)) && (c.b == 255))) && (c.a > 0.0)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
     sfn texts:int (l:EVGDisplayList word:string) {
         def n:int 0
         def i:int 0
@@ -564,6 +633,7 @@ class PresCheck {
         c.run()
         c.edges()
         c.cascade()
+        c.chartMotion()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

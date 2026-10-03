@@ -158,17 +158,17 @@ class PresChart {
             b = (b + 1)
         }
         ; the finished chart's timing
-        def growStart:double 0.3
+        def growStart:double (PresChart.growStart())
         ; one after another, but all up within a second and a half however
         ; many there are (sixty stacked pieces took six seconds and the slide
         ; ended with the last months not drawn)
         def growEach:double 0.1
-        if (nb > 15) {
-            growEach = (1.5 / (to_double nb))
+        if (((to_double nb) * growEach) > (PresChart.growSpread())) {
+            growEach = ((PresChart.growSpread()) / (to_double nb))
         }
-        def growDur:double 0.7
+        def growDur:double (PresChart.growDur())
         def scanStart:double ((growStart + (growEach * (to_double nb))) + growDur)
-        def scanDur:double 1.1
+        def scanDur:double (PresChart.scanDur())
         def tt:double t
         if still {
             tt = 1000000.0
@@ -617,6 +617,21 @@ class PresChart {
     ; value, not columns to dress.
     sfn rectChart:boolean (spec:string) {
         return (((indexOf spec "\"mark\": \"rect\"") >= 0) || (((indexOf spec "\"mark\":\"rect\"") >= 0) || ((indexOf spec "\"type\": \"rect\"") >= 0)))
+    }
+
+    ; The chart's motion, in seconds from its start: the first column rises
+    ; after growStart, the others follow within growSpread, each takes
+    ; growDur, and then the beam takes scanDur to cross.
+    sfn growStart:double () { return 0.3 }
+    sfn growSpread:double () { return 1.5 }
+    sfn growDur:double () { return 0.7 }
+    sfn scanDur:double () { return 1.1 }
+
+    ; When the motion is over however many columns there are (the last
+    ; value label has faded in by then too). The timeline does not hold the
+    ; clock before this: a frame held mid-way kept the beam over the chart.
+    sfn motionSeconds:double () {
+        return ((((PresChart.growStart()) + (PresChart.growSpread())) + (PresChart.growDur())) + (PresChart.scanDur()))
     }
 
     ; One column: rising from its base at its turn, a gradient from the warm
