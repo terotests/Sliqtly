@@ -11,7 +11,7 @@ Vaiheet, SWOT ja aikajanat listoina, piirrettynä teeman väreillä
 {.lead}
 
 ::: notes
-PRO-ominaisuus. Jokainen alla oleva asettelu lasketaan tekstistä ja dian tilasta; vaihda teemaa, niin värit vaihtuvat mukana.
+Viivakuvio on PRO-ominaisuus, asettelut ovat ilmaisia. Jokainen alla oleva asettelu lasketaan tekstistä ja dian tilasta; vaihda teemaa, niin värit vaihtuvat mukana.
 :::
 
 ## Projekti neljässä vaiheessa

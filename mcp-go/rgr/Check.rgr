@@ -161,9 +161,9 @@ class Check {
         def pics:[CheckPic] din.pics
         def c (new Checked)
         def d (new PresDeck)
-        ; a cloud share opens with the PRO layouts and line art drawn
+        ; a cloud share opens with the PRO line art drawn
         ; (web/main.js liveAllowed: liveFromShare)
-        d.figuresAllowed = ((host_store_kind host) == "cloud")
+        d.artAllowed = ((host_store_kind host) == "cloud")
         for (Check.FACES()) face:string fi {
             def fb:buffer (host_font host face)
             if ((buffer_length fb) > 0) {

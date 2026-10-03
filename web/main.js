@@ -85,7 +85,7 @@ const SAMPLES = {
   matematiikka: sample("matematiikka", "Mathematics: formulas on slides", "Matematiikka: kaavat kalvoilla"),
   vegalite: sample("vegalite", "Vega-Lite: chart types", "Vega-Lite: kaaviotyypit"),
   raportti: sample("raportti", "Report: header, footer, page numbers", "Raportti: ylä- ja alaosa, sivunumerot"),
-  mallit: sample("mallit", "Layouts: steps, SWOT, timeline (PRO)", "Asettelut: vaiheet, SWOT, aikajana (PRO)"),
+  mallit: sample("mallit", "Layouts: steps, SWOT, timeline", "Asettelut: vaiheet, SWOT, aikajana"),
   // the newest themes and features, on Nebula
   uutta: [...sample("uutta", "What's new: themes, effects, layouts", "Uutta: teemat, efektit, asettelut"), "nebula"],
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
@@ -1872,8 +1872,8 @@ let liveNoted = false;
 function liveAllowed() {
   return liveFromShare || /^(localhost|127\.0\.0\.1)$/.test(location.hostname) || !!window.sliqtly?.user?.();
 }
-// The layouts drawn from lists (```process, ```swot, ```timeline) and the
-// slides' line art ({art=waves}) are PRO as well, on the same terms.
+// The slides' line art ({art=waves}) is PRO as well, on the same terms. The
+// layouts drawn from lists (```process, ```swot, ```timeline) are free.
 function proNow() {
   app.setPro(liveAllowed());
   needsPaint = true;

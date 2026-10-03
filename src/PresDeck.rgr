@@ -158,10 +158,9 @@ class PresDeck {
     ; Painting for a page that does not move (the PDF): every diagram at
     ; rest, whole, rather than where its walk is at a moment.
     def still:boolean false
-    ; The layouts drawn from lists (```process, ```swot, ```timeline) and
-    ; the slides' line art are PRO: the page says whether they are drawn
-    ; (`PresApp.setPro`). Not drawn, a fence's slot says so.
-    def figuresAllowed:boolean false
+    ; The slides' line art is PRO: the page says whether it is drawn
+    ; (`PresApp.setPro`). The layouts drawn from lists are free.
+    def artAllowed:boolean false
     ; the theme's colours for them, as last read (`figureStyle`)
     def figStyle:MdFigureStyle (new MdFigureStyle)
     ; Slides whose effect the host rendered to a picture for an export
@@ -2024,9 +2023,9 @@ class PresDeck {
     }
 
     ; The slide's line art (`{art=waves}`), over its picture and under the
-    ; content, or nothing when it has none or figures are not allowed.
+    ; content, or nothing when it has none or art is not allowed (not PRO).
     fn artScene:FlowScene (s:PresSlide i:int) {
-        if (((strlen s.art) == 0) || (figuresAllowed == false)) {
+        if (((strlen s.art) == 0) || (artAllowed == false)) {
             def none (new FlowScene)
             return none
         }
@@ -2114,8 +2113,8 @@ class PresDeck {
         } {
             st.size = 16.0
         }
-        st.allowed = figuresAllowed
-        st.lockedNote = (PresI18n.t("PRO: sign in to draw this layout."))
+        ; the layouts drawn from lists are drawn for everyone
+        st.allowed = true
         return st
     }
 

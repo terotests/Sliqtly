@@ -11,7 +11,7 @@ Steps, SWOT and timelines written as lists, drawn in the theme's colours
 {.lead}
 
 ::: notes
-A PRO feature. Every layout below is computed from the text and the room on the slide; change the theme and they change colour with it.
+The line art is a PRO feature; the layouts are free. Every layout below is computed from the text and the room on the slide; change the theme and they change colour with it.
 :::
 
 ## Project in four steps
