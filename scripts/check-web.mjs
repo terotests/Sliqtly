@@ -833,6 +833,63 @@ try {
   });
   check("…and hovering its properties never moves the rows (also flipped above)", selHover.every((r) => r.rows > 3 && r.moved === 0 && r.tip), JSON.stringify(selHover));
 
+  // A click on the slide picks the block under it: an outline, its theme
+  // spacing as bands, "Edit content" and "Style" next to it
+  const pk = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    const css0 = a.themeCss();
+    a.showTab("md");
+    a.setSource("# D\n\n## Otsikko\n\n- yksi\n- kaksi\n\nKappale tekstiä.\n{.lead}\n");
+    a.selectSlide(1);
+    a.place();
+    const l = a.deck.layout();
+    const r = a.slideRect, sc = a.slideScale();
+    const boxes = l.boxes.filter((b) => b.page === a.selected && b.kind === 0);
+    const at = (t) => { const b = boxes.find((b) => b.text.startsWith(t)); return [r.x + (b.x + 4) * sc, r.y + (b.y + b.h / 2) * sc]; };
+    const click = ([x, y]) => { a.pointerDown(x, y, false, 1); a.pointerUp(); };
+    const out = {};
+    click(at("Otsikko"));
+    out.head = [a.pick.sel, a.pick.bands.map((b) => b.sel + ":" + b.prop + (b.isSet ? "=" : "+")).join(" ")];
+    out.drawn = /sel-box|"text":"Style"/.test(a.pickJson()) || a.pickJson().length > 100;
+    a.pickStyle();
+    out.style = [a.hintIsOpen(), a.hint.kind, a.hintPinned()];
+    out.styleProps = [];
+    for (let i = 0; i < 40; i++) {
+      const p = a.hint.rule.get("props").at(i);
+      if (!p || !p.isObject || !p.isObject()) break;
+      out.styleProps.push(p.stringOr("sel", "") + ">" + p.stringOr("name", "") + (p.stringOr("value", "") ? "=" : "+"));
+    }
+    a.closeHint();
+    // a band: its property opens next to it, written into the theme
+    a.pickJson();
+    const bi = a.pick.bands.findIndex((b) => b.prop === "margin-bottom");
+    const b = a.pick.bands[bi];
+    a.pointerDown(b.sx + b.sw / 2, b.sy + b.sh / 2, false, 1);
+    a.pointerUp();
+    out.band = [a.edTab, a.hint.kind, a.hint.name, a.hintPinned(), a.hint.ax > r.x - 1];
+    a.closeHint();
+    // a list item: its line in the Markdown
+    a.showTab("md");
+    click(at("kaksi"));
+    out.li = [a.pick.sel, a.pick.ruleSels().join(" ")];
+    a.pickContent();
+    out.liContent = [a.edTab, a.anchorLine(), a.anchorCol(), a.caretLine(), a.caretCol()];
+    click(at("Kappale"));
+    out.p = [a.pick.sel, a.pick.ruleSels().join(" ")];
+    a.setFocus("stage");
+    a.key("escape", false, false);
+    out.cleared = !a.pick.on;
+    a.setSource(src0);
+    a.setStyleSheet(css0);
+    return out;
+  });
+  check("a click on a heading picks it with the headings' margins as bands", pk.head[0] === "h2" && pk.head[1] === "heading:margin-top= heading:margin-bottom=" && pk.drawn, JSON.stringify(pk.head));
+  check("…its Style lists h2's and all headings' properties, set and not", pk.style.join(",") === "true,selector,true" && pk.styleProps.includes("h2>font-size=") && pk.styleProps.includes("heading>margin-top=") && pk.styleProps.some((p) => p.endsWith("+")), JSON.stringify(pk.styleProps));
+  check("…a band opens its value in the theme, next to the slide", pk.band.join(",") === "css,number,margin-bottom,true,true", JSON.stringify(pk.band));
+  check("a list item is picked as li (with list and the document's text)", pk.li.join("|") === "li|li list document" && pk.liContent.join(",") === "md,5,0,5,7", JSON.stringify([pk.li, pk.liContent]));
+  check("…a paragraph with {.lead} gets the class's rule too, and Esc lets go", pk.p.join("|") === "p|p .lead document" && pk.cleared, JSON.stringify([pk.p, pk.cleared]));
+
   // chart-effects takes any of its words together: a chip turns one on or off
   const fx = await page.evaluate(() => {
     const a = window.__app;

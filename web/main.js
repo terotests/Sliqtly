@@ -1302,6 +1302,18 @@ function paintOnce() {
       } catch (e) { console.warn("contrast notes", e); }
     }
   }
+  // the element picked on the slide: its outline, spacing bands and buttons
+  if (layout.slides > 0 && layout.mode !== "present") {
+    const pj = app.pickJson();
+    if (pj) {
+      const pk = JSON.parse(pj);
+      pk.width = W;
+      pk.height = H;
+      const pf = prepareDisplayList(gl, pk, { dpr });
+      grew = grewBy(pf.draw(null, [0, 0, 1], { clear: false })) || grew;
+      pf.dispose();
+    }
+  }
   if (grew) dropThumbs();
   let thumbsGrew = false;
   if (layout.rev !== thumbDocsRev) {
@@ -3156,7 +3168,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   app.setTouch(finger);
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
-  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb") {
+  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb" || where === "select") {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
   if (where === "editor" && clicks === 1) {
@@ -3181,6 +3193,10 @@ canvas.addEventListener("pointerdown", (ev) => {
       } else if (h) showHint(h);
       else closeHint();
     }, 0);
+  } else if (where === "select") {
+    // a button or a band of the picked element: the app opened its popover
+    hint = null;
+    hintKey = "";
   } else if (where !== "editor" && where !== "hint") {
     closeHint();
   }
@@ -3249,6 +3265,8 @@ function overHint() {
 function hintHover(x, y) {
   pointerAt = [x, y];
   clearTimeout(hintTimer);
+  // opened from the slide: stays until a press outside it
+  if (app.hintPinned()) return;
   if (app.hintIsOpen() && app.hintHas(x, y)) {
     clearTimeout(hintCloseTimer);
     return;
