@@ -74,8 +74,9 @@ function cors(res) {
 // The whole server as an Express app: /mcp, and with `oauth` the sign-in
 // endpoints. Cloud Functions hands it the request with its path as Hosting
 // received it.
-// quota: dailyQuota(…) or null; registrations: a limiter for /oauth/register
-export function createApp({ store, baseUrl, fetchImpl, oauth = null, limiter = rateLimiter(), quota = null, registrations = rateLimiter({ max: 20 }), trustHost = false }) {
+// quota: dailyQuota(…) or null; registrations: a limiter for /oauth/register;
+// stats: createStats(…)'s hit, or null (src/stats.js)
+export function createApp({ store, baseUrl, fetchImpl, oauth = null, limiter = rateLimiter(), quota = null, registrations = rateLimiter({ max: 20 }), stats = null, hits = rateLimiter({ max: 120 }), trustHost = false }) {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "40mb" }));
@@ -100,6 +101,20 @@ export function createApp({ store, baseUrl, fetchImpl, oauth = null, limiter = r
     app.get("/oauth/authorize", wrap((req) => oauth.authorize(req.query, originOf(req, baseUrl, trustHost))));
     app.post("/oauth/approve", wrap((req) => oauth.approve(req.body)));
     app.post("/oauth/token", wrap((req) => oauth.token(req.body)));
+  }
+
+  // the page's visit beacon (web/main.js countVisit): counted only when it
+  // comes from the site itself. Always 204, so the page learns nothing; the
+  // answer waits for the write, since a function may stop once it answered.
+  if (stats) {
+    app.post("/api/hit", async (req, res) => {
+      const origin = String(req.headers.origin || "");
+      const ip = clientIp(req);
+      if ((SITES.includes(origin) || origin === baseUrl || (trustHost && origin)) && !hits(ip)) {
+        try { await stats({ ip, ua: String(req.headers["user-agent"] || ""), body: req.body }); } catch (e) { console.error("hit failed", e); }
+      }
+      res.status(204).end();
+    });
   }
 
   app.all("/mcp", async (req, res) => {

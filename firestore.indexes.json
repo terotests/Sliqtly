@@ -32,6 +32,18 @@
       "indexes": []
     },
     {
+      "collectionGroup": "stats_salt",
+      "fieldPath": "expires",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "stats_seen",
+      "fieldPath": "expires",
+      "ttl": true,
+      "indexes": []
+    },
+    {
       "collectionGroup": "mcp_oauth_tokens",
       "fieldPath": "expires",
       "ttl": true,

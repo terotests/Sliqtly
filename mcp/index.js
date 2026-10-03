@@ -11,6 +11,7 @@ import { getStorage } from "firebase-admin/storage";
 import { createApp, dailyQuota } from "./src/http.js";
 import { createOAuth } from "./src/oauth.js";
 import { FirebaseStore } from "./src/store.js";
+import { createStats } from "./src/stats.js";
 
 initializeApp();
 
@@ -24,5 +25,5 @@ const oauth = createOAuth({ db, verifyIdToken: (t) => getAuth().verifyIdToken(t)
 
 export const mcp = onRequest(
   { region: "europe-west1", invoker: "public", memory: "512MiB", timeoutSeconds: 60, maxInstances: 10, concurrency: 40 },
-  createApp({ store, oauth, quota: dailyQuota({ db }), baseUrl: process.env.SLIQTLY_URL || "https://sliqtly.com" }),
+  createApp({ store, oauth, quota: dailyQuota({ db }), stats: createStats({ db, FieldValue }), baseUrl: process.env.SLIQTLY_URL || "https://sliqtly.com" }),
 );

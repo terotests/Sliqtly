@@ -25,6 +25,20 @@ import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versio
 import { showHistory, askMerge } from "./versions-ui.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 
+// One beacon per page load for the visitor counts (mcp/src/stats.js): the
+// page, mobile or desktop on the server's side, and the site the visitor
+// came from. No cookie, nothing kept in the browser; not sent when the
+// browser asks not to be tracked, nor outside sliqtly.com.
+(function countVisit() {
+  if (!/^(sliqtly\.com|sliqtly\.web\.app)$/.test(location.hostname)) return;
+  if (navigator.globalPrivacyControl || navigator.doNotTrack === "1") return;
+  const shared = /^\/s\//.test(location.pathname);
+  const p = !shared ? "editor" : new URLSearchParams(location.search).has("edit") ? "edit" : "view";
+  let r = "";
+  try { r = document.referrer ? new URL(document.referrer).hostname : ""; } catch { /* no referrer */ }
+  try { navigator.sendBeacon("/api/hit", new Blob([JSON.stringify({ p, r })], { type: "application/json" })); } catch { /* not counted */ }
+})();
+
 const canvas = document.getElementById("c");
 const stageEl = document.getElementById("stage");
 const keys = document.getElementById("keys");

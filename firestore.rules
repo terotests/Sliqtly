@@ -6,6 +6,8 @@ rules_version = '2';
 // deletes it.
 // mcp_keys, mcp_oauth_*: the MCP server's edit keys and sign-in state
 // (mcp/). No rule matches them, so only the Admin SDK reads or writes them.
+// stats, stats_salt, stats_seen: the visitor counts (mcp/src/stats.js); no
+// rule either.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
