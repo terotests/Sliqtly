@@ -5,8 +5,8 @@ rules_version = '2';
 // reads it; only its owner lists its own (a query on owner), changes or
 // deletes it.
 // mcp_keys, mcp_oauth_*: the MCP server's edit keys and sign-in state
-// (mcp/). No rule matches them, so only the Admin SDK reads or writes them.
-// stats, stats_salt, stats_seen: the visitor counts (mcp/src/stats.js); no
+// (mcp-go/). No rule matches them, so only the Admin SDK reads or writes them.
+// stats, stats_salt, stats_seen: the visitor counts (mcp-go/rgr/Stats.rgr); no
 // rule either.
 service cloud.firestore {
   match /databases/{database}/documents {

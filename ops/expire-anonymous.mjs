@@ -3,13 +3,15 @@
 // Firestore's TTL policy deletes them too. Their pictures and data files in
 // Storage stay (TTL deletes documents only); the script lists those decks.
 //
-//   cd mcp && GOOGLE_APPLICATION_CREDENTIALS=sa.json node scripts/expire-anonymous.mjs [--write]
+//   cd ops && npm ci && GOOGLE_APPLICATION_CREDENTIALS=sa.json node expire-anonymous.mjs [--write]
 //
 // Without --write it only reports.
 
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
-import { ANON_DAYS } from "../src/server.js";
+
+// as the MCP server keeps a deck made without sign-in (mcp-go/rgr/Store.rgr)
+const ANON_DAYS = 30;
 
 initializeApp({ projectId: process.env.GCLOUD_PROJECT || "sliqtly" });
 const db = getFirestore();

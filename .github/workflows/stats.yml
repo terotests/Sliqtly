@@ -1,5 +1,5 @@
 # Sliqtly's numbers: visitors, signed-in users and shares for the last days
-# (mcp/scripts/stats.mjs), shown in the run's summary. Run by hand:
+# (ops/stats.mjs), shown in the run's summary. Run by hand:
 # Actions → Stats → Run workflow. Counts only, no names or emails.
 #
 # The FIREBASE_SERVICE_ACCOUNT secret's account needs Cloud Datastore User
@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: mcp
+        working-directory: ops
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,4 +35,4 @@ jobs:
           DAYS: ${{ inputs.days }}
         run: |
           printf '%s' "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
-          GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json" node scripts/stats.mjs "$DAYS" | tee -a "$GITHUB_STEP_SUMMARY"
+          GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json" node stats.mjs "$DAYS" | tee -a "$GITHUB_STEP_SUMMARY"

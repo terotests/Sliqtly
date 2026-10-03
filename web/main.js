@@ -26,7 +26,7 @@ import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versio
 import { showHistory, askMerge } from "./versions-ui.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 
-// One beacon per page load for the visitor counts (mcp/src/stats.js): the
+// One beacon per page load for the visitor counts (mcp-go/rgr/Stats.rgr): the
 // page, mobile or desktop on the server's side, and the site the visitor
 // came from. No cookie, nothing kept in the browser; not sent when the
 // browser asks not to be tracked, nor outside sliqtly.com.
@@ -2603,7 +2603,7 @@ function pro() {
 // Signed in to PRO, a deck lives in the cloud as a share (web/sliqtly.js):
 // made on its first save, written again a moment after every change, and
 // opened from there at /s/{id}?edit, the address the editor then shows. The
-// same share is what Share links to and what an assistant edits (mcp/).
+// same share is what Share links to and what an assistant edits (mcp-go/).
 function stampOf(f) {
   return (f.size ?? "") + ":" + (f.updated ?? "");
 }
@@ -3163,7 +3163,7 @@ async function shareLink() {
 }
 
 // Edit in Claude / ChatGPT: the assistant opens with a prompt that names the
-// deck, and edits it through the Sliqtly connector (mcp/): get_presentation
+// deck, and edits it through the Sliqtly connector (mcp-go/): get_presentation
 // reads a share, update_presentation saves it when the assistant is signed
 // in as the share's owner (or holds its edit key). So the deck handed over
 // is a share: the one this page was opened from when it is the reader's own
@@ -3389,7 +3389,7 @@ document.getElementById("vFull").addEventListener("click", () => {
 // The … menu: the deck as PDF, PPTX or Markdown (the editor's exports), a new
 // deck of the reader's own based on this one, and, for the signed-in owner of
 // a cloud share, Edit, which opens their own deck in the editor.
-// Embedded in an assistant's preview (mcp/src/preview.html writes the page as
+// Embedded in an assistant's preview (mcp-go/assets/preview.html writes the page as
 // srcdoc, with <meta name="sliqtly-link">) the page has no address and its
 // sandbox allows no downloads or windows: every item opens sliqtly.com in a
 // new tab through the preview (window.__sliqtlyOpenLink, the host's
@@ -3576,7 +3576,7 @@ function useAddress(q) {
 // /s/{id}: a deck shared through PRO, read from the cloud. Shown as a
 // presentation; with ?edit, opened as a new deck of the reader's own.
 // #share={id}: the same presentation where the page is not at its own
-// address — the preview an AI assistant shows (mcp/src/preview.html) runs
+// address — the preview an AI assistant shows (mcp-go/assets/preview.html) runs
 // this page as an iframe's srcdoc, since the assistant does not let it
 // frame sliqtly.com. Always only shown.
 function hashShare() {

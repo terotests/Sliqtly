@@ -34,7 +34,6 @@ import (
 	"github.com/terotests/sliqtly/mcp-go/presdata"
 )
 
-//go:generate sh -c "mkdir -p assets && cp ../mcp/guide.md ../mcp/src/preview.html assets/"
 //go:generate node gen.mjs
 //go:embed assets/guide.md
 var guideMD string
