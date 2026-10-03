@@ -263,15 +263,24 @@ async function openImageEditor(path) {
   dropAdjusting();
   pasteCount += 1;
   const preview = `/__adjust/${Date.now().toString(36)}-${pasteCount}`;
-  pictures.set(preview, previewOf(base, null));
-  adjusting = { path, blob, w, h, base, preview, queued: false };
+  const first = previewOf(base, null);
+  pictures.set(preview, first);
+  // the slides show the preview while the editor is open; Cancel puts the
+  // picture back
+  const original = pictures.get("/" + path);
+  adjusting = { path, blob, w, h, base, preview, original, queued: false };
+  pictures.set("/" + path, first);
   if (!app.openAdjust(preview, path, w, h)) dropAdjusting();
   needsPaint = true;
 }
 
 function dropAdjusting() {
-  if (adjusting) pictures.delete(adjusting.preview);
+  const a = adjusting;
+  if (!a) return;
+  pictures.delete(a.preview);
+  if (a.original) pictures.set("/" + a.path, a.original);
   adjusting = null;
+  needsPaint = true;
 }
 
 // The preview again, at most once a frame however fast the sliders move.
@@ -282,7 +291,9 @@ function adjustPreview() {
   requestAnimationFrame(() => {
     a.queued = false;
     if (adjusting !== a) return;
-    pictures.set(a.preview, previewOf(a.base, JSON.parse(app.adjustPlan())));
+    const shown = previewOf(a.base, JSON.parse(app.adjustPlan()));
+    pictures.set(a.preview, shown);
+    pictures.set("/" + a.path, shown);
     needsPaint = true;
   });
 }
@@ -291,16 +302,20 @@ async function saveAdjusted() {
   const a = adjusting;
   if (!a) return;
   const plan = JSON.parse(app.adjustPlan());
+  // the slides keep the preview until the saved picture replaces it
+  const original = a.original;
+  a.original = null;
   dropAdjusting();
+  const restore = () => { if (original) pictures.set("/" + a.path, original); needsPaint = true; };
   let crop = null;
   if (!plan.whole) {
     const [x, y, cw, ch] = String(plan.crop).split(",").map(Number);
     if (cw > 0 && ch > 0) crop = [x, y, cw, ch];
   }
   const neutral = !plan.bright && !plan.contrast && !plan.sat && !plan.temp && !plan.tint;
-  if (!crop && neutral) return;
-  const out = await render(a.blob, crop, plan);
-  if (!out) { toast(t("The image could not be saved.")); return; }
+  if (!crop && neutral) { restore(); return; }
+  const out = await render(a.blob, crop, plan).catch(() => null);
+  if (!out) { restore(); toast(t("The image could not be saved.")); return; }
   app.addImage("/" + a.path, asRangerBuffer(out.bytes.slice(0)), out.type, out.w, out.h);
   await registerPicture("/" + a.path, out.bytes, out.type);
   await keepFile({ path: a.path, type: out.type, size: out.bytes.byteLength, data: new Blob([out.bytes], { type: out.type }) });
@@ -1126,6 +1141,8 @@ function paintOnce() {
       // laid over the slide. A change shows on the next paint.
       try {
         if (app.setContrast(JSON.stringify((stageStats && stageStats.lowContrast) || []))) needsPaint = true;
+        // the image editor says whether the slide's text still reads
+        if (adjusting) app.setAdjustContrast(JSON.stringify((stageStats && stageStats.lowContrast) || []));
       } catch (e) { console.warn("contrast notes", e); }
     }
   }
@@ -1712,6 +1729,7 @@ window.__picturePixel = (p, x, y) => {
   g.drawImage(img, 0, 0);
   return [...g.getImageData(x, y, 1, 1).data];
 };
+window.__pictureTag = (p) => (pictures.get(p) ? pictures.get(p).tagName : "");
 window.__pictureSize = (p) => {
   const img = pictures.get(p);
   return img ? [img.naturalWidth, img.naturalHeight] : [0, 0];

@@ -58,6 +58,7 @@
 .ce-grow { flex-grow: 1; }
 .ce-note { font-size: 13px; color: #b45309; }
 .ce-warn { font-size: 12px; color: #b45309; }
+.ce-ok { font-size: 12px; color: #15803d; }
 .ce-doc { font-size: 12px; color: #71717a; }
 .ce-row { display: flex; flex-direction: row; align-items: center; gap: 8px; }
 .ce-chips { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }

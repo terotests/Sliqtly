@@ -4043,9 +4043,55 @@ class PresApp {
         chartFile = ""
         chart.measurer = measurer
         chart.openAdjust(path file (to_double iw) (to_double ih) px py W H)
+        ; the slide that shows the picture, so its change and its contrast
+        ; can be seen (a picture only in the theme leaves the slide as it is)
+        def at:int (indexOf (this.source()) file)
+        if (at >= 0) {
+            this.selectSlide((deck.pageOfOffset(at)))
+        }
         focus = "chart"
         chromeRev = (chromeRev + 1)
         return true
+    }
+
+    ; The slide's runs too faint over what is under them, as the page drew
+    ; it with the preview (the stage's lowContrast list: "ratio", "need",
+    ; "fixed"), said in the image editor.
+    fn setAdjustContrast:void (json:string) {
+        if ((chart.isOpen == false) || (chart.mode != "adjust")) {
+            return
+        }
+        def p (new VlJsonParser())
+        def j:VlJson (p.parse(json))
+        def n:int (j.count())
+        def where:string ((PresI18n.t("Slide ")) + (to_string (selected + 1)) + ": ")
+        if (n == 0) {
+            chart.setAdjustContrast((where + (PresI18n.t("all text has enough contrast."))) false)
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        def worst:double 99.0
+        def need:double 4.5
+        def fixed:int 0
+        def i:int 0
+        while (i < n) {
+            def r:VlJson (j.at(i))
+            if ((strlen (r.stringOr("fixed" ""))) > 0) {
+                fixed = (fixed + 1)
+            }
+            def ratio:double (r.doubleOr("ratio" 99.0))
+            if (ratio < worst) {
+                worst = ratio
+                need = (r.doubleOr("need" 4.5))
+            }
+            i = (i + 1)
+        }
+        def note:string (where + (to_string n) + (PresI18n.t(" text runs with low contrast, the lowest ")) + (PresApp.ratioWords(worst)) + ":1 (" + (PresI18n.t("needs ")) + (PresApp.ratioWords(need)) + ":1).")
+        if (fixed == n) {
+            note = (note + " " + (PresI18n.t("The slide corrects them (File → Settings), but a darker or lighter picture reads better.")))
+        }
+        chart.setAdjustContrast(note true)
+        chromeRev = (chromeRev + 1)
     }
 
     ; {"file", "crop": "x,y,w,h" in pixels, "whole": nothing cut away,
