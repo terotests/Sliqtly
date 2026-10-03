@@ -1,9 +1,7 @@
 # Deploys the MCP server in Go (mcp-go/) as the Cloud Run service
-# `sliqtly-mcp` (europe-west1) in project `sliqtly`, beside the Cloud Function
-# that sliqtly.com/mcp still points at: the service gets its own run.app
-# address and no traffic from the site until firebase.json's rewrites are
-# switched (mcp-go/README.md). Run by hand: Actions → Deploy MCP (Go) → Run
-# workflow.
+# `sliqtly-mcp` (europe-west1) in project `sliqtly`. sliqtly.com's /mcp,
+# /oauth/**, OAuth /.well-known documents and /api/hit are rewritten to it
+# (firebase.json). Run by hand: Actions → Deploy MCP (Go) → Run workflow.
 #
 # The FIREBASE_SERVICE_ACCOUNT secret's account needs, besides what Deploy MCP
 # needs: Artifact Registry Administrator (the first run creates the `mcp`

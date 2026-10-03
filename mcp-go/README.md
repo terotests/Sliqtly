@@ -1,4 +1,4 @@
-# Sliqtly MCP server in Ranger, compiled to Go (prototype)
+# Sliqtly MCP server in Ranger, compiled to Go
 
 The MCP server of [`mcp/`](../mcp) written in Ranger and compiled to Go for
 Cloud Run: one static binary in a distroless container. Same tools, same
@@ -7,8 +7,12 @@ Firestore documents and Storage paths, same OAuth endpoints and the same
 server can answer for the other and a sign-in started on one can finish on
 the other.
 
-Not deployed. `mcp/` (the Cloud Function, Node.js) is still what
-`sliqtly.com/mcp` runs.
+This is what `sliqtly.com` runs: Hosting rewrites `/mcp`, `/oauth/**`, the
+OAuth `/.well-known` documents and `/api/hit` to the Cloud Run service
+`sliqtly-mcp` (europe-west1), deployed by Actions → **Deploy MCP (Go)**.
+Rolling back to the Cloud Function `mcp` is the same rewrites in
+`firebase.json` pointed back at `"function": { "functionId": "mcp", … }`,
+while that function is still deployed.
 
 ## What is Ranger and what is Go
 
@@ -113,30 +117,22 @@ writes real shares and offers sign-in. `SLIQTLY_URL`, `SLIQTLY_BUCKET`,
 `GOOGLE_CLOUD_PROJECT` and `PORT` work as for `mcp/`; `SLIQTLY_STORE=link`
 forces the link-only mode.
 
-## Plan: from prototype to `sliqtly.com/mcp`
+## Deploy
 
-Each step needs Tero's go-ahead; nothing here has been run.
-
-1. **Deploy beside the function**, no traffic: Actions → **Deploy MCP (Go)**
-   (`.github/workflows/deploy-mcp-go.yml`) runs the tests and these steps:
-   ```
-   IMAGE=europe-west1-docker.pkg.dev/sliqtly/mcp/sliqtly-mcp-go
-   docker build -f mcp-go/Dockerfile -t $IMAGE .     # from the repository root
-   docker push $IMAGE
-   gcloud run deploy sliqtly-mcp --image $IMAGE \
-     --region europe-west1 --project sliqtly --allow-unauthenticated \
-     --cpu 1 --memory 256Mi --concurrency 80 --max-instances 10 --cpu-boost
-   ```
-   Generating the Go code takes about 3.6 GB of memory (Node's heap is raised
-   to 6 GB in `gen.mjs`), so the machine that builds the image needs more
-   than 4 GB.
-   The service account needs Cloud Datastore User and Storage Object Admin
-   (it writes pictures and data files and reads workbooks back) on the
-   `sliqtly` project; verifying Google ID tokens needs no role.
-2. **Test it on its `run.app` URL** with the MCP Inspector and Claude: create,
-   update, read, list, sign-in. The decks it writes are real shares.
-3. **Switch the rewrites** in `firebase.json` from the function to the service
-   (`"run": { "serviceId": "sliqtly-mcp", "region": "europe-west1" }` for
-   `/mcp`, `/oauth/**` and the `/.well-known` documents) and deploy Hosting.
-   Rolling back is the same edit the other way.
-4. **Retire the function** once the service has carried traffic for a while.
+Actions → **Deploy MCP (Go)** (`.github/workflows/deploy-mcp-go.yml`) runs
+the tests, builds the image, deploys the service and checks that it answers
+(initialize, the nine tools, the OAuth metadata, `/api/hit`):
+```
+IMAGE=europe-west1-docker.pkg.dev/sliqtly/mcp/sliqtly-mcp-go
+docker build -f mcp-go/Dockerfile -t $IMAGE .     # from the repository root
+docker push $IMAGE
+gcloud run deploy sliqtly-mcp --image $IMAGE \
+  --region europe-west1 --project sliqtly --allow-unauthenticated \
+  --cpu 1 --memory 256Mi --concurrency 80 --max-instances 10 --cpu-boost
+```
+Generating the Go code takes about 3.6 GB of memory (Node's heap is raised
+to 6 GB in `gen.mjs`), so the machine that builds the image needs more
+than 4 GB. The service runs as the project's default compute account, which
+needs Cloud Datastore User and Storage Object Admin on `sliqtly`; verifying
+Google ID tokens needs no role. The page's own Deploy (Hosting) needs the
+service to exist, since its rewrites point at it.
