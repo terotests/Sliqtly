@@ -158,22 +158,30 @@ try {
   await shot("1-editor.png");
 
   // The retro skin (File → Settings → Look): its sheets read cleanly, it
-  // changes the chrome, and the standard look comes back exactly.
+  // changes the chrome, its base colour (--retro-hue) re-colours it, and the
+  // standard look comes back exactly.
   {
     const r = await page.evaluate(() => {
       const a = window.__app;
       const errs = a.chromeCssErrors();
       // the baseline is a rebuilt bar too: the first build at start-up can
       // differ from any rebuild by a fraction of a pixel
-      a.setSkin("");
+      const k = window.__skin;
+      k.set("");
       const std = a.toolbarJson();
-      a.setSkin("retro");
-      const retro = a.toolbarJson();
-      a.setSkin("");
-      return { errs, changed: retro !== std, back: a.toolbarJson() === std };
+      k.set("retro");
+      const lime = a.toolbarJson();
+      k.hue(200);
+      const ice = a.toolbarJson();
+      const errs2 = a.chromeCssErrors();
+      k.hue(88);
+      const lime2 = a.toolbarJson();
+      k.set("");
+      return { errs: errs + errs2, changed: lime !== std, hue: ice !== lime, hueBack: lime2 === lime, back: a.toolbarJson() === std };
     });
     check("the chrome sheets and skins read without errors", r.errs === "", r.errs);
     check("the retro skin changes the bar", r.changed);
+    check("…its base colour re-colours it, and comes back", r.hue && r.hueBack, JSON.stringify({ hue: r.hue, hueBack: r.hueBack }));
     check("the standard look comes back as it was", r.back);
   }
 

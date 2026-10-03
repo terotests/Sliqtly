@@ -11,23 +11,25 @@
  * Settings → Look). The slides are not chrome: their themes never see this.
  *
  * `@vars retro` also redefines pres.css's own palette (--bg, --panel, ...),
- * which re-colours every pres.css rule written with var() at once.
+ * which re-colours every pres.css rule written with var() at once. The
+ * colours follow EVGUI's `--retro-hue`; the page appends
+ * `@vars retro { --retro-hue: N; }` for the colour picked in Settings.
  */
 
 @vars retro {
-  --bg: #142807;
-  --panel: #0c1f04;
-  --panel-2: #041003;
-  --line: #2d5410;
-  --ink: #e6ffb8;
-  --ink-dim: #8fc24e;
-  --ink-mute: #5d8a2c;
-  --accent: #c6ff5a;
+  --bg: var(--retro-chin-b);
+  --panel: var(--retro-screen-2);
+  --panel-2: var(--retro-screen);
+  --line: hsl(var(--retro-hue) 68% 20%);
+  --ink: var(--retro-ink);
+  --ink-dim: var(--retro-ink-dim);
+  --ink-mute: hsl(var(--retro-hue) 52% 36%);
+  --accent: var(--retro-hot-b);
 }
 
 /* --- the shell: the bar is the player's crest -------------------------------- */
 .theme-retro .app { background: linear-gradient(180deg, var(--retro-chin-a), var(--retro-chin-b)); }
-.theme-retro .stage-area { background: linear-gradient(180deg, #1d3a0a, var(--retro-chin-b)); }
+.theme-retro .stage-area { background: linear-gradient(180deg, hsl(var(--retro-hue) 71% 13%), var(--retro-chin-b)); }
 .theme-retro .sep { background: linear-gradient(90deg, var(--retro-crest-b), var(--retro-shell-b)); }
 .theme-retro .slide-shadow { background-color: var(--retro-edge); shadow-color: var(--retro-glow); shadow-radius: 22px; shadow-offset-y: 0px; }
 
@@ -65,10 +67,10 @@
   background: linear-gradient(180deg, var(--retro-screen-2), var(--retro-screen));
   border-top: 2px solid var(--retro-shell-b);
 }
-.theme-retro .lane { background-color: #071803; border: 1px solid var(--retro-screen-3); }
-.theme-retro .clip-text { background: linear-gradient(180deg, #d6ff6a, #4b8f12); }
+.theme-retro .lane { background-color: hsl(var(--retro-hue) 78% 5%); border: 1px solid var(--retro-screen-3); }
+.theme-retro .clip-text { background: linear-gradient(180deg, var(--retro-play-a), var(--retro-play-b)); }
 .theme-retro .clip-audio { background: linear-gradient(180deg, #8ff0c0, #128f5a); }
-.theme-retro .clip-anim { background: linear-gradient(180deg, #c6ffa0, #2f7d12); }
+.theme-retro .clip-anim { background: linear-gradient(180deg, var(--retro-crest-a), var(--retro-shell-b)); }
 .theme-retro .clip-fx { background: linear-gradient(180deg, #a6f5ff, #127a8f); }
 .theme-retro .clip-label { color: var(--retro-btn-ink); font-weight: 700; }
 .theme-retro .playhead { background-color: #fff27a; }
@@ -151,7 +153,7 @@
 .theme-retro .pf-promo-text { color: var(--retro-ink); }
 
 /* --- dialogs, the toast, the popover, the chart window ------------------------- */
-.theme-retro .pn-backdrop { background-color: rgba(4, 16, 3, 0.55); }
+.theme-retro .pn-backdrop { background-color: hsla(var(--retro-hue), 68%, 4%, 0.55); }
 .theme-retro .pn-dialog,
 .theme-retro .hp-card,
 .theme-retro .ce-pickcard,

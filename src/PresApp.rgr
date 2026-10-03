@@ -339,51 +339,57 @@ class PresApp {
         t.hBarEdge = (EVGColor.rgb(228 228 231))
     }
 
-    sfn skinEditor:void (ed:ScriptEditor s:string) {
+    sfn skinEditor:void (ed:ScriptEditor s:string hue:double) {
         if (s == "retro") {
-            PresApp.retroEditor(ed)
+            PresApp.retroEditor(ed hue)
         } {
             PresApp.lightEditor(ed)
         }
     }
 
-    ; The editors in the retro skin: a dark display with phosphor-lime text,
-    ; the syntax in the greens and ambers of an old player's readout.
-    sfn retroEditor:void (ed:ScriptEditor) {
+    ; The editors in the retro skin: a dark display with phosphor text in the
+    ; skin's hue (`--retro-hue`), numbers and attributes in amber.
+    sfn hueColor:EVGColor (h:double s:double l:double a:double) {
+        def c:EVGColor (EVGColor.hslToRgb(h s l))
+        c.a = a
+        return c
+    }
+
+    sfn retroEditor:void (ed:ScriptEditor h:double) {
         def t:ScriptEditorTheme ed.theme
-        t.bg = (EVGColor.rgb(4 16 3))
-        t.gutterBg = (EVGColor.rgb(12 31 4))
-        t.gutterText = (EVGColor.rgb(93 138 44))
-        t.gutterActive = (EVGColor.rgb(230 255 184))
-        t.currentLine = (EVGColor.rgb(19 42 8))
-        t.selection = (EVGColor.rgba(198 255 90 0.28))
-        t.caret = (EVGColor.rgb(198 255 90))
-        t.border = (EVGColor.rgb(31 61 8))
-        t.plain = (EVGColor.rgb(230 255 184))
-        t.keyword = (EVGColor.rgb(198 255 90))
-        t.builtin = (EVGColor.rgb(143 240 192))
+        t.bg = (PresApp.hueColor(h 68.0 4.0 1.0))
+        t.gutterBg = (PresApp.hueColor(h 77.0 7.0 1.0))
+        t.gutterText = (PresApp.hueColor(h 52.0 36.0 1.0))
+        t.gutterActive = (PresApp.hueColor(h 100.0 86.0 1.0))
+        t.currentLine = (PresApp.hueColor(h 68.0 10.0 1.0))
+        t.selection = (PresApp.hueColor(h 100.0 68.0 0.28))
+        t.caret = (PresApp.hueColor(h 100.0 68.0 1.0))
+        t.border = (PresApp.hueColor(h 77.0 13.0 1.0))
+        t.plain = (PresApp.hueColor(h 100.0 86.0 1.0))
+        t.keyword = (PresApp.hueColor(h 100.0 68.0 1.0))
+        t.builtin = (PresApp.hueColor((h + 60.0) 75.0 75.0 1.0))
         t.number = (EVGColor.rgb(255 210 122))
-        t.text = (EVGColor.rgb(214 255 106))
-        t.comment = (EVGColor.rgb(93 138 44))
-        t.punct = (EVGColor.rgb(143 194 78))
+        t.text = (PresApp.hueColor(h 100.0 71.0 1.0))
+        t.comment = (PresApp.hueColor(h 52.0 36.0 1.0))
+        t.punct = (PresApp.hueColor(h 49.0 53.0 1.0))
         t.tag = (EVGColor.rgb(255 170 90))
         t.attr = (EVGColor.rgb(255 210 122))
-        t.popupBg = (EVGColor.rgb(12 31 4))
-        t.popupEdge = (EVGColor.rgb(230 255 154))
-        t.popupPick = (EVGColor.rgb(27 53 9))
-        t.popupDetail = (EVGColor.rgb(143 194 78))
-        t.findBg = (EVGColor.rgb(12 31 4))
-        t.findEdge = (EVGColor.rgb(230 255 154))
-        t.findInk = (EVGColor.rgb(230 255 184))
-        t.findDim = (EVGColor.rgb(143 194 78))
+        t.popupBg = (PresApp.hueColor(h 77.0 7.0 1.0))
+        t.popupEdge = (PresApp.hueColor(h 100.0 80.0 1.0))
+        t.popupPick = (PresApp.hueColor(h 71.0 12.0 1.0))
+        t.popupDetail = (PresApp.hueColor(h 49.0 53.0 1.0))
+        t.findBg = (PresApp.hueColor(h 77.0 7.0 1.0))
+        t.findEdge = (PresApp.hueColor(h 100.0 80.0 1.0))
+        t.findInk = (PresApp.hueColor(h 100.0 86.0 1.0))
+        t.findDim = (PresApp.hueColor(h 49.0 53.0 1.0))
         t.errorInk = (EVGColor.rgb(255 138 106))
         t.warningInk = (EVGColor.rgb(255 210 122))
-        t.minimapBg = (EVGColor.rgb(12 31 4))
-        t.minimapSlider = (EVGColor.rgba(198 255 90 0.12))
-        t.minimapEdge = (EVGColor.rgb(31 61 8))
-        t.hBarTrack = (EVGColor.rgb(12 31 4))
-        t.hBarThumb = (EVGColor.rgba(198 255 90 0.35))
-        t.hBarEdge = (EVGColor.rgb(31 61 8))
+        t.minimapBg = (PresApp.hueColor(h 77.0 7.0 1.0))
+        t.minimapSlider = (PresApp.hueColor(h 100.0 68.0 0.12))
+        t.minimapEdge = (PresApp.hueColor(h 77.0 13.0 1.0))
+        t.hBarTrack = (PresApp.hueColor(h 77.0 7.0 1.0))
+        t.hBarThumb = (PresApp.hueColor(h 100.0 68.0 0.35))
+        t.hBarEdge = (PresApp.hueColor(h 77.0 13.0 1.0))
     }
 
     ; The reader's template, which beats what the document names; "" lets
@@ -3896,8 +3902,10 @@ class PresApp {
     }
 
     ; File → Settings → Look. Every host is built again under the new theme;
-    ; the code editors have no stylesheet, so their palette is set here.
-    fn setSkin:void (name:string) {
+    ; the code editors have no stylesheet, so their palette is set here from
+    ; the skin's hue (the page puts the same hue in the sheets as
+    ; `--retro-hue`, see setChromeCss).
+    fn setSkin:void (name:string hue:double) {
         def s:string ""
         if (name == "retro") {
             s = "retro"
@@ -3905,11 +3913,12 @@ class PresApp {
         skin = s
         toolbar.skin = s
         panels.skin = s
+        panels.skinHue = hue
         hint.skin = s
         chart.skin = s
-        PresApp.skinEditor(editor s)
-        PresApp.skinEditor(cssEditor s)
-        PresApp.skinEditor(fileEditor s)
+        PresApp.skinEditor(editor s hue)
+        PresApp.skinEditor(cssEditor s hue)
+        PresApp.skinEditor(fileEditor s hue)
         if ((strlen toolbar.css) > 0) {
             toolbar.rebuild()
         }
@@ -3923,6 +3932,15 @@ class PresApp {
             chart.rebuild()
         }
         panelsKey = ""
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The chrome sheet again (pres.css and the skins after it): the page
+    ; sends it once more when the skin's colour changes.
+    fn setChromeCss:void (css:string) {
+        def fresh (new EVGStyleSheet())
+        sheet = fresh
+        sheet.parse(css)
         chromeRev = (chromeRev + 1)
     }
 

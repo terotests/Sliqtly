@@ -1353,12 +1353,49 @@ async function saveOpenFile(path) {
 // File → Settings: automatic contrast correction, on unless turned off here.
 let autoContrast = true;
 try { autoContrast = localStorage.getItem("sliqtly.autoContrast") !== "off"; } catch (_) { /* on */ }
-// The editor's skin (File → Settings → Look): "" or "retro", per browser.
+// The editor's skin (File → Settings → Look): "" or "retro", and the skin's
+// base colour as a hue (its sheets' --retro-hue), per browser.
 let skin = "";
-try { skin = localStorage.getItem("sliqtly.skin") === "retro" ? "retro" : ""; } catch (_) { /* standard */ }
+let skinHue = 88;
+try {
+  skin = localStorage.getItem("sliqtly.skin") === "retro" ? "retro" : "";
+  const h = parseInt(localStorage.getItem("sliqtly.skinHue") || "", 10);
+  if (h >= 0 && h < 360) skinHue = h;
+} catch (_) { /* standard */ }
+// Every chrome sheet without the skins, as loaded (start), and the skins'
+// own text: the skins go after each sheet with the chosen hue at the end.
+const chromeSheets = { files: "", chrome: null, chart: null, hint: null, panels: null, toolbar: null };
+function skinCss() {
+  return chromeSheets.files ? chromeSheets.files + "\n@vars retro { --retro-hue: " + skinHue + "; }\n" : "";
+}
+function sendChromeCss() {
+  const sk = skinCss();
+  const c = chromeSheets;
+  if (c.chart != null) app.setChartCss(c.chart + sk);
+  if (c.hint != null) app.setHintCss(c.hint + sk);
+  if (c.panels != null) app.setPanelsCss(c.panels + sk);
+  if (c.toolbar != null) app.setToolbarCss(c.toolbar + sk);
+}
+function setSkinHue(h) {
+  if (!(h >= 0 && h < 360)) return;
+  skinHue = h;
+  try { localStorage.setItem("sliqtly.skinHue", String(h)); } catch (_) { /* this session only */ }
+  app.setChromeCss(chromeSheets.chrome + skinCss());
+  sendChromeCss();
+  applySkin();
+  needsPaint = true;
+}
+function setSkinName(name) {
+  skin = name === "retro" ? "retro" : "";
+  try { localStorage.setItem("sliqtly.skin", skin || "standard"); } catch (_) { /* this session only */ }
+  applySkin();
+  needsPaint = true;
+}
+window.__skin = { set: setSkinName, hue: setSkinHue };
 function applySkin() {
-  app.setSkin(skin);
+  app.setSkin(skin, skinHue);
   document.documentElement.dataset.skin = skin || "standard";
+  document.documentElement.style.setProperty("--retro-hue", String(skinHue));
 }
 
 let thumbs = new Map();
@@ -2206,10 +2243,9 @@ function handleRequests() {
       dropThumbs();
       needsPaint = true;
     } else if (r.startsWith("setting:skin:")) {
-      skin = r.endsWith(":retro") ? "retro" : "";
-      try { localStorage.setItem("sliqtly.skin", skin || "standard"); } catch (_) { /* this session only */ }
-      applySkin();
-      needsPaint = true;
+      setSkinName(r.endsWith(":retro") ? "retro" : "");
+    } else if (r.startsWith("setting:skinhue:")) {
+      setSkinHue(parseInt(r.slice("setting:skinhue:".length), 10));
     } else if (r === "openbox") {
       // Open: a file from the computer, or a sample deck
       app.openOpen([...sampleSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
@@ -4187,14 +4223,18 @@ async function start() {
     Promise.all([textOf("./skins/ui-retro.css"), textOf("./skins/retro.css")])
       .then((t) => "\n" + t.join("\n")).catch(() => ""),
   ]);
-  const css = css0 + skins;
-  app.setChartCss(kit + "\n" + chartCss + skins);
-  textOf("./hint.css").then((c) => app.setHintCss(kit + "\n" + chartCss + "\n" + c + skins)).catch(() => {});
-  textOf("./panels.css").then((c) => app.setPanelsCss(kit + "\n" + c + skins)).catch(() => {});
+  chromeSheets.files = skins;
+  chromeSheets.chrome = css0;
+  const css = css0 + skinCss();
+  chromeSheets.chart = kit + "\n" + chartCss;
+  app.setChartCss(chromeSheets.chart + skinCss());
+  textOf("./hint.css").then((c) => { chromeSheets.hint = kit + "\n" + chartCss + "\n" + c; app.setHintCss(chromeSheets.hint + skinCss()); }).catch(() => {});
+  textOf("./panels.css").then((c) => { chromeSheets.panels = kit + "\n" + c; app.setPanelsCss(chromeSheets.panels + skinCss()); }).catch(() => {});
   if (!viewer) {
     // the bar moves onto the canvas: the HTML one stays, hidden, as what it
     // presses (its buttons and selects keep every behaviour they had)
-    app.setToolbarCss(kit + "\n" + (await toolbarCss) + skins);
+    chromeSheets.toolbar = kit + "\n" + (await toolbarCss);
+    app.setToolbarCss(chromeSheets.toolbar + skinCss());
     document.body.classList.add("canvas-bar");
     canvasBar = true;
     syncBarExtras();
