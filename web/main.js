@@ -514,6 +514,8 @@ const liveSheets = createLiveSheets({
   onChange: () => { needsPaint = true; },
 });
 window.__liveSheets = liveSheets;
+// for check:web: a workbook saved as the spreadsheet editor saves it
+window.__saveWorkbook = (path, raw) => saveWorkbook(path, raw);
 // for check:web: what the document keeps as files
 window.__docFiles = () => docFiles().then((fs) => fs.map((f) => f.path));
 
@@ -858,14 +860,40 @@ function whenText(t) {
   return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()} ${two(d.getHours())}:${two(d.getMinutes())}`;
 }
 
-// File → Recent: the decks of this browser edited last, the open one left
-// out (a PRO deck is among them: the cloud save keeps it here as well).
+// Signed in: the user's own shares that this browser does not keep, as
+// "cloud:<share id>" decks (opened from the cloud, as /s/{id}?edit is).
+// Read at sign-in; after that, a list older than 30 s is read again behind
+// the one shown, which is redrawn when it arrives.
+let cloudList = { uid: null, at: 0, rows: [] };
+let cloudListing = null;
+function readCloudList(uid) {
+  cloudListing ??= window.sliqtly.listMine()
+    .catch((e) => { console.warn("listing the cloud decks failed", e); return []; })
+    .then((rows) => { cloudList = { uid, at: Date.now(), rows }; })
+    .finally(() => { cloudListing = null; });
+  return cloudListing;
+}
+async function cloudDocs(local) {
+  const user = window.sliqtly?.user?.();
+  if (!user || !window.sliqtly.listMine) return [];
+  if (cloudList.uid !== user.uid) await readCloudList(user.uid);
+  else if (Date.now() - cloudList.at > 30000 && !cloudListing) readCloudList(user.uid).then(() => refreshFiles());
+  const here = new Set(local.map((d) => d.cloud).filter(Boolean));
+  return cloudList.rows.filter((r) => !here.has(r.id))
+    .map((r) => ({ id: "cloud:" + r.id, name: r.name, updated: r.updated, inCloud: true }));
+}
+async function allDocs() {
+  const local = await vfs.listDocs();
+  return local.concat(await cloudDocs(local)).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+}
+
+// File → Recent: the decks edited last, the open one left out: this
+// browser's, and signed in, the cloud's too.
 let recentSynced = "";
 async function refreshRecent() {
   if (!vfs || viewer) return;
-  const rows = (await vfs.listDocs())
+  const rows = (await allDocs())
     .filter((d) => d.id !== doc.id)
-    .sort((a, b) => (b.updated || 0) - (a.updated || 0))
     .slice(0, 8)
     .map((d) => d.id + "\t" + String(d.name || "presentation").replace(/[\t\n\r]+/g, " "));
   const key = rows.join("\n");
@@ -899,9 +927,11 @@ async function refreshFiles() {
     const head = [{ path: name + ".md", size: new TextEncoder().encode(app.source()).length, kind: "md" }];
     const key = themeSel.value || "";
     head.push({ path: (key || "theme") + ".css", size: -1, kind: "css" });
-    const docs = (await vfs.listDocs())
-      .sort((a, b) => (b.updated || 0) - (a.updated || 0))
-      .map((d) => ({ id: d.id, name: d.name || "presentation", when: whenText(d.updated), current: d.id === doc.id }));
+    const docs = (await allDocs())
+      .map((d) => ({
+        id: d.id, name: d.name || "presentation", current: d.id === doc.id, cloud: !!d.inCloud,
+        when: (d.inCloud ? t("In the cloud") + " · " : "") + whenText(d.updated),
+      }));
     let note = vfs.persistent
       ? t("Files live only in this browser (IndexedDB). Share links carry only the text and theme, not images or data files.")
       : t("This browser does not allow storage: files are kept only while this page is open.");
@@ -911,16 +941,18 @@ async function refreshFiles() {
       : {
         title: t("Share images and data with PRO"),
         text: t("PRO keeps your decks and their files in the cloud. Share links then carry images, plus the CSV and JSON data behind your charts and tables."),
-        button: t("Get PRO"),
+        button: t("Sign in with Google"),
       };
     // PRO: the deck and its files live in the cloud share, and go with its links
     if (signedIn()) {
       note = doc.cloudHalt
         ? t("This presentation was changed elsewhere, so it is not saved to the cloud now. A copy stays in this browser.")
-        : t("PRO: this presentation and its files are saved to your cloud and go with share links. A copy stays in this browser.");
+        : cloudError
+          ? t("Saving to the cloud failed: ") + cloudError + ". " + t("It is tried again on the next change; a copy stays in this browser.")
+          : t("PRO: this presentation and its files are saved to your cloud and go with share links. A copy stays in this browser.");
     }
     if (!doc.persisted) note = t("This presentation is not saved yet: it saves when you change it. ") + note;
-    app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), docs, note, ...(promo ? { promo } : {}) }));
+    app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), docs, mine: !!window.sliqtly?.user?.(), note, ...(promo ? { promo } : {}) }));
     needsPaint = true;
   } finally {
     filesListing = false;
@@ -1191,7 +1223,10 @@ async function fileRequest(r) {
     if (app.openFilePath() === what) app.closeFile();
     cloudSoon();
   } else if (action === "doc") {
-    if (!(await openDoc(what))) toast(t("Presentation not found."));
+    const opened = what.startsWith("cloud:")
+      ? await openOwnCloud(what.slice(6)).catch((e) => { console.warn(e); return false; })
+      : await openDoc(what);
+    if (!opened) toast(t("Presentation not found."));
   } else if (action === "deletedeck") {
     // asked first, in the app's own window; "confirm:deletedeck" deletes
     const cloud = !!doc.cloud && !!window.sliqtly?.user?.();
@@ -1200,7 +1235,7 @@ async function fileRequest(r) {
       (cloud ? t(" and from the cloud, and its share link stops working") : "") +
       t(". This cannot be undone."), t("Delete"));
   } else if (action === "deldoc") {
-    if (what !== doc.id) await vfs.deleteDoc(what);
+    if (what !== doc.id && !what.startsWith("cloud:")) await vfs.deleteDoc(what);
   }
   refreshFiles();
   needsPaint = true;
@@ -2306,8 +2341,11 @@ function cloudSoon() {
 }
 let cloudBusy = null;
 let cloudWarned = false;
+let cloudError = "";
 function cloudTrouble(e) {
   console.warn("cloud save failed", e);
+  cloudError = String(e?.code || e?.message || e);
+  refreshFiles();
   if (cloudWarned) return;
   cloudWarned = true;
   toast(t("Saving to the cloud failed: ") + (e?.code || e?.message || String(e)) + ". " + t("The presentation is kept in this browser."));
@@ -2335,7 +2373,20 @@ async function cloudSync() {
   cloudBusy = (async () => {
     let id = doc.cloud;
     if (!id) {
-      id = await p.share(deck);
+      try {
+        id = await p.share(deck);
+      } catch (e) {
+        // made, but a file did not go: the deck keeps this share, and the
+        // next save sends its files again
+        if (e?.shareId && doc.id === which) {
+          doc.cloud = e.shareId;
+          doc.cloudMd = deck.md;
+          doc.cloudStamps = new Map();
+          await vfs.putDoc({ ...(await vfs.getDoc(doc.id)), cloud: e.shareId, cloudMd: deck.md });
+          plainAddress();
+        }
+        throw e;
+      }
     } else {
       try {
         await p.saveShare(id, deck, { md: doc.cloudMd, stamps: doc.cloudStamps });
@@ -2352,6 +2403,7 @@ async function cloudSync() {
     doc.cloudSig = sig;
     doc.cloudStamps = new Map(deck.files.map((f) => [f.path, f.stamp]));
     cloudWarned = false;
+    cloudError = "";
     await vfs.putDoc({ ...(await vfs.getDoc(doc.id)), cloud: id, cloudMd: deck.md });
     plainAddress();
     return id;

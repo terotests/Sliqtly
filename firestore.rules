@@ -2,7 +2,8 @@ rules_version = '2';
 
 // decks: a presentation, its owner's alone.
 // shares: the copy made when a deck is shared. Anyone holding the short id
-// reads it; nobody can list the ids; only its owner changes or deletes it.
+// reads it; only its owner lists its own (a query on owner), changes or
+// deletes it.
 // mcp_keys, mcp_oauth_*: the MCP server's edit keys and sign-in state
 // (mcp/). No rule matches them, so only the Admin SDK reads or writes them.
 service cloud.firestore {
@@ -18,7 +19,7 @@ service cloud.firestore {
 
     match /shares/{shareId} {
       allow get: if true;
-      allow list: if false;
+      allow list: if signedIn() && resource.data.owner == request.auth.uid;
       allow create: if signedIn() && request.resource.data.owner == request.auth.uid;
       allow update: if signedIn() && resource.data.owner == request.auth.uid
                     && request.resource.data.owner == request.auth.uid;

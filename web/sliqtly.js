@@ -83,7 +83,8 @@ function auth() {
 
 function show() {
   const first = (user?.displayName || user?.email || "").split(/[\s@]/)[0];
-  pro.textContent = user ? `PRO · ${first}` : "PRO";
+  // signed out it asks to sign in: a bare "PRO" read as being signed in
+  pro.textContent = user ? `PRO · ${first}` : t("Sign in");
   pro.title = user ? t("Signed in as ") + (user.displayName || user.email) : t("Sign in with Google");
 }
 
@@ -191,14 +192,21 @@ async function share(deck) {
   const doc = db.collection("shares").doc(id);
   // the copy first: Storage lets only the owner it names write its files
   await doc.set({ ...body, owner: user.uid, deck: deck.deckId, files: [], created: now });
-  const kept = [];
-  for (const f of deck.files || []) {
-    const blob = f.data instanceof Blob ? f.data : new Blob([f.data ?? ""], { type: f.type || "text/plain" });
-    const ref = files.ref(`shares/${id}/${f.path}`);
-    await ref.put(blob, { contentType: f.type || blob.type || "application/octet-stream" });
-    kept.push({ path: f.path, type: f.type || blob.type || "", size: blob.size, url: await ref.getDownloadURL() });
+  // the share exists from here: a file that fails names it (e.shareId), so
+  // the deck keeps it and the next save sends the files again instead of
+  // making another share
+  try {
+    const kept = [];
+    for (const f of deck.files || []) {
+      const blob = f.data instanceof Blob ? f.data : new Blob([f.data ?? ""], { type: f.type || "text/plain" });
+      const ref = files.ref(`shares/${id}/${f.path}`);
+      await ref.put(blob, { contentType: f.type || blob.type || "application/octet-stream" });
+      kept.push({ path: f.path, type: f.type || blob.type || "", size: blob.size, url: await ref.getDownloadURL() });
+    }
+    if (kept.length) await doc.update({ files: kept });
+  } catch (e) {
+    throw Object.assign(e instanceof Error ? e : new Error(String(e)), { shareId: id });
   }
-  if (kept.length) await doc.update({ files: kept });
   return id;
 }
 
@@ -208,6 +216,18 @@ async function loadShare(id) {
   const { db } = await store();
   const snap = await db.collection("shares").doc(id).get();
   return snap.exists ? snap.data() : null;
+}
+
+// The signed-in user's own shares, newest first: [{ id, name, updated }]
+// (updated in ms). The rules let an owner list only a query on owner.
+async function listMine() {
+  if (!user) return [];
+  const { db } = await store();
+  const snap = await db.collection("shares").where("owner", "==", user.uid).limit(200).get();
+  const ms = (v) => (v && typeof v.toMillis === "function" ? v.toMillis() : 0);
+  return snap.docs
+    .map((d) => ({ id: d.id, name: d.data().name || "", updated: ms(d.data().updated) || ms(d.data().created) }))
+    .sort((a, b) => b.updated - a.updated);
 }
 
 // The signed-in user once the session from an earlier visit is known (null
@@ -383,5 +403,5 @@ async function readSheet(gviz, ask) {
   return rows.map((row) => Array.from({ length: width }, (_, i) => csvCell(row[i])).join(",")).join("\n") + "\n";
 }
 
-window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, readSheet, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true) };
+window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, listMine, readSheet, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true) };
 window.dispatchEvent(new Event("sliqtly:ready"));
