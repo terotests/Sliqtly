@@ -939,7 +939,7 @@ async function refreshFiles() {
       : {
         title: t("Share images and data with PRO"),
         text: t("PRO keeps your decks and their files in the cloud. Share links then carry images, plus the CSV and JSON data behind your charts and tables."),
-        button: t("Get PRO"),
+        button: t("Sign in with Google"),
       };
     // PRO: the deck and its files live in the cloud share, and go with its links
     if (signedIn()) {

@@ -83,7 +83,8 @@ function auth() {
 
 function show() {
   const first = (user?.displayName || user?.email || "").split(/[\s@]/)[0];
-  pro.textContent = user ? `PRO · ${first}` : "PRO";
+  // signed out it asks to sign in: a bare "PRO" read as being signed in
+  pro.textContent = user ? `PRO · ${first}` : t("Sign in");
   pro.title = user ? t("Signed in as ") + (user.displayName || user.email) : t("Sign in with Google");
 }
 
