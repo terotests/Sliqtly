@@ -780,6 +780,10 @@ class PresToolbar {
             lay.setMeasurer((unwrap measurer))
         }
         lay.layout(pg)
+        ; a menu card as wide as its widest row (a submenu hangs off its row)
+        if (UiHost.fitSurfaces(r lay)) {
+            lay.layout(pg)
+        }
         host.lastPage = pg
         return pg
     }
