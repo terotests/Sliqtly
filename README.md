@@ -150,6 +150,18 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   their current values. Only what the slide has is listed. Clicking a
   property opens the theme at that line (adding it if the theme has none)
   with its value popover.
+- **Layouts from lists (PRO).** A fence named `process`, `swot` or
+  `timeline` draws chevron steps, a SWOT grid or a timeline from one
+  `Title: description` per line (an indented `- point` belongs to the item
+  above). They are computed by Ranger's markdown module (`MdFigure`) in the
+  theme's colours (`figure { colors: #a #b #c #d }`, else the chart's), set
+  as large as the room under the heading allows, and go into the PDF and
+  the PPTX as vector shapes and text boxes. `{art=waves}` on a heading (or
+  `art: waves` in the front matter) draws line art behind the slide,
+  `{art-seed=3}` another picture of it, `{art=off}` none; in the PPTX it is
+  a group of strokes at the back. Signed out (not PRO) a fence's slot says
+  so and no art is drawn (`PresApp.setPro`, from `liveAllowed()` in
+  main.js). `samples/mallit.md` shows them.
 - A slide's background effect (`{fx=…}`) goes into the PDF and the PPTX as a
   picture: before an export each effect is drawn in the browser at the moment
   the thumbnails show it, and put under the slide's content (PDF) or as the

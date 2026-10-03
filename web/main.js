@@ -67,6 +67,7 @@ const SAMPLES = {
   matematiikka: sample("matematiikka", "Mathematics: formulas on slides", "Matematiikka: kaavat kalvoilla"),
   vegalite: sample("vegalite", "Vega-Lite: chart types", "Vega-Lite: kaaviotyypit"),
   raportti: sample("raportti", "Report: header, footer, page numbers", "Raportti: ylä- ja alaosa, sivunumerot"),
+  mallit: sample("mallit", "Layouts: steps, SWOT, timeline (PRO)", "Asettelut: vaiheet, SWOT, aikajana (PRO)"),
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
 };
 
@@ -392,6 +393,7 @@ function beginDoc(text) {
   chartFiles.clear();
   chartFilesRev = -1;
   liveFromShare = false;
+  proNow();
   liveNoted = false;
   liveCopies.clear();
   copyNoted = false;
@@ -1227,6 +1229,20 @@ async function fileRequest(r) {
     }
     const text = typeof f.data === "string" ? f.data : (isText(f.path, f.type) ? await f.data.text() : null);
     if (text == null) { toast(t("This file cannot be opened as text.")); return; }
+    // a CSV opens in the spreadsheet editor; Save writes it back as CSV
+    if (/\.csv$/i.test(f.path)) {
+      liveSheets.openDialog({
+        name: f.path.split("/").pop(),
+        csv: text,
+        onSave: (raw) => saveWorkbook(f.path, raw),
+        onClose: () => { keys.focus({ preventScroll: true }); needsPaint = true; },
+      }).catch((e) => {
+        // no spreadsheet editor (offline): the text, as before
+        toast(t("The spreadsheet editor did not load: ") + (e.message || e));
+        app.openFile(f.path, text);
+      });
+      return;
+    }
     app.openFile(f.path, text);
   } else if (action === "source" || action === "refresh" || action === "unlink") {
     const f = (await docFiles()).find((x) => x.path === what);
@@ -1720,8 +1736,16 @@ let liveNoted = false;
 function liveAllowed() {
   return liveFromShare || /^(localhost|127\.0\.0\.1)$/.test(location.hostname) || !!window.sliqtly?.user?.();
 }
+// The layouts drawn from lists (```process, ```swot, ```timeline) and the
+// slides' line art ({art=waves}) are PRO as well, on the same terms.
+function proNow() {
+  app.setPro(liveAllowed());
+  needsPaint = true;
+}
+proNow();
 // signed in or out: the live data is looked at again
 window.addEventListener("sliqtly:user", () => {
+  proNow();
   liveAuthKnown = true;
   chartFilesRev = -1;
   needsPaint = true;
@@ -3034,6 +3058,7 @@ async function openFromShare() {
     if (editing) originShare = { id, owner: shared.owner || "", md: shared.md || "" };
     beginDoc(shared.md || "");
     liveFromShare = !editing;
+    proNow();
     if (own) doc.id = own.deck;
     else if (!editing) viewShare = { id, owner: shared.owner, deck: shared.deck };
     if (shared.theme != null) {

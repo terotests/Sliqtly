@@ -82,6 +82,8 @@ class PresHints {
         if (key == "height") { return (PresI18n.t("Image height: in points or as a percentage of the slide's content height (50%).")) }
         if (key == "align") { return (PresI18n.t("Image position in the column: left, center or right.")) }
         if (key == "bg") { return (PresI18n.t("Slide background image, covers the whole slide: bg=media/kuva.jpg")) }
+        if (key == "art") { return (PresI18n.t("PRO: line art drawn behind the slide in the theme's colours (waves). art=off leaves it off this slide.")) }
+        if (key == "art-seed") { return (PresI18n.t("A number that moves the art's curves: another number, another picture.")) }
         if (key == "bg-dim") { return (PresI18n.t("How much of the slide's base color goes over the background image (0–1), so text stands out.")) }
         if (key == "header") { return (PresI18n.t("Header text on every slide. {page}, {pages} and {title} are filled in. On a heading, header=off leaves it off that slide.")) }
         if (((key == "header-left") || (key == "header-center")) || (key == "header-right")) { return (PresI18n.t("Text in that place of every slide's header; a picture as ![](media/logo.png). {page}, {pages} and {title} are filled in.")) }
@@ -117,6 +119,7 @@ class PresHints {
         if ((key == "tour") || ((key == "ball") || (key == "choose"))) { return "on off" }
         if (key == "style") { return "holo sketch" }
         if (key == "furniture") { return "off" }
+        if (key == "art") { return "waves off" }
         if (((key == "align") || (key == "header-align")) || (key == "footer-align")) { return "left center right" }
         return ""
     }
@@ -290,8 +293,8 @@ class PresHints {
             return ""
         }
         def h:PresHint (PresHint.make("enum" (PresI18n.t("language")) (substring line a b) a b))
-        h.doc = (PresI18n.t("What the block is: a diagram, a formula or code."))
-        h.options = "mermaid dot plantuml d2 vega-lite math js python bash json"
+        h.doc = (PresI18n.t("What the block is: a diagram, a formula or code. PRO: process, swot and timeline draw a layout from a list, one `Title: description` per line."))
+        h.options = "mermaid dot plantuml d2 vega-lite process swot timeline math js python bash json"
         return (h.json())
     }
 
