@@ -2416,6 +2416,44 @@ try {
   });
   check("Open: the samples list starts with a deck, the prompt only on the trigger", samples.trigger === "Open sample document…" && samples.rows[0] === "talous=Finance: take charge of your money" && !samples.rows.some((r) => r.startsWith("=")), JSON.stringify(samples));
 
+  // the address follows the slide, the editor's tab and the presentation,
+  // and a reload comes back to them
+  {
+    const ph = await browser.newPage({ viewport: { width: 1200, height: 760 } });
+    await ph.goto(url + "?sample=esittely");
+    await ph.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await ph.evaluate(() => { window.__app.selectSlide(2); window.__app.showTab("css"); });
+    await ph.waitForFunction(() => /slide=3/.test(location.hash) && /tab=css/.test(location.hash), null, { timeout: 5000 }).catch(() => {});
+    const hashed = await ph.evaluate(() => location.hash);
+    await ph.reload();
+    await ph.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const back = await ph.evaluate(() => ({ slide: JSON.parse(window.__app.layoutJson()).slide, tab: window.__app.editorTab() }));
+    await ph.evaluate(() => document.getElementById("present").click());
+    await ph.waitForFunction(() => /view=present/.test(location.hash), null, { timeout: 5000 }).catch(() => {});
+    await ph.reload();
+    await ph.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const shown = await ph.evaluate(() => { const l = JSON.parse(window.__app.layoutJson()); return { mode: l.mode, slide: l.slide, len: history.length }; });
+    await ph.close();
+    check("the address keeps the slide, the tab and the presentation over a reload", hashed === "#slide=3&tab=css" && back.slide === 2 && back.tab === "css" && shown.mode === "present" && shown.slide === 2, JSON.stringify({ hashed, back, shown }));
+    // a new deck kept in this browser: its id in the address, and a reload
+    // opens it even when another tab saved a deck of its own since
+    const pn = await browser.newPage({ viewport: { width: 1200, height: 760 } });
+    await pn.goto(url);
+    await pn.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await pn.evaluate(() => window.__fileRequest("new"));
+    await pn.waitForTimeout(300);
+    await pn.keyboard.type("Vuokra ja menot");
+    await pn.keyboard.press("Enter");
+    await pn.waitForFunction(() => /doc=/.test(location.hash), null, { timeout: 8000 }).catch(() => {});
+    const addr = await pn.evaluate(() => location.hash);
+    await pn.evaluate(() => localStorage.setItem("evgp.doc", "some-other-deck"));
+    await pn.reload();
+    await pn.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const reopened = await pn.evaluate(() => ({ md: window.__app.source().slice(0, 20), at: location.hash }));
+    await pn.close();
+    check("a new deck's id is in the address and a reload opens that deck", /^#doc=[a-z0-9-]+$/.test(addr) && reopened.md.startsWith("# Vuokra ja menot") && reopened.at === addr, JSON.stringify({ addr, reopened }));
+  }
+
   // the interface in another language: ?lang=fi, the canvas bar and the page alike
   const pageFi = await browser.newPage({ viewport: { width: 1200, height: 760 } });
   await pageFi.goto(url + "?lang=fi&sample=talous");
