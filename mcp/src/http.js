@@ -23,7 +23,7 @@ export function rateLimiter({ max = 60, windowMs = 10 * 60 * 1000 } = {}) {
 }
 
 // the tools that store something, counted by the limiter
-const WRITES = new Set(["create_presentation", "update_presentation", "bind_chart_data"]);
+const WRITES = new Set(["create_presentation", "update_presentation", "bind_chart_data", "write_workbook"]);
 
 // The site's own addresses: the OAuth issuer and the resource follow the
 // one the client used, so both domains work.

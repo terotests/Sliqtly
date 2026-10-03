@@ -181,3 +181,88 @@ export function toCsv(rows) {
   };
   return rows.map((r) => r.map(cell).join(",")).join("\n");
 }
+
+// --- writing: a workbook of values, as write_workbook keeps it
+
+const xmlText = (s) => String(s)
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+  // characters XML 1.0 does not allow
+  .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
+
+const NUMBER = /^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$/;
+
+function colName(i) {
+  let s = "";
+  for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
+  return s;
+}
+
+/** Why a sheet name will not do in Excel, or "". */
+export function badSheetName(name) {
+  const n = String(name ?? "");
+  if (!n.trim()) return "a sheet needs a name";
+  if (n.length > 31) return `sheet name "${n}" is longer than 31 characters`;
+  if (/[\\/:*?[\]]/.test(n)) return `sheet name "${n}" has one of \\ / : * ? [ ]`;
+  if (/^'|'$/.test(n)) return `sheet name "${n}" starts or ends with '`;
+  return "";
+}
+
+function zipDeflated(entries) {
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+  for (const [name, text] of entries) {
+    const data = Buffer.from(text, "utf8");
+    const packed = zlib.deflateRawSync(data);
+    const nameBuf = Buffer.from(name, "utf8");
+    const crc = zlib.crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(0x0800, 6); local.writeUInt16LE(8, 8);
+    local.writeUInt32LE(crc, 14); local.writeUInt32LE(packed.length, 18); local.writeUInt32LE(data.length, 22); local.writeUInt16LE(nameBuf.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6); central.writeUInt16LE(0x0800, 8); central.writeUInt16LE(8, 10);
+    central.writeUInt32LE(crc, 16); central.writeUInt32LE(packed.length, 20); central.writeUInt32LE(data.length, 24); central.writeUInt16LE(nameBuf.length, 28);
+    central.writeUInt32LE(offset, 42);
+    locals.push(local, nameBuf, packed);
+    centrals.push(central, nameBuf);
+    offset += 30 + nameBuf.length + packed.length;
+  }
+  const dir = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(dir.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, dir, end]);
+}
+
+/**
+ * An .xlsx of `sheets` [{ name, rows: [[value]] }]: numbers as numbers,
+ * anything else as text, the first row bold. Values only (no formulas,
+ * formats or widths).
+ */
+export function writeWorkbook(sheets) {
+  const ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+  const rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  const head = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+  const entries = [];
+  const over = sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("");
+  entries.push(["[Content_Types].xml", head + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' + over + "</Types>"]);
+  entries.push(["_rels/.rels", head + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${rel}/officeDocument" Target="xl/workbook.xml"/></Relationships>`]);
+  entries.push(["xl/workbook.xml", head + `<workbook ${ns} xmlns:r="${rel}"><sheets>` + sheets.map((s, i) => `<sheet name="${xmlText(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("") + "</sheets></workbook>"]);
+  entries.push(["xl/_rels/workbook.xml.rels", head + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${rel}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("") + `<Relationship Id="rId${sheets.length + 1}" Type="${rel}/styles" Target="styles.xml"/></Relationships>`]);
+  entries.push(["xl/styles.xml", head + `<styleSheet ${ns}><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs></styleSheet>`]);
+  sheets.forEach((s, i) => {
+    const rows = s.rows.map((row, r) => {
+      const cells = row.map((v, c) => {
+        if (v == null || String(v) === "") return "";
+        const ref = colName(c) + (r + 1);
+        const style = r === 0 ? ' s="1"' : "";
+        const t = typeof v === "number" ? (Number.isFinite(v) ? String(v) : null) : NUMBER.test(String(v).trim()) ? String(v).trim() : null;
+        if (t != null) return `<c r="${ref}"${style}><v>${t}</v></c>`;
+        return `<c r="${ref}"${style} t="inlineStr"><is><t xml:space="preserve">${xmlText(v)}</t></is></c>`;
+      }).join("");
+      return `<row r="${r + 1}">${cells}</row>`;
+    }).join("");
+    entries.push([`xl/worksheets/sheet${i + 1}.xml`, head + `<worksheet ${ns}><sheetData>${rows}</sheetData></worksheet>`]);
+  });
+  return zipDeflated(entries);
+}

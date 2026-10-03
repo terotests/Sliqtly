@@ -859,7 +859,16 @@ class PresApp {
         clock = start
         playing = true
         deck.resetExplore()
+        ; playing is not editing: the pick and its popover go
+        this.dropPick()
         chromeRev = (chromeRev + 1)
+    }
+
+    fn dropPick:void () {
+        if hintFromStage {
+            this.closeHint()
+        }
+        pick.clear()
     }
 
     fn stop:void () {
@@ -1156,6 +1165,7 @@ class PresApp {
     ; Presenting
     ; =========================================================================
     fn present:void (fromStart:boolean) {
+        this.dropPick()
         mode = "present"
         this.viewReset()
         activeDia = -1
@@ -2031,6 +2041,13 @@ class PresApp {
             panels.press(x y)
             this.takePanels()
             return "panel"
+        }
+        ; a press off the slide (and off the pick's buttons) lets the pick go
+        if (pick.on && ((slideRect.has(x y)) == false)) {
+            if (((stageArea.has(x y)) == false) || ((strlen (pick.partAt(x y))) == 0)) {
+                pick.clear()
+                chromeRev = (chromeRev + 1)
+            }
         }
         if ((barH > 0.0) && (toolbar.has(x y))) {
             toolbar.press(x y)
@@ -3234,7 +3251,7 @@ class PresApp {
         if (pick.on == false) {
             return false
         }
-        if ((((mode == "present") || (pick.page != selected)) || (pick.version != mdEditor.buf.version)) || ((deck.slideCount()) == 0)) {
+        if (((((mode == "present") || playing) || (pick.page != selected)) || (pick.version != mdEditor.buf.version)) || ((deck.slideCount()) == 0)) {
             pick.clear()
             return false
         }
@@ -3268,7 +3285,7 @@ class PresApp {
     ; A click on the slide that nothing else took: the block under it, or
     ; the slide itself.
     fn pickAt:void (x:double y:double) {
-        if (((mode == "present") || ((deck.slideCount()) == 0)) || ((slideRect.has(x y)) == false)) {
+        if ((((mode == "present") || playing) || ((deck.slideCount()) == 0)) || ((slideRect.has(x y)) == false)) {
             return
         }
         this.slidePoint(x y)
@@ -3287,7 +3304,7 @@ class PresApp {
     }
 
     fn pickHover:void (x:double y:double) {
-        if (((mode == "present") || ((deck.slideCount()) == 0)) || ((stageArea.has(x y)) == false)) {
+        if ((((mode == "present") || playing) || ((deck.slideCount()) == 0)) || ((stageArea.has(x y)) == false)) {
             if (pick.hoverOn || ((strlen pick.hot) > 0)) {
                 pick.hoverOn = false
                 pick.hot = ""
@@ -3340,12 +3357,13 @@ class PresApp {
         def bi0:int (pick.bandOf(part))
         if ((bi0 >= 0) && (bi0 < (array_length pick.bands))) {
             def hb:PresSelBand (itemAt pick.bands bi0)
-            stageHintX = (hb.sx + hb.sw)
-            stageHintY = hb.sy
-            stageHintH = hb.sh
+            ; under (or over) the element, not over it, near the band
+            stageHintX = hb.sx
             if ((hb.side == "top") || (hb.side == "bottom")) {
                 stageHintX = ((hb.sx + (hb.sw / 2.0)) - 40.0)
             }
+            stageHintY = pick.reachTop
+            stageHintH = (pick.reachBottom - pick.reachTop)
         }
         if ((this.pickValid()) == false) {
             return
@@ -3399,10 +3417,10 @@ class PresApp {
         def h:PresHint (PresHint.make("selector" pick.sel "" 0 0))
         h.doc = (PresHints.selectorDoc(pick.sel))
         def j:string (h.json())
-        j = ((substring j 0 ((strlen j) - 1)) + ",\"rule\":" + (pick.ruleJson((this.themeCss()))) + ",\"line\":-1,\"tab\":\"css\",\"x\":" + (EVGDisplayList.num(pick.sx2)) + ",\"y\":" + (EVGDisplayList.num(pick.by)) + ",\"h\":" + (EVGDisplayList.num(pick.bh)) + ",\"text\":\"\"}")
+        j = ((substring j 0 ((strlen j) - 1)) + ",\"rule\":" + (pick.ruleJson((this.themeCss()))) + ",\"line\":-1,\"tab\":\"css\",\"x\":" + (EVGDisplayList.num(pick.sx2)) + ",\"y\":" + (EVGDisplayList.num(pick.reachTop)) + ",\"h\":" + (EVGDisplayList.num((pick.reachBottom - pick.reachTop))) + ",\"keepX\":" + (EVGDisplayList.num(pick.ox)) + ",\"keepW\":" + (EVGDisplayList.num(pick.ow)) + ",\"text\":\"\"}")
         stageHintX = pick.sx2
-        stageHintY = pick.by
-        stageHintH = pick.bh
+        stageHintY = pick.reachTop
+        stageHintH = (pick.reachBottom - pick.reachTop)
         this.openHint(j)
         hintFromStage = true
     }
@@ -3414,18 +3432,26 @@ class PresApp {
         this.closeHint()
         this.helpEdit(b.sel b.prop (PresSelect.ptText(b.value)))
         this.openHintAtCaret()
-        this.anchorHintAtStage()
+        this.anchorHintAtStage(b.sel)
     }
 
     ; The popover moved from the editor's caret to where it was asked for on
     ; the stage.
-    fn anchorHintAtStage:void () {
+    fn anchorHintAtStage:void (sel:string) {
         if (hint.isOpen == false) {
             return
+        }
+        ; which rule the value is in: `document › color` is every text of
+        ; the deck, headings too, not the element's own
+        hint.name = (sel + " › " + hint.name)
+        if ((sel == "document") || (sel == "body")) {
+            hint.doc = ((PresI18n.t("Changes all text of the presentation, headings included.")) + " " + hint.doc)
         }
         hint.ax = stageHintX
         hint.ay = stageHintY
         hint.ah = stageHintH
+        hint.keepX = pick.ox
+        hint.keepW = pick.ow
         hint.rebuild()
         hintFromStage = true
         chromeRev = (chromeRev + 1)
@@ -3448,7 +3474,7 @@ class PresApp {
     ; The pick and its handles over the stage, as a display list ("" when
     ; there is nothing to draw).
     fn pickJson:string () {
-        if ((mode == "present") || ((deck.slideCount()) == 0)) {
+        if (((mode == "present") || playing) || ((deck.slideCount()) == 0)) {
             return ""
         }
         this.pickValid()
@@ -3516,7 +3542,7 @@ class PresApp {
                 this.helpEdit((itemAt parts 0) (itemAt parts 1) (itemAt parts 2))
                 this.openHintAtCaret()
                 if fromStage {
-                    this.anchorHintAtStage()
+                    this.anchorHintAtStage((itemAt parts 0))
                 }
             }
         }
@@ -5665,15 +5691,6 @@ class PresApp {
         def ph:double deck.pageH
         def root:EVGElement (EVGListToElements.printRoot(pw ph))
         def section:EVGElement (EVGListToElements.sectionOf(root))
-        deck.still = true
-        def i:int 0
-        while (i < (deck.slideCount())) {
-            def groups:[int]
-            def dl:EVGDisplayList (deck.slideList(i groups 0.0))
-            section.addChild((EVGListToElements.pageFrom(dl pw ph bg true)))
-            i = (i + 1)
-        }
-        deck.still = false
         def renderer (new EVGPDFRenderer())
         renderer.init(renderer)
         renderer.setPageSize(pw ph)
@@ -5695,23 +5712,67 @@ class PresApp {
                 renderer.setMeasurer((unwrap mw.measurer))
             }
         }
-        if e.haveImages {
-            def k:int 0
-            while (k < (array_length l.boxes)) {
-                def b:MdBox (itemAt l.boxes k)
-                if ((b.kind == 4) && ((strlen b.imagePath) > 0)) {
-                    def bytes:buffer (e.imageStore.read(b.imagePath))
-                    if ((buffer_length bytes) > 0) {
-                        def pix@(optional):ImageBuffer (EVGImageDecode.decode(bytes))
-                        if (!null? pix) {
-                            renderer.registerImage(b.imagePath (unwrap pix))
-                        }
-                    }
+        ; Every picture on a page is handed over as pixels: the renderer can
+        ; only otherwise open it as a file, which a browser has no way to do
+        ; (`require` is not defined). That is the slides' own pictures, a
+        ; slide's background and a logo in the header or footer alike; one
+        ; the deck has no bytes for is left out rather than failing the file.
+        def known:[string]
+        def si2:int 0
+        while (si2 < (array_length stillIdx)) {
+            push known (PresDeck.fxStillPath((itemAt stillIdx si2)))
+            si2 = (si2 + 1)
+        }
+        def missing:[string]
+        deck.still = true
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def groups:[int]
+            def dl:EVGDisplayList (deck.slideList(i groups 0.0))
+            def kept:[EVGDrawCmd]
+            def c:int 0
+            while (c < (array_length dl.cmds)) {
+                def cmd:EVGDrawCmd (itemAt dl.cmds c)
+                def keep:boolean true
+                if (cmd.kind == 2) {
+                    keep = (PresApp.pdfImage(renderer e cmd.src known missing))
                 }
-                k = (k + 1)
+                if keep {
+                    push kept cmd
+                }
+                c = (c + 1)
+            }
+            dl.cmds = kept
+            section.addChild((EVGListToElements.pageFrom(dl pw ph bg true)))
+            i = (i + 1)
+        }
+        deck.still = false
+        return (renderer.render(root))
+    }
+
+    ; Whether the PDF can draw the picture at `src`: registered with the
+    ; renderer the first time it is met, from the deck's own files.
+    sfn pdfImage:boolean (renderer:EVGPDFRenderer e:MarkdownEdit src:string known:[string] missing:[string]) {
+        if ((strlen src) == 0) {
+            return false
+        }
+        if ((indexOf known src) >= 0) {
+            return true
+        }
+        if ((indexOf missing src) >= 0) {
+            return false
+        }
+        def bytes:buffer (e.imageStore.read(src))
+        if ((buffer_length bytes) > 0) {
+            def pix@(optional):ImageBuffer (EVGImageDecode.decode(bytes))
+            if (!null? pix) {
+                renderer.registerImage(src (unwrap pix))
+                push known src
+                return true
             }
         }
-        return (renderer.render(root))
+        push missing src
+        return false
     }
 
     ; The deck through the markdown module's own PPTX road, then what the

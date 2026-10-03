@@ -69,7 +69,7 @@ test("tools, UI metadata and the preview resource", async () => {
   const t = await start(store);
   try {
     const { tools } = await t.client.listTools();
-    assert.deepEqual(tools.map((x) => x.name).sort(), ["bind_chart_data", "create_presentation", "get_presentation", "list_files", "list_presentations", "read_file", "sliqtly_guide", "update_presentation"]);
+    assert.deepEqual(tools.map((x) => x.name).sort(), ["bind_chart_data", "create_presentation", "get_presentation", "list_files", "list_presentations", "read_file", "sliqtly_guide", "update_presentation", "write_workbook"]);
     const create = tools.find((x) => x.name === "create_presentation");
     assert.match(create._meta.ui.resourceUri, /^ui:\/\/sliqtly\/preview-[0-9a-f]{10}\.html$/);
     assert.equal(create._meta["openai/outputTemplate"], create._meta.ui.resourceUri);
@@ -505,6 +505,42 @@ test("create and update keep data files the deck reads", async () => {
       [{ name: "a.xlsx", text: "x" }, /sent as data_base64 or url/],
     ]) {
       const bad = await t.client.callTool({ name: "create_presentation", arguments: { title: "x", markdown: "# x", files: [f] } });
+      assert.ok(bad.isError);
+      assert.match(bad.content[0].text, why);
+    }
+  } finally { await t.close(); }
+});
+
+test("write_workbook replaces a deck's workbook with tidied sheets", async () => {
+  const { store, data } = fakeFirebase();
+  const t = await start(store);
+  try {
+    const r = await t.client.callTool({ name: "create_presentation", arguments: {
+      title: "Risk", markdown: "# Risk", files: [{ name: "risk.xlsx", data_base64: testBook().toString("base64") }],
+    } });
+    const id = r.structuredContent.deck_id;
+    const key = r.structuredContent.edit_key;
+    const write = (args) => t.client.callTool({ name: "write_workbook", arguments: { deck_id: id, edit_key: key, path: "data/risk.xlsx", ...args } });
+    const w = await write({ sheets: [
+      { name: "Menot", rows: [["Kuukausi", "Vuokra", "Sähkö"], ["2026-01", 950, "42.5"], ["2026-02", 950, null]] },
+      { name: "Q & A", csv: "a,b\n\"<x> & y\",2\n" },
+    ] });
+    assert.ok(!w.isError, w.content[0].text);
+    assert.match(w.content[0].text, /data\/risk\.xlsx: sheet "Menot" \(2 rows; columns "Kuukausi", "Vuokra", "Sähkö"\) read as data\/risk-Menot\.csv/);
+    assert.match(w.content[0].text, /Formatting and formulas are not kept/);
+    assert.deepEqual(data.get(`shares/${id}`).files.map((f) => f.path), ["data/risk.xlsx"]);
+    const back = await t.client.callTool({ name: "read_file", arguments: { deck_id: id, path: "data/risk.xlsx", sheet: "Q & A" } });
+    assert.deepEqual(back.structuredContent.rows, [["<x> & y", "2"]]);
+    const menot = await t.client.callTool({ name: "read_file", arguments: { deck_id: id, path: "data/risk-Menot.csv" } });
+    assert.deepEqual(menot.structuredContent.rows, [["2026-01", "950", "42.5"], ["2026-02", "950", ""]]);
+    for (const [args, why] of [
+      [{ sheets: [{ name: "a/b", rows: [["x"]] }] }, /has one of/],
+      [{ sheets: [{ name: "A", rows: [["x"]] }, { name: "a", rows: [["y"]] }] }, /Two sheets are named/],
+      [{ sheets: [{ name: "A" }] }, /give rows or csv/],
+      [{ path: "data/x.csv", sheets: [{ name: "A", rows: [["x"]] }] }, /ending in \.xlsx/],
+      [{ edit_key: "wrong", sheets: [{ name: "A", rows: [["x"]] }] }, /edit_key does not match/],
+    ]) {
+      const bad = await write(args);
       assert.ok(bad.isError);
       assert.match(bad.content[0].text, why);
     }
