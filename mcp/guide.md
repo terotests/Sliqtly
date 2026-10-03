@@ -135,11 +135,14 @@ When text on a picture is hard to read ("low contrast"), raise that slide's
 - Tidying a workbook: `write_workbook` with the deck_id, the workbook's
   `path` and every sheet in full (`{ "name": "Costs", "rows": [["Month",
   "Rent"], ["2026-01", 950]] }`, or `csv` text) writes a new .xlsx in its
-  place. Values only: formatting and formulas are not kept. If sheets are
-  renamed, update the charts and tables that read them. A workbook in a
-  deck that only lives in the user's browser is not reachable: ask the
-  user to attach it, then write the result with `create_presentation`
-  `files` or `write_workbook`.
+  place. A cell can be a formula with the value it gives:
+  `{ "f": "=SUM(B2:B13)", "v": 11400 }`. Formatting, colours, filters and
+  column widths are not kept. If sheets are renamed, update the charts and
+  tables that read them. Write workbooks you made yourself this way too:
+  an .xlsx sent as `data_base64` is easily corrupted when it is long. A
+  workbook in a deck that only lives in the user's browser is not
+  reachable: ask the user to attach it, then write the result with
+  `write_workbook`.
 - Inline HTML: `<mark>`, `<u>`, `<s>`, `<sub>`, `<sup>`, `<kbd>`, `<small>`,
   `<br>`, and `<span style="color:#e33">`.
 

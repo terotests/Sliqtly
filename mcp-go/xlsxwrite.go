@@ -1,4 +1,4 @@
-// write_workbook's .xlsx: values only, the first row bold, as
+// write_workbook's .xlsx: values and formulas, the first row bold, as
 // mcp/src/xlsx.js writeWorkbook writes it.
 
 package main
@@ -74,7 +74,7 @@ func writeXlsx(sheets []struct {
 	parts := [][2]string{
 		{"[Content_Types].xml", head + `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>` + over.String() + "</Types>"},
 		{"_rels/.rels", head + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="` + rel + `/officeDocument" Target="xl/workbook.xml"/></Relationships>`},
-		{"xl/workbook.xml", head + `<workbook ` + ns + ` xmlns:r="` + rel + `"><sheets>` + names.String() + "</sheets></workbook>"},
+		{"xl/workbook.xml", head + `<workbook ` + ns + ` xmlns:r="` + rel + `"><sheets>` + names.String() + `</sheets><calcPr fullCalcOnLoad="1"/></workbook>`},
 		{"xl/_rels/workbook.xml.rels", head + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` + rels.String() + fmt.Sprintf(`<Relationship Id="rId%d" Type="%s/styles" Target="styles.xml"/></Relationships>`, len(sheets)+1, rel)},
 		{"xl/styles.xml", head + `<styleSheet ` + ns + `><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs></styleSheet>`},
 	}
@@ -92,6 +92,20 @@ func writeXlsx(sheets []struct {
 					continue
 				}
 				ref := xlsxCol(c) + strconv.Itoa(r+1)
+				// a formula, and the value it gives if the writer knows it
+				// (Excel works it out on opening; Sliqtly reads the value)
+				if m, ok := v.(map[string]any); ok {
+					f, _ := m["f"].(string)
+					f = xlsxText(strings.TrimPrefix(strings.TrimSpace(f), "="))
+					known, cached, kind := m["v"], "", ""
+					if n, ok := xlsxNum(known); ok {
+						cached = "<v>" + n + "</v>"
+					} else if t, ok := known.(string); ok && t != "" {
+						cached, kind = "<v>"+xlsxText(t)+"</v>", ` t="str"`
+					}
+					fmt.Fprintf(&b, `<c r="%s"%s%s><f>%s</f>%s</c>`, ref, style, kind, f, cached)
+					continue
+				}
 				if n, ok := xlsxNum(v); ok {
 					fmt.Fprintf(&b, `<c r="%s"%s><v>%s</v></c>`, ref, style, n)
 					continue

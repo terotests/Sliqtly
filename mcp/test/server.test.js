@@ -529,7 +529,7 @@ test("create and update keep data files the deck reads", async () => {
 });
 
 test("write_workbook replaces a deck's workbook with tidied sheets", async () => {
-  const { store, data } = fakeFirebase();
+  const { store, data, saved } = fakeFirebase();
   const t = await start(store, undefined, ME, "me");
   try {
     const r = await t.client.callTool({ name: "create_presentation", arguments: {
@@ -541,13 +541,19 @@ test("write_workbook replaces a deck's workbook with tidied sheets", async () =>
     const w = await write({ sheets: [
       { name: "Menot", rows: [["Kuukausi", "Vuokra", "Sähkö"], ["2026-01", 950, "42.5"], ["2026-02", 950, null]] },
       { name: "Q & A", csv: "a,b\n\"<x> & y\",2\n" },
+      { name: "Sum", rows: [["Total", "Note"], [{ f: "=SUM(Menot!B2:B3)", v: 1900 }, { f: "=\"a\"&\"b\"", v: "ab" }], [{ f: "=1+1" }]] },
     ] });
     assert.ok(!w.isError, w.content[0].text);
     assert.match(w.content[0].text, /data\/risk\.xlsx: sheet "Menot" \(2 rows; columns "Kuukausi", "Vuokra", "Sähkö"\) read as data\/risk-Menot\.csv/);
-    assert.match(w.content[0].text, /Formatting and formulas are not kept/);
+    assert.match(w.content[0].text, /Formatting is not kept/);
     assert.deepEqual(data.get(`shares/${id}`).files.map((f) => f.path), ["data/risk.xlsx"]);
     const back = await t.client.callTool({ name: "read_file", arguments: { deck_id: id, path: "data/risk.xlsx", sheet: "Q & A" } });
     assert.deepEqual(back.structuredContent.rows, [["<x> & y", "2"]]);
+    const sum = await t.client.callTool({ name: "read_file", arguments: { deck_id: id, path: "data/risk.xlsx", sheet: "Sum" } });
+    assert.deepEqual(sum.structuredContent.rows, [["1900", "ab"]]);
+    const xml = (await import("../src/xlsx.js")).unzip(saved.get(`shares/${id}/data/risk.xlsx`).buf);
+    const sheet3 = xml.get("xl/worksheets/sheet3.xml").toString("utf8");
+    assert.match(String(sheet3), /<c r="A2"><f>SUM\(Menot!B2:B3\)<\/f><v>1900<\/v><\/c><c r="B2" t="str"><f>&quot;a&quot;&amp;&quot;b&quot;<\/f><v>ab<\/v><\/c>/);
     const menot = await t.client.callTool({ name: "read_file", arguments: { deck_id: id, path: "data/risk-Menot.csv" } });
     assert.deepEqual(menot.structuredContent.rows, [["2026-01", "950", "42.5"], ["2026-02", "950", ""]]);
     for (const [args, why] of [
