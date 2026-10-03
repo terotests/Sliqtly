@@ -675,7 +675,7 @@ class PresDeck {
             paper = "#ffffff"
         }
         d.setPalette(paper (this.themeColour("diagram" "accent-color")) (this.themeColour("diagram" "color")))
-        d.rimFade = ((strlen s.fx) == 0)
+        d.rimFade = (this.flatGround(s))
         def oi:int (this.takeOldUse(n.literal))
         if (oi >= 0) {
             def was:PresDiaUse (itemAt oldUses oi)
@@ -968,6 +968,20 @@ class PresDeck {
     ; boxes). The rule wins over the old `/* pres: warm= accent= */` line.
     ; A property of the theme's `chart` / `diagram` rule, or "".
     ; A `background-image` value that draws nothing.
+    ; The slide's ground is the flat paper colour: no effect, no picture of
+    ; its own and none from the theme. Only then can a diagram fade its rim
+    ; into that colour and draw its grid; over anything else both show as a
+    ; dark box around the diagram.
+    fn flatGround:boolean (s:PresSlide) {
+        if ((strlen s.fx) > 0) {
+            return false
+        }
+        if ((strlen s.bg) > 0) {
+            return false
+        }
+        return (PresDeck.noPicture((this.themeRule("page" "background-image"))))
+    }
+
     sfn noPicture:boolean (v:string) {
         def t:string (trim v)
         return (((strlen t) == 0) || (t == "none"))
@@ -1720,6 +1734,8 @@ class PresDeck {
                 dia.diagram.uiNow = uiNow
                 dia.diagram.showControls = showControls
                 dia.diagram.live = live
+                ; a `bg=` can come after the fence was read
+                dia.diagram.rimFade = (this.flatGround(s))
                 ; The diagram gets the room below it, not just the box its
                 ; picture fitted: a wide flowchart is a thin strip, and a
                 ; camera zoomed into a strip shows a slot.
