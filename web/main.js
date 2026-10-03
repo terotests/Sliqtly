@@ -28,7 +28,7 @@ import { wantsIntro, INTRO_MS } from "./brand.js";
 const canvas = document.getElementById("c");
 const stageEl = document.getElementById("stage");
 const keys = document.getElementById("keys");
-const hintEl = document.getElementById("hint");
+const loadNote = document.getElementById("loadNote");
 const errEl = document.getElementById("err");
 const statusEl = document.getElementById("status");
 const filePick = document.getElementById("filepick");
@@ -121,11 +121,11 @@ async function textOf(url) {
 
 const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
 if (!gl) {
-  hintEl.textContent = t("WebGL 2 is not available in this browser.");
+  loadNote.textContent = t("WebGL 2 is not available in this browser.");
   throw new Error("no WebGL 2");
 }
 if (typeof globalThis.PresApp !== "function") {
-  hintEl.textContent = t("pres_app.js is missing. Run `npm run build`.");
+  loadNote.textContent = t("pres_app.js is missing. Run `npm run build`.");
   throw new Error("engine bundle not loaded");
 }
 // the interface's language, before anything is built in it
@@ -4288,10 +4288,9 @@ function syncToolbar() {
 
 // This browser's store is opened at a newer version than a tab loaded
 // before an update has it open at: the page waits for that tab (web/vfs.js)
-// and says so where the loader is.
+// and says so on the loading screen.
 function tabsInTheWay() {
-  const line = document.getElementById("tagline");
-  if (line) line.textContent = t("Waiting for your other Sliqtly tabs. Close or reload the ones opened before the update.");
+  loadNote.textContent = t("Waiting for your other Sliqtly tabs. Close or reload the ones opened before the update.");
 }
 // A newer Sliqtly in another tab took the store over: this page can no
 // longer save, and says so until it is reloaded.
@@ -4418,11 +4417,10 @@ async function start() {
   // the hidden text field is not focused, so no keyboard comes up.
   if (viewer || isCoarse()) keys.blur();
 
-  // the loader has its moment: at least one turn of the logo (0.6 s from
-  // the page's start), then it fades as the editor appears
-  await new Promise((r) => setTimeout(r, Math.max(0, 600 - performance.now())));
-  hintEl.classList.add("done");
-  setTimeout(() => hintEl.remove(), 260);
+  // the loading screen has its moment: the logo's turn (1.2 s from the
+  // page's start), then it fades as the editor appears; a shared
+  // presentation keeps it as its intro
+  if (!introPending) await new Promise((r) => setTimeout(r, Math.max(0, 1200 - performance.now())));
   document.body.classList.remove("booting");
   if (!viewer && !isCoarse()) focusKeys("editor");
   window.__pageStarted = true;
@@ -4430,8 +4428,6 @@ async function start() {
     playIntro().then(introPending);
     introPending = null;
   } else {
-    // shown by index.html for an address that turned out to show nothing
-    // (a share not found): the page as it is
     window.__introAt = undefined;
     hideIntro();
   }

@@ -151,8 +151,15 @@ try {
   const page = await browser.newPage({ viewport: { width: 1400, height: 820 } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  await page.addInitScript(() => document.addEventListener("DOMContentLoaded", () => {
+    const el = document.getElementById("brandIntro");
+    window.__loadScreen = !el.hidden && !!el.querySelector(".name")?.textContent && !document.getElementById("hint");
+  }));
   await page.goto(url + "?sample=esittely");
   await page.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+  await page.waitForFunction(() => document.getElementById("brandIntro").hidden, null, { timeout: 20000 }).catch(() => {});
+  const loading = await page.evaluate(() => ({ screen: window.__loadScreen === true, gone: document.getElementById("brandIntro").hidden }));
+  check("the editor loads behind Sliqtly's logo and name, which then go", loading.screen && loading.gone, JSON.stringify(loading));
   await page.waitForTimeout(500);
   const shot = async (name) => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, name) }); } };
   await shot("1-editor.png");
@@ -2694,7 +2701,7 @@ try {
     const b = await open();
     await a.waitForTimeout(3000);
     const before = await Promise.all([a, b].map((pg) => pg.evaluate(() => ({
-      started: window.__pageStarted === true, line: document.getElementById("tagline")?.textContent || "",
+      started: window.__pageStarted === true, line: document.getElementById("loadNote")?.textContent || "",
     }))));
     await old.close();
     const started = await Promise.all([a, b].map((pg) => pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 }).then(() => true, () => false)));
