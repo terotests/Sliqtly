@@ -950,7 +950,10 @@ class PresDeck {
         return ""
     }
 
-    ; A length's number: "18px", "18pt" and "18" are 18; "" when there is none.
+    ; A length's number: "18px", "18pt" and "18" are 18; "" when there is
+    ; none. "18pxpx" or "18 apples" is not a length, and is read as nothing,
+    ; the way the cascade reads it — it used to be read as 18, so a chart
+    ; drew what the slides ignored.
     sfn lengthOf:string (v:string) {
         def t:string (trim v)
         def i:int 0
@@ -958,7 +961,26 @@ class PresDeck {
         while ((i < n) && ((((charAt t i) >= 48) && ((charAt t i) <= 57)) || ((charAt t i) == 46))) {
             i = (i + 1)
         }
+        def u:string (MdChar.lower((trim (substring t i n))))
+        if ((u != "") && ((u != "px") && (u != "pt"))) {
+            return ""
+        }
         return (substring t 0 i)
+    }
+
+    ; A length the theme states for `what`, as lengthOf reads it, held to
+    ; its safety range against the slide (`MdCssLimits`): `chart {
+    ; font-size: 2020px }` draws the chart's labels no taller than the
+    ; slide. The sheet itself keeps what it says.
+    fn themeLength:string (what:string sel:string prop:string) {
+        def fs:string (PresDeck.lengthOf((this.themeRule(what prop))))
+        if ((strlen fs) == 0) { return "" }
+        def d@(optional):double (str2double fs)
+        if (null? d) { return "" }
+        def v:double (unwrap d)
+        def c:double (MdCssLimits.clamp(prop sel v pageW pageH))
+        if (c == v) { return fs }
+        return (VlJson.formatNumber(c 1))
     }
 
     ; The chart defaults a rule states, as the JSON the markdown module lays
@@ -968,10 +990,10 @@ class PresDeck {
     ; "chart" for every chart or "#anchor" for the charts under one heading;
     ; `roomy` adds the presentation's own defaults under the stated ones.
     fn chartDefaults:string (key:string roomy:boolean) {
-        def fs:string (PresDeck.lengthOf((this.themeRule(key "font-size"))))
-        def tfs:string (PresDeck.lengthOf((this.themeRule(key "title-font-size"))))
-        def tg:string (PresDeck.lengthOf((this.themeRule(key "title-gap"))))
-        def pad:string (PresDeck.lengthOf((this.themeRule(key "padding"))))
+        def fs:string (this.themeLength(key "chart" "font-size"))
+        def tfs:string (this.themeLength(key "chart" "title-font-size"))
+        def tg:string (this.themeLength(key "chart" "title-gap"))
+        def pad:string (this.themeLength(key "chart" "padding"))
         if roomy {
             if ((strlen fs) == 0) { fs = "15" }
             if ((strlen tfs) == 0) { tfs = "22" }
@@ -1990,10 +2012,10 @@ class PresDeck {
         ; takes the document's, a little smaller: its titles are labels, not
         ; headings (on a slide with room it is set larger again, up to the
         ; room under the heading — MdFigure.sceneFit)
-        def fs:string (PresDeck.lengthOf((this.themeRule("figure" "font-size"))))
+        def fs:string (this.themeLength("figure" "figure" "font-size"))
         def scale:double 1.0
         if ((strlen fs) == 0) {
-            fs = (PresDeck.lengthOf((this.themeRule("document" "font-size"))))
+            fs = (this.themeLength("document" "document" "font-size"))
             scale = 0.85
         }
         if ((strlen fs) > 0) {

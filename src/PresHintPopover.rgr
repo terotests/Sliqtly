@@ -1062,10 +1062,9 @@ class PresHintPopover {
     }
 
     fn takeField:void () {
-        def v:string (trim field.value)
-        def d@(optional):double (str2double v)
-        if (!null? d) {
-            this.write((v + (this.unitText())))
+        def v:string (PresRange.typed(field.value (this.unitText())))
+        if ((strlen v) > 0) {
+            this.write(v)
         }
     }
 

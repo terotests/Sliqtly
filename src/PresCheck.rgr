@@ -817,11 +817,41 @@ class PresCheck {
         this.ok(((PresRange.selectorAt(css 4 22)) == "h2") "rule on the same line")
         this.ok(((PresRange.selectorAt(css 0 5)) == "") "a comment is no rule")
         this.ok(((PresRange.selectorAt(css 4 1)) == "") "between rules")
+        ; a number typed into the popover's field, in the field's unit
+        this.ok(((PresRange.typed("2020" "px")) == "2020px") "a number takes the field's unit")
+        this.ok(((PresRange.typed(" 2020px " "px")) == "2020px") ("a unit typed is not added again: " + (PresRange.typed("2020px" "px"))))
+        this.ok(((PresRange.typed("1.5in" "pt")) == "1.5in") "a unit typed is the unit meant")
+        this.ok(((PresRange.typed("-4" "pt")) == "-4pt") "a negative number")
+        this.ok(((PresRange.typed("1.45" "")) == "1.45") "a ratio has no unit")
+        this.ok(((PresRange.typed("2020pxpx" "px")) == "") "2020pxpx is not a value")
+        this.ok(((PresRange.typed("px" "px")) == "") "nor is a unit alone")
+        this.ok(((PresRange.typed("" "px")) == "") "nor nothing")
         ; and through the hint the popover gets
         def j:string (PresHints.forLineIn("css" "  padding: 2.25in;" 12 false "page" box))
         this.ok(((indexOf j "\"max\":1.86") > 0) ("hint carries the range: " + j))
         def j2:string (PresHints.forLine("css" "  padding: 2.25in;" 12 false))
         this.ok(((indexOf j2 "\"max\":20") < 0) ("no 20 inch padding anywhere: " + j2))
+    }
+
+    ; Values past their safety range: the chart and figure readers clamp
+    ; and refuse what is not a length, as the slides do (MdCssLimits).
+    fn limits:void () {
+        this.ok(((PresDeck.lengthOf("18px")) == "18") "18px is 18")
+        this.ok(((PresDeck.lengthOf("18")) == "18") "18 is 18")
+        this.ok(((PresDeck.lengthOf("2020pxpx")) == "") "2020pxpx is not a length")
+        def deck (new PresDeck())
+        def css:string "page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 } chart { font-size: 2020px; title-font-size: 15px; padding: 9000px }"
+        deck.setTheme(css)
+        deck.md.setStyleSheet(css)
+        deck.setText("## A\n\nTeksti\n")
+        def cfg:string (deck.chartDefaults("chart" false))
+        this.ok(((indexOf cfg "2020") < 0) ("a chart's 2020px labels are held to the slide: " + cfg))
+        this.ok(((indexOf cfg "\"labelFontSize\": 540") > 0) ("…at the slide's height: " + cfg))
+        this.ok(((indexOf cfg "\"fontSize\": 15") > 0) ("an ordinary title size is kept: " + cfg))
+        this.ok(((indexOf cfg "\"padding\": 135") > 0) ("chart padding at a quarter of the slide: " + cfg))
+        deck.setTheme("chart { font-size: 2020pxpx }")
+        def bad:string (deck.chartDefaults("chart" false))
+        this.ok(((indexOf bad "labelFontSize") < 0) ("2020pxpx says nothing: " + bad))
     }
 
     sfn main:void () {
@@ -834,6 +864,7 @@ class PresCheck {
         c.listFigures()
         c.docSettings()
         c.ranges()
+        c.limits()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"
