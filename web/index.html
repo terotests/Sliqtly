@@ -95,6 +95,9 @@
     border: 1px solid rgba(255, 255, 255, 0.25); background: transparent; color: inherit; cursor: pointer;
   }
   .gCard button.primary { background: #2563eb; border-color: #2563eb; }
+  /* the first visit's welcome card: beside the deck, not over it */
+  #welcomeCard { top: auto; bottom: 16px; left: auto; right: 16px; transform: none; width: min(380px, calc(100vw - 32px)); }
+  body.presenting #welcomeCard { display: none; }
   #viewBar > button {
     width: 44px; height: 44px; border-radius: 22px; border: 1px solid rgba(255, 255, 255, 0.25);
     background: rgba(24, 24, 27, 0.72); color: #fafafa; font-size: 18px; cursor: pointer;

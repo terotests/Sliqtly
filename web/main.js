@@ -56,6 +56,7 @@ const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "corporate", 
 // samples/<key>.en.md English (any other language gets the English ones).
 const sample = (key, en, fi) => lang === "fi" ? [fi, `./samples/${key}.md`] : [en, `./samples/${key}.en.md`];
 const SAMPLES = {
+  welcome: sample("welcome", "Welcome: what Sliqtly can do", "Tervetuloa: mitä Sliqtlyllä voi tehdä"),
   talous: sample("talous", "Finance: take charge of your money", "Talous: oma talous haltuun"),
   ymparisto: sample("ymparisto", "Environment: your carbon footprint", "Ympäristö: hiilijalanjälki"),
   urheilu: sample("urheilu", "Sports: a 5 km running course", "Urheilu: 5 km juoksukoulu"),
@@ -461,6 +462,7 @@ async function saveDoc(force) {
 // deck's last changes written to its share (they would wait for the next
 // visit of this deck otherwise). The cloud gets a while, not forever.
 async function leaveDoc() {
+  document.getElementById("welcomeCard")?.remove();
   await saveDoc();
   if (!doc.cloudHalt && cloudReady() && (cloudTimer || cloudBusy)) {
     clearTimeout(cloudTimer);
@@ -2486,6 +2488,31 @@ async function openSample(key) {
   }
 }
 
+// A first visit (no deck kept in this browser, none asked for) opens the
+// welcome deck; this card next to it leads to a deck of one's own.
+function welcomeCard() {
+  if (viewer) return;
+  const box = document.createElement("div");
+  box.id = "welcomeCard";
+  box.className = "gCard";
+  box.setAttribute("role", "region");
+  box.setAttribute("aria-label", t("Welcome"));
+  const text = document.createElement("p");
+  text.textContent = t("New here? This deck shows what Sliqtly can do. Read on, press Present, or start a deck of your own.");
+  const go = document.createElement("button");
+  go.className = "primary";
+  go.textContent = t("Start your own deck");
+  const no = document.createElement("button");
+  no.textContent = t("Close");
+  go.addEventListener("click", () => {
+    box.remove();
+    fileRequest("new").catch(fail);
+  });
+  no.addEventListener("click", () => box.remove());
+  box.append(text, go, no);
+  document.body.appendChild(box);
+}
+
 // --- the keyboard -------------------------------------------------------------------
 const KEY_MAP = {
   Backspace: "backspace", Enter: "enter", Tab: "tab", Delete: "delete",
@@ -3134,9 +3161,10 @@ async function start() {
     const lastCloud = !want && last && vfs ? (await vfs.getDoc(last))?.cloud : null;
     if (lastCloud && (await openOwnCloud(lastCloud).catch(() => false))) { /* opened */ }
     else if (want || !last || !(await openDoc(last))) {
-      const sample = SAMPLES[want] || HIDDEN_SAMPLES[want] ? want : "talous";
+      const sample = SAMPLES[want] || HIDDEN_SAMPLES[want] ? want : "welcome";
       if (SAMPLES[sample]) sampleSel.value = sample;
       await openSample(sample);
+      if (!want) welcomeCard();
     }
   }
   refreshRecent().catch(() => {});

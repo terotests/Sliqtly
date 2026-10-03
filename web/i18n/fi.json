@@ -602,5 +602,8 @@
   "Orientation": "Suunta",
   "Landscape": "Vaaka",
   "Portrait": "Pysty",
-  "Clear": "Tyhjennä"
+  "Clear": "Tyhjennä",
+  "Welcome": "Tervetuloa",
+  "New here? This deck shows what Sliqtly can do. Read on, press Present, or start a deck of your own.": "Uusi täällä? Tämä esitys näyttää, mitä Sliqtlyllä voi tehdä. Lue eteenpäin, paina Esitä tai aloita oma esitys.",
+  "Start your own deck": "Aloita oma esitys"
 }
