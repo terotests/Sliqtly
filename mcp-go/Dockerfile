@@ -18,6 +18,7 @@ RUN go mod download
 COPY mcp-go/ ./
 COPY mcp/guide.md mcp/src/preview.html ./assets/
 COPY --from=gen /src/mcp-go/sliqtly_mcp.go ./
+COPY --from=gen /src/mcp-go/presdata/presdata.go ./presdata/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server .
 
 # no shell, no libc: the binary, CA certificates and a nonroot user

@@ -135,6 +135,42 @@ operators {
             go ( (e 1) ".Upload(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" nl )
         }
     }
+    ; --- data files: the bytes stay in Go too
+
+    ; {"handle":n,"size":n} of a deck's Storage object shares/<id>/<path>;
+    ; a missing object is a host error
+    host_file_bytes _:string (h:McpHost id:string path:string) {
+        templates {
+            go ( (e 1) ".FileBytes(" (e 2) ", " (e 3) ")" )
+        }
+    }
+    ; text kept as bytes, for an upload: its handle
+    host_keep_text _:int (h:McpHost text:string) {
+        templates {
+            go ( (e 1) ".KeepText(" (e 2) ")" )
+        }
+    }
+    ; the workbook in the handle as the editor reads it: PresData.xlsxSheets,
+    ; compiled on its own (rgr/PresDataGo.rgr → presdata/), since the
+    ; workbook reader and the deck model cannot share one compile
+    host_xlsx_sheets _:string (h:McpHost handle:int) {
+        templates {
+            go ( (e 1) ".XlsxSheets(" (e 2) ")" )
+        }
+    }
+    ; the handle's bytes as text
+    host_text _:string (h:McpHost handle:int) {
+        templates {
+            go ( (e 1) ".Text(" (e 2) ")" )
+        }
+    }
+    ; a number with `digits` significant digits, written as JavaScript's
+    ; String(+n.toPrecision(digits)) writes it
+    host_precision _:string (h:McpHost n:string digits:int) {
+        templates {
+            go ( (e 1) ".Precision(" (e 2) ", " (e 3) ")" )
+        }
+    }
     host_bucket _:string (h:McpHost) {
         templates {
             go ( (e 1) ".Bucket()" )

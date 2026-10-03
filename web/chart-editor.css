@@ -99,6 +99,9 @@
 .theme-ce .ui-input-text { color: #09090b; font-size: 13px; font-family: Open Sans; }
 .theme-ce .ui-input-caret { background-color: #09090b; height: 16px; }
 .theme-ce .ce-focus { border-color: #a1a1aa; }
+.theme-ce .ce-selband { height: 16px; background-color: #bfdbfe; }
+.theme-ce .ui-input-grow { flex-grow: 1; height: 1px; }
+.theme-ce .ui-input-clear { width: 18px; height: 18px; border-radius: 9px; color: #71717a; background-color: #f4f4f5; font-size: 12px; text-align: center; line-height: 18px; margin-left: 6px; }
 .ce-wide { width: 280px; }
 
 /* the data grid */

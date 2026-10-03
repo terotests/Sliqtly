@@ -62,6 +62,10 @@ class PresToolbar {
     def measurer@(optional):TTFTextMeasurer
     ; a finger rather than a mouse: `@media (pointer: coarse)`
     def coarse:boolean false
+    ; a Mac: the menus' keys read ⌘ rather than Ctrl
+    def mac:boolean false
+    ; the deck is taller than wide: Slide → Orientation ticks Portrait
+    def portrait:boolean false
 
     Constructor () {
     }
@@ -196,6 +200,18 @@ class PresToolbar {
         if (id == "css") {
             return "showtab:css"
         }
+        if (id == "slideNew") {
+            return "slide:new"
+        }
+        if (id == "slideDuplicate") {
+            return "slide:duplicate"
+        }
+        if (id == "slideDelete") {
+            return "slide:delete"
+        }
+        if ((indexOf id "o-") == 0) {
+            return ("slide:" + (substring id 2 (strlen id)))
+        }
         if (id == "openbox") {
             return "openbox"
         }
@@ -249,6 +265,27 @@ class PresToolbar {
             }
             i = (i + 1)
         }
+    }
+
+    ; A chord with the platform's command key: ⌘ on a Mac, Ctrl elsewhere,
+    ; in aria-keyshortcuts form ("Meta+D", "Control+D").
+    fn modKey:string (key:string) {
+        if mac {
+            return ("Meta+" + key)
+        }
+        return ("Control+" + key)
+    }
+
+    ; Orientation's two rows, the deck's one ticked.
+    fn orientationKids:void (parent:UiItem) {
+        def lm:string "✓  "
+        def pm:string "    "
+        if portrait {
+            lm = "    "
+            pm = "✓  "
+        }
+        MenuCtl.addKid(parent "o-landscape" (lm + (PresI18n.t("Landscape"))) false)
+        MenuCtl.addKid(parent "o-portrait" (pm + (PresI18n.t("Portrait"))) false)
     }
 
     ; Recent's rows: every deck first (the Files tab), then the latest ones.
@@ -395,7 +432,18 @@ class PresToolbar {
             file.addSeparator()
             file.addItem("aiClaude" (PresI18n.t("Edit in Claude…")) false)
             file.addItem("aiChatgpt" (PresI18n.t("Edit in ChatGPT…")) false)
+            file.setShortcut("openbox" (this.modKey("O")))
+            file.setShortcut("save" (this.modKey("S")))
             def slide:MenuCtl (this.dropdown("slide" (PresI18n.t("Slide"))))
+            slide.addItem("slideNew" (PresI18n.t("New slide")) false)
+            slide.addItem("slideDuplicate" (PresI18n.t("Duplicate slide")) false)
+            slide.addItem("slideDelete" (PresI18n.t("Delete slide")) false)
+            slide.setShortcut("slideNew" "Control+M")
+            slide.setShortcut("slideDuplicate" (this.modKey("D")))
+            slide.addSeparator()
+            def ori:UiItem (slide.addSub("orientation" (PresI18n.t("Orientation")) false))
+            this.orientationKids(ori)
+            slide.addSeparator()
             def th:UiItem (slide.addSub("theme" (PresI18n.t("Theme")) false))
             this.subRows(th "t-" themeRows themeValue)
             slide.addSeparator()
@@ -405,6 +453,7 @@ class PresToolbar {
             ex.addItem("pptx" (PresI18n.t("PowerPoint (PPTX)")) false)
             def hp:MenuCtl (this.dropdown("help" (PresI18n.t("Help"))))
             hp.addItem("helpBtn" (PresI18n.t("Help for this slide")) false)
+
             def k:int 0
             while (k < (array_length menus)) {
                 def m:MenuCtl (itemAt menus k)
@@ -472,6 +521,17 @@ class PresToolbar {
             if drawerThemes {
                 arrow = "▾  "
             }
+            this.button("dr-slideNew" (PresI18n.t("New slide")) "ghost" body)
+            this.button("dr-slideDuplicate" (PresI18n.t("Duplicate slide")) "ghost" body)
+            this.button("dr-slideDelete" (PresI18n.t("Delete slide")) "ghost" body)
+            def otherWay:string "o-portrait"
+            def otherName:string (PresI18n.t("Portrait"))
+            if portrait {
+                otherWay = "o-landscape"
+                otherName = (PresI18n.t("Landscape"))
+            }
+            this.button(("dr-" + otherWay) (((PresI18n.t("Orientation")) + ": ") + otherName) "ghost" body)
+            body.addChild((this.div("tb-dr-sep")))
             this.button("dr-themes" (arrow + (PresI18n.t("Theme"))) "ghost" body)
             if drawerThemes {
                 this.drawerRows(body "t-" themeRows themeValue)

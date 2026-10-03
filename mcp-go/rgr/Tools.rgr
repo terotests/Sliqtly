@@ -4,7 +4,8 @@
 ; a presentation at sliqtly.com, and its link back.
 ;
 ; Tools: sliqtly_guide, create_presentation, update_presentation,
-; bind_chart_data, get_presentation, list_presentations. create/update also name a UI
+; bind_chart_data, get_presentation, list_files, read_file,
+; list_presentations. create/update also name a UI
 ; resource (MCP Apps, and the same template for ChatGPT) that shows the deck
 ; inline in the chat.
 
@@ -14,6 +15,7 @@ Import "Deck.rgr"
 Import "Check.rgr"
 Import "Charts.rgr"
 Import "Store.rgr"
+Import "Files.rgr"
 
 ; who is asking, for one request
 class Caller {
@@ -129,6 +131,18 @@ class Tools {
         def images:MfJ (Tools.prop("array" "Pictures the Markdown refers to as media/<name>"))
         images.put("items" item)
         p.put("images" images)
+        def fp:MfJ (MfJ.newObj())
+        fp.put("name" (Tools.prop("string" "File name, kept as data/<name>: \"sales.xlsx\", \"sales.csv\", \"sales.json\"")))
+        fp.put("text" (Tools.prop("string" "The file's text (CSV, TSV, JSON or plain text)")))
+        fp.put("data_base64" (Tools.prop("string" "The file's bytes as base64 (an .xlsx workbook)")))
+        fp.put("url" (Tools.prop("string" "A public https URL of the file")))
+        def fitem:MfJ (MfJ.newObj())
+        fitem.putStr("type" "object")
+        fitem.put("properties" fp)
+        fitem.put("required" (J.strs(([] _:string ("name")))))
+        def files:MfJ (Tools.prop("array" "Data files kept with the deck under data/: .xlsx workbooks, .csv, .tsv, .json, .txt (10 MB each). A chart or ```table reads data/<name>.csv; a workbook's sheets are read as data/<book>-<Sheet>.csv (data/<book>.csv for a one-sheet book); see sliqtly_guide."))
+        files.put("items" fitem)
+        p.put("files" files)
     }
 
     sfn annotations:MfJ (readOnly:boolean destructive:int idempotent:boolean openWorld:boolean) {
@@ -171,7 +185,7 @@ class Tools {
         cp.put("title" title)
         cp.put("markdown" (Tools.prop("string" "The whole deck as Sliqtly Markdown")))
         Tools.deckFields(cp)
-        tools.add((Tools.tool("create_presentation" "Create a presentation" "Create a Sliqtly slide presentation from Markdown (# title slide, ## per slide), an optional theme, extra CSS and pictures. Returns a link that opens the presentation and a link to edit a copy in the Sliqtly editor." (Tools.schema(cp ([] _:string ("title" "markdown")))) (Tools.annotations(false 0 false true)) (Tools.uiMeta(host)))))
+        tools.add((Tools.tool("create_presentation" "Create a presentation" "Create a Sliqtly slide presentation from Markdown (# title slide, ## per slide), an optional theme, extra CSS, pictures and data files (.xlsx, .csv, .json) its charts and tables read. Returns a link that opens the presentation and a link to edit a copy in the Sliqtly editor." (Tools.schema(cp ([] _:string ("title" "markdown")))) (Tools.annotations(false 0 false true)) (Tools.uiMeta(host)))))
 
         def up:MfJ (MfJ.newObj())
         up.put("deck_id" (Tools.prop("string" "deck_id from create_presentation")))
@@ -181,7 +195,7 @@ class Tools {
         up.put("title" title2)
         up.put("markdown" (Tools.prop("string" "The whole deck as Sliqtly Markdown")))
         Tools.deckFields(up)
-        tools.add((Tools.tool("update_presentation" "Update a presentation" "Change a presentation made with create_presentation, keeping its link. Send only what changes: markdown replaces the whole text; images are added (or replace pictures of the same name)." (Tools.schema(up ([] _:string ("deck_id")))) (Tools.annotations(false 1 true true)) (Tools.uiMeta(host)))))
+        tools.add((Tools.tool("update_presentation" "Update a presentation" "Change a presentation made with create_presentation, keeping its link. Send only what changes: markdown replaces the whole text; images and files are added (or replace ones of the same name)." (Tools.schema(up ([] _:string ("deck_id")))) (Tools.annotations(false 1 true true)) (Tools.uiMeta(host)))))
 
         def bp:MfJ (MfJ.newObj())
         bp.put("deck_id" (Tools.prop("string" "deck_id from create_presentation")))
@@ -213,7 +227,24 @@ class Tools {
 
         def gp:MfJ (MfJ.newObj())
         gp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
-        tools.add((Tools.tool("get_presentation" "Read a presentation" "Read a Sliqtly presentation's Markdown, theme, CSS and picture list by its deck_id (the id in https://sliqtly.com/s/<id>), to revise it." (Tools.schema(gp ([] _:string ("deck_id")))) (Tools.annotations(true -1 false false)) eitherMeta)))
+        tools.add((Tools.tool("get_presentation" "Read a presentation" "Read a Sliqtly presentation's Markdown, theme, CSS, pictures and files (with what is in its .xlsx workbooks) by its deck_id (the id in https://sliqtly.com/s/<id>), to revise it." (Tools.schema(gp ([] _:string ("deck_id")))) (Tools.annotations(true -1 false false)) eitherMeta)))
+
+        def lp:MfJ (MfJ.newObj())
+        lp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
+        tools.add((Tools.tool("list_files" "List a presentation's files" "List the files a Sliqtly presentation keeps — pictures (media/), data (data/), chart specs (charts/) and workbooks (.xlsx) — by its deck_id. For each workbook: its sheets, their columns and row counts, and the CSV name a ```table, ```sheet or vega-lite chart reads a sheet by (the editor derives those CSVs from the workbook; they are not separate files). read_file gives the values." (Tools.schema(lp ([] _:string ("deck_id")))) (Tools.annotations(true -1 false false)) eitherMeta)))
+
+        def rp:MfJ (MfJ.newObj())
+        rp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
+        rp.put("path" (Tools.prop("string" "The file's path from list_files, e.g. data/sales.xlsx or data/sales-Q1.csv")))
+        rp.put("sheet" (Tools.prop("string" "A workbook's sheet name; the first sheet when left out")))
+        def off:MfJ (Tools.prop("integer" "First data row to return (0 = the row under the header)"))
+        off.putInt("minimum" 0)
+        rp.put("offset" off)
+        def lim:MfJ (Tools.prop("integer" "How many data rows (default 200, at most 2000)"))
+        lim.putInt("minimum" 1)
+        lim.putInt("maximum" 2000)
+        rp.put("limit" lim)
+        tools.add((Tools.tool("read_file" "Read a presentation's data file" "Read the values in one of a Sliqtly presentation's data files by its deck_id and path: a workbook's sheet (path data/x.xlsx with sheet, or the sheet's CSV name from list_files such as data/x-Sheet.csv), a CSV or TSV (as rows), or a JSON or text file. Rows come up to `limit` at a time from `offset`." (Tools.schema(rp ([] _:string ("deck_id" "path")))) (Tools.annotations(true -1 false false)) eitherMeta)))
 
         def listMeta:MfJ (MfJ.newObj())
         def only:MfJ (MfJ.newArr())
@@ -363,7 +394,7 @@ class Tools {
                 return ("Invalid arguments: " + r + " is required.")
             }
         }
-        for ([] _:string ("title" "markdown" "theme" "css" "css_mode" "deck_id" "edit_key")) k:string j {
+        for ([] _:string ("title" "markdown" "theme" "css" "css_mode" "deck_id" "edit_key" "path" "sheet")) k:string j {
             def v:MfJ (a.field(k))
             if ((v.kind != 0) && (v.kind != 3)) {
                 return ("Invalid arguments: " + k + " is a string.")
@@ -404,6 +435,40 @@ class Tools {
         } {
             if ((source.kind != 0) && (source.kind != 3)) {
                 return "Invalid arguments: source is a URL or { google_sheets }."
+            }
+        }
+        for ([] _:string ("offset" "limit")) nk:string nj {
+            def nv:MfJ (a.field(nk))
+            if (nv.kind != 0) {
+                if ((nv.kind != 2) || (nv.num != (to_double (to_int nv.num)))) {
+                    return ("Invalid arguments: " + nk + " is a whole number.")
+                }
+            }
+        }
+        def offv:MfJ (a.field("offset"))
+        if ((offv.kind == 2) && (offv.num < 0.0)) {
+            return "Invalid arguments: offset is 0 or more."
+        }
+        def limv:MfJ (a.field("limit"))
+        if ((limv.kind == 2) && ((limv.num < 1.0) || (limv.num > 2000.0))) {
+            return "Invalid arguments: limit is from 1 to 2000."
+        }
+        def dfiles:MfJ (a.field("files"))
+        if ((dfiles.kind != 0) && (dfiles.kind != 4)) {
+            return "Invalid arguments: files is a list."
+        }
+        for dfiles.arr df:MfJ k3 {
+            if ((df.isObj()) == false) {
+                return "Invalid arguments: every file is an object."
+            }
+            if ((df.field("name")).kind != 3) {
+                return "Invalid arguments: every file needs a name."
+            }
+            for ([] _:string ("text" "url" "data_base64")) ff:string fm {
+                def ffv:MfJ (df.field(ff))
+                if ((ffv.kind != 0) && (ffv.kind != 3)) {
+                    return ("Invalid arguments: file " + ff + " is a string.")
+                }
             }
         }
         def images:MfJ (a.field("images"))
@@ -524,6 +589,12 @@ class Tools {
         if (name == "get_presentation") {
             r = (Tools.get(host caller args))
         }
+        if (name == "list_files") {
+            r = (Tools.listFiles(host caller args))
+        }
+        if (name == "read_file") {
+            r = (Tools.readFile(host caller args))
+        }
         if (name == "list_presentations") {
             r = (Tools.listMine(host caller))
         }
@@ -583,6 +654,10 @@ class Tools {
         if ((strlen loaded.err) > 0) {
             return (Tools.fail(loaded.err))
         }
+        def data:Loaded (Files.loadData(host (a.list("files"))))
+        if ((strlen data.err) > 0) {
+            return (Tools.fail(data.err))
+        }
         def names:[string]
         for loaded.imgs im:Img i {
             push names im.name
@@ -602,6 +677,9 @@ class Tools {
             if ((array_length loaded.imgs) > 0) {
                 push ws "Pictures are not stored on this server (no cloud storage configured); the slides show without them."
             }
+            if ((array_length data.imgs) > 0) {
+                push ws "Data files are not stored on this server (no cloud storage configured)."
+            }
             out.put("warnings" (J.strs(ws)))
             def q:string ("md=" + (host_pack_text host md))
             q = (q + "&theme=" + (host_uri_encode host theme))
@@ -617,14 +695,21 @@ class Tools {
         if caller.signedIn {
             owner = caller.uid
         }
-        def made:Created (Store.create(host (a.str_("title")) md theme sh.hasCss sh.css loaded.imgs owner))
+        def kept:[Img]
+        for loaded.imgs li:Img lk {
+            push kept li
+        }
+        for data.imgs di:Img dk {
+            push kept di
+        }
+        def made:Created (Store.create(host (a.str_("title")) md theme sh.hasCss sh.css kept owner))
         if ((strlen made.err) > 0) {
             return (Tools.failed(host "create_presentation" made.err))
         }
         Tools.links(out base made.id)
         out.putStr("deck_id" made.id)
         out.putStr("edit_key" made.key)
-        return (Tools.result(host caller out "Created"))
+        return (Tools.withData(host (Tools.result(host caller out "Created")) data.imgs))
     }
 
     sfn update:MfJ (host:McpHost caller:Caller a:MfJ) {
@@ -698,11 +783,22 @@ class Tools {
         if ((strlen loaded.err) > 0) {
             return (Tools.fail(loaded.err))
         }
-        def saved:MfJ (Store.update(host id (mine == false) key p loaded.imgs))
+        def data:Loaded (Files.loadData(host (a.list("files"))))
+        if ((strlen data.err) > 0) {
+            return (Tools.fail(data.err))
+        }
+        def kept:[Img]
+        for loaded.imgs li:Img lk {
+            push kept li
+        }
+        for data.imgs di:Img dk {
+            push kept di
+        }
+        def saved:MfJ (Store.update(host id (mine == false) key p kept))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "update_presentation" (host_error host)))
         }
-        return (Tools.updated(host caller id saved ""))
+        return (Tools.withData(host (Tools.updated(host caller id saved "")) data.imgs))
     }
 
     ; the stored deck, if this caller may change it (a host error stops it too)
@@ -844,9 +940,10 @@ class Tools {
         def names:[string]
         for (d.list("files")) f:MfJ i {
             def n:string (f.str_("path"))
-            if (startsWith n "media/") {
-                n = (substring n 6 (strlen n))
+            if ((Files.isPicture(n)) == false) {
+                continue
             }
+            n = (substring n 6 (strlen n))
             push names n
             def im:MfJ (MfJ.newObj())
             im.putStr("name" n)
@@ -866,6 +963,8 @@ class Tools {
             out.put("css" (new MfJ))
         }
         out.put("images" images)
+        def files:MfJ (Tools.filesOf(host id d))
+        out.put("files" files)
         Tools.links(out (host_base_url host) id)
         def themeName:string (d.str_("theme"))
         if ((strlen themeName) == 0) {
@@ -877,6 +976,15 @@ class Tools {
         }
         def parts:[string]
         push parts ("\"" + (out.str_("title")) + "\", theme " + themeName + ", " + (to_string (array_length names)) + " pictures: " + pics + ".")
+        def others:MfJ (MfJ.newArr())
+        for files.arr of:MfJ oi {
+            if ((of.str_("kind")) != "picture") {
+                others.add(of)
+            }
+        }
+        if ((others.count()) > 0) {
+            push parts ("Files:\n" + (Tools.filesText(others)))
+        }
         if hasCss {
             push parts "It has its own stylesheet (css below)."
         }
@@ -893,6 +1001,418 @@ class Tools {
         r.put("content" (Tools.text((join parts "\n"))))
         r.put("structuredContent" out)
         return r
+    }
+
+    ; --- data files
+
+    ; the kept data files, and the names a deck reads each one (or each
+    ; sheet of a workbook) by
+    sfn withData:MfJ (host:McpHost out:MfJ data:[Img]) {
+        if ((array_length data) == 0) {
+            return out
+        }
+        def lines:[string]
+        push lines "Data files kept:"
+        def kept:MfJ (MfJ.newArr())
+        for data f:Img i {
+            def k:MfJ (MfJ.newObj())
+            k.putStr("path" f.path)
+            if (Files.isXlsx(f.path)) {
+                def info:MfJ (Files.info((Files.tables(host f.handle f.path))))
+                k.put("sheets" info)
+                def parts:[string]
+                for info.arr o:MfJ j {
+                    def cols:[string]
+                    for (J.strList((o.field("columns")))) c:string ci {
+                        push cols (JOut.text((J.s(c))))
+                    }
+                    push parts ("sheet " + (JOut.text((J.s((o.str_("name")))))) + " (" + (to_string (o.int_("rows" 0))) + " rows; columns " + (join cols ", ") + ") read as " + (o.str_("csv")))
+                }
+                def said:string (join parts "; ")
+                if ((strlen said) == 0) {
+                    said = "no sheet has values"
+                }
+                push lines ("- " + f.path + ": " + said)
+            } {
+                push lines ("- " + f.path)
+            }
+            kept.add(k)
+        }
+        def content:MfJ (out.field("content"))
+        if ((content.count()) > 0) {
+            def c0:MfJ (content.item(0))
+            c0.putStr("text" ((c0.str_("text")) + "\n" + (join lines "\n")))
+        }
+        def sc:MfJ (out.field("structuredContent"))
+        if (sc.isObj()) {
+            sc.put("files" kept)
+        }
+        return out
+    }
+
+    ; every file a deck keeps, and what is in its workbooks
+    sfn filesOf:MfJ (host:McpHost id:string d:MfJ) {
+        def out:MfJ (MfJ.newArr())
+        for (d.list("files")) f:MfJ i {
+            def path:string (f.str_("path"))
+            def o:MfJ (MfJ.newObj())
+            o.putStr("path" path)
+            o.putStr("kind" (Files.kindOf(path)))
+            o.putStr("type" (f.str_("type")))
+            o.putInt("size" (f.int_("size" 0)))
+            if (Files.isXlsx(path)) {
+                if ((f.int_("size" 0)) > (Files.MAX_READ())) {
+                    o.putStr("note" "too large to read here")
+                } {
+                    def got:MfJ (J.parse((host_file_bytes host id path)))
+                    def err:string (host_error host)
+                    if ((strlen err) > 0) {
+                        host_clear_error host
+                        o.putStr("note" ("could not read the workbook: " + err))
+                    } {
+                        def ts:Tables (Files.tables(host (got.int_("handle" 0)) path))
+                        if ((strlen ts.err) > 0) {
+                            o.putStr("note" ("could not read the workbook: " + ts.err))
+                        } {
+                            o.put("sheets" (Files.info(ts)))
+                        }
+                    }
+                }
+            }
+            out.add(o)
+        }
+        return out
+    }
+
+    sfn filesText:string (files:MfJ) {
+        if ((files.count()) == 0) {
+            return "No files."
+        }
+        def lines:[string]
+        def data:boolean false
+        for files.arr f:MfJ i {
+            if ((f.str_("kind")) != "picture") {
+                data = true
+            }
+        }
+        if data {
+            push lines "read_file reads the values of a data file or a workbook's sheet."
+        }
+        for files.arr f2:MfJ j {
+            def note:string ""
+            if ((strlen (f2.str_("note"))) > 0) {
+                note = (" — " + (f2.str_("note")))
+            }
+            push lines ("- " + (f2.str_("path")) + " (" + (f2.str_("kind")) + ", " + (to_string (f2.int_("size" 0))) + " bytes)" + note)
+            for (f2.list("sheets")) sh:MfJ k {
+                push lines ("  - " + (Files.sheetLine(sh)))
+            }
+        }
+        return (join lines "\n")
+    }
+
+    ; the stored deck for list_files and read_file, or why not
+    sfn readable:MfJ (host:McpHost a:MfJ required:[string]) {
+        def r:MfJ (MfJ.newObj())
+        if ((host_store_kind host) == "link") {
+            r.put("fail" (Tools.fail("This server keeps no decks (no cloud storage configured).")))
+            return r
+        }
+        def bad:string (Tools.checkArgs(a required))
+        if ((strlen bad) > 0) {
+            r.put("fail" (Tools.fail(bad)))
+            return r
+        }
+        def id:string (a.str_("deck_id"))
+        if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
+            r.put("fail" (Tools.fail("deck_id is the 10-character id in the share link.")))
+            return r
+        }
+        def d:MfJ (Store.get(host id))
+        if ((strlen (host_error host)) > 0) {
+            return r
+        }
+        if ((d.isObj()) == false) {
+            r.put("fail" (Tools.fail(("No presentation " + id + "."))))
+            return r
+        }
+        r.put("deck" d)
+        return r
+    }
+
+    sfn listFiles:MfJ (host:McpHost caller:Caller a:MfJ) {
+        def got:MfJ (Tools.readable(host a ([] _:string ("deck_id"))))
+        if ((got.field("fail")).isObj()) {
+            return (got.field("fail"))
+        }
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "list_files" (host_error host)))
+        }
+        def files:MfJ (Tools.filesOf(host (a.str_("deck_id")) (got.field("deck"))))
+        def sc:MfJ (MfJ.newObj())
+        sc.put("files" files)
+        def r:MfJ (MfJ.newObj())
+        r.put("content" (Tools.text((Tools.filesText(files)))))
+        r.put("structuredContent" sc)
+        return r
+    }
+
+    ; the values of one of a deck's files: a workbook's sheet (by the
+    ; workbook's path, or the CSV name the deck reads the sheet by) or a CSV,
+    ; TSV, JSON or text file; rows a window at a time
+    sfn readFile:MfJ (host:McpHost caller:Caller a:MfJ) {
+        def got:MfJ (Tools.readable(host a ([] _:string ("deck_id" "path"))))
+        if ((got.field("fail")).isObj()) {
+            return (got.field("fail"))
+        }
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "read_file" (host_error host)))
+        }
+        def id:string (a.str_("deck_id"))
+        def d:MfJ (got.field("deck"))
+        def want:string (trim (a.str_("path")))
+        while (startsWith want "/") {
+            want = (substring want 1 (strlen want))
+        }
+        def sheetName:string (a.str_("sheet"))
+        def hasSheet:boolean ((a.field("sheet")).kind == 3)
+        def offset:int (a.int_("offset" 0))
+        def limit:int (a.int_("limit" 200))
+        def files:[MfJ] (d.list("files"))
+        def found:MfJ (new MfJ)
+        for files f:MfJ i {
+            if (((f.str_("path")) == want) && ((found.isObj()) == false)) {
+                found = f
+            }
+        }
+        def isBook:boolean false
+        def ts (new Tables)
+        if (found.isObj()) {
+            if (Files.isXlsx((found.str_("path")))) {
+                isBook = true
+                ts = (Tools.bookTables(host id found))
+            }
+        } {
+            ; a sheet's CSV name: data/<book>-<Sheet>.csv or data/<book>.csv
+            for files w:MfJ j {
+                def wp:string (w.str_("path"))
+                if (((found.isObj()) == false) && (Files.isXlsx(wp))) {
+                    def base:string (substring wp 0 ((strlen wp) - 5))
+                    if ((want == (base + ".csv")) || (startsWith want (base + "-"))) {
+                        def all:Tables (Tools.bookTables(host id w))
+                        for all.list t:DataTable k {
+                            if ((t.csv == want) && ((found.isObj()) == false)) {
+                                found = w
+                                isBook = true
+                                ts = all
+                                sheetName = t.name
+                                hasSheet = true
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "read_file" (host_error host)))
+        }
+        if ((found.isObj()) == false) {
+            def have:[string]
+            for files h:MfJ m {
+                if ((Files.isPicture((h.str_("path")))) == false) {
+                    push have (h.str_("path"))
+                }
+            }
+            def tail:string " It keeps no data files."
+            if ((array_length have) > 0) {
+                tail = (" Its files: " + (join have ", ") + ".")
+            }
+            return (Tools.fail(("No file " + want + " in presentation " + id + "." + tail)))
+        }
+        def path:string (found.str_("path"))
+        if (Files.isPicture(path)) {
+            return (Tools.fail((path + " is a picture.")))
+        }
+        if ((found.int_("size" 0)) > (Files.MAX_READ())) {
+            return (Tools.fail((path + " is too large to read here.")))
+        }
+        def columns:[string]
+        def rows:[SheetRow]
+        def sheet:MfJ (new MfJ)
+        def note:string ""
+        if isBook {
+            if ((strlen ts.err) > 0) {
+                return (Tools.fail((path + ": could not read the workbook: " + ts.err)))
+            }
+            if ((array_length ts.list) == 0) {
+                return (Tools.fail((path + ": no sheet has values.")))
+            }
+            def pick:int -1
+            if hasSheet {
+                def low:string (to_lowercase (trim sheetName))
+                def si:int 0
+                while (si < (array_length ts.list)) {
+                    def tt:DataTable (itemAt ts.list si)
+                    if (((to_lowercase tt.name) == low) && (pick < 0)) {
+                        pick = si
+                    }
+                    si = (si + 1)
+                }
+            } {
+                pick = 0
+            }
+            if (pick < 0) {
+                def names:[string]
+                for ts.list tn:DataTable n {
+                    push names (JOut.text((J.s(tn.name))))
+                }
+                return (Tools.fail((path + " has no sheet \"" + sheetName + "\". Its sheets: " + (join names ", ") + ".")))
+            }
+            def chosen:DataTable (itemAt ts.list pick)
+            sheet = (MfJ.newObj())
+            sheet.putStr("name" chosen.name)
+            sheet.putStr("csv" chosen.csv)
+            columns = chosen.columns
+            rows = chosen.rows
+            if ((array_length ts.list) > 1) {
+                def others:[string]
+                for ts.list to:DataTable q {
+                    if (to.name != chosen.name) {
+                        push others (JOut.text((J.s(to.name))))
+                    }
+                }
+                note = ("Other sheets: " + (join others ", ") + " (read with sheet). ")
+            }
+            note = (note + "Dates are written as the workbook shows them.")
+        } {
+            def gotBytes:MfJ (J.parse((host_file_bytes host id path)))
+            if ((strlen (host_error host)) > 0) {
+                return (Tools.failed(host "read_file" (host_error host)))
+            }
+            def text:string (host_text host (gotBytes.int_("handle" 0)))
+            def low2:string (to_lowercase path)
+            if ((endsWith low2 ".csv") || (endsWith low2 ".tsv")) {
+                def sep:int 44
+                if (endsWith low2 ".tsv") {
+                    sep = 9
+                }
+                def all2:[SheetRow] (Files.parseCsv(text sep))
+                def first:boolean true
+                for all2 r:SheetRow ri {
+                    if ((Files.filled(r)) > 0) {
+                        if first {
+                            columns = r.cells
+                            first = false
+                        } {
+                            push rows r
+                        }
+                    }
+                }
+            } {
+                ; JSON, a chart spec, text: as it is, cut at 200 KB
+                def cut:boolean ((strlen text) > 204800)
+                def shown:string text
+                if cut {
+                    shown = (substring text 0 204800)
+                }
+                def lead:string (path + " (" + (to_string (strlen text)) + " characters")
+                if cut {
+                    lead = (lead + ", first 200 KB")
+                }
+                def sc2:MfJ (MfJ.newObj())
+                sc2.putStr("path" path)
+                sc2.putStr("text" shown)
+                sc2.putBool("truncated" cut)
+                def r2:MfJ (MfJ.newObj())
+                r2.put("content" (Tools.text((lead + "):\n" + shown))))
+                r2.put("structuredContent" sc2)
+                return r2
+            }
+        }
+        def total:int (array_length rows)
+        def window:[SheetRow]
+        def rowsJ:MfJ (MfJ.newArr())
+        def at:int offset
+        while ((at < total) && (at < (offset + limit))) {
+            def src:SheetRow (itemAt rows at)
+            def wr (new SheetRow)
+            for src.cells v:string vi {
+                push wr.cells v
+            }
+            while ((array_length wr.cells) < (array_length columns)) {
+                push wr.cells ""
+            }
+            push window wr
+            rowsJ.add((J.strs(wr.cells)))
+            at = (at + 1)
+        }
+        def shownCount:int (array_length window)
+        def next:int -1
+        if ((offset + shownCount) < total) {
+            next = (offset + shownCount)
+        }
+        def colsQ:[string]
+        for columns c:string cq {
+            push colsQ (JOut.text((J.s(c))))
+        }
+        def lead2:string path
+        if (sheet.isObj()) {
+            lead2 = (lead2 + " sheet " + (JOut.text((J.s((sheet.str_("name")))))) + " (read in the deck as " + (sheet.str_("csv")) + ")")
+        }
+        def lines:[string]
+        push lines (lead2 + ": " + (to_string total) + " data rows, columns " + (join colsQ ", ") + ".")
+        def from:int 0
+        if (shownCount > 0) {
+            from = (offset + 1)
+        }
+        def range:string ("Rows " + (to_string from) + "–" + (to_string (offset + shownCount)) + " of " + (to_string total))
+        if (next >= 0) {
+            range = (range + "; next: offset " + (to_string next))
+        }
+        push lines (range + ".")
+        if ((strlen note) > 0) {
+            push lines (trim note)
+        }
+        def head (new SheetRow)
+        head.cells = columns
+        def all3:[SheetRow]
+        push all3 head
+        for window wr2:SheetRow wi {
+            push all3 wr2
+        }
+        push lines "```csv"
+        push lines (Files.toCsv(all3))
+        push lines "```"
+        def sc3:MfJ (MfJ.newObj())
+        sc3.putStr("path" path)
+        sc3.put("sheet" sheet)
+        sc3.put("columns" (J.strs(columns)))
+        sc3.put("rows" rowsJ)
+        sc3.putInt("total_rows" total)
+        sc3.putInt("offset" offset)
+        if (next >= 0) {
+            sc3.putInt("next_offset" next)
+        } {
+            sc3.put("next_offset" (new MfJ))
+        }
+        def r3:MfJ (MfJ.newObj())
+        r3.put("content" (Tools.text((join lines "\n"))))
+        r3.put("structuredContent" sc3)
+        return r3
+    }
+
+    ; a kept workbook's sheets; a Storage error is left on the host
+    sfn bookTables:Tables (host:McpHost id:string f:MfJ) {
+        def ts (new Tables)
+        if ((f.int_("size" 0)) > (Files.MAX_READ())) {
+            ts.err = "too large to read here"
+            return ts
+        }
+        def got:MfJ (J.parse((host_file_bytes host id (f.str_("path")))))
+        if ((strlen (host_error host)) > 0) {
+            return ts
+        }
+        return (Files.tables(host (got.int_("handle" 0)) (f.str_("path"))))
     }
 
     sfn listMine:MfJ (host:McpHost caller:Caller) {

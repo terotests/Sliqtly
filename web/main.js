@@ -2721,6 +2721,21 @@ keys.addEventListener("keydown", (ev) => {
     }
     return;
   }
+  // the menus' keys (shown beside their rows): Ctrl+M a new slide (Ctrl on
+  // a Mac too: ⌘M minimises the window), ⌘/Ctrl+D duplicate it, ⌘/Ctrl+O
+  // open, ⌘/Ctrl+S save .md
+  const menuKey = !ev.altKey && !ev.shiftKey && ev.key.length === 1 ? ev.key.toLowerCase() : "";
+  const menuReq = ev.ctrlKey && !ev.metaKey && menuKey === "m" ? "slide:new"
+    : mod && menuKey === "d" ? "slide:duplicate"
+    : mod && menuKey === "o" ? "openbox"
+    : mod && menuKey === "s" ? "click:save"
+    : "";
+  if (menuReq) {
+    ev.preventDefault();
+    app.request(menuReq);
+    afterInput();
+    return;
+  }
   if (mod && ev.key.length === 1) {
     if (CLIPBOARD_CHORD.test(ev.key)) return; // copy / cut / paste fire on the field
     if (/^[azyAZY]$/.test(ev.key)) {
@@ -2883,6 +2898,10 @@ canvas.addEventListener("pointerdown", (ev) => {
   }
   if (where === "editor" && clicks === 1) {
     setTimeout(() => {
+      // a low-contrast mark in the gutter: its warning, and nothing else
+      let g = null;
+      try { g = JSON.parse(app.contrastHintAt(x, y) || "null"); } catch (_) { g = null; }
+      if (g) { showHint(g); return; }
       let h = null;
       try { h = JSON.parse(app.hintAtCaret() || "null"); } catch (_) { h = null; }
       if (h && isChartFence(h)) {
@@ -3155,6 +3174,7 @@ async function start() {
   const r = stageEl.getBoundingClientRect();
   app.init(css, Math.max(320, r.width), Math.max(240, r.height));
   app.setCoarse(isCoarse());
+  app.setMac(/Mac|iPhone|iPad/.test(navigator.userAgentData?.platform || navigator.platform || ""));
   resize();
   window.addEventListener("resize", resize);
 

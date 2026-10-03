@@ -136,6 +136,15 @@ try {
     const right = l4.stage[0] + l4.stage[2] * pageW;
     check("a small zoom still covers the stage's edges", l4.stage[2] > l.stage[2] * 1.1 && l4.stage[0] <= l4.clip[0] + 0.5 && right >= l4.clip[0] + l4.clip[2] - 0.5,
       `${l4.stage[0].toFixed(1)}..${right.toFixed(1)} vs ${l4.clip[0]}..${l4.clip[0] + l4.clip[2]}, scale ${(l4.stage[2] / l.stage[2]).toFixed(2)}`);
+    // the slide is drawn at the scale the clip was worked out from (a scale
+    // rounded to 0.01 drew it short of the stage's edge, a stripe that
+    // flickered as the zoom changed)
+    const meet = await phone.evaluate(() => {
+      const L = JSON.parse(window.__app.layoutJson());
+      const c = JSON.parse(window.__app.stageJson()).list.cmds[0];
+      return [L.stage[0] + (c.x + c.w) * L.stage[2], L.clip[0] + L.clip[2]];
+    });
+    check("the zoomed slide's clip meets the stage's edge", Math.abs(meet[0] - meet[1]) < 0.05, `${meet[0].toFixed(3)} vs ${meet[1]}`);
     await ctx.close();
   }
 
@@ -240,6 +249,51 @@ try {
   await page.waitForTimeout(300);
   await shot("2-speaker.png");
   await page.evaluate(() => window.__app.endPresent());
+
+  // The "+" after the last thumbnail: pressed, it offers an empty slide or a
+  // copy of the selected one, each put after the selected slide and selected.
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const at = async (part) => page.evaluate((part) => {
+      const a = window.__app;
+      a.selectSlide(1);
+      a.scrollStrip(1e6);
+      a.layoutJson();
+      const c = document.getElementById("c").getBoundingClientRect();
+      const x = a.thumbX(a.deck.slideCount()) + a.thumbW / 2;
+      const y = a.thumbY() + (part === "dup" ? a.thumbH * 0.75 : a.thumbH * 0.25);
+      return [c.left + x, c.top + y];
+    }, part);
+    const state = () => page.evaluate(() => {
+      const a = window.__app;
+      return { n: a.deck.slideCount(), sel: a.selected, open: a.addOpen, sel1: a.deck.slideAt(1).title, title: a.deck.slideAt(a.selected).title, words: a.copySelection() };
+    });
+    const s0 = await state();
+    await page.evaluate(() => { window.__app.selectSlide(1); window.__app.scrollStrip(1e6); });
+    await page.waitForTimeout(300);
+    await shot("slide-add.png");
+    let p = await at("open");
+    await page.mouse.click(p[0], p[1]);
+    const s1 = await state();
+    check("the + after the thumbnails offers its two choices", s1.open && s1.n === s0.n, JSON.stringify(s1));
+    await shot("slide-add-open.png");
+    p = await at("empty");
+    await page.mouse.click(p[0], p[1]);
+    const s2 = await state();
+    check("…Empty slide puts a new slide after the selected one and selects its heading", !s2.open && s2.n === s0.n + 1 && s2.sel === 2 && s2.title === "New slide" && s2.words === "New slide", JSON.stringify(s2));
+    p = await at("open");
+    await page.mouse.click(p[0], p[1]);
+    p = await at("dup");
+    await page.mouse.click(p[0], p[1]);
+    const s3 = await state();
+    check("…Duplicate slide copies the selected slide after it", s3.n === s0.n + 2 && s3.sel === 2 && s3.title === s3.sel1, JSON.stringify(s3));
+    p = await at("open");
+    await page.mouse.click(p[0], p[1]);
+    await page.mouse.click(700, 200);
+    check("…a press elsewhere closes the choices", !(await state()).open);
+    await page.evaluate((t) => window.__app.setSource(t), src0);
+    await page.waitForTimeout(200);
+  }
 
   // A diagram that asks: present the Kulku slide, wait for the question,
   // move the highlight with an arrow, take it with Enter, then go back two
@@ -1472,6 +1526,46 @@ try {
     check("a pasted sheet link asks first, then opens Link live data before anything is pasted", res.dialog.asked && res.dialog.open && res.dialog.live && res.dialog.rows === 4 && !res.dialog.pasted, JSON.stringify(res.dialog));
     check("…and makes a chart that reads the sheet (no copied values), drawn", res.fence && res.bars === 3, JSON.stringify(res));
   }
+  // …or a table that reads the sheet live, paged on its slide
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    let body = '"Kuukausi","Km"\n' + Array.from({ length: 12 }, (_, i) => `"K${i}","${100 + i}"`).join("\n") + "\n";
+    const route = (r) => r.fulfill({ status: 200, contentType: "text/csv", headers: { "access-control-allow-origin": "*" }, body });
+    await page.context().route(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    const link = "https://docs.google.com/spreadsheets/d/SHEET3/edit?gid=0#gid=0";
+    const texts = () => page.evaluate(() => { const a = window.__app; const u = a.deck.tables[0]; if (!u) return null; a.selectSlide(u.slide); return { pages: u.pages(), t: JSON.parse(a.stageJson()).list.cmds.filter((c) => c.k === 3).map((c) => c.text) }; });
+    const made = await page.evaluate(async (link) => {
+      const a = window.__app;
+      a.setSource("# D\n\n## Km\n\n");
+      a.showTab("md");
+      a.editor.moveCaret(4, 0, false);
+      const keys = document.getElementById("keys");
+      keys.focus();
+      const dt = new DataTransfer();
+      dt.setData("text/plain", link);
+      keys.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+      let card = null;
+      for (let i = 0; i < 50 && !(card = document.querySelector("#gLink button.primary")); i += 1) await new Promise((r) => setTimeout(r, 100));
+      if (card) card.click();
+      for (let i = 0; i < 50 && !(a.shareIsOpen() && a.panels.imp && a.panels.imp.rows === 12); i += 1) await new Promise((r) => setTimeout(r, 100));
+      a.panels.requests.push("data:table");
+      a.takePanels();
+      window.__handleRequests && window.__handleRequests();
+      await new Promise((r) => setTimeout(r, 800));
+      return a.source();
+    }, link);
+    const first = await texts();
+    // the sheet changes: R reads it again and the table follows
+    body = '"Kuukausi","Km"\n"Uusi","7"\n';
+    await page.evaluate(() => document.getElementById("vData").click());
+    let second = null;
+    for (let i = 0; i < 30; i++) { await page.waitForTimeout(100); second = await texts(); if (second && second.t.includes("Uusi")) break; }
+    await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    const res = { fence: /```table\nhttps:\/\/docs\.google\.com\/spreadsheets\/d\/SHEET3/.test(made), copied: /data\/[^\n]*\.csv/.test(made.split("```table")[1] || ""), first: first && { pages: first.pages, k0: first.t.includes("K0"), k11: first.t.includes("K11") }, refreshed: !!second && second.t.includes("Uusi") };
+    check("…or makes a table that reads the sheet live, paged on its slide", res.fence && !res.copied && res.first && res.first.pages === 2 && res.first.k0 && !res.first.k11, JSON.stringify(res));
+    check("…and a re-read sheet redraws the table", res.refreshed, JSON.stringify(res));
+  }
   // …and "Paste as text" on that question only pastes the link
   {
     const src0 = await page.evaluate(() => window.__app.source());
@@ -2068,6 +2162,33 @@ try {
     await pc.waitForTimeout(5000);
     check("PRO: a deck changed elsewhere is not written over", fakeDb.get("shares/" + id).md === "# Muualla muutettu\n");
 
+    // the window's Name field: a drag selects and typing replaces it,
+    // Ctrl+A selects all, and the × at its end empties it
+    {
+      await pc.evaluate(() => window.__fileRequest("new"));
+      await pc.waitForTimeout(300);
+      const nameOf = () => pc.evaluate(() => JSON.parse(window.__app.newDeckPlan()).name);
+      await pc.keyboard.type("Myynti 2026");
+      await pc.mouse.move(584, 235);
+      await pc.mouse.down();
+      await pc.mouse.move(610, 235);
+      await pc.mouse.move(628, 235);
+      await pc.mouse.up();
+      await pc.keyboard.type("Tulos");
+      const replaced = await nameOf();
+      await pc.keyboard.press("Control+a");
+      await pc.keyboard.type("Uusi");
+      const all = await nameOf();
+      await pc.mouse.click(832, 235);
+      await pc.waitForTimeout(200);
+      const cleared = await nameOf();
+      await pc.keyboard.type("Z");
+      const after = await nameOf();
+      check("New presentation: a drag in Name selects, Ctrl+A selects all, × clears", replaced.startsWith("Tulos") && replaced.endsWith("2026") && all === "Uusi" && cleared === "" && after === "Z",
+        JSON.stringify({ replaced, all, cleared, after }));
+      await pc.keyboard.press("Escape");
+      await pc.waitForTimeout(300);
+    }
     // File → New presentation asks first: Esc leaves the deck as it is
     const before = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search) };
     await pc.evaluate(() => window.__fileRequest("new"));

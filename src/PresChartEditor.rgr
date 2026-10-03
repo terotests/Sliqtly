@@ -115,6 +115,8 @@ class PresChartEditor {
     def ndData:string "none"
     def ndTab:string "name"
     def wantsCreate:boolean false
+    ; a field whose text is being selected by a drag, by its tid
+    def selecting:string ""
 
     Constructor () {
     }
@@ -253,7 +255,7 @@ class PresChartEditor {
     }
 
     fn dragging:boolean () {
-        return (((win.dragging || sliding) || ((strlen dragPart) > 0)) || ((this.cropping()) && (crop.dragging())))
+        return ((((win.dragging || sliding) || ((strlen dragPart) > 0)) || ((this.cropping()) && (crop.dragging()))) || ((strlen selecting) > 0))
     }
 
     ; A point as fractions of the crop's rectangle, as last laid out.
@@ -274,6 +276,10 @@ class PresChartEditor {
     }
 
     fn dragTo:void (px:double py:double) {
+        if ((strlen selecting) > 0) {
+            this.selectTo(px)
+            return
+        }
         if ((this.cropping()) && (crop.dragging())) {
             crop.dragAt((this.cropFx(px)) (this.cropFy(py)))
             rev = (rev + 1)
@@ -314,6 +320,10 @@ class PresChartEditor {
     }
 
     fn release:void () {
+        if ((strlen selecting) > 0) {
+            selecting = ""
+            rev = (rev + 1)
+        }
         if ((this.cropping()) && (crop.dragging())) {
             crop.release()
             rev = (rev + 1)
@@ -395,6 +405,9 @@ class PresChartEditor {
         c.tid = tid
         c.name = name
         c.placeholder = hint
+        ; the wide fields (names, titles, descriptions) have a clear button
+        c.clearable = (cls == "ce-wide")
+        c.clearLabel = (PresI18n.t("Clear"))
         c.fontFamily = "Open Sans"
         c.fontSize = 13.0
         c.boxWidth = 80.0
@@ -1167,9 +1180,34 @@ class PresChartEditor {
                 c.ensureCaretVisible(eng)
                 def box:EVGElement (unwrap c.rootEl)
                 box.position = "relative"
+                ; absolute children are placed from the box's content edge,
+                ; where the text starts: the caret is the text's own width in
                 car.position = "absolute"
-                car.left = (EVGUnit.px(((10.0 + (c.caretXAt(eng c.caret))) - c.scrollX)))
+                car.left = (EVGUnit.px(((c.caretXAt(eng c.caret)) - c.scrollX)))
                 car.top = (EVGUnit.px(6.0))
+                if (c.hasSelection()) {
+                    def sx:double (c.caretXAt(eng (c.selStart())))
+                    def ex:double (c.caretXAt(eng (c.selEnd())))
+                    def band:EVGElement (this.div("ce-selband"))
+                    band.position = "absolute"
+                    band.left = (EVGUnit.px((sx - c.scrollX)))
+                    band.width = (EVGUnit.px((ex - sx)))
+                    band.top = (EVGUnit.px(6.0))
+                    ; under the text, so first
+                    def kids:[EVGElement]
+                    def k:int 0
+                    while (k < (box.getChildCount())) {
+                        push kids (box.getChild(k))
+                        k = (k + 1)
+                    }
+                    UiTree.clearChildren(box)
+                    box.addChild(band)
+                    def j:int 0
+                    while (j < (array_length kids)) {
+                        box.addChild((itemAt kids j))
+                        j = (j + 1)
+                    }
+                }
             } {
                 car.width = (EVGUnit.px(0.0))
             }
@@ -1331,10 +1369,66 @@ class PresChartEditor {
         }
         def asInput@(optional):InputCtl (this.inputFor(ctlTid))
         if (!null? asInput) {
-            this.focusInput(ctlTid)
+            def ic:InputCtl (unwrap asInput)
+            if (ic.isClearHit(tid)) {
+                if (focusTid != ctlTid) {
+                    this.focusInput(ctlTid)
+                }
+                ic.clearValue()
+                keep.restore()
+                this.take()
+                return
+            }
+            if (focusTid != ctlTid) {
+                this.focusInput(ctlTid)
+            }
+            ; the caret where the press landed; a drag from there selects
+            ic.placeCaret((this.indexIn(ic px)) false)
+            selecting = ctlTid
+            rev = (rev + 1)
             return
         }
         this.act(ctlTid)
+    }
+
+    ; The text engine the page lays out with, for measuring a field's run.
+    fn engine:EVGTextEngine () {
+        def lay (new EVGLayout())
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        return (lay.getTextEngine())
+    }
+
+    ; Which character of a field `px` (app coordinates) is at, measured on
+    ; the box as last laid out.
+    fn indexIn:int (c:InputCtl px:double) {
+        def box:EVGElement (unwrap c.rootEl)
+        return (InputCtl.indexAtPageX((this.engine()) c box px))
+    }
+
+    ; A drag over the field being selected: its caret follows the pointer,
+    ; the anchor stays where the press was.
+    fn selectTo:void (px:double) {
+        def maybe@(optional):InputCtl (this.inputFor(selecting))
+        if (null? maybe) {
+            selecting = ""
+            return
+        }
+        def c:InputCtl (unwrap maybe)
+        c.placeCaret((this.indexIn(c px)) true)
+        rev = (rev + 1)
+    }
+
+    ; Ctrl+A in a field: all of its text.
+    fn selectAllInField:void () {
+        def maybe@(optional):InputCtl (this.inputFor(focusTid))
+        if (null? maybe) {
+            return
+        }
+        def c:InputCtl (unwrap maybe)
+        c.selectAll()
+        rev = (rev + 1)
     }
 
     fn sliderValue:int (tid:string dflt:int) {
