@@ -30,6 +30,7 @@
 ; ============================================================================
 
 Import "PresHelp.rgr"
+Import "PresCascade.rgr"
 Import "PresI18n.rgr"
 Import "../markdown/web/markdown_web.rgr"
 Import "pkg:evg/EVGElement.rgr"
@@ -710,15 +711,29 @@ class PresSelect {
         }
     }
 
-    ; Which bands the theme sets (blue) and which it leaves at the default.
+    ; Which bands the theme sets (blue) and which it leaves at the default:
+    ; what the element's own rule says, as the cascade reads it.
     fn markSet:void (css:string) {
-        def clean:string (PresHelp.noComments(css))
+        def e:PresCssElement (this.cascade(css))
         def i:int 0
         while (i < (array_length bands)) {
             def b:PresSelBand (itemAt bands i)
-            b.isSet = ((strlen (PresHelp.valueOf(clean b.sel b.prop))) > 0)
+            b.isSet = false
+            def k:int 0
+            while (k < (array_length e.facets)) {
+                def f:PresCssFacet (itemAt e.facets k)
+                if ((f.prop == b.prop) && ((strlen ((f.link(b.sel)).value)) > 0)) {
+                    b.isSet = true
+                }
+                k = (k + 1)
+            }
             i = (i + 1)
         }
+    }
+
+    ; What the theme says about the pick, rule by rule (PresCascade.rgr).
+    fn cascade:PresCssElement (css:string) {
+        return ((PresCascade.of((PresHelp.noComments(css)))).element(sel classes ""))
     }
 
     ; "Edit content" makes sense for a block of the Markdown, not the page.
@@ -754,68 +769,42 @@ class PresSelect {
         return (what + "  " + (to_string (to_int (w + 0.5))) + " × " + (to_string (to_int (h + 0.5))))
     }
 
-    sfn replaceAll:string (s:string from:string to:string) {
-        def out:string ""
-        def i:int 0
-        def at:int (indexOfFrom s from 0)
-        while (at >= 0) {
-            out = (out + (substring s i at) + to)
-            i = (at + (strlen from))
-            at = (indexOfFrom s from i)
-        }
-        return (out + (substring s i (strlen s)))
-    }
-
     ; --- the style panel ----------------------------------------------------------
-    ; The theme rules that style the pick: its own first, then the one it
-    ; shares (all headings' margins, the list around an item).
-    fn ruleSels:[string] () {
-        def out:[string]
-        push out sel
-        if (((strlen sel) == 2) && ((charAt sel 0) == 104)) {
-            push out "heading"
-        }
-        if (sel == "li") {
-            push out "list"
-        }
-        if (sel == "list") {
-            push out "li"
-        }
-        def i:int 0
-        while (i < (array_length classes)) {
-            push out (itemAt classes i)
-            i = (i + 1)
-        }
-        ; the text of a paragraph or an item is the document's
-        if ((sel == "p") || (sel == "li")) {
-            push out "document"
-        }
-        return out
-    }
-
-    ; The rules as one, for the popover's selector card: every property says
-    ; which rule it belongs to.
+    ; Every facet of the pick for the popover's selector card: what it is, the
+    ; rule an edit goes to (`sel`), what that rule says (`value`, blue when
+    ; set), what the slide uses (`eff`) and which rule gives it (`from`, ""
+    ; for the default).
+    ; i18n: "accent colour" "alignment" "background picture" "background" "bar colour" "bar width" "border colour" "bullet colour" "bullet gap" "cell padding, sides" "cell padding, top and bottom" "colour" "font" "header row background" "indent" "largest height" "line colour" "line height" "margin at the edges" "padding above and below" "padding" "slide height" "slide width" "space above" "space below" "space between items" "text colour" "text size" "bullets and numbers only; the text is the document's" "a quote's text is never the document colour" "heading { font-size } sets h1 only" "all headings; the document font does not apply" "the layout does not read this"
     fn ruleJson:string (css:string) {
-        def sels:[string] (this.ruleSels())
+        def e:PresCssElement (this.cascade(css))
         def props:string ""
         def i:int 0
-        while (i < (array_length sels)) {
-            def s:string (itemAt sels i)
-            def r:string (PresHelp.selectorRule(css s))
-            def at:int (indexOf r "\"props\":[")
-            if (at >= 0) {
-                def body:string (substring r (at + 9) ((strlen r) - 2))
-                if ((strlen body) > 0) {
-                    def tagged:string (PresSelect.replaceAll(body "{\"name\":" ("{\"sel\":" + (PresHint.q(s)) + ",\"name\":")))
-                    if ((strlen props) > 0) {
-                        props = (props + ",")
-                    }
-                    props = (props + tagged)
-                }
+        while (i < (array_length e.facets)) {
+            def f:PresCssFacet (itemAt e.facets i)
+            def label:string (PresI18n.t(f.label))
+            if (f.label == f.prop) {
+                label = f.prop
             }
+            if f.unread {
+                label = (f.own + " › " + f.prop)
+            }
+            def doc:string (PresHelp.propDoc(f.own f.prop))
+            if ((strlen f.note) > 0) {
+                doc = ((PresI18n.t(f.note)) + ". " + doc)
+            }
+            if ((f.from != f.own) && ((strlen f.from) > 0)) {
+                doc = ((PresI18n.t("Now from")) + " " + f.from + " › " + f.prop + ". " + doc)
+            }
+            if ((f.own == "document") || (f.own == "body")) {
+                doc = ((PresI18n.t("Changes all text of the presentation, headings included.")) + " " + doc)
+            }
+            if ((strlen props) > 0) {
+                props = (props + ",")
+            }
+            props = (props + "{\"sel\":" + (PresHint.q(f.own)) + ",\"name\":" + (PresHint.q(f.prop)) + ",\"label\":" + (PresHint.q(label)) + ",\"value\":" + (PresHint.q((f.ownValue()))) + ",\"def\":" + (PresHint.q(f.value)) + ",\"eff\":" + (PresHint.q(f.value)) + ",\"from\":" + (PresHint.q(f.from)) + ",\"doc\":" + (PresHint.q(doc)) + "}")
             i = (i + 1)
         }
-        return ("{\"sel\":" + (PresHint.q(sel)) + ",\"doc\":" + (PresHint.q((PresHints.selectorDoc(sel)))) + ",\"props\":[" + props + "]}")
+        return ("{\"sel\":" + (PresHint.q(sel)) + ",\"stage\":\"1\",\"doc\":" + (PresHint.q((PresHints.selectorDoc(sel)))) + ",\"props\":[" + props + "]}")
     }
 
     ; --- drawing ----------------------------------------------------------------------

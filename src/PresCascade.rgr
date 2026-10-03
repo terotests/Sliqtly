@@ -1,0 +1,651 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresCascade.rgr — what the theme says about one element, and why
+; ============================================================================
+;
+; The theme's CSS reaches a slide in two passes, both in the markdown module:
+;
+;   1. MdCss.applyTo — the DOCUMENT. Each rule is asked by a name of its own
+;      (`page`, `document`, `body`, `p`, `heading`, `h1`…`h6`, `code`,
+;      `blockquote`, `list`, `li`, `table`, `img`, `hr`…) and each property it
+;      reads goes into one MdStyle field. `body` is read after `document`, so
+;      it wins where both say a thing.
+;   2. MdLayout.block — ONE BLOCK with `{.classes}` or `{#id}`: the sheet is
+;      resolved for the block (its tag, classes and id, with specificity) and
+;      only `font-size` (a scale) and `color` (its text) are taken.
+;
+; …and then the layout reads the fields in its own order. A heading's colour
+; is `hN`, else `heading`, else the text's (the block's, `body`'s,
+; `document`'s); a list's `color` is its bullets and numbers only; a quote's
+; text is `blockquote { color }` and never the document's; the shared
+; `heading { font-size }` sets h1 only. None of that is visible in the CSS.
+;
+; This file states it for one element as a list of FACETS — one thing the
+; reader sees (the text colour, the bullets' colour, the space below) — each
+; with the chain of rules that can set it, strongest first, the value each
+; gives, which one wins, and the default when none does. No UI: the style
+; panel is drawn from this, and `npm run check` tests it against MdCss.
+;
+; The charts' and diagrams' own rules are read by PresDeck (`chart`,
+; `diagram`); they are matched here by the same selector rules.
+; ============================================================================
+
+Import "../markdown/src/MdCss.rgr"
+
+; One rule in a facet's chain.
+class PresCssLink {
+    ; the rule an edit of it writes: "h2", "heading", "document", ".lead"
+    def rule:string ""
+    ; the selector in the sheet that gave the value ("h2" of "h1, h2"), or ""
+    def selector:string ""
+    ; what it says; "" when it says nothing
+    def value:string ""
+
+    Constructor () {
+    }
+
+    fn isSet:boolean () {
+        return ((strlen value) > 0)
+    }
+}
+
+; One thing the theme decides about the element.
+class PresCssFacet {
+    ; "color", "marker-color", "font-size", "margin-bottom"…
+    def key:string ""
+    ; the CSS property
+    def prop:string ""
+    ; what it is, in a few English words (the UI translates)
+    def label:string ""
+    ; the rule an edit from the element goes to
+    def own:string ""
+    ; strongest first
+    def chain:[PresCssLink]
+    ; what the slide uses, and the rule it came from ("" = the default)
+    def value:string ""
+    def from:string ""
+    def defaultValue:string ""
+    ; what is not obvious about it ("bullets and numbers only")
+    def note:string ""
+    ; a property of the element's own rule the layout does not read
+    def unread:boolean false
+
+    Constructor () {
+    }
+
+    fn isDefault:boolean () {
+        return ((strlen from) == 0)
+    }
+
+    ; Is the element's own rule what gives the value?
+    fn isOwn:boolean () {
+        return ((strlen from) > 0) && (from == own)
+    }
+
+    ; What the own rule says itself ("" when it leaves it to another).
+    fn ownValue:string () {
+        def i:int 0
+        while (i < (array_length chain)) {
+            def l:PresCssLink (itemAt chain i)
+            if (l.rule == own) {
+                return l.value
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn link:PresCssLink (rule:string) {
+        def i:int 0
+        while (i < (array_length chain)) {
+            def l:PresCssLink (itemAt chain i)
+            if (l.rule == rule) {
+                return l
+            }
+            i = (i + 1)
+        }
+        return (new PresCssLink())
+    }
+}
+
+; Every facet of one element.
+class PresCssElement {
+    ; h1…h6 p li list blockquote code table img hr page chart diagram
+    def sel:string ""
+    def classes:[string]
+    def id:string ""
+    def facets:[PresCssFacet]
+
+    Constructor () {
+    }
+
+    fn facet:PresCssFacet (key:string) {
+        def i:int 0
+        while (i < (array_length facets)) {
+            def f:PresCssFacet (itemAt facets i)
+            if (f.key == key) {
+                return f
+            }
+            i = (i + 1)
+        }
+        return (new PresCssFacet())
+    }
+
+    fn has:boolean (key:string) {
+        return ((this.facet(key)).key == key)
+    }
+
+    ; "key=value<from" for each facet, one per line — for tests and logs.
+    fn dump:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length facets)) {
+            def f:PresCssFacet (itemAt facets i)
+            def src:string f.from
+            if ((strlen src) == 0) {
+                src = "default"
+            }
+            out = (out + f.key + "=" + f.value + "<" + src + "\n")
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+class PresCascade {
+    def sheet:CssSheet (new CssSheet())
+    def defaults:MdStyle (new MdStyle())
+
+    Constructor () {
+    }
+
+    fn read:void (css:string) {
+        sheet = (new CssSheet())
+        sheet.parse(css)
+    }
+
+    sfn of:PresCascade (css:string) {
+        def c (new PresCascade())
+        c.read(css)
+        return c
+    }
+
+    ; --- the winner for one property, with the selector it came from ------------
+    ; CssCascade.resolve, keeping who won: specificity, then source order, with
+    ; `!important` above both.
+    fn win:PresCssLink (rule:string tag:string classes:[string] id:string prop:string) {
+        def n (new CssNode())
+        n.tag = tag
+        n.id = id
+        def c:int 0
+        while (c < (array_length classes)) {
+            n.addClass((PresCascade.bare((itemAt classes c))))
+            c = (c + 1)
+        }
+        def out (new PresCssLink())
+        out.rule = rule
+        def heldRank:int (0 - 1)
+        def heldOrder:int (0 - 1)
+        def r:int 0
+        while (r < (array_length sheet.rules)) {
+            def cr:CssRule (itemAt sheet.rules r)
+            def best:int (0 - 1)
+            def bestOrder:int 0
+            def bestText:string ""
+            def s:int 0
+            while (s < (array_length cr.selectors)) {
+                def sel:CssSelector (itemAt cr.selectors s)
+                if (CssMatch.selector(sel n)) {
+                    def spec:int (sel.specificity())
+                    if ((spec > best) || ((spec == best) && (sel.order > bestOrder))) {
+                        best = spec
+                        bestOrder = sel.order
+                        bestText = (sel.text())
+                    }
+                }
+                s = (s + 1)
+            }
+            if (best >= 0) {
+                def d:int 0
+                while (d < (array_length cr.decls)) {
+                    def decl:CssDecl (itemAt cr.decls d)
+                    if (decl.name == prop) {
+                        def rank:int best
+                        if decl.important {
+                            rank = (best + 1000000)
+                        }
+                        if ((rank > heldRank) || ((rank == heldRank) && (bestOrder >= heldOrder))) {
+                            heldRank = rank
+                            heldOrder = bestOrder
+                            out.value = decl.value
+                            out.selector = bestText
+                            if ((strlen bestText) == 0) {
+                                out.selector = "*"
+                            }
+                        }
+                    }
+                    d = (d + 1)
+                }
+            }
+            r = (r + 1)
+        }
+        return out
+    }
+
+    ; A rule asked by its name, as MdCss.applyTo asks it.
+    fn named:PresCssLink (rule:string prop:string) {
+        def none:[string]
+        return (this.win(rule rule none "" prop))
+    }
+
+    ; The properties the rules matching a node say, each once.
+    fn propsOf:[string] (tag:string classes:[string] id:string) {
+        def n (new CssNode())
+        n.tag = tag
+        n.id = id
+        def c:int 0
+        while (c < (array_length classes)) {
+            n.addClass((PresCascade.bare((itemAt classes c))))
+            c = (c + 1)
+        }
+        def out:[string]
+        def r:int 0
+        while (r < (array_length sheet.rules)) {
+            def cr:CssRule (itemAt sheet.rules r)
+            def hit:boolean false
+            def s:int 0
+            while (s < (array_length cr.selectors)) {
+                if (CssMatch.selector((itemAt cr.selectors s) n)) {
+                    hit = true
+                }
+                s = (s + 1)
+            }
+            if hit {
+                def d:int 0
+                while (d < (array_length cr.decls)) {
+                    def dd:CssDecl (itemAt cr.decls d)
+                    def name:string dd.name
+                    if ((PresCascade.indexIn(out name)) < 0) {
+                        push out name
+                    }
+                    d = (d + 1)
+                }
+            }
+            r = (r + 1)
+        }
+        return out
+    }
+
+    sfn indexIn:int (xs:[string] x:string) {
+        def i:int 0
+        while (i < (array_length xs)) {
+            if ((itemAt xs i) == x) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; "lead" of ".lead"
+    sfn bare:string (c:string) {
+        if (((strlen c) > 0) && ((charAt c 0) == 46)) {
+            return (substring c 1 (strlen c))
+        }
+        return c
+    }
+
+    sfn pt:string (v:double) {
+        def r:double ((to_double (to_int ((v * 100.0) + 0.5))) / 100.0)
+        def i:int (to_int r)
+        if ((to_double i) == r) {
+            return ((to_string i) + "pt")
+        }
+        return ((to_string r) + "pt")
+    }
+
+    sfn num:string (v:double) {
+        def r:double ((to_double (to_int ((v * 100.0) + 0.5))) / 100.0)
+        def i:int (to_int r)
+        if ((to_double i) == r) {
+            return (to_string i)
+        }
+        return (to_string r)
+    }
+
+    ; --- building a facet ----------------------------------------------------------
+    fn facet:PresCssFacet (key:string prop:string label:string) {
+        def f (new PresCssFacet())
+        f.key = key
+        f.prop = prop
+        f.label = label
+        return f
+    }
+
+    fn add:void (f:PresCssFacet rule:string) {
+        push f.chain (this.named(rule f.prop))
+    }
+
+    ; The block's own resolution, as MdLayout.block asks it — only for a block
+    ; with a class or an id.
+    fn addBlock:void (f:PresCssFacet tag:string classes:[string] id:string) {
+        if (((array_length classes) == 0) && ((strlen id) == 0)) {
+            return
+        }
+        def l:PresCssLink (this.win("" tag classes id f.prop))
+        l.rule = l.selector
+        if ((strlen l.rule) == 0) {
+            l.rule = (PresCascade.ownOfBlock(classes id))
+        }
+        push f.chain l
+    }
+
+    sfn ownOfBlock:string (classes:[string] id:string) {
+        if ((array_length classes) > 0) {
+            return ("." + (PresCascade.bare((itemAt classes 0))))
+        }
+        return ("#" + id)
+    }
+
+    ; The first link that says something wins; then where an edit goes: `own`
+    ; when it is given, else the winner, else the chain's first rule.
+    fn finish:PresCssFacet (f:PresCssFacet def0:string own:string) {
+        f.defaultValue = def0
+        f.value = def0
+        def i:int 0
+        while (i < (array_length f.chain)) {
+            def l:PresCssLink (itemAt f.chain i)
+            if (l.isSet()) {
+                f.value = l.value
+                f.from = l.rule
+                i = (array_length f.chain)
+            }
+            i = (i + 1)
+        }
+        f.own = own
+        if ((strlen f.own) == 0) {
+            f.own = f.from
+        }
+        if (((strlen f.own) == 0) && ((array_length f.chain) > 0)) {
+            def first:PresCssLink (itemAt f.chain 0)
+            f.own = first.rule
+        }
+        return f
+    }
+
+    ; The text's own facets: its colour, size, face and line height. `tag` is
+    ; the block's element name (`p`, `li`, `ul`…), for its classes.
+    fn textFacets:void (e:PresCssElement tag:string) {
+        def own:string ""
+        def classed:boolean (((array_length e.classes) > 0) || ((strlen e.id) > 0))
+        if classed {
+            own = (PresCascade.ownOfBlock(e.classes e.id))
+        }
+        def c:PresCssFacet (this.facet("color" "color" "text colour"))
+        this.addBlock(c tag e.classes e.id)
+        this.add(c "body")
+        this.add(c "document")
+        push e.facets (this.finish(c defaults.textColor (this.docOwn(c own))))
+        def s:PresCssFacet (this.facet("font-size" "font-size" "text size"))
+        this.addBlock(s tag e.classes e.id)
+        this.add(s "body")
+        this.add(s "document")
+        push e.facets (this.finish(s (PresCascade.pt(defaults.bodySize)) (this.docOwn(s own))))
+        this.docFacets(e)
+    }
+
+    ; Face and line height, which only `document` / `body` set.
+    fn docFacets:void (e:PresCssElement) {
+        def ff:PresCssFacet (this.facet("font-family" "font-family" "font"))
+        this.add(ff "body")
+        this.add(ff "document")
+        push e.facets (this.finish(ff defaults.bodyFamily (this.docOwn(ff ""))))
+        def lh:PresCssFacet (this.facet("line-height" "line-height" "line height"))
+        this.add(lh "body")
+        this.add(lh "document")
+        push e.facets (this.finish(lh (PresCascade.num(defaults.lineHeight)) (this.docOwn(lh ""))))
+    }
+
+    ; An edit from an element with no rule of its own goes to the rule that
+    ; gives the value now: `body` when it says it, else `document`.
+    fn docOwn:string (f:PresCssFacet own:string) {
+        if ((strlen own) > 0) {
+            return own
+        }
+        if ((f.link("body")).isSet()) {
+            return "body"
+        }
+        return "document"
+    }
+
+    fn one:PresCssFacet (rule:string key:string prop:string label:string def0:string) {
+        def f:PresCssFacet (this.facet(key prop label))
+        this.add(f rule)
+        return (this.finish(f def0 rule))
+    }
+
+    ; --- the element ---------------------------------------------------------------
+    ; `sel` as the pick names it: h1…h6 p li list (or ul / ol) blockquote code
+    ; table img hr page chart diagram. `classes` with or without the dot.
+    fn element:PresCssElement (sel0:string classes:[string] id:string) {
+        def e (new PresCssElement())
+        def sel:string sel0
+        if ((sel == "ul") || (sel == "ol")) {
+            sel = "list"
+        }
+        e.sel = sel
+        e.id = id
+        def c:int 0
+        while (c < (array_length classes)) {
+            push e.classes (PresCascade.bare((itemAt classes c)))
+            c = (c + 1)
+        }
+        def st:MdStyle defaults
+        def level:int (PresCascade.headingLevel(sel))
+        if (level > 0) {
+            this.heading(e level)
+        }
+        if (sel == "p") {
+            this.textFacets(e "p")
+            push e.facets (this.one("p" "margin-bottom" "margin-bottom" "space below" (PresCascade.pt(st.paraSpacing))))
+        }
+        if ((sel == "li") || (sel == "list")) {
+            def tag:string "li"
+            if (sel == "list") {
+                tag = "ul"
+                if (sel0 == "ol") {
+                    tag = "ol"
+                }
+            }
+            this.textFacets(e tag)
+            def m:PresCssFacet (this.one("list" "marker-color" "color" "bullet colour" st.mutedColor))
+            m.note = "bullets and numbers only; the text is the document's"
+            push e.facets m
+            push e.facets (this.one("list" "padding-left" "padding-left" "indent" (PresCascade.pt(st.listIndent))))
+            push e.facets (this.one("list" "margin-left" "margin-left" "bullet gap" (PresCascade.pt(st.markerGap))))
+            push e.facets (this.one("li" "margin-bottom" "margin-bottom" "space between items" (PresCascade.pt(st.listTightSpacing))))
+        }
+        if (sel == "blockquote") {
+            def q:PresCssFacet (this.one("blockquote" "color" "color" "text colour" st.quoteColor))
+            q.note = "a quote's text is never the document colour"
+            push e.facets q
+            def qs:PresCssFacet (this.facet("font-size" "font-size" "text size"))
+            this.addBlock(qs "blockquote" e.classes e.id)
+            this.add(qs "body")
+            this.add(qs "document")
+            push e.facets (this.finish(qs (PresCascade.pt(st.bodySize)) (this.docOwn(qs ""))))
+            this.docFacets(e)
+            push e.facets (this.one("blockquote" "border-color" "border-color" "bar colour" st.quoteBarColor))
+            push e.facets (this.one("blockquote" "border-width" "border-width" "bar width" (PresCascade.pt(st.quoteBarWidth))))
+            push e.facets (this.one("blockquote" "padding-left" "padding-left" "indent" (PresCascade.pt(st.quoteIndent))))
+            push e.facets (this.one("blockquote" "padding-top" "padding-top" "padding above and below" (PresCascade.pt(st.quotePadY))))
+        }
+        if (sel == "code") {
+            push e.facets (this.one("code" "font-family" "font-family" "font" st.monoFamily))
+            push e.facets (this.one("code" "font-size" "font-size" "text size" (PresCascade.pt(st.codeSize))))
+            push e.facets (this.one("code" "line-height" "line-height" "line height" (PresCascade.num(st.codeLineHeight))))
+            push e.facets (this.one("code" "padding" "padding" "padding" (PresCascade.pt(st.codePadding))))
+            push e.facets (this.one("code" "background-color" "background-color" "background" st.codeBackground))
+            push e.facets (this.one("code" "border-color" "border-color" "border colour" st.codeBorder))
+        }
+        if (sel == "table") {
+            this.textFacets(e "table")
+            push e.facets (this.one("table" "border-color" "border-color" "line colour" st.tableBorder))
+            push e.facets (this.one("table" "background-color" "background-color" "header row background" st.tableHeadBackground))
+            push e.facets (this.one("table" "padding-left" "padding-left" "cell padding, sides" (PresCascade.pt(st.cellPadX))))
+            push e.facets (this.one("table" "padding-top" "padding-top" "cell padding, top and bottom" (PresCascade.pt(st.cellPadY))))
+        }
+        if (sel == "hr") {
+            push e.facets (this.one("hr" "color" "color" "line colour" st.ruleColor))
+        }
+        if (sel == "img") {
+            def a:PresCssFacet (this.facet("justify-content" "justify-content" "alignment"))
+            this.add(a "img")
+            def ta:PresCssLink (this.named("img" "text-align"))
+            ta.rule = "img"
+            if ((a.link("img")).isSet()) {
+                ta.value = ""
+            }
+            push a.chain ta
+            push e.facets (this.finish(a st.imgAlign "img"))
+            push e.facets (this.one("img" "max-height" "max-height" "largest height" (? (st.imgMaxHeight > 0.0) (PresCascade.pt(st.imgMaxHeight)) "none")))
+        }
+        if (sel == "page") {
+            push e.facets (this.one("page" "width" "width" "slide width" (PresCascade.pt(st.pageWidth))))
+            push e.facets (this.one("page" "height" "height" "slide height" (PresCascade.pt(st.pageHeight))))
+            push e.facets (this.one("page" "padding" "padding" "margin at the edges" (PresCascade.pt(st.margin))))
+            push e.facets (this.one("page" "background-color" "background-color" "background" st.pageBackground))
+            push e.facets (this.one("page" "background-image" "background-image" "background picture" ""))
+        }
+        if (sel == "chart") {
+            def cps:[string] (strsplit "color,accent-color,label-color,contrast,chart-style,chart-effects,font-size,title-font-size,title-gap,padding,justify-content" ",")
+            def k:int 0
+            while (k < (array_length cps)) {
+                def p:string (itemAt cps k)
+                push e.facets (this.one("chart" p p p ""))
+                k = (k + 1)
+            }
+        }
+        if (sel == "diagram") {
+            push e.facets (this.one("diagram" "color" "color" "colour" ""))
+            push e.facets (this.one("diagram" "accent-color" "accent-color" "accent colour" ""))
+        }
+        this.unreadOf(e)
+        return e
+    }
+
+    ; h1…h6 as 1…6, else 0.
+    sfn headingLevel:int (sel:string) {
+        if ((strlen sel) != 2) {
+            return 0
+        }
+        if ((charAt sel 0) != 104) {
+            return 0
+        }
+        def d:int ((charAt sel 1) - 48)
+        if ((d >= 1) && (d <= 6)) {
+            return d
+        }
+        return 0
+    }
+
+    fn heading:void (e:PresCssElement level:int) {
+        def st:MdStyle defaults
+        def hn:string ("h" + (to_string level))
+        ; MdStyle.headingInk: hN, then heading, then the text's colour
+        def c:PresCssFacet (this.facet("color" "color" "text colour"))
+        this.add(c hn)
+        this.add(c "heading")
+        this.addBlock(c hn e.classes e.id)
+        this.add(c "body")
+        this.add(c "document")
+        push e.facets (this.finish(c st.textColor hn))
+        ; the size: the block's own scales it; `heading` sets h1 only
+        def s:PresCssFacet (this.facet("font-size" "font-size" "text size"))
+        this.addBlock(s hn e.classes e.id)
+        this.add(s hn)
+        if (level == 1) {
+            this.add(s "heading")
+        } {
+            s.note = "heading { font-size } sets h1 only"
+        }
+        push e.facets (this.finish(s (PresCascade.pt((st.headingSize(level)))) hn))
+        def ff:PresCssFacet (this.one("heading" "font-family" "font-family" "font" st.headingFamily))
+        ff.note = "all headings; the document font does not apply"
+        push e.facets ff
+        def lh:PresCssFacet (this.facet("line-height" "line-height" "line height"))
+        this.add(lh "body")
+        this.add(lh "document")
+        push e.facets (this.finish(lh (PresCascade.num(st.lineHeight)) (this.docOwn(lh ""))))
+        push e.facets (this.one("heading" "margin-top" "margin-top" "space above" (PresCascade.pt(st.headingSpaceBefore))))
+        push e.facets (this.one("heading" "margin-bottom" "margin-bottom" "space below" (PresCascade.pt(st.headingSpaceAfter))))
+    }
+
+    ; What the element's own rules say that the layout does not read: listed,
+    ; so the panel shows it, marked unread.
+    fn unreadOf:void (e:PresCssElement) {
+        def own:[string]
+        def level:int (PresCascade.headingLevel(e.sel))
+        if (level > 0) {
+            push own e.sel
+            push own "heading"
+        } {
+            push own e.sel
+            if (e.sel == "li") {
+                push own "list"
+            }
+            if (e.sel == "list") {
+                push own "li"
+            }
+        }
+        def i:int 0
+        while (i < (array_length own)) {
+            def rule:string (itemAt own i)
+            def none:[string]
+            def ps:[string] (this.propsOf(rule none ""))
+            def k:int 0
+            while (k < (array_length ps)) {
+                def p:string (itemAt ps k)
+                if ((this.reads(e rule p)) == false) {
+                    def f:PresCssFacet (this.facet(("unread:" + rule + ":" + p) p p))
+                    def l:PresCssLink (this.named(rule p))
+                    push f.chain l
+                    f = (this.finish(f "" rule))
+                    f.unread = true
+                    f.note = "the layout does not read this"
+                    push e.facets f
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Does any facet of `e` read `prop` from `rule`?
+    fn reads:boolean (e:PresCssElement rule:string prop:string) {
+        def i:int 0
+        while (i < (array_length e.facets)) {
+            def f:PresCssFacet (itemAt e.facets i)
+            if (f.prop == prop) {
+                def k:int 0
+                while (k < (array_length f.chain)) {
+                    def lk:PresCssLink (itemAt f.chain k)
+                    if (lk.rule == rule) {
+                        return true
+                    }
+                    k = (k + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        ; read elsewhere than this element (`li` and `list` share)
+        if ((rule == "heading") && ((prop == "font-size") || (prop == "color"))) {
+            return true
+        }
+        if ((rule == "img") && (prop == "text-align")) {
+            return true
+        }
+        return false
+    }
+}

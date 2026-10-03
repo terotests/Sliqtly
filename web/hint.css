@@ -79,3 +79,6 @@
 /* text leaves get their size and face stated, not inherited: an inherited
    size came out differently between passes and the rows moved */
 .theme-hp .ui-switch-label { font-family: Open Sans; font-size: 13px; }
+/* the stage's style panel: the value the slide uses now, and its rule */
+.hp-pinh { font-size: 12px; color: #a1a1aa; }
+.hp-pfrom { font-size: 11px; color: #a1a1aa; }

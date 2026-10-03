@@ -508,6 +508,15 @@ class PresHintPopover {
             if (((strlen psel) > 0) && (psel != (rule.stringOr("sel" name)))) {
                 pn = (psel + " › " + pn)
             }
+            ; the stage's style panel names what a property does ("bullet
+            ; colour") and shows the value the slide uses and its rule
+            def plabel:string (p.stringOr("label" ""))
+            if ((strlen plabel) > 0) {
+                pn = plabel
+            }
+            def peff:string (p.stringOr("eff" ""))
+            def pfrom:string (p.stringOr("from" "-"))
+            def staged:boolean (pfrom != "-")
             def row:EVGElement (this.div("hp-prop"))
             row.id = ("hp-prop-" + (to_string i))
             def pcls:string "hp-pname hp-pname-unset"
@@ -523,10 +532,33 @@ class PresHintPopover {
                     row.addChild(sw)
                 }
                 row.addChild((this.words("hp-pvalue" pv)))
+                ; set here, but another rule decides what the slide shows
+                if (staged && ((pfrom != psel) && ((strlen pfrom) > 0))) {
+                    row.addChild((this.words("hp-pfrom" ("→ " + pfrom))))
+                } {
+                    ; the element's value lives in a wider rule (`document`)
+                    if (staged && (psel != (rule.stringOr("sel" name)))) {
+                        row.addChild((this.words("hp-pfrom" ("← " + psel))))
+                    }
+                }
                 setBox.addChild(row)
                 nSet = (nSet + 1)
             } {
-                row.addChild((this.words("hp-padd" (PresI18n.t("+ add")))))
+                if (staged && ((strlen peff) > 0)) {
+                    if (PresHintPopover.isHex(peff)) {
+                        def sw2:EVGElement (this.div("hp-swatch"))
+                        UiTree.inline(sw2 "background-color" peff)
+                        row.addChild(sw2)
+                    }
+                    row.addChild((this.words("hp-pinh" peff)))
+                    def fromText:string pfrom
+                    if ((strlen fromText) == 0) {
+                        fromText = (PresI18n.t("default"))
+                    }
+                    row.addChild((this.words("hp-pfrom" ("← " + fromText))))
+                } {
+                    row.addChild((this.words("hp-padd" (PresI18n.t("+ add")))))
+                }
                 unsetBox.addChild(row)
                 nUnset = (nUnset + 1)
             }
@@ -537,7 +569,11 @@ class PresHintPopover {
             card.addChild(setBox)
         }
         if (nUnset > 0) {
-            card.addChild((this.words("hp-label" (PresI18n.t("Can be added")))))
+            def unsetTitle:string (PresI18n.t("Can be added"))
+            if ((rule.stringOr("stage" "")) == "1") {
+                unsetTitle = (PresI18n.t("Not set here: inherited or default"))
+            }
+            card.addChild((this.words("hp-label" unsetTitle)))
             card.addChild(unsetBox)
         }
         if ((nSet + nUnset) == 0) {
