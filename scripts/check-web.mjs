@@ -1971,8 +1971,15 @@ try {
       const css0 = a.themeCss();
       const chart = "```vega-lite\n{\"title\": \"Otsikko\", \"data\": {\"values\": [{\"a\": \"x\", \"b\": 1}, {\"a\": \"y\", \"b\": 2}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"a\", \"type\": \"nominal\"}, \"y\": {\"field\": \"b\", \"type\": \"quantitative\"}}}\n```\n";
       a.setSource("# D\n\n## Mihin raha menee?\n\n" + chart + "\n## Toinen dia\n\n" + chart.replace("Otsikko", "Toinen"));
-      // the drawn chart's own height (the box on the slide is fitted to the room)
-      const box = (i) => { const es = a.deck.md.edit.layout.embeds.entries; const want = i === 1 ? "Otsikko" : "Toinen"; const e = es.find((x) => x.source.includes(want)); return e ? Math.round(e.height * 10) / 10 : -1; };
+      // the drawn chart's title size. Not its height: a slide's chart is
+      // drawn to fill the room under its heading, whatever its title takes.
+      const titleIn = (n, want) => {
+        if (!n) return null;
+        if (n.tagName === "text" && String(n.textContent || "").includes(want)) return n;
+        for (const c of n.children || []) { const t = titleIn(c, want); if (t) return t; }
+        return null;
+      };
+      const box = (i) => { const es = a.deck.md.edit.layout.embeds.entries; const want = i === 1 ? "Otsikko" : "Toinen"; const e = es.find((x) => x.source.includes(want)); const t = e && titleIn(e.root, want); return t ? Math.round(t.fontSize.pixels * 10) / 10 : -1; };
       const h1 = box(1), h2 = box(2);
       a.selectSlide(1);
       const help = JSON.parse(a.slideHelp()).find((f) => f.key === "chart");
@@ -1984,7 +1991,7 @@ try {
       return { h1, h2, s1, s2, sels };
     });
     check("the help names the slide's own chart rule by its heading's anchor", cc.sels.includes("#mihin-raha-menee chart"), JSON.stringify(cc));
-    check("#anchor chart { } sizes only that slide's chart", cc.s1 > cc.h1 + 20 && Math.abs(cc.s2 - cc.h2) < 1, JSON.stringify(cc));
+    check("#anchor chart { } sizes only that slide's chart", cc.h1 > 0 && cc.s1 > cc.h1 + 10 && Math.abs(cc.s2 - cc.h2) < 0.5, JSON.stringify(cc));
   }
 
   // A smooth line is drawn curved, and its points can be dots
