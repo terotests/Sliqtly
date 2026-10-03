@@ -2181,6 +2181,32 @@ try {
   const fxPptx = unzip(Buffer.from(fxExp.pptx, "base64"));
   const bgs = [2, 3, 4].map((n) => /<p:bg><p:bgPr><a:blipFill>/.test(fxPptx.get(`ppt/slides/slide${n}.xml`) || ""));
   check("PPTX: the effect is the slide's background, only where there is one", bgs.join(",") === "true,true,false", bgs.join(","));
+  // A slide's own picture (bg=, cut and dimmed as the stage shows it) is the
+  // PPTX slide's background too, and the file is laid out like the stage:
+  // a task list keeps its boxes, text the size the slide drew it.
+  const own = await page.evaluate(async () => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.setSource("# E\n\n## Kuva {bg=media/check-pic.png bg-dim=0.4}\n\n- [x] tehty\n- [ ] auki\n\n## Ilman\n\nteksti\n");
+    const toB64 = (buf) => {
+      const u = new Uint8Array(buf);
+      let s = "";
+      for (let i = 0; i < u.length; i += 1) s += String.fromCharCode(u[i]);
+      return btoa(s);
+    };
+    await window.__renderFxStills();
+    await window.__judgeExportContrast();
+    const pptx = toB64(a.pptx());
+    a.setSource(src0);
+    return pptx;
+  });
+  const ownPptx = unzip(Buffer.from(own, "base64"));
+  const ownBgs = [2, 3].map((n) => /<p:bg><p:bgPr><a:blipFill>/.test(ownPptx.get(`ppt/slides/slide${n}.xml`) || ""));
+  check("PPTX: a slide's own picture is its background", ownBgs.join(",") === "true,false", ownBgs.join(","));
+  const ownSlide = ownPptx.get("ppt/slides/slide2.xml") || "";
+  check("PPTX: a task list keeps its boxes", ownSlide.includes('char="☑"') && ownSlide.includes('char="☐"'));
+  const ownSizes = [...ownSlide.matchAll(/<a:rPr[^>]* sz="(\d+)"/g)].map((m) => +m[1]);
+  check("PPTX: text is the size the stage draws it, not the markdown default 20 pt", ownSizes.length > 0 && ownSizes.every((v) => v !== 2000), ownSizes.join(","));
   const names = await page.evaluate(() => {
     const a = window.__app;
     const src = a.source();
