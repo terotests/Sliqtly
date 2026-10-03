@@ -1973,8 +1973,11 @@ try {
       a.setSource("# D\n\n## Mihin raha menee?\n\n" + chart + "\n## Toinen dia\n\n" + chart.replace("Otsikko", "Toinen"));
       // both drawn, also the one out of view (PresApp.settle draws only those in view)
       a.settleAll();
-      // the drawn chart's own height (the box on the slide is fitted to the room)
-      const box = (i) => { const es = a.deck.md.edit.layout.embeds.entries; const want = i === 1 ? "Otsikko" : "Toinen"; const e = es.find((x) => x.source.includes(want)); return e ? Math.round(e.height * 10) / 10 : -1; };
+      // the drawn chart's height and its largest type (its title). A chart
+      // that states no height is drawn the room's height whatever its title
+      // takes, so a larger title shows in the type, not in a taller box.
+      const biggest = (n) => { let m = (n.fontSize && typeof n.fontSize.pixels === "number") ? n.fontSize.pixels : 0; for (const c of n.children || []) m = Math.max(m, biggest(c)); return m; };
+      const box = (i) => { const es = a.deck.md.edit.layout.embeds.entries; const want = i === 1 ? "Otsikko" : "Toinen"; const e = es.find((x) => x.source.includes(want)); return e ? { h: Math.round(e.height * 10) / 10, type: Math.round(biggest(e.root) * 10) / 10 } : { h: -1, type: -1 }; };
       const h1 = box(1), h2 = box(2);
       a.selectSlide(1);
       const help = JSON.parse(a.slideHelp()).find((f) => f.key === "chart");
@@ -1987,7 +1990,7 @@ try {
       return { h1, h2, s1, s2, sels };
     });
     check("the help names the slide's own chart rule by its heading's anchor", cc.sels.includes("#mihin-raha-menee chart"), JSON.stringify(cc));
-    check("#anchor chart { } sizes only that slide's chart", cc.s1 > cc.h1 + 20 && Math.abs(cc.s2 - cc.h2) < 1, JSON.stringify(cc));
+    check("#anchor chart { } sizes only that slide's chart", cc.s1.type >= 43.5 && cc.h1.type < 30 && cc.s2.type === cc.h2.type && cc.s2.h === cc.h2.h && cc.s1.h <= cc.h1.h + 1, JSON.stringify(cc));
   }
 
   // A smooth line is drawn curved, and its points can be dots
