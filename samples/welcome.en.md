@@ -1,5 +1,5 @@
 ---
-title: Welcome to Sliqtly
+title: Sliqtly Better Slides
 transition: fade
 seconds: 0.6
 step: 1.2
@@ -9,9 +9,9 @@ footer-right: "{page} / {pages}"
 footer-skip: first last
 ---
 
-# Welcome to Sliqtly {fx=starfield fx-density=1.2 fx-hue=228}
+# Sliqtly Better Slides {fx=starfield fx-density=1.2 fx-hue=228}
 
-Write Markdown. Present it beautifully.
+Beautiful slides from Markdown — with PPTX & PDF export, Excel data sources, and fully customizable themes.
 {.lead}
 
 ::: notes
@@ -19,20 +19,19 @@ This deck is a Sliqtly presentation. The text on the left is the whole deck,
 the slides on the right are drawn from it as you type.
 :::
 
-## What is Sliqtly? {transition=slide}
+## Why Sliqtly {transition=slide}
 
-- A slide editor where the **text is the presentation**
-- Animated builds, transitions and background effects
-- Charts, live data, tables, diagrams and formulas
-- PowerPoint and PDF export, or a link anyone can open
-- Your AI assistant can write and edit decks for you
+- **Markdown in, beautiful slides out**
+- **PowerPoint and PDF** export in one click
+- **Excel and Google Sheets** as data for charts and tables
+- **Your own look:** themes and CSS styles
 {.build anim=rise}
 
 ::: notes
-Everything you see in this deck was written as plain text. [[1]]
-Builds and transitions come from a word or two of attributes. [[2]]
-Data and diagrams live in the same text. [[3]]
-And the result goes wherever your audience is. [[5]]
+You write text, Sliqtly draws the slides. [[1]]
+They go out as PowerPoint or PDF whenever you need a file. [[2]]
+Charts and tables read your spreadsheets. [[3]]
+And the look is yours to change. [[4]]
 :::
 
 ## Just write
@@ -52,7 +51,7 @@ And the result goes wherever your audience is. [[5]]
 Edit any line on the left and watch this slide change.
 :::
 
-## Charts from data
+## Your Excel data, as a chart
 
 ```vega-lite
 {
@@ -73,7 +72,7 @@ Edit any line on the left and watch this slide change.
 }
 ```
 
-Paste a table from Excel or a CSV file and Sliqtly turns it into a chart.
+Add an Excel workbook or paste a table, and Sliqtly suggests the chart.
 {.kicker}
 
 ::: notes
@@ -96,6 +95,34 @@ Click the vega-lite line on the left to edit the chart in a form instead of JSON
 ::: notes
 Paste a Google Sheet link into the editor and Sliqtly offers to link it as
 live data. Live data is a PRO feature.
+:::
+
+## PowerPoint, PDF or a link
+
+1. **Share** gives a link that opens straight into the show, on any screen
+2. **Export** makes a PowerPoint, a PDF or the Markdown file
+3. With **PRO** your decks live in the cloud and follow you to every device
+{.build anim=rise}
+
+::: notes
+The shared link plays with animations and live data. [[1]]
+The exports are for when the deck has to travel as a file. [[2]]
+PRO keeps every deck in your account. [[3]]
+:::
+
+## Your own style {transition=slide}
+
+```css
+h2 { color: #ffa546; }
+chart { chart-style: neon; }
+```
+
+Seven themes, light and dark, and any of them changed in the **Theme (CSS)** tab.
+{.kicker}
+
+::: notes
+Pick a theme from the toolbar, then change colours, fonts and the chart style
+with a few lines of CSS.
 :::
 
 ## Tables {transition=zoom}
@@ -134,19 +161,6 @@ $$
 
 Write TeX: `$…$` inline, `$$…$$` on its own line. In PowerPoint it becomes a real equation.
 {.kicker}
-
-## Share and export
-
-1. **Share** gives a link that opens straight into the show, on any screen
-2. **Export** makes a PowerPoint, a PDF or the Markdown file
-3. With **PRO** your decks live in the cloud and follow you to every device
-{.build anim=rise}
-
-::: notes
-The shared link plays with animations and live data. [[1]]
-The exports are for when the deck has to travel as a file. [[2]]
-PRO keeps every deck in your account. [[3]]
-:::
 
 ## Edit with Claude or ChatGPT
 

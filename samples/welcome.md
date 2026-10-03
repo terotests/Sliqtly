@@ -1,5 +1,5 @@
 ---
-title: Tervetuloa Sliqtlyyn
+title: Sliqtly Better Slides
 transition: fade
 seconds: 0.6
 step: 1.2
@@ -9,9 +9,9 @@ footer-right: "{page} / {pages}"
 footer-skip: first last
 ---
 
-# Tervetuloa Sliqtlyyn {fx=starfield fx-density=1.2 fx-hue=228}
+# Sliqtly Better Slides {fx=starfield fx-density=1.2 fx-hue=228}
 
-Kirjoita Markdownia. Esitä se näyttävästi.
+Näyttävät diat Markdownista — PPTX- ja PDF-viennillä, Excel-datalähteillä ja täysin muokattavilla teemoilla.
 {.lead}
 
 ::: notes
@@ -19,20 +19,19 @@ Tämä esitys on Sliqtly-esitys. Vasemmalla oleva teksti on koko esitys,
 oikealla olevat diat piirretään siitä sitä mukaa kuin kirjoitat.
 :::
 
-## Mikä Sliqtly on? {transition=slide}
+## Miksi Sliqtly {transition=slide}
 
-- Diaeditori, jossa **teksti on esitys**
-- Animoidut listat, siirtymät ja taustatehosteet
-- Kaaviot, live-data, taulukot, kaaviokuvat ja kaavat
-- PowerPoint- ja PDF-vienti tai linkki, jonka kuka tahansa voi avata
-- Tekoälyavustaja voi kirjoittaa ja muokata esityksiä puolestasi
+- **Markdownista näyttävät diat**
+- **PowerPoint ja PDF** yhdellä napautuksella
+- **Excel ja Google Sheets** kaavioiden ja taulukoiden datana
+- **Oma ilme:** teemat ja CSS-tyylit
 {.build anim=rise}
 
 ::: notes
-Kaikki tämän esityksen sisältö on kirjoitettu tavallisena tekstinä. [[1]]
-Animaatiot ja siirtymät syntyvät parilla attribuutilla. [[2]]
-Data ja kaaviokuvat elävät samassa tekstissä. [[3]]
-Ja tulos menee sinne, missä yleisösi on. [[5]]
+Sinä kirjoitat tekstiä, Sliqtly piirtää diat. [[1]]
+Ne lähtevät PowerPointina tai PDF:nä aina kun tarvitset tiedoston. [[2]]
+Kaaviot ja taulukot lukevat taulukkosi. [[3]]
+Ja ilmeen saat muuttaa omaksesi. [[4]]
 :::
 
 ## Kirjoita vain
@@ -52,7 +51,7 @@ Ja tulos menee sinne, missä yleisösi on. [[5]]
 Muuta mitä tahansa riviä vasemmalla ja katso, miten dia muuttuu.
 :::
 
-## Kaaviot datasta
+## Excel-datasi kaaviona
 
 ```vega-lite
 {
@@ -73,7 +72,7 @@ Muuta mitä tahansa riviä vasemmalla ja katso, miten dia muuttuu.
 }
 ```
 
-Liitä taulukko Excelistä tai CSV-tiedosto, niin Sliqtly tekee siitä kaavion.
+Lisää Excel-työkirja tai liitä taulukko, niin Sliqtly ehdottaa kaaviota.
 {.kicker}
 
 ::: notes
@@ -96,6 +95,34 @@ Napsauta vasemmalla vega-lite-riviä, niin voit muokata kaaviota lomakkeella.
 ::: notes
 Liitä Google Sheets -linkki editoriin, niin Sliqtly tarjoaa sitä live-datana.
 Live-data on PRO-ominaisuus.
+:::
+
+## PowerPoint, PDF tai linkki
+
+1. **Jaa** antaa linkin, joka avautuu suoraan esitykseen millä tahansa näytöllä
+2. **Vie** tekee PowerPointin, PDF:n tai Markdown-tiedoston
+3. **PRO**:lla esityksesi ovat pilvessä ja seuraavat sinua joka laitteelle
+{.build anim=rise}
+
+::: notes
+Jaettu linkki toistaa animaatiot ja live-datan. [[1]]
+Viedyt tiedostot ovat sitä varten, kun esityksen pitää kulkea tiedostona. [[2]]
+PRO pitää jokaisen esityksen tililläsi. [[3]]
+:::
+
+## Oma tyyli {transition=slide}
+
+```css
+h2 { color: #ffa546; }
+chart { chart-style: neon; }
+```
+
+Seitsemän teemaa, vaaleita ja tummia, ja mitä tahansa voi muuttaa **Teema (CSS)** -välilehdellä.
+{.kicker}
+
+::: notes
+Valitse teema työkalupalkista ja muuta värejä, fontteja ja kaavioiden tyyliä
+muutamalla CSS-rivillä.
 :::
 
 ## Taulukot {transition=zoom}
@@ -134,19 +161,6 @@ $$
 
 Kirjoita TeXiä: `$…$` tekstin sisällä, `$$…$$` omalla rivillään. PowerPointissa siitä tulee oikea kaava.
 {.kicker}
-
-## Jaa ja vie
-
-1. **Jaa** antaa linkin, joka avautuu suoraan esitykseen millä tahansa näytöllä
-2. **Vie** tekee PowerPointin, PDF:n tai Markdown-tiedoston
-3. **PRO**:lla esityksesi ovat pilvessä ja seuraavat sinua joka laitteelle
-{.build anim=rise}
-
-::: notes
-Jaettu linkki toistaa animaatiot ja live-datan. [[1]]
-Viedyt tiedostot ovat sitä varten, kun esityksen pitää kulkea tiedostona. [[2]]
-PRO pitää jokaisen esityksen tililläsi. [[3]]
-:::
 
 ## Muokkaa Clauden tai ChatGPT:n kanssa
 
