@@ -25,6 +25,8 @@ Import "PresI18n.rgr"
 class PresToolbar {
     def host:UiHost (new UiHost())
     def css:string ""
+    ; The editor's skin ("" or "retro"): a theme name added to this host's own.
+    def skin:string ""
     ; the name at the start of the bar: the page's own (PresApp.setAppName)
     def brand:string "EVG Presentation"
     ; the page's own buttons after Ohje: "id<TAB>label<TAB>variant" rows
@@ -507,7 +509,7 @@ class PresToolbar {
         def fresh (new UiHost())
         host = fresh
         host.addStyleSheet(css)
-        host.setTheme("tb")
+        host.setTheme((trim ("tb " + skin)))
         host.setPageSize(w h)
         def root:EVGElement (unwrap host.root)
         root.className = "ui-root tb-page"

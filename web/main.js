@@ -1298,6 +1298,13 @@ async function saveOpenFile(path) {
 // File → Settings: automatic contrast correction, on unless turned off here.
 let autoContrast = true;
 try { autoContrast = localStorage.getItem("sliqtly.autoContrast") !== "off"; } catch (_) { /* on */ }
+// The editor's skin (File → Settings → Look): "" or "retro", per browser.
+let skin = "";
+try { skin = localStorage.getItem("sliqtly.skin") === "retro" ? "retro" : ""; } catch (_) { /* standard */ }
+function applySkin() {
+  app.setSkin(skin);
+  document.documentElement.dataset.skin = skin || "standard";
+}
 
 let thumbs = new Map();
 let thumbRev = -1;
@@ -2142,6 +2149,11 @@ function handleRequests() {
       autoContrast = r.endsWith(":on");
       try { localStorage.setItem("sliqtly.autoContrast", autoContrast ? "on" : "off"); } catch (_) { /* this session only */ }
       dropThumbs();
+      needsPaint = true;
+    } else if (r.startsWith("setting:skin:")) {
+      skin = r.endsWith(":retro") ? "retro" : "";
+      try { localStorage.setItem("sliqtly.skin", skin || "standard"); } catch (_) { /* this session only */ }
+      applySkin();
       needsPaint = true;
     } else if (r === "openbox") {
       // Open: a file from the computer, or a sample deck
@@ -3748,18 +3760,23 @@ async function start() {
   const themesGot = THEMES.map((name) => textOf("./themes/" + name + ".css"));
   for (const p of themesGot) p.catch(() => {});
   // the chart editor's controls: the kit's theme, then the app's colours
-  const [css, kit, chartCss] = await Promise.all([
+  // the skins go after every chrome sheet: their rules are theme-scoped, so
+  // they only apply once the editor runs under that theme (applySkin)
+  const [css0, kit, chartCss, skins] = await Promise.all([
     textOf("./pres.css"),
     textOf("./ui.css").catch(() => ""),
     textOf("./chart-editor.css").catch(() => ""),
+    Promise.all([textOf("./skins/ui-retro.css"), textOf("./skins/retro.css")])
+      .then((t) => "\n" + t.join("\n")).catch(() => ""),
   ]);
-  app.setChartCss(kit + "\n" + chartCss);
-  textOf("./hint.css").then((c) => app.setHintCss(kit + "\n" + chartCss + "\n" + c)).catch(() => {});
-  textOf("./panels.css").then((c) => app.setPanelsCss(kit + "\n" + c)).catch(() => {});
+  const css = css0 + skins;
+  app.setChartCss(kit + "\n" + chartCss + skins);
+  textOf("./hint.css").then((c) => app.setHintCss(kit + "\n" + chartCss + "\n" + c + skins)).catch(() => {});
+  textOf("./panels.css").then((c) => app.setPanelsCss(kit + "\n" + c + skins)).catch(() => {});
   if (!viewer) {
     // the bar moves onto the canvas: the HTML one stays, hidden, as what it
     // presses (its buttons and selects keep every behaviour they had)
-    app.setToolbarCss(kit + "\n" + (await toolbarCss));
+    app.setToolbarCss(kit + "\n" + (await toolbarCss) + skins);
     document.body.classList.add("canvas-bar");
     canvasBar = true;
     syncBarExtras();
@@ -3770,6 +3787,7 @@ async function start() {
   }
   const r = stageEl.getBoundingClientRect();
   app.init(css, Math.max(320, r.width), Math.max(240, r.height));
+  if (!viewer) applySkin();
   app.setCoarse(isCoarse());
   app.setMac(/Mac|iPhone|iPad/.test(navigator.userAgentData?.platform || navigator.platform || ""));
   resize();

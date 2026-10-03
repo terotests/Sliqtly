@@ -1,0 +1,181 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The "retro" skin for Sliqtly's own chrome: the glossy lime of
+ * terotests/EVGMusicPlayer. EVGUI's theme/skins/retro.css dresses the kit's
+ * controls (buttons, menus, inputs, tabs); this sheet dresses what is
+ * Sliqtly's (the bar, the stage, the tracks, the strip, the panels).
+ *
+ * The page appends both after every chrome sheet. Every rule is
+ * `.theme-retro .x` and the palette is `@vars retro`, so nothing changes
+ * until the editor is applied with "retro" among its themes (File →
+ * Settings → Look). The slides are not chrome: their themes never see this.
+ *
+ * `@vars retro` also redefines pres.css's own palette (--bg, --panel, ...),
+ * which re-colours every pres.css rule written with var() at once.
+ */
+
+@vars retro {
+  --bg: #142807;
+  --panel: #0c1f04;
+  --panel-2: #041003;
+  --line: #2d5410;
+  --ink: #e6ffb8;
+  --ink-dim: #8fc24e;
+  --ink-mute: #5d8a2c;
+  --accent: #c6ff5a;
+}
+
+/* --- the shell: the bar is the player's crest -------------------------------- */
+.theme-retro .app { background: linear-gradient(180deg, var(--retro-chin-a), var(--retro-chin-b)); }
+.theme-retro .stage-area { background: linear-gradient(180deg, #1d3a0a, var(--retro-chin-b)); }
+.theme-retro .sep { background: linear-gradient(90deg, var(--retro-crest-b), var(--retro-shell-b)); }
+.theme-retro .slide-shadow { background-color: var(--retro-edge); shadow-color: var(--retro-glow); shadow-radius: 22px; shadow-offset-y: 0px; }
+
+.theme-retro .tb-bar {
+  background: linear-gradient(180deg, var(--retro-crest-a), var(--retro-shell-a), var(--retro-shell-b));
+  border-bottom: 2px solid var(--retro-edge);
+}
+.theme-retro .tb-brand { color: var(--retro-btn-ink); }
+.theme-retro .tb-label,
+.theme-retro .tb-status { color: var(--retro-btn-ink); font-weight: 600; }
+.theme-retro .tb-sep { background-color: var(--retro-edge); }
+/* Present / Sign in: the lit play button */
+.theme-retro .tb-accent,
+.theme-retro .pf-promo-btn {
+  background: linear-gradient(180deg, var(--retro-play-a), var(--retro-play-b));
+  border: 1.5px solid var(--retro-edge);
+  shadow-color: var(--retro-glow); shadow-radius: 12px; shadow-offset-y: 0px;
+}
+.theme-retro .tb-onprimary,
+.theme-retro .pn-onprimary,
+.theme-retro .hp-onprimary,
+.theme-retro .ce-onprimary { color: var(--retro-btn-ink); }
+.theme-retro .tb-danger { color: #a3200a; }
+.theme-retro .ui-drawer-panel { border-right: 3px solid var(--retro-shell-b); }
+.theme-retro .tb-dr-label { color: var(--retro-ink-dim); }
+.theme-retro .tb-dr-sep { background-color: var(--retro-screen-3); }
+
+/* --- the editor tabs, the tracks, the strip: dark displays -------------------- */
+.theme-retro .ed-tabs {
+  background: linear-gradient(180deg, var(--retro-shell-a), var(--retro-shell-b));
+  border-bottom: 2px solid var(--retro-edge);
+}
+.theme-retro .tracks,
+.theme-retro .strip {
+  background: linear-gradient(180deg, var(--retro-screen-2), var(--retro-screen));
+  border-top: 2px solid var(--retro-shell-b);
+}
+.theme-retro .lane { background-color: #071803; border: 1px solid var(--retro-screen-3); }
+.theme-retro .clip-text { background: linear-gradient(180deg, #d6ff6a, #4b8f12); }
+.theme-retro .clip-audio { background: linear-gradient(180deg, #8ff0c0, #128f5a); }
+.theme-retro .clip-anim { background: linear-gradient(180deg, #c6ffa0, #2f7d12); }
+.theme-retro .clip-fx { background: linear-gradient(180deg, #a6f5ff, #127a8f); }
+.theme-retro .clip-label { color: var(--retro-btn-ink); font-weight: 700; }
+.theme-retro .playhead { background-color: #fff27a; }
+.theme-retro .thumb { background-color: var(--retro-screen-3); border-radius: 6px; }
+.theme-retro .thumb-ring { border: 2px solid var(--retro-hot-b); border-radius: 9px; }
+.theme-retro .thumb-add,
+.theme-retro .thumb-add-btn {
+  background: linear-gradient(180deg, var(--retro-btn-a), var(--retro-btn-b));
+  border: 1.5px solid var(--retro-edge);
+  border-radius: 10px;
+  color: var(--retro-btn-ink);
+}
+.theme-retro .sp-clock { color: var(--retro-hot-b); }
+
+/* --- help and files panels ---------------------------------------------------- */
+.theme-retro .pn-help,
+.theme-retro .pf-panel {
+  background: linear-gradient(180deg, var(--retro-screen-2), var(--retro-screen));
+  border-left: 3px solid var(--retro-shell-b);
+}
+.theme-retro .pn-top,
+.theme-retro .pf-top {
+  background: linear-gradient(180deg, var(--retro-crest-a), var(--retro-shell-b));
+  border-bottom: 2px solid var(--retro-edge);
+}
+.theme-retro .pn-title,
+.theme-retro .pf-path { color: var(--retro-btn-ink); }
+.theme-retro .pf-saved { color: var(--retro-chin-b); }
+.theme-retro .pn-h3,
+.theme-retro .pf-h,
+.theme-retro .pf-fname,
+.theme-retro .pn-hcell,
+.theme-retro .pn-sel,
+.theme-retro .pn-dtitle,
+.theme-retro .pn-otitle,
+.theme-retro .hp-name,
+.theme-retro .hp-pname,
+.theme-retro .ui-window-title,
+.theme-retro .ce-picktitle { color: var(--retro-ink); }
+.theme-retro .pn-intro,
+.theme-retro .pn-doc,
+.theme-retro .pn-sd,
+.theme-retro .pn-pd,
+.theme-retro .pn-odesc,
+.theme-retro .pn-note,
+.theme-retro .pn-cell,
+.theme-retro .pn-gmore,
+.theme-retro .pn-flabel,
+.theme-retro .pf-dir,
+.theme-retro .pf-fsize,
+.theme-retro .pf-note,
+.theme-retro .pf-preview-cap,
+.theme-retro .pf-preview-hint,
+.theme-retro .hp-value,
+.theme-retro .hp-doc,
+.theme-retro .hp-label,
+.theme-retro .hp-unit,
+.theme-retro .hp-tip,
+.theme-retro .hp-pvalue,
+.theme-retro .ce-section,
+.theme-retro .ce-flabel,
+.theme-retro .ce-value,
+.theme-retro .ce-doc,
+.theme-retro .ui-switch-label { color: var(--retro-ink-dim); }
+.theme-retro .pn-code,
+.theme-retro .pn-nm { color: var(--retro-hot-b); background-color: var(--retro-screen-3); }
+.theme-retro .pn-val { color: #ffd27a; }
+.theme-retro .pn-sec,
+.theme-retro .pf-hrow { border-top: 1px solid var(--retro-screen-3); }
+.theme-retro .pn-rule,
+.theme-retro .pn-opt,
+.theme-retro .pn-choice,
+.theme-retro .pn-grid,
+.theme-retro .ce-group { background-color: var(--retro-screen); border: 1.5px solid var(--retro-screen-3); }
+.theme-retro .pn-prop,
+.theme-retro .pf-row,
+.theme-retro .hp-prop { background-color: var(--retro-screen-2); }
+.theme-retro .pf-promo { background-color: var(--retro-screen-3); border: 1.5px solid var(--retro-shell-b); }
+.theme-retro .pf-promo-title { color: var(--retro-hot-b); }
+.theme-retro .pf-promo-text { color: var(--retro-ink); }
+
+/* --- dialogs, the toast, the popover, the chart window ------------------------- */
+.theme-retro .pn-backdrop { background-color: rgba(4, 16, 3, 0.55); }
+.theme-retro .pn-dialog,
+.theme-retro .hp-card,
+.theme-retro .ce-pickcard,
+.theme-retro .ui-window-content {
+  background: linear-gradient(180deg, var(--retro-screen-2), var(--retro-screen));
+  border: 3px solid var(--retro-shell-b);
+  border-radius: 18px;
+  shadow-color: var(--retro-glow); shadow-radius: 24px; shadow-offset-y: 0px;
+}
+.theme-retro .ui-window-titlebar {
+  background: linear-gradient(180deg, var(--retro-crest-a), var(--retro-shell-a), var(--retro-shell-b));
+  border-bottom: 2px solid var(--retro-edge);
+  border-radius: 15px 15px 0 0;
+}
+.theme-retro .ui-window-title { color: var(--retro-btn-ink); font-weight: 700; }
+.theme-retro .ui-window-close { color: var(--retro-btn-ink); }
+.theme-retro .ce-body { color: var(--retro-ink); }
+.theme-retro .ce-foot,
+.theme-retro .hp-foot { border-top: 1px solid var(--retro-screen-3); }
+.theme-retro .pn-toast {
+  background: linear-gradient(180deg, var(--retro-screen-2), var(--retro-screen));
+  border: 2px solid var(--retro-rim);
+  border-radius: 14px;
+  shadow-color: var(--retro-glow); shadow-radius: 16px; shadow-offset-y: 0px;
+}
+.theme-retro .pn-toast-text { color: var(--retro-ink); }
+.theme-retro .cp-panel { background-color: var(--retro-screen); border-color: var(--retro-screen-3); }

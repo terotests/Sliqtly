@@ -39,6 +39,8 @@ class PresChartEditor {
     def host:UiHost (new UiHost())
     def model:PresChartModel (new PresChartModel())
     def css:string ""
+    ; The editor's skin ("" or "retro"): a theme name added to this host's own.
+    def skin:string ""
     def isOpen:boolean false
     ; the window's top-left corner and the page it moves on (the app's), in
     ; app coordinates
@@ -515,7 +517,7 @@ class PresChartEditor {
         def fresh (new UiHost())
         host = fresh
         host.addStyleSheet(css)
-        host.setTheme("ce")
+        host.setTheme((trim ("ce " + skin)))
         host.setPageSize(w h)
         def none:[InputCtl]
         inputs = none

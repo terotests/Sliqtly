@@ -42,6 +42,8 @@ class PresHintEdit {
 class PresHintPopover {
     def host:UiHost (new UiHost())
     def css:string ""
+    ; The editor's skin ("" or "retro"): a theme name added to this host's own.
+    def skin:string ""
     def isOpen:boolean false
     def w:double 1200.0
     def h:double 700.0
@@ -307,7 +309,7 @@ class PresHintPopover {
         def fresh (new UiHost())
         host = fresh
         host.addStyleSheet(css)
-        host.setTheme("hp")
+        host.setTheme((trim ("hp " + skin)))
         host.setPageSize(w h)
         def root:EVGElement (unwrap host.root)
         root.className = "ui-root hp-page"

@@ -95,6 +95,18 @@
     border: 1px solid rgba(255, 255, 255, 0.25); background: transparent; color: inherit; cursor: pointer;
   }
   .gCard button.primary { background: #2563eb; border-color: #2563eb; }
+  /* the retro skin (File → Settings → Look) for the few HTML cards */
+  :root[data-skin="retro"] .gCard {
+    background: linear-gradient(#0c1f04, #041003); color: #e6ffb8;
+    border: 3px solid #4f8f1a; border-radius: 18px; box-shadow: 0 0 24px rgba(170, 255, 60, 0.55);
+  }
+  :root[data-skin="retro"] .gCard button {
+    background: linear-gradient(#f4ffd8, #8cc63f); color: #1c3a06; font-weight: 700;
+    border: 1.5px solid #1f3d08; border-radius: 22px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
+  }
+  :root[data-skin="retro"] .gCard button.primary {
+    background: linear-gradient(#d6ff6a, #4b8f12); box-shadow: 0 0 12px rgba(170, 255, 60, 0.55);
+  }
   /* the first visit's welcome card: beside the deck, not over it */
   #welcomeCard { top: auto; bottom: 16px; left: auto; right: 16px; transform: none; width: min(380px, calc(100vw - 32px)); }
   body.presenting #welcomeCard { display: none; }

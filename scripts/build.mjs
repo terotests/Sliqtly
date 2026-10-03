@@ -53,6 +53,10 @@ export function build({ ranger } = {}) {
   for (const f of fs.readdirSync(path.join(webDir, "i18n")).filter((f) => f.endsWith(".json"))) copy(path.join(webDir, "i18n", f), path.join(distDir, "i18n", f));
   // the controls' own theme (EVGUI), for the chart editor
   copy(path.join(ranger, "gallery/evgui/theme/base.css"), path.join(distDir, "ui.css"));
+  // the editor's optional skin (File → Settings → Look): EVGUI's for the
+  // controls, ours for the rest of the chrome
+  copy(path.join(ranger, "gallery/evgui/theme/skins/retro.css"), path.join(distDir, "skins/ui-retro.css"));
+  copy(path.join(webDir, "skins/retro.css"), path.join(distDir, "skins/retro.css"));
   copy(path.join(root, "brand/sliqtly-icon.svg"), path.join(distDir, "favicon.svg"));
   copy(path.join(ranger, "lib/evg/gl/evg-webgl.js"), path.join(distDir, "gl/evg-webgl.js"));
   copy(path.join(ranger, "lib/evg/gl/evg-a11y.js"), path.join(distDir, "gl/evg-a11y.js"));
@@ -92,7 +96,7 @@ export function build({ ranger } = {}) {
   // Every URL the page loads carries the hash of the build, so a reload
   // never mixes an old script with a new one.
   const h = crypto.createHash("sha1");
-  for (const f of ["pres_app.js", "pres_data.js", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css", "ui.css", "gl/evg-webgl.js", "gl/evg-a11y.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
+  for (const f of ["pres_app.js", "pres_data.js", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css", "ui.css", "skins/ui-retro.css", "skins/retro.css", "gl/evg-webgl.js", "gl/evg-a11y.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
   for (const f of fs.readdirSync(path.join(distDir, "themes"))) h.update(fs.readFileSync(path.join(distDir, "themes", f)));
   for (const f of fs.readdirSync(path.join(distDir, "i18n"))) h.update(fs.readFileSync(path.join(distDir, "i18n", f)));
   const stamp = h.digest("hex").slice(0, 10);

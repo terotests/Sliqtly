@@ -43,6 +43,8 @@ class PresPromptSelect extends SelectCtl {
 class PresPanels {
     def host:UiHost (new UiHost())
     def css:string ""
+    ; The editor's skin ("" or "retro"): a theme name added to this host's own.
+    def skin:string ""
     def w:double 1200.0
     def h:double 700.0
     def barH:double 48.0
@@ -272,7 +274,7 @@ class PresPanels {
         def fresh (new UiHost())
         host = fresh
         host.addStyleSheet(css)
-        host.setTheme("pn")
+        host.setTheme((trim ("pn " + skin)))
         host.setPageSize(w h)
         def root:EVGElement (unwrap host.root)
         root.className = "ui-root pn-page"
@@ -953,7 +955,7 @@ class PresPanels {
         d.id = "pn-dialog"
         UiTree.surface(d "free" "start")
         d.overlayX = ((w - 520.0) * 0.5)
-        d.overlayY = ((h - 300.0) * 0.5)
+        d.overlayY = ((h - 440.0) * 0.5)
         d.addChild((this.words("pn-dtitle" (PresI18n.t("Settings")))))
         def o:EVGElement (this.div("pn-opt"))
         o.addChild((this.words("pn-otitle" (PresI18n.t("Automatic contrast correction")))))
@@ -968,6 +970,15 @@ class PresPanels {
         this.button("pn-set-contrast" label variant r)
         o.addChild(r)
         d.addChild(o)
+        ; The editor's look; the slides keep their own theme in either.
+        def lk:EVGElement (this.div("pn-opt"))
+        lk.addChild((this.words("pn-otitle" (PresI18n.t("Look")))))
+        lk.addChild((this.words("pn-odesc" (PresI18n.t("How the editor around the slides looks. Your slides and their themes stay as they are.")))))
+        def lr:EVGElement (this.div("pn-orow"))
+        this.button("pn-set-skin-light" (PresI18n.t("Standard")) (? (skin == "") "primary" "secondary") lr)
+        this.button("pn-set-skin-retro" (PresI18n.t("Retro lime")) (? (skin == "retro") "primary" "secondary") lr)
+        lk.addChild(lr)
+        d.addChild(lk)
         def foot:EVGElement (this.div("pn-dfoot"))
         foot.addChild((this.div("pn-grow")))
         this.button("pn-set-close" (PresI18n.t("Close")) "secondary" foot)
@@ -1453,6 +1464,10 @@ class PresPanels {
                 autoContrast = (autoContrast == false)
                 push requests ("setting:contrast:" + (? autoContrast "on" "off"))
                 this.rebuild()
+                return
+            }
+            if ((sc == "pn-set-skin-light") || (sc == "pn-set-skin-retro")) {
+                push requests ("setting:skin:" + (? (sc == "pn-set-skin-retro") "retro" "light"))
                 return
             }
             if ((sc == "pn-set-close") || ((this.inEl("pn-dialog" px py)) == false)) {

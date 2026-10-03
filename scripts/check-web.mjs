@@ -157,6 +157,26 @@ try {
   const shot = async (name) => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, name) }); } };
   await shot("1-editor.png");
 
+  // The retro skin (File → Settings → Look): its sheets read cleanly, it
+  // changes the chrome, and the standard look comes back exactly.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app;
+      const errs = a.chromeCssErrors();
+      // the baseline is a rebuilt bar too: the first build at start-up can
+      // differ from any rebuild by a fraction of a pixel
+      a.setSkin("");
+      const std = a.toolbarJson();
+      a.setSkin("retro");
+      const retro = a.toolbarJson();
+      a.setSkin("");
+      return { errs, changed: retro !== std, back: a.toolbarJson() === std };
+    });
+    check("the chrome sheets and skins read without errors", r.errs === "", r.errs);
+    check("the retro skin changes the bar", r.changed);
+    check("the standard look comes back as it was", r.back);
+  }
+
   // Real keys, not calls: letters arrive through beforeinput, Backspace
   // through keydown, and a composition left open (a dead key, an IME
   // cancelled by a click) must not switch typing off.
