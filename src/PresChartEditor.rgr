@@ -123,6 +123,9 @@ class PresChartEditor {
     def ndData:string "none"
     def ndTab:string "name"
     def wantsCreate:boolean false
+    ; File → Duplicate asks only the copy's name: `ndDup` hides the theme and
+    ; data tabs, the name starts as the page's suggestion, all selected
+    def ndDup:boolean false
     ; A question before something that cannot be undone (`mode` "confirm"):
     ; `cfKey` names it to the page, `cfOk` is the red button's word. The red
     ; button sets `wantsConfirm` and closes; Cancel and Esc only close.
@@ -214,9 +217,24 @@ class PresChartEditor {
         ndName = name
         ndData = "none"
         ndTab = "name"
+        ndDup = false
         wantsCreate = false
         this.openAt(px py pw ph)
         this.focusInput("nd-name")
+    }
+
+    fn openDupDeck:void (name:string px:double py:double pw:double ph:double) {
+        mode = "newdeck"
+        ndRows = ""
+        ndTheme = ""
+        ndName = name
+        ndData = "none"
+        ndTab = "name"
+        ndDup = true
+        wantsCreate = false
+        this.openAt(px py pw ph)
+        this.focusInput("nd-name")
+        this.selectAllInField()
     }
 
     fn openDocSet:void (d:PresDocSettings pics:[string] px:double py:double pw:double ph:double) {
@@ -544,7 +562,10 @@ class PresChartEditor {
         }
         if (mode == "newdeck") {
             win.name = (PresI18n.t("New presentation"))
-            win.title = (PresI18n.t("New presentation"))
+            if ndDup {
+                win.name = (PresI18n.t("Duplicate presentation"))
+            }
+            win.title = win.name
         }
         if (mode == "docset") {
             win.name = (PresI18n.t("Document settings"))
@@ -835,7 +856,28 @@ class PresChartEditor {
     }
 
     ; --- a new presentation --------------------------------------------------------
+    ; File → Duplicate: the copy's name, and Duplicate or Cancel.
+    fn dupDeckBody:void (root:EVGElement) {
+        def pane:EVGElement (this.div("ce-pane"))
+        def sec:EVGElement (this.section(pane (PresI18n.t("The copy"))))
+        def nr:EVGElement (this.field((PresI18n.t("Name"))))
+        this.inputWith("nd-name" (PresI18n.t("Name")) ndName (PresI18n.t("Write a name…")) "ce-wide" nr)
+        sec.addChild(nr)
+        sec.addChild((this.text("ce-doc" (PresI18n.t("The copy gets the slides, theme and files of this presentation. The name becomes its first slide's heading.")))))
+        root.addChild(pane)
+
+        def bottom:EVGElement (this.div("ce-foot"))
+        this.button("nd-cancel" (PresI18n.t("Cancel")) "outline" bottom)
+        bottom.addChild((this.div("ce-grow")))
+        this.button("nd-create" (PresI18n.t("Duplicate")) "primary" bottom)
+        root.addChild(bottom)
+    }
+
     fn newDeckBody:void (root:EVGElement) {
+        if ndDup {
+            this.dupDeckBody(root)
+            return
+        }
         def t0 (new TabsCtl())
         tabs = t0
         tabs.tid = "nd-tabs"

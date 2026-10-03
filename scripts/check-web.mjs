@@ -2909,6 +2909,18 @@ try {
     const origAt = await pc.evaluate(() => location.pathname);
     const origId = origAt.replace(/^\/s\//, "");
     await pc.evaluate(() => window.__fileRequest("duplicate"));
+    await pc.waitForTimeout(300);
+    // the copy's name is asked first: the suggestion, all selected; Esc
+    // makes nothing
+    const dupAsk = await pc.evaluate(() => JSON.parse(window.__app.newDeckPlan()));
+    await pc.keyboard.press("Escape");
+    await pc.waitForTimeout(800);
+    check("PRO: Duplicate asks the copy's name, suggested; Esc keeps the deck",
+      dupAsk.dup === true && /^Alkuperäinen \((copy|kopio)\)$/.test(dupAsk.name) && shareId().length === 3 && (await pc.evaluate(() => location.pathname)) === origAt,
+      JSON.stringify({ dupAsk, ids: shareId() }));
+    await pc.evaluate(() => window.__fileRequest("duplicate"));
+    await pc.waitForTimeout(300);
+    await pc.keyboard.press("Enter");
     await pc.waitForTimeout(3000);
     const dup = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search), ids: shareId() };
     const dupId = dup.ids.find((k) => k !== id && k !== newId && k !== origId) || "";
@@ -2945,6 +2957,10 @@ try {
       const before = shareId();
       failPuts = 1;
       await pc.evaluate(() => window.__fileRequest("duplicate"));
+      await pc.waitForTimeout(300);
+      // a name typed over the selected suggestion is the copy's
+      await pc.keyboard.type("Toinen kopio");
+      await pc.keyboard.press("Enter");
       await pc.waitForTimeout(3500);
       const ids1 = shareId().filter((k) => !before.includes(k));
       const at1 = await pc.evaluate(() => location.pathname);
@@ -2953,7 +2969,7 @@ try {
       const ids2 = shareId().filter((k) => !before.includes(k));
       const sh = ids2.length ? fakeDb.get("shares/" + ids2[0]) : null;
       check("PRO: a share whose file failed is kept, and the file goes on the next save",
-        ids1.length === 1 && ids2.length === 1 && at1 === "/s/" + ids1[0] && (sh?.files || []).some((f) => f.path === "data/sheet-1.xlsx") && sh.md.includes("## Uudelleen"),
+        ids1.length === 1 && ids2.length === 1 && at1 === "/s/" + ids1[0] && (sh?.files || []).some((f) => f.path === "data/sheet-1.xlsx") && sh.md.includes("## Uudelleen") && sh.md.startsWith("# Toinen kopio\n"),
         JSON.stringify({ ids1, ids2, at1, files: (sh?.files || []).map((f) => f.path) }));
     }
     // the user's own shares this browser does not keep: listed, and opened
