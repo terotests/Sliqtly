@@ -854,6 +854,41 @@ class PresCheck {
         this.ok(((indexOf bad "labelFontSize") < 0) ("2020pxpx says nothing: " + bad))
     }
 
+    ; A change to `chart { … }` draws the charts again a few per rebuild,
+    ; and a theme change that is not about charts draws none of them.
+    fn staggered:void () {
+        def md:string ""
+        def i:int 1
+        while (i <= 5) {
+            md = (md + "## Kaavio " + (to_string i) + "\n\n```vega-lite\n{\"data\": {\"values\": [{\"m\": \"a\", \"n\": " + (to_string i) + "}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"m\", \"type\": \"nominal\"}, \"y\": {\"field\": \"n\", \"type\": \"quantitative\"}}}\n```\n\n")
+            i = (i + 1)
+        }
+        def css:string "page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 } "
+        def deck (new PresDeck())
+        deck.setStyleSheet(css)
+        deck.setText(md)
+        ; the room a chart may take is known from the layout before (the
+        ; first one had the default page): a second settles it
+        deck.setText(md)
+        this.ok(((deck.slideCount()) == 5) ("five chart slides, got " + (to_string (deck.slideCount()))))
+        this.ok(((deck.redrawPending()) == 0) "a first layout draws every chart")
+        deck.redrawBudget = 2
+        deck.setStyleSheet((css + "h2 { color: #c00 }"))
+        deck.setText(md)
+        this.ok(((deck.redrawPending()) == 0) "a heading colour draws no chart again")
+        deck.setStyleSheet((css + "h2 { color: #c00 } chart { font-size: 20px }"))
+        deck.setText(md)
+        this.ok(((deck.redrawPending()) == 3) ("new chart defaults: two drawn, three left, got " + (to_string (deck.redrawPending()))))
+        def passes:int 0
+        while (((deck.redrawPending()) > 0) && (passes < 10)) {
+            deck.setText(md)
+            passes = (passes + 1)
+        }
+        this.ok((passes == 2) ("the rest in two more rebuilds, got " + (to_string passes)))
+        def frame:EVGDisplayList (PresTimeline.finalFrame(deck 4))
+        this.ok(((indexOf (frame.toJson()) "\"size\":20") > 0) "the last chart is drawn with the new size")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -865,6 +900,7 @@ class PresCheck {
         c.docSettings()
         c.ranges()
         c.limits()
+        c.staggered()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

@@ -135,6 +135,15 @@ class PresDeck {
     def text:string ""
     ; moves on every rebuild, so a host can keep what it built from the last one
     def revision:int 0
+    ; How many charts and figures drawn under old defaults one rebuild draws
+    ; again (-1: all of them), and the source range drawn first whatever the
+    ; count (the slide on the screen). A change to `chart { … }` used to draw
+    ; every chart of the deck in the frame it was typed in; PresApp sets a
+    ; few while editing and draws the rest in the frames after (`settle`).
+    ; MdEmbedCache.redrawBudget.
+    def redrawBudget:int -1
+    def focusFrom:int -1
+    def focusTo:int -1
     ; the host's wall clock, for the viewer's camera moves, and whether the
     ; list being built is the stage (controls drawn) or a thumbnail
     def uiNow:double 0.0
@@ -756,6 +765,28 @@ class PresDeck {
         push s.diagrams u
     }
 
+    ; The theme, for the deck and for the Markdown editor it lays out with,
+    ; and no layout of its own: the next rebuild is the one layout.
+    ; `MarkdownWeb.setStyleSheet` (and `addTheme`) lays the document out at
+    ; once, as a continuous page the width of ITS view rather than as slides,
+    ; and that pass drew every chart again at that width; the cache keeps a
+    ; chart at one width, so the slides' pass that followed drew them all
+    ; once more. A theme edit cost two layouts and every chart twice.
+    fn setStyleSheet:void (css:string) {
+        this.setTheme(css)
+        md.edit.setStyleSheet(css)
+    }
+
+    ; A named template (`theme: aurora` in the front matter), without a layout.
+    fn addTemplate:void (name:string css:string) {
+        md.edit.addTheme(name css)
+    }
+
+    ; Charts and figures the last rebuild left drawn under old defaults.
+    fn redrawPending:int () {
+        return md.edit.layout.embeds.pending
+    }
+
     fn setTheme:void (css:string) {
         clear themeKeys
         clear themeVals
@@ -1298,6 +1329,9 @@ class PresDeck {
         def none2:[string]
         emb.chartScopes = none1
         emb.chartScopeConfig = none2
+        emb.redrawBudget = redrawBudget
+        emb.focusFrom = focusFrom
+        emb.focusTo = focusTo
         def scopes:[string] (this.chartScopes())
         def si:int 0
         while (si < (array_length scopes)) {

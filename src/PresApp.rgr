@@ -315,7 +315,7 @@ class PresApp {
     }
 
     fn addTemplate:void (name:string css:string) {
-        deck.md.addTheme(name css)
+        deck.addTemplate(name css)
     }
 
     ; The editors in the app's light look: white paper, zinc greys, and the
@@ -420,8 +420,7 @@ class PresApp {
     }
 
     fn applyTheme:void (css:string) {
-        deck.setTheme(css)
-        deck.md.setStyleSheet(css)
+        deck.setStyleSheet(css)
         this.rebuildDeck()
     }
 
@@ -497,6 +496,20 @@ class PresApp {
     }
 
     fn rebuildDeck:void () {
+        this.rebuildWith((? (mode == "edit") 2 -1))
+    }
+
+    ; One rebuild that draws again at most `budget` charts and figures whose
+    ; defaults changed (-1: all), the selected slide's whatever the count.
+    fn rebuildWith:void (budget:int) {
+        deck.redrawBudget = budget
+        deck.focusFrom = -1
+        deck.focusTo = -1
+        if ((selected >= 0) && (selected < (deck.slideCount()))) {
+            def cur:PresSlide (deck.slideAt(selected))
+            deck.focusFrom = cur.srcStart
+            deck.focusTo = cur.srcEnd
+        }
         deck.setText((mdEditor.text()))
         PresTimeline.planAll(deck)
         ; the Slide menu's Orientation ticks what the deck is
@@ -1250,6 +1263,7 @@ class PresApp {
     ; Presenting
     ; =========================================================================
     fn present:void (fromStart:boolean) {
+        this.settleAll()
         this.dropPick()
         mode = "present"
         this.viewReset()
@@ -1776,12 +1790,35 @@ class PresApp {
         return (deck.uiBusy(selected))
     }
 
+    ; Called by the page each frame: one more rebuild while charts are still
+    ; drawn under old defaults (a few a frame while editing). True when it
+    ; laid out again.
+    fn settle:boolean () {
+        if ((deck.redrawPending()) == 0) {
+            return false
+        }
+        if (this.isPlaying()) {
+            return false
+        }
+        this.rebuildDeck()
+        return true
+    }
+
+    ; Every chart drawn under the defaults it has now: before the deck is
+    ; shown to an audience or written to a file.
+    fn settleAll:void () {
+        if ((deck.redrawPending()) > 0) {
+            this.rebuildWith(-1)
+        }
+    }
+
     fn slideJson:string (i:int) {
         return (this.listJson((PresTimeline.finalFrame(deck i))))
     }
 
     ; The frame at a deck time, for a capture that walks the timeline.
     fn frameAtJson:string (t:double) {
+        this.settleAll()
         def i:int (PresTimeline.slideAtTime(deck t))
         def local:double (t - (PresTimeline.slideStart(deck i)))
         return (this.listJson((PresTimeline.frame(deck i local))))
@@ -6476,6 +6513,7 @@ class PresApp {
     }
 
     fn pdf:buffer () {
+        this.settleAll()
         def mw:MarkdownWeb deck.md
         def e:MarkdownEdit mw.edit
         def l:MdLayout (deck.layout())
@@ -6576,6 +6614,7 @@ class PresApp {
     ; presentation adds on each slide: the speaker's notes, the transition,
     ; and a build step per `{.build}` item.
     fn pptx:buffer () {
+        this.settleAll()
         ; The stage's own layout, not one laid out again with the markdown
         ; module's deck defaults: that one had other text sizes and spacing,
         ; no task boxes and no theme rules, and the file did not look like

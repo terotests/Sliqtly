@@ -2157,6 +2157,8 @@ function frame() {
     const now = performance.now();
     app.setUiTime(now / 1000);
     if (app.uiBusy()) needsPaint = true;
+    // charts whose theme changed are drawn again a few a frame (PresApp.settle)
+    if (app.settle()) needsPaint = true;
     if (app.isPlaying()) {
       const want = clockBase + (now - clockAt) / 1000;
       const got = app.setTime(want);
