@@ -63,3 +63,13 @@ for (const [dir, face] of [
   fs.copyFileSync(path.join(ranger, "gallery/pdf_writer/assets/fonts", dir, `${face}.ttf`), path.join(fontsDir, `${face}.ttf`));
 }
 log("copied mcp-go/fonts/*.ttf");
+
+// The themes' sheets, for a server that keeps decks in a folder
+// (SLIQTLY_DATA): it has no site to fetch /themes/{name}.css from.
+const themesDir = path.join(here, "themes");
+fs.rmSync(themesDir, { recursive: true, force: true });
+fs.mkdirSync(themesDir, { recursive: true });
+for (const f of fs.readdirSync(path.join(here, "..", "themes"))) {
+  if (f.endsWith(".css")) fs.copyFileSync(path.join(here, "..", "themes", f), path.join(themesDir, f));
+}
+log("copied mcp-go/themes/*.css");

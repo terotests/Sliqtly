@@ -226,6 +226,12 @@ class App {
             }
             caller.signIn = (origin + "/.well-known/oauth-protected-resource/mcp")
         }
+        def local:string (host_local_user host)
+        if ((strlen local) > 0) {
+            caller.signedIn = true
+            caller.uid = local
+            caller.name = local
+        }
         caller.who = (App.clientIp(host req))
         if caller.signedIn {
             caller.who = ("uid:" + caller.uid)

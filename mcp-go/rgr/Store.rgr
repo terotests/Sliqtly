@@ -247,7 +247,7 @@ class Store {
             f.putStr("path" path)
             f.putStr("type" img.type)
             f.putInt("size" img.size)
-            f.putStr("url" ("https://firebasestorage.googleapis.com/v0/b/" + (host_bucket host) + "/o/" + (host_uri_encode host name) + "?alt=media&token=" + token))
+            f.putStr("url" (host_file_url host name token))
             out.add(f)
         }
         return out

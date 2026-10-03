@@ -90,6 +90,11 @@ type Env struct {
 	// Hits: a limiter for the visit beacon POST /api/hit, per address.
 	Hits func(who string) string
 	Now  func() time.Time // nil: time.Now
+	// A server of one's own (decks in a folder, local.go): every caller is
+	// LocalUser, files are read from FilesURL, themes are the built-in ones.
+	LocalUser string
+	FilesURL  string // e.g. https://host/files; "": Storage download URLs
+	Themes    func(name string) (string, bool)
 
 	themesMu sync.Mutex
 	themes   map[string]string
@@ -539,6 +544,21 @@ func (h *McpHost) Precision(n string, digits int64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
+func (h *McpHost) LocalUser() string { return h.env.LocalUser }
+
+// where the page reads a kept file: the server's own /files/ or Storage's
+// download URL, which carries the token the upload was given
+func (h *McpHost) FileURL(name, token string) string {
+	if h.env.FilesURL != "" {
+		parts := strings.Split(name, "/")
+		for i, p := range parts {
+			parts[i] = url.PathEscape(p)
+		}
+		return h.env.FilesURL + "/" + strings.Join(parts, "/")
+	}
+	return "https://firebasestorage.googleapis.com/v0/b/" + h.Bucket() + "/o/" + h.URIEncode(name) + "?alt=media&token=" + token
+}
+
 func (h *McpHost) Bucket() string {
 	if h.env.Bucket == nil {
 		return ""
@@ -550,6 +570,13 @@ func (h *McpHost) Bucket() string {
 
 func (h *McpHost) ThemeCSS(theme string) string {
 	e := h.env
+	if e.Themes != nil {
+		css, ok := e.Themes(theme)
+		if !ok {
+			h.fail(fmt.Errorf("theme %s: not built in", theme))
+		}
+		return css
+	}
 	e.themesMu.Lock()
 	css, ok := e.themes[theme]
 	e.themesMu.Unlock()
@@ -587,6 +614,9 @@ func (h *McpHost) ThemeCSS(theme string) string {
 // Hosting's /__/firebase/init.js across origins; "" while it cannot be read.
 func (h *McpHost) WebConfig() string {
 	e := h.env
+	if e.LocalUser != "" {
+		return ""
+	}
 	e.themesMu.Lock()
 	cfg := e.webCfg
 	e.themesMu.Unlock()
