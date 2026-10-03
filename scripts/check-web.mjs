@@ -351,6 +351,12 @@ try {
     out.stepOnSecond = a.pStep;
     a.setTime(1000);
     out.heldAt = a.currentTime();
+    // held, frame after frame as the host asks: the deck clock stays and the
+    // slide's effect goes on
+    const fx0 = JSON.parse(a.layoutJson()).fxTime;
+    for (let i = 0; i < 10; i += 1) a.setTime(a.currentTime() + 0.1);
+    out.heldStill = a.currentTime() === out.heldAt;
+    out.fxOnBy = JSON.parse(a.layoutJson()).fxTime - fx0;
     a.key("escape", false, false);
     out.backToEdit = JSON.parse(a.layoutJson()).mode;
     return out;
@@ -369,6 +375,7 @@ try {
   check("title slide has no steps: two clicks reach slide 2's first step", r.afterTwoClicks === 1, String(r.afterTwoClicks));
   check("a click releases a build step", r.stepOnSecond === 2, String(r.stepOnSecond));
   check("the clock holds at the next step", r.heldAt < 1000, String(r.heldAt));
+  check("and the slide's effect goes on while it holds", r.heldStill && Math.abs(r.fxOnBy - 1) < 1e-6, String(r.fxOnBy));
   check("escape ends the presentation", r.backToEdit === "edit");
 
   // Past the last slide a panel offers the first slide, the one before, or out.
@@ -1964,6 +1971,8 @@ try {
       const css0 = a.themeCss();
       const chart = "```vega-lite\n{\"title\": \"Otsikko\", \"data\": {\"values\": [{\"a\": \"x\", \"b\": 1}, {\"a\": \"y\", \"b\": 2}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"a\", \"type\": \"nominal\"}, \"y\": {\"field\": \"b\", \"type\": \"quantitative\"}}}\n```\n";
       a.setSource("# D\n\n## Mihin raha menee?\n\n" + chart + "\n## Toinen dia\n\n" + chart.replace("Otsikko", "Toinen"));
+      // both drawn, also the one out of view (PresApp.settle draws only those in view)
+      a.settleAll();
       // the drawn chart's height and its largest type (its title). A chart
       // that states no height is drawn the room's height whatever its title
       // takes, so a larger title shows in the type, not in a taller box.
@@ -1974,6 +1983,7 @@ try {
       const help = JSON.parse(a.slideHelp()).find((f) => f.key === "chart");
       const sels = help ? help.rules.map((r) => r.sel) : [];
       a.setStyleSheet(css0 + "\n#mihin-raha-menee chart {\n  title-font-size: 44px;\n  title-gap: 40px;\n}\n");
+      a.settleAll();
       const s1 = box(1), s2 = box(2);
       a.setStyleSheet(css0);
       a.setSource(src0);

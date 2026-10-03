@@ -77,6 +77,9 @@ class PresRect {
 
 class PresApp {
     def deck:PresDeck (new PresDeck())
+    ; `setSource` was given a new text: the next rebuild's slides are not
+    ; the last one's (aimDeck)
+    def sourceNew:boolean false
     def editor:ScriptEditor (new ScriptEditor())
     def tr:UITextRenderer (new UITextRenderer())
     def lang:R5MdLanguage (new R5MdLanguage())
@@ -189,6 +192,11 @@ class PresApp {
     ; after a step back the clock waits this long, so several presses can
     ; go several steps back before the walk moves on again
     def backWait:double 0.0
+    ; The seconds the deck clock has been held on the slide on screen (a
+    ; build step or the slide's end waiting for a click). The slide's effect
+    ; goes on through them: rain does not stop while the speaker talks.
+    def fxHeld:double 0.0
+    def fxSlide:int -1
 
     def bufSynced:int -1
     def posLine:int 0
@@ -476,6 +484,8 @@ class PresApp {
 
     fn setSource:void (text:string) {
         this.showTab("md")
+        ; the slides of the deck before say nothing about this one's
+        sourceNew = true
         mdEditor.init(text)
         bufSynced = mdEditor.buf.version
         selected = 0
@@ -496,20 +506,19 @@ class PresApp {
     }
 
     fn rebuildDeck:void () {
-        this.rebuildWith((? (mode == "edit") 2 -1))
+        this.rebuildWith((? (mode == "edit") 2 -1) true)
     }
 
     ; One rebuild that draws again at most `budget` charts and figures whose
-    ; defaults changed (-1: all), the selected slide's whatever the count.
-    fn rebuildWith:void (budget:int) {
+    ; defaults changed (-1: all), the shown slide's and its neighbours'
+    ; whatever the count. `lazy`: only those and the ones on the visible
+    ; thumbnails are drawn at all; a deck of 200 slides opens at the cost of
+    ; the slides on screen (`settle` draws the others as they come into
+    ; view, `settleAll` before a file is written).
+    fn rebuildWith:void (budget:int lazy:boolean) {
         deck.redrawBudget = budget
-        deck.focusFrom = -1
-        deck.focusTo = -1
-        if ((selected >= 0) && (selected < (deck.slideCount()))) {
-            def cur:PresSlide (deck.slideAt(selected))
-            deck.focusFrom = cur.srcStart
-            deck.focusTo = cur.srcEnd
-        }
+        deck.lazy = lazy
+        this.aimDeck()
         deck.setText((mdEditor.text()))
         PresTimeline.planAll(deck)
         ; the Slide menu's Orientation ticks what the deck is
@@ -841,7 +850,36 @@ class PresApp {
 
     ; The host's clock. Returns the time the app accepted, which is less
     ; when a presentation is holding for a click.
+    ;
+    ; What was asked and not accepted, while playing on the same slide, is
+    ; time the slide spent held, and its effect counts it (`effectTime`). The
+    ; host asks one frame past the accepted time while held, so a jump of a
+    ; second or more is a seek and not a hold.
     fn setTime:double (t:double) {
+        def got:double (this.setClock(t))
+        if (selected != fxSlide) {
+            fxSlide = selected
+            fxHeld = 0.0
+        } {
+            if (((this.isPlaying()) && (t > got)) && ((t - got) < 1.0)) {
+                fxHeld = (fxHeld + (t - got))
+            }
+        }
+        return got
+    }
+
+    ; The time the shown slide's surface effect is drawn at: from the moment
+    ; the slide came on, and on through the holds, so a starfield or rain
+    ; never stops on a slide waiting for a click. Below zero when nothing is
+    ; playing: the editor's host runs its own clock for effects then.
+    fn effectTime:double () {
+        if (this.isPlaying()) {
+            return ((this.stageTime()) + fxHeld)
+        }
+        return -1.0
+    }
+
+    fn setClock:double (t:double) {
         if ((deck.slideCount()) == 0) {
             return 0.0
         }
@@ -1263,7 +1301,6 @@ class PresApp {
     ; Presenting
     ; =========================================================================
     fn present:void (fromStart:boolean) {
-        this.settleAll()
         this.dropPick()
         mode = "present"
         this.viewReset()
@@ -1649,6 +1686,7 @@ class PresApp {
         out = (out + ",\"slide\":" + (to_string selected))
         out = (out + ",\"slides\":" + (to_string (deck.slideCount())))
         out = (out + ",\"time\":" + (EVGDisplayList.num((this.currentTime()))))
+        out = (out + ",\"fxTime\":" + (EVGDisplayList.num((this.effectTime()))))
         out = (out + ",\"playing\":" + (? (this.isPlaying()) "true" "false"))
         out = (out + ",\"stage\":[" + (PresApp.placeAt(slideRect.x slideRect.y sc)) + "]")
         out = (out + ",\"clip\":[" + (PresApp.nums4(stageArea.x stageArea.y stageArea.w stageArea.h)) + "]")
@@ -1793,22 +1831,141 @@ class PresApp {
     ; Called by the page each frame: one more rebuild while charts are still
     ; drawn under old defaults (a few a frame while editing). True when it
     ; laid out again.
-    fn settle:boolean () {
-        if ((deck.redrawPending()) == 0) {
+    ; The source ranges a rebuild draws: the focus is the shown slide with
+    ; the one before and the one after (the next one is ready when a click
+    ; gets to it, and the speaker view shows it), the view the thumbnails on
+    ; screen. From the last layout's slides; a rebuild that moves them is
+    ; followed by another `settle` if that brings more into view.
+    fn aimDeck:void () {
+        deck.focusFrom = -1
+        deck.focusTo = -1
+        deck.viewFrom = -1
+        deck.viewTo = -1
+        def n:int (deck.slideCount())
+        if ((n == 0) || sourceNew) {
+            ; a new text: laid out with nothing drawn, and the shown slide's
+            ; charts drawn by the `settle` after
+            sourceNew = false
+            deck.focusFrom = 0
+            deck.focusTo = 0
+            return
+        }
+        def cur:int selected
+        if (cur >= n) {
+            cur = (n - 1)
+        }
+        if (cur < 0) {
+            cur = 0
+        }
+        def lo:int (? (cur > 0) (cur - 1) cur)
+        def hi:int (? (cur < (n - 1)) (cur + 1) cur)
+        deck.focusFrom = (this.spanFrom(lo))
+        deck.focusTo = (this.spanTo(hi))
+        if (mode != "edit") {
+            return
+        }
+        def first:int -1
+        def last:int -1
+        def i:int 0
+        while (i < n) {
+            if (this.thumbFits((this.thumbX(i)))) {
+                if (first < 0) {
+                    first = i
+                }
+                last = i
+            }
+            i = (i + 1)
+        }
+        if (first >= 0) {
+            deck.viewFrom = (this.spanFrom(first))
+            deck.viewTo = (this.spanTo(last))
+        }
+    }
+
+    ; The source a slide is made from: from its first box's offset up to the
+    ; next slide's (a slide's `srcEnd` is its last text box, and a chart
+    ; under the text has none). A slide that continues the one before starts
+    ; where that one does.
+    fn spanFrom:int (i:int) {
+        def k:int i
+        while (k >= 0) {
+            def s:PresSlide (deck.slideAt(k))
+            if (s.srcStart >= 0) {
+                return s.srcStart
+            }
+            k = (k - 1)
+        }
+        return 0
+    }
+
+    fn spanTo:int (i:int) {
+        def from:int (this.spanFrom(i))
+        def k:int (i + 1)
+        while (k < (deck.slideCount())) {
+            def s:PresSlide (deck.slideAt(k))
+            if (s.srcStart > from) {
+                return s.srcStart
+            }
+            k = (k + 1)
+        }
+        return 1000000000
+    }
+
+    ; Charts or figures in a source range left undrawn by the last rebuild
+    ; (out of view, or drawn under old defaults).
+    fn undrawnIn:boolean (from:int to:int) {
+        if (from < 0) {
             return false
         }
+        return ((deck.undrawnIn(from to)) > 0)
+    }
+
+    ; Called by the page each frame. True when it laid out again, which it
+    ; does for one of these:
+    ; - the shown slide has a chart not drawn yet: at once, also mid-show
+    ; - while nothing moves (in a show, once the slide's transition is
+    ;   over): a chart on a neighbour of the shown slide or on a visible
+    ;   thumbnail not drawn yet, or charts still drawn under old defaults
+    ;   (a few a frame while editing)
+    fn settle:boolean () {
+        def n:int (deck.slideCount())
+        if ((selected >= 0) && (selected < n)) {
+            if (this.undrawnIn((this.spanFrom(selected)) (this.spanTo(selected)))) {
+                this.rebuildDeck()
+                return true
+            }
+        }
         if (this.isPlaying()) {
+            ; a show draws ahead once the slide's transition is over, not
+            ; while it moves
+            if (mode != "present") {
+                return false
+            }
+            if ((selected < 0) || (selected >= n)) {
+                return false
+            }
+            def sl:PresSlide (deck.slideAt(selected))
+            if ((this.stageTime()) < (PresTimeline.transitionSeconds(sl))) {
+                return false
+            }
+        }
+        this.aimDeck()
+        def near:boolean ((this.undrawnIn(deck.focusFrom deck.focusTo)) || (this.undrawnIn(deck.viewFrom deck.viewTo)))
+        if ((deck.redrawPending()) > 0) {
+            near = true
+        }
+        if (! near) {
             return false
         }
         this.rebuildDeck()
         return true
     }
 
-    ; Every chart drawn under the defaults it has now: before the deck is
-    ; shown to an audience or written to a file.
+    ; Every chart drawn, under the defaults it has now: before the deck is
+    ; written to a file or captured.
     fn settleAll:void () {
-        if ((deck.redrawPending()) > 0) {
-            this.rebuildWith(-1)
+        if (((deck.redrawPending()) > 0) || ((deck.undrawn()) > 0)) {
+            this.rebuildWith(-1 false)
         }
     }
 

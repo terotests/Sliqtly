@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image"
 	"io"
 	"log"
 	"math"
@@ -214,6 +215,8 @@ type McpHost struct {
 	err    error
 	images map[int64][]byte
 	next   int64
+	// pictures decoded for render.go, by the name the lists give them
+	renderPics map[string]image.Image
 }
 
 func (h *McpHost) fail(err error) {

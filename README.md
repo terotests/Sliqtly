@@ -97,8 +97,13 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   changes the limit, `slide-grow: off` turns it off.
 - `anim`: `fade`, `rise`, `fly` or `zoom`.
 - `fx`: EVG surface effects (`starfield`, `plasma-wave`, `smoke`,
-  `ambient-light`, `liquid-glass`, `raindrop`). `fx-<name>=<number>` is the
-  same as `evg-fx-<name>` in CSS.
+  `ambient-light`, `liquid-glass`, `drops`, `bubbles`). `fx-<name>=<number>`
+  is the same as `evg-fx-<name>` in CSS. `drops` is rain on a window: the
+  pane is dry when the slide comes on, drops land, run together and run down
+  leaving trails (`fx-rain`, `fx-size`, `fx-mist`, `fx-speed`, `fx-refract`).
+  `bubbles` is the round-drop effect that was called `raindrop`, and
+  `raindrop` still draws it. An effect's clock is the time its slide has been
+  on screen and goes on while the slide waits for a click.
 - Diagrams (```mermaid, ```dot, ```d2, ```plantuml) are animated on the
   slide as one guided pass. The camera zooms in on each box as it appears and
   holds it for its reading time (15 characters a second, at least 1.3 s). A
@@ -168,8 +173,9 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   main.js). `samples/mallit.md` shows them.
 - A slide's background effect (`{fx=…}`) goes into the PDF and the PPTX as a
   picture: before an export each effect is drawn in the browser at the moment
-  the thumbnails show it, and put under the slide's content (PDF) or as the
-  slide background (PPTX). Text and shapes stay editable on top. Raindrop and
+  the thumbnails show it (two seconds in; `drops` thirty, when it has rained
+  for a while), and put under the slide's content (PDF) or as the slide
+  background (PPTX). Text and shapes stay editable on top. Drops, bubbles and
   liquid glass are drawn over the bare paper there, so in the exports the
   drops do not bend the text as they do on the stage.
 - Pasting a whole document (into an empty editor or over a select-all) opens
