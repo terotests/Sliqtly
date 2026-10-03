@@ -1,7 +1,7 @@
 {
   "name": "sliqtly",
   "version": "0.1.0",
-  "description": "Markdown → EVG slideshow: an editor on the left, the presentation with its timeline on the right",
+  "description": "Markdown \u2192 EVG slideshow: an editor on the left, the presentation with its timeline on the right",
   "license": "AGPL-3.0-or-later",
   "private": true,
   "type": "module",
@@ -17,6 +17,7 @@
     "i18n": "node scripts/i18n.mjs"
   },
   "devDependencies": {
-    "playwright-core": "^1.55.0"
+    "playwright-core": "^1.55.0",
+    "esbuild": "^0.25.0"
   }
 }
