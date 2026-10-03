@@ -1933,7 +1933,7 @@ class PresDeck {
     ;
     ;   figure {
     ;     colors: #1f6feb #0f9d8a #7c4dff #f08c00;   the series, in order
-    ;     color: #ffa546;  accent-color: #5ce1ff;   or the first two
+    ;     color: #B96926;  accent-color: #59C3C4;   or the first two
     ;     font-size: 18pt;                          the titles in them
     ;   }
     ;

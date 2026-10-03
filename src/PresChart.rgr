@@ -71,7 +71,7 @@ class PresChart {
             }
             li = (li + 1)
         }
-        def ac:EVGColor (PresChart.colour(accentHex "#5ce1ff"))
+        def ac:EVGColor (PresChart.colour(accentHex "#59C3C4"))
         ; the mark's colour: looked for in the mark alone, not in a title's
         def markAt:int (indexOf spec "\"mark\"")
         def markHex:string ""
@@ -83,7 +83,7 @@ class PresChart {
             }
             markHex = (PresChart.specString(markText "color"))
         }
-        def wm:EVGColor (PresChart.colour(warmHex "#ffa546"))
+        def wm:EVGColor (PresChart.colour(warmHex "#B96926"))
         if ((strlen markHex) > 0) {
             wm = (EVGColor.parse(markHex))
         }

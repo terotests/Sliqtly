@@ -208,7 +208,7 @@ class PresHelp {
             if (prop == "background-color") { return "#ffe766" }
             if (prop == "color") { return "#1f2328" }
         }
-        if (prop == "accent-color") { return "#5ce1ff" }
+        if (prop == "accent-color") { return "#59C3C4" }
         if (PresHints.isColorProp(prop)) { return "#ffffff" }
         if (prop == "font-family") { return "Open Sans" }
         if (prop == "font-size") { return "20pt" }
