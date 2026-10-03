@@ -150,6 +150,35 @@ operators {
             go ( (e 1) ".ImageGrid(" (e 2) ")" )
         }
     }
+    ; a face the editor lays slides out with ("Open Sans-Bold"), as the
+    ; TTF's bytes; empty when there is no such face
+    host_font _:buffer (h:McpHost name:string) {
+        templates {
+            go ( (e 1) ".Font(" (e 2) ")" )
+        }
+    }
+    ; --- slides as pictures (render.go)
+
+    ; a picture the display lists name (/media/<name>), for the painter
+    host_render_pic _:void (h:McpHost name:string data:buffer) {
+        templates {
+            go ( (e 1) ".RenderPic(" (e 2) ", " (e 3) ")" nl )
+        }
+    }
+    ; one slide's display list (EVGDisplayList.toJson) painted `width`
+    ; pixels wide: base64 JPEG, "" when it could not be drawn
+    host_render _:string (h:McpHost list:string w:double ht:double width:int) {
+        templates {
+            go ( (e 1) ".Render(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
+        }
+    }
+    ; every slide as a numbered thumbnail, `cols` across, `width` pixels in
+    ; all: base64 JPEG
+    host_render_grid _:string (h:McpHost lists:[string] w:double ht:double cols:int width:int) {
+        templates {
+            go ( (e 1) ".RenderGrid(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ", " (e 6) ")" )
+        }
+    }
     host_image_bytes _:buffer (h:McpHost handle:int) {
         templates {
             go ( (e 1) ".Bytes(" (e 2) ")" )

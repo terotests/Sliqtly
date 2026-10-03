@@ -8,6 +8,28 @@
 Import "McpHost.rgr"
 Import "../presentation/PresDeck.rgr"
 Import "Contrast.rgr"
+Import "Files.rgr"
+Import "Layout.rgr"
+
+; what a deck is checked with
+class DeckIn {
+    def md:string ""
+    def css:string ""
+    ; the pictures the deck names, as /media/<name>, with their bytes and
+    ; types; a picture's grid is what the contrast check samples
+    def pics:[CheckPic]
+    def data:[buffer]
+    def types:[string]
+    ; this call's data files (path data/<name>, bytes behind the handle)
+    def files:[Img]
+    ; the stored deck whose files a chart may read, and their paths
+    def deckId:string ""
+    def stored:[string]
+    ; charts read https data too (a live CSV, a Google Sheet)
+    def live:boolean false
+    ; keep each slide's display list as JSON, for drawing it
+    def lists:boolean false
+}
 
 class Checked {
     ; the theme's sheet was there: without it the slide count is not the
@@ -15,23 +37,151 @@ class Checked {
     def laidOut:boolean false
     def slides:int 0
     def warnings:[string]
+    ; the layout report, slide by slide
+    def report:[RSlideOut]
+    ; with DeckIn.lists: each slide's display list as JSON
+    def lists:[string]
+    def width:double 960.0
+    def height:double 540.0
 }
 
 class Check {
     ; pics: the slide backgrounds (bg=media/<name>) as /media/<name>, with
     ; their pixels for the contrast check; data is each one's bytes
-    sfn deck:Checked (md:string css:string pics:[CheckPic] data:[buffer] types:[string]) {
+    ; the faces the editor lays slides out with (web/main.js FACES, and the
+    ; emoji face it adds when one is typed)
+    sfn FACES:[string] () {
+        return ([] _:string ("Open Sans" "Open Sans-Bold" "Open Sans-Italic" "Open Sans-BoldItalic" "Noto Sans" "Noto Sans-Bold" "Noto Emoji-Regular"))
+    }
+
+    ; a file a chart reads, as text: this call's files, the deck's stored
+    ; ones, a workbook's sheet by its CSV name, or (live) an https address;
+    ; "" when there is none
+    sfn dataText:string (host:McpHost din:DeckIn url:string) {
+        def u:string (MdVegaRender.bareUrl(url))
+        while (startsWith u "/") {
+            u = (substring u 1 (strlen u))
+        }
+        if (startsWith u "https://") {
+            if (din.live == false) {
+                return ""
+            }
+            def got:MfJ (J.parse((host_fetch_text host u "text/csv, application/json, text/plain, */*" (Files.MAX_READ()))))
+            if ((got.int_("status" 0)) == 200) {
+                return (got.str_("body"))
+            }
+            return ""
+        }
+        for din.files f:Img fi {
+            if (f.path == u) {
+                return (host_text host f.handle)
+            }
+        }
+        if ((strlen din.deckId) > 0) {
+            if ((indexOf din.stored u) >= 0) {
+                def got2:MfJ (J.parse((host_file_bytes host din.deckId u)))
+                if ((strlen (host_error host)) > 0) {
+                    host_clear_error host
+                    return ""
+                }
+                return (host_text host (got2.int_("handle" 0)))
+            }
+        }
+        ; a sheet of a workbook: data/<book>-<Sheet>.csv or data/<book>.csv
+        def books:[string]
+        def handles:[int]
+        for din.files bf:Img bi {
+            if (Files.isXlsx(bf.path)) {
+                push books bf.path
+                push handles bf.handle
+            }
+        }
+        for din.stored sp:string si {
+            if ((Files.isXlsx(sp)) && ((indexOf books sp) < 0)) {
+                push books sp
+                push handles 0
+            }
+        }
+        for books bp:string bk {
+            def base:string (substring bp 0 ((strlen bp) - 5))
+            if ((u != (base + ".csv")) && ((startsWith u (base + "-")) == false)) {
+                continue
+            }
+            def hd:int (itemAt handles bk)
+            if (hd == 0) {
+                def got3:MfJ (J.parse((host_file_bytes host din.deckId bp)))
+                if ((strlen (host_error host)) > 0) {
+                    host_clear_error host
+                    continue
+                }
+                hd = (got3.int_("handle" 0))
+            }
+            def ts:Tables (Files.tables(host hd bp))
+            for ts.list t:DataTable ti {
+                if (t.csv == u) {
+                    def rows:[SheetRow]
+                    def head (new SheetRow)
+                    head.cells = t.columns
+                    push rows head
+                    for t.rows r:SheetRow ri {
+                        push rows r
+                    }
+                    return (Files.toCsv(rows))
+                }
+            }
+        }
+        return ""
+    }
+
+    ; the files the charts read, handed over as the page hands them (twice:
+    ; a chart kept in a file names its data only once the file is read)
+    sfn chartData:void (host:McpHost din:DeckIn d:PresDeck) {
+        def tried:[string]
+        def round:int 0
+        while (round < 2) {
+            def wanted:[string] (strsplit (d.chartDataWanted()) (strfromcode 10))
+            for wanted w:string wi {
+                def u:string (trim w)
+                if (((strlen u) == 0) || ((indexOf tried u) >= 0)) {
+                    continue
+                }
+                push tried u
+                def body:string (Check.dataText(host din u))
+                if ((strlen body) > 0) {
+                    d.setChartData(u body)
+                }
+            }
+            round = (round + 1)
+        }
+    }
+
+    sfn run:Checked (host:McpHost din:DeckIn) {
+        def md:string din.md
+        def css:string din.css
+        def pics:[CheckPic] din.pics
         def c (new Checked)
         def d (new PresDeck)
+        ; a cloud share opens with the PRO layouts and line art drawn
+        ; (web/main.js liveAllowed: liveFromShare)
+        d.figuresAllowed = ((host_store_kind host) == "cloud")
+        for (Check.FACES()) face:string fi {
+            def fb:buffer (host_font host face)
+            if ((buffer_length fb) > 0) {
+                d.md.attachFont(face fb)
+            }
+        }
         if ((strlen css) > 0) {
             d.setTheme(css)
             d.md.setStyleSheet(css)
             c.laidOut = true
         }
         for pics pic:CheckPic pi {
-            d.md.addImage(pic.name (itemAt data pi) (itemAt types pi) pic.w pic.h)
+            d.md.addImage(pic.name (itemAt din.data pi) (itemAt din.types pi) pic.w pic.h)
         }
         d.setText(md)
+        Check.chartData(host din d)
+        c.width = d.pageW
+        c.height = d.pageH
         c.slides = (d.slideCount())
         ; a slide that runs over goes on in untitled slides after it
         def i:int 0
@@ -77,6 +227,20 @@ class Check {
         }
         if c.laidOut {
             Check.contrast(c d l pics)
+            d.still = true
+            for (Layout.slides(d md)) rs:RSlide ri {
+                push c.report (Report.slide(rs))
+            }
+            if din.lists {
+                def li:int 0
+                while (li < c.slides) {
+                    def groups:[int]
+                    def sl:EVGDisplayList (d.slideList(li groups 0.0))
+                    push c.lists (sl.toJson())
+                    li = (li + 1)
+                }
+            }
+            d.still = false
         }
         return c
     }
