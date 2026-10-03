@@ -61,6 +61,13 @@ operators {
             go ( (e 1) ".OAuthOn()" )
         }
     }
+    ; the user every caller is on a server of one's own (decks in a folder,
+    ; no sign-in); "" elsewhere
+    host_local_user _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".LocalUser()" )
+        }
+    }
     host_asset _:string (h:McpHost name:string) {
         templates {
             go ( (e 1) ".Asset(" (e 2) ")" )
@@ -236,6 +243,13 @@ operators {
     host_bucket _:string (h:McpHost) {
         templates {
             go ( (e 1) ".Bucket()" )
+        }
+    }
+    ; where the page reads a kept file (shares/{id}/{path}): Storage's
+    ; download URL with the token, or the server's own /files/ on a folder
+    host_file_url _:string (h:McpHost name:string token:string) {
+        templates {
+            go ( (e 1) ".FileURL(" (e 2) ", " (e 3) ")" )
         }
     }
 

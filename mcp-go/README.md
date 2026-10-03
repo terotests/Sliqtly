@@ -117,6 +117,7 @@ cd mcp-go
 go generate         # compiles rgr/ and the editor's model (needs node)
 go test ./...       # end to end over HTTP with the official MCP Go client, Firestore and Storage faked
 go run .            # http://localhost:8080/mcp, decks travel in the link
+go run . -data ./data   # decks kept in ./data (below)
 ```
 
 `go generate` compiles with the Ranger checkout the editor builds with
@@ -129,6 +130,96 @@ With `GOOGLE_APPLICATION_CREDENTIALS` (or on Cloud Run, `K_SERVICE` set) it
 writes real shares and offers sign-in. `SLIQTLY_URL`, `SLIQTLY_BUCKET`,
 `GOOGLE_CLOUD_PROJECT` and `PORT` set the site, bucket, project and port; `SLIQTLY_STORE=link`
 forces the link-only mode.
+
+## A server of one's own (decks in a folder)
+
+The same binary keeps decks in a folder instead of Firestore and Storage,
+for a laptop or a company network: no Google, no sign-in, every caller is
+one user (`SLIQTLY_USER`, default `local`), and the server shows the decks
+itself.
+
+```
+cd mcp-go
+go generate                                   # once, and after a change to rgr/ or src/
+CGO_ENABLED=0 go build -o sliqtly-server .
+./sliqtly-server -data ./data -port 8080      # http://localhost:8080/mcp
+```
+
+Another platform: `GOOS=windows GOARCH=amd64` (or `darwin`/`linux`,
+`arm64`) before `go build`; the binary has no other dependency. In Docker:
+
+```
+docker build -f mcp-go/Dockerfile -t sliqtly-server .     # from the repository root
+docker run -p 8080:8080 -v sliqtly-data:/data -e SLIQTLY_DATA=/data sliqtly-server
+```
+
+| Flag | Environment | Default | |
+| --- | --- | --- | --- |
+| `-data` | `SLIQTLY_DATA` | | the folder; without it the server keeps nothing (link mode) |
+| `-port` | `PORT` | 8080 | |
+| `-url` | `SLIQTLY_URL` | `http://localhost:<port>` | the address in the links the tools return; set it to the name people reach the server by |
+| `-user` | `SLIQTLY_USER` | `local` | owner of the decks |
+| `-token` | `SLIQTLY_TOKEN` | | `/mcp` then needs `Authorization: Bearer <token>` |
+
+What it serves besides `/mcp` (`local.go`):
+
+| | |
+| --- | --- |
+| `/` | the decks kept here |
+| `/s/{id}` | a deck as its slides, drawn on the server (`render.go`) |
+| `/s/{id}/{n}.jpg`, `/s/{id}/overview.jpg` | one slide, or all as thumbnails: for Markdown in a wiki, an issue or a merge request |
+| `/files/shares/{id}/…` | the deck's pictures and data files |
+| `/themes/{name}.css` | the built-in themes (copied from `../themes` by `go generate`) |
+| `/healthz` | |
+
+The folder (`fsstore.go`): `db/<collection>/<id>.json` per document,
+written to a temporary file and renamed; `files/<path>` per kept file with
+its content type in `<path>.type`. Back it up by copying it.
+
+The editor (`/s/{id}?edit`) is not served yet: it reads a share through
+Firebase in the browser. Decks are made and changed through MCP.
+
+### Connecting an assistant
+
+Claude Code:
+```
+claude mcp add --transport http sliqtly http://localhost:8080/mcp
+claude mcp add --transport http sliqtly http://localhost:8080/mcp --header "Authorization: Bearer <token>"
+```
+
+Cursor (`~/.cursor/mcp.json`, or `.cursor/mcp.json` in a project):
+```json
+{
+  "mcpServers": {
+    "sliqtly": {
+      "url": "http://localhost:8080/mcp",
+      "headers": { "Authorization": "Bearer <token>" }
+    }
+  }
+}
+```
+
+VS Code (`.vscode/mcp.json`):
+```json
+{
+  "servers": {
+    "sliqtly": { "type": "http", "url": "http://localhost:8080/mcp" }
+  }
+}
+```
+
+Claude Desktop, which starts its servers as programs:
+```json
+{
+  "mcpServers": {
+    "sliqtly": { "command": "npx", "args": ["-y", "mcp-remote", "http://localhost:8080/mcp"] }
+  }
+}
+```
+
+Leave out `headers` when the server has no token. Clients that connect from
+their vendor's cloud (claude.ai connectors, ChatGPT) cannot reach a server
+that is only on a laptop or inside a network.
 
 ## Deploy
 
