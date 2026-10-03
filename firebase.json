@@ -87,7 +87,7 @@
         ]
       },
       {
-        "source": "**/*.@(html|js|css|json|md|svg|ttf)",
+        "source": "**/*.@(html|js|mjs|css|json|md|svg|ttf)",
         "headers": [
           {
             "key": "Access-Control-Allow-Origin",
