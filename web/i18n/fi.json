@@ -661,5 +661,6 @@
   "diagram": "diagrammi",
   "table": "taulukko",
   "slide": "dia",
-  "heading": "otsikko"
+  "heading": "otsikko",
+  "Changes all text of the presentation, headings included.": "Muuttaa esityksen kaiken tekstin, myös otsikot."
 }

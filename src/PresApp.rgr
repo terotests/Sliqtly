@@ -859,7 +859,16 @@ class PresApp {
         clock = start
         playing = true
         deck.resetExplore()
+        ; playing is not editing: the pick and its popover go
+        this.dropPick()
         chromeRev = (chromeRev + 1)
+    }
+
+    fn dropPick:void () {
+        if hintFromStage {
+            this.closeHint()
+        }
+        pick.clear()
     }
 
     fn stop:void () {
@@ -1156,6 +1165,7 @@ class PresApp {
     ; Presenting
     ; =========================================================================
     fn present:void (fromStart:boolean) {
+        this.dropPick()
         mode = "present"
         this.viewReset()
         activeDia = -1
@@ -2031,6 +2041,13 @@ class PresApp {
             panels.press(x y)
             this.takePanels()
             return "panel"
+        }
+        ; a press off the slide (and off the pick's buttons) lets the pick go
+        if (pick.on && ((slideRect.has(x y)) == false)) {
+            if (((stageArea.has(x y)) == false) || ((strlen (pick.partAt(x y))) == 0)) {
+                pick.clear()
+                chromeRev = (chromeRev + 1)
+            }
         }
         if ((barH > 0.0) && (toolbar.has(x y))) {
             toolbar.press(x y)
@@ -3234,7 +3251,7 @@ class PresApp {
         if (pick.on == false) {
             return false
         }
-        if ((((mode == "present") || (pick.page != selected)) || (pick.version != mdEditor.buf.version)) || ((deck.slideCount()) == 0)) {
+        if (((((mode == "present") || playing) || (pick.page != selected)) || (pick.version != mdEditor.buf.version)) || ((deck.slideCount()) == 0)) {
             pick.clear()
             return false
         }
@@ -3268,7 +3285,7 @@ class PresApp {
     ; A click on the slide that nothing else took: the block under it, or
     ; the slide itself.
     fn pickAt:void (x:double y:double) {
-        if (((mode == "present") || ((deck.slideCount()) == 0)) || ((slideRect.has(x y)) == false)) {
+        if ((((mode == "present") || playing) || ((deck.slideCount()) == 0)) || ((slideRect.has(x y)) == false)) {
             return
         }
         this.slidePoint(x y)
@@ -3287,7 +3304,7 @@ class PresApp {
     }
 
     fn pickHover:void (x:double y:double) {
-        if (((mode == "present") || ((deck.slideCount()) == 0)) || ((stageArea.has(x y)) == false)) {
+        if ((((mode == "present") || playing) || ((deck.slideCount()) == 0)) || ((stageArea.has(x y)) == false)) {
             if (pick.hoverOn || ((strlen pick.hot) > 0)) {
                 pick.hoverOn = false
                 pick.hot = ""
@@ -3340,12 +3357,13 @@ class PresApp {
         def bi0:int (pick.bandOf(part))
         if ((bi0 >= 0) && (bi0 < (array_length pick.bands))) {
             def hb:PresSelBand (itemAt pick.bands bi0)
-            stageHintX = (hb.sx + hb.sw)
-            stageHintY = hb.sy
-            stageHintH = hb.sh
+            ; under (or over) the element, not over it, near the band
+            stageHintX = hb.sx
             if ((hb.side == "top") || (hb.side == "bottom")) {
                 stageHintX = ((hb.sx + (hb.sw / 2.0)) - 40.0)
             }
+            stageHintY = pick.reachTop
+            stageHintH = (pick.reachBottom - pick.reachTop)
         }
         if ((this.pickValid()) == false) {
             return
@@ -3399,10 +3417,10 @@ class PresApp {
         def h:PresHint (PresHint.make("selector" pick.sel "" 0 0))
         h.doc = (PresHints.selectorDoc(pick.sel))
         def j:string (h.json())
-        j = ((substring j 0 ((strlen j) - 1)) + ",\"rule\":" + (pick.ruleJson((this.themeCss()))) + ",\"line\":-1,\"tab\":\"css\",\"x\":" + (EVGDisplayList.num(pick.sx2)) + ",\"y\":" + (EVGDisplayList.num(pick.by)) + ",\"h\":" + (EVGDisplayList.num(pick.bh)) + ",\"text\":\"\"}")
+        j = ((substring j 0 ((strlen j) - 1)) + ",\"rule\":" + (pick.ruleJson((this.themeCss()))) + ",\"line\":-1,\"tab\":\"css\",\"x\":" + (EVGDisplayList.num(pick.sx2)) + ",\"y\":" + (EVGDisplayList.num(pick.reachTop)) + ",\"h\":" + (EVGDisplayList.num((pick.reachBottom - pick.reachTop))) + ",\"keepX\":" + (EVGDisplayList.num(pick.ox)) + ",\"keepW\":" + (EVGDisplayList.num(pick.ow)) + ",\"text\":\"\"}")
         stageHintX = pick.sx2
-        stageHintY = pick.by
-        stageHintH = pick.bh
+        stageHintY = pick.reachTop
+        stageHintH = (pick.reachBottom - pick.reachTop)
         this.openHint(j)
         hintFromStage = true
     }
@@ -3414,18 +3432,26 @@ class PresApp {
         this.closeHint()
         this.helpEdit(b.sel b.prop (PresSelect.ptText(b.value)))
         this.openHintAtCaret()
-        this.anchorHintAtStage()
+        this.anchorHintAtStage(b.sel)
     }
 
     ; The popover moved from the editor's caret to where it was asked for on
     ; the stage.
-    fn anchorHintAtStage:void () {
+    fn anchorHintAtStage:void (sel:string) {
         if (hint.isOpen == false) {
             return
+        }
+        ; which rule the value is in: `document › color` is every text of
+        ; the deck, headings too, not the element's own
+        hint.name = (sel + " › " + hint.name)
+        if ((sel == "document") || (sel == "body")) {
+            hint.doc = ((PresI18n.t("Changes all text of the presentation, headings included.")) + " " + hint.doc)
         }
         hint.ax = stageHintX
         hint.ay = stageHintY
         hint.ah = stageHintH
+        hint.keepX = pick.ox
+        hint.keepW = pick.ow
         hint.rebuild()
         hintFromStage = true
         chromeRev = (chromeRev + 1)
@@ -3448,7 +3474,7 @@ class PresApp {
     ; The pick and its handles over the stage, as a display list ("" when
     ; there is nothing to draw).
     fn pickJson:string () {
-        if ((mode == "present") || ((deck.slideCount()) == 0)) {
+        if (((mode == "present") || playing) || ((deck.slideCount()) == 0)) {
             return ""
         }
         this.pickValid()
@@ -3516,7 +3542,7 @@ class PresApp {
                 this.helpEdit((itemAt parts 0) (itemAt parts 1) (itemAt parts 2))
                 this.openHintAtCaret()
                 if fromStage {
-                    this.anchorHintAtStage()
+                    this.anchorHintAtStage((itemAt parts 0))
                 }
             }
         }
