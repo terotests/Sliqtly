@@ -2473,6 +2473,8 @@ async function exportPdf() {
 async function judgeExportContrast() {
   app.clearExportContrast();
   if (!autoContrast) return;
+  // every chart drawn, also on the slides never brought into view
+  app.settleAll();
   const n = app.deck.slideCount();
   const c = document.createElement("canvas");
   const g = c.getContext("webgl2", { antialias: false, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
