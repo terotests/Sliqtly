@@ -60,13 +60,13 @@ ICON = f"""
 DEFS = """
   <defs>
     <linearGradient id="g-card" x1="95" y1="25" x2="225" y2="190" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#00B6FF"/><stop offset=".5" stop-color="#2D5BFA"/><stop offset="1" stop-color="#9A24F0"/>
+      <stop offset="0" stop-color="#59C3C4"/><stop offset=".5" stop-color="#0000BE"/><stop offset="1" stop-color="#8819BF"/>
     </linearGradient>
     <linearGradient id="g-ghost2" x1="49" y1="47" x2="95" y2="178" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#5ED4FB"/><stop offset="1" stop-color="#A6B6FA"/>
+      <stop offset="0" stop-color="#C6C640"/><stop offset="1" stop-color="#59C339"/>
     </linearGradient>
     <linearGradient id="g-ghost1" x1="21" y1="75" x2="50" y2="150" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#C6BAF8"/><stop offset="1" stop-color="#B9B4F8"/>
+      <stop offset="0" stop-color="#B96926"/><stop offset="1" stop-color="#B52619"/>
     </linearGradient>
     <linearGradient id="g-play" x1="140" y1="75" x2="160" y2="160" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#FFFFFF"/><stop offset=".55" stop-color="#F2F1FC"/><stop offset="1" stop-color="#B9BDF5"/>

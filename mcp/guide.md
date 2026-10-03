@@ -169,14 +169,14 @@ document { font-family: Open Sans; font-size: 20pt; color: #e8ecff; }
 heading  { margin-bottom: 18pt; }
 h1 { font-size: 48pt; }   h2 { font-size: 36pt; }   h3 { font-size: 24pt; }
 p  { margin-bottom: 14pt; }
-a  { color: #a9b8ff; }
+a  { color: #59C3C4; }
 list { padding-left: 30pt; }   li { margin-bottom: 10pt; }
-blockquote { color: #c3cbff; border-color: #7c8cff; border-width: 4pt; }
+blockquote { color: #c3cbff; border-color: #A321D9; border-width: 4pt; }
 code  { font-size: 15pt; background-color: #151c48; }
 table { border-color: #2d3a7a; background-color: #151c48; }
 mark  { background-color: #ffd54a; color: #111; }
-chart   { color: #ffa546; accent-color: #5ce1ff; chart-style: forge; } /* flat | forge | neon | glass */
-diagram { color: #ffa546; accent-color: #5ce1ff; }
+chart   { color: #B96926; accent-color: #59C3C4; chart-style: forge; } /* flat | forge | neon | glass */
+diagram { color: #B96926; accent-color: #59C3C4; }
 figure  { colors: #1f6feb #0f9d8a #7c4dff #f08c00; } /* process, swot, timeline (else chart's) */
 .lead { font-size: 26pt; }
 ```

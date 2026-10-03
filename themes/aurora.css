@@ -7,22 +7,26 @@
 
 /* The stage's charts and diagrams: `color` the warm light (columns, the
    active line), `accent-color` the cool one (grid, axes, boxes). A chart's
-   `chart-style` is flat (the default), forge, neon or glass. */
+   `chart-style` is flat (the default), forge, neon or glass.
+   The colours are Sliqtly's own, the blocks of the logo (brand/make_logo.py):
+   orange #B96926, cyan #59C3C4, purple #8819BF, green #59C339, red #B52619,
+   yellow #C6C640, blue #0000BE. Purple, red and blue are lifted here to
+   #A321D9, #C2291B and #4949FF so that they stand 3:1 off the dark page. */
 chart {
-  color: #ffa546;
-  accent-color: #5ce1ff;
+  color: #B96926;
+  accent-color: #59C3C4;
   chart-style: forge;
 }
 
 diagram {
-  color: #ffa546;
-  accent-color: #5ce1ff;
+  color: #B96926;
+  accent-color: #59C3C4;
 }
 
 /* The layouts drawn from lists (```process, ```swot, ```timeline) and the
    slides' line art ({art=waves}): the colours in order. */
 figure {
-  colors: #ffa546 #5ce1ff #b98cff #7ee0a1;
+  colors: #B96926 #59C3C4 #A321D9 #59C339 #C2291B #C6C640 #4949FF;
 }
 
 page {
@@ -68,7 +72,7 @@ p {
 }
 
 a {
-  color: #a9b8ff;
+  color: #59C3C4;
 }
 
 hr {
@@ -86,7 +90,7 @@ li {
 
 blockquote {
   color: #c3cbff;
-  border-color: #7c8cff;
+  border-color: #A321D9;
   border-width: 4pt;
   padding-left: 22pt;
   padding-top: 8pt;
