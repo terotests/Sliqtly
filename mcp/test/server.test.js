@@ -6,17 +6,23 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { createApp, rateLimiter } from "../src/http.js";
+import { createApp, dailyQuota, rateLimiter } from "../src/http.js";
 import { createOAuth } from "../src/oauth.js";
 import { FirebaseStore, LinkStore, unpackText } from "../src/store.js";
 
 const BASE = "https://sliqtly.test";
+const NOW = Date.UTC(2026, 9, 3, 12);
+const DAY = 24 * 60 * 60 * 1000;
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
 
 function fakeFirebase() {
   const data = new Map();
   const saved = new Map();
   const db = {
+    runTransaction: async (fn) => fn({
+      get: async (ref) => ({ exists: data.has(ref.key), data: () => structuredClone(data.get(ref.key)) }),
+      set: (ref, v) => { data.set(ref.key, structuredClone(v)); },
+    }),
     collection: (c) => ({
       doc: (id) => {
         const k = `${c}/${id}`;
@@ -25,6 +31,7 @@ function fakeFirebase() {
           set: async (v) => { data.set(k, structuredClone(v)); },
           update: async (v) => { data.set(k, { ...data.get(k), ...structuredClone(v) }); },
           delete: async () => { data.delete(k); },
+          key: k,
         };
       },
       where: (field, op, value) => ({
@@ -37,7 +44,7 @@ function fakeFirebase() {
   };
   const bucket = { name: "bucket.test", file: (name) => ({ name, save: async (buf, o) => { saved.set(name, { buf, o }); }, download: async () => [saved.get(name).buf] }) };
   let clock = 1000;
-  const store = new FirebaseStore({ db, bucket, FieldValue: { serverTimestamp: () => clock++ } });
+  const store = new FirebaseStore({ db, bucket, FieldValue: { serverTimestamp: () => clock++ }, now: () => NOW });
   return { data, saved, db, store };
 }
 
@@ -62,6 +69,9 @@ async function start(store, limiter, oauth = null, token = null) {
   return { root, url, client, srv, close: async () => { await client.close(); srv.close(); } };
 }
 
+// signed in as u1: pictures and files are stored only for a signed-in user
+const ME = { who: async (h) => (h ? { uid: "u1", name: "Tero" } : null), metadata: () => ({}), resourceMetadata: () => ({}) };
+
 const DECK = "# Hello\n\nFirst.\n{.lead}\n\n## Cat {bg=media/cat.png}\n\n![](media/dot.png)\n\n```mermaid\nflowchart LR\n## not a slide\n```\n";
 
 test("tools, UI metadata and the preview resource", async () => {
@@ -69,7 +79,7 @@ test("tools, UI metadata and the preview resource", async () => {
   const t = await start(store);
   try {
     const { tools } = await t.client.listTools();
-    assert.deepEqual(tools.map((x) => x.name).sort(), ["bind_chart_data", "create_presentation", "get_presentation", "list_files", "list_presentations", "sliqtly_guide", "update_presentation"]);
+    assert.deepEqual(tools.map((x) => x.name).sort(), ["bind_chart_data", "create_presentation", "get_presentation", "list_files", "list_presentations", "read_file", "sliqtly_guide", "update_presentation", "write_workbook"]);
     const create = tools.find((x) => x.name === "create_presentation");
     assert.match(create._meta.ui.resourceUri, /^ui:\/\/sliqtly\/preview-[0-9a-f]{10}\.html$/);
     assert.equal(create._meta["openai/outputTemplate"], create._meta.ui.resourceUri);
@@ -82,6 +92,10 @@ test("tools, UI metadata and the preview resource", async () => {
     assert.ok(r.contents[0]._meta.ui.csp.resourceDomains.includes("https://www.gstatic.com"));
     assert.ok(r.contents[0]._meta.ui.csp.connectDomains.includes("https://firestore.googleapis.com"));
     assert.deepEqual(r.contents[0]._meta["openai/widgetCSP"].connect_domains, r.contents[0]._meta.ui.csp.connectDomains);
+    // a client that kept an older tool list still gets the preview
+    const old = await t.client.readResource({ uri: "ui://sliqtly/preview-0000000000.html" });
+    assert.equal(old.contents[0].uri, "ui://sliqtly/preview-0000000000.html");
+    assert.equal(old.contents[0].text, r.contents[0].text);
     const g = await t.client.callTool({ name: "sliqtly_guide", arguments: {} });
     assert.match(g.content[0].text, /## Pictures/);
   } finally { await t.close(); }
@@ -89,7 +103,7 @@ test("tools, UI metadata and the preview resource", async () => {
 
 test("create, update and read a deck with pictures", async () => {
   const { store, data, saved } = fakeFirebase();
-  const t = await start(store);
+  const t = await start(store, undefined, ME, "me");
   try {
     const c = await t.client.callTool({ name: "create_presentation", arguments: {
       title: "Cats", markdown: DECK, css: "h1 { font-size: 60pt; }",
@@ -110,8 +124,12 @@ test("create, update and read a deck with pictures", async () => {
     assert.equal(saved.get(`shares/${out.deck_id}/media/cat.png`).o.contentType, "image/png");
     assert.notEqual(data.get(`mcp_keys/${out.deck_id}`).hash, out.edit_key);
 
-    const bad = await t.client.callTool({ name: "update_presentation", arguments: { deck_id: out.deck_id, edit_key: "wrong", markdown: "# x" } });
-    assert.ok(bad.isError);
+    // the owner's deck: someone else, not signed in, with a wrong key
+    const anon = await start(store);
+    try {
+      const bad = await anon.client.callTool({ name: "update_presentation", arguments: { deck_id: out.deck_id, edit_key: "wrong", markdown: "# x" } });
+      assert.ok(bad.isError);
+    } finally { await anon.close(); }
     assert.equal(data.get(`shares/${out.deck_id}`).md, DECK);
 
     const u = await t.client.callTool({ name: "update_presentation", arguments: {
@@ -186,7 +204,7 @@ test("warns about an encoding type Vega-Lite does not know", async () => {
 
 test("refuses what it should not fetch or store", async () => {
   const { store } = fakeFirebase();
-  const t = await start(store);
+  const t = await start(store, undefined, ME, "me");
   try {
     for (const [img, why] of [
       [{ name: "a.png", url: "http://images.test/cat.png" }, /public https/],
@@ -329,6 +347,9 @@ test("optional sign-in: OAuth with PKCE, own decks, refresh", async () => {
     // refresh rotates
     const r1 = await (await fetch(`${root}/oauth/token`, form({ grant_type: "refresh_token", refresh_token: tok.refresh_token, client_id }))).json();
     assert.ok(r1.access_token && r1.refresh_token !== tok.refresh_token);
+    // every sign-in record carries the timestamp Firestore's TTL deletes it by
+    const records = [...data].filter(([k]) => /^mcp_oauth_(requests|codes|tokens)\//.test(k));
+    assert.ok(records.length && records.every(([, v]) => v.expires instanceof Date && v.expires.getTime() === v.exp));
     const r2 = await (await fetch(`${root}/oauth/token`, form({ grant_type: "refresh_token", refresh_token: tok.refresh_token, client_id }))).json();
     assert.equal(r2.error, "invalid_grant");
 
@@ -405,4 +426,272 @@ test("list_files: the files a deck keeps, and what is in its workbooks", async (
     assert.equal(g.structuredContent.files[1].sheets[0].name, "Sales");
     assert.match(g.content[0].text, /data\/book\.xlsx \(workbook/);
   } finally { await t.close(); }
+});
+
+// A workbook with a title row over the header, a float and a second sheet.
+function testBook() {
+  const sheetXml = (rows) => `<worksheet><sheetData>${rows}</sheetData></worksheet>`;
+  const rows = ['<row r="1"><c r="A1" t="inlineStr"><is><t>Card risk</t></is></c></row>',
+    '<row r="2"><c r="A2" t="inlineStr"><is><t>Month</t></is></c><c r="B2" t="inlineStr"><is><t>Cards</t></is></c></row>'];
+  for (let i = 1; i <= 12; i++) rows.push(`<row r="${i + 2}"><c r="A${i + 2}"><v>${i}</v></c><c r="B${i + 2}"><v>${i === 3 ? "0.30000000000000004" : i * 10}</v></c></row>`);
+  return zipStored([
+    ["xl/workbook.xml", '<workbook><sheets><sheet name="Monthly" sheetId="1" r:id="rId1"/><sheet name="Notes" sheetId="2" r:id="rId2"/></sheets></workbook>'],
+    ["xl/_rels/workbook.xml.rels", '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet2.xml"/></Relationships>'],
+    ["xl/worksheets/sheet1.xml", sheetXml(rows.join(""))],
+    ["xl/worksheets/sheet2.xml", sheetXml('<row r="1"><c r="A1" t="inlineStr"><is><t>Key</t></is></c><c r="B1" t="inlineStr"><is><t>Value</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>source</t></is></c><c r="B2" t="inlineStr"><is><t>bank, "core"</t></is></c></row>')],
+  ]);
+}
+
+test("read_file: a workbook's sheets, CSV, JSON, in windows", async () => {
+  const { store, data, saved } = fakeFirebase();
+  const book = testBook();
+  data.set("shares/abcDEF1234", { name: "Risk", md: "# R\n", theme: "aurora", files: [
+    { path: "media/cat.png", type: "image/png", size: 68 },
+    { path: "data/risk.xlsx", type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size: book.length },
+    { path: "data/notes.csv", type: "text/csv", size: 30 },
+    { path: "data/spec.json", type: "application/json", size: 9 },
+  ] });
+  saved.set("shares/abcDEF1234/data/risk.xlsx", { buf: book });
+  saved.set("shares/abcDEF1234/data/notes.csv", { buf: Buffer.from('a,b\r\n"x, y",2\n\n3,"q"""\n') });
+  saved.set("shares/abcDEF1234/data/spec.json", { buf: Buffer.from('{"a": 1}') });
+  const t = await start(store);
+  const read = (args) => t.client.callTool({ name: "read_file", arguments: { deck_id: "abcDEF1234", ...args } });
+  try {
+    const r = await read({ path: "data/risk.xlsx", limit: 5 });
+    assert.ok(!r.isError, r.content[0].text);
+    assert.deepEqual(r.structuredContent.sheet, { name: "Monthly", csv: "data/risk-Monthly.csv" });
+    assert.deepEqual(r.structuredContent.columns, ["Month", "Cards"]);
+    assert.equal(r.structuredContent.total_rows, 12);
+    assert.deepEqual(r.structuredContent.rows[2], ["3", "0.3"]);
+    assert.equal(r.structuredContent.next_offset, 5);
+    assert.match(r.content[0].text, /Rows 1–5 of 12; next: offset 5/);
+    assert.match(r.content[0].text, /Other sheets: "Notes"/);
+    const last = await read({ path: "data/risk.xlsx", offset: 10 });
+    assert.deepEqual(last.structuredContent.rows, [["11", "110"], ["12", "120"]]);
+    assert.equal(last.structuredContent.next_offset, null);
+    // by the name the deck reads the sheet by, and by sheet name
+    const byCsv = await read({ path: "data/risk-Notes.csv" });
+    assert.deepEqual(byCsv.structuredContent.rows, [["source", 'bank, "core"']]);
+    assert.match(byCsv.content[0].text, /source,"bank, ""core"""/);
+    const bySheet = await read({ path: "data/risk.xlsx", sheet: "notes" });
+    assert.equal(bySheet.structuredContent.sheet.name, "Notes");
+    const noSheet = await read({ path: "data/risk.xlsx", sheet: "Yearly" });
+    assert.ok(noSheet.isError);
+    assert.match(noSheet.content[0].text, /no sheet "Yearly". Its sheets: "Monthly", "Notes"/);
+    const csv = await read({ path: "data/notes.csv" });
+    assert.deepEqual(csv.structuredContent.columns, ["a", "b"]);
+    assert.deepEqual(csv.structuredContent.rows, [["x, y", "2"], ["3", 'q"']]);
+    const json = await read({ path: "data/spec.json" });
+    assert.equal(json.structuredContent.text, '{"a": 1}');
+    const pic = await read({ path: "media/cat.png" });
+    assert.match(pic.content[0].text, /is a picture/);
+    const none = await read({ path: "data/other.csv" });
+    assert.match(none.content[0].text, /No file data\/other\.csv .* Its files: data\/risk\.xlsx, data\/notes\.csv, data\/spec\.json/);
+  } finally { await t.close(); }
+});
+
+test("create and update keep data files the deck reads", async () => {
+  const { store, data, saved } = fakeFirebase();
+  const t = await start(store, undefined, ME, "me");
+  try {
+    const md = '# Risk\n\n## Monthly\n\n```vega-lite\n{"data": {"url": "data/risk-Monthly.csv"}, "mark": "bar"}\n```\n';
+    const r = await t.client.callTool({ name: "create_presentation", arguments: {
+      title: "Risk", markdown: md,
+      files: [{ name: "risk.xlsx", data_base64: testBook().toString("base64") }, { name: "data/extra.csv", text: "a,b\n1,2\n" }],
+    } });
+    assert.ok(!r.isError, r.content[0].text);
+    const id = r.structuredContent.deck_id;
+    assert.match(r.content[0].text, /data\/risk\.xlsx: sheet "Monthly" \(12 rows; columns "Month", "Cards"\) read as data\/risk-Monthly\.csv/);
+    assert.deepEqual(data.get(`shares/${id}`).files.map((f) => [f.path, f.type]), [
+      ["data/risk.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"], ["data/extra.csv", "text/csv"]]);
+    assert.equal(saved.get(`shares/${id}/data/extra.csv`).buf.toString(), "a,b\n1,2\n");
+    const back = await t.client.callTool({ name: "read_file", arguments: { deck_id: id, path: "data/risk-Monthly.csv", limit: 1 } });
+    assert.deepEqual(back.structuredContent.rows, [["1", "10"]]);
+    // update adds a file and replaces one of the same name
+    const u = await t.client.callTool({ name: "update_presentation", arguments: {
+      deck_id: id, edit_key: r.structuredContent.edit_key, files: [{ name: "extra.csv", text: "a,b\n3,4\n" }, { name: "more.json", text: "[1]" }],
+    } });
+    assert.ok(!u.isError, u.content[0].text);
+    assert.deepEqual(data.get(`shares/${id}`).files.map((f) => f.path), ["data/risk.xlsx", "data/extra.csv", "data/more.json"]);
+    assert.equal(saved.get(`shares/${id}/data/extra.csv`).buf.toString(), "a,b\n3,4\n");
+    // refused: not a workbook, a type that is not data, two sources
+    for (const [f, why] of [
+      [{ name: "bad.xlsx", data_base64: Buffer.from("nope").toString("base64") }, /not a workbook Sliqtly can read/],
+      [{ name: "run.exe", text: "x" }, /data files are \.xlsx, \.csv/],
+      [{ name: "a.csv", text: "x", url: "https://images.test/a.csv" }, /give one of text, data_base64 or url/],
+      [{ name: "a.xlsx", text: "x" }, /sent as data_base64 or url/],
+    ]) {
+      const bad = await t.client.callTool({ name: "create_presentation", arguments: { title: "x", markdown: "# x", files: [f] } });
+      assert.ok(bad.isError);
+      assert.match(bad.content[0].text, why);
+    }
+  } finally { await t.close(); }
+});
+
+test("write_workbook replaces a deck's workbook with tidied sheets", async () => {
+  const { store, data, saved } = fakeFirebase();
+  const t = await start(store, undefined, ME, "me");
+  try {
+    const r = await t.client.callTool({ name: "create_presentation", arguments: {
+      title: "Risk", markdown: "# Risk", files: [{ name: "risk.xlsx", data_base64: testBook().toString("base64") }],
+    } });
+    const id = r.structuredContent.deck_id;
+    const key = r.structuredContent.edit_key;
+    const write = (args) => t.client.callTool({ name: "write_workbook", arguments: { deck_id: id, edit_key: key, path: "data/risk.xlsx", ...args } });
+    const w = await write({ sheets: [
+      { name: "Menot", rows: [["Kuukausi", "Vuokra", "Sähkö"], ["2026-01", 950, "42.5"], ["2026-02", 950, null]] },
+      { name: "Q & A", csv: "a,b\n\"<x> & y\",2\n" },
+      { name: "Sum", rows: [["Total", "Note"], [{ f: "=SUM(Menot!B2:B3)", v: 1900 }, { f: "=\"a\"&\"b\"", v: "ab" }], [{ f: "=1+1" }]] },
+    ] });
+    assert.ok(!w.isError, w.content[0].text);
+    assert.match(w.content[0].text, /data\/risk\.xlsx: sheet "Menot" \(2 rows; columns "Kuukausi", "Vuokra", "Sähkö"\) read as data\/risk-Menot\.csv/);
+    assert.match(w.content[0].text, /Formatting is not kept/);
+    assert.deepEqual(data.get(`shares/${id}`).files.map((f) => f.path), ["data/risk.xlsx"]);
+    const back = await t.client.callTool({ name: "read_file", arguments: { deck_id: id, path: "data/risk.xlsx", sheet: "Q & A" } });
+    assert.deepEqual(back.structuredContent.rows, [["<x> & y", "2"]]);
+    const sum = await t.client.callTool({ name: "read_file", arguments: { deck_id: id, path: "data/risk.xlsx", sheet: "Sum" } });
+    assert.deepEqual(sum.structuredContent.rows, [["1900", "ab"]]);
+    const xml = (await import("../src/xlsx.js")).unzip(saved.get(`shares/${id}/data/risk.xlsx`).buf);
+    const sheet3 = xml.get("xl/worksheets/sheet3.xml").toString("utf8");
+    assert.match(String(sheet3), /<c r="A2"><f>SUM\(Menot!B2:B3\)<\/f><v>1900<\/v><\/c><c r="B2" t="str"><f>&quot;a&quot;&amp;&quot;b&quot;<\/f><v>ab<\/v><\/c>/);
+    const menot = await t.client.callTool({ name: "read_file", arguments: { deck_id: id, path: "data/risk-Menot.csv" } });
+    assert.deepEqual(menot.structuredContent.rows, [["2026-01", "950", "42.5"], ["2026-02", "950", ""]]);
+    for (const [args, why] of [
+      [{ sheets: [{ name: "a/b", rows: [["x"]] }] }, /has one of/],
+      [{ sheets: [{ name: "A", rows: [["x"]] }, { name: "a", rows: [["y"]] }] }, /Two sheets are named/],
+      [{ sheets: [{ name: "A" }] }, /give rows or csv/],
+      [{ path: "data/x.csv", sheets: [{ name: "A", rows: [["x"]] }] }, /ending in \.xlsx/],
+    ]) {
+      const bad = await write(args);
+      assert.ok(bad.isError);
+      assert.match(bad.content[0].text, why);
+    }
+  } finally { await t.close(); }
+});
+
+test("warns about text that likely does not stand out from its background picture", async () => {
+  const { PNG: Png } = await import("pngjs");
+  const sky = (top, bottom) => {
+    const p = new Png({ width: 160, height: 90 });
+    for (let y = 0; y < 90; y++) {
+      for (let x = 0; x < 160; x++) {
+        const c = y < 45 ? top : bottom, i = (y * 160 + x) * 4;
+        p.data[i] = c[0]; p.data[i + 1] = c[1]; p.data[i + 2] = c[2]; p.data[i + 3] = 255;
+      }
+    }
+    return Png.sync.write(p).toString("base64");
+  };
+  const css = "page { background-color: #0b1030; }\ndocument { font-size: 20pt; color: #e8ecff; }\n";
+  const md = "# Deck\n\n## Cloudy {bg=media/sky.png}\n\nLight text over a white sky.\n\n## Night {bg=media/night.png}\n\nLight text over a dark picture.\n";
+  const { store } = fakeFirebase();
+  const t = await start(store, undefined, ME, "me");
+  try {
+    const r = await t.client.callTool({ name: "create_presentation", arguments: { title: "Sky", markdown: md, css, css_mode: "replace", images: [
+      { name: "sky.png", data_base64: sky([244, 246, 248], [230, 235, 240]) },
+      { name: "night.png", data_base64: sky([20, 30, 40], [28, 58, 36]) },
+    ] } });
+    const ws = r.structuredContent.warnings;
+    assert.equal(ws.length, 1, JSON.stringify(ws));
+    assert.match(ws[0], /^Slide "Cloudy": text is likely hard to read over the background picture \(estimated[^)]*\): the heading about 1\.\d:1 \(needs 3\.0:1\), the body text about 1\.\d:1 \(needs 3\.0:1\)\. Fix: a stronger dim, bg-dim=0\.\d+ in the slide's heading attributes, or a text colour such as #[0-9a-f]{6} in css\.$/);
+    const dim = /bg-dim=(0\.\d+)/.exec(ws[0])[1];
+    // the suggested dim is enough; an update reads the stored picture back
+    const { deck_id, edit_key } = r.structuredContent;
+    const same = await t.client.callTool({ name: "update_presentation", arguments: { deck_id, edit_key, markdown: md } });
+    assert.match(same.structuredContent.warnings.join("\n"), /Slide "Cloudy": text is likely hard to read/);
+    const u = await t.client.callTool({ name: "update_presentation", arguments: { deck_id, edit_key, markdown: md.replace("{bg=media/sky.png}", `{bg=media/sky.png bg-dim=${dim}}`) } });
+    assert.deepEqual(u.structuredContent.warnings, []);
+  } finally {
+    await t.close();
+  }
+});
+
+test("fetched URLs: redirects are checked, bodies are capped", async () => {
+  const { loadImages, publicFetch } = await import("../src/deck.js");
+  const big = new Uint8Array(6 * 1024 * 1024);
+  const f = async (url) => {
+    const u = String(url);
+    if (u === "https://images.test/to-metadata") return new Response(null, { status: 302, headers: { location: "http://169.254.169.254/computeMetadata/v1/" } });
+    if (u === "https://images.test/to-local") return new Response(null, { status: 301, headers: { location: "https://localhost/x.png" } });
+    if (u === "https://images.test/to-cat") return new Response(null, { status: 302, headers: { location: "/cat.png" } });
+    if (u === "https://images.test/cat.png") return new Response(PNG, { headers: { "content-type": "image/png" } });
+    if (u === "https://images.test/loop") return new Response(null, { status: 302, headers: { location: "/loop" } });
+    // no content-length: the size is only known by reading
+    if (u === "https://images.test/big.png") return new Response(new ReadableStream({ start(c) { c.enqueue(big); c.close(); } }), { headers: { "content-type": "image/png" } });
+    return new Response("no", { status: 404 });
+  };
+  await assert.rejects(loadImages([{ name: "a.png", url: "https://images.test/to-metadata" }], f), /only public https URLs/);
+  await assert.rejects(loadImages([{ name: "a.png", url: "https://images.test/to-local" }], f), /only public https URLs/);
+  await assert.rejects(loadImages([{ name: "a.png", url: "https://images.test/loop" }], f), /too many redirects/);
+  await assert.rejects(loadImages([{ name: "a.png", url: "https://images.test/big.png" }], f), /larger than 5 MB/);
+  const [cat] = await loadImages([{ name: "a.png", url: "https://images.test/to-cat" }], f);
+  assert.equal(cat.data.length, PNG.length);
+  await assert.rejects(publicFetch("https://localhost./x", f, { max: 10 }), /only public https URLs/);
+});
+
+test("without sign-in: text only, deleted 30 days after the last change", async () => {
+  const { store, data, saved } = fakeFirebase();
+  const t = await start(store, undefined, ME);
+  try {
+    for (const args of [
+      { images: [{ name: "cat.png", url: "https://images.test/cat.png" }] },
+      { files: [{ name: "a.csv", text: "a\n1\n" }] },
+    ]) {
+      const r = await t.client.callTool({ name: "create_presentation", arguments: { title: "x", markdown: "# x", ...args } });
+      assert.ok(r.isError);
+      assert.match(r.content[0].text, /needs sign-in/);
+      assert.match(r._meta["mcp/www_authenticate"][0], /resource_metadata=/);
+    }
+    assert.equal(saved.size, 0);
+    const c = await t.client.callTool({ name: "create_presentation", arguments: { title: "x", markdown: "# x" } });
+    assert.match(c.content[0].text, /deleted 30 days after its last change/);
+    const id = c.structuredContent.deck_id;
+    const key = c.structuredContent.edit_key;
+    assert.equal(data.get(`shares/${id}`).expires.getTime(), NOW + 30 * DAY);
+    assert.equal(data.get(`mcp_keys/${id}`).expires.getTime(), NOW + 30 * DAY);
+    const up = await t.client.callTool({ name: "update_presentation", arguments: { deck_id: id, edit_key: key, images: [{ name: "cat.png", url: "https://images.test/cat.png" }] } });
+    assert.match(up.content[0].text, /needs sign-in/);
+    const wb = await t.client.callTool({ name: "write_workbook", arguments: { deck_id: id, edit_key: key, path: "data/a.xlsx", sheets: [{ name: "A", rows: [["x"]] }] } });
+    assert.match(wb.content[0].text, /needs sign-in/);
+  } finally { await t.close(); }
+  const me = await start(store, undefined, ME, "me");
+  try {
+    const c = await me.client.callTool({ name: "create_presentation", arguments: { title: "x", markdown: "# x", images: [{ name: "cat.png", url: "https://images.test/cat.png" }] } });
+    assert.ok(!c.isError);
+    assert.doesNotMatch(c.content[0].text, /deleted/);
+    assert.equal(data.get(`shares/${c.structuredContent.deck_id}`).expires, undefined, "a signed-in user's deck stays");
+  } finally { await me.close(); }
+});
+
+test("a daily quota counted in Firestore", async () => {
+  const { store, db, data } = fakeFirebase();
+  const quota = dailyQuota({ db, limits: { anonymous: 2, signedIn: 3 }, now: () => NOW });
+  const app = createApp({ store, baseUrl: BASE, fetchImpl: fakeFetch, quota });
+  const srv = await new Promise((ok) => { const s = app.listen(0, () => ok(s)); });
+  const client = new Client({ name: "test", version: "1" });
+  await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${srv.address().port}/mcp`)));
+  try {
+    const make = () => client.callTool({ name: "create_presentation", arguments: { title: "x", markdown: "# x" } });
+    assert.ok(!(await make()).isError);
+    assert.ok(!(await make()).isError);
+    const third = await make();
+    assert.match(third.content[0].text, /daily limit of 2 .* sign in for a higher limit/);
+    const counter = [...data].find(([k]) => k.startsWith("mcp_quota/"));
+    assert.match(counter[0], /-2026-10-03$/);
+    assert.equal(counter[1].expires.getTime(), NOW + 2 * DAY);
+    assert.equal(await quota("uid:u1"), null, "each caller has their own count");
+  } finally { await client.close(); srv.close(); }
+});
+
+test("client registrations are limited per address", async () => {
+  const { store, db } = fakeFirebase();
+  const oauth = createOAuth({ db, fetchImpl: fakeFetch, verifyIdToken: async () => ({ uid: "u1" }) });
+  const app = createApp({ store, baseUrl: BASE, fetchImpl: fakeFetch, oauth, registrations: rateLimiter({ max: 1 }) });
+  const srv = await new Promise((ok) => { const s = app.listen(0, () => ok(s)); });
+  const reg = () => fetch(`http://127.0.0.1:${srv.address().port}/oauth/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ redirect_uris: ["https://client.test/cb"] }) });
+  try {
+    assert.equal((await reg()).status, 201);
+    const second = await reg();
+    assert.equal(second.status, 429);
+    assert.equal((await second.json()).error, "slow_down");
+  } finally { srv.close(); }
 });

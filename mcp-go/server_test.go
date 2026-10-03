@@ -4,10 +4,12 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -148,6 +150,18 @@ func (b *fakeBucket) Save(_ context.Context, path, ct string, data []byte, _ map
 	b.saved[path] = savedFile{data, ct}
 	return nil
 }
+func (b *fakeBucket) Read(_ context.Context, path string, limit int64) ([]byte, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	f, ok := b.saved[path]
+	if !ok {
+		return nil, fmt.Errorf("storage: object doesn't exist")
+	}
+	if int64(len(f.data)) > limit {
+		return f.data[:limit], nil
+	}
+	return f.data, nil
+}
 
 type roundTrip func(*http.Request) (*http.Response, error)
 
@@ -204,6 +218,15 @@ func testEnv(f *fb, limiter func(string) string) *Env {
 		e.DB, e.Bucket = f.db, f.bucket
 	}
 	return e
+}
+
+// signed in as u1 without the OAuth dance: an access token kept as the
+// server keeps one
+func signIn(f fb) string {
+	tok := "test-access-token"
+	sum := sha256.Sum256([]byte(tok))
+	f.db.Set(context.Background(), "mcp_oauth_tokens", hex.EncodeToString(sum[:]), Doc{"uid": "u1", "name": "Tero", "kind": "access", "exp": time.Now().Add(time.Hour).UnixMilli()})
+	return tok
 }
 
 func withSignIn(e *Env) *Env {
@@ -304,7 +327,7 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	eq(t, names, []string{"bind_chart_data", "create_presentation", "get_presentation", "list_presentations", "sliqtly_guide", "update_presentation"})
+	eq(t, names, []string{"bind_chart_data", "create_presentation", "get_presentation", "list_files", "list_presentations", "read_file", "sliqtly_guide", "update_presentation", "write_workbook"})
 	uri, _ := create.Meta["ui"].(map[string]any)["resourceUri"].(string)
 	match(t, uri, `^ui://sliqtly/preview-[0-9a-f]{10}\.html$`)
 	eq(t, create.Meta["openai/outputTemplate"], uri)
@@ -322,12 +345,19 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 	match(t, fmt.Sprint(uiCSP["resourceDomains"]), `https://www\.gstatic\.com`)
 	match(t, fmt.Sprint(uiCSP["connectDomains"]), `https://firestore\.googleapis\.com`)
 	eq(t, r.Contents[0].Meta["openai/widgetCSP"].(map[string]any)["connect_domains"], uiCSP["connectDomains"])
+	// a client that kept an older tool list still gets the preview
+	old, err := s.session.ReadResource(ctx, &mcp.ReadResourceParams{URI: "ui://sliqtly/preview-0000000000.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eq(t, old.Contents[0].URI, "ui://sliqtly/preview-0000000000.html")
+	eq(t, old.Contents[0].Text, r.Contents[0].Text)
 	match(t, textOf(call(t, s, "sliqtly_guide", map[string]any{})), `## Pictures`)
 }
 
 func TestCreateUpdateReadWithPictures(t *testing.T) {
 	f := fakeFirebase()
-	s := start(t, testEnv(&f, nil), "")
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
 	defer s.close()
 	c := call(t, s, "create_presentation", map[string]any{
 		"title": "Cats", "markdown": DECK, "css": "h1 { font-size: 60pt; }",
@@ -357,7 +387,10 @@ func TestCreateUpdateReadWithPictures(t *testing.T) {
 		t.Fatal("the key is stored as is")
 	}
 
-	bad := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": "wrong", "markdown": "# x"})
+	// the owner's deck: someone else, not signed in, with a wrong key
+	anon := start(t, testEnv(&f, nil), "")
+	bad := call(t, anon, "update_presentation", map[string]any{"deck_id": id, "edit_key": "wrong", "markdown": "# x"})
+	anon.close()
 	if !bad.IsError {
 		t.Fatal("a wrong key changed the deck")
 	}
@@ -386,7 +419,7 @@ func TestCreateUpdateReadWithPictures(t *testing.T) {
 }
 
 func TestRefusesWhatItShouldNotFetchOrStore(t *testing.T) {
-	s := start(t, testEnv(&fb0, nil), "")
+	s := start(t, withSignIn(testEnv(&fb0, nil)), signIn(fb0))
 	defer s.close()
 	for _, c := range []struct {
 		img map[string]any
@@ -610,6 +643,17 @@ func TestOptionalSignIn(t *testing.T) {
 	}
 	r2 := formPost("/oauth/token", map[string]string{"grant_type": "refresh_token", "refresh_token": tok["refresh_token"].(string), "client_id": clientID})
 	eq(t, r2["error"], "invalid_grant")
+	// every sign-in record carries the timestamp Firestore's TTL deletes it by
+	n := 0
+	for k, v := range f.db.data {
+		if regexp.MustCompile(`^mcp_oauth_(requests|codes|tokens)/`).MatchString(k) {
+			n++
+			eq(t, storedTime(t, v["expires"]).UnixMilli(), v["exp"], k)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no sign-in records")
+	}
 
 	// a client known by its metadata document URL
 	cimd := authorize("https://client.test/meta.json", "https://client.test/cb")
@@ -806,4 +850,332 @@ func TestWarnsOfUnknownEncodingTypes(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	match(t, textOf(c), `Note: Chart 1 on "Wake-up": encoding x has type "point"; Vega-Lite types are quantitative, ordinal, nominal and temporal`)
+}
+
+// A workbook as Excel writes one: a title row over the header, dates, a long
+// decimal, and a second sheet.
+func testBook(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	z := zip.NewWriter(&buf)
+	put := func(name, text string) {
+		w, err := z.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.WriteString(w, text)
+	}
+	const ns = `xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"`
+	put("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>`)
+	put("_rels/.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`)
+	put("xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8"?><workbook `+ns+` xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Monthly" sheetId="1" r:id="rId1"/><sheet name="Notes" sheetId="2" r:id="rId2"/></sheets></workbook>`)
+	put("xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>`)
+	put("xl/styles.xml", `<?xml version="1.0" encoding="UTF-8"?><styleSheet `+ns+`><fonts count="1"><font><sz val="11"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14" applyNumberFormat="1"/></cellXfs></styleSheet>`)
+	put("xl/sharedStrings.xml", `<?xml version="1.0" encoding="UTF-8"?><sst `+ns+`><si><t>Card risk 2022</t></si><si><t>month</t></si><si><t>cards</t></si><si><t>Key</t></si><si><t>Value</t></si><si><t>source</t></si><si><t>bank, "core"</t></si></sst>`)
+	rows := `<row r="1"><c r="A1" t="s"><v>0</v></c></row><row r="2"><c r="A2" t="s"><v>1</v></c><c r="B2" t="s"><v>2</v></c></row>`
+	for i := 1; i <= 12; i++ {
+		v := fmt.Sprint(i * 10)
+		if i == 3 {
+			v = "0.30000000000000004"
+		}
+		rows += fmt.Sprintf(`<row r="%d"><c r="A%d" s="1"><v>%d</v></c><c r="B%d"><v>%s</v></c></row>`, i+2, i+2, 44562+(i-1)*31, i+2, v)
+	}
+	put("xl/worksheets/sheet1.xml", `<?xml version="1.0" encoding="UTF-8"?><worksheet `+ns+`><sheetData>`+rows+`</sheetData></worksheet>`)
+	put("xl/worksheets/sheet2.xml", `<?xml version="1.0" encoding="UTF-8"?><worksheet `+ns+`><sheetData><row r="1"><c r="A1" t="s"><v>3</v></c><c r="B1" t="s"><v>4</v></c></row><row r="2"><c r="A2" t="s"><v>5</v></c><c r="B2" t="s"><v>6</v></c></row></sheetData></worksheet>`)
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestReadFileWorkbookSheetsCSVAndJSON(t *testing.T) {
+	f := fakeFirebase()
+	book := testBook(t)
+	f.db.data["shares/abcDEF1234"] = Doc{"name": "Risk", "md": "# R\n", "theme": "aurora", "files": []any{
+		map[string]any{"path": "media/cat.png", "type": "image/png", "size": int64(68)},
+		map[string]any{"path": "data/risk.xlsx", "type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "size": int64(len(book))},
+		map[string]any{"path": "data/notes.csv", "type": "text/csv", "size": int64(30)},
+		map[string]any{"path": "data/spec.json", "type": "application/json", "size": int64(9)},
+	}}
+	f.bucket.saved["shares/abcDEF1234/data/risk.xlsx"] = savedFile{book, ""}
+	f.bucket.saved["shares/abcDEF1234/data/notes.csv"] = savedFile{[]byte("a,b\r\n\"x, y\",2\n\n3,\"q\"\"\"\n"), ""}
+	f.bucket.saved["shares/abcDEF1234/data/spec.json"] = savedFile{[]byte(`{"a": 1}`), ""}
+	s := start(t, testEnv(&f, nil), "")
+	defer s.close()
+	read := func(args map[string]any) *mcp.CallToolResult {
+		args["deck_id"] = "abcDEF1234"
+		return call(t, s, "read_file", args)
+	}
+
+	l := call(t, s, "list_files", map[string]any{"deck_id": "abcDEF1234"})
+	if l.IsError {
+		t.Fatal(textOf(l))
+	}
+	files := list(sc(l)["files"])
+	eq(t, mapOf(files[1])["kind"], "workbook")
+	eq(t, mapOf(files[1])["sheets"], []any{
+		map[string]any{"name": "Monthly", "columns": []string{"month", "cards"}, "rows": 12, "csv": "data/risk-Monthly.csv"},
+		map[string]any{"name": "Notes", "columns": []string{"Key", "Value"}, "rows": 1, "csv": "data/risk-Notes.csv"},
+	})
+	match(t, textOf(l), `sheet "Monthly": 12 rows; columns "month", "cards"; read as data/risk-Monthly\.csv`)
+
+	r := read(map[string]any{"path": "data/risk.xlsx", "limit": 5})
+	if r.IsError {
+		t.Fatal(textOf(r))
+	}
+	o := sc(r)
+	eq(t, o["sheet"], map[string]any{"name": "Monthly", "csv": "data/risk-Monthly.csv"})
+	eq(t, o["columns"], []string{"month", "cards"})
+	eq(t, o["total_rows"], 12)
+	// dates as the workbook shows them, a long decimal as the editor tidies it
+	eq(t, list(o["rows"])[0], []string{"01/01/2022", "10"})
+	eq(t, list(o["rows"])[2], []string{"03/04/2022", "0.3"})
+	eq(t, o["next_offset"], 5)
+	match(t, textOf(r), `Rows 1–5 of 12; next: offset 5`)
+	match(t, textOf(r), `Other sheets: "Notes"`)
+	last := sc(read(map[string]any{"path": "data/risk.xlsx", "offset": 10}))
+	eq(t, len(list(last["rows"])), 2)
+	eq(t, last["next_offset"], nil)
+
+	byCSV := read(map[string]any{"path": "data/risk-Notes.csv"})
+	eq(t, sc(byCSV)["rows"], [][]string{{"source", `bank, "core"`}})
+	match(t, textOf(byCSV), `source,"bank, ""core"""`)
+	eq(t, sc(read(map[string]any{"path": "data/risk.xlsx", "sheet": "notes"}))["sheet"].(map[string]any)["name"], "Notes")
+	no := read(map[string]any{"path": "data/risk.xlsx", "sheet": "Yearly"})
+	if !no.IsError {
+		t.Fatal("an unknown sheet was read")
+	}
+	match(t, textOf(no), `no sheet "Yearly"\. Its sheets: "Monthly", "Notes"`)
+
+	c := sc(read(map[string]any{"path": "data/notes.csv"}))
+	eq(t, c["columns"], []string{"a", "b"})
+	eq(t, c["rows"], [][]string{{"x, y", "2"}, {"3", `q"`}})
+	eq(t, sc(read(map[string]any{"path": "data/spec.json"}))["text"], `{"a": 1}`)
+	match(t, textOf(read(map[string]any{"path": "media/cat.png"})), `is a picture`)
+	match(t, textOf(read(map[string]any{"path": "data/other.csv"})), `No file data/other\.csv .* Its files: data/risk\.xlsx, data/notes\.csv, data/spec\.json`)
+
+	g := sc(call(t, s, "get_presentation", map[string]any{"deck_id": "abcDEF1234"}))
+	eq(t, len(list(g["images"])), 1)
+	eq(t, mapOf(list(g["files"])[1])["sheets"].([]any)[0].(map[string]any)["name"], "Monthly")
+}
+
+func TestCreateAndUpdateKeepDataFiles(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "# Risk\n\n## Monthly\n\n```vega-lite\n{\"data\": {\"url\": \"data/risk-Monthly.csv\"}, \"mark\": \"bar\"}\n```\n"
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "Risk", "markdown": md,
+		"files": []any{
+			map[string]any{"name": "risk.xlsx", "data_base64": base64.StdEncoding.EncodeToString(testBook(t))},
+			map[string]any{"name": "data/extra.csv", "text": "a,b\n1,2\n"},
+		},
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	match(t, textOf(c), `data/risk\.xlsx: sheet "Monthly" \(12 rows; columns "month", "cards"\) read as data/risk-Monthly\.csv`)
+	files := list(f.db.doc("shares/" + id)["files"])
+	eq(t, []any{mapOf(files[0])["path"], mapOf(files[0])["type"], mapOf(files[1])["path"], mapOf(files[1])["type"]},
+		[]string{"data/risk.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "data/extra.csv", "text/csv"})
+	eq(t, string(f.bucket.saved["shares/"+id+"/data/extra.csv"].data), "a,b\n1,2\n")
+	back := sc(call(t, s, "read_file", map[string]any{"deck_id": id, "path": "data/risk-Monthly.csv", "limit": 1}))
+	eq(t, back["rows"], [][]string{{"01/01/2022", "10"}})
+
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": sc(c)["edit_key"],
+		"files": []any{map[string]any{"name": "extra.csv", "text": "a,b\n3,4\n"}, map[string]any{"name": "more.json", "text": "[1]"}}})
+	if u.IsError {
+		t.Fatal(textOf(u))
+	}
+	paths := []any{}
+	for _, x := range list(f.db.doc("shares/" + id)["files"]) {
+		paths = append(paths, mapOf(x)["path"])
+	}
+	eq(t, paths, []string{"data/risk.xlsx", "data/extra.csv", "data/more.json"})
+	eq(t, string(f.bucket.saved["shares/"+id+"/data/extra.csv"].data), "a,b\n3,4\n")
+
+	for _, bad := range []struct {
+		file map[string]any
+		why  string
+	}{
+		{map[string]any{"name": "bad.xlsx", "data_base64": base64.StdEncoding.EncodeToString([]byte("nope"))}, `not a workbook Sliqtly can read`},
+		{map[string]any{"name": "run.exe", "text": "x"}, `data files are \.xlsx, \.csv`},
+		{map[string]any{"name": "a.csv", "text": "x", "url": "https://images.test/a.csv"}, `give one of text, data_base64 or url`},
+		{map[string]any{"name": "a.xlsx", "text": "x"}, `sent as data_base64 or url`},
+	} {
+		r := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": "# x", "files": []any{bad.file}})
+		if !r.IsError {
+			t.Fatalf("%v was kept", bad.file)
+		}
+		match(t, textOf(r), bad.why)
+	}
+}
+
+func TestWriteWorkbookReplacesADecksWorkbook(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	c := call(t, s, "create_presentation", map[string]any{"title": "Risk", "markdown": "# Risk",
+		"files": []any{map[string]any{"name": "risk.xlsx", "data_base64": base64.StdEncoding.EncodeToString(testBook(t))}}})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	key := sc(c)["edit_key"]
+	write := func(args map[string]any) *mcp.CallToolResult {
+		a := map[string]any{"deck_id": id, "edit_key": key, "path": "data/risk.xlsx"}
+		for k, v := range args {
+			a[k] = v
+		}
+		return call(t, s, "write_workbook", a)
+	}
+	w := write(map[string]any{"sheets": []any{
+		map[string]any{"name": "Menot", "rows": []any{[]any{"Kuukausi", "Vuokra", "Sähkö"}, []any{"2026-01", 950, "42.5"}, []any{"2026-02", 950, nil}}},
+		map[string]any{"name": "Q & A", "csv": "a,b\n\"<x> & y\",2\n"},
+		map[string]any{"name": "Sum", "rows": []any{[]any{"Total", "Note"}, []any{map[string]any{"f": "=SUM(Menot!B2:B3)", "v": 1900}, map[string]any{"f": `="a"&"b"`, "v": "ab"}}, []any{map[string]any{"f": "=1+1"}}}},
+	}})
+	if w.IsError {
+		t.Fatal(textOf(w))
+	}
+	match(t, textOf(w), `data/risk\.xlsx: sheet "Menot" \(2 rows; columns "Kuukausi", "Vuokra", "Sähkö"\) read as data/risk-Menot\.csv`)
+	match(t, textOf(w), `Formatting is not kept`)
+	paths := []any{}
+	for _, x := range list(f.db.doc("shares/" + id)["files"]) {
+		paths = append(paths, mapOf(x)["path"])
+	}
+	eq(t, paths, []string{"data/risk.xlsx"})
+	qa := sc(call(t, s, "read_file", map[string]any{"deck_id": id, "path": "data/risk.xlsx", "sheet": "Q & A"}))
+	eq(t, qa["rows"], [][]string{{"<x> & y", "2"}})
+	sum := sc(call(t, s, "read_file", map[string]any{"deck_id": id, "path": "data/risk.xlsx", "sheet": "Sum"}))
+	// the editor's reader works out a formula with no value given
+	eq(t, sum["rows"], [][]string{{"1900", "ab"}, {"2", ""}})
+	zr, err := zip.NewReader(bytes.NewReader(f.bucket.saved["shares/"+id+"/data/risk.xlsx"].data), int64(len(f.bucket.saved["shares/"+id+"/data/risk.xlsx"].data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, zf := range zr.File {
+		if zf.Name == "xl/worksheets/sheet3.xml" {
+			rc, _ := zf.Open()
+			x, _ := io.ReadAll(rc)
+			match(t, string(x), `<c r="A2"><f>SUM\(Menot!B2:B3\)</f><v>1900</v></c><c r="B2" t="str"><f>&quot;a&quot;&amp;&quot;b&quot;</f><v>ab</v></c>`)
+		}
+	}
+	menot := sc(call(t, s, "read_file", map[string]any{"deck_id": id, "path": "data/risk-Menot.csv"}))
+	eq(t, menot["rows"], [][]string{{"2026-01", "950", "42.5"}, {"2026-02", "950", ""}})
+	for _, bad := range []struct {
+		args map[string]any
+		why  string
+	}{
+		{map[string]any{"sheets": []any{map[string]any{"name": "a/b", "rows": []any{[]any{"x"}}}}}, `has one of`},
+		{map[string]any{"sheets": []any{map[string]any{"name": "A", "rows": []any{[]any{"x"}}}, map[string]any{"name": "a", "rows": []any{[]any{"y"}}}}}, `Two sheets are named`},
+		{map[string]any{"sheets": []any{map[string]any{"name": "A"}}}, `give rows or csv`},
+		{map[string]any{"path": "data/x.csv", "sheets": []any{map[string]any{"name": "A", "rows": []any{[]any{"x"}}}}}, `ending in \.xlsx`},
+	} {
+		r := write(bad.args)
+		if !r.IsError {
+			t.Fatalf("%v was written", bad.args)
+		}
+		match(t, textOf(r), bad.why)
+	}
+}
+
+// a stored timestamp, as the fake keeps it (time.Time through JSON)
+func storedTime(t *testing.T, v any) time.Time {
+	t.Helper()
+	tm, err := time.Parse(time.RFC3339Nano, fmt.Sprint(v))
+	if err != nil {
+		t.Fatalf("not a timestamp: %v", v)
+	}
+	return tm
+}
+
+func TestWithoutSignInTextOnlyAndDeletedAfter30Days(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), "")
+	defer s.close()
+	for _, args := range []map[string]any{
+		{"images": []any{map[string]any{"name": "cat.png", "url": "https://images.test/cat.png"}}},
+		{"files": []any{map[string]any{"name": "a.csv", "text": "a\n1\n"}}},
+	} {
+		args["title"], args["markdown"] = "x", "# x"
+		r := call(t, s, "create_presentation", args)
+		if !r.IsError {
+			t.Fatal("stored an upload without sign-in")
+		}
+		match(t, textOf(r), `needs sign-in`)
+		match(t, fmt.Sprint(r.Meta["mcp/www_authenticate"]), `resource_metadata=`)
+	}
+	if len(f.bucket.saved) != 0 {
+		t.Fatal("bytes were saved")
+	}
+	c := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": "# x"})
+	match(t, textOf(c), `deleted 30 days after its last change`)
+	out := sc(c)
+	id, key := out["deck_id"].(string), out["edit_key"].(string)
+	in30 := time.Now().Add(30 * 24 * time.Hour)
+	for _, col := range []string{"shares/", "mcp_keys/"} {
+		if d := storedTime(t, f.db.doc(col + id)["expires"]).Sub(in30); d < -time.Minute || d > time.Minute {
+			t.Fatalf("%s expires %v off 30 days", col, d)
+		}
+	}
+	match(t, textOf(call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "images": []any{map[string]any{"name": "cat.png", "url": "https://images.test/cat.png"}}})), `needs sign-in`)
+	match(t, textOf(call(t, s, "write_workbook", map[string]any{"deck_id": id, "edit_key": key, "path": "data/a.xlsx", "sheets": []any{map[string]any{"name": "A", "rows": []any{[]any{"x"}}}}})), `needs sign-in`)
+
+	me := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer me.close()
+	mine := call(t, me, "create_presentation", map[string]any{"title": "x", "markdown": "# x", "images": []any{map[string]any{"name": "cat.png", "url": "https://images.test/cat.png"}}})
+	if mine.IsError || strings.Contains(textOf(mine), "deleted") {
+		t.Fatal(textOf(mine))
+	}
+	if _, ok := f.db.doc("shares/" + sc(mine)["deck_id"].(string))["expires"]; ok {
+		t.Fatal("a signed-in user's deck expires")
+	}
+}
+
+func TestDailyQuotaInFirestore(t *testing.T) {
+	f := fakeFirebase()
+	day := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
+	e := testEnv(&f, nil)
+	e.Quota = dailyQuota(f.db, 2, 3, func() time.Time { return day })
+	s := start(t, e, "")
+	defer s.close()
+	make := func() *mcp.CallToolResult {
+		return call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": "# x"})
+	}
+	if make().IsError || make().IsError {
+		t.Fatal("refused under the quota")
+	}
+	match(t, textOf(make()), `daily limit of 2 .* sign in for a higher limit`)
+	var counter Doc
+	for k, v := range f.db.data {
+		if strings.HasPrefix(k, "mcp_quota/") {
+			match(t, k, `-2026-10-03$`)
+			counter = v
+		}
+	}
+	eq(t, storedTime(t, counter["expires"]), day.Add(48*time.Hour))
+	if why := e.Quota(context.Background(), "uid:u1"); why != "" {
+		t.Fatal("each caller has their own count")
+	}
+}
+
+func TestClientRegistrationsLimitedPerAddress(t *testing.T) {
+	f := fakeFirebase()
+	e := withSignIn(testEnv(&f, nil))
+	e.Registrations = rateLimiter(1, 10*time.Minute)
+	srv := httptest.NewServer(NewApp(e))
+	defer srv.Close()
+	reg := func() *http.Response {
+		r, err := http.Post(srv.URL+"/oauth/register", "application/json", strings.NewReader(`{"redirect_uris":["https://client.test/cb"]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	eq(t, reg().StatusCode, 201)
+	second := reg()
+	eq(t, second.StatusCode, 429)
+	b, _ := io.ReadAll(second.Body)
+	match(t, string(b), `"slow_down"`)
 }

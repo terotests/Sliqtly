@@ -136,6 +136,15 @@ try {
     const right = l4.stage[0] + l4.stage[2] * pageW;
     check("a small zoom still covers the stage's edges", l4.stage[2] > l.stage[2] * 1.1 && l4.stage[0] <= l4.clip[0] + 0.5 && right >= l4.clip[0] + l4.clip[2] - 0.5,
       `${l4.stage[0].toFixed(1)}..${right.toFixed(1)} vs ${l4.clip[0]}..${l4.clip[0] + l4.clip[2]}, scale ${(l4.stage[2] / l.stage[2]).toFixed(2)}`);
+    // the slide is drawn at the scale the clip was worked out from (a scale
+    // rounded to 0.01 drew it short of the stage's edge, a stripe that
+    // flickered as the zoom changed)
+    const meet = await phone.evaluate(() => {
+      const L = JSON.parse(window.__app.layoutJson());
+      const c = JSON.parse(window.__app.stageJson()).list.cmds[0];
+      return [L.stage[0] + (c.x + c.w) * L.stage[2], L.clip[0] + L.clip[2]];
+    });
+    check("the zoomed slide's clip meets the stage's edge", Math.abs(meet[0] - meet[1]) < 0.05, `${meet[0].toFixed(3)} vs ${meet[1]}`);
     await ctx.close();
   }
 
@@ -254,16 +263,16 @@ try {
     await page.waitForTimeout(100);
     const before = await state();
     const reached = await toEnd();
-    await page.waitForTimeout(150);
+    await page.waitForFunction(() => !document.getElementById("endPanel").hidden, null, { timeout: 8000 }).catch(() => {});
     const atEnd = await state();
     await page.click("#endPrev");
     const prev = await state();
     await toEnd();
-    await page.waitForTimeout(150);
+    await page.waitForFunction(() => !document.getElementById("endPanel").hidden, null, { timeout: 8000 }).catch(() => {});
     await page.click("#endRestart");
     const restart = await state();
     await toEnd();
-    await page.waitForTimeout(150);
+    await page.waitForFunction(() => !document.getElementById("endPanel").hidden, null, { timeout: 8000 }).catch(() => {});
     // a finger sideways on the slide: right for the slide before (from the
     // end panel too), left for the next
     const swipe = (dx) => page.evaluate((dx) => {
@@ -278,7 +287,7 @@ try {
     const swipedBack = await swipe(120);
     const swipedOn = await swipe(-120);
     await toEnd();
-    await page.waitForTimeout(150);
+    await page.waitForFunction(() => !document.getElementById("endPanel").hidden, null, { timeout: 8000 }).catch(() => {});
     await page.click("#endExit");
     await page.waitForTimeout(100);
     const exit = await state();
@@ -292,6 +301,148 @@ try {
   await page.waitForTimeout(300);
   await shot("2-speaker.png");
   await page.evaluate(() => window.__app.endPresent());
+
+  // The "+" after the last thumbnail: pressed, it offers an empty slide or a
+  // copy of the selected one, each put after the selected slide and selected.
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const at = async (part) => page.evaluate((part) => {
+      const a = window.__app;
+      a.selectSlide(1);
+      a.scrollStrip(1e6);
+      a.layoutJson();
+      const c = document.getElementById("c").getBoundingClientRect();
+      const x = a.thumbX(a.deck.slideCount()) + a.thumbW / 2;
+      const y = a.thumbY() + (part === "dup" ? a.thumbH * 0.75 : a.thumbH * 0.25);
+      return [c.left + x, c.top + y];
+    }, part);
+    const state = () => page.evaluate(() => {
+      const a = window.__app;
+      return { n: a.deck.slideCount(), sel: a.selected, open: a.addOpen, sel1: a.deck.slideAt(1).title, title: a.deck.slideAt(a.selected).title, words: a.copySelection() };
+    });
+    const s0 = await state();
+    await page.evaluate(() => { window.__app.selectSlide(1); window.__app.scrollStrip(1e6); });
+    await page.waitForTimeout(300);
+    await shot("slide-add.png");
+    let p = await at("open");
+    await page.mouse.click(p[0], p[1]);
+    const s1 = await state();
+    check("the + after the thumbnails offers its two choices", s1.open && s1.n === s0.n, JSON.stringify(s1));
+    await shot("slide-add-open.png");
+    p = await at("empty");
+    await page.mouse.click(p[0], p[1]);
+    const s2 = await state();
+    check("…Empty slide puts a new slide after the selected one and selects its heading", !s2.open && s2.n === s0.n + 1 && s2.sel === 2 && s2.title === "New slide" && s2.words === "New slide", JSON.stringify(s2));
+    p = await at("open");
+    await page.mouse.click(p[0], p[1]);
+    p = await at("dup");
+    await page.mouse.click(p[0], p[1]);
+    const s3 = await state();
+    check("…Duplicate slide copies the selected slide after it", s3.n === s0.n + 2 && s3.sel === 2 && s3.title === s3.sel1, JSON.stringify(s3));
+    p = await at("open");
+    await page.mouse.click(p[0], p[1]);
+    await page.mouse.click(700, 200);
+    check("…a press elsewhere closes the choices", !(await state()).open);
+    await page.evaluate((t) => window.__app.setSource(t), src0);
+    await page.waitForTimeout(200);
+  }
+
+  // The filmstrip takes the keyboard: a click on a thumbnail puts the keys on
+  // that slide (not in the editor), Delete deletes the slide and Ctrl+Z brings
+  // it back, Ctrl+arrows and a drag move it, a right click (or Shift+F10)
+  // opens its menu.
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const md = "# A\n\naa\n\n# B\n\nbb\n\n# C\n\ncc\n\n# D\n\ndd\n";
+    await page.evaluate((t) => { window.__app.setSource(t); window.__app.scrollStrip(-1e6); }, md);
+    await page.waitForTimeout(200);
+    const thumbAt = (i, fy = 0.5) => page.evaluate(([i, fy]) => {
+      const a = window.__app;
+      a.layoutJson();
+      const c = document.getElementById("c").getBoundingClientRect();
+      return [c.left + a.thumbX(i) + a.thumbW / 2, c.top + a.thumbY() + a.thumbH * fy];
+    }, [i, fy]);
+    const st = () => page.evaluate(() => {
+      const a = window.__app;
+      const el = document.activeElement;
+      const titles = [];
+      for (let k = 0; k < a.deck.slideCount(); k += 1) titles.push(a.deck.slideAt(k).title);
+      return { order: titles.join(""), sel: a.selected, focus: a.focusTarget(), on: el && el.dataset ? el.dataset.a11yId || el.id : "", role: el ? el.getAttribute("role") : "", aria: el ? el.getAttribute("aria-selected") : "", menu: a.toolbar.openMenu(), src: a.source() };
+    });
+    await page.mouse.click(300, 300);
+    let p = await thumbAt(1);
+    await page.mouse.click(p[0], p[1]);
+    let s1 = await st();
+    check("a click on a thumbnail moves the keyboard to that slide of the strip", s1.focus === "strip" && s1.sel === 1 && s1.on === "thumb-1" && s1.role === "option" && s1.aria === "true", JSON.stringify({ ...s1, src: "" }));
+    await shot("strip-focus.png");
+    await page.keyboard.press("q");
+    check("…a letter typed there does not reach the editor", (await st()).src === md);
+    await page.keyboard.press("Delete");
+    const s2 = await st();
+    check("…Delete deletes the slide, not text in the editor", s2.order === "ACD" && s2.src === "# A\n\naa\n\n# C\n\ncc\n\n# D\n\ndd\n" && s2.focus === "strip" && s2.on === "thumb-1", JSON.stringify(s2));
+    await page.keyboard.press("Control+z");
+    const s3 = await st();
+    check("…and Ctrl+Z brings it back", s3.src === md && s3.order === "ABCD", JSON.stringify(s3));
+    await page.keyboard.press("ArrowRight");
+    const s4 = await st();
+    check("…the arrows move between slides, the keyboard with them", s4.sel === 2 && s4.on === "thumb-2", JSON.stringify({ ...s4, src: "" }));
+    await page.keyboard.press("Control+ArrowLeft");
+    const s5 = await st();
+    check("…Ctrl+arrow moves the slide, as one edit", s5.order === "ACBD" && s5.sel === 1 && s5.src === "# A\n\naa\n\n# C\n\ncc\n\n# B\n\nbb\n\n# D\n\ndd\n" && s5.on === "thumb-1", JSON.stringify(s5));
+    await page.keyboard.press("Control+ArrowRight");
+    await page.keyboard.press("Control+ArrowRight");
+    const s5b = await st();
+    check("…to the end too", s5b.order === "ABDC" && s5b.sel === 3 && s5b.src === "# A\n\naa\n\n# B\n\nbb\n\n# D\n\ndd\n\n# C\n\ncc\n", JSON.stringify(s5b));
+    await page.keyboard.press("Control+z");
+    await page.keyboard.press("Control+z");
+    await page.keyboard.press("Control+z");
+    check("…each move undoes as one", (await st()).src === md);
+
+    // the context menu, from a right click
+    p = await thumbAt(3);
+    await page.mouse.click(p[0], p[1], { button: "right" });
+    await page.waitForTimeout(100);
+    const s6 = await st();
+    const rows = await page.evaluate(() => {
+      const a = window.__app;
+      a.toolbarJson();
+      const pg = a.toolbar.host.lastPage;
+      const find = (el, id) => { if (el.id === id) return el; for (const c of el.children) { const f = find(c, id); if (f) return f; } return null; };
+      const out = {};
+      for (const v of ["slideNew", "slideDuplicate", "slideLeft", "slideRight", "slideDelete"]) {
+        const e = find(pg, "tb-m-ctx-item-" + v);
+        out[v] = e ? [e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, e.className.includes("disabled")] : null;
+      }
+      return out;
+    });
+    check("a right click on a thumbnail opens its menu, the keyboard in it", s6.menu === "tb-m-ctx" && s6.sel === 3 && /^tb-m-ctx-item-/.test(s6.on) && rows.slideNew && rows.slideRight && rows.slideRight[2] && !rows.slideLeft[2], JSON.stringify({ ...s6, src: "", rows }));
+    await shot("strip-menu.png");
+    const cr = await page.evaluate(() => { const c = document.getElementById("c").getBoundingClientRect(); return [c.left, c.top]; });
+    await page.mouse.click(cr[0] + rows.slideLeft[0], cr[1] + rows.slideLeft[1]);
+    const s7 = await st();
+    check("…Move left moves it, and the keyboard is back on the slide", s7.order === "ABDC" && s7.sel === 2 && s7.menu === "" && s7.focus === "strip" && s7.on === "thumb-2", JSON.stringify({ ...s7, src: "" }));
+    await page.keyboard.press("Shift+F10");
+    const s8 = await st();
+    await page.keyboard.press("Escape");
+    const s9 = await st();
+    check("…Shift+F10 opens it from the keyboard, Esc closes it back to the slide", s8.menu === "tb-m-ctx" && /^tb-m-ctx-item-/.test(s8.on) && s9.menu === "" && s9.on === "thumb-2", JSON.stringify([s8.on, s9.on, s9.menu]));
+    await page.evaluate((t) => window.__app.setSource(t), md);
+
+    // a drag puts the slide in another place
+    p = await thumbAt(0);
+    const q = await thumbAt(2);
+    await page.mouse.move(p[0], p[1]);
+    await page.mouse.down();
+    for (let k = 1; k <= 10; k += 1) await page.mouse.move(p[0] + (q[0] + 70 - p[0]) * k / 10, p[1]);
+    const mid = await page.evaluate(() => [window.__app.stripReorder, window.__app.stripDrop]);
+    await page.mouse.up();
+    const s10 = await st();
+    check("a thumbnail dragged to another gap moves its slide there", mid[0] && mid[1] === 3 && s10.order === "BCAD" && s10.sel === 2 && s10.src === "# B\n\nbb\n\n# C\n\ncc\n\n# A\n\naa\n\n# D\n\ndd\n", JSON.stringify({ mid, ...s10 }));
+    await page.keyboard.press("Escape");
+    check("Esc on the strip gives the keyboard back to the editor", (await st()).focus === "editor");
+    await page.evaluate((t) => window.__app.setSource(t), src0);
+    await page.waitForTimeout(200);
+  }
 
   // A diagram that asks: present the Kulku slide, wait for the question,
   // move the highlight with an arrow, take it with Enter, then go back two
@@ -435,13 +586,17 @@ try {
   await page3.waitForTimeout(200);
   check("Esc does not leave the shared presentation", (await page3.evaluate(() => JSON.parse(window.__app.layoutJson()).mode)) === "present");
   {
-    await page3.evaluate(() => { const a = window.__app; for (let i = 0; i < 200 && !a.atEnd(); i += 1) a.next(); });
-    await page3.waitForTimeout(150);
-    const end = await page3.evaluate(() => ({ shown: !document.getElementById("endPanel").hidden, exit: document.getElementById("endExit").textContent }));
-    await page3.click("#endExit");
-    const after = await page3.evaluate(() => ({ shown: !document.getElementById("endPanel").hidden, mode: JSON.parse(window.__app.layoutJson()).mode, last: window.__app.slideShown() === window.__app.deck.slideCount() - 1 }));
+    // on a page of its own, so the viewer's … menu checks below start fresh
+    const pageE = await browser.newPage({ viewport: { width: 1200, height: 760 } });
+    await pageE.goto(showUrl.replace(/^https?:\/\/[^/]+/, url.replace(/\/$/, "")));
+    await pageE.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await pageE.evaluate(() => { const a = window.__app; for (let i = 0; i < 200 && !a.atEnd(); i += 1) a.next(); });
+    await pageE.waitForFunction(() => !document.getElementById("endPanel").hidden, null, { timeout: 8000 }).catch(() => {});
+    const end = await pageE.evaluate(() => ({ shown: !document.getElementById("endPanel").hidden, exit: document.getElementById("endExit").textContent }));
+    await pageE.click("#endExit");
+    const after = await pageE.evaluate(() => ({ shown: !document.getElementById("endPanel").hidden, mode: JSON.parse(window.__app.layoutJson()).mode, last: window.__app.slideShown() === window.__app.deck.slideCount() - 1 }));
     check("a shared deck's end panel closes to its last slide", end.shown && /Close/.test(end.exit) && !after.shown && after.mode === "present" && after.last, JSON.stringify({ end, after }));
-    await page3.evaluate(() => window.__app.restart());
+    await pageE.close();
   }
   // The bar fades when the pointer rests for 2.5 s, and a slow frame can
   // take that long: each press moves the pointer first, and tries again if
@@ -546,7 +701,7 @@ try {
     const rel = (src.match(/\]\((media\/liitetty-[^)]+)\)/) || [])[1] || "";
     const bmp = rel ? await window.__pictureSize("/" + rel) : [0, 0];
     return {
-      dialog, shown: !!shown, before, plan,
+      dialog, shown: !!shown, before, plan, rel,
       md: !!rel,
       image: stage.list.cmds.some((c) => c.k === 2 && String(c.src || "").includes("media/liitetty-")),
       size: bmp,
@@ -570,6 +725,75 @@ try {
   });
   check("a picture placed as the slide's background goes on its heading", /\bbg=media\/tausta\.png\b/.test(bg), bg);
   await shot("3-picture.png");
+
+  // The files tab: the picture's row shows it on hover, and a click opens
+  // the image editor, whose Save writes the adjusted picture over the file.
+  const ed = await page.evaluate(async (rel) => {
+    const a = window.__app;
+    a.showTab("files");
+    window.__handleRequests();
+    const name = rel.split("/").pop();
+    let row = null;
+    for (let i = 0; i < 40 && !row; i += 1) {
+      await new Promise((res) => setTimeout(res, 100));
+      const pj = a.panelsJson();
+      row = pj ? JSON.parse(pj).list.cmds.find((c) => c.k === 3 && c.text === name) : null;
+    }
+    if (!row) return { row: false };
+    a.pointerMove(row.x + 4, row.y + 4);
+    const cmds = JSON.parse(a.panelsJson()).list.cmds;
+    const hover = cmds.some((c) => c.k === 2 && c.src === "/" + rel);
+    const before = window.__picturePixel("/" + rel, 2, 2);
+    a.pointerDown(row.x + 4, row.y + 4, false, 1);
+    a.pointerUp();
+    window.__handleRequests();
+    for (let i = 0; i < 40 && !a.chartIsOpen(); i += 1) {
+      await new Promise((res) => setTimeout(res, 100));
+      window.__handleRequests();
+    }
+    const open = a.chartIsOpen();
+    const win = open ? JSON.parse(a.chartJson()) : null;
+    const shown = !!(win && win.list.cmds.find((c) => c.k === 2 && String(c.src || "").startsWith("/__adjust/")));
+    // darker and greyer, as the sliders would set it
+    a.chart.adjBright = -50;
+    a.chart.adjSat = -100;
+    a.chart.adjDirty = true;
+    a.chart.changed = true;
+    // the slide shows the change before Save, and the window says how its
+    // text reads over it
+    a.writeChart();
+    window.__handleRequests();
+    let live = before;
+    for (let i = 0; i < 30; i += 1) {
+      await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 30)));
+      live = window.__picturePixel("/" + rel, 2, 2);
+      if (live.join() !== before.join()) break;
+    }
+    let note = "";
+    for (let i = 0; i < 30 && !note; i += 1) {
+      await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 30)));
+      note = a.chart.adjContrastNote;
+    }
+    const plan = JSON.parse(a.adjustPlan());
+    a.key("enter", false, false);
+    window.__handleRequests();
+    let after = before;
+    for (let i = 0; i < 60; i += 1) {
+      await new Promise((res) => setTimeout(res, 100));
+      // the saved file (an <img>), not the preview (a canvas)
+      if (window.__pictureTag("/" + rel) !== "IMG") continue;
+      after = window.__picturePixel("/" + rel, 2, 2);
+      if (after.join() !== before.join()) break;
+    }
+    a.showTab("md");
+    return { row: true, hover, open, shown, plan, before, live, note, after, closed: !a.chartIsOpen() };
+  }, pic.rel);
+  check("a picture in the files tab shows a preview on hover", ed.row && ed.hover, JSON.stringify(ed));
+  check("…a click opens the image editor with the picture in it", ed.open && ed.shown, JSON.stringify(ed));
+  const grey = ed.after && Math.abs(ed.after[0] - ed.after[1]) < 4 && Math.abs(ed.after[1] - ed.after[2]) < 4;
+  check("…the slide shows the change while the sliders move", ed.live && ed.live.join() !== ed.before.join(), JSON.stringify({ before: ed.before, live: ed.live }));
+  check("…and the window says how the slide's text reads over it", /^Slide \d+: /.test(ed.note || ""), JSON.stringify(ed.note));
+  check("…and Save writes the adjusted picture over the file", ed.closed && grey && ed.after[0] < ed.before[0], JSON.stringify({ before: ed.before, after: ed.after, plan: ed.plan }));
 
   // TeX math: $…$ in a line and a $$ display are drawn as filled outlines
   const math = await page.evaluate(() => {
@@ -673,6 +897,86 @@ try {
     return res;
   });
   check("…and hovering its properties never moves the rows (also flipped above)", selHover.every((r) => r.rows > 3 && r.moved === 0 && r.tip), JSON.stringify(selHover));
+
+  // A click on the slide picks the block under it: an outline, its theme
+  // spacing as bands, "Edit content" and "Style" next to it
+  const pk = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    const css0 = a.themeCss();
+    a.showTab("md");
+    a.setSource("# D\n\n## Otsikko\n\n- yksi\n- kaksi\n\nKappale tekstiä.\n{.lead}\n");
+    a.selectSlide(1);
+    a.place();
+    const l = a.deck.layout();
+    const r = a.slideRect, sc = a.slideScale();
+    const boxes = l.boxes.filter((b) => b.page === a.selected && b.kind === 0);
+    const at = (t) => { const b = boxes.find((b) => b.text.startsWith(t)); return [r.x + (b.x + 4) * sc, r.y + (b.y + b.h / 2) * sc]; };
+    const click = ([x, y]) => { a.pointerDown(x, y, false, 1); a.pointerUp(); };
+    const out = {};
+    click(at("Otsikko"));
+    out.head = [a.pick.sel, a.pick.bands.map((b) => b.sel + ":" + b.prop + (b.isSet ? "=" : "+")).join(" ")];
+    out.drawn = /sel-box|"text":"Style"/.test(a.pickJson()) || a.pickJson().length > 100;
+    a.pickStyle();
+    out.style = [a.hintIsOpen(), a.hint.kind, a.hintPinned()];
+    out.styleProps = [];
+    for (let i = 0; i < 40; i++) {
+      const p = a.hint.rule.get("props").at(i);
+      if (!p || !p.isObject || !p.isObject()) break;
+      out.styleProps.push(p.stringOr("sel", "") + ">" + p.stringOr("name", "") + (p.stringOr("value", "") ? "=" : "+"));
+      // the colour's row says what the slide uses and which rule gives it
+      if (p.stringOr("name", "") === "color") out.headInk = [p.stringOr("sel", ""), p.stringOr("eff", ""), p.stringOr("from", "-")];
+    }
+    const hc = a.pick.cascade(a.themeCss()).facet("color");
+    out.headModel = [hc.own, hc.value, hc.from];
+    a.closeHint();
+    // a band: its property opens next to it, written into the theme
+    a.pickJson();
+    const bi = a.pick.bands.findIndex((b) => b.prop === "margin-bottom");
+    const b = a.pick.bands[bi];
+    a.pointerDown(b.sx + b.sw / 2, b.sy + b.sh / 2, false, 1);
+    a.pointerUp();
+    out.band = [a.edTab, a.hint.kind, a.hint.name, a.hintPinned(), a.hint.ax > r.x - 1];
+    // …and the card stays off the element: under, over or beside it
+    a.hintJson();
+    const card = a.hint.cardEl();
+    const ox = a.pick.ox, oy = a.pick.oy, ow = a.pick.ow, oh = a.pick.oh;
+    out.offElement = card.calculatedY >= oy + oh || card.calculatedY + card.calculatedHeight <= oy || card.calculatedX >= ox + ow || card.calculatedX + card.calculatedWidth <= ox;
+    a.closeHint();
+    // a list item: its line in the Markdown
+    a.showTab("md");
+    click(at("kaksi"));
+    const le = a.pick.cascade(a.themeCss());
+    out.li = [a.pick.sel, le.facet("color").own === le.facet("color").from || le.facet("color").from === "" ? "text" : "?", le.facet("marker-color").own];
+    a.pickContent();
+    out.liContent = [a.edTab, a.anchorLine(), a.anchorCol(), a.caretLine(), a.caretCol()];
+    click(at("Kappale"));
+    out.p = [a.pick.sel, a.pick.cascade(a.themeCss()).facet("color").own];
+    a.setFocus("stage");
+    a.key("escape", false, false);
+    out.cleared = !a.pick.on;
+    // a press off the slide, and playing, let it go too
+    click(at("Kappale"));
+    const sa = a.stageArea;
+    a.pointerDown(sa.x + 4, sa.y + sa.h - 4, false, 1);
+    a.pointerUp();
+    out.offSlide = !a.pick.on;
+    click(at("Kappale"));
+    a.play();
+    out.onPlay = !a.pick.on && a.pickJson() === "";
+    a.stop();
+    a.setSource(src0);
+    a.setStyleSheet(css0);
+    return out;
+  });
+  check("a click on a heading picks it with the headings' margins as bands", pk.head[0] === "h2" && pk.head[1] === "heading:margin-top= heading:margin-bottom=" && pk.drawn, JSON.stringify(pk.head));
+  check("…its Style lists h2's and all headings' properties, set and not", pk.style.join(",") === "true,selector,true" && pk.styleProps.includes("h2>font-size=") && pk.styleProps.includes("heading>margin-top=") && pk.styleProps.some((p) => p.endsWith("+")), JSON.stringify(pk.styleProps));
+  check("…a band opens its value in the theme, next to the slide", pk.band.join(",") === "css,number,heading › margin-bottom,true,true", JSON.stringify(pk.band));
+  check("…and its card does not cover the element", pk.offElement === true);
+  check("…a press off the slide or Play lets the pick go", pk.offSlide === true && pk.onPlay === true, JSON.stringify([pk.offSlide, pk.onPlay]));
+  check("…its colour row shows the value the slide uses and its rule, as the cascade has it", pk.headInk && pk.headInk[0] === "h2" && pk.headInk[1] === pk.headModel[1] && pk.headInk[2] === pk.headModel[2] && pk.headInk[1] !== "", JSON.stringify([pk.headInk, pk.headModel]));
+  check("a list item is picked as li (text from the document, bullets from list)", pk.li.join("|") === "li|text|list" && pk.liContent.join(",") === "md,5,0,5,7", JSON.stringify([pk.li, pk.liContent]));
+  check("…a paragraph with {.lead} gets the class's rule too, and Esc lets go", pk.p.join("|") === "p|.lead" && pk.cleared, JSON.stringify([pk.p, pk.cleared]));
 
   // chart-effects takes any of its words together: a chip turns one on or off
   const fx = await page.evaluate(() => {
@@ -886,7 +1190,7 @@ try {
     });
     check("…over the Files tab the File menu is on top, and its row takes the press", onFiles.onTop && onFiles.underPanel && onFiles.reqs.includes("click:save") && onFiles.closed, JSON.stringify(onFiles));
 
-    // the File menu's groups: new | open | save | the assistants, lines between them
+    // the File menu's groups: new | open | save | the assistants | settings, lines between them
     // that take no press
     const seps = await page.evaluate(() => {
       const a = window.__app;
@@ -895,8 +1199,8 @@ try {
       const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY, false, 1); a.pointerUp(); };
       press(find("tb-m-file-trigger"));
       const lines = all();
-      const ys = ["new", "openbox", "save", "aiClaude"].map((id) => find("tb-m-file-item-" + id).calculatedY);
-      const between = lines.length === 3 && lines.every((l, i) => l.calculatedY > ys[i] && l.calculatedY < ys[i + 1] && l.calculatedHeight === 1);
+      const ys = ["new", "openbox", "save", "aiClaude", "settings", "deleteDeck"].map((id) => find("tb-m-file-item-" + id).calculatedY);
+      const between = lines.length === 5 && lines.every((l, i) => l.calculatedY > ys[i] && l.calculatedY < ys[i + 1] && l.calculatedHeight === 1);
       for (;;) { if (!a.takeRequest()) break; }
       press(lines[0]);
       const reqs = [];
@@ -905,7 +1209,57 @@ try {
       a.key("escape", false, false);
       return { n: lines.length, between, reqs, stillOpen };
     });
-    check("…the File menu is grouped by three lines, and a line takes no press", seps.between && seps.reqs.length === 0 && seps.stillOpen, JSON.stringify(seps));
+    check("…the File menu is grouped by five lines, and a line takes no press", seps.between && seps.reqs.length === 0 && seps.stillOpen, JSON.stringify(seps));
+
+    // File → Export: Markdown, PowerPoint, PDF and a zip of every file; File →
+    // Delete presentation… is red, last, and asks in the app's window first
+    const fx = await page.evaluate(async () => {
+      const a = window.__app;
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      const shut = () => { for (let n = 0; n < 3 && a.toolbar.openMenu() !== ""; n++) a.key("escape", false, false); };
+      const take = () => { const out = []; for (;;) { const r = a.takeRequest(); if (!r) break; out.push(r); } return out; };
+      shut();
+      take();
+      const newReqs = [];
+      let newKids = [];
+      for (const id of ["newPres", "newSheet"]) {
+        press(find("tb-m-file-trigger"));
+        press(find("tb-m-file-item-new"));
+        let r = null;
+        for (let n = 0; n < 40 && !r; n++) { r = find("tb-m-file-item-new-item-" + id); if (!r) await new Promise((ok) => setTimeout(ok, 100)); }
+        const nc = find("tb-m-file-item-new-content");
+        newKids = nc ? (nc.children || []).map((k) => k.id.split("-item-").pop()) : [];
+        if (r) press(r);
+        newReqs.push(...take());
+        shut();
+      }
+      press(find("tb-m-file-trigger"));
+      press(find("tb-m-file-item-export"));
+      let row = null;
+      for (let n = 0; n < 40 && !row; n++) { row = find("tb-m-file-item-export-item-x-zip"); if (!row) await new Promise((r) => setTimeout(r, 100)); }
+      const c = find("tb-m-file-item-export-content");
+      const kids = c ? (c.children || []).map((k) => k.id.split("-item-").pop()) : [];
+      if (row) press(row);
+      const zip = take();
+      shut();
+      press(find("tb-m-file-trigger"));
+      const del = find("tb-m-file-item-deleteDeck");
+      const red = !!del && (del.className || "").includes("ui-dropdownmenu-item-destructive");
+      const rows = (find("tb-m-file-content")?.children || []).map((k) => k.id);
+      const last = !!del && rows[rows.length - 1] === del.id;
+      press(del);
+      const asked = take();
+      await window.__fileRequest("deletedeck");
+      const confirm = a.chart.isOpen && a.chart.mode === "confirm";
+      const ok = (() => { const w = (e) => { if (e.id === "cf-ok") return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return a.chart.isOpen ? w(a.chart.host.root) : null; })();
+      a.key("escape", false, false);
+      const after = take();
+      return { newKids, newReqs, kids, zip, red, last, asked, confirm, okDanger: !!ok && (ok.className || "").includes("ui-button-danger"), closed: !a.chart.isOpen, after };
+    });
+    check("…File → New offers Presentation… (the window) and Datasheet… (the spreadsheet editor)", fx.newKids.join() === "newPres,newSheet" && fx.newReqs.join() === "files:new,files:newsheet", JSON.stringify(fx));
+    check("…File → Export lists .md, .pptx, .pdf and .zip, and the zip row is the page's ZIP button", fx.kids.join() === "x-save,x-pptx,x-pdf,x-zip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
+    check("…File → Delete presentation… is red and last, and asks first; Esc deletes nothing", fx.red && fx.last && fx.asked.includes("files:deletedeck") && fx.confirm && fx.okDanger && fx.closed && !fx.after.some((r) => r.startsWith("confirm:")), JSON.stringify(fx));
 
     // File → Recent: Browse all… first (the Files tab), a line, then the decks
     const recent = await page.evaluate(async () => {
@@ -939,6 +1293,32 @@ try {
       return { order, browse, deck };
     });
     check("…File → Recent lists Browse all… first, then the decks, and each opens", recent.order.length === 4 && /browse$/.test(recent.order[0]) && /sep-1$/.test(recent.order[1]) && /r-deck-a$/.test(recent.order[2]) && (recent.browse || []).includes("showtab:files") && (recent.deck || []).includes("files:doc:deck-a"), JSON.stringify(recent));
+
+    // A long deck name widens the menu up to a limit and is cut with "…"
+    // there; every row stays inside the card and they are all one width
+    const long = await page.evaluate(async () => {
+      const a = window.__app;
+      const name = "Kesäinen Tampere – matkailijan parhaat palat ja muut kesän kohokohdat";
+      a.setToolbarOptions("recent", "deck-a\t" + name + "\ndeck-b\tVuokra ja menot", "");
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      press(find("tb-m-file-trigger"));
+      press(find("tb-m-file-item-recent"));
+      let c = null;
+      for (let n = 0; n < 40 && !c; n++) { c = find("tb-m-file-item-recent-content"); if (!c) await new Promise((r) => setTimeout(r, 100)); }
+      if (!c) return null;
+      const right = c.calculatedX + c.calculatedWidth;
+      const rows = (c.children || []).filter((k) => /-item-/.test(k.id));
+      const text = (e) => e.textContent || (e.children || []).map(text).join("");
+      const out = rows.map((r) => ({ id: r.id, x: r.calculatedX, w: r.calculatedWidth, text: text(r) }));
+      return { right, cw: c.calculatedWidth, rows: out };
+    });
+    await shot("menu-long-name.png");
+    await page.evaluate(() => { const a = window.__app; for (let n = 0; n < 3 && a.toolbar.openMenu() !== ""; n++) a.key("escape", false, false); });
+    const lr = long && long.rows.find((r) => /r-deck-a$/.test(r.id));
+    check("…a long Recent name grows the menu, is cut with …, and stays inside the card",
+      !!lr && lr.text.endsWith("…") && long.cw > 220 && long.cw < 480 && long.rows.every((r) => r.x + r.w <= long.right + 0.5 && Math.abs(r.w - lr.w) < 0.5),
+      JSON.stringify(long));
   }
 
   // Edit in Claude / ChatGPT: File menu rows; signed out, the assistant opens
@@ -1393,6 +1773,97 @@ try {
     check("…and a copy is kept with the deck for its readers", res.copy === 6, JSON.stringify(res));
   }
 
+  // Files: the copy kept of a linked sheet is named after the sheet and its
+  // tab, shown as linked data, and Unlink makes the chart read it as a file
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const route = (r) => r.fulfill({ status: 200, contentType: "text/html", headers: { "access-control-allow-origin": "*" }, body: "<!doctype html><title>Sign in</title>" });
+    await page.context().route(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate(async () => {
+      const s = window.sliqtly;
+      window.__was = { user: s.user, readSheet: s.readSheet, sheetName: s.sheetName };
+      s.user = () => ({ uid: "u1", email: "u@example.com" });
+      s.readSheet = async () => "Kk,Km\nTammi,10\nHelmi,20\n";
+      s.sheetName = () => ({ title: "Budjetti", tab: "Syyskuu" });
+      const a = window.__app;
+      a.setSource("# D\n\n## Km\n\n```vega-lite\n{\"data\": {\"url\": \"https://docs.google.com/spreadsheets/d/PRIV3/edit#gid=0\"}, \"mark\": \"bar\", \"width\": 400, \"encoding\": {\"x\": {\"field\": \"Kk\", \"type\": \"nominal\"}, \"y\": {\"field\": \"Km\", \"type\": \"quantitative\"}}}\n```\n");
+      for (let i = 0; i < 40 && a.chartDataWanted() !== ""; i += 1) await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 400));
+      a.showTab("files");
+    });
+    await page.waitForFunction(() => window.__app.panels.filesJson.includes("Budjetti"), null, { timeout: 8000 }).catch(() => {});
+    const row = await page.evaluate(() => {
+      try { return JSON.parse(window.__app.panels.filesJson).files.find((f) => f.path.startsWith("data/live/")) || null; } catch (_) { return null; }
+    });
+    const res = await page.evaluate(async (path) => {
+      if (path) await window.__fileRequest("unlink:" + path);
+      await new Promise((r) => setTimeout(r, 400));
+      const files = await window.__docFiles();
+      const a = window.__app;
+      const md = a.source();
+      a.selectSlide(1);
+      const st = JSON.parse(a.stageJson());
+      const bars = st.list.cmds.filter((c) => c.k === 0 && c.w > 20 && c.h > 20 && c.w < 300).length;
+      Object.assign(window.sliqtly, window.__was);
+      a.showTab("md");
+      return { file: files.includes("data/Budjetti-Syyskuu.csv"), copy: files.includes(path), md: /"url": ?"data\/Budjetti-Syyskuu\.csv"/.test(md), bars };
+    }, row && row.path);
+    await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    check("Files: a linked sheet's copy is named after the sheet and tab, with its source", !!row && row.kind === "live" && row.title === "Budjetti · Syyskuu" && row.tag === "SHEET" && /PRIV3/.test(row.source) && /Google Sheets · /.test(row.note), JSON.stringify(row));
+    check("…and Unlink makes the chart read it as an ordinary data file", res.file && !res.copy && res.md && res.bars === 2, JSON.stringify(res));
+  }
+
+  // A private sheet pasted where the browser blocks Google's window (the
+  // press spent on the fetch): a card asks for one more press, which opens it
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const route = (r) => r.fulfill({ status: 200, contentType: "text/html", headers: { "access-control-allow-origin": "*" }, body: "<!doctype html><title>Sign in</title>" });
+    await page.context().route(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate(() => {
+      const s = window.sliqtly;
+      window.__was = { user: s.user, readSheet: s.readSheet, askSheets: s.askSheets };
+      let tok = null;
+      s.user = () => ({ uid: "u1", email: "u@example.com" });
+      let asks = 0;
+      // the first window (from the confirm card's press) blocked, the second opens
+      s.askSheets = async () => {
+        asks += 1;
+        if (asks === 1) throw Object.assign(new Error("blocked"), { code: "auth/popup-blocked" });
+        tok = "tok";
+        return tok;
+      };
+      s.readSheet = async () => {
+        if (!tok) throw Object.assign(new Error("blocked"), { code: "auth/popup-blocked" });
+        return "Kk,Km\nTammi,10\nHelmi,20\n";
+      };
+      const a = window.__app;
+      a.setSource("# D\n\n## Km\n\n");
+      a.showTab("md");
+      a.editor.moveCaret(4, 0, false);
+      const keys = document.getElementById("keys");
+      keys.focus();
+      const dt = new DataTransfer();
+      dt.setData("text/plain", "https://docs.google.com/spreadsheets/d/PRIV2/edit#gid=0");
+      keys.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    const asked = await page.waitForSelector("#gLink button.primary", { timeout: 5000 }).then(() => true).catch(() => false);
+    if (asked) await page.click("#gLink button.primary");
+    const card = await page.waitForSelector("#gTap button.primary", { timeout: 5000 }).then(() => true).catch(() => false);
+    if (card) await page.click("#gTap button.primary");
+    await page.waitForFunction(() => window.__app.shareIsOpen(), null, { timeout: 5000 }).catch(() => {});
+    const after = await page.evaluate(() => {
+      const a = window.__app;
+      const r = { open: a.shareIsOpen(), live: !!(a.panels.imp && a.panels.imp.live), rows: a.panels.imp ? a.panels.imp.rows : -1, card: !!document.getElementById("gTap") };
+      if (a.shareIsOpen()) a.closeShare();
+      Object.assign(window.sliqtly, window.__was);
+      return r;
+    });
+    await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    check("a blocked Google window: a card asks for a press, then the sheet is linked", asked && card && after.open && after.live && after.rows === 2 && !after.card, JSON.stringify({ asked, card, ...after }));
+  }
+
   // A sheet link pasted into the editor: "Link live data", then a chart and a
   // table that read the sheet live
   {
@@ -1410,9 +1881,14 @@ try {
       const dt = new DataTransfer();
       dt.setData("text/plain", link);
       keys.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+      // first asked whether the sheet is linked to the document
+      let card = null;
+      for (let i = 0; i < 50 && !(card = document.querySelector("#gLink button.primary")); i += 1) await new Promise((r) => setTimeout(r, 100));
+      const asked = !!card && !a.shareIsOpen() && !a.source().includes("docs.google.com");
+      if (card) card.click();
       for (let i = 0; i < 50 && !a.shareIsOpen(); i += 1) await new Promise((r) => setTimeout(r, 100));
       const imp = a.panels.imp;
-      const dialog = { open: a.shareIsOpen(), live: imp && imp.live, rows: imp && imp.rows, pasted: a.source().includes("docs.google.com") };
+      const dialog = { asked, open: a.shareIsOpen(), live: imp && imp.live, rows: imp && imp.rows, pasted: a.source().includes("docs.google.com") };
       a.panels.requests.push("data:chart");
       a.takePanels();
       window.__handleRequests && window.__handleRequests();
@@ -1426,8 +1902,72 @@ try {
     }, link);
     await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
     await page.evaluate((s) => window.__app.setSource(s), src0);
-    check("a pasted sheet link opens Link live data before anything is pasted", res.dialog.open && res.dialog.live && res.dialog.rows === 4 && !res.dialog.pasted, JSON.stringify(res.dialog));
+    check("a pasted sheet link asks first, then opens Link live data before anything is pasted", res.dialog.asked && res.dialog.open && res.dialog.live && res.dialog.rows === 4 && !res.dialog.pasted, JSON.stringify(res.dialog));
     check("…and makes a chart that reads the sheet (no copied values), drawn", res.fence && res.bars === 3, JSON.stringify(res));
+  }
+  // …or a table that reads the sheet live, paged on its slide
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    let body = '"Kuukausi","Km"\n' + Array.from({ length: 12 }, (_, i) => `"K${i}","${100 + i}"`).join("\n") + "\n";
+    const route = (r) => r.fulfill({ status: 200, contentType: "text/csv", headers: { "access-control-allow-origin": "*" }, body });
+    await page.context().route(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    const link = "https://docs.google.com/spreadsheets/d/SHEET3/edit?gid=0#gid=0";
+    const texts = () => page.evaluate(() => { const a = window.__app; const u = a.deck.tables[0]; if (!u) return null; a.selectSlide(u.slide); return { pages: u.pages(), t: JSON.parse(a.stageJson()).list.cmds.filter((c) => c.k === 3).map((c) => c.text) }; });
+    const made = await page.evaluate(async (link) => {
+      const a = window.__app;
+      a.setSource("# D\n\n## Km\n\n");
+      a.showTab("md");
+      a.editor.moveCaret(4, 0, false);
+      const keys = document.getElementById("keys");
+      keys.focus();
+      const dt = new DataTransfer();
+      dt.setData("text/plain", link);
+      keys.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+      let card = null;
+      for (let i = 0; i < 50 && !(card = document.querySelector("#gLink button.primary")); i += 1) await new Promise((r) => setTimeout(r, 100));
+      if (card) card.click();
+      for (let i = 0; i < 50 && !(a.shareIsOpen() && a.panels.imp && a.panels.imp.rows === 12); i += 1) await new Promise((r) => setTimeout(r, 100));
+      a.panels.requests.push("data:table");
+      a.takePanels();
+      window.__handleRequests && window.__handleRequests();
+      await new Promise((r) => setTimeout(r, 800));
+      return a.source();
+    }, link);
+    const first = await texts();
+    // the sheet changes: R reads it again and the table follows
+    body = '"Kuukausi","Km"\n"Uusi","7"\n';
+    await page.evaluate(() => document.getElementById("vData").click());
+    let second = null;
+    for (let i = 0; i < 30; i++) { await page.waitForTimeout(100); second = await texts(); if (second && second.t.includes("Uusi")) break; }
+    await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    const res = { fence: /```table\nhttps:\/\/docs\.google\.com\/spreadsheets\/d\/SHEET3/.test(made), copied: /data\/[^\n]*\.csv/.test(made.split("```table")[1] || ""), first: first && { pages: first.pages, k0: first.t.includes("K0"), k11: first.t.includes("K11") }, refreshed: !!second && second.t.includes("Uusi") };
+    check("…or makes a table that reads the sheet live, paged on its slide", res.fence && !res.copied && res.first && res.first.pages === 2 && res.first.k0 && !res.first.k11, JSON.stringify(res));
+    check("…and a re-read sheet redraws the table", res.refreshed, JSON.stringify(res));
+  }
+  // …and "Paste as text" on that question only pastes the link
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const res = await page.evaluate(async () => {
+      const a = window.__app;
+      a.setSource("# D\n\n## Km\n\n");
+      a.showTab("md");
+      a.editor.moveCaret(4, 0, false);
+      const keys = document.getElementById("keys");
+      keys.focus();
+      const dt = new DataTransfer();
+      if (a.shareIsOpen()) a.closeShare?.();
+      const before = a.shareIsOpen();
+      dt.setData("text/plain", "https://docs.google.com/spreadsheets/d/SHEET3/edit");
+      keys.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+      let no = null;
+      for (let i = 0; i < 50 && !(no = document.querySelector("#gLink button:not(.primary)")); i += 1) await new Promise((r) => setTimeout(r, 100));
+      if (no) no.click();
+      await new Promise((r) => setTimeout(r, 300));
+      return { card: !!no, pasted: a.source().includes("spreadsheets/d/SHEET3/edit"), dialog: a.shareIsOpen() && !before, gone: !document.getElementById("gLink") };
+    });
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    check("…and Paste as text on that question pastes the link only", res.card && res.pasted && !res.dialog && res.gone, JSON.stringify(res));
   }
 
 
@@ -1462,7 +2002,27 @@ try {
     });
     const bars1 = await barsOf();
     // the data file edited in the files tab: the chart follows
-    await page.evaluate(() => { const a = window.__app; a.panels.requests.push("files:open:data/vfs-sales.csv"); a.takePanels(); });
+    // Open on a CSV: the spreadsheet editor (EVGSheets), its rows in the cells
+    await page.evaluate(() => {
+      const ls = window.__liveSheets;
+      const was = ls.openDialog;
+      ls.openDialog = (o) => { window.__sheetAsked = { name: o.name, csv: o.csv }; ls.openDialog = was; return was(o); };
+      const a = window.__app;
+      a.panels.requests.push("files:open:data/vfs-sales.csv");
+      a.takePanels();
+    });
+    await page.waitForFunction(() => !!document.querySelector(".sheet-dialog canvas") || window.__app.openFilePath() === "data/vfs-sales.csv", null, { timeout: 30000 }).catch(() => {});
+    const csvOpen = await page.evaluate(() => ({ asked: window.__sheetAsked || null, dialog: !!document.querySelector(".sheet-dialog canvas"), name: document.querySelector(".sheet-dialog-bar strong")?.textContent || "", asText: window.__app.openFilePath() === "data/vfs-sales.csv" }));
+    await page.evaluate(() => [...document.querySelectorAll(".sheet-dialog-bar button")].find((b) => !b.classList.contains("primary"))?.click());
+    await page.waitForTimeout(300);
+    // without EVGSheets (no copy beside the page, its site out of reach) the
+    // text editor is the fallback
+    const sheetsHere = fs.existsSync(path.join(distDir, "sheets", "evgsheets.mjs"));
+    const asked = csvOpen.asked && csvOpen.asked.name === "vfs-sales.csv" && /^kk,euroa/i.test(csvOpen.asked.csv || "");
+    check("Open on a CSV file: the spreadsheet editor, not the text" + (sheetsHere ? "" : " (EVGSheets unreachable: asked, then the text)"),
+      asked && (sheetsHere ? csvOpen.dialog && csvOpen.name === "vfs-sales.csv" && !csvOpen.asText : csvOpen.asText), JSON.stringify(csvOpen).slice(0, 200));
+    // the text editor still edits a data file (JSON, or a CSV without EVGSheets)
+    await page.evaluate(() => { const a = window.__app; a.showTab("files"); a.openFile("data/vfs-sales.csv", "kk,euroa\n"); });
     await page.waitForFunction(() => window.__app.openFilePath() === "data/vfs-sales.csv", null, { timeout: 5000 }).catch(() => {});
     await page.evaluate(() => { const a = window.__app; a.fileEditor.init("kk,euroa\ntammi,120\nhelmi,180\nmaalis,90\nhuhti,300\n"); a.syncEditor(); });
     await page.waitForTimeout(1000);
@@ -1632,15 +2192,37 @@ try {
   check("the theme CSS is one declaration per line", hints.pretty, JSON.stringify(hints));
 
   // An emoji is measured as wide as the browser draws it, so the caret after
-  // one is at the end of the text
+  // one is at the end of the text and the space after one on a slide is
+  // there. ♨️ and 🍽️ carry U+FE0F, 👨‍👩‍👧 is joined, 🇫🇮 a pair, 1️⃣ a keycap:
+  // each is ONE picture the text faces know nothing about.
   const emoji = await page.evaluate(() => {
     const a = window.__app;
     const c = document.createElement("canvas").getContext("2d");
     c.font = "13px 'Open Sans'";
-    const s = "## ✨ Key Features 📈 {fx=a}";
-    return { ours: a.tr.measureWidth(s, 13), browser: c.measureText(s).width };
+    const lines = ["## ✨ Key Features 📈 {fx=a}", "- ♨️ **Saunaan** – 🍽️ x", "👨‍👩‍👧 🇫🇮 1️⃣ 👍🏽 ok"];
+    return lines.map((s) => ({ s, ours: a.tr.measureWidth(s, 13), slide: a.measurer.measureTextWidth(s, "Open Sans", 13), browser: c.measureText(s).width }));
   });
-  check("a line with emoji is measured as the browser draws it", Math.abs(emoji.ours - emoji.browser) < 1.5, JSON.stringify(emoji));
+  check("a line with emoji is measured as the browser draws it", emoji.every((e) => Math.abs(e.ours - e.browser) < 1.5), JSON.stringify(emoji));
+  check("…and so is the same line on a slide", emoji.every((e) => Math.abs(e.slide - e.browser) < 1.5), JSON.stringify(emoji));
+
+  // The caret steps over a whole emoji, never between ♨ and its U+FE0F
+  const caret = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.setSource("a♨️b👨‍👩‍👧c");
+    a.setFocus("editor");
+    a.editor.moveCaret(0, 1, false);
+    a.key("right", false, false);
+    const afterHot = a.editor.sel.caret.col;
+    a.key("right", false, false);
+    a.key("right", false, false);
+    const afterFam = a.editor.sel.caret.col;
+    a.editor.moveCaret(0, 2, false);
+    const snapped = a.editor.sel.caret.col;
+    a.setSource(src0);
+    return { afterHot, afterFam, snapped };
+  });
+  check("the caret steps over an emoji as one character", caret.afterHot === 3 && caret.afterFam === 12 && caret.snapped === 1, JSON.stringify(caret));
 
   // The editor never sits scrolled sideways past every line on screen, and a
   // sideways swipe scrolls it sideways
@@ -1713,9 +2295,70 @@ try {
   const fxPdf = Buffer.from(fxExp.pdf, "base64").toString("latin1");
   const fxImages = (fxPdf.match(/\/Subtype \/Image/g) || []).length;
   check("PDF: each slide's effect is a picture", fxImages === 2, `${fxImages} images`);
+  // A JPEG as a slide's background and as the header's logo, and a picture
+  // the deck has no file for: the PDF has no file system to open them from
+  // (it once failed with "require is not defined").
+  {
+    const jpg = await page.evaluate(() => {
+      const c = document.createElement("canvas");
+      c.width = 64;
+      c.height = 48;
+      const g = c.getContext("2d");
+      g.fillStyle = "#c33";
+      g.fillRect(0, 0, 64, 48);
+      return c.toDataURL("image/jpeg").split(",")[1];
+    });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evgp-jpg-"));
+    fs.writeFileSync(path.join(dir, "check-bg.jpg"), Buffer.from(jpg, "base64"));
+    await page.setInputFiles("#fileadd", [path.join(dir, "check-bg.jpg")]);
+    await page.waitForTimeout(800);
+    const jp = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      a.setSource("---\nheader-right: ![](media/check-bg.jpg)\n---\n\n# J\n\n## Tausta {bg=media/check-bg.jpg}\n\nteksti\n\n## Puuttuu\n\n![x](media/ei-ole.jpg)\n");
+      let out;
+      try {
+        const u = new Uint8Array(a.pdf());
+        let s = "";
+        for (let i = 0; i < u.length; i += 1) s += String.fromCharCode(u[i]);
+        out = { head: s.slice(0, 5), images: (s.match(/\/Subtype \/Image/g) || []).length };
+      } catch (e) {
+        out = { error: String(e) };
+      }
+      a.setSource(src0);
+      return out;
+    });
+    check("PDF: a JPEG background and header logo export; a missing picture is left out", jp.head === "%PDF-" && jp.images >= 1, JSON.stringify(jp));
+  }
   const fxPptx = unzip(Buffer.from(fxExp.pptx, "base64"));
   const bgs = [2, 3, 4].map((n) => /<p:bg><p:bgPr><a:blipFill>/.test(fxPptx.get(`ppt/slides/slide${n}.xml`) || ""));
   check("PPTX: the effect is the slide's background, only where there is one", bgs.join(",") === "true,true,false", bgs.join(","));
+  // A slide's own picture (bg=, cut and dimmed as the stage shows it) is the
+  // PPTX slide's background too, and the file is laid out like the stage:
+  // a task list keeps its boxes, text the size the slide drew it.
+  const own = await page.evaluate(async () => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.setSource("# E\n\n## Kuva {bg=media/check-pic.png bg-dim=0.4}\n\n- [x] tehty\n- [ ] auki\n\n## Ilman\n\nteksti\n");
+    const toB64 = (buf) => {
+      const u = new Uint8Array(buf);
+      let s = "";
+      for (let i = 0; i < u.length; i += 1) s += String.fromCharCode(u[i]);
+      return btoa(s);
+    };
+    await window.__renderFxStills();
+    await window.__judgeExportContrast();
+    const pptx = toB64(a.pptx());
+    a.setSource(src0);
+    return pptx;
+  });
+  const ownPptx = unzip(Buffer.from(own, "base64"));
+  const ownBgs = [2, 3].map((n) => /<p:bg><p:bgPr><a:blipFill>/.test(ownPptx.get(`ppt/slides/slide${n}.xml`) || ""));
+  check("PPTX: a slide's own picture is its background", ownBgs.join(",") === "true,false", ownBgs.join(","));
+  const ownSlide = ownPptx.get("ppt/slides/slide2.xml") || "";
+  check("PPTX: a task list keeps its boxes", ownSlide.includes('char="☑"') && ownSlide.includes('char="☐"'));
+  const ownSizes = [...ownSlide.matchAll(/<a:rPr[^>]* sz="(\d+)"/g)].map((m) => +m[1]);
+  check("PPTX: text is the size the stage draws it, not the markdown default 20 pt", ownSizes.length > 0 && ownSizes.every((v) => v !== 2000), ownSizes.join(","));
   const names = await page.evaluate(() => {
     const a = window.__app;
     const src = a.source();
@@ -1901,15 +2544,22 @@ try {
     const fakeDb = new Map();
     const fakeFiles = new Map();
     let puts = 0;
+    let failPuts = 0;
     const stamp = (o) => { for (const k of Object.keys(o)) if (o[k] && o[k].__ts) o[k] = Date.now(); return o; };
     const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
     await ctx.exposeFunction("__fakeFirebase", (op, a) => {
       if (op === "get") return fakeDb.get(a.k) ?? null;
+      if (op === "query") {
+        return [...fakeDb.entries()].filter(([k, d]) => k.startsWith(a.c + "/") && d[a.f] === a.v).slice(0, a.n)
+          .map(([k, d]) => ({ id: k.slice(a.c.length + 1), d }));
+      }
       if (op === "set") fakeDb.set(a.k, stamp(a.merge ? { ...fakeDb.get(a.k), ...a.data } : a.data));
       else if (op === "update") {
         if (!fakeDb.has(a.k)) throw new Error("no document " + a.k);
         fakeDb.set(a.k, stamp({ ...fakeDb.get(a.k), ...a.data }));
-      } else if (op === "put") { puts += 1; fakeFiles.set(a.p, { type: a.type, buf: Buffer.from(a.b64, "base64") }); }
+      } else if (op === "put") {
+        if (failPuts > 0) { failPuts -= 1; throw new Error("storage/retry-limit-exceeded"); }
+        puts += 1; fakeFiles.set(a.p, { type: a.type, buf: Buffer.from(a.b64, "base64") }); }
       else if (op === "del") fakeFiles.delete(a.p);
       return null;
     });
@@ -1921,7 +2571,12 @@ try {
         update: (data) => call("update", { k: c + "/" + id, data }),
         get: async () => { const d = await call("get", { k: c + "/" + id }); return { exists: d != null, data: () => d }; },
       });
-      const db = { collection: (c) => ({ doc: (id) => ref(c, id) }) };
+      const ms = (v) => (typeof v === "number" ? { toMillis: () => v } : v);
+      const query = (c, f, v, n) => ({
+        limit: (m) => query(c, f, v, m),
+        get: async () => ({ docs: (await call("query", { c, f, v, n: n || 1000 })).map((x) => ({ id: x.id, data: () => ({ ...x.d, updated: ms(x.d.updated), created: ms(x.d.created) }) })) }),
+      });
+      const db = { collection: (c) => ({ doc: (id) => ref(c, id), where: (f, op, v) => query(c, f, v, 0) }) };
       const firestore = () => db;
       firestore.FieldValue = { serverTimestamp: () => ({ __ts: true }) };
       const storage = () => ({ ref: (p) => ({
@@ -1946,12 +2601,15 @@ try {
       await pc.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
       await pc.waitForTimeout(400);
     };
-    const shareId = () => [...fakeDb.keys()].filter((k) => k.startsWith("shares/")).map((k) => k.slice(7));
+    const shareId = () => [...fakeDb.keys()].filter((k) => k.startsWith("shares/") && !k.startsWith("shares/zz")).map((k) => k.slice(7));
     const filesListed = async (name) => {
       await pc.evaluate(() => window.__app.showTab("files"));
       await pc.waitForFunction((n) => window.__app.panels.filesJson.includes(n), name, { timeout: 8000 }).catch(() => {});
       return pc.evaluate((n) => window.__app.panels.filesJson.includes(n), name);
     };
+    // the user's own deck that only the cloud keeps, and someone else's
+    fakeDb.set("shares/zzCloudOnly1", { name: "Vain pilvessä", md: "# Vain pilvessä\n\n## Dia\n", theme: "aurora", css: null, owner: "u1", files: [], created: 1000 });
+    fakeDb.set("shares/zzSomeoneElse", { name: "Toisen esitys", md: "# Toisen\n", owner: "u2", files: [], created: 1000 });
     await pc.goto(url);
     await started();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evgp-cloud-"));
@@ -1995,11 +2653,142 @@ try {
     check("PRO: Share links to the deck's own cloud copy", link.endsWith("/s/" + id + "?edit") && shareId().length === 1, link);
     await pc.evaluate(() => window.__app.closeShare());
 
-    // changed elsewhere meanwhile: not written over
-    fakeDb.set("shares/" + id, { ...fakeDb.get("shares/" + id), md: "# Muualla muutettu\n", updated: Date.now() });
+    // changed elsewhere meanwhile: not written over, the two merged here
+    // (web/versions.js) and then written
+    const elsewhere = fakeDb.get("shares/" + id).md.replace("## Avustajan dia", "## Avustajan dia, muutettu muualla");
+    fakeDb.set("shares/" + id, { ...fakeDb.get("shares/" + id), md: elsewhere, updated: Date.now() });
     await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Vielä yksi\n"));
-    await pc.waitForTimeout(5000);
-    check("PRO: a deck changed elsewhere is not written over", fakeDb.get("shares/" + id).md === "# Muualla muutettu\n");
+    await pc.waitForFunction(() => window.__app.source().includes("muutettu muualla"), null, { timeout: 10000 }).catch(() => {});
+    await pc.waitForTimeout(4000);
+    const mergedMd = fakeDb.get("shares/" + id).md;
+    check("PRO: a deck changed elsewhere is merged, not written over", mergedMd.includes("## Avustajan dia, muutettu muualla") && mergedMd.includes("## Vielä yksi") && (await pc.evaluate(() => window.__app.source())) === mergedMd, JSON.stringify(mergedMd.slice(-200)));
+
+    // the window's Name field: a drag selects and typing replaces it,
+    // Ctrl+A selects all, and the × at its end empties it
+    {
+      await pc.evaluate(() => window.__fileRequest("new"));
+      await pc.waitForTimeout(300);
+      const nameOf = () => pc.evaluate(() => JSON.parse(window.__app.newDeckPlan()).name);
+      // empty, with the hint drawn as a placeholder and not as a value
+      check("New presentation: Name starts empty", (await nameOf()) === "");
+      await pc.keyboard.type("Myynti 2026");
+      await pc.mouse.move(584, 235);
+      await pc.mouse.down();
+      await pc.mouse.move(610, 235);
+      await pc.mouse.move(628, 235);
+      await pc.mouse.up();
+      await pc.keyboard.type("Tulos");
+      const replaced = await nameOf();
+      await pc.keyboard.press("Meta+a");
+      await pc.keyboard.type("Vanha");
+      const allMeta = await nameOf();
+      await pc.keyboard.press("Control+a");
+      await pc.keyboard.type("Uusi");
+      const all = await nameOf();
+      await pc.mouse.click(832, 235);
+      await pc.waitForTimeout(200);
+      const cleared = await nameOf();
+      await pc.keyboard.type("Z");
+      const after = await nameOf();
+      check("New presentation: a drag in Name selects, Ctrl+A selects all, × clears", replaced.startsWith("Tulos") && replaced.endsWith("2026") && allMeta === "Vanha" && all === "Uusi" && cleared === "" && after === "Z",
+        JSON.stringify({ replaced, allMeta, all, cleared, after }));
+      await pc.keyboard.press("Escape");
+      await pc.waitForTimeout(300);
+    }
+    // File → New presentation asks first: Esc leaves the deck as it is
+    const before = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search) };
+    await pc.evaluate(() => window.__fileRequest("new"));
+    await pc.waitForTimeout(300);
+    const asked = await pc.evaluate(() => window.__app.chartIsOpen());
+    await pc.keyboard.press("Escape");
+    await pc.waitForTimeout(500);
+    const kept = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search) };
+    check("PRO: New presentation asks first, and Esc keeps the deck", asked && kept.md === before.md && kept.at === before.at, JSON.stringify(kept.at));
+    // made: a share and an address of its own; the deck before stays as it was
+    await pc.evaluate(() => window.__fileRequest("new"));
+    await pc.waitForTimeout(300);
+    await pc.keyboard.type("Uusi pakka");
+    await pc.keyboard.press("Enter");
+    await pc.waitForTimeout(3000);
+    const made = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search), ids: shareId() };
+    const newId = made.ids.find((k) => k !== id) || "";
+    check("PRO: a new presentation gets its own share and address", made.ids.length === 2 && made.at === "/s/" + newId + "?edit" && made.md.startsWith("# Uusi pakka") && fakeDb.get("shares/" + newId)?.md === made.md && fakeDb.get("shares/" + id).md === mergedMd,
+      JSON.stringify({ at: made.at, ids: made.ids }));
+    // the last change of a deck reaches its share although another is made at once
+    await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Viimeinen muutos\n"));
+    await pc.waitForTimeout(1700);
+    await pc.evaluate(() => window.__fileRequest("new"));
+    await pc.waitForTimeout(300);
+    await pc.keyboard.press("Enter");
+    await pc.waitForTimeout(3000);
+    check("PRO: a deck's last change is saved to its share before a new one is made", fakeDb.get("shares/" + newId).md.includes("## Viimeinen muutos") && shareId().length === 3);
+    // File → Duplicate: the deck saved first, then a copy with its own share
+    // and address, its Markdown retitled and its files with it
+    await pc.evaluate(() => window.__app.setSource("# Alkuperäinen\n\n## Kuva\n\n![kuva](media/cloud-pic.png)\n"));
+    await pc.setInputFiles("#fileadd", [path.join(dir, "cloud-pic.png")]);
+    await pc.waitForTimeout(800);
+    const origAt = await pc.evaluate(() => location.pathname);
+    const origId = origAt.replace(/^\/s\//, "");
+    await pc.evaluate(() => window.__fileRequest("duplicate"));
+    await pc.waitForTimeout(3000);
+    const dup = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search), ids: shareId() };
+    const dupId = dup.ids.find((k) => k !== id && k !== newId && k !== origId) || "";
+    const orig = fakeDb.get("shares/" + origId);
+    check("PRO: Duplicate makes a copy with its own share, address, files and name",
+      dup.ids.length === 4 && dup.at === "/s/" + dupId + "?edit" && /^# Alkuperäinen \((copy|kopio)\)\n/.test(dup.md) && dup.md.includes("## Kuva")
+        && fakeDb.get("shares/" + dupId)?.md === dup.md && (fakeDb.get("shares/" + dupId)?.files || []).some((f) => f.path === "media/cloud-pic.png")
+        && orig?.md.startsWith("# Alkuperäinen\n") && (orig.files || []).some((f) => f.path === "media/cloud-pic.png"),
+      JSON.stringify({ at: dup.at, ids: dup.ids, md: dup.md.slice(0, 40) }));
+    // File → New presentation, then New → Datasheet saved: the workbook goes
+    // to the new deck's own share, and no second share is made
+    {
+      const before = shareId();
+      await pc.evaluate(() => window.__fileRequest("new"));
+      await pc.waitForTimeout(300);
+      await pc.keyboard.type("Vuokra ja menot");
+      await pc.keyboard.press("Enter");
+      await pc.waitForTimeout(3000);
+      const { writeWorkbook } = await import("../mcp/src/xlsx.js");
+      const book = [...writeWorkbook([{ name: "Sheet1", rows: [["Kuukausi", "Vuokra"], ["2026-01", 950]] }])];
+      await pc.evaluate((b) => window.__saveWorkbook("data/sheet-1.xlsx", new Uint8Array(b).buffer), book);
+      await pc.waitForTimeout(4000);
+      const made = shareId().filter((k) => !before.includes(k));
+      const sh = made.length ? fakeDb.get("shares/" + made[0]) : null;
+      const at = await pc.evaluate(() => location.pathname + location.search);
+      check("PRO: a new deck's datasheet is saved to its share",
+        made.length === 1 && (sh?.files || []).some((f) => f.path === "data/sheet-1.xlsx") && at === "/s/" + made[0] + "?edit",
+        JSON.stringify({ made, at, files: (sh?.files || []).map((f) => f.path), md: sh?.md }));
+    }
+    // a file that fails while the share is made (Duplicate of the deck
+    // above, its workbook with it): the copy keeps that share, its address
+    // names it, and the next save sends the file again
+    {
+      const before = shareId();
+      failPuts = 1;
+      await pc.evaluate(() => window.__fileRequest("duplicate"));
+      await pc.waitForTimeout(3500);
+      const ids1 = shareId().filter((k) => !before.includes(k));
+      const at1 = await pc.evaluate(() => location.pathname);
+      await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Uudelleen\n"));
+      await pc.waitForTimeout(4000);
+      const ids2 = shareId().filter((k) => !before.includes(k));
+      const sh = ids2.length ? fakeDb.get("shares/" + ids2[0]) : null;
+      check("PRO: a share whose file failed is kept, and the file goes on the next save",
+        ids1.length === 1 && ids2.length === 1 && at1 === "/s/" + ids1[0] && (sh?.files || []).some((f) => f.path === "data/sheet-1.xlsx") && sh.md.includes("## Uudelleen"),
+        JSON.stringify({ ids1, ids2, at1, files: (sh?.files || []).map((f) => f.path) }));
+    }
+    // the user's own shares this browser does not keep: listed, and opened
+    // from the cloud
+    // (kept since the start of the PRO checks, so the list read at sign-in has them)
+    await pc.evaluate(() => window.__app.showTab("files"));
+    await pc.evaluate(() => window.__fileRequest("noop"));
+    const listed = await filesListed("cloud:zzCloudOnly1");
+    const other = await pc.evaluate(() => window.__app.panels.filesJson.includes("zzSomeoneElse"));
+    await pc.evaluate(() => window.__fileRequest("doc:cloud:zzCloudOnly1"));
+    await pc.waitForTimeout(2000);
+    const opened = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search) };
+    check("PRO: the user's cloud decks are listed with this browser's, and open from the cloud",
+      listed && !other && opened.md.startsWith("# Vain pilvessä"), JSON.stringify(opened));
     check("no page errors with PRO", perr.length === 0, perr.join(" | "));
     await ctx.close();
   }
@@ -2014,7 +2803,291 @@ try {
     a.closeShare();
     return out;
   });
-  check("Open: the samples list starts with a deck, the prompt only on the trigger", samples.trigger === "Open sample document…" && samples.rows[0] === "talous=Finance: take charge of your money" && !samples.rows.some((r) => r.startsWith("=")), JSON.stringify(samples));
+  check("Open: the samples list starts with a deck, the prompt only on the trigger", samples.trigger === "Open sample document…" && samples.rows[0] === "welcome=Welcome: what Sliqtly can do" && !samples.rows.some((r) => r.startsWith("=")), JSON.stringify(samples));
+
+  // a first visit (nothing kept in this browser) opens the welcome deck in
+  // English, with a card that starts a deck of one's own
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1200, height: 760 }, locale: "en-US" });
+    const pw = await ctx.newPage();
+    const werr = [];
+    pw.on("pageerror", (e) => werr.push(e.message));
+    await pw.goto(url);
+    await pw.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const first = await pw.evaluate(() => ({
+      md: window.__app.source().slice(0, 200),
+      card: !!document.getElementById("welcomeCard"),
+      theme: document.getElementById("theme").value,
+    }));
+    check("first visit: the welcome deck opens, in English on the white theme, with the welcome card", first.md.includes("# Sliqtly Better Slides") && first.card && first.theme === "corporate", JSON.stringify(first));
+    await pw.click("#welcomeCard button.primary");
+    await pw.waitForTimeout(300);
+    const started = await pw.evaluate(() => ({ open: window.__app.chartIsOpen(), mode: window.__app.chart.mode, card: !!document.getElementById("welcomeCard") }));
+    check("first visit: Start your own deck opens the New presentation window", started.open && started.mode === "newdeck" && !started.card, JSON.stringify(started));
+    check("no page errors on a first visit", werr.length === 0, werr.join(" | "));
+    await ctx.close();
+  }
+
+  // the document settings window: opened from the front matter's popover
+  // and from the page's pick, it rewrites the front matter as one undo step
+  {
+    const pd = await browser.newPage({ viewport: { width: 1400, height: 860 } });
+    const derr = [];
+    pd.on("pageerror", (e) => derr.push(e.message));
+    await pd.goto(url + "?sample=esittely");
+    await pd.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const ds = await pd.evaluate(async () => {
+      const a = window.__app;
+      const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      const tap = (root, id) => { const e = walk(root, id); if (!e) return false; a.pointerDown(e.calculatedX + 6, e.calculatedY + 6, false, 1); a.pointerUp(); return true; };
+      const settle = async () => { window.__handleRequests(); await new Promise((r) => setTimeout(r, 400)); };
+      const out = {};
+      a.setSource("---\ntitle: Q3\nfooter-right: \"{page} / {pages}\"\n---\n\n# Cover\n\n## Two\n\ntext\n");
+      a.showTab("md");
+      a.openHint(a.hintFor(0, 1));
+      a.hintJson();
+      out.hintBtn = tap(a.hint.host.lastPage, "hp-docset");
+      await settle();
+      out.fromHint = a.chartIsOpen() && a.chart.mode;
+      a.chartJson();
+      tap(a.chart.host.lastPage, "ds-t-0");
+      a.text("Acme");
+      a.chartJson();
+      tap(a.chart.host.lastPage, "ds-first");
+      out.written = a.source().split("\n").slice(0, 6).join("|");
+      a.key("escape", false, false);
+      a.undo();
+      out.undone = a.source().split("\n").slice(0, 4).join("|");
+      a.selectSlide(1);
+      a.place();
+      const r = a.slideRect;
+      a.pointerDown(r.x + r.w * 0.8, r.y + r.h * 0.75, false, 1);
+      a.pointerUp();
+      out.page = [a.pick.sel, a.pickJson().includes("Document settings")];
+      a.pickContent();
+      await settle();
+      out.fromPage = a.chartIsOpen() && a.chart.mode;
+      return out;
+    });
+    check("Document settings opens from the front matter popover and the page's pick", ds.hintBtn && ds.fromHint === "docset" && ds.page[0] === "page" && ds.page[1] && ds.fromPage === "docset", JSON.stringify(ds));
+    check("Document settings writes the front matter and undoes as one step", ds.written === "---|title: Q3|footer-right: \"{page} / {pages}\"|header-left: Acme|header-skip: first|---" && ds.undone === "---|title: Q3|footer-right: \"{page} / {pages}\"|---", JSON.stringify(ds));
+    check("no page errors in the document settings", derr.length === 0, derr.join(" | "));
+    await pd.close();
+  }
+
+  // the address follows the slide, the editor's tab and the presentation,
+  // and a reload comes back to them
+  {
+    const ph = await browser.newPage({ viewport: { width: 1200, height: 760 } });
+    await ph.goto(url + "?sample=esittely");
+    await ph.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await ph.evaluate(() => { window.__app.selectSlide(2); window.__app.showTab("css"); });
+    await ph.waitForFunction(() => /slide=3/.test(location.hash) && /tab=css/.test(location.hash), null, { timeout: 5000 }).catch(() => {});
+    const hashed = await ph.evaluate(() => location.hash);
+    await ph.reload();
+    await ph.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const back = await ph.evaluate(() => ({ slide: JSON.parse(window.__app.layoutJson()).slide, tab: window.__app.editorTab() }));
+    await ph.evaluate(() => document.getElementById("present").click());
+    await ph.waitForFunction(() => /view=present/.test(location.hash), null, { timeout: 5000 }).catch(() => {});
+    await ph.reload();
+    await ph.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const shown = await ph.evaluate(() => { const l = JSON.parse(window.__app.layoutJson()); return { mode: l.mode, slide: l.slide, len: history.length }; });
+    await ph.close();
+    check("the address keeps the slide, the tab and the presentation over a reload", hashed === "#slide=3&tab=css" && back.slide === 2 && back.tab === "css" && shown.mode === "present" && shown.slide === 2, JSON.stringify({ hashed, back, shown }));
+    // a new deck kept in this browser: its id in the address, and a reload
+    // opens it even when another tab saved a deck of its own since
+    const pn = await browser.newPage({ viewport: { width: 1200, height: 760 } });
+    await pn.goto(url);
+    await pn.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await pn.evaluate(() => window.__fileRequest("new"));
+    await pn.waitForTimeout(300);
+    await pn.keyboard.type("Vuokra ja menot");
+    await pn.keyboard.press("Enter");
+    await pn.waitForFunction(() => /doc=/.test(location.hash), null, { timeout: 8000 }).catch(() => {});
+    const addr = await pn.evaluate(() => location.hash);
+    await pn.evaluate(() => localStorage.setItem("evgp.doc", "some-other-deck"));
+    await pn.reload();
+    await pn.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    // opening the deck tidies the address and the next painted frame writes
+    // it back (followAddress), which may come after the page has started
+    await pn.waitForFunction(() => /doc=/.test(location.hash), null, { timeout: 5000 }).catch(() => {});
+    const reopened = await pn.evaluate(() => ({ md: window.__app.source().slice(0, 20), at: location.hash }));
+    await pn.close();
+    check("a new deck's id is in the address and a reload opens that deck", /^#doc=[a-z0-9-]+$/.test(addr) && reopened.md.startsWith("# Vuokra ja menot") && reopened.at === addr, JSON.stringify({ addr, reopened }));
+  }
+
+  // Versions (web/versions.js) and one deck open in two places. Two tabs of
+  // one browser: a change in one shows in the other, edits to different
+  // lines are merged, edits to the same line ask, and a version restored
+  // reaches both. Then two "devices" over a share kept by this script in
+  // place of Firestore and Storage: a change made on one is taken by the
+  // other when it gets the focus, edits are merged through the share, and
+  // an assistant's edit to the share is taken.
+  {
+    const verr = [];
+    const ctx = await browser.newContext({ viewport: { width: 1200, height: 760 } });
+    const tab = async (u) => {
+      const p = await ctx.newPage();
+      p.on("pageerror", (e) => verr.push(e.message));
+      await p.goto(u);
+      await p.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+      return p;
+    };
+    const src = (p) => p.evaluate(() => window.__app.source());
+    const edit = (p, from, to) => p.evaluate(([a, b]) => window.__app.setSource(window.__app.source().replace(a, b)), [from, to]);
+    const base = "# Kaksi ikkunaa\n\n## Yksi\n\nrivi 1\nrivi 2\nrivi 3\n\n## Kaksi\n\nrivi 4\nrivi 5\nrivi 6\n";
+    const a = await tab(url);
+    await a.evaluate(() => window.__fileRequest("new"));
+    await a.waitForTimeout(300);
+    await a.keyboard.type("Kaksi ikkunaa");
+    await a.keyboard.press("Enter");
+    await a.waitForFunction(() => /doc=/.test(location.hash), null, { timeout: 8000 }).catch(() => {});
+    await a.evaluate((md) => window.__app.setSource(md), base);
+    await a.waitForTimeout(2500);
+    const b = await tab(url + (await a.evaluate(() => location.hash)));
+    await edit(a, "rivi 1", "rivi 1 A");
+    await b.waitForFunction(() => window.__app.source().includes("rivi 1 A"), null, { timeout: 15000 }).catch(() => {});
+    check("versions: a change in one tab shows in the other", (await src(b)).includes("rivi 1 A"));
+    await edit(a, "rivi 2", "rivi 2 A");
+    await edit(b, "rivi 5", "rivi 5 B");
+    await a.waitForTimeout(6000);
+    const m = [await src(a), await src(b)];
+    check("versions: edits to different lines in two tabs are merged", m[0] === m[1] && m[0].includes("rivi 2 A") && m[0].includes("rivi 5 B"), JSON.stringify(m));
+    await edit(a, "rivi 3", "rivi 3 A");
+    await edit(b, "rivi 3", "rivi 3 B");
+    await a.waitForTimeout(4000);
+    const asked = (await a.evaluate(() => !!document.getElementById("mergeCard"))) ? a : (await b.evaluate(() => !!document.getElementById("mergeCard"))) ? b : null;
+    check("versions: the same line edited in two tabs asks", !!asked);
+    if (asked) {
+      await asked.evaluate(() => document.querySelector('#mergeCard input[value="both"]').click());
+      await asked.evaluate(() => document.querySelector("#mergeCard button.primary").click());
+    }
+    await a.waitForTimeout(5000);
+    const both = [await src(a), await src(b)];
+    check("versions: both kept as asked, and the tabs agree", both[0] === both[1] && both[0].includes("rivi 3 A") && both[0].includes("rivi 3 B"), JSON.stringify(both));
+    await a.evaluate(() => document.getElementById("history").click());
+    await a.waitForSelector("#versions .vItem", { timeout: 8000 }).catch(() => {});
+    await a.fill("#versions .vSave input", "Ennen palautusta");
+    await a.click("#versions .vSave button");
+    await a.waitForFunction(() => [...document.querySelectorAll("#versions .vMsg")].some((e) => e.textContent === "Ennen palautusta"), null, { timeout: 5000 }).catch(() => {});
+    const msgs = await a.evaluate(() => [...document.querySelectorAll("#versions .vMsg")].map((e) => e.textContent));
+    check("versions: the history lists versions, one saved by hand with its message", msgs.length >= 3 && msgs[0] === "Ennen palautusta", JSON.stringify(msgs));
+    const tops = await a.$$("#versions .vItem .vTop");
+    await tops[tops.length - 1].click();
+    await a.waitForTimeout(400);
+    await tops[tops.length - 2].click();
+    await a.waitForTimeout(400);
+    const links = await a.$$("#versions .vLink");
+    if (links.length) await links[links.length - 1].click();
+    await a.waitForTimeout(300);
+    const diff = await a.evaluate(() => [...document.querySelectorAll("#versions .vDiff")].map((e) => e.textContent).join("\n"));
+    check("versions: a version's changes as a unified diff", /^@@ /m.test(diff) && /^[-+]rivi/m.test(diff), diff.slice(0, 120));
+    const before = await src(a);
+    await a.evaluate(() => [...document.querySelectorAll("#versions .vBody button:not(.vLink)")].find((x) => x.offsetParent).click());
+    await a.waitForTimeout(1500);
+    const restored = await src(a);
+    await b.waitForFunction((t) => window.__app.source() === t, restored, { timeout: 8000 }).catch(() => {});
+    check("versions: a version restored, and the other tab follows", restored !== before && !restored.includes("rivi 3 A") && (await src(b)) === restored, JSON.stringify(restored));
+    await ctx.close();
+
+    // two devices and a share
+    const shares = {};
+    const objects = {};
+    const ops = {
+      share(deck) { const id = "check" + (Object.keys(shares).length + 1) + "share"; shares[id] = { ...deck, owner: "u1", head: null, log: [] }; return id; },
+      saveShare(id, deck, since) {
+        const cur = shares[id];
+        if (since.md != null && cur.md !== since.md) return { error: "changed-elsewhere" };
+        Object.assign(cur, deck);
+        return cur.files;
+      },
+      load(id) { return shares[id] || null; },
+      put(s, o, b64) { objects[s + "/" + o] = b64; return true; },
+      get(s, o) { return objects[s + "/" + o] || null; },
+      push(s, expect, head, entries) {
+        const cur = shares[s];
+        if (cur.head !== (expect || null) && cur.head !== head) return { ok: false, head: cur.head, log: cur.log };
+        const seen = new Set(cur.log.map((e) => e.id));
+        cur.log = cur.log.concat(entries.filter((e) => !seen.has(e.id)));
+        cur.head = head;
+        return { ok: true, head, log: cur.log };
+      },
+    };
+    const device = async () => {
+      const dc = await browser.newContext({ viewport: { width: 1200, height: 760 } });
+      await dc.exposeFunction("__cloud", (op, args) => JSON.stringify(ops[op](...JSON.parse(args))));
+      const p = await dc.newPage();
+      p.on("pageerror", (e) => verr.push(e.message));
+      await p.goto(url);
+      await p.waitForFunction(() => window.__pageStarted === true && !!window.sliqtly, null, { timeout: 90000 });
+      await p.evaluate(() => {
+        const call = async (op, ...args) => {
+          const r = JSON.parse(await window.__cloud(op, JSON.stringify(args)));
+          if (r && r.error) throw Object.assign(new Error(r.error), { code: r.error });
+          return r;
+        };
+        const b64 = (u8) => { let s = ""; for (const x of u8) s += String.fromCharCode(x); return btoa(s); };
+        const asUrl = async (f) => {
+          const blob = f.data instanceof Blob ? f.data : new Blob([f.data ?? ""], { type: f.type || "text/plain" });
+          return { path: f.path, type: f.type || blob.type, size: blob.size, url: "data:application/octet-stream;base64," + b64(new Uint8Array(await blob.arrayBuffer())) };
+        };
+        const deckOf = async (d) => ({ name: d.name, md: d.md, theme: d.theme || "", css: d.css ?? null, files: await Promise.all((d.files || []).map(asUrl)) });
+        Object.assign(window.sliqtly, {
+          user: () => ({ uid: "u1" }),
+          signedIn: async () => ({ uid: "u1" }),
+          share: async (d) => call("share", await deckOf(d)),
+          saveShare: async (id, d, since) => call("saveShare", id, await deckOf(d), { md: since.md }),
+          loadShare: (id) => call("load", id),
+          readHead: (id) => call("load", id),
+          putObject: (s, o, bytes) => call("put", s, o, b64(bytes)),
+          getObject: async (s, o) => {
+            const x = await call("get", s, o);
+            return x ? Uint8Array.from(atob(x), (c) => c.charCodeAt(0)) : null;
+          },
+          pushHead: (s, e, h, entries) => call("push", s, e, h, entries),
+        });
+        window.dispatchEvent(new Event("sliqtly:user"));
+      });
+      return { p, dc };
+    };
+    const A = await device();
+    await A.p.evaluate(() => window.__fileRequest("new"));
+    await A.p.waitForTimeout(300);
+    await A.p.keyboard.type("Kaksi konetta");
+    await A.p.keyboard.press("Enter");
+    await A.p.waitForTimeout(500);
+    await A.p.evaluate((md) => window.__app.setSource(md), base.replace("Kaksi ikkunaa", "Kaksi konetta"));
+    for (let i = 0; i < 40 && !(Object.values(shares)[0]?.md || "").includes("rivi 6"); i++) await A.p.waitForTimeout(250);
+    await A.p.evaluate(() => window.__checkElsewhere());
+    await A.p.waitForTimeout(1500);
+    const id = Object.keys(shares)[0];
+    check("versions: a PRO deck's versions go up beside its share", !!id && !!shares[id].head && Object.keys(objects).length >= 3, String(Object.keys(objects).length));
+    const B = await device();
+    await B.p.evaluate((x) => window.__fileRequest("doc:cloud:" + x), id);
+    await B.p.waitForTimeout(2500);
+    await edit(B.p, "rivi 1", "rivi 1 B");
+    for (let i = 0; i < 40 && !shares[id].md.includes("rivi 1 B"); i++) await B.p.waitForTimeout(250);
+    await A.p.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await A.p.waitForFunction(() => window.__app.source().includes("rivi 1 B"), null, { timeout: 8000 }).catch(() => {});
+    check("versions: the other device's change is taken when the window gets the focus", (await src(A.p)).includes("rivi 1 B"));
+    await edit(A.p, "rivi 2", "rivi 2 A");
+    await edit(B.p, "rivi 5", "rivi 5 B");
+    await A.p.waitForTimeout(6000);
+    for (let i = 0; i < 2; i++) {
+      await A.p.evaluate(() => window.__checkElsewhere());
+      await B.p.evaluate(() => window.__checkElsewhere());
+      await A.p.waitForTimeout(3000);
+    }
+    const d = [await src(A.p), await src(B.p), shares[id].md];
+    check("versions: edits on two devices are merged through the share", d[0] === d[1] && d[1] === d[2] && d[0].includes("rivi 2 A") && d[0].includes("rivi 5 B"), JSON.stringify(d));
+    shares[id].md = shares[id].md.replace("rivi 6", "rivi 6 AI");
+    await A.p.evaluate(() => window.__checkElsewhere());
+    await A.p.waitForFunction(() => window.__app.source().includes("rivi 6 AI"), null, { timeout: 8000 }).catch(() => {});
+    check("versions: an assistant's edit to the share is taken", (await src(A.p)).includes("rivi 6 AI"));
+    await A.dc.close();
+    await B.dc.close();
+    check("no page errors with versions", verr.length === 0, verr.join(" | "));
+  }
 
   // the interface in another language: ?lang=fi, the canvas bar and the page alike
   const pageFi = await browser.newPage({ viewport: { width: 1200, height: 760 } });

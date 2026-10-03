@@ -81,6 +81,23 @@
   body.viewer #viewBar { display: flex; }
   body.viewer.idle #viewBar { opacity: 0; pointer-events: none; }
   #viewBar > button[hidden] { display: none; }
+  /* main.js pressCard: a Google Sheet link confirmed, Google's window opened from a press */
+  .gCard {
+    position: fixed; left: 50%; top: 30%; transform: translateX(-50%); z-index: 20;
+    width: min(420px, calc(100vw - 32px)); box-sizing: border-box; padding: 18px;
+    background: #18181b; color: #fafafa; border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    font: 15px/1.45 "Open Sans", system-ui, sans-serif;
+  }
+  .gCard p { margin: 0 0 14px; }
+  .gCard button {
+    min-height: 44px; padding: 0 16px; margin-right: 8px; border-radius: 8px; font: inherit;
+    border: 1px solid rgba(255, 255, 255, 0.25); background: transparent; color: inherit; cursor: pointer;
+  }
+  .gCard button.primary { background: #2563eb; border-color: #2563eb; }
+  /* the first visit's welcome card: beside the deck, not over it */
+  #welcomeCard { top: auto; bottom: 16px; left: auto; right: 16px; transform: none; width: min(380px, calc(100vw - 32px)); }
+  body.presenting #welcomeCard { display: none; }
   #viewBar > button {
     width: 44px; height: 44px; border-radius: 22px; border: 1px solid rgba(255, 255, 255, 0.25);
     background: rgba(24, 24, 27, 0.72); color: #fafafa; font-size: 18px; cursor: pointer;
@@ -126,6 +143,57 @@
   /* the panel says it all: the viewer's bar stays out of its way */
   body.ended #viewBar { display: none; }
   body.ended #c { cursor: default; }
+  /* web/versions-ui.js: the version history and the merge of two copies */
+  .vPanel {
+    position: fixed; top: 56px; right: 16px; bottom: 16px; z-index: 20;
+    width: min(460px, calc(100vw - 32px)); box-sizing: border-box; padding: 16px;
+    display: flex; flex-direction: column; gap: 12px; overflow: auto;
+    background: #18181b; color: #fafafa; border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    font: 14px/1.45 "Open Sans", system-ui, sans-serif;
+  }
+  .vMerge { left: 50%; right: auto; transform: translateX(-50%); width: min(760px, calc(100vw - 32px)); }
+  .vPanel h2 { margin: 0; font-size: 17px; }
+  .vPanel p { margin: 0; }
+  .vPanel button, .vPanel input {
+    min-height: 36px; padding: 0 12px; border-radius: 8px; font: inherit; color: inherit;
+    border: 1px solid rgba(255, 255, 255, 0.25); background: transparent; cursor: pointer;
+  }
+  .vPanel input { cursor: text; flex: 1; min-width: 0; background: rgba(255, 255, 255, 0.06); }
+  .vPanel button.primary { background: #2563eb; border-color: #2563eb; }
+  .vPanel button:disabled { opacity: .5; cursor: default; }
+  .vHead { display: flex; align-items: center; justify-content: space-between; }
+  .vHead .vClose { border: 0; font-size: 22px; min-height: 32px; padding: 0 8px; }
+  .vSave, .vRow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .vList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .vItem { border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px; padding: 6px; }
+  .vItem.current { border-color: #2563eb; }
+  .vTop { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; border: 0 !important; text-align: left; padding: 6px !important; }
+  .vMsg { font-weight: 600; }
+  .vMeta { color: #a1a1aa; font-size: 12px; }
+  .vTag { font-size: 11px; color: #93c5fd; }
+  .vBody { padding: 6px; display: flex; flex-direction: column; gap: 8px; }
+  .vBody[hidden] { display: none; }
+  .vFiles { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .vFiles li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+  .vPath { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .vPanel .vLink { border: 0; min-height: 0; padding: 0; color: #93c5fd; text-decoration: underline; }
+  .vDiff {
+    width: 100%; margin: 0; padding: 8px; box-sizing: border-box; max-height: 320px; overflow: auto;
+    background: rgba(0, 0, 0, 0.35); border-radius: 6px; white-space: pre-wrap; word-break: break-word;
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .vDiff[hidden] { display: none; }
+  .vDiff .add { color: #86efac; }
+  .vDiff .del { color: #fca5a5; }
+  .vDiff .hunk { color: #93c5fd; }
+  .vNote { color: #a1a1aa; }
+  .vSides { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0; }
+  .vSides strong { display: block; font-size: 12px; margin-bottom: 2px; }
+  .vChoice { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; cursor: pointer; }
+  .vChoice input { min-height: 0; }
+  @media (max-width: 600px) { .vSides { grid-template-columns: 1fr; } }
+  body.presenting .vPanel { display: none; }
   body.viewer #c { cursor: default; }
   body.viewer.idle #c { cursor: none; }
   body.presenting #c { cursor: none; }
@@ -133,12 +201,12 @@
 </style>
 <!-- The faces the first frame needs: fetched while pres_app.js loads, at the
      same URLs main.js asks for. -->
-<link rel="preload" href="./fonts/OpenSans-Regular.ttf?v=__BUILD__" as="fetch" crossorigin />
-<link rel="preload" href="./fonts/OpenSans-Bold.ttf?v=__BUILD__" as="fetch" crossorigin />
-<link rel="preload" href="./fonts/OpenSans-Italic.ttf?v=__BUILD__" as="fetch" crossorigin />
-<link rel="preload" href="./fonts/OpenSans-BoldItalic.ttf?v=__BUILD__" as="fetch" crossorigin />
-<link rel="preload" href="./fonts/NotoSans-Regular.ttf?v=__BUILD__" as="fetch" crossorigin />
-<link rel="preload" href="./fonts/NotoSans-Bold.ttf?v=__BUILD__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/OpenSans-Regular.ttf?v=__FONTS__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/OpenSans-Bold.ttf?v=__FONTS__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/OpenSans-Italic.ttf?v=__FONTS__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/OpenSans-BoldItalic.ttf?v=__FONTS__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/NotoSans-Regular.ttf?v=__FONTS__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/NotoSans-Bold.ttf?v=__FONTS__" as="fetch" crossorigin />
 <!-- Google Picker's API key (private Google Sheets, web/sliqtly.js). Empty:
      the Firebase web API key, which works when the Picker API is allowed on it. -->
 <meta name="google-picker-key" content="" />
@@ -173,11 +241,13 @@
   <button id="save" class="wide" title="Save as Markdown" data-i18n-title data-i18n>Save .md</button>
   <button id="pdf">PDF</button>
   <button id="pptx">PPTX</button>
+  <button id="zip">ZIP</button>
   <button id="share" title="Copy a link with this Markdown packed into its address" data-i18n-title data-i18n>🔗 Share</button>
+  <button id="history" hidden>Version history</button>
   <button id="aiClaude" hidden>Claude</button>
   <button id="aiChatgpt" hidden>ChatGPT</button>
   <button id="helpBtn" title="What the selected slide contains and which theme CSS rules change it" data-i18n-title data-i18n>? Help</button>
-  <button id="pro" data-canvas="accent" title="Sign in with Google" data-i18n-title>PRO</button>
+  <button id="pro" data-canvas="accent" title="Sign in with Google" data-i18n-title><span data-i18n>Sign in</span></button>
   <select id="lang" aria-label="Language" data-i18n-aria></select>
   <span class="grow"></span>
   <span id="status"></span>

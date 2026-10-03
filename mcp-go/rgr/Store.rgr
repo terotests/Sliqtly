@@ -38,6 +38,12 @@ class Store {
         return t
     }
 
+    ; a deck nobody signed in for is deleted 30 days after its last change
+    ; (Firestore's TTL policy on `expires`: firestore.indexes.json)
+    sfn anonExpires:MfJ (host:McpHost) {
+        return (J.timeAt(((host_now_ms host) + ((((30 * 24) * 60) * 60) * 1000))))
+    }
+
     sfn validId:boolean (id:string) {
         def n:int (strlen id)
         if ((n < 1) || (n > 64)) {
@@ -55,6 +61,9 @@ class Store {
         def k:MfJ (MfJ.newObj())
         k.putStr("hash" (host_sha256_hex host key))
         k.put("created" (Store.serverTime()))
+        if (owner == "mcp") {
+            k.put("expires" (Store.anonExpires(host)))
+        }
         host_set_doc host "mcp_keys" id (JOut.text(k))
         def e1:string (host_error host)
         if ((strlen e1) > 0) {
@@ -81,6 +90,9 @@ class Store {
         doc.putStr("source" "mcp")
         doc.put("files" files)
         doc.put("created" (Store.serverTime()))
+        if (owner == "mcp") {
+            doc.put("expires" (Store.anonExpires(host)))
+        }
         host_set_doc host "shares" id (JOut.text(doc))
         def e3:string (host_error host)
         if ((strlen e3) > 0) {
@@ -150,6 +162,12 @@ class Store {
         if (p.cssMode == 2) {
             patch.put("css" (new MfJ))
         }
+        if ((cur.str_("owner")) == "mcp") {
+            patch.put("expires" (Store.anonExpires(host)))
+            def kp:MfJ (MfJ.newObj())
+            kp.put("expires" (patch.field("expires")))
+            host_update_doc host "mcp_keys" id (JOut.text(kp))
+        }
         host_update_doc host "shares" id (JOut.text(patch))
         if ((strlen (host_error host)) > 0) {
             return (new MfJ)
@@ -215,6 +233,9 @@ class Store {
         def out:MfJ (MfJ.newArr())
         for imgs img:Img i {
             def path:string ("media/" + img.name)
+            if ((strlen img.path) > 0) {
+                path = img.path
+            }
             def name:string ("shares/" + id + "/" + path)
             ; the token is what getDownloadURL() hands the editor for its own uploads
             def token:string (host_uuid host)

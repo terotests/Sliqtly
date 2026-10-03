@@ -58,6 +58,7 @@
 .ce-grow { flex-grow: 1; }
 .ce-note { font-size: 13px; color: #b45309; }
 .ce-warn { font-size: 12px; color: #b45309; }
+.ce-ok { font-size: 12px; color: #15803d; }
 .ce-doc { font-size: 12px; color: #71717a; }
 .ce-row { display: flex; flex-direction: row; align-items: center; gap: 8px; }
 .ce-chips { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }
@@ -72,6 +73,7 @@
 /* buttons: black primary, white outline, quiet ghost */
 .theme-ce .ui-button { font-family: Open Sans; border-radius: 6px; align-self: center; }
 .theme-ce .ui-button-primary { background-color: #18181b; color: #fafafa; border-color: #18181b; }
+.theme-ce .ui-button-danger { background-color: #dc2626; color: #ffffff; border-color: #dc2626; }
 .theme-ce .ui-button-secondary { background-color: #ffffff; color: #09090b; border: 1px solid #e4e4e7; }
 .theme-ce .ui-button-ghost { background-color: rgba(0,0,0,0); color: #3f3f46; border-color: rgba(0,0,0,0); }
 .theme-ce .ui-button-disabled { opacity: 0.4; }
@@ -99,6 +101,9 @@
 .theme-ce .ui-input-text { color: #09090b; font-size: 13px; font-family: Open Sans; }
 .theme-ce .ui-input-caret { background-color: #09090b; height: 16px; }
 .theme-ce .ce-focus { border-color: #a1a1aa; }
+.theme-ce .ce-selband { height: 16px; background-color: #bfdbfe; }
+.theme-ce .ui-input-grow { flex-grow: 1; height: 1px; }
+.theme-ce .ui-input-clear { width: 18px; height: 18px; border-radius: 9px; color: #71717a; background-color: #f4f4f5; font-size: 12px; text-align: center; line-height: 18px; margin-left: 6px; }
 .ce-wide { width: 280px; }
 
 /* the data grid */
@@ -415,3 +420,6 @@
 /* text leaves get their size and face stated, not inherited: an inherited
    size came out differently between passes and the rows moved */
 .theme-ce .ui-switch-label { font-family: Open Sans; font-size: 13px; }
+
+/* a placeholder is a hint, not a value: faded and italic */
+.theme-ce .ui-input-placeholder { color: #a1a1aa; font-family: Open Sans-Italic; }

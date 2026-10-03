@@ -1,0 +1,60 @@
+# Deploys the MCP server in Go (mcp-go/) as the Cloud Run service
+# `sliqtly-mcp` (europe-west1) in project `sliqtly`, beside the Cloud Function
+# that sliqtly.com/mcp still points at: the service gets its own run.app
+# address and no traffic from the site until firebase.json's rewrites are
+# switched (mcp-go/README.md). Run by hand: Actions → Deploy MCP (Go) → Run
+# workflow.
+#
+# The FIREBASE_SERVICE_ACCOUNT secret's account needs, besides what Deploy MCP
+# needs: Artifact Registry Administrator (the first run creates the `mcp`
+# repository) and Cloud Run Admin. The service runs as the project's default
+# compute account, which needs Cloud Datastore User and Storage Object Admin.
+name: Deploy MCP (Go)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-mcp-go
+  cancel-in-progress: false
+
+env:
+  PROJECT: sliqtly
+  REGION: europe-west1
+  IMAGE: europe-west1-docker.pkg.dev/sliqtly/mcp/sliqtly-mcp-go
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: mcp-go/go.mod
+          cache-dependency-path: mcp-go/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: go generate ./... && go test ./...
+        working-directory: mcp-go
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Build and push the image
+        run: |
+          gcloud artifacts repositories describe mcp --location "$REGION" --project "$PROJECT" >/dev/null 2>&1 \
+            || gcloud artifacts repositories create mcp --repository-format docker --location "$REGION" --project "$PROJECT"
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker build -f mcp-go/Dockerfile -t "$IMAGE:$GITHUB_SHA" .
+          docker push "$IMAGE:$GITHUB_SHA"
+      - name: Deploy the service
+        run: |
+          gcloud run deploy sliqtly-mcp --image "$IMAGE:$GITHUB_SHA" \
+            --region "$REGION" --project "$PROJECT" --allow-unauthenticated \
+            --cpu 1 --memory 256Mi --concurrency 80 --max-instances 10 --cpu-boost
+          URL=$(gcloud run services describe sliqtly-mcp --region "$REGION" --project "$PROJECT" --format 'value(status.url)')
+          echo "Service: $URL/mcp" | tee -a "$GITHUB_STEP_SUMMARY"

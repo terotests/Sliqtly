@@ -2,15 +2,16 @@
 // pictures) into a presentation at sliqtly.com and hand back its link.
 //
 // Tools: sliqtly_guide, create_presentation, update_presentation,
-// bind_chart_data, get_presentation, list_files, list_presentations. create/update also name a UI resource (MCP Apps, and the
+// bind_chart_data, get_presentation, list_files, read_file, list_presentations. create/update also name a UI resource (MCP Apps, and the
 // same template for ChatGPT) that shows the deck inline in the chat.
 
-import { workbookInfo } from "./xlsx.js";
+import { badSheetName, parseCsv, readWorkbook, toCsv, workbookInfo, workbookTables, writeWorkbook } from "./xlsx.js";
 import fs from "node:fs";
 import crypto from "node:crypto";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { THEMES, MAX_MD, MAX_CSS, InputError, bindChartData, loadImages, outline, warnings } from "./deck.js";
+import { backgrounds, contrastWarnings } from "./contrast.js";
+import { THEMES, MAX_MD, MAX_CSS, MAX_DATA, XLSX_MIME, InputError, bindChartData, cleanName, loadDataFiles, loadImages, outline, warnings } from "./deck.js";
 import { packText } from "./store.js";
 
 const GUIDE = fs.readFileSync(new URL("../guide.md", import.meta.url), "utf8");
@@ -30,11 +31,19 @@ const imageSchema = z.object({
   mime_type: z.string().optional().describe("image/png, image/jpeg, image/gif, image/webp or image/svg+xml; inferred from the name when left out"),
 });
 
+const dataFileSchema = z.object({
+  name: z.string().describe('File name, kept as data/<name>: "sales.xlsx", "sales.csv", "sales.json"'),
+  text: z.string().optional().describe("The file's text (CSV, TSV, JSON or plain text)"),
+  data_base64: z.string().optional().describe("The file's bytes as base64 (an .xlsx workbook)"),
+  url: z.string().optional().describe("A public https URL of the file"),
+});
+
 const deckFields = {
   theme: z.enum(THEMES).optional().describe("Theme: aurora (default), nebula, carbon, ember, midnight (dark); corporate, editorial (light)"),
   css: z.string().optional().describe("CSS rules added on top of the theme (selectors: page, document, h1, h2, p, list, li, code, table, chart, diagram, .lead …). See sliqtly_guide."),
   css_mode: z.enum(["extend", "replace"]).optional().describe("extend (default): css is added after the theme's rules. replace: css is the whole stylesheet."),
-  images: z.array(imageSchema).optional().describe("Pictures the Markdown refers to as media/<name>"),
+  images: z.array(imageSchema).optional().describe("Pictures the Markdown refers to as media/<name>. Needs sign-in."),
+  files: z.array(dataFileSchema).optional().describe("Data files kept with the deck under data/: .xlsx workbooks, .csv, .tsv, .json, .txt (10 MB each); needs sign-in. A chart or ```table reads data/<name>.csv; a workbook's sheets are read as data/<book>-<Sheet>.csv (data/<book>.csv for a one-sheet book); see sliqtly_guide."),
 };
 
 // Sign-in is optional (ChatGPT reads this to offer both)
@@ -53,6 +62,10 @@ function uiMeta() {
 function fail(message) {
   return { isError: true, content: [{ type: "text", text: message }] };
 }
+
+// Without sign-in a deck is text only and is deleted this long after its
+// last change (store.js sets `expires`; Firestore's TTL policy deletes it).
+export const ANON_DAYS = 30;
 
 // opts: { store, baseUrl, fetchImpl, limit(kind) → string|null,
 //         user: { uid, name } when signed in, signIn: resource metadata URL }
@@ -120,6 +133,7 @@ export function createServer(opts) {
       `Open in the editor: ${out.edit_url}`,
     ];
     if (user) lines.push(`Saved in the Sliqtly account of ${user.name || "the signed-in user"}.`);
+    else if (out.deck_id) lines.push(`Not signed in: the presentation is deleted ${ANON_DAYS} days after its last change. Sign in to keep it, or to add pictures and files.`);
     if (out.deck_id) lines.push(`deck_id: ${out.deck_id}`);
     if (out.edit_key) lines.push(`edit_key: ${out.edit_key} (needed for update_presentation; do not show it to others)`);
     for (const w of out.warnings) lines.push(`Note: ${w}`);
@@ -127,6 +141,17 @@ export function createServer(opts) {
     const cfg = out.deck_id ? await webConfig() : null;
     return { content: [{ type: "text", text: lines.join("\n") }], structuredContent: out, _meta: { ...uiMeta(), ...(cfg ? { "sliqtly/firebase": cfg } : {}) } };
   }
+
+  // Pictures and files are stored only for a signed-in user: anyone could
+  // otherwise keep any bytes at a public address.
+  function needsSignIn(what) {
+    return {
+      isError: true,
+      content: [{ type: "text", text: `Storing ${what} needs sign-in. Connect Sliqtly with sign-in (Google), or leave them out: without sign-in a presentation is text only.` }],
+      _meta: opts.signIn ? { "mcp/www_authenticate": [`Bearer resource_metadata="${opts.signIn}", error="insufficient_scope", error_description="Sign in to Sliqtly to store pictures and files"`] } : undefined,
+    };
+  }
+  const uploads = (images, files) => (images && images.length ? "pictures" : files && files.length ? "data files" : null);
 
   // the stored deck, if this caller may change it; throws otherwise
   async function editable(deckId, editKey) {
@@ -138,21 +163,65 @@ export function createServer(opts) {
     return { cur, mine };
   }
 
+  // Slides whose text likely does not stand out from their background
+  // picture (src/contrast.js): the pictures from this call, else the deck's
+  // stored ones. Never fails the call.
+  async function contrastNotes(md, theme, css, imgs, deckId) {
+    try {
+      const pictures = new Map(imgs.map((i) => [i.name, i.data]));
+      const wanted = [...new Set(backgrounds(md).map((b) => b.picture))].slice(0, 10);
+      if (!wanted.length) return [];
+      for (const name of wanted) {
+        if (pictures.has(name) || !deckId || store.kind === "link") continue;
+        try { pictures.set(name, await store.fileBytes(deckId, "media/" + name)); } catch { /* not stored */ }
+      }
+      const sheet = css != null ? css : await themeCss(theme || "aurora");
+      return contrastWarnings(md, sheet, pictures);
+    } catch (e) {
+      console.warn("contrast check", e);
+      return [];
+    }
+  }
+
   async function updated(deckId, saved, note) {
     if (!saved) throw new InputError("The edit_key does not match this presentation.");
     const stored = (saved.files || []).map((f) => f.path.replace(/^media\//, ""));
     const out = await result({
       title: saved.name, theme: saved.theme, slides: outline(saved.md).titles.length,
-      warnings: warnings(saved.md, [], stored).filter((w) => !w.startsWith("Image")),
+      warnings: [
+        ...warnings(saved.md, [], stored).filter((w) => !w.startsWith("Image")),
+        ...(await contrastNotes(saved.md, saved.theme, saved.css, [], deckId)),
+      ],
       ...links(deckId), deck_id: deckId,
     }, "Updated");
     if (note) out.content[0].text += "\n" + note;
     return out;
   }
 
+  // the stored data files, and the names a deck reads each one (or each
+  // sheet of a workbook) by
+  function withData(out, data) {
+    if (!data.length) return out;
+    const lines = ["Data files kept:"];
+    const kept = [];
+    for (const f of data) {
+      if (/\.xlsx$/i.test(f.path)) {
+        const sheets = workbookInfo(f.data, f.path);
+        kept.push({ path: f.path, sheets });
+        lines.push(`- ${f.path}: ` + (sheets.map((s) => `sheet "${s.name}" (${s.rows} rows; columns ${s.columns.map((c) => JSON.stringify(c)).join(", ")}) read as ${s.csv}`).join("; ") || "no sheet has values"));
+      } else {
+        kept.push({ path: f.path });
+        lines.push(`- ${f.path}`);
+      }
+    }
+    out.content[0].text += "\n" + lines.join("\n");
+    out.structuredContent = { ...out.structuredContent, files: kept };
+    return out;
+  }
+
   function guarded(kind, fn) {
     return async (args, extra) => {
-      const why = opts.limit ? opts.limit(kind, extra) : null;
+      const why = opts.limit ? await opts.limit(kind, extra) : null;
       if (why) return fail(why);
       try {
         return await fn(args, extra);
@@ -178,7 +247,7 @@ export function createServer(opts) {
 
   server.registerTool("create_presentation", {
     title: "Create a presentation",
-    description: "Create a Sliqtly slide presentation from Markdown (# title slide, ## per slide), an optional theme, extra CSS and pictures. Returns a link that opens the presentation and a link to edit a copy in the Sliqtly editor.",
+    description: "Create a Sliqtly slide presentation from Markdown (# title slide, ## per slide), an optional theme, extra CSS, pictures and data files (.xlsx, .csv, .json) its charts and tables read. Returns a link that opens the presentation and a link to edit a copy in the Sliqtly editor.",
     inputSchema: {
       title: z.string().max(200).describe("The presentation's name"),
       markdown: z.string().describe("The whole deck as Sliqtly Markdown"),
@@ -186,24 +255,28 @@ export function createServer(opts) {
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     _meta: uiMeta(),
-  }, guarded("create_presentation", async ({ title, markdown, theme = "aurora", css, css_mode = "extend", images }) => {
+  }, guarded("create_presentation", async ({ title, markdown, theme = "aurora", css, css_mode = "extend", images, files }) => {
+    if (!user && store.kind !== "link" && uploads(images, files)) return needsSignIn(uploads(images, files));
     if (markdown.length > MAX_MD) throw new InputError("markdown is larger than 300 KB.");
     if (!markdown.trim()) throw new InputError("markdown is empty.");
     const css2 = await sheet(theme, css, css_mode);
     const imgs = await loadImages(images, fetchImpl);
+    const data = await loadDataFiles(files, fetchImpl, readWorkbook);
     const names = imgs.map((i) => i.name);
-    const base = { title, theme, slides: outline(markdown).titles.length, warnings: warnings(markdown, names) };
+    const base = { title, theme, slides: outline(markdown).titles.length, warnings: [...warnings(markdown, names), ...(await contrastNotes(markdown, theme, css2, imgs, null))] };
     if (store.kind === "link") {
       if (imgs.length) base.warnings.push("Pictures are not stored on this server (no cloud storage configured); the slides show without them.");
+      if (data.length) base.warnings.push("Data files are not stored on this server (no cloud storage configured).");
       return result({ ...base, ...linkOnly(markdown, theme, css2) }, "Created");
     }
-    const { id, key } = await store.create({ name: title, md: markdown, theme, css: css2, images: imgs, owner: user ? user.uid : "mcp" });
-    return result({ ...base, ...links(id), deck_id: id, edit_key: key }, "Created");
+    const { id, key } = await store.create({ name: title, md: markdown, theme, css: css2, images: [...imgs, ...data], owner: user ? user.uid : "mcp" });
+    const out = await result({ ...base, ...links(id), deck_id: id, edit_key: key }, "Created");
+    return withData(out, data);
   }));
 
   server.registerTool("update_presentation", {
     title: "Update a presentation",
-    description: "Change a presentation made with create_presentation, keeping its link. Send only what changes: markdown replaces the whole text; images are added (or replace pictures of the same name).",
+    description: "Change a presentation made with create_presentation, keeping its link. Send only what changes: markdown replaces the whole text; images and files are added (or replace ones of the same name).",
     inputSchema: {
       deck_id: z.string().describe("deck_id from create_presentation"),
       edit_key: z.string().optional().describe("edit_key from create_presentation; not needed when signed in as the presentation's owner"),
@@ -213,15 +286,17 @@ export function createServer(opts) {
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     _meta: uiMeta(),
-  }, guarded("update_presentation", async ({ deck_id, edit_key, title, markdown, theme, css, css_mode = "extend", images }) => {
+  }, guarded("update_presentation", async ({ deck_id, edit_key, title, markdown, theme, css, css_mode = "extend", images, files }) => {
     if (markdown != null && markdown.length > MAX_MD) throw new InputError("markdown is larger than 300 KB.");
+    if (!user && uploads(images, files)) return needsSignIn(uploads(images, files));
     const { cur, mine } = await editable(deck_id, edit_key);
     const th = theme ?? cur.theme ?? "aurora";
     // a new theme with no new css drops the old theme's sheet
     const css2 = css != null ? await sheet(th, css, css_mode) : theme != null && theme !== cur.theme ? null : undefined;
     const imgs = await loadImages(images, fetchImpl);
-    const saved = await store.update(deck_id, mine ? null : edit_key, { name: title, md: markdown, theme, css: css2, images: imgs });
-    return updated(deck_id, saved);
+    const data = await loadDataFiles(files, fetchImpl, readWorkbook);
+    const saved = await store.update(deck_id, mine ? null : edit_key, { name: title, md: markdown, theme, css: css2, images: [...imgs, ...data] });
+    return withData(await updated(deck_id, saved), data);
   }));
 
   server.registerTool("bind_chart_data", {
@@ -301,6 +376,7 @@ export function createServer(opts) {
   function filesText(files) {
     if (!files.length) return "No files.";
     const lines = [];
+    if (files.some((f) => f.kind !== "picture")) lines.push("read_file reads the values of a data file or a workbook's sheet.");
     for (const f of files) {
       lines.push(`- ${f.path} (${f.kind}, ${f.size} bytes)${f.note ? " — " + f.note : ""}`);
       for (const s of f.sheets || []) {
@@ -312,7 +388,7 @@ export function createServer(opts) {
 
   server.registerTool("list_files", {
     title: "List a presentation's files",
-    description: "List the files a Sliqtly presentation keeps — pictures (media/), data (data/), chart specs (charts/) and workbooks (.xlsx) — by its deck_id. For each workbook: its sheets, their columns and row counts, and the CSV name a ```table, ```sheet or vega-lite chart reads a sheet by (the editor derives those CSVs from the workbook; they are not separate files).",
+    description: "List the files a Sliqtly presentation keeps — pictures (media/), data (data/), chart specs (charts/) and workbooks (.xlsx) — by its deck_id. For each workbook: its sheets, their columns and row counts, and the CSV name a ```table, ```sheet or vega-lite chart reads a sheet by (the editor derives those CSVs from the workbook; they are not separate files). read_file gives the values.",
     inputSchema: { deck_id: z.string().describe("The id in the share link /s/<id>") },
     annotations: { readOnlyHint: true, openWorldHint: false },
     _meta: { securitySchemes: EITHER },
@@ -323,6 +399,138 @@ export function createServer(opts) {
     if (!d) throw new InputError(`No presentation ${deck_id}.`);
     const files = await filesOf(deck_id, d);
     return { content: [{ type: "text", text: filesText(files) }], structuredContent: { files } };
+  }));
+
+  // The values of one of a deck's files: a workbook's sheet (by the
+  // workbook's path, or the CSV name the deck reads the sheet by) or a CSV,
+  // TSV, JSON or text file. Rows come a window at a time.
+  async function readFile(deck_id, d, path, sheetName, offset, limit) {
+    const want = path.trim().replace(/^\/+/, "");
+    const files = d.files || [];
+    const bytes = async (f) => {
+      if (f.size > 20 * 1024 * 1024) throw new InputError(`${f.path} is too large to read here.`);
+      return store.fileBytes(deck_id, f.path);
+    };
+    let f = files.find((x) => x.path === want);
+    let sheets = null;
+    if (f && /\.xlsx$/i.test(f.path)) sheets = workbookTables(await bytes(f), f.path);
+    else if (!f) {
+      // a sheet's CSV name: data/<book>-<Sheet>.csv or data/<book>.csv
+      for (const w of files.filter((x) => /\.xlsx$/i.test(x.path))) {
+        const base = w.path.replace(/\.xlsx$/i, "");
+        if (want !== base + ".csv" && !want.startsWith(base + "-")) continue;
+        const all = workbookTables(await bytes(w), w.path);
+        const hit = all.find((s) => s.csv === want);
+        if (hit) { f = w; sheets = all; sheetName = hit.name; break; }
+      }
+    }
+    if (!f) {
+      const have = files.filter((x) => !/^media\//.test(x.path)).map((x) => x.path);
+      throw new InputError(`No file ${want} in presentation ${deck_id}.${have.length ? " Its files: " + have.join(", ") + "." : " It keeps no data files."}`);
+    }
+    if (/^media\//.test(f.path)) throw new InputError(`${f.path} is a picture.`);
+    let columns;
+    let rows;
+    let sheet = null;
+    let note = "";
+    if (sheets) {
+      if (!sheets.length) throw new InputError(`${f.path}: no sheet has values.`);
+      const s = sheetName != null ? sheets.find((x) => x.name.toLowerCase() === String(sheetName).trim().toLowerCase()) : sheets[0];
+      if (!s) throw new InputError(`${f.path} has no sheet "${sheetName}". Its sheets: ${sheets.map((x) => JSON.stringify(x.name)).join(", ")}.`);
+      sheet = { name: s.name, csv: s.csv };
+      columns = s.columns;
+      rows = s.data;
+      if (sheets.length > 1) note = `Other sheets: ${sheets.filter((x) => x !== s).map((x) => JSON.stringify(x.name)).join(", ")} (read with sheet).`;
+      note += (note ? " " : "") + "Dates are Excel serial numbers (days since 1899-12-30).";
+    } else if (/\.(csv|tsv)$/i.test(f.path)) {
+      const all = parseCsv((await bytes(f)).toString("utf8"), /\.tsv$/i.test(f.path) ? "\t" : ",").filter((r) => r.some((v) => v.trim() !== ""));
+      columns = all[0] || [];
+      rows = all.slice(1);
+    } else {
+      // JSON, a chart spec, text: as it is, cut at 200 KB
+      const text = (await bytes(f)).toString("utf8");
+      const cut = text.length > 200 * 1024;
+      return {
+        content: [{ type: "text", text: `${f.path} (${text.length} characters${cut ? ", first 200 KB" : ""}):\n` + (cut ? text.slice(0, 200 * 1024) : text) }],
+        structuredContent: { path: f.path, text: cut ? text.slice(0, 200 * 1024) : text, truncated: cut },
+      };
+    }
+    const window = rows.slice(offset, offset + limit).map((r) => {
+      const out = r.map((v) => (v == null ? "" : String(v)));
+      while (out.length < columns.length) out.push("");
+      return out;
+    });
+    const next = offset + window.length < rows.length ? offset + window.length : null;
+    const text = [
+      `${f.path}${sheet ? ` sheet "${sheet.name}" (read in the deck as ${sheet.csv})` : ""}: ${rows.length} data rows, columns ${columns.map((c) => JSON.stringify(c)).join(", ")}.`,
+      `Rows ${window.length ? offset + 1 : 0}–${offset + window.length} of ${rows.length}${next != null ? `; next: offset ${next}` : ""}.`,
+      note,
+      "```csv", toCsv([columns, ...window]), "```",
+    ].filter(Boolean).join("\n");
+    return {
+      content: [{ type: "text", text }],
+      structuredContent: { path: f.path, sheet, columns, rows: window, total_rows: rows.length, offset, next_offset: next },
+    };
+  }
+
+  server.registerTool("read_file", {
+    title: "Read a presentation's data file",
+    description: "Read the values in one of a Sliqtly presentation's data files by its deck_id and path: a workbook's sheet (path data/x.xlsx with sheet, or the sheet's CSV name from list_files such as data/x-Sheet.csv), a CSV or TSV (as rows), or a JSON or text file. Rows come up to `limit` at a time from `offset`.",
+    inputSchema: {
+      deck_id: z.string().describe("The id in the share link /s/<id>"),
+      path: z.string().describe("The file's path from list_files, e.g. data/sales.xlsx or data/sales-Q1.csv"),
+      sheet: z.string().optional().describe("A workbook's sheet name; the first sheet when left out"),
+      offset: z.number().int().min(0).optional().describe("First data row to return (0 = the row under the header)"),
+      limit: z.number().int().min(1).max(2000).optional().describe("How many data rows (default 200, at most 2000)"),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    _meta: { securitySchemes: EITHER },
+  }, guarded("read_file", async ({ deck_id, path, sheet, offset = 0, limit = 200 }) => {
+    if (store.kind === "link") throw new InputError("This server keeps no decks (no cloud storage configured).");
+    if (!/^[A-Za-z0-9]{6,32}$/.test(deck_id)) throw new InputError("deck_id is the 10-character id in the share link.");
+    const d = await store.get(deck_id);
+    if (!d) throw new InputError(`No presentation ${deck_id}.`);
+    return readFile(deck_id, d, path, sheet, offset, limit);
+  }));
+
+  server.registerTool("write_workbook", {
+    title: "Write a presentation's workbook",
+    description: "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text; a cell may be a formula { f: \"=SUM(C2:C13)\", v: 1234.5 }. Use this rather than sending an .xlsx as base64, which gets corrupted when long. Formatting, colours, filters and column widths are not kept. Needs sign-in.",
+    inputSchema: {
+      deck_id: z.string().describe("The id in the share link /s/<id>"),
+      edit_key: z.string().optional().describe("edit_key from create_presentation; not needed when signed in as the presentation's owner"),
+      path: z.string().describe("The workbook's path, e.g. data/budget.xlsx"),
+      sheets: z.array(z.object({
+        name: z.string().describe("Sheet name (at most 31 characters, none of \\ / : * ? [ ])"),
+        rows: z.array(z.array(z.union([z.string(), z.number(), z.null(), z.object({
+          f: z.string().describe("Excel formula, e.g. \"=SUM(C2:C13)\""),
+          v: z.union([z.string(), z.number()]).optional().describe("The value the formula gives, so Sliqtly can show it (Excel recalculates on opening)"),
+        })]))).optional().describe("Rows of cells, header row first: a string, a number, null, or { f, v } for a formula"),
+        csv: z.string().optional().describe("The sheet as CSV text instead of rows"),
+      })).min(1).max(20).describe("The workbook's sheets in order"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    _meta: { securitySchemes: EITHER },
+  }, guarded("write_workbook", async ({ deck_id, edit_key, path, sheets }) => {
+    if (!user) return needsSignIn("workbooks");
+    const name = cleanName(String(path || "").trim().replace(/^\/+/, "").replace(/^data\//, ""));
+    if (!name || !/\.xlsx$/i.test(name)) throw new InputError("path is the workbook's name under data/, ending in .xlsx (e.g. data/budget.xlsx).");
+    const seen = new Set();
+    const book = sheets.map((s) => {
+      const why = badSheetName(s.name);
+      if (why) throw new InputError(why[0].toUpperCase() + why.slice(1) + ".");
+      if (seen.has(s.name.toLowerCase())) throw new InputError(`Two sheets are named "${s.name}".`);
+      seen.add(s.name.toLowerCase());
+      if ((s.rows != null) === (s.csv != null)) throw new InputError(`Sheet "${s.name}": give rows or csv.`);
+      return { name: s.name, rows: s.rows ?? parseCsv(s.csv) };
+    });
+    const data = writeWorkbook(book);
+    if (data.length > MAX_DATA) throw new InputError("The workbook would be larger than 10 MB.");
+    const { mine } = await editable(deck_id, edit_key);
+    const file = { name, path: "data/" + name, type: XLSX_MIME, data };
+    const saved = await store.update(deck_id, mine ? null : edit_key, { images: [file] });
+    const note = "Formatting is not kept. Renamed or removed sheets change the CSV names the deck reads; check the deck's charts and tables still name them.";
+    return withData(await updated(deck_id, saved, note), [file]);
   }));
 
   server.registerTool("list_presentations", {
@@ -347,14 +555,10 @@ export function createServer(opts) {
     return { content: [{ type: "text", text }], structuredContent: { presentations: decks } };
   }));
 
-  server.registerResource("preview", PREVIEW_URI, {
-    title: "Sliqtly presentation",
-    description: "Shows the presentation inline",
-    mimeType: APP_MIME,
-    _meta: { ui: { csp, prefersBorder: false } },
-  }, async () => ({
+  const previewMeta = { title: "Sliqtly presentation", description: "Shows the presentation inline", mimeType: APP_MIME, _meta: { ui: { csp, prefersBorder: false } } };
+  const previewContents = (uri) => ({
     contents: [{
-      uri: PREVIEW_URI,
+      uri,
       mimeType: APP_MIME,
       text: PREVIEW,
       _meta: {
@@ -364,7 +568,12 @@ export function createServer(opts) {
         "openai/widgetPrefersBorder": true,
       },
     }],
-  }));
+  });
+  server.registerResource("preview", PREVIEW_URI, previewMeta, async () => previewContents(PREVIEW_URI));
+  // a client that took the tool list before the preview changed still asks
+  // for the older name: it gets the current preview, not "Couldn't open app"
+  server.registerResource("preview-older", new ResourceTemplate("ui://sliqtly/preview-{hash}.html", { list: undefined }), previewMeta,
+    async (uri) => previewContents(uri.href));
 
   return server;
 }

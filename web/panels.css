@@ -130,6 +130,7 @@
 .pf-tag-image { background-color: #dcfce7; color: #166534; }
 .pf-tag-chart { background-color: #fef3c7; color: #92400e; }
 .pf-tag-data { background-color: #ede9fe; color: #5b21b6; }
+.pf-tag-live { background-color: #dcfce7; color: #166534; }
 .pf-current { font-size: 11px; color: #16a34a; font-weight: 600; }
 .pf-promo {
   display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;
@@ -157,3 +158,16 @@
 .pn-field { display: flex; flex-direction: row; align-items: center; gap: 12px; }
 .pn-flabel { font-size: 12px; font-weight: 700; color: #3f3f46; width: 90px; }
 .pn-chips { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; width: 500px; }
+/* the files tab: the picture under the pointer, beside the panel */
+.pf-preview {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  padding: 10px; background-color: #ffffff;
+  border: 1px solid #e4e4e7; border-radius: 10px;
+  shadow-color: rgba(0, 0, 0, 0.22); shadow-radius: 20px; shadow-offset-y: 6px;
+}
+.pf-preview-img { border-radius: 4px; }
+.pf-preview-cap { font-size: 11px; color: #3f3f46; white-space: nowrap; }
+.pf-preview-hint { font-size: 11px; color: #a1a1aa; white-space: nowrap; }
+
+/* a placeholder is a hint, not a value: faded and italic */
+.theme-pn .ui-input-placeholder { color: #a1a1aa; font-family: Open Sans-Italic; }

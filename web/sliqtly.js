@@ -83,7 +83,8 @@ function auth() {
 
 function show() {
   const first = (user?.displayName || user?.email || "").split(/[\s@]/)[0];
-  pro.textContent = user ? `PRO · ${first}` : "PRO";
+  // signed out it asks to sign in: a bare "PRO" read as being signed in
+  pro.textContent = user ? `PRO · ${first}` : t("Sign in");
   pro.title = user ? t("Signed in as ") + (user.displayName || user.email) : t("Sign in with Google");
 }
 
@@ -191,14 +192,21 @@ async function share(deck) {
   const doc = db.collection("shares").doc(id);
   // the copy first: Storage lets only the owner it names write its files
   await doc.set({ ...body, owner: user.uid, deck: deck.deckId, files: [], created: now });
-  const kept = [];
-  for (const f of deck.files || []) {
-    const blob = f.data instanceof Blob ? f.data : new Blob([f.data ?? ""], { type: f.type || "text/plain" });
-    const ref = files.ref(`shares/${id}/${f.path}`);
-    await ref.put(blob, { contentType: f.type || blob.type || "application/octet-stream" });
-    kept.push({ path: f.path, type: f.type || blob.type || "", size: blob.size, url: await ref.getDownloadURL() });
+  // the share exists from here: a file that fails names it (e.shareId), so
+  // the deck keeps it and the next save sends the files again instead of
+  // making another share
+  try {
+    const kept = [];
+    for (const f of deck.files || []) {
+      const blob = f.data instanceof Blob ? f.data : new Blob([f.data ?? ""], { type: f.type || "text/plain" });
+      const ref = files.ref(`shares/${id}/${f.path}`);
+      await ref.put(blob, { contentType: f.type || blob.type || "application/octet-stream" });
+      kept.push({ path: f.path, type: f.type || blob.type || "", size: blob.size, url: await ref.getDownloadURL() });
+    }
+    if (kept.length) await doc.update({ files: kept });
+  } catch (e) {
+    throw Object.assign(e instanceof Error ? e : new Error(String(e)), { shareId: id });
   }
-  if (kept.length) await doc.update({ files: kept });
   return id;
 }
 
@@ -208,6 +216,18 @@ async function loadShare(id) {
   const { db } = await store();
   const snap = await db.collection("shares").doc(id).get();
   return snap.exists ? snap.data() : null;
+}
+
+// The signed-in user's own shares, newest first: [{ id, name, updated }]
+// (updated in ms). The rules let an owner list only a query on owner.
+async function listMine() {
+  if (!user) return [];
+  const { db } = await store();
+  const snap = await db.collection("shares").where("owner", "==", user.uid).limit(200).get();
+  const ms = (v) => (v && typeof v.toMillis === "function" ? v.toMillis() : 0);
+  return snap.docs
+    .map((d) => ({ id: d.id, name: d.data().name || "", updated: ms(d.data().updated) || ms(d.data().created) }))
+    .sort((a, b) => b.updated - a.updated);
 }
 
 // The signed-in user once the session from an earlier visit is known (null
@@ -256,6 +276,78 @@ async function saveShare(id, deck, since) {
     updated: globalThis.firebase.firestore.FieldValue.serverTimestamp(),
   });
   return kept;
+}
+
+// A PRO deck deleted: its share's files in Storage, the share and the
+// owner's deck record. Files go first, while the share still names its
+// owner (storage.rules).
+async function deleteShare(id) {
+  if (!user) throw new Error("not signed in");
+  const { db, files } = await store();
+  const ref = db.collection("shares").doc(id);
+  const snap = await ref.get();
+  if (snap.exists) {
+    const cur = snap.data();
+    if (cur.owner !== user.uid) throw Object.assign(new Error("not the owner"), { code: "permission-denied" });
+    await Promise.all((cur.files || []).map((f) => files.ref(`shares/${id}/${f.path}`).delete().catch(() => {})));
+    // the version history's objects (putObject)
+    const kept = await files.ref(`shares/${id}/.versions`).listAll().catch(() => null);
+    if (kept) await Promise.all(kept.items.map((r) => r.delete().catch(() => {})));
+    await ref.delete();
+    if (cur.deck) await db.collection("decks").doc(cur.deck).delete().catch(() => {});
+  }
+}
+
+// --- version history (web/versions.js) ---------------------------------------------
+// A PRO deck's versions are objects in Storage, shares/{id}/.versions/{object
+// id}; each is written once and never changed. The share keeps `head` (the
+// newest version) and `log` (the versions, newest last, for the history
+// list on another device).
+async function putObject(shareId, objId, bytes) {
+  if (!user) throw new Error("not signed in");
+  const { files } = await store();
+  await files.ref(`shares/${shareId}/.versions/${objId}`).put(new Blob([bytes]), { contentType: "application/octet-stream" });
+}
+
+// → Uint8Array, or null when there is no such object
+async function getObject(shareId, objId) {
+  const { files } = await store();
+  let url;
+  try {
+    url = await files.ref(`shares/${shareId}/.versions/${objId}`).getDownloadURL();
+  } catch (_) {
+    return null;
+  }
+  const res = await fetch(url);
+  return res.ok ? new Uint8Array(await res.arrayBuffer()) : null;
+}
+
+// The share's head moved from `expect` to `head`, with `entries` added to
+// its log, only if the head is still `expect`. → { ok, head (the share's),
+// log }
+const LOG_MAX = 300;
+async function pushHead(shareId, expect, head, entries) {
+  if (!user) throw new Error("not signed in");
+  const { db } = await store();
+  const ref = db.collection("shares").doc(shareId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw Object.assign(new Error("share not found"), { code: "not-found" });
+    const cur = snap.data();
+    const now = cur.head || null;
+    if (now !== (expect || null) && now !== head) return { ok: false, head: now, log: cur.log || [] };
+    const seen = new Set((cur.log || []).map((e) => e.id));
+    const log = (cur.log || []).concat(entries.filter((e) => !seen.has(e.id))).slice(-LOG_MAX);
+    tx.update(ref, { head, log });
+    return { ok: true, head, log };
+  });
+}
+
+// The share's head and log as they are now: { head, log, md, css, theme,
+// name, files } (null when it is gone).
+async function readHead(shareId) {
+  const s = await loadShare(shareId);
+  return s ? { ...s, head: s.head || null, log: s.log || [] } : null;
 }
 
 // --- private Google Sheets ---------------------------------------------------------
@@ -313,6 +405,7 @@ async function pickSheet(fileId, token) {
       .setCallback((d) => {
         if (d.action === g.Action.PICKED) ok(d.docs?.[0]?.id || null);
         else if (d.action === g.Action.CANCEL) ok(null);
+        else if (d.action === "error") ok(false); // e.g. the developer key does not allow the Picker API
       })
       .build()
       .setVisible(true);
@@ -328,6 +421,9 @@ function csvCell(v) {
 // (MdVegaRender.sheetCsv: /d/<id>/gviz/tq?…&sheet=…&gid=…&range=…). `ask`
 // allows the popup and the Picker. Throws { code: "auth" } when there is no
 // token, { code: "access" } when the user may not or did not pick it.
+// the spreadsheet's and the tab's names, by the address read (Files names
+// the kept copy after them)
+const sheetNames = new Map();
 async function readSheet(gviz, ask) {
   const m = /\/spreadsheets\/d\/([^/?#]+)/.exec(gviz);
   if (!m || !user) throw Object.assign(new Error("not signed in"), { code: "auth" });
@@ -339,23 +435,27 @@ async function readSheet(gviz, ask) {
   const get = (u) => fetch(u, { headers: { Authorization: "Bearer " + token }, cache: "no-store" });
   let tab = q.get("sheet") || "";
   // a tab named by its gid: its title from the spreadsheet's tabs
-  let r = await get(api + "?fields=sheets.properties(sheetId,title)");
+  const fields = "?fields=properties.title,sheets.properties(sheetId,title)";
+  let r = await get(api + fields);
   if ((r.status === 403 || r.status === 404) && ask) {
     // not one of the files drive.file covers yet: the user picks it
     const picked = await pickSheet(id, token);
+    if (picked === false) throw Object.assign(new Error("picker failed"), { code: "picker" });
     if (picked !== id) throw Object.assign(new Error("not picked"), { code: "access" });
-    r = await get(api + "?fields=sheets.properties(sheetId,title)");
+    r = await get(api + fields);
   }
   if (r.status === 401) {
     sheetToken = null;
     throw Object.assign(new Error("token expired"), { code: "auth" });
   }
   if (!r.ok) throw Object.assign(new Error("HTTP " + r.status), { code: "access" });
-  const tabs = ((await r.json()).sheets || []).map((x) => x.properties);
+  const meta = await r.json();
+  const tabs = (meta.sheets || []).map((x) => x.properties);
   if (!tab) {
     const gid = q.get("gid");
     tab = (tabs.find((x) => String(x.sheetId) === gid) || tabs[0] || {}).title || "";
   }
+  sheetNames.set(gviz, { title: meta.properties?.title || "", tab });
   const range = (tab ? "'" + tab.replace(/'/g, "''") + "'!" : "") + (q.get("range") || "A:ZZ");
   const v = await get(api + "/values/" + encodeURIComponent(range) + "?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING");
   if (!v.ok) throw Object.assign(new Error("HTTP " + v.status), { code: "access" });
@@ -364,5 +464,5 @@ async function readSheet(gviz, ask) {
   return rows.map((row) => Array.from({ length: width }, (_, i) => csvCell(row[i])).join(",")).join("\n") + "\n";
 }
 
-window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, loadShare, readSheet, sheetsToken: () => tokenValid() };
+window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, listMine, readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
 window.dispatchEvent(new Event("sliqtly:ready"));

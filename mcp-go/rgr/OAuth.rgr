@@ -337,6 +337,7 @@ class OAuth {
         req.put("resource" (OAuth.orNull((q.str_("resource")))))
         req.putStr("origin" origin)
         req.putInt("exp" ((host_now_ms host) + (OAuth.REQUEST_TTL())))
+        req.put("expires" (J.timeAt((req.int_("exp" 0)))))
         host_set_doc host (OAuth.col("requests")) rid (JOut.text(req))
         if ((strlen (host_error host)) > 0) {
             return (HttpOut.fail())
@@ -430,6 +431,7 @@ class OAuth {
         c.put("code_challenge" (r.field("code_challenge")))
         c.put("resource" (r.field("resource")))
         c.putInt("exp" ((host_now_ms host) + (OAuth.CODE_TTL())))
+        c.put("expires" (J.timeAt((c.int_("exp" 0)))))
         host_set_doc host (OAuth.col("codes")) (host_sha256_hex host code) (JOut.text(c))
         if ((strlen (host_error host)) > 0) {
             return (HttpOut.fail())
@@ -447,9 +449,11 @@ class OAuth {
         def a:MfJ (OAuth.grant(from))
         a.putStr("kind" "access")
         a.putInt("exp" (now + (OAuth.ACCESS_TTL())))
+        a.put("expires" (J.timeAt((now + (OAuth.ACCESS_TTL())))))
         def r:MfJ (OAuth.grant(from))
         r.putStr("kind" "refresh")
         r.putInt("exp" (now + (OAuth.REFRESH_TTL())))
+        r.put("expires" (J.timeAt((now + (OAuth.REFRESH_TTL())))))
         host_set_doc host (OAuth.col("tokens")) (host_sha256_hex host access) (JOut.text(a))
         host_set_doc host (OAuth.col("tokens")) (host_sha256_hex host refresh) (JOut.text(r))
         if ((strlen (host_error host)) > 0) {

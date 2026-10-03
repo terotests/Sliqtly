@@ -66,6 +66,13 @@ function colIndex(ref) {
   return n - 1;
 }
 
+// a stored double as the editor's CSV writes it (PresData.rgr): 15
+// significant digits, so 0.1+0.2 reads 0.3
+function number(v) {
+  if (v === "" || !Number.isFinite(Number(v))) return v;
+  return String(Number(Number(v).toPrecision(15)));
+}
+
 /** The sheets of a workbook as rows of strings (values as stored; dates are serial numbers). */
 export function readWorkbook(buf) {
   const files = unzip(buf);
@@ -92,6 +99,7 @@ export function readWorkbook(buf) {
         if (type === "s") value = shared[+v] ?? "";
         else if (type === "inlineStr") value = texts(body);
         else if (type === "b") value = v === "1" ? "TRUE" : "FALSE";
+        else if (type === "" || type === "n") value = number(decode(v));
         else value = decode(v);
         const ref = attr(head, "r");
         const at = ref ? colIndex(ref) : row.length;
@@ -107,22 +115,163 @@ export function readWorkbook(buf) {
 
 const filled = (row) => row.filter((v) => String(v).trim() !== "").length;
 
+// The sheets with values, each with the row its header is on (a title row
+// above the header is skipped, as the editor does) and the CSV name the
+// deck reads it by.
+function tables(buf, path) {
+  const sheets = readWorkbook(buf).filter((s) => s.rows.some((r) => filled(r) > 0));
+  const base = path.replace(/\.xlsx$/i, "");
+  return sheets.map((s) => {
+    let top = 0;
+    while (top < s.rows.length - 1 && filled(s.rows[top]) < 2 && s.rows.slice(top + 1).some((r) => filled(r) >= 2)) top++;
+    const header = (s.rows[top] || []).map((v) => String(v).trim());
+    while (header.length && header[header.length - 1] === "") header.pop();
+    const data = s.rows.slice(top + 1).filter((r) => filled(r) > 0);
+    const csv = sheets.length > 1 ? `${base}-${s.name.replace(/[\\/:*?"<>|\s]+/g, "-")}.csv` : base + ".csv";
+    return { name: s.name, columns: header, data, csv };
+  });
+}
+
 /**
  * What an assistant needs to know about a kept workbook at `path`
  * ("data/sales.xlsx"): per sheet its name, columns, data rows, and the CSV
  * name the deck reads it by.
  */
 export function workbookInfo(buf, path) {
-  const sheets = readWorkbook(buf).filter((s) => s.rows.some((r) => filled(r) > 0));
-  const base = path.replace(/\.xlsx$/i, "");
-  return sheets.map((s) => {
-    // a title row above the header is skipped, as the editor does
-    let top = 0;
-    while (top < s.rows.length - 1 && filled(s.rows[top]) < 2 && s.rows.slice(top + 1).some((r) => filled(r) >= 2)) top++;
-    const header = (s.rows[top] || []).map((v) => String(v).trim());
-    while (header.length && header[header.length - 1] === "") header.pop();
-    const dataRows = s.rows.slice(top + 1).filter((r) => filled(r) > 0).length;
-    const csv = sheets.length > 1 ? `${base}-${s.name.replace(/[\\/:*?"<>|\s]+/g, "-")}.csv` : base + ".csv";
-    return { name: s.name, columns: header, rows: dataRows, csv };
+  return tables(buf, path).map((t) => ({ name: t.name, columns: t.columns, rows: t.data.length, csv: t.csv }));
+}
+
+/**
+ * The values of a workbook's sheets: [{ name, csv, columns, data: rows of
+ * strings }] (dates stay Excel serial numbers).
+ */
+export function workbookTables(buf, path) {
+  return tables(buf, path);
+}
+
+/** Rows of a CSV (or, with sep "\t", TSV) text. */
+export function parseCsv(text, sep = ",") {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let quoted = false;
+  const t = String(text).replace(/^\uFEFF/, "");
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (quoted) {
+      if (ch === '"' && t[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else cell += ch;
+    } else if (ch === '"' && cell === "") quoted = true;
+    else if (ch === sep) { row.push(cell); cell = ""; }
+    else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && t[i + 1] === "\n") i++;
+      row.push(cell); rows.push(row); row = []; cell = "";
+    } else cell += ch;
+  }
+  if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+/** Rows as CSV text. */
+export function toCsv(rows) {
+  const cell = (v) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  return rows.map((r) => r.map(cell).join(",")).join("\n");
+}
+
+// --- writing: a workbook of values, as write_workbook keeps it
+
+const xmlText = (s) => String(s)
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+  // characters XML 1.0 does not allow
+  .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
+
+const NUMBER = /^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$/;
+
+function colName(i) {
+  let s = "";
+  for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
+  return s;
+}
+
+/** Why a sheet name will not do in Excel, or "". */
+export function badSheetName(name) {
+  const n = String(name ?? "");
+  if (!n.trim()) return "a sheet needs a name";
+  if (n.length > 31) return `sheet name "${n}" is longer than 31 characters`;
+  if (/[\\/:*?[\]]/.test(n)) return `sheet name "${n}" has one of \\ / : * ? [ ]`;
+  if (/^'|'$/.test(n)) return `sheet name "${n}" starts or ends with '`;
+  return "";
+}
+
+function zipDeflated(entries) {
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+  for (const [name, text] of entries) {
+    const data = Buffer.from(text, "utf8");
+    const packed = zlib.deflateRawSync(data);
+    const nameBuf = Buffer.from(name, "utf8");
+    const crc = zlib.crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(0x0800, 6); local.writeUInt16LE(8, 8);
+    local.writeUInt32LE(crc, 14); local.writeUInt32LE(packed.length, 18); local.writeUInt32LE(data.length, 22); local.writeUInt16LE(nameBuf.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6); central.writeUInt16LE(0x0800, 8); central.writeUInt16LE(8, 10);
+    central.writeUInt32LE(crc, 16); central.writeUInt32LE(packed.length, 20); central.writeUInt32LE(data.length, 24); central.writeUInt16LE(nameBuf.length, 28);
+    central.writeUInt32LE(offset, 42);
+    locals.push(local, nameBuf, packed);
+    centrals.push(central, nameBuf);
+    offset += 30 + nameBuf.length + packed.length;
+  }
+  const dir = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(dir.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, dir, end]);
+}
+
+/**
+ * An .xlsx of `sheets` [{ name, rows: [[value]] }]: numbers as numbers,
+ * { f: "=SUM(B2:B9)", v: 123 } as a formula (v, its value, optional),
+ * anything else as text, the first row bold. No formats or widths.
+ */
+export function writeWorkbook(sheets) {
+  const ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+  const rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  const head = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+  const entries = [];
+  const over = sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("");
+  entries.push(["[Content_Types].xml", head + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' + over + "</Types>"]);
+  entries.push(["_rels/.rels", head + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${rel}/officeDocument" Target="xl/workbook.xml"/></Relationships>`]);
+  entries.push(["xl/workbook.xml", head + `<workbook ${ns} xmlns:r="${rel}"><sheets>` + sheets.map((s, i) => `<sheet name="${xmlText(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("") + '</sheets><calcPr fullCalcOnLoad="1"/></workbook>']);
+  entries.push(["xl/_rels/workbook.xml.rels", head + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${rel}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("") + `<Relationship Id="rId${sheets.length + 1}" Type="${rel}/styles" Target="styles.xml"/></Relationships>`]);
+  entries.push(["xl/styles.xml", head + `<styleSheet ${ns}><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs></styleSheet>`]);
+  sheets.forEach((s, i) => {
+    const rows = s.rows.map((row, r) => {
+      const cells = row.map((v, c) => {
+        const ref = colName(c) + (r + 1);
+        const style = r === 0 ? ' s="1"' : "";
+        // a formula, and the value it gives if the writer knows it (Excel
+        // works it out on opening; Sliqtly reads the value)
+        if (v != null && typeof v === "object") {
+          const f = xmlText(String(v.f ?? "").trim().replace(/^=/, ""));
+          const known = v.v == null || v.v === "" ? null : v.v;
+          const num = known == null ? null : typeof known === "number" ? (Number.isFinite(known) ? String(known) : null) : NUMBER.test(String(known).trim()) ? String(known).trim() : null;
+          const cached = known == null ? "" : num != null ? `<v>${num}</v>` : `<v>${xmlText(known)}</v>`;
+          return `<c r="${ref}"${style}${known != null && num == null ? ' t="str"' : ""}><f>${f}</f>${cached}</c>`;
+        }
+        if (v == null || String(v) === "") return "";
+        const t = typeof v === "number" ? (Number.isFinite(v) ? String(v) : null) : NUMBER.test(String(v).trim()) ? String(v).trim() : null;
+        if (t != null) return `<c r="${ref}"${style}><v>${t}</v></c>`;
+        return `<c r="${ref}"${style} t="inlineStr"><is><t xml:space="preserve">${xmlText(v)}</t></is></c>`;
+      }).join("");
+      return `<row r="${r + 1}">${cells}</row>`;
+    }).join("");
+    entries.push([`xl/worksheets/sheet${i + 1}.xml`, head + `<worksheet ${ns}><sheetData>${rows}</sheetData></worksheet>`]);
   });
+  return zipDeflated(entries);
 }

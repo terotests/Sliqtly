@@ -1,0 +1,526 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; A deck's data files (mcp/src/xlsx.js and read_file in mcp/src/server.js).
+;
+; The editor keeps an .xlsx as itself and reads each sheet as CSV under
+; data/<book>-<Sheet>.csv (data/<book>.csv for a one-sheet book), derived
+; with PresData.xlsxSheets and tidied (web/main.js workbookSheets, tidyCsv).
+; This reads a workbook with the same PresData (host_xlsx_sheets) and tidies
+; it the same way, so
+; an assistant sees the values and the names a deck's charts and tables see.
+
+Import "McpHost.rgr"
+Import "Json.rgr"
+Import "Deck.rgr"
+
+class SheetRow {
+    def cells:[string]
+}
+
+; one sheet: its name, the CSV name the deck reads it by, the header and the
+; rows of data under it
+class DataTable {
+    def name:string ""
+    def csv:string ""
+    def columns:[string]
+    def rows:[SheetRow]
+}
+
+class Tables {
+    def err:string ""
+    def list:[DataTable]
+}
+
+class Files {
+    sfn MAX_DATA:int () {
+        return 10485760
+    }
+    sfn MAX_DATA_FILES:int () {
+        return 10
+    }
+    sfn MAX_READ:int () {
+        return 20971520
+    }
+    sfn XLSX_MIME:string () {
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    }
+
+    sfn isXlsx:boolean (path:string) {
+        return (endsWith (to_lowercase path) ".xlsx")
+    }
+    sfn isPicture:boolean (path:string) {
+        return (startsWith path "media/")
+    }
+
+    ; picture, workbook, chart, data or file
+    sfn kindOf:string (path:string) {
+        if (Files.isPicture(path)) {
+            return "picture"
+        }
+        if (Files.isXlsx(path)) {
+            return "workbook"
+        }
+        if (startsWith path "charts/") {
+            return "chart"
+        }
+        if (startsWith path "data/") {
+            return "data"
+        }
+        return "file"
+    }
+
+    ; the type a data file is kept with, "" for a name that is not data
+    sfn dataType:string (name:string) {
+        def n:string (to_lowercase name)
+        if (endsWith n ".xlsx") {
+            return (Files.XLSX_MIME())
+        }
+        if (endsWith n ".csv") {
+            return "text/csv"
+        }
+        if (endsWith n ".tsv") {
+            return "text/tab-separated-values"
+        }
+        if (endsWith n ".json") {
+            return "application/json"
+        }
+        if (endsWith n ".txt") {
+            return "text/plain"
+        }
+        return ""
+    }
+
+    ; --- CSV
+
+    ; rows of a CSV (sep 44) or TSV (sep 9) text
+    sfn parseCsv:[SheetRow] (text:string sep:int) {
+        def rows:[SheetRow]
+        def row (new SheetRow)
+        def cell:string ""
+        def quoted:boolean false
+        def n:int (strlen text)
+        def i:int 0
+        ; a UTF-8 byte order mark
+        if (n >= 3) {
+            if ((charAt text 0) == 239) {
+                i = 3
+            }
+        }
+        def seg:int i
+        while (i < n) {
+            def c:int (charAt text i)
+            if quoted {
+                if (c == 34) {
+                    if (((i + 1) < n) && ((charAt text (i + 1)) == 34)) {
+                        cell = (cell + (substring text seg (i + 1)))
+                        i = (i + 2)
+                    } {
+                        cell = (cell + (substring text seg i))
+                        quoted = false
+                        i = (i + 1)
+                    }
+                    seg = i
+                } {
+                    i = (i + 1)
+                }
+            } {
+                if (((c == 34) && ((strlen cell) == 0)) && (seg == i)) {
+                    quoted = true
+                    i = (i + 1)
+                    seg = i
+                } {
+                    if (c == sep) {
+                        push row.cells (cell + (substring text seg i))
+                        cell = ""
+                        i = (i + 1)
+                        seg = i
+                    } {
+                        if ((c == 10) || (c == 13)) {
+                            push row.cells (cell + (substring text seg i))
+                            push rows row
+                            row = (new SheetRow)
+                            cell = ""
+                            if (((c == 13) && ((i + 1) < n)) && ((charAt text (i + 1)) == 10)) {
+                                i = (i + 1)
+                            }
+                            i = (i + 1)
+                            seg = i
+                        } {
+                            i = (i + 1)
+                        }
+                    }
+                }
+            }
+        }
+        if (((seg < n) || ((strlen cell) > 0)) || ((array_length row.cells) > 0)) {
+            push row.cells (cell + (substring text seg n))
+            push rows row
+        }
+        return rows
+    }
+
+    sfn toCsv:string (rows:[SheetRow]) {
+        def lines:[string]
+        for rows r:SheetRow i {
+            def cells:[string]
+            for r.cells v:string j {
+                push cells (Files.csvField(v))
+            }
+            push lines (join cells ",")
+        }
+        return (join lines "\n")
+    }
+
+    ; quoted when it holds a comma, a quote or a line break
+    sfn csvField:string (v:string) {
+        def n:int (strlen v)
+        def i:int 0
+        def needs:boolean false
+        while (i < n) {
+            def c:int (charAt v i)
+            if (((c == 44) || (c == 34)) || ((c == 10) || (c == 13))) {
+                needs = true
+            }
+            i = (i + 1)
+        }
+        if (needs == false) {
+            return v
+        }
+        return ("\"" + (join (strsplit v "\"") "\"\"") + "\"")
+    }
+
+    ; cells with something in them
+    sfn filled:int (r:SheetRow) {
+        def n:int 0
+        for r.cells v:string i {
+            if ((strlen (trim v)) > 0) {
+                n = (n + 1)
+            }
+        }
+        return n
+    }
+
+    ; -?digits.digits with 12 or more decimals: the editor writes those with
+    ; 12 significant digits (tidyCsv), so 0.1+0.2 reads 0.3
+    sfn longDecimal:boolean (v:string) {
+        def n:int (strlen v)
+        def i:int 0
+        if ((n > 0) && ((charAt v 0) == 45)) {
+            i = 1
+        }
+        def whole:int 0
+        while ((i < n) && (((charAt v i) >= 48) && ((charAt v i) <= 57))) {
+            whole = (whole + 1)
+            i = (i + 1)
+        }
+        if ((whole == 0) || (i >= n)) {
+            return false
+        }
+        if ((charAt v i) != 46) {
+            return false
+        }
+        i = (i + 1)
+        def frac:int 0
+        while (i < n) {
+            def c:int (charAt v i)
+            if ((c < 48) || (c > 57)) {
+                return false
+            }
+            frac = (frac + 1)
+            i = (i + 1)
+        }
+        return (frac >= 12)
+    }
+
+    ; a sheet's name in a file name: runs of \/:*?"<>| and spaces as "-"
+    ; why a sheet name will not do in Excel, or ""
+    sfn badSheetName:string (name:string) {
+        if ((strlen (trim name)) == 0) {
+            return "A sheet needs a name"
+        }
+        if ((Tools.chars(name)) > 31) {
+            return ("Sheet name \"" + name + "\" is longer than 31 characters")
+        }
+        for ([] _:string ("\\" "/" ":" "*" "?" "[" "]")) c:string i {
+            if ((indexOf name c) >= 0) {
+                return ("Sheet name \"" + name + "\" has one of \\ / : * ? [ ]")
+            }
+        }
+        if ((startsWith name "'") || (endsWith name "'")) {
+            return ("Sheet name \"" + name + "\" starts or ends with '")
+        }
+        return ""
+    }
+
+    sfn sheetFileName:string (name:string) {
+        def parts:[string]
+        def n:int (strlen name)
+        def i:int 0
+        def inRun:boolean false
+        while (i < n) {
+            def c:int (charAt name i)
+            def bad:boolean ((((c == 92) || (c == 47)) || ((c == 58) || (c == 42))) || (((c == 63) || (c == 34)) || (((c == 60) || (c == 62)) || (c == 124))))
+            if (bad || (Deck.isSpace(c))) {
+                if (inRun == false) {
+                    push parts "-"
+                }
+                inRun = true
+            } {
+                inRun = false
+                push parts (substring name i (i + 1))
+            }
+            i = (i + 1)
+        }
+        return (join parts "")
+    }
+
+    ; --- workbooks
+
+    ; the sheets of the workbook in `handle`, kept at `path`, that have values
+    sfn tables:Tables (host:McpHost handle:int path:string) {
+        def out (new Tables)
+        def r:MfJ (J.parse((host_xlsx_sheets host handle)))
+        if ((r.isObj()) == false) {
+            out.err = "could not read the workbook"
+            return out
+        }
+        if ((strlen (r.str_("error"))) > 0) {
+            out.err = (r.str_("error"))
+            return out
+        }
+        def used:[MfJ]
+        for (r.list("sheets")) sh:MfJ i {
+            def csv:string (sh.str_("csv"))
+            def has:boolean false
+            def n:int (strlen csv)
+            def k:int 0
+            while ((k < n) && (has == false)) {
+                def c:int (charAt csv k)
+                if ((((c != 44) && (c != 32)) && ((c != 10) && (c != 13))) && (c != 9)) {
+                    has = true
+                }
+                k = (k + 1)
+            }
+            if has {
+                push used sh
+            }
+        }
+        def base:string path
+        if (Files.isXlsx(path)) {
+            base = (substring path 0 ((strlen path) - 5))
+        }
+        for used s:MfJ j {
+            def t (new DataTable)
+            t.name = (s.str_("name"))
+            if ((array_length used) > 1) {
+                t.csv = (base + "-" + (Files.sheetFileName(t.name)) + ".csv")
+            } {
+                t.csv = (base + ".csv")
+            }
+            def rows:[SheetRow] (Files.parseCsv((s.str_("csv")) 44))
+            ; a title row above the header is skipped, as the editor does
+            def top:int 0
+            def going:boolean true
+            while (going && (top < ((array_length rows) - 1))) {
+                def tr:SheetRow (itemAt rows top)
+                def later:boolean false
+                def m:int (top + 1)
+                while (m < (array_length rows)) {
+                    if ((Files.filled((itemAt rows m))) >= 2) {
+                        later = true
+                    }
+                    m = (m + 1)
+                }
+                if (((Files.filled(tr)) < 2) && later) {
+                    top = (top + 1)
+                } {
+                    going = false
+                }
+            }
+            if ((array_length rows) > 0) {
+                def head:SheetRow (itemAt rows top)
+                for head.cells hv:string h {
+                    push t.columns (trim hv)
+                }
+                def keep:int (array_length t.columns)
+                while ((keep > 0) && ((strlen (itemAt t.columns (keep - 1))) == 0)) {
+                    keep = (keep - 1)
+                }
+                def cols:[string]
+                for t.columns cv:string ci {
+                    if (ci < keep) {
+                        push cols cv
+                    }
+                }
+                t.columns = cols
+            }
+            def d:int (top + 1)
+            while (d < (array_length rows)) {
+                def dr:SheetRow (itemAt rows d)
+                if ((Files.filled(dr)) > 0) {
+                    def tidy (new SheetRow)
+                    for dr.cells v:string vi {
+                        if (Files.longDecimal(v)) {
+                            push tidy.cells (host_precision host v 12)
+                        } {
+                            push tidy.cells v
+                        }
+                    }
+                    push t.rows tidy
+                }
+                d = (d + 1)
+            }
+            push out.list t
+        }
+        return out
+    }
+
+    ; [{name, columns, rows, csv}] as list_files gives them
+    sfn info:MfJ (ts:Tables) {
+        def a:MfJ (MfJ.newArr())
+        for ts.list t:DataTable i {
+            def o:MfJ (MfJ.newObj())
+            o.putStr("name" t.name)
+            o.put("columns" (J.strs(t.columns)))
+            o.putInt("rows" (array_length t.rows))
+            o.putStr("csv" t.csv)
+            a.add(o)
+        }
+        return a
+    }
+
+    ; one line per sheet, as list_files writes them
+    sfn sheetLine:string (o:MfJ) {
+        def cols:[string]
+        for (J.strList((o.field("columns")))) c:string i {
+            push cols (JOut.text((J.s(c))))
+        }
+        def colText:string (join cols ", ")
+        if ((strlen colText) == 0) {
+            colText = "(none)"
+        }
+        return ("sheet " + (JOut.text((J.s((o.str_("name")))))) + ": " + (to_string (o.int_("rows" 0))) + " rows; columns " + colText + "; read as " + (o.str_("csv")))
+    }
+
+    ; --- data files sent with create/update_presentation
+
+    sfn loadData:Loaded (host:McpHost list:[MfJ]) {
+        def res (new Loaded)
+        if ((array_length list) > (Files.MAX_DATA_FILES())) {
+            res.err = ("At most " + (to_string (Files.MAX_DATA_FILES())) + " data files per call.")
+            return res
+        }
+        for list f:MfJ i {
+            def given:string (f.str_("name"))
+            def bare:string (trim given)
+            if (startsWith bare "data/") {
+                bare = (substring bare 5 (strlen bare))
+            }
+            def name:string (Deck.cleanName(bare))
+            if ((strlen name) == 0) {
+                res.err = ("File name \"" + given + "\" is not usable: use letters, digits, \".\", \"-\" and \"_\".")
+                return res
+            }
+            def type:string (Files.dataType(name))
+            if ((strlen type) == 0) {
+                res.err = ("File " + name + ": data files are .xlsx, .csv, .tsv, .json or .txt.")
+                return res
+            }
+            def hasText:boolean ((f.field("text")).kind == 3)
+            def b64:string (f.str_("data_base64"))
+            def url:string (f.str_("url"))
+            def count:int 0
+            if hasText {
+                count = (count + 1)
+            }
+            if ((strlen b64) > 0) {
+                count = (count + 1)
+            }
+            if ((strlen url) > 0) {
+                count = (count + 1)
+            }
+            if (count != 1) {
+                res.err = ("File " + name + ": give one of text, data_base64 or url.")
+                return res
+            }
+            def handle:int 0
+            def size:int 0
+            if hasText {
+                if (Files.isXlsx(name)) {
+                    res.err = ("File " + name + ": a workbook is sent as data_base64 or url, not text.")
+                    return res
+                }
+                def text:string (f.str_("text"))
+                handle = (host_keep_text host text)
+                size = (strlen text)
+            }
+            if ((strlen b64) > 0) {
+                if (startsWith b64 "data:") {
+                    def comma:int (indexOf b64 ";base64,")
+                    if (comma > 0) {
+                        b64 = (substring b64 (comma + 8) (strlen b64))
+                    }
+                }
+                def got:MfJ (J.parse((host_image_base64 host b64)))
+                handle = (got.int_("handle" 0))
+                size = (got.int_("size" 0))
+            }
+            if ((strlen url) > 0) {
+                def u:MfJ (J.parse((host_parse_url host url)))
+                if ((u.isObj()) == false) {
+                    res.err = ("File " + name + ": \"" + url + "\" is not a URL.")
+                    return res
+                }
+                def hostname:string (u.str_("hostname"))
+                if (((u.str_("scheme")) != "https") || (Deck.privateHost(hostname))) {
+                    res.err = ("File " + name + ": only public https URLs are fetched.")
+                    return res
+                }
+                def got2:MfJ (J.parse((host_image_url host url ((Files.MAX_DATA()) + 1))))
+                def status:int (got2.int_("status" 0))
+                if (status == 0) {
+                    res.err = ("File " + name + ": " + hostname + " could not be fetched.")
+                    return res
+                }
+                if ((status < 200) || (status > 299)) {
+                    res.err = ("File " + name + ": " + hostname + " answered " + (to_string status) + ".")
+                    return res
+                }
+                def ct:string (got2.str_("type"))
+                if ((((startsWith ct "image/") || (startsWith ct "video/")) || (startsWith ct "audio/")) || (ct == "text/html")) {
+                    res.err = ("File " + name + ": the URL gave " + ct + ", not data.")
+                    return res
+                }
+                if ((got2.int_("length" 0)) > (Files.MAX_DATA())) {
+                    res.err = ("File " + name + " is larger than 10 MB.")
+                    return res
+                }
+                handle = (got2.int_("handle" 0))
+                size = (got2.int_("size" 0))
+            }
+            if (size == 0) {
+                res.err = ("File " + name + " is empty.")
+                return res
+            }
+            if (size > (Files.MAX_DATA())) {
+                res.err = ("File " + name + " is larger than 10 MB.")
+                return res
+            }
+            if (Files.isXlsx(name)) {
+                def ts:Tables (Files.tables(host handle ("data/" + name)))
+                if ((strlen ts.err) > 0) {
+                    res.err = ("File " + name + " is not a workbook Sliqtly can read: " + ts.err + ". Long base64 is easily corrupted on the way: send the sheets with write_workbook instead (rows, formulas as { f, v }).")
+                    return res
+                }
+            }
+            def im (new Img)
+            im.name = name
+            im.path = ("data/" + name)
+            im.type = type
+            im.handle = handle
+            im.size = size
+            push res.imgs im
+        }
+        return res
+    }
+}

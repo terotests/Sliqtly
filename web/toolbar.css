@@ -53,31 +53,50 @@
 .theme-tb .ui-select-item:focus { background-color: #f4f4f5; }
 
 /* File, Slide, Export, Help: dropdown menus in the bar's look, their cards
-   as the select's; a submenu opens beside its row */
+   as the select's; a submenu opens beside its row. A card is as wide as its
+   widest row (at least 210px); a long name is cut with "…" by MenuCtl. */
 .theme-tb .ui-dropdownmenu { display: flex; align-self: center; }
 .theme-tb .ui-dropdownmenu-trigger { font-family: Open Sans; font-size: 13px; font-weight: 500; color: #09090b; height: 32px; line-height: 32px; padding: 0 10px; border: 0px; border-radius: 6px; background-color: rgba(0,0,0,0); }
 .theme-tb .ui-dropdownmenu-trigger:hover { background-color: #f4f4f5; }
 .theme-tb .ui-dropdownmenu-trigger-state-open { background-color: #f4f4f5; }
 .theme-tb .ui-dropdownmenu-content {
-  gap: 1px; padding: 4px; width: 220px;
+  gap: 1px; padding: 4px; width: fit-content; align-items: stretch;
   border: 1px solid #e4e4e7; border-radius: 12px; background-color: #ffffff;
   shadow-color: rgba(0, 0, 0, 0.12); shadow-radius: 18px; shadow-offset-y: 6px;
 }
-.theme-tb .ui-dropdownmenu-item { font-family: Open Sans; font-size: 13px; color: #18181b; width: 210px; height: 32px; line-height: 32px; padding: 0 10px; border-radius: 8px; white-space: nowrap; }
+.theme-tb .ui-dropdownmenu-item { font-family: Open Sans; font-size: 13px; color: #18181b; width: 100%; min-width: 210px; height: 32px; line-height: 32px; padding: 0 10px; border-radius: 8px; white-space: nowrap; }
 .theme-tb .ui-dropdownmenu-item:hover { background-color: #f4f4f5; }
 .theme-tb .ui-dropdownmenu-item:focus { background-color: #f4f4f5; }
 /* a line between a menu's groups (MenuCtl.addSeparator) */
-.theme-tb .ui-dropdownmenu-separator { width: 210px; height: 1px; background-color: #e4e4e7; margin: 4px 0; }
+.theme-tb .ui-dropdownmenu-separator { height: 1px; background-color: #e4e4e7; margin: 4px 0; }
 .theme-tb .ui-dropdownmenu-subtrigger-state-open { background-color: #f4f4f5; }
 .theme-tb .ui-dropdownmenu-subtrigger { display: flex; flex-direction: row; flex-wrap: nowrap; justify-content: space-between; align-items: center; }
 .theme-tb .ui-dropdownmenu-item-label { font-family: Open Sans; font-size: 13px; color: #18181b; height: 32px; line-height: 32px; white-space: nowrap; }
 .theme-tb .ui-dropdownmenu-subtrigger-chevron { font-family: Open Sans; font-size: 13px; color: #71717a; height: 32px; line-height: 32px; }
+.theme-tb .ui-kbd { font-family: Open Sans; font-size: 11px; font-weight: 500; color: #71717a; background-color: #f4f4f5; }
 /* Claude's and ChatGPT's marks before "Edit in …" (PresToolbar.addMarks) */
 .theme-tb .tb-marked { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
 .theme-tb .tb-mark { width: 16px; height: 16px; flex-shrink: 0; }
 .theme-tb .tb-mark-claude { fill: #D97757; }
 .theme-tb .tb-mark-openai { fill: #000000; }
 .theme-tb .ui-dropdownmenu-item-disabled { opacity: 1; color: #a1a1aa; font-size: 11px; font-weight: 600; height: 26px; line-height: 30px; }
+
+/* The filmstrip's context menu (a right click on a slide, Shift+F10): the
+   menus' card, opened at an empty point where it was asked for */
+.theme-tb .ui-contextmenu { position: absolute; }
+.theme-tb .ui-contextmenu-trigger { width: 1px; height: 1px; padding: 0px; border: 0px; font-size: 1px; line-height: 1px; color: rgba(0,0,0,0); background-color: rgba(0,0,0,0); overflow: hidden; }
+.theme-tb .ui-contextmenu-content {
+  gap: 1px; padding: 4px; width: fit-content; align-items: stretch;
+  border: 1px solid #e4e4e7; border-radius: 12px; background-color: #ffffff;
+  shadow-color: rgba(0, 0, 0, 0.12); shadow-radius: 18px; shadow-offset-y: 6px;
+}
+.theme-tb .ui-contextmenu-item { font-family: Open Sans; font-size: 13px; color: #18181b; width: 100%; min-width: 210px; height: 32px; line-height: 32px; padding: 0 10px; border-radius: 8px; white-space: nowrap; background-color: rgba(0,0,0,0); }
+.theme-tb .ui-contextmenu-item:hover { background-color: #f4f4f5; }
+.theme-tb .ui-contextmenu-item:focus { background-color: #f4f4f5; }
+.theme-tb .ui-contextmenu-item-label { font-family: Open Sans; font-size: 13px; color: #18181b; height: 32px; line-height: 32px; white-space: nowrap; }
+.theme-tb .ui-contextmenu-separator { height: 1px; background-color: #e4e4e7; margin: 4px 0; }
+/* a row that cannot act on this slide (Move left on the first) */
+.theme-tb .ui-contextmenu-item-disabled { opacity: 0.45; }
 
 /* The drawer (a narrow window or a finger): the rest of the bar as a list */
 .theme-tb .ui-drawer-panel {
@@ -122,3 +141,10 @@
 /* text leaves get their size and face stated, not inherited: an inherited
    size came out differently between passes and the rows moved */
 .theme-tb .ui-switch-label { font-family: Open Sans; font-size: 13px; }
+
+/* File → Delete presentation…: red, as EVGUI's destructive row, with a red
+   wash under the pointer; the drawer's row the same red. */
+.theme-tb .ui-dropdownmenu-item-destructive { color: #dc2626; }
+.theme-tb .ui-dropdownmenu-item-destructive:hover { background-color: #fef2f2; }
+.theme-tb .ui-dropdownmenu-item-destructive:focus { background-color: #fef2f2; }
+.theme-tb .tb-danger { color: #dc2626; }

@@ -82,6 +82,9 @@ class PresHints {
         if (key == "height") { return (PresI18n.t("Image height: in points or as a percentage of the slide's content height (50%).")) }
         if (key == "align") { return (PresI18n.t("Image position in the column: left, center or right.")) }
         if (key == "bg") { return (PresI18n.t("Slide background image, covers the whole slide: bg=media/kuva.jpg")) }
+        if (key == "art") { return (PresI18n.t("PRO: line art drawn behind the slide in the theme's colours (waves). art=off leaves it off this slide.")) }
+        if (key == "list-style") { return (PresI18n.t("PRO: the list above drawn as a layout: process (steps), swot (a 2×2 grid) or timeline. Items are Title: description.")) }
+        if (key == "art-seed") { return (PresI18n.t("A number that moves the art's curves: another number, another picture.")) }
         if (key == "bg-dim") { return (PresI18n.t("How much of the slide's base color goes over the background image (0–1), so text stands out.")) }
         if (key == "header") { return (PresI18n.t("Header text on every slide. {page}, {pages} and {title} are filled in. On a heading, header=off leaves it off that slide.")) }
         if (((key == "header-left") || (key == "header-center")) || (key == "header-right")) { return (PresI18n.t("Text in that place of every slide's header; a picture as ![](media/logo.png). {page}, {pages} and {title} are filled in.")) }
@@ -117,6 +120,8 @@ class PresHints {
         if ((key == "tour") || ((key == "ball") || (key == "choose"))) { return "on off" }
         if (key == "style") { return "holo sketch" }
         if (key == "furniture") { return "off" }
+        if (key == "art") { return "waves off" }
+        if (key == "list-style") { return "process swot timeline" }
         if (((key == "align") || (key == "header-align")) || (key == "footer-align")) { return "left center right" }
         return ""
     }
@@ -180,6 +185,10 @@ class PresHints {
         if (prop == "padding") { return (PresI18n.t("Empty space at the edges (for a chart: around the chart).")) }
         if (prop == "chart-effects") { return (PresI18n.t("Extra effects for all charts: glow, shadow, gradient. E.g. glow gradient.")) }
         if (prop == "split-level") { return (PresI18n.t("Which heading level starts a new slide.")) }
+        if (prop == "fx") { return (PresI18n.t("Background effect behind every slide; a slide's own {fx=…} wins. none: no effect.")) }
+        if (((strlen prop) > 3) && ((substring prop 0 3) == "fx-")) { return ((PresI18n.t("Effect parameter ")) + (substring prop 3 (strlen prop)) + ".") }
+        if (prop == "list-style") { return (PresI18n.t("PRO: lists drawn as a layout: process, swot or timeline. #heading list { list-style: swot } for the lists under one heading.")) }
+        if (prop == "colors") { return (PresI18n.t("Layout colours in order, separated by spaces.")) }
         if (prop == "overflow") { return (PresI18n.t("What to do with an overfull slide.")) }
         if (prop == "aspect-ratio") { return (PresI18n.t("Slide aspect ratio.")) }
         if (prop == "column-count") { return (PresI18n.t("Number of columns.")) }
@@ -192,6 +201,8 @@ class PresHints {
 
     sfn cssEnum:string (prop:string) {
         if (prop == "chart-style") { return "flat forge neon glass" }
+        if (prop == "list-style") { return "process swot timeline" }
+        if (prop == "fx") { return ((PresHints.fxNames()) + " none") }
         if (prop == "justify-content") { return "center flex-start flex-end" }
         if (prop == "contrast") { return "auto off" }
         if (prop == "overflow") { return "split shrink" }
@@ -225,6 +236,19 @@ class PresHints {
         if (prop == "line-height") { return "1 2.2 0.05" }
         if (prop == "column-count") { return "1 4 1" }
         if (prop == "split-level") { return "1 3 1" }
+        if (((strlen prop) > 3) && ((substring prop 0 3) == "fx-")) {
+            def param:string (substring prop 3 (strlen prop))
+            def fxs:[string] (strsplit (PresHints.fxNames()) " ")
+            def k:int 0
+            while (k < (array_length fxs)) {
+                def d0:string (PresHints.fxDefault((itemAt fxs k) param))
+                if ((strlen d0) > 0) {
+                    return (PresHints.fxRange(param d0))
+                }
+                k = (k + 1)
+            }
+            return (PresHints.fxRange(param "1"))
+        }
         if (unit == "in") { return "0 20 0.05" }
         if (unit == "px") { return "0 200 1" }
         if (unit == "em") { return "0 4 0.05" }
@@ -234,7 +258,8 @@ class PresHints {
 
     sfn selectorDoc:string (sel:string) {
         if (sel == "page") { return (PresI18n.t("Slide size, margin and background.")) }
-        if (sel == "deck") { return (PresI18n.t("How the document is split into slides.")) }
+        if (sel == "deck") { return (PresI18n.t("How the document is split into slides, and the background effect.")) }
+        if (sel == "figure") { return (PresI18n.t("Layouts drawn from lists (process, SWOT, timeline).")) }
         if (sel == "document") { return (PresI18n.t("Defaults for all text.")) }
         if (sel == "heading") { return (PresI18n.t("All headings.")) }
         if (sel == "chart") { return (PresI18n.t("Vega-Lite charts on stage, in PDF and in PPTX.")) }
@@ -290,8 +315,8 @@ class PresHints {
             return ""
         }
         def h:PresHint (PresHint.make("enum" (PresI18n.t("language")) (substring line a b) a b))
-        h.doc = (PresI18n.t("What the block is: a diagram, a formula or code."))
-        h.options = "mermaid dot plantuml d2 vega-lite math js python bash json"
+        h.doc = (PresI18n.t("What the block is: a diagram, a formula or code. PRO: process, swot and timeline draw a layout from a list, one `Title: description` per line."))
+        h.options = "mermaid dot plantuml d2 vega-lite process swot timeline math js python bash json"
         return (h.json())
     }
 

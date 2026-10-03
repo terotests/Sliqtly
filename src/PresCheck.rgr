@@ -2,6 +2,8 @@
 ; Node checks for the deck and the timeline: `npm run check`.
 Import "PresTimeline.rgr"
 Import "PresChartModel.rgr"
+Import "PresCascade.rgr"
+Import "PresDocSettings.rgr"
 
 class PresCheck {
     def fails:int 0
@@ -424,6 +426,294 @@ class PresCheck {
         this.ok(((PresCheck.texts(last "3 / 3")) == 1) "that slide keeps its footer")
     }
 
+    ; --- the theme's cascade (PresCascade), against what the layout draws ---------
+    sfn hexOf:string (v:string) {
+        def c:EVGColor (CssValue.color(v))
+        if (c.isSet == false) {
+            return ""
+        }
+        return (MdCss.hexOf(c))
+    }
+
+    ; The colour the layout set a word in, as #RRGGBB; "" when not found.
+    sfn inkOf:string (deck:PresDeck word:string) {
+        def l:MdLayout (deck.layout())
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 0) && ((indexOf b.text word) == 0)) {
+                return (PresCheck.hexOf(b.color))
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; `css`, an element, a facet: its value, its source, and the colour the
+    ; layout really draws `word` in.
+    fn ink:void (css:string md:string sel:string cls:string word:string wantFrom:string what:string) {
+        def classes:[string]
+        if ((strlen cls) > 0) {
+            push classes cls
+        }
+        def e:PresCssElement ((PresCascade.of(css)).element(sel classes ""))
+        def f:PresCssFacet (e.facet("color"))
+        this.ok((f.from == wantFrom) (what + ": colour from " + wantFrom + ", got " + f.from))
+        def deck (new PresDeck())
+        deck.md.setStyleSheet(css)
+        deck.setText(md)
+        def drawn:string (PresCheck.inkOf(deck word))
+        this.ok(((strlen drawn) > 0) (what + ": " + word + " is drawn"))
+        this.ok(((PresCheck.hexOf(f.value)) == drawn) (what + ": model " + f.value + " = drawn " + drawn))
+    }
+
+    fn cascade:void () {
+        def none:[string]
+        ; a heading with no colour of its own is the document's, and says so
+        def css1:string "document { color: #112233 } heading { margin-top: 10pt }"
+        def h2:PresCssElement ((PresCascade.of(css1)).element("h2" none ""))
+        def hc:PresCssFacet (h2.facet("color"))
+        this.ok(((hc.from == "document") && (hc.value == "#112233")) ("h2 colour from document: " + (h2.dump())))
+        this.ok((hc.own == "h2") "an h2's colour is edited in h2")
+        this.ok((((hc.link("heading")).isSet()) == false) "heading says nothing about colour")
+        this.ok(((h2.facet("margin-top")).from == "heading") "the space above is the shared heading rule")
+        this.ok(((h2.facet("margin-top")).isOwn()) "and it is the heading's own")
+        ; h2 beats heading beats body beats document
+        def css2:string "document { color: #111111 } body { color: #222222 } heading { color: #333333 } h2 { color: #444444 }"
+        def c2:PresCascade (PresCascade.of(css2))
+        this.ok(((((c2.element("h2" none "")).facet("color")).from) == "h2") "h2 colour wins")
+        this.ok(((((c2.element("h3" none "")).facet("color")).from) == "heading") "then the shared heading colour")
+        this.ok(((((c2.element("p" none "")).facet("color")).from) == "body") "body after document")
+        this.ok(((((c2.element("p" none "")).facet("color")).own) == "body") "a paragraph's colour is edited where it comes from")
+        ; MdCss reads the same into the style
+        def mc (new MdCss())
+        mc.addStyleSheet(css2)
+        def st (new MdStyle())
+        mc.applyTo(st)
+        this.ok(((st.headingInk(2)) == (PresCheck.hexOf((((c2.element("h2" none "")).facet("color")).value)))) "h2 ink as MdStyle has it")
+        this.ok(((st.headingInk(3)) == (PresCheck.hexOf((((c2.element("h3" none "")).facet("color")).value)))) "h3 ink as MdStyle has it")
+        this.ok((st.textColor == (PresCheck.hexOf((((c2.element("p" none "")).facet("color")).value)))) "text ink as MdStyle has it")
+        ; a list's colour is its bullets; the item's text is the document's
+        def css3:string "document { color: #101010 } list { color: #ff0000; padding-left: 30pt }"
+        def li:PresCssElement ((PresCascade.of(css3)).element("li" none ""))
+        this.ok((((li.facet("color")).from == "document") && ((li.facet("marker-color")).from == "list")) ("item text vs bullets: " + (li.dump())))
+        def mk:PresCssFacet (li.facet("marker-color"))
+        this.ok(((strlen mk.note) > 0) "the bullet colour says what it colours")
+        this.ok(((li.facet("padding-left")).value == "30pt") "the list's indent")
+        this.ok(((li.facet("margin-bottom")).isDefault()) "item spacing at its default")
+        ; a selector list, and the later rule at equal specificity
+        def css4:string "h1, h2 { font-size: 30pt } h2 { font-size: 20pt } h3 { color: red !important } h3 { color: blue }"
+        def c4:PresCascade (PresCascade.of(css4))
+        def f4:PresCssFacet ((c4.element("h2" none "")).facet("font-size"))
+        this.ok(((f4.value == "20pt") && ((f4.link("h2")).selector == "h2")) ("the later h2 rule: " + f4.value))
+        this.ok(((((c4.element("h1" none "")).facet("font-size")).value) == "30pt") "h1 of h1, h2")
+        this.ok(((((c4.element("h3" none "")).facet("color")).value) == "red") "!important above a later rule")
+        ; the shared heading size is h1's only
+        def c5:PresCascade (PresCascade.of("heading { font-size: 40pt; font-family: Lato }"))
+        this.ok(((((c5.element("h1" none "")).facet("font-size")).value) == "40pt") "heading font-size sets h1")
+        this.ok(((((c5.element("h2" none "")).facet("font-size")).isDefault())) "and not h2")
+        this.ok(((((c5.element("h2" none "")).facet("font-family")).value) == "Lato") "heading font-family sets all")
+        ; a quote's text is its own colour, never the document's
+        def q:PresCssElement ((PresCascade.of("document { color: #123456 }")).element("blockquote" none ""))
+        this.ok(((q.facet("color")).isDefault()) ("quote colour ignores the document: " + (q.dump())))
+        ; a class: its colour and size on its block, its tag rule too
+        def css6:string "document { color: #111111 } .lead { color: #00aa00; font-size: 1.3em } #only { color: #0000ff }"
+        def c6:PresCascade (PresCascade.of(css6))
+        def lead:[string]
+        push lead ".lead"
+        def pl:PresCssElement (c6.element("p" lead ""))
+        this.ok((((pl.facet("color")).from == ".lead") && ((pl.facet("color")).own == ".lead")) ("p.lead colour: " + (pl.dump())))
+        this.ok(((pl.facet("font-size")).value == "1.3em") "p.lead size")
+        def pid:PresCssElement (c6.element("p" lead "only"))
+        def pidc:PresCssFacet (pid.facet("color"))
+        this.ok((pidc.from == "#only") ("an id beats a class: " + pidc.from))
+        ; a heading's own colour beats its class
+        def hl:PresCssElement ((PresCascade.of("h2 { color: #aa0000 } .lead { color: #00aa00 }")).element("h2" lead ""))
+        this.ok(((hl.facet("color")).from == "h2") "h2 colour above its class")
+        ; what a rule says that the layout does not read is listed as unread
+        def un:PresCssElement ((PresCascade.of("p { color: red; margin-bottom: 4pt }")).element("p" none ""))
+        def uf:PresCssFacet (un.facet("unread:p:color"))
+        this.ok((uf.unread && (uf.value == "red")) ("p color is unread: " + (un.dump())))
+        this.ok(((un.facet("margin-bottom")).value == "4pt") "p margin-bottom")
+        ; the universal selector reaches every rule
+        this.ok((((((PresCascade.of("* { color: #010203 }")).element("p" none "")).facet("color")).value) == "#010203") "* reaches the text")
+        ; and against the layout: what the slide is drawn in
+        def md:string "## Otsikko\n\nTeksti tässä\n\n- kohta\n\n> lainaus\n\nIso\n{.lead}\n"
+        this.ink(css1 md "h2" "" "Otsikko" "document" "a heading drawn in the document colour")
+        this.ink(css2 md "h2" "" "Otsikko" "h2" "a heading drawn in its own")
+        this.ink(css2 md "p" "" "Teksti" "body" "a paragraph drawn in body")
+        this.ink(css3 md "li" "" "kohta" "document" "an item's text is not the list colour")
+        this.ink(css1 md "blockquote" "" "lainaus" "" "a quote in its own colour")
+        this.ink(css6 md "p" ".lead" "Iso" ".lead" "a .lead paragraph")
+    }
+
+    ; A chart's columns rise and a beam crosses it once. Presenting, the
+    ; clock holds at the slide's end and at each build step; it held before
+    ; the beam was across, and the beam stayed half way over the chart.
+    fn chartMotion:void () {
+        def vals:string ""
+        def v:int 0
+        while (v < 20) {
+            if (v > 0) {
+                vals = (vals + ",")
+            }
+            vals = (vals + "{\"m\":\"k" + (to_string v) + "\",\"e\":" + (to_string (100 + (v * 7))) + "}")
+            v = (v + 1)
+        }
+        def fence:string ("```vega-lite\n{\"usermeta\":{\"presStyle\":\"forge\"},\"data\":{\"values\":[" + vals
+            + "]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"m\",\"type\":\"nominal\"},\"y\":{\"field\":\"e\",\"type\":\"quantitative\"}}}\n```\n")
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Menot\n\n" + fence
+            + "\n## Askeleet\n\n" + fence + "\n1. yksi\n2. kaksi\n{.build}\n"
+            + "\n## Myöhemmin\n\n1. eka\n{.build}\n\n" + fence + "{.build}\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        if ((deck.slideCount()) < 3) {
+            this.ok(false ("three chart slides, got " + (to_string (deck.slideCount()))))
+            return
+        }
+        def motion:double (PresChart.motionSeconds())
+        ; with the slide: it lasts until the beam is across, and is clear then
+        def s0:PresSlide (deck.slideAt(0))
+        this.ok(((array_length s0.charts) == 1) "the chart is read")
+        if ((array_length s0.charts) == 0) {
+            return
+        }
+        def u0:PresChartUse (itemAt s0.charts 0)
+        this.ok((s0.duration >= (u0.start + motion)) ("the slide lasts until the chart has finished: " + (to_string s0.duration)))
+        def mid:double (u0.start + (motion - ((PresChart.scanDur()) * 0.5)))
+        this.ok(((PresCheck.beams((PresTimeline.frame(deck 0 mid)))) == 1) "the beam is over the chart half way across")
+        this.ok(((PresCheck.beams((PresTimeline.frame(deck 0 s0.duration)))) == 0) "and gone where the slide holds")
+        ; before a build step: the step waits for the chart
+        def s1:PresSlide (deck.slideAt(1))
+        def u1:PresChartUse (itemAt s1.charts 0)
+        def first:double (PresTimeline.stepTime(s1 1))
+        this.ok((first >= (u1.start + motion)) ("step 1 waits for the chart: " + (to_string first)))
+        this.ok(((PresCheck.beams((PresTimeline.frame(deck 1 first)))) == 0) "no beam where step 1 holds")
+        this.ok(((fabs (((PresTimeline.stepTime(s1 2)) - first) - s1.stepGap)) < 0.000001) "later steps keep their gap")
+        ; revealed by a step: it starts moving when it arrives
+        def s2:PresSlide (deck.slideAt(2))
+        this.ok(((array_length s2.charts) == 1) "the chart under a step is read")
+        if ((array_length s2.charts) == 0) {
+            return
+        }
+        def u2:PresChartUse (itemAt s2.charts 0)
+        this.ok((u2.start == (PresTimeline.stepTime(s2 2))) ("a chart starts with its step: " + (to_string u2.start)))
+        this.ok((s2.duration >= (u2.start + motion)) "and the slide waits for it")
+    }
+
+    ; The scan beam's bright core in a frame.
+    sfn beams:int (l:EVGDisplayList) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if ((((c.kind == 0) && (c.w == 2.0)) && (((c.r == 230) && (c.g == 250)) && (c.b == 255))) && (c.a > 0.0)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; ```process / ```swot / ```timeline and `{art=waves}`: drawn for PRO in
+    ; the theme's colours, a note in the slot otherwise, and the art under
+    ; the content.
+    fn figures:void () {
+        def text:string "---\nslide-split-level: 2\n---\n\n## Vaiheet {art=waves}\n\n```process\n- Suunnittelu: tavoitteet\n- Toteutus\n- Julkaisu\n```\n\n## SWOT\n\n```swot\nVahvuudet: brändi\nHeikkoudet: tiimi\nMahdollisuudet: markkinat\nUhat: kilpailu\n```\n"
+        def css:string "page { width: 13.333in; height: 7.5in; padding: 0.6in; background-color: #0b1030 } deck { split-level: 2 } document { color: #e8ecff; font-size: 20pt } figure { colors: #ffa546 #5ce1ff }"
+        def deck (new PresDeck())
+        deck.md.setStyleSheet(css)
+        deck.setTheme(css)
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 2) ("two figure slides, got " + (to_string (deck.slideCount()))))
+        if ((deck.slideCount()) < 2) {
+            return
+        }
+        def lockedL:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(lockedL "Suunnittelu")) == 0) "without PRO the process is not drawn")
+        deck.figuresAllowed = true
+        deck.rebuild()
+        PresTimeline.planAll(deck)
+        def l0:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(l0 "Suunnittelu")) == 1) "with PRO the process step is drawn")
+        this.ok(((PresCheck.texts(l0 "tavoitteet")) == 1) "and its description")
+        def l1:EVGDisplayList (PresTimeline.finalFrame(deck 1))
+        this.ok(((PresCheck.texts(l1 "V")) == 1) "the SWOT's letters come from the titles")
+        this.ok(((deck.slideAt(0)).art == "waves") "the art is read from the heading")
+        def art:FlowScene (deck.artScene((deck.slideAt(0)) 0))
+        this.ok(((array_length art.items) > 40) "the art is a page of lines")
+        def none:FlowScene (deck.artScene((deck.slideAt(1)) 1))
+        this.ok(((array_length none.items) == 0) "a slide without art has none")
+        this.ok(((PresCheck.lines(l0)) > ((PresCheck.lines(l1)) + 40)) "the art's lines are in the slide's list")
+        def fs:MdFigureStyle deck.figStyle
+        this.ok(((itemAt fs.colors 0) == "#ffa546") "the figure rule's colours")
+        this.ok((fs.paper == "#0b1030") "the page's paper")
+        this.ok((fs.ink == "#e8ecff") "the document's ink")
+    }
+
+    ; A plain list with `{list-style=swot}`, or a theme's `#anchor list`
+    ; rule, is the figure; `deck { fx: … }` is the theme's effect, and the
+    ; art is drawn over it.
+    fn listFigures:void () {
+        def text:string "---\nslide-split-level: 2\n---\n\n## SWOT {art=waves}\n\n- Vahvuudet: brändi\n- Heikkoudet: tiimi\n{list-style=swot}\n\n## Vaiheet\n\n- Suunnittelu: tavoitteet\n- Toteutus\n\n## Lista\n\n- Tavallinen kohta\n"
+        def css:string "/* pres: fx=smoke */ page { width: 13.333in; height: 7.5in; padding: 0.6in; background-color: #0b1030 } deck { split-level: 2; fx: starfield; fx-hue: 280 } document { color: #e8ecff; font-size: 20pt } #vaiheet list { list-style: process } #vaiheet chart { padding: 4 }"
+        def deck (new PresDeck())
+        deck.md.setStyleSheet(css)
+        deck.setTheme(css)
+        deck.figuresAllowed = true
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 3) ("three slides, got " + (to_string (deck.slideCount()))))
+        if ((deck.slideCount()) < 3) {
+            return
+        }
+        def l0:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(l0 "Vahvuudet")) == 1) "a list with {list-style=swot} is the SWOT")
+        this.ok(((PresCheck.texts(l0 "V")) == 1) "with its letter disc")
+        def l1:EVGDisplayList (PresTimeline.finalFrame(deck 1))
+        this.ok(((PresCheck.texts(l1 "Suunnittelu")) == 1) "#vaiheet list { list-style: process } draws the steps")
+        def scopes:[string] (deck.chartScopes())
+        this.ok(((array_length scopes) == 1) "a list rule is not a chart scope")
+        def l2:EVGDisplayList (PresTimeline.finalFrame(deck 2))
+        this.ok(((PresCheck.texts(l2 "Tavallinen kohta")) == 1) "a list without a style stays a list")
+        this.ok(((deck.slideAt(0)).fx == "starfield") "deck { fx } wins over the old comment")
+        def fxAt:int -1
+        def artAt:int -1
+        def i:int 0
+        while (i < (array_length l0.cmds)) {
+            def c:EVGDrawCmd (itemAt l0.cmds i)
+            if ((fxAt < 0) && ((strlen c.effectId) > 0)) {
+                fxAt = i
+            }
+            if ((artAt < 0) && (c.kind == 7)) {
+                artAt = i
+            }
+            i = (i + 1)
+        }
+        this.ok((fxAt >= 0) "the slide has its effect")
+        this.ok((artAt > fxAt) ("the art is over the effect: art " + (to_string artAt) + ", fx " + (to_string fxAt)))
+        def d2 (new PresDeck())
+        def css2:string "/* pres: fx=smoke */ deck { fx: none }"
+        d2.setTheme(css2)
+        d2.setText("# A\n")
+        this.ok(((d2.slideAt(0)).fx == "") "fx: none turns the comment's effect off")
+    }
+
+    sfn lines:int (l:EVGDisplayList) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if ((strlen c.text) == 0) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
     sfn texts:int (l:EVGDisplayList word:string) {
         def n:int 0
         def i:int 0
@@ -437,10 +727,55 @@ class PresCheck {
         return n
     }
 
+    ; The document settings window's model: the front matter read into the
+    ; places, the logo and the skips, and written back as keys.
+    fn docSettings:void () {
+        def meta (new MdMeta())
+        MdFrontMatter.parseInto("title: Q3\nheader: Acme\nheader-image: logo.png\nheader-align: right\nfooter-left: \"{title}\"\nfooter-right: \"{page} / {pages}\"\nfooter-skip: first 3 last\nfooter-color: \"#ffffff\"" meta)
+        def d (new PresDocSettings())
+        d.read(meta)
+        this.ok((d.title == "Q3") "docset: title")
+        this.ok(((itemAt d.logo 0) == "logo.png") "docset: legacy header-image becomes the logo")
+        this.ok(((itemAt d.logoAt 0) == 2) "docset: header-align right puts it on the right")
+        this.ok(((itemAt d.texts 2) == "Acme") "docset: legacy header text in its place")
+        this.ok(((itemAt d.texts 5) == "{page} / {pages}") "docset: footer right")
+        this.ok(((itemAt d.skipFirst 1) && (itemAt d.skipLast 1)) "docset: first and last skipped")
+        this.ok(((itemAt d.skipRest 1) == "3") "docset: other skips kept")
+        set d.logoAt 0 0
+        set d.skipLast 1 false
+        d.build()
+        def got:string ""
+        def i:int 0
+        while (i < (array_length d.outKeys)) {
+            def v:string (itemAt d.outVals i)
+            if ((strlen v) > 0) {
+                got = (got + (itemAt d.outKeys i) + ": " + (PresDocSettings.quote(v)) + "\n")
+            }
+            i = (i + 1)
+        }
+        this.ok(((indexOf got "header-left: \"![](logo.png)\"") >= 0) "docset: logo written in its place, quoted")
+        this.ok(((indexOf got "header-right: Acme") >= 0) "docset: text stays on the right")
+        this.ok(((indexOf got "header-image") < 0) "docset: legacy keys taken out")
+        this.ok(((indexOf got "footer-skip: first 3\n") >= 0) "docset: skips written")
+        this.ok(((indexOf got "footer-color: \"#ffffff\"") >= 0) "docset: colour quoted")
+        def back (new MdMeta())
+        MdFrontMatter.parseInto(got back)
+        def d2 (new PresDocSettings())
+        d2.read(back)
+        this.ok((((itemAt d2.logo 0) == "logo.png") && ((itemAt d2.logoAt 0) == 0)) "docset: round trip keeps the logo")
+        this.ok(((PresDocSettings.quote("say \"hi\": now")) == "'say \"hi\": now'") "docset: single quotes around double")
+        this.ok(((PresDocSettings.quote("plain words")) == "plain words") "docset: plain value unquoted")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
         c.edges()
+        c.cascade()
+        c.chartMotion()
+        c.figures()
+        c.listFigures()
+        c.docSettings()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

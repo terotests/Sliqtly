@@ -1,0 +1,7 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; The editor's workbook reader (src/PresData.rgr) on its own, compiled by
+; gen.mjs to the Go package presdata. It cannot be part of App.rgr's compile:
+; datagrid's XmlLite and the deck model's XmlCore both define XmlAttr.
+
+Import "../presentation/PresData.rgr"

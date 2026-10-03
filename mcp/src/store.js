@@ -34,12 +34,23 @@ export function unpackText(code) {
   return zlib.inflateRawSync(Buffer.from(code, "base64url")).toString("utf8");
 }
 
+const DAY = 24 * 60 * 60 * 1000;
+
 export class FirebaseStore {
-  constructor({ db, bucket, FieldValue }) {
+  // anonDays: a deck nobody signed in for is deleted this many days after
+  // its last change (the `expires` field, under Firestore's TTL policy:
+  // firestore.indexes.json)
+  constructor({ db, bucket, FieldValue, anonDays = 30, now = () => Date.now() }) {
     this.db = db;
     this.bucket = bucket;
     this.FieldValue = FieldValue;
+    this.anonDays = anonDays;
+    this.now = now;
     this.kind = "cloud";
+  }
+
+  #expires() {
+    return new Date(this.now() + this.anonDays * DAY);
   }
 
   // owner: the signed-in user's uid, or "mcp"
@@ -48,9 +59,10 @@ export class FirebaseStore {
     const key = shortId(24);
     const now = this.FieldValue.serverTimestamp();
     const doc = this.db.collection("shares").doc(id);
-    await this.db.collection("mcp_keys").doc(id).set({ hash: hashKey(key), created: now });
+    const ttl = owner === "mcp" ? { expires: this.#expires() } : {};
+    await this.db.collection("mcp_keys").doc(id).set({ hash: hashKey(key), created: now, ...ttl });
     const files = await this.#upload(id, images);
-    await doc.set({ name, md, theme, css, owner, deck: "mcp", source: "mcp", files, created: now });
+    await doc.set({ name, md, theme, css, owner, deck: "mcp", source: "mcp", files, created: now, ...ttl });
     return { id, key };
   }
 
@@ -72,6 +84,10 @@ export class FirebaseStore {
     if (md != null) patch.md = md;
     if (theme != null) patch.theme = theme;
     if (css !== undefined) patch.css = css;
+    if (cur.owner === "mcp") {
+      patch.expires = this.#expires();
+      await this.db.collection("mcp_keys").doc(id).update({ expires: patch.expires });
+    }
     await doc.update(patch);
     return { ...cur, ...patch };
   }
@@ -100,7 +116,8 @@ export class FirebaseStore {
   async #upload(id, images) {
     const out = [];
     for (const img of images || []) {
-      const path = `media/${img.name}`;
+      // pictures go under media/, data files (loadDataFiles) name their own path
+      const path = img.path || `media/${img.name}`;
       const file = this.bucket.file(`shares/${id}/${path}`);
       // the token is what getDownloadURL() hands the editor for its own uploads
       const token = crypto.randomUUID();

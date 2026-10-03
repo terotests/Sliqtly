@@ -15,11 +15,14 @@
 //
 // What anything MEANS is PresApp.rgr's.
 
-import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
+import { prepareDisplayList, setFontFallback, fontSpec } from "./gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
+import { scaled, previewOf, render } from "./image-adjust.js";
+import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versions.js";
+import { showHistory, askMerge } from "./versions-ui.js";
 
 const canvas = document.getElementById("c");
 const stageEl = document.getElementById("stage");
@@ -56,6 +59,8 @@ const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "corporate", 
 // samples/<key>.en.md English (any other language gets the English ones).
 const sample = (key, en, fi) => lang === "fi" ? [fi, `./samples/${key}.md`] : [en, `./samples/${key}.en.md`];
 const SAMPLES = {
+  // the first visit's deck, on a white theme of its own
+  welcome: [...sample("welcome", "Welcome: what Sliqtly can do", "Tervetuloa: mitä Sliqtlyllä voi tehdä"), "corporate"],
   talous: sample("talous", "Finance: take charge of your money", "Talous: oma talous haltuun"),
   ymparisto: sample("ymparisto", "Environment: your carbon footprint", "Ympäristö: hiilijalanjälki"),
   urheilu: sample("urheilu", "Sports: a 5 km running course", "Urheilu: 5 km juoksukoulu"),
@@ -64,6 +69,9 @@ const SAMPLES = {
   matematiikka: sample("matematiikka", "Mathematics: formulas on slides", "Matematiikka: kaavat kalvoilla"),
   vegalite: sample("vegalite", "Vega-Lite: chart types", "Vega-Lite: kaaviotyypit"),
   raportti: sample("raportti", "Report: header, footer, page numbers", "Raportti: ylä- ja alaosa, sivunumerot"),
+  mallit: sample("mallit", "Layouts: steps, SWOT, timeline (PRO)", "Asettelut: vaiheet, SWOT, aikajana (PRO)"),
+  // the newest themes and features, on Nebula
+  uutta: [...sample("uutta", "What's new: themes, effects, layouts", "Uutta: teemat, efektit, asettelut"), "nebula"],
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
 };
 
@@ -83,6 +91,10 @@ function asRangerBuffer(ab) {
 // stylesheet the browser kept — the chart editor's sheets were, and a new
 // editor came up in the old one's colours.
 const BUILD = "__BUILD__";
+// The faces carry their own version (the hash of the font files), so a new
+// build does not make every browser fetch the same fonts again.
+const FONTS = "__FONTS__";
+const fontUrl = (file) => "./fonts/" + file + (FONTS.startsWith("__") ? "" : "?v=" + FONTS);
 function fresh(url) {
   if (!url.startsWith("./") || BUILD.startsWith("__")) return url;
   return url + (url.includes("?") ? "&" : "?") + "v=" + BUILD;
@@ -91,6 +103,12 @@ function fresh(url) {
 async function bytesOf(url) {
   const res = await fetch(fresh(url));
   if (!res.ok) throw new Error(url + " → " + res.status);
+  return await res.arrayBuffer();
+}
+
+async function fontBytes(file) {
+  const res = await fetch(fontUrl(file));
+  if (!res.ok) throw new Error(file + " → " + res.status);
   return await res.arrayBuffer();
 }
 
@@ -239,6 +257,109 @@ async function placePasted() {
   afterInput();
 }
 
+// A picture of the files tab, clicked: the image editor (PresChartEditor's
+// "adjust" mode) crops it and changes its light and colours. The preview is
+// the picture scaled down, drawn again as the sliders move; Save writes the
+// whole picture back over its file, so every slide that shows it changes.
+let adjusting = null;
+async function openImageEditor(path) {
+  const f = (await docFiles()).find((x) => x.path === path);
+  if (!f || !(f.data instanceof Blob)) { toast(t("This file cannot be opened as an image.")); return; }
+  const blob = f.data.type ? f.data : new Blob([f.data], { type: f.type || "image/png" });
+  let bmp;
+  try {
+    bmp = await createImageBitmap(blob);
+  } catch (_) {
+    toast(t("This file cannot be opened as an image."));
+    return;
+  }
+  const w = bmp.width;
+  const h = bmp.height;
+  const base = scaled(bmp, 1200);
+  bmp.close();
+  dropAdjusting();
+  pasteCount += 1;
+  const preview = `/__adjust/${Date.now().toString(36)}-${pasteCount}`;
+  const first = previewOf(base, null);
+  pictures.set(preview, first);
+  // the slides show the preview while the editor is open; Cancel puts the
+  // picture back
+  const original = pictures.get("/" + path);
+  adjusting = { path, blob, w, h, base, preview, original, queued: false };
+  pictures.set("/" + path, first);
+  if (!app.openAdjust(preview, path, w, h)) dropAdjusting();
+  needsPaint = true;
+}
+
+function dropAdjusting() {
+  const a = adjusting;
+  if (!a) return;
+  pictures.delete(a.preview);
+  if (a.original) pictures.set("/" + a.path, a.original);
+  adjusting = null;
+  needsPaint = true;
+}
+
+// The preview again, at most once a frame however fast the sliders move.
+function adjustPreview() {
+  const a = adjusting;
+  if (!a || a.queued) return;
+  a.queued = true;
+  requestAnimationFrame(() => {
+    a.queued = false;
+    if (adjusting !== a) return;
+    const shown = previewOf(a.base, JSON.parse(app.adjustPlan()));
+    pictures.set(a.preview, shown);
+    pictures.set("/" + a.path, shown);
+    needsPaint = true;
+  });
+}
+
+async function saveAdjusted() {
+  const a = adjusting;
+  if (!a) return;
+  const plan = JSON.parse(app.adjustPlan());
+  // the slides keep the preview until the saved picture replaces it
+  const original = a.original;
+  a.original = null;
+  dropAdjusting();
+  const restore = () => { if (original) pictures.set("/" + a.path, original); needsPaint = true; };
+  const crop = cropOf(plan);
+  const neutral = !plan.bright && !plan.contrast && !plan.sat && !plan.temp && !plan.tint;
+  if (!crop && neutral) { restore(); return; }
+  const out = await render(a.blob, crop, plan).catch(() => null);
+  if (!out) { restore(); toast(t("The image could not be saved.")); return; }
+  app.addImage("/" + a.path, asRangerBuffer(out.bytes.slice(0)), out.type, out.w, out.h);
+  await registerPicture("/" + a.path, out.bytes, out.type);
+  // the version history keeps the picture as it first came and the edits
+  // made to it (versions.js): an edit costs a few bytes there, not a picture
+  const was = (await docFiles()).find((x) => x.path === a.path);
+  const orig = was?.orig?.data
+    ? { ...was.orig, plans: [...(was.orig.plans || []), plan] }
+    : { data: a.blob, type: a.blob.type || was?.type || "", plans: [plan], stamp: Date.now() };
+  await keepFile({ path: a.path, type: out.type, size: out.bytes.byteLength, data: new Blob([out.bytes], { type: out.type }), orig });
+  dropThumbs();
+  needsPaint = true;
+  toast(t("Image saved: ") + a.path);
+}
+
+function cropOf(plan) {
+  if (plan.whole) return null;
+  const [x, y, cw, ch] = String(plan.crop).split(",").map(Number);
+  return cw > 0 && ch > 0 ? [x, y, cw, ch] : null;
+}
+
+// A picture made again from its original and the edits made to it, one
+// after another as they were made (a version restored).
+async function renderPlans(orig, plans, type) {
+  let blob = orig;
+  for (const plan of plans) {
+    const out = await render(blob, cropOf(plan), plan);
+    blob = new Blob([out.bytes], { type: out.type });
+  }
+  return { blob, type: blob.type || type };
+}
+
 // A new picture of the deck: registered for the slides and kept in this
 // browser; signed in to PRO, the deck's cloud save takes it with the deck.
 async function keepPicture(bytes, type, w, h) {
@@ -274,8 +395,9 @@ let vfs = null;
 const doc = { id: newId(), persisted: false, created: Date.now(), openedText: "" };
 // PRO: the share the deck lives in (cloud), its text as last written or read
 // there (cloudMd), the files as sent (cloudStamps: path → stamp), and what
-// was last sent (cloudSig). cloudHalt: changed elsewhere, not written over.
-Object.assign(doc, { cloud: null, cloudMd: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
+// was last sent (cloudSig), and the CSS and theme as last written or read
+// there (cloudCss, cloudTheme). cloudHalt: deleted, nothing more is sent.
+Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
 const pending = new Map();
 let savedText = null;
 let savedCss = null;
@@ -287,7 +409,9 @@ function beginDoc(text) {
   doc.persisted = false;
   doc.created = Date.now();
   doc.openedText = text;
-  Object.assign(doc, { cloud: null, cloudMd: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
+  Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
+  versions = null;
+  filesAtCommit = null;
   pending.clear();
   savedText = null;
   savedCss = null;
@@ -295,6 +419,7 @@ function beginDoc(text) {
   chartFiles.clear();
   chartFilesRev = -1;
   liveFromShare = false;
+  proNow();
   liveNoted = false;
   liveCopies.clear();
   copyNoted = false;
@@ -419,6 +544,8 @@ const liveSheets = createLiveSheets({
   onChange: () => { needsPaint = true; },
 });
 window.__liveSheets = liveSheets;
+// for check:web: a workbook saved as the spreadsheet editor saves it
+window.__saveWorkbook = (path, raw) => saveWorkbook(path, raw);
 // for check:web: what the document keeps as files
 window.__docFiles = () => docFiles().then((fs) => fs.map((f) => f.path));
 
@@ -429,9 +556,21 @@ async function docFiles() {
   return [...out.values()];
 }
 
+// One at a time: a save, and a look at what another tab saved (takeLocal).
+let docQueue = Promise.resolve();
+function exclusive(fn) {
+  const run = docQueue.then(fn, fn);
+  docQueue = run.catch(() => {});
+  return run;
+}
+
 async function saveDoc(force) {
-  if (!vfs || viewer) return;
-  if (saving) await saving;
+  if (!vfs || viewer || merging) return;
+  return exclusive(() => saveDocNow(force));
+}
+
+async function saveDocNow(force) {
+  if (merging) return;
   const md = app.source();
   const key = themeSel.value || "";
   const css = key in editedCss ? editedCss[key] : null;
@@ -440,7 +579,14 @@ async function saveDoc(force) {
   // empty one
   if (!doc.persisted && !force && ((md === doc.openedText && css === null) || !md.trim())) return;
   saving = (async () => {
-    await vfs.putDoc({ id: doc.id, name: exportName(), md, theme: key, css, created: doc.created, updated: Date.now(), cloud: doc.cloud, cloudMd: doc.cloudMd });
+    const cur = doc.persisted ? await vfs.getDoc(doc.id) : null;
+    // another tab of this browser saved this deck since this one read it:
+    // nothing is written over, the two are put together first
+    if (cur && changedElsewhere(cur)) return "merge";
+    await vfs.putDoc({
+      ...(cur || {}), id: doc.id, name: exportName(), md, theme: key, css, created: doc.created, updated: Date.now(), by: TAB,
+      cloud: doc.cloud, cloudMd: doc.cloudMd, cloudCss: doc.cloudCss, cloudTheme: doc.cloudTheme,
+    });
     if (!doc.persisted) {
       doc.persisted = true;
       for (const f of pending.values()) await vfs.putFile({ ...f, doc: doc.id });
@@ -452,9 +598,252 @@ async function saveDoc(force) {
     savedTheme = key;
     try { localStorage.setItem("evgp.doc", doc.id); } catch (_) { /* the next start opens a sample */ }
   })();
-  try { await saving; } finally { saving = null; }
+  let r;
+  try { r = await saving; } finally { saving = null; }
+  if (r === "merge") return takeLocal();
   refreshFiles();
   cloudSoon();
+  tellTabs();
+}
+
+// Before another deck is opened in its place: this one kept, and a PRO
+// deck's last changes written to its share (they would wait for the next
+// visit of this deck otherwise). The cloud gets a while, not forever.
+async function leaveDoc() {
+  document.getElementById("welcomeCard")?.remove();
+  document.getElementById("versions")?.remove();
+  await saveDoc();
+  await commitVersion("@auto").catch((e) => console.warn("no version kept", e));
+  if (!doc.cloudHalt && cloudReady() && (cloudTimer || cloudBusy)) {
+    clearTimeout(cloudTimer);
+    cloudTimer = 0;
+    const wait = new Promise((ok) => setTimeout(ok, 8000));
+    await Promise.race([wait, cloudSync().catch(cloudTrouble)]);
+  }
+}
+
+// File → New presentation, made: { name, theme, data } from the window.
+// Kept at once under an id of its own, so the address names this deck and
+// not the one before (a PRO deck gets its own share). `data` "sample" adds
+// a slide with a chart; "file" was the file picker, opened by the press.
+let makingDeck = null;
+async function newDeck(plan) {
+  await leaveDoc();
+  const name = String(plan.name || "").replace(/\s+/g, " ").trim() || t("New presentation");
+  let text = "# " + name + "\n\n" + t("Write here.") + "\n";
+  if (plan.data === "sample") text += "\n" + sampleChartSlide();
+  beginDoc(text);
+  docName = name;
+  if (plan.theme != null && [...themeSel.options].some((o) => o.value === plan.theme)) themeSel.value = plan.theme;
+  useTheme(themeSel.value);
+  app.setSource(text);
+  app.showTab("md");
+  dropThumbs();
+  await saveDoc(true);
+  await commitVersion("@created").catch((e) => console.warn("no version kept", e));
+  if (cloudReady()) await cloudSync().catch(cloudTrouble);
+  refreshFiles();
+  needsPaint = true;
+}
+// File → Duplicate: a new deck from this one, its Markdown, theme CSS and
+// files copied, named "<name> (copy)". This one is saved first; the copy is
+// kept at once under an id of its own (a PRO deck gets its own share).
+async function duplicateDeck() {
+  await leaveDoc();
+  const key = themeSel.value || "";
+  const css = key in editedCss ? editedCss[key] : null;
+  const files = await docFiles();
+  const name = exportName() + " " + t("(copy)");
+  const text = retitled(app.source(), name);
+  beginDoc(text);
+  docName = name;
+  if (css != null) editedCss[key] = css;
+  useTheme(key);
+  for (const f of files) {
+    const rec = { ...f, doc: doc.id, updated: Date.now() };
+    pending.set(rec.path, rec);
+    await useFile(rec);
+  }
+  app.setSource(text);
+  dropThumbs();
+  await saveDoc(true);
+  await commitVersion("@created").catch((e) => console.warn("no version kept", e));
+  if (cloudReady()) await cloudSync().catch(cloudTrouble);
+  refreshFiles();
+  needsPaint = true;
+  toast(t("Duplicated as ") + name);
+}
+// File → New → Datasheet…: the spreadsheet editor on an empty workbook. Its
+// first Save keeps it in this deck as data/sheet-<n>.xlsx, where charts and
+// tables read its sheets as any added workbook's.
+async function newSheet() {
+  const have = new Set((await docFiles()).map((f) => f.path));
+  let n = 1;
+  while (have.has(`data/sheet-${n}.xlsx`)) n++;
+  const path = `data/sheet-${n}.xlsx`;
+  await liveSheets.openDialog({
+    name: path.split("/").pop(),
+    bytes: undefined,
+    blank: true,
+    onSave: (raw) => saveWorkbook(path, raw),
+    onClose: () => { keys.focus({ preventScroll: true }); refreshFiles(); needsPaint = true; },
+  }).catch((e) => toast(t("The spreadsheet editor did not load: ") + (e.message || e)));
+}
+
+// File → Delete presentation…, once confirmed: the open deck removed from
+// this browser and, for a PRO deck, its share and files from the cloud. The
+// latest other deck opens in its place, or a new empty one.
+async function deleteDeck() {
+  const id = doc.id;
+  const cloud = doc.cloud;
+  const name = exportName();
+  // nothing more is written to the cloud for it
+  doc.cloudHalt = true;
+  clearTimeout(cloudTimer);
+  cloudTimer = 0;
+  if (cloudBusy) await cloudBusy.catch(() => {});
+  if (saving) await saving.catch(() => {});
+  if (cloud && window.sliqtly?.user?.()) {
+    try {
+      await window.sliqtly.deleteShare(cloud);
+    } catch (e) {
+      doc.cloudHalt = false;
+      toast(t("Deleting from the cloud failed: ") + (e.message || e));
+      return;
+    }
+  }
+  if (vfs && doc.persisted) await vfs.deleteDoc(id);
+  // let go of it, so leaving it does not save it again
+  beginDoc("");
+  app.setSource("");
+  const next = vfs ? (await vfs.listDocs()).filter((d) => d.id !== id).sort((a, b) => (b.updated || 0) - (a.updated || 0))[0] : null;
+  if (!(next && (await openDoc(next.id)))) {
+    try { localStorage.removeItem("evgp.doc"); } catch (_) { /* fine */ }
+    await newDeck({ name: t("New presentation"), theme: themeSel.value || "", data: "none" });
+  }
+  toast(t("Deleted ") + name);
+}
+
+// File → Export → All files (.zip): the Markdown, the theme's CSS as it is
+// now (edits included) and every file of the deck at its own path.
+async function exportZip() {
+  const enc = new TextEncoder();
+  const base = exportName();
+  const entries = [
+    { name: base + ".md", data: enc.encode(app.source()) },
+    { name: (themeSel.value || "theme") + ".css", data: enc.encode(app.themeCss()) },
+  ];
+  for (const f of await docFiles()) {
+    const data = typeof f.data === "string" ? enc.encode(f.data) : new Uint8Array(await f.data.arrayBuffer());
+    entries.push({ name: f.path, data });
+  }
+  window.__lastDownload = deliver(zipStore(entries), base + ".zip", "application/zip");
+}
+
+// A zip of `entries` ({ name, data: Uint8Array }), stored (no compression:
+// the pictures in it are compressed already), names in UTF-8.
+const CRC_TABLE = (() => {
+  const tbl = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    tbl[n] = c >>> 0;
+  }
+  return tbl;
+})();
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+function zipStore(entries) {
+  const enc = new TextEncoder();
+  const d = new Date();
+  const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+  const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  for (const e of entries) {
+    const name = enc.encode(e.name);
+    const crc = crc32(e.data);
+    const head = new DataView(new ArrayBuffer(30));
+    head.setUint32(0, 0x04034b50, true);
+    head.setUint16(4, 20, true);
+    head.setUint16(6, 0x0800, true); // UTF-8 names
+    head.setUint16(8, 0, true); // stored
+    head.setUint16(10, time, true);
+    head.setUint16(12, date, true);
+    head.setUint32(14, crc, true);
+    head.setUint32(18, e.data.length, true);
+    head.setUint32(22, e.data.length, true);
+    head.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(head.buffer), name, e.data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true);
+    c.setUint16(4, 20, true);
+    c.setUint16(6, 20, true);
+    c.setUint16(8, 0x0800, true);
+    c.setUint16(10, 0, true);
+    c.setUint16(12, time, true);
+    c.setUint16(14, date, true);
+    c.setUint32(16, crc, true);
+    c.setUint32(20, e.data.length, true);
+    c.setUint32(24, e.data.length, true);
+    c.setUint16(28, name.length, true);
+    c.setUint32(42, offset, true);
+    central.push(new Uint8Array(c.buffer), name);
+    offset += 30 + name.length + e.data.length;
+  }
+  const size = central.reduce((n, p) => n + p.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true);
+  end.setUint16(8, entries.length, true);
+  end.setUint16(10, entries.length, true);
+  end.setUint32(12, size, true);
+  end.setUint32(16, offset, true);
+  const all = [...parts, ...central, new Uint8Array(end.buffer)];
+  const out = new Uint8Array(all.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of all) { out.set(p, at); at += p.length; }
+  return out;
+}
+window.__zipStore = zipStore;
+
+// The deck's title (front matter title:, else the first heading) as `name`.
+function retitled(md, name) {
+  const lines = md.split("\n");
+  if (/^---\s*$/.test(lines[0] || "")) {
+    for (let i = 1; i < lines.length && !/^(---|\.\.\.)\s*$/.test(lines[i]); i++) {
+      const m = /^title\s*:\s*(.*)$/.exec(lines[i]);
+      if (m && m[1].trim()) {
+        lines[i] = "title: " + JSON.stringify(name);
+        return lines.join("\n");
+      }
+    }
+  }
+  let fence = "";
+  for (let i = 0; i < lines.length; i++) {
+    const f = /^\s*(`{3,}|~{3,})/.exec(lines[i]);
+    if (f) {
+      if (!fence) fence = f[1][0];
+      else if (f[1][0] === fence) fence = "";
+      continue;
+    }
+    // a heading's {.class} stays
+    const h = !fence && /^(#{1,6})\s+\S.*?(\s+\{[^{}]*\})?\s*$/.exec(lines[i]);
+    if (h) {
+      lines[i] = h[1] + " " + name + (h[2] || "");
+      return lines.join("\n");
+    }
+  }
+  return md;
+}
+function sampleChartSlide() {
+  const rows = [[t("Q1"), 28], [t("Q2"), 55], [t("Q3"), 43], [t("Q4"), 91]]
+    .map(([a, b]) => `    {"${t("quarter")}": ${JSON.stringify(a)}, "${t("sales")}": ${b}}`).join(",\n");
+  return "## " + t("Chart") + "\n\n```vega-lite\n{\n  \"data\": {\"values\": [\n" + rows + "\n  ]},\n  \"mark\": \"bar\",\n  \"width\": 560,\n"
+    + `  "encoding": {\n    "x": {"field": "${t("quarter")}", "type": "nominal", "axis": {"labelAngle": 0}},\n    "y": {"field": "${t("sales")}", "type": "quantitative"}\n  }\n}\n` + "```\n";
 }
 
 // A deck opened from a link (#md=…, /s/{id}?edit, ?sample=…) is the reader's
@@ -481,7 +870,10 @@ function plainAddress() {
 
 // A file of the document put to use: a picture registered for the slides, a
 // text file handed to the charts.
+// the files the slides were given (useFile), path → stamp
+const usedStamps = new Map();
 async function useFile(f) {
+  usedStamps.set(f.path, stampOf(f));
   if (kindOf(f.path, f.type) === "image" && f.data instanceof Blob) {
     const bytes = await f.data.arrayBuffer();
     const [w, h] = await imageSize(bytes, f.type);
@@ -496,7 +888,7 @@ async function useFile(f) {
 
 async function openDoc(id) {
   if (!vfs) return false;
-  await saveDoc();
+  await leaveDoc();
   const d = await vfs.getDoc(id);
   if (!d) return false;
   beginDoc(d.md);
@@ -505,6 +897,8 @@ async function openDoc(id) {
   doc.created = d.created || Date.now();
   doc.cloud = d.cloud || null;
   doc.cloudMd = d.cloudMd ?? null;
+  doc.cloudCss = d.cloudCss ?? null;
+  doc.cloudTheme = d.cloudTheme ?? null;
   themeSel.value = d.theme || "";
   if (d.css != null) editedCss[d.theme || ""] = d.css;
   useTheme(themeSel.value);
@@ -528,14 +922,40 @@ function whenText(t) {
   return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()} ${two(d.getHours())}:${two(d.getMinutes())}`;
 }
 
-// File → Recent: the decks of this browser edited last, the open one left
-// out (a PRO deck is among them: the cloud save keeps it here as well).
+// Signed in: the user's own shares that this browser does not keep, as
+// "cloud:<share id>" decks (opened from the cloud, as /s/{id}?edit is).
+// Read at sign-in; after that, a list older than 30 s is read again behind
+// the one shown, which is redrawn when it arrives.
+let cloudList = { uid: null, at: 0, rows: [] };
+let cloudListing = null;
+function readCloudList(uid) {
+  cloudListing ??= window.sliqtly.listMine()
+    .catch((e) => { console.warn("listing the cloud decks failed", e); return []; })
+    .then((rows) => { cloudList = { uid, at: Date.now(), rows }; })
+    .finally(() => { cloudListing = null; });
+  return cloudListing;
+}
+async function cloudDocs(local) {
+  const user = window.sliqtly?.user?.();
+  if (!user || !window.sliqtly.listMine) return [];
+  if (cloudList.uid !== user.uid) await readCloudList(user.uid);
+  else if (Date.now() - cloudList.at > 30000 && !cloudListing) readCloudList(user.uid).then(() => refreshFiles());
+  const here = new Set(local.map((d) => d.cloud).filter(Boolean));
+  return cloudList.rows.filter((r) => !here.has(r.id))
+    .map((r) => ({ id: "cloud:" + r.id, name: r.name, updated: r.updated, inCloud: true }));
+}
+async function allDocs() {
+  const local = await vfs.listDocs();
+  return local.concat(await cloudDocs(local)).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+}
+
+// File → Recent: the decks edited last, the open one left out: this
+// browser's, and signed in, the cloud's too.
 let recentSynced = "";
 async function refreshRecent() {
   if (!vfs || viewer) return;
-  const rows = (await vfs.listDocs())
+  const rows = (await allDocs())
     .filter((d) => d.id !== doc.id)
-    .sort((a, b) => (b.updated || 0) - (a.updated || 0))
     .slice(0, 8)
     .map((d) => d.id + "\t" + String(d.name || "presentation").replace(/[\t\n\r]+/g, " "));
   const key = rows.join("\n");
@@ -553,7 +973,24 @@ async function refreshFiles() {
   filesListing = true;
   try {
     const files = (await docFiles())
-      .map((f) => ({ path: f.path, size: f.size == null ? -1 : f.size, kind: kindOf(f.path, f.type) }))
+      .map((f) => {
+        const row = { path: f.path, size: f.size == null ? -1 : f.size, kind: kindOf(f.path, f.type) };
+        // a copy kept of a linked source: named after it, with where and when it was read
+        if (f.path.startsWith("data/live/")) {
+          const source = copySource(f);
+          let where = t("Linked data");
+          if (source) where = isSheet(source) ? t("Google Sheets") : (() => { try { return new URL(source).host; } catch (_) { return source; } })();
+          Object.assign(row, {
+            kind: "live", source, tag: source && isSheet(source) ? "SHEET" : "LIVE",
+            title: f.title || liveTitle(source) || f.path.split("/").pop(),
+            note: where + " · " + t("read ") + whenText(liveRead.get(f.path) || f.read || f.updated),
+          });
+        }
+        // a picture's pixels, for the preview beside the row
+        const img = row.kind === "image" ? pictures.get("/" + f.path) : null;
+        if (img) Object.assign(row, { w: img.naturalWidth, h: img.naturalHeight });
+        return row;
+      })
       .sort((a, b) => {
         const da = a.path.includes("/") ? 1 : 0;
         const db = b.path.includes("/") ? 1 : 0;
@@ -563,9 +1000,11 @@ async function refreshFiles() {
     const head = [{ path: name + ".md", size: new TextEncoder().encode(app.source()).length, kind: "md" }];
     const key = themeSel.value || "";
     head.push({ path: (key || "theme") + ".css", size: -1, kind: "css" });
-    const docs = (await vfs.listDocs())
-      .sort((a, b) => (b.updated || 0) - (a.updated || 0))
-      .map((d) => ({ id: d.id, name: d.name || "presentation", when: whenText(d.updated), current: d.id === doc.id }));
+    const docs = (await allDocs())
+      .map((d) => ({
+        id: d.id, name: d.name || "presentation", current: d.id === doc.id, cloud: !!d.inCloud,
+        when: (d.inCloud ? t("In the cloud") + " · " : "") + whenText(d.updated),
+      }));
     let note = vfs.persistent
       ? t("Files live only in this browser (IndexedDB). Share links carry only the text and theme, not images or data files.")
       : t("This browser does not allow storage: files are kept only while this page is open.");
@@ -575,10 +1014,18 @@ async function refreshFiles() {
       : {
         title: t("Share images and data with PRO"),
         text: t("PRO keeps your decks and their files in the cloud. Share links then carry images, plus the CSV and JSON data behind your charts and tables."),
-        button: t("Get PRO"),
+        button: t("Sign in with Google"),
       };
+    // PRO: the deck and its files live in the cloud share, and go with its links
+    if (signedIn()) {
+      note = doc.cloudHalt
+        ? t("This presentation was changed elsewhere, so it is not saved to the cloud now. A copy stays in this browser.")
+        : cloudError
+          ? t("Saving to the cloud failed: ") + cloudError + ". " + t("It is tried again on the next change; a copy stays in this browser.")
+          : t("PRO: this presentation and its files are saved to your cloud and go with share links. A copy stays in this browser.");
+    }
     if (!doc.persisted) note = t("This presentation is not saved yet: it saves when you change it. ") + note;
-    app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), docs, note, ...(promo ? { promo } : {}) }));
+    app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), docs, mine: !!window.sliqtly?.user?.(), note, ...(promo ? { promo } : {}) }));
     needsPaint = true;
   } finally {
     filesListing = false;
@@ -590,7 +1037,7 @@ async function refreshFiles() {
 async function addDocFile(file, ask = false) {
   const type = file.type || "";
   if (/\.(md|markdown)$/i.test(file.name)) {
-    await saveDoc();
+    await leaveDoc();
     const text = await file.text();
     beginDoc(text);
     docName = file.name.replace(/\.(md|markdown)$/i, "") || "presentation";
@@ -720,11 +1167,33 @@ async function linkData(link) {
     return;
   }
   const url = app.liveUrl(link);
+  if (isSheet(url)) {
+    // asked first; read while the card is up, so a sheet shared by link needs
+    // no Google window and a private one gets it from the press
+    let open = null;
+    const pub = fetchLive(url).then((x) => (open = x), () => null);
+    const go = await pressCard("gLink", t("Link this Google Sheet directly to this document? Its data is read again each time the deck opens."),
+      t("Link the sheet"), t("Paste as text"),
+      () => {
+        if (open == null && window.sliqtly?.user?.() && !window.sliqtly.sheetsToken()) {
+          // a closed window cancels; a blocked one leaves it to googleTap
+          return window.sliqtly.askSheets().then(() => true, (e) => e?.code === "auth/popup-blocked");
+        }
+        return true;
+      });
+    if (!go) {
+      app.pasteText(link);
+      afterInput();
+      return;
+    }
+    await pub;
+  }
   let text;
   try {
     text = await readLive(url, true);
   } catch (e) {
-    if (e?.code === "auth/popup-blocked") toast(t("The browser blocked Google's sign-in window: allow pop-ups for this site and paste the link again."));
+    if (e?.code === "picker") toast(t("Google's file picker did not open. The site's Google API key must allow the Google Picker API."));
+    else if (e?.code === "auth/popup-blocked") toast(t("The browser blocked Google's sign-in window: allow pop-ups for this site and paste the link again."));
     else if (e?.code !== "auth/popup-closed-by-user" && e?.code !== "auth/cancelled-popup-request") liveFailed(url);
     return;
   }
@@ -789,17 +1258,19 @@ async function fileRequest(r) {
   const [action, ...rest] = r.split(":");
   const what = rest.join(":");
   if (action === "add") {
+    addAsks = false;
     fileAdd.click();
   } else if (action === "promo") {
     document.getElementById("pro")?.click();
   } else if (action === "new") {
-    await saveDoc();
-    const text = t("# New presentation") + "\n\n" + t("Write here.") + "\n";
-    beginDoc(text);
-    docName = "new";
-    app.setSource(text);
-    app.showTab("md");
-    dropThumbs();
+    // asked first: an accidental press is cancelled and the deck stays
+    const rows = [...themeSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n");
+    app.openNewDeck(rows, themeSel.value || "", "");
+  } else if (action === "newsheet") {
+    await newSheet();
+  } else if (action === "duplicate") {
+    makingDeck = duplicateDeck().catch((e) => toast(t("Duplicating failed: ") + (e.message || e))).finally(() => { makingDeck = null; });
+    await makingDeck;
   } else if (action === "open") {
     const f = (await docFiles()).find((x) => x.path === what);
     if (!f) return;
@@ -815,20 +1286,55 @@ async function fileRequest(r) {
     }
     const text = typeof f.data === "string" ? f.data : (isText(f.path, f.type) ? await f.data.text() : null);
     if (text == null) { toast(t("This file cannot be opened as text.")); return; }
+    // a CSV opens in the spreadsheet editor; Save writes it back as CSV
+    if (/\.csv$/i.test(f.path)) {
+      liveSheets.openDialog({
+        name: f.path.split("/").pop(),
+        csv: text,
+        onSave: (raw) => saveWorkbook(f.path, raw),
+        onClose: () => { keys.focus({ preventScroll: true }); needsPaint = true; },
+      }).catch((e) => {
+        // no spreadsheet editor (offline): the text, as before
+        toast(t("The spreadsheet editor did not load: ") + (e.message || e));
+        app.openFile(f.path, text);
+      });
+      return;
+    }
     app.openFile(f.path, text);
+  } else if (action === "source" || action === "refresh" || action === "unlink") {
+    const f = (await docFiles()).find((x) => x.path === what);
+    const url = f ? copySource(f) : "";
+    if (action === "source" && url) window.open(sourcePage(url), "_blank", "noopener");
+    else if (action === "refresh" && url) await refreshLive([url]);
+    else if (action === "unlink" && f) await unlinkLive(f, url);
+  } else if (action === "imgedit") {
+    await openImageEditor(what);
+    return;
   } else if (action === "del") {
     pending.delete(what);
     if (doc.persisted) await vfs.deleteFile(doc.id, what);
     if (app.openFilePath() === what) app.closeFile();
     cloudSoon();
   } else if (action === "doc") {
-    if (!(await openDoc(what))) toast(t("Presentation not found."));
+    const opened = what.startsWith("cloud:")
+      ? await openOwnCloud(what.slice(6)).catch((e) => { console.warn(e); return false; })
+      : await openDoc(what);
+    if (!opened) toast(t("Presentation not found."));
+  } else if (action === "deletedeck") {
+    // asked first, in the app's own window; "confirm:deletedeck" deletes
+    const cloud = !!doc.cloud && !!window.sliqtly?.user?.();
+    app.openConfirm("deletedeck", t("Delete presentation"),
+      t("Delete “") + exportName() + t("”? It is removed from this browser") +
+      (cloud ? t(" and from the cloud, and its share link stops working") : "") +
+      t(". This cannot be undone."), t("Delete"));
   } else if (action === "deldoc") {
-    if (what !== doc.id) await vfs.deleteDoc(what);
+    if (what !== doc.id && !what.startsWith("cloud:")) await vfs.deleteDoc(what);
   }
   refreshFiles();
   needsPaint = true;
 }
+
+window.__fileRequest = (r) => fileRequest(r);
 
 // A file edited in the files tab: kept, and handed to the charts again.
 async function saveOpenFile(path) {
@@ -846,6 +1352,10 @@ async function saveOpenFile(path) {
 // and kept; the stage and the chrome are built every paint. A kept frame is
 // only good while the glyph atlas it was built against stands, so a paint
 // that grows the atlas drops the kept ones and draws again.
+// File → Settings: automatic contrast correction, on unless turned off here.
+let autoContrast = true;
+try { autoContrast = localStorage.getItem("sliqtly.autoContrast") !== "off"; } catch (_) { /* on */ }
+
 let thumbs = new Map();
 let thumbRev = -1;
 // the slide lists of thumbnails cut by the strip's edge, as JSON text
@@ -890,9 +1400,10 @@ function paintOnce() {
   const grewBy = (stats) => !!(stats && (stats.atlasRebuilt || stats.atlasAdded > 0));
   let grew = false;
   // Slides and thumbnails are drawn with EVG's contrast guard: a run of text
-  // that does not stand out from the picture under it (WCAG 4.5:1, 3:1 for
-  // large text) gets a thin outline in black or white. The chrome has no
-  // pictures under its text and is drawn without it.
+  // that does not stand out from what is under it (WCAG 4.5:1, 3:1 for large
+  // text) is drawn in a colour that reads, or, on big letters, with a thin
+  // outline. File → Settings turns the correction off (the runs are still
+  // listed for the editor's warnings). The chrome is drawn without it.
   const chrome = JSON.parse(app.chromeJson());
   window.__lastChrome = chrome;
   const cf = prepareDisplayList(gl, chrome, { dpr });
@@ -903,7 +1414,7 @@ function paintOnce() {
     window.__lastStage = st;
     st.width = W;
     st.height = H;
-    const sf = prepareDisplayList(gl, st, { dpr, images: pictures, contrastGuard: true });
+    const sf = prepareDisplayList(gl, st, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
     const stageStats = sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false });
     grew = grewBy(stageStats) || grew;
     sf.dispose();
@@ -914,7 +1425,21 @@ function paintOnce() {
       // laid over the slide. A change shows on the next paint.
       try {
         if (app.setContrast(JSON.stringify((stageStats && stageStats.lowContrast) || []))) needsPaint = true;
+        // the image editor says whether the slide's text still reads
+        if (adjusting) app.setAdjustContrast(JSON.stringify((stageStats && stageStats.lowContrast) || []));
       } catch (e) { console.warn("contrast notes", e); }
+    }
+  }
+  // the element picked on the slide: its outline, spacing bands and buttons
+  if (layout.slides > 0 && layout.mode !== "present") {
+    const pj = app.pickJson();
+    if (pj) {
+      const pk = JSON.parse(pj);
+      pk.width = W;
+      pk.height = H;
+      const pf = prepareDisplayList(gl, pk, { dpr });
+      grew = grewBy(pf.draw(null, [0, 0, 1], { clear: false })) || grew;
+      pf.dispose();
     }
   }
   if (grew) dropThumbs();
@@ -939,7 +1464,7 @@ function paintOnce() {
       const none = [0, 0, 0, 0];
       doc.list.cmds.unshift({ k: 4, x: (cx - x) / s, y: (cy - y) / s, w: cw / s, h: ch / s, c: none });
       doc.list.cmds.push({ k: 5, x: 0, y: 0, w: 0, h: 0, c: none });
-      const cf = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true });
+      const cf = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
       if (grewBy(cf.draw(null, [x, y, s], { clear: false }))) thumbsGrew = true;
       cf.dispose();
       continue;
@@ -950,7 +1475,7 @@ function paintOnce() {
       const doc = withTime(JSON.parse(app.slideJson(i)), 2.0);
       doc.width = W;
       doc.height = H;
-      f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true });
+      f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
       thumbs.set(i, f);
     }
     const stats = f.draw(null, [x, y, s], { clear: false });
@@ -988,7 +1513,8 @@ function paintOnce() {
     const pn = JSON.parse(pj);
     pn.width = W;
     pn.height = H;
-    const pf = prepareDisplayList(gl, pn, { dpr });
+    // with the pictures: the files tab previews the one under the pointer
+    const pf = prepareDisplayList(gl, pn, { dpr, images: pictures });
     if (grewBy(pf.draw(null, [0, 0, 1], { clear: false }))) dropThumbs();
     pf.dispose();
   }
@@ -1031,6 +1557,12 @@ function rebaseClock() {
 //   Enter, Space     press it (a reader's activation does the same)
 //   arrows on a slider  move it
 //   Esc              back to the editor (closing a popover or dialog first)
+//   on a slide of the strip (a click on it puts the keyboard there):
+//     arrows, Home, End    the slide before / after, the first, the last
+//     Ctrl/⌘ + arrow       move the slide
+//     Delete, Backspace    delete it (Ctrl/⌘+Z brings it back)
+//     Shift+F10, menu key  its context menu (a right click opens it too)
+//     Enter                its heading in the editor
 //   Ctrl+Space       the value popover at the caret, with the keyboard in it
 let lastA11yRev = "";
 let a11yTree = null;
@@ -1058,7 +1590,7 @@ const mirror = createA11yMirror(stageEl, {
       const lost = !act || act === document.body || act === pressedEl;
       if (lost && (!el || !el.isConnected)) {
         const reg = regionOf(node.id);
-        if (!focusRegion(reg)) focusKeys(app.focusTarget());
+        if (reg === "ctx" || !focusRegion(reg)) focusApp();
       }
     });
   },
@@ -1075,6 +1607,7 @@ function mirrorA11y() {
 }
 function regionOf(id) {
   if (!id) return "";
+  if (id.startsWith("tb-m-ctx")) return "ctx";
   if (id.startsWith("tb-")) return "bar";
   if (id.startsWith("edtabs")) return "tabs";
   if (id.startsWith("thumb-")) return "slides";
@@ -1103,6 +1636,53 @@ function focusRegion(region) {
   const list = focusables(region);
   if (!list.length) return false;
   focusNode(list.find((n) => n.selected) || list[0]);
+  return true;
+}
+// The keyboard on the strip: on the selected slide's mirrored option, so a
+// reader hears which slide it is and the keys go to the strip, not the editor.
+function focusStrip() {
+  mirrorA11y();
+  const node = a11yTree && a11yTree.byId.get("thumb-" + app.selectedSlide());
+  if (!node || !mirror.elementOf(node.id)) return false;
+  focusNode(node);
+  return true;
+}
+// The keyboard back where the app says it is (after a menu, Esc).
+function focusApp() {
+  const where = app.focusTarget();
+  if (where === "strip" && focusStrip()) return;
+  focusKeys(where === "stage" || where === "strip" ? where : "editor");
+}
+// The strip's context menu was opened: the keyboard goes to its first row.
+function focusSlideMenu() {
+  paintOnce();
+  mirrorA11y();
+  const first = a11yTree && a11yTree.nodes.find((n) => regionOf(n.id) === "ctx" && n.focusable && !n.disabled && /-item-/.test(n.id) && mirror.elementOf(n.id));
+  if (first) focusNode(first);
+}
+const STRIP_KEYS = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", Home: "home", End: "end", Delete: "delete", Backspace: "backspace", Enter: "enter", Escape: "escape" };
+// A key on a slide of the strip; true when it was the strip's.
+function stripKey(ev) {
+  const mod = ev.ctrlKey || ev.metaKey;
+  if (ev.key === "ContextMenu" || (ev.shiftKey && ev.key === "F10")) {
+    ev.preventDefault();
+    if (app.slideMenuAtSelected()) {
+      afterInput();
+      focusSlideMenu();
+    }
+    return true;
+  }
+  const name = STRIP_KEYS[ev.key];
+  const menuKey = !ev.altKey && !ev.shiftKey && ev.key.length === 1 ? ev.key.toLowerCase() : "";
+  const req = ev.ctrlKey && !ev.metaKey && menuKey === "m" ? "slide:new" : mod && menuKey === "d" ? "slide:duplicate" : "";
+  if (name) app.key(name, ev.shiftKey, mod);
+  else if (req) app.request(req);
+  else if (mod && /^[zy]$/i.test(ev.key)) app.chord(ev.key.toLowerCase());
+  else return false;
+  ev.preventDefault();
+  afterInput();
+  paintOnce();
+  focusApp();
   return true;
 }
 function currentRegion() {
@@ -1150,6 +1730,7 @@ mirror.root.addEventListener("keydown", (ev) => {
     moveInRegion(ev.shiftKey ? -1 : 1);
     return;
   }
+  if (/^thumb-\d+$/.test(id) && stripKey(ev)) return;
   if (node && node.role === "slider" && /^Arrow/.test(ev.key)) {
     ev.preventDefault();
     const up = ev.key === "ArrowRight" || ev.key === "ArrowUp";
@@ -1183,10 +1764,11 @@ mirror.root.addEventListener("keydown", (ev) => {
     if (reg === "hint") app.closeHint();
     else if (reg === "chart") app.key("escape", false, false);
     else if (reg === "panels" && app.shareIsOpen()) app.closeShare();
-    else if (reg === "bar") app.key("escape", false, false);
+    else if (reg === "bar" || reg === "ctx") app.key("escape", false, false);
     afterInput();
     app.setA11yFocus("");
-    focusKeys(app.focusTarget() === "stage" ? "stage" : "editor");
+    if (reg === "ctx") focusApp();
+    else focusKeys(app.focusTarget() === "stage" ? "stage" : "editor");
     needsPaint = true;
   }
 });
@@ -1211,8 +1793,16 @@ let liveNoted = false;
 function liveAllowed() {
   return liveFromShare || /^(localhost|127\.0\.0\.1)$/.test(location.hostname) || !!window.sliqtly?.user?.();
 }
+// The layouts drawn from lists (```process, ```swot, ```timeline) and the
+// slides' line art ({art=waves}) are PRO as well, on the same terms.
+function proNow() {
+  app.setPro(liveAllowed());
+  needsPaint = true;
+}
+proNow();
 // signed in or out: the live data is looked at again
 window.addEventListener("sliqtly:user", () => {
+  proNow();
   liveAuthKnown = true;
   chartFilesRev = -1;
   needsPaint = true;
@@ -1241,14 +1831,44 @@ function copyPath(url) {
   for (let i = 0; i < url.length; i++) h = Math.imul(h ^ url.charCodeAt(i), 16777619) >>> 0;
   return "data/live/" + h.toString(36) + ".csv";
 }
+const liveRead = new Map(); // copy path → when its source was last read
 async function keepLiveCopy(url, text) {
   if (viewer) return;
   const path = copyPath(url);
-  if (liveCopies.get(path) === text) return;
+  liveRead.set(path, Date.now());
+  const named = liveName(url);
+  if (liveCopies.get(path) === text && !named) return;
   liveCopies.set(path, text);
   const have = (await docFiles()).find((f) => f.path === path);
-  if (have && have.data === text) return;
-  await keepFile({ path, type: "text/csv", size: text.length, data: text });
+  // a name from the Sheets API wins over the address's own
+  const title = named || have?.title || liveTitle(url);
+  if (have && have.data === text && have.title === title && have.source === url) return;
+  await keepFile({ path, type: "text/csv", size: text.length, data: text, source: url, title, read: Date.now() });
+}
+// A live source's name for Files: the spreadsheet and its tab as the Sheets
+// API told them (a private sheet), else what the address says.
+function liveName(url) {
+  const n = isSheet(url) && window.sliqtly?.sheetName?.(url);
+  return n && n.title ? n.title + (n.tab ? " · " + n.tab : "") : "";
+}
+function liveTitle(url) {
+  if (!url) return "";
+  const named = liveName(url);
+  if (named) return named;
+  const q = (() => { try { return new URL(url).searchParams; } catch (_) { return new URLSearchParams(); } })();
+  if (isSheet(url)) return t("Google Sheet") + (q.get("sheet") ? " · " + q.get("sheet") : "");
+  try { return decodeURIComponent(url.split(/[?#]/)[0].split("/").pop() || url); } catch (_) { return url; }
+}
+// The address a person opens for a source: a sheet's own page, not its CSV.
+function sourcePage(url) {
+  const m = /^https:\/\/docs\.google\.com\/spreadsheets\/d\/([^/?#]+)/.exec(url);
+  if (!m) return url;
+  const gid = (() => { try { return new URL(url).searchParams.get("gid"); } catch (_) { return null; } })();
+  return "https://docs.google.com/spreadsheets/d/" + m[1] + "/edit" + (gid ? "#gid=" + gid : "");
+}
+// The live address a kept copy stands for: as kept, else one the deck reads.
+function copySource(f) {
+  return f.source || [...chartFiles.keys()].filter(isLive).find((u) => copyPath(u) === f.path) || "";
 }
 async function liveCopy(url) {
   const path = copyPath(url);
@@ -1256,6 +1876,46 @@ async function liveCopy(url) {
   const have = (await docFiles()).find((f) => f.path === path);
   return have && typeof have.data === "string" ? have.data : null;
 }
+// A small card that asks for a press. `onPress` runs within the press, so a
+// Google window it opens is not blocked (Safari on a phone counts a press as
+// spent once the page has waited on the network). → what onPress gives, or
+// false on the second button.
+function pressCard(id, message, okLabel, noLabel, onPress) {
+  return new Promise((ok) => {
+    document.getElementById(id)?.remove();
+    const box = document.createElement("div");
+    box.id = id;
+    box.className = "gCard";
+    box.setAttribute("role", "dialog");
+    box.setAttribute("aria-label", t("Google Sheets"));
+    const text = document.createElement("p");
+    text.textContent = message;
+    const go = document.createElement("button");
+    go.className = "primary";
+    go.textContent = okLabel;
+    const no = document.createElement("button");
+    no.textContent = noLabel;
+    const done = (v) => { box.remove(); ok(v); };
+    go.addEventListener("click", () => {
+      // no await before onPress: the window opens within the press
+      Promise.resolve(onPress()).then(done, () => done(false));
+    });
+    no.addEventListener("click", () => done(false));
+    box.append(text, go, no);
+    document.body.appendChild(box);
+    go.focus();
+  });
+}
+// Google's window blocked after all: one more press opens it. → true when a
+// token came.
+let tapping = null;
+function googleTap() {
+  tapping ??= pressCard("gTap", t("This Google Sheet is private. Google asks once whether Sliqtly may read the sheets you pick."),
+    t("Continue with Google"), t("Cancel"),
+    () => window.sliqtly.askSheets().then((tok) => !!tok)).finally(() => { tapping = null; });
+  return tapping;
+}
+
 async function readLive(url, ask) {
   let text = null;
   let why = null;
@@ -1269,6 +1929,14 @@ async function readLive(url, ask) {
       text = await window.sliqtly.readSheet(url, ask);
     } catch (e) {
       why = e;
+      // the press was spent on the fetch before it (Safari): a press of its own
+      if (ask && e?.code === "auth/popup-blocked" && (await googleTap())) {
+        try {
+          text = await window.sliqtly.readSheet(url, true);
+        } catch (e2) {
+          why = e2;
+        }
+      }
     }
   }
   if (text != null) {
@@ -1301,7 +1969,9 @@ function showLiveButton() {
 }
 let refreshing = null;
 function refreshLiveData() {
-  const urls = [...chartFiles.keys()].filter(isLive);
+  return refreshLive([...chartFiles.keys()].filter(isLive));
+}
+function refreshLive(urls) {
   if (!urls.length || refreshing) return refreshing;
   refreshing = (async () => {
     let failed = 0;
@@ -1319,8 +1989,46 @@ function refreshLiveData() {
     needsPaint = true;
     if (!failed) toast(t("Data refreshed"));
     refreshing = null;
+    refreshFiles();
   })();
   return refreshing;
+}
+
+// Files → Unlink: the charts that read a linked source read its last copy
+// instead, kept as an ordinary data file named after the source; the source
+// is not read again.
+async function unlinkLive(f, url) {
+  const files = await docFiles();
+  const base = (f.title || liveTitle(url) || "data").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "data";
+  let path = "data/" + base + ".csv";
+  for (let n = 2; files.some((x) => x.path === path); n += 1) path = "data/" + base + "-" + n + ".csv";
+  let changed = 0;
+  const md = app.source().replace(/("url"\s*:\s*")([^"]+)(")/g, (all, a, u, b) => {
+    if (!url || (u !== url && app.liveUrl(u) !== url)) return all;
+    changed += 1;
+    return a + path + b;
+  });
+  if (!changed && url && (app.deck?.dataUrls || []).includes(url)) {
+    // read through a fence this cannot rewrite ({"source": "google-sheets", …})
+    toast(t("A chart names this source in its own way: change its data source in the chart editor."));
+    return;
+  }
+  const text = typeof f.data === "string" ? f.data : await f.data.text();
+  if (changed) {
+    await keepFile({ path, type: "text/csv", size: text.length, data: text });
+    chartFiles.set(path, Promise.resolve(text));
+    app.setChartData(path, text);
+    app.setSource(md);
+  }
+  pending.delete(f.path);
+  if (doc.persisted) await vfs.deleteFile(doc.id, f.path);
+  liveCopies.delete(f.path);
+  if (url) chartFiles.delete(url);
+  if (changed) afterInput();
+  await saveDoc(true);
+  showLiveButton();
+  dropThumbs();
+  toast(changed ? t("Unlinked: the charts now read ") + path : t("No chart reads this source any more: its copy was removed."));
 }
 function fetchChartFiles(rev) {
   if (rev === chartFilesRev) return;
@@ -1408,9 +2116,10 @@ function frame() {
     if (needsPaint || rev !== lastRev || effects) {
       needsPaint = false;
       lastRev = rev;
+      syncEndPanel();
       paintOnce();
       handleRequests();
-      syncEndPanel();
+      followAddress();
       if (lastLayout) fetchChartFiles(lastLayout.rev);
       if (rev !== lastA11yRev) {
         lastA11yRev = rev;
@@ -1442,6 +2151,17 @@ window.__lastDownload = "";
 
 // for scripts/check-web.mjs: the requests run now, a picture's pixel size
 window.__handleRequests = () => handleRequests();
+window.__picturePixel = (p, x, y) => {
+  const img = pictures.get(p);
+  if (!img) return [];
+  const c = document.createElement("canvas");
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const g = c.getContext("2d");
+  g.drawImage(img, 0, 0);
+  return [...g.getImageData(x, y, 1, 1).data];
+};
+window.__pictureTag = (p) => (pictures.get(p) ? pictures.get(p).tagName : "");
 window.__pictureSize = (p) => {
   const img = pictures.get(p);
   return img ? [img.naturalWidth, img.naturalHeight] : [0, 0];
@@ -1467,6 +2187,20 @@ function handleRequests() {
       // the canvas bar: the page's own button does what it always did
       const b = document.getElementById(r.slice(6));
       if (b) b.click();
+    } else if (r === "docset") {
+      // the document settings window: the deck's pictures for the logo
+      docFiles().then((fs) => {
+        const pics = fs.filter((f) => kindOf(f.path, f.type) === "image").map((f) => f.path).sort();
+        if (app.openDocSettings(pics.join("\n"))) needsPaint = true;
+      });
+    } else if (r === "settings") {
+      app.openSettings(autoContrast);
+      needsPaint = true;
+    } else if (r.startsWith("setting:contrast:")) {
+      autoContrast = r.endsWith(":on");
+      try { localStorage.setItem("sliqtly.autoContrast", autoContrast ? "on" : "off"); } catch (_) { /* this session only */ }
+      dropThumbs();
+      needsPaint = true;
     } else if (r === "openbox") {
       // Open: a file from the computer, or a sample deck
       app.openOpen([...sampleSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
@@ -1496,10 +2230,27 @@ function handleRequests() {
       keepFile({ path, type: "application/json", size: text.length, data: text }).catch(fail);
       chartFiles.set(path, Promise.resolve(text));
       dropThumbs();
+    } else if (r === "confirm:deletedeck") {
+      deleteDeck().catch(fail);
+    } else if (r === "newdeck-create") {
+      const plan = JSON.parse(app.newDeckPlan());
+      // the picker now, while the press still counts as one; the file goes
+      // into the new deck once it is made
+      if (plan.data === "file") {
+        addAsks = true;
+        fileAdd.click();
+      }
+      makingDeck = newDeck(plan).catch(fail).finally(() => { makingDeck = null; });
     } else if (r === "picture-place") {
       placePasted().catch(fail);
     } else if (r === "picture-cancel") {
       dropPasting();
+    } else if (r === "image-adjust") {
+      adjustPreview();
+    } else if (r === "image-save") {
+      saveAdjusted().catch(fail);
+    } else if (r === "image-cancel") {
+      dropAdjusting();
     } else if (r === "sheet-edit") {
       liveSheets.editFirst();
     } else if (r.startsWith("data-keep:")) {
@@ -1595,11 +2346,16 @@ window.__exportName = exportName;
 const FX_STILL_W = 1600;
 async function renderFxStills() {
   app.clearFxStills();
-  const list = JSON.parse(app.fxSlidesJson());
+  const fx = JSON.parse(app.fxSlidesJson());
+  // a slide's own picture (bg=) as well: the PPTX takes it, cut and dimmed
+  // as the stage shows it, as the slide's background
+  const list = fx.concat(JSON.parse(app.bgSlidesJson()));
   if (!list.length) return;
-  toast(t("Rendering effects of ") + list.length + t(" slides for export…"));
-  // the toast gets a frame to show before the work starts
-  await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+  if (fx.length) {
+    toast(t("Rendering effects of ") + fx.length + t(" slides for export…"));
+    // the toast gets a frame to show before the work starts
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+  }
   const c = document.createElement("canvas");
   const g = c.getContext("webgl2", { antialias: false, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
   if (!g) return;
@@ -1608,7 +2364,7 @@ async function renderFxStills() {
     const k = FX_STILL_W / doc.width;
     c.width = FX_STILL_W;
     c.height = Math.round(doc.height * k);
-    const f = prepareDisplayList(g, doc, { dpr: k });
+    const f = prepareDisplayList(g, doc, { dpr: k, images: pictures });
     f.draw(null, null);
     const w = c.width;
     const h = c.height;
@@ -1628,17 +2384,59 @@ async function renderFxStills() {
 }
 window.__renderFxStills = renderFxStills;
 
+// The PDF writer's fallback for emoji (monochrome Noto Emoji). Only the
+// writer gets it: the screen keeps the browser's own colour emoji. Fetched
+// the first time a PDF is made, since it is large (0.9 MB) and most visits
+// make none. The dash in the name puts it in the fallback pool.
+let emojiFace = null;
+function loadEmojiFace() {
+  emojiFace ??= fontBytes("NotoEmoji-Regular.ttf")
+    .then((bytes) => { app.attachFont("Noto Emoji-Regular", asRangerBuffer(bytes.slice(0))); })
+    .catch((e) => { console.warn("emoji face not loaded", e); });
+  return emojiFace;
+}
+
 async function exportPdf() {
-  await renderFxStills();
+  await Promise.all([renderFxStills(), loadEmojiFace()]);
   window.__lastDownload = deliver(app.pdf(), exportName() + ".pdf", "application/pdf");
 }
+// The runs the contrast guard repairs on the stage (a colour that reads, or an
+// outline round big letters) are a judgement made while drawing, over the
+// pictures under them, so the PPTX would have the theme's colour where the
+// slide showed another. Each slide is drawn once here at rest, small, and the
+// guard's list goes to the app for the PPTX's runs.
+async function judgeExportContrast() {
+  app.clearExportContrast();
+  if (!autoContrast) return;
+  const n = app.deck.slideCount();
+  const c = document.createElement("canvas");
+  const g = c.getContext("webgl2", { antialias: false, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!g) return;
+  for (let i = 0; i < n; i += 1) {
+    const doc = withTime(JSON.parse(app.slideJson(i)), 2.0);
+    const k = 640 / doc.width;
+    c.width = 640;
+    c.height = Math.round(doc.height * k);
+    const f = prepareDisplayList(g, doc, { dpr: k, images: pictures, contrastGuard: true, contrastRepair: true });
+    const stats = f.draw(null, null);
+    f.dispose();
+    const low = (stats && stats.lowContrast) || [];
+    if (low.length) app.addExportContrast(i, JSON.stringify(low));
+  }
+  const lose = g.getExtension("WEBGL_lose_context");
+  if (lose) lose.loseContext();
+}
+window.__judgeExportContrast = judgeExportContrast;
+
 async function exportPptx() {
   await renderFxStills();
+  await judgeExportContrast();
   window.__lastDownload = deliver(app.pptx(), exportName() + ".pptx",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation");
 }
 document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
+document.getElementById("zip").addEventListener("click", () => { exportZip().catch(fail); });
 // Open: a presentation (.md) replaces the deck; data (Excel, CSV, JSON) and
 // pictures go to the Files tab as if dropped there. One data file opens the
 // import dialog, like a drop on the editor; several are only kept.
@@ -1664,10 +2462,16 @@ filePick.addEventListener("change", async () => {
   needsPaint = true;
 });
 
+// a file picked for a new deck's data: the import dialog asks what to make
+let addAsks = false;
+fileAdd.addEventListener("cancel", () => { addAsks = false; });
 fileAdd.addEventListener("change", async () => {
   const list = [...(fileAdd.files || [])];
   fileAdd.value = "";
-  for (const f of list) await addDocFile(f);
+  const ask = addAsks && list.length === 1;
+  addAsks = false;
+  if (makingDeck) await makingDeck;
+  for (const f of list) await addDocFile(f, ask);
   if (list.length) await saveDoc(true);
   refreshFiles();
   needsPaint = true;
@@ -1749,8 +2553,11 @@ function cloudSoon() {
 }
 let cloudBusy = null;
 let cloudWarned = false;
+let cloudError = "";
 function cloudTrouble(e) {
   console.warn("cloud save failed", e);
+  cloudError = String(e?.code || e?.message || e);
+  refreshFiles();
   if (cloudWarned) return;
   cloudWarned = true;
   toast(t("Saving to the cloud failed: ") + (e?.code || e?.message || String(e)) + ". " + t("The presentation is kept in this browser."));
@@ -1778,28 +2585,50 @@ async function cloudSync() {
   cloudBusy = (async () => {
     let id = doc.cloud;
     if (!id) {
-      id = await p.share(deck);
+      try {
+        id = await p.share(deck);
+      } catch (e) {
+        // made, but a file did not go: the deck keeps this share, and the
+        // next save sends its files again
+        if (e?.shareId && doc.id === which) {
+          doc.cloud = e.shareId;
+          doc.cloudMd = deck.md;
+          doc.cloudCss = deck.css;
+          doc.cloudTheme = deck.theme;
+          doc.cloudStamps = new Map();
+          await vfs.putDoc({ ...(await vfs.getDoc(doc.id)), cloud: e.shareId, cloudMd: deck.md, cloudCss: deck.css, cloudTheme: deck.theme });
+          plainAddress();
+        }
+        throw e;
+      }
     } else {
       try {
         await p.saveShare(id, deck, { md: doc.cloudMd, stamps: doc.cloudStamps });
       } catch (e) {
         if (e?.code !== "changed-elsewhere") throw e;
-        if (doc.id === which) doc.cloudHalt = true;
-        toast(t("This presentation was changed elsewhere (by an assistant?). Your changes here are not saved to the cloud: reload to get the newer version."));
+        // changed elsewhere (another device, an assistant) since this page
+        // read it: put together with this one here, then written
+        if (doc.id === which) setTimeout(() => checkElsewhere(), 0);
         return id;
       }
     }
     if (doc.id !== which) return id; // another deck was opened meanwhile
     doc.cloud = id;
     doc.cloudMd = deck.md;
+    doc.cloudCss = deck.css;
+    doc.cloudTheme = deck.theme;
     doc.cloudSig = sig;
     doc.cloudStamps = new Map(deck.files.map((f) => [f.path, f.stamp]));
     cloudWarned = false;
-    await vfs.putDoc({ ...(await vfs.getDoc(doc.id)), cloud: id, cloudMd: deck.md });
+    cloudError = "";
+    await vfs.putDoc({ ...(await vfs.getDoc(doc.id)), cloud: id, cloudMd: deck.md, cloudCss: deck.css, cloudTheme: deck.theme });
     plainAddress();
     return id;
   })();
-  try { return await cloudBusy; } finally { cloudBusy = null; }
+  try { return await cloudBusy; } finally {
+    cloudBusy = null;
+    pushVersions();
+  }
 }
 window.addEventListener("sliqtly:user", () => cloudSoon());
 
@@ -1816,10 +2645,10 @@ async function openOwnCloud(id) {
   // changes made here that the cloud does not have yet, and nobody changed
   // it since: this browser's copy is the newer, and goes up on the next save
   if (local && local.md !== local.cloudMd && shared.md === local.cloudMd) return openDoc(local.id);
-  await saveDoc();
+  await leaveDoc();
   beginDoc(shared.md || "");
   doc.id = local?.id || newId();
-  if (local) await vfs.deleteDoc(local.id); // the cloud's files replace this browser's
+  if (local) await vfs.deleteDoc(local.id, true); // the cloud's files replace this browser's; its versions stay
   doc.created = local?.created || Date.now();
   if (shared.theme != null) {
     themeSel.value = shared.theme;
@@ -1848,16 +2677,371 @@ async function openOwnCloud(id) {
   app.setSource(shared.md || "");
   doc.cloud = id;
   doc.cloudMd = shared.md || "";
+  doc.cloudCss = shared.css ?? null;
+  doc.cloudTheme = shared.theme || "";
   // the files that did come are what the share has; one that did not is
   // not sent back, so the share keeps it
   doc.cloudStamps = new Map([...pending.values()].map((f) => [f.path, stampOf(f)]));
   await saveDoc(true);
   doc.cloudSig = (await cloudDeck()).sig;
+  if (shared.head) await followCloudHead(shared.head).catch((e) => console.warn("versions not read", e));
   plainAddress();
   dropThumbs();
   needsPaint = true;
   return true;
 }
+
+// --- versions, and edits made in two places at once (web/versions.js) ---------------
+// The open deck's history: commits of its files, kept in this browser and,
+// for a PRO deck, beside its share. A version is made when the deck was
+// created, when 10 or more lines changed since the last one or a file did,
+// after 10 minutes of smaller changes, when another deck is opened, around
+// a merge and a restore, and from Version history → Save version.
+//
+// The same deck open in two places: another tab of this browser saves
+// through the same record (saveDoc compares before it writes; the tabs also
+// tell each other at once), another device or an assistant through the
+// share (read when the window gets the focus and every minute while it is
+// seen). Changed only there: taken here. Changed on both sides: merged
+// against what both started from; where both changed the same lines the
+// merge dialog asks.
+let versions = null;
+let merging = false;
+let filesAtCommit = null;
+function deckVersions() {
+  if (!vfs || viewer || !doc.persisted) return null;
+  if (!versions || versions.docId !== doc.id) {
+    versions = new DeckHistory({
+      vfs, docId: doc.id, cloud: () => doc.cloud,
+      pro: () => (window.sliqtly?.user?.() ? window.sliqtly : null),
+    });
+  }
+  return versions;
+}
+window.__versions = () => deckVersions();
+
+// The deck as versions see it (versions.js snapshots).
+async function workingCopy() {
+  const key = themeSel.value || "";
+  return {
+    name: exportName(), md: app.source(), theme: key, css: key in editedCss ? editedCss[key] : null,
+    files: (await docFiles()).map((f) => ({ path: f.path, type: f.type || "", data: f.data, stamp: stampOf(f), orig: f.orig })),
+  };
+}
+
+// alone: not with another tab's newer head as a parent (a copy of this
+// one's own before a merge)
+async function commitVersion(message, alone = false, extra = [], force = false) {
+  const h = deckVersions();
+  if (!h) return null;
+  const id = await h.commit(await workingCopy(), message, extra, alone, force);
+  if (id) pushVersions();
+  return id;
+}
+
+let versionsPush = Promise.resolve();
+function pushVersions() {
+  const h = deckVersions();
+  if (!h || !doc.cloud || doc.cloudHalt || !window.sliqtly?.user?.()) return versionsPush;
+  versionsPush = versionsPush.then(async () => {
+    if (cloudBusy) await cloudBusy.catch(() => {});
+    // the share's head moved elsewhere: the copies are merged first
+    if (!(await h.pushCloud(null))) setTimeout(() => checkElsewhere(), 0);
+  }).catch((e) => console.warn("versions not sent to the cloud", e));
+  return versionsPush;
+}
+
+async function maybeCommit() {
+  const h = deckVersions();
+  if (!h || merging || saving) return;
+  await h.ready;
+  const files = (await docFiles()).map((f) => f.path + "=" + stampOf(f) + (f.orig ? "+" + f.orig.plans.length : "")).join("\n");
+  if (!h.head) {
+    filesAtCommit = files;
+    await commitVersion("@created");
+    return;
+  }
+  const head = h.repo.commit(h.head);
+  const s = lineStats(h.repo.fileText(h.head, "deck.md"), app.source());
+  const age = Date.now() - (Date.parse(head?.time || "") || 0);
+  const filesMoved = filesAtCommit != null && files !== filesAtCommit;
+  filesAtCommit ??= files;
+  if (s.added + s.removed >= 10 || filesMoved || age >= 10 * 60 * 1000) {
+    filesAtCommit = files;
+    await commitVersion("@auto");
+  }
+}
+setInterval(() => { maybeCommit().catch((e) => console.warn("no version kept", e)); }, 30000);
+
+// --- the other copy
+const sameCopy = (a, b) => (a.md ?? "") === (b.md ?? "") && (a.css ?? null) === (b.css ?? null) && (a.theme || "") === (b.theme || "");
+function changedElsewhere(rec) {
+  if (savedText == null) return false;
+  return !sameCopy({ md: rec.md, css: rec.css, theme: rec.theme }, { md: savedText, css: savedCss, theme: savedTheme });
+}
+
+function editorCopy() {
+  const key = themeSel.value || "";
+  return { md: app.source(), css: key in editedCss ? editedCss[key] : null, theme: key };
+}
+
+// The editor shows `c`: { md, css, theme }.
+function applyCopy(c) {
+  const key = c.theme || "";
+  if ([...themeSel.options].some((o) => o.value === key)) themeSel.value = key;
+  for (const k of Object.keys(editedCss)) delete editedCss[k];
+  if (c.css != null) editedCss[key] = c.css;
+  useTheme(themeSel.value);
+  if ((c.md ?? "") !== app.source()) app.setSource(c.md ?? "");
+  dropThumbs();
+  needsPaint = true;
+}
+
+// `theirs` in the editor: as it is when nothing was changed here since
+// `base`, else merged with this one. → true when this one had changes.
+async function takeCopy(base, theirs, where) {
+  const mine = editorCopy();
+  if (sameCopy(mine, base) || sameCopy(mine, theirs)) {
+    applyCopy(theirs);
+    return false;
+  }
+  merging = true;
+  try {
+    // this one's changes as they were, a version to go back to
+    await commitVersion("@before-merge", true).catch(() => null);
+    const r = mergeCopies(base, mine, theirs);
+    let snap = r.snap;
+    if (r.conflicts.length) snap = resolveMerge(r, await askMerge(r, where)).snap;
+    else toast(t("Changes made elsewhere were combined with yours."));
+    applyCopy({ md: snap.md ?? "", css: snap.css ?? null, theme: snap.theme ?? mine.theme });
+  } finally {
+    merging = false;
+  }
+  return true;
+}
+
+// What another tab of this browser saved, taken here (runs one at a time
+// with the saves: exclusive).
+async function takeLocal() {
+  const cur = await vfs.getDoc(doc.id);
+  if (!cur || !changedElsewhere(cur)) return;
+  const base = { md: savedText, css: savedCss, theme: savedTheme };
+  const theirs = { md: cur.md ?? "", css: cur.css ?? null, theme: cur.theme || "" };
+  const mergedHere = await takeCopy(base, theirs, "tab");
+  // the record is what this one stands on now
+  savedText = theirs.md;
+  savedCss = theirs.css;
+  savedTheme = theirs.theme;
+  if (cur.cloud) doc.cloud = cur.cloud;
+  if (cur.cloudMd != null) {
+    doc.cloudMd = cur.cloudMd;
+    doc.cloudCss = cur.cloudCss ?? null;
+    doc.cloudTheme = cur.cloudTheme ?? null;
+  }
+  for (const f of await vfs.listFiles(doc.id)) if (usedStamps.get(f.path) !== stampOf(f)) await useFile(f);
+  refreshFiles();
+  if (mergedHere) {
+    await saveDocNow();
+    await commitVersion("@merge");
+  }
+}
+
+// PRO: what the share has now, when another device or an assistant changed it.
+let cloudChecking = null;
+let cloudAgain = false;
+async function cloudCheck() {
+  if (!cloudReady() || !doc.cloud || doc.cloudHalt || merging) return;
+  // asked while a look is under way: one more after it, which sees what
+  // changed meanwhile
+  if (cloudChecking) {
+    cloudAgain = true;
+    return cloudChecking;
+  }
+  cloudChecking = (async () => {
+    if (cloudBusy) await cloudBusy.catch(() => {});
+    const p = window.sliqtly;
+    const which = doc.id;
+    // Firestore waits quietly while it cannot reach the server
+    const late = new Promise((_, no) => setTimeout(() => no(Object.assign(new Error("timeout"), { code: "timeout" })), 20000));
+    const s = await Promise.race([p.readHead(doc.cloud), late]);
+    if (!s || doc.id !== which || merging) return;
+    const theirs = { md: s.md ?? "", css: s.css ?? null, theme: s.theme || "" };
+    const base = { md: doc.cloudMd ?? "", css: doc.cloudCss ?? null, theme: doc.cloudTheme ?? theirs.theme };
+    const moved = !sameCopy(theirs, base);
+    const filesMoved = await takeCloudFiles(s);
+    let mergedHere = false;
+    if (moved) mergedHere = await exclusive(() => takeCopy(base, theirs, "cloud"));
+    if (moved || filesMoved) {
+      doc.cloudMd = theirs.md;
+      doc.cloudCss = theirs.css;
+      doc.cloudTheme = theirs.theme;
+      // written next as it is now (merged), over what was just read
+      doc.cloudSig = "";
+      await saveDoc(true);
+      refreshFiles();
+    }
+    if (s.head) await followCloudHead(s.head, mergedHere);
+    if (moved || filesMoved) cloudSoon();
+  })();
+  try {
+    return await cloudChecking;
+  } finally {
+    cloudChecking = null;
+    if (cloudAgain) {
+      cloudAgain = false;
+      setTimeout(() => { cloudCheck().catch((e) => console.warn("could not compare with the cloud copy", e)); }, 0);
+    }
+  }
+}
+
+// Files the share has that were added or removed elsewhere since this page
+// last wrote it (a file changed in place elsewhere is not seen here).
+async function takeCloudFiles(s) {
+  const remote = new Map((s.files || []).map((f) => [f.path, f]));
+  const local = new Map((await docFiles()).map((f) => [f.path, f]));
+  let moved = false;
+  for (const [path, f] of remote) {
+    if (local.has(path) || doc.cloudStamps.has(path)) continue;
+    try {
+      const res = await fetch(f.url);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = isText(f.path, f.type) ? await res.text() : await res.blob();
+      const rec = { doc: doc.id, path, type: f.type, size: f.size, data, updated: Date.now() };
+      await vfs.putFile(rec);
+      await useFile(rec);
+      doc.cloudStamps.set(path, stampOf(rec));
+      moved = true;
+    } catch (e) {
+      console.warn("cloud file not loaded: " + path, e);
+    }
+  }
+  for (const [path, stamp] of [...doc.cloudStamps]) {
+    if (remote.has(path)) continue;
+    const f = local.get(path);
+    // removed there and not changed here since
+    if (f && stampOf(f) === stamp) {
+      await vfs.deleteFile(doc.id, path);
+      moved = true;
+    }
+    doc.cloudStamps.delete(path);
+  }
+  return moved;
+}
+
+// The share's newest version: this one follows it when it comes after this
+// one's, or makes a version with both as parents.
+async function followCloudHead(head, merged = false) {
+  const h = deckVersions();
+  if (!h) return;
+  await h.ready;
+  if (head === h.head || head === h.cloudHead) return;
+  await h.ensureLine(head);
+  if (!h.repo.has(head)) return;
+  if (!h.head || h.repo.isAncestor(h.head, head)) {
+    // nothing in this one's versions that the share lacks: its line is
+    // this one's, and what is in the editor now a version after it
+    h.head = head;
+    h.cloudHead = head;
+    await h.persist();
+    await commitVersion(merged ? "@merge" : "@auto");
+    return;
+  }
+  if (h.repo.isAncestor(head, h.head)) return; // this one is newer: it goes up next
+  await commitVersion("@merge", false, [head]);
+}
+
+async function checkElsewhere() {
+  if (!vfs || viewer || merging || !doc.persisted) return;
+  try {
+    await exclusive(takeLocal);
+    await cloudCheck();
+  } catch (e) {
+    console.warn("could not compare with the other copy", e);
+  }
+}
+window.__checkElsewhere = () => checkElsewhere();
+
+const tabs = typeof BroadcastChannel === "function" ? new BroadcastChannel("sliqtly-docs") : null;
+tabs?.addEventListener("message", (ev) => {
+  if (ev.data?.doc === doc.id && ev.data.tab !== TAB) checkElsewhere();
+});
+function tellTabs() {
+  tabs?.postMessage({ doc: doc.id, tab: TAB });
+}
+window.addEventListener("focus", () => checkElsewhere());
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") checkElsewhere();
+});
+setInterval(() => { if (document.visibilityState === "visible") checkElsewhere(); }, 60000);
+
+// --- Version history
+async function restoreVersion(id) {
+  const h = deckVersions();
+  if (!h) return;
+  await saveDoc();
+  await commitVersion("@auto");
+  const snap = await h.checkout(id, renderPlans);
+  if (!snap) throw new Error(t("This version is not here or in the cloud."));
+  const when = h.repo.commit(id)?.time || "";
+  const now = h.head ? h.repo.tree(h.repo.commit(h.head).tree) : null;
+  merging = true;
+  try {
+    applyCopy({ md: snap.md, css: snap.css, theme: snap.theme });
+    const keep = new Set(snap.files.map((f) => f.path));
+    for (const f of await docFiles()) {
+      if (keep.has(f.path)) continue;
+      await vfs.deleteFile(doc.id, f.path);
+      chartFiles.delete(f.path);
+    }
+    for (const f of snap.files) {
+      const at = now?.find(f.path);
+      if (at && at.blob === f.blob && (at.recipe || "") === (f.recipe || "")) continue; // as it is
+      const size = typeof f.data === "string" ? new TextEncoder().encode(f.data).length : f.data.size;
+      const rec = { doc: doc.id, path: f.path, type: f.type, size, data: f.data, updated: Date.now() };
+      if (f.orig) rec.orig = { ...f.orig, stamp: Date.now() };
+      await vfs.putFile(rec);
+      await useFile(rec);
+    }
+  } finally {
+    merging = false;
+  }
+  await saveDoc(true);
+  filesAtCommit = null;
+  await commitVersion("@restore " + when);
+  refreshFiles();
+  toast(t("Version restored. The one before it is in the history."));
+}
+
+async function openHistory() {
+  if (!vfs || viewer) return;
+  if (!doc.persisted) {
+    toast(t("Versions are kept once the presentation is changed."));
+    return;
+  }
+  await saveDoc();
+  const h = deckVersions();
+  if (!h) return;
+  showHistory({
+    entries: async () => {
+      let remote = [];
+      if (doc.cloud && window.sliqtly?.readHead) {
+        const s = await window.sliqtly.readHead(doc.cloud).catch(() => null);
+        remote = s?.log || [];
+      }
+      const list = await h.log(remote);
+      return list.map((e) => ({ ...e, current: e.id === h.head }));
+    },
+    changes: (id) => h.changes(id),
+    diff: (id, path) => h.diffText(id, path),
+    restore: (id) => restoreVersion(id),
+    save: async (message) => {
+      await saveDoc(true);
+      const id = await commitVersion(message || "@auto", false, [], !!message);
+      toast(id ? t("Version saved.") : t("Nothing changed since the last version."));
+    },
+  });
+}
+document.getElementById("history").addEventListener("click", () => { openHistory().catch(fail); });
 
 // Share, signed in: the deck's own share, saved first. → the share's id
 async function shareCloud() {
@@ -1961,7 +3145,15 @@ async function editInAI(which) {
         .replaceAll("{id}", id).replaceAll("{link}", SITE + "/s/" + id).replaceAll("{edit}", SITE + "/s/" + id + "?edit");
     } else {
       prompt = t("Make this Markdown a Sliqtly presentation with create_presentation from the Sliqtly connector (theme {theme}), give me its link and ask what to change. Save later changes with update_presentation.")
-        .replaceAll("{theme}", themeSel.value || "-") + "\n\n```markdown\n" + text + "\n```";
+        .replaceAll("{theme}", themeSel.value || "-");
+      // data files stay in this browser: name them, so the assistant asks
+      // for them as attachments and keeps them with files / write_workbook
+      const data = (await docFiles()).map((f) => f.path).filter((p) => p.startsWith("data/"));
+      if (data.length) {
+        prompt += " " + t("The deck also reads these data files, which this message does not carry: {files}. Ask me to attach them here, then keep them with the presentation (files in create_presentation, or write_workbook for a tidied workbook).")
+          .replaceAll("{files}", data.join(", "));
+      }
+      prompt += "\n\n```markdown\n" + text + "\n```";
       if (prompt.length > AI_MAX_PROMPT) {
         if (win) win.close();
         toast(t("This presentation is too long to hand over in a link. Sign in with PRO first."));
@@ -2184,7 +3376,7 @@ async function openFromHash() {
   lastHash = location.hash;
   try {
     const text = await unpackText(q.get("md"));
-    await saveDoc();
+    await leaveDoc();
     beginDoc(text);
     if (q.has("theme")) {
       const th = q.get("theme");
@@ -2208,7 +3400,61 @@ async function openFromHash() {
     return false;
   }
 }
-window.addEventListener("hashchange", () => { if (location.hash !== lastHash) openFromHash(); });
+window.addEventListener("hashchange", () => {
+  if (location.hash === lastHash) return;
+  if (hashParams().has("md")) openFromHash();
+  else useAddress(hashParams());
+});
+
+// The address follows what is on screen, so a reload comes back to it:
+// #doc={id}&slide={n}&tab=css|files&view=present|play. `doc` only for a deck
+// kept in this browser (a PRO deck has /s/{id}?edit), the rest left out at
+// their defaults. Replaced, not pushed: Back does not walk through slides.
+// Kept beside a link's own keys (#md=…, #share=…), never in the assistant's
+// preview, which has no address of its own.
+const ADDRESS_KEYS = ["doc", "slide", "tab", "view"];
+function followAddress() {
+  if (framed || !window.__pageStarted || !lastLayout) return;
+  const q = hashParams();
+  const was = q.toString();
+  for (const k of ADDRESS_KEYS) q.delete(k);
+  if (doc.persisted && !doc.cloud && !viewer && !/^\/s\//.test(location.pathname)) q.set("doc", doc.id);
+  if (lastLayout.slide > 0 && lastLayout.slide < lastLayout.slides) q.set("slide", String(lastLayout.slide + 1));
+  if (!viewer) {
+    const tab = app.editorTab();
+    if (tab && tab !== "md") q.set("tab", tab);
+    if (lastLayout.mode === "present") q.set("view", "present");
+    else if (lastLayout.playing) q.set("view", "play");
+  }
+  const now = q.toString();
+  if (now === was) return;
+  history.replaceState(history.state, "", location.pathname + location.search + (now ? "#" + now : ""));
+  lastHash = location.hash;
+}
+// …and back: the slide, the tab and the presentation the address names
+function useAddress(q) {
+  const n = parseInt(q.get("slide") || "", 10);
+  const presenting = lastLayout && lastLayout.mode === "present";
+  if (n >= 1) app.selectSlide(n - 1);
+  if (viewer) {
+    // the viewer presents from the start: again, from this slide
+    if (n > 1) {
+      app.present(false);
+      handleRequests();
+    }
+  } else {
+    if (q.has("tab")) app.showTab(q.get("tab"));
+    const view = q.get("view");
+    if (view === "present" && !presenting) {
+      app.present(false);
+      handleRequests();
+    } else if (view === "play" && !app.isPlaying()) {
+      app.play();
+      rebaseClock();
+    }
+  }
+  needsPaint = true;
+}
 
 // /s/{id}: a deck shared through PRO, read from the cloud. Shown as a
 // presentation; with ?edit, opened as a new deck of the reader's own.
@@ -2261,6 +3507,7 @@ async function openFromShare() {
     if (editing) originShare = { id, owner: shared.owner || "", md: shared.md || "" };
     beginDoc(shared.md || "");
     liveFromShare = !editing;
+    proNow();
     if (own) doc.id = own.deck;
     else if (!editing) viewShare = { id, owner: shared.owner, deck: shared.deck };
     if (shared.theme != null) {
@@ -2319,8 +3566,12 @@ async function openSample(key) {
   if (!s) return;
   try {
     docName = key;
-    await saveDoc();
+    await leaveDoc();
     const text = await textOf(s[1]);
+    if (s[2]) {
+      themeSel.value = s[2];
+      useTheme(s[2]);
+    }
     beginDoc(text);
     app.setSource(text);
     dropThumbs();
@@ -2328,6 +3579,31 @@ async function openSample(key) {
   } catch (e) {
     fail(e);
   }
+}
+
+// A first visit (no deck kept in this browser, none asked for) opens the
+// welcome deck; this card next to it leads to a deck of one's own.
+function welcomeCard() {
+  if (viewer) return;
+  const box = document.createElement("div");
+  box.id = "welcomeCard";
+  box.className = "gCard";
+  box.setAttribute("role", "region");
+  box.setAttribute("aria-label", t("Welcome"));
+  const text = document.createElement("p");
+  text.textContent = t("New here? This deck shows what Sliqtly can do. Read on, press Present, or start a deck of your own.");
+  const go = document.createElement("button");
+  go.className = "primary";
+  go.textContent = t("Start your own deck");
+  const no = document.createElement("button");
+  no.textContent = t("Close");
+  go.addEventListener("click", () => {
+    box.remove();
+    fileRequest("new").catch(fail);
+  });
+  no.addEventListener("click", () => box.remove());
+  box.append(text, go, no);
+  document.body.appendChild(box);
 }
 
 // --- the keyboard -------------------------------------------------------------------
@@ -2461,6 +3737,21 @@ keys.addEventListener("keydown", (ev) => {
       app.text(ev.key);
       afterInput();
     }
+    return;
+  }
+  // the menus' keys (shown beside their rows): Ctrl+M a new slide (Ctrl on
+  // a Mac too: ⌘M minimises the window), ⌘/Ctrl+D duplicate it, ⌘/Ctrl+O
+  // open, ⌘/Ctrl+S save .md
+  const menuKey = !ev.altKey && !ev.shiftKey && ev.key.length === 1 ? ev.key.toLowerCase() : "";
+  const menuReq = ev.ctrlKey && !ev.metaKey && menuKey === "m" ? "slide:new"
+    : mod && menuKey === "d" ? "slide:duplicate"
+    : mod && menuKey === "o" ? "openbox"
+    : mod && menuKey === "s" ? "click:save"
+    : "";
+  if (menuReq) {
+    ev.preventDefault();
+    app.request(menuReq);
+    afterInput();
     return;
   }
   if (mod && ev.key.length === 1) {
@@ -2598,6 +3889,11 @@ canvas.addEventListener("pointerdown", (ev) => {
     }
   }
   if (pinch) return;
+  // the secondary button on a slide of the strip: its menu (contextmenu below)
+  if (ev.button === 2 && app.inStrip(x, y)) {
+    ev.preventDefault();
+    return;
+  }
   const now = performance.now();
   const near = Math.hypot(x - lastDownAt[0], y - lastDownAt[1]) < 40;
   clicks = now - lastDown < 400 && (!finger || near) ? clicks + 1 : 1;
@@ -2620,11 +3916,15 @@ canvas.addEventListener("pointerdown", (ev) => {
   app.setTouch(finger);
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
-  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb") {
+  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb" || where === "select") {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
   if (where === "editor" && clicks === 1) {
     setTimeout(() => {
+      // a low-contrast mark in the gutter: its warning, and nothing else
+      let g = null;
+      try { g = JSON.parse(app.contrastHintAt(x, y) || "null"); } catch (_) { g = null; }
+      if (g) { showHint(g); return; }
       let h = null;
       try { h = JSON.parse(app.hintAtCaret() || "null"); } catch (_) { h = null; }
       if (h && isChartFence(h)) {
@@ -2641,6 +3941,10 @@ canvas.addEventListener("pointerdown", (ev) => {
       } else if (h) showHint(h);
       else closeHint();
     }, 0);
+  } else if (where === "select") {
+    // a button or a band of the picked element: the app opened its popover
+    hint = null;
+    hintKey = "";
   } else if (where !== "editor" && where !== "hint") {
     closeHint();
   }
@@ -2651,6 +3955,10 @@ canvas.addEventListener("pointerdown", (ev) => {
     // the tap lands somewhere else when it is released.
     app.setFocus(app.focusTarget());
     keys.blur();
+  } else if (where === "thumb") {
+    // the keyboard to the strip (endPointer moves it to the slide selected)
+    paintOnce();
+    focusStrip();
   } else {
     focusKeys(where === "editor" ? "editor" : app.focusTarget());
   }
@@ -2705,6 +4013,8 @@ function overHint() {
 function hintHover(x, y) {
   pointerAt = [x, y];
   clearTimeout(hintTimer);
+  // opened from the slide: stays until a press outside it
+  if (app.hintPinned()) return;
   if (app.hintIsOpen() && app.hintHas(x, y)) {
     clearTimeout(hintCloseTimer);
     return;
@@ -2782,6 +4092,10 @@ function endPointer(ev) {
     return;
   }
   app.pointerUp();
+  if (ev.pointerType === "mouse" && ev.button !== 2 && app.focusTarget() === "strip" && !app.toolbarOnTop()) {
+    paintOnce();
+    focusStrip();
+  }
   // a tap that made a diagram the one a finger moves says so, once
   // (after a moment: the tap may be the first of a double tap)
   if (app.takeActivated() && !diagramTold) {
@@ -2807,6 +4121,15 @@ for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
 let diagramTold = false;
 let diagramTimer = 0;
 canvas.addEventListener("pointerup", endPointer);
+// A right click on a slide of the strip: New, Duplicate, Move, Delete.
+canvas.addEventListener("contextmenu", (ev) => {
+  const [x, y] = at(ev);
+  if (!app.slideMenuAt(x, y)) return;
+  ev.preventDefault();
+  closeHint();
+  afterInput();
+  focusSlideMenu();
+});
 canvas.addEventListener("pointercancel", endPointer);
 canvas.addEventListener("wheel", (ev) => {
   const [x, y] = at(ev);
@@ -2897,13 +4220,14 @@ async function start() {
   const r = stageEl.getBoundingClientRect();
   app.init(css, Math.max(320, r.width), Math.max(240, r.height));
   app.setCoarse(isCoarse());
+  app.setMac(/Mac|iPhone|iPad/.test(navigator.userAgentData?.platform || navigator.platform || ""));
   resize();
   window.addEventListener("resize", resize);
 
   const got = new Array(FACES.length).fill(false);
   await Promise.all(FACES.map(async ([name, file], i) => {
     try {
-      const bytes = await bytesOf("./fonts/" + file);
+      const bytes = await fontBytes(file);
       got[i] = app.attachFont(name, asRangerBuffer(bytes.slice(0)));
       const face = new FontFace(name, bytes);
       await face.load();
@@ -2913,22 +4237,16 @@ async function start() {
     }
   }));
   setFontFallback(FACES.filter((_, i) => got[i]).map(([name]) => name));
-  // An emoji is drawn from the platform's emoji face; the editor measures
-  // with Open Sans, which has none. Told the real width, its caret stays
-  // at the end of a line that has one.
-  try {
+  // An emoji, and anything no loaded face has, is drawn from a face only the
+  // browser knows; the editor and the slides ask the browser for its width,
+  // per cluster, in the font stack the painter draws with.
+  {
     const m = document.createElement("canvas").getContext("2d");
-    m.font = "100px 'Open Sans'";
-    const em = m.measureText("\u{1F600}").width / 100;
-    if (em > 0.3 && em < 3) app.setMissingGlyphEm(em);
-  } catch (_) { /* measured as the face says */ }
-  // The PDF writer's fallback for emoji (monochrome Noto Emoji). Only the
-  // writer gets it: the screen keeps the browser's own colour emoji. Loaded
-  // after start-up because it is large; a PDF made before it arrives just
-  // has no emoji. The dash in the name puts it in the fallback pool.
-  bytesOf("./fonts/NotoEmoji-Regular.ttf")
-    .then((bytes) => app.attachFont("Noto Emoji-Regular", asRangerBuffer(bytes.slice(0))))
-    .catch((e) => console.warn("emoji face not loaded", e));
+    app.setPlatformMeasure((text, family, size) => {
+      m.font = fontSpec({ font: family, size }, 1);
+      return m.measureText(text).width;
+    });
+  }
 
   for (const [i, name] of THEMES.entries()) {
     try {
@@ -2938,6 +4256,8 @@ async function start() {
   }
 
   const q = new URLSearchParams(location.search);
+  // read before a deck is opened: opening one tidies the address
+  const at = framed ? new URLSearchParams() : hashParams();
   const theme = q.has("theme") ? q.get("theme") : "aurora";
   themeSel.value = theme;
   app.setStyleSheet(theme ? themeCss[theme] || "" : "");
@@ -2955,15 +4275,20 @@ async function start() {
     // from the cloud when it lives there
     let last = null;
     try { last = localStorage.getItem("evgp.doc"); } catch (_) { /* none */ }
+    // #doc={id}: the deck this tab had, when this browser keeps it
+    const asked = at.get("doc");
+    if (asked && /^[A-Za-z0-9_-]{1,64}$/.test(asked) && vfs && (await vfs.getDoc(asked))) last = asked;
     const lastCloud = !want && last && vfs ? (await vfs.getDoc(last))?.cloud : null;
     if (lastCloud && (await openOwnCloud(lastCloud).catch(() => false))) { /* opened */ }
     else if (want || !last || !(await openDoc(last))) {
-      const sample = SAMPLES[want] || HIDDEN_SAMPLES[want] ? want : "talous";
+      const sample = SAMPLES[want] || HIDDEN_SAMPLES[want] ? want : "welcome";
       if (SAMPLES[sample]) sampleSel.value = sample;
       await openSample(sample);
+      if (!want) welcomeCard();
     }
   }
   refreshRecent().catch(() => {});
+  useAddress(at);
 
   // A narrow window gets the slides without the editor (PresApp.isCompact,
   // decided on every layout, so it follows the window); on a touch screen
@@ -2978,6 +4303,8 @@ async function start() {
   document.body.classList.remove("booting");
   if (!viewer && !isCoarse()) focusKeys("editor");
   window.__pageStarted = true;
+  // opening the deck tidied the address; it names the deck again from here
+  followAddress();
   // ?export=pdf|pptx|md (or in the #…): an export asked for from the
   // assistant's preview, which cannot download
   const ask = q.get("export") || hashParams().get("export");

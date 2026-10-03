@@ -76,7 +76,7 @@
       <li>Open <b>Customize → Connectors</b> (in older versions <b>Settings → Connectors</b>).</li>
       <li>Click <b>Add custom connector</b>.</li>
       <li>Name: <code>Sliqtly</code>. URL: <code>https://sliqtly.com/mcp</code>.</li>
-      <li>Authentication: <b>Sign in now</b> keeps the presentations in your own Sliqtly account (Google, the same as PRO in the editor). <b>No sign-in</b> works too; the presentations are then open to anyone with their link and belong to no account.</li>
+      <li>Authentication: <b>Sign in now</b> keeps the presentations in your own Sliqtly account (Google, the same as PRO in the editor). <b>No sign-in</b> works too, for text only: the presentations then belong to no account, are open to anyone with their link, and are deleted 30 days after their last change. Pictures and data files need sign-in.</li>
       <li>Click <b>Add</b>, and with sign-in, <b>Connect</b>: a Sliqtly page asks you to continue with Google.</li>
     </ol>
     <h3>Team and Enterprise</h3>
@@ -163,14 +163,16 @@
     <p>The assistant gets these tools:</p>
     <table class="tools">
       <tr><td><code>sliqtly_guide</code></td><td>The Markdown syntax, themes and CSS selectors.</td></tr>
-      <tr><td><code>create_presentation</code></td><td>Makes the presentation and returns its link, plus a link that opens a copy in the Sliqtly editor.</td></tr>
+      <tr><td><code>create_presentation</code></td><td>Makes the presentation (with its pictures and Excel, CSV or JSON data) and returns its link, plus a link that opens a copy in the Sliqtly editor.</td></tr>
       <tr><td><code>update_presentation</code></td><td>Changes it later, keeping the same link.</td></tr>
       <tr><td><code>bind_chart_data</code></td><td>Connects a chart to live data: a CSV or JSON address, or a Google Sheet shared with anyone who has the link.</td></tr>
       <tr><td><code>get_presentation</code></td><td>Reads a presentation back by its link's id.</td></tr>
       <tr><td><code>list_files</code></td><td>Lists a presentation's files, and the sheets and columns of its Excel workbooks.</td></tr>
+      <tr><td><code>read_file</code></td><td>Reads the values of a presentation's Excel sheet, CSV or JSON file.</td></tr>
+      <tr><td><code>write_workbook</code></td><td>Rewrites a presentation's Excel workbook with tidied sheets, values and formulas.</td></tr>
       <tr><td><code>list_presentations</code></td><td>Lists your own presentations (signed in).</td></tr>
     </table>
-    <p class="note">Signed in, a presentation is yours: the assistant can list and change it later, and you can change it in the editor with the same Google account. Anyone with a presentation's link can view it, so do not put anything secret in it. Pictures are fetched from public https addresses or sent by the assistant, up to 5 MB each.</p>
+    <p class="note">Signed in, a presentation is yours: the assistant can list and change it later, and you can change it in the editor with the same Google account. Anyone with a presentation's link can view it, so do not put anything secret in it. Pictures are fetched from public https addresses or sent by the assistant, up to 5 MB each, when you are signed in.</p>
   </section>
 </main>
 <script>

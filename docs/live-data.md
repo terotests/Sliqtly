@@ -69,19 +69,35 @@ sign-in.
 A **private sheet** (only on your own Drive) is read through the Sheets API
 as the signed-in PRO user (`web/sliqtly.js` `readSheet`):
 
+- Pasting a sheet link first asks whether to link it to the document
+  ("Paste as text" keeps it as a plain link). The press on "Link the sheet"
+  opens Google's window, so the browser does not block it.
 - The scope is `drive.file`: Sliqtly may read only the files you pick in
   Google's Picker, nothing else on your Drive. Pasting the link the first
   time opens a Google popup (permission) and the Picker, open on that sheet.
+  When the browser blocks that popup (Safari on phones, after the first
+  fetch), a card asks for one press on "Continue with Google" and opens it
+  from that press.
 - The token lasts an hour and is kept for the tab only. On open without one
   the editor shows the saved copy; R while presenting signs in again.
 - Every good read is kept with the deck as `data/live/<hash>.csv` (only when
   it changed). Readers of a shared deck cannot read your sheet, so they see
   the copy your editor last kept; it is as fresh as your last open.
+- Files lists those copies under "Linked data", named after the sheet and
+  its tab (a private sheet's names come from the Sheets API; a public one
+  shows "Google Sheet"), with when it was last read. Open source opens the
+  sheet, Refresh reads it now, and Unlink turns the copy into an ordinary
+  `data/<name>.csv` that the charts read instead of the sheet.
 
 Google Cloud setup (once): Sheets API and Google Picker API enabled in the
 Firebase project; the OAuth consent screen with sliqtly.com and
 sliqtly.web.app; the Picker uses the Firebase web API key unless
 `<meta name="google-picker-key">` in `web/index.html` names another.
+That key must allow the Picker: in Google Cloud Console → APIs & Services →
+Credentials, the "Browser key (auto created by Firebase)" → API restrictions
+→ add Google Picker API (Firebase creates the key limited to its own APIs;
+without this the Picker says "The API developer key is invalid"). If the key
+has website restrictions, sliqtly.com/* and sliqtly.web.app/* must be listed.
 
 The resolution of a source to an address is
 `MdVegaRender.sourceUrl` in Ranger's markdown module (`gallery/markdown`),

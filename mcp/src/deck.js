@@ -1,10 +1,16 @@
 // Checks on what a model sends, before anything is stored.
 
+import dns from "node:dns/promises";
+
 export const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "corporate", "editorial"];
 export const MAX_MD = 300 * 1024;
 export const MAX_CSS = 100 * 1024;
 export const MAX_IMAGE = 5 * 1024 * 1024;
 export const MAX_IMAGES = 20;
+export const MAX_DATA = 10 * 1024 * 1024;
+export const MAX_DATA_FILES = 10;
+export const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const DATA_TYPES = { xlsx: XLSX_MIME, csv: "text/csv", tsv: "text/tab-separated-values", json: "application/json", txt: "text/plain" };
 
 const TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml" };
 
@@ -56,11 +62,104 @@ export function warnings(md, imageNames, storedNames = []) {
   return out;
 }
 
-function privateHost(host) {
-  const h = host.toLowerCase().replace(/^\[|\]$/g, "");
+export function privateHost(host) {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
   return h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h.endsWith(".local")
-    || /^(127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h)
-    || h === "::1" || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80");
+    || /^(127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(h)
+    || h === "::1" || h === "::" || h.startsWith("::ffff:") || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80");
+}
+
+// The name's addresses, when the real network is used: a public name that
+// points at a private address (127.0.0.1.nip.io, a cloud metadata server)
+// is refused like the address itself. A test's fetchImpl skips this.
+async function resolvesPrivate(host, fetchImpl) {
+  if (fetchImpl !== globalThis.fetch) return false;
+  let all;
+  try { all = await dns.lookup(host.replace(/^\[|\]$/g, ""), { all: true }); } catch { return false; }
+  return all.some((a) => privateHost(a.address));
+}
+
+// GET a public https URL: every redirect is checked like the first address,
+// and at most `max` bytes are read whatever the server claims.
+export async function publicFetch(raw, fetchImpl, { max, timeout = 15000, headers = {} }) {
+  let u = raw instanceof URL ? raw : new URL(raw);
+  const signal = AbortSignal.timeout(timeout);
+  for (let hop = 0; hop <= 5; hop++) {
+    if (u.protocol !== "https:" || privateHost(u.hostname) || await resolvesPrivate(u.hostname, fetchImpl)) throw new InputError("only public https URLs are fetched");
+    const res = await fetchImpl(u, { signal, headers, redirect: "manual" });
+    const to = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+    if (!to) return { res, bytes: () => readCapped(res, max) };
+    try { await res.body?.cancel(); } catch { /* nothing to drop */ }
+    u = new URL(to, u);
+  }
+  throw new InputError("too many redirects");
+}
+
+async function readCapped(res, max) {
+  if (Number(res.headers.get("content-length") || 0) > max) return null;
+  if (!res.body) return Buffer.alloc(0);
+  const parts = [];
+  let size = 0;
+  for await (const chunk of res.body) {
+    size += chunk.length;
+    if (size > max) { try { await res.body.cancel(); } catch { /* already closed */ } return null; }
+    parts.push(chunk);
+  }
+  return Buffer.concat(parts.map((p) => Buffer.from(p)));
+}
+
+async function fetchBytes(raw, label, fetchImpl, max, accept) {
+  let u;
+  try { u = new URL(raw); } catch { throw new InputError(`${label}: "${raw}" is not a URL.`); }
+  let got;
+  try {
+    got = await publicFetch(u, fetchImpl, { max, headers: { "user-agent": "Sliqtly-MCP/1.0" } });
+  } catch (e) {
+    if (e instanceof InputError) throw new InputError(`${label}: ${e.message}.`);
+    throw e;
+  }
+  const { res } = got;
+  if (!res.ok) throw new InputError(`${label}: ${u.hostname} answered ${res.status}.`);
+  const ct = (res.headers.get("content-type") || "").split(";")[0].trim();
+  const why = accept(ct);
+  if (why) throw new InputError(`${label}: the URL gave ${ct}, ${why}.`);
+  const data = await got.bytes();
+  if (!data) throw new InputError(`${label} is larger than ${max / 1024 / 1024} MB.`);
+  return { data, ct };
+}
+
+// Data files (.xlsx, .csv, .tsv, .json, .txt) as { name, path: "data/<name>",
+// type, data: Buffer }, kept where the editor keeps a dropped file
+// (web/vfs.js placeFor). A workbook must open.
+export async function loadDataFiles(list, fetchImpl = fetch, checkWorkbook = null) {
+  if (!list || !list.length) return [];
+  if (list.length > MAX_DATA_FILES) throw new InputError(`At most ${MAX_DATA_FILES} data files per call.`);
+  const out = [];
+  for (const f of list) {
+    const name = cleanName(String(f.name || "").replace(/^data\//, ""));
+    if (!name) throw new InputError(`File name "${f.name}" is not usable: use letters, digits, ".", "-" and "_".`);
+    const ext = (/\.([a-z0-9]+)$/.exec(name) || [])[1];
+    const type = DATA_TYPES[ext];
+    if (!type) throw new InputError(`File ${name}: data files are .xlsx, .csv, .tsv, .json or .txt.`);
+    const given = [f.text != null, !!f.data_base64, !!f.url].filter(Boolean).length;
+    if (given !== 1) throw new InputError(`File ${name}: give one of text, data_base64 or url.`);
+    let data;
+    if (f.text != null) {
+      if (ext === "xlsx") throw new InputError(`File ${name}: a workbook is sent as data_base64 or url, not text.`);
+      data = Buffer.from(String(f.text), "utf8");
+    } else if (f.data_base64) {
+      data = Buffer.from(String(f.data_base64).replace(/^data:[^;,]*;base64,/, ""), "base64");
+    } else {
+      ({ data } = await fetchBytes(f.url, `File ${name}`, fetchImpl, MAX_DATA, (ct) => (/^(image|video|audio)\//.test(ct) || ct === "text/html" ? "not data" : null)));
+    }
+    if (!data.length) throw new InputError(`File ${name} is empty.`);
+    if (data.length > MAX_DATA) throw new InputError(`File ${name} is larger than 10 MB.`);
+    if (ext === "xlsx" && checkWorkbook) {
+      try { checkWorkbook(data); } catch (e) { throw new InputError(`File ${name} is not a workbook Sliqtly can read: ${e.message}. Long base64 is easily corrupted on the way: send the sheets with write_workbook instead (rows, formulas as { f, v }).`); }
+    }
+    out.push({ name, path: "data/" + name, type, data });
+  }
+  return out;
 }
 
 // The pictures as { name, type, data: Buffer }, fetched or decoded.
@@ -77,16 +176,9 @@ export async function loadImages(list, fetchImpl = fetch) {
       const b64 = String(img.data_base64).replace(/^data:([^;,]+);base64,/, (_, t) => { type = type || typeOf(name, t); return ""; });
       data = Buffer.from(b64, "base64");
     } else if (img.url) {
-      let u;
-      try { u = new URL(img.url); } catch { throw new InputError(`Image ${name}: "${img.url}" is not a URL.`); }
-      if (u.protocol !== "https:" || privateHost(u.hostname)) throw new InputError(`Image ${name}: only public https URLs are fetched.`);
-      const res = await fetchImpl(u, { signal: AbortSignal.timeout(15000), headers: { "user-agent": "Sliqtly-MCP/1.0" } });
-      if (!res.ok) throw new InputError(`Image ${name}: ${u.hostname} answered ${res.status}.`);
-      const ct = (res.headers.get("content-type") || "").split(";")[0].trim();
-      if (ct && !ct.startsWith("image/")) throw new InputError(`Image ${name}: the URL gave ${ct}, not a picture.`);
-      if (Number(res.headers.get("content-length") || 0) > MAX_IMAGE) throw new InputError(`Image ${name} is larger than 5 MB.`);
-      data = Buffer.from(await res.arrayBuffer());
-      type = type || typeOf(name, ct);
+      const got = await fetchBytes(img.url, `Image ${name}`, fetchImpl, MAX_IMAGE, (ct) => (ct && !ct.startsWith("image/") ? "not a picture" : null));
+      data = got.data;
+      type = type || typeOf(name, got.ct);
     } else {
       throw new InputError(`Image ${name}: give either url or data_base64.`);
     }
