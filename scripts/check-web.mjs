@@ -1228,6 +1228,32 @@ try {
       return { order, browse, deck };
     });
     check("…File → Recent lists Browse all… first, then the decks, and each opens", recent.order.length === 4 && /browse$/.test(recent.order[0]) && /sep-1$/.test(recent.order[1]) && /r-deck-a$/.test(recent.order[2]) && (recent.browse || []).includes("showtab:files") && (recent.deck || []).includes("files:doc:deck-a"), JSON.stringify(recent));
+
+    // A long deck name widens the menu up to a limit and is cut with "…"
+    // there; every row stays inside the card and they are all one width
+    const long = await page.evaluate(async () => {
+      const a = window.__app;
+      const name = "Kesäinen Tampere – matkailijan parhaat palat ja muut kesän kohokohdat";
+      a.setToolbarOptions("recent", "deck-a\t" + name + "\ndeck-b\tVuokra ja menot", "");
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      press(find("tb-m-file-trigger"));
+      press(find("tb-m-file-item-recent"));
+      let c = null;
+      for (let n = 0; n < 40 && !c; n++) { c = find("tb-m-file-item-recent-content"); if (!c) await new Promise((r) => setTimeout(r, 100)); }
+      if (!c) return null;
+      const right = c.calculatedX + c.calculatedWidth;
+      const rows = (c.children || []).filter((k) => /-item-/.test(k.id));
+      const text = (e) => e.textContent || (e.children || []).map(text).join("");
+      const out = rows.map((r) => ({ id: r.id, x: r.calculatedX, w: r.calculatedWidth, text: text(r) }));
+      return { right, cw: c.calculatedWidth, rows: out };
+    });
+    await shot("menu-long-name.png");
+    await page.evaluate(() => { const a = window.__app; for (let n = 0; n < 3 && a.toolbar.openMenu() !== ""; n++) a.key("escape", false, false); });
+    const lr = long && long.rows.find((r) => /r-deck-a$/.test(r.id));
+    check("…a long Recent name grows the menu, is cut with …, and stays inside the card",
+      !!lr && lr.text.endsWith("…") && long.cw > 220 && long.cw < 480 && long.rows.every((r) => r.x + r.w <= long.right + 0.5 && Math.abs(r.w - lr.w) < 0.5),
+      JSON.stringify(long));
   }
 
   // Edit in Claude / ChatGPT: File menu rows; signed out, the assistant opens
