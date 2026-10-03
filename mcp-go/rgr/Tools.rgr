@@ -235,6 +235,26 @@ class Tools {
         gp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
         tools.add((Tools.tool("get_presentation" "Read a presentation" "Read a Sliqtly presentation's Markdown, theme, CSS, pictures and files (with what is in its .xlsx workbooks) by its deck_id (the id in https://sliqtly.com/s/<id>), to revise it." (Tools.schema(gp ([] _:string ("deck_id")))) (Tools.annotations(true -1 false false)) eitherMeta)))
 
+        def rsp:MfJ (MfJ.newObj())
+        rsp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
+        def snum:MfJ (MfJ.newObj())
+        snum.putStr("type" "integer")
+        snum.putInt("minimum" 1)
+        def slideOf:MfJ (MfJ.newArr())
+        slideOf.add(snum)
+        def sname:MfJ (MfJ.newObj())
+        sname.putStr("type" "string")
+        slideOf.add(sname)
+        def slideP:MfJ (MfJ.newObj())
+        slideP.put("anyOf" slideOf)
+        slideP.putStr("description" "Which slide: its number (1 = first) or its title")
+        rsp.put("slide" slideP)
+        tools.add((Tools.tool("render_slide" "Look at a slide" "A picture of one slide of a Sliqtly presentation (JPEG, 960×540 for a 16:9 slide) as the player draws it at the end of its animations, with the slide's layout report. Use it when the layout report on create/update looks suspect (small text, overlaps, empty space, crowded chart labels) and to check charts, diagrams and tables, whose look the report only measures." (Tools.schema(rsp ([] _:string ("deck_id" "slide")))) (Tools.annotations(true -1 true false)) eitherMeta)))
+
+        def rop:MfJ (MfJ.newObj())
+        rop.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
+        tools.add((Tools.tool("render_overview" "Look at all slides" "Every slide of a Sliqtly presentation as a numbered thumbnail in one picture (JPEG), with a line per slide from the layout report. One call checks the whole deck; ask render_slide for a closer look at a slide. Look once before saying a presentation is done." (Tools.schema(rop ([] _:string ("deck_id")))) (Tools.annotations(true -1 true false)) eitherMeta)))
+
         def lp:MfJ (MfJ.newObj())
         lp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
         tools.add((Tools.tool("list_files" "List a presentation's files" "List the files a Sliqtly presentation keeps — pictures (media/), data (data/), chart specs (charts/) and workbooks (.xlsx) — by its deck_id. For each workbook: its sheets, their columns and row counts, and the CSV name a ```table, ```sheet or vega-lite chart reads a sheet by (the editor derives those CSVs from the workbook; they are not separate files). read_file gives the values." (Tools.schema(lp ([] _:string ("deck_id")))) (Tools.annotations(true -1 false false)) eitherMeta)))
@@ -443,6 +463,10 @@ class Tools {
         for (J.strList((out.field("warnings")))) w:string i {
             push lines ("Note: " + w)
         }
+        def lay:string (Tools.layoutText((out.field("layout")) true))
+        if ((strlen lay) > 0) {
+            push lines lay
+        }
         push lines "Give the user the presentation link."
         def r:MfJ (MfJ.newObj())
         r.put("content" (Tools.text((join lines "\n"))))
@@ -457,6 +481,54 @@ class Tools {
         }
         r.put("_meta" meta)
         return r
+    }
+
+    ; --- the layout report
+
+    sfn layoutJson:MfJ (outs:[RSlideOut]) {
+        def a:MfJ (MfJ.newArr())
+        for outs o:RSlideOut i {
+            def e:MfJ (MfJ.newObj())
+            e.putInt("slide" (o.index + 1))
+            e.putStr("title" o.title)
+            e.putInt("fill_percent" (floor ((o.fill * 100.0) + 0.5)))
+            e.putInt("min_text_px" (floor (o.minPx + 0.5)))
+            e.put("lines" (J.strs(o.lines)))
+            e.put("flags" (J.strs(o.flags)))
+            a.add(e)
+        }
+        return a
+    }
+
+    ; the report as the text a model reads: every slide's lines, what looks
+    ; wrong marked ⚠, and when to look at a picture of it
+    sfn layoutText:string (lay:MfJ hint:boolean) {
+        if ((lay.count()) == 0) {
+            return ""
+        }
+        def lines:[string]
+        def flagged:[string]
+        for lay.arr e:MfJ i {
+            for (J.strList((e.field("lines")))) l:string j {
+                push lines l
+            }
+            def fs:[string] (J.strList((e.field("flags"))))
+            for fs f:string k {
+                push lines ("  ⚠ " + f)
+            }
+            if ((array_length fs) > 0) {
+                push flagged (to_string (e.int_("slide" 0)))
+            }
+        }
+        def head:string "Layout (px of a 1920×1080 screen; x,y from the slide's top-left corner):"
+        def tail:string "Nothing in the layout looks wrong. Before saying the presentation is done, look at it once with render_overview."
+        if ((array_length flagged) > 0) {
+            tail = ("Look at slides " + (join flagged ", ") + " with render_slide (or all with render_overview) before saying the presentation is done.")
+        }
+        if (hint == false) {
+            return (head + "\n" + (join lines "\n"))
+        }
+        return (head + "\n" + (join lines "\n") + "\n" + tail)
     }
 
     ; --- the checks zod makes on the Node server; "" when the arguments hold
@@ -618,7 +690,8 @@ class Tools {
 
     ; the deck as the player reads it, with the sheet it is shown with: its
     ; own, or the theme's (fetched once); with neither, the outline's count
-    ; the slide backgrounds (bg=media/<name>) for the contrast check: from
+    ; the pictures the deck names (media/<name>), for the layout and the
+    ; contrast check of its backgrounds: from
     ; this call's pictures, else from the deck's stored ones (deckId)
     sfn backgrounds:CheckPics (host:McpHost md:string imgs:[Img] deckId:string) {
         def out (new CheckPics)
@@ -626,11 +699,11 @@ class Tools {
         def from:int 0
         while true {
             def rest:string (substring md from (strlen md))
-            def at:int (indexOf rest "bg=media/")
+            def at:int (indexOf rest "media/")
             if (at < 0) {
                 break
             }
-            def start:int ((from + at) + 9)
+            def start:int ((from + at) + 6)
             def e:int start
             while ((e < (strlen md)) && (Tools.nameChar((charAt md e)))) {
                 e = (e + 1)
@@ -642,7 +715,7 @@ class Tools {
             from = e
         }
         for names name:string ni {
-            if (ni >= 10) {
+            if (ni >= 30) {
                 break
             }
             def handle:int 0
@@ -693,7 +766,15 @@ class Tools {
         return (((ch == 46) || (ch == 45)) || (ch == 95))
     }
 
-    sfn checkDeck:Checked (host:McpHost md:string theme:string hasCss:boolean css:string bgs:CheckPics) {
+    sfn checkDeck:Checked (host:McpHost md:string theme:string hasCss:boolean css:string bgs:CheckPics files:[Img] deckId:string stored:[string]) {
+        def din (new DeckIn)
+        din.files = files
+        din.deckId = deckId
+        din.stored = stored
+        return (Tools.checkWith(host md theme hasCss css bgs din))
+    }
+
+    sfn checkWith:Checked (host:McpHost md:string theme:string hasCss:boolean css:string bgs:CheckPics din:DeckIn) {
         def sheet:string css
         if (hasCss == false) {
             sheet = (host_theme_css host theme)
@@ -703,7 +784,12 @@ class Tools {
                 sheet = ""
             }
         }
-        def c:Checked (Check.deck(md sheet bgs.pics bgs.data bgs.types))
+        din.md = md
+        din.css = sheet
+        din.pics = bgs.pics
+        din.data = bgs.data
+        din.types = bgs.types
+        def c:Checked (Check.run(host din))
         for (Charts.typeWarnings(md)) tw:string ti {
             push c.warnings tw
         }
@@ -742,6 +828,12 @@ class Tools {
         }
         if (name == "list_files") {
             r = (Tools.listFiles(host caller args))
+        }
+        if (name == "render_slide") {
+            r = (Tools.render(host args false))
+        }
+        if (name == "render_overview") {
+            r = (Tools.render(host args true))
         }
         if (name == "read_file") {
             r = (Tools.readFile(host caller args))
@@ -822,11 +914,13 @@ class Tools {
         }
         def none:[string]
         def ws:[string] (Deck.warnings(md names none))
-        def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css (Tools.backgrounds(host md loaded.imgs ""))))
+        def none2:[string]
+        def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css (Tools.backgrounds(host md loaded.imgs "")) data.imgs "" none2))
         for ck.warnings cw:string ci {
             push ws cw
         }
         def out:MfJ (MfJ.newObj())
+        out.put("layout" (Tools.layoutJson(ck.report)))
         out.putStr("title" (a.str_("title")))
         out.putStr("theme" theme)
         out.putInt("slides" ck.slides)
@@ -1008,11 +1102,16 @@ class Tools {
         }
         def savedCss:MfJ (saved.field("css"))
         def noImgs:[Img]
-        def ck:Checked (Tools.checkDeck(host md (saved.str_("theme")) (savedCss.kind == 3) (saved.str_("css")) (Tools.backgrounds(host md noImgs id))))
+        def storedPaths:[string]
+        for (saved.list("files")) sf:MfJ sfi {
+            push storedPaths (sf.str_("path"))
+        }
+        def ck:Checked (Tools.checkDeck(host md (saved.str_("theme")) (savedCss.kind == 3) (saved.str_("css")) (Tools.backgrounds(host md noImgs id)) noImgs id storedPaths))
         for ck.warnings cw:string ci {
             push ws cw
         }
         def out:MfJ (MfJ.newObj())
+        out.put("layout" (Tools.layoutJson(ck.report)))
         out.put("title" (saved.field("name")))
         out.put("theme" (saved.field("theme")))
         out.putInt("slides" ck.slides)
@@ -1272,6 +1371,172 @@ class Tools {
         def r:MfJ (MfJ.newObj())
         r.put("content" (Tools.text((join parts "\n"))))
         r.put("structuredContent" out)
+        return r
+    }
+
+    ; --- slides as pictures
+
+    sfn image:MfJ (b64:string) {
+        def c:MfJ (MfJ.newObj())
+        c.putStr("type" "image")
+        c.putStr("data" b64)
+        c.putStr("mimeType" "image/jpeg")
+        return c
+    }
+
+    ; the slide a `slide` argument names: a number from 1, or a title; -1
+    ; when there is no such slide
+    sfn slideIndex:int (a:MfJ titles:[string]) {
+        def v:MfJ (a.field("slide"))
+        if (v.kind == 2) {
+            def n:int ((a.int_("slide" 0)) - 1)
+            if ((n >= 0) && (n < (array_length titles))) {
+                return n
+            }
+            return -1
+        }
+        if (v.kind == 3) {
+            def want:string (to_lowercase (trim v.str))
+            def num:int (?? (str2int want) 0)
+            if ((num >= 1) && (num <= (array_length titles))) {
+                return (num - 1)
+            }
+            for titles t:string i {
+                if ((to_lowercase (trim t)) == want) {
+                    return i
+                }
+            }
+            for titles t2:string i2 {
+                if (((strlen want) > 0) && ((indexOf (to_lowercase t2) want) >= 0)) {
+                    return i2
+                }
+            }
+        }
+        return -1
+    }
+
+    sfn render:MfJ (host:McpHost a:MfJ all:boolean) {
+        def tool:string "render_slide"
+        if all {
+            tool = "render_overview"
+        }
+        if ((host_store_kind host) == "link") {
+            return (Tools.fail("This server keeps no decks (no cloud storage configured)."))
+        }
+        def need:[string]
+        push need "deck_id"
+        if (all == false) {
+            push need "slide"
+        }
+        def bad:string ""
+        if ((a.kind != 5) && (a.kind != 0)) {
+            bad = "Invalid arguments: expected an object."
+        }
+        for need nk:string ni {
+            if (((strlen bad) == 0) && ((a.field(nk)).kind == 0)) {
+                bad = ("Invalid arguments: " + nk + " is required.")
+            }
+        }
+        if ((strlen bad) > 0) {
+            return (Tools.fail(bad))
+        }
+        def id:string (a.str_("deck_id"))
+        if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
+            return (Tools.fail("deck_id is the 10-character id in the share link."))
+        }
+        def d:MfJ (Store.get(host id))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host tool (host_error host)))
+        }
+        if ((d.isObj()) == false) {
+            return (Tools.fail(("No presentation " + id + ".")))
+        }
+        def md:string (d.str_("md"))
+        def stored:[string]
+        for (d.list("files")) f:MfJ fi {
+            push stored (f.str_("path"))
+        }
+        def noImgs:[Img]
+        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def din (new DeckIn)
+        din.deckId = id
+        din.stored = stored
+        din.live = true
+        din.lists = true
+        def css:MfJ (d.field("css"))
+        def ck:Checked (Tools.checkWith(host md (d.str_("theme")) (css.kind == 3) (d.str_("css")) bgs din))
+        if ((array_length ck.lists) == 0) {
+            return (Tools.fail("The presentation has no slides to draw (or its theme could not be read)."))
+        }
+        for bgs.pics p:CheckPic pi {
+            host_render_pic host p.name (itemAt bgs.data pi)
+        }
+        def titles:[string]
+        for ck.report o:RSlideOut oi {
+            push titles o.title
+        }
+        def content:MfJ (MfJ.newArr())
+        def lines:[string]
+        if all {
+            def n:int (array_length ck.lists)
+            def lists:[string]
+            def shown:int n
+            if (shown > 40) {
+                shown = 40
+            }
+            def li:int 0
+            while (li < shown) {
+                push lists (itemAt ck.lists li)
+                li = (li + 1)
+            }
+            def cols:int 5
+            if (shown <= 4) {
+                cols = 2
+            } {
+                if (shown <= 9) {
+                    cols = 3
+                } {
+                    if (shown <= 16) {
+                        cols = 4
+                    }
+                }
+            }
+            def b64:string (host_render_grid host lists ck.width ck.height cols 1600)
+            if ((strlen b64) == 0) {
+                return (Tools.fail("The slides could not be drawn."))
+            }
+            content.add((Tools.image(b64)))
+            push lines ("\"" + (d.str_("name")) + "\": " + (to_string n) + " slides, numbered in the picture's corners.")
+            if (n > shown) {
+                push lines ("Only the first " + (to_string shown) + " are shown; render_slide draws any of them.")
+            }
+            for ck.report o2:RSlideOut o2i {
+                push lines (itemAt o2.lines 0)
+                for o2.flags f2:string f2i {
+                    push lines ("  ⚠ " + f2)
+                }
+            }
+        } {
+            def at:int (Tools.slideIndex(a titles))
+            if (at < 0) {
+                return (Tools.fail(("No slide " + (JOut.text((a.field("slide")))) + ": the presentation has " + (to_string (array_length titles)) + " slides.")))
+            }
+            def b64s:string (host_render host (itemAt ck.lists at) ck.width ck.height 960)
+            if ((strlen b64s) == 0) {
+                return (Tools.fail("The slide could not be drawn."))
+            }
+            content.add((Tools.image(b64s)))
+            def one:[RSlideOut]
+            push one (itemAt ck.report at)
+            push lines (Tools.layoutText((Tools.layoutJson(one)) false))
+        }
+        push lines "Drawn as the player shows each slide at the end of its animations. Effects, and pictures that are SVG, are not drawn here."
+        def tc:MfJ (MfJ.newObj())
+        tc.putStr("type" "text")
+        tc.putStr("text" (join lines "\n"))
+        content.add(tc)
+        def r:MfJ (MfJ.newObj())
+        r.put("content" content)
         return r
     }
 

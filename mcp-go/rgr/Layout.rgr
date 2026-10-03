@@ -1,0 +1,520 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; A deck's slides as the layout report (Report.rgr) reads them: the
+; editor's own layout (MdBox) grouped into elements, and the slide's display
+; list (PresDeck.slideList, as the player draws it) for what each element
+; actually drew: its text runs and their sizes, its shapes, its extent.
+
+Import "../presentation/PresDeck.rgr"
+Import "Report.rgr"
+
+class Layout {
+    ; the deck must be laid out (setText) and `still` set
+    sfn slides:[RSlide] (d:PresDeck md:string) {
+        def out:[RSlide]
+        def n:int (d.slideCount())
+        def i:int 0
+        while (i < n) {
+            push out (Layout.slide(d md i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; what kind of block starts at `at` in the source
+    sfn kindAt:string (md:string at:int) {
+        if ((at < 0) || (at >= (strlen md))) {
+            return "text"
+        }
+        ; a list item's or a quote's text starts after its marker on the line
+        def ls:int at
+        while ((ls > 0) && ((charAt md (ls - 1)) != 10)) {
+            ls = (ls - 1)
+        }
+        def lead:string (trim (substring md ls at))
+        if ((strlen lead) > 0) {
+            def pk:string (Layout.kindOfLine(lead))
+            if ((pk == "list") || (pk == "quote")) {
+                return pk
+            }
+            if ((startsWith lead ">") || (startsWith lead "- [")) {
+                return "list"
+            }
+        }
+        def e:int (indexOf (substring md at (strlen md)) "\n")
+        def line:string ""
+        if (e < 0) {
+            line = (trim (substring md at (strlen md)))
+        } {
+            line = (trim (substring md at (at + e)))
+        }
+        return (Layout.kindOfLine(line))
+    }
+
+    ; what kind of block a line (trimmed) starts
+    sfn kindOfLine:string (line:string) {
+        if ((strlen line) == 0) {
+            return "text"
+        }
+        def c:int (charAt line 0)
+        if (c == 35) {
+            return "heading"
+        }
+        if (c == 124) {
+            return "table"
+        }
+        if (c == 62) {
+            return "quote"
+        }
+        if ((startsWith line "```") || (startsWith line "~~~")) {
+            return "code"
+        }
+        if (((c == 45) || (c == 42)) || (c == 43)) {
+            if (((strlen line) == 1) || ((charAt line 1) == 32)) {
+                return "list"
+            }
+        }
+        if ((c >= 48) && (c <= 57)) {
+            def k:int 0
+            while ((k < (strlen line)) && (((charAt line k) >= 48) && ((charAt line k) <= 57))) {
+                k = (k + 1)
+            }
+            if ((k > 0) && ((k < (strlen line)) && (((charAt line k) == 46) || ((charAt line k) == 41)))) {
+                return "list"
+            }
+        }
+        return "text"
+    }
+
+    sfn baseName:string (path:string) {
+        def p:string path
+        def s:int (lastIndexOf p "/")
+        if (s >= 0) {
+            p = (substring p (s + 1) (strlen p))
+        }
+        return p
+    }
+
+    sfn slide:RSlide (d:PresDeck md:string i:int) {
+        def rs (new RSlide)
+        rs.index = i
+        def ps:PresSlide (d.slideAt(i))
+        rs.title = ps.title
+        rs.w = d.pageW
+        rs.h = d.pageH
+        def l:MdLayout (d.layout())
+        def groups:[int]
+        def list:EVGDisplayList (d.slideList(i groups 0.0))
+        def owner:[int] d.boxOfCmd
+        ; one block per source block, in the order the boxes come
+        def keys:[int]
+        def blocks:[RBlock]
+        def blockOfBox:[int:int]
+        def bi:int 0
+        while (bi < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes bi)
+            if ((b.page != i) || (b.furniture > 0)) {
+                bi = (bi + 1)
+                continue
+            }
+            def key:int b.srcStart
+            if (key < 0) {
+                key = (0 - (bi + 2))
+            }
+            def at:int (indexOf keys key)
+            if (at < 0) {
+                at = (array_length keys)
+                push keys key
+                def nb (new RBlock)
+                nb.kind = (Layout.kindAt(md b.srcStart))
+                nb.x = -1.0
+                push blocks nb
+            }
+            def blk:RBlock (itemAt blocks at)
+            set blockOfBox bi at
+            if (b.kind == 3) {
+                def word:string (MdEmbedKinds.firstWord(b.embedKind))
+                def nota:string (MdEmbedKinds.notationOf(word))
+                if (nota == "vega") {
+                    blk.kind = "chart"
+                    blk.label = "Vega-Lite"
+                } {
+                    if (nota == "figure") {
+                        blk.kind = "figure"
+                        blk.label = word
+                    } {
+                        if ((strlen nota) > 0) {
+                            blk.kind = "diagram"
+                            blk.label = (MdEmbedKinds.notationWord(word))
+                        } {
+                            def tu@(optional):PresTableUse (d.tableOf(b))
+                            if (!null? tu) {
+                                def tb:PresTableUse (unwrap tu)
+                                blk.kind = "table"
+                                blk.label = (Layout.baseName(tb.path))
+                                blk.heads = tb.header
+                            } {
+                                blk.kind = word
+                            }
+                        }
+                    }
+                }
+            }
+            if (b.kind == 4) {
+                blk.kind = "picture"
+                blk.label = (Layout.baseName(b.imagePath))
+            }
+            if (b.kind == 5) {
+                blk.kind = "math"
+            }
+            if (((b.kind == 0) && ((strlen blk.label) == 0)) && ((((blk.kind == "heading") || (blk.kind == "text")) || (blk.kind == "list")) || (blk.kind == "quote"))) {
+                blk.label = (trim b.text)
+            }
+            Layout.grow(blk b.x b.y b.w b.h)
+            bi = (bi + 1)
+        }
+        ; what each block drew: the boxes give the slot, the commands the ink
+        def drawn:[boolean]
+        for blocks b0:RBlock b0i {
+            push drawn false
+        }
+        def clips:[double]
+        def ci:int 0
+        while (ci < (array_length list.cmds)) {
+            def c:EVGDrawCmd (itemAt list.cmds ci)
+            if (c.kind == 4) {
+                Layout.pushClip(clips c)
+                ci = (ci + 1)
+                continue
+            }
+            if (c.kind == 5) {
+                Layout.popClip(clips)
+                ci = (ci + 1)
+                continue
+            }
+            def ob:int -1
+            if (ci < (array_length owner)) {
+                ob = (itemAt owner ci)
+            }
+            if ((ob < 0) || ((has blockOfBox ob) == false)) {
+                ci = (ci + 1)
+                continue
+            }
+            def at2:int (unwrap (get blockOfBox ob))
+            def blk2:RBlock (itemAt blocks at2)
+            if (c.kind == 3) {
+                if ((strlen (trim c.text)) > 0) {
+                    def r (new RRun)
+                    r.x = c.x
+                    r.y = c.y
+                    ; the ink, not the slot: a painter draws the run from x
+                    ; as wide as the face makes it (a chart's label slot is
+                    ; wider than its text)
+                    r.w = c.w
+                    def mw:EVGTextMetrics (l.engine.measureRunSpaced(c.text c.fontFamily c.fontSize c.letterSpacing))
+                    if (mw.width > 0.0) {
+                        r.w = mw.width
+                    }
+                    r.h = c.h
+                    if (r.h <= 0.0) {
+                        r.h = c.fontSize
+                    }
+                    r.size = c.fontSize
+                    r.rot = c.rotate
+                    r.text = c.text
+                    ; turned about its origin, or the ink's centre (as
+                    ; evg-html.js rotAttr / the GL painter's quad)
+                    if c.hasRotOrigin {
+                        r.px = c.rotOriginX
+                        r.py = c.rotOriginY
+                    } {
+                        r.px = (r.x + (r.w / 2.0))
+                        r.py = (r.y + (r.h / 2.0))
+                    }
+                    def ex:[double] (Report.extent(r))
+                    if (Layout.inClip(clips (itemAt ex 0) (itemAt ex 1) (itemAt ex 2) (itemAt ex 3))) {
+                        push blk2.runs r
+                        Layout.inkInto(blk2 drawn at2 clips (itemAt ex 0) (itemAt ex 1) (itemAt ex 2) (itemAt ex 3))
+                    }
+                }
+            } {
+                if (c.a > 0.0) {
+                    def ext:[double] (Layout.cmdExtent(c))
+                    if (Layout.inClip(clips (itemAt ext 0) (itemAt ext 1) (itemAt ext 2) (itemAt ext 3))) {
+                        blk2.shapes = (blk2.shapes + 1)
+                        Layout.inkInto(blk2 drawn at2 clips (itemAt ext 0) (itemAt ext 1) (itemAt ext 2) (itemAt ext 3))
+                    }
+                }
+            }
+            ci = (ci + 1)
+        }
+        ; a drawing's slot is where the layout put it; its ink is where it is
+        def k:int 0
+        while (k < (array_length blocks)) {
+            def bk:RBlock (itemAt blocks k)
+            if (((bk.kind == "chart") || (bk.kind == "diagram")) || (bk.kind == "figure")) {
+                if (itemAt drawn k) {
+                    bk.x = bk.inkX
+                    bk.y = bk.inkY
+                    bk.w = bk.inkW
+                    bk.h = bk.inkH
+                }
+            }
+            k = (k + 1)
+        }
+        ; a markdown table's cells, from its outlines and the text in them
+        def ti:int 0
+        while (ti < (array_length blocks)) {
+            def tb2:RBlock (itemAt blocks ti)
+            if ((tb2.kind == "table") && ((array_length tb2.heads) == 0)) {
+                Layout.cells(tb2 l i (itemAt keys ti))
+            }
+            ti = (ti + 1)
+        }
+        ; the items of one list (or quote) are one element: its markers (one
+        ; box for the list) and its items' text, touching or a line apart
+        def merged:[RBlock]
+        for blocks mb:RBlock mi {
+            if (mb.w <= 0.0) {
+                continue
+            }
+            def into:int -1
+            if ((mb.kind == "list") || (mb.kind == "quote")) {
+                def q:int 0
+                while (q < (array_length merged)) {
+                    def pb:RBlock (itemAt merged q)
+                    if ((pb.kind == mb.kind) && (Layout.near(pb mb))) {
+                        into = q
+                    }
+                    q = (q + 1)
+                }
+            }
+            if (into < 0) {
+                push merged mb
+                continue
+            }
+            def tgt:RBlock (itemAt merged into)
+            Layout.grow(tgt mb.x mb.y mb.w mb.h)
+            for mb.runs mr:RRun mri {
+                push tgt.runs mr
+            }
+            if (((strlen tgt.label) <= 2) && ((strlen mb.label) > 2)) {
+                tgt.label = mb.label
+            }
+        }
+        rs.blocks = merged
+        return rs
+    }
+
+    ; overlapping, or less than a line apart (a list's markers stand in a
+    ; column of their own beside its text)
+    sfn near:boolean (a:RBlock b:RBlock) {
+        def gx:double ((Report.mx(a.x b.x)) - (Report.mn((a.x + a.w) (b.x + b.w))))
+        def gy:double ((Report.mx(a.y b.y)) - (Report.mn((a.y + a.h) (b.y + b.h))))
+        return ((gx < 48.0) && (gy < 24.0))
+    }
+
+    sfn grow:void (b:RBlock x:double y:double w:double h:double) {
+        if ((w <= 0.0) && (h <= 0.0)) {
+            return
+        }
+        if (b.x < 0.0) {
+            if ((b.w == 0.0) && (b.h == 0.0)) {
+                b.x = x
+                b.y = y
+                b.w = w
+                b.h = h
+                return
+            }
+        }
+        def x1:double (Report.mx((b.x + b.w) (x + w)))
+        def y1:double (Report.mx((b.y + b.h) (y + h)))
+        b.x = (Report.mn(b.x x))
+        b.y = (Report.mn(b.y y))
+        b.w = (x1 - b.x)
+        b.h = (y1 - b.y)
+    }
+
+    sfn inkInto:void (b:RBlock drawn:[boolean] at:int clips:[double] x:double y:double w:double h:double) {
+        ; what a clip hides is not ink
+        def cx0:double x
+        def cy0:double y
+        def cx1:double (x + w)
+        def cy1:double (y + h)
+        def n:int (array_length clips)
+        if (n >= 4) {
+            cx0 = (Report.mx(cx0 (itemAt clips (n - 4))))
+            cy0 = (Report.mx(cy0 (itemAt clips (n - 3))))
+            cx1 = (Report.mn(cx1 (itemAt clips (n - 2))))
+            cy1 = (Report.mn(cy1 (itemAt clips (n - 1))))
+        }
+        if ((cx1 < cx0) || (cy1 < cy0)) {
+            return
+        }
+        if ((itemAt drawn at) == false) {
+            set_at drawn at true
+            b.inkX = cx0
+            b.inkY = cy0
+            b.inkW = (cx1 - cx0)
+            b.inkH = (cy1 - cy0)
+            return
+        }
+        def x1:double (Report.mx((b.inkX + b.inkW) cx1))
+        def y1:double (Report.mx((b.inkY + b.inkH) cy1))
+        b.inkX = (Report.mn(b.inkX cx0))
+        b.inkY = (Report.mn(b.inkY cy0))
+        b.inkW = (x1 - b.inkX)
+        b.inkH = (y1 - b.inkY)
+    }
+
+    ; clips as a stack of x0, y0, x1, y1, each inside the one before
+    sfn pushClip:void (clips:[double] c:EVGDrawCmd) {
+        def x0:double c.x
+        def y0:double c.y
+        def x1:double (c.x + c.w)
+        def y1:double (c.y + c.h)
+        def n:int (array_length clips)
+        if (n >= 4) {
+            x0 = (Report.mx(x0 (itemAt clips (n - 4))))
+            y0 = (Report.mx(y0 (itemAt clips (n - 3))))
+            x1 = (Report.mn(x1 (itemAt clips (n - 2))))
+            y1 = (Report.mn(y1 (itemAt clips (n - 1))))
+        }
+        push clips x0
+        push clips y0
+        push clips x1
+        push clips y1
+    }
+
+    sfn popClip:void (clips:[double]) {
+        def n:int (array_length clips)
+        if (n >= 4) {
+            removeLast clips
+            removeLast clips
+            removeLast clips
+            removeLast clips
+        }
+    }
+
+    sfn inClip:boolean (clips:[double] x:double y:double w:double h:double) {
+        def n:int (array_length clips)
+        if (n < 4) {
+            return true
+        }
+        return ((((x + w) > (itemAt clips (n - 4))) && ((y + h) > (itemAt clips (n - 3)))) && ((x < (itemAt clips (n - 2))) && (y < (itemAt clips (n - 1)))))
+    }
+
+    ; the box a shape command covers
+    sfn cmdExtent:[double] (c:EVGDrawCmd) {
+        def out:[double]
+        if ((((c.kind == 6) || (c.kind == 7)) && ((array_length c.pts) >= 2))) {
+            def x0:double (itemAt c.pts 0)
+            def y0:double (itemAt c.pts 1)
+            def x1:double x0
+            def y1:double y0
+            def k:int 0
+            while ((k + 1) < (array_length c.pts)) {
+                def px:double (itemAt c.pts k)
+                def py:double (itemAt c.pts (k + 1))
+                x0 = (Report.mn(x0 px))
+                y0 = (Report.mn(y0 py))
+                x1 = (Report.mx(x1 px))
+                y1 = (Report.mx(y1 py))
+                k = (k + 2)
+            }
+            def t:double (c.thickness / 2.0)
+            push out (x0 - t)
+            push out (y0 - t)
+            push out ((x1 - x0) + c.thickness)
+            push out ((y1 - y0) + c.thickness)
+            return out
+        }
+        push out c.x
+        push out c.y
+        push out c.w
+        push out c.h
+        return out
+    }
+
+    ; the cells of the markdown table that starts at `key`: its outlines,
+    ; columns by their left edge, and the lines of text in each
+    sfn cells:void (b:RBlock l:MdLayout page:int key:int) {
+        def outlines:[MdBox]
+        def texts:[MdBox]
+        for l.boxes x:MdBox xi {
+            if (((x.page == page) && (x.srcStart == key)) && (x.furniture == 0)) {
+                if (x.kind == 2) {
+                    push outlines x
+                }
+                if (x.kind == 0) {
+                    push texts x
+                }
+            }
+        }
+        def lefts:[double]
+        for outlines o:MdBox oi {
+            def seen:boolean false
+            for lefts lx:double li {
+                if ((fabs (lx - o.x)) < 1.0) {
+                    seen = true
+                }
+            }
+            if (seen == false) {
+                def at:int 0
+                while ((at < (array_length lefts)) && ((itemAt lefts at) < o.x)) {
+                    at = (at + 1)
+                }
+                insert lefts at o.x
+            }
+        }
+        def topY:double 1000000.0
+        for outlines o2:MdBox o2i {
+            topY = (Report.mn(topY o2.y))
+        }
+        def heads:[string]
+        for lefts h0:double hi {
+            push heads ""
+        }
+        for outlines oc:MdBox oci {
+            def cell (new RCell)
+            cell.x = oc.x
+            cell.w = oc.w
+            def col:int 0
+            for lefts lx2:double lj {
+                if ((fabs (lx2 - oc.x)) < 1.0) {
+                    col = lj
+                }
+            }
+            cell.col = col
+            def ys:[double]
+            for texts t:MdBox tj {
+                def mx:double (t.x + (t.w / 2.0))
+                def my:double (t.y + (t.h / 2.0))
+                if ((((mx >= oc.x) && (mx <= (oc.x + oc.w))) && (my >= oc.y)) && (my <= (oc.y + oc.h))) {
+                    def seenY:boolean false
+                    for ys yv:double yk {
+                        if ((fabs (yv - t.y)) < 1.0) {
+                            seenY = true
+                        }
+                    }
+                    if (seenY == false) {
+                        push ys t.y
+                    }
+                    if ((t.x + t.w) > ((oc.x + oc.w) + 1.0)) {
+                        cell.over = true
+                    }
+                    if ((fabs (oc.y - topY)) < 1.0) {
+                        def hd:string (itemAt heads col)
+                        if ((strlen hd) > 0) {
+                            hd = (hd + " ")
+                        }
+                        set_at heads col (hd + (trim t.text))
+                    }
+                }
+            }
+            cell.lines = (array_length ys)
+            push b.cells cell
+        }
+        b.heads = heads
+    }
+}
