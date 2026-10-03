@@ -210,8 +210,6 @@ Each slide is one Vega-Lite example. Data read from files (`"url": "data/…"`) 
     ]}
   }],
   "mark": "rect",
-  "width": 300,
-  "height": 200,
   "encoding": {
     "x": {"bin": {"maxbins": 60}, "field": "IMDB Rating", "type": "quantitative"},
     "y": {"bin": {"maxbins": 40}, "field": "Rotten Tomatoes Rating", "type": "quantitative"},
