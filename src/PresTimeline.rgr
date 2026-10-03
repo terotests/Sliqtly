@@ -46,19 +46,57 @@ class PresTimeline {
     sfn plan:void (s:PresSlide) {
         def base:double (PresTimeline.transitionSeconds(s))
         def last:double base
+        ; What arrives with the slide, and the charts that arrive with it.
         def i:int 0
         while (i < (array_length s.groups)) {
             def g:PresGroup (itemAt s.groups i)
             if (g.step == 0) {
                 g.at = (base * 0.5)
-            } {
-                g.at = (base + 0.3 + ((to_double (g.step - 1)) * s.stepGap))
             }
-            def end:double (g.at + g.seconds)
+            i = (i + 1)
+        }
+        def ci:int 0
+        while (ci < (array_length s.charts)) {
+            def cu:PresChartUse (itemAt s.charts ci)
+            cu.start = -1.0
+            ci = (ci + 1)
+        }
+        PresTimeline.placeCharts(s 0 (base * 0.5))
+        ; The build steps, one after another — and none before the charts
+        ; already shown have finished moving: presenting, the clock holds at
+        ; the next step, and a chart held mid-way kept its beam on screen.
+        def at:double (base + 0.3)
+        def n:int 1
+        while (n <= s.steps) {
+            def ready:double (PresTimeline.chartsDone(s))
+            if (ready > at) {
+                at = ready
+            }
+            def j:int 0
+            while (j < (array_length s.groups)) {
+                def gj:PresGroup (itemAt s.groups j)
+                if (gj.step == n) {
+                    gj.at = at
+                }
+                j = (j + 1)
+            }
+            PresTimeline.placeCharts(s n at)
+            at = (at + s.stepGap)
+            n = (n + 1)
+        }
+        i = 0
+        while (i < (array_length s.groups)) {
+            def g2:PresGroup (itemAt s.groups i)
+            def end:double (g2.at + g2.seconds)
             if (end > last) {
                 last = end
             }
             i = (i + 1)
+        }
+        ; and the slide lasts until its charts have finished
+        def cd:double (PresTimeline.chartsDone(s))
+        if (cd > last) {
+            last = cd
         }
         ; A diagram starts with the group that reveals it, or with the slide,
         ; and the slide lasts until its tour is over.
@@ -88,6 +126,48 @@ class PresTimeline {
             }
         }
         s.duration = d
+    }
+
+    ; The charts revealed at build step `step` (0: with the slide) start at
+    ; `at`. A chart in no group arrives with the slide.
+    sfn placeCharts:void (s:PresSlide step:int at:double) {
+        def i:int 0
+        while (i < (array_length s.charts)) {
+            def u:PresChartUse (itemAt s.charts i)
+            def st:int 0
+            def k:int 0
+            while (k < (array_length s.groups)) {
+                def g:PresGroup (itemAt s.groups k)
+                if ((u.srcStart >= g.start) && (u.srcStart < g.end)) {
+                    st = g.step
+                    k = (array_length s.groups)
+                }
+                k = (k + 1)
+            }
+            if (st == step) {
+                u.start = at
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; When the charts placed so far have finished moving (0.0: none).
+    ; Charts are placed step by step, so one not placed yet has a start of
+    ; -1 and does not count.
+    sfn chartsDone:double (s:PresSlide) {
+        def out:double 0.0
+        def i:int 0
+        while (i < (array_length s.charts)) {
+            def u:PresChartUse (itemAt s.charts i)
+            if (u.start >= 0.0) {
+                def e:double (u.start + (PresChart.motionSeconds()))
+                if (e > out) {
+                    out = e
+                }
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     sfn planAll:void (deck:PresDeck) {

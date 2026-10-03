@@ -54,6 +54,16 @@ class PresGroup {
     def label:string ""
 }
 
+; A chart fence on a slide: its columns rise and its beam passes from when
+; the group that reveals it arrives (or the slide does), and the slide is
+; not held — at its end or at the next build step — before that is over.
+class PresChartUse {
+    def source:string ""
+    def srcStart:int 0
+    ; seconds after the slide starts; set by PresTimeline (-1: not yet)
+    def start:double -1.0
+}
+
 ; A diagram fence on a slide, drawn by PresDiagram rather than as a picture.
 class PresDiaUse {
     def diagram:PresDiagram (new PresDiagram())
@@ -96,10 +106,13 @@ class PresSlide {
     def groups:[PresGroup]
     def steps:int 0
     def diagrams:[PresDiaUse]
+    def charts:[PresChartUse]
 
     Constructor () {
         def du:[PresDiaUse]
         diagrams = du
+        def cu:[PresChartUse]
+        charts = cu
         def a:[string]
         fxNames = a
         def b:[string]
@@ -555,6 +568,35 @@ class PresDeck {
             i = (i + 1)
         }
         return -1
+    }
+
+    ; The chart fences in a block, nested ones too (a chart inside a `:::`).
+    fn readCharts:void (s:PresSlide n:MdNode) {
+        if ((n.kind == "embed") && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(n.info)))) == "vega")) {
+            def u (new PresChartUse())
+            u.source = n.literal
+            u.srcStart = n.srcStart
+            push s.charts u
+            return
+        }
+        def i:int 0
+        while (i < (n.childCount())) {
+            this.readCharts(s (n.childAt(i)))
+            i = (i + 1)
+        }
+    }
+
+    ; When a chart's motion starts on its slide (0.0 for one not read).
+    fn chartStart:double (s:PresSlide source:string) {
+        def i:int 0
+        while (i < (array_length s.charts)) {
+            def u:PresChartUse (itemAt s.charts i)
+            if ((u.source == source) && (u.start >= 0.0)) {
+                return u.start
+            }
+            i = (i + 1)
+        }
+        return 0.0
     }
 
     fn readDiagram:void (s:PresSlide n:MdNode page:int) {
@@ -1437,6 +1479,7 @@ class PresDeck {
                 }
                 this.readGroups(slide ch)
                 this.readDiagram(slide ch pg)
+                this.readCharts(slide ch)
             }
             c = (c + 1)
         }
@@ -1756,7 +1799,7 @@ class PresDeck {
                 def before:int (array_length out.cmds)
                 painter.paintBox(out l kb 0.0)
                 if ((kb.kind == 3) && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(kb.embedKind)))) == "vega")) {
-                    PresChart.dress(out before t still (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) kb.embedSource (this.chartStyleWords()))
+                    PresChart.dress(out before (t - (this.chartStart(s kb.embedSource))) still (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) kb.embedSource (this.chartStyleWords()))
                     if still {
                         PresChart.flatten(out before paper)
                     }
