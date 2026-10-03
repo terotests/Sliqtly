@@ -6294,6 +6294,41 @@ class PresApp {
         return focus
     }
 
+    ; The code editor's text size: Ctrl/Cmd + plus, minus and 0 (or Ctrl +
+    ; wheel) over the editor. `steps` is +1 / -1 per step, 0 the default size.
+    ; The Markdown, Theme (CSS) and file texts share one size.
+    fn zoomEditor:boolean (steps:int) {
+        if ((editor.zoomBy(steps)) == false) {
+            return false
+        }
+        this.setEditorFontSize(editor.layout.fontSize)
+        return true
+    }
+
+    fn editorFontSize:double () {
+        return editor.layout.fontSize
+    }
+
+    ; The size the page kept from an earlier visit.
+    fn setEditorFontSize:void (size:double) {
+        mdEditor.setFontSize(size)
+        cssEditor.setFontSize(size)
+        fileEditor.setFontSize(size)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; Whether a wheel at (x, y) is over the editor's text, not a window above it.
+    fn editorAt:boolean (x:double y:double) {
+        if (mode == "present") {
+            return false
+        }
+        this.place()
+        if ((strlen (this.layerAt(x y))) > 0) {
+            return false
+        }
+        return (edRect.has(x y))
+    }
+
     fn setBlink:void (phase:int) {
         blink = phase
     }

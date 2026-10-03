@@ -246,6 +246,32 @@ try {
   await page.keyboard.press("Backspace");
   check("and the document is back as it was", (await page.evaluate(() => window.__app.source().length)) === len0);
 
+  // Ctrl + plus / minus / 0 in the editor size its text, not the page, and
+  // the size is kept; Ctrl + wheel over the editor does the same
+  {
+    const size = () => page.evaluate(() => window.__app.editorFontSize());
+    const s0 = await size();
+    await page.keyboard.press("Control+Equal");
+    await page.keyboard.press("Control+Equal");
+    const s1 = await size();
+    await page.keyboard.press("Control+Minus");
+    const s2 = await size();
+    const kept = await page.evaluate(() => localStorage.getItem("sliqtly.editorFontSize"));
+    await page.mouse.move(300, 300);
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, -100);
+    await page.keyboard.up("Control");
+    const s3 = await size();
+    await page.keyboard.press("Control+0");
+    const s4 = await size();
+    const zoom = await page.evaluate(() => window.visualViewport ? window.visualViewport.scale : 1);
+    check("Ctrl + plus makes the editor's text bigger", s1 === s0 + 2, `${s0} → ${s1}`);
+    check("…Ctrl + minus smaller", s2 === s1 - 1, `${s1} → ${s2}`);
+    check("…the size is kept by the browser", kept === String(s2), String(kept));
+    check("…a Ctrl + wheel notch over the editor is one step", s3 === s2 + 1, `${s2} → ${s3}`);
+    check("…Ctrl + 0 goes back to the default", s4 === s0 && zoom === 1, `${s4}`);
+  }
+
   // ⌃⌘Space (Ctrl+Shift+Space off a Mac): EVGUI's emoji picker at the
   // caret. Typing searches, Enter writes the emoji where the caret is (one
   // edit: Ctrl+Z takes it back), Esc closes it, a click on a cell picks it.
