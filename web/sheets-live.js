@@ -250,7 +250,9 @@ export function createLiveSheets({ stageEl, canvas, keys, base, readFile, saveWo
 }
 
 /** The full editor in a dialog, for an .xlsx in the deck's files. */
-export async function openSheetDialog({ base, t = (s) => s, name, bytes, onSave, onClose }) {
+// `bytes` the workbook to edit; none opens EVGSheets' demo sheet unless
+// `blank`, which starts from an empty workbook (File → New → Datasheet).
+export async function openSheetDialog({ base, t = (s) => s, name, bytes, blank = false, onSave, onClose }) {
   const { mountSheets } = await loadEvgSheets(base);
   const wrap = document.createElement("div");
   wrap.className = "sheet-dialog";
@@ -286,6 +288,10 @@ export async function openSheetDialog({ base, t = (s) => s, name, bytes, onSave,
     title: false,
     onSave: async (raw) => { await onSave(raw); save.textContent = t("Saved"); setTimeout(() => (save.textContent = t("Save")), 1200); },
   });
+  if (blank && !bytes) {
+    await sheet.run("file.new", "");
+    await sheet.redraw();
+  }
   sheet.focus();
   const done = () => {
     sheet.destroy();

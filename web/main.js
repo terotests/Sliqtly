@@ -615,6 +615,7 @@ async function newSheet() {
   await liveSheets.openDialog({
     name: path.split("/").pop(),
     bytes: undefined,
+    blank: true,
     onSave: (raw) => saveWorkbook(path, raw),
     onClose: () => { keys.focus({ preventScroll: true }); refreshFiles(); needsPaint = true; },
   }).catch((e) => toast(t("The spreadsheet editor did not load: ") + (e.message || e)));
