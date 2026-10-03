@@ -849,6 +849,38 @@ try {
   check("…drawn on the slide", pic.image);
   check("…cut to the part kept", pic.size.join("x") === "32x20", JSON.stringify(pic.size));
 
+  // An SVG with only a viewBox, as the MCP server's decks have them: the
+  // browser decodes no bitmap from it and gives it no size of its own, and the
+  // PDF writer reads PNG and JPEG. It is drawn once at full-slide size
+  // (web/picture.js) and the slides and the exports get that.
+  const svgPic = await page.evaluate(async () => {
+    const a = window.__app;
+    const images = () => (new TextDecoder("latin1").decode(new Uint8Array(a.pdf())).match(/\/Subtype\s*\/Image/g) || []).length;
+    const pdfBefore = images();
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#2a7f3e"/><path d="M0 0L1600 900" stroke="#fff"/></svg>';
+    const file = new File([svg], "kuva.svg", { type: "image/svg+xml" });
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    const keys = document.getElementById("keys");
+    keys.focus();
+    keys.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    for (let i = 0; i < 80 && !/\]\(media\/liitetty-[^)]+\.svg\)/.test(a.source()); i += 1) await new Promise((res) => setTimeout(res, 100));
+    const rel = (a.source().match(/\]\((media\/liitetty-[^)]+\.svg)\)/) || [])[1] || "";
+    const stage = JSON.parse(a.stageJson());
+    const cmd = stage.list.cmds.find((c) => c.k === 2 && String(c.src || "").includes(rel || "?"));
+    return {
+      rel, window: a.chartIsOpen(),
+      drawn: !!cmd, shape: cmd ? Math.round((cmd.w / cmd.h) * 100) / 100 : 0,
+      size: rel ? window.__pictureSize("/" + rel) : [0, 0],
+      pixel: rel ? window.__picturePixel("/" + rel, 40, 600) : [],
+      pdf: [pdfBefore, images()],
+    };
+  });
+  check("a pasted SVG goes on the slide as an SVG file", !!svgPic.rel && !svgPic.window && svgPic.drawn, JSON.stringify(svgPic));
+  check("…in its viewBox's shape, drawn at full-slide size", svgPic.shape === 1.78 && svgPic.size.join("x") === "2560x1440", JSON.stringify(svgPic));
+  check("…with its own colours", svgPic.pixel[0] === 0x2a && svgPic.pixel[1] === 0x7f && svgPic.pixel[2] === 0x3e, JSON.stringify(svgPic.pixel));
+  check("…and in the PDF", svgPic.pdf[1] === svgPic.pdf[0] + 1, JSON.stringify(svgPic.pdf));
+
   // the same picture as the background of the slide at the caret
   const bg = await page.evaluate(() => {
     const a = window.__app;
