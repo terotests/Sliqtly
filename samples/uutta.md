@@ -35,6 +35,12 @@ Muokkaa niitä **Teema (CSS)** -välilehdellä; dian oma `{fx=…}` voittaa.
 - Viennit saavat molemmat: efektin kuvana, kuvion vektoriviivoina
 {.build anim=rise}
 
+## Sade lasissa {fx=drops}
+
+- `{fx=drops}`: pisarat osuvat lasiin, yhdistyvät ja valuvat alas
+- `fx-rain=2` rankkasateeksi, `fx-size=1.5` isommiksi pisaroiksi
+- Paikallaan pysyvät pyöreät pisarat: `{fx=bubbles}`
+
 ## Projekti neljässä vaiheessa
 
 - Suunnittelu: tavoitteet, budjetti ja aikataulu
