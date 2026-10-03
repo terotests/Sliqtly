@@ -92,7 +92,10 @@ export function build({ ranger } = {}) {
     fs.writeFileSync(path.join(distDir, `themes/${t}.css`),
       formatCss(fs.readFileSync(path.join(ranger, `gallery/markdown/fixtures/themes/${t}.css`), "utf8")));
   }
-  for (const f of fs.readdirSync(path.join(root, "samples"))) copy(path.join(root, "samples", f), path.join(distDir, "samples", f));
+  for (const f of fs.readdirSync(path.join(root, "samples")).filter((f) => f.endsWith(".md"))) copy(path.join(root, "samples", f), path.join(distDir, "samples", f));
+  // the files the sample decks' charts read ("url": "data/…"), served beside
+  // the page where the chart looks first (Vega's example datasets, samples/data)
+  for (const f of fs.readdirSync(path.join(root, "samples", "data")).filter((f) => !f.endsWith(".md"))) copy(path.join(root, "samples", "data", f), path.join(distDir, "data", f));
   copy(path.join(ranger, "gallery/markdown/fixtures/deck.md"), path.join(distDir, "samples/deck.md"));
 
   // Every URL the page loads carries the hash of the build, so a reload

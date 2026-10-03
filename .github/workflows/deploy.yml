@@ -38,22 +38,41 @@ jobs:
         run: node scripts/build.mjs
       - name: Check the deck and the timeline
         run: node scripts/check.mjs
+      # Every sample deck, English and Finnish, opened in Chrome from the
+      # built page: no 404 (a chart's data/ file, a font) and no console error.
+      - name: Check the sample decks load cleanly
+        run: node scripts/check-samples.mjs
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           projectId: sliqtly
           channelId: live
-      # The Firestore and Storage rules (firestore.rules, storage.rules). Needs
-      # Firestore and Storage created in the console; until then this step
-      # fails without stopping the page's deploy above.
-      - name: Firestore and Storage rules
+      # The Firestore rules (firestore.rules) and the Storage rules
+      # (storage.rules), each on its own so one missing role does not hold the
+      # other back. The service account needs the roles "Firebase Rules
+      # Admin" (both) and "Firebase Storage Admin" (Storage's default bucket).
+      # Without them the page still deploys, but the rules stay as they were
+      # (e.g. listing one's own cloud decks fails with "Missing or
+      # insufficient permissions"), so the failure is raised as an error
+      # annotation on the run.
+      - name: Firestore rules
         continue-on-error: true
         env:
           SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           printf '%s' "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
           GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json" \
-            npx --yes firebase-tools@13 deploy --only firestore:rules,storage --project sliqtly --non-interactive
+            npx --yes firebase-tools@13 deploy --only firestore:rules --project sliqtly --non-interactive \
+            || { echo "::error title=Firestore rules not deployed::give the service account the role Firebase Rules Admin"; exit 1; }
+      - name: Storage rules
+        continue-on-error: true
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          printf '%s' "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json" \
+            npx --yes firebase-tools@13 deploy --only storage --project sliqtly --non-interactive \
+            || { echo "::error title=Storage rules not deployed::give the service account the roles Firebase Rules Admin and Firebase Storage Admin"; exit 1; }
       # Firestore's TTL policies (firestore.indexes.json): documents whose
       # `expires` has passed are deleted (MCP decks made without sign-in, the
       # MCP server's daily counters and sign-in records). Needs the role Cloud
