@@ -20,6 +20,7 @@ import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
+import { scaled, previewOf, render } from "./image-adjust.js";
 
 const canvas = document.getElementById("c");
 const stageEl = document.getElementById("stage");
@@ -237,6 +238,75 @@ async function placePasted() {
   app.placePicture(rel, plan.alt || "image", plan.to);
   dropThumbs();
   afterInput();
+}
+
+// A picture of the files tab, clicked: the image editor (PresChartEditor's
+// "adjust" mode) crops it and changes its light and colours. The preview is
+// the picture scaled down, drawn again as the sliders move; Save writes the
+// whole picture back over its file, so every slide that shows it changes.
+let adjusting = null;
+async function openImageEditor(path) {
+  const f = (await docFiles()).find((x) => x.path === path);
+  if (!f || !(f.data instanceof Blob)) { toast(t("This file cannot be opened as an image.")); return; }
+  const blob = f.data.type ? f.data : new Blob([f.data], { type: f.type || "image/png" });
+  let bmp;
+  try {
+    bmp = await createImageBitmap(blob);
+  } catch (_) {
+    toast(t("This file cannot be opened as an image."));
+    return;
+  }
+  const w = bmp.width;
+  const h = bmp.height;
+  const base = scaled(bmp, 1200);
+  bmp.close();
+  dropAdjusting();
+  pasteCount += 1;
+  const preview = `/__adjust/${Date.now().toString(36)}-${pasteCount}`;
+  pictures.set(preview, previewOf(base, null));
+  adjusting = { path, blob, w, h, base, preview, queued: false };
+  if (!app.openAdjust(preview, path, w, h)) dropAdjusting();
+  needsPaint = true;
+}
+
+function dropAdjusting() {
+  if (adjusting) pictures.delete(adjusting.preview);
+  adjusting = null;
+}
+
+// The preview again, at most once a frame however fast the sliders move.
+function adjustPreview() {
+  const a = adjusting;
+  if (!a || a.queued) return;
+  a.queued = true;
+  requestAnimationFrame(() => {
+    a.queued = false;
+    if (adjusting !== a) return;
+    pictures.set(a.preview, previewOf(a.base, JSON.parse(app.adjustPlan())));
+    needsPaint = true;
+  });
+}
+
+async function saveAdjusted() {
+  const a = adjusting;
+  if (!a) return;
+  const plan = JSON.parse(app.adjustPlan());
+  dropAdjusting();
+  let crop = null;
+  if (!plan.whole) {
+    const [x, y, cw, ch] = String(plan.crop).split(",").map(Number);
+    if (cw > 0 && ch > 0) crop = [x, y, cw, ch];
+  }
+  const neutral = !plan.bright && !plan.contrast && !plan.sat && !plan.temp && !plan.tint;
+  if (!crop && neutral) return;
+  const out = await render(a.blob, crop, plan);
+  if (!out) { toast(t("The image could not be saved.")); return; }
+  app.addImage("/" + a.path, asRangerBuffer(out.bytes.slice(0)), out.type, out.w, out.h);
+  await registerPicture("/" + a.path, out.bytes, out.type);
+  await keepFile({ path: a.path, type: out.type, size: out.bytes.byteLength, data: new Blob([out.bytes], { type: out.type }) });
+  dropThumbs();
+  needsPaint = true;
+  toast(t("Image saved: ") + a.path);
 }
 
 // A new picture of the deck: registered for the slides and kept in this
@@ -787,7 +857,13 @@ async function refreshFiles() {
   filesListing = true;
   try {
     const files = (await docFiles())
-      .map((f) => ({ path: f.path, size: f.size == null ? -1 : f.size, kind: kindOf(f.path, f.type) }))
+      .map((f) => {
+        const row = { path: f.path, size: f.size == null ? -1 : f.size, kind: kindOf(f.path, f.type) };
+        // a picture's pixels, for the preview beside the row
+        const img = row.kind === "image" ? pictures.get("/" + f.path) : null;
+        if (img) Object.assign(row, { w: img.naturalWidth, h: img.naturalHeight });
+        return row;
+      })
       .sort((a, b) => {
         const da = a.path.includes("/") ? 1 : 0;
         const db = b.path.includes("/") ? 1 : 0;
@@ -811,6 +887,12 @@ async function refreshFiles() {
         text: t("PRO keeps your decks and their files in the cloud. Share links then carry images, plus the CSV and JSON data behind your charts and tables."),
         button: t("Get PRO"),
       };
+    // PRO: the deck and its files live in the cloud share, and go with its links
+    if (signedIn()) {
+      note = doc.cloudHalt
+        ? t("This presentation was changed elsewhere, so it is not saved to the cloud now. A copy stays in this browser.")
+        : t("PRO: this presentation and its files are saved to your cloud and go with share links. A copy stays in this browser.");
+    }
     if (!doc.persisted) note = t("This presentation is not saved yet: it saves when you change it. ") + note;
     app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), docs, note, ...(promo ? { promo } : {}) }));
     needsPaint = true;
@@ -1074,6 +1156,9 @@ async function fileRequest(r) {
     const text = typeof f.data === "string" ? f.data : (isText(f.path, f.type) ? await f.data.text() : null);
     if (text == null) { toast(t("This file cannot be opened as text.")); return; }
     app.openFile(f.path, text);
+  } else if (action === "imgedit") {
+    await openImageEditor(what);
+    return;
   } else if (action === "del") {
     pending.delete(what);
     if (doc.persisted) await vfs.deleteFile(doc.id, what);
@@ -1113,6 +1198,10 @@ async function saveOpenFile(path) {
 // and kept; the stage and the chrome are built every paint. A kept frame is
 // only good while the glyph atlas it was built against stands, so a paint
 // that grows the atlas drops the kept ones and draws again.
+// File → Settings: automatic contrast correction, on unless turned off here.
+let autoContrast = true;
+try { autoContrast = localStorage.getItem("sliqtly.autoContrast") !== "off"; } catch (_) { /* on */ }
+
 let thumbs = new Map();
 let thumbRev = -1;
 // the slide lists of thumbnails cut by the strip's edge, as JSON text
@@ -1157,9 +1246,10 @@ function paintOnce() {
   const grewBy = (stats) => !!(stats && (stats.atlasRebuilt || stats.atlasAdded > 0));
   let grew = false;
   // Slides and thumbnails are drawn with EVG's contrast guard: a run of text
-  // that does not stand out from the picture under it (WCAG 4.5:1, 3:1 for
-  // large text) gets a thin outline in black or white. The chrome has no
-  // pictures under its text and is drawn without it.
+  // that does not stand out from what is under it (WCAG 4.5:1, 3:1 for large
+  // text) is drawn in a colour that reads, or, on big letters, with a thin
+  // outline. File → Settings turns the correction off (the runs are still
+  // listed for the editor's warnings). The chrome is drawn without it.
   const chrome = JSON.parse(app.chromeJson());
   window.__lastChrome = chrome;
   const cf = prepareDisplayList(gl, chrome, { dpr });
@@ -1170,7 +1260,7 @@ function paintOnce() {
     window.__lastStage = st;
     st.width = W;
     st.height = H;
-    const sf = prepareDisplayList(gl, st, { dpr, images: pictures, contrastGuard: true });
+    const sf = prepareDisplayList(gl, st, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
     const stageStats = sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false });
     grew = grewBy(stageStats) || grew;
     sf.dispose();
@@ -1206,7 +1296,7 @@ function paintOnce() {
       const none = [0, 0, 0, 0];
       doc.list.cmds.unshift({ k: 4, x: (cx - x) / s, y: (cy - y) / s, w: cw / s, h: ch / s, c: none });
       doc.list.cmds.push({ k: 5, x: 0, y: 0, w: 0, h: 0, c: none });
-      const cf = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true });
+      const cf = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
       if (grewBy(cf.draw(null, [x, y, s], { clear: false }))) thumbsGrew = true;
       cf.dispose();
       continue;
@@ -1217,7 +1307,7 @@ function paintOnce() {
       const doc = withTime(JSON.parse(app.slideJson(i)), 2.0);
       doc.width = W;
       doc.height = H;
-      f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true });
+      f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
       thumbs.set(i, f);
     }
     const stats = f.draw(null, [x, y, s], { clear: false });
@@ -1255,7 +1345,8 @@ function paintOnce() {
     const pn = JSON.parse(pj);
     pn.width = W;
     pn.height = H;
-    const pf = prepareDisplayList(gl, pn, { dpr });
+    // with the pictures: the files tab previews the one under the pointer
+    const pf = prepareDisplayList(gl, pn, { dpr, images: pictures });
     if (grewBy(pf.draw(null, [0, 0, 1], { clear: false }))) dropThumbs();
     pf.dispose();
   }
@@ -1756,6 +1847,16 @@ window.__lastDownload = "";
 
 // for scripts/check-web.mjs: the requests run now, a picture's pixel size
 window.__handleRequests = () => handleRequests();
+window.__picturePixel = (p, x, y) => {
+  const img = pictures.get(p);
+  if (!img) return [];
+  const c = document.createElement("canvas");
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const g = c.getContext("2d");
+  g.drawImage(img, 0, 0);
+  return [...g.getImageData(x, y, 1, 1).data];
+};
 window.__pictureSize = (p) => {
   const img = pictures.get(p);
   return img ? [img.naturalWidth, img.naturalHeight] : [0, 0];
@@ -1781,6 +1882,14 @@ function handleRequests() {
       // the canvas bar: the page's own button does what it always did
       const b = document.getElementById(r.slice(6));
       if (b) b.click();
+    } else if (r === "settings") {
+      app.openSettings(autoContrast);
+      needsPaint = true;
+    } else if (r.startsWith("setting:contrast:")) {
+      autoContrast = r.endsWith(":on");
+      try { localStorage.setItem("sliqtly.autoContrast", autoContrast ? "on" : "off"); } catch (_) { /* this session only */ }
+      dropThumbs();
+      needsPaint = true;
     } else if (r === "openbox") {
       // Open: a file from the computer, or a sample deck
       app.openOpen([...sampleSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
@@ -1825,6 +1934,12 @@ function handleRequests() {
       placePasted().catch(fail);
     } else if (r === "picture-cancel") {
       dropPasting();
+    } else if (r === "image-adjust") {
+      adjustPreview();
+    } else if (r === "image-save") {
+      saveAdjusted().catch(fail);
+    } else if (r === "image-cancel") {
+      dropAdjusting();
     } else if (r === "sheet-edit") {
       liveSheets.editFirst();
     } else if (r.startsWith("data-keep:")) {

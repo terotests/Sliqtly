@@ -3311,6 +3311,11 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    fn openSettings:void (contrast:boolean) {
+        panels.openSettings(contrast)
+        chromeRev = (chromeRev + 1)
+    }
+
     fn shareIsOpen:boolean () {
         return panels.shareOpen
     }
@@ -3356,6 +3361,14 @@ class PresApp {
             def text:string (r.stringOr("text" ""))
             def ratio:double (r.doubleOr("ratio" 0.0))
             def need:double (r.doubleOr("need" 4.5))
+            def fixed:string (r.stringOr("fixed" ""))
+            def shown:string ""
+            if (fixed == "colour") {
+                shown = (" " + (PresI18n.t("On the slide it is shown in a corrected colour.")))
+            }
+            if (fixed == "outline") {
+                shown = (" " + (PresI18n.t("On the slide it has an outline.")))
+            }
             def b:int 0
             def found:int -1
             while (b < (array_length l.boxes)) {
@@ -3378,7 +3391,7 @@ class PresApp {
                 }
                 def line:int (this.mdLineOf((PresDeck.boxSrc(box))))
                 if (line >= 0) {
-                    PresApp.warnOnce(mdOut line ((head + " ") + mdFix))
+                    PresApp.warnOnce(mdOut line (((head + shown) + " ") + mdFix))
                 }
                 def words:string text
                 if ((strlen words) > 40) {
@@ -3387,7 +3400,7 @@ class PresApp {
                 def cl:int 0
                 while (cl < (cssEditor.buf.lineCount())) {
                     if (PresApp.setsColour((cssEditor.buf.lineAt(cl)) box.color)) {
-                        PresApp.warnOnce(cssOut cl (PresI18n.t("Low contrast: ") + "“" + words + "” " + (PresApp.ratioWords(ratio)) + ":1, " + (PresI18n.t("needs ")) + (PresApp.ratioWords(need)) + ":1. " + cssFix))
+                        PresApp.warnOnce(cssOut cl (PresI18n.t("Low contrast: ") + "“" + words + "” " + (PresApp.ratioWords(ratio)) + ":1, " + (PresI18n.t("needs ")) + (PresApp.ratioWords(need)) + ":1." + shown + " " + cssFix))
                     }
                     cl = (cl + 1)
                 }
@@ -4005,6 +4018,46 @@ class PresApp {
         return true
     }
 
+    ; --- a picture of the files, edited ---------------------------------------------
+    ; The files tab's image editor: the page has registered a preview of
+    ; `file` at `path` (`iw` × `ih` are the file's pixels). The window crops
+    ; and adjusts it; each change is "image-adjust" to the page, which reads
+    ; `adjustPlan` and draws the preview again. Save is "image-save" (the
+    ; page writes the file over and the slides follow), anything else
+    ; "image-cancel".
+    fn openAdjust:boolean (path:string file:string iw:int ih:int) {
+        if (mode == "present") {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 560.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        def py:double (barH + 24.0)
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        chart.openAdjust(path file (to_double iw) (to_double ih) px py W H)
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; {"file", "crop": "x,y,w,h" in pixels, "whole": nothing cut away,
+    ;  "bright", "contrast", "sat", "temp", "tint": -100…100}
+    fn adjustPlan:string () {
+        def whole:string "false"
+        if (chart.crop.isWhole()) {
+            whole = "true"
+        }
+        return ("{\"file\":" + (PresApp.jsonStr(chart.adjFile)) + ",\"crop\":\"" + (chart.crop.cropPixels()) + "\",\"whole\":" + whole + ",\"bright\":" + (to_string chart.adjBright) + ",\"contrast\":" + (to_string chart.adjContrast) + ",\"sat\":" + (to_string chart.adjSat) + ",\"temp\":" + (to_string chart.adjTemp) + ",\"tint\":" + (to_string chart.adjTint) + "}")
+    }
+
     ; --- a new presentation ------------------------------------------------------
     ; File → New presentation: the window asks the name, the theme (`rows`,
     ; the page's "value<TAB>label" lines; `theme` the one in use) and what
@@ -4350,6 +4403,16 @@ class PresApp {
 
     fn closeChart:void () {
         this.writeChart()
+        ; the image editor, however it was closed: saved only by Save (or
+        ; Enter); a press outside it or Esc leaves the file as it was
+        if (chart.isOpen && (chart.mode == "adjust")) {
+            if chart.wantsSave {
+                chart.wantsSave = false
+                push requests "image-save"
+            } {
+                push requests "image-cancel"
+            }
+        }
         chartWinX = chart.x
         chartWinY = chart.y
         chart.close()
@@ -4436,6 +4499,13 @@ class PresApp {
         }
         chart.changed = false
         if (((chart.mode == "paste") || (chart.mode == "newdeck")) || (chart.mode == "confirm")) {
+            return
+        }
+        if (chart.mode == "adjust") {
+            if chart.adjDirty {
+                chart.adjDirty = false
+                push requests "image-adjust"
+            }
             return
         }
         if (chart.mode == "image") {

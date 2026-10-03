@@ -90,6 +90,16 @@ class PresPanels {
     def filesKeys:[string]
     ; a delete pressed once, waiting for the second press
     def filesArmed:string ""
+    ; the pictures' rows (`pf-img-<k>`): their paths and pixel sizes (the
+    ; page's "w", "h"); the one under the pointer shows a preview beside the
+    ; panel (`filesHover`, at the pointer's height `hoverY`)
+    def imgPaths:[string]
+    def imgW:[int]
+    def imgH:[int]
+    def filesHover:string ""
+    def hoverW:int 0
+    def hoverH:int 0
+    def hoverY:double 0.0
     ; the toast
     def toastText:string ""
     ; presenting: only the toast shows
@@ -113,6 +123,7 @@ class PresPanels {
                 filesScroll = 0.0
                 filesArmed = ""
             }
+            filesHover = ""
             filesOpen = on
             filesX = x
             filesY = y
@@ -127,6 +138,7 @@ class PresPanels {
         if (json != filesJson) {
             filesJson = json
             filesArmed = ""
+            filesHover = ""
             this.rebuild()
         }
     }
@@ -169,6 +181,16 @@ class PresPanels {
     fn openOpen:void (rows:string) {
         openRows = rows
         dialogKind = "open"
+        shareOpen = true
+        this.rebuild()
+    }
+
+    ; File → Settings: the editor's own preferences, kept by the page.
+    def autoContrast:boolean true
+
+    fn openSettings:void (contrast:boolean) {
+        autoContrast = contrast
+        dialogKind = "settings"
         shareOpen = true
         this.rebuild()
     }
@@ -259,6 +281,9 @@ class PresPanels {
         }
         if (filesOpen && (quiet == false)) {
             root.addChild((this.filesPanel()))
+            if (((strlen filesHover) > 0) && ((strlen filesOpenPath) == 0)) {
+                root.addChild((this.imagePreview()))
+            }
         }
         if ((strlen toastText) > 0) {
             def t:EVGElement (this.div("pn-toast"))
@@ -277,10 +302,14 @@ class PresPanels {
             if (dialogKind == "open") {
                 root.addChild((this.openDialog()))
             } {
+              if (dialogKind == "settings") {
+                root.addChild((this.settingsDialog()))
+              } {
               if (dialogKind == "data") {
                 root.addChild((this.dataDialog()))
               } {
                 root.addChild((this.shareDialog()))
+              }
               }
             }
         }
@@ -413,6 +442,12 @@ class PresPanels {
     fn filesPanel:EVGElement () {
         def keys:[string]
         filesKeys = keys
+        def noPaths:[string]
+        imgPaths = noPaths
+        def noW:[int]
+        imgW = noW
+        def noH:[int]
+        imgH = noH
         def p:EVGElement (this.div("pf-panel"))
         p.id = "pf-panel"
         UiTree.surface(p "free" "start")
@@ -551,6 +586,12 @@ class PresPanels {
         def path:string (f.stringOr("path" ""))
         def kind:string (f.stringOr("kind" ""))
         def row:EVGElement (this.div("pf-row"))
+        if (kind == "image") {
+            row.id = ("pf-img-" + (to_string (array_length imgPaths)))
+            push imgPaths path
+            push imgW (f.intOr("w" 0))
+            push imgH (f.intOr("h" 0))
+        }
         def tag:string "TXT"
         if (kind == "md") { tag = "MD" }
         if (kind == "css") { tag = "CSS" }
@@ -571,6 +612,9 @@ class PresPanels {
             return row
         }
         if (kind == "image") {
+            if (PresPanels.editable(path)) {
+                this.act("imgedit" path (PresI18n.t("Edit")) "secondary" row)
+            }
             this.act("insert" path (PresI18n.t("Add to slide")) "secondary" row)
         } {
             this.act("open" path (PresI18n.t("Open")) "secondary" row)
@@ -585,6 +629,123 @@ class PresPanels {
             this.act("del" path "✕" "ghost" row)
         }
         return row
+    }
+
+    ; a picture the editor can change: pixels, not a drawing (SVG)
+    sfn editable:boolean (path:string) {
+        return ((indexOf (to_lowercase path) ".svg") < 0)
+    }
+
+    ; The picture under the pointer, as it is, beside the panel (over the
+    ; slides) or inside its right edge when there is no room.
+    fn imagePreview:EVGElement () {
+        def most:double 240.0
+        def pw:double most
+        def ph:double (most * 0.66)
+        if ((hoverW > 0) && (hoverH > 0)) {
+            def k:double (most / (to_double hoverW))
+            if ((to_double hoverH) > (to_double hoverW)) {
+                k = (most / (to_double hoverH))
+            }
+            if (k > 1.0) {
+                k = 1.0
+            }
+            pw = ((to_double hoverW) * k)
+            ph = ((to_double hoverH) * k)
+        }
+        def card:EVGElement (this.div("pf-preview"))
+        card.id = "pf-preview"
+        UiTree.surface(card "free" "start")
+        card.width = (EVGUnit.px((pw + 20.0)))
+        def im (EVGElement.createImg())
+        im.id = "pf-preview-img"
+        im.className = "pf-preview-img"
+        im.src = ("/" + filesHover)
+        im.objectFit = "contain"
+        im.sourceWidth = (to_double hoverW)
+        im.sourceHeight = (to_double hoverH)
+        im.width = (EVGUnit.px(pw))
+        im.height = (EVGUnit.px(ph))
+        card.addChild(im)
+        def cap:string (PresPanels.nameOf(filesHover))
+        if ((hoverW > 0) && (hoverH > 0)) {
+            cap = (cap + "  ·  " + (to_string hoverW) + " × " + (to_string hoverH) + " px")
+        }
+        card.addChild((this.words("pf-preview-cap" cap)))
+        if (PresPanels.editable(filesHover)) {
+            card.addChild((this.words("pf-preview-hint" (PresI18n.t("Click to edit")))))
+        }
+        def cw:double (pw + 20.0)
+        def chh:double (ph + 58.0)
+        def px:double ((filesX + filesW) + 10.0)
+        if ((px + cw) > (w - 8.0)) {
+            px = (((filesX + filesW) - cw) - 24.0)
+        }
+        def py:double (hoverY - (chh * 0.5))
+        if ((py + chh) > (h - 8.0)) {
+            py = ((h - 8.0) - chh)
+        }
+        if (py < (filesY + 8.0)) {
+            py = (filesY + 8.0)
+        }
+        card.overlayX = px
+        card.overlayY = py
+        return card
+    }
+
+    sfn nameOf:string (path:string) {
+        def slash:int (PresPanels.lastSlash(path))
+        return (substring path (slash + 1) (strlen path))
+    }
+
+    ; A picture's row under the point: its index in `imgPaths`, or -1.
+    fn imgRowAt:int (px:double py:double) {
+        if ((null? host.lastPage) || ((strlen filesOpenPath) > 0)) {
+            return -1
+        }
+        if ((this.inEl("pf-view" px py)) == false) {
+            return -1
+        }
+        def hit (new EVGHitTest())
+        def order:[EVGElement] (hit.paintOrder((unwrap host.lastPage)))
+        def i:int ((array_length order) - 1)
+        while (i >= 0) {
+            def el:EVGElement (itemAt order i)
+            if ((indexOf el.id "pf-img-") == 0) {
+                if (host.containsPoint(el px py)) {
+                    def k:int (?? (str2int (substring el.id 7 (strlen el.id))) -1)
+                    if ((k >= 0) && (k < (array_length imgPaths))) {
+                        return k
+                    }
+                }
+            }
+            i = (i - 1)
+        }
+        return -1
+    }
+
+    ; The preview follows the pointer over the pictures' rows.
+    fn filesHoverAt:void (px:double py:double) {
+        if ((filesOpen == false) || (quiet || shareOpen)) {
+            return
+        }
+        def k:int -1
+        if (this.filesHas(px py)) {
+            k = (this.imgRowAt(px py))
+        }
+        def path:string ""
+        if (k >= 0) {
+            path = (itemAt imgPaths k)
+        }
+        if (path != filesHover) {
+            filesHover = path
+            hoverY = py
+            if (k >= 0) {
+                hoverW = (itemAt imgW k)
+                hoverH = (itemAt imgH k)
+            }
+            this.rebuild()
+        }
     }
 
     fn docRow:EVGElement (d:VlJson) {
@@ -656,6 +817,20 @@ class PresPanels {
                 }
                 push requests ("files:" + action + ":" + what)
                 return
+            }
+        }
+        ; a picture's row, not one of its buttons: the image editor
+        if ((strlen c) == 0) {
+            def k:int (this.imgRowAt(px py))
+            if (k >= 0) {
+                def path:string (itemAt imgPaths k)
+                if (PresPanels.editable(path)) {
+                    filesHover = ""
+                    filesArmed = ""
+                    push requests ("files:imgedit:" + path)
+                    this.rebuild()
+                    return
+                }
             }
         }
         if (filesArmed != "") {
@@ -735,6 +910,34 @@ class PresPanels {
         def foot:EVGElement (this.div("pn-dfoot"))
         foot.addChild((this.div("pn-grow")))
         this.button("pn-open-close" (PresI18n.t("Close")) "secondary" foot)
+        d.addChild(foot)
+        return d
+    }
+
+    ; --- the settings dialog -------------------------------------------------------------
+    fn settingsDialog:EVGElement () {
+        def d:EVGElement (this.div("pn-dialog"))
+        d.id = "pn-dialog"
+        UiTree.surface(d "free" "start")
+        d.overlayX = ((w - 520.0) * 0.5)
+        d.overlayY = ((h - 300.0) * 0.5)
+        d.addChild((this.words("pn-dtitle" (PresI18n.t("Settings")))))
+        def o:EVGElement (this.div("pn-opt"))
+        o.addChild((this.words("pn-otitle" (PresI18n.t("Automatic contrast correction")))))
+        o.addChild((this.words("pn-odesc" (PresI18n.t("Text too faint on its slide is made readable: small text gets a lighter or darker colour, big text a thin outline. Your own colours stay as they are wherever they already read well.")))))
+        def r:EVGElement (this.div("pn-orow"))
+        def label:string (PresI18n.t("On"))
+        def variant:string "primary"
+        if (autoContrast == false) {
+            label = (PresI18n.t("Off"))
+            variant = "secondary"
+        }
+        this.button("pn-set-contrast" label variant r)
+        o.addChild(r)
+        d.addChild(o)
+        def foot:EVGElement (this.div("pn-dfoot"))
+        foot.addChild((this.div("pn-grow")))
+        this.button("pn-set-close" (PresI18n.t("Close")) "secondary" foot)
         d.addChild(foot)
         return d
     }
@@ -1211,6 +1414,19 @@ class PresPanels {
             this.dataPress(px py)
             return
         }
+        if ((shareOpen && (quiet == false)) && (dialogKind == "settings")) {
+            def sc:string (this.ownerAt(px py))
+            if (sc == "pn-set-contrast") {
+                autoContrast = (autoContrast == false)
+                push requests ("setting:contrast:" + (? autoContrast "on" "off"))
+                this.rebuild()
+                return
+            }
+            if ((sc == "pn-set-close") || ((this.inEl("pn-dialog" px py)) == false)) {
+                this.closeShare()
+            }
+            return
+        }
         if ((shareOpen && (quiet == false)) && (dialogKind == "open")) {
             def oc:string (this.ownerAt(px py))
             if (oc == "pn-open-file") {
@@ -1282,6 +1498,10 @@ class PresPanels {
         if (null? host.lastPage) {
             return
         }
+        this.filesHoverAt(px py)
+        if (null? host.lastPage) {
+            return
+        }
         def tid:string ""
         if (this.has(px py)) {
             tid = (host.hitTest(px py))
@@ -1305,6 +1525,9 @@ class PresPanels {
         }
         def tid:string (host.hitTest(px py))
         if ((strlen tid) == 0) {
+            if ((this.imgRowAt(px py)) >= 0) {
+                return "pointer"
+            }
             return "default"
         }
         if ((indexOf tid "pn-url-") == 0) {

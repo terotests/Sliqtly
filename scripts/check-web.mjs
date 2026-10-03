@@ -539,7 +539,7 @@ try {
     const rel = (src.match(/\]\((media\/liitetty-[^)]+)\)/) || [])[1] || "";
     const bmp = rel ? await window.__pictureSize("/" + rel) : [0, 0];
     return {
-      dialog, shown: !!shown, before, plan,
+      dialog, shown: !!shown, before, plan, rel,
       md: !!rel,
       image: stage.list.cmds.some((c) => c.k === 2 && String(c.src || "").includes("media/liitetty-")),
       size: bmp,
@@ -563,6 +563,55 @@ try {
   });
   check("a picture placed as the slide's background goes on its heading", /\bbg=media\/tausta\.png\b/.test(bg), bg);
   await shot("3-picture.png");
+
+  // The files tab: the picture's row shows it on hover, and a click opens
+  // the image editor, whose Save writes the adjusted picture over the file.
+  const ed = await page.evaluate(async (rel) => {
+    const a = window.__app;
+    a.showTab("files");
+    window.__handleRequests();
+    const name = rel.split("/").pop();
+    let row = null;
+    for (let i = 0; i < 40 && !row; i += 1) {
+      await new Promise((res) => setTimeout(res, 100));
+      const pj = a.panelsJson();
+      row = pj ? JSON.parse(pj).list.cmds.find((c) => c.k === 3 && c.text === name) : null;
+    }
+    if (!row) return { row: false };
+    a.pointerMove(row.x + 4, row.y + 4);
+    const cmds = JSON.parse(a.panelsJson()).list.cmds;
+    const hover = cmds.some((c) => c.k === 2 && c.src === "/" + rel);
+    const before = window.__picturePixel("/" + rel, 2, 2);
+    a.pointerDown(row.x + 4, row.y + 4, false, 1);
+    a.pointerUp();
+    window.__handleRequests();
+    for (let i = 0; i < 40 && !a.chartIsOpen(); i += 1) {
+      await new Promise((res) => setTimeout(res, 100));
+      window.__handleRequests();
+    }
+    const open = a.chartIsOpen();
+    const win = open ? JSON.parse(a.chartJson()) : null;
+    const shown = !!(win && win.list.cmds.find((c) => c.k === 2 && String(c.src || "").startsWith("/__adjust/")));
+    // darker and greyer, as the sliders would set it
+    a.chart.adjBright = -50;
+    a.chart.adjSat = -100;
+    a.chart.adjDirty = true;
+    const plan = JSON.parse(a.adjustPlan());
+    a.key("enter", false, false);
+    window.__handleRequests();
+    let after = before;
+    for (let i = 0; i < 60; i += 1) {
+      await new Promise((res) => setTimeout(res, 100));
+      after = window.__picturePixel("/" + rel, 2, 2);
+      if (after.join() !== before.join()) break;
+    }
+    a.showTab("md");
+    return { row: true, hover, open, shown, plan, before, after, closed: !a.chartIsOpen() };
+  }, pic.rel);
+  check("a picture in the files tab shows a preview on hover", ed.row && ed.hover, JSON.stringify(ed));
+  check("…a click opens the image editor with the picture in it", ed.open && ed.shown, JSON.stringify(ed));
+  const grey = ed.after && Math.abs(ed.after[0] - ed.after[1]) < 4 && Math.abs(ed.after[1] - ed.after[2]) < 4;
+  check("…and Save writes the adjusted picture over the file", ed.closed && grey && ed.after[0] < ed.before[0], JSON.stringify({ before: ed.before, after: ed.after, plan: ed.plan }));
 
   // TeX math: $…$ in a line and a $$ display are drawn as filled outlines
   const math = await page.evaluate(() => {
@@ -879,7 +928,7 @@ try {
     });
     check("…over the Files tab the File menu is on top, and its row takes the press", onFiles.onTop && onFiles.underPanel && onFiles.reqs.includes("click:save") && onFiles.closed, JSON.stringify(onFiles));
 
-    // the File menu's groups: new | open | save | the assistants, lines between them
+    // the File menu's groups: new | open | save | the assistants | settings, lines between them
     // that take no press
     const seps = await page.evaluate(() => {
       const a = window.__app;
@@ -888,8 +937,8 @@ try {
       const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY, false, 1); a.pointerUp(); };
       press(find("tb-m-file-trigger"));
       const lines = all();
-      const ys = ["new", "openbox", "save", "aiClaude", "deleteDeck"].map((id) => find("tb-m-file-item-" + id).calculatedY);
-      const between = lines.length === 4 && lines.every((l, i) => l.calculatedY > ys[i] && l.calculatedY < ys[i + 1] && l.calculatedHeight === 1);
+      const ys = ["new", "openbox", "save", "aiClaude", "settings", "deleteDeck"].map((id) => find("tb-m-file-item-" + id).calculatedY);
+      const between = lines.length === 5 && lines.every((l, i) => l.calculatedY > ys[i] && l.calculatedY < ys[i + 1] && l.calculatedHeight === 1);
       for (;;) { if (!a.takeRequest()) break; }
       press(lines[0]);
       const reqs = [];
@@ -898,7 +947,7 @@ try {
       a.key("escape", false, false);
       return { n: lines.length, between, reqs, stillOpen };
     });
-    check("…the File menu is grouped by four lines, and a line takes no press", seps.between && seps.reqs.length === 0 && seps.stillOpen, JSON.stringify(seps));
+    check("…the File menu is grouped by five lines, and a line takes no press", seps.between && seps.reqs.length === 0 && seps.stillOpen, JSON.stringify(seps));
 
     // File → Export: Markdown, PowerPoint, PDF and a zip of every file; File →
     // Delete presentation… is red, last, and asks in the app's window first
@@ -1526,6 +1575,46 @@ try {
     await page.evaluate((s) => window.__app.setSource(s), src0);
     check("a pasted sheet link asks first, then opens Link live data before anything is pasted", res.dialog.asked && res.dialog.open && res.dialog.live && res.dialog.rows === 4 && !res.dialog.pasted, JSON.stringify(res.dialog));
     check("…and makes a chart that reads the sheet (no copied values), drawn", res.fence && res.bars === 3, JSON.stringify(res));
+  }
+  // …or a table that reads the sheet live, paged on its slide
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    let body = '"Kuukausi","Km"\n' + Array.from({ length: 12 }, (_, i) => `"K${i}","${100 + i}"`).join("\n") + "\n";
+    const route = (r) => r.fulfill({ status: 200, contentType: "text/csv", headers: { "access-control-allow-origin": "*" }, body });
+    await page.context().route(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    const link = "https://docs.google.com/spreadsheets/d/SHEET3/edit?gid=0#gid=0";
+    const texts = () => page.evaluate(() => { const a = window.__app; const u = a.deck.tables[0]; if (!u) return null; a.selectSlide(u.slide); return { pages: u.pages(), t: JSON.parse(a.stageJson()).list.cmds.filter((c) => c.k === 3).map((c) => c.text) }; });
+    const made = await page.evaluate(async (link) => {
+      const a = window.__app;
+      a.setSource("# D\n\n## Km\n\n");
+      a.showTab("md");
+      a.editor.moveCaret(4, 0, false);
+      const keys = document.getElementById("keys");
+      keys.focus();
+      const dt = new DataTransfer();
+      dt.setData("text/plain", link);
+      keys.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+      let card = null;
+      for (let i = 0; i < 50 && !(card = document.querySelector("#gLink button.primary")); i += 1) await new Promise((r) => setTimeout(r, 100));
+      if (card) card.click();
+      for (let i = 0; i < 50 && !(a.shareIsOpen() && a.panels.imp && a.panels.imp.rows === 12); i += 1) await new Promise((r) => setTimeout(r, 100));
+      a.panels.requests.push("data:table");
+      a.takePanels();
+      window.__handleRequests && window.__handleRequests();
+      await new Promise((r) => setTimeout(r, 800));
+      return a.source();
+    }, link);
+    const first = await texts();
+    // the sheet changes: R reads it again and the table follows
+    body = '"Kuukausi","Km"\n"Uusi","7"\n';
+    await page.evaluate(() => document.getElementById("vData").click());
+    let second = null;
+    for (let i = 0; i < 30; i++) { await page.waitForTimeout(100); second = await texts(); if (second && second.t.includes("Uusi")) break; }
+    await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    const res = { fence: /```table\nhttps:\/\/docs\.google\.com\/spreadsheets\/d\/SHEET3/.test(made), copied: /data\/[^\n]*\.csv/.test(made.split("```table")[1] || ""), first: first && { pages: first.pages, k0: first.t.includes("K0"), k11: first.t.includes("K11") }, refreshed: !!second && second.t.includes("Uusi") };
+    check("…or makes a table that reads the sheet live, paged on its slide", res.fence && !res.copied && res.first && res.first.pages === 2 && res.first.k0 && !res.first.k11, JSON.stringify(res));
+    check("…and a re-read sheet redraws the table", res.refreshed, JSON.stringify(res));
   }
   // …and "Paste as text" on that question only pastes the link
   {
