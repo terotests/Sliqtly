@@ -647,5 +647,18 @@
   "On the slide it has an outline.": "Dialla sillä on ääriviiva.",
   "all text has enough contrast.": "kaikella tekstillä on riittävä kontrasti.",
   " text runs with low contrast, the lowest ": " tekstiä liian matalalla kontrastilla, heikoin ",
-  "The slide corrects them (File → Settings), but a darker or lighter picture reads better.": "Dia korjaa ne (Tiedosto → Asetukset), mutta tummempi tai vaaleampi kuva luetaan paremmin."
+  "The slide corrects them (File → Settings), but a darker or lighter picture reads better.": "Dia korjaa ne (Tiedosto → Asetukset), mutta tummempi tai vaaleampi kuva luetaan paremmin.",
+  "Edit content": "Muokkaa sisältöä",
+  "Style": "Tyyli",
+  "list item": "listan kohta",
+  "list": "lista",
+  "paragraph": "kappale",
+  "quote": "lainaus",
+  "code": "koodi",
+  "picture": "kuva",
+  "chart": "kaavio",
+  "diagram": "diagrammi",
+  "table": "taulukko",
+  "slide": "dia",
+  "heading": "otsikko"
 }

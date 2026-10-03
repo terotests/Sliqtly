@@ -75,3 +75,22 @@
 .ui-tab { color: #71717a; font-size: 13px; font-weight: 500; height: 24px; line-height: 24px; padding: 0 12px; border-radius: 6px; border: 1px solid #f4f4f5; background-color: #f4f4f5; cursor: pointer; }
 .ui-tab-state-active { background-color: #ffffff; color: #09090b; border-color: #e4e4e7; shadow-color: rgba(0, 0, 0, 0.10); shadow-radius: 3px; shadow-offset-y: 1px; }
 .ui-tabpanel { display: none; }
+
+/* --- the element picked on the slide (src/PresSelect.rgr) -------------------
+   The outline, its corner handles and a badge in the editor's blue; the
+   theme's spacing as bands: blue where the theme sets it, grey where it is
+   the default. */
+.pick-layer { background-color: rgba(0, 0, 0, 0); }
+.sel-hover { border: 1px solid #93c5fd; border-radius: 2px; }
+.sel-box { border: 2px solid #3b82f6; border-radius: 2px; }
+.sel-handle { background-color: #ffffff; border: 1.5px solid #3b82f6; }
+.sel-badge { background-color: #3b82f6; color: #ffffff; font-size: 11px; font-weight: 600; text-align: center; border-radius: 4px; }
+.sel-btn { background-color: #ffffff; color: #1d4ed8; font-size: 12px; font-weight: 600; text-align: center; border: 1px solid #93c5fd; border-radius: 6px; shadow-color: rgba(0, 0, 0, 0.14); shadow-radius: 6px; shadow-offset-y: 2px; cursor: pointer; }
+.sel-btn-hot { background-color: #3b82f6; color: #ffffff; border: 1px solid #3b82f6; }
+.sel-band { cursor: pointer; }
+.sel-band-set { background-color: rgba(59, 130, 246, 0.32); }
+.sel-band-unset { background-color: rgba(161, 161, 170, 0.32); }
+.sel-band-hot { background-color: rgba(59, 130, 246, 0.5); border: 1px solid #3b82f6; }
+.sel-bline-set { background-color: #3b82f6; }
+.sel-bline-unset { background-color: #a1a1aa; }
+.sel-blabel { color: #ffffff; font-size: 10px; font-weight: 600; text-align: center; border-radius: 3px; }

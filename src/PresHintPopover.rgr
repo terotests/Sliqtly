@@ -495,9 +495,20 @@ class PresHintPopover {
         while (i < (props.count())) {
             def p:VlJson (props.at(i))
             def pv:string (p.stringOr("value" ""))
+            ; set ones blue, the ones that can be added grey; a property of
+            ; another rule (the stage's style panel merges a few) says whose
+            def psel:string (p.stringOr("sel" ""))
+            def pn:string (p.stringOr("name" ""))
+            if (((strlen psel) > 0) && (psel != (rule.stringOr("sel" name)))) {
+                pn = (psel + " › " + pn)
+            }
             def row:EVGElement (this.div("hp-prop"))
             row.id = ("hp-prop-" + (to_string i))
-            row.addChild((this.words("hp-pname" (p.stringOr("name" "")))))
+            def pcls:string "hp-pname hp-pname-unset"
+            if ((strlen pv) > 0) {
+                pcls = "hp-pname hp-pname-set"
+            }
+            row.addChild((this.words(pcls pn)))
             row.addChild((this.div("hp-grow")))
             if ((strlen pv) > 0) {
                 if (PresHintPopover.isHex(pv)) {
@@ -687,7 +698,7 @@ class PresHintPopover {
         if ((strlen row) > 0) {
             def idx:int (?? (str2int (substring row 8 (strlen row))) -1)
             def p:VlJson ((rule.get("props")).at(idx))
-            wantsProp = ((rule.stringOr("sel" name)) + (strfromcode 9) + (p.stringOr("name" "")) + (strfromcode 9) + (p.stringOr("def" "")))
+            wantsProp = ((p.stringOr("sel" (rule.stringOr("sel" name)))) + (strfromcode 9) + (p.stringOr("name" "")) + (strfromcode 9) + (p.stringOr("def" "")))
             return
         }
         def tid:string (host.hitTest(px py))
