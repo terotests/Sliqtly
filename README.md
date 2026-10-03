@@ -105,8 +105,10 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   stops at its lower end when spent and runs on when another drop runs down
   the line into it; a line empties from its top down into the drop at its
   foot, which then runs on. What lands is mostly very fine and dries away,
-  smallest first, leaving a haze of specks that running drops wipe up
-  (`fx-spread`, `fx-dry`). The letters are in the way, by their own shapes:
+  smallest first, leaving a matte haze of specks that running drops wipe up
+  (`fx-spread`, `fx-dry`); drops a few pixels across do not glint (`fx-matte`).
+  No drop grows past a maximum size, however many it takes in, and one heavy
+  enough to run goes at once. The letters are in the way, by their own shapes:
   a drop goes round them, and held up long enough its water seeps through a
   letter and runs on below it (`fx-text=0` lets the rain fall over the text).
   `bubbles` is the round-drop effect that was called `raindrop`, and
