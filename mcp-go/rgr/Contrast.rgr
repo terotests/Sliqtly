@@ -1,0 +1,647 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Text that does not stand out from what is under it, judged the way the
+; editor's painter judges it (Ranger lib/evg/gl/evg-webgl.js, contrastHalo):
+; what each run of text is drawn OVER, the pictures and fills painted before
+; it composited at a grid of points across the run, against the WCAG ratio
+; (4.5:1, or 3:1 for large text), a quarter of the points allowed to fall
+; short. The editor repairs such a run on screen; here the model is told, so
+; the deck itself can be fixed.
+
+Import "../presentation/PresDeck.rgr"
+
+; a picture as the painter samples it: its pixels reduced to a GRID x GRID
+; grid of RGBA (0..255), and its size
+class CheckPic {
+    def name:string ""
+    def w:int 0
+    def h:int 0
+    ; GRID * GRID * 4 values; empty when the picture did not decode
+    def grid:[int]
+}
+
+; something painted, as far as the judge needs to know
+class Painted {
+    ; 0 a fill, 1 a picture, 2 something whose colour is not known here
+    ; (an effect, a vector shape, a picture that did not decode)
+    def t:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def r:double 0.0
+    def g:double 0.0
+    def b:double 0.0
+    def a:double 1.0
+    def hasGrad:boolean false
+    def gradDir:int 0
+    def r2:double 0.0
+    def g2:double 0.0
+    def b2:double 0.0
+    def a2:double 1.0
+    def u0:double 0.0
+    def v0:double 0.0
+    def u1:double 1.0
+    def v1:double 1.0
+    def grid:[int]
+}
+
+; one run of text that falls short
+class LowRun {
+    ; false: the run reads
+    def low:boolean false
+    def text:string ""
+    def ratio:double 0.0
+    def need:double 4.5
+    ; the run's colour made readable over what is under it
+    def fixR:int 0
+    def fixG:int 0
+    def fixB:int 0
+}
+
+class Contrast {
+    sfn GRID:int () {
+        return 48
+    }
+
+    ; WCAG relative luminance of a colour, channels 0..255
+    sfn lum:double (r:double g:double b:double) {
+        return (((0.2126 * (MdLayout.channel(r))) + (0.7152 * (MdLayout.channel(g)))) + (0.0722 * (MdLayout.channel(b))))
+    }
+
+    sfn ratioOf:double (l1:double l2:double) {
+        if (l1 > l2) {
+            return ((l1 + 0.05) / (l2 + 0.05))
+        }
+        return ((l2 + 0.05) / (l1 + 0.05))
+    }
+
+    ; what a picture or fill painted at `c` adds to the list
+    sfn paintedOf:Painted (c:EVGDrawCmd pics:[CheckPic]) {
+        def p (new Painted())
+        p.t = -1
+        if (c.rotate != 0.0) {
+            return p
+        }
+        p.x = c.x
+        p.y = c.y
+        p.w = c.w
+        p.h = c.h
+        if (c.kind == 0) {
+            if ((strlen c.effectId) > 0) {
+                p.t = 2
+                return p
+            }
+            p.t = 0
+            p.r = (to_double c.r)
+            p.g = (to_double c.g)
+            p.b = (to_double c.b)
+            p.a = c.a
+            if c.hasGrad {
+                p.hasGrad = true
+                p.gradDir = c.gradDir
+                p.r2 = (to_double c.r2)
+                p.g2 = (to_double c.g2)
+                p.b2 = (to_double c.b2)
+                p.a2 = c.a2
+            }
+            return p
+        }
+        if (c.kind == 2) {
+            p.t = 2
+            for pics pic:CheckPic i {
+                if ((pic.name == c.src) && ((array_length pic.grid) > 0)) {
+                    p.t = 1
+                    p.grid = pic.grid
+                    if c.hasCrop {
+                        p.u0 = c.cropX
+                        p.v0 = c.cropY
+                        p.u1 = (c.cropX + c.cropW)
+                        p.v1 = (c.cropY + c.cropH)
+                    } {
+                        Contrast.cover(p (to_double pic.w) (to_double pic.h))
+                    }
+                }
+            }
+            return p
+        }
+        if ((c.kind == 6) && ((array_length c.pts) >= 2)) {
+            ; a vector shape: its box is not its ink, so what is in the box
+            ; is not known
+            p.t = 2
+            def x0:double (itemAt c.pts 0)
+            def y0:double (itemAt c.pts 1)
+            def x1:double x0
+            def y1:double y0
+            def k:int 0
+            while ((k + 1) < (array_length c.pts)) {
+                def px:double (itemAt c.pts k)
+                def py:double (itemAt c.pts (k + 1))
+                if (px < x0) {
+                    x0 = px
+                }
+                if (px > x1) {
+                    x1 = px
+                }
+                if (py < y0) {
+                    y0 = py
+                }
+                if (py > y1) {
+                    y1 = py
+                }
+                k = (k + 2)
+            }
+            p.x = x0
+            p.y = y0
+            p.w = (x1 - x0)
+            p.h = (y1 - y0)
+            return p
+        }
+        return p
+    }
+
+    ; object-fit: cover, as the painter's coverUV
+    sfn cover:void (p:Painted sw:double sh:double) {
+        if ((((sw <= 0.0) || (sh <= 0.0)) || (p.w <= 0.0)) || (p.h <= 0.0)) {
+            return
+        }
+        def src:double (sw / sh)
+        def box:double (p.w / p.h)
+        if (src > box) {
+            def f:double (box / src)
+            p.u0 = ((1.0 - f) / 2.0)
+            p.u1 = (1.0 - ((1.0 - f) / 2.0))
+            return
+        }
+        def f2:double (src / box)
+        p.v0 = ((1.0 - f2) / 2.0)
+        p.v1 = (1.0 - ((1.0 - f2) / 2.0))
+    }
+
+    ; the colour at (px, py) under everything painted so far; empty when it
+    ; is not known
+    sfn backdropAt:[double] (painted:[Painted] px:double py:double) {
+        def col:[double]
+        def known:boolean false
+        def cr:double 0.0
+        def cg:double 0.0
+        def cb:double 0.0
+        def n:int (Contrast.GRID())
+        for painted e:Painted i {
+            if ((((px < e.x) || (py < e.y)) || (px > (e.x + e.w))) || (py > (e.y + e.h))) {
+                continue
+            }
+            if (e.t == 1) {
+                def tx:double ((px - e.x) / e.w)
+                def ty:double ((py - e.y) / e.h)
+                def u:double (e.u0 + ((e.u1 - e.u0) * tx))
+                def v:double (e.v0 + ((e.v1 - e.v0) * ty))
+                if ((((u < 0.0) || (v < 0.0)) || (u > 1.0)) || (v > 1.0)) {
+                    continue
+                }
+                def gx:int (floor (u * (to_double n)))
+                def gy:int (floor (v * (to_double n)))
+                if (gx > (n - 1)) {
+                    gx = (n - 1)
+                }
+                if (gy > (n - 1)) {
+                    gy = (n - 1)
+                }
+                def at:int (((gy * n) + gx) * 4)
+                def pa:double ((to_double (itemAt e.grid (at + 3))) / 255.0)
+                if (known == false) {
+                    cr = 255.0
+                    cg = 255.0
+                    cb = 255.0
+                }
+                cr = ((cr * (1.0 - pa)) + ((to_double (itemAt e.grid at)) * pa))
+                cg = ((cg * (1.0 - pa)) + ((to_double (itemAt e.grid (at + 1))) * pa))
+                cb = ((cb * (1.0 - pa)) + ((to_double (itemAt e.grid (at + 2))) * pa))
+                known = true
+                continue
+            }
+            if (e.t == 0) {
+                def fr:double e.r
+                def fg:double e.g
+                def fb:double e.b
+                def fa:double e.a
+                if e.hasGrad {
+                    def f:double ((py - e.y) / e.h)
+                    if (e.gradDir == 1) {
+                        f = ((px - e.x) / e.w)
+                    }
+                    if (f < 0.0) {
+                        f = 0.0
+                    }
+                    if (f > 1.0) {
+                        f = 1.0
+                    }
+                    fr = ((e.r * (1.0 - f)) + (e.r2 * f))
+                    fg = ((e.g * (1.0 - f)) + (e.g2 * f))
+                    fb = ((e.b * (1.0 - f)) + (e.b2 * f))
+                    fa = ((e.a * (1.0 - f)) + (e.a2 * f))
+                }
+                if (fa >= 0.99) {
+                    cr = fr
+                    cg = fg
+                    cb = fb
+                    known = true
+                    continue
+                }
+                if (known == false) {
+                    continue
+                }
+                cr = ((cr * (1.0 - fa)) + (fr * fa))
+                cg = ((cg * (1.0 - fa)) + (fg * fa))
+                cb = ((cb * (1.0 - fa)) + (fb * fa))
+                continue
+            }
+            known = false
+        }
+        if known {
+            push col cr
+            push col cg
+            push col cb
+        }
+        return col
+    }
+
+    ; large text in WCAG's sense: 24px, or 18.66px bold
+    sfn isLarge:boolean (c:EVGDrawCmd) {
+        def w:string (to_lowercase (c.fontWeight + " " + c.fontFamily))
+        def bold:boolean ((((indexOf w "bold") >= 0) || ((indexOf w "700") >= 0)) || ((indexOf w "800") >= 0))
+        return ((c.fontSize >= 24.0) || ((c.fontSize >= 18.66) && bold))
+    }
+
+    ; a list's number ("1.", "b)") is drawn in the theme's muted colour on
+    ; purpose and read with the line beside it: not judged on its own
+    sfn marker:boolean (text:string) {
+        def t:string (trim text)
+        def n:int (strlen t)
+        if ((n < 2) || (n > 4)) {
+            return false
+        }
+        def last:int (charAt t (n - 1))
+        return ((last == 46) || (last == 41))
+    }
+
+    sfn readable:boolean (text:string) {
+        if (Contrast.marker(text)) {
+            return false
+        }
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def ch:int (charAt text i)
+            if ((((ch >= 48) && (ch <= 57)) || ((ch >= 65) && (ch <= 90))) || (((ch >= 97) && (ch <= 122)) || (ch >= 192))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; the run at `c` judged over `painted`; `low` false when it reads (or
+    ; cannot be judged)
+    sfn judge:LowRun (c:EVGDrawCmd painted:[Painted]) {
+        def low (new LowRun())
+        if ((c.fontSize <= 0.0) || ((Contrast.readable(c.text)) == false)) {
+            return low
+        }
+        def lineH:double c.h
+        if (lineH <= 0.0) {
+            lineH = (c.fontSize * 1.2)
+        }
+        def inkW:double c.w
+        if (inkW < 1.0) {
+            inkW = 1.0
+        }
+        def ta:double c.a
+        def tr:double (to_double c.r)
+        def tg:double (to_double c.g)
+        def tb:double (to_double c.b)
+        def lt:double (Contrast.lum(tr tg tb))
+        def ratios:[double]
+        def lbs:[double]
+        def j:int 0
+        while (j < 3) {
+            def py:double (c.y + (lineH * (0.3 + (0.2 * (to_double j)))))
+            def i:int 0
+            while (i < 9) {
+                def px:double (c.x + (inkW * (((to_double i) + 0.5) / 9.0)))
+                def bg:[double] (Contrast.backdropAt(painted px py))
+                if ((array_length bg) == 3) {
+                    def br:double (itemAt bg 0)
+                    def bgg:double (itemAt bg 1)
+                    def bb:double (itemAt bg 2)
+                    def lb:double (Contrast.lum(br bgg bb))
+                    def li:double lt
+                    if (ta < 0.99) {
+                        li = (Contrast.lum(((tr * ta) + (br * (1.0 - ta))) ((tg * ta) + (bgg * (1.0 - ta))) ((tb * ta) + (bb * (1.0 - ta)))))
+                    }
+                    push ratios (Contrast.ratioOf(li lb))
+                    push lbs lb
+                }
+                i = (i + 1)
+            }
+            j = (j + 1)
+        }
+        ; fewer than a third of the points on a known backdrop: the run is
+        ; mostly on something this cannot judge
+        if ((array_length ratios) < 9) {
+            return low
+        }
+        def sr:[double] (Contrast.sorted(ratios))
+        def need:double 4.5
+        if (Contrast.isLarge(c)) {
+            need = 3.0
+        }
+        def at:double (itemAt sr (floor ((to_double (array_length sr)) * 0.25)))
+        if (at >= need) {
+            return low
+        }
+        low.low = true
+        low.text = c.text
+        low.ratio = at
+        low.need = need
+        def fix:[int] (Contrast.readableColour(tr tg tb (Contrast.sorted(lbs)) need))
+        low.fixR = (itemAt fix 0)
+        low.fixG = (itemAt fix 1)
+        low.fixB = (itemAt fix 2)
+        return low
+    }
+
+    sfn sorted:[double] (list:[double]) {
+        def out:[double]
+        for list v:double i {
+            push out v
+        }
+        def n:int (array_length out)
+        def a:int 1
+        while (a < n) {
+            def v2:double (itemAt out a)
+            def b:int (a - 1)
+            while ((b >= 0) && ((itemAt out b) > v2)) {
+                set out (b + 1) (itemAt out b)
+                b = (b - 1)
+            }
+            set out (b + 1) v2
+            a = (a + 1)
+        }
+        return out
+    }
+
+    sfn mixTowards:[int] (r:double g:double b:double up:boolean t:double) {
+        def out:[int]
+        if up {
+            push out (floor ((r + ((255.0 - r) * t)) + 0.5))
+            push out (floor ((g + ((255.0 - g) * t)) + 0.5))
+            push out (floor ((b + ((255.0 - b) * t)) + 0.5))
+            return out
+        }
+        push out (floor ((r * (1.0 - t)) + 0.5))
+        push out (floor ((g * (1.0 - t)) + 0.5))
+        push out (floor ((b * (1.0 - t)) + 0.5))
+        return out
+    }
+
+    ; the colour nearest the run's own that reads (the painter's
+    ; readableColour): lightened or darkened, whichever is the smaller step,
+    ; else white or black
+    sfn readableColour:[int] (r:double g:double b:double lbs:[double] need:double) {
+        def n:int (array_length lbs)
+        def lo:double (itemAt lbs (floor ((to_double (n - 1)) * 0.25)))
+        def hiAt:int (floor (((to_double (n - 1)) * 0.75) + 0.999))
+        if (hiAt > (n - 1)) {
+            hiAt = (n - 1)
+        }
+        def hi:double (itemAt lbs hiAt)
+        def goal:double (need * 1.05)
+        if (goal < 4.725) {
+            goal = 4.725
+        }
+        def upL:double ((goal * (hi + 0.05)) - 0.05)
+        def downL:double (((lo + 0.05) / goal) - 0.05)
+        def lt:double (Contrast.lum(r g b))
+        def canUp:boolean (upL <= 1.0)
+        def canDown:boolean (downL >= 0.0)
+        def up:boolean false
+        if (canUp && canDown) {
+            up = ((upL - lt) <= (lt - downL))
+        } {
+            if (canUp || canDown) {
+                up = canUp
+            } {
+                def white:[int] ([] _:int (255 255 255))
+                def black:[int] ([] _:int (0 0 0))
+                if ((Contrast.ratioOf(1.0 hi)) >= (Contrast.ratioOf(0.0 lo))) {
+                    return white
+                }
+                return black
+            }
+        }
+        def a:double 0.0
+        def z:double 1.0
+        def k:int 0
+        while (k < 14) {
+            def m:double ((a + z) / 2.0)
+            def mc:[int] (Contrast.mixTowards(r g b up m))
+            def ml:double (Contrast.lum((to_double (itemAt mc 0)) (to_double (itemAt mc 1)) (to_double (itemAt mc 2))))
+            def ok:boolean (ml <= downL)
+            if up {
+                ok = (ml >= upL)
+            }
+            if ok {
+                z = m
+            } {
+                a = m
+            }
+            k = (k + 1)
+        }
+        return (Contrast.mixTowards(r g b up z))
+    }
+
+    ; the runs of a slide's list that fall short. dim >= 0 stands in for the
+    ; slide's bg-dim: the fill of the paper's colour over its background
+    ; picture (`bgSrc`) gets that opacity, or is added when there is none.
+    ; skip: the notes of blocks that were not drawn, which stand in their
+    ; place and are not the author's text
+    sfn lowRuns:[LowRun] (list:EVGDisplayList pics:[CheckPic] bgSrc:string dim:double skip:[string]) {
+        def out:[LowRun]
+        def painted:[Painted]
+        def paperR:double 255.0
+        def paperG:double 255.0
+        def paperB:double 255.0
+        def n:int (array_length list.cmds)
+        if (n > 0) {
+            def first:EVGDrawCmd (itemAt list.cmds 0)
+            if (first.kind == 0) {
+                paperR = (to_double first.r)
+                paperG = (to_double first.g)
+                paperB = (to_double first.b)
+            }
+        }
+        def i:int 0
+        while (i < n) {
+            def c:EVGDrawCmd (itemAt list.cmds i)
+            if (c.kind == 3) {
+                def placeholder:boolean false
+                def own:string (trim c.text)
+                for skip note:string si {
+                    if ((indexOf note own) >= 0) {
+                        placeholder = true
+                    }
+                }
+                if (((array_length painted) > 0) && (placeholder == false)) {
+                    def low:LowRun (Contrast.judge(c painted))
+                    if low.low {
+                        push out low
+                    }
+                }
+                i = (i + 1)
+                continue
+            }
+            def p:Painted (Contrast.paintedOf(c pics))
+            if (p.t >= 0) {
+                push painted p
+            }
+            if ((((dim >= 0.0) && (c.kind == 2)) && ((strlen bgSrc) > 0)) && (c.src == bgSrc)) {
+                def dimRect (new Painted())
+                dimRect.x = c.x
+                dimRect.y = c.y
+                dimRect.w = c.w
+                dimRect.h = c.h
+                dimRect.r = paperR
+                dimRect.g = paperG
+                dimRect.b = paperB
+                dimRect.a = dim
+                push painted dimRect
+                ; the slide's own dim, which this one replaces
+                if ((i + 1) < n) {
+                    def next:EVGDrawCmd (itemAt list.cmds (i + 1))
+                    if ((next.kind == 0) && ((next.a < 1.0) && ((strlen next.effectId) == 0))) {
+                        if ((next.w == c.w) && (next.h == c.h)) {
+                            i = (i + 1)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; "1.9" for 1.94
+    sfn one:string (v:double) {
+        def t:int (floor ((v * 10.0) + 0.5))
+        return ((to_string (idiv t 10)) + "." + (to_string (t % 10)))
+    }
+
+    sfn hex2:string (v:int) {
+        def digits:string "0123456789abcdef"
+        def x:int v
+        if (x < 0) {
+            x = 0
+        }
+        if (x > 255) {
+            x = 255
+        }
+        return ((substring digits (idiv x 16) ((idiv x 16) + 1)) + (substring digits (x % 16) ((x % 16) + 1)))
+    }
+
+    sfn hex:string (r:int g:int b:int) {
+        return ("#" + (Contrast.hex2(r)) + (Contrast.hex2(g)) + (Contrast.hex2(b)))
+    }
+
+    sfn quote:string (text:string) {
+        def t:string (trim text)
+        if ((strlen t) > 40) {
+            t = ((trim (substring t 0 38)) + "…")
+        }
+        return ("\"" + t + "\"")
+    }
+
+    ; the note for one slide: its runs that fall short, the worst first, and
+    ; what would fix them
+    sfn note:string (title:string page:int low:[LowRun] hasBg:boolean dimFix:double) {
+        def where:string ("Slide " + (to_string (page + 1)))
+        if ((strlen title) > 0) {
+            where = ("Slide \"" + title + "\"")
+        }
+        def worst:[LowRun]
+        def seen:[string]
+        for low r:LowRun i {
+            def key:string (trim r.text)
+            if ((indexOf seen key) >= 0) {
+                continue
+            }
+            push seen key
+            def at:int 0
+            while ((at < (array_length worst)) && (((itemAt worst at).ratio) <= r.ratio)) {
+                at = (at + 1)
+            }
+            insert worst at r
+        }
+        ; a list's number says less than the line after it: words first
+        def words:[LowRun]
+        for worst wr:LowRun wi {
+            if ((strlen (trim wr.text)) >= 4) {
+                push words wr
+            }
+        }
+        for worst mr:LowRun mi {
+            if ((strlen (trim mr.text)) < 4) {
+                push words mr
+            }
+        }
+        worst = words
+        def over:string "the slide's background"
+        if hasBg {
+            over = "the background picture"
+        }
+        def s:string (where + ": text is hard to read over " + over + ": ")
+        def shown:int 0
+        for worst w:LowRun k {
+            if (shown == 3) {
+                break
+            }
+            if (shown > 0) {
+                s = (s + ", ")
+            }
+            s = (s + (Contrast.quote(w.text)) + " " + (Contrast.one(w.ratio)) + ":1 (needs " + (Contrast.one(w.need)) + ":1)")
+            shown = (shown + 1)
+        }
+        def more:int ((array_length worst) - shown)
+        if (more == 1) {
+            s = (s + " and 1 more line")
+        }
+        if (more > 1) {
+            s = (s + " and " + (to_string more) + " more lines")
+        }
+        def first:LowRun (itemAt worst 0)
+        def colour:string (Contrast.hex(first.fixR first.fixG first.fixB))
+        if (dimFix > 0.0) {
+            return (s + ". Fix: a stronger dim, bg-dim=" + (Contrast.two(dimFix)) + " in the slide's heading attributes, or a text colour such as " + colour + " in css.")
+        }
+        if hasBg {
+            return (s + ". Fix: a text colour such as " + colour + " in css, or a calmer picture (bg-dim does not help: it fades towards the slide colour).")
+        }
+        return (s + ". Fix: a text colour such as " + colour + " in css.")
+    }
+
+    ; "0.55"
+    sfn two:string (v:double) {
+        def t:int (floor ((v * 100.0) + 0.5))
+        def c:int (t % 100)
+        if (c == 0) {
+            return ((to_string (idiv t 100)) + ".0")
+        }
+        if ((c % 10) == 0) {
+            return ((to_string (idiv t 100)) + "." + (to_string (idiv c 10)))
+        }
+        if (c < 10) {
+            return ((to_string (idiv t 100)) + ".0" + (to_string c))
+        }
+        return ((to_string (idiv t 100)) + "." + (to_string c))
+    }
+}
