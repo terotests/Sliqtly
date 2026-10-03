@@ -8,8 +8,11 @@ editor. The instructions page for people is [`web/connect.html`](../web/connect.
 
 Remote MCP over Streamable HTTP, stateless (`POST` only; `GET` from a browser
 is sent to the instructions page). Sign-in is optional ([`src/oauth.js`](src/oauth.js)):
-without it everything works as before and decks belong to no one
-(`owner: "mcp"`, changed with the `edit_key`); signed in with the PRO
+without it decks are text only (no `images`, `files` or `write_workbook`),
+belong to no one (`owner: "mcp"`, changed with the `edit_key`) and are
+deleted 30 days after their last change (`expires`, under Firestore's TTL
+policy in [`../firestore.indexes.json`](../firestore.indexes.json); decks
+made before that: [`scripts/expire-anonymous.mjs`](scripts/expire-anonymous.mjs)); signed in with the PRO
 account's Google login, decks are the person's own (`owner: <uid>`), changed
 without a key, and `list_presentations` lists them.
 
@@ -54,8 +57,13 @@ hosts (Claude) and ChatGPT show the presentation inline in the chat, in a
 frame of the share link.
 
 Limits: Markdown 300 KB, CSS 100 KB, 20 pictures of 5 MB per call (PNG, JPEG,
-GIF, WebP, SVG; public `https` URLs or base64), 60 writes per caller per 10
-minutes per instance.
+GIF, WebP, SVG; public `https` URLs or base64; every redirect is checked),
+60 writes per caller per 10 minutes per instance, and per day 50 writes
+without sign-in (per address) or 500 signed in (per user), counted in
+Firestore under `mcp_quota/` ([`src/http.js`](src/http.js) `dailyQuota`).
+20 client registrations per address per 10 minutes. Sign-in records
+(`mcp_oauth_requests`, `_codes`, `_tokens`) carry `expires` too, so the TTL
+policy deletes them once they lapse.
 
 ## Run and test
 

@@ -6,6 +6,7 @@
 import express from "express";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createServer } from "./server.js";
+import { hashKey } from "./store.js";
 
 // Writes per caller: a sliding window, per instance. Enough to stop a loop,
 // not a quota system.
@@ -19,6 +20,28 @@ export function rateLimiter({ max = 60, windowMs = 10 * 60 * 1000 } = {}) {
     hits.set(who, list);
     if (hits.size > 5000) for (const [k, v] of hits) if (!v.some((t) => now - t < windowMs)) hits.delete(k);
     return null;
+  };
+}
+
+// Writes per caller per day, in Firestore so every instance counts the same:
+// mcp_quota/<sha256(who)>-<UTC day>, deleted by the TTL policy on `expires`.
+// The 10-minute limiter above stops a loop; this caps a day.
+export const DAILY = { anonymous: 50, signedIn: 500 };
+
+export function dailyQuota({ db, limits = DAILY, now = () => Date.now() }) {
+  return async (who) => {
+    const t = now();
+    const day = new Date(t).toISOString().slice(0, 10);
+    const max = who.startsWith("uid:") ? limits.signedIn : limits.anonymous;
+    const ref = db.collection("mcp_quota").doc(`${hashKey(who)}-${day}`);
+    const over = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const n = snap.exists ? snap.data().n || 0 : 0;
+      if (n >= max) return true;
+      tx.set(ref, { n: n + 1, expires: new Date(t + 2 * 24 * 60 * 60 * 1000) });
+      return false;
+    });
+    return over ? `The daily limit of ${max} saved changes from here is used up; try again tomorrow${who.startsWith("uid:") ? "" : ", or sign in for a higher limit"}.` : null;
   };
 }
 
@@ -37,6 +60,10 @@ function originOf(req, baseUrl, trustHost) {
   return baseUrl;
 }
 
+function clientIp(req) {
+  return String(req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim();
+}
+
 function cors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "content-type, mcp-session-id, mcp-protocol-version, authorization, last-event-id");
@@ -47,7 +74,8 @@ function cors(res) {
 // The whole server as an Express app: /mcp, and with `oauth` the sign-in
 // endpoints. Cloud Functions hands it the request with its path as Hosting
 // received it.
-export function createApp({ store, baseUrl, fetchImpl, oauth = null, limiter = rateLimiter(), trustHost = false }) {
+// quota: dailyQuota(…) or null; registrations: a limiter for /oauth/register
+export function createApp({ store, baseUrl, fetchImpl, oauth = null, limiter = rateLimiter(), quota = null, registrations = rateLimiter({ max: 20 }), trustHost = false }) {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "40mb" }));
@@ -66,7 +94,9 @@ export function createApp({ store, baseUrl, fetchImpl, oauth = null, limiter = r
         res.status(500).json({ error: "server_error" });
       }
     };
-    app.post("/oauth/register", wrap((req) => oauth.register(req.body)));
+    app.post("/oauth/register", wrap((req) => (registrations(clientIp(req))
+      ? { status: 429, json: { error: "slow_down", error_description: "Too many registrations from here; try again in a few minutes." } }
+      : oauth.register(req.body))));
     app.get("/oauth/authorize", wrap((req) => oauth.authorize(req.query, originOf(req, baseUrl, trustHost))));
     app.post("/oauth/approve", wrap((req) => oauth.approve(req.body)));
     app.post("/oauth/token", wrap((req) => oauth.token(req.body)));
@@ -90,11 +120,15 @@ export function createApp({ store, baseUrl, fetchImpl, oauth = null, limiter = r
         return res.status(401).json({ jsonrpc: "2.0", error: { code: -32001, message: "The sign-in has expired." }, id: null });
       }
     }
-    const ip = String(req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim();
+    const ip = clientIp(req);
     const server = createServer({
       store, baseUrl, fetchImpl, user,
       signIn: oauth ? `${originOf(req, baseUrl, trustHost)}/.well-known/oauth-protected-resource/mcp` : null,
-      limit: (kind) => (WRITES.has(kind) ? limiter(user ? `uid:${user.uid}` : ip) : null),
+      limit: async (kind) => {
+        if (!WRITES.has(kind)) return null;
+        const who = user ? `uid:${user.uid}` : ip;
+        return limiter(who) || (quota ? await quota(who) : null);
+      },
     });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on("close", () => { transport.close(); server.close(); });

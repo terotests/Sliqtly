@@ -42,8 +42,8 @@ const deckFields = {
   theme: z.enum(THEMES).optional().describe("Theme: aurora (default), nebula, carbon, ember, midnight (dark); corporate, editorial (light)"),
   css: z.string().optional().describe("CSS rules added on top of the theme (selectors: page, document, h1, h2, p, list, li, code, table, chart, diagram, .lead …). See sliqtly_guide."),
   css_mode: z.enum(["extend", "replace"]).optional().describe("extend (default): css is added after the theme's rules. replace: css is the whole stylesheet."),
-  images: z.array(imageSchema).optional().describe("Pictures the Markdown refers to as media/<name>"),
-  files: z.array(dataFileSchema).optional().describe("Data files kept with the deck under data/: .xlsx workbooks, .csv, .tsv, .json, .txt (10 MB each). A chart or ```table reads data/<name>.csv; a workbook's sheets are read as data/<book>-<Sheet>.csv (data/<book>.csv for a one-sheet book); see sliqtly_guide."),
+  images: z.array(imageSchema).optional().describe("Pictures the Markdown refers to as media/<name>. Needs sign-in."),
+  files: z.array(dataFileSchema).optional().describe("Data files kept with the deck under data/: .xlsx workbooks, .csv, .tsv, .json, .txt (10 MB each); needs sign-in. A chart or ```table reads data/<name>.csv; a workbook's sheets are read as data/<book>-<Sheet>.csv (data/<book>.csv for a one-sheet book); see sliqtly_guide."),
 };
 
 // Sign-in is optional (ChatGPT reads this to offer both)
@@ -62,6 +62,10 @@ function uiMeta() {
 function fail(message) {
   return { isError: true, content: [{ type: "text", text: message }] };
 }
+
+// Without sign-in a deck is text only and is deleted this long after its
+// last change (store.js sets `expires`; Firestore's TTL policy deletes it).
+export const ANON_DAYS = 30;
 
 // opts: { store, baseUrl, fetchImpl, limit(kind) → string|null,
 //         user: { uid, name } when signed in, signIn: resource metadata URL }
@@ -129,6 +133,7 @@ export function createServer(opts) {
       `Open in the editor: ${out.edit_url}`,
     ];
     if (user) lines.push(`Saved in the Sliqtly account of ${user.name || "the signed-in user"}.`);
+    else if (out.deck_id) lines.push(`Not signed in: the presentation is deleted ${ANON_DAYS} days after its last change. Sign in to keep it, or to add pictures and files.`);
     if (out.deck_id) lines.push(`deck_id: ${out.deck_id}`);
     if (out.edit_key) lines.push(`edit_key: ${out.edit_key} (needed for update_presentation; do not show it to others)`);
     for (const w of out.warnings) lines.push(`Note: ${w}`);
@@ -136,6 +141,17 @@ export function createServer(opts) {
     const cfg = out.deck_id ? await webConfig() : null;
     return { content: [{ type: "text", text: lines.join("\n") }], structuredContent: out, _meta: { ...uiMeta(), ...(cfg ? { "sliqtly/firebase": cfg } : {}) } };
   }
+
+  // Pictures and files are stored only for a signed-in user: anyone could
+  // otherwise keep any bytes at a public address.
+  function needsSignIn(what) {
+    return {
+      isError: true,
+      content: [{ type: "text", text: `Storing ${what} needs sign-in. Connect Sliqtly with sign-in (Google), or leave them out: without sign-in a presentation is text only.` }],
+      _meta: opts.signIn ? { "mcp/www_authenticate": [`Bearer resource_metadata="${opts.signIn}", error="insufficient_scope", error_description="Sign in to Sliqtly to store pictures and files"`] } : undefined,
+    };
+  }
+  const uploads = (images, files) => (images && images.length ? "pictures" : files && files.length ? "data files" : null);
 
   // the stored deck, if this caller may change it; throws otherwise
   async function editable(deckId, editKey) {
@@ -205,7 +221,7 @@ export function createServer(opts) {
 
   function guarded(kind, fn) {
     return async (args, extra) => {
-      const why = opts.limit ? opts.limit(kind, extra) : null;
+      const why = opts.limit ? await opts.limit(kind, extra) : null;
       if (why) return fail(why);
       try {
         return await fn(args, extra);
@@ -240,6 +256,7 @@ export function createServer(opts) {
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     _meta: uiMeta(),
   }, guarded("create_presentation", async ({ title, markdown, theme = "aurora", css, css_mode = "extend", images, files }) => {
+    if (!user && store.kind !== "link" && uploads(images, files)) return needsSignIn(uploads(images, files));
     if (markdown.length > MAX_MD) throw new InputError("markdown is larger than 300 KB.");
     if (!markdown.trim()) throw new InputError("markdown is empty.");
     const css2 = await sheet(theme, css, css_mode);
@@ -271,6 +288,7 @@ export function createServer(opts) {
     _meta: uiMeta(),
   }, guarded("update_presentation", async ({ deck_id, edit_key, title, markdown, theme, css, css_mode = "extend", images, files }) => {
     if (markdown != null && markdown.length > MAX_MD) throw new InputError("markdown is larger than 300 KB.");
+    if (!user && uploads(images, files)) return needsSignIn(uploads(images, files));
     const { cur, mine } = await editable(deck_id, edit_key);
     const th = theme ?? cur.theme ?? "aurora";
     // a new theme with no new css drops the old theme's sheet
@@ -477,7 +495,7 @@ export function createServer(opts) {
 
   server.registerTool("write_workbook", {
     title: "Write a presentation's workbook",
-    description: "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text. Values only: formatting, formulas and column widths are not kept.",
+    description: "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text. Values only: formatting, formulas and column widths are not kept. Needs sign-in.",
     inputSchema: {
       deck_id: z.string().describe("The id in the share link /s/<id>"),
       edit_key: z.string().optional().describe("edit_key from create_presentation; not needed when signed in as the presentation's owner"),
@@ -491,6 +509,7 @@ export function createServer(opts) {
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     _meta: { securitySchemes: EITHER },
   }, guarded("write_workbook", async ({ deck_id, edit_key, path, sheets }) => {
+    if (!user) return needsSignIn("workbooks");
     const name = cleanName(String(path || "").trim().replace(/^\/+/, "").replace(/^data\//, ""));
     if (!name || !/\.xlsx$/i.test(name)) throw new InputError("path is the workbook's name under data/, ending in .xlsx (e.g. data/budget.xlsx).");
     const seen = new Set();

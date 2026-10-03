@@ -13,7 +13,8 @@
 // Clients are public (no secret), identified by a registered id or by a URL
 // to their metadata document (client ID metadata documents). Codes and tokens
 // are random; Firestore keeps only their SHA-256, under mcp_oauth/…, which no
-// client rule reaches.
+// client rule reaches. Each also carries `expires` (a timestamp), which
+// Firestore's TTL policy (firestore.indexes.json) deletes it by.
 
 import { publicFetch } from "./deck.js";
 import { hashKey, shortId } from "./store.js";
@@ -149,7 +150,7 @@ export function createOAuth({ db, verifyIdToken, fetchImpl = fetch, now = () => 
     await col("requests").doc(rid).set({
       client_id: c.client_id, client_name: c.client_name, redirect_uri: redirect,
       state: q.state ? String(q.state) : null, code_challenge: String(q.code_challenge),
-      resource: q.resource ? String(q.resource) : null, origin, exp: now() + REQUEST_TTL,
+      resource: q.resource ? String(q.resource) : null, origin, exp: now() + REQUEST_TTL, expires: new Date(now() + REQUEST_TTL),
     });
     // the page names where the code goes, since a registered name is the
     // client's own claim
@@ -185,7 +186,7 @@ export function createOAuth({ db, verifyIdToken, fetchImpl = fetch, now = () => 
     const code = token(32);
     await col("codes").doc(hashKey(code)).set({
       uid: who.uid, name: who.name || who.email || "", client_id: r.client_id, redirect_uri: r.redirect_uri,
-      code_challenge: r.code_challenge, resource: r.resource, exp: now() + CODE_TTL,
+      code_challenge: r.code_challenge, resource: r.resource, exp: now() + CODE_TTL, expires: new Date(now() + CODE_TTL),
     });
     u.searchParams.set("code", code);
     return { status: 200, json: { redirect: u.toString() } };
@@ -194,8 +195,8 @@ export function createOAuth({ db, verifyIdToken, fetchImpl = fetch, now = () => 
   async function issue(grant) {
     const access = token(32);
     const refresh = token(40);
-    await col("tokens").doc(hashKey(access)).set({ ...grant, kind: "access", exp: now() + ACCESS_TTL });
-    await col("tokens").doc(hashKey(refresh)).set({ ...grant, kind: "refresh", exp: now() + REFRESH_TTL });
+    await col("tokens").doc(hashKey(access)).set({ ...grant, kind: "access", exp: now() + ACCESS_TTL, expires: new Date(now() + ACCESS_TTL) });
+    await col("tokens").doc(hashKey(refresh)).set({ ...grant, kind: "refresh", exp: now() + REFRESH_TTL, expires: new Date(now() + REFRESH_TTL) });
     return { access_token: access, token_type: "Bearer", expires_in: ACCESS_TTL / 1000, refresh_token: refresh, scope: SCOPE };
   }
 

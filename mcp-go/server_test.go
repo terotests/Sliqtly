@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -219,6 +220,15 @@ func testEnv(f *fb, limiter func(string) string) *Env {
 	return e
 }
 
+// signed in as u1 without the OAuth dance: an access token kept as the
+// server keeps one
+func signIn(f fb) string {
+	tok := "test-access-token"
+	sum := sha256.Sum256([]byte(tok))
+	f.db.Set(context.Background(), "mcp_oauth_tokens", hex.EncodeToString(sum[:]), Doc{"uid": "u1", "name": "Tero", "kind": "access", "exp": time.Now().Add(time.Hour).UnixMilli()})
+	return tok
+}
+
 func withSignIn(e *Env) *Env {
 	e.OAuth = true
 	e.VerifyIDToken = func(_ context.Context, tok string) (*IDToken, error) {
@@ -347,7 +357,7 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 
 func TestCreateUpdateReadWithPictures(t *testing.T) {
 	f := fakeFirebase()
-	s := start(t, testEnv(&f, nil), "")
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
 	defer s.close()
 	c := call(t, s, "create_presentation", map[string]any{
 		"title": "Cats", "markdown": DECK, "css": "h1 { font-size: 60pt; }",
@@ -377,7 +387,10 @@ func TestCreateUpdateReadWithPictures(t *testing.T) {
 		t.Fatal("the key is stored as is")
 	}
 
-	bad := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": "wrong", "markdown": "# x"})
+	// the owner's deck: someone else, not signed in, with a wrong key
+	anon := start(t, testEnv(&f, nil), "")
+	bad := call(t, anon, "update_presentation", map[string]any{"deck_id": id, "edit_key": "wrong", "markdown": "# x"})
+	anon.close()
 	if !bad.IsError {
 		t.Fatal("a wrong key changed the deck")
 	}
@@ -406,7 +419,7 @@ func TestCreateUpdateReadWithPictures(t *testing.T) {
 }
 
 func TestRefusesWhatItShouldNotFetchOrStore(t *testing.T) {
-	s := start(t, testEnv(&fb0, nil), "")
+	s := start(t, withSignIn(testEnv(&fb0, nil)), signIn(fb0))
 	defer s.close()
 	for _, c := range []struct {
 		img map[string]any
@@ -630,6 +643,17 @@ func TestOptionalSignIn(t *testing.T) {
 	}
 	r2 := formPost("/oauth/token", map[string]string{"grant_type": "refresh_token", "refresh_token": tok["refresh_token"].(string), "client_id": clientID})
 	eq(t, r2["error"], "invalid_grant")
+	// every sign-in record carries the timestamp Firestore's TTL deletes it by
+	n := 0
+	for k, v := range f.db.data {
+		if regexp.MustCompile(`^mcp_oauth_(requests|codes|tokens)/`).MatchString(k) {
+			n++
+			eq(t, storedTime(t, v["expires"]).UnixMilli(), v["exp"], k)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no sign-in records")
+	}
 
 	// a client known by its metadata document URL
 	cimd := authorize("https://client.test/meta.json", "https://client.test/cb")
@@ -937,7 +961,7 @@ func TestReadFileWorkbookSheetsCSVAndJSON(t *testing.T) {
 
 func TestCreateAndUpdateKeepDataFiles(t *testing.T) {
 	f := fakeFirebase()
-	s := start(t, testEnv(&f, nil), "")
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
 	defer s.close()
 	md := "# Risk\n\n## Monthly\n\n```vega-lite\n{\"data\": {\"url\": \"data/risk-Monthly.csv\"}, \"mark\": \"bar\"}\n```\n"
 	c := call(t, s, "create_presentation", map[string]any{
@@ -990,7 +1014,7 @@ func TestCreateAndUpdateKeepDataFiles(t *testing.T) {
 
 func TestWriteWorkbookReplacesADecksWorkbook(t *testing.T) {
 	f := fakeFirebase()
-	s := start(t, testEnv(&f, nil), "")
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
 	defer s.close()
 	c := call(t, s, "create_presentation", map[string]any{"title": "Risk", "markdown": "# Risk",
 		"files": []any{map[string]any{"name": "risk.xlsx", "data_base64": base64.StdEncoding.EncodeToString(testBook(t))}}})
@@ -1032,7 +1056,6 @@ func TestWriteWorkbookReplacesADecksWorkbook(t *testing.T) {
 		{map[string]any{"sheets": []any{map[string]any{"name": "A", "rows": []any{[]any{"x"}}}, map[string]any{"name": "a", "rows": []any{[]any{"y"}}}}}, `Two sheets are named`},
 		{map[string]any{"sheets": []any{map[string]any{"name": "A"}}}, `give rows or csv`},
 		{map[string]any{"path": "data/x.csv", "sheets": []any{map[string]any{"name": "A", "rows": []any{[]any{"x"}}}}}, `ending in \.xlsx`},
-		{map[string]any{"edit_key": "wrong", "sheets": []any{map[string]any{"name": "A", "rows": []any{[]any{"x"}}}}}, `edit_key does not match`},
 	} {
 		r := write(bad.args)
 		if !r.IsError {
@@ -1040,4 +1063,104 @@ func TestWriteWorkbookReplacesADecksWorkbook(t *testing.T) {
 		}
 		match(t, textOf(r), bad.why)
 	}
+}
+
+// a stored timestamp, as the fake keeps it (time.Time through JSON)
+func storedTime(t *testing.T, v any) time.Time {
+	t.Helper()
+	tm, err := time.Parse(time.RFC3339Nano, fmt.Sprint(v))
+	if err != nil {
+		t.Fatalf("not a timestamp: %v", v)
+	}
+	return tm
+}
+
+func TestWithoutSignInTextOnlyAndDeletedAfter30Days(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), "")
+	defer s.close()
+	for _, args := range []map[string]any{
+		{"images": []any{map[string]any{"name": "cat.png", "url": "https://images.test/cat.png"}}},
+		{"files": []any{map[string]any{"name": "a.csv", "text": "a\n1\n"}}},
+	} {
+		args["title"], args["markdown"] = "x", "# x"
+		r := call(t, s, "create_presentation", args)
+		if !r.IsError {
+			t.Fatal("stored an upload without sign-in")
+		}
+		match(t, textOf(r), `needs sign-in`)
+		match(t, fmt.Sprint(r.Meta["mcp/www_authenticate"]), `resource_metadata=`)
+	}
+	if len(f.bucket.saved) != 0 {
+		t.Fatal("bytes were saved")
+	}
+	c := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": "# x"})
+	match(t, textOf(c), `deleted 30 days after its last change`)
+	out := sc(c)
+	id, key := out["deck_id"].(string), out["edit_key"].(string)
+	in30 := time.Now().Add(30 * 24 * time.Hour)
+	for _, col := range []string{"shares/", "mcp_keys/"} {
+		if d := storedTime(t, f.db.doc(col + id)["expires"]).Sub(in30); d < -time.Minute || d > time.Minute {
+			t.Fatalf("%s expires %v off 30 days", col, d)
+		}
+	}
+	match(t, textOf(call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "images": []any{map[string]any{"name": "cat.png", "url": "https://images.test/cat.png"}}})), `needs sign-in`)
+	match(t, textOf(call(t, s, "write_workbook", map[string]any{"deck_id": id, "edit_key": key, "path": "data/a.xlsx", "sheets": []any{map[string]any{"name": "A", "rows": []any{[]any{"x"}}}}})), `needs sign-in`)
+
+	me := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer me.close()
+	mine := call(t, me, "create_presentation", map[string]any{"title": "x", "markdown": "# x", "images": []any{map[string]any{"name": "cat.png", "url": "https://images.test/cat.png"}}})
+	if mine.IsError || strings.Contains(textOf(mine), "deleted") {
+		t.Fatal(textOf(mine))
+	}
+	if _, ok := f.db.doc("shares/" + sc(mine)["deck_id"].(string))["expires"]; ok {
+		t.Fatal("a signed-in user's deck expires")
+	}
+}
+
+func TestDailyQuotaInFirestore(t *testing.T) {
+	f := fakeFirebase()
+	day := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
+	e := testEnv(&f, nil)
+	e.Quota = dailyQuota(f.db, 2, 3, func() time.Time { return day })
+	s := start(t, e, "")
+	defer s.close()
+	make := func() *mcp.CallToolResult {
+		return call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": "# x"})
+	}
+	if make().IsError || make().IsError {
+		t.Fatal("refused under the quota")
+	}
+	match(t, textOf(make()), `daily limit of 2 .* sign in for a higher limit`)
+	var counter Doc
+	for k, v := range f.db.data {
+		if strings.HasPrefix(k, "mcp_quota/") {
+			match(t, k, `-2026-10-03$`)
+			counter = v
+		}
+	}
+	eq(t, storedTime(t, counter["expires"]), day.Add(48*time.Hour))
+	if why := e.Quota(context.Background(), "uid:u1"); why != "" {
+		t.Fatal("each caller has their own count")
+	}
+}
+
+func TestClientRegistrationsLimitedPerAddress(t *testing.T) {
+	f := fakeFirebase()
+	e := withSignIn(testEnv(&f, nil))
+	e.Registrations = rateLimiter(1, 10*time.Minute)
+	srv := httptest.NewServer(NewApp(e))
+	defer srv.Close()
+	reg := func() *http.Response {
+		r, err := http.Post(srv.URL+"/oauth/register", "application/json", strings.NewReader(`{"redirect_uris":["https://client.test/cb"]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	eq(t, reg().StatusCode, 201)
+	second := reg()
+	eq(t, second.StatusCode, 429)
+	b, _ := io.ReadAll(second.Body)
+	match(t, string(b), `"slow_down"`)
 }

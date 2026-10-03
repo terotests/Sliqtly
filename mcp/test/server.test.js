@@ -6,17 +6,23 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { createApp, rateLimiter } from "../src/http.js";
+import { createApp, dailyQuota, rateLimiter } from "../src/http.js";
 import { createOAuth } from "../src/oauth.js";
 import { FirebaseStore, LinkStore, unpackText } from "../src/store.js";
 
 const BASE = "https://sliqtly.test";
+const NOW = Date.UTC(2026, 9, 3, 12);
+const DAY = 24 * 60 * 60 * 1000;
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
 
 function fakeFirebase() {
   const data = new Map();
   const saved = new Map();
   const db = {
+    runTransaction: async (fn) => fn({
+      get: async (ref) => ({ exists: data.has(ref.key), data: () => structuredClone(data.get(ref.key)) }),
+      set: (ref, v) => { data.set(ref.key, structuredClone(v)); },
+    }),
     collection: (c) => ({
       doc: (id) => {
         const k = `${c}/${id}`;
@@ -25,6 +31,7 @@ function fakeFirebase() {
           set: async (v) => { data.set(k, structuredClone(v)); },
           update: async (v) => { data.set(k, { ...data.get(k), ...structuredClone(v) }); },
           delete: async () => { data.delete(k); },
+          key: k,
         };
       },
       where: (field, op, value) => ({
@@ -37,7 +44,7 @@ function fakeFirebase() {
   };
   const bucket = { name: "bucket.test", file: (name) => ({ name, save: async (buf, o) => { saved.set(name, { buf, o }); }, download: async () => [saved.get(name).buf] }) };
   let clock = 1000;
-  const store = new FirebaseStore({ db, bucket, FieldValue: { serverTimestamp: () => clock++ } });
+  const store = new FirebaseStore({ db, bucket, FieldValue: { serverTimestamp: () => clock++ }, now: () => NOW });
   return { data, saved, db, store };
 }
 
@@ -61,6 +68,9 @@ async function start(store, limiter, oauth = null, token = null) {
   await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers } }));
   return { root, url, client, srv, close: async () => { await client.close(); srv.close(); } };
 }
+
+// signed in as u1: pictures and files are stored only for a signed-in user
+const ME = { who: async (h) => (h ? { uid: "u1", name: "Tero" } : null), metadata: () => ({}), resourceMetadata: () => ({}) };
 
 const DECK = "# Hello\n\nFirst.\n{.lead}\n\n## Cat {bg=media/cat.png}\n\n![](media/dot.png)\n\n```mermaid\nflowchart LR\n## not a slide\n```\n";
 
@@ -93,7 +103,7 @@ test("tools, UI metadata and the preview resource", async () => {
 
 test("create, update and read a deck with pictures", async () => {
   const { store, data, saved } = fakeFirebase();
-  const t = await start(store);
+  const t = await start(store, undefined, ME, "me");
   try {
     const c = await t.client.callTool({ name: "create_presentation", arguments: {
       title: "Cats", markdown: DECK, css: "h1 { font-size: 60pt; }",
@@ -114,8 +124,12 @@ test("create, update and read a deck with pictures", async () => {
     assert.equal(saved.get(`shares/${out.deck_id}/media/cat.png`).o.contentType, "image/png");
     assert.notEqual(data.get(`mcp_keys/${out.deck_id}`).hash, out.edit_key);
 
-    const bad = await t.client.callTool({ name: "update_presentation", arguments: { deck_id: out.deck_id, edit_key: "wrong", markdown: "# x" } });
-    assert.ok(bad.isError);
+    // the owner's deck: someone else, not signed in, with a wrong key
+    const anon = await start(store);
+    try {
+      const bad = await anon.client.callTool({ name: "update_presentation", arguments: { deck_id: out.deck_id, edit_key: "wrong", markdown: "# x" } });
+      assert.ok(bad.isError);
+    } finally { await anon.close(); }
     assert.equal(data.get(`shares/${out.deck_id}`).md, DECK);
 
     const u = await t.client.callTool({ name: "update_presentation", arguments: {
@@ -190,7 +204,7 @@ test("warns about an encoding type Vega-Lite does not know", async () => {
 
 test("refuses what it should not fetch or store", async () => {
   const { store } = fakeFirebase();
-  const t = await start(store);
+  const t = await start(store, undefined, ME, "me");
   try {
     for (const [img, why] of [
       [{ name: "a.png", url: "http://images.test/cat.png" }, /public https/],
@@ -333,6 +347,9 @@ test("optional sign-in: OAuth with PKCE, own decks, refresh", async () => {
     // refresh rotates
     const r1 = await (await fetch(`${root}/oauth/token`, form({ grant_type: "refresh_token", refresh_token: tok.refresh_token, client_id }))).json();
     assert.ok(r1.access_token && r1.refresh_token !== tok.refresh_token);
+    // every sign-in record carries the timestamp Firestore's TTL deletes it by
+    const records = [...data].filter(([k]) => /^mcp_oauth_(requests|codes|tokens)\//.test(k));
+    assert.ok(records.length && records.every(([, v]) => v.expires instanceof Date && v.expires.getTime() === v.exp));
     const r2 = await (await fetch(`${root}/oauth/token`, form({ grant_type: "refresh_token", refresh_token: tok.refresh_token, client_id }))).json();
     assert.equal(r2.error, "invalid_grant");
 
@@ -475,7 +492,7 @@ test("read_file: a workbook's sheets, CSV, JSON, in windows", async () => {
 
 test("create and update keep data files the deck reads", async () => {
   const { store, data, saved } = fakeFirebase();
-  const t = await start(store);
+  const t = await start(store, undefined, ME, "me");
   try {
     const md = '# Risk\n\n## Monthly\n\n```vega-lite\n{"data": {"url": "data/risk-Monthly.csv"}, "mark": "bar"}\n```\n';
     const r = await t.client.callTool({ name: "create_presentation", arguments: {
@@ -513,7 +530,7 @@ test("create and update keep data files the deck reads", async () => {
 
 test("write_workbook replaces a deck's workbook with tidied sheets", async () => {
   const { store, data } = fakeFirebase();
-  const t = await start(store);
+  const t = await start(store, undefined, ME, "me");
   try {
     const r = await t.client.callTool({ name: "create_presentation", arguments: {
       title: "Risk", markdown: "# Risk", files: [{ name: "risk.xlsx", data_base64: testBook().toString("base64") }],
@@ -538,7 +555,6 @@ test("write_workbook replaces a deck's workbook with tidied sheets", async () =>
       [{ sheets: [{ name: "A", rows: [["x"]] }, { name: "a", rows: [["y"]] }] }, /Two sheets are named/],
       [{ sheets: [{ name: "A" }] }, /give rows or csv/],
       [{ path: "data/x.csv", sheets: [{ name: "A", rows: [["x"]] }] }, /ending in \.xlsx/],
-      [{ edit_key: "wrong", sheets: [{ name: "A", rows: [["x"]] }] }, /edit_key does not match/],
     ]) {
       const bad = await write(args);
       assert.ok(bad.isError);
@@ -562,7 +578,7 @@ test("warns about text that likely does not stand out from its background pictur
   const css = "page { background-color: #0b1030; }\ndocument { font-size: 20pt; color: #e8ecff; }\n";
   const md = "# Deck\n\n## Cloudy {bg=media/sky.png}\n\nLight text over a white sky.\n\n## Night {bg=media/night.png}\n\nLight text over a dark picture.\n";
   const { store } = fakeFirebase();
-  const t = await start(store);
+  const t = await start(store, undefined, ME, "me");
   try {
     const r = await t.client.callTool({ name: "create_presentation", arguments: { title: "Sky", markdown: md, css, css_mode: "replace", images: [
       { name: "sky.png", data_base64: sky([244, 246, 248], [230, 235, 240]) },
@@ -604,4 +620,72 @@ test("fetched URLs: redirects are checked, bodies are capped", async () => {
   const [cat] = await loadImages([{ name: "a.png", url: "https://images.test/to-cat" }], f);
   assert.equal(cat.data.length, PNG.length);
   await assert.rejects(publicFetch("https://localhost./x", f, { max: 10 }), /only public https URLs/);
+});
+
+test("without sign-in: text only, deleted 30 days after the last change", async () => {
+  const { store, data, saved } = fakeFirebase();
+  const t = await start(store, undefined, ME);
+  try {
+    for (const args of [
+      { images: [{ name: "cat.png", url: "https://images.test/cat.png" }] },
+      { files: [{ name: "a.csv", text: "a\n1\n" }] },
+    ]) {
+      const r = await t.client.callTool({ name: "create_presentation", arguments: { title: "x", markdown: "# x", ...args } });
+      assert.ok(r.isError);
+      assert.match(r.content[0].text, /needs sign-in/);
+      assert.match(r._meta["mcp/www_authenticate"][0], /resource_metadata=/);
+    }
+    assert.equal(saved.size, 0);
+    const c = await t.client.callTool({ name: "create_presentation", arguments: { title: "x", markdown: "# x" } });
+    assert.match(c.content[0].text, /deleted 30 days after its last change/);
+    const id = c.structuredContent.deck_id;
+    const key = c.structuredContent.edit_key;
+    assert.equal(data.get(`shares/${id}`).expires.getTime(), NOW + 30 * DAY);
+    assert.equal(data.get(`mcp_keys/${id}`).expires.getTime(), NOW + 30 * DAY);
+    const up = await t.client.callTool({ name: "update_presentation", arguments: { deck_id: id, edit_key: key, images: [{ name: "cat.png", url: "https://images.test/cat.png" }] } });
+    assert.match(up.content[0].text, /needs sign-in/);
+    const wb = await t.client.callTool({ name: "write_workbook", arguments: { deck_id: id, edit_key: key, path: "data/a.xlsx", sheets: [{ name: "A", rows: [["x"]] }] } });
+    assert.match(wb.content[0].text, /needs sign-in/);
+  } finally { await t.close(); }
+  const me = await start(store, undefined, ME, "me");
+  try {
+    const c = await me.client.callTool({ name: "create_presentation", arguments: { title: "x", markdown: "# x", images: [{ name: "cat.png", url: "https://images.test/cat.png" }] } });
+    assert.ok(!c.isError);
+    assert.doesNotMatch(c.content[0].text, /deleted/);
+    assert.equal(data.get(`shares/${c.structuredContent.deck_id}`).expires, undefined, "a signed-in user's deck stays");
+  } finally { await me.close(); }
+});
+
+test("a daily quota counted in Firestore", async () => {
+  const { store, db, data } = fakeFirebase();
+  const quota = dailyQuota({ db, limits: { anonymous: 2, signedIn: 3 }, now: () => NOW });
+  const app = createApp({ store, baseUrl: BASE, fetchImpl: fakeFetch, quota });
+  const srv = await new Promise((ok) => { const s = app.listen(0, () => ok(s)); });
+  const client = new Client({ name: "test", version: "1" });
+  await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${srv.address().port}/mcp`)));
+  try {
+    const make = () => client.callTool({ name: "create_presentation", arguments: { title: "x", markdown: "# x" } });
+    assert.ok(!(await make()).isError);
+    assert.ok(!(await make()).isError);
+    const third = await make();
+    assert.match(third.content[0].text, /daily limit of 2 .* sign in for a higher limit/);
+    const counter = [...data].find(([k]) => k.startsWith("mcp_quota/"));
+    assert.match(counter[0], /-2026-10-03$/);
+    assert.equal(counter[1].expires.getTime(), NOW + 2 * DAY);
+    assert.equal(await quota("uid:u1"), null, "each caller has their own count");
+  } finally { await client.close(); srv.close(); }
+});
+
+test("client registrations are limited per address", async () => {
+  const { store, db } = fakeFirebase();
+  const oauth = createOAuth({ db, fetchImpl: fakeFetch, verifyIdToken: async () => ({ uid: "u1" }) });
+  const app = createApp({ store, baseUrl: BASE, fetchImpl: fakeFetch, oauth, registrations: rateLimiter({ max: 1 }) });
+  const srv = await new Promise((ok) => { const s = app.listen(0, () => ok(s)); });
+  const reg = () => fetch(`http://127.0.0.1:${srv.address().port}/oauth/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ redirect_uris: ["https://client.test/cb"] }) });
+  try {
+    assert.equal((await reg()).status, 201);
+    const second = await reg();
+    assert.equal(second.status, 429);
+    assert.equal((await second.json()).error, "slow_down");
+  } finally { srv.close(); }
 });
