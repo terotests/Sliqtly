@@ -185,6 +185,30 @@ try {
     check("the standard look comes back as it was", r.back);
   }
 
+  // A window carried by its title bar keeps the skin: the handle is not
+  // painted chart-editor.css's white while dragging.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app;
+      const k = window.__skin;
+      k.set("retro");
+      a.openDocSettings("");
+      a.chartJson();
+      const walk = (e, id) => { if ((e.className || "").split(" ").includes(id)) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const h = walk(a.chart.host.lastPage, "ui-window-handle");
+      const x = h.calculatedX + 40, y = h.calculatedY + 20;
+      a.pointerDown(x, y, false, 1);
+      a.pointerMove(x + 30, y + 10);
+      const json = a.chartJson();
+      const dragging = !!walk(a.chart.host.lastPage, "ui-window-handle-dragging");
+      a.pointerUp();
+      a.key("escape", false, false);
+      k.set("");
+      return { dragging, white: json.includes("[250,250,250,1.00]") };
+    });
+    check("a window dragged by its title bar keeps the retro skin", r.dragging && !r.white, JSON.stringify(r));
+  }
+
   // Real keys, not calls: letters arrive through beforeinput, Backspace
   // through keydown, and a composition left open (a dead key, an IME
   // cancelled by a click) must not switch typing off.

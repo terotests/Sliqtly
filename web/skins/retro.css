@@ -168,6 +168,11 @@
   border-bottom: 2px solid var(--retro-edge);
   border-radius: 15px 15px 0 0;
 }
+/* the handle is the title bar's draggable part: clear, so the bar shows
+   through, and lit while the window is carried (chart-editor.css paints it
+   white then) */
+.theme-retro .ui-window-handle { background: var(--retro-clear); background-color: rgba(0, 0, 0, 0); border-radius: 15px 0 0 0; }
+.theme-retro .ui-window-handle-dragging { background: linear-gradient(180deg, var(--retro-hot-a), var(--retro-hot-b)); }
 .theme-retro .ui-window-title { color: var(--retro-btn-ink); font-weight: 700; }
 .theme-retro .ui-window-close { color: var(--retro-btn-ink); }
 .theme-retro .ce-body { color: var(--retro-ink); }
