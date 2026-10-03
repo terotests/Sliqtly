@@ -2843,6 +2843,9 @@ try {
     await pn.evaluate(() => localStorage.setItem("evgp.doc", "some-other-deck"));
     await pn.reload();
     await pn.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    // opening the deck tidies the address and the next painted frame writes
+    // it back (followAddress), which may come after the page has started
+    await pn.waitForFunction(() => /doc=/.test(location.hash), null, { timeout: 5000 }).catch(() => {});
     const reopened = await pn.evaluate(() => ({ md: window.__app.source().slice(0, 20), at: location.hash }));
     await pn.close();
     check("a new deck's id is in the address and a reload opens that deck", /^#doc=[a-z0-9-]+$/.test(addr) && reopened.md.startsWith("# Vuokra ja menot") && reopened.at === addr, JSON.stringify({ addr, reopened }));
