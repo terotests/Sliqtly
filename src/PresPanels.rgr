@@ -1406,6 +1406,77 @@ class PresPanels {
         return pg
     }
 
+    ; --- the layers ------------------------------------------------------------------
+    ; The panels are three layers of the app's z-order (UiLayers): the docked
+    ; help and files ("docked"), the modal dialog with its backdrop ("dialog")
+    ; and the toast ("toast"). They are laid out together and drawn as three
+    ; display lists, so a window the app opens can sit between them.
+    sfn partOf:string (id:string) {
+        if ((id == "pn-dialog") || (id == "pn-backdrop")) {
+            return "dialog"
+        }
+        if (id == "pn-toast") {
+            return "toast"
+        }
+        return "docked"
+    }
+
+    fn dockedOpen:boolean () {
+        return ((helpOpen || filesOpen) && (quiet == false))
+    }
+
+    fn dialogOpen:boolean () {
+        return (shareOpen && (quiet == false))
+    }
+
+    fn toastOpen:boolean () {
+        return ((strlen toastText) > 0)
+    }
+
+    fn dockedHas:boolean (px:double py:double) {
+        return ((this.helpHas(px py)) || (this.filesHas(px py)))
+    }
+
+    fn toastHas:boolean (px:double py:double) {
+        if ((this.toastOpen()) == false) {
+            return false
+        }
+        return (this.inEl("pn-toast" px py))
+    }
+
+    ; One layer's display list: the page laid out whole, the other layers'
+    ; surfaces left out of the walk (`display: none` after the layout, so
+    ; nothing moves) and put back.
+    fn partList:EVGDisplayList (part:string) {
+        def pg:EVGElement (this.page())
+        def r:EVGElement (unwrap host.root)
+        def was:[string]
+        def i:int 0
+        while (i < (array_length r.children)) {
+            def c:EVGElement (itemAt r.children i)
+            push was c.display
+            if ((PresPanels.partOf(c.id)) != part) {
+                c.display = "none"
+            }
+            i = (i + 1)
+        }
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(pg)
+        def k:int 0
+        while (k < (array_length r.children)) {
+            def ck:EVGElement (itemAt r.children k)
+            ck.display = (itemAt was k)
+            k = (k + 1)
+        }
+        return dl
+    }
+
     fn displayList:EVGDisplayList () {
         def pg:EVGElement (this.page())
         def lay (new EVGLayout())

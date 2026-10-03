@@ -1063,6 +1063,42 @@ try {
   check("a list item is picked as li (text from the document, bullets from list)", pk.li.join("|") === "li|text|list" && pk.liContent.join(",") === "md,5,0,5,7", JSON.stringify([pk.li, pk.liContent]));
   check("…a paragraph with {.lead} gets the class's rule too, and Esc lets go", pk.p.join("|") === "p|.lead" && pk.cleared, JSON.stringify([pk.p, pk.cleared]));
 
+  // Style with the Files tab open: the popover is a window, so it is drawn
+  // over the docked files panel and a press on it is its own (UiLayers)
+  const zo = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.setSource("# D\n\n## Otsikko\n\nKappale tekstiä.\n");
+    a.showTab("files");
+    a.selectSlide(1);
+    a.place();
+    const l = a.deck.layout();
+    const r = a.slideRect, sc = a.slideScale();
+    const b = l.boxes.find((b) => b.page === a.selected && b.kind === 0 && b.text.startsWith("Otsikko"));
+    a.pointerDown(r.x + (b.x + 4) * sc, r.y + (b.y + b.h / 2) * sc, false, 1);
+    a.pointerUp();
+    a.pickStyle();
+    a.hintJson();
+    const out = { order: a.layerOrder(), tab: a.edTab };
+    const card = a.hint.cardEl();
+    const cx = card.calculatedX + card.calculatedWidth / 2, cy = card.calculatedY + 12;
+    // the card where it covers the files panel, else its middle
+    const e = a.edRect;
+    const ox = Math.min(card.calculatedX + 8, e.x + e.w - 8);
+    out.over = ox >= card.calculatedX && ox >= e.x && ox <= e.x + e.w;
+    out.at = a.layerAt(out.over ? ox : cx, cy);
+    out.files = a.layerAt(e.x + 10, e.y + e.h - 10);
+    out.cursor = a.cursorAt(out.over ? ox : cx, cy);
+    // the panels' layers are drawn apart: the docked one has the files, not a dialog
+    out.docked = a.panelsPartJson("docked").length > 200 && a.panelsPartJson("dialog").length < a.panelsPartJson("docked").length;
+    a.closeHint();
+    out.closed = a.layerOrder();
+    a.showTab("md");
+    a.setSource(src0);
+    return out;
+  });
+  check("Style opened with the Files tab: drawn over the files panel, and a press on it is the popover's", zo.tab === "files" && /panels.*hint/.test(zo.order) && zo.at === "hint" && zo.files === "panels" && zo.docked && !/hint/.test(zo.closed), JSON.stringify(zo));
+
   // chart-effects takes any of its words together: a chip turns one on or off
   const fx = await page.evaluate(() => {
     const a = window.__app;
