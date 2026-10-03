@@ -965,13 +965,14 @@ class PresChartEditor {
             }
             sec2.addChild(tc)
             sec2.addChild((this.text("ce-doc" (PresI18n.t("For every slide; a slide's own heading can say otherwise: ## Title {transition=zoom}.")))))
+            sec2.addChild((this.text("ce-doc" (PresI18n.t("One slide without it: {header=off} or {footer=off} on its heading.")))))
         } {
             this.edgePane(pane (this.dsEdge()))
         }
         root.addChild(pane)
 
         def bottom:EVGElement (this.div("ce-foot"))
-        bottom.addChild((this.text("ce-doc" (PresI18n.t("Changes show on the slides right away. Ctrl+Z undoes them after you close the window.")))))
+        bottom.addChild((this.text("ce-doc" (PresI18n.t("Changes show on the slides right away; Ctrl+Z undoes them all.")))))
         bottom.addChild((this.div("ce-grow")))
         this.button("ds-done" (PresI18n.t("Done")) "primary" bottom)
         root.addChild(bottom)
@@ -984,14 +985,21 @@ class PresChartEditor {
         while (i < 3) {
             def r:EVGElement (this.field((itemAt labels i)))
             def n:int ((e * 3) + i)
-            this.input(("ds-t-" + (to_string n)) (itemAt labels i) (itemAt ds.texts n) "ce-wide" r)
+            ; the placeholders show what the keys fill in
+            def ph:string ""
+            if (i == 0) {
+                ph = "{title}"
+            }
+            if (i == 2) {
+                ph = "{page} / {pages}"
+            }
+            this.inputWith(("ds-t-" + (to_string n)) (itemAt labels i) (itemAt ds.texts n) ph "ce-wide" r)
             sec.addChild(r)
             i = (i + 1)
         }
         def qr:EVGElement (this.div("ce-row"))
         this.button("ds-pagenum" (PresI18n.t("Page number on the right")) "outline" qr)
         sec.addChild(qr)
-        sec.addChild((this.text("ce-doc" (PresI18n.t("{page}, {pages} and {title} are filled in on every slide, e.g. {page} / {pages}.")))))
 
         def lg:EVGElement (this.section(pane (PresI18n.t("Logo"))))
         if ((array_length dsPics) == 0) {
@@ -1019,14 +1027,14 @@ class PresChartEditor {
             }
         }
 
-        def sl:EVGElement (this.section(pane (PresI18n.t("Slides"))))
-        def sw:EVGElement (this.div("ce-row ce-switches"))
+        ; the switches, the colours and the size in one section, so the
+        ; window fits a laptop's screen without scrolling
+        def lk:EVGElement (this.section(pane (PresI18n.t("Look"))))
+        def sw:EVGElement (this.div("ce-chips ce-switches"))
+        sw.addChild((this.text("ce-flabel" (PresI18n.t("Slides")))))
         this.switchOf("ds-first" (PresI18n.t("On the first slide")) ((itemAt ds.skipFirst e) == false) sw)
         this.switchOf("ds-last" (PresI18n.t("On the last slide")) ((itemAt ds.skipLast e) == false) sw)
-        sl.addChild(sw)
-        sl.addChild((this.text("ce-doc" (PresI18n.t("One slide without it: {header=off} or {footer=off} on its heading.")))))
-
-        def lk:EVGElement (this.section(pane (PresI18n.t("Look"))))
+        lk.addChild(sw)
         def cr:EVGElement (this.div("ce-chips"))
         cr.addChild((this.text("ce-flabel" (PresI18n.t("Text color")))))
         this.chip("ds-color-theme" (PresI18n.t("From theme")) ((strlen (itemAt ds.color e)) == 0) cr)
