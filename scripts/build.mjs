@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { ensureRanger, compile, root, webDir, distDir, log } from "./lib.mjs";
+import { ensureRanger, ensureRangerDiff, compile, root, webDir, distDir, log } from "./lib.mjs";
 import { createRequire } from "node:module";
 import { formatCss } from "./format-css.mjs";
 
@@ -48,7 +48,9 @@ export function build({ ranger } = {}) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
   };
-  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "versions.js", "versions-ui.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  // versions and deltas (web/versions.js): RangerDiff's built module
+  copy(path.join(ensureRangerDiff(), "dist", "rangerdiff.mjs"), path.join(distDir, "rangerdiff.mjs"));
   // the interface in other languages (web/i18n.js)
   for (const f of fs.readdirSync(path.join(webDir, "i18n")).filter((f) => f.endsWith(".json"))) copy(path.join(webDir, "i18n", f), path.join(distDir, "i18n", f));
   // the controls' own theme (EVGUI), for the chart editor
@@ -92,7 +94,7 @@ export function build({ ranger } = {}) {
   // Every URL the page loads carries the hash of the build, so a reload
   // never mixes an old script with a new one.
   const h = crypto.createHash("sha1");
-  for (const f of ["pres_app.js", "pres_data.js", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css", "ui.css", "gl/evg-webgl.js", "gl/evg-a11y.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
+  for (const f of ["pres_app.js", "pres_data.js", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "versions.js", "versions-ui.js", "rangerdiff.mjs", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css", "ui.css", "gl/evg-webgl.js", "gl/evg-a11y.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
   for (const f of fs.readdirSync(path.join(distDir, "themes"))) h.update(fs.readFileSync(path.join(distDir, "themes", f)));
   for (const f of fs.readdirSync(path.join(distDir, "i18n"))) h.update(fs.readFileSync(path.join(distDir, "i18n", f)));
   const stamp = h.digest("hex").slice(0, 10);
@@ -112,12 +114,18 @@ export function build({ ranger } = {}) {
     .replace('"./pres_data.js"', '"./pres_data.js?v=' + stamp + '"')
     .replace('"./sheets-live.js"', '"./sheets-live.js?v=' + stamp + '"')
     .replace('"./image-adjust.js"', '"./image-adjust.js?v=' + stamp + '"')
+    .replace('"./versions.js"', '"./versions.js?v=' + stamp + '"')
+    .replace('"./versions-ui.js"', '"./versions-ui.js?v=' + stamp + '"')
     .split("__SHEETS_BASE__").join(sheetsBase)
     .split("__FONTS__").join(fonts)
     .split("__BUILD__").join(stamp));
   // sliqtly.js shares main.js's i18n module: the same URL, one instance
   const pro = path.join(distDir, "sliqtly.js");
   fs.writeFileSync(pro, fs.readFileSync(pro, "utf8").replace('"./i18n.js"', '"./i18n.js?v=' + stamp + '"'));
+  const versions = path.join(distDir, "versions.js");
+  fs.writeFileSync(versions, fs.readFileSync(versions, "utf8").replace('"./rangerdiff.mjs"', '"./rangerdiff.mjs?v=' + stamp + '"'));
+  const versionsUi = path.join(distDir, "versions-ui.js");
+  fs.writeFileSync(versionsUi, fs.readFileSync(versionsUi, "utf8").replace('"./i18n.js"', '"./i18n.js?v=' + stamp + '"'));
   log(`build  web/dist (${stamp})`);
   return stamp;
 }

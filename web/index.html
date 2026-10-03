@@ -121,6 +121,57 @@
   #vMenu button:hover, #vMenu button:focus-visible { background: rgba(255, 255, 255, 0.12); outline: none; }
   #vMenu .sub button { padding-left: 28px; }
   #vMenu hr { width: 100%; border: 0; border-top: 1px solid rgba(255, 255, 255, 0.14); margin: 4px 0; }
+  /* web/versions-ui.js: the version history and the merge of two copies */
+  .vPanel {
+    position: fixed; top: 56px; right: 16px; bottom: 16px; z-index: 20;
+    width: min(460px, calc(100vw - 32px)); box-sizing: border-box; padding: 16px;
+    display: flex; flex-direction: column; gap: 12px; overflow: auto;
+    background: #18181b; color: #fafafa; border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    font: 14px/1.45 "Open Sans", system-ui, sans-serif;
+  }
+  .vMerge { left: 50%; right: auto; transform: translateX(-50%); width: min(760px, calc(100vw - 32px)); }
+  .vPanel h2 { margin: 0; font-size: 17px; }
+  .vPanel p { margin: 0; }
+  .vPanel button, .vPanel input {
+    min-height: 36px; padding: 0 12px; border-radius: 8px; font: inherit; color: inherit;
+    border: 1px solid rgba(255, 255, 255, 0.25); background: transparent; cursor: pointer;
+  }
+  .vPanel input { cursor: text; flex: 1; min-width: 0; background: rgba(255, 255, 255, 0.06); }
+  .vPanel button.primary { background: #2563eb; border-color: #2563eb; }
+  .vPanel button:disabled { opacity: .5; cursor: default; }
+  .vHead { display: flex; align-items: center; justify-content: space-between; }
+  .vHead .vClose { border: 0; font-size: 22px; min-height: 32px; padding: 0 8px; }
+  .vSave, .vRow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .vList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .vItem { border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px; padding: 6px; }
+  .vItem.current { border-color: #2563eb; }
+  .vTop { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; border: 0 !important; text-align: left; padding: 6px !important; }
+  .vMsg { font-weight: 600; }
+  .vMeta { color: #a1a1aa; font-size: 12px; }
+  .vTag { font-size: 11px; color: #93c5fd; }
+  .vBody { padding: 6px; display: flex; flex-direction: column; gap: 8px; }
+  .vBody[hidden] { display: none; }
+  .vFiles { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .vFiles li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+  .vPath { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .vPanel .vLink { border: 0; min-height: 0; padding: 0; color: #93c5fd; text-decoration: underline; }
+  .vDiff {
+    width: 100%; margin: 0; padding: 8px; box-sizing: border-box; max-height: 320px; overflow: auto;
+    background: rgba(0, 0, 0, 0.35); border-radius: 6px; white-space: pre-wrap; word-break: break-word;
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .vDiff[hidden] { display: none; }
+  .vDiff .add { color: #86efac; }
+  .vDiff .del { color: #fca5a5; }
+  .vDiff .hunk { color: #93c5fd; }
+  .vNote { color: #a1a1aa; }
+  .vSides { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0; }
+  .vSides strong { display: block; font-size: 12px; margin-bottom: 2px; }
+  .vChoice { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; cursor: pointer; }
+  .vChoice input { min-height: 0; }
+  @media (max-width: 600px) { .vSides { grid-template-columns: 1fr; } }
+  body.presenting .vPanel { display: none; }
   body.viewer #c { cursor: default; }
   body.viewer.idle #c { cursor: none; }
   body.presenting #c { cursor: none; }
@@ -170,6 +221,7 @@
   <button id="pptx">PPTX</button>
   <button id="zip">ZIP</button>
   <button id="share" title="Copy a link with this Markdown packed into its address" data-i18n-title data-i18n>🔗 Share</button>
+  <button id="history" hidden>Version history</button>
   <button id="aiClaude" hidden>Claude</button>
   <button id="aiChatgpt" hidden>ChatGPT</button>
   <button id="helpBtn" title="What the selected slide contains and which theme CSS rules change it" data-i18n-title data-i18n>? Help</button>

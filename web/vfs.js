@@ -7,13 +7,15 @@
 //   files  the presentation's other files by path: media/… (pictures pasted
 //          or added), data/… (what its charts read), charts/… (Vega-Lite
 //          specs kept as files) — text as a string, anything else as a Blob
+//   objects  the presentation's version history (versions.js): RangerDiff
+//          objects by id, each a Uint8Array
 //
 // Nothing here leaves the browser: a share link still carries only the text.
 // Where IndexedDB is not to be had (a private window that refuses it) the
 // same calls work on a store in memory that lasts as long as the page.
 
 const DB_NAME = "evg-presentation";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 function promised(req) {
   return new Promise((resolve, reject) => {
@@ -31,6 +33,10 @@ function openDb() {
       if (!db.objectStoreNames.contains("files")) {
         const files = db.createObjectStore("files", { keyPath: ["doc", "path"] });
         files.createIndex("doc", "doc", { unique: false });
+      }
+      if (!db.objectStoreNames.contains("objects")) {
+        const objects = db.createObjectStore("objects", { keyPath: ["doc", "id"] });
+        objects.createIndex("doc", "doc", { unique: false });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -54,35 +60,46 @@ function idbStore(db) {
     listDocs: () => run("docs", "readonly", (s) => promised(s.getAll())),
     getDoc: (id) => run("docs", "readonly", (s) => promised(s.get(id))),
     putDoc: (doc) => run("docs", "readwrite", (s) => promised(s.put(doc))),
-    deleteDoc: async (id) => {
+    // keepObjects: the deck's version history stays (its files are replaced)
+    deleteDoc: async (id, keepObjects = false) => {
       const files = await run("files", "readonly", (s) => promised(s.index("doc").getAllKeys(id)));
       await run("files", "readwrite", (s) => Promise.all(files.map((k) => promised(s.delete(k)))));
+      const objects = keepObjects ? [] : await run("objects", "readonly", (s) => promised(s.index("doc").getAllKeys(id)));
+      await run("objects", "readwrite", (s) => Promise.all(objects.map((k) => promised(s.delete(k)))));
       await run("docs", "readwrite", (s) => promised(s.delete(id)));
     },
     listFiles: (doc) => run("files", "readonly", (s) => promised(s.index("doc").getAll(doc))),
     getFile: (doc, path) => run("files", "readonly", (s) => promised(s.get([doc, path]))),
     putFile: (file) => run("files", "readwrite", (s) => promised(s.put(file))),
     deleteFile: (doc, path) => run("files", "readwrite", (s) => promised(s.delete([doc, path]))),
+    listObjects: (doc) => run("objects", "readonly", (s) => promised(s.index("doc").getAll(doc))),
+    getObject: (doc, id) => run("objects", "readonly", (s) => promised(s.get([doc, id]))),
+    putObject: (doc, id, data) => run("objects", "readwrite", (s) => promised(s.put({ doc, id, data }))),
   };
 }
 
 function memoryStore() {
   const docs = new Map();
   const files = new Map();
+  const objects = new Map();
   const key = (doc, path) => doc + "\u0000" + path;
   return {
     persistent: false,
     listDocs: async () => [...docs.values()],
     getDoc: async (id) => docs.get(id),
     putDoc: async (doc) => { docs.set(doc.id, doc); },
-    deleteDoc: async (id) => {
+    deleteDoc: async (id, keepObjects = false) => {
       docs.delete(id);
       for (const k of [...files.keys()]) if (k.startsWith(id + "\u0000")) files.delete(k);
+      if (!keepObjects) for (const k of [...objects.keys()]) if (k.startsWith(id + "\u0000")) objects.delete(k);
     },
     listFiles: async (doc) => [...files.values()].filter((f) => f.doc === doc),
     getFile: async (doc, path) => files.get(key(doc, path)),
     putFile: async (file) => { files.set(key(file.doc, file.path), file); },
     deleteFile: async (doc, path) => { files.delete(key(doc, path)); },
+    listObjects: async (doc) => [...objects.values()].filter((o) => o.doc === doc),
+    getObject: async (doc, id) => objects.get(key(doc, id)),
+    putObject: async (doc, id, data) => { objects.set(key(doc, id), { doc, id, data }); },
   };
 }
 
