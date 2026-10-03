@@ -660,15 +660,19 @@ async function newDeck(plan) {
   refreshFiles();
   needsPaint = true;
 }
-// File → Duplicate: a new deck from this one, its Markdown, theme CSS and
-// files copied, named "<name> (copy)". This one is saved first; the copy is
-// kept at once under an id of its own (a PRO deck gets its own share).
-async function duplicateDeck() {
+// File → Duplicate, its name asked first: a new deck from this one, its
+// Markdown, theme CSS and files copied, named `asked` (empty: "<name>
+// (copy)"). This one is saved first; the copy is kept at once under an id of
+// its own (a PRO deck gets its own share).
+function copyName() {
+  return exportName() + " " + t("(copy)");
+}
+async function duplicateDeck(asked) {
   await leaveDoc();
   const key = themeSel.value || "";
   const css = key in editedCss ? editedCss[key] : null;
   const files = await docFiles();
-  const name = exportName() + " " + t("(copy)");
+  const name = String(asked || "").replace(/\s+/g, " ").trim() || copyName();
   const text = retitled(app.source(), name);
   beginDoc(text);
   docName = name;
@@ -1284,8 +1288,8 @@ async function fileRequest(r) {
   } else if (action === "newsheet") {
     await newSheet();
   } else if (action === "duplicate") {
-    makingDeck = duplicateDeck().catch((e) => toast(t("Duplicating failed: ") + (e.message || e))).finally(() => { makingDeck = null; });
-    await makingDeck;
+    // the copy's name asked first, as for a new deck
+    app.openDupDeck(copyName());
   } else if (action === "open") {
     const f = (await docFiles()).find((x) => x.path === what);
     if (!f) return;
@@ -2292,13 +2296,17 @@ function handleRequests() {
       deleteDeck().catch(fail);
     } else if (r === "newdeck-create") {
       const plan = JSON.parse(app.newDeckPlan());
-      // the picker now, while the press still counts as one; the file goes
-      // into the new deck once it is made
-      if (plan.data === "file") {
-        addAsks = true;
-        fileAdd.click();
+      if (plan.dup) {
+        makingDeck = duplicateDeck(plan.name).catch((e) => toast(t("Duplicating failed: ") + (e.message || e))).finally(() => { makingDeck = null; });
+      } else {
+        // the picker now, while the press still counts as one; the file goes
+        // into the new deck once it is made
+        if (plan.data === "file") {
+          addAsks = true;
+          fileAdd.click();
+        }
+        makingDeck = newDeck(plan).catch(fail).finally(() => { makingDeck = null; });
       }
-      makingDeck = newDeck(plan).catch(fail).finally(() => { makingDeck = null; });
     } else if (r === "picture-place") {
       placePasted().catch(fail);
     } else if (r === "picture-cancel") {
