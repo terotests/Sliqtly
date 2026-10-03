@@ -1,0 +1,175 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; Visitor counts without cookies: the page posts one beacon per load to
+; /api/hit (web/main.js countVisit) and this counts it in stats/<UTC day>:
+;
+;   views     page loads
+;   visitors  distinct visitors that day: SHA-256 of a salt of the day, the
+;             address and the browser. The salt is random, kept in
+;             stats_salt/<day> and deleted by the TTL policy two days later,
+;             so a hash can no longer be tied to an address after that; the
+;             same person on two days is two visitors.
+;   pages     loads by page: editor (/), view (/s/{id}), edit (/s/{id}?edit)
+;   devices   visitors by mobile / desktop
+;   refs      visitors by the site they came from (host only)
+;
+; stats_seen/<hash> marks a visitor counted today; it goes with the salt.
+; Nothing else about a visitor is kept. No client rule reaches these.
+; =============================================================================
+
+Import "McpHost.rgr"
+Import "Json.rgr"
+
+; what one beacon counts; ok false when it counts nothing
+class Visit {
+    def ok:boolean false
+    def page:string ""
+    def device:string ""
+    def ref:string ""
+}
+
+class Stats {
+    sfn DAY:int () {
+        return 86400000
+    }
+
+    sfn anyIn:boolean (text:string words:[string]) {
+        for words w:string i {
+            if ((indexOf text w) >= 0) {
+                return true
+            }
+        }
+        return false
+    }
+
+    sfn isBot:boolean (ua:string) {
+        def words:[string] ([] _:string ("bot" "crawl" "spider" "slurp" "headless" "lighthouse" "preview" "facebookexternalhit" "curl" "wget" "python" "node-fetch" "go-http"))
+        return (Stats.anyIn((to_lowercase ua) words))
+    }
+
+    sfn isMobile:boolean (ua:string) {
+        def words:[string] ([] _:string ("mobi" "android" "iphone" "ipad"))
+        return (Stats.anyIn((to_lowercase ua) words))
+    }
+
+    ; a host name as the beacon sends it: a-z, 0-9, "." and "-", 1 to 64
+    sfn isHost:boolean (s:string) {
+        def n:int (strlen s)
+        if ((n < 1) || (n > 64)) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt s i)
+            def ok:boolean ((((ch >= 97) && (ch <= 122)) || ((ch >= 48) && (ch <= 57))) || ((ch == 46) || (ch == 45)))
+            if (ok == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; the beacon's {p, r} and the browser: nothing for a bot, a page that is
+    ; not one of ours, and no referrer when it is our own site
+    sfn visitOf:Visit (body:MfJ ua:string) {
+        def v (new Visit)
+        if (((strlen ua) == 0) || (Stats.isBot(ua))) {
+            return v
+        }
+        if ((body.isObj()) == false) {
+            return v
+        }
+        def pf:MfJ (body.field("p"))
+        if (pf.kind != 3) {
+            return v
+        }
+        def page:string pf.str
+        if (((page != "editor") && (page != "view")) && (page != "edit")) {
+            return v
+        }
+        def ref:string ""
+        def rf:MfJ (body.field("r"))
+        if (rf.kind == 3) {
+            ref = (to_lowercase rf.str)
+            if ((indexOf ref "www.") == 0) {
+                ref = (substring ref 4 (strlen ref))
+            }
+        }
+        if ((((Stats.isHost(ref)) == false) || (ref == "sliqtly.com")) || (ref == "sliqtly.web.app")) {
+            ref = ""
+        }
+        v.ok = true
+        v.page = page
+        v.device = "desktop"
+        if (Stats.isMobile(ua)) {
+            v.device = "mobile"
+        }
+        v.ref = ref
+        return v
+    }
+
+    ; the day's salt: made by the first beacon of the day, kept for the
+    ; instance once read
+    sfn saltOf:string (host:McpHost day:string t:int) {
+        def known:string (host_cache_get host ("stats_salt/" + day))
+        if ((strlen known) > 0) {
+            return known
+        }
+        def fresh:MfJ (J.obj())
+        fresh.putStr("salt" (host_short_id host 64))
+        fresh.put("expires" (J.timeAt((t + (2 * (Stats.DAY()))))))
+        def had:MfJ (J.parse((host_create_doc host "stats_salt" day (JOut.text(fresh)))))
+        if ((strlen (host_error host)) > 0) {
+            return ""
+        }
+        def salt:string (fresh.str_("salt"))
+        if (had.isObj()) {
+            salt = (had.str_("salt"))
+        }
+        if ((strlen salt) > 0) {
+            host_cache_put host ("stats_salt/" + day) salt
+        }
+        return salt
+    }
+
+    sfn one:MfJ (key:string) {
+        def o:MfJ (J.obj())
+        o.putInt(key 1)
+        return o
+    }
+
+    ; true when counted; a store failure is left in host_error
+    sfn hit:boolean (host:McpHost ip:string ua:string body:MfJ) {
+        def v:Visit (Stats.visitOf(body ua))
+        if (v.ok == false) {
+            return false
+        }
+        def t:int (host_now_ms host)
+        def day:string (substring (host_iso_time host t) 0 10)
+        def salt:string (Stats.saltOf(host day t))
+        if ((strlen salt) == 0) {
+            return false
+        }
+        def id:string (host_sha256_hex host (salt + "|" + ip + "|" + ua))
+        def mark:MfJ (J.obj())
+        mark.put("expires" (J.timeAt((t + (2 * (Stats.DAY()))))))
+        def seen:MfJ (J.parse((host_create_doc host "stats_seen" id (JOut.text(mark)))))
+        if ((strlen (host_error host)) > 0) {
+            return false
+        }
+        def add:MfJ (J.obj())
+        add.putInt("views" 1)
+        add.put("pages" (Stats.one(v.page)))
+        if ((seen.isObj()) == false) {
+            add.putInt("visitors" 1)
+            add.put("devices" (Stats.one(v.device)))
+            if ((strlen v.ref) > 0) {
+                add.put("refs" (Stats.one(v.ref)))
+            }
+        }
+        host_increment_doc host "stats" day (JOut.text(add))
+        return ((strlen (host_error host)) == 0)
+    }
+}

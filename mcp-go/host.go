@@ -55,6 +55,12 @@ type DB interface {
 	Delete(ctx context.Context, col, id string) error
 	WhereEq(ctx context.Context, col, field string, value any) ([]Doc, []string, error)
 	ServerTime() any
+	// Create writes d only when there is no such document; the one there
+	// already is returned when there is.
+	Create(ctx context.Context, col, id string, d Doc) (Doc, error)
+	// Increment adds the int64 leaves of add to the document's fields
+	// (nested maps for nested fields), creating what is missing.
+	Increment(ctx context.Context, col, id string, add Doc) error
 }
 
 // Bucket is the little of Cloud Storage the server uses.
@@ -81,10 +87,14 @@ type Env struct {
 	// nil: none. Registrations: a limiter for POST /oauth/register.
 	Quota         func(ctx context.Context, who string) string
 	Registrations func(who string) string
+	// Hits: a limiter for the visit beacon POST /api/hit, per address.
+	Hits func(who string) string
+	Now  func() time.Time // nil: time.Now
 
 	themesMu sync.Mutex
 	themes   map[string]string
-	webCfg   string // the site's /__/firebase/init.json once it has been read
+	webCfg   string            // the site's /__/firebase/init.json once it has been read
+	cache    map[string]string // host_cache_put: the day's visit salt
 }
 
 // The whole server as one handler.
@@ -97,6 +107,9 @@ func NewApp(env *Env) http.Handler {
 	}
 	if env.Registrations == nil {
 		env.Registrations = rateLimiter(20, 10*time.Minute)
+	}
+	if env.Hits == nil {
+		env.Hits = rateLimiter(120, 10*time.Minute)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 40<<20)
@@ -275,7 +288,12 @@ func (h *McpHost) BaseURL() string { return h.env.BaseURL }
 func (h *McpHost) TrustHost() bool { return h.env.TrustHost }
 func (h *McpHost) OAuthOn() bool   { return h.env.OAuth && h.env.DB != nil }
 func (h *McpHost) Log(msg string)  { log.Print(msg) }
-func (h *McpHost) NowMS() int64    { return time.Now().UnixMilli() }
+func (h *McpHost) NowMS() int64 {
+	if h.env.Now != nil {
+		return h.env.Now().UnixMilli()
+	}
+	return time.Now().UnixMilli()
+}
 func (h *McpHost) StoreKind() string {
 	if h.env.DB == nil {
 		return "link"
@@ -397,6 +415,25 @@ func (h *McpHost) UpdateDoc(col, id, text string) {
 func (h *McpHost) DeleteDoc(col, id string) {
 	if h.db() {
 		h.fail(h.env.DB.Delete(h.ctx, col, id))
+	}
+}
+
+func (h *McpHost) CreateDoc(col, id, text string) string {
+	d := h.parseDoc(text)
+	if d == nil || !h.db() {
+		return ""
+	}
+	had, err := h.env.DB.Create(h.ctx, col, id, d)
+	if err != nil || had == nil {
+		h.fail(err)
+		return ""
+	}
+	return toJSON(plain(had))
+}
+
+func (h *McpHost) IncrementDoc(col, id, text string) {
+	if d := h.parseDoc(text); d != nil && h.db() {
+		h.fail(h.env.DB.Increment(h.ctx, col, id, d))
 	}
 }
 
@@ -661,6 +698,24 @@ func (h *McpHost) RateLimit(who string) string {
 		return why
 	}
 	return h.env.Quota(h.ctx, who)
+}
+
+func (h *McpHost) HitLimit(who string) string { return h.env.Hits(who) }
+
+// at most a few keys: the cache is emptied when it grows past them
+func (h *McpHost) CacheGet(key string) string {
+	h.env.themesMu.Lock()
+	defer h.env.themesMu.Unlock()
+	return h.env.cache[key]
+}
+
+func (h *McpHost) CachePut(key, value string) {
+	h.env.themesMu.Lock()
+	defer h.env.themesMu.Unlock()
+	if h.env.cache == nil || len(h.env.cache) > 16 {
+		h.env.cache = map[string]string{}
+	}
+	h.env.cache[key] = value
 }
 
 func (h *McpHost) ISOTime(ms int64) string {

@@ -1,8 +1,8 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; =============================================================================
-; The Sliqtly MCP server (mcp/src/http.js): /mcp, and with sign-in the OAuth
-; endpoints. Compiled to Go; ../host.go hands every request to App.serve with
+; The Sliqtly MCP server: /mcp, with sign-in the OAuth endpoints, and the
+; site's visit beacon /api/hit. Compiled to Go; ../host.go hands every request to App.serve with
 ; an McpHost for it.
 ;
 ; Streamable HTTP, stateless. A browser opening /mcp is sent to the
@@ -14,6 +14,7 @@ Import "Json.rgr"
 Import "OAuth.rgr"
 Import "Tools.rgr"
 Import "Mcp.rgr"
+Import "Stats.rgr"
 
 class App {
     sfn cors:void (res:HttpResponse) {
@@ -80,6 +81,47 @@ class App {
         return base
     }
 
+    ; the caller's address: the first X-Forwarded-For value (Hosting and
+    ; Cloud Run put the client first), else the connection's
+    sfn clientIp:string (host:McpHost req:HttpRequest) {
+        def ip:string (http_get_header req "X-Forwarded-For")
+        def comma:int (indexOf ip ",")
+        if (comma >= 0) {
+            ip = (substring ip 0 comma)
+        }
+        ip = (trim ip)
+        if ((strlen ip) == 0) {
+            ip = (host_remote_ip host)
+        }
+        return ip
+    }
+
+    ; The page's visit beacon (web/main.js countVisit, Stats.rgr): counted
+    ; only when it comes from the site itself. Always 204, so the page learns
+    ; nothing; the answer waits for the write.
+    sfn serveHit:void (host:McpHost req:HttpRequest res:HttpResponse) {
+        def body:string (host_body_json host)
+        def origin:string (http_get_header req "Origin")
+        def base:string (host_base_url host)
+        def ours:boolean (((origin == "https://sliqtly.com") || (origin == "https://sliqtly.web.app")) || (origin == base))
+        if ((host_trust_host host) && ((strlen origin) > 0)) {
+            ours = true
+        }
+        if ((host_store_kind host) != "cloud") {
+            ours = false
+        }
+        if ours {
+            def ip:string (App.clientIp(host req))
+            if ((strlen (host_hit_limit host ip)) == 0) {
+                def counted:boolean (Stats.hit(host ip (http_get_header req "User-Agent") (J.parse(body))))
+                if ((strlen (host_error host)) > 0) {
+                    host_log host ("hit failed: " + (host_error host))
+                }
+            }
+        }
+        http_set_status res 204
+    }
+
     sfn rpcError:string (code:int message:string) {
         return (JOut.text((Mcp.error((new MfJ) code message))))
     }
@@ -99,6 +141,10 @@ class App {
         }
         if (path == "/mcp") {
             App.serveMcp(host req res method)
+            return
+        }
+        if ((path == "/api/hit") && (method == "POST")) {
+            App.serveHit(host req res)
             return
         }
         http_set_header res "Content-Type" "text/plain; charset=utf-8"
@@ -180,16 +226,7 @@ class App {
             }
             caller.signIn = (origin + "/.well-known/oauth-protected-resource/mcp")
         }
-        def ip:string (http_get_header req "X-Forwarded-For")
-        def comma:int (indexOf ip ",")
-        if (comma >= 0) {
-            ip = (substring ip 0 comma)
-        }
-        ip = (trim ip)
-        if ((strlen ip) == 0) {
-            ip = (host_remote_ip host)
-        }
-        caller.who = ip
+        caller.who = (App.clientIp(host req))
         if caller.signedIn {
             caller.who = ("uid:" + caller.uid)
         }

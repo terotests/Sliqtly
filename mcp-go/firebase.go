@@ -67,6 +67,38 @@ func (d firestoreDB) WhereEq(ctx context.Context, col, field string, value any) 
 
 func (firestoreDB) ServerTime() any { return firestore.ServerTimestamp }
 
+func (d firestoreDB) Create(ctx context.Context, col, id string, doc Doc) (Doc, error) {
+	ref := d.c.Collection(col).Doc(id)
+	_, err := ref.Create(ctx, doc)
+	if status.Code(err) != codes.AlreadyExists {
+		return nil, err
+	}
+	snap, err := ref.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return snap.Data(), nil
+}
+
+// the leaves as firestore.Increment, merged into the document: map keys are
+// field names, so a referrer's "example.com" stays one field
+func (d firestoreDB) Increment(ctx context.Context, col, id string, add Doc) error {
+	var inc func(m Doc) Doc
+	inc = func(m Doc) Doc {
+		out := Doc{}
+		for k, v := range m {
+			if sub, ok := v.(map[string]any); ok {
+				out[k] = inc(sub)
+			} else {
+				out[k] = firestore.Increment(v)
+			}
+		}
+		return out
+	}
+	_, err := d.c.Collection(col).Doc(id).Set(ctx, inc(add), firestore.MergeAll)
+	return err
+}
+
 type gcsBucket struct{ b *storage.BucketHandle }
 
 func (g gcsBucket) Name() string { return g.b.BucketName() }

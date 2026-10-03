@@ -5,10 +5,10 @@ name: MCP Go
 
 on:
   pull_request:
-    paths: ["mcp-go/**", "src/**", "themes/**", "scripts/lib.mjs", "presentation.config.json", "mcp/guide.md", "mcp/src/preview.html", ".dockerignore", ".github/workflows/mcp-go.yml"]
+    paths: ["mcp-go/**", "src/**", "themes/**", "scripts/lib.mjs", "presentation.config.json", "mcp/**", ".dockerignore", ".github/workflows/mcp-go.yml"]
   push:
     branches: [main]
-    paths: ["mcp-go/**", "src/**", "themes/**", "scripts/lib.mjs", "presentation.config.json", "mcp/guide.md", "mcp/src/preview.html", ".dockerignore", ".github/workflows/mcp-go.yml"]
+    paths: ["mcp-go/**", "src/**", "themes/**", "scripts/lib.mjs", "presentation.config.json", "mcp/**", ".dockerignore", ".github/workflows/mcp-go.yml"]
 
 permissions:
   contents: read
@@ -30,10 +30,14 @@ jobs:
           node-version: 22
       # copies the guide and preview from mcp/, compiles rgr/ and src/ with Ranger
       - run: go generate ./...
-      - run: test -z "$(gofmt -l host.go net.go main.go firebase.go server_test.go)"
+      - run: test -z "$(gofmt -l host.go net.go main.go firebase.go server_test.go stats_test.go)"
       # the generated code carries json tags on unexported fields, and the
       # deck model has a few self-assignments
       - run: go vet -structtag=false -assign=false ./...
       - run: go test -race ./...
+      # the Node server (mcp/) and this one answer the same calls alike
+      - run: npm ci
+        working-directory: mcp
+      - run: node parity.mjs
       - run: docker build -f mcp-go/Dockerfile -t sliqtly-mcp-go .
         working-directory: .

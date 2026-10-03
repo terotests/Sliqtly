@@ -14,7 +14,8 @@ Not deployed. `mcp/` (the Cloud Function, Node.js) is still what
 
 | | |
 | --- | --- |
-| [`rgr/App.rgr`](rgr/App.rgr) | routing, CORS, the `/mcp` transport checks, sign-in on a request |
+| [`rgr/App.rgr`](rgr/App.rgr) | routing, CORS, the `/mcp` transport checks, sign-in on a request, the `/api/hit` beacon |
+| [`rgr/Stats.rgr`](rgr/Stats.rgr) | the site's cookieless visitor counts (`stats/<day>`), as `mcp/src/stats.js` |
 | [`rgr/Mcp.rgr`](rgr/Mcp.rgr) | MCP: JSON-RPC, `initialize`, `tools/*`, `resources/*` |
 | [`rgr/Tools.rgr`](rgr/Tools.rgr) | the eight tools, their schemas and UI metadata, the preview resource |
 | [`rgr/OAuth.rgr`](rgr/OAuth.rgr) | the OAuth 2.1 server: registration, authorize, approve, token, refresh |
@@ -94,6 +95,12 @@ go generate         # copies guide.md and preview.html from ../mcp, compiles rgr
 go test ./...       # mcp/test/server.test.js case for case, over HTTP with the official MCP Go client
 go run .            # http://localhost:8080/mcp, decks travel in the link
 ```
+
+`node parity.mjs` (after `npm ci` in `../mcp`) runs both servers in link mode
+and makes the same calls to each: initialize, the tool list, the guide,
+create on a few decks, the errors. The differences kept on purpose (Go's
+layout-based warnings, how an argument error is worded) are listed in it.
+CI runs it with the tests.
 
 `go generate` compiles with the Ranger checkout the editor builds with
 (`npm run setup`, `.deps/Ranger` at the ref in `presentation.config.json`), or

@@ -58,3 +58,15 @@ jobs:
             --cpu 1 --memory 256Mi --concurrency 80 --max-instances 10 --cpu-boost
           URL=$(gcloud run services describe sliqtly-mcp --region "$REGION" --project "$PROJECT" --format 'value(status.url)')
           echo "Service: $URL/mcp" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Check the service answers
+        run: |
+          URL=$(gcloud run services describe sliqtly-mcp --region "$REGION" --project "$PROJECT" --format 'value(status.url)')
+          H=(-H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -H 'mcp-protocol-version: 2025-06-18')
+          curl -fsS "${H[@]}" "$URL/mcp" -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"deploy","version":"1"}}}' | grep -q '"serverInfo"'
+          TOOLS=$(curl -fsS "${H[@]}" "$URL/mcp" -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | grep -o '"name":"[a-z_]*"' | sort -u | tr '\n' ' ')
+          echo "Tools: $TOOLS" | tee -a "$GITHUB_STEP_SUMMARY"
+          for t in sliqtly_guide create_presentation update_presentation get_presentation bind_chart_data list_files read_file write_workbook list_presentations; do
+            echo "$TOOLS" | grep -q "\"$t\"" || { echo "missing $t"; exit 1; }
+          done
+          curl -fsS "$URL/.well-known/oauth-authorization-server" | grep -q '"token_endpoint"'
+          test "$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$URL/api/hit" -H 'content-type: application/json' -d '{"p":"editor"}')" = 204

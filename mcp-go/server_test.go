@@ -127,6 +127,37 @@ func (f *fakeDB) ServerTime() any {
 	f.clock++
 	return f.clock
 }
+func (f *fakeDB) Create(_ context.Context, col, id string, d Doc) (Doc, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if had, ok := f.data[col+"/"+id]; ok {
+		return clone(had), nil
+	}
+	f.data[col+"/"+id] = clone(d)
+	return nil, nil
+}
+func (f *fakeDB) Increment(_ context.Context, col, id string, add Doc) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var inc func(cur, add Doc) Doc
+	inc = func(cur, add Doc) Doc {
+		if cur == nil {
+			cur = Doc{}
+		}
+		for k, v := range add {
+			if sub, ok := v.(map[string]any); ok {
+				had, _ := cur[k].(map[string]any)
+				cur[k] = inc(had, sub)
+			} else {
+				n, _ := cur[k].(int64)
+				cur[k] = n + v.(int64)
+			}
+		}
+		return cur
+	}
+	f.data[col+"/"+id] = inc(f.data[col+"/"+id], add)
+	return nil
+}
 func (f *fakeDB) doc(k string) Doc {
 	f.mu.Lock()
 	defer f.mu.Unlock()

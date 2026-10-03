@@ -107,6 +107,20 @@ operators {
             go ( (e 1) ".DeleteDoc(" (e 2) ", " (e 3) ")" nl )
         }
     }
+    ; writes the document only when there is none: "" when it was written,
+    ; the one already there (JSON) when not
+    host_create_doc _:string (h:McpHost col:string id:string json:string) {
+        templates {
+            go ( (e 1) ".CreateDoc(" (e 2) ", " (e 3) ", " (e 4) ")" )
+        }
+    }
+    ; adds the numbers of a JSON object (nested objects for nested fields)
+    ; to the document's, creating what is missing (FieldValue.increment)
+    host_increment_doc _:void (h:McpHost col:string id:string json:string) {
+        templates {
+            go ( (e 1) ".IncrementDoc(" (e 2) ", " (e 3) ", " (e 4) ")" nl )
+        }
+    }
     ; [{"id": …, …fields}] of the documents whose field equals value
     host_query_eq _:string (h:McpHost col:string field:string value:string) {
         templates {
@@ -262,6 +276,24 @@ operators {
     host_rate_limit _:string (h:McpHost who:string) {
         templates {
             go ( (e 1) ".RateLimit(" (e 2) ")" )
+        }
+    }
+    ; "" or why a visit beacon from this address is not counted (sliding
+    ; window per instance)
+    host_hit_limit _:string (h:McpHost who:string) {
+        templates {
+            go ( (e 1) ".HitLimit(" (e 2) ")" )
+        }
+    }
+    ; a value the instance keeps between requests ("" when it has none)
+    host_cache_get _:string (h:McpHost key:string) {
+        templates {
+            go ( (e 1) ".CacheGet(" (e 2) ")" )
+        }
+    }
+    host_cache_put _:void (h:McpHost key:string value:string) {
+        templates {
+            go ( (e 1) ".CachePut(" (e 2) ", " (e 3) ")" nl )
         }
     }
     ; encodeURIComponent

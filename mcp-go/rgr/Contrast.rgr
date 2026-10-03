@@ -274,7 +274,8 @@ class Contrast {
     }
 
     ; a list's number ("1.", "b)") is drawn in the theme's muted colour on
-    ; purpose and read with the line beside it: not judged on its own
+    ; purpose and read with the line beside it: not judged on its own (nor
+    ; its bullet: readable)
     sfn marker:boolean (text:string) {
         def t:string (trim text)
         def n:int (strlen t)
@@ -293,7 +294,14 @@ class Contrast {
         def n:int (strlen text)
         while (i < n) {
             def ch:int (charAt text i)
-            if ((((ch >= 48) && (ch <= 57)) || ((ch >= 65) && (ch <= 90))) || (((ch >= 97) && (ch <= 122)) || (ch >= 192))) {
+            ; letters and digits, also beyond ASCII; not U+2000–U+2FFF
+            ; (punctuation, arrows, shapes: a list's "•" is drawn muted on
+            ; purpose, as its numbers are). In Go a character is a byte of
+            ; UTF-8, where 226 (E2) starts that block; 192+ starts the rest.
+            if ((((ch >= 48) && (ch <= 57)) || ((ch >= 65) && (ch <= 90))) || ((ch >= 97) && (ch <= 122))) {
+                return true
+            }
+            if (((ch >= 192) && (ch != 226)) && ((ch < 8192) || (ch > 12287))) {
                 return true
             }
             i = (i + 1)
