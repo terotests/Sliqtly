@@ -23,6 +23,7 @@ import { createLiveSheets } from "./sheets-live.js";
 import { scaled, previewOf, render } from "./image-adjust.js";
 import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versions.js";
 import { showHistory, askMerge } from "./versions-ui.js";
+import { wantsIntro, INTRO_MS } from "./brand.js";
 
 const canvas = document.getElementById("c");
 const stageEl = document.getElementById("stage");
@@ -3282,12 +3283,54 @@ function isCoarse() { return !!(coarseQuery && coarseQuery.matches); }
 if (coarseQuery && coarseQuery.addEventListener) {
   coarseQuery.addEventListener("change", () => { app.setCoarse(isCoarse()); needsPaint = true; });
 }
-function enterViewer() {
+// `from`: what is shown ({ from: "link" } or { from: "share" }), which decides
+// whether Sliqtly's intro plays first (web/brand.js).
+function enterViewer(from) {
   viewer = true;
   document.body.classList.add("viewer");
-  app.present(true);
-  handleRequests();
+  // the slide the link names, read now: the page writes its own into the
+  // address while the intro plays
+  const n = parseInt(hashParams().get("slide") || "", 10);
+  const begin = () => beginShow(n > 1 ? n - 1 : 0);
+  if (!wantsIntro(from)) begin();
+  // the page still loading: the intro follows the loader (start)
+  else if (window.__pageStarted) playIntro().then(begin);
+  else introPending = begin;
   wakeViewer();
+}
+function beginShow(slide) {
+  if (slide > 0) app.selectSlide(slide);
+  app.present(slide === 0);
+  handleRequests();
+  needsPaint = true;
+}
+// Sliqtly's intro on a shared presentation (web/brand.js): the logo turns
+// and the name shows, then the slides begin, so the first slide's animation
+// is seen. A click, a tap or a key skips it, and is not also taken as "next".
+let introPending = null; // what begins the show once the intro has played
+function playIntro() {
+  const el = document.getElementById("brandIntro");
+  if (!el) return Promise.resolve();
+  return new Promise((done) => {
+    let timer = 0;
+    const skip = (ev) => {
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      end();
+    };
+    const end = () => {
+      clearTimeout(timer);
+      window.removeEventListener("pointerdown", skip, true);
+      window.removeEventListener("keydown", skip, true);
+      el.classList.add("out");
+      setTimeout(() => { el.hidden = true; el.classList.remove("out"); }, 350);
+      done();
+    };
+    el.hidden = false;
+    window.addEventListener("pointerdown", skip, true);
+    window.addEventListener("keydown", skip, true);
+    timer = setTimeout(end, INTRO_MS);
+  });
 }
 function wakeViewer() {
   document.body.classList.remove("idle");
@@ -3440,7 +3483,7 @@ async function openFromHash() {
     app.setSource(text);
     dropThumbs();
     needsPaint = true;
-    if (q.get("mode") === "show") enterViewer();
+    if (q.get("mode") === "show") enterViewer({ from: "link" });
     return true;
   } catch (e) {
     toast(t("Could not read the link's contents."));
@@ -3589,7 +3632,7 @@ async function openFromShare() {
     app.setSource(shared.md || "");
     dropThumbs();
     needsPaint = true;
-    if (!editing) enterViewer();
+    if (!editing) enterViewer({ from: "share" });
     return true;
   } catch (e) {
     console.warn(e);
@@ -4378,6 +4421,10 @@ async function start() {
   document.body.classList.remove("booting");
   if (!viewer && !isCoarse()) focusKeys("editor");
   window.__pageStarted = true;
+  if (introPending) {
+    playIntro().then(introPending);
+    introPending = null;
+  }
   // opening the deck tidied the address; it names the deck again from here
   followAddress();
   // ?export=pdf|pptx|md (or in the #…): an export asked for from the
