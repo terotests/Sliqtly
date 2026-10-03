@@ -103,6 +103,11 @@ class PresChartEditor {
     def adjTemp:int 0
     def adjTint:int 0
     def adjDirty:boolean false
+    ; what the page measured on the slide drawn with the preview: the
+    ; contrast of its text over the picture ("" not measured yet), and
+    ; whether a run is too faint
+    def adjContrastNote:string ""
+    def adjContrastBad:boolean false
     def wantsSave:boolean false
     ; A new presentation (`mode` "newdeck"): its name, theme and what data it
     ; starts with ("none", "sample" a chart with a sample table, "file" a
@@ -163,6 +168,8 @@ class PresChartEditor {
         crop.maxH = 260.0
         crop.setImage(path iw ih)
         adjFile = file
+        adjContrastNote = ""
+        adjContrastBad = false
         this.adjustZero()
         adjDirty = false
         wantsSave = false
@@ -726,6 +733,13 @@ class PresChartEditor {
         this.adjustRow(col "ae-s-sat" (PresI18n.t("Saturation")) adjSat)
         this.adjustRow(col "ae-s-temp" (PresI18n.t("Warmth")) adjTemp)
         this.adjustRow(col "ae-s-tint" (PresI18n.t("Tint")) adjTint)
+        if ((strlen adjContrastNote) > 0) {
+            def cls:string "ce-ok"
+            if adjContrastBad {
+                cls = "ce-warn"
+            }
+            pane.addChild((this.text(cls adjContrastNote)))
+        }
         pane.addChild((this.text("ce-doc" (PresI18n.t("Save replaces the file: every slide that shows this image changes.")))))
         def bottom:EVGElement (this.div("ce-foot"))
         this.button("ae-cancel" (PresI18n.t("Cancel")) "outline" bottom)
@@ -733,6 +747,19 @@ class PresChartEditor {
         bottom.addChild((this.div("ce-grow")))
         this.button("ae-save" (PresI18n.t("Save")) "primary" bottom)
         root.addChild(bottom)
+    }
+
+    ; The slide's contrast as the page measured it, shown under the sliders.
+    ; A drag keeps its controls: the window is built again when it ends.
+    fn setAdjustContrast:void (note:string bad:boolean) {
+        if ((note == adjContrastNote) && (bad == adjContrastBad)) {
+            return
+        }
+        adjContrastNote = note
+        adjContrastBad = bad
+        if ((this.dragging()) == false) {
+            this.rebuild()
+        }
     }
 
     fn adjustAct:boolean (tid:string) {

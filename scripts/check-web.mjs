@@ -596,21 +596,41 @@ try {
     a.chart.adjBright = -50;
     a.chart.adjSat = -100;
     a.chart.adjDirty = true;
+    a.chart.changed = true;
+    // the slide shows the change before Save, and the window says how its
+    // text reads over it
+    a.writeChart();
+    window.__handleRequests();
+    let live = before;
+    for (let i = 0; i < 30; i += 1) {
+      await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 30)));
+      live = window.__picturePixel("/" + rel, 2, 2);
+      if (live.join() !== before.join()) break;
+    }
+    let note = "";
+    for (let i = 0; i < 30 && !note; i += 1) {
+      await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 30)));
+      note = a.chart.adjContrastNote;
+    }
     const plan = JSON.parse(a.adjustPlan());
     a.key("enter", false, false);
     window.__handleRequests();
     let after = before;
     for (let i = 0; i < 60; i += 1) {
       await new Promise((res) => setTimeout(res, 100));
+      // the saved file (an <img>), not the preview (a canvas)
+      if (window.__pictureTag("/" + rel) !== "IMG") continue;
       after = window.__picturePixel("/" + rel, 2, 2);
       if (after.join() !== before.join()) break;
     }
     a.showTab("md");
-    return { row: true, hover, open, shown, plan, before, after, closed: !a.chartIsOpen() };
+    return { row: true, hover, open, shown, plan, before, live, note, after, closed: !a.chartIsOpen() };
   }, pic.rel);
   check("a picture in the files tab shows a preview on hover", ed.row && ed.hover, JSON.stringify(ed));
   check("…a click opens the image editor with the picture in it", ed.open && ed.shown, JSON.stringify(ed));
   const grey = ed.after && Math.abs(ed.after[0] - ed.after[1]) < 4 && Math.abs(ed.after[1] - ed.after[2]) < 4;
+  check("…the slide shows the change while the sliders move", ed.live && ed.live.join() !== ed.before.join(), JSON.stringify({ before: ed.before, live: ed.live }));
+  check("…and the window says how the slide's text reads over it", /^Slide \d+: /.test(ed.note || ""), JSON.stringify(ed.note));
   check("…and Save writes the adjusted picture over the file", ed.closed && grey && ed.after[0] < ed.before[0], JSON.stringify({ before: ed.before, after: ed.after, plan: ed.plan }));
 
   // TeX math: $…$ in a line and a $$ display are drawn as filled outlines
