@@ -82,6 +82,10 @@ test("tools, UI metadata and the preview resource", async () => {
     assert.ok(r.contents[0]._meta.ui.csp.resourceDomains.includes("https://www.gstatic.com"));
     assert.ok(r.contents[0]._meta.ui.csp.connectDomains.includes("https://firestore.googleapis.com"));
     assert.deepEqual(r.contents[0]._meta["openai/widgetCSP"].connect_domains, r.contents[0]._meta.ui.csp.connectDomains);
+    // a client that kept an older tool list still gets the preview
+    const old = await t.client.readResource({ uri: "ui://sliqtly/preview-0000000000.html" });
+    assert.equal(old.contents[0].uri, "ui://sliqtly/preview-0000000000.html");
+    assert.equal(old.contents[0].text, r.contents[0].text);
     const g = await t.client.callTool({ name: "sliqtly_guide", arguments: {} });
     assert.match(g.content[0].text, /## Pictures/);
   } finally { await t.close(); }
