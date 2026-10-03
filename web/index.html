@@ -58,6 +58,13 @@
     55%, 100% { transform: perspective(300px) rotateY(360deg); }
   }
   @media (prefers-reduced-motion: reduce) { #hint .spinner { animation: none; } }
+  /* web/main.js closedByUpdate: this tab's store was taken over by a newer page */
+  #tabNotice {
+    position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 30;
+    max-width: calc(100vw - 32px); padding: 10px 16px; border-radius: 10px;
+    background: #b91c1c; color: #fff; font: 14px/1.3 "Open Sans", system-ui, sans-serif;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  }
   #err {
     position: fixed; left: 12px; bottom: 12px; right: 12px; color: #dc2626;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;

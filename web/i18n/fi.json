@@ -808,5 +808,7 @@
   "Version restored. The one before it is in the history.": "Versio palautettu. Sitä edeltävä tila on historiassa.",
   "Version saved.": "Versio tallennettu.",
   "Versions are kept once the presentation is changed.": "Versioita tallennetaan, kun esitystä on muutettu.",
-  "What changed (optional)": "Mitä muuttui (valinnainen)"
+  "What changed (optional)": "Mitä muuttui (valinnainen)",
+  "Waiting for your other Sliqtly tabs. Close or reload the ones opened before the update.": "Odotetaan muita Sliqtly-välilehtiäsi. Sulje tai lataa uudelleen ne, jotka avattiin ennen päivitystä.",
+  "Sliqtly was updated in another tab. Reload this page to keep saving.": "Sliqtly päivittyi toisessa välilehdessä. Lataa tämä sivu uudelleen, jotta tallennus jatkuu."
 }
