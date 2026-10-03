@@ -2105,6 +2105,12 @@ function handleRequests() {
       // the canvas bar: the page's own button does what it always did
       const b = document.getElementById(r.slice(6));
       if (b) b.click();
+    } else if (r === "docset") {
+      // the document settings window: the deck's pictures for the logo
+      docFiles().then((fs) => {
+        const pics = fs.filter((f) => kindOf(f.path, f.type) === "image").map((f) => f.path).sort();
+        if (app.openDocSettings(pics.join("\n"))) needsPaint = true;
+      });
     } else if (r === "settings") {
       app.openSettings(autoContrast);
       needsPaint = true;

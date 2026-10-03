@@ -2739,6 +2739,53 @@ try {
     await ctx.close();
   }
 
+  // the document settings window: opened from the front matter's popover
+  // and from the page's pick, it rewrites the front matter as one undo step
+  {
+    const pd = await browser.newPage({ viewport: { width: 1400, height: 860 } });
+    const derr = [];
+    pd.on("pageerror", (e) => derr.push(e.message));
+    await pd.goto(url + "?sample=esittely");
+    await pd.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const ds = await pd.evaluate(async () => {
+      const a = window.__app;
+      const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      const tap = (root, id) => { const e = walk(root, id); if (!e) return false; a.pointerDown(e.calculatedX + 6, e.calculatedY + 6, false, 1); a.pointerUp(); return true; };
+      const settle = async () => { window.__handleRequests(); await new Promise((r) => setTimeout(r, 400)); };
+      const out = {};
+      a.setSource("---\ntitle: Q3\nfooter-right: \"{page} / {pages}\"\n---\n\n# Cover\n\n## Two\n\ntext\n");
+      a.showTab("md");
+      a.openHint(a.hintFor(0, 1));
+      a.hintJson();
+      out.hintBtn = tap(a.hint.host.lastPage, "hp-docset");
+      await settle();
+      out.fromHint = a.chartIsOpen() && a.chart.mode;
+      a.chartJson();
+      tap(a.chart.host.lastPage, "ds-t-0");
+      a.text("Acme");
+      a.chartJson();
+      tap(a.chart.host.lastPage, "ds-first");
+      out.written = a.source().split("\n").slice(0, 6).join("|");
+      a.key("escape", false, false);
+      a.undo();
+      out.undone = a.source().split("\n").slice(0, 4).join("|");
+      a.selectSlide(1);
+      a.place();
+      const r = a.slideRect;
+      a.pointerDown(r.x + r.w * 0.8, r.y + r.h * 0.75, false, 1);
+      a.pointerUp();
+      out.page = [a.pick.sel, a.pickJson().includes("Document settings")];
+      a.pickContent();
+      await settle();
+      out.fromPage = a.chartIsOpen() && a.chart.mode;
+      return out;
+    });
+    check("Document settings opens from the front matter popover and the page's pick", ds.hintBtn && ds.fromHint === "docset" && ds.page[0] === "page" && ds.page[1] && ds.fromPage === "docset", JSON.stringify(ds));
+    check("Document settings writes the front matter and undoes as one step", ds.written === "---|title: Q3|footer-right: \"{page} / {pages}\"|header-left: Acme|header-skip: first|---" && ds.undone === "---|title: Q3|footer-right: \"{page} / {pages}\"|---", JSON.stringify(ds));
+    check("no page errors in the document settings", derr.length === 0, derr.join(" | "));
+    await pd.close();
+  }
+
   // the address follows the slide, the editor's tab and the presentation,
   // and a reload comes back to them
   {

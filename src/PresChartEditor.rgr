@@ -29,6 +29,7 @@
 
 Import "PresChartModel.rgr"
 Import "PresImageModel.rgr"
+Import "PresDocSettings.rgr"
 Import "PresColorPanel.rgr"
 Import "../evgui/src/UiHost.rgr"
 Import "PresKeep.rgr"
@@ -128,6 +129,13 @@ class PresChartEditor {
     def cfText:string ""
     def cfOk:string ""
     def wantsConfirm:boolean false
+    ; The document's settings (`mode` "docset"): the front matter's title,
+    ; transition, header and footer (`ds`), the tab showing ("header",
+    ; "footer", "deck") and the deck's pictures, for a logo. Every change is
+    ; written into the front matter as it is made.
+    def ds:PresDocSettings (new PresDocSettings())
+    def dsTab:string "header"
+    def dsPics:[string]
     ; a field whose text is being selected by a drag, by its tid
     def selecting:string ""
 
@@ -207,6 +215,13 @@ class PresChartEditor {
         wantsCreate = false
         this.openAt(px py pw ph)
         this.focusInput("nd-name")
+    }
+
+    fn openDocSet:void (d:PresDocSettings pics:[string] px:double py:double pw:double ph:double) {
+        mode = "docset"
+        ds = d
+        dsPics = pics
+        this.openAt(px py pw ph)
     }
 
     fn openConfirm:void (key:string title:string words:string ok:string px:double py:double pw:double ph:double) {
@@ -529,6 +544,10 @@ class PresChartEditor {
             win.name = (PresI18n.t("New presentation"))
             win.title = (PresI18n.t("New presentation"))
         }
+        if (mode == "docset") {
+            win.name = (PresI18n.t("Document settings"))
+            win.title = (PresI18n.t("Document settings"))
+        }
         if (mode == "confirm") {
             win.name = cfTitle
             win.title = cfTitle
@@ -564,6 +583,10 @@ class PresChartEditor {
         }
         if (mode == "newdeck") {
             this.newDeckBody(root)
+            return
+        }
+        if (mode == "docset") {
+            this.docSetBody(root)
             return
         }
         if (mode == "paste") {
@@ -873,6 +896,257 @@ class PresChartEditor {
         root.addChild(bottom)
     }
 
+    ; --- the document's settings --------------------------------------------------
+    ; 0 the header, 1 the footer: the edge the tab shows
+    fn dsEdge:int () {
+        if (dsTab == "footer") {
+            return 1
+        }
+        return 0
+    }
+
+    sfn fileName:string (path:string) {
+        def i:int ((strlen path) - 1)
+        while (i >= 0) {
+            if ((charAt path i) == 47) {
+                return (substring path (i + 1) (strlen path))
+            }
+            i = (i - 1)
+        }
+        return path
+    }
+
+    ; `12pt` as 12; "" (the layout's own size) as 0
+    sfn sizeOf:int (v:string) {
+        def t:string (trim v)
+        def n:int (strlen t)
+        if ((n > 2) && ((substring t (n - 2) n) == "pt")) {
+            t = (substring t 0 (n - 2))
+        }
+        if ((n > 2) && ((substring t (n - 2) n) == "px")) {
+            t = (substring t 0 (n - 2))
+        }
+        def d:double (?? (str2double t) 0.0)
+        return (to_int (d + 0.5))
+    }
+
+    fn docSetBody:void (root:EVGElement) {
+        def t0 (new TabsCtl())
+        tabs = t0
+        tabs.tid = "ds-tabs"
+        tabs.name = (PresI18n.t("Document settings"))
+        tabs.addItem("header" (PresI18n.t("Header")) "" false)
+        tabs.addItem("footer" (PresI18n.t("Footer")) "" false)
+        tabs.addItem("deck" (PresI18n.t("Presentation")) "" false)
+        tabs.value = dsTab
+        tabs.build()
+        UiTree.addClass((unwrap tabs.rootEl) "ce-tabs")
+        this.put(tabs root)
+
+        def pane:EVGElement (this.div("ce-pane"))
+        if (dsTab == "deck") {
+            def sec:EVGElement (this.section(pane (PresI18n.t("Presentation"))))
+            def nr:EVGElement (this.field((PresI18n.t("Title"))))
+            this.inputWith("ds-title" (PresI18n.t("Title")) ds.title (PresI18n.t("Write a title…")) "ce-wide" nr)
+            sec.addChild(nr)
+            sec.addChild((this.text("ce-doc" (PresI18n.t("{title} in a header or footer, and the name of an exported file.")))))
+            def sec2:EVGElement (this.section(pane (PresI18n.t("Transition"))))
+            def tc:EVGElement (this.div("ce-chips"))
+            def kinds:[string] (strsplit "fade,slide,zoom,none" ",")
+            def names:[string] (strsplit ((PresI18n.t("Fade")) + "," + (PresI18n.t("Slide")) + "," + (PresI18n.t("Zoom")) + "," + (PresI18n.t("None"))) ",")
+            def cur:string ds.transition
+            if ((strlen cur) == 0) {
+                cur = "fade"
+            }
+            def k:int 0
+            while (k < (array_length kinds)) {
+                this.chip(("ds-tr-" + (itemAt kinds k)) (itemAt names k) ((itemAt kinds k) == cur) tc)
+                k = (k + 1)
+            }
+            sec2.addChild(tc)
+            sec2.addChild((this.text("ce-doc" (PresI18n.t("For every slide; a slide's own heading can say otherwise: ## Title {transition=zoom}.")))))
+        } {
+            this.edgePane(pane (this.dsEdge()))
+        }
+        root.addChild(pane)
+
+        def bottom:EVGElement (this.div("ce-foot"))
+        bottom.addChild((this.text("ce-doc" (PresI18n.t("Changes show on the slides right away. Ctrl+Z undoes them after you close the window.")))))
+        bottom.addChild((this.div("ce-grow")))
+        this.button("ds-done" (PresI18n.t("Done")) "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    fn edgePane:void (pane:EVGElement e:int) {
+        def sec:EVGElement (this.section(pane (PresI18n.t("Text"))))
+        def labels:[string] (strsplit ((PresI18n.t("Left")) + "," + (PresI18n.t("Center")) + "," + (PresI18n.t("Right"))) ",")
+        def i:int 0
+        while (i < 3) {
+            def r:EVGElement (this.field((itemAt labels i)))
+            def n:int ((e * 3) + i)
+            this.input(("ds-t-" + (to_string n)) (itemAt labels i) (itemAt ds.texts n) "ce-wide" r)
+            sec.addChild(r)
+            i = (i + 1)
+        }
+        def qr:EVGElement (this.div("ce-row"))
+        this.button("ds-pagenum" (PresI18n.t("Page number on the right")) "outline" qr)
+        sec.addChild(qr)
+        sec.addChild((this.text("ce-doc" (PresI18n.t("{page}, {pages} and {title} are filled in on every slide, e.g. {page} / {pages}.")))))
+
+        def lg:EVGElement (this.section(pane (PresI18n.t("Logo"))))
+        if ((array_length dsPics) == 0) {
+            lg.addChild((this.text("ce-doc" (PresI18n.t("Add a picture to the presentation first (paste it, or drop it on the Files tab), then pick it here.")))))
+        } {
+            def pc:EVGElement (this.div("ce-chips"))
+            this.chip("ds-logo-none" (PresI18n.t("No logo")) ((strlen (itemAt ds.logo e)) == 0) pc)
+            def p:int 0
+            while (p < (array_length dsPics)) {
+                def path:string (itemAt dsPics p)
+                this.chip(("ds-logo-" + (to_string p)) (PresChartEditor.fileName(path)) (path == (itemAt ds.logo e)) pc)
+                p = (p + 1)
+            }
+            lg.addChild(pc)
+            if ((strlen (itemAt ds.logo e)) > 0) {
+                def ac:EVGElement (this.field((PresI18n.t("Place"))))
+                def at:EVGElement (this.div("ce-chips"))
+                def j:int 0
+                while (j < 3) {
+                    this.chip(("ds-at-" + (to_string j)) (itemAt labels j) ((itemAt ds.logoAt e) == j) at)
+                    j = (j + 1)
+                }
+                ac.addChild(at)
+                lg.addChild(ac)
+            }
+        }
+
+        def sl:EVGElement (this.section(pane (PresI18n.t("Slides"))))
+        def sw:EVGElement (this.div("ce-row ce-switches"))
+        this.switchOf("ds-first" (PresI18n.t("On the first slide")) ((itemAt ds.skipFirst e) == false) sw)
+        this.switchOf("ds-last" (PresI18n.t("On the last slide")) ((itemAt ds.skipLast e) == false) sw)
+        sl.addChild(sw)
+        sl.addChild((this.text("ce-doc" (PresI18n.t("One slide without it: {header=off} or {footer=off} on its heading.")))))
+
+        def lk:EVGElement (this.section(pane (PresI18n.t("Look"))))
+        def cr:EVGElement (this.div("ce-chips"))
+        cr.addChild((this.text("ce-flabel" (PresI18n.t("Text color")))))
+        this.chip("ds-color-theme" (PresI18n.t("From theme")) ((strlen (itemAt ds.color e)) == 0) cr)
+        this.chip("ds-pick-color" (PresI18n.t("Custom color")) ((strlen (itemAt ds.color e)) > 0) cr)
+        if ((strlen (itemAt ds.color e)) > 0) {
+            cr.addChild((this.swatch((itemAt ds.color e))))
+        }
+        lk.addChild(cr)
+        def br:EVGElement (this.div("ce-chips"))
+        br.addChild((this.text("ce-flabel" (PresI18n.t("Band")))))
+        this.chip("ds-band-none" (PresI18n.t("No band")) ((strlen (itemAt ds.band e)) == 0) br)
+        this.chip("ds-pick-band" (PresI18n.t("Color band")) ((strlen (itemAt ds.band e)) > 0) br)
+        if ((strlen (itemAt ds.band e)) > 0) {
+            br.addChild((this.swatch((itemAt ds.band e))))
+        }
+        lk.addChild(br)
+        def zr:EVGElement (this.field((PresI18n.t("Size"))))
+        def sz:int (PresChartEditor.sizeOf((itemAt ds.size e)))
+        this.slider("ds-size" (PresI18n.t("Size")) sz 0 40 1 zr)
+        def zl:string ((to_string sz) + " pt")
+        if (sz <= 0) {
+            zl = (PresI18n.t("default"))
+        }
+        zr.addChild((this.text("ce-value" zl)))
+        lk.addChild(zr)
+    }
+
+    fn docSetAct:boolean (tid:string) {
+        def e:int (this.dsEdge())
+        if (tid == "ds-done") {
+            wantsClose = true
+            return true
+        }
+        if ((indexOf tid "ds-tr-") == 0) {
+            def v:string (substring tid 6 (strlen tid))
+            if (v == "fade") {
+                v = ""
+            }
+            ds.transition = v
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if (tid == "ds-pagenum") {
+            def n:int ((e * 3) + 2)
+            def was:string (trim (itemAt ds.texts n))
+            if ((indexOf was "{page}") < 0) {
+                if ((strlen was) > 0) {
+                    set ds.texts n (was + " · {page} / {pages}")
+                } {
+                    set ds.texts n "{page} / {pages}"
+                }
+                changed = true
+            }
+            this.rebuild()
+            return true
+        }
+        if (tid == "ds-logo-none") {
+            set ds.logo e ""
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if ((indexOf tid "ds-logo-") == 0) {
+            def p:int (?? (str2int (substring tid 8 (strlen tid))) -1)
+            if ((p >= 0) && (p < (array_length dsPics))) {
+                set ds.logo e (itemAt dsPics p)
+                changed = true
+            }
+            this.rebuild()
+            return true
+        }
+        if ((indexOf tid "ds-at-") == 0) {
+            def a:int (?? (str2int (substring tid 6 (strlen tid))) 2)
+            set ds.logoAt e a
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if (tid == "ds-first") {
+            set ds.skipFirst e ((itemAt ds.skipFirst e) == false)
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if (tid == "ds-last") {
+            set ds.skipLast e ((itemAt ds.skipLast e) == false)
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if (tid == "ds-color-theme") {
+            set ds.color e ""
+            if (pickFor == "ds-color") {
+                pickFor = ""
+            }
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if (tid == "ds-band-none") {
+            set ds.band e ""
+            if (pickFor == "ds-band") {
+                pickFor = ""
+            }
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if (tid == "ds-pick-color") {
+            this.openPicker("ds-color" (itemAt ds.color e))
+            return true
+        }
+        if (tid == "ds-pick-band") {
+            this.openPicker("ds-band" (itemAt ds.band e))
+            return true
+        }
+        return false
+    }
+
     ; --- a question before deleting ----------------------------------------------
     fn confirmBody:void (root:EVGElement) {
         def pane:EVGElement (this.div("ce-pane"))
@@ -1146,8 +1420,11 @@ class PresChartEditor {
         card.id = "ce-pickcard"
         def head:EVGElement (this.div("ce-pickhead"))
         def what:string (PresI18n.t("Chart color"))
-        if (pickFor == "text") {
+        if ((pickFor == "text") || (pickFor == "ds-color")) {
             what = (PresI18n.t("Text color"))
+        }
+        if (pickFor == "ds-band") {
+            what = (PresI18n.t("Band color"))
         }
         head.addChild((this.text("ce-picktitle" what)))
         head.addChild((this.div("ce-grow")))
@@ -1348,6 +1625,9 @@ class PresChartEditor {
         if ((indexOf tid "ae-s-") == 0) {
             return true
         }
+        if (tid == "ds-size") {
+            return true
+        }
         return (((((indexOf tid "ce-width") == 0) || ((indexOf tid "ce-height") == 0)) || ((indexOf tid "ce-stroke") == 0)) || ((tid == "ie-width") || (tid == "ie-height")))
     }
 
@@ -1419,6 +1699,17 @@ class PresChartEditor {
             sliding = true
             this.takeSliders()
             rev = (rev + 1)
+            return
+        }
+        if ((mode == "docset") && (ctlTid == tabs.tid)) {
+            host.click(tid)
+            keep.restore()
+            if (tabs.value != dsTab) {
+                dsTab = tabs.value
+                focusTid = ""
+                pickFor = ""
+                this.rebuild()
+            }
             return
         }
         if ((mode == "newdeck") && (ctlTid == tabs.tid)) {
@@ -1523,6 +1814,20 @@ class PresChartEditor {
 
     ; The sliders' values into the model.
     fn takeSliders:void () {
+        if (mode == "docset") {
+            def e:int (this.dsEdge())
+            def was:int (PresChartEditor.sizeOf((itemAt ds.size e)))
+            def v:int (this.sliderValue("ds-size" was))
+            if (v != was) {
+                if (v <= 0) {
+                    set ds.size e ""
+                } {
+                    set ds.size e ((to_string v) + "pt")
+                }
+                changed = true
+            }
+            return
+        }
         if (mode == "adjust") {
             def b:int (this.sliderValue("ae-s-bright" adjBright))
             def c:int (this.sliderValue("ae-s-contrast" adjContrast))
@@ -1589,6 +1894,18 @@ class PresChartEditor {
     }
 
     fn takeColour:void (hex:string) {
+        if (mode == "docset") {
+            def e:int (this.dsEdge())
+            if ((pickFor == "ds-color") && ((itemAt ds.color e) != hex)) {
+                set ds.color e hex
+                changed = true
+            }
+            if ((pickFor == "ds-band") && ((itemAt ds.band e) != hex)) {
+                set ds.band e hex
+                changed = true
+            }
+            return
+        }
         if (pickFor == "text") {
             if (model.textColor != hex) {
                 model.textColor = hex
@@ -1609,8 +1926,11 @@ class PresChartEditor {
         def start:string hex
         if ((strlen start) == 0) {
             start = "#f97316"
-            if (what == "text") {
+            if ((what == "text") || (what == "ds-color")) {
                 start = "#e7eaff"
+            }
+            if (what == "ds-band") {
+                start = "#1e1b4b"
             }
         }
         def fresh (new ColorPickerCtl())
@@ -1642,6 +1962,9 @@ class PresChartEditor {
             return
         }
         if ((mode == "newdeck") && (this.newDeckAct(tid))) {
+            return
+        }
+        if ((mode == "docset") && (this.docSetAct(tid))) {
             return
         }
         if ((mode == "confirm") && (this.confirmAct(tid))) {
@@ -1795,6 +2118,15 @@ class PresChartEditor {
         }
         if (focusTid == "nd-name") {
             ndName = v
+        }
+        if (focusTid == "ds-title") {
+            ds.title = v
+        }
+        if ((indexOf focusTid "ds-t-") == 0) {
+            def n:int (?? (str2int (substring focusTid 5 (strlen focusTid))) -1)
+            if ((n >= 0) && (n < 6)) {
+                set ds.texts n v
+            }
         }
         if ((indexOf focusTid "ce-h-") == 0) {
             model.setHeader((?? (str2int (substring focusTid 5 (strlen focusTid))) -1) v)
