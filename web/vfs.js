@@ -102,7 +102,7 @@ export function kindOf(path, type) {
   const p = path.toLowerCase();
   if (/^image\//.test(type || "") || /\.(png|jpe?g|gif|webp|svg)$/.test(p)) return "image";
   if (/\.vl\.json$|\.vg\.json$/.test(p) || p.startsWith("charts/")) return "chart";
-  if (/\.(csv|tsv|json|topojson|geojson|txt)$/.test(p)) return "data";
+  if (/\.(csv|tsv|json|topojson|geojson|txt|xlsx)$/.test(p)) return "data";
   if (/\.css$/.test(p)) return "css";
   if (/\.(md|markdown)$/.test(p)) return "md";
   return "text";

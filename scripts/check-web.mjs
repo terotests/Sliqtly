@@ -2286,6 +2286,7 @@ try {
     const fakeDb = new Map();
     const fakeFiles = new Map();
     let puts = 0;
+    let failPuts = 0;
     const stamp = (o) => { for (const k of Object.keys(o)) if (o[k] && o[k].__ts) o[k] = Date.now(); return o; };
     const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
     await ctx.exposeFunction("__fakeFirebase", (op, a) => {
@@ -2298,7 +2299,9 @@ try {
       else if (op === "update") {
         if (!fakeDb.has(a.k)) throw new Error("no document " + a.k);
         fakeDb.set(a.k, stamp({ ...fakeDb.get(a.k), ...a.data }));
-      } else if (op === "put") { puts += 1; fakeFiles.set(a.p, { type: a.type, buf: Buffer.from(a.b64, "base64") }); }
+      } else if (op === "put") {
+        if (failPuts > 0) { failPuts -= 1; throw new Error("storage/retry-limit-exceeded"); }
+        puts += 1; fakeFiles.set(a.p, { type: a.type, buf: Buffer.from(a.b64, "base64") }); }
       else if (op === "del") fakeFiles.delete(a.p);
       return null;
     });
@@ -2469,6 +2472,44 @@ try {
         && fakeDb.get("shares/" + dupId)?.md === dup.md && (fakeDb.get("shares/" + dupId)?.files || []).some((f) => f.path === "media/cloud-pic.png")
         && orig?.md.startsWith("# Alkuperäinen\n") && (orig.files || []).some((f) => f.path === "media/cloud-pic.png"),
       JSON.stringify({ at: dup.at, ids: dup.ids, md: dup.md.slice(0, 40) }));
+    // File → New presentation, then New → Datasheet saved: the workbook goes
+    // to the new deck's own share, and no second share is made
+    {
+      const before = shareId();
+      await pc.evaluate(() => window.__fileRequest("new"));
+      await pc.waitForTimeout(300);
+      await pc.keyboard.type("Vuokra ja menot");
+      await pc.keyboard.press("Enter");
+      await pc.waitForTimeout(3000);
+      const { writeWorkbook } = await import("../mcp/src/xlsx.js");
+      const book = [...writeWorkbook([{ name: "Sheet1", rows: [["Kuukausi", "Vuokra"], ["2026-01", 950]] }])];
+      await pc.evaluate((b) => window.__saveWorkbook("data/sheet-1.xlsx", new Uint8Array(b).buffer), book);
+      await pc.waitForTimeout(4000);
+      const made = shareId().filter((k) => !before.includes(k));
+      const sh = made.length ? fakeDb.get("shares/" + made[0]) : null;
+      const at = await pc.evaluate(() => location.pathname + location.search);
+      check("PRO: a new deck's datasheet is saved to its share",
+        made.length === 1 && (sh?.files || []).some((f) => f.path === "data/sheet-1.xlsx") && at === "/s/" + made[0] + "?edit",
+        JSON.stringify({ made, at, files: (sh?.files || []).map((f) => f.path), md: sh?.md }));
+    }
+    // a file that fails while the share is made (Duplicate of the deck
+    // above, its workbook with it): the copy keeps that share, its address
+    // names it, and the next save sends the file again
+    {
+      const before = shareId();
+      failPuts = 1;
+      await pc.evaluate(() => window.__fileRequest("duplicate"));
+      await pc.waitForTimeout(3500);
+      const ids1 = shareId().filter((k) => !before.includes(k));
+      const at1 = await pc.evaluate(() => location.pathname);
+      await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Uudelleen\n"));
+      await pc.waitForTimeout(4000);
+      const ids2 = shareId().filter((k) => !before.includes(k));
+      const sh = ids2.length ? fakeDb.get("shares/" + ids2[0]) : null;
+      check("PRO: a share whose file failed is kept, and the file goes on the next save",
+        ids1.length === 1 && ids2.length === 1 && at1 === "/s/" + ids1[0] && (sh?.files || []).some((f) => f.path === "data/sheet-1.xlsx") && sh.md.includes("## Uudelleen"),
+        JSON.stringify({ ids1, ids2, at1, files: (sh?.files || []).map((f) => f.path) }));
+    }
     // the user's own shares this browser does not keep: listed, and opened
     // from the cloud
     // (kept since the start of the PRO checks, so the list read at sign-in has them)

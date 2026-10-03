@@ -514,6 +514,8 @@ const liveSheets = createLiveSheets({
   onChange: () => { needsPaint = true; },
 });
 window.__liveSheets = liveSheets;
+// for check:web: a workbook saved as the spreadsheet editor saves it
+window.__saveWorkbook = (path, raw) => saveWorkbook(path, raw);
 // for check:web: what the document keeps as files
 window.__docFiles = () => docFiles().then((fs) => fs.map((f) => f.path));
 
@@ -945,7 +947,9 @@ async function refreshFiles() {
     if (signedIn()) {
       note = doc.cloudHalt
         ? t("This presentation was changed elsewhere, so it is not saved to the cloud now. A copy stays in this browser.")
-        : t("PRO: this presentation and its files are saved to your cloud and go with share links. A copy stays in this browser.");
+        : cloudError
+          ? t("Saving to the cloud failed: ") + cloudError + ". " + t("It is tried again on the next change; a copy stays in this browser.")
+          : t("PRO: this presentation and its files are saved to your cloud and go with share links. A copy stays in this browser.");
     }
     if (!doc.persisted) note = t("This presentation is not saved yet: it saves when you change it. ") + note;
     app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), docs, mine: !!window.sliqtly?.user?.(), note, ...(promo ? { promo } : {}) }));
@@ -2337,8 +2341,11 @@ function cloudSoon() {
 }
 let cloudBusy = null;
 let cloudWarned = false;
+let cloudError = "";
 function cloudTrouble(e) {
   console.warn("cloud save failed", e);
+  cloudError = String(e?.code || e?.message || e);
+  refreshFiles();
   if (cloudWarned) return;
   cloudWarned = true;
   toast(t("Saving to the cloud failed: ") + (e?.code || e?.message || String(e)) + ". " + t("The presentation is kept in this browser."));
@@ -2366,7 +2373,20 @@ async function cloudSync() {
   cloudBusy = (async () => {
     let id = doc.cloud;
     if (!id) {
-      id = await p.share(deck);
+      try {
+        id = await p.share(deck);
+      } catch (e) {
+        // made, but a file did not go: the deck keeps this share, and the
+        // next save sends its files again
+        if (e?.shareId && doc.id === which) {
+          doc.cloud = e.shareId;
+          doc.cloudMd = deck.md;
+          doc.cloudStamps = new Map();
+          await vfs.putDoc({ ...(await vfs.getDoc(doc.id)), cloud: e.shareId, cloudMd: deck.md });
+          plainAddress();
+        }
+        throw e;
+      }
     } else {
       try {
         await p.saveShare(id, deck, { md: doc.cloudMd, stamps: doc.cloudStamps });
@@ -2383,6 +2403,7 @@ async function cloudSync() {
     doc.cloudSig = sig;
     doc.cloudStamps = new Map(deck.files.map((f) => [f.path, f.stamp]));
     cloudWarned = false;
+    cloudError = "";
     await vfs.putDoc({ ...(await vfs.getDoc(doc.id)), cloud: id, cloudMd: deck.md });
     plainAddress();
     return id;

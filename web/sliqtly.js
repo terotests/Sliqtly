@@ -192,14 +192,21 @@ async function share(deck) {
   const doc = db.collection("shares").doc(id);
   // the copy first: Storage lets only the owner it names write its files
   await doc.set({ ...body, owner: user.uid, deck: deck.deckId, files: [], created: now });
-  const kept = [];
-  for (const f of deck.files || []) {
-    const blob = f.data instanceof Blob ? f.data : new Blob([f.data ?? ""], { type: f.type || "text/plain" });
-    const ref = files.ref(`shares/${id}/${f.path}`);
-    await ref.put(blob, { contentType: f.type || blob.type || "application/octet-stream" });
-    kept.push({ path: f.path, type: f.type || blob.type || "", size: blob.size, url: await ref.getDownloadURL() });
+  // the share exists from here: a file that fails names it (e.shareId), so
+  // the deck keeps it and the next save sends the files again instead of
+  // making another share
+  try {
+    const kept = [];
+    for (const f of deck.files || []) {
+      const blob = f.data instanceof Blob ? f.data : new Blob([f.data ?? ""], { type: f.type || "text/plain" });
+      const ref = files.ref(`shares/${id}/${f.path}`);
+      await ref.put(blob, { contentType: f.type || blob.type || "application/octet-stream" });
+      kept.push({ path: f.path, type: f.type || blob.type || "", size: blob.size, url: await ref.getDownloadURL() });
+    }
+    if (kept.length) await doc.update({ files: kept });
+  } catch (e) {
+    throw Object.assign(e instanceof Error ? e : new Error(String(e)), { shareId: id });
   }
-  if (kept.length) await doc.update({ files: kept });
   return id;
 }
 
