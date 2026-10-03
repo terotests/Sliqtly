@@ -8,7 +8,7 @@
 import { parseCsv, readWorkbook, toCsv, workbookInfo, workbookTables } from "./xlsx.js";
 import fs from "node:fs";
 import crypto from "node:crypto";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { THEMES, MAX_MD, MAX_CSS, InputError, bindChartData, loadDataFiles, loadImages, outline, warnings } from "./deck.js";
 import { packText } from "./store.js";
@@ -473,14 +473,10 @@ export function createServer(opts) {
     return { content: [{ type: "text", text }], structuredContent: { presentations: decks } };
   }));
 
-  server.registerResource("preview", PREVIEW_URI, {
-    title: "Sliqtly presentation",
-    description: "Shows the presentation inline",
-    mimeType: APP_MIME,
-    _meta: { ui: { csp, prefersBorder: false } },
-  }, async () => ({
+  const previewMeta = { title: "Sliqtly presentation", description: "Shows the presentation inline", mimeType: APP_MIME, _meta: { ui: { csp, prefersBorder: false } } };
+  const previewContents = (uri) => ({
     contents: [{
-      uri: PREVIEW_URI,
+      uri,
       mimeType: APP_MIME,
       text: PREVIEW,
       _meta: {
@@ -490,7 +486,12 @@ export function createServer(opts) {
         "openai/widgetPrefersBorder": true,
       },
     }],
-  }));
+  });
+  server.registerResource("preview", PREVIEW_URI, previewMeta, async () => previewContents(PREVIEW_URI));
+  // a client that took the tool list before the preview changed still asks
+  // for the older name: it gets the current preview, not "Couldn't open app"
+  server.registerResource("preview-older", new ResourceTemplate("ui://sliqtly/preview-{hash}.html", { list: undefined }), previewMeta,
+    async (uri) => previewContents(uri.href));
 
   return server;
 }

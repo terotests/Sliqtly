@@ -297,7 +297,9 @@ class Tools {
 
     ; the contents of a resource, or a null value for an unknown uri
     sfn read:MfJ (host:McpHost uri:string) {
-        if (uri != (Tools.previewUri(host))) {
+        ; a client that took the tool list before the preview changed still
+        ; asks for the older name: it gets the current preview
+        if (((startsWith uri "ui://sliqtly/preview-") == false) || ((endsWith uri ".html") == false)) {
             return (new MfJ)
         }
         def base:string (host_base_url host)

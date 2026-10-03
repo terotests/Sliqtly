@@ -335,6 +335,13 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 	match(t, fmt.Sprint(uiCSP["resourceDomains"]), `https://www\.gstatic\.com`)
 	match(t, fmt.Sprint(uiCSP["connectDomains"]), `https://firestore\.googleapis\.com`)
 	eq(t, r.Contents[0].Meta["openai/widgetCSP"].(map[string]any)["connect_domains"], uiCSP["connectDomains"])
+	// a client that kept an older tool list still gets the preview
+	old, err := s.session.ReadResource(ctx, &mcp.ReadResourceParams{URI: "ui://sliqtly/preview-0000000000.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eq(t, old.Contents[0].URI, "ui://sliqtly/preview-0000000000.html")
+	eq(t, old.Contents[0].Text, r.Contents[0].Text)
 	match(t, textOf(call(t, s, "sliqtly_guide", map[string]any{})), `## Pictures`)
 }
 
