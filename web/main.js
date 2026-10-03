@@ -4238,6 +4238,23 @@ function syncToolbar() {
   app.setToolbarOptions("lang", l, langSel.value);
 }
 
+// This browser's store is opened at a newer version than a tab loaded
+// before an update has it open at: the page waits for that tab (web/vfs.js)
+// and says so where the loader is.
+function tabsInTheWay() {
+  const line = document.getElementById("tagline");
+  if (line) line.textContent = t("Waiting for your other Sliqtly tabs. Close or reload the ones opened before the update.");
+}
+// A newer Sliqtly in another tab took the store over: this page can no
+// longer save, and says so until it is reloaded.
+function closedByUpdate() {
+  const note = document.createElement("div");
+  note.id = "tabNotice";
+  note.setAttribute("role", "alert");
+  note.textContent = t("Sliqtly was updated in another tab. Reload this page to keep saving.");
+  document.body.appendChild(note);
+}
+
 async function start() {
   // everything start-up reads is asked for at once
   const toolbarCss = viewer ? null : textOf("./toolbar.css");
@@ -4319,7 +4336,7 @@ async function start() {
   const theme = q.has("theme") ? q.get("theme") : "aurora";
   themeSel.value = theme;
   app.setStyleSheet(theme ? themeCss[theme] || "" : "");
-  if (!viewer && !hashShare()) vfs = await openVfs();
+  if (!viewer && !hashShare()) vfs = await openVfs({ waiting: tabsInTheWay, closed: closedByUpdate });
   const own = ownDeck();
   // /s/{id}?edit (or an older ?deck=…&from={id}) of the signed-in owner's
   // own deck: opened from the cloud, where it lives

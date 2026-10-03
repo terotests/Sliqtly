@@ -24,9 +24,24 @@ function promised(req) {
   });
 }
 
-function openDb() {
+// Another tab may hold the database at an older version (a page loaded
+// before an update): opening at this version waits until that tab lets go.
+// Meanwhile `waiting` is told, once: when the open is blocked, or when it has
+// not finished in a moment (an open queued behind another tab's blocked one
+// gets no event of its own). The open is never given up for a store in
+// memory: what this browser keeps would then be missing from this page.
+// Every tab lets go of its own copy when a newer page asks (`closed`), so a
+// tab of this version never holds the next update up.
+function openDb({ waiting, closed } = {}) {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
+    let told = false;
+    const wait = () => {
+      if (told) return;
+      told = true;
+      waiting?.();
+    };
+    const slow = setTimeout(wait, 1500);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains("docs")) db.createObjectStore("docs", { keyPath: "id" });
@@ -39,9 +54,20 @@ function openDb() {
         objects.createIndex("doc", "doc", { unique: false });
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-    req.onblocked = () => reject(new Error("IndexedDB blocked"));
+    req.onsuccess = () => {
+      clearTimeout(slow);
+      const db = req.result;
+      db.onversionchange = () => {
+        db.close();
+        closed?.();
+      };
+      resolve(db);
+    };
+    req.onerror = () => {
+      clearTimeout(slow);
+      reject(req.error);
+    };
+    req.onblocked = wait;
   });
 }
 
@@ -103,10 +129,11 @@ function memoryStore() {
   };
 }
 
-export async function openVfs() {
+// events: { waiting, closed } (openDb)
+export async function openVfs(events) {
   try {
     if (typeof indexedDB === "undefined") throw new Error("no IndexedDB");
-    return idbStore(await openDb());
+    return idbStore(await openDb(events));
   } catch (e) {
     console.warn("files kept in memory only:", e);
     return memoryStore();

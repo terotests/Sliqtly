@@ -2563,6 +2563,53 @@ try {
     await pd.close();
   }
 
+  // A tab loaded before an update holds this browser's store at the older
+  // version (and lets go of nothing): a new page waits for it, saying so,
+  // instead of opening on a store in memory, and so does a second new page
+  // queued behind the first. Once the old tab is closed both start on the
+  // kept store. A newer page still lets go of this version's: the tab that
+  // had it says to reload.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1200, height: 760 } });
+    const old = await ctx.newPage();
+    await old.goto(url + "connect.html");
+    const held = await old.evaluate(() => new Promise((ok) => {
+      const r = indexedDB.open("evg-presentation", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("docs", { keyPath: "id" });
+      r.onsuccess = () => { window.__held = r.result; ok(r.result.version); };
+      r.onerror = () => ok(String(r.error));
+    }));
+    const memory = [];
+    const open = async () => {
+      const pg = await ctx.newPage();
+      pg.on("console", (m) => { if (/kept in memory/.test(m.text())) memory.push(m.text()); });
+      await pg.goto(url);
+      return pg;
+    };
+    const a = await open();
+    const b = await open();
+    await a.waitForTimeout(3000);
+    const before = await Promise.all([a, b].map((pg) => pg.evaluate(() => ({
+      started: window.__pageStarted === true, line: document.getElementById("tagline")?.textContent || "",
+    }))));
+    await old.close();
+    const started = await Promise.all([a, b].map((pg) => pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 }).then(() => true, () => false)));
+    check("a tab from before an update: new pages wait for it, say so, and start on the kept store once it closes",
+      held === 1 && before.every((x) => !x.started && /Sliqtly/.test(x.line) && /(tabs|välilehti)/.test(x.line)) && started.every(Boolean) && memory.length === 0,
+      JSON.stringify({ held, before, started, memory }));
+    const c = await ctx.newPage();
+    await c.goto(url + "connect.html");
+    const newer = await c.evaluate(() => new Promise((ok) => {
+      const r = indexedDB.open("evg-presentation", 99);
+      r.onsuccess = () => { r.result.close(); ok("open"); };
+      r.onblocked = () => ok("blocked");
+      r.onerror = () => ok(String(r.error));
+    }));
+    const notice = await a.evaluate(() => document.getElementById("tabNotice")?.textContent || "");
+    check("a newer page takes the store over; this one says to reload", newer === "open" && /Sliqtly/.test(notice), JSON.stringify({ newer, notice }));
+    await ctx.close();
+  }
+
   // PRO: a signed-in user's deck lives in the cloud (a share), against a
   // stand-in for Firebase kept here: saved on change under /s/{id}?edit,
   // opened from there on reload with its pictures, an assistant's change
