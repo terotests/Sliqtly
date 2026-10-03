@@ -83,6 +83,11 @@ as the signed-in PRO user (`web/sliqtly.js` `readSheet`):
 - Every good read is kept with the deck as `data/live/<hash>.csv` (only when
   it changed). Readers of a shared deck cannot read your sheet, so they see
   the copy your editor last kept; it is as fresh as your last open.
+- Files lists those copies under "Linked data", named after the sheet and
+  its tab (a private sheet's names come from the Sheets API; a public one
+  shows "Google Sheet"), with when it was last read. Open source opens the
+  sheet, Refresh reads it now, and Unlink turns the copy into an ordinary
+  `data/<name>.csv` that the charts read instead of the sheet.
 
 Google Cloud setup (once): Sheets API and Google Picker API enabled in the
 Firebase project; the OAuth consent screen with sliqtly.com and

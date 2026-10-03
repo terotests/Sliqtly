@@ -515,8 +515,13 @@ class PresPanels {
             }
             if (dir != folder) {
                 folder = dir
-                if ((strlen dir) > 0) {
-                    body.addChild((this.words("pf-dir" dir)))
+                if (dir == "data/live/") {
+                    ; the copies kept of linked sources (main.js keepLiveCopy)
+                    body.addChild((this.words("pf-dir" (PresI18n.t("Linked data")))))
+                } {
+                    if ((strlen dir) > 0) {
+                        body.addChild((this.words("pf-dir" dir)))
+                    }
                 }
             }
             body.addChild((this.fileRow(f (substring path (slash + 1) (strlen path)))))
@@ -602,6 +607,26 @@ class PresPanels {
         if (kind == "image") { tag = (PresI18n.t("IMAGE")) }
         if (kind == "chart") { tag = "VL" }
         if (kind == "data") { tag = "DATA" }
+        if (kind == "live") {
+            ; a linked source (a Google Sheet, a CSV / JSON address): its name,
+            ; where it is read from and when; the copy itself is not edited
+            row.addChild((this.words("pf-tag pf-tag-live" (f.stringOr("tag" "LIVE")))))
+            def ln:EVGElement (this.div("pf-name"))
+            ln.addChild((this.words("pf-fname" (f.stringOr("title" name)))))
+            ln.addChild((this.words("pf-fsize" (f.stringOr("note" "")))))
+            row.addChild(ln)
+            row.addChild((this.div("pn-grow")))
+            if ((strlen (f.stringOr("source" ""))) > 0) {
+                this.act("source" path (PresI18n.t("Open source")) "secondary" row)
+                this.act("refresh" path (PresI18n.t("Refresh")) "secondary" row)
+            }
+            if (filesArmed == ("unlink" + (strfromcode 9) + path)) {
+                this.act("unlink" path (PresI18n.t("Unlink?")) "primary" row)
+            } {
+                this.act("unlink" path (PresI18n.t("Unlink")) "ghost" row)
+            }
+            return row
+        }
         row.addChild((this.words(("pf-tag pf-tag-" + kind) tag)))
         def nm:EVGElement (this.div("pf-name"))
         nm.addChild((this.words("pf-fname" name)))
@@ -814,7 +839,7 @@ class PresPanels {
                 def tab:int (indexOf key (strfromcode 9))
                 def action:string (substring key 0 tab)
                 def what:string (substring key (tab + 1) (strlen key))
-                if ((action == "del") || (action == "deldoc")) {
+                if ((action == "del") || (action == "deldoc") || (action == "unlink")) {
                     if (filesArmed != key) {
                         ; the first press only asks
                         filesArmed = key
