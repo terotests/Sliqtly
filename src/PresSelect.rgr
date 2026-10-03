@@ -1,0 +1,1032 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresSelect.rgr — the element picked on the slide, and its handles
+; ============================================================================
+;
+; A click on the slide in the editor picks the block under it — a heading, a
+; paragraph, a list item or the whole list (its markers), a quote, a code
+; block, a picture, a chart, a diagram — or the page when it lands on no
+; block. The pick is drawn over the stage the way a design tool draws one:
+;
+;   - an outline with corner handles and a badge with what it is and its size
+;   - two buttons over it: "Edit content" (its Markdown, or the picture's
+;     or the chart's own editor) and "Style" (the theme rule for it: what it
+;     can have, set ones blue and the rest grey)
+;   - the spacing the theme gives it, on the side it is on: margins outside
+;     the outline, padding inside it. A band the theme sets is blue, one it
+;     leaves at the default grey. A click on a band opens its value.
+;
+; Markdown and CSS cannot place things absolutely, so the handles change
+; only what the theme can: the bands are the theme's margins and padding,
+; written into the CSS tab as ordinary edits.
+;
+; The pick is kept as the block's source offset; its box is found again in
+; each layout, so it follows a change of the theme. An edit of the Markdown
+; drops it (the offsets move).
+;
+; Tables are picked like any block (selector `table`); their own editor
+; (cells, lines, colours) plugs in at `contentKind` / `bandsFor`.
+; ============================================================================
+
+Import "PresHelp.rgr"
+Import "PresI18n.rgr"
+Import "../markdown/web/markdown_web.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+
+; One spacing side of the pick: what it is in the theme and where it is.
+class PresSelBand {
+    ; top bottom left right
+    def side:string ""
+    ; inside the outline (padding) or outside it (margin)
+    def inner:boolean false
+    def sel:string ""
+    def prop:string ""
+    ; in points, as the layout uses it now (before the slide grew)
+    def value:double 0.0
+    def isSet:boolean false
+    ; on the slide, in slide units
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    ; on the screen, as last drawn
+    def sx:double 0.0
+    def sy:double 0.0
+    def sw:double 0.0
+    def sh:double 0.0
+
+    Constructor () {
+    }
+}
+
+class PresSelect {
+    def on:boolean false
+    def page:int -1
+    ; the block's source span, and the line it starts on
+    def srcA:int -1
+    def srcB:int -1
+    ; where its boxes' sources start: an item's text, after its marker (the
+    ; markers carry the list's start)
+    def boxA:int -1
+    def line:int 0
+    ; the selector the theme styles it with: h1…h6 p li list blockquote code
+    ; img chart diagram table page
+    def sel:string ""
+    ; its classes (`{.lead}` under it or after a heading), their rules in the
+    ; style panel too
+    def classes:[string]
+    ; the Markdown's version when it was picked
+    def version:int -1
+    ; its box on the slide, in slide units
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    ; how much larger than the theme's sizes the slide is set (slide-grow)
+    def grow:double 1.0
+    def bands:[PresSelBand]
+    ; what the pointer is over: "content" "style" "band<i>" or ""
+    def hot:string ""
+    ; the block under the pointer when it is not the pick, in slide units
+    def hoverOn:boolean false
+    def hoverSrc:int -1
+    def hx:double 0.0
+    def hy:double 0.0
+    def hw:double 0.0
+    def hh:double 0.0
+    ; the buttons on the screen, as last drawn
+    def cx:double 0.0
+    def cy:double 0.0
+    def cw:double 0.0
+    def sx2:double 0.0
+    def sw2:double 0.0
+    def by:double 0.0
+    def bh:double 24.0
+    ; the outline on the screen, as last drawn
+    def ox:double 0.0
+    def oy:double 0.0
+    def ow:double 0.0
+    def oh:double 0.0
+    ; how far up and down the pick and its handles reach on the screen: a
+    ; popover opened from it goes above or under that, not over the element
+    def reachTop:double 0.0
+    def reachBottom:double 0.0
+
+    Constructor () {
+    }
+
+    fn clear:void () {
+        on = false
+        page = -1
+        srcA = -1
+        srcB = -1
+        boxA = -1
+        hot = ""
+        hoverOn = false
+        def none:[PresSelBand]
+        bands = none
+    }
+
+    ; --- the source -------------------------------------------------------------
+    sfn lineStartOf:int (text:string off:int) {
+        def i:int off
+        if (i > (strlen text)) {
+            i = (strlen text)
+        }
+        while ((i > 0) && ((charAt text (i - 1)) != 10)) {
+            i = (i - 1)
+        }
+        return i
+    }
+
+    sfn lineEndOf:int (text:string off:int) {
+        def e:int (indexOfFrom text "\n" off)
+        if (e < 0) {
+            return (strlen text)
+        }
+        return e
+    }
+
+    sfn lineNumberOf:int (text:string off:int) {
+        def n:int 0
+        def i:int 0
+        def stop:int off
+        if (stop > (strlen text)) {
+            stop = (strlen text)
+        }
+        while (i < stop) {
+            if ((charAt text i) == 10) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; The list marker a line starts with (after its indent): its length with
+    ; the space after it, or 0.
+    sfn markerLen:int (t:string) {
+        def n:int (strlen t)
+        if (n < 2) {
+            return 0
+        }
+        def c:int (charAt t 0)
+        if (((c == 45) || (c == 42)) || (c == 43)) {
+            if ((charAt t 1) == 32) {
+                return 2
+            }
+            return 0
+        }
+        def i:int 0
+        while ((i < n) && (((charAt t i) >= 48) && ((charAt t i) <= 57))) {
+            i = (i + 1)
+        }
+        if (((i > 0) && ((i + 1) < n)) && ((((charAt t i) == 46) || ((charAt t i) == 41)) && ((charAt t (i + 1)) == 32))) {
+            return (i + 2)
+        }
+        return 0
+    }
+
+    sfn indentOf:int (t:string) {
+        def i:int 0
+        while ((i < (strlen t)) && (((charAt t i) == 32) || ((charAt t i) == 9))) {
+            i = (i + 1)
+        }
+        return i
+    }
+
+    ; The theme selector of a fence's language.
+    sfn fenceSel:string (lang0:string) {
+        def lang:string (trim lang0)
+        def sp:int (indexOf lang " ")
+        if (sp > 0) {
+            lang = (substring lang 0 sp)
+        }
+        def br:int (indexOf lang "{")
+        if (br >= 0) {
+            lang = (trim (substring lang 0 br))
+        }
+        if ((lang == "vega-lite") || (lang == "vegalite")) {
+            return "chart"
+        }
+        if ((((lang == "mermaid") || (lang == "dot")) || ((lang == "d2") || (lang == "plantuml"))) || (lang == "graphviz")) {
+            return "diagram"
+        }
+        return "code"
+    }
+
+    ; What the block starting at `off` is, and where it ends: sets `sel`,
+    ; `srcA`, `srcB` and `line`. `marker` says the press was on a list's
+    ; marker (the list, not the item).
+    fn readBlock:void (text:string off:int marker:boolean isPicture:boolean) {
+        def a:int (PresSelect.lineStartOf(text off))
+        def lt:string (substring text a (PresSelect.lineEndOf(text a)))
+        def ind:int (PresSelect.indentOf(lt))
+        def body:string (substring lt ind (strlen lt))
+        line = (PresSelect.lineNumberOf(text a))
+        srcA = a
+        boxA = a
+        def noCls:[string]
+        classes = noCls
+        srcB = (PresSelect.lineEndOf(text a))
+        if isPicture {
+            sel = "img"
+            return
+        }
+        if ((indexOf body "#") == 0) {
+            def lv:int 0
+            while ((lv < (strlen body)) && ((charAt body lv) == 35)) {
+                lv = (lv + 1)
+            }
+            if (lv > 6) {
+                lv = 6
+            }
+            sel = ("h" + (to_string lv))
+            return
+        }
+        if (((indexOf body "```") == 0) || ((indexOf body "~~~") == 0)) {
+            sel = (PresSelect.fenceSel((substring body 3 (strlen body))))
+            def fence:string (substring body 0 3)
+            def close:int (indexOfFrom text ("\n" + fence) (srcB))
+            while (close >= 0) {
+                ; a closing fence is on a line of its own (after its indent)
+                def ce:int (PresSelect.lineEndOf(text (close + 1)))
+                if ((trim (substring text (close + 1) ce)) == fence) {
+                    srcB = ce
+                    return
+                }
+                close = (indexOfFrom text ("\n" + fence) (close + 1))
+            }
+            srcB = (strlen text)
+            return
+        }
+        if ((indexOf body ">") == 0) {
+            sel = "blockquote"
+            this.extend(text ">" false)
+            return
+        }
+        if ((indexOf body "|") == 0) {
+            sel = "table"
+            this.extend(text "|" false)
+            return
+        }
+        if ((indexOf body "![") == 0) {
+            sel = "img"
+            return
+        }
+        def ml:int (PresSelect.markerLen(body))
+        if (ml > 0) {
+            if marker {
+                sel = "list"
+                this.extend(text "" true)
+            } {
+                sel = "li"
+                boxA = ((a + ind) + ml)
+                this.extendItem(text ind)
+            }
+            return
+        }
+        sel = "p"
+        this.extend(text "" false)
+    }
+
+    ; srcB moved on over the lines that carry on the block: each starting
+    ; with `lead` (after its indent), or for a list (`list`) items and their
+    ; indented lines; otherwise up to a blank line.
+    fn extend:void (text:string lead:string list:boolean) {
+        def n:int (strlen text)
+        while (srcB < n) {
+            def ns:int (srcB + 1)
+            def ne:int (PresSelect.lineEndOf(text ns))
+            def t:string (substring text ns ne)
+            def tt:string (trim t)
+            if ((strlen tt) == 0) {
+                return
+            }
+            if ((strlen lead) > 0) {
+                if ((indexOf tt lead) != 0) {
+                    return
+                }
+            } {
+                if list {
+                    if (((PresSelect.markerLen(tt)) == 0) && ((PresSelect.indentOf(t)) == 0)) {
+                        return
+                    }
+                } {
+                    def c:int (charAt tt 0)
+                    if (((c == 35) || (c == 62)) || ((c == 124) || ((PresSelect.markerLen(tt)) > 0))) {
+                        return
+                    }
+                    if (((indexOf tt "```") == 0) || ((indexOf tt "{") == 0)) {
+                        return
+                    }
+                }
+            }
+            srcB = ne
+        }
+    }
+
+    ; An item: its line and the lines indented under it.
+    fn extendItem:void (text:string ind:int) {
+        def n:int (strlen text)
+        while (srcB < n) {
+            def ns:int (srcB + 1)
+            def ne:int (PresSelect.lineEndOf(text ns))
+            def t:string (substring text ns ne)
+            if ((strlen (trim t)) == 0) {
+                return
+            }
+            if ((PresSelect.indentOf(t)) <= ind) {
+                return
+            }
+            srcB = ne
+        }
+    }
+
+    ; The classes of the block: in a `{…}` at the end of its first line or on
+    ; the line under it.
+    fn readClasses:void (text:string) {
+        def noCls:[string]
+        classes = noCls
+        if (srcA < 0) {
+            return
+        }
+        def first:string (substring text srcA (PresSelect.lineEndOf(text srcA)))
+        this.classesIn(first)
+        if (srcB < (strlen text)) {
+            def ns:int (srcB + 1)
+            def nt:string (trim (substring text ns (PresSelect.lineEndOf(text ns))))
+            if ((indexOf nt "{") == 0) {
+                this.classesIn(nt)
+            }
+        }
+    }
+
+    fn classesIn:void (t:string) {
+        def open:int (indexOf t "{")
+        if (open < 0) {
+            return
+        }
+        def close:int (indexOfFrom t "}" open)
+        if (close < 0) {
+            return
+        }
+        def words:[string] (strsplit (substring t (open + 1) close) " ")
+        def i:int 0
+        while (i < (array_length words)) {
+            def w0:string (trim (itemAt words i))
+            if (((strlen w0) > 1) && ((charAt w0 0) == 46)) {
+                push classes w0
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- picking ------------------------------------------------------------------
+    ; The smallest box on `pg` with a source under (px, py), or -1.
+    sfn boxAt:int (l:MdLayout pg:int px:double py:double) {
+        def best:int -1
+        def bestArea:double 0.0
+        def k:int 0
+        while (k < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes k)
+            if ((b.page == pg) && (b.srcStart >= 0)) {
+                if (((px >= b.x) && (px <= (b.x + b.w))) && ((py >= (b.y - 1.0)) && (py <= ((b.y + b.h) + 1.0)))) {
+                    def area:double (b.w * b.h)
+                    if ((best < 0) || (area < bestArea)) {
+                        best = k
+                        bestArea = area
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        if (best >= 0) {
+            return best
+        }
+        ; between two lines or two blocks: the nearest one above or below, when
+        ; it is close
+        def bestD:double 12.0
+        k = 0
+        while (k < (array_length l.boxes)) {
+            def b2:MdBox (itemAt l.boxes k)
+            if (((b2.page == pg) && (b2.srcStart >= 0)) && ((px >= b2.x) && (px <= (b2.x + b2.w)))) {
+                def d:double (b2.y - py)
+                if (py > (b2.y + b2.h)) {
+                    d = (py - (b2.y + b2.h))
+                }
+                if ((d >= 0.0) && (d < bestD)) {
+                    best = k
+                    bestD = d
+                }
+            }
+            k = (k + 1)
+        }
+        return best
+    }
+
+    ; Pick what is under (px, py) on page `pg`, in slide units: true when the
+    ; pick changed.
+    fn pick:boolean (l:MdLayout pg:int px:double py:double text:string ver:int) {
+        def k:int (PresSelect.boxAt(l pg px py))
+        def wasA:int srcA
+        def wasSel:string sel
+        def wasOn:boolean on
+        on = true
+        page = pg
+        version = ver
+        hot = ""
+        if (k < 0) {
+            sel = "page"
+            srcA = -1
+            srcB = -1
+            line = 0
+            def noCls:[string]
+            classes = noCls
+        } {
+            def b:MdBox (itemAt l.boxes k)
+            ; a list's marker carries the list's start; the item's text its own
+            def a:int (PresSelect.lineStartOf(text b.srcStart))
+            def lt:string (substring text a (PresSelect.lineEndOf(text a)))
+            def ind:int (PresSelect.indentOf(lt))
+            def marker:boolean (((PresSelect.markerLen((substring lt ind (strlen lt))))) > 0)
+            if marker {
+                marker = (b.srcStart == (a + ind))
+            }
+            this.readBlock(text b.srcStart marker (b.kind == 4))
+            this.readClasses(text)
+        }
+        this.measure(l)
+        return (((wasOn == false) || (wasA != srcA)) || (wasSel != sel))
+    }
+
+    ; Pick the block a source offset starts (a diagram, whose drawing is
+    ; larger than its slot in the layout).
+    fn pickSource:void (l:MdLayout pg:int src:int text:string ver:int) {
+        on = true
+        page = pg
+        version = ver
+        hot = ""
+        this.readBlock(text src false false)
+        this.readClasses(text)
+        this.measure(l)
+    }
+
+    ; The box grown to take in a rectangle (a diagram as drawn), the bands
+    ; placed again.
+    fn growTo:void (st:MdStyle bx:double by0:double bw:double bh0:double) {
+        def x1:double (x + w)
+        def y1:double (y + h)
+        if (bx < x) { x = bx }
+        if (by0 < y) { y = by0 }
+        if ((bx + bw) > x1) { x1 = (bx + bw) }
+        if ((by0 + bh0) > y1) { y1 = (by0 + bh0) }
+        w = (x1 - x)
+        h = (y1 - y)
+        this.bandsFor(st)
+    }
+
+    ; The block under the pointer, outlined lightly while it is not the pick.
+    fn hoverAt:boolean (l:MdLayout pg:int px:double py:double text:string) {
+        def k:int (PresSelect.boxAt(l pg px py))
+        def was:int hoverSrc
+        def wasOn:boolean hoverOn
+        if (k < 0) {
+            hoverOn = false
+            hoverSrc = -1
+            return wasOn
+        }
+        def b:MdBox (itemAt l.boxes k)
+        def probe (new PresSelect())
+        def a:int (PresSelect.lineStartOf(text b.srcStart))
+        def lt:string (substring text a (PresSelect.lineEndOf(text a)))
+        def ind:int (PresSelect.indentOf(lt))
+        def marker:boolean (((PresSelect.markerLen((substring lt ind (strlen lt))))) > 0)
+        if marker {
+            marker = (b.srcStart == (a + ind))
+        }
+        probe.readBlock(text b.srcStart marker (b.kind == 4))
+        probe.page = pg
+        probe.unionOf(l)
+        if ((on && (probe.srcA == srcA)) && (probe.sel == sel)) {
+            hoverOn = false
+            hoverSrc = -1
+            return wasOn
+        }
+        hoverOn = true
+        hoverSrc = probe.srcA
+        hx = probe.x
+        hy = probe.y
+        hw = probe.w
+        hh = probe.h
+        return ((wasOn == false) || (was != hoverSrc))
+    }
+
+    ; The box of every box of the block, on its page.
+    fn unionOf:boolean (l:MdLayout) {
+        if (sel == "page") {
+            x = 0.0
+            y = 0.0
+            w = l.style.pageWidth
+            h = l.style.pageHeight
+            return true
+        }
+        def found:boolean false
+        def x1:double 0.0
+        def y1:double 0.0
+        def k:int 0
+        while (k < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes k)
+            if (((b.page == page) && (b.srcStart >= boxA)) && (b.srcStart <= srcB)) {
+                if ((b.w > 0.0) || (b.h > 0.0)) {
+                    if (found == false) {
+                        x = b.x
+                        y = b.y
+                        x1 = (b.x + b.w)
+                        y1 = (b.y + b.h)
+                        found = true
+                    } {
+                        if (b.x < x) { x = b.x }
+                        if (b.y < y) { y = b.y }
+                        if ((b.x + b.w) > x1) { x1 = (b.x + b.w) }
+                        if ((b.y + b.h) > y1) { y1 = (b.y + b.h) }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        w = (x1 - x)
+        h = (y1 - y)
+        return found
+    }
+
+    ; How much larger the slide is set than the theme says: a text box's size
+    ; against the theme's size for it.
+    fn growOf:double (l:MdLayout) {
+        def st:MdStyle l.style
+        def want:double st.bodySize
+        if (((strlen sel) == 2) && ((charAt sel 0) == 104)) {
+            def lv:int (?? (str2int (substring sel 1 2)) 2)
+            if (lv == 1) { want = st.h1Size }
+            if (lv == 2) { want = st.h2Size }
+            if (lv == 3) { want = st.h3Size }
+            if (lv == 4) { want = st.h4Size }
+            if (lv == 5) { want = st.h5Size }
+            if (lv == 6) { want = st.h6Size }
+        }
+        if (sel == "code") {
+            want = st.codeSize
+        }
+        def k:int 0
+        while (k < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes k)
+            if (((b.page == page) && (b.kind == 0)) && (((b.srcStart >= boxA) && (b.srcStart <= srcB)) && ((strlen b.text) > 0))) {
+                if (want <= 0.0) {
+                    return 1.0
+                }
+                def g:double (b.size / want)
+                if (g < 1.0) { return 1.0 }
+                if (g > 2.5) { return 2.5 }
+                return g
+            }
+            k = (k + 1)
+        }
+        return 1.0
+    }
+
+    ; The box and the bands, again from the layout (after a rebuild). False
+    ; when the block is not on its page any more.
+    fn measure:boolean (l:MdLayout) {
+        if (on == false) {
+            return false
+        }
+        if ((this.unionOf(l)) == false) {
+            return false
+        }
+        grow = 1.0
+        if (sel != "page") {
+            grow = (this.growOf(l))
+        }
+        this.bandsFor(l.style)
+        return true
+    }
+
+    ; --- the spacing ----------------------------------------------------------------
+    fn band:void (side:string inner:boolean bsel:string prop:string v:double) {
+        def b (new PresSelBand())
+        b.side = side
+        b.inner = inner
+        b.sel = bsel
+        b.prop = prop
+        b.value = v
+        def d:double (v * grow)
+        if (d < 2.0) {
+            d = 2.0
+        }
+        if (side == "top") {
+            b.x = x
+            b.w = w
+            b.h = d
+            if inner {
+                b.y = y
+            } {
+                b.y = (y - d)
+            }
+        }
+        if (side == "bottom") {
+            b.x = x
+            b.w = w
+            b.h = d
+            if inner {
+                b.y = ((y + h) - d)
+            } {
+                b.y = (y + h)
+            }
+        }
+        if (side == "left") {
+            b.y = y
+            b.h = h
+            b.w = d
+            if inner {
+                b.x = x
+            } {
+                b.x = (x - d)
+            }
+        }
+        if (side == "right") {
+            b.y = y
+            b.h = h
+            b.w = d
+            if inner {
+                b.x = ((x + w) - d)
+            } {
+                b.x = (x + w)
+            }
+        }
+        push bands b
+    }
+
+    ; The theme's spacing of the pick, side by side (MdCss.rgr is what reads
+    ; each into the style).
+    fn bandsFor:void (st:MdStyle) {
+        def none:[PresSelBand]
+        bands = none
+        if (((strlen sel) == 2) && ((charAt sel 0) == 104)) {
+            this.band("top" false "heading" "margin-top" st.headingSpaceBefore)
+            this.band("bottom" false "heading" "margin-bottom" st.headingSpaceAfter)
+            return
+        }
+        if (sel == "p") {
+            this.band("bottom" false "p" "margin-bottom" st.paraSpacing)
+            return
+        }
+        if (sel == "li") {
+            this.band("bottom" false "li" "margin-bottom" st.listTightSpacing)
+            this.band("left" false "list" "padding-left" st.listIndent)
+            return
+        }
+        if (sel == "list") {
+            this.band("left" true "list" "margin-left" st.markerGap)
+            return
+        }
+        if (sel == "blockquote") {
+            this.band("left" true "blockquote" "padding-left" st.quoteIndent)
+            this.band("top" true "blockquote" "padding-top" st.quotePadY)
+            return
+        }
+        if (sel == "code") {
+            this.band("top" true "code" "padding" st.codePadding)
+            this.band("left" true "code" "padding" st.codePadding)
+            return
+        }
+        if (sel == "page") {
+            this.band("top" true "page" "padding" st.margin)
+            this.band("bottom" true "page" "padding" st.margin)
+            this.band("left" true "page" "padding" st.margin)
+            this.band("right" true "page" "padding" st.margin)
+            return
+        }
+    }
+
+    ; Which bands the theme sets (blue) and which it leaves at the default.
+    fn markSet:void (css:string) {
+        def clean:string (PresHelp.noComments(css))
+        def i:int 0
+        while (i < (array_length bands)) {
+            def b:PresSelBand (itemAt bands i)
+            b.isSet = ((strlen (PresHelp.valueOf(clean b.sel b.prop))) > 0)
+            i = (i + 1)
+        }
+    }
+
+    ; "Edit content" makes sense for a block of the Markdown, not the page.
+    fn hasContent:boolean () {
+        return (sel != "page")
+    }
+
+    ; The band's value as the theme writes it.
+    sfn ptText:string (v:double) {
+        def r:double ((to_double (to_int ((v * 10.0) + 0.5))) / 10.0)
+        def i:int (to_int r)
+        if ((to_double i) == r) {
+            return ((to_string i) + "pt")
+        }
+        return ((to_string r) + "pt")
+    }
+
+    fn label:string () {
+        def what:string sel
+        if (sel == "li") { what = (PresI18n.t("list item")) }
+        if (sel == "list") { what = (PresI18n.t("list")) }
+        if (sel == "p") { what = (PresI18n.t("paragraph")) }
+        if (sel == "blockquote") { what = (PresI18n.t("quote")) }
+        if (sel == "code") { what = (PresI18n.t("code")) }
+        if (sel == "img") { what = (PresI18n.t("picture")) }
+        if (sel == "chart") { what = (PresI18n.t("chart")) }
+        if (sel == "diagram") { what = (PresI18n.t("diagram")) }
+        if (sel == "table") { what = (PresI18n.t("table")) }
+        if (sel == "page") { what = (PresI18n.t("slide")) }
+        if (((strlen sel) == 2) && ((charAt sel 0) == 104)) {
+            what = ((PresI18n.t("heading")) + " " + sel)
+        }
+        return (what + "  " + (to_string (to_int (w + 0.5))) + " × " + (to_string (to_int (h + 0.5))))
+    }
+
+    sfn replaceAll:string (s:string from:string to:string) {
+        def out:string ""
+        def i:int 0
+        def at:int (indexOfFrom s from 0)
+        while (at >= 0) {
+            out = (out + (substring s i at) + to)
+            i = (at + (strlen from))
+            at = (indexOfFrom s from i)
+        }
+        return (out + (substring s i (strlen s)))
+    }
+
+    ; --- the style panel ----------------------------------------------------------
+    ; The theme rules that style the pick: its own first, then the one it
+    ; shares (all headings' margins, the list around an item).
+    fn ruleSels:[string] () {
+        def out:[string]
+        push out sel
+        if (((strlen sel) == 2) && ((charAt sel 0) == 104)) {
+            push out "heading"
+        }
+        if (sel == "li") {
+            push out "list"
+        }
+        if (sel == "list") {
+            push out "li"
+        }
+        def i:int 0
+        while (i < (array_length classes)) {
+            push out (itemAt classes i)
+            i = (i + 1)
+        }
+        ; the text of a paragraph or an item is the document's
+        if ((sel == "p") || (sel == "li")) {
+            push out "document"
+        }
+        return out
+    }
+
+    ; The rules as one, for the popover's selector card: every property says
+    ; which rule it belongs to.
+    fn ruleJson:string (css:string) {
+        def sels:[string] (this.ruleSels())
+        def props:string ""
+        def i:int 0
+        while (i < (array_length sels)) {
+            def s:string (itemAt sels i)
+            def r:string (PresHelp.selectorRule(css s))
+            def at:int (indexOf r "\"props\":[")
+            if (at >= 0) {
+                def body:string (substring r (at + 9) ((strlen r) - 2))
+                if ((strlen body) > 0) {
+                    def tagged:string (PresSelect.replaceAll(body "{\"name\":" ("{\"sel\":" + (PresHint.q(s)) + ",\"name\":")))
+                    if ((strlen props) > 0) {
+                        props = (props + ",")
+                    }
+                    props = (props + tagged)
+                }
+            }
+            i = (i + 1)
+        }
+        return ("{\"sel\":" + (PresHint.q(sel)) + ",\"doc\":" + (PresHint.q((PresHints.selectorDoc(sel)))) + ",\"props\":[" + props + "]}")
+    }
+
+    ; --- drawing ----------------------------------------------------------------------
+    sfn box:EVGElement (id:string cls:string x0:double y0:double w0:double h0:double) {
+        def el (EVGElement.createDiv())
+        el.id = id
+        el.className = cls
+        el.setAttribute("position" "absolute")
+        el.setAttribute("left" ((EVGDisplayList.num(x0)) + "px"))
+        el.setAttribute("top" ((EVGDisplayList.num(y0)) + "px"))
+        el.setAttribute("width" ((EVGDisplayList.num(w0)) + "px"))
+        el.setAttribute("height" ((EVGDisplayList.num(h0)) + "px"))
+        return el
+    }
+
+    ; A pill with a word in it, as wide as the word is (about) long.
+    sfn pill:EVGElement (id:string cls:string words:string x0:double y0:double w0:double h0:double) {
+        def el:EVGElement (PresSelect.box(id cls x0 y0 w0 h0))
+        el.textContent = words
+        el.setAttribute("line-height" ((EVGDisplayList.num(h0)) + "px"))
+        return el
+    }
+
+    sfn textW:double (t:string size:double) {
+        return (((to_double (strlen t)) * size) * 0.56)
+    }
+
+    ; The pick drawn into `root`, over the slide at (sx0, sy0) and `sc` screen
+    ; pixels a slide unit; `lo`/`hi` keep the buttons inside the stage.
+    fn draw:void (root:EVGElement sx0:double sy0:double sc:double loY:double loX:double hiX:double) {
+        if (hoverOn) {
+            root.addChild((PresSelect.box("sel-hover" "sel-hover" ((sx0 + (hx * sc)) - 2.0) ((sy0 + (hy * sc)) - 2.0) ((hw * sc) + 4.0) ((hh * sc) + 4.0))))
+        }
+        if (on == false) {
+            return
+        }
+        ox = ((sx0 + (x * sc)) - 2.0)
+        oy = ((sy0 + (y * sc)) - 2.0)
+        ow = ((w * sc) + 4.0)
+        oh = ((h * sc) + 4.0)
+        ; the bands first, under the outline
+        def i:int 0
+        while (i < (array_length bands)) {
+            def b:PresSelBand (itemAt bands i)
+            b.sx = (sx0 + (b.x * sc))
+            b.sy = (sy0 + (b.y * sc))
+            b.sw = (b.w * sc)
+            b.sh = (b.h * sc)
+            ; thin bands get a grip of 8 pixels to hover
+            if (b.sw < 8.0) {
+                b.sx = (b.sx - ((8.0 - b.sw) / 2.0))
+                b.sw = 8.0
+            }
+            if (b.sh < 8.0) {
+                b.sy = (b.sy - ((8.0 - b.sh) / 2.0))
+                b.sh = 8.0
+            }
+            def cls:string "sel-band sel-band-unset"
+            if b.isSet {
+                cls = "sel-band sel-band-set"
+            }
+            def hotHere:boolean (hot == ("band" + (to_string i)))
+            if hotHere {
+                cls = (cls + " sel-band-hot")
+            }
+            root.addChild((PresSelect.box(("sel-band-" + (to_string i)) cls b.sx b.sy b.sw b.sh)))
+            ; the line across the band, and its value
+            def lineCls:string "sel-bline sel-bline-unset"
+            if b.isSet {
+                lineCls = "sel-bline sel-bline-set"
+            }
+            def words:string (PresSelect.ptText(b.value))
+            if hotHere {
+                words = (b.prop + ": " + words)
+            }
+            def lw:double ((PresSelect.textW(words 11.0)) + 12.0)
+            if ((b.side == "top") || (b.side == "bottom")) {
+                def mx:double (b.sx + (b.sw / 2.0))
+                root.addChild((PresSelect.box(("sel-bline-" + (to_string i)) lineCls (mx - 0.5) b.sy 1.0 b.sh)))
+                if (hotHere || (b.sh >= 14.0)) {
+                    root.addChild((PresSelect.pill(("sel-blabel-" + (to_string i)) (lineCls + " sel-blabel") words (mx + 4.0) ((b.sy + (b.sh / 2.0)) - 8.0) lw 16.0)))
+                }
+            } {
+                def my:double (b.sy + (b.sh / 2.0))
+                root.addChild((PresSelect.box(("sel-bline-" + (to_string i)) lineCls b.sx (my - 0.5) b.sw 1.0)))
+                if (hotHere || (b.sw >= 30.0)) {
+                    root.addChild((PresSelect.pill(("sel-blabel-" + (to_string i)) (lineCls + " sel-blabel") words ((b.sx + (b.sw / 2.0)) - (lw / 2.0)) (my + 4.0) lw 16.0)))
+                }
+            }
+            i = (i + 1)
+        }
+        root.addChild((PresSelect.box("sel-box" "sel-box" ox oy ow oh)))
+        ; corner handles
+        def hs:double 7.0
+        root.addChild((PresSelect.box("sel-h0" "sel-handle" (ox - (hs / 2.0)) (oy - (hs / 2.0)) hs hs)))
+        root.addChild((PresSelect.box("sel-h1" "sel-handle" ((ox + ow) - (hs / 2.0)) (oy - (hs / 2.0)) hs hs)))
+        root.addChild((PresSelect.box("sel-h2" "sel-handle" (ox - (hs / 2.0)) ((oy + oh) - (hs / 2.0)) hs hs)))
+        root.addChild((PresSelect.box("sel-h3" "sel-handle" ((ox + ow) - (hs / 2.0)) ((oy + oh) - (hs / 2.0)) hs hs)))
+        ; what it is and how big, under it (inside it at the slide's foot)
+        def lab:string (this.label())
+        def lbw:double ((PresSelect.textW(lab 11.0)) + 16.0)
+        def lby:double ((oy + oh) + 6.0)
+        def j:int 0
+        while (j < (array_length bands)) {
+            def bb:PresSelBand (itemAt bands j)
+            if ((bb.side == "bottom") && (bb.inner == false)) {
+                lby = ((lby + bb.sh) + 2.0)
+            }
+            j = (j + 1)
+        }
+        if (sel == "page") {
+            lby = ((oy + oh) - 26.0)
+        }
+        def lbx:double ((ox + (ow / 2.0)) - (lbw / 2.0))
+        if (sel == "page") {
+            ; clear of the bottom band's value
+            lbx = (ox + 8.0)
+        }
+        root.addChild((PresSelect.pill("sel-badge" "sel-badge" lab lbx lby lbw 18.0)))
+        reachBottom = (oy + oh)
+        if ((lby + 18.0) > reachBottom) {
+            reachBottom = (lby + 18.0)
+        }
+        ; the two buttons, over its top left corner (inside when no room)
+        def ct:string (PresI18n.t("Edit content"))
+        def stt:string (PresI18n.t("Style"))
+        cw = 0.0
+        if (this.hasContent()) {
+            cw = ((PresSelect.textW(ct 12.0)) + 26.0)
+        }
+        sw2 = ((PresSelect.textW(stt 12.0)) + 26.0)
+        by = ((oy - bh) - 6.0)
+        if (sel == "page") {
+            by = (oy + 8.0)
+        }
+        def topBand:double 0.0
+        i = 0
+        while (i < (array_length bands)) {
+            def tb:PresSelBand (itemAt bands i)
+            if ((tb.side == "top") && (tb.inner == false)) {
+                topBand = tb.sh
+            }
+            i = (i + 1)
+        }
+        by = (by - topBand)
+        if (by < (loY + 4.0)) {
+            by = (loY + 4.0)
+        }
+        cx = ox
+        if (sel == "page") {
+            cx = (ox + 8.0)
+        }
+        if (((cx + cw) + sw2) > (hiX - 4.0)) {
+            cx = (((hiX - 4.0) - cw) - sw2)
+        }
+        if (cx < (loX + 4.0)) {
+            cx = (loX + 4.0)
+        }
+        cy = by
+        reachTop = oy
+        if (by < reachTop) {
+            reachTop = by
+        }
+        if (cw > 0.0) {
+            def cc:string "sel-btn"
+            if (hot == "content") {
+                cc = "sel-btn sel-btn-hot"
+            }
+            root.addChild((PresSelect.pill("sel-content" cc ct cx by cw bh)))
+        }
+        sx2 = cx
+        if (cw > 0.0) {
+            sx2 = ((cx + cw) + 4.0)
+        }
+        def sc2:string "sel-btn sel-btn-style"
+        if (hot == "style") {
+            sc2 = "sel-btn sel-btn-style sel-btn-hot"
+        }
+        root.addChild((PresSelect.pill("sel-style" sc2 stt sx2 by sw2 bh)))
+    }
+
+    ; --- the pointer ------------------------------------------------------------------
+    ; The part under (px, py) on the screen, as last drawn: "content",
+    ; "style", "band<i>" or "".
+    fn partAt:string (px:double py:double) {
+        if (on == false) {
+            return ""
+        }
+        if ((py >= by) && (py <= (by + bh))) {
+            if (((cw > 0.0) && (px >= cx)) && (px <= (cx + cw))) {
+                return "content"
+            }
+            if ((px >= sx2) && (px <= (sx2 + sw2))) {
+                return "style"
+            }
+        }
+        def i:int 0
+        while (i < (array_length bands)) {
+            def b:PresSelBand (itemAt bands i)
+            if (((px >= b.sx) && (px <= (b.sx + b.sw))) && ((py >= b.sy) && (py <= (b.sy + b.sh)))) {
+                return ("band" + (to_string i))
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn bandOf:int (part:string) {
+        if (((strlen part) > 4) && ((substring part 0 4) == "band")) {
+            return (?? (str2int (substring part 4 (strlen part))) -1)
+        }
+        return -1
+    }
+}

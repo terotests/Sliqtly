@@ -49,6 +49,10 @@ class PresHintPopover {
     def ax:double 0.0
     def ay:double 0.0
     def ah:double 20.0
+    ; opened from the slide: the element's left edge and width (keepX < 0:
+    ; not), which the card stays off — under it, over it, or beside it
+    def keepX:double -1.0
+    def keepW:double 0.0
     ; the hint
     def kind:string ""
     def name:string ""
@@ -133,6 +137,8 @@ class PresHintPopover {
         ax = (j.doubleOr("x" 0.0))
         ay = (j.doubleOr("y" 0.0))
         ah = (j.doubleOr("h" 20.0))
+        keepX = (j.doubleOr("keepX" -1.0))
+        keepW = (j.doubleOr("keepW" 0.0))
         def o:[string]
         def ov:VlJson (j.get("options"))
         def i:int 0
@@ -495,9 +501,20 @@ class PresHintPopover {
         while (i < (props.count())) {
             def p:VlJson (props.at(i))
             def pv:string (p.stringOr("value" ""))
+            ; set ones blue, the ones that can be added grey; a property of
+            ; another rule (the stage's style panel merges a few) says whose
+            def psel:string (p.stringOr("sel" ""))
+            def pn:string (p.stringOr("name" ""))
+            if (((strlen psel) > 0) && (psel != (rule.stringOr("sel" name)))) {
+                pn = (psel + " › " + pn)
+            }
             def row:EVGElement (this.div("hp-prop"))
             row.id = ("hp-prop-" + (to_string i))
-            row.addChild((this.words("hp-pname" (p.stringOr("name" "")))))
+            def pcls:string "hp-pname hp-pname-unset"
+            if ((strlen pv) > 0) {
+                pcls = "hp-pname hp-pname-set"
+            }
+            row.addChild((this.words(pcls pn)))
             row.addChild((this.div("hp-grow")))
             if ((strlen pv) > 0) {
                 if (PresHintPopover.isHex(pv)) {
@@ -577,8 +594,36 @@ class PresHintPopover {
         }
         ; above the value when there is no room under it
         def c:EVGElement (this.cardEl())
-        if (((c.calculatedY + c.calculatedHeight) > (h - 8.0)) && (((ay - c.calculatedHeight) - 4.0) > 8.0)) {
-            c.overlayY = ((ay - c.calculatedHeight) - 4.0)
+        def ch:double c.calculatedHeight
+        def cw:double c.calculatedWidth
+        def under:boolean ((c.calculatedY + ch) <= (h - 8.0))
+        def over:boolean (((ay - ch) - 4.0) > 8.0)
+        if ((under == false) && over) {
+            c.overlayY = ((ay - ch) - 4.0)
+            lay.layout(pg)
+        }
+        ; an element on the slide with room neither under nor over it: the
+        ; card beside it, so what it changes stays in sight
+        if (((keepX >= 0.0) && (under == false)) && (over == false)) {
+            def side:double -1.0
+            if ((((keepX + keepW) + 8.0) + cw) <= (w - 8.0)) {
+                side = ((keepX + keepW) + 8.0)
+            } {
+                if (((keepX - 8.0) - cw) >= 8.0) {
+                    side = ((keepX - 8.0) - cw)
+                }
+            }
+            def top:double ay
+            if ((top + ch) > (h - 8.0)) {
+                top = ((h - 8.0) - ch)
+            }
+            if (top < 8.0) {
+                top = 8.0
+            }
+            if (side >= 0.0) {
+                c.overlayX = side
+            }
+            c.overlayY = top
             lay.layout(pg)
         }
         if (kind == "color") {
@@ -687,7 +732,7 @@ class PresHintPopover {
         if ((strlen row) > 0) {
             def idx:int (?? (str2int (substring row 8 (strlen row))) -1)
             def p:VlJson ((rule.get("props")).at(idx))
-            wantsProp = ((rule.stringOr("sel" name)) + (strfromcode 9) + (p.stringOr("name" "")) + (strfromcode 9) + (p.stringOr("def" "")))
+            wantsProp = ((p.stringOr("sel" (rule.stringOr("sel" name)))) + (strfromcode 9) + (p.stringOr("name" "")) + (strfromcode 9) + (p.stringOr("def" "")))
             return
         }
         def tid:string (host.hitTest(px py))

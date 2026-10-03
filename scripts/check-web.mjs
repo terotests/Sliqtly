@@ -295,6 +295,103 @@ try {
     await page.waitForTimeout(200);
   }
 
+  // The filmstrip takes the keyboard: a click on a thumbnail puts the keys on
+  // that slide (not in the editor), Delete deletes the slide and Ctrl+Z brings
+  // it back, Ctrl+arrows and a drag move it, a right click (or Shift+F10)
+  // opens its menu.
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const md = "# A\n\naa\n\n# B\n\nbb\n\n# C\n\ncc\n\n# D\n\ndd\n";
+    await page.evaluate((t) => { window.__app.setSource(t); window.__app.scrollStrip(-1e6); }, md);
+    await page.waitForTimeout(200);
+    const thumbAt = (i, fy = 0.5) => page.evaluate(([i, fy]) => {
+      const a = window.__app;
+      a.layoutJson();
+      const c = document.getElementById("c").getBoundingClientRect();
+      return [c.left + a.thumbX(i) + a.thumbW / 2, c.top + a.thumbY() + a.thumbH * fy];
+    }, [i, fy]);
+    const st = () => page.evaluate(() => {
+      const a = window.__app;
+      const el = document.activeElement;
+      const titles = [];
+      for (let k = 0; k < a.deck.slideCount(); k += 1) titles.push(a.deck.slideAt(k).title);
+      return { order: titles.join(""), sel: a.selected, focus: a.focusTarget(), on: el && el.dataset ? el.dataset.a11yId || el.id : "", role: el ? el.getAttribute("role") : "", aria: el ? el.getAttribute("aria-selected") : "", menu: a.toolbar.openMenu(), src: a.source() };
+    });
+    await page.mouse.click(300, 300);
+    let p = await thumbAt(1);
+    await page.mouse.click(p[0], p[1]);
+    let s1 = await st();
+    check("a click on a thumbnail moves the keyboard to that slide of the strip", s1.focus === "strip" && s1.sel === 1 && s1.on === "thumb-1" && s1.role === "option" && s1.aria === "true", JSON.stringify({ ...s1, src: "" }));
+    await shot("strip-focus.png");
+    await page.keyboard.press("q");
+    check("…a letter typed there does not reach the editor", (await st()).src === md);
+    await page.keyboard.press("Delete");
+    const s2 = await st();
+    check("…Delete deletes the slide, not text in the editor", s2.order === "ACD" && s2.src === "# A\n\naa\n\n# C\n\ncc\n\n# D\n\ndd\n" && s2.focus === "strip" && s2.on === "thumb-1", JSON.stringify(s2));
+    await page.keyboard.press("Control+z");
+    const s3 = await st();
+    check("…and Ctrl+Z brings it back", s3.src === md && s3.order === "ABCD", JSON.stringify(s3));
+    await page.keyboard.press("ArrowRight");
+    const s4 = await st();
+    check("…the arrows move between slides, the keyboard with them", s4.sel === 2 && s4.on === "thumb-2", JSON.stringify({ ...s4, src: "" }));
+    await page.keyboard.press("Control+ArrowLeft");
+    const s5 = await st();
+    check("…Ctrl+arrow moves the slide, as one edit", s5.order === "ACBD" && s5.sel === 1 && s5.src === "# A\n\naa\n\n# C\n\ncc\n\n# B\n\nbb\n\n# D\n\ndd\n" && s5.on === "thumb-1", JSON.stringify(s5));
+    await page.keyboard.press("Control+ArrowRight");
+    await page.keyboard.press("Control+ArrowRight");
+    const s5b = await st();
+    check("…to the end too", s5b.order === "ABDC" && s5b.sel === 3 && s5b.src === "# A\n\naa\n\n# B\n\nbb\n\n# D\n\ndd\n\n# C\n\ncc\n", JSON.stringify(s5b));
+    await page.keyboard.press("Control+z");
+    await page.keyboard.press("Control+z");
+    await page.keyboard.press("Control+z");
+    check("…each move undoes as one", (await st()).src === md);
+
+    // the context menu, from a right click
+    p = await thumbAt(3);
+    await page.mouse.click(p[0], p[1], { button: "right" });
+    await page.waitForTimeout(100);
+    const s6 = await st();
+    const rows = await page.evaluate(() => {
+      const a = window.__app;
+      a.toolbarJson();
+      const pg = a.toolbar.host.lastPage;
+      const find = (el, id) => { if (el.id === id) return el; for (const c of el.children) { const f = find(c, id); if (f) return f; } return null; };
+      const out = {};
+      for (const v of ["slideNew", "slideDuplicate", "slideLeft", "slideRight", "slideDelete"]) {
+        const e = find(pg, "tb-m-ctx-item-" + v);
+        out[v] = e ? [e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, e.className.includes("disabled")] : null;
+      }
+      return out;
+    });
+    check("a right click on a thumbnail opens its menu, the keyboard in it", s6.menu === "tb-m-ctx" && s6.sel === 3 && /^tb-m-ctx-item-/.test(s6.on) && rows.slideNew && rows.slideRight && rows.slideRight[2] && !rows.slideLeft[2], JSON.stringify({ ...s6, src: "", rows }));
+    await shot("strip-menu.png");
+    const cr = await page.evaluate(() => { const c = document.getElementById("c").getBoundingClientRect(); return [c.left, c.top]; });
+    await page.mouse.click(cr[0] + rows.slideLeft[0], cr[1] + rows.slideLeft[1]);
+    const s7 = await st();
+    check("…Move left moves it, and the keyboard is back on the slide", s7.order === "ABDC" && s7.sel === 2 && s7.menu === "" && s7.focus === "strip" && s7.on === "thumb-2", JSON.stringify({ ...s7, src: "" }));
+    await page.keyboard.press("Shift+F10");
+    const s8 = await st();
+    await page.keyboard.press("Escape");
+    const s9 = await st();
+    check("…Shift+F10 opens it from the keyboard, Esc closes it back to the slide", s8.menu === "tb-m-ctx" && /^tb-m-ctx-item-/.test(s8.on) && s9.menu === "" && s9.on === "thumb-2", JSON.stringify([s8.on, s9.on, s9.menu]));
+    await page.evaluate((t) => window.__app.setSource(t), md);
+
+    // a drag puts the slide in another place
+    p = await thumbAt(0);
+    const q = await thumbAt(2);
+    await page.mouse.move(p[0], p[1]);
+    await page.mouse.down();
+    for (let k = 1; k <= 10; k += 1) await page.mouse.move(p[0] + (q[0] + 70 - p[0]) * k / 10, p[1]);
+    const mid = await page.evaluate(() => [window.__app.stripReorder, window.__app.stripDrop]);
+    await page.mouse.up();
+    const s10 = await st();
+    check("a thumbnail dragged to another gap moves its slide there", mid[0] && mid[1] === 3 && s10.order === "BCAD" && s10.sel === 2 && s10.src === "# B\n\nbb\n\n# C\n\ncc\n\n# A\n\naa\n\n# D\n\ndd\n", JSON.stringify({ mid, ...s10 }));
+    await page.keyboard.press("Escape");
+    check("Esc on the strip gives the keyboard back to the editor", (await st()).focus === "editor");
+    await page.evaluate((t) => window.__app.setSource(t), src0);
+    await page.waitForTimeout(200);
+  }
+
   // A diagram that asks: present the Kulku slide, wait for the question,
   // move the highlight with an arrow, take it with Enter, then go back two
   // steps with two quick Backspaces and see the question again.
@@ -539,7 +636,7 @@ try {
     const rel = (src.match(/\]\((media\/liitetty-[^)]+)\)/) || [])[1] || "";
     const bmp = rel ? await window.__pictureSize("/" + rel) : [0, 0];
     return {
-      dialog, shown: !!shown, before, plan,
+      dialog, shown: !!shown, before, plan, rel,
       md: !!rel,
       image: stage.list.cmds.some((c) => c.k === 2 && String(c.src || "").includes("media/liitetty-")),
       size: bmp,
@@ -563,6 +660,75 @@ try {
   });
   check("a picture placed as the slide's background goes on its heading", /\bbg=media\/tausta\.png\b/.test(bg), bg);
   await shot("3-picture.png");
+
+  // The files tab: the picture's row shows it on hover, and a click opens
+  // the image editor, whose Save writes the adjusted picture over the file.
+  const ed = await page.evaluate(async (rel) => {
+    const a = window.__app;
+    a.showTab("files");
+    window.__handleRequests();
+    const name = rel.split("/").pop();
+    let row = null;
+    for (let i = 0; i < 40 && !row; i += 1) {
+      await new Promise((res) => setTimeout(res, 100));
+      const pj = a.panelsJson();
+      row = pj ? JSON.parse(pj).list.cmds.find((c) => c.k === 3 && c.text === name) : null;
+    }
+    if (!row) return { row: false };
+    a.pointerMove(row.x + 4, row.y + 4);
+    const cmds = JSON.parse(a.panelsJson()).list.cmds;
+    const hover = cmds.some((c) => c.k === 2 && c.src === "/" + rel);
+    const before = window.__picturePixel("/" + rel, 2, 2);
+    a.pointerDown(row.x + 4, row.y + 4, false, 1);
+    a.pointerUp();
+    window.__handleRequests();
+    for (let i = 0; i < 40 && !a.chartIsOpen(); i += 1) {
+      await new Promise((res) => setTimeout(res, 100));
+      window.__handleRequests();
+    }
+    const open = a.chartIsOpen();
+    const win = open ? JSON.parse(a.chartJson()) : null;
+    const shown = !!(win && win.list.cmds.find((c) => c.k === 2 && String(c.src || "").startsWith("/__adjust/")));
+    // darker and greyer, as the sliders would set it
+    a.chart.adjBright = -50;
+    a.chart.adjSat = -100;
+    a.chart.adjDirty = true;
+    a.chart.changed = true;
+    // the slide shows the change before Save, and the window says how its
+    // text reads over it
+    a.writeChart();
+    window.__handleRequests();
+    let live = before;
+    for (let i = 0; i < 30; i += 1) {
+      await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 30)));
+      live = window.__picturePixel("/" + rel, 2, 2);
+      if (live.join() !== before.join()) break;
+    }
+    let note = "";
+    for (let i = 0; i < 30 && !note; i += 1) {
+      await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 30)));
+      note = a.chart.adjContrastNote;
+    }
+    const plan = JSON.parse(a.adjustPlan());
+    a.key("enter", false, false);
+    window.__handleRequests();
+    let after = before;
+    for (let i = 0; i < 60; i += 1) {
+      await new Promise((res) => setTimeout(res, 100));
+      // the saved file (an <img>), not the preview (a canvas)
+      if (window.__pictureTag("/" + rel) !== "IMG") continue;
+      after = window.__picturePixel("/" + rel, 2, 2);
+      if (after.join() !== before.join()) break;
+    }
+    a.showTab("md");
+    return { row: true, hover, open, shown, plan, before, live, note, after, closed: !a.chartIsOpen() };
+  }, pic.rel);
+  check("a picture in the files tab shows a preview on hover", ed.row && ed.hover, JSON.stringify(ed));
+  check("…a click opens the image editor with the picture in it", ed.open && ed.shown, JSON.stringify(ed));
+  const grey = ed.after && Math.abs(ed.after[0] - ed.after[1]) < 4 && Math.abs(ed.after[1] - ed.after[2]) < 4;
+  check("…the slide shows the change while the sliders move", ed.live && ed.live.join() !== ed.before.join(), JSON.stringify({ before: ed.before, live: ed.live }));
+  check("…and the window says how the slide's text reads over it", /^Slide \d+: /.test(ed.note || ""), JSON.stringify(ed.note));
+  check("…and Save writes the adjusted picture over the file", ed.closed && grey && ed.after[0] < ed.before[0], JSON.stringify({ before: ed.before, after: ed.after, plan: ed.plan }));
 
   // TeX math: $…$ in a line and a $$ display are drawn as filled outlines
   const math = await page.evaluate(() => {
@@ -666,6 +832,80 @@ try {
     return res;
   });
   check("…and hovering its properties never moves the rows (also flipped above)", selHover.every((r) => r.rows > 3 && r.moved === 0 && r.tip), JSON.stringify(selHover));
+
+  // A click on the slide picks the block under it: an outline, its theme
+  // spacing as bands, "Edit content" and "Style" next to it
+  const pk = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    const css0 = a.themeCss();
+    a.showTab("md");
+    a.setSource("# D\n\n## Otsikko\n\n- yksi\n- kaksi\n\nKappale tekstiä.\n{.lead}\n");
+    a.selectSlide(1);
+    a.place();
+    const l = a.deck.layout();
+    const r = a.slideRect, sc = a.slideScale();
+    const boxes = l.boxes.filter((b) => b.page === a.selected && b.kind === 0);
+    const at = (t) => { const b = boxes.find((b) => b.text.startsWith(t)); return [r.x + (b.x + 4) * sc, r.y + (b.y + b.h / 2) * sc]; };
+    const click = ([x, y]) => { a.pointerDown(x, y, false, 1); a.pointerUp(); };
+    const out = {};
+    click(at("Otsikko"));
+    out.head = [a.pick.sel, a.pick.bands.map((b) => b.sel + ":" + b.prop + (b.isSet ? "=" : "+")).join(" ")];
+    out.drawn = /sel-box|"text":"Style"/.test(a.pickJson()) || a.pickJson().length > 100;
+    a.pickStyle();
+    out.style = [a.hintIsOpen(), a.hint.kind, a.hintPinned()];
+    out.styleProps = [];
+    for (let i = 0; i < 40; i++) {
+      const p = a.hint.rule.get("props").at(i);
+      if (!p || !p.isObject || !p.isObject()) break;
+      out.styleProps.push(p.stringOr("sel", "") + ">" + p.stringOr("name", "") + (p.stringOr("value", "") ? "=" : "+"));
+    }
+    a.closeHint();
+    // a band: its property opens next to it, written into the theme
+    a.pickJson();
+    const bi = a.pick.bands.findIndex((b) => b.prop === "margin-bottom");
+    const b = a.pick.bands[bi];
+    a.pointerDown(b.sx + b.sw / 2, b.sy + b.sh / 2, false, 1);
+    a.pointerUp();
+    out.band = [a.edTab, a.hint.kind, a.hint.name, a.hintPinned(), a.hint.ax > r.x - 1];
+    // …and the card stays off the element: under, over or beside it
+    a.hintJson();
+    const card = a.hint.cardEl();
+    const ox = a.pick.ox, oy = a.pick.oy, ow = a.pick.ow, oh = a.pick.oh;
+    out.offElement = card.calculatedY >= oy + oh || card.calculatedY + card.calculatedHeight <= oy || card.calculatedX >= ox + ow || card.calculatedX + card.calculatedWidth <= ox;
+    a.closeHint();
+    // a list item: its line in the Markdown
+    a.showTab("md");
+    click(at("kaksi"));
+    out.li = [a.pick.sel, a.pick.ruleSels().join(" ")];
+    a.pickContent();
+    out.liContent = [a.edTab, a.anchorLine(), a.anchorCol(), a.caretLine(), a.caretCol()];
+    click(at("Kappale"));
+    out.p = [a.pick.sel, a.pick.ruleSels().join(" ")];
+    a.setFocus("stage");
+    a.key("escape", false, false);
+    out.cleared = !a.pick.on;
+    // a press off the slide, and playing, let it go too
+    click(at("Kappale"));
+    const sa = a.stageArea;
+    a.pointerDown(sa.x + 4, sa.y + sa.h - 4, false, 1);
+    a.pointerUp();
+    out.offSlide = !a.pick.on;
+    click(at("Kappale"));
+    a.play();
+    out.onPlay = !a.pick.on && a.pickJson() === "";
+    a.stop();
+    a.setSource(src0);
+    a.setStyleSheet(css0);
+    return out;
+  });
+  check("a click on a heading picks it with the headings' margins as bands", pk.head[0] === "h2" && pk.head[1] === "heading:margin-top= heading:margin-bottom=" && pk.drawn, JSON.stringify(pk.head));
+  check("…its Style lists h2's and all headings' properties, set and not", pk.style.join(",") === "true,selector,true" && pk.styleProps.includes("h2>font-size=") && pk.styleProps.includes("heading>margin-top=") && pk.styleProps.some((p) => p.endsWith("+")), JSON.stringify(pk.styleProps));
+  check("…a band opens its value in the theme, next to the slide", pk.band.join(",") === "css,number,heading › margin-bottom,true,true", JSON.stringify(pk.band));
+  check("…and its card does not cover the element", pk.offElement === true);
+  check("…a press off the slide or Play lets the pick go", pk.offSlide === true && pk.onPlay === true, JSON.stringify([pk.offSlide, pk.onPlay]));
+  check("a list item is picked as li (with list and the document's text)", pk.li.join("|") === "li|li list document" && pk.liContent.join(",") === "md,5,0,5,7", JSON.stringify([pk.li, pk.liContent]));
+  check("…a paragraph with {.lead} gets the class's rule too, and Esc lets go", pk.p.join("|") === "p|p .lead document" && pk.cleared, JSON.stringify([pk.p, pk.cleared]));
 
   // chart-effects takes any of its words together: a chip turns one on or off
   const fx = await page.evaluate(() => {
@@ -879,7 +1119,7 @@ try {
     });
     check("…over the Files tab the File menu is on top, and its row takes the press", onFiles.onTop && onFiles.underPanel && onFiles.reqs.includes("click:save") && onFiles.closed, JSON.stringify(onFiles));
 
-    // the File menu's groups: new | open | save | the assistants, lines between them
+    // the File menu's groups: new | open | save | the assistants | settings, lines between them
     // that take no press
     const seps = await page.evaluate(() => {
       const a = window.__app;
@@ -888,8 +1128,8 @@ try {
       const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY, false, 1); a.pointerUp(); };
       press(find("tb-m-file-trigger"));
       const lines = all();
-      const ys = ["new", "openbox", "save", "aiClaude"].map((id) => find("tb-m-file-item-" + id).calculatedY);
-      const between = lines.length === 3 && lines.every((l, i) => l.calculatedY > ys[i] && l.calculatedY < ys[i + 1] && l.calculatedHeight === 1);
+      const ys = ["new", "openbox", "save", "aiClaude", "settings", "deleteDeck"].map((id) => find("tb-m-file-item-" + id).calculatedY);
+      const between = lines.length === 5 && lines.every((l, i) => l.calculatedY > ys[i] && l.calculatedY < ys[i + 1] && l.calculatedHeight === 1);
       for (;;) { if (!a.takeRequest()) break; }
       press(lines[0]);
       const reqs = [];
@@ -898,7 +1138,57 @@ try {
       a.key("escape", false, false);
       return { n: lines.length, between, reqs, stillOpen };
     });
-    check("…the File menu is grouped by three lines, and a line takes no press", seps.between && seps.reqs.length === 0 && seps.stillOpen, JSON.stringify(seps));
+    check("…the File menu is grouped by five lines, and a line takes no press", seps.between && seps.reqs.length === 0 && seps.stillOpen, JSON.stringify(seps));
+
+    // File → Export: Markdown, PowerPoint, PDF and a zip of every file; File →
+    // Delete presentation… is red, last, and asks in the app's window first
+    const fx = await page.evaluate(async () => {
+      const a = window.__app;
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      const shut = () => { for (let n = 0; n < 3 && a.toolbar.openMenu() !== ""; n++) a.key("escape", false, false); };
+      const take = () => { const out = []; for (;;) { const r = a.takeRequest(); if (!r) break; out.push(r); } return out; };
+      shut();
+      take();
+      const newReqs = [];
+      let newKids = [];
+      for (const id of ["newPres", "newSheet"]) {
+        press(find("tb-m-file-trigger"));
+        press(find("tb-m-file-item-new"));
+        let r = null;
+        for (let n = 0; n < 40 && !r; n++) { r = find("tb-m-file-item-new-item-" + id); if (!r) await new Promise((ok) => setTimeout(ok, 100)); }
+        const nc = find("tb-m-file-item-new-content");
+        newKids = nc ? (nc.children || []).map((k) => k.id.split("-item-").pop()) : [];
+        if (r) press(r);
+        newReqs.push(...take());
+        shut();
+      }
+      press(find("tb-m-file-trigger"));
+      press(find("tb-m-file-item-export"));
+      let row = null;
+      for (let n = 0; n < 40 && !row; n++) { row = find("tb-m-file-item-export-item-x-zip"); if (!row) await new Promise((r) => setTimeout(r, 100)); }
+      const c = find("tb-m-file-item-export-content");
+      const kids = c ? (c.children || []).map((k) => k.id.split("-item-").pop()) : [];
+      if (row) press(row);
+      const zip = take();
+      shut();
+      press(find("tb-m-file-trigger"));
+      const del = find("tb-m-file-item-deleteDeck");
+      const red = !!del && (del.className || "").includes("ui-dropdownmenu-item-destructive");
+      const rows = (find("tb-m-file-content")?.children || []).map((k) => k.id);
+      const last = !!del && rows[rows.length - 1] === del.id;
+      press(del);
+      const asked = take();
+      await window.__fileRequest("deletedeck");
+      const confirm = a.chart.isOpen && a.chart.mode === "confirm";
+      const ok = (() => { const w = (e) => { if (e.id === "cf-ok") return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return a.chart.isOpen ? w(a.chart.host.root) : null; })();
+      a.key("escape", false, false);
+      const after = take();
+      return { newKids, newReqs, kids, zip, red, last, asked, confirm, okDanger: !!ok && (ok.className || "").includes("ui-button-danger"), closed: !a.chart.isOpen, after };
+    });
+    check("…File → New offers Presentation… (the window) and Datasheet… (the spreadsheet editor)", fx.newKids.join() === "newPres,newSheet" && fx.newReqs.join() === "files:new,files:newsheet", JSON.stringify(fx));
+    check("…File → Export lists .md, .pptx, .pdf and .zip, and the zip row is the page's ZIP button", fx.kids.join() === "x-save,x-pptx,x-pdf,x-zip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
+    check("…File → Delete presentation… is red and last, and asks first; Esc deletes nothing", fx.red && fx.last && fx.asked.includes("files:deletedeck") && fx.confirm && fx.okDanger && fx.closed && !fx.after.some((r) => r.startsWith("confirm:")), JSON.stringify(fx));
 
     // File → Recent: Browse all… first (the Files tab), a line, then the decks
     const recent = await page.evaluate(async () => {
@@ -1825,6 +2115,41 @@ try {
   const fxPdf = Buffer.from(fxExp.pdf, "base64").toString("latin1");
   const fxImages = (fxPdf.match(/\/Subtype \/Image/g) || []).length;
   check("PDF: each slide's effect is a picture", fxImages === 2, `${fxImages} images`);
+  // A JPEG as a slide's background and as the header's logo, and a picture
+  // the deck has no file for: the PDF has no file system to open them from
+  // (it once failed with "require is not defined").
+  {
+    const jpg = await page.evaluate(() => {
+      const c = document.createElement("canvas");
+      c.width = 64;
+      c.height = 48;
+      const g = c.getContext("2d");
+      g.fillStyle = "#c33";
+      g.fillRect(0, 0, 64, 48);
+      return c.toDataURL("image/jpeg").split(",")[1];
+    });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evgp-jpg-"));
+    fs.writeFileSync(path.join(dir, "check-bg.jpg"), Buffer.from(jpg, "base64"));
+    await page.setInputFiles("#fileadd", [path.join(dir, "check-bg.jpg")]);
+    await page.waitForTimeout(800);
+    const jp = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      a.setSource("---\nheader-right: ![](media/check-bg.jpg)\n---\n\n# J\n\n## Tausta {bg=media/check-bg.jpg}\n\nteksti\n\n## Puuttuu\n\n![x](media/ei-ole.jpg)\n");
+      let out;
+      try {
+        const u = new Uint8Array(a.pdf());
+        let s = "";
+        for (let i = 0; i < u.length; i += 1) s += String.fromCharCode(u[i]);
+        out = { head: s.slice(0, 5), images: (s.match(/\/Subtype \/Image/g) || []).length };
+      } catch (e) {
+        out = { error: String(e) };
+      }
+      a.setSource(src0);
+      return out;
+    });
+    check("PDF: a JPEG background and header logo export; a missing picture is left out", jp.head === "%PDF-" && jp.images >= 1, JSON.stringify(jp));
+  }
   const fxPptx = unzip(Buffer.from(fxExp.pptx, "base64"));
   const bgs = [2, 3, 4].map((n) => /<p:bg><p:bgPr><a:blipFill>/.test(fxPptx.get(`ppt/slides/slide${n}.xml`) || ""));
   check("PPTX: the effect is the slide's background, only where there is one", bgs.join(",") === "true,true,false", bgs.join(","));
@@ -2220,6 +2545,44 @@ try {
     check("first visit: Start your own deck opens the New presentation window", started.open && started.mode === "newdeck" && !started.card, JSON.stringify(started));
     check("no page errors on a first visit", werr.length === 0, werr.join(" | "));
     await ctx.close();
+  }
+
+  // the address follows the slide, the editor's tab and the presentation,
+  // and a reload comes back to them
+  {
+    const ph = await browser.newPage({ viewport: { width: 1200, height: 760 } });
+    await ph.goto(url + "?sample=esittely");
+    await ph.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await ph.evaluate(() => { window.__app.selectSlide(2); window.__app.showTab("css"); });
+    await ph.waitForFunction(() => /slide=3/.test(location.hash) && /tab=css/.test(location.hash), null, { timeout: 5000 }).catch(() => {});
+    const hashed = await ph.evaluate(() => location.hash);
+    await ph.reload();
+    await ph.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const back = await ph.evaluate(() => ({ slide: JSON.parse(window.__app.layoutJson()).slide, tab: window.__app.editorTab() }));
+    await ph.evaluate(() => document.getElementById("present").click());
+    await ph.waitForFunction(() => /view=present/.test(location.hash), null, { timeout: 5000 }).catch(() => {});
+    await ph.reload();
+    await ph.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const shown = await ph.evaluate(() => { const l = JSON.parse(window.__app.layoutJson()); return { mode: l.mode, slide: l.slide, len: history.length }; });
+    await ph.close();
+    check("the address keeps the slide, the tab and the presentation over a reload", hashed === "#slide=3&tab=css" && back.slide === 2 && back.tab === "css" && shown.mode === "present" && shown.slide === 2, JSON.stringify({ hashed, back, shown }));
+    // a new deck kept in this browser: its id in the address, and a reload
+    // opens it even when another tab saved a deck of its own since
+    const pn = await browser.newPage({ viewport: { width: 1200, height: 760 } });
+    await pn.goto(url);
+    await pn.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await pn.evaluate(() => window.__fileRequest("new"));
+    await pn.waitForTimeout(300);
+    await pn.keyboard.type("Vuokra ja menot");
+    await pn.keyboard.press("Enter");
+    await pn.waitForFunction(() => /doc=/.test(location.hash), null, { timeout: 8000 }).catch(() => {});
+    const addr = await pn.evaluate(() => location.hash);
+    await pn.evaluate(() => localStorage.setItem("evgp.doc", "some-other-deck"));
+    await pn.reload();
+    await pn.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const reopened = await pn.evaluate(() => ({ md: window.__app.source().slice(0, 20), at: location.hash }));
+    await pn.close();
+    check("a new deck's id is in the address and a reload opens that deck", /^#doc=[a-z0-9-]+$/.test(addr) && reopened.md.startsWith("# Vuokra ja menot") && reopened.at === addr, JSON.stringify({ addr, reopened }));
   }
 
   // the interface in another language: ?lang=fi, the canvas bar and the page alike

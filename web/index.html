@@ -128,12 +128,12 @@
 </style>
 <!-- The faces the first frame needs: fetched while pres_app.js loads, at the
      same URLs main.js asks for. -->
-<link rel="preload" href="./fonts/OpenSans-Regular.ttf?v=__BUILD__" as="fetch" crossorigin />
-<link rel="preload" href="./fonts/OpenSans-Bold.ttf?v=__BUILD__" as="fetch" crossorigin />
-<link rel="preload" href="./fonts/OpenSans-Italic.ttf?v=__BUILD__" as="fetch" crossorigin />
-<link rel="preload" href="./fonts/OpenSans-BoldItalic.ttf?v=__BUILD__" as="fetch" crossorigin />
-<link rel="preload" href="./fonts/NotoSans-Regular.ttf?v=__BUILD__" as="fetch" crossorigin />
-<link rel="preload" href="./fonts/NotoSans-Bold.ttf?v=__BUILD__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/OpenSans-Regular.ttf?v=__FONTS__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/OpenSans-Bold.ttf?v=__FONTS__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/OpenSans-Italic.ttf?v=__FONTS__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/OpenSans-BoldItalic.ttf?v=__FONTS__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/NotoSans-Regular.ttf?v=__FONTS__" as="fetch" crossorigin />
+<link rel="preload" href="./fonts/NotoSans-Bold.ttf?v=__FONTS__" as="fetch" crossorigin />
 <!-- Google Picker's API key (private Google Sheets, web/sliqtly.js). Empty:
      the Firebase web API key, which works when the Picker API is allowed on it. -->
 <meta name="google-picker-key" content="" />
@@ -168,6 +168,7 @@
   <button id="save" class="wide" title="Save as Markdown" data-i18n-title data-i18n>Save .md</button>
   <button id="pdf">PDF</button>
   <button id="pptx">PPTX</button>
+  <button id="zip">ZIP</button>
   <button id="share" title="Copy a link with this Markdown packed into its address" data-i18n-title data-i18n>🔗 Share</button>
   <button id="aiClaude" hidden>Claude</button>
   <button id="aiChatgpt" hidden>ChatGPT</button>

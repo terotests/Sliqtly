@@ -5,12 +5,13 @@
 // bind_chart_data, get_presentation, list_files, read_file, list_presentations. create/update also name a UI resource (MCP Apps, and the
 // same template for ChatGPT) that shows the deck inline in the chat.
 
-import { parseCsv, readWorkbook, toCsv, workbookInfo, workbookTables } from "./xlsx.js";
+import { badSheetName, parseCsv, readWorkbook, toCsv, workbookInfo, workbookTables, writeWorkbook } from "./xlsx.js";
 import fs from "node:fs";
 import crypto from "node:crypto";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { THEMES, MAX_MD, MAX_CSS, InputError, bindChartData, loadDataFiles, loadImages, outline, warnings } from "./deck.js";
+import { backgrounds, contrastWarnings } from "./contrast.js";
+import { THEMES, MAX_MD, MAX_CSS, MAX_DATA, XLSX_MIME, InputError, bindChartData, cleanName, loadDataFiles, loadImages, outline, warnings } from "./deck.js";
 import { packText } from "./store.js";
 
 const GUIDE = fs.readFileSync(new URL("../guide.md", import.meta.url), "utf8");
@@ -146,12 +147,35 @@ export function createServer(opts) {
     return { cur, mine };
   }
 
+  // Slides whose text likely does not stand out from their background
+  // picture (src/contrast.js): the pictures from this call, else the deck's
+  // stored ones. Never fails the call.
+  async function contrastNotes(md, theme, css, imgs, deckId) {
+    try {
+      const pictures = new Map(imgs.map((i) => [i.name, i.data]));
+      const wanted = [...new Set(backgrounds(md).map((b) => b.picture))].slice(0, 10);
+      if (!wanted.length) return [];
+      for (const name of wanted) {
+        if (pictures.has(name) || !deckId || store.kind === "link") continue;
+        try { pictures.set(name, await store.fileBytes(deckId, "media/" + name)); } catch { /* not stored */ }
+      }
+      const sheet = css != null ? css : await themeCss(theme || "aurora");
+      return contrastWarnings(md, sheet, pictures);
+    } catch (e) {
+      console.warn("contrast check", e);
+      return [];
+    }
+  }
+
   async function updated(deckId, saved, note) {
     if (!saved) throw new InputError("The edit_key does not match this presentation.");
     const stored = (saved.files || []).map((f) => f.path.replace(/^media\//, ""));
     const out = await result({
       title: saved.name, theme: saved.theme, slides: outline(saved.md).titles.length,
-      warnings: warnings(saved.md, [], stored).filter((w) => !w.startsWith("Image")),
+      warnings: [
+        ...warnings(saved.md, [], stored).filter((w) => !w.startsWith("Image")),
+        ...(await contrastNotes(saved.md, saved.theme, saved.css, [], deckId)),
+      ],
       ...links(deckId), deck_id: deckId,
     }, "Updated");
     if (note) out.content[0].text += "\n" + note;
@@ -222,7 +246,7 @@ export function createServer(opts) {
     const imgs = await loadImages(images, fetchImpl);
     const data = await loadDataFiles(files, fetchImpl, readWorkbook);
     const names = imgs.map((i) => i.name);
-    const base = { title, theme, slides: outline(markdown).titles.length, warnings: warnings(markdown, names) };
+    const base = { title, theme, slides: outline(markdown).titles.length, warnings: [...warnings(markdown, names), ...(await contrastNotes(markdown, theme, css2, imgs, null))] };
     if (store.kind === "link") {
       if (imgs.length) base.warnings.push("Pictures are not stored on this server (no cloud storage configured); the slides show without them.");
       if (data.length) base.warnings.push("Data files are not stored on this server (no cloud storage configured).");
@@ -451,6 +475,42 @@ export function createServer(opts) {
     return readFile(deck_id, d, path, sheet, offset, limit);
   }));
 
+  server.registerTool("write_workbook", {
+    title: "Write a presentation's workbook",
+    description: "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text. Values only: formatting, formulas and column widths are not kept.",
+    inputSchema: {
+      deck_id: z.string().describe("The id in the share link /s/<id>"),
+      edit_key: z.string().optional().describe("edit_key from create_presentation; not needed when signed in as the presentation's owner"),
+      path: z.string().describe("The workbook's path, e.g. data/budget.xlsx"),
+      sheets: z.array(z.object({
+        name: z.string().describe("Sheet name (at most 31 characters, none of \\ / : * ? [ ])"),
+        rows: z.array(z.array(z.union([z.string(), z.number(), z.null()]))).optional().describe("Rows of cell values, header row first"),
+        csv: z.string().optional().describe("The sheet as CSV text instead of rows"),
+      })).min(1).max(20).describe("The workbook's sheets in order"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    _meta: { securitySchemes: EITHER },
+  }, guarded("write_workbook", async ({ deck_id, edit_key, path, sheets }) => {
+    const name = cleanName(String(path || "").trim().replace(/^\/+/, "").replace(/^data\//, ""));
+    if (!name || !/\.xlsx$/i.test(name)) throw new InputError("path is the workbook's name under data/, ending in .xlsx (e.g. data/budget.xlsx).");
+    const seen = new Set();
+    const book = sheets.map((s) => {
+      const why = badSheetName(s.name);
+      if (why) throw new InputError(why[0].toUpperCase() + why.slice(1) + ".");
+      if (seen.has(s.name.toLowerCase())) throw new InputError(`Two sheets are named "${s.name}".`);
+      seen.add(s.name.toLowerCase());
+      if ((s.rows != null) === (s.csv != null)) throw new InputError(`Sheet "${s.name}": give rows or csv.`);
+      return { name: s.name, rows: s.rows ?? parseCsv(s.csv) };
+    });
+    const data = writeWorkbook(book);
+    if (data.length > MAX_DATA) throw new InputError("The workbook would be larger than 10 MB.");
+    const { mine } = await editable(deck_id, edit_key);
+    const file = { name, path: "data/" + name, type: XLSX_MIME, data };
+    const saved = await store.update(deck_id, mine ? null : edit_key, { images: [file] });
+    const note = "Formatting and formulas are not kept. Renamed or removed sheets change the CSV names the deck reads; check the deck's charts and tables still name them.";
+    return withData(await updated(deck_id, saved, note), [file]);
+  }));
+
   server.registerTool("list_presentations", {
     title: "List my presentations",
     description: "List the signed-in user's own Sliqtly presentations (newest first) with their links and deck_ids. Needs sign-in.",
@@ -473,14 +533,10 @@ export function createServer(opts) {
     return { content: [{ type: "text", text }], structuredContent: { presentations: decks } };
   }));
 
-  server.registerResource("preview", PREVIEW_URI, {
-    title: "Sliqtly presentation",
-    description: "Shows the presentation inline",
-    mimeType: APP_MIME,
-    _meta: { ui: { csp, prefersBorder: false } },
-  }, async () => ({
+  const previewMeta = { title: "Sliqtly presentation", description: "Shows the presentation inline", mimeType: APP_MIME, _meta: { ui: { csp, prefersBorder: false } } };
+  const previewContents = (uri) => ({
     contents: [{
-      uri: PREVIEW_URI,
+      uri,
       mimeType: APP_MIME,
       text: PREVIEW,
       _meta: {
@@ -490,7 +546,12 @@ export function createServer(opts) {
         "openai/widgetPrefersBorder": true,
       },
     }],
-  }));
+  });
+  server.registerResource("preview", PREVIEW_URI, previewMeta, async () => previewContents(PREVIEW_URI));
+  // a client that took the tool list before the preview changed still asks
+  // for the older name: it gets the current preview, not "Couldn't open app"
+  server.registerResource("preview-older", new ResourceTemplate("ui://sliqtly/preview-{hash}.html", { list: undefined }), previewMeta,
+    async (uri) => previewContents(uri.href));
 
   return server;
 }

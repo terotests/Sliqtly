@@ -43,6 +43,7 @@ Import "PresToolbar.rgr"
 Import "PresHintPopover.rgr"
 Import "PresPanels.rgr"
 Import "PresA11y.rgr"
+Import "PresSelect.rgr"
 Import "../evgui/src/TabsCtl.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -112,7 +113,8 @@ class PresApp {
     def speaker:boolean false
     ; present: steps come by themselves rather than by a click
     def auto:boolean false
-    ; "editor" | "stage" | ""
+    ; "editor" | "stage" | "strip" (the filmstrip: its keys move between,
+    ; reorder and delete slides) | "chart" | ""
     def focus:string "editor"
     def blink:int 0
     def chromeRev:int 0
@@ -141,6 +143,10 @@ class PresApp {
     def stripIdx:int -1
     def stripDownX:double 0.0
     def stripLastX:double 0.0
+    ; A mouse drag that began on a thumbnail moves that slide: `stripDrop` is
+    ; the gap it would land in (0 = before the first, n = after the last).
+    def stripReorder:boolean false
+    def stripDrop:int -1
     ; The "+" after the last thumbnail: pressed, it offers an empty slide or
     ; a copy of the selected one. `stripAdd` is what the press on it asks
     ; for: "open", "empty", "dup" or "".
@@ -197,6 +203,14 @@ class PresApp {
     ; what the page calls the app: the bar's name and the canvas's label
     def appName:string "EVG Presentation"
     def hint:PresHintPopover (new PresHintPopover())
+    ; the element picked on the slide, with its handles (PresSelect.rgr)
+    def pick:PresSelect (new PresSelect())
+    ; the popover was opened from the pick: it stays where it was opened,
+    ; next to the element, and does not close when the pointer leaves it
+    def hintFromStage:boolean false
+    def stageHintX:double 0.0
+    def stageHintY:double 0.0
+    def stageHintH:double 0.0
     def panels:PresPanels (new PresPanels())
     ; the page is used with a finger: `@media (pointer: coarse)`
     def coarse:boolean false
@@ -845,7 +859,16 @@ class PresApp {
         clock = start
         playing = true
         deck.resetExplore()
+        ; playing is not editing: the pick and its popover go
+        this.dropPick()
         chromeRev = (chromeRev + 1)
+    }
+
+    fn dropPick:void () {
+        if hintFromStage {
+            this.closeHint()
+        }
+        pick.clear()
     }
 
     fn stop:void () {
@@ -1142,6 +1165,7 @@ class PresApp {
     ; Presenting
     ; =========================================================================
     fn present:void (fromStart:boolean) {
+        this.dropPick()
         mode = "present"
         this.viewReset()
         activeDia = -1
@@ -1431,6 +1455,8 @@ class PresApp {
         stagePanning = false
         stripPressed = false
         stripDragging = false
+        stripReorder = false
+        stripDrop = -1
         stripAdd = ""
         scrubDrag = false
         editorDrag = false
@@ -1839,10 +1865,22 @@ class PresApp {
                 if (i == selected) {
                     cls = "thumb thumb-on"
                 }
+                if (stripReorder && (i == stripIdx)) {
+                    cls = (cls + " thumb-carried")
+                }
                 box.addChild((PresApp.div(("thumb" + (to_string i)) cls ((x - 3.0) - ox) (((this.thumbY()) - 3.0) - r.y) (thumbW + 6.0) (thumbH + 6.0))))
+                ; the keys are on the strip: a ring round the selected slide
+                if ((focus == "strip") && (i == selected)) {
+                    box.addChild((PresApp.div("thumb-ring" "thumb-ring" ((x - 6.0) - ox) (((this.thumbY()) - 6.0) - r.y) (thumbW + 12.0) (thumbH + 12.0))))
+                }
                 box.addChild((PresApp.label(("tn" + (to_string i)) "thumb-num" (to_string (i + 1)) (x - ox) 4.0)))
             }
             i = (i + 1)
+        }
+        ; where a carried slide would land: a bar in the gap
+        if (stripReorder && (stripDrop >= 0)) {
+            def dx:double (((this.thumbX(stripDrop)) - (thumbGap / 2.0)) - 2.0)
+            box.addChild((PresApp.div("thumb-drop" "thumb-drop" (dx - ox) (((this.thumbY()) - 6.0) - r.y) 4.0 (thumbH + 12.0))))
         }
         ; the "+" after the last one, or its two choices once pressed
         def ax:double (this.thumbX((deck.slideCount())))
@@ -2004,6 +2042,13 @@ class PresApp {
             this.takePanels()
             return "panel"
         }
+        ; a press off the slide (and off the pick's buttons) lets the pick go
+        if (pick.on && ((slideRect.has(x y)) == false)) {
+            if (((stageArea.has(x y)) == false) || ((strlen (pick.partAt(x y))) == 0)) {
+                pick.clear()
+                chromeRev = (chromeRev + 1)
+            }
+        }
         if ((barH > 0.0) && (toolbar.has(x y))) {
             toolbar.press(x y)
             this.takeToolbar()
@@ -2060,12 +2105,29 @@ class PresApp {
                 i = (i + 1)
             }
             ; selected when let go without having moved (pointerUp); a drag
-            ; scrolls the strip
+            ; moves the slide pressed on (a mouse) or scrolls the strip
             stripPressed = true
             stripDragging = false
+            stripReorder = false
+            stripDrop = -1
             stripDownX = x
             stripLastX = x
+            ; the keys go to the strip now, not to the editor (the "+" leaves
+            ; them: a new slide's heading is typed in the editor)
+            if ((strlen stripAdd) == 0) {
+                focus = "strip"
+                chromeRev = (chromeRev + 1)
+            }
             return "thumb"
+        }
+        ; the pick's buttons and spacing bands, over the slide and around it
+        if (stageArea.has(x y)) {
+            def part:string (pick.partAt(x y))
+            if ((strlen part) > 0) {
+                focus = "stage"
+                this.pickPress(part)
+                return "select"
+            }
         }
         if (slideRect.has(x y)) {
             ; a double click on a chart opens its settings
@@ -2181,7 +2243,10 @@ class PresApp {
                 this.next()
             }
         } {
+            ; a diagram's or a table's own controls take the press first; the
+            ; block under it is picked all the same
             this.stagePress(downX downY)
+            this.pickAt(downX downY)
         }
         chromeRev = (chromeRev + 1)
     }
@@ -2258,6 +2323,20 @@ class PresApp {
                     return
                 }
                 stripDragging = true
+                stripReorder = (((stripIdx >= 0) && (touch == false)) && ((deck.slideCount()) > 1))
+            }
+            if stripReorder {
+                ; near an edge the strip scrolls under the slide being carried
+                if (x < (stripRect.x + 40.0)) {
+                    this.scrollStrip(-12.0)
+                }
+                if (x > ((stripRect.x + stripRect.w) - 40.0)) {
+                    this.scrollStrip(12.0)
+                }
+                stripDrop = (this.dropSlotAt(x))
+                stripLastX = x
+                chromeRev = (chromeRev + 1)
+                return
             }
             this.scrollStrip((stripLastX - x))
             stripLastX = x
@@ -2265,7 +2344,9 @@ class PresApp {
         }
         if stagePressed {
             this.stageMove(x y)
+            return
         }
+        this.pickHover(x y)
     }
 
     fn pointerUp:void () {
@@ -2305,10 +2386,36 @@ class PresApp {
                     this.addSlide((stripAdd == "dup"))
                 }
             }
+            if (stripReorder && (stripDrop >= 0)) {
+                this.moveSlideTo(stripIdx stripDrop)
+            }
             stripAdd = ""
             stripDragging = false
+            stripReorder = false
+            stripDrop = -1
+            chromeRev = (chromeRev + 1)
         }
         this.stageUp()
+    }
+
+    fn inStrip:boolean (x:double y:double) {
+        this.place()
+        return ((mode != "present") && (stripRect.has(x y)))
+    }
+
+    ; The gap between thumbnails nearest to x: 0 before the first, n after
+    ; the last.
+    fn dropSlotAt:int (x:double) {
+        def n:int (deck.slideCount())
+        def u:double (((x - (stripRect.x + 12.0)) + stripScroll) + (thumbGap / 2.0))
+        def slot:int (floor ((u / (thumbW + thumbGap)) + 0.5))
+        if (slot < 0) {
+            slot = 0
+        }
+        if (slot > n) {
+            slot = n
+        }
+        return slot
     }
 
     fn scrollStrip:void (d:double) {
@@ -2421,8 +2528,14 @@ class PresApp {
         if (sepRect.has(x y)) {
             return "col-resize"
         }
+        if ((stageArea.has(x y)) && ((strlen (pick.partAt(x y))) > 0)) {
+            return "pointer"
+        }
         if (edRect.has(x y)) {
             return "text"
+        }
+        if stripReorder {
+            return "grabbing"
         }
         if (stripRect.has(x y)) {
             return "pointer"
@@ -2456,6 +2569,11 @@ class PresApp {
     }
 
     fn key:boolean (name:string shift:boolean ctrl:boolean) {
+        if (((name == "escape") && pick.on) && (((hint.isOpen == false) && (mode != "present")) && (focus == "stage"))) {
+            pick.clear()
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         if (panels.shareOpen && (mode != "present")) {
             if (name == "escape") {
                 panels.closeShare()
@@ -2511,6 +2629,9 @@ class PresApp {
             }
             return false
         }
+        if (focus == "strip") {
+            return (this.stripKey(name shift ctrl))
+        }
         if (focus == "stage") {
             if ((name == "right") || (name == "down")) {
                 this.selectSlide((selected + 1))
@@ -2536,6 +2657,95 @@ class PresApp {
         this.syncEditor()
         chromeRev = (chromeRev + 1)
         return true
+    }
+
+    ; Ctrl+Z / Ctrl+Y with the keyboard on the strip: the Markdown's undo, and
+    ; the slide the edit was in selected (a deleted slide back is selected
+    ; again, not the one after it).
+    fn stripUndo:boolean (back:boolean) {
+        def was:string focus
+        if (edTab != "md") {
+            this.showTab("md")
+        }
+        focus = was
+        def line:int -1
+        def st:[EditorUndoOp] mdEditor.buf.undoStack
+        if (back == false) {
+            st = mdEditor.buf.redoStack
+        }
+        def k:int (array_length st)
+        if (k > 0) {
+            def op:EditorUndoOp (itemAt st (k - 1))
+            line = op.startLine
+        }
+        if back {
+            mdEditor.undo()
+        } {
+            mdEditor.redo()
+        }
+        this.syncEditor()
+        if (line >= 0) {
+            this.selectSlide((deck.pageOfOffset((this.offsetOf(line 0)))))
+        }
+        a11yFocus = ("thumb-" + (to_string selected))
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The filmstrip's keys: the arrows, Home and End move between slides,
+    ; Ctrl/⌘ with an arrow moves the slide, Delete and Backspace delete it
+    ; (Ctrl+Z brings it back), Enter edits it and Esc goes back to the
+    ; editor. The keyboard stays on the strip, on the selected slide.
+    fn stripKey:boolean (name:string shift:boolean ctrl:boolean) {
+        def n:int (deck.slideCount())
+        def used:boolean true
+        def back:boolean ((name == "left") || (name == "up"))
+        def fwd:boolean ((name == "right") || (name == "down"))
+        if (ctrl && (back || fwd)) {
+            this.slideCommand((? back "left" "right"))
+        } {
+            if back {
+                this.selectSlide((selected - 1))
+            } {
+                if fwd {
+                    this.selectSlide((selected + 1))
+                } {
+                    if (name == "home") {
+                        this.selectSlide(0)
+                    } {
+                        if (name == "end") {
+                            this.selectSlide((n - 1))
+                        } {
+                            if ((name == "delete") || (name == "backspace")) {
+                                this.slideCommand("delete")
+                            } {
+                                if ((name == "enter") || (name == "escape")) {
+                                    ; Enter: the slide's heading in the editor
+                                    if (name == "enter") {
+                                        this.showTab("md")
+                                    }
+                                    focus = "editor"
+                                    a11yFocus = ""
+                                    chromeRev = (chromeRev + 1)
+                                    return true
+                                } {
+                                    used = false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if used {
+            if playing {
+                this.stop()
+            }
+            focus = "strip"
+            a11yFocus = ("thumb-" + (to_string selected))
+            chromeRev = (chromeRev + 1)
+        }
+        return used
     }
 
     fn text:void (s:string) {
@@ -2651,6 +2861,9 @@ class PresApp {
         }
         if ((strlen ch) != 1) {
             return false
+        }
+        if ((focus == "strip") && ((ch == "z") || (ch == "y"))) {
+            return (this.stripUndo((ch == "z")))
         }
         def took:boolean (editor.handleCtrlChar((charAt ch 0)))
         this.syncEditor()
@@ -3024,10 +3237,271 @@ class PresApp {
     }
 
     fn closeHint:void () {
+        hintFromStage = false
         if hint.isOpen {
             hint.close()
             chromeRev = (chromeRev + 1)
         }
+    }
+
+    ; --- the element picked on the slide (PresSelect.rgr) -------------------------------
+    ; Still the same block on the slide shown? An edit of the Markdown moves
+    ; the offsets, another slide has other blocks: the pick goes.
+    fn pickValid:boolean () {
+        if (pick.on == false) {
+            return false
+        }
+        if (((((mode == "present") || playing) || (pick.page != selected)) || (pick.version != mdEditor.buf.version)) || ((deck.slideCount()) == 0)) {
+            pick.clear()
+            return false
+        }
+        if ((pick.measure((deck.layout()))) == false) {
+            pick.clear()
+            return false
+        }
+        this.pickDiagramBox()
+        pick.markSet((this.themeCss()))
+        return true
+    }
+
+    ; A diagram is drawn larger than its slot in the layout: the pick takes
+    ; in the drawing.
+    fn pickDiagramBox:void () {
+        if ((pick.sel != "diagram") || ((deck.slideCount()) == 0)) {
+            return
+        }
+        def s:PresSlide (deck.slideAt(selected))
+        def k:int 0
+        while (k < (array_length s.diagrams)) {
+            def u:PresDiaUse (itemAt s.diagrams k)
+            if ((u.srcStart >= pick.srcA) && (u.srcStart <= pick.srcB)) {
+                def l:MdLayout (deck.layout())
+                pick.growTo(l.style u.bx u.by u.bw u.bh)
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; A click on the slide that nothing else took: the block under it, or
+    ; the slide itself.
+    fn pickAt:void (x:double y:double) {
+        if ((((mode == "present") || playing) || ((deck.slideCount()) == 0)) || ((slideRect.has(x y)) == false)) {
+            return
+        }
+        this.slidePoint(x y)
+        def dk:int (deck.diagramAt(selected spX spY))
+        if (dk >= 0) {
+            def ds:PresSlide (deck.slideAt(selected))
+            def u:PresDiaUse (itemAt ds.diagrams dk)
+            pick.pickSource((deck.layout()) selected u.srcStart (mdEditor.text()) mdEditor.buf.version)
+        } {
+            pick.pick((deck.layout()) selected spX spY (mdEditor.text()) mdEditor.buf.version)
+        }
+        this.pickDiagramBox()
+        pick.markSet((this.themeCss()))
+        pick.hoverOn = false
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn pickHover:void (x:double y:double) {
+        if ((((mode == "present") || playing) || ((deck.slideCount()) == 0)) || ((stageArea.has(x y)) == false)) {
+            if (pick.hoverOn || ((strlen pick.hot) > 0)) {
+                pick.hoverOn = false
+                pick.hot = ""
+                chromeRev = (chromeRev + 1)
+            }
+            return
+        }
+        def part:string (pick.partAt(x y))
+        def changed:boolean (part != pick.hot)
+        pick.hot = part
+        if (((strlen part) == 0) && (slideRect.has(x y))) {
+            this.slidePoint(x y)
+            def dk:int (deck.diagramAt(selected spX spY))
+            if (dk >= 0) {
+                ; over a diagram: its drawing (unless it is the pick)
+                def ds:PresSlide (deck.slideAt(selected))
+                def u:PresDiaUse (itemAt ds.diagrams dk)
+                def mine:boolean ((pick.on && (pick.sel == "diagram")) && ((u.srcStart >= pick.srcA) && (u.srcStart <= pick.srcB)))
+                if ((mine == false) && ((pick.hoverOn == false) || (pick.hoverSrc != u.srcStart))) {
+                    pick.hoverOn = true
+                    pick.hoverSrc = u.srcStart
+                    pick.hx = u.bx
+                    pick.hy = u.by
+                    pick.hw = u.bw
+                    pick.hh = u.bh
+                    changed = true
+                }
+                if (mine && pick.hoverOn) {
+                    pick.hoverOn = false
+                    changed = true
+                }
+            } {
+                if (pick.hoverAt((deck.layout()) selected spX spY (mdEditor.text()))) {
+                    changed = true
+                }
+            }
+        } {
+            if pick.hoverOn {
+                pick.hoverOn = false
+                changed = true
+            }
+        }
+        if changed {
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    fn pickPress:void (part:string) {
+        ; where it was pressed, as drawn: measuring again makes the bands anew
+        def bi0:int (pick.bandOf(part))
+        if ((bi0 >= 0) && (bi0 < (array_length pick.bands))) {
+            def hb:PresSelBand (itemAt pick.bands bi0)
+            ; under (or over) the element, not over it, near the band
+            stageHintX = hb.sx
+            if ((hb.side == "top") || (hb.side == "bottom")) {
+                stageHintX = ((hb.sx + (hb.sw / 2.0)) - 40.0)
+            }
+            stageHintY = pick.reachTop
+            stageHintH = (pick.reachBottom - pick.reachTop)
+        }
+        if ((this.pickValid()) == false) {
+            return
+        }
+        if (part == "content") {
+            this.pickContent()
+            return
+        }
+        if (part == "style") {
+            this.pickStyle()
+            return
+        }
+        def bi:int (pick.bandOf(part))
+        if ((bi >= 0) && (bi < (array_length pick.bands))) {
+            this.pickBand(bi)
+        }
+    }
+
+    ; "Edit content": a picture's or a chart's own editor; otherwise its
+    ; Markdown, selected in the editor.
+    fn pickContent:void () {
+        this.closeHint()
+        if (pick.sel == "img") {
+            if (this.openImageEditor(pick.line)) {
+                return
+            }
+        }
+        if (pick.sel == "chart") {
+            if (this.openChartEditor(pick.line)) {
+                return
+            }
+        }
+        this.showTab("md")
+        def text:string (mdEditor.text())
+        this.posOf(text pick.srcA)
+        def l0:int posLine
+        def c0:int posCol
+        this.posOf(text pick.srcB)
+        mdEditor.moveCaret(l0 c0 false)
+        mdEditor.moveCaret(posLine posCol true)
+        mdEditor.layout.ensureCaretVisible(mdEditor.buf mdEditor.sel)
+        focus = "editor"
+        this.syncEditor()
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; "Style": the theme rules for it, next to it — what is set in blue, what
+    ; can be added in grey; a property opens its value there.
+    fn pickStyle:void () {
+        this.closeHint()
+        def h:PresHint (PresHint.make("selector" pick.sel "" 0 0))
+        h.doc = (PresHints.selectorDoc(pick.sel))
+        def j:string (h.json())
+        j = ((substring j 0 ((strlen j) - 1)) + ",\"rule\":" + (pick.ruleJson((this.themeCss()))) + ",\"line\":-1,\"tab\":\"css\",\"x\":" + (EVGDisplayList.num(pick.sx2)) + ",\"y\":" + (EVGDisplayList.num(pick.reachTop)) + ",\"h\":" + (EVGDisplayList.num((pick.reachBottom - pick.reachTop))) + ",\"keepX\":" + (EVGDisplayList.num(pick.ox)) + ",\"keepW\":" + (EVGDisplayList.num(pick.ow)) + ",\"text\":\"\"}")
+        stageHintX = pick.sx2
+        stageHintY = pick.reachTop
+        stageHintH = (pick.reachBottom - pick.reachTop)
+        this.openHint(j)
+        hintFromStage = true
+    }
+
+    ; A spacing band: its property in the theme (added at the value it has
+    ; now when the theme leaves it out), with the value's slider next to it.
+    fn pickBand:void (i:int) {
+        def b:PresSelBand (itemAt pick.bands i)
+        this.closeHint()
+        this.helpEdit(b.sel b.prop (PresSelect.ptText(b.value)))
+        this.openHintAtCaret()
+        this.anchorHintAtStage(b.sel)
+    }
+
+    ; The popover moved from the editor's caret to where it was asked for on
+    ; the stage.
+    fn anchorHintAtStage:void (sel:string) {
+        if (hint.isOpen == false) {
+            return
+        }
+        ; which rule the value is in: `document › color` is every text of
+        ; the deck, headings too, not the element's own
+        hint.name = (sel + " › " + hint.name)
+        if ((sel == "document") || (sel == "body")) {
+            hint.doc = ((PresI18n.t("Changes all text of the presentation, headings included.")) + " " + hint.doc)
+        }
+        hint.ax = stageHintX
+        hint.ay = stageHintY
+        hint.ah = stageHintH
+        hint.keepX = pick.ox
+        hint.keepW = pick.ow
+        hint.rebuild()
+        hintFromStage = true
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The page keeps a popover opened from the stage open while the pointer
+    ; is elsewhere: a press outside closes it.
+    fn hintPinned:boolean () {
+        return (hint.isOpen && hintFromStage)
+    }
+
+    fn pickIsOn:boolean () {
+        return pick.on
+    }
+
+    fn pickSelector:string () {
+        return pick.sel
+    }
+
+    ; The pick and its handles over the stage, as a display list ("" when
+    ; there is nothing to draw).
+    fn pickJson:string () {
+        if (((mode == "present") || playing) || ((deck.slideCount()) == 0)) {
+            return ""
+        }
+        this.pickValid()
+        if (pick.hoverOn && (pick.page != selected)) {
+            pick.hoverOn = false
+        }
+        if ((pick.on == false) && (pick.hoverOn == false)) {
+            return ""
+        }
+        def root (EVGElement.createDiv())
+        root.id = "pick"
+        root.className = "pick-layer"
+        root.setAttribute("width" ((EVGDisplayList.num(W)) + "px"))
+        root.setAttribute("height" ((EVGDisplayList.num(H)) + "px"))
+        pick.draw(root slideRect.x slideRect.y (this.slideScale()) stageArea.y stageArea.x (stageArea.x + stageArea.w))
+        sheet.setViewport(W H coarse)
+        sheet.applyTree(root "")
+        def lay (new EVGLayout())
+        lay.setPageSize(W H)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        lay.layout(root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        return ("{\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
 
     fn hintIsOpen:boolean () {
@@ -3061,11 +3535,15 @@ class PresApp {
         }
         if ((strlen hint.wantsProp) > 0) {
             def parts:[string] (strsplit hint.wantsProp (strfromcode 9))
+            def fromStage:boolean hintFromStage
             hint.wantsProp = ""
             this.closeHint()
             if ((array_length parts) >= 3) {
                 this.helpEdit((itemAt parts 0) (itemAt parts 1) (itemAt parts 2))
                 this.openHintAtCaret()
+                if fromStage {
+                    this.anchorHintAtStage((itemAt parts 0))
+                }
             }
         }
         chromeRev = (chromeRev + 1)
@@ -3311,6 +3789,11 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    fn openSettings:void (contrast:boolean) {
+        panels.openSettings(contrast)
+        chromeRev = (chromeRev + 1)
+    }
+
     fn shareIsOpen:boolean () {
         return panels.shareOpen
     }
@@ -3356,6 +3839,14 @@ class PresApp {
             def text:string (r.stringOr("text" ""))
             def ratio:double (r.doubleOr("ratio" 0.0))
             def need:double (r.doubleOr("need" 4.5))
+            def fixed:string (r.stringOr("fixed" ""))
+            def shown:string ""
+            if (fixed == "colour") {
+                shown = (" " + (PresI18n.t("On the slide it is shown in a corrected colour.")))
+            }
+            if (fixed == "outline") {
+                shown = (" " + (PresI18n.t("On the slide it has an outline.")))
+            }
             def b:int 0
             def found:int -1
             while (b < (array_length l.boxes)) {
@@ -3378,7 +3869,7 @@ class PresApp {
                 }
                 def line:int (this.mdLineOf((PresDeck.boxSrc(box))))
                 if (line >= 0) {
-                    PresApp.warnOnce(mdOut line ((head + " ") + mdFix))
+                    PresApp.warnOnce(mdOut line (((head + shown) + " ") + mdFix))
                 }
                 def words:string text
                 if ((strlen words) > 40) {
@@ -3387,7 +3878,7 @@ class PresApp {
                 def cl:int 0
                 while (cl < (cssEditor.buf.lineCount())) {
                     if (PresApp.setsColour((cssEditor.buf.lineAt(cl)) box.color)) {
-                        PresApp.warnOnce(cssOut cl (PresI18n.t("Low contrast: ") + "“" + words + "” " + (PresApp.ratioWords(ratio)) + ":1, " + (PresI18n.t("needs ")) + (PresApp.ratioWords(need)) + ":1. " + cssFix))
+                        PresApp.warnOnce(cssOut cl (PresI18n.t("Low contrast: ") + "“" + words + "” " + (PresApp.ratioWords(ratio)) + ":1, " + (PresI18n.t("needs ")) + (PresApp.ratioWords(need)) + ":1." + shown + " " + cssFix))
                     }
                     cl = (cl + 1)
                 }
@@ -3593,6 +4084,17 @@ class PresApp {
     ; --- accessibility: the canvas as a tree the page mirrors into DOM ------------
     fn setA11yFocus:void (id:string) {
         a11yFocus = id
+        ; a slide of the strip focused (a click, Tab, F6): its keys go there
+        if (((indexOf id "thumb-") == 0) && (mode != "present")) {
+            if (focus != "strip") {
+                focus = "strip"
+                chromeRev = (chromeRev + 1)
+            }
+        }
+    }
+
+    fn selectedSlide:int () {
+        return selected
     }
 
     fn a11yJson:string () {
@@ -3627,8 +4129,9 @@ class PresApp {
             }
             if (!null? chromeRoot) {
                 def page2:EVGElement (unwrap chromeRoot)
-                def list:EVGA11yNode (t.node("slides" "app" (EVGA11yRole.list())))
+                def list:EVGA11yNode (t.node("slides" "app" (EVGA11yRole.listBox())))
                 list.name = (PresI18n.t("Slides"))
+                list.description = (PresI18n.t("Arrows move between slides, Ctrl and an arrow moves the slide, Delete deletes it, Shift+F10 opens its menu."))
                 t.place(list (to_int stripRect.x) (to_int stripRect.y) (to_int stripRect.w) (to_int stripRect.h))
                 def i:int 0
                 while (i < n) {
@@ -3636,8 +4139,13 @@ class PresApp {
                     def el@(optional):EVGElement (PresA11y.find(page2 ("thumb" + (to_string i))))
                     if (!null? el) {
                         def e:EVGElement (unwrap el)
-                        def b:EVGA11yNode (t.button(("thumb-" + (to_string i)) "slides" ((PresI18n.t("Slide ")) + (to_string (i + 1)) + ": " + s.title)))
+                        def b:EVGA11yNode (t.node(("thumb-" + (to_string i)) "slides" (EVGA11yRole.option())))
+                        b.name = ((PresI18n.t("Slide ")) + (to_string (i + 1)) + ": " + s.title)
+                        b.focusable = true
+                        b.actActivate = true
                         b.selected = (i == selected)
+                        b.setSize = n
+                        b.posInSet = (i + 1)
                         PresA11y.placeAt(b e)
                     }
                     i = (i + 1)
@@ -3648,7 +4156,7 @@ class PresApp {
                 while (ai < (array_length adds)) {
                     def ael@(optional):EVGElement (PresA11y.find(page2 (itemAt adds ai)))
                     if (!null? ael) {
-                        def ab:EVGA11yNode (t.button(("thumb-" + (itemAt adds ai)) "slides" (itemAt names ai)))
+                        def ab:EVGA11yNode (t.button(("thumb-" + (itemAt adds ai)) "app" (itemAt names ai)))
                         PresA11y.placeAt(ab (unwrap ael))
                     }
                     ai = (ai + 1)
@@ -4005,6 +4513,92 @@ class PresApp {
         return true
     }
 
+    ; --- a picture of the files, edited ---------------------------------------------
+    ; The files tab's image editor: the page has registered a preview of
+    ; `file` at `path` (`iw` × `ih` are the file's pixels). The window crops
+    ; and adjusts it; each change is "image-adjust" to the page, which reads
+    ; `adjustPlan` and draws the preview again. Save is "image-save" (the
+    ; page writes the file over and the slides follow), anything else
+    ; "image-cancel".
+    fn openAdjust:boolean (path:string file:string iw:int ih:int) {
+        if (mode == "present") {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 560.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        def py:double (barH + 24.0)
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        chart.openAdjust(path file (to_double iw) (to_double ih) px py W H)
+        ; the slide that shows the picture, so its change and its contrast
+        ; can be seen (a picture only in the theme leaves the slide as it is)
+        def at:int (indexOf (this.source()) file)
+        if (at >= 0) {
+            this.selectSlide((deck.pageOfOffset(at)))
+        }
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The slide's runs too faint over what is under them, as the page drew
+    ; it with the preview (the stage's lowContrast list: "ratio", "need",
+    ; "fixed"), said in the image editor.
+    fn setAdjustContrast:void (json:string) {
+        if ((chart.isOpen == false) || (chart.mode != "adjust")) {
+            return
+        }
+        def p (new VlJsonParser())
+        def j:VlJson (p.parse(json))
+        def n:int (j.count())
+        def where:string ((PresI18n.t("Slide ")) + (to_string (selected + 1)) + ": ")
+        if (n == 0) {
+            chart.setAdjustContrast((where + (PresI18n.t("all text has enough contrast."))) false)
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        def worst:double 99.0
+        def need:double 4.5
+        def fixed:int 0
+        def i:int 0
+        while (i < n) {
+            def r:VlJson (j.at(i))
+            if ((strlen (r.stringOr("fixed" ""))) > 0) {
+                fixed = (fixed + 1)
+            }
+            def ratio:double (r.doubleOr("ratio" 99.0))
+            if (ratio < worst) {
+                worst = ratio
+                need = (r.doubleOr("need" 4.5))
+            }
+            i = (i + 1)
+        }
+        def note:string (where + (to_string n) + (PresI18n.t(" text runs with low contrast, the lowest ")) + (PresApp.ratioWords(worst)) + ":1 (" + (PresI18n.t("needs ")) + (PresApp.ratioWords(need)) + ":1).")
+        if (fixed == n) {
+            note = (note + " " + (PresI18n.t("The slide corrects them (File → Settings), but a darker or lighter picture reads better.")))
+        }
+        chart.setAdjustContrast(note true)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; {"file", "crop": "x,y,w,h" in pixels, "whole": nothing cut away,
+    ;  "bright", "contrast", "sat", "temp", "tint": -100…100}
+    fn adjustPlan:string () {
+        def whole:string "false"
+        if (chart.crop.isWhole()) {
+            whole = "true"
+        }
+        return ("{\"file\":" + (PresApp.jsonStr(chart.adjFile)) + ",\"crop\":\"" + (chart.crop.cropPixels()) + "\",\"whole\":" + whole + ",\"bright\":" + (to_string chart.adjBright) + ",\"contrast\":" + (to_string chart.adjContrast) + ",\"sat\":" + (to_string chart.adjSat) + ",\"temp\":" + (to_string chart.adjTemp) + ",\"tint\":" + (to_string chart.adjTint) + "}")
+    }
+
     ; --- a new presentation ------------------------------------------------------
     ; File → New presentation: the window asks the name, the theme (`rows`,
     ; the page's "value<TAB>label" lines; `theme` the one in use) and what
@@ -4028,6 +4622,33 @@ class PresApp {
         chartFile = ""
         chart.measurer = measurer
         chart.openNewDeck(rows theme name px py W H)
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; --- a question before deleting ------------------------------------------------
+    ; The same window asking before something that cannot be undone: `title`,
+    ; `words`, Cancel and a red `ok`. The red button is "confirm:<key>" to
+    ; the page; Cancel and Esc leave everything as it is.
+    fn openConfirm:boolean (key:string title:string words:string ok:string) {
+        if (mode == "present") {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 560.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        def py:double (barH + 24.0)
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        chart.openConfirm(key title words ok px py W H)
         focus = "chart"
         chromeRev = (chromeRev + 1)
         return true
@@ -4323,6 +4944,16 @@ class PresApp {
 
     fn closeChart:void () {
         this.writeChart()
+        ; the image editor, however it was closed: saved only by Save (or
+        ; Enter); a press outside it or Esc leaves the file as it was
+        if (chart.isOpen && (chart.mode == "adjust")) {
+            if chart.wantsSave {
+                chart.wantsSave = false
+                push requests "image-save"
+            } {
+                push requests "image-cancel"
+            }
+        }
         chartWinX = chart.x
         chartWinY = chart.y
         chart.close()
@@ -4357,6 +4988,10 @@ class PresApp {
             if ((chart.mode == "newdeck") && chart.wantsCreate) {
                 chart.wantsCreate = false
                 push requests "newdeck-create"
+            }
+            if ((chart.mode == "confirm") && chart.wantsConfirm) {
+                chart.wantsConfirm = false
+                push requests ("confirm:" + chart.cfKey)
             }
             if (chart.mode == "paste") {
                 if chart.wantsPlace {
@@ -4404,7 +5039,14 @@ class PresApp {
             return
         }
         chart.changed = false
-        if ((chart.mode == "paste") || (chart.mode == "newdeck")) {
+        if (((chart.mode == "paste") || (chart.mode == "newdeck")) || (chart.mode == "confirm")) {
+            return
+        }
+        if (chart.mode == "adjust") {
+            if chart.adjDirty {
+                chart.adjDirty = false
+                push requests "image-adjust"
+            }
             return
         }
         if (chart.mode == "image") {
@@ -4498,7 +5140,14 @@ class PresApp {
         if chart.isOpen {
             return false
         }
+        ; from the strip (its keys, its menu) the keyboard stays there, but
+        ; a new slide's heading is selected in the editor to be typed over
+        def was:string focus
         this.showTab("md")
+        if ((was == "strip") && (what != "new")) {
+            focus = "strip"
+            a11yFocus = ""
+        }
         if (what == "new") {
             this.addSlide(false)
             return true
@@ -4509,6 +5158,12 @@ class PresApp {
         }
         if (what == "delete") {
             return (this.deleteSlide(selected))
+        }
+        if (what == "left") {
+            return (this.moveSlideBy(selected -1))
+        }
+        if (what == "right") {
+            return (this.moveSlideBy(selected 1))
         }
         if ((what == "portrait") || (what == "landscape")) {
             this.setOrientation(what)
@@ -4555,6 +5210,217 @@ class PresApp {
         this.selectSlide(to)
         chromeRev = (chromeRev + 1)
         return true
+    }
+
+    ; Slide i one place to the left (-1) or right (1): past the whole section
+    ; next to it (a slide the overflow went on to belongs to its heading's).
+    fn moveSlideBy:boolean (i:int d:int) {
+        def n:int (deck.slideCount())
+        if ((i < 0) || (i >= n)) {
+            return false
+        }
+        this.slideLines(i)
+        def f:int linesFrom
+        def t:int linesAt
+        if (f < 0) {
+            return false
+        }
+        if (d < 0) {
+            ; before the first slide of the section above
+            def k:int (i - 1)
+            while ((k >= 0) && ((this.slideStartsBefore(k f)) == false)) {
+                k = (k - 1)
+            }
+            if (k < 0) {
+                return false
+            }
+            this.slideLines(k)
+            def above:int linesFrom
+            while ((k > 0) && (this.sectionStartsAt((k - 1) above))) {
+                k = (k - 1)
+            }
+            return (this.moveSlideTo(i k))
+        }
+        ; after the section below: before the first slide past it
+        def j:int (i + 1)
+        while ((j < n) && (this.slideStartsBefore(j t))) {
+            j = (j + 1)
+        }
+        if (j >= n) {
+            return false
+        }
+        this.slideLines(j)
+        def nextEnd:int linesAt
+        def m:int (j + 1)
+        while ((m < n) && (this.slideStartsBefore(m nextEnd))) {
+            m = (m + 1)
+        }
+        return (this.moveSlideTo(i m))
+    }
+
+    fn sectionStartsAt:boolean (j:int line:int) {
+        this.slideLines(j)
+        return (linesFrom == line)
+    }
+
+    ; Slide j's section starts above `line`.
+    fn slideStartsBefore:boolean (j:int line:int) {
+        this.slideLines(j)
+        return ((linesFrom >= 0) && (linesFrom < line))
+    }
+
+    ; Lines a..b-1 of the Markdown, the blank ones at the end left out.
+    fn linesText:string (a:int b:int) {
+        def last:int (b - 1)
+        while ((last >= a) && ((strlen (trim (mdEditor.buf.lineAt(last)))) == 0)) {
+            last = (last - 1)
+        }
+        def out:string ""
+        def k:int a
+        while (k <= last) {
+            if (k > a) {
+                out = (out + "\n")
+            }
+            out = (out + (mdEditor.buf.lineAt(k)))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    sfn newlines:int (s:string) {
+        def c:int 0
+        def k:int 0
+        def len:int (strlen s)
+        while (k < len) {
+            if ((charAt s k) == 10) {
+                c = (c + 1)
+            }
+            k = (k + 1)
+        }
+        return c
+    }
+
+    ; Slide i's Markdown (its whole section) moved to the gap `slot`: before
+    ; slide `slot`, or after the last one when it is the slide count. The
+    ; lines between are rewritten as one edit, so Ctrl+Z undoes it as one,
+    ; with a blank line between the sections. The moved slide is selected.
+    fn moveSlideTo:boolean (i:int slot:int) {
+        if ((mode == "present") || chart.isOpen) {
+            return false
+        }
+        def n:int (deck.slideCount())
+        if (((n < 2) || ((i < 0) || (i >= n))) || ((slot < 0) || (slot > n))) {
+            return false
+        }
+        if (edTab != "md") {
+            def was:string focus
+            this.showTab("md")
+            focus = was
+        }
+        this.slideLines(i)
+        def f:int linesFrom
+        def t:int linesAt
+        if (f < 0) {
+            return false
+        }
+        def lc:int (mdEditor.buf.lineCount())
+        def to:int lc
+        if (slot < n) {
+            this.slideLines(slot)
+            if (linesFrom < 0) {
+                return false
+            }
+            to = linesFrom
+        }
+        ; into its own place, or into the middle of its own section
+        if ((to >= f) && (to <= t)) {
+            return false
+        }
+        def block:string (this.linesText(f t))
+        def from:int f
+        def upto:int t
+        def text:string ""
+        def start:int f
+        if (to > t) {
+            def below:string (this.linesText(t to))
+            upto = to
+            text = (below + "\n\n" + block)
+            start = ((f + (PresApp.newlines(below))) + 2)
+        } {
+            from = to
+            text = (block + "\n\n" + (this.linesText(to f)))
+            start = to
+        }
+        def endLine:int upto
+        def endCol:int 0
+        if (upto < lc) {
+            text = (text + "\n\n")
+        } {
+            ; to the end of the document, keeping its last line break
+            endLine = (lc - 1)
+            def lastText:string (mdEditor.buf.lineAt(endLine))
+            endCol = (strlen lastText)
+            if ((strlen (trim lastText)) == 0) {
+                text = (text + "\n")
+            }
+        }
+        mdEditor.buf.replaceRange(from 0 endLine endCol text true)
+        mdEditor.moveCaret(start 0 false)
+        mdEditor.dirty = true
+        this.syncEditor()
+        this.selectSlide((deck.pageOfOffset((this.offsetOf(start 0)))))
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; --- the strip's context menu -------------------------------------------------
+    ; A right click on a thumbnail selects it and opens New / Duplicate /
+    ; Move left / Move right / Delete there. False when x, y is not on one.
+    fn slideMenuAt:boolean (x:double y:double) {
+        this.place()
+        if (((mode == "present") || (barH <= 0.0)) || ((stripRect.has(x y)) == false)) {
+            return false
+        }
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def tx:double (this.thumbX(i))
+            if (((x >= tx) && (x <= (tx + thumbW))) && (this.thumbFits(tx))) {
+                this.openSlideMenu(i x y)
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The menu from the keyboard (Shift+F10, the menu key): at the selected
+    ; slide's thumbnail.
+    fn slideMenuAtSelected:boolean () {
+        this.place()
+        if (((mode == "present") || (barH <= 0.0)) || ((deck.slideCount()) == 0)) {
+            return false
+        }
+        this.revealThumb(selected)
+        def tx:double (this.thumbX(selected))
+        this.openSlideMenu(selected (tx + 12.0) ((this.thumbY()) + 12.0))
+        return true
+    }
+
+    fn openSlideMenu:void (i:int x:double y:double) {
+        if chart.isOpen {
+            this.closeChart()
+        }
+        if hint.isOpen {
+            this.closeHint()
+        }
+        if playing {
+            this.stop()
+        }
+        this.selectSlide(i)
+        focus = "strip"
+        def n:int (deck.slideCount())
+        toolbar.openContext(x y (i > 0) (i < (n - 1)) (n > 1))
+        chromeRev = (chromeRev + 1)
     }
 
     ; The deck's orientation, as `orientation:` in the front matter: written
@@ -4825,15 +5691,6 @@ class PresApp {
         def ph:double deck.pageH
         def root:EVGElement (EVGListToElements.printRoot(pw ph))
         def section:EVGElement (EVGListToElements.sectionOf(root))
-        deck.still = true
-        def i:int 0
-        while (i < (deck.slideCount())) {
-            def groups:[int]
-            def dl:EVGDisplayList (deck.slideList(i groups 0.0))
-            section.addChild((EVGListToElements.pageFrom(dl pw ph bg true)))
-            i = (i + 1)
-        }
-        deck.still = false
         def renderer (new EVGPDFRenderer())
         renderer.init(renderer)
         renderer.setPageSize(pw ph)
@@ -4855,23 +5712,67 @@ class PresApp {
                 renderer.setMeasurer((unwrap mw.measurer))
             }
         }
-        if e.haveImages {
-            def k:int 0
-            while (k < (array_length l.boxes)) {
-                def b:MdBox (itemAt l.boxes k)
-                if ((b.kind == 4) && ((strlen b.imagePath) > 0)) {
-                    def bytes:buffer (e.imageStore.read(b.imagePath))
-                    if ((buffer_length bytes) > 0) {
-                        def pix@(optional):ImageBuffer (EVGImageDecode.decode(bytes))
-                        if (!null? pix) {
-                            renderer.registerImage(b.imagePath (unwrap pix))
-                        }
-                    }
+        ; Every picture on a page is handed over as pixels: the renderer can
+        ; only otherwise open it as a file, which a browser has no way to do
+        ; (`require` is not defined). That is the slides' own pictures, a
+        ; slide's background and a logo in the header or footer alike; one
+        ; the deck has no bytes for is left out rather than failing the file.
+        def known:[string]
+        def si2:int 0
+        while (si2 < (array_length stillIdx)) {
+            push known (PresDeck.fxStillPath((itemAt stillIdx si2)))
+            si2 = (si2 + 1)
+        }
+        def missing:[string]
+        deck.still = true
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def groups:[int]
+            def dl:EVGDisplayList (deck.slideList(i groups 0.0))
+            def kept:[EVGDrawCmd]
+            def c:int 0
+            while (c < (array_length dl.cmds)) {
+                def cmd:EVGDrawCmd (itemAt dl.cmds c)
+                def keep:boolean true
+                if (cmd.kind == 2) {
+                    keep = (PresApp.pdfImage(renderer e cmd.src known missing))
                 }
-                k = (k + 1)
+                if keep {
+                    push kept cmd
+                }
+                c = (c + 1)
+            }
+            dl.cmds = kept
+            section.addChild((EVGListToElements.pageFrom(dl pw ph bg true)))
+            i = (i + 1)
+        }
+        deck.still = false
+        return (renderer.render(root))
+    }
+
+    ; Whether the PDF can draw the picture at `src`: registered with the
+    ; renderer the first time it is met, from the deck's own files.
+    sfn pdfImage:boolean (renderer:EVGPDFRenderer e:MarkdownEdit src:string known:[string] missing:[string]) {
+        if ((strlen src) == 0) {
+            return false
+        }
+        if ((indexOf known src) >= 0) {
+            return true
+        }
+        if ((indexOf missing src) >= 0) {
+            return false
+        }
+        def bytes:buffer (e.imageStore.read(src))
+        if ((buffer_length bytes) > 0) {
+            def pix@(optional):ImageBuffer (EVGImageDecode.decode(bytes))
+            if (!null? pix) {
+                renderer.registerImage(src (unwrap pix))
+                push known src
+                return true
             }
         }
-        return (renderer.render(root))
+        push missing src
+        return false
     }
 
     ; The deck through the markdown module's own PPTX road, then what the

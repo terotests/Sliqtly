@@ -36,6 +36,12 @@ class Editable {
     def key:string ""
 }
 
+class CheckPics {
+    def pics:[CheckPic]
+    def data:[buffer]
+    def types:[string]
+}
+
 class Tools {
     ; named by its contents, as in mcp/: a client that kept an older preview
     ; by its URI asks for this one anew
@@ -246,6 +252,31 @@ class Tools {
         rp.put("limit" lim)
         tools.add((Tools.tool("read_file" "Read a presentation's data file" "Read the values in one of a Sliqtly presentation's data files by its deck_id and path: a workbook's sheet (path data/x.xlsx with sheet, or the sheet's CSV name from list_files such as data/x-Sheet.csv), a CSV or TSV (as rows), or a JSON or text file. Rows come up to `limit` at a time from `offset`." (Tools.schema(rp ([] _:string ("deck_id" "path")))) (Tools.annotations(true -1 false false)) eitherMeta)))
 
+        def wp:MfJ (MfJ.newObj())
+        wp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
+        wp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
+        wp.put("path" (Tools.prop("string" "The workbook's path, e.g. data/budget.xlsx")))
+        def cell:MfJ (MfJ.newObj())
+        cell.put("type" (J.strs(([] _:string ("string" "number" "null")))))
+        def row:MfJ (Tools.prop("array" ""))
+        row.put("items" cell)
+        def rowsP:MfJ (Tools.prop("array" "Rows of cell values, header row first"))
+        rowsP.put("items" row)
+        def sp:MfJ (MfJ.newObj())
+        sp.put("name" (Tools.prop("string" "Sheet name (at most 31 characters, none of \\ / : * ? [ ])")))
+        sp.put("rows" rowsP)
+        sp.put("csv" (Tools.prop("string" "The sheet as CSV text instead of rows")))
+        def sitem:MfJ (MfJ.newObj())
+        sitem.putStr("type" "object")
+        sitem.put("properties" sp)
+        sitem.put("required" (J.strs(([] _:string ("name")))))
+        def sheetsP:MfJ (Tools.prop("array" "The workbook's sheets in order"))
+        sheetsP.put("items" sitem)
+        sheetsP.putInt("minItems" 1)
+        sheetsP.putInt("maxItems" 20)
+        wp.put("sheets" sheetsP)
+        tools.add((Tools.tool("write_workbook" "Write a presentation's workbook" "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text. Values only: formatting, formulas and column widths are not kept." (Tools.schema(wp ([] _:string ("deck_id" "path" "sheets")))) (Tools.annotations(false 1 true false)) eitherMeta)))
+
         def listMeta:MfJ (MfJ.newObj())
         def only:MfJ (MfJ.newArr())
         only.add((Tools.oauthScheme()))
@@ -297,7 +328,9 @@ class Tools {
 
     ; the contents of a resource, or a null value for an unknown uri
     sfn read:MfJ (host:McpHost uri:string) {
-        if (uri != (Tools.previewUri(host))) {
+        ; a client that took the tool list before the preview changed still
+        ; asks for the older name: it gets the current preview
+        if (((startsWith uri "ui://sliqtly/preview-") == false) || ((endsWith uri ".html") == false)) {
             return (new MfJ)
         }
         def base:string (host_base_url host)
@@ -542,7 +575,82 @@ class Tools {
 
     ; the deck as the player reads it, with the sheet it is shown with: its
     ; own, or the theme's (fetched once); with neither, the outline's count
-    sfn checkDeck:Checked (host:McpHost md:string theme:string hasCss:boolean css:string) {
+    ; the slide backgrounds (bg=media/<name>) for the contrast check: from
+    ; this call's pictures, else from the deck's stored ones (deckId)
+    sfn backgrounds:CheckPics (host:McpHost md:string imgs:[Img] deckId:string) {
+        def out (new CheckPics)
+        def names:[string]
+        def from:int 0
+        while true {
+            def rest:string (substring md from (strlen md))
+            def at:int (indexOf rest "bg=media/")
+            if (at < 0) {
+                break
+            }
+            def start:int ((from + at) + 9)
+            def e:int start
+            while ((e < (strlen md)) && (Tools.nameChar((charAt md e)))) {
+                e = (e + 1)
+            }
+            def name:string (substring md start e)
+            if (((strlen name) > 0) && ((indexOf names name) < 0)) {
+                push names name
+            }
+            from = e
+        }
+        for names name:string ni {
+            if (ni >= 10) {
+                break
+            }
+            def handle:int 0
+            def type:string ""
+            for imgs im:Img ii {
+                if ((im.name == name) && ((strlen im.path) == 0)) {
+                    handle = im.handle
+                    type = im.type
+                }
+            }
+            if ((handle == 0) && ((strlen deckId) > 0)) {
+                def got:MfJ (J.parse((host_file_bytes host deckId ("media/" + name))))
+                if ((strlen (host_error host)) > 0) {
+                    host_clear_error host
+                } {
+                    handle = (got.int_("handle" 0))
+                }
+            }
+            if (handle == 0) {
+                continue
+            }
+            def pic (new CheckPic)
+            pic.name = ("/media/" + name)
+            def grid:[int] (host_image_grid host handle)
+            if ((array_length grid) > 2) {
+                pic.w = (itemAt grid 0)
+                pic.h = (itemAt grid 1)
+                def k:int 2
+                while (k < (array_length grid)) {
+                    push pic.grid (itemAt grid k)
+                    k = (k + 1)
+                }
+            }
+            if ((strlen type) == 0) {
+                type = "image/png"
+            }
+            push out.pics pic
+            push out.data (host_image_bytes host handle)
+            push out.types type
+        }
+        return out
+    }
+
+    sfn nameChar:boolean (ch:int) {
+        if ((((ch >= 48) && (ch <= 57)) || ((ch >= 65) && (ch <= 90))) || ((ch >= 97) && (ch <= 122))) {
+            return true
+        }
+        return (((ch == 46) || (ch == 45)) || (ch == 95))
+    }
+
+    sfn checkDeck:Checked (host:McpHost md:string theme:string hasCss:boolean css:string bgs:CheckPics) {
         def sheet:string css
         if (hasCss == false) {
             sheet = (host_theme_css host theme)
@@ -552,7 +660,7 @@ class Tools {
                 sheet = ""
             }
         }
-        def c:Checked (Check.deck(md sheet))
+        def c:Checked (Check.deck(md sheet bgs.pics bgs.data bgs.types))
         for (Charts.typeWarnings(md)) tw:string ti {
             push c.warnings tw
         }
@@ -570,7 +678,7 @@ class Tools {
             g.put("content" (Tools.text((host_asset host "guide.md"))))
             return g
         }
-        if ((name == "create_presentation") || (name == "update_presentation")) {
+        if (((name == "create_presentation") || (name == "update_presentation")) || (name == "write_workbook")) {
             def why:string (host_rate_limit host caller.who)
             if ((strlen why) > 0) {
                 return (Tools.fail(why))
@@ -594,6 +702,9 @@ class Tools {
         }
         if (name == "read_file") {
             r = (Tools.readFile(host caller args))
+        }
+        if (name == "write_workbook") {
+            r = (Tools.writeWorkbook(host caller args))
         }
         if (name == "list_presentations") {
             r = (Tools.listMine(host caller))
@@ -664,7 +775,7 @@ class Tools {
         }
         def none:[string]
         def ws:[string] (Deck.warnings(md names none))
-        def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css))
+        def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css (Tools.backgrounds(host md loaded.imgs ""))))
         for ck.warnings cw:string ci {
             push ws cw
         }
@@ -845,7 +956,8 @@ class Tools {
             }
         }
         def savedCss:MfJ (saved.field("css"))
-        def ck:Checked (Tools.checkDeck(host md (saved.str_("theme")) (savedCss.kind == 3) (saved.str_("css"))))
+        def noImgs:[Img]
+        def ck:Checked (Tools.checkDeck(host md (saved.str_("theme")) (savedCss.kind == 3) (saved.str_("css")) (Tools.backgrounds(host md noImgs id))))
         for ck.warnings cw:string ci {
             push ws cw
         }
@@ -862,6 +974,107 @@ class Tools {
             c0.putStr("text" ((c0.str_("text")) + "\n" + note))
         }
         return r
+    }
+
+    ; a whole workbook of values in place of data/<name>.xlsx
+    sfn writeWorkbook:MfJ (host:McpHost caller:Caller a:MfJ) {
+        if ((host_store_kind host) == "link") {
+            return (Tools.fail("This server keeps no decks (no cloud storage configured): call create_presentation again with the whole deck."))
+        }
+        def bad:string (Tools.checkArgs(a ([] _:string ("deck_id" "path"))))
+        if ((strlen bad) > 0) {
+            return (Tools.fail(bad))
+        }
+        def bare:string (trim (a.str_("path")))
+        while (startsWith bare "/") {
+            bare = (substring bare 1 (strlen bare))
+        }
+        if (startsWith bare "data/") {
+            bare = (substring bare 5 (strlen bare))
+        }
+        def name:string (Deck.cleanName(bare))
+        if (((strlen name) == 0) || ((Files.isXlsx(name)) == false)) {
+            return (Tools.fail("path is the workbook's name under data/, ending in .xlsx (e.g. data/budget.xlsx)."))
+        }
+        def given:MfJ (a.field("sheets"))
+        if ((given.kind != 4) || (((array_length given.arr) < 1) || ((array_length given.arr) > 20))) {
+            return (Tools.fail("Invalid arguments: sheets is a list of 1 to 20 sheets."))
+        }
+        def seen:[string]
+        def book:MfJ (MfJ.newArr())
+        for given.arr s:MfJ i {
+            if ((s.isObj()) == false) {
+                return (Tools.fail("Invalid arguments: every sheet is an object."))
+            }
+            if ((s.field("name")).kind != 3) {
+                return (Tools.fail("Invalid arguments: every sheet needs a name."))
+            }
+            def sn:string (s.str_("name"))
+            def why:string (Files.badSheetName(sn))
+            if ((strlen why) > 0) {
+                return (Tools.fail((why + ".")))
+            }
+            if (Deck.inList(seen (to_lowercase sn))) {
+                return (Tools.fail(("Two sheets are named \"" + sn + "\".")))
+            }
+            push seen (to_lowercase sn)
+            def rows:MfJ (s.field("rows"))
+            def csv:MfJ (s.field("csv"))
+            if ((rows.kind == 4) == (csv.kind == 3)) {
+                return (Tools.fail(("Sheet \"" + sn + "\": give rows or csv.")))
+            }
+            def out:MfJ (MfJ.newArr())
+            if (rows.kind == 4) {
+                for rows.arr r:MfJ j {
+                    if (r.kind != 4) {
+                        return (Tools.fail(("Sheet \"" + sn + "\": every row is a list of values.")))
+                    }
+                    for r.arr v:MfJ k {
+                        if (((v.kind != 0) && (v.kind != 2)) && (v.kind != 3)) {
+                            return (Tools.fail(("Sheet \"" + sn + "\": a cell is a string, a number or null.")))
+                        }
+                    }
+                }
+                out = rows
+            } {
+                for (Files.parseCsv(csv.str 44)) cr:SheetRow j2 {
+                    out.add((J.strs(cr.cells)))
+                }
+            }
+            def o:MfJ (MfJ.newObj())
+            o.putStr("name" sn)
+            o.put("rows" out)
+            book.add(o)
+        }
+        def made:MfJ (J.parse((host_xlsx_write host (JOut.text(book)))))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "write_workbook" (host_error host)))
+        }
+        if ((made.int_("size" 0)) > (Files.MAX_DATA())) {
+            return (Tools.fail("The workbook would be larger than 10 MB."))
+        }
+        def id:string (a.str_("deck_id"))
+        def ed:Editable (Tools.editable(host caller id (a.str_("edit_key"))))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "write_workbook" (host_error host)))
+        }
+        if ((strlen ed.fail) > 0) {
+            return (Tools.fail(ed.fail))
+        }
+        def im (new Img)
+        im.name = name
+        im.path = ("data/" + name)
+        im.type = (Files.XLSX_MIME())
+        im.handle = (made.int_("handle" 0))
+        im.size = (made.int_("size" 0))
+        def kept:[Img]
+        push kept im
+        def saved:MfJ (Store.update(host id (ed.mine == false) ed.key (new DeckPatch) kept))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "write_workbook" (host_error host)))
+        }
+        def note:string "Formatting and formulas are not kept. Renamed or removed sheets change the CSV names the deck reads; check the deck's charts and tables still name them."
+        return (Tools.withData(host (Tools.updated(host caller id saved note)) kept))
     }
 
     sfn bindChart:MfJ (host:McpHost caller:Caller a:MfJ) {

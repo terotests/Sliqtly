@@ -53,6 +53,8 @@ Write `![Alt text](media/<name>)` and pass the picture in the tool call's
 `![](media/team.jpg)`). A picture can also cover the slide:
 `## Title {bg=media/cover.jpg bg-dim=0.4}`. Give each picture either a
 public `https` URL or base64 data. PNG, JPEG, GIF, WebP and SVG, up to 5 MB.
+When text on a picture is hard to read ("low contrast"), raise that slide's
+`bg-dim` (0.6–0.8) with update_presentation; the picture stays as it is.
 
 ## Charts, diagrams, math, tables
 
@@ -108,6 +110,14 @@ public `https` URL or base64 data. PNG, JPEG, GIF, WebP and SVG, up to 5 MB.
   `{ "name": "sales.csv", "text": "Region,Revenue\nNorth,120\n" }`. Each is
   kept as `data/<name>` (.xlsx, .csv, .tsv, .json, .txt; 10 MB each) and read
   by the names above; the result lists a workbook's sheets.
+- Tidying a workbook: `write_workbook` with the deck_id, the workbook's
+  `path` and every sheet in full (`{ "name": "Costs", "rows": [["Month",
+  "Rent"], ["2026-01", 950]] }`, or `csv` text) writes a new .xlsx in its
+  place. Values only: formatting and formulas are not kept. If sheets are
+  renamed, update the charts and tables that read them. A workbook in a
+  deck that only lives in the user's browser is not reachable: ask the
+  user to attach it, then write the result with `create_presentation`
+  `files` or `write_workbook`.
 - Inline HTML: `<mark>`, `<u>`, `<s>`, `<sub>`, `<sup>`, `<kbd>`, `<small>`,
   `<br>`, and `<span style="color:#e33">`.
 

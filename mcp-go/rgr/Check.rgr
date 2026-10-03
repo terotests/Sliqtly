@@ -7,6 +7,7 @@
 
 Import "McpHost.rgr"
 Import "../presentation/PresDeck.rgr"
+Import "Contrast.rgr"
 
 class Checked {
     ; the theme's sheet was there: without it the slide count is not the
@@ -17,13 +18,18 @@ class Checked {
 }
 
 class Check {
-    sfn deck:Checked (md:string css:string) {
+    ; pics: the slide backgrounds (bg=media/<name>) as /media/<name>, with
+    ; their pixels for the contrast check; data is each one's bytes
+    sfn deck:Checked (md:string css:string pics:[CheckPic] data:[buffer] types:[string]) {
         def c (new Checked)
         def d (new PresDeck)
         if ((strlen css) > 0) {
             d.setTheme(css)
             d.md.setStyleSheet(css)
             c.laidOut = true
+        }
+        for pics pic:CheckPic pi {
+            d.md.addImage(pic.name (itemAt data pi) (itemAt types pi) pic.w pic.h)
         }
         d.setText(md)
         c.slides = (d.slideCount())
@@ -69,6 +75,55 @@ class Check {
             }
             push c.warnings ("The " + e.kind + " block" + where + " is not shown: " + why + ".")
         }
+        if c.laidOut {
+            Check.contrast(c d l pics)
+        }
         return c
+    }
+
+    ; text that does not stand out from what it is drawn over, slide by
+    ; slide, as the editor's painter judges it
+    sfn contrast:void (c:Checked d:PresDeck l:MdLayout pics:[CheckPic]) {
+        d.still = true
+        def skip:[string]
+        for l.embeds.entries e:MdEmbedEntry k {
+            if (e.ok == false) {
+                push skip e.note
+            }
+        }
+        def i:int 0
+        while (i < c.slides) {
+            def groups:[int]
+            def list:EVGDisplayList (d.slideList(i groups 0.0))
+            def low:[LowRun] (Contrast.lowRuns(list pics "" -1.0 skip))
+            if ((array_length low) > 0) {
+                def s:PresSlide (d.slideAt(i))
+                def bgSrc:string ""
+                def hasBg:boolean false
+                if (((strlen s.bg) > 0) && l.haveImages) {
+                    bgSrc = (l.images.resolve(s.bg l.docDir))
+                    for pics p:CheckPic pk {
+                        if ((p.name == bgSrc) && ((array_length p.grid) > 0)) {
+                            hasBg = true
+                        }
+                    }
+                }
+                ; the least dim, in steps of 0.05, that makes every run read
+                def dimFix:double -1.0
+                if hasBg {
+                    def step:int ((floor (s.bgDim * 20.0)) + 1)
+                    while ((step <= 18) && (dimFix < 0.0)) {
+                        def dim:double ((to_double step) / 20.0)
+                        if ((array_length (Contrast.lowRuns(list pics bgSrc dim skip))) == 0) {
+                            dimFix = dim
+                        }
+                        step = (step + 1)
+                    }
+                }
+                push c.warnings (Contrast.note(s.title i low hasBg dimFix))
+            }
+            i = (i + 1)
+        }
+        d.still = false
     }
 }

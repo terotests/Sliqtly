@@ -21,7 +21,8 @@ Not deployed. `mcp/` (the Cloud Function, Node.js) is still what
 | [`rgr/Store.rgr`](rgr/Store.rgr) | shares, edit keys, pictures, listing |
 | [`rgr/Deck.rgr`](rgr/Deck.rgr) | the checks: picture names and types, outline, warnings |
 | [`rgr/Charts.rgr`](rgr/Charts.rgr) | `bind_chart_data`: finds a deck's ```` ```vega-lite ```` charts and points one at a CSV/JSON URL or a Google Sheet (as `mcp/src/deck.js`) |
-| [`rgr/Files.rgr`](rgr/Files.rgr) | a deck's data files: `list_files`, `read_file` and `files` on create/update; workbooks read and tidied as the editor reads them |
+| [`rgr/Files.rgr`](rgr/Files.rgr) | a deck's data files: `list_files`, `read_file`, `write_workbook` and `files` on create/update; workbooks read and tidied as the editor reads them |
+| [`xlsxwrite.go`](xlsxwrite.go) | the .xlsx `write_workbook` keeps (values only), behind `host_xlsx_write` |
 | [`rgr/PresDataGo.rgr`](rgr/PresDataGo.rgr) | the editor's workbook reader ([`src/PresData.rgr`](../src/PresData.rgr), datagrid's XlsxLoader) compiled on its own to the package `presdata/` (generated, not committed): its XmlLite and the deck model's XmlCore both define `XmlAttr`, so they cannot share one compile |
 | [`rgr/Check.rgr`](rgr/Check.rgr) | the deck read by the editor's own model ([`src/PresDeck.rgr`](../src/PresDeck.rgr)): slide count, slides that run over, charts and diagrams that are not drawn |
 | [`rgr/Json.rgr`](rgr/Json.rgr) | JSON: Ranger's own `MfJ` (gallery/mfiles) and a writer |
@@ -43,6 +44,13 @@ editor's own model, `PresDeck` from `src/`, compiled into the same binary,
 with the theme's sheet. The slide count is the player's, and the warnings say
 which slide runs over and which chart or diagram is not drawn and why ("that
 is not JSON"), so the model can fix the deck before anyone opens the link.
+They also name text that does not stand out from what it is drawn over
+(`rgr/Contrast.rgr`): each slide is drawn to the editor's display list, the
+background pictures are decoded and sampled (`picgrid.go`), and every run of
+text is judged as the editor's painter judges it (WCAG 4.5:1, 3:1 for large
+text), with the least `bg-dim` or a text colour that would read. The Node
+server (`mcp/src/contrast.js`) has no layout and estimates the same from the
+theme's colours and the picture.
 
 Building `PresDeck` for Go needed fixes in Ranger's Go target (terotests/Ranger):
 an array parameter the callee grows is now passed by pointer (ISSUES.md #58,

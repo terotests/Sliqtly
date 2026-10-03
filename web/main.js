@@ -20,6 +20,7 @@ import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
+import { scaled, previewOf, render } from "./image-adjust.js";
 
 const canvas = document.getElementById("c");
 const stageEl = document.getElementById("stage");
@@ -84,6 +85,10 @@ function asRangerBuffer(ab) {
 // stylesheet the browser kept — the chart editor's sheets were, and a new
 // editor came up in the old one's colours.
 const BUILD = "__BUILD__";
+// The faces carry their own version (the hash of the font files), so a new
+// build does not make every browser fetch the same fonts again.
+const FONTS = "__FONTS__";
+const fontUrl = (file) => "./fonts/" + file + (FONTS.startsWith("__") ? "" : "?v=" + FONTS);
 function fresh(url) {
   if (!url.startsWith("./") || BUILD.startsWith("__")) return url;
   return url + (url.includes("?") ? "&" : "?") + "v=" + BUILD;
@@ -92,6 +97,12 @@ function fresh(url) {
 async function bytesOf(url) {
   const res = await fetch(fresh(url));
   if (!res.ok) throw new Error(url + " → " + res.status);
+  return await res.arrayBuffer();
+}
+
+async function fontBytes(file) {
+  const res = await fetch(fontUrl(file));
+  if (!res.ok) throw new Error(file + " → " + res.status);
   return await res.arrayBuffer();
 }
 
@@ -238,6 +249,90 @@ async function placePasted() {
   app.placePicture(rel, plan.alt || "image", plan.to);
   dropThumbs();
   afterInput();
+}
+
+// A picture of the files tab, clicked: the image editor (PresChartEditor's
+// "adjust" mode) crops it and changes its light and colours. The preview is
+// the picture scaled down, drawn again as the sliders move; Save writes the
+// whole picture back over its file, so every slide that shows it changes.
+let adjusting = null;
+async function openImageEditor(path) {
+  const f = (await docFiles()).find((x) => x.path === path);
+  if (!f || !(f.data instanceof Blob)) { toast(t("This file cannot be opened as an image.")); return; }
+  const blob = f.data.type ? f.data : new Blob([f.data], { type: f.type || "image/png" });
+  let bmp;
+  try {
+    bmp = await createImageBitmap(blob);
+  } catch (_) {
+    toast(t("This file cannot be opened as an image."));
+    return;
+  }
+  const w = bmp.width;
+  const h = bmp.height;
+  const base = scaled(bmp, 1200);
+  bmp.close();
+  dropAdjusting();
+  pasteCount += 1;
+  const preview = `/__adjust/${Date.now().toString(36)}-${pasteCount}`;
+  const first = previewOf(base, null);
+  pictures.set(preview, first);
+  // the slides show the preview while the editor is open; Cancel puts the
+  // picture back
+  const original = pictures.get("/" + path);
+  adjusting = { path, blob, w, h, base, preview, original, queued: false };
+  pictures.set("/" + path, first);
+  if (!app.openAdjust(preview, path, w, h)) dropAdjusting();
+  needsPaint = true;
+}
+
+function dropAdjusting() {
+  const a = adjusting;
+  if (!a) return;
+  pictures.delete(a.preview);
+  if (a.original) pictures.set("/" + a.path, a.original);
+  adjusting = null;
+  needsPaint = true;
+}
+
+// The preview again, at most once a frame however fast the sliders move.
+function adjustPreview() {
+  const a = adjusting;
+  if (!a || a.queued) return;
+  a.queued = true;
+  requestAnimationFrame(() => {
+    a.queued = false;
+    if (adjusting !== a) return;
+    const shown = previewOf(a.base, JSON.parse(app.adjustPlan()));
+    pictures.set(a.preview, shown);
+    pictures.set("/" + a.path, shown);
+    needsPaint = true;
+  });
+}
+
+async function saveAdjusted() {
+  const a = adjusting;
+  if (!a) return;
+  const plan = JSON.parse(app.adjustPlan());
+  // the slides keep the preview until the saved picture replaces it
+  const original = a.original;
+  a.original = null;
+  dropAdjusting();
+  const restore = () => { if (original) pictures.set("/" + a.path, original); needsPaint = true; };
+  let crop = null;
+  if (!plan.whole) {
+    const [x, y, cw, ch] = String(plan.crop).split(",").map(Number);
+    if (cw > 0 && ch > 0) crop = [x, y, cw, ch];
+  }
+  const neutral = !plan.bright && !plan.contrast && !plan.sat && !plan.temp && !plan.tint;
+  if (!crop && neutral) { restore(); return; }
+  const out = await render(a.blob, crop, plan).catch(() => null);
+  if (!out) { restore(); toast(t("The image could not be saved.")); return; }
+  app.addImage("/" + a.path, asRangerBuffer(out.bytes.slice(0)), out.type, out.w, out.h);
+  await registerPicture("/" + a.path, out.bytes, out.type);
+  await keepFile({ path: a.path, type: out.type, size: out.bytes.byteLength, data: new Blob([out.bytes], { type: out.type }) });
+  dropThumbs();
+  needsPaint = true;
+  toast(t("Image saved: ") + a.path);
 }
 
 // A new picture of the deck: registered for the slides and kept in this
@@ -521,6 +616,143 @@ async function duplicateDeck() {
   needsPaint = true;
   toast(t("Duplicated as ") + name);
 }
+// File → New → Datasheet…: the spreadsheet editor on an empty workbook. Its
+// first Save keeps it in this deck as data/sheet-<n>.xlsx, where charts and
+// tables read its sheets as any added workbook's.
+async function newSheet() {
+  const have = new Set((await docFiles()).map((f) => f.path));
+  let n = 1;
+  while (have.has(`data/sheet-${n}.xlsx`)) n++;
+  const path = `data/sheet-${n}.xlsx`;
+  await liveSheets.openDialog({
+    name: path.split("/").pop(),
+    bytes: undefined,
+    blank: true,
+    onSave: (raw) => saveWorkbook(path, raw),
+    onClose: () => { keys.focus({ preventScroll: true }); refreshFiles(); needsPaint = true; },
+  }).catch((e) => toast(t("The spreadsheet editor did not load: ") + (e.message || e)));
+}
+
+// File → Delete presentation…, once confirmed: the open deck removed from
+// this browser and, for a PRO deck, its share and files from the cloud. The
+// latest other deck opens in its place, or a new empty one.
+async function deleteDeck() {
+  const id = doc.id;
+  const cloud = doc.cloud;
+  const name = exportName();
+  // nothing more is written to the cloud for it
+  doc.cloudHalt = true;
+  clearTimeout(cloudTimer);
+  cloudTimer = 0;
+  if (cloudBusy) await cloudBusy.catch(() => {});
+  if (saving) await saving.catch(() => {});
+  if (cloud && window.sliqtly?.user?.()) {
+    try {
+      await window.sliqtly.deleteShare(cloud);
+    } catch (e) {
+      doc.cloudHalt = false;
+      toast(t("Deleting from the cloud failed: ") + (e.message || e));
+      return;
+    }
+  }
+  if (vfs && doc.persisted) await vfs.deleteDoc(id);
+  // let go of it, so leaving it does not save it again
+  beginDoc("");
+  app.setSource("");
+  const next = vfs ? (await vfs.listDocs()).filter((d) => d.id !== id).sort((a, b) => (b.updated || 0) - (a.updated || 0))[0] : null;
+  if (!(next && (await openDoc(next.id)))) {
+    try { localStorage.removeItem("evgp.doc"); } catch (_) { /* fine */ }
+    await newDeck({ name: t("New presentation"), theme: themeSel.value || "", data: "none" });
+  }
+  toast(t("Deleted ") + name);
+}
+
+// File → Export → All files (.zip): the Markdown, the theme's CSS as it is
+// now (edits included) and every file of the deck at its own path.
+async function exportZip() {
+  const enc = new TextEncoder();
+  const base = exportName();
+  const entries = [
+    { name: base + ".md", data: enc.encode(app.source()) },
+    { name: (themeSel.value || "theme") + ".css", data: enc.encode(app.themeCss()) },
+  ];
+  for (const f of await docFiles()) {
+    const data = typeof f.data === "string" ? enc.encode(f.data) : new Uint8Array(await f.data.arrayBuffer());
+    entries.push({ name: f.path, data });
+  }
+  window.__lastDownload = deliver(zipStore(entries), base + ".zip", "application/zip");
+}
+
+// A zip of `entries` ({ name, data: Uint8Array }), stored (no compression:
+// the pictures in it are compressed already), names in UTF-8.
+const CRC_TABLE = (() => {
+  const tbl = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    tbl[n] = c >>> 0;
+  }
+  return tbl;
+})();
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+function zipStore(entries) {
+  const enc = new TextEncoder();
+  const d = new Date();
+  const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+  const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  for (const e of entries) {
+    const name = enc.encode(e.name);
+    const crc = crc32(e.data);
+    const head = new DataView(new ArrayBuffer(30));
+    head.setUint32(0, 0x04034b50, true);
+    head.setUint16(4, 20, true);
+    head.setUint16(6, 0x0800, true); // UTF-8 names
+    head.setUint16(8, 0, true); // stored
+    head.setUint16(10, time, true);
+    head.setUint16(12, date, true);
+    head.setUint32(14, crc, true);
+    head.setUint32(18, e.data.length, true);
+    head.setUint32(22, e.data.length, true);
+    head.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(head.buffer), name, e.data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true);
+    c.setUint16(4, 20, true);
+    c.setUint16(6, 20, true);
+    c.setUint16(8, 0x0800, true);
+    c.setUint16(10, 0, true);
+    c.setUint16(12, time, true);
+    c.setUint16(14, date, true);
+    c.setUint32(16, crc, true);
+    c.setUint32(20, e.data.length, true);
+    c.setUint32(24, e.data.length, true);
+    c.setUint16(28, name.length, true);
+    c.setUint32(42, offset, true);
+    central.push(new Uint8Array(c.buffer), name);
+    offset += 30 + name.length + e.data.length;
+  }
+  const size = central.reduce((n, p) => n + p.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true);
+  end.setUint16(8, entries.length, true);
+  end.setUint16(10, entries.length, true);
+  end.setUint32(12, size, true);
+  end.setUint32(16, offset, true);
+  const all = [...parts, ...central, new Uint8Array(end.buffer)];
+  const out = new Uint8Array(all.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of all) { out.set(p, at); at += p.length; }
+  return out;
+}
+window.__zipStore = zipStore;
+
 // The deck's title (front matter title:, else the first heading) as `name`.
 function retitled(md, name) {
   const lines = md.split("\n");
@@ -653,7 +885,13 @@ async function refreshFiles() {
   filesListing = true;
   try {
     const files = (await docFiles())
-      .map((f) => ({ path: f.path, size: f.size == null ? -1 : f.size, kind: kindOf(f.path, f.type) }))
+      .map((f) => {
+        const row = { path: f.path, size: f.size == null ? -1 : f.size, kind: kindOf(f.path, f.type) };
+        // a picture's pixels, for the preview beside the row
+        const img = row.kind === "image" ? pictures.get("/" + f.path) : null;
+        if (img) Object.assign(row, { w: img.naturalWidth, h: img.naturalHeight });
+        return row;
+      })
       .sort((a, b) => {
         const da = a.path.includes("/") ? 1 : 0;
         const db = b.path.includes("/") ? 1 : 0;
@@ -677,6 +915,12 @@ async function refreshFiles() {
         text: t("PRO keeps your decks and their files in the cloud. Share links then carry images, plus the CSV and JSON data behind your charts and tables."),
         button: t("Get PRO"),
       };
+    // PRO: the deck and its files live in the cloud share, and go with its links
+    if (signedIn()) {
+      note = doc.cloudHalt
+        ? t("This presentation was changed elsewhere, so it is not saved to the cloud now. A copy stays in this browser.")
+        : t("PRO: this presentation and its files are saved to your cloud and go with share links. A copy stays in this browser.");
+    }
     if (!doc.persisted) note = t("This presentation is not saved yet: it saves when you change it. ") + note;
     app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), docs, note, ...(promo ? { promo } : {}) }));
     needsPaint = true;
@@ -919,6 +1163,8 @@ async function fileRequest(r) {
     // asked first: an accidental press is cancelled and the deck stays
     const rows = [...themeSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n");
     app.openNewDeck(rows, themeSel.value || "", "");
+  } else if (action === "newsheet") {
+    await newSheet();
   } else if (action === "duplicate") {
     makingDeck = duplicateDeck().catch((e) => toast(t("Duplicating failed: ") + (e.message || e))).finally(() => { makingDeck = null; });
     await makingDeck;
@@ -938,6 +1184,9 @@ async function fileRequest(r) {
     const text = typeof f.data === "string" ? f.data : (isText(f.path, f.type) ? await f.data.text() : null);
     if (text == null) { toast(t("This file cannot be opened as text.")); return; }
     app.openFile(f.path, text);
+  } else if (action === "imgedit") {
+    await openImageEditor(what);
+    return;
   } else if (action === "del") {
     pending.delete(what);
     if (doc.persisted) await vfs.deleteFile(doc.id, what);
@@ -945,6 +1194,13 @@ async function fileRequest(r) {
     cloudSoon();
   } else if (action === "doc") {
     if (!(await openDoc(what))) toast(t("Presentation not found."));
+  } else if (action === "deletedeck") {
+    // asked first, in the app's own window; "confirm:deletedeck" deletes
+    const cloud = !!doc.cloud && !!window.sliqtly?.user?.();
+    app.openConfirm("deletedeck", t("Delete presentation"),
+      t("Delete “") + exportName() + t("”? It is removed from this browser") +
+      (cloud ? t(" and from the cloud, and its share link stops working") : "") +
+      t(". This cannot be undone."), t("Delete"));
   } else if (action === "deldoc") {
     if (what !== doc.id) await vfs.deleteDoc(what);
   }
@@ -970,6 +1226,10 @@ async function saveOpenFile(path) {
 // and kept; the stage and the chrome are built every paint. A kept frame is
 // only good while the glyph atlas it was built against stands, so a paint
 // that grows the atlas drops the kept ones and draws again.
+// File → Settings: automatic contrast correction, on unless turned off here.
+let autoContrast = true;
+try { autoContrast = localStorage.getItem("sliqtly.autoContrast") !== "off"; } catch (_) { /* on */ }
+
 let thumbs = new Map();
 let thumbRev = -1;
 // the slide lists of thumbnails cut by the strip's edge, as JSON text
@@ -1014,9 +1274,10 @@ function paintOnce() {
   const grewBy = (stats) => !!(stats && (stats.atlasRebuilt || stats.atlasAdded > 0));
   let grew = false;
   // Slides and thumbnails are drawn with EVG's contrast guard: a run of text
-  // that does not stand out from the picture under it (WCAG 4.5:1, 3:1 for
-  // large text) gets a thin outline in black or white. The chrome has no
-  // pictures under its text and is drawn without it.
+  // that does not stand out from what is under it (WCAG 4.5:1, 3:1 for large
+  // text) is drawn in a colour that reads, or, on big letters, with a thin
+  // outline. File → Settings turns the correction off (the runs are still
+  // listed for the editor's warnings). The chrome is drawn without it.
   const chrome = JSON.parse(app.chromeJson());
   window.__lastChrome = chrome;
   const cf = prepareDisplayList(gl, chrome, { dpr });
@@ -1027,7 +1288,7 @@ function paintOnce() {
     window.__lastStage = st;
     st.width = W;
     st.height = H;
-    const sf = prepareDisplayList(gl, st, { dpr, images: pictures, contrastGuard: true });
+    const sf = prepareDisplayList(gl, st, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
     const stageStats = sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false });
     grew = grewBy(stageStats) || grew;
     sf.dispose();
@@ -1038,7 +1299,21 @@ function paintOnce() {
       // laid over the slide. A change shows on the next paint.
       try {
         if (app.setContrast(JSON.stringify((stageStats && stageStats.lowContrast) || []))) needsPaint = true;
+        // the image editor says whether the slide's text still reads
+        if (adjusting) app.setAdjustContrast(JSON.stringify((stageStats && stageStats.lowContrast) || []));
       } catch (e) { console.warn("contrast notes", e); }
+    }
+  }
+  // the element picked on the slide: its outline, spacing bands and buttons
+  if (layout.slides > 0 && layout.mode !== "present") {
+    const pj = app.pickJson();
+    if (pj) {
+      const pk = JSON.parse(pj);
+      pk.width = W;
+      pk.height = H;
+      const pf = prepareDisplayList(gl, pk, { dpr });
+      grew = grewBy(pf.draw(null, [0, 0, 1], { clear: false })) || grew;
+      pf.dispose();
     }
   }
   if (grew) dropThumbs();
@@ -1063,7 +1338,7 @@ function paintOnce() {
       const none = [0, 0, 0, 0];
       doc.list.cmds.unshift({ k: 4, x: (cx - x) / s, y: (cy - y) / s, w: cw / s, h: ch / s, c: none });
       doc.list.cmds.push({ k: 5, x: 0, y: 0, w: 0, h: 0, c: none });
-      const cf = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true });
+      const cf = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
       if (grewBy(cf.draw(null, [x, y, s], { clear: false }))) thumbsGrew = true;
       cf.dispose();
       continue;
@@ -1074,7 +1349,7 @@ function paintOnce() {
       const doc = withTime(JSON.parse(app.slideJson(i)), 2.0);
       doc.width = W;
       doc.height = H;
-      f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true });
+      f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
       thumbs.set(i, f);
     }
     const stats = f.draw(null, [x, y, s], { clear: false });
@@ -1112,7 +1387,8 @@ function paintOnce() {
     const pn = JSON.parse(pj);
     pn.width = W;
     pn.height = H;
-    const pf = prepareDisplayList(gl, pn, { dpr });
+    // with the pictures: the files tab previews the one under the pointer
+    const pf = prepareDisplayList(gl, pn, { dpr, images: pictures });
     if (grewBy(pf.draw(null, [0, 0, 1], { clear: false }))) dropThumbs();
     pf.dispose();
   }
@@ -1155,6 +1431,12 @@ function rebaseClock() {
 //   Enter, Space     press it (a reader's activation does the same)
 //   arrows on a slider  move it
 //   Esc              back to the editor (closing a popover or dialog first)
+//   on a slide of the strip (a click on it puts the keyboard there):
+//     arrows, Home, End    the slide before / after, the first, the last
+//     Ctrl/⌘ + arrow       move the slide
+//     Delete, Backspace    delete it (Ctrl/⌘+Z brings it back)
+//     Shift+F10, menu key  its context menu (a right click opens it too)
+//     Enter                its heading in the editor
 //   Ctrl+Space       the value popover at the caret, with the keyboard in it
 let lastA11yRev = "";
 let a11yTree = null;
@@ -1182,7 +1464,7 @@ const mirror = createA11yMirror(stageEl, {
       const lost = !act || act === document.body || act === pressedEl;
       if (lost && (!el || !el.isConnected)) {
         const reg = regionOf(node.id);
-        if (!focusRegion(reg)) focusKeys(app.focusTarget());
+        if (reg === "ctx" || !focusRegion(reg)) focusApp();
       }
     });
   },
@@ -1199,6 +1481,7 @@ function mirrorA11y() {
 }
 function regionOf(id) {
   if (!id) return "";
+  if (id.startsWith("tb-m-ctx")) return "ctx";
   if (id.startsWith("tb-")) return "bar";
   if (id.startsWith("edtabs")) return "tabs";
   if (id.startsWith("thumb-")) return "slides";
@@ -1227,6 +1510,53 @@ function focusRegion(region) {
   const list = focusables(region);
   if (!list.length) return false;
   focusNode(list.find((n) => n.selected) || list[0]);
+  return true;
+}
+// The keyboard on the strip: on the selected slide's mirrored option, so a
+// reader hears which slide it is and the keys go to the strip, not the editor.
+function focusStrip() {
+  mirrorA11y();
+  const node = a11yTree && a11yTree.byId.get("thumb-" + app.selectedSlide());
+  if (!node || !mirror.elementOf(node.id)) return false;
+  focusNode(node);
+  return true;
+}
+// The keyboard back where the app says it is (after a menu, Esc).
+function focusApp() {
+  const where = app.focusTarget();
+  if (where === "strip" && focusStrip()) return;
+  focusKeys(where === "stage" || where === "strip" ? where : "editor");
+}
+// The strip's context menu was opened: the keyboard goes to its first row.
+function focusSlideMenu() {
+  paintOnce();
+  mirrorA11y();
+  const first = a11yTree && a11yTree.nodes.find((n) => regionOf(n.id) === "ctx" && n.focusable && !n.disabled && /-item-/.test(n.id) && mirror.elementOf(n.id));
+  if (first) focusNode(first);
+}
+const STRIP_KEYS = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", Home: "home", End: "end", Delete: "delete", Backspace: "backspace", Enter: "enter", Escape: "escape" };
+// A key on a slide of the strip; true when it was the strip's.
+function stripKey(ev) {
+  const mod = ev.ctrlKey || ev.metaKey;
+  if (ev.key === "ContextMenu" || (ev.shiftKey && ev.key === "F10")) {
+    ev.preventDefault();
+    if (app.slideMenuAtSelected()) {
+      afterInput();
+      focusSlideMenu();
+    }
+    return true;
+  }
+  const name = STRIP_KEYS[ev.key];
+  const menuKey = !ev.altKey && !ev.shiftKey && ev.key.length === 1 ? ev.key.toLowerCase() : "";
+  const req = ev.ctrlKey && !ev.metaKey && menuKey === "m" ? "slide:new" : mod && menuKey === "d" ? "slide:duplicate" : "";
+  if (name) app.key(name, ev.shiftKey, mod);
+  else if (req) app.request(req);
+  else if (mod && /^[zy]$/i.test(ev.key)) app.chord(ev.key.toLowerCase());
+  else return false;
+  ev.preventDefault();
+  afterInput();
+  paintOnce();
+  focusApp();
   return true;
 }
 function currentRegion() {
@@ -1274,6 +1604,7 @@ mirror.root.addEventListener("keydown", (ev) => {
     moveInRegion(ev.shiftKey ? -1 : 1);
     return;
   }
+  if (/^thumb-\d+$/.test(id) && stripKey(ev)) return;
   if (node && node.role === "slider" && /^Arrow/.test(ev.key)) {
     ev.preventDefault();
     const up = ev.key === "ArrowRight" || ev.key === "ArrowUp";
@@ -1307,10 +1638,11 @@ mirror.root.addEventListener("keydown", (ev) => {
     if (reg === "hint") app.closeHint();
     else if (reg === "chart") app.key("escape", false, false);
     else if (reg === "panels" && app.shareIsOpen()) app.closeShare();
-    else if (reg === "bar") app.key("escape", false, false);
+    else if (reg === "bar" || reg === "ctx") app.key("escape", false, false);
     afterInput();
     app.setA11yFocus("");
-    focusKeys(app.focusTarget() === "stage" ? "stage" : "editor");
+    if (reg === "ctx") focusApp();
+    else focusKeys(app.focusTarget() === "stage" ? "stage" : "editor");
     needsPaint = true;
   }
 });
@@ -1582,6 +1914,7 @@ function frame() {
       lastRev = rev;
       paintOnce();
       handleRequests();
+      followAddress();
       if (lastLayout) fetchChartFiles(lastLayout.rev);
       if (rev !== lastA11yRev) {
         lastA11yRev = rev;
@@ -1613,6 +1946,17 @@ window.__lastDownload = "";
 
 // for scripts/check-web.mjs: the requests run now, a picture's pixel size
 window.__handleRequests = () => handleRequests();
+window.__picturePixel = (p, x, y) => {
+  const img = pictures.get(p);
+  if (!img) return [];
+  const c = document.createElement("canvas");
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const g = c.getContext("2d");
+  g.drawImage(img, 0, 0);
+  return [...g.getImageData(x, y, 1, 1).data];
+};
+window.__pictureTag = (p) => (pictures.get(p) ? pictures.get(p).tagName : "");
 window.__pictureSize = (p) => {
   const img = pictures.get(p);
   return img ? [img.naturalWidth, img.naturalHeight] : [0, 0];
@@ -1638,6 +1982,14 @@ function handleRequests() {
       // the canvas bar: the page's own button does what it always did
       const b = document.getElementById(r.slice(6));
       if (b) b.click();
+    } else if (r === "settings") {
+      app.openSettings(autoContrast);
+      needsPaint = true;
+    } else if (r.startsWith("setting:contrast:")) {
+      autoContrast = r.endsWith(":on");
+      try { localStorage.setItem("sliqtly.autoContrast", autoContrast ? "on" : "off"); } catch (_) { /* this session only */ }
+      dropThumbs();
+      needsPaint = true;
     } else if (r === "openbox") {
       // Open: a file from the computer, or a sample deck
       app.openOpen([...sampleSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
@@ -1667,6 +2019,8 @@ function handleRequests() {
       keepFile({ path, type: "application/json", size: text.length, data: text }).catch(fail);
       chartFiles.set(path, Promise.resolve(text));
       dropThumbs();
+    } else if (r === "confirm:deletedeck") {
+      deleteDeck().catch(fail);
     } else if (r === "newdeck-create") {
       const plan = JSON.parse(app.newDeckPlan());
       // the picker now, while the press still counts as one; the file goes
@@ -1680,6 +2034,12 @@ function handleRequests() {
       placePasted().catch(fail);
     } else if (r === "picture-cancel") {
       dropPasting();
+    } else if (r === "image-adjust") {
+      adjustPreview();
+    } else if (r === "image-save") {
+      saveAdjusted().catch(fail);
+    } else if (r === "image-cancel") {
+      dropAdjusting();
     } else if (r === "sheet-edit") {
       liveSheets.editFirst();
     } else if (r.startsWith("data-keep:")) {
@@ -1808,8 +2168,20 @@ async function renderFxStills() {
 }
 window.__renderFxStills = renderFxStills;
 
+// The PDF writer's fallback for emoji (monochrome Noto Emoji). Only the
+// writer gets it: the screen keeps the browser's own colour emoji. Fetched
+// the first time a PDF is made, since it is large (0.9 MB) and most visits
+// make none. The dash in the name puts it in the fallback pool.
+let emojiFace = null;
+function loadEmojiFace() {
+  emojiFace ??= fontBytes("NotoEmoji-Regular.ttf")
+    .then((bytes) => { app.attachFont("Noto Emoji-Regular", asRangerBuffer(bytes.slice(0))); })
+    .catch((e) => { console.warn("emoji face not loaded", e); });
+  return emojiFace;
+}
+
 async function exportPdf() {
-  await renderFxStills();
+  await Promise.all([renderFxStills(), loadEmojiFace()]);
   window.__lastDownload = deliver(app.pdf(), exportName() + ".pdf", "application/pdf");
 }
 async function exportPptx() {
@@ -1819,6 +2191,7 @@ async function exportPptx() {
 }
 document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
+document.getElementById("zip").addEventListener("click", () => { exportZip().catch(fail); });
 // Open: a presentation (.md) replaces the deck; data (Excel, CSV, JSON) and
 // pictures go to the Files tab as if dropped there. One data file opens the
 // import dialog, like a drop on the editor; several are only kept.
@@ -2147,7 +2520,15 @@ async function editInAI(which) {
         .replaceAll("{id}", id).replaceAll("{link}", SITE + "/s/" + id).replaceAll("{edit}", SITE + "/s/" + id + "?edit");
     } else {
       prompt = t("Make this Markdown a Sliqtly presentation with create_presentation from the Sliqtly connector (theme {theme}), give me its link and ask what to change. Save later changes with update_presentation.")
-        .replaceAll("{theme}", themeSel.value || "-") + "\n\n```markdown\n" + text + "\n```";
+        .replaceAll("{theme}", themeSel.value || "-");
+      // data files stay in this browser: name them, so the assistant asks
+      // for them as attachments and keeps them with files / write_workbook
+      const data = (await docFiles()).map((f) => f.path).filter((p) => p.startsWith("data/"));
+      if (data.length) {
+        prompt += " " + t("The deck also reads these data files, which this message does not carry: {files}. Ask me to attach them here, then keep them with the presentation (files in create_presentation, or write_workbook for a tidied workbook).")
+          .replaceAll("{files}", data.join(", "));
+      }
+      prompt += "\n\n```markdown\n" + text + "\n```";
       if (prompt.length > AI_MAX_PROMPT) {
         if (win) win.close();
         toast(t("This presentation is too long to hand over in a link. Sign in with PRO first."));
@@ -2366,7 +2747,61 @@ async function openFromHash() {
     return false;
   }
 }
-window.addEventListener("hashchange", () => { if (location.hash !== lastHash) openFromHash(); });
+window.addEventListener("hashchange", () => {
+  if (location.hash === lastHash) return;
+  if (hashParams().has("md")) openFromHash();
+  else useAddress(hashParams());
+});
+
+// The address follows what is on screen, so a reload comes back to it:
+// #doc={id}&slide={n}&tab=css|files&view=present|play. `doc` only for a deck
+// kept in this browser (a PRO deck has /s/{id}?edit), the rest left out at
+// their defaults. Replaced, not pushed: Back does not walk through slides.
+// Kept beside a link's own keys (#md=…, #share=…), never in the assistant's
+// preview, which has no address of its own.
+const ADDRESS_KEYS = ["doc", "slide", "tab", "view"];
+function followAddress() {
+  if (framed || !window.__pageStarted || !lastLayout) return;
+  const q = hashParams();
+  const was = q.toString();
+  for (const k of ADDRESS_KEYS) q.delete(k);
+  if (doc.persisted && !doc.cloud && !viewer && !/^\/s\//.test(location.pathname)) q.set("doc", doc.id);
+  if (lastLayout.slide > 0 && lastLayout.slide < lastLayout.slides) q.set("slide", String(lastLayout.slide + 1));
+  if (!viewer) {
+    const tab = app.editorTab();
+    if (tab && tab !== "md") q.set("tab", tab);
+    if (lastLayout.mode === "present") q.set("view", "present");
+    else if (lastLayout.playing) q.set("view", "play");
+  }
+  const now = q.toString();
+  if (now === was) return;
+  history.replaceState(history.state, "", location.pathname + location.search + (now ? "#" + now : ""));
+  lastHash = location.hash;
+}
+// …and back: the slide, the tab and the presentation the address names
+function useAddress(q) {
+  const n = parseInt(q.get("slide") || "", 10);
+  const presenting = lastLayout && lastLayout.mode === "present";
+  if (n >= 1) app.selectSlide(n - 1);
+  if (viewer) {
+    // the viewer presents from the start: again, from this slide
+    if (n > 1) {
+      app.present(false);
+      handleRequests();
+    }
+  } else {
+    if (q.has("tab")) app.showTab(q.get("tab"));
+    const view = q.get("view");
+    if (view === "present" && !presenting) {
+      app.present(false);
+      handleRequests();
+    } else if (view === "play" && !app.isPlaying()) {
+      app.play();
+      rebaseClock();
+    }
+  }
+  needsPaint = true;
+}
 
 // /s/{id}: a deck shared through PRO, read from the cloud. Shown as a
 // presentation; with ?edit, opened as a new deck of the reader's own.
@@ -2796,6 +3231,11 @@ canvas.addEventListener("pointerdown", (ev) => {
     }
   }
   if (pinch) return;
+  // the secondary button on a slide of the strip: its menu (contextmenu below)
+  if (ev.button === 2 && app.inStrip(x, y)) {
+    ev.preventDefault();
+    return;
+  }
   const now = performance.now();
   const near = Math.hypot(x - lastDownAt[0], y - lastDownAt[1]) < 40;
   clicks = now - lastDown < 400 && (!finger || near) ? clicks + 1 : 1;
@@ -2818,7 +3258,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   app.setTouch(finger);
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
-  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb") {
+  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb" || where === "select") {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
   if (where === "editor" && clicks === 1) {
@@ -2843,6 +3283,10 @@ canvas.addEventListener("pointerdown", (ev) => {
       } else if (h) showHint(h);
       else closeHint();
     }, 0);
+  } else if (where === "select") {
+    // a button or a band of the picked element: the app opened its popover
+    hint = null;
+    hintKey = "";
   } else if (where !== "editor" && where !== "hint") {
     closeHint();
   }
@@ -2853,6 +3297,10 @@ canvas.addEventListener("pointerdown", (ev) => {
     // the tap lands somewhere else when it is released.
     app.setFocus(app.focusTarget());
     keys.blur();
+  } else if (where === "thumb") {
+    // the keyboard to the strip (endPointer moves it to the slide selected)
+    paintOnce();
+    focusStrip();
   } else {
     focusKeys(where === "editor" ? "editor" : app.focusTarget());
   }
@@ -2907,6 +3355,8 @@ function overHint() {
 function hintHover(x, y) {
   pointerAt = [x, y];
   clearTimeout(hintTimer);
+  // opened from the slide: stays until a press outside it
+  if (app.hintPinned()) return;
   if (app.hintIsOpen() && app.hintHas(x, y)) {
     clearTimeout(hintCloseTimer);
     return;
@@ -2984,6 +3434,10 @@ function endPointer(ev) {
     return;
   }
   app.pointerUp();
+  if (ev.pointerType === "mouse" && ev.button !== 2 && app.focusTarget() === "strip" && !app.toolbarOnTop()) {
+    paintOnce();
+    focusStrip();
+  }
   // a tap that made a diagram the one a finger moves says so, once
   // (after a moment: the tap may be the first of a double tap)
   if (app.takeActivated() && !diagramTold) {
@@ -3009,6 +3463,15 @@ for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
 let diagramTold = false;
 let diagramTimer = 0;
 canvas.addEventListener("pointerup", endPointer);
+// A right click on a slide of the strip: New, Duplicate, Move, Delete.
+canvas.addEventListener("contextmenu", (ev) => {
+  const [x, y] = at(ev);
+  if (!app.slideMenuAt(x, y)) return;
+  ev.preventDefault();
+  closeHint();
+  afterInput();
+  focusSlideMenu();
+});
 canvas.addEventListener("pointercancel", endPointer);
 canvas.addEventListener("wheel", (ev) => {
   const [x, y] = at(ev);
@@ -3106,7 +3569,7 @@ async function start() {
   const got = new Array(FACES.length).fill(false);
   await Promise.all(FACES.map(async ([name, file], i) => {
     try {
-      const bytes = await bytesOf("./fonts/" + file);
+      const bytes = await fontBytes(file);
       got[i] = app.attachFont(name, asRangerBuffer(bytes.slice(0)));
       const face = new FontFace(name, bytes);
       await face.load();
@@ -3125,13 +3588,6 @@ async function start() {
     const em = m.measureText("\u{1F600}").width / 100;
     if (em > 0.3 && em < 3) app.setMissingGlyphEm(em);
   } catch (_) { /* measured as the face says */ }
-  // The PDF writer's fallback for emoji (monochrome Noto Emoji). Only the
-  // writer gets it: the screen keeps the browser's own colour emoji. Loaded
-  // after start-up because it is large; a PDF made before it arrives just
-  // has no emoji. The dash in the name puts it in the fallback pool.
-  bytesOf("./fonts/NotoEmoji-Regular.ttf")
-    .then((bytes) => app.attachFont("Noto Emoji-Regular", asRangerBuffer(bytes.slice(0))))
-    .catch((e) => console.warn("emoji face not loaded", e));
 
   for (const [i, name] of THEMES.entries()) {
     try {
@@ -3141,6 +3597,8 @@ async function start() {
   }
 
   const q = new URLSearchParams(location.search);
+  // read before a deck is opened: opening one tidies the address
+  const at = framed ? new URLSearchParams() : hashParams();
   const theme = q.has("theme") ? q.get("theme") : "aurora";
   themeSel.value = theme;
   app.setStyleSheet(theme ? themeCss[theme] || "" : "");
@@ -3158,6 +3616,9 @@ async function start() {
     // from the cloud when it lives there
     let last = null;
     try { last = localStorage.getItem("evgp.doc"); } catch (_) { /* none */ }
+    // #doc={id}: the deck this tab had, when this browser keeps it
+    const asked = at.get("doc");
+    if (asked && /^[A-Za-z0-9_-]{1,64}$/.test(asked) && vfs && (await vfs.getDoc(asked))) last = asked;
     const lastCloud = !want && last && vfs ? (await vfs.getDoc(last))?.cloud : null;
     if (lastCloud && (await openOwnCloud(lastCloud).catch(() => false))) { /* opened */ }
     else if (want || !last || !(await openDoc(last))) {
@@ -3168,6 +3629,7 @@ async function start() {
     }
   }
   refreshRecent().catch(() => {});
+  useAddress(at);
 
   // A narrow window gets the slides without the editor (PresApp.isCompact,
   // decided on every layout, so it follows the window); on a touch screen

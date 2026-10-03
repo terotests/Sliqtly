@@ -229,10 +229,11 @@
   document.getElementById("open").onclick = () => deck && openLink(deck.share_url);
   document.getElementById("edit").onclick = () => deck && openLink(deck.edit_url);
 
+  // ChatGPT gives window.openai and is also an MCP Apps host, which may not
+  // count the app as open before ui/initialize: both are spoken
   if (window.openai) {
     show(window.openai.toolOutput, window.openai.toolResponseMetadata);
     window.addEventListener("openai:set_globals", (e) => show((e.detail && e.detail.globals && e.detail.globals.toolOutput) || window.openai.toolOutput, window.openai.toolResponseMetadata));
-    return;
   }
 
   window.addEventListener("message", (e) => {

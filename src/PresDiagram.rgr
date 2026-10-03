@@ -200,8 +200,8 @@ class PresDiagram {
     def lastBW:double 1.0
     def lastBH:double 1.0
 
-    ; fade the rim into the slide's colour; off over a surface effect,
-    ; where a flat colour would show as a box
+    ; fade the rim into the slide's colour and draw the grid; off over a
+    ; surface effect or a picture, where both would show as a box
     def rimFade:boolean true
 
     fn setPalette:void (paper:string accent:string warm:string) {
@@ -2926,7 +2926,11 @@ class PresDiagram {
             this.paintNodes(world t inkC boil l)
             this.paintBall(world inkC)
         } {
-            this.holoGrid(world bx by bw bh sc dx dy)
+            ; the grid stops at the box's edge: without the rim fade it is a
+            ; box drawn over the slide's picture
+            if rimFade {
+                this.holoGrid(world bx by bw bh sc dx dy)
+            }
             this.holoEdges(world t l)
             this.holoNodes(world t l)
             this.holoNotes(world t l)

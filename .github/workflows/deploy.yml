@@ -32,6 +32,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      # esbuild, which shrinks the compiled bundles (scripts/build.mjs)
+      - run: npm install --no-audit --no-fund
       - name: Build the page
         run: node scripts/build.mjs
       - name: Check the deck and the timeline

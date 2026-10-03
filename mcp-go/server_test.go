@@ -317,7 +317,7 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	eq(t, names, []string{"bind_chart_data", "create_presentation", "get_presentation", "list_files", "list_presentations", "read_file", "sliqtly_guide", "update_presentation"})
+	eq(t, names, []string{"bind_chart_data", "create_presentation", "get_presentation", "list_files", "list_presentations", "read_file", "sliqtly_guide", "update_presentation", "write_workbook"})
 	uri, _ := create.Meta["ui"].(map[string]any)["resourceUri"].(string)
 	match(t, uri, `^ui://sliqtly/preview-[0-9a-f]{10}\.html$`)
 	eq(t, create.Meta["openai/outputTemplate"], uri)
@@ -335,6 +335,13 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 	match(t, fmt.Sprint(uiCSP["resourceDomains"]), `https://www\.gstatic\.com`)
 	match(t, fmt.Sprint(uiCSP["connectDomains"]), `https://firestore\.googleapis\.com`)
 	eq(t, r.Contents[0].Meta["openai/widgetCSP"].(map[string]any)["connect_domains"], uiCSP["connectDomains"])
+	// a client that kept an older tool list still gets the preview
+	old, err := s.session.ReadResource(ctx, &mcp.ReadResourceParams{URI: "ui://sliqtly/preview-0000000000.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eq(t, old.Contents[0].URI, "ui://sliqtly/preview-0000000000.html")
+	eq(t, old.Contents[0].Text, r.Contents[0].Text)
 	match(t, textOf(call(t, s, "sliqtly_guide", map[string]any{})), `## Pictures`)
 }
 
@@ -976,6 +983,60 @@ func TestCreateAndUpdateKeepDataFiles(t *testing.T) {
 		r := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": "# x", "files": []any{bad.file}})
 		if !r.IsError {
 			t.Fatalf("%v was kept", bad.file)
+		}
+		match(t, textOf(r), bad.why)
+	}
+}
+
+func TestWriteWorkbookReplacesADecksWorkbook(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, testEnv(&f, nil), "")
+	defer s.close()
+	c := call(t, s, "create_presentation", map[string]any{"title": "Risk", "markdown": "# Risk",
+		"files": []any{map[string]any{"name": "risk.xlsx", "data_base64": base64.StdEncoding.EncodeToString(testBook(t))}}})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	key := sc(c)["edit_key"]
+	write := func(args map[string]any) *mcp.CallToolResult {
+		a := map[string]any{"deck_id": id, "edit_key": key, "path": "data/risk.xlsx"}
+		for k, v := range args {
+			a[k] = v
+		}
+		return call(t, s, "write_workbook", a)
+	}
+	w := write(map[string]any{"sheets": []any{
+		map[string]any{"name": "Menot", "rows": []any{[]any{"Kuukausi", "Vuokra", "Sähkö"}, []any{"2026-01", 950, "42.5"}, []any{"2026-02", 950, nil}}},
+		map[string]any{"name": "Q & A", "csv": "a,b\n\"<x> & y\",2\n"},
+	}})
+	if w.IsError {
+		t.Fatal(textOf(w))
+	}
+	match(t, textOf(w), `data/risk\.xlsx: sheet "Menot" \(2 rows; columns "Kuukausi", "Vuokra", "Sähkö"\) read as data/risk-Menot\.csv`)
+	match(t, textOf(w), `Formatting and formulas are not kept`)
+	paths := []any{}
+	for _, x := range list(f.db.doc("shares/" + id)["files"]) {
+		paths = append(paths, mapOf(x)["path"])
+	}
+	eq(t, paths, []string{"data/risk.xlsx"})
+	qa := sc(call(t, s, "read_file", map[string]any{"deck_id": id, "path": "data/risk.xlsx", "sheet": "Q & A"}))
+	eq(t, qa["rows"], [][]string{{"<x> & y", "2"}})
+	menot := sc(call(t, s, "read_file", map[string]any{"deck_id": id, "path": "data/risk-Menot.csv"}))
+	eq(t, menot["rows"], [][]string{{"2026-01", "950", "42.5"}, {"2026-02", "950", ""}})
+	for _, bad := range []struct {
+		args map[string]any
+		why  string
+	}{
+		{map[string]any{"sheets": []any{map[string]any{"name": "a/b", "rows": []any{[]any{"x"}}}}}, `has one of`},
+		{map[string]any{"sheets": []any{map[string]any{"name": "A", "rows": []any{[]any{"x"}}}, map[string]any{"name": "a", "rows": []any{[]any{"y"}}}}}, `Two sheets are named`},
+		{map[string]any{"sheets": []any{map[string]any{"name": "A"}}}, `give rows or csv`},
+		{map[string]any{"path": "data/x.csv", "sheets": []any{map[string]any{"name": "A", "rows": []any{[]any{"x"}}}}}, `ending in \.xlsx`},
+		{map[string]any{"edit_key": "wrong", "sheets": []any{map[string]any{"name": "A", "rows": []any{[]any{"x"}}}}}, `edit_key does not match`},
+	} {
+		r := write(bad.args)
+		if !r.IsError {
+			t.Fatalf("%v was written", bad.args)
 		}
 		match(t, textOf(r), bad.why)
 	}

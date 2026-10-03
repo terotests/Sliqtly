@@ -69,7 +69,7 @@ test("tools, UI metadata and the preview resource", async () => {
   const t = await start(store);
   try {
     const { tools } = await t.client.listTools();
-    assert.deepEqual(tools.map((x) => x.name).sort(), ["bind_chart_data", "create_presentation", "get_presentation", "list_files", "list_presentations", "read_file", "sliqtly_guide", "update_presentation"]);
+    assert.deepEqual(tools.map((x) => x.name).sort(), ["bind_chart_data", "create_presentation", "get_presentation", "list_files", "list_presentations", "read_file", "sliqtly_guide", "update_presentation", "write_workbook"]);
     const create = tools.find((x) => x.name === "create_presentation");
     assert.match(create._meta.ui.resourceUri, /^ui:\/\/sliqtly\/preview-[0-9a-f]{10}\.html$/);
     assert.equal(create._meta["openai/outputTemplate"], create._meta.ui.resourceUri);
@@ -82,6 +82,10 @@ test("tools, UI metadata and the preview resource", async () => {
     assert.ok(r.contents[0]._meta.ui.csp.resourceDomains.includes("https://www.gstatic.com"));
     assert.ok(r.contents[0]._meta.ui.csp.connectDomains.includes("https://firestore.googleapis.com"));
     assert.deepEqual(r.contents[0]._meta["openai/widgetCSP"].connect_domains, r.contents[0]._meta.ui.csp.connectDomains);
+    // a client that kept an older tool list still gets the preview
+    const old = await t.client.readResource({ uri: "ui://sliqtly/preview-0000000000.html" });
+    assert.equal(old.contents[0].uri, "ui://sliqtly/preview-0000000000.html");
+    assert.equal(old.contents[0].text, r.contents[0].text);
     const g = await t.client.callTool({ name: "sliqtly_guide", arguments: {} });
     assert.match(g.content[0].text, /## Pictures/);
   } finally { await t.close(); }
@@ -505,4 +509,76 @@ test("create and update keep data files the deck reads", async () => {
       assert.match(bad.content[0].text, why);
     }
   } finally { await t.close(); }
+});
+
+test("write_workbook replaces a deck's workbook with tidied sheets", async () => {
+  const { store, data } = fakeFirebase();
+  const t = await start(store);
+  try {
+    const r = await t.client.callTool({ name: "create_presentation", arguments: {
+      title: "Risk", markdown: "# Risk", files: [{ name: "risk.xlsx", data_base64: testBook().toString("base64") }],
+    } });
+    const id = r.structuredContent.deck_id;
+    const key = r.structuredContent.edit_key;
+    const write = (args) => t.client.callTool({ name: "write_workbook", arguments: { deck_id: id, edit_key: key, path: "data/risk.xlsx", ...args } });
+    const w = await write({ sheets: [
+      { name: "Menot", rows: [["Kuukausi", "Vuokra", "Sähkö"], ["2026-01", 950, "42.5"], ["2026-02", 950, null]] },
+      { name: "Q & A", csv: "a,b\n\"<x> & y\",2\n" },
+    ] });
+    assert.ok(!w.isError, w.content[0].text);
+    assert.match(w.content[0].text, /data\/risk\.xlsx: sheet "Menot" \(2 rows; columns "Kuukausi", "Vuokra", "Sähkö"\) read as data\/risk-Menot\.csv/);
+    assert.match(w.content[0].text, /Formatting and formulas are not kept/);
+    assert.deepEqual(data.get(`shares/${id}`).files.map((f) => f.path), ["data/risk.xlsx"]);
+    const back = await t.client.callTool({ name: "read_file", arguments: { deck_id: id, path: "data/risk.xlsx", sheet: "Q & A" } });
+    assert.deepEqual(back.structuredContent.rows, [["<x> & y", "2"]]);
+    const menot = await t.client.callTool({ name: "read_file", arguments: { deck_id: id, path: "data/risk-Menot.csv" } });
+    assert.deepEqual(menot.structuredContent.rows, [["2026-01", "950", "42.5"], ["2026-02", "950", ""]]);
+    for (const [args, why] of [
+      [{ sheets: [{ name: "a/b", rows: [["x"]] }] }, /has one of/],
+      [{ sheets: [{ name: "A", rows: [["x"]] }, { name: "a", rows: [["y"]] }] }, /Two sheets are named/],
+      [{ sheets: [{ name: "A" }] }, /give rows or csv/],
+      [{ path: "data/x.csv", sheets: [{ name: "A", rows: [["x"]] }] }, /ending in \.xlsx/],
+      [{ edit_key: "wrong", sheets: [{ name: "A", rows: [["x"]] }] }, /edit_key does not match/],
+    ]) {
+      const bad = await write(args);
+      assert.ok(bad.isError);
+      assert.match(bad.content[0].text, why);
+    }
+  } finally { await t.close(); }
+});
+
+test("warns about text that likely does not stand out from its background picture", async () => {
+  const { PNG: Png } = await import("pngjs");
+  const sky = (top, bottom) => {
+    const p = new Png({ width: 160, height: 90 });
+    for (let y = 0; y < 90; y++) {
+      for (let x = 0; x < 160; x++) {
+        const c = y < 45 ? top : bottom, i = (y * 160 + x) * 4;
+        p.data[i] = c[0]; p.data[i + 1] = c[1]; p.data[i + 2] = c[2]; p.data[i + 3] = 255;
+      }
+    }
+    return Png.sync.write(p).toString("base64");
+  };
+  const css = "page { background-color: #0b1030; }\ndocument { font-size: 20pt; color: #e8ecff; }\n";
+  const md = "# Deck\n\n## Cloudy {bg=media/sky.png}\n\nLight text over a white sky.\n\n## Night {bg=media/night.png}\n\nLight text over a dark picture.\n";
+  const { store } = fakeFirebase();
+  const t = await start(store);
+  try {
+    const r = await t.client.callTool({ name: "create_presentation", arguments: { title: "Sky", markdown: md, css, css_mode: "replace", images: [
+      { name: "sky.png", data_base64: sky([244, 246, 248], [230, 235, 240]) },
+      { name: "night.png", data_base64: sky([20, 30, 40], [28, 58, 36]) },
+    ] } });
+    const ws = r.structuredContent.warnings;
+    assert.equal(ws.length, 1, JSON.stringify(ws));
+    assert.match(ws[0], /^Slide "Cloudy": text is likely hard to read over the background picture \(estimated[^)]*\): the heading about 1\.\d:1 \(needs 3\.0:1\), the body text about 1\.\d:1 \(needs 3\.0:1\)\. Fix: a stronger dim, bg-dim=0\.\d+ in the slide's heading attributes, or a text colour such as #[0-9a-f]{6} in css\.$/);
+    const dim = /bg-dim=(0\.\d+)/.exec(ws[0])[1];
+    // the suggested dim is enough; an update reads the stored picture back
+    const { deck_id, edit_key } = r.structuredContent;
+    const same = await t.client.callTool({ name: "update_presentation", arguments: { deck_id, edit_key, markdown: md } });
+    assert.match(same.structuredContent.warnings.join("\n"), /Slide "Cloudy": text is likely hard to read/);
+    const u = await t.client.callTool({ name: "update_presentation", arguments: { deck_id, edit_key, markdown: md.replace("{bg=media/sky.png}", `{bg=media/sky.png bg-dim=${dim}}`) } });
+    assert.deepEqual(u.structuredContent.warnings, []);
+  } finally {
+    await t.close();
+  }
 });

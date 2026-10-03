@@ -66,6 +66,14 @@ class PresToolbar {
     def mac:boolean false
     ; the deck is taller than wide: Slide → Orientation ticks Portrait
     def portrait:boolean false
+    ; The filmstrip's context menu (PresApp.openSlideMenu): open, where it
+    ; was asked for, and which of its rows can act on the slide.
+    def ctxOpen:boolean false
+    def ctxX:double 0.0
+    def ctxY:double 0.0
+    def ctxLeft:boolean true
+    def ctxRight:boolean true
+    def ctxDelete:boolean true
 
     Constructor () {
     }
@@ -191,11 +199,21 @@ class PresToolbar {
     ; "css" opens the theme's CSS tab, "new" a new deck, "duplicate" a copy
     ; of this one, the rest the page's button of that id.
     sfn requestFor:string (id:string) {
-        if (id == "new") {
+        if ((id == "new") || (id == "newPres")) {
             return "files:new"
+        }
+        if (id == "newSheet") {
+            return "files:newsheet"
         }
         if (id == "duplicate") {
             return "files:duplicate"
+        }
+        if (id == "deleteDeck") {
+            return "files:deletedeck"
+        }
+        ; File → Export's rows: the page's own export buttons
+        if ((indexOf id "x-") == 0) {
+            return ("click:" + (substring id 2 (strlen id)))
         }
         if (id == "css") {
             return "showtab:css"
@@ -209,11 +227,20 @@ class PresToolbar {
         if (id == "slideDelete") {
             return "slide:delete"
         }
+        if (id == "slideLeft") {
+            return "slide:left"
+        }
+        if (id == "slideRight") {
+            return "slide:right"
+        }
         if ((indexOf id "o-") == 0) {
             return ("slide:" + (substring id 2 (strlen id)))
         }
         if (id == "openbox") {
             return "openbox"
+        }
+        if (id == "settings") {
+            return "settings"
         }
         if (id == "browse") {
             return "showtab:files"
@@ -288,6 +315,14 @@ class PresToolbar {
         MenuCtl.addKid(parent "o-portrait" (pm + (PresI18n.t("Portrait"))) false)
     }
 
+    ; Export's rows: the Markdown, PowerPoint, PDF, and a zip of every file.
+    fn exportKids:void (parent:UiItem) {
+        MenuCtl.addKid(parent "x-save" (PresI18n.t("Markdown (.md)")) false)
+        MenuCtl.addKid(parent "x-pptx" (PresI18n.t("PowerPoint (.pptx)")) false)
+        MenuCtl.addKid(parent "x-pdf" (PresI18n.t("PDF (.pdf)")) false)
+        MenuCtl.addKid(parent "x-zip" (PresI18n.t("All files (.zip)")) false)
+    }
+
     ; Recent's rows: every deck first (the Files tab), then the latest ones.
     fn recentKids:void (parent:UiItem) {
         MenuCtl.addKid(parent "browse" (PresI18n.t("Browse all…")) false)
@@ -346,6 +381,69 @@ class PresToolbar {
             }
             i = (i + 1)
         }
+        ctxOpen = false
+    }
+
+    ; The filmstrip's context menu at x, y (another open menu or list closes).
+    fn openContext:void (x:double y:double canLeft:boolean canRight:boolean canDelete:boolean) {
+        this.closeSelects()
+        this.closeMenus()
+        drawerOpen = false
+        ctxX = x
+        ctxY = y
+        ctxLeft = canLeft
+        ctxRight = canRight
+        ctxDelete = canDelete
+        ctxOpen = true
+        this.rebuild()
+    }
+
+    ; The context menu as rows: the Slide menu's, with Move left and right.
+    ; Its trigger is an empty point where it was asked for, so the menu opens
+    ; there (or above it, where the window ends).
+    fn contextMenu:void (root:EVGElement keepActive:string) {
+        def cm (new MenuCtl())
+        cm.tid = "tb-m-ctx"
+        cm.name = (PresI18n.t("Slide"))
+        cm.contextMode = true
+        cm.addItem("slideNew" (PresI18n.t("New slide")) false)
+        cm.addItem("slideDuplicate" (PresI18n.t("Duplicate slide")) false)
+        cm.addSeparator()
+        cm.addItem("slideLeft" (PresI18n.t("Move left")) (ctxLeft == false))
+        cm.addItem("slideRight" (PresI18n.t("Move right")) (ctxRight == false))
+        cm.addSeparator()
+        cm.addItem("slideDelete" (PresI18n.t("Delete slide")) (ctxDelete == false))
+        cm.setShortcut("slideNew" "Control+M")
+        cm.setShortcut("slideDuplicate" (this.modKey("D")))
+        cm.setShortcut("slideLeft" (this.modKey("ArrowLeft")))
+        cm.setShortcut("slideRight" (this.modKey("ArrowRight")))
+        cm.setShortcut("slideDelete" "Delete")
+        cm.openMenu()
+        cm.activeTid = keepActive
+        cm.build()
+        def r:EVGElement (unwrap cm.rootEl)
+        r.setAttribute("position" "absolute")
+        r.setAttribute("left" ((EVGDisplayList.num(ctxX)) + "px"))
+        r.setAttribute("top" ((EVGDisplayList.num(ctxY)) + "px"))
+        push menus cm
+        this.put(cm root)
+    }
+
+    ; The context menu closed itself (a row chosen, Esc): it is not drawn again.
+    fn syncContext:void () {
+        if (ctxOpen == false) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length menus)) {
+            def m:MenuCtl (itemAt menus i)
+            if ((m.tid == "tb-m-ctx") && m.open) {
+                return
+            }
+            i = (i + 1)
+        }
+        ctxOpen = false
+        rev = (rev + 1)
     }
 
     ; A select's rows as the drawer's rows, the current one ticked.
@@ -387,12 +485,17 @@ class PresToolbar {
         ; the menu open, and its open submenus, carried over the rebuild
         def keepMenu:string ""
         def keepPath:[string]
+        def keepCtx:string ""
         def mi:int 0
         while (mi < (array_length menus)) {
             def om:MenuCtl (itemAt menus mi)
             if om.open {
-                keepMenu = om.tid
-                keepPath = om.openPath
+                if (om.tid == "tb-m-ctx") {
+                    keepCtx = om.activeTid
+                } {
+                    keepMenu = om.tid
+                    keepPath = om.openPath
+                }
             }
             mi = (mi + 1)
         }
@@ -420,8 +523,13 @@ class PresToolbar {
         } {
             bar.addChild((this.text("tb-brand" brand)))
             def file:MenuCtl (this.dropdown("file" (PresI18n.t("File"))))
-            ; groups as in a desktop app: new | open | save | the assistants
-            file.addItem("new" (PresI18n.t("New presentation")) false)
+            ; groups as in a desktop app: new | open | save and export | the
+            ; assistants | settings | delete, red and last
+            ; New ▸ a presentation (the window) or a datasheet (the spreadsheet
+            ; editor, its workbook kept in the deck's data/)
+            def nw:UiItem (file.addSub("new" (PresI18n.t("New")) false))
+            MenuCtl.addKid(nw "newPres" (PresI18n.t("Presentation…")) false)
+            MenuCtl.addKid(nw "newSheet" (PresI18n.t("Datasheet…")) false)
             file.addItem("duplicate" (PresI18n.t("Duplicate")) false)
             file.addSeparator()
             file.addItem("openbox" (PresI18n.t("Open…")) false)
@@ -429,9 +537,16 @@ class PresToolbar {
             this.recentKids(rc)
             file.addSeparator()
             file.addItem("save" (PresI18n.t("Save .md")) false)
+            def xs:UiItem (file.addSub("export" (PresI18n.t("Export")) false))
+            this.exportKids(xs)
             file.addSeparator()
             file.addItem("aiClaude" (PresI18n.t("Edit in Claude…")) false)
             file.addItem("aiChatgpt" (PresI18n.t("Edit in ChatGPT…")) false)
+            file.addSeparator()
+            file.addItem("settings" (PresI18n.t("Settings…")) false)
+            file.addSeparator()
+            file.addItem("deleteDeck" (PresI18n.t("Delete presentation…")) false)
+            file.setVariant("deleteDeck" "destructive")
             file.setShortcut("openbox" (this.modKey("O")))
             file.setShortcut("save" (this.modKey("S")))
             def slide:MenuCtl (this.dropdown("slide" (PresI18n.t("Slide"))))
@@ -449,8 +564,10 @@ class PresToolbar {
             slide.addSeparator()
             slide.addItem("css" (PresI18n.t("Edit theme CSS…")) false)
             def ex:MenuCtl (this.dropdown("export" (PresI18n.t("Export"))))
-            ex.addItem("pdf" (PresI18n.t("PDF")) false)
-            ex.addItem("pptx" (PresI18n.t("PowerPoint (PPTX)")) false)
+            ex.addItem("x-save" (PresI18n.t("Markdown (.md)")) false)
+            ex.addItem("pptx" (PresI18n.t("PowerPoint (.pptx)")) false)
+            ex.addItem("pdf" (PresI18n.t("PDF (.pdf)")) false)
+            ex.addItem("zip" (PresI18n.t("All files (.zip)")) false)
             def hp:MenuCtl (this.dropdown("help" (PresI18n.t("Help"))))
             hp.addItem("helpBtn" (PresI18n.t("Help for this slide")) false)
 
@@ -477,6 +594,9 @@ class PresToolbar {
             }
         }
         root.addChild(bar)
+        if ctxOpen {
+            this.contextMenu(root keepCtx)
+        }
 
         ; the drawer: everything the narrow bar leaves out, as a list
         def dr (new DrawerCtl())
@@ -507,6 +627,7 @@ class PresToolbar {
             this.button("dr-share" (PresI18n.t("Share")) "ghost" body)
             body.addChild((this.text("tb-dr-label" (PresI18n.t("File")))))
             this.button("dr-new" (PresI18n.t("New presentation")) "ghost" body)
+            this.button("dr-newSheet" (PresI18n.t("New datasheet")) "ghost" body)
             this.button("dr-duplicate" (PresI18n.t("Duplicate")) "ghost" body)
             body.addChild((this.div("tb-dr-sep")))
             this.button("dr-openbox" (PresI18n.t("Open…")) "ghost" body)
@@ -516,6 +637,13 @@ class PresToolbar {
             body.addChild((this.div("tb-dr-sep")))
             this.button("dr-aiClaude" (PresI18n.t("Edit in Claude…")) "ghost" body)
             this.button("dr-aiChatgpt" (PresI18n.t("Edit in ChatGPT…")) "ghost" body)
+            this.button("dr-settings" (PresI18n.t("Settings…")) "ghost" body)
+            body.addChild((this.div("tb-dr-sep")))
+            def del:ButtonCtl (this.button("dr-deleteDeck" (PresI18n.t("Delete presentation…")) "ghost" body))
+            def delEl:EVGElement (unwrap del.rootEl)
+            if ((delEl.getChildCount()) > 0) {
+                UiTree.addClass((delEl.getChild(0)) "tb-danger")
+            }
             body.addChild((this.div("tb-dr-sep")))
             def arrow:string "▸  "
             if drawerThemes {
@@ -538,8 +666,10 @@ class PresToolbar {
             }
             this.button("dr-css" (PresI18n.t("Edit theme CSS…")) "ghost" body)
             body.addChild((this.text("tb-dr-label" (PresI18n.t("Export")))))
-            this.button("dr-pdf" (PresI18n.t("PDF")) "ghost" body)
-            this.button("dr-pptx" (PresI18n.t("PowerPoint (PPTX)")) "ghost" body)
+            this.button("dr-x-save" (PresI18n.t("Markdown (.md)")) "ghost" body)
+            this.button("dr-pptx" (PresI18n.t("PowerPoint (.pptx)")) "ghost" body)
+            this.button("dr-pdf" (PresI18n.t("PDF (.pdf)")) "ghost" body)
+            this.button("dr-zip" (PresI18n.t("All files (.zip)")) "ghost" body)
             body.addChild((this.text("tb-dr-label" (PresI18n.t("Help")))))
             this.button("dr-helpBtn" (PresI18n.t("Help for this slide")) "ghost" body)
             if ((strlen langRows) > 0) {
@@ -745,6 +875,7 @@ class PresToolbar {
                 }
                 i = (i + 1)
             }
+            this.syncContext()
             rev = (rev + 1)
             return
         }
