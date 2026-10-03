@@ -2116,6 +2116,7 @@ function frame() {
     if (needsPaint || rev !== lastRev || effects) {
       needsPaint = false;
       lastRev = rev;
+      syncEndPanel();
       paintOnce();
       handleRequests();
       followAddress();
@@ -3193,6 +3194,34 @@ async function copyShare(which) {
   copiedTimer = setTimeout(() => { app.shareCopied("", true); needsPaint = true; }, 1600);
 }
 
+// --- the end of a presentation -------------------------------------------------
+// Past the last slide (PresApp.atEnd) a panel says so and offers the way on:
+// the first slide, the slide before, or out. In the editor out ends the
+// presentation; a shared one has nowhere to go back to, so there it closes
+// the panel (and full screen) and leaves the last slide showing.
+const endPanel = document.getElementById("endPanel");
+function syncEndPanel() {
+  const on = app.atEnd();
+  if (on === !endPanel.hidden) return;
+  endPanel.hidden = !on;
+  document.body.classList.toggle("ended", on);
+  document.getElementById("endExit").textContent = viewer ? t("✕ Close") : t("✕ Exit");
+}
+function endAction(fn) {
+  fn();
+  afterInput();
+  syncEndPanel();
+  if (!viewer && !isCoarse()) keys.focus({ preventScroll: true });
+}
+document.getElementById("endRestart").addEventListener("click", () => endAction(() => app.restart()));
+// the first step back only leaves the end; the second is the slide before
+document.getElementById("endPrev").addEventListener("click", () => endAction(() => { app.prev(); app.prev(); }));
+document.getElementById("endExit").addEventListener("click", () => endAction(() => {
+  if (!viewer) return app.endPresent();
+  app.prev();
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+}));
+
 // --- a shared presentation (#…&mode=show) ---------------------------------------
 // The slides only: no toolbar, no editor, and no way back to one. Full screen
 // is offered, not forced — a browser gives it only to a tap of the viewer's own.
@@ -3738,7 +3767,7 @@ keys.addEventListener("keydown", (ev) => {
 document.addEventListener("keydown", (ev) => {
   if (ev.target === keys || !(lastLayout && lastLayout.mode === "present")) return;
   // the viewer's buttons and menu keep their own keys (Enter, Tab, arrows)
-  if (ev.target.closest?.("#viewBar")) return;
+  if (ev.target.closest?.("#viewBar, #endPanel")) return;
   // a live sheet being edited (or the workbook dialog) has the keyboard
   if (liveSheets.owns(ev.target)) return;
   keys.focus({ preventScroll: true });

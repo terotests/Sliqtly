@@ -121,6 +121,28 @@
   #vMenu button:hover, #vMenu button:focus-visible { background: rgba(255, 255, 255, 0.12); outline: none; }
   #vMenu .sub button { padding-left: 28px; }
   #vMenu hr { width: 100%; border: 0; border-top: 1px solid rgba(255, 255, 255, 0.14); margin: 4px 0; }
+  /* Past the last slide while presenting (PresApp.atEnd): where to go next. */
+  #endPanel {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 6;
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    max-width: calc(100vw - 32px); padding: 14px 16px; border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(24, 24, 27, 0.92);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45); color: #fafafa;
+    font: 14px/1.2 "Open Sans", system-ui, sans-serif;
+  }
+  #endPanel[hidden], #endPanel [hidden] { display: none; }
+  #endPanel .end-title { font-weight: 600; opacity: 0.85; }
+  #endPanel .end-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  #endPanel button {
+    min-height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.08); color: #fafafa; font: inherit; cursor: pointer;
+  }
+  #endPanel button:hover, #endPanel button:focus-visible { background: rgba(255, 255, 255, 0.18); outline: none; }
+  #endPanel button.primary { background: #2563eb; border-color: #2563eb; }
+  #endPanel button.primary:hover, #endPanel button.primary:focus-visible { background: #1d4ed8; }
+  /* the panel says it all: the viewer's bar stays out of its way */
+  body.ended #viewBar { display: none; }
+  body.ended #c { cursor: default; }
   /* web/versions-ui.js: the version history and the merge of two copies */
   .vPanel {
     position: fixed; top: 56px; right: 16px; bottom: 16px; z-index: 20;
@@ -237,6 +259,14 @@
   <div id="hint"><img class="spinner" src="./favicon.svg" alt="" width="72" height="72" /><span id="tagline">loading…</span></div>
   <!-- one of the taglines while the editor loads (also in mcp/src/preview.html) -->
   <script>(function (t) { document.getElementById("tagline").textContent = t[Math.floor(Math.random() * t.length)]; })(["Sliqtly better slides.","That looks Sliqtly off.","Make it Sliqtly smarter.","Go Sliqtly further.","Sliqtly obsessed with good slides.","Things just got Sliqtly better."]);</script>
+</div>
+<div id="endPanel" role="dialog" aria-labelledby="endTitle" hidden>
+  <div class="end-title" id="endTitle" data-i18n>End of presentation</div>
+  <div class="end-row">
+    <button id="endRestart" class="primary" title="Back to the first slide (Home)" data-i18n-title data-i18n>⟲ From the start</button>
+    <button id="endPrev" title="The slide before the last one" data-i18n-title data-i18n>◀ Previous slide</button>
+    <button id="endExit" title="Stop presenting (Esc)" data-i18n-title data-i18n>✕ Exit</button>
+  </div>
 </div>
 <div id="viewBar" aria-label="Presentation controls" data-i18n-aria>
   <button id="vPrev" title="Previous (←)" data-i18n-title>◀</button>

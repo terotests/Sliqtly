@@ -111,6 +111,9 @@ class PresApp {
     ; "edit" | "present"
     def mode:string "edit"
     def speaker:boolean false
+    ; past the last step of the last slide while presenting: the page shows
+    ; its end panel (restart, previous, exit)
+    def ended:boolean false
     ; present: steps come by themselves rather than by a click
     def auto:boolean false
     ; "editor" | "stage" | "strip" (the filmstrip: its keys move between,
@@ -808,6 +811,7 @@ class PresApp {
                         pStep = 0
                     } {
                         want = (start + s.duration)
+                        ended = true
                     }
                 }
                 def sNow:PresSlide (deck.slideAt(selected))
@@ -1182,6 +1186,7 @@ class PresApp {
         if fromStart {
             selected = 0
         }
+        ended = false
         pStep = 0
         clock = (PresTimeline.slideStart(deck selected))
         elapsed = 0.0
@@ -1195,6 +1200,7 @@ class PresApp {
             return
         }
         mode = "edit"
+        ended = false
         this.viewReset()
         activeDia = -1
         localT = -1.0
@@ -1228,12 +1234,40 @@ class PresApp {
                 activeDia = -1
                 pStep = 0
                 clock = (PresTimeline.slideStart(deck selected))
+            } {
+                ended = true
             }
         }
         chromeRev = (chromeRev + 1)
     }
 
+    ; Presenting and gone past the end: the page offers a way on.
+    fn atEnd:boolean () {
+        return ((mode == "present") && ended)
+    }
+
+    ; The end panel's Restart: the first slide, the clock at its start.
+    fn restart:void () {
+        if (mode != "present") {
+            return
+        }
+        ended = false
+        selected = 0
+        pStep = 0
+        this.viewReset()
+        activeDia = -1
+        clock = (PresTimeline.slideStart(deck selected))
+        deck.resetExplore()
+        chromeRev = (chromeRev + 1)
+    }
+
     fn prev:void () {
+        if ended {
+            ; back from the end panel to the last slide as it was left
+            ended = false
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if (selected <= 0) {
             clock = 0.0
             pStep = 0
@@ -2187,6 +2221,8 @@ class PresApp {
     def tapDia:int -1
 
     def dragSlop:double 6.0
+    ; how far a finger moves sideways for a swipe to change the slide
+    def swipeMin:double 40.0
 
     fn setDragSlop:void (px:double) {
         dragSlop = px
@@ -2209,6 +2245,9 @@ class PresApp {
             return
         }
         if (stageDia < 0) {
+            ; where the press went: a swipe changes the slide on release
+            lastX = x
+            lastY = y
             return
         }
         def hit@(optional):PresDiaUse (deck.diagramUse(selected stageDia))
@@ -2248,6 +2287,26 @@ class PresApp {
             activatedNow = ((tapDia >= 0) && (mode == "edit"))
         }
         if (mode == "present") {
+            ; a swipe sideways: left for the next slide, right for the one
+            ; before (from the end panel straight to it); a press that went
+            ; elsewhere does nothing
+            def dx:double (lastX - downX)
+            def dy:double (lastY - downY)
+            def adx:double (fabs dx)
+            def ady:double (fabs dy)
+            if ((adx >= swipeMin) && (adx > (ady * 1.2))) {
+                if (dx < 0.0) {
+                    this.next()
+                } {
+                    ended = false
+                    this.prev()
+                }
+                chromeRev = (chromeRev + 1)
+                return
+            }
+            if (((adx * adx) + (ady * ady)) >= (swipeMin * swipeMin)) {
+                return
+            }
             if (! (this.stagePress(downX downY))) {
                 this.next()
             }
@@ -2630,6 +2689,7 @@ class PresApp {
                 return true
             }
             if (name == "home") {
+                ended = false
                 selected = 0
                 pStep = 0
                 clock = 0.0
