@@ -54,6 +54,19 @@ jobs:
           printf '%s' "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
           GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json" \
             npx --yes firebase-tools@13 deploy --only firestore:rules,storage --project sliqtly --non-interactive
+      # Firestore's TTL policies (firestore.indexes.json): documents whose
+      # `expires` has passed are deleted (MCP decks made without sign-in, the
+      # MCP server's daily counters and sign-in records). Needs the role Cloud
+      # Datastore Index Admin on the service account; until then this step
+      # fails without stopping the deploy.
+      - name: Firestore TTL policies
+        continue-on-error: true
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          printf '%s' "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json" \
+            npx --yes firebase-tools@13 deploy --only firestore:indexes --project sliqtly --non-interactive
       # The Storage bucket's CORS (storage.cors.json): a shared deck reads its
       # pictures and data files with fetch(), which the browser refuses
       # without it. Needs the role Storage Admin on the service account; until

@@ -37,6 +37,7 @@ func main() {
 			log.Fatalf("firebase: %v", err)
 		}
 		kind = "cloud"
+		e.Quota = dailyQuota(e.DB, 50, 500, time.Now)
 	} else {
 		e.TrustHost = true
 	}

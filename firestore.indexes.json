@@ -1,0 +1,41 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "shares",
+      "fieldPath": "expires",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "mcp_keys",
+      "fieldPath": "expires",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "mcp_quota",
+      "fieldPath": "expires",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "mcp_oauth_requests",
+      "fieldPath": "expires",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "mcp_oauth_codes",
+      "fieldPath": "expires",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "mcp_oauth_tokens",
+      "fieldPath": "expires",
+      "ttl": true,
+      "indexes": []
+    }
+  ]
+}

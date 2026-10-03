@@ -134,7 +134,7 @@ class Tools {
         item.putStr("type" "object")
         item.put("properties" ip)
         item.put("required" (J.strs(([] _:string ("name")))))
-        def images:MfJ (Tools.prop("array" "Pictures the Markdown refers to as media/<name>"))
+        def images:MfJ (Tools.prop("array" "Pictures the Markdown refers to as media/<name>. Needs sign-in."))
         images.put("items" item)
         p.put("images" images)
         def fp:MfJ (MfJ.newObj())
@@ -146,7 +146,7 @@ class Tools {
         fitem.putStr("type" "object")
         fitem.put("properties" fp)
         fitem.put("required" (J.strs(([] _:string ("name")))))
-        def files:MfJ (Tools.prop("array" "Data files kept with the deck under data/: .xlsx workbooks, .csv, .tsv, .json, .txt (10 MB each). A chart or ```table reads data/<name>.csv; a workbook's sheets are read as data/<book>-<Sheet>.csv (data/<book>.csv for a one-sheet book); see sliqtly_guide."))
+        def files:MfJ (Tools.prop("array" "Data files kept with the deck under data/: .xlsx workbooks, .csv, .tsv, .json, .txt (10 MB each); needs sign-in. A chart or ```table reads data/<name>.csv; a workbook's sheets are read as data/<book>-<Sheet>.csv (data/<book>.csv for a one-sheet book); see sliqtly_guide."))
         files.put("items" fitem)
         p.put("files" files)
     }
@@ -275,7 +275,7 @@ class Tools {
         sheetsP.putInt("minItems" 1)
         sheetsP.putInt("maxItems" 20)
         wp.put("sheets" sheetsP)
-        tools.add((Tools.tool("write_workbook" "Write a presentation's workbook" "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text. Values only: formatting, formulas and column widths are not kept." (Tools.schema(wp ([] _:string ("deck_id" "path" "sheets")))) (Tools.annotations(false 1 true false)) eitherMeta)))
+        tools.add((Tools.tool("write_workbook" "Write a presentation's workbook" "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text. Values only: formatting, formulas and column widths are not kept. Needs sign-in." (Tools.schema(wp ([] _:string ("deck_id" "path" "sheets")))) (Tools.annotations(false 1 true false)) eitherMeta)))
 
         def listMeta:MfJ (MfJ.newObj())
         def only:MfJ (MfJ.newArr())
@@ -374,6 +374,29 @@ class Tools {
         return r
     }
 
+    ; Pictures and files are stored only for a signed-in user: anyone could
+    ; otherwise keep any bytes at a public address.
+    sfn needsSignIn:MfJ (caller:Caller what:string) {
+        def r:MfJ (Tools.fail(("Storing " + what + " needs sign-in. Connect Sliqtly with sign-in (Google), or leave them out: without sign-in a presentation is text only.")))
+        if ((strlen caller.signIn) > 0) {
+            def meta:MfJ (MfJ.newObj())
+            meta.put("mcp/www_authenticate" (J.strs(([] _:string (("Bearer resource_metadata=\"" + caller.signIn + "\", error=\"insufficient_scope\", error_description=\"Sign in to Sliqtly to store pictures and files\""))))))
+            r.put("_meta" meta)
+        }
+        return r
+    }
+
+    ; "pictures", "data files" or "" for what a call would store
+    sfn uploads:string (a:MfJ) {
+        if ((array_length (a.list("images"))) > 0) {
+            return "pictures"
+        }
+        if ((array_length (a.list("files"))) > 0) {
+            return "data files"
+        }
+        return ""
+    }
+
     sfn links:void (out:MfJ base:string id:string) {
         out.putStr("share_url" (base + "/s/" + id))
         out.putStr("edit_url" (base + "/s/" + id + "?edit"))
@@ -390,6 +413,10 @@ class Tools {
                 who = "the signed-in user"
             }
             push lines ("Saved in the Sliqtly account of " + who + ".")
+        } {
+            if (out.has("deck_id")) {
+                push lines "Not signed in: the presentation is deleted 30 days after its last change. Sign in to keep it, or to add pictures and files."
+            }
         }
         if (out.has("deck_id")) {
             push lines ("deck_id: " + (out.str_("deck_id")))
@@ -678,7 +705,7 @@ class Tools {
             g.put("content" (Tools.text((host_asset host "guide.md"))))
             return g
         }
-        if (((name == "create_presentation") || (name == "update_presentation")) || (name == "write_workbook")) {
+        if ((((name == "create_presentation") || (name == "update_presentation")) || (name == "bind_chart_data")) || (name == "write_workbook")) {
             def why:string (host_rate_limit host caller.who)
             if ((strlen why) > 0) {
                 return (Tools.fail(why))
@@ -738,6 +765,10 @@ class Tools {
         def bad:string (Tools.checkArgs(a ([] _:string ("title" "markdown"))))
         if ((strlen bad) > 0) {
             return (Tools.fail(bad))
+        }
+        def up:string (Tools.uploads(a))
+        if (((caller.signedIn == false) && ((host_store_kind host) != "link")) && ((strlen up) > 0)) {
+            return (Tools.needsSignIn(caller up))
         }
         def md:string (a.str_("markdown"))
         def theme:string "aurora"
@@ -830,6 +861,10 @@ class Tools {
         def bad:string (Tools.checkArgs(a ([] _:string ("deck_id"))))
         if ((strlen bad) > 0) {
             return (Tools.fail(bad))
+        }
+        def up:string (Tools.uploads(a))
+        if ((caller.signedIn == false) && ((strlen up) > 0)) {
+            return (Tools.needsSignIn(caller up))
         }
         if ((Tools.has(a "markdown")) && ((strlen (a.str_("markdown"))) > (Deck.MAX_MD()))) {
             return (Tools.fail("markdown is larger than 300 KB."))
@@ -984,6 +1019,9 @@ class Tools {
         def bad:string (Tools.checkArgs(a ([] _:string ("deck_id" "path"))))
         if ((strlen bad) > 0) {
             return (Tools.fail(bad))
+        }
+        if (caller.signedIn == false) {
+            return (Tools.needsSignIn(caller "workbooks"))
         }
         def bare:string (trim (a.str_("path")))
         while (startsWith bare "/") {

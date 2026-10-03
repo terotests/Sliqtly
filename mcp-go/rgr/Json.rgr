@@ -148,6 +148,13 @@ class J {
     sfn nul:MfJ () {
         return (new MfJ)
     }
+    ; a timestamp to store (the host turns {"$time": ms} into one), for
+    ; Firestore's TTL policies on `expires`
+    sfn timeAt:MfJ (ms:int) {
+        def t:MfJ (MfJ.newObj())
+        t.putInt("$time" ms)
+        return t
+    }
     sfn strs:MfJ (list:[string]) {
         def a:MfJ (MfJ.newArr())
         for list s:string i {

@@ -33,7 +33,7 @@ func skyPNG(top, bottom color.RGBA) string {
 
 func TestWarnsOfTextThatDoesNotStandOut(t *testing.T) {
 	f := fakeFirebase()
-	s := start(t, testEnv(&f, nil), "")
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
 	defer s.close()
 	light := skyPNG(color.RGBA{244, 246, 248, 255}, color.RGBA{230, 235, 240, 255})
 	dark := skyPNG(color.RGBA{20, 30, 40, 255}, color.RGBA{28, 58, 36, 255})
