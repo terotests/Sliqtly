@@ -217,6 +217,10 @@ class PresApp {
     def panels:PresPanels (new PresPanels())
     ; the page is used with a finger: `@media (pointer: coarse)`
     def coarse:boolean false
+    ; The editor's skin: "" for the light look, "retro" for the glossy lime
+    ; one. It is a theme name every chrome sheet is applied with; the skins'
+    ; rules are `.theme-retro .x`, so "" leaves them all asleep.
+    def skin:string ""
     ; the mirrored control the keyboard is on ("" = the editor or the stage)
     def a11yFocus:string ""
     def a11yGen:int 0
@@ -336,6 +340,59 @@ class PresApp {
         t.hBarTrack = (EVGColor.rgb(250 250 250))
         t.hBarThumb = (EVGColor.rgba(24 24 27 0.28))
         t.hBarEdge = (EVGColor.rgb(228 228 231))
+    }
+
+    sfn skinEditor:void (ed:ScriptEditor s:string hue:double) {
+        if (s == "retro") {
+            PresApp.retroEditor(ed hue)
+        } {
+            PresApp.lightEditor(ed)
+        }
+    }
+
+    ; The editors in the retro skin: a dark display with phosphor text in the
+    ; skin's hue (`--retro-hue`), numbers and attributes in amber.
+    sfn hueColor:EVGColor (h:double s:double l:double a:double) {
+        def c:EVGColor (EVGColor.hslToRgb(h s l))
+        c.a = a
+        return c
+    }
+
+    sfn retroEditor:void (ed:ScriptEditor h:double) {
+        def t:ScriptEditorTheme ed.theme
+        t.bg = (PresApp.hueColor(h 68.0 4.0 1.0))
+        t.gutterBg = (PresApp.hueColor(h 77.0 7.0 1.0))
+        t.gutterText = (PresApp.hueColor(h 52.0 36.0 1.0))
+        t.gutterActive = (PresApp.hueColor(h 100.0 86.0 1.0))
+        t.currentLine = (PresApp.hueColor(h 68.0 10.0 1.0))
+        t.selection = (PresApp.hueColor(h 100.0 68.0 0.28))
+        t.caret = (PresApp.hueColor(h 100.0 68.0 1.0))
+        t.border = (PresApp.hueColor(h 77.0 13.0 1.0))
+        t.plain = (PresApp.hueColor(h 100.0 86.0 1.0))
+        t.keyword = (PresApp.hueColor(h 100.0 68.0 1.0))
+        t.builtin = (PresApp.hueColor((h + 60.0) 75.0 75.0 1.0))
+        t.number = (EVGColor.rgb(255 210 122))
+        t.text = (PresApp.hueColor(h 100.0 71.0 1.0))
+        t.comment = (PresApp.hueColor(h 52.0 36.0 1.0))
+        t.punct = (PresApp.hueColor(h 49.0 53.0 1.0))
+        t.tag = (EVGColor.rgb(255 170 90))
+        t.attr = (EVGColor.rgb(255 210 122))
+        t.popupBg = (PresApp.hueColor(h 77.0 7.0 1.0))
+        t.popupEdge = (PresApp.hueColor(h 100.0 80.0 1.0))
+        t.popupPick = (PresApp.hueColor(h 71.0 12.0 1.0))
+        t.popupDetail = (PresApp.hueColor(h 49.0 53.0 1.0))
+        t.findBg = (PresApp.hueColor(h 77.0 7.0 1.0))
+        t.findEdge = (PresApp.hueColor(h 100.0 80.0 1.0))
+        t.findInk = (PresApp.hueColor(h 100.0 86.0 1.0))
+        t.findDim = (PresApp.hueColor(h 49.0 53.0 1.0))
+        t.errorInk = (EVGColor.rgb(255 138 106))
+        t.warningInk = (EVGColor.rgb(255 210 122))
+        t.minimapBg = (PresApp.hueColor(h 77.0 7.0 1.0))
+        t.minimapSlider = (PresApp.hueColor(h 100.0 68.0 0.12))
+        t.minimapEdge = (PresApp.hueColor(h 77.0 13.0 1.0))
+        t.hBarTrack = (PresApp.hueColor(h 77.0 7.0 1.0))
+        t.hBarThumb = (PresApp.hueColor(h 100.0 68.0 0.35))
+        t.hBarEdge = (PresApp.hueColor(h 77.0 13.0 1.0))
     }
 
     ; The reader's template, which beats what the document names; "" lets
@@ -1991,7 +2048,7 @@ class PresApp {
     fn layoutChrome:EVGLayout () {
         def root:EVGElement (this.chromeTree())
         sheet.setViewport(W H coarse)
-        sheet.applyTree(root "")
+        sheet.applyTree(root skin)
         def lay (new EVGLayout())
         lay.setPageSize(W H)
         if (!null? measurer) {
@@ -3596,7 +3653,7 @@ class PresApp {
         root.setAttribute("height" ((EVGDisplayList.num(H)) + "px"))
         pick.draw(root slideRect.x slideRect.y (this.slideScale()) stageArea.y stageArea.x (stageArea.x + stageArea.w))
         sheet.setViewport(W H coarse)
-        sheet.applyTree(root "")
+        sheet.applyTree(root skin)
         def lay (new EVGLayout())
         lay.setPageSize(W H)
         if (!null? measurer) {
@@ -3902,6 +3959,61 @@ class PresApp {
     fn openSettings:void (contrast:boolean) {
         panels.openSettings(contrast)
         chromeRev = (chromeRev + 1)
+    }
+
+    ; File → Settings → Look. Every host is built again under the new theme;
+    ; the code editors have no stylesheet, so their palette is set here from
+    ; the skin's hue (the page puts the same hue in the sheets as
+    ; `--retro-hue`, see setChromeCss).
+    fn setSkin:void (name:string hue:double) {
+        def s:string ""
+        if (name == "retro") {
+            s = "retro"
+        }
+        skin = s
+        toolbar.skin = s
+        panels.skin = s
+        panels.skinHue = hue
+        hint.skin = s
+        chart.skin = s
+        PresApp.skinEditor(editor s hue)
+        PresApp.skinEditor(cssEditor s hue)
+        PresApp.skinEditor(fileEditor s hue)
+        if ((strlen toolbar.css) > 0) {
+            toolbar.rebuild()
+        }
+        if ((strlen panels.css) > 0) {
+            panels.rebuild()
+        }
+        if hint.isOpen {
+            hint.rebuild()
+        }
+        if chart.isOpen {
+            chart.rebuild()
+        }
+        panelsKey = ""
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The chrome sheet again (pres.css and the skins after it): the page
+    ; sends it once more when the skin's colour changes.
+    fn setChromeCss:void (css:string) {
+        def fresh (new EVGStyleSheet())
+        sheet = fresh
+        sheet.parse(css)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; What the chrome sheet (pres.css and the skins after it) could not
+    ; read, one message per line; "" when it read everything.
+    fn chromeCssErrors:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length sheet.errors)) {
+            out = ((out + (itemAt sheet.errors i)) + "\n")
+            i = (i + 1)
+        }
+        return out
     }
 
     fn shareIsOpen:boolean () {

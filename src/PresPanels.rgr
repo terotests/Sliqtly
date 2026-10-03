@@ -43,6 +43,10 @@ class PresPromptSelect extends SelectCtl {
 class PresPanels {
     def host:UiHost (new UiHost())
     def css:string ""
+    ; The editor's skin ("" or "retro"): a theme name added to this host's own.
+    def skin:string ""
+    ; ...and its base colour, as a hue (`--retro-hue`).
+    def skinHue:double 88.0
     def w:double 1200.0
     def h:double 700.0
     def barH:double 48.0
@@ -257,6 +261,27 @@ class PresPanels {
         return c
     }
 
+    ; The retro skin's colours: a name and the hue it stands for.
+    sfn hueNames:[string] () {
+        def n:[string]
+        push n "Lime"
+        push n "Ice"
+        push n "Ember"
+        push n "Violet"
+        push n "Rose"
+        return n
+    }
+
+    sfn hueValues:[int] () {
+        def v:[int]
+        push v 88
+        push v 200
+        push v 25
+        push v 275
+        push v 335
+        return v
+    }
+
     sfn isColour:boolean (v:string) {
         def t:string (trim v)
         return ((((strlen t) >= 4) && ((charAt t 0) == 35)) || ((indexOf t "rgb") == 0))
@@ -272,7 +297,7 @@ class PresPanels {
         def fresh (new UiHost())
         host = fresh
         host.addStyleSheet(css)
-        host.setTheme("pn")
+        host.setTheme((trim ("pn " + skin)))
         host.setPageSize(w h)
         def root:EVGElement (unwrap host.root)
         root.className = "ui-root pn-page"
@@ -953,7 +978,7 @@ class PresPanels {
         d.id = "pn-dialog"
         UiTree.surface(d "free" "start")
         d.overlayX = ((w - 520.0) * 0.5)
-        d.overlayY = ((h - 300.0) * 0.5)
+        d.overlayY = ((h - 490.0) * 0.5)
         d.addChild((this.words("pn-dtitle" (PresI18n.t("Settings")))))
         def o:EVGElement (this.div("pn-opt"))
         o.addChild((this.words("pn-otitle" (PresI18n.t("Automatic contrast correction")))))
@@ -968,6 +993,31 @@ class PresPanels {
         this.button("pn-set-contrast" label variant r)
         o.addChild(r)
         d.addChild(o)
+        ; The editor's look; the slides keep their own theme in either.
+        def lk:EVGElement (this.div("pn-opt"))
+        lk.addChild((this.words("pn-otitle" (PresI18n.t("Look")))))
+        lk.addChild((this.words("pn-odesc" (PresI18n.t("How the editor around the slides looks. Your slides and their themes stay as they are.")))))
+        def lr:EVGElement (this.div("pn-orow"))
+        this.button("pn-set-skin-light" (PresI18n.t("Standard")) (? (skin == "") "primary" "secondary") lr)
+        this.button("pn-set-skin-retro" (PresI18n.t("Retro")) (? (skin == "retro") "primary" "secondary") lr)
+        lk.addChild(lr)
+        if (skin == "retro") {
+            ; the skin's base colour: one hue every shade of it follows
+            def hr:EVGElement (this.div("pn-orow"))
+            def names:[string] (PresPanels.hueNames())
+            def hues:[int] (PresPanels.hueValues())
+            def i:int 0
+            while (i < (array_length hues)) {
+                def hv:int (itemAt hues i)
+                def b:ButtonCtl (this.button(("pn-set-hue-" + (to_string hv)) (PresI18n.t((itemAt names i))) (? ((to_int skinHue) == hv) "primary" "secondary") hr))
+                def sw:EVGElement (this.swatch((((("hsl(" + (to_string hv)) + " 70% 50%)")))))
+                def br:EVGElement (unwrap b.rootEl)
+                br.addChild(sw)
+                i = (i + 1)
+            }
+            lk.addChild(hr)
+        }
+        d.addChild(lk)
         def foot:EVGElement (this.div("pn-dfoot"))
         foot.addChild((this.div("pn-grow")))
         this.button("pn-set-close" (PresI18n.t("Close")) "secondary" foot)
@@ -1453,6 +1503,14 @@ class PresPanels {
                 autoContrast = (autoContrast == false)
                 push requests ("setting:contrast:" + (? autoContrast "on" "off"))
                 this.rebuild()
+                return
+            }
+            if ((indexOf sc "pn-set-hue-") == 0) {
+                push requests ("setting:skinhue:" + (substring sc 11 (strlen sc)))
+                return
+            }
+            if ((sc == "pn-set-skin-light") || (sc == "pn-set-skin-retro")) {
+                push requests ("setting:skin:" + (? (sc == "pn-set-skin-retro") "retro" "light"))
                 return
             }
             if ((sc == "pn-set-close") || ((this.inEl("pn-dialog" px py)) == false)) {
