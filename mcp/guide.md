@@ -53,6 +53,8 @@ Write `![Alt text](media/<name>)` and pass the picture in the tool call's
 `![](media/team.jpg)`). A picture can also cover the slide:
 `## Title {bg=media/cover.jpg bg-dim=0.4}`. Give each picture either a
 public `https` URL or base64 data. PNG, JPEG, GIF, WebP and SVG, up to 5 MB.
+When text on a picture is hard to read ("low contrast"), raise that slide's
+`bg-dim` (0.6–0.8) with update_presentation; the picture stays as it is.
 
 ## Charts, diagrams, math, tables
 
