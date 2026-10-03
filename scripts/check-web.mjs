@@ -1708,6 +1708,47 @@ try {
     check("…and a copy is kept with the deck for its readers", res.copy === 6, JSON.stringify(res));
   }
 
+  // Files: the copy kept of a linked sheet is named after the sheet and its
+  // tab, shown as linked data, and Unlink makes the chart read it as a file
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const route = (r) => r.fulfill({ status: 200, contentType: "text/html", headers: { "access-control-allow-origin": "*" }, body: "<!doctype html><title>Sign in</title>" });
+    await page.context().route(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate(async () => {
+      const s = window.sliqtly;
+      window.__was = { user: s.user, readSheet: s.readSheet, sheetName: s.sheetName };
+      s.user = () => ({ uid: "u1", email: "u@example.com" });
+      s.readSheet = async () => "Kk,Km\nTammi,10\nHelmi,20\n";
+      s.sheetName = () => ({ title: "Budjetti", tab: "Syyskuu" });
+      const a = window.__app;
+      a.setSource("# D\n\n## Km\n\n```vega-lite\n{\"data\": {\"url\": \"https://docs.google.com/spreadsheets/d/PRIV3/edit#gid=0\"}, \"mark\": \"bar\", \"width\": 400, \"encoding\": {\"x\": {\"field\": \"Kk\", \"type\": \"nominal\"}, \"y\": {\"field\": \"Km\", \"type\": \"quantitative\"}}}\n```\n");
+      for (let i = 0; i < 40 && a.chartDataWanted() !== ""; i += 1) await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 400));
+      a.showTab("files");
+    });
+    await page.waitForFunction(() => window.__app.panels.filesJson.includes("Budjetti"), null, { timeout: 8000 }).catch(() => {});
+    const row = await page.evaluate(() => {
+      try { return JSON.parse(window.__app.panels.filesJson).files.find((f) => f.path.startsWith("data/live/")) || null; } catch (_) { return null; }
+    });
+    const res = await page.evaluate(async (path) => {
+      if (path) await window.__fileRequest("unlink:" + path);
+      await new Promise((r) => setTimeout(r, 400));
+      const files = await window.__docFiles();
+      const a = window.__app;
+      const md = a.source();
+      a.selectSlide(1);
+      const st = JSON.parse(a.stageJson());
+      const bars = st.list.cmds.filter((c) => c.k === 0 && c.w > 20 && c.h > 20 && c.w < 300).length;
+      Object.assign(window.sliqtly, window.__was);
+      a.showTab("md");
+      return { file: files.includes("data/Budjetti-Syyskuu.csv"), copy: files.includes(path), md: /"url": ?"data\/Budjetti-Syyskuu\.csv"/.test(md), bars };
+    }, row && row.path);
+    await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    check("Files: a linked sheet's copy is named after the sheet and tab, with its source", !!row && row.kind === "live" && row.title === "Budjetti · Syyskuu" && row.tag === "SHEET" && /PRIV3/.test(row.source) && /Google Sheets · /.test(row.note), JSON.stringify(row));
+    check("…and Unlink makes the chart read it as an ordinary data file", res.file && !res.copy && res.md && res.bars === 2, JSON.stringify(res));
+  }
+
   // A private sheet pasted where the browser blocks Google's window (the
   // press spent on the fetch): a card asks for one more press, which opens it
   {
@@ -2539,6 +2580,8 @@ try {
       await pc.evaluate(() => window.__fileRequest("new"));
       await pc.waitForTimeout(300);
       const nameOf = () => pc.evaluate(() => JSON.parse(window.__app.newDeckPlan()).name);
+      // empty, with the hint drawn as a placeholder and not as a value
+      check("New presentation: Name starts empty", (await nameOf()) === "");
       await pc.keyboard.type("Myynti 2026");
       await pc.mouse.move(584, 235);
       await pc.mouse.down();
@@ -2547,6 +2590,9 @@ try {
       await pc.mouse.up();
       await pc.keyboard.type("Tulos");
       const replaced = await nameOf();
+      await pc.keyboard.press("Meta+a");
+      await pc.keyboard.type("Vanha");
+      const allMeta = await nameOf();
       await pc.keyboard.press("Control+a");
       await pc.keyboard.type("Uusi");
       const all = await nameOf();
@@ -2555,8 +2601,8 @@ try {
       const cleared = await nameOf();
       await pc.keyboard.type("Z");
       const after = await nameOf();
-      check("New presentation: a drag in Name selects, Ctrl+A selects all, × clears", replaced.startsWith("Tulos") && replaced.endsWith("2026") && all === "Uusi" && cleared === "" && after === "Z",
-        JSON.stringify({ replaced, all, cleared, after }));
+      check("New presentation: a drag in Name selects, Ctrl+A selects all, × clears", replaced.startsWith("Tulos") && replaced.endsWith("2026") && allMeta === "Vanha" && all === "Uusi" && cleared === "" && after === "Z",
+        JSON.stringify({ replaced, allMeta, all, cleared, after }));
       await pc.keyboard.press("Escape");
       await pc.waitForTimeout(300);
     }
