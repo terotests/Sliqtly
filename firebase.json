@@ -87,7 +87,16 @@
         ]
       },
       {
-        "source": "**/*.@(html|js|mjs|css|json|md|svg|ttf)",
+        "source": "/data/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=86400"
+          }
+        ]
+      },
+      {
+        "source": "**/*.@(html|js|mjs|css|json|md|svg|ttf|csv)",
         "headers": [
           {
             "key": "Access-Control-Allow-Origin",
