@@ -3978,7 +3978,7 @@ keys.addEventListener("cut", (ev) => {
 keys.addEventListener("paste", (ev) => {
   ev.preventDefault();
   const items = ev.clipboardData ? [...ev.clipboardData.items] : [];
-  const picture = items.find((it) => it.kind === "file" && /^image\/(png|jpeg|gif|webp)$/.test(it.type));
+  const picture = items.find((it) => it.kind === "file" && /^image\/(png|jpeg|gif|webp|svg\+xml)$/.test(it.type));
   if (picture) {
     const file = picture.getAsFile();
     if (file) addPictureFile(file).catch(fail);
