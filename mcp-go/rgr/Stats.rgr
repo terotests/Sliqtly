@@ -19,7 +19,7 @@
 ; =============================================================================
 
 Import "McpHost.rgr"
-Import "Json.rgr"
+Import "McpJson.rgr"
 
 ; what one beacon counts; ok false when it counts nothing
 class Visit {

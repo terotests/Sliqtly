@@ -10,7 +10,7 @@
 ; inline in the chat.
 
 Import "McpHost.rgr"
-Import "Json.rgr"
+Import "McpJson.rgr"
 Import "Deck.rgr"
 Import "Check.rgr"
 Import "Charts.rgr"

@@ -3,7 +3,7 @@
 ; Checks on what a model sends, before anything is stored (mcp/src/deck.js).
 
 Import "McpHost.rgr"
-Import "Json.rgr"
+Import "McpJson.rgr"
 
 class Img {
     def name:string ""

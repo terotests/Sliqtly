@@ -10,7 +10,7 @@
 ; =============================================================================
 
 Import "McpHost.rgr"
-Import "Json.rgr"
+Import "McpJson.rgr"
 Import "OAuth.rgr"
 Import "Tools.rgr"
 Import "Mcp.rgr"
