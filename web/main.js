@@ -1458,7 +1458,7 @@ function withTime(doc, t) {
 // The moment a thumbnail and an exported still show an effect at. Rain is
 // drawn half a minute in, when it has landed, run and left its trails; the
 // rest two seconds in, as they always were.
-const FX_STILL_T = { drops: 30 };
+const FX_STILL_T = { drops: 30, raindrops2: 30 };
 function atRest(doc) {
   return withTime(doc, (e) => FX_STILL_T[e.kind] ?? 2.0);
 }
