@@ -1540,41 +1540,36 @@ function paintOnce() {
       tf.dispose();
     }
   };
-  const barOnTop = canvasBar && app.toolbarOnTop();
-  if (canvasBar && !barOnTop) paintBar();
-  // the value popover, over the editor and the bar
-  const hj = app.hintJson();
-  if (hj) {
-    const hp = JSON.parse(hj);
-    hp.width = W;
-    hp.height = H;
-    const hf = prepareDisplayList(gl, hp, { dpr });
-    if (grewBy(hf.draw(null, [0, 0, 1], { clear: false }))) dropThumbs();
-    hf.dispose();
+  // The surfaces over the chrome, bottom first, in the order the app keeps
+  // (PresApp.layerOrder, EVGUI's UiLayers): the bar and the docked help and
+  // files panels, then the windows (the value popover, the chart editor; the
+  // one opened or pressed last on top), the modal dialog, the bar's open
+  // menu, the toast. A press goes to them in the same order, top first.
+  const paintList = (j, images, at) => {
+    if (!j) return;
+    const doc = JSON.parse(j);
+    doc.width = W;
+    doc.height = H;
+    const f = prepareDisplayList(gl, doc, images ? { dpr, images } : { dpr });
+    if (grewBy(f.draw(null, at ? at(doc) : [0, 0, 1], { clear: false }))) dropThumbs();
+    f.dispose();
+  };
+  // the panels' three layers: with the pictures, the files tab previews the
+  // one under the pointer
+  const PANEL_PART = { panels: "docked", dialog: "dialog", toast: "toast" };
+  for (const layer of app.layerOrder().split(",")) {
+    if (layer === "bar") {
+      if (canvasBar) paintBar();
+    } else if (layer === "hint") {
+      paintList(app.hintJson());
+    } else if (layer === "chart") {
+      // placed like a thumbnail: a page the size of the canvas, moved by the
+      // camera; with the pictures: the image window shows the one being added
+      paintList(app.chartJson(), pictures, (cj) => [cj.x, cj.y, 1]);
+    } else if (PANEL_PART[layer]) {
+      paintList(app.panelsPartJson(PANEL_PART[layer]), pictures);
+    }
   }
-  // the help panel, the share dialog, the toast
-  const pj = app.panelsJson();
-  if (pj) {
-    const pn = JSON.parse(pj);
-    pn.width = W;
-    pn.height = H;
-    // with the pictures: the files tab previews the one under the pointer
-    const pf = prepareDisplayList(gl, pn, { dpr, images: pictures });
-    if (grewBy(pf.draw(null, [0, 0, 1], { clear: false }))) dropThumbs();
-    pf.dispose();
-  }
-  // the chart editor, over everything
-  if (app.chartIsOpen()) {
-    const cj = JSON.parse(app.chartJson());
-    // placed like a thumbnail: a page the size of the canvas, moved by the camera
-    cj.width = W;
-    cj.height = H;
-    // with the pictures: the image window shows the one being added
-    const ce = prepareDisplayList(gl, cj, { dpr, images: pictures });
-    if (grewBy(ce.draw(null, [cj.x, cj.y, 1], { clear: false }))) dropThumbs();
-    ce.dispose();
-  }
-  if (barOnTop) paintBar();
   statusEl.textContent = app.statusText();
   playBtn.textContent = layout.playing && layout.mode === "edit" ? t("⏸ Pause") : t("▶ Play");
   return layout;

@@ -45,6 +45,7 @@ Import "PresPanels.rgr"
 Import "PresA11y.rgr"
 Import "PresSelect.rgr"
 Import "../evgui/src/TabsCtl.rgr"
+Import "../evgui/src/UiLayers.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
@@ -215,6 +216,10 @@ class PresApp {
     def stageHintY:double 0.0
     def stageHintH:double 0.0
     def panels:PresPanels (new PresPanels())
+    ; Which surface over the chrome is on top: the order they are painted in
+    ; (`layerOrder`, read by the page) and the order a press, a wheel or the
+    ; cursor goes to them (`layerAt`). EVGUI's UiLayers; see `syncLayers`.
+    def layers:UiLayers (new UiLayers())
     ; the page is used with a finger: `@media (pointer: coarse)`
     def coarse:boolean false
     ; The editor's skin: "" for the light look, "retro" for the glossy lime
@@ -250,6 +255,16 @@ class PresApp {
     Constructor () {
         def r:[string]
         requests = r
+        ; docked: the bar (in "menu" while one of its menus or lists is
+        ; open) and the help and files panels; windows: the value popover
+        ; ("Style") and the chart / picture editor; the modal dialogs; the
+        ; toast over all
+        layers.add("bar" "docked")
+        layers.add("panels" "docked")
+        layers.add("hint" "window")
+        layers.add("chart" "window")
+        layers.add("dialog" "modal")
+        layers.add("toast" "toast")
     }
 
     ; =========================================================================
@@ -1533,16 +1548,7 @@ class PresApp {
     ; a panel drawn on top of it.
     fn canZoomAt:boolean (x:double y:double) {
         this.place()
-        if (this.toolbarOnTop()) {
-            return false
-        }
-        if (chart.isOpen && (chart.has(x y))) {
-            return false
-        }
-        if (hint.isOpen && (hint.has(x y))) {
-            return false
-        }
-        if (panels.has(x y)) {
+        if ((strlen (this.layerAt(x y))) > 0) {
             return false
         }
         return (stageArea.has(x y))
@@ -2114,30 +2120,39 @@ class PresApp {
             addOpen = false
             chromeRev = (chromeRev + 1)
         }
-        ; an open menu or list of the bar is drawn over everything (toolbarOnTop),
-        ; so it takes the press first: a row, or anywhere else to close it
-        if (this.toolbarOnTop()) {
+        ; the surfaces over the chrome, the top one first (`layerAt`): an
+        ; open menu or list of the bar takes every press (a row, or anywhere
+        ; else to close it); a window pressed comes to the front; a press
+        ; outside a window closes it, unless it lands in a dialog over it
+        def top:string (this.layerAt(x y))
+        if (top == "bar") {
             toolbar.press(x y)
             this.takeToolbar()
             return "bar"
         }
         if chart.isOpen {
-            if (chart.has(x y)) {
+            if (top == "chart") {
+                layers.raise("chart")
                 chart.press(x y)
                 this.afterChart()
                 return "chart"
             }
-            this.closeChart()
+            if (top != "dialog") {
+                this.closeChart()
+            }
         }
         if hint.isOpen {
-            if (hint.has(x y)) {
+            if (top == "hint") {
+                layers.raise("hint")
                 hint.press(x y)
                 this.afterHint()
                 return "hint"
             }
-            this.closeHint()
+            if (top != "dialog") {
+                this.closeHint()
+            }
         }
-        if (panels.has(x y)) {
+        if (PresApp.panelLayer(top)) {
             panels.press(x y)
             this.takePanels()
             return "panel"
@@ -2395,8 +2410,14 @@ class PresApp {
         if ((barH > 0.0) && (mode != "present")) {
             toolbar.hoverAt(x y)
         }
+        ; hover is the top surface's: one under a window shows none
+        def top:string (this.layerAt(x y))
         if (panels.any()) {
-            panels.hoverAt(x y)
+            if (PresApp.panelLayer(top)) {
+                panels.hoverAt(x y)
+            } {
+                panels.hoverAt(-1000000.0 -1000000.0)
+            }
         }
         if hint.isOpen {
             if (hint.dragging()) {
@@ -2405,7 +2426,11 @@ class PresApp {
                 return
             }
             def tipBefore:int hint.rev
-            hint.hoverAt(x y)
+            if (top == "hint") {
+                hint.hoverAt(x y)
+            } {
+                hint.hoverAt(-1000000.0 -1000000.0)
+            }
             if (hint.rev != tipBefore) {
                 chromeRev = (chromeRev + 1)
             }
@@ -2555,7 +2580,7 @@ class PresApp {
     ; A wheel or a trackpad: mostly sideways over the editor scrolls it
     ; sideways, everything else goes where a vertical wheel goes.
     fn wheelXY:boolean (x:double y:double dx:double dy:double) {
-        if (chart.isOpen && (chart.has(x y))) {
+        if ((this.layerAt(x y)) == "chart") {
             return true
         }
         if (((mode != "present") && (edRect.has(x y))) && ((fabs dx) > (fabs dy))) {
@@ -2574,7 +2599,9 @@ class PresApp {
         if (mode == "present") {
             return false
         }
-        if (panels.shareOpen) {
+        ; a dialog, or a window over what is under the pointer, keeps the wheel
+        def top:string (this.layerAt(x y))
+        if (((top == "dialog") || (top == "hint")) || (top == "chart")) {
             return true
         }
         if (panels.helpHas(x y)) {
@@ -2624,23 +2651,24 @@ class PresApp {
         if (mode == "present") {
             return "default"
         }
-        if (panels.any()) {
-            def pc:string (panels.cursorAt(x y))
-            if ((strlen pc) > 0) {
-                return pc
+        ; the surface on top under the pointer says (the bar's open menu
+        ; below, with the bar)
+        def top:string (this.layerAt(x y))
+        if (((strlen top) > 0) && (top != "bar")) {
+            def lc:string ""
+            if (top == "hint") {
+                lc = (hint.cursorAt(x y))
             }
-        }
-        if hint.isOpen {
-            def hc:string (hint.cursorAt(x y))
-            if ((strlen hc) > 0) {
-                return hc
+            if (top == "chart") {
+                lc = (chart.cursorAt(x y))
             }
-        }
-        if chart.isOpen {
-            def cc:string (chart.cursorAt(x y))
-            if ((strlen cc) > 0) {
-                return cc
+            if (PresApp.panelLayer(top)) {
+                lc = (panels.cursorAt(x y))
             }
+            if ((strlen lc) > 0) {
+                return lc
+            }
+            return "default"
         }
         if ((barH > 0.0) && (toolbar.has(x y))) {
             return (toolbar.cursorAt(x y))
@@ -3349,6 +3377,76 @@ class PresApp {
 
     ; A menu or a list of the bar is open: the page draws the bar last, over
     ; the panels, the popover and the chart editor.
+    ; --- the layers over the chrome -------------------------------------------------
+    ; Each surface's own open flag, read into the z-order: one that opened
+    ; since the last look comes to the front of its band.
+    fn syncLayers:void () {
+        def edit:boolean (mode != "present")
+        layers.setOpen("bar" ((barH > 0.0) && edit))
+        if (this.toolbarOnTop()) {
+            layers.setBand("bar" "menu")
+        } {
+            layers.setBand("bar" "docked")
+        }
+        layers.setOpen("panels" ((panels.helpOpen || panels.filesOpen) && edit))
+        layers.setOpen("hint" (hint.isOpen && edit))
+        layers.setOpen("chart" chart.isOpen)
+        layers.setOpen("dialog" (panels.shareOpen && edit))
+        layers.setOpen("toast" ((strlen panels.toastText) > 0))
+    }
+
+    sfn panelLayer:boolean (id:string) {
+        return (((id == "panels") || (id == "dialog")) || (id == "toast"))
+    }
+
+    ; Whether a layer takes a press at the point. The bar takes it only with
+    ; a menu or list open (anywhere: a press outside closes it); otherwise it
+    ; is chrome and its press is handled with the chrome. A dialog is modal.
+    fn layerHas:boolean (id:string x:double y:double) {
+        if (id == "bar") {
+            return (this.toolbarOnTop())
+        }
+        if (id == "panels") {
+            return (panels.dockedHas(x y))
+        }
+        if (id == "hint") {
+            return (hint.has(x y))
+        }
+        if (id == "chart") {
+            return (chart.has(x y))
+        }
+        if (id == "dialog") {
+            return true
+        }
+        if (id == "toast") {
+            return (panels.toastHas(x y))
+        }
+        return false
+    }
+
+    ; The top layer at the point: "bar", "panels", "hint", "chart", "dialog",
+    ; "toast", or "" for the chrome and the stage under them.
+    fn layerAt:string (x:double y:double) {
+        this.syncLayers()
+        def order:[string] (layers.hitOrder())
+        def i:int 0
+        while (i < (array_length order)) {
+            def id:string (itemAt order i)
+            if (this.layerHas(id x y)) {
+                return id
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; The page paints the layers in this order, bottom first: "a,b,c".
+    fn layerOrder:string () {
+        this.placeFiles()
+        this.syncLayers()
+        return (layers.paintOrderText())
+    }
+
     fn toolbarOnTop:boolean () {
         return (((barH > 0.0) && (mode != "present")) && (toolbar.listOpen()))
     }
@@ -4278,9 +4376,27 @@ class PresApp {
 
     ; The panels as a display list over the page: "" when none is showing.
     fn panelsJson:string () {
+        if ((this.panelsReady()) == false) {
+            return ""
+        }
+        def dl:EVGDisplayList (panels.displayList())
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
+    }
+
+    ; One of the panels' layers ("docked", "dialog", "toast"), for the page to
+    ; paint where `layerOrder` puts it.
+    fn panelsPartJson:string (part:string) {
+        if ((this.panelsReady()) == false) {
+            return ""
+        }
+        def dl:EVGDisplayList (panels.partList(part))
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
+    }
+
+    fn panelsReady:boolean () {
         this.placeFiles()
         if ((panels.any()) == false) {
-            return ""
+            return false
         }
         panels.measurer = measurer
         panels.barH = barH
@@ -4299,8 +4415,7 @@ class PresApp {
                 panels.setHelpData((this.slideHelp()) (this.slideShown()))
             }
         }
-        def dl:EVGDisplayList (panels.displayList())
-        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
+        return true
     }
 
     ; --- accessibility: the canvas as a tree the page mirrors into DOM ------------
