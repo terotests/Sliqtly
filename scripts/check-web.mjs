@@ -1937,7 +1937,27 @@ try {
     });
     const bars1 = await barsOf();
     // the data file edited in the files tab: the chart follows
-    await page.evaluate(() => { const a = window.__app; a.panels.requests.push("files:open:data/vfs-sales.csv"); a.takePanels(); });
+    // Open on a CSV: the spreadsheet editor (EVGSheets), its rows in the cells
+    await page.evaluate(() => {
+      const ls = window.__liveSheets;
+      const was = ls.openDialog;
+      ls.openDialog = (o) => { window.__sheetAsked = { name: o.name, csv: o.csv }; ls.openDialog = was; return was(o); };
+      const a = window.__app;
+      a.panels.requests.push("files:open:data/vfs-sales.csv");
+      a.takePanels();
+    });
+    await page.waitForFunction(() => !!document.querySelector(".sheet-dialog canvas") || window.__app.openFilePath() === "data/vfs-sales.csv", null, { timeout: 30000 }).catch(() => {});
+    const csvOpen = await page.evaluate(() => ({ asked: window.__sheetAsked || null, dialog: !!document.querySelector(".sheet-dialog canvas"), name: document.querySelector(".sheet-dialog-bar strong")?.textContent || "", asText: window.__app.openFilePath() === "data/vfs-sales.csv" }));
+    await page.evaluate(() => [...document.querySelectorAll(".sheet-dialog-bar button")].find((b) => !b.classList.contains("primary"))?.click());
+    await page.waitForTimeout(300);
+    // without EVGSheets (no copy beside the page, its site out of reach) the
+    // text editor is the fallback
+    const sheetsHere = fs.existsSync(path.join(distDir, "sheets", "evgsheets.mjs"));
+    const asked = csvOpen.asked && csvOpen.asked.name === "vfs-sales.csv" && /^kk,euroa/i.test(csvOpen.asked.csv || "");
+    check("Open on a CSV file: the spreadsheet editor, not the text" + (sheetsHere ? "" : " (EVGSheets unreachable: asked, then the text)"),
+      asked && (sheetsHere ? csvOpen.dialog && csvOpen.name === "vfs-sales.csv" && !csvOpen.asText : csvOpen.asText), JSON.stringify(csvOpen).slice(0, 200));
+    // the text editor still edits a data file (JSON, or a CSV without EVGSheets)
+    await page.evaluate(() => { const a = window.__app; a.showTab("files"); a.openFile("data/vfs-sales.csv", "kk,euroa\n"); });
     await page.waitForFunction(() => window.__app.openFilePath() === "data/vfs-sales.csv", null, { timeout: 5000 }).catch(() => {});
     await page.evaluate(() => { const a = window.__app; a.fileEditor.init("kk,euroa\ntammi,120\nhelmi,180\nmaalis,90\nhuhti,300\n"); a.syncEditor(); });
     await page.waitForTimeout(1000);

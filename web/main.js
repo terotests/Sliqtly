@@ -1227,6 +1227,20 @@ async function fileRequest(r) {
     }
     const text = typeof f.data === "string" ? f.data : (isText(f.path, f.type) ? await f.data.text() : null);
     if (text == null) { toast(t("This file cannot be opened as text.")); return; }
+    // a CSV opens in the spreadsheet editor; Save writes it back as CSV
+    if (/\.csv$/i.test(f.path)) {
+      liveSheets.openDialog({
+        name: f.path.split("/").pop(),
+        csv: text,
+        onSave: (raw) => saveWorkbook(f.path, raw),
+        onClose: () => { keys.focus({ preventScroll: true }); needsPaint = true; },
+      }).catch((e) => {
+        // no spreadsheet editor (offline): the text, as before
+        toast(t("The spreadsheet editor did not load: ") + (e.message || e));
+        app.openFile(f.path, text);
+      });
+      return;
+    }
     app.openFile(f.path, text);
   } else if (action === "source" || action === "refresh" || action === "unlink") {
     const f = (await docFiles()).find((x) => x.path === what);
