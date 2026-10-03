@@ -9,7 +9,19 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { ensureRanger, compile, root, webDir, distDir, log } from "./lib.mjs";
+import { createRequire } from "node:module";
 import { formatCss } from "./format-css.mjs";
+
+// esbuild (npm install) shrinks the two compiled bundles to about 60 %
+// (pres_app.js 8.2 MB → 4.9 MB, 1.7 MB → 1.4 MB gzipped): every visit
+// downloads them. Names are kept, which the compiled classes may read.
+// Without it the bundles go out as compiled.
+function minify(file) {
+  let esbuild;
+  try { esbuild = createRequire(import.meta.url)("esbuild"); } catch (_) { return; }
+  const out = esbuild.transformSync(fs.readFileSync(file, "utf8"), { minify: true, keepNames: true, legalComments: "none" });
+  fs.writeFileSync(file, out.code);
+}
 
 export function build({ ranger } = {}) {
   ranger = ranger || ensureRanger();
@@ -29,6 +41,8 @@ export function build({ ranger } = {}) {
   compile(ranger, "PresData.rgr", dataJs);
   fs.writeFileSync(dataJs, "// loaded on demand: a .xlsx as CSV, one per sheet.\n"
     + "(function () {\n" + fs.readFileSync(dataJs, "utf8") + "\n;globalThis.PresData = PresData;\n})();\n");
+  minify(appJs);
+  minify(dataJs);
 
   const copy = (from, to) => {
     fs.mkdirSync(path.dirname(to), { recursive: true });
@@ -82,17 +96,24 @@ export function build({ ranger } = {}) {
   for (const f of fs.readdirSync(path.join(distDir, "themes"))) h.update(fs.readFileSync(path.join(distDir, "themes", f)));
   for (const f of fs.readdirSync(path.join(distDir, "i18n"))) h.update(fs.readFileSync(path.join(distDir, "i18n", f)));
   const stamp = h.digest("hex").slice(0, 10);
+  // The fonts change far more seldom than the code: their own hash, so a
+  // new build is not 1.5 MB of the same faces again for every visitor.
+  const fh = crypto.createHash("sha1");
+  for (const f of fs.readdirSync(path.join(distDir, "fonts")).sort()) fh.update(f).update(fs.readFileSync(path.join(distDir, "fonts", f)));
+  const fonts = fh.digest("hex").slice(0, 10);
   const html = path.join(distDir, "index.html");
-  fs.writeFileSync(html, fs.readFileSync(html, "utf8").split("__BUILD__").join(stamp));
+  fs.writeFileSync(html, fs.readFileSync(html, "utf8").split("__BUILD__").join(stamp).split("__FONTS__").join(fonts));
   const main = path.join(distDir, "main.js");
   fs.writeFileSync(main, fs.readFileSync(main, "utf8")
     .replace("./gl/evg-webgl.js", "./gl/evg-webgl.js?v=" + stamp)
     .replace("./gl/evg-a11y.js", "./gl/evg-a11y.js?v=" + stamp)
     .replace('"./i18n.js"', '"./i18n.js?v=' + stamp + '"')
+    .replace('"./vfs.js"', '"./vfs.js?v=' + stamp + '"')
     .replace('"./pres_data.js"', '"./pres_data.js?v=' + stamp + '"')
     .replace('"./sheets-live.js"', '"./sheets-live.js?v=' + stamp + '"')
     .replace('"./image-adjust.js"', '"./image-adjust.js?v=' + stamp + '"')
     .split("__SHEETS_BASE__").join(sheetsBase)
+    .split("__FONTS__").join(fonts)
     .split("__BUILD__").join(stamp));
   // sliqtly.js shares main.js's i18n module: the same URL, one instance
   const pro = path.join(distDir, "sliqtly.js");

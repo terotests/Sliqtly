@@ -84,6 +84,10 @@ function asRangerBuffer(ab) {
 // stylesheet the browser kept — the chart editor's sheets were, and a new
 // editor came up in the old one's colours.
 const BUILD = "__BUILD__";
+// The faces carry their own version (the hash of the font files), so a new
+// build does not make every browser fetch the same fonts again.
+const FONTS = "__FONTS__";
+const fontUrl = (file) => "./fonts/" + file + (FONTS.startsWith("__") ? "" : "?v=" + FONTS);
 function fresh(url) {
   if (!url.startsWith("./") || BUILD.startsWith("__")) return url;
   return url + (url.includes("?") ? "&" : "?") + "v=" + BUILD;
@@ -92,6 +96,12 @@ function fresh(url) {
 async function bytesOf(url) {
   const res = await fetch(fresh(url));
   if (!res.ok) throw new Error(url + " → " + res.status);
+  return await res.arrayBuffer();
+}
+
+async function fontBytes(file) {
+  const res = await fetch(fontUrl(file));
+  if (!res.ok) throw new Error(file + " → " + res.status);
   return await res.arrayBuffer();
 }
 
@@ -2086,8 +2096,20 @@ async function renderFxStills() {
 }
 window.__renderFxStills = renderFxStills;
 
+// The PDF writer's fallback for emoji (monochrome Noto Emoji). Only the
+// writer gets it: the screen keeps the browser's own colour emoji. Fetched
+// the first time a PDF is made, since it is large (0.9 MB) and most visits
+// make none. The dash in the name puts it in the fallback pool.
+let emojiFace = null;
+function loadEmojiFace() {
+  emojiFace ??= fontBytes("NotoEmoji-Regular.ttf")
+    .then((bytes) => { app.attachFont("Noto Emoji-Regular", asRangerBuffer(bytes.slice(0))); })
+    .catch((e) => { console.warn("emoji face not loaded", e); });
+  return emojiFace;
+}
+
 async function exportPdf() {
-  await renderFxStills();
+  await Promise.all([renderFxStills(), loadEmojiFace()]);
   window.__lastDownload = deliver(app.pdf(), exportName() + ".pdf", "application/pdf");
 }
 async function exportPptx() {
@@ -3360,7 +3382,7 @@ async function start() {
   const got = new Array(FACES.length).fill(false);
   await Promise.all(FACES.map(async ([name, file], i) => {
     try {
-      const bytes = await bytesOf("./fonts/" + file);
+      const bytes = await fontBytes(file);
       got[i] = app.attachFont(name, asRangerBuffer(bytes.slice(0)));
       const face = new FontFace(name, bytes);
       await face.load();
@@ -3379,13 +3401,6 @@ async function start() {
     const em = m.measureText("\u{1F600}").width / 100;
     if (em > 0.3 && em < 3) app.setMissingGlyphEm(em);
   } catch (_) { /* measured as the face says */ }
-  // The PDF writer's fallback for emoji (monochrome Noto Emoji). Only the
-  // writer gets it: the screen keeps the browser's own colour emoji. Loaded
-  // after start-up because it is large; a PDF made before it arrives just
-  // has no emoji. The dash in the name puts it in the fallback pool.
-  bytesOf("./fonts/NotoEmoji-Regular.ttf")
-    .then((bytes) => app.attachFont("Noto Emoji-Regular", asRangerBuffer(bytes.slice(0))))
-    .catch((e) => console.warn("emoji face not loaded", e));
 
   for (const [i, name] of THEMES.entries()) {
     try {
