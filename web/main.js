@@ -3308,6 +3308,13 @@ function beginShow(slide) {
 // and the name shows, then the slides begin, so the first slide's animation
 // is seen. A click, a tap or a key skips it, and is not also taken as "next".
 let introPending = null; // what begins the show once the intro has played
+function hideIntro() {
+  const el = document.getElementById("brandIntro");
+  if (!el || el.hidden) return;
+  el.classList.remove("on");
+  el.classList.add("out");
+  setTimeout(() => { el.hidden = true; el.classList.remove("out"); }, 350);
+}
 function playIntro() {
   const el = document.getElementById("brandIntro");
   if (!el) return Promise.resolve();
@@ -3322,14 +3329,17 @@ function playIntro() {
       clearTimeout(timer);
       window.removeEventListener("pointerdown", skip, true);
       window.removeEventListener("keydown", skip, true);
-      el.classList.add("out");
-      setTimeout(() => { el.hidden = true; el.classList.remove("out"); }, 350);
+      hideIntro();
       done();
     };
+    // shown already while the page loaded (index.html), or now
+    const at = window.__introAt ?? performance.now();
+    window.__introAt = undefined;
     el.hidden = false;
+    el.classList.add("on");
     window.addEventListener("pointerdown", skip, true);
     window.addEventListener("keydown", skip, true);
-    timer = setTimeout(end, INTRO_MS);
+    timer = setTimeout(end, Math.max(0, INTRO_MS - (performance.now() - at)));
   });
 }
 function wakeViewer() {
@@ -4424,6 +4434,11 @@ async function start() {
   if (introPending) {
     playIntro().then(introPending);
     introPending = null;
+  } else {
+    // shown by index.html for an address that turned out to show nothing
+    // (a share not found): the page as it is
+    window.__introAt = undefined;
+    hideIntro();
   }
   // opening the deck tidied the address; it names the deck again from here
   followAddress();
