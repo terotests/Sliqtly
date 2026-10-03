@@ -1912,6 +1912,7 @@ function frame() {
       lastRev = rev;
       paintOnce();
       handleRequests();
+      followAddress();
       if (lastLayout) fetchChartFiles(lastLayout.rev);
       if (rev !== lastA11yRev) {
         lastA11yRev = rev;
@@ -2736,7 +2737,61 @@ async function openFromHash() {
     return false;
   }
 }
-window.addEventListener("hashchange", () => { if (location.hash !== lastHash) openFromHash(); });
+window.addEventListener("hashchange", () => {
+  if (location.hash === lastHash) return;
+  if (hashParams().has("md")) openFromHash();
+  else useAddress(hashParams());
+});
+
+// The address follows what is on screen, so a reload comes back to it:
+// #doc={id}&slide={n}&tab=css|files&view=present|play. `doc` only for a deck
+// kept in this browser (a PRO deck has /s/{id}?edit), the rest left out at
+// their defaults. Replaced, not pushed: Back does not walk through slides.
+// Kept beside a link's own keys (#md=…, #share=…), never in the assistant's
+// preview, which has no address of its own.
+const ADDRESS_KEYS = ["doc", "slide", "tab", "view"];
+function followAddress() {
+  if (framed || !window.__pageStarted || !lastLayout) return;
+  const q = hashParams();
+  const was = q.toString();
+  for (const k of ADDRESS_KEYS) q.delete(k);
+  if (doc.persisted && !doc.cloud && !viewer && !/^\/s\//.test(location.pathname)) q.set("doc", doc.id);
+  if (lastLayout.slide > 0 && lastLayout.slide < lastLayout.slides) q.set("slide", String(lastLayout.slide + 1));
+  if (!viewer) {
+    const tab = app.editorTab();
+    if (tab && tab !== "md") q.set("tab", tab);
+    if (lastLayout.mode === "present") q.set("view", "present");
+    else if (lastLayout.playing) q.set("view", "play");
+  }
+  const now = q.toString();
+  if (now === was) return;
+  history.replaceState(history.state, "", location.pathname + location.search + (now ? "#" + now : ""));
+  lastHash = location.hash;
+}
+// …and back: the slide, the tab and the presentation the address names
+function useAddress(q) {
+  const n = parseInt(q.get("slide") || "", 10);
+  const presenting = lastLayout && lastLayout.mode === "present";
+  if (n >= 1) app.selectSlide(n - 1);
+  if (viewer) {
+    // the viewer presents from the start: again, from this slide
+    if (n > 1) {
+      app.present(false);
+      handleRequests();
+    }
+  } else {
+    if (q.has("tab")) app.showTab(q.get("tab"));
+    const view = q.get("view");
+    if (view === "present" && !presenting) {
+      app.present(false);
+      handleRequests();
+    } else if (view === "play" && !app.isPlaying()) {
+      app.play();
+      rebaseClock();
+    }
+  }
+  needsPaint = true;
+}
 
 // /s/{id}: a deck shared through PRO, read from the cloud. Shown as a
 // presentation; with ?edit, opened as a new deck of the reader's own.
@@ -3507,6 +3562,8 @@ async function start() {
   }
 
   const q = new URLSearchParams(location.search);
+  // read before a deck is opened: opening one tidies the address
+  const at = framed ? new URLSearchParams() : hashParams();
   const theme = q.has("theme") ? q.get("theme") : "aurora";
   themeSel.value = theme;
   app.setStyleSheet(theme ? themeCss[theme] || "" : "");
@@ -3524,6 +3581,9 @@ async function start() {
     // from the cloud when it lives there
     let last = null;
     try { last = localStorage.getItem("evgp.doc"); } catch (_) { /* none */ }
+    // #doc={id}: the deck this tab had, when this browser keeps it
+    const asked = at.get("doc");
+    if (asked && /^[A-Za-z0-9_-]{1,64}$/.test(asked) && vfs && (await vfs.getDoc(asked))) last = asked;
     const lastCloud = !want && last && vfs ? (await vfs.getDoc(last))?.cloud : null;
     if (lastCloud && (await openOwnCloud(lastCloud).catch(() => false))) { /* opened */ }
     else if (want || !last || !(await openDoc(last))) {
@@ -3533,6 +3593,7 @@ async function start() {
     }
   }
   refreshRecent().catch(() => {});
+  useAddress(at);
 
   // A narrow window gets the slides without the editor (PresApp.isCompact,
   // decided on every layout, so it follows the window); on a touch screen
