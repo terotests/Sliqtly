@@ -191,8 +191,11 @@ class PresToolbar {
     ; "css" opens the theme's CSS tab, "new" a new deck, "duplicate" a copy
     ; of this one, the rest the page's button of that id.
     sfn requestFor:string (id:string) {
-        if (id == "new") {
+        if ((id == "new") || (id == "newPres")) {
             return "files:new"
+        }
+        if (id == "newSheet") {
+            return "files:newsheet"
         }
         if (id == "duplicate") {
             return "files:duplicate"
@@ -437,7 +440,11 @@ class PresToolbar {
             def file:MenuCtl (this.dropdown("file" (PresI18n.t("File"))))
             ; groups as in a desktop app: new | open | save and export | the
             ; assistants | delete, red and last
-            file.addItem("new" (PresI18n.t("New presentation")) false)
+            ; New ▸ a presentation (the window) or a datasheet (the spreadsheet
+            ; editor, its workbook kept in the deck's data/)
+            def nw:UiItem (file.addSub("new" (PresI18n.t("New")) false))
+            MenuCtl.addKid(nw "newPres" (PresI18n.t("Presentation…")) false)
+            MenuCtl.addKid(nw "newSheet" (PresI18n.t("Datasheet…")) false)
             file.addItem("duplicate" (PresI18n.t("Duplicate")) false)
             file.addSeparator()
             file.addItem("openbox" (PresI18n.t("Open…")) false)
@@ -530,6 +537,7 @@ class PresToolbar {
             this.button("dr-share" (PresI18n.t("Share")) "ghost" body)
             body.addChild((this.text("tb-dr-label" (PresI18n.t("File")))))
             this.button("dr-new" (PresI18n.t("New presentation")) "ghost" body)
+            this.button("dr-newSheet" (PresI18n.t("New datasheet")) "ghost" body)
             this.button("dr-duplicate" (PresI18n.t("Duplicate")) "ghost" body)
             body.addChild((this.div("tb-dr-sep")))
             this.button("dr-openbox" (PresI18n.t("Open…")) "ghost" body)

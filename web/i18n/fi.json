@@ -613,5 +613,9 @@
   ". This cannot be undone.": ". Tätä ei voi perua.",
   "Delete": "Poista",
   "Deleting from the cloud failed: ": "Poisto pilvestä epäonnistui: ",
-  "Deleted ": "Poistettu "
+  "Deleted ": "Poistettu ",
+  "New": "Uusi",
+  "Presentation…": "Esitys…",
+  "Datasheet…": "Taulukko…",
+  "New datasheet": "Uusi taulukko"
 }

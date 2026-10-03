@@ -910,6 +910,19 @@ try {
       const take = () => { const out = []; for (;;) { const r = a.takeRequest(); if (!r) break; out.push(r); } return out; };
       shut();
       take();
+      const newReqs = [];
+      let newKids = [];
+      for (const id of ["newPres", "newSheet"]) {
+        press(find("tb-m-file-trigger"));
+        press(find("tb-m-file-item-new"));
+        let r = null;
+        for (let n = 0; n < 40 && !r; n++) { r = find("tb-m-file-item-new-item-" + id); if (!r) await new Promise((ok) => setTimeout(ok, 100)); }
+        const nc = find("tb-m-file-item-new-content");
+        newKids = nc ? (nc.children || []).map((k) => k.id.split("-item-").pop()) : [];
+        if (r) press(r);
+        newReqs.push(...take());
+        shut();
+      }
       press(find("tb-m-file-trigger"));
       press(find("tb-m-file-item-export"));
       let row = null;
@@ -931,8 +944,9 @@ try {
       const ok = (() => { const w = (e) => { if (e.id === "cf-ok") return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return a.chart.isOpen ? w(a.chart.host.root) : null; })();
       a.key("escape", false, false);
       const after = take();
-      return { kids, zip, red, last, asked, confirm, okDanger: !!ok && (ok.className || "").includes("ui-button-danger"), closed: !a.chart.isOpen, after };
+      return { newKids, newReqs, kids, zip, red, last, asked, confirm, okDanger: !!ok && (ok.className || "").includes("ui-button-danger"), closed: !a.chart.isOpen, after };
     });
+    check("…File → New offers Presentation… (the window) and Datasheet… (the spreadsheet editor)", fx.newKids.join() === "newPres,newSheet" && fx.newReqs.join() === "files:new,files:newsheet", JSON.stringify(fx));
     check("…File → Export lists .md, .pptx, .pdf and .zip, and the zip row is the page's ZIP button", fx.kids.join() === "x-save,x-pptx,x-pdf,x-zip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
     check("…File → Delete presentation… is red and last, and asks first; Esc deletes nothing", fx.red && fx.last && fx.asked.includes("files:deletedeck") && fx.confirm && fx.okDanger && fx.closed && !fx.after.some((r) => r.startsWith("confirm:")), JSON.stringify(fx));
 

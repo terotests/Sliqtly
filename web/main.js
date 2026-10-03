@@ -519,6 +519,22 @@ async function duplicateDeck() {
   needsPaint = true;
   toast(t("Duplicated as ") + name);
 }
+// File → New → Datasheet…: the spreadsheet editor on an empty workbook. Its
+// first Save keeps it in this deck as data/sheet-<n>.xlsx, where charts and
+// tables read its sheets as any added workbook's.
+async function newSheet() {
+  const have = new Set((await docFiles()).map((f) => f.path));
+  let n = 1;
+  while (have.has(`data/sheet-${n}.xlsx`)) n++;
+  const path = `data/sheet-${n}.xlsx`;
+  await liveSheets.openDialog({
+    name: path.split("/").pop(),
+    bytes: undefined,
+    onSave: (raw) => saveWorkbook(path, raw),
+    onClose: () => { keys.focus({ preventScroll: true }); refreshFiles(); needsPaint = true; },
+  }).catch((e) => toast(t("The spreadsheet editor did not load: ") + (e.message || e)));
+}
+
 // File → Delete presentation…, once confirmed: the open deck removed from
 // this browser and, for a PRO deck, its share and files from the cloud. The
 // latest other deck opens in its place, or a new empty one.
@@ -1037,6 +1053,8 @@ async function fileRequest(r) {
     // asked first: an accidental press is cancelled and the deck stays
     const rows = [...themeSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n");
     app.openNewDeck(rows, themeSel.value || "", "");
+  } else if (action === "newsheet") {
+    await newSheet();
   } else if (action === "duplicate") {
     makingDeck = duplicateDeck().catch((e) => toast(t("Duplicating failed: ") + (e.message || e))).finally(() => { makingDeck = null; });
     await makingDeck;
