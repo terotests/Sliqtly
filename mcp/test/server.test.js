@@ -510,3 +510,39 @@ test("create and update keep data files the deck reads", async () => {
     }
   } finally { await t.close(); }
 });
+
+test("warns about text that likely does not stand out from its background picture", async () => {
+  const { PNG: Png } = await import("pngjs");
+  const sky = (top, bottom) => {
+    const p = new Png({ width: 160, height: 90 });
+    for (let y = 0; y < 90; y++) {
+      for (let x = 0; x < 160; x++) {
+        const c = y < 45 ? top : bottom, i = (y * 160 + x) * 4;
+        p.data[i] = c[0]; p.data[i + 1] = c[1]; p.data[i + 2] = c[2]; p.data[i + 3] = 255;
+      }
+    }
+    return Png.sync.write(p).toString("base64");
+  };
+  const css = "page { background-color: #0b1030; }\ndocument { font-size: 20pt; color: #e8ecff; }\n";
+  const md = "# Deck\n\n## Cloudy {bg=media/sky.png}\n\nLight text over a white sky.\n\n## Night {bg=media/night.png}\n\nLight text over a dark picture.\n";
+  const { store } = fakeFirebase();
+  const t = await start(store);
+  try {
+    const r = await t.client.callTool({ name: "create_presentation", arguments: { title: "Sky", markdown: md, css, css_mode: "replace", images: [
+      { name: "sky.png", data_base64: sky([244, 246, 248], [230, 235, 240]) },
+      { name: "night.png", data_base64: sky([20, 30, 40], [28, 58, 36]) },
+    ] } });
+    const ws = r.structuredContent.warnings;
+    assert.equal(ws.length, 1, JSON.stringify(ws));
+    assert.match(ws[0], /^Slide "Cloudy": text is likely hard to read over the background picture \(estimated[^)]*\): the heading about 1\.\d:1 \(needs 3\.0:1\), the body text about 1\.\d:1 \(needs 3\.0:1\)\. Fix: a stronger dim, bg-dim=0\.\d+ in the slide's heading attributes, or a text colour such as #[0-9a-f]{6} in css\.$/);
+    const dim = /bg-dim=(0\.\d+)/.exec(ws[0])[1];
+    // the suggested dim is enough; an update reads the stored picture back
+    const { deck_id, edit_key } = r.structuredContent;
+    const same = await t.client.callTool({ name: "update_presentation", arguments: { deck_id, edit_key, markdown: md } });
+    assert.match(same.structuredContent.warnings.join("\n"), /Slide "Cloudy": text is likely hard to read/);
+    const u = await t.client.callTool({ name: "update_presentation", arguments: { deck_id, edit_key, markdown: md.replace("{bg=media/sky.png}", `{bg=media/sky.png bg-dim=${dim}}`) } });
+    assert.deepEqual(u.structuredContent.warnings, []);
+  } finally {
+    await t.close();
+  }
+});

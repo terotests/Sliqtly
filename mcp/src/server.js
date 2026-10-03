@@ -10,6 +10,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { backgrounds, contrastWarnings } from "./contrast.js";
 import { THEMES, MAX_MD, MAX_CSS, InputError, bindChartData, loadDataFiles, loadImages, outline, warnings } from "./deck.js";
 import { packText } from "./store.js";
 
@@ -146,12 +147,35 @@ export function createServer(opts) {
     return { cur, mine };
   }
 
+  // Slides whose text likely does not stand out from their background
+  // picture (src/contrast.js): the pictures from this call, else the deck's
+  // stored ones. Never fails the call.
+  async function contrastNotes(md, theme, css, imgs, deckId) {
+    try {
+      const pictures = new Map(imgs.map((i) => [i.name, i.data]));
+      const wanted = [...new Set(backgrounds(md).map((b) => b.picture))].slice(0, 10);
+      if (!wanted.length) return [];
+      for (const name of wanted) {
+        if (pictures.has(name) || !deckId || store.kind === "link") continue;
+        try { pictures.set(name, await store.fileBytes(deckId, "media/" + name)); } catch { /* not stored */ }
+      }
+      const sheet = css != null ? css : await themeCss(theme || "aurora");
+      return contrastWarnings(md, sheet, pictures);
+    } catch (e) {
+      console.warn("contrast check", e);
+      return [];
+    }
+  }
+
   async function updated(deckId, saved, note) {
     if (!saved) throw new InputError("The edit_key does not match this presentation.");
     const stored = (saved.files || []).map((f) => f.path.replace(/^media\//, ""));
     const out = await result({
       title: saved.name, theme: saved.theme, slides: outline(saved.md).titles.length,
-      warnings: warnings(saved.md, [], stored).filter((w) => !w.startsWith("Image")),
+      warnings: [
+        ...warnings(saved.md, [], stored).filter((w) => !w.startsWith("Image")),
+        ...(await contrastNotes(saved.md, saved.theme, saved.css, [], deckId)),
+      ],
       ...links(deckId), deck_id: deckId,
     }, "Updated");
     if (note) out.content[0].text += "\n" + note;
@@ -222,7 +246,7 @@ export function createServer(opts) {
     const imgs = await loadImages(images, fetchImpl);
     const data = await loadDataFiles(files, fetchImpl, readWorkbook);
     const names = imgs.map((i) => i.name);
-    const base = { title, theme, slides: outline(markdown).titles.length, warnings: warnings(markdown, names) };
+    const base = { title, theme, slides: outline(markdown).titles.length, warnings: [...warnings(markdown, names), ...(await contrastNotes(markdown, theme, css2, imgs, null))] };
     if (store.kind === "link") {
       if (imgs.length) base.warnings.push("Pictures are not stored on this server (no cloud storage configured); the slides show without them.");
       if (data.length) base.warnings.push("Data files are not stored on this server (no cloud storage configured).");
