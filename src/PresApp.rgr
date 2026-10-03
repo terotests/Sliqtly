@@ -4963,13 +4963,13 @@ class PresApp {
     }
 
     ; PRO or not (the page: signed in, a cloud share, local development).
-    ; The layouts drawn from lists and the slides' line art are drawn only
-    ; for PRO; the slides are laid out again when it changes.
+    ; The slides' line art is drawn only for PRO (the layouts drawn from
+    ; lists are free); the slides are laid out again when it changes.
     fn setPro:void (on:boolean) {
-        if (deck.figuresAllowed == on) {
+        if (deck.artAllowed == on) {
             return
         }
-        deck.figuresAllowed = on
+        deck.artAllowed = on
         deck.rebuild()
         PresTimeline.planAll(deck)
         chromeRev = (chromeRev + 1)

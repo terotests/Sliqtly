@@ -155,7 +155,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   their current values. Only what the slide has is listed. Clicking a
   property opens the theme at that line (adding it if the theme has none)
   with its value popover.
-- **Layouts from lists (PRO).** A plain Markdown list with
+- **Layouts from lists.** A plain Markdown list with
   `{list-style=process}`, `swot` or `timeline` under it draws chevron steps,
   a SWOT grid or a timeline from its `Title: description` items (an indented
   `- point` belongs to the item above). The theme can say it instead:
