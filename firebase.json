@@ -99,50 +99,50 @@
     "rewrites": [
       {
         "source": "/mcp",
-        "function": {
-          "functionId": "mcp",
+        "run": {
+          "serviceId": "sliqtly-mcp",
           "region": "europe-west1"
         }
       },
       {
         "source": "/oauth/**",
-        "function": {
-          "functionId": "mcp",
+        "run": {
+          "serviceId": "sliqtly-mcp",
           "region": "europe-west1"
         }
       },
       {
         "source": "/.well-known/oauth-protected-resource",
-        "function": {
-          "functionId": "mcp",
+        "run": {
+          "serviceId": "sliqtly-mcp",
           "region": "europe-west1"
         }
       },
       {
         "source": "/.well-known/oauth-protected-resource/**",
-        "function": {
-          "functionId": "mcp",
+        "run": {
+          "serviceId": "sliqtly-mcp",
           "region": "europe-west1"
         }
       },
       {
         "source": "/.well-known/oauth-authorization-server",
-        "function": {
-          "functionId": "mcp",
+        "run": {
+          "serviceId": "sliqtly-mcp",
           "region": "europe-west1"
         }
       },
       {
         "source": "/.well-known/openid-configuration",
-        "function": {
-          "functionId": "mcp",
+        "run": {
+          "serviceId": "sliqtly-mcp",
           "region": "europe-west1"
         }
       },
       {
         "source": "/api/hit",
-        "function": {
-          "functionId": "mcp",
+        "run": {
+          "serviceId": "sliqtly-mcp",
           "region": "europe-west1"
         }
       },
