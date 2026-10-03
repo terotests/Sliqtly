@@ -140,6 +140,13 @@
         }
       },
       {
+        "source": "/api/hit",
+        "function": {
+          "functionId": "mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/s/**",
         "destination": "/index.html"
       }

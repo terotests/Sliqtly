@@ -65,6 +65,21 @@ Firestore under `mcp_quota/` ([`src/http.js`](src/http.js) `dailyQuota`).
 (`mcp_oauth_requests`, `_codes`, `_tokens`) carry `expires` too, so the TTL
 policy deletes them once they lapse.
 
+## Visitor counts
+
+The same function answers `/api/hit`, the beacon the editor page sends once
+per load (`web/main.js` `countVisit`; only on sliqtly.com / sliqtly.web.app,
+not when the browser sends Global Privacy Control or Do Not Track). No cookie
+and nothing in the browser: [`src/stats.js`](src/stats.js) counts loads and
+distinct visitors per UTC day in `stats/<day>`, a visitor being the SHA-256 of
+a random salt of the day, the address and the browser. The salt
+(`stats_salt`) and the day's hashes (`stats_seen`) are deleted by TTL after two
+days, so only the day totals stay. Beacons from other origins are ignored.
+
+`node scripts/stats.mjs [days]`, or Actions → Stats → Run workflow, prints
+visitors per day, new and active signed-in users and shares made, counts
+only.
+
 ## Run and test
 
 ```
