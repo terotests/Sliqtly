@@ -2017,15 +2017,37 @@ try {
   check("the theme CSS is one declaration per line", hints.pretty, JSON.stringify(hints));
 
   // An emoji is measured as wide as the browser draws it, so the caret after
-  // one is at the end of the text
+  // one is at the end of the text and the space after one on a slide is
+  // there. ♨️ and 🍽️ carry U+FE0F, 👨‍👩‍👧 is joined, 🇫🇮 a pair, 1️⃣ a keycap:
+  // each is ONE picture the text faces know nothing about.
   const emoji = await page.evaluate(() => {
     const a = window.__app;
     const c = document.createElement("canvas").getContext("2d");
     c.font = "13px 'Open Sans'";
-    const s = "## ✨ Key Features 📈 {fx=a}";
-    return { ours: a.tr.measureWidth(s, 13), browser: c.measureText(s).width };
+    const lines = ["## ✨ Key Features 📈 {fx=a}", "- ♨️ **Saunaan** – 🍽️ x", "👨‍👩‍👧 🇫🇮 1️⃣ 👍🏽 ok"];
+    return lines.map((s) => ({ s, ours: a.tr.measureWidth(s, 13), slide: a.measurer.measureTextWidth(s, "Open Sans", 13), browser: c.measureText(s).width }));
   });
-  check("a line with emoji is measured as the browser draws it", Math.abs(emoji.ours - emoji.browser) < 1.5, JSON.stringify(emoji));
+  check("a line with emoji is measured as the browser draws it", emoji.every((e) => Math.abs(e.ours - e.browser) < 1.5), JSON.stringify(emoji));
+  check("…and so is the same line on a slide", emoji.every((e) => Math.abs(e.slide - e.browser) < 1.5), JSON.stringify(emoji));
+
+  // The caret steps over a whole emoji, never between ♨ and its U+FE0F
+  const caret = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.setSource("a♨️b👨‍👩‍👧c");
+    a.setFocus("editor");
+    a.editor.moveCaret(0, 1, false);
+    a.key("right", false, false);
+    const afterHot = a.editor.sel.caret.col;
+    a.key("right", false, false);
+    a.key("right", false, false);
+    const afterFam = a.editor.sel.caret.col;
+    a.editor.moveCaret(0, 2, false);
+    const snapped = a.editor.sel.caret.col;
+    a.setSource(src0);
+    return { afterHot, afterFam, snapped };
+  });
+  check("the caret steps over an emoji as one character", caret.afterHot === 3 && caret.afterFam === 12 && caret.snapped === 1, JSON.stringify(caret));
 
   // The editor never sits scrolled sideways past every line on screen, and a
   // sideways swipe scrolls it sideways
