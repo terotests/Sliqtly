@@ -120,6 +120,14 @@ class PresChartEditor {
     def ndData:string "none"
     def ndTab:string "name"
     def wantsCreate:boolean false
+    ; A question before something that cannot be undone (`mode` "confirm"):
+    ; `cfKey` names it to the page, `cfOk` is the red button's word. The red
+    ; button sets `wantsConfirm` and closes; Cancel and Esc only close.
+    def cfKey:string ""
+    def cfTitle:string ""
+    def cfText:string ""
+    def cfOk:string ""
+    def wantsConfirm:boolean false
     ; a field whose text is being selected by a drag, by its tid
     def selecting:string ""
 
@@ -199,6 +207,16 @@ class PresChartEditor {
         wantsCreate = false
         this.openAt(px py pw ph)
         this.focusInput("nd-name")
+    }
+
+    fn openConfirm:void (key:string title:string words:string ok:string px:double py:double pw:double ph:double) {
+        mode = "confirm"
+        cfKey = key
+        cfTitle = title
+        cfText = words
+        cfOk = ok
+        wantsConfirm = false
+        this.openAt(px py pw ph)
     }
 
     fn open:void (m:PresChartModel px:double py:double pw:double ph:double) {
@@ -387,7 +405,7 @@ class PresChartEditor {
     fn dressButton:void (c:ButtonCtl) {
         def r:EVGElement (unwrap c.rootEl)
         UiTree.addClass(r "ce-small")
-        if ((c.variant == "primary") && ((r.getChildCount()) > 0)) {
+        if (((c.variant == "primary") || (c.variant == "danger")) && ((r.getChildCount()) > 0)) {
             UiTree.addClass((r.getChild(0)) "ce-onprimary")
         }
     }
@@ -511,6 +529,10 @@ class PresChartEditor {
             win.name = (PresI18n.t("New presentation"))
             win.title = (PresI18n.t("New presentation"))
         }
+        if (mode == "confirm") {
+            win.name = cfTitle
+            win.title = cfTitle
+        }
         win.closeLabel = (PresI18n.t("Close"))
         win.isModal = false
         win.x = x
@@ -536,6 +558,10 @@ class PresChartEditor {
     }
 
     fn fillBody:void (root:EVGElement) {
+        if (mode == "confirm") {
+            this.confirmBody(root)
+            return
+        }
         if (mode == "newdeck") {
             this.newDeckBody(root)
             return
@@ -845,6 +871,31 @@ class PresChartEditor {
         bottom.addChild((this.div("ce-grow")))
         this.button("nd-create" (PresI18n.t("Create")) "primary" bottom)
         root.addChild(bottom)
+    }
+
+    ; --- a question before deleting ----------------------------------------------
+    fn confirmBody:void (root:EVGElement) {
+        def pane:EVGElement (this.div("ce-pane"))
+        pane.addChild((this.text("ce-doc" cfText)))
+        root.addChild(pane)
+        def bottom:EVGElement (this.div("ce-foot"))
+        this.button("cf-cancel" (PresI18n.t("Cancel")) "outline" bottom)
+        bottom.addChild((this.div("ce-grow")))
+        this.button("cf-ok" cfOk "danger" bottom)
+        root.addChild(bottom)
+    }
+
+    fn confirmAct:boolean (tid:string) {
+        if (tid == "cf-cancel") {
+            wantsClose = true
+            return true
+        }
+        if (tid == "cf-ok") {
+            wantsConfirm = true
+            wantsClose = true
+            return true
+        }
+        return false
     }
 
     fn newDeckAct:boolean (tid:string) {
@@ -1591,6 +1642,9 @@ class PresChartEditor {
             return
         }
         if ((mode == "newdeck") && (this.newDeckAct(tid))) {
+            return
+        }
+        if ((mode == "confirm") && (this.confirmAct(tid))) {
             return
         }
         if (tid == "ce-done") {

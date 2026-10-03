@@ -258,6 +258,23 @@ async function saveShare(id, deck, since) {
   return kept;
 }
 
+// A PRO deck deleted: its share's files in Storage, the share and the
+// owner's deck record. Files go first, while the share still names its
+// owner (storage.rules).
+async function deleteShare(id) {
+  if (!user) throw new Error("not signed in");
+  const { db, files } = await store();
+  const ref = db.collection("shares").doc(id);
+  const snap = await ref.get();
+  if (snap.exists) {
+    const cur = snap.data();
+    if (cur.owner !== user.uid) throw Object.assign(new Error("not the owner"), { code: "permission-denied" });
+    await Promise.all((cur.files || []).map((f) => files.ref(`shares/${id}/${f.path}`).delete().catch(() => {})));
+    await ref.delete();
+    if (cur.deck) await db.collection("decks").doc(cur.deck).delete().catch(() => {});
+  }
+}
+
 // --- private Google Sheets ---------------------------------------------------------
 // A sheet that is not shared by link is read through the Sheets API as the
 // signed-in user, with the drive.file scope: Sliqtly may read only the files
@@ -366,5 +383,5 @@ async function readSheet(gviz, ask) {
   return rows.map((row) => Array.from({ length: width }, (_, i) => csvCell(row[i])).join(",")).join("\n") + "\n";
 }
 
-window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, loadShare, readSheet, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true) };
+window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, readSheet, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true) };
 window.dispatchEvent(new Event("sliqtly:ready"));

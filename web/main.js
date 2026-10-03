@@ -604,6 +604,142 @@ async function duplicateDeck() {
   needsPaint = true;
   toast(t("Duplicated as ") + name);
 }
+// File → New → Datasheet…: the spreadsheet editor on an empty workbook. Its
+// first Save keeps it in this deck as data/sheet-<n>.xlsx, where charts and
+// tables read its sheets as any added workbook's.
+async function newSheet() {
+  const have = new Set((await docFiles()).map((f) => f.path));
+  let n = 1;
+  while (have.has(`data/sheet-${n}.xlsx`)) n++;
+  const path = `data/sheet-${n}.xlsx`;
+  await liveSheets.openDialog({
+    name: path.split("/").pop(),
+    bytes: undefined,
+    onSave: (raw) => saveWorkbook(path, raw),
+    onClose: () => { keys.focus({ preventScroll: true }); refreshFiles(); needsPaint = true; },
+  }).catch((e) => toast(t("The spreadsheet editor did not load: ") + (e.message || e)));
+}
+
+// File → Delete presentation…, once confirmed: the open deck removed from
+// this browser and, for a PRO deck, its share and files from the cloud. The
+// latest other deck opens in its place, or a new empty one.
+async function deleteDeck() {
+  const id = doc.id;
+  const cloud = doc.cloud;
+  const name = exportName();
+  // nothing more is written to the cloud for it
+  doc.cloudHalt = true;
+  clearTimeout(cloudTimer);
+  cloudTimer = 0;
+  if (cloudBusy) await cloudBusy.catch(() => {});
+  if (saving) await saving.catch(() => {});
+  if (cloud && window.sliqtly?.user?.()) {
+    try {
+      await window.sliqtly.deleteShare(cloud);
+    } catch (e) {
+      doc.cloudHalt = false;
+      toast(t("Deleting from the cloud failed: ") + (e.message || e));
+      return;
+    }
+  }
+  if (vfs && doc.persisted) await vfs.deleteDoc(id);
+  // let go of it, so leaving it does not save it again
+  beginDoc("");
+  app.setSource("");
+  const next = vfs ? (await vfs.listDocs()).filter((d) => d.id !== id).sort((a, b) => (b.updated || 0) - (a.updated || 0))[0] : null;
+  if (!(next && (await openDoc(next.id)))) {
+    try { localStorage.removeItem("evgp.doc"); } catch (_) { /* fine */ }
+    await newDeck({ name: t("New presentation"), theme: themeSel.value || "", data: "none" });
+  }
+  toast(t("Deleted ") + name);
+}
+
+// File → Export → All files (.zip): the Markdown, the theme's CSS as it is
+// now (edits included) and every file of the deck at its own path.
+async function exportZip() {
+  const enc = new TextEncoder();
+  const base = exportName();
+  const entries = [
+    { name: base + ".md", data: enc.encode(app.source()) },
+    { name: (themeSel.value || "theme") + ".css", data: enc.encode(app.themeCss()) },
+  ];
+  for (const f of await docFiles()) {
+    const data = typeof f.data === "string" ? enc.encode(f.data) : new Uint8Array(await f.data.arrayBuffer());
+    entries.push({ name: f.path, data });
+  }
+  window.__lastDownload = deliver(zipStore(entries), base + ".zip", "application/zip");
+}
+
+// A zip of `entries` ({ name, data: Uint8Array }), stored (no compression:
+// the pictures in it are compressed already), names in UTF-8.
+const CRC_TABLE = (() => {
+  const tbl = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    tbl[n] = c >>> 0;
+  }
+  return tbl;
+})();
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+function zipStore(entries) {
+  const enc = new TextEncoder();
+  const d = new Date();
+  const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+  const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  for (const e of entries) {
+    const name = enc.encode(e.name);
+    const crc = crc32(e.data);
+    const head = new DataView(new ArrayBuffer(30));
+    head.setUint32(0, 0x04034b50, true);
+    head.setUint16(4, 20, true);
+    head.setUint16(6, 0x0800, true); // UTF-8 names
+    head.setUint16(8, 0, true); // stored
+    head.setUint16(10, time, true);
+    head.setUint16(12, date, true);
+    head.setUint32(14, crc, true);
+    head.setUint32(18, e.data.length, true);
+    head.setUint32(22, e.data.length, true);
+    head.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(head.buffer), name, e.data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true);
+    c.setUint16(4, 20, true);
+    c.setUint16(6, 20, true);
+    c.setUint16(8, 0x0800, true);
+    c.setUint16(10, 0, true);
+    c.setUint16(12, time, true);
+    c.setUint16(14, date, true);
+    c.setUint32(16, crc, true);
+    c.setUint32(20, e.data.length, true);
+    c.setUint32(24, e.data.length, true);
+    c.setUint16(28, name.length, true);
+    c.setUint32(42, offset, true);
+    central.push(new Uint8Array(c.buffer), name);
+    offset += 30 + name.length + e.data.length;
+  }
+  const size = central.reduce((n, p) => n + p.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true);
+  end.setUint16(8, entries.length, true);
+  end.setUint16(10, entries.length, true);
+  end.setUint32(12, size, true);
+  end.setUint32(16, offset, true);
+  const all = [...parts, ...central, new Uint8Array(end.buffer)];
+  const out = new Uint8Array(all.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of all) { out.set(p, at); at += p.length; }
+  return out;
+}
+window.__zipStore = zipStore;
+
 // The deck's title (front matter title:, else the first heading) as `name`.
 function retitled(md, name) {
   const lines = md.split("\n");
@@ -1014,6 +1150,8 @@ async function fileRequest(r) {
     // asked first: an accidental press is cancelled and the deck stays
     const rows = [...themeSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n");
     app.openNewDeck(rows, themeSel.value || "", "");
+  } else if (action === "newsheet") {
+    await newSheet();
   } else if (action === "duplicate") {
     makingDeck = duplicateDeck().catch((e) => toast(t("Duplicating failed: ") + (e.message || e))).finally(() => { makingDeck = null; });
     await makingDeck;
@@ -1043,6 +1181,13 @@ async function fileRequest(r) {
     cloudSoon();
   } else if (action === "doc") {
     if (!(await openDoc(what))) toast(t("Presentation not found."));
+  } else if (action === "deletedeck") {
+    // asked first, in the app's own window; "confirm:deletedeck" deletes
+    const cloud = !!doc.cloud && !!window.sliqtly?.user?.();
+    app.openConfirm("deletedeck", t("Delete presentation"),
+      t("Delete “") + exportName() + t("”? It is removed from this browser") +
+      (cloud ? t(" and from the cloud, and its share link stops working") : "") +
+      t(". This cannot be undone."), t("Delete"));
   } else if (action === "deldoc") {
     if (what !== doc.id) await vfs.deleteDoc(what);
   }
@@ -1792,6 +1937,8 @@ function handleRequests() {
       keepFile({ path, type: "application/json", size: text.length, data: text }).catch(fail);
       chartFiles.set(path, Promise.resolve(text));
       dropThumbs();
+    } else if (r === "confirm:deletedeck") {
+      deleteDeck().catch(fail);
     } else if (r === "newdeck-create") {
       const plan = JSON.parse(app.newDeckPlan());
       // the picker now, while the press still counts as one; the file goes
@@ -1950,6 +2097,7 @@ async function exportPptx() {
 }
 document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
+document.getElementById("zip").addEventListener("click", () => { exportZip().catch(fail); });
 // Open: a presentation (.md) replaces the deck; data (Excel, CSV, JSON) and
 // pictures go to the Files tab as if dropped there. One data file opens the
 // import dialog, like a drop on the editor; several are only kept.

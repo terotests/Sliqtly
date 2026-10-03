@@ -4132,6 +4132,33 @@ class PresApp {
         return true
     }
 
+    ; --- a question before deleting ------------------------------------------------
+    ; The same window asking before something that cannot be undone: `title`,
+    ; `words`, Cancel and a red `ok`. The red button is "confirm:<key>" to
+    ; the page; Cancel and Esc leave everything as it is.
+    fn openConfirm:boolean (key:string title:string words:string ok:string) {
+        if (mode == "present") {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 560.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        def py:double (barH + 24.0)
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        chart.openConfirm(key title words ok px py W H)
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
     ; {"name": text, "theme": key, "data": "none"|"sample"|"file"}
     fn newDeckPlan:string () {
         return ("{\"name\":" + (PresApp.jsonStr(chart.ndName)) + ",\"theme\":" + (PresApp.jsonStr(chart.ndTheme)) + ",\"data\":" + (PresApp.jsonStr(chart.ndData)) + "}")
@@ -4467,6 +4494,10 @@ class PresApp {
                 chart.wantsCreate = false
                 push requests "newdeck-create"
             }
+            if ((chart.mode == "confirm") && chart.wantsConfirm) {
+                chart.wantsConfirm = false
+                push requests ("confirm:" + chart.cfKey)
+            }
             if (chart.mode == "paste") {
                 if chart.wantsPlace {
                     chart.wantsPlace = false
@@ -4513,7 +4544,7 @@ class PresApp {
             return
         }
         chart.changed = false
-        if ((chart.mode == "paste") || (chart.mode == "newdeck")) {
+        if (((chart.mode == "paste") || (chart.mode == "newdeck")) || (chart.mode == "confirm")) {
             return
         }
         if (chart.mode == "adjust") {

@@ -191,11 +191,21 @@ class PresToolbar {
     ; "css" opens the theme's CSS tab, "new" a new deck, "duplicate" a copy
     ; of this one, the rest the page's button of that id.
     sfn requestFor:string (id:string) {
-        if (id == "new") {
+        if ((id == "new") || (id == "newPres")) {
             return "files:new"
+        }
+        if (id == "newSheet") {
+            return "files:newsheet"
         }
         if (id == "duplicate") {
             return "files:duplicate"
+        }
+        if (id == "deleteDeck") {
+            return "files:deletedeck"
+        }
+        ; File → Export's rows: the page's own export buttons
+        if ((indexOf id "x-") == 0) {
+            return ("click:" + (substring id 2 (strlen id)))
         }
         if (id == "css") {
             return "showtab:css"
@@ -289,6 +299,14 @@ class PresToolbar {
         }
         MenuCtl.addKid(parent "o-landscape" (lm + (PresI18n.t("Landscape"))) false)
         MenuCtl.addKid(parent "o-portrait" (pm + (PresI18n.t("Portrait"))) false)
+    }
+
+    ; Export's rows: the Markdown, PowerPoint, PDF, and a zip of every file.
+    fn exportKids:void (parent:UiItem) {
+        MenuCtl.addKid(parent "x-save" (PresI18n.t("Markdown (.md)")) false)
+        MenuCtl.addKid(parent "x-pptx" (PresI18n.t("PowerPoint (.pptx)")) false)
+        MenuCtl.addKid(parent "x-pdf" (PresI18n.t("PDF (.pdf)")) false)
+        MenuCtl.addKid(parent "x-zip" (PresI18n.t("All files (.zip)")) false)
     }
 
     ; Recent's rows: every deck first (the Files tab), then the latest ones.
@@ -423,8 +441,13 @@ class PresToolbar {
         } {
             bar.addChild((this.text("tb-brand" brand)))
             def file:MenuCtl (this.dropdown("file" (PresI18n.t("File"))))
-            ; groups as in a desktop app: new | open | save | the assistants | settings
-            file.addItem("new" (PresI18n.t("New presentation")) false)
+            ; groups as in a desktop app: new | open | save and export | the
+            ; assistants | settings | delete, red and last
+            ; New ▸ a presentation (the window) or a datasheet (the spreadsheet
+            ; editor, its workbook kept in the deck's data/)
+            def nw:UiItem (file.addSub("new" (PresI18n.t("New")) false))
+            MenuCtl.addKid(nw "newPres" (PresI18n.t("Presentation…")) false)
+            MenuCtl.addKid(nw "newSheet" (PresI18n.t("Datasheet…")) false)
             file.addItem("duplicate" (PresI18n.t("Duplicate")) false)
             file.addSeparator()
             file.addItem("openbox" (PresI18n.t("Open…")) false)
@@ -432,11 +455,16 @@ class PresToolbar {
             this.recentKids(rc)
             file.addSeparator()
             file.addItem("save" (PresI18n.t("Save .md")) false)
+            def xs:UiItem (file.addSub("export" (PresI18n.t("Export")) false))
+            this.exportKids(xs)
             file.addSeparator()
             file.addItem("aiClaude" (PresI18n.t("Edit in Claude…")) false)
             file.addItem("aiChatgpt" (PresI18n.t("Edit in ChatGPT…")) false)
             file.addSeparator()
             file.addItem("settings" (PresI18n.t("Settings…")) false)
+            file.addSeparator()
+            file.addItem("deleteDeck" (PresI18n.t("Delete presentation…")) false)
+            file.setVariant("deleteDeck" "destructive")
             file.setShortcut("openbox" (this.modKey("O")))
             file.setShortcut("save" (this.modKey("S")))
             def slide:MenuCtl (this.dropdown("slide" (PresI18n.t("Slide"))))
@@ -454,8 +482,10 @@ class PresToolbar {
             slide.addSeparator()
             slide.addItem("css" (PresI18n.t("Edit theme CSS…")) false)
             def ex:MenuCtl (this.dropdown("export" (PresI18n.t("Export"))))
-            ex.addItem("pdf" (PresI18n.t("PDF")) false)
-            ex.addItem("pptx" (PresI18n.t("PowerPoint (PPTX)")) false)
+            ex.addItem("x-save" (PresI18n.t("Markdown (.md)")) false)
+            ex.addItem("pptx" (PresI18n.t("PowerPoint (.pptx)")) false)
+            ex.addItem("pdf" (PresI18n.t("PDF (.pdf)")) false)
+            ex.addItem("zip" (PresI18n.t("All files (.zip)")) false)
             def hp:MenuCtl (this.dropdown("help" (PresI18n.t("Help"))))
             hp.addItem("helpBtn" (PresI18n.t("Help for this slide")) false)
 
@@ -512,6 +542,7 @@ class PresToolbar {
             this.button("dr-share" (PresI18n.t("Share")) "ghost" body)
             body.addChild((this.text("tb-dr-label" (PresI18n.t("File")))))
             this.button("dr-new" (PresI18n.t("New presentation")) "ghost" body)
+            this.button("dr-newSheet" (PresI18n.t("New datasheet")) "ghost" body)
             this.button("dr-duplicate" (PresI18n.t("Duplicate")) "ghost" body)
             body.addChild((this.div("tb-dr-sep")))
             this.button("dr-openbox" (PresI18n.t("Open…")) "ghost" body)
@@ -522,6 +553,12 @@ class PresToolbar {
             this.button("dr-aiClaude" (PresI18n.t("Edit in Claude…")) "ghost" body)
             this.button("dr-aiChatgpt" (PresI18n.t("Edit in ChatGPT…")) "ghost" body)
             this.button("dr-settings" (PresI18n.t("Settings…")) "ghost" body)
+            body.addChild((this.div("tb-dr-sep")))
+            def del:ButtonCtl (this.button("dr-deleteDeck" (PresI18n.t("Delete presentation…")) "ghost" body))
+            def delEl:EVGElement (unwrap del.rootEl)
+            if ((delEl.getChildCount()) > 0) {
+                UiTree.addClass((delEl.getChild(0)) "tb-danger")
+            }
             body.addChild((this.div("tb-dr-sep")))
             def arrow:string "▸  "
             if drawerThemes {
@@ -544,8 +581,10 @@ class PresToolbar {
             }
             this.button("dr-css" (PresI18n.t("Edit theme CSS…")) "ghost" body)
             body.addChild((this.text("tb-dr-label" (PresI18n.t("Export")))))
-            this.button("dr-pdf" (PresI18n.t("PDF")) "ghost" body)
-            this.button("dr-pptx" (PresI18n.t("PowerPoint (PPTX)")) "ghost" body)
+            this.button("dr-x-save" (PresI18n.t("Markdown (.md)")) "ghost" body)
+            this.button("dr-pptx" (PresI18n.t("PowerPoint (.pptx)")) "ghost" body)
+            this.button("dr-pdf" (PresI18n.t("PDF (.pdf)")) "ghost" body)
+            this.button("dr-zip" (PresI18n.t("All files (.zip)")) "ghost" body)
             body.addChild((this.text("tb-dr-label" (PresI18n.t("Help")))))
             this.button("dr-helpBtn" (PresI18n.t("Help for this slide")) "ghost" body)
             if ((strlen langRows) > 0) {

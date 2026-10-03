@@ -123,3 +123,10 @@
 /* text leaves get their size and face stated, not inherited: an inherited
    size came out differently between passes and the rows moved */
 .theme-tb .ui-switch-label { font-family: Open Sans; font-size: 13px; }
+
+/* File → Delete presentation…: red, as EVGUI's destructive row, with a red
+   wash under the pointer; the drawer's row the same red. */
+.theme-tb .ui-dropdownmenu-item-destructive { color: #dc2626; }
+.theme-tb .ui-dropdownmenu-item-destructive:hover { background-color: #fef2f2; }
+.theme-tb .ui-dropdownmenu-item-destructive:focus { background-color: #fef2f2; }
+.theme-tb .tb-danger { color: #dc2626; }
