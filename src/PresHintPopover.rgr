@@ -78,6 +78,9 @@ class PresHintPopover {
     ; what the app is asked to do
     def edits:[PresHintEdit]
     def wantsClose:boolean false
+    ; the hint is in the front matter: a button opens the document settings
+    def docset:boolean false
+    def wantsDoc:boolean false
     ; "sel<TAB>prop<TAB>default" when a property of a selector was picked
     def wantsProp:string ""
     ; the doc line of the selector property under the pointer
@@ -129,6 +132,7 @@ class PresHintPopover {
         unit = (j.stringOr("unit" ""))
         tab = (j.stringOr("tab" "md"))
         line = (j.intOr("line" 0))
+        docset = (j.boolOr("docset" false))
         start = (j.intOr("start" 0))
         end = (j.intOr("end" 0))
         wholeStart = (j.intOr("wholeStart" -1))
@@ -166,6 +170,7 @@ class PresHintPopover {
         tip = ""
         tipH = -1.0
         wantsClose = false
+        wantsDoc = false
         wantsProp = ""
         dragPart = ""
         sliding = false
@@ -384,10 +389,16 @@ class PresHintPopover {
                 card.addChild(ar)
             }
         }
-        if ((wholeStart >= 0) && (wholeEnd > wholeStart)) {
+        def hasRemove:boolean ((wholeStart >= 0) && (wholeEnd > wholeStart))
+        if (hasRemove || docset) {
             def foot:EVGElement (this.div("hp-foot"))
+            if docset {
+                this.button("hp-docset" (PresI18n.t("Document settings…")) "secondary" foot)
+            }
             foot.addChild((this.div("hp-grow")))
-            this.button("hp-remove" (PresI18n.t("Remove")) "danger" foot)
+            if hasRemove {
+                this.button("hp-remove" (PresI18n.t("Remove")) "danger" foot)
+            }
             card.addChild(foot)
         }
         ; under the value, kept on the screen (flipped above when it would not fit)
@@ -824,6 +835,10 @@ class PresHintPopover {
                 this.write((this.toggledFlags((itemAt options fi))))
                 this.rebuild()
             }
+            return
+        }
+        if (ctlTid == "hp-docset") {
+            wantsDoc = true
             return
         }
         if (ctlTid == "hp-close") {

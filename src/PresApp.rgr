@@ -222,6 +222,8 @@ class PresApp {
     ; the undo stack's length when a drag's first live write was made: the
     ; drag's writes are merged into one undo step (-1 = no drag writing)
     def chartUndoBase:int -1
+    ; the undo stack's length when the document settings opened
+    def docUndoBase:int -1
     def panelsKey:string ""
     def barH:double 0.0
     def chartWinY:double -1.0
@@ -2926,11 +2928,23 @@ class PresApp {
         if (edTab == "css") {
             j = (this.selectorHint(text col))
         }
+        def inFm:boolean (this.inFrontMatter(line))
         if ((strlen j) == 0) {
-            j = (PresHints.forLine(md text col (this.inFrontMatter(line))))
+            j = (PresHints.forLine(md text col inFm))
+        }
+        ; a `---` of the front matter: what the block is
+        def fence:boolean (this.frontMatterFence(line))
+        if (((strlen j) == 0) && fence) {
+            def fh:PresHint (PresHint.make("doc" (PresI18n.t("Front matter")) "" 0 (strlen text)))
+            fh.doc = (PresI18n.t("The deck's own settings: title, transition, header and footer."))
+            j = (fh.json())
         }
         if ((strlen j) == 0) {
             return ""
+        }
+        ; anything in the front matter can open the whole of it as a window
+        if (inFm || fence) {
+            j = ((substring j 0 ((strlen j) - 1)) + ",\"docset\":true}")
         }
         def st:int (?? (str2int (PresApp.jsonNum(j "start"))) 0)
         def en:int (?? (str2int (PresApp.jsonNum(j "end"))) st)
@@ -3007,6 +3021,25 @@ class PresApp {
         while (i < (editor.buf.lineCount())) {
             if ((trim (editor.buf.lineAt(i))) == "---") {
                 return ((line > 0) && (line < i))
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Is the line the front matter's opening or closing `---`?
+    fn frontMatterFence:boolean (line:int) {
+        if ((edTab != "md") || ((editor.buf.lineCount()) == 0)) {
+            return false
+        }
+        if ((trim (editor.buf.lineAt(0))) != "---") {
+            return false
+        }
+        def i:int 1
+        while (i < (editor.buf.lineCount())) {
+            def ln:string (trim (editor.buf.lineAt(i)))
+            if ((ln == "---") || (ln == "...")) {
+                return ((line == 0) || (line == i))
             }
             i = (i + 1)
         }
@@ -3390,9 +3423,14 @@ class PresApp {
     }
 
     ; "Edit content": a picture's or a chart's own editor; otherwise its
-    ; Markdown, selected in the editor.
+    ; Markdown, selected in the editor. For the page, the document settings
+    ; (the page lists the pictures for the logo first).
     fn pickContent:void () {
         this.closeHint()
+        if (pick.sel == "page") {
+            push requests "docset"
+            return
+        }
         if (pick.sel == "img") {
             if (this.openImageEditor(pick.line)) {
                 return
@@ -3539,6 +3577,11 @@ class PresApp {
         if hint.wantsClose {
             hint.wantsClose = false
             this.closeHint()
+        }
+        if hint.wantsDoc {
+            hint.wantsDoc = false
+            this.closeHint()
+            push requests "docset"
         }
         if ((strlen hint.wantsProp) > 0) {
             def parts:[string] (strsplit hint.wantsProp (strfromcode 9))
@@ -4647,6 +4690,179 @@ class PresApp {
         return true
     }
 
+    ; --- the document's settings --------------------------------------------------
+    ; The front matter as a window: title, transition, header and footer.
+    ; `pics` is the deck's pictures, one path a line, for the logo. Each change
+    ; rewrites the front matter at once; closing the window makes all of them
+    ; one undo step.
+    fn openDocSettings:boolean (pics:string) {
+        if (mode == "present") {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        ; over the editor, so the slides it changes stay in sight
+        def px:double 12.0
+        if (W < 1100.0) {
+            px = ((W - 560.0) * 0.5)
+        }
+        if (px < 8.0) {
+            px = 8.0
+        }
+        def py:double (barH + 24.0)
+        def d:PresDocSettings (new PresDocSettings())
+        d.read((MdFrontMatter.of(deck.md.edit.doc)))
+        def list:[string]
+        def parts:[string] (strsplit pics "\n")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (trim (itemAt parts i))
+            if ((strlen p) > 0) {
+                push list p
+            }
+            i = (i + 1)
+        }
+        ; a logo the front matter names stays pickable, whether or not the
+        ; file is in the deck's files
+        def e:int 0
+        while (e < 2) {
+            def lg:string (itemAt d.logo e)
+            def known:boolean ((strlen lg) == 0)
+            def q:int 0
+            while (q < (array_length list)) {
+                if ((itemAt list q) == lg) {
+                    known = true
+                }
+                q = (q + 1)
+            }
+            if (known == false) {
+                push list lg
+            }
+            e = (e + 1)
+        }
+        ; the pick's buttons would cover the header it changes
+        pick.clear()
+        chartStart = -1
+        chartFile = ""
+        docUndoBase = (array_length mdEditor.buf.undoStack)
+        chart.measurer = measurer
+        chart.openDocSet(d list px py W H)
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The front matter with the window's keys: a key's line is rewritten in
+    ; place, a key with no value is taken out, a new one goes last. Other
+    ; lines stay as they are. The block is replaced as one edit; a deck with
+    ; no front matter gets one.
+    fn writeDocSettings:void () {
+        def ds:PresDocSettings chart.ds
+        ds.build()
+        def n:int (mdEditor.buf.lineCount())
+        def close:int -1
+        if ((n > 0) && ((trim (mdEditor.buf.lineAt(0))) == "---")) {
+            def k:int 1
+            while ((k < n) && (close < 0)) {
+                def ln:string (trim (mdEditor.buf.lineAt(k)))
+                if ((ln == "---") || (ln == "...")) {
+                    close = k
+                }
+                k = (k + 1)
+            }
+        }
+        def lines:[string]
+        def done:[boolean]
+        def q:int 0
+        while (q < (array_length ds.outKeys)) {
+            push done false
+            q = (q + 1)
+        }
+        if (close > 0) {
+            def i:int 1
+            while (i < close) {
+                def raw:string (mdEditor.buf.lineAt(i))
+                def cut:int (MdFrontMatter.colonAt(raw))
+                def at:int -1
+                if (cut > 0) {
+                    def key:string (MdChar.lower((trim (substring raw 0 cut))))
+                    def j:int 0
+                    while ((j < (array_length ds.outKeys)) && (at < 0)) {
+                        if ((itemAt ds.outKeys j) == key) {
+                            at = j
+                        }
+                        j = (j + 1)
+                    }
+                }
+                if (at < 0) {
+                    push lines raw
+                } {
+                    def v:string (itemAt ds.outVals at)
+                    if (((strlen v) > 0) && ((itemAt done at) == false)) {
+                        push lines ((itemAt ds.outKeys at) + ": " + (PresDocSettings.quote(v)))
+                    }
+                    set done at true
+                }
+                i = (i + 1)
+            }
+        }
+        def j2:int 0
+        while (j2 < (array_length ds.outKeys)) {
+            def v2:string (itemAt ds.outVals j2)
+            if (((itemAt done j2) == false) && ((strlen v2) > 0)) {
+                push lines ((itemAt ds.outKeys j2) + ": " + (PresDocSettings.quote(v2)))
+            }
+            j2 = (j2 + 1)
+        }
+        def body:string (join lines "\n")
+        if ((strlen body) > 0) {
+            body = (body + "\n")
+        }
+        def text:string ("---\n" + body + "---")
+        if (close < 0) {
+            if ((strlen body) == 0) {
+                return
+            }
+        }
+        def cl:int mdEditor.sel.caret.line
+        def cc:int mdEditor.sel.caret.col
+        def was:string edTab
+        def keep:ScriptEditor editor
+        editor = mdEditor
+        def oldLines:int 0
+        mdEditor.moveCaret(0 0 false)
+        ; the block always ends with its line break, so the writes of one
+        ; window all replace the same stretch and merge into one undo step
+        if (close < 0) {
+            mdEditor.insert((text + "\n"))
+        } {
+            if ((close + 1) < n) {
+                mdEditor.moveCaret((close + 1) 0 true)
+                mdEditor.insert((text + "\n"))
+            } {
+                mdEditor.moveCaret(close (strlen (mdEditor.buf.lineAt(close))) true)
+                mdEditor.insert(text)
+            }
+            oldLines = (close + 1)
+        }
+        def newLines:int ((array_length lines) + 2)
+        if (cl >= oldLines) {
+            cl = (cl + (newLines - oldLines))
+        } {
+            cl = 0
+            cc = 0
+        }
+        mdEditor.moveCaret(cl cc false)
+        mdEditor.sel.collapseToCaret()
+        editor = keep
+        edTab = was
+        bufSynced = mdEditor.buf.version
+        this.rebuildDeck()
+    }
+
     ; --- a question before deleting ------------------------------------------------
     ; The same window asking before something that cannot be undone: `title`,
     ; `words`, Cancel and a red `ok`. The red button is "confirm:<key>" to
@@ -4974,6 +5190,13 @@ class PresApp {
                 push requests "image-cancel"
             }
         }
+        if (chart.isOpen && (chart.mode == "docset")) {
+            def keepBase:int chartUndoBase
+            chartUndoBase = docUndoBase
+            this.mergeChartUndo()
+            chartUndoBase = keepBase
+            docUndoBase = -1
+        }
         chartWinX = chart.x
         chartWinY = chart.y
         chart.close()
@@ -5060,6 +5283,10 @@ class PresApp {
         }
         chart.changed = false
         if (((chart.mode == "paste") || (chart.mode == "newdeck")) || (chart.mode == "confirm")) {
+            return
+        }
+        if (chart.mode == "docset") {
+            this.writeDocSettings()
             return
         }
         if (chart.mode == "adjust") {

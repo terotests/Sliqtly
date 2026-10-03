@@ -1,0 +1,244 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresDocSettings.rgr — the document's settings, as the window edits them
+; ============================================================================
+;
+; The front matter keys the Document settings window shows: the title, the
+; transition, and the header and the footer (MdLayout's three places an
+; edge, a logo in one of them, the slides they are left off, colour, band
+; and size). `read` takes them from the front matter; `build` gives the keys
+; back with their values, "" for a key to take out, so the app can rewrite
+; the front matter as one edit. The older one-place keys (`header:`,
+; `header-image:`, `header-align:`) are folded into the places on reading
+; and taken out on writing.
+; ============================================================================
+
+Import "../markdown/web/markdown_web.rgr"
+
+class PresDocSettings {
+    def title:string ""
+    def transition:string ""
+    ; header left, centre, right, then the footer's, without the logo
+    def texts:[string]
+    ; per edge (0 header, 1 footer): the logo's path and its place (0 1 2)
+    def logo:[string]
+    def logoAt:[int]
+    def skipFirst:[boolean]
+    def skipLast:[boolean]
+    ; slide numbers in the skip list, kept as they were
+    def skipRest:[string]
+    def color:[string]
+    def band:[string]
+    def size:[string]
+    ; what `build` made
+    def outKeys:[string]
+    def outVals:[string]
+
+    Constructor () {
+        this.clear()
+    }
+
+    fn clear:void () {
+        def t:[string]
+        texts = t
+        def l:[string]
+        logo = l
+        def la:[int]
+        logoAt = la
+        def sf:[boolean]
+        skipFirst = sf
+        def sl:[boolean]
+        skipLast = sl
+        def sr:[string]
+        skipRest = sr
+        def c:[string]
+        color = c
+        def b:[string]
+        band = b
+        def s:[string]
+        size = s
+        def i:int 0
+        while (i < 6) {
+            push texts ""
+            i = (i + 1)
+        }
+        def e:int 0
+        while (e < 2) {
+            push logo ""
+            push logoAt 2
+            push skipFirst false
+            push skipLast false
+            push skipRest ""
+            push color ""
+            push band ""
+            push size ""
+            e = (e + 1)
+        }
+    }
+
+    sfn edgeKey:string (e:int) {
+        if (e == 0) {
+            return "header"
+        }
+        return "footer"
+    }
+
+    sfn placeKey:string (i:int) {
+        if (i == 0) {
+            return "left"
+        }
+        if (i == 1) {
+            return "center"
+        }
+        return "right"
+    }
+
+    fn read:void (meta:MdMeta) {
+        this.clear()
+        title = (meta.get("title" ""))
+        transition = (meta.get("transition" ""))
+        def e:int 0
+        while (e < 2) {
+            def k:string (PresDocSettings.edgeKey(e))
+            def slots:[string]
+            def i:int 0
+            while (i < 3) {
+                push slots (meta.get((k + "-" + (PresDocSettings.placeKey(i))) ""))
+                i = (i + 1)
+            }
+            ; the one-place header, in the place its alignment names
+            def one:string (meta.get(k ""))
+            def img:string (meta.get((k + "-image") ""))
+            if ((strlen img) > 0) {
+                one = (trim ("![](" + img + ") " + one))
+            }
+            if ((strlen one) > 0) {
+                def al:string (MdCss.alignWord((meta.get((k + "-align") ""))))
+                def at:int 0
+                if (al == "center") {
+                    at = 1
+                }
+                if (al == "end") {
+                    at = 2
+                }
+                def was:string (itemAt slots at)
+                if ((strlen was) > 0) {
+                    set slots at (was + " " + one)
+                } {
+                    set slots at one
+                }
+            }
+            i = 0
+            while (i < 3) {
+                def slot:string (itemAt slots i)
+                def pic:string (MdLayout.slotImage(slot))
+                if (((strlen pic) > 0) && ((strlen (itemAt logo e)) == 0)) {
+                    set logo e pic
+                    set logoAt e i
+                }
+                set texts ((e * 3) + i) (MdLayout.slotText(slot))
+                i = (i + 1)
+            }
+            def words:[string] (strsplit (MdChar.lower((meta.get((k + "-skip") "")))) " ")
+            def rest:string ""
+            def w:int 0
+            while (w < (array_length words)) {
+                def wd:string (trim (itemAt words w))
+                if (wd == "first") {
+                    set skipFirst e true
+                } {
+                    if (wd == "last") {
+                        set skipLast e true
+                    } {
+                        if ((strlen wd) > 0) {
+                            rest = (trim (rest + " " + wd))
+                        }
+                    }
+                }
+                w = (w + 1)
+            }
+            set skipRest e rest
+            set color e (meta.get((k + "-color") ""))
+            set band e (meta.get((k + "-background") ""))
+            set size e (meta.get((k + "-size") ""))
+            e = (e + 1)
+        }
+    }
+
+    ; One place as the front matter writes it: the logo first when it is here.
+    fn slotValue:string (e:int i:int) {
+        def t:string (trim (itemAt texts ((e * 3) + i)))
+        def pic:string (itemAt logo e)
+        if (((strlen pic) > 0) && ((itemAt logoAt e) == i)) {
+            return (trim ("![](" + pic + ") " + t))
+        }
+        return t
+    }
+
+    fn put:void (k:string v:string) {
+        push outKeys k
+        push outVals v
+    }
+
+    fn build:void () {
+        def ok:[string]
+        outKeys = ok
+        def ov:[string]
+        outVals = ov
+        this.put("title" title)
+        this.put("transition" transition)
+        def e:int 0
+        while (e < 2) {
+            def k:string (PresDocSettings.edgeKey(e))
+            def i:int 0
+            while (i < 3) {
+                this.put((k + "-" + (PresDocSettings.placeKey(i))) (this.slotValue(e i)))
+                i = (i + 1)
+            }
+            this.put(k "")
+            this.put((k + "-image") "")
+            this.put((k + "-align") "")
+            def skip:string ""
+            if (itemAt skipFirst e) {
+                skip = "first"
+            }
+            if (itemAt skipLast e) {
+                skip = (trim (skip + " last"))
+            }
+            skip = (trim (skip + " " + (itemAt skipRest e)))
+            this.put((k + "-skip") skip)
+            this.put((k + "-color") (itemAt color e))
+            this.put((k + "-background") (itemAt band e))
+            this.put((k + "-size") (itemAt size e))
+            e = (e + 1)
+        }
+    }
+
+    ; A value as a front matter line holds it: quoted when YAML would read
+    ; it otherwise (a colon, braces, a leading `!`, a `#`).
+    sfn quote:string (v:string) {
+        if ((strlen v) == 0) {
+            return v
+        }
+        def need:boolean false
+        def specials:string ":#{}[]&*!|>%@`,"
+        def i:int 0
+        while (i < (strlen v)) {
+            if ((indexOf specials (substring v i (i + 1))) >= 0) {
+                need = true
+            }
+            i = (i + 1)
+        }
+        if (((v != (trim v)) || ((charAt v 0) == 34)) || ((charAt v 0) == 39)) {
+            need = true
+        }
+        if (need == false) {
+            return v
+        }
+        if ((indexOf v "\"") >= 0) {
+            return ("'" + v + "'")
+        }
+        return ("\"" + v + "\"")
+    }
+}
