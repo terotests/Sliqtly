@@ -87,7 +87,10 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   tall header or logo widens the margin so it does not cover the content.
   The stage, the PDF and the PPTX draw the same header and footer; it is
   laid out by Ranger's markdown module (`MdLayout.emitHeadFoot`).
-  `samples/raportti.md` shows it.
+  `samples/raportti.md` shows it. **Document settings** (File menu, the
+  page picked on the slide, or the popover of a front matter line) edits
+  these keys, the title and the transition in a window and writes them back
+  into the front matter (`PresDocSettings.rgr`).
 - A slide with room is set larger: text, headings and spacing together, up to
   1.6×, as long as it fits and a one-line title stays one line. Slides with a
   picture or a diagram keep their sizes. `slide-grow: 1.3` in the front matter
