@@ -1,5 +1,5 @@
 // node --test: every file the assistant's preview fetches from the site
-// (mcp/src/preview.html: index.html, its scripts and pictures, and the
+// (mcp-go/assets/preview.html: index.html, its scripts and pictures, and the
 // modules they import) is served with Access-Control-Allow-Origin
 // (firebase.json), or the preview fails with "Failed to fetch".
 import test from "node:test";

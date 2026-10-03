@@ -27,7 +27,7 @@ const pro = document.getElementById("pro");
 let user = null;
 let ready = null;
 
-// An AI assistant's preview (mcp/src/preview.html) may load scripts only
+// An AI assistant's preview (mcp-go/assets/preview.html) may load scripts only
 // from blob: URLs, and gives the page its own loader for that.
 function load(src) {
   if (globalThis.__sliqtlyLoadScript) return globalThis.__sliqtlyLoadScript(src);
@@ -241,7 +241,7 @@ function signedIn() {
 }
 
 // A PRO deck lives in its share: every change in the editor is written to
-// shares/{id}, files to Storage, so /s/{id} and an assistant (mcp/) see it.
+// shares/{id}, files to Storage, so /s/{id} and an assistant (mcp-go/) see it.
 // since: { md, stamps } as this page last wrote or read it. The share's text
 // having moved on from since.md means someone else (an assistant) changed it:
 // that is refused with code "changed-elsewhere" rather than written over.

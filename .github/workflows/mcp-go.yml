@@ -14,6 +14,18 @@ permissions:
   contents: read
 
 jobs:
+  # The MCP server is mcp-go/ only. The Node server that was mcp/ is retired
+  # (two servers drifted apart with every change to one of them): a change
+  # that brings it back fails here.
+  one-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          if [ -e mcp ] || grep -q '"functionId": "mcp"' firebase.json; then
+            echo "::error::The Node MCP server (mcp/) is retired. MCP changes go to mcp-go/: logic in rgr/*.rgr, the Go host in host.go, tests in *_test.go."
+            exit 1
+          fi
   test:
     runs-on: ubuntu-latest
     defaults:
@@ -28,16 +40,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # copies the guide and preview from mcp/, compiles rgr/ and src/ with Ranger
+      # compiles rgr/ and src/ with Ranger
       - run: go generate ./...
       - run: test -z "$(gofmt -l host.go net.go main.go firebase.go server_test.go stats_test.go)"
       # the generated code carries json tags on unexported fields, and the
       # deck model has a few self-assignments
       - run: go vet -structtag=false -assign=false ./...
       - run: go test -race ./...
-      # the Node server (mcp/) and this one answer the same calls alike
-      - run: npm ci
-        working-directory: mcp
-      - run: node parity.mjs
       - run: docker build -f mcp-go/Dockerfile -t sliqtly-mcp-go .
         working-directory: .

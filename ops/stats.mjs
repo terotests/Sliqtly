@@ -1,9 +1,9 @@
 // Sliqtly's numbers for the last days, as Markdown tables: visitors and
-// page loads (stats/<day>, src/stats.js), new and returning signed-in users
+// page loads (stats/<day>, mcp-go/rgr/Stats.rgr), new and returning signed-in users
 // (Firebase Auth), and shares made (shares.created). Counts only: no email,
 // name or id is printed.
 //
-//   cd mcp && GOOGLE_APPLICATION_CREDENTIALS=sa.json node scripts/stats.mjs [days]
+//   cd ops && npm ci && GOOGLE_APPLICATION_CREDENTIALS=sa.json node stats.mjs [days]
 //
 // The Stats workflow (Actions → Stats → Run workflow) runs it and shows the
 // tables in the run's summary.
@@ -11,11 +11,11 @@
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
-import { dayOf } from "../src/stats.js";
 
 initializeApp({ projectId: process.env.GCLOUD_PROJECT || "sliqtly" });
 const db = getFirestore();
 const DAY = 24 * 60 * 60 * 1000;
+const dayOf = (t) => new Date(t).toISOString().slice(0, 10);
 const days = Math.max(1, Math.min(366, Number(process.argv[2]) || 30));
 const today = Date.now();
 const list = Array.from({ length: days }, (_, i) => dayOf(today - i * DAY));

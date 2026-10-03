@@ -1,0 +1,14 @@
+{
+  "name": "sliqtly-ops",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Scripts run by hand or by the Stats workflow against the sliqtly Firebase project",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.5.0"
+  }
+}

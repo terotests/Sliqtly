@@ -3104,8 +3104,8 @@ try {
       await pc.keyboard.type("Vuokra ja menot");
       await pc.keyboard.press("Enter");
       await pc.waitForTimeout(3000);
-      const { writeWorkbook } = await import("../mcp/src/xlsx.js");
-      const book = [...writeWorkbook([{ name: "Sheet1", rows: [["Kuukausi", "Vuokra"], ["2026-01", 950]] }])];
+      // Kuukausi | Vuokra, 2026-01 | 950, as the MCP server's write_workbook writes it
+      const book = [...fs.readFileSync(new URL("./fixtures/sheet-1.xlsx", import.meta.url))];
       await pc.evaluate((b) => window.__saveWorkbook("data/sheet-1.xlsx", new Uint8Array(b).buffer), book);
       await pc.waitForTimeout(4000);
       const made = shareId().filter((k) => !before.includes(k));

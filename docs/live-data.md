@@ -172,7 +172,7 @@ server side; the deck only names the connection.
 
 MCP is the control interface for agents (ChatGPT / Claude → Sliqtly MCP →
 "bind this chart to sheet X"), not a data pipe between MCP servers. V1 adds
-`bind_chart_data` to the Sliqtly MCP server (owned by the MCP work in `mcp/`
+`bind_chart_data` to the Sliqtly MCP server (owned by the MCP work in `mcp-go/`
 and `mcp-go/`): it points a deck's chart at a URL or a Google Sheet without
 rewriting the rest of the spec. Later: listing and configuring connectors
 (V4) and named sources (V2) through MCP.

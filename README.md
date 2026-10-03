@@ -300,15 +300,18 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | `brand/` | The logo as SVG; `make_logo.py` writes them. The build copies the icon as `favicon.svg` |
 | `.github/workflows/deploy.yml` | On a push to `main`: build, checks, deploy `web/dist` to Firebase Hosting (`sliqtly.web.app`) |
 | `scripts/` | setup, build, start (local server), check, check-web |
-| `mcp/` | The MCP server for AI assistants (a Cloud Function) |
+| `mcp-go/` | The MCP server for AI assistants: Ranger compiled to Go, on Cloud Run |
+| `ops/` | Scripts against the Firebase project: the Stats workflow's numbers, one-off fixes |
 | `web/connect.html` | How to connect Claude, ChatGPT, Cursor and others to it |
 
 ## For AI assistants (MCP)
 
-`mcp/` is an MCP server: Claude, ChatGPT, Cursor and other MCP clients make a
-presentation from Markdown, a theme, CSS and pictures and get its share link
+`mcp-go/` is an MCP server: Claude, ChatGPT, Cursor and other MCP clients make
+a presentation from Markdown, a theme, CSS and pictures and get its share link
 back. How to connect each client: `web/connect.html`
-(`/connect.html`). How it works, tests and deploy: [mcp/README.md](mcp/README.md).
+(`/connect.html`). How it works, tests and deploy:
+[mcp-go/README.md](mcp-go/README.md). It is the only MCP server: the Node one
+that was `mcp/` is retired, and CI fails if it comes back.
 
 ## Languages
 
@@ -368,7 +371,7 @@ Firebase Console, once:
    pictures and data files from Storage, and without it the browser refuses
    them (the slides open without their background images). Any origin may
    read them, since the preview in an AI assistant runs the viewer on the
-   assistant's own domain (mcp/src/preview.html). The Deploy
+   assistant's own domain (mcp-go/assets/preview.html). The Deploy
    workflow sets it when its service account has the role **Storage Admin**;
    by hand, in Cloud Shell:
    `gcloud storage buckets update gs://sliqtly.firebasestorage.app --cors-file=storage.cors.json`

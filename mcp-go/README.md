@@ -1,31 +1,34 @@
 # Sliqtly MCP server in Ranger, compiled to Go
 
-The MCP server of [`mcp/`](../mcp) written in Ranger and compiled to Go for
-Cloud Run: one static binary in a distroless container. Same tools, same
-Firestore documents and Storage paths, same OAuth endpoints and the same
-`guide.md` / `preview.html` (copied from `mcp/` at build time), so either
-server can answer for the other and a sign-in started on one can finish on
-the other.
+Sliqtly's MCP server for Claude, ChatGPT, Cursor and other MCP clients,
+written in Ranger and compiled to Go for Cloud Run: one static binary in a
+distroless container. It writes the same Firestore documents and Storage
+paths as the editor's Share. `assets/guide.md` is the syntax guide the
+`sliqtly_guide` tool returns; `assets/preview.html` is the inline preview.
+
+It replaced a Node.js server (`mcp/`, a Cloud Function) on 2026-10-03; the
+two drifted apart with every change to one of them, so there is one server
+now, and CI (`one-server` in `.github/workflows/mcp-go.yml`) fails if
+`mcp/` comes back. The comparisons below are from when both existed.
 
 This is what `sliqtly.com` runs: Hosting rewrites `/mcp`, `/oauth/**`, the
 OAuth `/.well-known` documents and `/api/hit` to the Cloud Run service
 `sliqtly-mcp` (europe-west1), deployed by Actions → **Deploy MCP (Go)**.
-Rolling back to the Cloud Function `mcp` is the same rewrites in
-`firebase.json` pointed back at `"function": { "functionId": "mcp", … }`,
-while that function is still deployed.
+Rolling back is a revert of the change that removed `mcp/`, a Deploy MCP
+of it, and the rewrites pointed back at the function.
 
 ## What is Ranger and what is Go
 
 | | |
 | --- | --- |
 | [`rgr/App.rgr`](rgr/App.rgr) | routing, CORS, the `/mcp` transport checks, sign-in on a request, the `/api/hit` beacon |
-| [`rgr/Stats.rgr`](rgr/Stats.rgr) | the site's cookieless visitor counts (`stats/<day>`), as `mcp/src/stats.js` |
+| [`rgr/Stats.rgr`](rgr/Stats.rgr) | the site's cookieless visitor counts (`stats/<day>`), read by the Stats workflow (`ops/stats.mjs`) |
 | [`rgr/Mcp.rgr`](rgr/Mcp.rgr) | MCP: JSON-RPC, `initialize`, `tools/*`, `resources/*` |
 | [`rgr/Tools.rgr`](rgr/Tools.rgr) | the eight tools, their schemas and UI metadata, the preview resource |
 | [`rgr/OAuth.rgr`](rgr/OAuth.rgr) | the OAuth 2.1 server: registration, authorize, approve, token, refresh |
 | [`rgr/Store.rgr`](rgr/Store.rgr) | shares, edit keys, pictures, listing |
 | [`rgr/Deck.rgr`](rgr/Deck.rgr) | the checks: picture names and types, outline, warnings |
-| [`rgr/Charts.rgr`](rgr/Charts.rgr) | `bind_chart_data`: finds a deck's ```` ```vega-lite ```` charts and points one at a CSV/JSON URL or a Google Sheet (as `mcp/src/deck.js`) |
+| [`rgr/Charts.rgr`](rgr/Charts.rgr) | `bind_chart_data`: finds a deck's ```` ```vega-lite ```` charts and points one at a CSV/JSON URL or a Google Sheet |
 | [`rgr/Files.rgr`](rgr/Files.rgr) | a deck's data files: `list_files`, `read_file`, `write_workbook` and `files` on create/update; workbooks read and tidied as the editor reads them |
 | [`xlsxwrite.go`](xlsxwrite.go) | the .xlsx `write_workbook` keeps (values only), behind `host_xlsx_write` |
 | [`rgr/PresDataGo.rgr`](rgr/PresDataGo.rgr) | the editor's workbook reader ([`src/PresData.rgr`](../src/PresData.rgr), datagrid's XlsxLoader) compiled on its own to the package `presdata/` (generated, not committed): its XmlLite and the deck model's XmlCore both define `XmlAttr`, so they cannot share one compile |
@@ -53,8 +56,8 @@ They also name text that does not stand out from what it is drawn over
 (`rgr/Contrast.rgr`): each slide is drawn to the editor's display list, the
 background pictures are decoded and sampled (`picgrid.go`), and every run of
 text is judged as the editor's painter judges it (WCAG 4.5:1, 3:1 for large
-text), with the least `bg-dim` or a text colour that would read. The Node
-server (`mcp/src/contrast.js`) has no layout and estimates the same from the
+text), with the least `bg-dim` or a text colour that would read. The old Node
+server (`mcp/src/contrast.js`) had no layout and estimated the same from the
 theme's colours and the picture.
 
 Building `PresDeck` for Go needed fixes in Ranger's Go target (terotests/Ranger):
@@ -95,16 +98,10 @@ test.
 
 ```
 cd mcp-go
-go generate         # copies guide.md and preview.html from ../mcp, compiles rgr/ (needs node)
-go test ./...       # mcp/test/server.test.js case for case, over HTTP with the official MCP Go client
+go generate         # compiles rgr/ and the editor's model (needs node)
+go test ./...       # end to end over HTTP with the official MCP Go client, Firestore and Storage faked
 go run .            # http://localhost:8080/mcp, decks travel in the link
 ```
-
-`node parity.mjs` (after `npm ci` in `../mcp`) runs both servers in link mode
-and makes the same calls to each: initialize, the tool list, the guide,
-create on a few decks, the errors. The differences kept on purpose (Go's
-layout-based warnings, how an argument error is worded) are listed in it.
-CI runs it with the tests.
 
 `go generate` compiles with the Ranger checkout the editor builds with
 (`npm run setup`, `.deps/Ranger` at the ref in `presentation.config.json`), or
@@ -114,7 +111,7 @@ container builds it in its first stage.
 
 With `GOOGLE_APPLICATION_CREDENTIALS` (or on Cloud Run, `K_SERVICE` set) it
 writes real shares and offers sign-in. `SLIQTLY_URL`, `SLIQTLY_BUCKET`,
-`GOOGLE_CLOUD_PROJECT` and `PORT` work as for `mcp/`; `SLIQTLY_STORE=link`
+`GOOGLE_CLOUD_PROJECT` and `PORT` set the site, bucket, project and port; `SLIQTLY_STORE=link`
 forces the link-only mode.
 
 ## Deploy

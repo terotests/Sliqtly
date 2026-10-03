@@ -158,17 +158,5 @@
   },
   "storage": {
     "rules": "storage.rules"
-  },
-  "functions": [
-    {
-      "source": "mcp",
-      "codebase": "mcp",
-      "ignore": [
-        "node_modules",
-        "test",
-        ".git",
-        "*.log"
-      ]
-    }
-  ]
+  }
 }
