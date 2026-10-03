@@ -185,6 +185,16 @@ class PresPanels {
         this.rebuild()
     }
 
+    ; File → Settings: the editor's own preferences, kept by the page.
+    def autoContrast:boolean true
+
+    fn openSettings:void (contrast:boolean) {
+        autoContrast = contrast
+        dialogKind = "settings"
+        shareOpen = true
+        this.rebuild()
+    }
+
     fn openData:void (i:PresImport) {
         imp = i
         dialogKind = "data"
@@ -292,10 +302,14 @@ class PresPanels {
             if (dialogKind == "open") {
                 root.addChild((this.openDialog()))
             } {
+              if (dialogKind == "settings") {
+                root.addChild((this.settingsDialog()))
+              } {
               if (dialogKind == "data") {
                 root.addChild((this.dataDialog()))
               } {
                 root.addChild((this.shareDialog()))
+              }
               }
             }
         }
@@ -900,6 +914,34 @@ class PresPanels {
         return d
     }
 
+    ; --- the settings dialog -------------------------------------------------------------
+    fn settingsDialog:EVGElement () {
+        def d:EVGElement (this.div("pn-dialog"))
+        d.id = "pn-dialog"
+        UiTree.surface(d "free" "start")
+        d.overlayX = ((w - 520.0) * 0.5)
+        d.overlayY = ((h - 300.0) * 0.5)
+        d.addChild((this.words("pn-dtitle" (PresI18n.t("Settings")))))
+        def o:EVGElement (this.div("pn-opt"))
+        o.addChild((this.words("pn-otitle" (PresI18n.t("Automatic contrast correction")))))
+        o.addChild((this.words("pn-odesc" (PresI18n.t("Text too faint on its slide is made readable: small text gets a lighter or darker colour, big text a thin outline. Your own colours stay as they are wherever they already read well.")))))
+        def r:EVGElement (this.div("pn-orow"))
+        def label:string (PresI18n.t("On"))
+        def variant:string "primary"
+        if (autoContrast == false) {
+            label = (PresI18n.t("Off"))
+            variant = "secondary"
+        }
+        this.button("pn-set-contrast" label variant r)
+        o.addChild(r)
+        d.addChild(o)
+        def foot:EVGElement (this.div("pn-dfoot"))
+        foot.addChild((this.div("pn-grow")))
+        this.button("pn-set-close" (PresI18n.t("Close")) "secondary" foot)
+        d.addChild(foot)
+        return d
+    }
+
     ; --- the import dialog --------------------------------------------------------------
     ; A data file: its first rows, and what to make of it.
     fn dataDialog:EVGElement () {
@@ -1370,6 +1412,19 @@ class PresPanels {
         }
         if ((shareOpen && (quiet == false)) && (dialogKind == "data")) {
             this.dataPress(px py)
+            return
+        }
+        if ((shareOpen && (quiet == false)) && (dialogKind == "settings")) {
+            def sc:string (this.ownerAt(px py))
+            if (sc == "pn-set-contrast") {
+                autoContrast = (autoContrast == false)
+                push requests ("setting:contrast:" + (? autoContrast "on" "off"))
+                this.rebuild()
+                return
+            }
+            if ((sc == "pn-set-close") || ((this.inEl("pn-dialog" px py)) == false)) {
+                this.closeShare()
+            }
             return
         }
         if ((shareOpen && (quiet == false)) && (dialogKind == "open")) {

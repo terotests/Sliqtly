@@ -3311,6 +3311,11 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    fn openSettings:void (contrast:boolean) {
+        panels.openSettings(contrast)
+        chromeRev = (chromeRev + 1)
+    }
+
     fn shareIsOpen:boolean () {
         return panels.shareOpen
     }
@@ -3356,6 +3361,14 @@ class PresApp {
             def text:string (r.stringOr("text" ""))
             def ratio:double (r.doubleOr("ratio" 0.0))
             def need:double (r.doubleOr("need" 4.5))
+            def fixed:string (r.stringOr("fixed" ""))
+            def shown:string ""
+            if (fixed == "colour") {
+                shown = (" " + (PresI18n.t("On the slide it is shown in a corrected colour.")))
+            }
+            if (fixed == "outline") {
+                shown = (" " + (PresI18n.t("On the slide it has an outline.")))
+            }
             def b:int 0
             def found:int -1
             while (b < (array_length l.boxes)) {
@@ -3378,7 +3391,7 @@ class PresApp {
                 }
                 def line:int (this.mdLineOf((PresDeck.boxSrc(box))))
                 if (line >= 0) {
-                    PresApp.warnOnce(mdOut line ((head + " ") + mdFix))
+                    PresApp.warnOnce(mdOut line (((head + shown) + " ") + mdFix))
                 }
                 def words:string text
                 if ((strlen words) > 40) {
@@ -3387,7 +3400,7 @@ class PresApp {
                 def cl:int 0
                 while (cl < (cssEditor.buf.lineCount())) {
                     if (PresApp.setsColour((cssEditor.buf.lineAt(cl)) box.color)) {
-                        PresApp.warnOnce(cssOut cl (PresI18n.t("Low contrast: ") + "“" + words + "” " + (PresApp.ratioWords(ratio)) + ":1, " + (PresI18n.t("needs ")) + (PresApp.ratioWords(need)) + ":1. " + cssFix))
+                        PresApp.warnOnce(cssOut cl (PresI18n.t("Low contrast: ") + "“" + words + "” " + (PresApp.ratioWords(ratio)) + ":1, " + (PresI18n.t("needs ")) + (PresApp.ratioWords(need)) + ":1." + shown + " " + cssFix))
                     }
                     cl = (cl + 1)
                 }
