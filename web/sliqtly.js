@@ -290,9 +290,64 @@ async function deleteShare(id) {
     const cur = snap.data();
     if (cur.owner !== user.uid) throw Object.assign(new Error("not the owner"), { code: "permission-denied" });
     await Promise.all((cur.files || []).map((f) => files.ref(`shares/${id}/${f.path}`).delete().catch(() => {})));
+    // the version history's objects (putObject)
+    const kept = await files.ref(`shares/${id}/.versions`).listAll().catch(() => null);
+    if (kept) await Promise.all(kept.items.map((r) => r.delete().catch(() => {})));
     await ref.delete();
     if (cur.deck) await db.collection("decks").doc(cur.deck).delete().catch(() => {});
   }
+}
+
+// --- version history (web/versions.js) ---------------------------------------------
+// A PRO deck's versions are objects in Storage, shares/{id}/.versions/{object
+// id}; each is written once and never changed. The share keeps `head` (the
+// newest version) and `log` (the versions, newest last, for the history
+// list on another device).
+async function putObject(shareId, objId, bytes) {
+  if (!user) throw new Error("not signed in");
+  const { files } = await store();
+  await files.ref(`shares/${shareId}/.versions/${objId}`).put(new Blob([bytes]), { contentType: "application/octet-stream" });
+}
+
+// → Uint8Array, or null when there is no such object
+async function getObject(shareId, objId) {
+  const { files } = await store();
+  let url;
+  try {
+    url = await files.ref(`shares/${shareId}/.versions/${objId}`).getDownloadURL();
+  } catch (_) {
+    return null;
+  }
+  const res = await fetch(url);
+  return res.ok ? new Uint8Array(await res.arrayBuffer()) : null;
+}
+
+// The share's head moved from `expect` to `head`, with `entries` added to
+// its log, only if the head is still `expect`. → { ok, head (the share's),
+// log }
+const LOG_MAX = 300;
+async function pushHead(shareId, expect, head, entries) {
+  if (!user) throw new Error("not signed in");
+  const { db } = await store();
+  const ref = db.collection("shares").doc(shareId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw Object.assign(new Error("share not found"), { code: "not-found" });
+    const cur = snap.data();
+    const now = cur.head || null;
+    if (now !== (expect || null) && now !== head) return { ok: false, head: now, log: cur.log || [] };
+    const seen = new Set((cur.log || []).map((e) => e.id));
+    const log = (cur.log || []).concat(entries.filter((e) => !seen.has(e.id))).slice(-LOG_MAX);
+    tx.update(ref, { head, log });
+    return { ok: true, head, log };
+  });
+}
+
+// The share's head and log as they are now: { head, log, md, css, theme,
+// name, files } (null when it is gone).
+async function readHead(shareId) {
+  const s = await loadShare(shareId);
+  return s ? { ...s, head: s.head || null, log: s.log || [] } : null;
 }
 
 // --- private Google Sheets ---------------------------------------------------------
@@ -403,5 +458,5 @@ async function readSheet(gviz, ask) {
   return rows.map((row) => Array.from({ length: width }, (_, i) => csvCell(row[i])).join(",")).join("\n") + "\n";
 }
 
-window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, listMine, readSheet, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true) };
+window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, listMine, readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true) };
 window.dispatchEvent(new Event("sliqtly:ready"));

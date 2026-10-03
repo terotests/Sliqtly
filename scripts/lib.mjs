@@ -12,6 +12,10 @@
  * The UI controls (UiHost, MenuCtl, CropCtl…) come from EVGUI, linked into
  * the same checkout as gallery/evgui, where its own ranger.json finds lib/evg.
  * EVGUI is cloned into .deps/EVGUI unless EVGUI_DIR points at a checkout.
+ *
+ * The version history (web/versions.js) uses RangerDiff's built module,
+ * dist/rangerdiff.mjs, cloned into .deps/RangerDiff unless RANGERDIFF_DIR
+ * points at a checkout.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -103,6 +107,29 @@ export function ensureEvgui({ update = false } = {}) {
     fs.writeFileSync(marker, ref + "\n");
   }
   if (!fs.existsSync(path.join(dir, "src", "UiHost.rgr"))) throw new Error(`${dir} is not an EVGUI checkout (no src/UiHost.rgr)`);
+  return dir;
+}
+
+/** RangerDiff (deltas and versions): RANGERDIFF_DIR, or a clone in .deps at config.rangerdiff.ref. */
+export function ensureRangerDiff({ update = false } = {}) {
+  const given = process.env.RANGERDIFF_DIR;
+  const dir = given ? path.resolve(given) : path.join(depsDir, "RangerDiff");
+  const ref = process.env.RANGERDIFF_REF || config.rangerdiff.ref;
+  const marker = path.join(depsDir, "rangerdiff-ref");
+  const had = fs.existsSync(marker) ? fs.readFileSync(marker, "utf8").trim() : "";
+  if (!fs.existsSync(dir)) {
+    if (given) throw new Error(`RANGERDIFF_DIR=${given} does not exist`);
+    fs.mkdirSync(depsDir, { recursive: true });
+    log(`clone  ${config.rangerdiff.url} (${ref}) → ${path.relative(root, dir)}`);
+    git(["clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), config.rangerdiff.url, dir], root);
+    fs.writeFileSync(marker, ref + "\n");
+  } else if (!given && (update || had !== ref)) {
+    log(`update RangerDiff (${had || "unknown"} → ${ref})`);
+    git(["fetch", "--depth", "1", "origin", ref || "HEAD"], dir);
+    git(["checkout", "-q", "-f", "--detach", "FETCH_HEAD"], dir);
+    fs.writeFileSync(marker, ref + "\n");
+  }
+  if (!fs.existsSync(path.join(dir, "dist", "rangerdiff.mjs"))) throw new Error(`${dir} is not a RangerDiff checkout (no dist/rangerdiff.mjs)`);
   return dir;
 }
 
