@@ -112,7 +112,8 @@ class PresApp {
     def speaker:boolean false
     ; present: steps come by themselves rather than by a click
     def auto:boolean false
-    ; "editor" | "stage" | ""
+    ; "editor" | "stage" | "strip" (the filmstrip: its keys move between,
+    ; reorder and delete slides) | "chart" | ""
     def focus:string "editor"
     def blink:int 0
     def chromeRev:int 0
@@ -141,6 +142,10 @@ class PresApp {
     def stripIdx:int -1
     def stripDownX:double 0.0
     def stripLastX:double 0.0
+    ; A mouse drag that began on a thumbnail moves that slide: `stripDrop` is
+    ; the gap it would land in (0 = before the first, n = after the last).
+    def stripReorder:boolean false
+    def stripDrop:int -1
     ; The "+" after the last thumbnail: pressed, it offers an empty slide or
     ; a copy of the selected one. `stripAdd` is what the press on it asks
     ; for: "open", "empty", "dup" or "".
@@ -1431,6 +1436,8 @@ class PresApp {
         stagePanning = false
         stripPressed = false
         stripDragging = false
+        stripReorder = false
+        stripDrop = -1
         stripAdd = ""
         scrubDrag = false
         editorDrag = false
@@ -1839,10 +1846,22 @@ class PresApp {
                 if (i == selected) {
                     cls = "thumb thumb-on"
                 }
+                if (stripReorder && (i == stripIdx)) {
+                    cls = (cls + " thumb-carried")
+                }
                 box.addChild((PresApp.div(("thumb" + (to_string i)) cls ((x - 3.0) - ox) (((this.thumbY()) - 3.0) - r.y) (thumbW + 6.0) (thumbH + 6.0))))
+                ; the keys are on the strip: a ring round the selected slide
+                if ((focus == "strip") && (i == selected)) {
+                    box.addChild((PresApp.div("thumb-ring" "thumb-ring" ((x - 6.0) - ox) (((this.thumbY()) - 6.0) - r.y) (thumbW + 12.0) (thumbH + 12.0))))
+                }
                 box.addChild((PresApp.label(("tn" + (to_string i)) "thumb-num" (to_string (i + 1)) (x - ox) 4.0)))
             }
             i = (i + 1)
+        }
+        ; where a carried slide would land: a bar in the gap
+        if (stripReorder && (stripDrop >= 0)) {
+            def dx:double (((this.thumbX(stripDrop)) - (thumbGap / 2.0)) - 2.0)
+            box.addChild((PresApp.div("thumb-drop" "thumb-drop" (dx - ox) (((this.thumbY()) - 6.0) - r.y) 4.0 (thumbH + 12.0))))
         }
         ; the "+" after the last one, or its two choices once pressed
         def ax:double (this.thumbX((deck.slideCount())))
@@ -2060,11 +2079,19 @@ class PresApp {
                 i = (i + 1)
             }
             ; selected when let go without having moved (pointerUp); a drag
-            ; scrolls the strip
+            ; moves the slide pressed on (a mouse) or scrolls the strip
             stripPressed = true
             stripDragging = false
+            stripReorder = false
+            stripDrop = -1
             stripDownX = x
             stripLastX = x
+            ; the keys go to the strip now, not to the editor (the "+" leaves
+            ; them: a new slide's heading is typed in the editor)
+            if ((strlen stripAdd) == 0) {
+                focus = "strip"
+                chromeRev = (chromeRev + 1)
+            }
             return "thumb"
         }
         if (slideRect.has(x y)) {
@@ -2258,6 +2285,20 @@ class PresApp {
                     return
                 }
                 stripDragging = true
+                stripReorder = (((stripIdx >= 0) && (touch == false)) && ((deck.slideCount()) > 1))
+            }
+            if stripReorder {
+                ; near an edge the strip scrolls under the slide being carried
+                if (x < (stripRect.x + 40.0)) {
+                    this.scrollStrip(-12.0)
+                }
+                if (x > ((stripRect.x + stripRect.w) - 40.0)) {
+                    this.scrollStrip(12.0)
+                }
+                stripDrop = (this.dropSlotAt(x))
+                stripLastX = x
+                chromeRev = (chromeRev + 1)
+                return
             }
             this.scrollStrip((stripLastX - x))
             stripLastX = x
@@ -2305,10 +2346,36 @@ class PresApp {
                     this.addSlide((stripAdd == "dup"))
                 }
             }
+            if (stripReorder && (stripDrop >= 0)) {
+                this.moveSlideTo(stripIdx stripDrop)
+            }
             stripAdd = ""
             stripDragging = false
+            stripReorder = false
+            stripDrop = -1
+            chromeRev = (chromeRev + 1)
         }
         this.stageUp()
+    }
+
+    fn inStrip:boolean (x:double y:double) {
+        this.place()
+        return ((mode != "present") && (stripRect.has(x y)))
+    }
+
+    ; The gap between thumbnails nearest to x: 0 before the first, n after
+    ; the last.
+    fn dropSlotAt:int (x:double) {
+        def n:int (deck.slideCount())
+        def u:double (((x - (stripRect.x + 12.0)) + stripScroll) + (thumbGap / 2.0))
+        def slot:int (floor ((u / (thumbW + thumbGap)) + 0.5))
+        if (slot < 0) {
+            slot = 0
+        }
+        if (slot > n) {
+            slot = n
+        }
+        return slot
     }
 
     fn scrollStrip:void (d:double) {
@@ -2424,6 +2491,9 @@ class PresApp {
         if (edRect.has(x y)) {
             return "text"
         }
+        if stripReorder {
+            return "grabbing"
+        }
         if (stripRect.has(x y)) {
             return "pointer"
         }
@@ -2511,6 +2581,9 @@ class PresApp {
             }
             return false
         }
+        if (focus == "strip") {
+            return (this.stripKey(name shift ctrl))
+        }
         if (focus == "stage") {
             if ((name == "right") || (name == "down")) {
                 this.selectSlide((selected + 1))
@@ -2536,6 +2609,95 @@ class PresApp {
         this.syncEditor()
         chromeRev = (chromeRev + 1)
         return true
+    }
+
+    ; Ctrl+Z / Ctrl+Y with the keyboard on the strip: the Markdown's undo, and
+    ; the slide the edit was in selected (a deleted slide back is selected
+    ; again, not the one after it).
+    fn stripUndo:boolean (back:boolean) {
+        def was:string focus
+        if (edTab != "md") {
+            this.showTab("md")
+        }
+        focus = was
+        def line:int -1
+        def st:[EditorUndoOp] mdEditor.buf.undoStack
+        if (back == false) {
+            st = mdEditor.buf.redoStack
+        }
+        def k:int (array_length st)
+        if (k > 0) {
+            def op:EditorUndoOp (itemAt st (k - 1))
+            line = op.startLine
+        }
+        if back {
+            mdEditor.undo()
+        } {
+            mdEditor.redo()
+        }
+        this.syncEditor()
+        if (line >= 0) {
+            this.selectSlide((deck.pageOfOffset((this.offsetOf(line 0)))))
+        }
+        a11yFocus = ("thumb-" + (to_string selected))
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The filmstrip's keys: the arrows, Home and End move between slides,
+    ; Ctrl/⌘ with an arrow moves the slide, Delete and Backspace delete it
+    ; (Ctrl+Z brings it back), Enter edits it and Esc goes back to the
+    ; editor. The keyboard stays on the strip, on the selected slide.
+    fn stripKey:boolean (name:string shift:boolean ctrl:boolean) {
+        def n:int (deck.slideCount())
+        def used:boolean true
+        def back:boolean ((name == "left") || (name == "up"))
+        def fwd:boolean ((name == "right") || (name == "down"))
+        if (ctrl && (back || fwd)) {
+            this.slideCommand((? back "left" "right"))
+        } {
+            if back {
+                this.selectSlide((selected - 1))
+            } {
+                if fwd {
+                    this.selectSlide((selected + 1))
+                } {
+                    if (name == "home") {
+                        this.selectSlide(0)
+                    } {
+                        if (name == "end") {
+                            this.selectSlide((n - 1))
+                        } {
+                            if ((name == "delete") || (name == "backspace")) {
+                                this.slideCommand("delete")
+                            } {
+                                if ((name == "enter") || (name == "escape")) {
+                                    ; Enter: the slide's heading in the editor
+                                    if (name == "enter") {
+                                        this.showTab("md")
+                                    }
+                                    focus = "editor"
+                                    a11yFocus = ""
+                                    chromeRev = (chromeRev + 1)
+                                    return true
+                                } {
+                                    used = false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if used {
+            if playing {
+                this.stop()
+            }
+            focus = "strip"
+            a11yFocus = ("thumb-" + (to_string selected))
+            chromeRev = (chromeRev + 1)
+        }
+        return used
     }
 
     fn text:void (s:string) {
@@ -2651,6 +2813,9 @@ class PresApp {
         }
         if ((strlen ch) != 1) {
             return false
+        }
+        if ((focus == "strip") && ((ch == "z") || (ch == "y"))) {
+            return (this.stripUndo((ch == "z")))
         }
         def took:boolean (editor.handleCtrlChar((charAt ch 0)))
         this.syncEditor()
@@ -3606,6 +3771,17 @@ class PresApp {
     ; --- accessibility: the canvas as a tree the page mirrors into DOM ------------
     fn setA11yFocus:void (id:string) {
         a11yFocus = id
+        ; a slide of the strip focused (a click, Tab, F6): its keys go there
+        if (((indexOf id "thumb-") == 0) && (mode != "present")) {
+            if (focus != "strip") {
+                focus = "strip"
+                chromeRev = (chromeRev + 1)
+            }
+        }
+    }
+
+    fn selectedSlide:int () {
+        return selected
     }
 
     fn a11yJson:string () {
@@ -3640,8 +3816,9 @@ class PresApp {
             }
             if (!null? chromeRoot) {
                 def page2:EVGElement (unwrap chromeRoot)
-                def list:EVGA11yNode (t.node("slides" "app" (EVGA11yRole.list())))
+                def list:EVGA11yNode (t.node("slides" "app" (EVGA11yRole.listBox())))
                 list.name = (PresI18n.t("Slides"))
+                list.description = (PresI18n.t("Arrows move between slides, Ctrl and an arrow moves the slide, Delete deletes it, Shift+F10 opens its menu."))
                 t.place(list (to_int stripRect.x) (to_int stripRect.y) (to_int stripRect.w) (to_int stripRect.h))
                 def i:int 0
                 while (i < n) {
@@ -3649,8 +3826,13 @@ class PresApp {
                     def el@(optional):EVGElement (PresA11y.find(page2 ("thumb" + (to_string i))))
                     if (!null? el) {
                         def e:EVGElement (unwrap el)
-                        def b:EVGA11yNode (t.button(("thumb-" + (to_string i)) "slides" ((PresI18n.t("Slide ")) + (to_string (i + 1)) + ": " + s.title)))
+                        def b:EVGA11yNode (t.node(("thumb-" + (to_string i)) "slides" (EVGA11yRole.option())))
+                        b.name = ((PresI18n.t("Slide ")) + (to_string (i + 1)) + ": " + s.title)
+                        b.focusable = true
+                        b.actActivate = true
                         b.selected = (i == selected)
+                        b.setSize = n
+                        b.posInSet = (i + 1)
                         PresA11y.placeAt(b e)
                     }
                     i = (i + 1)
@@ -3661,7 +3843,7 @@ class PresApp {
                 while (ai < (array_length adds)) {
                     def ael@(optional):EVGElement (PresA11y.find(page2 (itemAt adds ai)))
                     if (!null? ael) {
-                        def ab:EVGA11yNode (t.button(("thumb-" + (itemAt adds ai)) "slides" (itemAt names ai)))
+                        def ab:EVGA11yNode (t.button(("thumb-" + (itemAt adds ai)) "app" (itemAt names ai)))
                         PresA11y.placeAt(ab (unwrap ael))
                     }
                     ai = (ai + 1)
@@ -4645,7 +4827,14 @@ class PresApp {
         if chart.isOpen {
             return false
         }
+        ; from the strip (its keys, its menu) the keyboard stays there, but
+        ; a new slide's heading is selected in the editor to be typed over
+        def was:string focus
         this.showTab("md")
+        if ((was == "strip") && (what != "new")) {
+            focus = "strip"
+            a11yFocus = ""
+        }
         if (what == "new") {
             this.addSlide(false)
             return true
@@ -4656,6 +4845,12 @@ class PresApp {
         }
         if (what == "delete") {
             return (this.deleteSlide(selected))
+        }
+        if (what == "left") {
+            return (this.moveSlideBy(selected -1))
+        }
+        if (what == "right") {
+            return (this.moveSlideBy(selected 1))
         }
         if ((what == "portrait") || (what == "landscape")) {
             this.setOrientation(what)
@@ -4702,6 +4897,217 @@ class PresApp {
         this.selectSlide(to)
         chromeRev = (chromeRev + 1)
         return true
+    }
+
+    ; Slide i one place to the left (-1) or right (1): past the whole section
+    ; next to it (a slide the overflow went on to belongs to its heading's).
+    fn moveSlideBy:boolean (i:int d:int) {
+        def n:int (deck.slideCount())
+        if ((i < 0) || (i >= n)) {
+            return false
+        }
+        this.slideLines(i)
+        def f:int linesFrom
+        def t:int linesAt
+        if (f < 0) {
+            return false
+        }
+        if (d < 0) {
+            ; before the first slide of the section above
+            def k:int (i - 1)
+            while ((k >= 0) && ((this.slideStartsBefore(k f)) == false)) {
+                k = (k - 1)
+            }
+            if (k < 0) {
+                return false
+            }
+            this.slideLines(k)
+            def above:int linesFrom
+            while ((k > 0) && (this.sectionStartsAt((k - 1) above))) {
+                k = (k - 1)
+            }
+            return (this.moveSlideTo(i k))
+        }
+        ; after the section below: before the first slide past it
+        def j:int (i + 1)
+        while ((j < n) && (this.slideStartsBefore(j t))) {
+            j = (j + 1)
+        }
+        if (j >= n) {
+            return false
+        }
+        this.slideLines(j)
+        def nextEnd:int linesAt
+        def m:int (j + 1)
+        while ((m < n) && (this.slideStartsBefore(m nextEnd))) {
+            m = (m + 1)
+        }
+        return (this.moveSlideTo(i m))
+    }
+
+    fn sectionStartsAt:boolean (j:int line:int) {
+        this.slideLines(j)
+        return (linesFrom == line)
+    }
+
+    ; Slide j's section starts above `line`.
+    fn slideStartsBefore:boolean (j:int line:int) {
+        this.slideLines(j)
+        return ((linesFrom >= 0) && (linesFrom < line))
+    }
+
+    ; Lines a..b-1 of the Markdown, the blank ones at the end left out.
+    fn linesText:string (a:int b:int) {
+        def last:int (b - 1)
+        while ((last >= a) && ((strlen (trim (mdEditor.buf.lineAt(last)))) == 0)) {
+            last = (last - 1)
+        }
+        def out:string ""
+        def k:int a
+        while (k <= last) {
+            if (k > a) {
+                out = (out + "\n")
+            }
+            out = (out + (mdEditor.buf.lineAt(k)))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    sfn newlines:int (s:string) {
+        def c:int 0
+        def k:int 0
+        def len:int (strlen s)
+        while (k < len) {
+            if ((charAt s k) == 10) {
+                c = (c + 1)
+            }
+            k = (k + 1)
+        }
+        return c
+    }
+
+    ; Slide i's Markdown (its whole section) moved to the gap `slot`: before
+    ; slide `slot`, or after the last one when it is the slide count. The
+    ; lines between are rewritten as one edit, so Ctrl+Z undoes it as one,
+    ; with a blank line between the sections. The moved slide is selected.
+    fn moveSlideTo:boolean (i:int slot:int) {
+        if ((mode == "present") || chart.isOpen) {
+            return false
+        }
+        def n:int (deck.slideCount())
+        if (((n < 2) || ((i < 0) || (i >= n))) || ((slot < 0) || (slot > n))) {
+            return false
+        }
+        if (edTab != "md") {
+            def was:string focus
+            this.showTab("md")
+            focus = was
+        }
+        this.slideLines(i)
+        def f:int linesFrom
+        def t:int linesAt
+        if (f < 0) {
+            return false
+        }
+        def lc:int (mdEditor.buf.lineCount())
+        def to:int lc
+        if (slot < n) {
+            this.slideLines(slot)
+            if (linesFrom < 0) {
+                return false
+            }
+            to = linesFrom
+        }
+        ; into its own place, or into the middle of its own section
+        if ((to >= f) && (to <= t)) {
+            return false
+        }
+        def block:string (this.linesText(f t))
+        def from:int f
+        def upto:int t
+        def text:string ""
+        def start:int f
+        if (to > t) {
+            def below:string (this.linesText(t to))
+            upto = to
+            text = (below + "\n\n" + block)
+            start = ((f + (PresApp.newlines(below))) + 2)
+        } {
+            from = to
+            text = (block + "\n\n" + (this.linesText(to f)))
+            start = to
+        }
+        def endLine:int upto
+        def endCol:int 0
+        if (upto < lc) {
+            text = (text + "\n\n")
+        } {
+            ; to the end of the document, keeping its last line break
+            endLine = (lc - 1)
+            def lastText:string (mdEditor.buf.lineAt(endLine))
+            endCol = (strlen lastText)
+            if ((strlen (trim lastText)) == 0) {
+                text = (text + "\n")
+            }
+        }
+        mdEditor.buf.replaceRange(from 0 endLine endCol text true)
+        mdEditor.moveCaret(start 0 false)
+        mdEditor.dirty = true
+        this.syncEditor()
+        this.selectSlide((deck.pageOfOffset((this.offsetOf(start 0)))))
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; --- the strip's context menu -------------------------------------------------
+    ; A right click on a thumbnail selects it and opens New / Duplicate /
+    ; Move left / Move right / Delete there. False when x, y is not on one.
+    fn slideMenuAt:boolean (x:double y:double) {
+        this.place()
+        if (((mode == "present") || (barH <= 0.0)) || ((stripRect.has(x y)) == false)) {
+            return false
+        }
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def tx:double (this.thumbX(i))
+            if (((x >= tx) && (x <= (tx + thumbW))) && (this.thumbFits(tx))) {
+                this.openSlideMenu(i x y)
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The menu from the keyboard (Shift+F10, the menu key): at the selected
+    ; slide's thumbnail.
+    fn slideMenuAtSelected:boolean () {
+        this.place()
+        if (((mode == "present") || (barH <= 0.0)) || ((deck.slideCount()) == 0)) {
+            return false
+        }
+        this.revealThumb(selected)
+        def tx:double (this.thumbX(selected))
+        this.openSlideMenu(selected (tx + 12.0) ((this.thumbY()) + 12.0))
+        return true
+    }
+
+    fn openSlideMenu:void (i:int x:double y:double) {
+        if chart.isOpen {
+            this.closeChart()
+        }
+        if hint.isOpen {
+            this.closeHint()
+        }
+        if playing {
+            this.stop()
+        }
+        this.selectSlide(i)
+        focus = "strip"
+        def n:int (deck.slideCount())
+        toolbar.openContext(x y (i > 0) (i < (n - 1)) (n > 1))
+        chromeRev = (chromeRev + 1)
     }
 
     ; The deck's orientation, as `orientation:` in the front matter: written

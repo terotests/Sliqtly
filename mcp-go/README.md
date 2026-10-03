@@ -44,6 +44,13 @@ editor's own model, `PresDeck` from `src/`, compiled into the same binary,
 with the theme's sheet. The slide count is the player's, and the warnings say
 which slide runs over and which chart or diagram is not drawn and why ("that
 is not JSON"), so the model can fix the deck before anyone opens the link.
+They also name text that does not stand out from what it is drawn over
+(`rgr/Contrast.rgr`): each slide is drawn to the editor's display list, the
+background pictures are decoded and sampled (`picgrid.go`), and every run of
+text is judged as the editor's painter judges it (WCAG 4.5:1, 3:1 for large
+text), with the least `bg-dim` or a text colour that would read. The Node
+server (`mcp/src/contrast.js`) has no layout and estimates the same from the
+theme's colours and the picture.
 
 Building `PresDeck` for Go needed fixes in Ranger's Go target (terotests/Ranger):
 an array parameter the callee grows is now passed by pointer (ISSUES.md #58,

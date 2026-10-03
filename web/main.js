@@ -1417,6 +1417,12 @@ function rebaseClock() {
 //   Enter, Space     press it (a reader's activation does the same)
 //   arrows on a slider  move it
 //   Esc              back to the editor (closing a popover or dialog first)
+//   on a slide of the strip (a click on it puts the keyboard there):
+//     arrows, Home, End    the slide before / after, the first, the last
+//     Ctrl/⌘ + arrow       move the slide
+//     Delete, Backspace    delete it (Ctrl/⌘+Z brings it back)
+//     Shift+F10, menu key  its context menu (a right click opens it too)
+//     Enter                its heading in the editor
 //   Ctrl+Space       the value popover at the caret, with the keyboard in it
 let lastA11yRev = "";
 let a11yTree = null;
@@ -1444,7 +1450,7 @@ const mirror = createA11yMirror(stageEl, {
       const lost = !act || act === document.body || act === pressedEl;
       if (lost && (!el || !el.isConnected)) {
         const reg = regionOf(node.id);
-        if (!focusRegion(reg)) focusKeys(app.focusTarget());
+        if (reg === "ctx" || !focusRegion(reg)) focusApp();
       }
     });
   },
@@ -1461,6 +1467,7 @@ function mirrorA11y() {
 }
 function regionOf(id) {
   if (!id) return "";
+  if (id.startsWith("tb-m-ctx")) return "ctx";
   if (id.startsWith("tb-")) return "bar";
   if (id.startsWith("edtabs")) return "tabs";
   if (id.startsWith("thumb-")) return "slides";
@@ -1489,6 +1496,53 @@ function focusRegion(region) {
   const list = focusables(region);
   if (!list.length) return false;
   focusNode(list.find((n) => n.selected) || list[0]);
+  return true;
+}
+// The keyboard on the strip: on the selected slide's mirrored option, so a
+// reader hears which slide it is and the keys go to the strip, not the editor.
+function focusStrip() {
+  mirrorA11y();
+  const node = a11yTree && a11yTree.byId.get("thumb-" + app.selectedSlide());
+  if (!node || !mirror.elementOf(node.id)) return false;
+  focusNode(node);
+  return true;
+}
+// The keyboard back where the app says it is (after a menu, Esc).
+function focusApp() {
+  const where = app.focusTarget();
+  if (where === "strip" && focusStrip()) return;
+  focusKeys(where === "stage" || where === "strip" ? where : "editor");
+}
+// The strip's context menu was opened: the keyboard goes to its first row.
+function focusSlideMenu() {
+  paintOnce();
+  mirrorA11y();
+  const first = a11yTree && a11yTree.nodes.find((n) => regionOf(n.id) === "ctx" && n.focusable && !n.disabled && /-item-/.test(n.id) && mirror.elementOf(n.id));
+  if (first) focusNode(first);
+}
+const STRIP_KEYS = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", Home: "home", End: "end", Delete: "delete", Backspace: "backspace", Enter: "enter", Escape: "escape" };
+// A key on a slide of the strip; true when it was the strip's.
+function stripKey(ev) {
+  const mod = ev.ctrlKey || ev.metaKey;
+  if (ev.key === "ContextMenu" || (ev.shiftKey && ev.key === "F10")) {
+    ev.preventDefault();
+    if (app.slideMenuAtSelected()) {
+      afterInput();
+      focusSlideMenu();
+    }
+    return true;
+  }
+  const name = STRIP_KEYS[ev.key];
+  const menuKey = !ev.altKey && !ev.shiftKey && ev.key.length === 1 ? ev.key.toLowerCase() : "";
+  const req = ev.ctrlKey && !ev.metaKey && menuKey === "m" ? "slide:new" : mod && menuKey === "d" ? "slide:duplicate" : "";
+  if (name) app.key(name, ev.shiftKey, mod);
+  else if (req) app.request(req);
+  else if (mod && /^[zy]$/i.test(ev.key)) app.chord(ev.key.toLowerCase());
+  else return false;
+  ev.preventDefault();
+  afterInput();
+  paintOnce();
+  focusApp();
   return true;
 }
 function currentRegion() {
@@ -1536,6 +1590,7 @@ mirror.root.addEventListener("keydown", (ev) => {
     moveInRegion(ev.shiftKey ? -1 : 1);
     return;
   }
+  if (/^thumb-\d+$/.test(id) && stripKey(ev)) return;
   if (node && node.role === "slider" && /^Arrow/.test(ev.key)) {
     ev.preventDefault();
     const up = ev.key === "ArrowRight" || ev.key === "ArrowUp";
@@ -1569,10 +1624,11 @@ mirror.root.addEventListener("keydown", (ev) => {
     if (reg === "hint") app.closeHint();
     else if (reg === "chart") app.key("escape", false, false);
     else if (reg === "panels" && app.shareIsOpen()) app.closeShare();
-    else if (reg === "bar") app.key("escape", false, false);
+    else if (reg === "bar" || reg === "ctx") app.key("escape", false, false);
     afterInput();
     app.setA11yFocus("");
-    focusKeys(app.focusTarget() === "stage" ? "stage" : "editor");
+    if (reg === "ctx") focusApp();
+    else focusKeys(app.focusTarget() === "stage" ? "stage" : "editor");
     needsPaint = true;
   }
 });
@@ -3081,6 +3137,11 @@ canvas.addEventListener("pointerdown", (ev) => {
     }
   }
   if (pinch) return;
+  // the secondary button on a slide of the strip: its menu (contextmenu below)
+  if (ev.button === 2 && app.inStrip(x, y)) {
+    ev.preventDefault();
+    return;
+  }
   const now = performance.now();
   const near = Math.hypot(x - lastDownAt[0], y - lastDownAt[1]) < 40;
   clicks = now - lastDown < 400 && (!finger || near) ? clicks + 1 : 1;
@@ -3138,6 +3199,10 @@ canvas.addEventListener("pointerdown", (ev) => {
     // the tap lands somewhere else when it is released.
     app.setFocus(app.focusTarget());
     keys.blur();
+  } else if (where === "thumb") {
+    // the keyboard to the strip (endPointer moves it to the slide selected)
+    paintOnce();
+    focusStrip();
   } else {
     focusKeys(where === "editor" ? "editor" : app.focusTarget());
   }
@@ -3269,6 +3334,10 @@ function endPointer(ev) {
     return;
   }
   app.pointerUp();
+  if (ev.pointerType === "mouse" && ev.button !== 2 && app.focusTarget() === "strip" && !app.toolbarOnTop()) {
+    paintOnce();
+    focusStrip();
+  }
   // a tap that made a diagram the one a finger moves says so, once
   // (after a moment: the tap may be the first of a double tap)
   if (app.takeActivated() && !diagramTold) {
@@ -3294,6 +3363,15 @@ for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
 let diagramTold = false;
 let diagramTimer = 0;
 canvas.addEventListener("pointerup", endPointer);
+// A right click on a slide of the strip: New, Duplicate, Move, Delete.
+canvas.addEventListener("contextmenu", (ev) => {
+  const [x, y] = at(ev);
+  if (!app.slideMenuAt(x, y)) return;
+  ev.preventDefault();
+  closeHint();
+  afterInput();
+  focusSlideMenu();
+});
 canvas.addEventListener("pointercancel", endPointer);
 canvas.addEventListener("wheel", (ev) => {
   const [x, y] = at(ev);

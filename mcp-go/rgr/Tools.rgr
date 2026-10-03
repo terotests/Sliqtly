@@ -36,6 +36,12 @@ class Editable {
     def key:string ""
 }
 
+class CheckPics {
+    def pics:[CheckPic]
+    def data:[buffer]
+    def types:[string]
+}
+
 class Tools {
     ; named by its contents, as in mcp/: a client that kept an older preview
     ; by its URI asks for this one anew
@@ -569,7 +575,82 @@ class Tools {
 
     ; the deck as the player reads it, with the sheet it is shown with: its
     ; own, or the theme's (fetched once); with neither, the outline's count
-    sfn checkDeck:Checked (host:McpHost md:string theme:string hasCss:boolean css:string) {
+    ; the slide backgrounds (bg=media/<name>) for the contrast check: from
+    ; this call's pictures, else from the deck's stored ones (deckId)
+    sfn backgrounds:CheckPics (host:McpHost md:string imgs:[Img] deckId:string) {
+        def out (new CheckPics)
+        def names:[string]
+        def from:int 0
+        while true {
+            def rest:string (substring md from (strlen md))
+            def at:int (indexOf rest "bg=media/")
+            if (at < 0) {
+                break
+            }
+            def start:int ((from + at) + 9)
+            def e:int start
+            while ((e < (strlen md)) && (Tools.nameChar((charAt md e)))) {
+                e = (e + 1)
+            }
+            def name:string (substring md start e)
+            if (((strlen name) > 0) && ((indexOf names name) < 0)) {
+                push names name
+            }
+            from = e
+        }
+        for names name:string ni {
+            if (ni >= 10) {
+                break
+            }
+            def handle:int 0
+            def type:string ""
+            for imgs im:Img ii {
+                if ((im.name == name) && ((strlen im.path) == 0)) {
+                    handle = im.handle
+                    type = im.type
+                }
+            }
+            if ((handle == 0) && ((strlen deckId) > 0)) {
+                def got:MfJ (J.parse((host_file_bytes host deckId ("media/" + name))))
+                if ((strlen (host_error host)) > 0) {
+                    host_clear_error host
+                } {
+                    handle = (got.int_("handle" 0))
+                }
+            }
+            if (handle == 0) {
+                continue
+            }
+            def pic (new CheckPic)
+            pic.name = ("/media/" + name)
+            def grid:[int] (host_image_grid host handle)
+            if ((array_length grid) > 2) {
+                pic.w = (itemAt grid 0)
+                pic.h = (itemAt grid 1)
+                def k:int 2
+                while (k < (array_length grid)) {
+                    push pic.grid (itemAt grid k)
+                    k = (k + 1)
+                }
+            }
+            if ((strlen type) == 0) {
+                type = "image/png"
+            }
+            push out.pics pic
+            push out.data (host_image_bytes host handle)
+            push out.types type
+        }
+        return out
+    }
+
+    sfn nameChar:boolean (ch:int) {
+        if ((((ch >= 48) && (ch <= 57)) || ((ch >= 65) && (ch <= 90))) || ((ch >= 97) && (ch <= 122))) {
+            return true
+        }
+        return (((ch == 46) || (ch == 45)) || (ch == 95))
+    }
+
+    sfn checkDeck:Checked (host:McpHost md:string theme:string hasCss:boolean css:string bgs:CheckPics) {
         def sheet:string css
         if (hasCss == false) {
             sheet = (host_theme_css host theme)
@@ -579,7 +660,7 @@ class Tools {
                 sheet = ""
             }
         }
-        def c:Checked (Check.deck(md sheet))
+        def c:Checked (Check.deck(md sheet bgs.pics bgs.data bgs.types))
         for (Charts.typeWarnings(md)) tw:string ti {
             push c.warnings tw
         }
@@ -694,7 +775,7 @@ class Tools {
         }
         def none:[string]
         def ws:[string] (Deck.warnings(md names none))
-        def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css))
+        def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css (Tools.backgrounds(host md loaded.imgs ""))))
         for ck.warnings cw:string ci {
             push ws cw
         }
@@ -875,7 +956,8 @@ class Tools {
             }
         }
         def savedCss:MfJ (saved.field("css"))
-        def ck:Checked (Tools.checkDeck(host md (saved.str_("theme")) (savedCss.kind == 3) (saved.str_("css"))))
+        def noImgs:[Img]
+        def ck:Checked (Tools.checkDeck(host md (saved.str_("theme")) (savedCss.kind == 3) (saved.str_("css")) (Tools.backgrounds(host md noImgs id))))
         for ck.warnings cw:string ci {
             push ws cw
         }

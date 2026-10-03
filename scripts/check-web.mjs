@@ -295,6 +295,103 @@ try {
     await page.waitForTimeout(200);
   }
 
+  // The filmstrip takes the keyboard: a click on a thumbnail puts the keys on
+  // that slide (not in the editor), Delete deletes the slide and Ctrl+Z brings
+  // it back, Ctrl+arrows and a drag move it, a right click (or Shift+F10)
+  // opens its menu.
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const md = "# A\n\naa\n\n# B\n\nbb\n\n# C\n\ncc\n\n# D\n\ndd\n";
+    await page.evaluate((t) => { window.__app.setSource(t); window.__app.scrollStrip(-1e6); }, md);
+    await page.waitForTimeout(200);
+    const thumbAt = (i, fy = 0.5) => page.evaluate(([i, fy]) => {
+      const a = window.__app;
+      a.layoutJson();
+      const c = document.getElementById("c").getBoundingClientRect();
+      return [c.left + a.thumbX(i) + a.thumbW / 2, c.top + a.thumbY() + a.thumbH * fy];
+    }, [i, fy]);
+    const st = () => page.evaluate(() => {
+      const a = window.__app;
+      const el = document.activeElement;
+      const titles = [];
+      for (let k = 0; k < a.deck.slideCount(); k += 1) titles.push(a.deck.slideAt(k).title);
+      return { order: titles.join(""), sel: a.selected, focus: a.focusTarget(), on: el && el.dataset ? el.dataset.a11yId || el.id : "", role: el ? el.getAttribute("role") : "", aria: el ? el.getAttribute("aria-selected") : "", menu: a.toolbar.openMenu(), src: a.source() };
+    });
+    await page.mouse.click(300, 300);
+    let p = await thumbAt(1);
+    await page.mouse.click(p[0], p[1]);
+    let s1 = await st();
+    check("a click on a thumbnail moves the keyboard to that slide of the strip", s1.focus === "strip" && s1.sel === 1 && s1.on === "thumb-1" && s1.role === "option" && s1.aria === "true", JSON.stringify({ ...s1, src: "" }));
+    await shot("strip-focus.png");
+    await page.keyboard.press("q");
+    check("…a letter typed there does not reach the editor", (await st()).src === md);
+    await page.keyboard.press("Delete");
+    const s2 = await st();
+    check("…Delete deletes the slide, not text in the editor", s2.order === "ACD" && s2.src === "# A\n\naa\n\n# C\n\ncc\n\n# D\n\ndd\n" && s2.focus === "strip" && s2.on === "thumb-1", JSON.stringify(s2));
+    await page.keyboard.press("Control+z");
+    const s3 = await st();
+    check("…and Ctrl+Z brings it back", s3.src === md && s3.order === "ABCD", JSON.stringify(s3));
+    await page.keyboard.press("ArrowRight");
+    const s4 = await st();
+    check("…the arrows move between slides, the keyboard with them", s4.sel === 2 && s4.on === "thumb-2", JSON.stringify({ ...s4, src: "" }));
+    await page.keyboard.press("Control+ArrowLeft");
+    const s5 = await st();
+    check("…Ctrl+arrow moves the slide, as one edit", s5.order === "ACBD" && s5.sel === 1 && s5.src === "# A\n\naa\n\n# C\n\ncc\n\n# B\n\nbb\n\n# D\n\ndd\n" && s5.on === "thumb-1", JSON.stringify(s5));
+    await page.keyboard.press("Control+ArrowRight");
+    await page.keyboard.press("Control+ArrowRight");
+    const s5b = await st();
+    check("…to the end too", s5b.order === "ABDC" && s5b.sel === 3 && s5b.src === "# A\n\naa\n\n# B\n\nbb\n\n# D\n\ndd\n\n# C\n\ncc\n", JSON.stringify(s5b));
+    await page.keyboard.press("Control+z");
+    await page.keyboard.press("Control+z");
+    await page.keyboard.press("Control+z");
+    check("…each move undoes as one", (await st()).src === md);
+
+    // the context menu, from a right click
+    p = await thumbAt(3);
+    await page.mouse.click(p[0], p[1], { button: "right" });
+    await page.waitForTimeout(100);
+    const s6 = await st();
+    const rows = await page.evaluate(() => {
+      const a = window.__app;
+      a.toolbarJson();
+      const pg = a.toolbar.host.lastPage;
+      const find = (el, id) => { if (el.id === id) return el; for (const c of el.children) { const f = find(c, id); if (f) return f; } return null; };
+      const out = {};
+      for (const v of ["slideNew", "slideDuplicate", "slideLeft", "slideRight", "slideDelete"]) {
+        const e = find(pg, "tb-m-ctx-item-" + v);
+        out[v] = e ? [e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, e.className.includes("disabled")] : null;
+      }
+      return out;
+    });
+    check("a right click on a thumbnail opens its menu, the keyboard in it", s6.menu === "tb-m-ctx" && s6.sel === 3 && /^tb-m-ctx-item-/.test(s6.on) && rows.slideNew && rows.slideRight && rows.slideRight[2] && !rows.slideLeft[2], JSON.stringify({ ...s6, src: "", rows }));
+    await shot("strip-menu.png");
+    const cr = await page.evaluate(() => { const c = document.getElementById("c").getBoundingClientRect(); return [c.left, c.top]; });
+    await page.mouse.click(cr[0] + rows.slideLeft[0], cr[1] + rows.slideLeft[1]);
+    const s7 = await st();
+    check("…Move left moves it, and the keyboard is back on the slide", s7.order === "ABDC" && s7.sel === 2 && s7.menu === "" && s7.focus === "strip" && s7.on === "thumb-2", JSON.stringify({ ...s7, src: "" }));
+    await page.keyboard.press("Shift+F10");
+    const s8 = await st();
+    await page.keyboard.press("Escape");
+    const s9 = await st();
+    check("…Shift+F10 opens it from the keyboard, Esc closes it back to the slide", s8.menu === "tb-m-ctx" && /^tb-m-ctx-item-/.test(s8.on) && s9.menu === "" && s9.on === "thumb-2", JSON.stringify([s8.on, s9.on, s9.menu]));
+    await page.evaluate((t) => window.__app.setSource(t), md);
+
+    // a drag puts the slide in another place
+    p = await thumbAt(0);
+    const q = await thumbAt(2);
+    await page.mouse.move(p[0], p[1]);
+    await page.mouse.down();
+    for (let k = 1; k <= 10; k += 1) await page.mouse.move(p[0] + (q[0] + 70 - p[0]) * k / 10, p[1]);
+    const mid = await page.evaluate(() => [window.__app.stripReorder, window.__app.stripDrop]);
+    await page.mouse.up();
+    const s10 = await st();
+    check("a thumbnail dragged to another gap moves its slide there", mid[0] && mid[1] === 3 && s10.order === "BCAD" && s10.sel === 2 && s10.src === "# B\n\nbb\n\n# C\n\ncc\n\n# A\n\naa\n\n# D\n\ndd\n", JSON.stringify({ mid, ...s10 }));
+    await page.keyboard.press("Escape");
+    check("Esc on the strip gives the keyboard back to the editor", (await st()).focus === "editor");
+    await page.evaluate((t) => window.__app.setSource(t), src0);
+    await page.waitForTimeout(200);
+  }
+
   // A diagram that asks: present the Kulku slide, wait for the question,
   // move the highlight with an arrow, take it with Enter, then go back two
   // steps with two quick Backspaces and see the question again.

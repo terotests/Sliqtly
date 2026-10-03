@@ -129,6 +129,18 @@ operators {
             go ( (e 1) ".ImageFromURL(" (e 2) ", " (e 3) ")" )
         }
     }
+    ; the picture in the handle as the contrast check samples it: width,
+    ; height, then 48 x 48 RGBA values; empty when it does not decode
+    host_image_grid _:[int] (h:McpHost handle:int) {
+        templates {
+            go ( (e 1) ".ImageGrid(" (e 2) ")" )
+        }
+    }
+    host_image_bytes _:buffer (h:McpHost handle:int) {
+        templates {
+            go ( (e 1) ".Bytes(" (e 2) ")" )
+        }
+    }
     ; Storage object `path` with the handle's bytes and a download token
     host_upload _:void (h:McpHost handle:int path:string contentType:string token:string) {
         templates {

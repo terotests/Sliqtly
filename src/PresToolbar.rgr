@@ -66,6 +66,14 @@ class PresToolbar {
     def mac:boolean false
     ; the deck is taller than wide: Slide → Orientation ticks Portrait
     def portrait:boolean false
+    ; The filmstrip's context menu (PresApp.openSlideMenu): open, where it
+    ; was asked for, and which of its rows can act on the slide.
+    def ctxOpen:boolean false
+    def ctxX:double 0.0
+    def ctxY:double 0.0
+    def ctxLeft:boolean true
+    def ctxRight:boolean true
+    def ctxDelete:boolean true
 
     Constructor () {
     }
@@ -219,6 +227,12 @@ class PresToolbar {
         if (id == "slideDelete") {
             return "slide:delete"
         }
+        if (id == "slideLeft") {
+            return "slide:left"
+        }
+        if (id == "slideRight") {
+            return "slide:right"
+        }
         if ((indexOf id "o-") == 0) {
             return ("slide:" + (substring id 2 (strlen id)))
         }
@@ -367,6 +381,69 @@ class PresToolbar {
             }
             i = (i + 1)
         }
+        ctxOpen = false
+    }
+
+    ; The filmstrip's context menu at x, y (another open menu or list closes).
+    fn openContext:void (x:double y:double canLeft:boolean canRight:boolean canDelete:boolean) {
+        this.closeSelects()
+        this.closeMenus()
+        drawerOpen = false
+        ctxX = x
+        ctxY = y
+        ctxLeft = canLeft
+        ctxRight = canRight
+        ctxDelete = canDelete
+        ctxOpen = true
+        this.rebuild()
+    }
+
+    ; The context menu as rows: the Slide menu's, with Move left and right.
+    ; Its trigger is an empty point where it was asked for, so the menu opens
+    ; there (or above it, where the window ends).
+    fn contextMenu:void (root:EVGElement keepActive:string) {
+        def cm (new MenuCtl())
+        cm.tid = "tb-m-ctx"
+        cm.name = (PresI18n.t("Slide"))
+        cm.contextMode = true
+        cm.addItem("slideNew" (PresI18n.t("New slide")) false)
+        cm.addItem("slideDuplicate" (PresI18n.t("Duplicate slide")) false)
+        cm.addSeparator()
+        cm.addItem("slideLeft" (PresI18n.t("Move left")) (ctxLeft == false))
+        cm.addItem("slideRight" (PresI18n.t("Move right")) (ctxRight == false))
+        cm.addSeparator()
+        cm.addItem("slideDelete" (PresI18n.t("Delete slide")) (ctxDelete == false))
+        cm.setShortcut("slideNew" "Control+M")
+        cm.setShortcut("slideDuplicate" (this.modKey("D")))
+        cm.setShortcut("slideLeft" (this.modKey("ArrowLeft")))
+        cm.setShortcut("slideRight" (this.modKey("ArrowRight")))
+        cm.setShortcut("slideDelete" "Delete")
+        cm.openMenu()
+        cm.activeTid = keepActive
+        cm.build()
+        def r:EVGElement (unwrap cm.rootEl)
+        r.setAttribute("position" "absolute")
+        r.setAttribute("left" ((EVGDisplayList.num(ctxX)) + "px"))
+        r.setAttribute("top" ((EVGDisplayList.num(ctxY)) + "px"))
+        push menus cm
+        this.put(cm root)
+    }
+
+    ; The context menu closed itself (a row chosen, Esc): it is not drawn again.
+    fn syncContext:void () {
+        if (ctxOpen == false) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length menus)) {
+            def m:MenuCtl (itemAt menus i)
+            if ((m.tid == "tb-m-ctx") && m.open) {
+                return
+            }
+            i = (i + 1)
+        }
+        ctxOpen = false
+        rev = (rev + 1)
     }
 
     ; A select's rows as the drawer's rows, the current one ticked.
@@ -408,12 +485,17 @@ class PresToolbar {
         ; the menu open, and its open submenus, carried over the rebuild
         def keepMenu:string ""
         def keepPath:[string]
+        def keepCtx:string ""
         def mi:int 0
         while (mi < (array_length menus)) {
             def om:MenuCtl (itemAt menus mi)
             if om.open {
-                keepMenu = om.tid
-                keepPath = om.openPath
+                if (om.tid == "tb-m-ctx") {
+                    keepCtx = om.activeTid
+                } {
+                    keepMenu = om.tid
+                    keepPath = om.openPath
+                }
             }
             mi = (mi + 1)
         }
@@ -512,6 +594,9 @@ class PresToolbar {
             }
         }
         root.addChild(bar)
+        if ctxOpen {
+            this.contextMenu(root keepCtx)
+        }
 
         ; the drawer: everything the narrow bar leaves out, as a list
         def dr (new DrawerCtl())
@@ -790,6 +875,7 @@ class PresToolbar {
                 }
                 i = (i + 1)
             }
+            this.syncContext()
             rev = (rev + 1)
             return
         }
