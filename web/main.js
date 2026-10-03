@@ -916,6 +916,17 @@ async function refreshFiles() {
     const files = (await docFiles())
       .map((f) => {
         const row = { path: f.path, size: f.size == null ? -1 : f.size, kind: kindOf(f.path, f.type) };
+        // a copy kept of a linked source: named after it, with where and when it was read
+        if (f.path.startsWith("data/live/")) {
+          const source = copySource(f);
+          let where = t("Linked data");
+          if (source) where = isSheet(source) ? t("Google Sheets") : (() => { try { return new URL(source).host; } catch (_) { return source; } })();
+          Object.assign(row, {
+            kind: "live", source, tag: source && isSheet(source) ? "SHEET" : "LIVE",
+            title: f.title || liveTitle(source) || f.path.split("/").pop(),
+            note: where + " · " + t("read ") + whenText(liveRead.get(f.path) || f.read || f.updated),
+          });
+        }
         // a picture's pixels, for the preview beside the row
         const img = row.kind === "image" ? pictures.get("/" + f.path) : null;
         if (img) Object.assign(row, { w: img.naturalWidth, h: img.naturalHeight });
@@ -1217,6 +1228,12 @@ async function fileRequest(r) {
     const text = typeof f.data === "string" ? f.data : (isText(f.path, f.type) ? await f.data.text() : null);
     if (text == null) { toast(t("This file cannot be opened as text.")); return; }
     app.openFile(f.path, text);
+  } else if (action === "source" || action === "refresh" || action === "unlink") {
+    const f = (await docFiles()).find((x) => x.path === what);
+    const url = f ? copySource(f) : "";
+    if (action === "source" && url) window.open(sourcePage(url), "_blank", "noopener");
+    else if (action === "refresh" && url) await refreshLive([url]);
+    else if (action === "unlink" && f) await unlinkLive(f, url);
   } else if (action === "imgedit") {
     await openImageEditor(what);
     return;
@@ -1733,14 +1750,44 @@ function copyPath(url) {
   for (let i = 0; i < url.length; i++) h = Math.imul(h ^ url.charCodeAt(i), 16777619) >>> 0;
   return "data/live/" + h.toString(36) + ".csv";
 }
+const liveRead = new Map(); // copy path → when its source was last read
 async function keepLiveCopy(url, text) {
   if (viewer) return;
   const path = copyPath(url);
-  if (liveCopies.get(path) === text) return;
+  liveRead.set(path, Date.now());
+  const named = liveName(url);
+  if (liveCopies.get(path) === text && !named) return;
   liveCopies.set(path, text);
   const have = (await docFiles()).find((f) => f.path === path);
-  if (have && have.data === text) return;
-  await keepFile({ path, type: "text/csv", size: text.length, data: text });
+  // a name from the Sheets API wins over the address's own
+  const title = named || have?.title || liveTitle(url);
+  if (have && have.data === text && have.title === title && have.source === url) return;
+  await keepFile({ path, type: "text/csv", size: text.length, data: text, source: url, title, read: Date.now() });
+}
+// A live source's name for Files: the spreadsheet and its tab as the Sheets
+// API told them (a private sheet), else what the address says.
+function liveName(url) {
+  const n = isSheet(url) && window.sliqtly?.sheetName?.(url);
+  return n && n.title ? n.title + (n.tab ? " · " + n.tab : "") : "";
+}
+function liveTitle(url) {
+  if (!url) return "";
+  const named = liveName(url);
+  if (named) return named;
+  const q = (() => { try { return new URL(url).searchParams; } catch (_) { return new URLSearchParams(); } })();
+  if (isSheet(url)) return t("Google Sheet") + (q.get("sheet") ? " · " + q.get("sheet") : "");
+  try { return decodeURIComponent(url.split(/[?#]/)[0].split("/").pop() || url); } catch (_) { return url; }
+}
+// The address a person opens for a source: a sheet's own page, not its CSV.
+function sourcePage(url) {
+  const m = /^https:\/\/docs\.google\.com\/spreadsheets\/d\/([^/?#]+)/.exec(url);
+  if (!m) return url;
+  const gid = (() => { try { return new URL(url).searchParams.get("gid"); } catch (_) { return null; } })();
+  return "https://docs.google.com/spreadsheets/d/" + m[1] + "/edit" + (gid ? "#gid=" + gid : "");
+}
+// The live address a kept copy stands for: as kept, else one the deck reads.
+function copySource(f) {
+  return f.source || [...chartFiles.keys()].filter(isLive).find((u) => copyPath(u) === f.path) || "";
 }
 async function liveCopy(url) {
   const path = copyPath(url);
@@ -1841,7 +1888,9 @@ function showLiveButton() {
 }
 let refreshing = null;
 function refreshLiveData() {
-  const urls = [...chartFiles.keys()].filter(isLive);
+  return refreshLive([...chartFiles.keys()].filter(isLive));
+}
+function refreshLive(urls) {
   if (!urls.length || refreshing) return refreshing;
   refreshing = (async () => {
     let failed = 0;
@@ -1859,8 +1908,46 @@ function refreshLiveData() {
     needsPaint = true;
     if (!failed) toast(t("Data refreshed"));
     refreshing = null;
+    refreshFiles();
   })();
   return refreshing;
+}
+
+// Files → Unlink: the charts that read a linked source read its last copy
+// instead, kept as an ordinary data file named after the source; the source
+// is not read again.
+async function unlinkLive(f, url) {
+  const files = await docFiles();
+  const base = (f.title || liveTitle(url) || "data").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "data";
+  let path = "data/" + base + ".csv";
+  for (let n = 2; files.some((x) => x.path === path); n += 1) path = "data/" + base + "-" + n + ".csv";
+  let changed = 0;
+  const md = app.source().replace(/("url"\s*:\s*")([^"]+)(")/g, (all, a, u, b) => {
+    if (!url || (u !== url && app.liveUrl(u) !== url)) return all;
+    changed += 1;
+    return a + path + b;
+  });
+  if (!changed && url && (app.deck?.dataUrls || []).includes(url)) {
+    // read through a fence this cannot rewrite ({"source": "google-sheets", …})
+    toast(t("A chart names this source in its own way: change its data source in the chart editor."));
+    return;
+  }
+  const text = typeof f.data === "string" ? f.data : await f.data.text();
+  if (changed) {
+    await keepFile({ path, type: "text/csv", size: text.length, data: text });
+    chartFiles.set(path, Promise.resolve(text));
+    app.setChartData(path, text);
+    app.setSource(md);
+  }
+  pending.delete(f.path);
+  if (doc.persisted) await vfs.deleteFile(doc.id, f.path);
+  liveCopies.delete(f.path);
+  if (url) chartFiles.delete(url);
+  if (changed) afterInput();
+  await saveDoc(true);
+  showLiveButton();
+  dropThumbs();
+  toast(changed ? t("Unlinked: the charts now read ") + path : t("No chart reads this source any more: its copy was removed."));
 }
 function fetchChartFiles(rev) {
   if (rev === chartFilesRev) return;
