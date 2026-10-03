@@ -68,6 +68,8 @@ const SAMPLES = {
   vegalite: sample("vegalite", "Vega-Lite: chart types", "Vega-Lite: kaaviotyypit"),
   raportti: sample("raportti", "Report: header, footer, page numbers", "Raportti: ylä- ja alaosa, sivunumerot"),
   mallit: sample("mallit", "Layouts: steps, SWOT, timeline (PRO)", "Asettelut: vaiheet, SWOT, aikajana (PRO)"),
+  // the newest themes and features, on Nebula
+  uutta: [...sample("uutta", "What's new: themes, effects, layouts", "Uutta: teemat, efektit, asettelut"), "nebula"],
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
 };
 

@@ -652,6 +652,54 @@ class PresCheck {
         this.ok((fs.ink == "#e8ecff") "the document's ink")
     }
 
+    ; A plain list with `{list-style=swot}`, or a theme's `#anchor list`
+    ; rule, is the figure; `deck { fx: … }` is the theme's effect, and the
+    ; art is drawn over it.
+    fn listFigures:void () {
+        def text:string "---\nslide-split-level: 2\n---\n\n## SWOT {art=waves}\n\n- Vahvuudet: brändi\n- Heikkoudet: tiimi\n{list-style=swot}\n\n## Vaiheet\n\n- Suunnittelu: tavoitteet\n- Toteutus\n\n## Lista\n\n- Tavallinen kohta\n"
+        def css:string "/* pres: fx=smoke */ page { width: 13.333in; height: 7.5in; padding: 0.6in; background-color: #0b1030 } deck { split-level: 2; fx: starfield; fx-hue: 280 } document { color: #e8ecff; font-size: 20pt } #vaiheet list { list-style: process } #vaiheet chart { padding: 4 }"
+        def deck (new PresDeck())
+        deck.md.setStyleSheet(css)
+        deck.setTheme(css)
+        deck.figuresAllowed = true
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 3) ("three slides, got " + (to_string (deck.slideCount()))))
+        if ((deck.slideCount()) < 3) {
+            return
+        }
+        def l0:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(l0 "Vahvuudet")) == 1) "a list with {list-style=swot} is the SWOT")
+        this.ok(((PresCheck.texts(l0 "V")) == 1) "with its letter disc")
+        def l1:EVGDisplayList (PresTimeline.finalFrame(deck 1))
+        this.ok(((PresCheck.texts(l1 "Suunnittelu")) == 1) "#vaiheet list { list-style: process } draws the steps")
+        def scopes:[string] (deck.chartScopes())
+        this.ok(((array_length scopes) == 1) "a list rule is not a chart scope")
+        def l2:EVGDisplayList (PresTimeline.finalFrame(deck 2))
+        this.ok(((PresCheck.texts(l2 "Tavallinen kohta")) == 1) "a list without a style stays a list")
+        this.ok(((deck.slideAt(0)).fx == "starfield") "deck { fx } wins over the old comment")
+        def fxAt:int -1
+        def artAt:int -1
+        def i:int 0
+        while (i < (array_length l0.cmds)) {
+            def c:EVGDrawCmd (itemAt l0.cmds i)
+            if ((fxAt < 0) && ((strlen c.effectId) > 0)) {
+                fxAt = i
+            }
+            if ((artAt < 0) && (c.kind == 7)) {
+                artAt = i
+            }
+            i = (i + 1)
+        }
+        this.ok((fxAt >= 0) "the slide has its effect")
+        this.ok((artAt > fxAt) ("the art is over the effect: art " + (to_string artAt) + ", fx " + (to_string fxAt)))
+        def d2 (new PresDeck())
+        def css2:string "/* pres: fx=smoke */ deck { fx: none }"
+        d2.setTheme(css2)
+        d2.setText("# A\n")
+        this.ok(((d2.slideAt(0)).fx == "") "fx: none turns the comment's effect off")
+    }
+
     sfn lines:int (l:EVGDisplayList) {
         def n:int 0
         def i:int 0
@@ -685,6 +733,7 @@ class PresCheck {
         c.cascade()
         c.chartMotion()
         c.figures()
+        c.listFigures()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

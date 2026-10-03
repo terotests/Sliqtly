@@ -147,10 +147,14 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   their current values. Only what the slide has is listed. Clicking a
   property opens the theme at that line (adding it if the theme has none)
   with its value popover.
-- **Layouts from lists (PRO).** A fence named `process`, `swot` or
-  `timeline` draws chevron steps, a SWOT grid or a timeline from one
-  `Title: description` per line (an indented `- point` belongs to the item
-  above). They are computed by Ranger's markdown module (`MdFigure`) in the
+- **Layouts from lists (PRO).** A plain Markdown list with
+  `{list-style=process}`, `swot` or `timeline` under it draws chevron steps,
+  a SWOT grid or a timeline from its `Title: description` items (an indented
+  `- point` belongs to the item above). The theme can say it instead:
+  `#heading-anchor list { list-style: swot }` for the lists under one
+  heading, `.swot { list-style: swot }` for a list marked `{.swot}`. A fence
+  named `process`, `swot` or `timeline` with one item per line draws the
+  same. They are computed by Ranger's markdown module (`MdFigure`) in the
   theme's colours (`figure { colors: #a #b #c #d }`, else the chart's), set
   as large as the room under the heading allows, and go into the PDF and
   the PPTX as vector shapes and text boxes. `{art=waves}` on a heading (or
@@ -269,8 +273,8 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | ⋯ at a diagram's top right | Aloita alusta (the walk from the start, choices undone) or Näytä kaikki (every box and line, whole diagram; ‹ leaves) |
 | ▶ Play / ⛶ Present | the diagrams start again from their own camera |
 | In a diagram: + / − / 100 % buttons, keys + − 0 | zoom in, out; 100 % shows the whole diagram (‹ or a choice returns to the walk) |
-| Markdown / Teema (CSS) tabs over the editor | the deck's text, or the theme's stylesheet (Ranger UI TabsCtl). An edit to the theme shows on the slides as you type; the edited theme is kept for the session under its name and travels in a share link (`&css=…`). Chart and diagram colours are CSS: `chart { color: …; accent-color: … }` (columns; grid, axes, labels) and `diagram { color: …; accent-color: … }` (the active line and packet; boxes and lines). `chart { chart-style: … }` picks the look: `flat` (plain columns, the default), `forge` (warm burning into rust, grooves, a glowing cap, a scan pass), `neon` (lit edges round a faint body), `glass` (a clear gradient with a bright rim); the PDF and PPTX exports draw the same style. The older `/* pres: warm=… accent=… */` line still works as a fallback |
-| Teema | dark themes aurora, nebula (starfield), carbon, ember (ambient light), midnight; light corporate, editorial. A theme sets chart and diagram colours with `chart { … }` / `diagram { … }` rules and its background effect with `/* pres: fx=… */` |
+| Markdown / Teema (CSS) tabs over the editor | the deck's text, or the theme's stylesheet (Ranger UI TabsCtl). An edit to the theme shows on the slides as you type; the edited theme is kept for the session under its name and travels in a share link (`&css=…`). Chart and diagram colours are CSS: `chart { color: …; accent-color: … }` (columns; grid, axes, labels) and `diagram { color: …; accent-color: … }` (the active line and packet; boxes and lines). `chart { chart-style: … }` picks the look: `flat` (plain columns, the default), `forge` (warm burning into rust, grooves, a glowing cap, a scan pass), `neon` (lit edges round a faint body), `glass` (a clear gradient with a bright rim); the PDF and PPTX exports draw the same style. The older `/* pres: warm=… accent=… */` comment still works as a fallback |
+| Teema | dark themes aurora, nebula (starfield), carbon, ember (ambient light), midnight; light corporate, editorial. A theme sets chart and diagram colours with `chart { … }` / `diagram { … }` rules and its background effect with `deck { fx: starfield; fx-hue: 280 }` (a slide's own `{fx=…}` wins, `fx: none` turns it off; the older `/* pres: fx=… */` comment is still read) |
 | 🔗 Jaa | a dialog with two links, each with its own Kopioi: **Esitys** opens straight into the presentation (no toolbar or editor; ◀ ▶ ⛶ in a corner that fades; Esc only leaves full screen), **Muokkaus** opens the editor. The Markdown is compressed into the link (`#md=…`, `&mode=show` for the presentation) |
 | PDF / PPTX | export. The PPTX includes notes, transitions and build steps per paragraph, and opens in Keynote; its text is set in Arial (the page's own faces are not on every machine) |
 

@@ -160,8 +160,8 @@ class PresDeck {
     def themeSizeOf:string ""
     def themeSizeTurned:string ""
     ; What the template says about the presentation beyond what markdown
-    ; reads: a comment `/* pres: fx=starfield fx-hue=280 accent=#c084fc
-    ; warm=#fbbf24 */` anywhere in its CSS.
+    ; reads: `deck { fx: starfield; fx-hue: 280 }`, or the older comment
+    ; `/* pres: fx=starfield fx-hue=280 */` anywhere in its CSS.
     def themeKeys:[string]
     def themeVals:[string]
     ; Diagrams by (notation, width, text): a keystroke elsewhere in the
@@ -762,6 +762,40 @@ class PresDeck {
         clear ruleKeys
         clear ruleVals
         this.readRules(css)
+        this.readPresComment(css)
+        ; `deck { fx: starfield; fx-hue: 280 }`: the theme's effect as CSS,
+        ; over the older comment
+        def r:int 0
+        while (r < (array_length ruleKeys)) {
+            def rk:string (itemAt ruleKeys r)
+            if (((indexOf rk "deck/fx") == 0) || ((rk == "deck/warm") || (rk == "deck/accent"))) {
+                def rv:string (itemAt ruleVals r)
+                ; `fx: none`: no effect, whatever the comment says
+                if ((rk == "deck/fx") && (rv == "none")) {
+                    rv = ""
+                }
+                this.putTheme((substring rk 5 (strlen rk)) rv)
+            }
+            r = (r + 1)
+        }
+    }
+
+    fn putTheme:void (key:string value:string) {
+        def i:int 0
+        while (i < (array_length themeKeys)) {
+            if ((itemAt themeKeys i) == key) {
+                set themeVals i value
+                return
+            }
+            i = (i + 1)
+        }
+        push themeKeys key
+        push themeVals value
+    }
+
+    ; The older `/* pres: fx=starfield fx-hue=280 */` comment, which themes
+    ; saved before the `deck` rule still carry.
+    fn readPresComment:void (css:string) {
         def at:int (indexOf css "/* pres:")
         if (at < 0) {
             return
@@ -843,7 +877,7 @@ class PresDeck {
                 def sel0:string (trim (itemAt selList s))
                 ; `#anchor chart`: the charts under one heading
                 def sel:string (PresDeck.scopedSel(sel0))
-                if (((((sel == "chart") || (sel == "diagram")) || ((indexOf sel "#") == 0)) || (sel == "page")) || ((sel == "figure") || (sel == "document"))) {
+                if (((((sel == "chart") || (sel == "diagram")) || ((indexOf sel "#") == 0)) || (sel == "page")) || ((sel == "figure") || ((sel == "document") || (sel == "deck")))) {
                     def decls:[string] (strsplit body ";")
                     def d:int 0
                     while (d < (array_length decls)) {
@@ -890,8 +924,8 @@ class PresDeck {
         return w
     }
 
-    ; "#mihin-raha-menee chart" as "#mihin-raha-menee"; any other selector as
-    ; it is.
+    ; "#mihin-raha-menee chart" as "#mihin-raha-menee", "#a list" as it is,
+    ; other selectors as they are; "" for any other "#…".
     sfn scopedSel:string (sel:string) {
         if ((indexOf sel "#") != 0) {
             return sel
@@ -908,6 +942,10 @@ class PresDeck {
         }
         if (((array_length words) == 2) && ((itemAt words 1) == "chart")) {
             return (itemAt words 0)
+        }
+        ; "#anchor list": the lists under that heading (`list-style`)
+        if (((array_length words) == 2) && ((itemAt words 1) == "list")) {
+            return ((itemAt words 0) + " list")
         }
         return ""
     }
@@ -996,7 +1034,8 @@ class PresDeck {
         def i:int 0
         while (i < (array_length ruleKeys)) {
             def k:string (itemAt ruleKeys i)
-            if ((indexOf k "#") == 0) {
+            ; `#anchor list` rules are the lists', not the charts'
+            if (((indexOf k "#") == 0) && ((indexOf k " list/") < 0)) {
                 def slash:int (indexOf k "/")
                 def sc:string (substring k 0 slash)
                 def seen:boolean false
@@ -1244,6 +1283,22 @@ class PresDeck {
             push emb.chartScopes (substring sc 1 (strlen sc))
             push emb.chartScopeConfig (this.chartDefaults(sc false))
             si = (si + 1)
+        }
+        ; `#anchor list { list-style: swot }`: the lists under one heading
+        ; drawn as a figure (a list's own `{list-style=…}` wins)
+        def none3:[string]
+        def none4:[string]
+        emb.listScopes = none3
+        emb.listScopeStyles = none4
+        def lk:int 0
+        while (lk < (array_length ruleKeys)) {
+            def lkey:string (itemAt ruleKeys lk)
+            def lat:int (indexOf lkey " list/list-style")
+            if (((indexOf lkey "#") == 0) && (lat > 0)) {
+                push emb.listScopes (substring lkey 1 lat)
+                push emb.listScopeStyles (trim (itemAt ruleVals lk))
+            }
+            lk = (lk + 1)
         }
         ; the files the charts read, as far as the page has fetched them
         emb.dataUrls = urls
@@ -1713,7 +1768,6 @@ class PresDeck {
         painter.rect(out 0.0 0.0 pageW pageH paper)
         painter.paper(out l 0.0 0.0 pageW pageH)
         this.slideBackground(out l s paper)
-        this.slideArt(out s i)
         push groupOfCmd -1
         while ((array_length groupOfCmd) < (array_length out.cmds)) {
             push groupOfCmd -1
@@ -1738,6 +1792,11 @@ class PresDeck {
             while ((array_length groupOfCmd) < (array_length out.cmds)) {
                 push groupOfCmd -1
             }
+        }
+        ; the line art over the effect's ground, under the text
+        this.slideArt(out s i)
+        while ((array_length groupOfCmd) < (array_length out.cmds)) {
+            push groupOfCmd -1
         }
         ; Which group each of this slide's boxes is in. A list marker carries
         ; its LIST's offset, not its item's, so it takes the group of a box

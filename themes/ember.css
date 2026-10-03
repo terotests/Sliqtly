@@ -5,8 +5,6 @@
    breaks at every `##`; `# Title` opens the deck.
    --------------------------------------------------------------------------- */
 
-/* pres: fx=ambient-light */
-
 /* The stage's charts and diagrams: `color` the warm light (columns, the
    active line), `accent-color` the cool one (grid, axes, boxes). A chart's
    `chart-style` is flat (the default), forge, neon or glass. */
@@ -34,10 +32,13 @@ page {
   background-color: #1a0f0b;
 }
 
+/* `fx` is the background effect behind every slide (a slide's own
+   {fx=…} wins); `fx-…` are its parameters. */
 deck {
   split-level: 2;
   overflow: split;
   aspect-ratio: 16 / 9;
+  fx: ambient-light;
 }
 
 document {

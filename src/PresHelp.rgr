@@ -221,6 +221,9 @@ class PresHelp {
         if (prop == "width") { return "13.333in" }
         if (prop == "height") { return "7.5in" }
         if (prop == "split-level") { return "2" }
+        if (prop == "fx") { return "starfield" }
+        if (prop == "list-style") { return "swot" }
+        if (prop == "colors") { return "#1f6feb #0f9d8a #7c4dff #f08c00" }
         if (prop == "overflow") { return "split" }
         if (prop == "aspect-ratio") { return "16 / 9" }
         return "12pt"
@@ -269,10 +272,12 @@ class PresHelp {
         if (sel == "a") { return "color" }
         if (sel == "hr") { return "color" }
         if (sel == "blockquote") { return "color,border-color,border-width,padding-left,padding-top" }
-        if (sel == "list") { return "padding-left,margin-left,color" }
+        if (sel == "list") { return "padding-left,margin-left,color,list-style" }
+        if (((indexOf sel "#") == 0) && ((indexOf sel " list") > 0)) { return "list-style" }
         if (sel == "li") { return "margin-bottom" }
         if (sel == "table") { return "border-color,background-color,padding-left,padding-top" }
-        if (sel == "deck") { return "split-level,overflow,aspect-ratio" }
+        if (sel == "deck") { return "split-level,overflow,aspect-ratio,fx" }
+        if (sel == "figure") { return "colors,color,accent-color,font-size" }
         if (sel == "chart") { return "color,accent-color,label-color,contrast,chart-style,chart-effects,font-size,title-font-size,title-gap,padding,justify-content" }
         ; `#anchor chart`: the charts under one heading
         if (((indexOf sel "#") == 0) && ((indexOf sel " chart") > 0)) { return "font-size,title-font-size,title-gap,padding,justify-content" }
