@@ -16,6 +16,9 @@
 ;   wholeStart..End     a button that removes the item
 ;   selector            (`page {` in the theme) the properties it has and the
 ;                       ones it could have; one opens in the rule
+;   emoji               EVGUI's emoji picker (EmojiPickerCtl) at the caret
+;                       (⌃⌘Space): typing searches, the arrows move, Enter
+;                       or a click writes the emoji where the caret is
 ;
 ; The hint itself is PresHints' JSON (PresApp.hintFor). A choice is written
 ; into the text as an ordinary edit: the card queues it (`edits`) and the app
@@ -27,6 +30,7 @@
 Import "PresI18n.rgr"
 Import "PresColorPanel.rgr"
 Import "../evgui/src/UiHost.rgr"
+Import "../evgui/src/EmojiPickerCtl.rgr"
 Import "PresKeep.rgr"
 Import "../vela/src/VlJson.rgr"
 
@@ -106,6 +110,8 @@ class PresHintPopover {
     def slider:SliderCtl (new SliderCtl())
     def sliding:boolean false
     def field:InputCtl (new InputCtl())
+    ; kept from one opening to the next: its Recent group and the last group
+    def emoji:EmojiPickerCtl (new EmojiPickerCtl())
     def fieldOn:boolean false
     ; the value in the header, updated in place while the slider is dragged
     def valueEl:EVGElement (EVGElement.createSpan())
@@ -186,6 +192,13 @@ class PresHintPopover {
         sliding = false
         fieldOn = false
         cp.focused = ""
+        if (kind == "emoji") {
+            emoji.setup("hp-emoji" (PresI18n.t("Emoji")))
+            emoji.lang = (PresI18n.lang())
+            emoji.placeholder = (PresI18n.t("Search emoji"))
+            emoji.emptyText = (PresI18n.t("No emoji found"))
+            emoji.setQuery("")
+        }
         if (kind == "color") {
             def fresh (new ColorPickerCtl())
             picker = fresh
@@ -323,6 +336,19 @@ class PresHintPopover {
         root.className = "ui-root hp-page"
         def card:EVGElement (this.div("hp-card"))
         card.id = "hp-card"
+        def cardW:double 320.0
+        if (kind == "emoji") {
+            card.className = "hp-card hp-emojicard"
+            cardW = 344.0
+            def noEl@(optional):EVGElement
+            headEl = noEl
+            closeEl = noEl
+            emoji.build()
+            push host.ctls emoji
+            card.addChild((unwrap emoji.rootEl))
+            this.place(root card cardW)
+            return
+        }
         def head:EVGElement (this.div("hp-head"))
         if canBack {
             def bk:ButtonCtl (this.button("hp-back" "‹" "secondary" head))
@@ -423,11 +449,15 @@ class PresHintPopover {
         UiTree.addClass(xe "hp-x")
         xe.position = "absolute"
         closeEl = xe
-        ; under the value, kept on the screen (flipped above when it would not fit)
+        this.place(root card cardW)
+    }
+
+    ; Under the value, kept on the screen (flipped above when it would not fit).
+    fn place:void (root:EVGElement card:EVGElement cardW:double) {
         UiTree.surface(card "free" "start")
         def cx:double ax
-        if ((cx + 320.0) > (w - 8.0)) {
-            cx = ((w - 8.0) - 320.0)
+        if ((cx + cardW) > (w - 8.0)) {
+            cx = ((w - 8.0) - cardW)
         }
         if (cx < 8.0) {
             cx = 8.0
@@ -803,6 +833,12 @@ class PresHintPopover {
         if (null? host.lastPage) {
             this.page()
         }
+        if (kind == "emoji") {
+            emoji.activate((host.hitTest(px py)))
+            this.takeEmoji()
+            this.rebuild()
+            return
+        }
         ; a selector's property: opened in its rule
         def row:string (this.rowAt(px py))
         if ((strlen row) > 0) {
@@ -979,8 +1015,21 @@ class PresHintPopover {
         }
     }
 
-    ; The doc line follows the pointer over a selector's properties.
+    ; The doc line follows the pointer over a selector's properties; the
+    ; emoji under it is named under the grid.
     fn hoverAt:void (px:double py:double) {
+        if (kind == "emoji") {
+            def was:int emoji.hot
+            def t:string ""
+            if (!null? host.lastPage) {
+                t = (host.hitTest(px py))
+            }
+            emoji.hover(t)
+            if (emoji.hot != was) {
+                this.rebuild()
+            }
+            return
+        }
         if (kind != "selector") {
             return
         }
@@ -1000,7 +1049,36 @@ class PresHintPopover {
     ; --- keys ---------------------------------------------------------------------------
     ; Keys and text go here while a field of the card has them.
     fn hasKeys:boolean () {
-        return (fieldOn || ((strlen cp.focused) > 0))
+        return ((fieldOn || ((strlen cp.focused) > 0)) || (kind == "emoji"))
+    }
+
+    ; The emoji picked, written where the caret was (over a selection on the
+    ; line), and the card closes.
+    fn takeEmoji:void () {
+        def t:string (emoji.takePicked())
+        if ((strlen t) == 0) {
+            return
+        }
+        def e (new PresHintEdit())
+        e.line = line
+        e.a = start
+        e.b = end
+        e.text = t
+        push edits e
+        wantsClose = true
+    }
+
+    ; The wheel over the card: the emoji grid scrolls by rows.
+    fn wheel:void (dy:double) {
+        if (kind != "emoji") {
+            return
+        }
+        def rows:int (to_int (dy / 34.0))
+        if (rows == 0) {
+            rows = (? (dy < 0.0) -1 1)
+        }
+        emoji.scrollBy(rows)
+        this.rebuild()
     }
 
     fn key:boolean (name0:string shift:boolean ctrl:boolean) {
@@ -1014,6 +1092,17 @@ class PresHintPopover {
         if (name0 == "backspace") { k = "Backspace" }
         if (name0 == "delete") { k = "Delete" }
         if (name0 == "enter") { k = "Enter" }
+        if (kind == "emoji") {
+            if (name0 == "tab") { k = "Tab" }
+            if (name0 == "pageUp") { k = "PageUp" }
+            if (name0 == "pageDown") { k = "PageDown" }
+            if ((strlen k) > 0) {
+                emoji.keyDownWith(emoji.tid k shift ctrl)
+                this.takeEmoji()
+                this.rebuild()
+            }
+            return true
+        }
         if ((strlen cp.focused) > 0) {
             if ((strlen k) > 0) {
                 cp.keyWith(picker k shift ctrl)
@@ -1039,6 +1128,11 @@ class PresHintPopover {
     }
 
     fn type:void (s:string) {
+        if (kind == "emoji") {
+            emoji.typeChar(emoji.tid s)
+            this.rebuild()
+            return
+        }
         if ((strlen cp.focused) > 0) {
             def i:int 0
             while (i < (strlen s)) {
