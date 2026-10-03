@@ -713,5 +713,6 @@
   "all headings; the document font does not apply": "kaikki otsikot; dokumentin fontti ei vaikuta",
   "the layout does not read this": "asettelu ei lue tätä",
   "Now from": "Nyt peräisin säännöstä",
-  "Not set here: inherited or default": "Ei asetettu tässä: peritty tai oletus"
+  "Not set here: inherited or default": "Ei asetettu tässä: peritty tai oletus",
+  "Write a name…": "Kirjoita nimi…"
 }

@@ -827,7 +827,7 @@ class PresChartEditor {
         if (ndTab == "name") {
             def sec:EVGElement (this.section(pane (PresI18n.t("Presentation"))))
             def nr:EVGElement (this.field((PresI18n.t("Name"))))
-            this.inputWith("nd-name" (PresI18n.t("Name")) ndName (PresI18n.t("New presentation")) "ce-wide" nr)
+            this.inputWith("nd-name" (PresI18n.t("Name")) ndName (PresI18n.t("Write a name…")) "ce-wide" nr)
             sec.addChild(nr)
             sec.addChild((this.text("ce-doc" (PresI18n.t("The name becomes the first slide's heading. You can change it later in the Markdown.")))))
         }

@@ -420,3 +420,6 @@
 /* text leaves get their size and face stated, not inherited: an inherited
    size came out differently between passes and the rows moved */
 .theme-ce .ui-switch-label { font-family: Open Sans; font-size: 13px; }
+
+/* a placeholder is a hint, not a value: faded and italic */
+.theme-ce .ui-input-placeholder { color: #a1a1aa; font-family: Open Sans-Italic; }
