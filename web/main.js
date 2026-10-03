@@ -21,6 +21,8 @@ import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
 import { scaled, previewOf, render } from "./image-adjust.js";
+import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versions.js";
+import { showHistory, askMerge } from "./versions-ui.js";
 
 const canvas = document.getElementById("c");
 const stageEl = document.getElementById("stage");
@@ -320,21 +322,40 @@ async function saveAdjusted() {
   a.original = null;
   dropAdjusting();
   const restore = () => { if (original) pictures.set("/" + a.path, original); needsPaint = true; };
-  let crop = null;
-  if (!plan.whole) {
-    const [x, y, cw, ch] = String(plan.crop).split(",").map(Number);
-    if (cw > 0 && ch > 0) crop = [x, y, cw, ch];
-  }
+  const crop = cropOf(plan);
   const neutral = !plan.bright && !plan.contrast && !plan.sat && !plan.temp && !plan.tint;
   if (!crop && neutral) { restore(); return; }
   const out = await render(a.blob, crop, plan).catch(() => null);
   if (!out) { restore(); toast(t("The image could not be saved.")); return; }
   app.addImage("/" + a.path, asRangerBuffer(out.bytes.slice(0)), out.type, out.w, out.h);
   await registerPicture("/" + a.path, out.bytes, out.type);
-  await keepFile({ path: a.path, type: out.type, size: out.bytes.byteLength, data: new Blob([out.bytes], { type: out.type }) });
+  // the version history keeps the picture as it first came and the edits
+  // made to it (versions.js): an edit costs a few bytes there, not a picture
+  const was = (await docFiles()).find((x) => x.path === a.path);
+  const orig = was?.orig?.data
+    ? { ...was.orig, plans: [...(was.orig.plans || []), plan] }
+    : { data: a.blob, type: a.blob.type || was?.type || "", plans: [plan], stamp: Date.now() };
+  await keepFile({ path: a.path, type: out.type, size: out.bytes.byteLength, data: new Blob([out.bytes], { type: out.type }), orig });
   dropThumbs();
   needsPaint = true;
   toast(t("Image saved: ") + a.path);
+}
+
+function cropOf(plan) {
+  if (plan.whole) return null;
+  const [x, y, cw, ch] = String(plan.crop).split(",").map(Number);
+  return cw > 0 && ch > 0 ? [x, y, cw, ch] : null;
+}
+
+// A picture made again from its original and the edits made to it, one
+// after another as they were made (a version restored).
+async function renderPlans(orig, plans, type) {
+  let blob = orig;
+  for (const plan of plans) {
+    const out = await render(blob, cropOf(plan), plan);
+    blob = new Blob([out.bytes], { type: out.type });
+  }
+  return { blob, type: blob.type || type };
 }
 
 // A new picture of the deck: registered for the slides and kept in this
@@ -372,8 +393,9 @@ let vfs = null;
 const doc = { id: newId(), persisted: false, created: Date.now(), openedText: "" };
 // PRO: the share the deck lives in (cloud), its text as last written or read
 // there (cloudMd), the files as sent (cloudStamps: path → stamp), and what
-// was last sent (cloudSig). cloudHalt: changed elsewhere, not written over.
-Object.assign(doc, { cloud: null, cloudMd: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
+// was last sent (cloudSig), and the CSS and theme as last written or read
+// there (cloudCss, cloudTheme). cloudHalt: deleted, nothing more is sent.
+Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
 const pending = new Map();
 let savedText = null;
 let savedCss = null;
@@ -385,7 +407,9 @@ function beginDoc(text) {
   doc.persisted = false;
   doc.created = Date.now();
   doc.openedText = text;
-  Object.assign(doc, { cloud: null, cloudMd: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
+  Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
+  versions = null;
+  filesAtCommit = null;
   pending.clear();
   savedText = null;
   savedCss = null;
@@ -530,9 +554,21 @@ async function docFiles() {
   return [...out.values()];
 }
 
+// One at a time: a save, and a look at what another tab saved (takeLocal).
+let docQueue = Promise.resolve();
+function exclusive(fn) {
+  const run = docQueue.then(fn, fn);
+  docQueue = run.catch(() => {});
+  return run;
+}
+
 async function saveDoc(force) {
-  if (!vfs || viewer) return;
-  if (saving) await saving;
+  if (!vfs || viewer || merging) return;
+  return exclusive(() => saveDocNow(force));
+}
+
+async function saveDocNow(force) {
+  if (merging) return;
   const md = app.source();
   const key = themeSel.value || "";
   const css = key in editedCss ? editedCss[key] : null;
@@ -541,7 +577,14 @@ async function saveDoc(force) {
   // empty one
   if (!doc.persisted && !force && ((md === doc.openedText && css === null) || !md.trim())) return;
   saving = (async () => {
-    await vfs.putDoc({ id: doc.id, name: exportName(), md, theme: key, css, created: doc.created, updated: Date.now(), cloud: doc.cloud, cloudMd: doc.cloudMd });
+    const cur = doc.persisted ? await vfs.getDoc(doc.id) : null;
+    // another tab of this browser saved this deck since this one read it:
+    // nothing is written over, the two are put together first
+    if (cur && changedElsewhere(cur)) return "merge";
+    await vfs.putDoc({
+      ...(cur || {}), id: doc.id, name: exportName(), md, theme: key, css, created: doc.created, updated: Date.now(), by: TAB,
+      cloud: doc.cloud, cloudMd: doc.cloudMd, cloudCss: doc.cloudCss, cloudTheme: doc.cloudTheme,
+    });
     if (!doc.persisted) {
       doc.persisted = true;
       for (const f of pending.values()) await vfs.putFile({ ...f, doc: doc.id });
@@ -553,9 +596,12 @@ async function saveDoc(force) {
     savedTheme = key;
     try { localStorage.setItem("evgp.doc", doc.id); } catch (_) { /* the next start opens a sample */ }
   })();
-  try { await saving; } finally { saving = null; }
+  let r;
+  try { r = await saving; } finally { saving = null; }
+  if (r === "merge") return takeLocal();
   refreshFiles();
   cloudSoon();
+  tellTabs();
 }
 
 // Before another deck is opened in its place: this one kept, and a PRO
@@ -563,7 +609,9 @@ async function saveDoc(force) {
 // visit of this deck otherwise). The cloud gets a while, not forever.
 async function leaveDoc() {
   document.getElementById("welcomeCard")?.remove();
+  document.getElementById("versions")?.remove();
   await saveDoc();
+  await commitVersion("@auto").catch((e) => console.warn("no version kept", e));
   if (!doc.cloudHalt && cloudReady() && (cloudTimer || cloudBusy)) {
     clearTimeout(cloudTimer);
     cloudTimer = 0;
@@ -590,6 +638,7 @@ async function newDeck(plan) {
   app.showTab("md");
   dropThumbs();
   await saveDoc(true);
+  await commitVersion("@created").catch((e) => console.warn("no version kept", e));
   if (cloudReady()) await cloudSync().catch(cloudTrouble);
   refreshFiles();
   needsPaint = true;
@@ -616,6 +665,7 @@ async function duplicateDeck() {
   app.setSource(text);
   dropThumbs();
   await saveDoc(true);
+  await commitVersion("@created").catch((e) => console.warn("no version kept", e));
   if (cloudReady()) await cloudSync().catch(cloudTrouble);
   refreshFiles();
   needsPaint = true;
@@ -818,7 +868,10 @@ function plainAddress() {
 
 // A file of the document put to use: a picture registered for the slides, a
 // text file handed to the charts.
+// the files the slides were given (useFile), path → stamp
+const usedStamps = new Map();
 async function useFile(f) {
+  usedStamps.set(f.path, stampOf(f));
   if (kindOf(f.path, f.type) === "image" && f.data instanceof Blob) {
     const bytes = await f.data.arrayBuffer();
     const [w, h] = await imageSize(bytes, f.type);
@@ -842,6 +895,8 @@ async function openDoc(id) {
   doc.created = d.created || Date.now();
   doc.cloud = d.cloud || null;
   doc.cloudMd = d.cloudMd ?? null;
+  doc.cloudCss = d.cloudCss ?? null;
+  doc.cloudTheme = d.cloudTheme ?? null;
   themeSel.value = d.theme || "";
   if (d.css != null) editedCss[d.theme || ""] = d.css;
   useTheme(themeSel.value);
@@ -2547,8 +2602,10 @@ async function cloudSync() {
         if (e?.shareId && doc.id === which) {
           doc.cloud = e.shareId;
           doc.cloudMd = deck.md;
+          doc.cloudCss = deck.css;
+          doc.cloudTheme = deck.theme;
           doc.cloudStamps = new Map();
-          await vfs.putDoc({ ...(await vfs.getDoc(doc.id)), cloud: e.shareId, cloudMd: deck.md });
+          await vfs.putDoc({ ...(await vfs.getDoc(doc.id)), cloud: e.shareId, cloudMd: deck.md, cloudCss: deck.css, cloudTheme: deck.theme });
           plainAddress();
         }
         throw e;
@@ -2558,23 +2615,29 @@ async function cloudSync() {
         await p.saveShare(id, deck, { md: doc.cloudMd, stamps: doc.cloudStamps });
       } catch (e) {
         if (e?.code !== "changed-elsewhere") throw e;
-        if (doc.id === which) doc.cloudHalt = true;
-        toast(t("This presentation was changed elsewhere (by an assistant?). Your changes here are not saved to the cloud: reload to get the newer version."));
+        // changed elsewhere (another device, an assistant) since this page
+        // read it: put together with this one here, then written
+        if (doc.id === which) setTimeout(() => checkElsewhere(), 0);
         return id;
       }
     }
     if (doc.id !== which) return id; // another deck was opened meanwhile
     doc.cloud = id;
     doc.cloudMd = deck.md;
+    doc.cloudCss = deck.css;
+    doc.cloudTheme = deck.theme;
     doc.cloudSig = sig;
     doc.cloudStamps = new Map(deck.files.map((f) => [f.path, f.stamp]));
     cloudWarned = false;
     cloudError = "";
-    await vfs.putDoc({ ...(await vfs.getDoc(doc.id)), cloud: id, cloudMd: deck.md });
+    await vfs.putDoc({ ...(await vfs.getDoc(doc.id)), cloud: id, cloudMd: deck.md, cloudCss: deck.css, cloudTheme: deck.theme });
     plainAddress();
     return id;
   })();
-  try { return await cloudBusy; } finally { cloudBusy = null; }
+  try { return await cloudBusy; } finally {
+    cloudBusy = null;
+    pushVersions();
+  }
 }
 window.addEventListener("sliqtly:user", () => cloudSoon());
 
@@ -2594,7 +2657,7 @@ async function openOwnCloud(id) {
   await leaveDoc();
   beginDoc(shared.md || "");
   doc.id = local?.id || newId();
-  if (local) await vfs.deleteDoc(local.id); // the cloud's files replace this browser's
+  if (local) await vfs.deleteDoc(local.id, true); // the cloud's files replace this browser's; its versions stay
   doc.created = local?.created || Date.now();
   if (shared.theme != null) {
     themeSel.value = shared.theme;
@@ -2623,16 +2686,371 @@ async function openOwnCloud(id) {
   app.setSource(shared.md || "");
   doc.cloud = id;
   doc.cloudMd = shared.md || "";
+  doc.cloudCss = shared.css ?? null;
+  doc.cloudTheme = shared.theme || "";
   // the files that did come are what the share has; one that did not is
   // not sent back, so the share keeps it
   doc.cloudStamps = new Map([...pending.values()].map((f) => [f.path, stampOf(f)]));
   await saveDoc(true);
   doc.cloudSig = (await cloudDeck()).sig;
+  if (shared.head) await followCloudHead(shared.head).catch((e) => console.warn("versions not read", e));
   plainAddress();
   dropThumbs();
   needsPaint = true;
   return true;
 }
+
+// --- versions, and edits made in two places at once (web/versions.js) ---------------
+// The open deck's history: commits of its files, kept in this browser and,
+// for a PRO deck, beside its share. A version is made when the deck was
+// created, when 10 or more lines changed since the last one or a file did,
+// after 10 minutes of smaller changes, when another deck is opened, around
+// a merge and a restore, and from Version history → Save version.
+//
+// The same deck open in two places: another tab of this browser saves
+// through the same record (saveDoc compares before it writes; the tabs also
+// tell each other at once), another device or an assistant through the
+// share (read when the window gets the focus and every minute while it is
+// seen). Changed only there: taken here. Changed on both sides: merged
+// against what both started from; where both changed the same lines the
+// merge dialog asks.
+let versions = null;
+let merging = false;
+let filesAtCommit = null;
+function deckVersions() {
+  if (!vfs || viewer || !doc.persisted) return null;
+  if (!versions || versions.docId !== doc.id) {
+    versions = new DeckHistory({
+      vfs, docId: doc.id, cloud: () => doc.cloud,
+      pro: () => (window.sliqtly?.user?.() ? window.sliqtly : null),
+    });
+  }
+  return versions;
+}
+window.__versions = () => deckVersions();
+
+// The deck as versions see it (versions.js snapshots).
+async function workingCopy() {
+  const key = themeSel.value || "";
+  return {
+    name: exportName(), md: app.source(), theme: key, css: key in editedCss ? editedCss[key] : null,
+    files: (await docFiles()).map((f) => ({ path: f.path, type: f.type || "", data: f.data, stamp: stampOf(f), orig: f.orig })),
+  };
+}
+
+// alone: not with another tab's newer head as a parent (a copy of this
+// one's own before a merge)
+async function commitVersion(message, alone = false, extra = [], force = false) {
+  const h = deckVersions();
+  if (!h) return null;
+  const id = await h.commit(await workingCopy(), message, extra, alone, force);
+  if (id) pushVersions();
+  return id;
+}
+
+let versionsPush = Promise.resolve();
+function pushVersions() {
+  const h = deckVersions();
+  if (!h || !doc.cloud || doc.cloudHalt || !window.sliqtly?.user?.()) return versionsPush;
+  versionsPush = versionsPush.then(async () => {
+    if (cloudBusy) await cloudBusy.catch(() => {});
+    // the share's head moved elsewhere: the copies are merged first
+    if (!(await h.pushCloud(null))) setTimeout(() => checkElsewhere(), 0);
+  }).catch((e) => console.warn("versions not sent to the cloud", e));
+  return versionsPush;
+}
+
+async function maybeCommit() {
+  const h = deckVersions();
+  if (!h || merging || saving) return;
+  await h.ready;
+  const files = (await docFiles()).map((f) => f.path + "=" + stampOf(f) + (f.orig ? "+" + f.orig.plans.length : "")).join("\n");
+  if (!h.head) {
+    filesAtCommit = files;
+    await commitVersion("@created");
+    return;
+  }
+  const head = h.repo.commit(h.head);
+  const s = lineStats(h.repo.fileText(h.head, "deck.md"), app.source());
+  const age = Date.now() - (Date.parse(head?.time || "") || 0);
+  const filesMoved = filesAtCommit != null && files !== filesAtCommit;
+  filesAtCommit ??= files;
+  if (s.added + s.removed >= 10 || filesMoved || age >= 10 * 60 * 1000) {
+    filesAtCommit = files;
+    await commitVersion("@auto");
+  }
+}
+setInterval(() => { maybeCommit().catch((e) => console.warn("no version kept", e)); }, 30000);
+
+// --- the other copy
+const sameCopy = (a, b) => (a.md ?? "") === (b.md ?? "") && (a.css ?? null) === (b.css ?? null) && (a.theme || "") === (b.theme || "");
+function changedElsewhere(rec) {
+  if (savedText == null) return false;
+  return !sameCopy({ md: rec.md, css: rec.css, theme: rec.theme }, { md: savedText, css: savedCss, theme: savedTheme });
+}
+
+function editorCopy() {
+  const key = themeSel.value || "";
+  return { md: app.source(), css: key in editedCss ? editedCss[key] : null, theme: key };
+}
+
+// The editor shows `c`: { md, css, theme }.
+function applyCopy(c) {
+  const key = c.theme || "";
+  if ([...themeSel.options].some((o) => o.value === key)) themeSel.value = key;
+  for (const k of Object.keys(editedCss)) delete editedCss[k];
+  if (c.css != null) editedCss[key] = c.css;
+  useTheme(themeSel.value);
+  if ((c.md ?? "") !== app.source()) app.setSource(c.md ?? "");
+  dropThumbs();
+  needsPaint = true;
+}
+
+// `theirs` in the editor: as it is when nothing was changed here since
+// `base`, else merged with this one. → true when this one had changes.
+async function takeCopy(base, theirs, where) {
+  const mine = editorCopy();
+  if (sameCopy(mine, base) || sameCopy(mine, theirs)) {
+    applyCopy(theirs);
+    return false;
+  }
+  merging = true;
+  try {
+    // this one's changes as they were, a version to go back to
+    await commitVersion("@before-merge", true).catch(() => null);
+    const r = mergeCopies(base, mine, theirs);
+    let snap = r.snap;
+    if (r.conflicts.length) snap = resolveMerge(r, await askMerge(r, where)).snap;
+    else toast(t("Changes made elsewhere were combined with yours."));
+    applyCopy({ md: snap.md ?? "", css: snap.css ?? null, theme: snap.theme ?? mine.theme });
+  } finally {
+    merging = false;
+  }
+  return true;
+}
+
+// What another tab of this browser saved, taken here (runs one at a time
+// with the saves: exclusive).
+async function takeLocal() {
+  const cur = await vfs.getDoc(doc.id);
+  if (!cur || !changedElsewhere(cur)) return;
+  const base = { md: savedText, css: savedCss, theme: savedTheme };
+  const theirs = { md: cur.md ?? "", css: cur.css ?? null, theme: cur.theme || "" };
+  const mergedHere = await takeCopy(base, theirs, "tab");
+  // the record is what this one stands on now
+  savedText = theirs.md;
+  savedCss = theirs.css;
+  savedTheme = theirs.theme;
+  if (cur.cloud) doc.cloud = cur.cloud;
+  if (cur.cloudMd != null) {
+    doc.cloudMd = cur.cloudMd;
+    doc.cloudCss = cur.cloudCss ?? null;
+    doc.cloudTheme = cur.cloudTheme ?? null;
+  }
+  for (const f of await vfs.listFiles(doc.id)) if (usedStamps.get(f.path) !== stampOf(f)) await useFile(f);
+  refreshFiles();
+  if (mergedHere) {
+    await saveDocNow();
+    await commitVersion("@merge");
+  }
+}
+
+// PRO: what the share has now, when another device or an assistant changed it.
+let cloudChecking = null;
+let cloudAgain = false;
+async function cloudCheck() {
+  if (!cloudReady() || !doc.cloud || doc.cloudHalt || merging) return;
+  // asked while a look is under way: one more after it, which sees what
+  // changed meanwhile
+  if (cloudChecking) {
+    cloudAgain = true;
+    return cloudChecking;
+  }
+  cloudChecking = (async () => {
+    if (cloudBusy) await cloudBusy.catch(() => {});
+    const p = window.sliqtly;
+    const which = doc.id;
+    // Firestore waits quietly while it cannot reach the server
+    const late = new Promise((_, no) => setTimeout(() => no(Object.assign(new Error("timeout"), { code: "timeout" })), 20000));
+    const s = await Promise.race([p.readHead(doc.cloud), late]);
+    if (!s || doc.id !== which || merging) return;
+    const theirs = { md: s.md ?? "", css: s.css ?? null, theme: s.theme || "" };
+    const base = { md: doc.cloudMd ?? "", css: doc.cloudCss ?? null, theme: doc.cloudTheme ?? theirs.theme };
+    const moved = !sameCopy(theirs, base);
+    const filesMoved = await takeCloudFiles(s);
+    let mergedHere = false;
+    if (moved) mergedHere = await exclusive(() => takeCopy(base, theirs, "cloud"));
+    if (moved || filesMoved) {
+      doc.cloudMd = theirs.md;
+      doc.cloudCss = theirs.css;
+      doc.cloudTheme = theirs.theme;
+      // written next as it is now (merged), over what was just read
+      doc.cloudSig = "";
+      await saveDoc(true);
+      refreshFiles();
+    }
+    if (s.head) await followCloudHead(s.head, mergedHere);
+    if (moved || filesMoved) cloudSoon();
+  })();
+  try {
+    return await cloudChecking;
+  } finally {
+    cloudChecking = null;
+    if (cloudAgain) {
+      cloudAgain = false;
+      setTimeout(() => { cloudCheck().catch((e) => console.warn("could not compare with the cloud copy", e)); }, 0);
+    }
+  }
+}
+
+// Files the share has that were added or removed elsewhere since this page
+// last wrote it (a file changed in place elsewhere is not seen here).
+async function takeCloudFiles(s) {
+  const remote = new Map((s.files || []).map((f) => [f.path, f]));
+  const local = new Map((await docFiles()).map((f) => [f.path, f]));
+  let moved = false;
+  for (const [path, f] of remote) {
+    if (local.has(path) || doc.cloudStamps.has(path)) continue;
+    try {
+      const res = await fetch(f.url);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = isText(f.path, f.type) ? await res.text() : await res.blob();
+      const rec = { doc: doc.id, path, type: f.type, size: f.size, data, updated: Date.now() };
+      await vfs.putFile(rec);
+      await useFile(rec);
+      doc.cloudStamps.set(path, stampOf(rec));
+      moved = true;
+    } catch (e) {
+      console.warn("cloud file not loaded: " + path, e);
+    }
+  }
+  for (const [path, stamp] of [...doc.cloudStamps]) {
+    if (remote.has(path)) continue;
+    const f = local.get(path);
+    // removed there and not changed here since
+    if (f && stampOf(f) === stamp) {
+      await vfs.deleteFile(doc.id, path);
+      moved = true;
+    }
+    doc.cloudStamps.delete(path);
+  }
+  return moved;
+}
+
+// The share's newest version: this one follows it when it comes after this
+// one's, or makes a version with both as parents.
+async function followCloudHead(head, merged = false) {
+  const h = deckVersions();
+  if (!h) return;
+  await h.ready;
+  if (head === h.head || head === h.cloudHead) return;
+  await h.ensureLine(head);
+  if (!h.repo.has(head)) return;
+  if (!h.head || h.repo.isAncestor(h.head, head)) {
+    // nothing in this one's versions that the share lacks: its line is
+    // this one's, and what is in the editor now a version after it
+    h.head = head;
+    h.cloudHead = head;
+    await h.persist();
+    await commitVersion(merged ? "@merge" : "@auto");
+    return;
+  }
+  if (h.repo.isAncestor(head, h.head)) return; // this one is newer: it goes up next
+  await commitVersion("@merge", false, [head]);
+}
+
+async function checkElsewhere() {
+  if (!vfs || viewer || merging || !doc.persisted) return;
+  try {
+    await exclusive(takeLocal);
+    await cloudCheck();
+  } catch (e) {
+    console.warn("could not compare with the other copy", e);
+  }
+}
+window.__checkElsewhere = () => checkElsewhere();
+
+const tabs = typeof BroadcastChannel === "function" ? new BroadcastChannel("sliqtly-docs") : null;
+tabs?.addEventListener("message", (ev) => {
+  if (ev.data?.doc === doc.id && ev.data.tab !== TAB) checkElsewhere();
+});
+function tellTabs() {
+  tabs?.postMessage({ doc: doc.id, tab: TAB });
+}
+window.addEventListener("focus", () => checkElsewhere());
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") checkElsewhere();
+});
+setInterval(() => { if (document.visibilityState === "visible") checkElsewhere(); }, 60000);
+
+// --- Version history
+async function restoreVersion(id) {
+  const h = deckVersions();
+  if (!h) return;
+  await saveDoc();
+  await commitVersion("@auto");
+  const snap = await h.checkout(id, renderPlans);
+  if (!snap) throw new Error(t("This version is not here or in the cloud."));
+  const when = h.repo.commit(id)?.time || "";
+  const now = h.head ? h.repo.tree(h.repo.commit(h.head).tree) : null;
+  merging = true;
+  try {
+    applyCopy({ md: snap.md, css: snap.css, theme: snap.theme });
+    const keep = new Set(snap.files.map((f) => f.path));
+    for (const f of await docFiles()) {
+      if (keep.has(f.path)) continue;
+      await vfs.deleteFile(doc.id, f.path);
+      chartFiles.delete(f.path);
+    }
+    for (const f of snap.files) {
+      const at = now?.find(f.path);
+      if (at && at.blob === f.blob && (at.recipe || "") === (f.recipe || "")) continue; // as it is
+      const size = typeof f.data === "string" ? new TextEncoder().encode(f.data).length : f.data.size;
+      const rec = { doc: doc.id, path: f.path, type: f.type, size, data: f.data, updated: Date.now() };
+      if (f.orig) rec.orig = { ...f.orig, stamp: Date.now() };
+      await vfs.putFile(rec);
+      await useFile(rec);
+    }
+  } finally {
+    merging = false;
+  }
+  await saveDoc(true);
+  filesAtCommit = null;
+  await commitVersion("@restore " + when);
+  refreshFiles();
+  toast(t("Version restored. The one before it is in the history."));
+}
+
+async function openHistory() {
+  if (!vfs || viewer) return;
+  if (!doc.persisted) {
+    toast(t("Versions are kept once the presentation is changed."));
+    return;
+  }
+  await saveDoc();
+  const h = deckVersions();
+  if (!h) return;
+  showHistory({
+    entries: async () => {
+      let remote = [];
+      if (doc.cloud && window.sliqtly?.readHead) {
+        const s = await window.sliqtly.readHead(doc.cloud).catch(() => null);
+        remote = s?.log || [];
+      }
+      const list = await h.log(remote);
+      return list.map((e) => ({ ...e, current: e.id === h.head }));
+    },
+    changes: (id) => h.changes(id),
+    diff: (id, path) => h.diffText(id, path),
+    restore: (id) => restoreVersion(id),
+    save: async (message) => {
+      await saveDoc(true);
+      const id = await commitVersion(message || "@auto", false, [], !!message);
+      toast(id ? t("Version saved.") : t("Nothing changed since the last version."));
+    },
+  });
+}
+document.getElementById("history").addEventListener("click", () => { openHistory().catch(fail); });
 
 // Share, signed in: the deck's own share, saved first. → the share's id
 async function shareCloud() {
@@ -3872,6 +4290,8 @@ async function start() {
   document.body.classList.remove("booting");
   if (!viewer && !isCoarse()) focusKeys("editor");
   window.__pageStarted = true;
+  // opening the deck tidied the address; it names the deck again from here
+  followAddress();
   // ?export=pdf|pptx|md (or in the #…): an export asked for from the
   // assistant's preview, which cannot download
   const ask = q.get("export") || hashParams().get("export");

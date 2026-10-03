@@ -509,7 +509,7 @@ class Files {
             if (Files.isXlsx(name)) {
                 def ts:Tables (Files.tables(host handle ("data/" + name)))
                 if ((strlen ts.err) > 0) {
-                    res.err = ("File " + name + " is not a workbook Sliqtly can read: " + ts.err)
+                    res.err = ("File " + name + " is not a workbook Sliqtly can read: " + ts.err + ". Long base64 is easily corrupted on the way: send the sheets with write_workbook instead (rows, formulas as { f, v }).")
                     return res
                 }
             }

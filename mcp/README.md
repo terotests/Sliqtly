@@ -25,7 +25,7 @@ without a key, and `list_presentations` lists them.
 | `get_presentation` | `deck_id` → the Markdown, theme, CSS, pictures and files |
 | `list_files` | `deck_id` → every file the deck keeps; for each `.xlsx`, its sheets, columns, row counts and the CSV name a sheet is read by |
 | `read_file` | `deck_id`, `path` (a data file, a workbook with `sheet`, or a sheet's CSV name), `offset`, `limit` → its rows as CSV, or a JSON/text file's text |
-| `write_workbook` | `deck_id`, `edit_key`, `path` (data/x.xlsx), `sheets` [{`name`, `rows` or `csv`}] → writes the whole workbook in place (values only) |
+| `write_workbook` | `deck_id`, `edit_key`, `path` (data/x.xlsx), `sheets` [{`name`, `rows` or `csv`}], a cell a value or a formula `{f, v}` → writes the whole workbook in place (no formatting) |
 | `list_presentations` | the signed-in user's decks (asks for sign-in otherwise) |
 
 ## Sign-in

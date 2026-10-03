@@ -256,11 +256,26 @@ class Tools {
         wp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
         wp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
         wp.put("path" (Tools.prop("string" "The workbook's path, e.g. data/budget.xlsx")))
+        def plain:MfJ (MfJ.newObj())
+        plain.put("type" (J.strs(([] _:string ("string" "number" "null")))))
+        def fp2:MfJ (MfJ.newObj())
+        fp2.put("f" (Tools.prop("string" "Excel formula, e.g. \"=SUM(C2:C13)\"")))
+        def fv:MfJ (MfJ.newObj())
+        fv.put("type" (J.strs(([] _:string ("string" "number")))))
+        fv.putStr("description" "The value the formula gives, so Sliqtly can show it (Excel recalculates on opening)")
+        fp2.put("v" fv)
+        def formula:MfJ (MfJ.newObj())
+        formula.putStr("type" "object")
+        formula.put("properties" fp2)
+        formula.put("required" (J.strs(([] _:string ("f")))))
+        def kinds:MfJ (MfJ.newArr())
+        kinds.add(plain)
+        kinds.add(formula)
         def cell:MfJ (MfJ.newObj())
-        cell.put("type" (J.strs(([] _:string ("string" "number" "null")))))
+        cell.put("anyOf" kinds)
         def row:MfJ (Tools.prop("array" ""))
         row.put("items" cell)
-        def rowsP:MfJ (Tools.prop("array" "Rows of cell values, header row first"))
+        def rowsP:MfJ (Tools.prop("array" "Rows of cells, header row first: a string, a number, null, or { f, v } for a formula"))
         rowsP.put("items" row)
         def sp:MfJ (MfJ.newObj())
         sp.put("name" (Tools.prop("string" "Sheet name (at most 31 characters, none of \\ / : * ? [ ])")))
@@ -275,7 +290,7 @@ class Tools {
         sheetsP.putInt("minItems" 1)
         sheetsP.putInt("maxItems" 20)
         wp.put("sheets" sheetsP)
-        tools.add((Tools.tool("write_workbook" "Write a presentation's workbook" "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text. Values only: formatting, formulas and column widths are not kept. Needs sign-in." (Tools.schema(wp ([] _:string ("deck_id" "path" "sheets")))) (Tools.annotations(false 1 true false)) eitherMeta)))
+        tools.add((Tools.tool("write_workbook" "Write a presentation's workbook" "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text; a cell may be a formula { f: \"=SUM(C2:C13)\", v: 1234.5 }. Use this rather than sending an .xlsx as base64, which gets corrupted when long. Formatting, colours, filters and column widths are not kept. Needs sign-in." (Tools.schema(wp ([] _:string ("deck_id" "path" "sheets")))) (Tools.annotations(false 1 true false)) eitherMeta)))
 
         def listMeta:MfJ (MfJ.newObj())
         def only:MfJ (MfJ.newArr())
@@ -1068,8 +1083,13 @@ class Tools {
                         return (Tools.fail(("Sheet \"" + sn + "\": every row is a list of values.")))
                     }
                     for r.arr v:MfJ k {
-                        if (((v.kind != 0) && (v.kind != 2)) && (v.kind != 3)) {
-                            return (Tools.fail(("Sheet \"" + sn + "\": a cell is a string, a number or null.")))
+                        def isFormula:boolean false
+                        if (v.isObj()) {
+                            def fvv:MfJ (v.field("v"))
+                            isFormula = (((v.field("f")).kind == 3) && (((fvv.kind == 0) || (fvv.kind == 2)) || (fvv.kind == 3)))
+                        }
+                        if ((((v.kind != 0) && (v.kind != 2)) && (v.kind != 3)) && (isFormula == false)) {
+                            return (Tools.fail(("Sheet \"" + sn + "\": a cell is a string, a number, null or { f, v } for a formula.")))
                         }
                     }
                 }
@@ -1111,7 +1131,7 @@ class Tools {
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "write_workbook" (host_error host)))
         }
-        def note:string "Formatting and formulas are not kept. Renamed or removed sheets change the CSV names the deck reads; check the deck's charts and tables still name them."
+        def note:string "Formatting is not kept. Renamed or removed sheets change the CSV names the deck reads; check the deck's charts and tables still name them."
         return (Tools.withData(host (Tools.updated(host caller id saved note)) kept))
     }
 

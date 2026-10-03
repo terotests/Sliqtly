@@ -2608,11 +2608,15 @@ try {
     check("PRO: Share links to the deck's own cloud copy", link.endsWith("/s/" + id + "?edit") && shareId().length === 1, link);
     await pc.evaluate(() => window.__app.closeShare());
 
-    // changed elsewhere meanwhile: not written over
-    fakeDb.set("shares/" + id, { ...fakeDb.get("shares/" + id), md: "# Muualla muutettu\n", updated: Date.now() });
+    // changed elsewhere meanwhile: not written over, the two merged here
+    // (web/versions.js) and then written
+    const elsewhere = fakeDb.get("shares/" + id).md.replace("## Avustajan dia", "## Avustajan dia, muutettu muualla");
+    fakeDb.set("shares/" + id, { ...fakeDb.get("shares/" + id), md: elsewhere, updated: Date.now() });
     await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Vielä yksi\n"));
-    await pc.waitForTimeout(5000);
-    check("PRO: a deck changed elsewhere is not written over", fakeDb.get("shares/" + id).md === "# Muualla muutettu\n");
+    await pc.waitForFunction(() => window.__app.source().includes("muutettu muualla"), null, { timeout: 10000 }).catch(() => {});
+    await pc.waitForTimeout(4000);
+    const mergedMd = fakeDb.get("shares/" + id).md;
+    check("PRO: a deck changed elsewhere is merged, not written over", mergedMd.includes("## Avustajan dia, muutettu muualla") && mergedMd.includes("## Vielä yksi") && (await pc.evaluate(() => window.__app.source())) === mergedMd, JSON.stringify(mergedMd.slice(-200)));
 
     // the window's Name field: a drag selects and typing replaces it,
     // Ctrl+A selects all, and the × at its end empties it
@@ -2663,7 +2667,7 @@ try {
     await pc.waitForTimeout(3000);
     const made = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search), ids: shareId() };
     const newId = made.ids.find((k) => k !== id) || "";
-    check("PRO: a new presentation gets its own share and address", made.ids.length === 2 && made.at === "/s/" + newId + "?edit" && made.md.startsWith("# Uusi pakka") && fakeDb.get("shares/" + newId)?.md === made.md && fakeDb.get("shares/" + id).md === "# Muualla muutettu\n",
+    check("PRO: a new presentation gets its own share and address", made.ids.length === 2 && made.at === "/s/" + newId + "?edit" && made.md.startsWith("# Uusi pakka") && fakeDb.get("shares/" + newId)?.md === made.md && fakeDb.get("shares/" + id).md === mergedMd,
       JSON.stringify({ at: made.at, ids: made.ids }));
     // the last change of a deck reaches its share although another is made at once
     await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Viimeinen muutos\n"));
@@ -2862,6 +2866,179 @@ try {
     const reopened = await pn.evaluate(() => ({ md: window.__app.source().slice(0, 20), at: location.hash }));
     await pn.close();
     check("a new deck's id is in the address and a reload opens that deck", /^#doc=[a-z0-9-]+$/.test(addr) && reopened.md.startsWith("# Vuokra ja menot") && reopened.at === addr, JSON.stringify({ addr, reopened }));
+  }
+
+  // Versions (web/versions.js) and one deck open in two places. Two tabs of
+  // one browser: a change in one shows in the other, edits to different
+  // lines are merged, edits to the same line ask, and a version restored
+  // reaches both. Then two "devices" over a share kept by this script in
+  // place of Firestore and Storage: a change made on one is taken by the
+  // other when it gets the focus, edits are merged through the share, and
+  // an assistant's edit to the share is taken.
+  {
+    const verr = [];
+    const ctx = await browser.newContext({ viewport: { width: 1200, height: 760 } });
+    const tab = async (u) => {
+      const p = await ctx.newPage();
+      p.on("pageerror", (e) => verr.push(e.message));
+      await p.goto(u);
+      await p.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+      return p;
+    };
+    const src = (p) => p.evaluate(() => window.__app.source());
+    const edit = (p, from, to) => p.evaluate(([a, b]) => window.__app.setSource(window.__app.source().replace(a, b)), [from, to]);
+    const base = "# Kaksi ikkunaa\n\n## Yksi\n\nrivi 1\nrivi 2\nrivi 3\n\n## Kaksi\n\nrivi 4\nrivi 5\nrivi 6\n";
+    const a = await tab(url);
+    await a.evaluate(() => window.__fileRequest("new"));
+    await a.waitForTimeout(300);
+    await a.keyboard.type("Kaksi ikkunaa");
+    await a.keyboard.press("Enter");
+    await a.waitForFunction(() => /doc=/.test(location.hash), null, { timeout: 8000 }).catch(() => {});
+    await a.evaluate((md) => window.__app.setSource(md), base);
+    await a.waitForTimeout(2500);
+    const b = await tab(url + (await a.evaluate(() => location.hash)));
+    await edit(a, "rivi 1", "rivi 1 A");
+    await b.waitForFunction(() => window.__app.source().includes("rivi 1 A"), null, { timeout: 15000 }).catch(() => {});
+    check("versions: a change in one tab shows in the other", (await src(b)).includes("rivi 1 A"));
+    await edit(a, "rivi 2", "rivi 2 A");
+    await edit(b, "rivi 5", "rivi 5 B");
+    await a.waitForTimeout(6000);
+    const m = [await src(a), await src(b)];
+    check("versions: edits to different lines in two tabs are merged", m[0] === m[1] && m[0].includes("rivi 2 A") && m[0].includes("rivi 5 B"), JSON.stringify(m));
+    await edit(a, "rivi 3", "rivi 3 A");
+    await edit(b, "rivi 3", "rivi 3 B");
+    await a.waitForTimeout(4000);
+    const asked = (await a.evaluate(() => !!document.getElementById("mergeCard"))) ? a : (await b.evaluate(() => !!document.getElementById("mergeCard"))) ? b : null;
+    check("versions: the same line edited in two tabs asks", !!asked);
+    if (asked) {
+      await asked.evaluate(() => document.querySelector('#mergeCard input[value="both"]').click());
+      await asked.evaluate(() => document.querySelector("#mergeCard button.primary").click());
+    }
+    await a.waitForTimeout(5000);
+    const both = [await src(a), await src(b)];
+    check("versions: both kept as asked, and the tabs agree", both[0] === both[1] && both[0].includes("rivi 3 A") && both[0].includes("rivi 3 B"), JSON.stringify(both));
+    await a.evaluate(() => document.getElementById("history").click());
+    await a.waitForSelector("#versions .vItem", { timeout: 8000 }).catch(() => {});
+    await a.fill("#versions .vSave input", "Ennen palautusta");
+    await a.click("#versions .vSave button");
+    await a.waitForFunction(() => [...document.querySelectorAll("#versions .vMsg")].some((e) => e.textContent === "Ennen palautusta"), null, { timeout: 5000 }).catch(() => {});
+    const msgs = await a.evaluate(() => [...document.querySelectorAll("#versions .vMsg")].map((e) => e.textContent));
+    check("versions: the history lists versions, one saved by hand with its message", msgs.length >= 3 && msgs[0] === "Ennen palautusta", JSON.stringify(msgs));
+    const tops = await a.$$("#versions .vItem .vTop");
+    await tops[tops.length - 1].click();
+    await a.waitForTimeout(400);
+    await tops[tops.length - 2].click();
+    await a.waitForTimeout(400);
+    const links = await a.$$("#versions .vLink");
+    if (links.length) await links[links.length - 1].click();
+    await a.waitForTimeout(300);
+    const diff = await a.evaluate(() => [...document.querySelectorAll("#versions .vDiff")].map((e) => e.textContent).join("\n"));
+    check("versions: a version's changes as a unified diff", /^@@ /m.test(diff) && /^[-+]rivi/m.test(diff), diff.slice(0, 120));
+    const before = await src(a);
+    await a.evaluate(() => [...document.querySelectorAll("#versions .vBody button:not(.vLink)")].find((x) => x.offsetParent).click());
+    await a.waitForTimeout(1500);
+    const restored = await src(a);
+    await b.waitForFunction((t) => window.__app.source() === t, restored, { timeout: 8000 }).catch(() => {});
+    check("versions: a version restored, and the other tab follows", restored !== before && !restored.includes("rivi 3 A") && (await src(b)) === restored, JSON.stringify(restored));
+    await ctx.close();
+
+    // two devices and a share
+    const shares = {};
+    const objects = {};
+    const ops = {
+      share(deck) { const id = "check" + (Object.keys(shares).length + 1) + "share"; shares[id] = { ...deck, owner: "u1", head: null, log: [] }; return id; },
+      saveShare(id, deck, since) {
+        const cur = shares[id];
+        if (since.md != null && cur.md !== since.md) return { error: "changed-elsewhere" };
+        Object.assign(cur, deck);
+        return cur.files;
+      },
+      load(id) { return shares[id] || null; },
+      put(s, o, b64) { objects[s + "/" + o] = b64; return true; },
+      get(s, o) { return objects[s + "/" + o] || null; },
+      push(s, expect, head, entries) {
+        const cur = shares[s];
+        if (cur.head !== (expect || null) && cur.head !== head) return { ok: false, head: cur.head, log: cur.log };
+        const seen = new Set(cur.log.map((e) => e.id));
+        cur.log = cur.log.concat(entries.filter((e) => !seen.has(e.id)));
+        cur.head = head;
+        return { ok: true, head, log: cur.log };
+      },
+    };
+    const device = async () => {
+      const dc = await browser.newContext({ viewport: { width: 1200, height: 760 } });
+      await dc.exposeFunction("__cloud", (op, args) => JSON.stringify(ops[op](...JSON.parse(args))));
+      const p = await dc.newPage();
+      p.on("pageerror", (e) => verr.push(e.message));
+      await p.goto(url);
+      await p.waitForFunction(() => window.__pageStarted === true && !!window.sliqtly, null, { timeout: 90000 });
+      await p.evaluate(() => {
+        const call = async (op, ...args) => {
+          const r = JSON.parse(await window.__cloud(op, JSON.stringify(args)));
+          if (r && r.error) throw Object.assign(new Error(r.error), { code: r.error });
+          return r;
+        };
+        const b64 = (u8) => { let s = ""; for (const x of u8) s += String.fromCharCode(x); return btoa(s); };
+        const asUrl = async (f) => {
+          const blob = f.data instanceof Blob ? f.data : new Blob([f.data ?? ""], { type: f.type || "text/plain" });
+          return { path: f.path, type: f.type || blob.type, size: blob.size, url: "data:application/octet-stream;base64," + b64(new Uint8Array(await blob.arrayBuffer())) };
+        };
+        const deckOf = async (d) => ({ name: d.name, md: d.md, theme: d.theme || "", css: d.css ?? null, files: await Promise.all((d.files || []).map(asUrl)) });
+        Object.assign(window.sliqtly, {
+          user: () => ({ uid: "u1" }),
+          signedIn: async () => ({ uid: "u1" }),
+          share: async (d) => call("share", await deckOf(d)),
+          saveShare: async (id, d, since) => call("saveShare", id, await deckOf(d), { md: since.md }),
+          loadShare: (id) => call("load", id),
+          readHead: (id) => call("load", id),
+          putObject: (s, o, bytes) => call("put", s, o, b64(bytes)),
+          getObject: async (s, o) => {
+            const x = await call("get", s, o);
+            return x ? Uint8Array.from(atob(x), (c) => c.charCodeAt(0)) : null;
+          },
+          pushHead: (s, e, h, entries) => call("push", s, e, h, entries),
+        });
+        window.dispatchEvent(new Event("sliqtly:user"));
+      });
+      return { p, dc };
+    };
+    const A = await device();
+    await A.p.evaluate(() => window.__fileRequest("new"));
+    await A.p.waitForTimeout(300);
+    await A.p.keyboard.type("Kaksi konetta");
+    await A.p.keyboard.press("Enter");
+    await A.p.waitForTimeout(500);
+    await A.p.evaluate((md) => window.__app.setSource(md), base.replace("Kaksi ikkunaa", "Kaksi konetta"));
+    for (let i = 0; i < 40 && !(Object.values(shares)[0]?.md || "").includes("rivi 6"); i++) await A.p.waitForTimeout(250);
+    await A.p.evaluate(() => window.__checkElsewhere());
+    await A.p.waitForTimeout(1500);
+    const id = Object.keys(shares)[0];
+    check("versions: a PRO deck's versions go up beside its share", !!id && !!shares[id].head && Object.keys(objects).length >= 3, String(Object.keys(objects).length));
+    const B = await device();
+    await B.p.evaluate((x) => window.__fileRequest("doc:cloud:" + x), id);
+    await B.p.waitForTimeout(2500);
+    await edit(B.p, "rivi 1", "rivi 1 B");
+    for (let i = 0; i < 40 && !shares[id].md.includes("rivi 1 B"); i++) await B.p.waitForTimeout(250);
+    await A.p.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await A.p.waitForFunction(() => window.__app.source().includes("rivi 1 B"), null, { timeout: 8000 }).catch(() => {});
+    check("versions: the other device's change is taken when the window gets the focus", (await src(A.p)).includes("rivi 1 B"));
+    await edit(A.p, "rivi 2", "rivi 2 A");
+    await edit(B.p, "rivi 5", "rivi 5 B");
+    await A.p.waitForTimeout(6000);
+    for (let i = 0; i < 2; i++) {
+      await A.p.evaluate(() => window.__checkElsewhere());
+      await B.p.evaluate(() => window.__checkElsewhere());
+      await A.p.waitForTimeout(3000);
+    }
+    const d = [await src(A.p), await src(B.p), shares[id].md];
+    check("versions: edits on two devices are merged through the share", d[0] === d[1] && d[1] === d[2] && d[0].includes("rivi 2 A") && d[0].includes("rivi 5 B"), JSON.stringify(d));
+    shares[id].md = shares[id].md.replace("rivi 6", "rivi 6 AI");
+    await A.p.evaluate(() => window.__checkElsewhere());
+    await A.p.waitForFunction(() => window.__app.source().includes("rivi 6 AI"), null, { timeout: 8000 }).catch(() => {});
+    check("versions: an assistant's edit to the share is taken", (await src(A.p)).includes("rivi 6 AI"));
+    await A.dc.close();
+    await B.dc.close();
+    check("no page errors with versions", verr.length === 0, verr.join(" | "));
   }
 
   // the interface in another language: ?lang=fi, the canvas bar and the page alike

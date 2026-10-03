@@ -7,6 +7,10 @@
     "url": "https://github.com/terotests/EVGUI",
     "ref": "main"
   },
+  "rangerdiff": {
+    "url": "https://github.com/terotests/RangerDiff",
+    "ref": "main"
+  },
   "evgsheets": {
     "base": "https://terotests.github.io/EVGSheets/"
   }
