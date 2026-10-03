@@ -45,7 +45,7 @@ class PresHints {
         if (fx == "raindrops2") { return "rain=1 size=1 mist=1 speed=1 text=1 spread=1 dry=1 refract=1.1 shine=0.8 angle=-55 rim=0.55 tint=0.06 seed=1" }
         if (fx == "drops") { return "rain=1 size=1 mist=1 speed=1 refract=1.1 shine=0.8 angle=-55 rim=0.55 tint=0.06 seed=1" }
         ; `raindrop` is the old name of `bubbles`, and still draws it
-        if (fx == "raindrops2") { return (PresI18n.t("Rain on a window: fine drops that dry away, runners leave lines of water and flow around the text.")) }
+        if (fx == "raindrops2") { return (PresI18n.t("Rain on a window: fine drops that dry to a haze, runners leave lines of water and seep around and through the letters.")) }
         if ((fx == "bubbles") || (fx == "raindrop")) { return "density=1 size=0.5 refract=14 shine=0.85 angle=-55 rim=0.55 speed=0 seed=1" }
         return ""
     }

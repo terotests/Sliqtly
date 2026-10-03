@@ -103,10 +103,12 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   leaving trails (`fx-rain`, `fx-size`, `fx-mist`, `fx-speed`, `fx-refract`).
   `raindrops2` is the same rain where a running drop leaves a line of water,
   stops at its lower end when spent and runs on when another drop runs down
-  the line into it. What lands is mostly very fine and dries away, smallest
-  first (`fx-spread`, `fx-dry`), and the slide's text is in the way: a drop
-  rests on a line of text, runs off its end or down a gap (`fx-text=0` lets
-  the rain fall over the text).
+  the line into it; a line empties from its top down into the drop at its
+  foot, which then runs on. What lands is mostly very fine and dries away,
+  smallest first, leaving a haze of specks that running drops wipe up
+  (`fx-spread`, `fx-dry`). The letters are in the way, by their own shapes:
+  a drop goes round them, and held up long enough its water seeps through a
+  letter and runs on below it (`fx-text=0` lets the rain fall over the text).
   `bubbles` is the round-drop effect that was called `raindrop`, and
   `raindrop` still draws it. An effect's clock is the time its slide has been
   on screen and goes on while the slide waits for a click.
