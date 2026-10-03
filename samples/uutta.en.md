@@ -35,6 +35,12 @@ Edit them in the **Theme (CSS)** tab; a slide's own `{fx=…}` wins.
 - Exports get both: the effect as a picture, the art as vector lines
 {.build anim=rise}
 
+## Rain on the glass {fx=drops}
+
+- `{fx=drops}`: drops land, run together and run down the glass
+- `fx-rain=2` for a downpour, `fx-size=1.5` for bigger drops
+- Round drops that stay put: `{fx=bubbles}`
+
 ## Project in four steps
 
 - Plan: goals, budget and schedule

@@ -31,7 +31,7 @@ Import "PresRange.rgr"
 class PresHints {
     ; --- what the Markdown knows ----------------------------------------------
     sfn fxNames:string () {
-        return "starfield plasma-wave smoke ambient-light liquid-glass raindrop"
+        return "starfield plasma-wave smoke ambient-light liquid-glass drops bubbles"
     }
 
     ; An effect's parameters and their defaults, as the WebGL painter's effect
@@ -42,7 +42,9 @@ class PresHints {
         if (fx == "smoke") { return "density=1.2 rise=0.05 wind=0 swirl=2.6 scale=190 detail=5 height=0.9 softness=0.55 shade=0.6 angle=-60 hue=205 tint=0.1 seed=1" }
         if (fx == "ambient-light") { return "hue=190 hue2=268 sat=0.5 tilt=25 depth=0.5 orbs=7 size=0.55 softness=1.6 speed=0.06 glow=0.45 seed=1" }
         if (fx == "liquid-glass") { return "thickness=24 strength=32 power=2.2 disperse=0.07 shine=0.6 angle=-60 tint=0.05" }
-        if (fx == "raindrop") { return "density=1 size=0.5 refract=14 shine=0.85 angle=-55 rim=0.55 speed=0 seed=1" }
+        if (fx == "drops") { return "rain=1 size=1 mist=1 speed=1 refract=1.1 shine=0.8 angle=-55 rim=0.55 tint=0.06 seed=1" }
+        ; `raindrop` is the old name of `bubbles`, and still draws it
+        if ((fx == "bubbles") || (fx == "raindrop")) { return "density=1 size=0.5 refract=14 shine=0.85 angle=-55 rim=0.55 speed=0 seed=1" }
         return ""
     }
 
@@ -52,7 +54,8 @@ class PresHints {
         if (fx == "smoke") { return (PresI18n.t("Slowly rising smoke.")) }
         if (fx == "ambient-light") { return (PresI18n.t("Soft, drifting orbs of light.")) }
         if (fx == "liquid-glass") { return (PresI18n.t("A glassy, refracting edge.")) }
-        if (fx == "raindrop") { return (PresI18n.t("Drops on a pane of glass.")) }
+        if (fx == "drops") { return (PresI18n.t("Rain on a window: drops land, run together and run down the glass.")) }
+        if ((fx == "bubbles") || (fx == "raindrop")) { return (PresI18n.t("Round drops on a pane of glass.")) }
         return ""
     }
 

@@ -44,7 +44,8 @@ Speaker notes. Not shown on the slide.
   `anim=fade|rise|fly|zoom`, `seconds=0.8`, classes `.lead` (larger intro
   text), `.kicker` (small label), `.c2` / `.c3` (two or three columns).
 - Effects (`fx=`): `starfield`, `plasma-wave`, `smoke`, `ambient-light`,
-  `liquid-glass`, `raindrop`. Parameters as `fx-density=1.6`, `fx-hue=228`.
+  `liquid-glass`, `drops` (rain running down a window), `bubbles` (round
+  drops). Parameters as `fx-density=1.6`, `fx-hue=228`, `fx-rain=2`.
 - `::: notes … :::` holds speaker notes for the slide above it.
 - Keep a slide short: a heading and 3–6 bullets, or a heading and one
   picture, chart, table or diagram. A slide that runs over is split.

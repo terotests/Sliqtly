@@ -189,6 +189,11 @@ class PresApp {
     ; after a step back the clock waits this long, so several presses can
     ; go several steps back before the walk moves on again
     def backWait:double 0.0
+    ; The seconds the deck clock has been held on the slide on screen (a
+    ; build step or the slide's end waiting for a click). The slide's effect
+    ; goes on through them: rain does not stop while the speaker talks.
+    def fxHeld:double 0.0
+    def fxSlide:int -1
 
     def bufSynced:int -1
     def posLine:int 0
@@ -841,7 +846,36 @@ class PresApp {
 
     ; The host's clock. Returns the time the app accepted, which is less
     ; when a presentation is holding for a click.
+    ;
+    ; What was asked and not accepted, while playing on the same slide, is
+    ; time the slide spent held, and its effect counts it (`effectTime`). The
+    ; host asks one frame past the accepted time while held, so a jump of a
+    ; second or more is a seek and not a hold.
     fn setTime:double (t:double) {
+        def got:double (this.setClock(t))
+        if (selected != fxSlide) {
+            fxSlide = selected
+            fxHeld = 0.0
+        } {
+            if (((this.isPlaying()) && (t > got)) && ((t - got) < 1.0)) {
+                fxHeld = (fxHeld + (t - got))
+            }
+        }
+        return got
+    }
+
+    ; The time the shown slide's surface effect is drawn at: from the moment
+    ; the slide came on, and on through the holds, so a starfield or rain
+    ; never stops on a slide waiting for a click. Below zero when nothing is
+    ; playing: the editor's host runs its own clock for effects then.
+    fn effectTime:double () {
+        if (this.isPlaying()) {
+            return ((this.stageTime()) + fxHeld)
+        }
+        return -1.0
+    }
+
+    fn setClock:double (t:double) {
         if ((deck.slideCount()) == 0) {
             return 0.0
         }
@@ -1649,6 +1683,7 @@ class PresApp {
         out = (out + ",\"slide\":" + (to_string selected))
         out = (out + ",\"slides\":" + (to_string (deck.slideCount())))
         out = (out + ",\"time\":" + (EVGDisplayList.num((this.currentTime()))))
+        out = (out + ",\"fxTime\":" + (EVGDisplayList.num((this.effectTime()))))
         out = (out + ",\"playing\":" + (? (this.isPlaying()) "true" "false"))
         out = (out + ",\"stage\":[" + (PresApp.placeAt(slideRect.x slideRect.y sc)) + "]")
         out = (out + ",\"clip\":[" + (PresApp.nums4(stageArea.x stageArea.y stageArea.w stageArea.h)) + "]")

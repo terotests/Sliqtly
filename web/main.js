@@ -1426,17 +1426,41 @@ function dropThumbs() {
   thumbs = new Map();
 }
 
-const fxStart = performance.now();
+// AN EFFECT'S CLOCK. Playing or presenting: the app's `fxTime`, the time the
+// slide has been on screen, which goes on while a step or the slide's end
+// waits for a click (the deck clock stops there), so rain keeps falling while
+// the speaker talks. A replay is the same picture. Editing: each effect's own
+// clock, started when it first showed with the settings it has now, so a
+// changed setting is seen from the start (rain on a dry pane) and typing
+// elsewhere does not restart it.
+const fxSince = new Map();
 function effectClock(layout) {
-  // Playing or presenting: the deck's own time, so a replay is the same
-  // picture. Editing: a free-running clock so a starfield still moves.
-  return layout.playing ? layout.time : (performance.now() - fxStart) / 1000;
+  if (layout.playing && layout.fxTime >= 0) return () => layout.fxTime;
+  const now = performance.now();
+  return (e) => {
+    const sig = e.kind + " " + JSON.stringify(e.p || {});
+    let at = fxSince.get(e.id);
+    if (!at || at.sig !== sig) {
+      at = { sig, now };
+      fxSince.set(e.id, at);
+    }
+    return (now - at.now) / 1000;
+  };
 }
 
+// `t` a time for every effect, or a function of the effect.
 function withTime(doc, t) {
   const fx = doc.list && doc.list.effects;
-  if (fx) for (const e of fx) e.time = t;
+  if (fx) for (const e of fx) e.time = typeof t === "function" ? t(e) : t;
   return doc;
+}
+
+// The moment a thumbnail and an exported still show an effect at. Rain is
+// drawn half a minute in, when it has landed, run and left its trails; the
+// rest two seconds in, as they always were.
+const FX_STILL_T = { drops: 30 };
+function atRest(doc) {
+  return withTime(doc, (e) => FX_STILL_T[e.kind] ?? 2.0);
 }
 
 let lastLayout = null;
@@ -1517,7 +1541,7 @@ function paintOnce() {
         text = app.slideJson(i);
         thumbDocs.set(i, text);
       }
-      const doc = withTime(JSON.parse(text), 2.0);
+      const doc = atRest(JSON.parse(text));
       doc.width = W;
       doc.height = H;
       const [cx, cy, cw, ch] = layout.strip;
@@ -1532,7 +1556,7 @@ function paintOnce() {
     let f = thumbs.get(i);
     const fresh = !f;
     if (fresh) {
-      const doc = withTime(JSON.parse(app.slideJson(i)), 2.0);
+      const doc = atRest(JSON.parse(app.slideJson(i)));
       doc.width = W;
       doc.height = H;
       f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
@@ -2425,7 +2449,7 @@ async function renderFxStills() {
   const g = c.getContext("webgl2", { antialias: false, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
   if (!g) return;
   for (const i of list) {
-    const doc = withTime(JSON.parse(app.fxJson(i)), 2.0);
+    const doc = atRest(JSON.parse(app.fxJson(i)));
     const k = FX_STILL_W / doc.width;
     c.width = FX_STILL_W;
     c.height = Math.round(doc.height * k);
@@ -2478,7 +2502,7 @@ async function judgeExportContrast() {
   const g = c.getContext("webgl2", { antialias: false, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
   if (!g) return;
   for (let i = 0; i < n; i += 1) {
-    const doc = withTime(JSON.parse(app.slideJson(i)), 2.0);
+    const doc = atRest(JSON.parse(app.slideJson(i)));
     const k = 640 / doc.width;
     c.width = 640;
     c.height = Math.round(doc.height * k);
