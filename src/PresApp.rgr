@@ -5691,15 +5691,6 @@ class PresApp {
         def ph:double deck.pageH
         def root:EVGElement (EVGListToElements.printRoot(pw ph))
         def section:EVGElement (EVGListToElements.sectionOf(root))
-        deck.still = true
-        def i:int 0
-        while (i < (deck.slideCount())) {
-            def groups:[int]
-            def dl:EVGDisplayList (deck.slideList(i groups 0.0))
-            section.addChild((EVGListToElements.pageFrom(dl pw ph bg true)))
-            i = (i + 1)
-        }
-        deck.still = false
         def renderer (new EVGPDFRenderer())
         renderer.init(renderer)
         renderer.setPageSize(pw ph)
@@ -5721,23 +5712,67 @@ class PresApp {
                 renderer.setMeasurer((unwrap mw.measurer))
             }
         }
-        if e.haveImages {
-            def k:int 0
-            while (k < (array_length l.boxes)) {
-                def b:MdBox (itemAt l.boxes k)
-                if ((b.kind == 4) && ((strlen b.imagePath) > 0)) {
-                    def bytes:buffer (e.imageStore.read(b.imagePath))
-                    if ((buffer_length bytes) > 0) {
-                        def pix@(optional):ImageBuffer (EVGImageDecode.decode(bytes))
-                        if (!null? pix) {
-                            renderer.registerImage(b.imagePath (unwrap pix))
-                        }
-                    }
+        ; Every picture on a page is handed over as pixels: the renderer can
+        ; only otherwise open it as a file, which a browser has no way to do
+        ; (`require` is not defined). That is the slides' own pictures, a
+        ; slide's background and a logo in the header or footer alike; one
+        ; the deck has no bytes for is left out rather than failing the file.
+        def known:[string]
+        def si2:int 0
+        while (si2 < (array_length stillIdx)) {
+            push known (PresDeck.fxStillPath((itemAt stillIdx si2)))
+            si2 = (si2 + 1)
+        }
+        def missing:[string]
+        deck.still = true
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def groups:[int]
+            def dl:EVGDisplayList (deck.slideList(i groups 0.0))
+            def kept:[EVGDrawCmd]
+            def c:int 0
+            while (c < (array_length dl.cmds)) {
+                def cmd:EVGDrawCmd (itemAt dl.cmds c)
+                def keep:boolean true
+                if (cmd.kind == 2) {
+                    keep = (PresApp.pdfImage(renderer e cmd.src known missing))
                 }
-                k = (k + 1)
+                if keep {
+                    push kept cmd
+                }
+                c = (c + 1)
+            }
+            dl.cmds = kept
+            section.addChild((EVGListToElements.pageFrom(dl pw ph bg true)))
+            i = (i + 1)
+        }
+        deck.still = false
+        return (renderer.render(root))
+    }
+
+    ; Whether the PDF can draw the picture at `src`: registered with the
+    ; renderer the first time it is met, from the deck's own files.
+    sfn pdfImage:boolean (renderer:EVGPDFRenderer e:MarkdownEdit src:string known:[string] missing:[string]) {
+        if ((strlen src) == 0) {
+            return false
+        }
+        if ((indexOf known src) >= 0) {
+            return true
+        }
+        if ((indexOf missing src) >= 0) {
+            return false
+        }
+        def bytes:buffer (e.imageStore.read(src))
+        if ((buffer_length bytes) > 0) {
+            def pix@(optional):ImageBuffer (EVGImageDecode.decode(bytes))
+            if (!null? pix) {
+                renderer.registerImage(src (unwrap pix))
+                push known src
+                return true
             }
         }
-        return (renderer.render(root))
+        push missing src
+        return false
     }
 
     ; The deck through the markdown module's own PPTX road, then what the

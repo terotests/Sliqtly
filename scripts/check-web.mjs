@@ -2115,6 +2115,41 @@ try {
   const fxPdf = Buffer.from(fxExp.pdf, "base64").toString("latin1");
   const fxImages = (fxPdf.match(/\/Subtype \/Image/g) || []).length;
   check("PDF: each slide's effect is a picture", fxImages === 2, `${fxImages} images`);
+  // A JPEG as a slide's background and as the header's logo, and a picture
+  // the deck has no file for: the PDF has no file system to open them from
+  // (it once failed with "require is not defined").
+  {
+    const jpg = await page.evaluate(() => {
+      const c = document.createElement("canvas");
+      c.width = 64;
+      c.height = 48;
+      const g = c.getContext("2d");
+      g.fillStyle = "#c33";
+      g.fillRect(0, 0, 64, 48);
+      return c.toDataURL("image/jpeg").split(",")[1];
+    });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evgp-jpg-"));
+    fs.writeFileSync(path.join(dir, "check-bg.jpg"), Buffer.from(jpg, "base64"));
+    await page.setInputFiles("#fileadd", [path.join(dir, "check-bg.jpg")]);
+    await page.waitForTimeout(800);
+    const jp = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      a.setSource("---\nheader-right: ![](media/check-bg.jpg)\n---\n\n# J\n\n## Tausta {bg=media/check-bg.jpg}\n\nteksti\n\n## Puuttuu\n\n![x](media/ei-ole.jpg)\n");
+      let out;
+      try {
+        const u = new Uint8Array(a.pdf());
+        let s = "";
+        for (let i = 0; i < u.length; i += 1) s += String.fromCharCode(u[i]);
+        out = { head: s.slice(0, 5), images: (s.match(/\/Subtype \/Image/g) || []).length };
+      } catch (e) {
+        out = { error: String(e) };
+      }
+      a.setSource(src0);
+      return out;
+    });
+    check("PDF: a JPEG background and header logo export; a missing picture is left out", jp.head === "%PDF-" && jp.images >= 1, JSON.stringify(jp));
+  }
   const fxPptx = unzip(Buffer.from(fxExp.pptx, "base64"));
   const bgs = [2, 3, 4].map((n) => /<p:bg><p:bgPr><a:blipFill>/.test(fxPptx.get(`ppt/slides/slide${n}.xml`) || ""));
   check("PPTX: the effect is the slide's background, only where there is one", bgs.join(",") === "true,true,false", bgs.join(","));
