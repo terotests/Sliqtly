@@ -19,6 +19,12 @@ diagram {
   accent-color: #2dd4bf;
 }
 
+/* The layouts drawn from lists (```process, ```swot, ```timeline) and the
+   slides' line art ({art=waves}): the colours in order. */
+figure {
+  colors: #f59e0b #2dd4bf #60a5fa #f472b6;
+}
+
 page {
   width: 13.333in;
   height: 7.5in;
