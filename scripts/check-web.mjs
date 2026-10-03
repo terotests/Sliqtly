@@ -628,8 +628,10 @@ try {
   await page3.addInitScript(() => {
     document.addEventListener("DOMContentLoaded", () => {
       const el = document.getElementById("brandIntro");
+      // shown by the page's own HTML, before the app has loaded
+      window.__introEarly = !el.hidden && window.__pageStarted !== true;
       const seen = new MutationObserver(() => {
-        if (el.hidden || window.__introKey !== undefined) return;
+        if (!el.classList.contains("on") || window.__introKey !== undefined) return;
         seen.disconnect();
         window.__introKey = true;
         window.__introName = el.querySelector(".name").getBoundingClientRect().height;
@@ -644,11 +646,12 @@ try {
   // a shared link opens with Sliqtly's intro (web/brand.js); a key
   // skips it and is not taken as "next"
   const intro = await page3.evaluate(() => ({
+    early: window.__introEarly === true,
     shown: window.__introKey === true,
     name: window.__introName || 0,
   }));
-  check("a shared link opens with the Sliqtly intro, the name large", intro.shown && intro.name >= 48, JSON.stringify(intro));
-  // the key comes the moment the intro shows (init script above: a slow
+  check("a shared link opens with the Sliqtly intro at once, the name large", intro.early && intro.shown && intro.name >= 48, JSON.stringify(intro));
+  // the key comes the moment the intro can be skipped (init script above: a slow
   // page may take longer than the intro to answer a look from here)
   await page3.waitForFunction(() => document.getElementById("brandIntro").hidden, null, { timeout: 20000 }).catch(() => {});
   const skipped = await page3.evaluate(() => ({
@@ -2931,13 +2934,22 @@ try {
       listed && !other && opened.md.startsWith("# Vain pilvessä"), JSON.stringify(opened));
     // every shared deck opens with Sliqtly's intro (web/brand.js), a PRO
     // owner's too, and the show begins when it ends by itself
+    // (looked at as the page's HTML is read: a slow load may outlast the intro)
+    await pc.addInitScript(() => document.addEventListener("DOMContentLoaded", () => { window.__introEarly = !document.getElementById("brandIntro").hidden; }));
     await pc.goto(url.replace(/\/$/, "") + "/s/zzSomeoneElse");
     await pc.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
-    const proShare = await pc.evaluate(() => ({ intro: !document.getElementById("brandIntro").hidden, viewer: document.body.classList.contains("viewer") }));
+    const proShare = await pc.evaluate(() => ({ intro: window.__introEarly === true, viewer: document.body.classList.contains("viewer") }));
     check("a PRO owner's share opens with the intro too", proShare.viewer && proShare.intro, JSON.stringify(proShare));
     await pc.waitForFunction(() => document.getElementById("brandIntro").hidden, null, { timeout: 20000 }).catch(() => {});
     const after = await pc.evaluate(() => ({ intro: !document.getElementById("brandIntro").hidden, mode: JSON.parse(window.__app.layoutJson()).mode }));
     check("the intro ends by itself and the show begins", !after.intro && after.mode === "present", JSON.stringify(after));
+    // an address that turns out to show nothing: the intro the page's HTML
+    // put up goes again
+    await pc.goto(url.replace(/\/$/, "") + "/s/zzNoSuchShare");
+    await pc.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await pc.waitForFunction(() => document.getElementById("brandIntro").hidden, null, { timeout: 20000 }).catch(() => {});
+    const gone = await pc.evaluate(() => ({ intro: !document.getElementById("brandIntro").hidden, viewer: document.body.classList.contains("viewer") }));
+    check("a share that is not found leaves no intro over the page", !gone.intro && !gone.viewer, JSON.stringify(gone));
     check("no page errors with PRO", perr.length === 0, perr.join(" | "));
     await ctx.close();
   }
