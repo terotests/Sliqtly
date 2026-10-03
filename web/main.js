@@ -2171,11 +2171,16 @@ window.__exportName = exportName;
 const FX_STILL_W = 1600;
 async function renderFxStills() {
   app.clearFxStills();
-  const list = JSON.parse(app.fxSlidesJson());
+  const fx = JSON.parse(app.fxSlidesJson());
+  // a slide's own picture (bg=) as well: the PPTX takes it, cut and dimmed
+  // as the stage shows it, as the slide's background
+  const list = fx.concat(JSON.parse(app.bgSlidesJson()));
   if (!list.length) return;
-  toast(t("Rendering effects of ") + list.length + t(" slides for export…"));
-  // the toast gets a frame to show before the work starts
-  await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+  if (fx.length) {
+    toast(t("Rendering effects of ") + fx.length + t(" slides for export…"));
+    // the toast gets a frame to show before the work starts
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+  }
   const c = document.createElement("canvas");
   const g = c.getContext("webgl2", { antialias: false, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
   if (!g) return;
@@ -2184,7 +2189,7 @@ async function renderFxStills() {
     const k = FX_STILL_W / doc.width;
     c.width = FX_STILL_W;
     c.height = Math.round(doc.height * k);
-    const f = prepareDisplayList(g, doc, { dpr: k });
+    const f = prepareDisplayList(g, doc, { dpr: k, images: pictures });
     f.draw(null, null);
     const w = c.width;
     const h = c.height;
@@ -2220,8 +2225,37 @@ async function exportPdf() {
   await Promise.all([renderFxStills(), loadEmojiFace()]);
   window.__lastDownload = deliver(app.pdf(), exportName() + ".pdf", "application/pdf");
 }
+// The runs the contrast guard repairs on the stage (a colour that reads, or an
+// outline round big letters) are a judgement made while drawing, over the
+// pictures under them, so the PPTX would have the theme's colour where the
+// slide showed another. Each slide is drawn once here at rest, small, and the
+// guard's list goes to the app for the PPTX's runs.
+async function judgeExportContrast() {
+  app.clearExportContrast();
+  if (!autoContrast) return;
+  const n = app.deck.slideCount();
+  const c = document.createElement("canvas");
+  const g = c.getContext("webgl2", { antialias: false, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!g) return;
+  for (let i = 0; i < n; i += 1) {
+    const doc = withTime(JSON.parse(app.slideJson(i)), 2.0);
+    const k = 640 / doc.width;
+    c.width = 640;
+    c.height = Math.round(doc.height * k);
+    const f = prepareDisplayList(g, doc, { dpr: k, images: pictures, contrastGuard: true, contrastRepair: true });
+    const stats = f.draw(null, null);
+    f.dispose();
+    const low = (stats && stats.lowContrast) || [];
+    if (low.length) app.addExportContrast(i, JSON.stringify(low));
+  }
+  const lose = g.getExtension("WEBGL_lose_context");
+  if (lose) lose.loseContext();
+}
+window.__judgeExportContrast = judgeExportContrast;
+
 async function exportPptx() {
   await renderFxStills();
+  await judgeExportContrast();
   window.__lastDownload = deliver(app.pptx(), exportName() + ".pptx",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation");
 }

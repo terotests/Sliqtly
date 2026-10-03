@@ -230,6 +230,13 @@ class PresApp {
     def stillW:[int]
     def stillH:[int]
     def stillJpeg:[buffer]
+    ; The runs the host's contrast guard repaired on each slide, for the
+    ; PPTX: the slide, the run's text, "colour" or "outline", and the colour
+    ; it was given ("#rrggbb", for "colour").
+    def fixSlide:[int]
+    def fixText:[string]
+    def fixKind:[string]
+    def fixColor:[string]
 
     Constructor () {
         def r:[string]
@@ -5654,6 +5661,28 @@ class PresApp {
         return (out + "]")
     }
 
+    ; The slides with a picture of their own (`bg=`) and no effect, "[2]":
+    ; the host renders each as a still too, which the PPTX takes as the
+    ; slide's background — the picture cut to the slide the way the stage
+    ; cuts it, and dimmed as far as `bg-dim` says. The PDF draws them itself.
+    fn bgSlidesJson:string () {
+        def out:string "["
+        def i:int 0
+        def first:boolean true
+        while (i < (deck.slideCount())) {
+            def s:PresSlide (deck.slideAt(i))
+            if (((strlen s.bg) > 0) && ((strlen s.fx) == 0)) {
+                if (first == false) {
+                    out = (out + ",")
+                }
+                first = false
+                out = (out + (to_string i))
+            }
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
     fn fxJson:string (i:int) {
         return (this.listJson((deck.fxOnlyList(i))))
     }
@@ -5679,7 +5708,119 @@ class PresApp {
         push stillW w
         push stillH h
         push stillJpeg jpeg
-        push deck.fxStills i
+        ; only an effect's still stands in for it in the PDF
+        def s:PresSlide (deck.slideAt(i))
+        if ((strlen s.fx) > 0) {
+            push deck.fxStills i
+        }
+    }
+
+    fn clearExportContrast:void () {
+        def a:[int]
+        fixSlide = a
+        def b:[string]
+        fixText = b
+        def c:[string]
+        fixKind = c
+        def d:[string]
+        fixColor = d
+    }
+
+    ; One slide's `lowContrast` list from the guard, as the stage keeps it:
+    ; [{"text", "fixed": "colour" | "outline", "to": [r, g, b]}].
+    fn addExportContrast:void (i:int json:string) {
+        def p (new VlJsonParser())
+        def j:VlJson (p.parse(json))
+        def k:int 0
+        while (k < (j.count())) {
+            def e:VlJson (j.at(k))
+            def text:string (trim (e.stringOr("text" "")))
+            def fixed:string (e.stringOr("fixed" ""))
+            def colour:string ""
+            if (e.has("to")) {
+                def to:VlJson (e.get("to"))
+                if ((to.count()) >= 3) {
+                    colour = (PresApp.hexOfRgb(((to.at(0)).asDouble()) ((to.at(1)).asDouble()) ((to.at(2)).asDouble())))
+                }
+            }
+            if (((strlen text) > 0) && ((fixed == "outline") || ((fixed == "colour") && ((strlen colour) > 0)))) {
+                push fixSlide i
+                push fixText text
+                push fixKind fixed
+                push fixColor colour
+            }
+            k = (k + 1)
+        }
+    }
+
+    sfn hexOfRgb:string (r:double g:double b:double) {
+        def k:double 1.0
+        ; channels as 0–1 or as 0–255
+        if (((r <= 1.0) && (g <= 1.0)) && (b <= 1.0)) {
+            k = 255.0
+        }
+        return ("#" + (PresApp.hexByte((r * k))) + (PresApp.hexByte((g * k))) + (PresApp.hexByte((b * k))))
+    }
+
+    sfn hexByte:string (v:double) {
+        def n:int (to_int (v + 0.5))
+        if (n < 0) {
+            n = 0
+        }
+        if (n > 255) {
+            n = 255
+        }
+        def digits:string "0123456789abcdef"
+        def hi:int (idiv n 16)
+        def lo:int (n - (hi * 16))
+        return ((substring digits hi (hi + 1)) + (substring digits lo (lo + 1)))
+    }
+
+    ; The guard's repairs onto the PPTX's runs: a paragraph that holds a
+    ; repaired run's text takes its colour, or, for big letters the stage
+    ; outlines, a glow in black or white round them.
+    fn contrastFixes:void (shapes:[PptxShape] i:int) {
+        def si:int 0
+        while (si < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes si)
+            def p:int 0
+            while (p < (array_length sh.text.paragraphs)) {
+                def para:PptxParagraph (itemAt sh.text.paragraphs p)
+                def text:string (PresApp.paraText(para))
+                def f:int 0
+                while (f < (array_length fixSlide)) {
+                    if (((itemAt fixSlide f) == i) && ((indexOf text (itemAt fixText f)) >= 0)) {
+                        def r:int 0
+                        while (r < (array_length para.runs)) {
+                            def run:PptxTextRun (itemAt para.runs r)
+                            if ((itemAt fixKind f) == "colour") {
+                                run.color = (PptxApi.colorOf((itemAt fixColor f)))
+                            } {
+                                def halo:string "#ffffff"
+                                if (PresApp.isLight((PresApp.runHex(run)))) {
+                                    halo = "#000000"
+                                }
+                                run.glow = (PptxApi.colorOf(halo))
+                                run.glow.alpha = 0.7
+                                run.glowPt = (run.fontSizePt * 0.08)
+                            }
+                            r = (r + 1)
+                        }
+                    }
+                    f = (f + 1)
+                }
+                p = (p + 1)
+            }
+            this.contrastFixes(sh.children i)
+            si = (si + 1)
+        }
+    }
+
+    sfn runHex:string (run:PptxTextRun) {
+        if ((strlen run.color.srgb) > 0) {
+            return ("#" + run.color.srgb)
+        }
+        return "#000000"
     }
 
     fn pdf:buffer () {
@@ -5783,7 +5924,13 @@ class PresApp {
     ; presentation adds on each slide: the speaker's notes, the transition,
     ; and a build step per `{.build}` item.
     fn pptx:buffer () {
-        def d:PptxDeck (deck.md.buildDeck())
+        ; The stage's own layout, not one laid out again with the markdown
+        ; module's deck defaults: that one had other text sizes and spacing,
+        ; no task boxes and no theme rules, and the file did not look like
+        ; the slides.
+        def conv (new MdToPptx())
+        conv.rules = true
+        def d:PptxDeck (conv.deck(deck.md.edit.doc (deck.layout())))
         def n:int (array_length d.pres.slides)
         ; slide points per stage unit
         def unit:double (d.pres.slideWidth / deck.pageW)
@@ -5806,6 +5953,7 @@ class PresApp {
                 }
             }
             PresApp.fontsIn(((itemAt d.pres.slides i).shapes))
+            this.contrastFixes(((itemAt d.pres.slides i).shapes) i)
             i = (i + 1)
         }
         d.pres.theme.majorFont = "Arial"
