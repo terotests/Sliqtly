@@ -2588,7 +2588,30 @@ try {
     a.closeShare();
     return out;
   });
-  check("Open: the samples list starts with a deck, the prompt only on the trigger", samples.trigger === "Open sample document…" && samples.rows[0] === "talous=Finance: take charge of your money" && !samples.rows.some((r) => r.startsWith("=")), JSON.stringify(samples));
+  check("Open: the samples list starts with a deck, the prompt only on the trigger", samples.trigger === "Open sample document…" && samples.rows[0] === "welcome=Welcome: what Sliqtly can do" && !samples.rows.some((r) => r.startsWith("=")), JSON.stringify(samples));
+
+  // a first visit (nothing kept in this browser) opens the welcome deck in
+  // English, with a card that starts a deck of one's own
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1200, height: 760 }, locale: "en-US" });
+    const pw = await ctx.newPage();
+    const werr = [];
+    pw.on("pageerror", (e) => werr.push(e.message));
+    await pw.goto(url);
+    await pw.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const first = await pw.evaluate(() => ({
+      md: window.__app.source().slice(0, 200),
+      card: !!document.getElementById("welcomeCard"),
+      theme: document.getElementById("theme").value,
+    }));
+    check("first visit: the welcome deck opens, in English on the white theme, with the welcome card", first.md.includes("# Sliqtly Better Slides") && first.card && first.theme === "corporate", JSON.stringify(first));
+    await pw.click("#welcomeCard button.primary");
+    await pw.waitForTimeout(300);
+    const started = await pw.evaluate(() => ({ open: window.__app.chartIsOpen(), mode: window.__app.chart.mode, card: !!document.getElementById("welcomeCard") }));
+    check("first visit: Start your own deck opens the New presentation window", started.open && started.mode === "newdeck" && !started.card, JSON.stringify(started));
+    check("no page errors on a first visit", werr.length === 0, werr.join(" | "));
+    await ctx.close();
+  }
 
   // the address follows the slide, the editor's tab and the presentation,
   // and a reload comes back to them
