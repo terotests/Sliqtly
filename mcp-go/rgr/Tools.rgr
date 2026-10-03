@@ -310,6 +310,7 @@ class Tools {
         def resources:[string] (Tools.frames(base))
         push resources "https://www.gstatic.com"
         def connects:[string] (Tools.frames(base))
+        push connects "https://www.gstatic.com"
         push connects "https://firestore.googleapis.com"
         push connects "https://firebasestorage.googleapis.com"
         def c:MfJ (MfJ.newObj())
