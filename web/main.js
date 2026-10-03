@@ -15,7 +15,7 @@
 //
 // What anything MEANS is PresApp.rgr's.
 
-import { prepareDisplayList, setFontFallback, fontSpec } from "./gl/evg-webgl.js";
+import { prepareDisplayList, setFontFallback, fontSpec, textObstacles } from "./gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
@@ -2450,6 +2450,16 @@ async function renderFxStills() {
   if (!g) return;
   for (const i of list) {
     const doc = atRest(JSON.parse(app.fxJson(i)));
+    // The still is drawn without the slide's text, which goes on top of it in
+    // the export; rain that flows around text is given the text's boxes from
+    // the whole slide, so the still has the same dry text the stage has.
+    const effects = (doc.list && doc.list.effects) || [];
+    if (effects.some((e) => e.kind === "raindrops2")) {
+      const cmds = JSON.parse(app.slideJson(i)).list.cmds || [];
+      for (const e of effects) {
+        if (e.kind === "raindrops2") e.obstacles = textObstacles(cmds, e.box || [0, 0, doc.width, doc.height]);
+      }
+    }
     const k = FX_STILL_W / doc.width;
     c.width = FX_STILL_W;
     c.height = Math.round(doc.height * k);
