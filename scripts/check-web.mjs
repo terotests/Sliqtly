@@ -648,6 +648,9 @@ try {
     const pageE = await browser.newPage({ viewport: { width: 1200, height: 760 } });
     await pageE.goto(showUrl.replace(/^https?:\/\/[^/]+/, url.replace(/\/$/, "")));
     await pageE.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    // Sliqtly's intro skipped with a tap, so the show begins
+    await pageE.evaluate(() => { if (!document.getElementById("brandIntro").hidden) window.dispatchEvent(new PointerEvent("pointerdown")); });
+    await pageE.waitForFunction(() => JSON.parse(window.__app.layoutJson()).mode === "present", null, { timeout: 20000 });
     await pageE.evaluate(() => { const a = window.__app; for (let i = 0; i < 200 && !a.atEnd(); i += 1) a.next(); });
     await pageE.waitForFunction(() => !document.getElementById("endPanel").hidden, null, { timeout: 8000 }).catch(() => {});
     const end = await pageE.evaluate(() => ({ shown: !document.getElementById("endPanel").hidden, exit: document.getElementById("endExit").textContent }));
