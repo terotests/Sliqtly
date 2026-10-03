@@ -31,7 +31,7 @@ Import "PresRange.rgr"
 class PresHints {
     ; --- what the Markdown knows ----------------------------------------------
     sfn fxNames:string () {
-        return "starfield plasma-wave smoke ambient-light liquid-glass drops bubbles"
+        return "starfield plasma-wave smoke ambient-light liquid-glass drops raindrops2 bubbles"
     }
 
     ; An effect's parameters and their defaults, as the WebGL painter's effect
@@ -42,8 +42,10 @@ class PresHints {
         if (fx == "smoke") { return "density=1.2 rise=0.05 wind=0 swirl=2.6 scale=190 detail=5 height=0.9 softness=0.55 shade=0.6 angle=-60 hue=205 tint=0.1 seed=1" }
         if (fx == "ambient-light") { return "hue=190 hue2=268 sat=0.5 tilt=25 depth=0.5 orbs=7 size=0.55 softness=1.6 speed=0.06 glow=0.45 seed=1" }
         if (fx == "liquid-glass") { return "thickness=24 strength=32 power=2.2 disperse=0.07 shine=0.6 angle=-60 tint=0.05" }
+        if (fx == "raindrops2") { return "rain=1 size=1 mist=1 speed=1 refract=1.1 shine=0.8 angle=-55 rim=0.55 tint=0.06 seed=1" }
         if (fx == "drops") { return "rain=1 size=1 mist=1 speed=1 refract=1.1 shine=0.8 angle=-55 rim=0.55 tint=0.06 seed=1" }
         ; `raindrop` is the old name of `bubbles`, and still draws it
+        if (fx == "raindrops2") { return (PresI18n.t("Rain on a window where a running drop leaves a line of water and waits at its end for more.")) }
         if ((fx == "bubbles") || (fx == "raindrop")) { return "density=1 size=0.5 refract=14 shine=0.85 angle=-55 rim=0.55 speed=0 seed=1" }
         return ""
     }
@@ -87,7 +89,7 @@ class PresHints {
         if (key == "align") { return (PresI18n.t("Image position in the column: left, center or right.")) }
         if (key == "bg") { return (PresI18n.t("Slide background image, covers the whole slide: bg=media/kuva.jpg")) }
         if (key == "art") { return (PresI18n.t("PRO: line art drawn behind the slide in the theme's colours (waves). art=off leaves it off this slide.")) }
-        if (key == "list-style") { return (PresI18n.t("PRO: the list above drawn as a layout: process (steps), swot (a 2×2 grid) or timeline. Items are Title: description.")) }
+        if (key == "list-style") { return (PresI18n.t("The list above drawn as a layout: process (steps), swot (a 2×2 grid) or timeline. Items are Title: description.")) }
         if (key == "art-seed") { return (PresI18n.t("A number that moves the art's curves: another number, another picture.")) }
         if (key == "bg-dim") { return (PresI18n.t("How much of the slide's base color goes over the background image (0–1), so text stands out.")) }
         if (key == "header") { return (PresI18n.t("Header text on every slide. {page}, {pages} and {title} are filled in. On a heading, header=off leaves it off that slide.")) }
@@ -191,7 +193,7 @@ class PresHints {
         if (prop == "split-level") { return (PresI18n.t("Which heading level starts a new slide.")) }
         if (prop == "fx") { return (PresI18n.t("Background effect behind every slide; a slide's own {fx=…} wins. none: no effect.")) }
         if (((strlen prop) > 3) && ((substring prop 0 3) == "fx-")) { return ((PresI18n.t("Effect parameter ")) + (substring prop 3 (strlen prop)) + ".") }
-        if (prop == "list-style") { return (PresI18n.t("PRO: lists drawn as a layout: process, swot or timeline. #heading list { list-style: swot } for the lists under one heading.")) }
+        if (prop == "list-style") { return (PresI18n.t("Lists drawn as a layout: process, swot or timeline. #heading list { list-style: swot } for the lists under one heading.")) }
         if (prop == "colors") { return (PresI18n.t("Layout colours in order, separated by spaces.")) }
         if (prop == "overflow") { return (PresI18n.t("What to do with an overfull slide.")) }
         if (prop == "aspect-ratio") { return (PresI18n.t("Slide aspect ratio.")) }
@@ -330,7 +332,7 @@ class PresHints {
             return ""
         }
         def h:PresHint (PresHint.make("enum" (PresI18n.t("language")) (substring line a b) a b))
-        h.doc = (PresI18n.t("What the block is: a diagram, a formula or code. PRO: process, swot and timeline draw a layout from a list, one `Title: description` per line."))
+        h.doc = (PresI18n.t("What the block is: a diagram, a formula or code. process, swot and timeline draw a layout from a list, one `Title: description` per line."))
         h.options = "mermaid dot plantuml d2 vega-lite process swot timeline math js python bash json"
         return (h.json())
     }

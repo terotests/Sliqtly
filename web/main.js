@@ -85,7 +85,7 @@ const SAMPLES = {
   matematiikka: sample("matematiikka", "Mathematics: formulas on slides", "Matematiikka: kaavat kalvoilla"),
   vegalite: sample("vegalite", "Vega-Lite: chart types", "Vega-Lite: kaaviotyypit"),
   raportti: sample("raportti", "Report: header, footer, page numbers", "Raportti: ylä- ja alaosa, sivunumerot"),
-  mallit: sample("mallit", "Layouts: steps, SWOT, timeline (PRO)", "Asettelut: vaiheet, SWOT, aikajana (PRO)"),
+  mallit: sample("mallit", "Layouts: steps, SWOT, timeline", "Asettelut: vaiheet, SWOT, aikajana"),
   // the newest themes and features, on Nebula
   uutta: [...sample("uutta", "What's new: themes, effects, layouts", "Uutta: teemat, efektit, asettelut"), "nebula"],
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
@@ -1458,7 +1458,7 @@ function withTime(doc, t) {
 // The moment a thumbnail and an exported still show an effect at. Rain is
 // drawn half a minute in, when it has landed, run and left its trails; the
 // rest two seconds in, as they always were.
-const FX_STILL_T = { drops: 30 };
+const FX_STILL_T = { drops: 30, raindrops2: 30 };
 function atRest(doc) {
   return withTime(doc, (e) => FX_STILL_T[e.kind] ?? 2.0);
 }
@@ -1872,8 +1872,8 @@ let liveNoted = false;
 function liveAllowed() {
   return liveFromShare || /^(localhost|127\.0\.0\.1)$/.test(location.hostname) || !!window.sliqtly?.user?.();
 }
-// The layouts drawn from lists (```process, ```swot, ```timeline) and the
-// slides' line art ({art=waves}) are PRO as well, on the same terms.
+// The slides' line art ({art=waves}) is PRO as well, on the same terms. The
+// layouts drawn from lists (```process, ```swot, ```timeline) are free.
 function proNow() {
   app.setPro(liveAllowed());
   needsPaint = true;
@@ -2497,6 +2497,8 @@ async function exportPdf() {
 async function judgeExportContrast() {
   app.clearExportContrast();
   if (!autoContrast) return;
+  // every chart drawn, also on the slides never brought into view
+  app.settleAll();
   const n = app.deck.slideCount();
   const c = document.createElement("canvas");
   const g = c.getContext("webgl2", { antialias: false, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });

@@ -144,6 +144,13 @@ class PresDeck {
     def redrawBudget:int -1
     def focusFrom:int -1
     def focusTo:int -1
+    ; Only the charts and figures in view are drawn (MdEmbedCache.lazy): the
+    ; focus, and viewFrom..viewTo (the thumbnails on screen). The rest are
+    ; laid out with an estimate until they come into view. PresApp sets it;
+    ; a deck made without it draws everything, as before.
+    def lazy:boolean false
+    def viewFrom:int -1
+    def viewTo:int -1
     ; the host's wall clock, for the viewer's camera moves, and whether the
     ; list being built is the stage (controls drawn) or a thumbnail
     def uiNow:double 0.0
@@ -151,10 +158,9 @@ class PresDeck {
     ; Painting for a page that does not move (the PDF): every diagram at
     ; rest, whole, rather than where its walk is at a moment.
     def still:boolean false
-    ; The layouts drawn from lists (```process, ```swot, ```timeline) and
-    ; the slides' line art are PRO: the page says whether they are drawn
-    ; (`PresApp.setPro`). Not drawn, a fence's slot says so.
-    def figuresAllowed:boolean false
+    ; The slides' line art is PRO: the page says whether it is drawn
+    ; (`PresApp.setPro`). The layouts drawn from lists are free.
+    def artAllowed:boolean false
     ; the theme's colours for them, as last read (`figureStyle`)
     def figStyle:MdFigureStyle (new MdFigureStyle)
     ; Slides whose effect the host rendered to a picture for an export
@@ -789,6 +795,18 @@ class PresDeck {
         return md.edit.layout.embeds.pending
     }
 
+    ; Charts and figures the last rebuild left undrawn because they were out
+    ; of view.
+    fn undrawn:int () {
+        return md.edit.layout.embeds.deferred
+    }
+
+    ; Of those, and of the ones drawn under old defaults, how many start in
+    ; the source range from..to.
+    fn undrawnIn:int (from:int to:int) {
+        return (md.edit.layout.embeds.undrawnIn(from to))
+    }
+
     fn setTheme:void (css:string) {
         clear themeKeys
         clear themeVals
@@ -1334,6 +1352,9 @@ class PresDeck {
         emb.redrawBudget = redrawBudget
         emb.focusFrom = focusFrom
         emb.focusTo = focusTo
+        emb.lazy = lazy
+        emb.viewFrom = viewFrom
+        emb.viewTo = viewTo
         def scopes:[string] (this.chartScopes())
         def si:int 0
         while (si < (array_length scopes)) {
@@ -1826,7 +1847,16 @@ class PresDeck {
     ; `groupOfCmd` gets one entry per command: the group it animates with,
     ; or -1 for what stands still. The list is in slide coordinates: (0, 0)
     ; is the slide's top-left corner.
+    ;
+    ; `boxOfCmd` is filled the same way with the index in the layout's boxes
+    ; of the box each command was painted for, or -1 for the slide's own
+    ; ground (paper, picture, effect, line art): what a reader of the list
+    ; (the MCP server's layout report) needs to say which element drew what.
+    def boxOfCmd:[int]
+
     fn slideList:EVGDisplayList (i:int groupOfCmd:[int] t:double) {
+        def owners:[int]
+        boxOfCmd = owners
         def l:MdLayout (this.layout())
         def s:PresSlide (itemAt slides i)
         def out:EVGDisplayList (new EVGDisplayList())
@@ -1872,12 +1902,14 @@ class PresDeck {
         ; its LIST's offset, not its item's, so it takes the group of a box
         ; on its own line — before or after it, depending on the list kind.
         def mine:[MdBox]
+        def mineAt:[int]
         def groupOfBox:[int]
         def bi:int 0
         while (bi < (array_length l.boxes)) {
             def b:MdBox (itemAt l.boxes bi)
             if (b.page == i) {
                 push mine b
+                push mineAt bi
                 if (b.furniture > 0) {
                     ; the header and the footer arrive with the slide
                     push groupOfBox -1
@@ -1919,6 +1951,9 @@ class PresDeck {
         def k:int 0
         while (k < (array_length mine)) {
             def kb:MdBox (itemAt mine k)
+            while ((array_length boxOfCmd) < (array_length out.cmds)) {
+                push boxOfCmd -1
+            }
             def use:int -1
             if (kb.kind == 3) {
                 def du:int 0
@@ -1966,6 +2001,10 @@ class PresDeck {
             while ((array_length groupOfCmd) < (array_length out.cmds)) {
                 push groupOfCmd (itemAt groupOfBox k)
             }
+            ; the commands just painted are this box's
+            while ((array_length boxOfCmd) < (array_length out.cmds)) {
+                push boxOfCmd (itemAt mineAt k)
+            }
             k = (k + 1)
         }
         ; An effect that refracts what is behind it goes over the finished
@@ -1977,13 +2016,16 @@ class PresDeck {
                 push groupOfCmd -1
             }
         }
+        while ((array_length boxOfCmd) < (array_length out.cmds)) {
+            push boxOfCmd -1
+        }
         return out
     }
 
     ; The slide's line art (`{art=waves}`), over its picture and under the
-    ; content, or nothing when it has none or figures are not allowed.
+    ; content, or nothing when it has none or art is not allowed (not PRO).
     fn artScene:FlowScene (s:PresSlide i:int) {
-        if (((strlen s.art) == 0) || (figuresAllowed == false)) {
+        if (((strlen s.art) == 0) || (artAllowed == false)) {
             def none (new FlowScene)
             return none
         }
@@ -2071,8 +2113,8 @@ class PresDeck {
         } {
             st.size = 16.0
         }
-        st.allowed = figuresAllowed
-        st.lockedNote = (PresI18n.t("PRO: sign in to draw this layout."))
+        ; the layouts drawn from lists are drawn for everyone
+        st.allowed = true
         return st
     }
 
@@ -2197,7 +2239,7 @@ class PresDeck {
     ; The effects that read the page under them (a `backdrop` layer in the
     ; WebGL painter) rather than paint a picture of their own.
     sfn fxOnTop:boolean (fx:string) {
-        return ((((fx == "liquid-glass") || (fx == "raindrop")) || (fx == "bubbles")) || (fx == "drops"))
+        return ((((fx == "liquid-glass") || (fx == "raindrop")) || (fx == "bubbles")) || (fx == "drops")) || (fx == "raindrops2")
     }
 
     ; The slide's surface effect: an element as big as the slide, dressed by

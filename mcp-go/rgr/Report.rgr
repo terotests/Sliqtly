@@ -1,0 +1,557 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; The layout report: what is on each slide, where, and how big, in the
+; pixels of a 1920×1080 screen, with what a reader would notice that the
+; other checks do not measure: text too small to read, a slide left mostly
+; empty, elements on top of each other or off the slide, a chart's labels
+; drawn over each other, a diagram whose text shrank, a table column that
+; wraps its cells.
+;
+; The model knows nothing of decks, Markdown or the display list: it reads
+; a slide as blocks (RBlock) with the text runs (RRun) and the number of
+; other shapes each block drew, and gives lines of text (RSlideOut). Layout.rgr
+; builds the blocks from the editor's own layout and display list;
+; report_test.go tests this on its own.
+
+; one run of text as drawn: its line box (unrotated), its rotation about
+; (px, py), and its font size, in slide pixels
+class RRun {
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def size:double 0.0
+    def rot:double 0.0
+    def px:double 0.0
+    def py:double 0.0
+    def text:string ""
+}
+
+; a table cell: its column, its box and how many lines its text took
+class RCell {
+    def col:int 0
+    def x:double 0.0
+    def w:double 0.0
+    def lines:int 0
+    ; the text is wider than the cell
+    def over:boolean false
+}
+
+; one element of a slide: a heading, a paragraph, a list, a table, a chart,
+; a diagram, a picture, a formula, a code block
+class RBlock {
+    ; heading, text, list, quote, code, table, chart, diagram, picture,
+    ; math, figure
+    def kind:string ""
+    ; what it is called: the notation of a diagram, a picture's name
+    def label:string ""
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def runs:[RRun]
+    ; shapes drawn that are not text (bars, lines, boxes, arrows)
+    def shapes:int 0
+    def cells:[RCell]
+    ; a table's column headings
+    def heads:[string]
+    ; where its commands drew, as Layout.rgr finds it
+    def inkX:double 0.0
+    def inkY:double 0.0
+    def inkW:double 0.0
+    def inkH:double 0.0
+}
+
+class RSlide {
+    def index:int 0
+    def title:string ""
+    def w:double 960.0
+    def h:double 540.0
+    def blocks:[RBlock]
+}
+
+class RSlideOut {
+    def index:int 0
+    def title:string ""
+    ; the slide's summary line, then one line per element
+    def lines:[string]
+    ; what looks wrong, one sentence each
+    def flags:[string]
+    ; the smallest text, px at 1080p; 0 when the slide has none
+    def minPx:double 0.0
+    ; how much of the slide the elements cover, 0..1
+    def fill:double 0.0
+}
+
+class Report {
+    sfn mn:double (a:double b:double) {
+        if (a < b) {
+            return a
+        }
+        return b
+    }
+
+    sfn mx:double (a:double b:double) {
+        if (a > b) {
+            return a
+        }
+        return b
+    }
+
+    ; text smaller than this at 1080p (10 px on a 960×540 slide) is hard
+    ; to read from a seat
+    sfn READ_MIN:double () {
+        return 20.0
+    }
+
+    ; slide pixels → pixels of a 1920×1080 screen the slide fills
+    sfn scale:double (w:double h:double) {
+        if ((w <= 0.0) || (h <= 0.0)) {
+            return 2.0
+        }
+        def a:double (1920.0 / w)
+        def b:double (1080.0 / h)
+        if (b < a) {
+            return b
+        }
+        return a
+    }
+
+    sfn px:string (v:double k:double) {
+        return (to_string (floor ((v * k) + 0.5)))
+    }
+
+    sfn short:string (text:string n:int) {
+        def t:string (trim text)
+        if ((strlen t) <= n) {
+            return t
+        }
+        return ((trim (substring t 0 n)) + "…")
+    }
+
+    ; the run's centre after its rotation
+    sfn cx:double (r:RRun) {
+        def x0:double (r.x + (r.w / 2.0))
+        def y0:double (r.y + (r.h / 2.0))
+        if (r.rot == 0.0) {
+            return x0
+        }
+        def a:double ((r.rot * 3.141592653589793) / 180.0)
+        return ((r.px + ((x0 - r.px) * (cos a))) - ((y0 - r.py) * (sin a)))
+    }
+
+    sfn cy:double (r:RRun) {
+        def x0:double (r.x + (r.w / 2.0))
+        def y0:double (r.y + (r.h / 2.0))
+        if (r.rot == 0.0) {
+            return y0
+        }
+        def a:double ((r.rot * 3.141592653589793) / 180.0)
+        return ((r.py + ((x0 - r.px) * (sin a))) + ((y0 - r.py) * (cos a)))
+    }
+
+    ; how much two runs cover each other, as a share of the smaller one:
+    ; runs turned the same way are compared along their own axes (two
+    ; slanted axis labels side by side do not touch), others by the boxes
+    ; around them
+    sfn runOverlap:double (a:RRun b:RRun) {
+        def aw:double a.w
+        def ah:double a.h
+        def bw:double b.w
+        def bh:double b.h
+        def acx:double (Report.cx(a))
+        def acy:double (Report.cy(a))
+        def bcx:double (Report.cx(b))
+        def bcy:double (Report.cy(b))
+        if (a.rot == b.rot) {
+            if (a.rot != 0.0) {
+                ; both centres into the runs' own frame
+                def t:double ((0.0 - (a.rot * 3.141592653589793)) / 180.0)
+                def ax:double ((acx * (cos t)) - (acy * (sin t)))
+                def ay:double ((acx * (sin t)) + (acy * (cos t)))
+                def bx:double ((bcx * (cos t)) - (bcy * (sin t)))
+                def by:double ((bcx * (sin t)) + (bcy * (cos t)))
+                acx = ax
+                acy = ay
+                bcx = bx
+                bcy = by
+            }
+        } {
+            def ea:[double] (Report.extent(a))
+            def eb:[double] (Report.extent(b))
+            aw = (itemAt ea 2)
+            ah = (itemAt ea 3)
+            bw = (itemAt eb 2)
+            bh = (itemAt eb 3)
+        }
+        def ix:double ((Report.mn((acx + (aw / 2.0)) (bcx + (bw / 2.0)))) - (Report.mx((acx - (aw / 2.0)) (bcx - (bw / 2.0)))))
+        def iy:double ((Report.mn((acy + (ah / 2.0)) (bcy + (bh / 2.0)))) - (Report.mx((acy - (ah / 2.0)) (bcy - (bh / 2.0)))))
+        if ((ix <= 0.0) || (iy <= 0.0)) {
+            return 0.0
+        }
+        def small:double (Report.mn((aw * ah) (bw * bh)))
+        if (small <= 0.0) {
+            return 0.0
+        }
+        return ((ix * iy) / small)
+    }
+
+    ; the box round a run as drawn: x, y, w, h
+    sfn extent:[double] (r:RRun) {
+        def out:[double]
+        if (r.rot == 0.0) {
+            push out r.x
+            push out r.y
+            push out r.w
+            push out r.h
+            return out
+        }
+        def a:double ((r.rot * 3.141592653589793) / 180.0)
+        def c:double (fabs (cos a))
+        def s:double (fabs (sin a))
+        def w:double ((r.w * c) + (r.h * s))
+        def h:double ((r.w * s) + (r.h * c))
+        push out ((Report.cx(r)) - (w / 2.0))
+        push out ((Report.cy(r)) - (h / 2.0))
+        push out w
+        push out h
+        return out
+    }
+
+    sfn minSize:double (b:RBlock) {
+        def m:double 0.0
+        for b.runs r:RRun i {
+            if ((r.size > 0.0) && ((m == 0.0) || (r.size < m))) {
+                m = r.size
+            }
+        }
+        return m
+    }
+
+    ; the most runs side by side in one row (a diagram's boxes in a line)
+    sfn widestRow:int (b:RBlock) {
+        def best:int 0
+        for b.runs r:RRun i {
+            def n:int 0
+            def cyr:double (Report.cy(r))
+            def xs:[double]
+            for b.runs o:RRun j {
+                if ((fabs ((Report.cy(o)) - cyr)) <= (Report.mx(2.0 (r.h / 2.0)))) {
+                    ; lines of one label wrapped in a box are one box
+                    def cxo:double (Report.cx(o))
+                    def seen:boolean false
+                    for xs x:double k {
+                        if ((fabs (x - cxo)) < 4.0) {
+                            seen = true
+                        }
+                    }
+                    if (seen == false) {
+                        push xs cxo
+                        n = (n + 1)
+                    }
+                }
+            }
+            if (n > best) {
+                best = n
+            }
+        }
+        return best
+    }
+
+    sfn what:string (b:RBlock) {
+        if ((strlen b.label) > 0) {
+            if (((b.kind == "chart") || (b.kind == "diagram")) || ((b.kind == "picture") || (b.kind == "figure"))) {
+                return (b.kind + " (" + b.label + ")")
+            }
+            return (b.kind + " \"" + (Report.short(b.label 40)) + "\"")
+        }
+        return b.kind
+    }
+
+    sfn visual:boolean (b:RBlock) {
+        return ((((b.kind == "chart") || (b.kind == "diagram")) || (b.kind == "picture")) || ((b.kind == "figure") || (b.kind == "table")))
+    }
+
+    sfn slide:RSlideOut (s:RSlide) {
+        def o (new RSlideOut)
+        o.index = s.index
+        o.title = s.title
+        def k:double (Report.scale(s.w s.h))
+        def where:string ("Slide " + (to_string (s.index + 1)))
+        if ((strlen s.title) > 0) {
+            where = (where + " \"" + (Report.short(s.title 60)) + "\"")
+        }
+        def rmin:double ((Report.READ_MIN()) / k)
+        ; --- the elements
+        def x0:double s.w
+        def y0:double s.h
+        def x1:double 0.0
+        def y1:double 0.0
+        def items:[string]
+        for s.blocks b:RBlock bi {
+            if ((b.w <= 0.0) || (b.h <= 0.0)) {
+                continue
+            }
+            x0 = (Report.mn(x0 b.x))
+            y0 = (Report.mn(y0 b.y))
+            x1 = (Report.mx(x1 (b.x + b.w)))
+            y1 = (Report.mx(y1 (b.y + b.h)))
+            def line:string ("- " + (Report.what(b)) + " at " + (Report.px(b.x k)) + "," + (Report.px(b.y k)) + " size " + (Report.px(b.w k)) + "×" + (Report.px(b.h k)))
+            def ms:double (Report.minSize(b))
+            if ((b.kind == "chart") || (b.kind == "diagram")) {
+                line = (line + ": " + (to_string (array_length b.runs)) + " labels, " + (to_string b.shapes) + " shapes")
+                if (ms > 0.0) {
+                    line = (line + ", smallest text " + (Report.px(ms k)) + " px")
+                }
+            } {
+                if (b.kind == "table") {
+                    line = (line + ": " + (to_string (array_length b.heads)) + " columns")
+                }
+                if (ms > 0.0) {
+                    line = (line + ", text " + (Report.px(ms k)) + " px")
+                }
+            }
+            push items line
+            if ((ms > 0.0) && ((o.minPx == 0.0) || ((ms * k) < o.minPx))) {
+                o.minPx = (ms * k)
+            }
+            Report.blockFlags(o b s k rmin)
+        }
+        ; --- how much of the slide they cover, on a grid of 96 × 54
+        def gw:int 96
+        def gh:int 54
+        def covered:int 0
+        def gy:int 0
+        while (gy < gh) {
+            def py:double (((to_double gy) + 0.5) * (s.h / (to_double gh)))
+            def gx:int 0
+            while (gx < gw) {
+                def pxx:double (((to_double gx) + 0.5) * (s.w / (to_double gw)))
+                def hit:boolean false
+                for s.blocks cb:RBlock ci {
+                    if ((((pxx >= cb.x) && (pxx <= (cb.x + cb.w))) && (py >= cb.y)) && (py <= (cb.y + cb.h))) {
+                        hit = true
+                        break
+                    }
+                }
+                if hit {
+                    covered = (covered + 1)
+                }
+                gx = (gx + 1)
+            }
+            gy = (gy + 1)
+        }
+        o.fill = ((to_double covered) / (to_double (gw * gh)))
+        def head:string (where + ": ")
+        if (x1 <= x0) {
+            head = (head + "empty.")
+        } {
+            head = (head + "the elements cover " + (to_string (floor ((o.fill * 100.0) + 0.5))) + "% of the slide, from " + (Report.px(x0 k)) + "," + (Report.px(y0 k)) + " to " + (Report.px(x1 k)) + "," + (Report.px(y1 k)))
+            if (o.minPx > 0.0) {
+                head = (head + "; smallest text " + (to_string (floor (o.minPx + 0.5))) + " px")
+            }
+            head = (head + ".")
+        }
+        push o.lines head
+        for items it:string ii {
+            push o.lines it
+        }
+        Report.slideFlags(o s k x0 y0 x1 y1)
+        return o
+    }
+
+    ; what is wrong with one element
+    sfn blockFlags:void (o:RSlideOut b:RBlock s:RSlide k:double rmin:double) {
+        def name:string (Report.what(b))
+        def ms:double (Report.minSize(b))
+        ; off the slide
+        def off:[string]
+        if (b.x < -2.0) {
+            push off ("left by " + (Report.px((0.0 - b.x) k)) + " px")
+        }
+        if ((b.x + b.w) > (s.w + 2.0)) {
+            push off ("right by " + (Report.px(((b.x + b.w) - s.w) k)) + " px")
+        }
+        if (b.y < -2.0) {
+            push off ("top by " + (Report.px((0.0 - b.y) k)) + " px")
+        }
+        if ((b.y + b.h) > (s.h + 2.0)) {
+            push off ("bottom by " + (Report.px(((b.y + b.h) - s.h) k)) + " px")
+        }
+        if ((array_length off) > 0) {
+            push o.flags (name + " goes past the slide's edge (" + (join off ", ") + ").")
+        }
+        ; text too small
+        if ((ms > 0.0) && (ms < rmin)) {
+            def at:string (Report.px(ms k))
+            if (b.kind == "diagram") {
+                def row:int (Report.widestRow(b))
+                def why:string ("it is " + (Report.px(b.w k)) + " px wide")
+                if (row >= 4) {
+                    why = (why + " with " + (to_string row) + " boxes in a row")
+                }
+                push o.flags (name + ": its text is drawn at " + at + " px, too small to read (" + why + "). Lay it out top-down (flowchart TD), shorten the labels or split it.")
+            } {
+                if (b.kind == "chart") {
+                    push o.flags (name + ": its smallest labels are " + at + " px, too small to read. Give it more room, fewer categories or a larger axis/legend font.")
+                } {
+                    push o.flags (name + ": text at " + at + " px is too small to read.")
+                }
+            }
+        }
+        ; a chart's or a diagram's labels over each other
+        if ((b.kind == "chart") || (b.kind == "diagram")) {
+            def pairs:int 0
+            def ex:[string]
+            def n:int (array_length b.runs)
+            def i:int 0
+            while (i < n) {
+                def j:int (i + 1)
+                while (j < n) {
+                    def ra:RRun (itemAt b.runs i)
+                    def rb:RRun (itemAt b.runs j)
+                    if ((Report.runOverlap(ra rb)) > 0.15) {
+                        pairs = (pairs + 1)
+                        if ((array_length ex) < 3) {
+                            push ex ("\"" + (Report.short(ra.text 20)) + "\"/\"" + (Report.short(rb.text 20)) + "\"")
+                        }
+                    }
+                    j = (j + 1)
+                }
+                i = (i + 1)
+            }
+            if (pairs > 0) {
+                def what:string "pair"
+                if (pairs > 1) {
+                    what = "pairs"
+                }
+                def fix:string "Use fewer ticks, shorter labels, labelAngle or a wider chart."
+                if (b.kind == "diagram") {
+                    fix = "Shorten the labels or give the boxes more room (another direction, fewer boxes)."
+                }
+                push o.flags (name + ": " + (to_string pairs) + " " + what + " of labels drawn over each other, e.g. " + (join ex ", ") + ". " + fix)
+            }
+        }
+        ; a table column that wraps
+        if (b.kind == "table") {
+            def worstCol:int -1
+            def worstLines:int 0
+            def worstW:double 0.0
+            def overCol:int -1
+            for b.cells cell:RCell ci {
+                ; a narrow column that stacks its words, or any cell that
+                ; becomes a paragraph
+                def narrow:boolean (cell.w < (b.w * 0.3))
+                if (((cell.lines > worstLines) && (cell.lines >= 3)) && (narrow || (cell.lines >= 6))) {
+                    worstLines = cell.lines
+                    worstCol = cell.col
+                    worstW = cell.w
+                }
+                if (cell.over && (overCol < 0)) {
+                    overCol = cell.col
+                }
+            }
+            if (worstCol >= 0) {
+                push o.flags (name + ": column " + (Report.colName(b worstCol)) + " is " + (Report.px(worstW k)) + " px wide and wraps a cell into " + (to_string worstLines) + " lines. Shorten the cells, drop a column or split the table.")
+            }
+            if (overCol >= 0) {
+                push o.flags (name + ": text in column " + (Report.colName(b overCol)) + " is wider than its cell.")
+            }
+        }
+    }
+
+    sfn colName:string (b:RBlock col:int) {
+        def s:string (to_string (col + 1))
+        if ((col >= 0) && (col < (array_length b.heads))) {
+            def hd:string (trim (itemAt b.heads col))
+            if ((strlen hd) > 0) {
+                s = (s + " \"" + (Report.short(hd 30)) + "\"")
+            }
+        }
+        return s
+    }
+
+    ; what is wrong with the slide as a whole
+    sfn slideFlags:void (o:RSlideOut s:RSlide k:double x0:double y0:double x1:double y1:double) {
+        def n:int (array_length s.blocks)
+        ; elements over each other
+        def i:int 0
+        while (i < n) {
+            def a:RBlock (itemAt s.blocks i)
+            def j:int (i + 1)
+            while (j < n) {
+                def b:RBlock (itemAt s.blocks j)
+                def ix:double ((Report.mn((a.x + a.w) (b.x + b.w))) - (Report.mx(a.x b.x)))
+                def iy:double ((Report.mn((a.y + a.h) (b.y + b.h))) - (Report.mx(a.y b.y)))
+                if ((ix > 2.0) && (iy > 2.0)) {
+                    def small:double (Report.mn((a.w * a.h) (b.w * b.h)))
+                    def share:double ((ix * iy) / small)
+                    if (share > 0.04) {
+                        push o.flags ((Report.what(a)) + " and " + (Report.what(b)) + " overlap (" + (to_string (floor ((share * 100.0) + 0.5))) + "% of the smaller one).")
+                    }
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        if (x1 <= x0) {
+            return
+        }
+        ; a chart, diagram or picture left small on an empty slide
+        def visuals:int 0
+        def biggest:double 0.0
+        def big:RBlock (new RBlock)
+        for s.blocks v:RBlock vi {
+            if ((Report.visual(v)) && (v.kind != "table")) {
+                visuals = (visuals + 1)
+                if ((v.w * v.h) > biggest) {
+                    biggest = (v.w * v.h)
+                    big = v
+                }
+            }
+        }
+        def area:double (s.w * s.h)
+        if (((visuals == 1) && (biggest < (area * 0.2))) && (o.fill < 0.45)) {
+            push o.flags ((Report.what(big)) + " takes " + (to_string (floor (((biggest / area) * 100.0) + 0.5))) + "% of the slide and most of the slide is empty: give it the room (leave out a fixed width/height) or put more beside it.")
+            return
+        }
+        ; the lower part of a slide with content left empty (not a title
+        ; slide: one heading, perhaps a line under it)
+        if ((n >= 2) && (visuals > 0)) {
+            def empty:double ((s.h - y1) / s.h)
+            if (empty > 0.4) {
+                push o.flags ("The lower " + (to_string (floor ((empty * 100.0) + 0.5))) + "% of the slide is empty.")
+            }
+        }
+    }
+
+    ; the report as text: every slide's lines, its flags marked ⚠
+    sfn text:string (outs:[RSlideOut]) {
+        def lines:[string]
+        push lines "Layout (px of a 1920×1080 screen; x,y from the top-left corner):"
+        for outs o:RSlideOut i {
+            for o.lines l:string j {
+                push lines l
+            }
+            for o.flags f:string fi {
+                push lines ("  ⚠ " + f)
+            }
+        }
+        return (join lines "\n")
+    }
+
+    ; only the flags, one line each with the slide they are on
+    sfn flagsOf:[string] (outs:[RSlideOut]) {
+        def all:[string]
+        for outs o:RSlideOut i {
+            def where:string ("Slide " + (to_string (o.index + 1)))
+            if ((strlen o.title) > 0) {
+                where = (where + " \"" + (Report.short(o.title 60)) + "\"")
+            }
+            for o.flags f:string j {
+                push all (where + ": " + f)
+            }
+        }
+        return all
+    }
+}

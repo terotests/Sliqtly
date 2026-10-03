@@ -644,9 +644,8 @@ class PresCheck {
         return n
     }
 
-    ; ```process / ```swot / ```timeline and `{art=waves}`: drawn for PRO in
-    ; the theme's colours, a note in the slot otherwise, and the art under
-    ; the content.
+    ; ```process / ```swot / ```timeline drawn for everyone in the theme's
+    ; colours; `{art=waves}` only for PRO, under the content.
     fn figures:void () {
         def text:string "---\nslide-split-level: 2\n---\n\n## Vaiheet {art=waves}\n\n```process\n- Suunnittelu: tavoitteet\n- Toteutus\n- Julkaisu\n```\n\n## SWOT\n\n```swot\nVahvuudet: brändi\nHeikkoudet: tiimi\nMahdollisuudet: markkinat\nUhat: kilpailu\n```\n"
         def css:string "page { width: 13.333in; height: 7.5in; padding: 0.6in; background-color: #0b1030 } deck { split-level: 2 } document { color: #e8ecff; font-size: 20pt } figure { colors: #ffa546 #5ce1ff }"
@@ -659,13 +658,15 @@ class PresCheck {
         if ((deck.slideCount()) < 2) {
             return
         }
-        def lockedL:EVGDisplayList (PresTimeline.finalFrame(deck 0))
-        this.ok(((PresCheck.texts(lockedL "Suunnittelu")) == 0) "without PRO the process is not drawn")
-        deck.figuresAllowed = true
+        def freeL:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(freeL "Suunnittelu")) == 1) "without PRO the process is drawn")
+        def noArt:FlowScene (deck.artScene((deck.slideAt(0)) 0))
+        this.ok(((array_length noArt.items) == 0) "without PRO the art is not drawn")
+        deck.artAllowed = true
         deck.rebuild()
         PresTimeline.planAll(deck)
         def l0:EVGDisplayList (PresTimeline.finalFrame(deck 0))
-        this.ok(((PresCheck.texts(l0 "Suunnittelu")) == 1) "with PRO the process step is drawn")
+        this.ok(((PresCheck.texts(l0 "Suunnittelu")) == 1) "with PRO the process step is still drawn")
         this.ok(((PresCheck.texts(l0 "tavoitteet")) == 1) "and its description")
         def l1:EVGDisplayList (PresTimeline.finalFrame(deck 1))
         this.ok(((PresCheck.texts(l1 "V")) == 1) "the SWOT's letters come from the titles")
@@ -690,7 +691,7 @@ class PresCheck {
         def deck (new PresDeck())
         deck.md.setStyleSheet(css)
         deck.setTheme(css)
-        deck.figuresAllowed = true
+        deck.artAllowed = true
         deck.setText(text)
         PresTimeline.planAll(deck)
         this.ok(((deck.slideCount()) == 3) ("three slides, got " + (to_string (deck.slideCount()))))

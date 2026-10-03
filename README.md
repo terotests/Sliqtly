@@ -97,10 +97,13 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   changes the limit, `slide-grow: off` turns it off.
 - `anim`: `fade`, `rise`, `fly` or `zoom`.
 - `fx`: EVG surface effects (`starfield`, `plasma-wave`, `smoke`,
-  `ambient-light`, `liquid-glass`, `drops`, `bubbles`). `fx-<name>=<number>`
+  `ambient-light`, `liquid-glass`, `drops`, `raindrops2`, `bubbles`). `fx-<name>=<number>`
   is the same as `evg-fx-<name>` in CSS. `drops` is rain on a window: the
   pane is dry when the slide comes on, drops land, run together and run down
   leaving trails (`fx-rain`, `fx-size`, `fx-mist`, `fx-speed`, `fx-refract`).
+  `raindrops2` is the same rain where a running drop leaves a line of water,
+  stops at its lower end when spent and runs on when another drop runs down
+  the line into it.
   `bubbles` is the round-drop effect that was called `raindrop`, and
   `raindrop` still draws it. An effect's clock is the time its slide has been
   on screen and goes on while the slide waits for a click.
@@ -155,7 +158,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   their current values. Only what the slide has is listed. Clicking a
   property opens the theme at that line (adding it if the theme has none)
   with its value popover.
-- **Layouts from lists (PRO).** A plain Markdown list with
+- **Layouts from lists.** A plain Markdown list with
   `{list-style=process}`, `swot` or `timeline` under it draws chevron steps,
   a SWOT grid or a timeline from its `Title: description` items (an indented
   `- point` belongs to the item above). The theme can say it instead:
@@ -173,7 +176,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   main.js). `samples/mallit.md` shows them.
 - A slide's background effect (`{fx=…}`) goes into the PDF and the PPTX as a
   picture: before an export each effect is drawn in the browser at the moment
-  the thumbnails show it (two seconds in; `drops` thirty, when it has rained
+  the thumbnails show it (two seconds in; `drops` and `raindrops2` thirty, when it has rained
   for a while), and put under the slide's content (PDF) or as the slide
   background (PPTX). Text and shapes stay editable on top. Drops, bubbles and
   liquid glass are drawn over the bare paper there, so in the exports the

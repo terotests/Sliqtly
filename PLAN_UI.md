@@ -214,7 +214,7 @@ Liittäminen tapahtuu HTML-puolella (`paste`-tapahtuma, `clipboardData.items`), 
 }
 ```
 
-Markdownissa lyhenne `{fx=starfield fx-density=1.6}` kirjoitetaan samoiksi ominaisuuksiksi. Käytettävissä: `starfield`, `plasma-wave`, `smoke`, `ambient-light` (taustat), `liquid-glass`, `drops` (sade ikkunassa: pisarat yhdistyvät ja valuvat), `bubbles` (pyöreät pisarat, ennen `raindrop`) (lasi elementin päällä), `ripple` (suodin). UI:ssa efektit valitaan animaatioraidan valikosta esikatselukuvien kanssa, ja parametrit säädetään ominaisuuspaneelissa. Aikajana voi animoida efektin parametreja (esim. tähtien tiheys kasvaa dian aikana) samoilla keyframeilla kuin muutkin ominaisuudet.
+Markdownissa lyhenne `{fx=starfield fx-density=1.6}` kirjoitetaan samoiksi ominaisuuksiksi. Käytettävissä: `starfield`, `plasma-wave`, `smoke`, `ambient-light` (taustat), `liquid-glass`, `drops` (sade ikkunassa: pisarat yhdistyvät ja valuvat), `raindrops2` (sama, mutta valuva pisara jättää vesiviivan ja jää sen päähän odottamaan), `bubbles` (pyöreät pisarat, ennen `raindrop`) (lasi elementin päällä), `ripple` (suodin). UI:ssa efektit valitaan animaatioraidan valikosta esikatselukuvien kanssa, ja parametrit säädetään ominaisuuspaneelissa. Aikajana voi animoida efektin parametreja (esim. tähtien tiheys kasvaa dian aikana) samoilla keyframeilla kuin muutkin ominaisuudet.
 
 ---
 
