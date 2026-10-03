@@ -90,6 +90,20 @@ class PresChartEditor {
     def pasteNote:string ""
     def slideAspect:double 1.7777777
     def wantsPlace:boolean false
+    ; A picture of the deck's files edited where it is kept (`mode`
+    ; "adjust"): the part to keep (`crop`, as for a paste) and its colours,
+    ; each -100…100 with 0 leaving it as it is. The page draws the preview
+    ; (the crop's picture, registered again as the sliders move: `adjDirty`)
+    ; and on Save (`wantsSave`) writes the picture back over `adjFile`, so
+    ; every slide that shows it changes.
+    def adjFile:string ""
+    def adjBright:int 0
+    def adjContrast:int 0
+    def adjSat:int 0
+    def adjTemp:int 0
+    def adjTint:int 0
+    def adjDirty:boolean false
+    def wantsSave:boolean false
     ; A new presentation (`mode` "newdeck"): its name, theme and what data it
     ; starts with ("none", "sample" a chart with a sample table, "file" a
     ; data file picked after it is made). `ndRows` are the page's themes,
@@ -135,6 +149,37 @@ class PresChartEditor {
         }
         wantsPlace = false
         this.openAt(px py pw ph)
+    }
+
+    ; A picture in the files tab: `path` is its preview as the page
+    ; registered it, `file` the file it is kept in, `iw` × `ih` its pixels.
+    fn openAdjust:void (path:string file:string iw:double ih:double px:double py:double pw:double ph:double) {
+        mode = "adjust"
+        def c (new CropCtl())
+        crop = c
+        crop.tid = "pe-crop"
+        crop.name = (PresI18n.t("Crop image"))
+        crop.maxW = 528.0
+        crop.maxH = 260.0
+        crop.setImage(path iw ih)
+        adjFile = file
+        this.adjustZero()
+        adjDirty = false
+        wantsSave = false
+        this.openAt(px py pw ph)
+    }
+
+    fn adjustZero:void () {
+        adjBright = 0
+        adjContrast = 0
+        adjSat = 0
+        adjTemp = 0
+        adjTint = 0
+    }
+
+    ; the crop is the picture's: a paste's or an edited file's
+    fn cropping:boolean () {
+        return ((mode == "paste") || (mode == "adjust"))
     }
 
     fn openNewDeck:void (rows:string theme:string name:string px:double py:double pw:double ph:double) {
@@ -210,7 +255,7 @@ class PresChartEditor {
     }
 
     fn dragging:boolean () {
-        return ((((win.dragging || sliding) || ((strlen dragPart) > 0)) || ((mode == "paste") && (crop.dragging()))) || ((strlen selecting) > 0))
+        return ((((win.dragging || sliding) || ((strlen dragPart) > 0)) || ((this.cropping()) && (crop.dragging()))) || ((strlen selecting) > 0))
     }
 
     ; A point as fractions of the crop's rectangle, as last laid out.
@@ -235,7 +280,7 @@ class PresChartEditor {
             this.selectTo(px)
             return
         }
-        if ((mode == "paste") && (crop.dragging())) {
+        if ((this.cropping()) && (crop.dragging())) {
             crop.dragAt((this.cropFx(px)) (this.cropFy(py)))
             rev = (rev + 1)
             return
@@ -279,7 +324,7 @@ class PresChartEditor {
             selecting = ""
             rev = (rev + 1)
         }
-        if ((mode == "paste") && (crop.dragging())) {
+        if ((this.cropping()) && (crop.dragging())) {
             crop.release()
             rev = (rev + 1)
         }
@@ -451,6 +496,10 @@ class PresChartEditor {
             win.name = (PresI18n.t("Add image"))
             win.title = (PresI18n.t("Add image"))
         }
+        if (mode == "adjust") {
+            win.name = (PresI18n.t("Edit image"))
+            win.title = (PresI18n.t("Edit image"))
+        }
         if (mode == "newdeck") {
             win.name = (PresI18n.t("New presentation"))
             win.title = (PresI18n.t("New presentation"))
@@ -486,6 +535,10 @@ class PresChartEditor {
         }
         if (mode == "paste") {
             this.pasteBody(root)
+            return
+        }
+        if (mode == "adjust") {
+            this.adjustBody(root)
             return
         }
         if (mode == "image") {
@@ -643,6 +696,64 @@ class PresChartEditor {
         bottom.addChild((this.div("ce-grow")))
         this.button("pe-add" (PresI18n.t("Add image")) "primary" bottom)
         root.addChild(bottom)
+    }
+
+    ; --- a picture of the files, edited -------------------------------------------
+    sfn signed:string (v:int) {
+        if (v > 0) {
+            return ("+" + (to_string v))
+        }
+        return (to_string v)
+    }
+
+    fn adjustRow:void (parent:EVGElement tid:string label:string v:int) {
+        def r:EVGElement (this.field(label))
+        this.slider(tid label v -100 100 1 r)
+        r.addChild((this.text("ce-value" (PresChartEditor.signed(v)))))
+        parent.addChild(r)
+    }
+
+    fn adjustBody:void (root:EVGElement) {
+        def pane:EVGElement (this.div("ce-pane"))
+        root.addChild(pane)
+        crop.build()
+        this.put(crop pane)
+        pane.addChild((this.text("ce-doc" ((PresI18n.t("Drag the frame or its corners to crop. ")) + adjFile))))
+        def light:EVGElement (this.section(pane (PresI18n.t("Exposure"))))
+        this.adjustRow(light "ae-s-bright" (PresI18n.t("Brightness")) adjBright)
+        this.adjustRow(light "ae-s-contrast" (PresI18n.t("Contrast")) adjContrast)
+        def col:EVGElement (this.section(pane (PresI18n.t("Color"))))
+        this.adjustRow(col "ae-s-sat" (PresI18n.t("Saturation")) adjSat)
+        this.adjustRow(col "ae-s-temp" (PresI18n.t("Warmth")) adjTemp)
+        this.adjustRow(col "ae-s-tint" (PresI18n.t("Tint")) adjTint)
+        pane.addChild((this.text("ce-doc" (PresI18n.t("Save replaces the file: every slide that shows this image changes.")))))
+        def bottom:EVGElement (this.div("ce-foot"))
+        this.button("ae-cancel" (PresI18n.t("Cancel")) "outline" bottom)
+        this.button("ae-reset" (PresI18n.t("Reset")) "ghost" bottom)
+        bottom.addChild((this.div("ce-grow")))
+        this.button("ae-save" (PresI18n.t("Save")) "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    fn adjustAct:boolean (tid:string) {
+        if (tid == "ae-reset") {
+            this.adjustZero()
+            crop.reset()
+            adjDirty = true
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if (tid == "ae-cancel") {
+            wantsClose = true
+            return true
+        }
+        if (tid == "ae-save") {
+            wantsSave = true
+            wantsClose = true
+            return true
+        }
+        return false
     }
 
     ; --- a new presentation --------------------------------------------------------
@@ -1156,6 +1267,9 @@ class PresChartEditor {
     }
 
     sfn isSlider:boolean (tid:string) {
+        if ((indexOf tid "ae-s-") == 0) {
+            return true
+        }
         return (((((indexOf tid "ce-width") == 0) || ((indexOf tid "ce-height") == 0)) || ((indexOf tid "ce-stroke") == 0)) || ((tid == "ie-width") || (tid == "ie-height")))
     }
 
@@ -1209,7 +1323,7 @@ class PresChartEditor {
         }
         cp.leaveField(picker)
         ; the crop: a handle or the frame, measured against its rectangle
-        if ((mode == "paste") && (ctlTid == crop.tid)) {
+        if ((this.cropping()) && (ctlTid == crop.tid)) {
             if ((strlen focusTid) > 0) {
                 this.focusInput("")
             }
@@ -1331,6 +1445,23 @@ class PresChartEditor {
 
     ; The sliders' values into the model.
     fn takeSliders:void () {
+        if (mode == "adjust") {
+            def b:int (this.sliderValue("ae-s-bright" adjBright))
+            def c:int (this.sliderValue("ae-s-contrast" adjContrast))
+            def s:int (this.sliderValue("ae-s-sat" adjSat))
+            def t:int (this.sliderValue("ae-s-temp" adjTemp))
+            def g:int (this.sliderValue("ae-s-tint" adjTint))
+            if ((((b != adjBright) || (c != adjContrast)) || ((s != adjSat) || (t != adjTemp))) || (g != adjTint)) {
+                adjBright = b
+                adjContrast = c
+                adjSat = s
+                adjTemp = t
+                adjTint = g
+                adjDirty = true
+                changed = true
+            }
+            return
+        }
         if (mode == "image") {
             def wp:int (PresImageModel.percent(img.width))
             def wv:int (this.sliderValue("ie-width" -1))
@@ -1427,6 +1558,9 @@ class PresChartEditor {
             return
         }
         if ((mode == "paste") && (this.pasteAct(tid))) {
+            return
+        }
+        if ((mode == "adjust") && (this.adjustAct(tid))) {
             return
         }
         if ((mode == "newdeck") && (this.newDeckAct(tid))) {
@@ -1690,10 +1824,15 @@ class PresChartEditor {
             wantsClose = true
             return true
         }
-        ; the picture on its way in: arrows move the crop, Enter adds it
-        if ((mode == "paste") && ((strlen focusTid) == 0)) {
+        ; the picture on its way in (or edited): arrows move the crop, Enter
+        ; adds (saves) it
+        if ((this.cropping()) && ((strlen focusTid) == 0)) {
             if (name == "enter") {
-                wantsPlace = true
+                if (mode == "adjust") {
+                    wantsSave = true
+                } {
+                    wantsPlace = true
+                }
                 wantsClose = true
                 return true
             }
@@ -1761,7 +1900,7 @@ class PresChartEditor {
         def maybe@(optional):UiCtl (host.ctlFor(tid))
         if (!null? maybe) {
             def owner:UiCtl (unwrap maybe)
-            if ((mode == "paste") && (owner.tid == crop.tid)) {
+            if ((this.cropping()) && (owner.tid == crop.tid)) {
                 return (PresChartEditor.cropCursor((crop.partOf(tid))))
             }
             if (owner.tid == picker.tid) {

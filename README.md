@@ -226,6 +226,13 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 - **Ctrl+V** in the editor pastes a picture from the clipboard. It is stored
   under `media/` and written into the Markdown as `![](media/…)`. Dropping an
   image onto the canvas does the same.
+- **Pictures in the Files tab:** hovering a picture's row shows it beside
+  the panel with its pixel size. Clicking the row (or *Edit*) opens the image
+  editor: the crop frame, brightness, contrast, saturation, warmth and tint,
+  each −100…+100 with a live preview. *Save* writes the picture back over the
+  same file, so every slide that shows it changes; *Cancel*, **Esc** or a
+  click outside leaves the file as it was. The pixel work is
+  `web/image-adjust.js`. SVG pictures only get the preview.
 
 ## Using it
 

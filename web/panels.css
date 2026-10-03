@@ -157,3 +157,13 @@
 .pn-field { display: flex; flex-direction: row; align-items: center; gap: 12px; }
 .pn-flabel { font-size: 12px; font-weight: 700; color: #3f3f46; width: 90px; }
 .pn-chips { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; width: 500px; }
+/* the files tab: the picture under the pointer, beside the panel */
+.pf-preview {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  padding: 10px; background-color: #ffffff;
+  border: 1px solid #e4e4e7; border-radius: 10px;
+  shadow-color: rgba(0, 0, 0, 0.22); shadow-radius: 20px; shadow-offset-y: 6px;
+}
+.pf-preview-img { border-radius: 4px; }
+.pf-preview-cap { font-size: 11px; color: #3f3f46; white-space: nowrap; }
+.pf-preview-hint { font-size: 11px; color: #a1a1aa; white-space: nowrap; }
