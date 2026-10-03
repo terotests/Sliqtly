@@ -5093,10 +5093,14 @@ class PresApp {
         return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(chart.w)) + ",\"height\":" + (EVGDisplayList.num(chart.h)) + ",\"list\":" + (dl.toJson()) + "}")
     }
 
-    ; What the browser draws a character the editor's face lacks (an emoji)
-    ; at, in ems — so the caret after one is where the text ends.
-    fn setMissingGlyphEm:void (em:double) {
-        tr.setMissingGlyphEm(em)
+    ; The browser's own measure, for the clusters it draws from faces neither
+    ; font manager has: every emoji (♨️, 👨‍👩‍👧, 🇫🇮) and any character no
+    ; loaded face covers. The editor and the slides both ask it, per cluster,
+    ; so the caret after an emoji is where the text ends and the space after
+    ; one on a slide is as wide as it is drawn.
+    fn setPlatformMeasure:void (f:(fn:double (text:string family:string size:double))) {
+        tr.setPlatformMeasure(f)
+        deck.md.fontManager.setPlatformMeasure(f)
         mdEditor.contentWPx = 0
         cssEditor.contentWPx = 0
         chromeRev = (chromeRev + 1)

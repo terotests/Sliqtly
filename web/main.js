@@ -15,7 +15,7 @@
 //
 // What anything MEANS is PresApp.rgr's.
 
-import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
+import { prepareDisplayList, setFontFallback, fontSpec } from "./gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
@@ -3636,15 +3636,16 @@ async function start() {
     }
   }));
   setFontFallback(FACES.filter((_, i) => got[i]).map(([name]) => name));
-  // An emoji is drawn from the platform's emoji face; the editor measures
-  // with Open Sans, which has none. Told the real width, its caret stays
-  // at the end of a line that has one.
-  try {
+  // An emoji, and anything no loaded face has, is drawn from a face only the
+  // browser knows; the editor and the slides ask the browser for its width,
+  // per cluster, in the font stack the painter draws with.
+  {
     const m = document.createElement("canvas").getContext("2d");
-    m.font = "100px 'Open Sans'";
-    const em = m.measureText("\u{1F600}").width / 100;
-    if (em > 0.3 && em < 3) app.setMissingGlyphEm(em);
-  } catch (_) { /* measured as the face says */ }
+    app.setPlatformMeasure((text, family, size) => {
+      m.font = fontSpec({ font: family, size }, 1);
+      return m.measureText(text).width;
+    });
+  }
 
   for (const [i, name] of THEMES.entries()) {
     try {
