@@ -4272,6 +4272,8 @@ async function start() {
   document.body.classList.remove("booting");
   if (!viewer && !isCoarse()) focusKeys("editor");
   window.__pageStarted = true;
+  // opening the deck tidied the address; it names the deck again from here
+  followAddress();
   // ?export=pdf|pptx|md (or in the #…): an export asked for from the
   // assistant's preview, which cannot download
   const ask = q.get("export") || hashParams().get("export");

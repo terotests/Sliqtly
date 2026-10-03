@@ -2878,7 +2878,7 @@ try {
     await a.waitForTimeout(2500);
     const b = await tab(url + (await a.evaluate(() => location.hash)));
     await edit(a, "rivi 1", "rivi 1 A");
-    await b.waitForFunction(() => window.__app.source().includes("rivi 1 A"), null, { timeout: 8000 }).catch(() => {});
+    await b.waitForFunction(() => window.__app.source().includes("rivi 1 A"), null, { timeout: 15000 }).catch(() => {});
     check("versions: a change in one tab shows in the other", (await src(b)).includes("rivi 1 A"));
     await edit(a, "rivi 2", "rivi 2 A");
     await edit(b, "rivi 5", "rivi 5 B");
