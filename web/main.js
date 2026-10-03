@@ -3730,6 +3730,29 @@ const KEY_MAP = {
   Home: "home", End: "end", PageUp: "pageUp", PageDown: "pageDown", Escape: "escape",
 };
 const CLIPBOARD_CHORD = /^[cxvCXV]$/;
+// The code editor's text size: Ctrl/Cmd + plus / minus / 0 while the editor
+// has the keyboard (the browser's own zoom everywhere else), and Ctrl + wheel
+// or a trackpad pinch over it. Kept per browser.
+const EDITOR_ZOOM = "sliqtly.editorFontSize";
+function editorZoomStep(ev) {
+  if (ev.altKey) return null;
+  if (ev.key === "+" || ev.key === "=" || ev.code === "NumpadAdd") return 1;
+  if (ev.key === "-" || ev.key === "_" || ev.code === "NumpadSubtract") return -1;
+  if (ev.key === "0" || ev.code === "Numpad0") return 0;
+  return null;
+}
+function zoomEditor(steps) {
+  if (!app.zoomEditor(steps)) return;
+  try { localStorage.setItem(EDITOR_ZOOM, String(app.editorFontSize())); } catch (_) { /* this session only */ }
+  closeHint();
+  needsPaint = true;
+}
+function restoreEditorZoom() {
+  let size = NaN;
+  try { size = parseFloat(localStorage.getItem(EDITOR_ZOOM) || ""); } catch (_) { /* the default */ }
+  if (size > 0) app.setEditorFontSize(size);
+}
+let editorWheel = 0;
 // The emoji picker's key: ⌃⌘Space, the Mac's own, and Ctrl+Shift+Space
 // everywhere. The picker (EVGUI's) offers the emojis the slides and their PDF
 // can draw. Ctrl+Space alone is the value popover.
@@ -3866,6 +3889,14 @@ keys.addEventListener("keydown", (ev) => {
     return;
   }
   const mod = ev.ctrlKey || ev.metaKey;
+  if (!presenting && mod && app.focusTarget() === "editor") {
+    const steps = editorZoomStep(ev);
+    if (steps !== null) {
+      ev.preventDefault();
+      zoomEditor(steps);
+      return;
+    }
+  }
   const special = KEY_MAP[ev.key];
   if (special) {
     if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart") return;
@@ -4297,6 +4328,17 @@ canvas.addEventListener("wheel", (ev) => {
     needsPaint = true;
     return;
   }
+  // over the code editor it sizes the text: a wheel notch (100 px, or three
+  // lines) is a step, a pinch adds up its small deltas to one
+  if (ev.ctrlKey && app.editorAt(x, y)) {
+    ev.preventDefault();
+    editorWheel += ev.deltaMode === 0 ? ev.deltaY : ev.deltaY * 40;
+    while (Math.abs(editorWheel) >= 100) {
+      zoomEditor(editorWheel < 0 ? 1 : -1);
+      editorWheel -= Math.sign(editorWheel) * 100;
+    }
+    return;
+  }
   const step = ev.deltaMode === 1 ? 18 : ev.deltaMode === 2 ? 400 : 1;
   // sideways: a trackpad swipe, a tilt wheel, or Shift with a plain wheel
   let dx = ev.deltaX;
@@ -4406,6 +4448,7 @@ async function start() {
   app.setMac(IS_MAC);
   try { emojiRecent = localStorage.getItem(EMOJI_RECENT) || ""; } catch (_) { emojiRecent = ""; }
   app.setEmojiRecent(emojiRecent);
+  restoreEditorZoom();
   resize();
   window.addEventListener("resize", resize);
 
