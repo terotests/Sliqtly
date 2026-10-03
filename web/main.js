@@ -858,14 +858,40 @@ function whenText(t) {
   return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()} ${two(d.getHours())}:${two(d.getMinutes())}`;
 }
 
-// File → Recent: the decks of this browser edited last, the open one left
-// out (a PRO deck is among them: the cloud save keeps it here as well).
+// Signed in: the user's own shares that this browser does not keep, as
+// "cloud:<share id>" decks (opened from the cloud, as /s/{id}?edit is).
+// Read at sign-in; after that, a list older than 30 s is read again behind
+// the one shown, which is redrawn when it arrives.
+let cloudList = { uid: null, at: 0, rows: [] };
+let cloudListing = null;
+function readCloudList(uid) {
+  cloudListing ??= window.sliqtly.listMine()
+    .catch((e) => { console.warn("listing the cloud decks failed", e); return []; })
+    .then((rows) => { cloudList = { uid, at: Date.now(), rows }; })
+    .finally(() => { cloudListing = null; });
+  return cloudListing;
+}
+async function cloudDocs(local) {
+  const user = window.sliqtly?.user?.();
+  if (!user || !window.sliqtly.listMine) return [];
+  if (cloudList.uid !== user.uid) await readCloudList(user.uid);
+  else if (Date.now() - cloudList.at > 30000 && !cloudListing) readCloudList(user.uid).then(() => refreshFiles());
+  const here = new Set(local.map((d) => d.cloud).filter(Boolean));
+  return cloudList.rows.filter((r) => !here.has(r.id))
+    .map((r) => ({ id: "cloud:" + r.id, name: r.name, updated: r.updated, inCloud: true }));
+}
+async function allDocs() {
+  const local = await vfs.listDocs();
+  return local.concat(await cloudDocs(local)).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+}
+
+// File → Recent: the decks edited last, the open one left out: this
+// browser's, and signed in, the cloud's too.
 let recentSynced = "";
 async function refreshRecent() {
   if (!vfs || viewer) return;
-  const rows = (await vfs.listDocs())
+  const rows = (await allDocs())
     .filter((d) => d.id !== doc.id)
-    .sort((a, b) => (b.updated || 0) - (a.updated || 0))
     .slice(0, 8)
     .map((d) => d.id + "\t" + String(d.name || "presentation").replace(/[\t\n\r]+/g, " "));
   const key = rows.join("\n");
@@ -899,9 +925,11 @@ async function refreshFiles() {
     const head = [{ path: name + ".md", size: new TextEncoder().encode(app.source()).length, kind: "md" }];
     const key = themeSel.value || "";
     head.push({ path: (key || "theme") + ".css", size: -1, kind: "css" });
-    const docs = (await vfs.listDocs())
-      .sort((a, b) => (b.updated || 0) - (a.updated || 0))
-      .map((d) => ({ id: d.id, name: d.name || "presentation", when: whenText(d.updated), current: d.id === doc.id }));
+    const docs = (await allDocs())
+      .map((d) => ({
+        id: d.id, name: d.name || "presentation", current: d.id === doc.id, cloud: !!d.inCloud,
+        when: (d.inCloud ? t("In the cloud") + " · " : "") + whenText(d.updated),
+      }));
     let note = vfs.persistent
       ? t("Files live only in this browser (IndexedDB). Share links carry only the text and theme, not images or data files.")
       : t("This browser does not allow storage: files are kept only while this page is open.");
@@ -920,7 +948,7 @@ async function refreshFiles() {
         : t("PRO: this presentation and its files are saved to your cloud and go with share links. A copy stays in this browser.");
     }
     if (!doc.persisted) note = t("This presentation is not saved yet: it saves when you change it. ") + note;
-    app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), docs, note, ...(promo ? { promo } : {}) }));
+    app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), docs, mine: !!window.sliqtly?.user?.(), note, ...(promo ? { promo } : {}) }));
     needsPaint = true;
   } finally {
     filesListing = false;
@@ -1191,7 +1219,10 @@ async function fileRequest(r) {
     if (app.openFilePath() === what) app.closeFile();
     cloudSoon();
   } else if (action === "doc") {
-    if (!(await openDoc(what))) toast(t("Presentation not found."));
+    const opened = what.startsWith("cloud:")
+      ? await openOwnCloud(what.slice(6)).catch((e) => { console.warn(e); return false; })
+      : await openDoc(what);
+    if (!opened) toast(t("Presentation not found."));
   } else if (action === "deletedeck") {
     // asked first, in the app's own window; "confirm:deletedeck" deletes
     const cloud = !!doc.cloud && !!window.sliqtly?.user?.();
@@ -1200,7 +1231,7 @@ async function fileRequest(r) {
       (cloud ? t(" and from the cloud, and its share link stops working") : "") +
       t(". This cannot be undone."), t("Delete"));
   } else if (action === "deldoc") {
-    if (what !== doc.id) await vfs.deleteDoc(what);
+    if (what !== doc.id && !what.startsWith("cloud:")) await vfs.deleteDoc(what);
   }
   refreshFiles();
   needsPaint = true;

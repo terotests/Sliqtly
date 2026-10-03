@@ -2290,6 +2290,10 @@ try {
     const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
     await ctx.exposeFunction("__fakeFirebase", (op, a) => {
       if (op === "get") return fakeDb.get(a.k) ?? null;
+      if (op === "query") {
+        return [...fakeDb.entries()].filter(([k, d]) => k.startsWith(a.c + "/") && d[a.f] === a.v).slice(0, a.n)
+          .map(([k, d]) => ({ id: k.slice(a.c.length + 1), d }));
+      }
       if (op === "set") fakeDb.set(a.k, stamp(a.merge ? { ...fakeDb.get(a.k), ...a.data } : a.data));
       else if (op === "update") {
         if (!fakeDb.has(a.k)) throw new Error("no document " + a.k);
@@ -2306,7 +2310,12 @@ try {
         update: (data) => call("update", { k: c + "/" + id, data }),
         get: async () => { const d = await call("get", { k: c + "/" + id }); return { exists: d != null, data: () => d }; },
       });
-      const db = { collection: (c) => ({ doc: (id) => ref(c, id) }) };
+      const ms = (v) => (typeof v === "number" ? { toMillis: () => v } : v);
+      const query = (c, f, v, n) => ({
+        limit: (m) => query(c, f, v, m),
+        get: async () => ({ docs: (await call("query", { c, f, v, n: n || 1000 })).map((x) => ({ id: x.id, data: () => ({ ...x.d, updated: ms(x.d.updated), created: ms(x.d.created) }) })) }),
+      });
+      const db = { collection: (c) => ({ doc: (id) => ref(c, id), where: (f, op, v) => query(c, f, v, 0) }) };
       const firestore = () => db;
       firestore.FieldValue = { serverTimestamp: () => ({ __ts: true }) };
       const storage = () => ({ ref: (p) => ({
@@ -2331,12 +2340,15 @@ try {
       await pc.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
       await pc.waitForTimeout(400);
     };
-    const shareId = () => [...fakeDb.keys()].filter((k) => k.startsWith("shares/")).map((k) => k.slice(7));
+    const shareId = () => [...fakeDb.keys()].filter((k) => k.startsWith("shares/") && !k.startsWith("shares/zz")).map((k) => k.slice(7));
     const filesListed = async (name) => {
       await pc.evaluate(() => window.__app.showTab("files"));
       await pc.waitForFunction((n) => window.__app.panels.filesJson.includes(n), name, { timeout: 8000 }).catch(() => {});
       return pc.evaluate((n) => window.__app.panels.filesJson.includes(n), name);
     };
+    // the user's own deck that only the cloud keeps, and someone else's
+    fakeDb.set("shares/zzCloudOnly1", { name: "Vain pilvessä", md: "# Vain pilvessä\n\n## Dia\n", theme: "aurora", css: null, owner: "u1", files: [], created: 1000 });
+    fakeDb.set("shares/zzSomeoneElse", { name: "Toisen esitys", md: "# Toisen\n", owner: "u2", files: [], created: 1000 });
     await pc.goto(url);
     await started();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evgp-cloud-"));
@@ -2457,6 +2469,18 @@ try {
         && fakeDb.get("shares/" + dupId)?.md === dup.md && (fakeDb.get("shares/" + dupId)?.files || []).some((f) => f.path === "media/cloud-pic.png")
         && orig?.md.startsWith("# Alkuperäinen\n") && (orig.files || []).some((f) => f.path === "media/cloud-pic.png"),
       JSON.stringify({ at: dup.at, ids: dup.ids, md: dup.md.slice(0, 40) }));
+    // the user's own shares this browser does not keep: listed, and opened
+    // from the cloud
+    // (kept since the start of the PRO checks, so the list read at sign-in has them)
+    await pc.evaluate(() => window.__app.showTab("files"));
+    await pc.evaluate(() => window.__fileRequest("noop"));
+    const listed = await filesListed("cloud:zzCloudOnly1");
+    const other = await pc.evaluate(() => window.__app.panels.filesJson.includes("zzSomeoneElse"));
+    await pc.evaluate(() => window.__fileRequest("doc:cloud:zzCloudOnly1"));
+    await pc.waitForTimeout(2000);
+    const opened = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search) };
+    check("PRO: the user's cloud decks are listed with this browser's, and open from the cloud",
+      listed && !other && opened.md.startsWith("# Vain pilvessä"), JSON.stringify(opened));
     check("no page errors with PRO", perr.length === 0, perr.join(" | "));
     await ctx.close();
   }

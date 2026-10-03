@@ -531,7 +531,11 @@ class PresPanels {
         }
         ; the documents kept in this browser
         def dh:EVGElement (this.div("pf-hrow"))
-        dh.addChild((this.words("pf-h" (PresI18n.t("Presentations in this browser")))))
+        def listHead:string (PresI18n.t("Presentations in this browser"))
+        if (data.boolOr("mine" false)) {
+            listHead = (PresI18n.t("Your presentations"))
+        }
+        dh.addChild((this.words("pf-h" listHead)))
         dh.addChild((this.div("pn-grow")))
         this.button("pf-new" (PresI18n.t("New presentation")) "secondary" dh)
         body.addChild(dh)
@@ -761,6 +765,10 @@ class PresPanels {
             return row
         }
         this.act("doc" id (PresI18n.t("Open")) "secondary" row)
+        ; a deck only in the cloud is deleted once open (File → Delete)
+        if (d.boolOr("cloud" false)) {
+            return row
+        }
         def armed:boolean (filesArmed == ("deldoc" + (strfromcode 9) + id))
         if armed {
             this.act("deldoc" id (PresI18n.t("Delete?")) "primary" row)

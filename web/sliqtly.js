@@ -210,6 +210,18 @@ async function loadShare(id) {
   return snap.exists ? snap.data() : null;
 }
 
+// The signed-in user's own shares, newest first: [{ id, name, updated }]
+// (updated in ms). The rules let an owner list only a query on owner.
+async function listMine() {
+  if (!user) return [];
+  const { db } = await store();
+  const snap = await db.collection("shares").where("owner", "==", user.uid).limit(200).get();
+  const ms = (v) => (v && typeof v.toMillis === "function" ? v.toMillis() : 0);
+  return snap.docs
+    .map((d) => ({ id: d.id, name: d.data().name || "", updated: ms(d.data().updated) || ms(d.data().created) }))
+    .sort((a, b) => b.updated - a.updated);
+}
+
 // The signed-in user once the session from an earlier visit is known (null
 // when nobody is, or sign-in is not available here).
 let known = null;
@@ -383,5 +395,5 @@ async function readSheet(gviz, ask) {
   return rows.map((row) => Array.from({ length: width }, (_, i) => csvCell(row[i])).join(",")).join("\n") + "\n";
 }
 
-window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, readSheet, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true) };
+window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, listMine, readSheet, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true) };
 window.dispatchEvent(new Event("sliqtly:ready"));
