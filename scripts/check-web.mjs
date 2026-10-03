@@ -888,8 +888,8 @@ try {
       const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY, false, 1); a.pointerUp(); };
       press(find("tb-m-file-trigger"));
       const lines = all();
-      const ys = ["new", "openbox", "save", "aiClaude"].map((id) => find("tb-m-file-item-" + id).calculatedY);
-      const between = lines.length === 3 && lines.every((l, i) => l.calculatedY > ys[i] && l.calculatedY < ys[i + 1] && l.calculatedHeight === 1);
+      const ys = ["new", "openbox", "save", "aiClaude", "deleteDeck"].map((id) => find("tb-m-file-item-" + id).calculatedY);
+      const between = lines.length === 4 && lines.every((l, i) => l.calculatedY > ys[i] && l.calculatedY < ys[i + 1] && l.calculatedHeight === 1);
       for (;;) { if (!a.takeRequest()) break; }
       press(lines[0]);
       const reqs = [];
@@ -898,7 +898,43 @@ try {
       a.key("escape", false, false);
       return { n: lines.length, between, reqs, stillOpen };
     });
-    check("…the File menu is grouped by three lines, and a line takes no press", seps.between && seps.reqs.length === 0 && seps.stillOpen, JSON.stringify(seps));
+    check("…the File menu is grouped by four lines, and a line takes no press", seps.between && seps.reqs.length === 0 && seps.stillOpen, JSON.stringify(seps));
+
+    // File → Export: Markdown, PowerPoint, PDF and a zip of every file; File →
+    // Delete presentation… is red, last, and asks in the app's window first
+    const fx = await page.evaluate(async () => {
+      const a = window.__app;
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      const shut = () => { for (let n = 0; n < 3 && a.toolbar.openMenu() !== ""; n++) a.key("escape", false, false); };
+      const take = () => { const out = []; for (;;) { const r = a.takeRequest(); if (!r) break; out.push(r); } return out; };
+      shut();
+      take();
+      press(find("tb-m-file-trigger"));
+      press(find("tb-m-file-item-export"));
+      let row = null;
+      for (let n = 0; n < 40 && !row; n++) { row = find("tb-m-file-item-export-item-x-zip"); if (!row) await new Promise((r) => setTimeout(r, 100)); }
+      const c = find("tb-m-file-item-export-content");
+      const kids = c ? (c.children || []).map((k) => k.id.split("-item-").pop()) : [];
+      if (row) press(row);
+      const zip = take();
+      shut();
+      press(find("tb-m-file-trigger"));
+      const del = find("tb-m-file-item-deleteDeck");
+      const red = !!del && (del.className || "").includes("ui-dropdownmenu-item-destructive");
+      const rows = (find("tb-m-file-content")?.children || []).map((k) => k.id);
+      const last = !!del && rows[rows.length - 1] === del.id;
+      press(del);
+      const asked = take();
+      await window.__fileRequest("deletedeck");
+      const confirm = a.chart.isOpen && a.chart.mode === "confirm";
+      const ok = (() => { const w = (e) => { if (e.id === "cf-ok") return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return a.chart.isOpen ? w(a.chart.host.root) : null; })();
+      a.key("escape", false, false);
+      const after = take();
+      return { kids, zip, red, last, asked, confirm, okDanger: !!ok && (ok.className || "").includes("ui-button-danger"), closed: !a.chart.isOpen, after };
+    });
+    check("…File → Export lists .md, .pptx, .pdf and .zip, and the zip row is the page's ZIP button", fx.kids.join() === "x-save,x-pptx,x-pdf,x-zip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
+    check("…File → Delete presentation… is red and last, and asks first; Esc deletes nothing", fx.red && fx.last && fx.asked.includes("files:deletedeck") && fx.confirm && fx.okDanger && fx.closed && !fx.after.some((r) => r.startsWith("confirm:")), JSON.stringify(fx));
 
     // File → Recent: Browse all… first (the Files tab), a line, then the decks
     const recent = await page.evaluate(async () => {
