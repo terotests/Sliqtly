@@ -495,14 +495,17 @@ export function createServer(opts) {
 
   server.registerTool("write_workbook", {
     title: "Write a presentation's workbook",
-    description: "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text. Values only: formatting, formulas and column widths are not kept. Needs sign-in.",
+    description: "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text; a cell may be a formula { f: \"=SUM(C2:C13)\", v: 1234.5 }. Use this rather than sending an .xlsx as base64, which gets corrupted when long. Formatting, colours, filters and column widths are not kept. Needs sign-in.",
     inputSchema: {
       deck_id: z.string().describe("The id in the share link /s/<id>"),
       edit_key: z.string().optional().describe("edit_key from create_presentation; not needed when signed in as the presentation's owner"),
       path: z.string().describe("The workbook's path, e.g. data/budget.xlsx"),
       sheets: z.array(z.object({
         name: z.string().describe("Sheet name (at most 31 characters, none of \\ / : * ? [ ])"),
-        rows: z.array(z.array(z.union([z.string(), z.number(), z.null()]))).optional().describe("Rows of cell values, header row first"),
+        rows: z.array(z.array(z.union([z.string(), z.number(), z.null(), z.object({
+          f: z.string().describe("Excel formula, e.g. \"=SUM(C2:C13)\""),
+          v: z.union([z.string(), z.number()]).optional().describe("The value the formula gives, so Sliqtly can show it (Excel recalculates on opening)"),
+        })]))).optional().describe("Rows of cells, header row first: a string, a number, null, or { f, v } for a formula"),
         csv: z.string().optional().describe("The sheet as CSV text instead of rows"),
       })).min(1).max(20).describe("The workbook's sheets in order"),
     },
@@ -526,7 +529,7 @@ export function createServer(opts) {
     const { mine } = await editable(deck_id, edit_key);
     const file = { name, path: "data/" + name, type: XLSX_MIME, data };
     const saved = await store.update(deck_id, mine ? null : edit_key, { images: [file] });
-    const note = "Formatting and formulas are not kept. Renamed or removed sheets change the CSV names the deck reads; check the deck's charts and tables still name them.";
+    const note = "Formatting is not kept. Renamed or removed sheets change the CSV names the deck reads; check the deck's charts and tables still name them.";
     return withData(await updated(deck_id, saved, note), [file]);
   }));
 

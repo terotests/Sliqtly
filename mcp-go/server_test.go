@@ -1033,12 +1033,13 @@ func TestWriteWorkbookReplacesADecksWorkbook(t *testing.T) {
 	w := write(map[string]any{"sheets": []any{
 		map[string]any{"name": "Menot", "rows": []any{[]any{"Kuukausi", "Vuokra", "Sähkö"}, []any{"2026-01", 950, "42.5"}, []any{"2026-02", 950, nil}}},
 		map[string]any{"name": "Q & A", "csv": "a,b\n\"<x> & y\",2\n"},
+		map[string]any{"name": "Sum", "rows": []any{[]any{"Total", "Note"}, []any{map[string]any{"f": "=SUM(Menot!B2:B3)", "v": 1900}, map[string]any{"f": `="a"&"b"`, "v": "ab"}}, []any{map[string]any{"f": "=1+1"}}}},
 	}})
 	if w.IsError {
 		t.Fatal(textOf(w))
 	}
 	match(t, textOf(w), `data/risk\.xlsx: sheet "Menot" \(2 rows; columns "Kuukausi", "Vuokra", "Sähkö"\) read as data/risk-Menot\.csv`)
-	match(t, textOf(w), `Formatting and formulas are not kept`)
+	match(t, textOf(w), `Formatting is not kept`)
 	paths := []any{}
 	for _, x := range list(f.db.doc("shares/" + id)["files"]) {
 		paths = append(paths, mapOf(x)["path"])
@@ -1046,6 +1047,20 @@ func TestWriteWorkbookReplacesADecksWorkbook(t *testing.T) {
 	eq(t, paths, []string{"data/risk.xlsx"})
 	qa := sc(call(t, s, "read_file", map[string]any{"deck_id": id, "path": "data/risk.xlsx", "sheet": "Q & A"}))
 	eq(t, qa["rows"], [][]string{{"<x> & y", "2"}})
+	sum := sc(call(t, s, "read_file", map[string]any{"deck_id": id, "path": "data/risk.xlsx", "sheet": "Sum"}))
+	// the editor's reader works out a formula with no value given
+	eq(t, sum["rows"], [][]string{{"1900", "ab"}, {"2", ""}})
+	zr, err := zip.NewReader(bytes.NewReader(f.bucket.saved["shares/"+id+"/data/risk.xlsx"].data), int64(len(f.bucket.saved["shares/"+id+"/data/risk.xlsx"].data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, zf := range zr.File {
+		if zf.Name == "xl/worksheets/sheet3.xml" {
+			rc, _ := zf.Open()
+			x, _ := io.ReadAll(rc)
+			match(t, string(x), `<c r="A2"><f>SUM\(Menot!B2:B3\)</f><v>1900</v></c><c r="B2" t="str"><f>&quot;a&quot;&amp;&quot;b&quot;</f><v>ab</v></c>`)
+		}
+	}
 	menot := sc(call(t, s, "read_file", map[string]any{"deck_id": id, "path": "data/risk-Menot.csv"}))
 	eq(t, menot["rows"], [][]string{{"2026-01", "950", "42.5"}, {"2026-02", "950", ""}})
 	for _, bad := range []struct {

@@ -155,7 +155,7 @@ export async function loadDataFiles(list, fetchImpl = fetch, checkWorkbook = nul
     if (!data.length) throw new InputError(`File ${name} is empty.`);
     if (data.length > MAX_DATA) throw new InputError(`File ${name} is larger than 10 MB.`);
     if (ext === "xlsx" && checkWorkbook) {
-      try { checkWorkbook(data); } catch (e) { throw new InputError(`File ${name} is not a workbook Sliqtly can read: ${e.message}`); }
+      try { checkWorkbook(data); } catch (e) { throw new InputError(`File ${name} is not a workbook Sliqtly can read: ${e.message}. Long base64 is easily corrupted on the way: send the sheets with write_workbook instead (rows, formulas as { f, v }).`); }
     }
     out.push({ name, path: "data/" + name, type, data });
   }
