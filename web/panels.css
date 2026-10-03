@@ -167,3 +167,6 @@
 .pf-preview-img { border-radius: 4px; }
 .pf-preview-cap { font-size: 11px; color: #3f3f46; white-space: nowrap; }
 .pf-preview-hint { font-size: 11px; color: #a1a1aa; white-space: nowrap; }
+
+/* a placeholder is a hint, not a value: faded and italic */
+.theme-pn .ui-input-placeholder { color: #a1a1aa; font-family: Open Sans-Italic; }
