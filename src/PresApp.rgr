@@ -2601,7 +2601,12 @@ class PresApp {
         }
         ; a dialog, or a window over what is under the pointer, keeps the wheel
         def top:string (this.layerAt(x y))
-        if (((top == "dialog") || (top == "hint")) || (top == "chart")) {
+        if (top == "hint") {
+            hint.wheel(dy)
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        if ((top == "dialog") || (top == "chart")) {
             return true
         }
         if (panels.helpHas(x y)) {
@@ -2906,6 +2911,12 @@ class PresApp {
         if (chart.isOpen && (mode != "present")) {
             chart.type(s)
             this.afterChart()
+            return
+        }
+        ; a field of the popover (the emoji picker's search) has the keys
+        if ((hint.isOpen && (hint.hasKeys())) && (mode != "present")) {
+            hint.type(s)
+            this.afterHint()
             return
         }
         ; T: the diagram's tour on this slide, started or stopped
@@ -3720,7 +3731,50 @@ class PresApp {
     ; The page keeps a popover opened from the stage open while the pointer
     ; is elsewhere: a press outside closes it.
     fn hintPinned:boolean () {
-        return (hint.isOpen && hintFromStage)
+        return (hint.isOpen && (hintFromStage || (hint.kind == "emoji")))
+    }
+
+    ; --- the emoji picker -----------------------------------------------------------
+    ; ⌃⌘Space: EVGUI's emoji picker in the value popover's place, under the
+    ; caret. What is picked is written there (over a selection on one line)
+    ; as an ordinary edit. False when there is no editor to write into.
+    fn openEmojiAtCaret:boolean () {
+        if ((mode == "present") || (focus != "editor")) {
+            return false
+        }
+        if (this.filesListShowing()) {
+            return false
+        }
+        def line:int editor.sel.caret.line
+        def a:int editor.sel.caret.col
+        def b:int a
+        if (editor.sel.anchor.line == line) {
+            def c:int editor.sel.anchor.col
+            if (c < a) {
+                a = c
+            }
+            if (c > b) {
+                b = c
+            }
+        }
+        def x0:int (editor.caretViewX(tr line a))
+        def y0:int (editor.layout.caretPixelY(line))
+        def j:string ("{\"kind\":\"emoji\",\"name\":\"emoji\",\"value\":\"\",\"start\":" + (to_string a) + ",\"end\":" + (to_string b) + ",\"line\":" + (to_string line) + ",\"tab\":\"" + edTab + "\",\"x\":" + (to_string x0) + ",\"y\":" + (to_string y0) + ",\"h\":" + (to_string editor.layout.lineHeight) + "}")
+        this.closeHint()
+        return (this.openHint(j))
+    }
+
+    fn emojiIsOpen:boolean () {
+        return (hint.isOpen && (hint.kind == "emoji"))
+    }
+
+    ; Recent emojis, kept by the page between visits.
+    fn emojiRecent:string () {
+        return (hint.emoji.recentText())
+    }
+
+    fn setEmojiRecent:void (s:string) {
+        hint.emoji.setRecentText(s)
     }
 
     fn pickIsOn:boolean () {
@@ -3784,6 +3838,11 @@ class PresApp {
             def e:PresHintEdit (itemAt hint.edits i)
             if (hint.tab == edTab) {
                 this.replaceRange(e.line e.a e.b e.text)
+                ; an emoji: the caret after it, as typing it would leave it
+                if (hint.kind == "emoji") {
+                    editor.moveCaret(e.line (e.a + (strlen e.text)) false)
+                    this.syncEditor()
+                }
             }
             i = (i + 1)
         }

@@ -239,6 +239,47 @@ try {
   await page.keyboard.press("Backspace");
   check("and the document is back as it was", (await page.evaluate(() => window.__app.source().length)) === len0);
 
+  // ⌃⌘Space (Ctrl+Shift+Space off a Mac): EVGUI's emoji picker at the
+  // caret. Typing searches, Enter writes the emoji where the caret is (one
+  // edit: Ctrl+Z takes it back), Esc closes it, a click on a cell picks it.
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    await page.keyboard.press("Control+Shift+Space");
+    const open = await page.evaluate(() => window.__app.emojiIsOpen());
+    await page.keyboard.type("thumbs up");
+    await page.waitForTimeout(100);
+    await shot("emoji-picker.png");
+    const kept = await page.evaluate(() => window.__app.source());
+    await page.keyboard.press("Enter");
+    const src1 = await page.evaluate(() => window.__app.source());
+    const at = [...src0].findIndex((c, i) => c !== [...src1][i]);
+    const closed = !(await page.evaluate(() => window.__app.emojiIsOpen()));
+    check("the emoji key opens the picker", open);
+    check("…typing goes to its search, not the text", kept === src0);
+    check("…Enter writes the emoji at the caret and closes it", src1.length === src0.length + "👍️".length && src1.includes("👍️") && closed, JSON.stringify(src1.slice(Math.max(0, at - 5), at + 8)));
+    check("…and the caret is after it", await page.evaluate(() => { const a = window.__app; return a.currentLine().slice(0, a.caretCol()).endsWith("👍️"); }));
+    check("…Recent is kept by the browser", (await page.evaluate(() => localStorage.getItem("sliqtly.emoji.recent"))) === "👍️");
+    await page.keyboard.press("Control+z");
+    check("…Ctrl+Z takes it back", (await page.evaluate(() => window.__app.source())) === src0);
+    await page.keyboard.press("Control+Shift+Space");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Escape");
+    check("Esc closes the picker and writes nothing", !(await page.evaluate(() => window.__app.emojiIsOpen())) && (await page.evaluate(() => window.__app.source())) === src0);
+    await page.keyboard.press("Control+Shift+Space");
+    await page.evaluate(() => window.__app.hintJson());
+    const cell = await page.evaluate(() => {
+      const walk = (e) => { if (e.id === "hp-emoji-e-0") return e; for (const c of e.children || []) { const f = walk(c); if (f) return f; } return null; };
+      const el = walk(window.__app.hint.host.lastPage);
+      return el ? [el.calculatedX + el.calculatedWidth / 2, el.calculatedY + el.calculatedHeight / 2, window.__app.hint.emoji.emojiAt(0)] : null;
+    });
+    const r = await page.evaluate(() => document.getElementById("c").getBoundingClientRect().toJSON());
+    if (cell) await page.mouse.click(r.x + cell[0], r.y + cell[1]);
+    const src2 = await page.evaluate(() => window.__app.source());
+    check("a click on an emoji writes it", !!cell && src2.length === src0.length + cell[2].length && src2.includes(cell[2]), JSON.stringify(cell));
+    await page.keyboard.press("Control+z");
+    check("…and the document is back as it was", (await page.evaluate(() => window.__app.source())) === src0);
+  }
+
   const r = await page.evaluate(() => {
     const a = window.__app;
     const out = {};
