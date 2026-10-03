@@ -1,0 +1,282 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresRange.rgr — how far a length in the theme can sensibly go
+; ============================================================================
+;
+; A slider over `page { padding: 2.25in }` that runs to 20 inches spends
+; nearly all of its travel on values that leave nothing of a 13.3 × 7.5 inch
+; slide: a small move hides the whole table. The range of a length is not a
+; property of its unit; it is how much of the box the value eats, and the box
+; is the slide (or the element) it is written for.
+;
+; `PresRange.forLength(prop unit sel box)` answers with the slider's bounds
+; and step in the value's own unit, from what the property does to its box:
+;
+;   inset    the page's padding (a chart's: its own box): content is what is
+;            left inside, so at most a quarter of the side it eats — half of
+;            the side stays for the content
+;   space    margins, gaps, indents between blocks: a sixth of the side
+;   pad      a block's own padding (a cell, a code block): a twelfth
+;   stroke   a border: a thirty-sixth of the shorter side
+;   text     a font size: from 6pt to a sixth of the slide's height
+;   page     the page's own width and height
+;
+; The side is the slide's height for -top/-bottom, its width for
+; -left/-right and column gaps, and the shorter one when the value sets all
+; four. Nothing here knows of pixels on the screen or of the popover: the
+; editor passes the slide (and the element, when it is picked) in points.
+; ============================================================================
+
+; The box a value is measured against, in points.
+class PresRangeBox {
+    ; the slide
+    def slideW:double 960.0
+    def slideH:double 540.0
+    ; the element the value is for, when known (0: not)
+    def elemW:double 0.0
+    def elemH:double 0.0
+
+    Constructor () {
+    }
+
+    sfn slide:PresRangeBox (w:double h:double) {
+        def b (new PresRangeBox())
+        if ((w > 0.0) && (h > 0.0)) {
+            b.slideW = w
+            b.slideH = h
+        }
+        return b
+    }
+}
+
+class PresRange {
+    ; in the value's unit
+    def lo:double 0.0
+    def hi:double 100.0
+    def step:double 1.0
+    ; what the range was taken from (inset, space, pad, stroke, text, page, "")
+    def kind:string ""
+
+    Constructor () {
+    }
+
+    ; "min max step", as PresHint carries it
+    fn text:string () {
+        return ((PresRange.num(lo)) + " " + (PresRange.num(hi)) + " " + (PresRange.num(step)))
+    }
+
+    ; Points in one unit of a length; 0 for a unit that is not an absolute
+    ; length (em, %), which the layout does not read as one.
+    sfn ptPer:double (unit:string) {
+        if ((unit == "pt") || (unit == "")) { return 1.0 }
+        if (unit == "px") { return 0.75 }
+        if (unit == "in") { return 72.0 }
+        if (unit == "cm") { return (72.0 / 2.54) }
+        if (unit == "mm") { return (72.0 / 25.4) }
+        if (unit == "pc") { return 12.0 }
+        return 0.0
+    }
+
+    ; What the property does to its box.
+    sfn kindOf:string (prop:string sel:string) {
+        if ((prop == "font-size") || (prop == "title-font-size")) { return "text" }
+        if ((prop == "header-size") || (prop == "footer-size")) { return "text" }
+        if (((sel == "page") && ((prop == "width") || (prop == "height")))) { return "page" }
+        if ((prop == "border-width") || (prop == "outline-width")) { return "stroke" }
+        def isPad:boolean ((indexOf prop "padding") == 0)
+        if (isPad && (((sel == "page") || (sel == "deck")) || (PresRange.isChart(sel)))) { return "inset" }
+        if ((indexOf prop "margin") == 0) { return "space" }
+        if ((indexOf prop "gap") >= 0) { return "space" }
+        if ((prop == "max-height") || ((prop == "image-height") || ((prop == "header-image-height") || (prop == "footer-image-height")))) { return "space" }
+        if (isPad) {
+            ; an indent (a list's, a quote's) is space beside the block
+            if ((prop == "padding-left") && ((sel == "list") || ((sel == "ul") || ((sel == "ol") || (sel == "blockquote"))))) { return "space" }
+            return "pad"
+        }
+        return ""
+    }
+
+    sfn isChart:boolean (sel:string) {
+        if (sel == "chart") { return true }
+        def n:int (strlen sel)
+        return ((n > 6) && ((substring sel (n - 6) n) == " chart"))
+    }
+
+    ; "h", "w" or "" (both): which side of the box the property eats.
+    sfn axisOf:string (prop:string) {
+        def n:int (strlen prop)
+        if ((n > 4) && ((substring prop (n - 4) n) == "-top")) { return "h" }
+        if ((n > 7) && ((substring prop (n - 7) n) == "-bottom")) { return "h" }
+        if ((n > 5) && ((substring prop (n - 5) n) == "-left")) { return "w" }
+        if ((n > 6) && ((substring prop (n - 6) n) == "-right")) { return "w" }
+        if ((prop == "column-gap") || (prop == "width")) { return "w" }
+        if (((prop == "row-gap") || (prop == "title-gap")) || ((prop == "height") || ((indexOf prop "height") >= 0))) { return "h" }
+        return ""
+    }
+
+    ; The range of a length, or null when the property is not one this
+    ; knows how to measure (the caller keeps its own).
+    sfn forLength@(optional):PresRange (prop:string unit:string sel:string box:PresRangeBox) {
+        def per:double (PresRange.ptPer(unit))
+        def kind:string (PresRange.kindOf(prop sel))
+        if ((per <= 0.0) || ((strlen kind) == 0)) {
+            def none@(optional):PresRange
+            return none
+        }
+        ; the box: the element's own for a chart, the slide otherwise
+        def bw:double box.slideW
+        def bh:double box.slideH
+        if (((kind == "inset") && (PresRange.isChart(sel))) && ((box.elemW > 0.0) && (box.elemH > 0.0))) {
+            bw = box.elemW
+            bh = box.elemH
+        }
+        def axis:string (PresRange.axisOf(prop))
+        def side:double bw
+        if (axis == "h") {
+            side = bh
+        }
+        if ((axis == "") && (bh < bw)) {
+            side = bh
+        }
+        def short:double bw
+        if (bh < bw) {
+            short = bh
+        }
+        def loPt:double 0.0
+        def hiPt:double 0.0
+        if (kind == "inset") { hiPt = (side / 4.0) }
+        if (kind == "space") { hiPt = (side / 6.0) }
+        if (kind == "pad") { hiPt = (side / 12.0) }
+        if (kind == "stroke") { hiPt = (short / 36.0) }
+        if (kind == "text") {
+            loPt = 6.0
+            hiPt = (box.slideH / 6.0)
+        }
+        if (kind == "page") {
+            loPt = 72.0
+            hiPt = (side * 2.0)
+        }
+        def r (new PresRange())
+        r.kind = kind
+        r.step = (PresRange.niceStep(((hiPt - loPt) / per) unit))
+        r.lo = (PresRange.snap((loPt / per) r.step))
+        r.hi = (PresRange.snap((hiPt / per) r.step))
+        if (r.hi <= r.lo) {
+            r.hi = (r.lo + r.step)
+        }
+        def out@(optional):PresRange r
+        return out
+    }
+
+    ; A step that gives the slider about a hundred and fifty positions, at
+    ; 1, 2, 2.5 or 5 times a power of ten; never finer than a hundredth, nor
+    ; than a point or a pixel.
+    sfn niceStep:double (span:double unit:string) {
+        def raw:double (span / 150.0)
+        def p:double 0.01
+        while ((p * 10.0) <= raw) {
+            p = (p * 10.0)
+        }
+        def s:double p
+        if (raw > p) { s = (p * 2.0) }
+        if (raw > (p * 2.0)) { s = (p * 2.5) }
+        if (raw > (p * 2.5)) { s = (p * 5.0) }
+        if (raw > (p * 5.0)) { s = (p * 10.0) }
+        if (((unit == "pt") || ((unit == "px") || (unit == ""))) && (s < 1.0)) {
+            s = 1.0
+        }
+        return s
+    }
+
+    ; v rounded down to whole steps (an upper bound never above the edge)
+    sfn snap:double (v:double step:double) {
+        def n:int (to_int ((v / step) + 0.000001))
+        return ((to_double n) * step)
+    }
+
+    ; Up to three decimals, no trailing zeros.
+    sfn num:string (v:double) {
+        def c:int (to_int (((fabs v) * 1000.0) + 0.5))
+        def whole:int (idiv c 1000)
+        def frac:int (c - (whole * 1000))
+        def s:string (to_string whole)
+        if (frac > 0) {
+            def f:string (to_string frac)
+            while ((strlen f) < 3) {
+                f = ("0" + f)
+            }
+            while (((strlen f) > 0) && ((charAt f ((strlen f) - 1)) == 48)) {
+                f = (substring f 0 ((strlen f) - 1))
+            }
+            s = (s + "." + f)
+        }
+        if ((v < 0.0) && (c > 0)) {
+            s = ("-" + s)
+        }
+        return s
+    }
+
+    ; The selector of the rule a column of a line of the theme is in (""
+    ; outside any rule): `page` for the `padding` of `page {\n  padding: 1in }`.
+    sfn selectorAt:string (css:string line:int col:int) {
+        def lines:[string] (strsplit css "\n")
+        def upto:string ""
+        def i:int 0
+        while ((i < line) && (i < (array_length lines))) {
+            upto = (upto + (itemAt lines i) + "\n")
+            i = (i + 1)
+        }
+        if (line < (array_length lines)) {
+            def cur:string (itemAt lines line)
+            def c:int col
+            if (c > (strlen cur)) {
+                c = (strlen cur)
+            }
+            upto = (upto + (substring cur 0 c))
+        }
+        ; comments out, so a brace in one does not count
+        def t:string ""
+        def k:int 0
+        def n:int (strlen upto)
+        def inC:boolean false
+        while (k < n) {
+            def ch:int (charAt upto k)
+            if inC {
+                if (((ch == 42) && ((k + 1) < n)) && ((charAt upto (k + 1)) == 47)) {
+                    inC = false
+                    k = (k + 1)
+                }
+            } {
+                if (((ch == 47) && ((k + 1) < n)) && ((charAt upto (k + 1)) == 42)) {
+                    inC = true
+                    k = (k + 1)
+                } {
+                    t = (t + (strfromcode ch))
+                }
+            }
+            k = (k + 1)
+        }
+        def open:int (PresRange.lastAt(t "{"))
+        def close:int (PresRange.lastAt(t "}"))
+        if ((open < 0) || (close > open)) {
+            return ""
+        }
+        def a:int (close + 1)
+        def semi:int (PresRange.lastAt((substring t 0 open) ";"))
+        if (semi >= a) {
+            a = (semi + 1)
+        }
+        return (trim (substring t a open))
+    }
+
+    sfn lastAt:int (t:string what:string) {
+        def at:int -1
+        def from:int (indexOf t what)
+        while (from >= 0) {
+            at = from
+            from = (indexOfFrom t what (from + 1))
+        }
+        return at
+    }
+}

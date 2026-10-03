@@ -26,6 +26,7 @@
 .hp-unit { font-size: 12px; color: #71717a; white-space: nowrap; flex-shrink: 0; }
 .hp-foot { display: flex; flex-direction: row; align-items: center; width: 100%; padding-top: 8px; border-top: 1px solid #f4f4f5; }
 .hp-grow { flex-grow: 1; }
+.hp-xroom { width: 22px; min-width: 22px; height: 22px; flex-shrink: 0; }
 .hp-warnhead { padding-top: 0; border-top: 0px solid #ffffff; }
 .theme-hp .hp-x { height: 22px; width: 22px; min-width: 22px; padding: 0; flex-shrink: 0; border-color: #ffffff; }
 .hp-tip { font-size: 11px; color: #71717a; width: 100%; }

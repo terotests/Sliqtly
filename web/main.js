@@ -4060,7 +4060,10 @@ canvas.addEventListener("pointerdown", (ev) => {
       else closeHint();
     }, 0);
   } else if (where === "select") {
-    // a button or a band of the picked element: the app opened its popover
+    // a button or a band of the picked element: the app opened its popover,
+    // which stays until Esc, × or a press outside; a hover's timers are done
+    clearTimeout(hintTimer);
+    clearTimeout(hintCloseTimer);
     hint = null;
     hintKey = "";
   } else if (where !== "editor" && where !== "hint") {
@@ -4138,6 +4141,8 @@ function hintHover(x, y) {
     return;
   }
   hintTimer = setTimeout(() => {
+    // a card opened from the slide meanwhile (Style, a band) is not the hover's
+    if (app.hintPinned()) return;
     let h = null;
     try { h = JSON.parse(app.hintAt(x, y) || "null"); } catch (_) { h = null; }
     if (h && hintId(h) === hintKey && app.hintIsOpen()) {
@@ -4153,7 +4158,7 @@ function hintHover(x, y) {
 function scheduleHintClose() {
   clearTimeout(hintCloseTimer);
   hintCloseTimer = setTimeout(() => {
-    if (!overHint()) closeHint();
+    if (!overHint() && !app.hintPinned()) closeHint();
   }, 450);
 }
 
