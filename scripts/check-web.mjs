@@ -625,9 +625,39 @@ try {
   check("share offers a presentation link", /mode=show/.test(showUrl));
   check("the share dialog is drawn on the canvas; a copy button asks the page to copy", dlg.open && dlg.drawn > 20 && dlg.req === "copy:show" && dlg.closed && !dlg.html, JSON.stringify(dlg));
   const page3 = await browser.newPage({ viewport: { width: 1200, height: 760 } });
+  await page3.addInitScript(() => {
+    document.addEventListener("DOMContentLoaded", () => {
+      const el = document.getElementById("brandIntro");
+      const seen = new MutationObserver(() => {
+        if (el.hidden || window.__introKey !== undefined) return;
+        seen.disconnect();
+        window.__introKey = true;
+        window.__introName = el.querySelector(".name").getBoundingClientRect().height;
+        document.getElementById("keys").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+        window.__introSkipped = el.classList.contains("out");
+      });
+      seen.observe(el, { attributes: true });
+    });
+  });
   await page3.goto(showUrl.replace(/^https?:\/\/[^/]+/, url.replace(/\/$/, "")));
   await page3.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
-  await page3.waitForTimeout(300);
+  // a shared link opens with Sliqtly's intro (web/brand.js); a key
+  // skips it and is not taken as "next"
+  const intro = await page3.evaluate(() => ({
+    shown: window.__introKey === true,
+    name: window.__introName || 0,
+  }));
+  check("a shared link opens with the Sliqtly intro, the name large", intro.shown && intro.name >= 48, JSON.stringify(intro));
+  // the key comes the moment the intro shows (init script above: a slow
+  // page may take longer than the intro to answer a look from here)
+  await page3.waitForFunction(() => document.getElementById("brandIntro").hidden, null, { timeout: 20000 }).catch(() => {});
+  const skipped = await page3.evaluate(() => ({
+    skipped: window.__introSkipped === true,
+    hidden: document.getElementById("brandIntro").hidden,
+    mode: JSON.parse(window.__app.layoutJson()).mode,
+    slide: window.__app.selectedSlide ? window.__app.selectedSlide() : 0,
+  }));
+  check("a key skips the intro and the show starts from its first slide", skipped.skipped && skipped.hidden && skipped.mode === "present" && skipped.slide === 0, JSON.stringify(skipped));
   const shown = await page3.evaluate(() => ({
     mode: JSON.parse(window.__app.layoutJson()).mode,
     bar: getComputedStyle(document.getElementById("bar")).display,
@@ -642,6 +672,9 @@ try {
     const pageE = await browser.newPage({ viewport: { width: 1200, height: 760 } });
     await pageE.goto(showUrl.replace(/^https?:\/\/[^/]+/, url.replace(/\/$/, "")));
     await pageE.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    // Sliqtly's intro skipped with a tap, so the show begins
+    await pageE.evaluate(() => { if (!document.getElementById("brandIntro").hidden) window.dispatchEvent(new PointerEvent("pointerdown")); });
+    await pageE.waitForFunction(() => JSON.parse(window.__app.layoutJson()).mode === "present", null, { timeout: 20000 });
     await pageE.evaluate(() => { const a = window.__app; for (let i = 0; i < 200 && !a.atEnd(); i += 1) a.next(); });
     await pageE.waitForFunction(() => !document.getElementById("endPanel").hidden, null, { timeout: 8000 }).catch(() => {});
     const end = await pageE.evaluate(() => ({ shown: !document.getElementById("endPanel").hidden, exit: document.getElementById("endExit").textContent }));
@@ -2888,6 +2921,15 @@ try {
     const opened = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search) };
     check("PRO: the user's cloud decks are listed with this browser's, and open from the cloud",
       listed && !other && opened.md.startsWith("# Vain pilvessä"), JSON.stringify(opened));
+    // every shared deck opens with Sliqtly's intro (web/brand.js), a PRO
+    // owner's too, and the show begins when it ends by itself
+    await pc.goto(url.replace(/\/$/, "") + "/s/zzSomeoneElse");
+    await pc.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const proShare = await pc.evaluate(() => ({ intro: !document.getElementById("brandIntro").hidden, viewer: document.body.classList.contains("viewer") }));
+    check("a PRO owner's share opens with the intro too", proShare.viewer && proShare.intro, JSON.stringify(proShare));
+    await pc.waitForFunction(() => document.getElementById("brandIntro").hidden, null, { timeout: 20000 }).catch(() => {});
+    const after = await pc.evaluate(() => ({ intro: !document.getElementById("brandIntro").hidden, mode: JSON.parse(window.__app.layoutJson()).mode }));
+    check("the intro ends by itself and the show begins", !after.intro && after.mode === "present", JSON.stringify(after));
     check("no page errors with PRO", perr.length === 0, perr.join(" | "));
     await ctx.close();
   }

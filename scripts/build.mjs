@@ -48,7 +48,7 @@ export function build({ ranger } = {}) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
   };
-  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "versions.js", "versions-ui.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "versions.js", "versions-ui.js", "brand.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
   // versions and deltas (web/versions.js): RangerDiff's built module
   copy(path.join(ensureRangerDiff(), "dist", "rangerdiff.mjs"), path.join(distDir, "rangerdiff.mjs"));
   // the interface in other languages (web/i18n.js)
@@ -98,7 +98,7 @@ export function build({ ranger } = {}) {
   // Every URL the page loads carries the hash of the build, so a reload
   // never mixes an old script with a new one.
   const h = crypto.createHash("sha1");
-  for (const f of ["pres_app.js", "pres_data.js", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "versions.js", "versions-ui.js", "rangerdiff.mjs", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css", "ui.css", "skins/ui-retro.css", "skins/retro.css", "gl/evg-webgl.js", "gl/evg-a11y.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
+  for (const f of ["pres_app.js", "pres_data.js", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "versions.js", "versions-ui.js", "brand.js", "rangerdiff.mjs", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css", "ui.css", "skins/ui-retro.css", "skins/retro.css", "gl/evg-webgl.js", "gl/evg-a11y.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
   for (const f of fs.readdirSync(path.join(distDir, "themes"))) h.update(fs.readFileSync(path.join(distDir, "themes", f)));
   for (const f of fs.readdirSync(path.join(distDir, "i18n"))) h.update(fs.readFileSync(path.join(distDir, "i18n", f)));
   const stamp = h.digest("hex").slice(0, 10);
