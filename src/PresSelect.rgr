@@ -736,9 +736,10 @@ class PresSelect {
         return ((PresCascade.of((PresHelp.noComments(css)))).element(sel classes ""))
     }
 
-    ; "Edit content" makes sense for a block of the Markdown, not the page.
+    ; Every pick has a first button: "Edit content" for a block of the
+    ; Markdown, "Document settings" for the whole page.
     fn hasContent:boolean () {
-        return (sel != "page")
+        return true
     }
 
     ; The band's value as the theme writes it.
@@ -930,6 +931,9 @@ class PresSelect {
         }
         ; the two buttons, over its top left corner (inside when no room)
         def ct:string (PresI18n.t("Edit content"))
+        if (sel == "page") {
+            ct = (PresI18n.t("Document settings"))
+        }
         def stt:string (PresI18n.t("Style"))
         cw = 0.0
         if (this.hasContent()) {

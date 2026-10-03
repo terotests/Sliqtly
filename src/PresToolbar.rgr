@@ -242,6 +242,9 @@ class PresToolbar {
         if (id == "settings") {
             return "settings"
         }
+        if (id == "docset") {
+            return "docset"
+        }
         if (id == "browse") {
             return "showtab:files"
         }
@@ -544,6 +547,7 @@ class PresToolbar {
             file.addItem("aiClaude" (PresI18n.t("Edit in Claude…")) false)
             file.addItem("aiChatgpt" (PresI18n.t("Edit in ChatGPT…")) false)
             file.addSeparator()
+            file.addItem("docset" (PresI18n.t("Document settings…")) false)
             file.addItem("settings" (PresI18n.t("Settings…")) false)
             file.addSeparator()
             file.addItem("deleteDeck" (PresI18n.t("Delete presentation…")) false)
