@@ -1477,6 +1477,46 @@ try {
     check("a pasted sheet link asks first, then opens Link live data before anything is pasted", res.dialog.asked && res.dialog.open && res.dialog.live && res.dialog.rows === 4 && !res.dialog.pasted, JSON.stringify(res.dialog));
     check("…and makes a chart that reads the sheet (no copied values), drawn", res.fence && res.bars === 3, JSON.stringify(res));
   }
+  // …or a table that reads the sheet live, paged on its slide
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    let body = '"Kuukausi","Km"\n' + Array.from({ length: 12 }, (_, i) => `"K${i}","${100 + i}"`).join("\n") + "\n";
+    const route = (r) => r.fulfill({ status: 200, contentType: "text/csv", headers: { "access-control-allow-origin": "*" }, body });
+    await page.context().route(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    const link = "https://docs.google.com/spreadsheets/d/SHEET3/edit?gid=0#gid=0";
+    const texts = () => page.evaluate(() => { const a = window.__app; const u = a.deck.tables[0]; if (!u) return null; a.selectSlide(u.slide); return { pages: u.pages(), t: JSON.parse(a.stageJson()).list.cmds.filter((c) => c.k === 3).map((c) => c.text) }; });
+    const made = await page.evaluate(async (link) => {
+      const a = window.__app;
+      a.setSource("# D\n\n## Km\n\n");
+      a.showTab("md");
+      a.editor.moveCaret(4, 0, false);
+      const keys = document.getElementById("keys");
+      keys.focus();
+      const dt = new DataTransfer();
+      dt.setData("text/plain", link);
+      keys.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+      let card = null;
+      for (let i = 0; i < 50 && !(card = document.querySelector("#gLink button.primary")); i += 1) await new Promise((r) => setTimeout(r, 100));
+      if (card) card.click();
+      for (let i = 0; i < 50 && !(a.shareIsOpen() && a.panels.imp && a.panels.imp.rows === 12); i += 1) await new Promise((r) => setTimeout(r, 100));
+      a.panels.requests.push("data:table");
+      a.takePanels();
+      window.__handleRequests && window.__handleRequests();
+      await new Promise((r) => setTimeout(r, 800));
+      return a.source();
+    }, link);
+    const first = await texts();
+    // the sheet changes: R reads it again and the table follows
+    body = '"Kuukausi","Km"\n"Uusi","7"\n';
+    await page.evaluate(() => document.getElementById("vData").click());
+    let second = null;
+    for (let i = 0; i < 30; i++) { await page.waitForTimeout(100); second = await texts(); if (second && second.t.includes("Uusi")) break; }
+    await page.context().unroute(/^https:\/\/docs\.google\.com\/spreadsheets\//, route);
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+    const res = { fence: /```table\nhttps:\/\/docs\.google\.com\/spreadsheets\/d\/SHEET3/.test(made), copied: /data\/[^\n]*\.csv/.test(made.split("```table")[1] || ""), first: first && { pages: first.pages, k0: first.t.includes("K0"), k11: first.t.includes("K11") }, refreshed: !!second && second.t.includes("Uusi") };
+    check("…or makes a table that reads the sheet live, paged on its slide", res.fence && !res.copied && res.first && res.first.pages === 2 && res.first.k0 && !res.first.k11, JSON.stringify(res));
+    check("…and a re-read sheet redraws the table", res.refreshed, JSON.stringify(res));
+  }
   // …and "Paste as text" on that question only pastes the link
   {
     const src0 = await page.evaluate(() => window.__app.source());
