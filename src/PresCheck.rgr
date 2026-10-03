@@ -4,6 +4,7 @@ Import "PresTimeline.rgr"
 Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
 Import "PresDocSettings.rgr"
+Import "PresHints.rgr"
 
 class PresCheck {
     def fails:int 0
@@ -767,6 +768,62 @@ class PresCheck {
         this.ok(((PresDocSettings.quote("plain words")) == "plain words") "docset: plain value unquoted")
     }
 
+    ; A length's slider runs over what the slide can take: the page's
+    ; padding on a 960 × 540 slide stops where half of the height is left.
+    fn ranges:void () {
+        def box:PresRangeBox (PresRangeBox.slide(960.0 540.0))
+        def pin@(optional):PresRange (PresRange.forLength("padding" "in" "page" box))
+        this.ok((!null? pin) "page padding has a range")
+        if (null? pin) {
+            return
+        }
+        def pi:PresRange (unwrap pin)
+        this.ok((pi.kind == "inset") ("page padding eats the slide: " + pi.kind))
+        this.ok((((pi.hi * 72.0) <= 135.0) && ((pi.hi * 72.0) > 120.0)) ("page padding up to a quarter of the height: " + (pi.text())))
+        this.ok(((pi.step > 0.0) && (((pi.hi - pi.lo) / pi.step) >= 60.0)) ("and fine enough to aim: " + (pi.text())))
+        def ppt:PresRange (unwrap (PresRange.forLength("padding" "pt" "page" box)))
+        this.ok(((ppt.hi == 135.0) && (ppt.step == 1.0)) ("in points: " + (ppt.text())))
+        ; the side the property eats
+        def pl:PresRange (unwrap (PresRange.forLength("padding-left" "pt" "page" box)))
+        this.ok((pl.hi == 240.0) ("left padding from the width: " + (pl.text())))
+        def tall:PresRangeBox (PresRangeBox.slide(540.0 960.0))
+        def pt:PresRange (unwrap (PresRange.forLength("padding" "pt" "page" tall)))
+        this.ok((pt.hi == 135.0) ("a portrait slide: the shorter side: " + (pt.text())))
+        ; spacing between blocks, a block's own padding, a border, text
+        def mt:PresRange (unwrap (PresRange.forLength("margin-top" "pt" "heading" box)))
+        this.ok(((mt.kind == "space") && (mt.hi == 90.0)) ("heading space above: " + (mt.text())))
+        def cell:PresRange (unwrap (PresRange.forLength("padding-top" "pt" "table" box)))
+        this.ok(((cell.kind == "pad") && (cell.hi == 45.0)) ("table cell padding: " + (cell.text())))
+        def ind:PresRange (unwrap (PresRange.forLength("padding-left" "pt" "list" box)))
+        this.ok((ind.kind == "space") ("a list indent is space: " + ind.kind))
+        def bw:PresRange (unwrap (PresRange.forLength("border-width" "pt" "blockquote" box)))
+        this.ok((bw.hi == 15.0) ("a quote bar: " + (bw.text())))
+        def fs:PresRange (unwrap (PresRange.forLength("font-size" "pt" "h1" box)))
+        this.ok(((fs.lo == 6.0) && (fs.hi == 90.0)) ("text size: " + (fs.text())))
+        ; a chart's padding is of the chart's own box when it is picked
+        def cb:PresRangeBox (PresRangeBox.slide(960.0 540.0))
+        cb.elemW = 400.0
+        cb.elemH = 200.0
+        def cp:PresRange (unwrap (PresRange.forLength("padding" "pt" "chart" cb)))
+        this.ok((cp.hi == 50.0) ("chart padding from the chart: " + (cp.text())))
+        def cp2:PresRange (unwrap (PresRange.forLength("padding" "pt" "#sales chart" cb)))
+        this.ok((cp2.hi == 50.0) "a heading's charts too")
+        ; units the layout does not read as lengths keep their own range
+        this.ok((null? (PresRange.forLength("padding" "em" "page" box))) "em is left to the caller")
+        this.ok((null? (PresRange.forLength("line-height" "" "p" box))) "line-height is not a length")
+        ; the rule a declaration is in
+        def css:string "/* page { x } */\npage {\n  padding: 2in;\n}\nh2 { color: red; margin-top: 4pt }\n"
+        this.ok(((PresRange.selectorAt(css 2 4)) == "page") ("rule of a line: " + (PresRange.selectorAt(css 2 4))))
+        this.ok(((PresRange.selectorAt(css 4 22)) == "h2") "rule on the same line")
+        this.ok(((PresRange.selectorAt(css 0 5)) == "") "a comment is no rule")
+        this.ok(((PresRange.selectorAt(css 4 1)) == "") "between rules")
+        ; and through the hint the popover gets
+        def j:string (PresHints.forLineIn("css" "  padding: 2.25in;" 12 false "page" box))
+        this.ok(((indexOf j "\"max\":1.86") > 0) ("hint carries the range: " + j))
+        def j2:string (PresHints.forLine("css" "  padding: 2.25in;" 12 false))
+        this.ok(((indexOf j2 "\"max\":20") < 0) ("no 20 inch padding anywhere: " + j2))
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -776,6 +833,7 @@ class PresCheck {
         c.figures()
         c.listFigures()
         c.docSettings()
+        c.ranges()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"
