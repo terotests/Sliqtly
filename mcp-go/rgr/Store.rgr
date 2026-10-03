@@ -10,7 +10,7 @@
 ; Without cloud storage ("link") nothing is kept: the deck travels in the link.
 
 Import "McpHost.rgr"
-Import "Json.rgr"
+Import "McpJson.rgr"
 Import "Deck.rgr"
 
 class Created {

@@ -10,7 +10,7 @@
 ; an assistant sees the values and the names a deck's charts and tables see.
 
 Import "McpHost.rgr"
-Import "Json.rgr"
+Import "McpJson.rgr"
 Import "Deck.rgr"
 
 class SheetRow {

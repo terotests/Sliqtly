@@ -17,7 +17,7 @@
 ; Node server writes, so either server can finish a sign-in the other began.
 
 Import "McpHost.rgr"
-Import "Json.rgr"
+Import "McpJson.rgr"
 Import "Deck.rgr"
 
 ; what an endpoint answers: a redirect, plain text, or JSON

@@ -4,7 +4,7 @@
 ; ```vega-lite chart of a deck pointed at live data, the rest of its spec kept.
 
 Import "McpHost.rgr"
-Import "Json.rgr"
+Import "McpJson.rgr"
 
 ; a ```vega-lite fence: its line numbers, the spec's text and the title of
 ; the slide it is on

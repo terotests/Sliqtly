@@ -5,7 +5,7 @@
 ; stands alone, so any instance can answer any request.
 
 Import "McpHost.rgr"
-Import "Json.rgr"
+Import "McpJson.rgr"
 Import "Tools.rgr"
 
 class Mcp {
