@@ -15,6 +15,7 @@
 // are random; Firestore keeps only their SHA-256, under mcp_oauth/…, which no
 // client rule reaches.
 
+import { publicFetch } from "./deck.js";
 import { hashKey, shortId } from "./store.js";
 
 export const SCOPE = "decks";
@@ -54,10 +55,6 @@ function sameRedirect(registered, given) {
   } catch { return false; }
 }
 
-function privateHost(h) {
-  return /^(localhost|127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[)/.test(h) || h.endsWith(".internal") || h.endsWith(".local");
-}
-
 export function createOAuth({ db, verifyIdToken, fetchImpl = fetch, now = () => Date.now() }) {
   const col = (name) => db.collection(`mcp_oauth_${name}`);
 
@@ -65,11 +62,12 @@ export function createOAuth({ db, verifyIdToken, fetchImpl = fetch, now = () => 
     if (/^https:\/\//.test(clientId)) {
       // a client ID metadata document: the id is the URL of its metadata
       const u = new URL(clientId);
-      if (privateHost(u.hostname)) return null;
-      const res = await fetchImpl(u, { signal: AbortSignal.timeout(8000), headers: { accept: "application/json" } });
-      if (!res.ok) return null;
-      const text = await res.text();
-      if (text.length > 20000) return null;
+      let got;
+      try { got = await publicFetch(u, fetchImpl, { max: 20000, timeout: 8000, headers: { accept: "application/json" } }); } catch { return null; }
+      if (!got.res.ok) return null;
+      const buf = await got.bytes();
+      if (!buf) return null;
+      const text = buf.toString("utf8");
       let meta;
       try { meta = JSON.parse(text); } catch { return null; }
       if (meta.client_id !== clientId || !Array.isArray(meta.redirect_uris)) return null;

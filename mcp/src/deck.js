@@ -1,5 +1,7 @@
 // Checks on what a model sends, before anything is stored.
 
+import dns from "node:dns/promises";
+
 export const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "corporate", "editorial"];
 export const MAX_MD = 300 * 1024;
 export const MAX_CSS = 100 * 1024;
@@ -60,24 +62,70 @@ export function warnings(md, imageNames, storedNames = []) {
   return out;
 }
 
-function privateHost(host) {
-  const h = host.toLowerCase().replace(/^\[|\]$/g, "");
+export function privateHost(host) {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
   return h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h.endsWith(".local")
-    || /^(127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h)
-    || h === "::1" || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80");
+    || /^(127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(h)
+    || h === "::1" || h === "::" || h.startsWith("::ffff:") || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80");
+}
+
+// The name's addresses, when the real network is used: a public name that
+// points at a private address (127.0.0.1.nip.io, a cloud metadata server)
+// is refused like the address itself. A test's fetchImpl skips this.
+async function resolvesPrivate(host, fetchImpl) {
+  if (fetchImpl !== globalThis.fetch) return false;
+  let all;
+  try { all = await dns.lookup(host.replace(/^\[|\]$/g, ""), { all: true }); } catch { return false; }
+  return all.some((a) => privateHost(a.address));
+}
+
+// GET a public https URL: every redirect is checked like the first address,
+// and at most `max` bytes are read whatever the server claims.
+export async function publicFetch(raw, fetchImpl, { max, timeout = 15000, headers = {} }) {
+  let u = raw instanceof URL ? raw : new URL(raw);
+  const signal = AbortSignal.timeout(timeout);
+  for (let hop = 0; hop <= 5; hop++) {
+    if (u.protocol !== "https:" || privateHost(u.hostname) || await resolvesPrivate(u.hostname, fetchImpl)) throw new InputError("only public https URLs are fetched");
+    const res = await fetchImpl(u, { signal, headers, redirect: "manual" });
+    const to = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+    if (!to) return { res, bytes: () => readCapped(res, max) };
+    try { await res.body?.cancel(); } catch { /* nothing to drop */ }
+    u = new URL(to, u);
+  }
+  throw new InputError("too many redirects");
+}
+
+async function readCapped(res, max) {
+  if (Number(res.headers.get("content-length") || 0) > max) return null;
+  if (!res.body) return Buffer.alloc(0);
+  const parts = [];
+  let size = 0;
+  for await (const chunk of res.body) {
+    size += chunk.length;
+    if (size > max) { try { await res.body.cancel(); } catch { /* already closed */ } return null; }
+    parts.push(chunk);
+  }
+  return Buffer.concat(parts.map((p) => Buffer.from(p)));
 }
 
 async function fetchBytes(raw, label, fetchImpl, max, accept) {
   let u;
   try { u = new URL(raw); } catch { throw new InputError(`${label}: "${raw}" is not a URL.`); }
-  if (u.protocol !== "https:" || privateHost(u.hostname)) throw new InputError(`${label}: only public https URLs are fetched.`);
-  const res = await fetchImpl(u, { signal: AbortSignal.timeout(15000), headers: { "user-agent": "Sliqtly-MCP/1.0" } });
+  let got;
+  try {
+    got = await publicFetch(u, fetchImpl, { max, headers: { "user-agent": "Sliqtly-MCP/1.0" } });
+  } catch (e) {
+    if (e instanceof InputError) throw new InputError(`${label}: ${e.message}.`);
+    throw e;
+  }
+  const { res } = got;
   if (!res.ok) throw new InputError(`${label}: ${u.hostname} answered ${res.status}.`);
   const ct = (res.headers.get("content-type") || "").split(";")[0].trim();
   const why = accept(ct);
   if (why) throw new InputError(`${label}: the URL gave ${ct}, ${why}.`);
-  if (Number(res.headers.get("content-length") || 0) > max) throw new InputError(`${label} is larger than ${max / 1024 / 1024} MB.`);
-  return { data: Buffer.from(await res.arrayBuffer()), ct };
+  const data = await got.bytes();
+  if (!data) throw new InputError(`${label} is larger than ${max / 1024 / 1024} MB.`);
+  return { data, ct };
 }
 
 // Data files (.xlsx, .csv, .tsv, .json, .txt) as { name, path: "data/<name>",

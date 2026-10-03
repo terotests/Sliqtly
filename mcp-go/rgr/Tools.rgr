@@ -653,7 +653,7 @@ class Tools {
             g.put("content" (Tools.text((host_asset host "guide.md"))))
             return g
         }
-        if ((name == "create_presentation") || (name == "update_presentation")) {
+        if (((name == "create_presentation") || (name == "update_presentation")) || (name == "bind_chart_data")) {
             def why:string (host_rate_limit host caller.who)
             if ((strlen why) > 0) {
                 return (Tools.fail(why))

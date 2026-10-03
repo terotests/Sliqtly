@@ -546,3 +546,26 @@ test("warns about text that likely does not stand out from its background pictur
     await t.close();
   }
 });
+
+test("fetched URLs: redirects are checked, bodies are capped", async () => {
+  const { loadImages, publicFetch } = await import("../src/deck.js");
+  const big = new Uint8Array(6 * 1024 * 1024);
+  const f = async (url) => {
+    const u = String(url);
+    if (u === "https://images.test/to-metadata") return new Response(null, { status: 302, headers: { location: "http://169.254.169.254/computeMetadata/v1/" } });
+    if (u === "https://images.test/to-local") return new Response(null, { status: 301, headers: { location: "https://localhost/x.png" } });
+    if (u === "https://images.test/to-cat") return new Response(null, { status: 302, headers: { location: "/cat.png" } });
+    if (u === "https://images.test/cat.png") return new Response(PNG, { headers: { "content-type": "image/png" } });
+    if (u === "https://images.test/loop") return new Response(null, { status: 302, headers: { location: "/loop" } });
+    // no content-length: the size is only known by reading
+    if (u === "https://images.test/big.png") return new Response(new ReadableStream({ start(c) { c.enqueue(big); c.close(); } }), { headers: { "content-type": "image/png" } });
+    return new Response("no", { status: 404 });
+  };
+  await assert.rejects(loadImages([{ name: "a.png", url: "https://images.test/to-metadata" }], f), /only public https URLs/);
+  await assert.rejects(loadImages([{ name: "a.png", url: "https://images.test/to-local" }], f), /only public https URLs/);
+  await assert.rejects(loadImages([{ name: "a.png", url: "https://images.test/loop" }], f), /too many redirects/);
+  await assert.rejects(loadImages([{ name: "a.png", url: "https://images.test/big.png" }], f), /larger than 5 MB/);
+  const [cat] = await loadImages([{ name: "a.png", url: "https://images.test/to-cat" }], f);
+  assert.equal(cat.data.length, PNG.length);
+  await assert.rejects(publicFetch("https://localhost./x", f, { max: 10 }), /only public https URLs/);
+});

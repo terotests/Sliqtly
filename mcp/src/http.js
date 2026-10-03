@@ -22,6 +22,9 @@ export function rateLimiter({ max = 60, windowMs = 10 * 60 * 1000 } = {}) {
   };
 }
 
+// the tools that store something, counted by the limiter
+const WRITES = new Set(["create_presentation", "update_presentation", "bind_chart_data"]);
+
 // The site's own addresses: the OAuth issuer and the resource follow the
 // one the client used, so both domains work.
 const SITES = ["https://sliqtly.com", "https://sliqtly.web.app"];
@@ -91,7 +94,7 @@ export function createApp({ store, baseUrl, fetchImpl, oauth = null, limiter = r
     const server = createServer({
       store, baseUrl, fetchImpl, user,
       signIn: oauth ? `${originOf(req, baseUrl, trustHost)}/.well-known/oauth-protected-resource/mcp` : null,
-      limit: (kind) => (kind === "create_presentation" || kind === "update_presentation" ? limiter(user ? `uid:${user.uid}` : ip) : null),
+      limit: (kind) => (WRITES.has(kind) ? limiter(user ? `uid:${user.uid}` : ip) : null),
     });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on("close", () => { transport.close(); server.close(); });
