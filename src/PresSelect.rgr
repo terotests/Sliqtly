@@ -109,6 +109,10 @@ class PresSelect {
     def oy:double 0.0
     def ow:double 0.0
     def oh:double 0.0
+    ; how far up and down the pick and its handles reach on the screen: a
+    ; popover opened from it goes above or under that, not over the element
+    def reachTop:double 0.0
+    def reachBottom:double 0.0
 
     Constructor () {
     }
@@ -931,6 +935,10 @@ class PresSelect {
             lbx = (ox + 8.0)
         }
         root.addChild((PresSelect.pill("sel-badge" "sel-badge" lab lbx lby lbw 18.0)))
+        reachBottom = (oy + oh)
+        if ((lby + 18.0) > reachBottom) {
+            reachBottom = (lby + 18.0)
+        }
         ; the two buttons, over its top left corner (inside when no room)
         def ct:string (PresI18n.t("Edit content"))
         def stt:string (PresI18n.t("Style"))
@@ -967,6 +975,10 @@ class PresSelect {
             cx = (loX + 4.0)
         }
         cy = by
+        reachTop = oy
+        if (by < reachTop) {
+            reachTop = by
+        }
         if (cw > 0.0) {
             def cc:string "sel-btn"
             if (hot == "content") {

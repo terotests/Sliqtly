@@ -868,6 +868,11 @@ try {
     a.pointerDown(b.sx + b.sw / 2, b.sy + b.sh / 2, false, 1);
     a.pointerUp();
     out.band = [a.edTab, a.hint.kind, a.hint.name, a.hintPinned(), a.hint.ax > r.x - 1];
+    // …and the card stays off the element: under, over or beside it
+    a.hintJson();
+    const card = a.hint.cardEl();
+    const ox = a.pick.ox, oy = a.pick.oy, ow = a.pick.ow, oh = a.pick.oh;
+    out.offElement = card.calculatedY >= oy + oh || card.calculatedY + card.calculatedHeight <= oy || card.calculatedX >= ox + ow || card.calculatedX + card.calculatedWidth <= ox;
     a.closeHint();
     // a list item: its line in the Markdown
     a.showTab("md");
@@ -880,13 +885,25 @@ try {
     a.setFocus("stage");
     a.key("escape", false, false);
     out.cleared = !a.pick.on;
+    // a press off the slide, and playing, let it go too
+    click(at("Kappale"));
+    const sa = a.stageArea;
+    a.pointerDown(sa.x + 4, sa.y + sa.h - 4, false, 1);
+    a.pointerUp();
+    out.offSlide = !a.pick.on;
+    click(at("Kappale"));
+    a.play();
+    out.onPlay = !a.pick.on && a.pickJson() === "";
+    a.stop();
     a.setSource(src0);
     a.setStyleSheet(css0);
     return out;
   });
   check("a click on a heading picks it with the headings' margins as bands", pk.head[0] === "h2" && pk.head[1] === "heading:margin-top= heading:margin-bottom=" && pk.drawn, JSON.stringify(pk.head));
   check("…its Style lists h2's and all headings' properties, set and not", pk.style.join(",") === "true,selector,true" && pk.styleProps.includes("h2>font-size=") && pk.styleProps.includes("heading>margin-top=") && pk.styleProps.some((p) => p.endsWith("+")), JSON.stringify(pk.styleProps));
-  check("…a band opens its value in the theme, next to the slide", pk.band.join(",") === "css,number,margin-bottom,true,true", JSON.stringify(pk.band));
+  check("…a band opens its value in the theme, next to the slide", pk.band.join(",") === "css,number,heading › margin-bottom,true,true", JSON.stringify(pk.band));
+  check("…and its card does not cover the element", pk.offElement === true);
+  check("…a press off the slide or Play lets the pick go", pk.offSlide === true && pk.onPlay === true, JSON.stringify([pk.offSlide, pk.onPlay]));
   check("a list item is picked as li (with list and the document's text)", pk.li.join("|") === "li|li list document" && pk.liContent.join(",") === "md,5,0,5,7", JSON.stringify([pk.li, pk.liContent]));
   check("…a paragraph with {.lead} gets the class's rule too, and Esc lets go", pk.p.join("|") === "p|p .lead document" && pk.cleared, JSON.stringify([pk.p, pk.cleared]));
 
