@@ -158,6 +158,13 @@ operators {
             go ( (e 1) ".XlsxSheets(" (e 2) ")" )
         }
     }
+    ; a workbook of values from [{name, rows: [[string|number|null]]}] (JSON),
+    ; kept as bytes: {"handle":n,"size":n} (../xlsxwrite.go)
+    host_xlsx_write _:string (h:McpHost sheets:string) {
+        templates {
+            go ( (e 1) ".XlsxWrite(" (e 2) ")" )
+        }
+    }
     ; the handle's bytes as text
     host_text _:string (h:McpHost handle:int) {
         templates {
