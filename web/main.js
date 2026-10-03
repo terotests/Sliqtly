@@ -842,7 +842,7 @@ function retitled(md, name) {
 function sampleChartSlide() {
   const rows = [[t("Q1"), 28], [t("Q2"), 55], [t("Q3"), 43], [t("Q4"), 91]]
     .map(([a, b]) => `    {"${t("quarter")}": ${JSON.stringify(a)}, "${t("sales")}": ${b}}`).join(",\n");
-  return "## " + t("Chart") + "\n\n```vega-lite\n{\n  \"data\": {\"values\": [\n" + rows + "\n  ]},\n  \"mark\": \"bar\",\n  \"width\": 560,\n"
+  return "## " + t("Chart") + "\n\n```vega-lite\n{\n  \"data\": {\"values\": [\n" + rows + "\n  ]},\n  \"mark\": \"bar\",\n"
     + `  "encoding": {\n    "x": {"field": "${t("quarter")}", "type": "nominal", "axis": {"labelAngle": 0}},\n    "y": {"field": "${t("sales")}", "type": "quantitative"}\n  }\n}\n` + "```\n";
 }
 

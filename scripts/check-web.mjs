@@ -1111,9 +1111,16 @@ try {
     a.pointerMove(sl.calculatedX + sl.calculatedWidth * 0.75, sl.calculatedY + 8);
     a.pointerUp();
     const sized = /"width": 7\d0,/.test(a.source());
+    // the height by its own slider: the width stays as it was
+    a.chartJson();
+    const hs = walk(a.chart.host.lastPage, "ce-height");
+    a.pointerDown(hs.calculatedX + hs.calculatedWidth * 0.5, hs.calculatedY + 8, false, 1);
+    a.pointerMove(hs.calculatedX + hs.calculatedWidth * 0.1, hs.calculatedY + 8);
+    a.pointerUp();
+    const heightOnly = /"width": 7\d0,/.test(a.source()) && /"height": 1\d0,/.test(a.source());
     a.key("escape", false, false);
     a.setSource(src0);
-    return { opened, drawn, line, typed, moved, stillOpen, closed, refused, looks, sized, dragged };
+    return { opened, drawn, line, typed, moved, stillOpen, closed, refused, looks, sized, heightOnly, dragged };
   });
   check("the chart editor opens on a vega-lite fence and draws", ce.opened && ce.drawn > 50, JSON.stringify(ce));
   check("…a kind picked rewrites the fence", ce.line, JSON.stringify(ce));
@@ -1122,6 +1129,7 @@ try {
   check("…a click outside closes it; a chart it cannot tabulate opens for its look and says why", ce.closed && ce.refused, JSON.stringify(ce));
   check("…its look: a palette, a glow and a picked text colour go into the fence", ce.looks, JSON.stringify(ce));
   check("…its width, from its slider", ce.sized, JSON.stringify(ce));
+  check("…its height, from its own slider, the width kept", ce.heightOnly, JSON.stringify(ce));
 
   // A click on the fence's `vega-lite` opens the chart editor, not the language list
   {

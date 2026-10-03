@@ -1877,8 +1877,13 @@ class PresChartEditor {
         if (tab == "kaavio") {
             def sw:int (this.sliderValue("ce-width" (this.sizeW())))
             def sh:int (this.sliderValue("ce-height" (this.sizeH())))
-            if ((sw != (this.sizeW())) || (sh != (this.sizeH()))) {
+            ; each slider its own size: a height moved leaves a width the
+            ; chart does not state to the slide (and the other way round)
+            if (sw != (this.sizeW())) {
                 model.width = sw
+                changed = true
+            }
+            if (sh != (this.sizeH())) {
                 model.height = sh
                 changed = true
             }
