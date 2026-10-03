@@ -859,7 +859,11 @@ try {
       const p = a.hint.rule.get("props").at(i);
       if (!p || !p.isObject || !p.isObject()) break;
       out.styleProps.push(p.stringOr("sel", "") + ">" + p.stringOr("name", "") + (p.stringOr("value", "") ? "=" : "+"));
+      // the colour's row says what the slide uses and which rule gives it
+      if (p.stringOr("name", "") === "color") out.headInk = [p.stringOr("sel", ""), p.stringOr("eff", ""), p.stringOr("from", "-")];
     }
+    const hc = a.pick.cascade(a.themeCss()).facet("color");
+    out.headModel = [hc.own, hc.value, hc.from];
     a.closeHint();
     // a band: its property opens next to it, written into the theme
     a.pickJson();
@@ -877,11 +881,12 @@ try {
     // a list item: its line in the Markdown
     a.showTab("md");
     click(at("kaksi"));
-    out.li = [a.pick.sel, a.pick.ruleSels().join(" ")];
+    const le = a.pick.cascade(a.themeCss());
+    out.li = [a.pick.sel, le.facet("color").own === le.facet("color").from || le.facet("color").from === "" ? "text" : "?", le.facet("marker-color").own];
     a.pickContent();
     out.liContent = [a.edTab, a.anchorLine(), a.anchorCol(), a.caretLine(), a.caretCol()];
     click(at("Kappale"));
-    out.p = [a.pick.sel, a.pick.ruleSels().join(" ")];
+    out.p = [a.pick.sel, a.pick.cascade(a.themeCss()).facet("color").own];
     a.setFocus("stage");
     a.key("escape", false, false);
     out.cleared = !a.pick.on;
@@ -904,8 +909,9 @@ try {
   check("…a band opens its value in the theme, next to the slide", pk.band.join(",") === "css,number,heading › margin-bottom,true,true", JSON.stringify(pk.band));
   check("…and its card does not cover the element", pk.offElement === true);
   check("…a press off the slide or Play lets the pick go", pk.offSlide === true && pk.onPlay === true, JSON.stringify([pk.offSlide, pk.onPlay]));
-  check("a list item is picked as li (with list and the document's text)", pk.li.join("|") === "li|li list document" && pk.liContent.join(",") === "md,5,0,5,7", JSON.stringify([pk.li, pk.liContent]));
-  check("…a paragraph with {.lead} gets the class's rule too, and Esc lets go", pk.p.join("|") === "p|p .lead document" && pk.cleared, JSON.stringify([pk.p, pk.cleared]));
+  check("…its colour row shows the value the slide uses and its rule, as the cascade has it", pk.headInk && pk.headInk[0] === "h2" && pk.headInk[1] === pk.headModel[1] && pk.headInk[2] === pk.headModel[2] && pk.headInk[1] !== "", JSON.stringify([pk.headInk, pk.headModel]));
+  check("a list item is picked as li (text from the document, bullets from list)", pk.li.join("|") === "li|text|list" && pk.liContent.join(",") === "md,5,0,5,7", JSON.stringify([pk.li, pk.liContent]));
+  check("…a paragraph with {.lead} gets the class's rule too, and Esc lets go", pk.p.join("|") === "p|.lead" && pk.cleared, JSON.stringify([pk.p, pk.cleared]));
 
   // chart-effects takes any of its words together: a chip turns one on or off
   const fx = await page.evaluate(() => {

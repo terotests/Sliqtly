@@ -2,6 +2,7 @@
 ; Node checks for the deck and the timeline: `npm run check`.
 Import "PresTimeline.rgr"
 Import "PresChartModel.rgr"
+Import "PresCascade.rgr"
 
 class PresCheck {
     def fails:int 0
@@ -424,6 +425,127 @@ class PresCheck {
         this.ok(((PresCheck.texts(last "3 / 3")) == 1) "that slide keeps its footer")
     }
 
+    ; --- the theme's cascade (PresCascade), against what the layout draws ---------
+    sfn hexOf:string (v:string) {
+        def c:EVGColor (CssValue.color(v))
+        if (c.isSet == false) {
+            return ""
+        }
+        return (MdCss.hexOf(c))
+    }
+
+    ; The colour the layout set a word in, as #RRGGBB; "" when not found.
+    sfn inkOf:string (deck:PresDeck word:string) {
+        def l:MdLayout (deck.layout())
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 0) && ((indexOf b.text word) == 0)) {
+                return (PresCheck.hexOf(b.color))
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; `css`, an element, a facet: its value, its source, and the colour the
+    ; layout really draws `word` in.
+    fn ink:void (css:string md:string sel:string cls:string word:string wantFrom:string what:string) {
+        def classes:[string]
+        if ((strlen cls) > 0) {
+            push classes cls
+        }
+        def e:PresCssElement ((PresCascade.of(css)).element(sel classes ""))
+        def f:PresCssFacet (e.facet("color"))
+        this.ok((f.from == wantFrom) (what + ": colour from " + wantFrom + ", got " + f.from))
+        def deck (new PresDeck())
+        deck.md.setStyleSheet(css)
+        deck.setText(md)
+        def drawn:string (PresCheck.inkOf(deck word))
+        this.ok(((strlen drawn) > 0) (what + ": " + word + " is drawn"))
+        this.ok(((PresCheck.hexOf(f.value)) == drawn) (what + ": model " + f.value + " = drawn " + drawn))
+    }
+
+    fn cascade:void () {
+        def none:[string]
+        ; a heading with no colour of its own is the document's, and says so
+        def css1:string "document { color: #112233 } heading { margin-top: 10pt }"
+        def h2:PresCssElement ((PresCascade.of(css1)).element("h2" none ""))
+        def hc:PresCssFacet (h2.facet("color"))
+        this.ok(((hc.from == "document") && (hc.value == "#112233")) ("h2 colour from document: " + (h2.dump())))
+        this.ok((hc.own == "h2") "an h2's colour is edited in h2")
+        this.ok((((hc.link("heading")).isSet()) == false) "heading says nothing about colour")
+        this.ok(((h2.facet("margin-top")).from == "heading") "the space above is the shared heading rule")
+        this.ok(((h2.facet("margin-top")).isOwn()) "and it is the heading's own")
+        ; h2 beats heading beats body beats document
+        def css2:string "document { color: #111111 } body { color: #222222 } heading { color: #333333 } h2 { color: #444444 }"
+        def c2:PresCascade (PresCascade.of(css2))
+        this.ok(((((c2.element("h2" none "")).facet("color")).from) == "h2") "h2 colour wins")
+        this.ok(((((c2.element("h3" none "")).facet("color")).from) == "heading") "then the shared heading colour")
+        this.ok(((((c2.element("p" none "")).facet("color")).from) == "body") "body after document")
+        this.ok(((((c2.element("p" none "")).facet("color")).own) == "body") "a paragraph's colour is edited where it comes from")
+        ; MdCss reads the same into the style
+        def mc (new MdCss())
+        mc.addStyleSheet(css2)
+        def st (new MdStyle())
+        mc.applyTo(st)
+        this.ok(((st.headingInk(2)) == (PresCheck.hexOf((((c2.element("h2" none "")).facet("color")).value)))) "h2 ink as MdStyle has it")
+        this.ok(((st.headingInk(3)) == (PresCheck.hexOf((((c2.element("h3" none "")).facet("color")).value)))) "h3 ink as MdStyle has it")
+        this.ok((st.textColor == (PresCheck.hexOf((((c2.element("p" none "")).facet("color")).value)))) "text ink as MdStyle has it")
+        ; a list's colour is its bullets; the item's text is the document's
+        def css3:string "document { color: #101010 } list { color: #ff0000; padding-left: 30pt }"
+        def li:PresCssElement ((PresCascade.of(css3)).element("li" none ""))
+        this.ok((((li.facet("color")).from == "document") && ((li.facet("marker-color")).from == "list")) ("item text vs bullets: " + (li.dump())))
+        def mk:PresCssFacet (li.facet("marker-color"))
+        this.ok(((strlen mk.note) > 0) "the bullet colour says what it colours")
+        this.ok(((li.facet("padding-left")).value == "30pt") "the list's indent")
+        this.ok(((li.facet("margin-bottom")).isDefault()) "item spacing at its default")
+        ; a selector list, and the later rule at equal specificity
+        def css4:string "h1, h2 { font-size: 30pt } h2 { font-size: 20pt } h3 { color: red !important } h3 { color: blue }"
+        def c4:PresCascade (PresCascade.of(css4))
+        def f4:PresCssFacet ((c4.element("h2" none "")).facet("font-size"))
+        this.ok(((f4.value == "20pt") && ((f4.link("h2")).selector == "h2")) ("the later h2 rule: " + f4.value))
+        this.ok(((((c4.element("h1" none "")).facet("font-size")).value) == "30pt") "h1 of h1, h2")
+        this.ok(((((c4.element("h3" none "")).facet("color")).value) == "red") "!important above a later rule")
+        ; the shared heading size is h1's only
+        def c5:PresCascade (PresCascade.of("heading { font-size: 40pt; font-family: Lato }"))
+        this.ok(((((c5.element("h1" none "")).facet("font-size")).value) == "40pt") "heading font-size sets h1")
+        this.ok(((((c5.element("h2" none "")).facet("font-size")).isDefault())) "and not h2")
+        this.ok(((((c5.element("h2" none "")).facet("font-family")).value) == "Lato") "heading font-family sets all")
+        ; a quote's text is its own colour, never the document's
+        def q:PresCssElement ((PresCascade.of("document { color: #123456 }")).element("blockquote" none ""))
+        this.ok(((q.facet("color")).isDefault()) ("quote colour ignores the document: " + (q.dump())))
+        ; a class: its colour and size on its block, its tag rule too
+        def css6:string "document { color: #111111 } .lead { color: #00aa00; font-size: 1.3em } #only { color: #0000ff }"
+        def c6:PresCascade (PresCascade.of(css6))
+        def lead:[string]
+        push lead ".lead"
+        def pl:PresCssElement (c6.element("p" lead ""))
+        this.ok((((pl.facet("color")).from == ".lead") && ((pl.facet("color")).own == ".lead")) ("p.lead colour: " + (pl.dump())))
+        this.ok(((pl.facet("font-size")).value == "1.3em") "p.lead size")
+        def pid:PresCssElement (c6.element("p" lead "only"))
+        def pidc:PresCssFacet (pid.facet("color"))
+        this.ok((pidc.from == "#only") ("an id beats a class: " + pidc.from))
+        ; a heading's own colour beats its class
+        def hl:PresCssElement ((PresCascade.of("h2 { color: #aa0000 } .lead { color: #00aa00 }")).element("h2" lead ""))
+        this.ok(((hl.facet("color")).from == "h2") "h2 colour above its class")
+        ; what a rule says that the layout does not read is listed as unread
+        def un:PresCssElement ((PresCascade.of("p { color: red; margin-bottom: 4pt }")).element("p" none ""))
+        def uf:PresCssFacet (un.facet("unread:p:color"))
+        this.ok((uf.unread && (uf.value == "red")) ("p color is unread: " + (un.dump())))
+        this.ok(((un.facet("margin-bottom")).value == "4pt") "p margin-bottom")
+        ; the universal selector reaches every rule
+        this.ok((((((PresCascade.of("* { color: #010203 }")).element("p" none "")).facet("color")).value) == "#010203") "* reaches the text")
+        ; and against the layout: what the slide is drawn in
+        def md:string "## Otsikko\n\nTeksti tässä\n\n- kohta\n\n> lainaus\n\nIso\n{.lead}\n"
+        this.ink(css1 md "h2" "" "Otsikko" "document" "a heading drawn in the document colour")
+        this.ink(css2 md "h2" "" "Otsikko" "h2" "a heading drawn in its own")
+        this.ink(css2 md "p" "" "Teksti" "body" "a paragraph drawn in body")
+        this.ink(css3 md "li" "" "kohta" "document" "an item's text is not the list colour")
+        this.ink(css1 md "blockquote" "" "lainaus" "" "a quote in its own colour")
+        this.ink(css6 md "p" ".lead" "Iso" ".lead" "a .lead paragraph")
+    }
+
     sfn texts:int (l:EVGDisplayList word:string) {
         def n:int 0
         def i:int 0
@@ -441,6 +563,7 @@ class PresCheck {
         def c (new PresCheck())
         c.run()
         c.edges()
+        c.cascade()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"
