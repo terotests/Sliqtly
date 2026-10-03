@@ -90,6 +90,7 @@ class PresCheck {
         this.ok(((deck.pageOfOffset((indexOf text "Toka"))) == 1) "source offset to slide")
         this.diagram()
         this.bigTitle()
+        this.orientation()
         this.chartModel()
     }
 
@@ -107,6 +108,32 @@ class PresCheck {
         deck.md.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 } h2 { font-size: 160pt }")
         deck.setText(text)
         this.ok(((deck.slideCount()) == 1) ("a title taller than the slide is set smaller, got " + (to_string (deck.slideCount()))))
+    }
+
+    ; `orientation:` turns the page the deck has without it either way: a
+    ; landscape theme to portrait, and a portrait one (`page:` or the theme's
+    ; CSS) to landscape. Changing `page:` under it measures the page again.
+    fn orientation:void () {
+        def deck (new PresDeck())
+        deck.md.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 }")
+        def body:string "\n---\n\n## Yksi\n\nTeksti\n"
+        deck.setText(("---" + body))
+        this.ok(((deck.pageW > deck.pageH) && (deck.themeTall == false)) "a landscape theme is landscape")
+        deck.setText(("---\norientation: portrait" + body))
+        this.ok((deck.pageH > deck.pageW) "orientation: portrait turns a landscape theme")
+        deck.setText(("---\norientation: landscape" + body))
+        this.ok((deck.pageW > deck.pageH) "orientation: landscape keeps a landscape theme")
+        deck.setText(("---\npage: a4 portrait" + body))
+        this.ok(((deck.pageH > deck.pageW) && deck.themeTall) "page: a4 portrait is portrait")
+        deck.setText(("---\npage: a4 portrait\norientation: landscape" + body))
+        this.ok((deck.pageW > deck.pageH) "orientation: landscape turns a portrait page")
+        deck.setText(("---\npage: a4 portrait\norientation: portrait" + body))
+        this.ok((deck.pageH > deck.pageW) "orientation: portrait keeps a portrait page")
+        deck.setText(("---\npage: a4 landscape\norientation: portrait" + body))
+        this.ok((deck.pageH > deck.pageW) "a changed page: is measured again under orientation")
+        deck.md.setStyleSheet("page { width: 7.5in; height: 13.333in; padding: 0.6in } deck { split-level: 2 }")
+        deck.setText(("---\norientation: landscape" + body))
+        this.ok((deck.pageW > deck.pageH) ("orientation: landscape turns a portrait theme: " + (to_string deck.pageW)))
     }
 
     ; The chart editor's model: a fence read as a table and written back.

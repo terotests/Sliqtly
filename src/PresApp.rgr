@@ -6124,10 +6124,12 @@ class PresApp {
     }
 
     ; The deck's orientation, as `orientation:` in the front matter: written
-    ; for portrait, taken out for landscape (the theme's own, the default).
-    ; A deck with no front matter gets one.
+    ; when it turns the page the deck has without it (the theme's, or
+    ; `page:`), taken out when it does not. A deck with no front matter gets
+    ; one.
     fn setOrientation:void (o:string) {
-        def portrait:boolean (o == "portrait")
+        def write:boolean ((o == "portrait") != deck.themeTall)
+        def line:string ("orientation: " + o)
         def n:int (mdEditor.buf.lineCount())
         def cl:int mdEditor.sel.caret.line
         def cc:int mdEditor.sel.caret.col
@@ -6150,25 +6152,25 @@ class PresApp {
         def moved:int 0
         if (at >= 0) {
             mdEditor.moveCaret(at 0 false)
-            if portrait {
+            if write {
                 mdEditor.moveCaret(at (strlen (mdEditor.buf.lineAt(at))) true)
-                mdEditor.insert("orientation: portrait")
+                mdEditor.insert(line)
             } {
                 mdEditor.moveCaret((at + 1) 0 true)
                 mdEditor.deleteSelection()
                 moved = -1
             }
         } {
-            if (portrait == false) {
+            if (write == false) {
                 return
             }
             if (close > 0) {
                 mdEditor.moveCaret(close 0 false)
-                mdEditor.insert("orientation: portrait\n")
+                mdEditor.insert((line + "\n"))
                 moved = 1
             } {
                 mdEditor.moveCaret(0 0 false)
-                mdEditor.insert("---\norientation: portrait\n---\n\n")
+                mdEditor.insert((("---\n" + line) + "\n---\n\n"))
                 moved = 4
             }
         }
