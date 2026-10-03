@@ -2518,7 +2518,15 @@ async function editInAI(which) {
         .replaceAll("{id}", id).replaceAll("{link}", SITE + "/s/" + id).replaceAll("{edit}", SITE + "/s/" + id + "?edit");
     } else {
       prompt = t("Make this Markdown a Sliqtly presentation with create_presentation from the Sliqtly connector (theme {theme}), give me its link and ask what to change. Save later changes with update_presentation.")
-        .replaceAll("{theme}", themeSel.value || "-") + "\n\n```markdown\n" + text + "\n```";
+        .replaceAll("{theme}", themeSel.value || "-");
+      // data files stay in this browser: name them, so the assistant asks
+      // for them as attachments and keeps them with files / write_workbook
+      const data = (await docFiles()).map((f) => f.path).filter((p) => p.startsWith("data/"));
+      if (data.length) {
+        prompt += " " + t("The deck also reads these data files, which this message does not carry: {files}. Ask me to attach them here, then keep them with the presentation (files in create_presentation, or write_workbook for a tidied workbook).")
+          .replaceAll("{files}", data.join(", "));
+      }
+      prompt += "\n\n```markdown\n" + text + "\n```";
       if (prompt.length > AI_MAX_PROMPT) {
         if (win) win.close();
         toast(t("This presentation is too long to hand over in a link. Sign in with PRO first."));

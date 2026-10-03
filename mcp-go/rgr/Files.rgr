@@ -233,6 +233,25 @@ class Files {
     }
 
     ; a sheet's name in a file name: runs of \/:*?"<>| and spaces as "-"
+    ; why a sheet name will not do in Excel, or ""
+    sfn badSheetName:string (name:string) {
+        if ((strlen (trim name)) == 0) {
+            return "A sheet needs a name"
+        }
+        if ((Tools.chars(name)) > 31) {
+            return ("Sheet name \"" + name + "\" is longer than 31 characters")
+        }
+        for ([] _:string ("\\" "/" ":" "*" "?" "[" "]")) c:string i {
+            if ((indexOf name c) >= 0) {
+                return ("Sheet name \"" + name + "\" has one of \\ / : * ? [ ]")
+            }
+        }
+        if ((startsWith name "'") || (endsWith name "'")) {
+            return ("Sheet name \"" + name + "\" starts or ends with '")
+        }
+        return ""
+    }
+
     sfn sheetFileName:string (name:string) {
         def parts:[string]
         def n:int (strlen name)
