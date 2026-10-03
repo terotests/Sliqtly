@@ -1510,13 +1510,14 @@ try {
       const onTop = a.toolbarOnTop();
       const row = find("tb-m-file-item-save");
       const underPanel = a.panels.has(row.calculatedX + 10, row.calculatedY + 8);
+      const why = underPanel ? null : { mode: a.mode, tab: a.edTab, file: a.filePath, open: a.panels.filesOpen, quiet: a.panels.quiet, box: [a.panels.filesX, a.panels.filesY, a.panels.filesW, a.panels.filesH], row: [row.calculatedX, row.calculatedY] };
       for (;;) { if (!a.takeRequest()) break; }
       press(row);
       const reqs = [];
       for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
       const closed = !a.toolbarOnTop();
       a.showTab("md");
-      return { onTop, underPanel, reqs, closed };
+      return { onTop, underPanel, reqs, closed, why };
     });
     check("…over the Files tab the File menu is on top, and its row takes the press", onFiles.onTop && onFiles.underPanel && onFiles.reqs.includes("click:save") && onFiles.closed, JSON.stringify(onFiles));
 
