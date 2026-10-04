@@ -57,8 +57,8 @@ type localServer struct {
 	app    http.Handler
 	bucket *fsBucket
 	token  string
-	web    fs.FS        // the built page; nil: none
-	hub    *changeHub   // the decks' changes, for /api/events
+	web    fs.FS      // the built page; nil: none
+	hub    *changeHub // the decks' changes, for /api/events
 	collab *collabRooms
 	board  *statusBoard // the server's state, for /api/status and /api/events
 }
