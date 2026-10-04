@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -340,5 +341,42 @@ func TestLocalWebAndAPI(t *testing.T) {
 	eq(t, code, 404)
 	if _, err := os.Stat(filepath.Join(dir, "files", "shares", id)); err == nil {
 		t.Fatal("the share's files are still there")
+	}
+}
+
+// a page hears of a deck's change the moment it is written
+func TestLocalEvents(t *testing.T) {
+	srv, session := startLocal(t, t.TempDir(), "")
+	defer srv.Close()
+	defer session.Close()
+	res, err := http.Get(srv.URL + "/api/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	eq(t, res.Header.Get("Content-Type"), "text/event-stream")
+	lines := make(chan string, 64)
+	go func() {
+		sc := bufio.NewScanner(res.Body)
+		for sc.Scan() {
+			lines <- sc.Text()
+		}
+		close(lines)
+	}()
+	c := call(t, &testServer{session: session}, "create_presentation", map[string]any{"title": "E", "markdown": "# E\n"})
+	id := sc(c)["deck_id"].(string)
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case l, ok := <-lines:
+			if !ok {
+				t.Fatal("the stream ended")
+			}
+			if l == `data: {"id":"`+id+`"}` {
+				return
+			}
+		case <-deadline:
+			t.Fatal("no event for " + id)
+		}
 	}
 }

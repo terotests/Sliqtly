@@ -174,3 +174,37 @@ window.sliqtly = {
 };
 window.dispatchEvent(new Event("sliqtly:ready"));
 window.dispatchEvent(new Event("sliqtly:user"));
+
+// A deck changed on the server (an assistant's update_presentation, another
+// tab's save): the editor compares with it at once, as it otherwise does on
+// focus and every minute, and takes it when nothing was changed here (or
+// merges); the player opened at /s/{id} reloads on the slide it shows (the
+// address keeps it), without the intro. Not in an assistant's preview,
+// which is not served from here.
+function listen() {
+  if (typeof EventSource !== "function" || !/^https?:$/.test(location.protocol)) return;
+  const viewing = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(location.pathname);
+  const player = viewing && !new URLSearchParams(location.search).has("edit") ? viewing[1] : null;
+  let timer = 0;
+  const changed = new Set();
+  const es = new EventSource("/api/events");
+  es.onmessage = (ev) => {
+    let id = "";
+    try { id = JSON.parse(ev.data).id || ""; } catch (_) { return; }
+    changed.add(id);
+    // one update writes the deck more than once: the last one counts
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const ids = [...changed];
+      changed.clear();
+      if (player) {
+        if (!ids.includes(player)) return;
+        try { sessionStorage.setItem("sliqtly:quiet-reload", "1"); } catch (_) { /* the intro plays */ }
+        location.reload();
+        return;
+      }
+      window.__checkElsewhere?.();
+    }, 400);
+  };
+}
+listen();

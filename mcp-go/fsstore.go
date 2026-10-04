@@ -29,6 +29,14 @@ import (
 type fsDB struct {
 	root string
 	mu   sync.Mutex
+	// told of every write, after it (localevents.go); nil: nobody
+	changed func(col, id string)
+}
+
+func (d *fsDB) wrote(col, id string) {
+	if d.changed != nil {
+		d.changed(col, id)
+	}
 }
 
 type fsBucket struct {
@@ -189,8 +197,12 @@ func (d *fsDB) Set(_ context.Context, col, id string, doc Doc) error {
 		return err
 	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	return writeDoc(p, doc)
+	err = writeDoc(p, doc)
+	d.mu.Unlock()
+	if err == nil {
+		d.wrote(col, id)
+	}
+	return err
 }
 
 // Firestore's update: the document must exist; a key with dots is a path
@@ -222,7 +234,11 @@ func (d *fsDB) Update(_ context.Context, col, id string, doc Doc) error {
 		}
 		m[parts[len(parts)-1]] = v
 	}
-	return writeDoc(p, cur)
+	if err := writeDoc(p, cur); err != nil {
+		return err
+	}
+	defer d.wrote(col, id)
+	return nil
 }
 
 func (d *fsDB) Delete(_ context.Context, col, id string) error {
@@ -235,6 +251,7 @@ func (d *fsDB) Delete(_ context.Context, col, id string) error {
 	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	defer d.wrote(col, id)
 	return nil
 }
 
@@ -291,7 +308,11 @@ func (d *fsDB) Create(_ context.Context, col, id string, doc Doc) (Doc, error) {
 	if err != nil || had != nil {
 		return had, err
 	}
-	return nil, writeDoc(p, doc)
+	if err := writeDoc(p, doc); err != nil {
+		return nil, err
+	}
+	defer d.wrote(col, id)
+	return nil, nil
 }
 
 func (d *fsDB) Increment(_ context.Context, col, id string, add Doc) error {

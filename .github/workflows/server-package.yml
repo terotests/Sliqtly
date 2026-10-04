@@ -6,7 +6,13 @@
 #
 #   curl -fLo sliqtly-server.deb '<link>' && sudo apt install ./sliqtly-server.deb
 #
-# A new run replaces the files and their tokens: older links stop working.
+# The version counts up by itself: the last one is the newest tag
+# server-v<version>, and a run adds 1 to its last number (0.1.4 → 0.1.5), or
+# to the middle or first one when "bump" asks for minor or major (0.2.0,
+# 1.0.0). "version" names one instead. The run tags the commit it built.
+#
+# A new run replaces the latest_ files and their tokens: older latest_
+# links stop working; a versioned file keeps its own link.
 # The FIREBASE_SERVICE_ACCOUNT secret's account needs Storage Object Admin
 # (or Firebase Storage Admin) on the bucket.
 name: Server package
@@ -14,13 +20,18 @@ name: Server package
 on:
   workflow_dispatch:
     inputs:
+      bump:
+        description: "Which number goes up"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
       version:
-        description: "Package version, e.g. 0.1.0"
-        required: true
-        default: "0.1.0"
+        description: "Or this version exactly (e.g. 1.0.0); empty: counted"
+        required: false
+        default: ""
 
 permissions:
-  contents: read
+  contents: write # the server-v<version> tag
 
 concurrency:
   group: server-package
@@ -37,6 +48,33 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the tags, to count from
+      - name: Work out the version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+          GIVEN: ${{ inputs.version }}
+        run: |
+          # before the first tag: 0.1.1 (0.1.0 and 0.1.1 went out by hand)
+          last=$(git tag --list 'server-v*' | sed 's/^server-v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          last=${last:-0.1.1}
+          if [ -n "$GIVEN" ]; then
+            next=$GIVEN
+          else
+            IFS=. read -r major minor patch <<< "$last"
+            case "$BUMP" in
+              major) next="$((major + 1)).0.0" ;;
+              minor) next="$major.$((minor + 1)).0" ;;
+              *) next="$major.$minor.$((patch + 1))" ;;
+            esac
+          fi
+          if git rev-parse -q --verify "refs/tags/server-v$next" >/dev/null; then
+            echo "server-v$next exists already" >&2
+            exit 1
+          fi
+          echo "after $last: $next"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -46,7 +84,7 @@ jobs:
           cache-dependency-path: mcp-go/go.sum
       - name: Check the version
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([~+.-][A-Za-z0-9.~+-]+)?$'
       - name: Build the editor and player
         run: npm ci --no-audit --no-fund && node scripts/build.mjs
@@ -56,7 +94,7 @@ jobs:
       - name: Build the packages
         working-directory: mcp-go
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           packaging/build-deb.sh "$VERSION" amd64
           packaging/build-deb.sh "$VERSION" arm64
@@ -67,7 +105,7 @@ jobs:
       - name: Upload with download tokens
         working-directory: mcp-go
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           {
             echo "## sliqtly-server $VERSION"
@@ -87,3 +125,9 @@ jobs:
               echo "- \`$obj\` ($(sha256sum "$f" | cut -c1-16)…): $url" >> "$GITHUB_STEP_SUMMARY"
             done
           done
+      - name: Tag the commit
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git tag "server-v$VERSION" "$GITHUB_SHA"
+          git push origin "server-v$VERSION"

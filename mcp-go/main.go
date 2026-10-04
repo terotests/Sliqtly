@@ -22,6 +22,9 @@ import (
 	"time"
 )
 
+// the package's version (packaging/build-deb.sh sets it); "dev" elsewhere
+var version = "dev"
+
 func env(name, def string) string {
 	if v := os.Getenv(name); v != "" {
 		return v
@@ -81,6 +84,6 @@ func main() {
 		handler = NewApp(e)
 	}
 	srv := &http.Server{Addr: ":" + *port, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
-	log.Printf("Sliqtly MCP (%s) on :%s, ready in %s", kind, *port, time.Since(start).Round(time.Microsecond))
+	log.Printf("Sliqtly MCP %s (%s) on :%s, ready in %s", version, kind, *port, time.Since(start).Round(time.Microsecond))
 	log.Fatal(srv.ListenAndServe())
 }

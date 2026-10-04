@@ -3345,7 +3345,14 @@ function enterViewer(from) {
   // address while the intro plays
   const n = parseInt(hashParams().get("slide") || "", 10);
   const begin = () => beginShow(n > 1 ? n - 1 : 0);
-  if (!wantsIntro(from)) begin();
+  // a server of one's own reloads the player when the deck changed there
+  // (mcp-go/assets/sliqtly-local.js): back on the slide, without the intro
+  let quiet = false;
+  try {
+    quiet = sessionStorage.getItem("sliqtly:quiet-reload") === "1";
+    sessionStorage.removeItem("sliqtly:quiet-reload");
+  } catch (_) { /* storage blocked: the intro plays */ }
+  if (quiet || !wantsIntro(from)) begin();
   // the page still loading: the intro follows the loader (start)
   else if (window.__pageStarted) playIntro().then(begin);
   else introPending = begin;
