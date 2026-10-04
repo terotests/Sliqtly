@@ -111,12 +111,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          {
-            echo "## sliqtly-server $VERSION"
-            echo
-            echo "Each link works only with its token; do not post it where others read."
-            echo
-          } >> "$GITHUB_STEP_SUMMARY"
+          links=$(mktemp)
           for f in dist/*.deb; do
             name=$(basename "$f")
             arch=${name##*_}; arch=${arch%.deb}
@@ -126,9 +121,41 @@ jobs:
                 --content-type=application/vnd.debian.binary-package \
                 --custom-metadata="firebaseStorageDownloadTokens=$token" --quiet
               url="https://firebasestorage.googleapis.com/v0/b/$BUCKET/o/$(printf %s "$obj" | sed 's#/#%2F#g')?alt=media&token=$token"
-              echo "- \`$obj\` ($(sha256sum "$f" | cut -c1-16)…): $url" >> "$GITHUB_STEP_SUMMARY"
+              echo "- \`$obj\` ($(sha256sum "$f" | cut -c1-16)…): $url" >> "$links"
+              case "$obj" in *_latest_*) printf '%s' "$url" > "latest_$arch.url" ;; esac
             done
           done
+          # one line to install or update on Ubuntu: download, install (the
+          # package restarts a running service itself), restart, show it
+          install() {
+            printf "curl -fLo /tmp/sliqtly-server.deb '%s' && sudo apt install -y /tmp/sliqtly-server.deb && sudo systemctl restart sliqtly && systemctl --no-pager status sliqtly | head -n 3" "$(cat "latest_$1.url")"
+          }
+          {
+            echo "## sliqtly-server $VERSION"
+            echo
+            echo "Each link works only with its token; do not post it where others read."
+            echo
+            echo "### Install or update on Ubuntu, Intel/AMD (amd64)"
+            echo
+            echo '```sh'
+            install amd64
+            echo
+            echo '```'
+            echo
+            echo "### ARM (arm64)"
+            echo
+            echo '```sh'
+            install arm64
+            echo
+            echo '```'
+            echo
+            echo "### Files"
+            echo
+            cat "$links"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Install or update on Ubuntu (amd64):"
+          install amd64
+          echo
       - name: Tag the commit
         env:
           VERSION: ${{ steps.version.outputs.version }}
