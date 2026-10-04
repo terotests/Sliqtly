@@ -1623,7 +1623,45 @@ try {
       const deck = await pick("r-deck-a");
       return { order, browse, deck };
     });
-    check("…File → Recent lists Browse all… first, then the decks, and each opens", recent.order.length === 4 && /browse$/.test(recent.order[0]) && /sep-1$/.test(recent.order[1]) && /r-deck-a$/.test(recent.order[2]) && (recent.browse || []).includes("showtab:files") && (recent.deck || []).includes("files:doc:deck-a"), JSON.stringify(recent));
+    check("…File → Recent lists All presentations… first (the presentations window), then the decks, and each opens", recent.order.length === 4 && /browse$/.test(recent.order[0]) && /sep-1$/.test(recent.order[1]) && /r-deck-a$/.test(recent.order[2]) && (recent.browse || []).includes("decks") && (recent.deck || []).includes("files:doc:deck-a"), JSON.stringify(recent));
+
+    // File → Presentations…: the window lists the decks with their added and
+    // modified times; a column head sorts, Open opens and closes the window,
+    // ✕ asks once before it deletes, a deck only in the cloud has no ✕
+    const decks = await page.evaluate(() => {
+      const a = window.__app;
+      const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      const texts = (e, out = []) => { if (e.textContent) out.push(e.textContent); for (const k of e.children || []) texts(k, out); return out; };
+      const lp = () => { a.panelsJson(); return a.panels.host.lastPage; };
+      const drain = () => { const out = []; for (;;) { const r = a.takeRequest(); if (!r) break; out.push(r); } return out; };
+      const press = (id) => { const b = walk(lp(), id); if (!b) return false; a.pointerDown(b.calculatedX + 6, b.calculatedY + 6, false, 1); a.pointerUp(); return true; };
+      const json = JSON.stringify({ sort: "updated", note: "", rows: [
+        { id: "deck-a", name: "Old deck", added: "1.1.2026 10:00", modified: "2.1.2026 11:00", where: "This browser", cloudOnly: false, current: false },
+        { id: "cloud:M1", name: "Made by Claude", added: "3.1.2026 09:00", modified: "3.1.2026 09:30", where: "In the cloud", cloudOnly: true, current: false },
+      ] });
+      drain();
+      a.openDecks(json);
+      const open = a.decksShowing();
+      const shown = texts(lp());
+      const delOnCloud = !!walk(lp(), "pd-k-3");
+      press("pd-sort-name");
+      const sort = drain();
+      press("pd-k-1");
+      const armed = drain();
+      const asks = texts(lp()).includes("Delete?");
+      press("pd-k-1");
+      const del = drain();
+      press("pd-k-2");
+      const cloudOpen = drain();
+      const closedByOpen = !a.decksShowing();
+      a.openDecks(json);
+      press("pd-close");
+      const closed = !a.decksShowing();
+      return { open, times: ["2.1.2026 11:00", "1.1.2026 10:00", "3.1.2026 09:30"].every((x) => shown.includes(x)), names: shown.includes("Made by Claude"), delOnCloud, sort, armed, asks, del, cloudOpen, closedByOpen, closed };
+    });
+    check("…File → Presentations… lists the decks with added and modified times; sorting, opening and deleting are asked of the page",
+      decks.open && decks.times && decks.names && !decks.delOnCloud && decks.sort.join() === "decks:sort:name" && decks.armed.length === 0 && decks.asks &&
+      decks.del.join() === "decks:del:deck-a" && decks.cloudOpen.join() === "files:doc:cloud:M1" && decks.closedByOpen && decks.closed, JSON.stringify(decks));
 
     // A long deck name widens the menu up to a limit and is cut with "…"
     // there; every row stays inside the card and they are all one width
@@ -3177,18 +3215,29 @@ try {
         ids1.length === 1 && ids2.length === 1 && at1 === "/s/" + ids1[0] && (sh?.files || []).some((f) => f.path === "data/sheet-1.xlsx") && sh.md.includes("## Uudelleen") && sh.md.startsWith("# Toinen kopio\n"),
         JSON.stringify({ ids1, ids2, at1, files: (sh?.files || []).map((f) => f.path) }));
     }
-    // the user's own shares this browser does not keep: listed, and opened
-    // from the cloud
+    // the user's own shares this browser does not keep: listed in File →
+    // Presentations…, and opened from the cloud; one an assistant made after
+    // sign-in (the MCP server writes shares/{id} with owner = the user) is
+    // there as the window opens. The Files tab lists the deck's files only.
     // (kept since the start of the PRO checks, so the list read at sign-in has them)
+    fakeDb.set("shares/zzMadeByAi1", { name: "Tekoälyn tekemä", md: "# Tekoäly\n", theme: "aurora", css: null, owner: "u1", deck: "mcp", source: "mcp", files: [], created: Date.now() });
+    await pc.evaluate(() => window.__openDecks());
+    await pc.waitForFunction(() => window.__app.panels.decksJson.includes("zzMadeByAi1"), null, { timeout: 8000 }).catch(() => {});
+    const deckList = await pc.evaluate(() => { try { return JSON.parse(window.__app.panels.decksJson); } catch (_) { return null; } });
+    const listed = !!deckList && deckList.rows.some((r) => r.id === "cloud:zzCloudOnly1" && r.cloudOnly);
+    const madeByAi = !!deckList && deckList.rows[0]?.id === "cloud:zzMadeByAi1";
+    const other = await pc.evaluate(() => window.__app.panels.decksJson.includes("zzSomeoneElse"));
+    await pc.evaluate(() => window.__app.panels.closeShare());
     await pc.evaluate(() => window.__app.showTab("files"));
     await pc.evaluate(() => window.__fileRequest("noop"));
-    const listed = await filesListed("cloud:zzCloudOnly1");
-    const other = await pc.evaluate(() => window.__app.panels.filesJson.includes("zzSomeoneElse"));
+    await pc.waitForFunction(() => window.__app.panels.filesJson.includes("\"files\""), null, { timeout: 8000 }).catch(() => {});
+    const filesOnly = await pc.evaluate(() => { try { const j = JSON.parse(window.__app.panels.filesJson); return !("docs" in j) && !window.__app.panels.filesJson.includes("zzCloudOnly1"); } catch (_) { return false; } });
+    check("PRO: File → Presentations… lists the user's cloud decks with this browser's, an assistant's new one first; the Files tab does not",
+      listed && madeByAi && !other && filesOnly, JSON.stringify({ rows: deckList?.rows?.map((r) => r.id), filesOnly, files: await pc.evaluate(() => window.__app.panels.filesJson.slice(0, 300)) }));
     await pc.evaluate(() => window.__fileRequest("doc:cloud:zzCloudOnly1"));
     await pc.waitForTimeout(2000);
     const opened = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search) };
-    check("PRO: the user's cloud decks are listed with this browser's, and open from the cloud",
-      listed && !other && opened.md.startsWith("# Vain pilvessä"), JSON.stringify(opened));
+    check("PRO: a cloud deck opens from the cloud", opened.md.startsWith("# Vain pilvessä"), JSON.stringify(opened));
     // every shared deck opens with Sliqtly's intro (web/brand.js), a PRO
     // owner's too, and the show begins when it ends by itself
     // (looked at as the page's HTML is read: a slow load may outlast the intro)
