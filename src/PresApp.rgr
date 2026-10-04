@@ -319,7 +319,7 @@ class PresApp {
     }
 
     fn addImage:boolean (name:string data:buffer contentType:string w:int h:int) {
-        return (deck.md.addImage(name data contentType w h))
+        return (deck.addImage(name data contentType w h))
     }
 
     fn addTemplate:void (name:string css:string) {
@@ -7011,6 +7011,7 @@ class PresApp {
                 def s:PresSlide (deck.slideAt(i))
                 this.stillDiagrams(ps s unit)
                 this.stillCharts(ps i unit)
+                this.stillSmartArt(ps s unit)
                 this.slideArt(ps s i unit)
                 PresApp.dressSlide(ps s)
                 ; the slide's effect, rendered by the host, as its background
@@ -7154,6 +7155,47 @@ class PresApp {
                 }
             }
             k = (k + 1)
+        }
+    }
+
+    ; A SmartArt reference went out as a picture whose bytes are the XML;
+    ; PowerPoint cannot show that. In its place: the diagram as shapes, laid
+    ; out for the picture's box (points), in the theme's colours, with the
+    ; picture's name and alt text. A diagram that cannot be laid out is taken
+    ; off the slide rather than left as a broken picture.
+    fn stillSmartArt:void (ps:PptxSlide s:PresSlide unit:double) {
+        def j:int 0
+        while (j < (array_length ps.shapes)) {
+            def sh:PptxShape (itemAt ps.shapes j)
+            if ((sh.kind == (PptxShapeKind.picture())) && (deck.isSmartArtPath(sh.imagePart))) {
+                def u (new PresSmartArtUse())
+                u.path = sh.imagePart
+                def k:int 0
+                while (k < (array_length s.smartArts)) {
+                    def su:PresSmartArtUse (itemAt s.smartArts k)
+                    if (su.path == sh.imagePart) {
+                        u = su
+                    }
+                    k = (k + 1)
+                }
+                def r:SaResult (PresSmartArt.laidOut(u deck.md deck.figStyle deck.smartArtCache sh.width sh.height))
+                if r.ok {
+                    def g:PptxShape r.shape
+                    g.x = sh.x
+                    g.y = sh.y
+                    g.name = sh.name
+                    g.altText = sh.altText
+                    if ((strlen g.altText) == 0) {
+                        g.altText = g.diagramText
+                    }
+                    set ps.shapes j g
+                    j = (j + 1)
+                } {
+                    remove_index ps.shapes j
+                }
+            } {
+                j = (j + 1)
+            }
         }
     }
 

@@ -92,6 +92,15 @@ export function ensureRanger({ update = false } = {}) {
     else if (st && !fs.existsSync(path.join(place, ".git"))) continue; // tracked by this Ranger
     ensureCheckout(key, { update, into: place });
   }
+  // SmartArt (src/PresSmartArt.rgr) is drawn by RangerPPTX's engine. A
+  // Ranger ref that still tracks its own older gallery/pptx has none, and the
+  // compile would fail far from the reason.
+  if (!fs.existsSync(path.join(dir, "gallery/pptx/smartart/SaEngine.rgr"))) {
+    throw new Error(
+      `${dir} has no gallery/pptx/smartart: its gallery/pptx is not RangerPPTX.\n` +
+        `The Ranger ref (${ref}) must be one that leaves gallery/pptx to RangerPPTX, which setup then clones there.`,
+    );
+  }
   // What this checkout has to have. A checkout of your own (RANGER_DIR) is
   // never switched for you, so say which branch it needs.
   if (!fs.existsSync(path.join(dir, "gallery/rangerflow/layout/FlowWrap.rgr"))) {

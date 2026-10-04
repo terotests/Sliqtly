@@ -20,6 +20,15 @@ export function isSvg(type, path) {
   return /^image\/svg/i.test(type || "") || /\.svgz?$/i.test(path || "");
 }
 
+// A SmartArt diagram: a dgm:dataModel kept like a picture (media/steps.xml)
+// and drawn by the layout engine on the Ranger side (src/PresSmartArt.rgr),
+// so it is handed over as bytes, never decoded here. Whether an .xml file
+// really is one is decided there, from its first element.
+export const SMARTART_TYPE = "application/vnd.openxmlformats-officedocument.drawingml.diagramData+xml";
+export function isSmartArt(type, path) {
+  return (type || "") === SMARTART_TYPE || /\.xml$/i.test(path || "");
+}
+
 const UNITS = { "": 1, px: 1, pt: 96 / 72, pc: 16, in: 96, cm: 96 / 2.54, mm: 96 / 25.4, q: 96 / 101.6, em: 16, rem: 16, ex: 8, ch: 8 };
 
 // A length attribute in CSS pixels; 0 when it has none (absent, a

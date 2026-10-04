@@ -917,6 +917,91 @@ class PresCheck {
         this.ok(((indexOf (frame.toJson()) "\"size\":20") > 0) "the last chart is drawn with the new size")
     }
 
+    ; A SmartArt file in the deck, referenced like a picture: drawn by the
+    ; layout engine into the picture's box, in the theme's colours, with what
+    ; the reference's {…} says. Never as a picture of the XML.
+    fn smartArt:void () {
+        def xml:string "<dgm:dataModel xmlns:dgm=\"http://schemas.openxmlformats.org/drawingml/2006/diagram\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"><dgm:ptLst><dgm:pt modelId=\"0\" type=\"doc\"><dgm:prSet loTypeId=\"urn:microsoft.com/office/officeart/2005/8/layout/process1\"/></dgm:pt><dgm:pt modelId=\"1\"><dgm:t><a:p><a:r><a:t>Suunnittelu</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId=\"2\"><dgm:t><a:p><a:r><a:t>Toteutus</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId=\"3\"><dgm:t><a:p><a:r><a:t>Julkaisu</a:t></a:r></a:p></dgm:t></dgm:pt></dgm:ptLst><dgm:cxnLst><dgm:cxn srcId=\"0\" destId=\"1\"/><dgm:cxn srcId=\"0\" destId=\"2\"/><dgm:cxn srcId=\"0\" destId=\"3\"/></dgm:cxnLst></dgm:dataModel>"
+        def broken:string "<dgm:dataModel xmlns:dgm=\"http://schemas.openxmlformats.org/drawingml/2006/diagram\"><dgm:ptLst/></dgm:dataModel>"
+        def text:string "---\nslide-split-level: 2\n---\n\n## Prosessi\n\n![Prosessi](media/steps.xml)\n\n## Nuolet\n\n![Nuolet](media/steps.xml)\n{layout=chevron1 colors=colorful1}\n\n## Rikki\n\n![Rikki](media/broken.xml)\n"
+        def css:string "page { width: 13.333in; height: 7.5in; padding: 0.6in; background-color: #ffffff } deck { split-level: 2 } document { color: #111111; font-size: 20pt } figure { colors: #1f6feb #0f9d8a #7c4dff }"
+        def deck (new PresDeck())
+        deck.md.setStyleSheet(css)
+        deck.setTheme(css)
+        this.ok((deck.addImage("/media/steps.xml" (buffer_from_string xml) "" 0 0)) "a SmartArt file is taken")
+        this.ok((deck.addImage("/media/broken.xml" (buffer_from_string broken) "application/xml" 0 0)) "and a broken one too")
+        this.ok((deck.isSmartArtPath("/media/steps.xml")) "it is known as a diagram")
+        this.ok(((deck.isSmartArtPath("/media/other.png")) == false) "a picture is not")
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 3) ("three slides, got " + (to_string (deck.slideCount()))))
+        if ((deck.slideCount()) < 3) {
+            return
+        }
+        def l0:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(l0 "Suunnittelu")) == 1) "the first step is drawn")
+        this.ok(((PresCheck.texts(l0 "Julkaisu")) == 1) "and the last")
+        this.ok(((PresCheck.images(l0 "/media/steps.xml")) == 0) "and not as a picture of the file")
+        def s1:PresSlide (deck.slideAt(1))
+        this.ok(((array_length s1.smartArts) == 1) "the reference on the second slide is read")
+        if ((array_length s1.smartArts) == 1) {
+            def u:PresSmartArtUse (itemAt s1.smartArts 0)
+            this.ok((u.layout == "chevron1") "with its layout")
+            this.ok((u.colors == "colorful1") "and its colours")
+        }
+        def l1:EVGDisplayList (PresTimeline.finalFrame(deck 1))
+        this.ok(((PresCheck.texts(l1 "Toteutus")) == 1) "the same file in another layout is drawn too")
+        ; the theme's first figure colour is the steps' fill: #1f6feb
+        this.ok(((PresCheck.fills(l0 31 111 235)) >= 3) "the steps in the theme's first colour")
+        ; colorful1 starts at the second accent: #0f9d8a
+        this.ok(((PresCheck.fills(l1 15 157 138)) >= 1) "colorful1 starts at the second")
+        def l2:EVGDisplayList (PresTimeline.finalFrame(deck 2))
+        this.ok(((PresCheck.textsLike(l2 "SmartArt /media/broken.xml")) == 1) "a diagram that cannot be drawn says why")
+        ; drawn twice, laid out once
+        def before:int (array_length deck.smartArtCache.keys)
+        PresTimeline.finalFrame(deck 0)
+        this.ok(((array_length deck.smartArtCache.keys) == before) "a diagram already laid out is not laid out again")
+    }
+
+    sfn images:int (l:EVGDisplayList src:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if ((c.kind == 2) && (c.src == src)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn fills:int (l:EVGDisplayList r:int g:int b:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if (((c.r == r) && (c.g == g)) && (c.b == b)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn textsLike:int (l:EVGDisplayList start:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if ((indexOf c.text start) == 0) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -925,6 +1010,7 @@ class PresCheck {
         c.chartMotion()
         c.figures()
         c.listFigures()
+        c.smartArt()
         c.docSettings()
         c.ranges()
         c.limits()

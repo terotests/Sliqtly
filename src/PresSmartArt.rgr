@@ -1,0 +1,176 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; ============================================================================
+; PresSmartArt — a SmartArt diagram on a slide, from a file in the deck
+; ============================================================================
+;
+; ````markdown
+; ![The release process](media/release.xml){width=80% layout=process1 colors=colorful1}
+; ````
+;
+; The file is a SmartArt data model (`dgm:dataModel`), kept like a picture.
+; The Markdown module never learns what it is: it lays the reference out as a
+; picture box, at the natural size the file was registered with (16:9,
+; SaFile), and `{width}`, `{height}` and `{align}` work as they do for any
+; picture. This module draws the diagram into that box, with RangerPPTX's
+; layout engine (gallery/pptx/smartart), in the theme's colours:
+;
+;   accent1 … accent6   the theme's `figure { colors: … }`, in order, round
+;                       again when there are fewer than six
+;   lt1 / dk1           the page's paper and the document's ink
+;
+; `layout=`, `colors=` and `style=` under the reference override what the
+; file names. A diagram that cannot be drawn says why in its place, the way a
+; diagram fence does.
+;
+; The same drawing goes to the stage, to the PDF (both through
+; PresDeck.slideList) and, as shapes, to the PowerPoint export
+; (PresApp.stillSmartArt).
+; ============================================================================
+
+Import "../pptx/smartart/SaRender.rgr"
+Import "../pptx/smartart/SaFile.rgr"
+Import "../markdown/web/markdown_web.rgr"
+
+; Laid-out diagrams by what they were laid out for: the slides are rebuilt
+; on every edit, and a diagram whose file, box and options did not change is
+; not laid out again.
+class PresSmartArtCache {
+    def keys:[string]
+    def results:[SaResult]
+
+    fn get@(optional):SaResult (key:string) {
+        def i:int 0
+        while (i < (array_length keys)) {
+            if ((itemAt keys i) == key) {
+                def hit@(optional):SaResult (itemAt results i)
+                return hit
+            }
+            i = (i + 1)
+        }
+        def none@(optional):SaResult
+        return none
+    }
+
+    fn put:void (key:string r:SaResult) {
+        if ((array_length keys) >= 64) {
+            def k2:[string]
+            def r2:[SaResult]
+            keys = k2
+            results = r2
+        }
+        push keys key
+        push results r
+    }
+}
+
+class PresSmartArtUse {
+    ; the file, as the picture store names it
+    def path:string ""
+    ; the block the reference is in
+    def srcStart:int -1
+    def layout:string ""
+    def colors:string ""
+    def style:string ""
+}
+
+class PresSmartArt {
+
+    ; The palette of a figure style: its colours as the accents, its paper
+    ; and ink as light 1 and dark 1.
+    sfn palette:SaPalette (st:MdFigureStyle) {
+        def p (new SaPalette())
+        def n:int (array_length st.colors)
+        def i:int 1
+        while (i <= 6) {
+            if (n > 0) {
+                PresSmartArt.setHex(p ("accent" + (to_string i)) (itemAt st.colors ((i - 1) % n)))
+            }
+            i = (i + 1)
+        }
+        PresSmartArt.setHex(p "lt1" st.paper)
+        PresSmartArt.setHex(p "lt2" st.paper)
+        PresSmartArt.setHex(p "dk1" st.ink)
+        PresSmartArt.setHex(p "dk2" st.ink)
+        return p
+    }
+
+    ; only a #RRGGBB colour; a name the theme used is left to the default
+    sfn setHex:void (p:SaPalette name:string c:string) {
+        def t:string (trim c)
+        if ((indexOf t "#") == 0) {
+            t = (substring t 1 (strlen t))
+        }
+        if ((strlen t) == 3) {
+            t = ((substring t 0 1) + (substring t 0 1) + (substring t 1 2) + (substring t 1 2) + (substring t 2 3) + (substring t 2 3))
+        }
+        if ((strlen t) != 6) {
+            return
+        }
+        def i:int 0
+        while (i < 6) {
+            def ch:int (charAt (to_lowercase t) i)
+            def digit:boolean ((ch >= 48) && (ch <= 57))
+            def hexLetter:boolean ((ch >= 97) && (ch <= 102))
+            if ((digit || hexLetter) == false) {
+                return
+            }
+            i = (i + 1)
+        }
+        p.set(name t)
+    }
+
+    sfn paletteKey:string (st:MdFigureStyle) {
+        def out:string (st.paper + "/" + st.ink)
+        def i:int 0
+        while (i < (array_length st.colors)) {
+            out = (out + "/" + (itemAt st.colors i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The diagram laid out for a box of w × h (layout units are points).
+    sfn layoutFor:SaResult (u:PresSmartArtUse xml:string w:double h:double) {
+        def o (new SaOptions())
+        o.layout = u.layout
+        o.colors = u.colors
+        o.style = u.style
+        return (SaEngine.layout(xml o w h))
+    }
+
+    ; Drawn into `out` at the box, or the reason it was not, in the box.
+    sfn paint:void (out:EVGDisplayList u:PresSmartArtUse md:MarkdownWeb st:MdFigureStyle cache:PresSmartArtCache x:double y:double w:double h:double) {
+        def r:SaResult (PresSmartArt.laidOut(u md st cache w h))
+        if (r.ok == false) {
+            PresSmartArt.refusal(out ("SmartArt " + u.path + ": " + r.error) st x y w h)
+            return
+        }
+        SaRender.draw(out r.shape x y)
+    }
+
+    ; the diagram for a box of w × h, its colours the theme's
+    sfn laidOut:SaResult (u:PresSmartArtUse md:MarkdownWeb st:MdFigureStyle cache:PresSmartArtCache w:double h:double) {
+        def ed:MarkdownEdit md.edit
+        def store:Vfs ed.imageStore
+        def bytes:buffer (store.read(u.path))
+        def xml:string (SaFile.textOf(bytes))
+        def key:string (xml + "|" + (to_string w) + "|" + (to_string h) + "|" + u.layout + "|" + u.colors + "|" + u.style + "|" + (PresSmartArt.paletteKey(st)))
+        def had@(optional):SaResult (cache.get(key))
+        if (!null? had) {
+            return (unwrap had)
+        }
+        def r:SaResult (PresSmartArt.layoutFor(u xml w h))
+        if r.ok {
+            SaRender.resolveAll(r.shape (PresSmartArt.palette(st)))
+        }
+        cache.put(key r)
+        return r
+    }
+
+    ; the reason, in the box: a faint red ground, the text in the document's
+    ; own ink so it reads on any theme
+    sfn refusal:void (out:EVGDisplayList msg:string st:MdFigureStyle x:double y:double w:double h:double) {
+        out.addRect(x y w h (EVGColor.rgba(200 60 60 0.08)))
+        out.addText(msg (x + 8.0) (y + 20.0) 12.0 (EVGColor.parse(st.ink)) st.font false false (w - 16.0) 16.0)
+    }
+}
