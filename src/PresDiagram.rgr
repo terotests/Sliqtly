@@ -33,6 +33,7 @@ Import "../markdown/web/markdown_web.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
 Import "pkg:evg/EVGColor.rgr"
 Import "PresI18n.rgr"
+Import "PresControlsFade.rgr"
 
 class PresDNode {
     def id:string ""
@@ -207,6 +208,9 @@ class PresDiagram {
     def exSZ:[double]
     def uiNow:double 0.0
     def showControls:boolean false
+    ; the buttons show while the pointer moves over the diagram and fade
+    ; when it rests or leaves, like a video player's (PresControlsFade)
+    def ctl:PresControlsFade (new PresControlsFade())
     ; the box the viewer went to, the way on from it they have selected,
     ; and the boxes before (for back)
     def exNode:int -1
@@ -2086,7 +2090,9 @@ class PresDiagram {
         }
         ; -6 the ⋯ button, -7 restart, -8 show all, -9 a press that only
         ; closed the menu
-        if (PresDiagram.near(px py ((bx + bw) - 22.0) (by + 22.0) 17.0)) {
+        ; hidden buttons are not pressed: the press (a tap) brings them up
+        def up:boolean (this.controlsUp())
+        if (up && (PresDiagram.near(px py ((bx + bw) - 22.0) (by + 22.0) 17.0))) {
             return -6
         }
         if menuOpen {
@@ -2107,21 +2113,21 @@ class PresDiagram {
             this.allEnd()
             return r
         }
-        if ((this.backVisible(t)) && (PresDiagram.near(px py (bx + 22.0) (by + 22.0) 20.0))) {
+        if ((up && (this.backVisible(t))) && (PresDiagram.near(px py (bx + 22.0) (by + 22.0) 20.0))) {
             return -2
         }
         def cy:double ((by + bh) - 24.0)
         ; -11 ▶ / ■: the tour, started or stopped
-        if (canTour && (PresDiagram.near(px py ((bx + bw) - 188.0) cy 17.0))) {
+        if ((up && canTour) && (PresDiagram.near(px py ((bx + bw) - 188.0) cy 17.0))) {
             return -11
         }
-        if (PresDiagram.near(px py ((bx + bw) - 150.0) cy 17.0)) {
+        if (up && (PresDiagram.near(px py ((bx + bw) - 150.0) cy 17.0))) {
             return -3
         }
-        if (PresDiagram.near(px py ((bx + bw) - 112.0) cy 17.0)) {
+        if (up && (PresDiagram.near(px py ((bx + bw) - 112.0) cy 17.0))) {
             return -4
         }
-        if ((((px >= ((bx + bw) - 80.0)) && (px <= ((bx + bw) - 12.0))) && (py >= (cy - 17.0))) && (py <= (cy + 17.0))) {
+        if (up && ((((px >= ((bx + bw) - 80.0)) && (px <= ((bx + bw) - 12.0))) && (py >= (cy - 17.0))) && (py <= (cy + 17.0)))) {
             return -5
         }
         if (! (this.asking(t))) {
@@ -3143,8 +3149,32 @@ class PresDiagram {
     }
 
     fn uiBusy:boolean () {
-        ; a question pulses its choices on the wall clock
-        return (waiting || (exploring && ((uiNow - exT0) < 0.7)))
+        ; a question pulses its choices on the wall clock; the buttons fade
+        ctl.hold = menuOpen
+        return ((waiting || (exploring && ((uiNow - exT0) < 0.7))) || (ctl.busy(uiNow)))
+    }
+
+    ; The buttons take a press: showing, or the menu open.
+    fn controlsUp:boolean () {
+        return (menuOpen || (ctl.shown(uiNow)))
+    }
+
+    ; Over one of the buttons (where `hit` finds them), drawn in
+    ; (bx, by, bw, bh) at time t.
+    fn onControls:boolean (t:double bx:double by:double bw:double bh:double px:double py:double) {
+        if (PresDiagram.near(px py ((bx + bw) - 22.0) (by + 22.0) 17.0)) {
+            return true
+        }
+        if ((this.backVisible(t)) && (PresDiagram.near(px py (bx + 22.0) (by + 22.0) 20.0))) {
+            return true
+        }
+        def cy:double ((by + bh) - 24.0)
+        return ((((px >= ((bx + bw) - 205.0)) && (px <= ((bx + bw) - 12.0))) && (py >= (cy - 17.0))) && (py <= (cy + 17.0)))
+    }
+
+    ; The pointer at slide point (px, py), over this diagram or not.
+    fn pointerAt:void (over:boolean t:double bx:double by:double bw:double bh:double px:double py:double) {
+        ctl.move(uiNow over (over && (this.onControls(t bx by bw bh px py))))
     }
 
     ; ------------------------------------------------------------------
@@ -3234,22 +3264,37 @@ class PresDiagram {
             PresDiagram.fade(out bx by fw bh pc rim 0.0 1)
             PresDiagram.fade(out ((bx + bw) - fw) by fw bh pc 0.0 rim 1)
         }
+        ; on the stage the buttons come and go with the pointer; elsewhere
+        ; (a thumbnail, an export) only the way back is drawn, in full
+        def ui (new EVGDisplayList())
         if (this.backVisible(t)) {
-            this.paintBack(out (bx + 22.0) (by + 22.0))
+            this.paintBack(ui (bx + 22.0) (by + 22.0))
         }
+        def ua:double 1.0
         if showControls {
+            ctl.hold = menuOpen
+            ua = (ctl.alpha(uiNow))
             def cy:double ((by + bh) - 24.0)
             if canTour {
                 def pk:int 4
                 if tour {
                     pk = 5
                 }
-                this.paintButton(out ((bx + bw) - 188.0) cy pk)
+                this.paintButton(ui ((bx + bw) - 188.0) cy pk)
             }
-            this.paintButton(out ((bx + bw) - 150.0) cy 1)
-            this.paintButton(out ((bx + bw) - 112.0) cy 2)
-            this.paintHome(out ((bx + bw) - 46.0) cy l)
-            this.paintMenu(out bx by bw l)
+            this.paintButton(ui ((bx + bw) - 150.0) cy 1)
+            this.paintButton(ui ((bx + bw) - 112.0) cy 2)
+            this.paintHome(ui ((bx + bw) - 46.0) cy l)
+            this.paintMenu(ui bx by bw l)
+        }
+        if (ua > 0.01) {
+            def ui2:int 0
+            while (ui2 < (array_length ui.cmds)) {
+                def uc:EVGDrawCmd (itemAt ui.cmds ui2)
+                PresDiagram.xf(uc 0.0 0.0 1.0 0.0 0.0 ua)
+                push out.cmds uc
+                ui2 = (ui2 + 1)
+            }
         }
         if (this.asking(t)) {
             this.paintAsk(out bx by bw bh l)
@@ -3705,6 +3750,7 @@ class PresDiagram {
         showAll = o.showAll
         menuOpen = o.menuOpen
         uiNow = o.uiNow
+        ctl.takeFrom(o.ctl)
         lastFit = o.lastFit
         lastBW = o.lastBW
         lastBH = o.lastBH

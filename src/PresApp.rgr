@@ -1039,6 +1039,23 @@ class PresApp {
     def spX:double 0.0
     def spY:double 0.0
 
+    ; The pointer over the stage (`top` is the surface over it, "" for the
+    ; stage itself): a diagram under it shows its buttons, the others let
+    ; theirs fade.
+    fn diagramPointer:void (x:double y:double top:string) {
+        def k:int -1
+        if (((strlen top) == 0) && (slideRect.has(x y))) {
+            this.slidePoint(x y)
+            k = (deck.diagramAt(selected spX spY))
+        }
+        deck.diagramPointer(selected k (this.stageTime()) spX spY)
+    }
+
+    ; The pointer left the page.
+    fn pointerLeft:void () {
+        deck.diagramPointer(selected -1 0.0 0.0 0.0)
+    }
+
     ; A press on the stage that meant something to a diagram.
     fn stagePress:boolean (x:double y:double) {
         if (! (slideRect.has(x y))) {
@@ -1050,6 +1067,11 @@ class PresApp {
             return true
         }
         def code:string (deck.diagramHit(selected (this.stageTime()) spX spY))
+        ; a finger has no hover: the press brings the buttons up (after the
+        ; hit, so a tap where a hidden button is does not press it)
+        if touch {
+            deck.diagramTouched(selected (deck.diagramAt(selected spX spY)))
+        }
         if ((strlen code) == 0) {
             return false
         }
@@ -2623,6 +2645,7 @@ class PresApp {
         }
         ; hover is the top surface's: one under a window shows none
         def top:string (this.layerAt(x y))
+        this.diagramPointer(x y top)
         if (panels.any()) {
             if (PresApp.panelLayer(top)) {
                 panels.hoverAt(x y)
