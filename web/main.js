@@ -3061,6 +3061,9 @@ async function checkElsewhere() {
   }
 }
 window.__checkElsewhere = () => checkElsewhere();
+// a server of one's own is back after an update or a restart: what could
+// not be saved meanwhile goes now (mcp-go/assets/sliqtly-local.js)
+window.__cloudSoon = () => cloudSoon();
 
 const tabs = typeof BroadcastChannel === "function" ? new BroadcastChannel("sliqtly-docs") : null;
 tabs?.addEventListener("message", (ev) => {

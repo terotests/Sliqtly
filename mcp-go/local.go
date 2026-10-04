@@ -57,8 +57,9 @@ type localServer struct {
 	app    http.Handler
 	bucket *fsBucket
 	token  string
-	web    fs.FS      // the built page; nil: none
-	hub    *changeHub // the decks' changes, for /api/events
+	web    fs.FS        // the built page; nil: none
+	hub    *changeHub   // the decks' changes, for /api/events
+	board  *statusBoard // the server's state, for /api/status and /api/events
 }
 
 // the env of a server whose decks are in dir, reached at baseURL
@@ -94,7 +95,7 @@ func newLocalServer(env *Env, bucket *fsBucket, token string, web fs.FS) http.Ha
 			return builtinTheme(name)
 		}
 	}
-	s := &localServer{env: env, app: NewApp(env), bucket: bucket, token: token, web: web}
+	s := &localServer{env: env, app: NewApp(env), bucket: bucket, token: token, web: web, board: newStatusBoard("ready", version)}
 	if db, ok := env.DB.(*fsDB); ok {
 		s.hub = newChangeHub()
 		db.changed = s.hub.written
@@ -117,6 +118,12 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="sliqtly"`)
 		w.WriteHeader(401)
 		io.WriteString(w, `{"jsonrpc":"2.0","error":{"code":-32001,"message":"This server needs Authorization: Bearer <token>."},"id":null}`)
+		return
+	}
+	if p == "/api/status" {
+		st, _ := s.board.get()
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		writeStatus(w, st, 200)
 		return
 	}
 	if strings.HasPrefix(p, "/api/") && p != "/api/hit" {

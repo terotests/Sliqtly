@@ -7,6 +7,14 @@
 // reloads on the slide it showed (assets/sliqtly-local.js).
 //
 //	data: {"id":"<deck id>"}
+//
+// and the server's own state (localstatus.go), when the page connects and
+// when it changes:
+//
+//	event: status
+//	data: {"state":"ready","version":"1.1.3"}
+//
+// A server that is stopping says so and closes the stream.
 
 package main
 
@@ -70,7 +78,8 @@ func (s *localServer) events(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no") // a proxy in front passes them on at once
 	w.WriteHeader(200)
-	io.WriteString(w, "retry: 3000\n\n")
+	st, changed := s.board.get()
+	io.WriteString(w, "retry: 3000\n\n"+statusEvent(st))
 	fl.Flush()
 	ch := s.hub.subscribe()
 	defer s.hub.unsubscribe(ch)
@@ -81,6 +90,13 @@ func (s *localServer) events(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-changed:
+			st, changed = s.board.get()
+			io.WriteString(w, statusEvent(st))
+			if st.State == "stopping" {
+				fl.Flush()
+				return
+			}
 		case <-tick.C:
 			io.WriteString(w, ": keep-alive\n\n")
 		case id := <-ch:
