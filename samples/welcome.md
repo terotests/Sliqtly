@@ -1,196 +1,103 @@
 ---
-title: Sliqtly Better Slides
+title: Sliqtly - Demo
 transition: fade
-seconds: 0.6
-step: 1.2
-hold: 2.5
-footer-left: sliqtly.com
-footer-right: "{page} / {pages}"
-footer-skip: first last
 ---
+# Sliqtly {bg=media/bg.png fx=raindrops2}
 
-# Sliqtly Better Slides {fx=smoke}
+![Sliqtly](media/logo.svg)
+{width=100% height=100%}
 
-Näyttävät diat Markdownista — PPTX- ja PDF-viennillä, Excel-datalähteillä ja täysin muokattavilla teemoilla.
-{.lead}
-
-::: notes
-Tämä esitys on Sliqtly-esitys. Vasemmalla oleva teksti on koko esitys,
-oikealla olevat diat piirretään siitä sitä mukaa kuin kirjoitat.
-:::
-
-## Miksi Sliqtly {transition=slide}
-
-- **Markdownista näyttävät diat**
-- **PowerPoint ja PDF** yhdellä napautuksella
-- **Excel ja Google Sheets** kaavioiden ja taulukoiden datana
-- **Oma ilme:** teemat ja CSS-tyylit
-{.build anim=rise}
-
-::: notes
-Sinä kirjoitat tekstiä, Sliqtly piirtää diat. [[1]]
-Ne lähtevät PowerPointina tai PDF:nä aina kun tarvitset tiedoston. [[2]]
-Kaaviot ja taulukot lukevat taulukkosi. [[3]]
-Ja ilmeen saat muuttaa omaksesi. [[4]]
-:::
-
-## Kirjoita vain
-
-```markdown
-## Tulokset {transition=slide}
-
-1. Liikevaihto kasvoi 12 %
-2. Kaksi uutta markkinaa
-{.build anim=rise}
-```
-
-`#` on kansidia, jokainen `##` aloittaa uuden, `{…}` lisää liikkeen.
-{.kicker}
-
-::: notes
-Muuta mitä tahansa riviä vasemmalla ja katso, miten dia muuttuu.
-:::
-
-## Excel-datasi kaaviona
-
-```vega-lite
-{
-  "data": {"values": [
-    {"quarter": "Q1", "revenue": 3.1},
-    {"quarter": "Q2", "revenue": 3.8},
-    {"quarter": "Q3", "revenue": 4.6},
-    {"quarter": "Q4", "revenue": 5.9}
-  ]},
-  "width": 600,
-  "height": 210,
-  "background": "rgba(0,0,0,0)",
-  "mark": "bar",
-  "encoding": {
-    "x": {"field": "quarter", "type": "nominal", "title": null, "axis": {"labelAngle": 0}},
-    "y": {"field": "revenue", "type": "quantitative", "title": "Liikevaihto, M€"}
-  }
-}
-```
-
-Lisää Excel-työkirja tai liitä taulukko, niin Sliqtly ehdottaa kaaviota.
-{.kicker}
-
-::: notes
-Kaaviot ovat Vega-Liteä, joten pylväät, viivat, alueet, piiraat ja kartat toimivat.
-Napsauta vasemmalla vega-lite-riviä, niin voit muokata kaaviota lomakkeella.
-:::
-
-## Live-data
-
-- Kaavio tai taulukko voi lukea **Google Sheetsin**, CSV- tai JSON-linkin
-- Luvut luetaan uudelleen aina, kun esitys avataan
-- Paina esityksen aikana **R** päivittääksesi
-- Viedyt tiedostot säilyttävät datan sellaisena kuin se oli
-{.build anim=fly}
-
-```markdown
-"data": {"source": "google-sheets", "id": "<taulukon linkki>", "range": "A:B"}
-```
-
-::: notes
-Liitä Google Sheets -linkki editoriin, niin Sliqtly tarjoaa sitä live-datana.
-Live-data on PRO-ominaisuus.
-:::
-
-## PowerPoint, PDF tai linkki
-
-1. **Jaa** antaa linkin, joka avautuu suoraan esitykseen millä tahansa näytöllä
-2. **Vie** tekee PowerPointin, PDF:n tai Markdown-tiedoston
-3. **PRO**:lla esityksesi ovat pilvessä ja seuraavat sinua joka laitteelle
-{.build anim=rise}
-
-::: notes
-Jaettu linkki toistaa animaatiot ja live-datan. [[1]]
-Viedyt tiedostot ovat sitä varten, kun esityksen pitää kulkea tiedostona. [[2]]
-PRO pitää jokaisen esityksen tililläsi. [[3]]
-:::
-
-## Oma tyyli {transition=slide}
-
-```css
-h2 { color: #ffa546; }
-chart { chart-style: neon; }
-```
-
-Seitsemän teemaa, vaaleita ja tummia, ja mitä tahansa voi muuttaa **Teema (CSS)** -välilehdellä.
-{.kicker}
-
-::: notes
-Valitse teema työkalupalkista ja muuta värejä, fontteja ja kaavioiden tyyliä
-muutamalla CSS-rivillä.
-:::
-
-## Taulukot {transition=zoom}
-
-| Muoto | Avautuu | Säilyttää |
-|---|---|---|
-| PowerPoint (.pptx) | PowerPoint, Keynote, Google Slides | Muokattavan tekstin, oikeat kaavat |
-| PDF | Mikä tahansa lukija | Jokaisen dian sellaisenaan |
-| Linkki | Mikä tahansa selain tai puhelin | Animaatiot, live-datan |
-| Markdown | Mikä tahansa editori | Itse lähdetekstin |
-
-Myös työkirjat: `table`-lohko selaa Excel-taulukkoa, CSV:tä tai Google Sheetsiä.
-{.kicker}
-
-## Kaaviokuvat, jotka kertovat tarinan
+## Julkaisuprosessi
 
 ```mermaid
 flowchart LR
-  M[Markdown] --> S[Sliqtly]
-  S --> P[Esitä]
-  S --> X[PowerPoint / PDF]
-  S --> L[Jaa linkki]
-  A[Claude / ChatGPT] --> M
+  A[Suorakulmio] --> B(Pyöristetty) --> C([Stadion])
+  D[(Tietokanta)] --> E((Ympyrä)) --> F{Päätös}
+  G{{Kuusikulmio}} --> H[/Suunnikas/] --> I[[Aliohjelma]]
 ```
 
-::: notes
-Mermaid-, Graphviz-, D2- ja PlantUML-kaaviot animoidaan opastettuna kierroksena
-laatikko kerrallaan.
-:::
+## Myynti alueittain
 
-## Kaavat
-
-$$
-FV = PMT \cdot \frac{(1+r)^n - 1}{r}
-$$
-
-Kirjoita TeXiä: `$…$` tekstin sisällä, `$$…$$` omalla rivillään. PowerPointissa siitä tulee oikea kaava.
-{.kicker}
-
-## Muokkaa Clauden tai ChatGPT:n kanssa
-
-- **Tiedosto → Muokkaa Claudessa…** antaa esityksen avustajallesi
-- Yhdistä Sliqtly Claudeen, ChatGPT:hen tai Cursoriin: **sliqtly.com/connect.html**
-- Pyydä sitten: *"Tee tästä taulukosta kuuden dian esitys"*
-- Avustaja kirjoittaa diat ja antaa sinulle linkin
-{.build anim=fade}
-
-## Ylä- ja alaosat sekä sivunumerot
-
-```markdown
-footer-left: sliqtly.com
-footer-right: "{page} / {pages}"
-footer-skip: first last
+```vega-lite
+{"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "background": "rgba(0,0,0,0)", "config": {"axis": {"labelColor": "#c8d0f0", "titleColor": "#c8d0f0", "gridColor": "#2d3a7a", "domainColor": "#5c6aa8", "tickColor": "#5c6aa8", "labelFontSize": 14}, "legend": {"labelColor": "#c8d0f0", "labelFontSize": 14}, "view": {"stroke": null}}, "width": 820, "height": 320, "data": {"values": [{"q": "Q1", "alue": "Etelä", "k": 460}, {"q": "Q1", "alue": "Länsi", "k": 384}, {"q": "Q1", "alue": "Itä", "k": 280}, {"q": "Q1", "alue": "Pohjoinen", "k": 268}, {"q": "Q2", "alue": "Etelä", "k": 512}, {"q": "Q2", "alue": "Länsi", "k": 434}, {"q": "Q2", "alue": "Itä", "k": 344}, {"q": "Q2", "alue": "Pohjoinen", "k": 312}, {"q": "Q3", "alue": "Etelä", "k": 539}, {"q": "Q3", "alue": "Länsi", "k": 457}, {"q": "Q3", "alue": "Itä", "k": 379}, {"q": "Q3", "alue": "Pohjoinen", "k": 313}, {"q": "Q4", "alue": "Etelä", "k": 604}, {"q": "Q4", "alue": "Länsi", "k": 502}, {"q": "Q4", "alue": "Itä", "k": 416}, {"q": "Q4", "alue": "Pohjoinen", "k": 315}]}, "mark": {"type": "bar", "cornerRadiusEnd": 3}, "encoding": {"x": {"field": "q", "type": "ordinal", "title": null, "axis": {"labelAngle": 0}}, "xOffset": {"field": "alue"}, "y": {"field": "k", "type": "quantitative", "title": "k€"}, "color": {"field": "alue", "type": "nominal", "title": null, "legend": {"orient": "top"}}, "tooltip": [{"field": "alue"}, {"field": "q"}, {"field": "k"}]}}
 ```
 
-Näiden diojen alaosa on kirjoitettu esityksen alkuun näin.
-{.kicker}
+## Yksi lähde, monta muotoa
 
-## Aloita oma esityksesi {fx=smoke}
+![Sliqtly](media/radial.xml)
+{layout=radial1 colors=colorful1}
 
-1. **Tiedosto → Uusi esitys** antaa tyhjän esityksen
-2. Tai valitse valikosta esimerkki ja muokkaa sitä
-3. Tai muokkaa tätä: se on nyt sinun
-{.build anim=rise}
+## Tiekartta
 
-Paina **Esitä** nähdäksesi esityksen koko näytöllä.
-{.kicker}
+```timeline
+- Q1: Markdown-editori
+- Q2: Kaaviot ja vuokaaviot
+- Q3: MCP-palvelin
+- Q4: Yrityspalvelin
+```
+
+## Arkkitehtuuri
+
+```mermaid
+flowchart LR
+  subgraph Asiakas
+    U[Käyttäjä] --> W[Selain]
+  end
+  subgraph Palvelin
+    A[API] --> D[(Tietokanta)]
+    A --> Q[Jono]
+  end
+  W --> A
+  Q --> X[Työntekijä]
+  classDef kuuma fill:#ffa546,stroke:#b96926,color:#111
+  classDef viilea fill:#5ce1ff,stroke:#2b8fa8,color:#111
+  class A,Q kuuma
+  class D viilea
+  style X stroke-dasharray: 5 5
+```
+
+## Math Symbols
+
+$$f'(x) = \lim_{h \to 0} \frac{f(x+h) - f(x)}{h}$$
+
+$$\int_0^\infty e^{-x^2}\,dx = \frac{\sqrt{\pi}}{2}$$
+
+# Layouts and line art {art=waves}
+
+- Plan: goals, budget and schedule
+- Build: code, content and tests
+- Pilot: ten customers try it
+- Launch: open to everyone
+{list-style=process}
+
+{.lead}
 
 ::: notes
-Siinä kaikki. Aloita otsikolla ja parilla rivillä, ja diat seuraavat.
+The line art is a PRO feature; the layouts are free. Every layout below is computed from the text and the room on the slide; change the theme and they change colour with it.
 :::
+
+
+## Code and Syntax
+
+```typescript
+const deck = await sliqtly.create({
+  title: "Kvartaalikatsaus",
+  theme: "aurora",
+  markdown: "# Q4\n\n## Myynti\n...",
+});
+console.log(deck.share_url);
+```
+
+## Effects { fx=starfield }
+
+```mermaid
+flowchart LR
+  A[Run done] --> B{Any pain?}
+  B -->|No| C[Stretch and recover]
+  B -->|Yes| D{Worse when walking?}
+  D -->|No| E[Go easier next time]
+  D -->|Yes| F[Rest and ask a physio]
+  E --> A
+  C --> A
+```
+

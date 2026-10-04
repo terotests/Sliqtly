@@ -79,8 +79,10 @@ const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "corporate", 
 // samples/<key>.en.md English (any other language gets the English ones).
 const sample = (key, en, fi) => lang === "fi" ? [fi, `./samples/${key}.md`] : [en, `./samples/${key}.en.md`];
 const SAMPLES = {
-  // the first visit's deck, on a white theme of its own
-  welcome: [...sample("welcome", "Welcome: what Sliqtly can do", "Tervetuloa: mitä Sliqtlyllä voi tehdä"), "corporate"],
+  // the first visit's deck, on Aurora, with pictures of its own beside it
+  // (samples/welcome/…, the same for both languages)
+  welcome: [...sample("welcome", "Welcome: what Sliqtly can do", "Tervetuloa: mitä Sliqtlyllä voi tehdä"), "aurora",
+    ["media/bg.png", "media/logo.svg", "media/radial.xml"]],
   talous: sample("talous", "Finance: take charge of your money", "Talous: oma talous haltuun"),
   ymparisto: sample("ymparisto", "Environment: your carbon footprint", "Ympäristö: hiilijalanjälki"),
   urheilu: sample("urheilu", "Sports: a 5 km running course", "Urheilu: 5 km juoksukoulu"),
@@ -4021,11 +4023,29 @@ async function openSample(key) {
       useTheme(s[2]);
     }
     beginDoc(text);
+    await useSampleFiles(key, s[3] || []);
     shownDoc(text);
     dropThumbs();
     needsPaint = true;
   } catch (e) {
     fail(e);
+  }
+}
+
+// A sample's own files (samples/<key>/<path>), the deck's files as a shared
+// one's are: shown at once, kept with the deck on its first change.
+const SAMPLE_TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", svg: "image/svg+xml", xml: SMARTART_TYPE };
+async function useSampleFiles(key, paths) {
+  const got = await Promise.all(paths.map(async (path) => {
+    const res = await fetch(fresh(`./samples/${key}/${path}`));
+    if (!res.ok) throw new Error(path + " → " + res.status);
+    return { path, data: await res.blob() };
+  }));
+  for (const { path, data } of got) {
+    const type = SAMPLE_TYPES[path.split(".").pop().toLowerCase()] || data.type;
+    const rec = { doc: doc.id, path, type, size: data.size, data: new Blob([data], { type }), updated: Date.now() };
+    pending.set(rec.path, rec);
+    await useFile(rec);
   }
 }
 
