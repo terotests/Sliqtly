@@ -1,7 +1,7 @@
 // node --test: an SVG's size and the size it is drawn at (web/picture.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isSvg, svgLength, svgSize, svgSizedTo, rasterSize, SVG_RASTER } from "../picture.js";
+import { isSvg, isSmartArt, SMARTART_TYPE, svgLength, svgSize, svgSizedTo, rasterSize, SVG_RASTER } from "../picture.js";
 
 test("an SVG is told by its type or its name", () => {
   assert.equal(isSvg("image/svg+xml", "x.bin"), true);
@@ -52,4 +52,13 @@ test("no viewBox: it gets one of its own size, so it scales rather than cuts", (
 test("drawn with the longer side at the full-slide size", () => {
   assert.deepEqual(rasterSize(1600, 900), [SVG_RASTER, Math.round((SVG_RASTER * 900) / 1600)]);
   assert.deepEqual(rasterSize(24, 48), [Math.round(SVG_RASTER / 2), SVG_RASTER]);
+});
+
+test("a SmartArt file is told apart, and is not a picture to decode", () => {
+  assert.equal(isSmartArt(SMARTART_TYPE, "x"), true);
+  assert.equal(isSmartArt("", "media/steps.xml"), true);
+  assert.equal(isSmartArt("application/xml", "media/STEPS.XML"), true);
+  assert.equal(isSmartArt("image/png", "media/cat.png"), false);
+  assert.equal(isSmartArt("image/svg+xml", "media/logo.svg"), false);
+  assert.equal(isSvg(SMARTART_TYPE, "media/steps.xml"), false);
 });

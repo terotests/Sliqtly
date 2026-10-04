@@ -4,6 +4,7 @@
 
 Import "McpHost.rgr"
 Import "McpJson.rgr"
+Import "../pptx/smartart/SaFile.rgr"
 
 class Img {
     def name:string ""
@@ -111,6 +112,11 @@ class Deck {
         if ((((given == "image/png") || (given == "image/jpeg")) || ((given == "image/gif") || (given == "image/webp"))) || (given == "image/svg+xml")) {
             return given
         }
+        ; a SmartArt diagram (dgm:dataModel), kept and referenced like a
+        ; picture and drawn by the layout engine (src/PresSmartArt.rgr)
+        if (given == (SaFile.TYPE())) {
+            return given
+        }
         def dot:int (lastIndexOf name ".")
         if (dot < 0) {
             return ""
@@ -130,6 +136,9 @@ class Deck {
         }
         if (ext == "svg") {
             return "image/svg+xml"
+        }
+        if (ext == "xml") {
+            return (SaFile.TYPE())
         }
         return ""
     }
@@ -380,7 +389,8 @@ class Deck {
                         return res
                     }
                     def ct:string (got.str_("type"))
-                    if (((strlen ct) > 0) && ((startsWith ct "image/") == false)) {
+                    def xmlOk:boolean (((Deck.typeOf(name "")) == (SaFile.TYPE())) && ((indexOf ct "xml") >= 0))
+                    if ((((strlen ct) > 0) && ((startsWith ct "image/") == false)) && (xmlOk == false)) {
                         res.err = ("Image " + name + ": the URL gave " + ct + ", not a picture.")
                         return res
                     }
@@ -407,7 +417,7 @@ class Deck {
                 return res
             }
             if ((strlen type) == 0) {
-                res.err = ("Image " + name + ": unknown picture type; name it .png, .jpg, .gif, .webp or .svg.")
+                res.err = ("Image " + name + ": unknown picture type; name it .png, .jpg, .gif, .webp or .svg (or .xml for a SmartArt diagram).")
                 return res
             }
             def im (new Img)

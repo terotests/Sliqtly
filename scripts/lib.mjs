@@ -13,10 +13,12 @@
  * the same checkout as gallery/evgui, where its own ranger.json finds lib/evg.
  * EVGUI is cloned into .deps/EVGUI unless EVGUI_DIR points at a checkout.
  *
- * The diagram library and the Markdown engine moved out of Ranger into the
- * private RangerFlow and RangerMarkdown. Each is cloned INTO the Ranger
- * checkout at the path it had there, gallery/rangerflow and gallery/markdown
- * (Ranger's .gitignore leaves both out): their imports reach the rest of
+ * The diagram library, the Markdown engine and the PowerPoint module moved
+ * out of Ranger into the private RangerFlow, RangerMarkdown and RangerPPTX.
+ * Each is cloned INTO the Ranger checkout at the path it had there,
+ * gallery/rangerflow, gallery/markdown and gallery/pptx (Ranger's .gitignore
+ * leaves them out; the Markdown engine's deck export imports ../../pptx/…):
+ * their imports reach the rest of
  * Ranger by relative paths (../../../rangerdb/…), which a link would resolve
  * from where the clone really is. A Ranger checkout from before the move
  * still tracks them and is used as is.
@@ -74,9 +76,13 @@ export function ensureRanger({ update = false } = {}) {
     fs.writeFileSync(marker, ref + "\n");
   }
   if (!fs.existsSync(path.join(dir, "dist", "rgrc.js"))) throw new Error(`${dir} is not a Ranger checkout (no dist/rgrc.js)`);
-  // RangerFlow and RangerMarkdown, cloned into the checkout where it no
-  // longer tracks them
-  for (const [key, at] of [["rangerflow", "gallery/rangerflow"], ["rangermarkdown", "gallery/markdown"]]) {
+  // RangerFlow, RangerMarkdown and RangerPPTX, cloned into the checkout
+  // where it no longer tracks them
+  for (const [key, at] of [
+    ["rangerflow", "gallery/rangerflow"],
+    ["rangermarkdown", "gallery/markdown"],
+    ["rangerpptx", "gallery/pptx"],
+  ]) {
     const place = path.join(dir, at);
     let st = null;
     try {
@@ -85,6 +91,15 @@ export function ensureRanger({ update = false } = {}) {
     if (st && st.isSymbolicLink()) fs.unlinkSync(place);
     else if (st && !fs.existsSync(path.join(place, ".git"))) continue; // tracked by this Ranger
     ensureCheckout(key, { update, into: place });
+  }
+  // SmartArt (src/PresSmartArt.rgr) is drawn by RangerPPTX's engine. A
+  // Ranger ref that still tracks its own older gallery/pptx has none, and the
+  // compile would fail far from the reason.
+  if (!fs.existsSync(path.join(dir, "gallery/pptx/smartart/SaEngine.rgr"))) {
+    throw new Error(
+      `${dir} has no gallery/pptx/smartart: its gallery/pptx is not RangerPPTX.\n` +
+        `The Ranger ref (${ref}) must be one that leaves gallery/pptx to RangerPPTX, which setup then clones there.`,
+    );
   }
   // What this checkout has to have. A checkout of your own (RANGER_DIR) is
   // never switched for you, so say which branch it needs.
@@ -136,6 +151,7 @@ export function ensureEvgui({ update = false } = {}) {
 const CHECKOUT_HAS = {
   rangerflow: "layout/FlowWrap.rgr",
   rangermarkdown: "src/MdLayout.rgr",
+  rangerpptx: "src/PptxModel.rgr",
 };
 
 /**

@@ -25,6 +25,7 @@
 
 Import "../evgui/src/UiHost.rgr"
 Import "../evgui/src/ChatCtl.rgr"
+Import "../evgui/src/PaginationCtl.rgr"
 Import "../vela/src/VlJson.rgr"
 Import "PresI18n.rgr"
 Import "PresImport.rgr"
@@ -75,10 +76,13 @@ class PresPanels {
     ;   {"sort": "updated" | "created" | "name", "rows": [{"id", "name",
     ;    "added", "modified", "where", "cloudOnly", "current"}], "note"}
     def decksJson:string ""
-    def decksScroll:double 0.0
-    ; each row button's "<action>\t<id>" (`pd-k-<n>`); a delete pressed once
+    ; the list's pages (EVGUI's PaginationCtl does the arithmetic)
+    def decksPager:PaginationCtl (new PaginationCtl())
+    ; the deck id of each row on the page: `pd-r-<n>` opens it, `pd-x-<n>`
+    ; deletes it; a delete pressed once waits for the second press
     def decksKeys:[string]
     def decksArmed:string ""
+    def decksWheelSum:double 0.0
     ; the Open dialog's sample decks: a select whose trigger says what it is
     def samplePick:PresPromptSelect (new PresPromptSelect())
     ; the import dialog ("data"): the dropped file and its selects, one of
@@ -297,7 +301,7 @@ class PresPanels {
 
     fn openDecks:void (json:string) {
         decksJson = json
-        decksScroll = 0.0
+        decksPager.page = 1
         decksArmed = ""
         dialogKind = "decks"
         shareOpen = true
@@ -1067,34 +1071,23 @@ class PresPanels {
         return dw
     }
 
-    ; the list's own height: its rows, at most what the page leaves for it
-    ; besides the window's title, column heads and foot (about 170 px)
-    fn decksViewH:double (rows:int) {
-        def most:double ((h - 40.0) - 170.0)
-        if (most > 440.0) {
-            most = 440.0
+    ; rows a page holds: what the page leaves besides the window's title,
+    ; column heads, pager and foot (about 220 px), at 42 px a row
+    fn decksPageSize:int () {
+        def room:double ((h - 40.0) - 220.0)
+        if (room > 420.0) {
+            room = 420.0
         }
-        def want:double (((to_double rows) * 42.0) + 16.0)
-        if (rows == 0) {
-            want = 48.0
+        def n:int (to_int (room / 42.0))
+        if (n < 3) {
+            n = 3
         }
-        if (want > most) {
-            return most
-        }
-        return want
+        return n
     }
 
     ; on a narrow window the times go under the name, the modified one only
     fn decksNarrow:boolean () {
         return ((this.decksW()) < 600.0)
-    }
-
-    ; A button standing for `action` on deck `id`.
-    fn deckAct:void (action:string id:string label:string variant:string parent:EVGElement) {
-        def k:int (array_length decksKeys)
-        push decksKeys (action + (strfromcode 9) + id)
-        def b:ButtonCtl (this.button(("pd-k-" + (to_string k)) label variant parent))
-        UiTree.addClass((unwrap b.rootEl) "pf-act")
     }
 
     ; A column's head: pressed, the list is sorted by it.
@@ -1109,6 +1102,10 @@ class PresPanels {
             }
         }
         def b:ButtonCtl (this.button(("pd-sort-" + key) text "ghost" cell))
+        UiTree.addClass((unwrap b.rootEl) "pd-sorthead")
+        if (cls == "pd-when") {
+            UiTree.addClass((unwrap b.rootEl) "pd-sorttime")
+        }
         if (key == sort) {
             UiTree.addClass((unwrap b.rootEl) "pd-sorted")
         }
@@ -1133,18 +1130,36 @@ class PresPanels {
         def p0 (new VlJsonParser())
         def data:VlJson (p0.parse(decksJson))
         def ready:boolean ((p0.ok) && (data.isObject()))
+        def rows:VlJson (new VlJson())
         def count:int 0
         if ready {
-            count = ((data.get("rows")).count())
+            rows = (data.get("rows"))
+            count = (rows.count())
         }
-        def viewH:double (this.decksViewH(count))
+        decksPager.total = count
+        decksPager.pageSize = (this.decksPageSize())
+        decksPager.page = (decksPager.clampPage(decksPager.page))
+        def paged:boolean ((decksPager.pageCount()) > 1)
+        def from:int ((decksPager.page - 1) * decksPager.pageSize)
+        def until:int (from + decksPager.pageSize)
+        if (until > count) {
+            until = count
+        }
+        def shown:int (until - from)
+        if (shown < 1) {
+            shown = 1
+        }
+        def estH:double (176.0 + ((to_double shown) * 42.0))
+        if paged {
+            estH = (estH + 44.0)
+        }
         ; pd-dialog, not pn-dialog: that one's width is fixed in the theme
         def d:EVGElement (this.div("pd-dialog"))
         d.id = "pn-dialog"
         UiTree.surface(d "free" "start")
         d.width = (EVGUnit.px(dw))
         d.overlayX = ((w - dw) * 0.5)
-        d.overlayY = ((h - (viewH + 170.0)) * 0.5)
+        d.overlayY = ((h - estH) * 0.5)
         def top:EVGElement (this.div("pd-top"))
         top.addChild((this.words("pn-dtitle" (PresI18n.t("Presentations")))))
         top.addChild((this.div("pn-grow")))
@@ -1154,51 +1169,37 @@ class PresPanels {
         if ready {
             sort = (data.stringOr("sort" "updated"))
         }
+        ; the inner width of a row: the window less its padding
+        def rowW:double (dw - 40.0)
         def head:EVGElement (this.div("pd-head"))
-        this.decksHead("name" (PresI18n.t("Name")) sort "pd-hname" head)
+        def hn:EVGElement (this.div("pd-hrow"))
+        hn.width = (EVGUnit.px((rowW - 36.0)))
+        this.decksHead("name" (PresI18n.t("Name")) sort "pd-hname" hn)
         if narrow {
-            this.decksHead("updated" (PresI18n.t("Modified")) sort "pd-hnarrow" head)
+            this.decksHead("updated" (PresI18n.t("Modified")) sort "pd-hnarrow" hn)
         } {
-            this.decksHead("created" (PresI18n.t("Added")) sort "pd-when" head)
-            this.decksHead("updated" (PresI18n.t("Modified")) sort "pd-when" head)
+            this.decksHead("created" (PresI18n.t("Added")) sort "pd-when" hn)
+            this.decksHead("updated" (PresI18n.t("Modified")) sort "pd-when" hn)
         }
-        head.addChild((this.div("pd-acts")))
+        head.addChild(hn)
         d.addChild(head)
-        def view:EVGElement (this.div("pn-view pd-view"))
-        view.id = "pd-view"
-        view.setAttribute("overflow" "hidden")
-        view.height = (EVGUnit.px(viewH))
         def body:EVGElement (this.div("pd-body"))
         if (ready == false) {
             body.addChild((this.words("pn-intro" (PresI18n.t("Loading…")))))
         } {
-            def rows:VlJson (data.get("rows"))
-            ; the name's room in characters, about 7 px each, less the columns
-            def nameW:double (dw - 40.0 - 150.0)
-            if (narrow == false) {
-                nameW = (nameW - 280.0)
-            }
-            def most:int (to_int (nameW / 7.0))
-            def i:int 0
-            while (i < (rows.count())) {
-                body.addChild((this.deckRow((rows.at(i)) narrow most)))
+            def i:int from
+            while (i < until) {
+                body.addChild((this.deckRow((rows.at(i)) narrow rowW)))
                 i = (i + 1)
             }
-            if ((rows.count()) == 0) {
+            if (count == 0) {
                 body.addChild((this.words("pn-intro" (PresI18n.t("A presentation is saved here when you edit it.")))))
             }
-            ; past the end of the list the scroll stops
-            def most2:double ((((to_double (rows.count())) * 42.0) + 16.0) - viewH)
-            if (decksScroll > most2) {
-                decksScroll = most2
-            }
-            if (decksScroll < 0.0) {
-                decksScroll = 0.0
-            }
         }
-        view.scrollTop = decksScroll
-        view.addChild(body)
-        d.addChild(view)
+        d.addChild(body)
+        if paged {
+            d.addChild((this.decksPagerRow(rowW)))
+        }
         def foot:EVGElement (this.div("pn-dfoot"))
         def note:EVGElement (this.div("pd-note"))
         if ready {
@@ -1210,37 +1211,104 @@ class PresPanels {
         return d
     }
 
-    fn deckRow:EVGElement (r:VlJson narrow:boolean most:int) {
-        def id:string (r.stringOr("id" ""))
-        def row:EVGElement (this.div("pf-row pd-row"))
-        def nm:EVGElement (this.div("pf-name pd-name"))
-        nm.addChild((this.words("pf-fname" (PresPanels.clip((r.stringOr("name" "")) most)))))
-        if narrow {
-            nm.addChild((this.words("pf-fsize" (((r.stringOr("where" "")) + " · ") + (r.stringOr("modified" ""))))))
-            row.addChild(nm)
-        } {
-            nm.addChild((this.words("pf-fsize" (r.stringOr("where" "")))))
-            row.addChild(nm)
-            row.addChild((this.words("pd-when pd-time" (r.stringOr("added" "")))))
-            row.addChild((this.words("pd-when pd-time" (r.stringOr("modified" "")))))
-        }
-        def acts:EVGElement (this.div("pd-acts"))
-        if (r.boolOr("current" false)) {
-            acts.addChild((this.words("pf-current" (PresI18n.t("open")))))
-            row.addChild(acts)
-            return row
-        }
-        this.deckAct("open" id (PresI18n.t("Open")) "secondary" acts)
-        ; a deck only in the cloud is deleted once open (File → Delete)
-        if ((r.boolOr("cloudOnly" false)) == false) {
-            if (decksArmed == ("del" + (strfromcode 9) + id)) {
-                this.deckAct("del" id (PresI18n.t("Delete?")) "primary" acts)
+    ; ‹ 1 2 … 5 ›, and which rows of how many show
+    fn decksPagerRow:EVGElement (rowW:double) {
+        def row:EVGElement (this.div("pd-pager"))
+        row.width = (EVGUnit.px(rowW))
+        def pv:ButtonCtl (this.button("pd-pg-prev" "‹" "ghost" row))
+        pv.disabled = ((decksPager.canPrevious()) == false)
+        pv.build()
+        UiTree.addClass((unwrap pv.rootEl) "pd-pg")
+        def items:[string] (decksPager.items())
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:string (itemAt items i)
+            if (PaginationCtl.isEllipsis(it)) {
+                row.addChild((this.words("pd-pg-gap" "…")))
             } {
-                this.deckAct("del" id "✕" "ghost" acts)
+                def variant:string "ghost"
+                if (it == (to_string decksPager.page)) {
+                    variant = "secondary"
+                }
+                def b:ButtonCtl (this.button(("pd-pg-" + it) it variant row))
+                UiTree.addClass((unwrap b.rootEl) "pd-pg")
             }
+            i = (i + 1)
         }
-        row.addChild(acts)
+        def nx:ButtonCtl (this.button("pd-pg-next" "›" "ghost" row))
+        nx.disabled = ((decksPager.canNext()) == false)
+        nx.build()
+        UiTree.addClass((unwrap nx.rootEl) "pd-pg")
+        row.addChild((this.div("pn-grow")))
+        def first:int (((decksPager.page - 1) * decksPager.pageSize) + 1)
+        def last:int (decksPager.page * decksPager.pageSize)
+        if (last > decksPager.total) {
+            last = decksPager.total
+        }
+        row.addChild((this.words("pd-time pd-range" ((((to_string first) + "–") + (to_string last)) + (" / " + (to_string decksPager.total))))))
         return row
+    }
+
+    ; A deck's row: the row itself opens it (it lights up under the pointer);
+    ; the ✕ beside it, in a column of its own, deletes a deck kept here.
+    fn deckRow:EVGElement (r:VlJson narrow:boolean rowW:double) {
+        def id:string (r.stringOr("id" ""))
+        def k:int (array_length decksKeys)
+        push decksKeys id
+        def armed:boolean (decksArmed == id)
+        def delW:double 36.0
+        if armed {
+            delW = 84.0
+        }
+        def line:EVGElement (this.div("pd-line"))
+        line.width = (EVGUnit.px(rowW))
+        def b:ButtonCtl (this.button(("pd-r-" + (to_string k)) "" "ghost" line))
+        def el:EVGElement (unwrap b.rootEl)
+        UiTree.addClass(el "pd-open")
+        if (r.boolOr("current" false)) {
+            UiTree.addClass(el "pd-cur")
+        }
+        UiTree.clearChildren(el)
+        ; the name's room in characters, about 7 px each, less the columns
+        def nameW:double ((rowW - delW) - 16.0)
+        if (narrow == false) {
+            nameW = (nameW - 280.0)
+        }
+        def nm:EVGElement (this.div("pf-name pd-name"))
+        def title:string (PresPanels.clip((r.stringOr("name" "")) (to_int (nameW / 7.0))))
+        nm.addChild((this.words("pf-fname" title)))
+        def where:string (r.stringOr("where" ""))
+        if (r.boolOr("current" false)) {
+            where = (((PresI18n.t("open")) + " · ") + where)
+        }
+        if narrow {
+            where = ((where + " · ") + (r.stringOr("modified" "")))
+        }
+        nm.addChild((this.words("pf-fsize" where)))
+        el.addChild(nm)
+        if (narrow == false) {
+            el.addChild((this.words("pd-when pd-time" (r.stringOr("added" "")))))
+            el.addChild((this.words("pd-when pd-time" (r.stringOr("modified" "")))))
+        }
+        def del:EVGElement (this.div("pd-del"))
+        del.width = (EVGUnit.px(delW))
+        ; the open deck, and one only in the cloud, are deleted with File →
+        ; Delete presentation… once open
+        if (((r.boolOr("cloudOnly" false)) == false) && ((r.boolOr("current" false)) == false)) {
+            def x:ButtonCtl (this.button(("pd-x-" + (to_string k)) (? armed (PresI18n.t("Delete?")) "✕") (? armed "primary" "ghost") del))
+            UiTree.addClass((unwrap x.rootEl) "pf-act")
+        }
+        line.addChild(del)
+        return line
+    }
+
+    ; "pd-r-<n>" / "pd-x-<n>" → the deck id of row n on the page, or ""
+    fn deckOf:string (c:string) {
+        def k:int (?? (str2int (substring c 5 (strlen c))) -1)
+        if ((k >= 0) && (k < (array_length decksKeys))) {
+            return (itemAt decksKeys k)
+        }
+        return ""
     }
 
     fn decksPress:void (px:double py:double) {
@@ -1251,32 +1319,49 @@ class PresPanels {
             return
         }
         if ((indexOf c "pd-sort-") == 0) {
-            decksScroll = 0.0
+            decksPager.page = 1
             push requests ("decks:sort:" + (substring c 8 (strlen c)))
             return
         }
-        if ((indexOf c "pd-k-") == 0) {
-            def k:int (?? (str2int (substring c 5 (strlen c))) -1)
-            if ((k >= 0) && (k < (array_length decksKeys))) {
-                def key:string (itemAt decksKeys k)
-                def tab:int (indexOf key (strfromcode 9))
-                def action:string (substring key 0 tab)
-                def what:string (substring key (tab + 1) (strlen key))
-                if (action == "del") {
-                    if (decksArmed != key) {
-                        ; the first press only asks
-                        decksArmed = key
-                        this.rebuild()
-                        return
-                    }
-                    decksArmed = ""
-                    push requests ("decks:del:" + what)
+        if ((indexOf c "pd-pg-") == 0) {
+            def what:string (substring c 6 (strlen c))
+            def moved:boolean false
+            if (what == "prev") {
+                moved = (decksPager.previous())
+            } {
+                if (what == "next") {
+                    moved = (decksPager.next())
+                } {
+                    moved = (decksPager.setPage((?? (str2int what) decksPager.page)))
+                }
+            }
+            if moved {
+                decksArmed = ""
+                this.rebuild()
+            }
+            return
+        }
+        if ((indexOf c "pd-r-") == 0) {
+            def id:string (this.deckOf(c))
+            if ((strlen id) > 0) {
+                push requests ("files:doc:" + id)
+                this.closeShare()
+            }
+            return
+        }
+        if ((indexOf c "pd-x-") == 0) {
+            def id2:string (this.deckOf(c))
+            if ((strlen id2) > 0) {
+                if (decksArmed != id2) {
+                    ; the first press only asks
+                    decksArmed = id2
+                    this.rebuild()
                     return
                 }
-                push requests ("files:doc:" + what)
-                this.closeShare()
-                return
+                decksArmed = ""
+                push requests ("decks:del:" + id2)
             }
+            return
         }
         if ((c == "pd-close") || ((this.inEl("pn-dialog" px py)) == false)) {
             this.closeShare()
@@ -1288,12 +1373,24 @@ class PresPanels {
         }
     }
 
-    fn decksScrollBy:void (dy:double) {
-        decksScroll = (decksScroll + dy)
-        if (decksScroll < 0.0) {
-            decksScroll = 0.0
+    ; the wheel over the window turns its pages, a page a notch (a trackpad's
+    ; many small steps add up to one)
+    fn decksWheel:void (dy:double) {
+        decksWheelSum = (decksWheelSum + dy)
+        if ((fabs decksWheelSum) < 100.0) {
+            return
         }
-        this.rebuild()
+        def moved:boolean false
+        if (decksWheelSum > 0.0) {
+            moved = (decksPager.next())
+        } {
+            moved = (decksPager.previous())
+        }
+        decksWheelSum = 0.0
+        if moved {
+            decksArmed = ""
+            this.rebuild()
+        }
     }
 
     ; --- the settings dialog -------------------------------------------------------------

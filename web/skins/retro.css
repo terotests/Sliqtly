@@ -141,6 +141,9 @@
 .theme-retro .pn-nm { color: var(--retro-hot-b); background-color: var(--retro-screen-3); }
 .theme-retro .pn-val { color: #ffd27a; }
 .theme-retro .pd-head { border-bottom: 1px solid var(--retro-screen-3); }
+.theme-retro .pd-open { background-color: var(--retro-screen-2); color: var(--retro-ink); }
+.theme-retro .pd-open:hover,
+.theme-retro .pd-cur { background-color: var(--retro-screen-3); }
 .theme-retro .pn-sec { border-top: 1px solid var(--retro-screen-3); }
 .theme-retro .pn-rule,
 .theme-retro .pn-opt,

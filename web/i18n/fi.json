@@ -835,5 +835,9 @@
   "This browser and the cloud": "Tämä selain ja pilvi",
   "presentation": "esitys",
   "The presentations in your cloud could not be read: ": "Pilvessä olevia esityksiä ei voitu lukea: ",
-  "Sign in (PRO) to see the presentations in your cloud, such as those made by an assistant.": "Kirjaudu (PRO), niin näet myös pilvessä olevat esitykset, esimerkiksi tekoälyavustajan tekemät."
+  "Sign in (PRO) to see the presentations in your cloud, such as those made by an assistant.": "Kirjaudu (PRO), niin näet myös pilvessä olevat esitykset, esimerkiksi tekoälyavustajan tekemät.",
+  "About": "Tietoja",
+  "Version": "Versio",
+  "Build": "Koontiversio",
+  "OK": "OK"
 }

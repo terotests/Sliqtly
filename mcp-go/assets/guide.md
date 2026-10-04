@@ -186,9 +186,8 @@ When text on a picture is hard to read ("low contrast"), raise that slide's
   Opportunities, Threats) or ```` ```timeline ````, one item per
   line as `Title: description`; an indented `- point` belongs to the item
   above. `{width=60%}` under the fence makes it narrower. They are drawn in
-  the theme's colours and go into the PDF and PowerPoint as shapes. Only
-  signed-in PRO decks draw them; otherwise the slot says it is a PRO
-  layout, so do not use them when the user is not on PRO.
+  the theme's colours and go into the PDF and PowerPoint as shapes, for
+  every user, signed in or not.
 
   ````markdown
   ```process
@@ -197,6 +196,44 @@ When text on a picture is hard to read ("low contrast"), raise that slide's
   - Launch: open to everyone
   ```
   ````
+- SmartArt: a diagram from PowerPoint's SmartArt, as a FILE in the deck.
+  Write its data model (`dgm:dataModel`, as in a .pptx's
+  `ppt/diagrams/data1.xml`), send it in `images` as `name: "steps.xml"`, and
+  reference it like a picture. Options go on the line UNDER the reference:
+
+  ````markdown
+  ![The release process](media/steps.xml)
+  {layout=chevron1 colors=colorful1 width=80%}
+  ````
+
+  The smallest file: a document point naming the layout, a point per item,
+  and a connection from its parent to each (a sub-item connects to its item,
+  not to the document):
+
+  ```xml
+  <dgm:dataModel xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+    <dgm:ptLst>
+      <dgm:pt modelId="0" type="doc"><dgm:prSet loTypeId="urn:microsoft.com/office/officeart/2005/8/layout/process1"/></dgm:pt>
+      <dgm:pt modelId="1"><dgm:t><a:p><a:r><a:t>Plan</a:t></a:r></a:p></dgm:t></dgm:pt>
+      <dgm:pt modelId="2"><dgm:t><a:p><a:r><a:t>Build</a:t></a:r></a:p></dgm:t></dgm:pt>
+    </dgm:ptLst>
+    <dgm:cxnLst>
+      <dgm:cxn srcId="0" destId="1"/>
+      <dgm:cxn srcId="0" destId="2"/>
+    </dgm:cxnLst>
+  </dgm:dataModel>
+  ```
+
+  Layouts drawn today: `process1` (steps with arrows), `chevron1` (chevron
+  steps), `vList2` (a bar per item, its sub-items as bullets under it) and
+  `hList1` (a column per item, its sub-items under its heading). Another
+  layout id is drawn as vList2 and the result says so. Colours (`colors=`):
+  `accent1_2` … `accent6_2` (one theme colour), `colorful1`, `colorful2`
+  (cycling). They come from the theme. A file that is not a diagram is
+  shown as the reason in its place and named in the warnings. The PDF and
+  the PowerPoint export carry it as shapes. Prefer a Mermaid diagram or a
+  ```` ```process ```` list when either says it; SmartArt is for when the
+  deck should hold PowerPoint's own kind of diagram.
 - The deck's own data: `list_files` (and `get_presentation`) list the files a
   deck keeps. For each `.xlsx` workbook they give its sheets, columns and row
   counts, and the name a sheet is read by (e.g. `data/sales-Sales.csv`). The

@@ -1,7 +1,7 @@
 {
   "ranger": {
     "url": "https://github.com/terotests/Ranger",
-    "ref": "claude/nifty-dijkstra-vq2qit"
+    "ref": "claude/laughing-lamport-77aaec-nifty"
   },
   "rangerflow": {
     "url": "https://github.com/terotests/RangerFlow",
@@ -9,6 +9,10 @@
   },
   "rangermarkdown": {
     "url": "https://github.com/terotests/RangerMarkdown",
+    "ref": "main"
+  },
+  "rangerpptx": {
+    "url": "https://github.com/terotests/RangerPPTX",
     "ref": "main"
   },
   "evgui": {

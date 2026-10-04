@@ -33,6 +33,7 @@ Import "PresSource.rgr"
 Import "PresDiagram.rgr"
 Import "PresChart.rgr"
 Import "PresTable.rgr"
+Import "PresSmartArt.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGStyleSheet.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -112,8 +113,11 @@ class PresSlide {
     def steps:int 0
     def diagrams:[PresDiaUse]
     def charts:[PresChartUse]
+    def smartArts:[PresSmartArtUse]
 
     Constructor () {
+        def sau:[PresSmartArtUse]
+        smartArts = sau
         def du:[PresDiaUse]
         diagrams = du
         def cu:[PresChartUse]
@@ -163,6 +167,10 @@ class PresDeck {
     def artAllowed:boolean false
     ; the theme's colours for them, as last read (`figureStyle`)
     def figStyle:MdFigureStyle (new MdFigureStyle)
+    ; the deck's SmartArt files, by the path the picture store has them under
+    ; (PresSmartArt), and the diagrams already laid out
+    def smartArtPaths:[string]
+    def smartArtCache:PresSmartArtCache (new PresSmartArtCache())
     ; Slides whose effect the host rendered to a picture for an export
     ; (`fxStillPath`); a still list draws the picture in place of the effect.
     def fxStills:[int]
@@ -625,6 +633,108 @@ class PresDeck {
             i = (i + 1)
         }
         return 0.0
+    }
+
+    ; Every picture the deck is given comes in here, from the editor's page
+    ; and from the MCP server alike. A SmartArt file is stored as itself, at
+    ; the natural size a diagram has before its Markdown says otherwise.
+    fn addImage:boolean (name:string data:buffer contentType:string w:int h:int) {
+        if (SaFile.isSmartArt(name contentType (SaFile.headOf(data)))) {
+            if ((indexOf smartArtPaths name) < 0) {
+                push smartArtPaths name
+            }
+            return (md.addImage(name data (SaFile.TYPE()) (SaFile.naturalW()) (SaFile.naturalH())))
+        }
+        return (md.addImage(name data contentType w h))
+    }
+
+    fn isSmartArtPath:boolean (path:string) {
+        return ((indexOf smartArtPaths path) >= 0)
+    }
+
+    ; A picture reference that names a SmartArt file, with what its `{…}`
+    ; says about the diagram.
+    fn readSmartArt:void (s:PresSlide n:MdNode) {
+        if ((array_length smartArtPaths) == 0) {
+            return
+        }
+        def img:MdNode (MdLayout.loneImage(n))
+        if (img.kind != "image") {
+            return
+        }
+        def lay:MdLayout (this.layout())
+        def path:string (lay.images.resolve(img.destination lay.docDir))
+        if ((this.isSmartArtPath(path)) == false) {
+            return
+        }
+        def u (new PresSmartArtUse())
+        u.path = path
+        u.srcStart = n.srcStart
+        u.layout = (n.attrValue("layout"))
+        u.colors = (n.attrValue("colors"))
+        u.style = (n.attrValue("style"))
+        push s.smartArts u
+    }
+
+    fn smartArtOf@(optional):PresSmartArtUse (s:PresSlide b:MdBox) {
+        if ((b.kind != 4) || ((this.isSmartArtPath(b.imagePath)) == false)) {
+            def none@(optional):PresSmartArtUse
+            return none
+        }
+        def i:int 0
+        while (i < (array_length s.smartArts)) {
+            def u:PresSmartArtUse (itemAt s.smartArts i)
+            if ((u.srcStart == b.srcStart) && (u.path == b.imagePath)) {
+                def hit@(optional):PresSmartArtUse u
+                return hit
+            }
+            i = (i + 1)
+        }
+        ; a reference whose block did not say anything: the file's own
+        def plain (new PresSmartArtUse())
+        plain.path = b.imagePath
+        def p@(optional):PresSmartArtUse plain
+        return p
+    }
+
+    ; What the SmartArt diagrams on the slides could not do as asked, as
+    ; sentences for whoever wrote the deck: a file that is not a diagram, a
+    ; layout or colour set the engine does not have, text that does not fit.
+    fn smartArtNotes:[string] () {
+        def out:[string]
+        def l:MdLayout (this.layout())
+        def i:int 0
+        while (i < (array_length slides)) {
+            def s:PresSlide (itemAt slides i)
+            def where:string (" on slide " + (to_string (i + 1)))
+            if ((strlen s.title) > 0) {
+                where = (" on slide \"" + s.title + "\"")
+            }
+            def k:int 0
+            while (k < (array_length s.smartArts)) {
+                def u:PresSmartArtUse (itemAt s.smartArts k)
+                def bi:int 0
+                while (bi < (array_length l.boxes)) {
+                    def b:MdBox (itemAt l.boxes bi)
+                    if (((b.kind == 4) && (b.imagePath == u.path)) && (b.srcStart == u.srcStart)) {
+                        def r:SaResult (PresSmartArt.laidOut(u md figStyle smartArtCache b.w b.h))
+                        def name:string (substring u.path 1 (strlen u.path))
+                        if (r.ok == false) {
+                            push out ("The SmartArt " + name + where + " is not shown: " + r.error + ".")
+                        }
+                        def w:int 0
+                        while (w < (array_length r.warnings)) {
+                            push out ("The SmartArt " + name + where + ": " + (itemAt r.warnings w) + ".")
+                            w = (w + 1)
+                        }
+                    }
+                    bi = (bi + 1)
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     fn readDiagram:void (s:PresSlide n:MdNode page:int) {
@@ -1636,6 +1746,7 @@ class PresDeck {
                 this.readGroups(slide ch)
                 this.readDiagram(slide ch pg)
                 this.readCharts(slide ch)
+                this.readSmartArt(slide ch)
             }
             c = (c + 1)
         }
@@ -1985,6 +2096,10 @@ class PresDeck {
                     dia.diagram.paint(out (itemAt span 0) kb.y (itemAt span 1) room (t - dia.start) l.style.textColor paper l)
                 }
             } {
+                def sa@(optional):PresSmartArtUse (this.smartArtOf(s kb))
+                if (!null? sa) {
+                    PresSmartArt.paint(out (unwrap sa) md figStyle smartArtCache kb.x kb.y kb.w kb.h)
+                } {
                 def tu@(optional):PresTableUse (this.tableOf(kb))
                 if (!null? tu) {
                     def tb:PresTableUse (unwrap tu)
@@ -1998,6 +2113,7 @@ class PresDeck {
                     if still {
                         PresChart.flatten(out before paper)
                     }
+                }
                 }
                 }
             }
