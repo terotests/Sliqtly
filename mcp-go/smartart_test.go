@@ -152,3 +152,51 @@ func TestSmartArtLayouts(t *testing.T) {
 		}
 	}
 }
+
+// A whole PowerPoint SmartArt as one file (Flat OPC: data, colours,
+// drawing): taken, drawn as PowerPoint drew it, reported as a diagram, and
+// read back from storage the same way.
+func TestSmartArtWholeFile(t *testing.T) {
+	part := func(ct, body string) string {
+		return `<pkg:part pkg:name="/x.xml" pkg:contentType="application/vnd.` + ct + `+xml"><pkg:xmlData>` + body + `</pkg:xmlData></pkg:part>`
+	}
+	colors := `<dgm:colorsDef xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" uniqueId="urn:example/house"><dgm:styleLbl name="node1"><dgm:fillClrLst><a:srgbClr val="336699"/></dgm:fillClrLst><dgm:linClrLst/><dgm:txFillClrLst><a:schemeClr val="lt1"/></dgm:txFillClrLst></dgm:styleLbl></dgm:colorsDef>`
+	sp := func(id, x, text string) string {
+		return `<dsp:sp modelId="` + id + `"><dsp:nvSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvSpPr/></dsp:nvSpPr><dsp:spPr><a:xfrm><a:off x="` + x + `" y="0"/><a:ext cx="2540000" cy="1270000"/></a:xfrm><a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="336699"/></a:solidFill></dsp:spPr><dsp:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US" sz="2400"/><a:t>` + text + `</a:t></a:r></a:p></dsp:txBody></dsp:sp>`
+	}
+	drawing := `<dsp:drawing xmlns:dsp="http://schemas.microsoft.com/office/drawing/2008/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><dsp:spTree><dsp:nvGrpSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvGrpSpPr/></dsp:nvGrpSpPr><dsp:grpSpPr/>` + sp("1", "0", "Suunnittelu") + sp("2", "3810000", "Toteutus") + `</dsp:spTree></dsp:drawing>`
+	whole := `<?xml version="1.0" encoding="UTF-8"?><pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">` +
+		part("openxmlformats-officedocument.drawingml.diagramData", STEPS) +
+		part("openxmlformats-officedocument.drawingml.diagramColors", colors) +
+		part("ms-office.drawingml.diagramDrawing", drawing) + `</pkg:package>`
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "## As drawn\n\n![The steps](media/whole.xml)\n\n## Laid out\n\n![The steps](media/whole.xml)\n{layout=chevron1}\n"
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "Whole", "markdown": md,
+		"images": []any{map[string]any{"name": "whole.xml", "data_base64": base64.StdEncoding.EncodeToString([]byte(whole))}},
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	out := sc(c)
+	ws := strings.Join(toStrings(out["warnings"]), "\n")
+	if strings.Contains(ws, "SmartArt") {
+		t.Fatalf("a warning about a whole file that is fine:\n%s", ws)
+	}
+	rep := textOf(c)
+	if strings.Count(rep, "- diagram (whole.xml) at ") != 2 {
+		t.Fatalf("the whole file is not reported as a diagram on both slides:\n%s", rep)
+	}
+	id := out["deck_id"].(string)
+	for i := 1; i <= 2; i++ {
+		r := call(t, s, "render_slide", map[string]any{"deck_id": id, "slide": i})
+		if r.IsError {
+			t.Fatal(textOf(r))
+		}
+		if rr := lastText(r); !strings.Contains(rr, "- diagram (whole.xml) at ") {
+			t.Fatalf("slide %d read back is not a diagram:\n%s", i, rr)
+		}
+	}
+}
