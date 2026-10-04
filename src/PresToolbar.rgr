@@ -244,6 +244,9 @@ class PresToolbar {
         if (id == "settings") {
             return "settings"
         }
+        if (id == "about") {
+            return "about"
+        }
         if (id == "docset") {
             return "docset"
         }
@@ -578,6 +581,8 @@ class PresToolbar {
             ex.addItem("zip" (PresI18n.t("All files (.zip)")) false)
             def hp:MenuCtl (this.dropdown("help" (PresI18n.t("Help"))))
             hp.addItem("helpBtn" (PresI18n.t("Help for this slide")) false)
+            hp.addSeparator()
+            hp.addItem("about" (PresI18n.t("About")) false)
 
             def k:int 0
             while (k < (array_length menus)) {
@@ -681,6 +686,7 @@ class PresToolbar {
             this.button("dr-zip" (PresI18n.t("All files (.zip)")) "ghost" body)
             body.addChild((this.text("tb-dr-label" (PresI18n.t("Help")))))
             this.button("dr-helpBtn" (PresI18n.t("Help for this slide")) "ghost" body)
+            this.button("dr-about" (PresI18n.t("About")) "ghost" body)
             if ((strlen langRows) > 0) {
                 body.addChild((this.text("tb-dr-label" (PresI18n.t("Language")))))
                 langSel = (this.select("lang" (PresI18n.t("Language")) langRows langValue body))

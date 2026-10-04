@@ -110,6 +110,8 @@ function asRangerBuffer(ab) {
 // stylesheet the browser kept — the chart editor's sheets were, and a new
 // editor came up in the old one's colours.
 const BUILD = "__BUILD__";
+// the day it was built (scripts/build.mjs), for Help → About
+const BUILT = "__BUILT__";
 // The faces carry their own version (the hash of the font files), so a new
 // build does not make every browser fetch the same fonts again.
 const FONTS = "__FONTS__";
@@ -2403,6 +2405,18 @@ window.__pictureSize = (p) => {
   return img ? [img.naturalWidth, img.naturalHeight] : [0, 0];
 };
 
+// Help → About: the app's name, the server's version when the page is
+// served by a server of one's own (mcp-go/assets/sliqtly-local.js), and
+// the build
+async function openAbout() {
+  const lines = [APP_NAME];
+  const server = await window.sliqtly?.serverVersion?.().catch(() => "");
+  if (server) lines.push(t("Version") + " " + server);
+  const built = BUILT.startsWith("__") ? "" : " (" + BUILT + ")";
+  lines.push(t("Build") + " " + (BUILD.startsWith("__") ? "dev" : BUILD) + built);
+  if (app.openAbout(t("About"), lines.join("\n"))) needsPaint = true;
+}
+
 function handleRequests() {
   for (;;) {
     const r = app.takeRequest();
@@ -2429,6 +2443,8 @@ function handleRequests() {
         const pics = fs.filter((f) => kindOf(f.path, f.type) === "image").map((f) => f.path).sort();
         if (app.openDocSettings(pics.join("\n"))) needsPaint = true;
       });
+    } else if (r === "about") {
+      openAbout().catch(fail);
     } else if (r === "settings") {
       app.openSettings(autoContrast);
       needsPaint = true;
