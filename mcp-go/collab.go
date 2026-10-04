@@ -40,6 +40,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -540,10 +541,10 @@ func (rm *collabRoom) presence(body map[string]any, client string) (any, error) 
 	}
 	named := false
 	if n := cleanName(body["name"]); n != "" && n != p.Name {
-		p.Name, named = n, true
+		p.Name, named = rm.freeName(p.Who, n), true
 	}
 	if c, _ := body["color"].(string); colorHex.MatchString(c) && c != p.Color {
-		p.Color, named = c, true
+		p.Color, named = rm.freeColor(p.Who, c), true
 	}
 	at, ok := count(body["rev"])
 	caret, okc := count(body["caret"])
@@ -636,16 +637,90 @@ func (rm *collabRoom) join(sub *collabSub, client, who, name, color string, from
 	p := rm.peers[client]
 	if p == nil {
 		p = &collabPeer{Client: client, Who: who, Name: name, Color: color}
-		// one person's other pages have their name
+		// one person's other pages have their name; someone new gets a name
+		// and a colour nobody else here has
+		same := false
 		for _, q := range rm.peers {
 			if q.Who == who {
-				p.Name, p.Color = q.Name, q.Color
+				p.Name, p.Color, same = q.Name, q.Color, true
 			}
+		}
+		if !same {
+			p.Name, p.Color = rm.freeName(who, name), rm.freeColor(who, color)
 		}
 		rm.peers[client] = p
 	}
 	p.open++
 	rm.sendPeers()
+}
+
+// The names and colours web/collab.js gives a new person (a test checks
+// the two lists agree).
+var (
+	collabAnimals = []string{
+		"Zebra", "Otter", "Panda", "Koala", "Lynx", "Falcon", "Heron", "Badger", "Beaver", "Bison",
+		"Dolphin", "Ferret", "Gecko", "Hedgehog", "Ibis", "Jaguar", "Kiwi", "Lemur", "Moose", "Narwhal",
+		"Ocelot", "Puffin", "Quokka", "Raven", "Seal", "Tapir", "Walrus", "Yak", "Fox", "Owl",
+	}
+	collabColors = []string{
+		"#ea580c", "#0d9488", "#7c3aed", "#db2777", "#2563eb", "#16a34a", "#ca8a04", "#dc2626",
+		"#0891b2", "#9333ea", "#65a30d", "#c2410c",
+	}
+)
+
+// (locked) `name` when no one else here has it (letter case aside); else an
+// "Anonymous…" name becomes another free animal, and once the animals are
+// taken (or for a name of one's own) a number is added: "Ada 2", "Ada 3"
+func (rm *collabRoom) freeName(who, name string) string {
+	taken := map[string]bool{}
+	for _, q := range rm.peers {
+		if q.Who != who {
+			taken[strings.ToLower(q.Name)] = true
+		}
+	}
+	if !taken[strings.ToLower(name)] {
+		return name
+	}
+	if strings.HasPrefix(name, "Anonymous") {
+		var free []string
+		for _, a := range collabAnimals {
+			if !taken[strings.ToLower("Anonymous"+a)] {
+				free = append(free, "Anonymous"+a)
+			}
+		}
+		if len(free) > 0 {
+			return free[rand.IntN(len(free))]
+		}
+	}
+	for n := 2; ; n++ {
+		if s := name + " " + strconv.Itoa(n); !taken[strings.ToLower(s)] {
+			return s
+		}
+	}
+}
+
+// (locked) `color` when no one else here has it; else a free one of the
+// palette, and when all twelve are taken, `color` after all
+func (rm *collabRoom) freeColor(who, color string) string {
+	taken := map[string]bool{}
+	for _, q := range rm.peers {
+		if q.Who != who {
+			taken[strings.ToLower(q.Color)] = true
+		}
+	}
+	if !taken[strings.ToLower(color)] {
+		return color
+	}
+	var free []string
+	for _, c := range collabColors {
+		if !taken[c] {
+			free = append(free, c)
+		}
+	}
+	if len(free) == 0 {
+		return color
+	}
+	return free[rand.IntN(len(free))]
 }
 
 func (rm *collabRoom) leave(sub *collabSub, client string) {

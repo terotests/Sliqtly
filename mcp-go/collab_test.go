@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -169,13 +170,20 @@ func TestCollabRoom(t *testing.T) {
 	eq(t, code, 200)
 	cur := b.next("cursor")
 	eq(t, []any{cur["client"], cur["caret"]}, []any{"pageA1", float64(3)}, "an insert at the caret: the caret stays before it")
-	// a new name, everyone told
+	// a new name, everyone told (B came in with A's colour and was given
+	// another, so this one may be B's: A then gets a free one)
 	code, _ = a.post("/presence", map[string]any{"name": "Ada", "color": "#7c3aed"})
 	eq(t, code, 200)
+	colors := map[string]any{}
 	for _, p := range b.next("peers")["peers"].([]any) {
-		if m := p.(map[string]any); m["client"] == "pageA1" {
-			eq(t, []any{m["name"], m["color"]}, []any{"Ada", "#7c3aed"})
+		m := p.(map[string]any)
+		colors[m["client"].(string)] = m["color"]
+		if m["client"] == "pageA1" {
+			eq(t, m["name"], "Ada")
 		}
+	}
+	if colors["pageA1"] == colors["pageB1"] || colors["pageB1"] == "#ea580c" {
+		t.Fatalf("two people in one colour: %v", colors)
 	}
 
 	// the chat: to everyone, kept beside the deck
@@ -364,4 +372,80 @@ func TestCollabChatKept(t *testing.T) {
 	eq(t, len(chat), 2)
 	eq(t, chat[1].(map[string]any)["text"], "second")
 	eq(t, chat[0].(map[string]any)["name"], "AnonymousZebra")
+}
+
+// no two people in a room have one name or one colour
+func TestCollabNamesFree(t *testing.T) {
+	srv, session := startLocal(t, t.TempDir(), "")
+	defer srv.Close()
+	defer session.Close()
+	id := newDeck(t, srv.URL, "# Names\n")
+	names := func(ev map[string]any) map[string]string {
+		out := map[string]string{}
+		for _, p := range ev["peers"].([]any) {
+			m := p.(map[string]any)
+			out[m["client"].(string)] = m["name"].(string) + " " + m["color"].(string)
+		}
+		return out
+	}
+	// everyone comes in as AnonymousPanda: the animals first, then numbers
+	n := len(collabAnimals) + 3
+	pages := make([]*testPeer, n)
+	var last map[string]any
+	for i := range pages {
+		pages[i] = joinTest(t, srv.URL, id, fmt.Sprintf("page%02d", i), "AnonymousPanda", 0)
+		defer pages[i].close()
+		last = pages[i].next("peers")
+	}
+	seen := map[string]bool{}
+	colors := map[string]int{}
+	for client, nc := range names(last) {
+		name, color, _ := strings.Cut(nc, " #")
+		if seen[strings.ToLower(name)] {
+			t.Fatalf("%s: the name %q twice", client, name)
+		}
+		seen[strings.ToLower(name)] = true
+		colors[color]++
+	}
+	eq(t, len(seen), n)
+	eq(t, names(last)["page00"][:len("AnonymousPanda #")], "AnonymousPanda #", "the first keeps its name")
+	for i := 2; i <= 4; i++ {
+		if !seen[fmt.Sprintf("anonymouspanda %d", i)] {
+			t.Fatalf("no AnonymousPanda %d once the animals ran out: %v", i, seen)
+		}
+	}
+	eq(t, len(colors), len(collabColors), "every colour in use before one is used twice")
+
+	// one's own other page keeps the name; a rename to someone's name is numbered
+	again := joinTest(t, srv.URL, id, "page00", "Whatever", 0)
+	defer again.close()
+	got := names(again.next("peers"))
+	eq(t, strings.HasPrefix(got["page00"], "AnonymousPanda #"), true)
+	other := &testPeer{t: t, base: srv.URL, id: id, client: "page01"}
+	code, _ := other.post("/presence", map[string]any{"name": "anonymouspanda"})
+	eq(t, code, 200)
+	got = names(snapshot(t, srv.URL, id))
+	name, _, _ := strings.Cut(got["page01"], " #")
+	if strings.EqualFold(name, "AnonymousPanda") {
+		t.Fatalf("renamed into another's name: %v", got)
+	}
+
+	// the lists are the page's (web/collab.js)
+	js, err := os.ReadFile(filepath.Join("..", "web", "collab.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := func(name string) []string {
+		m := regexp.MustCompile(`(?s)export const ` + name + ` = \[(.*?)\];`).FindStringSubmatch(string(js))
+		if m == nil {
+			t.Fatalf("no %s in web/collab.js", name)
+		}
+		var out []string
+		for _, q := range regexp.MustCompile(`"([^"]*)"`).FindAllStringSubmatch(m[1], -1) {
+			out = append(out, q[1])
+		}
+		return out
+	}
+	eq(t, list("ANIMALS"), collabAnimals)
+	eq(t, list("COLORS"), collabColors)
 }

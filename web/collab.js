@@ -190,7 +190,7 @@ export class CollabDoc {
 //   editor:    { version(), text(), caret(), anchor(), apply(offset, removed, text), synced(), setPeers(rows) }
 //   transport: { snapshot(id), send(id, body), presence(id, body), chat(id, body),
 //                stream(id, query, onEvent, onOpen) → close }
-//   on:        { peers(list), chat(msg), state(text) }
+//   on:        { peers(list), chat(msg), state(text), me(name, color) }
 export class CollabSession {
   constructor(ot, transport, editor, me, on = {}) {
     this.ot = ot;
@@ -332,6 +332,14 @@ export class CollabSession {
       if (m.rev === this.doc.rev) this.doc.setPeers(m.peers);
       else this.doc.setPeers((m.peers || []).map((p) => ({ ...p, caret: 0, anchor: 0 })));
       this.people = m.peers || [];
+      // the room gives a name or colour someone else here has to no one:
+      // this page goes by the one it was given (sent again on a reconnect)
+      const mine = this.people.find((p) => p.client === this.me.client);
+      if (mine && (mine.name !== this.me.name || mine.color !== this.me.color)) {
+        this.me.name = mine.name;
+        this.me.color = mine.color;
+        this.on.me?.(mine.name, mine.color);
+      }
       this.paintPeers();
       this.on.peers?.(this.people);
     } else if (m.t === "chat") {
