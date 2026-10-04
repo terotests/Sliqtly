@@ -47,6 +47,9 @@ FROM gcr.io/distroless/static-debian12:nonroot AS local
 COPY --from=build-local /server /server
 COPY --from=build --chown=65532:65532 /data /data
 ENV SLIQTLY_DATA=/data
+# in a container every interface is the container's own: the port mapping
+# (docker run -p) decides who reaches it
+ENV SLIQTLY_LISTEN=network
 EXPOSE 8080
 ENTRYPOINT ["/server"]
 
@@ -56,4 +59,5 @@ FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /server /server
 # the folder a server of one's own keeps decks in (SLIQTLY_DATA=/data)
 COPY --from=build --chown=65532:65532 /data /data
+ENV SLIQTLY_LISTEN=network
 ENTRYPOINT ["/server"]
