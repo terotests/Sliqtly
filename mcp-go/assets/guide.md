@@ -202,8 +202,9 @@ When text on a picture is hard to read ("low contrast"), raise that slide's
 - SmartArt: a diagram from PowerPoint's SmartArt, as a FILE in the deck.
   Write its data model (`dgm:dataModel`, as in a .pptx's
   `ppt/diagrams/data1.xml`), send it in `images` as `name: "steps.xml"`, and
-  reference it like a picture, `![…](media/steps.xml)` (a link, `[…](…)`,
-  shows only its text). Options go on the line UNDER the reference:
+  reference it like a picture, `![…](media/steps.xml)`. Only the picture
+  form draws it: a link, `[…](media/steps.xml)`, is a link and shows only
+  its text (the result warns). Options go on the line UNDER the reference:
 
   ````markdown
   ![The release process](media/steps.xml)
@@ -244,15 +245,21 @@ When text on a picture is hard to read ("low contrast"), raise that slide's
   quarters of a circle). Another layout id is drawn as `default` and
   the result says so. Colours (`colors=`): `accent0_1` … `accent0_3`,
   `accent1_1` … `accent6_5` (one theme colour), `colorful1` …
-  `colorful5` (cycling accents). Styles (`style=`): `simple1` … `simple5` (thicker outlines,
+  `colorful5` (cycling accents). `accent1_2` is what a diagram has when no
+  colours are named, so writing it changes nothing. A diagram with nothing
+  beside it and no `width=`/`height=` is laid out across the whole content
+  width, and a row of steps (`process1`, `chevron1`) that would be a thin
+  strip wraps into rows of three or more; `width=` keeps it in its own box.
+  Text that would not read on its fill (a pale column on a dark theme) is
+  set in the theme's paper or ink colour instead. Styles (`style=`): `simple1` … `simple5` (thicker outlines,
   then shadows). They come from the theme. A whole SmartArt from a .pptx
   also works as one file: a Flat OPC package (`pkg:package`) holding its
   data, layout, style, colours and, when PowerPoint saved one, its drawing;
   `tools/extract_smartart.py deck.pptx out/` in RangerPPTX writes one per
   diagram. Such a file is drawn as PowerPoint drew it (scaled to the box),
   or laid out again from its own layout when `layout=`, `colors=` or
-  `style=` is given. A file that is not a diagram is
-  shown as the reason in its place and named in the warnings. The PDF
+  `style=` is given. A file that is not a diagram, and a data model with
+  no items, is shown as the reason in its place and named in the warnings. The PDF
   carries it as drawn; the PowerPoint export carries it as SmartArt that
   PowerPoint can edit. Prefer a Mermaid diagram or a
   ```` ```process ```` list when either says it; SmartArt is for when the

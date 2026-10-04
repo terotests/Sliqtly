@@ -27,8 +27,17 @@
 ; used.
 ;
 ; `layout=`, `colors=` and `style=` under the reference override what the
-; file names. A diagram that cannot be drawn says why in its place, the way a
-; diagram fence does.
+; file names. A diagram that cannot be drawn, or has nothing to draw, says
+; why in its place, the way a diagram fence does.
+;
+; A slide is not PowerPoint's fixed frame: a row of steps that would be a
+; thin strip wraps into rows of three or more when that makes it clearly
+; larger (SaOptions.wrap), and a diagram with nothing beside it and no
+; `{width}` / `{height}` of its own is laid out across the whole content
+; width (PresDeck.smartArtSpan), not only the 16:9 box its picture fitted.
+; Text that would not stand out from its fill — a pale list column on a dark
+; theme — is set in the paper or the ink, whichever reads
+; (SaRender.keepReadable).
 ;
 ; The same drawing goes to the stage and to the PDF (both through
 ; PresDeck.slideList). The PowerPoint export (PresApp.stillSmartArt) gets the
@@ -82,6 +91,8 @@ class PresSmartArtUse {
     def layout:string ""
     def colors:string ""
     def style:string ""
+    ; the reference gives its own `{width}` or `{height}`: drawn in its box
+    def sized:boolean false
 }
 
 class PresSmartArt {
@@ -148,6 +159,7 @@ class PresSmartArt {
         o.colors = u.colors
         o.style = u.style
         o.measure = m
+        o.wrap = true
         ; the data alone, or a whole PowerPoint diagram (SaWhole)
         return (SaWhole.layout(xml o w h))
     }
@@ -178,11 +190,27 @@ class PresSmartArt {
     ; Drawn into `out` at the box, or the reason it was not, in the box.
     sfn paint:void (out:EVGDisplayList u:PresSmartArtUse md:MarkdownWeb st:MdFigureStyle cache:PresSmartArtCache x:double y:double w:double h:double) {
         def r:SaResult (PresSmartArt.laidOut(u md st cache w h))
-        if (r.ok == false) {
-            PresSmartArt.refusal(out ("SmartArt " + u.path + ": " + r.error) st x y w h)
+        def why:string (PresSmartArt.reasonOf(r))
+        if ((strlen why) > 0) {
+            PresSmartArt.refusal(out ("SmartArt " + u.path + ": " + why) st x y w h)
             return
         }
         SaRender.drawWith(out r.shape x y r.measure)
+    }
+
+    ; Why nothing is drawn, or "": the engine's refusal, or what it said
+    ; about a diagram that came out empty.
+    sfn reasonOf:string (r:SaResult) {
+        if (r.ok == false) {
+            return r.error
+        }
+        if ((array_length r.shape.children) > 0) {
+            return ""
+        }
+        if ((array_length r.warnings) > 0) {
+            return (itemAt r.warnings 0)
+        }
+        return "there is nothing in it to draw"
     }
 
     ; the diagram for a box of w × h, its colours the theme's
@@ -204,7 +232,9 @@ class PresSmartArt {
         }
         def r:SaResult (PresSmartArt.layoutFor(u xml w h m))
         if r.ok {
-            SaRender.resolveAll(r.shape (PresSmartArt.palette(st)))
+            def pal:SaPalette (PresSmartArt.palette(st))
+            SaRender.resolveAll(r.shape pal)
+            SaRender.keepReadable(r.shape pal (pal.hexOf("lt1")))
         }
         cache.put(key r)
         return r
