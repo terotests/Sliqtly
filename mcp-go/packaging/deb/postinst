@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ] && [ -d /run/systemd/system ]; then
+  systemctl daemon-reload >/dev/null || true
+  if [ -z "$2" ]; then
+    # a first install: started now and at boot
+    systemctl enable --now sliqtly.service >/dev/null || true
+  else
+    # an upgrade: the new binary takes over, decks and settings stay
+    systemctl try-restart sliqtly.service >/dev/null || true
+  fi
+fi
+exit 0

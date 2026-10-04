@@ -191,6 +191,24 @@ to the folder as you type, and an assistant's change shows up in it. Google
 Sheets and Drive are not available. `/api/` has no sign-in, like the rest:
 whoever reaches the server can change its decks.
 
+### A Debian/Ubuntu package
+
+`packaging/build-deb.sh <version> <amd64|arm64>` (after `npm run build` and
+`go generate`) makes `dist/sliqtly-server_<version>_<arch>.deb` with
+`dpkg-deb` alone. It holds the static binary, a systemd unit (its own user,
+decks in `/var/lib/sliqtly`) and `/etc/sliqtly/sliqtly.env`, and depends only
+on `ca-certificates`.
+
+```
+sudo apt install ./sliqtly-server_0.1.0_amd64.deb   # starts it, and at boot
+sudo nano /etc/sliqtly/sliqtly.env                  # SLIQTLY_URL, SLIQTLY_TOKEN, PORT
+sudo systemctl restart sliqtly
+journalctl -u sliqtly -f
+```
+
+A newer package installed the same way restarts the service; decks and
+settings stay. `apt remove` stops it and leaves the decks.
+
 ### Connecting an assistant
 
 Claude Code:

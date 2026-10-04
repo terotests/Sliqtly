@@ -1,0 +1,29 @@
+[Unit]
+Description=Sliqtly server (MCP, editor and player; decks in /var/lib/sliqtly)
+Documentation=https://github.com/terotests/Sliqtly/tree/main/mcp-go
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/sliqtly/sliqtly.env
+ExecStart=/usr/bin/sliqtly-server
+Restart=on-failure
+RestartSec=2
+# a user of its own, made by systemd; the decks in /var/lib/sliqtly survive it
+DynamicUser=yes
+StateDirectory=sliqtly
+StateDirectoryMode=0750
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=multi-user.target
