@@ -63,6 +63,10 @@ class Layout {
         if (c == 124) {
             return "table"
         }
+        ; an HTML table is a table too, and gets a table's checks
+        if (startsWith (to_lowercase line) "<table") {
+            return "table"
+        }
         if (c == 62) {
             return "quote"
         }
