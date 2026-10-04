@@ -129,7 +129,7 @@ class Tools {
         ip.put("name" (Tools.prop("string" "File name the Markdown uses as media/<name>, e.g. \"team.jpg\" → ![](media/team.jpg)")))
         ip.put("url" (Tools.prop("string" "A public https URL of the picture")))
         ip.put("data_base64" (Tools.prop("string" "The picture's bytes as base64 (instead of url)")))
-        ip.put("mime_type" (Tools.prop("string" "image/png, image/jpeg, image/gif, image/webp or image/svg+xml; inferred from the name when left out")))
+        ip.put("mime_type" (Tools.prop("string" "image/png, image/jpeg, image/gif, image/webp or image/svg+xml, or a SmartArt diagram (a dgm:dataModel, name it .xml); inferred from the name when left out")))
         def item:MfJ (MfJ.newObj())
         item.putStr("type" "object")
         item.put("properties" ip)

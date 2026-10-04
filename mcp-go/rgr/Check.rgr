@@ -176,7 +176,7 @@ class Check {
             c.laidOut = true
         }
         for pics pic:CheckPic pi {
-            d.md.addImage(pic.name (itemAt din.data pi) (itemAt din.types pi) pic.w pic.h)
+            d.addImage(pic.name (itemAt din.data pi) (itemAt din.types pi) pic.w pic.h)
         }
         d.setText(md)
         Check.chartData(host din d)
@@ -224,6 +224,9 @@ class Check {
                 why = "it could not be drawn"
             }
             push c.warnings ("The " + e.kind + " block" + where + " is not shown: " + why + ".")
+        }
+        for (d.smartArtNotes()) note:string ni {
+            push c.warnings note
         }
         if c.laidOut {
             Check.contrast(c d l pics)

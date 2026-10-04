@@ -21,7 +21,7 @@ import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
 import { scaled, previewOf, render } from "./image-adjust.js";
-import { decodePicture, isSvg } from "./picture.js";
+import { decodePicture, isSvg, isSmartArt, SMARTART_TYPE } from "./picture.js";
 import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versions.js";
 import { showHistory, askMerge } from "./versions-ui.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
@@ -184,12 +184,18 @@ function resize() {
 // --- pictures -------------------------------------------------------------------
 const pictures = new Map();
 async function registerPicture(path, bytes, type) {
+  if (isSmartArt(type, path)) return;
   pictures.set(path, (await decodePicture(bytes, type, path)).img);
 }
 
 // A picture of the deck handed to the slides: drawn for the screen, and its
 // bytes (an SVG's PNG, web/picture.js) for the PDF and PPTX writers.
 async function addPicture(path, bytes, type) {
+  if (isSmartArt(type, path)) {
+    // the Ranger side reads it, gives it its size and draws it
+    app.addImage(path, asRangerBuffer(bytes.slice(0)), type || "", 0, 0);
+    return { img: null, w: 0, h: 0, bytes, type: type || "" };
+  }
   const p = await decodePicture(bytes, type || "image/png", path);
   app.addImage(path, asRangerBuffer(p.bytes.slice(0)), p.type || "image/png", p.w, p.h);
   pictures.set(path, p.img);
@@ -205,7 +211,7 @@ let pasting = null;
 async function addPictureFile(file) {
   const type = file.type || "image/png";
   const bytes = await file.arrayBuffer();
-  const [w, h] = isSvg(type, file.name) ? [0, 0] : await imageSize(bytes, type);
+  const [w, h] = isSvg(type, file.name) || isSmartArt(type, file.name) ? [0, 0] : await imageSize(bytes, type);
   const alt = file.name && file.name !== "image.png" ? file.name.replace(/\.[^.]+$/, "") : "image";
   if (w > 0 && h > 0) {
     dropPasting();
@@ -1068,7 +1074,8 @@ async function addDocFile(file, ask = false) {
     const bytes = await file.arrayBuffer();
     const path = placeFor(file.name, type);
     await addPicture("/" + path, bytes, type);
-    await keepFile({ path, type: type || "image/png", size: bytes.byteLength, data: new Blob([bytes], { type }) });
+    const kept = type || (isSmartArt(type, file.name) ? SMARTART_TYPE : "image/png");
+    await keepFile({ path, type: kept, size: bytes.byteLength, data: new Blob([bytes], { type: kept }) });
     return;
   }
   if ((ask || /\.xlsx$/i.test(file.name)) && /\.(csv|json|xlsx)$/i.test(file.name) && (await importData(file, ask))) return;

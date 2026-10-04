@@ -2667,6 +2667,49 @@ try {
     });
     check("PDF: a JPEG background and header logo export; a missing picture is left out", jp.head === "%PDF-" && jp.images >= 1, JSON.stringify(jp));
   }
+  // A SmartArt file added like a picture and referenced like one: drawn on
+  // the stage by the layout engine, in the PDF, and in the PPTX as shapes —
+  // never as a picture of its XML.
+  {
+    const steps = '<dgm:dataModel xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><dgm:ptLst><dgm:pt modelId="0" type="doc"><dgm:prSet loTypeId="urn:microsoft.com/office/officeart/2005/8/layout/process1"/></dgm:pt><dgm:pt modelId="1"><dgm:t><a:p><a:r><a:t>Suunnittelu</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId="2"><dgm:t><a:p><a:r><a:t>Hämeenlinna</a:t></a:r></a:p></dgm:t></dgm:pt></dgm:ptLst><dgm:cxnLst><dgm:cxn srcId="0" destId="1"/><dgm:cxn srcId="0" destId="2"/></dgm:cxnLst></dgm:dataModel>';
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evgp-sa-"));
+    fs.writeFileSync(path.join(dir, "check-steps.xml"), steps);
+    await page.setInputFiles("#fileadd", [path.join(dir, "check-steps.xml")]);
+    await page.waitForTimeout(800);
+    const sa = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      a.setSource("# S\n\n## Vaiheet\n\n![Vaiheet](media/check-steps.xml)\n{colors=colorful1}\n");
+      const toB64 = (buf) => {
+        const u = new Uint8Array(buf);
+        let s = "";
+        for (let i = 0; i < u.length; i += 1) s += String.fromCharCode(u[i]);
+        return btoa(s);
+      };
+      const out = {};
+      try {
+        const st = JSON.stringify(JSON.parse(a.slideJson(1)));
+        out.stage = st.includes("Suunnittelu") && st.includes("Hämeenlinna");
+        out.pdf = toB64(a.pdf());
+        out.pptx = toB64(a.pptx());
+      } catch (e) {
+        out.error = String(e);
+      }
+      a.setSource(src0);
+      return out;
+    });
+    check("SmartArt: exports without an error", !sa.error, sa.error || "");
+    if (!sa.error) {
+      check("SmartArt: drawn on the stage, the Finnish intact", sa.stage === true);
+      const saPdf = Buffer.from(sa.pdf, "base64");
+      check("SmartArt: the PDF is written", saPdf.subarray(0, 5).toString() === "%PDF-");
+      const saPptx = unzip(Buffer.from(sa.pptx, "base64"));
+      const slide2 = saPptx.get("ppt/slides/slide2.xml") || "";
+      check("SmartArt: the PPTX slide holds its steps as text", slide2.includes("Suunnittelu") && slide2.includes("Hämeenlinna"), slide2.slice(0, 200));
+      check("SmartArt: as shapes with their geometry", /prstGeom prst="roundRect"/.test(slide2) && /prstGeom prst="rightArrow"/.test(slide2));
+      check("SmartArt: not as a picture of the XML", !/<p:pic>/.test(slide2) && ![...saPptx.keys()].some((k) => /media\/.*\.xml$/.test(k)));
+    }
+  }
   const fxPptx = unzip(Buffer.from(fxExp.pptx, "base64"));
   const bgs = [2, 3, 4].map((n) => /<p:bg><p:bgPr><a:blipFill>/.test(fxPptx.get(`ppt/slides/slide${n}.xml`) || ""));
   check("PPTX: the effect is the slide's background, only where there is one", bgs.join(",") === "true,true,false", bgs.join(","));
