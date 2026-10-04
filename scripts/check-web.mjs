@@ -1626,8 +1626,9 @@ try {
     check("…File → Recent lists All presentations… first (the presentations window), then the decks, and each opens", recent.order.length === 4 && /browse$/.test(recent.order[0]) && /sep-1$/.test(recent.order[1]) && /r-deck-a$/.test(recent.order[2]) && (recent.browse || []).includes("decks") && (recent.deck || []).includes("files:doc:deck-a"), JSON.stringify(recent));
 
     // File → Presentations…: the window lists the decks with their added and
-    // modified times; a column head sorts, Open opens and closes the window,
-    // ✕ asks once before it deletes, a deck only in the cloud has no ✕
+    // modified times; a column head sorts, a row opens its deck and closes
+    // the window, the ✕ beside it asks once before it deletes, a deck only in
+    // the cloud has no ✕; a long list turns pages
     const decks = await page.evaluate(() => {
       const a = window.__app;
       const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
@@ -1643,25 +1644,38 @@ try {
       a.openDecks(json);
       const open = a.decksShowing();
       const shown = texts(lp());
-      const delOnCloud = !!walk(lp(), "pd-k-3");
+      const delOnCloud = !!walk(lp(), "pd-x-1");
+      const openButtons = shown.includes("Open");
+      // the ✕ column lines up: both rows' open areas end at the same x
+      const r0 = walk(lp(), "pd-r-0"), r1 = walk(lp(), "pd-r-1");
+      const aligned = !!r0 && !!r1 && Math.abs((r0.calculatedX + r0.calculatedWidth) - (r1.calculatedX + r1.calculatedWidth)) < 1;
       press("pd-sort-name");
       const sort = drain();
-      press("pd-k-1");
+      press("pd-x-0");
       const armed = drain();
       const asks = texts(lp()).includes("Delete?");
-      press("pd-k-1");
+      press("pd-x-0");
       const del = drain();
-      press("pd-k-2");
+      press("pd-r-1");
       const cloudOpen = drain();
       const closedByOpen = !a.decksShowing();
       a.openDecks(json);
       press("pd-close");
       const closed = !a.decksShowing();
-      return { open, times: ["2.1.2026 11:00", "1.1.2026 10:00", "3.1.2026 09:30"].every((x) => shown.includes(x)), names: shown.includes("Made by Claude"), delOnCloud, sort, armed, asks, del, cloudOpen, closedByOpen, closed };
+      const many = [];
+      for (let i = 1; i <= 23; i++) many.push({ id: "d" + i, name: "Deck " + i, added: "", modified: "", where: "This browser", cloudOnly: false, current: false });
+      a.openDecks(JSON.stringify({ sort: "updated", note: "", rows: many }));
+      const page1 = texts(lp()).includes("Deck 1") && !texts(lp()).includes("Deck 23");
+      press("pd-pg-next");
+      const page2 = !texts(lp()).includes("Deck 1") && texts(lp()).some((t) => /^Deck 1[1-9]$/.test(t));
+      press("pd-pg-3");
+      const page3 = texts(lp()).includes("Deck 23");
+      press("pd-close");
+      return { open, times: ["2.1.2026 11:00", "1.1.2026 10:00", "3.1.2026 09:30"].every((x) => shown.includes(x)), names: shown.includes("Made by Claude"), delOnCloud, openButtons, aligned, sort, armed, asks, del, cloudOpen, closedByOpen, closed, page1, page2, page3 };
     });
-    check("…File → Presentations… lists the decks with added and modified times; sorting, opening and deleting are asked of the page",
-      decks.open && decks.times && decks.names && !decks.delOnCloud && decks.sort.join() === "decks:sort:name" && decks.armed.length === 0 && decks.asks &&
-      decks.del.join() === "decks:del:deck-a" && decks.cloudOpen.join() === "files:doc:cloud:M1" && decks.closedByOpen && decks.closed, JSON.stringify(decks));
+    check("…File → Presentations… lists the decks with added and modified times; a row opens, ✕ deletes after asking, a long list has pages",
+      decks.open && decks.times && decks.names && !decks.delOnCloud && !decks.openButtons && decks.aligned && decks.sort.join() === "decks:sort:name" && decks.armed.length === 0 && decks.asks &&
+      decks.del.join() === "decks:del:deck-a" && decks.cloudOpen.join() === "files:doc:cloud:M1" && decks.closedByOpen && decks.closed && decks.page1 && decks.page2 && decks.page3, JSON.stringify(decks));
 
     // A long deck name widens the menu up to a limit and is cut with "…"
     // there; every row stays inside the card and they are all one width
