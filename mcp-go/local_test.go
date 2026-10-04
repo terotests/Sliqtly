@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -112,7 +115,7 @@ func startLocal(t *testing.T, dir, token string) (*httptest.Server, *mcp.ClientS
 		t.Fatal(err)
 	}
 	e.Client = fakeNet
-	srv.Config.Handler = newLocalServer(e, bucket, token)
+	srv.Config.Handler = newLocalServer(e, bucket, token, nil)
 	srv.Start()
 	hc := &http.Client{}
 	if token != "" {
@@ -179,7 +182,7 @@ func TestLocalServer(t *testing.T) {
 	eq(t, code, 200)
 	match(t, body, `2 slides · theme aurora`)
 	match(t, body, `/s/`+id+`/2\.jpg`)
-	code, _, body = get(t, srv.URL+"/")
+	code, _, body = get(t, srv.URL+"/decks")
 	match(t, body, `href="/s/`+id+`">Pilot<`)
 	code, _, _ = get(t, srv.URL+"/s/nothere123")
 	eq(t, code, 404)
@@ -217,4 +220,123 @@ func TestLocalServerToken(t *testing.T) {
 	}
 	res.Body.Close()
 	eq(t, res.StatusCode, 401)
+}
+
+func req(t *testing.T, method, url, ct string, body string) (int, string) {
+	t.Helper()
+	r, _ := http.NewRequest(method, url, strings.NewReader(body))
+	if ct != "" {
+		r.Header.Set("Content-Type", ct)
+	}
+	res, err := http.DefaultClient.Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(res.Body)
+	return res.StatusCode, string(b)
+}
+
+// the page's own API (assets/sliqtly-local.js) and the built page
+func TestLocalWebAndAPI(t *testing.T) {
+	dir := t.TempDir()
+	web := fstest.MapFS{
+		"index.html":        {Data: []byte("<html><head><title>x</title></head><body><script type=\"module\" src=\"./sliqtly.js?v=1\"></script></body></html>")},
+		"main.js":           {Data: []byte("console.log(1)")},
+		"themes/custom.css": {Data: []byte("page { background-color: #123456; }")},
+	}
+	srv := httptest.NewUnstartedServer(nil)
+	base := "http://" + srv.Listener.Addr().String()
+	e, bucket, err := localEnv(dir, base, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Client = fakeNet
+	srv.Config.Handler = newLocalServer(e, bucket, "", web)
+	srv.Start()
+	defer srv.Close()
+
+	// the page, with this server's address for its links
+	for _, p := range []string{"/", "/index.html", "/s/abcdef1234"} {
+		code, _, body := get(t, srv.URL+p)
+		eq(t, code, 200, p)
+		match(t, body, `<meta name="sliqtly-site" content="`+regexp.QuoteMeta(base)+`" />\s*</head>`)
+	}
+	code, ct, body := get(t, srv.URL+"/sliqtly.js?v=1")
+	eq(t, []any{code, ct}, []any{200, "text/javascript; charset=utf-8"})
+	match(t, body, `window\.sliqtly = \{`)
+	code, _, body = get(t, srv.URL+"/main.js?v=1")
+	eq(t, []any{code, body}, []any{200, "console.log(1)"})
+	code, _, body = get(t, srv.URL+"/themes/custom.css")
+	eq(t, []any{code, body}, []any{200, "page { background-color: #123456; }"})
+	code, _, _ = get(t, srv.URL+"/themes/aurora.css")
+	eq(t, code, 200, "the built-in themes stay")
+
+	code, body = req(t, "GET", srv.URL+"/api/me", "", "")
+	eq(t, []any{code, strings.TrimSpace(body)}, []any{200, `{"name":"local","uid":"local"}`})
+
+	// a form post is not taken
+	code, _ = req(t, "POST", srv.URL+"/api/shares", "application/x-www-form-urlencoded", "name=x")
+	eq(t, code, 415)
+
+	code, body = req(t, "POST", srv.URL+"/api/shares", "application/json", `{"name":"Web deck","md":"# One\n","theme":"aurora","css":null,"deck":"d1"}`)
+	eq(t, code, 201)
+	var made map[string]string
+	json.Unmarshal([]byte(body), &made)
+	id := made["id"]
+
+	code, body = req(t, "PUT", srv.URL+"/api/files/shares/"+id+"/media/dot.png", "image/png", string(PNG))
+	eq(t, code, 200)
+	var f map[string]any
+	json.Unmarshal([]byte(body), &f)
+	eq(t, f["url"], base+"/files/shares/"+id+"/media/dot.png")
+	code, ct, got := get(t, srv.URL+"/files/shares/"+id+"/media/dot.png")
+	eq(t, []any{code, ct, got == string(PNG)}, []any{200, "image/png", true})
+
+	files, _ := json.Marshal([]any{f})
+	code, _ = req(t, "PATCH", srv.URL+"/api/shares/"+id, "application/json", `{"md":"# One\n\n## Two\n","files":`+string(files)+`,"ifMd":"# One\n"}`)
+	eq(t, code, 200)
+	code, body = req(t, "PATCH", srv.URL+"/api/shares/"+id, "application/json", `{"md":"# lost","ifMd":"# One\n"}`)
+	eq(t, code, 409, "a share changed since is not written over")
+	match(t, body, `changed-elsewhere`)
+
+	// the assistant sees what the page saved
+	s := &testServer{root: srv.URL}
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+	session, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: base + "/mcp"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	s.session = session
+	g := sc(call(t, s, "get_presentation", map[string]any{"deck_id": id}))
+	eq(t, g["markdown"], "# One\n\n## Two\n")
+	eq(t, len(list(g["images"])), 1)
+
+	// the version head moves only from where it was
+	code, body = req(t, "POST", srv.URL+"/api/shares/"+id+"/head", "application/json", `{"expect":null,"head":"h1","entries":[{"id":"h1"}]}`)
+	eq(t, code, 200)
+	match(t, body, `"ok":true`)
+	code, body = req(t, "POST", srv.URL+"/api/shares/"+id+"/head", "application/json", `{"expect":"h0","head":"h2","entries":[{"id":"h2"}]}`)
+	match(t, body, `^\{"head":"h1",.*"ok":false\}`)
+
+	code, body = req(t, "GET", srv.URL+"/api/shares", "", "")
+	match(t, body, `"id":"`+id+`","name":"Web deck"`)
+
+	code, _ = req(t, "DELETE", srv.URL+"/api/files/shares/"+id+"/media/dot.png", "", "")
+	eq(t, code, 200)
+	code, _, _ = get(t, srv.URL+"/files/shares/"+id+"/media/dot.png")
+	eq(t, code, 404)
+	code, _ = req(t, "PUT", srv.URL+"/api/files/shares/"+id+"/../../db/x.json", "text/plain", "x")
+	if code < 400 {
+		t.Fatal("a file outside the share was taken")
+	}
+
+	code, _ = req(t, "DELETE", srv.URL+"/api/shares/"+id, "", "")
+	eq(t, code, 204)
+	code, _ = req(t, "GET", srv.URL+"/api/shares/"+id, "", "")
+	eq(t, code, 404)
+	if _, err := os.Stat(filepath.Join(dir, "files", "shares", id)); err == nil {
+		t.Fatal("the share's files are still there")
+	}
 }

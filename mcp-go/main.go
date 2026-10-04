@@ -36,6 +36,7 @@ func main() {
 	base := flag.String("url", env("SLIQTLY_URL", ""), "the address people and links use, e.g. https://sliqtly.example.com (SLIQTLY_URL)")
 	user := flag.String("user", env("SLIQTLY_USER", "local"), "the owner of the decks kept in the folder (SLIQTLY_USER)")
 	token := flag.String("token", env("SLIQTLY_TOKEN", ""), "require Authorization: Bearer <token> on /mcp (SLIQTLY_TOKEN)")
+	web := flag.String("web", env("SLIQTLY_WEB", ""), "serve the editor and player from this built web/dist instead of the copy built in (SLIQTLY_WEB)")
 	flag.Parse()
 
 	var handler http.Handler
@@ -51,8 +52,12 @@ func main() {
 		}
 		// links follow the address a request came in on unless the address is set
 		e.TrustHost = *base == ""
-		handler = newLocalServer(e, bucket, *token)
+		page := webFiles(*web)
+		handler = newLocalServer(e, bucket, *token, page)
 		kind = fmt.Sprintf("folder %s, %s", *data, e.BaseURL)
+		if page == nil {
+			kind += ", no editor (npm run build, then go generate)"
+		}
 	} else {
 		u := *base
 		if u == "" {

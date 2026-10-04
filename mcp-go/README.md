@@ -135,22 +135,27 @@ forces the link-only mode.
 
 The same binary keeps decks in a folder instead of Firestore and Storage,
 for a laptop or a company network: no Google, no sign-in, every caller is
-one user (`SLIQTLY_USER`, default `local`), and the server shows the decks
-itself.
+one user (`SLIQTLY_USER`, default `local`), and the server serves the
+editor and player itself, as sliqtly.com does.
 
 ```
+npm install && npm run build                  # web/dist: the editor and player (from the repository root)
 cd mcp-go
-go generate                                   # once, and after a change to rgr/ or src/
+go generate                                   # Ranger → Go, and copies web/dist into the binary
 CGO_ENABLED=0 go build -o sliqtly-server .
-./sliqtly-server -data ./data -port 8080      # http://localhost:8080/mcp
+./sliqtly-server -data ./data -port 8080      # http://localhost:8080, MCP at /mcp
 ```
+
+Without `npm run build` the binary has no editor: `/s/{id}` then shows the
+slides as pictures drawn on the server. `-web ../web/dist` serves a build
+from disk instead of the copy built in.
 
 Another platform: `GOOS=windows GOARCH=amd64` (or `darwin`/`linux`,
 `arm64`) before `go build`; the binary has no other dependency. In Docker:
 
 ```
-docker build -f mcp-go/Dockerfile -t sliqtly-server .     # from the repository root
-docker run -p 8080:8080 -v sliqtly-data:/data -e SLIQTLY_DATA=/data sliqtly-server
+docker build -f mcp-go/Dockerfile --target local -t sliqtly-server .     # from the repository root
+docker run -p 8080:8080 -v sliqtly-data:/data sliqtly-server
 ```
 
 | Flag | Environment | Default | |
@@ -160,24 +165,49 @@ docker run -p 8080:8080 -v sliqtly-data:/data -e SLIQTLY_DATA=/data sliqtly-serv
 | `-url` | `SLIQTLY_URL` | `http://localhost:<port>` | the address in the links the tools return; set it to the name people reach the server by |
 | `-user` | `SLIQTLY_USER` | `local` | owner of the decks |
 | `-token` | `SLIQTLY_TOKEN` | | `/mcp` then needs `Authorization: Bearer <token>` |
+| `-web` | `SLIQTLY_WEB` | the copy built in | a built `web/dist` to serve |
 
-What it serves besides `/mcp` (`local.go`):
+What it serves besides `/mcp` (`local.go`, `localweb.go`):
 
 | | |
 | --- | --- |
-| `/` | the decks kept here |
-| `/s/{id}` | a deck as its slides, drawn on the server (`render.go`) |
+| `/` | the editor |
+| `/s/{id}`, `/s/{id}?edit` | the player and the editor, as on sliqtly.com; the assistant's inline preview loads the same page |
+| `/decks` | the decks kept here |
+| `/s/{id}/slides` | a deck as its slides, drawn on the server (`render.go`) |
 | `/s/{id}/{n}.jpg`, `/s/{id}/overview.jpg` | one slide, or all as thumbnails: for Markdown in a wiki, an issue or a merge request |
 | `/files/shares/{id}/…` | the deck's pictures and data files |
-| `/themes/{name}.css` | the built-in themes (copied from `../themes` by `go generate`) |
+| `/themes/{name}.css` | the themes (the built page's, else the ones copied from `../themes`) |
+| `/api/…` | what the page keeps decks with (`assets/sliqtly-local.js`, which the server sends as `/sliqtly.js` in place of the Firebase one) |
 | `/healthz` | |
 
 The folder (`fsstore.go`): `db/<collection>/<id>.json` per document,
 written to a temporary file and renamed; `files/<path>` per kept file with
 its content type in `<path>.type`. Back it up by copying it.
 
-The editor (`/s/{id}?edit`) is not served yet: it reads a share through
-Firebase in the browser. Decks are made and changed through MCP.
+The page is sliqtly.com's own; only `/sliqtly.js` differs. The editor is
+signed in as the folder's user, so a deck opened with `?edit` is saved back
+to the folder as you type, and an assistant's change shows up in it. Google
+Sheets and Drive are not available. `/api/` has no sign-in, like the rest:
+whoever reaches the server can change its decks.
+
+### A Debian/Ubuntu package
+
+`packaging/build-deb.sh <version> <amd64|arm64>` (after `npm run build` and
+`go generate`) makes `dist/sliqtly-server_<version>_<arch>.deb` with
+`dpkg-deb` alone. It holds the static binary, a systemd unit (its own user,
+decks in `/var/lib/sliqtly`) and `/etc/sliqtly/sliqtly.env`, and depends only
+on `ca-certificates`.
+
+```
+sudo apt install ./sliqtly-server_0.1.0_amd64.deb   # starts it, and at boot
+sudo nano /etc/sliqtly/sliqtly.env                  # SLIQTLY_URL, SLIQTLY_TOKEN, PORT
+sudo systemctl restart sliqtly
+journalctl -u sliqtly -f
+```
+
+A newer package installed the same way restarts the service; decks and
+settings stay. `apt remove` stops it and leaves the decks.
 
 ### Connecting an assistant
 

@@ -6,3 +6,5 @@ mcp-go/sliqtly_mcp.go
 mcp-go/presdata/presdata.go
 mcp-go/fonts
 mcp-go/themes
+mcp-go/webdist/*
+!mcp-go/webdist/README

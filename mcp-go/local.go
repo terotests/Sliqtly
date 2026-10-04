@@ -4,8 +4,11 @@
 // sign-in. Around the MCP server (NewApp) it serves what the cloud has
 // Hosting and Storage for:
 //
-//	/                     the decks kept here, newest first
-//	/s/{id}               a deck as its slides, drawn by render.go
+//	/                     the editor (web/dist, localweb.go), or the list below
+//	                      when the server has no built page
+//	/decks                the decks kept here, newest first
+//	/s/{id}               the player (web/dist), or the slides as pictures
+//	/s/{id}/slides        a deck as its slides, drawn by render.go
 //	/s/{id}/{n}.jpg       slide n (1-based)
 //	/s/{id}/overview.jpg  every slide as a thumbnail
 //	/files/shares/…       pictures and data files of a deck
@@ -25,6 +28,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -53,6 +57,7 @@ type localServer struct {
 	app    http.Handler
 	bucket *fsBucket
 	token  string
+	web    fs.FS // the built page; nil: none
 }
 
 // the env of a server whose decks are in dir, reached at baseURL
@@ -75,14 +80,27 @@ func localEnv(dir, baseURL, user string) (*Env, *fsBucket, error) {
 	return e, bucket, nil
 }
 
-func newLocalServer(env *Env, bucket *fsBucket, token string) http.Handler {
-	return &localServer{env: env, app: NewApp(env), bucket: bucket, token: token}
+func newLocalServer(env *Env, bucket *fsBucket, token string, web fs.FS) http.Handler {
+	if web != nil {
+		// the built page has every theme the editor offers (corporate and
+		// editorial come from Ranger); the ones built in are the fallback
+		env.Themes = func(name string) (string, bool) {
+			if regexp.MustCompile(`^[a-z0-9-]{1,40}$`).MatchString(name) {
+				if b, err := fs.ReadFile(web, "themes/"+name+".css"); err == nil {
+					return string(b), true
+				}
+			}
+			return builtinTheme(name)
+		}
+	}
+	return &localServer{env: env, app: NewApp(env), bucket: bucket, token: token, web: web}
 }
 
 var (
 	slidePath    = regexp.MustCompile(`^/s/([A-Za-z0-9]{6,32})/([0-9]{1,4})\.jpg$`)
 	overviewPath = regexp.MustCompile(`^/s/([A-Za-z0-9]{6,32})/overview\.jpg$`)
 	deckPath     = regexp.MustCompile(`^/s/([A-Za-z0-9]{6,32})/?$`)
+	slidesPath   = regexp.MustCompile(`^/s/([A-Za-z0-9]{6,32})/slides$`)
 	themePath    = regexp.MustCompile(`^/themes/([a-z0-9-]{1,40})\.css$`)
 )
 
@@ -95,24 +113,32 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"jsonrpc":"2.0","error":{"code":-32001,"message":"This server needs Authorization: Bearer <token>."},"id":null}`)
 		return
 	}
+	if strings.HasPrefix(p, "/api/") && p != "/api/hit" {
+		s.api(w, r)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		s.app.ServeHTTP(w, r)
 		return
 	}
 	switch {
-	case p == "/":
+	case (p == "/" || p == "/index.html") && s.web != nil:
+		s.page(w, r)
+	case p == "/" || p == "/decks":
 		s.index(w, r)
 	case p == "/healthz":
 		io.WriteString(w, "ok\n")
 	case strings.HasPrefix(p, "/files/shares/"):
 		s.file(w, r, strings.TrimPrefix(p, "/files/"))
 	case themePath.MatchString(p):
-		css, ok := builtinTheme(themePath.FindStringSubmatch(p)[1])
+		css, ok := s.env.Themes(themePath.FindStringSubmatch(p)[1])
 		if !ok {
 			http.NotFound(w, r)
 			return
 		}
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Private-Network", "true")
 		io.WriteString(w, css)
 	case slidePath.MatchString(p):
 		m := slidePath.FindStringSubmatch(p)
@@ -120,9 +146,16 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.picture(w, r, "render_slide", map[string]any{"deck_id": m[1], "slide": n})
 	case overviewPath.MatchString(p):
 		s.picture(w, r, "render_overview", map[string]any{"deck_id": overviewPath.FindStringSubmatch(p)[1]})
+	case deckPath.MatchString(p) && s.web != nil:
+		s.page(w, r)
 	case deckPath.MatchString(p):
 		s.deck(w, r, deckPath.FindStringSubmatch(p)[1])
+	case slidesPath.MatchString(p):
+		s.deck(w, r, slidesPath.FindStringSubmatch(p)[1])
 	default:
+		if s.web != nil && !strings.HasPrefix(p, "/.well-known/") && !strings.HasPrefix(p, "/oauth/") && p != "/mcp" && s.static(w, r) {
+			return
+		}
 		s.app.ServeHTTP(w, r)
 	}
 }
@@ -245,7 +278,7 @@ figcaption { color: var(--muted); font-size: .85rem; margin-top: 6px; }
 pre { white-space: pre-wrap; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 12px; font-size: .85rem; }
 </style></head><body><main>
 {{if .Deck}}
-<p class="muted"><a href="/">All presentations</a></p>
+<p class="muted"><a href="/decks">All presentations</a>{{if .Web}} · <a href="/s/{{.ID}}">play</a> · <a href="/s/{{.ID}}?edit">edit</a>{{end}}</p>
 <h1>{{.Title}}</h1>
 <p class="muted">{{.Slides}} slides · theme {{.Theme}} · <a href="/s/{{.ID}}/overview.jpg">overview</a></p>
 {{range .Numbers}}<figure><img loading="lazy" src="/s/{{$.ID}}/{{.N}}.jpg" alt="Slide {{.N}}: {{.Title}}" width="960" height="540"><figcaption>{{.N}}. {{.Title}}</figcaption></figure>
@@ -253,7 +286,7 @@ pre { white-space: pre-wrap; background: var(--card); border: 1px solid var(--li
 {{else}}
 <h1>Presentations</h1>
 <p class="muted">Kept in this server's folder. MCP: <code>{{.MCP}}</code></p>
-<ul>{{range .Decks}}<li><a href="/s/{{.ID}}">{{.Name}}</a> <span class="muted">{{.When}}</span></li>
+<ul>{{range .Decks}}<li><a href="/s/{{.ID}}">{{.Name}}</a> <span class="muted">{{.When}} · <a href="/s/{{.ID}}/slides">slides</a>{{if $.Web}} · <a href="/s/{{.ID}}?edit">edit</a>{{end}}</span></li>
 {{else}}<li class="muted">None yet. Ask an assistant connected to {{$.MCP}} to make one.</li>{{end}}</ul>
 {{end}}
 </main></body></html>`))
@@ -299,7 +332,7 @@ func (s *localServer) index(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Slice(rows, func(a, b int) bool { return rows[a].at > rows[b].at })
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTmpl.Execute(w, map[string]any{"Title": "Sliqtly", "Decks": rows, "MCP": s.env.BaseURL + "/mcp"})
+	pageTmpl.Execute(w, map[string]any{"Title": "Sliqtly", "Decks": rows, "MCP": s.env.BaseURL + "/mcp", "Web": s.web != nil})
 }
 
 var (
@@ -344,5 +377,5 @@ func (s *localServer) deck(w http.ResponseWriter, r *http.Request, id string) {
 		name = id
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTmpl.Execute(w, map[string]any{"Deck": true, "ID": id, "Title": name, "Slides": n, "Theme": theme, "Numbers": slides})
+	pageTmpl.Execute(w, map[string]any{"Deck": true, "ID": id, "Title": name, "Slides": n, "Theme": theme, "Numbers": slides, "Web": s.web != nil})
 }

@@ -1,0 +1,89 @@
+# Builds the server package (mcp-go/packaging/build-deb.sh: the binary with
+# the editor and player built in) for amd64 and arm64, and puts the two .deb
+# files in the project's Storage bucket under downloads/, each with a new
+# random download token. The links, which work only with the token, are in
+# the run's summary: Actions → Server package → the run.
+#
+#   curl -fLo sliqtly-server.deb '<link>' && sudo apt install ./sliqtly-server.deb
+#
+# A new run replaces the files and their tokens: older links stop working.
+# The FIREBASE_SERVICE_ACCOUNT secret's account needs Storage Object Admin
+# (or Firebase Storage Admin) on the bucket.
+name: Server package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version, e.g. 0.1.0"
+        required: true
+        default: "0.1.0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-package
+  cancel-in-progress: false
+
+env:
+  PROJECT: sliqtly
+  BUCKET: sliqtly.firebasestorage.app
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: mcp-go/go.mod
+          cache-dependency-path: mcp-go/go.sum
+      - name: Check the version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([~+.-][A-Za-z0-9.~+-]+)?$'
+      - name: Build the editor and player
+        run: npm ci --no-audit --no-fund && node scripts/build.mjs
+      - name: Generate and test the server
+        working-directory: mcp-go
+        run: go generate ./... && go test ./...
+      - name: Build the packages
+        working-directory: mcp-go
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          packaging/build-deb.sh "$VERSION" amd64
+          packaging/build-deb.sh "$VERSION" arm64
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Upload with download tokens
+        working-directory: mcp-go
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          {
+            echo "## sliqtly-server $VERSION"
+            echo
+            echo "Each link works only with its token; do not post it where others read."
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          for f in dist/*.deb; do
+            name=$(basename "$f")
+            arch=${name##*_}; arch=${arch%.deb}
+            token=$(cat /proc/sys/kernel/random/uuid)
+            for obj in "downloads/$name" "downloads/sliqtly-server_latest_${arch}.deb"; do
+              gcloud storage cp "$f" "gs://$BUCKET/$obj" \
+                --content-type=application/vnd.debian.binary-package \
+                --custom-metadata="firebaseStorageDownloadTokens=$token" --quiet
+              url="https://firebasestorage.googleapis.com/v0/b/$BUCKET/o/$(printf %s "$obj" | sed 's#/#%2F#g')?alt=media&token=$token"
+              echo "- \`$obj\` ($(sha256sum "$f" | cut -c1-16)…): $url" >> "$GITHUB_STEP_SUMMARY"
+            done
+          done

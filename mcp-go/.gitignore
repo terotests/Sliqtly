@@ -5,3 +5,6 @@
 /presdata/presdata.go
 /fonts/
 /themes/
+/webdist/*
+!/webdist/README
+/dist/

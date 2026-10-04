@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload >/dev/null || true
+fi
+# purge removes the settings; the decks in /var/lib/sliqtly are left for
+# the administrator to keep or delete
+exit 0
