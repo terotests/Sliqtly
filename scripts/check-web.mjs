@@ -3211,6 +3211,45 @@ try {
     await ctx.close();
   }
 
+  // Someone else's deck opened at its editor's address (/s/{id}?edit, signed
+  // out): a copy of their own, kept only once they change it, the share's
+  // own CSS counting as it was opened. Untouched, nothing is kept, and the
+  // site's plain address opens the welcome deck with no #doc.
+  {
+    const share = { md: "# Toisen pakka\n\n## Dia\n\nteksti\n", theme: "aurora", css: "h1 { color: #c00; }", owner: "someoneElse", deck: "dElse", name: "Toisen pakka", files: [] };
+    const fake = `(() => {
+      const ref = (c, id) => ({ get: async () => ({ exists: c === "shares", data: () => (${JSON.stringify(share)}) }) });
+      const firestore = () => ({ collection: (c) => ({ doc: (id) => ref(c, id) }) });
+      const auth = () => ({ onAuthStateChanged(cb) { setTimeout(() => cb(null), 0); return () => {}; }, signOut() {} });
+      window.firebase = { auth, firestore, storage: () => ({}) };
+    })();`;
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+    await ctx.route(/^https:\/\/www\.gstatic\.com\/firebasejs\//, (r) => r.fulfill({ contentType: "text/javascript", body: /app-compat/.test(r.request().url()) ? fake : "" }));
+    await ctx.route(/\/__\/firebase\/init\.js/, (r) => r.fulfill({ contentType: "text/javascript", body: "" }));
+    await ctx.route(/\/s\/[A-Za-z0-9]+(\?|$)/, (r) => r.fulfill({ contentType: "text/html", body: fs.readFileSync(path.join(distDir, "index.html")) }));
+    const pc = await ctx.newPage();
+    const cerr = [];
+    pc.on("pageerror", (e) => cerr.push(e.message));
+    await pc.goto(url.replace(/\/$/, "") + "/s/zzOthersDeck?edit");
+    await pc.waitForFunction(() => window.__pageStarted === true && window.__app.source().startsWith("# Toisen pakka"), null, { timeout: 90000 });
+    await pc.waitForTimeout(2500); // the 1.5 s save has had its turn
+    const untouched = await pc.evaluate(() => ({ kept: localStorage.getItem("evgp.doc"), at: location.pathname + location.hash }));
+    check("someone else's deck at /s/{id}?edit with its own CSS is not kept until changed", !untouched.kept && !untouched.at.includes("doc="), JSON.stringify(untouched));
+    await pc.goto(url);
+    await pc.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await pc.waitForTimeout(500);
+    const home = await pc.evaluate(() => ({ md: window.__app.source(), hash: location.hash }));
+    check("after it, the site's plain address opens the welcome deck with no #doc", home.md.includes("# Sliqtly Better Slides") && home.hash === "", JSON.stringify({ ...home, md: home.md.slice(0, 80) }));
+    await pc.goto(url.replace(/\/$/, "") + "/s/zzOthersDeck?edit");
+    await pc.waitForFunction(() => window.__pageStarted === true && window.__app.source().startsWith("# Toisen pakka"), null, { timeout: 90000 });
+    await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Oma lisäys\n"));
+    await pc.waitForTimeout(2500);
+    const changed = await pc.evaluate(() => ({ kept: localStorage.getItem("evgp.doc"), hash: location.hash }));
+    check("changed, the copy is kept and the address names it", !!changed.kept && changed.hash.includes("doc=" + changed.kept), JSON.stringify(changed));
+    check("no page errors opening someone else's deck", cerr.length === 0, cerr.join(" | "));
+    await ctx.close();
+  }
+
   // Open → Sample documents: English decks for an English interface, and the
   // prompt is the trigger's text, not a row in the list
   const samples = await page.evaluate(() => {

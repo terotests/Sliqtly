@@ -410,7 +410,7 @@ async function imageSize(bytes, type) {
 // change is saved a moment after it is made. The files of a deck not stored
 // yet wait in `pending` and go in with it.
 let vfs = null;
-const doc = { id: newId(), persisted: false, created: Date.now(), openedText: "" };
+const doc = { id: newId(), persisted: false, created: Date.now(), openedText: "", openedCss: null };
 // PRO: the share the deck lives in (cloud), its text as last written or read
 // there (cloudMd), the files as sent (cloudStamps: path → stamp), and what
 // was last sent (cloudSig), and the CSS and theme as last written or read
@@ -427,6 +427,7 @@ function beginDoc(text) {
   doc.persisted = false;
   doc.created = Date.now();
   doc.openedText = text;
+  doc.openedCss = null;
   Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
   versions = null;
   filesAtCommit = null;
@@ -593,9 +594,9 @@ async function saveDocNow(force) {
   const key = themeSel.value || "";
   const css = key in editedCss ? editedCss[key] : null;
   if (md === savedText && css === savedCss && key === savedTheme && !force) return;
-  // a deck as it was opened is not kept until someone changes it, nor an
-  // empty one
-  if (!doc.persisted && !force && ((md === doc.openedText && css === null) || !md.trim())) return;
+  // a deck as it was opened is not kept until someone changes it (a shared
+  // deck opens with its own CSS: that is as opened too), nor an empty one
+  if (!doc.persisted && !force && ((md === doc.openedText && css === doc.openedCss) || !md.trim())) return;
   saving = (async () => {
     const cur = doc.persisted ? await vfs.getDoc(doc.id) : null;
     // another tab of this browser saved this deck since this one read it:
@@ -3807,6 +3808,7 @@ async function openFromShare() {
     }
     if (shared.css != null) {
       editedCss[themeSel.value || ""] = shared.css;
+      doc.openedCss = shared.css;
       app.setStyleSheet(shared.css);
     }
     // the files come from Storage by fetch(), which the bucket must allow
