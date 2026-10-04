@@ -186,9 +186,8 @@ When text on a picture is hard to read ("low contrast"), raise that slide's
   Opportunities, Threats) or ```` ```timeline ````, one item per
   line as `Title: description`; an indented `- point` belongs to the item
   above. `{width=60%}` under the fence makes it narrower. They are drawn in
-  the theme's colours and go into the PDF and PowerPoint as shapes. Only
-  signed-in PRO decks draw them; otherwise the slot says it is a PRO
-  layout, so do not use them when the user is not on PRO.
+  the theme's colours and go into the PDF and PowerPoint as shapes, for
+  every user, signed in or not.
 
   ````markdown
   ```process
