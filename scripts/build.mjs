@@ -11,6 +11,7 @@ import crypto from "node:crypto";
 import { ensureRanger, ensureRangerDiff, compile, root, webDir, distDir, log } from "./lib.mjs";
 import { createRequire } from "node:module";
 import { formatCss } from "./format-css.mjs";
+import { stampImports, unstampedImports } from "./stamp.mjs";
 
 // esbuild (npm install) shrinks the two compiled bundles to about 60 %
 // (pres_app.js 8.2 MB → 4.9 MB, 1.7 MB → 1.4 MB gzipped): every visit
@@ -21,6 +22,14 @@ function minify(file) {
   try { esbuild = createRequire(import.meta.url)("esbuild"); } catch (_) { return; }
   const out = esbuild.transformSync(fs.readFileSync(file, "utf8"), { minify: true, keepNames: true, legalComments: "none" });
   fs.writeFileSync(file, out.code);
+}
+
+// every file in web/dist, relative and sorted
+function distFiles() {
+  return fs.readdirSync(distDir, { recursive: true })
+    .map((f) => f.split(path.sep).join("/"))
+    .filter((f) => fs.statSync(path.join(distDir, f)).isFile())
+    .sort();
 }
 
 export function build({ ranger } = {}) {
@@ -101,9 +110,7 @@ export function build({ ranger } = {}) {
   // Every URL the page loads carries the hash of the build, so a reload
   // never mixes an old script with a new one.
   const h = crypto.createHash("sha1");
-  for (const f of ["pres_app.js", "pres_data.js", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "collab.js", "eventline.js", "rangerdiff.mjs", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css", "ui.css", "skins/ui-retro.css", "skins/retro.css", "gl/evg-webgl.js", "gl/evg-a11y.js"]) h.update(fs.readFileSync(path.join(distDir, f)));
-  for (const f of fs.readdirSync(path.join(distDir, "themes"))) h.update(fs.readFileSync(path.join(distDir, "themes", f)));
-  for (const f of fs.readdirSync(path.join(distDir, "i18n"))) h.update(fs.readFileSync(path.join(distDir, "i18n", f)));
+  for (const f of distFiles().filter((f) => !f.startsWith("fonts/"))) h.update(f).update(fs.readFileSync(path.join(distDir, f)));
   const stamp = h.digest("hex").slice(0, 10);
   // The fonts change far more seldom than the code: their own hash, so a
   // new build is not 1.5 MB of the same faces again for every visitor.
@@ -114,32 +121,21 @@ export function build({ ranger } = {}) {
   fs.writeFileSync(html, fs.readFileSync(html, "utf8").split("__BUILD__").join(stamp).split("__FONTS__").join(fonts));
   const main = path.join(distDir, "main.js");
   fs.writeFileSync(main, fs.readFileSync(main, "utf8")
-    .replace("./gl/evg-webgl.js", "./gl/evg-webgl.js?v=" + stamp)
-    .replace("./gl/evg-a11y.js", "./gl/evg-a11y.js?v=" + stamp)
-    .replace('"./i18n.js"', '"./i18n.js?v=' + stamp + '"')
-    .replace('"./vfs.js"', '"./vfs.js?v=' + stamp + '"')
-    .replace('"./pres_data.js"', '"./pres_data.js?v=' + stamp + '"')
-    .replace('"./sheets-live.js"', '"./sheets-live.js?v=' + stamp + '"')
-    .replace('"./image-adjust.js"', '"./image-adjust.js?v=' + stamp + '"')
-    .replace('"./picture.js"', '"./picture.js?v=' + stamp + '"')
-    .replace('"./versions.js"', '"./versions.js?v=' + stamp + '"')
-    .replace('"./versions-ui.js"', '"./versions-ui.js?v=' + stamp + '"')
-    .replace('"./collab.js"', '"./collab.js?v=' + stamp + '"')
-    .replace('"./rangerdiff.mjs"', '"./rangerdiff.mjs?v=' + stamp + '"')
     .split("__SHEETS_BASE__").join(sheetsBase)
     .split("__FONTS__").join(fonts)
     .split("__BUILT__").join(new Date().toISOString().slice(0, 10))
     .split("__BUILD__").join(stamp));
-  // sliqtly.js shares main.js's i18n module: the same URL, one instance
-  const pro = path.join(distDir, "sliqtly.js");
-  fs.writeFileSync(pro, fs.readFileSync(pro, "utf8").replace('"./i18n.js"', '"./i18n.js?v=' + stamp + '"'));
-  // picture.js shares main.js's image-adjust module: the same URL
-  const picture = path.join(distDir, "picture.js");
-  fs.writeFileSync(picture, fs.readFileSync(picture, "utf8").replace('"./image-adjust.js"', '"./image-adjust.js?v=' + stamp + '"'));
-  const versions = path.join(distDir, "versions.js");
-  fs.writeFileSync(versions, fs.readFileSync(versions, "utf8").replace('"./rangerdiff.mjs"', '"./rangerdiff.mjs?v=' + stamp + '"'));
-  const versionsUi = path.join(distDir, "versions-ui.js");
-  fs.writeFileSync(versionsUi, fs.readFileSync(versionsUi, "utf8").replace('"./i18n.js"', '"./i18n.js?v=' + stamp + '"'));
+  // every relative import of every module we ship carries the stamp
+  // (scripts/stamp.mjs); the two compiled bundles are classic scripts, and
+  // EVGSheets' own build (sheets/) is left as it came
+  const classic = new Set(["pres_app.js", "pres_data.js"]);
+  const modules = distFiles().filter((f) => /\.m?js$/.test(f) && !classic.has(f) && !f.startsWith("sheets/"));
+  for (const f of modules) {
+    const file = path.join(distDir, f);
+    fs.writeFileSync(file, stampImports(fs.readFileSync(file, "utf8"), stamp));
+  }
+  const left = modules.flatMap((f) => unstampedImports(fs.readFileSync(path.join(distDir, f), "utf8")).map((u) => `${f}: ${u}`));
+  if (left.length) throw new Error("imports without the build stamp:\n  " + left.join("\n  "));
   log(`build  web/dist (${stamp})`);
   return stamp;
 }
