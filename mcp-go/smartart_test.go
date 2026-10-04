@@ -58,6 +58,40 @@ func TestSmartArtFile(t *testing.T) {
 	if r.IsError {
 		t.Fatal(textOf(r))
 	}
+	// read back from the deck's storage, where a file has no type with it:
+	// still a diagram, drawn (it used to be taken for a broken PNG)
+	if rr := lastText(r); !strings.Contains(rr, "- diagram (steps.xml) at ") || strings.Contains(rr, "picture (steps.xml)") {
+		t.Fatalf("render_slide does not draw the stored SmartArt as a diagram:\n%s", rr)
+	}
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": out["edit_key"], "markdown": md + "\n## More\n\nText.\n"})
+	if u.IsError {
+		t.Fatal(textOf(u))
+	}
+	if ur := textOf(u); !strings.Contains(ur, "- diagram (steps.xml) at ") {
+		t.Fatalf("update_presentation does not see the stored SmartArt as a diagram:\n%s", ur)
+	}
+}
+
+// A SmartArt file written as a link shows only the link's text: the server
+// says so, and how to show it.
+func TestSmartArtLinked(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "Linked", "markdown": "## Steps\n\n[The steps](media/steps.xml)\n\n## Shown\n\n![The steps](media/steps.xml)\n",
+		"images": []any{map[string]any{"name": "steps.xml", "data_base64": base64.StdEncoding.EncodeToString([]byte(STEPS))}},
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	ws := strings.Join(toStrings(sc(c)["warnings"]), "\n")
+	if !strings.Contains(ws, "media/steps.xml is written as a link, [text](media/steps.xml), so the slide shows only its text. A SmartArt file is shown like a picture: ![text](media/steps.xml).") {
+		t.Fatalf("no warning about the linked SmartArt:\n%s", ws)
+	}
+	if strings.Count(ws, "is written as a link") != 1 {
+		t.Fatalf("the picture reference was taken for a link too:\n%s", ws)
+	}
 }
 
 func toStrings(v any) []string {

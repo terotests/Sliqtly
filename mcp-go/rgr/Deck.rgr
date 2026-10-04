@@ -301,6 +301,52 @@ class Deck {
                 push out ("Image " + nm + " was sent but the Markdown does not use media/" + nm + ".")
             }
         }
+        for (Deck.linkedXml(md)) lx:string k {
+            push out ("media/" + lx + " is written as a link, [text](media/" + lx + "), so the slide shows only its text. A SmartArt file is shown like a picture: ![text](media/" + lx + ").")
+        }
+        return out
+    }
+
+    ; The .xml files the Markdown links to ([text](media/x.xml)) rather than
+    ; shows (![text](media/x.xml)).
+    sfn linkedXml:[string] (md:string) {
+        def out:[string]
+        def from:int 0
+        def n:int (strlen md)
+        def at:int (indexOfFrom md "](media/" from)
+        while (at >= 0) {
+            ; the [ that opens this link's text, on its line
+            def open:int -1
+            def k:int (at - 1)
+            while ((k >= 0) && (open < 0)) {
+                def ch:int (charAt md k)
+                if (ch == 10) {
+                    k = -1
+                } {
+                    if (ch == 91) {
+                        open = k
+                    }
+                    k = (k - 1)
+                }
+            }
+            def start:int (at + 8)
+            def e:int start
+            while ((e < n) && (Deck.nameChar((charAt md e)))) {
+                e = (e + 1)
+            }
+            def name:string (substring md start e)
+            def isPicture:boolean false
+            if (open > 0) {
+                isPicture = ((charAt md (open - 1)) == 33)
+            }
+            if (((open >= 0) && (isPicture == false)) && (endsWith (to_lowercase name) ".xml")) {
+                if ((Deck.inList(out name)) == false) {
+                    push out name
+                }
+            }
+            from = (at + 1)
+            at = (indexOfFrom md "](media/" from)
+        }
         return out
     }
 
