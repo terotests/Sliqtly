@@ -130,7 +130,8 @@ class PresChartEditor {
     def ndAsk:string ""
     ; A question before something that cannot be undone (`mode` "confirm"):
     ; `cfKey` names it to the page, `cfOk` is the red button's word. The red
-    ; button sets `wantsConfirm` and closes; Cancel and Esc only close.
+    ; button sets `wantsConfirm` and closes; Cancel and Esc only close. With
+    ; no `cfOk` it only tells (Help → About): its lines and OK.
     def cfKey:string ""
     def cfTitle:string ""
     def cfText:string ""
@@ -1238,6 +1239,25 @@ class PresChartEditor {
     ; --- a question before deleting ----------------------------------------------
     fn confirmBody:void (root:EVGElement) {
         def pane:EVGElement (this.div("ce-pane"))
+        if ((strlen cfOk) == 0) {
+            ; the first line as the heading, the rest under it
+            def lines:[string] (strsplit cfText (strfromcode 10))
+            def i:int 0
+            while (i < (array_length lines)) {
+                def cls:string "ce-doc"
+                if (i == 0) {
+                    cls = "ce-about"
+                }
+                pane.addChild((this.text(cls (itemAt lines i))))
+                i = (i + 1)
+            }
+            root.addChild(pane)
+            def foot:EVGElement (this.div("ce-foot"))
+            foot.addChild((this.div("ce-grow")))
+            this.button("cf-close" (PresI18n.t("OK")) "primary" foot)
+            root.addChild(foot)
+            return
+        }
         pane.addChild((this.text("ce-doc" cfText)))
         root.addChild(pane)
         def bottom:EVGElement (this.div("ce-foot"))
@@ -1248,7 +1268,7 @@ class PresChartEditor {
     }
 
     fn confirmAct:boolean (tid:string) {
-        if (tid == "cf-cancel") {
+        if ((tid == "cf-cancel") || (tid == "cf-close")) {
             wantsClose = true
             return true
         }

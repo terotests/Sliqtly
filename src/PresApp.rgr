@@ -5669,6 +5669,12 @@ class PresApp {
         return true
     }
 
+    ; Help → About: the same window with the app's name and version, `words`
+    ; one line each, and only an OK button
+    fn openAbout:boolean (title:string words:string) {
+        return (this.openConfirm("" title words ""))
+    }
+
     ; {"name": text, "theme": key, "data": "none"|"sample"|"file", "dup": a
     ;  copy of the open deck (File → Duplicate), "ask": "" | "dup" | "name"
     ;  (one's own name for editing together: nothing is made)}

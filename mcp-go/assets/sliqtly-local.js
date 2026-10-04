@@ -197,9 +197,16 @@ try {
 }
 show();
 
+// this server's version, for Help → About
+async function serverVersion() {
+  if (firstVersion) return firstVersion;
+  const res = await fetch("/api/status", { cache: "no-store" });
+  return res.ok ? (await res.json()).version || "" : "";
+}
+
 window.sliqtly = {
   auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, listMine, readSheet,
-  putObject, getObject, pushHead, readHead, collab,
+  putObject, getObject, pushHead, readHead, collab, serverVersion,
   sheetsToken: () => null, askSheets: async () => null, sheetName: () => null,
 };
 window.dispatchEvent(new Event("sliqtly:ready"));

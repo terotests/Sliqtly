@@ -128,6 +128,7 @@ export function build({ ranger } = {}) {
     .replace('"./rangerdiff.mjs"', '"./rangerdiff.mjs?v=' + stamp + '"')
     .split("__SHEETS_BASE__").join(sheetsBase)
     .split("__FONTS__").join(fonts)
+    .split("__BUILT__").join(new Date().toISOString().slice(0, 10))
     .split("__BUILD__").join(stamp));
   // sliqtly.js shares main.js's i18n module: the same URL, one instance
   const pro = path.join(distDir, "sliqtly.js");
