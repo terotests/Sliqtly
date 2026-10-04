@@ -100,6 +100,7 @@ func newLocalServer(env *Env, bucket *fsBucket, token string, web fs.FS) http.Ha
 		s.hub = newChangeHub()
 		db.changed = s.hub.written
 	}
+	s.loadSettings()
 	return s
 }
 
@@ -124,6 +125,14 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		st, _ := s.board.get()
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		writeStatus(w, st, 200)
+		return
+	}
+	if p == "/api/settings" || p == "/api/settings/check" {
+		s.settingsAPI(w, r)
+		return
+	}
+	if p == "/settings" && r.Method == http.MethodGet {
+		s.settingsPage(w)
 		return
 	}
 	if strings.HasPrefix(p, "/api/") && p != "/api/hit" {
@@ -298,7 +307,7 @@ pre { white-space: pre-wrap; background: var(--card); border: 1px solid var(--li
 {{end}}
 {{else}}
 <h1>Presentations</h1>
-<p class="muted">Kept in this server's folder. MCP: <code>{{.MCP}}</code></p>
+<p class="muted">Kept in this server's folder. MCP: <code>{{.MCP}}</code> · <a href="/settings">Settings</a></p>
 <ul>{{range .Decks}}<li><a href="/s/{{.ID}}">{{.Name}}</a> <span class="muted">{{.When}} · <a href="/s/{{.ID}}/slides">slides</a>{{if $.Web}} · <a href="/s/{{.ID}}?edit">edit</a>{{end}}</span></li>
 {{else}}<li class="muted">None yet. Ask an assistant connected to {{$.MCP}} to make one.</li>{{end}}</ul>
 {{end}}

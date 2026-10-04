@@ -186,17 +186,17 @@ class Tools {
         tools.add((Tools.tool("sliqtly_guide" "Sliqtly syntax guide" "How to write a Sliqtly deck: slide structure, build animations, effects, pictures, charts (Vega-Lite), diagrams (Mermaid, Graphviz), math, themes and the CSS selectors. Read before the first create_presentation." (Tools.schema((MfJ.newObj()) none)) (Tools.annotations(true -1 false false)) eitherMeta)))
 
         def cp:MfJ (MfJ.newObj())
-        def title:MfJ (Tools.prop("string" "The presentation's name"))
+        def title:MfJ (Tools.prop("string" (Tools.withNameRule(host "The presentation's name."))))
         title.putInt("maxLength" 200)
         cp.put("title" title)
         cp.put("markdown" (Tools.prop("string" "The whole deck as Sliqtly Markdown")))
         Tools.deckFields(cp)
-        tools.add((Tools.tool("create_presentation" "Create a presentation" "Create a Sliqtly slide presentation from Markdown (# title slide, ## per slide), an optional theme, extra CSS, pictures and data files (.xlsx, .csv, .json) its charts and tables read. Returns a link that opens the presentation and a link to edit a copy in the Sliqtly editor." (Tools.schema(cp ([] _:string ("title" "markdown")))) (Tools.annotations(false 0 false true)) (Tools.uiMeta(host)))))
+        tools.add((Tools.tool("create_presentation" "Create a presentation" (Tools.withNameRule(host "Create a Sliqtly slide presentation from Markdown (# title slide, ## per slide), an optional theme, extra CSS, pictures and data files (.xlsx, .csv, .json) its charts and tables read. Returns a link that opens the presentation and a link to edit a copy in the Sliqtly editor.")) (Tools.schema(cp ([] _:string ("title" "markdown")))) (Tools.annotations(false 0 false true)) (Tools.uiMeta(host)))))
 
         def up:MfJ (MfJ.newObj())
         up.put("deck_id" (Tools.prop("string" "deck_id from create_presentation")))
         up.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
-        def title2:MfJ (Tools.prop("string" ""))
+        def title2:MfJ (Tools.prop("string" (Tools.withNameRule(host "A new name for the presentation; leave out to keep it."))))
         title2.putInt("maxLength" 200)
         up.put("title" title2)
         up.put("markdown" (Tools.prop("string" "The whole deck as Sliqtly Markdown")))
@@ -804,7 +804,12 @@ class Tools {
     sfn call:MfJ (host:McpHost caller:Caller name:string args:MfJ) {
         if (name == "sliqtly_guide") {
             def g:MfJ (MfJ.newObj())
-            g.put("content" (Tools.text((host_asset host "guide.md"))))
+            def guide:string (host_asset host "guide.md")
+            def rule:string (host_name_rule host)
+            if ((strlen rule) > 0) {
+                guide = (guide + "\n\n## Naming presentations on this server\n\n" + rule + " create_presentation and update_presentation refuse a title that does not follow it. list_presentations gives each presentation's key apart from its name.\n")
+            }
+            g.put("content" (Tools.text(guide)))
             return g
         }
         if ((((name == "create_presentation") || (name == "update_presentation")) || (name == "bind_chart_data")) || (name == "write_workbook")) {
@@ -864,6 +869,15 @@ class Tools {
         return ((substring name 0 u) + " " + (substring name (u + 1) (strlen name)))
     }
 
+    ; text, and the server's naming rule after it when it has one
+    sfn withNameRule:string (host:McpHost text:string) {
+        def rule:string (host_name_rule host)
+        if ((strlen rule) == 0) {
+            return text
+        }
+        return (text + " Naming rule on this server: " + rule)
+    }
+
     sfn failed:MfJ (host:McpHost name:string err:string) {
         host_log host (name + " failed: " + err)
         return (Tools.fail(("Sliqtly could not " + (Tools.verb(name)) + ": " + err)))
@@ -873,6 +887,10 @@ class Tools {
         def bad:string (Tools.checkArgs(a ([] _:string ("title" "markdown"))))
         if ((strlen bad) > 0) {
             return (Tools.fail(bad))
+        }
+        def badName:string (host_check_name host (a.str_("title")))
+        if ((strlen badName) > 0) {
+            return (Tools.fail(("Not created: " + badName + " Call create_presentation again with such a title.")))
         }
         def up:string (Tools.uploads(a))
         if (((caller.signedIn == false) && ((host_store_kind host) != "link")) && ((strlen up) > 0)) {
@@ -971,6 +989,12 @@ class Tools {
         def bad:string (Tools.checkArgs(a ([] _:string ("deck_id"))))
         if ((strlen bad) > 0) {
             return (Tools.fail(bad))
+        }
+        if (Tools.has(a "title")) {
+            def badName:string (host_check_name host (a.str_("title")))
+            if ((strlen badName) > 0) {
+                return (Tools.fail(("Not updated: " + badName + " Call update_presentation again with such a title, or without one to keep the name.")))
+            }
         }
         def up:string (Tools.uploads(a))
         if ((caller.signedIn == false) && ((strlen up) > 0)) {
@@ -1977,6 +2001,12 @@ class Tools {
             def deck:MfJ (MfJ.newObj())
             deck.putStr("deck_id" id)
             deck.putStr("title" (d.str_("name")))
+            ; the key part of the name (ABC-1234) when the server has a
+            ; naming rule, to search and index by
+            def nameKey:string (host_name_key host (d.str_("name")))
+            if ((strlen nameKey) > 0) {
+                deck.putStr("key" nameKey)
+            }
             deck.putStr("theme" (d.str_("theme")))
             def t:double (Store.stamp(d))
             if (t > 0.0) {

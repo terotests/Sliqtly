@@ -179,6 +179,7 @@ What it serves besides `/mcp` (`local.go`, `localweb.go`):
 | `/files/shares/{id}/…` | the deck's pictures and data files |
 | `/themes/{name}.css` | the themes (the built page's, else the ones copied from `../themes`) |
 | `/api/…` | what the page keeps decks with (`assets/sliqtly-local.js`, which the server sends as `/sliqtly.js` in place of the Firebase one) |
+| `/settings` | the server's settings: the naming rule below (`localsettings.go`) |
 | `/api/status` | `{"state","version"}`: `migrating`, `failed`, `ready` or `stopping` (`localstatus.go`) |
 | `/healthz` | `ok`, or 503 while the folder is not ready |
 
@@ -217,6 +218,22 @@ tells open pages it is restarting and lets saves under way finish. A page
 that loses the server says it is offline. A page that sees a new version
 offers to reload. Edits made meanwhile stay in the browser (the editor keeps
 every deck there first) and go to the server when it is back.
+
+**A naming rule** (`names.go`). On `/settings` the server can require a
+form for presentations' names, for example a ticket key first:
+`^([A-Z][A-Z0-9]+-[0-9]+) +\S`, "ABC-1234 Quarterly review". The rule is
+off until it is turned on there, and is kept in the folder. The cloud server
+has none. When it is on:
+
+- `create_presentation` and `update_presentation` state the rule in their
+  descriptions, and so does `sliqtly_guide`.
+- A title that does not follow the rule is refused, with the rule and an
+  example.
+- `list_presentations` gives each deck's `key` (the pattern's first group)
+  apart from its name.
+
+The editor does not enforce the rule. The settings page lists the names that
+do not follow it.
 
 The page is sliqtly.com's own; only `/sliqtly.js` differs. The editor is
 signed in as the folder's user, so a deck opened with `?edit` is saved back
