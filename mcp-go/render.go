@@ -470,6 +470,9 @@ func (p *painter) text(c *dlCmd) {
 	if f == nil {
 		return
 	}
+	// a character the face lacks comes from Noto Sans (Open Sans has no
+	// arrows: "→"), then Noto Emoji, the order the layout measured it in
+	noto := face(notoLike(c.Font), c.Weight, c.Italic)
 	emoji := loadFace("Noto Emoji-Regular")
 	ppem := fixed.Int26_6(math.Round(c.Size * 64))
 	m, err := f.Metrics(&p.buf, ppem, font.HintingNone)
@@ -487,6 +490,11 @@ func (p *painter) text(c *dlCmd) {
 	for _, r := range c.Text {
 		ff := f
 		gi, _ := f.GlyphIndex(&p.buf, r)
+		if gi == 0 && noto != nil && noto != f {
+			if g2, _ := noto.GlyphIndex(&p.buf, r); g2 != 0 {
+				ff, gi = noto, g2
+			}
+		}
 		if gi == 0 && emoji != nil {
 			if g2, _ := emoji.GlyphIndex(&p.buf, r); g2 != 0 {
 				ff, gi = emoji, g2
@@ -518,6 +526,17 @@ func (p *painter) text(c *dlCmd) {
 		}
 	}
 	p.glyphs(curves, c.Rot, cx, cy, image.NewUniform(colorOf(c.C)))
+}
+
+// notoLike names Noto Sans in the weight and slant the family names
+// ("Open Sans-BoldItalic" → "Noto Sans-BoldItalic")
+func notoLike(family string) string {
+	for _, suf := range []string{"-BoldItalic", "-Bold", "-Italic"} {
+		if strings.HasSuffix(family, suf) {
+			return "Noto Sans" + suf
+		}
+	}
+	return "Noto Sans"
 }
 
 type glyphPath struct {
