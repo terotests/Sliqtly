@@ -192,3 +192,18 @@ t2("a page joining late takes the room's text, its caret kept", async () => {
   assert.equal(ed.c, 2);
   assert.equal(shown, room.hub.text);
 });
+
+t2("a page goes by the name and colour the room gives it", async () => {
+  const room = fakeRoom("x");
+  const ed = fakeEditor("x");
+  const me = { who: "w1", name: "AnonymousPanda", color: "#ea580c", client: "c1" };
+  const s = new CollabSession(ot, room.transport("c1"), ed, me);
+  const told = [];
+  s.on.me = (name, color) => told.push(name + " " + color);
+  await s.start("deck01");
+  s.event({ t: "peers", rev: 0, peers: [{ client: "c0", who: "w0", name: "AnonymousPanda", color: "#ea580c" }, { client: "c1", who: "w1", name: "AnonymousOtter", color: "#0d9488" }] });
+  assert.deepEqual(told, ["AnonymousOtter #0d9488"]);
+  assert.equal(s.me.name, "AnonymousOtter", "sent again as this on a reconnect");
+  s.event({ t: "peers", rev: 0, peers: [{ client: "c1", who: "w1", name: "AnonymousOtter", color: "#0d9488" }] });
+  assert.equal(told.length, 1, "told once");
+});

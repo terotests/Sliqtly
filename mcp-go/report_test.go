@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"golang.org/x/image/font/sfnt"
 )
 
 // --- the layout report on its own (rgr/Report.rgr)
@@ -269,4 +270,19 @@ func TestLayoutReportAndRender(t *testing.T) {
 	ot := lastText(o)
 	match(t, ot, `"Render": 4 slides`)
 	match(t, ot, `Slide 4 "Plain": the elements cover`)
+}
+
+// Every symbol a slide commonly uses has a glyph in some face the painter
+// falls back to; a missing one would be drawn as an empty box ("52 ms ▯ 0,01 ms").
+func TestPainterSymbolsHaveGlyphs(t *testing.T) {
+	var buf sfnt.Buffer
+	for _, fam := range []string{"Open Sans", "Open Sans-Bold", "Noto Sans"} {
+		f := face(fam, "", false)
+		chain := []*sfnt.Font{face(notoLike(fam), "", false), loadFace("Noto Emoji-Regular"), loadFace(symbolLike(fam, ""))}
+		for _, r := range "äöå–—…•·→←↑↓↔⇒⇐⇔↗↘✓✔✗✘★☆≤≥≠≈±×÷∞√∑π°€£§©®™½²³₂µΩαβΔλ−∈∅⟶➜▶►◆●○■□▲▼♥⚠✅❌" {
+			if _, gi := glyphOf(&buf, f, chain, r); gi == 0 {
+				t.Errorf("%s: no face draws %c (U+%04X)", fam, r, r)
+			}
+		}
+	}
 }

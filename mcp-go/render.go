@@ -471,9 +471,12 @@ func (p *painter) text(c *dlCmd) {
 		return
 	}
 	// a character the face lacks comes from Noto Sans (Open Sans has no
-	// arrows: "→"), then Noto Emoji, the order the layout measured it in
-	noto := face(notoLike(c.Font), c.Weight, c.Italic)
-	emoji := loadFace("Noto Emoji-Regular")
+	// arrows: "→"), then Noto Emoji, the order the layout measured it in,
+	// and last DejaVu Sans for the symbols none of those have (⇒ ✓ ★ ◆ ∈),
+	// which a browser takes from a system font. A character asked for as
+	// an emoji (U+FE0F after it) tries Noto Emoji first.
+	fallback := []*sfnt.Font{face(notoLike(c.Font), c.Weight, c.Italic), loadFace("Noto Emoji-Regular"), loadFace(symbolLike(c.Font, c.Weight))}
+	emojiFirst := []*sfnt.Font{fallback[1], fallback[0], fallback[2]}
 	ppem := fixed.Int26_6(math.Round(c.Size * 64))
 	m, err := f.Metrics(&p.buf, ppem, font.HintingNone)
 	asc, desc := c.Size*1.05, c.Size*0.212
@@ -487,19 +490,13 @@ func (p *painter) text(c *dlCmd) {
 	var curves []glyphPath
 	x := c.X
 	var prev sfnt.GlyphIndex
-	for _, r := range c.Text {
-		ff := f
-		gi, _ := f.GlyphIndex(&p.buf, r)
-		if gi == 0 && noto != nil && noto != f {
-			if g2, _ := noto.GlyphIndex(&p.buf, r); g2 != 0 {
-				ff, gi = noto, g2
-			}
+	runes := []rune(c.Text)
+	for i, r := range runes {
+		chain := fallback
+		if i+1 < len(runes) && runes[i+1] == 0xFE0F {
+			chain = emojiFirst
 		}
-		if gi == 0 && emoji != nil {
-			if g2, _ := emoji.GlyphIndex(&p.buf, r); g2 != 0 {
-				ff, gi = emoji, g2
-			}
-		}
+		ff, gi := glyphOf(&p.buf, f, chain, r)
 		if ff == f && prev != 0 && gi != 0 {
 			if kern, err := f.Kern(&p.buf, prev, gi, ppem, font.HintingNone); err == nil {
 				x += float64(kern) / 64
@@ -537,6 +534,33 @@ func notoLike(family string) string {
 		}
 	}
 	return "Noto Sans"
+}
+
+// glyphOf is the face that draws r and its glyph: f when f has it, else the
+// first of chain that does; glyph 0 (an empty box) when none has it
+func glyphOf(buf *sfnt.Buffer, f *sfnt.Font, chain []*sfnt.Font, r rune) (*sfnt.Font, sfnt.GlyphIndex) {
+	if gi, _ := f.GlyphIndex(buf, r); gi != 0 {
+		return f, gi
+	}
+	for _, alt := range chain {
+		if alt == nil || alt == f {
+			continue
+		}
+		if gi, _ := alt.GlyphIndex(buf, r); gi != 0 {
+			return alt, gi
+		}
+	}
+	return f, 0
+}
+
+// symbolLike is the DejaVu Sans face for a family and weight: bold when
+// the run is bold, no italic (the symbols are upright in a browser too)
+func symbolLike(family, weight string) string {
+	w := strings.ToLower(weight)
+	if strings.Contains(family, "-Bold") || strings.Contains(w, "bold") || w == "600" || w == "700" || w == "800" || w == "900" {
+		return "DejaVu Sans-Bold"
+	}
+	return "DejaVu Sans"
 }
 
 type glyphPath struct {

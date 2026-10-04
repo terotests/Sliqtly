@@ -87,6 +87,7 @@
 
 /* --- help and files panels ---------------------------------------------------- */
 .theme-retro .pn-help,
+.theme-retro .pn-chat-dock,
 .theme-retro .pf-panel {
   background: linear-gradient(180deg, var(--retro-screen-2), var(--retro-screen));
   border-left: 3px solid var(--retro-shell-b);

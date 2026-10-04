@@ -180,3 +180,22 @@
   border-left: 1px solid #e4e4e7;
   font-family: Open Sans;
 }
+/* in the panels' own look (zinc, black for what acts), not the kit's blue */
+.theme-pn .chat-panel { border: 0; border-radius: 0; background-color: #ffffff; }
+.theme-pn .chat-head,
+.theme-pn .chat-composer { border-color: #e4e4e7; }
+.theme-pn .chat-title { color: #09090b; font-size: 14px; }
+.theme-pn .chat-close { color: #71717a; }
+.theme-pn .chat-close:hover { background-color: #f4f4f5; }
+.theme-pn .chat-empty,
+.theme-pn .chat-time { color: #a1a1aa; }
+.theme-pn .chat-msg { background-color: #f4f4f5; }
+.theme-pn .chat-msg-mine { background-color: #e4e4e7; }
+.theme-pn .chat-text,
+.theme-pn .chat-draft { color: #09090b; }
+.theme-pn .chat-field { border-color: #e4e4e7; background-color: #ffffff; }
+.theme-pn .chat-caret { background-color: #09090b; }
+.theme-pn .chat-placeholder { color: #a1a1aa; font-family: Open Sans-Italic; }
+.theme-pn .chat-send,
+.theme-pn .chat-jump { background-color: #18181b; color: #fafafa; }
+.theme-pn .chat-send-off { background-color: #a1a1aa; }

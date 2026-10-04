@@ -2252,8 +2252,15 @@ function collabFollow() {
   if (app.chatIsOpen()) app.chatOpen(false);
   refreshCollabBar();
   if (!want) return;
-  const s = new CollabSession({ RdOtDelta, RdOtClient }, tr, collabEditor, collabMe, {
+  // a copy: the room may give this page another name or colour than the
+  // one kept in this browser (someone here has it), for this deck only
+  const s = new CollabSession({ RdOtDelta, RdOtClient }, tr, collabEditor, { ...collabMe }, {
     peers: (list) => collabPeers(list),
+    me: (name, color) => {
+      app.chatRename(collabMe.who, name, color);
+      refreshCollabBar();
+      needsPaint = true;
+    },
     chat: (m) => {
       if (app.chatAdd(m.id, m.who, m.name, m.color, m.text, chatTime(m.at, Date.now(), lang), m.who === collabMe.who)) refreshCollabBar();
       needsPaint = true;
@@ -2277,12 +2284,16 @@ function collabPeers(list) {
   collabPeople = next;
   refreshCollabBar();
 }
+// the name this page goes by in the room now
+function shownName() {
+  return collabOn() ? collab.me.name : collabMe.name;
+}
 function renameMe(name) {
   const n = cleanName(name);
-  if (!n || n === collabMe.name) return;
+  if (!n || n === shownName()) return;
   collabMe.name = n;
   saveMe(collabStore, collabMe);
-  app.chatRename(collabMe.who, n, collabMe.color);
+  app.chatRename(collabMe.who, n, collabOn() ? collab.me.color : collabMe.color);
   collab?.rename(n).catch(() => {});
   refreshCollabBar();
 }
@@ -2300,14 +2311,14 @@ function collabButton(id, onClick) {
 }
 function refreshCollabBar() {
   const on = collabOn();
-  const me = collabButton("collabName", () => { if (app.openAskName(collabMe.name)) needsPaint = true; });
+  const me = collabButton("collabName", () => { if (app.openAskName(shownName())) needsPaint = true; });
   const chat = collabButton("collabChat", () => {
     app.chatOpen(!app.chatIsOpen());
     refreshCollabBar();
     needsPaint = true;
   });
   const others = [...collabPeople.values()];
-  const meText = collabMe.name + (others.length ? " +" + others.length : "");
+  const meText = shownName() + (others.length ? " +" + others.length : "");
   const meTitle = t("Your name for the others: press to change it") + (others.length ? "\n" + t("Here now: ") + others.map((p) => p.name).join(", ") : "");
   const chatText = t("Chat") + (app.chatIsOpen() ? "" : (app.chatBadge() ? " " + app.chatBadge() : ""));
   if (me.hidden === on) me.hidden = !on;
