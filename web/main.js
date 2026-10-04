@@ -3854,18 +3854,32 @@ window.addEventListener("hashchange", () => {
 });
 
 // The address follows what is on screen, so a reload comes back to it:
-// #doc={id}&slide={n}&tab=css|files&view=present|play. `doc` only for a deck
-// kept in this browser (a PRO deck has /s/{id}?edit), the rest left out at
-// their defaults. Replaced, not pushed: Back does not walk through slides.
-// Kept beside a link's own keys (#md=…, #share=…), never in the assistant's
-// preview, which has no address of its own.
+// #slide={n}&tab=css|files&view=present|play, each left out at its default.
+// Replaced, not pushed: Back does not walk through slides. Kept beside a
+// link's own keys (#md=…, #share=…), never in the assistant's preview, which
+// has no address of its own.
+// The deck this tab has is not in the address (the site's own address stays
+// as it was typed): the tab keeps it in sessionStorage, which a reload keeps
+// and other tabs do not share. A #doc={id} in an older link still opens that
+// deck, and is then left out of the address.
 const ADDRESS_KEYS = ["doc", "slide", "tab", "view"];
+const TAB_DOC = "sliqtly.tabDoc";
+let tabDocKept = null;
+function keepTabDoc() {
+  const id = doc.persisted && !doc.cloud && !viewer ? doc.id : "";
+  if (id === tabDocKept) return;
+  tabDocKept = id;
+  try {
+    if (id) sessionStorage.setItem(TAB_DOC, id);
+    else sessionStorage.removeItem(TAB_DOC);
+  } catch (_) { /* a reload opens the deck worked on last */ }
+}
 function followAddress() {
   if (framed || !window.__pageStarted || !lastLayout) return;
+  keepTabDoc();
   const q = hashParams();
   const was = q.toString();
   for (const k of ADDRESS_KEYS) q.delete(k);
-  if (doc.persisted && !doc.cloud && !viewer && !/^\/s\//.test(location.pathname)) q.set("doc", doc.id);
   if (lastLayout.slide > 0 && lastLayout.slide < lastLayout.slides) q.set("slide", String(lastLayout.slide + 1));
   if (!viewer) {
     const tab = app.editorTab();
@@ -4903,8 +4917,12 @@ async function start() {
     // from the cloud when it lives there
     let last = null;
     try { last = localStorage.getItem("evgp.doc"); } catch (_) { /* none */ }
-    // #doc={id}: the deck this tab had, when this browser keeps it
-    const asked = at.get("doc");
+    // the deck this tab had (keepTabDoc), or an older link's #doc={id},
+    // when this browser keeps it
+    let asked = at.get("doc");
+    if (!asked && !framed) {
+      try { asked = sessionStorage.getItem(TAB_DOC); } catch (_) { /* none */ }
+    }
     if (asked && /^[A-Za-z0-9_-]{1,64}$/.test(asked) && vfs && (await vfs.getDoc(asked))) last = asked;
     const lastCloud = !want && last && vfs ? (await vfs.getDoc(last))?.cloud : null;
     if (lastCloud && (await openOwnCloud(lastCloud).catch(() => false))) { /* opened */ }
@@ -4937,7 +4955,7 @@ async function start() {
     window.__introAt = undefined;
     hideIntro();
   }
-  // opening the deck tidied the address; it names the deck again from here
+  // opening the deck tidied the address; it follows the screen from here
   followAddress();
   // ?export=pdf|pptx|md (or in the #…): an export asked for from the
   // assistant's preview, which cannot download
