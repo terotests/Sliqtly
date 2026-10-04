@@ -8,6 +8,10 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"math"
+	"regexp"
+	"strconv"
+	"strings"
 
 	_ "golang.org/x/image/webp"
 )
@@ -19,13 +23,78 @@ const gridSize = 48
 // ImageGrid is the picture in the handle as the contrast check reads it:
 // width, height, then gridSize×gridSize RGBA values (each cell the mean of
 // the pixels it covers, colours not premultiplied). Empty when the bytes do
-// not decode (an SVG, a broken file).
+// not decode (a broken file). An SVG is not painted here: it is its size
+// alone (width, height and no grid), so the layout gives it the room the
+// player does (web/picture.js svgSize).
 func (h *McpHost) ImageGrid(handle int64) []int64 {
-	img, _, err := image.Decode(bytes.NewReader(h.images[handle]))
+	data := h.images[handle]
+	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
+		if w, ht, ok := svgSize(data); ok {
+			return []int64{w, ht}
+		}
 		return []int64{}
 	}
 	return lumaGrid(img)
+}
+
+var (
+	svgRoot    = regexp.MustCompile(`(?is)<svg\b((?:[^>"']|"[^"]*"|'[^']*')*)>`)
+	svgComment = regexp.MustCompile(`(?s)<!--.*?-->`)
+	svgAttr    = regexp.MustCompile(`([^\s=/]+)\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+	svgLen     = regexp.MustCompile(`(?i)^\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*([a-z]*)\s*$`)
+	svgUnits   = map[string]float64{"": 1, "px": 1, "pt": 96.0 / 72, "pc": 16, "in": 96, "cm": 96 / 2.54, "mm": 96 / 25.4, "q": 96 / 101.6, "em": 16, "rem": 16, "ex": 8, "ch": 8}
+)
+
+// svgSize is an SVG's own size in CSS pixels, as web/picture.js svgSize
+// works it out: width and height, one of them with the viewBox's shape, the
+// viewBox alone, or 300 × 150. ok false: not an SVG.
+func svgSize(data []byte) (int64, int64, bool) {
+	text := svgComment.ReplaceAllStringFunc(string(data), func(c string) string { return strings.Repeat(" ", len(c)) })
+	m := svgRoot.FindStringSubmatch(text)
+	if m == nil {
+		return 0, 0, false
+	}
+	attrs := map[string]string{}
+	for _, a := range svgAttr.FindAllStringSubmatch(m[1], -1) {
+		attrs[a[1]] = a[2] + a[3]
+	}
+	length := func(v string) float64 {
+		lm := svgLen.FindStringSubmatch(v)
+		if lm == nil {
+			return 0
+		}
+		k, known := svgUnits[strings.ToLower(lm[2])]
+		n, err := strconv.ParseFloat(lm[1], 64)
+		if !known || err != nil || n <= 0 || math.IsInf(n, 0) {
+			return 0
+		}
+		return n * k
+	}
+	w, h := length(attrs["width"]), length(attrs["height"])
+	var vb []float64
+	for _, f := range strings.FieldsFunc(attrs["viewBox"], func(r rune) bool { return r == ' ' || r == ',' || r == '\t' || r == '\n' }) {
+		if n, err := strconv.ParseFloat(f, 64); err == nil {
+			vb = append(vb, n)
+		}
+	}
+	if len(vb) == 4 && vb[2] > 0 && vb[3] > 0 {
+		switch {
+		case w > 0 && h == 0:
+			h = w * vb[3] / vb[2]
+		case h > 0 && w == 0:
+			w = h * vb[2] / vb[3]
+		case w == 0 && h == 0:
+			w, h = vb[2], vb[3]
+		}
+	}
+	if w <= 0 {
+		w = 300
+	}
+	if h <= 0 {
+		h = 150
+	}
+	return int64(math.Round(w)), int64(math.Round(h)), true
 }
 
 func lumaGrid(img image.Image) []int64 {
