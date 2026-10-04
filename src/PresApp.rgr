@@ -3859,6 +3859,7 @@ class PresApp {
                 if ((mine == false) && ((pick.hoverOn == false) || (pick.hoverSrc != u.srcStart))) {
                     pick.hoverOn = true
                     pick.hoverSrc = u.srcStart
+                    pick.hoverPage = selected
                     pick.hx = u.bx
                     pick.hy = u.by
                     pick.hw = u.bw
@@ -3915,7 +3916,8 @@ class PresApp {
         }
     }
 
-    ; "Edit content": a picture's or a chart's own editor; otherwise its
+    ; "Edit content": a picture's, a chart's, a diagram's or a table's own
+    ; editor; otherwise its
     ; Markdown, selected in the editor. For the page, the document settings
     ; (the page lists the pictures for the logo first).
     fn pickContent:void () {
@@ -3933,6 +3935,15 @@ class PresApp {
             if (this.openChartEditor(pick.line)) {
                 return
             }
+        }
+        if (pick.sel == "diagram") {
+            if (this.openDiagramEditor(pick.line)) {
+                return
+            }
+        }
+        ; a Markdown table, or a data file's (```table / ```sheet)
+        if (this.openTableEditor(pick.line)) {
+            return
         }
         this.showTab("md")
         def text:string (mdEditor.text())
@@ -4068,7 +4079,7 @@ class PresApp {
             return ""
         }
         this.pickValid()
-        if (pick.hoverOn && (pick.page != selected)) {
+        if (pick.hoverOn && (pick.hoverPage != selected)) {
             pick.hoverOn = false
         }
         if ((pick.on == false) && (pick.hoverOn == false)) {
@@ -5845,6 +5856,150 @@ class PresApp {
         this.rebuildDeck()
     }
 
+    ; A block's lines (`from`…`to`) replaced with `text`: the block's last
+    ; line now.
+    fn writeBlock:int (from:int to:int text:string) {
+        if ((from < 0) || (to < from)) {
+            return to
+        }
+        this.replaceLines(from to text)
+        return ((from + (array_length (strsplit text "\n"))) - 1)
+    }
+
+    ; Lines `from`…`to` selected in the Markdown editor, shown.
+    fn selectLines:void (from:int to:int) {
+        if ((from < 0) || (to < from)) {
+            return
+        }
+        this.showTab("md")
+        mdEditor.moveCaret(from 0 false)
+        mdEditor.moveCaret(to (strlen (mdEditor.buf.lineAt(to))) true)
+        mdEditor.layout.ensureCaretVisible(mdEditor.buf mdEditor.sel)
+        focus = "editor"
+        this.syncEditor()
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; Where the window opens: where it was left, or over the Markdown.
+    fn placeChartWindow:void () {
+        this.place()
+        if (chartWinX < 0.0) {
+            chartWinX = (edRect.x + 12.0)
+            chartWinY = (edRect.y + 8.0)
+        }
+        if (chartWinX > (W - 120.0)) {
+            chartWinX = (W - 120.0)
+        }
+        if (chartWinY > (H - 60.0)) {
+            chartWinY = (H - 60.0)
+        }
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+    }
+
+    ; The diagram fence opening on `line`: its window. False when the line
+    ; does not open one.
+    fn openDiagramEditor:boolean (line:int) {
+        if (mode == "present") {
+            return false
+        }
+        def n:int (mdEditor.buf.lineCount())
+        if ((line < 0) || (line >= n)) {
+            return false
+        }
+        def head:string (trim (mdEditor.buf.lineAt(line)))
+        if (((indexOf head "```") != 0) && ((indexOf head "~~~") != 0)) {
+            return false
+        }
+        def fence:string (substring head 0 3)
+        def close:int -1
+        def k:int (line + 1)
+        while ((k < n) && (close < 0)) {
+            if ((trim (mdEditor.buf.lineAt(k))) == fence) {
+                close = k
+            }
+            k = (k + 1)
+        }
+        if (close < 0) {
+            return false
+        }
+        def last:int close
+        if (((close + 1) < n) && ((indexOf head "{") < 0)) {
+            if (PresFlowModel.isAttrLine((mdEditor.buf.lineAt((close + 1))))) {
+                last = (close + 1)
+            }
+        }
+        def m:PresFlowModel (PresFlowModel.read((this.blockText(line last))))
+        if (m.ok == false) {
+            return false
+        }
+        m.first = line
+        m.last = last
+        this.placeChartWindow()
+        chart.openDiagram(m chartWinX chartWinY W H)
+        this.selectSlide((deck.pageOfOffset((this.offsetOf(line 0)))))
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The table on `line` (a Markdown table's first line, or a ```table /
+    ; ```sheet fence's): its window. False when there is none there.
+    fn openTableEditor:boolean (line:int) {
+        if (mode == "present") {
+            return false
+        }
+        def n:int (mdEditor.buf.lineCount())
+        if ((line < 0) || (line >= n)) {
+            return false
+        }
+        def head:string (trim (mdEditor.buf.lineAt(line)))
+        def last:int -1
+        if (((indexOf head "```table") == 0) || ((indexOf head "```sheet") == 0)) {
+            def k:int (line + 1)
+            while ((k < n) && (last < 0)) {
+                if ((trim (mdEditor.buf.lineAt(k))) == "```") {
+                    last = k
+                }
+                k = (k + 1)
+            }
+        } {
+            if ((indexOf head "|") != 0) {
+                return false
+            }
+            last = line
+            while (((last + 1) < n) && ((indexOf (trim (mdEditor.buf.lineAt((last + 1)))) "|") == 0)) {
+                last = (last + 1)
+            }
+        }
+        if (last < 0) {
+            return false
+        }
+        def m:PresGridModel (PresGridModel.read((this.blockText(line last))))
+        if (m.ok == false) {
+            return false
+        }
+        m.first = line
+        m.last = last
+        this.placeChartWindow()
+        chart.openGrid(m chartWinX chartWinY W H)
+        this.selectSlide((deck.pageOfOffset((this.offsetOf(line 0)))))
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    fn blockText:string (from:int to:int) {
+        def out:string ""
+        def i:int from
+        while (i <= to) {
+            out = (out + (mdEditor.buf.lineAt(i)) + "\n")
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; The picture's lines rewritten from the window's model.
     fn writeImage:void () {
         def m:PresImageModel chart.img
@@ -6051,6 +6206,15 @@ class PresApp {
             if (chart.mode == "image") {
                 this.imageAfterClose()
             }
+            if (chart.wantsText) {
+                chart.wantsText = false
+                if (chart.mode == "diagram") {
+                    this.selectLines(chart.flow.first chart.flow.last)
+                }
+                if (chart.mode == "grid") {
+                    this.selectLines(chart.grid.first chart.grid.last)
+                }
+            }
             if ((chart.mode == "newdeck") && chart.wantsCreate) {
                 chart.wantsCreate = false
                 push requests "newdeck-create"
@@ -6121,6 +6285,14 @@ class PresApp {
         }
         if (chart.mode == "image") {
             this.writeImage()
+            return
+        }
+        if (chart.mode == "diagram") {
+            chart.flow.last = (this.writeBlock(chart.flow.first chart.flow.last (chart.flow.markdown())))
+            return
+        }
+        if (chart.mode == "grid") {
+            chart.grid.last = (this.writeBlock(chart.grid.first chart.grid.last (chart.grid.markdown())))
             return
         }
         def spec:string (chart.model.toSpec())

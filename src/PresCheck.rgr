@@ -5,6 +5,8 @@ Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
 Import "PresDocSettings.rgr"
 Import "PresHints.rgr"
+Import "PresFlowModel.rgr"
+Import "PresGridModel.rgr"
 
 class PresCheck {
     def fails:int 0
@@ -1220,6 +1222,89 @@ class PresCheck {
         return n
     }
 
+    ; The diagram window's model: what it reads, and that only what changed
+    ; is written again.
+    fn flowModel:void () {
+        def src:string "```mermaid\nflowchart LR\n  %% a comment\n  A[Alku] --> B(Selain)\n  B -->|ääni| C{\"Gemini [live]\"}\n  classDef hot fill:#f00\n  C -- vastaus --> A\n```\n{style=holo tour=on}"
+        def m:PresFlowModel (PresFlowModel.read(src))
+        this.ok((m.ok && m.editable) "a flowchart reads as one that can be edited")
+        this.ok(((m.markdown()) == src) ("read and written untouched it is the same text: " + (m.markdown())))
+        this.ok((m.dir == "LR") "its direction")
+        this.ok(((array_length (m.liveNodes())) == 3) ("three boxes, got " + (to_string (array_length (m.liveNodes())))))
+        this.ok(((array_length (m.liveEdges())) == 3) "three links")
+        this.ok((((m.labelOf("C")) == "Gemini [live]") && ((m.labelOf("B")) == "Selain")) ("words, quoted or not: " + (m.labelOf("C"))))
+        def e1:PresFlowEdge (itemAt m.edges 1)
+        def e2:PresFlowEdge (itemAt m.edges 2)
+        this.ok(((e1.label == "ääni") && ((e2.label == "vastaus") && (e2.op == "-->"))) ("link words both ways: " + e1.label + " / " + e2.label))
+        this.ok((((m.look()) == "holo") && (m.flag("tour"))) "its look and the tour")
+        ; edits touch their own lines only
+        m.setLabel("A" "Kokous")
+        m.setDir("TD")
+        m.setLook("sketch")
+        m.setFlag("ball" false)
+        def out:string (m.markdown())
+        this.ok(((indexOf out "flowchart TD") > 0) "the direction written")
+        this.ok(((indexOf out "  A[Kokous] --> B(Selain)\n") > 0) ("a box's words where it is defined: " + out))
+        this.ok((((indexOf out "  %% a comment\n") > 0) && ((indexOf out "  classDef hot fill:#f00\n") > 0)) "the lines it does not read stay")
+        this.ok(((indexOf out "  C -- vastaus --> A\n") > 0) "a line not changed keeps its way of writing")
+        this.ok(((indexOf out "{style=sketch tour=on ball=off}") > 0) ("the options: " + out))
+        ; a link restyled, one taken out, one added; a box added and one taken out
+        m.setEdgeLine(2 "dotted")
+        m.removeEdge(1)
+        def nid:string (m.findOrAdd("Uusi"))
+        m.addEdge("B" nid "kyllä")
+        m.removeNode("C")
+        def out2:string (m.markdown())
+        this.ok(((indexOf out2 "C{") < 0) ("the box and its links go: " + out2))
+        this.ok(((indexOf out2 "  B -->|kyllä| N1[Uusi]\n") > 0) ("a new box linked: " + out2))
+        def back:PresFlowModel (PresFlowModel.read(out2))
+        this.ok((((array_length (back.liveNodes())) == 3) && ((back.labelOf("N1")) == "Uusi")) ("read back: " + out2))
+        ; a box left with no links stays, alone
+        def m2:PresFlowModel (PresFlowModel.read("```mermaid\ngraph TD\n  A[Yksi] --> B[Kaksi]\n```"))
+        m2.removeEdge(0)
+        def o3:string (m2.markdown())
+        this.ok(((indexOf o3 "  A[Yksi]\n  B[Kaksi]\n") > 0) ("unlinked boxes stay: " + o3))
+        m2.setShape("A" "((" "))")
+        this.ok(((indexOf (m2.markdown()) "A((Yksi))") > 0) "a shape")
+        ; another notation: options only
+        def d2:PresFlowModel (PresFlowModel.read("```d2\na -> b\n```"))
+        this.ok((d2.ok && (d2.editable == false)) "D2 is edited for its look only")
+        d2.setLook("classic")
+        this.ok(((d2.markdown()) == "```d2\na -> b\n```\n{diagram=classic}") ("its options under it: " + (d2.markdown())))
+        def seq:PresFlowModel (PresFlowModel.read("```mermaid\nsequenceDiagram\n  A->>B: hei\n```"))
+        this.ok((seq.ok && (seq.editable == false)) "a sequence diagram too")
+    }
+
+    ; The table window's model: cells, alignments, rows and columns.
+    fn gridModel:void () {
+        def src:string "| Alue | Myynti |\n| :--- | ---: |\n| Etelä | 120 |\n| Pohjoinen \\| itä | `a|b` |"
+        def m:PresGridModel (PresGridModel.read(src))
+        this.ok((m.ok && (((m.cols()) == 2) && ((m.rowCount()) == 2))) "a table: two columns, two rows")
+        this.ok((((itemAt m.aligns 0) == "left") && ((itemAt m.aligns 1) == "right")) "its alignments")
+        this.ok((((m.cell(1 0)) == "Pohjoinen | itä") && ((m.cell(1 1)) == "`a|b`")) ("an escaped bar and one in code: " + (m.cell(1 0)) + " / " + (m.cell(1 1))))
+        this.ok(((m.cell(-1 1)) == "Myynti") "the header")
+        m.setCell(0 1 "130")
+        m.setAlign(1 "center")
+        m.addRow()
+        m.setCell(2 0 "Länsi")
+        m.addCol("Kasvu")
+        m.moveRow(2 -1)
+        def out:string (m.markdown())
+        this.ok((out == "| Alue | Myynti | Kasvu |\n| :--- | :---: | --- |\n| Etelä | 130 |  |\n| Länsi |  |  |\n| Pohjoinen \\| itä | `a\\|b` |  |") ("written whole: " + out))
+        this.ok((((m.moveCol(0 1)) && ((m.cell(-1 0)) == "Myynti")) && ((itemAt m.aligns 1) == "left")) "a column moved, its alignment with it")
+        m.removeCol(1)
+        m.removeRow(0)
+        def back:PresGridModel (PresGridModel.read((m.markdown())))
+        this.ok((back.ok && (((back.cols()) == 2) && ((back.rowCount()) == 2))) ("read back: " + (m.markdown())))
+        this.ok(((PresGridModel.read("| a |\n| b |")).ok == false) "no delimiter row: not a table")
+        ; a data file's table
+        def f:PresGridModel (PresGridModel.read("```table\ndata/sales.csv\nrows: 8\nfoo: bar\n```"))
+        this.ok((f.ok && ((f.kind == "file") && ((f.file == "data/sales.csv") && ((f.option("rows")) == "8")))) "a data file's table and its options")
+        f.setOption("rows" "5")
+        f.setOption("columns" "Region, Revenue")
+        this.ok(((f.markdown()) == "```table\ndata/sales.csv\nrows: 5\nfoo: bar\ncolumns: Region, Revenue\n```") ("its options written in place: " + (f.markdown())))
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -1235,6 +1320,8 @@ class PresCheck {
         c.ranges()
         c.limits()
         c.staggered()
+        c.flowModel()
+        c.gridModel()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"
