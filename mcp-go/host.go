@@ -30,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/terotests/sliqtly/mcp-go/presdata"
@@ -95,6 +96,9 @@ type Env struct {
 	LocalUser string
 	FilesURL  string // e.g. https://host/files; "": Storage download URLs
 	Themes    func(name string) (string, bool)
+	// the form a presentation's name must have (names.go): only on a server
+	// of one's own, set from its settings page; nil: any name
+	names atomic.Pointer[nameRule]
 
 	themesMu sync.Mutex
 	themes   map[string]string
@@ -545,6 +549,16 @@ func (h *McpHost) Precision(n string, digits int64) string {
 }
 
 func (h *McpHost) LocalUser() string { return h.env.LocalUser }
+
+// NameRule says what a name must look like, for the tools' descriptions;
+// "" when any name will do
+func (h *McpHost) NameRule() string { return h.env.names.Load().describe() }
+
+// CheckName is "" for a name of the required form, else why it is not
+func (h *McpHost) CheckName(name string) string { return h.env.names.Load().check(name) }
+
+// NameKey is the key part of a name (ABC-1234), "" when it has none
+func (h *McpHost) NameKey(name string) string { return h.env.names.Load().key(name) }
 
 // where the page reads a kept file: the server's own /files/ or Storage's
 // download URL, which carries the token the upload was given

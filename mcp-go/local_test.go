@@ -163,7 +163,7 @@ func TestLocalServer(t *testing.T) {
 	match(t, textOf(c), `Saved in the Sliqtly account of local`)
 
 	// kept in the folder, pictures served by the server itself
-	if _, err := os.Stat(filepath.Join(dir, "db", "shares", id+".json")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "db", "shares", shard(id), id+".json")); err != nil {
 		t.Fatal(err)
 	}
 	share, _ := (&fsDB{root: filepath.Join(dir, "db")}).Get(context.Background(), "shares", id)
@@ -339,7 +339,7 @@ func TestLocalWebAndAPI(t *testing.T) {
 	eq(t, code, 204)
 	code, _ = req(t, "GET", srv.URL+"/api/shares/"+id, "", "")
 	eq(t, code, 404)
-	if _, err := os.Stat(filepath.Join(dir, "files", "shares", id)); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, "files", "shares", shard(id), id)); err == nil {
 		t.Fatal("the share's files are still there")
 	}
 }

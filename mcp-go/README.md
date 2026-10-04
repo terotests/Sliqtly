@@ -179,11 +179,61 @@ What it serves besides `/mcp` (`local.go`, `localweb.go`):
 | `/files/shares/{id}/…` | the deck's pictures and data files |
 | `/themes/{name}.css` | the themes (the built page's, else the ones copied from `../themes`) |
 | `/api/…` | what the page keeps decks with (`assets/sliqtly-local.js`, which the server sends as `/sliqtly.js` in place of the Firebase one) |
-| `/healthz` | |
+| `/settings` | the server's settings: the naming rule below (`localsettings.go`) |
+| `/api/status` | `{"state","version"}`: `migrating`, `failed`, `ready` or `stopping` (`localstatus.go`) |
+| `/healthz` | `ok`, or 503 while the folder is not ready |
 
-The folder (`fsstore.go`): `db/<collection>/<id>.json` per document,
-written to a temporary file and renamed; `files/<path>` per kept file with
-its content type in `<path>.type`. Back it up by copying it.
+The folder (`fsstore.go`):
+
+| | |
+| --- | --- |
+| `format.json` | the layout's version and what was done to it |
+| `db/<collection>/<sh>/<id>.json` | a document, written to a temporary file and renamed |
+| `files/shares/<sh>/{id}/…` | a deck's kept files, each with its content type in `<file>.type` |
+| `backups/` | the folder as it was before each migration (the three newest) |
+| `.lock` | held by the server using the folder |
+
+`<sh>` is one of 256 folders (two hex digits of a hash of the id), so no
+folder holds more than about 1/256 of the decks. Back the folder up by
+copying it; `cp -al` (hard links) costs no room, since nothing is written
+into a file in place.
+
+**Updates** (`datafmt.go`). A server started on a folder locks it, so a
+second server on the same folder stops with an error. A folder written by a
+newer server is refused rather than read wrong. An older one is migrated
+before anything reads it:
+
+1. A backup in `backups/<time>-format-<n>/`: every file hard-linked, so it
+   takes no room and keeps the old contents.
+2. Each migration in turn. A migration only renames, one entry at a time,
+   and skips what is already in place, so a run cut short continues on the
+   next start. Anything it would overwrite goes to `backups/conflicts/`.
+3. The number of files is checked against the number before. If it differs,
+   the server stops there, with the folder and the backup as they are.
+
+Meanwhile the port answers: pages and assistants get 503 with
+`"code":"maintenance"`, and an open page shows that the server is being
+updated. On `SIGTERM` (`systemctl restart`, a package upgrade) the server
+tells open pages it is restarting and lets saves under way finish. A page
+that loses the server says it is offline. A page that sees a new version
+offers to reload. Edits made meanwhile stay in the browser (the editor keeps
+every deck there first) and go to the server when it is back.
+
+**A naming rule** (`names.go`). On `/settings` the server can require a
+form for presentations' names, for example a ticket key first:
+`^([A-Z][A-Z0-9]+-[0-9]+) +\S`, "ABC-1234 Quarterly review". The rule is
+off until it is turned on there, and is kept in the folder. The cloud server
+has none. When it is on:
+
+- `create_presentation` and `update_presentation` state the rule in their
+  descriptions, and so does `sliqtly_guide`.
+- A title that does not follow the rule is refused, with the rule and an
+  example.
+- `list_presentations` gives each deck's `key` (the pattern's first group)
+  apart from its name.
+
+The editor does not enforce the rule. The settings page lists the names that
+do not follow it.
 
 The page is sliqtly.com's own; only `/sliqtly.js` differs. The editor is
 signed in as the folder's user, so a deck opened with `?edit` is saved back

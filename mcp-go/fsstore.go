@@ -2,13 +2,20 @@
 
 // The DB and Bucket on a folder, for a server of one's own (SLIQTLY_DATA):
 //
-//	<root>/db/<collection>/<id>.json   a document
-//	<root>/files/<path>                a kept file (shares/{id}/media/…)
+//	<root>/format.json                       the layout's version (datafmt.go)
+//	<root>/db/<collection>/<sh>/<id>.json    a document
+//	<root>/files/<top>/<sh>/<name>/<rest>    a kept file: shares/{id}/media/x
+//	                                         is files/shares/<sh>/{id}/media/x
 //
-// One process owns the folder. A document is written to a temporary file
-// and renamed over the old one, so a crash leaves the old document or the
-// new one, never half of one. A query reads the collection's folder, which
-// is fine for the thousands of decks a team keeps.
+// <sh> is shard(id), one of 256 folders, so no folder holds more than about
+// 1/256 of the decks: a folder of 100 000 entries is slow to list and to
+// back up. The addresses (/files/shares/{id}/…) do not change with it.
+//
+// One process owns the folder (datafmt.go locks it). A document is written
+// to a temporary file and renamed over the old one, so a crash leaves the
+// old document or the new one, never half of one; and a hard-linked backup
+// (datafmt.go) keeps what it had. A query reads the collection's folders,
+// which is fine for the thousands of decks a team keeps.
 
 package main
 
@@ -18,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
 	"path/filepath"
@@ -47,17 +55,56 @@ type fsBucket struct {
 	mu   sync.Mutex
 }
 
+// the store on a folder in the current layout; prepareData (datafmt.go)
+// brings an older one up to it first, and a folder in another layout is
+// refused rather than read wrong
 func newFSStore(root string) (*fsDB, *fsBucket, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, nil, err
+	}
+	have, err := dataFormat(abs)
+	if err != nil {
+		return nil, nil, err
+	}
+	if have != currentFormat {
+		return nil, nil, fmt.Errorf("%s is in data format %d, this server reads %d: start it with -data to migrate", abs, have, currentFormat)
 	}
 	for _, d := range []string{"db", "files"} {
 		if err := os.MkdirAll(filepath.Join(abs, d), 0o750); err != nil {
 			return nil, nil, err
 		}
 	}
+	// a new folder says which format it is in before anything is written
+	if !hasFormatFile(abs) {
+		f := &formatFile{Format: currentFormat, Server: version, History: []formatStep{{Format: currentFormat, At: now(), Server: version, Note: "new folder"}}}
+		if err := writeFormat(abs, f); err != nil {
+			return nil, nil, err
+		}
+	}
 	return &fsDB{root: filepath.Join(abs, "db")}, &fsBucket{root: filepath.Join(abs, "files")}, nil
+}
+
+// shard is the folder an id's entry is kept in: two hex digits of its
+// FNV-1a hash. It is part of the data format: change it only with a
+// migration (datafmt.go).
+func shard(id string) string {
+	h := fnv.New32a()
+	h.Write([]byte(id))
+	return fmt.Sprintf("%02x", h.Sum32()&0xff)
+}
+
+// a shard folder's name: two lowercase hex digits
+func isShard(name string) bool {
+	if len(name) != 2 {
+		return false
+	}
+	for _, c := range name {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // a collection or id is one plain path segment
@@ -75,7 +122,7 @@ func (d *fsDB) file(col, id string) (string, error) {
 	if err := segment(id); err != nil {
 		return "", err
 	}
-	return filepath.Join(d.root, col, id+".json"), nil
+	return filepath.Join(d.root, col, shard(id), id+".json"), nil
 }
 
 // time.Time is kept as {"$ts": ms} so it reads back as a time
@@ -274,28 +321,49 @@ func (d *fsDB) WhereEq(_ context.Context, col, field string, value any) ([]Doc, 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	docs, ids := []Doc{}, []string{}
-	entries, err := os.ReadDir(filepath.Join(d.root, col))
-	if errors.Is(err, os.ErrNotExist) {
-		return docs, ids, nil
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasPrefix(name, ".") {
-			continue
-		}
-		doc, err := readDoc(filepath.Join(d.root, col, name))
+	err := eachDoc(filepath.Join(d.root, col), func(id, path string) {
+		doc, err := readDoc(path)
 		if err != nil || doc == nil {
-			continue
+			return
 		}
 		if v, ok := doc[field]; ok && sameValue(v, value) {
 			docs = append(docs, doc)
-			ids = append(ids, strings.TrimSuffix(name, ".json"))
+			ids = append(ids, id)
 		}
+	})
+	if err != nil {
+		return nil, nil, err
 	}
 	return docs, ids, nil
+}
+
+// eachDoc calls fn with the id and file of every document of a collection's
+// folder, shard by shard
+func eachDoc(dir string, fn func(id, path string)) error {
+	shards, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, sh := range shards {
+		if !sh.IsDir() || !isShard(sh.Name()) {
+			continue
+		}
+		entries, err := os.ReadDir(filepath.Join(dir, sh.Name()))
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			name := e.Name()
+			if e.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasPrefix(name, ".") {
+				continue
+			}
+			fn(strings.TrimSuffix(name, ".json"), filepath.Join(dir, sh.Name(), name))
+		}
+	}
+	return nil
 }
 
 func (d *fsDB) ServerTime() any { return time.Now().UTC() }
@@ -355,7 +423,21 @@ func (b *fsBucket) file(path string) (string, error) {
 	if path == "" || filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("bad path %q", path)
 	}
-	return filepath.Join(b.root, clean), nil
+	return filepath.Join(b.root, shardedPath(clean)), nil
+}
+
+// shardedPath puts the shard of a path's second part in front of it:
+// shares/{id}/media/x → shares/<sh>/{id}/media/x. A one-part path stays.
+func shardedPath(clean string) string {
+	parts := strings.SplitN(clean, string(filepath.Separator), 3)
+	if len(parts) < 2 {
+		return clean
+	}
+	out := []string{parts[0], shard(parts[1]), parts[1]}
+	if len(parts) == 3 {
+		out = append(out, parts[2])
+	}
+	return filepath.Join(out...)
 }
 
 func (b *fsBucket) Name() string { return "local" }
