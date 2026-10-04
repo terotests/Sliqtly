@@ -54,6 +54,8 @@ class PresChartEditor {
     def dragX:double 0.0
     def dragY:double 0.0
     def inputs:[InputCtl]
+    ; the fields of the card before the last rebuild (inputWith keeps their caret)
+    def before:[InputCtl]
     def sliders:[SliderCtl]
     def focusTid:string ""
     ; the model changed since the fence was last written
@@ -497,6 +499,17 @@ class PresChartEditor {
         c.boxClass = cls
         c.setValue(value)
         c.moveTo((strlen value) false)
+        ; the same field before this rebuild: its caret and selection stay
+        def i:int 0
+        while (i < (array_length before)) {
+            def o:InputCtl (itemAt before i)
+            if ((o.tid == tid) && (o.value == value)) {
+                c.anchor = o.anchor
+                c.caret = o.caret
+                c.scrollX = o.scrollX
+            }
+            i = (i + 1)
+        }
         c.build()
         this.put(c parent)
         push inputs c
@@ -556,6 +569,7 @@ class PresChartEditor {
         host.addStyleSheet(css)
         host.setTheme((trim ("ce " + skin)))
         host.setPageSize(w h)
+        before = inputs
         def none:[InputCtl]
         inputs = none
         def noSliders:[SliderCtl]
@@ -2200,20 +2214,26 @@ class PresChartEditor {
     }
 
     fn type:void (s:string) {
+        ; one line: the field gets the text whole, so an emoji's two halves
+        ; arrive together
+        def line:string ""
         def i:int 0
         while (i < (strlen s)) {
             def ch:string (substring s i (i + 1))
             if ((ch != (strfromcode 10)) && (ch != (strfromcode 13))) {
-                if ((strlen cp.focused) > 0) {
-                    cp.type(picker ch)
-                } {
-                    if ((strlen focusTid) > 0) {
-                        host.type(ch)
-                        keep.restore()
-                    }
-                }
+                line = (line + ch)
             }
             i = (i + 1)
+        }
+        if ((strlen line) > 0) {
+            if ((strlen cp.focused) > 0) {
+                cp.type(picker line)
+            } {
+                if ((strlen focusTid) > 0) {
+                    host.type(line)
+                    keep.restore()
+                }
+            }
         }
         if ((strlen cp.focused) > 0) {
             this.takeColour((picker.hex()))

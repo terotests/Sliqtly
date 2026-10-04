@@ -256,6 +256,25 @@ try {
     check("…a drag selects from where it was pressed", r.drag[0] === 0 && r.drag[1] > 2 && r.drag[1] < 10, JSON.stringify(r));
   }
 
+  // "Your name" opens with the name selected, so typing replaces it; an
+  // emoji typed in one go lands whole. The bug: the window's rebuild made a
+  // new field with the caret at the end, and text went in one UTF-16 unit
+  // at a time.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app;
+      a.openAskName("Anonymous Narwhal");
+      a.chartJson();
+      a.text("Ada");
+      a.text("\u{1F44D}\u{1F3FD}");
+      const ic = a.chart.inputFor("nd-name");
+      const out = { value: ic.value, caret: ic.caret };
+      a.key("escape", false, false);
+      return out;
+    });
+    check("\"Your name\" opens with the name selected: typing replaces it", r.value === "Ada\u{1F44D}\u{1F3FD}", JSON.stringify(r));
+  }
+
   // Real keys, not calls: letters arrive through beforeinput, Backspace
   // through keydown, and a composition left open (a dead key, an IME
   // cancelled by a click) must not switch typing off.
