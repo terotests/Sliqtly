@@ -24,6 +24,7 @@ import { scaled, previewOf, render } from "./image-adjust.js";
 import { decodePicture, isSvg, isSmartArt, SMARTART_TYPE } from "./picture.js";
 import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versions.js";
 import { showHistory, askMerge } from "./versions-ui.js";
+import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime } from "./collab.js";
@@ -3392,6 +3393,7 @@ async function openHistory() {
     },
     changes: (id) => h.changes(id),
     diff: (id, path) => h.diffText(id, path),
+    checkout: (id) => h.checkout(id, renderPlans),
     restore: (id) => restoreVersion(id),
     save: async (message) => {
       await saveDoc(true);
@@ -4736,6 +4738,50 @@ function closedByUpdate() {
   document.body.appendChild(note);
 }
 
+// View version (web/version-view.js): this page in the editor's frame,
+// showing an older version of its deck. The viewer from the start, so no
+// store is opened and nothing is saved.
+const versionFrame = isViewFrame(location.search, window.parent !== window);
+if (versionFrame) {
+  viewer = true;
+  document.body.classList.add("viewer", "versionFrame");
+}
+// → the version the editor hands over, once this page says it is ready
+function versionFromEditor() {
+  return new Promise((done) => {
+    const take = (ev) => {
+      if (ev.source !== window.parent || ev.origin !== location.origin) return;
+      const v = readPacket(ev.data);
+      if (!v) return;
+      window.removeEventListener("message", take);
+      done(v);
+    };
+    window.addEventListener("message", take);
+    window.parent.postMessage(readyMessage(), location.origin);
+  });
+}
+async function openVersionView() {
+  const v = await versionFromEditor();
+  beginDoc(v.md);
+  themeSel.value = v.theme;
+  app.setStyleSheet(v.theme ? themeCss[v.theme] || "" : "");
+  if (v.css != null) {
+    editedCss[v.theme] = v.css;
+    app.setStyleSheet(v.css);
+  }
+  for (const f of v.files) {
+    const size = typeof f.data === "string" ? f.data.length : f.data.size;
+    const rec = { doc: doc.id, path: f.path, type: f.type, size, data: f.data, updated: Date.now() };
+    readFiles.set(rec.path, rec);
+    await useFile(rec).catch((e) => console.warn("version file not shown: " + f.path, e));
+  }
+  docName = v.name || "presentation";
+  shownDoc(v.md);
+  dropThumbs();
+  needsPaint = true;
+  enterViewer({ from: "version" });
+}
+
 async function start() {
   // everything start-up reads is asked for at once
   const toolbarCss = viewer ? null : textOf("./toolbar.css");
@@ -4826,7 +4872,8 @@ async function start() {
   // own deck: opened from the cloud, where it lives
   const editId = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(location.pathname)?.[1] || own?.from;
   const editing = !!own || (!!editId && q.has("edit"));
-  if (editing && editId && (await openOwnCloud(editId).catch((e) => { console.warn(e); return false; }))) { /* opened */ }
+  if (versionFrame) await openVersionView();
+  else if (editing && editId && (await openOwnCloud(editId).catch((e) => { console.warn(e); return false; }))) { /* opened */ }
   else if (own && vfs && (await ownIsNewer(own)) && (await openDoc(own.deck))) plainAddress();
   else if (!(await openFromShare()) && !(await openFromHash())) {
     const want = q.get("sample");
