@@ -194,8 +194,6 @@
 .theme-pn .chat-text,
 .theme-pn .chat-draft { color: #09090b; }
 .theme-pn .chat-field { border-color: #e4e4e7; background-color: #ffffff; }
-.theme-pn .chat-caret { background-color: #09090b; }
-.theme-pn .chat-placeholder { color: #a1a1aa; font-family: Open Sans-Italic; }
 .theme-pn .chat-send,
 .theme-pn .chat-jump { background-color: #18181b; color: #fafafa; }
 .theme-pn .chat-send-off { background-color: #a1a1aa; }
