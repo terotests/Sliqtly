@@ -336,3 +336,37 @@ func TestReportSkipsHiddenTickLabels(t *testing.T) {
 		t.Fatal("hidden tick labels judged for contrast:", ws)
 	}
 }
+
+// A document page (the editorial theme's A4) is read at print sizes: its
+// 10.5 pt body is no "too small" warning, and the space under its last
+// section is no "empty slide"; the same text on a slide still is.
+func TestReportDocumentPage(t *testing.T) {
+	p := block("text", "", 64, 64, 467, 40)
+	p.runs = append(p.runs, run("Body text on an A4 page", 64, 64, 300, 17, 10.5, 0))
+	pic := block("picture", "a.png", 64, 120, 200, 100)
+	s := slideOf(p, pic)
+	s.w, s.h = 595.28, 841.89
+	s.page = true
+	if f := flagsOf(s); f != "" {
+		t.Fatal(f)
+	}
+	s.page = false
+	if f := flagsOf(s); !strings.Contains(f, "too small to read") {
+		t.Fatalf("a slide with 10.5 pt text: %q", f)
+	}
+}
+
+// A narrow figure with its text beside it is not "small on an empty slide".
+func TestReportFigureWithTextBeside(t *testing.T) {
+	h := block("heading", "Title", 54, 64, 852, 55)
+	h.runs = append(h.runs, run("Title", 54, 64, 200, 36, 36, 0))
+	f := block("figure", "process", 64, 140, 490, 160)
+	p := block("text", "", 590, 140, 300, 60)
+	p.runs = append(p.runs, run("Text beside the figure", 590, 140, 280, 20, 20, 0))
+	if fl := flagsOf(slideOf(h, f, p)); strings.Contains(fl, "most of the slide is empty") {
+		t.Fatal(fl)
+	}
+	if fl := flagsOf(slideOf(h, f)); !strings.Contains(fl, "most of the slide is empty") {
+		t.Fatalf("alone: %q", fl)
+	}
+}

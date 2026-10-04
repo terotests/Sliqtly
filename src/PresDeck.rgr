@@ -1761,6 +1761,7 @@ class PresDeck {
             }
             c = (c + 1)
         }
+        this.readBands(l doc)
         ; The notes and the audio go to the slide the block sits under.
         def k:int 0
         while (k < (array_length src.blocks)) {
@@ -1823,7 +1824,10 @@ class PresDeck {
         if (h.hasAttr("fx")) {
             s.fx = (h.attrValue("fx"))
         }
-        if (h.hasAttr("bg")) {
+        ; a heading below the level slides break at is a section of the page,
+        ; and its picture is the section's band (`readBands`), not the page's
+        def lay:MdLayout (this.layout())
+        if ((h.hasAttr("bg")) && (h.level <= lay.splitLevel)) {
             s.bg = (h.attrValue("bg"))
             ; the slide's own picture is what it shows: the deck's or the
             ; theme's effect would cover it, one named on the heading stays
@@ -1993,6 +1997,7 @@ class PresDeck {
         painter.rect(out 0.0 0.0 pageW pageH paper)
         painter.paper(out l 0.0 0.0 pageW pageH)
         this.slideBackground(out l s paper)
+        this.sectionBands(out l i paper)
         push groupOfCmd -1
         while ((array_length groupOfCmd) < (array_length out.cmds)) {
             push groupOfCmd -1
@@ -2285,16 +2290,164 @@ class PresDeck {
         return ("fx-still-" + (to_string i) + ".jpg")
     }
 
+    ; SECTION BANDS. On a page that holds several sections (the editorial
+    ; theme: `##` does not break the A4 page) a `{bg=…}` heading's picture
+    ; is drawn behind its section — the heading and the blocks under it, down
+    ; to the next heading of its level or above — as a band across the page,
+    ; dimmed as `bg-dim` asks. A section running onto the next page has a
+    ; band there too. One band per section and page.
+    def bandKey:[int]
+    def bandPage:[int]
+    def bandY0:[double]
+    def bandY1:[double]
+    def bandSrc:[string]
+    def bandDim:[double]
+
+    fn readBands:void (l:MdLayout doc:MdNode) {
+        clear bandKey
+        clear bandPage
+        clear bandY0
+        clear bandY1
+        clear bandSrc
+        clear bandDim
+        def childSec:[int] (PresDeck.sectionsOf(doc l.splitLevel))
+        def any:boolean false
+        def c:int 0
+        while (c < (array_length childSec)) {
+            if ((itemAt childSec c) >= 0) {
+                any = true
+            }
+            c = (c + 1)
+        }
+        if (any == false) {
+            return
+        }
+        def ci:int 0
+        def bi:int 0
+        while (bi < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes bi)
+            def at:int (PresDeck.boxSrc(b))
+            if ((b.furniture == 0) && (at >= 0)) {
+                ; the block it belongs to: boxes come in the document's order,
+                ; so the search goes on from the last one
+                def n:int (doc.childCount())
+                if (ci >= n) {
+                    ci = 0
+                }
+                def cur:MdNode (doc.childAt(ci))
+                if (at < cur.srcStart) {
+                    ci = 0
+                }
+                def going:boolean true
+                while (going && (ci < n)) {
+                    def ch:MdNode (doc.childAt(ci))
+                    if (at >= ch.srcEnd) {
+                        ci = (ci + 1)
+                    } {
+                        going = false
+                    }
+                }
+                if (ci < n) {
+                    def sec:int (itemAt childSec ci)
+                    def own:MdNode (doc.childAt(ci))
+                    if ((sec >= 0) && (at >= own.srcStart)) {
+                        this.extendBand(sec (doc.childAt(sec)) b)
+                    }
+                }
+            }
+            bi = (bi + 1)
+        }
+    }
+
+    ; For each top-level block, the index of the `{bg=…}` heading whose
+    ; section it is in (the heading itself included), -1: none. Only
+    ; headings below `splitLevel` open a section; one of its level or above
+    ; closes it.
+    sfn sectionsOf:[int] (doc:MdNode splitLevel:int) {
+        def out:[int]
+        def open:int -1
+        def openLevel:int 99
+        def c:int 0
+        while (c < (doc.childCount())) {
+            def ch:MdNode (doc.childAt(c))
+            if (ch.kind == "heading") {
+                if (ch.level <= openLevel) {
+                    open = -1
+                    openLevel = 99
+                }
+                if ((ch.level > splitLevel) && (ch.hasAttr("bg"))) {
+                    open = c
+                    openLevel = ch.level
+                }
+            }
+            push out open
+            c = (c + 1)
+        }
+        return out
+    }
+
+    fn extendBand:void (sec:int h:MdNode b:MdBox) {
+        def i:int 0
+        while (i < (array_length bandKey)) {
+            if (((itemAt bandKey i) == sec) && ((itemAt bandPage i) == b.page)) {
+                if (b.y < (itemAt bandY0 i)) {
+                    set bandY0 i b.y
+                }
+                if ((b.y + b.h) > (itemAt bandY1 i)) {
+                    set bandY1 i (b.y + b.h)
+                }
+                return
+            }
+            i = (i + 1)
+        }
+        push bandKey sec
+        push bandPage b.page
+        push bandY0 b.y
+        push bandY1 (b.y + b.h)
+        push bandSrc (h.attrValue("bg"))
+        def dim:double 0.0
+        if (h.hasAttr("bg-dim")) {
+            dim = (PresDeck.num((h.attrValue("bg-dim")) 0.0))
+        }
+        push bandDim dim
+    }
+
+    ; Page `p`'s section bands, behind its text.
+    fn sectionBands:void (out:EVGDisplayList l:MdLayout p:int paper:string) {
+        def i:int 0
+        while (i < (array_length bandKey)) {
+            if ((itemAt bandPage i) == p) {
+                def pad:double (l.style.bodySize * 0.8)
+                def y0:double ((itemAt bandY0 i) - pad)
+                def y1:double ((itemAt bandY1 i) + pad)
+                if (y0 < 0.0) {
+                    y0 = 0.0
+                }
+                if (y1 > pageH) {
+                    y1 = pageH
+                }
+                this.coverPicture(out l (itemAt bandSrc i) y0 (y1 - y0) (itemAt bandDim i) paper)
+            }
+            i = (i + 1)
+        }
+    }
+
     ; The slide's own picture over the paper, covering the slide, and the
     ; paper again over it as far as `bg-dim` asks.
     fn slideBackground:void (out:EVGDisplayList l:MdLayout s:PresSlide paper:string) {
         if ((strlen s.bg) == 0) {
             return
         }
+        this.coverPicture(out l s.bg 0.0 pageH s.bgDim paper)
+    }
+
+    ; Picture `src` across the page from `y`, `h` high, cropped to cover
+    ; that band from its middle, and the paper over it `dim` strong.
+    fn coverPicture:void (out:EVGDisplayList l:MdLayout src:string y:double h:double dim:double paper:string) {
         if (l.haveImages == false) {
             return
         }
-        def path:string (l.images.resolve(s.bg l.docDir))
+        def path:string (l.images.resolve(src l.docDir))
         if ((strlen path) == 0) {
             return
         }
@@ -2302,18 +2455,21 @@ class PresDeck {
         if (st.found == false) {
             return
         }
+        if (h <= 0.0) {
+            return
+        }
         def c:EVGDrawCmd (new EVGDrawCmd())
         c.kind = 2
         c.x = 0.0
-        c.y = 0.0
+        c.y = y
         c.w = pageW
-        c.h = pageH
+        c.h = h
         c.src = path
         c.a = 1.0
-        ; cover: the middle of the picture, in the slide's shape
+        ; cover: the middle of the picture, in the band's shape
         if ((st.pixelW > 0) && (st.pixelH > 0)) {
             def pr:double ((to_double st.pixelW) / (to_double st.pixelH))
-            def sr:double (pageW / pageH)
+            def sr:double (pageW / h)
             c.hasCrop = true
             if (pr > sr) {
                 c.cropW = (sr / pr)
@@ -2324,16 +2480,17 @@ class PresDeck {
             }
         }
         push out.cmds c
-        if (s.bgDim > 0.0) {
+        if (dim > 0.0) {
             def d:EVGDrawCmd (new EVGDrawCmd())
             d.kind = 0
+            d.y = y
             d.w = pageW
-            d.h = pageH
+            d.h = h
             def pc:EVGColor (EVGColor.parse(paper))
             d.r = (pc.red())
             d.g = (pc.green())
             d.b = (pc.blue())
-            d.a = s.bgDim
+            d.a = dim
             if (d.a > 1.0) {
                 d.a = 1.0
             }

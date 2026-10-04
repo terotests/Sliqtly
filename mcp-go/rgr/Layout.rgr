@@ -107,6 +107,9 @@ class Layout {
         rs.w = d.pageW
         rs.h = d.pageH
         def l:MdLayout (d.layout())
+        ; a portrait page whose sections do not break it (split-level 1:
+        ; `##` runs on) is a document page, not a slide
+        rs.page = ((d.pageH > d.pageW) && (l.splitLevel <= 1))
         def groups:[int]
         def list:EVGDisplayList (d.slideList(i groups 0.0))
         def owner:[int] d.boxOfCmd

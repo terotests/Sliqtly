@@ -68,6 +68,12 @@ class RSlide {
     def w:double 960.0
     def h:double 540.0
     def blocks:[RBlock]
+    ; a document page (the editorial theme: an A4 page holding several
+    ; sections), read in the hand or on a screen at its width, not shown one
+    ; slide at a time from across a room: its text is measured against
+    ; print sizes, and space left at the bottom is where the next section
+    ; did not fit, not a slide left empty
+    def page:boolean false
 }
 
 class RSlideOut {
@@ -102,6 +108,12 @@ class Report {
     ; to read from a seat
     sfn READ_MIN:double () {
         return 20.0
+    }
+
+    ; on a document page: text smaller than 7 pt (the page's own units are
+    ; points) is hard to read on paper
+    sfn PAGE_MIN:double () {
+        return 7.0
     }
 
     ; slide pixels → pixels of a 1920×1080 screen the slide fills
@@ -282,6 +294,9 @@ class Report {
             where = (where + " \"" + (Report.short(s.title 60)) + "\"")
         }
         def rmin:double ((Report.READ_MIN()) / k)
+        if s.page {
+            rmin = (Report.PAGE_MIN())
+        }
         ; --- the elements
         def x0:double s.w
         def y0:double s.h
@@ -494,7 +509,7 @@ class Report {
             }
             i = (i + 1)
         }
-        if (x1 <= x0) {
+        if ((x1 <= x0) || s.page) {
             return
         }
         ; a chart, diagram or picture left small on an empty slide
@@ -510,8 +525,19 @@ class Report {
                 }
             }
         }
+        ; text set beside it (a figure given a width, the text after it
+        ; beside it) is the slide's other half, not empty room
+        def beside:boolean false
+        for s.blocks tb:RBlock ti {
+            if (((Report.visual(tb)) == false) && (tb.kind != "heading")) {
+                def overlapY:double ((Report.mn((tb.y + tb.h) (big.y + big.h))) - (Report.mx(tb.y big.y)))
+                if ((overlapY > 0.0) && (((tb.x >= ((big.x + big.w) - 2.0))) || ((tb.x + tb.w) <= (big.x + 2.0)))) {
+                    beside = true
+                }
+            }
+        }
         def area:double (s.w * s.h)
-        if (((visuals == 1) && (biggest < (area * 0.2))) && (o.fill < 0.45)) {
+        if ((((visuals == 1) && (biggest < (area * 0.2))) && (o.fill < 0.45)) && (beside == false)) {
             push o.flags ((Report.what(big)) + " takes " + (to_string (floor (((biggest / area) * 100.0) + 0.5))) + "% of the slide and most of the slide is empty: give it the room (leave out a fixed width/height) or put more beside it.")
             return
         }

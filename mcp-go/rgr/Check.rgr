@@ -271,6 +271,21 @@ class Check {
 
     ; text that does not stand out from what it is drawn over, slide by
     ; slide, as the editor's painter judges it
+    ; A text command's box is its slot (a centred letter's is the width of
+    ; the disc it sits on, from where the letter starts); the judge samples
+    ; what is under the letters, so each run gets the width its face draws
+    ; it (as Layout.rgr measures runs), from where it starts.
+    sfn toInk:void (list:EVGDisplayList l:MdLayout) {
+        for list.cmds c:EVGDrawCmd ci {
+            if ((c.kind == 3) && ((strlen (trim c.text)) > 0)) {
+                def mw:EVGTextMetrics (l.engine.measureRunSpaced(c.text c.fontFamily c.fontSize c.letterSpacing))
+                if ((mw.width > 0.0) && (mw.width < c.w)) {
+                    c.w = mw.width
+                }
+            }
+        }
+    }
+
     sfn contrast:void (c:Checked d:PresDeck l:MdLayout pics:[CheckPic]) {
         d.still = true
         def skip:[string]
@@ -283,6 +298,7 @@ class Check {
         while (i < c.slides) {
             def groups:[int]
             def list:EVGDisplayList (d.slideList(i groups 0.0))
+            Check.toInk(list l)
             def quiet:[boolean] (Check.struck(d l (array_length list.cmds)))
             def low:[LowRun] (Contrast.lowRuns(list pics "" -1.0 skip quiet))
             if ((array_length low) > 0) {
