@@ -126,6 +126,8 @@ class PresChartEditor {
     ; File → Duplicate asks only the copy's name: `ndDup` hides the theme and
     ; data tabs, the name starts as the page's suggestion, all selected
     def ndDup:boolean false
+    ; ...the same window asking one's own name for editing together ("name")
+    def ndAsk:string ""
     ; A question before something that cannot be undone (`mode` "confirm"):
     ; `cfKey` names it to the page, `cfOk` is the red button's word. The red
     ; button sets `wantsConfirm` and closes; Cancel and Esc only close.
@@ -218,6 +220,7 @@ class PresChartEditor {
         ndData = "none"
         ndTab = "name"
         ndDup = false
+        ndAsk = ""
         wantsCreate = false
         this.openAt(px py pw ph)
         this.focusInput("nd-name")
@@ -231,10 +234,18 @@ class PresChartEditor {
         ndData = "none"
         ndTab = "name"
         ndDup = true
+        ndAsk = "dup"
         wantsCreate = false
         this.openAt(px py pw ph)
         this.focusInput("nd-name")
         this.selectAllInField()
+    }
+
+    ; Editing together: the name the others see, all selected.
+    fn openAskName:void (name:string px:double py:double pw:double ph:double) {
+        this.openDupDeck(name px py pw ph)
+        ndAsk = "name"
+        this.rebuild()
     }
 
     fn openDocSet:void (d:PresDocSettings pics:[string] px:double py:double pw:double ph:double) {
@@ -565,6 +576,9 @@ class PresChartEditor {
             if ndDup {
                 win.name = (PresI18n.t("Duplicate presentation"))
             }
+            if (ndAsk == "name") {
+                win.name = (PresI18n.t("Your name"))
+            }
             win.title = win.name
         }
         if (mode == "docset") {
@@ -858,6 +872,10 @@ class PresChartEditor {
     ; --- a new presentation --------------------------------------------------------
     ; File → Duplicate: the copy's name, and Duplicate or Cancel.
     fn dupDeckBody:void (root:EVGElement) {
+        if (ndAsk == "name") {
+            this.askNameBody(root)
+            return
+        }
         def pane:EVGElement (this.div("ce-pane"))
         def sec:EVGElement (this.section(pane (PresI18n.t("The copy"))))
         def nr:EVGElement (this.field((PresI18n.t("Name"))))
@@ -870,6 +888,24 @@ class PresChartEditor {
         this.button("nd-cancel" (PresI18n.t("Cancel")) "outline" bottom)
         bottom.addChild((this.div("ce-grow")))
         this.button("nd-create" (PresI18n.t("Duplicate")) "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    ; Editing together: one's name, as the others see it by the caret and in
+    ; the chat, and Save or Cancel.
+    fn askNameBody:void (root:EVGElement) {
+        def pane:EVGElement (this.div("ce-pane"))
+        def sec:EVGElement (this.section(pane (PresI18n.t("Editing together"))))
+        def nr:EVGElement (this.field((PresI18n.t("Name"))))
+        this.inputWith("nd-name" (PresI18n.t("Name")) ndName (PresI18n.t("Write a name…")) "ce-wide" nr)
+        sec.addChild(nr)
+        sec.addChild((this.text("ce-doc" (PresI18n.t("The others editing this presentation see this name by your cursor and in the chat.")))))
+        root.addChild(pane)
+
+        def bottom:EVGElement (this.div("ce-foot"))
+        this.button("nd-cancel" (PresI18n.t("Cancel")) "outline" bottom)
+        bottom.addChild((this.div("ce-grow")))
+        this.button("nd-create" (PresI18n.t("Save")) "primary" bottom)
         root.addChild(bottom)
     }
 

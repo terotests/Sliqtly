@@ -12,7 +12,7 @@
 // one order on the event stream:
 //
 //	GET  /api/collab/{id}          {rev, md, peers, chat}
-//	POST /api/collab/{id}/op       {client, rev, ops}       -> {rev}
+//	POST /api/collab/{id}/op       {client, rev, ops, seq}  -> {rev}
 //	POST /api/collab/{id}/presence {client, rev, caret, anchor, who, name, color}
 //	POST /api/collab/{id}/chat     {client, text}           -> the message
 //	GET  /api/events?room={id}&client=…&who=…&name=…&color=…&rev=…
@@ -136,8 +136,11 @@ type collabRoom struct {
 	log     []collabEntry // revs logFrom+1 … rev
 	logFrom int
 	peers   map[string]*collabPeer
-	subs    map[*collabSub]struct{}
-	chat    []collabChat
+	// each page's last edit taken (its "seq"): one sent again after a lost
+	// answer is not taken twice
+	seqs map[string]int
+	subs map[*collabSub]struct{}
+	chat []collabChat
 
 	// what the deck's file holds: fileMd, which was the text at fileRev
 	// once fileGap's edits are applied to it (writes from elsewhere leave
@@ -183,7 +186,7 @@ func (s *localServer) room(ctx context.Context, id string) (*collabRoom, error) 
 	s.collab.mu.Lock()
 	rm := s.collab.rooms[id]
 	if rm == nil {
-		rm = &collabRoom{s: s, id: id, peers: map[string]*collabPeer{}, subs: map[*collabSub]struct{}{}}
+		rm = &collabRoom{s: s, id: id, peers: map[string]*collabPeer{}, seqs: map[string]int{}, subs: map[*collabSub]struct{}{}}
 		s.collab.rooms[id] = rm
 	}
 	s.collab.mu.Unlock()
@@ -485,8 +488,12 @@ func (rm *collabRoom) submit(body map[string]any, client string) (any, error) {
 	if err != nil {
 		return nil, fail(400, "", err.Error())
 	}
+	seq, hasSeq := count(body["seq"])
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
+	if hasSeq && seq > 0 && seq <= rm.seqs[client] {
+		return map[string]any{"rev": rm.rev, "again": true}, nil
+	}
 	if at > rm.rev {
 		return nil, fail(409, "ahead", "that revision is not here yet")
 	}
@@ -503,7 +510,10 @@ func (rm *collabRoom) submit(body map[string]any, client string) (any, error) {
 		}
 		return nil, err
 	}
-	return map[string]int{"rev": rm.rev}, nil
+	if hasSeq {
+		rm.seqs[client] = seq
+	}
+	return map[string]any{"rev": rm.rev}, nil
 }
 
 func cleanName(v any) string {

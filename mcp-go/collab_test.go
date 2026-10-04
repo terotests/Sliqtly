@@ -157,12 +157,18 @@ func TestCollabRoom(t *testing.T) {
 	text = mustApply(t, opsOf(t, got), text)
 	eq(t, fromU16(text), "# Big Title\n\nHello world\n")
 	eq(t, snapshot(t, srv.URL, id)["md"], fromU16(text))
+	// an edit sent again after its answer was lost is not taken twice
+	code, out = b.post("/op", map[string]any{"rev": 2, "seq": 1, "ops": delta{}.insert(toU16("!")).json()})
+	eq(t, []any{code, out["rev"]}, []any{200, float64(3)})
+	text = mustApply(t, opsOf(t, a.next("op")), text)
+	code, out = b.post("/op", map[string]any{"rev": 2, "seq": 1, "ops": delta{}.insert(toU16("!")).json()})
+	eq(t, []any{code, out["rev"], out["again"]}, []any{200, float64(3), true})
 
 	// carets, moved to the room's revision
 	code, _ = a.post("/presence", map[string]any{"rev": 1, "caret": 2, "anchor": 2})
 	eq(t, code, 200)
 	cur := b.next("cursor")
-	eq(t, []any{cur["client"], cur["caret"]}, []any{"pageA1", float64(2)}, "an insert at the caret: the caret stays before it")
+	eq(t, []any{cur["client"], cur["caret"]}, []any{"pageA1", float64(3)}, "an insert at the caret: the caret stays before it")
 	// a new name, everyone told
 	code, _ = a.post("/presence", map[string]any{"name": "Ada", "color": "#7c3aed"})
 	eq(t, code, 200)
@@ -189,20 +195,20 @@ func TestCollabRoom(t *testing.T) {
 	time.Sleep(collabSaveWait + 300*time.Millisecond)
 	code, body := req(t, "GET", srv.URL+"/api/shares/"+id, "", "")
 	eq(t, code, 200)
-	match(t, body, `"md":"# Big Title\\n\\nHello world\\n"`)
+	match(t, body, `"md":"!# Big Title\\n\\nHello world\\n"`)
 
 	// a write from elsewhere (a page not in the room, an assistant) while
 	// A has typed more that is not written yet: it comes in as an edit
-	code, _ = a.post("/op", map[string]any{"rev": 2, "ops": delta{}.retain(len(text)).insert(toU16("A typed\n")).json()})
+	code, _ = a.post("/op", map[string]any{"rev": 3, "ops": delta{}.retain(len(text)).insert(toU16("A typed\n")).json()})
 	eq(t, code, 200)
 	text = mustApply(t, opsOf(t, b.next("op")), text)
-	code, _ = req(t, "PATCH", srv.URL+"/api/shares/"+id, "application/json", `{"md":"# Big Title\n\nHello world\n\n## From the assistant\n"}`)
+	code, _ = req(t, "PATCH", srv.URL+"/api/shares/"+id, "application/json", `{"md":"!# Big Title\n\nHello world\n\n## From the assistant\n"}`)
 	eq(t, code, 200)
 	got = b.next("op")
 	eq(t, got["client"], "server")
 	text = mustApply(t, opsOf(t, got), text)
 	// both at the end: the write from elsewhere goes first
-	eq(t, fromU16(text), "# Big Title\n\nHello world\n\n## From the assistant\nA typed\n", "both kept")
+	eq(t, fromU16(text), "!# Big Title\n\nHello world\n\n## From the assistant\nA typed\n", "both kept")
 	eq(t, snapshot(t, srv.URL, id)["md"], fromU16(text))
 
 	// a page leaving is heard

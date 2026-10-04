@@ -25,6 +25,8 @@ import { decodePicture, isSvg } from "./picture.js";
 import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versions.js";
 import { showHistory, askMerge } from "./versions-ui.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
+import { CollabSession, loadMe, saveMe, cleanName, chatTime } from "./collab.js";
+import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 
 // One beacon per page load for the visitor counts (mcp-go/rgr/Stats.rgr): the
 // page, mobile or desktop on the server's side, and the site the visitor
@@ -598,7 +600,7 @@ async function saveDocNow(force) {
     const cur = doc.persisted ? await vfs.getDoc(doc.id) : null;
     // another tab of this browser saved this deck since this one read it:
     // nothing is written over, the two are put together first
-    if (cur && changedElsewhere(cur)) return "merge";
+    if (cur && !collabOn() && changedElsewhere(cur)) return "merge";
     await vfs.putDoc({
       ...(cur || {}), id: doc.id, name: exportName(), md, theme: key, css, created: doc.created, updated: Date.now(), by: TAB,
       cloud: doc.cloud, cloudMd: doc.cloudMd, cloudCss: doc.cloudCss, cloudTheme: doc.cloudTheme,
@@ -2192,6 +2194,8 @@ function frame() {
       if (lastLayout && lastLayout.mode === "present") app.setElapsed((now - presentStartedAt) / 1000);
       needsPaint = true;
     }
+    if ((doc.cloud || "") !== collabWant) collabFollow();
+    collab?.tick();
     const rev = app.revision();
     const effects = window.__lastStage && window.__lastStage.list && window.__lastStage.list.effects && window.__lastStage.list.effects.length > 0;
     if (needsPaint || rev !== lastRev || effects) {
@@ -2211,6 +2215,106 @@ function frame() {
     fail(e);
   }
   requestAnimationFrame(frame);
+}
+
+// --- editing together (a server of one's own) ---------------------------------------
+// The editor's deck, when its share is on a server of one's own, is a room
+// everyone with it open edits at once (web/collab.js, mcp-go/collab.go):
+// their edits arrive as they type, their carets show in the Markdown, and a
+// chat sits beside the deck. In the bar: one's own name (pressed: renamed)
+// with how many others are here, and Chat with the count of unread messages.
+const collabStore = (() => { try { return localStorage; } catch (_) { return null; } })();
+const collabMe = loadMe(collabStore);
+let collab = null;
+let collabWant = "";
+let collabPeople = new Map();
+const collabEditor = {
+  version: () => app.mdVersion(),
+  text: () => app.source(),
+  caret: () => app.mdCaret(),
+  anchor: () => app.mdAnchor(),
+  apply: (offset, removed, text) => app.applyRemoteMd(offset, removed, text),
+  synced: () => { app.syncRemote(); needsPaint = true; },
+  setPeers: (rows) => { app.setPeers(rows); needsPaint = true; },
+};
+function collabOn() {
+  return !!(collab && collab.active() && collab.id === doc.cloud);
+}
+// the room of the deck open now; the one before is left
+function collabFollow() {
+  const tr = window.sliqtly?.collab;
+  const want = tr && !viewer && doc.persisted && doc.cloud ? doc.cloud : "";
+  if (want === collabWant) return;
+  collabWant = want;
+  if (collab) collab.stop();
+  collab = null;
+  collabPeople = new Map();
+  if (app.chatIsOpen()) app.chatOpen(false);
+  refreshCollabBar();
+  if (!want) return;
+  const s = new CollabSession({ RdOtDelta, RdOtClient }, tr, collabEditor, collabMe, {
+    peers: (list) => collabPeers(list),
+    chat: (m) => {
+      if (app.chatAdd(m.id, m.who, m.name, m.color, m.text, chatTime(m.at, Date.now(), lang), m.who === collabMe.who)) refreshCollabBar();
+      needsPaint = true;
+    },
+  });
+  collab = s;
+  s.start(want).then(() => refreshCollabBar(), (e) => {
+    console.warn("editing together is off for this deck", e);
+    if (collab === s) collab = null;
+    refreshCollabBar();
+  });
+}
+// who is here: the others, once each (a person may have the deck open twice)
+function collabPeers(list) {
+  const next = new Map();
+  for (const p of list) if (p.who !== collabMe.who && !next.has(p.who)) next.set(p.who, p);
+  for (const [who, p] of next) {
+    if (!collabPeople.has(who)) toast(t("%s is editing this presentation too").replace("%s", p.name));
+    app.chatRename(who, p.name, p.color);
+  }
+  collabPeople = next;
+  refreshCollabBar();
+}
+function renameMe(name) {
+  const n = cleanName(name);
+  if (!n || n === collabMe.name) return;
+  collabMe.name = n;
+  saveMe(collabStore, collabMe);
+  app.chatRename(collabMe.who, n, collabMe.color);
+  collab?.rename(n).catch(() => {});
+  refreshCollabBar();
+}
+function collabButton(id, onClick) {
+  let b = document.getElementById(id);
+  if (b) return b;
+  b = document.createElement("button");
+  b.id = id;
+  b.hidden = true;
+  b.dataset.canvas = "secondary";
+  b.addEventListener("click", onClick);
+  const bar = document.getElementById("bar");
+  bar.insertBefore(b, document.getElementById("pro"));
+  return b;
+}
+function refreshCollabBar() {
+  const on = collabOn();
+  const me = collabButton("collabName", () => { if (app.openAskName(collabMe.name)) needsPaint = true; });
+  const chat = collabButton("collabChat", () => {
+    app.chatOpen(!app.chatIsOpen());
+    refreshCollabBar();
+    needsPaint = true;
+  });
+  const others = [...collabPeople.values()];
+  const meText = collabMe.name + (others.length ? " +" + others.length : "");
+  const meTitle = t("Your name for the others: press to change it") + (others.length ? "\n" + t("Here now: ") + others.map((p) => p.name).join(", ") : "");
+  const chatText = t("Chat") + (app.chatIsOpen() ? "" : (app.chatBadge() ? " " + app.chatBadge() : ""));
+  if (me.hidden === on) me.hidden = !on;
+  if (chat.hidden === on) chat.hidden = !on;
+  if (me.textContent !== meText) me.textContent = meText;
+  if (me.title !== meTitle) me.title = meTitle;
+  if (chat.textContent !== chatText) chat.textContent = chatText;
 }
 
 // --- what the app asks the page to do ---------------------------------------------
@@ -2319,7 +2423,9 @@ function handleRequests() {
       deleteDeck().catch(fail);
     } else if (r === "newdeck-create") {
       const plan = JSON.parse(app.newDeckPlan());
-      if (plan.dup) {
+      if (plan.ask === "name") {
+        renameMe(plan.name);
+      } else if (plan.dup) {
         makingDeck = duplicateDeck(plan.name).catch((e) => toast(t("Duplicating failed: ") + (e.message || e))).finally(() => { makingDeck = null; });
       } else {
         // the picker now, while the press still counts as one; the file goes
@@ -2330,6 +2436,11 @@ function handleRequests() {
         }
         makingDeck = newDeck(plan).catch(fail).finally(() => { makingDeck = null; });
       }
+    } else if (r === "chat-send") {
+      const text = app.chatTakeSent();
+      collab?.say(text).catch((e) => toast(t("The message was not sent: ") + (e?.message || e)));
+    } else if (r === "chat-closed") {
+      refreshCollabBar();
     } else if (r === "picture-place") {
       placePasted().catch(fail);
     } else if (r === "picture-cancel") {
@@ -2671,7 +2782,9 @@ async function cloudDeck() {
     css: key in editedCss ? editedCss[key] : null,
     files: (await docFiles()).map((f) => ({ path: f.path, type: f.type || "", data: f.data, stamp: stampOf(f) })),
   };
-  return { deck, sig: JSON.stringify([deck.name, deck.md, deck.theme, deck.css, deck.files.map((f) => f.path + "=" + f.stamp)]) };
+  // in a room the room writes the Markdown: only the rest goes from here
+  const md = collabOn() ? "" : deck.md;
+  return { deck, sig: JSON.stringify([deck.name, md, deck.theme, deck.css, deck.files.map((f) => f.path + "=" + f.stamp)]) };
 }
 // Writes the deck to its share, making the share first if it has none.
 // Resolves to the share's id.
@@ -2704,7 +2817,7 @@ async function cloudSync() {
       }
     } else {
       try {
-        await p.saveShare(id, deck, { md: doc.cloudMd, stamps: doc.cloudStamps });
+        await p.saveShare(id, deck, { md: doc.cloudMd, stamps: doc.cloudStamps, collab: collabOn() });
       } catch (e) {
         if (e?.code !== "changed-elsewhere") throw e;
         // changed elsewhere (another device, an assistant) since this page
@@ -2968,6 +3081,8 @@ async function cloudCheck() {
     if (!s || doc.id !== which || merging) return;
     const theirs = { md: s.md ?? "", css: s.css ?? null, theme: s.theme || "" };
     const base = { md: doc.cloudMd ?? "", css: doc.cloudCss ?? null, theme: doc.cloudTheme ?? theirs.theme };
+    // in a room the Markdown arrives as edits (web/collab.js): not compared
+    if (collabOn()) theirs.md = base.md;
     const moved = !sameCopy(theirs, base);
     const filesMoved = await takeCloudFiles(s);
     let mergedHere = false;
@@ -3054,7 +3169,8 @@ async function followCloudHead(head, merged = false) {
 async function checkElsewhere() {
   if (!vfs || viewer || merging || !doc.persisted) return;
   try {
-    await exclusive(takeLocal);
+    // another tab of this browser in the same room has its edits there too
+    if (!collabOn()) await exclusive(takeLocal);
     await cloudCheck();
   } catch (e) {
     console.warn("could not compare with the other copy", e);
@@ -3861,6 +3977,8 @@ function focusKeys(where) {
 }
 
 function afterInput() {
+  // each keystroke its own edit for the others (web/collab.js)
+  collab?.takeLocal();
   keepEmojiRecent();
   mirrorLine();
   handleRequests();
