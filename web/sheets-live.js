@@ -122,6 +122,9 @@ export function createLiveSheets({ stageEl, canvas, keys, base, readFile, saveWo
     entry.ready = (async () => {
       const { mountSheets } = await loadEvgSheets(base);
       const { bytes, csv } = await workbookBytes(s.file, s.data);
+      // A file the deck does not have is not opened as EVGSheets' demo
+      // workbook: the slide keeps the still, which says what it waits for.
+      if (!bytes && csv == null) throw new Error("the deck has no " + s.file);
       entry.sheet = await mountSheets(host, {
         base,
         ui: "viewer",

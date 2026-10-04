@@ -1210,3 +1210,39 @@ func TestClientRegistrationsLimitedPerAddress(t *testing.T) {
 	b, _ := io.ReadAll(second.Body)
 	match(t, string(b), `"slow_down"`)
 }
+
+// A one-sheet workbook's sheet is data/<book>.csv, and data/<book>-<Sheet>.csv
+// as well: the name a ```sheet fence with `sheet: Kulut` reads the still by.
+func TestOneSheetBookAnswersToTheSheetsName(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	c := call(t, s, "create_presentation", map[string]any{"title": "Budget", "markdown": "# Budget",
+		"files": []any{map[string]any{"name": "budjetti.xlsx", "data_base64": base64.StdEncoding.EncodeToString(testBook(t))}}})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	w := call(t, s, "write_workbook", map[string]any{"deck_id": id, "edit_key": sc(c)["edit_key"], "path": "data/budjetti.xlsx", "sheets": []any{
+		map[string]any{"name": "Kulut", "rows": []any{[]any{"Kuukausi", "Vuokra"}, []any{"Tammi", 950}, []any{"Helmi", 975}}},
+	}})
+	if w.IsError {
+		t.Fatal(textOf(w))
+	}
+	match(t, textOf(w), `read as data/budjetti\.csv`)
+	for _, p := range []string{"data/budjetti.csv", "data/budjetti-Kulut.csv"} {
+		r := call(t, s, "read_file", map[string]any{"deck_id": id, "path": p})
+		if r.IsError {
+			t.Fatal(p, textOf(r))
+		}
+		eq(t, sc(r)["rows"], [][]string{{"Tammi", "950"}, {"Helmi", "975"}})
+	}
+	// a chart reading the sheet by its name draws its bars' labels
+	md := "# Budget\n\n## Rent\n\n```vega-lite\n{\"data\": {\"url\": \"data/budjetti-Kulut.csv\"}, \"mark\": \"bar\", " +
+		"\"encoding\": {\"x\": {\"field\": \"Kuukausi\", \"type\": \"nominal\"}, \"y\": {\"field\": \"Vuokra\", \"type\": \"quantitative\"}}}\n```\n"
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": sc(c)["edit_key"], "markdown": md})
+	if u.IsError {
+		t.Fatal(textOf(u))
+	}
+	match(t, textOf(u), `- chart \(Vega-Lite\) at \d+,\d+ size \d+×\d+: \d+ labels`)
+}
