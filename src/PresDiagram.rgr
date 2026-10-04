@@ -47,12 +47,26 @@ class PresDNode {
     def fill:string ""
     ; when the ball lands on it, for the pulse; -1 = never
     def landings:[double]
+    ; Its shape, as the scene drew it: the outline when it is not a box
+    ; (a diamond, a drum, a circle…; empty for a box), the box's corner
+    ; radius, the lines drawn on it (a drum's rim, a subroutine's bars), a
+    ; dashed border's dash (0: solid), and a fill the diagram itself gave
+    ; it (`classDef`, `style`; "" for the look's own).
+    def ring:[double]
+    def radius:double 6.0
+    def marks:[SceneItem]
+    def dash:double 0.0
+    def own:string ""
 
     Constructor () {
         def a:[SceneItem]
         items = a
         def l:[double]
         landings = l
+        def r:[double]
+        ring = r
+        def m:[SceneItem]
+        marks = m
     }
 
     fn cx:double () {
@@ -129,6 +143,8 @@ class PresDiagram {
     def legs:[PresLeg]
     ; untagged scene items (a cluster's frame, a title) drawn as they are
     def rest:[SceneItem]
+    ; the scene itself, in its own order: what the classic style draws
+    def scene:FlowScene (new FlowScene)
 
     ; options, from the attribute line under the fence
     def tour:boolean true
@@ -139,7 +155,8 @@ class PresDiagram {
     def ball:boolean true
     ; the largest the camera draws a node: slide units per diagram unit
     def zoom:double 3.0
-    ; "holo" (glass panels, glowing curves) or "sketch" (hand-drawn)
+    ; "holo" (glass panels, glowing curves), "sketch" (hand-drawn) or
+    ; "classic" (the document's drawing, still)
     def style:string "holo"
     ; The palette, from the slide it is on: light lines on a dark slide,
     ; dark lines on a light one; accent and warm can come from the theme.
@@ -348,20 +365,39 @@ class PresDiagram {
         exSZ = ex3
         def ex4:[int]
         exSN = ex4
+        def lr:[double]
+        labRects = lr
     }
 
     ; ------------------------------------------------------------------
     ; Reading the scene
     ; ------------------------------------------------------------------
     sfn of:PresDiagram (notation:string text:string width:double) {
-        def sc:FlowScene (MdDiagram.sceneFor(notation text "default" width (MdDiagram.padding())))
-        return (PresDiagram.fromScene(sc notation text))
+        return (PresDiagram.wrapped(notation text width 0.0 "default"))
+    }
+
+    ; Whether a slide of this colour is light (dark lines on it).
+    sfn isLight:boolean (paper:string) {
+        if ((strlen paper) == 0) {
+            return true
+        }
+        def pc:EVGColor (EVGColor.parse(paper))
+        def lum:double ((((to_double (pc.red())) * 0.299) + ((to_double (pc.green())) * 0.587)) + ((to_double (pc.blue())) * 0.114))
+        return (lum > 150.0)
+    }
+
+    ; How much larger than the look's sizes a label is set on a slide where
+    ; its box has room for it (`FlowView.fillText`). A document's diagram has
+    ; 13 px labels in boxes built with air round them; scaled to a slide that
+    ; was 10–15 px text at 1080p, too small to read across a room.
+    sfn textFill:double () {
+        return 1.8
     }
 
     ; A long top-to-bottom flow cut into columns by the flow engine
     ; (`FlowWrap`) for a room of `aspect`.
-    sfn wrapped:PresDiagram (notation:string text:string width:double aspect:double) {
-        def sc:FlowScene (MdDiagram.sceneForWrapped(notation text "default" width (MdDiagram.padding()) aspect))
+    sfn wrapped:PresDiagram (notation:string text:string width:double aspect:double look:string) {
+        def sc:FlowScene (MdDiagram.sceneForSlide(notation text look width (MdDiagram.padding()) aspect (PresDiagram.textFill())))
         return (PresDiagram.fromScene(sc notation text))
     }
 
@@ -375,6 +411,7 @@ class PresDiagram {
         d.worldY = sc.worldY
         d.worldW = sc.worldW
         d.worldH = sc.worldH
+        d.scene = sc
         d.straight = (PresDiagram.isSequence(notation text))
         def i:int 0
         while (i < (array_length sc.items)) {
@@ -416,6 +453,7 @@ class PresDiagram {
             i = (i + 1)
         }
         d.measureNodes()
+        d.readShapes()
         d.joinEdges()
         d.separateTwins()
         d.ok = ((array_length d.nodes) > 0)
@@ -608,6 +646,97 @@ class PresDiagram {
                 n.h = (y1 - y0)
             }
             i = (i + 1)
+        }
+    }
+
+    ; What each node's own items say about its shape: the body (a box, or a
+    ; closed outline), the lines drawn on it, a dashed border, and whether the
+    ; diagram gave it its colour. The styles redraw the body their own way and
+    ; keep the shape, the colour and the dash.
+    fn readShapes:void () {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:PresDNode (itemAt nodes i)
+            def bodied:boolean false
+            def k:int 0
+            while (k < (array_length n.items)) {
+                def it:SceneItem (itemAt n.items k)
+                if ((it.kind == 0) && (bodied == false)) {
+                    bodied = true
+                    n.radius = it.radius
+                    if it.own {
+                        n.own = it.fill
+                    }
+                }
+                if (it.kind == 2) {
+                    if (it.closed && ((strlen it.fill) > 0)) {
+                        if (bodied == false) {
+                            bodied = true
+                            def p:int 0
+                            while (p < (array_length it.pts)) {
+                                push n.ring (itemAt it.pts p)
+                                p = (p + 1)
+                            }
+                            if it.own {
+                                n.own = it.fill
+                            }
+                            if (it.dash > 0.0) {
+                                n.dash = it.dash
+                            }
+                        }
+                    } {
+                        if (it.dash > 0.0) {
+                            n.dash = it.dash
+                        } {
+                            push n.marks it
+                        }
+                    }
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The node's outline as a closed ring: its own when it is not a box, a
+    ; rounded box otherwise.
+    fn outlineOf:[double] (n:PresDNode) {
+        def out:[double]
+        if ((array_length n.ring) >= 6) {
+            def p:int 0
+            while (p < (array_length n.ring)) {
+                push out (itemAt n.ring p)
+                p = (p + 1)
+            }
+        } {
+            def rr:[double] (FlowShapes.roundRectRing(n.x n.y n.w n.h n.radius))
+            def q:int 0
+            while (q < (array_length rr)) {
+                push out (itemAt rr q)
+                q = (q + 1)
+            }
+        }
+        push out (itemAt out 0)
+        push out (itemAt out 1)
+        return out
+    }
+
+    ; A closed line, solid or cut into dashes of `dash`.
+    sfn strokeRing:void (out:EVGDisplayList pts:[double] th:double col:EVGColor dash:double) {
+        if (dash <= 0.0) {
+            out.addPolyline(pts th col)
+            PresDiagram.roundLast(out)
+            return
+        }
+        def parts:int (FlowScene.dashCount(pts dash))
+        def d:int 0
+        while (d < parts) {
+            def piece:[double] (FlowScene.dashAt(pts dash d))
+            if ((array_length piece) >= 4) {
+                out.addPolyline(piece th col)
+                PresDiagram.roundLast(out)
+            }
+            d = (d + 1)
         }
     }
 
@@ -964,6 +1093,9 @@ class PresDiagram {
             def pn:PresDNode (itemAt nodes c)
             def slot:int (pn.order - ((idiv pn.order 7) * 7))
             pn.fill = (itemAt palette slot)
+            if ((strlen pn.own) > 0) {
+                pn.fill = pn.own
+            }
             c = (c + 1)
         }
         if tour {
@@ -982,6 +1114,25 @@ class PresDiagram {
             clear kfT
             clear kfN
             total = revealEnd
+        }
+        ; the document's own drawing is a still: no reveal, nothing to wait for
+        if (style == "classic") {
+            def ci:int 0
+            while (ci < nn) {
+                def cn:PresDNode (itemAt nodes ci)
+                cn.at = -100.0
+                ci = (ci + 1)
+            }
+            def ce:int 0
+            while (ce < (array_length edges)) {
+                def cd:PresDEdge (itemAt edges ce)
+                cd.at = -100.0
+                ce = (ce + 1)
+            }
+            revealEnd = 0.0
+            tourStart = 0.0
+            tourEnd = 0.0
+            total = 0.0
         }
     }
 
@@ -1519,8 +1670,9 @@ class PresDiagram {
 
     ; A free place for a w x h box ON edge e: the middle of the line when
     ; nothing is there, otherwise the nearest point along it that clears
-    ; every node and the first `upto` pills. Sets rX, rY; false when the line
-    ; has no such place (the middle is set then).
+    ; every node and the first `upto` pills; failing that, beside the line.
+    ; Sets rX, rY and the point on the line it belongs to (spotLx, spotLy);
+    ; false when there is no such place (the middle is set then).
     fn freeSpot:boolean (e:PresDEdge w:double h:double upto:int) {
         def fracs:[double] ([] _:double (0.5 0.42 0.58 0.34 0.66 0.26 0.74 0.18 0.82 0.12 0.88))
         def p:[double]
@@ -1532,9 +1684,83 @@ class PresDiagram {
             if (! (this.blocked(x0 y0 w h upto))) {
                 rX = x0
                 rY = y0
+                spotLx = (itemAt p 0)
+                spotLy = (itemAt p 1)
                 return true
             }
             i = (i + 1)
+        }
+        ; Nowhere on the line: beside it, on either side. Two lines between
+        ; the same two boxes, one each way ("send" down, "changes" back up),
+        ; run a lane apart, and their labels would otherwise share a place.
+        def q:[double]
+        def j:int 0
+        while (j < (array_length fracs)) {
+            def at:double (e.len * (itemAt fracs j))
+            PresDiagram.pointAt(e.line at p)
+            PresDiagram.pointAt(e.line (at + 2.0) q)
+            def dx:double ((itemAt q 0) - (itemAt p 0))
+            def dy:double ((itemAt q 1) - (itemAt p 1))
+            def dl:double (sqrt ((dx * dx) + (dy * dy)))
+            if (dl > 0.0001) {
+                def nx:double ((0.0 - dy) / dl)
+                def ny:double (dx / dl)
+                def off:double ((((PresDiagram.absD(nx)) * w) * 0.5) + ((((PresDiagram.absD(ny)) * h) * 0.5) + 6.0))
+                def side:int 0
+                while (side < 2) {
+                    def sg:double 1.0
+                    if (side == 1) {
+                        sg = -1.0
+                    }
+                    def sx:double (((itemAt p 0) + ((nx * off) * sg)) - (w * 0.5))
+                    def sy:double (((itemAt p 1) + ((ny * off) * sg)) - (h * 0.5))
+                    if (! (this.blocked(sx sy w h upto))) {
+                        rX = sx
+                        rY = sy
+                        spotLx = (itemAt p 0)
+                        spotLy = (itemAt p 1)
+                        return true
+                    }
+                    side = (side + 1)
+                }
+            }
+            j = (j + 1)
+        }
+        ; Still nothing: beside the middle, over a box's edge if it must be,
+        ; but not over another label — a label on a label is two unreadable.
+        PresDiagram.pointAt(e.line (e.len * 0.5) p)
+        PresDiagram.pointAt(e.line ((e.len * 0.5) + 2.0) q)
+        def mdx:double ((itemAt q 0) - (itemAt p 0))
+        def mdy:double ((itemAt q 1) - (itemAt p 1))
+        def mdl:double (sqrt ((mdx * mdx) + (mdy * mdy)))
+        if (mdl > 0.0001) {
+            def mnx:double ((0.0 - mdy) / mdl)
+            def mny:double (mdx / mdl)
+            def moff:double ((((PresDiagram.absD(mnx)) * w) * 0.5) + ((((PresDiagram.absD(mny)) * h) * 0.5) + 4.0))
+            ; two lines a lane apart put their labels on facing sides: step
+            ; out until this one clears the labels already down
+            def step:int 0
+            while (step < 12) {
+                def ms:int 0
+                while (ms < 2) {
+                    def msg:double 1.0
+                    if (ms == 1) {
+                        msg = -1.0
+                    }
+                    def far:double (moff + ((to_double step) * 6.0))
+                    def mx0:double (((itemAt p 0) + ((mnx * far) * msg)) - (w * 0.5))
+                    def my0:double (((itemAt p 1) + ((mny * far) * msg)) - (h * 0.5))
+                    if (! (this.onLabel(mx0 my0 w h))) {
+                        rX = mx0
+                        rY = my0
+                        spotLx = (itemAt p 0)
+                        spotLy = (itemAt p 1)
+                        return true
+                    }
+                    ms = (ms + 1)
+                }
+                step = (step + 1)
+            }
         }
         PresDiagram.pointAt(e.line (e.len * 0.5) p)
         rX = ((itemAt p 0) - (w * 0.5))
@@ -1557,6 +1783,8 @@ class PresDiagram {
             if (! (this.blocked(x0 y0 w h upto))) {
                 rX = x0
                 rY = y0
+                spotLx = (itemAt p 0)
+                spotLy = (itemAt p 1)
                 return true
             }
             d = (d + 8.0)
@@ -1609,8 +1837,37 @@ class PresDiagram {
         return false
     }
 
+    sfn absD:double (v:double) {
+        if (v < 0.0) {
+            return (0.0 - v)
+        }
+        return v
+    }
+
+    ; The labels already set in this frame (x y w h each): a label is not
+    ; put down on top of another.
+    def labRects:[double]
+
+    fn onLabel:boolean (x:double y:double w:double h:double) {
+        def li:int 0
+        while ((li + 3) < (array_length labRects)) {
+            def lx:double (itemAt labRects li)
+            def ly:double (itemAt labRects (li + 1))
+            def lw:double (itemAt labRects (li + 2))
+            def lh:double (itemAt labRects (li + 3))
+            if ((((x < ((lx + lw) + 2.0)) && ((x + w) > (lx - 2.0))) && (y < ((ly + lh) + 2.0))) && ((y + h) > (ly - 2.0))) {
+                return true
+            }
+            li = (li + 4)
+        }
+        return false
+    }
+
     fn blocked:boolean (x:double y:double w:double h:double upto:int) {
         def pad:double 6.0
+        if (this.onLabel(x y w h)) {
+            return true
+        }
         def i:int 0
         while (i < (array_length nodes)) {
             def n:PresDNode (itemAt nodes i)
@@ -1687,10 +1944,12 @@ class PresDiagram {
             def lxv:double cx
             def lyv:double cy
             if (this.freeSpotNear(e w h i)) {
+                ; the point on the line it belongs to: its centre when it
+                ; sits on the line, else the foot of a short leader
                 cx = (rX + (w * 0.5))
                 cy = (rY + (h * 0.5))
-                lxv = cx
-                lyv = cy
+                lxv = spotLx
+                lyv = spotLy
             } {
                 ; no room on the line near the box (a short gap between two
                 ; boxes): beside the line instead, still near the box, with a
@@ -2409,14 +2668,11 @@ class PresDiagram {
     }
 
     fn fitOf:double (bw:double bh:double) {
-        ; inset by the rim, so the overview is not under its own fade; a still
-        ; has no rim, so it takes nearly all the room
-        def insetW:double 0.84
-        def insetH:double 0.76
-        if still {
-            insetW = 0.97
-            insetH = 0.95
-        }
+        ; Nearly all the room: the rim's fade is a thin band while the whole
+        ; diagram is shown (see `paint`) and widens only as the camera goes
+        ; in, so the overview does not have to keep clear of it.
+        def insetW:double 0.97
+        def insetH:double 0.95
         def fit:double ((bw * insetW) / worldW)
         if ((worldH * fit) > (bh * insetH)) {
             fit = ((bh * insetH) / worldH)
@@ -2918,6 +3174,9 @@ class PresDiagram {
         def dy:double ((by + (bh * 0.5)) - (camY * sc))
         def inkC:EVGColor (EVGColor.parse(ink))
         def world (new EVGDisplayList())
+        if (style == "classic") {
+            this.paintClassic(world l)
+        }
         if (style == "sketch") {
             ; the lines boil a few times a second
             def boil:double (to_double (floor (t * 5.0)))
@@ -2925,7 +3184,8 @@ class PresDiagram {
             this.paintEdges(world t inkC paper boil l)
             this.paintNodes(world t inkC boil l)
             this.paintBall(world inkC)
-        } {
+        }
+        if (style == "holo") {
             ; the grid stops at the box's edge: without the rim fade it is a
             ; box drawn over the slide's picture
             if rimFade {
@@ -2954,7 +3214,7 @@ class PresDiagram {
         ; the rim: the slide's own colour, fading in over the last few pixels,
         ; strong only while the camera is in
         def rim:double (PresDiagram.clamp01(((camZ - 1.0) * 3.0)))
-        if ((style != "sketch") && (rim < 0.85)) {
+        if ((style == "holo") && (rim < 0.85)) {
             rim = 0.85
         }
         ; the whole diagram is inside the fit's inset, and a fade in the
@@ -2964,8 +3224,11 @@ class PresDiagram {
         }
         if ((rim > 0.01) && rimFade) {
             def pc:EVGColor (EVGColor.parse(paper))
-            def fw:double (bw * 0.08)
-            def fh:double (bh * 0.12)
+            ; a thin band over the overview's margin, the full one with the
+            ; camera in, where the diagram runs past the box
+            def inward:double (PresDiagram.clamp01(((camZ - 1.0) * 3.0)))
+            def fw:double (bw * (0.015 + (0.065 * inward)))
+            def fh:double (bh * (0.025 + (0.095 * inward)))
             PresDiagram.fade(out bx by bw fh pc rim 0.0 0)
             PresDiagram.fade(out bx ((by + bh) - fh) bw fh pc 0.0 rim 0)
             PresDiagram.fade(out bx by fw bh pc rim 0.0 1)
@@ -2994,6 +3257,37 @@ class PresDiagram {
         def pop (new EVGDrawCmd())
         pop.kind = 5
         push out.cmds pop
+    }
+
+    ; The classic style: the scene as the document draws it, all at once.
+    ; The paper is left out (the slide is the paper); the labels are centred
+    ; with the face the slide sets them in.
+    fn paintClassic:void (out:EVGDisplayList l:MdLayout) {
+        def shapes (new FlowScene)
+        def texts:[SceneItem]
+        def i:int 0
+        while (i < (array_length scene.items)) {
+            def it:SceneItem (itemAt scene.items i)
+            def paper:boolean false
+            if ((((i == 0) && (it.kind == 0)) && ((strlen it.tag) == 0)) && (it.w >= (worldW - 1.0))) {
+                paper = true
+            }
+            if (it.kind == 1) {
+                push texts it
+            } {
+                if (! paper) {
+                    push shapes.items it
+                }
+            }
+            i = (i + 1)
+        }
+        shapes.emitInto(out)
+        def k:int 0
+        while (k < (array_length texts)) {
+            def tx:SceneItem (itemAt texts k)
+            this.textOf(out tx (EVGColor.parse(tx.fill)) tx.opacity l)
+            k = (k + 1)
+        }
     }
 
     ; Everything shown, for "Näytä kaikki": the reveal times and the walk's
@@ -3927,33 +4221,70 @@ class PresDiagram {
                 if (grow > 0.01) {
                     def one (new EVGDisplayList())
                     def fill:EVGColor (EVGColor.parse(n.fill))
-                    def sh (new EVGDrawCmd())
-                    sh.kind = 0
-                    sh.x = (n.x + 5.0)
-                    sh.y = (n.y + 6.0)
-                    sh.w = n.w
-                    sh.h = n.h
-                    sh.radius = 8.0
-                    PresDiagram.tint(sh shadow 1.0)
-                    push one.cmds sh
-                    def body (new EVGDrawCmd())
-                    body.kind = 0
-                    body.x = n.x
-                    body.y = n.y
-                    body.w = n.w
-                    body.h = n.h
-                    body.radius = 8.0
-                    PresDiagram.tint(body fill 1.0)
-                    push one.cmds body
                     def seed:double ((boil * 5.3) + ((to_double i) * 11.0))
-                    def x0:double n.x
-                    def y0:double n.y
-                    def x1:double (n.x + n.w)
-                    def y1:double (n.y + n.h)
-                    PresDiagram.sketch(one (PresDiagram.side(x0 y0 x1 y0 4.0)) 1.9 ink 0.95 seed)
-                    PresDiagram.sketch(one (PresDiagram.side(x1 y0 x1 y1 4.0)) 1.9 ink 0.95 (seed + 1.0))
-                    PresDiagram.sketch(one (PresDiagram.side(x1 y1 x0 y1 4.0)) 1.9 ink 0.95 (seed + 2.0))
-                    PresDiagram.sketch(one (PresDiagram.side(x0 y1 x0 y0 4.0)) 1.9 ink 0.95 (seed + 3.0))
+                    if ((array_length n.ring) >= 6) {
+                        ; the node's own outline: its shadow, its colour, and
+                        ; the pen going round it
+                        def shadowRing:[double]
+                        def sp:int 0
+                        while ((sp + 1) < (array_length n.ring)) {
+                            push shadowRing ((itemAt n.ring sp) + 5.0)
+                            push shadowRing ((itemAt n.ring (sp + 1)) + 6.0)
+                            sp = (sp + 2)
+                        }
+                        one.addPolygon(shadowRing shadow)
+                        one.addPolygon(n.ring fill)
+                    } {
+                        def sh (new EVGDrawCmd())
+                        sh.kind = 0
+                        sh.x = (n.x + 5.0)
+                        sh.y = (n.y + 6.0)
+                        sh.w = n.w
+                        sh.h = n.h
+                        sh.radius = 8.0
+                        PresDiagram.tint(sh shadow 1.0)
+                        push one.cmds sh
+                        def body (new EVGDrawCmd())
+                        body.kind = 0
+                        body.x = n.x
+                        body.y = n.y
+                        body.w = n.w
+                        body.h = n.h
+                        body.radius = 8.0
+                        PresDiagram.tint(body fill 1.0)
+                        push one.cmds body
+                    }
+                    if (((array_length n.ring) >= 6) || (n.dash > 0.0)) {
+                        def ringPts:[double] (this.outlineOf(n))
+                        if (n.dash > 0.0) {
+                            def parts:int (FlowScene.dashCount(ringPts (n.dash * 2.0)))
+                            def dp:int 0
+                            while (dp < parts) {
+                                def piece:[double] (FlowScene.dashAt(ringPts (n.dash * 2.0) dp))
+                                if ((array_length piece) >= 4) {
+                                    PresDiagram.sketch(one piece 1.9 ink 0.95 (seed + (to_double dp)))
+                                }
+                                dp = (dp + 1)
+                            }
+                        } {
+                            PresDiagram.sketch(one ringPts 1.9 ink 0.95 seed)
+                        }
+                    } {
+                        def x0:double n.x
+                        def y0:double n.y
+                        def x1:double (n.x + n.w)
+                        def y1:double (n.y + n.h)
+                        PresDiagram.sketch(one (PresDiagram.side(x0 y0 x1 y0 4.0)) 1.9 ink 0.95 seed)
+                        PresDiagram.sketch(one (PresDiagram.side(x1 y0 x1 y1 4.0)) 1.9 ink 0.95 (seed + 1.0))
+                        PresDiagram.sketch(one (PresDiagram.side(x1 y1 x0 y1 4.0)) 1.9 ink 0.95 (seed + 2.0))
+                        PresDiagram.sketch(one (PresDiagram.side(x0 y1 x0 y0 4.0)) 1.9 ink 0.95 (seed + 3.0))
+                    }
+                    def mk:int 0
+                    while (mk < (array_length n.marks)) {
+                        def mit:SceneItem (itemAt n.marks mk)
+                        PresDiagram.sketch(one mit.pts 1.6 ink 0.9 ((seed + 7.0) + (to_double mk)))
+                        mk = (mk + 1)
+                    }
                     def m:int 0
                     while (m < (array_length n.items)) {
                         def it:SceneItem (itemAt n.items m)
@@ -4203,6 +4534,7 @@ class PresDiagram {
     }
 
     fn holoEdges:void (out:EVGDisplayList t:double l:MdLayout) {
+        clear labRects
         ; at a question the chosen way is the one active line, not the way in
         def active:int (this.activeEdge(t))
         if (this.asking(t)) {
@@ -4370,6 +4702,10 @@ class PresDiagram {
         e.ly = rY
         e.lw = pw
         e.lh = ph
+        push labRects rX
+        push labRects rY
+        push labRects pw
+        push labRects ph
         def bg (new EVGDrawCmd())
         bg.kind = 0
         bg.x = (mx - (pw * 0.5))
@@ -4430,6 +4766,13 @@ class PresDiagram {
                 def cr:int acR
                 def cg:int acG
                 def cb:int acB
+                ; a colour the diagram gave the box is its glass's colour
+                if ((strlen n.own) > 0) {
+                    def oc:EVGColor (EVGColor.parse(n.own))
+                    cr = (oc.red())
+                    cg = (oc.green())
+                    cb = (oc.blue())
+                }
                 if on {
                     cr = wmR
                     cg = wmG
@@ -4454,34 +4797,53 @@ class PresDiagram {
                 }
                 PresDiagram.tint(halo (PresDiagram.rgba(cr cg cb haloA)) 1.0)
                 push one.cmds halo
-                def body (new EVGDrawCmd())
-                body.kind = 0
-                body.x = n.x
-                body.y = n.y
-                body.w = n.w
-                body.h = n.h
-                body.radius = 6.0
-                body.hasGrad = true
-                body.gradDir = 0
-                body.r = cr
-                body.g = cg
-                body.b = cb
-                body.a = 0.26
-                body.r2 = deepR
-                body.g2 = deepG
-                body.b2 = deepB
-                body.a2 = 0.55
-                push one.cmds body
-                def frame (new EVGDrawCmd())
-                frame.kind = 1
-                frame.x = n.x
-                frame.y = n.y
-                frame.w = n.w
-                frame.h = n.h
-                frame.radius = 6.0
-                frame.thickness = 1.2
-                PresDiagram.tint(frame (PresDiagram.rgba(cr cg cb 0.75)) 1.0)
-                push one.cmds frame
+                def shaped:boolean ((array_length n.ring) >= 6)
+                if shaped {
+                    ; the node's own outline, as glass: deep, then the tint
+                    one.addPolygon(n.ring (PresDiagram.rgba(deepR deepG deepB 0.55)))
+                    one.addPolygon(n.ring (PresDiagram.rgba(cr cg cb 0.26)))
+                } {
+                    def body (new EVGDrawCmd())
+                    body.kind = 0
+                    body.x = n.x
+                    body.y = n.y
+                    body.w = n.w
+                    body.h = n.h
+                    body.radius = n.radius
+                    body.hasGrad = true
+                    body.gradDir = 0
+                    body.r = cr
+                    body.g = cg
+                    body.b = cb
+                    body.a = 0.26
+                    body.r2 = deepR
+                    body.g2 = deepG
+                    body.b2 = deepB
+                    body.a2 = 0.55
+                    push one.cmds body
+                }
+                if (shaped || (n.dash > 0.0)) {
+                    PresDiagram.strokeRing(one (this.outlineOf(n)) 1.2 (PresDiagram.rgba(cr cg cb 0.75)) n.dash)
+                } {
+                    def frame (new EVGDrawCmd())
+                    frame.kind = 1
+                    frame.x = n.x
+                    frame.y = n.y
+                    frame.w = n.w
+                    frame.h = n.h
+                    frame.radius = n.radius
+                    frame.thickness = 1.2
+                    PresDiagram.tint(frame (PresDiagram.rgba(cr cg cb 0.75)) 1.0)
+                    push one.cmds frame
+                }
+                ; what is drawn on the shape: a drum's rim, a subroutine's bars
+                def mk:int 0
+                while (mk < (array_length n.marks)) {
+                    def mit:SceneItem (itemAt n.marks mk)
+                    one.addPolyline(mit.pts 1.2 (PresDiagram.rgba(cr cg cb 0.75)))
+                    PresDiagram.roundLast(one)
+                    mk = (mk + 1)
+                }
                 ; the corner brackets
                 def arm:double 12.0
                 def x0:double (n.x - 3.0)
