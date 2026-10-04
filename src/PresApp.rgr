@@ -2803,6 +2803,11 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return true
         }
+        if ((top == "dialog") && (panels.decksShowing())) {
+            panels.decksScrollBy(dy)
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         if ((top == "dialog") || (top == "chart")) {
             return true
         }
@@ -4147,7 +4152,7 @@ class PresApp {
         panels.setFiles(on edRect.x edRect.y edRect.w edRect.h filePath)
     }
 
-    ; The page's list of the document's files (and of the stored documents).
+    ; The page's list of the document's files.
     fn setFileList:void (json:string) {
         panels.setFilesData(json)
         chromeRev = (chromeRev + 1)
@@ -4387,6 +4392,22 @@ class PresApp {
         this.closeHint()
         panels.openShare(showUrl editUrl note)
         chromeRev = (chromeRev + 1)
+    }
+
+    ; File → Presentations…: the decks here and in the cloud (web/decklist.js)
+    fn openDecks:void (json:string) {
+        this.closeHint()
+        panels.openDecks(json)
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn setDecks:void (json:string) {
+        panels.setDecks(json)
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn decksShowing:boolean () {
+        return (panels.decksShowing())
     }
 
     ; Open: a file from the computer or a sample deck ("value<TAB>label" rows)

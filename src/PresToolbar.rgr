@@ -247,8 +247,8 @@ class PresToolbar {
         if (id == "docset") {
             return "docset"
         }
-        if (id == "browse") {
-            return "showtab:files"
+        if ((id == "browse") || (id == "decks")) {
+            return "decks"
         }
         if ((indexOf id "r-") == 0) {
             return ("files:doc:" + (substring id 2 (strlen id)))
@@ -330,7 +330,7 @@ class PresToolbar {
 
     ; Recent's rows: every deck first (the Files tab), then the latest ones.
     fn recentKids:void (parent:UiItem) {
-        MenuCtl.addKid(parent "browse" (PresI18n.t("Browse all…")) false)
+        MenuCtl.addKid(parent "browse" (PresI18n.t("All presentations…")) false)
         def lines:[string] (strsplit recentRows (strfromcode 10))
         def first:boolean true
         def i:int 0
@@ -538,6 +538,7 @@ class PresToolbar {
             file.addItem("duplicate" (PresI18n.t("Duplicate")) false)
             file.addSeparator()
             file.addItem("openbox" (PresI18n.t("Open…")) false)
+            file.addItem("decks" (PresI18n.t("Presentations…")) false)
             def rc:UiItem (file.addSub("recent" (PresI18n.t("Recent")) false))
             this.recentKids(rc)
             file.addSeparator()
@@ -638,7 +639,7 @@ class PresToolbar {
             this.button("dr-duplicate" (PresI18n.t("Duplicate")) "ghost" body)
             body.addChild((this.div("tb-dr-sep")))
             this.button("dr-openbox" (PresI18n.t("Open…")) "ghost" body)
-            this.button("dr-browse" (PresI18n.t("Browse all…")) "ghost" body)
+            this.button("dr-decks" (PresI18n.t("Presentations…")) "ghost" body)
             body.addChild((this.div("tb-dr-sep")))
             this.button("dr-save" (PresI18n.t("Save .md")) "ghost" body)
             this.button("dr-history" (PresI18n.t("Version history…")) "ghost" body)

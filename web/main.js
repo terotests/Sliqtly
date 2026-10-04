@@ -25,6 +25,7 @@ import { decodePicture, isSvg } from "./picture.js";
 import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versions.js";
 import { showHistory, askMerge } from "./versions-ui.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
+import { deckRows, sortRows, deckListJson } from "./decklist.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime } from "./collab.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 
@@ -942,31 +943,74 @@ function whenText(t) {
   return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()} ${two(d.getHours())}:${two(d.getMinutes())}`;
 }
 
-// Signed in: the user's own shares that this browser does not keep, as
+// Signed in: the user's own shares; those this browser does not keep are
 // "cloud:<share id>" decks (opened from the cloud, as /s/{id}?edit is).
-// Read at sign-in; after that, a list older than 30 s is read again behind
-// the one shown, which is redrawn when it arrives.
-let cloudList = { uid: null, at: 0, rows: [] };
+// error: why the last read failed, said in the presentations window.
+let cloudList = { uid: null, at: 0, rows: [], error: "" };
 let cloudListing = null;
 function readCloudList(uid) {
   cloudListing ??= window.sliqtly.listMine()
-    .catch((e) => { console.warn("listing the cloud decks failed", e); return []; })
-    .then((rows) => { cloudList = { uid, at: Date.now(), rows }; })
+    .then((rows) => { cloudList = { uid, at: Date.now(), rows, error: "" }; })
+    .catch((e) => {
+      console.warn("listing the cloud decks failed", e);
+      cloudList = { uid, at: Date.now(), rows: [], error: e?.message || String(e) };
+    })
     .finally(() => { cloudListing = null; });
   return cloudListing;
 }
-async function cloudDocs(local) {
+// The user's cloud shares, signed in ([] otherwise): read at sign-in; after
+// that, a list older than 30 s is read again behind the one shown, which is
+// redrawn when it arrives. fresh: read now (the presentations window opening,
+// so a deck an assistant just made is there).
+async function cloudShares(fresh = false) {
   const user = window.sliqtly?.user?.();
   if (!user || !window.sliqtly.listMine) return [];
-  if (cloudList.uid !== user.uid) await readCloudList(user.uid);
+  if (cloudList.uid !== user.uid || fresh) await readCloudList(user.uid);
   else if (Date.now() - cloudList.at > 30000 && !cloudListing) readCloudList(user.uid).then(() => refreshFiles());
-  const here = new Set(local.map((d) => d.cloud).filter(Boolean));
-  return cloudList.rows.filter((r) => !here.has(r.id))
-    .map((r) => ({ id: "cloud:" + r.id, name: r.name, updated: r.updated, inCloud: true }));
+  return cloudList.rows;
 }
-async function allDocs() {
+// Every deck: this browser's and the cloud's, one row each (web/decklist.js).
+async function allDocs(fresh = false) {
   const local = await vfs.listDocs();
-  return local.concat(await cloudDocs(local)).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  return deckRows(local, await cloudShares(fresh), doc.id);
+}
+
+// File → Presentations…: the window over the editor, last changed first
+// unless sorted otherwise; again when the list changes while it shows.
+let decksSort = "updated";
+try { decksSort = localStorage.getItem("sliqtly.decksSort") || "updated"; } catch (_) { /* the default */ }
+async function decksJson(fresh = false) {
+  const signedOut = window.sliqtly && !window.sliqtly.user();
+  const note = cloudList.error
+    ? t("The presentations in your cloud could not be read: ") + cloudList.error
+    : signedOut ? t("Sign in (PRO) to see the presentations in your cloud, such as those made by an assistant.") : "";
+  return deckListJson(await allDocs(fresh), decksSort, t, note);
+}
+async function openDecks() {
+  if (!vfs) return;
+  app.openDecks(await decksJson());
+  needsPaint = true;
+  // the cloud read again: a deck made elsewhere since shows at once
+  if (window.sliqtly?.user?.()) refreshDecks(true).catch(() => {});
+}
+async function refreshDecks(fresh = false) {
+  if (!vfs || !app.decksShowing()) return;
+  app.setDecks(await decksJson(fresh));
+  needsPaint = true;
+}
+async function decksRequest(r) {
+  const [, action, ...rest] = r.split(":");
+  const what = rest.join(":");
+  if (action === "sort") {
+    decksSort = what;
+    try { localStorage.setItem("sliqtly.decksSort", what); } catch (_) { /* this session only */ }
+  } else if (action === "del") {
+    // a deck kept here, not the open one; one only in the cloud is deleted
+    // once open (File → Delete presentation…)
+    if (what !== doc.id && !what.startsWith("cloud:")) await vfs.deleteDoc(what);
+  }
+  await refreshDecks();
+  refreshRecent().catch(() => {});
 }
 
 // File → Recent: the decks edited last, the open one left out: this
@@ -974,7 +1018,7 @@ async function allDocs() {
 let recentSynced = "";
 async function refreshRecent() {
   if (!vfs || viewer) return;
-  const rows = (await allDocs())
+  const rows = sortRows(await allDocs())
     .filter((d) => d.id !== doc.id)
     .slice(0, 8)
     .map((d) => d.id + "\t" + String(d.name || "presentation").replace(/[\t\n\r]+/g, " "));
@@ -989,6 +1033,7 @@ let filesListing = false;
 window.addEventListener("sliqtly:user", () => refreshFiles());
 async function refreshFiles() {
   refreshRecent().catch(() => {});
+  refreshDecks().catch(() => {});
   if (!vfs || app.editorTab() !== "files" || filesListing) return;
   filesListing = true;
   try {
@@ -1020,11 +1065,6 @@ async function refreshFiles() {
     const head = [{ path: name + ".md", size: new TextEncoder().encode(app.source()).length, kind: "md" }];
     const key = themeSel.value || "";
     head.push({ path: (key || "theme") + ".css", size: -1, kind: "css" });
-    const docs = (await allDocs())
-      .map((d) => ({
-        id: d.id, name: d.name || "presentation", current: d.id === doc.id, cloud: !!d.inCloud,
-        when: (d.inCloud ? t("In the cloud") + " · " : "") + whenText(d.updated),
-      }));
     let note = vfs.persistent
       ? t("Files live only in this browser (IndexedDB). Share links carry only the text and theme, not images or data files.")
       : t("This browser does not allow storage: files are kept only while this page is open.");
@@ -1045,7 +1085,7 @@ async function refreshFiles() {
           : t("PRO: this presentation and its files are saved to your cloud and go with share links. A copy stays in this browser.");
     }
     if (!doc.persisted) note = t("This presentation is not saved yet: it saves when you change it. ") + note;
-    app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), docs, mine: !!window.sliqtly?.user?.(), note, ...(promo ? { promo } : {}) }));
+    app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), note, ...(promo ? { promo } : {}) }));
     needsPaint = true;
   } finally {
     filesListing = false;
@@ -1345,14 +1385,13 @@ async function fileRequest(r) {
       t("Delete “") + exportName() + t("”? It is removed from this browser") +
       (cloud ? t(" and from the cloud, and its share link stops working") : "") +
       t(". This cannot be undone."), t("Delete"));
-  } else if (action === "deldoc") {
-    if (what !== doc.id && !what.startsWith("cloud:")) await vfs.deleteDoc(what);
   }
   refreshFiles();
   needsPaint = true;
 }
 
 window.__fileRequest = (r) => fileRequest(r);
+window.__openDecks = () => openDecks();
 
 // A file edited in the files tab: kept, and handed to the charts again.
 async function saveOpenFile(path) {
@@ -2401,6 +2440,10 @@ function handleRequests() {
       setSkinName(r.endsWith(":retro") ? "retro" : "");
     } else if (r.startsWith("setting:skinhue:")) {
       setSkinHue(parseInt(r.slice("setting:skinhue:".length), 10));
+    } else if (r === "decks") {
+      openDecks().catch(fail);
+    } else if (r.startsWith("decks:")) {
+      decksRequest(r).catch(fail);
     } else if (r === "openbox") {
       // Open: a file from the computer, or a sample deck
       app.openOpen([...sampleSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));

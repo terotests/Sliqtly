@@ -226,7 +226,7 @@ async function listMine() {
   const snap = await db.collection("shares").where("owner", "==", user.uid).limit(200).get();
   const ms = (v) => (v && typeof v.toMillis === "function" ? v.toMillis() : 0);
   return snap.docs
-    .map((d) => ({ id: d.id, name: d.data().name || "", updated: ms(d.data().updated) || ms(d.data().created) }))
+    .map((d) => ({ id: d.id, name: d.data().name || "", created: ms(d.data().created), updated: ms(d.data().updated) || ms(d.data().created) }))
     .sort((a, b) => b.updated - a.updated);
 }
 
