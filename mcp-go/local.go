@@ -59,6 +59,7 @@ type localServer struct {
 	token  string
 	web    fs.FS        // the built page; nil: none
 	hub    *changeHub   // the decks' changes, for /api/events
+	collab *collabRooms
 	board  *statusBoard // the server's state, for /api/status and /api/events
 }
 
@@ -98,7 +99,11 @@ func newLocalServer(env *Env, bucket *fsBucket, token string, web fs.FS) http.Ha
 	s := &localServer{env: env, app: NewApp(env), bucket: bucket, token: token, web: web, board: newStatusBoard("ready", version)}
 	if db, ok := env.DB.(*fsDB); ok {
 		s.hub = newChangeHub()
-		db.changed = s.hub.written
+		s.collab = newCollabRooms()
+		db.changed = func(col, id string, doc Doc) {
+			s.collabWritten(col, id, doc)
+			s.hub.written(col, id, doc)
+		}
 	}
 	s.loadSettings()
 	return s

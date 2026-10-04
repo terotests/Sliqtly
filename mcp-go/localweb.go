@@ -197,6 +197,9 @@ func (s *localServer) api(w http.ResponseWriter, r *http.Request) {
 	case p == "/api/events" && r.Method == http.MethodGet:
 		s.events(w, r)
 		return
+	case collabPath.MatchString(p):
+		m := collabPath.FindStringSubmatch(p)
+		out, err = s.collabAPI(r, m[1], m[2])
 	case p == "/api/me" && r.Method == http.MethodGet:
 		out = map[string]string{"uid": s.env.LocalUser, "name": s.env.LocalUser}
 	case p == "/api/shares" && r.Method == http.MethodGet:

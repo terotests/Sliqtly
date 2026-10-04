@@ -1414,10 +1414,10 @@ class PresApp {
             this.placePresent()
             return
         }
-        ; the help panel, when it is open, takes the right edge
+        ; the help panel or the chat, when open, takes the right edge
         def AW:double W
-        if (panels.helpOpen && (barH > 0.0)) {
-            AW = (W - panels.helpW)
+        if (((panels.dockW()) > 0.0) && (barH > 0.0)) {
+            AW = (W - (panels.dockW()))
         }
         if ((AW < 320.0) && (AW < W)) {
             AW = W
@@ -1456,8 +1456,8 @@ class PresApp {
     ; Narrower than an editor and a slide side by side need.
     fn isCompact:boolean () {
         def AW:double W
-        if (panels.helpOpen && (barH > 0.0)) {
-            AW = (W - panels.helpW)
+        if (((panels.dockW()) > 0.0) && (barH > 0.0)) {
+            AW = (W - (panels.dockW()))
             if (AW < 320.0) {
                 AW = W
             }
@@ -2347,6 +2347,9 @@ class PresApp {
             }
         }
         if (PresApp.panelLayer(top)) {
+            if (panels.chatHas(x y)) {
+                focus = "chat"
+            }
             panels.press(x y)
             this.takePanels()
             return "panel"
@@ -2808,6 +2811,12 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return true
         }
+        if (panels.chatHas(x y)) {
+            panels.chat.scrollBy((? (dy < 0.0) -1 1))
+            panels.rebuild()
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         if (panels.filesHas(x y)) {
             if ((strlen filePath) == 0) {
                 panels.filesScrollBy(dy)
@@ -2932,6 +2941,9 @@ class PresApp {
                 chromeRev = (chromeRev + 1)
             }
             return true
+        }
+        if (this.chatHasKeys()) {
+            return (this.chatKey(name))
         }
         if (((barH > 0.0) && (toolbar.listOpen())) && (name == "escape")) {
             toolbar.closeLists()
@@ -3102,6 +3114,12 @@ class PresApp {
     }
 
     fn text:void (s:string) {
+        if (this.chatHasKeys()) {
+            panels.chat.typeChar("" s)
+            panels.rebuild()
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if (chart.isOpen && (mode != "present")) {
             chart.type(s)
             this.afterChart()
@@ -3612,7 +3630,7 @@ class PresApp {
         } {
             layers.setBand("bar" "docked")
         }
-        layers.setOpen("panels" ((panels.helpOpen || panels.filesOpen) && edit))
+        layers.setOpen("panels" (((panels.helpOpen || panels.filesOpen) || panels.chat.open) && edit))
         layers.setOpen("hint" (hint.isOpen && edit))
         layers.setOpen("chart" chart.isOpen)
         layers.setOpen("dialog" (panels.shareOpen && edit))
@@ -4234,6 +4252,135 @@ class PresApp {
 
     fn helpIsOpen:boolean () {
         return panels.helpOpen
+    }
+
+    ; --- editing together (a server of one's own: web/collab.js) --------------------
+    ; The chat beside the deck: the page adds what arrives and posts what is
+    ; sent ("chat-send" asks it to take it); "chat-closed" when it closed here.
+    fn chatOpen:void (on:boolean) {
+        panels.setChat(on)
+        if on {
+            focus = "chat"
+        } {
+            if (focus == "chat") {
+                focus = "editor"
+            }
+        }
+        panelsKey = ""
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn chatIsOpen:boolean () {
+        return panels.chat.open
+    }
+
+    ; -> false when the message was here already
+    fn chatAdd:boolean (id:string who:string name:string color:string text:string time:string mine:boolean) {
+        def added:boolean (panels.chat.add(id who name color text time mine))
+        if (added && panels.chat.open) {
+            panels.rebuild()
+            chromeRev = (chromeRev + 1)
+        }
+        return added
+    }
+
+    fn chatRename:void (who:string name:string color:string) {
+        panels.chat.rename(who name color)
+        if panels.chat.open {
+            panels.rebuild()
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    ; "(4)" while messages wait unread, else ""
+    fn chatBadge:string () {
+        return (panels.chat.badge())
+    }
+
+    fn chatTakeSent:string () {
+        return (panels.chat.takeSent())
+    }
+
+    fn chatHasKeys:boolean () {
+        return (((focus == "chat") && panels.chat.open) && (mode != "present"))
+    }
+
+    fn chatKey:boolean (name:string) {
+        def k:string ""
+        if (name == "escape") {
+            k = "Escape"
+        }
+        if (name == "enter") {
+            k = "Enter"
+        }
+        if (name == "backspace") {
+            k = "Backspace"
+        }
+        if (name == "pageUp") {
+            k = "PageUp"
+        }
+        if (name == "pageDown") {
+            k = "PageDown"
+        }
+        if ((strlen k) == 0) {
+            return false
+        }
+        panels.chat.keyDown("" k)
+        if ((strlen panels.chat.sent) > 0) {
+            push requests "chat-send"
+        }
+        if (panels.chat.open == false) {
+            focus = "editor"
+            push requests "chat-closed"
+        }
+        panels.rebuild()
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The Markdown editor's changes, counted: the page compares the text only
+    ; when this moved.
+    fn mdVersion:int () {
+        return mdEditor.buf.version
+    }
+
+    ; the caret and the selection's other end, as offsets in source()
+    fn mdCaret:int () {
+        return (mdEditor.caretOffset())
+    }
+
+    fn mdAnchor:int () {
+        return (mdEditor.anchorOffset())
+    }
+
+    ; Someone else's edit: `removed` units at `offset` replaced by `text`,
+    ; the caret, selection and undo history here kept around it. The deck
+    ; follows on `syncRemote`, once for all the edits that came together.
+    fn applyRemoteMd:void (offset:int removed:int text:string) {
+        mdEditor.applyRemoteAt(offset removed text)
+    }
+
+    fn syncRemote:void () {
+        if (mdEditor.buf.version == bufSynced) {
+            return
+        }
+        bufSynced = mdEditor.buf.version
+        this.rebuildDeck()
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The others' carets in the Markdown: "name<TAB>r<TAB>g<TAB>b<TAB>caret<TAB>anchor"
+    ; lines (offsets in source()).
+    fn setPeers:void (rows:string) {
+        mdEditor.clearPeers()
+        def lines:[string] (strsplit rows "\n")
+        for lines line:string i {
+            def f:[string] (strsplit line (strfromcode 9))
+            if ((array_length f) >= 6) {
+                mdEditor.addPeer((itemAt f 0) (?? (str2int (itemAt f 1)) 0) (?? (str2int (itemAt f 2)) 0) (?? (str2int (itemAt f 3)) 0) (?? (str2int (itemAt f 4)) 0) (?? (str2int (itemAt f 5)) 0))
+            }
+        }
+        chromeRev = (chromeRev + 1)
     }
 
     fn openShare:void (showUrl:string editUrl:string note:string) {
@@ -5268,6 +5415,16 @@ class PresApp {
     ; File → Duplicate: the same window, asking only the copy's name (`name`,
     ; the suggestion, all selected). Duplicate is "newdeck-create" too; the
     ; plan's "dup" says which.
+    ; Editing together: the window asks one's name (`name` now). Save is
+    ; "newdeck-create" with the plan's "ask" "name".
+    fn openAskName:boolean (name:string) {
+        if ((this.openDupDeck(name)) == false) {
+            return false
+        }
+        chart.openAskName(name chart.x chart.y W H)
+        return true
+    }
+
     fn openDupDeck:boolean (name:string) {
         if (mode == "present") {
             return false
@@ -5492,13 +5649,14 @@ class PresApp {
     }
 
     ; {"name": text, "theme": key, "data": "none"|"sample"|"file", "dup": a
-    ;  copy of the open deck (File → Duplicate)}
+    ;  copy of the open deck (File → Duplicate), "ask": "" | "dup" | "name"
+    ;  (one's own name for editing together: nothing is made)}
     fn newDeckPlan:string () {
         def dup:string "false"
-        if chart.ndDup {
+        if (chart.ndDup && (chart.ndAsk == "dup")) {
             dup = "true"
         }
-        return ("{\"name\":" + (PresApp.jsonStr(chart.ndName)) + ",\"theme\":" + (PresApp.jsonStr(chart.ndTheme)) + ",\"data\":" + (PresApp.jsonStr(chart.ndData)) + ",\"dup\":" + dup + "}")
+        return ("{\"name\":" + (PresApp.jsonStr(chart.ndName)) + ",\"theme\":" + (PresApp.jsonStr(chart.ndTheme)) + ",\"data\":" + (PresApp.jsonStr(chart.ndData)) + ",\"dup\":" + dup + ",\"ask\":" + (PresApp.jsonStr(chart.ndAsk)) + "}")
     }
 
     ; {"to": "slide"|"bg-slide"|"bg-all", "crop": "x,y,w,h" in pixels,

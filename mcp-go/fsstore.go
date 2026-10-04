@@ -37,13 +37,16 @@ import (
 type fsDB struct {
 	root string
 	mu   sync.Mutex
-	// told of every write, after it (localevents.go); nil: nobody
-	changed func(col, id string)
+	// told of every write, after it and before the next one, with what the
+	// document is now (nil: deleted); nil: nobody. It runs while the folder
+	// is locked, so it must not read or write the folder itself
+	// (localevents.go, collab.go)
+	changed func(col, id string, doc Doc)
 }
 
-func (d *fsDB) wrote(col, id string) {
+func (d *fsDB) wrote(col, id string, doc Doc) {
 	if d.changed != nil {
-		d.changed(col, id)
+		d.changed(col, id, doc)
 	}
 }
 
@@ -244,10 +247,10 @@ func (d *fsDB) Set(_ context.Context, col, id string, doc Doc) error {
 		return err
 	}
 	d.mu.Lock()
+	defer d.mu.Unlock()
 	err = writeDoc(p, doc)
-	d.mu.Unlock()
 	if err == nil {
-		d.wrote(col, id)
+		d.wrote(col, id, doc)
 	}
 	return err
 }
@@ -284,7 +287,7 @@ func (d *fsDB) Update(_ context.Context, col, id string, doc Doc) error {
 	if err := writeDoc(p, cur); err != nil {
 		return err
 	}
-	defer d.wrote(col, id)
+	d.wrote(col, id, cur)
 	return nil
 }
 
@@ -298,7 +301,7 @@ func (d *fsDB) Delete(_ context.Context, col, id string) error {
 	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	defer d.wrote(col, id)
+	d.wrote(col, id, nil)
 	return nil
 }
 
@@ -379,7 +382,7 @@ func (d *fsDB) Create(_ context.Context, col, id string, doc Doc) (Doc, error) {
 	if err := writeDoc(p, doc); err != nil {
 		return nil, err
 	}
-	defer d.wrote(col, id)
+	d.wrote(col, id, doc)
 	return nil, nil
 }
 

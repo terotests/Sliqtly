@@ -3819,7 +3819,7 @@ class PresDiagram {
         c.kind = 3
         c.x = it.x
         if (it.align != "left") {
-            def wd:double (l.measureStyled(it.text "Open Sans" it.fontSize it.bold false))
+            def wd:double (l.measureStyled(it.text "Open Sans" it.fontSize it.bold it.italic))
             c.x = ((it.x + (it.w * 0.5)) - (wd * 0.5))
         }
         c.y = it.y
@@ -3831,7 +3831,14 @@ class PresDiagram {
         if it.bold {
             c.fontWeight = "bold"
         }
-        PresDiagram.tint(c col alpha)
+        ; a remark (an ER attribute's comment) is set in italics, and dimmer
+        ; than the name it follows
+        def a:double alpha
+        if it.italic {
+            c.textAlign = "italic"
+            a = (alpha * 0.7)
+        }
+        PresDiagram.tint(c col a)
         push out.cmds c
     }
 

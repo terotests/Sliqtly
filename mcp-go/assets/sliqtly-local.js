@@ -17,6 +17,8 @@
 //   PUT    /api/files/shares/{id}/{path}   a file → { path, type, size, url }
 //   GET    /files/shares/{id}/{path}       read one
 //   DELETE /api/files/shares/{id}/{path}
+//   GET    /api/collab/{id}                editing together (mcp-go/collab.go):
+//   POST   /api/collab/{id}/op|presence|chat   the deck's room, web/collab.js
 
 const pro = document.getElementById("pro");
 let user = null;
@@ -107,11 +109,13 @@ async function listMine() {
   return (await api("GET", "/api/shares")) || [];
 }
 
+// `since.collab`: the deck's room writes the Markdown (web/collab.js), so
+// it is neither sent nor compared here
 async function saveShare(id, deck, since) {
   if (!user) throw new Error("not signed in");
   const cur = await loadShare(id);
   if (!cur) throw Object.assign(new Error("share not found"), { code: "not-found" });
-  if (since.md != null && cur.md !== since.md) throw Object.assign(new Error("changed elsewhere"), { code: "changed-elsewhere" });
+  if (!since.collab && since.md != null && cur.md !== since.md) throw Object.assign(new Error("changed elsewhere"), { code: "changed-elsewhere" });
   const had = new Map((cur.files || []).map((f) => [f.path, f]));
   const kept = [];
   for (const f of deck.files) {
@@ -125,10 +129,12 @@ async function saveShare(id, deck, since) {
   for (const path of had.keys()) {
     if (!deck.files.some((f) => f.path === path)) api("DELETE", "/api/files/shares/" + id + "/" + enc(path)).catch(() => {});
   }
-  await api("PATCH", "/api/shares/" + id, {
-    name: deck.name, md: deck.md, theme: deck.theme || "", css: deck.css ?? null, files: kept,
-    ifMd: since.md ?? null,
-  });
+  const patch = { name: deck.name, theme: deck.theme || "", css: deck.css ?? null, files: kept };
+  if (!since.collab) {
+    patch.md = deck.md;
+    patch.ifMd = since.md ?? null;
+  }
+  await api("PATCH", "/api/shares/" + id, patch);
   return kept;
 }
 
@@ -155,6 +161,29 @@ async function readHead(shareId) {
   return s ? { ...s, head: s.head || null, log: s.log || [] } : null;
 }
 
+// Editing a deck together: its room on this server (mcp-go/collab.go), for
+// web/collab.js's CollabSession. The room's stream is an EventSource of its
+// own; the browser reconnects it with Last-Event-ID, and the server sends
+// the edits it missed.
+const collab = {
+  snapshot: (id) => api("GET", "/api/collab/" + id),
+  send: (id, body) => api("POST", "/api/collab/" + id + "/op", body),
+  presence: (id, body) => api("POST", "/api/collab/" + id + "/presence", body),
+  chat: (id, body) => api("POST", "/api/collab/" + id + "/chat", body),
+  stream(id, q, onEvent, onOpen) {
+    const qs = new URLSearchParams({ room: id, client: q.client, who: q.who, name: q.name, color: q.color, rev: String(q.rev) });
+    const es = new EventSource("/api/events?" + qs);
+    // the first open is the join itself, a later one a reconnect
+    es.onopen = () => onOpen?.();
+    es.onmessage = (ev) => {
+      let m = null;
+      try { m = JSON.parse(ev.data); } catch (_) { return; }
+      if (m && m.t) onEvent(m);
+    };
+    return () => es.close();
+  },
+};
+
 // private Google Sheets need Google: not here
 async function readSheet() {
   throw Object.assign(new Error("Google Sheets are not available on this server"), { code: "auth" });
@@ -170,7 +199,7 @@ show();
 
 window.sliqtly = {
   auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, listMine, readSheet,
-  putObject, getObject, pushHead, readHead,
+  putObject, getObject, pushHead, readHead, collab,
   sheetsToken: () => null, askSheets: async () => null, sheetName: () => null,
 };
 window.dispatchEvent(new Event("sliqtly:ready"));
