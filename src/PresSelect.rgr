@@ -93,6 +93,8 @@ class PresSelect {
     ; the block under the pointer when it is not the pick, in slide units
     def hoverOn:boolean false
     def hoverSrc:int -1
+    ; the slide it is on (the pick's own `page` is -1 while nothing is picked)
+    def hoverPage:int -1
     def hx:double 0.0
     def hy:double 0.0
     def hw:double 0.0
@@ -518,6 +520,7 @@ class PresSelect {
         }
         hoverOn = true
         hoverSrc = probe.srcA
+        hoverPage = pg
         hx = probe.x
         hy = probe.y
         hw = probe.w

@@ -1298,6 +1298,86 @@ try {
   check("a list item is picked as li (text from the document, bullets from list)", pk.li.join("|") === "li|text|list" && pk.liContent.join(",") === "md,5,0,5,7", JSON.stringify([pk.li, pk.liContent]));
   check("…a paragraph with {.lead} gets the class's rule too, and Esc lets go", pk.p.join("|") === "p|.lead" && pk.cleared, JSON.stringify([pk.p, pk.cleared]));
 
+  // A diagram: the pointer over it outlines it before anything is picked; a
+  // click picks it, and its "Edit content" opens the diagram window, whose
+  // look, boxes and links are written into the fence. A table's opens the
+  // table window.
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const md = "# D\n\n## Kulku\n\n```mermaid\nflowchart LR\n  A[Alku] --> B[Toinen]\n  B --> C[Loppu]\n```\n\n## Taulu\n\n| Alue | Myynti |\n| :--- | ---: |\n| Etelä | 120 |\n\n## Data\n\n```table\ndata/check-sales.csv\nrows: 8\n```\n";
+    const at = await page.evaluate((t) => {
+      const a = window.__app;
+      a.showTab("md");
+      a.setSource(t);
+      a.selectSlide(1);
+      a.place();
+      a.pick.clear();
+      const u = a.deck.slideAt(1).diagrams[0], r = a.slideRect, sc = a.slideScale();
+      return [r.x + (u.bx + u.bw * 0.2) * sc, r.y + (u.by + u.bh * 0.8) * sc];
+    }, md);
+    await page.mouse.move(at[0] - 30, at[1]);
+    await page.mouse.move(at[0], at[1]);
+    const hov = await page.evaluate(() => { const a = window.__app; return [a.pick.on, a.pick.hoverOn, /sel-hover/.test(a.pickJson()) || a.pickJson().length > 0, a.pick.hoverOn]; });
+    await page.mouse.click(at[0], at[1]);
+    const btn = await page.evaluate(() => {
+      const a = window.__app;
+      a.pickJson();
+      return [a.pick.sel, a.pick.cx + 6, a.pick.cy + 6, a.pick.partAt(a.pick.cx + 6, a.pick.cy + 6)];
+    });
+    await page.mouse.move(btn[1], btn[2]);
+    await page.mouse.click(btn[1], btn[2]);
+    // a control of the window by its id, pressed where it is drawn
+    const press = async (tid) => {
+      const p = await page.evaluate((tid) => {
+        const c = window.__app.chart;
+        c.page();
+        const k = c.host.ctls.find((k) => k.tid === tid);
+        return k && k.rootEl ? [k.rootEl.calculatedX + k.rootEl.calculatedWidth / 2, k.rootEl.calculatedY + k.rootEl.calculatedHeight / 2] : null;
+      }, tid);
+      if (p) { await page.mouse.click(p[0], p[1]); await page.waitForTimeout(60); }
+      return !!p;
+    };
+    const win = await page.evaluate(() => { const c = window.__app.chart; return [c.isOpen, c.mode, c.flow.editable, c.flow.liveNodes().length]; });
+    const pressed = [await press("de-look-sketch"), await press("de-dir-TD")];
+    const fence = () => page.evaluate(() => window.__app.source().split("\n").slice(4, 10).join("\n"));
+    const looks = await fence();
+    // a box's words and a new box, from the Boxes tab
+    await page.evaluate(() => { const c = window.__app.chart; c.deTab = "boxes"; c.rebuild(); });
+    pressed.push(await press("de-n-B"));
+    await page.keyboard.press("End");
+    await page.keyboard.type("2");
+    pressed.push(await press("de-shape-3"));
+    await page.evaluate(() => { const c = window.__app.chart; c.deTab = "links"; c.rebuild(); });
+    pressed.push(await press("de-from"));
+    await page.keyboard.type("Loppu");
+    pressed.push(await press("de-to"));
+    await page.keyboard.type("Alku");
+    pressed.push(await press("de-addedge"));
+    const boxes = await fence();
+    pressed.push(await press("ce-done"));
+    const closed = await page.evaluate(() => !window.__app.chart.isOpen);
+    // the table: its window, a cell and an alignment
+    await page.evaluate(() => { const a = window.__app; a.selectSlide(2); a.place(); });
+    const tl = await page.evaluate(() => { const a = window.__app; const t = a.source().split("\n"); const line = t.findIndex((l) => l.startsWith("| Alue")); return [a.openTableEditor(line), a.chart.mode, a.chart.grid.cols(), a.chart.grid.rowCount()]; });
+    pressed.push(await press("ge-c-0-1"));
+    await page.keyboard.press("End");
+    await page.keyboard.type("5");
+    pressed.push(await press("ge-align-center"));
+    pressed.push(await press("ge-addrow"));
+    await page.keyboard.type("Länsi");
+    const table = await page.evaluate(() => { const t = window.__app.source().split("\n"); const at = t.findIndex((l) => l.startsWith("| Alue")); return t.slice(at, at + 4).join("\n"); });
+    await page.keyboard.press("Escape");
+    const dataTable = await page.evaluate(() => { const a = window.__app; const t = a.source().split("\n"); const line = t.findIndex((l) => l.startsWith("```table")); const ok = a.openTableEditor(line); const c = a.chart; return [ok, c.grid.kind, c.grid.file, c.grid.option("rows")]; });
+    await page.evaluate(() => window.__app.closeChart());
+    await page.evaluate((t) => { const a = window.__app; a.pick.clear(); a.setSource(t); }, src0);
+    check("the pointer over a diagram outlines it before anything is picked", hov.join(",") === "false,true,true,true", JSON.stringify(hov));
+    check("…a click picks it, and Edit content opens the diagram window", btn[0] === "diagram" && btn[3] === "content" && win.join(",") === "true,diagram,true,3", JSON.stringify([btn, win]));
+    check("…its look and direction are written under and into the fence", /flowchart TD\n/.test(looks) && /\{style=sketch layout=keep\}/.test(looks), looks);
+    check("…a box's words and shape, and a link to a box by its words", /B\{Toinen2\}/.test(boxes) && /C --> A\n/.test(boxes) && pressed.every(Boolean) && closed, JSON.stringify([boxes, pressed]));
+    check("a table's Edit content opens the table window: a cell, an alignment and a row written", tl.join(",") === "true,grid,2,1" && table === "| Alue | Myynti |\n| :--- | :---: |\n| Etelä | 1205 |\n| Länsi |  |", JSON.stringify([tl, table]));
+    check("…a data file's table opens with its options", dataTable.join(",") === "true,file,data/check-sales.csv,8", JSON.stringify(dataTable));
+  }
+
   // Style with the Files tab open: the popover is a window, so it is drawn
   // over the docked files panel and a press on it is its own (UiLayers)
   const zo = await page.evaluate(() => {

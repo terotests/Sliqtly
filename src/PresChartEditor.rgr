@@ -29,6 +29,8 @@
 
 Import "PresChartModel.rgr"
 Import "PresImageModel.rgr"
+Import "PresFlowModel.rgr"
+Import "PresGridModel.rgr"
 Import "PresDocSettings.rgr"
 Import "PresColorPanel.rgr"
 Import "../evgui/src/UiHost.rgr"
@@ -155,6 +157,23 @@ class PresChartEditor {
     ; id and text.
     def texts:[TextCtl]
     def textsBefore:[TextCtl]
+    ; A diagram (`mode` "diagram") and a table (`mode` "grid"): the block
+    ; as its model, written back into the Markdown at every change. The
+    ; tab showing, the page of a long list (eight to a page), the box, link
+    ; or column the shape, line and alignment buttons are for, and the new
+    ; link's fields. "Edit as text" (`wantsText`) closes the window with the
+    ; block selected in the editor.
+    def flow:PresFlowModel (new PresFlowModel())
+    def grid:PresGridModel (new PresGridModel())
+    def deTab:string "diagram"
+    def listPage:int 0
+    def selNode:string ""
+    def selEdge:int -1
+    def selCol:int 0
+    def linkFrom:string ""
+    def linkTo:string ""
+    def linkLabel:string ""
+    def wantsText:boolean false
 
     Constructor () {
     }
@@ -273,6 +292,32 @@ class PresChartEditor {
         cfOk = ok
         wantsConfirm = false
         this.openAt(px py pw ph)
+    }
+
+    fn openDiagram:void (m:PresFlowModel px:double py:double pw:double ph:double) {
+        mode = "diagram"
+        flow = m
+        deTab = "diagram"
+        this.resetLists()
+        this.openAt(px py pw ph)
+    }
+
+    fn openGrid:void (m:PresGridModel px:double py:double pw:double ph:double) {
+        mode = "grid"
+        grid = m
+        this.resetLists()
+        this.openAt(px py pw ph)
+    }
+
+    fn resetLists:void () {
+        listPage = 0
+        selNode = ""
+        selEdge = -1
+        selCol = 0
+        linkFrom = ""
+        linkTo = ""
+        linkLabel = ""
+        wantsText = false
     }
 
     fn open:void (m:PresChartModel px:double py:double pw:double ph:double) {
@@ -668,6 +713,14 @@ class PresChartEditor {
             win.name = cfTitle
             win.title = cfTitle
         }
+        if (mode == "diagram") {
+            win.name = (PresI18n.t("Diagram"))
+            win.title = win.name
+        }
+        if (mode == "grid") {
+            win.name = (PresI18n.t("Table"))
+            win.title = win.name
+        }
         win.closeLabel = (PresI18n.t("Close"))
         win.isModal = false
         win.x = x
@@ -693,6 +746,14 @@ class PresChartEditor {
     }
 
     fn fillBody:void (root:EVGElement) {
+        if (mode == "diagram") {
+            this.diagramBody(root)
+            return
+        }
+        if (mode == "grid") {
+            this.gridBody(root)
+            return
+        }
         if (mode == "confirm") {
             this.confirmBody(root)
             return
@@ -1693,6 +1754,593 @@ class PresChartEditor {
         pane.addChild(foot)
     }
 
+    ; --- a diagram ----------------------------------------------------------------
+    ; The rows of a long list shown: eight from `listPage` on.
+    fn pageOf:int (count:int) {
+        def pages:int (idiv (count + 7) 8)
+        if (pages < 1) {
+            pages = 1
+        }
+        if (listPage >= pages) {
+            listPage = (pages - 1)
+        }
+        if (listPage < 0) {
+            listPage = 0
+        }
+        return pages
+    }
+
+    ; ‹ 1 / 3 › under a list longer than a page
+    fn pager:void (parent:EVGElement pages:int) {
+        if (pages <= 1) {
+            return
+        }
+        def b0:ButtonCtl (this.button("bk-prev" "‹" "outline" parent))
+        UiTree.addClass((unwrap b0.rootEl) "ce-x")
+        parent.addChild((this.text("ce-doc" ((to_string (listPage + 1)) + " / " + (to_string pages)))))
+        def b1:ButtonCtl (this.button("bk-next" "›" "outline" parent))
+        UiTree.addClass((unwrap b1.rootEl) "ce-x")
+    }
+
+    ; The shapes the window offers, "open close name" each.
+    sfn shapeList:[string] () {
+        ; i18n: "Box" "Rounded" "Pill" "Diamond" "Circle" "Database" "Hexagon" "Subroutine"
+        return (strsplit "[ ] Box,( ) Rounded,([ ]) Pill,{ } Diamond,(( )) Circle,[( )] Database,{{ }} Hexagon,[[ ]] Subroutine" ",")
+    }
+
+    fn diagramBody:void (root:EVGElement) {
+        if flow.editable {
+            def t0 (new TabsCtl())
+            tabs = t0
+            tabs.tid = "de-tabs"
+            tabs.name = (PresI18n.t("Diagram"))
+            tabs.addItem("diagram" (PresI18n.t("Diagram")) "" false)
+            tabs.addItem("boxes" (PresI18n.t("Boxes")) "" false)
+            tabs.addItem("links" (PresI18n.t("Links")) "" false)
+            tabs.value = deTab
+            tabs.build()
+            UiTree.addClass((unwrap tabs.rootEl) "ce-tabs")
+            this.put(tabs root)
+        } {
+            deTab = "diagram"
+        }
+        def pane:EVGElement (this.div("ce-pane"))
+        root.addChild(pane)
+        if (deTab == "boxes") {
+            this.boxesTab(pane)
+        }
+        if (deTab == "links") {
+            this.linksTab(pane)
+        }
+        if (deTab == "diagram") {
+            this.diagramTab(pane)
+        }
+        this.blockFoot(root)
+    }
+
+    fn diagramTab:void (pane:EVGElement) {
+        def lk:EVGElement (this.section(pane (PresI18n.t("Look"))))
+        def chips:EVGElement (this.div("ce-chips"))
+        def look:string (flow.look())
+        this.chip("de-look-holo" (PresI18n.t("Holo")) (look == "holo") chips)
+        this.chip("de-look-sketch" (PresI18n.t("Sketch")) (look == "sketch") chips)
+        this.chip("de-look-classic" (PresI18n.t("Classic")) (look == "classic") chips)
+        lk.addChild(chips)
+        if (look == "classic") {
+            lk.addChild((this.text("ce-doc" (PresI18n.t("Classic is drawn still, in the slide's colours: no tour, no moving dot.")))))
+        }
+        if flow.editable {
+            def dr:EVGElement (this.section(pane (PresI18n.t("Direction"))))
+            def dc:EVGElement (this.div("ce-chips"))
+            def d:string flow.dir
+            if ((d == "TB") || (d == "")) {
+                d = "TD"
+            }
+            this.chip("de-dir-LR" (PresI18n.t("Left to right")) (d == "LR") dc)
+            this.chip("de-dir-TD" (PresI18n.t("Top to bottom")) (d == "TD") dc)
+            this.chip("de-dir-RL" (PresI18n.t("Right to left")) (d == "RL") dc)
+            this.chip("de-dir-BT" (PresI18n.t("Bottom to top")) (d == "BT") dc)
+            dr.addChild(dc)
+        }
+        def op:EVGElement (this.section(pane (PresI18n.t("On the slide"))))
+        this.switchOf("de-f-layout" (PresI18n.t("Keep the direction as written")) (flow.flag("layout")) op)
+        if (look != "classic") {
+            this.switchOf("de-f-tour" (PresI18n.t("Tour starts with the slide")) (flow.flag("tour")) op)
+            this.switchOf("de-f-ball" (PresI18n.t("Moving dot along the links")) (flow.flag("ball")) op)
+            this.switchOf("de-f-choose" (PresI18n.t("Ask at branches during the tour")) (flow.flag("choose")) op)
+        }
+        if (flow.editable == false) {
+            pane.addChild((this.text("ce-doc" ((PresI18n.t("Its boxes and links are written in ")) + (flow.notationName()) + (PresI18n.t(": edit them as text in the Markdown."))))))
+        }
+    }
+
+    fn boxesTab:void (pane:EVGElement) {
+        def list:[PresFlowNode] (flow.liveNodes())
+        def pages:int (this.pageOf((array_length list)))
+        def grid0:EVGElement (this.div("ce-grid"))
+        def i:int (listPage * 8)
+        def end:int (i + 8)
+        while ((i < end) && (i < (array_length list))) {
+            def nd:PresFlowNode (itemAt list i)
+            def row:EVGElement (this.div("ce-gridrow"))
+            def lc:string "ce-flowlabel"
+            if (nd.id == selNode) {
+                lc = "ce-flowlabel ce-sel"
+            }
+            this.inputWith(("de-n-" + nd.id) (PresI18n.t("Box")) nd.label nd.id lc row)
+            def x0:ButtonCtl (this.button(("de-deln-" + nd.id) "×" "ghost" row))
+            UiTree.addClass((unwrap x0.rootEl) "ce-x")
+            grid0.addChild(row)
+            i = (i + 1)
+        }
+        pane.addChild(grid0)
+        def foot:EVGElement (this.div("ce-row"))
+        this.button("de-addnode" (PresI18n.t("+ Box")) "outline" foot)
+        this.pager(foot pages)
+        pane.addChild(foot)
+        def k:int (flow.nodeIndex(selNode))
+        if (k < 0) {
+            pane.addChild((this.text("ce-doc" (PresI18n.t("Click a box's words to change its shape.")))))
+            return
+        }
+        def sel:PresFlowNode (itemAt flow.nodes k)
+        def sh:EVGElement (this.section(pane ((PresI18n.t("Shape of ")) + "“" + sel.label + "”")))
+        def chips:EVGElement (this.div("ce-chips"))
+        def shapes:[string] (PresChartEditor.shapeList())
+        def s:int 0
+        while (s < (array_length shapes)) {
+            def parts:[string] (strsplit (itemAt shapes s) " ")
+            def on:boolean (((itemAt parts 0) == sel.open) && ((itemAt parts 1) == sel.close))
+            this.chip(("de-shape-" + (to_string s)) (PresI18n.t((itemAt parts 2))) on chips)
+            s = (s + 1)
+        }
+        sh.addChild(chips)
+    }
+
+    fn linksTab:void (pane:EVGElement) {
+        def list:[int] (flow.liveEdges())
+        def pages:int (this.pageOf((array_length list)))
+        def grid0:EVGElement (this.div("ce-grid"))
+        def i:int (listPage * 8)
+        def end:int (i + 8)
+        while ((i < end) && (i < (array_length list))) {
+            def ei:int (itemAt list i)
+            def e:PresFlowEdge (itemAt flow.edges ei)
+            def row:EVGElement (this.div("ce-gridrow"))
+            def arrow:string " — "
+            if (PresFlowModel.hasArrow(e.op)) {
+                arrow = " → "
+            }
+            row.addChild((this.text("ce-flowends" ((flow.labelOf(e.from)) + arrow + (flow.labelOf(e.to))))))
+            def lc:string "ce-flowedge"
+            if (ei == selEdge) {
+                lc = "ce-flowedge ce-sel"
+            }
+            this.inputWith(("de-e-" + (to_string ei)) (PresI18n.t("Words on the link")) e.label (PresI18n.t("words")) lc row)
+            def x0:ButtonCtl (this.button(("de-dele-" + (to_string ei)) "×" "ghost" row))
+            UiTree.addClass((unwrap x0.rootEl) "ce-x")
+            grid0.addChild(row)
+            i = (i + 1)
+        }
+        pane.addChild(grid0)
+        def pr:EVGElement (this.div("ce-row"))
+        this.pager(pr pages)
+        pane.addChild(pr)
+        if ((selEdge >= 0) && (selEdge < (array_length flow.edges))) {
+            def se:PresFlowEdge (itemAt flow.edges selEdge)
+            if (se.dead == false) {
+                def ln:EVGElement (this.section(pane ((PresI18n.t("Line of ")) + (flow.labelOf(se.from)) + " → " + (flow.labelOf(se.to)))))
+                def chips:EVGElement (this.div("ce-chips"))
+                def kind:string (PresFlowModel.lineOf(se.op))
+                this.chip("de-line-solid" (PresI18n.t("Solid")) (kind == "solid") chips)
+                this.chip("de-line-dotted" (PresI18n.t("Dotted")) (kind == "dotted") chips)
+                this.chip("de-line-thick" (PresI18n.t("Thick")) (kind == "thick") chips)
+                this.button("de-reverse" (PresI18n.t("Reverse")) "outline" chips)
+                ln.addChild(chips)
+                this.switchOf("de-arrow" (PresI18n.t("Arrow head")) (PresFlowModel.hasArrow(se.op)) ln)
+            }
+        } {
+            pane.addChild((this.text("ce-doc" (PresI18n.t("Click a link's words to change its line.")))))
+        }
+        def add:EVGElement (this.section(pane (PresI18n.t("New link"))))
+        def ar:EVGElement (this.div("ce-row"))
+        this.inputWith("de-from" (PresI18n.t("From")) linkFrom (PresI18n.t("from box")) "ce-cell ce-cat" ar)
+        this.inputWith("de-to" (PresI18n.t("To")) linkTo (PresI18n.t("to box")) "ce-cell ce-cat" ar)
+        this.inputWith("de-elabel" (PresI18n.t("Words on the link")) linkLabel (PresI18n.t("words")) "ce-cell" ar)
+        this.button("de-addedge" (PresI18n.t("Add")) "primary" ar)
+        add.addChild(ar)
+        add.addChild((this.text("ce-doc" (PresI18n.t("Type a box's words (or its id); a name no box has makes a new box.")))))
+    }
+
+    ; Edit as text, the note and Done: the diagram's and the table's
+    fn blockFoot:void (root:EVGElement) {
+        def bottom:EVGElement (this.div("ce-foot"))
+        this.button("bk-text" (PresI18n.t("Edit as text")) "outline" bottom)
+        def note:string (PresI18n.t("Changes show on the slide right away."))
+        if ((strlen message) > 0) {
+            note = message
+        }
+        bottom.addChild((this.copyable("ce-t-msg" "ce-doc" note)))
+        bottom.addChild((this.div("ce-grow")))
+        this.button("ce-done" (PresI18n.t("Done")) "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    ; A press on a field that has buttons of its own under the list: true when
+    ; what they are for changed.
+    fn selectFor:boolean (tid:string) {
+        if ((mode == "diagram") && ((indexOf tid "de-n-") == 0)) {
+            def id:string (substring tid 5 (strlen tid))
+            if (id != selNode) {
+                selNode = id
+                return true
+            }
+        }
+        if ((mode == "diagram") && ((indexOf tid "de-e-") == 0)) {
+            def ei:int (?? (str2int (substring tid 5 (strlen tid))) -1)
+            if (ei != selEdge) {
+                selEdge = ei
+                return true
+            }
+        }
+        if ((mode == "grid") && ((indexOf tid "ge-") == 0)) {
+            def parts:[string] (strsplit tid "-")
+            def c:int (?? (str2int (itemAt parts ((array_length parts) - 1))) -1)
+            if ((c >= 0) && (c != selCol)) {
+                selCol = c
+                return true
+            }
+        }
+        return false
+    }
+
+    fn diagramAct:boolean (tid:string) {
+        if (this.listAct(tid)) {
+            return true
+        }
+        if ((indexOf tid "de-look-") == 0) {
+            flow.setLook((substring tid 8 (strlen tid)))
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if ((indexOf tid "de-dir-") == 0) {
+            ; a direction chosen is the one drawn, not the one that draws largest
+            flow.setDir((substring tid 7 (strlen tid)))
+            flow.setFlag("layout" true)
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if ((indexOf tid "de-f-") == 0) {
+            def key:string (substring tid 5 (strlen tid))
+            flow.setFlag(key ((flow.flag(key)) == false))
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if ((indexOf tid "de-shape-") == 0) {
+            def s:int (?? (str2int (substring tid 9 (strlen tid))) -1)
+            def shapes:[string] (PresChartEditor.shapeList())
+            if ((s >= 0) && (s < (array_length shapes))) {
+                def parts:[string] (strsplit (itemAt shapes s) " ")
+                flow.setShape(selNode (itemAt parts 0) (itemAt parts 1))
+                changed = true
+            }
+            this.rebuild()
+            return true
+        }
+        if ((indexOf tid "de-deln-") == 0) {
+            def id:string (substring tid 8 (strlen tid))
+            flow.removeNode(id)
+            if (id == selNode) {
+                selNode = ""
+            }
+            focusTid = ""
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if (tid == "de-addnode") {
+            def nid:string (flow.addNode((PresI18n.t("New box"))))
+            selNode = nid
+            this.pageOf((array_length (flow.liveNodes())))
+            listPage = (idiv ((array_length (flow.liveNodes())) - 1) 8)
+            focusTid = ("de-n-" + nid)
+            changed = true
+            this.rebuild()
+            this.selectAllInField()
+            return true
+        }
+        if ((indexOf tid "de-dele-") == 0) {
+            def ei:int (?? (str2int (substring tid 8 (strlen tid))) -1)
+            if ((ei >= 0) && (ei < (array_length flow.edges))) {
+                flow.removeEdge(ei)
+                if (ei == selEdge) {
+                    selEdge = -1
+                }
+                changed = true
+            }
+            focusTid = ""
+            this.rebuild()
+            return true
+        }
+        if ((indexOf tid "de-line-") == 0) {
+            if (selEdge >= 0) {
+                flow.setEdgeLine(selEdge (substring tid 8 (strlen tid)))
+                changed = true
+            }
+            this.rebuild()
+            return true
+        }
+        if (tid == "de-arrow") {
+            if (selEdge >= 0) {
+                def se:PresFlowEdge (itemAt flow.edges selEdge)
+                flow.setEdgeArrow(selEdge ((PresFlowModel.hasArrow(se.op)) == false))
+                changed = true
+            }
+            this.rebuild()
+            return true
+        }
+        if (tid == "de-reverse") {
+            if (selEdge >= 0) {
+                flow.reverseEdge(selEdge)
+                changed = true
+            }
+            this.rebuild()
+            return true
+        }
+        if (tid == "de-addedge") {
+            this.addLink()
+            return true
+        }
+        return false
+    }
+
+    ; The new link's fields made into a link (and its boxes, when new).
+    fn addLink:void () {
+        if (((strlen (trim linkFrom)) == 0) || ((strlen (trim linkTo)) == 0)) {
+            message = (PresI18n.t("Type the box the link starts from and the box it goes to."))
+            this.rebuild()
+            return
+        }
+        def a:string (flow.findOrAdd(linkFrom))
+        def b:string (flow.findOrAdd(linkTo))
+        selEdge = (flow.addEdge(a b (trim linkLabel)))
+        linkFrom = ""
+        linkTo = ""
+        linkLabel = ""
+        focusTid = ""
+        def n:int (array_length (flow.liveEdges()))
+        listPage = (idiv (n - 1) 8)
+        changed = true
+        this.rebuild()
+    }
+
+    ; the pager and Edit as text, for both
+    fn listAct:boolean (tid:string) {
+        if (tid == "bk-prev") {
+            listPage = (listPage - 1)
+            focusTid = ""
+            this.rebuild()
+            return true
+        }
+        if (tid == "bk-next") {
+            listPage = (listPage + 1)
+            focusTid = ""
+            this.rebuild()
+            return true
+        }
+        if (tid == "bk-text") {
+            wantsText = true
+            wantsClose = true
+            return true
+        }
+        return false
+    }
+
+    ; A field of the diagram or the table into its model.
+    fn takeBlock:void (tid:string v:string) {
+        if ((indexOf tid "de-n-") == 0) {
+            flow.setLabel((substring tid 5 (strlen tid)) v)
+            changed = true
+            return
+        }
+        if ((indexOf tid "de-e-") == 0) {
+            def ei:int (?? (str2int (substring tid 5 (strlen tid))) -1)
+            if ((ei >= 0) && (ei < (array_length flow.edges))) {
+                flow.setEdgeLabel(ei v)
+                changed = true
+            }
+            return
+        }
+        if (tid == "de-from") {
+            linkFrom = v
+            return
+        }
+        if (tid == "de-to") {
+            linkTo = v
+            return
+        }
+        if (tid == "de-elabel") {
+            linkLabel = v
+            return
+        }
+        if ((indexOf tid "ge-h-") == 0) {
+            grid.setCell(-1 (?? (str2int (substring tid 5 (strlen tid))) -1) v)
+            changed = true
+            return
+        }
+        if ((indexOf tid "ge-c-") == 0) {
+            def parts:[string] (strsplit (substring tid 5 (strlen tid)) "-")
+            if ((array_length parts) == 2) {
+                grid.setCell((?? (str2int (itemAt parts 0)) -1) (?? (str2int (itemAt parts 1)) -1) v)
+                changed = true
+            }
+            return
+        }
+        if ((indexOf tid "gf-") == 0) {
+            grid.setOption((substring tid 3 (strlen tid)) (trim v))
+            changed = true
+        }
+    }
+
+    ; --- a table ------------------------------------------------------------------
+    fn gridBody:void (root:EVGElement) {
+        def pane:EVGElement (this.div("ce-pane"))
+        root.addChild(pane)
+        if (grid.kind == "file") {
+            this.fileTableBody(pane)
+            this.blockFoot(root)
+            return
+        }
+        def cols:int (grid.cols())
+        def cls:string "ce-cell"
+        if (cols > 5) {
+            cls = "ce-cell ce-cell-s"
+        }
+        def tbl:EVGElement (this.div("ce-grid"))
+        def hr:EVGElement (this.div("ce-gridrow ce-gridhead"))
+        def c:int 0
+        while (c < cols) {
+            this.input(("ge-h-" + (to_string c)) (PresI18n.t("Column")) (grid.cell(-1 c)) (cls + " ce-head") hr)
+            c = (c + 1)
+        }
+        tbl.addChild(hr)
+        def pages:int (this.pageOf((grid.rowCount())))
+        def r:int (listPage * 8)
+        def end:int (r + 8)
+        while ((r < end) && (r < (grid.rowCount()))) {
+            def row:EVGElement (this.div("ce-gridrow"))
+            def cc:int 0
+            while (cc < cols) {
+                this.input(("ge-c-" + (to_string r) + "-" + (to_string cc)) (PresI18n.t("Cell")) (grid.cell(r cc)) cls row)
+                cc = (cc + 1)
+            }
+            def x0:ButtonCtl (this.button(("ge-delrow-" + (to_string r)) "×" "ghost" row))
+            UiTree.addClass((unwrap x0.rootEl) "ce-x")
+            tbl.addChild(row)
+            r = (r + 1)
+        }
+        pane.addChild(tbl)
+        def foot:EVGElement (this.div("ce-row"))
+        this.button("ge-addrow" (PresI18n.t("+ Row")) "outline" foot)
+        this.button("ge-addcol" (PresI18n.t("+ Column")) "outline" foot)
+        this.pager(foot pages)
+        pane.addChild(foot)
+        if (selCol >= cols) {
+            selCol = (cols - 1)
+        }
+        def name:string (grid.cell(-1 selCol))
+        if ((strlen name) == 0) {
+            name = (to_string (selCol + 1))
+        }
+        def al:EVGElement (this.section(pane ((PresI18n.t("Column ")) + "“" + name + "”")))
+        def chips:EVGElement (this.div("ce-chips"))
+        def a:string (itemAt grid.aligns selCol)
+        this.chip("ge-align-" (PresI18n.t("From theme")) ((strlen a) == 0) chips)
+        this.chip("ge-align-left" (PresI18n.t("Left")) (a == "left") chips)
+        this.chip("ge-align-center" (PresI18n.t("Center")) (a == "center") chips)
+        this.chip("ge-align-right" (PresI18n.t("Right")) (a == "right") chips)
+        al.addChild(chips)
+        def mv:EVGElement (this.div("ce-row"))
+        this.button("ge-colleft" (PresI18n.t("Move left")) "outline" mv)
+        this.button("ge-colright" (PresI18n.t("Move right")) "outline" mv)
+        if (cols > 1) {
+            this.button("ge-delcol" (PresI18n.t("Remove column")) "outline" mv)
+        }
+        al.addChild(mv)
+        al.addChild((this.text("ce-doc" (PresI18n.t("Click a cell to choose its column.")))))
+    }
+
+    fn fileTableBody:void (pane:EVGElement) {
+        def src:EVGElement (this.field((PresI18n.t("File"))))
+        src.addChild((this.copyable("ge-t-file" "ce-value" grid.file)))
+        pane.addChild(src)
+        def opts:EVGElement (this.section(pane (PresI18n.t("On the slide"))))
+        def r0:EVGElement (this.field((PresI18n.t("Rows per page"))))
+        this.inputWith("gf-rows" (PresI18n.t("Rows per page")) (grid.option("rows")) "8" "ce-cell" r0)
+        opts.addChild(r0)
+        def r1:EVGElement (this.field((PresI18n.t("Columns"))))
+        this.inputWith("gf-columns" (PresI18n.t("Columns")) (grid.option("columns")) (PresI18n.t("all")) "ce-wide" r1)
+        opts.addChild(r1)
+        def r2:EVGElement (this.field((PresI18n.t("Page in exports"))))
+        this.inputWith("gf-page" (PresI18n.t("Page in exports")) (grid.option("page")) "1" "ce-cell" r2)
+        opts.addChild(r2)
+        if (grid.live()) {
+            def r3:EVGElement (this.field((PresI18n.t("Sheet"))))
+            this.inputWith("gf-sheet" (PresI18n.t("Sheet")) (grid.option("sheet")) (PresI18n.t("first")) "ce-wide" r3)
+            opts.addChild(r3)
+        }
+        opts.addChild((this.text("ce-doc" (PresI18n.t("Columns by their header, separated by commas. The cells are in the file: edit it on the Files tab.")))))
+        def row:EVGElement (this.div("ce-row"))
+        this.button("ge-openfile" (PresI18n.t("Open file")) "outline" row)
+        pane.addChild(row)
+    }
+
+    fn gridAct:boolean (tid:string) {
+        if (this.listAct(tid)) {
+            return true
+        }
+        if (tid == "ge-openfile") {
+            wantsFile = grid.file
+            wantsClose = true
+            return true
+        }
+        if (tid == "ge-addrow") {
+            grid.addRow()
+            selCol = 0
+            listPage = (idiv ((grid.rowCount()) - 1) 8)
+            focusTid = ("ge-c-" + (to_string ((grid.rowCount()) - 1)) + "-0")
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if (tid == "ge-addcol") {
+            grid.addCol((PresI18n.t("Column")))
+            selCol = ((grid.cols()) - 1)
+            focusTid = ("ge-h-" + (to_string selCol))
+            changed = true
+            this.rebuild()
+            this.selectAllInField()
+            return true
+        }
+        if (tid == "ge-delcol") {
+            grid.removeCol(selCol)
+            focusTid = ""
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if ((tid == "ge-colleft") || (tid == "ge-colright")) {
+            def to:int (selCol - 1)
+            if (tid == "ge-colright") {
+                to = (selCol + 1)
+            }
+            if (grid.moveCol(selCol to)) {
+                selCol = to
+                changed = true
+            }
+            focusTid = ""
+            this.rebuild()
+            return true
+        }
+        if ((indexOf tid "ge-delrow-") == 0) {
+            grid.removeRow((?? (str2int (substring tid 10 (strlen tid))) -1))
+            focusTid = ""
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if ((indexOf tid "ge-align-") == 0) {
+            grid.setAlign(selCol (substring tid 9 (strlen tid)))
+            changed = true
+            this.rebuild()
+            return true
+        }
+        return false
+    }
+
     ; --- drawing ------------------------------------------------------------------
     fn page:EVGElement () {
         def r:EVGElement (unwrap host.root)
@@ -1869,6 +2517,17 @@ class PresChartEditor {
             }
             return
         }
+        if ((mode == "diagram") && (ctlTid == tabs.tid)) {
+            host.click(tid)
+            keep.restore()
+            if (tabs.value != deTab) {
+                deTab = tabs.value
+                listPage = 0
+                focusTid = ""
+                this.rebuild()
+            }
+            return
+        }
         if ((mode == "newdeck") && (ctlTid == tabs.tid)) {
             host.click(tid)
             keep.restore()
@@ -1919,6 +2578,12 @@ class PresChartEditor {
                 return
             }
             if (focusTid != ctlTid) {
+                ; a box's, a link's or a column's field: the buttons under
+                ; the list are for it now
+                if (this.selectFor(ctlTid)) {
+                    focusTid = ctlTid
+                    this.rebuild()
+                }
                 this.focusInput(ctlTid)
             }
             ; the caret where the press landed, a word or all of it; a drag
@@ -2138,6 +2803,12 @@ class PresChartEditor {
         if ((mode == "confirm") && (this.confirmAct(tid))) {
             return
         }
+        if ((mode == "diagram") && (this.diagramAct(tid))) {
+            return
+        }
+        if ((mode == "grid") && (this.gridAct(tid))) {
+            return
+        }
         if (tid == "ce-done") {
             wantsClose = true
             return
@@ -2295,6 +2966,11 @@ class PresChartEditor {
             if ((n >= 0) && (n < 6)) {
                 set ds.texts n v
             }
+        }
+        if ((mode == "diagram") || (mode == "grid")) {
+            this.takeBlock(focusTid v)
+            rev = (rev + 1)
+            return
         }
         if ((indexOf focusTid "ce-h-") == 0) {
             model.setHeader((?? (str2int (substring focusTid 5 (strlen focusTid))) -1) v)

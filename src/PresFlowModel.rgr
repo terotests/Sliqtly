@@ -1,0 +1,1157 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresFlowModel.rgr — a diagram fence, as the settings and boxes it has
+; ============================================================================
+;
+;   ```mermaid
+;   flowchart LR
+;     A[Kokous] --> B(Selain)
+;     B -->|ääni| C{Gemini}
+;   ```
+;   {style=sketch tour=on}
+;
+; What the diagram window edits:
+;
+;   the look       holo (the default), sketch (`style=sketch`) or the
+;                  document's own drawing (`diagram=classic`)
+;   the options    `tour=on` (the tour starts with the slide), `ball=off`
+;                  (no moving dot), `choose=off` (no questions),
+;                  `layout=keep` (the direction as written, not the one
+;                  that draws largest)
+;   a flowchart's  direction (`flowchart LR` / TD / RL / BT), its boxes
+;                  (words and shape) and its links (words and line), boxes
+;                  and links added and taken out
+;
+; Only the lines an edit touches are written again; every other line (a
+; subgraph, a classDef, a comment, a statement this does not read) stays as
+; it was typed. A box's words and shape are written where it was defined. A
+; diagram in another notation (Graphviz, D2, PlantUML, a sequence diagram…)
+; is edited for its look and options; its text stays in the Markdown.
+; ============================================================================
+
+class PresFlowNode {
+    def id:string ""
+    def label:string ""
+    ; the brackets round its words: "[" "]" a box, "(" ")" rounded, "{" "}"
+    ; a diamond…
+    def open:string "["
+    def close:string "]"
+    def quoted:boolean false
+    ; written with its words and shape somewhere (not only as an id)
+    def explicit:boolean false
+    ; the body line its words and shape are written on
+    def defLine:int -1
+    def dead:boolean false
+}
+
+class PresFlowEdge {
+    def from:string ""
+    def to:string ""
+    def label:string ""
+    ; the link as written ("-->", "-.->", "==>", "---"…)
+    def op:string "-->"
+    def line:int -1
+    def dead:boolean false
+}
+
+class PresFlowLine {
+    def text:string ""
+    def indent:string ""
+    ; a statement read into nodes and links (false: kept as it is)
+    def parsed:boolean false
+    ; changed since it was read: written again from the model
+    def dirty:boolean false
+    def edges:[int]
+    ; nodes standing alone on it
+    def solo:[string]
+}
+
+class PresFlowModel {
+    ; the opening fence ("```"), its language word and the rest of its info
+    def fence:string "```"
+    def lang:string ""
+    ; the attributes are in the info (```mermaid {tour=on}) rather than on
+    ; the line under the fence
+    def attrInInfo:boolean false
+    def attrs:[string]
+    def lines:[PresFlowLine]
+    def nodes:[PresFlowNode]
+    def edges:[PresFlowEdge]
+    ; a Mermaid flowchart, whose boxes and links can be edited here
+    def editable:boolean false
+    ; the `flowchart LR` line (-1: none) and its direction ("" unsaid)
+    def headLine:int -1
+    def headWord:string "flowchart"
+    def dir:string ""
+    def ok:boolean false
+    ; where the block is in the Markdown, set by the app: the opening line
+    ; and the last line (the closing fence, or the attribute line under it)
+    def first:int -1
+    def last:int -1
+
+    Constructor () {
+    }
+
+    ; --- reading ------------------------------------------------------------------
+    sfn isAttrLine:boolean (t:string) {
+        def a:string (trim t)
+        def n:int (strlen a)
+        return ((n >= 2) && (((charAt a 0) == 123) && ((charAt a (n - 1)) == 125)))
+    }
+
+    sfn attrWords:[string] (inner:string) {
+        def out:[string]
+        def words:[string] (strsplit (trim inner) " ")
+        def i:int 0
+        while (i < (array_length words)) {
+            def w:string (trim (itemAt words i))
+            if ((strlen w) > 0) {
+                push out w
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn listHas:boolean (list:[string] s:string) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == s) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn indentOf:string (t:string) {
+        def i:int 0
+        while ((i < (strlen t)) && (((charAt t i) == 32) || ((charAt t i) == 9))) {
+            i = (i + 1)
+        }
+        return (substring t 0 i)
+    }
+
+    ; The block's lines: the opening fence, the body, the closing fence and,
+    ; when there is one, the attribute line under it.
+    sfn read:PresFlowModel (block:string) {
+        def m (new PresFlowModel())
+        def all:[string] (strsplit block "\n")
+        def n:int (array_length all)
+        if ((n > 0) && ((strlen (itemAt all (n - 1))) == 0)) {
+            n = (n - 1)
+        }
+        if (n < 2) {
+            return m
+        }
+        def head:string (trim (itemAt all 0))
+        def f:int 0
+        def ch:int (charAt head 0)
+        if ((ch != 96) && (ch != 126)) {
+            return m
+        }
+        while ((f < (strlen head)) && ((charAt head f) == ch)) {
+            f = (f + 1)
+        }
+        if (f < 3) {
+            return m
+        }
+        m.fence = (substring head 0 f)
+        def info:string (trim (substring head f (strlen head)))
+        def br:int (indexOf info "{")
+        if ((br >= 0) && ((indexOf info "}") > br)) {
+            m.attrInInfo = true
+            m.attrs = (PresFlowModel.attrWords((substring info (br + 1) (indexOf info "}"))))
+            info = (trim (substring info 0 br))
+        }
+        def sp:int (indexOf info " ")
+        if (sp > 0) {
+            info = (substring info 0 sp)
+        }
+        m.lang = info
+        ; the closing fence: the last line that is the fence alone
+        def close:int -1
+        def k:int 1
+        while (k < n) {
+            if ((trim (itemAt all k)) == m.fence) {
+                close = k
+            }
+            k = (k + 1)
+        }
+        if (close < 0) {
+            return m
+        }
+        if ((close + 1) < n) {
+            def under:string (itemAt all (close + 1))
+            if ((m.attrInInfo == false) && (PresFlowModel.isAttrLine(under))) {
+                def u:string (trim under)
+                m.attrs = (PresFlowModel.attrWords((substring u 1 ((strlen u) - 1))))
+            }
+        }
+        def b:int 1
+        while (b < close) {
+            def l (new PresFlowLine())
+            l.text = (itemAt all b)
+            l.indent = (PresFlowModel.indentOf(l.text))
+            push m.lines l
+            b = (b + 1)
+        }
+        m.ok = true
+        if ((m.lang == "mermaid") || (m.lang == "flowchart")) {
+            m.readFlowchart()
+        }
+        return m
+    }
+
+    fn readFlowchart:void () {
+        def i:int 0
+        while ((i < (array_length lines)) && (headLine < 0)) {
+            def l:PresFlowLine (itemAt lines i)
+            def t:string (trim l.text)
+            if (((strlen t) > 0) && ((indexOf t "%%") != 0)) {
+                def words:[string] (PresFlowModel.attrWords(t))
+                def w0:string (itemAt words 0)
+                if ((w0 == "flowchart") || (w0 == "graph")) {
+                    headLine = i
+                    headWord = w0
+                    if ((array_length words) > 1) {
+                        dir = (itemAt words 1)
+                    }
+                } {
+                    ; another kind of Mermaid diagram
+                    return
+                }
+            }
+            i = (i + 1)
+        }
+        if (headLine < 0) {
+            return
+        }
+        editable = true
+        def j:int (headLine + 1)
+        while (j < (array_length lines)) {
+            this.readStatement(j)
+            j = (j + 1)
+        }
+    }
+
+    sfn isIdChar:boolean (c:int) {
+        if ((c >= 48) && (c <= 57)) {
+            return true
+        }
+        if ((c >= 65) && (c <= 90)) {
+            return true
+        }
+        if ((c >= 97) && (c <= 122)) {
+            return true
+        }
+        return ((c == 95) || (c > 127))
+    }
+
+    sfn skipSpace:int (t:string p0:int) {
+        def p:int p0
+        while ((p < (strlen t)) && (((charAt t p) == 32) || ((charAt t p) == 9))) {
+            p = (p + 1)
+        }
+        return p
+    }
+
+    ; The shapes Mermaid has, longest opener first: "open close" pairs.
+    sfn shapes:[string] () {
+        return (strsplit "((( ))),(( )),([ ]),[[ ]],[( )],{{ }},[/ /],[/ \\],[\\ \\],[\\ /],[ ],( ),{ },> ]" ",")
+    }
+
+    ; A statement: a node, then links and nodes. The line is left as it is
+    ; when it is anything else.
+    fn readStatement:void (li:int) {
+        def l:PresFlowLine (itemAt lines li)
+        def t:string (trim l.text)
+        if ((strlen t) == 0) {
+            return
+        }
+        def skip:[string] (strsplit "%%,subgraph,end,classDef,class ,style ,linkStyle,click ,direction " ",")
+        def s:int 0
+        while (s < (array_length skip)) {
+            if ((indexOf t (itemAt skip s)) == 0) {
+                return
+            }
+            s = (s + 1)
+        }
+        ; read into these first: the model takes them only when the whole
+        ; line reads
+        def ids:[string]
+        def opens:[string]
+        def closes:[string]
+        def labels:[string]
+        def quotes:[boolean]
+        def ops:[string]
+        def elabels:[string]
+        def p:int 0
+        def n:int (strlen t)
+        def want:string "node"
+        while (p < n) {
+            p = (PresFlowModel.skipSpace(t p))
+            if (p >= n) {
+                p = n
+            } {
+                if (want == "node") {
+                    def a:int p
+                    while ((p < n) && (PresFlowModel.isIdChar((charAt t p)))) {
+                        p = (p + 1)
+                    }
+                    if (p == a) {
+                        return
+                    }
+                    push ids (substring t a p)
+                    def op0:string ""
+                    def cl0:string ""
+                    def lab:string ""
+                    def q:boolean false
+                    def sh:[string] (PresFlowModel.shapes())
+                    def k:int 0
+                    while ((k < (array_length sh)) && ((strlen op0) == 0)) {
+                        def pair:[string] (strsplit (itemAt sh k) " ")
+                        def o:string (itemAt pair 0)
+                        def c:string (itemAt pair 1)
+                        if ((indexOfFrom t o p) == p) {
+                            def from:int (p + (strlen o))
+                            def body:int from
+                            def end:int -1
+                            if ((from < n) && ((charAt t from) == 34)) {
+                                def qe:int (indexOfFrom t "\"" (from + 1))
+                                if ((qe > 0) && ((indexOfFrom t c (qe + 1)) == (qe + 1))) {
+                                    q = true
+                                    lab = (substring t (from + 1) qe)
+                                    end = (qe + 1)
+                                }
+                            } {
+                                end = (indexOfFrom t c from)
+                                if (end > 0) {
+                                    lab = (trim (substring t body end))
+                                }
+                            }
+                            if (end > 0) {
+                                op0 = o
+                                cl0 = c
+                                p = (end + (strlen c))
+                            }
+                        }
+                        k = (k + 1)
+                    }
+                    push opens op0
+                    push closes cl0
+                    push labels lab
+                    push quotes q
+                    if ((p < n) && ((charAt t p) == 58)) {
+                        ; A:::class and the like
+                        return
+                    }
+                    want = "link"
+                } {
+                    ; a link: <? then - . = and an end
+                    def a2:int p
+                    if ((charAt t p) == 60) {
+                        p = (p + 1)
+                    }
+                    def r0:int p
+                    while ((p < n) && ((((charAt t p) == 45) || ((charAt t p) == 46)) || ((charAt t p) == 61))) {
+                        p = (p + 1)
+                    }
+                    if ((p - r0) < 2) {
+                        return
+                    }
+                    def run:string (substring t r0 p)
+                    def label:string ""
+                    if ((p < n) && ((charAt t p) == 62)) {
+                        p = (p + 1)
+                    } {
+                        if (((p < n) && (((charAt t p) == 111) || ((charAt t p) == 120))) && (((p + 1) >= n) || ((charAt t (p + 1)) == 32))) {
+                            p = (p + 1)
+                        } {
+                            if ((((run == "--") || (run == "-.")) || (run == "==")) && ((p < n) && ((charAt t p) == 32))) {
+                                ; "-- words -->": the words, then the rest of the link
+                                def stop:string run
+                                if (run == "-.") {
+                                    stop = ".-"
+                                }
+                                def e:int (indexOfFrom t stop p)
+                                if (e < 0) {
+                                    return
+                                }
+                                label = (trim (substring t p e))
+                                p = e
+                                while ((p < n) && ((((charAt t p) == 45) || ((charAt t p) == 46)) || ((charAt t p) == 61))) {
+                                    p = (p + 1)
+                                }
+                                if ((p < n) && ((charAt t p) == 62)) {
+                                    p = (p + 1)
+                                }
+                            }
+                        }
+                    }
+                    def opText:string (substring t a2 p)
+                    if ((strlen label) > 0) {
+                        opText = (PresFlowModel.opFor((PresFlowModel.lineOf(opText)) ((charAt opText ((strlen opText) - 1)) == 62)))
+                    }
+                    p = (PresFlowModel.skipSpace(t p))
+                    if ((p < n) && ((charAt t p) == 124)) {
+                        def pe:int (indexOfFrom t "|" (p + 1))
+                        if (pe < 0) {
+                            return
+                        }
+                        label = (trim (substring t (p + 1) pe))
+                        p = (pe + 1)
+                    }
+                    push ops opText
+                    push elabels label
+                    want = "node"
+                }
+            }
+        }
+        if ((want == "node") || ((array_length ids) == 0)) {
+            ; ends in a link, or nothing read
+            return
+        }
+        ; the line reads: into the model
+        l.parsed = true
+        def i:int 0
+        while (i < (array_length ids)) {
+            def id:string (itemAt ids i)
+            def nd:PresFlowNode (this.nodeFor(id li))
+            if (((strlen (itemAt opens i)) > 0) && (nd.explicit == false)) {
+                nd.explicit = true
+                nd.open = (itemAt opens i)
+                nd.close = (itemAt closes i)
+                nd.label = (itemAt labels i)
+                nd.quoted = (itemAt quotes i)
+                nd.defLine = li
+            }
+            if (i > 0) {
+                def e (new PresFlowEdge())
+                e.from = (itemAt ids (i - 1))
+                e.to = id
+                e.op = (itemAt ops (i - 1))
+                e.label = (itemAt elabels (i - 1))
+                e.line = li
+                push l.edges (array_length edges)
+                push edges e
+            }
+            i = (i + 1)
+        }
+        if ((array_length ids) == 1) {
+            push l.solo (itemAt ids 0)
+        }
+    }
+
+    fn nodeFor:PresFlowNode (id:string li:int) {
+        def k:int (this.nodeIndex(id))
+        if (k >= 0) {
+            return (itemAt nodes k)
+        }
+        def nd (new PresFlowNode())
+        nd.id = id
+        nd.label = id
+        nd.defLine = li
+        push nodes nd
+        return nd
+    }
+
+    fn nodeIndex:int (id:string) {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def nd:PresFlowNode (itemAt nodes i)
+            if ((nd.id == id) && (nd.dead == false)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; --- the links' lines ------------------------------------------------------------
+    ; "solid", "dotted" or "thick"
+    sfn lineOf:string (op:string) {
+        if ((indexOf op "=") >= 0) {
+            return "thick"
+        }
+        if ((indexOf op ".") >= 0) {
+            return "dotted"
+        }
+        return "solid"
+    }
+
+    sfn opFor:string (line:string arrow:boolean) {
+        if (line == "thick") {
+            if arrow {
+                return "==>"
+            }
+            return "==="
+        }
+        if (line == "dotted") {
+            if arrow {
+                return "-.->"
+            }
+            return "-.-"
+        }
+        if arrow {
+            return "-->"
+        }
+        return "---"
+    }
+
+    sfn hasArrow:boolean (op:string) {
+        return ((charAt op ((strlen op) - 1)) == 62)
+    }
+
+    ; --- the options --------------------------------------------------------------
+    fn attr:string (key:string) {
+        def i:int 0
+        while (i < (array_length attrs)) {
+            def w:string (itemAt attrs i)
+            if ((indexOf w (key + "=")) == 0) {
+                return (substring w ((strlen key) + 1) (strlen w))
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; `key=value` set in its place (added at the end), or taken out with "".
+    fn setAttr:void (key:string value:string) {
+        def out:[string]
+        def done:boolean false
+        def i:int 0
+        while (i < (array_length attrs)) {
+            def w:string (itemAt attrs i)
+            if ((indexOf w (key + "=")) == 0) {
+                if (((strlen value) > 0) && (done == false)) {
+                    push out (key + "=" + value)
+                    done = true
+                }
+            } {
+                push out w
+            }
+            i = (i + 1)
+        }
+        if (((strlen value) > 0) && (done == false)) {
+            push out (key + "=" + value)
+        }
+        attrs = out
+    }
+
+    ; "holo", "sketch" or "classic"
+    fn look:string () {
+        if ((this.attr("diagram")) == "classic") {
+            return "classic"
+        }
+        if ((this.attr("style")) == "sketch") {
+            return "sketch"
+        }
+        return "holo"
+    }
+
+    fn setLook:void (v:string) {
+        ; each word keeps its place on the line
+        if (v == "classic") {
+            this.setAttr("style" "")
+            this.setAttr("diagram" "classic")
+            return
+        }
+        this.setAttr("diagram" "")
+        if (v == "sketch") {
+            this.setAttr("style" "sketch")
+            return
+        }
+        if ((this.attr("style")) != "holo") {
+            this.setAttr("style" "")
+        }
+    }
+
+    ; a yes/no option: `tour=on` when it is on, `ball=off` when it is off
+    fn flag:boolean (key:string) {
+        if ((key == "tour") || (key == "layout")) {
+            def want:string "on"
+            if (key == "layout") {
+                want = "keep"
+            }
+            return ((this.attr(key)) == want)
+        }
+        return ((this.attr(key)) != "off")
+    }
+
+    fn setFlag:void (key:string on:boolean) {
+        if (key == "tour") {
+            if on {
+                this.setAttr(key "on")
+            } {
+                this.setAttr(key "")
+            }
+            return
+        }
+        if (key == "layout") {
+            if on {
+                this.setAttr(key "keep")
+            } {
+                this.setAttr(key "")
+            }
+            return
+        }
+        if on {
+            this.setAttr(key "")
+        } {
+            this.setAttr(key "off")
+        }
+    }
+
+    ; --- the flowchart ------------------------------------------------------------
+    fn setDir:void (d:string) {
+        if ((editable == false) || (headLine < 0)) {
+            return
+        }
+        dir = d
+        def l:PresFlowLine (itemAt lines headLine)
+        l.text = (l.indent + headWord + " " + d)
+    }
+
+    fn liveNodes:[PresFlowNode] () {
+        def out:[PresFlowNode]
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def nd:PresFlowNode (itemAt nodes i)
+            if (nd.dead == false) {
+                push out nd
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; the links still there, by their index in `edges`
+    fn liveEdges:[int] () {
+        def out:[int]
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresFlowEdge (itemAt edges i)
+            if (e.dead == false) {
+                push out i
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn labelOf:string (id:string) {
+        def k:int (this.nodeIndex(id))
+        if (k < 0) {
+            return id
+        }
+        def nd:PresFlowNode (itemAt nodes k)
+        return nd.label
+    }
+
+    fn touch:void (li:int) {
+        if ((li >= 0) && (li < (array_length lines))) {
+            def l:PresFlowLine (itemAt lines li)
+            l.dirty = true
+        }
+    }
+
+    fn setLabel:void (id:string v:string) {
+        def k:int (this.nodeIndex(id))
+        if (k < 0) {
+            return
+        }
+        def nd:PresFlowNode (itemAt nodes k)
+        nd.label = v
+        nd.explicit = true
+        this.touch(nd.defLine)
+    }
+
+    fn setShape:void (id:string open:string close:string) {
+        def k:int (this.nodeIndex(id))
+        if (k < 0) {
+            return
+        }
+        def nd:PresFlowNode (itemAt nodes k)
+        nd.open = open
+        nd.close = close
+        nd.explicit = true
+        this.touch(nd.defLine)
+    }
+
+    fn setEdgeLabel:void (i:int v:string) {
+        def e:PresFlowEdge (itemAt edges i)
+        e.label = v
+        this.touch(e.line)
+    }
+
+    fn setEdgeLine:void (i:int line:string) {
+        def e:PresFlowEdge (itemAt edges i)
+        def back:boolean ((indexOf e.op "<") == 0)
+        e.op = (PresFlowModel.opFor(line (PresFlowModel.hasArrow(e.op))))
+        if back {
+            e.op = ("<" + e.op)
+        }
+        this.touch(e.line)
+    }
+
+    fn setEdgeArrow:void (i:int arrow:boolean) {
+        def e:PresFlowEdge (itemAt edges i)
+        e.op = (PresFlowModel.opFor((PresFlowModel.lineOf(e.op)) arrow))
+        this.touch(e.line)
+    }
+
+    fn reverseEdge:void (i:int) {
+        def e:PresFlowEdge (itemAt edges i)
+        def f:string e.from
+        e.from = e.to
+        e.to = f
+        this.touch(e.line)
+    }
+
+    ; written anywhere: a link of it, or alone on a line
+    fn occurs:boolean (id:string) {
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresFlowEdge (itemAt edges i)
+            if ((e.dead == false) && ((e.from == id) || (e.to == id))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length lines)) {
+            def l:PresFlowLine (itemAt lines k)
+            if (l.parsed && (PresFlowModel.listHas(l.solo id))) {
+                return true
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    ; A link taken out; a box it leaves with no links stays, alone on the line.
+    fn removeEdge:void (i:int) {
+        def e:PresFlowEdge (itemAt edges i)
+        if e.dead {
+            return
+        }
+        e.dead = true
+        this.touch(e.line)
+        def l:PresFlowLine (itemAt lines e.line)
+        if ((this.occurs(e.from)) == false) {
+            push l.solo e.from
+        }
+        if ((e.to != e.from) && ((this.occurs(e.to)) == false)) {
+            push l.solo e.to
+        }
+    }
+
+    ; A box taken out, and its links with it.
+    fn removeNode:void (id:string) {
+        def k:int (this.nodeIndex(id))
+        if (k < 0) {
+            return
+        }
+        def nd:PresFlowNode (itemAt nodes k)
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresFlowEdge (itemAt edges i)
+            if ((e.dead == false) && ((e.from == id) || (e.to == id))) {
+                e.dead = true
+                this.touch(e.line)
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length lines)) {
+            def l:PresFlowLine (itemAt lines j)
+            if (l.parsed && (PresFlowModel.listHas(l.solo id))) {
+                def keep:[string]
+                def s:int 0
+                while (s < (array_length l.solo)) {
+                    if ((itemAt l.solo s) != id) {
+                        push keep (itemAt l.solo s)
+                    }
+                    s = (s + 1)
+                }
+                l.solo = keep
+                l.dirty = true
+            }
+            j = (j + 1)
+        }
+        nd.dead = true
+        ; a box another link left alone stays, alone
+        def m:int 0
+        while (m < (array_length edges)) {
+            def e2:PresFlowEdge (itemAt edges m)
+            if (e2.dead && ((e2.from == id) || (e2.to == id))) {
+                def other:string e2.from
+                if (other == id) {
+                    other = e2.to
+                }
+                if (((other != id) && ((this.nodeIndex(other)) >= 0)) && ((this.occurs(other)) == false)) {
+                    def l2:PresFlowLine (itemAt lines e2.line)
+                    push l2.solo other
+                }
+            }
+            m = (m + 1)
+        }
+    }
+
+    fn statementIndent:string () {
+        def i:int 0
+        while (i < (array_length lines)) {
+            def l:PresFlowLine (itemAt lines i)
+            if l.parsed {
+                return l.indent
+            }
+            i = (i + 1)
+        }
+        return "  "
+    }
+
+    fn freshId:string () {
+        def k:int 1
+        while ((this.nodeIndex(("N" + (to_string k)))) >= 0) {
+            k = (k + 1)
+        }
+        ; …nor one taken out (its id may still be in a line kept as typed)
+        def taken:boolean true
+        while taken {
+            taken = false
+            def i:int 0
+            while (i < (array_length nodes)) {
+                def nd:PresFlowNode (itemAt nodes i)
+                if (nd.id == ("N" + (to_string k))) {
+                    taken = true
+                }
+                i = (i + 1)
+            }
+            if taken {
+                k = (k + 1)
+            }
+        }
+        return ("N" + (to_string k))
+    }
+
+    fn newLine:int () {
+        def l (new PresFlowLine())
+        l.indent = (this.statementIndent())
+        l.parsed = true
+        l.dirty = true
+        push lines l
+        return ((array_length lines) - 1)
+    }
+
+    ; A box of its own, on a new line at the end: its id.
+    fn addNode:string (label:string) {
+        def li:int (this.newLine())
+        def nd (new PresFlowNode())
+        nd.id = (this.freshId())
+        nd.label = label
+        nd.explicit = true
+        nd.defLine = li
+        push nodes nd
+        def l:PresFlowLine (itemAt lines li)
+        push l.solo nd.id
+        return nd.id
+    }
+
+    ; A box by its id or its words (as typed, any case); a new one when no
+    ; box is called that. "" for nothing typed.
+    fn findOrAdd:string (what0:string) {
+        def what:string (trim what0)
+        if ((strlen what) == 0) {
+            return ""
+        }
+        if ((this.nodeIndex(what)) >= 0) {
+            return what
+        }
+        def lw:string (to_lowercase what)
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def nd:PresFlowNode (itemAt nodes i)
+            if ((nd.dead == false) && ((to_lowercase (trim nd.label)) == lw)) {
+                return nd.id
+            }
+            i = (i + 1)
+        }
+        return (this.addNode(what))
+    }
+
+    ; A link between two boxes, on a new line at the end: its index.
+    fn addEdge:int (from:string to:string label:string) {
+        def li:int (this.newLine())
+        def e (new PresFlowEdge())
+        e.from = from
+        e.to = to
+        e.label = label
+        e.op = "-->"
+        e.line = li
+        def l:PresFlowLine (itemAt lines li)
+        push l.edges (array_length edges)
+        push edges e
+        ; a box that stood alone stays where its words are, its line loses it
+        def k:int 0
+        while (k < (array_length lines)) {
+            def o:PresFlowLine (itemAt lines k)
+            if ((k != li) && o.parsed) {
+                if ((PresFlowModel.listHas(o.solo from)) || (PresFlowModel.listHas(o.solo to))) {
+                    def keep:[string]
+                    def s:int 0
+                    while (s < (array_length o.solo)) {
+                        def sid:string (itemAt o.solo s)
+                        if ((sid != from) && (sid != to)) {
+                            push keep sid
+                        }
+                        s = (s + 1)
+                    }
+                    o.solo = keep
+                    o.dirty = true
+                }
+            }
+            k = (k + 1)
+        }
+        return ((array_length edges) - 1)
+    }
+
+    ; --- writing ------------------------------------------------------------------
+    sfn needsQuotes:boolean (s:string) {
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if (((((c == 91) || (c == 93)) || ((c == 40) || (c == 41))) || (((c == 123) || (c == 125)) || ((c == 124) || (c == 34)))) || ((c == 60) || (c == 62))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn nodeText:string (nd:PresFlowNode) {
+        def words:string nd.label
+        if (nd.quoted || (PresFlowModel.needsQuotes(words))) {
+            def q:string ""
+            def i:int 0
+            while (i < (strlen words)) {
+                def ch:string (substring words i (i + 1))
+                if (ch == "\"") {
+                    q = (q + "#quot;")
+                } {
+                    q = (q + ch)
+                }
+                i = (i + 1)
+            }
+            words = ("\"" + q + "\"")
+        }
+        return (nd.id + nd.open + words + nd.close)
+    }
+
+    fn edgeText:string (e:PresFlowEdge) {
+        if ((strlen e.label) > 0) {
+            def lab:string e.label
+            if ((indexOf lab "|") >= 0) {
+                lab = ("\"" + lab + "\"")
+            }
+            return (" " + e.op + "|" + lab + "| ")
+        }
+        return (" " + e.op + " ")
+    }
+
+    ; a box's id, with its words and shape the first time on its own line
+    fn idText:string (id:string li:int written:[string]) {
+        def k:int (this.nodeIndex(id))
+        if (k < 0) {
+            return id
+        }
+        def nd:PresFlowNode (itemAt nodes k)
+        if ((nd.defLine == li) && ((PresFlowModel.listHas(written id)) == false)) {
+            push written id
+            if (nd.explicit || (nd.label != nd.id)) {
+                return (this.nodeText(nd))
+            }
+        }
+        return id
+    }
+
+    ; A line changed: its links as chains, then the boxes alone on it.
+    fn lineText:string (li:int written:[string]) {
+        def l:PresFlowLine (itemAt lines li)
+        def out:[string]
+        def chain:string ""
+        def lastTo:string ""
+        def i:int 0
+        while (i < (array_length l.edges)) {
+            def e:PresFlowEdge (itemAt edges (itemAt l.edges i))
+            if (e.dead == false) {
+                if (((strlen chain) > 0) && (e.from == lastTo)) {
+                    chain = (chain + (this.edgeText(e)) + (this.idText(e.to li written)))
+                } {
+                    if ((strlen chain) > 0) {
+                        push out chain
+                    }
+                    chain = ((this.idText(e.from li written)) + (this.edgeText(e)) + (this.idText(e.to li written)))
+                }
+                lastTo = e.to
+            }
+            i = (i + 1)
+        }
+        if ((strlen chain) > 0) {
+            push out chain
+        }
+        def s:int 0
+        while (s < (array_length l.solo)) {
+            def id:string (itemAt l.solo s)
+            if (((this.nodeIndex(id)) >= 0) && ((PresFlowModel.listHas(written id)) == false)) {
+                push out (this.idText(id li written))
+                if ((PresFlowModel.listHas(written id)) == false) {
+                    push written id
+                }
+            }
+            s = (s + 1)
+        }
+        def text:string ""
+        def k:int 0
+        while (k < (array_length out)) {
+            if (k > 0) {
+                text = (text + "\n")
+            }
+            text = (text + l.indent + (itemAt out k))
+            k = (k + 1)
+        }
+        return text
+    }
+
+    ; A box whose words were on a line that no longer has it: they go to the
+    ; first changed line that still names it, else the box stands alone there.
+    fn settleDefs:void () {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def nd:PresFlowNode (itemAt nodes i)
+            if ((nd.dead == false) && ((this.namedOn(nd.id nd.defLine)) == false)) {
+                def li:int (this.lineNaming(nd.id))
+                if (li >= 0) {
+                    nd.defLine = li
+                    this.touch(li)
+                } {
+                    if ((nd.defLine >= 0) && (nd.defLine < (array_length lines))) {
+                        def l:PresFlowLine (itemAt lines nd.defLine)
+                        if l.parsed {
+                            push l.solo nd.id
+                            l.dirty = true
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn namedOn:boolean (id:string li:int) {
+        if ((li < 0) || (li >= (array_length lines))) {
+            return false
+        }
+        def l:PresFlowLine (itemAt lines li)
+        if (l.parsed == false) {
+            return false
+        }
+        if (l.dirty == false) {
+            return true
+        }
+        if (PresFlowModel.listHas(l.solo id)) {
+            return true
+        }
+        def i:int 0
+        while (i < (array_length l.edges)) {
+            def e:PresFlowEdge (itemAt edges (itemAt l.edges i))
+            if ((e.dead == false) && ((e.from == id) || (e.to == id))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn lineNaming:int (id:string) {
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresFlowEdge (itemAt edges i)
+            if ((e.dead == false) && ((e.from == id) || (e.to == id))) {
+                return e.line
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn infoText:string () {
+        if (attrInInfo && ((array_length attrs) > 0)) {
+            return (lang + " {" + (PresFlowModel.joined(attrs)) + "}")
+        }
+        return lang
+    }
+
+    sfn joined:string (words:[string]) {
+        def s:string ""
+        def i:int 0
+        while (i < (array_length words)) {
+            if (i > 0) {
+                s = (s + " ")
+            }
+            s = (s + (itemAt words i))
+            i = (i + 1)
+        }
+        return s
+    }
+
+    ; The body: the lines as typed, the changed ones written again.
+    fn bodyText:string () {
+        this.settleDefs()
+        def written:[string]
+        def out:string ""
+        def i:int 0
+        while (i < (array_length lines)) {
+            def l:PresFlowLine (itemAt lines i)
+            def t:string l.text
+            if (l.parsed && l.dirty) {
+                t = (this.lineText(i written))
+            }
+            if ((l.parsed == false) || (l.dirty == false) || ((strlen t) > 0)) {
+                out = (out + t + "\n")
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The whole block: fence, body, fence and the attribute line.
+    fn markdown:string () {
+        def out:string (fence + (this.infoText()) + "\n" + (this.bodyText()) + fence)
+        if ((attrInInfo == false) && ((array_length attrs) > 0)) {
+            out = (out + "\n{" + (PresFlowModel.joined(attrs)) + "}")
+        }
+        return out
+    }
+
+    ; The notation as a reader knows it.
+    fn notationName:string () {
+        if editable {
+            return "Mermaid flowchart"
+        }
+        if (lang == "mermaid") {
+            return "Mermaid"
+        }
+        if ((lang == "dot") || (lang == "graphviz")) {
+            return "Graphviz"
+        }
+        if (lang == "d2") {
+            return "D2"
+        }
+        if ((lang == "plantuml") || (lang == "puml")) {
+            return "PlantUML"
+        }
+        return lang
+    }
+}
