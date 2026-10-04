@@ -15,7 +15,8 @@
 //	POST /api/collab/{id}/op       {client, rev, ops, seq}  -> {rev}
 //	POST /api/collab/{id}/presence {client, rev, caret, anchor, who, name, color}
 //	POST /api/collab/{id}/chat     {client, text}           -> the message
-//	GET  /api/events?room={id}&client=…&who=…&name=…&color=…&rev=…
+//	GET  /api/socket?room={id}&client=…&who=…&name=…&color=…&rev=…
+//	GET  /api/events?room=…  (the same as Server-Sent Events)
 //
 //	id: 12
 //	data: {"t":"op","rev":12,"client":"…","ops":[…]}
@@ -24,8 +25,11 @@
 //	data: {"t":"chat","msg":{…}}
 //	data: {"t":"reset"}                      (catch up from GET /api/collab)
 //
-// A stream that drops reconnects with Last-Event-ID and gets the edits it
-// missed; a page whose stream is gone has left. The room writes the deck's
+// A stream that drops reconnects with the last rev it had (rev=, or the
+// Last-Event-ID of Server-Sent Events) and gets the edits it missed; a page
+// whose stream is gone has left. The stream is the page's one stream to the
+// server (localevents.go), which also says when decks change and what state
+// the server is in. The room writes the deck's
 // md shortly after edits stop; a write from elsewhere (an assistant's
 // update_presentation, a page not in the room) comes in as an edit of its
 // own, merged over what was typed meanwhile. The chat is kept beside the
@@ -39,7 +43,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math/rand/v2"
 	"net/http"
 	"os"
@@ -94,16 +97,36 @@ type collabChat struct {
 	At    int64  `json:"at"`
 }
 
+// one room event: its JSON, and the rev it carries as the stream's event id
+// (0: none), which a page that reconnects names to get what it missed
+type collabEvt struct {
+	id   int
+	data []byte
+}
+
+func newEvt(v any, id int) collabEvt {
+	b, _ := json.Marshal(v)
+	return collabEvt{id: id, data: b}
+}
+
+// as Server-Sent Events have it
+func (e collabEvt) sse() []byte {
+	if e.id > 0 {
+		return []byte("id: " + strconv.Itoa(e.id) + "\ndata: " + string(e.data) + "\n\n")
+	}
+	return []byte("data: " + string(e.data) + "\n\n")
+}
+
 // one page's stream: events wait here, never dropped; a page that falls too
-// far behind is cut off and comes back with Last-Event-ID
+// far behind is cut off and comes back with the last rev it had
 type collabSub struct {
 	mu   sync.Mutex
-	q    [][]byte
+	q    []collabEvt
 	over bool
 	wake chan struct{}
 }
 
-func (c *collabSub) push(b []byte) {
+func (c *collabSub) push(b collabEvt) {
 	c.mu.Lock()
 	if len(c.q) >= collabQueueMax {
 		c.over = true
@@ -117,7 +140,7 @@ func (c *collabSub) push(b []byte) {
 	}
 }
 
-func (c *collabSub) take() ([][]byte, bool) {
+func (c *collabSub) take() ([]collabEvt, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	q := c.q
@@ -314,17 +337,9 @@ func opEvent(rev int, client string, d delta) map[string]any {
 	return map[string]any{"t": "op", "rev": rev, "client": client, "ops": d.json()}
 }
 
-func sseBytes(v any, id int) []byte {
-	b, _ := json.Marshal(v)
-	if id > 0 {
-		return []byte("id: " + strconv.Itoa(id) + "\ndata: " + string(b) + "\n\n")
-	}
-	return []byte("data: " + string(b) + "\n\n")
-}
-
 // (locked)
 func (rm *collabRoom) broadcast(v any, id int) {
-	b := sseBytes(v, id)
+	b := newEvt(v, id)
 	for c := range rm.subs {
 		c.push(b)
 	}
@@ -629,10 +644,10 @@ func (rm *collabRoom) join(sub *collabSub, client, who, name, color string, from
 	case from < 0 || from == rm.rev:
 	case from >= rm.logFrom && from < rm.rev:
 		for _, e := range rm.log[from-rm.logFrom:] {
-			sub.push(sseBytes(opEvent(e.rev, e.client, e.d), e.rev))
+			sub.push(newEvt(opEvent(e.rev, e.client, e.d), e.rev))
 		}
 	default:
-		sub.push(sseBytes(map[string]any{"t": "reset"}, 0))
+		sub.push(newEvt(map[string]any{"t": "reset"}, 0))
 	}
 	p := rm.peers[client]
 	if p == nil {
@@ -752,7 +767,8 @@ func (rm *collabRoom) close() {
 	}
 }
 
-// the room part of GET /api/events, nil when the request names none
+// the room part of GET /api/events and /api/socket, nil when the request
+// names none
 func (s *localServer) joinRoom(r *http.Request) (*collabRoom, *collabSub, string, error) {
 	q := r.URL.Query()
 	id := q.Get("room")
@@ -788,12 +804,4 @@ func (s *localServer) joinRoom(r *http.Request) (*collabRoom, *collabSub, string
 	sub := &collabSub{wake: make(chan struct{}, 1)}
 	rm.join(sub, client, who, name, color, from)
 	return rm, sub, client, nil
-}
-
-func writeEvents(w io.Writer, sub *collabSub) bool {
-	q, over := sub.take()
-	for _, b := range q {
-		w.Write(b)
-	}
-	return !over
 }
