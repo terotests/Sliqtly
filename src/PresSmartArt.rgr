@@ -28,9 +28,11 @@
 ; file names. A diagram that cannot be drawn says why in its place, the way a
 ; diagram fence does.
 ;
-; The same drawing goes to the stage, to the PDF (both through
-; PresDeck.slideList) and, as shapes, to the PowerPoint export
-; (PresApp.stillSmartArt).
+; The same drawing goes to the stage and to the PDF (both through
+; PresDeck.slideList). The PowerPoint export (PresApp.stillSmartArt) gets the
+; engine's group, which carries the data it was laid out from: RangerPPTX's
+; writer saves it as SmartArt PowerPoint can edit and lay out again, with
+; this drawing as its drawing part for every other reader.
 ; ============================================================================
 
 Import "../pptx/smartart/SaRender.rgr"

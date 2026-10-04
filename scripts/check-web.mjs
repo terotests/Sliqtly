@@ -2775,7 +2775,8 @@ try {
     check("PDF: a JPEG background and header logo export; a missing picture is left out", jp.head === "%PDF-" && jp.images >= 1, JSON.stringify(jp));
   }
   // A SmartArt file added like a picture and referenced like one: drawn on
-  // the stage by the layout engine, in the PDF, and in the PPTX as shapes —
+  // the stage by the layout engine, in the PDF, and in the PPTX as SmartArt
+  // PowerPoint can edit (data, layout, style, colours and the drawing) —
   // never as a picture of its XML.
   {
     const steps = '<dgm:dataModel xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><dgm:ptLst><dgm:pt modelId="0" type="doc"><dgm:prSet loTypeId="urn:microsoft.com/office/officeart/2005/8/layout/process1"/></dgm:pt><dgm:pt modelId="1"><dgm:t><a:p><a:r><a:t>Suunnittelu</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId="2"><dgm:t><a:p><a:r><a:t>Hämeenlinna</a:t></a:r></a:p></dgm:t></dgm:pt></dgm:ptLst><dgm:cxnLst><dgm:cxn srcId="0" destId="1"/><dgm:cxn srcId="0" destId="2"/></dgm:cxnLst></dgm:dataModel>';
@@ -2812,8 +2813,16 @@ try {
       check("SmartArt: the PDF is written", saPdf.subarray(0, 5).toString() === "%PDF-");
       const saPptx = unzip(Buffer.from(sa.pptx, "base64"));
       const slide2 = saPptx.get("ppt/slides/slide2.xml") || "";
-      check("SmartArt: the PPTX slide holds its steps as text", slide2.includes("Suunnittelu") && slide2.includes("Hämeenlinna"), slide2.slice(0, 200));
-      check("SmartArt: as shapes with their geometry", /prstGeom prst="roundRect"/.test(slide2) && /prstGeom prst="rightArrow"/.test(slide2));
+      const rels2 = saPptx.get("ppt/slides/_rels/slide2.xml.rels") || "";
+      const ct = saPptx.get("[Content_Types].xml") || "";
+      const data = saPptx.get("ppt/diagrams/data1.xml") || "";
+      const drawing = saPptx.get("ppt/diagrams/drawing1.xml") || "";
+      check("SmartArt: the PPTX slide holds it as SmartArt", /<dgm:relIds [^>]*r:dm="rIdDgm-data1"/.test(slide2), slide2.slice(0, 200));
+      check("SmartArt: its five parts named by the slide", ["data1", "layout1", "quickStyle1", "colors1", "drawing1"].every((p) => rels2.includes(`Target="../diagrams/${p}.xml"`)), rels2);
+      check("SmartArt: and typed", /diagrams\/data1\.xml" ContentType="application\/vnd\.openxmlformats-officedocument\.drawingml\.diagramData\+xml"/.test(ct) && /diagrams\/drawing1\.xml" ContentType="application\/vnd\.ms-office\.drawingml\.diagramDrawing\+xml"/.test(ct));
+      check("SmartArt: its data holds the steps, the Finnish intact", data.includes("Suunnittelu") && data.includes("Hämeenlinna") && data.includes("layout/process1"), data.slice(0, 200));
+      check("SmartArt: the colours the Markdown asked for", data.includes("colors/colorful1") && (saPptx.get("ppt/diagrams/colors1.xml") || "").includes("colors/colorful1"));
+      check("SmartArt: its drawing as the stage drew it", /prst="roundRect"/.test(drawing) && /prst="rightArrow"/.test(drawing) && drawing.includes("Suunnittelu"));
       check("SmartArt: not as a picture of the XML", !/<p:pic>/.test(slide2) && ![...saPptx.keys()].some((k) => /media\/.*\.xml$/.test(k)));
     }
   }
