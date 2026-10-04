@@ -50,6 +50,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # the tags, to count from
+      - name: Git access to RangerFlow and RangerMarkdown
+        env:
+          DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}
+        run: sh scripts/ci-git-auth.sh
       - name: Work out the version
         id: version
         env:
