@@ -3685,10 +3685,22 @@ try {
     const diff = await a.evaluate(() => [...document.querySelectorAll("#versions .vDiff")].map((e) => e.textContent).join("\n"));
     check("versions: a version's changes as a unified diff", /^@@ /m.test(diff) && /^[-+]rivi/m.test(diff), diff.slice(0, 120));
     const before = await src(a);
-    await a.evaluate(() => [...document.querySelectorAll("#versions .vBody button:not(.vLink)")].find((x) => x.offsetParent).click());
+    // View version: the version's slides in a frame, read only; the deck
+    // in the editor stays as it is, Back closes the view
+    await a.evaluate(() => [...document.querySelectorAll("#versions .vBody .vShow")].find((x) => x.offsetParent).click());
+    const frame = await (await a.waitForSelector("#versionView iframe", { timeout: 8000 })).contentFrame();
+    await frame.waitForFunction(() => window.__pageStarted === true && document.body.classList.contains("viewer") && window.__app.source().length > 0, null, { timeout: 90000 }).catch(() => {});
+    const seen = await frame.evaluate(() => ({ md: window.__app.source(), mode: JSON.parse(window.__app.layoutJson()).mode })).catch((e) => ({ md: "", mode: String(e) }));
+    check("versions: View version shows that version's slides in the viewer", seen.md.includes("Kaksi ikkunaa") && seen.md !== before && !seen.md.includes("rivi 3 A") && seen.mode === "present", JSON.stringify(seen).slice(0, 160));
+    await a.waitForTimeout(2000);
+    check("versions: viewing a version leaves the open deck as it is", (await src(a)) === before);
+    await a.click("#versionView .vRow button:not(.primary)");
+    check("versions: Back closes the view, the history stays", await a.evaluate(() => !document.getElementById("versionView") && !!document.getElementById("versions")));
+    await a.evaluate(() => [...document.querySelectorAll("#versions .vBody .vRestore")].find((x) => x.offsetParent).click());
     await a.waitForTimeout(1500);
     const restored = await src(a);
     await b.waitForFunction((t) => window.__app.source() === t, restored, { timeout: 8000 }).catch(() => {});
+    check("versions: the version restored is the one that was viewed", restored === seen.md);
     check("versions: a version restored, and the other tab follows", restored !== before && !restored.includes("rivi 3 A") && (await src(b)) === restored, JSON.stringify(restored));
     await ctx.close();
 

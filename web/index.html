@@ -244,6 +244,26 @@
   .vChoice input { min-height: 0; }
   @media (max-width: 600px) { .vSides { grid-template-columns: 1fr; } }
   body.presenting .vPanel { display: none; }
+  /* View version: the version's slides in a frame, a bar above them */
+  .vView {
+    position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column;
+    background: #09090b; color: #fafafa; font: 14px/1.45 "Open Sans", system-ui, sans-serif;
+  }
+  .vViewBar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    padding: 10px 16px; background: #18181b; border-bottom: 2px solid #2563eb;
+  }
+  .vViewWhat { display: flex; flex-direction: column; min-width: 0; }
+  .vView button {
+    min-height: 36px; padding: 0 14px; border-radius: 8px; font: inherit; color: inherit;
+    border: 1px solid rgba(255, 255, 255, 0.25); background: transparent; cursor: pointer;
+  }
+  .vView button.primary { background: #2563eb; border-color: #2563eb; }
+  .vView button:disabled { opacity: .5; cursor: default; }
+  .vViewNote { margin: 16px; }
+  .vViewFrame { flex: 1; width: 100%; border: 0; background: #000; }
+  /* inside that frame: exports of the version stay, a new deck from it does not */
+  body.versionFrame #vMenu hr, body.versionFrame #vMenu [data-act="new"] { display: none; }
   body.viewer #c { cursor: default; }
   body.viewer.idle #c { cursor: none; }
   body.presenting #c { cursor: none; }

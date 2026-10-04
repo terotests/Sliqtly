@@ -4,6 +4,7 @@
 // work; main.js passes what they need).
 
 import { t } from "./i18n.js";
+import { viewSrc, viewPacket, isReady } from "./version-view.js";
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -43,7 +44,8 @@ const KIND = { added: "added", removed: "removed", changed: "changed", recipe: "
 
 // The history panel. api: { entries() → [{ id, time, device, message,
 // added, removed, files, remote, current }], changes(id) → rows,
-// diff(id, path) → unified text, restore(id), save(message) }
+// diff(id, path) → unified text, checkout(id) → the version (View version),
+// restore(id), save(message) }
 export function showHistory(api) {
   document.getElementById("versions")?.remove();
   const box = el("div", "vPanel");
@@ -146,24 +148,99 @@ export function showHistory(api) {
     }
     if (!rows.length) table.append(el("li", "vNote", t("No changes to the files.")));
     body.append(table);
-    if (!e.current) {
-      const back = el("button", "", t("Restore this version"));
-      back.addEventListener("click", async () => {
-        back.disabled = true;
-        try {
-          await api.restore(e.id);
-          box.remove();
-        } catch (err) {
-          back.disabled = false;
-          body.append(el("p", "vNote", t("Restoring failed: ") + (err?.message || err)));
-        }
+    const row = el("div", "vRow");
+    const back = el("button", "vRestore", t("Restore this version"));
+    const restore = async () => {
+      back.disabled = true;
+      try {
+        await api.restore(e.id);
+        box.remove();
+      } catch (err) {
+        back.disabled = false;
+        body.append(el("p", "vNote", t("Restoring failed: ") + (err?.message || err)));
+      }
+    };
+    back.addEventListener("click", restore);
+    const view = el("button", "vShow", t("View version"));
+    view.addEventListener("click", () => {
+      showVersionView({
+        title: messageText(e.message) + " · " + whenText(e.time),
+        time: e.time,
+        snap: () => api.checkout(e.id),
+        restore: e.current ? null : restore,
       });
-      body.append(back);
-    }
+    });
+    row.append(view);
+    if (!e.current) row.append(back);
+    body.append(row);
   }
 
   fill().catch((err) => list.replaceChildren(el("li", "vNote", String(err?.message || err))));
   msg.focus();
+  return box;
+}
+
+// A version's slides, read only, over the editor: the page again in a frame
+// (web/version-view.js), handed the version once it says it is ready. The
+// open deck is not touched; Restore restores it, Back closes the view.
+// { title, time, snap() → checked-out version, restore() (null: the current
+// version, nothing to restore) }
+export function showVersionView({ title, time, snap, restore }) {
+  document.getElementById("versionView")?.remove();
+  const box = el("div", "vView");
+  box.id = "versionView";
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-label", t("Viewing a version"));
+  const bar = el("div", "vViewBar");
+  const what = el("div", "vViewWhat");
+  what.append(el("strong", "", t("Viewing a version")), el("span", "vMeta", title + " · " + t("read only, the presentation is not changed")));
+  const again = el("button", "primary", t("Restore this version"));
+  const back = el("button", "", t("Back"));
+  const row = el("div", "vRow");
+  if (restore) row.append(again);
+  row.append(back);
+  bar.append(what, row);
+  const frame = el("iframe", "vViewFrame");
+  frame.title = t("Viewing a version");
+  const note = el("p", "vNote vViewNote", t("Loading…"));
+  box.append(bar, note, frame);
+
+  const got = Promise.resolve().then(snap);
+  const onMessage = async (ev) => {
+    if (ev.source !== frame.contentWindow || ev.origin !== location.origin || !isReady(ev.data)) return;
+    try {
+      const s = await got;
+      if (!s) throw new Error(t("This version is not here or in the cloud."));
+      frame.contentWindow?.postMessage(viewPacket(s, { time }), location.origin);
+      note.remove();
+    } catch (err) {
+      note.textContent = t("This version could not be read: ") + (err?.message || err);
+    }
+  };
+  const close = () => {
+    window.removeEventListener("message", onMessage);
+    window.removeEventListener("keydown", onKey, true);
+    box.remove();
+  };
+  const onKey = (ev) => {
+    if (ev.key !== "Escape") return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    close();
+  };
+  window.addEventListener("message", onMessage);
+  window.addEventListener("keydown", onKey, true);
+  back.addEventListener("click", close);
+  again.addEventListener("click", async () => {
+    again.disabled = true;
+    // failed or not, the history says how it went
+    await restore();
+    close();
+  });
+  got.catch((err) => { note.textContent = t("This version could not be read: ") + (err?.message || err); });
+  frame.src = viewSrc();
+  document.body.appendChild(box);
+  back.focus();
   return box;
 }
 
