@@ -3,8 +3,8 @@
 #   docker build -f mcp-go/Dockerfile -t sliqtly-mcp-go .                  # Cloud Run
 #   docker build -f mcp-go/Dockerfile --target local -t sliqtly-server .   # with the editor
 # The first stage compiles rgr/ and the editor's deck model (src/) to Go with
-# Ranger, cloned at the ref in presentation.config.json, with RangerFlow and
-# RangerMarkdown, which are private: give a token that can read them as a
+# Ranger, cloned at the ref in presentation.config.json, with RangerFlow,
+# RangerMarkdown and RangerPPTX, which are private: give a token that can read them as a
 # build secret, docker build --secret id=deps_token,env=DEPS_TOKEN …
 FROM node:22 AS gen
 WORKDIR /src
