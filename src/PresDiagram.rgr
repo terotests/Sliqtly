@@ -2835,6 +2835,54 @@ class PresDiagram {
     }
 
     fn cameraAt:void (t:double bw:double bh:double) {
+        this.aimCamera(t bw bh)
+        this.keepInside(bw bh)
+    }
+
+    ; The camera never looks past the diagram: centred on a node near an
+    ; edge, the view would show empty slide on that side and cut off the
+    ; diagram on the other (a portrait slide's two columns: the walk on the
+    ; right one left the first column out and ran the second past the
+    ; slide's bottom). Along an axis where the whole diagram fits the view,
+    ; it is centred; elsewhere the view slides back until its edge meets the
+    ; diagram's. The choices of a waiting question count as diagram.
+    fn keepInside:void (bw:double bh:double) {
+        def fit:double (this.fitOf(bw bh))
+        if ((fit <= 0.0) || (camZ <= 0.0)) {
+            return
+        }
+        def x0:double worldX
+        def y0:double worldY
+        def x1:double (worldX + worldW)
+        def y1:double (worldY + worldH)
+        if (waiting && ((array_length options) > 0)) {
+            this.rectOf(-2)
+            if (rX < x0) { x0 = rX }
+            if (rY < y0) { y0 = rY }
+            if ((rX + rW) > x1) { x1 = (rX + rW) }
+            if ((rY + rH) > y1) { y1 = (rY + rH) }
+        }
+        camX = (PresDiagram.within(camX x0 x1 (bw / (fit * camZ))))
+        camY = (PresDiagram.within(camY y0 y1 (bh / (fit * camZ))))
+    }
+
+    ; A view `view` wide centred at `c`, kept over [lo, hi]: centred on it
+    ; when it is all in view, else no edge past it.
+    sfn within:double (c:double lo:double hi:double view:double) {
+        if (view >= (hi - lo)) {
+            return ((lo + hi) * 0.5)
+        }
+        def half:double (view * 0.5)
+        if ((c - half) < lo) {
+            return (lo + half)
+        }
+        if ((c + half) > hi) {
+            return (hi - half)
+        }
+        return c
+    }
+
+    fn aimCamera:void (t:double bw:double bh:double) {
         this.walkCameraAt(t bw bh)
         lastBW = bw
         lastBH = bh
@@ -3168,8 +3216,8 @@ class PresDiagram {
         this.ballAt(t)
         def fit:double (this.fitOf(bw bh))
         def sc:double (fit * camZ)
-        ; The camera is centred on its node whatever that leaves at the sides:
-        ; the rim fades, so empty space there reads as depth, not as a gap.
+        ; The camera is on its node, kept over the diagram (`keepInside`);
+        ; where the diagram runs past the box, the rim fades it out.
         def dx:double ((bx + (bw * 0.5)) - (camX * sc))
         def dy:double ((by + (bh * 0.5)) - (camY * sc))
         def inkC:EVGColor (EVGColor.parse(ink))
