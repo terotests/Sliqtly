@@ -426,6 +426,8 @@ const doc = { id: newId(), persisted: false, loading: false, created: Date.now()
 // there (cloudCss, cloudTheme). cloudHalt: deleted, nothing more is sent.
 Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
 const pending = new Map();
+// A shared presentation opened to read: its files, which nothing saves
+const readFiles = new Map();
 let savedText = null;
 let savedCss = null;
 let savedTheme = null;
@@ -446,6 +448,7 @@ function beginDoc(text) {
   versions = null;
   filesAtCommit = null;
   pending.clear();
+  readFiles.clear();
   savedText = null;
   savedCss = null;
   for (const k of Object.keys(editedCss)) delete editedCss[k];
@@ -507,8 +510,10 @@ async function saveWorkbook(file, raw, sheetName) {
   if (/\.xlsx$/i.test(path)) {
     await keepFile({ path, type: XLSX_MIME, size: raw.byteLength, data: new Blob([raw], { type: XLSX_MIME }) });
     for (const sh of got.sheets) {
-      chartFiles.set(sh.path, Promise.resolve(sh.csv));
-      app.setChartData(sh.path, sh.csv);
+      for (const n of sh.names) {
+        chartFiles.set(n, Promise.resolve(sh.csv));
+        app.setChartData(n, sh.csv);
+      }
     }
   } else if (got.sheets.length) {
     const csv = got.sheets[0].csv;
@@ -524,8 +529,11 @@ async function saveWorkbook(file, raw, sheetName) {
 
 // A workbook is kept as itself. The CSV of each sheet — what tables, charts
 // and a live sheet's still read — is derived from it when it is needed and
-// never stored: `data/<book>-<Sheet>.csv` (or `data/<book>.csv` for a
-// one-sheet book) names a sheet of `data/<book>.xlsx`.
+// never stored: `data/<book>-<Sheet>.csv` names a sheet of `data/<book>.xlsx`,
+// and a one-sheet book's sheet is `data/<book>.csv` as well. `path` is the
+// name the import shows; `names` every name the sheet answers to — a
+// ```sheet fence names its sheet (`sheet: Kulut` → budjetti-Kulut.csv)
+// however many the book has (PresTable.sheetCsv, mcp-go Files.tables).
 function workbookSheets(xlsxPath, PresData, raw) {
   const r = JSON.parse(PresData.xlsxSheets(asRangerBuffer(raw.slice(0))));
   if (r.error) return { error: r.error, sheets: [] };
@@ -535,8 +543,9 @@ function workbookSheets(xlsxPath, PresData, raw) {
     error: "",
     sheets: used.map((sh) => {
       const csv = tidyCsv(sh.csv);
-      const path = used.length > 1 ? `${base}-${sh.name.replace(/[\\/:*?"<>|\s]+/g, "-")}.csv` : base + ".csv";
-      return { name: sh.name, path, csv, text: csv };
+      const named = `${base}-${sh.name.replace(/[\\/:*?"<>|\s]+/g, "-")}.csv`;
+      const path = used.length > 1 ? named : base + ".csv";
+      return { name: sh.name, path, names: path === named ? [path] : [path, named], csv, text: csv };
     }),
   };
 }
@@ -550,7 +559,7 @@ function sheetsOfWorkbook(f) {
       const PresData = await loadPresData();
       const blob = typeof f.data === "string" ? new Blob([f.data]) : f.data;
       const out = new Map();
-      for (const sh of workbookSheets(f.path, PresData, await blob.arrayBuffer()).sheets) out.set(sh.path, sh.csv);
+      for (const sh of workbookSheets(f.path, PresData, await blob.arrayBuffer()).sheets) for (const n of sh.names) out.set(n, sh.csv);
       return out;
     })().catch(() => new Map()));
   }
@@ -590,6 +599,7 @@ window.__docFiles = () => docFiles().then((fs) => fs.map((f) => f.path));
 async function docFiles() {
   const out = new Map();
   if (doc.persisted && vfs) for (const f of await vfs.listFiles(doc.id)) out.set(f.path, f);
+  for (const [k, f] of readFiles) out.set(k, f);
   for (const [k, f] of pending) out.set(k, f);
   return [...out.values()];
 }
@@ -1323,8 +1333,10 @@ async function keepData(i) {
       await keepFile({ path: wb.path, type: XLSX_MIME, size: wb.bytes.byteLength, data: new Blob([wb.bytes], { type: XLSX_MIME }) });
     }
     for (const one of importing.sheets) {
-      chartFiles.set(one.path, Promise.resolve(one.text));
-      app.setChartData(one.path, one.text);
+      for (const n of one.names) {
+        chartFiles.set(n, Promise.resolve(one.text));
+        app.setChartData(n, one.text);
+      }
     }
     await saveDoc(true);
     dropThumbs();
@@ -3951,6 +3963,9 @@ async function openFromShare() {
         const rec = { doc: doc.id, path: f.path, type: f.type, size: f.size, data, updated: Date.now() };
         // the reader's copy keeps them: they are saved with it on its first change
         if (editing) pending.set(rec.path, rec);
+        // a reader's are the deck's files all the same: a live sheet opens its
+        // workbook, a chart reads a sheet of it
+        else readFiles.set(rec.path, rec);
         await useFile(rec);
       } catch (e) {
         console.warn("shared file not loaded: " + f.path, e);

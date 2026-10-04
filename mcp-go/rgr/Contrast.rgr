@@ -500,7 +500,9 @@ class Contrast {
                         placeholder = true
                     }
                 }
-                if (((array_length painted) > 0) && (placeholder == false)) {
+                ; a label drawn at no opacity (a thinned-out tick label) is
+                ; not on the screen to be read
+                if (((array_length painted) > 0) && ((placeholder == false) && (c.a > 0.0))) {
                     def low:LowRun (Contrast.judge(c painted))
                     if low.low {
                         push out low

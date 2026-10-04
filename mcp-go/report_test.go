@@ -286,3 +286,29 @@ func TestPainterSymbolsHaveGlyphs(t *testing.T) {
 		}
 	}
 }
+
+// A tick label Vega hides to keep labels apart (labelOverlap) is drawn at no
+// opacity: not on the screen, so it neither crowds its neighbours nor is hard
+// to read. Counted, a horizontal bar chart on a dark slide was reported as
+// "1,000"/"1,100" over each other and at 1.0:1 contrast.
+func TestReportSkipsHiddenTickLabels(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	spec := `{"background": "rgba(0,0,0,0)", "config": {"axis": {"labelColor": "#c8d0f0", "titleColor": "#c8d0f0"}}, "width": 820, "height": 330,` +
+		`"data": {"values": [{"a": "Etelä", "v": 2049}, {"a": "Länsi", "v": 1777}, {"a": "Itä", "v": 1419}, {"a": "Pohjoinen", "v": 1208}]},` +
+		`"mark": "bar", "encoding": {"y": {"field": "a", "type": "nominal", "sort": "-x"}, "x": {"field": "v", "type": "quantitative"}}}`
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "Hidden", "theme": "aurora", "markdown": "# Hidden labels\n\n## Bars\n\n```vega-lite\n" + spec + "\n```\n",
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	text := textOf(c)
+	if strings.Contains(text, "drawn over each other") {
+		t.Fatal("hidden tick labels counted as crowding:\n", text)
+	}
+	if ws := fmt.Sprint(sc(c)["warnings"]); strings.Contains(ws, "hard to read") {
+		t.Fatal("hidden tick labels judged for contrast:", ws)
+	}
+}

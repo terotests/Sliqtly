@@ -1762,7 +1762,7 @@ class Tools {
                     if ((want == (base + ".csv")) || (startsWith want (base + "-"))) {
                         def all:Tables (Tools.bookTables(host id w))
                         for all.list t:DataTable k {
-                            if ((t.csv == want) && ((found.isObj()) == false)) {
+                            if ((Files.readsAs(t want)) && ((found.isObj()) == false)) {
                                 found = w
                                 isBook = true
                                 ts = all
