@@ -197,6 +197,9 @@ func (s *localServer) api(w http.ResponseWriter, r *http.Request) {
 	case p == "/api/events" && r.Method == http.MethodGet:
 		s.events(w, r)
 		return
+	case p == "/api/socket" && r.Method == http.MethodGet:
+		s.socket(w, r)
+		return
 	case collabPath.MatchString(p):
 		m := collabPath.FindStringSubmatch(p)
 		out, err = s.collabAPI(r, m[1], m[2])

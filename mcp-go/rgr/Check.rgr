@@ -118,7 +118,7 @@ class Check {
             }
             def ts:Tables (Files.tables(host hd bp))
             for ts.list t:DataTable ti {
-                if (t.csv == u) {
+                if (Files.readsAs(t u)) {
                     def rows:[SheetRow]
                     def head (new SheetRow)
                     head.cells = t.columns

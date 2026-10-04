@@ -207,13 +207,15 @@ class PresDeck {
         diaVals = v
     }
 
-    fn diagramFor:PresDiagram (notation:string text:string width:double) {
-        return (this.diagramAs(notation text width 0.0))
+    fn diagramFor:PresDiagram (notation:string text:string width:double look:string) {
+        return (this.diagramAs(notation text width 0.0 look))
     }
 
     ; `aspect` > 0: the flow engine's column-wrapped layout for that room.
-    fn diagramAs:PresDiagram (notation:string text:string width:double aspect:double) {
-        def key:string (notation + "|" + (to_string width) + "|" + (to_string aspect) + "|" + text)
+    ; `look`: the flow engine's look the scene is built in ("default", or
+    ; "dark" for a classic drawing on a dark slide).
+    fn diagramAs:PresDiagram (notation:string text:string width:double aspect:double look:string) {
+        def key:string (notation + "|" + look + "|" + (to_string width) + "|" + (to_string aspect) + "|" + text)
         def i:int 0
         while (i < (array_length diaKeys)) {
             if ((itemAt diaKeys i) == key) {
@@ -221,10 +223,7 @@ class PresDeck {
             }
             i = (i + 1)
         }
-        def d:PresDiagram (PresDiagram.of(notation text width))
-        if (aspect > 0.0) {
-            d = (PresDiagram.wrapped(notation text width aspect))
-        }
+        def d:PresDiagram (PresDiagram.wrapped(notation text width aspect look))
         push diaKeys key
         push diaVals d
         if ((array_length diaKeys) > 40) {
@@ -745,16 +744,21 @@ class PresDeck {
         if ((((strlen notation) == 0) || (notation == "vega")) || (notation == "figure")) {
             return
         }
-        if ((n.attrValue("diagram")) == "classic") {
-            return
-        }
+        ; `{diagram=classic}`: the document's own drawing, still, in the
+        ; slide's colours (the engine's dark look on a dark slide) and as
+        ; large as the room allows, chosen like the others
+        def classic:boolean ((n.attrValue("diagram")) == "classic")
         def bi:int (this.embedBox(page n.literal))
         if (bi < 0) {
             return
         }
         def lay:MdLayout (this.layout())
         def box:MdBox (itemAt lay.boxes bi)
-        def base:PresDiagram (this.diagramFor(notation n.literal box.w))
+        def look:string "default"
+        if (classic && (! (PresDiagram.isLight(lay.style.pageBackground)))) {
+            look = "dark"
+        }
+        def base:PresDiagram (this.diagramFor(notation n.literal box.w look))
         if (! base.ok) {
             return
         }
@@ -786,7 +790,7 @@ class PresDeck {
             push texts n.literal
             def other:string (PresDiagram.flipped(notation n.literal))
             if ((strlen other) > 0) {
-                def alt:PresDiagram (this.diagramFor(notation other box.w))
+                def alt:PresDiagram (this.diagramFor(notation other box.w look))
                 if alt.ok {
                     push cands alt
                     push texts other
@@ -798,7 +802,7 @@ class PresDeck {
             while (ci < m) {
                 def cd:PresDiagram (itemAt cands ci)
                 if (cd.worldH > cd.worldW) {
-                    def wr:PresDiagram (this.diagramAs(notation (itemAt texts ci) box.w aspect))
+                    def wr:PresDiagram (this.diagramAs(notation (itemAt texts ci) box.w aspect look))
                     if wr.ok {
                         push cands wr
                     }
@@ -827,6 +831,7 @@ class PresDeck {
         d.edges = base.edges
         d.straight = base.straight
         d.rest = base.rest
+        d.scene = base.scene
         ; The tour is the viewer's to start (▶ beside the zoom, T when
         ; presenting); `{tour=on}` starts it with the slide. Without it the
         ; whole diagram is shown, as large as it fits.
@@ -845,6 +850,12 @@ class PresDeck {
         }
         if ((n.attrValue("style")) == "sketch") {
             d.style = "sketch"
+        }
+        if classic {
+            d.style = "classic"
+            d.tour = false
+            d.canTour = false
+            d.ball = false
         }
         d.choose = ((n.attrValue("choose")) != "off")
         if seq {

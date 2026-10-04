@@ -211,7 +211,11 @@ class Layout {
             def at2:int (unwrap (get blockOfBox ob))
             def blk2:RBlock (itemAt blocks at2)
             if (c.kind == 3) {
-                if ((strlen (trim c.text)) > 0) {
+                ; a label drawn at no opacity is one the chart thinned out
+                ; (Vega's labelOverlap hides every other tick label that
+                ; way): nothing on the screen, so not a run that can crowd
+                ; or be hard to read
+                if (((strlen (trim c.text)) > 0) && (c.a > 0.0)) {
                     def r (new RRun)
                     r.x = c.x
                     r.y = c.y

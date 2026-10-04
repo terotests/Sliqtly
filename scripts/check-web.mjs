@@ -3368,6 +3368,25 @@ try {
     await pc.waitForFunction(() => document.getElementById("brandIntro").hidden, null, { timeout: 20000 }).catch(() => {});
     const gone = await pc.evaluate(() => ({ intro: !document.getElementById("brandIntro").hidden, viewer: document.body.classList.contains("viewer") }));
     check("a share that is not found leaves no intro over the page", !gone.intro && !gone.viewer, JSON.stringify(gone));
+    // A shared deck read in the player: its workbook is among the deck's
+    // files, so a ```sheet naming the one sheet of a one-sheet book (the
+    // still reads data/<book>-<Sheet>.csv) is drawn from it, and the live
+    // sheet would open it rather than EVGSheets' demo workbook.
+    const bookPath = "shares/zzSheetBook/data/kulut.xlsx";
+    const bookBytes = fs.readFileSync(new URL("./fixtures/kulut.xlsx", import.meta.url));
+    fakeFiles.set(bookPath, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf: bookBytes });
+    fakeDb.set("shares/zzSheetBook", { name: "Kirja", owner: "u2", created: 1000,
+      md: "# Kirja\n\n## Taulukko\n\n```sheet\ndata/kulut.xlsx\nsheet: Kulut\nrows: 8\n```\n",
+      files: [{ path: "data/kulut.xlsx", type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size: bookBytes.length, url: url.replace(/\/$/, "") + "/__fakefiles/" + encodeURIComponent(bookPath) }] });
+    await pc.goto(url.replace(/\/$/, "") + "/s/zzSheetBook");
+    await pc.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await pc.waitForFunction(() => { const u = window.__app.deck.tables[0]; return !!u && u.loaded; }, null, { timeout: 15000 }).catch(() => {});
+    const readBook = await pc.evaluate(async () => {
+      const u = window.__app.deck.tables[0];
+      return { viewer: document.body.classList.contains("viewer"), loaded: !!u && u.loaded, rows: u ? u.rows : 0, path: u ? u.path : "", files: await window.__docFiles() };
+    });
+    check("a shared deck's one-sheet workbook: the ```sheet still reads data/<book>-<Sheet>.csv, the player has the .xlsx",
+      readBook.viewer && readBook.loaded && readBook.rows === 6 && readBook.path === "data/kulut-Kulut.csv" && readBook.files.includes("data/kulut.xlsx"), JSON.stringify(readBook));
     check("no page errors with PRO", perr.length === 0, perr.join(" | "));
     await ctx.close();
   }

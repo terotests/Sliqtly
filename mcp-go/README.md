@@ -206,6 +206,7 @@ What it serves besides `/mcp` (`local.go`, `localweb.go`):
 | `/api/…` | what the page keeps decks with (`assets/sliqtly-local.js`, which the server sends as `/sliqtly.js` in place of the Firebase one) |
 | `/settings` | the server's settings: the naming rule below (`localsettings.go`) |
 | `/api/status` | `{"state","version"}`: `migrating`, `failed`, `ready` or `stopping` (`localstatus.go`) |
+| `/api/socket` | the page's one stream, a WebSocket: the server's state, decks changed, the room of a deck edited together (`localevents.go`, `web/eventline.js`). A browser opens at most six HTTP/1.1 connections to a server for all its tabs, and WebSockets are counted apart from them. `/api/events` is the same as Server-Sent Events, which a page uses when a proxy in front does not pass WebSockets on |
 | `/healthz` | `ok`, or 503 while the folder is not ready |
 
 The folder (`fsstore.go`):

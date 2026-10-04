@@ -21,7 +21,12 @@ class SheetRow {
 ; rows of data under it
 class DataTable {
     def name:string ""
+    ; the name list_files gives: data/<book>-<Sheet>.csv, or data/<book>.csv
+    ; for a one-sheet book
     def csv:string ""
+    ; data/<book>-<Sheet>.csv whatever the book holds: what a ```sheet fence
+    ; with `sheet: <Sheet>` reads (PresTable.sheetCsv, web/main.js names)
+    def named:string ""
     def columns:[string]
     def rows:[SheetRow]
 }
@@ -43,6 +48,12 @@ class Files {
     }
     sfn XLSX_MIME:string () {
         return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    }
+
+    ; Whether `path` names this sheet: by its listed name or by
+    ; data/<book>-<Sheet>.csv.
+    sfn readsAs:boolean (t:DataTable path:string) {
+        return ((t.csv == path) || (t.named == path))
     }
 
     sfn isXlsx:boolean (path:string) {
@@ -312,8 +323,9 @@ class Files {
         for used s:MfJ j {
             def t (new DataTable)
             t.name = (s.str_("name"))
+            t.named = (base + "-" + (Files.sheetFileName(t.name)) + ".csv")
             if ((array_length used) > 1) {
-                t.csv = (base + "-" + (Files.sheetFileName(t.name)) + ".csv")
+                t.csv = t.named
             } {
                 t.csv = (base + ".csv")
             }

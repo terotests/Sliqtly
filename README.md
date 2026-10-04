@@ -129,7 +129,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   fence: `{style=sketch}` (hand-drawn), `{tour=off}` (everything drawn at
   once), `{zoom=3}` (the largest scale a box is drawn at),
   `{layout=keep}` (the direction as written) or `{diagram=classic}` (the
-  original drawing). PDF and PPTX use the original drawing.
+  original drawing, still, on the slide's background). PDF and PPTX use the original drawing.
 - A sequence diagram is shown whole, with its messages as straight rows and
   no tour.
 - TeX math: `$…$` in a line, `$$…$$` as a display (on its own line, or right

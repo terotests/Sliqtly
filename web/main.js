@@ -419,19 +419,26 @@ async function imageSize(bytes, type) {
 // change is saved a moment after it is made. The files of a deck not stored
 // yet wait in `pending` and go in with it.
 let vfs = null;
-const doc = { id: newId(), persisted: false, created: Date.now(), openedText: "", openedCss: null };
+const doc = { id: newId(), persisted: false, loading: false, created: Date.now(), openedText: "", openedCss: null };
 // PRO: the share the deck lives in (cloud), its text as last written or read
 // there (cloudMd), the files as sent (cloudStamps: path → stamp), and what
 // was last sent (cloudSig), and the CSS and theme as last written or read
 // there (cloudCss, cloudTheme). cloudHalt: deleted, nothing more is sent.
 Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
 const pending = new Map();
+// A shared presentation opened to read: its files, which nothing saves
+const readFiles = new Map();
 let savedText = null;
 let savedCss = null;
 let savedTheme = null;
 let saving = null;
 
+// A deck being opened: from beginDoc until shownDoc puts its text in the
+// editor, the editor still shows the deck before it, so nothing is saved or
+// sent (the old text would be written under the new deck's id: a deck
+// overwritten by the one opened before it).
 function beginDoc(text) {
+  doc.loading = true;
   doc.id = newId();
   doc.persisted = false;
   doc.created = Date.now();
@@ -441,6 +448,7 @@ function beginDoc(text) {
   versions = null;
   filesAtCommit = null;
   pending.clear();
+  readFiles.clear();
   savedText = null;
   savedCss = null;
   for (const k of Object.keys(editedCss)) delete editedCss[k];
@@ -455,6 +463,11 @@ function beginDoc(text) {
   app.clearChartData();
   showLiveButton();
   if (app.openFilePath()) app.closeFile();
+}
+
+function shownDoc(text) {
+  app.setSource(text);
+  doc.loading = false;
 }
 
 function bare(path) {
@@ -497,8 +510,10 @@ async function saveWorkbook(file, raw, sheetName) {
   if (/\.xlsx$/i.test(path)) {
     await keepFile({ path, type: XLSX_MIME, size: raw.byteLength, data: new Blob([raw], { type: XLSX_MIME }) });
     for (const sh of got.sheets) {
-      chartFiles.set(sh.path, Promise.resolve(sh.csv));
-      app.setChartData(sh.path, sh.csv);
+      for (const n of sh.names) {
+        chartFiles.set(n, Promise.resolve(sh.csv));
+        app.setChartData(n, sh.csv);
+      }
     }
   } else if (got.sheets.length) {
     const csv = got.sheets[0].csv;
@@ -514,8 +529,11 @@ async function saveWorkbook(file, raw, sheetName) {
 
 // A workbook is kept as itself. The CSV of each sheet — what tables, charts
 // and a live sheet's still read — is derived from it when it is needed and
-// never stored: `data/<book>-<Sheet>.csv` (or `data/<book>.csv` for a
-// one-sheet book) names a sheet of `data/<book>.xlsx`.
+// never stored: `data/<book>-<Sheet>.csv` names a sheet of `data/<book>.xlsx`,
+// and a one-sheet book's sheet is `data/<book>.csv` as well. `path` is the
+// name the import shows; `names` every name the sheet answers to — a
+// ```sheet fence names its sheet (`sheet: Kulut` → budjetti-Kulut.csv)
+// however many the book has (PresTable.sheetCsv, mcp-go Files.tables).
 function workbookSheets(xlsxPath, PresData, raw) {
   const r = JSON.parse(PresData.xlsxSheets(asRangerBuffer(raw.slice(0))));
   if (r.error) return { error: r.error, sheets: [] };
@@ -525,8 +543,9 @@ function workbookSheets(xlsxPath, PresData, raw) {
     error: "",
     sheets: used.map((sh) => {
       const csv = tidyCsv(sh.csv);
-      const path = used.length > 1 ? `${base}-${sh.name.replace(/[\\/:*?"<>|\s]+/g, "-")}.csv` : base + ".csv";
-      return { name: sh.name, path, csv, text: csv };
+      const named = `${base}-${sh.name.replace(/[\\/:*?"<>|\s]+/g, "-")}.csv`;
+      const path = used.length > 1 ? named : base + ".csv";
+      return { name: sh.name, path, names: path === named ? [path] : [path, named], csv, text: csv };
     }),
   };
 }
@@ -540,7 +559,7 @@ function sheetsOfWorkbook(f) {
       const PresData = await loadPresData();
       const blob = typeof f.data === "string" ? new Blob([f.data]) : f.data;
       const out = new Map();
-      for (const sh of workbookSheets(f.path, PresData, await blob.arrayBuffer()).sheets) out.set(sh.path, sh.csv);
+      for (const sh of workbookSheets(f.path, PresData, await blob.arrayBuffer()).sheets) for (const n of sh.names) out.set(n, sh.csv);
       return out;
     })().catch(() => new Map()));
   }
@@ -580,6 +599,7 @@ window.__docFiles = () => docFiles().then((fs) => fs.map((f) => f.path));
 async function docFiles() {
   const out = new Map();
   if (doc.persisted && vfs) for (const f of await vfs.listFiles(doc.id)) out.set(f.path, f);
+  for (const [k, f] of readFiles) out.set(k, f);
   for (const [k, f] of pending) out.set(k, f);
   return [...out.values()];
 }
@@ -598,7 +618,7 @@ async function saveDoc(force) {
 }
 
 async function saveDocNow(force) {
-  if (merging) return;
+  if (merging || doc.loading) return;
   const md = app.source();
   const key = themeSel.value || "";
   const css = key in editedCss ? editedCss[key] : null;
@@ -664,7 +684,7 @@ async function newDeck(plan) {
   docName = name;
   if (plan.theme != null && [...themeSel.options].some((o) => o.value === plan.theme)) themeSel.value = plan.theme;
   useTheme(themeSel.value);
-  app.setSource(text);
+  shownDoc(text);
   app.showTab("md");
   dropThumbs();
   await saveDoc(true);
@@ -696,7 +716,7 @@ async function duplicateDeck(asked) {
     pending.set(rec.path, rec);
     await useFile(rec);
   }
-  app.setSource(text);
+  shownDoc(text);
   dropThumbs();
   await saveDoc(true);
   await commitVersion("@created").catch((e) => console.warn("no version kept", e));
@@ -747,7 +767,7 @@ async function deleteDeck() {
   if (vfs && doc.persisted) await vfs.deleteDoc(id);
   // let go of it, so leaving it does not save it again
   beginDoc("");
-  app.setSource("");
+  shownDoc("");
   const next = vfs ? (await vfs.listDocs()).filter((d) => d.id !== id).sort((a, b) => (b.updated || 0) - (a.updated || 0))[0] : null;
   if (!(next && (await openDoc(next.id)))) {
     try { localStorage.removeItem("evgp.doc"); } catch (_) { /* fine */ }
@@ -917,6 +937,15 @@ async function useFile(f) {
 }
 
 async function openDoc(id) {
+  try {
+    return await openDocNow(id);
+  } catch (e) {
+    // stopped half way: the editor shows the deck it had begun to open
+    if (doc.loading) shownDoc(doc.openedText);
+    throw e;
+  }
+}
+async function openDocNow(id) {
   if (!vfs) return false;
   await leaveDoc();
   const d = await vfs.getDoc(id);
@@ -934,7 +963,7 @@ async function openDoc(id) {
   useTheme(themeSel.value);
   for (const f of await vfs.listFiles(doc.id)) await useFile(f);
   docName = d.name || "presentation";
-  app.setSource(d.md);
+  shownDoc(d.md);
   savedText = d.md;
   savedCss = d.css == null ? null : d.css;
   savedTheme = d.theme || "";
@@ -1110,7 +1139,7 @@ async function addDocFile(file, ask = false) {
     const text = await file.text();
     beginDoc(text);
     docName = file.name.replace(/\.(md|markdown)$/i, "") || "presentation";
-    app.setSource(text);
+    shownDoc(text);
     dropThumbs();
     needsPaint = true;
     return;
@@ -1304,8 +1333,10 @@ async function keepData(i) {
       await keepFile({ path: wb.path, type: XLSX_MIME, size: wb.bytes.byteLength, data: new Blob([wb.bytes], { type: XLSX_MIME }) });
     }
     for (const one of importing.sheets) {
-      chartFiles.set(one.path, Promise.resolve(one.text));
-      app.setChartData(one.path, one.text);
+      for (const n of one.names) {
+        chartFiles.set(n, Promise.resolve(one.text));
+        app.setChartData(n, one.text);
+      }
     }
     await saveDoc(true);
     dropThumbs();
@@ -1384,9 +1415,9 @@ async function fileRequest(r) {
     if (app.openFilePath() === what) app.closeFile();
     cloudSoon();
   } else if (action === "doc") {
-    const opened = what.startsWith("cloud:")
-      ? await openOwnCloud(what.slice(6)).catch((e) => { console.warn(e); return false; })
-      : await openDoc(what);
+    const opened = await loadingScreen(() => what.startsWith("cloud:")
+      ? openOwnCloud(what.slice(6)).catch((e) => { console.warn(e); return false; })
+      : openDoc(what));
     if (!opened) toast(t("Presentation not found."));
   } else if (action === "deletedeck") {
     // asked first, in the app's own window; "confirm:deletedeck" deletes
@@ -2292,7 +2323,7 @@ function collabOn() {
 // the room of the deck open now; the one before is left
 function collabFollow() {
   const tr = window.sliqtly?.collab;
-  const want = tr && !viewer && doc.persisted && doc.cloud ? doc.cloud : "";
+  const want = tr && !viewer && doc.persisted && !doc.loading && doc.cloud ? doc.cloud : "";
   if (want === collabWant) return;
   collabWant = want;
   if (collab) collab.stop();
@@ -2739,7 +2770,7 @@ filePick.addEventListener("change", async () => {
     await saveDoc();
     const text = await doc.text();
     beginDoc(text);
-    app.setSource(text);
+    shownDoc(text);
     dropThumbs();
   }
   const rest = list.filter((f) => f !== doc);
@@ -2833,7 +2864,7 @@ function stampOf(f) {
   return (f.size ?? "") + ":" + (f.updated ?? "");
 }
 function cloudReady() {
-  return !!(vfs && !viewer && doc.persisted && window.sliqtly?.user?.());
+  return !!(vfs && !viewer && doc.persisted && !doc.loading && window.sliqtly?.user?.());
 }
 let cloudTimer = 0;
 function cloudSoon() {
@@ -2924,10 +2955,33 @@ async function cloudSync() {
 }
 window.addEventListener("sliqtly:user", () => cloudSoon());
 
+// A share's files, fetched all at once (one after another, each waited a
+// round trip: slow over a VPN or far away), in their order; each with its
+// data or the error it got.
+function shareFiles(files) {
+  return Promise.all((files || []).map(async (f) => {
+    try {
+      const res = await fetch(f.url);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return { f, data: isText(f.path, f.type) ? await res.text() : await res.blob() };
+    } catch (error) {
+      return { f, error };
+    }
+  }));
+}
+
 // Opens the signed-in owner's deck from its share (/s/{id}?edit): the cloud
 // has the latest, an assistant's changes included. Kept in this browser
 // under the id it had here, or a new one. False when it is not theirs.
 async function openOwnCloud(id) {
+  try {
+    return await openOwnCloudNow(id);
+  } catch (e) {
+    if (doc.loading) shownDoc(doc.openedText);
+    throw e;
+  }
+}
+async function openOwnCloudNow(id) {
   const p = await pro();
   const who = await Promise.race([p.signedIn(), new Promise((ok) => setTimeout(() => ok(null), 8000))]);
   if (!who || !vfs) return false;
@@ -2951,11 +3005,9 @@ async function openOwnCloud(id) {
     app.setStyleSheet(shared.css);
   }
   const missing = [];
-  for (const f of shared.files || []) {
+  for (const { f, data, error } of await shareFiles(shared.files)) {
     try {
-      const res = await fetch(f.url);
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const data = isText(f.path, f.type) ? await res.text() : await res.blob();
+      if (error) throw error;
       const rec = { doc: doc.id, path: f.path, type: f.type, size: f.size, data, updated: Date.now() };
       pending.set(rec.path, rec);
       await useFile(rec);
@@ -2966,7 +3018,7 @@ async function openOwnCloud(id) {
   }
   if (missing.length) toast(t("Some pictures or data files of this presentation could not be loaded: ") + missing.join(", "));
   docName = shared.name || "presentation";
-  app.setSource(shared.md || "");
+  shownDoc(shared.md || "");
   doc.cloud = id;
   doc.cloudMd = shared.md || "";
   doc.cloudCss = shared.css ?? null;
@@ -3001,7 +3053,7 @@ let versions = null;
 let merging = false;
 let filesAtCommit = null;
 function deckVersions() {
-  if (!vfs || viewer || !doc.persisted) return null;
+  if (!vfs || viewer || !doc.persisted || doc.loading) return null;
   if (!versions || versions.docId !== doc.id) {
     versions = new DeckHistory({
       vfs, docId: doc.id, cloud: () => doc.cloud,
@@ -3245,7 +3297,7 @@ async function followCloudHead(head, merged = false) {
 }
 
 async function checkElsewhere() {
-  if (!vfs || viewer || merging || !doc.persisted) return;
+  if (!vfs || viewer || merging || !doc.persisted || doc.loading) return;
   try {
     // another tab of this browser in the same room has its edits there too
     if (!collabOn()) await exclusive(takeLocal);
@@ -3570,6 +3622,30 @@ function hideIntro() {
   el.classList.add("out");
   setTimeout(() => { el.hidden = true; el.classList.remove("out"); }, 350);
 }
+// Another deck being opened: the logo and "Loading presentation…" over the
+// editor, when it takes longer than a glance (the deck before is saved and
+// sent first, then the new one's files come).
+let loadingDepth = 0;
+async function loadingScreen(work) {
+  const el = document.getElementById("brandIntro");
+  loadingDepth++;
+  const timer = setTimeout(() => {
+    if (!el || !el.hidden) return;
+    loadNote.textContent = t("Loading presentation…");
+    el.classList.add("loading");
+    el.hidden = false;
+  }, 250);
+  try {
+    return await work();
+  } finally {
+    clearTimeout(timer);
+    if (--loadingDepth === 0 && el?.classList.contains("loading")) {
+      el.classList.remove("loading");
+      loadNote.textContent = "";
+      hideIntro();
+    }
+  }
+}
 function playIntro() {
   const el = document.getElementById("brandIntro");
   if (!el) return Promise.resolve();
@@ -3745,12 +3821,14 @@ async function openFromHash() {
       app.setStyleSheet(css);
     }
     docName = "shared";
-    app.setSource(text);
+    shownDoc(text);
     dropThumbs();
     needsPaint = true;
     if (q.get("mode") === "show") enterViewer({ from: "link" });
     return true;
   } catch (e) {
+    // stopped half way: the editor shows the deck it had begun to open
+    if (doc.loading) shownDoc(doc.openedText);
     toast(t("Could not read the link's contents."));
     console.warn(e);
     return false;
@@ -3879,14 +3957,15 @@ async function openFromShare() {
     // for this origin (storage.cors.json); a picture that does not come is
     // said, not left out in silence
     const missing = [];
-    for (const f of shared.files || []) {
+    for (const { f, data, error } of await shareFiles(shared.files)) {
       try {
-        const res = await fetch(f.url);
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const data = isText(f.path, f.type) ? await res.text() : await res.blob();
+        if (error) throw error;
         const rec = { doc: doc.id, path: f.path, type: f.type, size: f.size, data, updated: Date.now() };
         // the reader's copy keeps them: they are saved with it on its first change
         if (editing) pending.set(rec.path, rec);
+        // a reader's are the deck's files all the same: a live sheet opens its
+        // workbook, a chart reads a sheet of it
+        else readFiles.set(rec.path, rec);
         await useFile(rec);
       } catch (e) {
         console.warn("shared file not loaded: " + f.path, e);
@@ -3895,12 +3974,13 @@ async function openFromShare() {
     }
     if (missing.length) toast(t("Some pictures or data files of this presentation could not be loaded: ") + missing.join(", "));
     docName = shared.name || "shared";
-    app.setSource(shared.md || "");
+    shownDoc(shared.md || "");
     dropThumbs();
     needsPaint = true;
     if (!editing) enterViewer({ from: "share" });
     return true;
   } catch (e) {
+    if (doc.loading) shownDoc(doc.openedText);
     console.warn(e);
     toast(t("Could not open the shared presentation."));
     return false;
@@ -3930,7 +4010,7 @@ async function openSample(key) {
       useTheme(s[2]);
     }
     beginDoc(text);
-    app.setSource(text);
+    shownDoc(text);
     dropThumbs();
     needsPaint = true;
   } catch (e) {

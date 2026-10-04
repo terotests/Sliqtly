@@ -9,8 +9,9 @@
 //	           before offers to reload
 //	stopping   shutting down, for an update or a restart
 //
-// GET /api/status answers {"state","version","message"}; /api/events sends
-// the same as "event: status" when a page connects and when it changes.
+// GET /api/status answers {"state","version","message"}; the page's stream
+// (/api/socket, /api/events) sends the same when it connects and when it
+// changes.
 // While the folder is not ready every other /api/ and /mcp request gets
 // 503 with "code":"maintenance", and a page a "being updated" page that
 // reloads itself when the server is ready.
@@ -18,6 +19,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -88,6 +90,21 @@ func maintenance(board *statusBoard) http.Handler {
 		switch {
 		case p == "/api/status":
 			writeStatus(w, st, 200)
+		case p == "/api/socket":
+			// as /api/events below, as a WebSocket (localevents.go)
+			serveSocket(w, r, func(ctx context.Context, k *wsSink) {
+				k.status(st)
+				if k.flush() != nil {
+					return
+				}
+				select {
+				case <-ctx.Done():
+				case <-changed:
+					st, _ = board.get()
+					k.status(st)
+					k.flush()
+				}
+			})
 		case p == "/api/events":
 			fl, ok := w.(http.Flusher)
 			if !ok {
