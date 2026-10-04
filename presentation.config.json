@@ -11,6 +11,10 @@
     "url": "https://github.com/terotests/RangerMarkdown",
     "ref": "main"
   },
+  "rangerpptx": {
+    "url": "https://github.com/terotests/RangerPPTX",
+    "ref": "main"
+  },
   "evgui": {
     "url": "https://github.com/terotests/EVGUI",
     "ref": "main"

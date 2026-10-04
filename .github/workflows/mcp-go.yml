@@ -33,7 +33,7 @@ jobs:
         working-directory: mcp-go
     steps:
       - uses: actions/checkout@v4
-      - name: Git access to RangerFlow and RangerMarkdown
+      - name: Git access to RangerFlow, RangerMarkdown and RangerPPTX
         working-directory: .
         env:
           DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}
