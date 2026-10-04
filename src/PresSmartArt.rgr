@@ -7,7 +7,9 @@
 ; ![The release process](media/release.xml){width=80% layout=process1 colors=colorful1}
 ; ````
 ;
-; The file is a SmartArt data model (`dgm:dataModel`), kept like a picture.
+; The file is a SmartArt data model (`dgm:dataModel`), or a whole PowerPoint
+; diagram as one Flat OPC file (data, layout, style, colours, drawing:
+; SaWhole), kept like a picture.
 ; The Markdown module never learns what it is: it lays the reference out as a
 ; picture box, at the natural size the file was registered with (16:9,
 ; SaFile), and `{width}`, `{height}` and `{align}` work as they do for any
@@ -37,6 +39,7 @@
 
 Import "../pptx/smartart/SaRender.rgr"
 Import "../pptx/smartart/SaFile.rgr"
+Import "../pptx/smartart/SaWhole.rgr"
 Import "../markdown/web/markdown_web.rgr"
 
 ; Laid-out diagrams by what they were laid out for: the slides are rebuilt
@@ -145,7 +148,8 @@ class PresSmartArt {
         o.colors = u.colors
         o.style = u.style
         o.measure = m
-        return (SaEngine.layout(xml o w h))
+        ; the data alone, or a whole PowerPoint diagram (SaWhole)
+        return (SaWhole.layout(xml o w h))
     }
 
     ; The family a diagram's text is set in: the theme's figure font, else

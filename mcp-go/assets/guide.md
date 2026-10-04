@@ -235,11 +235,23 @@ When text on a picture is hard to read ("low contrast"), raise that slide's
   `radial1` (the first item in the middle, the items under it round it),
   `hierarchy1` and `orgChart1` (a tree: each item over the items under it;
   in orgChart1 a point with `type="asst"` is an assistant, beside the line
-  down from its boss) and `pyramid1` (a triangle cut into a level per
-  item, the first at the apex). Another layout id is drawn as `default`
-  and the result says so. Colours (`colors=`):
-  `accent1_2` … `accent6_2` (one theme colour), `colorful1`, `colorful2`
-  (cycling). They come from the theme. A file that is not a diagram is
+  down from its boss), `pyramid1` (a triangle cut into a level per
+  item, the first at the apex), `venn1` (overlapping circles), `matrix1`
+  (four quadrants), `target1` (nested rings), `funnel1`, `gear1` (up to
+  three gears), `arrow2` (points rising along an arrow), `bList2`
+  (an item per block, without its picture), `hProcess9` (blocks along one wide arrow),
+  `lProcess2` (a column per item, its sub-items as blocks) and `cycle4` (four items as
+  quarters of a circle). Another layout id is drawn as `default` and
+  the result says so. Colours (`colors=`): `accent0_1` … `accent0_3`,
+  `accent1_1` … `accent6_5` (one theme colour), `colorful1` …
+  `colorful5` (cycling accents). Styles (`style=`): `simple1` … `simple5` (thicker outlines,
+  then shadows). They come from the theme. A whole SmartArt from a .pptx
+  also works as one file: a Flat OPC package (`pkg:package`) holding its
+  data, layout, style, colours and, when PowerPoint saved one, its drawing;
+  `tools/extract_smartart.py deck.pptx out/` in RangerPPTX writes one per
+  diagram. Such a file is drawn as PowerPoint drew it (scaled to the box),
+  or laid out again from its own layout when `layout=`, `colors=` or
+  `style=` is given. A file that is not a diagram is
   shown as the reason in its place and named in the warnings. The PDF
   carries it as drawn; the PowerPoint export carries it as SmartArt that
   PowerPoint can edit. Prefer a Mermaid diagram or a
