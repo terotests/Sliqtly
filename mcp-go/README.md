@@ -166,6 +166,31 @@ docker run -p 8080:8080 -v sliqtly-data:/data sliqtly-server
 | `-user` | `SLIQTLY_USER` | `local` | owner of the decks |
 | `-token` | `SLIQTLY_TOKEN` | | `/mcp` then needs `Authorization: Bearer <token>` |
 | `-web` | `SLIQTLY_WEB` | the copy built in | a built `web/dist` to serve |
+| `-listen` | `SLIQTLY_LISTEN` | `local` (the settings page decides) | who can connect: `local`, `wired` or `network` (below) |
+| `-allow` | `SLIQTLY_ALLOW` | | other computers' address ranges let in, e.g. `10.20.0.0/16` |
+
+**Who can connect** (`netaccess.go`). By default only this computer: the
+server listens on 127.0.0.1 and ::1, so one run on a laptop is not open to
+the café's Wi-Fi. `/settings` (in a browser on the same computer) or
+`SLIQTLY_LISTEN` can open it further:
+
+| | |
+| --- | --- |
+| `local` | this computer only |
+| `wired` | also computers on a wired network. The server listens on the wired interfaces' addresses only, and takes a connection only from an address on their subnets. Wi-Fi, a phone's connection (USB, Bluetooth), a VPN and virtual interfaces are never opened. Interfaces are looked at every 5 s, so plugging a cable in or out takes effect at once. |
+| `network` | every interface: a server, a container (the `.deb` and the Docker images set this) |
+
+- **Address ranges:** `allow` narrows `wired` and `network` to the listed
+  ranges, e.g. the office's. This computer is always let in.
+- **Refused connections** are closed before any HTTP is read, and are logged.
+- **Tightening the rule** closes the connections it no longer takes, kept-alive
+  pages and event streams included.
+- **Interface kinds:** read from `networksetup -listallhardwareports` on
+  macOS and from `/sys/class/net` on Linux. Elsewhere every interface is
+  "other", so `wired` opens nothing.
+- **Changing it:** only a browser on the server's own computer can change
+  the setting on the page. When `SLIQTLY_LISTEN` or `SLIQTLY_ALLOW` sets it,
+  the page cannot change it.
 
 What it serves besides `/mcp` (`local.go`, `localweb.go`):
 

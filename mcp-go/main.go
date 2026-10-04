@@ -14,7 +14,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -43,16 +42,31 @@ func main() {
 	user := flag.String("user", env("SLIQTLY_USER", "local"), "the owner of the decks kept in the folder (SLIQTLY_USER)")
 	token := flag.String("token", env("SLIQTLY_TOKEN", ""), "require Authorization: Bearer <token> on /mcp (SLIQTLY_TOKEN)")
 	web := flag.String("web", env("SLIQTLY_WEB", ""), "serve the editor and player from this built web/dist instead of the copy built in (SLIQTLY_WEB)")
+	listen := flag.String("listen", env("SLIQTLY_LISTEN", ""), "who can connect: local (this computer only, the default), wired (also computers on a wired network) or network (every interface); unset: the settings page decides (SLIQTLY_LISTEN)")
+	allow := flag.String("allow", env("SLIQTLY_ALLOW", ""), "other computers' address ranges let in, e.g. 10.20.0.0/16 (SLIQTLY_ALLOW)")
 	flag.Parse()
+
+	// who can connect (netaccess.go): this computer only unless told
+	// otherwise; Cloud Run's own front is the only way in there
+	access := *listen
+	if access == "" && os.Getenv("K_SERVICE") != "" {
+		access = accessNetwork
+	}
+	policy, err := newNetPolicy(access, splitList(*allow), access != "" || *allow != "")
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	stop, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 	sw := &switchHandler{}
-	srv := &http.Server{Addr: ":" + *port, Handler: sw, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: sw, ReadHeaderTimeout: 10 * time.Second}
+	expo := newExposure(srv, *port, policy)
 	serve := func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := expo.sync(true); err != nil {
 			log.Fatal(err)
 		}
+		go expo.run(stop)
 	}
 	if *data != "" && env("SLIQTLY_STORE", "") != "link" {
 		// the folder is locked and brought to this version's format before
@@ -60,7 +74,7 @@ func main() {
 		// (localstatus.go), so open pages wait instead of losing the server
 		board := newStatusBoard("migrating", version)
 		sw.set(maintenance(board))
-		go serve()
+		serve()
 		release, err := prepareData(*data, version, func(m string) { log.Print(m) })
 		if err != nil {
 			log.Printf("data folder %s: %v", *data, err)
@@ -84,13 +98,20 @@ func main() {
 		page := webFiles(*web)
 		ls := newLocalServer(e, bucket, *token, page).(*localServer)
 		ls.board = board
+		ls.expo = expo
+		// who can connect, as the settings page last set it
+		if !policy.Fixed {
+			if p, err := loadNetPolicy(context.Background(), e.DB); err == nil {
+				expo.setPolicy(p)
+			}
+		}
 		kind := fmt.Sprintf("folder %s, %s", *data, e.BaseURL)
 		if page == nil {
 			kind += ", no editor (npm run build, then go generate)"
 		}
 		sw.set(ls)
 		board.set("ready", "")
-		log.Printf("Sliqtly MCP %s (%s) on :%s, ready in %s", version, kind, *port, time.Since(start).Round(time.Microsecond))
+		log.Printf("Sliqtly MCP %s (%s) on port %s, ready in %s", version, kind, *port, time.Since(start).Round(time.Microsecond))
 		<-stop.Done()
 		// pages hear it before the stream closes, and keep their edits
 		board.set("stopping", "")
@@ -122,8 +143,8 @@ func main() {
 		handler = NewApp(e)
 	}
 	sw.set(handler)
-	go serve()
-	log.Printf("Sliqtly MCP %s (%s) on :%s, ready in %s", version, kind, *port, time.Since(start).Round(time.Microsecond))
+	serve()
+	log.Printf("Sliqtly MCP %s (%s) on port %s, ready in %s", version, kind, *port, time.Since(start).Round(time.Microsecond))
 	<-stop.Done()
 	shutdown(srv)
 }
