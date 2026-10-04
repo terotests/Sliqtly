@@ -18,7 +18,7 @@ func TestSmartArtFile(t *testing.T) {
 	f := fakeFirebase()
 	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
 	defer s.close()
-	md := "## Steps\n\n![The steps](media/steps.xml)\n\n## Other\n\n![The steps again](media/steps.xml)\n{layout=gear1}\n\n## Broken\n\n![Broken](media/broken.xml)\n"
+	md := "## Steps\n\n![The steps](media/steps.xml)\n\n## Other\n\n![The steps again](media/steps.xml)\n{layout=noSuchLayout9}\n\n## Broken\n\n![Broken](media/broken.xml)\n"
 	c := call(t, s, "create_presentation", map[string]any{
 		"title": "SmartArt", "markdown": md,
 		"images": []any{
@@ -34,7 +34,7 @@ func TestSmartArtFile(t *testing.T) {
 	eq(t, out["slides"], 3)
 	eq(t, f.bucket.saved["shares/"+id+"/media/steps.xml"].contentType, "application/vnd.openxmlformats-officedocument.drawingml.diagramData+xml")
 	ws := strings.Join(toStrings(out["warnings"]), "\n")
-	if !strings.Contains(ws, `The SmartArt media/steps.xml on slide "Other": the layout "gear1" is not one this engine has`) {
+	if !strings.Contains(ws, `The SmartArt media/steps.xml on slide "Other": the layout "noSuchLayout9" is not one this engine has`) {
 		t.Fatalf("no warning about the layout it does not have:\n%s", ws)
 	}
 	if !strings.Contains(ws, `The SmartArt media/broken.xml on slide "Broken" is not shown: there is no document point`) {
@@ -43,10 +43,12 @@ func TestSmartArtFile(t *testing.T) {
 	if strings.Contains(ws, `slide "Steps"`) {
 		t.Fatalf("a warning about the diagram that is fine:\n%s", ws)
 	}
-	// drawn: the layout report has it as a diagram with text in it, and the
-	// message in the broken one's place reads on the theme
+	// drawn: the layout report has it as a diagram with text in it, set at
+	// the size Open Sans (the server's font) fits, not the average-width
+	// guess (81 px); and the message in the broken one's place reads on the
+	// theme
 	rep := textOf(c)
-	if !strings.Contains(rep, "- diagram (steps.xml) at ") || !strings.Contains(rep, "text 81 px") {
+	if !strings.Contains(rep, "- diagram (steps.xml) at ") || !strings.Contains(rep, "2 labels, 115 shapes, smallest text 85 px") {
 		t.Fatalf("the diagram is not in the layout report as one:\n%s", rep)
 	}
 	if strings.Contains(ws, "hard to read") {
@@ -71,4 +73,48 @@ func toStrings(v any) []string {
 		out = append(out, l...)
 	}
 	return out
+}
+
+// Phase 2's layouts through the server: a cycle, a pyramid, an organisation
+// chart with an assistant, a radial and a block list, each laid out with
+// nothing to warn about, reported as a diagram and rendered.
+const ORG = `<dgm:dataModel xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><dgm:ptLst><dgm:pt modelId="0" type="doc"><dgm:prSet loTypeId="urn:microsoft.com/office/officeart/2005/8/layout/orgChart1"/></dgm:pt><dgm:pt modelId="a"><dgm:t><a:p><a:r><a:t>CEO</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId="s" type="asst"><dgm:t><a:p><a:r><a:t>Assistant</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId="b"><dgm:t><a:p><a:r><a:t>Sales</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId="c"><dgm:t><a:p><a:r><a:t>Finance</a:t></a:r></a:p></dgm:t></dgm:pt></dgm:ptLst><dgm:cxnLst><dgm:cxn srcId="0" destId="a"/><dgm:cxn srcId="a" destId="s"/><dgm:cxn srcId="a" destId="b"/><dgm:cxn srcId="a" destId="c"/></dgm:cxnLst></dgm:dataModel>`
+
+func TestSmartArtLayouts(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "## Cycle\n\n![Cycle](media/steps.xml)\n{layout=cycle2}\n\n" +
+		"## Pyramid\n\n![Pyramid](media/steps.xml)\n{layout=pyramid1}\n\n" +
+		"## Blocks\n\n![Blocks](media/steps.xml)\n{layout=default}\n\n" +
+		"## Org\n\n![Org](media/org.xml)\n\n" +
+		"## Hierarchy\n\n![Hierarchy](media/org.xml)\n{layout=hierarchy1}\n\n" +
+		"## Radial\n\n![Radial](media/org.xml)\n{layout=radial1}\n"
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "SmartArt layouts", "markdown": md,
+		"images": []any{
+			map[string]any{"name": "steps.xml", "data_base64": base64.StdEncoding.EncodeToString([]byte(STEPS))},
+			map[string]any{"name": "org.xml", "data_base64": base64.StdEncoding.EncodeToString([]byte(ORG))},
+		},
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	out := sc(c)
+	eq(t, out["slides"], 6)
+	ws := strings.Join(toStrings(out["warnings"]), "\n")
+	if strings.Contains(ws, "SmartArt") {
+		t.Fatalf("a SmartArt warning for a layout the engine has:\n%s", ws)
+	}
+	rep := textOf(c)
+	if n := strings.Count(rep, "- diagram ("); n != 6 {
+		t.Fatalf("%d diagrams in the layout report, want 6:\n%s", n, rep)
+	}
+	id := out["deck_id"].(string)
+	for i := 1; i <= 6; i++ {
+		r := call(t, s, "render_slide", map[string]any{"deck_id": id, "slide": i})
+		if r.IsError {
+			t.Fatalf("slide %d: %s", i, textOf(r))
+		}
+	}
 }

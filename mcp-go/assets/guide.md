@@ -228,9 +228,15 @@ When text on a picture is hard to read ("low contrast"), raise that slide's
   ```
 
   Layouts drawn today: `process1` (steps with arrows), `chevron1` (chevron
-  steps), `vList2` (a bar per item, its sub-items as bullets under it) and
-  `hList1` (a column per item, its sub-items under its heading). Another
-  layout id is drawn as vList2 and the result says so. Colours (`colors=`):
+  steps), `vList2` (a bar per item, its sub-items as bullets under it),
+  `hList1` (a column per item, its sub-items under its heading), `default`
+  (blocks in rows that wrap), `cycle2` (items on a circle, arrows round it),
+  `radial1` (the first item in the middle, the items under it round it),
+  `hierarchy1` and `orgChart1` (a tree: each item over the items under it;
+  in orgChart1 a point with `type="asst"` is an assistant, beside the line
+  down from its boss) and `pyramid1` (a triangle cut into a level per
+  item, the first at the apex). Another layout id is drawn as `default`
+  and the result says so. Colours (`colors=`):
   `accent1_2` … `accent6_2` (one theme colour), `colorful1`, `colorful2`
   (cycling). They come from the theme. A file that is not a diagram is
   shown as the reason in its place and named in the warnings. The PDF and
