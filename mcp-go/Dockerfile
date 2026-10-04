@@ -1,8 +1,11 @@
+# syntax=docker/dockerfile:1
 # Build from the repository root:
 #   docker build -f mcp-go/Dockerfile -t sliqtly-mcp-go .                  # Cloud Run
 #   docker build -f mcp-go/Dockerfile --target local -t sliqtly-server .   # with the editor
 # The first stage compiles rgr/ and the editor's deck model (src/) to Go with
-# Ranger, cloned at the ref in presentation.config.json.
+# Ranger, cloned at the ref in presentation.config.json, with RangerFlow and
+# RangerMarkdown, which are private: give a token that can read them as a
+# build secret, docker build --secret id=deps_token,env=DEPS_TOKEN …
 FROM node:22 AS gen
 WORKDIR /src
 COPY presentation.config.json ./
@@ -11,7 +14,10 @@ COPY src/ src/
 COPY themes/ themes/
 COPY mcp-go/gen.mjs mcp-go/
 COPY mcp-go/rgr/ mcp-go/rgr/
-RUN node mcp-go/gen.mjs
+COPY scripts/ci-git-auth.sh scripts/
+RUN --mount=type=secret,id=deps_token \
+    if [ -s /run/secrets/deps_token ]; then DEPS_TOKEN=$(cat /run/secrets/deps_token) sh scripts/ci-git-auth.sh; fi && \
+    node mcp-go/gen.mjs
 
 FROM golang:1.26 AS build
 WORKDIR /src/mcp-go
@@ -29,7 +35,9 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server . && mkdir /dat
 FROM node:22 AS web
 WORKDIR /src
 COPY . .
-RUN npm ci --no-audit --no-fund && NODE_OPTIONS=--max-old-space-size=6144 node scripts/build.mjs
+RUN --mount=type=secret,id=deps_token \
+    if [ -s /run/secrets/deps_token ]; then DEPS_TOKEN=$(cat /run/secrets/deps_token) sh scripts/ci-git-auth.sh; fi && \
+    npm ci --no-audit --no-fund && NODE_OPTIONS=--max-old-space-size=6144 node scripts/build.mjs
 
 FROM build AS build-local
 COPY --from=web /src/web/dist/ ./webdist/

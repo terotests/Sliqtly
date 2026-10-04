@@ -13,6 +13,16 @@
  * the same checkout as gallery/evgui, where its own ranger.json finds lib/evg.
  * EVGUI is cloned into .deps/EVGUI unless EVGUI_DIR points at a checkout.
  *
+ * The diagram library and the Markdown engine moved out of Ranger into the
+ * private RangerFlow and RangerMarkdown. Each is cloned INTO the Ranger
+ * checkout at the path it had there, gallery/rangerflow and gallery/markdown
+ * (Ranger's .gitignore leaves both out): their imports reach the rest of
+ * Ranger by relative paths (../../../rangerdb/…), which a link would resolve
+ * from where the clone really is. A Ranger checkout from before the move
+ * still tracks them and is used as is.
+ * Cloning a private repository needs git credentials for github.com; in CI,
+ * DEPS_TOKEN (scripts/ci-git-auth.sh).
+ *
  * The version history (web/versions.js) uses RangerDiff's built module,
  * dist/rangerdiff.mjs, cloned into .deps/RangerDiff unless RANGERDIFF_DIR
  * points at a checkout.
@@ -64,6 +74,18 @@ export function ensureRanger({ update = false } = {}) {
     fs.writeFileSync(marker, ref + "\n");
   }
   if (!fs.existsSync(path.join(dir, "dist", "rgrc.js"))) throw new Error(`${dir} is not a Ranger checkout (no dist/rgrc.js)`);
+  // RangerFlow and RangerMarkdown, cloned into the checkout where it no
+  // longer tracks them
+  for (const [key, at] of [["rangerflow", "gallery/rangerflow"], ["rangermarkdown", "gallery/markdown"]]) {
+    const place = path.join(dir, at);
+    let st = null;
+    try {
+      st = fs.lstatSync(place);
+    } catch { /* not there */ }
+    if (st && st.isSymbolicLink()) fs.unlinkSync(place);
+    else if (st && !fs.existsSync(path.join(place, ".git"))) continue; // tracked by this Ranger
+    ensureCheckout(key, { update, into: place });
+  }
   // What this checkout has to have. A checkout of your own (RANGER_DIR) is
   // never switched for you, so say which branch it needs.
   if (!fs.existsSync(path.join(dir, "gallery/rangerflow/layout/FlowWrap.rgr"))) {
@@ -107,6 +129,44 @@ export function ensureEvgui({ update = false } = {}) {
     fs.writeFileSync(marker, ref + "\n");
   }
   if (!fs.existsSync(path.join(dir, "src", "UiHost.rgr"))) throw new Error(`${dir} is not an EVGUI checkout (no src/UiHost.rgr)`);
+  return dir;
+}
+
+// what a checkout of each must hold
+const CHECKOUT_HAS = {
+  rangerflow: "layout/FlowWrap.rgr",
+  rangermarkdown: "src/MdLayout.rgr",
+};
+
+/**
+ * A dependency cloned like EVGUI: <KEY>_DIR, or a clone in .deps at
+ * config[key].ref (or <KEY>_REF).
+ */
+export function ensureCheckout(key, { update = false, into = null } = {}) {
+  const c = config[key];
+  if (!c) throw new Error(`presentation.config.json has no "${key}"`);
+  const name = c.url.replace(/\/+$/, "").split("/").pop();
+  const env = key.toUpperCase();
+  const given = into ? null : process.env[`${env}_DIR`];
+  const dir = into || (given ? path.resolve(given) : path.join(depsDir, name));
+  const ref = process.env[`${env}_REF`] || c.ref;
+  // the ref the clone was taken at, kept beside it
+  const marker = into ? path.join(dir, ".git", "sliqtly-ref") : path.join(depsDir, `${key}-ref`);
+  const had = fs.existsSync(marker) ? fs.readFileSync(marker, "utf8").trim() : "";
+  if (!fs.existsSync(dir)) {
+    if (given) throw new Error(`${env}_DIR=${given} does not exist`);
+    fs.mkdirSync(path.dirname(dir), { recursive: true });
+    log(`clone  ${c.url} (${ref}) → ${path.relative(root, dir)}`);
+    git(["clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), c.url, dir], path.dirname(dir));
+    fs.writeFileSync(marker, ref + "\n");
+  } else if (!given && (update || had !== ref)) {
+    log(`update ${name} (${had || "unknown"} → ${ref})`);
+    git(["fetch", "--depth", "1", "origin", ref || "HEAD"], dir);
+    git(["checkout", "-q", "-f", "--detach", "FETCH_HEAD"], dir);
+    fs.writeFileSync(marker, ref + "\n");
+  }
+  const must = CHECKOUT_HAS[key];
+  if (must && !fs.existsSync(path.join(dir, must))) throw new Error(`${dir} is not a ${name} checkout (no ${must})`);
   return dir;
 }
 

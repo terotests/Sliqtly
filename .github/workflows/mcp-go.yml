@@ -33,6 +33,11 @@ jobs:
         working-directory: mcp-go
     steps:
       - uses: actions/checkout@v4
+      - name: Git access to RangerFlow and RangerMarkdown
+        working-directory: .
+        env:
+          DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}
+        run: sh scripts/ci-git-auth.sh
       - uses: actions/setup-go@v5
         with:
           go-version-file: mcp-go/go.mod
@@ -49,5 +54,7 @@ jobs:
       - run: go test -race ./...
       # the folder server's build, without Google's libraries (packaging/build-deb.sh)
       - run: go vet -tags nocloud -structtag=false -assign=false ./... && go test -tags nocloud ./...
-      - run: docker build -f mcp-go/Dockerfile -t sliqtly-mcp-go .
+      - run: docker build --secret id=deps_token,env=DEPS_TOKEN -f mcp-go/Dockerfile -t sliqtly-mcp-go .
         working-directory: .
+        env:
+          DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}

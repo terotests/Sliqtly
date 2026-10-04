@@ -3,6 +3,14 @@
     "url": "https://github.com/terotests/Ranger",
     "ref": "claude/nifty-dijkstra-vq2qit"
   },
+  "rangerflow": {
+    "url": "https://github.com/terotests/RangerFlow",
+    "ref": "main"
+  },
+  "rangermarkdown": {
+    "url": "https://github.com/terotests/RangerMarkdown",
+    "ref": "main"
+  },
   "evgui": {
     "url": "https://github.com/terotests/EVGUI",
     "ref": "main"

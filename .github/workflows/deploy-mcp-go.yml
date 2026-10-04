@@ -29,6 +29,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Git access to RangerFlow and RangerMarkdown
+        env:
+          DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}
+        run: sh scripts/ci-git-auth.sh
       - uses: actions/setup-go@v5
         with:
           go-version-file: mcp-go/go.mod
@@ -43,11 +47,13 @@ jobs:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@v2
       - name: Build and push the image
+        env:
+          DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}
         run: |
           gcloud artifacts repositories describe mcp --location "$REGION" --project "$PROJECT" >/dev/null 2>&1 \
             || gcloud artifacts repositories create mcp --repository-format docker --location "$REGION" --project "$PROJECT"
           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
-          docker build -f mcp-go/Dockerfile -t "$IMAGE:$GITHUB_SHA" .
+          docker build --secret id=deps_token,env=DEPS_TOKEN -f mcp-go/Dockerfile -t "$IMAGE:$GITHUB_SHA" .
           docker push "$IMAGE:$GITHUB_SHA"
       - name: Deploy the service
         run: |
