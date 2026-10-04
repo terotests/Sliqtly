@@ -82,7 +82,9 @@ const webOut = path.join(here, "webdist");
 fs.mkdirSync(webOut, { recursive: true });
 for (const f of fs.readdirSync(webOut)) if (f !== "README") fs.rmSync(path.join(webOut, f), { recursive: true, force: true });
 if (fs.existsSync(path.join(webDist, "index.html"))) {
-  fs.cpSync(webDist, webOut, { recursive: true });
+  // fonts/ is left out: the server serves the page's faces from its own
+  // copy (fonts.go, the same files)
+  fs.cpSync(webDist, webOut, { recursive: true, filter: (src) => path.relative(webDist, src).split(path.sep)[0] !== "fonts" });
   log("copied web/dist → mcp-go/webdist");
 } else {
   log("no web/dist (npm run build): the binary will have no editor");

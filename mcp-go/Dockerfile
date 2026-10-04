@@ -33,7 +33,7 @@ RUN npm ci --no-audit --no-fund && NODE_OPTIONS=--max-old-space-size=6144 node s
 
 FROM build AS build-local
 COPY --from=web /src/web/dist/ ./webdist/
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server .
+RUN rm -rf webdist/fonts && CGO_ENABLED=0 go build -tags nocloud -trimpath -ldflags="-s -w" -o /server .
 
 FROM gcr.io/distroless/static-debian12:nonroot AS local
 COPY --from=build-local /server /server

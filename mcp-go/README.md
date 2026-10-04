@@ -197,7 +197,10 @@ whoever reaches the server can change its decks.
 `go generate`) makes `dist/sliqtly-server_<version>_<arch>.deb` with
 `dpkg-deb` alone. It holds the static binary, a systemd unit (its own user,
 decks in `/var/lib/sliqtly`) and `/etc/sliqtly/sliqtly.env`, and depends only
-on `ca-certificates`.
+on `ca-certificates`. The binary is built with `-tags nocloud` (`nocloud.go`):
+without Firestore, Storage, Firebase Auth and Google's client libraries
+(gRPC, protobuf, OpenTelemetry), about 26 MB of the 58 MB. What is left
+links only `golang.org/x/image`, `x/sys` and `x/text` besides Go itself.
 
 ```
 sudo apt install ./sliqtly-server_0.1.0_amd64.deb   # starts it, and at boot

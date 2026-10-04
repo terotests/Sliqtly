@@ -1,5 +1,9 @@
+//go:build !nocloud
+
 // The real Firestore, Storage and Firebase Auth behind the DB and Bucket
-// interfaces (store.go).
+// interfaces (store.go). Left out with -tags nocloud (nocloud.go), which
+// drops Google's client libraries, about half the binary, from a server
+// that keeps its decks in a folder.
 
 package main
 
