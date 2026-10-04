@@ -19,6 +19,11 @@
 //   DELETE /api/files/shares/{id}/{path}
 //   GET    /api/collab/{id}                editing together (mcp-go/collab.go):
 //   POST   /api/collab/{id}/op|presence|chat   the deck's room, web/collab.js
+//   GET    /api/socket                     the page's one stream: the server's
+//                                          state, decks changed, the room
+//                                          (web/eventline.js)
+
+import { EventLine } from "./eventline.js";
 
 const pro = document.getElementById("pro");
 let user = null;
@@ -162,25 +167,19 @@ async function readHead(shareId) {
 }
 
 // Editing a deck together: its room on this server (mcp-go/collab.go), for
-// web/collab.js's CollabSession. The room's stream is an EventSource of its
-// own; the browser reconnects it with Last-Event-ID, and the server sends
-// the edits it missed.
+// web/collab.js's CollabSession. The room's events come on the page's one
+// stream (line, below), which comes back by itself after a drop, naming the
+// last edit it had; the server sends the edits it missed.
+let line = null;
 const collab = {
   snapshot: (id) => api("GET", "/api/collab/" + id),
   send: (id, body) => api("POST", "/api/collab/" + id + "/op", body),
   presence: (id, body) => api("POST", "/api/collab/" + id + "/presence", body),
   chat: (id, body) => api("POST", "/api/collab/" + id + "/chat", body),
+  // the first open is the join itself, a later one a reconnect
   stream(id, q, onEvent, onOpen) {
-    const qs = new URLSearchParams({ room: id, client: q.client, who: q.who, name: q.name, color: q.color, rev: String(q.rev) });
-    const es = new EventSource("/api/events?" + qs);
-    // the first open is the join itself, a later one a reconnect
-    es.onopen = () => onOpen?.();
-    es.onmessage = (ev) => {
-      let m = null;
-      try { m = JSON.parse(ev.data); } catch (_) { return; }
-      if (m && m.t) onEvent(m);
-    };
-    return () => es.close();
+    if (!line) throw new Error("this page has no stream to the server");
+    return line.join(id, q, onEvent, onOpen);
   },
 };
 
@@ -283,51 +282,59 @@ function onStatus(st) {
 // focus and every minute, and takes it when nothing was changed here (or
 // merges); the player opened at /s/{id} reloads on the slide it shows (the
 // address keeps it), without the intro. Not in an assistant's preview,
-// which is not served from here.
+// which is not served from here. One stream per page, for this and the
+// room alike (web/eventline.js).
 function listen() {
-  if (typeof EventSource !== "function" || !/^https?:$/.test(location.protocol)) return;
+  if ((typeof WebSocket !== "function" && typeof EventSource !== "function") || !/^https?:$/.test(location.protocol)) return;
   const viewing = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(location.pathname);
   const player = viewing && !new URLSearchParams(location.search).has("edit") ? viewing[1] : null;
   let timer = 0;
   const changed = new Set();
-  const es = new EventSource("/api/events");
-  es.addEventListener("status", (ev) => {
-    try { onStatus(JSON.parse(ev.data)); } catch (_) { /* not one */ }
-  });
   // out of reach: said after a moment, so a quick restart passes quietly;
-  // the browser keeps trying, and "ready" clears it
+  // the stream keeps trying, and "ready" clears it
   let lost = 0;
-  es.onerror = () => {
-    // the browser tries again every few seconds, each try another error:
-    // the first one starts the clock
-    if (lost) return;
-    lost = setTimeout(() => {
-      if (es.readyState === EventSource.OPEN) return;
-      down = true;
-      say("Offline: the server cannot be reached. Your changes are kept in this browser and saved when it is back.");
-    }, 4000);
-  };
-  es.onopen = () => {
-    clearTimeout(lost);
-    lost = 0;
-  };
-  es.onmessage = (ev) => {
-    let id = "";
-    try { id = JSON.parse(ev.data).id || ""; } catch (_) { return; }
-    changed.add(id);
-    // one update writes the deck more than once: the last one counts
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      const ids = [...changed];
-      changed.clear();
-      if (player) {
-        if (!ids.includes(player)) return;
-        try { sessionStorage.setItem("sliqtly:quiet-reload", "1"); } catch (_) { /* the intro plays */ }
-        location.reload();
-        return;
-      }
-      window.__checkElsewhere?.();
-    }, 400);
-  };
+  let open = false;
+  line = new EventLine({
+    WebSocket: typeof WebSocket === "function" ? WebSocket : undefined,
+    EventSource: typeof EventSource === "function" ? EventSource : undefined,
+    location,
+    setTimeout: (f, ms) => setTimeout(f, ms),
+    clearTimeout: (t) => clearTimeout(t),
+  }, {
+    status: onStatus,
+    open() {
+      open = true;
+      clearTimeout(lost);
+      lost = 0;
+    },
+    lost() {
+      open = false;
+      // each try that fails is another loss: the first one starts the clock
+      if (lost) return;
+      lost = setTimeout(() => {
+        lost = 0;
+        if (open) return;
+        down = true;
+        say("Offline: the server cannot be reached. Your changes are kept in this browser and saved when it is back.");
+      }, 4000);
+    },
+    changed(id) {
+      changed.add(id);
+      // one update writes the deck more than once: the last one counts
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const ids = [...changed];
+        changed.clear();
+        if (player) {
+          if (!ids.includes(player)) return;
+          try { sessionStorage.setItem("sliqtly:quiet-reload", "1"); } catch (_) { /* the intro plays */ }
+          location.reload();
+          return;
+        }
+        window.__checkElsewhere?.();
+      }, 400);
+    },
+  });
+  line.start();
 }
 listen();
