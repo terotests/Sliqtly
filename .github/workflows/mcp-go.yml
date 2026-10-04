@@ -42,10 +42,12 @@ jobs:
           node-version: 22
       # compiles rgr/ and src/ with Ranger
       - run: go generate ./...
-      - run: test -z "$(gofmt -l host.go net.go main.go firebase.go fsstore.go local.go localweb.go server_test.go stats_test.go local_test.go)"
+      - run: test -z "$(gofmt -l host.go net.go main.go firebase.go nocloud.go fsstore.go local.go localweb.go server_test.go stats_test.go local_test.go)"
       # the generated code carries json tags on unexported fields, and the
       # deck model has a few self-assignments
       - run: go vet -structtag=false -assign=false ./...
       - run: go test -race ./...
+      # the folder server's build, without Google's libraries (packaging/build-deb.sh)
+      - run: go vet -tags nocloud -structtag=false -assign=false ./... && go test -tags nocloud ./...
       - run: docker build -f mcp-go/Dockerfile -t sliqtly-mcp-go .
         working-directory: .

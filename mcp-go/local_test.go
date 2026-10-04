@@ -271,6 +271,8 @@ func TestLocalWebAndAPI(t *testing.T) {
 	eq(t, []any{code, body}, []any{200, "page { background-color: #123456; }"})
 	code, _, _ = get(t, srv.URL+"/themes/aurora.css")
 	eq(t, code, 200, "the built-in themes stay")
+	code, ct, body = get(t, srv.URL+"/fonts/OpenSans-Regular.ttf?v=1")
+	eq(t, []any{code, ct, len(body) > 10000}, []any{200, "font/ttf", true}, "the page's faces come from the server's own copy")
 
 	code, body = req(t, "GET", srv.URL+"/api/me", "", "")
 	eq(t, []any{code, strings.TrimSpace(body)}, []any{200, `{"name":"local","uid":"local"}`})

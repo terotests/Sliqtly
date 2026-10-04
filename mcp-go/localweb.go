@@ -84,6 +84,17 @@ func (s *localServer) static(w http.ResponseWriter, r *http.Request) bool {
 	if name == "" || name == "index.html" {
 		return false
 	}
+	// the page's faces are the ones the server lays slides out with
+	// (fonts.go): one copy in the binary, not two
+	if strings.HasPrefix(name, "fonts/") {
+		if b, err := fontFiles.ReadFile(name); err == nil {
+			w.Header().Set("Content-Type", "font/ttf")
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Write(b)
+			return true
+		}
+	}
 	if name == "sliqtly.js" {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")

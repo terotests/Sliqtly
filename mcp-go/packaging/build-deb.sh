@@ -6,7 +6,8 @@
 #   go generate                                       # Ranger → Go, web/dist into the binary
 #   packaging/build-deb.sh 0.1.0 amd64                # or arm64
 #
-# The binary is static (CGO_ENABLED=0): the package needs no libraries,
+# The binary is static (CGO_ENABLED=0) and built without Google's client
+# libraries (-tags nocloud, nocloud.go): the package needs no libraries,
 # only ca-certificates for fetching pictures from https addresses.
 set -eu
 version=${1:?version, e.g. 0.1.0}
@@ -19,7 +20,7 @@ chmod 0755 "$root"
 trap 'rm -rf "$root"' EXIT
 
 mkdir -p "$root/DEBIAN" "$root/usr/bin" "$root/lib/systemd/system" "$root/etc/sliqtly" "$root/usr/share/doc/sliqtly-server"
-(cd "$mcp" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "$root/usr/bin/sliqtly-server" .)
+(cd "$mcp" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -tags nocloud -trimpath -ldflags="-s -w" -o "$root/usr/bin/sliqtly-server" .)
 install -m 0644 "$here/deb/sliqtly.service" "$root/lib/systemd/system/sliqtly.service"
 install -m 0640 "$here/deb/sliqtly.env" "$root/etc/sliqtly/sliqtly.env"
 install -m 0755 "$here/deb/postinst" "$here/deb/prerm" "$here/deb/postrm" "$root/DEBIAN/"
