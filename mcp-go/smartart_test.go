@@ -18,7 +18,7 @@ func TestSmartArtFile(t *testing.T) {
 	f := fakeFirebase()
 	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
 	defer s.close()
-	md := "## Steps\n\n![The steps](media/steps.xml)\n\n## Other\n\n![The steps again](media/steps.xml)\n{layout=cycle2}\n\n## Broken\n\n![Broken](media/broken.xml)\n"
+	md := "## Steps\n\n![The steps](media/steps.xml)\n\n## Other\n\n![The steps again](media/steps.xml)\n{layout=gear1}\n\n## Broken\n\n![Broken](media/broken.xml)\n"
 	c := call(t, s, "create_presentation", map[string]any{
 		"title": "SmartArt", "markdown": md,
 		"images": []any{
@@ -34,7 +34,7 @@ func TestSmartArtFile(t *testing.T) {
 	eq(t, out["slides"], 3)
 	eq(t, f.bucket.saved["shares/"+id+"/media/steps.xml"].contentType, "application/vnd.openxmlformats-officedocument.drawingml.diagramData+xml")
 	ws := strings.Join(toStrings(out["warnings"]), "\n")
-	if !strings.Contains(ws, `The SmartArt media/steps.xml on slide "Other": the layout "cycle2" is not one this engine has`) {
+	if !strings.Contains(ws, `The SmartArt media/steps.xml on slide "Other": the layout "gear1" is not one this engine has`) {
 		t.Fatalf("no warning about the layout it does not have:\n%s", ws)
 	}
 	if !strings.Contains(ws, `The SmartArt media/broken.xml on slide "Broken" is not shown: there is no document point`) {
