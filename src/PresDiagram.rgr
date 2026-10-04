@@ -4563,7 +4563,11 @@ class PresDiagram {
                     if ((way >= 0) && (this.exIsWay(i t))) {
                         this.strokeEdge(out e (e.len * p) 1.6 acR acG acB 0.7 false)
                     } {
-                        this.strokeEdge(out e (e.len * p) 1.1 dmR dmG dmB 0.38 false)
+                        if (this.resting()) {
+                            this.strokeEdge(out e (e.len * p) 1.4 wmR wmG wmB 0.75 false)
+                        } {
+                            this.strokeEdge(out e (e.len * p) 1.1 dmR dmG dmB 0.38 false)
+                        }
                     }
                 }
                 if (p >= 0.98) {
@@ -4628,6 +4632,13 @@ class PresDiagram {
         return w
     }
 
+    ; No walk lights a line (no tour, or a still page): the lines are then
+    ; drawn in the warm colour, so `diagram { color }` shows. With a tour
+    ; they stay dim, and the warm light marks the way the walk is on.
+    fn resting:boolean () {
+        return ((tour == false) || still)
+    }
+
     ; An arrowhead as a chevron of light, pointing along the curve's end.
     fn chevron:void (out:EVGDisplayList e:PresDEdge on:boolean) {
         ; at the box's edge, where the line goes in, not at its end inside
@@ -4656,7 +4667,11 @@ class PresDiagram {
         if on {
             PresDiagram.glow(out pts ((this.activeWidth()) * 0.9) wmR wmG wmB 1.0)
         } {
-            out.addPolyline(pts 1.1 (PresDiagram.rgba(dmR dmG dmB 0.45)))
+            if (this.resting()) {
+                out.addPolyline(pts 1.4 (PresDiagram.rgba(wmR wmG wmB 0.8)))
+            } {
+                out.addPolyline(pts 1.1 (PresDiagram.rgba(dmR dmG dmB 0.45)))
+            }
             PresDiagram.roundLast(out)
         }
     }
