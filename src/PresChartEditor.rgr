@@ -54,6 +54,8 @@ class PresChartEditor {
     def dragX:double 0.0
     def dragY:double 0.0
     def inputs:[InputCtl]
+    ; the fields of the card before the last rebuild (inputWith keeps their caret)
+    def before:[InputCtl]
     def sliders:[SliderCtl]
     def focusTid:string ""
     ; the model changed since the fence was last written
@@ -142,7 +144,8 @@ class PresChartEditor {
     ; "footer", "deck") and the deck's pictures, for a logo. Every change is
     ; written into the front matter as it is made.
     def ds:PresDocSettings (new PresDocSettings())
-    def dsTab:string "header"
+    ; the document's own settings (its title) first
+    def dsTab:string "deck"
     def dsPics:[string]
     ; a field whose text is being selected by a drag, by its tid
     def selecting:string ""
@@ -357,6 +360,11 @@ class PresChartEditor {
             rev = (rev + 1)
             return
         }
+        if (dragPart == "field") {
+            cp.dragField(picker px)
+            rev = (rev + 1)
+            return
+        }
         if ((strlen dragPart) > 0) {
             this.pickAt(px py)
             return
@@ -393,6 +401,11 @@ class PresChartEditor {
 
     fn release:void () {
         if ((strlen selecting) > 0) {
+            def maybe@(optional):InputCtl (this.inputFor(selecting))
+            if (!null? maybe) {
+                def c:InputCtl (unwrap maybe)
+                c.pointerUp()
+            }
             selecting = ""
             rev = (rev + 1)
         }
@@ -412,6 +425,9 @@ class PresChartEditor {
             this.rebuild()
         }
         if ((strlen dragPart) > 0) {
+            if (dragPart == "field") {
+                cp.releaseField(picker)
+            }
             dragPart = ""
             this.rebuild()
         }
@@ -480,17 +496,22 @@ class PresChartEditor {
         ; the wide fields (names, titles, descriptions) have a clear button
         c.clearable = (cls == "ce-wide")
         c.clearLabel = (PresI18n.t("Clear"))
-        c.fontFamily = "Open Sans"
-        c.fontSize = 13.0
-        c.boxWidth = 80.0
+        c.focused = (tid == focusTid)
+        c.boxClass = cls
         c.setValue(value)
         c.moveTo((strlen value) false)
-        c.build()
-        def r:EVGElement (unwrap c.rootEl)
-        UiTree.addClass(r cls)
-        if (tid == focusTid) {
-            UiTree.addClass(r "ce-focus")
+        ; the same field before this rebuild: its caret and selection stay
+        def i:int 0
+        while (i < (array_length before)) {
+            def o:InputCtl (itemAt before i)
+            if ((o.tid == tid) && (o.value == value)) {
+                c.anchor = o.anchor
+                c.caret = o.caret
+                c.scrollX = o.scrollX
+            }
+            i = (i + 1)
         }
+        c.build()
         this.put(c parent)
         push inputs c
         return c
@@ -549,6 +570,7 @@ class PresChartEditor {
         host.addStyleSheet(css)
         host.setTheme((trim ("ce " + skin)))
         host.setPageSize(w h)
+        before = inputs
         def none:[InputCtl]
         inputs = none
         def noSliders:[SliderCtl]
@@ -1016,9 +1038,9 @@ class PresChartEditor {
         tabs = t0
         tabs.tid = "ds-tabs"
         tabs.name = (PresI18n.t("Document settings"))
+        tabs.addItem("deck" (PresI18n.t("Presentation")) "" false)
         tabs.addItem("header" (PresI18n.t("Header")) "" false)
         tabs.addItem("footer" (PresI18n.t("Footer")) "" false)
-        tabs.addItem("deck" (PresI18n.t("Presentation")) "" false)
         tabs.value = dsTab
         tabs.build()
         UiTree.addClass((unwrap tabs.rootEl) "ce-tabs")
@@ -1632,51 +1654,11 @@ class PresChartEditor {
         if (!null? measurer) {
             lay.setMeasurer((unwrap measurer))
         }
-        ; the focused field's caret where its caret is, not after the text
         def eng:EVGTextEngine (lay.getTextEngine())
         cp.eng = eng
-        def i:int 0
-        while (i < (array_length inputs)) {
-            def c:InputCtl (itemAt inputs i)
-            def car:EVGElement (unwrap c.caretEl)
-            if (c.tid == focusTid) {
-                c.ensureCaretVisible(eng)
-                def box:EVGElement (unwrap c.rootEl)
-                box.position = "relative"
-                ; absolute children are placed from the box's content edge,
-                ; where the text starts: the caret is the text's own width in
-                car.position = "absolute"
-                car.left = (EVGUnit.px(((c.caretXAt(eng c.caret)) - c.scrollX)))
-                car.top = (EVGUnit.px(6.0))
-                if (c.hasSelection()) {
-                    def sx:double (c.caretXAt(eng (c.selStart())))
-                    def ex:double (c.caretXAt(eng (c.selEnd())))
-                    def band:EVGElement (this.div("ce-selband"))
-                    band.position = "absolute"
-                    band.left = (EVGUnit.px((sx - c.scrollX)))
-                    band.width = (EVGUnit.px((ex - sx)))
-                    band.top = (EVGUnit.px(6.0))
-                    ; under the text, so first
-                    def kids:[EVGElement]
-                    def k:int 0
-                    while (k < (box.getChildCount())) {
-                        push kids (box.getChild(k))
-                        k = (k + 1)
-                    }
-                    UiTree.clearChildren(box)
-                    box.addChild(band)
-                    def j:int 0
-                    while (j < (array_length kids)) {
-                        box.addChild((itemAt kids j))
-                        j = (j + 1)
-                    }
-                }
-            } {
-                car.width = (EVGUnit.px(0.0))
-            }
-            i = (i + 1)
-        }
         lay.layout(pg)
+        ; the fields draw their caret and selection on what was laid out
+        host.placeText(eng)
         if ((strlen pickFor) > 0) {
             cp.placeThumbs(pg picker)
         }
@@ -1715,15 +1697,18 @@ class PresChartEditor {
         def prev@(optional):InputCtl (this.inputFor(focusTid))
         if (!null? prev) {
             def pc:InputCtl (unwrap prev)
-            UiTree.removeClass((unwrap pc.rootEl) "ce-focus")
+            pc.focused = false
+            pc.pointerUp()
+            pc.build()
         }
         cp.leaveField(picker)
         focusTid = tid
         def next@(optional):InputCtl (this.inputFor(tid))
         if (!null? next) {
             def nc:InputCtl (unwrap next)
-            UiTree.addClass((unwrap nc.rootEl) "ce-focus")
+            nc.focused = true
             nc.moveTo((strlen nc.value) false)
+            nc.build()
             host.focus(tid)
         }
         rev = (rev + 1)
@@ -1741,7 +1726,9 @@ class PresChartEditor {
 
     ; A press in app coordinates. What it did is in the model (and `changed`),
     ; or in `wantsClose` / `wantsFresh` for the app to act on.
-    fn press:void (px:double py:double) {
+    ; `clicks` is the page's count (2 a double click, 3 a triple) and `shift`
+    ; extends a field's selection.
+    fn press:void (px:double py:double clicks:int shift:boolean) {
         if ((this.has(px py)) == false) {
             return
         }
@@ -1776,10 +1763,14 @@ class PresChartEditor {
             if ((strlen focusTid) > 0) {
                 this.focusInput("")
             }
-            def what:string (cp.press((unwrap host.lastPage) picker tid px py))
+            def what:string (cp.press((unwrap host.lastPage) picker tid px py clicks shift))
             if (((what == "sv") || (what == "hue")) || (what == "alpha")) {
                 dragPart = what
                 this.takeColour((picker.hex()))
+            }
+            ; a press in one of its fields: a drag from there selects
+            if ((what == "field") && ((strlen cp.focused) > 0)) {
+                dragPart = "field"
             }
             if (what == "changed") {
                 this.takeColour((picker.hex()))
@@ -1859,29 +1850,14 @@ class PresChartEditor {
             if (focusTid != ctlTid) {
                 this.focusInput(ctlTid)
             }
-            ; the caret where the press landed; a drag from there selects
-            ic.placeCaret((this.indexIn(ic px)) false)
+            ; the caret where the press landed, a word or all of it; a drag
+            ; from there selects (InputCtl)
+            host.textPress(tid px clicks shift)
             selecting = ctlTid
             rev = (rev + 1)
             return
         }
         this.act(ctlTid)
-    }
-
-    ; The text engine the page lays out with, for measuring a field's run.
-    fn engine:EVGTextEngine () {
-        def lay (new EVGLayout())
-        if (!null? measurer) {
-            lay.setMeasurer((unwrap measurer))
-        }
-        return (lay.getTextEngine())
-    }
-
-    ; Which character of a field `px` (app coordinates) is at, measured on
-    ; the box as last laid out.
-    fn indexIn:int (c:InputCtl px:double) {
-        def box:EVGElement (unwrap c.rootEl)
-        return (InputCtl.indexAtPageX((this.engine()) c box px))
     }
 
     ; A drag over the field being selected: its caret follows the pointer,
@@ -1893,12 +1869,17 @@ class PresChartEditor {
             return
         }
         def c:InputCtl (unwrap maybe)
-        c.placeCaret((this.indexIn(c px)) true)
+        c.textPointerDrag(px)
         rev = (rev + 1)
     }
 
     ; Ctrl+A in a field: all of its text.
     fn selectAllInField:void () {
+        if ((strlen cp.focused) > 0) {
+            cp.selectAll(picker)
+            rev = (rev + 1)
+            return
+        }
         def maybe@(optional):InputCtl (this.inputFor(focusTid))
         if (null? maybe) {
             return
@@ -2050,8 +2031,6 @@ class PresChartEditor {
         picker = fresh
         picker.setup("ce-cp" (PresI18n.t("Color")) start (what == "color"))
         picker.inline = true
-        picker.hexBoxW = 150.0
-        picker.numBoxW = 30.0
         def presets:[string] (strsplit "#ef4444,#f97316,#eab308,#22c55e,#06b6d4,#3b82f6,#8b5cf6,#ec4899" ",")
         def i:int 0
         while (i < (array_length presets)) {
@@ -2255,20 +2234,26 @@ class PresChartEditor {
     }
 
     fn type:void (s:string) {
+        ; one line: the field gets the text whole, so an emoji's two halves
+        ; arrive together
+        def line:string ""
         def i:int 0
         while (i < (strlen s)) {
             def ch:string (substring s i (i + 1))
             if ((ch != (strfromcode 10)) && (ch != (strfromcode 13))) {
-                if ((strlen cp.focused) > 0) {
-                    cp.type(picker ch)
-                } {
-                    if ((strlen focusTid) > 0) {
-                        host.type(ch)
-                        keep.restore()
-                    }
-                }
+                line = (line + ch)
             }
             i = (i + 1)
+        }
+        if ((strlen line) > 0) {
+            if ((strlen cp.focused) > 0) {
+                cp.type(picker line)
+            } {
+                if ((strlen focusTid) > 0) {
+                    host.type(line)
+                    keep.restore()
+                }
+            }
         }
         if ((strlen cp.focused) > 0) {
             this.takeColour((picker.hex()))

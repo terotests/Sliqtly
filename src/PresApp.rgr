@@ -2327,7 +2327,7 @@ class PresApp {
         if chart.isOpen {
             if (top == "chart") {
                 layers.raise("chart")
-                chart.press(x y)
+                chart.press(x y clicks shift)
                 this.afterChart()
                 return "chart"
             }
@@ -2338,7 +2338,7 @@ class PresApp {
         if hint.isOpen {
             if (top == "hint") {
                 layers.raise("hint")
-                hint.press(x y)
+                hint.press(x y clicks shift)
                 this.afterHint()
                 return "hint"
             }
@@ -2350,7 +2350,7 @@ class PresApp {
             if (panels.chatHas(x y)) {
                 focus = "chat"
             }
-            panels.press(x y)
+            panels.press(x y clicks shift)
             this.takePanels()
             return "panel"
         }
@@ -2604,6 +2604,12 @@ class PresApp {
     }
 
     fn pointerMove:void (x:double y:double) {
+        ; a drag selecting in the chat's text field
+        if panels.chatSelecting {
+            panels.chatDragTo(x)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if ((barH > 0.0) && (mode != "present")) {
             toolbar.hoverAt(x y)
         }
@@ -2697,6 +2703,7 @@ class PresApp {
     }
 
     fn pointerUp:void () {
+        panels.chatRelease()
         if (hint.isOpen && (hint.dragging())) {
             hint.release()
             this.afterHint()
@@ -2948,7 +2955,7 @@ class PresApp {
             return true
         }
         if (this.chatHasKeys()) {
-            return (this.chatKey(name))
+            return (this.chatKey(name shift ctrl))
         }
         if (((barH > 0.0) && (toolbar.listOpen())) && (name == "escape")) {
             toolbar.closeLists()
@@ -3237,6 +3244,21 @@ class PresApp {
         if chart.isOpen {
             if (ch == "a") {
                 chart.selectAllInField()
+                chromeRev = (chromeRev + 1)
+            }
+            return true
+        }
+        ; Ctrl+A in a field of the popover (a number, the emoji search, a
+        ; colour's fields): all of its text
+        if ((hint.isOpen && (hint.hasKeys())) && (ch == "a")) {
+            hint.selectAllInField()
+            this.afterHint()
+            return true
+        }
+        ; Ctrl+A in the chat's field: all of its text
+        if (this.chatHasKeys()) {
+            if (ch == "a") {
+                panels.chat.input.selectAll()
                 chromeRev = (chromeRev + 1)
             }
             return true
@@ -4310,16 +4332,15 @@ class PresApp {
         return (((focus == "chat") && panels.chat.open) && (mode != "present"))
     }
 
-    fn chatKey:boolean (name:string) {
-        def k:string ""
+    ; The chat's composer has the keys: Enter sends, Escape closes, PageUp and
+    ; PageDown scroll, and the rest move and edit in the text field.
+    fn chatKey:boolean (name:string shift:boolean ctrl:boolean) {
+        def k:string (PresChartEditor.kitKey(name))
         if (name == "escape") {
             k = "Escape"
         }
         if (name == "enter") {
             k = "Enter"
-        }
-        if (name == "backspace") {
-            k = "Backspace"
         }
         if (name == "pageUp") {
             k = "PageUp"
@@ -4330,7 +4351,7 @@ class PresApp {
         if ((strlen k) == 0) {
             return false
         }
-        panels.chat.keyDown("" k)
+        panels.chat.keyDownWith("" k shift ctrl)
         if ((strlen panels.chat.sent) > 0) {
             push requests "chat-send"
         }
@@ -4851,6 +4872,8 @@ class PresApp {
 
     fn panelsReady:boolean () {
         this.placeFiles()
+        ; the chat's field shows its caret while it has the keys
+        panels.chat.input.focused = (this.chatHasKeys())
         if ((panels.any()) == false) {
             return false
         }

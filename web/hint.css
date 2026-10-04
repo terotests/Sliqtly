@@ -59,11 +59,11 @@
 .theme-hp .ui-slider-thumb { background-color: #ffffff; border-color: #18181b; }
 .theme-hp .ui-input { background-color: #ffffff; border: 1px solid #e4e4e7; border-radius: 6px; height: 28px; padding: 0 8px; }
 .theme-hp .ui-input-text { color: #09090b; font-size: 13px; font-family: Open Sans; }
-.theme-hp .ui-input-caret { background-color: #09090b; height: 16px; }
-.theme-hp .hp-focus { border-color: #a1a1aa; }
+.theme-hp .ui-input-caret { background-color: #09090b; }
+.theme-hp .ui-input-selection { background-color: #bfdbfe; }
+.theme-hp .ui-input-focused { border-color: #a1a1aa; }
 .theme-hp .cp-panel { width: 290px; border: 0; padding: 0; }
-/* on .ui-input, not a class of ours: the field rebuilds its root with only
-   its own class while the slider moves */
+/* the number field (and a colour field, below, says otherwise) */
 .theme-hp .ui-input { width: 72px; min-width: 72px; flex-grow: 0; flex-shrink: 0; }
 /* a label never wraps ("100 %" split at its space), and a button does not
    shrink below its label */
@@ -72,6 +72,9 @@
 /* a field is one line: a long value is clipped, not wrapped under the box */
 .theme-hp .ui-input { overflow: hidden; }
 .theme-hp .ui-input-text { white-space: nowrap; }
+/* the colour picker's fields share their row, whatever the number field's
+   width above says */
+.theme-hp .cp-box { width: auto; min-width: 0px; flex-grow: 1; flex-shrink: 1; height: 26px; padding: 0 6px; border-radius: 5px; }
 /* The card is rebuilt on every change, so a transition would replay from its
    start each time (a checked switch sliding in again, a pressed control
    squeezing): state is shown at once instead. */

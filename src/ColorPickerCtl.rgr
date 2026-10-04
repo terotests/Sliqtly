@@ -101,9 +101,6 @@ class ColorPickerCtl extends UiCtl {
     def f2:InputCtl (new InputCtl())
     def f3:InputCtl (new InputCtl())
     def editing:string ""
-    ; Pixel widths of the text run in a hex box and a number box.
-    def hexBoxW:double 120.0
-    def numBoxW:double 28.0
 
     Constructor () {
         def e:[string]
@@ -934,15 +931,12 @@ class ColorPickerCtl extends UiCtl {
             def f:InputCtl (this.fieldAt(i))
             f.tid = (this.fieldTid(i))
             f.name = (this.fieldName(i))
-            f.fontSize = 12.0
             if (format == 0) {
                 f.kind = "text"
                 f.maxLength = 9
-                f.boxWidth = hexBoxW
             } {
                 f.kind = "number"
                 f.maxLength = 3
-                f.boxWidth = numBoxW
             }
             if ((i < (this.fieldCount())) && ((this.fieldTid(i)) != editing)) {
                 def t:string (this.fieldText(i))

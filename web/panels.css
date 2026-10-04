@@ -77,7 +77,8 @@
 .theme-pn .ui-input { background-color: #fafafa; border: 1px solid #e4e4e7; border-radius: 6px; height: 30px; padding: 0 8px; }
 .theme-pn .ui-input-text { color: #3f3f46; font-size: 12px; font-family: Open Sans; }
 .theme-pn .pn-url { width: 360px; min-width: 360px; }
-.theme-pn .ui-input-caret { width: 0px; background-color: rgba(0,0,0,0); }
+.theme-pn .ui-input-caret { background-color: #3f3f46; }
+.theme-pn .ui-input-selection { background-color: #bfdbfe; }
 /* a label never wraps ("100 %" split at its space), and a button does not
    shrink below its label */
 .theme-pn .ui-button-label { white-space: nowrap; }
@@ -192,8 +193,6 @@
 .theme-pn .chat-text,
 .theme-pn .chat-draft { color: #09090b; }
 .theme-pn .chat-field { border-color: #e4e4e7; background-color: #ffffff; }
-.theme-pn .chat-caret { background-color: #09090b; }
-.theme-pn .chat-placeholder { color: #a1a1aa; font-family: Open Sans-Italic; }
 .theme-pn .chat-send,
 .theme-pn .chat-jump { background-color: #18181b; color: #fafafa; }
 .theme-pn .chat-send-off { background-color: #a1a1aa; }

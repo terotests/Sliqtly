@@ -221,29 +221,13 @@ class PresColorPanel {
         return t
     }
 
-    ; One text box, as PopoverDemo draws them: a band under the selection,
-    ; the text, and the caret while it has the focus.
+    ; One text box: the field's own (InputCtl), which draws its caret and
+    ; selection once the page is laid out (`placeFields`).
     fn boxFor:EVGElement (f:InputCtl) {
-        def box (tree Cp (Box (props (id f.tid) (a11yLabel f.name))))
-        box.a11yValue = f.value
-        box.a11yFocusable = true
-        def eng:EVGTextEngine (this.engine())
-        if ((focused == f.tid) && (f.hasSelection())) {
-            def s:double (f.caretXAt(eng (f.selStart())))
-            def e:double (f.caretXAt(eng (f.selEnd())))
-            def band (tree Cp (Band))
-            band.left = (EVGUnit.px((s - f.scrollX)))
-            band.width = (EVGUnit.px((e - s)))
-            box.addChild(band)
-        }
-        box.addChild((tree Cp (Text (props (id (f.tid + "-text"))) (f.glyphText()))))
-        if (focused == f.tid) {
-            def cx:double (f.caretXAt(eng f.caret))
-            def car (tree Cp (Caret))
-            car.left = (EVGUnit.px((cx - f.scrollX)))
-            box.addChild(car)
-        }
-        return box
+        f.focused = (focused == f.tid)
+        f.boxClass = "cp-box"
+        f.build()
+        return (unwrap f.rootEl)
     }
 
     fn fields:EVGElement (c:ColorPickerCtl) {
@@ -351,7 +335,20 @@ class PresColorPanel {
         th.moveSubtree(dx dy)
     }
 
+    ; The fields' carets and selections onto the laid-out page, measured
+    ; with the engine the page was laid out with (`eng`).
+    fn placeFields:void (c:ColorPickerCtl) {
+        def e:EVGTextEngine (this.engine())
+        def i:int 0
+        while (i < (c.fieldCount())) {
+            def f:InputCtl (c.fieldAt(i))
+            f.placeText(e)
+            i = (i + 1)
+        }
+    }
+
     fn placeThumbs:void (r:EVGElement c:ColorPickerCtl) {
+        this.placeFields(c)
         this.placeThumb(r (c.svTid()) (c.svThumbTid()) c.sat (1.0 - c.val) 0.0)
         this.placeThumb(r (c.hueTid()) (c.hueTid() + "-thumb") (c.hueFrac()) 0.5 7.0)
         if c.withAlpha {
@@ -394,7 +391,7 @@ class PresColorPanel {
     ; A press on one of the picker's parts. Answers the part to drag ("sv",
     ; "hue", "alpha"), "field" when a field took the focus, "changed" when
     ; the colour changed (a preset, the format), or "".
-    fn press:string (r:EVGElement c:ColorPickerCtl target:string px:double py:double) {
+    fn press:string (r:EVGElement c:ColorPickerCtl target:string px:double py:double clicks:int shift:boolean) {
         def part:string (c.partOf(target))
         if (((part == "sv") || (part == "hue")) || (part == "alpha")) {
             this.leaveField(c)
@@ -410,13 +407,7 @@ class PresColorPanel {
                 }
                 focused = ftid
                 def f:InputCtl (c.fieldAt(fi))
-                def box:EVGElement (PresColorPanel.byId(r f.tid))
-                if (box.id == f.tid) {
-                    def idx:int (InputCtl.indexAtPageX((this.engine()) f box px))
-                    if (idx >= 0) {
-                        f.placeCaret(idx false)
-                    }
-                }
+                f.textPointerDown(target px clicks shift)
                 return "field"
             }
         }
@@ -430,6 +421,33 @@ class PresColorPanel {
             return "field"
         }
         return ""
+    }
+
+    ; A drag from a press in a field selects; the button let go ends it.
+    fn dragField:boolean (c:ColorPickerCtl px:double) {
+        def fi:int (c.fieldIndex(focused))
+        if (fi < 0) {
+            return false
+        }
+        def f:InputCtl (c.fieldAt(fi))
+        return (f.textPointerDrag(px))
+    }
+
+    fn releaseField:void (c:ColorPickerCtl) {
+        def fi:int (c.fieldIndex(focused))
+        if (fi >= 0) {
+            def f:InputCtl (c.fieldAt(fi))
+            f.pointerUp()
+        }
+    }
+
+    ; Ctrl+A in the field that has the keys.
+    fn selectAll:void (c:ColorPickerCtl) {
+        def fi:int (c.fieldIndex(focused))
+        if (fi >= 0) {
+            def f:InputCtl (c.fieldAt(fi))
+            f.selectAll()
+        }
     }
 
     ; The focus leaves a field: what it holds is committed (or put back).
@@ -453,7 +471,6 @@ class PresColorPanel {
         }
         def before:string f.value
         f.keyDownWith(focused k shift ctrl)
-        f.ensureCaretVisible((this.engine()))
         if (f.value != before) {
             c.fieldEdited(fi)
         }
@@ -468,7 +485,6 @@ class PresColorPanel {
         def f:InputCtl (c.fieldAt(fi))
         def took:boolean (f.typeChar(focused ch))
         if took {
-            f.ensureCaretVisible((this.engine()))
             c.fieldEdited(fi)
         }
         return took

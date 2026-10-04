@@ -3395,7 +3395,7 @@ async function shareLink() {
   }
 }
 
-// Edit in Claude / ChatGPT: the assistant opens with a prompt that names the
+// Edit in Claude: the assistant opens with a prompt that names the
 // deck, and edits it through the Sliqtly connector (mcp-go/): get_presentation
 // reads a share, update_presentation saves it when the assistant is signed
 // in as the share's owner (or holds its edit key). So the deck handed over
@@ -3410,7 +3410,6 @@ let originShare = null;
 const SITE = document.querySelector('meta[name="sliqtly-site"]')?.content || "https://sliqtly.com";
 const AI = {
   claude: (q) => "https://claude.ai/new?q=" + encodeURIComponent(q),
-  chatgpt: (q) => "https://chatgpt.com/?q=" + encodeURIComponent(q),
 };
 // what fits in an address with room to spare
 const AI_MAX_PROMPT = 6000;
@@ -3468,7 +3467,6 @@ async function editInAI(which) {
   }
 }
 document.getElementById("aiClaude").addEventListener("click", () => { editInAI("claude"); });
-document.getElementById("aiChatgpt").addEventListener("click", () => { editInAI("chatgpt"); });
 
 // A copy button in the share dialog (drawn on the canvas): the browser copies.
 let copiedTimer = 0;
@@ -4339,7 +4337,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   app.setTouch(finger);
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
-  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb" || where === "select") {
+  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb" || where === "select" || where === "panel") {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
   if (where === "editor" && clicks === 1) {
