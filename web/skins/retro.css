@@ -122,6 +122,7 @@
 .theme-retro .pn-flabel,
 .theme-retro .pf-dir,
 .theme-retro .pf-fsize,
+.theme-retro .pd-time,
 .theme-retro .pf-note,
 .theme-retro .pf-preview-cap,
 .theme-retro .pf-preview-hint,
@@ -139,8 +140,8 @@
 .theme-retro .pn-code,
 .theme-retro .pn-nm { color: var(--retro-hot-b); background-color: var(--retro-screen-3); }
 .theme-retro .pn-val { color: #ffd27a; }
-.theme-retro .pn-sec,
-.theme-retro .pf-hrow { border-top: 1px solid var(--retro-screen-3); }
+.theme-retro .pd-head { border-bottom: 1px solid var(--retro-screen-3); }
+.theme-retro .pn-sec { border-top: 1px solid var(--retro-screen-3); }
 .theme-retro .pn-rule,
 .theme-retro .pn-opt,
 .theme-retro .pn-choice,
@@ -156,6 +157,7 @@
 /* --- dialogs, the toast, the popover, the chart window ------------------------- */
 .theme-retro .pn-backdrop { background-color: hsla(var(--retro-hue), 68%, 4%, 0.55); }
 .theme-retro .pn-dialog,
+.theme-retro .pd-dialog,
 .theme-retro .hp-card,
 .theme-retro .ce-pickcard,
 .theme-retro .ui-window-content {

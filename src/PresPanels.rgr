@@ -70,6 +70,15 @@ class PresPanels {
     ; the computer or a sample deck, `openRows` "value<TAB>label" lines)
     def dialogKind:string "share"
     def openRows:string ""
+    ; File → Presentations… ("decks"): the decks of this browser and the
+    ; user's cloud, from the page (web/decklist.js deckListJson):
+    ;   {"sort": "updated" | "created" | "name", "rows": [{"id", "name",
+    ;    "added", "modified", "where", "cloudOnly", "current"}], "note"}
+    def decksJson:string ""
+    def decksScroll:double 0.0
+    ; each row button's "<action>\t<id>" (`pd-k-<n>`); a delete pressed once
+    def decksKeys:[string]
+    def decksArmed:string ""
     ; the Open dialog's sample decks: a select whose trigger says what it is
     def samplePick:PresPromptSelect (new PresPromptSelect())
     ; the import dialog ("data"): the dropped file and its selects, one of
@@ -82,8 +91,7 @@ class PresPanels {
     def copyOk:boolean true
     ; the files tab: the document's files and the stored documents, in the
     ; editor's place (`filesX`…`filesH`). `filesJson` comes from the page:
-    ;   {"doc": name, "files": [{"path", "size", "kind"}], "docs": [{"id",
-    ;    "name", "when", "current"}], "note": text,
+    ;   {"doc": name, "files": [{"path", "size", "kind"}], "note": text,
     ;    "promo": {"title", "text", "button"} (optional, drawn first)}
     ; With a file open in the editor (`filesOpenPath`) only a bar over it.
     def filesOpen:boolean false
@@ -287,6 +295,28 @@ class PresPanels {
         this.rebuild()
     }
 
+    fn openDecks:void (json:string) {
+        decksJson = json
+        decksScroll = 0.0
+        decksArmed = ""
+        dialogKind = "decks"
+        shareOpen = true
+        this.rebuild()
+    }
+
+    ; the list again (sorted otherwise, a deck deleted, the cloud's read),
+    ; only while the window shows
+    fn setDecks:void (json:string) {
+        if ((shareOpen && (dialogKind == "decks")) && (json != decksJson)) {
+            decksJson = json
+            this.rebuild()
+        }
+    }
+
+    fn decksShowing:boolean () {
+        return ((shareOpen && (quiet == false)) && (dialogKind == "decks"))
+    }
+
     ; File → Settings: the editor's own preferences, kept by the page.
     def autoContrast:boolean true
 
@@ -428,6 +458,9 @@ class PresPanels {
             if (dialogKind == "open") {
                 root.addChild((this.openDialog()))
             } {
+              if (dialogKind == "decks") {
+                root.addChild((this.decksDialog()))
+              } {
               if (dialogKind == "settings") {
                 root.addChild((this.settingsDialog()))
               } {
@@ -435,6 +468,7 @@ class PresPanels {
                 root.addChild((this.dataDialog()))
               } {
                 root.addChild((this.shareDialog()))
+              }
               }
               }
             }
@@ -660,25 +694,6 @@ class PresPanels {
         if ((strlen note) > 0) {
             body.addChild((this.words("pf-note" note)))
         }
-        ; the documents kept in this browser
-        def dh:EVGElement (this.div("pf-hrow"))
-        def listHead:string (PresI18n.t("Presentations in this browser"))
-        if (data.boolOr("mine" false)) {
-            listHead = (PresI18n.t("Your presentations"))
-        }
-        dh.addChild((this.words("pf-h" listHead)))
-        dh.addChild((this.div("pn-grow")))
-        this.button("pf-new" (PresI18n.t("New presentation")) "secondary" dh)
-        body.addChild(dh)
-        def docs:VlJson (data.get("docs"))
-        def d:int 0
-        while (d < (docs.count())) {
-            body.addChild((this.docRow((docs.at(d)))))
-            d = (d + 1)
-        }
-        if ((docs.count()) == 0) {
-            body.addChild((this.words("pn-intro" (PresI18n.t("A presentation is saved here when you edit it.")))))
-        }
         view.addChild(body)
         p.addChild(view)
         return p
@@ -903,32 +918,6 @@ class PresPanels {
         }
     }
 
-    fn docRow:EVGElement (d:VlJson) {
-        def id:string (d.stringOr("id" ""))
-        def row:EVGElement (this.div("pf-row"))
-        def nm:EVGElement (this.div("pf-name"))
-        nm.addChild((this.words("pf-fname" (d.stringOr("name" "")))))
-        nm.addChild((this.words("pf-fsize" (d.stringOr("when" "")))))
-        row.addChild(nm)
-        row.addChild((this.div("pn-grow")))
-        if (d.boolOr("current" false)) {
-            row.addChild((this.words("pf-current" (PresI18n.t("open")))))
-            return row
-        }
-        this.act("doc" id (PresI18n.t("Open")) "secondary" row)
-        ; a deck only in the cloud is deleted once open (File → Delete)
-        if (d.boolOr("cloud" false)) {
-            return row
-        }
-        def armed:boolean (filesArmed == ("deldoc" + (strfromcode 9) + id))
-        if armed {
-            this.act("deldoc" id (PresI18n.t("Delete?")) "primary" row)
-        } {
-            this.act("deldoc" id "✕" "ghost" row)
-        }
-        return row
-    }
-
     fn filesHas:boolean (px:double py:double) {
         if ((filesOpen == false) || quiet) {
             return false
@@ -950,10 +939,6 @@ class PresPanels {
             push requests "files:add"
             return
         }
-        if (c == "pf-new") {
-            push requests "files:new"
-            return
-        }
         if (c == "pf-promo") {
             push requests "files:promo"
             return
@@ -965,7 +950,7 @@ class PresPanels {
                 def tab:int (indexOf key (strfromcode 9))
                 def action:string (substring key 0 tab)
                 def what:string (substring key (tab + 1) (strlen key))
-                if ((action == "del") || (action == "deldoc") || (action == "unlink")) {
+                if ((action == "del") || (action == "unlink")) {
                     if (filesArmed != key) {
                         ; the first press only asks
                         filesArmed = key
@@ -1071,6 +1056,244 @@ class PresPanels {
         this.button("pn-open-close" (PresI18n.t("Close")) "secondary" foot)
         d.addChild(foot)
         return d
+    }
+
+    ; --- the presentations window (File → Presentations…) -------------------------
+    fn decksW:double () {
+        def dw:double 760.0
+        if (dw > (w - 24.0)) {
+            dw = (w - 24.0)
+        }
+        return dw
+    }
+
+    ; the list's own height: its rows, at most what the page leaves for it
+    ; besides the window's title, column heads and foot (about 170 px)
+    fn decksViewH:double (rows:int) {
+        def most:double ((h - 40.0) - 170.0)
+        if (most > 440.0) {
+            most = 440.0
+        }
+        def want:double (((to_double rows) * 42.0) + 16.0)
+        if (rows == 0) {
+            want = 48.0
+        }
+        if (want > most) {
+            return most
+        }
+        return want
+    }
+
+    ; on a narrow window the times go under the name, the modified one only
+    fn decksNarrow:boolean () {
+        return ((this.decksW()) < 600.0)
+    }
+
+    ; A button standing for `action` on deck `id`.
+    fn deckAct:void (action:string id:string label:string variant:string parent:EVGElement) {
+        def k:int (array_length decksKeys)
+        push decksKeys (action + (strfromcode 9) + id)
+        def b:ButtonCtl (this.button(("pd-k-" + (to_string k)) label variant parent))
+        UiTree.addClass((unwrap b.rootEl) "pf-act")
+    }
+
+    ; A column's head: pressed, the list is sorted by it.
+    fn decksHead:void (key:string label:string sort:string cls:string parent:EVGElement) {
+        def cell:EVGElement (this.div(cls))
+        def text:string label
+        if (key == sort) {
+            if (key == "name") {
+                text = (label + " ↑")
+            } {
+                text = (label + " ↓")
+            }
+        }
+        def b:ButtonCtl (this.button(("pd-sort-" + key) text "ghost" cell))
+        if (key == sort) {
+            UiTree.addClass((unwrap b.rootEl) "pd-sorted")
+        }
+        parent.addChild(cell)
+    }
+
+    sfn clip:string (text:string most:int) {
+        if ((strlen text) <= most) {
+            return text
+        }
+        if (most < 2) {
+            return "…"
+        }
+        return ((trim (substring text 0 (most - 1))) + "…")
+    }
+
+    fn decksDialog:EVGElement () {
+        def keys:[string]
+        decksKeys = keys
+        def dw:double (this.decksW())
+        def narrow:boolean (this.decksNarrow())
+        def p0 (new VlJsonParser())
+        def data:VlJson (p0.parse(decksJson))
+        def ready:boolean ((p0.ok) && (data.isObject()))
+        def count:int 0
+        if ready {
+            count = ((data.get("rows")).count())
+        }
+        def viewH:double (this.decksViewH(count))
+        ; pd-dialog, not pn-dialog: that one's width is fixed in the theme
+        def d:EVGElement (this.div("pd-dialog"))
+        d.id = "pn-dialog"
+        UiTree.surface(d "free" "start")
+        d.width = (EVGUnit.px(dw))
+        d.overlayX = ((w - dw) * 0.5)
+        d.overlayY = ((h - (viewH + 170.0)) * 0.5)
+        def top:EVGElement (this.div("pd-top"))
+        top.addChild((this.words("pn-dtitle" (PresI18n.t("Presentations")))))
+        top.addChild((this.div("pn-grow")))
+        this.button("pd-new" (PresI18n.t("New presentation")) "secondary" top)
+        d.addChild(top)
+        def sort:string "updated"
+        if ready {
+            sort = (data.stringOr("sort" "updated"))
+        }
+        def head:EVGElement (this.div("pd-head"))
+        this.decksHead("name" (PresI18n.t("Name")) sort "pd-hname" head)
+        if narrow {
+            this.decksHead("updated" (PresI18n.t("Modified")) sort "pd-hnarrow" head)
+        } {
+            this.decksHead("created" (PresI18n.t("Added")) sort "pd-when" head)
+            this.decksHead("updated" (PresI18n.t("Modified")) sort "pd-when" head)
+        }
+        head.addChild((this.div("pd-acts")))
+        d.addChild(head)
+        def view:EVGElement (this.div("pn-view pd-view"))
+        view.id = "pd-view"
+        view.setAttribute("overflow" "hidden")
+        view.height = (EVGUnit.px(viewH))
+        def body:EVGElement (this.div("pd-body"))
+        if (ready == false) {
+            body.addChild((this.words("pn-intro" (PresI18n.t("Loading…")))))
+        } {
+            def rows:VlJson (data.get("rows"))
+            ; the name's room in characters, about 7 px each, less the columns
+            def nameW:double (dw - 40.0 - 150.0)
+            if (narrow == false) {
+                nameW = (nameW - 280.0)
+            }
+            def most:int (to_int (nameW / 7.0))
+            def i:int 0
+            while (i < (rows.count())) {
+                body.addChild((this.deckRow((rows.at(i)) narrow most)))
+                i = (i + 1)
+            }
+            if ((rows.count()) == 0) {
+                body.addChild((this.words("pn-intro" (PresI18n.t("A presentation is saved here when you edit it.")))))
+            }
+            ; past the end of the list the scroll stops
+            def most2:double ((((to_double (rows.count())) * 42.0) + 16.0) - viewH)
+            if (decksScroll > most2) {
+                decksScroll = most2
+            }
+            if (decksScroll < 0.0) {
+                decksScroll = 0.0
+            }
+        }
+        view.scrollTop = decksScroll
+        view.addChild(body)
+        d.addChild(view)
+        def foot:EVGElement (this.div("pn-dfoot"))
+        def note:EVGElement (this.div("pd-note"))
+        if ready {
+            note.addChild((this.words("pn-note" (data.stringOr("note" "")))))
+        }
+        foot.addChild(note)
+        this.button("pd-close" (PresI18n.t("Close")) "secondary" foot)
+        d.addChild(foot)
+        return d
+    }
+
+    fn deckRow:EVGElement (r:VlJson narrow:boolean most:int) {
+        def id:string (r.stringOr("id" ""))
+        def row:EVGElement (this.div("pf-row pd-row"))
+        def nm:EVGElement (this.div("pf-name pd-name"))
+        nm.addChild((this.words("pf-fname" (PresPanels.clip((r.stringOr("name" "")) most)))))
+        if narrow {
+            nm.addChild((this.words("pf-fsize" (((r.stringOr("where" "")) + " · ") + (r.stringOr("modified" ""))))))
+            row.addChild(nm)
+        } {
+            nm.addChild((this.words("pf-fsize" (r.stringOr("where" "")))))
+            row.addChild(nm)
+            row.addChild((this.words("pd-when pd-time" (r.stringOr("added" "")))))
+            row.addChild((this.words("pd-when pd-time" (r.stringOr("modified" "")))))
+        }
+        def acts:EVGElement (this.div("pd-acts"))
+        if (r.boolOr("current" false)) {
+            acts.addChild((this.words("pf-current" (PresI18n.t("open")))))
+            row.addChild(acts)
+            return row
+        }
+        this.deckAct("open" id (PresI18n.t("Open")) "secondary" acts)
+        ; a deck only in the cloud is deleted once open (File → Delete)
+        if ((r.boolOr("cloudOnly" false)) == false) {
+            if (decksArmed == ("del" + (strfromcode 9) + id)) {
+                this.deckAct("del" id (PresI18n.t("Delete?")) "primary" acts)
+            } {
+                this.deckAct("del" id "✕" "ghost" acts)
+            }
+        }
+        row.addChild(acts)
+        return row
+    }
+
+    fn decksPress:void (px:double py:double) {
+        def c:string (this.ownerAt(px py))
+        if (c == "pd-new") {
+            push requests "files:new"
+            this.closeShare()
+            return
+        }
+        if ((indexOf c "pd-sort-") == 0) {
+            decksScroll = 0.0
+            push requests ("decks:sort:" + (substring c 8 (strlen c)))
+            return
+        }
+        if ((indexOf c "pd-k-") == 0) {
+            def k:int (?? (str2int (substring c 5 (strlen c))) -1)
+            if ((k >= 0) && (k < (array_length decksKeys))) {
+                def key:string (itemAt decksKeys k)
+                def tab:int (indexOf key (strfromcode 9))
+                def action:string (substring key 0 tab)
+                def what:string (substring key (tab + 1) (strlen key))
+                if (action == "del") {
+                    if (decksArmed != key) {
+                        ; the first press only asks
+                        decksArmed = key
+                        this.rebuild()
+                        return
+                    }
+                    decksArmed = ""
+                    push requests ("decks:del:" + what)
+                    return
+                }
+                push requests ("files:doc:" + what)
+                this.closeShare()
+                return
+            }
+        }
+        if ((c == "pd-close") || ((this.inEl("pn-dialog" px py)) == false)) {
+            this.closeShare()
+            return
+        }
+        if (decksArmed != "") {
+            decksArmed = ""
+            this.rebuild()
+        }
+    }
+
+    fn decksScrollBy:void (dy:double) {
+        decksScroll = (decksScroll + dy)
+        if (decksScroll < 0.0) {
+            decksScroll = 0.0
+        }
+        this.rebuild()
     }
 
     ; --- the settings dialog -------------------------------------------------------------
@@ -1667,6 +1890,10 @@ class PresPanels {
         }
         if ((shareOpen && (quiet == false)) && (dialogKind == "data")) {
             this.dataPress(px py)
+            return
+        }
+        if (this.decksShowing()) {
+            this.decksPress(px py)
             return
         }
         if ((shareOpen && (quiet == false)) && (dialogKind == "settings")) {

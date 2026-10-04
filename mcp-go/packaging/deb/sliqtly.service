@@ -5,6 +5,8 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+# a server: other computers connect (sliqtly.env can say otherwise)
+Environment=SLIQTLY_LISTEN=network
 EnvironmentFile=/etc/sliqtly/sliqtly.env
 ExecStart=/usr/bin/sliqtly-server
 Restart=on-failure

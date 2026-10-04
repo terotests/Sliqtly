@@ -61,6 +61,7 @@ type localServer struct {
 	hub    *changeHub // the decks' changes, for /api/events
 	collab *collabRooms
 	board  *statusBoard // the server's state, for /api/status and /api/events
+	expo   *exposure    // who can connect (netaccess.go); nil: not managed here
 }
 
 // the env of a server whose decks are in dir, reached at baseURL
@@ -132,7 +133,7 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeStatus(w, st, 200)
 		return
 	}
-	if p == "/api/settings" || p == "/api/settings/check" {
+	if p == "/api/settings" || p == "/api/settings/check" || p == "/api/settings/network" {
 		s.settingsAPI(w, r)
 		return
 	}
