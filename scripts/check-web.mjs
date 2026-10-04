@@ -652,9 +652,13 @@ try {
         const e = find(pg, "tb-m-ctx-item-" + v);
         out[v] = e ? [e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, e.className.includes("disabled")] : null;
       }
+      const card = find(pg, "tb-m-ctx-content");
+      out.card = card ? card.calculatedWidth : -1;
       return out;
     });
     check("a right click on a thumbnail opens its menu, the keyboard in it", s6.menu === "tb-m-ctx" && s6.sel === 3 && /^tb-m-ctx-item-/.test(s6.on) && rows.slideNew && rows.slideRight && rows.slideRight[2] && !rows.slideLeft[2], JSON.stringify({ ...s6, src: "", rows }));
+    // the card is as wide as its rows (210px and its chrome), not the window
+    check("…its card is as wide as its rows, not the window", rows.card >= 210 && rows.card < 400, String(rows.card));
     await shot("strip-menu.png");
     const cr = await page.evaluate(() => { const c = document.getElementById("c").getBoundingClientRect(); return [c.left, c.top]; });
     await page.mouse.click(cr[0] + rows.slideLeft[0], cr[1] + rows.slideLeft[1]);
