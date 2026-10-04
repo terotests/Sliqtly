@@ -46,6 +46,7 @@ Import "PresA11y.rgr"
 Import "PresSelect.rgr"
 Import "../evgui/src/TabsCtl.rgr"
 Import "../evgui/src/UiLayers.rgr"
+Import "../evgui/src/UiOpenTabs.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
@@ -93,6 +94,9 @@ class PresApp {
     ; spec) in an editor of its own; "" while the list shows
     def fileEditor:ScriptEditor (new ScriptEditor())
     def filePath:string ""
+    ; the files opened from the files tab, each a tab after Files (VS Code's
+    ; open editors): "f:<path>" in the strip
+    def openTabs:UiOpenTabs (new UiOpenTabs())
     def fileSynced:int 0
     ; the chart editor's chart, when it lives in a file of the document
     def chartFile:string ""
@@ -104,6 +108,9 @@ class PresApp {
     def cssSynced:int -1
     def themeText:string ""
     def tabs:TabsCtl (new TabsCtl())
+    ; the strip as the chrome last laid it out: presses are found in it
+    ; (`tabs` is made again by showTab before the next layout places it)
+    def laidTabs:TabsCtl (new TabsCtl())
     def tabRect:PresRect (new PresRect())
     def tabH:double 34.0
     def sheet:EVGStyleSheet (new EVGStyleSheet())
@@ -451,8 +458,132 @@ class PresApp {
         }
         tabs.addItem("css" cssLabel "" false)
         tabs.addItem("files" (PresI18n.t("Files")) "" false)
-        tabs.value = edTab
+        def shown:[string] (this.shownFileTabs())
+        def i:int 0
+        while (i < (array_length shown)) {
+            def path:string (itemAt shown i)
+            tabs.addClosable(("f:" + path) (PresApp.shortLabel((openTabs.label(path)))))
+            i = (i + 1)
+        }
+        tabs.value = (this.activeTab())
         tabs.build()
+    }
+
+    ; The strip's tab in front: an open file's when one is in the editor.
+    fn activeTab:string () {
+        if ((edTab == "files") && ((strlen filePath) > 0)) {
+            return ("f:" + filePath)
+        }
+        return edTab
+    }
+
+    sfn shortLabel:string (s:string) {
+        if ((strlen s) > 22) {
+            return ((substring s 0 21) + "…")
+        }
+        return s
+    }
+
+    ; The open files' tabs that fit beside the editor's own three, in the
+    ; order they were opened: the one in front always, then the ones used
+    ; last. The rest stay open and come back when there is room.
+    fn shownFileTabs:[string] () {
+        def out:[string]
+        def n:int (openTabs.count())
+        if (n == 0) {
+            return out
+        }
+        def room:double (tabRect.w - 270.0)
+        def take:[string]
+        def k:int ((array_length openTabs.used) - 1)
+        if ((strlen filePath) > 0) {
+            push take filePath
+            room = (room - (PresApp.tabWidth((openTabs.label(filePath)))))
+        }
+        while (k >= 0) {
+            def u:string (itemAt openTabs.used k)
+            if (u != filePath) {
+                def tw:double (PresApp.tabWidth((openTabs.label(u))))
+                if (room >= tw) {
+                    push take u
+                    room = (room - tw)
+                }
+            }
+            k = (k - 1)
+        }
+        def i:int 0
+        while (i < n) {
+            def t:string (openTabs.at(i))
+            def j:int 0
+            while (j < (array_length take)) {
+                if ((itemAt take j) == t) {
+                    push out t
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; about what a tab with its close mark takes (13px text)
+    sfn tabWidth:double (label:string) {
+        def len:int (strlen (PresApp.shortLabel(label)))
+        return (((to_double len) * 7.0) + 40.0)
+    }
+
+    ; A tab's close mark pressed: the next tab used comes to the front, or
+    ; the files list when no file is left.
+    fn closeFileTab:void (path:string) {
+        def front:boolean (path == filePath)
+        def next:string (openTabs.close(path))
+        if front {
+            this.closeFile()
+            if (edTab == "files") {
+                if ((strlen next) > 0) {
+                    push requests ("files:open:" + next)
+                } {
+                    push requests "files-list"
+                }
+            }
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; Files the page opened in a window of its own (a CSV, a workbook): a
+    ; tab too, pressed to open it again.
+    fn noteOpened:void (path:string) {
+        openTabs.open(path)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The deck's files as they are now ("\n" between): the tabs of the rest close.
+    fn keepOpenTabs:void (paths:string) {
+        def keys:[string] (strsplit paths (strfromcode 10))
+        if ((strlen filePath) > 0) {
+            def still:boolean false
+            def i:int 0
+            while (i < (array_length keys)) {
+                if ((itemAt keys i) == filePath) {
+                    still = true
+                }
+                i = (i + 1)
+            }
+            if (still == false) {
+                this.closeFile()
+            }
+        }
+        def before:int (openTabs.count())
+        openTabs.retain(keys)
+        if ((openTabs.count()) != before) {
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    ; Another deck: its own files, none of this one's tabs.
+    fn clearOpenTabs:void () {
+        openTabs = (new UiOpenTabs())
+        chromeRev = (chromeRev + 1)
     }
 
     fn editorTab:string () {
@@ -2055,6 +2186,7 @@ class PresApp {
         if (edRect.w > 0.0) {
             def tabBar:EVGElement (PresApp.div("ed-tabs" "ed-tabs" tabRect.x tabRect.y tabRect.w tabRect.h))
             this.makeTabs()
+            laidTabs = tabs
             tabBar.addChild((unwrap tabs.rootEl))
             root.addChild(tabBar)
             root.addChild((PresApp.div("sep" "sep" sepRect.x sepRect.y sepRect.w sepRect.h)))
@@ -2395,7 +2527,29 @@ class PresApp {
             return "sep"
         }
         if (tabRect.has(x y)) {
+            def shut:string (laidTabs.closeAt(x y))
+            if ((indexOf shut "f:") == 0) {
+                this.closeFileTab((substring shut 2 (strlen shut)))
+                return "editor"
+            }
             def hitTab:string (this.tabAt(x))
+            if ((indexOf hitTab "f:") == 0) {
+                def fp:string (substring hitTab 2 (strlen hitTab))
+                if (fp != filePath) {
+                    ; the page reads it and hands it back (openFile), or
+                    ; opens its window (a CSV, a workbook)
+                    push requests ("files:open:" + fp)
+                } {
+                    this.showTab("files")
+                }
+                return "editor"
+            }
+            if ((hitTab == "files") && ((strlen filePath) > 0)) {
+                ; the list again; the file keeps its tab
+                this.closeFile()
+                this.showTab("files")
+                return "editor"
+            }
             if ((strlen hitTab) > 0) {
                 this.showTab(hitTab)
             }
@@ -2887,8 +3041,8 @@ class PresApp {
     ; Which tab is under x: its box as the chrome's last layout placed it.
     fn tabAt:string (x:double) {
         def i:int 0
-        while (i < (array_length tabs.items)) {
-            def it:UiItem (itemAt tabs.items i)
+        while (i < (array_length laidTabs.items)) {
+            def it:UiItem (itemAt laidTabs.items i)
             def el:EVGElement (unwrap it.el)
             if ((x >= el.calculatedX) && (x <= (el.calculatedX + el.calculatedWidth))) {
                 return it.value
@@ -4239,6 +4393,7 @@ class PresApp {
         }
         fileEditor.init(text)
         fileSynced = fileEditor.buf.version
+        openTabs.open(path)
         this.showTab("files")
         focus = "editor"
         chromeRev = (chromeRev + 1)
@@ -4985,6 +5140,14 @@ class PresApp {
                 this.a11yTab(t page "md" "Markdown")
                 this.a11yTab(t page "css" (PresI18n.t("Theme (CSS)")))
                 this.a11yTab(t page "files" (PresI18n.t("Files")))
+                def ft:int 0
+                while (ft < (array_length tabs.items)) {
+                    def fit:UiItem (itemAt tabs.items ft)
+                    if ((indexOf fit.value "f:") == 0) {
+                        this.a11yTab(t page fit.value fit.name)
+                    }
+                    ft = (ft + 1)
+                }
             }
             if (!null? chromeRoot) {
                 def page2:EVGElement (unwrap chromeRoot)
@@ -5093,7 +5256,7 @@ class PresApp {
         n.name = name
         n.focusable = true
         n.actActivate = true
-        n.selected = (v == edTab)
+        n.selected = (v == (this.activeTab()))
         PresA11y.placeAt(n (unwrap el))
     }
 

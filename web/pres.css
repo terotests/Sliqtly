@@ -75,6 +75,11 @@
 .ui-tab { color: #71717a; font-size: 13px; font-weight: 500; height: 24px; line-height: 24px; padding: 0 12px; border-radius: 6px; border: 1px solid #f4f4f5; background-color: #f4f4f5; cursor: pointer; }
 .ui-tab-state-active { background-color: #ffffff; color: #09090b; border-color: #e4e4e7; shadow-color: rgba(0, 0, 0, 0.10); shadow-radius: 3px; shadow-offset-y: 1px; }
 .ui-tabpanel { display: none; }
+/* an open file's tab (TabsCtl.addClosable): its name and a close mark */
+.ui-tab-closable { display: flex; flex-direction: row; align-items: center; gap: 4px; padding: 0 4px 0 12px; flex-shrink: 0; }
+.ui-tab-name { font-size: 13px; font-weight: 500; height: 24px; line-height: 24px; white-space: nowrap; }
+.ui-tab-close { width: 18px; min-width: 18px; height: 18px; line-height: 18px; text-align: center; font-size: 14px; border-radius: 4px; color: #a1a1aa; cursor: pointer; }
+.ui-tab-close:hover { background-color: #e4e4e7; color: #09090b; }
 
 /* --- the element picked on the slide (src/PresSelect.rgr) -------------------
    The outline, its corner handles and a badge in the editor's blue; the

@@ -18,6 +18,7 @@
 import { prepareDisplayList, setFontFallback, fontSpec, textObstacles } from "./gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
+import { sortFiles, pastePlan, fileClipboard, CLIP_KEY } from "./fileclip.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
 import { scaled, previewOf, render } from "./image-adjust.js";
@@ -466,6 +467,7 @@ function beginDoc(text) {
   app.clearChartData();
   showLiveButton();
   if (app.openFilePath()) app.closeFile();
+  app.clearOpenTabs();
 }
 
 function shownDoc(text) {
@@ -1101,12 +1103,10 @@ async function refreshFiles() {
         const img = row.kind === "image" ? pictures.get("/" + f.path) : null;
         if (img) Object.assign(row, { w: img.naturalWidth, h: img.naturalHeight });
         return row;
-      })
-      .sort((a, b) => {
-        const da = a.path.includes("/") ? 1 : 0;
-        const db = b.path.includes("/") ? 1 : 0;
-        return da - db || a.path.localeCompare(b.path);
       });
+    const sorted = sortFiles(files);
+    // the tabs of files that are gone close
+    app.keepOpenTabs(sorted.map((f) => f.path).join("\n"));
     const name = (docName || "presentation").replace(/\s+/g, "-");
     const head = [{ path: name + ".md", size: new TextEncoder().encode(app.source()).length, kind: "md" }];
     const key = themeSel.value || "";
@@ -1131,7 +1131,11 @@ async function refreshFiles() {
           : t("PRO: this presentation and its files are saved to your cloud and go with share links. A copy stays in this browser.");
     }
     if (!doc.persisted) note = t("This presentation is not saved yet: it saves when you change it. ") + note;
-    app.setFileList(JSON.stringify({ doc: exportName(), files: head.concat(files), note, ...(promo ? { promo } : {}) }));
+    const clip = fileClip()?.note();
+    app.setFileList(JSON.stringify({
+      doc: exportName(), files: head.concat(sorted), note,
+      ...(promo ? { promo } : {}), ...(clip ? { clip: { count: clip.count, from: clip.from } } : {}),
+    }));
     needsPaint = true;
   } finally {
     filesListing = false;
@@ -1381,6 +1385,7 @@ async function fileRequest(r) {
   } else if (action === "open") {
     const f = (await docFiles()).find((x) => x.path === what);
     if (!f) return;
+    if (/\.(xlsx|csv)$/i.test(f.path)) app.noteOpened(f.path);
     if (/\.xlsx$/i.test(f.path)) {
       const blob = typeof f.data === "string" ? new Blob([f.data]) : f.data;
       liveSheets.openDialog({
@@ -1422,6 +1427,12 @@ async function fileRequest(r) {
     if (doc.persisted) await vfs.deleteFile(doc.id, what);
     if (app.openFilePath() === what) app.closeFile();
     cloudSoon();
+  } else if (action === "copy") {
+    await copyFiles(what.split("\n"));
+  } else if (action === "delmany") {
+    await deleteFiles(what.split("\n"));
+  } else if (action === "paste") {
+    await pasteFiles();
   } else if (action === "doc") {
     const opened = await loadingScreen(() => what.startsWith("cloud:")
       ? openOwnCloud(what.slice(6)).catch((e) => { console.warn(e); return false; })
@@ -1440,6 +1451,84 @@ async function fileRequest(r) {
 }
 
 window.__fileRequest = (r) => fileRequest(r);
+
+// --- Copy and Paste between presentations (web/fileclip.js) ----------------------
+// The ticked files are copied to this browser's clipboard store; Paste in
+// any deck, in this tab or another, adds them there. A name the deck already
+// has gets -2, -3…; a file it already has as it is stays as it is.
+let clipboard = null;
+function fileClip() {
+  if (!vfs) return null;
+  if (!clipboard) {
+    let storage = null;
+    try { storage = localStorage; } catch (_) { /* this page only */ }
+    clipboard = fileClipboard(vfs, storage);
+  }
+  return clipboard;
+}
+// another tab copied: its Paste shows here too
+window.addEventListener("storage", (e) => { if (e.key === CLIP_KEY) refreshFiles(); });
+
+async function copyFiles(paths) {
+  const clip = fileClip();
+  if (!clip) return;
+  const want = new Set(paths);
+  const files = (await docFiles()).filter((f) => want.has(f.path));
+  if (!files.length) return;
+  await clip.copy(files, exportName());
+  toast(files.length === 1
+    ? t("Copied 1 file: open another presentation and press Paste in Files.")
+    : t("Copied ") + files.length + t(" files: open another presentation and press Paste in Files."));
+}
+
+async function deleteFiles(paths) {
+  const files = await docFiles();
+  for (const path of paths) {
+    const f = files.find((x) => x.path === path);
+    if (!f) continue;
+    pending.delete(path);
+    if (doc.persisted) await vfs.deleteFile(doc.id, path);
+    if (path.startsWith("data/live/")) liveCopies.delete(path);
+    if (app.openFilePath() === path) app.closeFile();
+  }
+  cloudSoon();
+  dropThumbs();
+  toast(paths.length === 1 ? t("Deleted 1 file.") : t("Deleted ") + paths.length + t(" files."));
+}
+
+async function pasteFiles() {
+  const clip = fileClip();
+  if (!clip || viewer) return;
+  const copies = await clip.files();
+  if (!copies.length) { toast(t("Nothing to paste: copy files in another presentation first.")); return; }
+  const plan = await pastePlan(copies, await docFiles());
+  let added = 0;
+  let renamed = 0;
+  for (let i = 0; i < plan.length; i++) {
+    const step = plan[i];
+    if (step.same) continue;
+    const { doc: _d, updated: _u, ...rec } = copies[i];
+    const path = step.to;
+    if (kindOf(path, rec.type) === "image") {
+      const blob = typeof rec.data === "string" ? new Blob([rec.data], { type: rec.type || "" }) : rec.data;
+      await addPicture("/" + path, await blob.arrayBuffer(), rec.type || "");
+    } else if (typeof rec.data === "string") {
+      chartFiles.set(path, Promise.resolve(rec.data));
+      app.setChartData(path, rec.data);
+      if (path.startsWith("data/live/")) liveCopies.set(path, rec.data);
+    }
+    await keepFile({ ...rec, path });
+    added += 1;
+    if (path !== step.from) renamed += 1;
+  }
+  dropThumbs();
+  const left = plan.length - added;
+  if (!added) { toast(t("These files are here already.")); return; }
+  let msg = added === 1 ? t("Pasted 1 file.") : t("Pasted ") + added + t(" files.");
+  if (renamed) msg += " " + renamed + t(" got a new name, as the names were taken.");
+  if (left) msg += " " + left + t(" were here already.");
+  toast(msg);
+}
 window.__openDecks = () => openDecks();
 
 // A file edited in the files tab: kept, and handed to the charts again.

@@ -3912,6 +3912,79 @@ try {
     check("no page errors with versions", verr.length === 0, verr.join(" | "));
   }
 
+  // The Files tab as a data table (web/fileclip.js, UiPick): files ticked
+  // in one deck are copied, a deck in another tab pastes them (a taken name
+  // gets -2, a file already there is left be), a file opened gets a tab of
+  // its own after Files (UiOpenTabs), and ticked files are deleted together.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1300, height: 820 } });
+    const fdir = fs.mkdtempSync(path.join(os.tmpdir(), "evgp-clip-"));
+    fs.writeFileSync(path.join(fdir, "cars.json"), "[{\"a\":1}]");
+    fs.writeFileSync(path.join(fdir, "ohlc.json"), "[{\"o\":2}]");
+    fs.writeFileSync(path.join(fdir, "sales.csv"), "kk,euroa\ntammi,1\n");
+    const deck = async (sample) => {
+      const pg = await ctx.newPage();
+      await pg.goto(url + "?sample=" + sample);
+      await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+      await pg.evaluate(() => { window.__app.setSource(window.__app.source() + "\n"); window.__app.showTab("files"); });
+      await pg.waitForTimeout(1500);
+      return pg;
+    };
+    const ask = (pg, r) => pg.evaluate((r) => { const a = window.__app; a.panels.requests.push(r); a.takePanels(); window.__handleRequests(); }, r);
+    const files = (pg) => pg.evaluate(() => window.__docFiles()).then((l) => l.sort());
+    const A = await deck("esittely");
+    await A.setInputFiles("#fileadd", ["cars.json", "ohlc.json", "sales.csv"].map((f) => path.join(fdir, f)));
+    await A.waitForFunction(() => window.__app.panels.filesJson.includes("sales.csv"), null, { timeout: 8000 }).catch(() => {});
+    const ticked = await A.evaluate(() => {
+      const pk = window.__app.panels.filesPick;
+      pk.toggle("data/cars.json");
+      pk.extendTo("data/sales.csv");
+      return pk.selected();
+    });
+    await ask(A, "files:copy:data/cars.json\ndata/sales.csv");
+    await A.waitForTimeout(800);
+    const B = await deck("uutta");
+    // the same name with other contents in B: pasted beside it
+    fs.mkdirSync(path.join(fdir, "b"));
+    fs.writeFileSync(path.join(fdir, "b", "ohlc.json"), "[{\"o\":3}]");
+    await B.setInputFiles("#fileadd", [path.join(fdir, "b", "ohlc.json")]);
+    await B.waitForTimeout(800);
+    await ask(A, "files:copy:data/cars.json\ndata/ohlc.json\ndata/sales.csv");
+    await B.waitForFunction(() => (JSON.parse(window.__app.panels.filesJson || "{}").clip || {}).count === 3, null, { timeout: 8000 }).catch(() => {});
+    const clipB = await B.evaluate(() => JSON.parse(window.__app.panels.filesJson).clip);
+    await B.evaluate(() => window.__fileRequest("paste"));
+    await B.waitForTimeout(800);
+    const pasted = await files(B);
+    await B.evaluate(() => window.__fileRequest("paste"));
+    await B.waitForTimeout(800);
+    const again = await files(B);
+    // tabs: two files open, the one in front closed
+    await B.evaluate(() => window.__fileRequest("open:data/ohlc.json"));
+    await B.waitForTimeout(300);
+    await B.evaluate(() => window.__fileRequest("open:data/cars.json"));
+    await B.waitForTimeout(500);
+    const tabs = await B.evaluate(() => ({ open: window.__app.openFilePath(), tabs: window.__app.openTabs.tabs.slice(), strip: window.__app.tabs.items.map((i) => i.value) }));
+    await B.evaluate(() => window.__app.closeFileTab("data/cars.json"));
+    await B.waitForTimeout(500);
+    await B.evaluate(() => window.__handleRequests());
+    await B.waitForTimeout(500);
+    const closed = await B.evaluate(() => ({ open: window.__app.openFilePath(), tabs: window.__app.openTabs.tabs.slice() }));
+    await ask(B, "files:delmany:data/ohlc.json\ndata/ohlc-2.json");
+    await B.waitForTimeout(800);
+    await B.evaluate(() => window.__app.showTab("files"));
+    await B.waitForTimeout(800);
+    const deleted = await files(B);
+    const tabsAfter = await B.evaluate(() => window.__app.openTabs.tabs.slice());
+    check("Files: shift-click ticks the rows between", ticked.join() === "data/cars.json,data/ohlc.json,data/sales.csv", ticked.join());
+    check("Files: another tab offers Paste for what was copied", clipB && clipB.count === 3, JSON.stringify(clipB));
+    check("Files: Paste adds the copies, a taken name gets -2", ["data/cars.json", "data/ohlc.json", "data/ohlc-2.json", "data/sales.csv"].every((p) => pasted.includes(p)) && pasted.length === 4, pasted.join());
+    check("Files: pasting again adds nothing that is already there", again.length === pasted.length, again.join());
+    check("Files: an opened file gets a closable tab after Files", tabs.open === "data/cars.json" && tabs.tabs.join() === "data/ohlc.json,data/cars.json" && tabs.strip.includes("f:data/cars.json"), JSON.stringify(tabs));
+    check("Files: closing the tab in front opens the one used before", closed.open === "data/ohlc.json" && closed.tabs.join() === "data/ohlc.json", JSON.stringify(closed));
+    check("Files: ticked files are deleted together, and their tabs close", deleted.join() === "data/cars.json,data/sales.csv" && tabsAfter.length === 0, deleted.join() + " " + tabsAfter.join());
+    await ctx.close();
+  }
+
   // the interface in another language: ?lang=fi, the canvas bar and the page alike
   const pageFi = await browser.newPage({ viewport: { width: 1200, height: 760 } });
   await pageFi.goto(url + "?lang=fi&sample=talous");
