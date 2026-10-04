@@ -252,6 +252,34 @@ class PresCheck {
         this.ok(((PresCheck.texts(fin "Kokous")) == 1) "the final frame shows the whole diagram")
         this.longChain()
         this.steering()
+        this.diagramColour()
+    }
+
+    ; `diagram { color }` is the warm light: without a tour it colours the
+    ; lines (with one it marks the way the walk is on).
+    fn diagramColour:void () {
+        def css:string "page { background-color: #0b1030 } diagram { color: #ff6b9a; accent-color: #ffd54a }"
+        def still:string "---\nslide-split-level: 2\n---\n\n## Kulku\n\n```mermaid\nflowchart LR\n  A[Alku] --> B[Loppu]\n```\n"
+        def deck (new PresDeck())
+        deck.md.setStyleSheet(css)
+        deck.setTheme(css)
+        deck.setText(still)
+        PresTimeline.planAll(deck)
+        def warm:int (PresCheck.colourCmds((PresTimeline.finalFrame(deck 0)) 255 107 154))
+        this.ok((warm >= 2) ("without a tour the line and its arrow are in diagram color, got " + (to_string warm)))
+    }
+
+    sfn colourCmds:int (l:EVGDisplayList r:int g:int b:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if (((c.r == r) && (c.g == g)) && (c.b == b)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
     }
 
     ; A walk the viewer steers: it stops where named edges branch, shows the
