@@ -26,6 +26,7 @@
 Import "../evgui/src/UiHost.rgr"
 Import "../evgui/src/ChatCtl.rgr"
 Import "../evgui/src/PaginationCtl.rgr"
+Import "../evgui/src/UiPick.rgr"
 Import "../vela/src/VlJson.rgr"
 Import "PresI18n.rgr"
 Import "PresImport.rgr"
@@ -110,6 +111,10 @@ class PresPanels {
     def filesKeys:[string]
     ; a delete pressed once, waiting for the second press
     def filesArmed:string ""
+    ; the rows' checkboxes (a data table's): which files are ticked, by path;
+    ; `filesBoxes` is what each box `pf-c-<k>` stands for
+    def filesPick:UiPick (new UiPick())
+    def filesBoxes:[string]
     ; the pictures' rows (`pf-img-<k>`): their paths and pixel sizes (the
     ; page's "w", "h"); the one under the pointer shows a preview beside the
     ; panel (`filesHover`, at the pointer's height `hoverY`)
@@ -729,20 +734,54 @@ class PresPanels {
             return p
         }
         p.height = (EVGUnit.px(filesH))
+        def noBoxes:[string]
+        filesBoxes = noBoxes
         def p0 (new VlJsonParser())
         def data:VlJson (p0.parse(filesJson))
+        def loaded:boolean ((p0.ok == true) && (data.isObject()))
         def top:EVGElement (this.div("pf-top"))
         top.addChild((this.words("pn-title" (PresI18n.t("Files")))))
         top.addChild((this.div("pn-grow")))
+        ; files copied from a presentation (here or another): {"count", "from"}
+        if loaded {
+            def clip:VlJson (data.get("clip"))
+            if (clip.isObject()) {
+                def n:int (clip.intOr("count" 0))
+                if (n > 0) {
+                    def label:string ((PresI18n.t("Paste ")) + (to_string n) + (? (n == 1) (PresI18n.t(" file")) (PresI18n.t(" files"))))
+                    this.button("pf-paste" label "secondary" top)
+                }
+            }
+        }
         this.button("pf-add" (PresI18n.t("Add files…")) "secondary" top)
         p.addChild(top)
+        ; the files that can be ticked: all but the deck's own text and theme
+        def files:VlJson (data.get("files"))
+        def keys:[string]
+        if loaded {
+            def fi:int 0
+            while (fi < (files.count())) {
+                def ff:VlJson (files.at(fi))
+                def fk:string (ff.stringOr("kind" ""))
+                if ((fk != "md") && (fk != "css")) {
+                    push keys (ff.stringOr("path" ""))
+                }
+                fi = (fi + 1)
+            }
+        }
+        filesPick.setKeys(keys)
+        def selH:double 0.0
+        if ((array_length keys) > 0) {
+            selH = 40.0
+            p.addChild((this.filesSelBar()))
+        }
         def view:EVGElement (this.div("pn-view"))
         view.id = "pf-view"
         view.setAttribute("overflow" "hidden")
         view.scrollTop = filesScroll
-        view.height = (EVGUnit.px((filesH - 49.0)))
+        view.height = (EVGUnit.px(((filesH - 49.0) - selH)))
         def body:EVGElement (this.div("pf-body"))
-        if ((p0.ok == false) || ((data.isObject()) == false)) {
+        if (loaded == false) {
             body.addChild((this.words("pn-intro" (PresI18n.t("Loading files…")))))
             view.addChild(body)
             p.addChild(view)
@@ -764,8 +803,7 @@ class PresPanels {
             body.addChild(box)
         }
         body.addChild((this.words("pf-h" ((PresI18n.t("This presentation: ")) + (data.stringOr("doc" ""))))))
-        ; the files, a folder's under its name
-        def files:VlJson (data.get("files"))
+        ; the files, a folder's under its name (the page lists them so)
         def folder:string "-"
         def i:int 0
         while (i < (files.count())) {
@@ -800,6 +838,69 @@ class PresPanels {
         view.addChild(body)
         p.addChild(view)
         return p
+    }
+
+    ; Over the rows, as a data table's header: the box that ticks them all,
+    ; and with some ticked, what can be done to them.
+    fn filesSelBar:EVGElement () {
+        def bar:EVGElement (this.div("pf-sel"))
+        def all (new CheckboxCtl())
+        all.tid = "pf-all"
+        all.name = (PresI18n.t("Select all"))
+        all.checkState = (filesPick.checkState())
+        all.labelShown = false
+        all.build()
+        UiTree.addClass((unwrap all.rootEl) "pf-check")
+        this.put(all bar)
+        def n:int (filesPick.count())
+        if (n == 0) {
+            bar.addChild((this.words("pf-sel-text" (PresI18n.t("Select all")))))
+            bar.addChild((this.div("pn-grow")))
+            return bar
+        }
+        bar.addChild((this.words("pf-sel-text pf-sel-count" ((to_string n) + (PresI18n.t(" selected"))))))
+        bar.addChild((this.div("pn-grow")))
+        def c:ButtonCtl (this.button("pf-copy" (PresI18n.t("Copy")) "secondary" bar))
+        UiTree.addClass((unwrap c.rootEl) "pf-act")
+        if (filesArmed == "bulkdel") {
+            def d:ButtonCtl (this.button("pf-bulkdel" ((PresI18n.t("Delete ")) + (to_string n) + "?") "primary" bar))
+            UiTree.addClass((unwrap d.rootEl) "pf-act")
+        } {
+            def d2:ButtonCtl (this.button("pf-bulkdel" (PresI18n.t("Delete")) "ghost" bar))
+            UiTree.addClass((unwrap d2.rootEl) "pf-act")
+        }
+        return bar
+    }
+
+    ; A row's box, ticked when its file is.
+    fn rowBox:void (path:string row:EVGElement) {
+        def k:int (array_length filesBoxes)
+        push filesBoxes path
+        def c (new CheckboxCtl())
+        c.tid = ("pf-c-" + (to_string k))
+        c.name = ((PresI18n.t("Select ")) + (PresPanels.nameOf(path)))
+        if (filesPick.has(path)) {
+            c.checkState = 1
+        }
+        c.labelShown = false
+        c.build()
+        UiTree.addClass((unwrap c.rootEl) "pf-check")
+        this.put(c row)
+    }
+
+    ; the joined paths of the ticked files, for the page
+    fn pickedText:string () {
+        def ps:[string] (filesPick.selected())
+        def out:string ""
+        def i:int 0
+        while (i < (array_length ps)) {
+            if (i > 0) {
+                out = (out + (strfromcode 10))
+            }
+            out = (out + (itemAt ps i))
+            i = (i + 1)
+        }
+        return out
     }
 
     sfn lastSlash:int (path:string) {
@@ -839,6 +940,15 @@ class PresPanels {
         def path:string (f.stringOr("path" ""))
         def kind:string (f.stringOr("kind" ""))
         def row:EVGElement (this.div("pf-row"))
+        if ((kind == "md") || (kind == "css")) {
+            ; the deck's own text and theme: not copied, the box's place kept
+            row.addChild((this.div("pf-check-gap")))
+        } {
+            this.rowBox(path row)
+            if (filesPick.has(path)) {
+                UiTree.addClass(row "pf-row-picked")
+            }
+        }
         if (kind == "image") {
             row.id = ("pf-img-" + (to_string (array_length imgPaths)))
             push imgPaths path
@@ -1032,8 +1142,54 @@ class PresPanels {
         return ((((px >= filesX) && (px <= (filesX + filesW))) && (py >= filesY)) && (py <= (filesY + hh)))
     }
 
-    fn filesPress:void (px:double py:double) {
+    fn filesPress:void (px:double py:double shift:boolean) {
         def c:string (this.ownerAt(px py))
+        if (c == "pf-all") {
+            filesPick.toggleAll()
+            filesArmed = ""
+            this.rebuild()
+            return
+        }
+        if ((indexOf c "pf-c-") == 0) {
+            def bk:int (?? (str2int (substring c 5 (strlen c))) -1)
+            if ((bk >= 0) && (bk < (array_length filesBoxes))) {
+                def bp:string (itemAt filesBoxes bk)
+                if shift {
+                    filesPick.extendTo(bp)
+                } {
+                    filesPick.toggle(bp)
+                }
+                filesArmed = ""
+                this.rebuild()
+            }
+            return
+        }
+        if (c == "pf-copy") {
+            if ((filesPick.count()) > 0) {
+                push requests ("files:copy:" + (this.pickedText()))
+            }
+            return
+        }
+        if (c == "pf-bulkdel") {
+            if ((filesPick.count()) == 0) {
+                return
+            }
+            if (filesArmed != "bulkdel") {
+                ; the first press only asks
+                filesArmed = "bulkdel"
+                this.rebuild()
+                return
+            }
+            filesArmed = ""
+            push requests ("files:delmany:" + (this.pickedText()))
+            filesPick.none()
+            this.rebuild()
+            return
+        }
+        if (c == "pf-paste") {
+            push requests "files:paste"
+            return
+        }
         if (c == "pf-back") {
             push requests "files:back"
             return
@@ -2169,7 +2325,7 @@ class PresPanels {
             return
         }
         if (this.filesHas(px py)) {
-            this.filesPress(px py)
+            this.filesPress(px py shift)
             return
         }
         if (this.chatHas(px py)) {

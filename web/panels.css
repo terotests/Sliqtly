@@ -118,6 +118,20 @@
   min-height: 38px; padding: 3px 6px; border-radius: 6px; background-color: #fafafa; flex-wrap: nowrap;
   flex-shrink: 0;
 }
+/* the rows as a data table: a box on each, the header's box ticks all */
+.pf-sel {
+  display: flex; flex-direction: row; align-items: center; gap: 8px;
+  height: 40px; min-height: 40px; padding: 0 12px 0 20px;
+  border-bottom: 1px solid #f4f4f5; background-color: #ffffff;
+}
+.pf-sel-text { font-size: 12px; color: #71717a; white-space: nowrap; }
+.pf-sel-count { color: #09090b; font-weight: 600; }
+/* only the Files tab's boxes are checkboxes in the panels */
+.theme-pn .ui-checkbox-box { width: 18px; min-width: 18px; height: 18px; min-height: 18px; border-radius: 4px; }
+.theme-pn .ui-checkbox-mark { width: 14px; min-width: 14px; height: 14px; min-height: 14px; }
+.pf-check { flex-shrink: 0; cursor: pointer; }
+.pf-check-gap { width: 18px; min-width: 18px; height: 18px; flex-shrink: 0; }
+.pf-row-picked { background-color: #eff6ff; }
 .pf-name { display: flex; flex-direction: column; gap: 0; flex-shrink: 1; }
 .pf-fname { font-size: 13px; color: #18181b; white-space: nowrap; }
 .pf-fsize { font-size: 11px; color: #a1a1aa; white-space: nowrap; }
@@ -235,3 +249,6 @@
 .pd-pager { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 4px; flex-shrink: 0; }
 .theme-pn .pd-pg { height: 30px; min-width: 30px; padding: 0 8px; justify-content: center; }
 .pd-pg-gap { font-size: 13px; color: #71717a; padding: 0 4px; }
+/* the header's box with some rows ticked: the accent, not a warning */
+.theme-pn .ui-checkbox-box-state-indeterminate { background-color: #2563eb; border-color: #2563eb; }
+.theme-pn .ui-checkbox-mark-state-indeterminate { stroke: #ffffff; }
