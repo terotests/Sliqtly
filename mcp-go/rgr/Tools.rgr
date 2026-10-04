@@ -750,8 +750,14 @@ class Tools {
                     k = (k + 1)
                 }
             }
+            ; a file read back from the deck comes without its type: a raster
+            ; is told by its bytes; a SmartArt file (.xml) has to be named one,
+            ; or it is taken for a broken picture and drawn as nothing
             if ((strlen type) == 0) {
                 type = "image/png"
+                if (endsWith (to_lowercase name) ".xml") {
+                    type = "application/xml"
+                }
             }
             push out.pics pic
             push out.data (host_image_bytes host handle)

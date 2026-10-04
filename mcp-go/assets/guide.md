@@ -202,7 +202,8 @@ When text on a picture is hard to read ("low contrast"), raise that slide's
 - SmartArt: a diagram from PowerPoint's SmartArt, as a FILE in the deck.
   Write its data model (`dgm:dataModel`, as in a .pptx's
   `ppt/diagrams/data1.xml`), send it in `images` as `name: "steps.xml"`, and
-  reference it like a picture. Options go on the line UNDER the reference:
+  reference it like a picture, `![…](media/steps.xml)` (a link, `[…](…)`,
+  shows only its text). Options go on the line UNDER the reference:
 
   ````markdown
   ![The release process](media/steps.xml)
@@ -239,8 +240,9 @@ When text on a picture is hard to read ("low contrast"), raise that slide's
   and the result says so. Colours (`colors=`):
   `accent1_2` … `accent6_2` (one theme colour), `colorful1`, `colorful2`
   (cycling). They come from the theme. A file that is not a diagram is
-  shown as the reason in its place and named in the warnings. The PDF and
-  the PowerPoint export carry it as shapes. Prefer a Mermaid diagram or a
+  shown as the reason in its place and named in the warnings. The PDF
+  carries it as drawn; the PowerPoint export carries it as SmartArt that
+  PowerPoint can edit. Prefer a Mermaid diagram or a
   ```` ```process ```` list when either says it; SmartArt is for when the
   deck should hold PowerPoint's own kind of diagram.
 - The deck's own data: `list_files` (and `get_presentation`) list the files a
