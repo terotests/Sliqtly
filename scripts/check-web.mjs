@@ -3579,7 +3579,7 @@ try {
     await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Oma lisäys\n"));
     await pc.waitForTimeout(2500);
     const changed = await pc.evaluate(() => ({ kept: localStorage.getItem("evgp.doc"), hash: location.hash }));
-    check("changed, the copy is kept and the address names it", !!changed.kept && changed.hash.includes("doc=" + changed.kept), JSON.stringify(changed));
+    check("changed, the copy is kept, with no #doc in the address", !!changed.kept && !changed.hash.includes("doc="), JSON.stringify(changed));
     check("no page errors opening someone else's deck", cerr.length === 0, cerr.join(" | "));
     await ctx.close();
   }
@@ -3695,26 +3695,36 @@ try {
     const shown = await ph.evaluate(() => { const l = JSON.parse(window.__app.layoutJson()); return { mode: l.mode, slide: l.slide, len: history.length }; });
     await ph.close();
     check("the address keeps the slide, the tab and the presentation over a reload", hashed === "#slide=3&tab=css" && back.slide === 2 && back.tab === "css" && shown.mode === "present" && shown.slide === 2, JSON.stringify({ hashed, back, shown }));
-    // a new deck kept in this browser: its id in the address, and a reload
-    // opens it even when another tab saved a deck of its own since
-    const pn = await browser.newPage({ viewport: { width: 1200, height: 760 } });
+    // a new deck kept in this browser: the site's address stays as typed (no
+    // #doc), and a reload opens this tab's deck even when another tab saved
+    // a deck of its own since; an older link's #doc still opens its deck
+    const pctx = await browser.newContext({ viewport: { width: 1200, height: 760 } });
+    const pn = await pctx.newPage();
     await pn.goto(url);
     await pn.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
     await pn.evaluate(() => window.__fileRequest("new"));
     await pn.waitForTimeout(300);
     await pn.keyboard.type("Vuokra ja menot");
     await pn.keyboard.press("Enter");
-    await pn.waitForFunction(() => /doc=/.test(location.hash), null, { timeout: 8000 }).catch(() => {});
+    await pn.waitForFunction(() => !!localStorage.getItem("evgp.doc"), null, { timeout: 8000 }).catch(() => {});
+    await pn.waitForTimeout(500);
     const addr = await pn.evaluate(() => location.hash);
+    const kept = await pn.evaluate(() => localStorage.getItem("evgp.doc"));
     await pn.evaluate(() => localStorage.setItem("evgp.doc", "some-other-deck"));
     await pn.reload();
     await pn.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
-    // opening the deck tidies the address and the next painted frame writes
-    // it back (followAddress), which may come after the page has started
-    await pn.waitForFunction(() => /doc=/.test(location.hash), null, { timeout: 5000 }).catch(() => {});
+    await pn.waitForTimeout(500);
     const reopened = await pn.evaluate(() => ({ md: window.__app.source().slice(0, 20), at: location.hash }));
+    // a page of its own in the same browser (the deck is in its IndexedDB)
+    const pl = await pctx.newPage();
     await pn.close();
-    check("a new deck's id is in the address and a reload opens that deck", /^#doc=[a-z0-9-]+$/.test(addr) && reopened.md.startsWith("# Vuokra ja menot") && reopened.at === addr, JSON.stringify({ addr, reopened }));
+    await pl.goto(url + "#doc=" + kept);
+    await pl.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await pl.waitForTimeout(500);
+    const linked = await pl.evaluate(() => ({ md: window.__app.source().slice(0, 20), at: location.hash }));
+    await pctx.close();
+    check("a new deck leaves the address without #doc and a reload opens that deck", addr === "" && !!kept && reopened.md.startsWith("# Vuokra ja menot") && reopened.at === "", JSON.stringify({ addr, kept, reopened }));
+    check("an older link's #doc opens its deck and leaves the address", linked.md.startsWith("# Vuokra ja menot") && linked.at === "", JSON.stringify(linked));
   }
 
   // Versions (web/versions.js) and one deck open in two places. Two tabs of
@@ -3742,10 +3752,10 @@ try {
     await a.waitForTimeout(300);
     await a.keyboard.type("Kaksi ikkunaa");
     await a.keyboard.press("Enter");
-    await a.waitForFunction(() => /doc=/.test(location.hash), null, { timeout: 8000 }).catch(() => {});
+    await a.waitForFunction(() => !!localStorage.getItem("evgp.doc"), null, { timeout: 8000 }).catch(() => {});
     await a.evaluate((md) => window.__app.setSource(md), base);
     await a.waitForTimeout(2500);
-    const b = await tab(url + (await a.evaluate(() => location.hash)));
+    const b = await tab(url + "#doc=" + (await a.evaluate(() => localStorage.getItem("evgp.doc"))));
     await edit(a, "rivi 1", "rivi 1 A");
     await b.waitForFunction(() => window.__app.source().includes("rivi 1 A"), null, { timeout: 15000 }).catch(() => {});
     check("versions: a change in one tab shows in the other", (await src(b)).includes("rivi 1 A"));
