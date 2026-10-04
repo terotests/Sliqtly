@@ -113,6 +113,8 @@ class PresHintPopover {
     ; kept from one opening to the next: its Recent group and the last group
     def emoji:EmojiPickerCtl (new EmojiPickerCtl())
     def fieldOn:boolean false
+    ; a press in a field, while the button is down
+    def fieldSelecting:boolean false
     ; the value in the header, updated in place while the slider is dragged
     def valueEl:EVGElement (EVGElement.createSpan())
 
@@ -208,8 +210,6 @@ class PresHintPopover {
             }
             picker.setup("hp-cp" (PresI18n.t("Color")) start0 true)
             picker.inline = true
-            picker.hexBoxW = 150.0
-            picker.numBoxW = 30.0
             def presets:[string] (strsplit "#ef4444,#f97316,#eab308,#22c55e,#06b6d4,#3b82f6,#8b5cf6,#ec4899" ",")
             def pi:int 0
             while (pi < (array_length presets)) {
@@ -533,20 +533,19 @@ class PresHintPopover {
         slider.build()
         UiTree.addClass((unwrap slider.rootEl) "hp-slider")
         this.put(slider row)
-        def f (new InputCtl())
-        field = f
+        ; the field being typed in keeps its caret and selection over the
+        ; rebuild each key makes; a fresh one starts with the value
+        if (fieldOn == false) {
+            def f (new InputCtl())
+            field = f
+            field.setValue((itemAt parts 0))
+            field.moveTo((strlen (itemAt parts 0)) false)
+        }
         field.tid = "hp-num"
         field.name = name
-        field.fontFamily = "Open Sans"
-        field.fontSize = 13.0
-        field.boxWidth = 60.0
-        field.setValue((itemAt parts 0))
-        field.moveTo((strlen (itemAt parts 0)) false)
+        field.focused = fieldOn
+        field.boxClass = "hp-numfield"
         field.build()
-        UiTree.addClass((unwrap field.rootEl) "hp-numfield")
-        if fieldOn {
-            UiTree.addClass((unwrap field.rootEl) "hp-focus")
-        }
         this.put(field row)
         if ((strlen u) > 0) {
             row.addChild((this.words("hp-unit" u)))
@@ -674,19 +673,6 @@ class PresHintPopover {
         }
         def eng:EVGTextEngine (lay.getTextEngine())
         cp.eng = eng
-        if (kind == "number") {
-            def car:EVGElement (unwrap field.caretEl)
-            if fieldOn {
-                field.ensureCaretVisible(eng)
-                def box:EVGElement (unwrap field.rootEl)
-                box.position = "relative"
-                car.position = "absolute"
-                car.left = (EVGUnit.px(((field.caretXAt(eng field.caret)) - field.scrollX)))
-                car.top = (EVGUnit.px(6.0))
-            } {
-                car.width = (EVGUnit.px(0.0))
-            }
-        }
         lay.layout(pg)
         if ((!null? headEl) && (!null? closeEl)) {
             def hd:EVGElement (unwrap headEl)
@@ -735,6 +721,9 @@ class PresHintPopover {
         if (kind == "color") {
             cp.placeThumbs(pg picker)
         }
+        ; the fields (the number, the emoji search) draw their caret and
+        ; selection on what was laid out
+        host.placeText(eng)
         host.lastPage = pg
         return pg
     }
@@ -806,7 +795,7 @@ class PresHintPopover {
     }
 
     fn dragging:boolean () {
-        return (sliding || ((strlen dragPart) > 0))
+        return ((sliding || ((strlen dragPart) > 0)) || fieldSelecting)
     }
 
     ; A plain box under the point with an id (a selector's property row).
@@ -829,12 +818,20 @@ class PresHintPopover {
         return ""
     }
 
-    fn press:void (px:double py:double) {
+    ; `clicks` is the page's count (2 a double click, 3 a triple) and `shift`
+    ; extends a field's selection.
+    fn press:void (px:double py:double clicks:int shift:boolean) {
         if (null? host.lastPage) {
             this.page()
         }
         if (kind == "emoji") {
-            emoji.activate((host.hitTest(px py)))
+            def et:string (host.hitTest(px py))
+            if (emoji.textPointerDown(et px clicks shift)) {
+                fieldSelecting = true
+                this.rebuild()
+                return
+            }
+            emoji.activate(et)
             this.takeEmoji()
             this.rebuild()
             return
@@ -859,10 +856,14 @@ class PresHintPopover {
             ctlTid = owner.tid
         }
         if ((kind == "color") && (ctlTid == picker.tid)) {
-            def what:string (cp.press((unwrap host.lastPage) picker tid px py))
+            def what:string (cp.press((unwrap host.lastPage) picker tid px py clicks shift))
             if (((what == "sv") || (what == "hue")) || (what == "alpha")) {
                 dragPart = what
                 this.write((picker.hex()))
+            }
+            ; a press in one of its fields: a drag from there selects
+            if ((what == "field") && ((strlen cp.focused) > 0)) {
+                dragPart = "field"
             }
             if (what == "changed") {
                 this.write((picker.hex()))
@@ -881,6 +882,9 @@ class PresHintPopover {
         }
         if (ctlTid == "hp-num") {
             fieldOn = true
+            ; the caret where the press landed, a word or all of it; a drag
+            ; from there selects
+            fieldSelecting = (field.textPointerDown(tid px clicks shift))
             host.focus("hp-num")
             this.rebuild()
             return
@@ -982,6 +986,20 @@ class PresHintPopover {
     }
 
     fn dragTo:void (px:double py:double) {
+        if fieldSelecting {
+            if (kind == "emoji") {
+                emoji.textPointerDrag(px)
+            } {
+                field.textPointerDrag(px)
+            }
+            rev = (rev + 1)
+            return
+        }
+        if (dragPart == "field") {
+            cp.dragField(picker px)
+            rev = (rev + 1)
+            return
+        }
         if ((strlen dragPart) > 0) {
             cp.dragAt((unwrap host.lastPage) picker dragPart px py)
             this.write((picker.hex()))
@@ -1003,6 +1021,12 @@ class PresHintPopover {
     }
 
     fn release:void () {
+        if fieldSelecting {
+            fieldSelecting = false
+            field.pointerUp()
+            emoji.textPointerUp()
+            rev = (rev + 1)
+        }
         if sliding {
             sliding = false
             host.pointerUp()
@@ -1010,6 +1034,9 @@ class PresHintPopover {
             this.rebuild()
         }
         if ((strlen dragPart) > 0) {
+            if (dragPart == "field") {
+                cp.releaseField(picker)
+            }
             dragPart = ""
             this.rebuild()
         }
@@ -1153,6 +1180,22 @@ class PresHintPopover {
             this.takeField()
             this.rebuild()
         }
+    }
+
+    ; Ctrl+A: all of the text of the field that has the keys.
+    fn selectAllInField:void () {
+        if (kind == "emoji") {
+            emoji.input.selectAll()
+        } {
+            if ((strlen cp.focused) > 0) {
+                cp.selectAll(picker)
+            } {
+                if fieldOn {
+                    field.selectAll()
+                }
+            }
+        }
+        rev = (rev + 1)
     }
 
     fn takeField:void () {

@@ -216,6 +216,46 @@ try {
     check("a window dragged by its title bar keeps the retro skin", r.dragging && !r.white, JSON.stringify(r));
   }
 
+  // A text field in a window (InputCtl draws its own caret and selection):
+  // the caret shows after what was typed, Ctrl+A's band covers exactly the
+  // text, a double click takes a word, a triple click all of it, a drag
+  // selects. The bug: no caret, and a band that stopped 16px short.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app;
+      const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const el = (id) => { a.chartJson(); return walk(a.chart.host.lastPage, id); };
+      const near = (x, y) => Math.abs(x - y) < 1;
+      a.openDocSettings("");
+      let t = el("ds-tabs-tab-header");
+      a.pointerDown(t.calculatedX + 6, t.calculatedY + 6, false, 1); a.pointerUp();
+      const f = el("ds-t-2");
+      a.pointerDown(f.calculatedX + 20, f.calculatedY + 10, false, 1); a.pointerUp();
+      a.text("{page} / {pages}");
+      const txt = el("ds-t-2-text"), car = el("ds-t-2-caret");
+      const out = { caret: car.calculatedWidth > 0 && car.calculatedHeight > 0 && near(car.calculatedX, txt.calculatedX + txt.calculatedWidth) };
+      a.chord("a");
+      const band = el("ds-t-2-sel");
+      out.band = near(band.calculatedX, txt.calculatedX) && near(band.calculatedWidth, txt.calculatedWidth) && el("ds-t-2-caret").calculatedWidth === 0;
+      const ic = a.chart.inputFor("ds-t-2");
+      const sel = () => ic.value.slice(ic.selStart(), ic.selEnd());
+      const x = (frac) => txt.calculatedX + txt.calculatedWidth * frac, y = txt.calculatedY + 5;
+      a.pointerDown(x(0.75), y, false, 2); a.pointerUp();
+      out.word = sel();
+      a.pointerDown(x(0.75), y, false, 3); a.pointerUp();
+      out.all = sel();
+      a.pointerDown(txt.calculatedX + 1, y, false, 1); a.pointerMove(x(0.4), y); a.pointerUp();
+      out.drag = [ic.selStart(), ic.selEnd()];
+      a.key("escape", false, false);
+      a.undo();
+      return out;
+    });
+    check("a field's caret shows after the text typed", r.caret, JSON.stringify(r));
+    check("…Ctrl+A's band covers exactly the text", r.band, JSON.stringify(r));
+    check("…a double click takes the word, a triple click all of it", r.word === "pages" && r.all === "{page} / {pages}", JSON.stringify(r));
+    check("…a drag selects from where it was pressed", r.drag[0] === 0 && r.drag[1] > 2 && r.drag[1] < 10, JSON.stringify(r));
+  }
+
   // Real keys, not calls: letters arrive through beforeinput, Backspace
   // through keydown, and a composition left open (a dead key, an IME
   // cancelled by a click) must not switch typing off.
@@ -1652,8 +1692,8 @@ try {
       JSON.stringify(long));
   }
 
-  // Edit in Claude / ChatGPT: File menu rows; signed out, the assistant opens
-  // in a new tab with the deck's Markdown in its prompt
+  // Edit in Claude: a File menu row (ChatGPT's was taken out); signed out,
+  // the assistant opens in a new tab with the deck's Markdown in its prompt
   {
     const rows = await page.evaluate(() => {
       const a = window.__app;
@@ -1661,31 +1701,27 @@ try {
       const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
       for (;;) { if (!a.takeRequest()) break; }
       const reqs = [];
-      for (const id of ["aiClaude", "aiChatgpt"]) {
-        press(find("tb-m-file-trigger"));
-        const row = find("tb-m-file-item-" + id);
-        if (row) press(row);
-        for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
-      }
-      return reqs;
+      press(find("tb-m-file-trigger"));
+      const noChatgpt = !find("tb-m-file-item-aiChatgpt");
+      const row = find("tb-m-file-item-aiClaude");
+      if (row) press(row);
+      for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
+      return { reqs, noChatgpt };
     });
-    await page.context().route(/^https:\/\/(claude\.ai|chatgpt\.com)\//, (r) => r.fulfill({ status: 200, contentType: "text/html", body: "<title>ai</title>" }));
-    const urls = [];
-    for (const id of ["aiClaude", "aiChatgpt"]) {
-      const popup = page.waitForEvent("popup", { timeout: 5000 });
-      await page.evaluate((id) => document.getElementById(id).click(), id);
-      const p = await popup;
-      await p.waitForURL(/^https:/, { timeout: 5000 }).catch(() => {});
-      urls.push(p.url());
-      await p.close();
-    }
+    await page.context().route(/^https:\/\/claude\.ai\//, (r) => r.fulfill({ status: 200, contentType: "text/html", body: "<title>ai</title>" }));
+    const popup = page.waitForEvent("popup", { timeout: 5000 });
+    await page.evaluate(() => document.getElementById("aiClaude").click());
+    const p = await popup;
+    await p.waitForURL(/^https:/, { timeout: 5000 }).catch(() => {});
+    const url = p.url();
+    await p.close();
     const src = await page.evaluate(() => window.__app.source());
     const q = (u) => { try { return new URL(u).searchParams.get("q") || ""; } catch (_) { return ""; } };
-    check("File → Edit in Claude / ChatGPT open the assistant with the deck's Markdown and the connector's tools in the prompt",
-      rows.includes("click:aiClaude") && rows.includes("click:aiChatgpt")
-      && urls[0].startsWith("https://claude.ai/new?q=") && urls[1].startsWith("https://chatgpt.com/?q=")
-      && urls.every((u) => q(u).includes("create_presentation") && q(u).includes(src.split("\n").find((l) => l.trim()) || "")),
-      JSON.stringify({ rows, urls: urls.map((u) => u.slice(0, 80)) }));
+    check("File → Edit in Claude opens the assistant with the deck's Markdown and the connector's tools in the prompt",
+      rows.reqs.includes("click:aiClaude") && url.startsWith("https://claude.ai/new?q=")
+      && q(url).includes("create_presentation") && q(url).includes(src.split("\n").find((l) => l.trim()) || ""),
+      JSON.stringify({ rows, url: url.slice(0, 80) }));
+    check("…and the File menu has no Edit in ChatGPT", rows.noChatgpt && !(await page.evaluate(() => !!document.getElementById("aiChatgpt"))));
   }
 
   // The value popover is on the canvas: a chip, the colour picker and a slider write the text
@@ -3268,6 +3304,9 @@ try {
       await settle();
       out.fromHint = a.chartIsOpen() && a.chart.mode;
       a.chartJson();
+      out.firstTab = !!walk(a.chart.host.lastPage, "ds-title");
+      tap(a.chart.host.lastPage, "ds-tabs-tab-header");
+      a.chartJson();
       tap(a.chart.host.lastPage, "ds-t-0");
       a.text("Acme");
       a.chartJson();
@@ -3287,6 +3326,7 @@ try {
       out.fromPage = a.chartIsOpen() && a.chart.mode;
       return out;
     });
+    check("Document settings opens on the presentation's title", ds.firstTab, JSON.stringify(ds));
     check("Document settings opens from the front matter popover and the page's pick", ds.hintBtn && ds.fromHint === "docset" && ds.page[0] === "page" && ds.page[1] && ds.fromPage === "docset", JSON.stringify(ds));
     check("Document settings writes the front matter and undoes as one step", ds.written === "---|title: Q3|footer-right: \"{page} / {pages}\"|header-left: Acme|header-skip: first|---" && ds.undone === "---|title: Q3|footer-right: \"{page} / {pages}\"|---", JSON.stringify(ds));
     check("no page errors in the document settings", derr.length === 0, derr.join(" | "));
