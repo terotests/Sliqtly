@@ -2804,7 +2804,7 @@ class PresApp {
             return true
         }
         if ((top == "dialog") && (panels.decksShowing())) {
-            panels.decksScrollBy(dy)
+            panels.decksWheel(dy)
             chromeRev = (chromeRev + 1)
             return true
         }
