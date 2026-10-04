@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -85,4 +86,32 @@ func regexp1(t *testing.T, s, re string) string {
 		t.Fatalf("%q not in %s", re, s)
 	}
 	return m[1]
+}
+
+// The SWOT layout's letter discs and titles read in the dark and light
+// themes, and the contrast check says so: it judged a centred letter over
+// its whole slot, half of it the dark card beside the disc (Tero's third
+// test deck, 2026-10-04).
+func TestSwotLettersAreNotContrastWarnings(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "# D\n\n## SWOT\n\n```swot\n- Vahvuudet: tekstipohjainen, sopii tekoälylle\n  - Nopea muokata\n- Heikkoudet: pieni käyttäjäkunta\n- Mahdollisuudet: yrityskäyttö, Confluence\n- Uhat: isot toimijat\n```\n"
+	aurora, err := os.ReadFile("themes/aurora.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, css := range []string{
+		string(aurora),
+		string(aurora) + "\nfigure { colors: #e63946 #2a9d8f #e9c46a #8d5cf6; }\n",
+		"page { background-color: #ffffff } document { color: #16202c }\nfigure { colors: #e63946 #2a9d8f #e9c46a #8d5cf6; }\n",
+	} {
+		c := call(t, s, "create_presentation", map[string]any{"title": "S", "markdown": md, "css": css})
+		if c.IsError {
+			t.Fatal(textOf(c))
+		}
+		if ws := fmt.Sprint(sc(c)["warnings"]); strings.Contains(ws, "hard to read") {
+			t.Errorf("%s: %s", css[max(0, len(css)-60):], ws)
+		}
+	}
 }

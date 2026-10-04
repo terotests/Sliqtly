@@ -739,8 +739,9 @@ class Tools {
             }
             def pic (new CheckPic)
             pic.name = ("/media/" + name)
+            ; width, height and the sampled grid; an SVG: its size alone
             def grid:[int] (host_image_grid host handle)
-            if ((array_length grid) > 2) {
+            if ((array_length grid) >= 2) {
                 pic.w = (itemAt grid 0)
                 pic.h = (itemAt grid 1)
                 def k:int 2
