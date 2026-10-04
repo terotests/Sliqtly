@@ -17,6 +17,13 @@ import (
 //go:embed fonts/*.ttf
 var fontFiles embed.FS
 
+// DejaVu Sans, kept in the repository (symbols/LICENSE): the symbols the
+// editor's faces lack (⇒ ✓ ✗ ★ ◆ ∈ ∅ ₂ …), which a browser draws from a
+// system font and a picture drawn here had as an empty box
+//
+//go:embed symbols/*.ttf
+var symbolFiles embed.FS
+
 // the layout's face names (web/main.js FACES) → files
 var faceFiles = map[string]string{
 	"Open Sans":            "OpenSans-Regular.ttf",
@@ -30,7 +37,19 @@ var faceFiles = map[string]string{
 	"Noto Emoji-Regular":   "NotoEmoji-Regular.ttf",
 }
 
+var symbolFaces = map[string]string{
+	"DejaVu Sans":      "DejaVuSans.ttf",
+	"DejaVu Sans-Bold": "DejaVuSans-Bold.ttf",
+}
+
 func fontBytes(name string) []byte {
+	if f, ok := symbolFaces[name]; ok {
+		b, err := symbolFiles.ReadFile("symbols/" + f)
+		if err != nil {
+			return nil
+		}
+		return b
+	}
 	f, ok := faceFiles[name]
 	if !ok {
 		return nil
