@@ -147,8 +147,14 @@ class PresChartEditor {
     ; the document's own settings (its title) first
     def dsTab:string "deck"
     def dsPics:[string]
-    ; a field whose text is being selected by a drag, by its tid
+    ; a field (or a text) whose text is being selected by a drag, by its tid
     def selecting:string ""
+    ; Text that can be selected and copied (EVGUI TextCtl): the About lines,
+    ; notes and errors, a picture's or a data file's name. A rebuild makes
+    ; new ones and keeps what was selected in the one before with the same
+    ; id and text.
+    def texts:[TextCtl]
+    def textsBefore:[TextCtl]
 
     Constructor () {
     }
@@ -352,7 +358,7 @@ class PresChartEditor {
 
     fn dragTo:void (px:double py:double) {
         if ((strlen selecting) > 0) {
-            this.selectTo(px)
+            this.selectTo(px py)
             return
         }
         if ((this.cropping()) && (crop.dragging())) {
@@ -406,6 +412,7 @@ class PresChartEditor {
                 def c:InputCtl (unwrap maybe)
                 c.pointerUp()
             }
+            host.textRelease()
             selecting = ""
             rev = (rev + 1)
         }
@@ -445,6 +452,52 @@ class PresChartEditor {
         s.className = cls
         s.textContent = words
         return s
+    }
+
+    ; A text the reader can select and copy (TextCtl `selectable`).
+    fn copyable:EVGElement (tid:string cls:string words:string) {
+        def c:TextCtl (TextCtl.make(tid words cls))
+        c.selectable = true
+        def i:int 0
+        while (i < (array_length textsBefore)) {
+            def old:TextCtl (itemAt textsBefore i)
+            if ((old.tid == tid) && (old.text == words)) {
+                c.sel.anchor = old.sel.anchor
+                c.sel.caret = old.sel.caret
+            }
+            i = (i + 1)
+        }
+        c.build()
+        push host.ctls c
+        push texts c
+        return (unwrap c.rootEl)
+    }
+
+    fn textFor@(optional):TextCtl (tid:string) {
+        def found@(optional):TextCtl
+        def i:int 0
+        while (i < (array_length texts)) {
+            def c:TextCtl (itemAt texts i)
+            if (c.tid == tid) {
+                found = c
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    ; What Ctrl+C copies from the window: the focused field's selection,
+    ; else what was selected in a text.
+    fn copyText:string () {
+        def f@(optional):InputCtl (this.inputFor(focusTid))
+        if (!null? f) {
+            def fc:InputCtl (unwrap f)
+            def t:string (fc.selectedText())
+            if ((strlen t) > 0) {
+                return t
+            }
+        }
+        return (host.copyText())
     }
 
     fn put:void (c:UiCtl parent:EVGElement) {
@@ -573,6 +626,9 @@ class PresChartEditor {
         before = inputs
         def none:[InputCtl]
         inputs = none
+        textsBefore = texts
+        def noTexts:[TextCtl]
+        texts = noTexts
         def noSliders:[SliderCtl]
         sliders = noSliders
         def page0:EVGElement (unwrap host.root)
@@ -662,7 +718,7 @@ class PresChartEditor {
             return
         }
         if (model.ok == false) {
-            root.addChild((this.text("ce-note" model.note)))
+            root.addChild((this.copyable("ce-t-note" "ce-note" model.note)))
             root.addChild((this.text("ce-doc" (PresI18n.t("You can start a new table: the chart's current content is replaced with a sample table.")))))
             def row0:EVGElement (this.div("ce-row"))
             this.button("ce-fresh" (PresI18n.t("Start from a table")) "primary" row0)
@@ -700,7 +756,7 @@ class PresChartEditor {
         if ((strlen message) > 0) {
             note = message
         }
-        bottom.addChild((this.text("ce-doc" note)))
+        bottom.addChild((this.copyable("ce-t-msg" "ce-doc" note)))
         bottom.addChild((this.div("ce-grow")))
         this.button("ce-done" (PresI18n.t("Done")) "primary" bottom)
         root.addChild(bottom)
@@ -710,7 +766,7 @@ class PresChartEditor {
     fn imageBody:void (root:EVGElement) {
         def pane:EVGElement (this.div("ce-pane"))
         root.addChild(pane)
-        pane.addChild((this.text("ce-doc" img.path)))
+        pane.addChild((this.copyable("ce-t-path" "ce-doc" img.path)))
         def size:EVGElement (this.section(pane (PresI18n.t("Size"))))
         def wp:int (PresImageModel.percent(img.width))
         def wr:EVGElement (this.field((PresI18n.t("Width"))))
@@ -804,7 +860,7 @@ class PresChartEditor {
             to.addChild(al)
         }
         if ((strlen pasteNote) > 0) {
-            pane.addChild((this.text("ce-doc" pasteNote)))
+            pane.addChild((this.copyable("ce-t-paste" "ce-doc" pasteNote)))
         }
 
         def bottom:EVGElement (this.div("ce-foot"))
@@ -847,7 +903,7 @@ class PresChartEditor {
             if adjContrastBad {
                 cls = "ce-warn"
             }
-            pane.addChild((this.text(cls adjContrastNote)))
+            pane.addChild((this.copyable("ce-t-contrast" cls adjContrastNote)))
         }
         pane.addChild((this.text("ce-doc" (PresI18n.t("Save replaces the file: every slide that shows this image changes.")))))
         def bottom:EVGElement (this.div("ce-foot"))
@@ -1270,7 +1326,7 @@ class PresChartEditor {
                 if (i == 0) {
                     cls = "ce-about"
                 }
-                pane.addChild((this.text(cls (itemAt lines i))))
+                pane.addChild((this.copyable(("ce-t-line" + (to_string i)) cls (itemAt lines i))))
                 i = (i + 1)
             }
             root.addChild(pane)
@@ -1280,7 +1336,7 @@ class PresChartEditor {
             root.addChild(foot)
             return
         }
-        pane.addChild((this.text("ce-doc" cfText)))
+        pane.addChild((this.copyable("ce-t-confirm" "ce-doc" cfText)))
         root.addChild(pane)
         def bottom:EVGElement (this.div("ce-foot"))
         this.button("cf-cancel" (PresI18n.t("Cancel")) "outline" bottom)
@@ -1577,16 +1633,16 @@ class PresChartEditor {
 
     fn dataTab:void (pane:EVGElement) {
         if model.lookOnly {
-            pane.addChild((this.text("ce-doc" model.why)))
+            pane.addChild((this.copyable("ce-t-why" "ce-doc" model.why)))
             if model.dataLive {
                 def live:EVGElement (this.field((PresI18n.t("Data source"))))
-                live.addChild((this.text("ce-value" model.dataFile)))
+                live.addChild((this.copyable("ce-t-url" "ce-value" model.dataFile)))
                 pane.addChild(live)
                 pane.addChild((this.text("ce-doc" (PresI18n.t("The data is fetched from this address each time the presentation opens. While presenting, R (or ⟳) fetches it again. PDF and PPTX keep the data as it was when exported.")))))
             }
             if (((strlen model.dataFile) > 0) && (model.dataLive == false)) {
                 def src:EVGElement (this.field((PresI18n.t("File"))))
-                src.addChild((this.text("ce-value" model.dataFile)))
+                src.addChild((this.copyable("ce-t-file" "ce-value" model.dataFile)))
                 pane.addChild(src)
                 pane.addChild((this.text("ce-doc" (PresI18n.t("The data is in a file of the presentation: edit it on the Files tab. The chart redraws when the file changes.")))))
             }
@@ -1736,6 +1792,8 @@ class PresChartEditor {
             this.page()
         }
         def tid:string (host.hitTest(px py))
+        ; a press anywhere but in a text lets its selection go
+        host.dropSelections(tid)
         if ((strlen tid) == 0) {
             return
         }
@@ -1835,6 +1893,19 @@ class PresChartEditor {
             }
             return
         }
+        ; a text that can be copied: a drag selects, a double click a word,
+        ; a triple click the paragraph
+        def asText@(optional):TextCtl (this.textFor(ctlTid))
+        if (!null? asText) {
+            if ((strlen focusTid) > 0) {
+                this.focusInput("")
+            }
+            if (host.textPressAt(tid px py clicks shift)) {
+                selecting = ctlTid
+            }
+            rev = (rev + 1)
+            return
+        }
         def asInput@(optional):InputCtl (this.inputFor(ctlTid))
         if (!null? asInput) {
             def ic:InputCtl (unwrap asInput)
@@ -1862,7 +1933,12 @@ class PresChartEditor {
 
     ; A drag over the field being selected: its caret follows the pointer,
     ; the anchor stays where the press was.
-    fn selectTo:void (px:double) {
+    fn selectTo:void (px:double py:double) {
+        if (!null? (this.textFor(selecting))) {
+            host.textDragToAt(px py)
+            rev = (rev + 1)
+            return
+        }
         def maybe@(optional):InputCtl (this.inputFor(selecting))
         if (null? maybe) {
             selecting = ""
@@ -2426,6 +2502,9 @@ class PresChartEditor {
             }
             def asInput@(optional):InputCtl (this.inputFor(owner.tid))
             if (!null? asInput) {
+                return "text"
+            }
+            if (!null? (this.textFor(owner.tid))) {
                 return "text"
             }
         }

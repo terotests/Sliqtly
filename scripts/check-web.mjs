@@ -256,6 +256,53 @@ try {
     check("…a drag selects from where it was pressed", r.drag[0] === 0 && r.drag[1] > 2 && r.drag[1] < 10, JSON.stringify(r));
   }
 
+  // Text the reader needs elsewhere can be selected and copied (EVGUI
+  // TextCtl): About's build line, a toast. A double click takes the build
+  // hash, a drag selects, Ctrl+C (the copy event on the page's key field)
+  // copies it, Ctrl+X cuts nothing from the editor then, and a toast stays
+  // while its text is selected. The bug: drawn text could not be selected.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app;
+      const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const el = (id) => { a.chartJson(); return walk(a.chart.host.lastPage, id); };
+      const copy = () => {
+        const dt = new DataTransfer();
+        document.getElementById("keys").dispatchEvent(new ClipboardEvent("copy", { clipboardData: dt, bubbles: true, cancelable: true }));
+        return dt.getData("text/plain");
+      };
+      a.openAbout("About", "Sliqtly\nBuild e22e565d1e (2026-10-04)");
+      const run = el("ce-t-line1-text");
+      const y = run.calculatedY + 6;
+      const out = {};
+      // "Build " is 6 characters: a third of the way in is inside the hash
+      a.pointerDown(run.calculatedX + run.calculatedWidth * 0.35, y, false, 2); a.pointerUp();
+      out.word = copy();
+      out.band = el("ce-t-line1-sel0").calculatedWidth > 0;
+      a.pointerDown(run.calculatedX + 1, y, false, 1);
+      a.pointerMove(run.calculatedX + run.calculatedWidth + 20, y); a.pointerUp();
+      out.drag = copy();
+      const src = a.source();
+      out.cut = a.cutSelection();
+      out.kept = a.source() === src;
+      a.key("escape", false, false);
+      a.toast("Could not reach the server (503)");
+      const pw = (id) => walk(a.panels.page(), id);
+      const t = pw("pn-toast-text-text");
+      a.pointerDown(t.calculatedX + 2, t.calculatedY + 6, false, 3); a.pointerUp();
+      out.toast = copy();
+      out.held = a.toastHeld();
+      a.pointerDown(300, 300, false, 1); a.pointerUp();
+      out.dropped = a.toastHeld() === false;
+      a.toast("");
+      return out;
+    });
+    check("About's build hash: a double click takes it and Ctrl+C copies it", r.word === "e22e565d1e" && r.band, JSON.stringify(r));
+    check("…a drag over the line copies all of it", r.drag === "Build e22e565d1e (2026-10-04)", JSON.stringify(r));
+    check("…Ctrl+X then cuts nothing from the editor", r.cut === "" && r.kept, JSON.stringify(r));
+    check("a toast's text can be selected and copied, and stays while selected", r.toast === "Could not reach the server (503)" && r.held && r.dropped, JSON.stringify(r));
+  }
+
   // "Your name" opens with the name selected, so typing replaces it; an
   // emoji typed in one go lands whole. The bug: the window's rebuild made a
   // new field with the caret at the end, and text went in one UTF-16 unit

@@ -125,6 +125,13 @@ class PresPanels {
     def chatW:double 340.0
     ; a press in the chat's text field, while the button is down
     def chatSelecting:boolean false
+    ; Text that can be selected and copied (EVGUI TextCtl): the toast, the
+    ; notes of the dialogs. A rebuild makes new ones and keeps what was
+    ; selected in the one before with the same id and text.
+    def texts:[TextCtl]
+    def textsBefore:[TextCtl]
+    ; a drag selecting in one of them, or in a link's field
+    def textSelecting:boolean false
     ; the toast
     def toastText:string ""
     ; presenting: only the toast shows
@@ -168,6 +175,95 @@ class PresPanels {
             }
             this.rebuild()
         }
+    }
+
+    ; A selectable text (TextCtl `selectable`), in the host.
+    fn copyable:EVGElement (tid:string cls:string t:string) {
+        def c:TextCtl (TextCtl.make(tid t cls))
+        c.selectable = true
+        def i:int 0
+        while (i < (array_length textsBefore)) {
+            def old:TextCtl (itemAt textsBefore i)
+            if ((old.tid == tid) && (old.text == t)) {
+                c.sel.anchor = old.sel.anchor
+                c.sel.caret = old.sel.caret
+            }
+            i = (i + 1)
+        }
+        c.build()
+        push host.ctls c
+        push texts c
+        return (unwrap c.rootEl)
+    }
+
+    ; Text a press can select: a TextCtl here, or a share link's field.
+    fn copyableAt:boolean (tid:string) {
+        if ((strlen tid) == 0) {
+            return false
+        }
+        if ((indexOf tid "pn-url-") == 0) {
+            return true
+        }
+        def i:int 0
+        while (i < (array_length texts)) {
+            def c:TextCtl (itemAt texts i)
+            if (c.owns(tid)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn textDragTo:void (px:double py:double) {
+        if textSelecting {
+            host.textDragToAt(px py)
+            rev = (rev + 1)
+        }
+    }
+
+    fn textRelease:void () {
+        if textSelecting {
+            host.textRelease()
+        }
+        textSelecting = false
+    }
+
+    ; What Ctrl+C copies from the panels: the chat field's selection while it
+    ; has the keyboard, else what was selected in a text or a link.
+    fn copyText:string (chatFocused:boolean) {
+        if chatFocused {
+            def ct:string (chat.input.selectedText())
+            if ((strlen ct) > 0) {
+                return ct
+            }
+        }
+        return (host.copyText())
+    }
+
+    fn dropSelection:void () {
+        host.dropSelections("")
+        rev = (rev + 1)
+    }
+
+    ; The toast stays while its text is selected or being selected, so it
+    ; can be copied.
+    fn toastHeld:boolean () {
+        if ((strlen toastText) == 0) {
+            return false
+        }
+        if textSelecting {
+            return true
+        }
+        def i:int 0
+        while (i < (array_length texts)) {
+            def c:TextCtl (itemAt texts i)
+            if ((c.tid == "pn-toast-text") && (c.hasSelection())) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     fn chatDragTo:void (px:double) {
@@ -431,6 +527,9 @@ class PresPanels {
         host.addStyleSheet(css)
         host.setTheme((trim ("pn " + skin)))
         host.setPageSize(w h)
+        textsBefore = texts
+        def noTexts:[TextCtl]
+        texts = noTexts
         def root:EVGElement (unwrap host.root)
         root.className = "ui-root pn-page"
         if (helpOpen && (quiet == false)) {
@@ -448,7 +547,7 @@ class PresPanels {
         if ((strlen toastText) > 0) {
             def t:EVGElement (this.div("pn-toast"))
             t.id = "pn-toast"
-            t.addChild((this.words("pn-toast-text" toastText)))
+            t.addChild((this.copyable("pn-toast-text" "pn-toast-text" toastText)))
             UiTree.surface(t "free" "start")
             t.overlayX = ((w * 0.5) - 180.0)
             t.overlayY = (h - 70.0)
@@ -696,7 +795,7 @@ class PresPanels {
         }
         def note:string (data.stringOr("note" ""))
         if ((strlen note) > 0) {
-            body.addChild((this.words("pf-note" note)))
+            body.addChild((this.copyable("pf-note-text" "pf-note" note)))
         }
         view.addChild(body)
         p.addChild(view)
@@ -1006,7 +1105,7 @@ class PresPanels {
         d.addChild((this.shareOption("show" (PresI18n.t("Presentation")) (PresI18n.t("Opens straight into presentation mode, without the editor or edit buttons.")) shareShow "primary")))
         d.addChild((this.shareOption("edit" (PresI18n.t("Editing")) (PresI18n.t("Opens in the editor: the recipient can edit their own copy.")) shareEdit "secondary")))
         def foot:EVGElement (this.div("pn-dfoot"))
-        foot.addChild((this.words("pn-note" shareNote)))
+        foot.addChild((this.copyable("pn-share-note" "pn-note" shareNote)))
         foot.addChild((this.div("pn-grow")))
         this.button("pn-share-close" (PresI18n.t("Close")) "secondary" foot)
         d.addChild(foot)
@@ -1203,7 +1302,7 @@ class PresPanels {
         def foot:EVGElement (this.div("pn-dfoot"))
         def note:EVGElement (this.div("pd-note"))
         if ready {
-            note.addChild((this.words("pn-note" (data.stringOr("note" "")))))
+            note.addChild((this.copyable("pd-note-text" "pn-note" (data.stringOr("note" "")))))
         }
         foot.addChild(note)
         this.button("pd-close" (PresI18n.t("Close")) "secondary" foot)
@@ -1985,6 +2084,15 @@ class PresPanels {
         if (null? host.lastPage) {
             this.page()
         }
+        ; a press in a text that can be copied selects in it (a drag, a
+        ; word, the paragraph); a press anywhere else lets a selection go
+        def hit:string (host.hitTest(px py))
+        host.dropSelections(hit)
+        if (this.copyableAt(hit)) {
+            textSelecting = (host.textPressAt(hit px py clicks shift))
+            rev = (rev + 1)
+            return
+        }
         if ((shareOpen && (quiet == false)) && (dialogKind == "data")) {
             this.dataPress(px py)
             return
@@ -2121,7 +2229,7 @@ class PresPanels {
             }
             return "default"
         }
-        if ((indexOf tid "pn-url-") == 0) {
+        if (this.copyableAt(tid)) {
             return "text"
         }
         return "pointer"
