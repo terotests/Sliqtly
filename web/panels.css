@@ -171,3 +171,11 @@
 
 /* a placeholder is a hint, not a value: faded and italic */
 .theme-pn .ui-input-placeholder { color: #a1a1aa; font-family: Open Sans-Italic; }
+
+/* the chat, docked on the right like help (EVGUI ChatCtl inside) */
+.pn-chat-dock {
+  display: flex; flex-direction: column; align-items: stretch;
+  background-color: #ffffff;
+  border-left: 1px solid #e4e4e7;
+  font-family: Open Sans;
+}

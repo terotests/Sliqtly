@@ -817,5 +817,17 @@
   "The copy": "Kopio",
   "Emoji": "Emoji",
   "Search emoji": "Hae emojia",
-  "No emoji found": "Emojia ei löytynyt"
+  "No emoji found": "Emojia ei löytynyt",
+  "Your name": "Nimesi",
+  "Editing together": "Yhteismuokkaus",
+  "The others editing this presentation see this name by your cursor and in the chat.": "Muut tätä esitystä muokkaavat näkevät tämän nimen kursorisi vieressä ja chatissa.",
+  "Chat": "Chat",
+  "Write a message…": "Kirjoita viesti…",
+  "No messages yet.": "Ei vielä viestejä.",
+  "Send": "Lähetä",
+  "new": "uutta",
+  "%s is editing this presentation too": "%s muokkaa myös tätä esitystä",
+  "Your name for the others: press to change it": "Nimesi muille: vaihda painamalla",
+  "Here now: ": "Paikalla nyt: ",
+  "The message was not sent: ": "Viestiä ei lähetetty: "
 }
