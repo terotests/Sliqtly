@@ -20,7 +20,7 @@ chmod 0755 "$root"
 trap 'rm -rf "$root"' EXIT
 
 mkdir -p "$root/DEBIAN" "$root/usr/bin" "$root/lib/systemd/system" "$root/etc/sliqtly" "$root/usr/share/doc/sliqtly-server"
-(cd "$mcp" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -tags nocloud -trimpath -ldflags="-s -w" -o "$root/usr/bin/sliqtly-server" .)
+(cd "$mcp" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -tags nocloud -trimpath -ldflags="-s -w -X main.version=$version" -o "$root/usr/bin/sliqtly-server" .)
 install -m 0644 "$here/deb/sliqtly.service" "$root/lib/systemd/system/sliqtly.service"
 install -m 0640 "$here/deb/sliqtly.env" "$root/etc/sliqtly/sliqtly.env"
 install -m 0755 "$here/deb/postinst" "$here/deb/prerm" "$here/deb/postrm" "$root/DEBIAN/"

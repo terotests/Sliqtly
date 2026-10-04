@@ -57,7 +57,8 @@ type localServer struct {
 	app    http.Handler
 	bucket *fsBucket
 	token  string
-	web    fs.FS // the built page; nil: none
+	web    fs.FS      // the built page; nil: none
+	hub    *changeHub // the decks' changes, for /api/events
 }
 
 // the env of a server whose decks are in dir, reached at baseURL
@@ -93,7 +94,12 @@ func newLocalServer(env *Env, bucket *fsBucket, token string, web fs.FS) http.Ha
 			return builtinTheme(name)
 		}
 	}
-	return &localServer{env: env, app: NewApp(env), bucket: bucket, token: token, web: web}
+	s := &localServer{env: env, app: NewApp(env), bucket: bucket, token: token, web: web}
+	if db, ok := env.DB.(*fsDB); ok {
+		s.hub = newChangeHub()
+		db.changed = s.hub.written
+	}
+	return s
 }
 
 var (
