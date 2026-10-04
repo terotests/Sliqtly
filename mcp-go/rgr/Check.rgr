@@ -248,6 +248,27 @@ class Check {
         return c
     }
 
+    ; per command of the slide list just drawn: true for text struck through
+    ; (`~~…~~`, `<s>`, `<del>`), which the layout draws muted on purpose
+    sfn struck:[boolean] (d:PresDeck l:MdLayout n:int) {
+        def out:[boolean]
+        def owner:[int] d.boxOfCmd
+        def i:int 0
+        while (i < n) {
+            def q:boolean false
+            if (i < (array_length owner)) {
+                def ob:int (itemAt owner i)
+                if ((ob >= 0) && (ob < (array_length l.boxes))) {
+                    def b:MdBox (itemAt l.boxes ob)
+                    q = b.strike
+                }
+            }
+            push out q
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; text that does not stand out from what it is drawn over, slide by
     ; slide, as the editor's painter judges it
     sfn contrast:void (c:Checked d:PresDeck l:MdLayout pics:[CheckPic]) {
@@ -262,7 +283,8 @@ class Check {
         while (i < c.slides) {
             def groups:[int]
             def list:EVGDisplayList (d.slideList(i groups 0.0))
-            def low:[LowRun] (Contrast.lowRuns(list pics "" -1.0 skip))
+            def quiet:[boolean] (Check.struck(d l (array_length list.cmds)))
+            def low:[LowRun] (Contrast.lowRuns(list pics "" -1.0 skip quiet))
             if ((array_length low) > 0) {
                 def s:PresSlide (d.slideAt(i))
                 def bgSrc:string ""
@@ -281,7 +303,7 @@ class Check {
                     def step:int ((floor (s.bgDim * 20.0)) + 1)
                     while ((step <= 18) && (dimFix < 0.0)) {
                         def dim:double ((to_double step) / 20.0)
-                        if ((array_length (Contrast.lowRuns(list pics bgSrc dim skip))) == 0) {
+                        if ((array_length (Contrast.lowRuns(list pics bgSrc dim skip quiet))) == 0) {
                             dimFix = dim
                         }
                         step = (step + 1)

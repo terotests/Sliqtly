@@ -473,8 +473,9 @@ class Contrast {
     ; slide's bg-dim: the fill of the paper's colour over its background
     ; picture (`bgSrc`) gets that opacity, or is added when there is none.
     ; skip: the notes of blocks that were not drawn, which stand in their
-    ; place and are not the author's text
-    sfn lowRuns:[LowRun] (list:EVGDisplayList pics:[CheckPic] bgSrc:string dim:double skip:[string]) {
+    ; place and are not the author's text. quiet: per command, true for a
+    ; run drawn dim on purpose (struck through), which is not judged
+    sfn lowRuns:[LowRun] (list:EVGDisplayList pics:[CheckPic] bgSrc:string dim:double skip:[string] quiet:[boolean]) {
         def out:[LowRun]
         def painted:[Painted]
         def paperR:double 255.0
@@ -494,6 +495,9 @@ class Contrast {
             def c:EVGDrawCmd (itemAt list.cmds i)
             if (c.kind == 3) {
                 def placeholder:boolean false
+                if (i < (array_length quiet)) {
+                    placeholder = (itemAt quiet i)
+                }
                 def own:string (trim c.text)
                 for skip note:string si {
                     if ((indexOf note own) >= 0) {

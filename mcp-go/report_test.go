@@ -286,3 +286,27 @@ func TestPainterSymbolsHaveGlyphs(t *testing.T) {
 		}
 	}
 }
+
+// An HTML table is reported as a table (and gets a table's checks), and text
+// struck through, drawn muted on purpose, is not warned of for contrast.
+func TestReportHTMLTableAndStruckText(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "# Deck\n\n## Plans\n\n<table><thead><tr><th>Plan</th><th>Price</th></tr></thead>" +
+		"<tbody><tr><td>Basic</td><td>9 €</td></tr><tr><td>Pro</td><td>19 €</td></tr></tbody></table>\n\n" +
+		"## Prices\n\nWas ~~twenty euros a month~~ and is <del>fifteen</del> <s>twelve</s> ten now.\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Tables", "markdown": md})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	text := textOf(c)
+	t.Log(text)
+	match(t, text, `Slide 2 "Plans".*\n- heading "Plans".*\n- table at`)
+	ws := fmt.Sprint(sc(c)["warnings"])
+	for _, struck := range []string{"twenty euros", "fifteen", "twelve"} {
+		if strings.Contains(ws, struck) {
+			t.Fatalf("struck-through %q was warned of: %s", struck, ws)
+		}
+	}
+}
