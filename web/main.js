@@ -4499,6 +4499,8 @@ canvas.addEventListener("pointermove", (ev) => {
   if (ev.buttons) needsPaint = true;
   else if (ev.pointerType === "mouse") hintHover(x, y);
 });
+// off the page a diagram's buttons fade, as when the pointer leaves the diagram
+canvas.addEventListener("pointerleave", () => app.pointerLeft());
 
 // --- hints: what a value under the pointer does, and what else it can be ------------
 //

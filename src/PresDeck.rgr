@@ -474,6 +474,31 @@ class PresDeck {
         return -1
     }
 
+    ; The pointer at slide point (px, py) on slide i, at slide time t: over
+    ; diagram k (-1 none), whose buttons then show (PresControlsFade).
+    fn diagramPointer:void (i:int k:int t:double px:double py:double) {
+        if ((i < 0) || (i >= (array_length slides))) {
+            return
+        }
+        def s:PresSlide (itemAt slides i)
+        def j:int 0
+        while (j < (array_length s.diagrams)) {
+            def u:PresDiaUse (itemAt s.diagrams j)
+            u.diagram.uiNow = uiNow
+            u.diagram.pointerAt((j == k) (t - u.start) u.bx u.by u.bw u.bh px py)
+            j = (j + 1)
+        }
+    }
+
+    ; A finger on diagram k of slide i: its buttons come up for a while.
+    fn diagramTouched:void (i:int k:int) {
+        def hit@(optional):PresDiaUse (this.diagramUse(i k))
+        if (!null? hit) {
+            def u:PresDiaUse (unwrap hit)
+            u.diagram.ctl.press(uiNow)
+        }
+    }
+
     fn uiBusy:boolean (i:int) {
         if ((i < 0) || (i >= (array_length slides))) {
             return false

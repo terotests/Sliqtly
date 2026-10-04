@@ -7,6 +7,7 @@ Import "PresDocSettings.rgr"
 Import "PresHints.rgr"
 Import "PresFlowModel.rgr"
 Import "PresGridModel.rgr"
+Import "PresControlsFade.rgr"
 
 class PresCheck {
     def fails:int 0
@@ -1305,6 +1306,83 @@ class PresCheck {
         this.ok(((f.markdown()) == "```table\ndata/sales.csv\nrows: 5\nfoo: bar\ncolumns: Region, Revenue\n```") ("its options written in place: " + (f.markdown())))
     }
 
+    ; A diagram's buttons: up while the pointer moves over it, gone when it
+    ; rests or leaves, held by an open menu, brought up by a tap.
+    fn controlsFade:void () {
+        def f (new PresControlsFade())
+        this.ok(((f.alpha(10.0)) == 0.0) "fade: hidden before the pointer comes")
+        this.ok((! (f.shown(10.0))) "fade: and not pressable")
+        f.move(10.0 true false)
+        this.ok(((f.alpha(10.0)) == 0.0) "fade: fading in from nothing")
+        this.ok((f.busy(10.05)) "fade: busy while fading in")
+        this.ok(((f.alpha(10.2)) == 1.0) "fade: in after the fade")
+        this.ok((! (f.busy(11.0))) "fade: nothing to draw while up and moving")
+        f.move(11.0 true false)
+        this.ok(((f.alpha(13.4)) == 1.0) ("fade: a move keeps them up: " + (to_string (f.alpha(13.4)))))
+        this.ok(((f.alpha(13.7)) < 1.0) "fade: resting 2.5 s starts the fade")
+        this.ok((f.busy(13.7)) "fade: busy while fading out")
+        this.ok(((f.alpha(14.0)) == 0.0) "fade: gone after it")
+        this.ok((! (f.busy(14.5))) "fade: and then nothing to draw")
+        ; back from half way out: up again from there, not from nothing
+        f.move(20.0 true false)
+        def mid:double 22.725
+        def half:double (f.alpha(mid))
+        this.ok(((half > 0.4) && (half < 0.6)) ("fade: half out: " + (to_string half)))
+        f.move(mid true false)
+        this.ok(((fabs ((f.alpha(mid)) - half)) < 0.001) "fade: a move picks up where the fade was")
+        this.ok(((f.alpha((mid + 0.1))) == 1.0) "fade: and is quickly in")
+        ; leaving the diagram sends them at once
+        f.move(30.0 true false)
+        f.move(30.5 false false)
+        this.ok(((f.alpha(30.6)) < 1.0) "fade: leaving starts the fade")
+        this.ok(((f.alpha(31.0)) == 0.0) "fade: gone after leaving")
+        ; resting on a button keeps them
+        f.move(40.0 true true)
+        this.ok(((f.alpha(60.0)) == 1.0) "fade: resting on a button keeps them")
+        f.move(60.0 true false)
+        this.ok(((f.alpha(63.0)) == 0.0) "fade: off the button they rest away")
+        ; an open menu holds them
+        f.hold = true
+        this.ok(((f.alpha(70.0)) == 1.0) "fade: an open menu holds them")
+        this.ok((! (f.busy(70.0))) "fade: held is still")
+        f.hold = false
+        ; a tap brings them up for the rest, then they go
+        f.press(80.0)
+        this.ok((f.shown(80.2)) "fade: a tap brings them up")
+        this.ok((f.shown(82.0)) "fade: and they stay a while")
+        this.ok(((f.alpha(83.5)) == 0.0) "fade: then go")
+        f.move(90.0 false false)
+        this.ok(((f.alpha(90.0)) == 0.0) "fade: a pointer outside does not bring them")
+
+        ; on the stage: a press where a hidden button is goes past it
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Kaavio\n\n```mermaid\nflowchart LR\n  A[Alku] --> B[Loppu]\n```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false "fade: the diagram is there")
+            return
+        }
+        def u:PresDiaUse (itemAt s.diagrams 0)
+        def px:double ((u.bx + u.bw) - 150.0)
+        def py:double ((u.by + u.bh) - 24.0)
+        def t:double (u.start + 30.0)
+        deck.uiNow = 100.0
+        this.ok(((deck.diagramHit(0 t px py)) != "0:zin") "fade: a hidden + is not pressed")
+        deck.diagramPointer(0 0 t px py)
+        deck.uiNow = 100.3
+        this.ok(((deck.diagramHit(0 t px py)) == "0:zin") "fade: over the diagram the + is pressed")
+        this.ok(u.diagram.ctl.onCtl "fade: the pointer is on a button")
+        deck.uiNow = 101.0
+        deck.diagramPointer(0 -1 t 0.0 0.0)
+        deck.uiNow = 102.0
+        this.ok(((deck.diagramHit(0 t px py)) != "0:zin") "fade: after leaving, not again")
+        deck.diagramTouched(0 0)
+        deck.uiNow = 102.3
+        this.ok(((deck.diagramHit(0 t px py)) == "0:zin") "fade: a tap brings it up")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -1322,6 +1400,7 @@ class PresCheck {
         c.staggered()
         c.flowModel()
         c.gridModel()
+        c.controlsFade()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

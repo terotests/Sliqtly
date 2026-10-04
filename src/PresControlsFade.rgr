@@ -1,0 +1,134 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresControlsFade.rgr — when a block's own controls show, like a video's
+; ============================================================================
+;
+; A diagram on the slide carries buttons of its own (▶, +, −, 100 %, the ⋯
+; menu, back). Shown all the time they sit on the picture. They show the way
+; a video player's do: while the pointer moves over the block, and for a
+; moment after it stops; they fade out when it has been still a while or has
+; left the block. A press in the block shows them too, which is how they come
+; up on a touch screen. Something the viewer has open (the ⋯ menu) holds them.
+;
+; Everything is on the host's wall clock (`now`, seconds); nothing here draws.
+; `alpha(now)` is how much of the controls shows, `shown(now)` whether a press
+; on them counts (a hidden button is not pressed by a tap meant to bring it
+; up), `busy(now)` whether a frame now differs from the one before.
+
+class PresControlsFade {
+    ; seconds the pointer may rest before they go, and the two fades
+    def idle:double 2.5
+    def fadeIn:double 0.15
+    def fadeOut:double 0.45
+    def inside:boolean false
+    ; the pointer resting on one of the controls keeps them
+    def onCtl:boolean false
+    ; when they began to show, the last move over the block, when it left
+    def onAt:double -100.0
+    def movedAt:double -100.0
+    def leftAt:double -100.0
+    ; something open on the block (its menu) keeps them in full
+    def hold:boolean false
+
+    ; When they start to go, or a time far ahead while nothing sends them.
+    fn offAt:double () {
+        if (inside && onCtl) {
+            return 1000000000.0
+        }
+        def off:double (movedAt + idle)
+        if ((inside == false) && (leftAt < off)) {
+            off = leftAt
+        }
+        return off
+    }
+
+    fn alpha:double (now:double) {
+        if hold {
+            return 1.0
+        }
+        def off:double (this.offAt())
+        def up:double (PresControlsFade.part(((now - onAt) / fadeIn)))
+        if (now < off) {
+            return up
+        }
+        def atOff:double (PresControlsFade.part(((off - onAt) / fadeIn)))
+        return (atOff * (1.0 - (PresControlsFade.part(((now - off) / fadeOut)))))
+    }
+
+    ; Showing enough for a press on them to be meant for them.
+    fn shown:boolean (now:double) {
+        return ((this.alpha(now)) >= 0.5)
+    }
+
+    ; The pointer at `now`, over the block or not, and over one of its
+    ; controls or not.
+    fn move:void (now:double over:boolean ctl:boolean) {
+        if over {
+            this.wake(now)
+            onCtl = ctl
+            return
+        }
+        if inside {
+            inside = false
+            onCtl = false
+            leftAt = now
+        }
+    }
+
+    ; A press in the block (a finger has no hover): they come up, and go
+    ; again after the rest, wherever the finger went.
+    fn press:void (now:double) {
+        this.wake(now)
+        onCtl = false
+        inside = false
+        leftAt = (now + idle)
+    }
+
+    fn wake:void (now:double) {
+        ; coming up from wherever a fade left them, not from nothing
+        def a:double (this.alpha(now))
+        if (a < 1.0) {
+            onAt = (now - (a * fadeIn))
+        }
+        inside = true
+        movedAt = now
+    }
+
+    ; Still fading in or out, so the next frame looks different.
+    fn busy:boolean (now:double) {
+        if hold {
+            return false
+        }
+        if ((now - onAt) < fadeIn) {
+            return true
+        }
+        def off:double (this.offAt())
+        return ((now >= off) && (now < (off + fadeOut)))
+    }
+
+    ; Waiting for nothing but time to send them: the next frame that changes
+    ; is at `offAt`, so a host that sleeps must wake for it.
+    fn pending:boolean (now:double) {
+        return ((hold == false) && ((now < (this.offAt())) && ((this.alpha(now)) > 0.0)))
+    }
+
+    fn takeFrom:void (o:PresControlsFade) {
+        inside = o.inside
+        onCtl = o.onCtl
+        onAt = o.onAt
+        movedAt = o.movedAt
+        leftAt = o.leftAt
+        hold = o.hold
+    }
+
+    sfn part:double (v:double) {
+        if (v <= 0.0) {
+            return 0.0
+        }
+        if (v >= 1.0) {
+            return 1.0
+        }
+        return v
+    }
+}

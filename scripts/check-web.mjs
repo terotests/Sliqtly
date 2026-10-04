@@ -692,8 +692,21 @@ try {
   await page.waitForTimeout(1500);
   const still = await page.evaluate(() => { const a = window.__app; const d = a.deck.slideAt(3).diagrams[0].diagram; return { asking: a.deck.askingAt(3, a.stageTime()), tour: d.tour, can: d.canTour }; });
   check("a diagram does not tour on its own: the whole of it, no question", still.asking < 0 && !still.tour && still.can, JSON.stringify(still));
-  const playHit = await page.evaluate(() => { const a = window.__app; const u = a.deck.slideAt(3).diagrams[0]; return a.deck.diagramHit(3, a.stageTime(), u.bx + u.bw - 188, u.by + u.bh - 24); });
-  check("the ▶ beside the zoom buttons is the tour", playHit === "0:tour", playHit);
+  const playAt = () => page.evaluate(() => { const a = window.__app; const u = a.deck.slideAt(3).diagrams[0]; return a.deck.diagramHit(3, a.stageTime(), u.bx + u.bw - 188, u.by + u.bh - 24); });
+  // the buttons are hidden until the pointer moves over the diagram
+  const hiddenHit = await playAt();
+  const playXY = await page.evaluate(() => {
+    const a = window.__app;
+    const u = a.deck.slideAt(3).diagrams[0];
+    const [sx, sy, sc] = JSON.parse(a.layoutJson()).stage;
+    const c = document.getElementById("c").getBoundingClientRect();
+    return [c.left + sx + (u.bx + u.bw - 188) * sc, c.top + sy + (u.by + u.bh - 24) * sc];
+  });
+  await page.mouse.move(playXY[0] - 30, playXY[1] - 30);
+  await page.mouse.move(playXY[0], playXY[1], { steps: 4 });
+  await page.waitForTimeout(300);
+  const playHit = await playAt();
+  check("the diagram's buttons are hidden until the pointer comes, then the ▶ beside the zoom buttons is the tour", hiddenHit !== "0:tour" && playHit === "0:tour", JSON.stringify([hiddenHit, playHit]));
   // T starts the tour
   await page.keyboard.press("t");
   await page.waitForFunction(() => window.__app.deck.askingAt(3, window.__app.stageTime()) >= 0, null, { timeout: 15000 }).catch(() => {});
