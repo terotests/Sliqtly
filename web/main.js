@@ -3209,7 +3209,8 @@ async function shareLink() {
 let originShare = null;
 // the links in the prompt: always the site's own address, also when the
 // page was opened at sliqtly.web.app or on a local server
-const SITE = "https://sliqtly.com";
+// (a server of one's own names its address in <meta name="sliqtly-site">)
+const SITE = document.querySelector('meta[name="sliqtly-site"]')?.content || "https://sliqtly.com";
 const AI = {
   claude: (q) => "https://claude.ai/new?q=" + encodeURIComponent(q),
   chatgpt: (q) => "https://chatgpt.com/?q=" + encodeURIComponent(q),

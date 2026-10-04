@@ -1,0 +1,2 @@
+The built page (web/dist) is copied here by go generate after npm run build,
+and built into the binary. Not committed.

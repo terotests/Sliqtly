@@ -1,5 +1,6 @@
 # Build from the repository root:
-#   docker build -f mcp-go/Dockerfile -t sliqtly-mcp-go .
+#   docker build -f mcp-go/Dockerfile -t sliqtly-mcp-go .                  # Cloud Run
+#   docker build -f mcp-go/Dockerfile --target local -t sliqtly-server .   # with the editor
 # The first stage compiles rgr/ and the editor's deck model (src/) to Go with
 # Ranger, cloned at the ref in presentation.config.json.
 FROM node:22 AS gen
@@ -23,7 +24,26 @@ COPY --from=gen /src/mcp-go/fonts/ ./fonts/
 COPY --from=gen /src/mcp-go/themes/ ./themes/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server . && mkdir /data
 
-# no shell, no libc: the binary, CA certificates and a nonroot user
+# A server of one's own with the editor and player built in (localweb.go):
+# web/dist is built here and copied in before the binary is built again.
+FROM node:22 AS web
+WORKDIR /src
+COPY . .
+RUN npm ci --no-audit --no-fund && NODE_OPTIONS=--max-old-space-size=6144 node scripts/build.mjs
+
+FROM build AS build-local
+COPY --from=web /src/web/dist/ ./webdist/
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server .
+
+FROM gcr.io/distroless/static-debian12:nonroot AS local
+COPY --from=build-local /server /server
+COPY --from=build --chown=65532:65532 /data /data
+ENV SLIQTLY_DATA=/data
+EXPOSE 8080
+ENTRYPOINT ["/server"]
+
+# Cloud Run (the default target): no shell, no libc, the binary, CA
+# certificates and a nonroot user
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /server /server
 # the folder a server of one's own keeps decks in (SLIQTLY_DATA=/data)

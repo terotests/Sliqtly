@@ -73,3 +73,17 @@ for (const f of fs.readdirSync(path.join(here, "..", "themes"))) {
   if (f.endsWith(".css")) fs.copyFileSync(path.join(here, "..", "themes", f), path.join(themesDir, f));
 }
 log("copied mcp-go/themes/*.css");
+
+// The editor and player (web/dist, npm run build), built into the binary so
+// a server of one's own serves them (localweb.go). Without a build the
+// server shows its decks as pictures only.
+const webDist = path.join(here, "..", "web", "dist");
+const webOut = path.join(here, "webdist");
+fs.mkdirSync(webOut, { recursive: true });
+for (const f of fs.readdirSync(webOut)) if (f !== "README") fs.rmSync(path.join(webOut, f), { recursive: true, force: true });
+if (fs.existsSync(path.join(webDist, "index.html"))) {
+  fs.cpSync(webDist, webOut, { recursive: true });
+  log("copied web/dist → mcp-go/webdist");
+} else {
+  log("no web/dist (npm run build): the binary will have no editor");
+}
