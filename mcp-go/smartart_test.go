@@ -43,10 +43,12 @@ func TestSmartArtFile(t *testing.T) {
 	if strings.Contains(ws, `slide "Steps"`) {
 		t.Fatalf("a warning about the diagram that is fine:\n%s", ws)
 	}
-	// drawn: the layout report has it as a diagram with text in it, and the
-	// message in the broken one's place reads on the theme
+	// drawn: the layout report has it as a diagram with text in it, set at
+	// the size Open Sans (the server's font) fits, not the average-width
+	// guess (81 px); and the message in the broken one's place reads on the
+	// theme
 	rep := textOf(c)
-	if !strings.Contains(rep, "- diagram (steps.xml) at ") || !strings.Contains(rep, "text 81 px") {
+	if !strings.Contains(rep, "- diagram (steps.xml) at ") || !strings.Contains(rep, "2 labels, 115 shapes, smallest text 85 px") {
 		t.Fatalf("the diagram is not in the layout report as one:\n%s", rep)
 	}
 	if strings.Contains(ws, "hard to read") {

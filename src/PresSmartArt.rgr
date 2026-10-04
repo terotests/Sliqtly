@@ -18,6 +18,12 @@
 ;                       again when there are fewer than six
 ;   lt1 / dk1           the page's paper and the document's ink
 ;
+; The text is measured with the deck's own fonts (the TTF measurer the
+; slide's text is laid out with), in the theme's figure font or the body
+; font, and drawn in that family, so it is set at the size that fits. Before
+; any font is loaded (a headless test) the engine's average-width guess is
+; used.
+;
 ; `layout=`, `colors=` and `style=` under the reference override what the
 ; file names. A diagram that cannot be drawn says why in its place, the way a
 ; diagram fence does.
@@ -129,13 +135,38 @@ class PresSmartArt {
         return out
     }
 
-    ; The diagram laid out for a box of w × h (layout units are points).
-    sfn layoutFor:SaResult (u:PresSmartArtUse xml:string w:double h:double) {
+    ; The diagram laid out for a box of w × h (layout units are points), its
+    ; text measured with `m`.
+    sfn layoutFor:SaResult (u:PresSmartArtUse xml:string w:double h:double m:SaMeasure) {
         def o (new SaOptions())
         o.layout = u.layout
         o.colors = u.colors
         o.style = u.style
+        o.measure = m
         return (SaEngine.layout(xml o w h))
+    }
+
+    ; The family a diagram's text is set in: the theme's figure font, else
+    ; the document's body font.
+    sfn familyOf:string (md:MarkdownWeb st:MdFigureStyle) {
+        if ((strlen st.font) > 0) {
+            return st.font
+        }
+        def ed:MarkdownEdit md.edit
+        def lay:MdLayout ed.layout
+        def style:MdStyle lay.style
+        return style.bodyFamily
+    }
+
+    ; What the text is measured with: the deck's own fonts once they are
+    ; loaded (the editor's and the MCP server's TTF measurer, the one the
+    ; slide's text is laid out with), else the engine's guess.
+    sfn measureOf:SaMeasure (md:MarkdownWeb st:MdFigureStyle) {
+        def tm@(optional):TTFTextMeasurer md.measurer
+        if (null? tm) {
+            return (new SaMeasure())
+        }
+        return (SaMeasure.over((unwrap tm) (PresSmartArt.familyOf(md st))))
     }
 
     ; Drawn into `out` at the box, or the reason it was not, in the box.
@@ -145,7 +176,7 @@ class PresSmartArt {
             PresSmartArt.refusal(out ("SmartArt " + u.path + ": " + r.error) st x y w h)
             return
         }
-        SaRender.draw(out r.shape x y)
+        SaRender.drawWith(out r.shape x y r.measure)
     }
 
     ; the diagram for a box of w × h, its colours the theme's
@@ -154,12 +185,18 @@ class PresSmartArt {
         def store:Vfs ed.imageStore
         def bytes:buffer (store.read(u.path))
         def xml:string (SaFile.textOf(bytes))
-        def key:string (xml + "|" + (to_string w) + "|" + (to_string h) + "|" + u.layout + "|" + u.colors + "|" + u.style + "|" + (PresSmartArt.paletteKey(st)))
+        def m:SaMeasure (PresSmartArt.measureOf(md st))
+        def measuredBy:string "guess"
+        if m.hasHost {
+            ; a face loaded later replaces the measurer: lay out again
+            measuredBy = (m.family + "/" + (to_string md.faceCount))
+        }
+        def key:string (xml + "|" + (to_string w) + "|" + (to_string h) + "|" + u.layout + "|" + u.colors + "|" + u.style + "|" + (PresSmartArt.paletteKey(st)) + "|" + measuredBy)
         def had@(optional):SaResult (cache.get(key))
         if (!null? had) {
             return (unwrap had)
         }
-        def r:SaResult (PresSmartArt.layoutFor(u xml w h))
+        def r:SaResult (PresSmartArt.layoutFor(u xml w h m))
         if r.ok {
             SaRender.resolveAll(r.shape (PresSmartArt.palette(st)))
         }
