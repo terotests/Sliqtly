@@ -59,6 +59,7 @@ type localServer struct {
 	token  string
 	web    fs.FS      // the built page; nil: none
 	hub    *changeHub // the decks' changes, for /api/events
+	collab *collabRooms
 }
 
 // the env of a server whose decks are in dir, reached at baseURL
@@ -97,7 +98,11 @@ func newLocalServer(env *Env, bucket *fsBucket, token string, web fs.FS) http.Ha
 	s := &localServer{env: env, app: NewApp(env), bucket: bucket, token: token, web: web}
 	if db, ok := env.DB.(*fsDB); ok {
 		s.hub = newChangeHub()
-		db.changed = s.hub.written
+		s.collab = newCollabRooms()
+		db.changed = func(col, id string, doc Doc) {
+			s.collabWritten(col, id, doc)
+			s.hub.written(col, id, doc)
+		}
 	}
 	return s
 }

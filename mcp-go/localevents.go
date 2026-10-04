@@ -54,7 +54,7 @@ func (h *changeHub) publish(id string) {
 }
 
 // the deck changes the folder sees: every write to a share
-func (h *changeHub) written(col, id string) {
+func (h *changeHub) written(col, id string, _ Doc) {
 	if col == "shares" {
 		h.publish(id)
 	}
@@ -66,14 +66,29 @@ func (s *localServer) events(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no events here", 500)
 		return
 	}
+	// a page editing a deck with others hears them on the same stream
+	// (collab.go)
+	rm, sub, client, err := s.joinRoom(r)
+	if err != nil {
+		writeJSON(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+	var wake chan struct{}
+	if rm != nil {
+		defer rm.leave(sub, client)
+		wake = sub.wake
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no") // a proxy in front passes them on at once
 	w.WriteHeader(200)
 	io.WriteString(w, "retry: 3000\n\n")
-	fl.Flush()
 	ch := s.hub.subscribe()
 	defer s.hub.unsubscribe(ch)
+	if sub != nil && !writeEvents(w, sub) {
+		return
+	}
+	fl.Flush()
 	// a comment now and then keeps proxies from closing a quiet stream
 	tick := time.NewTicker(25 * time.Second)
 	defer tick.Stop()
@@ -86,6 +101,12 @@ func (s *localServer) events(w http.ResponseWriter, r *http.Request) {
 		case id := <-ch:
 			b, _ := json.Marshal(map[string]string{"id": id})
 			io.WriteString(w, "data: "+string(b)+"\n\n")
+		case <-wake:
+			if !writeEvents(w, sub) {
+				// too far behind: it comes back with Last-Event-ID
+				fl.Flush()
+				return
+			}
 		}
 		fl.Flush()
 	}
