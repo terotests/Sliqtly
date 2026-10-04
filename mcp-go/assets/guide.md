@@ -86,8 +86,11 @@ When text on a picture is hard to read ("low contrast"), raise that slide's
   (hand-drawn), `{layout=keep}` (keep the direction as written),
   `{ball=off}`, `{choose=off}` (do not stop at named branches),
   `{zoom=2}` (largest scale a box is drawn at, default 3),
-  `{diagram=classic}` (a still drawing, no tour). Colours come from the
-  theme's `diagram` rule. A diagram that cannot be read shows the reason
+  `{diagram=classic}` (the plain drawing on the slide's own background,
+  still, no tour). Node shapes, `classDef`/`style` fills and dashed
+  borders show in every style; other colours come from the theme's
+  `diagram` rule. A long flow is cut into columns only between two boxes
+  joined by a single link, never inside a loop or a branch. A diagram that cannot be read shows the reason
   in its place (DOT gives the line).
 - Mermaid: `flowchart`/`graph` (TD, TB, BT, LR, RL; every node shape and
   link, `subgraph`, `classDef`/`class`/`style`), `sequenceDiagram`,
