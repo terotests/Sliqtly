@@ -45,10 +45,10 @@ func TestSmartArtFile(t *testing.T) {
 	}
 	// drawn: the layout report has it as a diagram with text in it, set at
 	// the size Open Sans (the server's font) fits, not the average-width
-	// guess (81 px); and the message in the broken one's place reads on the
-	// theme
+	// guess, across the content width as nothing is beside it; and the
+	// message in the broken one's place reads on the theme
 	rep := textOf(c)
-	if !strings.Contains(rep, "- diagram (steps.xml) at ") || !strings.Contains(rep, "2 labels, 115 shapes, smallest text 85 px") {
+	if !strings.Contains(rep, "- diagram (steps.xml) at ") || !strings.Contains(rep, "2 labels, 115 shapes, smallest text 118 px") {
 		t.Fatalf("the diagram is not in the layout report as one:\n%s", rep)
 	}
 	if strings.Contains(ws, "hard to read") {
@@ -197,6 +197,56 @@ func TestSmartArtWholeFile(t *testing.T) {
 		}
 		if rr := lastText(r); !strings.Contains(rr, "- diagram (whole.xml) at ") {
 			t.Fatalf("slide %d read back is not a diagram:\n%s", i, rr)
+		}
+	}
+}
+
+// From the SmartArt test deck: an .xml that is not a diagram and a model with
+// no items say why in their place when the stored deck is drawn again
+// (render_slide reads the files back without their type); a list's bullets
+// do not overlap its text; a heading with an underscore is reported whole.
+func TestSmartArtTestDeckFixes(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	const list = `<ostoslista><tuote>maito</tuote><tuote>leipä</tuote></ostoslista>`
+	const empty = `<dgm:dataModel xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><dgm:ptLst><dgm:pt modelId="0" type="doc"></dgm:pt></dgm:ptLst><dgm:cxnLst></dgm:cxnLst></dgm:dataModel>`
+	const vlist = `<dgm:dataModel xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><dgm:ptLst><dgm:pt modelId="0" type="doc"/><dgm:pt modelId="1"><dgm:t><a:p><a:r><a:t>Tekoäly</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId="11"><dgm:t><a:p><a:r><a:t>Kirjoittaa</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId="12"><dgm:t><a:p><a:r><a:t>Tarkistaa</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId="2"><dgm:t><a:p><a:r><a:t>Sliqtly</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId="21"><dgm:t><a:p><a:r><a:t>Piirtää</a:t></a:r></a:p></dgm:t></dgm:pt></dgm:ptLst><dgm:cxnLst><dgm:cxn srcId="0" destId="1"/><dgm:cxn srcId="1" destId="11"/><dgm:cxn srcId="1" destId="12" srcOrd="1"/><dgm:cxn srcId="0" destId="2" srcOrd="1"/><dgm:cxn srcId="2" destId="21"/></dgm:cxnLst></dgm:dataModel>`
+	md := "## Not a diagram\n\n![Not](media/list.xml)\n\n## Empty\n\n![Empty](media/empty.xml)\n{layout=process1}\n\n## 12 · accent1_2 colours\n\n![List](media/vlist.xml)\n{layout=vList2}\n\n## hList1\n\n![List](media/vlist.xml)\n{layout=hList1}\n"
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "SmartArt fixes", "markdown": md, "theme": "aurora",
+		"images": []any{
+			map[string]any{"name": "list.xml", "data_base64": base64.StdEncoding.EncodeToString([]byte(list))},
+			map[string]any{"name": "empty.xml", "data_base64": base64.StdEncoding.EncodeToString([]byte(empty))},
+			map[string]any{"name": "vlist.xml", "data_base64": base64.StdEncoding.EncodeToString([]byte(vlist))},
+		},
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	out := sc(c)
+	id := out["deck_id"].(string)
+	ws := strings.Join(toStrings(out["warnings"]), "\n")
+	if !strings.Contains(ws, `The SmartArt media/empty.xml on slide "Empty": the diagram has no items`) {
+		t.Fatalf("no warning about the empty model:\n%s", ws)
+	}
+	if strings.Contains(ws, "hard to read") {
+		t.Fatalf("SmartArt text that does not read on aurora:\n%s", ws)
+	}
+	rep := textOf(c)
+	if !strings.Contains(rep, `heading "12 · accent1_2 colours"`) {
+		t.Fatalf("the heading is not reported whole:\n%s", rep)
+	}
+	if strings.Contains(rep, "labels drawn over each other") {
+		t.Fatalf("bullets over their text:\n%s", rep)
+	}
+	for i, want := range map[int]string{1: "the root element is <ostoslista>", 2: "the diagram has no items"} {
+		r := call(t, s, "render_slide", map[string]any{"deck_id": id, "slide": i})
+		if r.IsError {
+			t.Fatal(textOf(r))
+		}
+		if rr := lastText(r); !strings.Contains(rr, "- diagram (") || strings.Contains(rr, "- picture (") {
+			t.Fatalf("slide %d is not drawn as a diagram with its reason (%s):\n%s", i, want, rr)
 		}
 	}
 }

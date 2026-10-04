@@ -672,6 +672,7 @@ class PresDeck {
         u.layout = (n.attrValue("layout"))
         u.colors = (n.attrValue("colors"))
         u.style = (n.attrValue("style"))
+        u.sized = (((strlen (n.attrValue("width"))) > 0) || ((strlen (n.attrValue("height"))) > 0))
         push s.smartArts u
     }
 
@@ -696,6 +697,17 @@ class PresDeck {
         return p
     }
 
+    ; Where a SmartArt diagram is laid out across, [x, w]: the whole content
+    ; width when nothing sits beside it and its reference did not size it
+    ; (PresDeck.diagramSpan, as for a diagram fence), else its own box. A
+    ; row of steps fitted into a 16:9 box used a third of the slide.
+    fn smartArtSpan:[double] (page:int b:MdBox u:PresSmartArtUse) {
+        if u.sized {
+            return ([] _:double (b.x b.w))
+        }
+        return (this.diagramSpan(page b))
+    }
+
     ; What the SmartArt diagrams on the slides could not do as asked, as
     ; sentences for whoever wrote the deck: a file that is not a diagram, a
     ; layout or colour set the engine does not have, text that does not fit.
@@ -716,7 +728,8 @@ class PresDeck {
                 while (bi < (array_length l.boxes)) {
                     def b:MdBox (itemAt l.boxes bi)
                     if (((b.kind == 4) && (b.imagePath == u.path)) && (b.srcStart == u.srcStart)) {
-                        def r:SaResult (PresSmartArt.laidOut(u md figStyle smartArtCache b.w b.h))
+                        def span:[double] (this.smartArtSpan(b.page b u))
+                        def r:SaResult (PresSmartArt.laidOut(u md figStyle smartArtCache (itemAt span 1) b.h))
                         def name:string (substring u.path 1 (strlen u.path))
                         if (r.ok == false) {
                             push out ("The SmartArt " + name + where + " is not shown: " + r.error + ".")
@@ -2114,7 +2127,9 @@ class PresDeck {
             } {
                 def sa@(optional):PresSmartArtUse (this.smartArtOf(s kb))
                 if (!null? sa) {
-                    PresSmartArt.paint(out (unwrap sa) md figStyle smartArtCache kb.x kb.y kb.w kb.h)
+                    def sau:PresSmartArtUse (unwrap sa)
+                    def saSpan:[double] (this.smartArtSpan(kb.page kb sau))
+                    PresSmartArt.paint(out sau md figStyle smartArtCache (itemAt saSpan 0) kb.y (itemAt saSpan 1) kb.h)
                 } {
                 def tu@(optional):PresTableUse (this.tableOf(kb))
                 if (!null? tu) {

@@ -117,6 +117,10 @@ class Layout {
         def keys:[int]
         def blocks:[RBlock]
         def blockOfBox:[int:int]
+        ; a text block's first line, as its boxes give it: a line is several
+        ; boxes when its runs are (an underscore in "accent1_2" ends a run)
+        def rawLabel:[string]
+        def labelY:[double]
         def bi:int 0
         while (bi < (array_length l.boxes)) {
             def b:MdBox (itemAt l.boxes bi)
@@ -136,6 +140,8 @@ class Layout {
                 nb.kind = (Layout.kindAt(md b.srcStart))
                 nb.x = -1.0
                 push blocks nb
+                push rawLabel ""
+                push labelY -1.0
             }
             def blk:RBlock (itemAt blocks at)
             set blockOfBox bi at
@@ -178,8 +184,15 @@ class Layout {
             if (b.kind == 5) {
                 blk.kind = "math"
             }
-            if (((b.kind == 0) && ((strlen blk.label) == 0)) && ((((blk.kind == "heading") || (blk.kind == "text")) || (blk.kind == "list")) || (blk.kind == "quote"))) {
-                blk.label = (trim b.text)
+            if ((b.kind == 0) && ((((blk.kind == "heading") || (blk.kind == "text")) || (blk.kind == "list")) || (blk.kind == "quote"))) {
+                def first:boolean ((strlen (itemAt rawLabel at)) == 0)
+                if (first || ((fabs (b.y - (itemAt labelY at))) < 0.5)) {
+                    if first {
+                        set labelY at b.y
+                    }
+                    set rawLabel at ((itemAt rawLabel at) + b.text)
+                    blk.label = (trim (itemAt rawLabel at))
+                }
             }
             Layout.grow(blk b.x b.y b.w b.h)
             bi = (bi + 1)

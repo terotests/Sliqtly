@@ -7070,7 +7070,7 @@ class PresApp {
                 def s:PresSlide (deck.slideAt(i))
                 this.stillDiagrams(ps s unit)
                 this.stillCharts(ps i unit)
-                this.stillSmartArt(ps s unit)
+                this.stillSmartArt(ps s i unit)
                 this.slideArt(ps s i unit)
                 PresApp.dressSlide(ps s)
                 ; the slide's effect, rendered by the host, as its background
@@ -7222,7 +7222,7 @@ class PresApp {
     ; out for the picture's box (points), in the theme's colours, with the
     ; picture's name and alt text. A diagram that cannot be laid out is taken
     ; off the slide rather than left as a broken picture.
-    fn stillSmartArt:void (ps:PptxSlide s:PresSlide unit:double) {
+    fn stillSmartArt:void (ps:PptxSlide s:PresSlide page:int unit:double) {
         def j:int 0
         while (j < (array_length ps.shapes)) {
             def sh:PptxShape (itemAt ps.shapes j)
@@ -7237,10 +7237,27 @@ class PresApp {
                     }
                     k = (k + 1)
                 }
-                def r:SaResult (PresSmartArt.laidOut(u deck.md deck.figStyle deck.smartArtCache sh.width sh.height))
-                if r.ok {
+                ; across the width the stage gives it (PresDeck.smartArtSpan),
+                ; in this deck's units
+                def gx:double sh.x
+                def gw:double sh.width
+                def l:MdLayout (deck.layout())
+                def bi:int 0
+                while (bi < (array_length l.boxes)) {
+                    def b:MdBox (itemAt l.boxes bi)
+                    if ((((b.page == page) && (b.kind == 4)) && (b.imagePath == u.path)) && (b.w > 0.0)) {
+                        def k:double (sh.width / b.w)
+                        def span:[double] (deck.smartArtSpan(page b u))
+                        gx = (sh.x + (((itemAt span 0) - b.x) * k))
+                        gw = ((itemAt span 1) * k)
+                        bi = (array_length l.boxes)
+                    }
+                    bi = (bi + 1)
+                }
+                def r:SaResult (PresSmartArt.laidOut(u deck.md deck.figStyle deck.smartArtCache gw sh.height))
+                if (r.ok && ((array_length r.shape.children) > 0)) {
                     def g:PptxShape r.shape
-                    g.x = sh.x
+                    g.x = gx
                     g.y = sh.y
                     g.name = sh.name
                     g.altText = sh.altText
