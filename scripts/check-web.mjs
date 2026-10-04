@@ -1776,12 +1776,17 @@ try {
       const page2 = !texts(lp()).includes("Deck 1") && texts(lp()).some((t) => /^Deck 1[1-9]$/.test(t));
       press("pd-pg-3");
       const page3 = texts(lp()).includes("Deck 23");
+      // the arrow shows the way the list was turned: oldest first ↑
+      a.openDecks(JSON.stringify({ sort: "created", dir: "asc", note: "", rows: many }));
+      const arrowUp = texts(lp()).includes("Added ↑");
+      a.openDecks(JSON.stringify({ sort: "created", dir: "desc", note: "", rows: many }));
+      const arrowDown = texts(lp()).includes("Added ↓");
       press("pd-close");
-      return { open, times: ["2.1.2026 11:00", "1.1.2026 10:00", "3.1.2026 09:30"].every((x) => shown.includes(x)), names: shown.includes("Made by Claude"), delOnCloud, openButtons, aligned, sort, armed, asks, del, cloudOpen, closedByOpen, closed, page1, page2, page3 };
+      return { arrowUp, arrowDown, open, times: ["2.1.2026 11:00", "1.1.2026 10:00", "3.1.2026 09:30"].every((x) => shown.includes(x)), names: shown.includes("Made by Claude"), delOnCloud, openButtons, aligned, sort, armed, asks, del, cloudOpen, closedByOpen, closed, page1, page2, page3 };
     });
     check("…File → Presentations… lists the decks with added and modified times; a row opens, ✕ deletes after asking, a long list has pages",
       decks.open && decks.times && decks.names && !decks.delOnCloud && !decks.openButtons && decks.aligned && decks.sort.join() === "decks:sort:name" && decks.armed.length === 0 && decks.asks &&
-      decks.del.join() === "decks:del:deck-a" && decks.cloudOpen.join() === "files:doc:cloud:M1" && decks.closedByOpen && decks.closed && decks.page1 && decks.page2 && decks.page3, JSON.stringify(decks));
+      decks.del.join() === "decks:del:deck-a" && decks.cloudOpen.join() === "files:doc:cloud:M1" && decks.closedByOpen && decks.closed && decks.page1 && decks.page2 && decks.page3 && decks.arrowUp && decks.arrowDown, JSON.stringify(decks));
 
     // A long deck name widens the menu up to a limit and is cut with "…"
     // there; every row stays inside the card and they are all one width

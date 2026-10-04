@@ -73,7 +73,7 @@ class PresPanels {
     def openRows:string ""
     ; File → Presentations… ("decks"): the decks of this browser and the
     ; user's cloud, from the page (web/decklist.js deckListJson):
-    ;   {"sort": "updated" | "created" | "name", "rows": [{"id", "name",
+    ;   {"sort": "updated" | "created" | "name", "dir": "asc" | "desc", "rows": [{"id", "name",
     ;    "added", "modified", "where", "cloudOnly", "current"}], "note"}
     def decksJson:string ""
     ; the list's pages (EVGUI's PaginationCtl does the arithmetic)
@@ -1190,11 +1190,13 @@ class PresPanels {
     }
 
     ; A column's head: pressed, the list is sorted by it.
-    fn decksHead:void (key:string label:string sort:string cls:string parent:EVGElement) {
+    ; Pressed again, the order turns round (web/decklist.js nextSort); the
+    ; arrow shows the way: ↓ newest or Z first, ↑ oldest or A first.
+    fn decksHead:void (key:string label:string sort:string dir:string cls:string parent:EVGElement) {
         def cell:EVGElement (this.div(cls))
         def text:string label
         if (key == sort) {
-            if (key == "name") {
+            if (dir == "asc") {
                 text = (label + " ↑")
             } {
                 text = (label + " ↓")
@@ -1265,20 +1267,22 @@ class PresPanels {
         this.button("pd-new" (PresI18n.t("New presentation")) "secondary" top)
         d.addChild(top)
         def sort:string "updated"
+        def dir:string "desc"
         if ready {
             sort = (data.stringOr("sort" "updated"))
+            dir = (data.stringOr("dir" "desc"))
         }
         ; the inner width of a row: the window less its padding
         def rowW:double (dw - 40.0)
         def head:EVGElement (this.div("pd-head"))
         def hn:EVGElement (this.div("pd-hrow"))
         hn.width = (EVGUnit.px((rowW - 36.0)))
-        this.decksHead("name" (PresI18n.t("Name")) sort "pd-hname" hn)
+        this.decksHead("name" (PresI18n.t("Name")) sort dir "pd-hname" hn)
         if narrow {
-            this.decksHead("updated" (PresI18n.t("Modified")) sort "pd-hnarrow" hn)
+            this.decksHead("updated" (PresI18n.t("Modified")) sort dir "pd-hnarrow" hn)
         } {
-            this.decksHead("created" (PresI18n.t("Added")) sort "pd-when" hn)
-            this.decksHead("updated" (PresI18n.t("Modified")) sort "pd-when" hn)
+            this.decksHead("created" (PresI18n.t("Added")) sort dir "pd-when" hn)
+            this.decksHead("updated" (PresI18n.t("Modified")) sort dir "pd-when" hn)
         }
         head.addChild(hn)
         d.addChild(head)

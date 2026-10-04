@@ -25,7 +25,7 @@ import { decodePicture, isSvg, isSmartArt, SMARTART_TYPE } from "./picture.js";
 import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versions.js";
 import { showHistory, askMerge } from "./versions-ui.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
-import { deckRows, sortRows, deckListJson } from "./decklist.js";
+import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime } from "./collab.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 
@@ -1015,14 +1015,19 @@ async function allDocs(fresh = false) {
 
 // File → Presentations…: the window over the editor, last changed first
 // unless sorted otherwise; again when the list changes while it shows.
-let decksSort = "updated";
-try { decksSort = localStorage.getItem("sliqtly.decksSort") || "updated"; } catch (_) { /* the default */ }
+// { by, dir }, kept as "by" or "by:dir" (a column's head pressed again
+// turns its order round)
+let decksSort = { by: "updated", dir: "desc" };
+try {
+  const [by, dir] = (localStorage.getItem("sliqtly.decksSort") || "updated").split(":");
+  decksSort = { by, dir: dir || firstDir(by) };
+} catch (_) { /* the default */ }
 async function decksJson(fresh = false) {
   const signedOut = window.sliqtly && !window.sliqtly.user();
   const note = cloudList.error
     ? t("The presentations in your cloud could not be read: ") + cloudList.error
     : signedOut ? t("Sign in (PRO) to see the presentations in your cloud, such as those made by an assistant.") : "";
-  return deckListJson(await allDocs(fresh), decksSort, t, note);
+  return deckListJson(await allDocs(fresh), decksSort.by, t, note, decksSort.dir);
 }
 async function openDecks() {
   if (!vfs) return;
@@ -1040,8 +1045,8 @@ async function decksRequest(r) {
   const [, action, ...rest] = r.split(":");
   const what = rest.join(":");
   if (action === "sort") {
-    decksSort = what;
-    try { localStorage.setItem("sliqtly.decksSort", what); } catch (_) { /* this session only */ }
+    decksSort = nextSort(decksSort, what);
+    try { localStorage.setItem("sliqtly.decksSort", decksSort.by + ":" + decksSort.dir); } catch (_) { /* this session only */ }
   } else if (action === "del") {
     // a deck kept here, not the open one; one only in the cloud is deleted
     // once open (File → Delete presentation…)

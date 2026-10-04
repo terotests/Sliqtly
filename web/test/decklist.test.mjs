@@ -1,7 +1,7 @@
 // node --test: the presentations window's list (web/decklist.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deckRows, sortRows, whenText, deckListJson } from "../decklist.js";
+import { deckRows, sortRows, whenText, deckListJson, nextSort } from "../decklist.js";
 
 const local = [
   { id: "a", name: "Old deck", created: 100, updated: 200 },
@@ -71,4 +71,25 @@ test("the window's JSON: sorted rows, a known sort, where in words", () => {
   const unnamed = JSON.parse(deckListJson([{ id: "z", name: "", created: 1, updated: 1, where: "browser" }], "name", t));
   assert.equal(unnamed.rows[0].name, "presentation");
   assert.equal(unnamed.sort, "name");
+});
+
+test("a column's head pressed again turns its order round", () => {
+  assert.deepEqual(nextSort({ by: "updated", dir: "desc" }, "created"), { by: "created", dir: "desc" });
+  assert.deepEqual(nextSort({ by: "created", dir: "desc" }, "created"), { by: "created", dir: "asc" });
+  assert.deepEqual(nextSort({ by: "created", dir: "asc" }, "created"), { by: "created", dir: "desc" });
+  assert.deepEqual(nextSort({ by: "created", dir: "desc" }, "name"), { by: "name", dir: "asc" });
+  assert.deepEqual(nextSort({ by: "name", dir: "asc" }, "name"), { by: "name", dir: "desc" });
+  assert.deepEqual(nextSort({ by: "name", dir: "asc" }, "bogus"), { by: "name", dir: "asc" });
+});
+
+test("oldest first and Z–A when turned round", () => {
+  const rows = deckRows(local, cloud, "a");
+  assert.deepEqual(sortRows(rows, "updated", "asc").map((r) => r.id), ["a", "b", "cloud:M1"]);
+  assert.deepEqual(sortRows(rows, "created", "asc").map((r) => r.id), ["a", "b", "cloud:M1"]);
+  assert.deepEqual(sortRows(rows, "name", "desc").map((r) => r.id), ["b", "a", "cloud:M1"]);
+  const j = JSON.parse(deckListJson(rows, "created", (s) => s, "", "asc"));
+  assert.equal(j.dir, "asc");
+  assert.deepEqual(j.rows.map((r) => r.id), ["a", "b", "cloud:M1"]);
+  assert.equal(JSON.parse(deckListJson(rows, "name", (s) => s)).dir, "asc");
+  assert.equal(JSON.parse(deckListJson(rows, "updated", (s) => s)).dir, "desc");
 });
