@@ -32,7 +32,7 @@ function chromium_() {
 // /__/firebase/init.js is Hosting's reserved URL with the project's config
 // (web/sliqtly.js); here it configures no project, so sign-in is not
 // available, as on any host but Firebase Hosting, without a 404.
-const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".json": "application/json", ".csv": "text/csv", ".md": "text/markdown", ".svg": "image/svg+xml", ".ttf": "font/ttf" };
+const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".json": "application/json", ".csv": "text/csv", ".md": "text/markdown", ".svg": "image/svg+xml", ".png": "image/png", ".xml": "application/xml", ".ttf": "font/ttf" };
 const server = http.createServer((req, res) => {
   let rel = decodeURIComponent(new URL(req.url, "http://x").pathname);
   if (rel === "/__/firebase/init.js") {

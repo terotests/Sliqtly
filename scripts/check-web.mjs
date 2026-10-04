@@ -3573,7 +3573,7 @@ try {
     await pc.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
     await pc.waitForTimeout(500);
     const home = await pc.evaluate(() => ({ md: window.__app.source(), hash: location.hash }));
-    check("after it, the site's plain address opens the welcome deck with no #doc", home.md.includes("# Sliqtly Better Slides") && home.hash === "", JSON.stringify({ ...home, md: home.md.slice(0, 80) }));
+    check("after it, the site's plain address opens the welcome deck with no #doc", home.md.startsWith("---\ntitle: Sliqtly - Demo") && home.hash === "", JSON.stringify({ ...home, md: home.md.slice(0, 80) }));
     await pc.goto(url.replace(/\/$/, "") + "/s/zzOthersDeck?edit");
     await pc.waitForFunction(() => window.__pageStarted === true && window.__app.source().startsWith("# Toisen pakka"), null, { timeout: 90000 });
     await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Oma lisäys\n"));
@@ -3603,6 +3603,9 @@ try {
     const pw = await ctx.newPage();
     const werr = [];
     pw.on("pageerror", (e) => werr.push(e.message));
+    // the deck's own pictures, beside it in samples/welcome/
+    const pics = [];
+    pw.on("response", (r) => { if (r.url().includes("/samples/welcome/")) pics.push(r.status() + " " + new URL(r.url()).pathname); });
     await pw.goto(url);
     await pw.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
     const first = await pw.evaluate(() => ({
@@ -3610,7 +3613,10 @@ try {
       card: !!document.getElementById("welcomeCard"),
       theme: document.getElementById("theme").value,
     }));
-    check("first visit: the welcome deck opens, in English on the white theme, with the welcome card", first.md.includes("# Sliqtly Better Slides") && first.card && first.theme === "corporate", JSON.stringify(first));
+    check("first visit: the welcome deck opens, in English on Aurora, with the welcome card", first.md.includes("# Sliqtly {bg=media/bg.png") && first.md.includes("## Publishing process") && first.card && first.theme === "aurora", JSON.stringify(first));
+    check("first visit: the welcome deck's pictures come from samples/welcome/", ["bg.png", "logo.svg", "radial.xml"].every((f) => pics.some((p) => p.startsWith("200 ") && p.includes("/media/" + f))), pics.join(", "));
+    const files = await pw.evaluate(async () => (await window.__docFiles()).sort().join(","));
+    check("first visit: the pictures are the deck's files", files === "media/bg.png,media/logo.svg,media/radial.xml", files);
     await pw.click("#welcomeCard button.primary");
     await pw.waitForTimeout(300);
     const started = await pw.evaluate(() => ({ open: window.__app.chartIsOpen(), mode: window.__app.chart.mode, card: !!document.getElementById("welcomeCard") }));

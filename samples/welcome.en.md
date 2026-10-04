@@ -1,196 +1,103 @@
 ---
-title: Sliqtly Better Slides
+title: Sliqtly - Demo
 transition: fade
-seconds: 0.6
-step: 1.2
-hold: 2.5
-footer-left: sliqtly.com
-footer-right: "{page} / {pages}"
-footer-skip: first last
 ---
+# Sliqtly {bg=media/bg.png fx=raindrops2}
 
-# Sliqtly Better Slides {fx=smoke}
+![Sliqtly](media/logo.svg)
+{width=100% height=100%}
 
-Beautiful slides from Markdown — with PPTX & PDF export, Excel data sources, and fully customizable themes.
-{.lead}
-
-::: notes
-This deck is a Sliqtly presentation. The text on the left is the whole deck,
-the slides on the right are drawn from it as you type.
-:::
-
-## Why Sliqtly {transition=slide}
-
-- **Markdown in, beautiful slides out**
-- **PowerPoint and PDF** export in one click
-- **Excel and Google Sheets** as data for charts and tables
-- **Your own look:** themes and CSS styles
-{.build anim=rise}
-
-::: notes
-You write text, Sliqtly draws the slides. [[1]]
-They go out as PowerPoint or PDF whenever you need a file. [[2]]
-Charts and tables read your spreadsheets. [[3]]
-And the look is yours to change. [[4]]
-:::
-
-## Just write
-
-```markdown
-## Results {transition=slide}
-
-1. Revenue up 12 %
-2. Two new markets
-{.build anim=rise}
-```
-
-`#` is the title slide, every `##` starts a new one, `{…}` adds the motion.
-{.kicker}
-
-::: notes
-Edit any line on the left and watch this slide change.
-:::
-
-## Your Excel data, as a chart
-
-```vega-lite
-{
-  "data": {"values": [
-    {"quarter": "Q1", "revenue": 3.1},
-    {"quarter": "Q2", "revenue": 3.8},
-    {"quarter": "Q3", "revenue": 4.6},
-    {"quarter": "Q4", "revenue": 5.9}
-  ]},
-  "width": 600,
-  "height": 210,
-  "background": "rgba(0,0,0,0)",
-  "mark": "bar",
-  "encoding": {
-    "x": {"field": "quarter", "type": "nominal", "title": null, "axis": {"labelAngle": 0}},
-    "y": {"field": "revenue", "type": "quantitative", "title": "Revenue, M€"}
-  }
-}
-```
-
-Add an Excel workbook or paste a table, and Sliqtly suggests the chart.
-{.kicker}
-
-::: notes
-Charts are Vega-Lite, so bars, lines, areas, pies and maps all work.
-Click the vega-lite line on the left to edit the chart in a form instead of JSON.
-:::
-
-## Live data
-
-- Point a chart or a table at a **Google Sheet**, a CSV or a JSON link
-- The numbers are read again every time the deck opens
-- Press **R** during the show to refresh
-- Exports keep a snapshot of the data as it was
-{.build anim=fly}
-
-```markdown
-"data": {"source": "google-sheets", "id": "<sheet link>", "range": "A:B"}
-```
-
-::: notes
-Paste a Google Sheet link into the editor and Sliqtly offers to link it as
-live data. Live data is a PRO feature.
-:::
-
-## PowerPoint, PDF or a link
-
-1. **Share** gives a link that opens straight into the show, on any screen
-2. **Export** makes a PowerPoint, a PDF or the Markdown file
-3. With **PRO** your decks live in the cloud and follow you to every device
-{.build anim=rise}
-
-::: notes
-The shared link plays with animations and live data. [[1]]
-The exports are for when the deck has to travel as a file. [[2]]
-PRO keeps every deck in your account. [[3]]
-:::
-
-## Your own style {transition=slide}
-
-```css
-h2 { color: #ffa546; }
-chart { chart-style: neon; }
-```
-
-Seven themes, light and dark, and any of them changed in the **Theme (CSS)** tab.
-{.kicker}
-
-::: notes
-Pick a theme from the toolbar, then change colours, fonts and the chart style
-with a few lines of CSS.
-:::
-
-## Tables {transition=zoom}
-
-| Format | Opens in | Keeps |
-|---|---|---|
-| PowerPoint (.pptx) | PowerPoint, Keynote, Google Slides | Text you can edit, real equations |
-| PDF | Any reader | Every slide as drawn |
-| Link | Any browser or phone | Animations, live data |
-| Markdown | Any editor | The source itself |
-
-Workbooks too: a `table` block pages through an Excel sheet, a CSV or a Google Sheet.
-{.kicker}
-
-## Diagrams that tell a story
+## Publishing process
 
 ```mermaid
 flowchart LR
-  M[Markdown] --> S[Sliqtly]
-  S --> P[Present]
-  S --> X[PowerPoint / PDF]
-  S --> L[Share a link]
-  A[Claude / ChatGPT] --> M
+  A[Rectangle] --> B(Rounded) --> C([Stadium])
+  D[(Database)] --> E((Circle)) --> F{Decision}
+  G{{Hexagon}} --> H[/Parallelogram/] --> I[[Subroutine]]
 ```
 
-::: notes
-Mermaid, Graphviz, D2 and PlantUML diagrams are animated as a guided tour,
-one box at a time.
-:::
+## Sales by region
 
-## Formulas
-
-$$
-FV = PMT \cdot \frac{(1+r)^n - 1}{r}
-$$
-
-Write TeX: `$…$` inline, `$$…$$` on its own line. In PowerPoint it becomes a real equation.
-{.kicker}
-
-## Edit with Claude or ChatGPT
-
-- **File → Edit in Claude…** hands this deck to your assistant
-- Connect Sliqtly to Claude, ChatGPT or Cursor: **sliqtly.com/connect.html**
-- Then just ask: *"Make a six-slide deck from this spreadsheet"*
-- The assistant writes the slides and gives you the link
-{.build anim=fade}
-
-## Headers, footers and page numbers
-
-```markdown
-footer-left: sliqtly.com
-footer-right: "{page} / {pages}"
-footer-skip: first last
+```vega-lite
+{"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "background": "rgba(0,0,0,0)", "config": {"axis": {"labelColor": "#c8d0f0", "titleColor": "#c8d0f0", "gridColor": "#2d3a7a", "domainColor": "#5c6aa8", "tickColor": "#5c6aa8", "labelFontSize": 14}, "legend": {"labelColor": "#c8d0f0", "labelFontSize": 14}, "view": {"stroke": null}}, "width": 820, "height": 320, "data": {"values": [{"q": "Q1", "region": "South", "k": 460}, {"q": "Q1", "region": "West", "k": 384}, {"q": "Q1", "region": "East", "k": 280}, {"q": "Q1", "region": "North", "k": 268}, {"q": "Q2", "region": "South", "k": 512}, {"q": "Q2", "region": "West", "k": 434}, {"q": "Q2", "region": "East", "k": 344}, {"q": "Q2", "region": "North", "k": 312}, {"q": "Q3", "region": "South", "k": 539}, {"q": "Q3", "region": "West", "k": 457}, {"q": "Q3", "region": "East", "k": 379}, {"q": "Q3", "region": "North", "k": 313}, {"q": "Q4", "region": "South", "k": 604}, {"q": "Q4", "region": "West", "k": 502}, {"q": "Q4", "region": "East", "k": 416}, {"q": "Q4", "region": "North", "k": 315}]}, "mark": {"type": "bar", "cornerRadiusEnd": 3}, "encoding": {"x": {"field": "q", "type": "ordinal", "title": null, "axis": {"labelAngle": 0}}, "xOffset": {"field": "region"}, "y": {"field": "k", "type": "quantitative", "title": "k€"}, "color": {"field": "region", "type": "nominal", "title": null, "legend": {"orient": "top"}}, "tooltip": [{"field": "region"}, {"field": "q"}, {"field": "k"}]}}
 ```
 
-That is the footer on these slides, written in the deck's front matter.
-{.kicker}
+## One source, many formats
 
-## Start your own deck {fx=smoke}
+![Sliqtly](media/radial.xml)
+{layout=radial1 colors=colorful1}
 
-1. **File → New presentation** gives you a clean deck
-2. Or pick a sample from the menu and change it
-3. Or edit this one: it is yours now
-{.build anim=rise}
+## Roadmap
 
-Press **Present** to see the show full screen.
-{.kicker}
+```timeline
+- Q1: Markdown editor
+- Q2: Charts and flowcharts
+- Q3: MCP server
+- Q4: Enterprise server
+```
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph Client
+    U[User] --> W[Browser]
+  end
+  subgraph Server
+    A[API] --> D[(Database)]
+    A --> Q[Queue]
+  end
+  W --> A
+  Q --> X[Worker]
+  classDef hot fill:#ffa546,stroke:#b96926,color:#111
+  classDef cool fill:#5ce1ff,stroke:#2b8fa8,color:#111
+  class A,Q hot
+  class D cool
+  style X stroke-dasharray: 5 5
+```
+
+## Math Symbols
+
+$$f'(x) = \lim_{h \to 0} \frac{f(x+h) - f(x)}{h}$$
+
+$$\int_0^\infty e^{-x^2}\,dx = \frac{\sqrt{\pi}}{2}$$
+
+# Layouts and line art {art=waves}
+
+- Plan: goals, budget and schedule
+- Build: code, content and tests
+- Pilot: ten customers try it
+- Launch: open to everyone
+{list-style=process}
+
+{.lead}
 
 ::: notes
-That's it. Start with a heading and a few lines, and the slides follow.
+The line art is a PRO feature; the layouts are free. Every layout below is computed from the text and the room on the slide; change the theme and they change colour with it.
 :::
+
+
+## Code and Syntax
+
+```typescript
+const deck = await sliqtly.create({
+  title: "Quarterly review",
+  theme: "aurora",
+  markdown: "# Q4\n\n## Sales\n...",
+});
+console.log(deck.share_url);
+```
+
+## Effects { fx=starfield }
+
+```mermaid
+flowchart LR
+  A[Run done] --> B{Any pain?}
+  B -->|No| C[Stretch and recover]
+  B -->|Yes| D{Worse when walking?}
+  D -->|No| E[Go easier next time]
+  D -->|Yes| F[Rest and ask a physio]
+  E --> A
+  C --> A
+```
+
