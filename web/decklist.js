@@ -38,16 +38,31 @@ export function deckRows(local, cloud, currentId) {
 
 export const SORTS = ["updated", "created", "name"];
 
+// The way a column sorts first: times newest first ("desc"), names A–Z ("asc").
+export function firstDir(by) {
+  return by === "name" ? "asc" : "desc";
+}
+
+// A column's head pressed while the list is sorted by cur ({ by, dir }): the
+// same column again turns the order round, another starts in its first way.
+export function nextSort(cur, by) {
+  if (!SORTS.includes(by)) return cur;
+  if (cur && cur.by === by) return { by, dir: cur.dir === "asc" ? "desc" : "asc" };
+  return { by, dir: firstDir(by) };
+}
+
 // by: "updated" (the default: last changed first), "created" (newest first)
-// or "name" (A–Z); ties fall back to the last changed first.
-export function sortRows(rows, by = "updated") {
+// or "name" (A–Z); dir "asc" or "desc" turns that column's order (the
+// column's first way when left out). Ties fall back to the last changed first.
+export function sortRows(rows, by = "updated", dir = firstDir(by)) {
   const name = (r) => String(r.name || "").toLocaleLowerCase();
   const recent = (a, b) => (b.updated - a.updated) || (b.created - a.created);
+  const sign = dir === "asc" ? -1 : 1;
   const cmp = by === "name"
-    ? (a, b) => name(a).localeCompare(name(b)) || recent(a, b)
+    ? (a, b) => -sign * name(a).localeCompare(name(b)) || recent(a, b)
     : by === "created"
-      ? (a, b) => (b.created - a.created) || recent(a, b)
-      : recent;
+      ? (a, b) => sign * (b.created - a.created) || recent(a, b)
+      : (a, b) => sign * ((b.updated - a.updated) || (b.created - a.created));
   return rows.slice().sort(cmp);
 }
 
@@ -60,12 +75,15 @@ export function whenText(ms) {
   return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()} ${two(d.getHours())}:${two(d.getMinutes())}`;
 }
 
-// What the window is sent: {"sort", "rows": [{"id", "name", "added",
+// What the window is sent: {"sort", "dir", "rows": [{"id", "name", "added",
 // "modified", "where", "current"}], "note"}. t translates.
-export function deckListJson(rows, by, t, note = "") {
-  const sorted = sortRows(rows, SORTS.includes(by) ? by : "updated");
+export function deckListJson(rows, by, t, note = "", dir) {
+  const key = SORTS.includes(by) ? by : "updated";
+  const way = dir === "asc" || dir === "desc" ? dir : firstDir(key);
+  const sorted = sortRows(rows, key, way);
   return JSON.stringify({
-    sort: SORTS.includes(by) ? by : "updated",
+    sort: key,
+    dir: way,
     rows: sorted.map((r) => ({
       id: r.id,
       name: r.name || t("presentation"),
