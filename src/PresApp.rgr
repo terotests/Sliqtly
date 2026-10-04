@@ -2354,6 +2354,8 @@ class PresApp {
             this.takePanels()
             return "panel"
         }
+        ; a press anywhere else lets go of what was selected in the panels
+        panels.dropSelection()
         ; a press off the slide (and off the pick's buttons) lets the pick go
         if (pick.on && ((slideRect.has(x y)) == false)) {
             if (((stageArea.has(x y)) == false) || ((strlen (pick.partAt(x y))) == 0)) {
@@ -2610,6 +2612,12 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
+        ; ...or in a text of the panels (the toast, a note, a link)
+        if panels.textSelecting {
+            panels.textDragTo(x y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if ((barH > 0.0) && (mode != "present")) {
             toolbar.hoverAt(x y)
         }
@@ -2704,6 +2712,7 @@ class PresApp {
 
     fn pointerUp:void () {
         panels.chatRelease()
+        panels.textRelease()
         if (hint.isOpen && (hint.dragging())) {
             hint.release()
             this.afterHint()
@@ -6573,6 +6582,11 @@ class PresApp {
         }
     }
 
+    ; The toast stays up while its text is selected, so it can be copied.
+    fn toastHeld:boolean () {
+        return (panels.toastHeld())
+    }
+
     fn undo:void () {
         editor.undo()
         this.syncEditor()
@@ -6585,11 +6599,33 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; Ctrl+C: what is selected on the top surface that has a selection — the
+    ; open window's text or field, the panels' (the toast, a note, a link,
+    ; the chat field) — else the editor's.
+    fn readSelection:string () {
+        if chart.isOpen {
+            def ct:string (chart.copyText())
+            if ((strlen ct) > 0) {
+                return ct
+            }
+        }
+        return (panels.copyText((focus == "chat")))
+    }
+
     fn copySelection:string () {
+        def other:string (this.readSelection())
+        if ((strlen other) > 0) {
+            return other
+        }
         return (editor.selectionText())
     }
 
+    ; Ctrl+X cuts from the editor only; text selected elsewhere is not the
+    ; editor's to cut (and is read, not edited), so nothing is cut then.
     fn cutSelection:string () {
+        if ((strlen (this.readSelection())) > 0) {
+            return ""
+        }
         def out:string (editor.cutSelection())
         this.syncEditor()
         chromeRev = (chromeRev + 1)

@@ -2843,7 +2843,11 @@ function toast(text) {
   app.toast(text);
   needsPaint = true;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { app.toast(""); needsPaint = true; }, 3200);
+  toastTimer = setTimeout(function hide() {
+    // its text selected (to be copied): it stays until let go
+    if (app.toastHeld()) { toastTimer = setTimeout(hide, 1000); return; }
+    app.toast(""); needsPaint = true;
+  }, 3200);
 }
 
 // Two links to the same deck: one that opens straight into the presentation
