@@ -963,6 +963,40 @@ class PresCheck {
         this.ok(((array_length deck.smartArtCache.keys) == before) "a diagram already laid out is not laid out again")
     }
 
+    ; phase 2's layouts in a deck: a cycle, a pyramid, an organisation chart
+    ; with an assistant, and a radial, each drawn with its text and nothing
+    ; to warn about
+    fn smartArtLayouts:void () {
+        def head:string "<dgm:dataModel xmlns:dgm=\"http://schemas.openxmlformats.org/drawingml/2006/diagram\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"><dgm:ptLst><dgm:pt modelId=\"0\" type=\"doc\"/>"
+        def flat:string (head + "<dgm:pt modelId=\"1\"><dgm:t><a:p><a:r><a:t>Kevät</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId=\"2\"><dgm:t><a:p><a:r><a:t>Kesä</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId=\"3\"><dgm:t><a:p><a:r><a:t>Syksy</a:t></a:r></a:p></dgm:t></dgm:pt></dgm:ptLst><dgm:cxnLst><dgm:cxn srcId=\"0\" destId=\"1\"/><dgm:cxn srcId=\"0\" destId=\"2\"/><dgm:cxn srcId=\"0\" destId=\"3\"/></dgm:cxnLst></dgm:dataModel>")
+        def org:string (head + "<dgm:pt modelId=\"a\"><dgm:t><a:p><a:r><a:t>Toimitusjohtaja</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId=\"s\" type=\"asst\"><dgm:t><a:p><a:r><a:t>Assistentti</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId=\"b\"><dgm:t><a:p><a:r><a:t>Myynti</a:t></a:r></a:p></dgm:t></dgm:pt><dgm:pt modelId=\"c\"><dgm:t><a:p><a:r><a:t>Talous</a:t></a:r></a:p></dgm:t></dgm:pt></dgm:ptLst><dgm:cxnLst><dgm:cxn srcId=\"0\" destId=\"a\"/><dgm:cxn srcId=\"a\" destId=\"s\"/><dgm:cxn srcId=\"a\" destId=\"b\"/><dgm:cxn srcId=\"a\" destId=\"c\"/></dgm:cxnLst></dgm:dataModel>")
+        def text:string "---\nslide-split-level: 2\n---\n\n## Kierto\n\n![Kierto](media/flat.xml)\n{layout=cycle2}\n\n## Pyramidi\n\n![Pyramidi](media/flat.xml)\n{layout=pyramid1}\n\n## Organisaatio\n\n![Organisaatio](media/org.xml)\n{layout=orgChart1}\n\n## Säteet\n\n![Säteet](media/org.xml)\n{layout=radial1}\n"
+        def css:string "page { width: 13.333in; height: 7.5in; padding: 0.6in; background-color: #ffffff } deck { split-level: 2 } document { color: #111111; font-size: 20pt } figure { colors: #1f6feb #0f9d8a #7c4dff }"
+        def deck (new PresDeck())
+        deck.md.setStyleSheet(css)
+        deck.setTheme(css)
+        deck.addImage("/media/flat.xml" (buffer_from_string (EVGCodepoint.encodeUtf8(flat))) "" 0 0)
+        deck.addImage("/media/org.xml" (buffer_from_string (EVGCodepoint.encodeUtf8(org))) "" 0 0)
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 4) ("four slides of phase 2 layouts, got " + (to_string (deck.slideCount()))))
+        if ((deck.slideCount()) < 4) {
+            return
+        }
+        def notes:[string] (deck.smartArtNotes())
+        this.ok(((array_length notes) == 0) ("nothing to warn about: " + (join notes "; ")))
+        def l0:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok((((PresCheck.texts(l0 "Kevät")) == 1) && ((PresCheck.texts(l0 "Syksy")) == 1)) "a cycle: every item drawn")
+        def l1:EVGDisplayList (PresTimeline.finalFrame(deck 1))
+        this.ok(((PresCheck.texts(l1 "Kesä")) == 1) "a pyramid: drawn")
+        def l2:EVGDisplayList (PresTimeline.finalFrame(deck 2))
+        this.ok((((PresCheck.texts(l2 "Toimitusjohtaja")) == 1) && ((PresCheck.texts(l2 "Assistentti")) == 1)) "an organisation chart with its assistant")
+        this.ok(((PresCheck.texts(l2 "Talous")) == 1) "and the row under it")
+        def l3:EVGDisplayList (PresTimeline.finalFrame(deck 3))
+        this.ok((((PresCheck.texts(l3 "Toimitusjohtaja")) == 1) && ((PresCheck.texts(l3 "Myynti")) == 1)) "a radial: the centre and round it")
+        this.ok(((PresCheck.images(l3 "/media/org.xml")) == 0) "none drawn as a picture of the file")
+    }
+
     sfn images:int (l:EVGDisplayList src:string) {
         def n:int 0
         def i:int 0
@@ -1011,6 +1045,7 @@ class PresCheck {
         c.figures()
         c.listFigures()
         c.smartArt()
+        c.smartArtLayouts()
         c.docSettings()
         c.ranges()
         c.limits()
