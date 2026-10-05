@@ -169,6 +169,13 @@ operators {
             go ( (e 1) ".ImageFromURL(" (e 2) ", " (e 3) ")" )
         }
     }
+    ; why the PNG, JPEG, GIF or WebP in the handle does not decode; "" when
+    ; it does
+    host_image_error _:string (h:McpHost handle:int) {
+        templates {
+            go ( (e 1) ".ImageError(" (e 2) ")" )
+        }
+    }
     ; the picture in the handle as the contrast check samples it: width,
     ; height, then 48 x 48 RGBA values; empty when it does not decode
     host_image_grid _:[int] (h:McpHost handle:int) {

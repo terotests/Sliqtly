@@ -96,6 +96,8 @@ class PresCheck {
         this.ok(((PresTimeline.slideAtTime(deck (s0.duration + 0.01))) == 1) "deck time to slide")
         this.ok(((deck.pageOfOffset((indexOf text "Toka"))) == 1) "source offset to slide")
         this.codeSteps()
+        this.chartHeaderInk()
+        this.tableMissing()
         this.diagram()
         this.bigTitle()
         this.orientation()
@@ -987,6 +989,58 @@ class PresCheck {
         def u2:PresChartUse (itemAt s2.charts 0)
         this.ok((u2.start == (PresTimeline.stepTime(s2 2))) ("a chart starts with its step: " + (to_string u2.start)))
         this.ok((s2.duration >= (u2.start + motion)) "and the slide waits for it")
+    }
+
+    ; A facet header's own colour is kept, and the axes under it still take
+    ; the theme's: one labelColor is not every word coloured.
+    fn chartHeaderInk:void () {
+        def text:string "## Alueet\n\n```vega-lite\n{\"data\":{\"values\":[{\"g\":\"North\",\"k\":\"A\",\"v\":3},{\"g\":\"South\",\"k\":\"B\",\"v\":2}]},\"facet\":{\"column\":{\"field\":\"g\",\"header\":{\"labelColor\":\"#ff8800\"}}},\"spec\":{\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"k\",\"type\":\"nominal\"},\"y\":{\"field\":\"v\",\"type\":\"quantitative\"}}}}\n```\n"
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def l:EVGDisplayList (PresTimeline.frame(deck 0 30.0))
+        def black:int 0
+        def header:int 0
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if (c.kind == 3) {
+                if (((c.r == 0) && (c.g == 0)) && (c.b == 0)) {
+                    black = (black + 1)
+                }
+                if (((c.r == 255) && (c.g == 136)) && (c.b == 0)) {
+                    header = (header + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        this.ok((header == 2) ("both facet headers keep their colour: " + (to_string header)))
+        this.ok((black == 0) ("no word left in the chart's black: " + (to_string black)))
+    }
+
+    ; A table whose file the page could not find says so, not "Loading".
+    fn tableMissing:void () {
+        def deck (new PresDeck())
+        deck.setText("## Myynti\n\n```table\ndata/myynti.csv\nrows: 5\n```\n")
+        PresTimeline.planAll(deck)
+        this.ok((this.frameHas(deck "Loading")) "a table waits for its file")
+        deck.setChartDataMissing("data/myynti.csv")
+        PresTimeline.planAll(deck)
+        this.ok((this.frameHas(deck "No such file in this presentation: data/myynti.csv")) "and then says it has none")
+        this.ok(((this.frameHas(deck "Loading")) == false) "instead of waiting")
+    }
+
+    fn frameHas:boolean (deck:PresDeck s:string) {
+        def l:EVGDisplayList (PresTimeline.frame(deck 0 5.0))
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if ((c.kind == 3) && ((indexOf c.text s) >= 0)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     ; The scan beam's bright core in a frame.

@@ -6212,6 +6212,12 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    fn setChartDataMissing:void (url:string) {
+        deck.setChartDataMissing(url)
+        PresTimeline.planAll(deck)
+        chromeRev = (chromeRev + 1)
+    }
+
     fn setChartData:void (url:string body:string) {
         deck.setChartData(url body)
         ; the slides are new objects: timed again, or every one lasts 0 s

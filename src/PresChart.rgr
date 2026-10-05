@@ -19,8 +19,10 @@ class PresChart {
 
     ; `spec` is the fence's own text. What it says outright wins over the
     ; theme: a mark "color" is the columns' colour (still dressed: the burn,
-    ; the cap, the grooves), a labelColor/titleColor keeps the words as the
-    ; chart drew them, a gridColor/domainColor/tickColor the lines.
+    ; the cap, the grooves), words the chart drew in a colour of their own
+    ; (an axis, legend or facet header's labelColor/titleColor) keep it, a
+    ; gridColor/domainColor/tickColor keeps the lines. Words in the chart's
+    ; default ink (black, which nothing set) take the theme's.
     ; `style` is the theme's `chart { chart-style }`: flat (plain columns, the
     ; default), forge (burning down into rust, grooves, a glowing cap, a
     ; scan pass), neon (lit edges round a faint body) or glass (a clear
@@ -87,7 +89,6 @@ class PresChart {
         if ((strlen markHex) > 0) {
             wm = (EVGColor.parse(markHex))
         }
-        def keepText:boolean (((indexOf spec "\"labelColor\"") >= 0) || ((indexOf spec "\"titleColor\"") >= 0))
         def keepLines:boolean ((((indexOf spec "\"gridColor\"") >= 0) || ((indexOf spec "\"domainColor\"") >= 0)) || ((indexOf spec "\"tickColor\"") >= 0))
         def acR:int (ac.red())
         def acG:int (ac.green())
@@ -350,7 +351,9 @@ class PresChart {
                     }
                     push out.cmds c
                 } {
-                    if ((c.kind == 3) && (! keepText)) {
+                    ; one header coloured is not every word coloured: only
+                    ; the words still in the default ink are the theme's
+                    if ((c.kind == 3) && (PresChart.defaultInk(c))) {
                         ; labels in a cooler, quieter light than the columns
                         if ((strlen labelHex) > 0) {
                             ; a light slide's labels in its own text colour,
@@ -793,6 +796,11 @@ class PresChart {
 
     ; The first `"key": "value"` in a JSON text whose value is a string, or
     ; "". Enough for the few colour keys looked for here; not a JSON reader.
+    ; text the chart drew in Vega's default ink: nothing in the spec coloured it
+    sfn defaultInk:boolean (c:EVGDrawCmd) {
+        return (((c.r == 0) && (c.g == 0)) && (c.b == 0))
+    }
+
     sfn specString:string (spec:string key:string) {
         def pat:string ("\"" + key + "\"")
         def n:int (strlen spec)

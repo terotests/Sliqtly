@@ -2568,6 +2568,8 @@ function fetchChartFiles(rev) {
     got.then((text) => {
       if (text == null) {
         toast(t("Could not load the chart file: ") + url);
+        app.setChartDataMissing(url);
+        needsPaint = true;
         return;
       }
       app.setChartData(url, text);
