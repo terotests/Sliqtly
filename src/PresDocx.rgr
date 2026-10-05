@@ -378,6 +378,17 @@ class PresDocx {
         return rd
     }
 
+    ; What the deck calls itself: the front matter's `title`, or the first
+    ; heading when there is none, or "".
+    sfn titleOf:string (doc:MdNode) {
+        def meta:MdMeta (MdFrontMatter.of(doc))
+        def t:string (trim (meta.get("title" "")))
+        if ((strlen t) > 0) {
+            return t
+        }
+        return (PresDocx.firstHeading(doc))
+    }
+
     ; the first heading's words: a title that only repeats it is not written
     sfn firstHeading:string (doc:MdNode) {
         def i:int 0
