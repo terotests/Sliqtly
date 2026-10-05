@@ -1904,27 +1904,33 @@ try {
     });
     check("…over the Files tab the File menu is on top, and its row takes the press", onFiles.onTop && onFiles.underPanel && onFiles.reqs.includes("click:save") && onFiles.closed, JSON.stringify(onFiles));
 
-    // The left rail (EVGUI RailCtl): the places beside the bar. Files and
-    // Edit switch the editor's tab, Rooms opens beside the rail and moves the
+    // The left rail (EVGUI RailCtl): the places beside the bar. Its dark
+    // switch presses the bar's own; Rooms opens beside the rail and moves the
     // editor over; the deck's name at the start of the bar is a field when
     // pressed, and Enter renames the deck as one edit that undoes.
-    const railed = await page.evaluate(() => {
+    const findJs = `(id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); }`;
+    const railTop = await page.evaluate((findJs) => {
       const a = window.__app;
-      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const find = eval(findJs);
       const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
       const take = () => { const out = []; for (;;) { const r = a.takeRequest(); if (!r) break; out.push(r); } return out; };
       take();
       const edX0 = a.edRect.x;
-      press(find("tb-rail-files"));
-      const files = a.edTab;
-      press(find("tb-rail-edit"));
-      const md = a.edTab;
-      press(find("tb-rail-decks"));
-      const decks = take();
+      const places = ["rooms", "review", "history", "dark", "settings"].map((p) => !!find("tb-rail-" + p));
+      const gone = ["edit", "files", "decks", "help"].some((p) => !!find("tb-rail-" + p));
+      press(find("tb-rail-dark"));
+      const dark = take();
       press(find("tb-rail-rooms"));
       a.place();
-      const roomsX = a.edRect.x;
-      const roomsShown = !!find("tb-room-q4");
+      return { edX0, places, gone, dark, roomsX: a.edRect.x };
+    }, findJs);
+    // the rooms are the page's (this browser's here): General, Playground, Onboarding
+    await page.waitForFunction(() => { const a = window.__app; a.toolbarJson(); return JSON.stringify(a.toolbar.host.lastPage).includes("tb-room-onboarding"); }, null, { timeout: 5000 }).catch(() => {});
+    const railed = await page.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      const roomsShown = ["general", "playground", "onboarding"].every((r) => !!find("tb-room-" + r)) && !find("tb-room-q4");
       press(find("tb-rail-rooms"));
       a.place();
       const backX = a.edRect.x;
@@ -1938,8 +1944,8 @@ try {
       a.key("a", false, true);
       a.text("Renamed deck");
       a.key("enter", false, false);
-      return { edX0, files, md, decks, roomsX, roomsShown, backX, chevronX, editing, after: a.toolbar.titleEditing, fileX0 };
-    });
+      return { roomsShown, backX, chevronX, editing, after: a.toolbar.titleEditing, fileX0 };
+    }, findJs);
     await page.waitForFunction(() => window.__app.docTitle() === "Renamed deck", null, { timeout: 5000 }).catch(() => {});
     const renamed = await page.evaluate(() => {
       const a = window.__app;
@@ -1949,11 +1955,49 @@ try {
       a.undo();
       return { title, undone: a.docTitle(), tab: a.deckTabsState(), fileX1 };
     });
-    check("the rail sits left of the editor; Files and Edit switch its tab, Decks opens the presentations", railed.edX0 === 72 && railed.files === "files" && railed.md === "md" && railed.decks.includes("decks"), JSON.stringify(railed));
-    check("…Rooms opens beside the rail and the editor moves over, then back", railed.roomsShown && railed.roomsX === 72 + 248 && railed.backX === 72, JSON.stringify(railed));
+    check("the rail sits left of the editor: Rooms, Review, Versions, the dark switch and Settings; its switch presses the bar's", railTop.edX0 === 72 && railTop.places.every(Boolean) && !railTop.gone && railTop.dark.includes("click:modeBtn"), JSON.stringify(railTop));
+    check("…Rooms opens beside the rail with General, Playground and Onboarding, the editor moved over, then back", railed.roomsShown && railTop.roomsX === 72 + 248 && railed.backX === 72, JSON.stringify({ railTop, railed }));
     check("…the ‹ before the Rooms heading closes the panel", railed.chevronX === 72, JSON.stringify(railed));
     check("…the name's button keeps its width, so the menus after it stay put when the name changes", railed.fileX0 === renamed.fileX1, JSON.stringify({ before: railed.fileX0, after: renamed.fileX1 }));
     check("…the name at the start of the bar becomes a field; Enter renames the deck, as one edit that undoes", railed.editing && !railed.after && renamed.title === "Renamed deck" && renamed.undone !== "Renamed deck", JSON.stringify(renamed));
+
+    // Rooms' "+": a field for the name, Enter makes the room (this browser's,
+    // web/rooms.js) and opens it; its last row moves the open presentation in
+    const pageHas = (needle) => page.waitForFunction((n) => { const a = window.__app; a.toolbarJson(); return JSON.stringify(a.toolbar.host.lastPage).includes(n); }, needle, { timeout: 5000 }).then(() => true, () => false);
+    await page.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      press(find("tb-rail-rooms"));
+    }, findJs);
+    await pageHas("tb-room-general");
+    const naming = await page.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      press(find("tb-room-new"));
+      const field = !!find("tb-title-in") && a.toolbar.editFor === "room";
+      a.text("Team room");
+      a.key("enter", false, false);
+      return { field, after: a.toolbar.titleEditing };
+    }, findJs);
+    const made = await pageHas("Team room") && await pageHas("tb-roomdeck-move");
+    await page.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      press(find("tb-roomdeck-move"));
+    }, findJs);
+    const movedIn = await page.waitForFunction(() => { try { const s = JSON.parse(localStorage.getItem("sliqtly.rooms")); const r = s.rooms.find((x) => x.title === "Team room"); return !!r && Object.values(s.placed).includes(r.id); } catch (_) { return false; } }, null, { timeout: 5000 }).then(() => true, () => false);
+    const moveGone = movedIn && await page.waitForFunction(() => { const a = window.__app; a.toolbarJson(); return !JSON.stringify(a.toolbar.host.lastPage).includes("tb-roomdeck-move"); }, null, { timeout: 5000 }).then(() => true, () => false);
+    await page.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      press(find("tb-room-close"));
+      localStorage.removeItem("sliqtly.rooms");
+    }, findJs);
+    check("…Rooms' + asks a name; Enter makes the room, and the open presentation moves into it", naming.field && !naming.after && made && movedIn && moveGone, JSON.stringify({ naming, made, movedIn, moveGone }));
 
     // the File menu's groups: new | open | save | the assistants | settings, lines between them
     // that take no press
