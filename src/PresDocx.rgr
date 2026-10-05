@@ -1,0 +1,491 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresDocx.rgr — the deck, as a Word document.
+; ============================================================================
+;
+; A deck read as a document: the slides one after another down A4 pages, each
+; slide's headings as Word headings (so the navigation pane lists them), its
+; text, lists and tables as Word's own, its pictures as pictures, and the
+; speaker's notes under the slide they belong to.
+;
+;   PresDeck ──► PresDocx ──► MdToDocx (per block) ──► RichDocument
+;                    │                                     │
+;                    └── shots: what only the stage draws  └─► DocxWriter
+;
+; The blocks go through the Markdown engine's own `MdToDocx`, one top-level
+; block at a time, so a paragraph here is the same paragraph the engine's
+; document view makes. What this adds is what a deck has and a document does
+; not: where a slide ends, its notes, and the things only the stage can draw
+; — a diagram, a chart, a list figure, a formula, a SmartArt. Those are
+; SHOTS: the host draws each block's rectangle of its slide at rest (the same
+; picture the slide shows, with its theme) and hands the PNG back with
+; `setShot`; a block with no shot falls back to the engine's own road (a
+; diagram as geometry the reader cannot see in Word, so it is written as its
+; name and counted by the writer).
+;
+; The document's look is a document's, not the slide theme's: black text on
+; white A4 in Arial, whatever the theme's colours — a dark theme's white text
+; would vanish on paper.
+; ============================================================================
+
+Import "PresDeck.rgr"
+Import "PresTimeline.rgr"
+Import "DocxWriter.rgr"
+Import "../markdown/src/MdToDocx.rgr"
+
+; A block that only the stage can draw: where it is on its slide, and the
+; picture of it once the host has made one.
+class PresDocxShot {
+    ; the block's first source character, which names it, and its end
+    def key:int 0
+    def keyEnd:int 0
+    def page:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def alt:string ""
+    def png:buffer (buffer_alloc 0)
+    def pxW:int 0
+    def pxH:int 0
+
+    Constructor () {
+    }
+}
+
+class PresDocx {
+    def shots:[PresDocxShot]
+    ; a page break before every slide after the first; off: the slides follow
+    ; each other as sections do
+    def pageBreaks:boolean false
+    ; only these pages, when any are given (picked slides)
+    def onlyPages:[int]
+    ; what came out, for a caller to say
+    def slides:int 0
+    def notes:int 0
+    def shotsPlaced:int 0
+    def maker:MdToDocx (new MdToDocx())
+
+    Constructor () {
+    }
+
+    fn wanted:boolean (page:int) {
+        if ((array_length onlyPages) == 0) {
+            return true
+        }
+        return ((indexOf onlyPages page) >= 0)
+    }
+
+    ; --- shots ------------------------------------------------------------------
+
+    ; Every top-level block the stage draws and a document cannot: embeds
+    ; (diagrams, charts, list figures), display formulas, and a picture that
+    ; is a SmartArt file. Its rectangle is the union of its boxes on its page.
+    fn findShots:void (deck:PresDeck) {
+        clear shots
+        def doc:MdNode deck.md.edit.doc
+        def l:MdLayout (deck.layout())
+        def c:int 0
+        while (c < (doc.childCount())) {
+            def ch:MdNode (doc.childAt(c))
+            if (this.needsShot(deck l ch)) {
+                def page:int (deck.pageOfNode(ch))
+                if ((page >= 0) && (this.wanted(page))) {
+                    def s:PresDocxShot (PresDocx.rectOf(l ch page))
+                    PresDocx.diagramRect(deck s)
+                    if ((s.w > 0.0) && (s.h > 0.0)) {
+                        s.alt = (PresDocx.altOf(ch))
+                        push shots s
+                    }
+                }
+            }
+            c = (c + 1)
+        }
+    }
+
+    fn needsShot:boolean (deck:PresDeck l:MdLayout n:MdNode) {
+        if ((n.kind == "embed") || (n.kind == "math_block")) {
+            return true
+        }
+        if (n.kind == "paragraph") {
+            def i:int 0
+            while (i < (array_length l.boxes)) {
+                def b:MdBox (itemAt l.boxes i)
+                if ((b.kind == 4) && (deck.isSmartArtPath(b.imagePath))) {
+                    def s:int (PresDeck.boxSrc(b))
+                    if ((s >= n.srcStart) && (s < n.srcEnd)) {
+                        return true
+                    }
+                }
+                i = (i + 1)
+            }
+        }
+        return false
+    }
+
+    sfn rectOf:PresDocxShot (l:MdLayout n:MdNode page:int) {
+        def s (new PresDocxShot())
+        s.key = n.srcStart
+        s.keyEnd = n.srcEnd
+        s.page = page
+        def x0:double 0.0
+        def y0:double 0.0
+        def x1:double 0.0
+        def y1:double 0.0
+        def any:boolean false
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            def src:int (PresDeck.boxSrc(b))
+            if ((((b.page == page) && (b.furniture == 0)) && (src >= n.srcStart)) && (src < n.srcEnd)) {
+                if ((b.w > 0.0) && (b.h > 0.0)) {
+                    if ((any == false) || (b.x < x0)) {
+                        x0 = b.x
+                    }
+                    if ((any == false) || (b.y < y0)) {
+                        y0 = b.y
+                    }
+                    if ((any == false) || ((b.x + b.w) > x1)) {
+                        x1 = (b.x + b.w)
+                    }
+                    if ((any == false) || ((b.y + b.h) > y1)) {
+                        y1 = (b.y + b.h)
+                    }
+                    any = true
+                }
+            }
+            i = (i + 1)
+        }
+        if any {
+            s.x = x0
+            s.y = y0
+            s.w = (x1 - x0)
+            s.h = (y1 - y0)
+        }
+        return s
+    }
+
+    ; A diagram is drawn where the stage puts it, which is not its layout
+    ; slot: the slot holds its place in the text, the stage gives it the room
+    ; left on the slide.
+    sfn diagramRect:void (deck:PresDeck s:PresDocxShot) {
+        if (s.page >= (deck.slideCount())) {
+            return
+        }
+        def slide:PresSlide (deck.slideAt(s.page))
+        def k:int 0
+        while (k < (array_length slide.diagrams)) {
+            def u:PresDiaUse (itemAt slide.diagrams k)
+            if (((u.srcStart >= s.key) && (u.srcStart < s.keyEnd)) && ((u.bw > 0.0) && (u.bh > 0.0))) {
+                s.x = u.bx
+                s.y = u.by
+                s.w = u.bw
+                s.h = u.bh
+                return
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; what a reader without the picture is told it is
+    sfn altOf:string (n:MdNode) {
+        if (n.kind == "math_block") {
+            return (trim n.literal)
+        }
+        if (n.kind == "embed") {
+            def word:string (MdEmbedKinds.firstWord(n.info))
+            return ((MdEmbedKinds.notationWord(word)) + " diagram")
+        }
+        return (trim (n.plainText()))
+    }
+
+    ; What the host draws for a shot, on its slide's coordinates: the slide's
+    ; paper under the block's rectangle, then a diagram drawn whole and still
+    ; (as the PowerPoint export draws it), a chart at rest, or else the slide
+    ; itself at rest, of which the host keeps the rectangle.
+    fn shotList:EVGDisplayList (deck:PresDeck key:int) {
+        def dl (new EVGDisplayList())
+        def i:int 0
+        while (i < (array_length shots)) {
+            def s:PresDocxShot (itemAt shots i)
+            if (s.key == key) {
+                this.paintShot(dl deck s)
+                return dl
+            }
+            i = (i + 1)
+        }
+        return dl
+    }
+
+    fn paintShot:void (dl:EVGDisplayList deck:PresDeck s:PresDocxShot) {
+        def l:MdLayout (deck.layout())
+        def paper:string "#ffffff"
+        if ((strlen l.style.pageBackground) > 0) {
+            paper = l.style.pageBackground
+        }
+        dl.addRect(s.x s.y s.w s.h (EVGColor.parse(paper)))
+        if (s.page < (deck.slideCount())) {
+            def slide:PresSlide (deck.slideAt(s.page))
+            def k:int 0
+            while (k < (array_length slide.diagrams)) {
+                def u:PresDiaUse (itemAt slide.diagrams k)
+                if ((u.srcStart >= s.key) && (u.srcStart < s.keyEnd)) {
+                    u.diagram.paintStill(dl u.bx u.by u.bw u.bh l.style.textColor paper l)
+                    return
+                }
+                k = (k + 1)
+            }
+        }
+        def boxes:[int] (deck.chartBoxes(s.page))
+        def b:int 0
+        while (b < (array_length boxes)) {
+            def bi:int (itemAt boxes b)
+            def src:int (PresDeck.boxSrc((itemAt l.boxes bi)))
+            if ((src >= s.key) && (src < s.keyEnd)) {
+                PresDocx.append(dl (deck.chartStill(bi)))
+                return
+            }
+            b = (b + 1)
+        }
+        PresDocx.append(dl (PresTimeline.finalFrame(deck s.page)))
+    }
+
+    sfn append:void (dl:EVGDisplayList from:EVGDisplayList) {
+        def i:int 0
+        while (i < (array_length from.cmds)) {
+            dl.addCmd((itemAt from.cmds i))
+            i = (i + 1)
+        }
+    }
+
+    ; [{"key":…,"page":…,"x":…,"y":…,"w":…,"h":…}], in stage units
+    fn shotsJson:string () {
+        def out:string "["
+        def i:int 0
+        while (i < (array_length shots)) {
+            def s:PresDocxShot (itemAt shots i)
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "{\"key\":" + (to_string s.key) + ",\"page\":" + (to_string s.page))
+            out = (out + ",\"x\":" + (to_string s.x) + ",\"y\":" + (to_string s.y))
+            out = (out + ",\"w\":" + (to_string s.w) + ",\"h\":" + (to_string s.h) + "}")
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
+    fn setShot:void (key:int png:buffer pxW:int pxH:int) {
+        def i:int 0
+        while (i < (array_length shots)) {
+            def s:PresDocxShot (itemAt shots i)
+            if (s.key == key) {
+                s.png = png
+                s.pxW = pxW
+                s.pxH = pxH
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn shotFor@(optional):PresDocxShot (key:int) {
+        def i:int 0
+        while (i < (array_length shots)) {
+            def s:PresDocxShot (itemAt shots i)
+            if ((s.key == key) && ((buffer_length s.png) > 0)) {
+                def hit@(optional):PresDocxShot s
+                return hit
+            }
+            i = (i + 1)
+        }
+        def none@(optional):PresDocxShot
+        return none
+    }
+
+    ; --- the document -----------------------------------------------------------
+
+    sfn docStyle:MdStyle (title:string) {
+        def st (new MdStyle())
+        st.bodyFamily = "Arial"
+        st.headingFamily = "Arial"
+        st.monoFamily = "Courier New"
+        st.pageWidth = 595.3
+        st.pageHeight = 841.9
+        st.margin = 72.0
+        st.title = title
+        return st
+    }
+
+    fn build:RichDocument (deck:PresDeck title:string) {
+        slides = 0
+        notes = 0
+        shotsPlaced = 0
+        def e:MarkdownEdit deck.md.edit
+        def st:MdStyle (PresDocx.docStyle(title))
+        maker = (new MdToDocx())
+        if e.haveImages {
+            maker.setImages(e.imageStore "/")
+        }
+        maker.setEmbeds(e.layout.embeds)
+        ; an empty root: the section and the result, no blocks yet
+        def rd:RichDocument (maker.build((new MdNode()) st))
+        if (((strlen title) > 0) && ((PresDocx.firstHeading(e.doc)) != title)) {
+            def tp:Paragraph (rd.addParagraph())
+            tp.styleId = "Title"
+            tp.spaceAfterPt = 12.0
+            def ts:TextSpan (maker.spanFor(false false false ""))
+            ts.fontSizePt = 28.0
+            tp.appendText(title ts)
+        }
+        def l:MdLayout (deck.layout())
+        def pageW:double deck.pageW
+        def doc:MdNode e.doc
+        def cur:int -1
+        def c:int 0
+        while (c < (doc.childCount())) {
+            def ch:MdNode (doc.childAt(c))
+            def page:int (deck.pageOfNode(ch))
+            ; a block that drew nothing (front matter, a blank) goes with the
+            ; slide before it
+            if (page < 0) {
+                page = cur
+            }
+            if ((page >= 0) && (this.wanted(page))) {
+                if (page != cur) {
+                    if (cur >= 0) {
+                        this.addNotes(rd deck cur)
+                    }
+                    if ((slides > 0) && pageBreaks) {
+                        rd.addPageBreak()
+                    }
+                    slides = (slides + 1)
+                    cur = page
+                }
+                def shot@(optional):PresDocxShot (this.shotFor(ch.srcStart))
+                if (!null? shot) {
+                    this.placeShot(rd (unwrap shot) pageW)
+                } {
+                    maker.block(ch 0 0)
+                }
+            }
+            c = (c + 1)
+        }
+        if (cur >= 0) {
+            this.addNotes(rd deck cur)
+        }
+        rd.touch()
+        return rd
+    }
+
+    ; What the deck calls itself: the front matter's `title`, or the first
+    ; heading when there is none, or "".
+    sfn titleOf:string (doc:MdNode) {
+        def meta:MdMeta (MdFrontMatter.of(doc))
+        def t:string (trim (meta.get("title" "")))
+        if ((strlen t) > 0) {
+            return t
+        }
+        return (PresDocx.firstHeading(doc))
+    }
+
+    ; the first heading's words: a title that only repeats it is not written
+    sfn firstHeading:string (doc:MdNode) {
+        def i:int 0
+        while (i < (doc.childCount())) {
+            def ch:MdNode (doc.childAt(i))
+            if (ch.kind == "heading") {
+                return (trim (ch.plainText()))
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; The picture of a block, as wide a share of the text column as the block
+    ; was of its slide.
+    fn placeShot:void (rd:RichDocument s:PresDocxShot pageW:double) {
+        def p:Paragraph (rd.addParagraph())
+        p.spaceAfterPt = 8.0
+        def sec:DocSection rd.section
+        def colEmu:double ((to_double ((sec.pageWTwips - sec.marginLeftTwips) - sec.marginRightTwips)) * 635.0)
+        def share:double 1.0
+        if (pageW > 0.0) {
+            share = (s.w / pageW)
+        }
+        if (share > 1.0) {
+            share = 1.0
+        }
+        if (share < 0.25) {
+            share = 0.25
+        }
+        def img (new DocImage())
+        img.bytes = s.png
+        img.format = "image/png"
+        img.partPath = ("shot-" + (to_string s.key) + ".png")
+        img.altText = s.alt
+        img.widthEmu = (to_int ((colEmu * share) + 0.5))
+        img.heightEmu = (to_int ((((to_double img.widthEmu) * s.h) / s.w) + 0.5))
+        img.widthPx = s.pxW
+        img.heightPx = s.pxH
+        img.ok = true
+        push p.images img
+        shotsPlaced = (shotsPlaced + 1)
+    }
+
+    fn addNotes:void (rd:RichDocument deck:PresDeck page:int) {
+        if (page >= (deck.slideCount())) {
+            return
+        }
+        def s:PresSlide (deck.slideAt(page))
+        def text:string (trim (PresDocx.notesText(s.notes)))
+        if ((strlen text) == 0) {
+            return
+        }
+        def lines:[string] (strsplit text "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (trim (itemAt lines i))
+            if ((strlen line) > 0) {
+                def p:Paragraph (rd.addParagraph())
+                p.styleId = "Notes"
+                p.spaceAfterPt = 4.0
+                p.indentLeftPt = 14.0
+                def sp:TextSpan (maker.spanFor(false false false ""))
+                sp.fontSizePt = 10.0
+                sp.colorHex = "57606A"
+                p.appendText(line sp)
+            }
+            i = (i + 1)
+        }
+        notes = (notes + 1)
+    }
+
+    ; The notes as words: the `[[…]]` cues that time a build step to the
+    ; speech are for the player, not for a reader.
+    sfn notesText:string (notes:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen notes)
+        while (i < n) {
+            if (((i + 1) < n) && (((charAt notes i) == 91) && ((charAt notes (i + 1)) == 91))) {
+                def rest:string (substring notes i n)
+                def close:int (indexOf rest "]]")
+                if (close > 0) {
+                    i = ((i + close) + 2)
+                    continue
+                }
+            }
+            out = (out + (substring notes i (i + 1)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; the whole road: the document, then its bytes
+    fn docx:buffer (deck:PresDeck title:string) {
+        def rd:RichDocument (this.build(deck title))
+        def w (new DocxWriter())
+        return (w.write(rd))
+    }
+}
