@@ -346,13 +346,12 @@ class PresHints {
         def h:PresHint (PresHint.make("enum" (PresI18n.t("language")) lang a b))
         h.doc = (PresI18n.t("What the block is: a diagram, a formula or code. process, swot and timeline draw a layout from a list, one `Title: description` per line."))
         h.options = "mermaid dot plantuml d2 vega-lite process swot timeline math js python bash json"
-        ; a diagram: its look first; the notation stays as written unless
-        ; asked (the card keeps it folded)
+        ; a diagram: its looks; the notation is not switched from here
         if (PresHints.isDiagramLang(lang)) {
             h.name = (PresI18n.t("Diagram"))
-            h.doc = (PresI18n.t("The diagram's look. The notation it is written in stays as it is."))
+            h.doc = (PresI18n.t("The diagram's look."))
             h.looks = (PresHints.diagramLooks())
-            h.options = "mermaid dot d2 plantuml"
+            h.options = ""
         }
         return (h.json())
     }
