@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn test_key_ordering() {
         let id1 = Uuid::now_v7();
-        let id2 = Uuid::now_v7();
+        let _id2 = Uuid::now_v7();
 
         let k1 = KeyBuilder::new(KeyType::IdxDocUpdated)
             .push_uuid(id1)
