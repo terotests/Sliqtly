@@ -953,6 +953,12 @@
   "Share selected slides…": "Jaa valitut diat…",
   "slides": "diat",
   "These slides are no longer in the presentation.": "Näitä dioja ei enää ole esityksessä.",
+  "Copied": "Kopioitu",
+  "Could not copy": "Kopiointi ei onnistunut",
+  "All": "Kaikki",
+  "Comments": "Kommentit",
+  "Copy open comments": "Kopioi avoimet kommentit",
+  "No open comments.": "Ei avoimia kommentteja.",
   "Open presentations": "Avoimet esitykset",
   "Close ": "Sulje ",
   "This presentation is no longer here.": "Tätä esitystä ei enää ole."
