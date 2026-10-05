@@ -94,12 +94,31 @@ class PresCheck {
 
         this.ok(((PresTimeline.slideAtTime(deck (s0.duration + 0.01))) == 1) "deck time to slide")
         this.ok(((deck.pageOfOffset((indexOf text "Toka"))) == 1) "source offset to slide")
+        this.codeSteps()
         this.diagram()
         this.bigTitle()
         this.orientation()
         this.chartModel()
         this.review()
         this.reviewDiagram()
+    }
+
+    ; ```js {lines=2|3 .build}: the code is there from the start, and each
+    ; highlight (a band and a bar at its left) comes at a build step
+    fn codeSteps:void () {
+        def deck (new PresDeck())
+        deck.setText("## Koodi\n\n```js {lines=2|3 .build}\nalpha()\nbeta()\ngamma()\n```\n")
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        this.ok((s.steps == 2) ("code highlights: two steps, got " + (to_string s.steps)))
+        def early:EVGDisplayList (PresTimeline.frame(deck 0 0.1))
+        def one:EVGDisplayList (PresTimeline.frame(deck 0 ((PresTimeline.stepDone(s 1)) + 0.05)))
+        def late:EVGDisplayList (PresTimeline.frame(deck 0 s.duration))
+        this.ok(((PresCheck.textsLike(early "gamma")) == 1) "code highlights: the code is there before the steps")
+        ; the highlight bar's blue on a light listing
+        this.ok(((PresCheck.fills(early 9 105 218)) == 0) "code highlights: none before step 1")
+        this.ok(((PresCheck.fills(one 9 105 218)) == 1) "code highlights: one after step 1")
+        this.ok(((PresCheck.fills(late 9 105 218)) == 2) "code highlights: both at the end")
     }
 
     ; Review comments: threads on slides, closing, deleting, the file, two
