@@ -284,7 +284,25 @@ class Tools {
 
         def ghp:MfJ (MfJ.newObj())
         ghp.put("pr" (Tools.prop("string" "The pull request: its link (https://github.com/owner/repo/pull/12) or owner/repo#12")))
-        tools.add((Tools.tool("read_github_pr" "Read a GitHub pull request" "A GitHub pull request as the source of a review deck: its title, description, author, state, each changed file with its lines added and removed and its diff, and its commits, with a first draft of the deck in Sliqtly Markdown (what and why, changed files, the biggest changes as ```diff slides, commits on a timeline, decision). Edit the draft (explain the change, add a diagram of the changed parts) and pass it to create_presentation. Public repositories." (Tools.schema(ghp ([] _:string ("pr")))) (Tools.annotations(true -1 false true)) eitherMeta)))
+        tools.add((Tools.tool("read_github_pr" "Read a GitHub pull request" "A GitHub pull request as the source of a review deck: its title, description, author, state, each changed file with its lines added and removed and its diff, and its commits, with a first draft of the deck in Sliqtly Markdown (what and why, changed files, the biggest changes as ```diff slides, commits on a timeline, decision). Edit the draft (explain the change, add a diagram of the changed parts) and pass it to create_presentation. When the change has classes (TypeScript, JavaScript, Java, C#, Kotlin, Swift, Go, Python, Rust, Ranger), the draft has a UML class diagram of them. Public repositories; private ones when the server has a GitHub token and you are signed in as a user it lets read them." (Tools.schema(ghp ([] _:string ("pr")))) (Tools.annotations(true -1 false true)) eitherMeta)))
+
+        def ump:MfJ (MfJ.newObj())
+        ump.put("github" (Tools.prop("string" "Source on GitHub: a repository, folder or file link (https://github.com/owner/repo/tree/main/src, …/blob/main/src/a.ts) or owner/repo/path. A folder is read with its subfolders, up to 40 source files.")))
+        def ufp:MfJ (MfJ.newObj())
+        ufp.put("name" (Tools.prop("string" "File name with its extension (the language is read from it), e.g. src/shape.ts")))
+        ufp.put("text" (Tools.prop("string" "The file's source")))
+        def ufi:MfJ (MfJ.newObj())
+        ufi.putStr("type" "object")
+        ufi.put("properties" ufp)
+        ufi.put("required" (J.strs(([] _:string ("name" "text")))))
+        def ufl:MfJ (Tools.prop("array" "Source files given as text (instead of or besides github)"))
+        ufl.put("items" ufi)
+        ump.put("files" ufl)
+        def umx:MfJ (Tools.prop("integer" "At most this many classes in the diagram, the most connected first (default 10, at most 20)"))
+        umx.putInt("minimum" 1)
+        umx.putInt("maximum" 20)
+        ump.put("max_classes" umx)
+        tools.add((Tools.tool("source_uml" "UML class diagram from source code" "A UML class diagram read from source code: classes, interfaces, structs, enums and traits with what they extend and implement, their fields and methods, and fields that refer to other classes as associations. Reads TypeScript, JavaScript, Java, C#, Kotlin, Swift, Dart, PHP, Go, Python, Rust and Ranger, from GitHub or from files given as text. Returns the diagram as a ```mermaid classDiagram and as a slide to put into create_presentation or update_presentation (edit it freely: drop members, rename, add notes)." (Tools.schema(ump none)) (Tools.annotations(true -1 false true)) eitherMeta)))
 
         def xp:MfJ (MfJ.newObj())
         xp.put("deck_id" (Tools.prop("string" "deck_id of the presentation (the id in https://sliqtly.com/s/<id>)")))
@@ -1025,7 +1043,10 @@ class Tools {
             r = (Tools.readFile(host caller args))
         }
         if (name == "read_github_pr") {
-            r = (Tools.readGitHubPr(host args))
+            r = (Tools.readGitHubPr(host caller args))
+        }
+        if (name == "source_uml") {
+            r = (Tools.sourceUml(host caller args))
         }
         if (name == "export_presentation") {
             r = (Tools.exportDeck(host args))
@@ -2159,7 +2180,7 @@ class Tools {
 
     ; read_github_pr: the PR, its files and commits from GitHub's REST API,
     ; and a draft deck (GitHub.rgr)
-    sfn readGitHubPr:MfJ (host:McpHost a:MfJ) {
+    sfn readGitHubPr:MfJ (host:McpHost caller:Caller a:MfJ) {
         def bad:string (Tools.checkArgs(a ([] _:string ("pr"))))
         if ((strlen bad) > 0) {
             return (Tools.fail(bad))
@@ -2178,6 +2199,12 @@ class Tools {
         if ((pr.isObj()) == false) {
             return (Tools.fail(("GitHub's answer about " + (ref.name()) + " could not be read.")))
         }
+        if ((pr.field("base")).isObj()) {
+            def brepo:MfJ ((pr.field("base")).field("repo"))
+            if ((brepo.bool_("private" false)) && ((host_github_private_ok host caller.uid) == false)) {
+                return (Tools.fail((Tools.privateRefused(caller (ref.owner + "/" + ref.repo)))))
+            }
+        }
         def files:MfJ (MfJ.newArr())
         def gf:MfJ (J.parse((host_fetch_text host ((ref.api()) + "/files?per_page=100") accept 8000000)))
         if ((gf.int_("status" 0)) == 200) {
@@ -2189,7 +2216,19 @@ class Tools {
             commits = (J.parse((gc.str_("body"))))
         }
         def p:GhPr (GhPr.read(ref pr files commits))
-        def md:string (GhDeck.draft(p))
+        ; the classes of the changed files, read whole at the head commit
+        def uml (new PresUml())
+        for (p.sourceFiles(8)) sf:GhFile si {
+            if (((GhSrc.pathOk(sf.name)) == false) || ((strlen p.headSha) == 0)) {
+                continue
+            }
+            def raw:MfJ (J.parse((host_fetch_text host ("https://api.github.com/repos/" + p.headRepo + "/contents/" + sf.name + "?ref=" + p.headSha) "application/vnd.github.raw+json" 400000)))
+            if ((raw.int_("status" 0)) == 200) {
+                uml.add(sf.name (raw.str_("body")))
+            }
+        }
+        def diagram:string (uml.mermaid(8 0))
+        def md:string (GhDeck.draft(p diagram))
         def out:MfJ (MfJ.newObj())
         out.putStr("pr" (ref.name()))
         out.putStr("url" (ref.web()))
@@ -2226,6 +2265,9 @@ class Tools {
             cl.add(co)
         }
         out.put("commits" cl)
+        if ((strlen diagram) > 0) {
+            out.putStr("uml" diagram)
+        }
         out.putStr("markdown" md)
         def lines:[string]
         push lines ((ref.name()) + ": \"" + p.title + "\" by " + p.author + ", " + p.state + "; " + p.changedFiles + " files, +" + p.additions + " −" + p.deletions + ", " + p.commitCount + " commits.")
@@ -2241,13 +2283,210 @@ class Tools {
         return r
     }
 
+    ; a private repository read with the server's token is for the users
+    ; the server names (SLIQTLY_GITHUB_USERS) only: anyone may call this
+    ; server, and the token is its owner's
+    sfn privateRefused:string (caller:Caller repo:string) {
+        if (caller.signedIn == false) {
+            return (repo + " is private. Sign in to Sliqtly (Google) as a user this server lets read private repositories, then ask again.")
+        }
+        return (repo + " is private, and this server reads private repositories only for the users it names. Your Sliqtly user id is " + caller.uid + ": the server's owner can add it to SLIQTLY_GITHUB_USERS.")
+    }
+
+    ; source_uml: classes read from files given as text and/or from GitHub
+    sfn sourceUml:MfJ (host:McpHost caller:Caller a:MfJ) {
+        def noneRequired:[string]
+        def bad:string (Tools.checkArgs(a noneRequired))
+        if ((strlen bad) > 0) {
+            return (Tools.fail(bad))
+        }
+        def gh:MfJ (a.field("github"))
+        if ((gh.kind != 0) && (gh.kind != 3)) {
+            return (Tools.fail("Invalid arguments: github is a string."))
+        }
+        def given:[MfJ] (a.list("files"))
+        if ((gh.kind == 0) && ((array_length given) == 0)) {
+            return (Tools.fail("Invalid arguments: give github (a repository, folder or file) or files."))
+        }
+        def maxC:int (a.int_("max_classes" 10))
+        if ((maxC < 1) || (maxC > 20)) {
+            return (Tools.fail("Invalid arguments: max_classes is from 1 to 20."))
+        }
+        def uml (new PresUml())
+        for given gf:MfJ gi {
+            if ((gf.field("text")).kind != 3) {
+                return (Tools.fail(("Invalid arguments: file " + (gf.str_("name")) + " has no text.")))
+            }
+            uml.add((gf.str_("name")) (gf.str_("text")))
+        }
+        def from:string ""
+        def notes:[string]
+        if (gh.kind == 3) {
+            def src:GhSrc (GhSrc.parse(gh.str))
+            if ((strlen src.err) > 0) {
+                return (Tools.fail(("Invalid arguments: " + src.err)))
+            }
+            from = (src.name())
+            def accept:string "application/vnd.github+json"
+            def rg:MfJ (J.parse((host_fetch_text host (src.repoApi()) accept 200000)))
+            def rs:int (rg.int_("status" 0))
+            if (rs == 404) {
+                return (Tools.fail(("GitHub has no repository " + src.owner + "/" + src.repo + " that this server can read: it does not exist, or it is private and the server's GitHub token (SLIQTLY_GITHUB_TOKEN) is missing or does not reach it.")))
+            }
+            if (rs != 200) {
+                return (Tools.fail((Tools.githubDown(rs))))
+            }
+            def repo:MfJ (J.parse((rg.str_("body"))))
+            if ((repo.bool_("private" false)) && ((host_github_private_ok host caller.uid) == false)) {
+                return (Tools.fail((Tools.privateRefused(caller (src.owner + "/" + src.repo)))))
+            }
+            ; folders breadth first, up to 40 source files from 12 folders
+            def dirs:[string]
+            push dirs src.path
+            def wanted:[string]
+            def di:int 0
+            def single:boolean false
+            while ((di < (array_length dirs)) && ((di < 12) && ((array_length wanted) < 40))) {
+                def dir:string (itemAt dirs di)
+                di = (di + 1)
+                def lg:MfJ (J.parse((host_fetch_text host (src.contents(dir)) accept 2000000)))
+                def ls:int (lg.int_("status" 0))
+                if (ls != 200) {
+                    if (di == 1) {
+                        if (ls == 404) {
+                            return (Tools.fail(("GitHub has no " + from + ".")))
+                        }
+                        return (Tools.fail((Tools.githubDown(ls))))
+                    }
+                    continue
+                }
+                def listing:MfJ (J.parse((lg.str_("body"))))
+                if (listing.isObj()) {
+                    ; one file
+                    push wanted (listing.str_("path"))
+                    single = true
+                    continue
+                }
+                if ((listing.isArr()) == false) {
+                    continue
+                }
+                def li:int 0
+                while (li < (listing.count())) {
+                    def e:MfJ (listing.item(li))
+                    li = (li + 1)
+                    def ep:string (e.str_("path"))
+                    def en:string (e.str_("name"))
+                    if (((GhSrc.pathOk(ep)) == false) || (startsWith en ".")) {
+                        continue
+                    }
+                    if ((e.str_("type")) == "dir") {
+                        if ((Tools.skipDir(en)) == false) {
+                            push dirs ep
+                        }
+                        continue
+                    }
+                    if ((((e.str_("type")) == "file") && ((strlen (PresUml.langOf(en))) > 0)) && ((e.int_("size" 0)) <= 400000)) {
+                        if (((array_length wanted) < 40) && ((Tools.skipFile(en)) == false)) {
+                            push wanted ep
+                        }
+                    }
+                }
+            }
+            if ((di < (array_length dirs)) && (single == false)) {
+                push notes ("Only the first " + di + " folders were read.")
+            }
+            if ((array_length wanted) >= 40) {
+                push notes "Only the first 40 source files were read; name a folder for a closer look."
+            }
+            for wanted wp:string wi {
+                if ((GhSrc.pathOk(wp)) == false) {
+                    continue
+                }
+                def raw:MfJ (J.parse((host_fetch_text host (src.contents(wp)) "application/vnd.github.raw+json" 400000)))
+                if ((raw.int_("status" 0)) == 200) {
+                    uml.add(wp (raw.str_("body")))
+                }
+            }
+        }
+        def diagram:string (uml.mermaid(maxC 0))
+        if ((strlen diagram) == 0) {
+            def why:string ("No classes were found in " + (array_length uml.files) + " source files")
+            if ((strlen from) > 0) {
+                why = (why + " of " + from)
+            }
+            if ((array_length uml.skipped) > 0) {
+                why = (why + " (" + (array_length uml.skipped) + " files in languages this does not read)")
+            }
+            return (Tools.fail((why + ". It reads TypeScript, JavaScript, Java, C#, Kotlin, Swift, Dart, PHP, Go, Python, Rust and Ranger.")))
+        }
+        def slide:string ("## Classes\n\n```mermaid\n" + diagram + "\n```")
+        def out:MfJ (MfJ.newObj())
+        out.putStr("mermaid" diagram)
+        out.putStr("markdown" slide)
+        def cl:MfJ (MfJ.newArr())
+        for uml.classes c:PresUmlClass ci {
+            def co:MfJ (MfJ.newObj())
+            co.putStr("name" c.name)
+            co.putStr("kind" c.kind)
+            co.putStr("file" c.file)
+            co.putInt("fields" (array_length c.fields))
+            co.putInt("methods" (array_length c.methods))
+            cl.add(co)
+        }
+        out.put("classes" cl)
+        out.put("files" (J.strs(uml.files)))
+        out.putInt("left_out" (uml.leftOut(maxC)))
+        def lines:[string]
+        def shown:int ((array_length uml.classes) - (uml.leftOut(maxC)))
+        push lines ((array_length uml.classes) + " classes in " + (array_length uml.files) + " files; the diagram shows " + shown + ".")
+        if ((uml.leftOut(maxC)) > 0) {
+            push lines "The least connected classes were left out: raise max_classes, or read one folder at a time."
+        }
+        for notes nt:string ni {
+            push lines nt
+        }
+        push lines "A slide to put into the deck (members beyond a few per class are left out):"
+        push lines ""
+        push lines slide
+        def r:MfJ (MfJ.newObj())
+        r.put("content" (Tools.text((join lines "\n"))))
+        r.put("structuredContent" out)
+        return r
+    }
+
+    ; folders not worth a class diagram
+    sfn skipDir:boolean (name:string) {
+        for ([] _:string ("node_modules" "vendor" "dist" "build" "out" "target" "bin" "obj" "__pycache__" "venv" "coverage" "fixtures" "testdata")) d:string i {
+            if (d == name) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; tests and generated declarations
+    sfn skipFile:boolean (name:string) {
+        def n:string (to_lowercase name)
+        return ((((indexOf n ".test.") >= 0) || ((indexOf n ".spec.") >= 0)) || (((endsWith n "_test.go") || (endsWith n ".d.ts")) || (endsWith n ".min.js")))
+    }
+
+    sfn githubDown:string (status:int) {
+        if ((status == 403) || (status == 429)) {
+            return "GitHub refused for now (its limit on requests); try again in a while."
+        }
+        if (status == 0) {
+            return "GitHub could not be reached; try again."
+        }
+        return ("GitHub answered " + status + ".")
+    }
+
     ; why GitHub's answer is not the PR, "" when it is
     sfn githubFailed:string (ref:GhRef status:int) {
         if (status == 200) {
             return ""
         }
         if (status == 404) {
-            return ("GitHub has no pull request " + (ref.name()) + " that this server can read: it does not exist, or the repository is private (only public repositories can be read).")
+            return ("GitHub has no pull request " + (ref.name()) + " that this server can read: it does not exist, or the repository is private and the server's GitHub token (SLIQTLY_GITHUB_TOKEN) is missing or does not reach it.")
         }
         if ((status == 403) || (status == 429)) {
             return "GitHub refused for now (its limit on requests without sign-in); try again in a while."

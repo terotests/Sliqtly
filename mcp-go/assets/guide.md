@@ -513,8 +513,24 @@ returns them and a first draft of a review deck: what and why, the changed
 files, the biggest changes as ```` ```diff ```` slides (one file each,
 shortened), the commits on a timeline and a decision slide. Change the draft
 to say what matters (pick the lines with `{lines=…}`, add `.build` to step
-through them) and create it with `create_presentation`. Public repositories
-work as they are; a private one needs a token on the server.
+through them) and create it with `create_presentation`. When the changed
+files declare classes, the draft has a UML class diagram of them. Public
+repositories work as they are; a private one needs a token on the server and
+a signed-in user the server lets read private repositories.
+
+## A class diagram from source code
+
+`source_uml` reads source code and returns a UML class diagram as a
+```` ```mermaid ```` `classDiagram` and as a slide to put in a deck: classes,
+interfaces, structs, enums and traits, what they extend (`<|--`) and
+implement (`<|..`), their fields and methods with visibility (`+ - # ~`),
+static (`$`) and abstract (`*`) marks, and fields whose type is another class
+as associations (`-->`). Give `github` (a repository, folder or file link, or
+`owner/repo/path`) or `files` (`name` + `text`). It reads TypeScript,
+JavaScript, Java, C#, Kotlin, Swift, Dart, PHP, Go, Python, Rust and Ranger.
+A big codebase is cut to `max_classes` (default 10), the most connected
+first, with a few members each: name a folder for a closer look, and edit
+the diagram as any Mermaid (drop members, add notes).
 
 ## Result
 
