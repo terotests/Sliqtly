@@ -781,6 +781,51 @@ async function newDeck(plan) {
 // Markdown, theme CSS and files copied, named `asked` (empty: "<name>
 // (copy)"). This one is saved first; the copy is kept at once under an id of
 // its own (a PRO deck gets its own share).
+// Rooms beside the rail (ADR 0001): on a server of one's own its rooms
+// (POST /api/rooms/<op>), the open one's presentations under it; on the site
+// the panel keeps its sketch until the cloud has rooms.
+let roomShown = "";
+async function roomsCall(op, args) {
+  const res = await fetch("/api/rooms/" + op, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(args || {}) });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(out.error || res.status);
+  return out;
+}
+const clean = (s) => String(s || "").replace(/[\t\n\r]+/g, " ");
+async function roomsRequest(r) {
+  if (!ownServer()) return;
+  const [, action, ...rest] = r.split(":");
+  if (action === "list") {
+    const { rooms = [] } = await roomsCall("list_rooms");
+    const rows = rooms.map((x) => [x.room_id, clean(x.title), x.presentations ?? ""].join("\t"));
+    if (!rooms.some((x) => x.room_id === roomShown)) roomShown = rooms[0]?.room_id || "";
+    app.setToolbarOptions("rooms", rows.join("\n"), roomShown);
+    if (roomShown) await roomsRequest("room:open:" + roomShown);
+  } else if (action === "open") {
+    roomShown = rest.join(":");
+    const g = await roomsCall("get_room", { room_id: roomShown });
+    const rows = (g.presentations || []).map((p) => [p.deck_id, clean(p.name) || t("presentation"), p.deck_id === doc.cloud ? "1" : ""].join("\t"));
+    app.setToolbarOptions("roomdecks", rows.join("\n"), roomShown);
+  }
+  needsPaint = true;
+}
+// The name edited at the start of the bar: the deck's title (front matter
+// `title:`, else its first heading) rewritten, as one edit that undoes, and
+// the open presentations' tab follows.
+function renameDeck(name) {
+  name = String(name || "").replace(/\s+/g, " ").trim();
+  if (!name) return;
+  const before = app.source().split("\n");
+  const after = retitled(app.source(), name).split("\n");
+  const i = after.findIndex((l, k) => l !== before[k]);
+  if (i >= 0) app.renameLine(i, after[i]);
+  // no title anywhere: a heading first
+  else if (app.docTitle() !== name) app.renameLine(0, "# " + name + "\n\n" + (before[0] || ""));
+  docName = name;
+  if (shownKey) app.deckTabOpen(shownKey, tabLabel(exportName()));
+  collab?.takeLocal();
+  needsPaint = true;
+}
 function copyName() {
   return exportName() + " " + t("(copy)");
 }
@@ -2854,6 +2899,15 @@ function handleRequests() {
       setMode(r.slice("setting:mode:".length));
     } else if (r.startsWith("setting:skinhue:")) {
       setSkinHue(parseInt(r.slice("setting:skinhue:".length), 10));
+    } else if (r.startsWith("room:")) {
+      roomsRequest(r).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+    } else if (r.startsWith("title:")) {
+      renameDeck(r.slice(6));
+    } else if (r === "rail:review") {
+      // the rail's Review: review mode on or off, kept as Settings keeps it
+      const on = !app.reviewMode();
+      try { localStorage.setItem(REVIEW_KEY, on ? "on" : "off"); } catch (_) { /* this session only */ }
+      applyReviewMode();
     } else if (r === "decks") {
       openDecks().catch(fail);
     } else if (r.startsWith("decks:")) {

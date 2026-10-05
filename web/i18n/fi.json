@@ -982,5 +982,15 @@
   "The presentation's Markdown": "Esityksen Markdown",
   "The open comments, numbered, with the Markdown of their slides: to hand to an assistant": "Avoimet kommentit numeroituina, diojensa Markdownin kanssa: annettavaksi avustajalle",
   "Markdown with comments": "Markdown kommentteineen",
-  "The presentation's Markdown with the open comments as numbered footnotes": "Esityksen Markdown, avoimet kommentit numeroituina alaviitteinä"
+  "The presentation's Markdown with the open comments as numbered footnotes": "Esityksen Markdown, avoimet kommentit numeroituina alaviitteinä",
+  "Places": "Paikat",
+  "Rooms": "Huoneet",
+  "Decks": "Esitykset",
+  "Review": "Katselmointi",
+  "Versions": "Versiot",
+  "Presentation name": "Esityksen nimi",
+  "Untitled": "Nimetön",
+  "Archived": "Arkistoidut",
+  "Draft: rooms are not on the server yet.": "Luonnos: huoneet eivät ole vielä palvelimella.",
+  "Rooms: ": "Huoneet: "
 }

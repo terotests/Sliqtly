@@ -1586,29 +1586,31 @@ class PresApp {
             this.placePresent()
             return
         }
+        ; the rail (and Rooms beside it) take the left edge under the bar
+        def L:double (this.leftW())
         if (deckOn && (barH > 0.0)) {
-            deckRect.set(0.0 toolbar.barH W deckH)
+            deckRect.set(L toolbar.barH (W - L) deckH)
         } {
             deckRect.set(0.0 0.0 0.0 0.0)
         }
         ; the help panel, the chat or a comment's thread, when open, takes
         ; the right edge
-        def AW:double W
+        def AW:double (W - L)
         if (((this.dockW()) > 0.0) && (barH > 0.0)) {
-            AW = (W - (this.dockW()))
+            AW = ((W - L) - (this.dockW()))
         }
-        if ((AW < 320.0) && (AW < W)) {
-            AW = W
+        if ((AW < 320.0) && (AW < (W - L))) {
+            AW = (W - L)
         }
         def stripH:double (thumbH + 34.0)
         def trackH:double 118.0
-        def rx:double 0.0
+        def rx:double L
         if (this.isCompact()) {
             ; narrow (a phone, a small window): the slides only, no editor
             ; and no timeline; widening brings them back
-            tabRect.set(0.0 barH 0.0 0.0)
-            edRect.set(0.0 barH 0.0 0.0)
-            sepRect.set(0.0 barH 0.0 0.0)
+            tabRect.set(L barH 0.0 0.0)
+            edRect.set(L barH 0.0 0.0)
+            sepRect.set(L barH 0.0 0.0)
             trackH = 0.0
             if (focus == "editor") {
                 focus = "stage"
@@ -1617,12 +1619,12 @@ class PresApp {
             def edW:double (AW * split)
             if (edW < 280.0) { edW = 280.0 }
             if (edW > (AW - 360.0)) { edW = (AW - 360.0) }
-            tabRect.set(0.0 barH edW tabH)
-            edRect.set(0.0 (barH + tabH) edW ((H - tabH) - barH))
-            sepRect.set(edW barH 6.0 (H - barH))
-            rx = (edW + 6.0)
+            tabRect.set(L barH edW tabH)
+            edRect.set(L (barH + tabH) edW ((H - tabH) - barH))
+            sepRect.set((L + edW) barH 6.0 (H - barH))
+            rx = ((L + edW) + 6.0)
         }
-        def rw:double (AW - rx)
+        def rw:double ((L + AW) - rx)
         stripRect.set(rx (H - stripH) rw stripH)
         trackRect.set(rx ((H - stripH) - trackH) rw trackH)
         laneX = (rx + 92.0)
@@ -1640,13 +1642,23 @@ class PresApp {
         return (panels.dockW())
     }
 
+    ; What the bar's left rail and Rooms take, 0 without the bar.
+    fn leftW:double () {
+        if ((barH <= 0.0) || (mode == "present")) {
+            return 0.0
+        }
+        toolbar.w = W
+        return (toolbar.leftW())
+    }
+
     ; Narrower than an editor and a slide side by side need.
     fn isCompact:boolean () {
-        def AW:double W
+        def L:double (this.leftW())
+        def AW:double (W - L)
         if (((this.dockW()) > 0.0) && (barH > 0.0)) {
-            AW = (W - (this.dockW()))
+            AW = ((W - L) - (this.dockW()))
             if (AW < 320.0) {
-                AW = W
+                AW = (W - L)
             }
         }
         return (AW < 700.0)
@@ -2928,7 +2940,7 @@ class PresApp {
             return
         }
         if splitDrag {
-            def f:double (x / W)
+            def f:double ((x - (this.leftW())) / (W - (this.leftW())))
             if (f < 0.2) { f = 0.2 }
             if (f > 0.7) { f = 0.7 }
             split = f
@@ -3258,6 +3270,12 @@ class PresApp {
     }
 
     fn key:boolean (name:string shift:boolean ctrl:boolean) {
+        ; the deck's name being edited in the bar has the keys
+        if ((barH > 0.0) && toolbar.titleEditing) {
+            def usedT:boolean (toolbar.titleKey(name shift ctrl))
+            this.takeToolbar()
+            return usedT
+        }
         if (review.hasKeys()) {
             return (this.reviewKey(name shift ctrl))
         }
@@ -3504,6 +3522,11 @@ class PresApp {
     }
 
     fn text:void (s:string) {
+        if ((barH > 0.0) && toolbar.titleEditing) {
+            toolbar.titleType(s)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if (review.hasKeys()) {
             review.text(s)
             chromeRev = (chromeRev + 1)
@@ -3591,6 +3614,11 @@ class PresApp {
     ; document is read from its first slide: the caret goes to the top
     ; rather than being left at the end of what came in.
     fn pasteText:void (s:string) {
+        if ((barH > 0.0) && toolbar.titleEditing) {
+            toolbar.titleType(s)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if (review.hasKeys()) {
             review.text((PresReviewUi.oneLine(s)))
             chromeRev = (chromeRev + 1)
@@ -4332,6 +4360,11 @@ class PresApp {
             toolbar.rebuild()
         }
         toolbar.setState(playing (this.statusText()))
+        def place:string "edit"
+        if (edTab == "files") {
+            place = "files"
+        }
+        toolbar.setRailState(place review.on (this.docTitle()))
         def dl:EVGDisplayList (toolbar.displayList())
         return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
@@ -7459,6 +7492,19 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; The deck's name changed in the bar: line `line` of the Markdown becomes
+    ; `text`, one edit of the Markdown editor (it undoes there), whichever
+    ; tab is shown.
+    fn renameLine:void (line:int text:string) {
+        def was:ScriptEditor editor
+        editor = mdEditor
+        if ((line >= 0) && (line < (editor.buf.lineCount()))) {
+            this.replaceRange(line 0 (strlen (editor.buf.lineAt(line))) text)
+        }
+        editor = was
+        chromeRev = (chromeRev + 1)
+    }
+
     ; Columns a..b of a line become `text`, as one edit. The caret stays
     ; where the writer left it — a popover's edit is not a place to type
     ; from — moved only by the change in length when it sits after the edit
@@ -7854,6 +7900,34 @@ class PresApp {
     fn request:void (r:string) {
         if ((indexOf r "slide:") == 0) {
             this.slideCommand((substring r 6 (strlen r)))
+            return
+        }
+        ; the rail's places: the editor's tabs here, the rest the page's own
+        ; requests (a window, a button); review is turned on or off by the page
+        if ((indexOf r "rail:") == 0) {
+            def p:string (substring r 5 (strlen r))
+            if (p == "edit") {
+                this.showTab("md")
+            }
+            if (p == "files") {
+                this.showTab("files")
+            }
+            if (p == "decks") {
+                push requests "decks"
+            }
+            if (p == "history") {
+                push requests "click:history"
+            }
+            if (p == "settings") {
+                push requests "settings"
+            }
+            if (p == "help") {
+                push requests "click:helpBtn"
+            }
+            if (p == "review") {
+                push requests "rail:review"
+            }
+            chromeRev = (chromeRev + 1)
             return
         }
         push requests r
