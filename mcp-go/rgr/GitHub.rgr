@@ -383,7 +383,14 @@ class GhDeck {
     ; the patch's first lines up to max, whole hunks while they fit, else
     ; the first hunk cut; "…" says more follows
     sfn trimPatch:string (patch:string max:int) {
-        def lines:[string] (strsplit (GhDeck.unCr((GhDeck.trimEnd(patch)))) "\n")
+        def all:[string] (strsplit (GhDeck.unCr((GhDeck.trimEnd(patch)))) "\n")
+        ; git's "\ No newline at end of file" is not a line of the file
+        def lines:[string]
+        for all l0:string i0 {
+            if ((startsWith l0 "\\ ") == false) {
+                push lines l0
+            }
+        }
         if ((array_length lines) <= max) {
             return (join lines "\n")
         }

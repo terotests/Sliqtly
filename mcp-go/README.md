@@ -147,8 +147,14 @@ With `GOOGLE_APPLICATION_CREDENTIALS` (or on Cloud Run, `K_SERVICE` set) it
 writes real shares and offers sign-in. `SLIQTLY_URL`, `SLIQTLY_BUCKET`,
 `GOOGLE_CLOUD_PROJECT` and `PORT` set the site, bucket, project and port; `SLIQTLY_STORE=link`
 forces the link-only mode. `SLIQTLY_GITHUB_TOKEN` (a fine-grained token with
-read access to pull requests) lets `read_github_pr` read private repositories
-and lifts GitHub's limit of 60 requests an hour.
+read access to pull requests and contents) lets `read_github_pr` read
+private repositories and lifts GitHub's limit of 60
+requests an hour. Anyone may call the server, so a private repository is read
+only for the Sliqtly users (Firebase uids) in `SLIQTLY_GITHUB_USERS`
+(comma-separated; on a server of one's own, for everyone); the refusal tells a
+signed-in user their id. Actions → Deploy MCP (Go) sets both on the service
+from the repository secrets of the same names when `SLIQTLY_GITHUB_TOKEN` is
+set (a later deploy without it keeps what the service has).
 
 ## A server of one's own (decks in a folder)
 

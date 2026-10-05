@@ -754,6 +754,8 @@ class PresReviewUi {
     ; --- the display list ------------------------------------------------------------
 
     fn page:EVGElement () {
+        ; before styling: the field redraws itself for focus (its hint goes)
+        chat.input.setFocused(typing)
         def r:EVGElement (unwrap host.root)
         def s:EVGStyleSheet (unwrap host.sheet)
         s.setViewport(w h false)
@@ -807,7 +809,6 @@ class PresReviewUi {
                 coH = ce.calculatedHeight
             }
         }
-        chat.input.focused = typing
         host.placeText((lay.getTextEngine()))
         host.lastPage = pg
         return pg
