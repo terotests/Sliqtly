@@ -105,6 +105,15 @@ class PresDEdge {
     ; its end's (-1: not measured yet)
     def lc0:double -1.0
     def lc1:double -1.0
+    ; where `planLabels` put its name (pw 0: no name), the point on the
+    ; line it belongs to, and how (`spotTier`)
+    def pw:double 0.0
+    def ph:double 0.0
+    def px:double 0.0
+    def py:double 0.0
+    def pLx:double 0.0
+    def pLy:double 0.0
+    def pTier:int 0
 
     Constructor () {
         def r:[double]
@@ -670,6 +679,7 @@ class PresDiagram {
     fn readShapes:void () {
         boxText = 0.0
         labSize = -1.0
+        planKind = ""
         def i:int 0
         while (i < (array_length nodes)) {
             def n:PresDNode (itemAt nodes i)
@@ -1691,64 +1701,45 @@ class PresDiagram {
 
     ; A free place for a w x h box ON edge e: the middle of the line when
     ; nothing is there, otherwise the nearest point along it that clears
-    ; every node and the first `upto` pills; failing that, beside the line.
-    ; Sets rX, rY and the point on the line it belongs to (spotLx, spotLy);
-    ; false when there is no such place (the middle is set then).
+    ; every node, the first `upto` pills and every OTHER line; failing that,
+    ; beside the line. Only when no stretch of the line or its sides is clear
+    ; of the other lines is a place that covers one taken (`spotClear` false):
+    ; a name laid over another line hides where that line goes, and a name
+    ; beside a line that is not its own reads as that line's. Sets rX, rY and
+    ; the point on the line it belongs to (spotLx, spotLy); false when there
+    ; is no such place (the middle is set then).
     fn freeSpot:boolean (e:PresDEdge w:double h:double upto:int) {
-        def fracs:[double] ([] _:double (0.5 0.42 0.58 0.34 0.66 0.26 0.74 0.18 0.82 0.12 0.88))
+        lineSkip = e.id
+        avoidLines = true
+        spotClear = true
+        ; best: across a straight, level stretch of its own line, which the
+        ; pill then reads as written on; a pill centred on an upright run or
+        ; over a corner covers the turn the eye follows
+        flatOnly = true
+        if (this.onLineSpot(e w h upto)) {
+            flatOnly = false
+            avoidLines = false
+            return true
+        }
+        flatOnly = false
+        if (this.onLineSpot(e w h upto)) {
+            avoidLines = false
+            return true
+        }
+        if (this.besideLineSpot(e w h upto)) {
+            avoidLines = false
+            return true
+        }
+        avoidLines = false
+        spotClear = false
+        if (this.onLineSpot(e w h upto)) {
+            return true
+        }
+        if (this.besideLineSpot(e w h upto)) {
+            return true
+        }
         def p:[double]
-        def i:int 0
-        while (i < (array_length fracs)) {
-            PresDiagram.pointAt(e.line (e.len * (itemAt fracs i)) p)
-            def x0:double ((itemAt p 0) - (w * 0.5))
-            def y0:double ((itemAt p 1) - (h * 0.5))
-            if (! (this.blocked(x0 y0 w h upto))) {
-                rX = x0
-                rY = y0
-                spotLx = (itemAt p 0)
-                spotLy = (itemAt p 1)
-                spotTier = 0
-                return true
-            }
-            i = (i + 1)
-        }
-        ; Nowhere on the line: beside it, on either side. Two lines between
-        ; the same two boxes, one each way ("send" down, "changes" back up),
-        ; run a lane apart, and their labels would otherwise share a place.
         def q:[double]
-        def j:int 0
-        while (j < (array_length fracs)) {
-            def at:double (e.len * (itemAt fracs j))
-            PresDiagram.pointAt(e.line at p)
-            PresDiagram.pointAt(e.line (at + 2.0) q)
-            def dx:double ((itemAt q 0) - (itemAt p 0))
-            def dy:double ((itemAt q 1) - (itemAt p 1))
-            def dl:double (sqrt ((dx * dx) + (dy * dy)))
-            if (dl > 0.0001) {
-                def nx:double ((0.0 - dy) / dl)
-                def ny:double (dx / dl)
-                def off:double ((((PresDiagram.absD(nx)) * w) * 0.5) + ((((PresDiagram.absD(ny)) * h) * 0.5) + 6.0))
-                def side:int 0
-                while (side < 2) {
-                    def sg:double 1.0
-                    if (side == 1) {
-                        sg = -1.0
-                    }
-                    def sx:double (((itemAt p 0) + ((nx * off) * sg)) - (w * 0.5))
-                    def sy:double (((itemAt p 1) + ((ny * off) * sg)) - (h * 0.5))
-                    if (! (this.blocked(sx sy w h upto))) {
-                        rX = sx
-                        rY = sy
-                        spotLx = (itemAt p 0)
-                        spotLy = (itemAt p 1)
-                        spotTier = 1
-                        return true
-                    }
-                    side = (side + 1)
-                }
-            }
-            j = (j + 1)
-        }
         ; Still nothing: beside the middle, over a box's edge if it must be,
         ; but not over another label — a label on a label is two unreadable.
         PresDiagram.pointAt(e.line (e.len * 0.5) p)
@@ -1763,7 +1754,7 @@ class PresDiagram {
             ; two lines a lane apart put their labels on facing sides: step
             ; out until this one clears the labels already down
             def step:int 0
-            while (step < 12) {
+            while (step < 40) {
                 def ms:int 0
                 while (ms < 2) {
                     def msg:double 1.0
@@ -1791,6 +1782,354 @@ class PresDiagram {
         rY = ((itemAt p 1) - (h * 0.5))
         spotTier = 3
         return false
+    }
+
+    ; Where along a line its name is tried: the middle first, then out
+    ; from it both ways, about every 8 units however long the line is (a
+    ; few fixed fractions missed the one clear stretch of a long line).
+    sfn spotFracs:[double] (len:double) {
+        def out:[double]
+        push out 0.5
+        def n:int (to_int (len / 16.0))
+        if (n < 5) {
+            n = 5
+        }
+        if (n > 40) {
+            n = 40
+        }
+        def step:double (0.44 / (to_double n))
+        def i:int 1
+        while (i <= n) {
+            def d:double (step * (to_double i))
+            push out (0.5 - d)
+            push out (0.5 + d)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; On the line, centred on it (tier 0).
+    fn onLineSpot:boolean (e:PresDEdge w:double h:double upto:int) {
+        def fracs:[double] (PresDiagram.spotFracs(e.len))
+        def p:[double]
+        def i:int 0
+        while (i < (array_length fracs)) {
+            def at:double (e.len * (itemAt fracs i))
+            PresDiagram.pointAt(e.line at p)
+            def x0:double ((itemAt p 0) - (w * 0.5))
+            def y0:double ((itemAt p 1) - (h * 0.5))
+            def ok:boolean true
+            if flatOnly {
+                ok = (this.levelAt(e at w))
+            }
+            if (ok && (! (this.blocked(x0 y0 w h upto)))) {
+                if counting {
+                    spotCount = (spotCount + 1)
+                } {
+                    rX = x0
+                    rY = y0
+                    spotLx = (itemAt p 0)
+                    spotLy = (itemAt p 1)
+                    spotTier = 0
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Beside the line, on either side (tier 1). Two lines between the same
+    ; two boxes, one each way ("send" down, "changes" back up), run a lane
+    ; apart, and their labels would otherwise share a place.
+    fn besideLineSpot:boolean (e:PresDEdge w:double h:double upto:int) {
+        def fracs:[double] (PresDiagram.spotFracs(e.len))
+        def p:[double]
+        def q:[double]
+        def j:int 0
+        while (j < (array_length fracs)) {
+            def at:double (e.len * (itemAt fracs j))
+            PresDiagram.pointAt(e.line at p)
+            PresDiagram.pointAt(e.line (at + 2.0) q)
+            def dx:double ((itemAt q 0) - (itemAt p 0))
+            def dy:double ((itemAt q 1) - (itemAt p 1))
+            def dl:double (sqrt ((dx * dx) + (dy * dy)))
+            if (dl > 0.0001) {
+                def nx:double ((0.0 - dy) / dl)
+                def ny:double (dx / dl)
+                def off:double ((((PresDiagram.absD(nx)) * w) * 0.5) + ((((PresDiagram.absD(ny)) * h) * 0.5) + 6.0))
+                def side:int 0
+                while (side < 2) {
+                    def sg:double 1.0
+                    if (side == 1) {
+                        sg = -1.0
+                    }
+                    def sx:double (((itemAt p 0) + ((nx * off) * sg)) - (w * 0.5))
+                    def sy:double (((itemAt p 1) + ((ny * off) * sg)) - (h * 0.5))
+                    if (! (this.blocked(sx sy w h upto))) {
+                        if counting {
+                            spotCount = (spotCount + 1)
+                        } {
+                            rX = sx
+                            rY = sy
+                            spotLx = (itemAt p 0)
+                            spotLy = (itemAt p 1)
+                            spotTier = 1
+                            return true
+                        }
+                    }
+                    side = (side + 1)
+                }
+            }
+            j = (j + 1)
+        }
+        return false
+    }
+
+    ; How many places on and beside line e hold a w x h name clear of the
+    ; boxes and the other lines (the names already set are not counted
+    ; against it).
+    fn clearSpots:int (e:PresDEdge w:double h:double) {
+        lineSkip = e.id
+        avoidLines = true
+        counting = true
+        spotCount = 0
+        this.onLineSpot(e w h 0)
+        this.besideLineSpot(e w h 0)
+        counting = false
+        avoidLines = false
+        return spotCount
+    }
+    def counting:boolean false
+    def spotCount:int 0
+
+    ; Every line's name placed at once, the lines with the fewest free
+    ; places first. Placed one by one in the order the lines were written,
+    ; a name with room to spare took the one stretch the next line had
+    ; ("files" sat where "master" could go, and "master" ended up away from
+    ; its line); and placed again each frame as the lines drew in, a name
+    ; could jump when a later one arrived. `kind` is which painter measures
+    ; the pills ("holo" or "look"); the plan is kept until the diagram is
+    ; read again (`readShapes`).
+    def planKind:string ""
+    fn planLabels:void (l:MdLayout kind:string) {
+        if (planKind == kind) {
+            return
+        }
+        planKind = kind
+        def size:double (this.labelSizeFor(l))
+        clear labRects
+        def order:[int]
+        def counts:[int]
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresDEdge (itemAt edges i)
+            e.pw = 0.0
+            def lines:[string] (PresDiagram.labelLines(e))
+            if (((array_length lines) > 0) && ((array_length e.line) >= 4)) {
+                if (kind == "look") {
+                    this.lookPill(lines size l)
+                } {
+                    this.labelPill(lines size l)
+                }
+                e.pw = labW
+                e.ph = labH
+                def c:int (this.clearSpots(e labW labH))
+                ; insertion, stable: equal counts keep the written order
+                def at:int (array_length order)
+                push order i
+                push counts c
+                while ((at > 0) && ((itemAt counts (at - 1)) > c)) {
+                    set_at order at (itemAt order (at - 1))
+                    set_at counts at (itemAt counts (at - 1))
+                    at = (at - 1)
+                }
+                set_at order at i
+                set_at counts at c
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length order)) {
+            def ek:PresDEdge (itemAt edges (itemAt order k))
+            this.freeSpot(ek ek.pw ek.ph 0)
+            ek.px = rX
+            ek.py = rY
+            ek.pLx = spotLx
+            ek.pLy = spotLy
+            ek.pTier = spotTier
+            push labRects rX
+            push labRects rY
+            push labRects ek.pw
+            push labRects ek.ph
+            k = (k + 1)
+        }
+        clear labRects
+    }
+
+    ; Where a name goes this frame: the plan's place, unless option pills
+    ; are up (`upto` > 0), which are placed live and the name with them.
+    ; False when there is no place while pills are up: the name waits.
+    fn labelSpot:boolean (e:PresDEdge pw:double ph:double upto:int) {
+        if ((upto == 0) && (e.pw > 0.0)) {
+            rX = e.px
+            rY = e.py
+            spotLx = e.pLx
+            spotLy = e.pLy
+            spotTier = e.pTier
+            return true
+        }
+        if ((! (this.freeSpot(e pw ph upto))) && (upto > 0)) {
+            return false
+        }
+        return true
+    }
+
+    ; A name set off its line (beside it, or further out where nothing
+    ; nearer was free) is joined to the point it belongs to by a thin line,
+    ; or it reads as the name of whatever line it ended up next to.
+    fn leader:void (out:EVGDisplayList x:double y:double w:double h:double lx:double ly:double col:EVGColor) {
+        def cx:double lx
+        if (cx < x) {
+            cx = x
+        }
+        if (cx > (x + w)) {
+            cx = (x + w)
+        }
+        def cy:double ly
+        if (cy < y) {
+            cy = y
+        }
+        if (cy > (y + h)) {
+            cy = (y + h)
+        }
+        def dx:double (cx - lx)
+        def dy:double (cy - ly)
+        if (((dx * dx) + (dy * dy)) < 9.0) {
+            return
+        }
+        def pts:[double]
+        push pts lx
+        push pts ly
+        push pts cx
+        push pts cy
+        out.addPolyline(pts 1.0 col)
+        PresDiagram.disc(out lx ly 2.0 col)
+    }
+
+    ; Whether line e runs level and straight for `w` either side of the
+    ; point `at` along it (within a unit), or as far as it goes.
+    fn levelAt:boolean (e:PresDEdge at:double w:double) {
+        def p:[double]
+        def q:[double]
+        def r:[double]
+        PresDiagram.pointAt(e.line at p)
+        def a:double (at - (w * 0.5))
+        def b:double (at + (w * 0.5))
+        if (a < 0.0) {
+            a = 0.0
+        }
+        if (b > e.len) {
+            b = e.len
+        }
+        PresDiagram.pointAt(e.line a q)
+        PresDiagram.pointAt(e.line b r)
+        def dyq:double ((itemAt q 1) - (itemAt p 1))
+        def dyr:double ((itemAt r 1) - (itemAt p 1))
+        def dxq:double ((itemAt p 0) - (itemAt q 0))
+        def dxr:double ((itemAt r 0) - (itemAt p 0))
+        if (((PresDiagram.absD(dyq)) > 1.0) || ((PresDiagram.absD(dyr)) > 1.0)) {
+            return false
+        }
+        ; along it, not doubled back on itself
+        return ((PresDiagram.absD((dxq + dxr))) >= ((b - a) - 2.0))
+    }
+    def flatOnly:boolean false
+
+    ; Whether the last `freeSpot` found a place clear of the other lines.
+    def spotClear:boolean true
+    ; While true, `blocked` also refuses a place another line runs through
+    ; (every line but the one whose id is `lineSkip`).
+    def avoidLines:boolean false
+    def lineSkip:string ""
+
+    ; Whether a line other than `lineSkip`'s runs through the box or within
+    ; 3 units of it: a line that grazes the pill's rim reads as running
+    ; into it.
+    fn onLine:boolean (x:double y:double w:double h:double) {
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresDEdge (itemAt edges i)
+            if (e.id != lineSkip) {
+                if (PresDiagram.lineInRect(e.line (x - 3.0) (y - 3.0) (w + 6.0) (h + 6.0))) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Whether a polyline (x y pairs) passes through a rectangle.
+    sfn lineInRect:boolean (pts:[double] x:double y:double w:double h:double) {
+        def i:int 0
+        while ((i + 3) < (array_length pts)) {
+            if (PresDiagram.segInRect((itemAt pts i) (itemAt pts (i + 1)) (itemAt pts (i + 2)) (itemAt pts (i + 3)) x y w h)) {
+                return true
+            }
+            i = (i + 2)
+        }
+        return false
+    }
+
+    ; Whether the segment (x1,y1)-(x2,y2) meets the rectangle (Liang-Barsky).
+    sfn segInRect:boolean (x1:double y1:double x2:double y2:double x:double y:double w:double h:double) {
+        if ((w <= 0.0) || (h <= 0.0)) {
+            return false
+        }
+        def dx:double (x2 - x1)
+        def dy:double (y2 - y1)
+        def t0:double 0.0
+        def t1:double 1.0
+        def ps:[double]
+        push ps (0.0 - dx)
+        push ps dx
+        push ps (0.0 - dy)
+        push ps dy
+        def qs:[double]
+        push qs (x1 - x)
+        push qs ((x + w) - x1)
+        push qs (y1 - y)
+        push qs ((y + h) - y1)
+        def k:int 0
+        while (k < 4) {
+            def pk:double (itemAt ps k)
+            def qk:double (itemAt qs k)
+            if ((PresDiagram.absD(pk)) < 0.0000001) {
+                if (qk < 0.0) {
+                    return false
+                }
+            } {
+                def r:double (qk / pk)
+                if (pk < 0.0) {
+                    if (r > t1) {
+                        return false
+                    }
+                    if (r > t0) {
+                        t0 = r
+                    }
+                } {
+                    if (r < t0) {
+                        return false
+                    }
+                    if (r < t1) {
+                        t1 = r
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return true
     }
 
     ; Where the last `freeSpot` put the box: 0 on the line, 1 beside it,
@@ -1895,6 +2234,9 @@ class PresDiagram {
     fn blocked:boolean (x:double y:double w:double h:double upto:int) {
         def pad:double 10.0
         if (this.onLabel(x y w h)) {
+            return true
+        }
+        if (avoidLines && (this.onLine(x y w h))) {
             return true
         }
         def i:int 0
@@ -4803,6 +5145,7 @@ class PresDiagram {
     fn holoEdges:void (out:EVGDisplayList t:double l:MdLayout) {
         clear labRects
         this.labelSizeFor(l)
+        this.planLabels(l "holo")
         ; at a question the chosen way is the one active line, not the way in
         def active:int (this.activeEdge(t))
         if (this.asking(t)) {
@@ -5042,6 +5385,9 @@ class PresDiagram {
                 while ((at >= least) && (fits < 0.0)) {
                     this.labelPill(lines at l)
                     this.freeSpot(ej labW labH 0)
+                    ; (clear of the boxes; whether it is also clear of the
+                    ; other lines does not shrink every name: one name
+                    ; squeezed between two lines took a quarter off all)
                     if (spotTier <= 1) {
                         fits = at
                     }
@@ -5073,8 +5419,11 @@ class PresDiagram {
         if waiting {
             upto = (array_length pillX)
         }
-        if ((! (this.freeSpot(e pw ph upto))) && (upto > 0)) {
+        if (! (this.labelSpot(e pw ph upto))) {
             return
+        }
+        if (spotTier >= 1) {
+            this.leader(out rX rY pw ph spotLx spotLy (PresDiagram.rgba(acR acG acB (0.55 * alpha))))
         }
         def mx:double (rX + (pw * 0.5))
         def my:double (rY + (ph * 0.5))
@@ -5502,6 +5851,7 @@ class PresDiagram {
     fn lookEdges:void (out:EVGDisplayList t:double paper:string l:MdLayout) {
         clear labRects
         this.labelSizeFor(l)
+        this.planLabels(l "look")
         def active:int (this.activeEdge(t))
         if (this.asking(t)) {
             active = -1
@@ -5594,12 +5944,8 @@ class PresDiagram {
 
     ; A line's name: on a patch of the ground, in a dashed frame, or on a
     ; chip; placed like holo's (`freeSpot`), clear of the boxes.
-    fn lookLabel:void (out:EVGDisplayList e:PresDEdge alpha:double paper:string l:MdLayout on:boolean) {
-        def lines:[string] (PresDiagram.labelLines(e))
-        if ((array_length lines) == 0) {
-            return
-        }
-        def size:double (this.labelSizeFor(l))
+    ; The chip a look's label needs at this size (sets labW, labH).
+    fn lookPill:void (lines:[string] size:double l:MdLayout) {
         def face:string (this.faceOf(look.labelFont look.labelBold look.labelItalic))
         def wd:double 0.0
         def li:int 0
@@ -5610,15 +5956,30 @@ class PresDiagram {
             }
             li = (li + 1)
         }
+        labW = (wd + (size * 1.2))
+        labH = (((size * 1.25) * (to_double (array_length lines))) + (size * 0.5))
+    }
+
+    fn lookLabel:void (out:EVGDisplayList e:PresDEdge alpha:double paper:string l:MdLayout on:boolean) {
+        def lines:[string] (PresDiagram.labelLines(e))
+        if ((array_length lines) == 0) {
+            return
+        }
+        def size:double (this.labelSizeFor(l))
+        def face:string (this.faceOf(look.labelFont look.labelBold look.labelItalic))
+        this.lookPill(lines size l)
         def lineH:double (size * 1.25)
-        def pw:double (wd + (size * 1.2))
-        def ph:double ((lineH * (to_double (array_length lines))) + (size * 0.5))
+        def pw:double labW
+        def ph:double labH
         def upto:int 0
         if waiting {
             upto = (array_length pillX)
         }
-        if ((! (this.freeSpot(e pw ph upto))) && (upto > 0)) {
+        if (! (this.labelSpot(e pw ph upto))) {
             return
+        }
+        if (spotTier >= 1) {
+            this.leader(out rX rY pw ph spotLx spotLy (EVGColor.parse(look.edgeColor)))
         }
         e.lx = rX
         e.ly = rY

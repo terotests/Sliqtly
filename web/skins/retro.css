@@ -58,6 +58,8 @@
 .theme-retro .tb-dr-sep { background-color: var(--retro-screen-3); }
 
 /* --- the editor tabs, the tracks, the strip: dark displays -------------------- */
+/* the open-presentation row under the bar: a dark screen the tabs sit on */
+.theme-retro .deck-row { background-color: var(--retro-screen); border-bottom: 0px solid rgba(0, 0, 0, 0); }
 .theme-retro .ed-tabs {
   background: linear-gradient(180deg, var(--retro-shell-a), var(--retro-shell-b));
   border-bottom: 2px solid var(--retro-edge);
