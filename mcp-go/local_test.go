@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/terotests/sliqtly/mcp-go/store"
 )
 
 func TestFolderDB(t *testing.T) {
@@ -166,7 +168,8 @@ func TestLocalServer(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "db", "shares", shard(id), id+".json")); err != nil {
 		t.Fatal(err)
 	}
-	share, _ := (&fsDB{root: filepath.Join(dir, "db")}).Get(context.Background(), "shares", id)
+	fs, _ := store.NewFileStore(filepath.Join(dir, "db"))
+	share, _, _ := fs.Get(context.Background(), "shares", id)
 	files := list(share["files"])
 	eq(t, mapOf(files[0])["url"], srv.URL+"/files/shares/"+id+"/media/cat.png")
 	code, ct, body := get(t, srv.URL+"/files/shares/"+id+"/media/cat.png")
@@ -389,7 +392,7 @@ func TestFolderExpired(t *testing.T) {
 	defer srv.Close()
 	defer session.Close()
 	ls := srv.Config.Handler.(*localServer)
-	db := ls.env.DB.(*fsDB)
+	db := ls.env.DB
 	now := time.Now()
 	old, later := now.Add(-time.Hour), now.Add(time.Hour)
 	db.Set(ctx, "stats_seen", "a", Doc{"expires": old})
@@ -399,7 +402,7 @@ func TestFolderExpired(t *testing.T) {
 	ls.bucket.Save(ctx, "shares/gone1/media/p.png", "image/png", []byte("png"), nil)
 	ls.bucket.Save(ctx, "shares/kept1/media/p.png", "image/png", []byte("png"), nil)
 	db.Set(ctx, "shares", "kept1", Doc{"owner": "mcp", "md": "x", "expires": later})
-	ls.sweepOnce(db, now)
+	ls.sweepOnce(now)
 	has := func(col, id string) bool {
 		d, err := db.Get(ctx, col, id)
 		if err != nil {

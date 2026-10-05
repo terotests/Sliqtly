@@ -530,14 +530,13 @@ func (b *fsBucket) RemoveAll(path string) error {
 // what has expired goes, as Firestore's TTL policies do there: at start and
 // then every hour until ctx ends. An expired deck's files go with it.
 func (s *localServer) sweepExpired(ctx context.Context) {
-	db, ok := s.env.DB.(*fsDB)
-	if !ok {
+	if s.env.Store == nil {
 		return
 	}
 	tick := time.NewTicker(time.Hour)
 	defer tick.Stop()
 	for {
-		s.sweepOnce(db, time.Now())
+		s.sweepOnce(time.Now())
 		select {
 		case <-ctx.Done():
 			return
@@ -546,9 +545,9 @@ func (s *localServer) sweepExpired(ctx context.Context) {
 	}
 }
 
-func (s *localServer) sweepOnce(db *fsDB, t time.Time) {
+func (s *localServer) sweepOnce(t time.Time) {
 	for _, col := range ttlCollections {
-		ids, err := db.sweep(col, t)
+		ids, err := sweepExpired(context.Background(), s.env.Store, col, t)
 		if err != nil {
 			log.Printf("expired %s: %v", col, err)
 		}

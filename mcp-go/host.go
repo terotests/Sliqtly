@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/terotests/sliqtly/mcp-go/presdata"
+	"github.com/terotests/sliqtly/mcp-go/store"
 )
 
 //go:generate node gen.mjs
@@ -94,8 +95,11 @@ type Env struct {
 	// A server of one's own (decks in a folder, local.go): every caller is
 	// LocalUser, files are read from FilesURL, themes are the built-in ones.
 	LocalUser string
-	FilesURL  string // e.g. https://host/files; "": Storage download URLs
-	Themes    func(name string) (string, bool)
+	// Store: the documents of a server of one's own, under DB, for what
+	// needs more than DB says (revisions, the change feed); nil elsewhere
+	Store    store.Engine
+	FilesURL string // e.g. https://host/files; "": Storage download URLs
+	Themes   func(name string) (string, bool)
 	// the form a presentation's name must have (names.go): only on a server
 	// of one's own, set from its settings page; nil: any name
 	names atomic.Pointer[nameRule]

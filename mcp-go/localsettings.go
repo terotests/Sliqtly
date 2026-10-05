@@ -29,11 +29,10 @@ import (
 
 // the naming rule from the folder, into the env the tools read
 func (s *localServer) loadSettings() {
-	db, ok := s.env.DB.(*fsDB)
-	if !ok {
+	if s.env.Store == nil {
 		return
 	}
-	n, err := loadNameSettings(context.Background(), db)
+	n, err := loadNameSettings(context.Background(), s.env.DB)
 	if err != nil {
 		return
 	}
