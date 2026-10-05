@@ -2860,6 +2860,13 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
+        ; the comment's callout held by its head (presenting)
+        if review.co.dragging {
+            this.place()
+            review.calloutDrag(x y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         ; a comment's pin held: dragged to another place
         if ((strlen review.pinDown) > 0) {
             this.place()
@@ -3160,7 +3167,7 @@ class PresApp {
 
     fn cursorAt:string (x:double y:double) {
         this.place()
-        if review.dragging {
+        if (review.dragging || review.co.dragging) {
             return "grabbing"
         }
         if (review.on && ((this.layerAt(x y)) == "review")) {

@@ -241,8 +241,8 @@
   font-size: 13px; color: #fafafa; background-color: rgba(255, 255, 255, 0.08);
 }
 .rv-btn:hover { background-color: rgba(255, 255, 255, 0.2); }
-.rv-btn-main { background-color: #fde047; color: #111111; font-weight: 700; }
-.rv-btn-main:hover { background-color: #facc15; }
+.rv-btn-main { background-color: #0d9488; color: #ffffff; font-weight: 700; }
+.rv-btn-main:hover { background-color: #0f766e; }
 .rv-count { font-size: 12px; color: #d4d4d8; padding: 0 6px; }
 .rv-hint { font-size: 13px; color: #fafafa; padding: 0 8px 0 10px; }
 
@@ -290,7 +290,7 @@
 
 /* review mode's list of open comments ("N open" on the bar) */
 .rv-count:hover { color: #ffffff; }
-.rv-count-on { color: #fde047; }
+.rv-count-on { color: #5eead4; }
 .rv-list { display: flex; flex-direction: column; gap: 10px; padding: 14px; flex-grow: 1; }
 .rv-list-head { display: flex; flex-direction: row; align-items: center; }
 .rv-list-title { flex-grow: 1; font-size: 15px; font-weight: 700; color: #09090b; }
@@ -303,8 +303,42 @@
 .rv-rows { display: flex; flex-direction: column; gap: 6px; }
 .rv-row { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px; background-color: #f4f4f5; }
 .rv-row:hover { background-color: #e4e4e7; }
-.rv-row-here { border-left: 3px solid #facc15; }
+.rv-row-here { border-left: 3px solid #14b8a6; }
 .rv-row-slide { font-size: 11px; color: #71717a; }
 .rv-row-text { font-size: 13px; color: #09090b; }
 .rv-list-empty { font-size: 13px; color: #71717a; }
 .chat-text-box { align-self: stretch; }
+
+/* presenting: the thread, the new comment and the list are a callout beside
+   the pin (EVGUI CalloutCtl, .callout-glass): dark, see-through, a little
+   larger type; `.theme-rvg` is review mode's theme while presenting
+   (a stylesheet's only descendant rule is a theme's) */
+.rv-glass { font-family: Open Sans; }
+.theme-rvg .chat-panel { width: auto; height: auto; background-color: rgba(0,0,0,0); border-width: 0; border-radius: 0; }
+.theme-rvg .chat-log { height: auto; padding: 6px 12px 8px; gap: 8px; }
+.theme-rvg .chat-msg { background-color: rgba(255, 255, 255, 0.10); margin-right: 0; }
+.theme-rvg .chat-msg-mine { background-color: rgba(20, 184, 166, 0.18); margin-left: 0; }
+.theme-rvg .chat-text { font-size: 16px; color: #f4f4f5; }
+.theme-rvg .chat-time { color: rgba(255, 255, 255, 0.5); }
+.theme-rvg .chat-empty { font-size: 14px; color: rgba(255, 255, 255, 0.6); }
+.theme-rvg .chat-acts { border-width: 0; padding: 4px 12px 0; }
+.theme-rvg .chat-act { background-color: rgba(255, 255, 255, 0.10); border-color: rgba(255, 255, 255, 0.2); color: #f4f4f5; }
+.theme-rvg .chat-act:hover { background-color: rgba(255, 255, 255, 0.2); }
+.theme-rvg .chat-act-primary { background-color: #0d9488; border-color: #0d9488; color: #ffffff; }
+.theme-rvg .chat-composer { border-color: rgba(255, 255, 255, 0.14); padding: 10px 12px; }
+.theme-rvg .chat-field { background-color: rgba(0, 0, 0, 0.25); border-color: rgba(255, 255, 255, 0.25); height: 34px; }
+.theme-rvg .chat-draft { color: #ffffff; font-size: 15px; }
+.theme-rvg .chat-send { background-color: #0d9488; color: #ffffff; }
+.theme-rvg .chat-send-off { background-color: rgba(13, 148, 136, 0.4); }
+.theme-rvg .chat-ro-text { color: rgba(255, 255, 255, 0.6); }
+.theme-rvg .rv-list { padding: 4px 12px 12px; }
+.theme-rvg .rv-row { background-color: rgba(255, 255, 255, 0.10); }
+.theme-rvg .rv-row:hover { background-color: rgba(255, 255, 255, 0.18); }
+.theme-rvg .rv-row-slide { color: rgba(255, 255, 255, 0.6); }
+.theme-rvg .rv-row-text { color: #f4f4f5; font-size: 15px; }
+.theme-rvg .rv-list-btn { background-color: #0d9488; color: #ffffff; }
+
+/* the pins: a muted fill (the setting's), white mark, a soft edge */
+.pin { color: #ffffff; border: 1.5px solid rgba(0, 0, 0, 0.28); }
+.pin-on { border: 2.5px solid rgba(255, 255, 255, 0.9); }
+.pin:hover { border-color: rgba(255, 255, 255, 0.9); }

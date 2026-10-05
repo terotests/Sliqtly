@@ -5163,7 +5163,10 @@ async function start() {
   if (!viewer) applySkin();
   try {
     const rc = localStorage.getItem(REVIEW_COLOR_KEY);
-    if (rc && /^#[0-9a-fA-F]{6}$/.test(rc)) app.reviewColor(rc);
+    // the first, bright pin colours became muted ones: a pick of one of
+    // those is the same pick in the new set
+    const OLD_PINS = { "#fde047": "#d9a93e", "#fdba74": "#e08a3c", "#f9a8d4": "#d07a92", "#67e8f9": "#3a9fa6", "#86efac": "#6aa86a" };
+    if (rc && /^#[0-9a-fA-F]{6}$/.test(rc)) app.reviewColor(OLD_PINS[rc.toLowerCase()] || rc);
   } catch (_) { /* the default yellow */ }
   reviewMe();
   applyReviewMode();

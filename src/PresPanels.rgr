@@ -439,7 +439,7 @@ class PresPanels {
     def autoContrast:boolean true
     ; review mode (comments on the slides) and its pins' colour
     def reviewOn:boolean false
-    def reviewColor:string "#fde047"
+    def reviewColor:string "#e08a3c"
 
     fn openSettings:void (contrast:boolean) {
         autoContrast = contrast
@@ -532,13 +532,14 @@ class PresPanels {
     }
 
     ; The pins' colours (review mode): a name and the fill.
-    ; i18n: "Yellow" "Orange" "Pink" "Cyan" "Green"
+    ; Muted, so a pin does not shout over the slide; orange first, the
+    ; default. i18n: "Orange" "Yellow" "Pink" "Cyan" "Green"
     sfn pinNames:[string] () {
-        return ([] _:string ("Yellow" "Orange" "Pink" "Cyan" "Green"))
+        return ([] _:string ("Orange" "Yellow" "Pink" "Cyan" "Green"))
     }
 
     sfn pinColours:[string] () {
-        return ([] _:string ("#fde047" "#fdba74" "#f9a8d4" "#67e8f9" "#86efac"))
+        return ([] _:string ("#e08a3c" "#d9a93e" "#d07a92" "#3a9fa6" "#6aa86a"))
     }
 
     sfn isColour:boolean (v:string) {
