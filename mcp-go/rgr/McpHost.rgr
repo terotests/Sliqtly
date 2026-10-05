@@ -239,6 +239,13 @@ operators {
             go ( (e 1) ".Render(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
         }
     }
+    ; the (x, y, w, h) rectangle of a slide's list (slide units) as a PNG
+    ; `width` pixels wide; empty when it could not be drawn
+    host_render_crop _:buffer (h:McpHost list:string w:double ht:double x:double y:double cw:double ch:double width:int) {
+        templates {
+            go ( (e 1) ".RenderCrop(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ", " (e 6) ", " (e 7) ", " (e 8) ", " (e 9) ")" )
+        }
+    }
     ; every slide as a numbered thumbnail, `cols` across, `width` pixels in
     ; all: base64 JPEG
     host_render_grid _:string (h:McpHost lists:[string] w:double ht:double cols:int width:int) {

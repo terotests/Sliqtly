@@ -30,7 +30,7 @@ class DeckIn {
     def live:boolean false
     ; keep each slide's display list as JSON, for drawing it
     def lists:boolean false
-    ; "pdf" or "pptx": the deck exported as that file (Checked.file), only
+    ; "pdf", "pptx", "docx" or "html": the deck exported as that file (Checked.file), only
     ; the slides in `only` (0 = first) when it is not empty
     def export:string ""
     def only:[int]
@@ -313,11 +313,39 @@ class Check {
             ex.only = din.only
             if (din.export == "pdf") {
                 c.file = (ex.pdf())
-            } {
+            }
+            if (din.export == "pptx") {
                 c.file = (ex.pptx())
+            }
+            if (din.export == "docx") {
+                Check.shots(host ex d)
+                c.file = (ex.docx())
+            }
+            if (din.export == "html") {
+                Check.shots(host ex d)
+                c.file = (PptxWriter.utf8((ex.html())))
             }
         }
         return c
+    }
+
+    ; The Word and web page exports' pictures of what only the stage draws
+    ; (diagrams, charts, SmartArt; PresDocx): each block's rectangle of its
+    ; slide at rest, drawn here as the editor draws it in WebGL.
+    sfn shots:void (host:McpHost ex:PresExport d:PresDeck) {
+        ex.docxShots()
+        for ex.word.shots s:PresDocxShot si {
+            def dl:EVGDisplayList (ex.word.shotList(d s.key))
+            ; sharp enough for a page-wide picture
+            def px:int (to_int ((s.w * 2.0) + 0.5))
+            if (px > 1400) {
+                px = 1400
+            }
+            def png:buffer (host_render_crop host (dl.toJson()) d.pageW d.pageH s.x s.y s.w s.h px)
+            if ((buffer_length png) > 0) {
+                ex.word.setShot(s.key png px (to_int ((((to_double px) * s.h) / s.w) + 0.5)))
+            }
+        }
     }
 
     ; per command of the slide list just drawn: true for text struck through

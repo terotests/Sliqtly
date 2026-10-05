@@ -288,8 +288,8 @@ class Tools {
 
         def xp:MfJ (MfJ.newObj())
         xp.put("deck_id" (Tools.prop("string" "deck_id of the presentation (the id in https://sliqtly.com/s/<id>)")))
-        def fmt:MfJ (Tools.prop("string" "pdf or pptx (PowerPoint)"))
-        fmt.put("enum" (J.strs(([] _:string ("pdf" "pptx")))))
+        def fmt:MfJ (Tools.prop("string" "pdf, pptx (PowerPoint), docx (Word) or html (one web page)"))
+        fmt.put("enum" (J.strs(([] _:string ("pdf" "pptx" "docx" "html")))))
         xp.put("format" fmt)
         def xn:MfJ (MfJ.newObj())
         xn.putStr("type" "integer")
@@ -297,7 +297,7 @@ class Tools {
         def xs:MfJ (Tools.prop("array" "Only these slides (numbers as in render_overview); all when left out"))
         xs.put("items" xn)
         xp.put("slides" xs)
-        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF or a PowerPoint (.pptx) file, by its deck_id: a download link to give the user, kept until the next export of the same format. Slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. Effects (fx=) are not drawn; the editor's File → Export draws them." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
+        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF, a PowerPoint (.pptx), a Word document (.docx) or one self-contained web page (.html), by its deck_id: a download link to give the user, kept until the next export of the same format. PDF and PPTX: slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. DOCX and HTML: the deck read as a document, slide after slide, with headings, text, lists, tables, formulas (Word equations / SVG), the speaker notes under each slide, and diagrams and charts as pictures. Effects (fx=) are not drawn; the editor's File → Export draws them." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
 
         def lp:MfJ (MfJ.newObj())
         lp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
@@ -2271,8 +2271,8 @@ class Tools {
             return (Tools.fail(bad))
         }
         def format:string (a.str_("format"))
-        if ((format != "pdf") && (format != "pptx")) {
-            return (Tools.fail("Invalid arguments: format is pdf or pptx."))
+        if ((((format != "pdf") && (format != "pptx")) && (format != "docx")) && (format != "html")) {
+            return (Tools.fail("Invalid arguments: format is pdf, pptx, docx or html."))
         }
         def id:string (a.str_("deck_id"))
         if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
@@ -2337,6 +2337,12 @@ class Tools {
         if (format == "pptx") {
             type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
         }
+        if (format == "docx") {
+            type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        }
+        if (format == "html") {
+            type = "text/html; charset=utf-8"
+        }
         def full:string ("shares/" + id + "/" + path)
         def token:string (host_uuid host)
         host_upload host (host_keep_bytes host bytes) full type token
@@ -2353,6 +2359,12 @@ class Tools {
         def what:string "PDF"
         if (format == "pptx") {
             what = "PowerPoint file"
+        }
+        if (format == "docx") {
+            what = "Word document"
+        }
+        if (format == "html") {
+            what = "Web page"
         }
         def out:MfJ (MfJ.newObj())
         out.putStr("deck_id" id)
