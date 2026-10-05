@@ -2118,16 +2118,16 @@ async function takeCloudReview(s) {
 // base colour as a hue (its sheets' --retro-hue), per browser.
 let skin = "";
 let skinHue = 88;
-// The standard skin's colours: "light", "dark" or "system" (the device's
-// setting, followed as it changes), per browser. The slides keep their
-// own theme in both.
-let mode = "system";
+// The standard skin's colours: "light" (the default), "dark" or "system"
+// (the device's setting, followed as it changes), per browser. The slides
+// keep their own theme in both.
+let mode = "light";
 try {
   skin = localStorage.getItem("sliqtly.skin") === "retro" ? "retro" : "";
   const h = parseInt(localStorage.getItem("sliqtly.skinHue") || "", 10);
   if (h >= 0 && h < 360) skinHue = h;
   const m = localStorage.getItem("sliqtly.mode");
-  if (m === "light" || m === "dark") mode = m;
+  if (m === "dark" || m === "system") mode = m;
 } catch (_) { /* standard */ }
 const darkQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 function isDark() {
