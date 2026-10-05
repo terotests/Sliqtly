@@ -28,6 +28,7 @@ import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versio
 import { showHistory, askMerge } from "./versions-ui.js";
 import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
+import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
@@ -126,20 +127,26 @@ function fresh(url) {
   return url + (url.includes("?") ? "&" : "?") + "v=" + BUILD;
 }
 
+// A player file (web/player-file.js) carries the page's own files: they are
+// read from it, and fetched on any other page.
+async function pageFetch(url) {
+  return (await embeddedAsset(url)) || (await fetch(url));
+}
+
 async function bytesOf(url) {
-  const res = await fetch(fresh(url));
+  const res = await pageFetch(fresh(url));
   if (!res.ok) throw new Error(url + " → " + res.status);
   return await res.arrayBuffer();
 }
 
 async function fontBytes(file) {
-  const res = await fetch(fontUrl(file));
+  const res = await pageFetch(fontUrl(file));
   if (!res.ok) throw new Error(file + " → " + res.status);
   return await res.arrayBuffer();
 }
 
 async function textOf(url) {
-  const res = await fetch(fresh(url));
+  const res = await pageFetch(fresh(url));
   if (!res.ok) throw new Error(url + " → " + res.status);
   return await res.text();
 }
@@ -1274,13 +1281,13 @@ let importing = null;
 let presData = null;
 function loadPresData() {
   if (!presData) {
-    presData = new Promise((ok, bad) => {
+    presData = embeddedScriptUrl("./pres_data.js").then((own) => new Promise((ok, bad) => {
       const s = document.createElement("script");
-      s.src = "./pres_data.js?v=" + BUILD;
+      s.src = own || "./pres_data.js?v=" + BUILD;
       s.onload = () => ok(globalThis.PresData);
       s.onerror = () => { presData = null; bad(new Error("pres_data.js did not load")); };
       document.head.appendChild(s);
-    });
+    }));
   }
   return presData;
 }
@@ -3214,12 +3221,31 @@ async function exportHtml(picked = false) {
   await renderDocxShots(JSON.parse(app.docxBegin(some)));
   window.__lastDownload = deliver(app.htmlEnd(), (some ? pickedName() : exportName()) + ".html", "text/html;charset=utf-8");
 }
+// A presentation player: the site's own player page (web/dist/player.html,
+// scripts/player.mjs) with this deck in it, one .html file that plays
+// offline. Review comments stay out: they are notes on the deck.
+async function exportPlayer() {
+  const enc = new TextEncoder();
+  const files = [];
+  for (const f of await docFiles()) {
+    if (f.path === REVIEW_PATH) continue;
+    if (typeof f.data === "string") files.push({ path: f.path, type: f.type || "", text: f.data });
+    else if (isText(f.path, f.type)) files.push({ path: f.path, type: f.type || "", text: await f.data.text() });
+    else files.push({ path: f.path, type: f.type || f.data.type || "", b64: base64(new Uint8Array(await f.data.arrayBuffer())) });
+  }
+  const theme = themeSel.value || "";
+  const deck = { name: exportName(), md: app.source(), theme, css: editedCss[theme] ?? null, files };
+  const html = playerHtml(await textOf("./player.html"), deck);
+  window.__lastDownload = deliver(enc.encode(html), exportName() + "-player.html", "text/html;charset=utf-8");
+}
+window.__exportPlayer = exportPlayer;
 window.__exportDocx = exportDocx;
 window.__exportHtml = exportHtml;
 window.__renderDocxShots = renderDocxShots;
 document.getElementById("docx").addEventListener("click", () => { exportDocx().catch(fail); });
 document.getElementById("docxPicked").addEventListener("click", () => { exportDocx(true).catch(fail); });
 document.getElementById("html").addEventListener("click", () => { exportHtml().catch(fail); });
+document.getElementById("player").addEventListener("click", () => { exportPlayer().catch(fail); });
 document.getElementById("htmlPicked").addEventListener("click", () => { exportHtml(true).catch(fail); });
 document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
@@ -4302,7 +4328,7 @@ function exportOnSite(kind) {
   q.set("export", kind);
   siteLink(siteUrl("").replace(/#.*$/, "") + "#" + q.toString());
 }
-const EXPORTS = { pdf: () => exportPdf(), pptx: () => exportPptx(), docx: () => exportDocx(), html: () => exportHtml(), md: () => exportMd() };
+const EXPORTS = { pdf: () => exportPdf(), pptx: () => exportPptx(), docx: () => exportDocx(), html: () => exportHtml(), player: () => exportPlayer(), md: () => exportMd() };
 async function exportMd() {
   window.__lastDownload = deliver(new TextEncoder().encode(app.source()), exportName() + ".md", "text/markdown");
 }
@@ -5398,6 +5424,13 @@ if (versionFrame) {
   viewer = true;
   document.body.classList.add("viewer", "versionFrame");
 }
+// A presentation exported as one .html file (web/player-file.js): the viewer
+// from the start, the deck from the file, no store, nothing saved.
+const playerDeck = versionFrame ? null : embeddedDeck(document);
+if (playerDeck) {
+  viewer = true;
+  document.body.classList.add("viewer", "playerFile");
+}
 // → the version the editor hands over, once this page says it is ready
 function versionFromEditor() {
   return new Promise((done) => {
@@ -5432,6 +5465,29 @@ async function openVersionView() {
   dropThumbs();
   needsPaint = true;
   enterViewer({ from: "version" });
+}
+
+async function openPlayerDeck() {
+  const d = playerDeck;
+  beginDoc(d.md);
+  themeSel.value = d.theme;
+  app.setStyleSheet(d.theme ? themeCss[d.theme] || "" : "");
+  if (d.css != null) {
+    editedCss[d.theme] = d.css;
+    app.setStyleSheet(d.css);
+  }
+  for (const f of d.files) {
+    const data = fileData(f);
+    const size = typeof data === "string" ? data.length : data.size;
+    const rec = { doc: doc.id, path: f.path, type: f.type, size, data, updated: Date.now() };
+    readFiles.set(rec.path, rec);
+    await useFile(rec).catch((e) => console.warn("file not shown: " + f.path, e));
+  }
+  docName = d.name;
+  shownDoc(d.md);
+  dropThumbs();
+  needsPaint = true;
+  enterViewer({ from: "file" });
 }
 
 async function start() {
@@ -5541,6 +5597,7 @@ async function start() {
   const editId = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(location.pathname)?.[1] || own?.from;
   const editing = !!own || (!!editId && q.has("edit"));
   if (versionFrame) await openVersionView();
+  else if (playerDeck) await openPlayerDeck();
   else if (editing && editId && (await openOwnCloud(editId).catch((e) => { console.warn(e); return false; }))) { /* opened */ }
   else if (own && vfs && (await ownIsNewer(own)) && (await openDoc(own.deck))) plainAddress();
   else if (!(await openFromShare()) && !(await openFromHash())) {

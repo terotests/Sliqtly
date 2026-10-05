@@ -1972,7 +1972,7 @@ try {
       return { newKids, newReqs, kids, zip, red, last, asked, confirm, okDanger: !!ok && (ok.className || "").includes("ui-button-danger"), closed: !a.chart.isOpen, after };
     });
     check("…File → New offers Presentation… (the window) and Datasheet… (the spreadsheet editor)", fx.newKids.join() === "newPres,newSheet" && fx.newReqs.join() === "files:new,files:newsheet", JSON.stringify(fx));
-    check("…File → Export lists .md, .pptx, .docx, .html, .pdf and .zip, and the zip row is the page's ZIP button", fx.kids.join() === "x-save,x-pptx,x-docx,x-html,x-pdf,x-zip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
+    check("…File → Export lists .md, .pptx, .docx, .html, the player, .pdf and .zip, and the zip row is the page's ZIP button", fx.kids.join() === "x-save,x-pptx,x-docx,x-html,x-player,x-pdf,x-zip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
     check("…File → Delete presentation… is red and last, and asks first; Esc deletes nothing", fx.red && fx.last && fx.asked.includes("files:deletedeck") && fx.confirm && fx.okDanger && fx.closed && !fx.after.some((r) => r.startsWith("confirm:")), JSON.stringify(fx));
 
     // File → Recent: Browse all… first (the Files tab), a line, then the decks
@@ -3089,6 +3089,26 @@ try {
       && htmlExp.includes("<aside class=\"notes\">") && htmlExp.includes("href=\"https://sliqtly.com\"")
       && /<img src="data:image\/png;base64,[A-Za-z0-9+/]{200,}/.test(htmlExp),
     `${htmlExp.length} chars`);
+  // The player: one .html file that plays the deck from disk, offline
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    await page.evaluate(() => window.__app.setSource("# Soitin\n\n## Toinen\n\nteksti\n"));
+    const got = page.waitForEvent("download");
+    await page.evaluate(() => window.__exportPlayer());
+    const file = await (await got).path();
+    const off = await browser.newContext({ viewport: { width: 900, height: 560 }, offline: true });
+    const pl = await off.newPage();
+    const errs = [];
+    pl.on("pageerror", (e) => errs.push(e.message));
+    await pl.goto("file://" + file);
+    const ran = await pl.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 }).then(() => true, () => false);
+    const seen = ran ? await pl.evaluate(() => ({ cls: document.body.className, src: window.__app.source() })) : {};
+    check("Player export: one file that opens offline from disk and shows the deck",
+      ran && seen.cls.includes("playerFile") && seen.src.includes("## Toinen") && !errs.length,
+      JSON.stringify({ ran, cls: seen.cls, bytes: fs.statSync(file).size, errs: errs.slice(0, 3) }));
+    await off.close();
+    await page.evaluate((src) => window.__app.setSource(src), src0);
+  }
   // A slide's effect goes into both exports as a picture under the content
   const fxExp = await page.evaluate(async () => {
     const a = window.__app;

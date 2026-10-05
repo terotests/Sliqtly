@@ -13,6 +13,10 @@ test("a link carrying the Markdown gets the intro", () => {
   assert.equal(wantsIntro({ from: "link" }), true);
 });
 
+test("a presentation exported as a player file gets the intro", () => {
+  assert.equal(wantsIntro({ from: "file" }), true);
+});
+
 test("the editor and anything else get none", () => {
   assert.equal(wantsIntro({}), false);
   assert.equal(wantsIntro(), false);

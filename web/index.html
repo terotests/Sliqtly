@@ -293,6 +293,8 @@
   .vViewFrame { flex: 1; width: 100%; border: 0; background: #000; }
   /* inside that frame: exports of the version stay, a new deck from it does not */
   body.versionFrame #vMenu hr, body.versionFrame #vMenu [data-act="new"] { display: none; }
+  /* a player file is the player: no site to create on, no player page to copy */
+  body.playerFile #vMenu hr, body.playerFile #vMenu [data-act="new"], body.playerFile #vMenu [data-act="player"] { display: none; }
   /* a view of some slides (?slides=): no copy of the whole deck from it */
   body.slidesView #vMenu hr, body.slidesView #vMenu [data-act="new"] { display: none; }
   body.viewer #c { cursor: default; }
@@ -348,6 +350,7 @@
   <button id="pptx">PPTX</button>
   <button id="docx">DOCX</button>
   <button id="html">HTML</button>
+  <button id="player">Player</button>
   <button id="zip">ZIP</button>
   <button id="pdfPicked" hidden>PDF</button>
   <button id="pptxPicked" hidden>PPTX</button>
@@ -394,6 +397,7 @@
       <button role="menuitem" data-act="pptx">PowerPoint (.pptx)</button>
       <button role="menuitem" data-act="docx">Word (.docx)</button>
       <button role="menuitem" data-act="html" data-i18n>Web page (.html)</button>
+      <button role="menuitem" data-act="player" data-i18n>Presentation player (.html)</button>
       <button role="menuitem" data-act="md">Markdown (.md)</button>
     </div>
     <hr />
