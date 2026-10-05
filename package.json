@@ -15,8 +15,7 @@
     "check": "node scripts/check.mjs",
     "check:web": "node scripts/check-web.mjs",
     "i18n": "node scripts/i18n.mjs",
-    "check:samples": "node scripts/check-samples.mjs",
-    "compile:tracer": "node scripts/compile-tracer.mjs"
+    "check:samples": "node scripts/check-samples.mjs"
   },
   "devDependencies": {
     "playwright-core": "^1.55.0",
