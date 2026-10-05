@@ -368,9 +368,50 @@ class PresApp {
         deck.addTemplate(name css)
     }
 
-    ; The editors in the app's light look: white paper, zinc greys, and the
-    ; syntax in the colours of a light code theme.
+    ; The editors in the app's light look: the colours of `coolEditor` in
+    ; the warm cast the chrome's sheets get (EVGUI's UiTone), every contrast
+    ; kept.
     sfn lightEditor:void (ed:ScriptEditor) {
+        PresApp.coolEditor(ed)
+        def t:ScriptEditorTheme ed.theme
+        t.bg = (UiTone.warm(t.bg))
+        t.gutterBg = (UiTone.warm(t.gutterBg))
+        t.gutterText = (UiTone.warm(t.gutterText))
+        t.gutterActive = (UiTone.warm(t.gutterActive))
+        t.currentLine = (UiTone.warm(t.currentLine))
+        t.selection = (UiTone.warm(t.selection))
+        t.caret = (UiTone.warm(t.caret))
+        t.border = (UiTone.warm(t.border))
+        t.plain = (UiTone.warm(t.plain))
+        t.keyword = (UiTone.warm(t.keyword))
+        t.builtin = (UiTone.warm(t.builtin))
+        t.number = (UiTone.warm(t.number))
+        t.text = (UiTone.warm(t.text))
+        t.comment = (UiTone.warm(t.comment))
+        t.punct = (UiTone.warm(t.punct))
+        t.tag = (UiTone.warm(t.tag))
+        t.attr = (UiTone.warm(t.attr))
+        t.popupBg = (UiTone.warm(t.popupBg))
+        t.popupEdge = (UiTone.warm(t.popupEdge))
+        t.popupPick = (UiTone.warm(t.popupPick))
+        t.popupDetail = (UiTone.warm(t.popupDetail))
+        t.findBg = (UiTone.warm(t.findBg))
+        t.findEdge = (UiTone.warm(t.findEdge))
+        t.findInk = (UiTone.warm(t.findInk))
+        t.findDim = (UiTone.warm(t.findDim))
+        t.errorInk = (UiTone.warm(t.errorInk))
+        t.warningInk = (UiTone.warm(t.warningInk))
+        t.minimapBg = (UiTone.warm(t.minimapBg))
+        t.minimapSlider = (UiTone.warm(t.minimapSlider))
+        t.minimapEdge = (UiTone.warm(t.minimapEdge))
+        t.hBarTrack = (UiTone.warm(t.hBarTrack))
+        t.hBarThumb = (UiTone.warm(t.hBarThumb))
+        t.hBarEdge = (UiTone.warm(t.hBarEdge))
+    }
+
+    ; The light editor's colours before the warm cast: white paper, zinc
+    ; greys, and the syntax in the colours of a light code theme.
+    sfn coolEditor:void (ed:ScriptEditor) {
         def t:ScriptEditorTheme ed.theme
         t.bg = (EVGColor.rgb(255 255 255))
         t.gutterBg = (EVGColor.rgb(250 250 250))
@@ -458,6 +499,13 @@ class PresApp {
             return
         }
         PresApp.lightEditor(ed)
+    }
+
+    ; A light chrome sheet in the editor's warm cast (EVGUI's UiTone), for a
+    ; host applied with `theme`: the page loads every sheet through it, and
+    ; the dark overlay is derived from what it gives.
+    sfn warmCss:string (css:string theme:string) {
+        return (UiTone.warmSheet(css theme))
     }
 
     ; The dark overlay of a light chrome sheet for a host applied with

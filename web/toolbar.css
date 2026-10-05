@@ -24,7 +24,8 @@
 .theme-tb .ui-button-primary { background-color: #18181b; border-color: #18181b; }
 .theme-tb .ui-button-secondary { background-color: #ffffff; border: 1px solid #e4e4e7; }
 .theme-tb .ui-button-ghost { background-color: rgba(0,0,0,0); border-color: rgba(0,0,0,0); }
-.theme-tb .tb-accent { background-color: #4f46e5; border-color: #4f46e5; }
+/* the accent: a papyrus terracotta, 5.9:1 under white text */
+.theme-tb .tb-accent { background-color: #a34a24; border-color: #a34a24; }
 .theme-tb .ui-button-label { font-weight: 500; font-size: 13px; color: #09090b; }
 .theme-tb .tb-onprimary { color: #fafafa; }
 

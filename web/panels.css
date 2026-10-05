@@ -36,7 +36,7 @@
 .pn-pline { display: flex; flex-direction: row; align-items: center; gap: 6px; }
 .pn-nm { font-size: 12px; color: #0550ae; }
 .pn-val { font-size: 12px; color: #953800; }
-.pn-unset { font-size: 11px; color: #4f46e5; }
+.pn-unset { font-size: 11px; color: #a34a24; }
 .pn-pd { font-size: 11px; color: #71717a; }
 .pn-swatch { width: 11px; height: 11px; min-width: 11px; border-radius: 3px; border: 1px solid #e4e4e7; }
 .pn-attr { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -154,7 +154,7 @@
 .pf-promo-title { font-size: 14px; font-weight: 700; color: #3730a3; }
 .pf-promo-text { font-size: 12px; color: #312e81; }
 .pf-promo-row { display: flex; flex-direction: row; padding-top: 2px; }
-.theme-pn .pf-promo-btn { background-color: #4f46e5; border-color: #4f46e5; }
+.theme-pn .pf-promo-btn { background-color: #a34a24; border-color: #a34a24; }
 .pf-note { font-size: 11px; color: #71717a; padding: 10px 0 0; flex-shrink: 0; }
 .theme-pn .pf-act { height: 26px; padding: 0 9px; }
 /* the Open dialog's sample decks: a select as wide as its longest title */
