@@ -828,6 +828,80 @@ try {
   });
   check("share offers a presentation link", /mode=show/.test(showUrl));
   check("the share dialog is drawn on the canvas; a copy button asks the page to copy", dlg.open && dlg.drawn > 20 && dlg.req === "copy:show" && dlg.closed && !dlg.html, JSON.stringify(dlg));
+
+  // Slides picked on the strip (Ctrl/⌘ + click, Shift + click): exported
+  // alone, and shared as a link to only them (src/PresPick.rgr)
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const picked = await page.evaluate(() => {
+      const a = window.__app;
+      a.setSource("---\nslide-split-level: 2\n---\n\n## Yksi\n\na\n\n## Kaksi\n\nb\n\n## Kolme\n\nc\n\n## Neljä\n\nd\n");
+      a.place();
+      const tap = (i, ctrl, shift) => {
+        a.setCtrl(ctrl);
+        a.pointerDown(a.thumbX(i) + 20, a.thumbY() + 20, shift, 1);
+        a.pointerUp();
+        a.setCtrl(false);
+      };
+      tap(1, false, false);
+      tap(3, true, false);
+      const two = a.pickList();
+      // from the last one clicked
+      tap(0, false, true);
+      const run = a.pickList();
+      tap(2, true, false);
+      const out = { two, run, list: a.pickList(), bar: a.toolbar.picked, keys: a.pickKeys() };
+      const u = new Uint8Array(a.pdfPicked());
+      let pdf = "";
+      for (let i = 0; i < u.length; i += 1) pdf += String.fromCharCode(u[i]);
+      out.pdfPages = (pdf.match(/\/Type\s*\/Page[^s]/g) || []).length;
+      const v = new Uint8Array(a.pptxPicked());
+      let b = "";
+      for (let i = 0; i < v.length; i += 1) b += String.fromCharCode(v[i]);
+      out.pptx = btoa(b);
+      out.view = a.pickViewText();
+      return out;
+    });
+    const pptxNames = [...unzip(Buffer.from(picked.pptx, "base64")).keys()].filter((k) => /^ppt\/slides\/slide\d+\.xml$/.test(k));
+    check("Ctrl+click picks the selected slide and the clicked one; Shift+click picks a run", picked.two === "2,4" && picked.run === "1,2,3,4", JSON.stringify(picked).slice(0, 200));
+    check("…Ctrl+click again lets one go; the bar's Export offers the picked", picked.list === "1,2,4" && picked.bar === 3 && picked.keys === "yksi,kaksi,neljä", JSON.stringify({ list: picked.list, bar: picked.bar, keys: picked.keys }));
+    check("…the PDF and the PPTX of the picked slides have only them", picked.pdfPages === 3 && pptxNames.length === 3, JSON.stringify({ pdf: picked.pdfPages, pptx: pptxNames }));
+    check("…their view keeps only their sections", picked.view.includes("## Yksi") && picked.view.includes("## Kaksi") && picked.view.includes("## Neljä") && !picked.view.includes("## Kolme"), picked.view);
+    await page.evaluate(() => { window.__lastShareView = ""; document.getElementById("share").click(); });
+    await page.waitForFunction(() => !!window.__lastShareView, null, { timeout: 5000 }).catch(() => {});
+    const viewUrl = await page.evaluate(() => window.__lastShareView || "");
+    // drawn on the next frame
+    await page.waitForFunction(() => !!window.__app.panels.host.lastPage, null, { timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(200);
+    const viewDlg = await page.evaluate(() => {
+      const a = window.__app;
+      const walk = (e, id) => { if (!e) return null; if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      const b = walk(a.panels.host.lastPage, "pn-copy-view");
+      if (!b) return { button: false };
+      a.pointerDown(b.calculatedX + 8, b.calculatedY + 8, false, 1);
+      a.pointerUp();
+      const req = a.takeRequest();
+      a.closeShare();
+      return { button: true, req };
+    });
+    check("…Share offers a link to only the picked slides", /#md=/.test(viewUrl) && /mode=show/.test(viewUrl) && viewDlg.button && viewDlg.req === "copy:view", JSON.stringify({ viewDlg, len: viewUrl.length }));
+    const pv = await browser.newPage({ viewport: { width: 1200, height: 760 } });
+    await pv.goto(viewUrl.replace(/^https?:\/\/[^/]+/, url.replace(/\/$/, "")));
+    await pv.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const seen = await pv.evaluate(() => ({ md: window.__app.source(), n: window.__app.deck.slideCount() }));
+    check("…and that link shows only them", seen.n === 3 && seen.md.includes("## Neljä") && !seen.md.includes("## Kolme"), JSON.stringify(seen));
+    await pv.close();
+    // a plain click lets the pick go
+    const cleared = await page.evaluate(() => {
+      const a = window.__app;
+      a.setCtrl(false);
+      a.pointerDown(a.thumbX(0) + 20, a.thumbY() + 20, false, 1);
+      a.pointerUp();
+      return { n: a.pickCount(), bar: a.toolbar.picked };
+    });
+    check("…a plain click lets the picked slides go", cleared.n === 0 && cleared.bar === 0, JSON.stringify(cleared));
+    await page.evaluate((src) => window.__app.setSource(src), src0);
+  }
   const page3 = await browser.newPage({ viewport: { width: 1200, height: 760 } });
   await page3.addInitScript(() => {
     document.addEventListener("DOMContentLoaded", () => {
@@ -3526,6 +3600,18 @@ try {
     await pc.waitForFunction(() => document.getElementById("brandIntro").hidden, null, { timeout: 20000 }).catch(() => {});
     const gone = await pc.evaluate(() => ({ intro: !document.getElementById("brandIntro").hidden, viewer: document.body.classList.contains("viewer") }));
     check("a share that is not found leaves no intro over the page", !gone.intro && !gone.viewer, JSON.stringify(gone));
+    // a view of some slides (?slides=): only their sections, and still only
+    // them after the deck changed in the cloud
+    fakeDb.set("shares/zzSliced", { name: "Osa", owner: "u2", created: 1000, files: [],
+      md: "---\nslide-split-level: 2\n---\n\n## Yksi\n\na\n\n## Kaksi\n\nb\n\n## Kolme\n\nc\n" });
+    await pc.goto(url.replace(/\/$/, "") + "/s/zzSliced?slides=kaksi,kolme");
+    await pc.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const sliced = await pc.evaluate(() => ({ md: window.__app.source(), n: window.__app.deck.slideCount(), view: document.body.classList.contains("slidesView") }));
+    check("a share's view of some slides shows only them", sliced.n === 2 && sliced.view && sliced.md.includes("## Kaksi") && !sliced.md.includes("## Yksi"), JSON.stringify(sliced));
+    fakeDb.set("shares/zzSliced", { ...fakeDb.get("shares/zzSliced"), md: "---\nslide-split-level: 2\n---\n\n## Uusi\n\nz\n\n## Yksi\n\na\n\n## Kaksi\n\nb2\n\n## Kolme\n\nc\n", updated: Date.now() });
+    await pc.evaluate(() => window.__followShare("zzSliced"));
+    const followed = await pc.evaluate(() => ({ md: window.__app.source(), n: window.__app.deck.slideCount() }));
+    check("…and follows the deck's changes to them, not the slides added", followed.n === 2 && followed.md.includes("b2") && !followed.md.includes("## Uusi"), JSON.stringify(followed));
     // A shared deck read in the player: its workbook is among the deck's
     // files, so a ```sheet naming the one sheet of a one-sheet book (the
     // still reads data/<book>-<Sheet>.csv) is drawn from it, and the live
