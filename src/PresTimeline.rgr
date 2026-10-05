@@ -118,6 +118,7 @@ class PresTimeline {
             }
             di = (di + 1)
         }
+        s.settled = last
         def d:double (last + s.hold)
         if (s.wantDuration > 0.0) {
             d = s.wantDuration

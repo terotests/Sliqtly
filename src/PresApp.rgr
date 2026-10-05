@@ -32,6 +32,7 @@ Import "PresTimeline.rgr"
 Import "PresSlideSpans.rgr"
 Import "PresFollow.rgr"
 Import "PresPick.rgr"
+Import "PresNav.rgr"
 Import "PresI18n.rgr"
 Import "../datagrid/src/script/ScriptEditor.rgr"
 Import "../game_engine/ui/UITextRenderer.rgr"
@@ -263,6 +264,8 @@ class PresApp {
     def panels:PresPanels (new PresPanels())
     ; review mode: comments pinned to the slides (PresReviewUi, PresReview)
     def review:PresReviewUi (new PresReviewUi())
+    ; the jumps while presenting and the slide number being typed
+    def nav:PresNav (new PresNav())
     def reviewTitlesKey:string ""
     ; Which surface over the chrome is on top: the order they are painted in
     ; (`layerOrder`, read by the page) and the order a press, a wheel or the
@@ -1418,6 +1421,7 @@ class PresApp {
         }
         ended = false
         pStep = 0
+        nav.clear()
         clock = (PresTimeline.slideStart(deck selected))
         elapsed = 0.0
         deck.resetExplore()
@@ -1511,6 +1515,68 @@ class PresApp {
         pStep = s.steps
         clock = ((PresTimeline.slideStart(deck selected)) + s.duration)
         chromeRev = (chromeRev + 1)
+    }
+
+    ; A jump (PresNav): straight to where it lands, no transition on the way.
+    fn jump:void (at:PresNavAt) {
+        if ((mode != "present") || ((deck.slideCount()) == 0)) {
+            return
+        }
+        nav.clear()
+        selected = at.slide
+        pStep = at.step
+        clock = at.clock
+        ended = at.ended
+        this.viewReset()
+        activeDia = -1
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; Home, ⏮: the first slide from its start.
+    fn firstSlide:void () {
+        this.jump((PresNav.first(deck)))
+        deck.resetExplore()
+    }
+
+    ; End: the last slide, whole.
+    fn lastSlide:void () {
+        this.jump((PresNav.last(deck)))
+    }
+
+    ; PageDown / PageUp: the next / previous slide, whole.
+    fn pageNext:void () {
+        this.jump((PresNav.pageNext(deck selected ended)))
+    }
+
+    fn pagePrev:void () {
+        this.jump((PresNav.pagePrev(deck selected ended)))
+    }
+
+    ; Slide `text` (a number from 1, as the counter shows it), whole. False
+    ; when it is no number.
+    fn goToSlide:boolean (text:string) {
+        def k:int (PresNav.number(text (deck.slideCount())))
+        if ((k < 0) || (mode != "present")) {
+            return false
+        }
+        this.jump((PresNav.whole(deck k)))
+        return true
+    }
+
+    ; The counter: "3 / 12", or the number being typed.
+    fn slideLabel:string () {
+        return (PresNav.label(selected (deck.slideCount()) nav.typed))
+    }
+
+    fn navTyping:boolean () {
+        return (nav.typing())
+    }
+
+    fn navClear:void () {
+        if (nav.typing()) {
+            nav.clear()
+            chromeRev = (chromeRev + 1)
+        }
     }
 
     ; =========================================================================
@@ -3240,18 +3306,45 @@ class PresApp {
             this.afterChart()
             return used
         }
+        ; a slide number being typed: Enter goes there, Esc forgets it
+        if ((mode == "present") && (nav.typing())) {
+            if (name == "enter") {
+                def k:int (nav.take((deck.slideCount())))
+                this.jump((PresNav.whole(deck k)))
+                return true
+            }
+            if (name == "escape") {
+                this.navClear()
+                return true
+            }
+            if (name == "backspace") {
+                nav.typed = (substring nav.typed 0 ((strlen nav.typed) - 1))
+                chromeRev = (chromeRev + 1)
+                return true
+            }
+            nav.clear()
+            chromeRev = (chromeRev + 1)
+        }
         if ((mode == "present") || (focus == "stage")) {
             if (this.diagramKey(name)) {
                 return true
             }
         }
         if (mode == "present") {
-            if ((((name == "right") || (name == "down")) || (name == "pageDown")) || (name == "enter")) {
+            if (((name == "right") || (name == "down")) || (name == "enter")) {
                 this.next()
                 return true
             }
-            if (((name == "left") || (name == "up")) || (name == "pageUp")) {
+            if ((name == "left") || (name == "up")) {
                 this.prev()
+                return true
+            }
+            if (name == "pageDown") {
+                this.pageNext()
+                return true
+            }
+            if (name == "pageUp") {
+                this.pagePrev()
                 return true
             }
             if (name == "escape") {
@@ -3259,11 +3352,11 @@ class PresApp {
                 return true
             }
             if (name == "home") {
-                ended = false
-                selected = 0
-                pStep = 0
-                clock = 0.0
-                chromeRev = (chromeRev + 1)
+                this.firstSlide()
+                return true
+            }
+            if (name == "end") {
+                this.lastSlide()
                 return true
             }
             return false
@@ -3435,6 +3528,16 @@ class PresApp {
             this.afterHint()
             return
         }
+        ; a slide number: digits, then Enter (a number already begun takes
+        ; the digits before a diagram's own keys do)
+        if ((mode == "present") && (nav.typing())) {
+            if (nav.digit(s)) {
+                chromeRev = (chromeRev + 1)
+                return
+            }
+            nav.clear()
+            chromeRev = (chromeRev + 1)
+        }
         ; T: the diagram's tour on this slide, started or stopped
         if (((mode == "present") || (focus == "stage")) && ((s == "t") || (s == "T"))) {
             if (this.toggleTour(0)) {
@@ -3451,6 +3554,10 @@ class PresApp {
             }
         }
         if (mode == "present") {
+            if (nav.digit(s)) {
+                chromeRev = (chromeRev + 1)
+                return
+            }
             if (s == " ") {
                 this.next()
             }
