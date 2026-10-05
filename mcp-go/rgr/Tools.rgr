@@ -22,6 +22,7 @@ Import "SvgCheck.rgr"
 Import "Edits.rgr"
 Import "GitHub.rgr"
 Import "../presentation/PresReview.rgr"
+Import "../presentation/PresTrace.rgr"
 
 ; who is asking, for one request
 class Caller {
@@ -389,6 +390,21 @@ class Tools {
         sheetsP.putInt("maxItems" 20)
         wp.put("sheets" sheetsP)
         tools.add((Tools.tool("write_workbook" "Write a presentation's workbook" "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text; a cell may be a formula { f: \"=SUM(C2:C13)\", v: 1234.5 }. Use this rather than sending an .xlsx as base64, which gets corrupted when long. Formatting, colours, filters and column widths are not kept. Needs sign-in." (Tools.schema(wp ([] _:string ("deck_id" "path" "sheets")))) (Tools.annotations(false 1 true false)) eitherMeta)))
+
+        def vp:MfJ (MfJ.newObj())
+        vp.put("deck_id" (Tools.prop("string" "A presentation's id (the id in https://sliqtly.com/s/<id>): vectorize one of its pictures and keep the SVG in it. Leave out to vectorize image_base64 or image_url and get the SVG back")))
+        vp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
+        vp.put("path" (Tools.prop("string" "With deck_id: the picture's path from list_files, e.g. media/logo.png")))
+        vp.put("image_base64" (Tools.prop("string" "Without deck_id: a PNG or JPEG as base64 (a data: URL is fine)")))
+        vp.put("image_url" (Tools.prop("string" "Without deck_id: a public https address of a PNG or JPEG")))
+        def vpre:MfJ (Tools.prop("string" "Starting point: logo (few flat colours, background dropped), illustration (8 colours, the default), poster (12 vivid colours), photo (24 colours, noise smoothed), lineart (black and white)"))
+        vpre.put("enum" (J.strs((PresTraceSettings.presetNames()))))
+        vp.put("preset" vpre)
+        def vopt:MfJ (Tools.prop("object" "Tracer options on top of the preset, by name: colorCount (1-64), turdsize (speckles below this many pixels dropped), alphamax (0-1.34, higher = rounder corners), opttolerance (curve fit, 0-2), smooth (median passes against noise), minRegion, threshold (lineart, -1 = automatic), bgMode (auto drops a flat background, none keeps everything), paletteMode (auto, fixed, seeded) with paletteHex (\"#112233,#ffcc00\"), paletteBias (area, balanced, distinct), gradientFill (true/false), maxSide (the longest side traced, default 1000). Any EvgTraceOptions field is accepted."))
+        vp.put("options" vopt)
+        vp.put("replace" (Tools.prop("boolean" "With deck_id: point the Markdown's and the theme CSS's uses of the picture at the SVG (default true). The original stays in the deck's files")))
+        vp.put("save_as" (Tools.prop("string" "With deck_id: the SVG's path (default the picture's path with .svg)")))
+        tools.add((Tools.tool("vectorize_image" "Vectorize a picture" "Trace a bitmap (PNG or JPEG) into an SVG with Sliqtly's tracer: the picture is posterized into flat colour regions, their edges fitted with curves, one path per colour. Sharp at any size, and often a fraction of the bytes for logos, icons, illustrations and low-resolution pictures; a photo becomes a poster-like drawing. With deck_id and path the SVG is kept in the presentation and (replace) put where the picture was used, background images in the theme included; without, the SVG is returned." (Tools.schema(vp none)) (Tools.annotations(false 1 false true)) eitherMeta)))
 
         def listMeta:MfJ (MfJ.newObj())
         def only:MfJ (MfJ.newArr())
@@ -992,7 +1008,7 @@ class Tools {
             hr.put("structuredContent" (J.parse(answer)))
             return hr
         }
-        def writes:boolean ((((name == "create_presentation") || (name == "update_presentation")) || (name == "bind_chart_data")) || (name == "write_workbook"))
+        def writes:boolean ((((name == "create_presentation") || (name == "update_presentation")) || (name == "bind_chart_data")) || ((name == "write_workbook") || (name == "vectorize_image")))
         if (writes || ((((name == "add_comment") || (name == "resolve_comment")) || (name == "begin_work")) || (name == "end_work"))) {
             def why:string (host_rate_limit host caller.who)
             if ((strlen why) > 0) {
@@ -1032,6 +1048,9 @@ class Tools {
         }
         if (name == "write_workbook") {
             r = (Tools.writeWorkbook(host caller args))
+        }
+        if (name == "vectorize_image") {
+            r = (Tools.vectorize(host caller args))
         }
         if (name == "list_presentations") {
             r = (Tools.listMine(host caller))
@@ -1960,6 +1979,223 @@ class Tools {
         }
         def note:string "Formatting is not kept. Renamed or removed sheets change the CSV names the deck reads; check the deck's charts and tables still name them."
         return (Tools.withData(host (Tools.updated(host caller id saved note)) kept))
+    }
+
+    ; vectorize_image's settings: the preset, then each option as text
+    sfn traceSettings:string (a:MfJ) {
+        def text:string "preset=illustration\n"
+        if (Tools.has(a "preset")) {
+            text = ("preset=" + (a.str_("preset")) + "\n")
+        }
+        def o:MfJ (a.field("options"))
+        if (o.isObj()) {
+            for o.ks k:string i {
+                def v:MfJ (itemAt o.vs i)
+                def vs:string ""
+                if (v.kind == 3) {
+                    vs = v.str
+                }
+                if (v.kind == 2) {
+                    vs = (to_string v.num)
+                }
+                if (v.kind == 1) {
+                    vs = "false"
+                    if v.flag {
+                        vs = "true"
+                    }
+                }
+                if (v.kind == 4) {
+                    for v.arr e:MfJ j {
+                        if ((strlen vs) > 0) {
+                            vs = (vs + ",")
+                        }
+                        vs = (vs + e.str)
+                    }
+                }
+                text = (text + k + "=" + vs + "\n")
+            }
+        }
+        return text
+    }
+
+    sfn traceLine:string (res:PresTraceResult) {
+        def kb:int (idiv ((strlen res.svg) + 512) 1024)
+        def line:string ((to_string res.layers) + " colour layers (" + res.colors + "), " + (to_string kb) + " KB")
+        if ((res.tracedW != res.width) || (res.tracedH != res.height)) {
+            line = (line + ", traced at " + (to_string res.tracedW) + "x" + (to_string res.tracedH) + " of " + (to_string res.width) + "x" + (to_string res.height))
+        }
+        return line
+    }
+
+    sfn vectorize:MfJ (host:McpHost caller:Caller a:MfJ) {
+        def preset:string (a.str_("preset"))
+        if ((Tools.has(a "preset")) && ((PresTraceSettings.isPreset(preset)) == false)) {
+            return (Tools.fail(("Invalid arguments: preset is one of logo, illustration, poster, photo, lineart.")))
+        }
+        def opts:MfJ (a.field("options"))
+        if ((opts.kind != 0) && ((opts.isObj()) == false)) {
+            return (Tools.fail("Invalid arguments: options is an object of tracer option names and values."))
+        }
+        def settings:string (Tools.traceSettings(a))
+        def bad:string (PresTrace.unknown((PresTraceSettings.parse(settings))))
+        if ((strlen bad) > 0) {
+            return (Tools.fail(("Unknown tracer option: " + bad + ". Names are EvgTraceOptions fields, e.g. colorCount, turdsize, alphamax, opttolerance, smooth, minRegion, bgMode, paletteHex, maxSide.")))
+        }
+        if ((Tools.has(a "deck_id")) == false) {
+            return (Tools.vectorizeLoose(host a settings))
+        }
+        if ((host_store_kind host) == "link") {
+            return (Tools.fail("This server keeps no decks (no cloud storage configured): give the picture as image_base64 instead of deck_id."))
+        }
+        def miss:string (Tools.checkArgs(a ([] _:string ("deck_id" "path"))))
+        if ((strlen miss) > 0) {
+            return (Tools.fail(miss))
+        }
+        if (caller.signedIn == false) {
+            return (Tools.needsSignIn(caller "pictures"))
+        }
+        def id:string (a.str_("deck_id"))
+        def ed:Editable (Tools.editable(host caller id (a.str_("edit_key"))))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "vectorize_image" (host_error host)))
+        }
+        if ((strlen ed.fail) > 0) {
+            return (Tools.fail(ed.fail))
+        }
+        def path:string (trim (a.str_("path")))
+        while (startsWith path "/") {
+            path = (substring path 1 (strlen path))
+        }
+        def found:boolean false
+        for (ed.cur.list("files")) f:MfJ i {
+            if ((f.str_("path")) == path) {
+                found = true
+            }
+        }
+        if (found == false) {
+            return (Tools.fail(("The presentation has no file " + path + "; list_files names its pictures.")))
+        }
+        def low:string (to_lowercase path)
+        if (((endsWith low ".png") || ((endsWith low ".jpg") || (endsWith low ".jpeg"))) == false) {
+            return (Tools.fail(("Only PNG and JPEG pictures are vectorized; " + path + " is not one.")))
+        }
+        def got:MfJ (J.parse((host_file_bytes host id path)))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "vectorize_image" (host_error host)))
+        }
+        def res:PresTraceResult (PresTrace.traceBytes((host_image_bytes host (got.int_("handle" 0))) settings))
+        if ((strlen res.err) > 0) {
+            return (Tools.fail(res.err))
+        }
+        if ((strlen res.svg) > (Deck.MAX_IMAGE())) {
+            return (Tools.fail(("The SVG would be larger than 5 MB (" + (Tools.traceLine(res)) + "): fewer colours (options.colorCount), a larger turdsize or minRegion, or a smaller maxSide.")))
+        }
+        def target:string (trim (a.str_("save_as")))
+        while (startsWith target "/") {
+            target = (substring target 1 (strlen target))
+        }
+        if ((strlen target) == 0) {
+            def dot:int (lastIndexOf path ".")
+            target = ((substring path 0 dot) + ".svg")
+        }
+        if ((endsWith (to_lowercase target) ".svg") == false) {
+            return (Tools.fail("save_as is a path ending in .svg."))
+        }
+        def im (new Img)
+        im.name = target
+        def slash:int (lastIndexOf target "/")
+        if (slash >= 0) {
+            im.name = (substring target (slash + 1) (strlen target))
+        }
+        im.path = target
+        im.type = "image/svg+xml"
+        im.handle = (host_keep_text host res.svg)
+        im.size = (strlen res.svg)
+        def kept:[Img]
+        push kept im
+        def p (new DeckPatch)
+        def note:string ("Vectorized " + path + " into " + target + ": " + (Tools.traceLine(res)) + ".")
+        if (a.bool_("replace" true)) {
+            def md:string (ed.cur.str_("md"))
+            def inMd:int (PresTrace.countRefs(md path))
+            if (inMd > 0) {
+                p.hasMd = true
+                p.md = (PresTrace.swapRef(md path target))
+            }
+            def inCss:int 0
+            def css:MfJ (ed.cur.field("css"))
+            if (css.kind == 3) {
+                inCss = (PresTrace.countRefs(css.str path))
+                if (inCss > 0) {
+                    p.cssMode = 1
+                    p.css = (PresTrace.swapRef(css.str path target))
+                }
+            }
+            note = (note + " Uses pointed at the SVG: " + (to_string inMd) + " in the Markdown, " + (to_string inCss) + " in the theme CSS. " + path + " stays in the files.")
+        } {
+            note = (note + " Nothing points at it yet: use it as ![](" + target + ") or url(" + target + ").")
+        }
+        def saved:MfJ (Store.update(host id (ed.mine == false) ed.key p kept))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "vectorize_image" (host_error host)))
+        }
+        return (Tools.updated(host caller id saved note))
+    }
+
+    ; a picture given as base64 or a URL, traced and handed back
+    sfn vectorizeLoose:MfJ (host:McpHost a:MfJ settings:string) {
+        def b64:string (trim (a.str_("image_base64")))
+        def url:string (trim (a.str_("image_url")))
+        if (((strlen b64) == 0) == ((strlen url) == 0)) {
+            return (Tools.fail("Give deck_id and path, or one of image_base64 and image_url."))
+        }
+        def handle:int 0
+        if ((strlen b64) > 0) {
+            if (startsWith b64 "data:") {
+                def at:int (indexOf b64 ";base64,")
+                if (at > 0) {
+                    b64 = (substring b64 (at + 8) (strlen b64))
+                }
+            }
+            def got:MfJ (J.parse((host_image_base64 host b64)))
+            if ((got.int_("size" 0)) == 0) {
+                return (Tools.fail("image_base64 is not a picture."))
+            }
+            handle = (got.int_("handle" 0))
+        } {
+            def u:MfJ (J.parse((host_parse_url host url)))
+            if (((u.isObj()) == false) || (((u.str_("scheme")) != "https") || (Deck.privateHost((u.str_("hostname")))))) {
+                return (Tools.fail("image_url is a public https address."))
+            }
+            def got2:MfJ (J.parse((host_image_url host url ((Deck.MAX_IMAGE()) + 1))))
+            def status:int (got2.int_("status" 0))
+            if ((status < 200) || (status > 299)) {
+                return (Tools.fail(("image_url could not be fetched (" + (to_string status) + ").")))
+            }
+            if ((got2.int_("length" 0)) > (Deck.MAX_IMAGE())) {
+                return (Tools.fail("image_url is larger than 5 MB."))
+            }
+            handle = (got2.int_("handle" 0))
+        }
+        def res:PresTraceResult (PresTrace.traceBytes((host_image_bytes host handle) settings))
+        if ((strlen res.err) > 0) {
+            return (Tools.fail(res.err))
+        }
+        if ((strlen res.svg) > (Deck.MAX_IMAGE())) {
+            return (Tools.fail(("The SVG would be larger than 5 MB (" + (Tools.traceLine(res)) + "): fewer colours, a larger turdsize or minRegion, or a smaller maxSide.")))
+        }
+        def sc:MfJ (MfJ.newObj())
+        sc.putStr("svg" res.svg)
+        sc.putInt("width" res.width)
+        sc.putInt("height" res.height)
+        sc.putInt("traced_width" res.tracedW)
+        sc.putInt("traced_height" res.tracedH)
+        sc.putInt("layers" res.layers)
+        sc.put("colors" (J.strs((PresTrace.list_(res.colors)))))
+        def r:MfJ (MfJ.newObj())
+        r.put("content" (Tools.text(("Vectorized: " + (Tools.traceLine(res)) + ". The SVG:\n\n" + res.svg))))
+        r.put("structuredContent" sc)
+        return r
     }
 
     sfn bindChart:MfJ (host:McpHost caller:Caller a:MfJ) {
