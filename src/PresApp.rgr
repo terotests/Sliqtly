@@ -270,9 +270,10 @@ class PresApp {
     def layers:UiLayers (new UiLayers())
     ; the page is used with a finger: `@media (pointer: coarse)`
     def coarse:boolean false
-    ; The editor's skin: "" for the light look, "retro" for the glossy lime
-    ; one. It is a theme name every chrome sheet is applied with; the skins'
-    ; rules are `.theme-retro .x`, so "" leaves them all asleep.
+    ; The editor's skin: "" for the light look, "dark" for the dark one,
+    ; "retro" for the glossy lime one. It is a theme name every chrome sheet
+    ; is applied with; the skins' rules are `.theme-retro .x` and
+    ; `.theme-dark .x`, so "" leaves them all asleep.
     def skin:string ""
     ; the mirrored control the keyboard is on ("" = the editor or the stage)
     def a11yFocus:string ""
@@ -406,12 +407,66 @@ class PresApp {
         t.hBarEdge = (EVGColor.rgb(228 228 231))
     }
 
+    ; The editors in the dark look: the light look's colours through the same
+    ; map the chrome's sheets go through (EVGUI's UiDark), so every contrast
+    ; in the editor stays what it was.
+    sfn darkEditor:void (ed:ScriptEditor) {
+        PresApp.lightEditor(ed)
+        def t:ScriptEditorTheme ed.theme
+        t.bg = (UiDark.color(t.bg))
+        t.gutterBg = (UiDark.color(t.gutterBg))
+        t.gutterText = (UiDark.color(t.gutterText))
+        t.gutterActive = (UiDark.color(t.gutterActive))
+        t.currentLine = (UiDark.color(t.currentLine))
+        t.selection = (UiDark.color(t.selection))
+        t.caret = (UiDark.color(t.caret))
+        t.border = (UiDark.color(t.border))
+        t.plain = (UiDark.color(t.plain))
+        t.keyword = (UiDark.color(t.keyword))
+        t.builtin = (UiDark.color(t.builtin))
+        t.number = (UiDark.color(t.number))
+        t.text = (UiDark.color(t.text))
+        t.comment = (UiDark.color(t.comment))
+        t.punct = (UiDark.color(t.punct))
+        t.tag = (UiDark.color(t.tag))
+        t.attr = (UiDark.color(t.attr))
+        t.popupBg = (UiDark.color(t.popupBg))
+        t.popupEdge = (UiDark.color(t.popupEdge))
+        t.popupPick = (UiDark.color(t.popupPick))
+        t.popupDetail = (UiDark.color(t.popupDetail))
+        t.findBg = (UiDark.color(t.findBg))
+        t.findEdge = (UiDark.color(t.findEdge))
+        t.findInk = (UiDark.color(t.findInk))
+        t.findDim = (UiDark.color(t.findDim))
+        t.errorInk = (UiDark.color(t.errorInk))
+        t.warningInk = (UiDark.color(t.warningInk))
+        t.minimapBg = (UiDark.color(t.minimapBg))
+        t.minimapSlider = (UiDark.color(t.minimapSlider))
+        t.minimapEdge = (UiDark.color(t.minimapEdge))
+        t.hBarTrack = (UiDark.color(t.hBarTrack))
+        t.hBarThumb = (UiDark.color(t.hBarThumb))
+        t.hBarEdge = (UiDark.color(t.hBarEdge))
+    }
+
     sfn skinEditor:void (ed:ScriptEditor s:string hue:double) {
         if (s == "retro") {
             PresApp.retroEditor(ed hue)
-        } {
-            PresApp.lightEditor(ed)
+            return
         }
+        if (s == "dark") {
+            PresApp.darkEditor(ed)
+            return
+        }
+        PresApp.lightEditor(ed)
+    }
+
+    ; The dark overlay of a light chrome sheet for a host applied with
+    ; `theme` (EVGUI's UiDark.overlay): the page appends it to each sheet.
+    ; What is drawn over the slide (the picked element's frame, the review
+    ; bar) and the presenting screen keep their colours: they are read
+    ; against the slide, which keeps its own theme.
+    sfn darkCss:string (css:string theme:string) {
+        return (UiDark.overlayKeep(css theme "sel- pick- rv- present"))
     }
 
     ; The editors in the retro skin: a dark display with phosphor text in the
@@ -5377,14 +5432,27 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; File → Settings → Look: the standard skin's colours as chosen,
+    ; "light", "dark" or "system" (what setSkin is given is the outcome).
+    fn setLookMode:void (mode:string) {
+        if (panels.lookMode == mode) {
+            return
+        }
+        panels.lookMode = mode
+        if ((strlen panels.css) > 0) {
+            panels.rebuild()
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
     ; File → Settings → Look. Every host is built again under the new theme;
     ; the code editors have no stylesheet, so their palette is set here from
     ; the skin's hue (the page puts the same hue in the sheets as
     ; `--retro-hue`, see setChromeCss).
     fn setSkin:void (name:string hue:double) {
         def s:string ""
-        if (name == "retro") {
-            s = "retro"
+        if ((name == "retro") || (name == "dark")) {
+            s = name
         }
         skin = s
         toolbar.skin = s

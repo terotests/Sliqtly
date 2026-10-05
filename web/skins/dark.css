@@ -1,0 +1,13 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The dark look of Sliqtly's own chrome: only what the derived look gets
+ * wrong. The look itself is worked out from the light sheets (main.js
+ * appends PresApp.darkCss(sheet, theme), EVGUI's UiDark, to every chrome
+ * sheet): each colour turned so that its contrast stays the same, except
+ * what is drawn over the slide, which keeps its colours. This sheet goes
+ * after that overlay, for the colours that mean the same thing in both
+ * looks. EVGUI's theme/skins/dark.css does the same for the kit.
+ */
+
+/* the dimming under a window stays a dimming */
+.theme-dark .pn-backdrop { background-color: rgba(0, 0, 0, 0.55); }
