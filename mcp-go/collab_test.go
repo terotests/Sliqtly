@@ -196,8 +196,8 @@ func TestCollabRoom(t *testing.T) {
 	eq(t, code, 400, "nothing to say")
 	code, _ = (&testPeer{t: t, base: srv.URL, id: id, client: "stranger1"}).post("/chat", map[string]any{"text": "hi"})
 	eq(t, code, 409, "only a page in the room")
-	if _, err := os.Stat(filepath.Join(dir, "files", "shares", id, ".collab", "chat.jsonl")); err != nil {
-		t.Fatal("the chat is not kept: ", err)
+	if lines, err := srv.Config.Handler.(*localServer).bucket.Lines(chatPath(id), 0); err != nil || len(lines) != 1 {
+		t.Fatal("the chat is not kept: ", lines, err)
 	}
 
 	// the room writes the deck once edits pause

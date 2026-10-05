@@ -57,7 +57,7 @@ func builtinTheme(name string) (string, bool) {
 type localServer struct {
 	env    *Env
 	app    http.Handler
-	bucket *fsBucket
+	bucket *localBucket
 	token  string
 	web    fs.FS      // the built page; nil: none
 	hub    *changeHub // the decks' changes, for /api/events
@@ -67,7 +67,7 @@ type localServer struct {
 }
 
 // the env of a server whose decks are in dir, reached at baseURL
-func localEnv(dir, baseURL, user string) (*Env, *fsBucket, error) {
+func localEnv(dir, baseURL, user string) (*Env, *localBucket, error) {
 	db, bucket, err := newFSStore(dir, user)
 	if err != nil {
 		return nil, nil, err
@@ -89,7 +89,7 @@ func localEnv(dir, baseURL, user string) (*Env, *fsBucket, error) {
 	return e, bucket, nil
 }
 
-func newLocalServer(env *Env, bucket *fsBucket, token string, web fs.FS) http.Handler {
+func newLocalServer(env *Env, bucket *localBucket, token string, web fs.FS) http.Handler {
 	if web != nil {
 		// the built page has every theme the editor offers (corporate and
 		// editorial come from Ranger); the ones built in are the fallback
@@ -220,8 +220,7 @@ func (s *localServer) file(w http.ResponseWriter, r *http.Request, path string) 
 	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	st, _ := f.Stat()
-	http.ServeContent(w, r, "", st.ModTime(), f)
+	http.ServeContent(w, r, "", f.ModTime, f)
 }
 
 // one MCP tools/call made inside the server, as a client would make it
