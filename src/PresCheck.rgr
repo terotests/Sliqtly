@@ -12,6 +12,8 @@ Import "PresFollow.rgr"
 Import "PresReview.rgr"
 Import "PresPick.rgr"
 Import "PresNav.rgr"
+Import "PresDocx.rgr"
+Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
     def fails:int 0
@@ -1834,6 +1836,130 @@ class PresCheck {
         this.ok((((z.slide == 0) && (z.ended == false)) && (z.clock == 0.0)) "nav: an empty deck")
     }
 
+    ; PresDocx + DocxWriter: the deck as a Word document, opened again with
+    ; Ranger's own .docx reader (WordMlParser) and compared
+    fn docx:void () {
+        def text:string ("---\ntitle: Raportti\nslide-split-level: 2\n---\n\n"
+            + "## Eka & toka\n\nTeksti **lihava** ja [linkki](https://sliqtly.com).\n\n- yksi\n- kaksi\n  - sisempi\n\n"
+            + "::: notes\nPuhe ensin. [[1]] Sitten.\n:::\n\n"
+            + "## Taulu\n\n| Nimi | Määrä |\n| :--- | ---: |\n| omena | 3 |\n\n1. a\n2. b\n\nväli\n\n1. c\n\n"
+            + "## Kuva\n\n```mermaid\nflowchart LR\n  A --> B\n```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        this.ok(((deck.slideCount()) == 3) ("docx: three slides, got " + (to_string (deck.slideCount()))))
+        def conv (new PresDocx())
+        conv.findShots(deck)
+        this.ok(((array_length conv.shots) == 1) ("docx: the diagram is a shot, got " + (conv.shotsJson())))
+        if ((array_length conv.shots) == 1) {
+            def s0:PresDocxShot (itemAt conv.shots 0)
+            this.ok((s0.page == 2) ("docx: the shot is on slide 3, got " + (to_string s0.page)))
+            this.ok(((s0.w > 0.0) && (s0.h > 0.0)) "docx: the shot has a size")
+            ; a stand-in picture: an 8-byte PNG signature is enough for the package
+            def png:buffer (buffer_alloc 8)
+            def sig:[int] ([] _:int (137 80 78 71 13 10 26 10))
+            def k:int 0
+            while (k < 8) {
+                buffer_set png k (itemAt sig k)
+                k = (k + 1)
+            }
+            conv.setShot(s0.key png 200 100)
+        }
+        def rd:RichDocument (conv.build(deck "Raportti"))
+        this.ok((conv.slides == 3) ("docx: three slides written, got " + (to_string conv.slides)))
+        this.ok((conv.notes == 1) "docx: one slide's notes")
+        this.ok((conv.shotsPlaced == 1) "docx: the shot placed")
+        this.ok(((PresDocx.notesText("Puhe ensin. [[1]] Sitten.")) == "Puhe ensin.  Sitten.") "docx: cues out of the notes")
+
+        def w (new DocxWriter())
+        def bytes:buffer (w.write(rd))
+        this.ok(((buffer_length bytes) > 1000) "docx: a file came out")
+        this.ok((w.tables == 1) "docx: one table written")
+        this.ok((w.pictures == 1) "docx: one picture written")
+        this.ok((w.unwritten == 0) ("docx: nothing written as its name, got " + (to_string w.unwritten)))
+
+        def pkg (new DocxPackage())
+        this.ok((pkg.openBytes(bytes "deck.docx")) "docx: the reader opens it")
+        def xml:string (pkg.documentXml())
+        this.ok(((indexOf xml "Eka &amp; toka") > 0) "docx: text escaped")
+        this.ok(((indexOf xml "<w:hyperlink r:id=") > 0) "docx: the link is a hyperlink")
+        def rels:string (pkg.documentRelsXml())
+        this.ok(((indexOf rels "https://sliqtly.com") > 0) "docx: …to its target")
+        this.ok(((buffer_length (pkg.opc.readBinary("word/media/image1.png"))) == 8) "docx: the picture's bytes in the package")
+        this.ok(((pkg.opc.contentTypeFor("word/media/image1.png")) == "image/png") "docx: …as a PNG")
+        def parser (new WordMlParser())
+        def back:RichDocument (parser.parsePackage(pkg))
+        def heads:string ""
+        def bullets:int 0
+        def numbered:[int]
+        def notesSeen:string ""
+        def title:string ""
+        def pics:int 0
+        def i:int 0
+        while (i < (array_length back.blocks)) {
+            def b:DocBlock (itemAt back.blocks i)
+            if (b.kind == (DocBlockKind.para())) {
+                def p:Paragraph b.paragraph
+                if (p.styleId == "Heading2") {
+                    heads = ((heads + (p.plainText())) + "|")
+                }
+                if (p.styleId == "Title") {
+                    title = (p.plainText())
+                }
+                if (p.styleId == "Notes") {
+                    notesSeen = (notesSeen + (p.plainText()))
+                }
+                if (p.listKind == 1) {
+                    bullets = (bullets + 1)
+                }
+                if ((p.listKind == 2) && ((indexOf numbered p.listNumId) < 0)) {
+                    push numbered p.listNumId
+                }
+                pics = (pics + (array_length p.images))
+            }
+            i = (i + 1)
+        }
+        this.ok((title == "Raportti") ("docx: the title, got " + title))
+        this.ok((heads == "Eka & toka|Taulu|Kuva|") ("docx: the slides' headings, got " + heads))
+        this.ok((bullets == 3) ("docx: three bullets, got " + (to_string bullets)))
+        this.ok(((array_length numbered) == 2) ("docx: two numbered lists, each its own, got " + (to_string (array_length numbered))))
+        this.ok((notesSeen == "Puhe ensin.  Sitten.") ("docx: the notes, got " + notesSeen))
+        this.ok((pics == 1) ("docx: the picture read back, got " + (to_string pics)))
+        this.ok(((array_length back.tables) == 1) "docx: the table read back")
+        if ((array_length back.tables) == 1) {
+            def t:DocumentTable (itemAt back.tables 0)
+            this.ok((((t.rowCount()) == 2) && ((t.columnCount()) == 2)) "docx: two rows, two columns")
+            def r0:DocTableRow (itemAt t.rows 0)
+            def c1:DocTableCell (itemAt r0.cells 1)
+            def cp:Paragraph (itemAt c1.paragraphs 0)
+            this.ok(((cp.plainText()) == "Määrä") ("docx: a cell's words survive UTF-8, got " + (cp.plainText())))
+            this.ok((cp.align == 2) "docx: the column's alignment")
+            this.ok(((strlen c1.fillHex) == 6) "docx: the header row shaded")
+        }
+        def sec:DocSection (back.sectionAt(0))
+        this.ok(((sec.pageWTwips == 11906) && (sec.pageHTwips == 16838)) ("docx: A4, got " + (to_string sec.pageWTwips) + "x" + (to_string sec.pageHTwips)))
+
+        ; picked slides: only those
+        def only (new PresDocx())
+        push only.onlyPages 1
+        def rd2:RichDocument (only.build(deck ""))
+        this.ok((only.slides == 1) "docx: one picked slide")
+        this.ok((only.notes == 0) "docx: …without the other slide's notes")
+        this.ok(((array_length rd2.tables) == 1) "docx: …with its table")
+        ; with page breaks between slides
+        def paged (new PresDocx())
+        paged.pageBreaks = true
+        def rd3:RichDocument (paged.build(deck ""))
+        def breaks:int 0
+        def j:int 0
+        while (j < (array_length rd3.blocks)) {
+            if ((itemAt rd3.blocks j).kind == (DocBlockKind.pageBreak())) {
+                breaks = (breaks + 1)
+            }
+            j = (j + 1)
+        }
+        this.ok((breaks == 2) ("docx: a break before slides 2 and 3, got " + (to_string breaks)))
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -1855,6 +1981,7 @@ class PresCheck {
         c.followEdits()
         c.picks()
         c.navJumps()
+        c.docx()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

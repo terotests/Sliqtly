@@ -1972,7 +1972,7 @@ try {
       return { newKids, newReqs, kids, zip, red, last, asked, confirm, okDanger: !!ok && (ok.className || "").includes("ui-button-danger"), closed: !a.chart.isOpen, after };
     });
     check("…File → New offers Presentation… (the window) and Datasheet… (the spreadsheet editor)", fx.newKids.join() === "newPres,newSheet" && fx.newReqs.join() === "files:new,files:newsheet", JSON.stringify(fx));
-    check("…File → Export lists .md, .pptx, .pdf and .zip, and the zip row is the page's ZIP button", fx.kids.join() === "x-save,x-pptx,x-pdf,x-zip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
+    check("…File → Export lists .md, .pptx, .docx, .pdf and .zip, and the zip row is the page's ZIP button", fx.kids.join() === "x-save,x-pptx,x-docx,x-pdf,x-zip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
     check("…File → Delete presentation… is red and last, and asks first; Esc deletes nothing", fx.red && fx.last && fx.asked.includes("files:deletedeck") && fx.confirm && fx.okDanger && fx.closed && !fx.after.some((r) => r.startsWith("confirm:")), JSON.stringify(fx));
 
     // File → Recent: Browse all… first (the Files tab), a line, then the decks
@@ -3047,6 +3047,31 @@ try {
   });
   const pdf = Buffer.from(exp.pdf, "base64");
   check("PDF export", pdf.subarray(0, 5).toString() === "%PDF-", `${pdf.length} bytes`);
+  // Word: a document of the slides; a diagram goes in as the picture the
+  // stage draws of it, the table as a Word table, the notes under their slide
+  const wordExp = await page.evaluate(async () => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.setSource("---\ntitle: Raportti\nslide-split-level: 2\n---\n\n## Eka\n\nTeksti [linkki](https://sliqtly.com).\n\n::: notes\nPuhe.\n:::\n\n"
+      + "## Taulu\n\n| A | B |\n| --- | --: |\n| 1 | 2 |\n\n## Kaavio\n\n```mermaid\nflowchart LR\n  A --> B\n```\n");
+    const shots = JSON.parse(a.docxBegin(false));
+    await window.__renderDocxShots(shots);
+    const u = new Uint8Array(a.docxEnd());
+    a.setSource(src0);
+    let s = "";
+    for (let i = 0; i < u.length; i += 1) s += String.fromCharCode(u[i]);
+    return { shots: shots.length, docx: btoa(s) };
+  });
+  {
+    const parts = unzip(Buffer.from(wordExp.docx, "base64"));
+    const body = parts.get("word/document.xml") || "";
+    const png = [...parts.keys()].filter((k) => /^word\/media\/image\d+\.png$/.test(k));
+    if (shots) fs.writeFileSync(path.join(shots, "export.docx"), Buffer.from(wordExp.docx, "base64"));
+    check("Word export: headings, a table, the notes, a link and the diagram as a picture",
+      wordExp.shots === 1 && png.length === 1 && body.includes("<w:tbl>") && body.includes("w:val=\"Heading2\"")
+        && body.includes("w:val=\"Notes\"") && body.includes("<w:hyperlink") && body.includes("Raportti"),
+      JSON.stringify({ shots: wordExp.shots, png, bytes: body.length }));
+  }
   // A slide's effect goes into both exports as a picture under the content
   const fxExp = await page.evaluate(async () => {
     const a = window.__app;
