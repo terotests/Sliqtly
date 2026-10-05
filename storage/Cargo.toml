@@ -1,5 +1,5 @@
 [workspace]
-members = ["sliqtly-store"]
+members = ["sliqtly-store", "sliqtly-db"]
 resolver = "2"
 
 [workspace.package]

@@ -1,0 +1,23 @@
+[package]
+name = "sliqtly-db"
+version = "0.1.0"
+edition = "2021"
+description = "Admin CLI for SliqtlyDB: info, stats, verify, query, backup, restore"
+
+[[bin]]
+name = "sliqtly-db"
+path = "src/main.rs"
+
+[dependencies]
+sliqtly-store = { path = "../sliqtly-store" }
+anyhow = "1.0"
+bincode = "1.3"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+uuid = { version = "1.0", features = ["v7", "serde"] }
+
+[dev-dependencies]
+tempfile = "3.0"
