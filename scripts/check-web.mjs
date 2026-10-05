@@ -4234,6 +4234,21 @@ try {
     await drag(pg, "decktabs-tab-sample:esittely", 0);
     await front(pg, "sample:esittely");
     const pressed = (await row(pg))[0];
+    // mid-drag: a see-through copy under the pointer, the tab's place a slot
+    const mid = await (async () => {
+      const b = await boxOf(pg, "decktabs-tab-sample:esittely");
+      await pg.mouse.move(b[0], b[1]);
+      await pg.mouse.down();
+      for (let i = 1; i <= 4; i++) await pg.mouse.move(b[0] + 20 * i, b[1]);
+      await pg.waitForTimeout(200);
+      const g = await boxOf(pg, "decktabs-ghost");
+      const slot = await pg.evaluate(() => window.__app.deckTabs.tabEls.some((e) => / ui-doctab-state-slot/.test(" " + e.className)));
+      await pg.mouse.move(b[0], b[1]);
+      await pg.mouse.up();
+      await pg.waitForTimeout(300);
+      const gone = !(await boxOf(pg, "decktabs-ghost"));
+      return { dx: g ? Math.round(g[0] - b[0]) : null, slot, gone };
+    })();
     // dragged past the others: last
     await drag(pg, "decktabs-tab-sample:esittely", 420);
     const moved = keysOf(await row(pg));
@@ -4253,6 +4268,7 @@ try {
     check("deck tabs: a sample's tab takes the deck's id once it is kept", keptId && !keptId.startsWith("sample:") && kept[2] === keptId + "\tMyynti 2027", kept.join(" | "));
     check("deck tabs: another deck adds a tab, in front", keysOf(three).join() === ["sample:esittely", keptId, "sample:welcome"].join() && three[0] === "sample:welcome", three.join(" | "));
     check("deck tabs: a press on a tab opens its deck", pressed === "sample:esittely", pressed);
+    check("deck tabs: a dragged tab's copy follows the pointer over a slot, and goes on release", mid.dx === 80 && mid.slot && mid.gone, JSON.stringify(mid));
     check("deck tabs: a tab dragged past the others goes last", moved.join() === [keptId, "sample:welcome", "sample:esittely"].join(), moved.join());
     check("deck tabs: the row and the tab in front last over a reload", keysOf(reloaded).join() === moved.join() && reloaded[0] === "sample:esittely", reloaded.join(" | "));
     check("deck tabs: closing the tab in front opens the one used before", closed[0] === "sample:welcome" && keysOf(closed).join() === [keptId, "sample:welcome"].join(), closed.join(" | "));
