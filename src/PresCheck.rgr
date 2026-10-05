@@ -442,6 +442,7 @@ class PresCheck {
         this.ok(((PresCheck.texts(fin "Kokous")) == 1) "the final frame shows the whole diagram")
         this.longChain()
         this.portraitChain()
+        this.diagramLooks()
         this.steering()
         this.diagramColour()
     }
@@ -597,6 +598,72 @@ class PresCheck {
             this.ok((gap < 3.0) ("way " + (to_string (k + 1)) + " is pointed at from its choice"))
             k = (k + 1)
         }
+    }
+
+    ; `{style=mermaid|jurassic|cartoon|romantic}`: RangerFlow's looks. The
+    ; deck asks the page for their faces, a round node is drawn as the look's
+    ; round part (jurassic: an ochre circle), the lines keep their right
+    ; angles, words are set in capitals where the look says so, and until a
+    ; face is loaded the words are in Open Sans.
+    fn diagramLooks:void () {
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Kuva\n\n```mermaid\nflowchart LR\n"
+            + "  A((Alku)) --> B[Tilaus]\n  B --> C{Varastossa?}\n  C -->|kyllä| D[Lähetä]\n  C -->|ei| E([Odota])\n```\n{style=jurassic}\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false "a jurassic diagram is a diagram")
+            return
+        }
+        def d:PresDiagram (itemAt s.diagrams 0).diagram
+        this.ok((d.looked && (d.style == "jurassic")) ("the look is jurassic: " + d.style))
+        this.ok(((indexOf deck.wantFaces "Josefin Sans-Bold") >= 0) ("its face is asked for: " + deck.wantFaces))
+        def kinds:string (join d.kinds ",")
+        this.ok(((indexOf kinds "decision") >= 0) ("the question is a decision: " + kinds))
+        this.ok(((indexOf kinds "start") >= 0) ("the circle nothing points at is the start: " + kinds))
+        ; every line is made of runs at right angles, apart from its corners
+        def bent:int 0
+        def ei:int 0
+        while (ei < (array_length d.edges)) {
+            def e:PresDEdge (itemAt d.edges ei)
+            if (((array_length e.route) >= 4) && ((array_length e.line) != (array_length (FlowLook.roundCorners(e.route d.look.corner))))) {
+                bent = (bent + 1)
+            }
+            ei = (ei + 1)
+        }
+        this.ok((bent == 0) "a square look's lines are the routes, corners rounded")
+        def late:EVGDisplayList (PresTimeline.frame(deck 0 (d.total + 5.0)))
+        this.ok(((PresCheck.texts(late "TILAUS")) == 1) "jurassic sets a box's words in capitals")
+        def face:string ""
+        def i:int 0
+        while (i < (array_length late.cmds)) {
+            def c:EVGDrawCmd (itemAt late.cmds i)
+            if ((c.kind == 3) && (c.text == "TILAUS")) {
+                face = c.fontFamily
+            }
+            i = (i + 1)
+        }
+        this.ok((face == "Open Sans-Bold") ("until its face is loaded, Open Sans: " + face))
+        set deck.haveFaces "Josefin Sans-Bold" true
+        def again:EVGDisplayList (PresTimeline.frame(deck 0 (d.total + 5.0)))
+        def face2:string ""
+        def j:int 0
+        while (j < (array_length again.cmds)) {
+            def c2:EVGDrawCmd (itemAt again.cmds j)
+            if ((c2.kind == 3) && (c2.text == "TILAUS")) {
+                face2 = c2.fontFamily
+            }
+            j = (j + 1)
+        }
+        this.ok((face2 == "Josefin Sans-Bold") ("then in its own face: " + face2))
+        ; the window's look picker writes the look and reads it back
+        def m:PresFlowModel (PresFlowModel.read("```mermaid\nflowchart LR\n  A --> B\n```\n{tour=on}"))
+        m.setLook("cartoon")
+        this.ok(((m.look()) == "cartoon") "the picker reads cartoon back")
+        this.ok(((indexOf (m.markdown()) "{tour=on style=cartoon}") > 0) ("and writes it: " + (m.markdown())))
+        m.setLook("holo")
+        this.ok(((indexOf (m.markdown()) "cartoon") < 0) ("holo takes it away: " + (m.markdown())))
     }
 
     ; A long left-to-right chain with loops: its loops stay whole, every node

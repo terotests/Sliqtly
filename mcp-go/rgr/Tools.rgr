@@ -277,6 +277,19 @@ class Tools {
         rop.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
         tools.add((Tools.tool("render_overview" "Look at all slides" "Every slide of a Sliqtly presentation as a numbered thumbnail in one picture (JPEG), with a line per slide from the layout report. One call checks the whole deck; ask render_slide for a closer look at a slide. Look once before saying a presentation is done." (Tools.schema(rop ([] _:string ("deck_id")))) (Tools.annotations(true -1 true false)) eitherMeta)))
 
+        def xp:MfJ (MfJ.newObj())
+        xp.put("deck_id" (Tools.prop("string" "deck_id of the presentation (the id in https://sliqtly.com/s/<id>)")))
+        def fmt:MfJ (Tools.prop("string" "pdf or pptx (PowerPoint)"))
+        fmt.put("enum" (J.strs(([] _:string ("pdf" "pptx")))))
+        xp.put("format" fmt)
+        def xn:MfJ (MfJ.newObj())
+        xn.putStr("type" "integer")
+        xn.putInt("minimum" 1)
+        def xs:MfJ (Tools.prop("array" "Only these slides (numbers as in render_overview); all when left out"))
+        xs.put("items" xn)
+        xp.put("slides" xs)
+        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF or a PowerPoint (.pptx) file, by its deck_id: a download link to give the user, kept until the next export of the same format. Slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. Effects (fx=) are not drawn; the editor's File → Export draws them." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
+
         def lp:MfJ (MfJ.newObj())
         lp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
         tools.add((Tools.tool("list_files" "List a presentation's files" "List the files a Sliqtly presentation keeps — pictures (media/), data (data/), chart specs (charts/) and workbooks (.xlsx) — by its deck_id. For each workbook: its sheets, their columns and row counts, and the CSV name a ```table, ```sheet or vega-lite chart reads a sheet by (the editor derives those CSVs from the workbook; they are not separate files). read_file gives the values." (Tools.schema(lp ([] _:string ("deck_id")))) (Tools.annotations(true -1 false false)) eitherMeta)))
@@ -949,6 +962,9 @@ class Tools {
         }
         if (name == "read_file") {
             r = (Tools.readFile(host caller args))
+        }
+        if (name == "export_presentation") {
+            r = (Tools.exportDeck(host args))
         }
         if (name == "write_workbook") {
             r = (Tools.writeWorkbook(host caller args))
@@ -1678,6 +1694,158 @@ class Tools {
             }
         }
         return -1
+    }
+
+    ; export_presentation: the file made by the editor's own export
+    ; (src/PresExport.rgr), kept in Storage beside the deck as
+    ; exports/<name>.<format>
+    sfn exportDeck:MfJ (host:McpHost a:MfJ) {
+        def tool:string "export_presentation"
+        if ((host_store_kind host) == "link") {
+            return (Tools.fail("This server keeps no decks (no cloud storage configured): open the presentation's link and use File → Export there."))
+        }
+        def bad:string (Tools.checkArgs(a ([] _:string ("deck_id" "format"))))
+        if ((strlen bad) > 0) {
+            return (Tools.fail(bad))
+        }
+        def format:string (a.str_("format"))
+        if ((format != "pdf") && (format != "pptx")) {
+            return (Tools.fail("Invalid arguments: format is pdf or pptx."))
+        }
+        def id:string (a.str_("deck_id"))
+        if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
+            return (Tools.fail("deck_id is the 10-character id in the share link."))
+        }
+        def d:MfJ (Store.get(host id))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host tool (host_error host)))
+        }
+        if ((d.isObj()) == false) {
+            return (Tools.fail(("No presentation " + id + ".")))
+        }
+        def md:string (d.str_("md"))
+        def stored:[string]
+        for (d.list("files")) f:MfJ fi {
+            push stored (f.str_("path"))
+        }
+        def noImgs:[Img]
+        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def din (new DeckIn)
+        din.deckId = id
+        din.stored = stored
+        din.live = true
+        din.export = format
+        def css:MfJ (d.field("css"))
+        def wanted:MfJ (a.field("slides"))
+        def picked:[string]
+        if (wanted.kind != 0) {
+            if ((wanted.isArr()) == false) {
+                return (Tools.fail("Invalid arguments: slides is a list of slide numbers."))
+            }
+            for (a.list("slides")) sv:MfJ si {
+                if ((sv.kind != 2) || ((sv.num < 1.0) || (sv.num != (to_double (to_int sv.num))))) {
+                    return (Tools.fail("Invalid arguments: slides is a list of slide numbers from 1."))
+                }
+                def sn:int (to_int sv.num)
+                if (((Tools.hasInt(din.only (sn - 1))) == false)) {
+                    push din.only (sn - 1)
+                    push picked (to_string sn)
+                }
+            }
+        }
+        def ck:Checked (Tools.checkWith(host md (d.str_("theme")) (css.kind == 3) (d.str_("css")) bgs din))
+        if (ck.laidOut == false) {
+            return (Tools.failed(host tool "the theme could not be read"))
+        }
+        for din.only o:int oi {
+            if (o >= ck.slides) {
+                return (Tools.fail(("No slide " + (o + 1) + ": the presentation has " + ck.slides + " slides.")))
+            }
+        }
+        def bytes:buffer ck.file
+        if ((buffer_length bytes) == 0) {
+            return (Tools.failed(host tool "the file could not be made"))
+        }
+        def name:string (Tools.fileName((d.str_("name"))))
+        if ((array_length picked) > 0) {
+            name = (name + " (slides " + (join picked ", ") + ")")
+        }
+        def path:string ("exports/" + name + "." + format)
+        def type:string "application/pdf"
+        if (format == "pptx") {
+            type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        }
+        def full:string ("shares/" + id + "/" + path)
+        def token:string (host_uuid host)
+        host_upload host (host_keep_bytes host bytes) full type token
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host tool (host_error host)))
+        }
+        def url:string (host_file_url host full token)
+        def count:int ck.slides
+        if ((array_length din.only) > 0) {
+            count = (array_length din.only)
+        }
+        def size:int (buffer_length bytes)
+        def kb:int (to_int (((to_double size) / 1024.0) + 0.5))
+        def what:string "PDF"
+        if (format == "pptx") {
+            what = "PowerPoint file"
+        }
+        def out:MfJ (MfJ.newObj())
+        out.putStr("deck_id" id)
+        out.putStr("format" format)
+        out.putStr("name" (name + "." + format))
+        out.putStr("url" url)
+        out.putInt("slides" count)
+        out.putInt("bytes" size)
+        def r:MfJ (MfJ.newObj())
+        def content:MfJ (MfJ.newArr())
+        def t:MfJ (MfJ.newObj())
+        t.putStr("type" "text")
+        t.putStr("text" (what + " of \"" + (d.str_("name")) + "\" (" + count + " slides, " + kb + " KB): " + url + "\nGive the user this link; it is replaced by the next " + format + " export of this presentation."))
+        content.add(t)
+        r.put("content" content)
+        r.put("structuredContent" out)
+        return r
+    }
+
+    sfn hasInt:boolean (list:[int] n:int) {
+        for list x:int i {
+            if (x == n) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; a file name from a deck's name: what a file system takes, "presentation"
+    ; when nothing is left
+    sfn fileName:string (name:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen name)
+        while (i < n) {
+            def c:int (charAt name i)
+            def keep:boolean true
+            if ((c < 32) || ((c == 47) || ((c == 92) || ((c == 58) || ((c == 42) || ((c == 63) || ((c == 34) || ((c == 60) || ((c == 62) || ((c == 124) || (c == 35))))))))))) {
+                keep = false
+            }
+            if keep {
+                out = (out + (substring name i (i + 1)))
+            } {
+                out = (out + "-")
+            }
+            i = (i + 1)
+        }
+        out = (trim out)
+        if ((strlen out) > 80) {
+            out = (substring out 0 80)
+        }
+        if ((strlen out) == 0) {
+            return "presentation"
+        }
+        return out
     }
 
     sfn render:MfJ (host:McpHost a:MfJ all:boolean) {

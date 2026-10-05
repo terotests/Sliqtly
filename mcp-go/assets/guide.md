@@ -104,7 +104,12 @@ SVG pictures, backgrounds included:
   whole diagram, as large as it fits; ▶ beside the zoom buttons (T while
   presenting) starts a guided tour, box by box. Under the fence:
   `{tour=on}` (the tour starts with the slide), `{style=sketch}`
-  (hand-drawn), `{layout=keep}` (keep the direction as written),
+  (hand-drawn), `{style=mermaid}` (pastel cards on a dotted grid),
+  `{style=jurassic}` (poster: ochre circles, grey diamonds, heavy square
+  lines), `{style=cartoon}` (speech bubbles, fat outlines, offset shadows,
+  numbered boxes), `{style=romantic}` (black caption boxes, terracotta
+  circles, dashed lines; round nodes `((…))`/`([…])` become the circles),
+  `{layout=keep}` (keep the direction as written),
   `{ball=off}`, `{choose=off}` (do not stop at named branches),
   `{zoom=2}` (largest scale a box is drawn at, default 3),
   `{diagram=classic}` (the plain drawing on the slide's own background,
@@ -452,6 +457,15 @@ whether it is resolved, and its messages. Work through the open ones:
 - A comment of your own on a slide: `add_comment` with `slide` (number) or
   `slide_title`, and `x`, `y` (0..1 of the slide) to point at something.
 - `author` names you on the message; the default is "AI assistant".
+
+## Exporting
+
+`export_presentation` (deck_id, `format`: `pdf` or `pptx`, optional
+`slides`: [2, 5]) makes the file the editor's File → Export makes and
+returns a download link for the user. The PPTX keeps text editable, with
+build steps, speaker notes and transitions; charts and diagrams are
+shapes. Effects (`fx=`) are left out; the editor's own export draws them.
+A new export of the same format replaces the file behind the old link.
 
 ## Result
 
