@@ -1,5 +1,5 @@
 [workspace]
-members = ["sliqtly-store"]
+members = ["sliqtly-bench","sliqtly-kernel","sliqtly-store"]
 resolver = "2"
 
 [workspace.package]
@@ -8,3 +8,11 @@ edition = "2021"
 authors = ["Sliqtly Contributors"]
 license = "MIT"
 repository = "https://github.com/terotests/Sliqtly"
+
+[profile.release]
+debug = false
+codegen-units = 4
+
+[profile.profiling]
+inherits = "release"
+debug = true

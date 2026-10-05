@@ -1,0 +1,11 @@
+[package]
+name = "sliqtly-kernel"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+libc = "0.2.190"
+ranger = { version = "0.1.0", path = "../vendor/ranger" }
