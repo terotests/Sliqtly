@@ -8,6 +8,7 @@ Import "PresHints.rgr"
 Import "PresFlowModel.rgr"
 Import "PresGridModel.rgr"
 Import "PresControlsFade.rgr"
+Import "PresFollow.rgr"
 
 class PresCheck {
     def fails:int 0
@@ -1383,6 +1384,59 @@ class PresCheck {
         this.ok(((deck.diagramHit(0 t px py)) == "0:zin") "fade: a tap brings it up")
     }
 
+    ; Someone else's edits under the slide shown (PresFollow): it stays the
+    ; slide shown, at the same time into it.
+    fn followEdits:void () {
+        def head:string "---\nslide-split-level: 2\n---\n\n"
+        def text:string (head + "## Yksi\n\na\n\n## Kaksi\n\nb\n\n## Kolme\n\nc\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 3) "follow: three slides")
+        if ((deck.slideCount()) != 3) {
+            return
+        }
+        ; showing "Kolme", 1.5 s into it; a slide is added at the top
+        def f (new PresFollow())
+        def clock:double ((PresTimeline.slideStart(deck 2)) + 1.5)
+        f.begin(deck 2 clock)
+        def add:string "## Nolla\n\nz\n\n"
+        def at:int (strlen head)
+        f.edit(at 0 (strlen add))
+        def text2:string (((substring text 0 at) + add) + (substring text at (strlen text)))
+        deck.setText(text2)
+        PresTimeline.planAll(deck)
+        def s:int (f.slide(deck))
+        this.ok((s == 3) ("follow: a slide added before keeps Kolme shown, got " + (to_string s)))
+        def back:double ((f.clockOn(deck s)) - (PresTimeline.slideStart(deck s)))
+        this.ok(((back > 1.49) && (back < 1.51)) ("follow: as far into it, got " + (to_string back)))
+        ; "Yksi" removed: Kolme moves back by one
+        def from:int (indexOf text2 "## Yksi")
+        def till:int (indexOf text2 "## Kaksi")
+        f.begin(deck 3 0.0)
+        f.edit(from (till - from) 0)
+        def text3:string ((substring text2 0 from) + (substring text2 till (strlen text2)))
+        deck.setText(text3)
+        PresTimeline.planAll(deck)
+        s = (f.slide(deck))
+        this.ok((s == 2) ("follow: a slide removed before, got " + (to_string s)))
+        ; typing on the slide shown, and after it, keeps it
+        f.begin(deck 1 0.0)
+        def k:int ((indexOf text3 "\nb\n") + 1)
+        f.edit(k 0 3)
+        def text4:string (((substring text3 0 k) + "xyz") + (substring text3 k (strlen text3)))
+        deck.setText(text4)
+        PresTimeline.planAll(deck)
+        s = (f.slide(deck))
+        this.ok((s == 1) ("follow: typing on the slide keeps it, got " + (to_string s)))
+        ; the moves themselves
+        this.ok(((PresFollow.moved(10 2 3 0)) == 7) "follow: removed before")
+        this.ok(((PresFollow.moved(10 10 0 4)) == 14) "follow: put in where it starts goes before")
+        this.ok(((PresFollow.moved(10 11 5 1)) == 10) "follow: after it")
+        this.ok(((PresFollow.moved(10 8 5 2)) == 10) "follow: its start removed, from the edit's end")
+        this.ok(((PresFollow.moved(-1 0 0 4)) == -1) "follow: not known stays so")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -1401,6 +1455,7 @@ class PresCheck {
         c.flowModel()
         c.gridModel()
         c.controlsFade()
+        c.followEdits()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"
