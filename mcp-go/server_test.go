@@ -647,6 +647,12 @@ func TestOptionalSignIn(t *testing.T) {
 	}
 	eq(t, sc(u)["slides"], 2)
 	match(t, textOf(call(t, me, "update_presentation", map[string]any{"deck_id": anonID, "markdown": "# x"})), `edit_key is needed`)
+	// another account's editor deck: refused with the account named, no copy
+	f.db.Set(context.Background(), "shares", "EdOther001", Doc{"owner": "u2", "source": "editor", "md": "# theirs", "theme": "aurora"})
+	other := textOf(call(t, me, "update_presentation", map[string]any{"deck_id": "EdOther001", "markdown": "# x"}))
+	match(t, other, `belongs to another Sliqtly account than the one this connector is signed in with \(Tero\)`)
+	match(t, other, `do not make a copy unasked`)
+	eq(t, f.db.doc("shares/EdOther001")["md"], "# theirs")
 	lst := list(sc(call(t, me, "list_presentations", map[string]any{}))["presentations"])
 	eq(t, len(lst), 1)
 	eq(t, mapOf(lst[0])["deck_id"], id)

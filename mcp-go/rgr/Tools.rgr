@@ -1097,8 +1097,18 @@ class Tools {
             return ed
         }
         def mine:boolean (((cur.isObj()) && caller.signedIn) && ((cur.str_("owner")) == caller.uid))
-        if (((cur.isObj()) == false) || (((cur.str_("source")) != "mcp") && (mine == false))) {
+        if ((cur.isObj()) == false) {
             ed.fail = ("No presentation " + id + " that this server can change.")
+            return ed
+        }
+        ; someone's editor deck: say whose account is missing, so the
+        ; assistant does not quietly save a copy the owner never sees
+        if (((cur.str_("source")) != "mcp") && (mine == false)) {
+            if caller.signedIn {
+                ed.fail = ("Not saved: presentation " + id + " belongs to another Sliqtly account than the one this connector is signed in with (" + caller.name + "). Tell the user, and do not make a copy unasked. To edit it, the user reconnects the Sliqtly connector (disconnect, then connect) and picks the same Google account they use in the Sliqtly editor. A copy made with create_presentation is a separate presentation with its own link; it does not change " + id + ".")
+            } {
+                ed.fail = ("Not saved: presentation " + id + " belongs to a signed-in Sliqtly user and this connector is not signed in. Tell the user, and do not make a copy unasked. To edit it, the user connects the Sliqtly connector with the same Google account they use in the Sliqtly editor. A copy made with create_presentation is a separate presentation with its own link; it does not change " + id + ".")
+            }
             return ed
         }
         if ((mine == false) && ((strlen key) == 0)) {
