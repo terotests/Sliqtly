@@ -5,8 +5,8 @@
 
 use crate::engine::{CommitResult, CommitSeq, DbSnapshot, KvEngine, WriteBatch};
 use crate::error::Result;
+use crate::fjall_engine::FjallEngine;
 use crate::key::{KeyBuilder, KeyType};
-use crate::memory_engine::MemoryEngine;
 use crate::record::{Document, DocumentId, Membership, Room, RoomId};
 use std::path::Path;
 use std::sync::Arc;
@@ -18,10 +18,11 @@ pub struct Database {
 
 impl Database {
     /// Open or create a database at the given path.
-    /// Currently uses in-memory engine; will support Fjall/Redb later.
-    pub fn open<P: AsRef<Path>>(_path: P) -> Result<Self> {
+    /// Uses FjallEngine for persistent storage.
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let engine = FjallEngine::new(path)?;
         Ok(Database {
-            engine: Arc::new(MemoryEngine::new()),
+            engine: Arc::new(engine),
         })
     }
 
@@ -95,6 +96,11 @@ impl ReadTx {
     pub fn seq(&self) -> CommitSeq {
         self.snapshot.seq()
     }
+
+    /// Get a raw key-value pair (for testing and binary data).
+    pub fn get_raw(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.snapshot.get(key)
+    }
 }
 
 /// Write transaction collecting mutations to commit atomically.
@@ -167,6 +173,7 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
     use uuid::Uuid;
+    use tempfile::TempDir;
 
     fn create_test_room(title: &str) -> Room {
         Room {
@@ -195,13 +202,15 @@ mod tests {
 
     #[test]
     fn test_database_creation() {
-        let db = Database::open(".").unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = Database::open(dir.path()).unwrap();
         assert_eq!(db.current_seq(), 0);
     }
 
     #[test]
     fn test_single_room_write_read() {
-        let db = Database::open(".").unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = Database::open(dir.path()).unwrap();
         let room = create_test_room("Test Room");
 
         {
@@ -219,7 +228,8 @@ mod tests {
 
     #[test]
     fn test_multiple_writes_increment_seq() {
-        let db = Database::open(".").unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = Database::open(dir.path()).unwrap();
 
         for i in 0..5 {
             let mut tx = db.write().unwrap();
@@ -235,7 +245,8 @@ mod tests {
 
     #[test]
     fn test_document_in_room() {
-        let db = Database::open(".").unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = Database::open(dir.path()).unwrap();
         let room = create_test_room("Parent Room");
         let room_id = room.id;
 
@@ -261,7 +272,8 @@ mod tests {
 
     #[test]
     fn test_empty_write_no_seq_increment() {
-        let db = Database::open(".").unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = Database::open(dir.path()).unwrap();
         assert_eq!(db.current_seq(), 0);
 
         {
@@ -277,7 +289,8 @@ mod tests {
 
     #[test]
     fn test_concurrent_readers() {
-        let db = Arc::new(Database::open(".").unwrap());
+        let dir = TempDir::new().unwrap();
+        let db = Arc::new(Database::open(dir.path()).unwrap());
 
         {
             let mut tx = db.write().unwrap();
@@ -304,7 +317,8 @@ mod tests {
 
     #[test]
     fn test_membership_changes() {
-        let db = Database::open(".").unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = Database::open(dir.path()).unwrap();
         let room_id = Uuid::now_v7();
         let user_id = Uuid::now_v7();
 
@@ -330,7 +344,8 @@ mod tests {
 
     #[test]
     fn test_multiple_changes_in_one_commit() {
-        let db = Database::open(".").unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = Database::open(dir.path()).unwrap();
         let room_id = Uuid::now_v7();
 
         {
@@ -361,7 +376,8 @@ mod tests {
 
     #[test]
     fn test_seq_monotonicity() {
-        let db = Arc::new(Database::open(".").unwrap());
+        let dir = TempDir::new().unwrap();
+        let db = Arc::new(Database::open(dir.path()).unwrap());
 
         let mut last_seq = 0u64;
 
@@ -380,7 +396,8 @@ mod tests {
 
     #[test]
     fn test_reads_see_committed_seq() {
-        let db = Database::open(".").unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = Database::open(dir.path()).unwrap();
 
         let initial_seq = db.current_seq();
         assert_eq!(initial_seq, 0);
@@ -402,7 +419,8 @@ mod tests {
 
     #[test]
     fn test_large_payload() {
-        let db = Database::open(".").unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = Database::open(dir.path()).unwrap();
 
         let mut room = create_test_room("Large Payload Room");
         room.metadata = serde_json::json!({
@@ -425,7 +443,8 @@ mod tests {
 
     #[test]
     fn test_document_version_increment() {
-        let db = Database::open(".").unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = Database::open(dir.path()).unwrap();
         let room_id = Uuid::now_v7();
         let doc = create_test_doc(room_id, "Versioned Doc");
         let initial_version = doc.version;
@@ -448,7 +467,8 @@ mod tests {
 
     #[test]
     fn test_room_timestamp_updates() {
-        let db = Database::open(".").unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = Database::open(dir.path()).unwrap();
 
         let room = create_test_room("Timestamp Test");
         let original_timestamp = room.updated_at;
