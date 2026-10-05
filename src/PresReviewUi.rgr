@@ -87,6 +87,21 @@ class PresReviewUi {
     def wantSlide:int -1
     def rev:int 0
     def builtKey:string ""
+    ; Where pins on a diagram are drawn now (the host works it out from the
+    ; diagram's camera each frame): a thread's id ("rv-draft" the draft),
+    ; its point as a fraction of the slide, and whether it is in view.
+    def spotIds:[string]
+    def spotXs:[double]
+    def spotYs:[double]
+    def spotOn:[boolean]
+    def spotKey:string ""
+    ; The draft's point on a diagram: asked of the host once it is placed
+    ; (`draftAsk`), -1 when it is on no diagram (PresReviewThread.dia)
+    def draftAsk:boolean false
+    def draftDia:int -1
+    def draftNode:string ""
+    def draftAX:double 0.0
+    def draftAY:double 0.0
 
     Constructor () {
         chat.setup("rv-chat" (PresI18n.t("Comment")))
@@ -246,8 +261,35 @@ class PresReviewUi {
     ; --- placing it -----------------------------------------------------------------
 
     ; Where everything is now; built again only when something moved.
+    fn clearSpots:void () {
+        clear spotIds
+        clear spotXs
+        clear spotYs
+        clear spotOn
+        spotKey = ""
+    }
+
+    fn setSpot:void (id:string x:double y:double shown:boolean) {
+        push spotIds id
+        push spotXs x
+        push spotYs y
+        push spotOn shown
+        spotKey = (spotKey + id + "@" + (EVGDisplayList.num((PresReview.round4(x)))) + "," + (EVGDisplayList.num((PresReview.round4(y)))) + (? shown "+" "-") + ";")
+    }
+
+    fn spotIndex:int (id:string) {
+        def i:int 0
+        while (i < (array_length spotIds)) {
+            if ((itemAt spotIds i) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
     fn place:void (pw:double ph:double topBand:double presenting:boolean shown:int x:double y:double sW:double sH:double aX:double aW:double aB:double) {
-        def key:string ((EVGDisplayList.num(pw)) + ":" + (EVGDisplayList.num(ph)) + ":" + (EVGDisplayList.num(topBand)) + ":" + (? presenting "p" "e") + ":" + (to_string shown) + ":" + (EVGDisplayList.num(x)) + ":" + (EVGDisplayList.num(y)) + ":" + (EVGDisplayList.num(sW)) + ":" + (EVGDisplayList.num(sH)) + ":" + (EVGDisplayList.num(aX)) + ":" + (EVGDisplayList.num(aW)) + ":" + (EVGDisplayList.num(aB)) + ":" + (to_string model.rev))
+        def key:string ((EVGDisplayList.num(pw)) + ":" + (EVGDisplayList.num(ph)) + ":" + (EVGDisplayList.num(topBand)) + ":" + (? presenting "p" "e") + ":" + (to_string shown) + ":" + (EVGDisplayList.num(x)) + ":" + (EVGDisplayList.num(y)) + ":" + (EVGDisplayList.num(sW)) + ":" + (EVGDisplayList.num(sH)) + ":" + (EVGDisplayList.num(aX)) + ":" + (EVGDisplayList.num(aW)) + ":" + (EVGDisplayList.num(aB)) + ":" + (to_string model.rev) + ":" + spotKey)
         if (key == builtKey) {
             return
         }
@@ -301,9 +343,20 @@ class PresReviewUi {
         ; the pins of the slide shown
         def k:int 0
         for model.threads t:PresReviewThread i {
-            if (t.slide == slide) {
+            def at:int (this.spotIndex(t.id))
+            if (((t.slide == slide) && (at >= 0)) && ((itemAt spotOn at) == false)) {
+                ; out of the diagram's view: no pin, but still counted
                 k = (k + 1)
-                def p:PinCtl (PinCtl.make(("rv-pin-" + t.id) (sx + (t.x * sw)) (sy + (t.y * sh)) (to_string (t.count()))))
+            }
+            if ((t.slide == slide) && ((at < 0) || (itemAt spotOn at))) {
+                k = (k + 1)
+                def fx:double t.x
+                def fy:double t.y
+                if (at >= 0) {
+                    fx = (itemAt spotXs at)
+                    fy = (itemAt spotYs at)
+                }
+                def p:PinCtl (PinCtl.make(("rv-pin-" + t.id) (sx + (fx * sw)) (sy + (fy * sh)) (to_string (t.count()))))
                 p.color = color
                 p.closed = t.closed
                 p.active = (t.id == openId)
@@ -318,8 +371,15 @@ class PresReviewUi {
                 root.addChild((unwrap p.rootEl))
             }
         }
-        if (drafting && (draftSlide == slide)) {
-            def dp:PinCtl (PinCtl.make("rv-draft" (sx + (draftX * sw)) (sy + (draftY * sh)) "+"))
+        def da:int (this.spotIndex("rv-draft"))
+        if ((drafting && (draftSlide == slide)) && ((da < 0) || (itemAt spotOn da))) {
+            def dfx:double draftX
+            def dfy:double draftY
+            if (da >= 0) {
+                dfx = (itemAt spotXs da)
+                dfy = (itemAt spotYs da)
+            }
+            def dp:PinCtl (PinCtl.make("rv-draft" (sx + (dfx * sw)) (sy + (dfy * sh)) "+"))
             dp.color = color
             dp.active = true
             dp.info = (PresI18n.t("New comment"))
@@ -603,6 +663,9 @@ class PresReviewUi {
         draftSlide = s
         draftX = (PresReview.clamp01(x))
         draftY = (PresReview.clamp01(y))
+        draftAsk = true
+        draftDia = -1
+        draftNode = ""
         chat.input.setValue("")
         chat.input.moveTo(0 false)
         typing = true
@@ -784,6 +847,9 @@ class PresReviewUi {
                     title = (itemAt titles draftSlide)
                 }
                 if (model.start(id draftSlide title draftX draftY m)) {
+                    if (draftDia >= 0) {
+                        model.anchor(id draftDia draftNode draftAX draftAY)
+                    }
                     drafting = false
                     openId = id
                     this.save()

@@ -59,6 +59,13 @@ class PresReviewThread {
     def by:string ""
     def created:double 0.0
     def msgs:[PresReviewMsg]
+    ; Pinned on a diagram (its index on the slide; -1 not): the point is
+    ; the diagram's, so it moves with the diagram's camera. On a node it is
+    ; (`ax`, `ay`) of the node's box, else of the whole diagram's.
+    def dia:int -1
+    def node:string ""
+    def ax:double 0.0
+    def ay:double 0.0
 
     fn count:int () {
         return (array_length msgs)
@@ -266,6 +273,22 @@ class PresReview {
         return true
     }
 
+    ; The thread's point on a diagram (see PresReviewThread.dia); false when
+    ; there is no such thread.
+    fn anchor:boolean (id:string dia:int node:string ax:double ay:double) {
+        def i:int (this.indexOf(id))
+        if ((i < 0) || (dia < 0)) {
+            return false
+        }
+        def t:PresReviewThread (itemAt threads i)
+        t.dia = dia
+        t.node = node
+        t.ax = (PresReview.clamp01(ax))
+        t.ay = (PresReview.clamp01(ay))
+        rev = (rev + 1)
+        return true
+    }
+
     ; Deleted for good: only a closed thread.
     fn remove:boolean (id:string) {
         def i:int (this.indexOf(id))
@@ -372,6 +395,13 @@ class PresReview {
                             changed = true
                         }
                     }
+                    if ((mine.dia < 0) && (ot.dia >= 0)) {
+                        mine.dia = ot.dia
+                        mine.node = ot.node
+                        mine.ax = ot.ax
+                        mine.ay = ot.ay
+                        changed = true
+                    }
                     if ((ot.state > mine.state) && ((ot.closed != mine.closed) || (ot.by != mine.by))) {
                         mine.closed = ot.closed
                         mine.state = ot.state
@@ -398,6 +428,10 @@ class PresReview {
         c.state = t.state
         c.by = t.by
         c.created = t.created
+        c.dia = t.dia
+        c.node = t.node
+        c.ax = t.ax
+        c.ay = t.ay
         for t.msgs m:PresReviewMsg i {
             push c.msgs (PresReview.msg(m.id m.who m.name m.color m.text m.at))
         }
@@ -430,6 +464,16 @@ class PresReview {
             o.setMember("state" (PresReview.num(t.state)))
             o.setMember("by" (VlJson.stringValue(t.by)))
             o.setMember("created" (PresReview.num(t.created)))
+            if (t.dia >= 0) {
+                def on:VlJson (VlJson.objectValue())
+                on.setMember("diagram" (VlJson.intValue(t.dia)))
+                if ((strlen t.node) > 0) {
+                    on.setMember("node" (VlJson.stringValue(t.node)))
+                }
+                on.setMember("x" (PresReview.num((PresReview.round4(t.ax)))))
+                on.setMember("y" (PresReview.num((PresReview.round4(t.ay)))))
+                o.setMember("on" on)
+            }
             def ms:VlJson (VlJson.arrayValue())
             for t.msgs m:PresReviewMsg j {
                 def mo:VlJson (VlJson.objectValue())
@@ -499,6 +543,13 @@ class PresReview {
                 t.state = (o.doubleOr("state" 0.0))
                 t.by = (o.stringOr("by" ""))
                 t.created = (o.doubleOr("created" 0.0))
+                def on:VlJson (o.get("on"))
+                if ((on.isObject()) && ((on.intOr("diagram" -1)) >= 0)) {
+                    t.dia = (on.intOr("diagram" -1))
+                    t.node = (on.stringOr("node" ""))
+                    t.ax = (PresReview.clamp01((on.doubleOr("x" 0.5))))
+                    t.ay = (PresReview.clamp01((on.doubleOr("y" 0.5))))
+                }
                 def ms:VlJson (o.get("messages"))
                 def j:int 0
                 while (j < (ms.count())) {

@@ -2094,6 +2094,9 @@ class Tools {
         o.putNum("x" (PresReview.round4(t.x)))
         o.putNum("y" (PresReview.round4(t.y)))
         o.putBool("resolved" t.closed)
+        if ((t.dia >= 0) && ((strlen t.node) > 0)) {
+            o.putStr("diagram_node" t.node)
+        }
         def ms:MfJ (MfJ.newArr())
         for t.msgs m:PresReviewMsg i {
             def mo:MfJ (MfJ.newObj())
@@ -2112,7 +2115,11 @@ class Tools {
             state = "resolved"
         }
         def lines:[string]
-        push lines ("Thread " + t.id + " (" + state + ") on " + (Tools.slideLabel(t)) + ", pinned at x " + (to_string (PresReview.round4(t.x))) + ", y " + (to_string (PresReview.round4(t.y))) + ":")
+        def onNode:string ""
+        if ((t.dia >= 0) && ((strlen t.node) > 0)) {
+            onNode = (", on the diagram's node " + t.node)
+        }
+        push lines ("Thread " + t.id + " (" + state + ") on " + (Tools.slideLabel(t)) + onNode + ", pinned at x " + (to_string (PresReview.round4(t.x))) + ", y " + (to_string (PresReview.round4(t.y))) + ":")
         for t.msgs m:PresReviewMsg i {
             def who:string m.name
             if ((strlen who) == 0) {
