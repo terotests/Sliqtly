@@ -3,11 +3,14 @@
 //! Semantic transactions on top of KV engine abstraction.
 //! Engine can be swapped (MemoryEngine, FjallEngine, RedbEngine) without API changes.
 
-use crate::engine::{CommitResult, CommitSeq, DbSnapshot, KvEngine, WriteBatch};
+use crate::engine::{CommitResult, CommitSeq, DbSnapshot, KeyRange, KvEngine, WriteBatch};
 use crate::error::Result;
 use crate::fjall_engine::FjallEngine;
 use crate::key::{KeyBuilder, KeyType};
-use crate::record::{Document, DocumentId, Membership, Room, RoomId};
+use crate::log_engine::{LogEngine, LogOptions};
+use crate::record::{Document, DocumentId, Membership, Room, RoomId, UserId};
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -26,6 +29,22 @@ impl Database {
         })
     }
 
+    /// Open or create a database backed by the WAL + checkpoint engine.
+    pub fn open_log<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Self::open_log_with(path, LogOptions::default())
+    }
+
+    pub fn open_log_with<P: AsRef<Path>>(path: P, opts: LogOptions) -> Result<Self> {
+        Ok(Database {
+            engine: Arc::new(LogEngine::open_with(path, opts)?),
+        })
+    }
+
+    /// Use any engine (tests, benchmarks).
+    pub fn with_engine(engine: Arc<dyn KvEngine>) -> Self {
+        Database { engine }
+    }
+
     /// Begin a read-only transaction.
     pub fn read(&self) -> Result<ReadTx> {
         let snapshot = self.engine.snapshot()?;
@@ -35,7 +54,10 @@ impl Database {
     /// Begin a write transaction.
     pub fn write(&self) -> Result<WriteTx> {
         Ok(WriteTx {
+            snapshot: self.engine.snapshot()?,
             mutations: Vec::new(),
+            conditions: Vec::new(),
+            docs: HashMap::new(),
         })
     }
 
@@ -101,12 +123,59 @@ impl ReadTx {
     pub fn get_raw(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         self.snapshot.get(key)
     }
+
+    /// Documents in a room, via the `room_document` index (one prefix scan
+    /// plus one point read per document).
+    pub fn documents_in_room(&self, room_id: RoomId) -> Result<Vec<Document>> {
+        let prefix = KeyBuilder::new(KeyType::IdxRoomDoc)
+            .push_uuid(room_id)
+            .build();
+        let mut out = Vec::new();
+        for (k, _) in self.snapshot.scan(KeyRange::prefix(prefix))? {
+            let doc_id = crate::key::decode_uuid(&k[17..])?;
+            if let Some(d) = self.get_document(doc_id)? {
+                out.push(d);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Documents in a room by scanning every document (no index needed).
+    pub fn documents_in_room_scan(&self, room_id: RoomId) -> Result<Vec<Document>> {
+        let mut out = Vec::new();
+        let prefix = vec![KeyType::Document as u8];
+        for (_, v) in self.snapshot.scan(KeyRange::prefix(prefix))? {
+            let d: Document = serde_json::from_slice(&v)?;
+            if d.room_id == room_id {
+                out.push(d);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Rooms a user belongs to: a prefix scan of `memberships/<user>/…`.
+    pub fn rooms_for_user(&self, user_id: UserId) -> Result<Vec<RoomId>> {
+        let prefix = KeyBuilder::new(KeyType::Membership)
+            .push_uuid(user_id)
+            .build();
+        self.snapshot
+            .scan(KeyRange::prefix(prefix))?
+            .into_iter()
+            .map(|(k, _)| crate::key::decode_uuid(&k[17..]))
+            .collect()
+    }
 }
 
 /// Write transaction collecting mutations to commit atomically.
 /// Does not mutate database until commit() is called.
 pub struct WriteTx {
+    /// State this transaction was started against; used to maintain indexes
+    /// and to guard the records it rewrites.
+    snapshot: Arc<dyn DbSnapshot>,
     mutations: Vec<(Vec<u8>, Option<Vec<u8>>)>, // key, Some(value) | None means delete
+    conditions: Vec<crate::engine::Condition>,
+    /// Room of each document written in this transaction (latest write wins).
+    docs: HashMap<DocumentId, RoomId>,
 }
 
 impl WriteTx {
@@ -122,10 +191,48 @@ impl WriteTx {
 
     /// Insert or update a document.
     /// Does not affect database until commit() is called.
+    ///
+    /// Also maintains the `room_document` index. The commit is conditional on
+    /// the stored document being unchanged since this transaction began, so
+    /// a concurrent move to another room can never leave a stale index entry.
     pub fn put_document(&mut self, mut doc: Document) -> Result<Document> {
         doc.updated_at = chrono::Utc::now();
         doc.version += 1;
         let key = KeyBuilder::new(KeyType::Document).push_uuid(doc.id).build();
+
+        let old_room = match self.docs.get(&doc.id) {
+            Some(r) => Some(*r),
+            None => {
+                let stored = self.snapshot.get(&key)?;
+                match &stored {
+                    Some(bytes) => self.conditions.push(crate::engine::Condition::ValueEquals(
+                        key.clone(),
+                        format!("{:x}", Sha256::digest(bytes)),
+                    )),
+                    None => self
+                        .conditions
+                        .push(crate::engine::Condition::KeyAbsent(key.clone())),
+                }
+                match stored {
+                    Some(bytes) => Some(serde_json::from_slice::<Document>(&bytes)?.room_id),
+                    None => None,
+                }
+            }
+        };
+        if let Some(old) = old_room.filter(|r| *r != doc.room_id) {
+            let stale = KeyBuilder::new(KeyType::IdxRoomDoc)
+                .push_uuid(old)
+                .push_uuid(doc.id)
+                .build();
+            self.mutations.push((stale, None));
+        }
+        let idx = KeyBuilder::new(KeyType::IdxRoomDoc)
+            .push_uuid(doc.room_id)
+            .push_uuid(doc.id)
+            .build();
+        self.mutations.push((idx, Some(Vec::new())));
+        self.docs.insert(doc.id, doc.room_id);
+
         let value = serde_json::to_vec(&doc)?;
         self.mutations.push((key, Some(value)));
         Ok(doc)
@@ -151,10 +258,18 @@ impl WriteTx {
         Ok(())
     }
 
+    /// Delete a raw key.
+    /// Does not affect database until commit() is called.
+    pub fn delete_raw(&mut self, key: Vec<u8>) -> Result<()> {
+        self.mutations.push((key, None));
+        Ok(())
+    }
+
     /// Commit all collected mutations atomically.
     /// Empty transactions return NoChanges and do not increment sequence.
     pub fn commit(self, db: &Database) -> Result<CommitSeq> {
         let mut batch = WriteBatch::new();
+        batch.conditions = self.conditions;
 
         for (key, value_opt) in self.mutations {
             match value_opt {
@@ -172,8 +287,8 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::thread;
-    use uuid::Uuid;
     use tempfile::TempDir;
+    use uuid::Uuid;
 
     fn create_test_room(title: &str) -> Room {
         Room {

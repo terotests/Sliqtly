@@ -28,16 +28,18 @@ pub mod engine;
 pub mod error;
 pub mod fjall_engine;
 pub mod key;
+pub mod log_engine;
 pub mod memory_engine;
 pub mod record;
 pub mod transaction;
 
+pub use blob_engine::BlobEngine;
+pub use blob_store::BlobStore;
 pub use error::{Error, Result};
+pub use fjall_engine::FjallEngine;
+pub use log_engine::LogEngine;
 pub use record::{Document, Membership, Room, RoomId, UserId};
 pub use transaction::Database;
-pub use blob_store::BlobStore;
-pub use blob_engine::BlobEngine;
-pub use fjall_engine::FjallEngine;
 
 use std::path::Path;
 

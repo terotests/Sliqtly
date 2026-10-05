@@ -69,8 +69,17 @@ pub fn doc(room_id: Uuid, title: &str) -> Document {
 
 /// 3 rooms, 5 documents, 2 memberships, 1 blob; one commit per write.
 pub fn seed() -> Seeded {
+    seed_with(|p| Database::open(p).unwrap())
+}
+
+/// The same data written through the log engine.
+pub fn seed_log() -> Seeded {
+    seed_with(|p| Database::open_log(p).unwrap())
+}
+
+fn seed_with(open: impl Fn(&Path) -> Database) -> Seeded {
     let dir = TempDir::new().unwrap();
-    let db = Database::open(dir.path()).unwrap();
+    let db = open(dir.path());
     let mut rooms = Vec::new();
     let mut docs = Vec::new();
     for title in ["Alpha", "Beta", "Gamma"] {
@@ -126,6 +135,13 @@ pub fn put_raw(db: &Database, k: Vec<u8>, v: Vec<u8>) {
 
 pub fn raw(dir: &Path, k: Vec<u8>, v: Vec<u8>) {
     put_raw(&Database::open(dir).unwrap(), k, v);
+}
+
+pub fn unraw(dir: &Path, k: Vec<u8>) {
+    let db = Database::open(dir).unwrap();
+    let mut tx = db.write().unwrap();
+    tx.delete_raw(k).unwrap();
+    tx.commit(&db).unwrap();
 }
 
 pub fn adler32(data: &[u8]) -> String {

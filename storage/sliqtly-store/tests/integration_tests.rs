@@ -2,7 +2,7 @@
 //!
 //! Tests complete workflows, crash recovery simulation, and stress scenarios.
 
-use sliqtly_store::{Room, Document, Membership, open};
+use sliqtly_store::{open, Document, Membership, Room};
 use std::sync::Arc;
 use std::thread;
 use tempfile::TempDir;
@@ -108,9 +108,8 @@ fn test_crash_recovery_simulation() {
     // Reopen and verify consistency
     {
         let db = open(dir.path()).unwrap();
-        // In a real implementation with persistence, we'd verify data survived
-        // For MVP with in-memory store, this tests that the handle reopens correctly
-        assert_eq!(db.current_seq(), 0); // In-memory: loses data on drop (expected for MVP)
+        // Storage is persistent: every committed write survives the reopen.
+        assert_eq!(db.current_seq(), 10);
     }
 }
 
@@ -202,7 +201,10 @@ fn test_concurrent_read_load() {
         total_reads, elapsed, reads_per_sec
     );
 
-    assert!(reads_per_sec > 1000.0, "Should handle at least 1000 reads/sec");
+    assert!(
+        reads_per_sec > 1000.0,
+        "Should handle at least 1000 reads/sec"
+    );
 }
 
 #[test]

@@ -24,13 +24,30 @@ pub struct KeyRange {
 }
 
 impl KeyRange {
+    /// Every key starting with `prefix`. The upper bound is the prefix's
+    /// successor (last non-0xFF byte incremented), so keys whose next byte
+    /// is 0xFF are included.
     pub fn prefix(prefix: Vec<u8>) -> Self {
         let mut upper = prefix.clone();
-        upper.push(u8::MAX);
-        KeyRange {
-            lower: prefix,
-            upper,
-            inclusive_upper: false,
+        while upper.last() == Some(&u8::MAX) {
+            upper.pop();
+        }
+        match upper.last_mut() {
+            Some(b) => {
+                *b += 1;
+                KeyRange {
+                    lower: prefix,
+                    upper,
+                    inclusive_upper: false,
+                }
+            }
+            // All-0xFF prefix: no successor exists; bound by a key longer
+            // than any real one.
+            None => KeyRange {
+                upper: vec![u8::MAX; prefix.len() + 4096],
+                lower: prefix,
+                inclusive_upper: true,
+            },
         }
     }
 
@@ -99,12 +116,14 @@ impl WriteBatch {
 
     /// Require key to have exactly this value. Fails if value changed.
     pub fn expect_value(&mut self, key: Vec<u8>, value_hash: String) {
-        self.conditions.push(Condition::ValueEquals(key, value_hash));
+        self.conditions
+            .push(Condition::ValueEquals(key, value_hash));
     }
 
     /// Require record to have exactly this revision. Fails if rev changed.
     pub fn expect_record_rev(&mut self, key: Vec<u8>, expected_rev: u64) {
-        self.conditions.push(Condition::RecordRevEquals(key, expected_rev));
+        self.conditions
+            .push(Condition::RecordRevEquals(key, expected_rev));
     }
 
     pub fn push(&mut self, mutation: Mutation) {
@@ -139,4 +158,29 @@ pub trait KvEngine: Send + Sync {
     /// Atomically apply a batch of mutations.
     /// Returns NoChanges if batch is empty, or Applied with new Seq if committed.
     fn commit(&self, batch: WriteBatch) -> Result<CommitResult>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn contains(r: &KeyRange, k: &[u8]) -> bool {
+        k >= r.lower.as_slice()
+            && if r.inclusive_upper {
+                k <= r.upper.as_slice()
+            } else {
+                k < r.upper.as_slice()
+            }
+    }
+
+    #[test]
+    fn prefix_range_includes_keys_continuing_with_0xff() {
+        let r = KeyRange::prefix(vec![0x20, 0x01]);
+        assert!(contains(&r, &[0x20, 0x01, 0xFF, 0xFF, 0x00]));
+        assert!(contains(&r, &[0x20, 0x01]));
+        assert!(!contains(&r, &[0x20, 0x02]));
+        let r = KeyRange::prefix(vec![0x20, 0xFF]);
+        assert!(contains(&r, &[0x20, 0xFF, 0xFF, 0x07]));
+        assert!(!contains(&r, &[0x21]));
+    }
 }

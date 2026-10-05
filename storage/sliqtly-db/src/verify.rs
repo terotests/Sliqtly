@@ -119,14 +119,7 @@ pub fn run(db: &Loaded, deep: bool) -> Report {
         record_revisions(&model),
         format_metadata(&model, db),
         change_feed(db),
-        plain(
-            "checksums",
-            Status::Skip,
-            format!(
-                "{} stores no per-record checksums; whole-file decode succeeded",
-                db.storage_format
-            ),
-        ),
+        checksums(db),
     ];
     if deep {
         checks.push(references(&model));
@@ -140,6 +133,26 @@ pub fn run(db: &Loaded, deep: bool) -> Report {
         deep,
         checks,
     }
+}
+
+fn checksums(db: &Loaded) -> Check {
+    if db.engine == "log" {
+        // recover() rejects a checkpoint with a bad CRC and stops replay at the
+        // first WAL record whose CRC fails; anything after that is a torn tail.
+        return plain(
+            "checksums",
+            Status::Ok,
+            "checkpoint and every replayed WAL record passed CRC32".to_string(),
+        );
+    }
+    plain(
+        "checksums",
+        Status::Skip,
+        format!(
+            "{} stores no per-record checksums; whole-file decode succeeded",
+            db.storage_format
+        ),
+    )
 }
 
 fn storage(db: &Loaded) -> Check {

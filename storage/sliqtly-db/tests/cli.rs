@@ -50,7 +50,9 @@ fn stats_lists_every_family() {
     let fams = v["families"].as_array().unwrap();
     let get = |n: &str| fams.iter().find(|f| f["name"] == n).unwrap().clone();
     assert_eq!(get("documents")["count"], 5);
-    assert_eq!(get("room_document")["count"], 0);
+    // put_document maintains room_document; the other indexes are not written yet.
+    assert_eq!(get("room_document")["count"], 5);
+    assert_eq!(get("doc_updated")["count"], 0);
     assert_eq!(v["unknown"]["count"], 0);
 }
 
@@ -63,8 +65,9 @@ fn healthy_database_passes_deep_verify_with_index_warnings() {
     assert_eq!(check(&r, "primary record decoding")["status"], "ok");
     assert_eq!(check(&r, "reference integrity")["status"], "ok");
     assert_eq!(check(&r, "blob references")["status"], "ok");
-    // The current writer does not maintain indexes or a change feed: reported, not hidden.
-    assert_eq!(check(&r, "index room_document")["status"], "warn");
+    assert_eq!(check(&r, "index room_document")["status"], "ok");
+    // Indexes and the change feed the writer does not maintain: reported, not hidden.
+    assert_eq!(check(&r, "index doc_updated")["status"], "warn");
     assert_eq!(check(&r, "change-feed continuity")["status"], "warn");
     // --strict turns those warnings into a failing exit status.
     assert_eq!(
@@ -127,18 +130,15 @@ fn deep_verify_catches_dangling_room_reference() {
 fn partially_populated_index_must_be_complete_and_not_dangle() {
     let s = seed();
     let room_of_doc0 = s.rooms[0];
-    let ok = KeyBuilder::new(KeyType::IdxRoomDoc)
+    let entry = KeyBuilder::new(KeyType::IdxRoomDoc)
         .push_uuid(room_of_doc0)
         .push_uuid(s.docs[0])
         .build();
-    raw(s.dir.path(), ok, vec![]);
+    unraw(s.dir.path(), entry);
     let r = json(&cli(s.dir.path(), &["verify", "--deep", "--json"]));
     let c = check(&r, "index room_document");
     assert_eq!(c["status"], "fail");
-    assert_eq!(
-        c["problems"], 4,
-        "the other four documents have no entry: {c}"
-    );
+    assert_eq!(c["problems"], 1, "one document lost its entry: {c}");
 
     let dangling = KeyBuilder::new(KeyType::IdxRoomDoc)
         .push_uuid(room_of_doc0)
@@ -376,6 +376,53 @@ fn backup_restore_round_trip_keeps_seq_and_data() {
 
     // And it keeps working: the next commit continues the sequence.
     let db = Database::open(&target).unwrap();
+    let mut tx = db.write().unwrap();
+    tx.put_room(room("after restore")).unwrap();
+    assert_eq!(tx.commit(&db).unwrap(), SEEDED_SEQ + 1);
+}
+
+#[test]
+fn log_engine_database_is_inspected_backed_up_and_restored() {
+    let s = seed_log();
+    let info = json(&cli(s.dir.path(), &["info", "--json"]));
+    assert_eq!(info["engine"], "log");
+    assert_eq!(info["commit_seq"], SEEDED_SEQ);
+
+    let o = cli(s.dir.path(), &["verify", "--deep", "--json"]);
+    assert!(o.status.success(), "{}", stdout(&o));
+    let r = json(&o);
+    assert_eq!(check(&r, "checksums")["status"], "ok");
+    assert_eq!(check(&r, "index room_document")["status"], "ok");
+
+    // The sqlite3-style shell reads it too.
+    let o = Command::new(BIN)
+        .arg(s.dir.path())
+        .arg("SELECT count(*) FROM documents")
+        .output()
+        .unwrap();
+    assert_eq!(stdout(&o).trim(), "5");
+
+    let out = TempDir::new().unwrap();
+    let bdir = out.path().join("b");
+    assert!(cli(s.dir.path(), &["backup", bdir.to_str().unwrap()])
+        .status
+        .success());
+    let target = out.path().join("restored");
+    let o = cli(&target, &["restore", bdir.to_str().unwrap()]);
+    assert!(o.status.success(), "{}{}", stdout(&o), stderr(&o));
+
+    // Restored into the same engine, same seq and contents, and writable.
+    let all = sliqtly_store::engine::KeyRange::between(vec![], vec![0xff]);
+    let scan = |p: &Path| {
+        let snap = sliqtly_store::LogEngine::open(p)
+            .unwrap()
+            .snapshot()
+            .unwrap();
+        (snap.seq(), snap.scan(all.clone()).unwrap())
+    };
+    assert_eq!(scan(&target), scan(s.dir.path()));
+    let db = Database::open_log(&target).unwrap();
+    assert_eq!(db.current_seq(), SEEDED_SEQ);
     let mut tx = db.write().unwrap();
     tx.put_room(room("after restore")).unwrap();
     assert_eq!(tx.commit(&db).unwrap(), SEEDED_SEQ + 1);

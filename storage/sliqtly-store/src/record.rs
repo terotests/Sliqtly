@@ -1,8 +1,8 @@
 //! Typed record definitions for Sliqtly data model.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
 pub type RoomId = Uuid;
 pub type DocumentId = Uuid;
@@ -17,7 +17,9 @@ pub struct Room {
     pub title: String,
     pub description: Option<String>,
     pub created_by: UserId,
+    #[serde(deserialize_with = "fast_time::deserialize")]
     pub created_at: DateTime<Utc>,
+    #[serde(deserialize_with = "fast_time::deserialize")]
     pub updated_at: DateTime<Utc>,
     pub metadata: serde_json::Value,
 }
@@ -29,7 +31,9 @@ pub struct Document {
     pub room_id: RoomId,
     pub title: String,
     pub created_by: UserId,
+    #[serde(deserialize_with = "fast_time::deserialize")]
     pub created_at: DateTime<Utc>,
+    #[serde(deserialize_with = "fast_time::deserialize")]
     pub updated_at: DateTime<Utc>,
     pub version: u64,
     pub metadata: serde_json::Value,
@@ -73,6 +77,7 @@ pub struct Membership {
     pub user_id: UserId,
     pub room_id: RoomId,
     pub role: Role,
+    #[serde(deserialize_with = "fast_time::deserialize")]
     pub joined_at: DateTime<Utc>,
     pub metadata: serde_json::Value,
 }
@@ -153,5 +158,121 @@ mod tests {
             metadata: serde_json::json!({}),
         };
         assert!(!room.title.is_empty());
+    }
+}
+
+/// Timestamp decoding on the read path. chrono's RFC 3339 parser is general
+/// (offsets, lowercase, spaces) and was ~30% of `Document` decode time; the
+/// store always writes `YYYY-MM-DDTHH:MM:SS[.fraction]Z`, which is parsed
+/// directly here. Anything else falls back to chrono, so accepted input is
+/// unchanged.
+pub mod fast_time {
+    use chrono::{DateTime, FixedOffset, NaiveDate, Utc};
+    use serde::de::{self, Deserializer, Visitor};
+    use std::fmt;
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<DateTime<Utc>, D::Error> {
+        struct V;
+        impl Visitor<'_> for V {
+            type Value = DateTime<Utc>;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("an RFC 3339 timestamp")
+            }
+            fn visit_str<E: de::Error>(self, s: &str) -> Result<Self::Value, E> {
+                parse(s).ok_or_else(|| E::custom(format!("invalid timestamp {s:?}")))
+            }
+        }
+        d.deserialize_str(V)
+    }
+
+    pub fn parse(s: &str) -> Option<DateTime<Utc>> {
+        parse_utc_z(s.as_bytes()).or_else(|| {
+            s.parse::<DateTime<FixedOffset>>()
+                .ok()
+                .map(|t| t.with_timezone(&Utc))
+        })
+    }
+
+    fn parse_utc_z(b: &[u8]) -> Option<DateTime<Utc>> {
+        if b.len() < 20
+            || b[4] != b'-'
+            || b[7] != b'-'
+            || b[10] != b'T'
+            || b[13] != b':'
+            || b[16] != b':'
+        {
+            return None;
+        }
+        let num = |r: std::ops::Range<usize>| -> Option<u32> {
+            b[r].iter().try_fold(0u32, |n, c| {
+                c.is_ascii_digit().then(|| n * 10 + (c - b'0') as u32)
+            })
+        };
+        let (y, mo, d) = (num(0..4)?, num(5..7)?, num(8..10)?);
+        let (h, mi, sec) = (num(11..13)?, num(14..16)?, num(17..19)?);
+        let mut i = 19;
+        let mut nanos = 0u32;
+        if b[i] == b'.' {
+            i += 1;
+            let start = i;
+            while i < b.len() && b[i].is_ascii_digit() {
+                i += 1;
+            }
+            let digits = i - start;
+            if digits == 0 || digits > 9 {
+                return None;
+            }
+            nanos = num(start..i)? * 10u32.pow((9 - digits) as u32);
+        }
+        if i + 1 != b.len() || b[i] != b'Z' {
+            return None;
+        }
+        // Leap seconds (sec == 60) go through chrono.
+        if sec >= 60 {
+            return None;
+        }
+        let t = NaiveDate::from_ymd_opt(y as i32, mo, d)?.and_hms_nano_opt(h, mi, sec, nanos)?;
+        Some(t.and_utc())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn matches_chrono_on_written_and_foreign_formats() {
+            let now = Utc::now();
+            for s in [
+                serde_json::to_string(&now)
+                    .unwrap()
+                    .trim_matches('"')
+                    .to_string(),
+                "2026-10-05T17:46:53Z".into(),
+                "2026-10-05T17:46:53.1Z".into(),
+                "2026-10-05T17:46:53.123456789Z".into(),
+                "2026-10-05T19:46:53.5+02:00".into(),
+                "2026-10-05t17:46:53z".into(),
+            ] {
+                let want = s
+                    .parse::<DateTime<FixedOffset>>()
+                    .unwrap()
+                    .with_timezone(&Utc);
+                assert_eq!(parse(&s), Some(want), "{s}");
+            }
+            for bad in [
+                "2026-13-05T17:46:53Z",
+                "2026-10-05T17:46:53.Z",
+                "2026-10-05T17:46:53.1234567891Z",
+                "x",
+            ] {
+                assert_eq!(
+                    parse(bad),
+                    bad.parse::<DateTime<FixedOffset>>()
+                        .ok()
+                        .map(|t| t.with_timezone(&Utc)),
+                    "{bad}"
+                );
+            }
+        }
     }
 }

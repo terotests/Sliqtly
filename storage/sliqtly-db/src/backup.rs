@@ -19,6 +19,7 @@ use anyhow::{bail, ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sliqtly_store::key::KeyType;
+use sliqtly_store::log_engine;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
@@ -259,12 +260,19 @@ pub struct RestoreOutcome {
 
 pub fn restore(src: &Path, target: &Path, force: bool, dry_run: bool) -> Result<RestoreOutcome> {
     let (manifest, records) = check(src)?;
-    ensure!(
-        manifest.storage_format == "state-bin/bincode-1",
-        "backup was taken from storage format {}, which this build cannot restore into",
-        manifest.storage_format
-    );
-    let existing = target.join(backend::STATE_FILE).exists();
+    let log = match manifest.storage_format.as_str() {
+        "state-bin/bincode-1" => false,
+        "log/wal-crc32+checkpoint-1" => true,
+        other => bail!(
+            "backup was taken from storage format {other}, which this build cannot restore into"
+        ),
+    };
+    let engine_files = [
+        backend::STATE_FILE,
+        log_engine::CHECKPOINT_FILE,
+        log_engine::WAL_FILE,
+    ];
+    let existing = engine_files.iter().any(|f| target.join(f).exists());
     if existing && !force {
         bail!(
             "{} already holds a database; pass --force to replace it",
@@ -272,10 +280,28 @@ pub fn restore(src: &Path, target: &Path, force: bool, dry_run: bool) -> Result<
         );
     }
     if !dry_run {
-        backend::write_state_bin(target, manifest.commit_seq, records)?;
+        // Restore into the engine the backup came from, then drop the other
+        // engine's files so detection cannot pick a stale database.
+        if log {
+            log_engine::write_database(target, manifest.commit_seq, records.into_iter().collect())?;
+            remove_if_present(&target.join(backend::STATE_FILE))?;
+        } else {
+            backend::write_state_bin(target, manifest.commit_seq, records)?;
+            remove_if_present(&target.join(log_engine::WAL_FILE))?;
+            remove_if_present(&target.join(log_engine::CHECKPOINT_FILE))?;
+        }
+        backend::sync_dir(target)?;
     }
     Ok(RestoreOutcome {
         manifest,
         replaced_existing: existing,
     })
+}
+
+fn remove_if_present(p: &Path) -> Result<()> {
+    match fs::remove_file(p) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.into()),
+    }
 }

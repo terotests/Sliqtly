@@ -6,6 +6,7 @@
 //! above it only see `Loaded`.
 
 use anyhow::{bail, Context, Result};
+use sliqtly_store::log_engine;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
@@ -66,12 +67,18 @@ pub fn open(path: &Path) -> Result<Loaded> {
     if !path.is_dir() {
         bail!("{} is not a directory", path.display());
     }
+    if path.join(log_engine::WAL_FILE).is_file() || path.join(log_engine::CHECKPOINT_FILE).is_file()
+    {
+        return open_log(path);
+    }
     let state = path.join(STATE_FILE);
     if !state.is_file() {
         bail!(
-            "no recognised database in {} (expected {})",
+            "no recognised database in {} (expected {}, or {} and {})",
             path.display(),
-            STATE_FILE
+            STATE_FILE,
+            log_engine::CHECKPOINT_FILE,
+            log_engine::WAL_FILE
         );
     }
     // The engine replaces state.bin by rename, so one read sees one commit.
@@ -98,6 +105,43 @@ pub fn open(path: &Path) -> Result<Loaded> {
             name: STATE_FILE.into(),
             size: bytes.len() as u64,
         }],
+        leftovers,
+    })
+}
+
+/// `sliqtly_store::LogEngine`: checkpoint plus WAL. Recovery only reads, so a
+/// torn WAL tail is reported here and left for the engine to truncate.
+fn open_log(path: &Path) -> Result<Loaded> {
+    let rec = log_engine::recover(path)
+        .with_context(|| format!("{} does not recover as a log-engine store", path.display()))?;
+    let mut files = Vec::new();
+    for name in [log_engine::CHECKPOINT_FILE, log_engine::WAL_FILE] {
+        if let Ok(meta) = fs::metadata(path.join(name)) {
+            let size = if name == log_engine::WAL_FILE {
+                rec.wal_valid_bytes
+            } else {
+                meta.len()
+            };
+            files.push(DiskFile {
+                name: name.into(),
+                size,
+            });
+        }
+    }
+    let mut leftovers = Vec::new();
+    if rec.torn_tail_bytes > 0 {
+        leftovers.push(DiskFile {
+            name: format!("{} torn tail", log_engine::WAL_FILE),
+            size: rec.torn_tail_bytes,
+        });
+    }
+    Ok(Loaded {
+        path: path.to_path_buf(),
+        engine: "log",
+        storage_format: "log/wal-crc32+checkpoint-1",
+        commit_seq: rec.seq,
+        entries: rec.entries.into_iter().collect(),
+        files,
         leftovers,
     })
 }
