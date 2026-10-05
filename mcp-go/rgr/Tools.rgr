@@ -18,6 +18,7 @@ Import "Store.rgr"
 Import "Files.rgr"
 Import "SvgCheck.rgr"
 Import "Edits.rgr"
+Import "GitHub.rgr"
 Import "../presentation/PresReview.rgr"
 
 ; who is asking, for one request
@@ -276,6 +277,10 @@ class Tools {
         def rop:MfJ (MfJ.newObj())
         rop.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
         tools.add((Tools.tool("render_overview" "Look at all slides" "Every slide of a Sliqtly presentation as a numbered thumbnail in one picture (JPEG), with a line per slide from the layout report. One call checks the whole deck; ask render_slide for a closer look at a slide. Look once before saying a presentation is done." (Tools.schema(rop ([] _:string ("deck_id")))) (Tools.annotations(true -1 true false)) eitherMeta)))
+
+        def ghp:MfJ (MfJ.newObj())
+        ghp.put("pr" (Tools.prop("string" "The pull request: its link (https://github.com/owner/repo/pull/12) or owner/repo#12")))
+        tools.add((Tools.tool("read_github_pr" "Read a GitHub pull request" "A GitHub pull request as the source of a review deck: its title, description, author, state, each changed file with its lines added and removed and its diff, and its commits, with a first draft of the deck in Sliqtly Markdown (what and why, changed files, the biggest changes as ```diff slides, commits on a timeline, decision). Edit the draft (explain the change, add a diagram of the changed parts) and pass it to create_presentation. Public repositories." (Tools.schema(ghp ([] _:string ("pr")))) (Tools.annotations(true -1 false true)) eitherMeta)))
 
         def xp:MfJ (MfJ.newObj())
         xp.put("deck_id" (Tools.prop("string" "deck_id of the presentation (the id in https://sliqtly.com/s/<id>)")))
@@ -982,6 +987,9 @@ class Tools {
         }
         if (name == "read_file") {
             r = (Tools.readFile(host caller args))
+        }
+        if (name == "read_github_pr") {
+            r = (Tools.readGitHubPr(host args))
         }
         if (name == "export_presentation") {
             r = (Tools.exportDeck(host args))
@@ -1714,6 +1722,107 @@ class Tools {
             }
         }
         return -1
+    }
+
+    ; read_github_pr: the PR, its files and commits from GitHub's REST API,
+    ; and a draft deck (GitHub.rgr)
+    sfn readGitHubPr:MfJ (host:McpHost a:MfJ) {
+        def bad:string (Tools.checkArgs(a ([] _:string ("pr"))))
+        if ((strlen bad) > 0) {
+            return (Tools.fail(bad))
+        }
+        def ref:GhRef (GhRef.parse((a.str_("pr"))))
+        if ((strlen ref.err) > 0) {
+            return (Tools.fail(("Invalid arguments: " + ref.err)))
+        }
+        def accept:string "application/vnd.github+json"
+        def got:MfJ (J.parse((host_fetch_text host (ref.api()) accept 1000000)))
+        def why:string (Tools.githubFailed(ref (got.int_("status" 0))))
+        if ((strlen why) > 0) {
+            return (Tools.fail(why))
+        }
+        def pr:MfJ (J.parse((got.str_("body"))))
+        if ((pr.isObj()) == false) {
+            return (Tools.fail(("GitHub's answer about " + (ref.name()) + " could not be read.")))
+        }
+        def files:MfJ (MfJ.newArr())
+        def gf:MfJ (J.parse((host_fetch_text host ((ref.api()) + "/files?per_page=100") accept 8000000)))
+        if ((gf.int_("status" 0)) == 200) {
+            files = (J.parse((gf.str_("body"))))
+        }
+        def commits:MfJ (MfJ.newArr())
+        def gc:MfJ (J.parse((host_fetch_text host ((ref.api()) + "/commits?per_page=100") accept 2000000)))
+        if ((gc.int_("status" 0)) == 200) {
+            commits = (J.parse((gc.str_("body"))))
+        }
+        def p:GhPr (GhPr.read(ref pr files commits))
+        def md:string (GhDeck.draft(p))
+        def out:MfJ (MfJ.newObj())
+        out.putStr("pr" (ref.name()))
+        out.putStr("url" (ref.web()))
+        out.putStr("title" p.title)
+        out.putStr("author" p.author)
+        out.putStr("state" p.state)
+        out.putStr("base" p.base)
+        out.putStr("head" p.head)
+        out.putInt("additions" p.additions)
+        out.putInt("deletions" p.deletions)
+        out.putStr("description" p.body)
+        def fl:MfJ (MfJ.newArr())
+        for p.files f:GhFile fi {
+            def fo:MfJ (MfJ.newObj())
+            fo.putStr("file" f.name)
+            fo.putStr("status" f.status)
+            fo.putInt("additions" f.additions)
+            fo.putInt("deletions" f.deletions)
+            def patch:string f.patch
+            if ((strlen patch) > 6000) {
+                patch = ((substring patch 0 6000) + "\n…")
+            }
+            fo.putStr("patch" patch)
+            fl.add(fo)
+        }
+        out.put("files" fl)
+        def cl:MfJ (MfJ.newArr())
+        for p.commits c:GhCommit ci {
+            def co:MfJ (MfJ.newObj())
+            co.putStr("sha" c.sha)
+            co.putStr("date" c.date)
+            co.putStr("author" c.author)
+            co.putStr("title" c.title)
+            cl.add(co)
+        }
+        out.put("commits" cl)
+        out.putStr("markdown" md)
+        def lines:[string]
+        push lines ((ref.name()) + ": \"" + p.title + "\" by " + p.author + ", " + p.state + "; " + p.changedFiles + " files, +" + p.additions + " −" + p.deletions + ", " + p.commitCount + " commits.")
+        if ((array_length p.files) < p.changedFiles) {
+            push lines ("Only the first " + (array_length p.files) + " files were read.")
+        }
+        push lines "Files and diffs are in the structured result (files[].patch). A first draft of a review deck, to edit and pass to create_presentation:"
+        push lines ""
+        push lines md
+        def r:MfJ (MfJ.newObj())
+        r.put("content" (Tools.text((join lines "\n"))))
+        r.put("structuredContent" out)
+        return r
+    }
+
+    ; why GitHub's answer is not the PR, "" when it is
+    sfn githubFailed:string (ref:GhRef status:int) {
+        if (status == 200) {
+            return ""
+        }
+        if (status == 404) {
+            return ("GitHub has no pull request " + (ref.name()) + " that this server can read: it does not exist, or the repository is private (only public repositories can be read).")
+        }
+        if ((status == 403) || (status == 429)) {
+            return "GitHub refused for now (its limit on requests without sign-in); try again in a while."
+        }
+        if (status == 0) {
+            return "GitHub could not be reached; try again."
+        }
+        return ("GitHub answered " + status + " about " + (ref.name()) + ".")
     }
 
     ; export_presentation: the file made by the editor's own export

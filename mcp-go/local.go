@@ -32,6 +32,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -84,6 +85,7 @@ func localEnv(dir, baseURL, user string) (*Env, *fsBucket, error) {
 	}
 	e.FilesURL = e.BaseURL + "/files"
 	e.rooms = newRoomService(e)
+	e.GitHubToken = os.Getenv("SLIQTLY_GITHUB_TOKEN")
 	return e, bucket, nil
 }
 

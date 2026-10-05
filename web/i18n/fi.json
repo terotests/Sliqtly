@@ -297,6 +297,7 @@
   "No columns of numbers: the chart counts rows.": "Ei numerosarakkeita: kaavio laskee rivit.",
   "No files yet.": "Ei vielä tiedostoja.",
   "No rows in": "Ei rivejä:",
+  "No such file in this presentation:": "Esityksessä ei ole tiedostoa",
   "No rows in this file.": "Tiedostossa ei ole rivejä.",
   "No rows in this sheet.": "Taulukossa ei ole rivejä.",
   "not set – add": "ei asetettu – lisää",
@@ -643,6 +644,7 @@
   "Clear": "Tyhjennä",
   "Markdown (.md)": "Markdown (.md)",
   "PowerPoint (.pptx)": "PowerPoint (.pptx)",
+  "Word (.docx)": "Word (.docx)",
   "PDF (.pdf)": "PDF (.pdf)",
   "All files (.zip)": "Kaikki tiedostot (.zip)",
   "Delete presentation…": "Poista esitys…",
@@ -973,5 +975,7 @@
   "No open comments.": "Ei avoimia kommentteja.",
   "Open presentations": "Avoimet esitykset",
   "Close ": "Sulje ",
-  "This presentation is no longer here.": "Tätä esitystä ei enää ole."
+  "This presentation is no longer here.": "Tätä esitystä ei enää ole.",
+  "Notation": "Notaatio",
+  "The diagram's look. The notation it is written in stays as it is.": "Kaavion ulkoasu. Notaatio, jolla se on kirjoitettu, pysyy ennallaan."
 }

@@ -70,6 +70,8 @@
   .evg-a11y :focus-visible { outline: 2px solid #2563eb !important; outline-offset: 2px; border-radius: 6px; }
   /* the bar is drawn on the canvas (PresToolbar); this one is what it presses */
   body.canvas-bar #bar { display: none; }
+  /* another deck being opened (loadingScreen in main.js) */
+  body.busy, body.busy canvas { cursor: progress !important; }
   /* Until the canvas is ready only the Sliqtly screen shows: the HTML bar
      would appear first and then give way to the one drawn on the canvas. */
   body.booting #bar { display: none; }
@@ -344,9 +346,11 @@
   <button id="save" class="wide" title="Save as Markdown" data-i18n-title data-i18n>Save .md</button>
   <button id="pdf">PDF</button>
   <button id="pptx">PPTX</button>
+  <button id="docx">DOCX</button>
   <button id="zip">ZIP</button>
   <button id="pdfPicked" hidden>PDF</button>
   <button id="pptxPicked" hidden>PPTX</button>
+  <button id="docxPicked" hidden>DOCX</button>
   <button id="share" title="Copy a link with this Markdown packed into its address" data-i18n-title data-i18n>🔗 Share</button>
   <button id="history" hidden>Version history</button>
   <button id="aiClaude" hidden>Claude</button>
@@ -386,6 +390,7 @@
     <div class="sub" id="vExportSub" role="group" hidden>
       <button role="menuitem" data-act="pdf">PDF</button>
       <button role="menuitem" data-act="pptx">PowerPoint (.pptx)</button>
+      <button role="menuitem" data-act="docx">Word (.docx)</button>
       <button role="menuitem" data-act="md">Markdown (.md)</button>
     </div>
     <hr />

@@ -3750,6 +3750,13 @@ class PresApp {
         if (inFm || fence) {
             j = ((substring j 0 ((strlen j) - 1)) + ",\"docset\":true}")
         }
+        ; a diagram's fence: the look it has, read from the whole block
+        if ((edTab == "md") && ((indexOf j "\"looks\":[") >= 0)) {
+            def dm:PresFlowModel (this.diagramAt(line))
+            if dm.ok {
+                j = ((substring j 0 ((strlen j) - 1)) + ",\"look\":" + (PresHint.q((dm.look()))) + "}")
+            }
+        }
         def st:int (?? (str2int (PresApp.jsonNum(j "start"))) 0)
         def en:int (?? (str2int (PresApp.jsonNum(j "end"))) st)
         def x0:int (editor.caretViewX(tr line st))
@@ -4719,6 +4726,13 @@ class PresApp {
         }
         def none:[PresHintEdit]
         hint.edits = none
+        if ((strlen hint.wantsLook) > 0) {
+            def lk:string hint.wantsLook
+            hint.wantsLook = ""
+            if ((hint.tab == "md") && (edTab == "md")) {
+                this.setDiagramLook(hint.line lk)
+            }
+        }
         if hint.wantsClose {
             hint.wantsClose = false
             this.closeHint()
@@ -6212,6 +6226,12 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    fn setChartDataMissing:void (url:string) {
+        deck.setChartDataMissing(url)
+        PresTimeline.planAll(deck)
+        chromeRev = (chromeRev + 1)
+    }
+
     fn setChartData:void (url:string body:string) {
         deck.setChartData(url body)
         ; the slides are new objects: timed again, or every one lasts 0 s
@@ -6941,13 +6961,29 @@ class PresApp {
         if (mode == "present") {
             return false
         }
+        def m:PresFlowModel (this.diagramAt(line))
+        if (m.ok == false) {
+            return false
+        }
+        this.placeChartWindow()
+        chart.openDiagram(m chartWinX chartWinY W H)
+        this.selectSlide((deck.pageOfOffset((this.offsetOf(line 0)))))
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The fenced block opening on `line`, read as a diagram's model (`ok`
+    ; false when the line opens none).
+    fn diagramAt:PresFlowModel (line:int) {
+        def none (new PresFlowModel())
         def n:int (mdEditor.buf.lineCount())
         if ((line < 0) || (line >= n)) {
-            return false
+            return none
         }
         def head:string (trim (mdEditor.buf.lineAt(line)))
         if (((indexOf head "```") != 0) && ((indexOf head "~~~") != 0)) {
-            return false
+            return none
         }
         def fence:string (substring head 0 3)
         def close:int -1
@@ -6959,7 +6995,7 @@ class PresApp {
             k = (k + 1)
         }
         if (close < 0) {
-            return false
+            return none
         }
         def last:int close
         if (((close + 1) < n) && ((indexOf head "{") < 0)) {
@@ -6968,17 +7004,26 @@ class PresApp {
             }
         }
         def m:PresFlowModel (PresFlowModel.read((this.blockText(line last))))
-        if (m.ok == false) {
-            return false
-        }
         m.first = line
         m.last = last
-        this.placeChartWindow()
-        chart.openDiagram(m chartWinX chartWinY W H)
-        this.selectSlide((deck.pageOfOffset((this.offsetOf(line 0)))))
-        focus = "chart"
-        chromeRev = (chromeRev + 1)
-        return true
+        return m
+    }
+
+    ; A look picked on the diagram's card: the block's settings line
+    ; rewritten, as one edit (Ctrl+Z undoes it).
+    fn setDiagramLook:void (line:int v:string) {
+        def m:PresFlowModel (this.diagramAt(line))
+        if (m.ok == false) {
+            return
+        }
+        def at:int (line + (m.lookLineAt()))
+        def t:string (m.lookLine(v))
+        this.replaceRange(at 0 (strlen (mdEditor.buf.lineAt(at))) t)
+        if (at == line) {
+            hint.text = t
+        }
+        hint.look = v
+        hint.rebuild()
     }
 
     ; The table on `line` (a Markdown table's first line, or a ```table /
@@ -7972,21 +8017,7 @@ class PresApp {
     ; What the deck calls itself, for an exported file's name: the front
     ; matter's `title`, or the first heading when there is none, or "".
     fn docTitle:string () {
-        def doc:MdNode deck.md.edit.doc
-        def meta:MdMeta (MdFrontMatter.of(doc))
-        def t:string (trim (meta.get("title" "")))
-        if ((strlen t) > 0) {
-            return t
-        }
-        def i:int 0
-        while (i < (doc.childCount())) {
-            def ch:MdNode (doc.childAt(i))
-            if (ch.kind == "heading") {
-                return (trim (ch.plainText()))
-            }
-            i = (i + 1)
-        }
-        return ""
+        return (PresDocx.titleOf(deck.md.edit.doc))
     }
 
     ; The slides with an effect, "[1,3]", for the host to render before an
@@ -8119,6 +8150,28 @@ class PresApp {
 
     fn pptxPicked:buffer () {
         return ((this.exportOf(true)).pptx())
+    }
+
+    ; --- Word (PresExport.docx) ----------------------------------------------------
+    ; Two steps, because the stage draws some blocks (a diagram, a chart, a
+    ; formula) that only the host can turn into pictures: `docxBegin` names
+    ; them, the host draws each one (`docxShotJson`) and hands the PNG to
+    ; `setDocxShot`, and `docxEnd` writes the file. `picked`: only the picked
+    ; slides, all of them when none is picked.
+    fn docxBegin:string (picked:boolean) {
+        return ((this.exportOf(picked)).docxShots())
+    }
+
+    fn docxShotJson:string (key:int) {
+        return (this.listJson((exporter.word.shotList(deck key))))
+    }
+
+    fn setDocxShot:void (key:int png:buffer pxW:int pxH:int) {
+        exporter.word.setShot(key png pxW pxH)
+    }
+
+    fn docxEnd:buffer () {
+        return (exporter.docx())
     }
 
     fn pickCount:int () {
