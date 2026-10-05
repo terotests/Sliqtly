@@ -1,0 +1,18 @@
+# Build artifacts
+/target/
+state.bin
+*.bin
+
+# Cargo lock file (optional, can be committed if library)
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
