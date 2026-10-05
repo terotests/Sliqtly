@@ -952,5 +952,8 @@
   "selected slide": "valittu dia",
   "Share selected slides…": "Jaa valitut diat…",
   "slides": "diat",
-  "These slides are no longer in the presentation.": "Näitä dioja ei enää ole esityksessä."
+  "These slides are no longer in the presentation.": "Näitä dioja ei enää ole esityksessä.",
+  "Open presentations": "Avoimet esitykset",
+  "Close ": "Sulje ",
+  "This presentation is no longer here.": "Tätä esitystä ei enää ole."
 }
