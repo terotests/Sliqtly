@@ -22,12 +22,14 @@
 // A migration must be safe to stop at any point and run again: it renames
 // one entry at a time, never copies and deletes, and skips what is already
 // in place. Anything it would overwrite is moved to backups/conflicts/
-// instead. After it, the number of files must be the number before, or the
-// server stops with the folder as it is and the backup beside it.
+// instead. After it, the number of files must be the number before plus
+// the new ones it says it made, or the server stops with the folder as it
+// is and the backup beside it.
 
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,10 +38,12 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/terotests/sliqtly/mcp-go/store"
 )
 
 // the layout this server reads and writes
-const currentFormat = 2
+const currentFormat = 3
 
 type formatFile struct {
 	Format int `json:"format"`
@@ -56,15 +60,17 @@ type formatStep struct {
 	Note   string `json:"note,omitempty"`
 }
 
-// a migration from format From to From+1
+// a migration from format From to From+1. user owns the documents that
+// name no owner. → the files it made
 type migration struct {
 	From int
 	Note string
-	Run  func(root string) error
+	Run  func(root, user string) (int, error)
 }
 
 var migrations = []migration{
-	{From: 1, Note: "decks and files in 256 shard folders", Run: shardFolders},
+	{From: 1, Note: "decks and files in 256 shard folders", Run: func(root, _ string) (int, error) { return 0, shardFolders(root) }},
+	{From: 2, Note: "every deck in its owner's home room", Run: homeRooms},
 }
 
 func readFormat(root string) (*formatFile, error) {
@@ -139,8 +145,9 @@ func countFiles(root string) (int, error) {
 
 // prepareData locks the folder and brings it to the current format. The
 // lock is held until the returned release is called (the process's end).
-// say is told what is being done, for the log.
-func prepareData(root, server string, say func(string)) (release func(), err error) {
+// user owns the decks that name no owner; say is told what is being done,
+// for the log.
+func prepareData(root, server, user string, say func(string)) (release func(), err error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -195,9 +202,11 @@ func prepareData(root, server string, say func(string)) (release func(), err err
 				continue
 			}
 			say(fmt.Sprintf("migrating %s from format %d to %d: %s", abs, m.From, m.From+1, m.Note))
-			if err := m.Run(abs); err != nil {
+			made, err := m.Run(abs, user)
+			if err != nil {
 				return nil, fmt.Errorf("migration %d→%d: %w (the folder before it is in %s)", m.From, m.From+1, err, dir)
 			}
+			before += made
 			after, err := countFiles(abs)
 			if err != nil {
 				return nil, err
@@ -401,4 +410,19 @@ func shardFolders(root string) error {
 		}
 	}
 	return nil
+}
+
+// 2 → 3: every deck goes to its owner's home room ("My presentations",
+// ADR 0001), the room and the owner's membership made where they are not
+// there yet. A deck does not see the room's files (inherit_room_files is
+// false), and its address does not change. The decks are written in place,
+// a new file renamed over each (store.WriteAtomic), so the backup keeps
+// the old ones.
+func homeRooms(root, user string) (int, error) {
+	fs, err := store.NewFileStore(filepath.Join(root, "db"))
+	if err != nil {
+		return 0, err
+	}
+	defer fs.Close()
+	return store.HomeAll(context.Background(), fs, "shares", localTenant, user, time.Now())
 }

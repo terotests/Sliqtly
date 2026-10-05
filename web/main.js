@@ -4043,30 +4043,24 @@ function hideIntro() {
   el.classList.add("out");
   setTimeout(() => { el.hidden = true; el.classList.remove("out"); }, 350);
 }
-// Another deck being opened: the logo and "Loading presentation…" over the
-// editor, when it takes longer than a glance (the deck before is saved and
-// sent first, then the new one's files come).
+// Another deck being opened (a tab of the presentations' row, the
+// presentations window). The logo is the page's start only: shown again
+// for a switch it flashed over the editor each time a deck took a moment.
+// The deck before stays in view, the pointer says the page is busy, and a
+// note comes only when it takes long (files from the cloud).
 let loadingDepth = 0;
 async function loadingScreen(work) {
-  const el = document.getElementById("brandIntro");
   loadingDepth++;
-  const timer = setTimeout(() => {
-    if (!el || !el.hidden) return;
-    loadNote.textContent = t("Loading presentation…");
-    el.classList.add("loading");
-    el.hidden = false;
-  }, 250);
+  document.body.classList.add("busy");
+  const timer = setTimeout(() => toast(t("Loading presentation…")), 1500);
   try {
     return await work();
   } finally {
     clearTimeout(timer);
-    if (--loadingDepth === 0 && el?.classList.contains("loading")) {
-      el.classList.remove("loading");
-      loadNote.textContent = "";
-      hideIntro();
-    }
+    if (--loadingDepth === 0) document.body.classList.remove("busy");
   }
 }
+window.__loadingScreen = loadingScreen;
 function playIntro() {
   const el = document.getElementById("brandIntro");
   if (!el) return Promise.resolve();

@@ -23,7 +23,7 @@ import (
 
 func TestFolderDB(t *testing.T) {
 	ctx := context.Background()
-	db, _, err := newFSStore(t.TempDir())
+	db, _, err := newFSStore(t.TempDir(), "local")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestFolderDB(t *testing.T) {
 func TestFolderBucketStaysInside(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
-	_, b, _ := newFSStore(root)
+	_, b, _ := newFSStore(root, "local")
 	if err := b.Save(ctx, "shares/x/media/a.png", "image/png", PNG, nil); err != nil {
 		t.Fatal(err)
 	}
