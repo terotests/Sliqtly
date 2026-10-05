@@ -455,6 +455,70 @@ class PresCheck {
         this.diagramLookHint()
         this.steering()
         this.diagramColour()
+        this.diagramLabels()
+    }
+
+    ; Line names on a crowded ER diagram (a box with a line to itself and
+    ; five out of one side, two boxes each joined to two others): every name
+    ; is drawn, on no other name, with no other line through it, and the
+    ; line to itself does not pass through its own box. A flowchart with a
+    ; loop among three lines out of one box: every name drawn, none on
+    ; another.
+    fn diagramLabels:void () {
+        this.ok((PresDiagram.segInRect(0.0 5.0 10.0 5.0 2.0 2.0 4.0 4.0)) "a segment across a box meets it")
+        this.ok(((PresDiagram.segInRect(0.0 9.0 10.0 9.0 2.0 2.0 4.0 4.0)) == false) "a segment below a box misses it")
+        this.ok((PresDiagram.segInRect(4.0 0.0 4.0 20.0 2.0 2.0 4.0 4.0)) "an upright segment through a box meets it")
+        def er:string ("erDiagram\n  CONTAINER ||--o{ CONTAINER : parent\n  CONTAINER ||--o{ DECK_LINK : sisaltaa\n"
+            + "  DECK ||--o{ DECK_LINK : kuuluu\n  CONTAINER ||--o{ FILE_REF : files\n  DECK ||--o{ FILE_REF : files\n"
+            + "  FILE_REF }o--|| BLOB : osoittaa\n  CONTAINER ||--o{ LINK : viittaa\n  CONTAINER ||--o| EXT_REF : master\n")
+        this.labelsClear(er "er" true)
+        def fl:string ("flowchart LR\n  A[Request] -->|valid| B[Process]\n  A -->|invalid| C[Reject]\n  B -->|ok| D[Store]\n"
+            + "  B -->|retry| B\n  D -->|notify| E[Mail]\n  C -->|log| E\n  B -->|error| C\n")
+        ; set in a column on this slide, the loop's name has no stretch
+        ; clear of the line passing it: names apart is what holds there
+        this.labelsClear(fl "flowchart" false)
+    }
+
+    fn labelsClear:void (src:string what:string lines:boolean) {
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Malli\n\n```mermaid\n" + src + "```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false (what + " labels: the diagram is there"))
+            return
+        }
+        def d:PresDiagram (itemAt s.diagrams 0).diagram
+        def fin:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def named:int 0
+        def i:int 0
+        while (i < (array_length d.edges)) {
+            def e:PresDEdge (itemAt d.edges i)
+            if (e.lw > 0.0) {
+                named = (named + 1)
+                def j:int 0
+                while (j < (array_length d.edges)) {
+                    def o:PresDEdge (itemAt d.edges j)
+                    if (j != i) {
+                        if ((o.lw > 0.0) && ((((e.lx < (o.lx + o.lw)) && ((e.lx + e.lw) > o.lx)) && (e.ly < (o.ly + o.lh))) && ((e.ly + e.lh) > o.ly))) {
+                            this.ok(false (what + " labels: " + e.id + " lies on " + o.id))
+                        }
+                        if (lines && (PresDiagram.lineInRect(o.line e.lx e.ly e.lw e.lh))) {
+                            this.ok(false (what + " labels: the line " + o.id + " (" + (itemAt (PresDiagram.labelLines(o)) 0) + ") runs through the name of " + e.id + " " + (itemAt (PresDiagram.labelLines(e)) 0) + " (tier " + (to_string e.pTier) + " at " + (to_string e.lx) + "," + (to_string e.ly) + " " + (to_string e.lw) + "x" + (to_string e.lh) + ")"))
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            if (e.from == e.to) {
+                def n:PresDNode (itemAt d.nodes e.from)
+                ; its own box, a little in from the edges the line leaves by
+                this.ok(((PresDiagram.lineInRect(e.line (n.x + 4.0) (n.y + 4.0) (n.w - 8.0) (n.h - 8.0))) == false) (what + " labels: the line from " + n.id + " to itself goes round it, not through it"))
+            }
+            i = (i + 1)
+        }
+        this.ok((named >= 7) (what + " labels: every line's name is drawn, got " + (to_string named)))
     }
 
     ; `diagram { color }` is the warm light: without a tour it colours the
