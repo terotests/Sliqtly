@@ -270,7 +270,7 @@ func TestClaimsNeedTheEditKey(t *testing.T) {
 
 // the folder server writes over a field it read, or not at all
 func TestFolderStoreUpdatesOnlyOverWhatItRead(t *testing.T) {
-	db, _, err := newFSStore(t.TempDir())
+	db, _, err := newFSStore(t.TempDir(), "local")
 	if err != nil {
 		t.Fatal(err)
 	}
