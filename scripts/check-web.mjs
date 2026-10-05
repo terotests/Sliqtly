@@ -289,6 +289,41 @@ try {
     check("…a drag selects from where it was pressed", r.drag[0] === 0 && r.drag[1] > 2 && r.drag[1] < 10, JSON.stringify(r));
   }
 
+  // The comment box while presenting (review mode, the dark callout): the
+  // hint reads as a hint, not as text typed; it goes once the box has the
+  // keys, and the caret shows. The bugs: .chat-draft's white won over the
+  // hint's colour, the hint stayed on focus and the caret was dark on dark
+  // with no height in an empty box.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app, rv = a.review;
+      const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const el = (id) => { a.reviewJson(); return walk(rv.host.lastPage, id); };
+      const wasOn = a.reviewMode();
+      a.setReviewMode(true);
+      a.present(true);
+      a.takeRequest();
+      rv.startDraft(a.slideShown(), 0.5, 0.5);
+      const out = {};
+      let txt = el("rv-chat-field-text"), car = el("rv-chat-field-caret");
+      out.focusedText = txt && txt.textContent;
+      out.caret = !!car && car.calculatedWidth > 0 && car.calculatedHeight > 8;
+      out.caretLight = !!car && car.backgroundColor.r > 200;
+      rv.typing = false;
+      rv.changed();
+      txt = el("rv-chat-field-text");
+      out.hint = txt && txt.textContent;
+      out.ph = rv.chat.placeholder;
+      out.hintAlpha = txt && txt.color.a;
+      rv.closePanel();
+      a.key("escape", false, false);
+      a.setReviewMode(wasOn);
+      return out;
+    });
+    check("a comment box with the keys hides its hint and shows a light caret", r.focusedText === "" && r.caret && r.caretLight, JSON.stringify(r));
+    check("…without the keys its hint is faint, not the text's white", r.hint === r.ph && !!r.ph && r.hintAlpha < 0.6, JSON.stringify(r));
+  }
+
   // Text the reader needs elsewhere can be selected and copied (EVGUI
   // TextCtl): About's build line, a toast. A double click takes the build
   // hash, a drag selects, Ctrl+C (the copy event on the page's key field)
