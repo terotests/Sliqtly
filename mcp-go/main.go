@@ -75,7 +75,7 @@ func main() {
 		board := newStatusBoard("migrating", version)
 		sw.set(maintenance(board))
 		serve()
-		release, err := prepareData(*data, version, func(m string) { log.Print(m) })
+		release, err := prepareData(*data, version, *user, func(m string) { log.Print(m) })
 		if err != nil {
 			log.Printf("data folder %s: %v", *data, err)
 			// the reason is in the log; the pages are told only that it failed

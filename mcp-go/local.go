@@ -67,7 +67,7 @@ type localServer struct {
 
 // the env of a server whose decks are in dir, reached at baseURL
 func localEnv(dir, baseURL, user string) (*Env, *fsBucket, error) {
-	db, bucket, err := newFSStore(dir)
+	db, bucket, err := newFSStore(dir, user)
 	if err != nil {
 		return nil, nil, err
 	}

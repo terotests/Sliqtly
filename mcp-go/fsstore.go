@@ -3,7 +3,8 @@
 // The DB and Bucket on a folder, for a server of one's own (SLIQTLY_DATA):
 //
 //	<root>/format.json                       the layout's version (datafmt.go)
-//	<root>/db/<collection>/<sh>/<id>.json    a document (store.FileStore)
+//	<root>/db/<collection>/<sh>/<id>.json    a document (store.FileStore); since
+//	                                         format 3 every deck has a home room
 //	<root>/files/<top>/<sh>/<name>/<rest>    a kept file: shares/{id}/media/x
 //	                                         is files/shares/<sh>/{id}/media/x
 //
@@ -50,10 +51,14 @@ type fsBucket struct {
 	mu   sync.Mutex
 }
 
+// the folder server's one tenant
+const localTenant = "local"
+
 // the store on a folder in the current layout; prepareData (datafmt.go)
 // brings an older one up to it first, and a folder in another layout is
-// refused rather than read wrong
-func newFSStore(root string) (*engineDB, *fsBucket, error) {
+// refused rather than read wrong. A deck written without a room goes to
+// its owner's home room, user's for a deck that names no owner.
+func newFSStore(root, user string) (*engineDB, *fsBucket, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, nil, err
@@ -81,7 +86,8 @@ func newFSStore(root string) (*engineDB, *fsBucket, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return &engineDB{fs}, &fsBucket{root: filepath.Join(abs, "files")}, nil
+	e := &store.HomeRooms{Engine: fs, Cols: map[string]bool{"shares": true}, Tenant: localTenant, Owner: user}
+	return &engineDB{e}, &fsBucket{root: filepath.Join(abs, "files")}, nil
 }
 
 func (d *engineDB) Get(ctx context.Context, col, id string) (Doc, error) {
