@@ -1904,6 +1904,48 @@ try {
     });
     check("…over the Files tab the File menu is on top, and its row takes the press", onFiles.onTop && onFiles.underPanel && onFiles.reqs.includes("click:save") && onFiles.closed, JSON.stringify(onFiles));
 
+    // The left rail (EVGUI RailCtl): the places beside the bar. Files and
+    // Edit switch the editor's tab, Rooms opens beside the rail and moves the
+    // editor over; the deck's name at the start of the bar is a field when
+    // pressed, and Enter renames the deck as one edit that undoes.
+    const railed = await page.evaluate(() => {
+      const a = window.__app;
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      const take = () => { const out = []; for (;;) { const r = a.takeRequest(); if (!r) break; out.push(r); } return out; };
+      take();
+      const edX0 = a.edRect.x;
+      press(find("tb-rail-files"));
+      const files = a.edTab;
+      press(find("tb-rail-edit"));
+      const md = a.edTab;
+      press(find("tb-rail-decks"));
+      const decks = take();
+      press(find("tb-rail-rooms"));
+      a.place();
+      const roomsX = a.edRect.x;
+      const roomsShown = !!find("tb-room-q4");
+      press(find("tb-rail-rooms"));
+      a.place();
+      const backX = a.edRect.x;
+      press(find("tb-title"));
+      const editing = a.toolbar.titleEditing;
+      a.key("a", false, true);
+      a.text("Renamed deck");
+      a.key("enter", false, false);
+      return { edX0, files, md, decks, roomsX, roomsShown, backX, editing, after: a.toolbar.titleEditing };
+    });
+    await page.waitForFunction(() => window.__app.docTitle() === "Renamed deck", null, { timeout: 5000 }).catch(() => {});
+    const renamed = await page.evaluate(() => {
+      const a = window.__app;
+      const title = a.docTitle();
+      a.undo();
+      return { title, undone: a.docTitle(), tab: a.deckTabsState() };
+    });
+    check("the rail sits left of the editor; Files and Edit switch its tab, Decks opens the presentations", railed.edX0 === 72 && railed.files === "files" && railed.md === "md" && railed.decks.includes("decks"), JSON.stringify(railed));
+    check("…Rooms opens beside the rail and the editor moves over, then back", railed.roomsShown && railed.roomsX === 72 + 248 && railed.backX === 72, JSON.stringify(railed));
+    check("…the name at the start of the bar becomes a field; Enter renames the deck, as one edit that undoes", railed.editing && !railed.after && renamed.title === "Renamed deck" && renamed.undone !== "Renamed deck", JSON.stringify(renamed));
+
     // the File menu's groups: new | open | save | the assistants | settings, lines between them
     // that take no press
     const seps = await page.evaluate(() => {
@@ -1913,7 +1955,7 @@ try {
       const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY, false, 1); a.pointerUp(); };
       press(find("tb-m-file-trigger"));
       const lines = all();
-      const ys = ["new", "openbox", "save", "aiClaude", "settings", "deleteDeck"].map((id) => find("tb-m-file-item-" + id).calculatedY);
+      const ys = ["new", "openbox", "save", "aiClaude", "docset", "deleteDeck"].map((id) => find("tb-m-file-item-" + id).calculatedY);
       const between = lines.length === 5 && lines.every((l, i) => l.calculatedY > ys[i] && l.calculatedY < ys[i + 1] && l.calculatedHeight === 1);
       for (;;) { if (!a.takeRequest()) break; }
       press(lines[0]);

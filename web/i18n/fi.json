@@ -975,5 +975,16 @@
   "No open comments.": "Ei avoimia kommentteja.",
   "Open presentations": "Avoimet esitykset",
   "Close ": "Sulje ",
-  "This presentation is no longer here.": "Tätä esitystä ei enää ole."
+  "This presentation is no longer here.": "Tätä esitystä ei enää ole.",
+  "Places": "Paikat",
+  "Rooms": "Huoneet",
+  "Decks": "Esitykset",
+  "Review": "Katselmointi",
+  "Versions": "Versiot",
+  "Presentation name": "Esityksen nimi",
+  "Untitled": "Nimetön",
+  "Archived": "Arkistoidut",
+  "Draft: rooms are not on the server yet.": "Luonnos: huoneet eivät ole vielä palvelimella.",
+  "My presentations": "Omat",
+  "Rooms: ": "Huoneet: "
 }
