@@ -99,6 +99,23 @@ class PresToolbar {
     ; pressed, it is a field: Enter or a press elsewhere renames, Esc not.
     def docTitle:string ""
     def titleEditing:boolean false
+    ; what the field is for: "title" the deck's name, "room" a new room's
+    def editFor:string "title"
+    ; the editor's look is dark (the rail's switch shows Light then)
+    def darkOn:boolean false
+    ; the Rooms panel's search row ("Search rooms…", with how many rooms
+    ; only search finds), from the page
+    def roomSearchLabel:string ""
+    ; a presentation of a room's list pressed: dragged onto another room it
+    ; moves there, let go where it was pressed it opens
+    def dragDeck:string ""
+    def dragName:string ""
+    def dragX0:double 0.0
+    def dragY0:double 0.0
+    def dragX:double 0.0
+    def dragY:double 0.0
+    def dragOn:boolean false
+    def dropRoom:string ""
     def titleIn:InputCtl (new InputCtl())
     def eng@(optional):EVGTextEngine
 
@@ -126,6 +143,12 @@ class PresToolbar {
             if (((strlen current) > 0) && (current != roomOpen)) {
                 roomOpen = current
             }
+        }
+        if (id == "dark") {
+            darkOn = (current == "1")
+        }
+        if (id == "roomsearch") {
+            roomSearchLabel = current
         }
         if (id == "roomdecks") {
             roomDecks = rows
@@ -542,7 +565,9 @@ class PresToolbar {
         def k:int 0
         while (k < (array_length rows)) {
             def parts:[string] (strsplit (itemAt rows k) (strfromcode 9))
-            if ((array_length parts) >= 3) {
+            ; the dark/light switch is the rail's where the rail is drawn
+            def onRail:boolean (((itemAt parts 0) == "modeBtn") && (this.railShown()))
+            if (((array_length parts) >= 3) && (onRail == false)) {
                 this.button((itemAt parts 0) (itemAt parts 1) (itemAt parts 2) parent)
             }
             k = (k + 1)
@@ -586,17 +611,14 @@ class PresToolbar {
 
     ; The places' icons: strokes on a 24 grid (.ui-rail-icon sets the pen).
     sfn railIcon:string (id:string) {
+        if (id == "dark") {
+            return "M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"
+        }
+        if (id == "light") {
+            return "M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8zM12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"
+        }
         if (id == "rooms") {
             return "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"
-        }
-        if (id == "edit") {
-            return "M3 4h18M5 4v11h14V4M12 15v5M8 20h8M9 11l2-2 2 2 3-3"
-        }
-        if (id == "decks") {
-            return "M8 3h12v12M4 7h12v13H4z"
-        }
-        if (id == "files") {
-            return "M3 6h6l2 2h10v11H3z"
         }
         if (id == "review") {
             return "M4 5h16v11H10l-5 4v-4H4zM8 9h8M8 12h5"
@@ -606,9 +628,6 @@ class PresToolbar {
         }
         if (id == "settings") {
             return "M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1M15 4v4M9 10v4M17 16v4"
-        }
-        if (id == "help") {
-            return "M12 21a9 9 0 1 0 0-18a9 9 0 1 0 0 18zM9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.7M12 17v.4"
         }
         return ""
     }
@@ -647,12 +666,14 @@ class PresToolbar {
         r.tid = "tb-rail"
         r.name = (PresI18n.t("Places"))
         r.addItem("rooms" (PresI18n.t("Rooms")) (PresToolbar.railIcon("rooms")))
-        r.addItem("edit" (PresI18n.t("Edit")) (PresToolbar.railIcon("edit")))
-        r.addItem("decks" (PresI18n.t("Decks")) (PresToolbar.railIcon("decks")))
-        r.addItem("files" (PresI18n.t("Files")) (PresToolbar.railIcon("files")))
         r.addItem("review" (PresI18n.t("Review")) (PresToolbar.railIcon("review")))
         r.addItem("history" (PresI18n.t("Versions")) (PresToolbar.railIcon("history")))
-        r.addBottom("help" (PresI18n.t("Help")) (PresToolbar.railIcon("help")))
+        ; the editor's dark or light look, switched in one press
+        if darkOn {
+            r.addBottom("dark" (PresI18n.t("Light")) (PresToolbar.railIcon("light")))
+        } {
+            r.addBottom("dark" (PresI18n.t("Dark")) (PresToolbar.railIcon("dark")))
+        }
         r.addBottom("settings" (PresI18n.t("Settings")) (PresToolbar.railIcon("settings")))
         if reviewOn {
             r.setBadge("review" "•")
@@ -717,9 +738,9 @@ class PresToolbar {
         return (UiText.fit((this.engine()) words "Open Sans" 16.0 ((this.titleW()) - 18.0)))
     }
 
-    ; Rooms: the rooms one is in, a room open with its presentations. A mock
-    ; of ADR 0001's model (a room holds presentations, each has one home
-    ; room, archived rooms are kept) until the folder server serves rooms.
+    ; Rooms (ADR 0001): the rooms the page lists, the open one's presentations
+    ; under it. The page fills both, from the server's rooms or from this
+    ; browser's (web/rooms.js).
     fn roomRow:void (body:EVGElement id:string name:string count:string) {
         def open:boolean (id == roomOpen)
         def row:ButtonCtl (this.button(("room-" + id) name "ghost" body))
@@ -727,6 +748,9 @@ class PresToolbar {
         UiTree.addClass(rel "tb-room")
         if open {
             UiTree.addClass(rel "tb-room-open")
+        }
+        if (dragOn && (id == dropRoom)) {
+            UiTree.addClass(rel "tb-room-drop")
         }
         if ((rel.getChildCount()) > 0) {
             def lb:EVGElement (rel.getChild(0))
@@ -751,6 +775,13 @@ class PresToolbar {
         if current {
             UiTree.addClass(el "tb-roomdeck-current")
         }
+        ; "… Show all" and the row moving the open one here: the room's own
+        ; actions, quieter than its presentations
+        if ((id == "all") || (id == "move")) {
+            if ((el.getChildCount()) > 0) {
+                UiTree.addClass((el.getChild(0)) "tb-roomdeck-act")
+            }
+        }
     }
 
     fn buildRooms:void (root:EVGElement) {
@@ -767,48 +798,99 @@ class PresToolbar {
         head.addChild((this.div("tb-grow")))
         this.button("room-new" "+" "ghost" head)
         pane.addChild(head)
-        if ((strlen roomRows) > 0) {
-            this.liveRooms(pane)
-            root.addChild(pane)
-            return
+        ; "+" asks the new room's name in a field at the top of the list; the
+        ; search row is a field too, the list then the rooms it finds
+        def fieldOn:boolean (titleEditing && ((editFor == "room") || (editFor == "search")))
+        if fieldOn {
+            def c:InputCtl titleIn
+            c.tid = "tb-title-in"
+            if (editFor == "room") {
+                c.name = (PresI18n.t("Room name"))
+            } {
+                c.name = (PresI18n.t("Search rooms"))
+                c.placeholder = (PresI18n.t("Search rooms…"))
+            }
+            c.boxClass = "tb-roomname-box"
+            c.focused = true
+            c.build()
+            UiTree.addClass((unwrap c.rootEl) "tb-roomname-field")
+            this.put(c pane)
         }
-        def here:string docTitle
-        if ((strlen here) == 0) {
-            here = (PresI18n.t("Untitled"))
+        if ((fieldOn == false) && ((strlen roomSearchLabel) > 0)) {
+            def sb:ButtonCtl (this.button("roomsearch" roomSearchLabel "ghost" pane))
+            def sel:EVGElement (unwrap sb.rootEl)
+            UiTree.addClass(sel "tb-roomsearch")
+            if ((sel.getChildCount()) > 0) {
+                UiTree.addClass((sel.getChild(0)) "tb-roomsearch-label")
+            }
+            sel.addChild((this.div("tb-grow")))
         }
-        ; everything starts in General; Playground is for trying things
-        this.roomRow(pane "general" "General" "4")
-        if (roomOpen == "general") {
-            this.roomDeck(pane "here" here true)
-            this.roomDeck(pane "budget" "Budget 2027" false)
-            this.roomDeck(pane "kickoff" "Team kickoff" false)
-            this.roomDeck(pane "roadmap" "Roadmap" false)
-        }
-        this.roomRow(pane "playground" "Playground" "2")
-        if (roomOpen == "playground") {
-            this.roomDeck(pane "try" "Chart experiments" false)
-            this.roomDeck(pane "fx" "Effects test" false)
-        }
-        this.roomRow(pane "q4" "Q4 board review" "3")
-        if (roomOpen == "q4") {
-            this.roomDeck(pane "q4deck" "Q4 results" false)
-            this.roomDeck(pane "risks" "Risks and mitigations" false)
-            this.roomDeck(pane "plan" "Plan for Q1" false)
-        }
-        this.roomRow(pane "slq" "SLQ-142 onboarding" "2")
-        if (roomOpen == "slq") {
-            this.roomDeck(pane "flow" "Signup flow" false)
-            this.roomDeck(pane "copy" "Welcome copy" false)
-        }
-        pane.addChild((this.div("tb-rooms-sep")))
-        this.roomRow(pane "archived" (PresI18n.t("Archived")) "7")
-        pane.addChild((this.div("tb-grow")))
-        pane.addChild((this.text("tb-rooms-note" (PresI18n.t("Draft: rooms are not on the server yet.")))))
+        this.liveRooms(pane)
         root.addChild(pane)
     }
 
-    ; The server's rooms (POST /api/rooms/list_rooms), the open one's
-    ; presentations under it (get_room).
+    ; The presentation being dragged, drawn at the pointer.
+    fn dragChip:void (root:EVGElement) {
+        def chip:EVGElement (this.div("tb-dragchip"))
+        def label:string (UiText.fit((this.engine()) dragName "Open Sans" 13.0 200.0))
+        chip.addChild((this.text("tb-dragchip-label" label)))
+        ; as wide as its name (an absolute box takes the row's width else)
+        def cw:double ((UiText.widthOf((this.engine()) label "Open Sans" 13.0)) + 24.0)
+        chip.setAttribute("width" ((EVGDisplayList.num(cw)) + "px"))
+        chip.setAttribute("position" "absolute")
+        chip.setAttribute("left" ((EVGDisplayList.num((dragX + 12.0))) + "px"))
+        chip.setAttribute("top" ((EVGDisplayList.num((dragY + 6.0))) + "px"))
+        root.addChild(chip)
+    }
+
+    ; --- dragging a presentation onto another room (PresApp routes the pointer)
+    fn roomDragging:boolean () {
+        return ((strlen dragDeck) > 0)
+    }
+
+    fn roomDragTo:void (px:double py:double) {
+        dragX = px
+        dragY = py
+        if (dragOn == false) {
+            def dx:double (px - dragX0)
+            def dy:double (py - dragY0)
+            if (((dx * dx) + (dy * dy)) < 36.0) {
+                return
+            }
+            dragOn = true
+        }
+        def over:string ""
+        def tid:string (host.hitTest(px py))
+        def maybe@(optional):UiCtl (host.ctlFor(tid))
+        if (!null? maybe) {
+            def owner:UiCtl (unwrap maybe)
+            def ct:string owner.tid
+            if (((indexOf ct "tb-room-") == 0) && ((ct != "tb-room-new") && (ct != "tb-room-close"))) {
+                over = (substring ct 8 (strlen ct))
+            }
+        }
+        dropRoom = over
+        this.rebuild()
+    }
+
+    ; Let go: onto another room the presentation moves there; where it was
+    ; pressed (no drag) it opens.
+    fn roomDragEnd:void () {
+        if dragOn {
+            if (((strlen dropRoom) > 0) && (dropRoom != roomOpen)) {
+                push requests ("room:drop:" + dropRoom + ":" + dragDeck)
+            }
+        } {
+            push requests ("room:deck:" + dragDeck)
+        }
+        dragDeck = ""
+        dragOn = false
+        dropRoom = ""
+        this.rebuild()
+    }
+
+    ; Rows of "id TAB title TAB count"; under the open room its presentations,
+    ; "id TAB name TAB 1 if open TAB kind" (web/rooms.js deckLines).
     fn liveRooms:void (pane:EVGElement) {
         def lines:[string] (strsplit roomRows (strfromcode 10))
         def i:int 0
@@ -831,7 +913,21 @@ class PresToolbar {
                             if ((array_length dp) >= 3) {
                                 cur = ((itemAt dp 2) == "1")
                             }
-                            this.roomDeck(pane ("d-" + (itemAt dp 0)) (itemAt dp 1) cur)
+                            ; the last column: "a" the "… Show all" row, "m"
+                            ; the one moving the open presentation here
+                            def kind:string ""
+                            if ((array_length dp) >= 4) {
+                                kind = (itemAt dp 3)
+                            }
+                            if (kind == "m") {
+                                this.roomDeck(pane "move" (itemAt dp 1) false)
+                            }
+                            if (kind == "a") {
+                                this.roomDeck(pane "all" (itemAt dp 1) false)
+                            }
+                            if ((strlen kind) == 0) {
+                                this.roomDeck(pane ("d-" + (itemAt dp 0)) (itemAt dp 1) cur)
+                            }
                         }
                         k = (k + 1)
                     }
@@ -848,7 +944,7 @@ class PresToolbar {
         def slot:EVGElement (this.div("tb-title-slot"))
         slot.setAttribute("width" ((EVGDisplayList.num((this.titleW()))) + "px"))
         bar.addChild(slot)
-        if titleEditing {
+        if (titleEditing && (editFor == "title")) {
             def c:InputCtl titleIn
             c.tid = "tb-title-in"
             c.name = (PresI18n.t("Presentation name"))
@@ -878,6 +974,43 @@ class PresToolbar {
         c.setValue(docTitle)
         c.selectAll()
         titleIn = c
+        editFor = "title"
+        titleEditing = true
+        this.rebuild()
+    }
+
+    ; The search row pressed: the field, each key asking the page for the
+    ; rooms it finds ("room:search:<text>").
+    fn roomSearchBegin:void () {
+        this.closeSelects()
+        this.closeMenus()
+        titleIn = (new InputCtl())
+        editFor = "search"
+        titleEditing = true
+        push requests "room:search:"
+        this.rebuild()
+    }
+
+    ; A presentation's name in the open room's list.
+    fn roomDeckName:string (id:string) {
+        def ds:[string] (strsplit roomDecks (strfromcode 10))
+        def k:int 0
+        while (k < (array_length ds)) {
+            def dp:[string] (strsplit (itemAt ds k) (strfromcode 9))
+            if (((array_length dp) >= 2) && ((itemAt dp 0) == id)) {
+                return (itemAt dp 1)
+            }
+            k = (k + 1)
+        }
+        return id
+    }
+
+    ; "+" in Rooms: the same field, empty, for a new room's name.
+    fn roomNameBegin:void () {
+        this.closeSelects()
+        this.closeMenus()
+        titleIn = (new InputCtl())
+        editFor = "room"
         titleEditing = true
         this.rebuild()
     }
@@ -889,6 +1022,19 @@ class PresToolbar {
         }
         titleEditing = false
         def v:string (trim titleIn.value)
+        if (editFor == "search") {
+            ; Enter opens the first room found
+            push requests ("room:searchgo:" + v)
+            this.rebuild()
+            return
+        }
+        if (editFor == "room") {
+            if ((strlen v) > 0) {
+                push requests ("room:create:" + v)
+            }
+            this.rebuild()
+            return
+        }
         if (((strlen v) > 0) && (v != docTitle)) {
             docTitle = v
             push requests ("title:" + v)
@@ -898,7 +1044,17 @@ class PresToolbar {
 
     fn titleCancel:void () {
         titleEditing = false
+        if (editFor == "search") {
+            push requests "room:searchend"
+        }
         this.rebuild()
+    }
+
+    ; The search field's text changed: the page lists what it finds.
+    fn searchChanged:void () {
+        if (titleEditing && (editFor == "search")) {
+            push requests ("room:search:" + titleIn.value)
+        }
     }
 
     fn titleType:void (s:string) {
@@ -914,6 +1070,7 @@ class PresToolbar {
         if ((strlen line) > 0) {
             host.type(line)
         }
+        this.searchChanged()
         rev = (rev + 1)
     }
 
@@ -945,6 +1102,7 @@ class PresToolbar {
         def k:string (PresToolbar.kitKey(name))
         if ((strlen k) > 0) {
             host.keyWith(k shift ctrl)
+            this.searchChanged()
             rev = (rev + 1)
         }
         return true
@@ -1105,6 +1263,9 @@ class PresToolbar {
                 rmEl.setAttribute("width" ((EVGDisplayList.num(roomsW)) + "px"))
                 rmEl.setAttribute("height" ((EVGDisplayList.num(((h - barH) - 20.0))) + "px"))
             }
+        }
+        if dragOn {
+            this.dragChip(root)
         }
         if titleEditing {
             host.focus("tb-title-in")
@@ -1347,7 +1508,24 @@ class PresToolbar {
                 rev = (rev + 1)
                 return
             }
-            this.titleCommit()
+            ; a new room is made on Enter only; a press elsewhere drops it.
+            ; Searching, a room found is opened by its press
+            if (editFor == "search") {
+                if (((indexOf ctlTid "tb-room-") == 0) && (ctlTid != "tb-room-close")) {
+                    titleEditing = false
+                    roomOpen = (substring ctlTid 8 (strlen ctlTid))
+                    push requests ("room:pick:" + roomOpen)
+                    this.rebuild()
+                    return
+                }
+                this.titleCancel()
+                return
+            }
+            if (editFor == "room") {
+                this.titleCancel()
+            } {
+                this.titleCommit()
+            }
             return
         }
         if (ctlTid == "tb-title") {
@@ -1369,9 +1547,6 @@ class PresToolbar {
                 return
             }
             if ((strlen place) > 0) {
-                if ((place == "edit") || (place == "files")) {
-                    roomsOpen = false
-                }
                 push requests ("rail:" + place)
             }
             this.rebuild()
@@ -1384,26 +1559,37 @@ class PresToolbar {
             return
         }
         if (ctlTid == "tb-room-new") {
-            push requests "room:new"
+            this.roomNameBegin()
             return
         }
         if ((indexOf ctlTid "tb-room-") == 0) {
             roomOpen = (substring ctlTid 8 (strlen ctlTid))
-            if ((strlen roomRows) > 0) {
-                roomDecks = ""
-                push requests ("room:open:" + roomOpen)
-            }
+            roomDecks = ""
+            push requests ("room:open:" + roomOpen)
             this.rebuild()
             return
         }
         if ((indexOf ctlTid "tb-roomdeck-d-") == 0) {
-            push requests ("files:doc:cloud:" + (substring ctlTid 14 (strlen ctlTid)))
+            dragDeck = (substring ctlTid 14 (strlen ctlTid))
+            dragName = (this.roomDeckName(dragDeck))
+            dragX0 = px
+            dragY0 = py
+            dragX = px
+            dragY = py
+            dragOn = false
+            dropRoom = ""
             return
         }
-        if ((indexOf ctlTid "tb-roomdeck-") == 0) {
-            if (ctlTid != "tb-roomdeck-here") {
-                push requests "rail:decks"
-            }
+        if (ctlTid == "tb-roomsearch") {
+            this.roomSearchBegin()
+            return
+        }
+        if (ctlTid == "tb-roomdeck-all") {
+            push requests ("room:all:" + roomOpen)
+            return
+        }
+        if (ctlTid == "tb-roomdeck-move") {
+            push requests ("room:move:" + roomOpen)
             return
         }
         ; the menu button opens and closes the drawer

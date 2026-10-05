@@ -2862,6 +2862,12 @@ class PresApp {
             this.deckMove(x y)
             return
         }
+        ; a presentation of a Rooms list dragged towards another room
+        if (toolbar.roomDragging()) {
+            toolbar.roomDragTo(x y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         ; a drag selecting in a comment's text field
         if review.selecting {
             review.dragTo(x y)
@@ -2990,6 +2996,10 @@ class PresApp {
     fn pointerUp:void () {
         if deckDown {
             this.deckRelease()
+        }
+        if (toolbar.roomDragging()) {
+            toolbar.roomDragEnd()
+            this.takeToolbar()
         }
         if (review.release()) {
             this.reviewSpots()
@@ -3524,7 +3534,7 @@ class PresApp {
     fn text:void (s:string) {
         if ((barH > 0.0) && toolbar.titleEditing) {
             toolbar.titleType(s)
-            chromeRev = (chromeRev + 1)
+            this.takeToolbar()
             return
         }
         if (review.hasKeys()) {
@@ -3616,7 +3626,7 @@ class PresApp {
     fn pasteText:void (s:string) {
         if ((barH > 0.0) && toolbar.titleEditing) {
             toolbar.titleType(s)
-            chromeRev = (chromeRev + 1)
+            this.takeToolbar()
             return
         }
         if (review.hasKeys()) {
@@ -4360,11 +4370,8 @@ class PresApp {
             toolbar.rebuild()
         }
         toolbar.setState(playing (this.statusText()))
-        def place:string "edit"
-        if (edTab == "files") {
-            place = "files"
-        }
-        toolbar.setRailState(place review.on (this.docTitle()))
+        ; Rooms is the rail's one place that stays open; the rest act at once
+        toolbar.setRailState("" review.on (this.docTitle()))
         def dl:EVGDisplayList (toolbar.displayList())
         return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
@@ -7906,23 +7913,15 @@ class PresApp {
         ; requests (a window, a button); review is turned on or off by the page
         if ((indexOf r "rail:") == 0) {
             def p:string (substring r 5 (strlen r))
-            if (p == "edit") {
-                this.showTab("md")
-            }
-            if (p == "files") {
-                this.showTab("files")
-            }
-            if (p == "decks") {
-                push requests "decks"
-            }
             if (p == "history") {
                 push requests "click:history"
             }
             if (p == "settings") {
                 push requests "settings"
             }
-            if (p == "help") {
-                push requests "click:helpBtn"
+            ; the editor's dark or light look: the bar's switch (#modeBtn)
+            if (p == "dark") {
+                push requests "click:modeBtn"
             }
             if (p == "review") {
                 push requests "rail:review"
