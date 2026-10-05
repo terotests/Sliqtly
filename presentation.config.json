@@ -17,7 +17,7 @@
   },
   "evgui": {
     "url": "https://github.com/terotests/EVGUI",
-    "ref": "claude/project-thread-g7mx4u"
+    "ref": "main"
   },
   "rangerdiff": {
     "url": "https://github.com/terotests/RangerDiff",

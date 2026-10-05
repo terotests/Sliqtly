@@ -1928,22 +1928,31 @@ try {
       press(find("tb-rail-rooms"));
       a.place();
       const backX = a.edRect.x;
+      press(find("tb-rail-rooms"));
+      press(find("tb-room-close"));
+      a.place();
+      const chevronX = a.edRect.x;
+      const fileX0 = find("tb-m-file-trigger").calculatedX;
       press(find("tb-title"));
       const editing = a.toolbar.titleEditing;
       a.key("a", false, true);
       a.text("Renamed deck");
       a.key("enter", false, false);
-      return { edX0, files, md, decks, roomsX, roomsShown, backX, editing, after: a.toolbar.titleEditing };
+      return { edX0, files, md, decks, roomsX, roomsShown, backX, chevronX, editing, after: a.toolbar.titleEditing, fileX0 };
     });
     await page.waitForFunction(() => window.__app.docTitle() === "Renamed deck", null, { timeout: 5000 }).catch(() => {});
     const renamed = await page.evaluate(() => {
       const a = window.__app;
       const title = a.docTitle();
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const fileX1 = find("tb-m-file-trigger").calculatedX;
       a.undo();
-      return { title, undone: a.docTitle(), tab: a.deckTabsState() };
+      return { title, undone: a.docTitle(), tab: a.deckTabsState(), fileX1 };
     });
     check("the rail sits left of the editor; Files and Edit switch its tab, Decks opens the presentations", railed.edX0 === 72 && railed.files === "files" && railed.md === "md" && railed.decks.includes("decks"), JSON.stringify(railed));
     check("…Rooms opens beside the rail and the editor moves over, then back", railed.roomsShown && railed.roomsX === 72 + 248 && railed.backX === 72, JSON.stringify(railed));
+    check("…the ‹ before the Rooms heading closes the panel", railed.chevronX === 72, JSON.stringify(railed));
+    check("…the name's button keeps its width, so the menus after it stay put when the name changes", railed.fileX0 === renamed.fileX1, JSON.stringify({ before: railed.fileX0, after: renamed.fileX1 }));
     check("…the name at the start of the bar becomes a field; Enter renames the deck, as one edit that undoes", railed.editing && !railed.after && renamed.title === "Renamed deck" && renamed.undone !== "Renamed deck", JSON.stringify(renamed));
 
     // the File menu's groups: new | open | save | the assistants | settings, lines between them

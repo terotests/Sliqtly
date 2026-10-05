@@ -21,6 +21,7 @@
 
 Import "../evgui/src/UiHost.rgr"
 Import "PresI18n.rgr"
+Import "../evgui/src/UiText.rgr"
 
 class PresToolbar {
     def host:UiHost (new UiHost())
@@ -99,6 +100,7 @@ class PresToolbar {
     def docTitle:string ""
     def titleEditing:boolean false
     def titleIn:InputCtl (new InputCtl())
+    def eng@(optional):EVGTextEngine
 
     Constructor () {
     }
@@ -681,19 +683,33 @@ class PresToolbar {
         body.addChild((this.div("tb-dr-sep")))
     }
 
-    ; The name cut to what the bar has room for, "…" at the cut.
-    fn titleFit:string (words:string) {
-        def most:int 48
+    ; The name's button is always this wide, so the menus after it stay put
+    ; whatever the name; a phone gives it what the bar has left.
+    fn titleW:double () {
         if (this.compact()) {
-            most = (to_int ((w - 290.0) / 8.5))
-            if (most < 8) {
-                most = 8
+            def room:double (w - 290.0)
+            if (room < 80.0) {
+                return 80.0
             }
+            if (room > 280.0) {
+                return 280.0
+            }
+            return room
         }
-        if ((strlen words) <= most) {
-            return words
+        return 280.0
+    }
+
+    fn engine:EVGTextEngine () {
+        if (null? eng) {
+            def l (new EVGLayout())
+            eng = (l.getTextEngine())
         }
-        return ((trim (substring words 0 (most - 1))) + "…")
+        return (unwrap eng)
+    }
+
+    ; The name measured into the button's width, "…" at the cut.
+    fn titleFit:string (words:string) {
+        return (UiText.fit((this.engine()) words "Open Sans" 16.0 ((this.titleW()) - 18.0)))
     }
 
     ; Rooms: the rooms one is in, a room open with its presentations. A mock
@@ -718,7 +734,8 @@ class PresToolbar {
     }
 
     fn roomDeck:void (body:EVGElement id:string name:string current:boolean) {
-        def b:ButtonCtl (this.button(("roomdeck-" + id) name "ghost" body))
+        def shown:string (UiText.fit((this.engine()) name "Open Sans" 13.0 (roomsW - 58.0)))
+        def b:ButtonCtl (this.button(("roomdeck-" + id) shown "ghost" body))
         def el:EVGElement (unwrap b.rootEl)
         UiTree.addClass(el "tb-roomdeck")
         if ((el.getChildCount()) > 0) {
@@ -734,12 +751,16 @@ class PresToolbar {
     fn buildRooms:void (root:EVGElement) {
         def pane:EVGElement (this.div("tb-rooms"))
         def head:EVGElement (this.div("tb-rooms-head"))
+        ; "‹" before the heading folds the panel away, on every screen
+        def close:ButtonCtl (this.button("room-close" "‹" "ghost" head))
+        def cel:EVGElement (unwrap close.rootEl)
+        UiTree.addClass(cel "tb-rooms-close")
+        if ((cel.getChildCount()) > 0) {
+            UiTree.addClass((cel.getChild(0)) "tb-rooms-close-label")
+        }
         head.addChild((this.text("tb-rooms-title" (PresI18n.t("Rooms")))))
         head.addChild((this.div("tb-grow")))
         this.button("room-new" "+" "ghost" head)
-        if (this.compact()) {
-            this.button("room-close" "×" "ghost" head)
-        }
         pane.addChild(head)
         if ((strlen roomRows) > 0) {
             this.liveRooms(pane)
@@ -817,6 +838,11 @@ class PresToolbar {
 
     ; The name at the start of the bar: a button, or the field it becomes.
     fn titlePart:void (bar:EVGElement) {
+        ; a slot of fixed width holds the button or the field, so neither the
+        ; name nor editing it moves the menus after it
+        def slot:EVGElement (this.div("tb-title-slot"))
+        slot.setAttribute("width" ((EVGDisplayList.num((this.titleW()))) + "px"))
+        bar.addChild(slot)
         if titleEditing {
             def c:InputCtl titleIn
             c.tid = "tb-title-in"
@@ -825,14 +851,14 @@ class PresToolbar {
             c.focused = true
             c.build()
             UiTree.addClass((unwrap c.rootEl) "tb-title-field")
-            this.put(c bar)
+            this.put(c slot)
             return
         }
         def words:string docTitle
         if ((strlen words) == 0) {
             words = (PresI18n.t("Untitled"))
         }
-        def b:ButtonCtl (this.button("title" (this.titleFit(words)) "ghost" bar))
+        def b:ButtonCtl (this.button("title" (this.titleFit(words)) "ghost" slot))
         def tel:EVGElement (unwrap b.rootEl)
         UiTree.addClass(tel "tb-title")
         if ((tel.getChildCount()) > 0) {
@@ -1344,6 +1370,7 @@ class PresToolbar {
         }
         if (ctlTid == "tb-room-close") {
             roomsOpen = false
+            push requests "rail:layout"
             this.rebuild()
             return
         }
