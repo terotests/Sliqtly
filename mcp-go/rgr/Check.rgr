@@ -179,6 +179,33 @@ class Check {
         return missing
     }
 
+    ; where each slide starts in md (its first source offset, -1 when it
+    ; drew nothing), laid out as run lays it out, without the checks: what
+    ; Work.rgr numbers merged edits and claims by
+    sfn slideStarts:[int] (host:McpHost md:string css:string) {
+        def d (new PresDeck)
+        d.artAllowed = ((host_store_kind host) == "cloud")
+        for (Check.FACES()) face:string fi {
+            def fb:buffer (host_font host face)
+            if ((buffer_length fb) > 0) {
+                d.md.attachFont(face fb)
+            }
+        }
+        if ((strlen css) > 0) {
+            d.setTheme(css)
+            d.md.setStyleSheet(css)
+        }
+        d.setText(md)
+        def out:[int]
+        def i:int 0
+        while (i < (d.slideCount())) {
+            def s:PresSlide (d.slideAt(i))
+            push out s.srcStart
+            i = (i + 1)
+        }
+        return out
+    }
+
     sfn run:Checked (host:McpHost din:DeckIn) {
         def md:string din.md
         def css:string din.css

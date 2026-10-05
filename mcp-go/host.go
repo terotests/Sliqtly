@@ -63,6 +63,10 @@ type DB interface {
 	// Increment adds the int64 leaves of add to the document's fields
 	// (nested maps for nested fields), creating what is missing.
 	Increment(ctx context.Context, col, id string, add Doc) error
+	// UpdateIf updates the document (writes it whole when there is none)
+	// only when its string field `field` is `want` (missing reads as ""),
+	// in one transaction; false when the field was something else.
+	UpdateIf(ctx context.Context, col, id, field, want string, d Doc) (bool, error)
 }
 
 // Bucket is the little of Cloud Storage the server uses.
@@ -447,6 +451,28 @@ func (h *McpHost) CreateDoc(col, id, text string) string {
 		return ""
 	}
 	return toJSON(plain(had))
+}
+
+func (h *McpHost) UpdateDocIf(col, id, field, want, text string) string {
+	d := h.parseDoc(text)
+	if d == nil || !h.db() {
+		return ""
+	}
+	ok, err := h.env.DB.UpdateIf(h.ctx, col, id, field, want, d)
+	if err != nil {
+		h.fail(err)
+		return ""
+	}
+	if !ok {
+		return "changed"
+	}
+	return ""
+}
+
+// the string a document's field holds, "" when it is missing or not a string
+func fieldText(d Doc, field string) string {
+	s, _ := d[field].(string)
+	return s
 }
 
 func (h *McpHost) IncrementDoc(col, id, text string) {

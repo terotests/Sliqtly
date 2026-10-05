@@ -458,6 +458,36 @@ whether it is resolved, and its messages. Work through the open ones:
   `slide_title`, and `x`, `y` (0..1 of the slide) to point at something.
 - `author` names you on the message; the default is "AI assistant".
 
+## When another assistant works on the same deck
+
+Two assistants (two chats, or another app) can change one presentation at
+the same time. So that neither undoes the other's work:
+
+1. Before changing a deck you did not just create, call `begin_work`
+   (deck_id, `agent`: who you are, e.g. "Claude (budget chat)", `slides`:
+   the slides you will change by number or title, or none for the whole
+   deck, `note`: what for). It returns your `work_id`, the deck's `version`
+   and who else is working on it.
+2. If it says *Not claimed*, another assistant holds some of those slides:
+   work on other slides (call `begin_work` again with them), or tell the
+   user who is working on what and ask whether to wait until it is done.
+   `force: true` only when the user wants both of you on the same slides.
+3. Save with `update_presentation` and send `base_version` (the version
+   your Markdown started from: from `begin_work`, `get_presentation` or your
+   last update) and `work_id`. Edits saved meanwhile by someone else are
+   merged line by line and the answer says so; read the deck again with
+   `get_presentation` before changing those slides. A change both made to
+   the same lines is refused ("Not saved", with the slides): get the
+   current text, make your change on it and save with its version, or ask
+   the user which change to keep. Each answer gives the new version.
+4. Call `end_work` (deck_id, work_id) when done. A claim also runs out
+   after `minutes` (default 15) without an update.
+
+`edits` are made on the deck as it is when they arrive, so they need no
+`base_version`; a whole `markdown` without one is refused while someone
+else holds a claim on the deck. `get_presentation` and every update list
+the others' claims ("Also working on this deck").
+
 ## Exporting
 
 `export_presentation` (deck_id, `format`: `pdf` or `pptx`, optional
