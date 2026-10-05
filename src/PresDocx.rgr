@@ -17,7 +17,7 @@
 ; block at a time, so a paragraph here is the same paragraph the engine's
 ; document view makes. What this adds is what a deck has and a document does
 ; not: where a slide ends, its notes, and the things only the stage can draw
-; — a diagram, a chart, a list figure, a formula, a SmartArt. Those are
+; — a diagram, a chart, a list figure, a SmartArt. Those are
 ; SHOTS: the host draws each block's rectangle of its slide at rest (the same
 ; picture the slide shows, with its theme) and hands the PNG back with
 ; `setShot`; a block with no shot falls back to the engine's own road (a
@@ -80,8 +80,8 @@ class PresDocx {
     ; --- shots ------------------------------------------------------------------
 
     ; Every top-level block the stage draws and a document cannot: embeds
-    ; (diagrams, charts, list figures), display formulas, and a picture that
-    ; is a SmartArt file. Its rectangle is the union of its boxes on its page.
+    ; (diagrams, charts, list figures) and a picture that is a SmartArt file.
+    ; Formulas are not: they go in as Word equations (DocxWriter). Its rectangle is the union of its boxes on its page.
     fn findShots:void (deck:PresDeck) {
         clear shots
         def doc:MdNode deck.md.edit.doc
@@ -105,7 +105,8 @@ class PresDocx {
     }
 
     fn needsShot:boolean (deck:PresDeck l:MdLayout n:MdNode) {
-        if ((n.kind == "embed") || (n.kind == "math_block")) {
+        ; a display formula is not one: Word writes it as an equation
+        if (n.kind == "embed") {
             return true
         }
         if (n.kind == "paragraph") {

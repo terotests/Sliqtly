@@ -8109,7 +8109,7 @@ class PresApp {
 
     ; --- Word (PresExport.docx) ----------------------------------------------------
     ; Two steps, because the stage draws some blocks (a diagram, a chart, a
-    ; formula) that only the host can turn into pictures: `docxBegin` names
+    ; SmartArt) that only the host can turn into pictures: `docxBegin` names
     ; them, the host draws each one (`docxShotJson`) and hands the PNG to
     ; `setDocxShot`, and `docxEnd` writes the file. `picked`: only the picked
     ; slides, all of them when none is picked.
