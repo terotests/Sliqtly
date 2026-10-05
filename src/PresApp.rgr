@@ -3778,6 +3778,13 @@ class PresApp {
         if (inFm || fence) {
             j = ((substring j 0 ((strlen j) - 1)) + ",\"docset\":true}")
         }
+        ; a diagram's fence: the look it has, read from the whole block
+        if ((edTab == "md") && ((indexOf j "\"looks\":[") >= 0)) {
+            def dm:PresFlowModel (this.diagramAt(line))
+            if dm.ok {
+                j = ((substring j 0 ((strlen j) - 1)) + ",\"look\":" + (PresHint.q((dm.look()))) + "}")
+            }
+        }
         def st:int (?? (str2int (PresApp.jsonNum(j "start"))) 0)
         def en:int (?? (str2int (PresApp.jsonNum(j "end"))) st)
         def x0:int (editor.caretViewX(tr line st))
@@ -4752,6 +4759,13 @@ class PresApp {
         }
         def none:[PresHintEdit]
         hint.edits = none
+        if ((strlen hint.wantsLook) > 0) {
+            def lk:string hint.wantsLook
+            hint.wantsLook = ""
+            if ((hint.tab == "md") && (edTab == "md")) {
+                this.setDiagramLook(hint.line lk)
+            }
+        }
         if hint.wantsClose {
             hint.wantsClose = false
             this.closeHint()
@@ -5152,6 +5166,26 @@ class PresApp {
 
     ; The open comments with the Markdown of the slides they are on, for the
     ; clipboard (PresReview.openMarkdown): a slide's Markdown is its section.
+    ; where each slide's section starts in the Markdown (-1: none)
+    fn reviewSectionStarts:[int] () {
+        def src:string (this.source())
+        def l:MdLayout (deck.layout())
+        def secs:[PresPickSection] (PresPick.sections(src l.splitLevel))
+        def starts:[int]
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def k:int (PresPick.sectionAt(secs (this.spanFrom(i))))
+            if (k >= 0) {
+                def sec:PresPickSection (itemAt secs k)
+                push starts sec.start
+            } {
+                push starts -1
+            }
+            i = (i + 1)
+        }
+        return starts
+    }
+
     fn reviewOpenMarkdown:string () {
         def src:string (this.source())
         def l:MdLayout (deck.layout())
@@ -5174,6 +5208,11 @@ class PresApp {
             name = first.title
         }
         return (review.model.openMarkdown(name review.titles sources))
+    }
+
+    ; the deck's Markdown with the open comments in it as footnotes
+    fn reviewMarkdownWithComments:string () {
+        return (review.model.markdownWithComments((this.source()) (this.reviewSectionStarts()) review.titles))
     }
 
     ; the text a copy in review mode put aside ("review-copy")
@@ -6980,13 +7019,29 @@ class PresApp {
         if (mode == "present") {
             return false
         }
+        def m:PresFlowModel (this.diagramAt(line))
+        if (m.ok == false) {
+            return false
+        }
+        this.placeChartWindow()
+        chart.openDiagram(m chartWinX chartWinY W H)
+        this.selectSlide((deck.pageOfOffset((this.offsetOf(line 0)))))
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The fenced block opening on `line`, read as a diagram's model (`ok`
+    ; false when the line opens none).
+    fn diagramAt:PresFlowModel (line:int) {
+        def none (new PresFlowModel())
         def n:int (mdEditor.buf.lineCount())
         if ((line < 0) || (line >= n)) {
-            return false
+            return none
         }
         def head:string (trim (mdEditor.buf.lineAt(line)))
         if (((indexOf head "```") != 0) && ((indexOf head "~~~") != 0)) {
-            return false
+            return none
         }
         def fence:string (substring head 0 3)
         def close:int -1
@@ -6998,7 +7053,7 @@ class PresApp {
             k = (k + 1)
         }
         if (close < 0) {
-            return false
+            return none
         }
         def last:int close
         if (((close + 1) < n) && ((indexOf head "{") < 0)) {
@@ -7007,17 +7062,26 @@ class PresApp {
             }
         }
         def m:PresFlowModel (PresFlowModel.read((this.blockText(line last))))
-        if (m.ok == false) {
-            return false
-        }
         m.first = line
         m.last = last
-        this.placeChartWindow()
-        chart.openDiagram(m chartWinX chartWinY W H)
-        this.selectSlide((deck.pageOfOffset((this.offsetOf(line 0)))))
-        focus = "chart"
-        chromeRev = (chromeRev + 1)
-        return true
+        return m
+    }
+
+    ; A look picked on the diagram's card: the block's settings line
+    ; rewritten, as one edit (Ctrl+Z undoes it).
+    fn setDiagramLook:void (line:int v:string) {
+        def m:PresFlowModel (this.diagramAt(line))
+        if (m.ok == false) {
+            return
+        }
+        def at:int (line + (m.lookLineAt()))
+        def t:string (m.lookLine(v))
+        this.replaceRange(at 0 (strlen (mdEditor.buf.lineAt(at))) t)
+        if (at == line) {
+            hint.text = t
+        }
+        hint.look = v
+        hint.rebuild()
     }
 
     ; The table on `line` (a Markdown table's first line, or a ```table /
@@ -8189,7 +8253,7 @@ class PresApp {
 
     ; --- Word (PresExport.docx) ----------------------------------------------------
     ; Two steps, because the stage draws some blocks (a diagram, a chart, a
-    ; formula) that only the host can turn into pictures: `docxBegin` names
+    ; SmartArt) that only the host can turn into pictures: `docxBegin` names
     ; them, the host draws each one (`docxShotJson`) and hands the PNG to
     ; `setDocxShot`, and `docxEnd` writes the file. `picked`: only the picked
     ; slides, all of them when none is picked.
@@ -8207,6 +8271,11 @@ class PresApp {
 
     fn docxEnd:buffer () {
         return (exporter.docx())
+    }
+
+    ; The same shots, then the deck as one web page (PresExport.html).
+    fn htmlEnd:string () {
+        return (exporter.html())
     }
 
     fn pickCount:int () {

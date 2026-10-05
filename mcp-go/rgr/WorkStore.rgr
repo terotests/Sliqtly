@@ -1,0 +1,206 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Where Work.rgr's claims and kept versions live: mcp_work/{deck id} (the
+; WorkBoard) and mcp_bases/{deck id}-{version} ({"md"}), in Firestore or the
+; folder server's store alike. A board is written only over the one it was
+; read as (its stamp), so two assistants claiming at the same moment do not
+; both win: the later write reads the board again and is tried once more.
+
+Import "McpHost.rgr"
+Import "McpJson.rgr"
+Import "Work.rgr"
+
+; one change to a deck's board, and what came of it
+class WorkStep {
+    ; begin_work: this claim, taken when it overlaps nobody's (or force)
+    def hasClaim:boolean false
+    def claim:WorkClaim (new WorkClaim)
+    def force:boolean false
+    ; end_work: this claim dropped
+    def end:string ""
+    ; an update under a claim: it lasts at least until `until`
+    def renew:string ""
+    def until:int 0
+    ; a version handed out, whose Markdown is kept for merging
+    def base:string ""
+    def baseMd:string ""
+
+    ; what came of it
+    def board:WorkBoard (new WorkBoard)
+    def clashes:[WorkClaim]
+    def taken:boolean false
+    def ended:boolean false
+    def renewed:boolean false
+    ; the store refused or failed (the error is on the host)
+    def failed:boolean false
+}
+
+class WorkStore {
+    ; how long a claim lasts unless the assistant says, and at most
+    sfn MINUTES:int () {
+        return 15
+    }
+    sfn MAX_MINUTES:int () {
+        return 120
+    }
+
+    ; the deck's version: what update_presentation's base_version names
+    sfn version:string (host:McpHost md:string) {
+        return (substring (host_sha256_hex host md) 0 12)
+    }
+
+    ; the board as it is now, the claims that ran out left out
+    sfn read:WorkBoard (host:McpHost id:string) {
+        def b:WorkBoard (WorkBoard.fromJson((J.parse((host_get_doc host "mcp_work" id)))))
+        b.prune((host_now_ms host))
+        return b
+    }
+
+    sfn baseId:string (id:string v:string) {
+        return (id + "-" + v)
+    }
+
+    ; the Markdown of a version handed out earlier; found false when it is
+    ; not kept (never handed out, or too long ago)
+    sfn baseText:WorkBase (host:McpHost id:string v:string) {
+        def out (new WorkBase)
+        def d:MfJ (J.parse((host_get_doc host "mcp_bases" (WorkStore.baseId(id v)))))
+        if ((d.isObj()) && ((d.field("md")).kind == 3)) {
+            out.found = true
+            out.md = (d.str_("md"))
+        }
+        return out
+    }
+
+    ; the step on the board as it is in the store, tried again when another
+    ; write came between the read and the write
+    sfn run:void (host:McpHost id:string step:WorkStep) {
+        def tries:int 0
+        while (tries < 5) {
+            def raw:MfJ (J.parse((host_get_doc host "mcp_work" id)))
+            if ((strlen (host_error host)) > 0) {
+                step.failed = true
+                return
+            }
+            def b:WorkBoard (WorkBoard.fromJson(raw))
+            def old:string b.stamp
+            def had:int (array_length b.claims)
+            def now:int (host_now_ms host)
+            b.prune(now)
+            def write:boolean (had != (array_length b.claims))
+            step.taken = false
+            step.ended = false
+            step.renewed = false
+            step.clashes = (b.clashes(step.claim))
+            if step.hasClaim {
+                if (((array_length step.clashes) == 0) || step.force) {
+                    b.put(step.claim)
+                    step.taken = true
+                    write = true
+                }
+            }
+            if ((strlen step.end) > 0) {
+                step.ended = (b.drop(step.end))
+                write = (write || step.ended)
+            }
+            if ((strlen step.renew) > 0) {
+                step.renewed = (b.renew(step.renew step.until))
+                write = (write || step.renewed)
+            }
+            def gone:[string]
+            def newBase:boolean false
+            if (((strlen step.base) > 0) && ((b.hasBase(step.base)) == false)) {
+                gone = (b.keepBase(step.base))
+                newBase = true
+                write = true
+            }
+            if (write == false) {
+                step.board = b
+                return
+            }
+            b.stamp = (host_short_id host 12)
+            def doc:MfJ (b.toJson())
+            ; a deck nobody works on is forgotten a month after (Firestore's
+            ; TTL on `expires`), its kept versions with it
+            doc.put("expires" (WorkStore.monthFrom(now)))
+            def r:string (host_update_if host "mcp_work" id "stamp" old (JOut.text(doc)))
+            if ((strlen (host_error host)) > 0) {
+                step.failed = true
+                return
+            }
+            if (r == "") {
+                step.board = b
+                if newBase {
+                    def bd:MfJ (MfJ.newObj())
+                    bd.putStr("md" step.baseMd)
+                    bd.putStr("deck" id)
+                    bd.put("expires" (WorkStore.monthFrom(now)))
+                    host_set_doc host "mcp_bases" (WorkStore.baseId(id step.base)) (JOut.text(bd))
+                    for gone g:string gi {
+                        host_delete_doc host "mcp_bases" (WorkStore.baseId(id g))
+                    }
+                }
+                return
+            }
+            tries = (tries + 1)
+        }
+        step.failed = true
+    }
+
+    sfn noLines:[string] () {
+        def out:[string]
+        return out
+    }
+
+    sfn hasClaim:boolean (list:[WorkClaim] id:string) {
+        for list c:WorkClaim i {
+            if (c.id == id) {
+                return true
+            }
+        }
+        return false
+    }
+
+    sfn monthFrom:MfJ (now:int) {
+        return (J.timeAt((now + ((((30 * 24) * 60) * 60) * 1000))))
+    }
+
+    ; the version of md kept for merging (a read or a save hands it out)
+    sfn keep:void (host:McpHost id:string md:string) {
+        def step (new WorkStep)
+        step.base = (WorkStore.version(host md))
+        step.baseMd = md
+        WorkStore.run(host id step)
+    }
+
+    ; the claims as JSON for a result
+    sfn claimsJson:MfJ (host:McpHost claims:[WorkClaim]) {
+        def a:MfJ (MfJ.newArr())
+        for claims c:WorkClaim i {
+            def o:MfJ (c.toJson())
+            o.putStr("started" (host_iso_time host c.started))
+            o.putStr("expires" (host_iso_time host c.expires))
+            a.add(o)
+        }
+        return a
+    }
+
+    ; "Claude (budget chat) is working on slides 2, 3: fixing the chart (until 13:20 UTC)"
+    sfn line:string (host:McpHost c:WorkClaim) {
+        return ((c.describe()) + " (until " + (WorkStore.clock(host c.expires)) + ")")
+    }
+
+    ; "13:20 UTC"
+    sfn clock:string (host:McpHost ms:int) {
+        def iso:string (host_iso_time host ms)
+        if ((strlen iso) < 16) {
+            return iso
+        }
+        return ((substring iso 11 16) + " UTC")
+    }
+}
+
+class WorkBase {
+    def found:boolean false
+    def md:string ""
+}

@@ -10,6 +10,8 @@
 // (localStorage), the browser's first preference we have, English. Choosing
 // another reloads the page, so everything is built in one language.
 
+import { embeddedAsset } from "./player-file.js";
+
 export const LANGS = [
   ["en", "English"],
   ["fi", "Suomi"],
@@ -36,7 +38,9 @@ document.documentElement.lang = lang;
 let table = {};
 if (lang !== "en") {
   try {
-    const res = await fetch(`./i18n/${lang}.json?v=${document.querySelector('meta[name="build"]')?.content || ""}`);
+    const url = `./i18n/${lang}.json?v=${document.querySelector('meta[name="build"]')?.content || ""}`;
+    // a player file (web/player-file.js) carries its translations
+    const res = (await embeddedAsset(url)) || (await fetch(url));
     if (res.ok) table = await res.json();
   } catch (e) {
     console.warn("no translation for " + lang, e);

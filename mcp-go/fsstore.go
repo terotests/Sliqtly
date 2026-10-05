@@ -57,7 +57,7 @@ const localTenant = "local"
 // the store on a folder in the current layout; prepareData (datafmt.go)
 // brings an older one up to it first, and a folder in another layout is
 // refused rather than read wrong. A deck written without a room goes to
-// its owner's home room, user's for a deck that names no owner.
+// General; user owns the starter rooms.
 func newFSStore(root, user string) (*engineDB, *fsBucket, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
@@ -177,6 +177,27 @@ func (d *engineDB) Create(ctx context.Context, col, id string, doc Doc) (Doc, er
 
 var errExists = errors.New("exists")
 
+func (d *engineDB) UpdateIf(ctx context.Context, col, id, field, want string, doc Doc) (bool, error) {
+	_, _, err := d.e.Update(ctx, col, id, func(cur Doc, _ store.Rev) (Doc, error) {
+		if fieldText(cur, field) != want {
+			return nil, errNotWanted
+		}
+		if cur == nil {
+			cur = Doc{}
+		}
+		for k, v := range doc {
+			cur[k] = v
+		}
+		return cur, nil
+	})
+	if errors.Is(err, errNotWanted) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+var errNotWanted = errors.New("field changed")
+
 func (d *engineDB) Increment(ctx context.Context, col, id string, add Doc) error {
 	var inc func(cur, add Doc) Doc
 	inc = func(cur, add Doc) Doc {
@@ -273,7 +294,7 @@ func (b *fsBucket) Open(path string) (f *os.File, contentType string, ok bool) {
 
 // the collections whose documents go once their `expires` has passed, as
 // Firestore's TTL policies have them (firestore.indexes.json)
-var ttlCollections = []string{"shares", "mcp_keys", "mcp_quota", "mcp_oauth_requests", "mcp_oauth_codes", "mcp_oauth_tokens", "stats_salt", "stats_seen"}
+var ttlCollections = []string{"shares", "mcp_keys", "mcp_quota", "mcp_oauth_requests", "mcp_oauth_codes", "mcp_oauth_tokens", "stats_salt", "stats_seen", "mcp_work", "mcp_bases"}
 
 // removes the documents of col whose `expires` is before t, each looked at
 // again as it is removed, so one given a later `expires` meanwhile stays.

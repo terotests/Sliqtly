@@ -24,7 +24,8 @@ of it, and the rewrites pointed back at the function.
 | [`rgr/App.rgr`](rgr/App.rgr) | routing, CORS, the `/mcp` transport checks, sign-in on a request, the `/api/hit` beacon |
 | [`rgr/Stats.rgr`](rgr/Stats.rgr) | the site's cookieless visitor counts (`stats/<day>`), read by the Stats workflow (`ops/stats.mjs`) |
 | [`rgr/Mcp.rgr`](rgr/Mcp.rgr) | MCP: JSON-RPC, `initialize`, `tools/*`, `resources/*` |
-| [`rgr/Tools.rgr`](rgr/Tools.rgr) | the fourteen tools, their schemas and UI metadata, the preview resource; review comments (`list_comments`, `add_comment`, `resolve_comment`) read and write the editor's `review/comments.json` through its own model ([`src/PresReview.rgr`](../src/PresReview.rgr)) |
+| [`rgr/Tools.rgr`](rgr/Tools.rgr) | the sixteen tools, their schemas and UI metadata, the preview resource; review comments (`list_comments`, `add_comment`, `resolve_comment`) read and write the editor's `review/comments.json` through its own model ([`src/PresReview.rgr`](../src/PresReview.rgr)) |
+| [`rgr/Work.rgr`](rgr/Work.rgr), [`rgr/WorkStore.rgr`](rgr/WorkStore.rgr) | two assistants on one deck: `begin_work` / `end_work` claims (which slides, by whom, until when; `mcp_work/{id}`), and `update_presentation`'s `base_version`: an edit made on an older version is merged with what was saved since by RangerDiff's diff3 ([`src/RdText.rgr`](https://github.com/terotests/RangerDiff/blob/main/src/RdText.rgr), linked into Ranger as `gallery/rangerdiff` by `gen.mjs`), and refused with the slides it is on when both changed the same lines. Versions handed out are kept in `mcp_bases/{id}-{version}` (the newest 12). Board and deck are written only over what was read (`host_update_if`, a Firestore transaction or the folder store's lock) (`work_test.go`) |
 | [`rgr/OAuth.rgr`](rgr/OAuth.rgr) | the OAuth 2.1 server: registration, authorize, approve, token, refresh |
 | [`rgr/Store.rgr`](rgr/Store.rgr) | shares, edit keys, pictures, listing |
 | [`rgr/Deck.rgr`](rgr/Deck.rgr) | the checks: picture names and types, outline, warnings |
@@ -38,7 +39,7 @@ of it, and the rewrites pointed back at the function.
 | [`render.go`](render.go), [`fonts.go`](fonts.go) | `render_slide` / `render_overview`: a slide's display list (`EVGDisplayList.toJson`) painted to a JPEG with the editor's faces (copied from Ranger by `gen.mjs`, not committed) and DejaVu Sans for the symbols they lack (`symbols/`, committed), as `lib/evg/html/evg-html.js` paints it |
 | [`svgraster.go`](svgraster.go), [`svgraster/`](svgraster/) | SVG pictures drawn for the renders and the contrast check: resvg as WebAssembly (`svgraster.wasm`, rebuilt by `svgraster/build.sh`, committed) run by wazero |
 | [`rgr/SvgCheck.rgr`](rgr/SvgCheck.rgr) | each SVG picture as the player will show it: viewBox, shape against the slide, outside references, text, filters (`svgcheck_test.go`) |
-| [`../src/PresExport.rgr`](../src/PresExport.rgr) | `export_presentation`: the editor's own PDF and PPTX export, moved out of `PresApp` so the server runs it too; the file goes to Storage as `shares/<id>/exports/<name>.<format>` (`export_test.go`) |
+| [`../src/PresExport.rgr`](../src/PresExport.rgr) | `export_presentation`: the editor's own PDF, PPTX, Word and web page export, moved out of `PresApp` so the server runs it too (Word and HTML pictures of charts and diagrams drawn by `render.go` `RenderCrop`); the file goes to Storage as `shares/<id>/exports/<name>.<format>` (`export_test.go`) |
 | [`rgr/Edits.rgr`](rgr/Edits.rgr) | `update_presentation` edits: find/replace, one slide replaced or deleted, slides added after one; slides by number or title from the editor's slide spans (`src/PresSlideSpans.rgr`), all placed on the text before the edits (`edits_test.go`) |
 | [`rgr/GitHub.rgr`](rgr/GitHub.rgr) | `read_github_pr`: a pull request, its files and commits from the GitHub API, and a review deck drafted from them (`github_test.go`) |
 | [`rgr/McpJson.rgr`](rgr/McpJson.rgr) | JSON: Ranger's own `MfJ` (gallery/mfiles) and a writer |
@@ -222,6 +223,7 @@ What it serves besides `/mcp` (`local.go`, `localweb.go`):
 | `/files/shares/{id}/…` | the deck's pictures and data files |
 | `/themes/{name}.css` | the themes (the built page's, else the ones copied from `../themes`) |
 | `/api/…` | what the page keeps decks with (`assets/sliqtly-local.js`, which the server sends as `/sliqtly.js` in place of the Firebase one) |
+| `/api/rooms/{op}` | rooms (ADR 0001), `POST` with JSON: `list_rooms`, `get_room`, `create_room`, `move_presentation`, `set_room_member`, `archive_room`, `link_types`, `add_link`, `remove_link`, `links_of`. The assistant has the same operations as MCP tools on this server (`roomsapi.go`). Every deck has a home room; decks start in General, and there is a Playground beside it. No access limits on this server for now: everyone sees every room |
 | `/settings` | the server's settings: the naming rule below (`localsettings.go`) |
 | `/api/status` | `{"state","version"}`: `migrating`, `failed`, `ready` or `stopping` (`localstatus.go`) |
 | `/api/socket` | the page's one stream, a WebSocket: the server's state, decks changed, the room of a deck edited together (`localevents.go`, `web/eventline.js`). A browser opens at most six HTTP/1.1 connections to a server for all its tabs, and WebSockets are counted apart from them. `/api/events` is the same as Server-Sent Events, which a page uses when a proxy in front does not pass WebSockets on |
@@ -352,7 +354,7 @@ that is only on a laptop or inside a network.
 
 Actions → **Deploy MCP (Go)** (`.github/workflows/deploy-mcp-go.yml`) runs
 the tests, builds the image, deploys the service and checks that it answers
-(initialize, the fourteen tools, the OAuth metadata, `/api/hit`):
+(initialize, the sixteen tools, the OAuth metadata, `/api/hit`):
 ```
 IMAGE=europe-west1-docker.pkg.dev/sliqtly/mcp/sliqtly-mcp-go
 docker build -f mcp-go/Dockerfile -t $IMAGE .     # from the repository root

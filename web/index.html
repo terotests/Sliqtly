@@ -191,7 +191,7 @@
   }
   #vMenu .sub { display: flex; flex-direction: column; }
   #vMenu[hidden], #vMenu [hidden] { display: none; }
-  #vExport[aria-expanded="true"] span:last-child { transform: rotate(90deg); }
+  #vExport[aria-expanded="true"] span:last-child, #vCopy[aria-expanded="true"] span:last-child { transform: rotate(90deg); }
   #vMenu button {
     display: flex; align-items: center; justify-content: space-between; gap: 16px;
     padding: 9px 12px; border: 0; border-radius: 8px; background: none;
@@ -293,6 +293,8 @@
   .vViewFrame { flex: 1; width: 100%; border: 0; background: #000; }
   /* inside that frame: exports of the version stay, a new deck from it does not */
   body.versionFrame #vMenu hr, body.versionFrame #vMenu [data-act="new"] { display: none; }
+  /* a player file is the player: no site to create on, no player page to copy */
+  body.playerFile #vMenu hr, body.playerFile #vMenu [data-act="new"], body.playerFile #vMenu [data-act="player"] { display: none; }
   /* a view of some slides (?slides=): no copy of the whole deck from it */
   body.slidesView #vMenu hr, body.slidesView #vMenu [data-act="new"] { display: none; }
   body.viewer #c { cursor: default; }
@@ -347,10 +349,13 @@
   <button id="pdf">PDF</button>
   <button id="pptx">PPTX</button>
   <button id="docx">DOCX</button>
+  <button id="html">HTML</button>
+  <button id="player">Player</button>
   <button id="zip">ZIP</button>
   <button id="pdfPicked" hidden>PDF</button>
   <button id="pptxPicked" hidden>PPTX</button>
   <button id="docxPicked" hidden>DOCX</button>
+  <button id="htmlPicked" hidden>HTML</button>
   <button id="share" title="Copy a link with this Markdown packed into its address" data-i18n-title data-i18n>🔗 Share</button>
   <button id="history" hidden>Version history</button>
   <button id="aiClaude" hidden>Claude</button>
@@ -391,7 +396,15 @@
       <button role="menuitem" data-act="pdf">PDF</button>
       <button role="menuitem" data-act="pptx">PowerPoint (.pptx)</button>
       <button role="menuitem" data-act="docx">Word (.docx)</button>
+      <button role="menuitem" data-act="html" data-i18n>Web page (.html)</button>
+      <button role="menuitem" data-act="player" data-i18n>Presentation player (.html)</button>
       <button role="menuitem" data-act="md">Markdown (.md)</button>
+    </div>
+    <button id="vCopy" role="menuitem" aria-haspopup="menu" aria-expanded="false"><span data-i18n>Copy</span><span aria-hidden="true">›</span></button>
+    <div class="sub" id="vCopySub" role="group" hidden>
+      <button role="menuitem" data-copy="md" title="The presentation's Markdown" data-i18n-title>Markdown</button>
+      <button role="menuitem" data-copy="mdc" title="The presentation's Markdown with the open comments as numbered footnotes" data-i18n-title data-i18n>Markdown with comments</button>
+      <button role="menuitem" data-copy="comments" title="The open comments, numbered, with the Markdown of their slides: to hand to an assistant" data-i18n-title data-i18n>Comments</button>
     </div>
     <hr />
     <button role="menuitem" data-act="new" title="A new presentation of your own, based on this one" data-i18n-title data-i18n>Create New…</button>

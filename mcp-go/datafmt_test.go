@@ -209,24 +209,27 @@ func TestMigrateTwoToThree(t *testing.T) {
 	}
 	ctx := context.Background()
 	for id, want := range map[string][]any{
-		"aaaaaa1111": {"home-local", false},
-		"bbbbbb2222": {"home-mcp", false},
-		"cccccc3333": {"home-local", false}, // no owner: the server's user
-		"dddddd4444": {"r1", true},          // already in a room: stays
+		"aaaaaa1111": {"general", false},
+		"bbbbbb2222": {"general", false}, // whoever owns it
+		"cccccc3333": {"general", false},
+		"dddddd4444": {"r1", true}, // already in a room: stays
 	} {
 		d, _ := db.Get(ctx, "shares", id)
-		eq(t, []any{d["room"], d["inherit_room_files"]}, want)
+		eq(t, []any{d["room"], d["inherit_room_files"], d["tenant"]}, append(want, "local"))
 	}
 	a, _ := db.Get(ctx, "shares", "aaaaaa1111")
 	eq(t, []any{a["name"], a["created"].(time.Time).UnixMilli()}, []any{"A", int64(1700000000000)})
 	if _, _, ok := bucket.Open("shares/aaaaaa1111/media/a.png"); !ok {
 		t.Fatal("the deck's file was lost")
 	}
-	for _, owner := range []string{"local", "mcp"} {
-		room, _ := db.Get(ctx, "rooms", "home-"+owner)
-		eq(t, []any{room["kind"], room["tenant"], room["archived"]}, []any{"home", "local", false})
-		m, _ := db.Get(ctx, "room_members", "home-"+owner+"~user-"+owner)
-		eq(t, []any{m["room"], m["member"], m["role"]}, []any{"home-" + owner, "user:" + owner, "owner"})
+	for id, title := range map[string]string{"general": "General", "playground": "Playground"} {
+		room, _ := db.Get(ctx, "rooms", id)
+		eq(t, []any{room["title"], room["kind"], room["tenant"], room["archived"]}, []any{title, id, "local", false})
+		m, _ := db.Get(ctx, "room_members", id+"~user-local")
+		eq(t, []any{m["room"], m["member"], m["role"]}, []any{id, "user:local", "owner"})
+	}
+	if r, _ := db.Get(ctx, "rooms", "home-mcp"); r != nil {
+		t.Fatal("a room per owner")
 	}
 
 	// the backup has the decks as they were
@@ -254,7 +257,8 @@ func TestHomeRoomsResume(t *testing.T) {
 	release()
 }
 
-// after the migration every deck written has a home room, and a writer
+// after the migration every deck written has a room, General for a new
+// one, and a writer
 // that replaces a deck keeps the room it is in
 func TestDecksKeepTheirRoom(t *testing.T) {
 	dir := formatTwoFolder(t)
@@ -269,12 +273,7 @@ func TestDecksKeepTheirRoom(t *testing.T) {
 		t.Fatal(err)
 	}
 	d, _ := db.Get(ctx, "shares", "ffffff6666")
-	room := d["room"].(string)
-	match(t, room, `^home-h[0-9a-f]{24}$`)
-	eq(t, d["inherit_room_files"], false)
-	if r, _ := db.Get(ctx, "rooms", room); r == nil {
-		t.Fatal("no home room for a new owner")
-	}
+	eq(t, []any{d["room"], d["inherit_room_files"]}, []any{"general", false})
 	if err := db.Set(ctx, "shares", "dddddd4444", Doc{"name": "D2", "owner": "local"}); err != nil {
 		t.Fatal(err)
 	}

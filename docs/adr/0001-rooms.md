@@ -115,14 +115,16 @@ EXT_REF, and one epic can refer to many rooms.
 
 1. The store contract and tests (done: `mcp-go/store`).
 2. Folder server, format 3 (done: `datafmt.go` homeRooms,
-   `store/homeroom.go`): every owner gets a home room, `home-<owner>`,
-   kind `home` (the UI names it "Omat"/"My presentations"). Every
-   existing deck moves into it with `inherit_room_files = false`, its
-   files staying its own. URLs (`/s/{id}`, `/files/shares/{id}/…`) do
+   `store/homeroom.go`): two starter rooms, `general` (General) and
+   `playground` (Playground). Every existing deck moves into General
+   with `inherit_room_files = false`, its files staying its own; decks
+   are moved on into rooms of their own from there. The folder server
+   has no access limits for now (everyone sees every room); in the
+   cloud the Google account is the boundary. URLs (`/s/{id}`, `/files/shares/{id}/…`) do
    not change. The existing format migration (hard-link backup, conflicts
    set aside) does the move. After it, `store.HomeRooms` keeps the rule:
    a deck written without a room keeps the one it had, a new one goes to
-   its owner's home room, and the room is made before the deck names it.
+   General, and the room is made before the deck names it.
 3. SQLite: `store.Copy` + `store.Verify` (revisions kept, digests
    compared); the folder is left as it was, so going back is starting on
    it.

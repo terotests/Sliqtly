@@ -13,6 +13,7 @@ Import "PresReview.rgr"
 Import "PresPick.rgr"
 Import "PresNav.rgr"
 Import "PresDocx.rgr"
+Import "PresHtml.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -237,6 +238,12 @@ class PresCheck {
         this.ok((((indexOf md "[2] at 42 %") > 0) && ((indexOf md "done") < 0)) "review: resolved ones are left out")
         this.ok(((indexOf md ("````markdown" + nl + "# Three" + nl + "```js")) > 0) ("review: the slide's Markdown in a fence longer than its own: " + md))
         this.ok(((indexOf md "# Two") < 0) "review: a slide without open comments is left out")
+        def deckSrc:string ("Intro text" + nl + nl + "# One" + nl + nl + "a" + nl + "# Two" + nl + "# Three" + nl + "b")
+        def wc:string (cp.markdownWithComments(deckSrc (([] _:int (12 21 27))) tts))
+        this.ok(((indexOf wc ("Intro text" + nl + nl + "# One [^1]" + nl + nl + "a" + nl + "# Two" + nl + "# Three [^2]" + nl + "b" + nl + nl + "[^1]: Slide 1 · One, at 50 % across, 50 % down, on the diagram's box \"B\"" + nl + "    Ann: Logo here" + nl + "[^2]: Slide 3 · Three, at 42 % across")) == 0) ("review: with comments, marks on the headings and notes at the end: " + wc))
+        this.ok(((indexOf wc "done") < 0) "review: with comments, resolved ones are left out")
+        def wc2:string (cp.markdownWithComments(("```js" + nl + "x" + nl + "```" + nl) (([] _:int (0 0 0))) tts))
+        this.ok(((indexOf wc2 ("[^1][^2]" + nl + nl + "```js")) == 0) ("review: with comments, no heading: the marks on a line above: " + wc2))
         ; times
         def now:double 1759658400000.0
         this.ok(((PresReview.timeText(now now 180)) == "13:00") ("review: today, the clock: " + (PresReview.timeText(now now 180))))
@@ -445,6 +452,7 @@ class PresCheck {
         this.longChain()
         this.portraitChain()
         this.diagramLooks()
+        this.diagramLookHint()
         this.steering()
         this.diagramColour()
     }
@@ -607,6 +615,43 @@ class PresCheck {
     ; round part (jurassic: an ochre circle), the lines keep their right
     ; angles, words are set in capitals where the look says so, and until a
     ; face is loaded the words are in Open Sans.
+    ; Over a diagram fence's language word the card offers the looks; a look
+    ; changes only the block's settings line.
+    fn diagramLookHint:void () {
+        def j:string (PresHints.forLine("md" "```mermaid {tour=on}" 5 false))
+        this.ok(((indexOf j "\"looks\":[\"holo\",\"sketch\",\"classic\",\"mermaid\",\"jurassic\",\"cartoon\",\"romantic\"]") >= 0) ("a diagram's fence offers its looks: " + j))
+        this.ok(((indexOf j "\"options\":[]") >= 0) ("…and no notations to switch to: " + j))
+        def code:string (PresHints.forLine("md" "```python" 5 false))
+        this.ok(((indexOf code "looks") < 0) "a code fence has no looks")
+        def body:string "flowchart LR\n  A --> B\n```\n"
+        ; settings in the fence line: the style word set there, the rest kept
+        def m1:PresFlowModel (PresFlowModel.read(("```mermaid {tour=on}\n" + body)))
+        this.ok(((m1.lookLineAt()) == 0) "settings in the fence: its line")
+        this.ok(((m1.lookLine("cartoon")) == "```mermaid {tour=on style=cartoon}") ("cartoon added: " + (m1.lookLine("cartoon"))))
+        def m1b:PresFlowModel (PresFlowModel.read(("```mermaid {style=jurassic}\n" + body)))
+        this.ok(((m1b.lookLine("holo")) == "```mermaid") ("holo drops the braces: " + (m1b.lookLine("holo"))))
+        def m1c:PresFlowModel (PresFlowModel.read(("```mermaid {style=jurassic}\n" + body)))
+        this.ok(((m1c.lookLine("classic")) == "```mermaid {diagram=classic}") ("classic: " + (m1c.lookLine("classic"))))
+        ; no settings yet: braces on the fence line
+        def m2:PresFlowModel (PresFlowModel.read(("```dot\n" + body)))
+        this.ok(((m2.lookLine("romantic")) == "```dot {style=romantic}") ("braces added: " + (m2.lookLine("romantic"))))
+        ; settings under the block: that line
+        def m3:PresFlowModel (PresFlowModel.read(("```mermaid\n" + body + "{style=sketch tour=on}\n")))
+        this.ok(((m3.lookLineAt()) == 4) ("the settings line under the block: " + (to_string (m3.lookLineAt()))))
+        this.ok(((m3.lookLine("mermaid")) == "{style=mermaid tour=on}") ("set in its place: " + (m3.lookLine("mermaid"))))
+        ; the braces on the fence line are the block's settings too
+        def deck (new PresDeck())
+        deck.setText(("## A\n\n```mermaid {style=cartoon}\n" + body))
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false "the fence with braces is a diagram")
+            return
+        }
+        def d:PresDiagram (itemAt s.diagrams 0).diagram
+        this.ok((d.looked && (d.style == "cartoon")) ("a look in the fence's braces is drawn: " + d.style))
+    }
+
     fn diagramLooks:void () {
         def text:string ("---\nslide-split-level: 2\n---\n\n## Kuva\n\n```mermaid\nflowchart LR\n"
             + "  A((Alku)) --> B[Tilaus]\n  B --> C{Varastossa?}\n  C -->|kyllä| D[Lähetä]\n  C -->|ei| E([Odota])\n```\n{style=jurassic}\n")
@@ -1892,6 +1937,61 @@ class PresCheck {
 
     ; PresDocx + DocxWriter: the deck as a Word document, opened again with
     ; Ranger's own .docx reader (WordMlParser) and compared
+    ; The deck as one web page: sections per slide, notes, the shot written in,
+    ; nothing that runs, headings linkable, picked slides only.
+    fn htmlPage:void () {
+        def text:string ("---\ntitle: Raportti\nlang: fi\nslide-split-level: 2\n---\n\n"
+            + "## Eka & toka\n\nTeksti [linkki](https://sliqtly.com) ja [paha](javascript:alert(1)).\n\n<script>alert(2)</script>\n\n"
+            + "::: notes\nPuhe ensin. [[1]] Sitten.\n:::\n\n"
+            + "## Taulu\n\n| Nimi | Määrä |\n| :--- | ---: |\n| omena | 3 |\n\n$$\\frac{a}{b}$$\n\n"
+            + "## Kuva\n\n```mermaid\nflowchart LR\n  A --> B\n```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        def shots (new PresDocx())
+        shots.findShots(deck)
+        this.ok(((array_length shots.shots) == 1) "html: the diagram is a shot")
+        if ((array_length shots.shots) == 1) {
+            def s0:PresDocxShot (itemAt shots.shots 0)
+            def png:buffer (buffer_alloc 3)
+            buffer_set png 0 77
+            buffer_set png 1 97
+            buffer_set png 2 110
+            shots.setShot(s0.key png 200 100)
+        }
+        def page (new PresHtml())
+        def h:string (page.html(deck "Raportti" shots))
+        this.ok(((indexOf h "<!DOCTYPE html>") == 0) "html: a whole page")
+        this.ok(((indexOf h "<html lang=\"fi\">") > 0) "html: the deck's language")
+        this.ok(((indexOf h "<title>Raportti</title>") > 0) "html: its title")
+        this.ok(((indexOf h "<p class=\"title\">Raportti</p>") > 0) "html: the title on the page (no heading says it)")
+        this.ok((page.slides == 3) ("html: three slides, got " + (to_string page.slides)))
+        this.ok(((indexOf h "<section class=\"slide\" id=\"slide-3\">") > 0) "html: a section per slide")
+        this.ok(((indexOf h "<h2 id=\"eka-toka\">Eka &amp; toka</h2>") > 0) "html: headings escaped and linkable")
+        this.ok(((indexOf h "href=\"https://sliqtly.com\"") > 0) "html: the link")
+        this.ok(((indexOf h "<a>paha</a>") > 0) "html: a script link loses its address")
+        this.ok(((indexOf h "<script") < 0) "html: nothing that runs")
+        this.ok(((indexOf h "<td align=\"right\">3</td>") > 0) "html: the table, aligned")
+        this.ok(((indexOf h "class=\"math-display\"") > 0) "html: the formula")
+        this.ok(((indexOf h "<svg") > 0) "html: …drawn as SVG")
+        this.ok((page.notes == 1) "html: one slide's notes")
+        this.ok(((indexOf h "<aside class=\"notes\">\n<p>Puhe ensin.  Sitten.</p>") > 0) "html: notes without cues")
+        this.ok((page.shotsPlaced == 1) "html: the shot placed")
+        this.ok(((indexOf h "<img src=\"data:image/png;base64,TWFu\"") > 0) "html: …written in")
+        this.ok(((indexOf h "flowchart LR") < 0) "html: the diagram's source not also written")
+        this.ok(((indexOf h "slide-split-level") < 0) "html: no front matter")
+
+        def none (new PresDocx())
+        def plain (new PresHtml())
+        def bare:string (plain.html(deck "" none))
+        this.ok(((indexOf bare "<code class=\"language-mermaid\">") > 0) "html: no shot, the diagram as its source")
+
+        def picked (new PresHtml())
+        push picked.onlyPages 1
+        def one:string (picked.html(deck "Raportti" none))
+        this.ok((picked.slides == 1) "html: only the picked slide")
+        this.ok((((indexOf one "slide-2") > 0) && ((indexOf one "Eka") < 0)) "html: …and nothing else")
+    }
+
     fn docx:void () {
         def text:string ("---\ntitle: Raportti\nslide-split-level: 2\n---\n\n"
             + "## Eka & toka\n\nTeksti **lihava** ja [linkki](https://sliqtly.com).\n\n- yksi\n- kaksi\n  - sisempi\n\n"
@@ -1992,6 +2092,23 @@ class PresCheck {
         def sec:DocSection (back.sectionAt(0))
         this.ok(((sec.pageWTwips == 11906) && (sec.pageHTwips == 16838)) ("docx: A4, got " + (to_string sec.pageWTwips) + "x" + (to_string sec.pageHTwips)))
 
+        ; formulas are Word equations, not pictures
+        def mdeck (new PresDeck())
+        mdeck.setText("---\nslide-split-level: 2\n---\n\n## Kaava\n\nKun $a^2 + b^2 = c^2$ niin\n\n$$\n\\frac{1}{2}\n$$\n")
+        def mconv (new PresDocx())
+        mconv.findShots(mdeck)
+        this.ok(((array_length mconv.shots) == 0) "docx: a formula is no shot")
+        def mw (new DocxWriter())
+        def mbytes:buffer (mw.write((mconv.build(mdeck ""))))
+        this.ok((mw.equations == 2) ("docx: two equations written, got " + (to_string mw.equations)))
+        def mpkg (new DocxPackage())
+        mpkg.openBytes(mbytes "kaava.docx")
+        def mxml:string (mpkg.documentXml())
+        this.ok(((indexOf mxml "<m:oMathPara>") > 0) "docx: the display formula is an equation paragraph")
+        this.ok(((indexOf mxml "<m:num") > 0) "docx: …with its fraction")
+        this.ok(((indexOf mxml "<m:sSup") > 0) "docx: the inline one has its powers")
+        this.ok(((indexOf mxml "a^2") < 0) "docx: no TeX left in the text")
+
         ; picked slides: only those
         def only (new PresDocx())
         push only.onlyPages 1
@@ -2036,6 +2153,7 @@ class PresCheck {
         c.picks()
         c.navJumps()
         c.docx()
+        c.htmlPage()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"
