@@ -51,6 +51,9 @@ impl Database {
         match self.engine.commit(batch)? {
             CommitResult::NoChanges => Ok(self.current_seq()),
             CommitResult::Applied { seq } => Ok(seq),
+            CommitResult::Conflict { condition_index } => {
+                Err(crate::error::Error::Conflict(condition_index))
+            }
         }
     }
 }

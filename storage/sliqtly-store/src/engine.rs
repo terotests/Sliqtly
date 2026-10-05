@@ -58,21 +58,53 @@ pub enum Mutation {
     Delete(Vec<u8>),
 }
 
+/// Precondition for atomic compare-and-set semantics.
+/// A transaction commits only if all conditions match current state.
+#[derive(Clone, Debug)]
+pub enum Condition {
+    /// Key must not exist in database.
+    KeyAbsent(Vec<u8>),
+    /// Key must exist with exactly this value hash (SHA-256 hex).
+    /// Prevents blind overwrites of values we didn't read.
+    ValueEquals(Vec<u8>, String),
+    /// Record must have exactly this revision (RecordRev).
+    /// Used for document/room/etc. with version tracking.
+    RecordRevEquals(Vec<u8>, u64),
+}
+
 /// A batch of mutations to commit atomically.
-#[derive(Debug, Default)]
+/// Commit succeeds only if all conditions are met against CURRENT state.
+#[derive(Clone, Debug, Default)]
 pub struct WriteBatch {
+    pub conditions: Vec<Condition>,
     pub mutations: Vec<Mutation>,
 }
 
 impl WriteBatch {
     pub fn new() -> Self {
         WriteBatch {
+            conditions: Vec::new(),
             mutations: Vec::new(),
         }
     }
 
     pub fn is_empty(&self) -> bool {
         self.mutations.is_empty()
+    }
+
+    /// Require key to not exist. Fails if key is present.
+    pub fn expect_absent(&mut self, key: Vec<u8>) {
+        self.conditions.push(Condition::KeyAbsent(key));
+    }
+
+    /// Require key to have exactly this value. Fails if value changed.
+    pub fn expect_value(&mut self, key: Vec<u8>, value_hash: String) {
+        self.conditions.push(Condition::ValueEquals(key, value_hash));
+    }
+
+    /// Require record to have exactly this revision. Fails if rev changed.
+    pub fn expect_record_rev(&mut self, key: Vec<u8>, expected_rev: u64) {
+        self.conditions.push(Condition::RecordRevEquals(key, expected_rev));
     }
 
     pub fn push(&mut self, mutation: Mutation) {
@@ -88,13 +120,15 @@ impl WriteBatch {
     }
 }
 
-/// Commit result indicates whether state changed.
+/// Commit result indicates success, no-op, or conflict.
 #[derive(Debug, Clone)]
 pub enum CommitResult {
     /// Batch was empty; state unchanged.
     NoChanges,
     /// Batch was applied; new sequence number.
     Applied { seq: CommitSeq },
+    /// Precondition failed; state conflicted. Transaction aborted.
+    Conflict { condition_index: usize },
 }
 
 /// Abstraction for KV storage backend.

@@ -13,8 +13,8 @@ pub enum Error {
     #[error("not found")]
     NotFound,
 
-    #[error("conflict: CAS mismatch")]
-    Conflict,
+    #[error("conflict: precondition failed at condition {0}")]
+    Conflict(usize),
 
     #[error("transaction error: {0}")]
     Transaction(String),
