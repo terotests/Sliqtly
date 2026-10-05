@@ -325,13 +325,14 @@ class PresToolbar {
         MenuCtl.addKid(parent "o-portrait" (pm + (PresI18n.t("Portrait"))) false)
     }
 
-    ; Export's rows: the Markdown, PowerPoint, Word, a web page, PDF, and a
-    ; zip of every file.
+    ; Export's rows: the Markdown, PowerPoint, Word, a web page, a player
+    ; that plays the deck from one file, PDF, and a zip of every file.
     fn exportKids:void (parent:UiItem) {
         MenuCtl.addKid(parent "x-save" (PresI18n.t("Markdown (.md)")) false)
         MenuCtl.addKid(parent "x-pptx" (PresI18n.t("PowerPoint (.pptx)")) false)
         MenuCtl.addKid(parent "x-docx" (PresI18n.t("Word (.docx)")) false)
         MenuCtl.addKid(parent "x-html" (PresI18n.t("Web page (.html)")) false)
+        MenuCtl.addKid(parent "x-player" (PresI18n.t("Presentation player (.html)")) false)
         MenuCtl.addKid(parent "x-pdf" (PresI18n.t("PDF (.pdf)")) false)
         MenuCtl.addKid(parent "x-zip" (PresI18n.t("All files (.zip)")) false)
         if (picked > 0) {
@@ -607,6 +608,7 @@ class PresToolbar {
             ex.addItem("pptx" (PresI18n.t("PowerPoint (.pptx)")) false)
             ex.addItem("docx" (PresI18n.t("Word (.docx)")) false)
             ex.addItem("html" (PresI18n.t("Web page (.html)")) false)
+            ex.addItem("player" (PresI18n.t("Presentation player (.html)")) false)
             ex.addItem("pdf" (PresI18n.t("PDF (.pdf)")) false)
             ex.addItem("zip" (PresI18n.t("All files (.zip)")) false)
             def hp:MenuCtl (this.dropdown("help" (PresI18n.t("Help"))))
@@ -713,6 +715,7 @@ class PresToolbar {
             this.button("dr-pptx" (PresI18n.t("PowerPoint (.pptx)")) "ghost" body)
             this.button("dr-docx" (PresI18n.t("Word (.docx)")) "ghost" body)
             this.button("dr-html" (PresI18n.t("Web page (.html)")) "ghost" body)
+            this.button("dr-player" (PresI18n.t("Presentation player (.html)")) "ghost" body)
             this.button("dr-pdf" (PresI18n.t("PDF (.pdf)")) "ghost" body)
             this.button("dr-zip" (PresI18n.t("All files (.zip)")) "ghost" body)
             body.addChild((this.text("tb-dr-label" (PresI18n.t("Help")))))
