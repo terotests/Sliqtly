@@ -7,13 +7,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { ensureRanger, log } from "../scripts/lib.mjs";
+import { ensureRanger, ensureRangerDiff, log } from "../scripts/lib.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ranger = ensureRanger();
 const at = path.join(ranger, "gallery", "sliqtly-mcp");
 try { fs.unlinkSync(at); } catch {}
 fs.symlinkSync(path.join(here, "rgr"), at, process.platform === "win32" ? "junction" : "dir");
+// RangerDiff's line diff and diff3 (rgr/Work.rgr merges two assistants'
+// edits with it), linked in as gallery/rangerdiff
+const diffAt = path.join(ranger, "gallery", "rangerdiff");
+try { fs.unlinkSync(diffAt); } catch {}
+fs.symlinkSync(ensureRangerDiff(), diffAt, process.platform === "win32" ? "junction" : "dir");
 
 const outDir = path.join(ranger, "gallery", "sliqtly-mcp-build");
 fs.rmSync(outDir, { recursive: true, force: true });

@@ -1,0 +1,570 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; Work.rgr — two assistants on one deck at once
+; ============================================================================
+;
+; Two assistants (two chats, Claude and another client, an assistant and a
+; person in the editor) may change one presentation at the same time. Each
+; sends the whole Markdown, so the second save used to throw away the first.
+; Two things stop that:
+;
+; Claims (WorkBoard). An assistant says what it is about to work on before it
+; starts (begin_work: which slides, or the whole deck, and what for). A claim
+; lasts until end_work or until it expires (a few minutes, renewed by each
+; update the assistant saves under it), so a chat that stops halfway does not
+; hold slides for ever. A second assistant that asks for slides another one
+; holds hears who holds them and why, and splits the work or asks its user
+; whether to wait; a claim that overlaps is only taken when it insists.
+; The claims of a deck are one document, `mcp_work/{deck id}`:
+;
+;   {"stamp", "claims": [{"id", "agent", "note", "slides": [1-based],
+;    "titles": [slide titles then], "started", "expires" (ms)}],
+;    "bases": [versions whose Markdown is kept, oldest first]}
+;
+; A claim's slides are numbers, which move when slides are added before them:
+; two claims also overlap when they name a slide by the same title.
+;
+; Merging (WorkMerge). Each read hands out the deck's version (a hash of its
+; Markdown) and keeps that Markdown (`mcp_bases`). A save names the version
+; it started from; when the deck has changed since, the two edits are merged
+; line by line (RangerDiff's diff3): what only one side changed is taken. A
+; change both made to the same lines is a conflict, and the save is refused
+; with the slides it is on, rather than one side quietly winning.
+;
+; Nothing here knows a clock, a store or a hash: the host gives the times,
+; the documents and the versions; slide spans come from the editor's own
+; deck model (each slide's first source offset).
+; ============================================================================
+
+Import "McpJson.rgr"
+Import "../rangerdiff/src/RdText.rgr"
+
+class WorkClaim {
+    def id:string ""
+    ; who: the name the assistant gives itself
+    def agent:string ""
+    ; what it is doing
+    def note:string ""
+    ; slide numbers, 1 = first; none: the whole deck
+    def slides:[int]
+    ; the titles of those slides when it was claimed
+    def titles:[string]
+    def started:int 0
+    def expires:int 0
+
+    fn whole:boolean () {
+        return ((array_length slides) == 0)
+    }
+
+    fn hasSlide:boolean (n:int) {
+        for slides s:int i {
+            if (s == n) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn hasTitle:boolean (t:string) {
+        if ((strlen t) == 0) {
+            return false
+        }
+        for titles x:string i {
+            if (x == t) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; the slides both name, by number or by title; the whole deck overlaps all
+    fn overlaps:boolean (o:WorkClaim) {
+        if ((this.whole()) || (o.whole())) {
+            return true
+        }
+        for o.slides s:int i {
+            if (this.hasSlide(s)) {
+                return true
+            }
+        }
+        for o.titles t:string j {
+            if (this.hasTitle(t)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; touches any of these slides (1-based)
+    fn touches:boolean (nums:[int]) {
+        if (this.whole()) {
+            return ((array_length nums) > 0)
+        }
+        for nums n:int i {
+            if (this.hasSlide(n)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; "slides 2, 3 (“Budget”, “Risks”)", "the whole deck"
+    fn what:string () {
+        if (this.whole()) {
+            return "the whole deck"
+        }
+        def nums:[string]
+        for slides s:int i {
+            push nums (to_string s)
+        }
+        def word:string "slide "
+        if ((array_length slides) > 1) {
+            word = "slides "
+        }
+        def out:string (word + (join nums ", "))
+        def named:[string]
+        for titles t:string j {
+            if ((strlen t) > 0) {
+                push named ("\"" + t + "\"")
+            }
+        }
+        if ((array_length named) > 0) {
+            out = (out + " (" + (join named ", ") + ")")
+        }
+        return out
+    }
+
+    ; "Claude (budget chat) is working on slides 2, 3 (…): fixing the chart"
+    fn describe:string () {
+        def who:string agent
+        if ((strlen who) == 0) {
+            who = "Another assistant"
+        }
+        def s:string (who + " is working on " + (this.what()))
+        if ((strlen note) > 0) {
+            s = (s + ": " + note)
+        }
+        return s
+    }
+
+    fn toJson:MfJ () {
+        def o:MfJ (MfJ.newObj())
+        o.putStr("id" id)
+        o.putStr("agent" agent)
+        o.putStr("note" note)
+        def a:MfJ (MfJ.newArr())
+        for slides s:int i {
+            a.add((MfJ.ofInt(s)))
+        }
+        o.put("slides" a)
+        o.put("titles" (J.strs(titles)))
+        o.putInt("started" started)
+        o.putInt("expires" expires)
+        return o
+    }
+
+    sfn fromJson:WorkClaim (v:MfJ) {
+        def c (new WorkClaim)
+        c.id = (v.str_("id"))
+        c.agent = (v.str_("agent"))
+        c.note = (v.str_("note"))
+        for (v.list("slides")) s:MfJ i {
+            if (s.kind == 2) {
+                push c.slides (to_int s.num)
+            }
+        }
+        c.titles = (J.strList((v.field("titles"))))
+        c.started = (v.int_("started" 0))
+        c.expires = (v.int_("expires" 0))
+        return c
+    }
+}
+
+class WorkBoard {
+    ; new with every write; the store writes only over the stamp it read
+    def stamp:string ""
+    def claims:[WorkClaim]
+    ; versions whose Markdown is kept for merging, oldest first
+    def bases:[string]
+
+    ; how many versions are kept for merging
+    sfn KEEP:int () {
+        return 12
+    }
+
+    sfn fromJson:WorkBoard (v:MfJ) {
+        def b (new WorkBoard)
+        if ((v.isObj()) == false) {
+            return b
+        }
+        b.stamp = (v.str_("stamp"))
+        for (v.list("claims")) c:MfJ i {
+            push b.claims (WorkClaim.fromJson(c))
+        }
+        b.bases = (J.strList((v.field("bases"))))
+        return b
+    }
+
+    fn toJson:MfJ () {
+        def o:MfJ (MfJ.newObj())
+        o.putStr("stamp" stamp)
+        def a:MfJ (MfJ.newArr())
+        for claims c:WorkClaim i {
+            a.add((c.toJson()))
+        }
+        o.put("claims" a)
+        o.put("bases" (J.strs(bases)))
+        return o
+    }
+
+    ; claims that have run out are gone
+    fn prune:void (now:int) {
+        def kept:[WorkClaim]
+        for claims c:WorkClaim i {
+            if (c.expires > now) {
+                push kept c
+            }
+        }
+        claims = kept
+    }
+
+    ; the index of a claim, -1 when there is none
+    fn indexOf:int (id:string) {
+        def i:int 0
+        while (i < (array_length claims)) {
+            def c:WorkClaim (itemAt claims i)
+            if (c.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; the claims of everyone but `id`
+    fn others:[WorkClaim] (id:string) {
+        def out:[WorkClaim]
+        for claims c:WorkClaim i {
+            if (c.id != id) {
+                push out c
+            }
+        }
+        return out
+    }
+
+    ; the claims of others that overlap c
+    fn clashes:[WorkClaim] (c:WorkClaim) {
+        def out:[WorkClaim]
+        for claims o:WorkClaim i {
+            if ((o.id != c.id) && (o.overlaps(c))) {
+                push out o
+            }
+        }
+        return out
+    }
+
+    ; the claims of others on any of these slides (1-based)
+    fn touching:[WorkClaim] (id:string nums:[int]) {
+        def out:[WorkClaim]
+        for claims o:WorkClaim i {
+            if ((o.id != id) && (o.touches(nums))) {
+                push out o
+            }
+        }
+        return out
+    }
+
+    ; adds c, or puts it in place of the claim with its id
+    fn put:void (c:WorkClaim) {
+        def at:int (this.indexOf(c.id))
+        if (at < 0) {
+            push claims c
+            return
+        }
+        def old:WorkClaim (itemAt claims at)
+        if (old.started > 0) {
+            c.started = old.started
+        }
+        set claims at c
+    }
+
+    ; a claim lasts `ms` longer; false when it is not there (ended or expired)
+    fn renew:boolean (id:string until:int) {
+        def at:int (this.indexOf(id))
+        if (at < 0) {
+            return false
+        }
+        def c:WorkClaim (itemAt claims at)
+        if (c.expires < until) {
+            c.expires = until
+        }
+        return true
+    }
+
+    fn drop:boolean (id:string) {
+        def at:int (this.indexOf(id))
+        if (at < 0) {
+            return false
+        }
+        def kept:[WorkClaim]
+        for claims c:WorkClaim i {
+            if (c.id != id) {
+                push kept c
+            }
+        }
+        claims = kept
+        return true
+    }
+
+    fn hasBase:boolean (v:string) {
+        for bases b:string i {
+            if (b == v) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; v is kept (moved to the newest place); the versions that no longer are
+    fn keepBase:[string] (v:string) {
+        def kept:[string]
+        for bases b:string i {
+            if (b != v) {
+                push kept b
+            }
+        }
+        push kept v
+        def gone:[string]
+        def over:int ((array_length kept) - (WorkBoard.KEEP()))
+        def out:[string]
+        for kept k:string j {
+            if (j < over) {
+                push gone k
+            } {
+                push out k
+            }
+        }
+        bases = out
+        return gone
+    }
+}
+
+; Where each slide starts in the Markdown, by line.
+class WorkSpans {
+    ; the line (0 = first) each slide starts on, from each slide's first
+    ; source offset (-1: the slide drew nothing; it starts where the one
+    ; before it does)
+    sfn lineStarts:[int] (md:string offsets:[int]) {
+        def out:[int]
+        def prev:int 0
+        for offsets off:int i {
+            if (off < 0) {
+                push out prev
+                continue
+            }
+            def upto:int off
+            if (upto > (strlen md)) {
+                upto = (strlen md)
+            }
+            def line:int 0
+            def head:string (substring md 0 upto)
+            def at:int (indexOf head "\n")
+            while (at >= 0) {
+                line = (line + 1)
+                head = (substring head (at + 1) (strlen head))
+                at = (indexOf head "\n")
+            }
+            if (line < prev) {
+                line = prev
+            }
+            push out line
+            prev = line
+        }
+        return out
+    }
+
+    ; the slide (1 = first) a line is on: the last one starting at or before
+    ; it; lines before the first slide belong to it
+    sfn slideOfLine:int (starts:[int] line:int) {
+        def best:int 1
+        def i:int 0
+        while (i < (array_length starts)) {
+            if ((itemAt starts i) <= line) {
+                best = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; the slides (1-based, ascending, once each) base lines [from, to) are
+    ; on; an insertion (from == to) is on the slide of the line before it
+    sfn slidesOf:[int] (starts:[int] from:int to:int) {
+        def out:[int]
+        if (from == to) {
+            def ln:int (from - 1)
+            if (ln < 0) {
+                ln = 0
+            }
+            push out (WorkSpans.slideOfLine(starts ln))
+            return out
+        }
+        def l:int from
+        while (l < to) {
+            def s:int (WorkSpans.slideOfLine(starts l))
+            if ((WorkSpans.has(out s)) == false) {
+                push out s
+            }
+            l = (l + 1)
+        }
+        return out
+    }
+
+    sfn has:boolean (list:[int] n:int) {
+        for list x:int i {
+            if (x == n) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; a and b together, ascending, once each
+    sfn union:[int] (a:[int] b:[int]) {
+        def out:[int]
+        for a x:int i {
+            if ((WorkSpans.has(out x)) == false) {
+                push out x
+            }
+        }
+        for b y:int j {
+            if ((WorkSpans.has(out y)) == false) {
+                push out y
+            }
+        }
+        return (WorkSpans.sorted(out))
+    }
+
+    sfn sorted:[int] (list:[int]) {
+        def out:[int]
+        for list x:int i {
+            push out x
+        }
+        def n:int (array_length out)
+        def a:int 1
+        while (a < n) {
+            def cur:int (itemAt out a)
+            def b:int (a - 1)
+            def going:boolean true
+            while ((b >= 0) && going) {
+                if ((itemAt out b) > cur) {
+                    set out (b + 1) (itemAt out b)
+                    b = (b - 1)
+                } {
+                    going = false
+                }
+            }
+            set out (b + 1) cur
+            a = (a + 1)
+        }
+        return out
+    }
+
+    ; "2, 3 and 5"
+    sfn listText:string (nums:[int]) {
+        def parts:[string]
+        for nums n:int i {
+            push parts (to_string n)
+        }
+        def k:int (array_length parts)
+        if (k <= 1) {
+            return (join parts "")
+        }
+        def head:[string]
+        def i2:int 0
+        while (i2 < (k - 1)) {
+            push head (itemAt parts i2)
+            i2 = (i2 + 1)
+        }
+        return ((join head ", ") + " and " + (itemAt parts (k - 1)))
+    }
+}
+
+; An edit made on an older version of the deck, merged with what was saved
+; since.
+class WorkMerge {
+    ; the merged Markdown, when there is no conflict
+    def text:string ""
+    def conflicts:int 0
+    ; slides (1-based, numbered as in the base) both sides changed at the
+    ; same lines
+    def clash:[int]
+    ; slides the saves since the base changed, and the ones this edit changes
+    def theirs:[int]
+    def mine:[int]
+
+    fn clean:boolean () {
+        return (conflicts == 0)
+    }
+
+    ; base: the version the edit started from; saved: the deck now; mine:
+    ; the edit. starts: the line each slide of base starts on.
+    sfn run:WorkMerge (base:string saved:string mine:string starts:[int]) {
+        def w (new WorkMerge)
+        def dm:RdLineDiff (RdText.diff(base mine))
+        def dt:RdLineDiff (RdText.diff(base saved))
+        w.mine = (WorkMerge.changed(dm starts))
+        w.theirs = (WorkMerge.changed(dt starts))
+        def m:RdMerge (RdText.merge3(base mine saved))
+        w.conflicts = m.conflicts
+        if (m.conflicts == 0) {
+            w.text = (m.text("mine"))
+            return w
+        }
+        ; where: the slides of each pair of changes that meet in the base
+        def found:[int]
+        for dm.hunks hm:RdHunk i {
+            for dt.hunks ht:RdHunk j {
+                if (WorkMerge.meet(hm ht)) {
+                    def from:int hm.aStart
+                    if (ht.aStart < from) {
+                        from = ht.aStart
+                    }
+                    def to:int (hm.aStart + hm.aLen)
+                    if ((ht.aStart + ht.aLen) > to) {
+                        to = (ht.aStart + ht.aLen)
+                    }
+                    found = (WorkSpans.union(found (WorkSpans.slidesOf(starts from to))))
+                }
+            }
+        }
+        w.clash = found
+        return w
+    }
+
+    ; two changes of the base meet: their lines overlap, or both insert at
+    ; the same line (diff3 makes one region of them)
+    sfn meet:boolean (a:RdHunk b:RdHunk) {
+        if (a.aStart == b.aStart) {
+            return true
+        }
+        def aEnd:int (a.aStart + a.aLen)
+        def bEnd:int (b.aStart + b.aLen)
+        return ((a.aStart < bEnd) && (b.aStart < aEnd))
+    }
+
+    ; the slides (1-based, of base) an edit of base changes
+    sfn edited:[int] (base:string edit:string starts:[int]) {
+        return (WorkMerge.changed((RdText.diff(base edit)) starts))
+    }
+
+    ; the slides (1-based, of the base) a diff from the base changes
+    sfn changed:[int] (d:RdLineDiff starts:[int]) {
+        def out:[int]
+        for d.hunks h:RdHunk i {
+            out = (WorkSpans.union(out (WorkSpans.slidesOf(starts h.aStart (h.aStart + h.aLen)))))
+        }
+        return out
+    }
+}
