@@ -1481,6 +1481,8 @@ class PresApp {
     ; =========================================================================
     fn present:void (fromStart:boolean) {
         this.dropPick()
+        ; the comments' panel opens only when asked for
+        review.closePanel()
         mode = "present"
         this.viewReset()
         activeDia = -1
@@ -2854,7 +2856,7 @@ class PresApp {
     fn pointerMove:void (x:double y:double) {
         ; a drag selecting in a comment's text field
         if review.selecting {
-            review.dragTo(x)
+            review.dragTo(x y)
             chromeRev = (chromeRev + 1)
             return
         }
@@ -4748,7 +4750,22 @@ class PresApp {
 
     ; The slides' titles to the review (threads follow their slides), and
     ; where the stage and the slide are now.
+    def reviewSlide:int -1
+
     fn reviewReady:void () {
+        ; presenting, a thread of another slide closes when the slide changes
+        if (selected != reviewSlide) {
+            reviewSlide = selected
+            if ((mode == "present") && ((strlen review.openId) > 0)) {
+                def ot@(optional):PresReviewThread (review.model.find(review.openId))
+                if (!null? ot) {
+                    def otv:PresReviewThread (unwrap ot)
+                    if (otv.slide != selected) {
+                        review.closePanel()
+                    }
+                }
+            }
+        }
         def key:string ((to_string mdEditor.buf.version) + ":" + (to_string (deck.slideCount())))
         if (key != reviewTitlesKey) {
             reviewTitlesKey = key
@@ -4866,6 +4883,37 @@ class PresApp {
         return r
     }
 
+    ; The open comments with the Markdown of the slides they are on, for the
+    ; clipboard (PresReview.openMarkdown): a slide's Markdown is its section.
+    fn reviewOpenMarkdown:string () {
+        def src:string (this.source())
+        def l:MdLayout (deck.layout())
+        def secs:[PresPickSection] (PresPick.sections(src l.splitLevel))
+        def sources:[string]
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def k:int (PresPick.sectionAt(secs (this.spanFrom(i))))
+            if (k >= 0) {
+                def sec:PresPickSection (itemAt secs k)
+                push sources (substring src sec.start sec.end)
+            } {
+                push sources ""
+            }
+            i = (i + 1)
+        }
+        def name:string ""
+        if ((deck.slideCount()) > 0) {
+            def first:PresSlide (deck.slideAt(0))
+            name = first.title
+        }
+        return (review.model.openMarkdown(name review.titles sources))
+    }
+
+    ; the text a copy in review mode put aside ("review-copy")
+    fn reviewClip:string () {
+        return review.clip
+    }
+
     ; review mode's layer, for the page to paint where `layerOrder` puts it
     fn reviewJson:string () {
         if ((review.on == false) || ((deck.slideCount()) == 0)) {
@@ -4905,7 +4953,12 @@ class PresApp {
             this.showSlideForReview(to)
         }
         while ((array_length review.requests) > 0) {
-            push requests (itemAt review.requests 0)
+            def rq:string (itemAt review.requests 0)
+            if (rq == "review-copy-open") {
+                review.clip = (this.reviewOpenMarkdown())
+                rq = "review-copy"
+            }
+            push requests rq
             remove_index review.requests 0
         }
         chromeRev = (chromeRev + 1)

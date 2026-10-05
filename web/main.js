@@ -2708,6 +2708,9 @@ function handleRequests() {
       needsPaint = true;
     } else if (r.startsWith("copy:")) {
       copyShare(r.slice(5)).catch(fail);
+    } else if (r === "review-copy") {
+      // a comment thread, or the open comments with their slides (review mode)
+      writeClip(app.reviewClip()).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
     } else if (r.startsWith("select:")) {
       const [, id, ...rest] = r.split(":");
       const sel = document.getElementById(id);
@@ -3749,23 +3752,28 @@ async function editInAI(which) {
 }
 document.getElementById("aiClaude").addEventListener("click", () => { editInAI("claude"); });
 
+// Text to the clipboard: the async API, else a selected textarea; -> copied.
+async function writeClip(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (_) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.append(ta);
+    ta.select();
+    const copied = !!(document.execCommand && document.execCommand("copy"));
+    ta.remove();
+    focusKeys(app.focusTarget());
+    return copied;
+  }
+}
+
 // A copy button in the share dialog (drawn on the canvas): the browser copies.
 let copiedTimer = 0;
 async function copyShare(which) {
   const text = which === "show" ? window.__lastShareShow : which === "view" ? window.__lastShareView : window.__lastShare;
-  let copied = false;
-  try {
-    await navigator.clipboard.writeText(text);
-    copied = true;
-  } catch (_) {
-    const t = document.createElement("textarea");
-    t.value = text;
-    document.body.append(t);
-    t.select();
-    copied = !!(document.execCommand && document.execCommand("copy"));
-    t.remove();
-    focusKeys(app.focusTarget());
-  }
+  const copied = await writeClip(text);
   app.shareCopied(which, copied);
   needsPaint = true;
   clearTimeout(copiedTimer);

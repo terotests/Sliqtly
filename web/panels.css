@@ -287,3 +287,24 @@
 /* the header's box with some rows ticked: the accent, not a warning */
 .theme-pn .ui-checkbox-box-state-indeterminate { background-color: #2563eb; border-color: #2563eb; }
 .theme-pn .ui-checkbox-mark-state-indeterminate { stroke: #ffffff; }
+
+/* review mode's list of open comments ("N open" on the bar) */
+.rv-count:hover { color: #ffffff; }
+.rv-count-on { color: #fde047; }
+.rv-list { display: flex; flex-direction: column; gap: 10px; padding: 14px; flex-grow: 1; }
+.rv-list-head { display: flex; flex-direction: row; align-items: center; }
+.rv-list-title { flex-grow: 1; font-size: 15px; font-weight: 700; color: #09090b; }
+.rv-list-close { font-size: 16px; color: #52525b; padding: 0 4px; }
+.rv-list-btn {
+  align-self: flex-start; padding: 6px 12px; border-radius: 6px;
+  font-size: 13px; color: #fafafa; background-color: #18181b;
+}
+.rv-list-btn:hover { background-color: #27272a; }
+.rv-rows { display: flex; flex-direction: column; gap: 6px; }
+.rv-row { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px; background-color: #f4f4f5; }
+.rv-row:hover { background-color: #e4e4e7; }
+.rv-row-here { border-left: 3px solid #facc15; }
+.rv-row-slide { font-size: 11px; color: #71717a; }
+.rv-row-text { font-size: 13px; color: #09090b; }
+.rv-list-empty { font-size: 13px; color: #71717a; }
+.chat-text-box { align-self: stretch; }

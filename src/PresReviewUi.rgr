@@ -113,6 +113,13 @@ class PresReviewUi {
     def dragX:double 0.0
     def dragY:double 0.0
     def moveAsk:string ""
+    ; the list of open comments on the right ("N open" on the bar), and the
+    ; ids of its rows
+    def listing:boolean false
+    def rowIds:[string]
+    ; text the host puts on the clipboard ("review-copy"); "review-copy-open"
+    ; asks the host for the open comments with their slides' Markdown
+    def clip:string ""
 
     Constructor () {
         chat.setup("rv-chat" (PresI18n.t("Comment")))
@@ -128,7 +135,7 @@ class PresReviewUi {
     ; --- what shows -------------------------------------------------------------
 
     fn panelOpen:boolean () {
-        return (on && (drafting || ((strlen openId) > 0)))
+        return (on && ((drafting || listing) || ((strlen openId) > 0)))
     }
 
     ; the width the thread takes off the right edge while editing (presenting,
@@ -433,7 +440,7 @@ class PresReviewUi {
         } {
             b.addChild((this.label("rv-add" "rv-btn rv-btn-main" ("💬 " + (PresI18n.t("Comment"))))))
             def cnt:string ((to_string n) + " " + (PresI18n.t("open")))
-            b.addChild((this.label("rv-count" "rv-count" cnt)))
+            b.addChild((this.label("rv-count" (? listing "rv-count rv-count-on" "rv-count") cnt)))
             if (n > 0) {
                 b.addChild((this.label("rv-next" "rv-btn" ((PresI18n.t("Next")) + " ›"))))
             }
@@ -451,6 +458,10 @@ class PresReviewUi {
         p.overlayY = top
         p.width = (EVGUnit.px(panelW))
         p.height = (EVGUnit.px((h - top)))
+        if listing {
+            p.addChild((this.listEl()))
+            return p
+        }
         chat.clearActions()
         chat.readOnly = false
         chat.subtitle = ""
@@ -486,6 +497,8 @@ class PresReviewUi {
                 } {
                     chat.addAction("resolve" ("✓ " + (PresI18n.t("Resolve"))) "primary")
                 }
+                chat.addAction("copy" ("⧉ " + (PresI18n.t("Copy"))) "")
+                chat.addAction("list" ("☰ " + (PresI18n.t("All"))) "")
                 chat.subtitle = sub
                 this.fillChat(t)
             }
@@ -500,6 +513,99 @@ class PresReviewUi {
         push host.ctls chat
         p.addChild(cr)
         return p
+    }
+
+    ; The open comments: one row each (slide, first words, how many
+    ; messages), a press opens it; "Copy open comments" above them.
+    fn listEl:EVGElement () {
+        def none:[string]
+        rowIds = none
+        def box:EVGElement (UiTree.div("rv-list" "rv-list"))
+        def head:EVGElement (UiTree.div("rv-list-head" "rv-list-head"))
+        head.addChild((this.label("rv-list-title" "rv-list-title" (PresI18n.t("Comments")))))
+        head.addChild((this.label("rv-list-close" "rv-list-close" "×")))
+        box.addChild(head)
+        def order:[PresReviewThread] (model.openOrder())
+        if ((array_length order) > 0) {
+            box.addChild((this.label("rv-copy-open" "rv-list-btn" ("⧉ " + (PresI18n.t("Copy open comments"))))))
+        }
+        def rows:EVGElement (UiTree.div("rv-rows" "rv-rows"))
+        if ((array_length order) == 0) {
+            rows.addChild((this.label("rv-list-empty" "rv-list-empty" (PresI18n.t("No open comments.")))))
+        }
+        for order t:PresReviewThread i {
+            def rid:string ("rv-row-" + (to_string i))
+            push rowIds t.id
+            def cls:string "rv-row"
+            if (t.slide == slide) {
+                cls = "rv-row rv-row-here"
+            }
+            def r:EVGElement (UiTree.div(rid cls))
+            def top1:string ("[" + (to_string (i + 1)) + "] " + (this.slideName(t.slide)))
+            r.addChild((this.label((rid + "-s") "rv-row-slide" top1)))
+            def say:string (PresReviewUi.oneLine((t.firstText())))
+            if ((t.count()) > 1) {
+                say = (say + "  (" + (to_string (t.count())) + ")")
+            }
+            r.addChild((this.label((rid + "-t") "rv-row-text" say)))
+            rows.addChild(r)
+        }
+        box.addChild(rows)
+        return box
+    }
+
+    ; What in the list is under the point: "rv-list-close", "rv-copy-open",
+    ; "rv-row-<i>" or "" (its words are no control's, so looked up by id).
+    fn listAt:string (px:double py:double) {
+        if (null? host.lastPage) {
+            return ""
+        }
+        def pg:EVGElement (unwrap host.lastPage)
+        def ids:[string]
+        push ids "rv-list-close"
+        push ids "rv-copy-open"
+        def i:int 0
+        while (i < (array_length rowIds)) {
+            push ids ("rv-row-" + (to_string i))
+            i = (i + 1)
+        }
+        for ids id:string k {
+            def f@(optional):EVGElement (host.findEl(pg id))
+            if (!null? f) {
+                def el:EVGElement (unwrap f)
+                if (host.containsPoint(el px py)) {
+                    return id
+                }
+            }
+        }
+        return ""
+    }
+
+    ; the list row a page id is in, -1 none
+    fn rowAt:int (tid:string) {
+        if ((indexOf tid "rv-row-") != 0) {
+            return -1
+        }
+        def rest:string (substring tid 7 (strlen tid))
+        def dash:int (indexOf rest "-")
+        if (dash >= 0) {
+            rest = (substring rest 0 dash)
+        }
+        def k:int (?? (to_int rest) -1)
+        if ((k < 0) || (k >= (array_length rowIds))) {
+            return -1
+        }
+        return k
+    }
+
+    fn openList:void () {
+        openId = ""
+        drafting = false
+        armed = false
+        typing = false
+        selecting = false
+        listing = true
+        this.changed()
     }
 
     ; the thread's messages into the chat, as they are now
@@ -639,6 +745,13 @@ class PresReviewUi {
             if (tid == "rv-next") {
                 this.openNext()
             }
+            if (tid == "rv-count") {
+                if listing {
+                    this.closePanel()
+                } {
+                    this.openList()
+                }
+            }
             return true
         }
         def pin:string (this.pinAt(px py))
@@ -666,7 +779,7 @@ class PresReviewUi {
             return ""
         }
         def pg:EVGElement (unwrap host.lastPage)
-        for ([] _:string ("rv-add" "rv-cancel" "rv-next")) id:string i {
+        for ([] _:string ("rv-add" "rv-cancel" "rv-next" "rv-count")) id:string i {
             def f@(optional):EVGElement (host.findEl(pg id))
             if (!null? f) {
                 def el:EVGElement (unwrap f)
@@ -680,6 +793,7 @@ class PresReviewUi {
 
     fn startDraft:void (s:int x:double y:double) {
         openId = ""
+        listing = false
         armed = false
         drafting = true
         draftSlide = s
@@ -701,6 +815,7 @@ class PresReviewUi {
         def none:[UiChatMessage]
         chat.messages = none
         drafting = false
+        listing = false
         armed = false
         openId = id
         def t:PresReviewThread (unwrap (model.find(id)))
@@ -710,6 +825,7 @@ class PresReviewUi {
 
     fn closePanel:void () {
         openId = ""
+        listing = false
         drafting = false
         armed = false
         typing = false
@@ -781,8 +897,37 @@ class PresReviewUi {
     }
 
     fn panelPress:void (px:double py:double clicks:int shift:boolean) {
+        if listing {
+            def tid:string (this.listAt(px py))
+            if (tid == "rv-list-close") {
+                this.closePanel()
+                return
+            }
+            if (tid == "rv-copy-open") {
+                push requests "review-copy-open"
+                return
+            }
+            def k:int (this.rowAt(tid))
+            if (k >= 0) {
+                def f@(optional):PresReviewThread (model.find((itemAt rowIds k)))
+                if (!null? f) {
+                    def t:PresReviewThread (unwrap f)
+                    if (t.slide != slide) {
+                        wantSlide = t.slide
+                    }
+                    this.openThread(t.id)
+                }
+            }
+            return
+        }
         def tid:string (host.hitTest(px py))
         def c:string chat.tid
+        if (chat.owns(tid) && ((indexOf tid ((c + "-m-"))) == 0)) {
+            ; a message's words: select them
+            selecting = (chat.textPointerDownAt(tid px py clicks shift))
+            this.changed()
+            return
+        }
         if (chat.input.owns(tid)) {
             typing = true
             selecting = (chat.textPointerDown(tid px clicks shift))
@@ -803,10 +948,10 @@ class PresReviewUi {
         this.changed()
     }
 
-    fn dragTo:void (px:double) {
+    fn dragTo:void (px:double py:double) {
         if selecting {
-            chat.textPointerDrag(px)
-            rev = (rev + 1)
+            chat.textPointerDragAt(px py)
+            this.changed()
         }
     }
 
@@ -946,6 +1091,14 @@ class PresReviewUi {
                 this.save()
             }
         }
+        if (act == "copy") {
+            clip = (model.threadText(openId titles))
+            push requests "review-copy"
+        }
+        if (act == "list") {
+            this.openList()
+            return
+        }
         if (act == "reopen") {
             if (model.setClosed(openId false meWho nowMs)) {
                 armed = false
@@ -986,7 +1139,7 @@ class PresReviewUi {
     }
 
     fn copyText:string () {
-        return (chat.input.selectedText())
+        return (chat.selectedText())
     }
 
     fn selectAll:void () {
@@ -996,7 +1149,17 @@ class PresReviewUi {
 
     fn cursorAt:string (px:double py:double) {
         if (this.inPanel(px py)) {
+            if listing {
+                def lt:string (this.listAt(px py))
+                if ((((this.rowAt(lt)) >= 0) || (lt == "rv-copy-open")) || (lt == "rv-list-close")) {
+                    return "pointer"
+                }
+                return "default"
+            }
             def tid:string (host.hitTest(px py))
+            if (chat.owns(tid) && ((indexOf tid (chat.tid + "-m-")) == 0)) {
+                return "text"
+            }
             if (chat.input.owns(tid)) {
                 return "text"
             }
