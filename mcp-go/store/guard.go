@@ -15,6 +15,9 @@ type Principal struct {
 	TenantID string
 	Groups   []string
 	Roles    []string
+	// Rooms is what p may do in each room, read at the start of the
+	// request (Rooms.Access): RoomPolicy decides from it
+	Rooms map[string]Role
 }
 
 func (p Principal) HasRole(r string) bool {

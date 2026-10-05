@@ -3,7 +3,7 @@
 package store
 
 // OwnerPolicy is access by ownership inside a tenant, the model the
-// containers start from:
+// tests and single-owner documents use (rooms use RoomPolicy):
 //
 //	tenant    the document's tenant: nobody outside it reads or writes it
 //	owner     the user who owns it: reads and writes it

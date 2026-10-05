@@ -43,6 +43,7 @@ func Run(t *testing.T, open func(t *testing.T) store.Engine) {
 		{"GuardWrite", guardWrite},
 		{"GuardTenant", guardTenant},
 		{"Links", links},
+		{"Rooms", rooms},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -187,7 +188,7 @@ func seed(t *testing.T, e store.Engine) {
 		"f1": {"kind": "folder", "owner": "carol"},
 	}
 	for id, d := range docs {
-		must(store.Put(ctx, e, "containers", id, d, 0))
+		must(store.Put(ctx, e, "items", id, d, 0))
 	}
 }
 
@@ -203,7 +204,7 @@ func query(t *testing.T, e store.Engine) {
 	seed(t, e)
 	q := func(w store.Expr) []string {
 		t.Helper()
-		return ids(must(e.Query(ctx, store.Query{From: "containers", Where: w})))
+		return ids(must(e.Query(ctx, store.Query{From: "items", Where: w})))
 	}
 	eq(t, q(nil), []string{"e1", "f1", "t1", "t2", "t3"}, "all, by id")
 	eq(t, q(store.And{store.Eq("kind", "ticket"), store.Eq("owner", "alice")}), []string{"t1", "t3"}, "and")
@@ -228,15 +229,15 @@ func query(t *testing.T, e store.Engine) {
 
 func queryOrder(t *testing.T, e store.Engine) {
 	seed(t, e)
-	q := store.Query{From: "containers", Where: store.Eq("kind", "ticket"), OrderBy: []store.Order{{Field: "updated", Desc: true}}}
+	q := store.Query{From: "items", Where: store.Eq("kind", "ticket"), OrderBy: []store.Order{{Field: "updated", Desc: true}}}
 	eq(t, ids(must(e.Query(ctx, q))), []string{"t1", "t3", "t2"}, "by time, newest first")
 	q.Limit, q.Offset = 1, 1
 	eq(t, ids(must(e.Query(ctx, q))), []string{"t3"}, "a page")
-	q = store.Query{From: "containers", OrderBy: []store.Order{{Field: "owner"}, {Field: "n", Desc: true}}}
+	q = store.Query{From: "items", OrderBy: []store.Order{{Field: "owner"}, {Field: "n", Desc: true}}}
 	eq(t, ids(must(e.Query(ctx, q))), []string{"e1", "t1", "t3", "t2", "f1"}, "two keys")
-	q = store.Query{From: "containers", OrderBy: []store.Order{{Field: "updated"}}}
+	q = store.Query{From: "items", OrderBy: []store.Order{{Field: "updated"}}}
 	eq(t, ids(must(e.Query(ctx, q))), []string{"t2", "t3", "t1", "e1", "f1"}, "missing last")
-	items := must(e.Query(ctx, store.Query{From: "containers", Where: store.Eq("_id", "t1")}))
+	items := must(e.Query(ctx, store.Query{From: "items", Where: store.Eq("_id", "t1")}))
 	eq(t, []any{items[0].Rev, items[0].Doc["owner"]}, []any{store.Rev(1), "alice"}, "item")
 }
 

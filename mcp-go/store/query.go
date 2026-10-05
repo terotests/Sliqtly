@@ -14,12 +14,12 @@ import (
 // (RangerSQL) parses into it. Field names are dotted paths into the
 // document ("meta.kind"); "_id" is the document's id.
 //
-//	SELECT … FROM containers WHERE kind = 'ticket' AND owner = ?
+//	SELECT … FROM rooms WHERE kind = 'ticket' AND owner = ?
 //	ORDER BY updated DESC LIMIT 50
 //
 // is
 //
-//	Query{From: "containers", Where: And{Eq("kind", "ticket"), Eq("owner", u)},
+//	Query{From: "rooms", Where: And{Eq("kind", "ticket"), Eq("owner", u)},
 //	      OrderBy: []Order{{"updated", true}}, Limit: 50}
 type Query struct {
 	From    string

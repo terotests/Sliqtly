@@ -1,8 +1,8 @@
 # ADR 0001: The Room is Sliqtly's top-level concept
 
-Status: proposed (2026-10-05). Decides what the storage schema is built
-around before it is fixed; the store contract (`mcp-go/store`) is already
-shaped so either answer fits it.
+Status: accepted (2026-10-05, Tero). Decides what the storage schema is
+built around. The store contract (`mcp-go/store`) implements it: `Rooms`,
+`RoomPolicy`, `Links`, `LinkTypes`.
 
 ## The question
 
@@ -12,7 +12,9 @@ Ticket/Container (Jira-shaped: epic, story, folder), or a Room?
 ## Decision
 
 **Room.** A room is Sliqtly's own collaboration context: who works
-together, on which documents and files. A deck lives in exactly one room. A
+together, on which documents and files. It bounds a subject, for example
+one task; it often matches one ticket. A room holds many presentations, and
+a presentation has its own files. A deck lives in exactly one room. A
 Jira issue, a GitHub issue or a Confluence page is an external object that
 a room *refers to*; it does not decide the room's shape. Jira's hierarchy
 (epic → story) is metadata of the external system, or a `parent` room link,
@@ -61,13 +63,18 @@ On the folder and SQLite the same rule is the application's `Policy`
 
 ```
 ROOM_LINK  from_room  to_room  kind
-kind ∈ { references, inherits_files, related, parent }   (fixed list to start)
 ```
+
+Link kinds are a configurable list (`LinkTypes`), with built-in ones used
+from the start: `relates_to` (symmetric), `parent` / `child` (one pair:
+"A child of B" is kept as "B parent of A"), `references`,
+`inherits_files`. A link is kept in one direction only, so a pair's two
+names and a symmetric link's two orders are one link with one id; a kind
+not configured is refused.
 
 A link never grants access. "A references B" does not let A's members read
 B. A link is shown to a principal only when they can read both rooms. A
-link's id is made of its ends and kind (`store.LinkID`); `related` is
-symmetric. So the same link exists once, in a folder as in SQL, where the
+link's id is made of its ends and kind as kept (`store.LinkID`). So the same link exists once, in a folder as in SQL, where the
 id is the primary key and `(tenant, from, kind, to)` is also unique.
 
 No general "room contains room" nesting for now: hierarchy is `parent`
@@ -75,7 +82,8 @@ links, any depth, nothing required, cycles refused when a link is added.
 
 ## Files: per document, opt-in inheritance
 
-A document does not automatically see all of its room's data:
+A document does not automatically see its room's files: sharing is off
+unless the document turns it on (`inherit_room_files`, default no).
 
 ```
 Room files: logo.svg, metrics.xlsx
@@ -107,15 +115,15 @@ EXT_REF, and one epic can refer to many rooms.
 
 1. The store contract and tests (done: `mcp-go/store`).
 2. Folder server, format 3: every user gets a room "Omat"/"Mine". Every
-   existing deck moves into it with `inherit_room_files = no`, its files
-   staying its own. URLs (`/s/{id}`, `/files/shares/{id}/…`) do not
+   existing deck moves into it (its home room) with
+   `inherit_room_files = no`, its files staying its own. URLs (`/s/{id}`, `/files/shares/{id}/…`) do not
    change. The existing format migration (hard-link backup, conflicts set
    aside) does the move.
 3. SQLite: `store.Copy` + `store.Verify` (revisions kept, digests
    compared); the folder is left as it was, so going back is starting on
    it.
-4. Cloud: Firestore collections and rules on `room_id`; PostgreSQL + RLS
-   as the enterprise backend.
+4. PostgreSQL + RLS: important, right after SQLite; the cloud (Firestore
+   collections and rules on `room_id`) after that.
 
 ## Consequences
 
@@ -128,11 +136,15 @@ EXT_REF, and one epic can refer to many rooms.
   rule above: resources are rows pointing at `room_id`, not fields of the
   room.
 
-## Open
+## Decided with it (2026-10-05)
 
-- Deleting a room: its documents go with it, or move to the owner's
-  "Mine" room?
-- Default `inherit_room_files` for a new deck made inside a room (proposed:
-  yes; existing decks migrate with no).
-- Cloud (Firestore) in the first step, or the folder server and SQLite
-  first?
+- A room often matches a ticket, but it is the subject boundary, not the
+  ticket: a room holds several presentations, each with its files.
+- A document has one home room; it shows in others through links.
+- Room files are not shared by default (`inherit_room_files = no`).
+- Link kinds: a configurable list with built-ins (relates_to, parent /
+  child, references, inherits_files).
+- A room is archived, not deleted: read only for everyone, its owners
+  too, until taken out of the archive; nothing in it is removed, and it
+  is not listed unless asked for.
+- Order: folder and SQLite first; PostgreSQL is important and next.

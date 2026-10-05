@@ -13,20 +13,20 @@ import (
 	"time"
 )
 
-// Links join things the system knows: a deck to a ticket, a ticket to its
-// epic, a deck to another, a file to the deck it came from. A link is a
+// Links join things the system knows: a room to another (parent, child,
+// references, inherits_files), a deck to a deck, a room to a Jira issue. A link is a
 // document of LinksCol whose id is made of what it joins (LinkID), so one
 // link between two things exists once, in a folder as in SQL (where the id
 // is the primary key and from/rel/to also a unique index), and adding it
-// again is no error and no second link.
+// again is no error and no second link. A link never grants access.
 
 // LinksCol is the collection the links are in.
 const LinksCol = "links"
 
 // Ref names one thing: kind and id, written "kind:id" ("deck:aB3xY9pQ2k",
-// "container:01J9…", "file:aB3xY9pQ2k/media/cat.png"). The id is the
-// system's own, never an external key: a Jira issue is a container with an
-// external reference, so it stays the same thing when renamed or moved.
+// "room:Xk2…", "file:aB3xY9pQ2k/media/cat.png", "jira:ABC-123"). A room's
+// or a deck's id is the system's own, never an external key, so it stays
+// the same when the Jira issue it refers to is renamed or moved.
 type Ref struct {
 	Kind string
 	ID   string
@@ -59,23 +59,11 @@ func ParseRef(s string) (Ref, error) {
 	return r, r.Valid()
 }
 
-// Symmetric relations have no direction: a link from a to b is the one
-// from b to a.
-var Symmetric = map[string]bool{"related": true}
-
 // Link is from —rel→ to.
 type Link struct {
 	From Ref
 	Rel  string
 	To   Ref
-}
-
-// canonical: a symmetric link is kept from the smaller ref
-func (l Link) canonical() Link {
-	if Symmetric[l.Rel] && l.To.String() < l.From.String() {
-		l.From, l.To = l.To, l.From
-	}
-	return l
 }
 
 func (l Link) Valid() error {
@@ -94,10 +82,9 @@ func (l Link) Valid() error {
 	return nil
 }
 
-// LinkID is the link's document id: the same for the same link, whoever
-// adds it and in whatever order the ends of a symmetric one are given.
+// LinkID is the document id of a link as kept (LinkTypes.Canonical):
+// the same for the same link, whoever adds it.
 func LinkID(l Link) string {
-	l = l.canonical()
 	h := sha256.Sum256([]byte(l.From.String() + "\x00" + l.Rel + "\x00" + l.To.String()))
 	return "l" + hex.EncodeToString(h[:16])
 }
@@ -114,8 +101,25 @@ type Resolver func(r Ref) (col, id string, ok bool)
 // the ends through the Store.
 type Links struct {
 	S       *Store
+	Types   *LinkTypes // nil: DefaultLinkTypes
 	Resolve Resolver
 	Now     func() time.Time
+}
+
+func (ls Links) types() *LinkTypes {
+	if ls.Types == nil {
+		return DefaultLinkTypes()
+	}
+	return ls.Types
+}
+
+// ID is the id the link is kept by, as given or as its inverse.
+func (ls Links) ID(l Link) (string, error) {
+	c, err := ls.types().Canonical(l)
+	if err != nil {
+		return "", err
+	}
+	return LinkID(c), nil
 }
 
 // the end is readable by p, or not one the store holds
@@ -147,7 +151,10 @@ func (ls Links) Add(ctx context.Context, p Principal, l Link, extra Doc) (string
 	if p.UserID == "" || p.TenantID == "" {
 		return "", false, ErrDenied
 	}
-	l = l.canonical()
+	l, err := ls.types().Canonical(l)
+	if err != nil {
+		return "", false, err
+	}
 	if !ls.canSee(ctx, p, l.From) || !ls.canSee(ctx, p, l.To) {
 		return "", false, ErrNotFound
 	}
@@ -164,7 +171,7 @@ func (ls Links) Add(ctx context.Context, p Principal, l Link, extra Doc) (string
 	d["created"] = now().UTC()
 	id := LinkID(l)
 	made := false
-	_, _, err := ls.S.Privileged().Update(ctx, LinksCol, id, func(cur Doc, _ Rev) (Doc, error) {
+	_, _, err = ls.S.Privileged().Update(ctx, LinksCol, id, func(cur Doc, _ Rev) (Doc, error) {
 		if cur != nil {
 			if cur["tenant"] != p.TenantID {
 				// the same ends in another tenant: refs are ids, so this
@@ -189,7 +196,10 @@ var errLinkThere = errors.New("store: link there")
 // none p may see).
 func (ls Links) Remove(ctx context.Context, p Principal, l Link) error {
 	e := ls.S.Privileged()
-	id := LinkID(l)
+	id, err := ls.ID(l)
+	if err != nil {
+		return err
+	}
 	d, rev, err := e.Get(ctx, LinksCol, id)
 	if err != nil || d == nil {
 		return err
@@ -203,7 +213,8 @@ func (ls Links) Remove(ctx context.Context, p Principal, l Link) error {
 	return Delete(ctx, e, LinksCol, id, rev)
 }
 
-// Of returns the links at r, either way round, that p may see.
+// Of returns the links at r that p may see, each read from r ("r child
+// of X" for a link kept as "X parent of r").
 func (ls Links) Of(ctx context.Context, p Principal, r Ref) ([]Link, error) {
 	if p.TenantID == "" || !ls.canSee(ctx, p, r) {
 		return nil, nil
@@ -217,7 +228,7 @@ func (ls Links) Of(ctx context.Context, p Principal, r Ref) ([]Link, error) {
 	var out []Link
 	for _, it := range items {
 		if l, ok := ls.visible(ctx, p, it.Doc); ok {
-			out = append(out, l)
+			out = append(out, ls.types().From(l, r))
 		}
 	}
 	return out, nil
