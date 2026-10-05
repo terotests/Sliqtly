@@ -21,6 +21,9 @@ pub enum KeyType {
     Membership = 0x14,
     ExternalRef = 0x15,
     CollabOp = 0x16,
+    Tree = 0x17,
+    Commit = 0x18,
+    BlobIndex = 0x19,
 
     // Indexes
     IdxRoomDoc = 0x20,
@@ -80,6 +83,10 @@ impl KeyBuilder {
         self.buf.extend_from_slice(normalized.as_bytes());
         self.buf.push(0); // Null terminator
         self
+    }
+
+    pub fn push_str(self, s: &str) -> Self {
+        self.push_string(s)
     }
 
     pub fn build(self) -> Vec<u8> {

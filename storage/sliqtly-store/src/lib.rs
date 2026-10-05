@@ -22,6 +22,8 @@
 //!     └──────────────────────┘
 //! ```
 
+pub mod blob_engine;
+pub mod blob_store;
 pub mod engine;
 pub mod error;
 pub mod key;
@@ -32,6 +34,8 @@ pub mod transaction;
 pub use error::{Error, Result};
 pub use record::{Document, Membership, Room, RoomId, UserId};
 pub use transaction::Database;
+pub use blob_store::BlobStore;
+pub use blob_engine::BlobEngine;
 
 use std::path::Path;
 

@@ -135,6 +135,13 @@ impl WriteTx {
         Ok(())
     }
 
+    /// Put raw key-value pair (for binary blobs and metadata).
+    /// Does not affect database until commit() is called.
+    pub fn put_raw(&mut self, key: Vec<u8>, value: Vec<u8>) -> Result<()> {
+        self.mutations.push((key, Some(value)));
+        Ok(())
+    }
+
     /// Commit all collected mutations atomically.
     /// Empty transactions return NoChanges and do not increment sequence.
     pub fn commit(self, db: &Database) -> Result<CommitSeq> {
