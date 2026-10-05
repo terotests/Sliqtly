@@ -88,7 +88,7 @@ class PresToolbar {
     ; Rooms beside the rail (a mock over ADR 0001 until the server has them)
     def roomsOpen:boolean false
     def roomsW:double 248.0
-    def roomOpen:string "q4"
+    def roomOpen:string "general"
     ; the server's rooms ("<id>\t<title>\t<presentations>" a line) and the
     ; open room's presentations ("<deck id>\t<name>\t<1 for the open deck>");
     ; none: the panel shows its sketch
@@ -724,6 +724,8 @@ class PresToolbar {
         if ((el.getChildCount()) > 0) {
             UiTree.addClass((el.getChild(0)) "tb-roomdeck-label")
         }
+        ; the name at the start, as the room's own row has it
+        el.addChild((this.div("tb-grow")))
         if current {
             UiTree.addClass(el "tb-roomdeck-current")
         }
@@ -748,21 +750,29 @@ class PresToolbar {
         if ((strlen here) == 0) {
             here = (PresI18n.t("Untitled"))
         }
-        this.roomRow(pane "q4" "Q4 board review" "3")
-        if (roomOpen == "q4") {
+        ; everything starts in General; Playground is for trying things
+        this.roomRow(pane "general" "General" "4")
+        if (roomOpen == "general") {
             this.roomDeck(pane "here" here true)
             this.roomDeck(pane "budget" "Budget 2027" false)
+            this.roomDeck(pane "kickoff" "Team kickoff" false)
+            this.roomDeck(pane "roadmap" "Roadmap" false)
+        }
+        this.roomRow(pane "playground" "Playground" "2")
+        if (roomOpen == "playground") {
+            this.roomDeck(pane "try" "Chart experiments" false)
+            this.roomDeck(pane "fx" "Effects test" false)
+        }
+        this.roomRow(pane "q4" "Q4 board review" "3")
+        if (roomOpen == "q4") {
+            this.roomDeck(pane "q4deck" "Q4 results" false)
             this.roomDeck(pane "risks" "Risks and mitigations" false)
+            this.roomDeck(pane "plan" "Plan for Q1" false)
         }
         this.roomRow(pane "slq" "SLQ-142 onboarding" "2")
         if (roomOpen == "slq") {
             this.roomDeck(pane "flow" "Signup flow" false)
             this.roomDeck(pane "copy" "Welcome copy" false)
-        }
-        this.roomRow(pane "launch" "Spring launch" "4")
-        if (roomOpen == "launch") {
-            this.roomDeck(pane "plan" "Launch plan" false)
-            this.roomDeck(pane "press" "Press kit" false)
         }
         pane.addChild((this.div("tb-rooms-sep")))
         this.roomRow(pane "archived" (PresI18n.t("Archived")) "7")

@@ -790,7 +790,7 @@ async function roomsRequest(r) {
   const [, action, ...rest] = r.split(":");
   if (action === "list") {
     const { rooms = [] } = await roomsCall("list_rooms");
-    const rows = rooms.map((x) => [x.room_id, x.kind === "home" ? t("My presentations") : clean(x.title), x.presentations ?? ""].join("\t"));
+    const rows = rooms.map((x) => [x.room_id, clean(x.title), x.presentations ?? ""].join("\t"));
     if (!rooms.some((x) => x.room_id === roomShown)) roomShown = rooms[0]?.room_id || "";
     app.setToolbarOptions("rooms", rows.join("\n"), roomShown);
     if (roomShown) await roomsRequest("room:open:" + roomShown);
