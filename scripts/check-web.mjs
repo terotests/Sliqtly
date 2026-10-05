@@ -4203,6 +4203,18 @@ try {
       await p.evaluate(() => window.__handleRequests());
     };
     const one = await row(pg);
+    // a deck that takes a moment to open: the logo of the page's start is
+    // not shown again (it flashed over the editor at every switch)
+    const slow = await pg.evaluate(async () => {
+      const el = document.getElementById("brandIntro");
+      let shown = false;
+      const seen = new MutationObserver(() => { if (!el.hidden) shown = true; });
+      seen.observe(el, { attributes: true });
+      let busy = false;
+      await window.__loadingScreen(() => new Promise((ok) => setTimeout(() => { busy = document.body.classList.contains("busy"); ok(); }, 800)));
+      seen.disconnect();
+      return { shown: shown || !el.hidden, busy, after: document.body.classList.contains("busy") };
+    });
     await go(pg, "sample:uutta");
     await pg.evaluate(() => window.__app.setSource("# Myynti 2027\n\nLuvut.\n"));
     await pg.waitForFunction(() => !window.__app.deckTabFront().startsWith("sample:"), null, { timeout: 15000 }).catch(() => {});
@@ -4236,6 +4248,7 @@ try {
     await go(pg, keptId);
     const back = await pg.evaluate(() => window.__app.source());
     check("deck tabs: the row is under the top bar and the editor under it", shape.y === shape.bar && shape.h === 40 && shape.edY === shape.bar + 40 && shape.wings === 3, JSON.stringify(shape));
+    check("deck tabs: a deck slow to open shows no logo, only a busy pointer", !slow.shown && slow.busy && !slow.after, JSON.stringify(slow));
     check("deck tabs: the deck shown has the one tab", one.length === 2 && one[0] === "sample:esittely", one.join(" | "));
     check("deck tabs: a sample's tab takes the deck's id once it is kept", keptId && !keptId.startsWith("sample:") && kept[2] === keptId + "\tMyynti 2027", kept.join(" | "));
     check("deck tabs: another deck adds a tab, in front", keysOf(three).join() === ["sample:esittely", keptId, "sample:welcome"].join() && three[0] === "sample:welcome", three.join(" | "));

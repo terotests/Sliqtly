@@ -70,6 +70,8 @@
   .evg-a11y :focus-visible { outline: 2px solid #2563eb !important; outline-offset: 2px; border-radius: 6px; }
   /* the bar is drawn on the canvas (PresToolbar); this one is what it presses */
   body.canvas-bar #bar { display: none; }
+  /* another deck being opened (loadingScreen in main.js) */
+  body.busy, body.busy canvas { cursor: progress !important; }
   /* Until the canvas is ready only the Sliqtly screen shows: the HTML bar
      would appear first and then give way to the one drawn on the canvas. */
   body.booting #bar { display: none; }
