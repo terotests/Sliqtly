@@ -4279,6 +4279,8 @@ const vMenu = document.getElementById("vMenu");
 const vMore = document.getElementById("vMore");
 const vExportSub = document.getElementById("vExportSub");
 const vExport = document.getElementById("vExport");
+const vCopySub = document.getElementById("vCopySub");
+const vCopy = document.getElementById("vCopy");
 const framed = location.protocol === "blob:" || !!document.querySelector('meta[name="sliqtly-link"]');
 function siteUrl(path) {
   return new URL(path, framed ? SITE + "/" : document.baseURI).href;
@@ -4292,8 +4294,7 @@ function toggleViewMenu(open) {
   vMenu.hidden = !open;
   vMore.setAttribute("aria-expanded", String(open));
   if (!open) {
-    vExportSub.hidden = true;
-    vExport.setAttribute("aria-expanded", "false");
+    openViewSub(null);
     return;
   }
   document.getElementById("vEdit").hidden = !ownsShare();
@@ -4334,12 +4335,26 @@ async function exportMd() {
 }
 window.__viewMenu = { toggle: toggleViewMenu, ownsShare, share: () => viewShare };
 vMore.addEventListener("click", () => toggleViewMenu(vMenu.hidden));
-vExport.addEventListener("click", () => {
-  vExportSub.hidden = !vExportSub.hidden;
-  vExport.setAttribute("aria-expanded", String(!vExportSub.hidden));
-  if (!vExportSub.hidden) vExportSub.querySelector("button").focus();
-});
+// Export ▸ and Copy ▸: one open at a time (null: neither)
+function openViewSub(which) {
+  for (const [btn, sub] of [[vExport, vExportSub], [vCopy, vCopySub]]) {
+    sub.hidden = btn !== which;
+    btn.setAttribute("aria-expanded", String(btn === which));
+  }
+  if (which) (which === vExport ? vExportSub : vCopySub).querySelector("button").focus();
+}
+vExport.addEventListener("click", () => openViewSub(vExportSub.hidden ? vExport : null));
+vCopy.addEventListener("click", () => openViewSub(vCopySub.hidden ? vCopy : null));
+// Copy ▸ Markdown: the deck's text; Copy ▸ Comments: the open comments
+// numbered, each slide's Markdown under them (PresReview.openMarkdown)
+const VIEW_COPIES = { md: () => app.source(), comments: () => app.reviewOpenMarkdown() };
 vMenu.addEventListener("click", (ev) => {
+  const what = ev.target.closest("[data-copy]")?.dataset.copy;
+  if (what && VIEW_COPIES[what]) {
+    toggleViewMenu(false);
+    writeClip(VIEW_COPIES[what]()).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
+    return;
+  }
   const act = ev.target.closest("[data-act]")?.dataset.act;
   if (!act) return;
   toggleViewMenu(false);
