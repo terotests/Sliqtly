@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// The DB and Bucket on a folder, for a server of one's own (SLIQTLY_DATA):
+// The DB and Bucket on a folder, for a server of one's own (SLIQTLY_DATA).
+// Since data format 4 the folder holds two SQLite files:
 //
-//	<root>/format.json                       the layout's version (datafmt.go)
-//	<root>/db/<collection>/<sh>/<id>.json    a document (store.FileStore); since
-//	                                         format 3 every deck has a home room
-//	<root>/files/<top>/<sh>/<name>/<rest>    a kept file: shares/{id}/media/x
-//	                                         is files/shares/<sh>/{id}/media/x
+//	<root>/format.json    the layout's version (datafmt.go)
+//	<root>/sliqtly.db     the documents (store.SQLiteStore), every deck in a
+//	                      home room, and the kept files by path (file_refs)
+//	<root>/blobs.db       the kept files' bytes by SHA-256, in chunks
+//	                      (store.SQLiteBlobStore); see sqlbucket.go
+//	<root>/backups/       what migrations kept of the folder as it was
 //
-// <sh> is shard(id), one of 256 folders, so no folder holds more than about
-// 1/256 of the decks: a folder of 100 000 entries is slow to list and to
-// back up. The addresses (/files/shares/{id}/…) do not change with it.
+// Formats 1–3 kept a JSON file per document under db/ and the files under
+// files/ (store.FileStore and shard folders); the migration to format 4
+// copies them into the two databases (datafmt.go intoSQLite).
 //
 // One process owns the folder (datafmt.go locks it). The documents are a
 // store.Engine; engineDB is the little of Firestore the Ranger side asks
@@ -23,12 +25,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/terotests/sliqtly/mcp-go/store"
@@ -46,11 +46,6 @@ var (
 // engineDB is host.go's DB on a store.Engine
 type engineDB struct{ e store.Engine }
 
-type fsBucket struct {
-	root string
-	mu   sync.Mutex
-}
-
 // the folder server's one tenant
 const localTenant = "local"
 
@@ -58,7 +53,7 @@ const localTenant = "local"
 // brings an older one up to it first, and a folder in another layout is
 // refused rather than read wrong. A deck written without a room goes to
 // General; user owns the starter rooms.
-func newFSStore(root, user string) (*engineDB, *fsBucket, error) {
+func newFSStore(root, user string) (*engineDB, *localBucket, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, nil, err
@@ -70,10 +65,8 @@ func newFSStore(root, user string) (*engineDB, *fsBucket, error) {
 	if have != currentFormat {
 		return nil, nil, fmt.Errorf("%s is in data format %d, this server reads %d: start it with -data to migrate", abs, have, currentFormat)
 	}
-	for _, d := range []string{"db", "files"} {
-		if err := os.MkdirAll(filepath.Join(abs, d), 0o750); err != nil {
-			return nil, nil, err
-		}
+	if err := os.MkdirAll(abs, 0o750); err != nil {
+		return nil, nil, err
 	}
 	// a new folder says which format it is in before anything is written
 	if !hasFormatFile(abs) {
@@ -82,13 +75,24 @@ func newFSStore(root, user string) (*engineDB, *fsBucket, error) {
 			return nil, nil, err
 		}
 	}
-	fs, err := store.NewFileStore(filepath.Join(abs, "db"))
+	docs, err := store.OpenSQLiteStore(filepath.Join(abs, docsFile))
 	if err != nil {
 		return nil, nil, err
 	}
-	e := &store.HomeRooms{Engine: fs, Cols: map[string]bool{"shares": true}, Tenant: localTenant, Owner: user}
-	return &engineDB{e}, &fsBucket{root: filepath.Join(abs, "files")}, nil
+	blobs, err := store.OpenSQLiteBlobStore(filepath.Join(abs, blobsFile))
+	if err != nil {
+		docs.Close()
+		return nil, nil, err
+	}
+	e := &store.HomeRooms{Engine: docs, Cols: map[string]bool{"shares": true}, Tenant: localTenant, Owner: user}
+	return &engineDB{e}, &localBucket{refs: store.NewFileRefs(docs), blobs: blobs}, nil
 }
+
+// the folder's two databases
+const (
+	docsFile  = "sliqtly.db"
+	blobsFile = "blobs.db"
+)
 
 func (d *engineDB) Get(ctx context.Context, col, id string) (Doc, error) {
 	doc, _, err := d.e.Get(ctx, col, id)
@@ -220,76 +224,6 @@ func (d *engineDB) Increment(ctx context.Context, col, id string, add Doc) error
 		return inc(cur, add), nil
 	})
 	return err
-}
-
-// a kept file's path inside the folder, refused when it would leave it
-func (b *fsBucket) file(path string) (string, error) {
-	clean := filepath.Clean(filepath.FromSlash(path))
-	if path == "" || filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("bad path %q", path)
-	}
-	return filepath.Join(b.root, shardedPath(clean)), nil
-}
-
-// shardedPath puts the shard of a path's second part in front of it:
-// shares/{id}/media/x → shares/<sh>/{id}/media/x. A one-part path stays.
-func shardedPath(clean string) string {
-	parts := strings.SplitN(clean, string(filepath.Separator), 3)
-	if len(parts) < 2 {
-		return clean
-	}
-	out := []string{parts[0], shard(parts[1]), parts[1]}
-	if len(parts) == 3 {
-		out = append(out, parts[2])
-	}
-	return filepath.Join(out...)
-}
-
-func (b *fsBucket) Name() string { return "local" }
-
-// the content type is kept beside the file, as <name>.type
-func (b *fsBucket) Save(_ context.Context, path, contentType string, data []byte, _ map[string]string) error {
-	p, err := b.file(path)
-	if err != nil {
-		return err
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if err := writeAtomic(p, data); err != nil {
-		return err
-	}
-	return writeAtomic(p+".type", []byte(contentType))
-}
-
-func (b *fsBucket) Read(_ context.Context, path string, limit int64) ([]byte, error) {
-	p, err := b.file(path)
-	if err != nil {
-		return nil, err
-	}
-	f, err := os.Open(p)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	return io.ReadAll(io.LimitReader(f, limit))
-}
-
-// the file and its content type for /files/…; ok false when there is none
-func (b *fsBucket) Open(path string) (f *os.File, contentType string, ok bool) {
-	p, err := b.file(path)
-	if err != nil || strings.HasSuffix(p, ".type") {
-		return nil, "", false
-	}
-	f, err = os.Open(p)
-	if err != nil {
-		return nil, "", false
-	}
-	if st, err := f.Stat(); err != nil || st.IsDir() {
-		f.Close()
-		return nil, "", false
-	}
-	ct, _ := os.ReadFile(p + ".type")
-	return f, string(ct), true
 }
 
 // the collections whose documents go once their `expires` has passed, as

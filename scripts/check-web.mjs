@@ -1059,6 +1059,16 @@ try {
     check("…Ctrl+click again lets one go; the bar's Export offers the picked", picked.list === "1,2,4" && picked.bar === 3 && picked.keys === "yksi,kaksi,neljä", JSON.stringify({ list: picked.list, bar: picked.bar, keys: picked.keys }));
     check("…the PDF and the PPTX of the picked slides have only them", picked.pdfPages === 3 && pptxNames.length === 3, JSON.stringify({ pdf: picked.pdfPages, pptx: pptxNames }));
     check("…their view keeps only their sections", picked.view.includes("## Yksi") && picked.view.includes("## Kaksi") && picked.view.includes("## Neljä") && !picked.view.includes("## Kolme"), picked.view);
+    // the right button on a picked slide opens its menu and keeps the pick
+    {
+      const at = await page.evaluate(() => { const a = window.__app; a.place(); const c = document.getElementById("c").getBoundingClientRect(); return [c.left + a.thumbX(3) + 30, c.top + a.thumbY() + 30]; });
+      await page.mouse.click(at[0], at[1], { button: "right" });
+      await page.waitForTimeout(150);
+      const kept = await page.evaluate(() => ({ list: window.__app.pickList(), menu: window.__app.toolbar.ctxOpen }));
+      await page.keyboard.press("Escape");
+      await page.evaluate(() => { window.__app.toolbar.closeMenus(); });
+      check("…a right click on a picked slide opens its menu and keeps the pick", kept.list === "1,2,4" && kept.menu, JSON.stringify(kept));
+    }
     await page.evaluate(() => { window.__lastShareView = ""; document.getElementById("share").click(); });
     await page.waitForFunction(() => !!window.__lastShareView, null, { timeout: 5000 }).catch(() => {});
     const viewUrl = await page.evaluate(() => window.__lastShareView || "");
@@ -1384,6 +1394,68 @@ try {
   check("…the slide shows the change while the sliders move", ed.live && ed.live.join() !== ed.before.join(), JSON.stringify({ before: ed.before, live: ed.live }));
   check("…and the window says how the slide's text reads over it", /^Slide \d+: /.test(ed.note || ""), JSON.stringify(ed.note));
   check("…and Save writes the adjusted picture over the file", ed.closed && grey && ed.after[0] < ed.before[0], JSON.stringify({ before: ed.before, after: ed.after, plan: ed.plan }));
+
+  // Edit image → Vectorize…: the picture traced in the worker (pres_trace.js),
+  // the slides showing the trace, a preset tracing it again, and Save keeping
+  // an SVG beside it that the Markdown then uses.
+  const vec = await page.evaluate(async (rel) => {
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+    const a = window.__app;
+    a.openAdjust("/" + rel, rel, 64, 40);
+    a.chart.act("ae-trace");
+    a.closeChart();
+    window.__handleRequests();
+    for (let i = 0; i < 50 && a.chart.mode !== "trace"; i += 1) { await sleep(100); window.__handleRequests(); }
+    let first = "";
+    for (let i = 0; i < 150 && !first; i += 1) { await sleep(100); window.__handleRequests(); first = a.chart.trPreview || a.chart.trErr; }
+    const win = JSON.parse(a.chartJson());
+    const shown = win.list.cmds.some((c) => c.k === 2 && c.src === a.chart.trPreview);
+    const onSlide = window.__pictureTag("/" + rel);
+    a.chart.act("tr-pre-photo");
+    a.writeChart();
+    window.__handleRequests();
+    let again = first;
+    for (let i = 0; i < 150 && again === first; i += 1) { await sleep(100); window.__handleRequests(); again = a.chart.trPreview || a.chart.trErr; }
+    const info = a.chart.trInfo;
+    const err = a.chart.trErr;
+    a.chart.act("tr-save");
+    a.closeChart();
+    window.__handleRequests();
+    const svg = rel.replace(/\.png$/, ".svg");
+    let files = [];
+    for (let i = 0; i < 150; i += 1) {
+      await sleep(100);
+      window.__handleRequests();
+      files = await window.__docFiles();
+      if (files.includes(svg) && a.source().includes("](" + svg + ")")) break;
+    }
+    return { mode: a.chart.mode, first, again, shown, onSlide, info, err, kept: files.includes(svg), md: a.source().includes("](" + svg + ")"), closed: !a.chartIsOpen() };
+  }, pic.rel);
+  check("Vectorize… traces the picture in the worker and shows it", vec.shown && /^\/__trace\//.test(vec.first) && !vec.err, JSON.stringify(vec));
+  check("…the slides show the trace while the window is open", vec.onSlide === "CANVAS", vec.onSlide);
+  check("…a preset traces it again", vec.again !== vec.first && /colors/.test(vec.info || ""), JSON.stringify({ first: vec.first, again: vec.again, info: vec.info }));
+  check("…and Save keeps the SVG and the Markdown uses it", vec.closed && vec.kept && vec.md, JSON.stringify(vec));
+
+  // a picture under the caret in the theme (url(…)): its card offers the
+  // image editor and the vectorizer
+  const picHint = await page.evaluate(() => {
+    const a = window.__app;
+    a.cssSet("page", "background-image", "url(media/bg.png)");
+    a.showTab("css");
+    const lines = a.themeCss().split("\n");
+    const ln = lines.findIndex((l) => l.includes("url(media/bg.png)"));
+    a.cssEditor.moveCaret(ln, lines[ln].indexOf("url(") + 6, false);
+    const h = JSON.parse(a.hintAtCaret() || "null");
+    a.openHint(JSON.stringify(h));
+    a.hintJson();
+    const walk = (e, f, out = []) => { if (f(e)) out.push(e); for (const k of e.children || []) walk(k, f, out); return out; };
+    const ids = walk(a.hint.host.lastPage, (e) => /^hp-pic-/.test(e.id || "")).map((e) => e.id);
+    a.closeHint();
+    a.undo();
+    a.showTab("md");
+    return { picture: h && h.picture, ids };
+  });
+  check("a picture's url() in the theme offers Edit image and Vectorize", picHint.picture === "media/bg.png" && picHint.ids.includes("hp-pic-edit") && picHint.ids.includes("hp-pic-trace"), JSON.stringify(picHint));
 
   // TeX math: $…$ in a line and a $$ display are drawn as filled outlines
   const math = await page.evaluate(() => {
@@ -1990,27 +2062,33 @@ try {
     });
     check("…over the Files tab the File menu is on top, and its row takes the press", onFiles.onTop && onFiles.underPanel && onFiles.reqs.includes("click:save") && onFiles.closed, JSON.stringify(onFiles));
 
-    // The left rail (EVGUI RailCtl): the places beside the bar. Files and
-    // Edit switch the editor's tab, Rooms opens beside the rail and moves the
+    // The left rail (EVGUI RailCtl): the places beside the bar. Its dark
+    // switch presses the bar's own; Rooms opens beside the rail and moves the
     // editor over; the deck's name at the start of the bar is a field when
     // pressed, and Enter renames the deck as one edit that undoes.
-    const railed = await page.evaluate(() => {
+    const findJs = `(id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); }`;
+    const railTop = await page.evaluate((findJs) => {
       const a = window.__app;
-      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const find = eval(findJs);
       const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
       const take = () => { const out = []; for (;;) { const r = a.takeRequest(); if (!r) break; out.push(r); } return out; };
       take();
       const edX0 = a.edRect.x;
-      press(find("tb-rail-files"));
-      const files = a.edTab;
-      press(find("tb-rail-edit"));
-      const md = a.edTab;
-      press(find("tb-rail-decks"));
-      const decks = take();
+      const places = ["rooms", "review", "history", "dark", "settings"].map((p) => !!find("tb-rail-" + p));
+      const gone = ["edit", "files", "decks", "help"].some((p) => !!find("tb-rail-" + p));
+      press(find("tb-rail-dark"));
+      const dark = take();
       press(find("tb-rail-rooms"));
       a.place();
-      const roomsX = a.edRect.x;
-      const roomsShown = !!find("tb-room-q4");
+      return { edX0, places, gone, dark, roomsX: a.edRect.x };
+    }, findJs);
+    // the rooms are the page's (this browser's here): General, Playground, Onboarding
+    await page.waitForFunction(() => { const a = window.__app; a.toolbarJson(); return JSON.stringify(a.toolbar.host.lastPage).includes("tb-room-onboarding"); }, null, { timeout: 5000 }).catch(() => {});
+    const railed = await page.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      const roomsShown = ["general", "playground", "onboarding"].every((r) => !!find("tb-room-" + r)) && !find("tb-room-q4");
       press(find("tb-rail-rooms"));
       a.place();
       const backX = a.edRect.x;
@@ -2024,8 +2102,8 @@ try {
       a.key("a", false, true);
       a.text("Renamed deck");
       a.key("enter", false, false);
-      return { edX0, files, md, decks, roomsX, roomsShown, backX, chevronX, editing, after: a.toolbar.titleEditing, fileX0 };
-    });
+      return { roomsShown, backX, chevronX, editing, after: a.toolbar.titleEditing, fileX0 };
+    }, findJs);
     await page.waitForFunction(() => window.__app.docTitle() === "Renamed deck", null, { timeout: 5000 }).catch(() => {});
     const renamed = await page.evaluate(() => {
       const a = window.__app;
@@ -2035,11 +2113,92 @@ try {
       a.undo();
       return { title, undone: a.docTitle(), tab: a.deckTabsState(), fileX1 };
     });
-    check("the rail sits left of the editor; Files and Edit switch its tab, Decks opens the presentations", railed.edX0 === 72 && railed.files === "files" && railed.md === "md" && railed.decks.includes("decks"), JSON.stringify(railed));
-    check("…Rooms opens beside the rail and the editor moves over, then back", railed.roomsShown && railed.roomsX === 72 + 248 && railed.backX === 72, JSON.stringify(railed));
+    check("the rail sits left of the editor: Rooms, Review, Versions, the dark switch and Settings; its switch presses the bar's", railTop.edX0 === 72 && railTop.places.every(Boolean) && !railTop.gone && railTop.dark.includes("click:modeBtn"), JSON.stringify(railTop));
+    check("…Rooms opens beside the rail with General, Playground and Onboarding, the editor moved over, then back", railed.roomsShown && railTop.roomsX === 72 + 248 && railed.backX === 72, JSON.stringify({ railTop, railed }));
     check("…the ‹ before the Rooms heading closes the panel", railed.chevronX === 72, JSON.stringify(railed));
     check("…the name's button keeps its width, so the menus after it stay put when the name changes", railed.fileX0 === renamed.fileX1, JSON.stringify({ before: railed.fileX0, after: renamed.fileX1 }));
     check("…the name at the start of the bar becomes a field; Enter renames the deck, as one edit that undoes", railed.editing && !railed.after && renamed.title === "Renamed deck" && renamed.undone !== "Renamed deck", JSON.stringify(renamed));
+
+    // Rooms' "+": a field for the name, Enter makes the room (this browser's,
+    // web/rooms.js) and opens it; its last row moves the open presentation in.
+    // A page of its own, with a deck kept in this browser.
+    const rctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+    const rp = await rctx.newPage();
+    await rp.goto(url + "?sample=esittely");
+    await rp.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await rp.evaluate(() => { const a = window.__app; a.setSource(a.source() + "\n\n## Huone\n\nteksti\n"); });
+    const pageHas = (needle) => rp.waitForFunction((n) => { const a = window.__app; a.toolbarJson(); return JSON.stringify(a.toolbar.host.lastPage).includes(n); }, needle, { timeout: 10000 }).then(() => true, () => false);
+    await rp.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      press(find("tb-rail-rooms"));
+    }, findJs);
+    await pageHas("tb-room-general");
+    const naming = await rp.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      press(find("tb-room-new"));
+      const field = !!find("tb-title-in") && a.toolbar.editFor === "room";
+      a.text("Team room");
+      a.key("enter", false, false);
+      return { field, after: a.toolbar.titleEditing };
+    }, findJs);
+    const made = await pageHas("Team room");
+    // the move row once the deck is kept (a list again after the save)
+    await rp.waitForTimeout(1500);
+    await rp.evaluate(() => window.__app.request("room:list"));
+    const canMove = await pageHas("tb-roomdeck-move");
+    if (canMove) await rp.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      press(find("tb-roomdeck-move"));
+    }, findJs);
+    const movedIn = await rp.waitForFunction(() => { try { const s = JSON.parse(localStorage.getItem("sliqtly.rooms")); const r = s.rooms.find((x) => x.title === "Team room"); return !!r && Object.values(s.placed).includes(r.id); } catch (_) { return false; } }, null, { timeout: 5000 }).then(() => true, () => false);
+    const moveGone = movedIn && await rp.waitForFunction(() => { const a = window.__app; a.toolbarJson(); return !JSON.stringify(a.toolbar.host.lastPage).includes("tb-roomdeck-move"); }, null, { timeout: 5000 }).then(() => true, () => false);
+    check("…Rooms' + asks a name; Enter makes the room, and the open presentation moves into it", naming.field && !naming.after && made && canMove && movedIn && moveGone, JSON.stringify({ naming, made, canMove, movedIn, moveGone }));
+    // a presentation dragged from its room's list onto General moves back
+    const dragged = await rp.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      a.toolbarJson();
+      const deckRow = JSON.stringify(a.toolbar.host.lastPage).match(/"(tb-roomdeck-d-[^"]+)"/);
+      const from = deckRow && find(deckRow[1]);
+      if (!from) return { from: false };
+      const room = a.toolbar.roomOpen;
+      a.pointerDown(from.calculatedX + 20, from.calculatedY + 8, false, 1);
+      a.pointerMove(from.calculatedX + 30, from.calculatedY + 30);
+      const to = find("tb-room-general");
+      if (!to) return { from: true, to: false };
+      a.pointerMove(to.calculatedX + 30, to.calculatedY + 10);
+      const lit = a.toolbar.dropRoom;
+      a.pointerUp();
+      return { from: true, to: true, lit, room };
+    }, findJs);
+    const backInGeneral = await rp.waitForFunction(() => { try { return Object.keys(JSON.parse(localStorage.getItem("sliqtly.rooms")).placed).length === 0; } catch (_) { return false; } }, null, { timeout: 5000 }).then(() => true, () => false);
+    check("…a presentation dragged onto another room moves there", dragged.room !== "general" && dragged.lit === "general" && backInGeneral, JSON.stringify({ dragged, backInGeneral }));
+    // the search row: a field whose text lists the rooms found
+    await rp.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      press(find("tb-roomsearch"));
+      a.text("team");
+    }, findJs);
+    const found = await rp.waitForFunction(() => { const r = window.__app.toolbar.roomRows; return r.includes("Team room") && !r.includes("Playground"); }, null, { timeout: 5000 }).then(() => true, () => false);
+    await rp.evaluate(() => window.__app.key("escape", false, false));
+    const back = await rp.waitForFunction(() => window.__app.toolbar.roomRows.includes("Playground"), null, { timeout: 5000 }).then(() => true, () => false);
+    check("…Search rooms lists the rooms found, Escape the active ones again", found && back, JSON.stringify({ found, back }));
+    await rp.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      press(find("tb-room-close"));
+      localStorage.removeItem("sliqtly.rooms");
+    }, findJs);
+    await rctx.close();
 
     // the File menu's groups: new | open | save | the assistants | settings, lines between them
     // that take no press

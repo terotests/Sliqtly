@@ -24,13 +24,14 @@ of it, and the rewrites pointed back at the function.
 | [`rgr/App.rgr`](rgr/App.rgr) | routing, CORS, the `/mcp` transport checks, sign-in on a request, the `/api/hit` beacon |
 | [`rgr/Stats.rgr`](rgr/Stats.rgr) | the site's cookieless visitor counts (`stats/<day>`), read by the Stats workflow (`ops/stats.mjs`) |
 | [`rgr/Mcp.rgr`](rgr/Mcp.rgr) | MCP: JSON-RPC, `initialize`, `tools/*`, `resources/*` |
-| [`rgr/Tools.rgr`](rgr/Tools.rgr) | the sixteen tools, their schemas and UI metadata, the preview resource; review comments (`list_comments`, `add_comment`, `resolve_comment`) read and write the editor's `review/comments.json` through its own model ([`src/PresReview.rgr`](../src/PresReview.rgr)) |
+| [`rgr/Tools.rgr`](rgr/Tools.rgr) | the tools, their schemas and UI metadata, the preview resource; review comments (`list_comments`, `add_comment`, `resolve_comment`) read and write the editor's `review/comments.json` through its own model ([`src/PresReview.rgr`](../src/PresReview.rgr)) |
 | [`rgr/Work.rgr`](rgr/Work.rgr), [`rgr/WorkStore.rgr`](rgr/WorkStore.rgr) | two assistants on one deck: `begin_work` / `end_work` claims (which slides, by whom, until when; `mcp_work/{id}`), and `update_presentation`'s `base_version`: an edit made on an older version is merged with what was saved since by RangerDiff's diff3 ([`src/RdText.rgr`](https://github.com/terotests/RangerDiff/blob/main/src/RdText.rgr), linked into Ranger as `gallery/rangerdiff` by `gen.mjs`), and refused with the slides it is on when both changed the same lines. Versions handed out are kept in `mcp_bases/{id}-{version}` (the newest 12). Board and deck are written only over what was read (`host_update_if`, a Firestore transaction or the folder store's lock) (`work_test.go`) |
 | [`rgr/OAuth.rgr`](rgr/OAuth.rgr) | the OAuth 2.1 server: registration, authorize, approve, token, refresh |
 | [`rgr/Store.rgr`](rgr/Store.rgr) | shares, edit keys, pictures, listing |
 | [`rgr/Deck.rgr`](rgr/Deck.rgr) | the checks: picture names and types, outline, warnings |
 | [`rgr/Charts.rgr`](rgr/Charts.rgr) | `bind_chart_data`: finds a deck's ```` ```vega-lite ```` charts and points one at a CSV/JSON URL or a Google Sheet |
 | [`rgr/Files.rgr`](rgr/Files.rgr) | a deck's data files: `list_files`, `read_file`, `write_workbook` and `files` on create/update; workbooks read and tidied as the editor reads them |
+| [`src/PresTrace.rgr`](../src/PresTrace.rgr) | `vectorize_image`: a deck's PNG or JPEG traced into an SVG with lib/evg's `EvgBitmapTracer`, compiled into the server like the rest; uses in the Markdown and the theme CSS pointed at it (`vectorize_test.go`) |
 | [`xlsxwrite.go`](xlsxwrite.go) | the .xlsx `write_workbook` keeps (values only), behind `host_xlsx_write` |
 | [`rgr/PresDataGo.rgr`](rgr/PresDataGo.rgr) | the editor's workbook reader ([`src/PresData.rgr`](../src/PresData.rgr), datagrid's XlsxLoader) compiled on its own to the package `presdata/` (generated, not committed): its XmlLite and the deck model's XmlCore both define `XmlAttr`, so they cannot share one compile |
 | [`rgr/Check.rgr`](rgr/Check.rgr) | the deck read by the editor's own model ([`src/PresDeck.rgr`](../src/PresDeck.rgr)): slide count, slides that run over, charts and diagrams that are not drawn |
@@ -235,31 +236,47 @@ What it serves besides `/mcp` (`local.go`, `localweb.go`):
 | `/api/socket` | the page's one stream, a WebSocket: the server's state, decks changed, the room of a deck edited together (`localevents.go`, `web/eventline.js`). A browser opens at most six HTTP/1.1 connections to a server for all its tabs, and WebSockets are counted apart from them. `/api/events` is the same as Server-Sent Events, which a page uses when a proxy in front does not pass WebSockets on |
 | `/healthz` | `ok`, or 503 while the folder is not ready |
 
-The folder (`fsstore.go`):
+The folder (`fsstore.go`), since data format 4 (ADR 0002):
 
 | | |
 | --- | --- |
 | `format.json` | the layout's version and what was done to it |
-| `db/<collection>/<sh>/<id>.json` | a document, written to a temporary file and renamed |
-| `files/shares/<sh>/{id}/…` | a deck's kept files, each with its content type in `<file>.type` |
+| `sliqtly.db` | SQLite: the documents (`store.SQLiteStore`), the kept files by path (`file_refs`: path → blob hash, size, type) and append-only logs such as a room's chat (`file_lines`) |
+| `blobs.db` | SQLite: the files' bytes by SHA-256, in 1 MiB chunks (`store.SQLiteBlobStore`); the same bytes under two paths are kept once |
 | `backups/` | the folder as it was before each migration (the three newest) |
 | `.lock` | held by the server using the folder |
 
-`<sh>` is one of 256 folders (two hex digits of a hash of the id), so no
-folder holds more than about 1/256 of the decks. Back the folder up by
-copying it; `cp -al` (hard links) costs no room, since nothing is written
-into a file in place.
+Both files use WAL with `synchronous=FULL`: a write is on disk when it
+returns. A file is written as its blob first and its path after, so a crash
+between the two leaves a blob nothing names, which the hourly sweep removes
+(after an hour's grace). Back up with `sqlite3 sliqtly.db ".backup x.db"`
+(or `VACUUM INTO`), not by copying the files while the server runs.
+
+Each database's schema is a numbered list of migrations
+(`store.SQLiteSchema`, `store.SQLiteBlobSchema`; `store/sqlmigrate.go`):
+`PRAGMA user_version` is the last applied, `schema_history` records each,
+a file at a newer version is refused, and an existing file is copied to
+`backups/` with `VACUUM INTO` before it is migrated.
+
+Formats 1–3 kept a JSON file per document (`db/<collection>/<sh>/<id>.json`)
+and the files under `files/shares/<sh>/{id}/…`; the migration to format 4
+copies them into the two databases, checks every document and file against
+the folder, and only then removes `db/` and `files/` (the backup keeps them).
 
 **Updates** (`datafmt.go`). A server started on a folder locks it, so a
 second server on the same folder stops with an error. A folder written by a
 newer server is refused rather than read wrong. An older one is migrated
 before anything reads it:
 
-1. A backup in `backups/<time>-format-<n>/`: every file hard-linked, so it
-   takes no room and keeps the old contents.
+1. A backup in `backups/<time>-format-<n>/`: every file of `db/` and
+   `files/` hard-linked, so it takes no room and keeps the old contents,
+   and from format 4 on a copy of `sliqtly.db`.
 2. Each migration in turn. A migration only renames, one entry at a time,
    and skips what is already in place, so a run cut short continues on the
    next start. Anything it would overwrite goes to `backups/conflicts/`.
+   The move to SQLite (3 → 4) builds the databases as `*.migrating`, checks
+   them, and renames them into place; a run cut short before that starts
+   over, one cut short after it only finishes removing the old folders.
 3. The number of files is checked against the number before. If it differs,
    the server stops there, with the folder and the backup as they are.
 

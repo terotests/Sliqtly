@@ -3,8 +3,11 @@
 package store_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,5 +67,114 @@ func TestCopyFolderToMemory(t *testing.T) {
 	store.Put(ctx, dst, "shares", "d1", store.Doc{"n": int64(9)}, store.AnyRev)
 	if err := store.Verify(ctx, dst, src); err == nil {
 		t.Fatal("a difference was not seen")
+	}
+}
+
+func TestSQLiteStore(t *testing.T) {
+	storetest.Run(t, func(t *testing.T) store.Engine {
+		s, err := store.OpenSQLiteStore(filepath.Join(t.TempDir(), "sliqtly.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	})
+}
+
+func TestSQLiteBlobStore(t *testing.T) {
+	storetest.RunBlobs(t, func(t *testing.T) store.BlobStore {
+		b, err := store.OpenSQLiteBlobStore(filepath.Join(t.TempDir(), "blobs.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	})
+}
+
+func TestFSBlobStore(t *testing.T) {
+	storetest.RunBlobs(t, func(t *testing.T) store.BlobStore {
+		b, err := store.NewFSBlobStore(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	})
+}
+
+// an upload stopped by a crash leaves chunks under its body; the next open
+// removes them and keeps every blob that was finished
+func TestSQLiteBlobUploadStopped(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "blobs.db")
+	b, err := store.OpenSQLiteBlobStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept, err := b.Put(ctx, bytes.NewReader([]byte("finished")), "text/plain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.DB().Exec(`INSERT INTO uploads (started) VALUES (1); INSERT INTO chunks (body, n, data) VALUES (last_insert_rowid(), 0, x'00ff')`); err != nil {
+		t.Fatal(err)
+	}
+	b.Close()
+	b, err = store.OpenSQLiteBlobStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	var chunks, uploads int
+	b.DB().QueryRow(`SELECT (SELECT count(*) FROM chunks), (SELECT count(*) FROM uploads)`).Scan(&chunks, &uploads)
+	if chunks != 1 || uploads != 0 {
+		t.Fatalf("%d chunks, %d uploads after reopen", chunks, uploads)
+	}
+	if _, err := b.Stat(ctx, kept.Hash); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// a file at a newer schema than this build knows is refused, and an
+// older one is backed up before it is migrated
+func TestSQLiteSchemaVersions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sliqtly.db")
+	s, err := store.OpenSQLiteStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.DB().Exec(`PRAGMA user_version = 99`)
+	s.Close()
+	if _, err := store.OpenSQLiteStore(path); err == nil || !strings.Contains(err.Error(), "newer server") {
+		t.Fatalf("newer schema: %v", err)
+	}
+
+	path2 := filepath.Join(dir, "two.db")
+	s, err = store.OpenSQLiteStore(path2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	store.Put(ctx, s, "shares", "a", store.Doc{"n": int64(1)}, 0)
+	next := append(append([]store.SQLMigration{}, store.SQLiteSchema...), store.SQLMigration{
+		Version: len(store.SQLiteSchema) + 1, Note: "test column", Up: store.SQLExec(`CREATE TABLE extra (x)`)})
+	rep, err := store.Migrate(ctx, s.DB(), path2, next, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.From != 1 || rep.To != 2 || rep.Backup == "" {
+		t.Fatalf("report %+v", rep)
+	}
+	var notes int
+	s.DB().QueryRow(`SELECT count(*) FROM schema_history`).Scan(&notes)
+	if notes != 2 {
+		t.Fatalf("%d history rows", notes)
+	}
+	s.Close()
+	old, err := store.OpenSQLiteStore(rep.Backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer old.Close()
+	if d, _, _ := old.Get(ctx, "shares", "a"); d["n"] != int64(1) {
+		t.Fatalf("backup holds %v", d)
 	}
 }

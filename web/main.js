@@ -22,7 +22,7 @@ import { sortFiles, pastePlan, fileClipboard, CLIP_KEY } from "./fileclip.js";
 import { deckKey, canReturn, reopenPlan, tabLabel, readDeckTabs, keepDeckTabs } from "./decktabs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
-import { scaled, previewOf, render } from "./image-adjust.js";
+import { scaled, previewOf, render, asPicture } from "./image-adjust.js";
 import { decodePicture, isSvg, isSmartArt, SMARTART_TYPE } from "./picture.js";
 import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versions.js";
 import { showHistory, askMerge } from "./versions-ui.js";
@@ -30,9 +30,11 @@ import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
+import { parseRooms, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, ONBOARDING } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
+import { secondaryPress, pickKeyHeld } from "./press.js";
 
 // One beacon per page load for the visitor counts (mcp-go/rgr/Stats.rgr): the
 // page, mobile or desktop on the server's side, and the site the visitor
@@ -296,6 +298,7 @@ async function placePasted() {
   app.placePicture(rel, plan.alt || "image", plan.to);
   dropThumbs();
   afterInput();
+  if (plan.trace && !isSvg(type, rel)) await openTraceEditor(rel);
 }
 
 // A picture of the files tab, clicked: the image editor (PresChartEditor's
@@ -388,6 +391,139 @@ function cropOf(plan) {
   if (plan.whole) return null;
   const [x, y, cw, ch] = String(plan.crop).split(",").map(Number);
   return cw > 0 && ch > 0 ? [x, y, cw, ch] : null;
+}
+
+// A picture of the deck traced into an SVG (PresChartEditor's "trace" mode,
+// opened from Edit image's "Vectorize…"). The tracer is src/PresTrace.rgr —
+// lib/evg's EvgBitmapTracer — in its own bundle, run in a worker
+// (trace-worker.js) so the page keeps drawing while it works. While the
+// window is open the slides show the latest trace; Save keeps it as an SVG
+// beside the picture and, when asked, points the picture's uses at it.
+let tracing = null;
+let traceWorker = null;
+let traceSeq = 0;
+const TRACE_MOST = 2000;
+
+function traceWorkerOf() {
+  if (!traceWorker) {
+    traceWorker = new Worker("./trace-worker.js?v=" + BUILD, { name: BUILD });
+    traceWorker.onmessage = (e) => traceResult(e.data).catch(fail);
+    traceWorker.onerror = (e) => {
+      traceWorker = null;
+      if (tracing) app.traceDone("", "", t("The vectorizer did not load: ") + (e.message || ""));
+      needsPaint = true;
+    };
+  }
+  return traceWorker;
+}
+
+async function openTraceEditor(path) {
+  const f = (await docFiles()).find((x) => x.path === path);
+  if (!f || !(f.data instanceof Blob)) { toast(t("This file cannot be opened as an image.")); return; }
+  const blob = f.data.type ? f.data : new Blob([f.data], { type: f.type || "image/png" });
+  if (isSvg(blob.type, path)) { toast(t("This picture is already a vector image.")); return; }
+  let bmp;
+  try {
+    bmp = await createImageBitmap(blob);
+  } catch (_) {
+    toast(t("This file cannot be opened as an image."));
+    return;
+  }
+  const w = bmp.width;
+  const h = bmp.height;
+  // the pixels the tracer gets: at most TRACE_MOST on the longer side (its
+  // own maxSide scales them further), drawn by the browser
+  const k = Math.min(1, TRACE_MOST / Math.max(w, h));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(w * k));
+  c.height = Math.max(1, Math.round(h * k));
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close();
+  const rgba = g.getImageData(0, 0, c.width, c.height).data;
+  dropTracing();
+  traceSeq += 1;
+  const orig = `/__trace/${Date.now().toString(36)}-${traceSeq}`;
+  pictures.set(orig, asPicture(c));
+  tracing = { path, w, h, rgba, rw: c.width, rh: c.height, orig, preview: null, svg: null, run: 0, original: pictures.get("/" + path), bytes: blob.size };
+  if (!app.openTrace(orig, path, w, h)) dropTracing();
+  needsPaint = true;
+}
+
+function runTrace() {
+  const tr = tracing;
+  if (!tr) return;
+  tr.run += 1;
+  const copy = tr.rgba.slice().buffer;
+  traceWorkerOf().postMessage({ seq: tr.run, rgba: copy, w: tr.rw, h: tr.rh, settings: app.traceSettings() }, [copy]);
+}
+
+function kb(n) {
+  return n < 1024 * 1024 ? Math.max(1, Math.round(n / 1024)) + " KB" : (n / 1048576).toFixed(1) + " MB";
+}
+
+async function traceResult(r) {
+  const tr = tracing;
+  // an answer for a window since closed, or for settings since changed
+  if (!tr || r.seq !== tr.run) return;
+  if (r.err || !r.svg) {
+    app.traceDone("", "", r.err || t("Nothing came out of the picture."));
+    needsPaint = true;
+    return;
+  }
+  const bytes = new TextEncoder().encode(r.svg);
+  const p = await decodePicture(bytes.buffer, "image/svg+xml", tr.path + ".svg");
+  if (tracing !== tr || r.seq !== tr.run) return;
+  if (!p.img) {
+    app.traceDone("", "", t("The SVG could not be drawn."));
+    needsPaint = true;
+    return;
+  }
+  tr.svg = r.svg;
+  if (tr.preview) pictures.delete(tr.preview);
+  tr.preview = `${tr.orig}-${r.seq}`;
+  pictures.set(tr.preview, p.img);
+  pictures.set("/" + tr.path, p.img);
+  let info = t("{n} colors, {size} SVG (the picture {was})").replace("{n}", String(r.layers)).replace("{size}", kb(bytes.byteLength)).replace("{was}", kb(tr.bytes));
+  if (r.tracedW && (r.tracedW !== tr.w || r.tracedH !== tr.h)) info += t(", traced at ") + r.tracedW + "×" + r.tracedH;
+  app.traceDone(tr.preview, info + ".", "");
+  needsPaint = true;
+}
+
+function dropTracing() {
+  const tr = tracing;
+  if (!tr) return;
+  pictures.delete(tr.orig);
+  if (tr.preview) pictures.delete(tr.preview);
+  if (tr.original) pictures.set("/" + tr.path, tr.original);
+  tracing = null;
+  needsPaint = true;
+}
+
+window.__traceState = () => (tracing ? { path: tracing.path, run: tracing.run, svg: tracing.svg ? tracing.svg.length : 0 } : null);
+
+async function saveTraced() {
+  const tr = tracing;
+  if (!tr) return;
+  const plan = JSON.parse(app.tracePlan());
+  const svg = tr.svg;
+  dropTracing();
+  if (!svg) { toast(t("Nothing was saved: the picture had not been vectorized yet.")); return; }
+  const files = await docFiles();
+  const base = tr.path.replace(/\.[^./]+$/, "");
+  let target = base + ".svg";
+  for (let i = 2; files.some((x) => x.path === target); i += 1) target = `${base}-${i}.svg`;
+  const bytes = new TextEncoder().encode(svg);
+  await addPicture("/" + target, bytes.buffer.slice(0), "image/svg+xml");
+  await keepFile({ path: target, type: "image/svg+xml", size: bytes.byteLength, data: new Blob([bytes], { type: "image/svg+xml" }) });
+  const n = plan.replace ? app.swapPictureRefs(tr.path, target) : 0;
+  dropThumbs();
+  afterInput();
+  needsPaint = true;
+  const said = n === 1 ? t("Saved {file}, used where the picture was.")
+    : n > 1 ? t("Saved {file}, used in {n} places instead of the picture.")
+    : t("Saved {file} beside the picture.");
+  toast(said.replace("{file}", target).replace("{n}", String(n)));
 }
 
 // A picture made again from its original and the edits made to it, one
@@ -493,12 +629,19 @@ function beginDoc(text) {
 
 // quiet: no tab for it (the empty deck shown while a deleted one's
 // successor is found)
+// the Rooms panel's state (its requests: roomsRequest, below)
+const ROOMS_KEY = "sliqtly.rooms";
+let roomShown = "";
+let roomsHere = parseRooms(null);
+try { roomsHere = parseRooms(localStorage.getItem(ROOMS_KEY)); } catch (_) { /* none kept */ }
 function shownDoc(text, quiet = false) {
   app.setSource(text);
   doc.loading = false;
   if (!viewer && !quiet) showDeckTab();
   loadReview(false).catch((e) => console.warn("review comments not read", e));
   loadRecording().catch((e) => console.warn("recording not read", e));
+  // the Rooms panel marks the presentation now open
+  if (!viewer && roomShown) roomsRequest("room:list").catch(() => {});
 }
 
 // --- the open presentations' tabs (web/decktabs.js) ------------------------------
@@ -784,9 +927,13 @@ async function newDeck(plan) {
 // (copy)"). This one is saved first; the copy is kept at once under an id of
 // its own (a PRO deck gets its own share).
 // Rooms beside the rail (ADR 0001): on a server of one's own its rooms
-// (POST /api/rooms/<op>), the open one's presentations under it; on the site
-// the panel keeps its sketch until the cloud has rooms.
-let roomShown = "";
+// (POST /api/rooms/<op>); elsewhere this browser's (web/rooms.js), kept in
+// localStorage. The open room's presentations are listed under it, at most
+// five, "… Show all" opening the rest in the presentations window.
+function keepRooms(next) {
+  roomsHere = next;
+  try { localStorage.setItem(ROOMS_KEY, JSON.stringify(next)); } catch (_) { /* this page only */ }
+}
 async function roomsCall(op, args) {
   const res = await fetch("/api/rooms/" + op, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(args || {}) });
   const out = await res.json().catch(() => ({}));
@@ -794,20 +941,125 @@ async function roomsCall(op, args) {
   return out;
 }
 const clean = (s) => String(s || "").replace(/[\t\n\r]+/g, " ");
+function sampleRows() {
+  return [...sampleSel.options].filter((o) => o.value).map((o) => ({ key: o.value, name: o.textContent.trim(), current: doc.src === "sample:" + o.value }));
+}
+// The rooms: [{ room_id, title, presentations }]
+async function roomsList() {
+  if (ownServer()) return (await roomsCall("list_rooms")).rooms || [];
+  return listRooms(roomsHere, await allDocs(), sampleRows());
+}
+// A room's presentations: [{ id, name, current }], ids as fileRequest's
+// "doc:" takes them ("sample:<key>" for a sample).
+async function roomRows(room) {
+  if (ownServer()) {
+    const g = await roomsCall("get_room", { room_id: room });
+    return (g.presentations || []).map((p) => ({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud }));
+  }
+  return roomDecks(roomsHere, room, await allDocs(), sampleRows());
+}
+// The open presentation's id in the room lists ("" while it is not kept yet,
+// as an unedited sample is not).
+async function currentRoomId() {
+  if (ownServer()) return doc.cloud ? "cloud:" + doc.cloud : "";
+  return (await allDocs()).find((d) => d.current)?.id || "";
+}
+// the search field's text while it is open (null: the rooms one is active in)
+let roomsQuery = null;
 async function roomsRequest(r) {
-  if (!ownServer()) return;
   const [, action, ...rest] = r.split(":");
+  const what = rest.join(":");
   if (action === "list") {
-    const { rooms = [] } = await roomsCall("list_rooms");
+    const q = roomsQuery;
+    const all = await roomsList();
+    // typed on since: that text's own list is the one to show
+    if (roomsQuery !== q) return;
+    // the rooms one is active in, or what the search finds; the open room
+    // stays listed
+    let rooms, hidden = 0;
+    const searching = q !== null && q.trim() !== "";
+    if (searching) rooms = searchRooms(all, q);
+    else ({ shown: rooms, hidden } = activeRooms(all, roomsHere));
+    if (!searching && !rooms.some((x) => x.room_id === roomShown)) {
+      const open = all.find((x) => x.room_id === roomShown);
+      if (open) rooms = [...rooms, open];
+      else roomShown = rooms[0]?.room_id || "";
+    }
     const rows = rooms.map((x) => [x.room_id, clean(x.title), x.presentations ?? ""].join("\t"));
-    if (!rooms.some((x) => x.room_id === roomShown)) roomShown = rooms[0]?.room_id || "";
+    app.setToolbarOptions("roomsearch", "", t("Search rooms…") + (hidden ? " (" + hidden + t(" more") + ")" : ""));
     app.setToolbarOptions("rooms", rows.join("\n"), roomShown);
-    if (roomShown) await roomsRequest("room:open:" + roomShown);
+    if (roomShown && rooms.some((x) => x.room_id === roomShown)) await roomsRequest("room:open:" + roomShown);
+    else app.setToolbarOptions("roomdecks", "", roomShown);
+  } else if (action === "search") {
+    roomsQuery = what;
+    await roomsRequest("room:list");
+  } else if (action === "searchend") {
+    roomsQuery = null;
+    await roomsRequest("room:list");
+  } else if (action === "searchgo" || action === "pick") {
+    // Enter: the first room found; a press: that room. Either is now one of
+    // the rooms one is active in
+    const id = action === "pick" ? what : searchRooms(await roomsList(), what)[0]?.room_id;
+    roomsQuery = null;
+    if (id) {
+      roomShown = id;
+      keepRooms(touchRoom(roomsHere, id));
+    }
+    await roomsRequest("room:list");
+  } else if (action === "drop") {
+    // a presentation dragged from the open room onto another
+    const [room, ...deck] = rest;
+    await roomsRequest("room:moveid:" + room + ":" + deck.join(":"));
+  } else if (action === "moveid") {
+    const [room, ...deckParts] = rest;
+    const deck = deckParts.join(":");
+    if (ownServer()) await roomsCall("move_presentation", { deck_id: deck.replace(/^cloud:/, ""), room_id: room });
+    else if (!deck.startsWith("sample:")) keepRooms(touchRoom(moveDeck(roomsHere, deck, room), room));
+    await roomsRequest("room:list");
   } else if (action === "open") {
-    roomShown = rest.join(":");
-    const g = await roomsCall("get_room", { room_id: roomShown });
-    const rows = (g.presentations || []).map((p) => [p.deck_id, clean(p.name) || t("presentation"), p.deck_id === doc.cloud ? "1" : ""].join("\t"));
-    app.setToolbarOptions("roomdecks", rows.join("\n"), roomShown);
+    roomShown = what;
+    keepRooms(touchRoom(roomsHere, roomShown));
+    const rows = await roomRows(roomShown);
+    const lines = deckLines(rows, {
+      showAll: "… " + t("Show all") + " (" + rows.length + ")",
+      moveHere: roomShown === ONBOARDING ? "" : "+ " + t("Move this presentation here"),
+      currentId: await currentRoomId(),
+    });
+    app.setToolbarOptions("roomdecks", lines, roomShown);
+  } else if (action === "deck") {
+    if (what.startsWith("sample:")) await openSample(what.slice(7));
+    else await fileRequest("doc:" + what);
+    await roomsRequest("room:list");
+  } else if (action === "all") {
+    // the samples are in Open; a room's decks in the presentations window
+    if (what === ONBOARDING) {
+      app.openOpen([...sampleSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
+    } else {
+      const title = (await roomsList()).find((x) => x.room_id === what)?.title || "";
+      decksRoom = { ids: new Set((await roomRows(what)).map((x) => x.id)), title };
+      await openDecks();
+    }
+  } else if (action === "create") {
+    if (ownServer()) {
+      const { room_id } = await roomsCall("create_room", { title: what });
+      roomShown = room_id || roomShown;
+    } else {
+      const made = createRoom(roomsHere, what, newId);
+      if (made.id) {
+        keepRooms(made.state);
+        roomShown = made.id;
+      }
+    }
+    await roomsRequest("room:list");
+  } else if (action === "move") {
+    const id = await currentRoomId();
+    if (!id) {
+      toast(t("Make a change first: a sample becomes a presentation of your own when it is edited."));
+    } else {
+      await roomsRequest("room:moveid:" + what + ":" + id);
+      return;
+    }
+    await roomsRequest("room:list");
   }
   needsPaint = true;
 }
@@ -1171,6 +1423,9 @@ async function allDocs(fresh = false) {
 // { by, dir }, kept as "by" or "by:dir" (a column's head pressed again
 // turns its order round)
 let decksSort = { by: "updated", dir: "desc" };
+// the room the window lists, from its "… Show all" ({ ids, title }), or null
+// for every presentation
+let decksRoom = null;
 try {
   const [by, dir] = (localStorage.getItem("sliqtly.decksSort") || "updated").split(":");
   decksSort = { by, dir: dir || firstDir(by) };
@@ -1180,7 +1435,10 @@ async function decksJson(fresh = false) {
   const note = cloudList.error
     ? t("The presentations in your cloud could not be read: ") + cloudList.error
     : signedOut ? t("Sign in (PRO) to see the presentations in your cloud, such as those made by an assistant.") : "";
-  return deckListJson(await allDocs(fresh), decksSort.by, t, note, decksSort.dir);
+  const all = await allDocs(fresh);
+  const rows = decksRoom ? all.filter((d) => decksRoom.ids.has(d.id)) : all;
+  const inRoom = decksRoom ? t("Room: ") + decksRoom.title : "";
+  return deckListJson(rows, decksSort.by, t, [inRoom, note].filter(Boolean).join(" · "), decksSort.dir);
 }
 async function openDecks() {
   if (!vfs) return;
@@ -1869,6 +2127,8 @@ function applySkin() {
   root.dataset.skin = skin || "standard";
   root.dataset.mode = lookTheme() === "dark" ? "dark" : "light";
   root.style.setProperty("--retro-hue", String(skinHue));
+  // the rail's switch shows Light while the editor is dark
+  app.setToolbarOptions("dark", "", lookTheme() !== "" ? "1" : "");
   const btn = document.getElementById("modeBtn");
   if (btn) {
     const dark = lookTheme() !== "";
@@ -2930,6 +3190,7 @@ function handleRequests() {
       try { localStorage.setItem(REVIEW_KEY, on ? "on" : "off"); } catch (_) { /* this session only */ }
       applyReviewMode();
     } else if (r === "decks") {
+      decksRoom = null;
       openDecks().catch(fail);
     } else if (r.startsWith("decks:")) {
       decksRequest(r).catch(fail);
@@ -3002,6 +3263,16 @@ function handleRequests() {
       saveAdjusted().catch(fail);
     } else if (r === "image-cancel") {
       dropAdjusting();
+    } else if (r.startsWith("image-edit:")) {
+      openImageEditor(r.slice(11)).catch(fail);
+    } else if (r.startsWith("image-trace:")) {
+      openTraceEditor(r.slice(12)).catch(fail);
+    } else if (r === "trace-run") {
+      runTrace();
+    } else if (r === "trace-save") {
+      saveTraced().catch(fail);
+    } else if (r === "trace-cancel") {
+      dropTracing();
     } else if (r === "sheet-edit") {
       liveSheets.editFirst();
     } else if (r.startsWith("data-keep:")) {
@@ -5385,8 +5656,9 @@ canvas.addEventListener("pointerdown", (ev) => {
     }
   }
   if (pinch) return;
-  // the secondary button on a slide of the strip: its menu (contextmenu below)
-  if (ev.button === 2 && app.inStrip(x, y)) {
+  // the secondary button (or Control + click on a Mac) on a slide of the
+  // strip: its menu (contextmenu below), not a press that picks the slide
+  if (secondaryPress(ev, IS_MAC) && app.inStrip(x, y)) {
     ev.preventDefault();
     return;
   }
@@ -5410,7 +5682,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   // on the stage becomes a drag
   app.setDragSlop(finger ? 16 : 6);
   app.setTouch(finger);
-  app.setCtrl(ev.ctrlKey || ev.metaKey);
+  app.setCtrl(pickKeyHeld(ev, IS_MAC));
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
   if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb" || where === "select" || where === "panel" || where === "decktabs") {
