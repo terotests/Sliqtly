@@ -494,12 +494,16 @@ the others' claims ("Also working on this deck").
 
 ## Exporting
 
-`export_presentation` (deck_id, `format`: `pdf` or `pptx`, optional
-`slides`: [2, 5]) makes the file the editor's File → Export makes and
-returns a download link for the user. The PPTX keeps text editable, with
-build steps, speaker notes and transitions; charts and diagrams are
-shapes. Effects (`fx=`) are left out; the editor's own export draws them.
-A new export of the same format replaces the file behind the old link.
+`export_presentation` (deck_id, `format`: `pdf`, `pptx`, `docx` or
+`html`, optional `slides`: [2, 5]) makes the file the editor's File →
+Export makes and returns a download link for the user. The PPTX keeps text
+editable, with build steps, speaker notes and transitions; charts and
+diagrams are shapes. `docx` (Word) and `html` (one self-contained web
+page) read the deck as a document: each slide's headings, text, lists,
+tables and formulas, its speaker notes under it, and charts and diagrams
+as pictures. Effects (`fx=`) are left out; the editor's own export draws
+them. A new export of the same format replaces the file behind the old
+link.
 
 ## A pull request as source
 

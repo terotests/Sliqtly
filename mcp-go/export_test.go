@@ -48,6 +48,21 @@ func squarePNG() []byte {
 	return b.Bytes()
 }
 
+// how many pixels of a picture are not (nearly) white
+func inked(im image.Image) int {
+	n := 0
+	b := im.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			r, g, bl, _ := im.At(x, y).RGBA()
+			if r < 0xe000 || g < 0xe000 || bl < 0xe000 {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 func TestExportPdfAndPptx(t *testing.T) {
 	f := fakeFirebase()
 	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
@@ -101,6 +116,64 @@ func TestExportPdfAndPptx(t *testing.T) {
 
 	bad := call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "pptx", "slides": []any{99}})
 	match(t, textOf(bad), `^No slide 99: the presentation has \d+ slides\.$`)
-	match(t, textOf(call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "docx"})), `format is pdf or pptx`)
+	match(t, textOf(call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "odt"})), `format is pdf, pptx, docx or html`)
+
+	// Word: the deck as a document; the charts as the pictures this server
+	// draws of them, the deck's picture as itself
+	w := call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "docx"})
+	if w.IsError {
+		t.Fatal(textOf(w))
+	}
+	match(t, textOf(w), `^Word document of "Q3 / review"`)
+	wd := f.bucket.saved["shares/"+id+"/exports/Q3 - review.docx"]
+	eq(t, wd.contentType, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	z, err := zip.NewReader(bytes.NewReader(wd.data), int64(len(wd.data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	media, body := 0, ""
+	var shot []byte
+	for _, zf := range z.File {
+		r, _ := zf.Open()
+		b, _ := io.ReadAll(r)
+		r.Close()
+		if strings.HasPrefix(zf.Name, "word/media/") {
+			media++
+			if strings.Contains(zf.Name, "image1") {
+				shot = b
+			}
+		}
+		if zf.Name == "word/document.xml" {
+			body = string(b)
+		}
+	}
+	if media < 3 {
+		t.Fatalf("two chart pictures and the deck's picture, got %d", media)
+	}
+	if !strings.Contains(body, "Twenty months") || !strings.Contains(body, "w:val=\"Heading2\"") {
+		t.Fatal("the slides' headings are not in the document")
+	}
+	im, err := png.Decode(bytes.NewReader(shot))
+	if err != nil {
+		t.Fatal("the chart's picture is not a PNG: ", err)
+	}
+	if im.Bounds().Dx() < 400 || inked(im) < 200 {
+		t.Fatalf("the chart's picture is empty or small: %v, %d inked pixels", im.Bounds(), inked(im))
+	}
+
+	// a web page: one file, its pictures inside it
+	h := call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "html"})
+	if h.IsError {
+		t.Fatal(textOf(h))
+	}
+	hp := f.bucket.saved["shares/"+id+"/exports/Q3 - review.html"]
+	eq(t, hp.contentType, "text/html; charset=utf-8")
+	page := string(hp.data)
+	if !strings.HasPrefix(page, "<!DOCTYPE html>") || !strings.Contains(page, `<section class="slide" id="slide-2">`) {
+		t.Fatal("not the deck as a page")
+	}
+	if n := strings.Count(page, `src="data:image/png;base64,`); n < 3 {
+		t.Fatalf("two chart pictures and the deck's picture inside the page, got %d", n)
+	}
 	match(t, textOf(call(t, s, "export_presentation", map[string]any{"deck_id": "nosuchdeck1", "format": "pdf"})), `No presentation nosuchdeck1`)
 }
