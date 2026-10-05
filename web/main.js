@@ -1744,11 +1744,13 @@ const chromeSheets = { files: "", chrome: null, chart: null, hint: null, panels:
 // and only while the dark look is on.
 const darkOverlays = new Map();
 // The light sheets as they are loaded are the kit's cool greys; the editor
-// wears them in a warm, paper-like cast (EVGUI's UiTone, through
-// PresApp.warmCss) that keeps every contrast. The dark look and the skins
-// go over that.
+// wears them in a warm cast (EVGUI's UiTone) that keeps every contrast: the
+// greys turn warm stone and white stays white where things are read and
+// written (PresApp.warmCss), and the top bar is on paper too
+// (PresApp.paperCss). The dark look and the skins go over that.
 function warm(css, theme) {
-  return css ? PresApp.warmCss(css, theme) : css;
+  if (!css) return css;
+  return theme === "tb" ? PresApp.paperCss(css, theme) : PresApp.warmCss(css, theme);
 }
 function darkOverlay(base, theme) {
   if (lookTheme() !== "dark" || !base) return "";

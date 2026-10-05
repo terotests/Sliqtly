@@ -369,8 +369,8 @@ class PresApp {
     }
 
     ; The editors in the app's light look: the colours of `coolEditor` in
-    ; the warm cast the chrome's sheets get (EVGUI's UiTone), every contrast
-    ; kept.
+    ; the warm cast the chrome's sheets get (EVGUI's UiTone): white paper
+    ; stays white, the greys turn warm, every contrast kept.
     sfn lightEditor:void (ed:ScriptEditor) {
         PresApp.coolEditor(ed)
         def t:ScriptEditorTheme ed.theme
@@ -502,10 +502,16 @@ class PresApp {
     }
 
     ; A light chrome sheet in the editor's warm cast (EVGUI's UiTone), for a
-    ; host applied with `theme`: the page loads every sheet through it, and
-    ; the dark overlay is derived from what it gives.
+    ; host applied with `theme`: warm greys, white kept white. The page loads
+    ; every sheet through it (the top bar through `paperCss`), and the dark
+    ; overlay is derived from what it gives.
     sfn warmCss:string (css:string theme:string) {
         return (UiTone.warmSheet(css theme))
+    }
+
+    ; The same with white brought down to paper too: the top bar's.
+    sfn paperCss:string (css:string theme:string) {
+        return (UiTone.paperSheet(css theme))
     }
 
     ; The dark overlay of a light chrome sheet for a host applied with
