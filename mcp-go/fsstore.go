@@ -29,6 +29,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -220,7 +221,22 @@ func writeAtomic(path string, data []byte) error {
 		os.Remove(name)
 		return err
 	}
-	return nil
+	return syncDir(filepath.Dir(path))
+}
+
+// the folder written to disk, so a rename in it outlasts a power cut too;
+// Windows cannot open a folder for that, and keeps renames by itself
+func syncDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	f, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	err = f.Sync()
+	f.Close()
+	return err
 }
 
 func writeDoc(path string, d Doc) error {
@@ -485,4 +501,50 @@ func (b *fsBucket) Open(path string) (f *os.File, contentType string, ok bool) {
 	}
 	ct, _ := os.ReadFile(p + ".type")
 	return f, string(ct), true
+}
+
+// the collections whose documents go once their `expires` has passed, as
+// Firestore's TTL policies have them (firestore.indexes.json)
+var ttlCollections = []string{"shares", "mcp_keys", "mcp_quota", "mcp_oauth_requests", "mcp_oauth_codes", "mcp_oauth_tokens", "stats_salt", "stats_seen"}
+
+func expiredAt(doc Doc, t time.Time) bool {
+	e, ok := doc["expires"].(time.Time)
+	return ok && e.Before(t)
+}
+
+// removes the documents of col whose `expires` is before t, each read again
+// under the lock so one given a later `expires` meanwhile stays. → the ids
+// removed
+func (d *fsDB) sweep(col string, t time.Time) ([]string, error) {
+	if err := segment(col); err != nil {
+		return nil, err
+	}
+	var old []string
+	d.mu.Lock()
+	err := eachDoc(filepath.Join(d.root, col), func(id, path string) {
+		if doc, err := readDoc(path); err == nil && doc != nil && expiredAt(doc, t) {
+			old = append(old, id)
+		}
+	})
+	d.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	var gone []string
+	for _, id := range old {
+		p, err := d.file(col, id)
+		if err != nil {
+			continue
+		}
+		d.mu.Lock()
+		doc, err := readDoc(p)
+		if err == nil && doc != nil && expiredAt(doc, t) {
+			if err = os.Remove(p); err == nil {
+				d.wrote(col, id, nil)
+				gone = append(gone, id)
+			}
+		}
+		d.mu.Unlock()
+	}
+	return gone, nil
 }
