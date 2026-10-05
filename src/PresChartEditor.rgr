@@ -180,6 +180,11 @@ class PresChartEditor {
     ; the document's own settings (its title) first
     def dsTab:string "deck"
     def dsPics:[string]
+    ; the theme's background picture for every slide (page's
+    ; background-image, "" none), and what the Background tab asked the app
+    ; to do with it: "set:<path>", "none", "edit", "trace" ("" nothing)
+    def dsBg:string ""
+    def dsBgAct:string ""
     ; a field (or a text) whose text is being selected by a drag, by its tid
     def selecting:string ""
     ; Text that can be selected and copied (EVGUI TextCtl): the About lines,
@@ -1516,12 +1521,16 @@ class PresChartEditor {
         tabs.addItem("deck" (PresI18n.t("Presentation")) "" false)
         tabs.addItem("header" (PresI18n.t("Header")) "" false)
         tabs.addItem("footer" (PresI18n.t("Footer")) "" false)
+        tabs.addItem("bg" (PresI18n.t("Background")) "" false)
         tabs.value = dsTab
         tabs.build()
         UiTree.addClass((unwrap tabs.rootEl) "ce-tabs")
         this.put(tabs root)
 
         def pane:EVGElement (this.div("ce-pane"))
+        if (dsTab == "bg") {
+            this.docSetBg(pane)
+        }
         if (dsTab == "deck") {
             def sec:EVGElement (this.section(pane (PresI18n.t("Presentation"))))
             def nr:EVGElement (this.field((PresI18n.t("Title"))))
@@ -1545,7 +1554,9 @@ class PresChartEditor {
             sec2.addChild((this.text("ce-doc" (PresI18n.t("For every slide; a slide's own heading can say otherwise: ## Title {transition=zoom}.")))))
             sec2.addChild((this.text("ce-doc" (PresI18n.t("One slide without it: {header=off} or {footer=off} on its heading.")))))
         } {
-            this.edgePane(pane (this.dsEdge()))
+            if (dsTab != "bg") {
+                this.edgePane(pane (this.dsEdge()))
+            }
         }
         root.addChild(pane)
 
@@ -1640,7 +1651,71 @@ class PresChartEditor {
         lk.addChild(zr)
     }
 
+    ; The Background tab: every slide's picture, from the deck's pictures,
+    ; edited or vectorized where it is.
+    fn docSetBg:void (pane:EVGElement) {
+        def sec:EVGElement (this.section(pane (PresI18n.t("Background image"))))
+        if ((array_length dsPics) == 0) {
+            sec.addChild((this.text("ce-doc" (PresI18n.t("Add a picture to the presentation first (paste it, or drop it on the Files tab), then pick it here.")))))
+        } {
+            def pc:EVGElement (this.div("ce-chips"))
+            this.chip("ds-bg-none" (PresI18n.t("None")) ((strlen dsBg) == 0) pc)
+            def p:int 0
+            while (p < (array_length dsPics)) {
+                def path:string (itemAt dsPics p)
+                this.chip(("ds-bg-" + (to_string p)) (PresChartEditor.fileName(path)) (path == dsBg) pc)
+                p = (p + 1)
+            }
+            sec.addChild(pc)
+        }
+        if ((strlen dsBg) > 0) {
+            def er:EVGElement (this.div("ce-row"))
+            def low:string (to_lowercase dsBg)
+            def vector:boolean ((endsWith low ".svg") || (endsWith low ".svgz"))
+            if (vector == false) {
+                this.button("ds-bg-edit" (PresI18n.t("Edit image…")) "outline" er)
+                this.button("ds-bg-trace" (PresI18n.t("Vectorize…")) "outline" er)
+            }
+            sec.addChild(er)
+            if vector {
+                sec.addChild((this.text("ce-doc" (PresI18n.t("A vector picture: sharp at any size.")))))
+            } {
+                sec.addChild((this.text("ce-doc" (PresI18n.t("Vectorize… turns a blurry or small picture into an SVG that stays sharp on any screen.")))))
+            }
+        }
+        sec.addChild((this.text("ce-doc" (PresI18n.t("Behind every slide: background-image in the theme's page rule. A slide's own bg= in its heading goes over it.")))))
+    }
+
     fn docSetAct:boolean (tid:string) {
+        if (tid == "ds-bg-none") {
+            dsBg = ""
+            dsBgAct = "none"
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if (tid == "ds-bg-edit") {
+            dsBgAct = "edit"
+            changed = true
+            wantsClose = true
+            return true
+        }
+        if (tid == "ds-bg-trace") {
+            dsBgAct = "trace"
+            changed = true
+            wantsClose = true
+            return true
+        }
+        if ((indexOf tid "ds-bg-") == 0) {
+            def bp:int (?? (str2int (substring tid 6 (strlen tid))) -1)
+            if ((bp >= 0) && (bp < (array_length dsPics))) {
+                dsBg = (itemAt dsPics bp)
+                dsBgAct = ("set:" + dsBg)
+                changed = true
+            }
+            this.rebuild()
+            return true
+        }
         def e:int (this.dsEdge())
         if (tid == "ds-done") {
             wantsClose = true

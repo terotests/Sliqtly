@@ -3060,6 +3060,8 @@ function handleRequests() {
       saveAdjusted().catch(fail);
     } else if (r === "image-cancel") {
       dropAdjusting();
+    } else if (r.startsWith("image-edit:")) {
+      openImageEditor(r.slice(11)).catch(fail);
     } else if (r.startsWith("image-trace:")) {
       openTraceEditor(r.slice(12)).catch(fail);
     } else if (r === "trace-run") {

@@ -6698,6 +6698,22 @@ class PresApp {
             }
             e = (e + 1)
         }
+        ; the theme's background picture, pickable whether or not it is
+        ; among the deck's files
+        def bg:string (PresApp.urlPath((this.cssValue("page" "background-image"))))
+        if ((strlen bg) > 0) {
+            def bgKnown:boolean false
+            for list lp:string li {
+                if (lp == bg) {
+                    bgKnown = true
+                }
+            }
+            if (bgKnown == false) {
+                push list bg
+            }
+        }
+        chart.dsBg = bg
+        chart.dsBgAct = ""
         ; the pick's buttons would cover the header it changes
         pick.clear()
         chartStart = -1
@@ -6708,6 +6724,101 @@ class PresApp {
         focus = "chart"
         chromeRev = (chromeRev + 1)
         return true
+    }
+
+    ; The Background tab's choice: the theme's page rule written, or the
+    ; picture handed to the image editor or the vectorizer.
+    fn writeDocBackground:void () {
+        def act:string chart.dsBgAct
+        chart.dsBgAct = ""
+        if ((strlen act) == 0) {
+            return
+        }
+        if (startsWith act "set:") {
+            this.cssSet("page" "background-image" ("url(" + (substring act 4 (strlen act)) + ")"))
+            focus = "chart"
+            return
+        }
+        if (act == "none") {
+            if ((strlen (this.cssValue("page" "background-image"))) > 0) {
+                this.cssSet("page" "background-image" "none")
+                focus = "chart"
+            }
+            return
+        }
+        if ((strlen chart.dsBg) == 0) {
+            return
+        }
+        if (act == "edit") {
+            push requests ("image-edit:" + chart.dsBg)
+        }
+        if (act == "trace") {
+            push requests ("image-trace:" + chart.dsBg)
+        }
+    }
+
+    ; A declaration's value in the theme's CSS: the last `prop` in a rule
+    ; whose selector names `sel` ("" none).
+    fn cssValue:string (sel:string prop:string) {
+        def ed:ScriptEditor cssEditor
+        def n:int (ed.buf.lineCount())
+        def out:string ""
+        def inRule:boolean false
+        def i:int 0
+        while (i < n) {
+            def t:string (ed.buf.lineAt(i))
+            def from:int 0
+            if (inRule == false) {
+                def open:int (indexOf t "{")
+                if ((open > 0) && (PresHelp.names((substring t 0 open) sel))) {
+                    inRule = true
+                    from = (open + 1)
+                }
+            }
+            if inRule {
+                def close:int (indexOfFrom t "}" from)
+                def body:string (substring t from (strlen t))
+                if (close >= 0) {
+                    body = (substring t from close)
+                }
+                def at:int (indexOf body (prop + ":"))
+                if (at >= 0) {
+                    def end:int (indexOfFrom body ";" at)
+                    if (end < 0) {
+                        end = (strlen body)
+                    }
+                    out = (trim (substring body (at + (strlen prop) + 1) end))
+                }
+                if (close >= 0) {
+                    inRule = false
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; the picture of `url(media/x.png)` (quoted or not), "" for none
+    sfn urlPath:string (v:string) {
+        def at:int (indexOf v "url(")
+        if (at < 0) {
+            return ""
+        }
+        def end:int (indexOfFrom v ")" at)
+        if (end < 0) {
+            return ""
+        }
+        def p:string (trim (substring v (at + 4) end))
+        if ((strlen p) >= 2) {
+            def q:int (charAt p 0)
+            if ((q == 34) || (q == 39)) {
+                p = (substring p 1 ((strlen p) - 1))
+            }
+        }
+        while (startsWith p "/") {
+            p = (substring p 1 (strlen p))
+        }
+        return p
     }
 
     ; The front matter with the window's keys: a key's line is rewritten in
@@ -7459,6 +7570,7 @@ class PresApp {
         }
         if (chart.mode == "docset") {
             this.writeDocSettings()
+            this.writeDocBackground()
             return
         }
         if (chart.mode == "adjust") {
