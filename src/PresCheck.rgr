@@ -2030,6 +2030,23 @@ class PresCheck {
         def sec:DocSection (back.sectionAt(0))
         this.ok(((sec.pageWTwips == 11906) && (sec.pageHTwips == 16838)) ("docx: A4, got " + (to_string sec.pageWTwips) + "x" + (to_string sec.pageHTwips)))
 
+        ; formulas are Word equations, not pictures
+        def mdeck (new PresDeck())
+        mdeck.setText("---\nslide-split-level: 2\n---\n\n## Kaava\n\nKun $a^2 + b^2 = c^2$ niin\n\n$$\n\\frac{1}{2}\n$$\n")
+        def mconv (new PresDocx())
+        mconv.findShots(mdeck)
+        this.ok(((array_length mconv.shots) == 0) "docx: a formula is no shot")
+        def mw (new DocxWriter())
+        def mbytes:buffer (mw.write((mconv.build(mdeck ""))))
+        this.ok((mw.equations == 2) ("docx: two equations written, got " + (to_string mw.equations)))
+        def mpkg (new DocxPackage())
+        mpkg.openBytes(mbytes "kaava.docx")
+        def mxml:string (mpkg.documentXml())
+        this.ok(((indexOf mxml "<m:oMathPara>") > 0) "docx: the display formula is an equation paragraph")
+        this.ok(((indexOf mxml "<m:num") > 0) "docx: …with its fraction")
+        this.ok(((indexOf mxml "<m:sSup") > 0) "docx: the inline one has its powers")
+        this.ok(((indexOf mxml "a^2") < 0) "docx: no TeX left in the text")
+
         ; picked slides: only those
         def only (new PresDocx())
         push only.onlyPages 1

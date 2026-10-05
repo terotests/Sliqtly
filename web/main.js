@@ -3159,7 +3159,7 @@ async function exportPptx(picked = false) {
     "application/vnd.openxmlformats-officedocument.presentationml.presentation");
 }
 // Word: the blocks only the stage can draw (a diagram, a chart, a list
-// figure, a formula, a SmartArt) go in as pictures. The app names each one's
+// figure, a SmartArt) go in as pictures. The app names each one's
 // rectangle on its slide and what to draw for it (PresDocx.shotList: a
 // diagram whole and still, a chart at rest, else the slide at rest); each is
 // drawn here, cut to its rectangle and handed back as a PNG, and the app
