@@ -10,19 +10,23 @@
   gap: 8px;
   width: 100%; height: 48px;
   padding: 0 14px;
-  background-color: #ffffff;
-  border-bottom: 1px solid #e4e4e7;
+  /* the warm band: the bar the deepest, the tab row under it lighter, the
+     work below white (pres.css .deck-row). Each colour has the lightness of
+     the grey it stands for (#f4f4f5, #e4e4e7), so the steps of contrast are
+     the same; only the hue is warm. */
+  background-color: #f8f3ed;
+  border-bottom: 1px solid #e8e4de;
   font-family: Open Sans;
 }
 .tb-brand { font-size: 14px; font-weight: 700; color: #09090b; margin-right: 8px; }
 .tb-label { font-size: 12px; color: #71717a; }
-.tb-sep { width: 1px; height: 22px; background-color: #e4e4e7; margin: 0 2px; }
+.tb-sep { width: 1px; height: 22px; background-color: #e8e4de; margin: 0 2px; }
 .tb-grow { flex-grow: 1; }
 .tb-status { font-size: 12px; color: #71717a; }
 
 .theme-tb .ui-button { font-family: Open Sans; border-radius: 6px; height: 32px; padding: 0 12px; align-self: center; }
 .theme-tb .ui-button-primary { background-color: #18181b; border-color: #18181b; }
-.theme-tb .ui-button-secondary { background-color: #ffffff; border: 1px solid #e4e4e7; }
+.theme-tb .ui-button-secondary { background-color: #ffffff; border: 1px solid #e8e4de; }
 .theme-tb .ui-button-ghost { background-color: rgba(0,0,0,0); border-color: rgba(0,0,0,0); }
 /* the accent: a papyrus terracotta, 5.9:1 under white text */
 .theme-tb .tb-accent { background-color: #a34a24; border-color: #a34a24; }

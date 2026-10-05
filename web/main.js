@@ -1734,24 +1734,14 @@ function lookTheme() {
   if (skin === "retro") return "retro";
   return isDark() ? "dark" : "";
 }
-// Every chrome sheet without the skins, in the editor's warm cast (start),
-// and the skins' own text: the skins go after each sheet with the chosen hue
-// at the end.
+// Every chrome sheet without the skins, as loaded (start), and the skins'
+// own text: the skins go after each sheet with the chosen hue at the end.
 const chromeSheets = { files: "", chrome: null, chart: null, hint: null, panels: null, toolbar: null };
 // The dark look of a sheet is derived from it (EVGUI's UiDark, through
 // PresApp.darkCss): every colour it sets, scoped to .theme-dark and mapped so
 // each contrast stays what it was. Worked out once per sheet and host theme,
 // and only while the dark look is on.
 const darkOverlays = new Map();
-// The light sheets as they are loaded are the kit's cool greys; the editor
-// wears them in a warm cast (EVGUI's UiTone) that keeps every contrast: the
-// greys turn warm stone and white stays white where things are read and
-// written (PresApp.warmCss), and the top bar is on paper too
-// (PresApp.paperCss). The dark look and the skins go over that.
-function warm(css, theme) {
-  if (!css) return css;
-  return theme === "tb" ? PresApp.paperCss(css, theme) : PresApp.warmCss(css, theme);
-}
 function darkOverlay(base, theme) {
   if (lookTheme() !== "dark" || !base) return "";
   const key = theme + "\n" + base;
@@ -5304,16 +5294,16 @@ async function start() {
       .then((t) => "\n" + t.join("\n")).catch(() => ""),
   ]);
   chromeSheets.files = skins;
-  chromeSheets.chrome = warm(css0, "");
-  const css = chromeSheets.chrome + skinCss(chromeSheets.chrome, "");
-  chromeSheets.chart = warm(kit + "\n" + chartCss, "ce");
+  chromeSheets.chrome = css0;
+  const css = css0 + skinCss(css0, "");
+  chromeSheets.chart = kit + "\n" + chartCss;
   app.setChartCss(chromeSheets.chart + skinCss(chromeSheets.chart, "ce"));
-  textOf("./hint.css").then((c) => { chromeSheets.hint = warm(kit + "\n" + chartCss + "\n" + c, "hp"); app.setHintCss(chromeSheets.hint + skinCss(chromeSheets.hint, "hp")); }).catch(() => {});
-  textOf("./panels.css").then((c) => { chromeSheets.panels = warm(kit + "\n" + c, "pn"); app.setPanelsCss(chromeSheets.panels + skinCss(chromeSheets.panels, "pn")); }).catch(() => {});
+  textOf("./hint.css").then((c) => { chromeSheets.hint = kit + "\n" + chartCss + "\n" + c; app.setHintCss(chromeSheets.hint + skinCss(chromeSheets.hint, "hp")); }).catch(() => {});
+  textOf("./panels.css").then((c) => { chromeSheets.panels = kit + "\n" + c; app.setPanelsCss(chromeSheets.panels + skinCss(chromeSheets.panels, "pn")); }).catch(() => {});
   if (!viewer) {
     // the bar moves onto the canvas: the HTML one stays, hidden, as what it
     // presses (its buttons and selects keep every behaviour they had)
-    chromeSheets.toolbar = warm(kit + "\n" + (await toolbarCss), "tb");
+    chromeSheets.toolbar = kit + "\n" + (await toolbarCss);
     app.setToolbarCss(chromeSheets.toolbar + skinCss(chromeSheets.toolbar, "tb"));
     document.body.classList.add("canvas-bar");
     canvasBar = true;
