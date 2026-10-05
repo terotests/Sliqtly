@@ -30,6 +30,12 @@ EVGUI is cloned into `.deps/EVGUI` from the ref in `presentation.config.json`
 (`EVGUI_DIR=/path/to/EVGUI` uses a checkout of your own) and linked into the
 Ranger checkout as `gallery/evgui`; `src/` imports it as `../evgui/src/`.
 
+Every script that builds checks the clones in `.deps` (Ranger, EVGUI,
+RangerFlow, RangerMarkdown, RangerPPTX, RangerDiff) against their branch on
+GitHub and fetches the new head when the branch has moved, so a build never
+compiles against an old copy of `main`. Offline, the clones are used as they
+are. A checkout of your own (`*_DIR`) is never updated for you.
+
 EVG (`lib/evg`) is no longer tracked in Ranger: Ranger's `npm run deps`
 fetches it from [terotests/evg](https://github.com/terotests/evg) at the
 commit its root `ranger.json` pins. `npm run setup` (and every script that
