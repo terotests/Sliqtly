@@ -49,7 +49,10 @@ export class EventLine {
     const r = this.room;
     if (!r) return "";
     const q = r.q;
-    return "?" + new URLSearchParams({ room: r.id, client: q.client, who: q.who, name: q.name, color: q.color, rev: String(r.rev) });
+    const p = { room: r.id, client: q.client, who: q.who, name: q.name, color: q.color, rev: String(r.rev) };
+    // the room's run this rev counts in: another run's revs are other edits
+    if (q.epoch) p.epoch = q.epoch;
+    return "?" + new URLSearchParams(p);
   }
 
   join(id, q, onEvent, onOpen) {

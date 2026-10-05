@@ -110,12 +110,16 @@ func main() {
 			kind += ", no editor (npm run build, then go generate)"
 		}
 		sw.set(ls)
+		go ls.sweepExpired(stop)
 		board.set("ready", "")
 		log.Printf("Sliqtly MCP %s (%s) on port %s, ready in %s", version, kind, *port, time.Since(start).Round(time.Microsecond))
 		<-stop.Done()
 		// pages hear it before the stream closes, and keep their edits
 		board.set("stopping", "")
 		shutdown(srv)
+		// no edit can come in now: what the rooms took is written before
+		// the folder is let go
+		ls.flushRooms()
 		return
 	}
 	var handler http.Handler

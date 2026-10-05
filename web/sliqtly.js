@@ -245,36 +245,53 @@ function signedIn() {
 // since: { md, stamps } as this page last wrote or read it. The share's text
 // having moved on from since.md means someone else (an assistant) changed it:
 // that is refused with code "changed-elsewhere" rather than written over.
-// A file whose stamp is unchanged is not sent again. → the share's files
+// A file whose stamp is unchanged is not sent again. A file the share got
+// elsewhere (not in since.stamps) is kept: this page takes it in on its next
+// look at the cloud. Changed files go to Storage first; the share is then
+// read again and written in one transaction, and a file this page removed
+// leaves Storage only once that has gone through. → the share's files
+const elsewhere = (msg) => Object.assign(new Error(msg), { code: "changed-elsewhere" });
 async function saveShare(id, deck, since) {
   if (!user) throw new Error("not signed in");
   const { db, files } = await store();
   const ref = db.collection("shares").doc(id);
-  const snap = await ref.get();
-  if (!snap.exists) throw Object.assign(new Error("share not found"), { code: "not-found" });
-  const cur = snap.data();
-  if (cur.owner !== user.uid) throw Object.assign(new Error("not the owner"), { code: "permission-denied" });
-  if (since.md != null && cur.md !== since.md) throw Object.assign(new Error("changed elsewhere"), { code: "changed-elsewhere" });
-  const had = new Map((cur.files || []).map((f) => [f.path, f]));
-  const kept = [];
+  const check = (snap) => {
+    if (!snap.exists) throw Object.assign(new Error("share not found"), { code: "not-found" });
+    const cur = snap.data();
+    if (cur.owner !== user.uid) throw Object.assign(new Error("not the owner"), { code: "permission-denied" });
+    if (since.md != null && cur.md !== since.md) throw elsewhere("changed elsewhere");
+    return cur;
+  };
+  const known = (path) => !since.stamps || since.stamps.has(path);
+  const had = new Map((check(await ref.get()).files || []).map((f) => [f.path, f]));
+  const sent = new Map();
   for (const f of deck.files) {
-    const prev = had.get(f.path);
-    if (prev && since.stamps?.get(f.path) === f.stamp) {
-      kept.push(prev);
-      continue;
-    }
+    if (had.has(f.path) && since.stamps?.get(f.path) === f.stamp) continue;
     const blob = f.data instanceof Blob ? f.data : new Blob([f.data ?? ""], { type: f.type || "text/plain" });
     const obj = files.ref(`shares/${id}/${f.path}`);
     await obj.put(blob, { contentType: f.type || blob.type || "application/octet-stream" });
-    kept.push({ path: f.path, type: f.type || blob.type || "", size: blob.size, url: await obj.getDownloadURL() });
+    sent.set(f.path, { path: f.path, type: f.type || blob.type || "", size: blob.size, url: await obj.getDownloadURL() });
   }
-  for (const path of had.keys()) {
-    if (!deck.files.some((f) => f.path === path)) files.ref(`shares/${id}/${path}`).delete().catch(() => {});
-  }
-  await ref.update({
-    name: deck.name, md: deck.md, theme: deck.theme || "", css: deck.css ?? null, files: kept,
-    updated: globalThis.firebase.firestore.FieldValue.serverTimestamp(),
+  let gone = [];
+  const kept = await db.runTransaction(async (tx) => {
+    const cur = check(await tx.get(ref));
+    const now = new Map((cur.files || []).map((f) => [f.path, f]));
+    const out = deck.files.map((f) => {
+      const e = sent.get(f.path) || now.get(f.path);
+      // removed there since it was read here: this page looks again
+      if (!e) throw elsewhere("a file changed elsewhere");
+      return e;
+    });
+    const mine = new Set(deck.files.map((f) => f.path));
+    for (const [path, f] of now) if (!mine.has(path) && !known(path)) out.push(f);
+    gone = [...now.keys()].filter((path) => !mine.has(path) && known(path));
+    tx.update(ref, {
+      name: deck.name, md: deck.md, theme: deck.theme || "", css: deck.css ?? null, files: out,
+      updated: globalThis.firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    return out;
   });
+  for (const path of gone) files.ref(`shares/${id}/${path}`).delete().catch(() => {});
   return kept;
 }
 

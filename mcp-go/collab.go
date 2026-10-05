@@ -153,6 +153,11 @@ type collabRoom struct {
 	id   string
 	load sync.Once
 	mu   sync.Mutex
+	// this run of the room: revs count from 0 in each, so a page that comes
+	// back from another run (the server restarted, or the room was left
+	// empty and opened again) reads the deck again rather than taking this
+	// run's edits as the ones after its own rev
+	epoch string
 
 	ready   bool
 	text    []uint16
@@ -172,9 +177,11 @@ type collabRoom struct {
 	fileMd  []uint16
 	fileRev int
 	fileGap []delta
-	// the room's own write under way
+	// the room's own write under way; saveMu keeps one at a time, so a
+	// flush waits for a timer's write rather than passing it
 	saving    []uint16
 	savingRev int
+	saveMu    sync.Mutex
 
 	dirty     bool
 	saveTimer *time.Timer
@@ -210,7 +217,7 @@ func (s *localServer) room(ctx context.Context, id string) (*collabRoom, error) 
 	s.collab.mu.Lock()
 	rm := s.collab.rooms[id]
 	if rm == nil {
-		rm = &collabRoom{s: s, id: id, peers: map[string]*collabPeer{}, seqs: map[string]int{}, subs: map[*collabSub]struct{}{}}
+		rm = &collabRoom{s: s, id: id, epoch: newEpoch(), peers: map[string]*collabPeer{}, seqs: map[string]int{}, subs: map[*collabSub]struct{}{}}
 		s.collab.rooms[id] = rm
 	}
 	s.collab.mu.Unlock()
@@ -291,6 +298,11 @@ func (s *localServer) collabWritten(col, id string, doc Doc) {
 		}
 	}
 	rm.fileMd, rm.fileRev, rm.fileGap = got, rm.rev, gap
+}
+
+// a room run's name: random, so two runs of one room never share it
+func newEpoch() string {
+	return strconv.FormatUint(rand.Uint64(), 36)
 }
 
 func sameU16(a, b []uint16) bool {
@@ -380,6 +392,8 @@ func (rm *collabRoom) changed() {
 }
 
 func (rm *collabRoom) save() {
+	rm.saveMu.Lock()
+	defer rm.saveMu.Unlock()
 	rm.mu.Lock()
 	if !rm.dirty {
 		rm.mu.Unlock()
@@ -394,10 +408,17 @@ func (rm *collabRoom) save() {
 	shareMu.Lock()
 	err := rm.s.env.DB.Update(context.Background(), "shares", rm.id, Doc{"md": md, "updated": time.Now().UTC()})
 	shareMu.Unlock()
-	rm.mu.Lock()
-	rm.saving = nil
+	again := false
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sliqtly: writing %s: %v\n", rm.id, err)
+		// kept to be written again, unless the deck is gone
+		d, gerr := rm.s.env.DB.Get(context.Background(), "shares", rm.id)
+		again = gerr != nil || d != nil
+	}
+	rm.mu.Lock()
+	rm.saving = nil
+	if again {
+		rm.changed()
 	}
 	rm.mu.Unlock()
 }
@@ -410,6 +431,23 @@ func (rm *collabRoom) flush() {
 	}
 	rm.mu.Unlock()
 	rm.save()
+}
+
+// writes every open room's text to the folder now, at shutdown: the edits
+// the rooms took in their last moments are not lost with the process
+func (s *localServer) flushRooms() {
+	if s.collab == nil {
+		return
+	}
+	s.collab.mu.Lock()
+	rooms := make([]*collabRoom, 0, len(s.collab.rooms))
+	for _, rm := range s.collab.rooms {
+		rooms = append(rooms, rm)
+	}
+	s.collab.mu.Unlock()
+	for _, rm := range rooms {
+		rm.flush()
+	}
 }
 
 // --- the chat file
@@ -472,7 +510,7 @@ func (s *localServer) collabAPI(r *http.Request, id, what string) (any, error) {
 		if chat == nil {
 			chat = []collabChat{}
 		}
-		return map[string]any{"rev": rm.rev, "md": fromU16(rm.text), "peers": rm.peerList(), "chat": chat}, nil
+		return map[string]any{"epoch": rm.epoch, "rev": rm.rev, "md": fromU16(rm.text), "peers": rm.peerList(), "chat": chat}, nil
 	}
 	if r.Method != http.MethodPost {
 		return nil, fail(405, "", "method not allowed")
@@ -505,8 +543,13 @@ func (rm *collabRoom) submit(body map[string]any, client string) (any, error) {
 		return nil, fail(400, "", err.Error())
 	}
 	seq, hasSeq := count(body["seq"])
+	epoch, _ := body["epoch"].(string)
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
+	// made on another run's rev: the page reads the deck again
+	if epoch != "" && epoch != rm.epoch {
+		return nil, fail(409, "reset", "the room was opened again: read the presentation again")
+	}
 	if hasSeq && seq > 0 && seq <= rm.seqs[client] {
 		return map[string]any{"rev": rm.rev, "again": true}, nil
 	}
@@ -632,7 +675,7 @@ func (rm *collabRoom) say(body map[string]any, client string) (any, error) {
 
 // a page joins: its stream gets the edits after `from` (-1: none), then
 // everyone hears who is here
-func (rm *collabRoom) join(sub *collabSub, client, who, name, color string, from int) {
+func (rm *collabRoom) join(sub *collabSub, client, who, name, color string, from int, epoch string) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 	if rm.idleTimer != nil {
@@ -641,6 +684,9 @@ func (rm *collabRoom) join(sub *collabSub, client, who, name, color string, from
 	}
 	rm.subs[sub] = struct{}{}
 	switch {
+	case epoch != "" && epoch != rm.epoch:
+		// its rev is another run's: what it has is read again
+		sub.push(newEvt(map[string]any{"t": "reset"}, 0))
 	case from < 0 || from == rm.rev:
 	case from >= rm.logFrom && from < rm.rev:
 		for _, e := range rm.log[from-rm.logFrom:] {
@@ -802,6 +848,6 @@ func (s *localServer) joinRoom(r *http.Request) (*collabRoom, *collabSub, string
 		return nil, nil, "", err
 	}
 	sub := &collabSub{wake: make(chan struct{}, 1)}
-	rm.join(sub, client, who, name, color, from)
+	rm.join(sub, client, who, name, color, from, q.Get("epoch"))
 	return rm, sub, client, nil
 }
