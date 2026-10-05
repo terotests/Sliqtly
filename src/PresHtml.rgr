@@ -1,0 +1,189 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresHtml.rgr — the deck, as one HTML page.
+; ============================================================================
+;
+; The same reading of a deck as the Word export (PresDocx): the slides one
+; after another as sections of a page, each slide's text, lists, tables and
+; formulas as HTML's own, its pictures written into the file, and the
+; speaker's notes under the slide they belong to. One file, nothing beside
+; it: whoever it is sent to opens it in any browser, offline.
+;
+;   PresDeck ──► PresHtml ──► MdToHtml (per block, standalone) ──► string
+;                    │
+;                    └── shots: PresDocx's, what only the stage draws
+;
+; Blocks go through the Markdown engine's own `MdToHtml` in its standalone
+; mode: raw HTML shows as text (as the viewer shows it), a script address
+; loses its href, headings get ids so the deck's in-page links land, and the
+; deck's pictures become data: URLs. Formulas are the engine's SVG, drawn
+; in the text colour. The shots (diagrams, charts, list figures, SmartArt)
+; are the PNGs the host made for the Word export; a block without one is
+; written as its source.
+;
+; The look is a document's, as in Word: the theme's slide colours are not
+; used, and the page follows the reader's light or dark setting.
+; ============================================================================
+
+Import "PresDeck.rgr"
+Import "PresDocx.rgr"
+Import "../markdown/src/MdToHtml.rgr"
+
+class PresHtml {
+    ; only these pages, when any are given (picked slides)
+    def onlyPages:[int]
+    ; what came out, for a caller to say
+    def slides:int 0
+    def notes:int 0
+    def shotsPlaced:int 0
+    def pictures:int 0
+    def maker:MdToHtml (new MdToHtml())
+
+    Constructor () {
+    }
+
+    fn wanted:boolean (page:int) {
+        if ((array_length onlyPages) == 0) {
+            return true
+        }
+        return ((indexOf onlyPages page) >= 0)
+    }
+
+    ; The whole page. `shots` holds the PNGs the host made (PresDocx), or
+    ; none.
+    fn html:string (deck:PresDeck title:string shots:PresDocx) {
+        slides = 0
+        notes = 0
+        shotsPlaced = 0
+        def e:MarkdownEdit deck.md.edit
+        maker = (new MdToHtml())
+        maker.standalone = true
+        if e.haveImages {
+            maker.setImages(e.imageStore "/")
+        }
+        def parts:[string]
+        def meta:MdMeta (MdFrontMatter.of(e.doc))
+        def lang:string (trim (meta.get("lang" "")))
+        push parts "<!DOCTYPE html>\n"
+        if ((strlen lang) > 0) {
+            push parts ("<html lang=\"" + (MdToHtml.escape(lang)) + "\">\n")
+        } {
+            push parts "<html>\n"
+        }
+        push parts "<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+        push parts "<meta name=\"generator\" content=\"Sliqtly\">\n"
+        push parts ("<title>" + (MdToHtml.escape(title)) + "</title>\n")
+        push parts ("<style>\n" + (PresHtml.css()) + "</style>\n</head>\n<body>\n<main>\n")
+        if (((strlen title) > 0) && ((PresDocx.firstHeading(e.doc)) != title)) {
+            push parts ("<p class=\"title\">" + (MdToHtml.escape(title)) + "</p>\n")
+        }
+        def pageW:double deck.pageW
+        def doc:MdNode e.doc
+        def cur:int -1
+        def c:int 0
+        while (c < (doc.childCount())) {
+            def ch:MdNode (doc.childAt(c))
+            def page:int (deck.pageOfNode(ch))
+            ; a block that drew nothing (front matter, a blank) goes with the
+            ; slide before it
+            if (page < 0) {
+                page = cur
+            }
+            if ((page >= 0) && (this.wanted(page))) {
+                if (page != cur) {
+                    if (cur >= 0) {
+                        push parts (this.notesHtml(deck cur))
+                        push parts "</section>\n"
+                    }
+                    slides = (slides + 1)
+                    cur = page
+                    push parts ("<section class=\"slide\" id=\"slide-" + (to_string (page + 1)) + "\">\n")
+                }
+                def shot@(optional):PresDocxShot (shots.shotFor(ch.srcStart))
+                if (!null? shot) {
+                    push parts (this.shotHtml((unwrap shot) pageW))
+                } {
+                    if (ch.kind != "front_matter") {
+                        push parts (maker.node(ch))
+                    }
+                }
+            }
+            c = (c + 1)
+        }
+        if (cur >= 0) {
+            push parts (this.notesHtml(deck cur))
+            push parts "</section>\n"
+        }
+        push parts "</main>\n</body>\n</html>\n"
+        pictures = maker.pictures
+        return (join parts "")
+    }
+
+    ; The picture of a block, as wide a share of the text column as the block
+    ; was of its slide.
+    fn shotHtml:string (s:PresDocxShot pageW:double) {
+        def share:double 1.0
+        if (pageW > 0.0) {
+            share = (s.w / pageW)
+        }
+        if (share > 1.0) {
+            share = 1.0
+        }
+        if (share < 0.25) {
+            share = 0.25
+        }
+        def pct:int (to_int ((share * 100.0) + 0.5))
+        shotsPlaced = (shotsPlaced + 1)
+        def img:string ("<img src=\"data:image/png;base64," + (MdToHtml.base64(s.png)) + "\"")
+        img = (img + " alt=\"" + (MdToHtml.escape(s.alt)) + "\"")
+        img = (img + " width=\"" + (to_string s.pxW) + "\" height=\"" + (to_string s.pxH) + "\"")
+        img = (img + " style=\"width:" + (to_string pct) + "%\">")
+        return ("<figure class=\"shot\">" + img + "</figure>\n")
+    }
+
+    fn notesHtml:string (deck:PresDeck page:int) {
+        if (page >= (deck.slideCount())) {
+            return ""
+        }
+        def s:PresSlide (deck.slideAt(page))
+        def text:string (trim (PresDocx.notesText(s.notes)))
+        if ((strlen text) == 0) {
+            return ""
+        }
+        def out:string "<aside class=\"notes\">\n"
+        def lines:[string] (strsplit text "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (trim (itemAt lines i))
+            if ((strlen line) > 0) {
+                out = (out + "<p>" + (MdToHtml.escape(line)) + "</p>\n")
+            }
+            i = (i + 1)
+        }
+        notes = (notes + 1)
+        return (out + "</aside>\n")
+    }
+
+    ; A document's look: a readable column, the reader's light or dark
+    ; setting, tables ruled, notes set apart as a speaker's.
+    sfn css:string () {
+        def c:string ":root{color-scheme:light dark;--fg:#1f2328;--muted:#57606a;--rule:#d0d7de;--bg:#ffffff;--code:#f6f8fa;--link:#0b57d0}\n"
+        c = (c + "@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9da7b3;--rule:#3d444d;--bg:#0d1117;--code:#161b22;--link:#7cb4ff}}\n")
+        c = (c + "body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 system-ui,-apple-system,\"Segoe UI\",Arial,sans-serif}\n")
+        c = (c + "main{max-width:46rem;margin:0 auto;padding:2.5rem 1rem 4rem}\n")
+        c = (c + ".title{font-size:2.2rem;font-weight:700;line-height:1.2;margin:0 0 1.5rem}\n")
+        c = (c + "section.slide{padding:0.5rem 0 1rem;border-bottom:1px solid var(--rule)}\nsection.slide:last-child{border-bottom:0}\n")
+        c = (c + "h1,h2,h3,h4,h5,h6{line-height:1.25;margin:1.4em 0 0.5em}\nh1{font-size:2rem}h2{font-size:1.6rem}h3{font-size:1.3rem}\n")
+        c = (c + "a{color:var(--link)}\nimg{max-width:100%;height:auto}\n")
+        c = (c + "figure.shot{margin:1rem 0;text-align:center}\n")
+        c = (c + "pre{background:var(--code);padding:0.8rem 1rem;border-radius:6px;overflow-x:auto;font-size:0.9em}\n")
+        c = (c + "code{font-family:ui-monospace,\"SF Mono\",Menlo,Consolas,\"Courier New\",monospace;font-size:0.92em}\n")
+        c = (c + "blockquote{margin:1rem 0;padding:0 1rem;border-left:4px solid var(--rule);color:var(--muted)}\n")
+        c = (c + "table{border-collapse:collapse;margin:1rem 0;display:block;overflow-x:auto}\nth,td{border:1px solid var(--rule);padding:0.35rem 0.7rem}\nth{background:var(--code)}\n")
+        c = (c + ".math-display{overflow-x:auto}\n")
+        c = (c + "aside.notes{margin:1rem 0;padding:0.6rem 1rem;border-left:3px solid var(--rule);color:var(--muted);font-size:0.9em}\naside.notes p{margin:0.25rem 0}\n")
+        c = (c + "@media print{aside.notes{break-inside:avoid}}\n")
+        return c
+    }
+}

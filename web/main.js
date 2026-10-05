@@ -3208,10 +3208,19 @@ async function exportDocx(picked = false) {
   window.__lastDownload = deliver(app.docxEnd(), (some ? pickedName() : exportName()) + ".docx",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
 }
+// A web page: the same reading as Word, the same pictures, one .html file.
+async function exportHtml(picked = false) {
+  const some = picked && app.pickCount() > 0;
+  await renderDocxShots(JSON.parse(app.docxBegin(some)));
+  window.__lastDownload = deliver(app.htmlEnd(), (some ? pickedName() : exportName()) + ".html", "text/html;charset=utf-8");
+}
 window.__exportDocx = exportDocx;
+window.__exportHtml = exportHtml;
 window.__renderDocxShots = renderDocxShots;
 document.getElementById("docx").addEventListener("click", () => { exportDocx().catch(fail); });
 document.getElementById("docxPicked").addEventListener("click", () => { exportDocx(true).catch(fail); });
+document.getElementById("html").addEventListener("click", () => { exportHtml().catch(fail); });
+document.getElementById("htmlPicked").addEventListener("click", () => { exportHtml(true).catch(fail); });
 document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
 document.getElementById("zip").addEventListener("click", () => { askZip().catch(fail); });
@@ -4239,7 +4248,7 @@ window.__goTo = { open: openGoTo, close: closeGoTo, label: () => vCount.textCont
 // srcdoc, with <meta name="sliqtly-link">) the page has no address and its
 // sandbox allows no downloads or windows: every item opens sliqtly.com in a
 // new tab through the preview (window.__sliqtlyOpenLink, the host's
-// ui/open-link), exports with ?export=pdf|pptx|docx|md, which the site runs on load.
+// ui/open-link), exports with ?export=pdf|pptx|docx|html|md, which the site runs on load.
 const vMenu = document.getElementById("vMenu");
 const vMore = document.getElementById("vMore");
 const vExportSub = document.getElementById("vExportSub");
@@ -4293,7 +4302,7 @@ function exportOnSite(kind) {
   q.set("export", kind);
   siteLink(siteUrl("").replace(/#.*$/, "") + "#" + q.toString());
 }
-const EXPORTS = { pdf: () => exportPdf(), pptx: () => exportPptx(), docx: () => exportDocx(), md: () => exportMd() };
+const EXPORTS = { pdf: () => exportPdf(), pptx: () => exportPptx(), docx: () => exportDocx(), html: () => exportHtml(), md: () => exportMd() };
 async function exportMd() {
   window.__lastDownload = deliver(new TextEncoder().encode(app.source()), exportName() + ".md", "text/markdown");
 }
@@ -5586,7 +5595,7 @@ async function start() {
   }
   // opening the deck tidied the address; it follows the screen from here
   followAddress();
-  // ?export=pdf|pptx|docx|md (or in the #…): an export asked for from the
+  // ?export=pdf|pptx|docx|html|md (or in the #…): an export asked for from the
   // assistant's preview, which cannot download
   const ask = q.get("export") || hashParams().get("export");
   if (viewer && !framed && EXPORTS[ask]) {

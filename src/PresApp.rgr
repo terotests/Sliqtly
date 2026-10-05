@@ -8174,6 +8174,11 @@ class PresApp {
         return (exporter.docx())
     }
 
+    ; The same shots, then the deck as one web page (PresExport.html).
+    fn htmlEnd:string () {
+        return (exporter.html())
+    }
+
     fn pickCount:int () {
         return (picks.count())
     }

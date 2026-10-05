@@ -6,6 +6,7 @@
 
 Import "PresDeck.rgr"
 Import "PresDocx.rgr"
+Import "PresHtml.rgr"
 Import "pkg:evg/EVGImageDecode.rgr"
 
 class PresExport {
@@ -662,5 +663,17 @@ class PresExport {
         def b:buffer (word.docx(d (PresDocx.titleOf(d.md.edit.doc))))
         word = (new PresDocx())
         return b
+    }
+
+    ; --- a web page -----------------------------------------------------------------
+    ; The deck as one HTML file (PresHtml), with the shots `docxShots` asked
+    ; for, as Word has them.
+    fn html:string () {
+        def d:PresDeck (unwrap deck)
+        def page (new PresHtml())
+        page.onlyPages = only
+        def s:string (page.html(d (PresDocx.titleOf(d.md.edit.doc)) word))
+        word = (new PresDocx())
+        return s
     }
 }

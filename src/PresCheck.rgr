@@ -13,6 +13,7 @@ Import "PresReview.rgr"
 Import "PresPick.rgr"
 Import "PresNav.rgr"
 Import "PresDocx.rgr"
+Import "PresHtml.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -1930,6 +1931,61 @@ class PresCheck {
 
     ; PresDocx + DocxWriter: the deck as a Word document, opened again with
     ; Ranger's own .docx reader (WordMlParser) and compared
+    ; The deck as one web page: sections per slide, notes, the shot written in,
+    ; nothing that runs, headings linkable, picked slides only.
+    fn htmlPage:void () {
+        def text:string ("---\ntitle: Raportti\nlang: fi\nslide-split-level: 2\n---\n\n"
+            + "## Eka & toka\n\nTeksti [linkki](https://sliqtly.com) ja [paha](javascript:alert(1)).\n\n<script>alert(2)</script>\n\n"
+            + "::: notes\nPuhe ensin. [[1]] Sitten.\n:::\n\n"
+            + "## Taulu\n\n| Nimi | Määrä |\n| :--- | ---: |\n| omena | 3 |\n\n$$\\frac{a}{b}$$\n\n"
+            + "## Kuva\n\n```mermaid\nflowchart LR\n  A --> B\n```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        def shots (new PresDocx())
+        shots.findShots(deck)
+        this.ok(((array_length shots.shots) == 1) "html: the diagram is a shot")
+        if ((array_length shots.shots) == 1) {
+            def s0:PresDocxShot (itemAt shots.shots 0)
+            def png:buffer (buffer_alloc 3)
+            buffer_set png 0 77
+            buffer_set png 1 97
+            buffer_set png 2 110
+            shots.setShot(s0.key png 200 100)
+        }
+        def page (new PresHtml())
+        def h:string (page.html(deck "Raportti" shots))
+        this.ok(((indexOf h "<!DOCTYPE html>") == 0) "html: a whole page")
+        this.ok(((indexOf h "<html lang=\"fi\">") > 0) "html: the deck's language")
+        this.ok(((indexOf h "<title>Raportti</title>") > 0) "html: its title")
+        this.ok(((indexOf h "<p class=\"title\">Raportti</p>") > 0) "html: the title on the page (no heading says it)")
+        this.ok((page.slides == 3) ("html: three slides, got " + (to_string page.slides)))
+        this.ok(((indexOf h "<section class=\"slide\" id=\"slide-3\">") > 0) "html: a section per slide")
+        this.ok(((indexOf h "<h2 id=\"eka-toka\">Eka &amp; toka</h2>") > 0) "html: headings escaped and linkable")
+        this.ok(((indexOf h "href=\"https://sliqtly.com\"") > 0) "html: the link")
+        this.ok(((indexOf h "<a>paha</a>") > 0) "html: a script link loses its address")
+        this.ok(((indexOf h "<script") < 0) "html: nothing that runs")
+        this.ok(((indexOf h "<td align=\"right\">3</td>") > 0) "html: the table, aligned")
+        this.ok(((indexOf h "class=\"math-display\"") > 0) "html: the formula")
+        this.ok(((indexOf h "<svg") > 0) "html: …drawn as SVG")
+        this.ok((page.notes == 1) "html: one slide's notes")
+        this.ok(((indexOf h "<aside class=\"notes\">\n<p>Puhe ensin.  Sitten.</p>") > 0) "html: notes without cues")
+        this.ok((page.shotsPlaced == 1) "html: the shot placed")
+        this.ok(((indexOf h "<img src=\"data:image/png;base64,TWFu\"") > 0) "html: …written in")
+        this.ok(((indexOf h "flowchart LR") < 0) "html: the diagram's source not also written")
+        this.ok(((indexOf h "slide-split-level") < 0) "html: no front matter")
+
+        def none (new PresDocx())
+        def plain (new PresHtml())
+        def bare:string (plain.html(deck "" none))
+        this.ok(((indexOf bare "<code class=\"language-mermaid\">") > 0) "html: no shot, the diagram as its source")
+
+        def picked (new PresHtml())
+        push picked.onlyPages 1
+        def one:string (picked.html(deck "Raportti" none))
+        this.ok((picked.slides == 1) "html: only the picked slide")
+        this.ok((((indexOf one "slide-2") > 0) && ((indexOf one "Eka") < 0)) "html: …and nothing else")
+    }
+
     fn docx:void () {
         def text:string ("---\ntitle: Raportti\nslide-split-level: 2\n---\n\n"
             + "## Eka & toka\n\nTeksti **lihava** ja [linkki](https://sliqtly.com).\n\n- yksi\n- kaksi\n  - sisempi\n\n"
@@ -2091,6 +2147,7 @@ class PresCheck {
         c.picks()
         c.navJumps()
         c.docx()
+        c.htmlPage()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"
