@@ -4594,6 +4594,42 @@ class PresDiagram {
     ; ==================================================================
     ; The holo style: glass panels and light, the Minority Report look
     ; ==================================================================
+    ; a class member's type: the accent, moved toward the text colour
+    ; until it reads (4.5:1) on the box, the node's colour (cr cg cb) over
+    ; the paper at the top of its glass and the deep colour at the bottom,
+    ; as a light theme's accent may not
+    fn typeInk:EVGColor (cr:int cg:int cb:int) {
+        def topR:double (((to_double bgR) * 0.7) + ((to_double cr) * 0.3))
+        def topG:double (((to_double bgG) * 0.7) + ((to_double cg) * 0.3))
+        def topB:double (((to_double bgB) * 0.7) + ((to_double cb) * 0.3))
+        def l1:double (PresDiagram.relLum((to_int topR) (to_int topG) (to_int topB)))
+        def l2:double (PresDiagram.relLum(deepR deepG deepB))
+        def k:int 0
+        while (k < 10) {
+            def f:double ((to_double k) / 10.0)
+            def r:int (to_int (((to_double acR) * (1.0 - f)) + ((to_double txR) * f)))
+            def g:int (to_int (((to_double acG) * (1.0 - f)) + ((to_double txG) * f)))
+            def b:int (to_int (((to_double acB) * (1.0 - f)) + ((to_double txB) * f)))
+            def la:double (PresDiagram.relLum(r g b))
+            if (((PresDiagram.ratio(la l1)) >= 4.5) && ((PresDiagram.ratio(la l2)) >= 4.5)) {
+                return (PresDiagram.rgba(r g b 1.0))
+            }
+            k = (k + 1)
+        }
+        return (PresDiagram.rgba(txR txG txB 1.0))
+    }
+
+    sfn ratio:double (a:double b:double) {
+        if (a > b) {
+            return ((a + 0.05) / (b + 0.05))
+        }
+        return ((b + 0.05) / (a + 0.05))
+    }
+
+    sfn relLum:double (r:int g:int b:int) {
+        return (((0.2126 * (MdLayout.channel((to_double r)))) + (0.7152 * (MdLayout.channel((to_double g))))) + (0.0722 * (MdLayout.channel((to_double b)))))
+    }
+
     sfn rgba:EVGColor (r:int g:int b:int a:double) {
         return (EVGColor.rgba(r g b a))
     }
@@ -5222,7 +5258,7 @@ class PresDiagram {
                         def ttag:string it.tag
                         def tl:int (strlen ttag)
                         if ((tl > 5) && ((substring ttag (tl - 5) tl) == ":type")) {
-                            this.textOf(one it (PresDiagram.rgba(acR acG acB 0.85)) 1.0 l)
+                            this.textOf(one it (this.typeInk(cr cg cb)) 1.0 l)
                         } {
                             this.textOf(one it (PresDiagram.rgba(txR txG txB 1.0)) 1.0 l)
                         }

@@ -1,0 +1,2057 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; PresUml — a UML class diagram read from source code
+; =============================================================================
+; Source files in, a Mermaid `classDiagram` out, which a slide draws as any
+; other diagram. It reads declarations, not programs: classes, interfaces,
+; structs, enums and traits with what they extend and implement, their fields
+; and methods (visibility, static, a type when the source writes one), and a
+; field whose type names another class read as an association.
+;
+;   TypeScript/JavaScript, Java, C#, Kotlin, Swift, Dart, PHP, Rust: braces
+;   Go: type … struct / interface, func (r *T) M()
+;   Python: class X(Base): with def and self.x = …
+;   Ranger: class X { Extends(…) def … fn … sfn … }
+;
+; Comments and strings are blanked first, so a brace or a keyword in either
+; does not count. Fetch-free and UI-free (mcp-go/uml_test.go).
+; =============================================================================
+
+class PresUmlMember {
+    def name:string ""
+    ; as the source writes it, compacted; "" when it writes none
+    def type:string ""
+    ; a method's parameter names, ", " between
+    def params:string ""
+    def method:boolean false
+    ; + public, - private, # protected, ~ package/internal
+    def vis:string "+"
+    def isStatic:boolean false
+    def isAbstract:boolean false
+}
+
+class PresUmlClass {
+    def name:string ""
+    ; class, abstract, interface, enum, struct, trait
+    def kind:string "class"
+    def file:string ""
+    def bases:[string]
+    def ifaces:[string]
+    def fields:[PresUmlMember]
+    def methods:[PresUmlMember]
+    ; seen only as a Go method receiver or a Rust impl: no declaration read
+    def implied:boolean false
+
+    fn memberCount:int () {
+        return ((array_length fields) + (array_length methods))
+    }
+}
+
+class PresUmlEdge {
+    def from:string ""
+    def to:string ""
+    ; "<|--" extends (to is the base), "<|.." implements, "-->" association
+    def arrow:string ""
+    def label:string ""
+    def many:boolean false
+}
+
+class PresUml {
+    def classes:[PresUmlClass]
+    ; files read, and files left out (a language this does not read)
+    def files:[string]
+    def skipped:[string]
+
+    ; the language a file is read as: c (braces), go, py, rs, rgr, or ""
+    sfn langOf:string (name:string) {
+        def dot:int (lastIndexOf name ".")
+        if (dot < 0) {
+            return ""
+        }
+        def ext:string (to_lowercase (substring name (dot + 1) (strlen name)))
+        for ([] _:string ("ts" "tsx" "mts" "cts" "js" "jsx" "mjs" "cjs" "java" "cs" "kt" "kts" "swift" "dart" "php" "scala")) e:string i {
+            if (e == ext) {
+                return "c"
+            }
+        }
+        if (ext == "go") {
+            return "go"
+        }
+        if ((ext == "py") || (ext == "pyi")) {
+            return "py"
+        }
+        if (ext == "rs") {
+            return "rs"
+        }
+        if (ext == "rgr") {
+            return "rgr"
+        }
+        return ""
+    }
+
+    ; the file's classes added (merged into a class of the same name); how
+    ; many it declares
+    fn add:int (name:string text:string) {
+        def lang:string (PresUml.langOf(name))
+        if ((strlen lang) == 0) {
+            push skipped name
+            return 0
+        }
+        push files name
+        def before:int (array_length classes)
+        def ext:string (to_lowercase (substring name ((lastIndexOf name ".") + 1) (strlen name)))
+        def s:string (PresUml.clean(text lang))
+        if (lang == "c") {
+            this.readBraces(name s ext)
+        }
+        if (lang == "rs") {
+            this.readBraces(name s "rs")
+        }
+        if (lang == "go") {
+            this.readGo(name s)
+        }
+        if (lang == "py") {
+            this.readPython(name s)
+        }
+        if (lang == "rgr") {
+            this.readRanger(name s)
+        }
+        def declared:int 0
+        for classes c:PresUmlClass ci {
+            if ((c.file == name) && (c.implied == false)) {
+                declared = (declared + 1)
+            }
+        }
+        if (declared == 0) {
+            return ((array_length classes) - before)
+        }
+        return declared
+    }
+
+    ; the index of the class of that name, -1 when there is none
+    fn indexOfClass:int (name:string) {
+        for classes c:PresUmlClass i {
+            if (c.name == name) {
+                return i
+            }
+        }
+        return -1
+    }
+
+    ; the class of that name, a new one when there is none yet
+    fn classOf:PresUmlClass (name:string file:string kind:string implied:boolean) {
+        def at:int (this.indexOfClass(name))
+        if (at >= 0) {
+            def c:PresUmlClass (itemAt classes at)
+            if (c.implied && (implied == false)) {
+                c.implied = false
+                c.kind = kind
+                c.file = file
+            }
+            return c
+        }
+        def n (new PresUmlClass())
+        n.name = name
+        n.kind = kind
+        n.file = file
+        n.implied = implied
+        push classes n
+        return n
+    }
+
+    ; --- characters
+
+    sfn isIdStart:boolean (c:int) {
+        return (((((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90))) || ((c == 95) || (c == 36))) || (c >= 128))
+    }
+
+    sfn isIdChar:boolean (c:int) {
+        return ((PresUml.isIdStart(c)) || ((c >= 48) && (c <= 57)))
+    }
+
+    sfn isSpace:boolean (c:int) {
+        return ((((c == 32) || (c == 9)) || (c == 10)) || (c == 13))
+    }
+
+    sfn isUpper:boolean (c:int) {
+        return ((c >= 65) && (c <= 90))
+    }
+
+    ; the source with comments blanked (a line comment keeps its newline)
+    ; and strings emptied ("" stays), so neither brace nor keyword in them
+    ; counts
+    sfn clean:string (text:string lang:string) {
+        def out:[string]
+        def n:int (strlen text)
+        def i:int 0
+        def run:int 0
+        def lineCmt:string "//"
+        if (lang == "py") {
+            lineCmt = "#"
+        }
+        if (lang == "rgr") {
+            lineCmt = ";"
+        }
+        while (i < n) {
+            def c:int (charAt text i)
+            def lc:boolean false
+            if (lang == "py") {
+                lc = (c == 35)
+            }
+            if (lang == "rgr") {
+                lc = (c == 59)
+            }
+            if ((lang != "py") && (lang != "rgr")) {
+                lc = ((c == 47) && (((i + 1) < n) && ((charAt text (i + 1)) == 47)))
+            }
+            if (lang == "c") {
+                ; PHP and Python-ish shells: # comments in PHP only matter
+                ; rarely; left alone
+            }
+            if lc {
+                push out (substring text run i)
+                while ((i < n) && ((charAt text i) != 10)) {
+                    i = (i + 1)
+                }
+                run = i
+                continue
+            }
+            def block:boolean (((lang != "py") && (lang != "rgr")) && ((c == 47) && (((i + 1) < n) && ((charAt text (i + 1)) == 42))))
+            if block {
+                push out (substring text run i)
+                push out " "
+                i = (i + 2)
+                while ((i < n) && (((charAt text i) != 42) || (((i + 1) >= n) || ((charAt text (i + 1)) != 47)))) {
+                    i = (i + 1)
+                }
+                i = (i + 2)
+                if (i > n) {
+                    i = n
+                }
+                run = i
+                continue
+            }
+            def quote:boolean ((c == 34) || ((c == 96) && ((lang != "py") && (lang != "rgr"))))
+            if (c == 39) {
+                if (lang == "rs") {
+                    ; 'a' and '\n' are characters; 'a alone is a lifetime
+                    quote = ((((i + 2) < n) && ((charAt text (i + 2)) == 39)) || (((i + 1) < n) && ((charAt text (i + 1)) == 92)))
+                } {
+                    quote = ((lang != "rgr") && (lang != "go"))
+                    if (lang == "go") {
+                        quote = true
+                    }
+                }
+            }
+            if quote {
+                push out (substring text run i)
+                push out "\"\""
+                ; a Python (or Kotlin, Swift) triple quote runs to its own end
+                def triple:boolean ((((i + 2) < n) && ((charAt text (i + 1)) == c)) && ((charAt text (i + 2)) == c))
+                if triple {
+                    i = (i + 3)
+                    while ((i < n) && ((((charAt text i) != c) || (((i + 2) >= n) || ((charAt text (i + 1)) != c))) || ((charAt text (i + 2)) != c))) {
+                        i = (i + 1)
+                    }
+                    i = (i + 3)
+                } {
+                    i = (i + 1)
+                    while ((i < n) && ((charAt text i) != c)) {
+                        if ((charAt text i) == 92) {
+                            i = (i + 1)
+                        }
+                        ; a plain string ends at its line (an unclosed one
+                        ; must not swallow the file); a template does not
+                        if (((charAt text i) == 10) && (c != 96)) {
+                            break
+                        }
+                        i = (i + 1)
+                    }
+                    i = (i + 1)
+                }
+                if (i > n) {
+                    i = n
+                }
+                run = i
+                continue
+            }
+            i = (i + 1)
+        }
+        push out (substring text run n)
+        return (join out "")
+    }
+
+    ; the index of the bracket closing the one at `at`, or the end
+    sfn closing:int (s:string at:int) {
+        def open:int (charAt s at)
+        def close:int 41
+        if (open == 123) {
+            close = 125
+        }
+        if (open == 91) {
+            close = 93
+        }
+        if (open == 60) {
+            close = 62
+        }
+        def depth:int 0
+        def i:int at
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == open) {
+                depth = (depth + 1)
+            }
+            if (c == close) {
+                depth = (depth - 1)
+                if (depth == 0) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn skipSpace:int (s:string at:int) {
+        def i:int at
+        while ((i < (strlen s)) && (PresUml.isSpace((charAt s i)))) {
+            i = (i + 1)
+        }
+        return i
+    }
+
+    ; the identifier at `at` (dots and :: joined: pkg.Type), "" when none
+    sfn identAt:string (s:string at:int) {
+        def n:int (strlen s)
+        if ((at >= n) || ((PresUml.isIdStart((charAt s at))) == false)) {
+            return ""
+        }
+        def j:int at
+        while ((j < n) && (PresUml.isIdChar((charAt s j)))) {
+            j = (j + 1)
+        }
+        return (substring s at j)
+    }
+
+    ; the identifier ending just before `end` (spaces skipped), "" for none
+    sfn identBefore:string (s:string end:int) {
+        def e:int end
+        while ((e > 0) && (PresUml.isSpace((charAt s (e - 1))))) {
+            e = (e - 1)
+        }
+        def b:int e
+        while ((b > 0) && (PresUml.isIdChar((charAt s (b - 1))))) {
+            b = (b - 1)
+        }
+        if ((b == e) || ((PresUml.isIdStart((charAt s b))) == false)) {
+            return ""
+        }
+        return (substring s b e)
+    }
+
+    ; the text with <…> (generics) left out
+    sfn noGenerics:string (s:string) {
+        def out:[string]
+        def depth:int 0
+        def run:int 0
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 60) {
+                if (depth == 0) {
+                    push out (substring s run i)
+                }
+                depth = (depth + 1)
+            }
+            if ((c == 62) && (depth > 0)) {
+                depth = (depth - 1)
+                if (depth == 0) {
+                    run = (i + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if (depth == 0) {
+            push out (substring s run n)
+        }
+        return (join out "")
+    }
+
+    ; s split at the commas outside brackets
+    sfn commaParts:[string] (s:string) {
+        def out:[string]
+        def depth:int 0
+        def run:int 0
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((((c == 40) || (c == 91)) || (c == 123)) || (c == 60)) {
+                depth = (depth + 1)
+            }
+            if ((((c == 41) || (c == 93)) || (c == 125)) || ((c == 62) && (depth > 0))) {
+                if (((c == 62) && (i > 0)) && (((charAt s (i - 1)) == 45) || ((charAt s (i - 1)) == 61))) {
+                    depth = (depth + 1)
+                }
+                depth = (depth - 1)
+            }
+            if ((c == 44) && (depth <= 0)) {
+                push out (substring s run i)
+                run = (i + 1)
+            }
+            i = (i + 1)
+        }
+        push out (substring s run n)
+        return out
+    }
+
+    ; a type as a diagram writes it: no spaces, no pointer or reference
+    ; marks, <> as Mermaid's ~ ~
+    sfn typeText:string (t:string) {
+        def out:[string]
+        def i:int 0
+        def n:int (strlen t)
+        while (i < n) {
+            def c:int (charAt t i)
+            def ch:string (substring t i (i + 1))
+            if ((((PresUml.isSpace(c)) || (c == 42)) || (c == 38)) || (c == 36)) {
+                ch = ""
+            }
+            if ((c == 60) || (c == 62)) {
+                ch = "~"
+            }
+            if (c == 44) {
+                ch = ","
+            }
+            push out ch
+            i = (i + 1)
+        }
+        def r:string (trim (join out ""))
+        if (startsWith r "func(") {
+            return "func"
+        }
+        ; Go's []T and map[K]V
+        if ((startsWith r "[]") && ((strlen r) > 2)) {
+            r = ((substring r 2 (strlen r)) + "[]")
+        }
+        if (startsWith r "map[") {
+            def mk:int (indexOf r "]")
+            if (mk > 4) {
+                r = ("Map~" + (substring r 4 mk) + "," + (substring r (mk + 1) (strlen r)) + "~")
+            }
+        }
+        ; Ranger's [T] and [K:V]
+        if (((startsWith r "[") && (endsWith r "]")) && ((strlen r) > 2)) {
+            def inner:string (substring r 1 ((strlen r) - 1))
+            def kv:int (indexOf inner ":")
+            if (kv > 0) {
+                r = ("Map~" + (substring inner 0 kv) + "," + (substring inner (kv + 1) (strlen inner)) + "~")
+            } {
+                r = (inner + "[]")
+            }
+        }
+        if ((r == "void") || ((r == "Unit") || (r == "()"))) {
+            return ""
+        }
+        if ((strlen r) > 28) {
+            r = ((substring r 0 27) + "…")
+        }
+        return r
+    }
+
+    ; the words a member starts with that say how, not what
+    sfn modifier:boolean (w:string) {
+        for ([] _:string ("public" "private" "protected" "internal" "fileprivate" "open" "static" "readonly" "abstract" "async" "override" "final" "virtual" "sealed" "const" "let" "var" "val" "fun" "func" "fn" "def" "mut" "pub" "unsafe" "extern" "export" "declare" "default" "synchronized" "transient" "volatile" "native" "partial" "new" "required" "lazy" "weak" "dynamic" "mutating" "inline" "suspend" "operator" "infix" "lateinit" "class" "late" "factory" "external" "covariant" "crate")) m:string i {
+            if (m == w) {
+                return true
+            }
+        }
+        return false
+    }
+
+    sfn keyword:boolean (w:string) {
+        for ([] _:string ("if" "for" "while" "switch" "catch" "return" "super" "this" "throw" "else" "do" "try" "import" "package" "using" "namespace" "use" "type" "typealias" "init" "constructor" "deinit" "case" "where" "match" "loop" "self" "print" "require")) m:string i {
+            if (m == w) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; --- brace languages
+
+    fn readBraces:void (file:string s:string ext:string) {
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (PresUml.isIdStart(c)) {
+                def prev:int 32
+                if (i > 0) {
+                    prev = (charAt s (i - 1))
+                }
+                def w:string (PresUml.identAt(s i))
+                def j:int (i + (strlen w))
+                if (((PresUml.isIdChar(prev)) == false) && (prev != 46)) {
+                    def kinds:[string] ([] _:string ("class" "interface" "struct" "enum" "record" "protocol" "object"))
+                    if (ext == "rs") {
+                        kinds = ([] _:string ("struct" "enum" "trait" "impl"))
+                    }
+                    for kinds k:string ki {
+                        if (k == w) {
+                            j = (this.readDecl(file s ext w i j))
+                            break
+                        }
+                    }
+                }
+                i = j
+                continue
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; the words on the declaration's line before `at`
+    sfn lineBefore:string (s:string at:int) {
+        def b:int at
+        while ((b > 0) && (((charAt s (b - 1)) != 10) && (((charAt s (b - 1)) != 59) && ((charAt s (b - 1)) != 125)))) {
+            b = (b - 1)
+        }
+        return (substring s b at)
+    }
+
+    ; one declaration whose keyword is at `at`, its name after `after`;
+    ; where the scan goes on (the body is scanned too, for nested classes)
+    fn readDecl:int (file:string s:string ext:string kw:string at:int after:int) {
+        def n:int (strlen s)
+        def i:int (PresUml.skipSpace(s after))
+        if ((kw == "impl") && ((i < n) && ((charAt s i) == 60))) {
+            i = (PresUml.skipSpace(s ((PresUml.closing(s i)) + 1)))
+        }
+        def name:string (PresUml.identAt(s i))
+        ; Kotlin's enum class, PHP's/Kotlin's other prefixes
+        if ((name == "class") || (name == "interface")) {
+            i = (PresUml.skipSpace(s (i + (strlen name))))
+            name = (PresUml.identAt(s i))
+        }
+        if (((strlen name) == 0) || (PresUml.keyword(name))) {
+            return after
+        }
+        ; a TypeScript `object` or Kotlin companion is not this
+        if ((kw == "object") && ((ext != "kt") && (ext != "kts") && (ext != "scala"))) {
+            return after
+        }
+        i = (i + (strlen name))
+        ; the header: up to { or ; or a line break that ends it
+        def h0:int i
+        def paren:int 0
+        def stop:int -1
+        def k:int i
+        while ((k < n) && (stop < 0)) {
+            def c:int (charAt s k)
+            if ((c == 40) || (c == 60) || (c == 91)) {
+                paren = (paren + 1)
+            }
+            if ((c == 41) || ((c == 62) && (paren > 0)) || (c == 93)) {
+                if (((c == 62) && (k > 0)) && ((charAt s (k - 1)) == 45)) {
+                    paren = (paren + 1)
+                }
+                paren = (paren - 1)
+            }
+            if ((paren <= 0) && ((c == 123) || (c == 59) || (c == 61))) {
+                stop = k
+            }
+            if (((paren <= 0) && (c == 10)) && (stop < 0)) {
+                def soFar:string (trim (substring s h0 k))
+                def nx:int (PresUml.skipSpace(s k))
+                def nextWord:string (PresUml.identAt(s nx))
+                def goesOn:boolean (((endsWith soFar ",") || (endsWith soFar ":")) || ((nextWord == "extends") || ((nextWord == "implements") || ((nextWord == "where") || (nextWord == "with")))))
+                if ((nx < n) && (((charAt s nx) == 58) || ((charAt s nx) == 123) || ((charAt s nx) == 44))) {
+                    goesOn = true
+                }
+                if (goesOn == false) {
+                    stop = k
+                }
+            }
+            k = (k + 1)
+        }
+        if (stop < 0) {
+            stop = n
+        }
+        ; `type X = …`-like and `enum X = …`: not a declaration with members
+        if ((stop < n) && ((charAt s stop) == 61)) {
+            return stop
+        }
+        def head:string (substring s h0 stop)
+        def lineHead:string (PresUml.lineBefore(s at))
+        if (kw == "impl") {
+            this.readImpl(file s ext name head stop)
+            return (stop + 1)
+        }
+        def kind:string "class"
+        if ((kw == "interface") || ((kw == "protocol") || (kw == "trait"))) {
+            kind = "interface"
+            if (kw == "trait") {
+                kind = "trait"
+            }
+        }
+        if (kw == "enum") {
+            kind = "enum"
+        }
+        if (kw == "struct") {
+            kind = "struct"
+        }
+        if ((indexOf lineHead "abstract") >= 0) {
+            kind = "abstract"
+        }
+        def cls:PresUmlClass (this.classOf(name file kind false))
+        this.readHead(cls head ext kw)
+        if ((stop < n) && ((charAt s stop) == 123)) {
+            def close:int (PresUml.closing(s stop))
+            def body:string (substring s (stop + 1) close)
+            if (kind == "enum") {
+                this.readEnum(cls body)
+            } {
+                this.readBody(cls body ext ((ext == "rs") && (kw == "struct")))
+            }
+        }
+        return (stop + 1)
+    }
+
+    ; what a header after the name says: generics, a primary constructor
+    ; (Kotlin, Java record, Scala), extends/implements, or : A, B
+    fn readHead:void (cls:PresUmlClass head:string ext:string kw:string) {
+        def h:string (trim head)
+        if (startsWith h "<") {
+            h = (trim (substring h ((PresUml.closing(h 0)) + 1) (strlen h)))
+        }
+        if (startsWith h "(") {
+            def close:int (PresUml.closing(h 0))
+            def params:string (substring h 1 close)
+            for (PresUml.commaParts(params)) p:string pi {
+                def t:string (trim p)
+                def isProp:boolean ((((startsWith t "val ") || (startsWith t "var ")) || (kw == "record")) || ((ext == "scala") || (indexOf t "val ") >= 0))
+                if ((isProp && ((strlen t) > 0)) && (ext != "rs")) {
+                    this.member(cls t ext false)
+                }
+            }
+            h = (trim (substring h (close + 1) (strlen h)))
+        }
+        h = (PresUml.noGenerics(h))
+        def ex:string ""
+        def im:string ""
+        def ei:int (indexOf h "extends ")
+        def ii:int (indexOf h "implements ")
+        if (ei >= 0) {
+            def end:int (strlen h)
+            if (ii > ei) {
+                end = ii
+            }
+            ex = (substring h (ei + 8) end)
+        }
+        if (ii >= 0) {
+            def end2:int (strlen h)
+            if ((ei > ii) && (ei >= 0)) {
+                end2 = ei
+            }
+            im = (substring h (ii + 11) end2)
+        }
+        if ((((ei < 0) && (ii < 0)) && (startsWith h ":")) && (ext != "rs")) {
+            ; Kotlin, Swift, C#, Dart-free: a base with () is a class, an
+            ; interface has none; Swift/C# can't tell, so the first is the
+            ; base for a class and an I-name (C#) is an interface
+            def parts:[string] (PresUml.commaParts((substring h 1 (strlen h))))
+            for parts p:string pi {
+                def t:string (trim p)
+                def wi:int (indexOf t " where ")
+                if (wi >= 0) {
+                    t = (trim (substring t 0 wi))
+                }
+                def nm:string (PresUml.identAt(t 0))
+                if ((strlen nm) == 0) {
+                    continue
+                }
+                def isBase:boolean false
+                if ((ext == "kt") || (ext == "kts")) {
+                    isBase = ((indexOf t "(") > 0)
+                } {
+                    isBase = ((pi == 0) && ((cls.kind == "class") || (cls.kind == "abstract")))
+                    if (((ext == "cs") && ((strlen nm) > 1)) && (((charAt nm 0) == 73) && (PresUml.isUpper((charAt nm 1))))) {
+                        isBase = false
+                    }
+                }
+                if ((cls.kind == "interface") || (cls.kind == "trait")) {
+                    isBase = true
+                }
+                if isBase {
+                    push cls.bases nm
+                } {
+                    push cls.ifaces nm
+                }
+            }
+        }
+        if (ext == "rs") {
+            ; trait A: B + C
+            if (startsWith h ":") {
+                for (strsplit (substring h 1 (strlen h)) "+") p2:string pj {
+                    def nm2:string (PresUml.identAt((trim p2) 0))
+                    if ((strlen nm2) > 0) {
+                        push cls.bases nm2
+                    }
+                }
+            }
+        }
+        for (PresUml.commaParts(ex)) e:string ek {
+            def nm3:string (PresUml.lastName((trim e)))
+            if ((strlen nm3) > 0) {
+                if ((cls.kind == "class") || (cls.kind == "abstract") || (cls.kind == "interface")) {
+                    push cls.bases nm3
+                }
+            }
+        }
+        for (PresUml.commaParts(im)) m:string mk {
+            def nm4:string (PresUml.lastName((trim m)))
+            if ((strlen nm4) > 0) {
+                push cls.ifaces nm4
+            }
+        }
+    }
+
+    ; "pkg.Base(x) {" → Base
+    sfn lastName:string (t:string) {
+        def s:string t
+        def p:int (indexOf s "(")
+        if (p >= 0) {
+            s = (substring s 0 p)
+        }
+        def sp:int (indexOf (trim s) " ")
+        if (sp >= 0) {
+            s = (substring (trim s) 0 sp)
+        }
+        s = (trim s)
+        def dot:int (lastIndexOf s ".")
+        if (dot >= 0) {
+            s = (substring s (dot + 1) (strlen s))
+        }
+        return (PresUml.identAt(s 0))
+    }
+
+    ; impl Trait for Type { fn … } / impl Type { fn … }
+    fn readImpl:void (file:string s:string ext:string first:string head:string stop:int) {
+        def h:string (PresUml.noGenerics(head))
+        def target:string first
+        def trait:string ""
+        def fi:int (indexOf h " for ")
+        if (fi >= 0) {
+            trait = first
+            target = (PresUml.lastName((trim (substring h (fi + 5) (strlen h)))))
+        }
+        def wi:int (indexOf target " ")
+        if (wi >= 0) {
+            target = (substring target 0 wi)
+        }
+        if ((strlen target) == 0) {
+            return
+        }
+        def cls:PresUmlClass (this.classOf(target file "struct" true))
+        if (((strlen trait) > 0) && ((PresUml.has(cls.ifaces trait)) == false)) {
+            push cls.ifaces trait
+        }
+        if ((stop < (strlen s)) && ((charAt s stop) == 123)) {
+            def close:int (PresUml.closing(s stop))
+            def body:string (substring s (stop + 1) close)
+            ; a trait's methods belong to the trait's picture
+            if ((strlen trait) == 0) {
+                this.readBody(cls body ext false)
+            }
+        }
+    }
+
+    sfn has:boolean (list:[string] v:string) {
+        for list x:string i {
+            if (x == v) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; the members of an enum: its constants (up to the first ; in Java),
+    ; then whatever follows
+    fn readEnum:void (cls:PresUmlClass body:string) {
+        def depth:int 0
+        def semi:int -1
+        def i:int 0
+        while ((i < (strlen body)) && (semi < 0)) {
+            def c:int (charAt body i)
+            if (((c == 40) || (c == 123)) || (c == 91)) {
+                depth = (depth + 1)
+            }
+            if (((c == 41) || (c == 125)) || (c == 93)) {
+                depth = (depth - 1)
+            }
+            if ((c == 59) && (depth == 0)) {
+                semi = i
+            }
+            i = (i + 1)
+        }
+        def consts:string body
+        if (semi >= 0) {
+            consts = (substring body 0 semi)
+        }
+        for (strsplit consts "\n") line:string li {
+            def t:string (trim line)
+            if (startsWith t "case ") {
+                t = (substring t 5 (strlen t))
+            }
+            for (PresUml.commaParts(t)) p:string pi {
+                def nm:string (PresUml.identAt((trim p) 0))
+                if (((strlen nm) > 0) && ((PresUml.modifier(nm)) == false) && ((PresUml.keyword(nm)) == false)) {
+                    def m (new PresUmlMember())
+                    m.name = nm
+                    push cls.fields m
+                }
+            }
+        }
+        if (semi >= 0) {
+            this.readBody(cls (substring body (semi + 1) (strlen body)) "c" false)
+        }
+    }
+
+    ; a class body's members, one per statement at its top level; a block
+    ; ({…}: a method's body, a property's accessors) ends a statement
+    fn readBody:void (cls:PresUmlClass body:string ext:string commas:boolean) {
+        def parts:[string]
+        def paren:int 0
+        def angle:int 0
+        def run:int 0
+        def i:int 0
+        def n:int (strlen body)
+        while (i < n) {
+            def c:int (charAt body i)
+            if ((c == 40) || (c == 91)) {
+                paren = (paren + 1)
+            }
+            if (((c == 41) || (c == 93)) && (paren > 0)) {
+                paren = (paren - 1)
+            }
+            if ((c == 60) && ((i > 0) && (PresUml.isIdChar((charAt body (i - 1)))))) {
+                angle = (angle + 1)
+            }
+            if ((c == 62) && ((angle > 0) && ((i > 0) && (((charAt body (i - 1)) != 45) && ((charAt body (i - 1)) != 61))))) {
+                angle = (angle - 1)
+            }
+            if ((c == 123) && (paren == 0)) {
+                push parts ((substring body run i) + " {")
+                i = ((PresUml.closing(body i)) + 1)
+                run = i
+                angle = 0
+                continue
+            }
+            if ((paren == 0) && (((c == 59) || (c == 10)) || ((commas && (c == 44)) && (angle == 0)))) {
+                push parts (substring body run i)
+                run = (i + 1)
+            }
+            i = (i + 1)
+        }
+        push parts (substring body run n)
+        for parts p:string pi {
+            this.member(cls p ext true)
+        }
+    }
+
+    ; one member statement read into the class, when it is one
+    fn member:void (cls:PresUmlClass text:string ext:string inBody:boolean) {
+        def t:string (trim text)
+        if (endsWith t " {") {
+            t = (trim (substring t 0 ((strlen t) - 2)))
+        }
+        ; annotations and attributes: @Foo(…), [Attr]
+        def guard:int 0
+        while ((((strlen t) > 0) && (((charAt t 0) == 64) || ((charAt t 0) == 91) || ((charAt t 0) == 35 && (startsWith t "#[")))) && (guard < 8)) {
+            guard = (guard + 1)
+            if ((charAt t 0) == 64) {
+                def k:int 1
+                while ((k < (strlen t)) && ((PresUml.isIdChar((charAt t k))) || ((charAt t k) == 46))) {
+                    k = (k + 1)
+                }
+                if ((k < (strlen t)) && ((charAt t k) == 40)) {
+                    k = ((PresUml.closing(t k)) + 1)
+                }
+                t = (trim (substring t k (strlen t)))
+            } {
+                def at:int 0
+                if ((charAt t 0) == 35) {
+                    at = 1
+                }
+                def close:int (PresUml.closing(t at))
+                t = (trim (substring t (close + 1) (strlen t)))
+            }
+        }
+        if ((strlen t) == 0) {
+            return
+        }
+        def m (new PresUmlMember())
+        def isFunc:boolean false
+        ; JavaScript's #private
+        if ((charAt t 0) == 35) {
+            m.vis = "-"
+            t = (substring t 1 (strlen t))
+        }
+        ; the leading modifiers
+        def before:[string]
+        def going:boolean true
+        while going {
+            def w:string (PresUml.identAt(t 0))
+            if ((strlen w) == 0) {
+                going = false
+                continue
+            }
+            def rest:string (trim (substring t (strlen w) (strlen t)))
+            if (startsWith rest "(") {
+                ; pub(crate) is a modifier; a call is the member
+                if (w == "pub") {
+                    rest = (trim (substring rest ((PresUml.closing(rest 0)) + 1) (strlen rest)))
+                } {
+                    going = false
+                    continue
+                }
+            }
+            def accessor:boolean (((w == "get") || (w == "set")) && ((strlen (PresUml.identAt(rest 0))) > 0))
+            if (((PresUml.modifier(w)) || accessor) && ((strlen rest) > 0) && (((charAt rest 0) != 58) && ((charAt rest 0) != 61) && ((charAt rest 0) != 63))) {
+                if (w == "private") {
+                    m.vis = "-"
+                }
+                if ((w == "protected") && (m.vis != "-")) {
+                    m.vis = "#"
+                }
+                if ((w == "internal") || (w == "fileprivate")) {
+                    m.vis = "~"
+                }
+                if (w == "static") {
+                    m.isStatic = true
+                }
+                if (w == "abstract") {
+                    m.isAbstract = true
+                }
+                if (((w == "fun") || (w == "func")) || ((w == "fn") || (w == "def"))) {
+                    isFunc = true
+                }
+                if (w == "class") {
+                    ; a nested class: read where it is declared
+                    return
+                }
+                t = rest
+                continue
+            }
+            going = false
+        }
+        def first:string (PresUml.identAt(t 0))
+        if ((PresUml.keyword(first)) && (first != "init")) {
+            return
+        }
+        if (((first == "interface") || (first == "enum")) || ((first == "struct") || (first == "record"))) {
+            return
+        }
+        ; where ( and = are at the top level
+        def p:int -1
+        def e:int -1
+        def colon:int -1
+        def depth:int 0
+        def i:int 0
+        def n:int (strlen t)
+        while (i < n) {
+            def c:int (charAt t i)
+            if ((c == 60) || (c == 91) || (c == 123)) {
+                depth = (depth + 1)
+            }
+            if (((c == 62) || (c == 93) || (c == 125)) && (depth > 0)) {
+                if (((c == 62) && (i > 0)) && (((charAt t (i - 1)) == 45) || ((charAt t (i - 1)) == 61))) {
+                    depth = (depth + 1)
+                }
+                depth = (depth - 1)
+            }
+            if (depth == 0) {
+                if ((c == 40) && (p < 0)) {
+                    p = i
+                    i = (PresUml.closing(t i))
+                    if (e >= 0) {
+                        i = n
+                    }
+                    continue
+                }
+                if (((c == 61) && (e < 0)) && (p < 0)) {
+                    def nx:int 0
+                    if ((i + 1) < n) {
+                        nx = (charAt t (i + 1))
+                    }
+                    def pv:int 0
+                    if (i > 0) {
+                        pv = (charAt t (i - 1))
+                    }
+                    if ((((nx != 61) && (nx != 62)) && (pv != 33)) && ((pv != 60) && (pv != 62))) {
+                        e = i
+                    }
+                }
+                if (((c == 58) && (colon < 0)) && ((p < 0) && (e < 0))) {
+                    colon = i
+                }
+            }
+            i = (i + 1)
+        }
+        ; an arrow function in a field is a method
+        def arrowField:boolean false
+        if (((e >= 0) && ((p < 0) || (e < p))) && ((indexOf t "=>") > e)) {
+            def init:string (trim (substring t (e + 1) (strlen t)))
+            if (((startsWith init "(") || (startsWith init "async")) || ((PresUml.isIdStart((charAt init 0))) && ((indexOf init "=>") < 24))) {
+                arrowField = true
+            }
+        }
+        if (((p >= 0) && ((e < 0) || (p < e))) || arrowField) {
+            if arrowField {
+                m.name = (PresUml.identBefore(t e))
+                def init2:string (trim (substring t (e + 1) (strlen t)))
+                def pp:int (indexOf init2 "(")
+                def ar:int (indexOf init2 "=>")
+                if ((pp >= 0) && (pp < ar)) {
+                    m.params = (PresUml.paramNames((substring init2 (pp + 1) (PresUml.closing(init2 pp)))))
+                } {
+                    m.params = (PresUml.paramNames((trim (substring init2 0 ar))))
+                }
+            } {
+                def nameEnd:int p
+                def ne:int p
+                while ((ne > 0) && (PresUml.isSpace((charAt t (ne - 1))))) {
+                    ne = (ne - 1)
+                }
+                ; generic parameters right before (: foo<T>(…)
+                if ((ne > 0) && ((charAt t (ne - 1)) == 62)) {
+                    def dep:int 0
+                    def q:int (ne - 1)
+                    while (q >= 0) {
+                        if ((charAt t q) == 62) {
+                            dep = (dep + 1)
+                        }
+                        if ((charAt t q) == 60) {
+                            dep = (dep - 1)
+                            if (dep == 0) {
+                                break
+                            }
+                        }
+                        q = (q - 1)
+                    }
+                    if (q > 0) {
+                        nameEnd = q
+                    }
+                }
+                m.name = (PresUml.identBefore(t nameEnd))
+                def close:int (PresUml.closing(t p))
+                m.params = (PresUml.paramNames((substring t (p + 1) close)))
+                def after:string ""
+                if (close < n) {
+                    after = (trim (substring t (close + 1) (strlen t)))
+                }
+                if (startsWith after "throws") {
+                    after = (trim (substring after 6 (strlen after)))
+                }
+                if (startsWith after "async") {
+                    after = (trim (substring after 5 (strlen after)))
+                }
+                if (startsWith after ":") {
+                    m.type = (PresUml.upTo((substring after 1 (strlen after))))
+                }
+                if (startsWith after "->") {
+                    m.type = (PresUml.upTo((substring after 2 (strlen after))))
+                }
+                if (((strlen m.type) == 0) && ((isFunc == false) && ((ext == "java") || ((ext == "cs") || ((ext == "dart") || (ext == "c")))))) {
+                    ; Java, C#, Dart: the type is written before the name
+                    def bstart:int (lastIndexOf (substring t 0 nameEnd) m.name)
+                    if (bstart > 0) {
+                        m.type = (trim (substring t 0 bstart))
+                    }
+                }
+                m.type = (PresUml.typeText(m.type))
+            }
+            m.method = true
+            if ((((strlen m.name) == 0) || (PresUml.keyword(m.name))) || ((m.name == cls.name) || (m.name == "__construct"))) {
+                return
+            }
+            if ((startsWith m.name "_") && (m.vis == "+")) {
+                m.vis = "-"
+            }
+            if ((ext == "go") || ((ext == "rs") && (inBody && false))) {
+                m.vis = "+"
+            }
+            push cls.methods m
+            return
+        }
+        ; a field
+        def f:string t
+        if (e >= 0) {
+            f = (trim (substring t 0 e))
+        }
+        if (((strlen f) == 0) || ((charAt f 0) == 91)) {
+            return
+        }
+        if (colon >= 0) {
+            def lhs:string (trim (substring f 0 colon))
+            m.name = (PresUml.identBefore(lhs (strlen lhs)))
+            m.type = (PresUml.typeText((PresUml.upTo((substring f (colon + 1) (strlen f))))))
+        } {
+            def lhs2:string f
+            while ((strlen lhs2) > 0) {
+                def lc:int (charAt lhs2 ((strlen lhs2) - 1))
+                if ((lc == 63) || (lc == 33)) {
+                    lhs2 = (trim (substring lhs2 0 ((strlen lhs2) - 1)))
+                } {
+                    break
+                }
+            }
+            m.name = (PresUml.identBefore(lhs2 (strlen lhs2)))
+            def ts:int ((strlen lhs2) - (strlen m.name))
+            if (ts > 0) {
+                m.type = (PresUml.typeText((substring lhs2 0 ts)))
+            }
+        }
+        if (((strlen m.name) == 0) || ((PresUml.keyword(m.name)) || (PresUml.modifier(m.name)))) {
+            return
+        }
+        if ((startsWith m.name "_") && (m.vis == "+")) {
+            m.vis = "-"
+        }
+        if ((ext == "rs") && ((indexOf text "pub") < 0)) {
+            m.vis = "-"
+        }
+        push cls.fields m
+    }
+
+    ; a type written after : or ->, up to where the member goes on
+    sfn upTo:string (s:string) {
+        def depth:int 0
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c == 60) || (c == 40) || (c == 91)) {
+                depth = (depth + 1)
+            }
+            if (((c == 62) || (c == 41) || (c == 93)) && (depth > 0)) {
+                depth = (depth - 1)
+            }
+            if ((depth == 0) && (((c == 123) || (c == 61)) || (c == 59))) {
+                return (trim (substring s 0 i))
+            }
+            if ((depth == 0) && ((startsWith (substring s i n) " where ") || (startsWith (substring s i n) " throws"))) {
+                return (trim (substring s 0 i))
+            }
+            i = (i + 1)
+        }
+        return (trim s)
+    }
+
+    ; "a: number, b = 2, String c, _ x: Int, &self" → "a, b, c, x"
+    sfn paramNames:string (s:string) {
+        def out:[string]
+        for (PresUml.commaParts(s)) p:string i {
+            def t:string (trim p)
+            def eq:int (indexOf t "=")
+            if (eq >= 0) {
+                t = (trim (substring t 0 eq))
+            }
+            def nm:string ""
+            def colon:int (indexOf t ":")
+            if (colon >= 0) {
+                nm = (PresUml.identBefore(t colon))
+            } {
+                nm = (PresUml.identBefore(t (strlen t)))
+            }
+            if ((((strlen nm) == 0) || (nm == "self")) || ((nm == "this") || (nm == "cls"))) {
+                continue
+            }
+            push out nm
+        }
+        if ((array_length out) > 4) {
+            def cut:[string]
+            def k:int 0
+            while (k < 3) {
+                push cut (itemAt out k)
+                k = (k + 1)
+            }
+            push cut "…"
+            return (join cut ", ")
+        }
+        return (join out ", ")
+    }
+
+    ; Go's parameters: "a, b int, c *T" → "a, b, c"; types alone
+    ; (an interface's "string, int") stay as they are
+    sfn goParams:string (s:string) {
+        def out:[string]
+        for (PresUml.commaParts(s)) p:string i {
+            def t:string (trim p)
+            def w:string (PresUml.identAt(t 0))
+            if ((strlen w) > 0) {
+                push out w
+            }
+        }
+        if ((array_length out) > 4) {
+            return ((itemAt out 0) + ", " + (itemAt out 1) + ", " + (itemAt out 2) + ", …")
+        }
+        return (join out ", ")
+    }
+
+    ; --- Go
+
+    fn readGo:void (file:string s:string) {
+        def lines:[string] (strsplit s "\n")
+        def li:int 0
+        def nl:int (array_length lines)
+        while (li < nl) {
+            def t:string (trim (itemAt lines li))
+            ; type X struct { / type X interface {
+            if (startsWith t "type ") {
+                def rest:string (trim (substring t 5 (strlen t)))
+                def name:string (PresUml.identAt(rest 0))
+                def after:string (trim (substring rest (strlen name) (strlen rest)))
+                if (startsWith after "[") {
+                    after = (trim (substring after ((PresUml.closing(after 0)) + 1) (strlen after)))
+                }
+                def isStruct:boolean (startsWith after "struct")
+                def isIface:boolean (startsWith after "interface")
+                if (((strlen name) > 0) && (isStruct || isIface)) {
+                    def kind:string "struct"
+                    if isIface {
+                        kind = "interface"
+                    }
+                    def cls:PresUmlClass (this.classOf(name file kind false))
+                    if ((indexOf after "{") >= 0) {
+                        def oneLine:boolean ((indexOf after "}") >= 0)
+                        if oneLine {
+                            def inner:string (substring after ((indexOf after "{") + 1) (indexOf after "}"))
+                            for (strsplit inner ";") part:string pi {
+                                this.goMember(cls (trim part) isIface)
+                            }
+                        } {
+                            li = (li + 1)
+                            def depth:int 1
+                            while ((li < nl) && (depth > 0)) {
+                                def l2:string (trim (itemAt lines li))
+                                if (l2 == "}") {
+                                    depth = 0
+                                    continue
+                                }
+                                if (depth == 1) {
+                                    this.goMember(cls l2 isIface)
+                                }
+                                def o:int (PresUml.count(l2 "{"))
+                                def c:int (PresUml.count(l2 "}"))
+                                depth = ((depth + o) - c)
+                                li = (li + 1)
+                            }
+                        }
+                    }
+                }
+            }
+            ; func (r *X) Name(params) ret {
+            if (startsWith t "func (") {
+                def close:int (PresUml.closing(t 5))
+                def recv:string (trim (substring t 6 close))
+                def words:[string] (strsplit recv " ")
+                def rt:string (itemAt words ((array_length words) - 1))
+                rt = (PresUml.noGenerics((join (strsplit rt "*") "")))
+                def recvName:string (PresUml.identAt(rt 0))
+                def sig:string (trim (substring t (close + 1) (strlen t)))
+                if ((strlen recvName) > 0) {
+                    def cls2:PresUmlClass (this.classOf(recvName file "struct" true))
+                    this.goMethod(cls2 sig)
+                }
+            }
+            li = (li + 1)
+        }
+    }
+
+    sfn count:int (s:string ch:string) {
+        return ((array_length (strsplit s ch)) - 1)
+    }
+
+    fn goMember:void (cls:PresUmlClass line:string iface:boolean) {
+        def t:string (trim line)
+        if (((strlen t) == 0) || ((t == "}") || (t == "{"))) {
+            return
+        }
+        if iface {
+            if ((indexOf t "(") > 0) {
+                this.goMethod(cls t)
+            } {
+                def nm:string (PresUml.lastName((join (strsplit t "*") "")))
+                if (((strlen nm) > 0) && ((PresUml.isIdStart((charAt t 0))))) {
+                    push cls.bases nm
+                }
+            }
+            return
+        }
+        ; a struct tag `json:"x"` was emptied to ""
+        def words:[string] (PresUml.goWords(t))
+        if ((array_length words) == 0) {
+            return
+        }
+        if ((array_length words) == 1) {
+            ; embedded: *pkg.Base or Base
+            def nm2:string (PresUml.lastName((join (strsplit (itemAt words 0) "*") "")))
+            if ((strlen nm2) > 0) {
+                push cls.bases nm2
+            }
+            return
+        }
+        def typ:string (itemAt words ((array_length words) - 1))
+        def ni:int 0
+        while (ni < ((array_length words) - 1)) {
+            def nm3:string (trim (join (strsplit (itemAt words ni) ",") ""))
+            if ((strlen nm3) > 0) {
+                def m (new PresUmlMember())
+                m.name = nm3
+                m.type = (PresUml.typeText(typ))
+                if ((PresUml.isUpper((charAt nm3 0))) == false) {
+                    m.vis = "-"
+                }
+                push cls.fields m
+            }
+            ni = (ni + 1)
+        }
+    }
+
+    ; a Go struct line's words: names, then the type (which may hold
+    ; spaces: map[string]int, func(a int) error, chan T); a tag dropped
+    sfn goWords:[string] (t:string) {
+        def out:[string]
+        def s:string t
+        def tag:int (indexOf s "\"\"")
+        if (tag > 0) {
+            s = (trim (substring s 0 tag))
+        }
+        ; names are a comma list at the start
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def w:string (PresUml.identAt(s i))
+            if ((strlen w) == 0) {
+                break
+            }
+            def j:int (i + (strlen w))
+            def k:int j
+            while ((k < n) && ((charAt s k) == 32)) {
+                k = (k + 1)
+            }
+            if ((k < n) && ((charAt s k) == 44)) {
+                push out w
+                i = (PresUml.skipSpace(s (k + 1)))
+                continue
+            }
+            if ((k >= n) || (k == j && (k < n) && ((charAt s k) == 46))) {
+                ; one word (or pkg.Type): embedded
+                push out (trim (substring s i n))
+                return out
+            }
+            push out w
+            push out (trim (substring s k n))
+            return out
+        }
+        if ((strlen (trim s)) > 0) {
+            push out (trim s)
+        }
+        return out
+    }
+
+    fn goMethod:void (cls:PresUmlClass sig:string) {
+        def t:string sig
+        def p:int (indexOf t "(")
+        if (p <= 0) {
+            return
+        }
+        def m (new PresUmlMember())
+        m.method = true
+        m.name = (trim (substring t 0 p))
+        if ((indexOf m.name "[") > 0) {
+            m.name = (substring m.name 0 (indexOf m.name "["))
+        }
+        if (((strlen m.name) == 0) || ((PresUml.isIdStart((charAt m.name 0))) == false)) {
+            return
+        }
+        def close:int (PresUml.closing(t p))
+        m.params = (PresUml.goParams((substring t (p + 1) close)))
+        def ret:string ""
+        if (close < (strlen t)) {
+            ret = (trim (substring t (close + 1) (strlen t)))
+        }
+        m.type = (PresUml.typeText((PresUml.upTo(ret))))
+        if ((PresUml.isUpper((charAt m.name 0))) == false) {
+            m.vis = "-"
+        }
+        push cls.methods m
+    }
+
+    ; --- Python
+
+    sfn indentOf:int (line:string) {
+        def i:int 0
+        def w:int 0
+        while (i < (strlen line)) {
+            def c:int (charAt line i)
+            if (c == 32) {
+                w = (w + 1)
+            } {
+                if (c == 9) {
+                    w = (w + 4)
+                } {
+                    return w
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn readPython:void (file:string s:string) {
+        def lines:[string] (strsplit s "\n")
+        def nl:int (array_length lines)
+        def li:int 0
+        while (li < nl) {
+            def line:string (itemAt lines li)
+            def t:string (trim line)
+            if (startsWith t "class ") {
+                def ind:int (PresUml.indentOf(line))
+                def rest:string (trim (substring t 6 (strlen t)))
+                def name:string (PresUml.identAt(rest 0))
+                if ((strlen name) == 0) {
+                    li = (li + 1)
+                    continue
+                }
+                def cls:PresUmlClass (this.classOf(name file "class" false))
+                def after:string (trim (substring rest (strlen name) (strlen rest)))
+                if (startsWith after "(") {
+                    def bases:string (substring after 1 (PresUml.closing(after 0)))
+                    for (PresUml.commaParts(bases)) b:string bi {
+                        def bt:string (trim b)
+                        if ((indexOf bt "=") >= 0) {
+                            continue
+                        }
+                        def bn:string (PresUml.lastName(bt))
+                        if ((((bn == "object") || (bn == "ABC")) || ((bn == "Generic") || (bn == "Protocol"))) || ((strlen bn) == 0)) {
+                            if (bn == "Protocol") {
+                                cls.kind = "interface"
+                            }
+                            if (bn == "ABC") {
+                                cls.kind = "abstract"
+                            }
+                            continue
+                        }
+                        if (bn == "Enum") {
+                            cls.kind = "enum"
+                            continue
+                        }
+                        push cls.bases bn
+                    }
+                }
+                ; the body: lines indented deeper
+                li = (li + 1)
+                def bodyInd:int -1
+                def deco:string ""
+                def inInit:boolean false
+                def initInd:int -1
+                while (li < nl) {
+                    def l2:string (itemAt lines li)
+                    def i2:int (PresUml.indentOf(l2))
+                    if (i2 < 0) {
+                        li = (li + 1)
+                        continue
+                    }
+                    if (i2 <= ind) {
+                        break
+                    }
+                    if (bodyInd < 0) {
+                        bodyInd = i2
+                    }
+                    def t2:string (trim l2)
+                    if (i2 == bodyInd) {
+                        inInit = false
+                        if (startsWith t2 "@") {
+                            deco = t2
+                        }
+                        if ((startsWith t2 "def ") || (startsWith t2 "async def ")) {
+                            ; a signature over several lines
+                            def sig:string t2
+                            while (((PresUml.count(sig "(")) > (PresUml.count(sig ")"))) && ((li + 1) < nl)) {
+                                li = (li + 1)
+                                sig = (sig + " " + (trim (itemAt lines li)))
+                            }
+                            def dp:int (indexOf sig "def ")
+                            def m (new PresUmlMember())
+                            m.method = true
+                            def ds:string (substring sig (dp + 4) (strlen sig))
+                            m.name = (PresUml.identAt(ds 0))
+                            def pp:int (indexOf ds "(")
+                            if (pp > 0) {
+                                def pc:int (PresUml.closing(ds pp))
+                                m.params = (PresUml.paramNames((substring ds (pp + 1) pc)))
+                                def ra:string (trim (substring ds (pc + 1) (strlen ds)))
+                                if (startsWith ra "->") {
+                                    def rt:string (trim (substring ra 2 (strlen ra)))
+                                    if (endsWith rt ":") {
+                                        rt = (substring rt 0 ((strlen rt) - 1))
+                                    }
+                                    m.type = (PresUml.typeText(rt))
+                                }
+                            }
+                            if ((startsWith deco "@staticmethod") || (startsWith deco "@classmethod")) {
+                                m.isStatic = true
+                            }
+                            if (startsWith deco "@abstractmethod") {
+                                m.isAbstract = true
+                            }
+                            if (startsWith deco "@property") {
+                                m.method = false
+                            }
+                            deco = ""
+                            if (m.name == "__init__") {
+                                inInit = true
+                                initInd = -1
+                            } {
+                                if (((startsWith m.name "__") && (endsWith m.name "__")) == false) {
+                                    if (startsWith m.name "_") {
+                                        m.vis = "-"
+                                    }
+                                    if m.method {
+                                        push cls.methods m
+                                    } {
+                                        m.params = ""
+                                        push cls.fields m
+                                    }
+                                }
+                            }
+                        } {
+                            ; x: int = 1 / x = 1 at the class level
+                            def nm:string (PresUml.identAt(t2 0))
+                            def rest2:string (trim (substring t2 (strlen nm) (strlen t2)))
+                            if ((strlen nm) > 0) {
+                                if (((startsWith rest2 ":") || ((startsWith rest2 "=") && ((startsWith rest2 "==") == false))) && ((PresUml.keyword(nm)) == false)) {
+                                    def f (new PresUmlMember())
+                                    f.name = nm
+                                    if (startsWith rest2 ":") {
+                                        f.type = (PresUml.typeText((PresUml.upTo((substring rest2 1 (strlen rest2))))))
+                                    }
+                                    if (startsWith nm "_") {
+                                        f.vis = "-"
+                                    }
+                                    if (cls.kind == "enum") {
+                                        f.type = ""
+                                    }
+                                    this.addField(cls f)
+                                }
+                            }
+                        }
+                    } {
+                        ; self.x = … in __init__
+                        if (inInit && (startsWith t2 "self.")) {
+                            def an:string (PresUml.identAt(t2 5))
+                            def ar:string (trim (substring t2 (5 + (strlen an)) (strlen t2)))
+                            if (((strlen an) > 0) && ((startsWith ar "=") || (startsWith ar ":"))) {
+                                if ((startsWith ar "==") == false) {
+                                    def f2 (new PresUmlMember())
+                                    f2.name = an
+                                    if (startsWith ar ":") {
+                                        f2.type = (PresUml.typeText((PresUml.upTo((substring ar 1 (strlen ar))))))
+                                    }
+                                    if (startsWith an "_") {
+                                        f2.vis = "-"
+                                    }
+                                    this.addField(cls f2)
+                                }
+                            }
+                        }
+                    }
+                    li = (li + 1)
+                }
+                continue
+            }
+            li = (li + 1)
+        }
+    }
+
+    fn addField:void (cls:PresUmlClass f:PresUmlMember) {
+        for cls.fields g:PresUmlMember i {
+            if (g.name == f.name) {
+                if (((strlen g.type) == 0) && ((strlen f.type) > 0)) {
+                    g.type = f.type
+                }
+                return
+            }
+        }
+        push cls.fields f
+    }
+
+    ; --- Ranger
+
+    fn readRanger:void (file:string s:string) {
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c == 99) && ((i == 0) || (PresUml.isSpace((charAt s (i - 1)))))) {
+                if (startsWith (substring s i (PresUml.min((i + 6) n))) "class ") {
+                    def ns:int (PresUml.skipSpace(s (i + 6)))
+                    def name:string (PresUml.identAt(s ns))
+                    def k:int (ns + (strlen name))
+                    while ((k < n) && (((charAt s k) != 123) && ((charAt s k) != 10))) {
+                        k = (k + 1)
+                    }
+                    if (((strlen name) > 0) && ((k < n) && ((charAt s k) == 123))) {
+                        def close:int (PresUml.closing(s k))
+                        def cls:PresUmlClass (this.classOf(name file "class" false))
+                        this.rangerBody(cls (substring s (k + 1) close))
+                        i = (close + 1)
+                        continue
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn min:int (a:int b:int) {
+        if (a < b) {
+            return a
+        }
+        return b
+    }
+
+    fn rangerBody:void (cls:PresUmlClass body:string) {
+        def n:int (strlen body)
+        def i:int 0
+        def depth:int 0
+        def lineStart:int 0
+        while (i <= n) {
+            def c:int 10
+            if (i < n) {
+                c = (charAt body i)
+            }
+            if (c == 10) {
+                if (depth == 0) {
+                    this.rangerLine(cls (trim (substring body lineStart i)))
+                }
+                lineStart = (i + 1)
+            }
+            if (c == 123) {
+                if (depth == 0) {
+                    this.rangerLine(cls (trim (substring body lineStart i)))
+                    lineStart = n
+                }
+                depth = (depth + 1)
+            }
+            if (c == 125) {
+                depth = (depth - 1)
+                lineStart = (i + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn rangerLine:void (cls:PresUmlClass t:string) {
+        if ((strlen t) == 0) {
+            return
+        }
+        if (startsWith t "Extends") {
+            def p:int (indexOf t "(")
+            if (p > 0) {
+                for (strsplit (substring t (p + 1) (PresUml.closing(t p))) " ") b:string bi {
+                    def bn:string (PresUml.identAt((trim b) 0))
+                    if ((strlen bn) > 0) {
+                        push cls.bases bn
+                    }
+                }
+            }
+            return
+        }
+        def isDef:boolean (startsWith t "def ")
+        def isFn:boolean ((startsWith t "fn ") || (startsWith t "sfn "))
+        if ((isDef == false) && (isFn == false)) {
+            return
+        }
+        def m (new PresUmlMember())
+        def rest:string ""
+        if isDef {
+            rest = (trim (substring t 4 (strlen t)))
+        } {
+            m.method = true
+            m.isStatic = (startsWith t "sfn ")
+            rest = (trim (substring t ((indexOf t " ") + 1) (strlen t)))
+        }
+        ; strip @(…) annotations
+        def at:int (indexOf rest "@(")
+        while (at >= 0) {
+            def ac:int (PresUml.closing(rest (at + 1)))
+            rest = ((substring rest 0 at) + (substring rest (ac + 1) (strlen rest)))
+            at = (indexOf rest "@(")
+        }
+        m.name = (PresUml.identAt(rest 0))
+        if ((strlen m.name) == 0) {
+            return
+        }
+        def after:string (substring rest (strlen m.name) (strlen rest))
+        if (startsWith after ":") {
+            def te:int 1
+            def dep:int 0
+            while (te < (strlen after)) {
+                def ch:int (charAt after te)
+                if (ch == 91) {
+                    dep = (dep + 1)
+                }
+                if (ch == 93) {
+                    dep = (dep - 1)
+                }
+                if ((dep <= 0) && ((ch == 32) || (ch == 40))) {
+                    if (ch != 93) {
+                        break
+                    }
+                }
+                te = (te + 1)
+            }
+            m.type = (PresUml.typeText((substring after 1 te)))
+            after = (substring after te (strlen after))
+        } {
+            ; def x (new T): the type is the new
+            def nw:int (indexOf after "(new ")
+            if (nw >= 0) {
+                m.type = (PresUml.typeText((PresUml.identAt(after (nw + 5)))))
+            }
+        }
+        if m.method {
+            def pp:int (indexOf after "(")
+            if (pp >= 0) {
+                def ps:[string]
+                for (strsplit (substring after (pp + 1) (PresUml.closing(after pp))) " ") w:string wi {
+                    def pn:string (PresUml.identAt((trim w) 0))
+                    if ((strlen pn) > 0) {
+                        push ps pn
+                    }
+                }
+                m.params = (PresUml.paramNames((join ps ", ")))
+            }
+            push cls.methods m
+        } {
+            this.addField(cls m)
+        }
+    }
+
+    ; --- the diagram
+
+    ; the classes a diagram of at most max shows: the most connected (then
+    ; the fullest) first, in the files' order
+    fn chosen:[PresUmlClass] (max:int) {
+        def out:[PresUmlClass]
+        def score:[int]
+        for classes c:PresUmlClass ci {
+            def s:int (c.memberCount())
+            if c.implied {
+                s = (s - 100)
+            }
+            for (this.edgesOf(classes)) e:PresUmlEdge ei {
+                if ((e.from == c.name) || (e.to == c.name)) {
+                    s = (s + 10)
+                }
+            }
+            push score s
+        }
+        def taken:[boolean]
+        for classes c2:PresUmlClass k {
+            push taken false
+        }
+        def want:int (PresUml.min(max (array_length classes)))
+        def got:int 0
+        while (got < want) {
+            def best:int -1
+            def bi:int 0
+            while (bi < (array_length classes)) {
+                if ((itemAt taken bi) == false) {
+                    if ((best < 0) || ((itemAt score bi) > (itemAt score best))) {
+                        best = bi
+                    }
+                }
+                bi = (bi + 1)
+            }
+            set taken best true
+            got = (got + 1)
+        }
+        def oi:int 0
+        while (oi < (array_length classes)) {
+            if (itemAt taken oi) {
+                push out (itemAt classes oi)
+            }
+            oi = (oi + 1)
+        }
+        return out
+    }
+
+    sfn named:boolean (list:[PresUmlClass] name:string) {
+        for list c:PresUmlClass i {
+            if (c.name == name) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; the relations between the classes in list (an inheritance or
+    ; realization also to a base outside it, drawn as a bare box)
+    fn edgesOf:[PresUmlEdge] (list:[PresUmlClass]) {
+        def out:[PresUmlEdge]
+        for list c:PresUmlClass ci {
+            for c.bases b:string bi {
+                if (b != c.name) {
+                    def e (new PresUmlEdge())
+                    e.from = c.name
+                    e.to = b
+                    e.arrow = "<|--"
+                    push out e
+                }
+            }
+            for c.ifaces f:string fi {
+                if (f != c.name) {
+                    def e2 (new PresUmlEdge())
+                    e2.from = c.name
+                    e2.to = f
+                    e2.arrow = "<|.."
+                    push out e2
+                }
+            }
+            for c.fields m:PresUmlMember mi {
+                for (PresUml.typeNames(m.type)) tn:string ti {
+                    if (((tn != c.name) && (PresUml.named(list tn))) && ((PresUml.edgeTo(out c.name tn)) == false)) {
+                        def e3 (new PresUmlEdge())
+                        e3.from = c.name
+                        e3.to = tn
+                        e3.arrow = "-->"
+                        e3.label = m.name
+                        def lt:string (to_lowercase m.type)
+                        e3.many = ((((indexOf lt "[") >= 0) || ((indexOf lt "list") >= 0)) || (((indexOf lt "array") >= 0) || (((indexOf lt "vec~") >= 0) || ((indexOf lt "set~") >= 0))))
+                        push out e3
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    sfn edgeTo:boolean (list:[PresUmlEdge] from:string to:string) {
+        for list e:PresUmlEdge i {
+            if ((e.from == from) && (e.to == to)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; the names in a type: Map~string,Node~ → Map, string, Node
+    sfn typeNames:[string] (t:string) {
+        def out:[string]
+        def i:int 0
+        def n:int (strlen t)
+        while (i < n) {
+            if (PresUml.isIdStart((charAt t i))) {
+                def w:string (PresUml.identAt(t i))
+                push out w
+                i = (i + (strlen w))
+                continue
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; a member as Mermaid writes it
+    sfn memberLine:string (m:PresUmlMember) {
+        def s:string m.vis
+        if m.method {
+            s = (s + m.name + "(" + m.params + ")")
+            if m.isAbstract {
+                s = (s + "*")
+            }
+            if m.isStatic {
+                s = (s + "$")
+            }
+            if ((strlen m.type) > 0) {
+                s = (s + " " + m.type)
+            }
+            return s
+        }
+        if ((strlen m.type) > 0) {
+            s = (s + m.type + " ")
+        }
+        s = (s + m.name)
+        if m.isStatic {
+            s = (s + "$")
+        }
+        return s
+    }
+
+    ; public first, in the source's order
+    sfn ordered:[PresUmlMember] (list:[PresUmlMember] max:int) {
+        def out:[PresUmlMember]
+        for list m:PresUmlMember i {
+            if (((array_length out) < max) && (m.vis == "+")) {
+                push out m
+            }
+        }
+        for list m2:PresUmlMember j {
+            if (((array_length out) < max) && (m2.vis != "+")) {
+                push out m2
+            }
+        }
+        return out
+    }
+
+    ; the Mermaid classDiagram of at most maxClasses classes, each with at
+    ; most maxMembers fields and as many methods ("" when no class was read)
+    fn mermaid:string (maxClasses:int maxMembers:int) {
+        def list:[PresUmlClass] (this.chosen(maxClasses))
+        if ((array_length list) == 0) {
+            return ""
+        }
+        def per:int maxMembers
+        if (per <= 0) {
+            per = 5
+            if ((array_length list) > 4) {
+                per = 4
+            }
+            if ((array_length list) > 7) {
+                per = 3
+            }
+        }
+        def out:[string]
+        push out "classDiagram"
+        ; a slide is wide: a chain of classes deeper than the diagram is
+        ; wide runs left to right
+        def edges:[PresUmlEdge] (this.edgesOf(list))
+        def deep:int (PresUml.longest(list edges))
+        def across:int (idiv ((array_length list) + deep - 1) deep)
+        if ((deep >= 3) && (deep >= across)) {
+            push out "    direction LR"
+        }
+        for list c:PresUmlClass ci {
+            def fs:[PresUmlMember] (PresUml.ordered(c.fields per))
+            def ms:[PresUmlMember] (PresUml.ordered(c.methods per))
+            def stereo:string ""
+            if ((c.kind == "interface") || (c.kind == "trait")) {
+                stereo = "<<interface>>"
+            }
+            if (c.kind == "abstract") {
+                stereo = "<<abstract>>"
+            }
+            if (c.kind == "enum") {
+                stereo = "<<enumeration>>"
+            }
+            if ((((array_length fs) + (array_length ms)) == 0) && ((strlen stereo) == 0)) {
+                push out ("    class " + c.name)
+                continue
+            }
+            push out ("    class " + c.name + " {")
+            if ((strlen stereo) > 0) {
+                push out ("        " + stereo)
+            }
+            for fs f:PresUmlMember fi {
+                if (c.kind == "enum") {
+                    push out ("        " + f.name)
+                } {
+                    push out ("        " + (PresUml.memberLine(f)))
+                }
+            }
+            for ms m:PresUmlMember mi {
+                push out ("        " + (PresUml.memberLine(m)))
+            }
+            push out "    }"
+        }
+        ; outside bases: a few, as bare boxes
+        def outside:[string]
+        for edges e:PresUmlEdge ei {
+            def inside:boolean (PresUml.named(list e.to))
+            if (inside == false) {
+                if (e.arrow == "-->") {
+                    continue
+                }
+                if ((PresUml.has(outside e.to)) == false) {
+                    if ((array_length outside) >= 4) {
+                        continue
+                    }
+                    push outside e.to
+                }
+            }
+            if (e.arrow == "-->") {
+                def card:string ""
+                if e.many {
+                    card = " \"*\""
+                }
+                push out ("    " + e.from + " -->" + card + " " + e.to + " : " + e.label)
+            } {
+                push out ("    " + e.to + " " + e.arrow + " " + e.from)
+            }
+        }
+        return (join out "\n")
+    }
+
+    ; the most classes on one path of relations between the classes in
+    ; list (1 with none)
+    sfn longest:int (list:[PresUmlClass] edges:[PresUmlEdge]) {
+        def n:int (array_length list)
+        ; depth by relaxing n times: a cycle stops growing at n
+        def depth:[int]
+        for list c:PresUmlClass i {
+            push depth 1
+        }
+        def round:int 0
+        def changed:boolean true
+        while (changed && (round < n)) {
+            changed = false
+            for edges e:PresUmlEdge ei {
+                def a:int (PresUml.indexIn(list e.from))
+                def b:int (PresUml.indexIn(list e.to))
+                if ((a >= 0) && (b >= 0)) {
+                    if ((itemAt depth b) < ((itemAt depth a) + 1)) {
+                        set depth b ((itemAt depth a) + 1)
+                        changed = true
+                    }
+                }
+            }
+            round = (round + 1)
+        }
+        def best:int 1
+        for depth d:int di {
+            if (d > best) {
+                best = d
+            }
+        }
+        if (best > n) {
+            return n
+        }
+        return best
+    }
+
+    sfn indexIn:int (list:[PresUmlClass] name:string) {
+        for list c:PresUmlClass i {
+            if (c.name == name) {
+                return i
+            }
+        }
+        return -1
+    }
+
+    ; how many classes mermaid(max …) leaves out
+    fn leftOut:int (max:int) {
+        def n:int (array_length classes)
+        if (n > max) {
+            return (n - max)
+        }
+        return 0
+    }
+}

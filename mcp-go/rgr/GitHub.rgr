@@ -8,6 +8,7 @@
 ; does the fetching.
 
 Import "McpJson.rgr"
+Import "../presentation/PresUml.rgr"
 
 class GhRef {
     def owner:string ""
@@ -94,6 +95,108 @@ class GhRef {
     }
 }
 
+; a place in a repository to read source from: the whole repository, a
+; folder or one file, on a branch, tag or commit ("" = the default branch)
+class GhSrc {
+    def owner:string ""
+    def repo:string ""
+    def ref:string ""
+    def path:string ""
+    def err:string ""
+
+    ; "https://github.com/o/r", "…/tree/main/src", "…/blob/v2/src/a.ts",
+    ; "o/r", "o/r/src/a.ts"
+    sfn parse:GhSrc (text:string) {
+        def r (new GhSrc)
+        def t:string (trim text)
+        def at:int (indexOf t "github.com/")
+        if (at >= 0) {
+            t = (substring t (at + 11) (strlen t))
+        }
+        def q:int (indexOf t "?")
+        if (q >= 0) {
+            t = (substring t 0 q)
+        }
+        def h:int (indexOf t "#")
+        if (h >= 0) {
+            t = (substring t 0 h)
+        }
+        def parts:[string]
+        for (strsplit t "/") seg:string si {
+            if ((strlen seg) > 0) {
+                push parts seg
+            }
+        }
+        if ((array_length parts) < 2) {
+            r.err = "github is a repository, folder or file: https://github.com/owner/repo/tree/main/src, or owner/repo/src."
+            return r
+        }
+        r.owner = (itemAt parts 0)
+        r.repo = (itemAt parts 1)
+        if (endsWith r.repo ".git") {
+            r.repo = (substring r.repo 0 ((strlen r.repo) - 4))
+        }
+        def from:int 2
+        if (((array_length parts) >= 4) && (((itemAt parts 2) == "tree") || ((itemAt parts 2) == "blob"))) {
+            r.ref = (itemAt parts 3)
+            from = 4
+        }
+        def rest:[string]
+        def k:int from
+        while (k < (array_length parts)) {
+            push rest (itemAt parts k)
+            k = (k + 1)
+        }
+        r.path = (join rest "/")
+        if (((GhRef.nameOk(r.owner)) == false) || ((GhRef.nameOk(r.repo)) == false)) {
+            r.err = "the owner or repository name in github is not one GitHub allows."
+            return r
+        }
+        if (((GhSrc.pathOk(r.path)) == false) || ((GhSrc.pathOk(r.ref)) == false)) {
+            r.err = "the path in github has characters this server does not send (letters, digits, - _ . / only)."
+            return r
+        }
+        return r
+    }
+
+    sfn pathOk:boolean (s:string) {
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            def ok:boolean ((((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90))) || ((c >= 48) && (c <= 57)))
+            if ((ok == false) && ((((c != 45) && (c != 95)) && (c != 46)) && (c != 47))) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return ((indexOf s "..") < 0)
+    }
+
+    fn repoApi:string () {
+        return ("https://api.github.com/repos/" + owner + "/" + repo)
+    }
+
+    ; the contents API for a path in this repository
+    fn contents:string (p:string) {
+        def u:string ((this.repoApi()) + "/contents/" + p)
+        if ((strlen ref) > 0) {
+            u = (u + "?ref=" + ref)
+        }
+        return u
+    }
+
+    fn name:string () {
+        def s:string (owner + "/" + repo)
+        if ((strlen path) > 0) {
+            s = (s + "/" + path)
+        }
+        if ((strlen ref) > 0) {
+            s = (s + "@" + ref)
+        }
+        return s
+    }
+}
+
 class GhFile {
     def name:string ""
     ; added, removed, modified, renamed, …
@@ -122,6 +225,11 @@ class GhPr {
     def state:string ""
     def base:string ""
     def head:string ""
+    ; the head commit and the repository it is in (a fork's, or the same)
+    def headSha:string ""
+    def headRepo:string ""
+    ; the repository is private
+    def private:boolean false
     def additions:int 0
     def deletions:int 0
     def changedFiles:int 0
@@ -149,10 +257,22 @@ class GhPr {
         def base:MfJ (pr.field("base"))
         if (base.isObj()) {
             p.base = (base.str_("ref"))
+            def brepo:MfJ (base.field("repo"))
+            if (brepo.isObj()) {
+                p.private = (brepo.bool_("private" false))
+            }
         }
         def head:MfJ (pr.field("head"))
         if (head.isObj()) {
             p.head = (head.str_("ref"))
+            p.headSha = (head.str_("sha"))
+            def hrepo:MfJ (head.field("repo"))
+            if (hrepo.isObj()) {
+                p.headRepo = (hrepo.str_("full_name"))
+            }
+        }
+        if ((strlen p.headRepo) == 0) {
+            p.headRepo = (ref.owner + "/" + ref.repo)
         }
         p.additions = (pr.int_("additions" 0))
         p.deletions = (pr.int_("deletions" 0))
@@ -210,6 +330,20 @@ class GhPr {
         return p
     }
 
+    ; the changed files PresUml reads, biggest change first, at most max
+    fn sourceFiles:[GhFile] (max:int) {
+        def out:[GhFile]
+        for (this.byChange()) f:GhFile i {
+            if ((array_length out) >= max) {
+                break
+            }
+            if ((f.status != "removed") && ((strlen (PresUml.langOf(f.name))) > 0)) {
+                push out f
+            }
+        }
+        return out
+    }
+
     sfn firstLine:string (s:string) {
         def nl:int (indexOf s "\n")
         if (nl >= 0) {
@@ -259,7 +393,8 @@ class GhDeck {
     }
 
     ; a first draft of a review deck
-    sfn draft:string (p:GhPr) {
+    ; uml: a Mermaid classDiagram of the changed files' classes, "" for none
+    sfn draft:string (p:GhPr uml:string) {
         def out:[string]
         push out ("---\ntitle: \"" + (GhDeck.quoted(p.title)) + "\"\nfooter-left: \"" + (GhDeck.quoted((p.ref.name()))) + "\"\nfooter-right: \"{page} / {pages}\"\nfooter-skip: first\n---")
         push out ("# " + (GhDeck.oneLine(p.title)))
@@ -318,6 +453,10 @@ class GhDeck {
             ; one slide a file: the counts go in the heading, the path is in the table
             push out ("## " + (GhDeck.baseName(g.name)) + " · +" + g.additions + " −" + g.deletions + "\n\n" + fence + info + " {.numbers}\n" + cut + "\n" + fence)
             diffs = (diffs + 1)
+        }
+        ; the classes in the changed files
+        if ((strlen uml) > 0) {
+            push out ("## Classes in the change\n\n```mermaid\n" + uml + "\n```")
         }
         ; the commits
         if ((array_length p.commits) > 1) {
@@ -383,7 +522,14 @@ class GhDeck {
     ; the patch's first lines up to max, whole hunks while they fit, else
     ; the first hunk cut; "…" says more follows
     sfn trimPatch:string (patch:string max:int) {
-        def lines:[string] (strsplit (GhDeck.unCr((GhDeck.trimEnd(patch)))) "\n")
+        def all:[string] (strsplit (GhDeck.unCr((GhDeck.trimEnd(patch)))) "\n")
+        ; git's "\ No newline at end of file" is not a line of the file
+        def lines:[string]
+        for all l0:string i0 {
+            if ((startsWith l0 "\\ ") == false) {
+                push lines l0
+            }
+        }
         if ((array_length lines) <= max) {
             return (join lines "\n")
         }
