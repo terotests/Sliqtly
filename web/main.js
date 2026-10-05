@@ -2543,6 +2543,7 @@ function frame() {
       needsPaint = false;
       lastRev = rev;
       syncEndPanel();
+      syncCounter();
       paintOnce();
       handleRequests();
       followAddress();
@@ -2725,6 +2726,7 @@ function handleRequests() {
     if (!r) break;
     if (r === "fullscreen") {
       document.body.classList.add("presenting");
+      wakeViewer();
       presentStartedAt = performance.now();
       refreshLiveData();
       rebaseClock();
@@ -3990,22 +3992,30 @@ function wakeViewer() {
   document.body.classList.remove("idle");
   clearTimeout(idleTimer);
   // the bar stays while its menu is open
-  idleTimer = setTimeout(() => { if (vMenu.hidden) document.body.classList.add("idle"); }, 2500);
+  idleTimer = setTimeout(() => {
+    if (vMenu.hidden && vGo.hidden && !app.navTyping()) document.body.classList.add("idle");
+    else wakeViewer();
+  }, 2500);
 }
 // Esc leaves full screen (the browser does that), never the presentation:
 // there is no editor to go back to.
 window.addEventListener("keydown", (ev) => {
   if (viewer && ev.key === "Escape") {
     ev.stopImmediatePropagation();
-    if (!vMenu.hidden) {
+    if (!vGo.hidden) closeGoTo();
+    else if (app.navTyping()) {
+      app.navClear();
+      needsPaint = true;
+    } else if (!vMenu.hidden) {
       toggleViewMenu(false);
       vMore.focus();
     }
   }
 }, true);
 for (const ev of ["pointermove", "pointerdown", "keydown"]) {
-  window.addEventListener(ev, () => { if (viewer) wakeViewer(); }, { passive: true });
+  window.addEventListener(ev, () => { if (viewer || presentingNow()) wakeViewer(); }, { passive: true });
 }
+document.getElementById("vFirst").addEventListener("click", () => { app.firstSlide(); afterInput(); });
 document.getElementById("vPrev").addEventListener("click", () => { app.prev(); afterInput(); });
 document.getElementById("vNext").addEventListener("click", () => { app.next(); afterInput(); });
 document.getElementById("vData").addEventListener("click", () => refreshLiveData());
@@ -4013,6 +4023,58 @@ document.getElementById("vFull").addEventListener("click", () => {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
 });
+
+// The slide counter, "3 / 12" (PresApp.slideLabel; the number being typed
+// while digits come in). Pressed, it becomes a field: a number and Enter go
+// to that slide, shown whole (PresNav); Esc or leaving it goes nowhere.
+const vCount = document.getElementById("vCount");
+const vGo = document.getElementById("vGo");
+function presentingNow() {
+  return !!(lastLayout && lastLayout.mode === "present");
+}
+function syncCounter() {
+  if (!presentingNow()) return;
+  const label = app.slideLabel();
+  if (vCount.textContent !== label) vCount.textContent = label;
+  vCount.classList.toggle("typing", app.navTyping());
+}
+function openGoTo() {
+  vCount.hidden = true;
+  vGo.hidden = false;
+  vGo.value = "";
+  vGo.placeholder = app.slideLabel().split(" /")[0];
+  wakeViewer();
+  vGo.focus();
+}
+function closeGoTo() {
+  if (vGo.hidden) return;
+  vGo.hidden = true;
+  vCount.hidden = false;
+  if (!viewer && !isCoarse()) keys.focus({ preventScroll: true });
+  else vCount.focus({ preventScroll: true });
+}
+vCount.addEventListener("click", openGoTo);
+// presenting from the editor, a button pressed hands the keys back to the
+// slides (the arrows, PageDown…); the shared page's buttons keep theirs
+document.getElementById("viewBar").addEventListener("click", (ev) => {
+  if (viewer || isCoarse() || ev.target === vCount || ev.target.closest?.("#vGo, #vMore, #vMenu")) return;
+  if (ev.target.closest?.("button")) keys.focus({ preventScroll: true });
+});
+vGo.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter") {
+    ev.preventDefault();
+    const went = app.goToSlide(vGo.value);
+    closeGoTo();
+    if (went) afterInput();
+  } else if (ev.key === "Escape") {
+    ev.preventDefault();
+    closeGoTo();
+  }
+  ev.stopPropagation();
+});
+vGo.addEventListener("input", () => { vGo.value = vGo.value.replace(/[^0-9]/g, "").slice(0, 4); });
+vGo.addEventListener("blur", () => setTimeout(closeGoTo, 0));
+window.__goTo = { open: openGoTo, close: closeGoTo, label: () => vCount.textContent };
 
 // The … menu: the deck as PDF, PPTX or Markdown (the editor's exports), a new
 // deck of the reader's own based on this one, and, for the signed-in owner of
