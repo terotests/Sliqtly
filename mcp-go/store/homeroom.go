@@ -110,6 +110,10 @@ func (h *HomeRooms) Update(ctx context.Context, col, id string, fn UpdateFunc) (
 			if err != nil || next == nil {
 				return next, err
 			}
+			// the tenant rides on the document, as a row's would in SQL
+			if next["tenant"] == nil {
+				next["tenant"] = h.Tenant
+			}
 			if next[RoomField] != nil {
 				return next, nil
 			}
@@ -148,7 +152,8 @@ func (h *HomeRooms) Update(ctx context.Context, col, id string, fn UpdateFunc) (
 }
 
 // HomeAll puts every document of col that has no room into its owner's
-// home room: what a folder written before rooms needs once. It is safe to
+// home room, and gives every one the tenant: what a folder written before
+// rooms needs once. It is safe to
 // stop and run again. → the documents it made (rooms and memberships)
 func HomeAll(ctx context.Context, e Engine, col, tenant, defOwner string, now time.Time) (int, error) {
 	items, err := e.Query(ctx, Query{From: col})
@@ -158,24 +163,20 @@ func HomeAll(ctx context.Context, e Engine, col, tenant, defOwner string, now ti
 	h := &HomeRooms{Engine: e, Cols: map[string]bool{col: true}, Tenant: tenant, Owner: defOwner, Now: func() time.Time { return now }}
 	made := 0
 	for _, it := range items {
-		if it.Doc[RoomField] != nil {
+		if it.Doc[RoomField] != nil && it.Doc["tenant"] != nil {
 			continue
 		}
-		owner := h.owner(it.Doc)
-		n, err := EnsureHomeRoom(ctx, e, tenant, owner, now)
-		made += n
-		if err != nil {
-			return made, err
-		}
-		h.known.Store(HomeRoomID(owner), true)
-		_, _, err = h.Update(ctx, col, it.ID, func(cur Doc, _ Rev) (Doc, error) {
-			if cur == nil || cur[RoomField] != nil {
-				return cur, nil
+		if it.Doc[RoomField] == nil {
+			owner := h.owner(it.Doc)
+			n, err := EnsureHomeRoom(ctx, e, tenant, owner, now)
+			made += n
+			if err != nil {
+				return made, err
 			}
-			cur[RoomField] = HomeRoomID(h.owner(cur))
-			cur[InheritField] = false
-			return cur, nil
-		})
+			h.known.Store(HomeRoomID(owner), true)
+		}
+		// the wrapper fills in what is missing
+		_, _, err = h.Update(ctx, col, it.ID, func(cur Doc, _ Rev) (Doc, error) { return cur, nil })
 		if err != nil {
 			return made, err
 		}

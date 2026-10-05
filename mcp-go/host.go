@@ -18,6 +18,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"io"
@@ -103,6 +104,8 @@ type Env struct {
 	// the form a presentation's name must have (names.go): only on a server
 	// of one's own, set from its settings page; nil: any name
 	names atomic.Pointer[nameRule]
+	// rooms (roomsapi.go): with Store and LocalUser; nil elsewhere
+	rooms *roomService
 
 	themesMu sync.Mutex
 	themes   map[string]string
@@ -554,6 +557,49 @@ func (h *McpHost) Precision(n string, digits int64) string {
 }
 
 func (h *McpHost) LocalUser() string { return h.env.LocalUser }
+
+// HostTools is the tools the Go side adds (rooms, roomsapi.go) as a JSON
+// array of MCP tool entries; "[]" where it adds none
+func (h *McpHost) HostTools() string {
+	if h.env.rooms == nil {
+		return "[]"
+	}
+	return roomJSON(h.env.rooms.toolsJSON())
+}
+
+// HasTool: name is one of HostTools
+func (h *McpHost) HasTool(name string) bool { return h.env.rooms != nil && findRoomTool(name) }
+
+// CallTool runs one of HostTools for uid with args (JSON) → the answer as
+// JSON text; a caller's mistake or a failure is the host's error. who is
+// the rate limit's key, counted for the tools that change something.
+func (h *McpHost) CallTool(uid, who, name, args string) string {
+	if !h.HasTool(name) {
+		h.fail(fmt.Errorf("no tool %s", name))
+		return ""
+	}
+	for _, t := range roomTools {
+		if t.name == name && !t.readOnly {
+			if why := h.env.Limiter(who); why != "" {
+				h.fail(errors.New(why))
+				return ""
+			}
+		}
+	}
+	a := map[string]any{}
+	if strings.TrimSpace(args) != "" && strings.TrimSpace(args) != "null" {
+		if err := json.Unmarshal([]byte(args), &a); err != nil {
+			h.fail(fmt.Errorf("the arguments are not a JSON object"))
+			return ""
+		}
+	}
+	out, err := h.env.rooms.call(h.ctx, uid, name, a)
+	if err != nil {
+		h.fail(err)
+		return ""
+	}
+	return roomJSON(out)
+}
 
 // NameRule says what a name must look like, for the tools' descriptions;
 // "" when any name will do

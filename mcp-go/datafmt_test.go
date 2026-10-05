@@ -215,7 +215,7 @@ func TestMigrateTwoToThree(t *testing.T) {
 		"dddddd4444": {"r1", true},          // already in a room: stays
 	} {
 		d, _ := db.Get(ctx, "shares", id)
-		eq(t, []any{d["room"], d["inherit_room_files"]}, want)
+		eq(t, []any{d["room"], d["inherit_room_files"], d["tenant"]}, append(want, "local"))
 	}
 	a, _ := db.Get(ctx, "shares", "aaaaaa1111")
 	eq(t, []any{a["name"], a["created"].(time.Time).UnixMilli()}, []any{"A", int64(1700000000000)})

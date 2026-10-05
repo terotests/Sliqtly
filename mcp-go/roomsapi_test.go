@@ -1,0 +1,162 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+)
+
+// the assistant's room tools on a folder server, end to end
+func TestRoomTools(t *testing.T) {
+	srv, session := startLocal(t, t.TempDir(), "")
+	defer srv.Close()
+	defer session.Close()
+	s := &testServer{root: srv.URL, session: session}
+	ok := func(name string, args map[string]any) map[string]any {
+		t.Helper()
+		r := call(t, s, name, args)
+		if r.IsError {
+			t.Fatalf("%s: %s", name, textOf(r))
+		}
+		return sc(r)
+	}
+	bad := func(name string, args map[string]any, want string) {
+		t.Helper()
+		r := call(t, s, name, args)
+		if !r.IsError {
+			t.Fatalf("%s worked: %s", name, textOf(r))
+		}
+		match(t, textOf(r), want)
+	}
+	deck := func(title string) string {
+		return ok("create_presentation", map[string]any{"title": title, "markdown": DECK})["deck_id"].(string)
+	}
+	a, b := deck("Alpha"), deck("Beta")
+
+	// a new deck is in its owner's home room
+	rooms := list(ok("list_rooms", map[string]any{})["rooms"])
+	eq(t, len(rooms), 1)
+	home := mapOf(rooms[0])
+	eq(t, []any{home["room_id"], home["title"], home["kind"], home["role"], home["presentations"]}, []any{"home-local", "My presentations", "home", "owner", 2.0})
+
+	// a room for a ticket, a deck moved into it
+	room := ok("create_room", map[string]any{"title": "PAY-817 payments", "kind": "ticket"})["room_id"].(string)
+	ok("move_presentation", map[string]any{"deck_id": a, "room_id": room})
+	g := ok("get_room", map[string]any{"room_id": room})
+	eq(t, mapOf(g["room"])["kind"], "ticket")
+	decks := list(g["presentations"])
+	eq(t, []any{len(decks), mapOf(decks[0])["deck_id"], mapOf(decks[0])["inherit_room_files"]}, []any{1, a, false})
+	eq(t, list(g["members"]), []any{map[string]any{"member": "user:local", "role": "owner"}})
+	bad("move_presentation", map[string]any{"deck_id": b, "room_id": "nothere"}, `not found`)
+	bad("move_presentation", map[string]any{"deck_id": "nothere123", "room_id": room}, `not found`)
+
+	// links: one link per ends and kind, read from either end
+	made := ok("add_link", map[string]any{"from": "room:" + room, "rel": "references", "to": "jira:PAY-817"})
+	eq(t, made["made"], true)
+	again := ok("add_link", map[string]any{"from": "jira:PAY-817", "rel": "referenced_by", "to": "room:" + room})
+	eq(t, []any{again["made"], again["link_id"]}, []any{false, made["link_id"]})
+	ok("add_link", map[string]any{"from": "deck:" + a, "rel": "relates_to", "to": "deck:" + b})
+	eq(t, list(ok("links_of", map[string]any{"ref": "jira:PAY-817"})["links"]),
+		[]any{map[string]any{"from": "jira:PAY-817", "rel": "referenced_by", "to": "room:" + room}})
+	eq(t, len(list(ok("links_of", map[string]any{"ref": "deck:" + b})["links"])), 1)
+	eq(t, len(list(ok("get_room", map[string]any{"room_id": room})["links"])), 1)
+	bad("add_link", map[string]any{"from": "room:" + room, "rel": "owns", "to": "jira:X-1"}, `link_types`)
+	bad("add_link", map[string]any{"from": "room " + room, "rel": "references", "to": "jira:X-1"}, `from:`)
+	types := list(ok("link_types", map[string]any{})["types"])
+	if len(types) < 4 {
+		t.Fatal(types)
+	}
+	ok("remove_link", map[string]any{"from": "deck:" + b, "rel": "relates_to", "to": "deck:" + a})
+	eq(t, len(list(ok("links_of", map[string]any{"ref": "deck:" + b})["links"])), 0)
+
+	// members: the last owner stays
+	ok("set_room_member", map[string]any{"room_id": room, "member": "user:bob", "role": "editor"})
+	bad("set_room_member", map[string]any{"room_id": room, "member": "user:local", "role": ""}, `one owner`)
+	bad("set_room_member", map[string]any{"room_id": room, "member": "bob", "role": "editor"}, `neither user: nor group:`)
+
+	// archived: read only, and listed only when asked
+	ok("archive_room", map[string]any{"room_id": room})
+	bad("move_presentation", map[string]any{"deck_id": b, "room_id": room}, `role does not allow`)
+	eq(t, len(list(ok("list_rooms", map[string]any{})["rooms"])), 1)
+	eq(t, len(list(ok("list_rooms", map[string]any{"archived": true})["rooms"])), 2)
+	ok("archive_room", map[string]any{"room_id": room, "archived": false})
+	ok("move_presentation", map[string]any{"deck_id": b, "room_id": room})
+
+	bad("get_room", map[string]any{}, `room_id is missing`)
+}
+
+// what another user sees: only the rooms they are a member of, and what
+// their role there allows
+func TestRoomsForAnotherUser(t *testing.T) {
+	ctx := context.Background()
+	e, _, err := localEnv(t.TempDir(), "http://x", "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs := e.rooms
+	if err := e.DB.Set(ctx, "shares", "deck000001", Doc{"name": "Mine", "owner": "local"}); err != nil {
+		t.Fatal(err)
+	}
+	as := func(uid, op string, a map[string]any) (map[string]any, error) {
+		out, err := rs.call(ctx, uid, op, a)
+		if err != nil {
+			return nil, err
+		}
+		b, _ := json.Marshal(out)
+		var m map[string]any
+		json.Unmarshal(b, &m)
+		return m, nil
+	}
+	m, err := as("bob", "list_rooms", nil)
+	eq(t, []any{len(list(m["rooms"])), err}, []any{0, nil})
+	if _, err := as("bob", "get_room", map[string]any{"room_id": "home-local"}); err == nil || err.Error() != "not found, or not yours to see" {
+		t.Fatal(err)
+	}
+	if _, err := as("bob", "links_of", map[string]any{"ref": "deck:deck000001"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := as("bob", "add_link", map[string]any{"from": "deck:deck000001", "rel": "relates_to", "to": "jira:A-1"}); err == nil {
+		t.Fatal("bob linked a deck they cannot see")
+	}
+	m, _ = as("local", "create_room", map[string]any{"title": "Shared"})
+	room := m["room_id"].(string)
+	as("local", "move_presentation", map[string]any{"deck_id": "deck000001", "room_id": room})
+	if _, err := as("local", "set_room_member", map[string]any{"room_id": room, "member": "user:bob", "role": "viewer"}); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = as("bob", "get_room", map[string]any{"room_id": room})
+	eq(t, len(list(m["presentations"])), 1)
+	if _, err := as("bob", "move_presentation", map[string]any{"deck_id": "deck000001", "room_id": "home-local"}); err == nil {
+		t.Fatal("a viewer moved a deck out")
+	}
+	if _, err := as("bob", "archive_room", map[string]any{"room_id": room}); err == nil {
+		t.Fatal("a viewer archived the room")
+	}
+	if _, err := as("", "list_rooms", nil); err == nil {
+		t.Fatal("no user, still answered")
+	}
+}
+
+// the page's POST /api/rooms/<op>
+func TestRoomsHTTP(t *testing.T) {
+	srv, session := startLocal(t, t.TempDir(), "")
+	defer srv.Close()
+	defer session.Close()
+	code, body := req(t, "POST", srv.URL+"/api/rooms/create_room", "application/json", `{"title":"Team"}`)
+	eq(t, code, 200)
+	match(t, body, `"room_id"`)
+	code, body = req(t, "POST", srv.URL+"/api/rooms/list_rooms", "application/json", ``)
+	eq(t, code, 200)
+	match(t, body, `"title":"Team"`)
+	code, _ = req(t, "POST", srv.URL+"/api/rooms/list_rooms", "application/x-www-form-urlencoded", `a=b`)
+	eq(t, code, 415)
+	code, _ = req(t, "GET", srv.URL+"/api/rooms/list_rooms", "", "")
+	eq(t, code, 404)
+	code, _ = req(t, "POST", srv.URL+"/api/rooms/drop_tables", "application/json", `{}`)
+	eq(t, code, 404)
+	code, body = req(t, "POST", srv.URL+"/api/rooms/get_room", "application/json", `{"room_id":"nothere"}`)
+	eq(t, code, 400)
+	match(t, body, `not found`)
+}

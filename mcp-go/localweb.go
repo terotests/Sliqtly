@@ -211,6 +211,8 @@ func (s *localServer) api(w http.ResponseWriter, r *http.Request) {
 	case p == "/api/shares" && r.Method == http.MethodPost:
 		out, err = s.createShare(r)
 		status = 201
+	case strings.HasPrefix(p, "/api/rooms/") && r.Method == http.MethodPost:
+		out, err = s.roomsAPI(r, strings.TrimPrefix(p, "/api/rooms/"))
 	case strings.HasPrefix(p, "/api/files/shares/"):
 		out, err = s.fileAPI(r, strings.TrimPrefix(p, "/api/files/"))
 	case shareAPIPath.MatchString(p):
@@ -562,4 +564,24 @@ func (s *localServer) sweepOnce(t time.Time) {
 			shareMu.Unlock()
 		}
 	}
+}
+
+// POST /api/rooms/<op> with the operation's arguments: the same operations
+// as the assistant's room tools (roomsapi.go), for the page's own user. A
+// POST of JSON only, so a page elsewhere can neither send one unasked nor
+// read the answer.
+func (s *localServer) roomsAPI(r *http.Request, op string) (any, error) {
+	if s.env.rooms == nil || !findRoomTool(op) {
+		return nil, fail(404, "", "not found")
+	}
+	a := map[string]any{}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&a); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fail(400, "", "a JSON object is expected")
+	}
+	out, err := s.env.rooms.call(r.Context(), s.env.LocalUser, op, a)
+	var re roomErr
+	if errors.As(err, &re) {
+		return nil, fail(400, "", re.msg)
+	}
+	return out, err
 }
