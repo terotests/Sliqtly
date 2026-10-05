@@ -26,6 +26,7 @@ pub mod blob_engine;
 pub mod blob_store;
 pub mod engine;
 pub mod error;
+pub mod fjall_engine;
 pub mod key;
 pub mod memory_engine;
 pub mod record;
@@ -36,6 +37,7 @@ pub use record::{Document, Membership, Room, RoomId, UserId};
 pub use transaction::Database;
 pub use blob_store::BlobStore;
 pub use blob_engine::BlobEngine;
+pub use fjall_engine::FjallEngine;
 
 use std::path::Path;
 
