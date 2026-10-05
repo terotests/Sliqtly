@@ -264,6 +264,8 @@
   .vViewFrame { flex: 1; width: 100%; border: 0; background: #000; }
   /* inside that frame: exports of the version stay, a new deck from it does not */
   body.versionFrame #vMenu hr, body.versionFrame #vMenu [data-act="new"] { display: none; }
+  /* a view of some slides (?slides=): no copy of the whole deck from it */
+  body.slidesView #vMenu hr, body.slidesView #vMenu [data-act="new"] { display: none; }
   body.viewer #c { cursor: default; }
   body.viewer.idle #c { cursor: none; }
   body.presenting #c { cursor: none; }
@@ -314,6 +316,8 @@
   <button id="pdf">PDF</button>
   <button id="pptx">PPTX</button>
   <button id="zip">ZIP</button>
+  <button id="pdfPicked" hidden>PDF</button>
+  <button id="pptxPicked" hidden>PPTX</button>
   <button id="share" title="Copy a link with this Markdown packed into its address" data-i18n-title data-i18n>🔗 Share</button>
   <button id="history" hidden>Version history</button>
   <button id="aiClaude" hidden>Claude</button>

@@ -10,6 +10,7 @@ Import "PresGridModel.rgr"
 Import "PresControlsFade.rgr"
 Import "PresFollow.rgr"
 Import "PresReview.rgr"
+Import "PresPick.rgr"
 
 class PresCheck {
     def fails:int 0
@@ -1511,6 +1512,75 @@ class PresCheck {
         this.ok(((PresFollow.moved(-1 0 0 4)) == -1) "follow: not known stays so")
     }
 
+    ; Slides picked in the strip (PresPick), and a view of only some of them
+    ; named by their sections' keys.
+    fn picks:void () {
+        def p (new PresPick())
+        this.ok(((p.active()) == false) "pick: empty at first")
+        ; Ctrl + click on 3 with 1 selected picks both
+        p.toggle(3 1)
+        this.ok(((p.list()) == "2,4") ("pick: ctrl+click picks the selected one too, got " + (p.list())))
+        p.toggle(0 1)
+        this.ok(((p.list()) == "1,2,4") ("pick: kept in deck order, got " + (p.list())))
+        p.toggle(1 1)
+        this.ok(((p.list()) == "1,4") ("pick: ctrl+click again lets go, got " + (p.list())))
+        ; Shift + click: the run from the last one clicked
+        p.extend(4 1)
+        this.ok(((p.list()) == "2,3,4,5") ("pick: shift+click from the last clicked, got " + (p.list())))
+        p.extend(0 1)
+        this.ok(((p.list()) == "1,2") ("pick: shift+click again from the same anchor, got " + (p.list())))
+        p.limit(1)
+        this.ok(((p.list()) == "1") ("pick: past the deck's end let go, got " + (p.list())))
+        p.clear()
+        this.ok(((p.count()) == 0) "pick: cleared")
+        def q (new PresPick())
+        q.extend(2 -1)
+        this.ok(((q.list()) == "3") ("pick: shift+click with nothing selected, got " + (q.list())))
+
+        this.ok(((PresPick.slug("Tulos 2025: **hyvä**!")) == "tulos-2025-hyvä") ("pick: slug, got " + (PresPick.slug("Tulos 2025: **hyvä**!"))))
+        this.ok(((PresPick.headingKey("## Eka {#intro transition=slide}")) == "intro") "pick: an id is the key")
+        this.ok(((PresPick.headingKey("## Eka {transition=slide} ##")) == "eka") "pick: attributes are not words")
+        this.ok(((PresPick.headingKey("##")) == "slide") "pick: an empty heading")
+        this.ok(((PresPick.headingLevel("#hashtag")) == 0) "pick: #word is no heading")
+        this.ok(((PresPick.headingLevel("### Kolme")) == 3) "pick: heading level")
+
+        def head:string "---\ntitle: Raportti\nslide-split-level: 2\n---\n\n"
+        def text:string (head + "Kansi\n\n## Yksi\n\na\n\n### Alaotsikko\n\nb\n\n```python\n## not a heading\n```\n\n::: notes\n## Puhe\n:::\n\n## Kaksi\n\nc\n\n## Yksi\n\nd\n")
+        this.ok(((PresPick.frontEnd(text)) == (strlen head) - 1) ("pick: front matter end, got " + (to_string (PresPick.frontEnd(text)))))
+        def secs:[PresPickSection] (PresPick.sections(text 2))
+        this.ok(((array_length secs) == 4) ("pick: four sections, got " + (to_string (array_length secs))))
+        if ((array_length secs) == 4) {
+            this.ok(((itemAt secs 0).key == "start") "pick: the text above the first heading")
+            this.ok(((itemAt secs 1).key == "yksi") "pick: a section's key")
+            this.ok(((itemAt secs 2).key == "kaksi") "pick: fences and notes hold no headings")
+            this.ok(((itemAt secs 3).key == "yksi~2") "pick: the same words again")
+        }
+        def view:string (PresPick.viewText(text 2 "yksi~2,kaksi"))
+        this.ok(((indexOf view "title: Raportti") > 0) "pick: the view keeps the front matter")
+        this.ok(((indexOf view "## Kaksi\n\nc\n\n## Yksi\n\nd\n") > 0) ("pick: the view in the deck's order: " + view))
+        this.ok(((indexOf view "Kansi") < 0) "pick: the rest left out")
+        this.ok(((PresPick.viewText(text 2 "nothing")) == "") "pick: no section named")
+        this.ok(((PresPick.viewText("## A\n\nx\n" 2 "a")) == "## A\n\nx\n") "pick: no front matter")
+
+        ; the pages of a deck: keys by their sections, and the view a deck
+        ; of those slides only
+        def deck (new PresDeck())
+        deck.setText(text)
+        def n:int (deck.slideCount())
+        this.ok((n == 4) ("pick: the deck has four slides, got " + (to_string n)))
+        def pages:[int]
+        push pages 3
+        push pages 1
+        def keys:string (PresPick.keysOfPages(deck text pages))
+        this.ok((keys == "yksi,yksi~2") ("pick: the pages' keys, got " + keys))
+        ; a slide added at the top: the same keys name the same slides
+        def text2:string ((head + "## Uusi\n\nz\n\n") + (substring text (strlen head) (strlen text)))
+        def v2:string (PresPick.viewText(text2 2 keys))
+        deck.setText(v2)
+        this.ok(((deck.slideCount()) == 2) ("pick: the view is two slides, got " + (to_string (deck.slideCount()))))
+        this.ok(((indexOf v2 "Uusi") < 0) "pick: the added slide is not in the view")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -1530,6 +1600,7 @@ class PresCheck {
         c.gridModel()
         c.controlsFade()
         c.followEdits()
+        c.picks()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"
