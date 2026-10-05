@@ -3120,6 +3120,60 @@ async function exportPptx(picked = false) {
   window.__lastDownload = deliver(some ? app.pptxPicked() : app.pptx(), (some ? pickedName() : exportName()) + ".pptx",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation");
 }
+// Word: the blocks only the stage can draw (a diagram, a chart, a list
+// figure, a formula, a SmartArt) go in as pictures. The app names each one's
+// rectangle on its slide and what to draw for it (PresDocx.shotList: a
+// diagram whole and still, a chart at rest, else the slide at rest); each is
+// drawn here, cut to its rectangle and handed back as a PNG, and the app
+// writes the file.
+const DOCX_SHOT_W = 1400;
+async function renderDocxShots(shots) {
+  if (!shots.length) return;
+  const c = document.createElement("canvas");
+  const g = c.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!g) return;
+  const cut = document.createElement("canvas");
+  const cg = cut.getContext("2d");
+  for (const s of shots) {
+    const doc = atRest(JSON.parse(app.docxShotJson(s.key)));
+    // sharp enough for a page wide picture, within the GPU's limits
+    const k = Math.min(4, DOCX_SHOT_W / Math.max(1, s.w), 4096 / doc.width, 4096 / doc.height);
+    c.width = Math.round(doc.width * k);
+    c.height = Math.round(doc.height * k);
+    const f = prepareDisplayList(g, doc, { dpr: k, images: pictures });
+    f.draw(null, null);
+    const x = Math.max(0, Math.floor(s.x * k));
+    const y = Math.max(0, Math.floor(s.y * k));
+    const w = Math.min(c.width - x, Math.ceil(s.w * k));
+    const h = Math.min(c.height - y, Math.ceil(s.h * k));
+    if (w > 0 && h > 0) {
+      // GL rows run bottom up
+      const up = new Uint8Array(w * h * 4);
+      g.readPixels(x, c.height - y - h, w, h, g.RGBA, g.UNSIGNED_BYTE, up);
+      const rgba = new Uint8ClampedArray(w * h * 4);
+      for (let r = 0; r < h; r++) rgba.set(up.subarray((h - 1 - r) * w * 4, (h - r) * w * 4), r * w * 4);
+      for (let p = 3; p < rgba.length; p += 4) rgba[p] = 255;
+      cut.width = w;
+      cut.height = h;
+      cg.putImageData(new ImageData(rgba, w, h), 0, 0);
+      const blob = await new Promise((r) => cut.toBlob(r, "image/png"));
+      if (blob) app.setDocxShot(s.key, asRangerBuffer(await blob.arrayBuffer()), w, h);
+    }
+    f.dispose();
+  }
+  const lose = g.getExtension("WEBGL_lose_context");
+  if (lose) lose.loseContext();
+}
+async function exportDocx(picked = false) {
+  const some = picked && app.pickCount() > 0;
+  await renderDocxShots(JSON.parse(app.docxBegin(some)));
+  window.__lastDownload = deliver(app.docxEnd(), (some ? pickedName() : exportName()) + ".docx",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+}
+window.__exportDocx = exportDocx;
+window.__renderDocxShots = renderDocxShots;
+document.getElementById("docx").addEventListener("click", () => { exportDocx().catch(fail); });
+document.getElementById("docxPicked").addEventListener("click", () => { exportDocx(true).catch(fail); });
 document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
 document.getElementById("zip").addEventListener("click", () => { askZip().catch(fail); });
@@ -4153,7 +4207,7 @@ window.__goTo = { open: openGoTo, close: closeGoTo, label: () => vCount.textCont
 // srcdoc, with <meta name="sliqtly-link">) the page has no address and its
 // sandbox allows no downloads or windows: every item opens sliqtly.com in a
 // new tab through the preview (window.__sliqtlyOpenLink, the host's
-// ui/open-link), exports with ?export=pdf|pptx|md, which the site runs on load.
+// ui/open-link), exports with ?export=pdf|pptx|docx|md, which the site runs on load.
 const vMenu = document.getElementById("vMenu");
 const vMore = document.getElementById("vMore");
 const vExportSub = document.getElementById("vExportSub");
@@ -4207,7 +4261,7 @@ function exportOnSite(kind) {
   q.set("export", kind);
   siteLink(siteUrl("").replace(/#.*$/, "") + "#" + q.toString());
 }
-const EXPORTS = { pdf: () => exportPdf(), pptx: () => exportPptx(), md: () => exportMd() };
+const EXPORTS = { pdf: () => exportPdf(), pptx: () => exportPptx(), docx: () => exportDocx(), md: () => exportMd() };
 async function exportMd() {
   window.__lastDownload = deliver(new TextEncoder().encode(app.source()), exportName() + ".md", "text/markdown");
 }
@@ -5499,7 +5553,7 @@ async function start() {
   }
   // opening the deck tidied the address; it follows the screen from here
   followAddress();
-  // ?export=pdf|pptx|md (or in the #…): an export asked for from the
+  // ?export=pdf|pptx|docx|md (or in the #…): an export asked for from the
   // assistant's preview, which cannot download
   const ask = q.get("export") || hashParams().get("export");
   if (viewer && !framed && EXPORTS[ask]) {

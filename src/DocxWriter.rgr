@@ -1,0 +1,768 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DocxWriter.rgr — a RichDocument, as the bytes of a .docx file.
+; ============================================================================
+;
+; Ranger's docx module (gallery/docx_viewer) reads WordprocessingML into a
+; `RichDocument` and lays it out; nothing wrote one back. The Markdown engine's
+; `MdToDocx` builds that same model from a document, so this is the missing
+; last step of
+;
+;   deck ──► PresDocx ──► MdToDocx ──► RichDocument ──► DocxWriter ──► .docx
+;
+; and the reader is what checks it: `PresCheck.docx` opens every file this
+; writes with `WordMlParser` and compares what comes back.
+;
+; What is written:
+;   paragraphs   style, alignment, spacing, indents, page break before
+;   runs         font, size, bold, italic, underline, colour; tabs and breaks
+;   links        external targets as relationships, `#name` as an anchor
+;   lists        one `w:num` per list, so every numbered list starts from 1
+;   tables       grid, cell widths, spans, shading, borders, a header row
+;                that repeats on every page
+;   pictures     PNG / JPEG / GIF parts, inline, fitted to the text column
+;   page breaks  and the page size and margins of the first section
+;
+; A chart or a drawing with no picture rendered for it has no WordprocessingML
+; spelling here: it is written as its name in italics and counted in
+; `unwritten`, never dropped.
+; ============================================================================
+
+Import "../docx_viewer/src/RichDocument.rgr"
+Import "../zip/ZipWriter.rgr"
+Import "../pptx/src/PptxWriter.rgr"
+
+; One relationship of word/document.xml.
+class DocxRel {
+    def id:string ""
+    def type:string ""
+    def target:string ""
+    def external:boolean false
+
+    Constructor () {
+    }
+}
+
+; One list in the document: which `w:num` its paragraphs name.
+class DocxListUse {
+    def numId:int 0
+    ; 1 bullets, 2 numbers
+    def kind:int 1
+
+    Constructor () {
+    }
+}
+
+class DocxWriter {
+    def zip:ZipWriter (new ZipWriter())
+    def rels:[DocxRel]
+    def lists:[DocxListUse]
+    def mediaNames:[string]
+    def mediaBytes:[buffer]
+    def drawingId:int 0
+    ; the text column in EMU, which a picture is fitted to
+    def columnEmu:int 0
+    ; the list the paragraphs before this one were in: -1 none
+    def curNum:int -1
+    def curKind:int 0
+    ; Charts and drawings written as their name: no picture was given for
+    ; them. Counted so a caller can say so.
+    def unwritten:int 0
+    def pictures:int 0
+    def tables:int 0
+
+    Constructor () {
+    }
+
+    fn write:buffer (doc:RichDocument) {
+        clear rels
+        clear lists
+        clear mediaNames
+        clear mediaBytes
+        drawingId = 0
+        curNum = -1
+        curKind = 0
+        unwritten = 0
+        pictures = 0
+        tables = 0
+        def sec:DocSection doc.section
+        if ((array_length doc.sections) > 0) {
+            sec = (itemAt doc.sections 0)
+        }
+        columnEmu = (((sec.pageWTwips - sec.marginLeftTwips) - sec.marginRightTwips) * 635)
+        this.addRel("http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" "styles.xml" false)
+        this.addRel("http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" "numbering.xml" false)
+        this.addRel("http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" "settings.xml" false)
+        def body:string (this.bodyXml(doc sec))
+        zip.create()
+        this.put("[Content_Types].xml" (this.contentTypes()))
+        this.put("_rels/.rels" (DocxWriter.packageRels()))
+        this.put("docProps/core.xml" (DocxWriter.coreXml(doc.title)))
+        this.put("word/document.xml" body)
+        this.put("word/styles.xml" (DocxWriter.stylesXml()))
+        this.put("word/numbering.xml" (this.numberingXml()))
+        this.put("word/settings.xml" (DocxWriter.settingsXml()))
+        this.put("word/_rels/document.xml.rels" (this.documentRels()))
+        def i:int 0
+        while (i < (array_length mediaNames)) {
+            zip.addFile(("word/" + (itemAt mediaNames i)) (itemAt mediaBytes i))
+            i = (i + 1)
+        }
+        return (zip.toBuffer())
+    }
+
+    fn put:void (name:string xml:string) {
+        zip.addFile(name (PptxWriter.utf8(xml)))
+    }
+
+    fn addRel:string (type:string target:string external:boolean) {
+        def r (new DocxRel())
+        r.id = ("rId" + (to_string ((array_length rels) + 1)))
+        r.type = type
+        r.target = target
+        r.external = external
+        push rels r
+        return r.id
+    }
+
+    ; --- the body ---------------------------------------------------------------
+
+    fn bodyXml:string (doc:RichDocument sec:DocSection) {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+        out = (out + "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"")
+        out = (out + " xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"")
+        out = (out + " xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\"")
+        out = (out + " xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"")
+        out = (out + " xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">")
+        out = (out + "<w:body>")
+        def i:int 0
+        while (i < (array_length doc.blocks)) {
+            def b:DocBlock (itemAt doc.blocks i)
+            if (b.kind == (DocBlockKind.para())) {
+                out = (out + (this.paragraphXml(b.paragraph)))
+            }
+            if (b.kind == (DocBlockKind.table())) {
+                curNum = -1
+                out = (out + (this.tableXml(b.table)))
+            }
+            if (b.kind == (DocBlockKind.pageBreak())) {
+                curNum = -1
+                out = (out + "<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>")
+            }
+            if (b.kind == (DocBlockKind.chart())) {
+                curNum = -1
+                out = (out + (this.placeholder("Chart")))
+            }
+            if (b.kind == (DocBlockKind.drawing())) {
+                curNum = -1
+                def name:string b.drawing.altText
+                if ((strlen name) == 0) {
+                    name = b.drawing.name
+                }
+                out = (out + (this.placeholder(name)))
+            }
+            i = (i + 1)
+        }
+        out = (out + (DocxWriter.sectPr(sec)))
+        out = (out + "</w:body></w:document>")
+        return out
+    }
+
+    fn placeholder:string (name:string) {
+        unwritten = (unwritten + 1)
+        return (("<w:p><w:r><w:rPr><w:i/><w:color w:val=\"57606A\"/></w:rPr>" + (DocxWriter.textXml((("[" + name) + "]")))) + "</w:r></w:p>")
+    }
+
+    sfn sectPr:string (sec:DocSection) {
+        def out:string "<w:sectPr>"
+        out = (out + "<w:pgSz w:w=\"" + (to_string sec.pageWTwips) + "\" w:h=\"" + (to_string sec.pageHTwips) + "\"")
+        if (sec.pageWTwips > sec.pageHTwips) {
+            out = (out + " w:orient=\"landscape\"")
+        }
+        out = (out + "/>")
+        out = (out + "<w:pgMar w:top=\"" + (to_string sec.marginTopTwips) + "\" w:right=\"" + (to_string sec.marginRightTwips))
+        out = (out + "\" w:bottom=\"" + (to_string sec.marginBottomTwips) + "\" w:left=\"" + (to_string sec.marginLeftTwips))
+        out = (out + "\" w:header=\"708\" w:footer=\"708\" w:gutter=\"0\"/>")
+        out = (out + "</w:sectPr>")
+        return out
+    }
+
+    ; The list a paragraph belongs to. A list paragraph after anything that is
+    ; not one at its own depth or deeper starts a new list, and so does a
+    ; change from bullets to numbers at the top level.
+    fn numFor:int (p:Paragraph) {
+        if (p.listKind <= 0) {
+            curNum = -1
+            return -1
+        }
+        if ((curNum < 0) || ((p.listLevel == 0) && (p.listKind != curKind))) {
+            def u (new DocxListUse())
+            u.numId = ((array_length lists) + 1)
+            u.kind = p.listKind
+            push lists u
+            curNum = u.numId
+            curKind = p.listKind
+        }
+        return curNum
+    }
+
+    fn paragraphXml:string (p:Paragraph) {
+        def num:int (this.numFor(p))
+        return (this.paragraphWith(p num))
+    }
+
+    fn paragraphWith:string (p:Paragraph num:int) {
+        def out:string "<w:p><w:pPr>"
+        if ((strlen p.styleId) > 0) {
+            if (p.styleId != "Normal") {
+                out = (out + "<w:pStyle w:val=\"" + (PptxWriter.esc(p.styleId)) + "\"/>")
+            }
+        }
+        if p.pageBreakBefore {
+            out = (out + "<w:pageBreakBefore/>")
+        }
+        if (num > 0) {
+            out = (out + "<w:numPr><w:ilvl w:val=\"" + (to_string (DocxWriter.clampLevel(p.listLevel))) + "\"/><w:numId w:val=\"" + (to_string num) + "\"/></w:numPr>")
+        }
+        def line:int (to_int ((p.lineSpacing * 240.0) + 0.5))
+        if (line < 120) {
+            line = 240
+        }
+        out = (out + "<w:spacing w:before=\"" + (to_string (DocxWriter.twips(p.spaceBeforePt))) + "\" w:after=\"" + (to_string (DocxWriter.twips(p.spaceAfterPt))))
+        out = (out + "\" w:line=\"" + (to_string line) + "\" w:lineRule=\"auto\"/>")
+        if (((p.indentLeftPt != 0.0) || (p.indentRightPt != 0.0)) || (p.indentFirstLinePt != 0.0)) {
+            out = (out + "<w:ind w:left=\"" + (to_string (DocxWriter.twips(p.indentLeftPt))) + "\" w:right=\"" + (to_string (DocxWriter.twips(p.indentRightPt))) + "\"")
+            if (p.indentFirstLinePt > 0.0) {
+                out = (out + " w:firstLine=\"" + (to_string (DocxWriter.twips(p.indentFirstLinePt))) + "\"")
+            }
+            if (p.indentFirstLinePt < 0.0) {
+                out = (out + " w:hanging=\"" + (to_string (DocxWriter.twips((0.0 - p.indentFirstLinePt)))) + "\"")
+            }
+            ; a list item's marker hangs in the indent, the text lined up
+            if ((num > 0) && (p.indentFirstLinePt == 0.0)) {
+                out = (out + " w:hanging=\"360\"")
+            }
+            out = (out + "/>")
+        }
+        if (p.align == 1) {
+            out = (out + "<w:jc w:val=\"center\"/>")
+        }
+        if (p.align == 2) {
+            out = (out + "<w:jc w:val=\"right\"/>")
+        }
+        if (p.align == 3) {
+            out = (out + "<w:jc w:val=\"both\"/>")
+        }
+        out = (out + "</w:pPr>")
+        out = (out + (this.runsXml(p)))
+        def k:int 0
+        while (k < (array_length p.images)) {
+            out = (out + (this.pictureXml((itemAt p.images k))))
+            k = (k + 1)
+        }
+        out = (out + "</w:p>")
+        return out
+    }
+
+    sfn clampLevel:int (lvl:int) {
+        if (lvl < 0) {
+            return 0
+        }
+        if (lvl > 8) {
+            return 8
+        }
+        return lvl
+    }
+
+    sfn twips:int (pt:double) {
+        return (to_int ((pt * 20.0) + 0.5))
+    }
+
+    ; The spans as runs; neighbours that link to the same place go inside one
+    ; `w:hyperlink`.
+    fn runsXml:string (p:Paragraph) {
+        def out:string ""
+        def link:string ""
+        def i:int 0
+        def n:int (array_length p.spans)
+        def len:int (strlen p.text)
+        while (i < n) {
+            def s:TextSpan (itemAt p.spans i)
+            def a:int s.start
+            def b:int s.end
+            if (a < 0) {
+                a = 0
+            }
+            if (b > len) {
+                b = len
+            }
+            if (b > a) {
+                if (s.hyperlink != link) {
+                    if ((strlen link) > 0) {
+                        out = (out + "</w:hyperlink>")
+                    }
+                    link = s.hyperlink
+                    if ((strlen link) > 0) {
+                        out = (out + (this.linkOpen(link)))
+                    }
+                }
+                out = (out + "<w:r>" + (DocxWriter.runProps(s)) + (DocxWriter.textXml((substring p.text a b))) + "</w:r>")
+            }
+            i = (i + 1)
+        }
+        if ((strlen link) > 0) {
+            out = (out + "</w:hyperlink>")
+        }
+        return out
+    }
+
+    fn linkOpen:string (target:string) {
+        if ((charAt target 0) == 35) {
+            return (("<w:hyperlink w:anchor=\"" + (PptxWriter.esc((substring target 1 (strlen target))))) + "\">")
+        }
+        def id:string (this.addRel("http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" target true))
+        return (("<w:hyperlink r:id=\"" + id) + "\">")
+    }
+
+    sfn runProps:string (s:TextSpan) {
+        def out:string "<w:rPr>"
+        if ((strlen s.hyperlink) > 0) {
+            out = (out + "<w:rStyle w:val=\"Hyperlink\"/>")
+        }
+        if ((strlen s.fontFamily) > 0) {
+            def f:string (PptxWriter.esc(s.fontFamily))
+            out = (out + "<w:rFonts w:ascii=\"" + f + "\" w:hAnsi=\"" + f + "\" w:cs=\"" + f + "\"/>")
+        }
+        if s.bold {
+            out = (out + "<w:b/>")
+        }
+        if s.italic {
+            out = (out + "<w:i/>")
+        }
+        if ((strlen s.colorHex) == 6) {
+            out = (out + "<w:color w:val=\"" + (PptxWriter.esc(s.colorHex)) + "\"/>")
+        }
+        if (s.fontSizePt > 0.0) {
+            out = (out + "<w:sz w:val=\"" + (to_string (to_int ((s.fontSizePt * 2.0) + 0.5))) + "\"/>")
+        }
+        if s.underline {
+            out = (out + "<w:u w:val=\"single\"/>")
+        }
+        out = (out + "</w:rPr>")
+        return out
+    }
+
+    ; Text as `w:t`, with a tab as `w:tab` and a line break as `w:br`.
+    ; Characters XML 1.0 cannot hold are left out rather than making a file
+    ; Word refuses to open.
+    sfn textXml:string (s:string) {
+        def out:string ""
+        def cur:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c == 9) || (c == 10)) {
+                if ((strlen cur) > 0) {
+                    out = (out + "<w:t xml:space=\"preserve\">" + cur + "</w:t>")
+                    cur = ""
+                }
+                if (c == 9) {
+                    out = (out + "<w:tab/>")
+                } {
+                    out = (out + "<w:br/>")
+                }
+            } {
+                if (c == 38) {
+                    cur = (cur + "&amp;")
+                } {
+                    if (c == 60) {
+                        cur = (cur + "&lt;")
+                    } {
+                        if (c == 62) {
+                            cur = (cur + "&gt;")
+                        } {
+                            if ((c >= 32) && ((c != 65534) && (c != 65535))) {
+                                cur = (cur + (strfromcode c))
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            out = (out + "<w:t xml:space=\"preserve\">" + cur + "</w:t>")
+        }
+        return out
+    }
+
+    ; --- pictures ---------------------------------------------------------------
+
+    sfn extOf:string (img:DocImage) {
+        def f:string img.format
+        if ((indexOf f "jpeg") >= 0) {
+            return "jpeg"
+        }
+        if ((indexOf f "jpg") >= 0) {
+            return "jpeg"
+        }
+        if ((indexOf f "gif") >= 0) {
+            return "gif"
+        }
+        if ((indexOf f "png") >= 0) {
+            return "png"
+        }
+        def p:string img.partPath
+        def dot:int (lastIndexOf p ".")
+        if (dot >= 0) {
+            def e:string (substring p (dot + 1) (strlen p))
+            if ((e == "jpg") || (e == "JPG") || (e == "jpeg") || (e == "JPEG")) {
+                return "jpeg"
+            }
+            if ((e == "gif") || (e == "GIF")) {
+                return "gif"
+            }
+            if ((e == "png") || (e == "PNG")) {
+                return "png"
+            }
+        }
+        return ""
+    }
+
+    fn pictureXml:string (img:DocImage) {
+        def ext:string (DocxWriter.extOf(img))
+        if (((buffer_length img.bytes) == 0) || ((strlen ext) == 0)) {
+            unwritten = (unwritten + 1)
+            def alt:string img.altText
+            if ((strlen alt) == 0) {
+                alt = "Picture"
+            }
+            return (("<w:r><w:rPr><w:i/><w:color w:val=\"57606A\"/></w:rPr>" + (DocxWriter.textXml((("[" + alt) + "]")))) + "</w:r>")
+        }
+        def name:string ("media/image" + (to_string ((array_length mediaNames) + 1)) + "." + ext)
+        push mediaNames name
+        push mediaBytes img.bytes
+        def rid:string (this.addRel("http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" name false))
+        def cx:int img.widthEmu
+        def cy:int img.heightEmu
+        if (cx <= 0) {
+            cx = (img.widthPx * 9525)
+        }
+        if (cy <= 0) {
+            cy = (img.heightPx * 9525)
+        }
+        if ((cx <= 0) || (cy <= 0)) {
+            cx = 952500
+            cy = 952500
+        }
+        ; never wider than the text column, the height following
+        if ((columnEmu > 0) && (cx > columnEmu)) {
+            def k:double ((to_double columnEmu) / (to_double cx))
+            cy = (to_int (((to_double cy) * k) + 0.5))
+            cx = columnEmu
+        }
+        drawingId = (drawingId + 1)
+        pictures = (pictures + 1)
+        def id:string (to_string drawingId)
+        def descr:string (PptxWriter.esc(img.altText))
+        def ext2:string ((("cx=\"" + (to_string cx)) + "\" cy=\"") + ((to_string cy) + "\""))
+        def out:string "<w:r><w:drawing><wp:inline distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\">"
+        out = (out + "<wp:extent " + ext2 + "/>")
+        out = (out + "<wp:docPr id=\"" + id + "\" name=\"Picture " + id + "\" descr=\"" + descr + "\"/>")
+        out = (out + "<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect=\"1\"/></wp:cNvGraphicFramePr>")
+        out = (out + "<a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"><pic:pic>")
+        out = (out + "<pic:nvPicPr><pic:cNvPr id=\"" + id + "\" name=\"Picture " + id + "\" descr=\"" + descr + "\"/><pic:cNvPicPr/></pic:nvPicPr>")
+        out = (out + "<pic:blipFill><a:blip r:embed=\"" + rid + "\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>")
+        out = (out + "<pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext " + ext2 + "/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr>")
+        out = (out + "</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>")
+        return out
+    }
+
+    ; --- tables -----------------------------------------------------------------
+
+    fn tableXml:string (t:DocumentTable) {
+        tables = (tables + 1)
+        def total:int 0
+        def g:int 0
+        while (g < (array_length t.colWidthsTwips)) {
+            total = (total + (itemAt t.colWidthsTwips g))
+            g = (g + 1)
+        }
+        def out:string "<w:tbl><w:tblPr><w:tblStyle w:val=\"TableGrid\"/>"
+        out = (out + "<w:tblW w:w=\"" + (to_string total) + "\" w:type=\"dxa\"/>")
+        out = (out + "<w:tblLayout w:type=\"fixed\"/>")
+        def pad:int (t.cellPadPx * 15)
+        out = (out + "<w:tblCellMar><w:left w:w=\"" + (to_string pad) + "\" w:type=\"dxa\"/><w:right w:w=\"" + (to_string pad) + "\" w:type=\"dxa\"/></w:tblCellMar>")
+        out = (out + "<w:tblLook w:val=\"04A0\" w:firstRow=\"1\" w:lastRow=\"0\" w:firstColumn=\"0\" w:lastColumn=\"0\" w:noHBand=\"1\" w:noVBand=\"1\"/>")
+        out = (out + "</w:tblPr><w:tblGrid>")
+        g = 0
+        while (g < (array_length t.colWidthsTwips)) {
+            out = (out + "<w:gridCol w:w=\"" + (to_string (itemAt t.colWidthsTwips g)) + "\"/>")
+            g = (g + 1)
+        }
+        out = (out + "</w:tblGrid>")
+        def r:int 0
+        while (r < (array_length t.rows)) {
+            def row:DocTableRow (itemAt t.rows r)
+            out = (out + "<w:tr>")
+            def head:boolean ((r == 0) && (DocxWriter.shadedRow(row)))
+            if (head || (row.heightTwips > 0)) {
+                out = (out + "<w:trPr>")
+                if (row.heightTwips > 0) {
+                    out = (out + "<w:trHeight w:val=\"" + (to_string row.heightTwips) + "\"/>")
+                }
+                if head {
+                    out = (out + "<w:tblHeader/>")
+                }
+                out = (out + "</w:trPr>")
+            }
+            def col:int 0
+            def c:int 0
+            while (c < (array_length row.cells)) {
+                def cell:DocTableCell (itemAt row.cells c)
+                def span:int cell.gridSpan
+                if (span < 1) {
+                    span = 1
+                }
+                def w:int 0
+                def s:int 0
+                while (s < span) {
+                    if ((col + s) < (array_length t.colWidthsTwips)) {
+                        w = (w + (itemAt t.colWidthsTwips (col + s)))
+                    }
+                    s = (s + 1)
+                }
+                col = (col + span)
+                out = (out + (this.cellXml(cell w span)))
+                c = (c + 1)
+            }
+            out = (out + "</w:tr>")
+            r = (r + 1)
+        }
+        out = (out + "</w:tbl>")
+        ; Word wants a paragraph between a table and whatever follows it, or two
+        ; tables in a row become one
+        out = (out + "<w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr></w:p>")
+        return out
+    }
+
+    sfn shadedRow:boolean (row:DocTableRow) {
+        if ((array_length row.cells) == 0) {
+            return false
+        }
+        def c:int 0
+        while (c < (array_length row.cells)) {
+            def cell:DocTableCell (itemAt row.cells c)
+            if ((strlen cell.fillHex) != 6) {
+                return false
+            }
+            c = (c + 1)
+        }
+        return true
+    }
+
+    fn cellXml:string (cell:DocTableCell w:int span:int) {
+        def out:string "<w:tc><w:tcPr>"
+        out = (out + "<w:tcW w:w=\"" + (to_string w) + "\" w:type=\"dxa\"/>")
+        if (span > 1) {
+            out = (out + "<w:gridSpan w:val=\"" + (to_string span) + "\"/>")
+        }
+        out = (out + "<w:tcBorders>")
+        out = (out + (DocxWriter.borderXml("top" cell.borderTop)))
+        out = (out + (DocxWriter.borderXml("left" cell.borderLeft)))
+        out = (out + (DocxWriter.borderXml("bottom" cell.borderBottom)))
+        out = (out + (DocxWriter.borderXml("right" cell.borderRight)))
+        out = (out + "</w:tcBorders>")
+        if ((strlen cell.fillHex) == 6) {
+            out = (out + "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"" + (PptxWriter.esc(cell.fillHex)) + "\"/>")
+        }
+        if (cell.vAlign == 1) {
+            out = (out + "<w:vAlign w:val=\"center\"/>")
+        }
+        if (cell.vAlign == 2) {
+            out = (out + "<w:vAlign w:val=\"bottom\"/>")
+        }
+        out = (out + "</w:tcPr>")
+        ; a cell is never without a paragraph
+        if ((array_length cell.paragraphs) == 0) {
+            out = (out + "<w:p/>")
+        }
+        def i:int 0
+        while (i < (array_length cell.paragraphs)) {
+            def p:Paragraph (itemAt cell.paragraphs i)
+            out = (out + (this.paragraphWith(p -1)))
+            i = (i + 1)
+        }
+        out = (out + "</w:tc>")
+        return out
+    }
+
+    sfn borderXml:string (side:string b:DocTableBorder) {
+        def st:string b.style
+        if ((strlen st) == 0) {
+            st = "single"
+        }
+        def color:string b.colorHex
+        if ((strlen color) != 6) {
+            color = "auto"
+        }
+        return ("<w:" + side + " w:val=\"" + (PptxWriter.esc(st)) + "\" w:sz=\"" + (to_string b.sz) + "\" w:space=\"0\" w:color=\"" + (PptxWriter.esc(color)) + "\"/>")
+    }
+
+    ; --- the other parts --------------------------------------------------------
+
+    fn contentTypes:string () {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+        out = (out + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">")
+        out = (out + "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>")
+        out = (out + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>")
+        out = (out + "<Default Extension=\"png\" ContentType=\"image/png\"/>")
+        out = (out + "<Default Extension=\"jpeg\" ContentType=\"image/jpeg\"/>")
+        out = (out + "<Default Extension=\"gif\" ContentType=\"image/gif\"/>")
+        out = (out + "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>")
+        out = (out + "<Override PartName=\"/word/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/>")
+        out = (out + "<Override PartName=\"/word/numbering.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml\"/>")
+        out = (out + "<Override PartName=\"/word/settings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml\"/>")
+        out = (out + "<Override PartName=\"/docProps/core.xml\" ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/>")
+        out = (out + "</Types>")
+        return out
+    }
+
+    sfn packageRels:string () {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+        out = (out + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">")
+        out = (out + "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/>")
+        out = (out + "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties\" Target=\"docProps/core.xml\"/>")
+        out = (out + "</Relationships>")
+        return out
+    }
+
+    fn documentRels:string () {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+        out = (out + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">")
+        def i:int 0
+        while (i < (array_length rels)) {
+            def r:DocxRel (itemAt rels i)
+            out = (out + "<Relationship Id=\"" + r.id + "\" Type=\"" + r.type + "\" Target=\"" + (PptxWriter.esc(r.target)) + "\"")
+            if r.external {
+                out = (out + " TargetMode=\"External\"")
+            }
+            out = (out + "/>")
+            i = (i + 1)
+        }
+        out = (out + "</Relationships>")
+        return out
+    }
+
+    sfn coreXml:string (title:string) {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+        out = (out + "<cp:coreProperties xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\"")
+        out = (out + " xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:dcterms=\"http://purl.org/dc/terms/\"")
+        out = (out + " xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">")
+        out = (out + "<dc:title>" + (PptxWriter.esc(title)) + "</dc:title>")
+        out = (out + "<dc:creator>Sliqtly</dc:creator>")
+        out = (out + "</cp:coreProperties>")
+        return out
+    }
+
+    sfn settingsXml:string () {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+        out = (out + "<w:settings xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">")
+        out = (out + "<w:defaultTabStop w:val=\"720\"/><w:compat><w:compatSetting w:name=\"compatibilityMode\" w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"15\"/></w:compat>")
+        out = (out + "</w:settings>")
+        return out
+    }
+
+    ; Named styles, so a reader can restyle every heading at once and Word's
+    ; navigation pane lists the headings (`w:outlineLvl`). The runs carry their
+    ; own fonts and sizes as the document had them; these are the defaults
+    ; under them.
+    sfn stylesXml:string () {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+        out = (out + "<w:styles xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">")
+        out = (out + "<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\" w:cs=\"Arial\" w:eastAsia=\"Arial\"/>")
+        out = (out + "<w:sz w:val=\"22\"/><w:szCs w:val=\"22\"/><w:lang w:val=\"en-US\"/></w:rPr></w:rPrDefault>")
+        out = (out + "<w:pPrDefault><w:pPr><w:spacing w:after=\"160\" w:line=\"276\" w:lineRule=\"auto\"/></w:pPr></w:pPrDefault></w:docDefaults>")
+        out = (out + "<w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/><w:qFormat/></w:style>")
+        out = (out + "<w:style w:type=\"paragraph\" w:styleId=\"Title\"><w:name w:val=\"Title\"/><w:basedOn w:val=\"Normal\"/><w:next w:val=\"Normal\"/><w:qFormat/>")
+        out = (out + "<w:rPr><w:sz w:val=\"56\"/><w:szCs w:val=\"56\"/></w:rPr></w:style>")
+        def sizes:[int] ([] _:int (40 32 28 24 22 22))
+        def lvl:int 1
+        while (lvl <= 6) {
+            def l:string (to_string lvl)
+            out = (out + "<w:style w:type=\"paragraph\" w:styleId=\"Heading" + l + "\"><w:name w:val=\"heading " + l + "\"/>")
+            out = (out + "<w:basedOn w:val=\"Normal\"/><w:next w:val=\"Normal\"/><w:uiPriority w:val=\"9\"/><w:qFormat/>")
+            out = (out + "<w:pPr><w:keepNext/><w:keepLines/><w:spacing w:before=\"240\" w:after=\"80\"/><w:outlineLvl w:val=\"" + (to_string (lvl - 1)) + "\"/></w:pPr>")
+            def sz:string (to_string (itemAt sizes (lvl - 1)))
+            out = (out + "<w:rPr><w:b/><w:sz w:val=\"" + sz + "\"/><w:szCs w:val=\"" + sz + "\"/></w:rPr></w:style>")
+            lvl = (lvl + 1)
+        }
+        out = (out + "<w:style w:type=\"paragraph\" w:styleId=\"Quote\"><w:name w:val=\"Quote\"/><w:basedOn w:val=\"Normal\"/><w:qFormat/>")
+        out = (out + "<w:pPr><w:pBdr><w:left w:val=\"single\" w:sz=\"18\" w:space=\"8\" w:color=\"D0D7DE\"/></w:pBdr></w:pPr><w:rPr><w:i/><w:color w:val=\"57606A\"/></w:rPr></w:style>")
+        out = (out + "<w:style w:type=\"paragraph\" w:styleId=\"Code\"><w:name w:val=\"Code\"/><w:basedOn w:val=\"Normal\"/>")
+        out = (out + "<w:pPr><w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"F6F8FA\"/><w:spacing w:after=\"0\"/></w:pPr>")
+        out = (out + "<w:rPr><w:rFonts w:ascii=\"Courier New\" w:hAnsi=\"Courier New\" w:cs=\"Courier New\"/><w:sz w:val=\"19\"/></w:rPr></w:style>")
+        out = (out + "<w:style w:type=\"paragraph\" w:styleId=\"Notes\"><w:name w:val=\"Speaker Notes\"/><w:basedOn w:val=\"Normal\"/><w:qFormat/>")
+        out = (out + "<w:pPr><w:pBdr><w:left w:val=\"single\" w:sz=\"12\" w:space=\"8\" w:color=\"8C959F\"/></w:pBdr><w:ind w:left=\"284\"/></w:pPr>")
+        out = (out + "<w:rPr><w:color w:val=\"57606A\"/><w:sz w:val=\"20\"/></w:rPr></w:style>")
+        out = (out + "<w:style w:type=\"paragraph\" w:styleId=\"Caption\"><w:name w:val=\"caption\"/><w:basedOn w:val=\"Normal\"/><w:qFormat/>")
+        out = (out + "<w:rPr><w:i/><w:color w:val=\"57606A\"/><w:sz w:val=\"18\"/></w:rPr></w:style>")
+        out = (out + "<w:style w:type=\"character\" w:default=\"1\" w:styleId=\"DefaultParagraphFont\"><w:name w:val=\"Default Paragraph Font\"/><w:uiPriority w:val=\"1\"/><w:semiHidden/></w:style>")
+        out = (out + "<w:style w:type=\"character\" w:styleId=\"Hyperlink\"><w:name w:val=\"Hyperlink\"/><w:basedOn w:val=\"DefaultParagraphFont\"/>")
+        out = (out + "<w:rPr><w:color w:val=\"0969DA\"/><w:u w:val=\"single\"/></w:rPr></w:style>")
+        out = (out + "<w:style w:type=\"table\" w:default=\"1\" w:styleId=\"TableNormal\"><w:name w:val=\"Normal Table\"/><w:semiHidden/>")
+        out = (out + "<w:tblPr><w:tblInd w:w=\"0\" w:type=\"dxa\"/><w:tblCellMar><w:top w:w=\"0\" w:type=\"dxa\"/><w:left w:w=\"108\" w:type=\"dxa\"/><w:bottom w:w=\"0\" w:type=\"dxa\"/><w:right w:w=\"108\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr></w:style>")
+        out = (out + "<w:style w:type=\"table\" w:styleId=\"TableGrid\"><w:name w:val=\"Table Grid\"/><w:basedOn w:val=\"TableNormal\"/>")
+        out = (out + "<w:pPr><w:spacing w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr>")
+        out = (out + "<w:tblPr><w:tblBorders><w:top w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/><w:left w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>")
+        out = (out + "<w:bottom w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/><w:right w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>")
+        out = (out + "<w:insideH w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/><w:insideV w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/></w:tblBorders></w:tblPr></w:style>")
+        out = (out + "</w:styles>")
+        return out
+    }
+
+    ; Two list shapes — bullets and numbers, nine levels each — and one
+    ; `w:num` per list in the document. The numbered ones restart at 1.
+    fn numberingXml:string () {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+        out = (out + "<w:numbering xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">")
+        def bullets:[string] ([] _:string ("•" "◦" "▪" "•" "◦" "▪" "•" "◦" "▪"))
+        def numFmts:[string] ([] _:string ("decimal" "lowerLetter" "lowerRoman" "decimal" "lowerLetter" "lowerRoman" "decimal" "lowerLetter" "lowerRoman"))
+        out = (out + "<w:abstractNum w:abstractNumId=\"1\"><w:multiLevelType w:val=\"hybridMultilevel\"/>")
+        def l:int 0
+        while (l < 9) {
+            out = (out + "<w:lvl w:ilvl=\"" + (to_string l) + "\"><w:start w:val=\"1\"/><w:numFmt w:val=\"bullet\"/>")
+            out = (out + "<w:lvlText w:val=\"" + (itemAt bullets l) + "\"/><w:lvlJc w:val=\"left\"/>")
+            out = (out + "<w:pPr><w:ind w:left=\"" + (to_string ((l + 1) * 360)) + "\" w:hanging=\"360\"/></w:pPr></w:lvl>")
+            l = (l + 1)
+        }
+        out = (out + "</w:abstractNum>")
+        out = (out + "<w:abstractNum w:abstractNumId=\"2\"><w:multiLevelType w:val=\"hybridMultilevel\"/>")
+        l = 0
+        while (l < 9) {
+            out = (out + "<w:lvl w:ilvl=\"" + (to_string l) + "\"><w:start w:val=\"1\"/><w:numFmt w:val=\"" + (itemAt numFmts l) + "\"/>")
+            out = (out + "<w:lvlText w:val=\"%" + (to_string (l + 1)) + ".\"/><w:lvlJc w:val=\"left\"/>")
+            out = (out + "<w:pPr><w:ind w:left=\"" + (to_string ((l + 1) * 360)) + "\" w:hanging=\"360\"/></w:pPr></w:lvl>")
+            l = (l + 1)
+        }
+        out = (out + "</w:abstractNum>")
+        def i:int 0
+        while (i < (array_length lists)) {
+            def u:DocxListUse (itemAt lists i)
+            def abs:int 1
+            if (u.kind == 2) {
+                abs = 2
+            }
+            out = (out + "<w:num w:numId=\"" + (to_string u.numId) + "\"><w:abstractNumId w:val=\"" + (to_string abs) + "\"/>")
+            if (u.kind == 2) {
+                out = (out + "<w:lvlOverride w:ilvl=\"0\"><w:startOverride w:val=\"1\"/></w:lvlOverride>")
+            }
+            out = (out + "</w:num>")
+            i = (i + 1)
+        }
+        out = (out + "</w:numbering>")
+        return out
+    }
+}

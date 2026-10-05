@@ -33,6 +33,7 @@ Import "PresSlideSpans.rgr"
 Import "PresFollow.rgr"
 Import "PresPick.rgr"
 Import "PresNav.rgr"
+Import "PresDocx.rgr"
 Import "PresI18n.rgr"
 Import "../datagrid/src/script/ScriptEditor.rgr"
 Import "../game_engine/ui/UITextRenderer.rgr"
@@ -190,6 +191,8 @@ class PresApp {
     def pressShift:boolean false
     ; the exports write only the picked slides (pdfPicked, pptxPicked)
     def exportPick:boolean false
+    ; the Word export between docxBegin and docxEnd
+    def docxConv:PresDocx (new PresDocx())
     ; The "+" after the last thumbnail: pressed, it offers an empty slide or
     ; a copy of the selected one. `stripAdd` is what the press on it asks
     ; for: "open", "empty", "dup" or "".
@@ -8347,6 +8350,42 @@ class PresApp {
         return b
     }
 
+    ; --- Word (PresDocx) ----------------------------------------------------------
+    ; Two steps, because the stage draws some blocks (a diagram, a chart, a
+    ; formula) that only the host can turn into pictures: `docxBegin` names
+    ; them, the host draws each one's rectangle of its slide and hands the PNG
+    ; to `setDocxShot`, and `docxEnd` writes the file. `picked`: only the
+    ; picked slides, all of them when none is picked.
+    fn docxBegin:string (picked:boolean) {
+        this.settleAll()
+        docxConv = (new PresDocx())
+        if (picked && (picks.active())) {
+            def i:int 0
+            while (i < (deck.slideCount())) {
+                if (picks.has(i)) {
+                    push docxConv.onlyPages i
+                }
+                i = (i + 1)
+            }
+        }
+        docxConv.findShots(deck)
+        return (docxConv.shotsJson())
+    }
+
+    fn docxShotJson:string (key:int) {
+        return (this.listJson((docxConv.shotList(deck key))))
+    }
+
+    fn setDocxShot:void (key:int png:buffer pxW:int pxH:int) {
+        docxConv.setShot(key png pxW pxH)
+    }
+
+    fn docxEnd:buffer () {
+        def b:buffer (docxConv.docx(deck (this.docTitle())))
+        docxConv = (new PresDocx())
+        return b
+    }
+
     fn pickCount:int () {
         return (picks.count())
     }
@@ -8732,22 +8771,7 @@ class PresApp {
 
     ; Notes as a person reads them: the cue marks out.
     sfn speakable:string (notes:string) {
-        def out:string ""
-        def i:int 0
-        def n:int (strlen notes)
-        while (i < n) {
-            if (((i + 1) < n) && (((charAt notes i) == 91) && ((charAt notes (i + 1)) == 91))) {
-                def rest:string (substring notes i n)
-                def close:int (indexOf rest "]]")
-                if (close > 0) {
-                    i = ((i + close) + 2)
-                    continue
-                }
-            }
-            out = (out + (substring notes i (i + 1)))
-            i = (i + 1)
-        }
-        return out
+        return (PresDocx.notesText(notes))
     }
 
     fn statusText:string () {
