@@ -5,10 +5,11 @@
 // store.Links and a RoomPolicy-guarded store.Store, so the two cannot
 // differ in what they let someone see or change (ADR 0001).
 //
-// On the folder server everyone is its one user, who is the tenant's
-// admin: they see every room, the home rooms of decks made by others
-// ("mcp") too. A server with more users will give its principals from
-// sign-in; the operations stay the same.
+// On the folder server there are no access limits for now: every caller is
+// the tenant's admin and sees every room. Decks start in General; there is
+// a Playground beside it. A server with sign-in (the cloud, where the
+// Google account is the boundary) will give its principals from that; the
+// operations stay the same.
 
 package main
 
@@ -28,8 +29,6 @@ type roomService struct {
 	rooms store.Rooms
 	links store.Links
 	types *store.LinkTypes
-	// who the folder server's callers are
-	user string
 }
 
 // nil where decks are not kept in a store of rooms (the cloud for now)
@@ -44,7 +43,6 @@ func newRoomService(env *Env) *roomService {
 		rooms: store.Rooms{S: st},
 		links: store.Links{S: st, Types: types, Resolve: resolveRef},
 		types: types,
-		user:  env.LocalUser,
 	}
 }
 
@@ -61,10 +59,8 @@ func resolveRef(r store.Ref) (string, string, bool) {
 }
 
 func (s *roomService) principal(ctx context.Context, uid string) (store.Principal, error) {
-	p := store.Principal{UserID: uid, TenantID: localTenant}
-	if uid != "" && uid == s.user {
-		p.Roles = []string{"admin"}
-	}
+	// everyone sees everything on the folder server, for now
+	p := store.Principal{UserID: uid, TenantID: localTenant, Roles: []string{"admin"}}
 	return s.rooms.For(ctx, p)
 }
 
@@ -83,7 +79,7 @@ func strProp(desc string) map[string]any {
 
 var roomTools = []roomTool{
 	{name: "list_rooms", title: "List rooms", readOnly: true,
-		desc:  "List the rooms you are in, with your role and how many presentations each holds. A room bounds one subject (often a ticket): its presentations, members and links. Every presentation has one home room; yours start in your home room \"My presentations\".",
+		desc:  "List the rooms you are in, with your role and how many presentations each holds. A room bounds one subject (often a ticket): its presentations, members and links. Every presentation has one home room; new ones start in General, and there is a Playground for trying things.",
 		props: map[string]any{"archived": map[string]any{"type": "boolean", "description": "Also list archived rooms"}}},
 	{name: "get_room", title: "Show a room", readOnly: true,
 		desc:     "A room's members, presentations (deck_id and name) and links.",
@@ -237,10 +233,17 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 		for _, r := range rs {
 			rows = append(rows, roomRowOf(r.ID, r.Role, r.Doc, count[r.ID]))
 		}
-		// the home room first, then by name
-		sort.SliceStable(rows, func(i, j int) bool {
-			return rows[i].RoomID == store.HomeRoomID(p.UserID) && rows[j].RoomID != store.HomeRoomID(p.UserID)
-		})
+		// General and Playground first, then by name
+		first := func(id string) int {
+			switch id {
+			case store.GeneralRoom:
+				return 0
+			case store.PlaygroundRoom:
+				return 1
+			}
+			return 2
+		}
+		sort.SliceStable(rows, func(i, j int) bool { return first(rows[i].RoomID) < first(rows[j].RoomID) })
 		return map[string]any{"rooms": rows}, nil
 
 	case "get_room":

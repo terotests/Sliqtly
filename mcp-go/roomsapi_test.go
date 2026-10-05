@@ -35,11 +35,12 @@ func TestRoomTools(t *testing.T) {
 	}
 	a, b := deck("Alpha"), deck("Beta")
 
-	// a new deck is in its owner's home room
+	// a new deck is in General; Playground is beside it
 	rooms := list(ok("list_rooms", map[string]any{})["rooms"])
-	eq(t, len(rooms), 1)
-	home := mapOf(rooms[0])
-	eq(t, []any{home["room_id"], home["title"], home["kind"], home["role"], home["presentations"]}, []any{"home-local", "My presentations", "home", "owner", 2.0})
+	eq(t, len(rooms), 2)
+	gen, play := mapOf(rooms[0]), mapOf(rooms[1])
+	eq(t, []any{gen["room_id"], gen["title"], gen["kind"], gen["role"], gen["presentations"]}, []any{"general", "General", "general", "owner", 2.0})
+	eq(t, []any{play["room_id"], play["title"], play["presentations"]}, []any{"playground", "Playground", 0.0})
 
 	// a room for a ticket, a deck moved into it
 	room := ok("create_room", map[string]any{"title": "PAY-817 payments", "kind": "ticket"})["room_id"].(string)
@@ -79,62 +80,42 @@ func TestRoomTools(t *testing.T) {
 	// archived: read only, and listed only when asked
 	ok("archive_room", map[string]any{"room_id": room})
 	bad("move_presentation", map[string]any{"deck_id": b, "room_id": room}, `role does not allow`)
-	eq(t, len(list(ok("list_rooms", map[string]any{})["rooms"])), 1)
-	eq(t, len(list(ok("list_rooms", map[string]any{"archived": true})["rooms"])), 2)
+	eq(t, len(list(ok("list_rooms", map[string]any{})["rooms"])), 2)
+	eq(t, len(list(ok("list_rooms", map[string]any{"archived": true})["rooms"])), 3)
 	ok("archive_room", map[string]any{"room_id": room, "archived": false})
 	ok("move_presentation", map[string]any{"deck_id": b, "room_id": room})
 
 	bad("get_room", map[string]any{}, `room_id is missing`)
 }
 
-// what another user sees: only the rooms they are a member of, and what
-// their role there allows
-func TestRoomsForAnotherUser(t *testing.T) {
+// the folder server has no access limits for now: another caller sees and
+// changes everything the server's user does (the limits themselves are
+// tested in store/storetest)
+func TestRoomsOpenOnFolderServer(t *testing.T) {
 	ctx := context.Background()
 	e, _, err := localEnv(t.TempDir(), "http://x", "local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	rs := e.rooms
 	if err := e.DB.Set(ctx, "shares", "deck000001", Doc{"name": "Mine", "owner": "local"}); err != nil {
 		t.Fatal(err)
 	}
-	as := func(uid, op string, a map[string]any) (map[string]any, error) {
-		out, err := rs.call(ctx, uid, op, a)
+	as := func(uid, op string, a map[string]any) map[string]any {
+		t.Helper()
+		out, err := e.rooms.call(ctx, uid, op, a)
 		if err != nil {
-			return nil, err
+			t.Fatalf("%s %s: %v", uid, op, err)
 		}
 		b, _ := json.Marshal(out)
 		var m map[string]any
 		json.Unmarshal(b, &m)
-		return m, nil
+		return m
 	}
-	m, err := as("bob", "list_rooms", nil)
-	eq(t, []any{len(list(m["rooms"])), err}, []any{0, nil})
-	if _, err := as("bob", "get_room", map[string]any{"room_id": "home-local"}); err == nil || err.Error() != "not found, or not yours to see" {
-		t.Fatal(err)
-	}
-	if _, err := as("bob", "links_of", map[string]any{"ref": "deck:deck000001"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := as("bob", "add_link", map[string]any{"from": "deck:deck000001", "rel": "relates_to", "to": "jira:A-1"}); err == nil {
-		t.Fatal("bob linked a deck they cannot see")
-	}
-	m, _ = as("local", "create_room", map[string]any{"title": "Shared"})
-	room := m["room_id"].(string)
-	as("local", "move_presentation", map[string]any{"deck_id": "deck000001", "room_id": room})
-	if _, err := as("local", "set_room_member", map[string]any{"room_id": room, "member": "user:bob", "role": "viewer"}); err != nil {
-		t.Fatal(err)
-	}
-	m, _ = as("bob", "get_room", map[string]any{"room_id": room})
-	eq(t, len(list(m["presentations"])), 1)
-	if _, err := as("bob", "move_presentation", map[string]any{"deck_id": "deck000001", "room_id": "home-local"}); err == nil {
-		t.Fatal("a viewer moved a deck out")
-	}
-	if _, err := as("bob", "archive_room", map[string]any{"room_id": room}); err == nil {
-		t.Fatal("a viewer archived the room")
-	}
-	if _, err := as("", "list_rooms", nil); err == nil {
+	eq(t, len(list(as("bob", "list_rooms", nil)["rooms"])), 2)
+	eq(t, len(list(as("bob", "get_room", map[string]any{"room_id": "general"})["presentations"])), 1)
+	as("bob", "move_presentation", map[string]any{"deck_id": "deck000001", "room_id": "playground"})
+	eq(t, len(list(as("local", "get_room", map[string]any{"room_id": "playground"})["presentations"])), 1)
+	if _, err := e.rooms.call(ctx, "", "list_rooms", nil); err == nil {
 		t.Fatal("no user, still answered")
 	}
 }

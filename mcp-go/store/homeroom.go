@@ -4,48 +4,42 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"regexp"
-	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // Home rooms (ADR 0001): every document has one home room. A document
-// written without a room keeps the room it had, and a new one goes to its
-// owner's home room, "My presentations", made the first time it is needed.
-// The room exists before any document names it, so a stop between the two
-// writes leaves no document in a room that is not there.
+// written without a room keeps the room it had, and a new one goes to the
+// tenant's General room. A tenant starts with two rooms, General and
+// Playground, made the first time they are needed; presentations are moved
+// from General into rooms of their own as they get one. The room exists
+// before any document names it, so a stop between the two writes leaves no
+// document in a room that is not there.
 //
 // A document moved into a room does not see the room's files unless it
 // says so: inherit_room_files is false until someone sets it.
-
-// HomeKind is the kind of an owner's home room; the UI names it in the
-// user's language.
-const HomeKind = "home"
 
 const (
 	RoomField    = "room"
 	InheritField = "inherit_room_files"
 )
 
-var plainOwner = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+// The rooms every tenant starts with. Their ids are their kinds; the UI
+// names them in the user's language.
+const (
+	GeneralRoom    = "general"
+	PlaygroundRoom = "playground"
+)
 
-// HomeRoomID is owner's home room: home-<owner> for a plain name, else
-// home-<hash> so no owner name can make a bad or clashing id.
-func HomeRoomID(owner string) string {
-	if plainOwner.MatchString(owner) {
-		return "home-" + owner
-	}
-	h := sha256.Sum256([]byte(owner))
-	return "home-h" + hex.EncodeToString(h[:12])
+var starterRooms = []struct{ id, title string }{
+	{GeneralRoom, "General"},
+	{PlaygroundRoom, "Playground"},
 }
 
-// EnsureHomeRoom makes owner's home room in tenant and their owner
-// membership, where they are not there yet. → the documents it made
-func EnsureHomeRoom(ctx context.Context, e Engine, tenant, owner string, now time.Time) (int, error) {
-	id := HomeRoomID(owner)
+// StarterRooms makes General and Playground in tenant, owned by owner,
+// where they are not there yet. → the documents it made
+func StarterRooms(ctx context.Context, e Engine, tenant, owner string, now time.Time) (int, error) {
 	made := 0
 	create := func(d Doc) UpdateFunc {
 		return func(cur Doc, _ Rev) (Doc, error) {
@@ -56,21 +50,23 @@ func EnsureHomeRoom(ctx context.Context, e Engine, tenant, owner string, now tim
 			return d, nil
 		}
 	}
-	room := Doc{"tenant": tenant, "title": "My presentations", "kind": HomeKind, "archived": false, "created": now.UTC(), "createdBy": owner}
-	if _, _, err := e.Update(ctx, RoomsCol, id, create(room)); err != nil && !errors.Is(err, errExists) {
-		return made, err
-	}
-	m := "user:" + owner
-	mem := Doc{"tenant": tenant, "room": id, "member": m, "role": string(Owner)}
-	if _, _, err := e.Update(ctx, MembersCol, memberID(id, m), create(mem)); err != nil && !errors.Is(err, errExists) {
-		return made, err
+	for _, r := range starterRooms {
+		room := Doc{"tenant": tenant, "title": r.title, "kind": r.id, "archived": false, "created": now.UTC(), "createdBy": owner}
+		if _, _, err := e.Update(ctx, RoomsCol, r.id, create(room)); err != nil && !errors.Is(err, errExists) {
+			return made, err
+		}
+		m := "user:" + owner
+		mem := Doc{"tenant": tenant, "room": r.id, "member": m, "role": string(Owner)}
+		if _, _, err := e.Update(ctx, MembersCol, memberID(r.id, m), create(mem)); err != nil && !errors.Is(err, errExists) {
+			return made, err
+		}
 	}
 	return made, nil
 }
 
 var (
 	errExists   = errors.New("store: exists")
-	errNeedRoom = errors.New("store: home room needed")
+	errNeedRoom = errors.New("store: starter rooms needed")
 )
 
 // HomeRooms is an Engine whose documents in Cols always have a home room.
@@ -78,18 +74,11 @@ type HomeRooms struct {
 	Engine
 	Cols   map[string]bool
 	Tenant string
-	// the owner of a document with no "owner"
+	// the owner of the starter rooms
 	Owner string
 	Now   func() time.Time
 
-	known sync.Map // home room id → made
-}
-
-func (h *HomeRooms) owner(d Doc) string {
-	if o, ok := d["owner"].(string); ok && o != "" {
-		return o
-	}
-	return h.Owner
+	made atomic.Bool // the starter rooms are there
 }
 
 func (h *HomeRooms) now() time.Time {
@@ -104,7 +93,6 @@ func (h *HomeRooms) Update(ctx context.Context, col, id string, fn UpdateFunc) (
 		return h.Engine.Update(ctx, col, id, fn)
 	}
 	for {
-		var need string
 		d, rev, err := h.Engine.Update(ctx, col, id, func(cur Doc, rev Rev) (Doc, error) {
 			next, err := fn(cur, rev)
 			if err != nil || next == nil {
@@ -127,13 +115,10 @@ func (h *HomeRooms) Update(ctx context.Context, col, id string, fn UpdateFunc) (
 				}
 				return next, nil
 			}
-			owner := h.owner(next)
-			room := HomeRoomID(owner)
-			if _, ok := h.known.Load(room); !ok {
-				need = owner
+			if !h.made.Load() {
 				return nil, errNeedRoom
 			}
-			next[RoomField] = room
+			next[RoomField] = GeneralRoom
 			if _, set := next[InheritField]; !set {
 				next[InheritField] = false
 			}
@@ -144,40 +129,34 @@ func (h *HomeRooms) Update(ctx context.Context, col, id string, fn UpdateFunc) (
 		}
 		// made outside the document's write: an engine may hold one lock
 		// for both
-		if _, err := EnsureHomeRoom(ctx, h.Engine, h.Tenant, need, h.now()); err != nil {
+		if _, err := StarterRooms(ctx, h.Engine, h.Tenant, h.Owner, h.now()); err != nil {
 			return nil, 0, err
 		}
-		h.known.Store(HomeRoomID(need), true)
+		h.made.Store(true)
 	}
 }
 
-// HomeAll puts every document of col that has no room into its owner's
-// home room, and gives every one the tenant: what a folder written before
-// rooms needs once. It is safe to
-// stop and run again. → the documents it made (rooms and memberships)
-func HomeAll(ctx context.Context, e Engine, col, tenant, defOwner string, now time.Time) (int, error) {
+// HomeAll makes the starter rooms and puts every document of col that has
+// no room into General, giving every one the tenant: what a folder written
+// before rooms needs once. It is safe to stop and run again. → the
+// documents it made (rooms and memberships)
+func HomeAll(ctx context.Context, e Engine, col, tenant, owner string, now time.Time) (int, error) {
+	made, err := StarterRooms(ctx, e, tenant, owner, now)
+	if err != nil {
+		return made, err
+	}
 	items, err := e.Query(ctx, Query{From: col})
 	if err != nil {
-		return 0, err
+		return made, err
 	}
-	h := &HomeRooms{Engine: e, Cols: map[string]bool{col: true}, Tenant: tenant, Owner: defOwner, Now: func() time.Time { return now }}
-	made := 0
+	h := &HomeRooms{Engine: e, Cols: map[string]bool{col: true}, Tenant: tenant, Owner: owner, Now: func() time.Time { return now }}
+	h.made.Store(true)
 	for _, it := range items {
 		if it.Doc[RoomField] != nil && it.Doc["tenant"] != nil {
 			continue
 		}
-		if it.Doc[RoomField] == nil {
-			owner := h.owner(it.Doc)
-			n, err := EnsureHomeRoom(ctx, e, tenant, owner, now)
-			made += n
-			if err != nil {
-				return made, err
-			}
-			h.known.Store(HomeRoomID(owner), true)
-		}
 		// the wrapper fills in what is missing
-		_, _, err = h.Update(ctx, col, it.ID, func(cur Doc, _ Rev) (Doc, error) { return cur, nil })
-		if err != nil {
+		if _, _, err := h.Update(ctx, col, it.ID, func(cur Doc, _ Rev) (Doc, error) { return cur, nil }); err != nil {
 			return made, err
 		}
 	}

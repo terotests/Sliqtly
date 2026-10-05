@@ -57,7 +57,7 @@ const localTenant = "local"
 // the store on a folder in the current layout; prepareData (datafmt.go)
 // brings an older one up to it first, and a folder in another layout is
 // refused rather than read wrong. A deck written without a room goes to
-// its owner's home room, user's for a deck that names no owner.
+// General; user owns the starter rooms.
 func newFSStore(root, user string) (*engineDB, *fsBucket, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
