@@ -96,6 +96,8 @@ impl SliqtlyEngine {
     }
 }
 
+const STEP_LAG: i64 = 4 << 20;
+
 fn compactor(i: Arc<SliqInner>) {
     loop {
         {
@@ -124,8 +126,15 @@ fn compactor(i: Arc<SliqInner>) {
                 break;
             }
         }
-        i.k.read().unwrap().compact_catch_up(&mut c);
-        c.sync();
+        // catch up with commits made meanwhile until little is left, so the
+        // exclusive finish copies only a short tail
+        loop {
+            i.k.read().unwrap().compact_catch_up(&mut c);
+            c.sync();
+            if i.k.read().unwrap().compact_lag(&c) < STEP_LAG {
+                break;
+            }
+        }
         let t1 = t0.elapsed();
         {
             let _w = i.writer.lock().unwrap();
@@ -135,6 +144,7 @@ fn compactor(i: Arc<SliqInner>) {
                 eprintln!("compaction: background {:?}, exclusive finish {:?}", t1, tf.elapsed());
             }
         }
+        c.release();
         i.compacting.store(false, Ordering::Relaxed);
     }
 }

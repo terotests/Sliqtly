@@ -100,6 +100,7 @@ fn main() {
     later.put("p/0151", "after-catch-up");
     k5.commit(&later);
     k5.compact_finish(&mut c);
+    c.release();
     let keys5 = ["p/0000", "p/0001", "p/0002", "p/0003", "p/0150", "p/0151", "p/0198", "p/0199", "p/new"];
     for kk in keys5.iter() {
         match k5.get(kk) {

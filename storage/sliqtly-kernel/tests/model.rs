@@ -111,6 +111,7 @@ fn kernel_matches_model() {
                 c.sync();
                 let mut c = compaction.take().unwrap();
                 k.compact_finish(&mut c);
+                c.release();
                 phased_done += 1;
             }
         }
@@ -175,5 +176,47 @@ fn torn_tail_is_cut_and_never_resurrected() {
     let k = Kernel::open(&d, true);
     assert_eq!(k.len(), 21);
     assert_eq!(k.get("after").as_deref(), Some("ok"));
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn phased_compaction_with_large_values() {
+    // values large enough that each step stops at its byte cap
+    let d = dir("large");
+    let mut k = Kernel::open(&d, false);
+    k.auto_compact = false;
+    let mut model: BTreeMap<String, String> = BTreeMap::new();
+    for round in 0..3 {
+        for i in 0..120 {
+            let mut b = Batch::new();
+            let v = format!("{round}-{i}-{}", "z".repeat(100_000));
+            b.put(&format!("big/{i:03}"), &v);
+            model.insert(format!("big/{i:03}"), v);
+            k.commit(&b);
+        }
+    }
+    let mut c = k.compact_begin();
+    let mut steps = 0;
+    loop {
+        let done = k.compact_step(&mut c, 1000);
+        steps += 1;
+        let mut b = Batch::new();
+        b.put(&format!("big/{:03}", steps * 7 % 120), "small");
+        model.insert(format!("big/{:03}", steps * 7 % 120), "small".to_string());
+        k.commit(&b);
+        if done {
+            break;
+        }
+    }
+    assert!(steps >= 3, "4 MiB steps over 12 MB of values: {steps}");
+    c.sync();
+    k.compact_finish(&mut c);
+    c.release();
+    let got: BTreeMap<String, String> = k.scan("", "", i64::MAX).into_iter().map(|p| (p.key, p.value)).collect();
+    assert_eq!(got, model);
+    k.close();
+    let k = Kernel::open(&d, false);
+    let got: BTreeMap<String, String> = k.scan("", "", i64::MAX).into_iter().map(|p| (p.key, p.value)).collect();
+    assert_eq!(got, model);
     let _ = std::fs::remove_dir_all(&d);
 }
