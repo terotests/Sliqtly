@@ -4743,11 +4743,67 @@ class PresApp {
         }
         review.measurer = measurer
         review.skin = skin
+        this.reviewSpots()
         def pres:boolean (mode == "present")
         if pres {
             review.place(W H 0.0 true selected slideRect.x slideRect.y slideRect.w slideRect.h 0.0 W H)
         } {
             review.place(W H barH false selected slideRect.x slideRect.y slideRect.w slideRect.h stageArea.x stageArea.w (stageArea.y + stageArea.h))
+        }
+    }
+
+    ; A comment pinned on a diagram is a point of the diagram: where the
+    ; diagram's camera shows it now, or nowhere when it is out of view. A
+    ; draft placed on one is given its point first.
+    fn reviewSpots:void () {
+        review.clearSpots()
+        if (((selected < 0) || (selected >= (deck.slideCount()))) || ((deck.pageW <= 0.0) || (deck.pageH <= 0.0))) {
+            return
+        }
+        def t:double (this.stageTime())
+        def pw:double deck.pageW
+        def ph:double deck.pageH
+        if review.draftAsk {
+            review.draftAsk = false
+            if (review.draftSlide == selected) {
+                def px:double (review.draftX * pw)
+                def py:double (review.draftY * ph)
+                def k:int (deck.diagramAt(selected px py))
+                def hit@(optional):PresDiaUse (deck.diagramUse(selected k))
+                if (!null? hit) {
+                    def du:PresDiaUse (unwrap hit)
+                    def a:[double] (du.diagram.anchorAt((t - du.start) du.bx du.by du.bw du.bh px py))
+                    if ((array_length a) == 3) {
+                        review.draftDia = k
+                        review.draftNode = (du.diagram.nodeIdAt((floor (itemAt a 0))))
+                        review.draftAX = (itemAt a 1)
+                        review.draftAY = (itemAt a 2)
+                    }
+                }
+            }
+        }
+        def out:[double]
+        if ((review.drafting && (review.draftSlide == selected)) && (review.draftDia >= 0)) {
+            def dh@(optional):PresDiaUse (deck.diagramUse(selected review.draftDia))
+            if (!null? dh) {
+                def dd:PresDiaUse (unwrap dh)
+                def seen:boolean (dd.diagram.anchorPoint((t - dd.start) dd.bx dd.by dd.bw dd.bh review.draftNode review.draftAX review.draftAY out))
+                if ((array_length out) == 2) {
+                    review.setSpot("rv-draft" ((itemAt out 0) / pw) ((itemAt out 1) / ph) seen)
+                }
+            }
+        }
+        for review.model.threads th:PresReviewThread i {
+            if ((th.slide == selected) && (th.dia >= 0)) {
+                def uh@(optional):PresDiaUse (deck.diagramUse(selected th.dia))
+                if (!null? uh) {
+                    def u:PresDiaUse (unwrap uh)
+                    def on:boolean (u.diagram.anchorPoint((t - u.start) u.bx u.by u.bw u.bh th.node th.ax th.ay out))
+                    if ((array_length out) == 2) {
+                        review.setSpot(th.id ((itemAt out 0) / pw) ((itemAt out 1) / ph) on)
+                    }
+                }
+            }
         }
     }
 

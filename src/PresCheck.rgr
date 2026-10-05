@@ -99,6 +99,7 @@ class PresCheck {
         this.orientation()
         this.chartModel()
         this.review()
+        this.reviewDiagram()
     }
 
     ; Review comments: threads on slides, closing, deleting, the file, two
@@ -166,11 +167,65 @@ class PresCheck {
         p.place(([] _:string ("One")))
         def pt2:PresReviewThread (unwrap (p.find("t")))
         this.ok((pt2.slide == 0) "review: past the end, the last slide")
+        ; pinned on a diagram: kept in the file, and travels in a merge
+        def q (new PresReview())
+        q.start("d" 0 "Flow" 0.4 0.4 (PresReview.msg("y1" "u" "U" "" "this box" t0)))
+        this.ok(((q.anchor("d" 0 "B" 0.25 0.75)) && ((q.anchor("nope" 0 "B" 0.5 0.5)) == false)) "review: a thread is pinned on a diagram's node")
+        def q2:PresReview (PresReview.parse((q.toJson())))
+        def qd:PresReviewThread (unwrap (q2.find("d")))
+        this.ok(((((qd.dia == 0) && (qd.node == "B")) && (qd.ax == 0.25)) && (qd.ay == 0.75)) ("review: the diagram point is in the file: " + (q.toJson())))
+        def q3 (new PresReview())
+        q3.start("d" 0 "Flow" 0.4 0.4 (PresReview.msg("y1" "u" "U" "" "this box" t0)))
+        q3.merge(q2)
+        def q3d:PresReviewThread (unwrap (q3.find("d")))
+        this.ok(((q3d.dia == 0) && (q3d.node == "B")) "review: a merge takes the diagram point")
         ; times
         def now:double 1759658400000.0
         this.ok(((PresReview.timeText(now now 180)) == "13:00") ("review: today, the clock: " + (PresReview.timeText(now now 180))))
         this.ok(((PresReview.timeText((now - 86400000.0) now 180)) == "4.10. 13:00") ("review: this year, the date: " + (PresReview.timeText((now - 86400000.0) now 180))))
         this.ok(((PresReview.timeText((now - (400.0 * 86400000.0)) now 0)) == "31.8.2024 10:00") ("review: before, the year: " + (PresReview.timeText((now - (400.0 * 86400000.0)) now 0))))
+    }
+
+    ; A comment on a diagram is a point of the diagram: when the camera
+    ; zooms, the point moves with what it is on (it stayed put on the
+    ; screen, over another box), and leaves the view with it.
+    fn reviewDiagram:void () {
+        def deck (new PresDeck())
+        deck.md.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 }")
+        deck.setText("## Flow\n\n```mermaid\nflowchart LR\n  A[Start] --> B[Middle]\n  B --> C[End]\n```\n")
+        def hit@(optional):PresDiaUse (deck.diagramUse(0 0))
+        if (null? hit) {
+            this.ok(false "review on a diagram: the slide has its diagram")
+            return
+        }
+        def u:PresDiaUse (unwrap hit)
+        def d:PresDiagram u.diagram
+        def t:double 1000000.0
+        def p1:[double]
+        def seen1:boolean (d.anchorPoint(t u.bx u.by u.bw u.bh "B" 0.5 0.5 p1))
+        this.ok((seen1 && ((array_length p1) == 2)) "review on a diagram: a node's point is in view")
+        def a:[double] (d.anchorAt(t u.bx u.by u.bw u.bh (itemAt p1 0) (itemAt p1 1)))
+        def on:string (d.nodeIdAt((floor (itemAt a 0))))
+        this.ok((((on == "B") && ((fabs ((itemAt a 1) - 0.5)) < 0.01)) && ((fabs ((itemAt a 2) - 0.5)) < 0.01)) ("review on a diagram: the point under it is the node's, got " + on))
+        ; the viewer zooms in on the first box
+        def a0:[double]
+        d.anchorPoint(t u.bx u.by u.bw u.bh "A" 0.5 0.5 a0)
+        d.uiNow = 100.0
+        d.explore(0)
+        d.uiNow = 200.0
+        def p2:[double]
+        def seen2:boolean (d.anchorPoint(t u.bx u.by u.bw u.bh "B" 0.5 0.5 p2))
+        def pA:[double]
+        d.anchorPoint(t u.bx u.by u.bw u.bh "A" 0.5 0.5 pA)
+        def moved:double ((fabs ((itemAt p2 0) - (itemAt p1 0))) + (fabs ((itemAt p2 1) - (itemAt p1 1))))
+        this.ok((moved > 20.0) ("review on a diagram: zoomed, the point moves with its box, moved " + (to_string moved)))
+        def a2:[double] (d.anchorAt(t u.bx u.by u.bw u.bh (itemAt pA 0) (itemAt pA 1)))
+        this.ok(((d.nodeIdAt((floor (itemAt a2 0)))) == "A") "review on a diagram: zoomed, the point under the first box is still that box's")
+        def far:[double]
+        def seenFar:boolean (d.anchorPoint(t u.bx u.by u.bw u.bh "C" 0.5 0.5 far))
+        this.ok((seenFar == false) "review on a diagram: a box the camera left is out of view")
+        def gone:[double]
+        this.ok((((d.anchorPoint(t u.bx u.by u.bw u.bh "Z" 0.5 0.5 gone)) == false) && ((array_length gone) == 0)) "review on a diagram: a box no longer there has no point")
     }
 
     ; A title set large enough to wrap keeps the diagram under it on its own

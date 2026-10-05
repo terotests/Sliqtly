@@ -3211,6 +3211,109 @@ class PresDiagram {
         return true
     }
 
+    ; ------------------------------------------------------------------
+    ; A point of the diagram (a review comment is pinned on one)
+    ; ------------------------------------------------------------------
+
+    ; The diagram's point under box point (px, py) at time t, as the camera
+    ; shows it then: on a node, [node index, u, v] of the node's box;
+    ; elsewhere [-1, u, v] of the whole diagram. Empty when there is no
+    ; diagram to point at.
+    fn anchorAt:[double] (t:double bx:double by:double bw:double bh:double px:double py:double) {
+        def out:[double]
+        if ((! ok) || ((worldW <= 0.0) || (worldH <= 0.0))) {
+            return out
+        }
+        if (showAll && (! inAll)) {
+            this.allBegin()
+            def r:[double] (this.anchorAt(1000000.0 bx by bw bh px py))
+            this.allEnd()
+            return r
+        }
+        this.cameraAt(t bw bh)
+        def sc:double ((this.fitOf(bw bh)) * camZ)
+        if (sc <= 0.0) {
+            return out
+        }
+        def wx:double ((px - ((bx + (bw * 0.5)) - (camX * sc))) / sc)
+        def wy:double ((py - ((by + (bh * 0.5)) - (camY * sc))) / sc)
+        def i:int ((array_length nodes) - 1)
+        while (i >= 0) {
+            def n:PresDNode (itemAt nodes i)
+            if ((((n.at <= t) && (n.w > 0.0)) && (n.h > 0.0)) && ((((wx >= n.x) && (wx <= (n.x + n.w))) && (wy >= n.y)) && (wy <= (n.y + n.h)))) {
+                push out (to_double i)
+                push out ((wx - n.x) / n.w)
+                push out ((wy - n.y) / n.h)
+                return out
+            }
+            i = (i - 1)
+        }
+        push out -1.0
+        push out ((wx - worldX) / worldW)
+        push out ((wy - worldY) / worldH)
+        return out
+    }
+
+    fn nodeIndex:int (id:string) {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:PresDNode (itemAt nodes i)
+            if (n.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn nodeIdAt:string (i:int) {
+        if ((i < 0) || (i >= (array_length nodes))) {
+            return ""
+        }
+        def n:PresDNode (itemAt nodes i)
+        return n.id
+    }
+
+    ; Where an anchor (`anchorAt`; a node by its id, "" the whole diagram)
+    ; is drawn in the box at time t: [x, y] in out. True when it is in view:
+    ; inside the box, on a node that has come in. A node no longer in the
+    ; diagram leaves the out empty.
+    fn anchorPoint:boolean (t:double bx:double by:double bw:double bh:double node:string u:double v:double out:[double]) {
+        clear out
+        if ((! ok) || ((worldW <= 0.0) || (worldH <= 0.0))) {
+            return false
+        }
+        if (showAll && (! inAll)) {
+            this.allBegin()
+            def r:boolean (this.anchorPoint(1000000.0 bx by bw bh node u v out))
+            this.allEnd()
+            return r
+        }
+        def wx:double (worldX + (u * worldW))
+        def wy:double (worldY + (v * worldH))
+        def came:boolean true
+        if ((strlen node) > 0) {
+            def k:int (this.nodeIndex(node))
+            if (k < 0) {
+                return false
+            }
+            def n:PresDNode (itemAt nodes k)
+            wx = (n.x + (u * n.w))
+            wy = (n.y + (v * n.h))
+            came = (n.at <= t)
+        }
+        this.cameraAt(t bw bh)
+        def sc:double ((this.fitOf(bw bh)) * camZ)
+        if (sc <= 0.0) {
+            return false
+        }
+        def x:double (((bx + (bw * 0.5)) - (camX * sc)) + (wx * sc))
+        def y:double (((by + (bh * 0.5)) - (camY * sc)) + (wy * sc))
+        push out x
+        push out y
+        return (came && ((((x >= bx) && (x <= (bx + bw))) && (y >= by)) && (y <= (by + bh))))
+    }
+
     fn uiBusy:boolean () {
         ; a question pulses its choices on the wall clock; the buttons fade
         ctl.hold = menuOpen
