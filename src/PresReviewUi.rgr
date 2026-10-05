@@ -401,11 +401,11 @@ class PresReviewUi {
                     fx = dragX
                     fy = dragY
                 }
-                def p:PinCtl (PinCtl.make(("rv-pin-" + t.id) (sx + (fx * sw)) (sy + (fy * sh)) "!"))
                 if (t.id == openId) {
-                    coPX = (p.midX())
-                    coPY = (p.midY())
+                    coPX = ((sx + (fx * sw)) + 13.0)
+                    coPY = ((sy + (fy * sh)) - 11.0)
                 }
+                def p:PinCtl (PinCtl.make(("rv-pin-" + t.id) (sx + (fx * sw)) (sy + (fy * sh)) "!"))
                 p.color = color
                 p.closed = t.closed
                 p.active = (t.id == openId)
@@ -436,9 +436,9 @@ class PresReviewUi {
                 dfx = dragX
                 dfy = dragY
             }
+            coPX = ((sx + (dfx * sw)) + 13.0)
+            coPY = ((sy + (dfy * sh)) - 11.0)
             def dp:PinCtl (PinCtl.make("rv-draft" (sx + (dfx * sw)) (sy + (dfy * sh)) "+"))
-            coPX = (dp.midX())
-            coPY = (dp.midY())
             dp.color = color
             dp.active = true
             dp.info = (PresI18n.t("New comment"))

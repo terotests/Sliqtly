@@ -342,6 +342,7 @@
 .theme-rvg .rv-row-text { color: #f4f4f5; font-size: 15px; }
 .theme-rvg .rv-list-btn { background-color: #0d9488; color: #ffffff; }
 
-/* the pins: a muted fill (the setting's), white mark (EVGUI draws the
-   gradient, shadow and the open one's ring) */
-.pin-badge { color: #ffffff; }
+/* the pins: a muted fill (the setting's), white mark, a soft edge */
+.pin { color: #ffffff; border: 1.5px solid rgba(0, 0, 0, 0.28); }
+.pin-on { border: 2.5px solid rgba(255, 255, 255, 0.9); }
+.pin:hover { border-color: rgba(255, 255, 255, 0.9); }
