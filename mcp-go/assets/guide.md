@@ -353,6 +353,15 @@ SVG pictures, backgrounds included:
   workbook in a deck that only lives in the user's browser is not
   reachable: ask the user to attach it, then write the result with
   `write_workbook`.
+- Vectorizing a picture: `vectorize_image` with the deck_id and a PNG or
+  JPEG's `path` traces it into an SVG (`media/<name>.svg`) and points the
+  Markdown's and the theme CSS's uses of it at the SVG; the original stays
+  in the files. `preset` is logo, illustration (the default), poster, photo
+  or lineart; `options` sets tracer options on top of it, e.g.
+  `{ "colorCount": 6, "turdsize": 8, "maxSide": 1200 }`. Good for logos,
+  icons, drawings and blurry low-resolution pictures; a photo becomes a
+  poster-like drawing. Without a deck_id, `image_base64` or `image_url`
+  gives the SVG back.
 - Inline HTML: `<mark>`, `<u>`, `<s>`, `<sub>`, `<sup>`, `<kbd>`, `<small>`,
   `<br>`, and `<span style="color:#e33">`.
 

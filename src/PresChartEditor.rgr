@@ -32,6 +32,7 @@ Import "PresImageModel.rgr"
 Import "PresFlowModel.rgr"
 Import "PresGridModel.rgr"
 Import "PresDocSettings.rgr"
+Import "PresTraceSettings.rgr"
 Import "PresColorPanel.rgr"
 Import "../evgui/src/UiHost.rgr"
 Import "PresKeep.rgr"
@@ -97,6 +98,8 @@ class PresChartEditor {
     def pasteNote:string ""
     def slideAspect:double 1.7777777
     def wantsPlace:boolean false
+    ; Add and vectorize: placed, then opened in the vectorizer
+    def pasteTrace:boolean false
     ; A picture of the deck's files edited where it is kept (`mode`
     ; "adjust"): the part to keep (`crop`, as for a paste) and its colours,
     ; each -100…100 with 0 leaving it as it is. The page draws the preview
@@ -116,6 +119,31 @@ class PresChartEditor {
     def adjContrastNote:string ""
     def adjContrastBad:boolean false
     def wantsSave:boolean false
+    ; Edit image's "Vectorize…": the window closes and the page opens the
+    ; picture in the vectorizer
+    def wantsTrace:boolean false
+    ; A picture of the files traced into vectors (`mode` "trace"): the
+    ; settings (PresTraceSettings), the picture as the page registered it
+    ; (`trOrig`) and the last trace (`trPreview`, "" before the first), what
+    ; that trace made (`trInfo`) or why it failed (`trErr`). A change sets
+    ; `trDirty`; the page traces again when no slider is held. Save
+    ; (`wantsTraceSave`) keeps the SVG beside the picture and, with
+    ; `trReplace`, points the picture's `trUses` uses at it.
+    def trFile:string ""
+    def trOrig:string ""
+    def trPreview:string ""
+    def trW:double 0.0
+    def trH:double 0.0
+    def trSet:PresTraceSettings (new PresTraceSettings())
+    def trShow:string "traced"
+    def trTab:string "colors"
+    def trInfo:string ""
+    def trErr:string ""
+    def trBusy:boolean false
+    def trDirty:boolean false
+    def trReplace:boolean true
+    def trUses:int 0
+    def wantsTraceSave:boolean false
     ; A new presentation (`mode` "newdeck"): its name, theme and what data it
     ; starts with ("none", "sample" a chart with a sample table, "file" a
     ; data file picked after it is made). `ndRows` are the page's themes,
@@ -162,6 +190,11 @@ class PresChartEditor {
     ; the document's own settings (its title) first
     def dsTab:string "deck"
     def dsPics:[string]
+    ; the theme's background picture for every slide (page's
+    ; background-image, "" none), and what the Background tab asked the app
+    ; to do with it: "set:<path>", "none", "edit", "trace" ("" nothing)
+    def dsBg:string ""
+    def dsBgAct:string ""
     ; a field (or a text) whose text is being selected by a drag, by its tid
     def selecting:string ""
     ; Text that can be selected and copied (EVGUI TextCtl): the About lines,
@@ -218,6 +251,7 @@ class PresChartEditor {
             slideAspect = aspect
         }
         wantsPlace = false
+        pasteTrace = false
         this.openAt(px py pw ph)
     }
 
@@ -238,6 +272,7 @@ class PresChartEditor {
         this.adjustZero()
         adjDirty = false
         wantsSave = false
+        wantsTrace = false
         this.openAt(px py pw ph)
     }
 
@@ -722,6 +757,10 @@ class PresChartEditor {
             win.name = (PresI18n.t("Edit image"))
             win.title = (PresI18n.t("Edit image"))
         }
+        if (mode == "trace") {
+            win.name = (PresI18n.t("Vectorize image"))
+            win.title = win.name
+        }
         if (mode == "newdeck") {
             win.name = (PresI18n.t("New presentation"))
             if ndDup {
@@ -805,6 +844,10 @@ class PresChartEditor {
         }
         if (mode == "adjust") {
             this.adjustBody(root)
+            return
+        }
+        if (mode == "trace") {
+            this.traceBody(root)
             return
         }
         if (mode == "image") {
@@ -960,6 +1003,7 @@ class PresChartEditor {
         def bottom:EVGElement (this.div("ce-foot"))
         this.button("pe-cancel" (PresI18n.t("Cancel")) "outline" bottom)
         bottom.addChild((this.div("ce-grow")))
+        this.button("pe-add-trace" (PresI18n.t("Add and vectorize…")) "outline" bottom)
         this.button("pe-add" (PresI18n.t("Add image")) "primary" bottom)
         root.addChild(bottom)
     }
@@ -1004,6 +1048,7 @@ class PresChartEditor {
         this.button("ae-cancel" (PresI18n.t("Cancel")) "outline" bottom)
         this.button("ae-reset" (PresI18n.t("Reset")) "ghost" bottom)
         bottom.addChild((this.div("ce-grow")))
+        this.button("ae-trace" (PresI18n.t("Vectorize…")) "outline" bottom)
         this.button("ae-save" (PresI18n.t("Save")) "primary" bottom)
         root.addChild(bottom)
     }
@@ -1036,6 +1081,321 @@ class PresChartEditor {
         }
         if (tid == "ae-save") {
             wantsSave = true
+            wantsClose = true
+            return true
+        }
+        if (tid == "ae-trace") {
+            wantsTrace = true
+            wantsClose = true
+            return true
+        }
+        return false
+    }
+
+    ; --- a picture of the files, vectorized ----------------------------------------
+    ; `orig` is the picture as the page registered it for drawing, `file` the
+    ; file it is kept in, `iw` × `ih` its pixels, `uses` how many times the
+    ; Markdown and the theme name it.
+    fn openTrace:void (orig:string file:string iw:double ih:double uses:int px:double py:double pw:double ph:double) {
+        mode = "trace"
+        trFile = file
+        trOrig = orig
+        trPreview = ""
+        trW = iw
+        trH = ih
+        trUses = uses
+        def st (new PresTraceSettings())
+        trSet = st
+        trShow = "traced"
+        trTab = "colors"
+        trInfo = ""
+        trErr = ""
+        trBusy = true
+        trDirty = false
+        trReplace = (uses > 0)
+        wantsTraceSave = false
+        this.openAt(px py pw ph)
+    }
+
+    ; the page traced: `preview` the traced picture as registered ("" when
+    ; it failed), `info` what it made, `err` why not
+    fn traceDone:void (preview:string info:string err:string) {
+        trBusy = false
+        if ((strlen preview) > 0) {
+            trPreview = preview
+        }
+        trInfo = info
+        trErr = err
+        if ((this.dragging()) == false) {
+            this.rebuild()
+        }
+    }
+
+    ; the slider's value of an option: whole numbers, or hundredths
+    fn trValue:int (opt:string scale:int) {
+        if (scale == 1) {
+            return (trSet.intOf(opt 0))
+        }
+        return (to_int (((trSet.numOf(opt 0.0)) * (to_double scale)) + 0.5))
+    }
+
+    fn trSlider:void (parent:EVGElement opt:string label:string lo:int hi:int st:int scale:int shown:string) {
+        def r:EVGElement (this.field(label))
+        this.slider(("tr-s-" + opt) label (this.trValue(opt scale)) lo hi st r)
+        def words:string shown
+        if ((strlen words) == 0) {
+            words = (trSet.get(opt ""))
+        }
+        r.addChild((this.text("ce-value" words)))
+        parent.addChild(r)
+    }
+
+    fn trTake:void (opt:string scale:int) {
+        def cur:int (this.trValue(opt scale))
+        def v:int (this.sliderValue(("tr-s-" + opt) cur))
+        if (v == cur) {
+            return
+        }
+        if (scale == 1) {
+            trSet.set(opt (to_string v))
+        } {
+            trSet.set(opt (to_string ((to_double v) / (to_double scale))))
+        }
+        trDirty = true
+        changed = true
+    }
+
+    sfn presetLabel:string (p:string) {
+        if (p == "logo") {
+            return (PresI18n.t("Logo"))
+        }
+        if (p == "poster") {
+            return (PresI18n.t("Poster"))
+        }
+        if (p == "photo") {
+            return (PresI18n.t("Photo"))
+        }
+        if (p == "lineart") {
+            return (PresI18n.t("Line art"))
+        }
+        return (PresI18n.t("Illustration"))
+    }
+
+    sfn presetDoc:string (p:string) {
+        if (p == "logo") {
+            return (PresI18n.t("A few flat colors and a dropped plain background: logos, icons, symbols."))
+        }
+        if (p == "poster") {
+            return (PresI18n.t("Twelve vivid colors, small colored details kept: posters, paintings, bold graphics."))
+        }
+        if (p == "photo") {
+            return (PresI18n.t("24 colors with the noise smoothed away: a photo becomes a drawing. Good for blurry or low-resolution backgrounds."))
+        }
+        if (p == "lineart") {
+            return (PresI18n.t("Black and white, the threshold found from the picture: drawings, signatures, scanned text."))
+        }
+        return (PresI18n.t("Eight colors: drawings, diagrams, clip art and screenshots."))
+    }
+
+    ; the picture shown: the trace (or the picture), at most 528 × 240
+    fn tracePreview:EVGElement () {
+        def bw:double 528.0
+        def bh:double 240.0
+        def k:double 1.0
+        if ((trW > 0.0) && (trH > 0.0)) {
+            k = (bw / trW)
+            if ((bh / trH) < k) {
+                k = (bh / trH)
+            }
+        }
+        def pw:double (trW * k)
+        def ph:double (trH * k)
+        def box:EVGElement (this.div("ce-trace-box"))
+        UiTree.inline(box "width" ((to_string (to_int bw)) + "px"))
+        UiTree.inline(box "height" ((to_string (to_int (ph + 0.5))) + "px"))
+        def im (EVGElement.createImg())
+        im.id = "tr-img"
+        im.className = "ce-trace-img"
+        im.src = trPreview
+        if ((trShow == "original") || ((strlen trPreview) == 0)) {
+            im.src = trOrig
+        }
+        im.objectFit = "fill"
+        im.sourceWidth = trW
+        im.sourceHeight = trH
+        UiTree.inline(im "width" ((to_string (to_int (pw + 0.5))) + "px"))
+        UiTree.inline(im "height" ((to_string (to_int (ph + 0.5))) + "px"))
+        box.addChild(im)
+        return box
+    }
+
+    fn traceBody:void (root:EVGElement) {
+        def pane:EVGElement (this.div("ce-pane"))
+        root.addChild(pane)
+        pane.addChild((this.tracePreview()))
+        def sr:EVGElement (this.div("ce-chips"))
+        this.chip("tr-show-traced" (PresI18n.t("Vectorized")) (trShow != "original") sr)
+        this.chip("tr-show-original" (PresI18n.t("Original")) (trShow == "original") sr)
+        pane.addChild(sr)
+        if trBusy {
+            pane.addChild((this.text("ce-doc" (PresI18n.t("Vectorizing…")))))
+        } {
+            if ((strlen trErr) > 0) {
+                pane.addChild((this.copyable("ce-t-trace" "ce-warn" trErr)))
+            } {
+                if ((strlen trInfo) > 0) {
+                    pane.addChild((this.copyable("ce-t-trace" "ce-ok" trInfo)))
+                }
+            }
+        }
+
+        def t0 (new TabsCtl())
+        tabs = t0
+        tabs.tid = "tr-tabs"
+        tabs.name = (PresI18n.t("Vectorize image"))
+        tabs.addItem("colors" (PresI18n.t("Colors")) "" false)
+        tabs.addItem("shapes" (PresI18n.t("Shapes")) "" false)
+        tabs.addItem("use" (PresI18n.t("Save")) "" false)
+        tabs.value = trTab
+        tabs.build()
+        UiTree.addClass((unwrap tabs.rootEl) "ce-tabs")
+        this.put(tabs pane)
+
+        if (trTab == "colors") {
+            def ps:EVGElement (this.section(pane (PresI18n.t("Starting point"))))
+            def pc:EVGElement (this.div("ce-chips"))
+            for (PresTraceSettings.presetNames()) p:string i {
+                this.chip(("tr-pre-" + p) (PresChartEditor.presetLabel(p)) (trSet.preset == p) pc)
+            }
+            ps.addChild(pc)
+            ps.addChild((this.text("ce-doc" (PresChartEditor.presetDoc(trSet.preset)))))
+            def cs:EVGElement (this.section(pane (PresI18n.t("Colors"))))
+            def n:int (trSet.intOf("colorCount" 8))
+            def nw:string (to_string n)
+            if (n <= 1) {
+                nw = (PresI18n.t("black and white"))
+            }
+            this.trSlider(cs "colorCount" (PresI18n.t("Colors")) 1 48 1 1 nw)
+            if (n <= 1) {
+                def th:int (trSet.intOf("threshold" 128))
+                def tw:string (to_string th)
+                if (th < 0) {
+                    tw = (PresI18n.t("automatic"))
+                }
+                this.trSlider(cs "threshold" (PresI18n.t("Threshold")) -1 255 1 1 tw)
+            }
+            def bgRow:EVGElement (this.field((PresI18n.t("Background"))))
+            def bc:EVGElement (this.div("ce-chips"))
+            def bgm:string (trSet.get("bgMode" "auto"))
+            this.chip("tr-bg-keep" (PresI18n.t("Keep")) (bgm == "none") bc)
+            this.chip("tr-bg-drop" (PresI18n.t("Remove")) (bgm != "none") bc)
+            bgRow.addChild(bc)
+            cs.addChild(bgRow)
+            def grRow:EVGElement (this.field((PresI18n.t("Fill"))))
+            def gc:EVGElement (this.div("ce-chips"))
+            def grad:boolean ((trSet.get("gradientFill" "false")) == "true")
+            this.chip("tr-grad-off" (PresI18n.t("Flat")) (grad == false) gc)
+            this.chip("tr-grad-on" (PresI18n.t("Gradients")) grad gc)
+            grRow.addChild(gc)
+            cs.addChild(grRow)
+        }
+        if (trTab == "shapes") {
+            def cl:EVGElement (this.section(pane (PresI18n.t("Clean-up"))))
+            this.trSlider(cl "turdsize" (PresI18n.t("Drop specks (px)")) 0 40 1 1 "")
+            this.trSlider(cl "minRegion" (PresI18n.t("Merge small areas (px)")) 0 400 2 1 "")
+            this.trSlider(cl "smooth" (PresI18n.t("Smooth noise")) 0 4 1 1 "")
+            def cu:EVGElement (this.section(pane (PresI18n.t("Curves"))))
+            this.trSlider(cu "alphamax" (PresI18n.t("Round corners")) 0 134 1 100 "")
+            this.trSlider(cu "opttolerance" (PresI18n.t("Simplify curves")) 0 200 5 100 "")
+            def de:EVGElement (this.section(pane (PresI18n.t("Detail"))))
+            this.trSlider(de "maxSide" (PresI18n.t("Traced at (px)")) 200 2000 100 1 "")
+            de.addChild((this.text("ce-doc" (PresI18n.t("The longer side the picture is traced at. More is finer and slower; the SVG is drawn at the picture's own size either way.")))))
+        }
+        if (trTab == "use") {
+            def us:EVGElement (this.section(pane (PresI18n.t("Save"))))
+            def uc:EVGElement (this.div("ce-chips"))
+            this.chip("tr-rep-on" ((PresI18n.t("Use it where the picture is used")) + " (" + (to_string trUses) + ")") trReplace uc)
+            this.chip("tr-rep-off" (PresI18n.t("Only add it to the files")) (trReplace == false) uc)
+            us.addChild(uc)
+            def base:string trFile
+            def dot:int (lastIndexOf base ".")
+            if (dot > 0) {
+                base = (substring base 0 dot)
+            }
+            us.addChild((this.text("ce-doc" ((PresI18n.t("Saved as ")) + base + ".svg. " + (PresI18n.t("The original stays in the files, so Ctrl+Z or the picture's name brings it back."))))))
+        }
+
+        def bottom:EVGElement (this.div("ce-foot"))
+        this.button("tr-cancel" (PresI18n.t("Cancel")) "outline" bottom)
+        this.button("tr-reset" (PresI18n.t("Reset")) "ghost" bottom)
+        bottom.addChild((this.div("ce-grow")))
+        this.button("tr-save" (PresI18n.t("Save as SVG")) "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    fn traceChanged:void () {
+        trDirty = true
+        changed = true
+        this.rebuild()
+    }
+
+    fn traceAct:boolean (tid:string) {
+        if ((indexOf tid "tr-pre-") == 0) {
+            trSet.usePreset((substring tid 7 (strlen tid)))
+            this.traceChanged()
+            return true
+        }
+        if (tid == "tr-show-traced") {
+            trShow = "traced"
+            this.rebuild()
+            return true
+        }
+        if (tid == "tr-show-original") {
+            trShow = "original"
+            this.rebuild()
+            return true
+        }
+        if (tid == "tr-bg-keep") {
+            trSet.set("bgMode" "none")
+            this.traceChanged()
+            return true
+        }
+        if (tid == "tr-bg-drop") {
+            trSet.set("bgMode" "auto")
+            this.traceChanged()
+            return true
+        }
+        if (tid == "tr-grad-off") {
+            trSet.set("gradientFill" "false")
+            this.traceChanged()
+            return true
+        }
+        if (tid == "tr-grad-on") {
+            trSet.set("gradientFill" "true")
+            this.traceChanged()
+            return true
+        }
+        if (tid == "tr-rep-on") {
+            trReplace = true
+            this.rebuild()
+            return true
+        }
+        if (tid == "tr-rep-off") {
+            trReplace = false
+            this.rebuild()
+            return true
+        }
+        if (tid == "tr-reset") {
+            trSet.usePreset(trSet.preset)
+            this.traceChanged()
+            return true
+        }
+        if (tid == "tr-cancel") {
+            wantsClose = true
+            return true
+        }
+        if (tid == "tr-save") {
+            wantsTraceSave = true
             wantsClose = true
             return true
         }
@@ -1234,12 +1594,16 @@ class PresChartEditor {
         tabs.addItem("deck" (PresI18n.t("Presentation")) "" false)
         tabs.addItem("header" (PresI18n.t("Header")) "" false)
         tabs.addItem("footer" (PresI18n.t("Footer")) "" false)
+        tabs.addItem("bg" (PresI18n.t("Background")) "" false)
         tabs.value = dsTab
         tabs.build()
         UiTree.addClass((unwrap tabs.rootEl) "ce-tabs")
         this.put(tabs root)
 
         def pane:EVGElement (this.div("ce-pane"))
+        if (dsTab == "bg") {
+            this.docSetBg(pane)
+        }
         if (dsTab == "deck") {
             def sec:EVGElement (this.section(pane (PresI18n.t("Presentation"))))
             def nr:EVGElement (this.field((PresI18n.t("Title"))))
@@ -1263,7 +1627,9 @@ class PresChartEditor {
             sec2.addChild((this.text("ce-doc" (PresI18n.t("For every slide; a slide's own heading can say otherwise: ## Title {transition=zoom}.")))))
             sec2.addChild((this.text("ce-doc" (PresI18n.t("One slide without it: {header=off} or {footer=off} on its heading.")))))
         } {
-            this.edgePane(pane (this.dsEdge()))
+            if (dsTab != "bg") {
+                this.edgePane(pane (this.dsEdge()))
+            }
         }
         root.addChild(pane)
 
@@ -1358,7 +1724,71 @@ class PresChartEditor {
         lk.addChild(zr)
     }
 
+    ; The Background tab: every slide's picture, from the deck's pictures,
+    ; edited or vectorized where it is.
+    fn docSetBg:void (pane:EVGElement) {
+        def sec:EVGElement (this.section(pane (PresI18n.t("Background image"))))
+        if ((array_length dsPics) == 0) {
+            sec.addChild((this.text("ce-doc" (PresI18n.t("Add a picture to the presentation first (paste it, or drop it on the Files tab), then pick it here.")))))
+        } {
+            def pc:EVGElement (this.div("ce-chips"))
+            this.chip("ds-bg-none" (PresI18n.t("None")) ((strlen dsBg) == 0) pc)
+            def p:int 0
+            while (p < (array_length dsPics)) {
+                def path:string (itemAt dsPics p)
+                this.chip(("ds-bg-" + (to_string p)) (PresChartEditor.fileName(path)) (path == dsBg) pc)
+                p = (p + 1)
+            }
+            sec.addChild(pc)
+        }
+        if ((strlen dsBg) > 0) {
+            def er:EVGElement (this.div("ce-row"))
+            def low:string (to_lowercase dsBg)
+            def vector:boolean ((endsWith low ".svg") || (endsWith low ".svgz"))
+            if (vector == false) {
+                this.button("ds-bg-edit" (PresI18n.t("Edit image…")) "outline" er)
+                this.button("ds-bg-trace" (PresI18n.t("Vectorize…")) "outline" er)
+            }
+            sec.addChild(er)
+            if vector {
+                sec.addChild((this.text("ce-doc" (PresI18n.t("A vector picture: sharp at any size.")))))
+            } {
+                sec.addChild((this.text("ce-doc" (PresI18n.t("Vectorize… turns a blurry or small picture into an SVG that stays sharp on any screen.")))))
+            }
+        }
+        sec.addChild((this.text("ce-doc" (PresI18n.t("Behind every slide: background-image in the theme's page rule. A slide's own bg= in its heading goes over it.")))))
+    }
+
     fn docSetAct:boolean (tid:string) {
+        if (tid == "ds-bg-none") {
+            dsBg = ""
+            dsBgAct = "none"
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if (tid == "ds-bg-edit") {
+            dsBgAct = "edit"
+            changed = true
+            wantsClose = true
+            return true
+        }
+        if (tid == "ds-bg-trace") {
+            dsBgAct = "trace"
+            changed = true
+            wantsClose = true
+            return true
+        }
+        if ((indexOf tid "ds-bg-") == 0) {
+            def bp:int (?? (str2int (substring tid 6 (strlen tid))) -1)
+            if ((bp >= 0) && (bp < (array_length dsPics))) {
+                dsBg = (itemAt dsPics bp)
+                dsBgAct = ("set:" + dsBg)
+                changed = true
+            }
+            this.rebuild()
+            return true
+        }
         def e:int (this.dsEdge())
         if (tid == "ds-done") {
             wantsClose = true
@@ -1580,6 +2010,12 @@ class PresChartEditor {
         }
         if (tid == "pe-add") {
             wantsPlace = true
+            wantsClose = true
+            return true
+        }
+        if (tid == "pe-add-trace") {
+            wantsPlace = true
+            pasteTrace = true
             wantsClose = true
             return true
         }
@@ -2519,6 +2955,9 @@ class PresChartEditor {
         if ((indexOf tid "ae-s-") == 0) {
             return true
         }
+        if ((indexOf tid "tr-s-") == 0) {
+            return true
+        }
         if (tid == "ds-size") {
             return true
         }
@@ -2601,6 +3040,16 @@ class PresChartEditor {
             sliding = true
             this.takeSliders()
             rev = (rev + 1)
+            return
+        }
+        if ((mode == "trace") && (ctlTid == tabs.tid)) {
+            host.click(tid)
+            keep.restore()
+            if (tabs.value != trTab) {
+                trTab = tabs.value
+                focusTid = ""
+                this.rebuild()
+            }
             return
         }
         if ((mode == "docset") && (ctlTid == tabs.tid)) {
@@ -2755,6 +3204,17 @@ class PresChartEditor {
             }
             return
         }
+        if (mode == "trace") {
+            this.trTake("colorCount" 1)
+            this.trTake("threshold" 1)
+            this.trTake("turdsize" 1)
+            this.trTake("minRegion" 1)
+            this.trTake("smooth" 1)
+            this.trTake("alphamax" 100)
+            this.trTake("opttolerance" 100)
+            this.trTake("maxSide" 1)
+            return
+        }
         if (mode == "adjust") {
             def b:int (this.sliderValue("ae-s-bright" adjBright))
             def c:int (this.sliderValue("ae-s-contrast" adjContrast))
@@ -2889,6 +3349,9 @@ class PresChartEditor {
             return
         }
         if ((mode == "adjust") && (this.adjustAct(tid))) {
+            return
+        }
+        if ((mode == "trace") && (this.traceAct(tid))) {
             return
         }
         if ((mode == "newdeck") && (this.newDeckAct(tid))) {

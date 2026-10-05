@@ -15,6 +15,7 @@ Import "PresPick.rgr"
 Import "PresNav.rgr"
 Import "PresDocx.rgr"
 Import "PresHtml.rgr"
+Import "PresTrace.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -472,6 +473,70 @@ class PresCheck {
         this.diagramLookHint()
         this.steering()
         this.diagramColour()
+        this.diagramLabels()
+    }
+
+    ; Line names on a crowded ER diagram (a box with a line to itself and
+    ; five out of one side, two boxes each joined to two others): every name
+    ; is drawn, on no other name, with no other line through it, and the
+    ; line to itself does not pass through its own box. A flowchart with a
+    ; loop among three lines out of one box: every name drawn, none on
+    ; another.
+    fn diagramLabels:void () {
+        this.ok((PresDiagram.segInRect(0.0 5.0 10.0 5.0 2.0 2.0 4.0 4.0)) "a segment across a box meets it")
+        this.ok(((PresDiagram.segInRect(0.0 9.0 10.0 9.0 2.0 2.0 4.0 4.0)) == false) "a segment below a box misses it")
+        this.ok((PresDiagram.segInRect(4.0 0.0 4.0 20.0 2.0 2.0 4.0 4.0)) "an upright segment through a box meets it")
+        def er:string ("erDiagram\n  CONTAINER ||--o{ CONTAINER : parent\n  CONTAINER ||--o{ DECK_LINK : sisaltaa\n"
+            + "  DECK ||--o{ DECK_LINK : kuuluu\n  CONTAINER ||--o{ FILE_REF : files\n  DECK ||--o{ FILE_REF : files\n"
+            + "  FILE_REF }o--|| BLOB : osoittaa\n  CONTAINER ||--o{ LINK : viittaa\n  CONTAINER ||--o| EXT_REF : master\n")
+        this.labelsClear(er "er" true)
+        def fl:string ("flowchart LR\n  A[Request] -->|valid| B[Process]\n  A -->|invalid| C[Reject]\n  B -->|ok| D[Store]\n"
+            + "  B -->|retry| B\n  D -->|notify| E[Mail]\n  C -->|log| E\n  B -->|error| C\n")
+        ; set in a column on this slide, the loop's name has no stretch
+        ; clear of the line passing it: names apart is what holds there
+        this.labelsClear(fl "flowchart" false)
+    }
+
+    fn labelsClear:void (src:string what:string lines:boolean) {
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Malli\n\n```mermaid\n" + src + "```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false (what + " labels: the diagram is there"))
+            return
+        }
+        def d:PresDiagram (itemAt s.diagrams 0).diagram
+        def fin:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def named:int 0
+        def i:int 0
+        while (i < (array_length d.edges)) {
+            def e:PresDEdge (itemAt d.edges i)
+            if (e.lw > 0.0) {
+                named = (named + 1)
+                def j:int 0
+                while (j < (array_length d.edges)) {
+                    def o:PresDEdge (itemAt d.edges j)
+                    if (j != i) {
+                        if ((o.lw > 0.0) && ((((e.lx < (o.lx + o.lw)) && ((e.lx + e.lw) > o.lx)) && (e.ly < (o.ly + o.lh))) && ((e.ly + e.lh) > o.ly))) {
+                            this.ok(false (what + " labels: " + e.id + " lies on " + o.id))
+                        }
+                        if (lines && (PresDiagram.lineInRect(o.line e.lx e.ly e.lw e.lh))) {
+                            this.ok(false (what + " labels: the line " + o.id + " (" + (itemAt (PresDiagram.labelLines(o)) 0) + ") runs through the name of " + e.id + " " + (itemAt (PresDiagram.labelLines(e)) 0) + " (tier " + (to_string e.pTier) + " at " + (to_string e.lx) + "," + (to_string e.ly) + " " + (to_string e.lw) + "x" + (to_string e.lh) + ")"))
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            if (e.from == e.to) {
+                def n:PresDNode (itemAt d.nodes e.from)
+                ; its own box, a little in from the edges the line leaves by
+                this.ok(((PresDiagram.lineInRect(e.line (n.x + 4.0) (n.y + 4.0) (n.w - 8.0) (n.h - 8.0))) == false) (what + " labels: the line from " + n.id + " to itself goes round it, not through it"))
+            }
+            i = (i + 1)
+        }
+        this.ok((named >= 7) (what + " labels: every line's name is drawn, got " + (to_string named)))
     }
 
     ; `diagram { color }` is the warm light: without a tour it colours the
@@ -2148,6 +2213,72 @@ class PresCheck {
         this.ok((breaks == 2) ("docx: a break before slides 2 and 3, got " + (to_string breaks)))
     }
 
+    ; --- the vectorizer (PresTrace, PresTraceSettings) -----------------------
+    fn traceChecks:void () {
+        def st (new PresTraceSettings())
+        this.ok(((st.get("colorCount" "")) == "8") "trace: the default preset is illustration, 8 colours")
+        st.usePreset("photo")
+        st.set("colorCount" "30")
+        this.ok(((st.intOf("colorCount" 0)) == 30) "trace: a set option wins over the preset")
+        this.ok(((st.intOf("smooth" 0)) == 2) "trace: …the rest come from the preset")
+        def back:PresTraceSettings (PresTraceSettings.parse((st.text())))
+        this.ok((back.preset == "photo") "trace: the text keeps the preset")
+        this.ok(((back.intOf("colorCount" 0)) == 30) "trace: …and what was set")
+        st.set("colorCount" "")
+        this.ok(((st.intOf("colorCount" 0)) == 24) "trace: an empty value takes the option off")
+        def semi:PresTraceSettings (PresTraceSettings.parse("preset=logo;turdsize=3"))
+        this.ok(((semi.intOf("turdsize" 0)) == 3) "trace: ; separates options too")
+        this.ok(((PresTrace.unknown((PresTraceSettings.parse("colorcount=4")))) == "colorcount") "trace: a misspelt option is named")
+
+        ; references
+        def md:string "![a](media/x.png) and ![b](/media/x.png) not media/x.png.bak nor amedia/x.png"
+        def sw:string (PresTraceRefs.swapRef(md "media/x.png" "media/x.svg"))
+        this.ok((sw == "![a](media/x.svg) and ![b](/media/x.svg) not media/x.png.bak nor amedia/x.png") ("trace: swapRef, got " + sw))
+        def css:string "page { background-image: url(\"media/x.png\"); }"
+        this.ok(((PresTraceRefs.swapRef(css "/media/x.png" "media/x.svg")) == "page { background-image: url(\"media/x.svg\"); }") "trace: swapRef in CSS")
+        this.ok(((PresTraceRefs.countRefs(md "media/x.png")) == 2) "trace: countRefs")
+
+        ; a picture: white, a red block, a black block
+        def w:int 60
+        def h:int 40
+        def px:buffer (buffer_alloc (w * h * 4))
+        def y:int 0
+        while (y < h) {
+            def x:int 0
+            while (x < w) {
+                def o:int (((y * w) + x) * 4)
+                def r:int 255
+                def g:int 255
+                def b:int 255
+                if ((((x >= 6) && (x < 26)) && (y >= 8)) && (y < 32)) {
+                    g = 0
+                    b = 0
+                }
+                if ((((x >= 34) && (x < 54)) && (y >= 8)) && (y < 32)) {
+                    r = 0
+                    g = 0
+                    b = 0
+                }
+                buffer_set px o r
+                buffer_set px (o + 1) g
+                buffer_set px (o + 2) b
+                buffer_set px (o + 3) 255
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        def res:PresTraceResult (PresTrace.traceRgba(px w h "preset=logo\ncolorCount=3"))
+        this.ok(((strlen res.err) == 0) ("trace: traced without an error: " + res.err))
+        this.ok((startsWith res.svg "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"60\" height=\"40\" viewBox=\"0 0 60 40\"") ("trace: the svg is the picture's size: " + (substring res.svg 0 90)))
+        this.ok((res.layers >= 2) ("trace: a layer per colour, got " + (to_string res.layers) + " " + res.colors))
+        this.ok(((indexOf (to_lowercase res.colors) "#000000") >= 0) ("trace: the black block is a layer: " + res.colors))
+        def scaled:PresTraceResult (PresTrace.traceRgba(px w h "preset=logo\nmaxSide=30"))
+        this.ok(((scaled.tracedW == 30) && (scaled.tracedH == 20)) ("trace: maxSide scales it down, got " + (to_string scaled.tracedW) + "x" + (to_string scaled.tracedH)))
+        this.ok(((indexOf scaled.svg "width=\"60\" height=\"40\" viewBox=\"0 0 30 20\"") > 0) "trace: …and draws it at the picture's size")
+        def bad:PresTraceResult (PresTrace.traceBytes((buffer_alloc 10) ""))
+        this.ok(((strlen bad.err) > 0) "trace: bytes that are no picture say so")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -2171,6 +2302,7 @@ class PresCheck {
         c.navJumps()
         c.docx()
         c.htmlPage()
+        c.traceChecks()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

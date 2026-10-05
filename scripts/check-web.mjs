@@ -1008,6 +1008,16 @@ try {
     check("…Ctrl+click again lets one go; the bar's Export offers the picked", picked.list === "1,2,4" && picked.bar === 3 && picked.keys === "yksi,kaksi,neljä", JSON.stringify({ list: picked.list, bar: picked.bar, keys: picked.keys }));
     check("…the PDF and the PPTX of the picked slides have only them", picked.pdfPages === 3 && pptxNames.length === 3, JSON.stringify({ pdf: picked.pdfPages, pptx: pptxNames }));
     check("…their view keeps only their sections", picked.view.includes("## Yksi") && picked.view.includes("## Kaksi") && picked.view.includes("## Neljä") && !picked.view.includes("## Kolme"), picked.view);
+    // the right button on a picked slide opens its menu and keeps the pick
+    {
+      const at = await page.evaluate(() => { const a = window.__app; a.place(); const c = document.getElementById("c").getBoundingClientRect(); return [c.left + a.thumbX(3) + 30, c.top + a.thumbY() + 30]; });
+      await page.mouse.click(at[0], at[1], { button: "right" });
+      await page.waitForTimeout(150);
+      const kept = await page.evaluate(() => ({ list: window.__app.pickList(), menu: window.__app.toolbar.ctxOpen }));
+      await page.keyboard.press("Escape");
+      await page.evaluate(() => { window.__app.toolbar.closeMenus(); });
+      check("…a right click on a picked slide opens its menu and keeps the pick", kept.list === "1,2,4" && kept.menu, JSON.stringify(kept));
+    }
     await page.evaluate(() => { window.__lastShareView = ""; document.getElementById("share").click(); });
     await page.waitForFunction(() => !!window.__lastShareView, null, { timeout: 5000 }).catch(() => {});
     const viewUrl = await page.evaluate(() => window.__lastShareView || "");
@@ -1333,6 +1343,68 @@ try {
   check("…the slide shows the change while the sliders move", ed.live && ed.live.join() !== ed.before.join(), JSON.stringify({ before: ed.before, live: ed.live }));
   check("…and the window says how the slide's text reads over it", /^Slide \d+: /.test(ed.note || ""), JSON.stringify(ed.note));
   check("…and Save writes the adjusted picture over the file", ed.closed && grey && ed.after[0] < ed.before[0], JSON.stringify({ before: ed.before, after: ed.after, plan: ed.plan }));
+
+  // Edit image → Vectorize…: the picture traced in the worker (pres_trace.js),
+  // the slides showing the trace, a preset tracing it again, and Save keeping
+  // an SVG beside it that the Markdown then uses.
+  const vec = await page.evaluate(async (rel) => {
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+    const a = window.__app;
+    a.openAdjust("/" + rel, rel, 64, 40);
+    a.chart.act("ae-trace");
+    a.closeChart();
+    window.__handleRequests();
+    for (let i = 0; i < 50 && a.chart.mode !== "trace"; i += 1) { await sleep(100); window.__handleRequests(); }
+    let first = "";
+    for (let i = 0; i < 150 && !first; i += 1) { await sleep(100); window.__handleRequests(); first = a.chart.trPreview || a.chart.trErr; }
+    const win = JSON.parse(a.chartJson());
+    const shown = win.list.cmds.some((c) => c.k === 2 && c.src === a.chart.trPreview);
+    const onSlide = window.__pictureTag("/" + rel);
+    a.chart.act("tr-pre-photo");
+    a.writeChart();
+    window.__handleRequests();
+    let again = first;
+    for (let i = 0; i < 150 && again === first; i += 1) { await sleep(100); window.__handleRequests(); again = a.chart.trPreview || a.chart.trErr; }
+    const info = a.chart.trInfo;
+    const err = a.chart.trErr;
+    a.chart.act("tr-save");
+    a.closeChart();
+    window.__handleRequests();
+    const svg = rel.replace(/\.png$/, ".svg");
+    let files = [];
+    for (let i = 0; i < 150; i += 1) {
+      await sleep(100);
+      window.__handleRequests();
+      files = await window.__docFiles();
+      if (files.includes(svg) && a.source().includes("](" + svg + ")")) break;
+    }
+    return { mode: a.chart.mode, first, again, shown, onSlide, info, err, kept: files.includes(svg), md: a.source().includes("](" + svg + ")"), closed: !a.chartIsOpen() };
+  }, pic.rel);
+  check("Vectorize… traces the picture in the worker and shows it", vec.shown && /^\/__trace\//.test(vec.first) && !vec.err, JSON.stringify(vec));
+  check("…the slides show the trace while the window is open", vec.onSlide === "CANVAS", vec.onSlide);
+  check("…a preset traces it again", vec.again !== vec.first && /colors/.test(vec.info || ""), JSON.stringify({ first: vec.first, again: vec.again, info: vec.info }));
+  check("…and Save keeps the SVG and the Markdown uses it", vec.closed && vec.kept && vec.md, JSON.stringify(vec));
+
+  // a picture under the caret in the theme (url(…)): its card offers the
+  // image editor and the vectorizer
+  const picHint = await page.evaluate(() => {
+    const a = window.__app;
+    a.cssSet("page", "background-image", "url(media/bg.png)");
+    a.showTab("css");
+    const lines = a.themeCss().split("\n");
+    const ln = lines.findIndex((l) => l.includes("url(media/bg.png)"));
+    a.cssEditor.moveCaret(ln, lines[ln].indexOf("url(") + 6, false);
+    const h = JSON.parse(a.hintAtCaret() || "null");
+    a.openHint(JSON.stringify(h));
+    a.hintJson();
+    const walk = (e, f, out = []) => { if (f(e)) out.push(e); for (const k of e.children || []) walk(k, f, out); return out; };
+    const ids = walk(a.hint.host.lastPage, (e) => /^hp-pic-/.test(e.id || "")).map((e) => e.id);
+    a.closeHint();
+    a.undo();
+    a.showTab("md");
+    return { picture: h && h.picture, ids };
+  });
+  check("a picture's url() in the theme offers Edit image and Vectorize", picHint.picture === "media/bg.png" && picHint.ids.includes("hp-pic-edit") && picHint.ids.includes("hp-pic-trace"), JSON.stringify(picHint));
 
   // TeX math: $…$ in a line and a $$ display are drawn as filled outlines
   const math = await page.evaluate(() => {

@@ -22,6 +22,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/terotests/sliqtly/mcp-go/store"
 )
 
 // the package's version (packaging/build-deb.sh sets it); "dev" elsewhere
@@ -36,6 +38,7 @@ func env(name, def string) string {
 
 func main() {
 	start := time.Now()
+	store.Build = version
 	data := flag.String("data", env("SLIQTLY_DATA", ""), "keep decks in this folder (SLIQTLY_DATA)")
 	port := flag.String("port", env("PORT", "8080"), "port to listen on (PORT)")
 	base := flag.String("url", env("SLIQTLY_URL", ""), "the address people and links use, e.g. https://sliqtly.example.com (SLIQTLY_URL)")

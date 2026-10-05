@@ -23,7 +23,6 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -499,36 +498,6 @@ func (s *localServer) fileAPI(r *http.Request, name string) (any, error) {
 	return nil, fail(405, "", "method not allowed")
 }
 
-// --- the folder's files, removed
-
-func (b *fsBucket) Remove(path string) error {
-	p, err := b.file(path)
-	if err != nil {
-		return err
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	for _, f := range []string{p, p + ".type"} {
-		if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-	}
-	return nil
-}
-
-func (b *fsBucket) RemoveAll(path string) error {
-	p, err := b.file(path)
-	if err != nil {
-		return err
-	}
-	if filepath.Clean(p) == filepath.Clean(b.root) {
-		return errors.New("refusing to remove the whole folder")
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return os.RemoveAll(p)
-}
-
 // what has expired goes, as Firestore's TTL policies do there: at start and
 // then every hour until ctx ends. An expired deck's files go with it.
 func (s *localServer) sweepExpired(ctx context.Context) {
@@ -563,6 +532,13 @@ func (s *localServer) sweepOnce(t time.Time) {
 			}
 			shareMu.Unlock()
 		}
+	}
+	// the bytes of files nothing names any more (removed, replaced, or of
+	// a deck that went)
+	if n, err := s.bucket.collectBlobs(context.Background(), t); err != nil {
+		log.Printf("unused files: %v", err)
+	} else if n > 0 {
+		log.Printf("removed %d unused files", n)
 	}
 }
 
