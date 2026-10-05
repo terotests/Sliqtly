@@ -51,6 +51,8 @@ class PresPanels {
     def css:string ""
     ; The editor's skin ("" or "retro"): a theme name added to this host's own.
     def skin:string ""
+    ; the standard skin's colours as chosen: "light", "dark" or "system"
+    def lookMode:string "system"
     ; ...and its base colour, as a hue (`--retro-hue`).
     def skinHue:double 88.0
     def w:double 1200.0
@@ -1716,9 +1718,17 @@ class PresPanels {
         lk.addChild((this.words("pn-otitle" (PresI18n.t("Look")))))
         lk.addChild((this.words("pn-odesc" (PresI18n.t("How the editor around the slides looks. Your slides and their themes stay as they are.")))))
         def lr:EVGElement (this.div("pn-orow"))
-        this.button("pn-set-skin-light" (PresI18n.t("Standard")) (? (skin == "") "primary" "secondary") lr)
+        this.button("pn-set-skin-light" (PresI18n.t("Standard")) (? (skin != "retro") "primary" "secondary") lr)
         this.button("pn-set-skin-retro" (PresI18n.t("Retro")) (? (skin == "retro") "primary" "secondary") lr)
         lk.addChild(lr)
+        if (skin != "retro") {
+            ; the standard skin in light or dark, or as the device is set
+            def mr:EVGElement (this.div("pn-orow"))
+            this.button("pn-set-mode-system" (PresI18n.t("Automatic")) (? (lookMode == "system") "primary" "secondary") mr)
+            this.button("pn-set-mode-light" (PresI18n.t("Light mode")) (? (lookMode == "light") "primary" "secondary") mr)
+            this.button("pn-set-mode-dark" (PresI18n.t("Dark mode")) (? (lookMode == "dark") "primary" "secondary") mr)
+            lk.addChild(mr)
+        }
         if (skin == "retro") {
             ; the skin's base colour: one hue every shade of it follows
             def hr:EVGElement (this.div("pn-orow"))
@@ -2347,6 +2357,10 @@ class PresPanels {
             }
             if ((indexOf sc "pn-set-hue-") == 0) {
                 push requests ("setting:skinhue:" + (substring sc 11 (strlen sc)))
+                return
+            }
+            if ((indexOf sc "pn-set-mode-") == 0) {
+                push requests ("setting:mode:" + (substring sc 12 (strlen sc)))
                 return
             }
             if ((sc == "pn-set-skin-light") || (sc == "pn-set-skin-retro")) {

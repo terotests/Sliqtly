@@ -192,6 +192,39 @@ try {
     check("the standard look comes back as it was", r.back);
   }
 
+  // The dark look (File → Settings → Look, the bar's 🌙): derived from the
+  // light sheets, it reads cleanly, changes the chrome, follows the device
+  // under "system", stays out of the retro skin, and the light look comes
+  // back exactly.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app;
+      const k = window.__skin;
+      k.set("");
+      k.mode("light");
+      const light = a.toolbarJson();
+      k.mode("dark");
+      const dark = a.toolbarJson();
+      const errs = a.chromeCssErrors();
+      const attr = document.documentElement.dataset.mode;
+      k.set("retro");
+      const retroDark = a.toolbarJson();
+      k.mode("light");
+      const retroLight = a.toolbarJson();
+      k.set("");
+      const back = a.toolbarJson();
+      k.mode("system");
+      const sys = a.toolbarJson();
+      const deviceDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      k.mode("light");
+      return { errs, changed: dark !== light, attr, retro: retroDark === retroLight, back: back === light, sys: sys === (deviceDark ? dark : light) };
+    });
+    check("the dark look's sheets read without errors", r.errs === "", r.errs);
+    check("the dark look changes the bar, and the page around it", r.changed && r.attr === "dark", JSON.stringify(r));
+    check("…the retro skin is the same in either", r.retro);
+    check("…the light look comes back as it was, and system follows the device", r.back && r.sys, JSON.stringify(r));
+  }
+
   // A window carried by its title bar keeps the skin: the handle is not
   // painted chart-editor.css's white while dragging.
   {

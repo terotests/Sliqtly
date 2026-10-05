@@ -13,6 +13,12 @@
   :root {
     --bg: #f4f4f5; --bar: #ffffff; --line: #e4e4e7; --ink: #09090b; --dim: #71717a; --accent: #18181b;
   }
+  /* the dark look (File → Settings → Look, the bar's 🌙): main.js sets
+     data-mode before the canvas paints, so the page around it matches */
+  :root[data-mode="dark"] {
+    color-scheme: dark;
+    --bg: #262628; --bar: #1c1c1e; --line: #2f2f32; --ink: #fafafa; --dim: #a1a1aa; --accent: #fafafa;
+  }
   html, body {
     margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--ink);
     font: 13px/1.4 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -322,6 +328,7 @@
   <button id="history" hidden>Version history</button>
   <button id="aiClaude" hidden>Claude</button>
   <button id="helpBtn" title="What the selected slide contains and which theme CSS rules change it" data-i18n-title data-i18n>? Help</button>
+  <button id="modeBtn" data-canvas="ghost" title="Dark or light editor" data-i18n-title>🌙</button>
   <button id="pro" data-canvas="accent" title="Sign in with Google" data-i18n-title><span data-i18n>Sign in</span></button>
   <select id="lang" aria-label="Language" data-i18n-aria></select>
   <span class="grow"></span>

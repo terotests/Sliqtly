@@ -68,6 +68,9 @@ export function build({ ranger } = {}) {
   // controls, ours for the rest of the chrome
   copy(path.join(ranger, "gallery/evgui/theme/skins/retro.css"), path.join(distDir, "skins/ui-retro.css"));
   copy(path.join(webDir, "skins/retro.css"), path.join(distDir, "skins/retro.css"));
+  // the dark look's hand-set colours (the rest is derived, see main.js)
+  copy(path.join(ranger, "gallery/evgui/theme/skins/dark.css"), path.join(distDir, "skins/ui-dark.css"));
+  copy(path.join(webDir, "skins/dark.css"), path.join(distDir, "skins/dark.css"));
   copy(path.join(root, "brand/sliqtly-icon.svg"), path.join(distDir, "favicon.svg"));
   copy(path.join(ranger, "lib/evg/gl/evg-webgl.js"), path.join(distDir, "gl/evg-webgl.js"));
   copy(path.join(ranger, "lib/evg/gl/evg-a11y.js"), path.join(distDir, "gl/evg-a11y.js"));

@@ -1637,45 +1637,113 @@ async function takeCloudReview(s) {
 // base colour as a hue (its sheets' --retro-hue), per browser.
 let skin = "";
 let skinHue = 88;
+// The standard skin's colours: "light", "dark" or "system" (the device's
+// setting, followed as it changes), per browser. The slides keep their
+// own theme in both.
+let mode = "system";
 try {
   skin = localStorage.getItem("sliqtly.skin") === "retro" ? "retro" : "";
   const h = parseInt(localStorage.getItem("sliqtly.skinHue") || "", 10);
   if (h >= 0 && h < 360) skinHue = h;
+  const m = localStorage.getItem("sliqtly.mode");
+  if (m === "light" || m === "dark") mode = m;
 } catch (_) { /* standard */ }
+const darkQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+function isDark() {
+  return mode === "dark" || (mode === "system" && !!(darkQuery && darkQuery.matches));
+}
+// the theme name every chrome host is applied with: "", "dark" or "retro"
+function lookTheme() {
+  if (skin === "retro") return "retro";
+  return isDark() ? "dark" : "";
+}
 // Every chrome sheet without the skins, as loaded (start), and the skins'
 // own text: the skins go after each sheet with the chosen hue at the end.
 const chromeSheets = { files: "", chrome: null, chart: null, hint: null, panels: null, toolbar: null };
-function skinCss() {
-  return chromeSheets.files ? chromeSheets.files + "\n@vars retro { --retro-hue: " + skinHue + "; }\n" : "";
+// The dark look of a sheet is derived from it (EVGUI's UiDark, through
+// PresApp.darkCss): every colour it sets, scoped to .theme-dark and mapped so
+// each contrast stays what it was. Worked out once per sheet and host theme,
+// and only while the dark look is on.
+const darkOverlays = new Map();
+function darkOverlay(base, theme) {
+  if (lookTheme() !== "dark" || !base) return "";
+  const key = theme + "\n" + base;
+  let o = darkOverlays.get(key);
+  if (o == null) {
+    o = PresApp.darkCss(base, theme);
+    darkOverlays.set(key, o);
+  }
+  return o;
+}
+// What goes after a host's sheet: its dark overlay (dark look only), then
+// the skins (retro, and the dark look's hand-set colours), then the hue.
+function skinCss(base, theme) {
+  if (!chromeSheets.files) return "";
+  return "\n" + darkOverlay(base, theme) + chromeSheets.files + "\n@vars retro { --retro-hue: " + skinHue + "; }\n";
 }
 function sendChromeCss() {
-  const sk = skinCss();
   const c = chromeSheets;
-  if (c.chart != null) app.setChartCss(c.chart + sk);
-  if (c.hint != null) app.setHintCss(c.hint + sk);
-  if (c.panels != null) app.setPanelsCss(c.panels + sk);
-  if (c.toolbar != null) app.setToolbarCss(c.toolbar + sk);
+  if (c.chart != null) app.setChartCss(c.chart + skinCss(c.chart, "ce"));
+  if (c.hint != null) app.setHintCss(c.hint + skinCss(c.hint, "hp"));
+  if (c.panels != null) app.setPanelsCss(c.panels + skinCss(c.panels, "pn"));
+  if (c.toolbar != null) app.setToolbarCss(c.toolbar + skinCss(c.toolbar, "tb"));
+}
+function sendAllChromeCss() {
+  if (chromeSheets.chrome != null) app.setChromeCss(chromeSheets.chrome + skinCss(chromeSheets.chrome, ""));
+  sendChromeCss();
 }
 function setSkinHue(h) {
   if (!(h >= 0 && h < 360)) return;
   skinHue = h;
   try { localStorage.setItem("sliqtly.skinHue", String(h)); } catch (_) { /* this session only */ }
-  app.setChromeCss(chromeSheets.chrome + skinCss());
-  sendChromeCss();
+  sendAllChromeCss();
+  applySkin();
+  needsPaint = true;
+}
+// the sheets carry the dark overlay only under the dark look: sent again
+// when a change turns it on or off
+function relook(change) {
+  const before = lookTheme();
+  change();
+  if (lookTheme() !== before && chromeSheets.chrome != null) sendAllChromeCss();
   applySkin();
   needsPaint = true;
 }
 function setSkinName(name) {
-  skin = name === "retro" ? "retro" : "";
-  try { localStorage.setItem("sliqtly.skin", skin || "standard"); } catch (_) { /* this session only */ }
-  applySkin();
-  needsPaint = true;
+  relook(() => {
+    skin = name === "retro" ? "retro" : "";
+    try { localStorage.setItem("sliqtly.skin", skin || "standard"); } catch (_) { /* this session only */ }
+  });
 }
-window.__skin = { set: setSkinName, hue: setSkinHue };
+function setMode(m) {
+  relook(() => {
+    mode = m === "light" || m === "dark" ? m : "system";
+    try { localStorage.setItem("sliqtly.mode", mode); } catch (_) { /* this session only */ }
+  });
+}
+// the bar's quick switch: to the other one of light and dark (from the
+// retro skin, to the standard one in light)
+function toggleMode() {
+  const dark = skin !== "retro" && !isDark();
+  if (skin === "retro") setSkinName("");
+  setMode(dark ? "dark" : "light");
+}
+darkQuery?.addEventListener?.("change", () => { if (mode === "system") relook(() => {}); });
+window.__skin = { set: setSkinName, hue: setSkinHue, mode: setMode };
 function applySkin() {
-  app.setSkin(skin, skinHue);
-  document.documentElement.dataset.skin = skin || "standard";
-  document.documentElement.style.setProperty("--retro-hue", String(skinHue));
+  app.setSkin(lookTheme(), skinHue);
+  app.setLookMode(mode);
+  const root = document.documentElement;
+  root.dataset.skin = skin || "standard";
+  root.dataset.mode = lookTheme() === "dark" ? "dark" : "light";
+  root.style.setProperty("--retro-hue", String(skinHue));
+  const btn = document.getElementById("modeBtn");
+  if (btn) {
+    const dark = lookTheme() !== "";
+    const label = dark ? "☀️" : "🌙";
+    if (btn.textContent !== label) btn.textContent = label;
+    btn.title = dark ? t("Light editor") : t("Dark editor");
+  }
 }
 
 let thumbs = new Map();
@@ -2693,6 +2761,8 @@ function handleRequests() {
       exportZip(false).catch(fail);
     } else if (r.startsWith("setting:skin:")) {
       setSkinName(r.endsWith(":retro") ? "retro" : "");
+    } else if (r.startsWith("setting:mode:")) {
+      setMode(r.slice("setting:mode:".length));
     } else if (r.startsWith("setting:skinhue:")) {
       setSkinHue(parseInt(r.slice("setting:skinhue:".length), 10));
     } else if (r === "decks") {
@@ -4932,6 +5002,7 @@ function helpEdit(sel, prop, def) {
 }
 
 document.getElementById("helpBtn").addEventListener("click", () => toggleHelp());
+document.getElementById("modeBtn").addEventListener("click", () => toggleMode());
 
 function endPointer(ev) {
   touches.delete(ev.pointerId);
@@ -5127,21 +5198,21 @@ async function start() {
     textOf("./pres.css"),
     textOf("./ui.css").catch(() => ""),
     textOf("./chart-editor.css").catch(() => ""),
-    Promise.all([textOf("./skins/ui-retro.css"), textOf("./skins/retro.css")])
+    Promise.all(["ui-retro", "retro", "ui-dark", "dark"].map((f) => textOf("./skins/" + f + ".css")))
       .then((t) => "\n" + t.join("\n")).catch(() => ""),
   ]);
   chromeSheets.files = skins;
   chromeSheets.chrome = css0;
-  const css = css0 + skinCss();
+  const css = css0 + skinCss(css0, "");
   chromeSheets.chart = kit + "\n" + chartCss;
-  app.setChartCss(chromeSheets.chart + skinCss());
-  textOf("./hint.css").then((c) => { chromeSheets.hint = kit + "\n" + chartCss + "\n" + c; app.setHintCss(chromeSheets.hint + skinCss()); }).catch(() => {});
-  textOf("./panels.css").then((c) => { chromeSheets.panels = kit + "\n" + c; app.setPanelsCss(chromeSheets.panels + skinCss()); }).catch(() => {});
+  app.setChartCss(chromeSheets.chart + skinCss(chromeSheets.chart, "ce"));
+  textOf("./hint.css").then((c) => { chromeSheets.hint = kit + "\n" + chartCss + "\n" + c; app.setHintCss(chromeSheets.hint + skinCss(chromeSheets.hint, "hp")); }).catch(() => {});
+  textOf("./panels.css").then((c) => { chromeSheets.panels = kit + "\n" + c; app.setPanelsCss(chromeSheets.panels + skinCss(chromeSheets.panels, "pn")); }).catch(() => {});
   if (!viewer) {
     // the bar moves onto the canvas: the HTML one stays, hidden, as what it
     // presses (its buttons and selects keep every behaviour they had)
     chromeSheets.toolbar = kit + "\n" + (await toolbarCss);
-    app.setToolbarCss(chromeSheets.toolbar + skinCss());
+    app.setToolbarCss(chromeSheets.toolbar + skinCss(chromeSheets.toolbar, "tb"));
     document.body.classList.add("canvas-bar");
     canvasBar = true;
     syncBarExtras();
