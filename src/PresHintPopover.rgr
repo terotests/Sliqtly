@@ -97,6 +97,10 @@ class PresHintPopover {
     ; the hint is in the front matter: a button opens the document settings
     def docset:boolean false
     def wantsDoc:boolean false
+    ; the hint is on a picture of the deck: buttons open it in the image
+    ; editor ("edit") or the vectorizer ("trace")
+    def picture:string ""
+    def wantsPic:string ""
     ; "sel<TAB>prop<TAB>default" when a property of a selector was picked
     def wantsProp:string ""
     ; the doc line of the selector property under the pointer
@@ -153,6 +157,7 @@ class PresHintPopover {
         tab = (j.stringOr("tab" "md"))
         line = (j.intOr("line" 0))
         docset = (j.boolOr("docset" false))
+        picture = (j.stringOr("picture" ""))
         start = (j.intOr("start" 0))
         end = (j.intOr("end" 0))
         wholeStart = (j.intOr("wholeStart" -1))
@@ -203,6 +208,7 @@ class PresHintPopover {
         wantsBack = false
         canBack = false
         wantsDoc = false
+        wantsPic = ""
         wantsProp = ""
         dragPart = ""
         sliding = false
@@ -461,6 +467,17 @@ class PresHintPopover {
             }
         }
         def hasRemove:boolean ((wholeStart >= 0) && (wholeEnd > wholeStart))
+        if ((strlen picture) > 0) {
+            def pf:EVGElement (this.div("hp-foot"))
+            def low:string (to_lowercase picture)
+            if ((endsWith low ".svg") == false) {
+                this.button("hp-pic-edit" (PresI18n.t("Edit image…")) "secondary" pf)
+                this.button("hp-pic-trace" (PresI18n.t("Vectorize…")) "secondary" pf)
+            } {
+                pf.addChild((this.words("hp-doc" (PresI18n.t("A vector picture: sharp at any size.")))))
+            }
+            card.addChild(pf)
+        }
         if (hasRemove || docset) {
             def foot:EVGElement (this.div("hp-foot"))
             if docset {
@@ -946,6 +963,14 @@ class PresHintPopover {
         }
         if (ctlTid == "hp-docset") {
             wantsDoc = true
+            return
+        }
+        if (ctlTid == "hp-pic-edit") {
+            wantsPic = "edit"
+            return
+        }
+        if (ctlTid == "hp-pic-trace") {
+            wantsPic = "trace"
             return
         }
         if (ctlTid == "hp-close") {

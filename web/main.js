@@ -295,6 +295,7 @@ async function placePasted() {
   app.placePicture(rel, plan.alt || "image", plan.to);
   dropThumbs();
   afterInput();
+  if (plan.trace && !isSvg(type, rel)) await openTraceEditor(rel);
 }
 
 // A picture of the files tab, clicked: the image editor (PresChartEditor's

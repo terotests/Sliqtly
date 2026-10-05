@@ -1340,6 +1340,27 @@ try {
   check("…a preset traces it again", vec.again !== vec.first && /colors/.test(vec.info || ""), JSON.stringify({ first: vec.first, again: vec.again, info: vec.info }));
   check("…and Save keeps the SVG and the Markdown uses it", vec.closed && vec.kept && vec.md, JSON.stringify(vec));
 
+  // a picture under the caret in the theme (url(…)): its card offers the
+  // image editor and the vectorizer
+  const picHint = await page.evaluate(() => {
+    const a = window.__app;
+    a.cssSet("page", "background-image", "url(media/bg.png)");
+    a.showTab("css");
+    const lines = a.themeCss().split("\n");
+    const ln = lines.findIndex((l) => l.includes("url(media/bg.png)"));
+    a.cssEditor.moveCaret(ln, lines[ln].indexOf("url(") + 6, false);
+    const h = JSON.parse(a.hintAtCaret() || "null");
+    a.openHint(JSON.stringify(h));
+    a.hintJson();
+    const walk = (e, f, out = []) => { if (f(e)) out.push(e); for (const k of e.children || []) walk(k, f, out); return out; };
+    const ids = walk(a.hint.host.lastPage, (e) => /^hp-pic-/.test(e.id || "")).map((e) => e.id);
+    a.closeHint();
+    a.undo();
+    a.showTab("md");
+    return { picture: h && h.picture, ids };
+  });
+  check("a picture's url() in the theme offers Edit image and Vectorize", picHint.picture === "media/bg.png" && picHint.ids.includes("hp-pic-edit") && picHint.ids.includes("hp-pic-trace"), JSON.stringify(picHint));
+
   // TeX math: $…$ in a line and a $$ display are drawn as filled outlines
   const math = await page.evaluate(() => {
     const a = window.__app;

@@ -3738,6 +3738,18 @@ class PresApp {
         }
         ; a `---` of the front matter: what the block is
         def fence:boolean (this.frontMatterFence(line))
+        ; a picture of the deck under the caret: url(…) in the theme, ![](…) or
+        ; bg= in the Markdown; its card offers the image editor and the
+        ; vectorizer
+        def pic:PresPicRef (PresApp.pictureAt(text col))
+        if (((strlen j) == 0) && ((strlen pic.path) > 0)) {
+            def ph:PresHint (PresHint.make("doc" (PresI18n.t("Image")) pic.path pic.start pic.end))
+            ph.doc = (PresI18n.t("A picture of the deck's files."))
+            j = (ph.json())
+        }
+        if ((strlen pic.path) > 0) {
+            j = ((substring j 0 ((strlen j) - 1)) + ",\"picture\":" + (PresHint.q(pic.path)) + "}")
+        }
         if (((strlen j) == 0) && fence) {
             def fh:PresHint (PresHint.make("doc" (PresI18n.t("Front matter")) "" 0 (strlen text)))
             fh.doc = (PresI18n.t("The deck's own settings: title, transition, header and footer."))
@@ -3764,6 +3776,101 @@ class PresApp {
         def y0:int (editor.layout.caretPixelY(line))
         def extra:string (",\"line\":" + (to_string line) + ",\"tab\":\"" + edTab + "\",\"x\":" + (to_string x0) + ",\"y\":" + (to_string y0) + ",\"w\":" + (to_string (x1 - x0)) + ",\"h\":" + (to_string editor.layout.lineHeight) + ",\"text\":" + (PresHint.q(text)) + "}")
         return ((substring j 0 ((strlen j) - 1)) + extra)
+    }
+
+    sfn isPicturePath:boolean (p:string) {
+        def l:string (to_lowercase p)
+        def exts:[string] ([] _:string (".png" ".jpg" ".jpeg" ".webp" ".gif" ".svg"))
+        for exts e:string i {
+            if (endsWith l e) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; The picture a column of a line is on: inside url(…), ![…](…) or bg=…;
+    ; an empty path when none.
+    sfn pictureAt:PresPicRef (line:string col:int) {
+        def out (new PresPicRef())
+        def n:int (strlen line)
+        ; url(…)
+        def at:int (indexOf line "url(")
+        while (at >= 0) {
+            def end:int (indexOfFrom line ")" at)
+            if (end < 0) {
+                end = n
+            }
+            if ((col >= at) && (col <= (end + 1))) {
+                def p:string (PresApp.urlPath((substring line at (end + 1))))
+                if (PresApp.isPicturePath(p)) {
+                    out.path = p
+                    out.start = (at + 4)
+                    out.end = end
+                    return out
+                }
+            }
+            at = (indexOfFrom line "url(" (end + 1))
+        }
+        ; ![alt](path "title")
+        def im:int (indexOf line "![")
+        while (im >= 0) {
+            def mid:int (indexOfFrom line "](" im)
+            if (mid < 0) {
+                im = -1
+            } {
+                def close:int (indexOfFrom line ")" mid)
+                if (close < 0) {
+                    close = n
+                }
+                if ((col >= im) && (col <= (close + 1))) {
+                    def inner:string (trim (substring line (mid + 2) close))
+                    def sp:int (indexOf inner " ")
+                    if (sp > 0) {
+                        inner = (substring inner 0 sp)
+                    }
+                    while (startsWith inner "/") {
+                        inner = (substring inner 1 (strlen inner))
+                    }
+                    if (PresApp.isPicturePath(inner)) {
+                        out.path = inner
+                        out.start = (mid + 2)
+                        out.end = close
+                        return out
+                    }
+                }
+                im = (indexOfFrom line "![" (close + 1))
+            }
+        }
+        ; bg=path in an attribute block
+        def bg:int (indexOf line "bg=")
+        while (bg >= 0) {
+            def e:int (bg + 3)
+            while ((e < n) && (((charAt line e) != 32) && ((charAt line e) != 125))) {
+                e = (e + 1)
+            }
+            if ((col >= bg) && (col <= e)) {
+                def bp:string (substring line (bg + 3) e)
+                def q:int 0
+                if ((strlen bp) > 0) {
+                    q = (charAt bp 0)
+                }
+                if (((q == 34) || (q == 39)) && ((strlen bp) >= 2)) {
+                    bp = (substring bp 1 ((strlen bp) - 1))
+                }
+                while (startsWith bp "/") {
+                    bp = (substring bp 1 (strlen bp))
+                }
+                if (PresApp.isPicturePath(bp)) {
+                    out.path = bp
+                    out.start = (bg + 3)
+                    out.end = e
+                    return out
+                }
+            }
+            bg = (indexOfFrom line "bg=" (e + 1))
+        }
+        return out
     }
 
     ; The theme rule a column of the CSS tab is in ("" in the Markdown).
@@ -4748,6 +4855,17 @@ class PresApp {
             hint.wantsDoc = false
             this.closeHint()
             push requests "docset"
+        }
+        if ((strlen hint.wantsPic) > 0) {
+            def act:string hint.wantsPic
+            def path:string hint.picture
+            hint.wantsPic = ""
+            this.closeHint()
+            if (act == "trace") {
+                push requests ("image-trace:" + path)
+            } {
+                push requests ("image-edit:" + path)
+            }
         }
         if ((strlen hint.wantsProp) > 0) {
             def parts:[string] (strsplit hint.wantsProp (strfromcode 9))
@@ -6987,11 +7105,15 @@ class PresApp {
     ; {"to": "slide"|"bg-slide"|"bg-all", "crop": "x,y,w,h" in pixels,
     ;  "whole": true when nothing was cut away, "alt": the description}
     fn pastePlan:string () {
+        def trace:string "false"
+        if chart.pasteTrace {
+            trace = "true"
+        }
         def whole:string "false"
         if (chart.crop.isWhole()) {
             whole = "true"
         }
-        return ("{\"to\":\"" + chart.pasteTo + "\",\"crop\":\"" + (chart.crop.cropPixels()) + "\",\"whole\":" + whole + ",\"alt\":" + (PresApp.jsonStr(chart.pasteAlt)) + "}")
+        return ("{\"to\":\"" + chart.pasteTo + "\",\"crop\":\"" + (chart.crop.cropPixels()) + "\",\"whole\":" + whole + ",\"alt\":" + (PresApp.jsonStr(chart.pasteAlt)) + ",\"trace\":" + trace + "}")
     }
 
     sfn jsonStr:string (v:string) {
@@ -8465,4 +8587,11 @@ class PresApp {
         def n:int (deck.slideCount())
         return ((to_string n) + (PresI18n.t(" slides · ")) + (PresApp.secs((PresTimeline.total(deck)))))
     }
+}
+
+; a picture named in a line: its path and the columns it takes
+class PresPicRef {
+    def path:string ""
+    def start:int 0
+    def end:int 0
 }
