@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/terotests/sliqtly/mcp-go/store"
 )
 
 func put(t *testing.T, path, text string) {
@@ -72,7 +74,7 @@ func TestMigrateOneToCurrent(t *testing.T) {
 	release()
 	f, _ := readFormat(dir)
 	eq(t, f.Format, currentFormat)
-	eq(t, len(f.History), 2)
+	eq(t, len(f.History), currentFormat-1)
 	eq(t, f.History[len(f.History)-1].Server, "1.1.3")
 
 	// every deck, file and type where the store looks for it
@@ -190,7 +192,7 @@ func formatTwoFolder(t *testing.T) string {
 	return dir
 }
 
-func TestMigrateTwoToThree(t *testing.T) {
+func TestMigrateTwoToCurrent(t *testing.T) {
 	dir := formatTwoFolder(t)
 	if _, _, err := newFSStore(dir, "local"); err == nil {
 		t.Fatal("format 2 was read as it is")
@@ -201,7 +203,7 @@ func TestMigrateTwoToThree(t *testing.T) {
 	}
 	release()
 	f, _ := readFormat(dir)
-	eq(t, f.Format, 3)
+	eq(t, f.Format, currentFormat)
 
 	db, bucket, err := newFSStore(dir, "local")
 	if err != nil {
@@ -383,4 +385,119 @@ func TestLocalStatusEvents(t *testing.T) {
 		}
 	}
 	eq(t, data, []string{`data: {"state":"ready","version":"` + version + `"}`, `data: {"state":"stopping","version":"` + version + `"}`})
+}
+
+// a folder as format 3 left it: decks in rooms, files with their types
+// (the same picture in two decks), a room's chat log
+func formatThreeFolder(t *testing.T) string {
+	dir := t.TempDir()
+	put(t, filepath.Join(dir, "format.json"), `{"format":3,"server":"1.4.0"}`)
+	for _, id := range []string{"aaaaaa1111", "bbbbbb2222"} {
+		put(t, filepath.Join(dir, "db", "shares", shard(id), id+".json"), `{"name":"Deck `+id+`","owner":"local","room":"general","tenant":"local","_rev":3,"created":{"$ts":1700000000000}}`)
+		put(t, filepath.Join(dir, "files", "shares", shard(id), id, "media", "a.png"), "same png")
+		put(t, filepath.Join(dir, "files", "shares", shard(id), id, "media", "a.png.type"), "image/png")
+	}
+	put(t, filepath.Join(dir, "files", "shares", shard("aaaaaa1111"), "aaaaaa1111", "data", "t.csv"), "a,b\n1,2\n")
+	put(t, filepath.Join(dir, "files", "shares", "aaaaaa1111", ".collab", "chat.jsonl"), `{"id":"m1","text":"hei"}`+"\n"+`{"id":"m2","text":"moi"}`+"\n")
+	put(t, filepath.Join(dir, "db", "rooms", shard("general"), "general.json"), `{"title":"General","tenant":"local"}`)
+	return dir
+}
+
+func TestMigrateThreeToSQLite(t *testing.T) {
+	dir := formatThreeFolder(t)
+	release, err := prepareData(dir, "1.5.0", "local", quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	f, _ := readFormat(dir)
+	eq(t, []any{f.Format, f.History[len(f.History)-1].Note}, []any{4, migrations[2].Note})
+	for _, gone := range []string{"db", "files", docsFile + migratingSuffix, blobsFile + migratingSuffix} {
+		if _, err := os.Stat(filepath.Join(dir, gone)); err == nil {
+			t.Fatalf("%s is still there", gone)
+		}
+	}
+	db, bucket, err := newFSStore(dir, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	_, rev, _ := db.e.Get(ctx, "shares", "aaaaaa1111")
+	eq(t, rev, store.Rev(3), "the revision is kept")
+	if r, _ := db.Get(ctx, "rooms", "general"); r["title"] != "General" {
+		t.Fatal("room lost", r)
+	}
+	for _, id := range []string{"aaaaaa1111", "bbbbbb2222"} {
+		fh, ct, ok := bucket.Open("shares/" + id + "/media/a.png")
+		if !ok {
+			t.Fatal("no picture for " + id)
+		}
+		b, _ := io.ReadAll(fh)
+		fh.Close()
+		eq(t, []any{string(b), ct}, []any{"same png", "image/png"})
+	}
+	csv, err := bucket.Read(ctx, "shares/aaaaaa1111/data/t.csv", 100)
+	eq(t, []any{string(csv), err}, []any{"a,b\n1,2\n", nil})
+	n := 0
+	bucket.blobs.Each(ctx, func(store.BlobInfo) error { n++; return nil })
+	eq(t, n, 2, "the picture kept once")
+	lines, _ := bucket.Lines(chatPath("aaaaaa1111"), 0)
+	eq(t, len(lines), 2, "the chat")
+
+	// the backup has the folder as it was
+	backups, _ := os.ReadDir(filepath.Join(dir, "backups"))
+	eq(t, len(backups), 1)
+	if _, err := os.Stat(filepath.Join(dir, "backups", backups[0].Name(), "files", "shares", shard("aaaaaa1111"), "aaaaaa1111", "media", "a.png")); err != nil {
+		t.Fatal("the backup lost a file: ", err)
+	}
+	// a backup of a format 4 folder (before a later migration) copies sliqtly.db
+	b, err := backupFolder(dir, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := store.OpenSQLiteStore(filepath.Join(b, docsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer old.Close()
+	if d, _, _ := old.Get(ctx, "shares", "bbbbbb2222"); d == nil {
+		t.Fatal("the backup of sliqtly.db has no decks")
+	}
+}
+
+// stopped before sliqtly.db got its name: built again from the folder
+func TestSQLiteMigrationStoppedBeforeCommit(t *testing.T) {
+	dir := formatThreeFolder(t)
+	put(t, filepath.Join(dir, docsFile+migratingSuffix), "half a database")
+	put(t, filepath.Join(dir, blobsFile+migratingSuffix+"-wal"), "junk")
+	release, err := prepareData(dir, "1.5.0", "local", quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	db, _, _ := newFSStore(dir, "local")
+	_, ids, _ := db.WhereEq(context.Background(), "shares", "owner", "local")
+	eq(t, len(ids), 2)
+}
+
+// stopped after the rename, with the folder half removed: the removal is
+// finished and nothing is copied twice
+func TestSQLiteMigrationStoppedAfterCommit(t *testing.T) {
+	dir := formatThreeFolder(t)
+	if _, err := intoSQLite(dir, "local"); err != nil {
+		t.Fatal(err)
+	}
+	// as if the server stopped before the folder went and format.json said 4
+	put(t, filepath.Join(dir, "db", "shares", shard("aaaaaa1111"), "aaaaaa1111.json"), `{"name":"stale"}`)
+	release, err := prepareData(dir, "1.5.0", "local", quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	if _, err := os.Stat(filepath.Join(dir, "db")); err == nil {
+		t.Fatal("db/ is still there")
+	}
+	db, _, _ := newFSStore(dir, "local")
+	d, _ := db.Get(context.Background(), "shares", "aaaaaa1111")
+	eq(t, d["name"], "Deck aaaaaa1111")
 }

@@ -14,7 +14,8 @@
 //     each one recorded in format.json when it is done
 //
 // The backup is <root>/backups/<time>-format-<n>/: every file of db/ and
-// files/ hard-linked, which takes no room. It stays a true copy: the store
+// files/ hard-linked, which takes no room, and from format 4 on a copy of
+// sliqtly.db. It stays a true copy: the store
 // never writes into a file, it writes a new one and renames it over the old
 // (writeAtomic), and a migration only renames, so the backup's links keep
 // the old contents. The three newest backups are kept.
@@ -29,12 +30,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -43,7 +47,7 @@ import (
 )
 
 // the layout this server reads and writes
-const currentFormat = 3
+const currentFormat = 4
 
 type formatFile struct {
 	Format int `json:"format"`
@@ -71,6 +75,7 @@ type migration struct {
 var migrations = []migration{
 	{From: 1, Note: "decks and files in 256 shard folders", Run: func(root, _ string) (int, error) { return 0, shardFolders(root) }},
 	{From: 2, Note: "rooms General and Playground, every deck in General", Run: homeRooms},
+	{From: 3, Note: "documents and files into sliqtly.db and blobs.db (SQLite)", Run: intoSQLite},
 }
 
 func readFormat(root string) (*formatFile, error) {
@@ -295,6 +300,15 @@ func backupFolder(root string, format int) (string, error) {
 			return "", err
 		}
 	}
+	// from format 4 on the documents are a database written in place: a
+	// link would not keep the old contents, so it is copied (VACUUM INTO).
+	// blobs.db's rows are never rewritten, only added and collected; a
+	// migration that changes it backs it up itself (store.Migrate).
+	if _, err := os.Stat(filepath.Join(root, docsFile)); err == nil {
+		if err := vacuumInto(filepath.Join(root, docsFile), filepath.Join(dir, docsFile)); err != nil {
+			return "", err
+		}
+	}
 	entries, _ := os.ReadDir(base)
 	var old []string
 	for _, e := range entries {
@@ -424,4 +438,218 @@ func homeRooms(root, user string) (int, error) {
 	}
 	defer fs.Close()
 	return store.HomeAll(context.Background(), fs, "shares", localTenant, user, time.Now())
+}
+
+// ------------------------------------------------------ 3 → 4: SQLite --
+
+// 3 → 4: every document of db/ into sliqtly.db and every file of files/
+// into blobs.db with its path in sliqtly.db's file_refs (a room's chat log
+// into file_lines). The databases are built beside the folder as
+// *.migrating, checked against it (the documents' digests, each file's
+// SHA-256, every blob read back), and renamed into place, sliqtly.db last:
+// its name is the migration's commit point. Only then are db/ and files/
+// removed; the backup made before the migration keeps them. A run stopped
+// before the rename starts over; one stopped after it only finishes the
+// removal. → the files it made, less the ones it removed
+func intoSQLite(root, _ string) (int, error) {
+	ctx := context.Background()
+	docsPath, blobsPath := filepath.Join(root, docsFile), filepath.Join(root, blobsFile)
+	if _, err := os.Stat(docsPath); errors.Is(err, os.ErrNotExist) {
+		if err := buildSQLite(ctx, root, docsPath, blobsPath); err != nil {
+			return 0, err
+		}
+	} else if err != nil {
+		return 0, err
+	}
+	n, err := countFiles(root)
+	if err != nil {
+		return 0, err
+	}
+	for _, d := range []string{"db", "files"} {
+		if err := os.RemoveAll(filepath.Join(root, d)); err != nil {
+			return 0, err
+		}
+	}
+	return -n, syncDirOf(root)
+}
+
+const migratingSuffix = ".migrating"
+
+func buildSQLite(ctx context.Context, root, docsPath, blobsPath string) error {
+	tmpDocs, tmpBlobs := docsPath+migratingSuffix, blobsPath+migratingSuffix
+	for _, p := range []string{tmpDocs, tmpBlobs} {
+		for _, x := range []string{"", "-wal", "-shm", "-journal"} {
+			if err := os.Remove(p + x); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	docs, err := store.OpenSQLiteStore(tmpDocs)
+	if err != nil {
+		return err
+	}
+	blobs, err := store.OpenSQLiteBlobStore(tmpBlobs)
+	if err != nil {
+		docs.Close()
+		return err
+	}
+	err = fillSQLite(ctx, root, docs, blobs)
+	for _, db := range []*sql.DB{docs.DB(), blobs.DB()} {
+		if _, cerr := db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err == nil && cerr != nil {
+			err = cerr
+		}
+	}
+	if cerr := blobs.Close(); err == nil {
+		err = cerr
+	}
+	if cerr := docs.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	// closed and checkpointed: each database is its one file now
+	for _, p := range []string{tmpDocs, tmpBlobs} {
+		if st, err := os.Stat(p + "-wal"); err == nil && st.Size() > 0 {
+			return fmt.Errorf("%s-wal was left with %d bytes", p, st.Size())
+		}
+		os.Remove(p + "-wal")
+		os.Remove(p + "-shm")
+	}
+	if err := os.Rename(tmpBlobs, blobsPath); err != nil {
+		return err
+	}
+	if err := syncDirOf(root); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpDocs, docsPath); err != nil {
+		return err
+	}
+	return syncDirOf(root)
+}
+
+// the folder's documents and files into the two databases, and checked
+func fillSQLite(ctx context.Context, root string, docs *store.SQLiteStore, blobs *store.SQLiteBlobStore) error {
+	src, err := store.NewFileStore(filepath.Join(root, "db"))
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	if _, err := store.Copy(ctx, docs, src); err != nil {
+		return err
+	}
+	if err := store.Verify(ctx, docs, src); err != nil {
+		return err
+	}
+	refs := store.NewFileRefs(docs)
+	files := filepath.Join(root, "files")
+	want := map[string]store.Hash{}
+	lines := map[string]int{}
+	err = filepath.WalkDir(files, func(p string, e os.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		name := e.Name()
+		if !e.Type().IsRegular() || strings.HasPrefix(name, ".tmp-") || strings.HasSuffix(name, ".type") {
+			return nil
+		}
+		rel, _ := filepath.Rel(files, p)
+		logical := unshardedPath(filepath.ToSlash(rel))
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		// a room's chat: one JSON line per message
+		if strings.HasSuffix(logical, "/.collab/chat.jsonl") {
+			for _, l := range strings.Split(string(b), "\n") {
+				if strings.TrimSpace(l) == "" {
+					continue
+				}
+				if err := refs.AppendLine(ctx, logical, l); err != nil {
+					return err
+				}
+				lines[logical]++
+			}
+			return nil
+		}
+		ct, _ := os.ReadFile(p + ".type")
+		info, err := blobs.Put(ctx, bytes.NewReader(b), string(ct))
+		if err != nil {
+			return err
+		}
+		if err := refs.Set(ctx, logical, info, string(ct)); err != nil {
+			return err
+		}
+		want[logical] = store.HashOf(b)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	// every path where the bucket will look, with the bytes it had
+	got, err := refs.List(ctx, "")
+	if err != nil {
+		return err
+	}
+	if len(got) != len(want) {
+		return fmt.Errorf("%d files, %d in sliqtly.db", len(want), len(got))
+	}
+	for _, r := range got {
+		if h, ok := want[r.Path]; !ok || h != r.Hash {
+			return fmt.Errorf("%s: not copied as it was", r.Path)
+		}
+	}
+	for p, n := range lines {
+		l, err := refs.Lines(ctx, p, 0)
+		if err != nil {
+			return err
+		}
+		if len(l) != n {
+			return fmt.Errorf("%s: %d lines, %d copied", p, n, len(l))
+		}
+	}
+	if _, bad, err := store.VerifyBlobs(ctx, blobs); err != nil || len(bad) > 0 {
+		return fmt.Errorf("blobs read back wrong: %v %v", bad, err)
+	}
+	return nil
+}
+
+// unshardedPath takes the shard folder out of a kept file's path inside
+// files/ (format 2 and 3): shares/<sh>/{id}/media/x → shares/{id}/media/x.
+// A path with no shard in that place (a room's chat log was kept without
+// one) stays as it is.
+func unshardedPath(rel string) string {
+	parts := strings.SplitN(rel, "/", 3)
+	if len(parts) == 3 && isShard(parts[1]) {
+		return parts[0] + "/" + parts[2]
+	}
+	return rel
+}
+
+func vacuumInto(src, dst string) error {
+	db, err := sql.Open("sqlite", "file:"+src+"?mode=ro")
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+		return err
+	}
+	_, err = db.Exec(`VACUUM INTO ?`, dst)
+	return err
+}
+
+func syncDirOf(dir string) error {
+	f, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := f.Sync(); err != nil && runtime.GOOS != "windows" {
+		return err
+	}
+	return nil
 }

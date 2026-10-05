@@ -165,11 +165,12 @@ func TestLocalServer(t *testing.T) {
 	match(t, textOf(c), `Saved in the Sliqtly account of local`)
 
 	// kept in the folder, pictures served by the server itself
-	if _, err := os.Stat(filepath.Join(dir, "db", "shares", shard(id), id+".json")); err != nil {
+	docs, err := store.OpenSQLiteStore(filepath.Join(dir, docsFile))
+	if err != nil {
 		t.Fatal(err)
 	}
-	fs, _ := store.NewFileStore(filepath.Join(dir, "db"))
-	share, _, _ := fs.Get(context.Background(), "shares", id)
+	defer docs.Close()
+	share, _, _ := docs.Get(context.Background(), "shares", id)
 	files := list(share["files"])
 	eq(t, mapOf(files[0])["url"], srv.URL+"/files/shares/"+id+"/media/cat.png")
 	code, ct, body := get(t, srv.URL+"/files/shares/"+id+"/media/cat.png")

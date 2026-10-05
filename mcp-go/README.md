@@ -236,31 +236,47 @@ What it serves besides `/mcp` (`local.go`, `localweb.go`):
 | `/api/socket` | the page's one stream, a WebSocket: the server's state, decks changed, the room of a deck edited together (`localevents.go`, `web/eventline.js`). A browser opens at most six HTTP/1.1 connections to a server for all its tabs, and WebSockets are counted apart from them. `/api/events` is the same as Server-Sent Events, which a page uses when a proxy in front does not pass WebSockets on |
 | `/healthz` | `ok`, or 503 while the folder is not ready |
 
-The folder (`fsstore.go`):
+The folder (`fsstore.go`), since data format 4 (ADR 0002):
 
 | | |
 | --- | --- |
 | `format.json` | the layout's version and what was done to it |
-| `db/<collection>/<sh>/<id>.json` | a document, written to a temporary file and renamed |
-| `files/shares/<sh>/{id}/…` | a deck's kept files, each with its content type in `<file>.type` |
+| `sliqtly.db` | SQLite: the documents (`store.SQLiteStore`), the kept files by path (`file_refs`: path → blob hash, size, type) and append-only logs such as a room's chat (`file_lines`) |
+| `blobs.db` | SQLite: the files' bytes by SHA-256, in 1 MiB chunks (`store.SQLiteBlobStore`); the same bytes under two paths are kept once |
 | `backups/` | the folder as it was before each migration (the three newest) |
 | `.lock` | held by the server using the folder |
 
-`<sh>` is one of 256 folders (two hex digits of a hash of the id), so no
-folder holds more than about 1/256 of the decks. Back the folder up by
-copying it; `cp -al` (hard links) costs no room, since nothing is written
-into a file in place.
+Both files use WAL with `synchronous=FULL`: a write is on disk when it
+returns. A file is written as its blob first and its path after, so a crash
+between the two leaves a blob nothing names, which the hourly sweep removes
+(after an hour's grace). Back up with `sqlite3 sliqtly.db ".backup x.db"`
+(or `VACUUM INTO`), not by copying the files while the server runs.
+
+Each database's schema is a numbered list of migrations
+(`store.SQLiteSchema`, `store.SQLiteBlobSchema`; `store/sqlmigrate.go`):
+`PRAGMA user_version` is the last applied, `schema_history` records each,
+a file at a newer version is refused, and an existing file is copied to
+`backups/` with `VACUUM INTO` before it is migrated.
+
+Formats 1–3 kept a JSON file per document (`db/<collection>/<sh>/<id>.json`)
+and the files under `files/shares/<sh>/{id}/…`; the migration to format 4
+copies them into the two databases, checks every document and file against
+the folder, and only then removes `db/` and `files/` (the backup keeps them).
 
 **Updates** (`datafmt.go`). A server started on a folder locks it, so a
 second server on the same folder stops with an error. A folder written by a
 newer server is refused rather than read wrong. An older one is migrated
 before anything reads it:
 
-1. A backup in `backups/<time>-format-<n>/`: every file hard-linked, so it
-   takes no room and keeps the old contents.
+1. A backup in `backups/<time>-format-<n>/`: every file of `db/` and
+   `files/` hard-linked, so it takes no room and keeps the old contents,
+   and from format 4 on a copy of `sliqtly.db`.
 2. Each migration in turn. A migration only renames, one entry at a time,
    and skips what is already in place, so a run cut short continues on the
    next start. Anything it would overwrite goes to `backups/conflicts/`.
+   The move to SQLite (3 → 4) builds the databases as `*.migrating`, checks
+   them, and renames them into place; a run cut short before that starts
+   over, one cut short after it only finishes removing the old folders.
 3. The number of files is checked against the number before. If it differs,
    the server stops there, with the folder and the backup as they are.
 

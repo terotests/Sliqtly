@@ -38,7 +38,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -46,7 +45,6 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -237,7 +235,7 @@ func (s *localServer) room(ctx context.Context, id string) (*collabRoom, error) 
 		// sees the room not ready) is the newer text, and wins
 		d, rev, _ := s.env.Store.Get(ctx, "shares", id)
 		md, _ := d["md"].(string)
-		chat := readChat(s.chatFile(id))
+		chat := s.readChat(id)
 		rm.mu.Lock()
 		if !rm.ready || rev > rm.docRev {
 			rm.text = toU16(md)
@@ -477,45 +475,28 @@ func (s *localServer) flushRooms() {
 
 // --- the chat file
 
-func (s *localServer) chatFile(id string) string {
-	return filepath.Join(s.bucket.root, "shares", id, ".collab", "chat.jsonl")
-}
+// a room's chat: one JSON line per message, kept as the deck's file
+// .collab/chat.jsonl (localBucket lines)
+func chatPath(id string) string { return "shares/" + id + "/.collab/chat.jsonl" }
 
-func readChat(path string) []collabChat {
-	f, err := os.Open(path)
+func (s *localServer) readChat(id string) []collabChat {
+	lines, err := s.bucket.Lines(chatPath(id), collabChatKeep)
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
 	var out []collabChat
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64<<10), 1<<20)
-	for sc.Scan() {
+	for _, l := range lines {
 		var m collabChat
-		if json.Unmarshal(sc.Bytes(), &m) == nil && m.ID != "" {
+		if json.Unmarshal([]byte(l), &m) == nil && m.ID != "" {
 			out = append(out, m)
 		}
-	}
-	if len(out) > collabChatKeep {
-		out = out[len(out)-collabChatKeep:]
 	}
 	return out
 }
 
-func appendChat(path string, m collabChat) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o640)
-	if err != nil {
-		return err
-	}
+func (s *localServer) appendChat(id string, m collabChat) error {
 	b, _ := json.Marshal(m)
-	_, err = f.Write(append(b, '\n'))
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	return err
+	return s.bucket.AppendLine(chatPath(id), string(b))
 }
 
 // --- the API
@@ -685,7 +666,7 @@ func (rm *collabRoom) say(body map[string]any, client string) (any, error) {
 		ID:  strconv.FormatInt(now.UnixMilli(), 36) + "-" + strconv.FormatInt(n, 36),
 		Who: p.Who, Name: p.Name, Color: p.Color, Text: text, At: now.UnixMilli(),
 	}
-	if err := appendChat(rm.s.chatFile(rm.id), m); err != nil {
+	if err := rm.s.appendChat(rm.id, m); err != nil {
 		return nil, err
 	}
 	rm.chat = append(rm.chat, m)
