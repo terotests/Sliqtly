@@ -315,6 +315,17 @@ class PresHints {
         return (PresHints.attrAt(line col))
     }
 
+    ; The fence languages drawn as a diagram.
+    sfn isDiagramLang:boolean (lang:string) {
+        def l:string (to_lowercase (trim lang))
+        return ((((l == "mermaid") || (l == "dot")) || ((l == "graphviz") || (l == "d2"))) || ((l == "plantuml") || (l == "puml")))
+    }
+
+    ; The looks a diagram can take (`style=`, `diagram=classic`).
+    sfn diagramLooks:string () {
+        return "holo sketch classic mermaid jurassic cartoon romantic"
+    }
+
     ; ```mermaid — the languages a fence can name.
     sfn fenceAt:string (line:string col:int) {
         def t:string (trim line)
@@ -331,9 +342,18 @@ class PresHints {
         if ((col < a) || (col > b) || (b == a)) {
             return ""
         }
-        def h:PresHint (PresHint.make("enum" (PresI18n.t("language")) (substring line a b) a b))
+        def lang:string (substring line a b)
+        def h:PresHint (PresHint.make("enum" (PresI18n.t("language")) lang a b))
         h.doc = (PresI18n.t("What the block is: a diagram, a formula or code. process, swot and timeline draw a layout from a list, one `Title: description` per line."))
         h.options = "mermaid dot plantuml d2 vega-lite process swot timeline math js python bash json"
+        ; a diagram: its look first; the notation stays as written unless
+        ; asked (the card keeps it folded)
+        if (PresHints.isDiagramLang(lang)) {
+            h.name = (PresI18n.t("Diagram"))
+            h.doc = (PresI18n.t("The diagram's look. The notation it is written in stays as it is."))
+            h.looks = (PresHints.diagramLooks())
+            h.options = "mermaid dot d2 plantuml"
+        }
         return (h.json())
     }
 
@@ -699,6 +719,10 @@ class PresHint {
     def range:string ""
     def unit:string ""
     def adds:string ""
+    ; a diagram's fence: the looks it can take (space-separated) and the one
+    ; it has (set by the app, which reads the whole block)
+    def looks:string ""
+    def look:string ""
 
     Constructor () {
     }
@@ -762,6 +786,12 @@ class PresHint {
         out = (out + ",\"start\":" + (to_string start) + ",\"end\":" + (to_string end))
         out = (out + ",\"wholeStart\":" + (to_string wholeStart) + ",\"wholeEnd\":" + (to_string wholeEnd))
         out = (out + ",\"options\":" + (PresHint.list(options)) + ",\"adds\":" + (PresHint.list(adds)) + ",\"unit\":" + (PresHint.q(unit)))
+        if ((strlen looks) > 0) {
+            out = (out + ",\"looks\":" + (PresHint.list(looks)))
+        }
+        if ((strlen look) > 0) {
+            out = (out + ",\"look\":" + (PresHint.q(look)))
+        }
         if ((strlen range) > 0) {
             def r:[string] (strsplit range " ")
             if ((array_length r) == 3) {

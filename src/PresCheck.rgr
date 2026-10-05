@@ -441,6 +441,7 @@ class PresCheck {
         this.longChain()
         this.portraitChain()
         this.diagramLooks()
+        this.diagramLookHint()
         this.steering()
         this.diagramColour()
     }
@@ -603,6 +604,43 @@ class PresCheck {
     ; round part (jurassic: an ochre circle), the lines keep their right
     ; angles, words are set in capitals where the look says so, and until a
     ; face is loaded the words are in Open Sans.
+    ; Over a diagram fence's language word the card offers the looks; a look
+    ; changes only the block's settings line.
+    fn diagramLookHint:void () {
+        def j:string (PresHints.forLine("md" "```mermaid {tour=on}" 5 false))
+        this.ok(((indexOf j "\"looks\":[\"holo\",\"sketch\",\"classic\",\"mermaid\",\"jurassic\",\"cartoon\",\"romantic\"]") >= 0) ("a diagram's fence offers its looks: " + j))
+        this.ok(((indexOf j "\"options\":[\"mermaid\",\"dot\",\"d2\",\"plantuml\"]") >= 0) ("…and only diagram notations to switch to: " + j))
+        def code:string (PresHints.forLine("md" "```python" 5 false))
+        this.ok(((indexOf code "looks") < 0) "a code fence has no looks")
+        def body:string "flowchart LR\n  A --> B\n```\n"
+        ; settings in the fence line: the style word set there, the rest kept
+        def m1:PresFlowModel (PresFlowModel.read(("```mermaid {tour=on}\n" + body)))
+        this.ok(((m1.lookLineAt()) == 0) "settings in the fence: its line")
+        this.ok(((m1.lookLine("cartoon")) == "```mermaid {tour=on style=cartoon}") ("cartoon added: " + (m1.lookLine("cartoon"))))
+        def m1b:PresFlowModel (PresFlowModel.read(("```mermaid {style=jurassic}\n" + body)))
+        this.ok(((m1b.lookLine("holo")) == "```mermaid") ("holo drops the braces: " + (m1b.lookLine("holo"))))
+        def m1c:PresFlowModel (PresFlowModel.read(("```mermaid {style=jurassic}\n" + body)))
+        this.ok(((m1c.lookLine("classic")) == "```mermaid {diagram=classic}") ("classic: " + (m1c.lookLine("classic"))))
+        ; no settings yet: braces on the fence line
+        def m2:PresFlowModel (PresFlowModel.read(("```dot\n" + body)))
+        this.ok(((m2.lookLine("romantic")) == "```dot {style=romantic}") ("braces added: " + (m2.lookLine("romantic"))))
+        ; settings under the block: that line
+        def m3:PresFlowModel (PresFlowModel.read(("```mermaid\n" + body + "{style=sketch tour=on}\n")))
+        this.ok(((m3.lookLineAt()) == 4) ("the settings line under the block: " + (to_string (m3.lookLineAt()))))
+        this.ok(((m3.lookLine("mermaid")) == "{style=mermaid tour=on}") ("set in its place: " + (m3.lookLine("mermaid"))))
+        ; the braces on the fence line are the block's settings too
+        def deck (new PresDeck())
+        deck.setText(("## A\n\n```mermaid {style=cartoon}\n" + body))
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false "the fence with braces is a diagram")
+            return
+        }
+        def d:PresDiagram (itemAt s.diagrams 0).diagram
+        this.ok((d.looked && (d.style == "cartoon")) ("a look in the fence's braces is drawn: " + d.style))
+    }
+
     fn diagramLooks:void () {
         def text:string ("---\nslide-split-level: 2\n---\n\n## Kuva\n\n```mermaid\nflowchart LR\n"
             + "  A((Alku)) --> B[Tilaus]\n  B --> C{Varastossa?}\n  C -->|kyllä| D[Lähetä]\n  C -->|ei| E([Odota])\n```\n{style=jurassic}\n")

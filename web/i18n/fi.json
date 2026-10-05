@@ -973,5 +973,7 @@
   "No open comments.": "Ei avoimia kommentteja.",
   "Open presentations": "Avoimet esitykset",
   "Close ": "Sulje ",
-  "This presentation is no longer here.": "Tätä esitystä ei enää ole."
+  "This presentation is no longer here.": "Tätä esitystä ei enää ole.",
+  "Notation": "Notaatio",
+  "The diagram's look. The notation it is written in stays as it is.": "Kaavion ulkoasu. Notaatio, jolla se on kirjoitettu, pysyy ennallaan."
 }
