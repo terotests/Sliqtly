@@ -679,7 +679,10 @@ class SvgCheck {
             push o.flags (name + " has a <script>: an SVG shown as a picture runs no scripts.")
         }
         if (f.foreign > 0) {
-            push o.flags (name + " has a <foreignObject>: HTML inside an SVG is not drawn in the preview, and browsers differ. Draw it with SVG shapes.")
+            ; the player draws the SVG to a canvas and takes its PNG; a
+            ; foreignObject taints the canvas (Chromium), so there is no PNG
+            ; (bench/svgcompat: text-tref-02-b)
+            push o.flags (name + " has a <foreignObject>: the player shows such an SVG as nothing (the browser will not turn it into a picture). Draw it with SVG shapes and text.")
         }
         def verdict:string "SVG ok"
         if ((array_length o.flags) > 0) {
