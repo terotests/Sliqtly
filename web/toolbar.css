@@ -214,6 +214,12 @@
 .theme-tb .tb-roomdeck-act { color: #4f46e5; font-size: 12px; }
 .theme-tb .tb-roomname-field { width: 100%; margin: 0 0 4px 0; }
 .theme-tb .tb-roomname-box { height: 30px; font-size: 14px; border: 1px solid #4f46e5; border-radius: 6px; padding: 0 8px; background-color: #ffffff; }
+/* a made room's settings, at the end of its row; a room dragged to another
+   place, and the line before the room it would go before */
+.theme-tb .tb-roomgear { width: 24px; height: 24px; padding: 0; margin: 0 -4px 0 6px; border-radius: 5px; flex-shrink: 0; }
+.theme-tb .tb-icon-roomgear { width: 15px; height: 15px; stroke: #a1a1aa; stroke-width: 1.8; }
+.theme-tb .tb-room-dragged { opacity: 0.45; }
+.theme-tb .tb-room-before { border-top: 2px solid #4f46e5; }
 .theme-tb .tb-room-drop { background-color: #c7d2fe; border: 1px dashed #4f46e5; }
 .theme-tb .tb-roomsearch { height: 30px; padding: 0 10px; margin: 0 0 6px 0; border: 1px solid #e4e4e7; border-radius: 6px; background-color: #ffffff; display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: flex-start; }
 .theme-tb .tb-roomsearch-label { font-size: 13px; font-weight: 400; color: #71717a; white-space: nowrap; }

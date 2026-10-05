@@ -85,6 +85,23 @@ func TestRoomTools(t *testing.T) {
 	ok("archive_room", map[string]any{"room_id": room, "archived": false})
 	ok("move_presentation", map[string]any{"deck_id": b, "room_id": room})
 
+	// settings: a room described when made, renamed, newest listed first;
+	// deleting one moves its decks to General and deletes none
+	story := ok("create_room", map[string]any{"title": "Story: sign in with Google", "description": "As a user I sign in with my Google account"})["room_id"].(string)
+	rows := list(ok("list_rooms", map[string]any{})["rooms"])
+	eq(t, []any{mapOf(rows[2])["room_id"], mapOf(rows[2])["description"], mapOf(rows[3])["room_id"]}, []any{story, "As a user I sign in with my Google account", room})
+	ok("update_room", map[string]any{"room_id": story, "title": "  US-4   sign in "})
+	eq(t, []any{mapOf(ok("get_room", map[string]any{"room_id": story})["room"])["title"], mapOf(ok("get_room", map[string]any{"room_id": story})["room"])["description"]}, []any{"US-4 sign in", "As a user I sign in with my Google account"})
+	ok("update_room", map[string]any{"room_id": story, "description": ""})
+	eq(t, mapOf(ok("get_room", map[string]any{"room_id": story})["room"])["description"], nil)
+	bad("update_room", map[string]any{"room_id": story, "title": " "}, `title`)
+	bad("update_room", map[string]any{"room_id": "general", "title": "Mine"}, `denied|not allow`)
+	ok("move_presentation", map[string]any{"deck_id": a, "room_id": story})
+	eq(t, ok("delete_room", map[string]any{"room_id": story})["deleted"], true)
+	bad("get_room", map[string]any{"room_id": story}, `not found`)
+	eq(t, len(list(ok("get_room", map[string]any{"room_id": "general"})["presentations"])), 1)
+	bad("delete_room", map[string]any{"room_id": "playground"}, `denied|not allow`)
+
 	bad("get_room", map[string]any{}, `room_id is missing`)
 }
 

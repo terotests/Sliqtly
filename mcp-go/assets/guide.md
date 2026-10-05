@@ -462,6 +462,24 @@ whether it is resolved, and its messages. Work through the open ones:
   `slide_title`, and `x`, `y` (0..1 of the slide) to point at something.
 - `author` names you on the message; the default is "AI assistant".
 
+## Rooms
+
+On a Sliqtly server of one's own (`list_rooms` is in the tool list), the
+presentations are kept in rooms. A room is one whole piece of work: a
+task, a Jira ticket, a user story, or another whole such as a project.
+Every presentation has one home room; new ones start in General.
+
+- Work on a ticket or a story: find its room in `list_rooms` (newest
+  first) or make one with `create_room`, named as the work is known
+  ("PROJ-123 Checkout retry") and with the ticket's summary or link as its
+  `description`. Then `move_presentation` the decks made for it there.
+- `get_room` lists a room's presentations; `update_room` renames or
+  describes it; `archive_room` puts finished work away (read only,
+  nothing removed); `delete_room` removes the room and moves its decks to
+  General.
+- `add_link` ties a room to the ticket itself: `room:<room_id>`
+  `references` `jira:PROJ-123`.
+
 ## When another assistant works on the same deck
 
 Two assistants (two chats, or another app) can change one presentation at

@@ -79,4 +79,24 @@ func rooms(t *testing.T, e store.Engine) {
 	isErr(t, rs.SetMember(ctx, alice, pay, "user:carol", store.Editor), store.ErrDenied, "members change in the archive")
 	must(0, rs.Archive(ctx, alice, pay, false))
 	eq(t, as(alice).Rooms[pay], store.Owner, "out of the archive")
+
+	// settings: the owner renames and describes; an editor does not; the
+	// starter rooms keep their names
+	name, about := "PAY-12 retry", "Retry failed card payments"
+	isErr(t, rs.Edit(ctx, bob, pay, &name, nil), store.ErrDenied, "an editor renames")
+	must(0, rs.Edit(ctx, alice, pay, &name, &about))
+	r, _, _ := rs.Get(ctx, alice, pay)
+	eq(t, []any{r["title"], r["description"], r["kind"]}, []any{name, about, "ticket"}, "renamed and described")
+	isErr(t, rs.Edit(ctx, alice, store.GeneralRoom, &name, nil), store.ErrDenied, "General renamed")
+
+	// removed: owners only; its decks are in General, nothing is deleted
+	isErr(t, rs.Remove(ctx, bob, pay, "decks"), store.ErrDenied, "an editor removes the room")
+	isErr(t, rs.Remove(ctx, eve, pay, "decks"), store.ErrNotFound, "another tenant removes it")
+	must(0, rs.Remove(ctx, alice, pay, "decks"))
+	_, _, err = rs.Get(ctx, alice, pay)
+	isErr(t, err, store.ErrNotFound, "the room is gone")
+	d, _, _ = e.Get(ctx, "decks", "arch")
+	eq(t, []any{d["room"], d["title"]}, []any{store.GeneralRoom, "architecture"}, "its deck is in General")
+	eq(t, len(must(e.Query(ctx, store.Query{From: store.MembersCol, Where: store.Eq("room", pay)}))), 0, "its members are gone")
+	isErr(t, rs.Remove(ctx, alice, store.GeneralRoom, "decks"), store.ErrDenied, "General removed")
 }
