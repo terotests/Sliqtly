@@ -104,8 +104,8 @@ type Env struct {
 	// needs more than DB says (revisions, the change feed); nil elsewhere
 	Store    store.Engine
 	FilesURL string // e.g. https://host/files; "": Storage download URLs
-	// GitHubToken: sent to api.github.com (read_github_pr, source_uml), for
-	// its higher limit; "" reads as anyone
+	// GitHubToken: sent to api.github.com (read_github_pr), for its
+	// higher limit; "" reads as anyone
 	GitHubToken string
 	// GitHubUsers: the Sliqtly user ids (Firebase uids) for whom the token
 	// may read private repositories (SLIQTLY_GITHUB_USERS, comma-separated).

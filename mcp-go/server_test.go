@@ -374,7 +374,7 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	eq(t, names, []string{"add_comment", "begin_work", "bind_chart_data", "create_presentation", "end_work", "export_presentation", "get_presentation", "list_comments", "list_files", "list_presentations", "read_file", "read_github_pr", "render_overview", "render_slide", "resolve_comment", "sliqtly_guide", "source_uml", "update_presentation", "write_workbook"})
+	eq(t, names, []string{"add_comment", "begin_work", "bind_chart_data", "create_presentation", "end_work", "export_presentation", "get_presentation", "list_comments", "list_files", "list_presentations", "read_file", "read_github_pr", "render_overview", "render_slide", "resolve_comment", "sliqtly_guide", "update_presentation", "write_workbook"})
 	uri, _ := create.Meta["ui"].(map[string]any)["resourceUri"].(string)
 	match(t, uri, `^ui://sliqtly/preview-[0-9a-f]{10}\.html$`)
 	eq(t, create.Meta["openai/outputTemplate"], uri)
