@@ -1,7 +1,7 @@
 // node --test: rooms in this browser (web/rooms.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { emptyRooms, parseRooms, roomOf, listRooms, roomDecks, createRoom, moveDeck, deckLines, GENERAL, PLAYGROUND, ONBOARDING, SHOWN } from "../rooms.js";
+import { emptyRooms, parseRooms, roomOf, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, GENERAL, PLAYGROUND, ONBOARDING, SHOWN, ACTIVE_DAYS, ACTIVE_MAX } from "../rooms.js";
 
 const decks = [
   { id: "a", name: "Budget", updated: 300 },
@@ -63,4 +63,35 @@ test("the panel shows at most SHOWN, then Show all, then the row moving the open
   assert.equal(lines[SHOWN + 1], "move\t+ Move here\t\tm");
   // the open one already here: no move row; few decks: no Show all
   assert.equal(deckLines(many.slice(0, 2), { showAll: "all", moveHere: "+", currentId: "d1" }).split("\n").length, 2);
+});
+
+test("the panel lists the rooms one is active in: built-in three, then the recently used, newest first", () => {
+  const now = 1_000_000_000_000;
+  const day = 86400000;
+  let s = emptyRooms();
+  const rows = [
+    { room_id: GENERAL, title: "General" }, { room_id: PLAYGROUND, title: "Playground" }, { room_id: ONBOARDING, title: "Onboarding" },
+    ...Array.from({ length: ACTIVE_MAX + 3 }, (_, i) => ({ room_id: "r" + i, title: "Room " + i })),
+  ];
+  for (let i = 0; i < ACTIVE_MAX + 2; i++) s = touchRoom(s, "r" + i, now - i * 1000);
+  s = touchRoom(s, "r0", now - (ACTIVE_DAYS + 1) * day); // gone quiet
+  const { shown, hidden } = activeRooms(rows, s, now);
+  assert.deepEqual(shown.slice(0, 3).map((r) => r.room_id), [GENERAL, PLAYGROUND, ONBOARDING]);
+  assert.equal(shown.length, 3 + ACTIVE_MAX);
+  assert.equal(shown[3].room_id, "r1");
+  assert.ok(!shown.some((r) => r.room_id === "r0"));
+  assert.equal(hidden, rows.length - shown.length);
+});
+
+test("search finds rooms by every word of the query, any case and accent", () => {
+  const rows = [{ room_id: "a", title: "Q1 Päivitys" }, { room_id: "b", title: "Q1 budget" }, { room_id: "c", title: "Team" }];
+  assert.deepEqual(searchRooms(rows, "q1 paivitys").map((r) => r.room_id), ["a"]);
+  assert.deepEqual(searchRooms(rows, "Q1").map((r) => r.room_id), ["a", "b"]);
+  assert.deepEqual(searchRooms(rows, "  "), []);
+  assert.equal(searchRooms(Array.from({ length: 50 }, (_, i) => ({ room_id: "x" + i, title: "x" })), "x").length, 20);
+});
+
+test("a room made here is touched, so it is listed at once", () => {
+  const { state, id } = createRoom(emptyRooms(), "Fresh", () => "z");
+  assert.ok(state.touched[id] > 0);
 });

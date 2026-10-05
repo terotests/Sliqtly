@@ -993,5 +993,8 @@
   "Room name": "Huoneen nimi",
   "Move this presentation here": "Siirrä tämä esitys tänne",
   "Make a change first: a sample becomes a presentation of your own when it is edited.": "Muokkaa ensin: esimerkistä tulee oma esitys, kun sitä muokataan.",
-  "Room: ": "Huone: "
+  "Room: ": "Huone: ",
+  "Search rooms": "Hae huoneita",
+  "Search rooms…": "Hae huoneita…",
+  " more": " lisää"
 }

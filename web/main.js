@@ -30,7 +30,7 @@ import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
-import { parseRooms, listRooms, roomDecks, createRoom, moveDeck, deckLines, ONBOARDING } from "./rooms.js";
+import { parseRooms, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, ONBOARDING } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 
@@ -827,17 +827,61 @@ async function currentRoomId() {
   if (ownServer()) return doc.cloud ? "cloud:" + doc.cloud : "";
   return (await allDocs()).find((d) => d.current)?.id || "";
 }
+// the search field's text while it is open (null: the rooms one is active in)
+let roomsQuery = null;
 async function roomsRequest(r) {
   const [, action, ...rest] = r.split(":");
   const what = rest.join(":");
   if (action === "list") {
-    const rooms = await roomsList();
+    const q = roomsQuery;
+    const all = await roomsList();
+    // typed on since: that text's own list is the one to show
+    if (roomsQuery !== q) return;
+    // the rooms one is active in, or what the search finds; the open room
+    // stays listed
+    let rooms, hidden = 0;
+    const searching = q !== null && q.trim() !== "";
+    if (searching) rooms = searchRooms(all, q);
+    else ({ shown: rooms, hidden } = activeRooms(all, roomsHere));
+    if (!searching && !rooms.some((x) => x.room_id === roomShown)) {
+      const open = all.find((x) => x.room_id === roomShown);
+      if (open) rooms = [...rooms, open];
+      else roomShown = rooms[0]?.room_id || "";
+    }
     const rows = rooms.map((x) => [x.room_id, clean(x.title), x.presentations ?? ""].join("\t"));
-    if (!rooms.some((x) => x.room_id === roomShown)) roomShown = rooms[0]?.room_id || "";
+    app.setToolbarOptions("roomsearch", "", t("Search rooms…") + (hidden ? " (" + hidden + t(" more") + ")" : ""));
     app.setToolbarOptions("rooms", rows.join("\n"), roomShown);
-    if (roomShown) await roomsRequest("room:open:" + roomShown);
+    if (roomShown && rooms.some((x) => x.room_id === roomShown)) await roomsRequest("room:open:" + roomShown);
+    else app.setToolbarOptions("roomdecks", "", roomShown);
+  } else if (action === "search") {
+    roomsQuery = what;
+    await roomsRequest("room:list");
+  } else if (action === "searchend") {
+    roomsQuery = null;
+    await roomsRequest("room:list");
+  } else if (action === "searchgo" || action === "pick") {
+    // Enter: the first room found; a press: that room. Either is now one of
+    // the rooms one is active in
+    const id = action === "pick" ? what : searchRooms(await roomsList(), what)[0]?.room_id;
+    roomsQuery = null;
+    if (id) {
+      roomShown = id;
+      keepRooms(touchRoom(roomsHere, id));
+    }
+    await roomsRequest("room:list");
+  } else if (action === "drop") {
+    // a presentation dragged from the open room onto another
+    const [room, ...deck] = rest;
+    await roomsRequest("room:moveid:" + room + ":" + deck.join(":"));
+  } else if (action === "moveid") {
+    const [room, ...deckParts] = rest;
+    const deck = deckParts.join(":");
+    if (ownServer()) await roomsCall("move_presentation", { deck_id: deck.replace(/^cloud:/, ""), room_id: room });
+    else if (!deck.startsWith("sample:")) keepRooms(touchRoom(moveDeck(roomsHere, deck, room), room));
+    await roomsRequest("room:list");
   } else if (action === "open") {
     roomShown = what;
+    keepRooms(touchRoom(roomsHere, roomShown));
     const rows = await roomRows(roomShown);
     const lines = deckLines(rows, {
       showAll: "… " + t("Show all") + " (" + rows.length + ")",
@@ -874,10 +918,9 @@ async function roomsRequest(r) {
     const id = await currentRoomId();
     if (!id) {
       toast(t("Make a change first: a sample becomes a presentation of your own when it is edited."));
-    } else if (ownServer()) {
-      await roomsCall("move_presentation", { deck_id: doc.cloud, room_id: what });
     } else {
-      keepRooms(moveDeck(roomsHere, id, what));
+      await roomsRequest("room:moveid:" + what + ":" + id);
+      return;
     }
     await roomsRequest("room:list");
   }

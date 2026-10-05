@@ -4,7 +4,9 @@
 // decks. A server of one's own keeps its rooms itself (POST /api/rooms/<op>,
 // mcp-go/roomsapi.go); this is the same shape for the decks kept here.
 //
-// state: { rooms: [{ id, title, created }], placed: { deckId: roomId } }
+// state: { rooms: [{ id, title, created }], placed: { deckId: roomId },
+//          touched: { roomId: ms } }  (when one last opened or used a room:
+//          the panel lists the rooms one is active in, the rest by search)
 
 export const GENERAL = "general";
 export const PLAYGROUND = "playground";
@@ -12,9 +14,14 @@ export const ONBOARDING = "onboarding";
 const BUILT_IN = [GENERAL, PLAYGROUND, ONBOARDING];
 // a room's presentations shown under it before "… Show all"
 export const SHOWN = 5;
+// the rooms one is active in: used in the last ACTIVE_DAYS, at most
+// ACTIVE_MAX of them besides the built-in three
+export const ACTIVE_DAYS = 30;
+export const ACTIVE_MAX = 8;
+const DAY = 86400000;
 
 export function emptyRooms() {
-  return { rooms: [], placed: {} };
+  return { rooms: [], placed: {}, touched: {} };
 }
 
 // What localStorage held, or an empty state when it held nothing usable.
@@ -23,7 +30,8 @@ export function parseRooms(text) {
     const s = JSON.parse(text || "");
     const rooms = Array.isArray(s?.rooms) ? s.rooms.filter((r) => r && typeof r.id === "string" && typeof r.title === "string") : [];
     const placed = s?.placed && typeof s.placed === "object" ? { ...s.placed } : {};
-    return { rooms, placed };
+    const touched = s?.touched && typeof s.touched === "object" ? { ...s.touched } : {};
+    return { rooms, placed, touched };
   } catch (_) {
     return emptyRooms();
   }
@@ -72,7 +80,8 @@ export function createRoom(state, title, idOf) {
   if (!name) return { state, id: "" };
   let id = "r-" + idOf();
   while (BUILT_IN.includes(id) || state.rooms.some((r) => r.id === id)) id = "r-" + idOf();
-  return { state: { ...state, rooms: [...state.rooms, { id, title: name, created: Date.now() }] }, id };
+  const now = Date.now();
+  return { state: { ...state, rooms: [...state.rooms, { id, title: name, created: now }], touched: { ...state.touched, [id]: now } }, id };
 }
 
 // A deck into a room (Onboarding holds only the samples).
@@ -94,4 +103,34 @@ export function deckLines(rows, { showAll = "", moveHere = "", currentId = "" } 
   if (rows.length > SHOWN && showAll) lines.push(["all", showAll, "", "a"].join("\t"));
   if (moveHere && currentId && !rows.some((r) => r.id === currentId)) lines.push(["move", moveHere, "", "m"].join("\t"));
   return lines.join("\n");
+}
+
+// A room opened or used now: it is one of the rooms one is active in.
+export function touchRoom(state, roomId, now = Date.now()) {
+  if (!roomId) return state;
+  return { ...state, touched: { ...state.touched, [roomId]: now } };
+}
+
+// The rooms the panel lists: the built-in three, then those used in the last
+// ACTIVE_DAYS, most recent first, at most ACTIVE_MAX. rows: listRooms's (or
+// the server's) rows. { shown, hidden }: hidden counts the rest, found by
+// search.
+export function activeRooms(rows, state, now = Date.now()) {
+  const fixed = rows.filter((r) => BUILT_IN.includes(r.room_id));
+  const when = (r) => state.touched?.[r.room_id] || 0;
+  const recent = rows
+    .filter((r) => !BUILT_IN.includes(r.room_id) && now - when(r) <= ACTIVE_DAYS * DAY)
+    .sort((a, b) => when(b) - when(a))
+    .slice(0, ACTIVE_MAX);
+  const shown = [...fixed, ...recent];
+  return { shown, hidden: rows.length - shown.length };
+}
+
+// Rooms whose name has every word of the query in it, any case and accent,
+// at most `max`.
+export function searchRooms(rows, query, max = 20) {
+  const fold = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const words = fold(query).split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  return rows.filter((r) => words.every((w) => fold(r.title).includes(w))).slice(0, max);
 }

@@ -103,6 +103,19 @@ class PresToolbar {
     def editFor:string "title"
     ; the editor's look is dark (the rail's switch shows Light then)
     def darkOn:boolean false
+    ; the Rooms panel's search row ("Search rooms…", with how many rooms
+    ; only search finds), from the page
+    def roomSearchLabel:string ""
+    ; a presentation of a room's list pressed: dragged onto another room it
+    ; moves there, let go where it was pressed it opens
+    def dragDeck:string ""
+    def dragName:string ""
+    def dragX0:double 0.0
+    def dragY0:double 0.0
+    def dragX:double 0.0
+    def dragY:double 0.0
+    def dragOn:boolean false
+    def dropRoom:string ""
     def titleIn:InputCtl (new InputCtl())
     def eng@(optional):EVGTextEngine
 
@@ -133,6 +146,9 @@ class PresToolbar {
         }
         if (id == "dark") {
             darkOn = (current == "1")
+        }
+        if (id == "roomsearch") {
+            roomSearchLabel = current
         }
         if (id == "roomdecks") {
             roomDecks = rows
@@ -733,6 +749,9 @@ class PresToolbar {
         if open {
             UiTree.addClass(rel "tb-room-open")
         }
+        if (dragOn && (id == dropRoom)) {
+            UiTree.addClass(rel "tb-room-drop")
+        }
         if ((rel.getChildCount()) > 0) {
             def lb:EVGElement (rel.getChild(0))
             lb.textContent = ("# " + name)
@@ -779,19 +798,95 @@ class PresToolbar {
         head.addChild((this.div("tb-grow")))
         this.button("room-new" "+" "ghost" head)
         pane.addChild(head)
-        ; "+" asks the new room's name in a field at the top of the list
-        if (titleEditing && (editFor == "room")) {
+        ; "+" asks the new room's name in a field at the top of the list; the
+        ; search row is a field too, the list then the rooms it finds
+        def fieldOn:boolean (titleEditing && ((editFor == "room") || (editFor == "search")))
+        if fieldOn {
             def c:InputCtl titleIn
             c.tid = "tb-title-in"
-            c.name = (PresI18n.t("Room name"))
+            if (editFor == "room") {
+                c.name = (PresI18n.t("Room name"))
+            } {
+                c.name = (PresI18n.t("Search rooms"))
+                c.placeholder = (PresI18n.t("Search rooms…"))
+            }
             c.boxClass = "tb-roomname-box"
             c.focused = true
             c.build()
             UiTree.addClass((unwrap c.rootEl) "tb-roomname-field")
             this.put(c pane)
         }
+        if ((fieldOn == false) && ((strlen roomSearchLabel) > 0)) {
+            def sb:ButtonCtl (this.button("roomsearch" roomSearchLabel "ghost" pane))
+            def sel:EVGElement (unwrap sb.rootEl)
+            UiTree.addClass(sel "tb-roomsearch")
+            if ((sel.getChildCount()) > 0) {
+                UiTree.addClass((sel.getChild(0)) "tb-roomsearch-label")
+            }
+            sel.addChild((this.div("tb-grow")))
+        }
         this.liveRooms(pane)
         root.addChild(pane)
+    }
+
+    ; The presentation being dragged, drawn at the pointer.
+    fn dragChip:void (root:EVGElement) {
+        def chip:EVGElement (this.div("tb-dragchip"))
+        def label:string (UiText.fit((this.engine()) dragName "Open Sans" 13.0 200.0))
+        chip.addChild((this.text("tb-dragchip-label" label)))
+        ; as wide as its name (an absolute box takes the row's width else)
+        def cw:double ((UiText.widthOf((this.engine()) label "Open Sans" 13.0)) + 24.0)
+        chip.setAttribute("width" ((EVGDisplayList.num(cw)) + "px"))
+        chip.setAttribute("position" "absolute")
+        chip.setAttribute("left" ((EVGDisplayList.num((dragX + 12.0))) + "px"))
+        chip.setAttribute("top" ((EVGDisplayList.num((dragY + 6.0))) + "px"))
+        root.addChild(chip)
+    }
+
+    ; --- dragging a presentation onto another room (PresApp routes the pointer)
+    fn roomDragging:boolean () {
+        return ((strlen dragDeck) > 0)
+    }
+
+    fn roomDragTo:void (px:double py:double) {
+        dragX = px
+        dragY = py
+        if (dragOn == false) {
+            def dx:double (px - dragX0)
+            def dy:double (py - dragY0)
+            if (((dx * dx) + (dy * dy)) < 36.0) {
+                return
+            }
+            dragOn = true
+        }
+        def over:string ""
+        def tid:string (host.hitTest(px py))
+        def maybe@(optional):UiCtl (host.ctlFor(tid))
+        if (!null? maybe) {
+            def owner:UiCtl (unwrap maybe)
+            def ct:string owner.tid
+            if (((indexOf ct "tb-room-") == 0) && ((ct != "tb-room-new") && (ct != "tb-room-close"))) {
+                over = (substring ct 8 (strlen ct))
+            }
+        }
+        dropRoom = over
+        this.rebuild()
+    }
+
+    ; Let go: onto another room the presentation moves there; where it was
+    ; pressed (no drag) it opens.
+    fn roomDragEnd:void () {
+        if dragOn {
+            if (((strlen dropRoom) > 0) && (dropRoom != roomOpen)) {
+                push requests ("room:drop:" + dropRoom + ":" + dragDeck)
+            }
+        } {
+            push requests ("room:deck:" + dragDeck)
+        }
+        dragDeck = ""
+        dragOn = false
+        dropRoom = ""
+        this.rebuild()
     }
 
     ; Rows of "id TAB title TAB count"; under the open room its presentations,
@@ -884,6 +979,32 @@ class PresToolbar {
         this.rebuild()
     }
 
+    ; The search row pressed: the field, each key asking the page for the
+    ; rooms it finds ("room:search:<text>").
+    fn roomSearchBegin:void () {
+        this.closeSelects()
+        this.closeMenus()
+        titleIn = (new InputCtl())
+        editFor = "search"
+        titleEditing = true
+        push requests "room:search:"
+        this.rebuild()
+    }
+
+    ; A presentation's name in the open room's list.
+    fn roomDeckName:string (id:string) {
+        def ds:[string] (strsplit roomDecks (strfromcode 10))
+        def k:int 0
+        while (k < (array_length ds)) {
+            def dp:[string] (strsplit (itemAt ds k) (strfromcode 9))
+            if (((array_length dp) >= 2) && ((itemAt dp 0) == id)) {
+                return (itemAt dp 1)
+            }
+            k = (k + 1)
+        }
+        return id
+    }
+
     ; "+" in Rooms: the same field, empty, for a new room's name.
     fn roomNameBegin:void () {
         this.closeSelects()
@@ -901,6 +1022,12 @@ class PresToolbar {
         }
         titleEditing = false
         def v:string (trim titleIn.value)
+        if (editFor == "search") {
+            ; Enter opens the first room found
+            push requests ("room:searchgo:" + v)
+            this.rebuild()
+            return
+        }
         if (editFor == "room") {
             if ((strlen v) > 0) {
                 push requests ("room:create:" + v)
@@ -917,7 +1044,17 @@ class PresToolbar {
 
     fn titleCancel:void () {
         titleEditing = false
+        if (editFor == "search") {
+            push requests "room:searchend"
+        }
         this.rebuild()
+    }
+
+    ; The search field's text changed: the page lists what it finds.
+    fn searchChanged:void () {
+        if (titleEditing && (editFor == "search")) {
+            push requests ("room:search:" + titleIn.value)
+        }
     }
 
     fn titleType:void (s:string) {
@@ -933,6 +1070,7 @@ class PresToolbar {
         if ((strlen line) > 0) {
             host.type(line)
         }
+        this.searchChanged()
         rev = (rev + 1)
     }
 
@@ -964,6 +1102,7 @@ class PresToolbar {
         def k:string (PresToolbar.kitKey(name))
         if ((strlen k) > 0) {
             host.keyWith(k shift ctrl)
+            this.searchChanged()
             rev = (rev + 1)
         }
         return true
@@ -1124,6 +1263,9 @@ class PresToolbar {
                 rmEl.setAttribute("width" ((EVGDisplayList.num(roomsW)) + "px"))
                 rmEl.setAttribute("height" ((EVGDisplayList.num(((h - barH) - 20.0))) + "px"))
             }
+        }
+        if dragOn {
+            this.dragChip(root)
         }
         if titleEditing {
             host.focus("tb-title-in")
@@ -1366,7 +1508,19 @@ class PresToolbar {
                 rev = (rev + 1)
                 return
             }
-            ; a new room is made on Enter only; a press elsewhere drops it
+            ; a new room is made on Enter only; a press elsewhere drops it.
+            ; Searching, a room found is opened by its press
+            if (editFor == "search") {
+                if (((indexOf ctlTid "tb-room-") == 0) && (ctlTid != "tb-room-close")) {
+                    titleEditing = false
+                    roomOpen = (substring ctlTid 8 (strlen ctlTid))
+                    push requests ("room:pick:" + roomOpen)
+                    this.rebuild()
+                    return
+                }
+                this.titleCancel()
+                return
+            }
             if (editFor == "room") {
                 this.titleCancel()
             } {
@@ -1416,7 +1570,18 @@ class PresToolbar {
             return
         }
         if ((indexOf ctlTid "tb-roomdeck-d-") == 0) {
-            push requests ("room:deck:" + (substring ctlTid 14 (strlen ctlTid)))
+            dragDeck = (substring ctlTid 14 (strlen ctlTid))
+            dragName = (this.roomDeckName(dragDeck))
+            dragX0 = px
+            dragY0 = py
+            dragX = px
+            dragY = py
+            dragOn = false
+            dropRoom = ""
+            return
+        }
+        if (ctlTid == "tb-roomsearch") {
+            this.roomSearchBegin()
             return
         }
         if (ctlTid == "tb-roomdeck-all") {

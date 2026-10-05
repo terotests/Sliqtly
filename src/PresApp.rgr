@@ -2862,6 +2862,12 @@ class PresApp {
             this.deckMove(x y)
             return
         }
+        ; a presentation of a Rooms list dragged towards another room
+        if (toolbar.roomDragging()) {
+            toolbar.roomDragTo(x y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         ; a drag selecting in a comment's text field
         if review.selecting {
             review.dragTo(x y)
@@ -2990,6 +2996,10 @@ class PresApp {
     fn pointerUp:void () {
         if deckDown {
             this.deckRelease()
+        }
+        if (toolbar.roomDragging()) {
+            toolbar.roomDragEnd()
+            this.takeToolbar()
         }
         if (review.release()) {
             this.reviewSpots()
@@ -3524,7 +3534,7 @@ class PresApp {
     fn text:void (s:string) {
         if ((barH > 0.0) && toolbar.titleEditing) {
             toolbar.titleType(s)
-            chromeRev = (chromeRev + 1)
+            this.takeToolbar()
             return
         }
         if (review.hasKeys()) {
@@ -3616,7 +3626,7 @@ class PresApp {
     fn pasteText:void (s:string) {
         if ((barH > 0.0) && toolbar.titleEditing) {
             toolbar.titleType(s)
-            chromeRev = (chromeRev + 1)
+            this.takeToolbar()
             return
         }
         if (review.hasKeys()) {

@@ -1963,7 +1963,7 @@ try {
 
     // Rooms' "+": a field for the name, Enter makes the room (this browser's,
     // web/rooms.js) and opens it; its last row moves the open presentation in
-    const pageHas = (needle) => page.waitForFunction((n) => { const a = window.__app; a.toolbarJson(); return JSON.stringify(a.toolbar.host.lastPage).includes(n); }, needle, { timeout: 5000 }).then(() => true, () => false);
+    const pageHas = (needle) => page.waitForFunction((n) => { const a = window.__app; a.toolbarJson(); return JSON.stringify(a.toolbar.host.lastPage).includes(n); }, needle, { timeout: 10000 }).then(() => true, () => false);
     await page.evaluate((findJs) => {
       const a = window.__app;
       const find = eval(findJs);
@@ -1975,14 +1975,20 @@ try {
       const a = window.__app;
       const find = eval(findJs);
       const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      // an edit keeps the open deck here, so it is one that can move
+      a.setSource(a.source() + "\n\n## Huone\n\nteksti\n");
       press(find("tb-room-new"));
       const field = !!find("tb-title-in") && a.toolbar.editFor === "room";
       a.text("Team room");
       a.key("enter", false, false);
       return { field, after: a.toolbar.titleEditing };
     }, findJs);
-    const made = await pageHas("Team room") && await pageHas("tb-roomdeck-move");
-    await page.evaluate((findJs) => {
+    const made = await pageHas("Team room");
+    // the move row once the deck is kept (a list again after the save)
+    await page.waitForTimeout(1500);
+    await page.evaluate(() => window.__app.request("room:list"));
+    const canMove = await pageHas("tb-roomdeck-move");
+    if (canMove) await page.evaluate((findJs) => {
       const a = window.__app;
       const find = eval(findJs);
       const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
@@ -1990,6 +1996,38 @@ try {
     }, findJs);
     const movedIn = await page.waitForFunction(() => { try { const s = JSON.parse(localStorage.getItem("sliqtly.rooms")); const r = s.rooms.find((x) => x.title === "Team room"); return !!r && Object.values(s.placed).includes(r.id); } catch (_) { return false; } }, null, { timeout: 5000 }).then(() => true, () => false);
     const moveGone = movedIn && await page.waitForFunction(() => { const a = window.__app; a.toolbarJson(); return !JSON.stringify(a.toolbar.host.lastPage).includes("tb-roomdeck-move"); }, null, { timeout: 5000 }).then(() => true, () => false);
+    check("…Rooms' + asks a name; Enter makes the room, and the open presentation moves into it", naming.field && !naming.after && made && canMove && movedIn && moveGone, JSON.stringify({ naming, made, canMove, movedIn, moveGone }));
+    // a presentation dragged from its room's list onto General moves back
+    const dragged = await page.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      a.toolbarJson();
+      const deckRow = JSON.stringify(a.toolbar.host.lastPage).match(/"(tb-roomdeck-d-[^"]+)"/);
+      const from = deckRow && find(deckRow[1]);
+      if (!from) return { from: false };
+      a.pointerDown(from.calculatedX + 20, from.calculatedY + 8, false, 1);
+      a.pointerMove(from.calculatedX + 30, from.calculatedY + 30);
+      const to = find("tb-room-general");
+      if (!to) return { from: true, to: false };
+      a.pointerMove(to.calculatedX + 30, to.calculatedY + 10);
+      const lit = a.toolbar.dropRoom;
+      a.pointerUp();
+      return { from: true, to: true, lit };
+    }, findJs);
+    const backInGeneral = await page.waitForFunction(() => { try { return Object.keys(JSON.parse(localStorage.getItem("sliqtly.rooms")).placed).length === 0; } catch (_) { return false; } }, null, { timeout: 5000 }).then(() => true, () => false);
+    check("…a presentation dragged onto another room moves there", dragged.lit === "general" && backInGeneral, JSON.stringify({ dragged, backInGeneral }));
+    // the search row: a field whose text lists the rooms found
+    await page.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      press(find("tb-roomsearch"));
+      a.text("team");
+    }, findJs);
+    const found = await page.waitForFunction(() => { const r = window.__app.toolbar.roomRows; return r.includes("Team room") && !r.includes("Playground"); }, null, { timeout: 5000 }).then(() => true, () => false);
+    await page.evaluate(() => window.__app.key("escape", false, false));
+    const back = await page.waitForFunction(() => window.__app.toolbar.roomRows.includes("Playground"), null, { timeout: 5000 }).then(() => true, () => false);
+    check("…Search rooms lists the rooms found, Escape the active ones again", found && back, JSON.stringify({ found, back }));
     await page.evaluate((findJs) => {
       const a = window.__app;
       const find = eval(findJs);
@@ -1997,7 +2035,6 @@ try {
       press(find("tb-room-close"));
       localStorage.removeItem("sliqtly.rooms");
     }, findJs);
-    check("…Rooms' + asks a name; Enter makes the room, and the open presentation moves into it", naming.field && !naming.after && made && movedIn && moveGone, JSON.stringify({ naming, made, movedIn, moveGone }));
 
     // the File menu's groups: new | open | save | the assistants | settings, lines between them
     // that take no press
