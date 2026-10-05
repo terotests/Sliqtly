@@ -35,6 +35,11 @@ var faceFiles = map[string]string{
 	"Noto Sans-Italic":     "NotoSans-Italic.ttf",
 	"Noto Sans-BoldItalic": "NotoSans-BoldItalic.ttf",
 	"Noto Emoji-Regular":   "NotoEmoji-Regular.ttf",
+	// the diagram looks' faces (RangerFlow FlowLook: {style=cartoon} …)
+	"Gloria Hallelujah":      "GloriaHallelujah.ttf",
+	"Fjalla One":             "FjallaOne-Regular.ttf",
+	"Josefin Sans-Bold":      "JosefinSans-Bold.ttf",
+	"Droid Serif-BoldItalic": "DroidSerif-BoldItalic.ttf",
 }
 
 var symbolFaces = map[string]string{

@@ -11,6 +11,7 @@ Import "PresControlsFade.rgr"
 Import "PresFollow.rgr"
 Import "PresReview.rgr"
 Import "PresPick.rgr"
+Import "PresNav.rgr"
 
 class PresCheck {
     def fails:int 0
@@ -94,11 +95,31 @@ class PresCheck {
 
         this.ok(((PresTimeline.slideAtTime(deck (s0.duration + 0.01))) == 1) "deck time to slide")
         this.ok(((deck.pageOfOffset((indexOf text "Toka"))) == 1) "source offset to slide")
+        this.codeSteps()
         this.diagram()
         this.bigTitle()
         this.orientation()
         this.chartModel()
         this.review()
+        this.reviewDiagram()
+    }
+
+    ; ```js {lines=2|3 .build}: the code is there from the start, and each
+    ; highlight (a band and a bar at its left) comes at a build step
+    fn codeSteps:void () {
+        def deck (new PresDeck())
+        deck.setText("## Koodi\n\n```js {lines=2|3 .build}\nalpha()\nbeta()\ngamma()\n```\n")
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        this.ok((s.steps == 2) ("code highlights: two steps, got " + (to_string s.steps)))
+        def early:EVGDisplayList (PresTimeline.frame(deck 0 0.1))
+        def one:EVGDisplayList (PresTimeline.frame(deck 0 ((PresTimeline.stepDone(s 1)) + 0.05)))
+        def late:EVGDisplayList (PresTimeline.frame(deck 0 s.duration))
+        this.ok(((PresCheck.textsLike(early "gamma")) == 1) "code highlights: the code is there before the steps")
+        ; the highlight bar's blue on a light listing
+        this.ok(((PresCheck.fills(early 9 105 218)) == 0) "code highlights: none before step 1")
+        this.ok(((PresCheck.fills(one 9 105 218)) == 1) "code highlights: one after step 1")
+        this.ok(((PresCheck.fills(late 9 105 218)) == 2) "code highlights: both at the end")
     }
 
     ; Review comments: threads on slides, closing, deleting, the file, two
@@ -166,11 +187,99 @@ class PresCheck {
         p.place(([] _:string ("One")))
         def pt2:PresReviewThread (unwrap (p.find("t")))
         this.ok((pt2.slide == 0) "review: past the end, the last slide")
+        ; pinned on a diagram: kept in the file, and travels in a merge
+        def q (new PresReview())
+        q.start("d" 0 "Flow" 0.4 0.4 (PresReview.msg("y1" "u" "U" "" "this box" t0)))
+        this.ok(((q.anchor("d" 0 "B" 0.25 0.75)) && ((q.anchor("nope" 0 "B" 0.5 0.5)) == false)) "review: a thread is pinned on a diagram's node")
+        def q2:PresReview (PresReview.parse((q.toJson())))
+        def qd:PresReviewThread (unwrap (q2.find("d")))
+        this.ok(((((qd.dia == 0) && (qd.node == "B")) && (qd.ax == 0.25)) && (qd.ay == 0.75)) ("review: the diagram point is in the file: " + (q.toJson())))
+        def q3 (new PresReview())
+        q3.start("d" 0 "Flow" 0.4 0.4 (PresReview.msg("y1" "u" "U" "" "this box" t0)))
+        q3.merge(q2)
+        def q3d:PresReviewThread (unwrap (q3.find("d")))
+        this.ok(((q3d.dia == 0) && (q3d.node == "B")) "review: a merge takes the diagram point")
+        ; dragged somewhere else: off the diagram, and the latest move wins
+        ; a merge (the other copy still has the old point on the diagram)
+        this.ok(((q3.move("d" 0.9 1.4 (t0 + 500.0))) && ((q3.move("nope" 0.5 0.5 t0)) == false)) "review: a thread is moved")
+        this.ok(((((q3d.x == 0.9) && (q3d.y == 1.0)) && (q3d.dia == -1)) && (q3d.node == "")) "review: a moved thread is off its diagram, inside the slide")
+        def q4:PresReview (PresReview.parse((q3.toJson())))
+        def q4d:PresReviewThread (unwrap (q4.find("d")))
+        this.ok(((q4d.moved == (t0 + 500.0)) && (q4d.x == 0.9)) ("review: the move is in the file: " + (q3.toJson())))
+        q2.merge(q4)
+        this.ok(((((qd.x == 0.9) && (qd.dia == -1)) && (qd.moved == (t0 + 500.0))) && ((q4.merge(q2)) == false)) "review: a merge takes the newer place, not the old diagram point")
+        q4.anchor("d" 1 "C" 0.5 0.5)
+        q2.merge(q4)
+        this.ok(((qd.dia == 1) && (qd.node == "C")) "review: dropped on another diagram's box, the merge takes it")
+        q2.move("d" 0.1 0.1 (t0 + 900.0))
+        q4.move("d" 0.7 0.7 (t0 + 600.0))
+        q2.merge(q4)
+        this.ok(((qd.x == 0.1) && (qd.y == 0.1)) "review: an older move does not win a merge")
+        ; as text to copy: one thread, and the open ones with their slides
+        def cp (new PresReview())
+        def nl:string (strfromcode 10)
+        cp.start("b" 2 "Three" 0.42 0.3 (PresReview.msg("b1" "u" "Ann" "" "Bigger font" t0)))
+        cp.reply("b" (PresReview.msg("b2" "v" "Bob" "" ("Agreed" + nl + "and bold") t0)))
+        cp.start("a" 0 "One" 0.5 0.5 (PresReview.msg("a1" "u" "Ann" "" "Logo here" t0)))
+        cp.anchor("a" 0 "B" 0.5 0.5)
+        cp.start("z" 1 "Two" 0.5 0.5 (PresReview.msg("z1" "u" "Ann" "" "done" t0)))
+        cp.setClosed("z" true "u" t0)
+        def tts:[string] (([] _:string ("One" "Two" "Three")))
+        def one:string (cp.threadText("b" tts))
+        this.ok((one == ("Slide 3 · Three, at 42 % across, 30 % down" + nl + "Ann: Bigger font" + nl + "Bob: Agreed" + nl + "  and bold" + nl)) ("review: a thread as text: " + one))
+        def md:string (cp.openMarkdown("Deck" tts (([] _:string ("# One" "# Two" ("# Three" + nl + "```js" + nl + "x" + nl + "```"))))))
+        this.ok(((indexOf md "2 open comments on 2 slides") > 0) ("review: open comments counted: " + md))
+        this.ok((((indexOf md "## Slide 1 · One") < (indexOf md "## Slide 3 · Three")) && ((indexOf md "[1] at 50 % across, 50 % down, on the diagram's box \"B\"") > 0)) ("review: numbered in slide order: " + md))
+        this.ok((((indexOf md "[2] at 42 %") > 0) && ((indexOf md "done") < 0)) "review: resolved ones are left out")
+        this.ok(((indexOf md ("````markdown" + nl + "# Three" + nl + "```js")) > 0) ("review: the slide's Markdown in a fence longer than its own: " + md))
+        this.ok(((indexOf md "# Two") < 0) "review: a slide without open comments is left out")
         ; times
         def now:double 1759658400000.0
         this.ok(((PresReview.timeText(now now 180)) == "13:00") ("review: today, the clock: " + (PresReview.timeText(now now 180))))
         this.ok(((PresReview.timeText((now - 86400000.0) now 180)) == "4.10. 13:00") ("review: this year, the date: " + (PresReview.timeText((now - 86400000.0) now 180))))
         this.ok(((PresReview.timeText((now - (400.0 * 86400000.0)) now 0)) == "31.8.2024 10:00") ("review: before, the year: " + (PresReview.timeText((now - (400.0 * 86400000.0)) now 0))))
+    }
+
+    ; A comment on a diagram is a point of the diagram: when the camera
+    ; zooms, the point moves with what it is on (it stayed put on the
+    ; screen, over another box), and leaves the view with it.
+    fn reviewDiagram:void () {
+        def deck (new PresDeck())
+        deck.md.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 }")
+        deck.setText("## Flow\n\n```mermaid\nflowchart LR\n  A[Start] --> B[Middle]\n  B --> C[End]\n```\n")
+        def hit@(optional):PresDiaUse (deck.diagramUse(0 0))
+        if (null? hit) {
+            this.ok(false "review on a diagram: the slide has its diagram")
+            return
+        }
+        def u:PresDiaUse (unwrap hit)
+        def d:PresDiagram u.diagram
+        def t:double 1000000.0
+        def p1:[double]
+        def seen1:boolean (d.anchorPoint(t u.bx u.by u.bw u.bh "B" 0.5 0.5 p1))
+        this.ok((seen1 && ((array_length p1) == 2)) "review on a diagram: a node's point is in view")
+        def a:[double] (d.anchorAt(t u.bx u.by u.bw u.bh (itemAt p1 0) (itemAt p1 1)))
+        def on:string (d.nodeIdAt((floor (itemAt a 0))))
+        this.ok((((on == "B") && ((fabs ((itemAt a 1) - 0.5)) < 0.01)) && ((fabs ((itemAt a 2) - 0.5)) < 0.01)) ("review on a diagram: the point under it is the node's, got " + on))
+        ; the viewer zooms in on the first box
+        def a0:[double]
+        d.anchorPoint(t u.bx u.by u.bw u.bh "A" 0.5 0.5 a0)
+        d.uiNow = 100.0
+        d.explore(0)
+        d.uiNow = 200.0
+        def p2:[double]
+        def seen2:boolean (d.anchorPoint(t u.bx u.by u.bw u.bh "B" 0.5 0.5 p2))
+        def pA:[double]
+        d.anchorPoint(t u.bx u.by u.bw u.bh "A" 0.5 0.5 pA)
+        def moved:double ((fabs ((itemAt p2 0) - (itemAt p1 0))) + (fabs ((itemAt p2 1) - (itemAt p1 1))))
+        this.ok((moved > 20.0) ("review on a diagram: zoomed, the point moves with its box, moved " + (to_string moved)))
+        def a2:[double] (d.anchorAt(t u.bx u.by u.bw u.bh (itemAt pA 0) (itemAt pA 1)))
+        this.ok(((d.nodeIdAt((floor (itemAt a2 0)))) == "A") "review on a diagram: zoomed, the point under the first box is still that box's")
+        def far:[double]
+        def seenFar:boolean (d.anchorPoint(t u.bx u.by u.bw u.bh "C" 0.5 0.5 far))
+        this.ok((seenFar == false) "review on a diagram: a box the camera left is out of view")
+        def gone:[double]
+        this.ok((((d.anchorPoint(t u.bx u.by u.bw u.bh "Z" 0.5 0.5 gone)) == false) && ((array_length gone) == 0)) "review on a diagram: a box no longer there has no point")
     }
 
     ; A title set large enough to wrap keeps the diagram under it on its own
@@ -331,6 +440,7 @@ class PresCheck {
         this.ok(((PresCheck.texts(fin "Kokous")) == 1) "the final frame shows the whole diagram")
         this.longChain()
         this.portraitChain()
+        this.diagramLooks()
         this.steering()
         this.diagramColour()
     }
@@ -486,6 +596,72 @@ class PresCheck {
             this.ok((gap < 3.0) ("way " + (to_string (k + 1)) + " is pointed at from its choice"))
             k = (k + 1)
         }
+    }
+
+    ; `{style=mermaid|jurassic|cartoon|romantic}`: RangerFlow's looks. The
+    ; deck asks the page for their faces, a round node is drawn as the look's
+    ; round part (jurassic: an ochre circle), the lines keep their right
+    ; angles, words are set in capitals where the look says so, and until a
+    ; face is loaded the words are in Open Sans.
+    fn diagramLooks:void () {
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Kuva\n\n```mermaid\nflowchart LR\n"
+            + "  A((Alku)) --> B[Tilaus]\n  B --> C{Varastossa?}\n  C -->|kyllä| D[Lähetä]\n  C -->|ei| E([Odota])\n```\n{style=jurassic}\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false "a jurassic diagram is a diagram")
+            return
+        }
+        def d:PresDiagram (itemAt s.diagrams 0).diagram
+        this.ok((d.looked && (d.style == "jurassic")) ("the look is jurassic: " + d.style))
+        this.ok(((indexOf deck.wantFaces "Josefin Sans-Bold") >= 0) ("its face is asked for: " + deck.wantFaces))
+        def kinds:string (join d.kinds ",")
+        this.ok(((indexOf kinds "decision") >= 0) ("the question is a decision: " + kinds))
+        this.ok(((indexOf kinds "start") >= 0) ("the circle nothing points at is the start: " + kinds))
+        ; every line is made of runs at right angles, apart from its corners
+        def bent:int 0
+        def ei:int 0
+        while (ei < (array_length d.edges)) {
+            def e:PresDEdge (itemAt d.edges ei)
+            if (((array_length e.route) >= 4) && ((array_length e.line) != (array_length (FlowLook.roundCorners(e.route d.look.corner))))) {
+                bent = (bent + 1)
+            }
+            ei = (ei + 1)
+        }
+        this.ok((bent == 0) "a square look's lines are the routes, corners rounded")
+        def late:EVGDisplayList (PresTimeline.frame(deck 0 (d.total + 5.0)))
+        this.ok(((PresCheck.texts(late "TILAUS")) == 1) "jurassic sets a box's words in capitals")
+        def face:string ""
+        def i:int 0
+        while (i < (array_length late.cmds)) {
+            def c:EVGDrawCmd (itemAt late.cmds i)
+            if ((c.kind == 3) && (c.text == "TILAUS")) {
+                face = c.fontFamily
+            }
+            i = (i + 1)
+        }
+        this.ok((face == "Open Sans-Bold") ("until its face is loaded, Open Sans: " + face))
+        set deck.haveFaces "Josefin Sans-Bold" true
+        def again:EVGDisplayList (PresTimeline.frame(deck 0 (d.total + 5.0)))
+        def face2:string ""
+        def j:int 0
+        while (j < (array_length again.cmds)) {
+            def c2:EVGDrawCmd (itemAt again.cmds j)
+            if ((c2.kind == 3) && (c2.text == "TILAUS")) {
+                face2 = c2.fontFamily
+            }
+            j = (j + 1)
+        }
+        this.ok((face2 == "Josefin Sans-Bold") ("then in its own face: " + face2))
+        ; the window's look picker writes the look and reads it back
+        def m:PresFlowModel (PresFlowModel.read("```mermaid\nflowchart LR\n  A --> B\n```\n{tour=on}"))
+        m.setLook("cartoon")
+        this.ok(((m.look()) == "cartoon") "the picker reads cartoon back")
+        this.ok(((indexOf (m.markdown()) "{tour=on style=cartoon}") > 0) ("and writes it: " + (m.markdown())))
+        m.setLook("holo")
+        this.ok(((indexOf (m.markdown()) "cartoon") < 0) ("holo takes it away: " + (m.markdown())))
     }
 
     ; A long left-to-right chain with loops: its loops stay whole, every node
@@ -1581,6 +1757,83 @@ class PresCheck {
         this.ok(((indexOf v2 "Uusi") < 0) "pick: the added slide is not in the view")
     }
 
+    ; PresNav: the jumps while presenting (Home, End, PageUp/PageDown, a
+    ; typed number) and where each lands
+    fn navJumps:void () {
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Eka\n\n1. a\n2. b\n3. c\n{.build}\n\n"
+            + "## Toka {transition=slide seconds=0.8}\n\nteksti\n\n## Kolmas\n\n1. x\n2. y\n{.build}\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def n:int (deck.slideCount())
+        this.ok((n == 3) ("nav: three slides, got " + (to_string n)))
+        if (n != 3) {
+            return
+        }
+        def s0:PresSlide (deck.slideAt(0))
+        def s1:PresSlide (deck.slideAt(1))
+        def s2:PresSlide (deck.slideAt(2))
+        this.ok((s0.steps == 3) "nav: the first slide has three builds")
+        this.ok(((s0.settled > 0.0) && (s0.settled < s0.duration)) ("nav: settled before the end, " + (to_string s0.settled)))
+        this.ok(((fabs ((s0.duration - s0.settled) - s0.hold)) < 0.001) "nav: the hold comes after it")
+        this.ok((s1.settled >= (PresTimeline.transitionSeconds(s1))) "nav: settled is past the transition")
+        ; Home: the first slide at its start, builds to come
+        def a:PresNavAt (PresNav.first(deck))
+        this.ok((((a.slide == 0) && (a.step == 0)) && (a.clock == 0.0)) "nav: first is the start")
+        ; PageDown: the next slide whole, past its transition
+        def b:PresNavAt (PresNav.pageNext(deck 0 false))
+        this.ok(((b.slide == 1) && (b.ended == false)) "nav: PageDown is the next slide")
+        this.ok(((fabs (b.clock - ((PresTimeline.slideStart(deck 1)) + s1.settled))) < 0.001) "nav: at its settled time")
+        this.ok((b.clock >= ((PresTimeline.slideStart(deck 1)) + (PresTimeline.transitionSeconds(s1)))) "nav: no transition left")
+        def c:PresNavAt (PresNav.pageNext(deck 1 false))
+        this.ok(((c.slide == 2) && (c.step == s2.steps)) "nav: PageDown shows every build")
+        this.ok(((PresTimeline.slideAtTime(deck c.clock)) == 2) "nav: the clock is in that slide")
+        def d:PresNavAt (PresNav.pageNext(deck 2 false))
+        this.ok(((d.slide == 2) && d.ended) "nav: PageDown on the last slide is the end")
+        ; PageUp
+        def e:PresNavAt (PresNav.pagePrev(deck 2 true))
+        this.ok(((e.slide == 2) && (e.ended == false)) "nav: PageUp from the end is the last slide")
+        def f:PresNavAt (PresNav.pagePrev(deck 2 false))
+        this.ok(((f.slide == 1) && (f.step == s1.steps)) "nav: PageUp is the slide before, whole")
+        def g:PresNavAt (PresNav.pagePrev(deck 1 false))
+        this.ok(((g.slide == 0) && (g.step == 3)) "nav: PageUp to the first slide shows its builds")
+        def h:PresNavAt (PresNav.pagePrev(deck 0 false))
+        this.ok(((h.slide == 0) && (h.clock == 0.0)) "nav: PageUp on the first slide is its start")
+        ; End
+        def l:PresNavAt (PresNav.last(deck))
+        this.ok((((l.slide == 2) && (l.step == 2)) && (l.ended == false)) "nav: End is the last slide whole")
+        ; numbers
+        this.ok(((PresNav.number("2" 3)) == 1) "nav: 2 is the second slide")
+        this.ok(((PresNav.number(" 3 " 3)) == 2) "nav: spaces around")
+        this.ok(((PresNav.number("99" 3)) == 2) "nav: past the end is the last")
+        this.ok(((PresNav.number("0" 3)) == 0) "nav: 0 is the first")
+        this.ok(((PresNav.number("" 3)) == -1) "nav: nothing is no number")
+        this.ok(((PresNav.number("2a" 3)) == -1) "nav: letters are no number")
+        this.ok(((PresNav.number("1" 0)) == -1) "nav: no slides")
+        def w:PresNavAt (PresNav.whole(deck 7))
+        this.ok((w.slide == 2) "nav: whole holds the index inside the deck")
+        ; the label and the typed number
+        this.ok(((PresNav.label(0 3 "")) == "1 / 3") "nav: label")
+        this.ok(((PresNav.label(2 3 "12")) == "12 / 3") "nav: label while typing")
+        def nav (new PresNav())
+        this.ok((nav.digit("1")) "nav: a digit is taken")
+        this.ok((! (nav.digit("x"))) "nav: a letter is not")
+        nav.digit("2")
+        nav.digit("3")
+        nav.digit("4")
+        nav.digit("5")
+        this.ok((nav.typed == "1234") ("nav: four digits at most, got " + nav.typed))
+        nav.clear()
+        nav.digit("2")
+        this.ok(((nav.take(3)) == 1) "nav: Enter takes the number")
+        this.ok(((nav.typing()) == false) "nav: and it is gone")
+        this.ok(((nav.take(3)) == -1) "nav: Enter with nothing typed")
+        ; an empty deck lands nowhere in particular
+        def empty (new PresDeck())
+        def z:PresNavAt (PresNav.pageNext(empty 0 false))
+        this.ok((((z.slide == 0) && (z.ended == false)) && (z.clock == 0.0)) "nav: an empty deck")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -1601,6 +1854,7 @@ class PresCheck {
         c.controlsFade()
         c.followEdits()
         c.picks()
+        c.navJumps()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

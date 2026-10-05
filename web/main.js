@@ -19,6 +19,7 @@ import { prepareDisplayList, setFontFallback, fontSpec, textObstacles } from "./
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { sortFiles, pastePlan, fileClipboard, CLIP_KEY } from "./fileclip.js";
+import { deckKey, canReturn, reopenPlan, tabLabel, readDeckTabs, keepDeckTabs } from "./decktabs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
 import { scaled, previewOf, render } from "./image-adjust.js";
@@ -437,14 +438,26 @@ let savedCss = null;
 let savedTheme = null;
 let saving = null;
 
+// The open presentations' tabs (web/decktabs.js, PresApp's deck tabs).
+// shownKey: the tab of the deck shown, as it was keyed when it was shown
+let shownKey = null;
+// the tab whose deck is being opened: the deck it opens may be keyed
+// otherwise (a kept deck opened from the cloud, where it is newer), and the
+// tab then takes that key where it stands
+let openingKey = null;
+
 // A deck being opened: from beginDoc until shownDoc puts its text in the
 // editor, the editor still shows the deck before it, so nothing is saved or
 // sent (the old text would be written under the new deck's id: a deck
 // overwritten by the one opened before it).
 function beginDoc(text) {
+  // the deck left: its tab goes when nothing could open it again
+  if (shownKey && !canReturn(doc)) app.deckTabClose(shownKey);
+  shownKey = null;
   doc.loading = true;
   doc.id = newId();
   doc.persisted = false;
+  doc.src = null;
   doc.created = Date.now();
   doc.openedText = text;
   doc.openedCss = null;
@@ -468,13 +481,69 @@ function beginDoc(text) {
   app.reviewLoad("", false);
   showLiveButton();
   if (app.openFilePath()) app.closeFile();
-  app.clearOpenTabs();
 }
 
-function shownDoc(text) {
+// quiet: no tab for it (the empty deck shown while a deleted one's
+// successor is found)
+function shownDoc(text, quiet = false) {
   app.setSource(text);
   doc.loading = false;
+  if (!viewer && !quiet) showDeckTab();
   loadReview(false).catch((e) => console.warn("review comments not read", e));
+}
+
+// --- the open presentations' tabs (web/decktabs.js) ------------------------------
+function keepTabs() {
+  if (!viewer) keepDeckTabs(sessionStorage, app.deckTabsState());
+}
+function showDeckTab() {
+  shownKey = deckKey(doc);
+  if (openingKey && openingKey !== shownKey) app.deckTabRename(openingKey, shownKey, tabLabel(exportName()));
+  openingKey = null;
+  app.deckTabOpen(shownKey, tabLabel(exportName()));
+  keepTabs();
+}
+// after a save: its name may have changed, and a deck kept for the first
+// time is its id from now on
+function updateDeckTab() {
+  if (viewer || !shownKey) return;
+  const k = deckKey(doc);
+  app.deckTabRename(shownKey, k, tabLabel(exportName()));
+  shownKey = k;
+  keepTabs();
+}
+// The deck behind a tab, opened: false when it is not there any more.
+async function openDeckKey(key) {
+  openingKey = key;
+  try {
+    const p = reopenPlan(key);
+    if (p.kind === "sample") {
+      if (!(SAMPLES[p.arg] || HIDDEN_SAMPLES[p.arg])) return false;
+      await openSample(p.arg);
+      return true;
+    }
+    if (p.kind === "cloud") return await openOwnCloud(p.arg);
+    const d = vfs ? await vfs.getDoc(p.arg) : null;
+    if (!d) return false;
+    // a PRO deck: from its share, which has the latest (as at the start)
+    if (d.cloud && (await openOwnCloud(d.cloud).catch(() => false))) return true;
+    return await openDoc(p.arg);
+  } finally {
+    openingKey = null;
+  }
+}
+// A tab pressed or swiped to, or the one in front after a close.
+async function switchDeck(key) {
+  if (!key || key === shownKey) return;
+  if (makingDeck) await makingDeck;
+  const ok = await loadingScreen(() => openDeckKey(key).catch((e) => { console.warn(e); return false; }));
+  if (!ok) {
+    toast(t("This presentation is no longer here."));
+    app.deckTabClose(key);
+    if (shownKey) app.deckTabOpen(shownKey, tabLabel(exportName()));
+    keepTabs();
+  }
+  needsPaint = true;
 }
 
 function bare(path) {
@@ -648,6 +717,7 @@ async function saveDocNow(force) {
       pending.clear();
       plainAddress();
     }
+    updateDeckTab();
     savedText = md;
     savedCss = css;
     savedTheme = key;
@@ -772,11 +842,21 @@ async function deleteDeck() {
     }
   }
   if (vfs && doc.persisted) await vfs.deleteDoc(id);
+  // its tab goes; the tab used before it comes to the front
+  if (shownKey) app.deckTabClose(shownKey);
+  shownKey = null;
+  keepTabs();
   // let go of it, so leaving it does not save it again
   beginDoc("");
-  shownDoc("");
-  const next = vfs ? (await vfs.listDocs()).filter((d) => d.id !== id).sort((a, b) => (b.updated || 0) - (a.updated || 0))[0] : null;
-  if (!(next && (await openDoc(next.id)))) {
+  shownDoc("", true);
+  const front = app.deckTabFront();
+  let opened = !!front && (await openDeckKey(front).catch(() => false));
+  if (front && !opened) app.deckTabClose(front);
+  if (!opened) {
+    const next = vfs ? (await vfs.listDocs()).filter((d) => d.id !== id).sort((a, b) => (b.updated || 0) - (a.updated || 0))[0] : null;
+    opened = !!next && (await openDoc(next.id));
+  }
+  if (!opened) {
     try { localStorage.removeItem("evgp.doc"); } catch (_) { /* fine */ }
     await newDeck({ name: t("New presentation"), theme: themeSel.value || "", data: "none" });
   }
@@ -1118,8 +1198,6 @@ async function refreshFiles() {
         return row;
       });
     const sorted = sortFiles(files);
-    // the tabs of files that are gone close
-    app.keepOpenTabs(sorted.map((f) => f.path).join("\n"));
     const name = (docName || "presentation").replace(/\s+/g, "-");
     const head = [{ path: name + ".md", size: new TextEncoder().encode(app.source()).length, kind: "md" }];
     const key = themeSel.value || "";
@@ -1398,7 +1476,6 @@ async function fileRequest(r) {
   } else if (action === "open") {
     const f = (await docFiles()).find((x) => x.path === what);
     if (!f) return;
-    if (/\.(xlsx|csv)$/i.test(f.path)) app.noteOpened(f.path);
     if (/\.xlsx$/i.test(f.path)) {
       const blob = typeof f.data === "string" ? new Blob([f.data]) : f.data;
       liveSheets.openDialog({
@@ -1637,45 +1714,113 @@ async function takeCloudReview(s) {
 // base colour as a hue (its sheets' --retro-hue), per browser.
 let skin = "";
 let skinHue = 88;
+// The standard skin's colours: "light", "dark" or "system" (the device's
+// setting, followed as it changes), per browser. The slides keep their
+// own theme in both.
+let mode = "system";
 try {
   skin = localStorage.getItem("sliqtly.skin") === "retro" ? "retro" : "";
   const h = parseInt(localStorage.getItem("sliqtly.skinHue") || "", 10);
   if (h >= 0 && h < 360) skinHue = h;
+  const m = localStorage.getItem("sliqtly.mode");
+  if (m === "light" || m === "dark") mode = m;
 } catch (_) { /* standard */ }
+const darkQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+function isDark() {
+  return mode === "dark" || (mode === "system" && !!(darkQuery && darkQuery.matches));
+}
+// the theme name every chrome host is applied with: "", "dark" or "retro"
+function lookTheme() {
+  if (skin === "retro") return "retro";
+  return isDark() ? "dark" : "";
+}
 // Every chrome sheet without the skins, as loaded (start), and the skins'
 // own text: the skins go after each sheet with the chosen hue at the end.
 const chromeSheets = { files: "", chrome: null, chart: null, hint: null, panels: null, toolbar: null };
-function skinCss() {
-  return chromeSheets.files ? chromeSheets.files + "\n@vars retro { --retro-hue: " + skinHue + "; }\n" : "";
+// The dark look of a sheet is derived from it (EVGUI's UiDark, through
+// PresApp.darkCss): every colour it sets, scoped to .theme-dark and mapped so
+// each contrast stays what it was. Worked out once per sheet and host theme,
+// and only while the dark look is on.
+const darkOverlays = new Map();
+function darkOverlay(base, theme) {
+  if (lookTheme() !== "dark" || !base) return "";
+  const key = theme + "\n" + base;
+  let o = darkOverlays.get(key);
+  if (o == null) {
+    o = PresApp.darkCss(base, theme);
+    darkOverlays.set(key, o);
+  }
+  return o;
+}
+// What goes after a host's sheet: its dark overlay (dark look only), then
+// the skins (retro, and the dark look's hand-set colours), then the hue.
+function skinCss(base, theme) {
+  if (!chromeSheets.files) return "";
+  return "\n" + darkOverlay(base, theme) + chromeSheets.files + "\n@vars retro { --retro-hue: " + skinHue + "; }\n";
 }
 function sendChromeCss() {
-  const sk = skinCss();
   const c = chromeSheets;
-  if (c.chart != null) app.setChartCss(c.chart + sk);
-  if (c.hint != null) app.setHintCss(c.hint + sk);
-  if (c.panels != null) app.setPanelsCss(c.panels + sk);
-  if (c.toolbar != null) app.setToolbarCss(c.toolbar + sk);
+  if (c.chart != null) app.setChartCss(c.chart + skinCss(c.chart, "ce"));
+  if (c.hint != null) app.setHintCss(c.hint + skinCss(c.hint, "hp"));
+  if (c.panels != null) app.setPanelsCss(c.panels + skinCss(c.panels, "pn"));
+  if (c.toolbar != null) app.setToolbarCss(c.toolbar + skinCss(c.toolbar, "tb"));
+}
+function sendAllChromeCss() {
+  if (chromeSheets.chrome != null) app.setChromeCss(chromeSheets.chrome + skinCss(chromeSheets.chrome, ""));
+  sendChromeCss();
 }
 function setSkinHue(h) {
   if (!(h >= 0 && h < 360)) return;
   skinHue = h;
   try { localStorage.setItem("sliqtly.skinHue", String(h)); } catch (_) { /* this session only */ }
-  app.setChromeCss(chromeSheets.chrome + skinCss());
-  sendChromeCss();
+  sendAllChromeCss();
+  applySkin();
+  needsPaint = true;
+}
+// the sheets carry the dark overlay only under the dark look: sent again
+// when a change turns it on or off
+function relook(change) {
+  const before = lookTheme();
+  change();
+  if (lookTheme() !== before && chromeSheets.chrome != null) sendAllChromeCss();
   applySkin();
   needsPaint = true;
 }
 function setSkinName(name) {
-  skin = name === "retro" ? "retro" : "";
-  try { localStorage.setItem("sliqtly.skin", skin || "standard"); } catch (_) { /* this session only */ }
-  applySkin();
-  needsPaint = true;
+  relook(() => {
+    skin = name === "retro" ? "retro" : "";
+    try { localStorage.setItem("sliqtly.skin", skin || "standard"); } catch (_) { /* this session only */ }
+  });
 }
-window.__skin = { set: setSkinName, hue: setSkinHue };
+function setMode(m) {
+  relook(() => {
+    mode = m === "light" || m === "dark" ? m : "system";
+    try { localStorage.setItem("sliqtly.mode", mode); } catch (_) { /* this session only */ }
+  });
+}
+// the bar's quick switch: to the other one of light and dark (from the
+// retro skin, to the standard one in light)
+function toggleMode() {
+  const dark = skin !== "retro" && !isDark();
+  if (skin === "retro") setSkinName("");
+  setMode(dark ? "dark" : "light");
+}
+darkQuery?.addEventListener?.("change", () => { if (mode === "system") relook(() => {}); });
+window.__skin = { set: setSkinName, hue: setSkinHue, mode: setMode };
 function applySkin() {
-  app.setSkin(skin, skinHue);
-  document.documentElement.dataset.skin = skin || "standard";
-  document.documentElement.style.setProperty("--retro-hue", String(skinHue));
+  app.setSkin(lookTheme(), skinHue);
+  app.setLookMode(mode);
+  const root = document.documentElement;
+  root.dataset.skin = skin || "standard";
+  root.dataset.mode = lookTheme() === "dark" ? "dark" : "light";
+  root.style.setProperty("--retro-hue", String(skinHue));
+  const btn = document.getElementById("modeBtn");
+  if (btn) {
+    const dark = lookTheme() !== "";
+    const label = dark ? "☀️" : "🌙";
+    if (btn.textContent !== label) btn.textContent = label;
+    btn.title = dark ? t("Light editor") : t("Dark editor");
+  }
 }
 
 let thumbs = new Map();
@@ -2466,6 +2611,8 @@ function frame() {
       needsPaint = false;
       lastRev = rev;
       syncEndPanel();
+      syncCounter();
+      loadLookFaces();
       paintOnce();
       handleRequests();
       followAddress();
@@ -2648,6 +2795,7 @@ function handleRequests() {
     if (!r) break;
     if (r === "fullscreen") {
       document.body.classList.add("presenting");
+      wakeViewer();
       presentStartedAt = performance.now();
       refreshLiveData();
       rebaseClock();
@@ -2693,6 +2841,8 @@ function handleRequests() {
       exportZip(false).catch(fail);
     } else if (r.startsWith("setting:skin:")) {
       setSkinName(r.endsWith(":retro") ? "retro" : "");
+    } else if (r.startsWith("setting:mode:")) {
+      setMode(r.slice("setting:mode:".length));
     } else if (r.startsWith("setting:skinhue:")) {
       setSkinHue(parseInt(r.slice("setting:skinhue:".length), 10));
     } else if (r === "decks") {
@@ -2708,6 +2858,9 @@ function handleRequests() {
       needsPaint = true;
     } else if (r.startsWith("copy:")) {
       copyShare(r.slice(5)).catch(fail);
+    } else if (r === "review-copy") {
+      // a comment thread, or the open comments with their slides (review mode)
+      writeClip(app.reviewClip()).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
     } else if (r.startsWith("select:")) {
       const [, id, ...rest] = r.split(":");
       const sel = document.getElementById(id);
@@ -2722,6 +2875,11 @@ function handleRequests() {
       refreshFiles();
     } else if (r.startsWith("files:")) {
       fileRequest(r.slice(6)).catch(fail);
+    } else if (r.startsWith("deck:switch:")) {
+      switchDeck(r.slice(12)).catch(fail);
+    } else if (r === "deck:tabs") {
+      keepTabs();
+      needsPaint = true;
     } else if (r.startsWith("chart-file:")) {
       const path = bare(r.slice(11));
       const text = app.chartFileBody();
@@ -2902,6 +3060,41 @@ async function renderFxStills() {
   if (lose) lose.loseContext();
 }
 window.__renderFxStills = renderFxStills;
+
+// The faces a diagram look draws with ({style=cartoon}, …): fetched the first
+// time a deck asks for one (app.wantedFaces), not with every page. Until a
+// face is here the look's words are set in Open Sans.
+const LOOK_FACES = {
+  "Gloria Hallelujah": "GloriaHallelujah.ttf",
+  "Fjalla One": "FjallaOne-Regular.ttf",
+  "Josefin Sans-Bold": "JosefinSans-Bold.ttf",
+  "Droid Serif-BoldItalic": "DroidSerif-BoldItalic.ttf",
+};
+let lookFacesAsked = "";
+const lookFacesHad = new Set();
+let pageFaces = [];
+function loadLookFaces() {
+  const want = app.wantedFaces();
+  if (want === lookFacesAsked) return;
+  lookFacesAsked = want;
+  for (const name of want.split(",")) {
+    const file = LOOK_FACES[name];
+    if (!file || lookFacesHad.has(name)) continue;
+    lookFacesHad.add(name);
+    fontBytes(file)
+      .then(async (bytes) => {
+        const face = new FontFace(name, bytes);
+        await face.load();
+        document.fonts.add(face);
+        // the family the painter names it by must be one it knows is loaded
+        pageFaces = pageFaces.concat(name);
+        setFontFallback(pageFaces);
+        app.attachFont(name, asRangerBuffer(bytes.slice(0)));
+        needsPaint = true;
+      })
+      .catch((e) => console.warn("face not loaded: " + name, e));
+  }
+}
 
 // The PDF writer's fallback for emoji (monochrome Noto Emoji). Only the
 // writer gets it: the screen keeps the browser's own colour emoji. Fetched
@@ -3207,6 +3400,7 @@ async function openOwnCloudNow(id) {
   if (local && local.md !== local.cloudMd && shared.md === local.cloudMd) return openDoc(local.id);
   await leaveDoc();
   beginDoc(shared.md || "");
+  doc.src = "cloud:" + id;
   doc.id = local?.id || newId();
   if (local) await vfs.deleteDoc(local.id, true); // the cloud's files replace this browser's; its versions stay
   doc.created = local?.created || Date.now();
@@ -3749,23 +3943,28 @@ async function editInAI(which) {
 }
 document.getElementById("aiClaude").addEventListener("click", () => { editInAI("claude"); });
 
+// Text to the clipboard: the async API, else a selected textarea; -> copied.
+async function writeClip(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (_) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.append(ta);
+    ta.select();
+    const copied = !!(document.execCommand && document.execCommand("copy"));
+    ta.remove();
+    focusKeys(app.focusTarget());
+    return copied;
+  }
+}
+
 // A copy button in the share dialog (drawn on the canvas): the browser copies.
 let copiedTimer = 0;
 async function copyShare(which) {
   const text = which === "show" ? window.__lastShareShow : which === "view" ? window.__lastShareView : window.__lastShare;
-  let copied = false;
-  try {
-    await navigator.clipboard.writeText(text);
-    copied = true;
-  } catch (_) {
-    const t = document.createElement("textarea");
-    t.value = text;
-    document.body.append(t);
-    t.select();
-    copied = !!(document.execCommand && document.execCommand("copy"));
-    t.remove();
-    focusKeys(app.focusTarget());
-  }
+  const copied = await writeClip(text);
   app.shareCopied(which, copied);
   needsPaint = true;
   clearTimeout(copiedTimer);
@@ -3899,22 +4098,30 @@ function wakeViewer() {
   document.body.classList.remove("idle");
   clearTimeout(idleTimer);
   // the bar stays while its menu is open
-  idleTimer = setTimeout(() => { if (vMenu.hidden) document.body.classList.add("idle"); }, 2500);
+  idleTimer = setTimeout(() => {
+    if (vMenu.hidden && vGo.hidden && !app.navTyping()) document.body.classList.add("idle");
+    else wakeViewer();
+  }, 2500);
 }
 // Esc leaves full screen (the browser does that), never the presentation:
 // there is no editor to go back to.
 window.addEventListener("keydown", (ev) => {
   if (viewer && ev.key === "Escape") {
     ev.stopImmediatePropagation();
-    if (!vMenu.hidden) {
+    if (!vGo.hidden) closeGoTo();
+    else if (app.navTyping()) {
+      app.navClear();
+      needsPaint = true;
+    } else if (!vMenu.hidden) {
       toggleViewMenu(false);
       vMore.focus();
     }
   }
 }, true);
 for (const ev of ["pointermove", "pointerdown", "keydown"]) {
-  window.addEventListener(ev, () => { if (viewer) wakeViewer(); }, { passive: true });
+  window.addEventListener(ev, () => { if (viewer || presentingNow()) wakeViewer(); }, { passive: true });
 }
+document.getElementById("vFirst").addEventListener("click", () => { app.firstSlide(); afterInput(); });
 document.getElementById("vPrev").addEventListener("click", () => { app.prev(); afterInput(); });
 document.getElementById("vNext").addEventListener("click", () => { app.next(); afterInput(); });
 document.getElementById("vData").addEventListener("click", () => refreshLiveData());
@@ -3922,6 +4129,58 @@ document.getElementById("vFull").addEventListener("click", () => {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
 });
+
+// The slide counter, "3 / 12" (PresApp.slideLabel; the number being typed
+// while digits come in). Pressed, it becomes a field: a number and Enter go
+// to that slide, shown whole (PresNav); Esc or leaving it goes nowhere.
+const vCount = document.getElementById("vCount");
+const vGo = document.getElementById("vGo");
+function presentingNow() {
+  return !!(lastLayout && lastLayout.mode === "present");
+}
+function syncCounter() {
+  if (!presentingNow()) return;
+  const label = app.slideLabel();
+  if (vCount.textContent !== label) vCount.textContent = label;
+  vCount.classList.toggle("typing", app.navTyping());
+}
+function openGoTo() {
+  vCount.hidden = true;
+  vGo.hidden = false;
+  vGo.value = "";
+  vGo.placeholder = app.slideLabel().split(" /")[0];
+  wakeViewer();
+  vGo.focus();
+}
+function closeGoTo() {
+  if (vGo.hidden) return;
+  vGo.hidden = true;
+  vCount.hidden = false;
+  if (!viewer && !isCoarse()) keys.focus({ preventScroll: true });
+  else vCount.focus({ preventScroll: true });
+}
+vCount.addEventListener("click", openGoTo);
+// presenting from the editor, a button pressed hands the keys back to the
+// slides (the arrows, PageDown…); the shared page's buttons keep theirs
+document.getElementById("viewBar").addEventListener("click", (ev) => {
+  if (viewer || isCoarse() || ev.target === vCount || ev.target.closest?.("#vGo, #vMore, #vMenu")) return;
+  if (ev.target.closest?.("button")) keys.focus({ preventScroll: true });
+});
+vGo.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter") {
+    ev.preventDefault();
+    const went = app.goToSlide(vGo.value);
+    closeGoTo();
+    if (went) afterInput();
+  } else if (ev.key === "Escape") {
+    ev.preventDefault();
+    closeGoTo();
+  }
+  ev.stopPropagation();
+});
+vGo.addEventListener("input", () => { vGo.value = vGo.value.replace(/[^0-9]/g, "").slice(0, 4); });
+vGo.addEventListener("blur", () => setTimeout(closeGoTo, 0));
+window.__goTo = { open: openGoTo, close: closeGoTo, label: () => vCount.textContent };
 
 // The … menu: the deck as PDF, PPTX or Markdown (the editor's exports), a new
 // deck of the reader's own based on this one, and, for the signed-in owner of
@@ -4332,6 +4591,7 @@ async function openSample(key) {
       useTheme(s[2]);
     }
     beginDoc(text);
+    doc.src = "sample:" + key;
     await useSampleFiles(key, s[3] || []);
     shownDoc(text);
     dropThumbs();
@@ -4758,7 +5018,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   app.setCtrl(ev.ctrlKey || ev.metaKey);
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
-  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb" || where === "select" || where === "panel") {
+  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb" || where === "select" || where === "panel" || where === "decktabs") {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
   if (where === "editor" && clicks === 1) {
@@ -4932,6 +5192,7 @@ function helpEdit(sel, prop, def) {
 }
 
 document.getElementById("helpBtn").addEventListener("click", () => toggleHelp());
+document.getElementById("modeBtn").addEventListener("click", () => toggleMode());
 
 function endPointer(ev) {
   touches.delete(ev.pointerId);
@@ -5127,23 +5388,26 @@ async function start() {
     textOf("./pres.css"),
     textOf("./ui.css").catch(() => ""),
     textOf("./chart-editor.css").catch(() => ""),
-    Promise.all([textOf("./skins/ui-retro.css"), textOf("./skins/retro.css")])
+    Promise.all(["ui-retro", "retro", "ui-dark", "dark"].map((f) => textOf("./skins/" + f + ".css")))
       .then((t) => "\n" + t.join("\n")).catch(() => ""),
   ]);
   chromeSheets.files = skins;
   chromeSheets.chrome = css0;
-  const css = css0 + skinCss();
+  const css = css0 + skinCss(css0, "");
   chromeSheets.chart = kit + "\n" + chartCss;
-  app.setChartCss(chromeSheets.chart + skinCss());
-  textOf("./hint.css").then((c) => { chromeSheets.hint = kit + "\n" + chartCss + "\n" + c; app.setHintCss(chromeSheets.hint + skinCss()); }).catch(() => {});
-  textOf("./panels.css").then((c) => { chromeSheets.panels = kit + "\n" + c; app.setPanelsCss(chromeSheets.panels + skinCss()); }).catch(() => {});
+  app.setChartCss(chromeSheets.chart + skinCss(chromeSheets.chart, "ce"));
+  textOf("./hint.css").then((c) => { chromeSheets.hint = kit + "\n" + chartCss + "\n" + c; app.setHintCss(chromeSheets.hint + skinCss(chromeSheets.hint, "hp")); }).catch(() => {});
+  textOf("./panels.css").then((c) => { chromeSheets.panels = kit + "\n" + c; app.setPanelsCss(chromeSheets.panels + skinCss(chromeSheets.panels, "pn")); }).catch(() => {});
   if (!viewer) {
     // the bar moves onto the canvas: the HTML one stays, hidden, as what it
     // presses (its buttons and selects keep every behaviour they had)
     chromeSheets.toolbar = kit + "\n" + (await toolbarCss);
-    app.setToolbarCss(chromeSheets.toolbar + skinCss());
+    app.setToolbarCss(chromeSheets.toolbar + skinCss(chromeSheets.toolbar, "tb"));
     document.body.classList.add("canvas-bar");
     canvasBar = true;
+    // the presentations open in this tab, as they were before a reload
+    app.useDeckTabs(true);
+    app.deckTabsRestore(readDeckTabs(sessionStorage));
     syncBarExtras();
     new MutationObserver(syncBarExtras).observe(document.getElementById("bar"),
       { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["hidden", "data-canvas"] });
@@ -5155,7 +5419,10 @@ async function start() {
   if (!viewer) applySkin();
   try {
     const rc = localStorage.getItem(REVIEW_COLOR_KEY);
-    if (rc && /^#[0-9a-fA-F]{6}$/.test(rc)) app.reviewColor(rc);
+    // the first, bright pin colours became muted ones: a pick of one of
+    // those is the same pick in the new set
+    const OLD_PINS = { "#fde047": "#d9a93e", "#fdba74": "#e08a3c", "#f9a8d4": "#d07a92", "#67e8f9": "#3a9fa6", "#86efac": "#6aa86a" };
+    if (rc && /^#[0-9a-fA-F]{6}$/.test(rc)) app.reviewColor(OLD_PINS[rc.toLowerCase()] || rc);
   } catch (_) { /* the default yellow */ }
   reviewMe();
   applyReviewMode();
@@ -5182,7 +5449,8 @@ async function start() {
       console.warn("face not loaded: " + name, e);
     }
   }));
-  setFontFallback(FACES.filter((_, i) => got[i]).map(([name]) => name));
+  pageFaces = FACES.filter((_, i) => got[i]).map(([name]) => name);
+  setFontFallback(pageFaces);
   // An emoji, and anything no loaded face has, is drawn from a face only the
   // browser knows; the editor and the slides ask the browser for its width,
   // per cluster, in the font stack the painter draws with.
@@ -5218,24 +5486,30 @@ async function start() {
   else if (own && vfs && (await ownIsNewer(own)) && (await openDoc(own.deck))) plainAddress();
   else if (!(await openFromShare()) && !(await openFromHash())) {
     const want = q.get("sample");
-    // no sample asked for: the deck worked on last, if this browser kept one,
-    // from the cloud when it lives there
-    let last = null;
-    try { last = localStorage.getItem("evgp.doc"); } catch (_) { /* none */ }
-    // the deck this tab had (keepTabDoc), or an older link's #doc={id},
-    // when this browser keeps it
-    let asked = at.get("doc");
-    if (!asked && !framed) {
-      try { asked = sessionStorage.getItem(TAB_DOC); } catch (_) { /* none */ }
-    }
-    if (asked && /^[A-Za-z0-9_-]{1,64}$/.test(asked) && vfs && (await vfs.getDoc(asked))) last = asked;
-    const lastCloud = !want && last && vfs ? (await vfs.getDoc(last))?.cloud : null;
-    if (lastCloud && (await openOwnCloud(lastCloud).catch(() => false))) { /* opened */ }
-    else if (want || !last || !(await openDoc(last))) {
-      const sample = SAMPLES[want] || HIDDEN_SAMPLES[want] ? want : "welcome";
-      if (SAMPLES[sample]) sampleSel.value = sample;
-      await openSample(sample);
-      if (!want) welcomeCard();
+    // the tab in front before a reload, when its deck is still there
+    const front = want || at.get("doc") ? "" : app.deckTabFront();
+    if (front && (await openDeckKey(front).catch(() => false))) { /* opened */ }
+    else {
+      if (front) app.deckTabClose(front);
+      // no sample asked for: the deck worked on last, if this browser kept one,
+      // from the cloud when it lives there
+      let last = null;
+      try { last = localStorage.getItem("evgp.doc"); } catch (_) { /* none */ }
+      // the deck this tab had (keepTabDoc), or an older link's #doc={id},
+      // when this browser keeps it
+      let asked = at.get("doc");
+      if (!asked && !framed) {
+        try { asked = sessionStorage.getItem(TAB_DOC); } catch (_) { /* none */ }
+      }
+      if (asked && /^[A-Za-z0-9_-]{1,64}$/.test(asked) && vfs && (await vfs.getDoc(asked))) last = asked;
+      const lastCloud = !want && last && vfs ? (await vfs.getDoc(last))?.cloud : null;
+      if (lastCloud && (await openOwnCloud(lastCloud).catch(() => false))) { /* opened */ }
+      else if (want || !last || !(await openDoc(last))) {
+        const sample = SAMPLES[want] || HIDDEN_SAMPLES[want] ? want : "welcome";
+        if (SAMPLES[sample]) sampleSel.value = sample;
+        await openSample(sample);
+        if (!want) welcomeCard();
+      }
     }
   }
   refreshRecent().catch(() => {});

@@ -210,6 +210,7 @@ export class CollabSession {
     this.stopped = false;
     this.resetting = null;
     this.joined = false;
+    this.epoch = "";
   }
 
   active() { return !!(this.doc && !this.stopped); }
@@ -247,7 +248,10 @@ export class CollabSession {
       this.sending = null;
       this.doc.setPeers(s.peers);
       for (const m of s.chat || []) this.on.chat?.(m);
-      const q = { client: this.me.client, who: this.me.who, name: this.me.name, color: this.me.color, rev: s.rev };
+      // the run of the room these revs belong to: a room opened again (the
+      // server restarted, or it was left empty) counts from 0 once more
+      this.epoch = s.epoch || "";
+      const q = { client: this.me.client, who: this.me.who, name: this.me.name, color: this.me.color, rev: s.rev, epoch: this.epoch };
       // the caret is told once the stream has joined; a stream that came
       // back (the browser reconnects it) tells this page's name as it is now
       this.joined = false;
@@ -293,7 +297,7 @@ export class CollabSession {
     const out = this.doc.takeSend();
     if (!out) return;
     this.seq += 1;
-    const body = { client: this.me.client, rev: out.rev, ops: out.ops, seq: this.seq };
+    const body = { client: this.me.client, rev: out.rev, ops: out.ops, seq: this.seq, epoch: this.epoch };
     const go = (tries) => {
       this.sending = this.t.send(this.id, body).then(() => { this.sending = null; }, (e) => {
         if (this.stopped) return;

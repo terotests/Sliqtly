@@ -192,6 +192,12 @@ operators {
             go ( (e 1) ".Font(" (e 2) ")" )
         }
     }
+    ; why the SVG in data does not draw (svgraster.go); "" when it draws
+    host_svg_error _:string (h:McpHost data:buffer) {
+        templates {
+            go ( (e 1) ".SvgError(" (e 2) ")" )
+        }
+    }
     ; --- slides as pictures (render.go)
 
     ; a picture the display lists name (/media/<name>), for the painter
@@ -238,6 +244,12 @@ operators {
     host_keep_text _:int (h:McpHost text:string) {
         templates {
             go ( (e 1) ".KeepText(" (e 2) ")" )
+        }
+    }
+    ; bytes made here (an export), for an upload: their handle
+    host_keep_bytes _:int (h:McpHost data:buffer) {
+        templates {
+            go ( (e 1) ".KeepBytes(" (e 2) ")" )
         }
     }
     ; the workbook in the handle as the editor reads it: PresData.xlsxSheets,

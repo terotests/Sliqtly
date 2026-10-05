@@ -1,0 +1,171 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresNav.rgr — where a jump while presenting lands
+; ============================================================================
+;
+; The arrows, a click and Space step: the next build, then the next slide
+; with its transition (PresApp.next / prev). The jumps here go straight to
+; a slide instead:
+;
+;   Home, ⏮          the first slide, from its start (its builds to come)
+;   End               the last slide, shown whole
+;   PageDown/PageUp   the next / previous slide, shown whole: no build steps
+;                     and no transition on the way
+;   a number + Enter  that slide, shown whole (the counter "3 / 12" takes
+;                     one as well)
+;
+; "Shown whole" is the slide's settled time: everything on it has arrived
+; and its hold has begun (PresSlide.settled), so the clock does not run a
+; transition or a build after the jump.
+;
+; Nothing here draws or keeps the deck's state: each jump returns a
+; PresNavAt for PresApp to take. The typed number is the one piece of state.
+; ============================================================================
+
+Import "PresTimeline.rgr"
+
+class PresNavAt {
+    ; 0-based
+    def slide:int 0
+    ; build steps shown
+    def step:int 0
+    ; deck time
+    def clock:double 0.0
+    ; past the last slide (the end panel)
+    def ended:boolean false
+}
+
+class PresNav {
+    ; the digits typed so far while presenting ("" none)
+    def typed:string ""
+
+    ; The first slide at its start.
+    sfn first:PresNavAt (deck:PresDeck) {
+        def at (new PresNavAt())
+        if ((deck.slideCount()) > 0) {
+            at.clock = (PresTimeline.slideStart(deck 0))
+        }
+        return at
+    }
+
+    ; Slide i (held inside the deck) with everything on it shown.
+    sfn whole:PresNavAt (deck:PresDeck i:int) {
+        def at (new PresNavAt())
+        def n:int (deck.slideCount())
+        if (n == 0) {
+            return at
+        }
+        def k:int i
+        if (k < 0) {
+            k = 0
+        }
+        if (k > (n - 1)) {
+            k = (n - 1)
+        }
+        def s:PresSlide (deck.slideAt(k))
+        at.slide = k
+        at.step = s.steps
+        at.clock = ((PresTimeline.slideStart(deck k)) + s.settled)
+        return at
+    }
+
+    sfn last:PresNavAt (deck:PresDeck) {
+        return (PresNav.whole(deck ((deck.slideCount()) - 1)))
+    }
+
+    ; PageDown: the next slide whole; from the last one, the end.
+    sfn pageNext:PresNavAt (deck:PresDeck cur:int ended:boolean) {
+        def n:int (deck.slideCount())
+        if ((cur + 1) < n) {
+            return (PresNav.whole(deck (cur + 1)))
+        }
+        def at:PresNavAt (PresNav.whole(deck cur))
+        at.ended = (n > 0)
+        return at
+    }
+
+    ; PageUp: the previous slide whole. From the end, the last slide as it
+    ; was; on the first slide, its start.
+    sfn pagePrev:PresNavAt (deck:PresDeck cur:int ended:boolean) {
+        if ended {
+            return (PresNav.whole(deck cur))
+        }
+        if (cur <= 0) {
+            return (PresNav.first(deck))
+        }
+        return (PresNav.whole(deck (cur - 1)))
+    }
+
+    ; The slide a typed number names, 0-based and held inside the deck; -1
+    ; when the text is no number.
+    sfn number:int (text:string n:int) {
+        def t:string (trim text)
+        def len:int (strlen t)
+        if ((len == 0) || (n <= 0)) {
+            return -1
+        }
+        def v:int 0
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt t i)
+            if ((c < 48) || (c > 57)) {
+                return -1
+            }
+            if (v < 100000) {
+                v = ((v * 10) + (c - 48))
+            }
+            i = (i + 1)
+        }
+        if (v < 1) {
+            return 0
+        }
+        if (v > n) {
+            return (n - 1)
+        }
+        return (v - 1)
+    }
+
+    ; "3 / 12"; while a number is being typed, that number in its place.
+    sfn label:string (cur:int n:int typed:string) {
+        if (n <= 0) {
+            return "0 / 0"
+        }
+        if ((strlen typed) > 0) {
+            return ((typed + " / ") + (to_string n))
+        }
+        return (((to_string (cur + 1)) + " / ") + (to_string n))
+    }
+
+    ; A key typed while presenting: a digit adds to the number (up to four
+    ; of them) and is taken; anything else is not.
+    fn digit:boolean (s:string) {
+        if ((strlen s) != 1) {
+            return false
+        }
+        def c:int (charAt s 0)
+        if ((c < 48) || (c > 57)) {
+            return false
+        }
+        if ((strlen typed) < 4) {
+            typed = (typed + s)
+        }
+        return true
+    }
+
+    fn typing:boolean () {
+        return ((strlen typed) > 0)
+    }
+
+    ; Enter: the slide the typed number names (-1: none typed), and the
+    ; number is gone.
+    fn take:int (n:int) {
+        def k:int (PresNav.number(typed n))
+        typed = ""
+        return k
+    }
+
+    fn clear:void () {
+        typed = ""
+    }
+}

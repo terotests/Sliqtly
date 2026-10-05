@@ -25,6 +25,7 @@
 Import "../evgui/src/UiHost.rgr"
 Import "../evgui/src/ChatCtl.rgr"
 Import "../evgui/src/PinCtl.rgr"
+Import "../evgui/src/CalloutCtl.rgr"
 Import "PresReview.rgr"
 Import "PresI18n.rgr"
 
@@ -81,12 +82,58 @@ class PresReviewUi {
     def nowMs:double 0.0
     def zoneMin:int 0
     ; the pins' fill (File → Settings)
-    def color:string "#fde047"
+    def color:string "#e08a3c"
     def requests:[string]
     ; a slide to show (the next comment), -1 none
     def wantSlide:int -1
     def rev:int 0
     def builtKey:string ""
+    ; Where pins on a diagram are drawn now (the host works it out from the
+    ; diagram's camera each frame): a thread's id ("rv-draft" the draft),
+    ; its point as a fraction of the slide, and whether it is in view.
+    def spotIds:[string]
+    def spotXs:[double]
+    def spotYs:[double]
+    def spotOn:[boolean]
+    def spotKey:string ""
+    ; The draft's point on a diagram: asked of the host once it is placed
+    ; (`draftAsk`), -1 when it is on no diagram (PresReviewThread.dia)
+    def draftAsk:boolean false
+    def draftDia:int -1
+    def draftNode:string ""
+    def draftAX:double 0.0
+    def draftAY:double 0.0
+    ; A pin held down (its control id, "" none): a click opens its thread on
+    ; release, a drag moves it to (`dragX`, `dragY`) of the slide. A thread
+    ; dropped somewhere waits in `moveAsk` for the host to put it on the
+    ; diagram under it, if any, and save.
+    def pinDown:string ""
+    def downX:double 0.0
+    def downY:double 0.0
+    def dragging:boolean false
+    def dragX:double 0.0
+    def dragY:double 0.0
+    def moveAsk:string ""
+    ; the list of open comments on the right ("N open" on the bar), and the
+    ; ids of its rows
+    def listing:boolean false
+    def rowIds:[string]
+    ; text the host puts on the clipboard ("review-copy"); "review-copy-open"
+    ; asks the host for the open comments with their slides' Markdown
+    def clip:string ""
+    ; Presenting, the thread (or the new comment, or the list) is a callout
+    ; beside its pin rather than a panel down the right edge: as big as what
+    ; is in it, see-through, and moved by its head. `coKey` is what it shows
+    ; ("draft", "list" or a thread's id): another one starts where it goes
+    ; by itself again. (`coX`…`coH`: where the frame was laid out.)
+    def co:CalloutCtl (CalloutCtl.make("rv-co"))
+    def coKey:string ""
+    def coPX:double 0.0
+    def coPY:double 0.0
+    def coX:double 0.0
+    def coY:double 0.0
+    def coW:double 0.0
+    def coH:double 0.0
 
     Constructor () {
         chat.setup("rv-chat" (PresI18n.t("Comment")))
@@ -102,7 +149,7 @@ class PresReviewUi {
     ; --- what shows -------------------------------------------------------------
 
     fn panelOpen:boolean () {
-        return (on && (drafting || ((strlen openId) > 0)))
+        return (on && ((drafting || listing) || ((strlen openId) > 0)))
     }
 
     ; the width the thread takes off the right edge while editing (presenting,
@@ -119,6 +166,9 @@ class PresReviewUi {
     }
 
     fn inPanel:boolean (px:double py:double) {
+        if present {
+            return (((((this.panelOpen()) && (px >= coX)) && (px <= (coX + coW))) && (py >= coY)) && (py <= (coY + coH)))
+        }
         return ((((this.panelOpen()) && (px >= (this.panelX()))) && (py >= top)) && (py <= h))
     }
 
@@ -246,8 +296,35 @@ class PresReviewUi {
     ; --- placing it -----------------------------------------------------------------
 
     ; Where everything is now; built again only when something moved.
+    fn clearSpots:void () {
+        clear spotIds
+        clear spotXs
+        clear spotYs
+        clear spotOn
+        spotKey = ""
+    }
+
+    fn setSpot:void (id:string x:double y:double shown:boolean) {
+        push spotIds id
+        push spotXs x
+        push spotYs y
+        push spotOn shown
+        spotKey = (spotKey + id + "@" + (EVGDisplayList.num((PresReview.round4(x)))) + "," + (EVGDisplayList.num((PresReview.round4(y)))) + (? shown "+" "-") + ";")
+    }
+
+    fn spotIndex:int (id:string) {
+        def i:int 0
+        while (i < (array_length spotIds)) {
+            if ((itemAt spotIds i) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
     fn place:void (pw:double ph:double topBand:double presenting:boolean shown:int x:double y:double sW:double sH:double aX:double aW:double aB:double) {
-        def key:string ((EVGDisplayList.num(pw)) + ":" + (EVGDisplayList.num(ph)) + ":" + (EVGDisplayList.num(topBand)) + ":" + (? presenting "p" "e") + ":" + (to_string shown) + ":" + (EVGDisplayList.num(x)) + ":" + (EVGDisplayList.num(y)) + ":" + (EVGDisplayList.num(sW)) + ":" + (EVGDisplayList.num(sH)) + ":" + (EVGDisplayList.num(aX)) + ":" + (EVGDisplayList.num(aW)) + ":" + (EVGDisplayList.num(aB)) + ":" + (to_string model.rev))
+        def key:string ((EVGDisplayList.num(pw)) + ":" + (EVGDisplayList.num(ph)) + ":" + (EVGDisplayList.num(topBand)) + ":" + (? presenting "p" "e") + ":" + (to_string shown) + ":" + (EVGDisplayList.num(x)) + ":" + (EVGDisplayList.num(y)) + ":" + (EVGDisplayList.num(sW)) + ":" + (EVGDisplayList.num(sH)) + ":" + (EVGDisplayList.num(aX)) + ":" + (EVGDisplayList.num(aW)) + ":" + (EVGDisplayList.num(aB)) + ":" + (to_string model.rev) + ":" + spotKey)
         if (key == builtKey) {
             return
         }
@@ -288,7 +365,8 @@ class PresReviewUi {
         def fresh (new UiHost())
         host = fresh
         host.addStyleSheet(css)
-        host.setTheme((trim ("pn " + skin)))
+        ; presenting, the callout's insides are dark (`.theme-rvg`)
+        host.setTheme((trim ("pn " + (? present "rvg " "") + skin)))
         host.setPageSize(w h)
         def none:[PinCtl]
         pins = none
@@ -299,11 +377,35 @@ class PresReviewUi {
             return
         }
         ; the pins of the slide shown
+        def pinEls:[EVGElement]
         def k:int 0
         for model.threads t:PresReviewThread i {
-            if (t.slide == slide) {
+            def at:int (this.spotIndex(t.id))
+            def held:boolean (dragging && (pinDown == ("rv-pin-" + t.id)))
+            if held {
+                at = -1
+            }
+            if (((t.slide == slide) && (at >= 0)) && ((itemAt spotOn at) == false)) {
+                ; out of the diagram's view: no pin, but still counted
                 k = (k + 1)
-                def p:PinCtl (PinCtl.make(("rv-pin-" + t.id) (sx + (t.x * sw)) (sy + (t.y * sh)) (to_string (t.count()))))
+            }
+            if ((t.slide == slide) && ((at < 0) || (itemAt spotOn at))) {
+                k = (k + 1)
+                def fx:double t.x
+                def fy:double t.y
+                if (at >= 0) {
+                    fx = (itemAt spotXs at)
+                    fy = (itemAt spotYs at)
+                }
+                if held {
+                    fx = dragX
+                    fy = dragY
+                }
+                if (t.id == openId) {
+                    coPX = ((sx + (fx * sw)) + 13.0)
+                    coPY = ((sy + (fy * sh)) - 11.0)
+                }
+                def p:PinCtl (PinCtl.make(("rv-pin-" + t.id) (sx + (fx * sw)) (sy + (fy * sh)) "!"))
                 p.color = color
                 p.closed = t.closed
                 p.active = (t.id == openId)
@@ -315,20 +417,46 @@ class PresReviewUi {
                 p.build()
                 push pins p
                 push host.ctls p
-                root.addChild((unwrap p.rootEl))
+                push pinEls (unwrap p.rootEl)
             }
         }
-        if (drafting && (draftSlide == slide)) {
-            def dp:PinCtl (PinCtl.make("rv-draft" (sx + (draftX * sw)) (sy + (draftY * sh)) "+"))
+        def da:int (this.spotIndex("rv-draft"))
+        def dheld:boolean (dragging && (pinDown == "rv-draft"))
+        if dheld {
+            da = -1
+        }
+        if ((drafting && (draftSlide == slide)) && ((da < 0) || (itemAt spotOn da))) {
+            def dfx:double draftX
+            def dfy:double draftY
+            if (da >= 0) {
+                dfx = (itemAt spotXs da)
+                dfy = (itemAt spotYs da)
+            }
+            if dheld {
+                dfx = dragX
+                dfy = dragY
+            }
+            coPX = ((sx + (dfx * sw)) + 13.0)
+            coPY = ((sy + (dfy * sh)) - 11.0)
+            def dp:PinCtl (PinCtl.make("rv-draft" (sx + (dfx * sw)) (sy + (dfy * sh)) "+"))
             dp.color = color
             dp.active = true
             dp.info = (PresI18n.t("New comment"))
             dp.build()
+            push pins dp
             push host.ctls dp
-            root.addChild((unwrap dp.rootEl))
+            push pinEls (unwrap dp.rootEl)
+        }
+        ; presenting, the callout goes under the pins: its wedge ends at the
+        ; middle of its pin, which stays in sight
+        if ((this.panelOpen()) && present) {
+            root.addChild((this.calloutEl()))
+        }
+        for pinEls pe:EVGElement pi {
+            root.addChild(pe)
         }
         root.addChild((this.bar()))
-        if (this.panelOpen()) {
+        if ((this.panelOpen()) && (present == false)) {
             root.addChild((this.panel()))
         }
         rev = (rev + 1)
@@ -345,7 +473,7 @@ class PresReviewUi {
         } {
             b.addChild((this.label("rv-add" "rv-btn rv-btn-main" ("💬 " + (PresI18n.t("Comment"))))))
             def cnt:string ((to_string n) + " " + (PresI18n.t("open")))
-            b.addChild((this.label("rv-count" "rv-count" cnt)))
+            b.addChild((this.label("rv-count" (? listing "rv-count rv-count-on" "rv-count") cnt)))
             if (n > 0) {
                 b.addChild((this.label("rv-next" "rv-btn" ((PresI18n.t("Next")) + " ›"))))
             }
@@ -363,6 +491,27 @@ class PresReviewUi {
         p.overlayY = top
         p.width = (EVGUnit.px(panelW))
         p.height = (EVGUnit.px((h - top)))
+        if listing {
+            p.addChild((this.listEl(true)))
+            return p
+        }
+        chat.bare = false
+        this.setupChat()
+        chat.height = (h - top)
+        chat.open = true
+        chat.build()
+        def cr:EVGElement (unwrap chat.rootEl)
+        UiTree.inline(cr "width" ((to_string panelW) + "px"))
+        UiTree.inline(cr "border-radius" "0px")
+        UiTree.inline(cr "border-width" "0px")
+        push host.ctls chat
+        p.addChild(cr)
+        return p
+    }
+
+    ; The thread (or the new comment) into the chat: title, the line under
+    ; it, its buttons, its messages.
+    fn setupChat:void () {
         chat.clearActions()
         chat.readOnly = false
         chat.subtitle = ""
@@ -398,20 +547,158 @@ class PresReviewUi {
                 } {
                     chat.addAction("resolve" ("✓ " + (PresI18n.t("Resolve"))) "primary")
                 }
+                chat.addAction("copy" ("⧉ " + (PresI18n.t("Copy"))) "")
+                chat.addAction("list" ("☰ " + (PresI18n.t("All"))) "")
                 chat.subtitle = sub
                 this.fillChat(t)
             }
         }
-        chat.height = (h - top)
-        chat.open = true
-        chat.build()
-        def cr:EVGElement (unwrap chat.rootEl)
-        UiTree.inline(cr "width" ((to_string panelW) + "px"))
-        UiTree.inline(cr "border-radius" "0px")
-        UiTree.inline(cr "border-width" "0px")
-        push host.ctls chat
-        p.addChild(cr)
-        return p
+    }
+
+    ; Presenting: the callout beside the pin (or the bar's count, for the
+    ; list), dark and see-through, the chat in it without a head of its own.
+    fn calloutEl:EVGElement () {
+        def key:string openId
+        if drafting {
+            key = "draft"
+        }
+        if listing {
+            key = "list"
+        }
+        if (key != coKey) {
+            co = (CalloutCtl.make("rv-co"))
+            coKey = key
+        }
+        co.look = "glass"
+        co.frameClass = "rv-glass"
+        co.closeLabel = (PresI18n.t("Close"))
+        co.setPage(w h)
+        co.setPoint(coPX coPY)
+        if listing {
+            co.title = (PresI18n.t("Comments"))
+            co.width = 340.0
+            co.setPoint((this.barX() + (barW * 0.5)) (this.barY()))
+        } {
+            co.width = 340.0
+            if drafting {
+                co.title = ((PresI18n.t("New comment")) + " · " + (this.slideName(draftSlide)))
+                co.width = 320.0
+            } {
+                co.title = (this.slideName(slide))
+            }
+        }
+        def body:EVGElement (unwrap co.bodyEl)
+        UiTree.clearChildren(body)
+        if listing {
+            body.addChild((this.listEl(false)))
+        } {
+            chat.bare = true
+            this.setupChat()
+            chat.subtitle = ""
+            chat.height = 0.0
+            chat.open = true
+            chat.build()
+            push host.ctls chat
+            body.addChild((unwrap chat.rootEl))
+        }
+        co.build()
+        push host.ctls co
+        return (unwrap co.rootEl)
+    }
+
+    ; The open comments: one row each (slide, first words, how many
+    ; messages), a press opens it; "Copy open comments" above them.
+    fn listEl:EVGElement (withHead:boolean) {
+        def none:[string]
+        rowIds = none
+        def box:EVGElement (UiTree.div("rv-list" "rv-list"))
+        if withHead {
+            def head:EVGElement (UiTree.div("rv-list-head" "rv-list-head"))
+            head.addChild((this.label("rv-list-title" "rv-list-title" (PresI18n.t("Comments")))))
+            head.addChild((this.label("rv-list-close" "rv-list-close" "×")))
+            box.addChild(head)
+        }
+        def order:[PresReviewThread] (model.openOrder())
+        if ((array_length order) > 0) {
+            box.addChild((this.label("rv-copy-open" "rv-list-btn" ("⧉ " + (PresI18n.t("Copy open comments"))))))
+        }
+        def rows:EVGElement (UiTree.div("rv-rows" "rv-rows"))
+        if ((array_length order) == 0) {
+            rows.addChild((this.label("rv-list-empty" "rv-list-empty" (PresI18n.t("No open comments.")))))
+        }
+        for order t:PresReviewThread i {
+            def rid:string ("rv-row-" + (to_string i))
+            push rowIds t.id
+            def cls:string "rv-row"
+            if (t.slide == slide) {
+                cls = "rv-row rv-row-here"
+            }
+            def r:EVGElement (UiTree.div(rid cls))
+            def top1:string ("[" + (to_string (i + 1)) + "] " + (this.slideName(t.slide)))
+            r.addChild((this.label((rid + "-s") "rv-row-slide" top1)))
+            def say:string (PresReviewUi.oneLine((t.firstText())))
+            if ((t.count()) > 1) {
+                say = (say + "  (" + (to_string (t.count())) + ")")
+            }
+            r.addChild((this.label((rid + "-t") "rv-row-text" say)))
+            rows.addChild(r)
+        }
+        box.addChild(rows)
+        return box
+    }
+
+    ; What in the list is under the point: "rv-list-close", "rv-copy-open",
+    ; "rv-row-<i>" or "" (its words are no control's, so looked up by id).
+    fn listAt:string (px:double py:double) {
+        if (null? host.lastPage) {
+            return ""
+        }
+        def pg:EVGElement (unwrap host.lastPage)
+        def ids:[string]
+        push ids "rv-list-close"
+        push ids "rv-copy-open"
+        def i:int 0
+        while (i < (array_length rowIds)) {
+            push ids ("rv-row-" + (to_string i))
+            i = (i + 1)
+        }
+        for ids id:string k {
+            def f@(optional):EVGElement (host.findEl(pg id))
+            if (!null? f) {
+                def el:EVGElement (unwrap f)
+                if (host.containsPoint(el px py)) {
+                    return id
+                }
+            }
+        }
+        return ""
+    }
+
+    ; the list row a page id is in, -1 none
+    fn rowAt:int (tid:string) {
+        if ((indexOf tid "rv-row-") != 0) {
+            return -1
+        }
+        def rest:string (substring tid 7 (strlen tid))
+        def dash:int (indexOf rest "-")
+        if (dash >= 0) {
+            rest = (substring rest 0 dash)
+        }
+        def k:int (?? (to_int rest) -1)
+        if ((k < 0) || (k >= (array_length rowIds))) {
+            return -1
+        }
+        return k
+    }
+
+    fn openList:void () {
+        openId = ""
+        drafting = false
+        armed = false
+        typing = false
+        selecting = false
+        listing = true
+        this.changed()
     }
 
     ; the thread's messages into the chat, as they are now
@@ -504,6 +791,22 @@ class PresReviewUi {
             be.overlayY = (this.barY())
             lay.layout(pg)
         }
+        ; the callout beside its point, now that its size is known
+        if (present && (this.panelOpen())) {
+            def cf@(optional):EVGElement (host.findEl(r (co.frameTid())))
+            if (!null? cf) {
+                def ce:EVGElement (unwrap cf)
+                if listing {
+                    co.setPoint((this.barX() + (barW * 0.5)) (this.barY()))
+                }
+                co.fit(ce.calculatedWidth ce.calculatedHeight)
+                lay.layout(pg)
+                coX = ce.calculatedX
+                coY = ce.calculatedY
+                coW = ce.calculatedWidth
+                coH = ce.calculatedHeight
+            }
+        }
         chat.input.focused = typing
         host.placeText((lay.getTextEngine()))
         host.lastPage = pg
@@ -551,22 +854,23 @@ class PresReviewUi {
             if (tid == "rv-next") {
                 this.openNext()
             }
+            if (tid == "rv-count") {
+                if listing {
+                    this.closePanel()
+                } {
+                    this.openList()
+                }
+            }
             return true
         }
         def pin:string (this.pinAt(px py))
         if ((strlen pin) > 0) {
+            ; what it does waits for the release: a click or a drag
             placing = false
-            if (pin == "rv-draft") {
-                typing = true
-                this.changed()
-                return true
-            }
-            def id:string (substring pin 7 (strlen pin))
-            if ((id == openId) && (drafting == false)) {
-                this.closePanel()
-            } {
-                this.openThread(id)
-            }
+            pinDown = pin
+            downX = px
+            downY = py
+            dragging = false
             return true
         }
         if (placing && (this.inSlide(px py))) {
@@ -584,7 +888,7 @@ class PresReviewUi {
             return ""
         }
         def pg:EVGElement (unwrap host.lastPage)
-        for ([] _:string ("rv-add" "rv-cancel" "rv-next")) id:string i {
+        for ([] _:string ("rv-add" "rv-cancel" "rv-next" "rv-count")) id:string i {
             def f@(optional):EVGElement (host.findEl(pg id))
             if (!null? f) {
                 def el:EVGElement (unwrap f)
@@ -598,11 +902,15 @@ class PresReviewUi {
 
     fn startDraft:void (s:int x:double y:double) {
         openId = ""
+        listing = false
         armed = false
         drafting = true
         draftSlide = s
         draftX = (PresReview.clamp01(x))
         draftY = (PresReview.clamp01(y))
+        draftAsk = true
+        draftDia = -1
+        draftNode = ""
         chat.input.setValue("")
         chat.input.moveTo(0 false)
         typing = true
@@ -616,6 +924,7 @@ class PresReviewUi {
         def none:[UiChatMessage]
         chat.messages = none
         drafting = false
+        listing = false
         armed = false
         openId = id
         def t:PresReviewThread (unwrap (model.find(id)))
@@ -625,6 +934,7 @@ class PresReviewUi {
 
     fn closePanel:void () {
         openId = ""
+        listing = false
         drafting = false
         armed = false
         typing = false
@@ -696,8 +1006,48 @@ class PresReviewUi {
     }
 
     fn panelPress:void (px:double py:double clicks:int shift:boolean) {
+        if present {
+            def ct:string (host.hitTest(px py))
+            if (ct == (co.closeTid())) {
+                this.closePanel()
+                return
+            }
+            if (co.grab(ct px py)) {
+                this.changed()
+                return
+            }
+        }
+        if listing {
+            def tid:string (this.listAt(px py))
+            if (tid == "rv-list-close") {
+                this.closePanel()
+                return
+            }
+            if (tid == "rv-copy-open") {
+                push requests "review-copy-open"
+                return
+            }
+            def k:int (this.rowAt(tid))
+            if (k >= 0) {
+                def f@(optional):PresReviewThread (model.find((itemAt rowIds k)))
+                if (!null? f) {
+                    def t:PresReviewThread (unwrap f)
+                    if (t.slide != slide) {
+                        wantSlide = t.slide
+                    }
+                    this.openThread(t.id)
+                }
+            }
+            return
+        }
         def tid:string (host.hitTest(px py))
         def c:string chat.tid
+        if (chat.owns(tid) && ((indexOf tid ((c + "-m-"))) == 0)) {
+            ; a message's words: select them
+            selecting = (chat.textPointerDownAt(tid px py clicks shift))
+            this.changed()
+            return
+        }
         if (chat.input.owns(tid)) {
             typing = true
             selecting = (chat.textPointerDown(tid px clicks shift))
@@ -718,18 +1068,85 @@ class PresReviewUi {
         this.changed()
     }
 
-    fn dragTo:void (px:double) {
+    fn dragTo:void (px:double py:double) {
         if selecting {
-            chat.textPointerDrag(px)
-            rev = (rev + 1)
+            chat.textPointerDragAt(px py)
+            this.changed()
         }
     }
 
-    fn release:void () {
+    ; a pin held and dragged: it follows the pointer, inside the slide, once
+    ; it has moved a few pixels
+    fn dragPin:void (px:double py:double) {
+        if ((strlen pinDown) == 0) {
+            return
+        }
+        if (dragging == false) {
+            def dx:double (px - downX)
+            def dy:double (py - downY)
+            if (((dx * dx) + (dy * dy)) < 16.0) {
+                return
+            }
+            dragging = true
+        }
+        if ((sw <= 0.0) || (sh <= 0.0)) {
+            return
+        }
+        dragX = (PresReview.clamp01(((px - sx) / sw)))
+        dragY = (PresReview.clamp01(((py - sy) / sh)))
+        this.changed()
+    }
+
+    ; -> true when a pin was let go (the host then finds the diagram a moved
+    ; one is on, and passes the requests on)
+    ; the callout dragged by its head
+    fn calloutDrag:void (px:double py:double) {
+        co.dragTo(px py)
+        this.changed()
+    }
+
+    fn release:boolean () {
+        if co.dragging {
+            co.release()
+            this.changed()
+        }
         if selecting {
             chat.textPointerUp()
         }
         selecting = false
+        if ((strlen pinDown) == 0) {
+            return false
+        }
+        def pin:string pinDown
+        def moved:boolean dragging
+        pinDown = ""
+        dragging = false
+        if (pin == "rv-draft") {
+            if moved {
+                draftX = dragX
+                draftY = dragY
+                draftAsk = true
+                draftDia = -1
+                draftNode = ""
+            }
+            typing = true
+            this.changed()
+            return true
+        }
+        def id:string (substring pin 7 (strlen pin))
+        if moved {
+            if (model.move(id dragX dragY nowMs)) {
+                moveAsk = id
+            }
+            this.changed()
+            return true
+        }
+        if ((id == openId) && (drafting == false)) {
+            this.closePanel()
+        } {
+            this.openThread(id)
+        }
+        return true
     }
 
     fn wheel:boolean (px:double py:double dy:double) {
@@ -784,6 +1201,9 @@ class PresReviewUi {
                     title = (itemAt titles draftSlide)
                 }
                 if (model.start(id draftSlide title draftX draftY m)) {
+                    if (draftDia >= 0) {
+                        model.anchor(id draftDia draftNode draftAX draftAY)
+                    }
                     drafting = false
                     openId = id
                     this.save()
@@ -800,6 +1220,14 @@ class PresReviewUi {
                 typing = false
                 this.save()
             }
+        }
+        if (act == "copy") {
+            clip = (model.threadText(openId titles))
+            push requests "review-copy"
+        }
+        if (act == "list") {
+            this.openList()
+            return
         }
         if (act == "reopen") {
             if (model.setClosed(openId false meWho nowMs)) {
@@ -841,7 +1269,7 @@ class PresReviewUi {
     }
 
     fn copyText:string () {
-        return (chat.input.selectedText())
+        return (chat.selectedText())
     }
 
     fn selectAll:void () {
@@ -851,7 +1279,26 @@ class PresReviewUi {
 
     fn cursorAt:string (px:double py:double) {
         if (this.inPanel(px py)) {
+            if present {
+                def ct:string (host.hitTest(px py))
+                if (co.isHandle(ct)) {
+                    return (? co.dragging "grabbing" "grab")
+                }
+                if (ct == (co.closeTid())) {
+                    return "pointer"
+                }
+            }
+            if listing {
+                def lt:string (this.listAt(px py))
+                if ((((this.rowAt(lt)) >= 0) || (lt == "rv-copy-open")) || (lt == "rv-list-close")) {
+                    return "pointer"
+                }
+                return "default"
+            }
             def tid:string (host.hitTest(px py))
+            if (chat.owns(tid) && ((indexOf tid (chat.tid + "-m-")) == 0)) {
+                return "text"
+            }
             if (chat.input.owns(tid)) {
                 return "text"
             }
@@ -860,8 +1307,14 @@ class PresReviewUi {
             }
             return "default"
         }
-        if ((this.inBar(px py)) || ((strlen (this.pinAt(px py))) > 0)) {
+        if dragging {
+            return "grabbing"
+        }
+        if (this.inBar(px py)) {
             return "pointer"
+        }
+        if ((strlen (this.pinAt(px py))) > 0) {
+            return "grab"
         }
         if (placing && (this.inSlide(px py))) {
             return "crosshair"

@@ -284,3 +284,20 @@ func TestFolderStoreUpdatesOnlyOverWhatItRead(t *testing.T) {
 	eq(t, d["stamp"], "s2")
 	eq(t, len(d["claims"].([]any)), 0)
 }
+
+// edits are made on the deck as it is: no base version, merged as any save
+func TestEditsNeedNoBaseVersionWhileOthersWork(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, testEnv(&f, nil), "")
+	defer s.close()
+	c := call(t, s, "create_presentation", map[string]any{"title": "Work", "markdown": BASE_DECK})
+	id, key := sc(c)["deck_id"].(string), sc(c)["edit_key"]
+	call(t, s, "begin_work", map[string]any{"deck_id": id, "edit_key": key, "agent": "A", "slides": []any{2}})
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "edits": []any{map[string]any{"find": "Some", "replace": "Some, ranked"}}})
+	if u.IsError {
+		t.Fatal(textOf(u))
+	}
+	match(t, textOf(u), `Also working on this deck: A is working on slide 2`)
+	doc, _ := f.db.Get(context.Background(), "shares", id)
+	match(t, doc["md"].(string), `Some, ranked$`)
+}

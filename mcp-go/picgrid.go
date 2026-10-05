@@ -23,20 +23,31 @@ const gridSize = 48
 // ImageGrid is the picture in the handle as the contrast check reads it:
 // width, height, then gridSize×gridSize RGBA values (each cell the mean of
 // the pixels it covers, colours not premultiplied). Empty when the bytes do
-// not decode (a broken file). An SVG is not painted here: it is its size
-// alone (width, height and no grid), so the layout gives it the room the
-// player does (web/picture.js svgSize).
+// not decode (a broken file). An SVG has its own size (web/picture.js
+// svgSize), so the layout gives it the room the player does, and the grid
+// of its drawing (svgraster.go); its size alone when it does not draw.
 func (h *McpHost) ImageGrid(handle int64) []int64 {
 	data := h.images[handle]
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		if w, ht, ok := svgSize(data); ok {
+		w, ht, ok := svgSize(data)
+		if !ok {
+			return []int64{}
+		}
+		pic, err := drawSvg(data, svgGridSide)
+		if err != nil {
 			return []int64{w, ht}
 		}
-		return []int64{}
+		g := lumaGrid(pic)
+		g[0], g[1] = w, ht
+		return g
 	}
 	return lumaGrid(img)
 }
+
+// the longer side an SVG is drawn at for the contrast grid: ten pixels
+// and more to each of its cells
+const svgGridSide = 480
 
 var (
 	svgRoot    = regexp.MustCompile(`(?is)<svg\b((?:[^>"']|"[^"]*"|'[^']*')*)>`)
@@ -46,18 +57,80 @@ var (
 	svgUnits   = map[string]float64{"": 1, "px": 1, "pt": 96.0 / 72, "pc": 16, "in": 96, "cm": 96 / 2.54, "mm": 96 / 25.4, "q": 96 / 101.6, "em": 16, "rem": 16, "ex": 8, "ch": 8}
 )
 
+// svgRootTag is the outermost <svg …> start tag: where it is in data, what
+// is inside it, and its attributes (comments before it skipped, as
+// web/picture.js rootTag does). ok false: not an SVG.
+func svgRootTag(data []byte) (start, end int, inner string, attrs map[string]string, ok bool) {
+	text := svgComment.ReplaceAllStringFunc(string(data), func(c string) string { return strings.Repeat(" ", len(c)) })
+	m := svgRoot.FindStringSubmatchIndex(text)
+	if m == nil {
+		return 0, 0, "", nil, false
+	}
+	inner = text[m[2]:m[3]]
+	attrs = map[string]string{}
+	for _, a := range svgAttr.FindAllStringSubmatch(inner, -1) {
+		attrs[a[1]] = a[2] + a[3]
+	}
+	return m[0], m[1], inner, attrs, true
+}
+
+// svgViewBox is the viewBox's four numbers, nil when it has none that
+// could be drawn
+func svgViewBox(attrs map[string]string) []float64 {
+	var vb []float64
+	for _, f := range strings.FieldsFunc(attrs["viewBox"], func(r rune) bool { return r == ' ' || r == ',' || r == '\t' || r == '\n' || r == '\r' }) {
+		n, err := strconv.ParseFloat(f, 64)
+		if err != nil {
+			return nil
+		}
+		vb = append(vb, n)
+	}
+	if len(vb) != 4 || vb[2] <= 0 || vb[3] <= 0 {
+		return nil
+	}
+	return vb
+}
+
+var svgSizeAttr = regexp.MustCompile(`(?i)\s(width|height)\s*=\s*("[^"]*"|'[^']*')`)
+
+// svgSizedTo is the SVG with its root sized w × h pixels, as
+// web/picture.js svgSizedTo makes it before a browser draws it: an SVG
+// without a viewBox gets one of its own size, so it is scaled, not cut.
+func svgSizedTo(data []byte, w, h int) ([]byte, bool) {
+	start, end, inner, attrs, ok := svgRootTag(data)
+	if !ok {
+		return nil, false
+	}
+	sw, sh, _ := svgSizeF(data)
+	// <svg …/>: the attributes go before its slash
+	inner, closed := strings.CutSuffix(strings.TrimRight(svgSizeAttr.ReplaceAllString(inner, ""), " \t\r\n"), "/")
+	inner = strings.TrimRight(inner, " \t\r\n")
+	if svgViewBox(attrs) == nil {
+		inner += " viewBox=\"0 0 " + strconv.FormatFloat(sw, 'g', -1, 64) + " " + strconv.FormatFloat(sh, 'g', -1, 64) + "\""
+	}
+	inner += " width=\"" + strconv.Itoa(w) + "\" height=\"" + strconv.Itoa(h) + "\""
+	out := make([]byte, 0, len(data)+40)
+	out = append(out, data[:start]...)
+	if closed {
+		inner += "/"
+	}
+	out = append(out, "<svg"+inner+">"...)
+	return append(out, data[end:]...), true
+}
+
 // svgSize is an SVG's own size in CSS pixels, as web/picture.js svgSize
 // works it out: width and height, one of them with the viewBox's shape, the
 // viewBox alone, or 300 × 150. ok false: not an SVG.
 func svgSize(data []byte) (int64, int64, bool) {
-	text := svgComment.ReplaceAllStringFunc(string(data), func(c string) string { return strings.Repeat(" ", len(c)) })
-	m := svgRoot.FindStringSubmatch(text)
-	if m == nil {
+	w, h, ok := svgSizeF(data)
+	return int64(math.Round(w)), int64(math.Round(h)), ok
+}
+
+// svgSizeF is svgSize unrounded
+func svgSizeF(data []byte) (float64, float64, bool) {
+	_, _, _, attrs, ok := svgRootTag(data)
+	if !ok {
 		return 0, 0, false
-	}
-	attrs := map[string]string{}
-	for _, a := range svgAttr.FindAllStringSubmatch(m[1], -1) {
-		attrs[a[1]] = a[2] + a[3]
 	}
 	length := func(v string) float64 {
 		lm := svgLen.FindStringSubmatch(v)
@@ -72,13 +145,7 @@ func svgSize(data []byte) (int64, int64, bool) {
 		return n * k
 	}
 	w, h := length(attrs["width"]), length(attrs["height"])
-	var vb []float64
-	for _, f := range strings.FieldsFunc(attrs["viewBox"], func(r rune) bool { return r == ' ' || r == ',' || r == '\t' || r == '\n' }) {
-		if n, err := strconv.ParseFloat(f, 64); err == nil {
-			vb = append(vb, n)
-		}
-	}
-	if len(vb) == 4 && vb[2] > 0 && vb[3] > 0 {
+	if vb := svgViewBox(attrs); vb != nil {
 		switch {
 		case w > 0 && h == 0:
 			h = w * vb[3] / vb[2]
@@ -94,7 +161,7 @@ func svgSize(data []byte) (int64, int64, bool) {
 	if h <= 0 {
 		h = 150
 	}
-	return int64(math.Round(w)), int64(math.Round(h)), true
+	return w, h, true
 }
 
 func lumaGrid(img image.Image) []int64 {

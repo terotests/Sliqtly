@@ -53,6 +53,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/terotests/sliqtly/mcp-go/store"
 )
 
 const (
@@ -153,6 +155,11 @@ type collabRoom struct {
 	id   string
 	load sync.Once
 	mu   sync.Mutex
+	// this run of the room: revs count from 0 in each, so a page that comes
+	// back from another run (the server restarted, or the room was left
+	// empty and opened again) reads the deck again rather than taking this
+	// run's edits as the ones after its own rev
+	epoch string
 
 	ready   bool
 	text    []uint16
@@ -172,14 +179,25 @@ type collabRoom struct {
 	fileMd  []uint16
 	fileRev int
 	fileGap []delta
-	// the room's own write under way
-	saving    []uint16
-	savingRev int
+	// the deck's revision the room has taken in: a change the store tells
+	// that is not newer is one the room has read already
+	docRev store.Rev
+	// the room's own writes not yet told back by the store, oldest first;
+	// saveMu keeps one write at a time, so a flush waits for a timer's
+	// write rather than passing it
+	pending []*collabSave
+	saveMu  sync.Mutex
 
 	dirty     bool
 	saveTimer *time.Timer
 	dirtyAt   time.Time
 	idleTimer *time.Timer
+}
+
+// one write of the room's: its text, which was the room's at rev
+type collabSave struct {
+	text []uint16
+	rev  int
 }
 
 type collabRooms struct {
@@ -210,20 +228,21 @@ func (s *localServer) room(ctx context.Context, id string) (*collabRoom, error) 
 	s.collab.mu.Lock()
 	rm := s.collab.rooms[id]
 	if rm == nil {
-		rm = &collabRoom{s: s, id: id, peers: map[string]*collabPeer{}, seqs: map[string]int{}, subs: map[*collabSub]struct{}{}}
+		rm = &collabRoom{s: s, id: id, epoch: newEpoch(), peers: map[string]*collabPeer{}, seqs: map[string]int{}, subs: map[*collabSub]struct{}{}}
 		s.collab.rooms[id] = rm
 	}
 	s.collab.mu.Unlock()
 	rm.load.Do(func() {
 		// read without the room locked: a write meanwhile (its callback
 		// sees the room not ready) is the newer text, and wins
-		d, _ := s.env.DB.Get(ctx, "shares", id)
+		d, rev, _ := s.env.Store.Get(ctx, "shares", id)
 		md, _ := d["md"].(string)
 		chat := readChat(s.chatFile(id))
 		rm.mu.Lock()
-		if !rm.ready {
+		if !rm.ready || rev > rm.docRev {
 			rm.text = toU16(md)
 			rm.fileMd = rm.text
+			rm.docRev = rev
 		}
 		rm.chat = chat
 		rm.ready = true
@@ -232,22 +251,27 @@ func (s *localServer) room(ctx context.Context, id string) (*collabRoom, error) 
 	return rm, nil
 }
 
-// fsDB tells every write, in order, while the folder is locked
-func (s *localServer) collabWritten(col, id string, doc Doc) {
-	if col != "shares" {
+// the store tells every write, in the order made (local.go)
+func (s *localServer) collabWritten(c store.Change) {
+	if c.Col != "shares" {
 		return
 	}
-	rm := s.openRoom(id)
+	rm := s.openRoom(c.ID)
 	if rm == nil {
 		return
 	}
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
-	if doc == nil {
+	if c.Doc == nil {
+		rm.docRev, rm.pending = 0, nil
 		rm.broadcast(map[string]any{"t": "reset"}, 0)
 		return
 	}
-	md, _ := doc["md"].(string)
+	if c.Rev <= rm.docRev {
+		return
+	}
+	rm.docRev = c.Rev
+	md, _ := c.Doc["md"].(string)
 	got := toU16(md)
 	if !rm.ready {
 		rm.text = got
@@ -255,10 +279,11 @@ func (s *localServer) collabWritten(col, id string, doc Doc) {
 		rm.ready = true
 		return
 	}
-	if rm.saving != nil && sameU16(got, rm.saving) {
+	if len(rm.pending) > 0 && sameU16(got, rm.pending[0].text) {
 		// the room's own write
-		rm.fileMd, rm.fileRev, rm.fileGap = rm.saving, rm.savingRev, nil
-		rm.saving = nil
+		w := rm.pending[0]
+		rm.pending = rm.pending[1:]
+		rm.fileMd, rm.fileRev, rm.fileGap = w.text, w.rev, nil
 		return
 	}
 	if sameU16(got, rm.fileMd) {
@@ -291,6 +316,11 @@ func (s *localServer) collabWritten(col, id string, doc Doc) {
 		}
 	}
 	rm.fileMd, rm.fileRev, rm.fileGap = got, rm.rev, gap
+}
+
+// a room run's name: random, so two runs of one room never share it
+func newEpoch() string {
+	return strconv.FormatUint(rand.Uint64(), 36)
 }
 
 func sameU16(a, b []uint16) bool {
@@ -380,24 +410,40 @@ func (rm *collabRoom) changed() {
 }
 
 func (rm *collabRoom) save() {
+	rm.saveMu.Lock()
+	defer rm.saveMu.Unlock()
 	rm.mu.Lock()
 	if !rm.dirty {
 		rm.mu.Unlock()
 		return
 	}
-	rm.saving = append([]uint16(nil), rm.text...)
-	rm.savingRev = rm.rev
+	w := &collabSave{text: append([]uint16(nil), rm.text...), rev: rm.rev}
+	rm.pending = append(rm.pending, w)
 	rm.dirty = false
-	md := fromU16(rm.saving)
+	md := fromU16(w.text)
 	rm.mu.Unlock()
-	// not under the room's lock: the write calls back into the room
 	shareMu.Lock()
 	err := rm.s.env.DB.Update(context.Background(), "shares", rm.id, Doc{"md": md, "updated": time.Now().UTC()})
 	shareMu.Unlock()
-	rm.mu.Lock()
-	rm.saving = nil
+	again := false
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sliqtly: writing %s: %v\n", rm.id, err)
+		// kept to be written again, unless the deck is gone
+		d, gerr := rm.s.env.DB.Get(context.Background(), "shares", rm.id)
+		again = gerr != nil || d != nil
+	}
+	rm.mu.Lock()
+	if err != nil {
+		// not written: nothing will be told of it
+		for i, p := range rm.pending {
+			if p == w {
+				rm.pending = append(rm.pending[:i:i], rm.pending[i+1:]...)
+				break
+			}
+		}
+	}
+	if again {
+		rm.changed()
 	}
 	rm.mu.Unlock()
 }
@@ -410,6 +456,23 @@ func (rm *collabRoom) flush() {
 	}
 	rm.mu.Unlock()
 	rm.save()
+}
+
+// writes every open room's text to the folder now, at shutdown: the edits
+// the rooms took in their last moments are not lost with the process
+func (s *localServer) flushRooms() {
+	if s.collab == nil {
+		return
+	}
+	s.collab.mu.Lock()
+	rooms := make([]*collabRoom, 0, len(s.collab.rooms))
+	for _, rm := range s.collab.rooms {
+		rooms = append(rooms, rm)
+	}
+	s.collab.mu.Unlock()
+	for _, rm := range rooms {
+		rm.flush()
+	}
 }
 
 // --- the chat file
@@ -472,7 +535,7 @@ func (s *localServer) collabAPI(r *http.Request, id, what string) (any, error) {
 		if chat == nil {
 			chat = []collabChat{}
 		}
-		return map[string]any{"rev": rm.rev, "md": fromU16(rm.text), "peers": rm.peerList(), "chat": chat}, nil
+		return map[string]any{"epoch": rm.epoch, "rev": rm.rev, "md": fromU16(rm.text), "peers": rm.peerList(), "chat": chat}, nil
 	}
 	if r.Method != http.MethodPost {
 		return nil, fail(405, "", "method not allowed")
@@ -505,8 +568,13 @@ func (rm *collabRoom) submit(body map[string]any, client string) (any, error) {
 		return nil, fail(400, "", err.Error())
 	}
 	seq, hasSeq := count(body["seq"])
+	epoch, _ := body["epoch"].(string)
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
+	// made on another run's rev: the page reads the deck again
+	if epoch != "" && epoch != rm.epoch {
+		return nil, fail(409, "reset", "the room was opened again: read the presentation again")
+	}
 	if hasSeq && seq > 0 && seq <= rm.seqs[client] {
 		return map[string]any{"rev": rm.rev, "again": true}, nil
 	}
@@ -632,7 +700,7 @@ func (rm *collabRoom) say(body map[string]any, client string) (any, error) {
 
 // a page joins: its stream gets the edits after `from` (-1: none), then
 // everyone hears who is here
-func (rm *collabRoom) join(sub *collabSub, client, who, name, color string, from int) {
+func (rm *collabRoom) join(sub *collabSub, client, who, name, color string, from int, epoch string) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 	if rm.idleTimer != nil {
@@ -641,6 +709,9 @@ func (rm *collabRoom) join(sub *collabSub, client, who, name, color string, from
 	}
 	rm.subs[sub] = struct{}{}
 	switch {
+	case epoch != "" && epoch != rm.epoch:
+		// its rev is another run's: what it has is read again
+		sub.push(newEvt(map[string]any{"t": "reset"}, 0))
 	case from < 0 || from == rm.rev:
 	case from >= rm.logFrom && from < rm.rev:
 		for _, e := range rm.log[from-rm.logFrom:] {
@@ -802,6 +873,6 @@ func (s *localServer) joinRoom(r *http.Request) (*collabRoom, *collabSub, string
 		return nil, nil, "", err
 	}
 	sub := &collabSub{wake: make(chan struct{}, 1)}
-	rm.join(sub, client, who, name, color, from)
+	rm.join(sub, client, who, name, color, from, q.Get("epoch"))
 	return rm, sub, client, nil
 }

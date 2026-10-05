@@ -57,12 +57,33 @@ Write `![Alt text](media/<name>)` and pass the picture in the tool call's
 `images` list with the same `name` (for example `name: "team.jpg"` →
 `![](media/team.jpg)`). A picture can also cover the slide:
 `## Title {bg=media/cover.jpg bg-dim=0.4}`. Give each picture either a
-public `https` URL or base64 data. PNG, JPEG, GIF, WebP and SVG, up to 5 MB.
+public `https` URL or base64 data, or an SVG's source as `text` (readable,
+no base64). PNG, JPEG, GIF, WebP and SVG, up to 5 MB.
 Pictures, data files and workbooks are stored only when the user is signed
 in; without sign-in a deck is text only and is deleted 30 days after its
 last change.
 When text on a picture is hard to read ("low contrast"), raise that slide's
 `bg-dim` (0.6–0.8) with update_presentation; the picture stays as it is.
+
+SVG pictures, backgrounds included:
+
+- `bg=media/x.svg` works like any picture: it covers the slide, scaled to
+  fill it with its middle kept and the rest cut off (as
+  `preserveAspectRatio="xMidYMid slice"`). Give a background the slide's
+  shape: `viewBox="0 0 1920 1080"` for a 16:9 slide.
+- The root needs `xmlns="http://www.w3.org/2000/svg"`; without it a
+  browser draws nothing. Give it a `viewBox`.
+- Shown as a picture, an SVG loads nothing from outside itself: put
+  pictures in it as `data:` URLs. Its text is drawn in each viewer's own
+  fonts, so draw words as paths, or write them on the slide in Markdown.
+- The player draws the SVG once to a PNG 2560 px on its longer side; the
+  slides, the PDF and the PPTX all use that PNG, so in PDF and PPTX it is a
+  raster picture, not vectors. The deck keeps the SVG itself.
+- `render_slide` and `render_overview` draw SVG pictures, and the result of
+  create/update has a line for each SVG ("SVG ok, viewBox 1920×1080
+  (16:9), 14 paths") with a ⚠ for what will go wrong in the player: no
+  xmlns, no viewBox, a background not in the slide's shape, things loaded
+  from outside, text, filter effects.
 
 ## Charts, diagrams, math, tables
 
@@ -83,7 +104,12 @@ When text on a picture is hard to read ("low contrast"), raise that slide's
   whole diagram, as large as it fits; ▶ beside the zoom buttons (T while
   presenting) starts a guided tour, box by box. Under the fence:
   `{tour=on}` (the tour starts with the slide), `{style=sketch}`
-  (hand-drawn), `{layout=keep}` (keep the direction as written),
+  (hand-drawn), `{style=mermaid}` (pastel cards on a dotted grid),
+  `{style=jurassic}` (poster: ochre circles, grey diamonds, heavy square
+  lines), `{style=cartoon}` (speech bubbles, fat outlines, offset shadows,
+  numbered boxes), `{style=romantic}` (black caption boxes, terracotta
+  circles, dashed lines; round nodes `((…))`/`([…])` become the circles),
+  `{layout=keep}` (keep the direction as written),
   `{ball=off}`, `{choose=off}` (do not stop at named branches),
   `{zoom=2}` (largest scale a box is drawn at, default 3),
   `{diagram=classic}` (the plain drawing on the slide's own background,
@@ -182,6 +208,19 @@ When text on a picture is hard to read ("low contrast"), raise that slide's
   narrows it only when something stands beside it; alone on its slide
   it still spans the full width. Put nothing under a diagram: it takes
   the room down to the next block or the bottom margin.
+- Code: a fence with the language (js, ts, py, rust, go, java, c, cpp,
+  cs, sql, json, sh, …) is coloured. Attributes after the language:
+  `.numbers` (or `numbers=40`, the first number) puts line numbers in a
+  gutter; `lines=3-5,9` highlights those lines (by the numbers shown, else
+  1 = first line); `lines=3-5|9|12` with `.build` highlights them one build
+  step after another while the code stays on the slide.
+  ```` ```js {.numbers lines=2|4-5 .build} ````
+- Diffs: a ```` ```diff ```` fence (```` ```diff ts ```` colours the code
+  as TypeScript) shows `+` lines on green, `-` lines on red, `@@` hunk
+  headers, and file headers (`diff --git`, `---`, `+++`) dimmed. With
+  `.numbers` the numbers follow the hunk headers' new-file side (a removed
+  line has none), and `lines=` highlights by those numbers. Paste
+  `git diff` output as it is; keep a slide to one hunk of about 15 lines.
 - Math: `$…$` inline, `$$…$$` as a display, or a ```` ```math ```` fence (TeX).
 - Tables: ordinary Markdown tables, or HTML `<table>` with `rowspan`/`colspan`.
 - Layouts from lists: a ```` ```process ```` fence (chevron steps),
@@ -374,8 +413,35 @@ The report measures; it does not see. Look at the slides themselves:
 - `render_overview` (deck_id) gives every slide as a numbered thumbnail in
   one picture. Look once before telling the user the deck is done.
 
-Effects (`fx=`), picture corners and SVG pictures are not drawn in these
-pictures; the player draws them.
+Effects (`fx=`) and picture corners are not drawn in these pictures; the
+player draws them. SVG pictures are drawn.
+
+## Changing a deck
+
+For a small change, send `edits` to `update_presentation` instead of the
+whole `markdown`:
+
+```json
+{ "deck_id": "…", "edits": [
+  { "find": "Revenue grew 12 %", "replace": "Revenue grew 14 %" },
+  { "slide": 4, "markdown": "## Costs\n\n- Rent\n- Salaries" },
+  { "slide_title": "Old plan", "markdown": "" },
+  { "after_slide": 6, "markdown": "## Next steps\n\n- Pilot in May" }
+] }
+```
+
+- `find` + `replace`: the text exactly as it is in the deck (spaces and
+  line breaks too); it must be there once, or add `"all": true`.
+- `slide` (number) or `slide_title` + `markdown`: the slide's whole new
+  text from its heading; `""` deletes the slide. A slide whose text ran
+  over onto the next ones is replaced with all of them.
+- `after_slide` + `markdown`: new slides after that one (0 = before the
+  first).
+
+Slide numbers are the ones the layout report and `render_overview` show,
+before these edits; their order does not matter. An edit that does not
+apply cleanly (text not found or found twice, two edits on the same text)
+saves nothing and says why. The answer lists what each edit changed.
 
 ## Review comments
 
@@ -417,9 +483,19 @@ the same time. So that neither undoes the other's work:
 4. Call `end_work` (deck_id, work_id) when done. A claim also runs out
    after `minutes` (default 15) without an update.
 
-`get_presentation` and every update list the others' claims ("Also working
-on this deck"). An update without `base_version` is refused while someone
-else holds a claim on the deck.
+`edits` are made on the deck as it is when they arrive, so they need no
+`base_version`; a whole `markdown` without one is refused while someone
+else holds a claim on the deck. `get_presentation` and every update list
+the others' claims ("Also working on this deck").
+
+## Exporting
+
+`export_presentation` (deck_id, `format`: `pdf` or `pptx`, optional
+`slides`: [2, 5]) makes the file the editor's File → Export makes and
+returns a download link for the user. The PPTX keeps text editable, with
+build steps, speaker notes and transitions; charts and diagrams are
+shapes. Effects (`fx=`) are left out; the editor's own export draws them.
+A new export of the same format replaces the file behind the old link.
 
 ## Result
 

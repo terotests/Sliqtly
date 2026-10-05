@@ -57,7 +57,7 @@ export function build({ ranger } = {}) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
   };
-  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "fileclip.js", "version-view.js", "collab.js", "eventline.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "fileclip.js", "decktabs.js", "version-view.js", "collab.js", "eventline.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
   // versions and deltas (web/versions.js): RangerDiff's built module
   copy(path.join(ensureRangerDiff(), "dist", "rangerdiff.mjs"), path.join(distDir, "rangerdiff.mjs"));
   // the interface in other languages (web/i18n.js)
@@ -68,6 +68,9 @@ export function build({ ranger } = {}) {
   // controls, ours for the rest of the chrome
   copy(path.join(ranger, "gallery/evgui/theme/skins/retro.css"), path.join(distDir, "skins/ui-retro.css"));
   copy(path.join(webDir, "skins/retro.css"), path.join(distDir, "skins/retro.css"));
+  // the dark look's hand-set colours (the rest is derived, see main.js)
+  copy(path.join(ranger, "gallery/evgui/theme/skins/dark.css"), path.join(distDir, "skins/ui-dark.css"));
+  copy(path.join(webDir, "skins/dark.css"), path.join(distDir, "skins/dark.css"));
   copy(path.join(root, "brand/sliqtly-icon.svg"), path.join(distDir, "favicon.svg"));
   copy(path.join(ranger, "lib/evg/gl/evg-webgl.js"), path.join(distDir, "gl/evg-webgl.js"));
   copy(path.join(ranger, "lib/evg/gl/evg-a11y.js"), path.join(distDir, "gl/evg-a11y.js"));
@@ -78,6 +81,10 @@ export function build({ ranger } = {}) {
     copy(path.join(ranger, `gallery/pdf_writer/assets/fonts/Noto_Sans/${face}.ttf`), path.join(distDir, `fonts/${face}.ttf`));
   }
   copy(path.join(ranger, "gallery/pdf_writer/assets/fonts/Noto_Emoji/NotoEmoji-Regular.ttf"), path.join(distDir, "fonts/NotoEmoji-Regular.ttf"));
+  // the diagram looks' faces (RangerFlow FlowLook), fetched when a deck uses one
+  for (const [dir, face] of [["Gloria_Hallelujah", "GloriaHallelujah"], ["Fjalla_One", "FjallaOne-Regular"], ["Josefin_Sans", "JosefinSans-Bold"], ["Droid_Serif", "DroidSerif-BoldItalic"]]) {
+    copy(path.join(ranger, `gallery/pdf_writer/assets/fonts/${dir}/${face}.ttf`), path.join(distDir, `fonts/${face}.ttf`));
+  }
   for (const f of fs.readdirSync(path.join(root, "themes"))) copy(path.join(root, "themes", f), path.join(distDir, "themes", f));
   // Live spreadsheets (```sheet, .xlsx in Files) are EVGSheets. A built copy
   // goes beside the page when there is one — $EVGSHEETS_DIST, or

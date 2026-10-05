@@ -18,6 +18,8 @@ Import "Charts.rgr"
 Import "Store.rgr"
 Import "Files.rgr"
 Import "WorkStore.rgr"
+Import "SvgCheck.rgr"
+Import "Edits.rgr"
 Import "../presentation/PresReview.rgr"
 
 ; who is asking, for one request
@@ -132,6 +134,7 @@ class Tools {
         ip.put("name" (Tools.prop("string" "File name the Markdown uses as media/<name>, e.g. \"team.jpg\" → ![](media/team.jpg)")))
         ip.put("url" (Tools.prop("string" "A public https URL of the picture")))
         ip.put("data_base64" (Tools.prop("string" "The picture's bytes as base64 (instead of url)")))
+        ip.put("text" (Tools.prop("string" "An SVG's source as it is (instead of url or data_base64): readable and fixable, no base64. Name it .svg.")))
         ip.put("mime_type" (Tools.prop("string" "image/png, image/jpeg, image/gif, image/webp or image/svg+xml, or a SmartArt diagram (a dgm:dataModel, name it .xml); inferred from the name when left out")))
         def item:MfJ (MfJ.newObj())
         item.putStr("type" "object")
@@ -202,11 +205,29 @@ class Tools {
         def title2:MfJ (Tools.prop("string" (Tools.withNameRule(host "A new name for the presentation; leave out to keep it."))))
         title2.putInt("maxLength" 200)
         up.put("title" title2)
-        up.put("markdown" (Tools.prop("string" "The whole deck as Sliqtly Markdown")))
-        up.put("base_version" (Tools.prop("string" "The version your markdown started from (from get_presentation, begin_work or your last update). When the deck changed since, the changes are merged; a change to the same lines is refused. Needed when another assistant is working on the deck.")))
+        up.put("markdown" (Tools.prop("string" "The whole deck as Sliqtly Markdown. For a small change send edits instead.")))
+        def ep:MfJ (MfJ.newObj())
+        ep.put("find" (Tools.prop("string" "Text to change, exactly as it is in the deck (spaces and line breaks too); it must be there once, or give all: true")))
+        ep.put("replace" (Tools.prop("string" "What find becomes (\"\" removes it)")))
+        ep.put("all" (Tools.prop("boolean" "Change every place find is, not just one")))
+        def sn:MfJ (Tools.prop("integer" "Slide to replace or delete, numbered as in render_overview and the layout report (1 = first)"))
+        sn.putInt("minimum" 1)
+        ep.put("slide" sn)
+        ep.put("slide_title" (Tools.prop("string" "Slide to replace or delete by its title (instead of slide)")))
+        def an:MfJ (Tools.prop("integer" "Add the markdown's slides after this slide (0 = before the first)"))
+        an.putInt("minimum" 0)
+        ep.put("after_slide" an)
+        ep.put("markdown" (Tools.prop("string" "With slide/slide_title: the slide's whole new Markdown from its heading (\"\" deletes the slide). With after_slide: the new slides.")))
+        def eitem:MfJ (MfJ.newObj())
+        eitem.putStr("type" "object")
+        eitem.put("properties" ep)
+        def edits:MfJ (Tools.prop("array" "Changes to the deck's Markdown instead of sending all of it: each edit is find + replace, slide (or slide_title) + markdown, or after_slide + markdown. Slide numbers and find refer to the deck as it is before these edits; two edits may not touch the same text. Not with markdown."))
+        edits.put("items" eitem)
+        up.put("edits" edits)
+        up.put("base_version" (Tools.prop("string" "The version your markdown started from (from get_presentation, begin_work or your last update). When the deck changed since, the changes are merged; a change to the same lines is refused. Needed with markdown when another assistant is working on the deck; edits are made on the deck as it is and need none.")))
         up.put("work_id" (Tools.prop("string" "Your work_id from begin_work; renews your claim")))
         Tools.deckFields(up)
-        tools.add((Tools.tool("update_presentation" "Update a presentation" "Change a presentation made with create_presentation, keeping its link. Send only what changes: markdown replaces the whole text; images and files are added (or replace ones of the same name). Send base_version with markdown, so edits saved meanwhile by someone else are merged rather than overwritten." (Tools.schema(up ([] _:string ("deck_id")))) (Tools.annotations(false 1 true true)) (Tools.uiMeta(host)))))
+        tools.add((Tools.tool("update_presentation" "Update a presentation" "Change a presentation made with create_presentation, keeping its link. Send only what changes: edits change parts of the text (a phrase, one slide, new slides), markdown replaces the whole text; images and files are added (or replace ones of the same name). With markdown send base_version, so edits saved meanwhile by someone else are merged rather than overwritten." (Tools.schema(up ([] _:string ("deck_id")))) (Tools.annotations(false 1 true true)) (Tools.uiMeta(host)))))
 
         def bp:MfJ (MfJ.newObj())
         bp.put("deck_id" (Tools.prop("string" "deck_id from create_presentation")))
@@ -259,6 +280,19 @@ class Tools {
         def rop:MfJ (MfJ.newObj())
         rop.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
         tools.add((Tools.tool("render_overview" "Look at all slides" "Every slide of a Sliqtly presentation as a numbered thumbnail in one picture (JPEG), with a line per slide from the layout report. One call checks the whole deck; ask render_slide for a closer look at a slide. Look once before saying a presentation is done." (Tools.schema(rop ([] _:string ("deck_id")))) (Tools.annotations(true -1 true false)) eitherMeta)))
+
+        def xp:MfJ (MfJ.newObj())
+        xp.put("deck_id" (Tools.prop("string" "deck_id of the presentation (the id in https://sliqtly.com/s/<id>)")))
+        def fmt:MfJ (Tools.prop("string" "pdf or pptx (PowerPoint)"))
+        fmt.put("enum" (J.strs(([] _:string ("pdf" "pptx")))))
+        xp.put("format" fmt)
+        def xn:MfJ (MfJ.newObj())
+        xn.putStr("type" "integer")
+        xn.putInt("minimum" 1)
+        def xs:MfJ (Tools.prop("array" "Only these slides (numbers as in render_overview); all when left out"))
+        xs.put("items" xn)
+        xp.put("slides" xs)
+        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF or a PowerPoint (.pptx) file, by its deck_id: a download link to give the user, kept until the next export of the same format. Slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. Effects (fx=) are not drawn; the editor's File → Export draws them." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
 
         def lp:MfJ (MfJ.newObj())
         lp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
@@ -538,6 +572,10 @@ class Tools {
         if ((strlen lay) > 0) {
             push lines lay
         }
+        def svgs:string (Tools.svgText((out.field("pictures"))))
+        if ((strlen svgs) > 0) {
+            push lines svgs
+        }
         push lines "Give the user the presentation link."
         def r:MfJ (MfJ.newObj())
         r.put("content" (Tools.text((join lines "\n"))))
@@ -555,6 +593,45 @@ class Tools {
     }
 
     ; --- the layout report
+
+    ; each SVG picture the deck names, read by SvgCheck: what it is, whether
+    ; a slide has it as its background (on a slide w × h), and what will go
+    ; wrong in the player; [{"name","line","flags"}]
+    sfn svgPictures:MfJ (host:McpHost md:string bgs:CheckPics w:double h:double) {
+        def a:MfJ (MfJ.newArr())
+        for bgs.pics p:CheckPic i {
+            def type:string (itemAt bgs.types i)
+            if (((endsWith (to_lowercase p.name) ".svg") == false) && (type != "image/svg+xml")) {
+                continue
+            }
+            def data:buffer (itemAt bgs.data i)
+            def name:string (substring p.name 1 (strlen p.name))
+            def bg:boolean (((indexOf md ("bg=" + name)) >= 0) || ((indexOf md ("bg=\"" + name)) >= 0))
+            def o:SvgOut (SvgCheck.report((SvgCheck.read((buffer_to_string data))) name bg w h (host_svg_error host data)))
+            def e:MfJ (MfJ.newObj())
+            e.putStr("name" name)
+            e.putStr("line" o.line)
+            e.put("flags" (J.strs(o.flags)))
+            a.add(e)
+        }
+        return a
+    }
+
+    ; the SVG pictures as the text a model reads
+    sfn svgText:string (pics:MfJ) {
+        if ((pics.count()) == 0) {
+            return ""
+        }
+        def lines:[string]
+        push lines "SVG pictures (render_slide and render_overview draw them; the player draws each once to a PNG):"
+        for pics.arr e:MfJ i {
+            push lines ("- " + (e.str_("line")))
+            for (J.strList((e.field("flags")))) f:string j {
+                push lines ("  ⚠ " + f)
+            }
+        }
+        return (join lines "\n")
+    }
 
     sfn layoutJson:MfJ (outs:[RSlideOut]) {
         def a:MfJ (MfJ.newArr())
@@ -922,6 +999,9 @@ class Tools {
         if (name == "read_file") {
             r = (Tools.readFile(host caller args))
         }
+        if (name == "export_presentation") {
+            r = (Tools.exportDeck(host args))
+        }
         if (name == "write_workbook") {
             r = (Tools.writeWorkbook(host caller args))
         }
@@ -1027,12 +1107,14 @@ class Tools {
         def none:[string]
         def ws:[string] (Deck.warnings(md names none))
         def none2:[string]
-        def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css (Tools.backgrounds(host md loaded.imgs "")) data.imgs "" none2))
+        def bgs:CheckPics (Tools.backgrounds(host md loaded.imgs ""))
+        def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css bgs data.imgs "" none2))
         for ck.warnings cw:string ci {
             push ws cw
         }
         def out:MfJ (MfJ.newObj())
         out.put("layout" (Tools.layoutJson(ck.report)))
+        out.put("pictures" (Tools.svgPictures(host md bgs ck.width ck.height)))
         out.putStr("title" (a.str_("title")))
         out.putStr("theme" theme)
         out.putInt("slides" ck.slides)
@@ -1157,6 +1239,19 @@ class Tools {
             p.hasMd = true
             p.md = (a.str_("markdown"))
         }
+        def editNote:string ""
+        if ((a.field("edits")).kind != 0) {
+            def eo:DeckEditsOut (Tools.applyEdits(host id cur a))
+            if ((strlen eo.err) > 0) {
+                return (Tools.fail(("Not updated: " + eo.err)))
+            }
+            if ((strlen eo.md) > (Deck.MAX_MD())) {
+                return (Tools.fail("Not updated: with these edits the markdown is larger than 300 KB."))
+            }
+            p.hasMd = true
+            p.md = eo.md
+            editNote = (join eo.done "\n")
+        }
         if (Tools.has(a "theme")) {
             p.hasTheme = true
             p.theme = (a.str_("theme"))
@@ -1176,14 +1271,21 @@ class Tools {
         for data.imgs di:Img dk {
             push kept di
         }
-        def ws:WorkSave (Tools.saveWork(host a id mine key cur p kept))
+        ; edits are made on the deck as it is now: they need no base version
+        def ws:WorkSave (Tools.saveWork(host a id mine key cur p kept ((a.field("edits")).kind != 0)))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "update_presentation" (host_error host)))
         }
         if ((strlen ws.fail) > 0) {
             return (Tools.fail(ws.fail))
         }
-        def r:MfJ (Tools.updated(host caller id ws.saved ws.note))
+        def notes:[string]
+        for ([] _:string (editNote ws.note)) nt:string ni {
+            if ((strlen nt) > 0) {
+                push notes nt
+            }
+        }
+        def r:MfJ (Tools.updated(host caller id ws.saved (join notes "\n")))
         Tools.withWork(host r ws.version ws.others)
         return (Tools.withData(host r data.imgs))
     }
@@ -1218,11 +1320,15 @@ class Tools {
     }
 
     ; the save of update_presentation: merged with what was saved since the
-    ; edit's base version, never over a change it did not see
-    sfn saveWork:WorkSave (host:McpHost a:MfJ id:string mine:boolean key:string cur:MfJ p:DeckPatch kept:[Img]) {
+    ; edit's base version, never over a change it did not see. onCur: the
+    ; Markdown was made from cur (edits), so cur is its base
+    sfn saveWork:WorkSave (host:McpHost a:MfJ id:string mine:boolean key:string cur:MfJ p:DeckPatch kept:[Img] onCur:boolean) {
         def out (new WorkSave)
         def workId:string (trim (a.str_("work_id")))
         def baseV:string (trim (a.str_("base_version")))
+        if onCur {
+            baseV = ""
+        }
         def board:WorkBoard (WorkStore.read(host id))
         if ((strlen (host_error host)) > 0) {
             return out
@@ -1245,7 +1351,7 @@ class Tools {
                 p.md = edit
                 def curMd:string (cur.str_("md"))
                 def curV:string (WorkStore.version(host curMd))
-                if (((strlen baseV) == 0) && ((array_length others) > 0)) {
+                if ((((strlen baseV) == 0) && (onCur == false)) && ((array_length others) > 0)) {
                     def who:[string]
                     for others oc:WorkClaim oi {
                         push who (WorkStore.line(host oc))
@@ -1540,6 +1646,104 @@ class Tools {
         return r
     }
 
+    ; the edits of update_presentation made on the stored deck's Markdown,
+    ; its slides numbered as the stored theme and CSS lay them out
+    sfn applyEdits:DeckEditsOut (host:McpHost id:string cur:MfJ a:MfJ) {
+        def out (new DeckEditsOut)
+        def list:MfJ (a.field("edits"))
+        if ((list.isArr()) == false) {
+            out.err = "edits is a list of edits."
+            return out
+        }
+        if (Tools.has(a "markdown")) {
+            out.err = "give markdown (the whole deck) or edits, not both."
+            return out
+        }
+        def edits:[DeckEdit]
+        def n:int 0
+        for (a.list("edits")) ej:MfJ ei {
+            n = (ei + 1)
+            def lead:string ("Edit " + n + ": ")
+            if ((ej.isObj()) == false) {
+                out.err = (lead + "an edit is an object.")
+                return out
+            }
+            for ([] _:string ("find" "replace" "slide_title" "markdown")) k:string kj {
+                def v:MfJ (ej.field(k))
+                if ((v.kind != 0) && (v.kind != 3)) {
+                    out.err = (lead + k + " is a string.")
+                    return out
+                }
+            }
+            for ([] _:string ("slide" "after_slide")) nk:string nj {
+                def nv:MfJ (ej.field(nk))
+                if ((nv.kind != 0) && ((nv.kind != 2) || (nv.num != (to_double (to_int nv.num))))) {
+                    out.err = (lead + nk + " is a whole number.")
+                    return out
+                }
+            }
+            def e (new DeckEdit)
+            def ways:int 0
+            if ((ej.field("find")).kind == 3) {
+                ways = (ways + 1)
+                e.kind = "text"
+                e.find = (ej.str_("find"))
+                if ((ej.field("replace")).kind != 3) {
+                    out.err = (lead + "find needs replace (\"\" to remove the text).")
+                    return out
+                }
+                e.replace = (ej.str_("replace"))
+                e.all = (ej.bool_("all" false))
+            }
+            if (((ej.field("slide")).kind == 2) || ((ej.field("slide_title")).kind == 3)) {
+                ways = (ways + 1)
+                e.kind = "slide"
+                e.slide = (ej.int_("slide" 0))
+                e.title = (ej.str_("slide_title"))
+            }
+            if ((ej.field("after_slide")).kind == 2) {
+                ways = (ways + 1)
+                e.kind = "insert"
+                e.after = (ej.int_("after_slide" 0))
+            }
+            if (ways != 1) {
+                out.err = (lead + "an edit has find (and replace), or slide (or slide_title) and markdown, or after_slide and markdown.")
+                return out
+            }
+            if ((e.kind != "text") && ((ej.field("markdown")).kind != 3)) {
+                out.err = (lead + "markdown is needed (\"\" deletes a slide).")
+                return out
+            }
+            e.markdown = (ej.str_("markdown"))
+            push edits e
+        }
+        def md:string (cur.str_("md"))
+        def starts:[int]
+        def titles:[string]
+        if (Tools.needsSlides(edits)) {
+            def noImgs:[Img]
+            def stored:[string]
+            for (cur.list("files")) sf:MfJ sfi {
+                push stored (sf.str_("path"))
+            }
+            def css:MfJ (cur.field("css"))
+            def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+            def ck:Checked (Tools.checkDeck(host md (cur.str_("theme")) (css.kind == 3) (cur.str_("css")) bgs noImgs id stored))
+            starts = ck.starts
+            titles = ck.titles
+        }
+        return (DeckEdits.apply(md edits starts titles))
+    }
+
+    sfn needsSlides:boolean (edits:[DeckEdit]) {
+        for edits one:DeckEdit i {
+            if (one.kind != "text") {
+                return true
+            }
+        }
+        return false
+    }
+
     ; the stored deck, if this caller may change it (a host error stops it too)
     sfn editable:Editable (host:McpHost caller:Caller id:string key:string) {
         def ed (new Editable)
@@ -1599,12 +1803,14 @@ class Tools {
         for (saved.list("files")) sf:MfJ sfi {
             push storedPaths (sf.str_("path"))
         }
-        def ck:Checked (Tools.checkDeck(host md (saved.str_("theme")) (savedCss.kind == 3) (saved.str_("css")) (Tools.backgrounds(host md noImgs id)) noImgs id storedPaths))
+        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def ck:Checked (Tools.checkDeck(host md (saved.str_("theme")) (savedCss.kind == 3) (saved.str_("css")) bgs noImgs id storedPaths))
         for ck.warnings cw:string ci {
             push ws cw
         }
         def out:MfJ (MfJ.newObj())
         out.put("layout" (Tools.layoutJson(ck.report)))
+        out.put("pictures" (Tools.svgPictures(host md bgs ck.width ck.height)))
         out.put("title" (saved.field("name")))
         out.put("theme" (saved.field("theme")))
         out.putInt("slides" ck.slides)
@@ -1923,6 +2129,158 @@ class Tools {
         return -1
     }
 
+    ; export_presentation: the file made by the editor's own export
+    ; (src/PresExport.rgr), kept in Storage beside the deck as
+    ; exports/<name>.<format>
+    sfn exportDeck:MfJ (host:McpHost a:MfJ) {
+        def tool:string "export_presentation"
+        if ((host_store_kind host) == "link") {
+            return (Tools.fail("This server keeps no decks (no cloud storage configured): open the presentation's link and use File → Export there."))
+        }
+        def bad:string (Tools.checkArgs(a ([] _:string ("deck_id" "format"))))
+        if ((strlen bad) > 0) {
+            return (Tools.fail(bad))
+        }
+        def format:string (a.str_("format"))
+        if ((format != "pdf") && (format != "pptx")) {
+            return (Tools.fail("Invalid arguments: format is pdf or pptx."))
+        }
+        def id:string (a.str_("deck_id"))
+        if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
+            return (Tools.fail("deck_id is the 10-character id in the share link."))
+        }
+        def d:MfJ (Store.get(host id))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host tool (host_error host)))
+        }
+        if ((d.isObj()) == false) {
+            return (Tools.fail(("No presentation " + id + ".")))
+        }
+        def md:string (d.str_("md"))
+        def stored:[string]
+        for (d.list("files")) f:MfJ fi {
+            push stored (f.str_("path"))
+        }
+        def noImgs:[Img]
+        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def din (new DeckIn)
+        din.deckId = id
+        din.stored = stored
+        din.live = true
+        din.export = format
+        def css:MfJ (d.field("css"))
+        def wanted:MfJ (a.field("slides"))
+        def picked:[string]
+        if (wanted.kind != 0) {
+            if ((wanted.isArr()) == false) {
+                return (Tools.fail("Invalid arguments: slides is a list of slide numbers."))
+            }
+            for (a.list("slides")) sv:MfJ si {
+                if ((sv.kind != 2) || ((sv.num < 1.0) || (sv.num != (to_double (to_int sv.num))))) {
+                    return (Tools.fail("Invalid arguments: slides is a list of slide numbers from 1."))
+                }
+                def sn:int (to_int sv.num)
+                if (((Tools.hasInt(din.only (sn - 1))) == false)) {
+                    push din.only (sn - 1)
+                    push picked (to_string sn)
+                }
+            }
+        }
+        def ck:Checked (Tools.checkWith(host md (d.str_("theme")) (css.kind == 3) (d.str_("css")) bgs din))
+        if (ck.laidOut == false) {
+            return (Tools.failed(host tool "the theme could not be read"))
+        }
+        for din.only o:int oi {
+            if (o >= ck.slides) {
+                return (Tools.fail(("No slide " + (o + 1) + ": the presentation has " + ck.slides + " slides.")))
+            }
+        }
+        def bytes:buffer ck.file
+        if ((buffer_length bytes) == 0) {
+            return (Tools.failed(host tool "the file could not be made"))
+        }
+        def name:string (Tools.fileName((d.str_("name"))))
+        if ((array_length picked) > 0) {
+            name = (name + " (slides " + (join picked ", ") + ")")
+        }
+        def path:string ("exports/" + name + "." + format)
+        def type:string "application/pdf"
+        if (format == "pptx") {
+            type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        }
+        def full:string ("shares/" + id + "/" + path)
+        def token:string (host_uuid host)
+        host_upload host (host_keep_bytes host bytes) full type token
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host tool (host_error host)))
+        }
+        def url:string (host_file_url host full token)
+        def count:int ck.slides
+        if ((array_length din.only) > 0) {
+            count = (array_length din.only)
+        }
+        def size:int (buffer_length bytes)
+        def kb:int (to_int (((to_double size) / 1024.0) + 0.5))
+        def what:string "PDF"
+        if (format == "pptx") {
+            what = "PowerPoint file"
+        }
+        def out:MfJ (MfJ.newObj())
+        out.putStr("deck_id" id)
+        out.putStr("format" format)
+        out.putStr("name" (name + "." + format))
+        out.putStr("url" url)
+        out.putInt("slides" count)
+        out.putInt("bytes" size)
+        def r:MfJ (MfJ.newObj())
+        def content:MfJ (MfJ.newArr())
+        def t:MfJ (MfJ.newObj())
+        t.putStr("type" "text")
+        t.putStr("text" (what + " of \"" + (d.str_("name")) + "\" (" + count + " slides, " + kb + " KB): " + url + "\nGive the user this link; it is replaced by the next " + format + " export of this presentation."))
+        content.add(t)
+        r.put("content" content)
+        r.put("structuredContent" out)
+        return r
+    }
+
+    sfn hasInt:boolean (list:[int] n:int) {
+        for list x:int i {
+            if (x == n) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; a file name from a deck's name: what a file system takes, "presentation"
+    ; when nothing is left
+    sfn fileName:string (name:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen name)
+        while (i < n) {
+            def c:int (charAt name i)
+            def keep:boolean true
+            if ((c < 32) || ((c == 47) || ((c == 92) || ((c == 58) || ((c == 42) || ((c == 63) || ((c == 34) || ((c == 60) || ((c == 62) || ((c == 124) || (c == 35))))))))))) {
+                keep = false
+            }
+            if keep {
+                out = (out + (substring name i (i + 1)))
+            } {
+                out = (out + "-")
+            }
+            i = (i + 1)
+        }
+        out = (trim out)
+        if ((strlen out) > 80) {
+            out = (substring out 0 80)
+        }
+        if ((strlen out) == 0) {
+            return "presentation"
+        }
+        return out
+    }
+
     sfn render:MfJ (host:McpHost a:MfJ all:boolean) {
         def tool:string "render_slide"
         if all {
@@ -2038,7 +2396,11 @@ class Tools {
             push one (itemAt ck.report at)
             push lines (Tools.layoutText((Tools.layoutJson(one)) false))
         }
-        push lines "Drawn as the player shows each slide at the end of its animations. Effects, and pictures that are SVG, are not drawn here."
+        def svgs:string (Tools.svgText((Tools.svgPictures(host md bgs ck.width ck.height))))
+        if ((strlen svgs) > 0) {
+            push lines svgs
+        }
+        push lines "Drawn as the player shows each slide at the end of its animations. Effects (fx=) and picture corners are not drawn here; SVG pictures are."
         def tc:MfJ (MfJ.newObj())
         tc.putStr("type" "text")
         tc.putStr("text" (join lines "\n"))
@@ -2516,6 +2878,9 @@ class Tools {
         o.putNum("x" (PresReview.round4(t.x)))
         o.putNum("y" (PresReview.round4(t.y)))
         o.putBool("resolved" t.closed)
+        if ((t.dia >= 0) && ((strlen t.node) > 0)) {
+            o.putStr("diagram_node" t.node)
+        }
         def ms:MfJ (MfJ.newArr())
         for t.msgs m:PresReviewMsg i {
             def mo:MfJ (MfJ.newObj())
@@ -2534,7 +2899,11 @@ class Tools {
             state = "resolved"
         }
         def lines:[string]
-        push lines ("Thread " + t.id + " (" + state + ") on " + (Tools.slideLabel(t)) + ", pinned at x " + (to_string (PresReview.round4(t.x))) + ", y " + (to_string (PresReview.round4(t.y))) + ":")
+        def onNode:string ""
+        if ((t.dia >= 0) && ((strlen t.node) > 0)) {
+            onNode = (", on the diagram's node " + t.node)
+        }
+        push lines ("Thread " + t.id + " (" + state + ") on " + (Tools.slideLabel(t)) + onNode + ", pinned at x " + (to_string (PresReview.round4(t.x))) + ", y " + (to_string (PresReview.round4(t.y))) + ":")
         for t.msgs m:PresReviewMsg i {
             def who:string m.name
             if ((strlen who) == 0) {

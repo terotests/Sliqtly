@@ -374,7 +374,7 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	eq(t, names, []string{"add_comment", "begin_work", "bind_chart_data", "create_presentation", "end_work", "get_presentation", "list_comments", "list_files", "list_presentations", "read_file", "render_overview", "render_slide", "resolve_comment", "sliqtly_guide", "update_presentation", "write_workbook"})
+	eq(t, names, []string{"add_comment", "begin_work", "bind_chart_data", "create_presentation", "end_work", "export_presentation", "get_presentation", "list_comments", "list_files", "list_presentations", "read_file", "render_overview", "render_slide", "resolve_comment", "sliqtly_guide", "update_presentation", "write_workbook"})
 	uri, _ := create.Meta["ui"].(map[string]any)["resourceUri"].(string)
 	match(t, uri, `^ui://sliqtly/preview-[0-9a-f]{10}\.html$`)
 	eq(t, create.Meta["openai/outputTemplate"], uri)
@@ -478,7 +478,7 @@ func TestRefusesWhatItShouldNotFetchOrStore(t *testing.T) {
 		{map[string]any{"name": "a.png", "url": "https://images.test/page.html"}, `not a picture`},
 		{map[string]any{"name": "../a.png", "url": "https://images.test/cat.png"}, `not usable`},
 		{map[string]any{"name": "a.bmp", "data_base64": "AAAA"}, `unknown picture type`},
-		{map[string]any{"name": "a.png"}, `url or data_base64`},
+		{map[string]any{"name": "a.png"}, `url, data_base64 or \(for an SVG\) text`},
 	} {
 		r := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": "# x", "images": []any{c.img}})
 		if !r.IsError {

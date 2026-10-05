@@ -32,6 +32,7 @@
 Import "PresHelp.rgr"
 Import "PresCascade.rgr"
 Import "PresI18n.rgr"
+Import "../evgui/src/UiShapes.rgr"
 Import "../markdown/web/markdown_web.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
@@ -106,7 +107,7 @@ class PresSelect {
     def sx2:double 0.0
     def sw2:double 0.0
     def by:double 0.0
-    def bh:double 24.0
+    def bh:double 22.0
     ; the outline on the screen, as last drawn
     def ox:double 0.0
     def oy:double 0.0
@@ -832,6 +833,28 @@ class PresSelect {
         return el
     }
 
+    ; A path `d` (in its own pixels, see UiShapes) placed at (x0, y0).
+    sfn shape:EVGElement (id:string cls:string d:string x0:double y0:double w0:double h0:double) {
+        def el (EVGElement.createPath())
+        el.id = id
+        el.className = cls
+        el.setAttribute("position" "absolute")
+        el.setAttribute("left" ((EVGDisplayList.num(x0)) + "px"))
+        el.setAttribute("top" ((EVGDisplayList.num(y0)) + "px"))
+        el.setAttribute("width" ((EVGDisplayList.num(w0)) + "px"))
+        el.setAttribute("height" ((EVGDisplayList.num(h0)) + "px"))
+        el.setAttribute("viewBox" ("0 0 " + (EVGDisplayList.num(w0)) + " " + (EVGDisplayList.num(h0))))
+        el.setAttribute("preserveAspectRatio" "none")
+        el.setAttribute("d" d)
+        return el
+    }
+
+    ; A button drawn as a tab on the outline: its shape, then its words over it.
+    sfn tabButton:void (root:EVGElement id:string cls:string words:string x0:double y0:double w0:double h0:double down:boolean) {
+        root.addChild((PresSelect.shape((id + "-tab") (cls + " sel-tab") (UiShapes.tab(w0 h0 7.0 down)) x0 y0 w0 h0)))
+        root.addChild((PresSelect.pill(id "sel-btn-text" words x0 y0 (w0 - 4.0) h0)))
+    }
+
     sfn textW:double (t:string size:double) {
         return (((to_double (strlen t)) * size) * 0.56)
     }
@@ -875,6 +898,14 @@ class PresSelect {
                 cls = (cls + " sel-band-hot")
             }
             root.addChild((PresSelect.box(("sel-band-" + (to_string i)) cls b.sx b.sy b.sw b.sh)))
+            ; a band the theme sets is hatched
+            if b.isSet {
+                def hcls:string "sel-hatch"
+                if hotHere {
+                    hcls = "sel-hatch sel-hatch-hot"
+                }
+                root.addChild((PresSelect.shape(("sel-hatch-" + (to_string i)) hcls (UiShapes.hatch(b.sw b.sh 2.0 4.0)) b.sx b.sy b.sw b.sh)))
+            }
             ; the line across the band, and its value
             def lineCls:string "sel-bline sel-bline-unset"
             if b.isSet {
@@ -900,6 +931,8 @@ class PresSelect {
             }
             i = (i + 1)
         }
+        ; a light hairline around the outline keeps it seen on a dark slide
+        root.addChild((PresSelect.box("sel-halo" "sel-halo" (ox - 1.0) (oy - 1.0) (ow + 2.0) (oh + 2.0))))
         root.addChild((PresSelect.box("sel-box" "sel-box" ox oy ow oh)))
         ; corner handles
         def hs:double 7.0
@@ -932,7 +965,9 @@ class PresSelect {
         if ((lby + 18.0) > reachBottom) {
             reachBottom = (lby + 18.0)
         }
-        ; the two buttons, over its top left corner (inside when no room)
+        ; the two buttons: tabs standing on the outline's top left (over the
+        ; top margin band's left end when there is one), or hanging inside
+        ; it from its top edge when there is no room above (and for the page)
         def ct:string (PresI18n.t("Edit content"))
         if (sel == "page") {
             ct = (PresI18n.t("Document settings"))
@@ -943,24 +978,13 @@ class PresSelect {
             cw = ((PresSelect.textW(ct 12.0)) + 26.0)
         }
         sw2 = ((PresSelect.textW(stt 12.0)) + 26.0)
-        by = ((oy - bh) - 6.0)
-        if (sel == "page") {
-            by = (oy + 8.0)
+        def down:boolean false
+        by = (oy - bh)
+        if ((sel == "page") || (by < (loY + 2.0))) {
+            down = true
+            by = (oy + 2.0)
         }
-        def topBand:double 0.0
-        i = 0
-        while (i < (array_length bands)) {
-            def tb:PresSelBand (itemAt bands i)
-            if ((tb.side == "top") && (tb.inner == false)) {
-                topBand = tb.sh
-            }
-            i = (i + 1)
-        }
-        by = (by - topBand)
-        if (by < (loY + 4.0)) {
-            by = (loY + 4.0)
-        }
-        cx = ox
+        cx = (ox + 2.0)
         if (sel == "page") {
             cx = (ox + 8.0)
         }
@@ -980,17 +1004,17 @@ class PresSelect {
             if (hot == "content") {
                 cc = "sel-btn sel-btn-hot"
             }
-            root.addChild((PresSelect.pill("sel-content" cc ct cx by cw bh)))
+            PresSelect.tabButton(root "sel-content" cc ct cx by cw bh down)
         }
         sx2 = cx
         if (cw > 0.0) {
-            sx2 = ((cx + cw) + 4.0)
+            sx2 = ((cx + cw) + 2.0)
         }
         def sc2:string "sel-btn sel-btn-style"
         if (hot == "style") {
             sc2 = "sel-btn sel-btn-style sel-btn-hot"
         }
-        root.addChild((PresSelect.pill("sel-style" sc2 stt sx2 by sw2 bh)))
+        PresSelect.tabButton(root "sel-style" sc2 stt sx2 by sw2 bh down)
     }
 
     ; --- the pointer ------------------------------------------------------------------

@@ -700,7 +700,7 @@ class PresHelp {
             push out (PresHelp.feature("image" (PresI18n.t("Image")) (PresI18n.t("![description](image.png)   {width=60% height=50% align=center}")) (PresI18n.t("Click the image's line in the editor or double-click the image on the slide: Image settings (size, position, description, use as background). The image shrinks to fit the slide. Drag an image into the editor, paste it from the clipboard or add it from the Files tab.")) ((PresHelp.rule(css "img" (PresI18n.t("All images.")) "justify-content,max-height")) + "," + (PresHelp.rule(css "page" (PresI18n.t("Background image for all slides.")) "background-image")))))
         }
         if sc.diagram {
-            push out (PresHelp.feature("diagram" (PresI18n.t("Diagram")) "```mermaid {tour=on style=sketch} … ```" (PresI18n.t("Mermaid, DOT, D2 and PlantUML diagrams, shown whole. ▶ next to the zoom buttons (T in the presentation) walks through the diagram; tour=on starts the tour on its own. Per-diagram settings go in braces on the block's first line.")) (PresHelp.rule(css "diagram" (PresI18n.t("Diagram colors.")) "color,accent-color"))))
+            push out (PresHelp.feature("diagram" (PresI18n.t("Diagram")) "```mermaid {tour=on style=sketch} … ```" (PresI18n.t("Mermaid, DOT, D2 and PlantUML diagrams, shown whole. ▶ next to the zoom buttons (T in the presentation) walks through the diagram; tour=on starts the tour on its own. style= picks the look: holo, sketch, mermaid, jurassic, cartoon or romantic. Per-diagram settings go in braces on the block's first line.")) (PresHelp.rule(css "diagram" (PresI18n.t("Diagram colors.")) "color,accent-color"))))
         }
         if sc.chart {
             ; the charts of this slide alone: its heading's anchor
