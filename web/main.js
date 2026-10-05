@@ -33,6 +33,7 @@ import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist
 import { parseRooms, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, ONBOARDING } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
+import { secondaryPress, pickKeyHeld } from "./press.js";
 
 // One beacon per page load for the visitor counts (mcp-go/rgr/Stats.rgr): the
 // page, mobile or desktop on the server's side, and the site the visitor
@@ -5414,8 +5415,9 @@ canvas.addEventListener("pointerdown", (ev) => {
     }
   }
   if (pinch) return;
-  // the secondary button on a slide of the strip: its menu (contextmenu below)
-  if (ev.button === 2 && app.inStrip(x, y)) {
+  // the secondary button (or Control + click on a Mac) on a slide of the
+  // strip: its menu (contextmenu below), not a press that picks the slide
+  if (secondaryPress(ev, IS_MAC) && app.inStrip(x, y)) {
     ev.preventDefault();
     return;
   }
@@ -5439,7 +5441,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   // on the stage becomes a drag
   app.setDragSlop(finger ? 16 : 6);
   app.setTouch(finger);
-  app.setCtrl(ev.ctrlKey || ev.metaKey);
+  app.setCtrl(pickKeyHeld(ev, IS_MAC));
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
   if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb" || where === "select" || where === "panel" || where === "decktabs") {

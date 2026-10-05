@@ -1008,6 +1008,16 @@ try {
     check("…Ctrl+click again lets one go; the bar's Export offers the picked", picked.list === "1,2,4" && picked.bar === 3 && picked.keys === "yksi,kaksi,neljä", JSON.stringify({ list: picked.list, bar: picked.bar, keys: picked.keys }));
     check("…the PDF and the PPTX of the picked slides have only them", picked.pdfPages === 3 && pptxNames.length === 3, JSON.stringify({ pdf: picked.pdfPages, pptx: pptxNames }));
     check("…their view keeps only their sections", picked.view.includes("## Yksi") && picked.view.includes("## Kaksi") && picked.view.includes("## Neljä") && !picked.view.includes("## Kolme"), picked.view);
+    // the right button on a picked slide opens its menu and keeps the pick
+    {
+      const at = await page.evaluate(() => { const a = window.__app; a.place(); const c = document.getElementById("c").getBoundingClientRect(); return [c.left + a.thumbX(3) + 30, c.top + a.thumbY() + 30]; });
+      await page.mouse.click(at[0], at[1], { button: "right" });
+      await page.waitForTimeout(150);
+      const kept = await page.evaluate(() => ({ list: window.__app.pickList(), menu: window.__app.toolbar.ctxOpen }));
+      await page.keyboard.press("Escape");
+      await page.evaluate(() => { window.__app.toolbar.closeMenus(); });
+      check("…a right click on a picked slide opens its menu and keeps the pick", kept.list === "1,2,4" && kept.menu, JSON.stringify(kept));
+    }
     await page.evaluate(() => { window.__lastShareView = ""; document.getElementById("share").click(); });
     await page.waitForFunction(() => !!window.__lastShareView, null, { timeout: 5000 }).catch(() => {});
     const viewUrl = await page.evaluate(() => window.__lastShareView || "");
