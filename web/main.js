@@ -28,7 +28,7 @@ import { showHistory, askMerge } from "./versions-ui.js";
 import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
-import { CollabSession, loadMe, saveMe, cleanName, chatTime } from "./collab.js";
+import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 
 // One beacon per page load for the visitor counts (mcp-go/rgr/Stats.rgr): the
@@ -2411,7 +2411,8 @@ const collabEditor = {
   caret: () => app.mdCaret(),
   anchor: () => app.mdAnchor(),
   apply: (offset, removed, text) => app.applyRemoteMd(offset, removed, text),
-  synced: () => { app.syncRemote(); needsPaint = true; },
+  // a presentation goes on where it was: the app moved its clock (PresFollow)
+  synced: () => { app.syncRemote(); rebaseClock(); needsPaint = true; },
   setPeers: (rows) => { app.setPeers(rows); needsPaint = true; },
 };
 function collabOn() {
@@ -3059,10 +3060,10 @@ window.addEventListener("sliqtly:user", () => cloudSoon());
 // A share's files, fetched all at once (one after another, each waited a
 // round trip: slow over a VPN or far away), in their order; each with its
 // data or the error it got.
-function shareFiles(files) {
+function shareFiles(files, init) {
   return Promise.all((files || []).map(async (f) => {
     try {
-      const res = await fetch(f.url);
+      const res = await fetch(f.url, init);
       if (!res.ok) throw new Error("HTTP " + res.status);
       return { f, data: isText(f.path, f.type) ? await res.text() : await res.blob() };
     } catch (error) {
@@ -3694,14 +3695,7 @@ function enterViewer(from) {
   // address while the intro plays
   const n = parseInt(hashParams().get("slide") || "", 10);
   const begin = () => beginShow(n > 1 ? n - 1 : 0);
-  // a server of one's own reloads the player when the deck changed there
-  // (mcp-go/assets/sliqtly-local.js): back on the slide, without the intro
-  let quiet = false;
-  try {
-    quiet = sessionStorage.getItem("sliqtly:quiet-reload") === "1";
-    sessionStorage.removeItem("sliqtly:quiet-reload");
-  } catch (_) { /* storage blocked: the intro plays */ }
-  if (quiet || !wantsIntro(from)) begin();
+  if (!wantsIntro(from)) begin();
   // the page still loading: the intro follows the loader (start)
   else if (window.__pageStarted) playIntro().then(begin);
   else introPending = begin;
@@ -4059,7 +4053,7 @@ async function openFromShare() {
     liveFromShare = !editing;
     proNow();
     if (own) doc.id = own.deck;
-    else if (!editing) viewShare = { id, owner: shared.owner, deck: shared.deck };
+    else if (!editing) viewShare = { id, owner: shared.owner, deck: shared.deck, shown: shared };
     if (shared.theme != null) {
       themeSel.value = shared.theme;
       app.setStyleSheet(shared.theme ? themeCss[shared.theme] || "" : "");
@@ -4093,7 +4087,11 @@ async function openFromShare() {
     shownDoc(shared.md || "");
     dropThumbs();
     needsPaint = true;
-    if (!editing) enterViewer({ from: "share" });
+    if (!editing) {
+      enterViewer({ from: "share" });
+      // changed while it opened: followed now
+      if (shareMoved) followShare(id);
+    }
     return true;
   } catch (e) {
     if (doc.loading) shownDoc(doc.openedText);
@@ -4102,6 +4100,70 @@ async function openFromShare() {
     return false;
   }
 }
+
+// The player of a share on a server of one's own follows its deck as it
+// changes there (mcp-go/assets/sliqtly-local.js tells it): someone editing,
+// an assistant's update. The Markdown's changes come as edits, so the slide
+// shown stays shown, at the same time into it (PresFollow), as in an editor
+// in the room; the theme and the files changed are taken as they are.
+let shareMoved = false;
+let shareFollow = null;
+function followShare(id) {
+  if (!viewer || !viewShare || viewShare.id !== id) {
+    shareMoved = true;
+    return Promise.resolve();
+  }
+  shareMoved = false;
+  // one at a time; a change meanwhile is read once more after it
+  if (shareFollow) {
+    shareFollow.again = true;
+    return shareFollow.done;
+  }
+  const run = { again: false, done: null };
+  shareFollow = run;
+  run.done = (async () => {
+    try {
+      do {
+        run.again = false;
+        await followShareNow(id);
+      } while (run.again);
+    } catch (e) {
+      console.warn("could not follow the shared presentation", e);
+    } finally {
+      shareFollow = null;
+    }
+  })();
+  return run.done;
+}
+async function followShareNow(id) {
+  const shared = await (await pro()).loadShare(id);
+  if (!shared || !viewShare || viewShare.id !== id) return;
+  const was = viewShare.shown;
+  viewShare.shown = shared;
+  if (shared.theme !== was.theme || shared.css !== was.css) {
+    themeSel.value = shared.theme || "";
+    app.setStyleSheet(shared.css != null ? shared.css : shared.theme ? themeCss[shared.theme] || "" : "");
+  }
+  const had = new Map((was.files || []).map((f) => [f.path, JSON.stringify(f)]));
+  const moved = (shared.files || []).filter((f) => had.get(f.path) !== JSON.stringify(f));
+  for (const { f, data, error } of await shareFiles(moved, { cache: "no-cache" })) {
+    if (error) {
+      console.warn("shared file not loaded: " + f.path, error);
+      continue;
+    }
+    const rec = { doc: doc.id, path: f.path, type: f.type, size: f.size, data, updated: Date.now() };
+    readFiles.set(rec.path, rec);
+    await useFile(rec);
+  }
+  for (const f of was.files || []) if (!(shared.files || []).some((g) => g.path === f.path)) readFiles.delete(f.path);
+  const md = shared.md || "";
+  for (const e of editsOf(RdOtDelta.diff(app.source(), md, -1))) app.applyRemoteMd(e.offset, e.removed, e.text);
+  app.syncRemote();
+  rebaseClock();
+  if (moved.length) dropThumbs();
+  needsPaint = true;
+}
+window.__followShare = (id) => followShare(id);
 
 const themeCss = {};
 // A theme edited in the CSS tab: kept for the session under its name (the

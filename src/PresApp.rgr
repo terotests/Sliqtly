@@ -29,6 +29,7 @@
 ; ============================================================================
 
 Import "PresTimeline.rgr"
+Import "PresFollow.rgr"
 Import "PresI18n.rgr"
 Import "../datagrid/src/script/ScriptEditor.rgr"
 Import "../game_engine/ui/UITextRenderer.rgr"
@@ -206,6 +207,8 @@ class PresApp {
     def fxSlide:int -1
 
     def bufSynced:int -1
+    ; the slide shown kept while someone else's edits come (PresFollow)
+    def follow:PresFollow (new PresFollow())
     def posLine:int 0
     def posCol:int 0
     ; Effects rendered to pictures by the host for an export: slide index,
@@ -4580,16 +4583,33 @@ class PresApp {
     ; Someone else's edit: `removed` units at `offset` replaced by `text`,
     ; the caret, selection and undo history here kept around it. The deck
     ; follows on `syncRemote`, once for all the edits that came together.
+    ; The slide shown stays the one shown: a slide added or removed before
+    ; it moves its number, not what is on the screen, and a presentation
+    ; goes on at the same time into it (PresFollow).
     fn applyRemoteMd:void (offset:int removed:int text:string) {
+        follow.begin(deck selected clock)
+        follow.edit(offset removed (strlen text))
         mdEditor.applyRemoteAt(offset removed text)
     }
 
     fn syncRemote:void () {
         if (mdEditor.buf.version == bufSynced) {
+            follow.on = false
             return
         }
         bufSynced = mdEditor.buf.version
         this.rebuildDeck()
+        def s:int (follow.slide(deck))
+        if ((s >= 0) && (s < (deck.slideCount()))) {
+            if (fxSlide == selected) {
+                fxSlide = s
+            }
+            selected = s
+            this.revealThumb(s)
+            if (this.isPlaying()) {
+                clock = (follow.clockOn(deck s))
+            }
+        }
         chromeRev = (chromeRev + 1)
     }
 

@@ -3,8 +3,8 @@
 // A page open on a server of one's own keeps one stream to it, and hears on
 // it when a deck changes (an assistant's update_presentation, another tab's
 // save) the moment it is written: the editor then compares with the folder
-// at once instead of on its next minute; the player reloads on the slide it
-// showed (assets/sliqtly-local.js). The same stream carries the server's own
+// at once instead of on its next minute; the player takes the changes in
+// place, on the slide it shows (assets/sliqtly-local.js). The same stream carries the server's own
 // state (localstatus.go), when the page connects and when it changes, and,
 // for a page editing a deck with others, that deck's room (collab.go).
 //

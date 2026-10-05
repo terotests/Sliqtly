@@ -1,0 +1,84 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresFollow.rgr — the slide shown stays the slide shown while others edit
+; ============================================================================
+;
+; Someone else's edits change the Markdown under a page that is showing a
+; slide (web/collab.js in the editor, a server of one's own telling the
+; player that its deck changed). The deck is then rebuilt, and the shown
+; slide was its index: a slide added or removed before it put another one
+; on the screen, and a presentation jumped.
+;
+; This keeps where the shown slide starts in the Markdown, moved by each
+; edit as a caret is, and how far into the slide the clock was. After the
+; rebuild the slide is the one that starts there, at the same time into it.
+;
+;   begin(deck, shown, clock)   before the first edit of a batch
+;   edit(offset, removed, added)   each edit, in UTF-16 units
+;   slide(deck) / clockOn(deck, slide)   after the deck was rebuilt
+; ============================================================================
+
+Import "PresTimeline.rgr"
+
+class PresFollow {
+    ; where the shown slide starts in the Markdown (-1: not known)
+    def at:int -1
+    ; how far into the shown slide the clock was
+    def local:double 0.0
+    ; edits are being followed (begin was called, slide not yet)
+    def on:boolean false
+
+    Constructor () {
+    }
+
+    fn begin:void (deck:PresDeck shown:int clock:double) {
+        if on {
+            return
+        }
+        on = true
+        at = -1
+        local = 0.0
+        if ((shown < 0) || (shown >= (deck.slideCount()))) {
+            return
+        }
+        def s:PresSlide (deck.slideAt(shown))
+        at = s.srcStart
+        local = (clock - (PresTimeline.slideStart(deck shown)))
+        if (local < 0.0) {
+            local = 0.0
+        }
+    }
+
+    fn edit:void (offset:int removed:int added:int) {
+        at = (PresFollow.moved(at offset removed added))
+    }
+
+    ; An offset carried over an edit: one after it moves by what it added
+    ; less what it removed. Text put in where the slide starts goes before
+    ; it (a slide added there comes before the one shown). A slide whose
+    ; start was removed goes on from where the edit ends.
+    sfn moved:int (at:int offset:int removed:int added:int) {
+        if ((at < 0) || (offset > at)) {
+            return at
+        }
+        if ((offset + removed) <= at) {
+            return ((at + added) - removed)
+        }
+        return (offset + added)
+    }
+
+    ; the slide to show in the rebuilt deck, or -1 when nothing is known
+    fn slide:int (deck:PresDeck) {
+        on = false
+        if ((at < 0) || ((deck.slideCount()) == 0)) {
+            return -1
+        }
+        return (deck.pageOfOffset(at))
+    }
+
+    ; the clock on `slide` of the rebuilt deck, as far into it as before
+    fn clockOn:double (deck:PresDeck slide:int) {
+        return ((PresTimeline.slideStart(deck slide)) + local)
+    }
+}

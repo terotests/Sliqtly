@@ -280,8 +280,8 @@ function onStatus(st) {
 // A deck changed on the server (an assistant's update_presentation, another
 // tab's save): the editor compares with it at once, as it otherwise does on
 // focus and every minute, and takes it when nothing was changed here (or
-// merges); the player opened at /s/{id} reloads on the slide it shows (the
-// address keeps it), without the intro. Not in an assistant's preview,
+// merges); the player opened at /s/{id} takes the changes in place, on the
+// slide it shows (web/main.js followShare). Not in an assistant's preview,
 // which is not served from here. One stream per page, for this and the
 // room alike (web/eventline.js).
 function listen() {
@@ -326,9 +326,7 @@ function listen() {
         const ids = [...changed];
         changed.clear();
         if (player) {
-          if (!ids.includes(player)) return;
-          try { sessionStorage.setItem("sliqtly:quiet-reload", "1"); } catch (_) { /* the intro plays */ }
-          location.reload();
+          if (ids.includes(player)) window.__followShare?.(player);
           return;
         }
         window.__checkElsewhere?.();
