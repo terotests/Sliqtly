@@ -467,6 +467,17 @@ build steps, speaker notes and transitions; charts and diagrams are
 shapes. Effects (`fx=`) are left out; the editor's own export draws them.
 A new export of the same format replaces the file behind the old link.
 
+## A pull request as source
+
+`read_github_pr` (`pr`: its link, or `owner/repo#12`) reads a GitHub pull
+request: title, description, state, files with their patches, commits. It
+returns them and a first draft of a review deck: what and why, the changed
+files, the biggest changes as ```` ```diff ```` slides (one file each,
+shortened), the commits on a timeline and a decision slide. Change the draft
+to say what matters (pick the lines with `{lines=…}`, add `.build` to step
+through them) and create it with `create_presentation`. Public repositories
+work as they are; a private one needs a token on the server.
+
 ## Result
 
 `create_presentation` returns a share link that opens straight into the
