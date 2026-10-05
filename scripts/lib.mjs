@@ -58,23 +58,9 @@ export function ensureRanger({ update = false } = {}) {
   const given = process.env.RANGER_DIR;
   const dir = given ? path.resolve(given) : path.join(depsDir, "Ranger");
   const ref = process.env.RANGER_REF || config.ranger.ref;
-  // Which ref the clone in .deps was last taken from. A clone made before
-  // the config named another branch is fetched again rather than silently
-  // compiled against the old one.
   const marker = path.join(depsDir, "ranger-ref");
-  const had = fs.existsSync(marker) ? fs.readFileSync(marker, "utf8").trim() : "";
-  if (!fs.existsSync(dir)) {
-    if (given) throw new Error(`RANGER_DIR=${given} does not exist`);
-    fs.mkdirSync(depsDir, { recursive: true });
-    log(`clone  ${config.ranger.url} (${ref}) → ${path.relative(root, dir)}`);
-    git(["clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), config.ranger.url, dir], root);
-    fs.writeFileSync(marker, ref + "\n");
-  } else if (!given && (update || had !== ref)) {
-    log(`update Ranger (${had || "unknown"} → ${ref})`);
-    git(["fetch", "--depth", "1", "origin", ref || "HEAD"], dir);
-    git(["checkout", "-q", "-f", "--detach", "FETCH_HEAD"], dir);
-    fs.writeFileSync(marker, ref + "\n");
-  }
+  if (given && !fs.existsSync(dir)) throw new Error(`RANGER_DIR=${given} does not exist`);
+  if (!given) syncClone("Ranger", config.ranger.url, ref, dir, marker, update);
   if (!fs.existsSync(path.join(dir, "dist", "rgrc.js"))) throw new Error(`${dir} is not a Ranger checkout (no dist/rgrc.js)`);
   // RangerFlow, RangerMarkdown and RangerPPTX, cloned into the checkout
   // where it no longer tracks them
@@ -129,20 +115,8 @@ export function ensureEvgui({ update = false } = {}) {
   const given = process.env.EVGUI_DIR;
   const dir = given ? path.resolve(given) : path.join(depsDir, "EVGUI");
   const ref = process.env.EVGUI_REF || config.evgui.ref;
-  const marker = path.join(depsDir, "evgui-ref");
-  const had = fs.existsSync(marker) ? fs.readFileSync(marker, "utf8").trim() : "";
-  if (!fs.existsSync(dir)) {
-    if (given) throw new Error(`EVGUI_DIR=${given} does not exist`);
-    fs.mkdirSync(depsDir, { recursive: true });
-    log(`clone  ${config.evgui.url} (${ref}) → ${path.relative(root, dir)}`);
-    git(["clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), config.evgui.url, dir], root);
-    fs.writeFileSync(marker, ref + "\n");
-  } else if (!given && (update || had !== ref)) {
-    log(`update EVGUI (${had || "unknown"} → ${ref})`);
-    git(["fetch", "--depth", "1", "origin", ref || "HEAD"], dir);
-    git(["checkout", "-q", "-f", "--detach", "FETCH_HEAD"], dir);
-    fs.writeFileSync(marker, ref + "\n");
-  }
+  if (given && !fs.existsSync(dir)) throw new Error(`EVGUI_DIR=${given} does not exist`);
+  if (!given) syncClone("EVGUI", config.evgui.url, ref, dir, path.join(depsDir, "evgui-ref"), update);
   if (!fs.existsSync(path.join(dir, "src", "UiHost.rgr"))) throw new Error(`${dir} is not an EVGUI checkout (no src/UiHost.rgr)`);
   return dir;
 }
@@ -168,19 +142,8 @@ export function ensureCheckout(key, { update = false, into = null } = {}) {
   const ref = process.env[`${env}_REF`] || c.ref;
   // the ref the clone was taken at, kept beside it
   const marker = into ? path.join(dir, ".git", "sliqtly-ref") : path.join(depsDir, `${key}-ref`);
-  const had = fs.existsSync(marker) ? fs.readFileSync(marker, "utf8").trim() : "";
-  if (!fs.existsSync(dir)) {
-    if (given) throw new Error(`${env}_DIR=${given} does not exist`);
-    fs.mkdirSync(path.dirname(dir), { recursive: true });
-    log(`clone  ${c.url} (${ref}) → ${path.relative(root, dir)}`);
-    git(["clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), c.url, dir], path.dirname(dir));
-    fs.writeFileSync(marker, ref + "\n");
-  } else if (!given && (update || had !== ref)) {
-    log(`update ${name} (${had || "unknown"} → ${ref})`);
-    git(["fetch", "--depth", "1", "origin", ref || "HEAD"], dir);
-    git(["checkout", "-q", "-f", "--detach", "FETCH_HEAD"], dir);
-    fs.writeFileSync(marker, ref + "\n");
-  }
+  if (given && !fs.existsSync(dir)) throw new Error(`${env}_DIR=${given} does not exist`);
+  if (!given) syncClone(name, c.url, ref, dir, marker, update);
   const must = CHECKOUT_HAS[key];
   if (must && !fs.existsSync(path.join(dir, must))) throw new Error(`${dir} is not a ${name} checkout (no ${must})`);
   return dir;
@@ -191,22 +154,50 @@ export function ensureRangerDiff({ update = false } = {}) {
   const given = process.env.RANGERDIFF_DIR;
   const dir = given ? path.resolve(given) : path.join(depsDir, "RangerDiff");
   const ref = process.env.RANGERDIFF_REF || config.rangerdiff.ref;
-  const marker = path.join(depsDir, "rangerdiff-ref");
-  const had = fs.existsSync(marker) ? fs.readFileSync(marker, "utf8").trim() : "";
-  if (!fs.existsSync(dir)) {
-    if (given) throw new Error(`RANGERDIFF_DIR=${given} does not exist`);
-    fs.mkdirSync(depsDir, { recursive: true });
-    log(`clone  ${config.rangerdiff.url} (${ref}) → ${path.relative(root, dir)}`);
-    git(["clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), config.rangerdiff.url, dir], root);
-    fs.writeFileSync(marker, ref + "\n");
-  } else if (!given && (update || had !== ref)) {
-    log(`update RangerDiff (${had || "unknown"} → ${ref})`);
-    git(["fetch", "--depth", "1", "origin", ref || "HEAD"], dir);
-    git(["checkout", "-q", "-f", "--detach", "FETCH_HEAD"], dir);
-    fs.writeFileSync(marker, ref + "\n");
-  }
+  if (given && !fs.existsSync(dir)) throw new Error(`RANGERDIFF_DIR=${given} does not exist`);
+  if (!given) syncClone("RangerDiff", config.rangerdiff.url, ref, dir, path.join(depsDir, "rangerdiff-ref"), update);
   if (!fs.existsSync(path.join(dir, "dist", "rangerdiff.mjs"))) throw new Error(`${dir} is not a RangerDiff checkout (no dist/rangerdiff.mjs)`);
   return dir;
+}
+
+/**
+ * A clone kept in step with `ref` (a branch, as in presentation.config.json):
+ * cloned when missing, fetched again when the config names another ref than
+ * the one in `marker`, and also when the branch has moved on its remote
+ * since. A ref that names a branch is a promise to build on its head, so a
+ * clone that only refreshed on --update went on compiling against whatever
+ * the branch held the day it was cloned (Sliqtly then imported controls
+ * that clone did not have yet). Offline, the clone is used as it is.
+ */
+function syncClone(name, url, ref, dir, marker, update) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(path.dirname(dir), { recursive: true });
+    log(`clone  ${url} (${ref}) → ${path.relative(root, dir)}`);
+    git(["clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), url, dir], path.dirname(dir));
+    fs.writeFileSync(marker, ref + "\n");
+    return;
+  }
+  const had = fs.existsSync(marker) ? fs.readFileSync(marker, "utf8").trim() : "";
+  let why = "";
+  if (update || had !== ref) why = `${had || "unknown"} → ${ref}`;
+  else {
+    let remote = "";
+    try {
+      remote = (git(["ls-remote", "origin", ref || "HEAD"], dir).split("\n")[0] || "").split(/\s+/)[0];
+    } catch {
+      log(`${name}: origin not reachable, building on the clone as it is`);
+      return;
+    }
+    // no such branch or tag on the remote (e.g. ref is a commit): nothing to compare
+    if (!remote) return;
+    const head = git(["rev-parse", "HEAD"], dir);
+    if (remote === head) return;
+    why = `${ref} ${head.slice(0, 7)} → ${remote.slice(0, 7)}`;
+  }
+  log(`update ${name} (${why})`);
+  git(["fetch", "--depth", "1", "origin", ref || "HEAD"], dir);
+  git(["checkout", "-q", "-f", "--detach", "FETCH_HEAD"], dir);
+  fs.writeFileSync(marker, ref + "\n");
 }
 
 function link(target, at) {
