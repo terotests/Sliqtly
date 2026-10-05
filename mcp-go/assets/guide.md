@@ -42,7 +42,11 @@ Speaker notes. Not shown on the slide.
   behind every slide). Line art is drawn only for signed-in PRO decks.
 - Block attributes: `.build` (a list revealed one item at a time),
   `anim=fade|rise|fly|zoom`, `seconds=0.8`, classes `.lead` (larger intro
-  text), `.kicker` (small label), `.c2` / `.c3` (two or three columns).
+  text), `.kicker` (small label), `.c2` / `.c3` (two or three columns),
+  `.center` / `.right` / `.left` (a heading or paragraph's lines, e.g.
+  `# Title` then `{.center}` on the next line). In `css`, `text-align`
+  does the same for a kind of block: `h1 { text-align: center }`,
+  `.lead { text-align: center }`. Lists, tables and code stay left.
 - Effects (`fx=`): `starfield`, `plasma-wave`, `smoke`, `ambient-light`,
   `liquid-glass`, `drops` (rain running down a window),
   `raindrops2` (rain whose running drops leave lines of water), `bubbles` (round
