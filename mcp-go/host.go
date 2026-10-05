@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/terotests/sliqtly/mcp-go/presdata"
+	"github.com/terotests/sliqtly/mcp-go/store"
 )
 
 //go:generate node gen.mjs
@@ -94,7 +95,10 @@ type Env struct {
 	// A server of one's own (decks in a folder, local.go): every caller is
 	// LocalUser, files are read from FilesURL, themes are the built-in ones.
 	LocalUser string
-	FilesURL  string // e.g. https://host/files; "": Storage download URLs
+	// Store: the documents of a server of one's own, under DB, for what
+	// needs more than DB says (revisions, the change feed); nil elsewhere
+	Store    store.Engine
+	FilesURL string // e.g. https://host/files; "": Storage download URLs
 	// GitHubToken: sent to api.github.com (read_github_pr), for its higher
 	// limit; "" reads as anyone
 	GitHubToken string
