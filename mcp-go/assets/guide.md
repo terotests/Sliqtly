@@ -208,6 +208,19 @@ SVG pictures, backgrounds included:
   narrows it only when something stands beside it; alone on its slide
   it still spans the full width. Put nothing under a diagram: it takes
   the room down to the next block or the bottom margin.
+- Code: a fence with the language (js, ts, py, rust, go, java, c, cpp,
+  cs, sql, json, sh, …) is coloured. Attributes after the language:
+  `.numbers` (or `numbers=40`, the first number) puts line numbers in a
+  gutter; `lines=3-5,9` highlights those lines (by the numbers shown, else
+  1 = first line); `lines=3-5|9|12` with `.build` highlights them one build
+  step after another while the code stays on the slide.
+  ```` ```js {.numbers lines=2|4-5 .build} ````
+- Diffs: a ```` ```diff ```` fence (```` ```diff ts ```` colours the code
+  as TypeScript) shows `+` lines on green, `-` lines on red, `@@` hunk
+  headers, and file headers (`diff --git`, `---`, `+++`) dimmed. With
+  `.numbers` the numbers follow the hunk headers' new-file side (a removed
+  line has none), and `lines=` highlights by those numbers. Paste
+  `git diff` output as it is; keep a slide to one hunk of about 15 lines.
 - Math: `$…$` inline, `$$…$$` as a display, or a ```` ```math ```` fence (TeX).
 - Tables: ordinary Markdown tables, or HTML `<table>` with `rowspan`/`colspan`.
 - Layouts from lists: a ```` ```process ```` fence (chevron steps),

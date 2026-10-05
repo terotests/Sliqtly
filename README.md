@@ -289,6 +289,9 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | ⛶ Present, F5 | full screen from the start (Shift: from the current slide) |
 | While presenting: → / space / click | next build step or slide |
 | While presenting: ← | previous slide |
+| While presenting: PageDown / PageUp | the next / previous slide shown whole: no build steps, no transition |
+| While presenting: Home, ⏮ / End | the first slide from its start / the last slide |
+| While presenting: a number + Enter, or press the "3 / 12" counter | that slide, shown whole (Esc forgets the number) |
 | While presenting: S | speaker view (next slide, notes, clock) |
 | While presenting: A | steps advance by themselves |
 | While presenting: Esc | end |

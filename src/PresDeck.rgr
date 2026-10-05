@@ -47,6 +47,9 @@ class PresGroup {
     ; the source range whose boxes belong to it
     def start:int 0
     def end:int 0
+    ; a code block's highlight step (MdBox.buildStep) when > 0: only the
+    ; boxes of that step belong to it; the block's code comes with the slide
+    def sub:int 0
     def anim:string "rise"
     def seconds:double 0.5
     ; seconds after the slide starts; set by PresTimeline
@@ -106,6 +109,9 @@ class PresSlide {
     def srcEnd:int -1
     ; seconds; set by PresTimeline
     def duration:double 0.0
+    ; when everything on it has arrived (its builds, charts and diagram
+    ; tours): the slide shown whole, before its hold
+    def settled:double 0.0
     def wantDuration:double -1.0
     def stepGap:double 1.2
     def hold:double 2.5
@@ -1937,6 +1943,29 @@ class PresDeck {
         if (n.hasAttr("seconds")) {
             secs = (PresDeck.num((n.attrValue("seconds")) 0.5))
         }
+        if (build && (n.kind == "code_block")) {
+            ; ```js {lines=3-5|8 .build}: the code is there from the start,
+            ; and each highlight comes at a step of its own
+            def numbers:string ""
+            if (n.hasClass("numbers")) {
+                numbers = "1"
+            }
+            if (n.hasAttr("numbers")) {
+                numbers = (n.attrValue("numbers"))
+            }
+            def cl:MdCodeLines (MdCodeLines.read(n.literal n.info numbers (n.attrValue("lines"))))
+            if (cl.steps > 0) {
+                def k:int 1
+                while (k <= cl.steps) {
+                    s.steps = (s.steps + 1)
+                    this.addGroup(s s.steps n.srcStart n.srcEnd anim secs ("lines " + (to_string k)))
+                    def g:PresGroup (itemAt s.groups ((array_length s.groups) - 1))
+                    g.sub = k
+                    k = (k + 1)
+                }
+                return
+            }
+        }
         if (build && (n.kind == "list")) {
             def i:int 0
             while (i < (n.childCount())) {
@@ -1977,7 +2006,7 @@ class PresDeck {
         def i:int 0
         while (i < (array_length s.groups)) {
             def g:PresGroup (itemAt s.groups i)
-            if ((at >= g.start) && (at < g.end)) {
+            if (((at >= g.start) && (at < g.end)) && (g.sub == b.buildStep)) {
                 return i
             }
             i = (i + 1)

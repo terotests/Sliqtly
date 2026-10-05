@@ -569,6 +569,79 @@ try {
     await page.evaluate(() => { while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
   }
 
+  // Jumps while presenting (PresNav): PageDown / PageUp a whole slide with
+  // no builds or transition on the way, Home / ⏮ the first slide, End the
+  // last, a number + Enter that slide; the bar shows "n / N" and its counter
+  // takes a number too.
+  {
+    await page.evaluate(() => { document.getElementById("keys").focus(); });
+    await page.keyboard.press("F5");
+    await page.waitForFunction(() => JSON.parse(window.__app.layoutJson()).mode === "present", null, { timeout: 8000 });
+    await page.waitForTimeout(150);
+    // the page draws a frame before the counter catches up (slow under
+    // software WebGL): wait for it rather than a fixed time
+    const settle = () => page.waitForFunction(() => document.getElementById("vCount").textContent === window.__app.slideLabel(), null, { timeout: 8000 }).catch(() => {});
+    // the bar fades when the pointer rests: a move brings it back first
+    const press = async (sel) => {
+      const b = await page.evaluate((sel) => document.querySelector(sel).getBoundingClientRect().toJSON(), sel);
+      await page.mouse.move(b.x + b.width / 2 - 3, b.y + b.height / 2);
+      await page.waitForFunction(() => !document.body.classList.contains("idle"), null, { timeout: 4000 }).catch(() => {});
+      await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+    };
+    const at = () => page.evaluate(() => {
+      const a = window.__app;
+      const s = a.deck.slideAt(a.slideShown());
+      return {
+        slide: a.slideShown(), step: a.pStep, steps: s.steps, count: a.deck.slideCount(), end: a.atEnd(),
+        label: document.getElementById("vCount").textContent,
+        bar: getComputedStyle(document.getElementById("viewBar")).display,
+        more: getComputedStyle(document.getElementById("vMore")).display,
+      };
+    });
+    await settle();
+    const start = await at();
+    await page.keyboard.press("PageDown");
+    await page.keyboard.press("PageDown");
+    await settle();
+    const paged = await at();
+    await page.keyboard.press("PageUp");
+    await settle();
+    const pagedBack = await at();
+    await page.keyboard.press("End");
+    await settle();
+    const last = await at();
+    await page.keyboard.press("Home");
+    await settle();
+    const home = await at();
+    await page.keyboard.type("3");
+    await settle();
+    const typing = await at();
+    await page.keyboard.press("Enter");
+    await settle();
+    const typed = await at();
+    await press("#vCount");
+    await page.keyboard.type("2");
+    await page.keyboard.press("Enter");
+    await settle();
+    const counted = await at();
+    await press("#vFirst");
+    await settle();
+    const first = await at();
+    const keysBack = await page.evaluate(() => document.activeElement === document.getElementById("keys"));
+    await page.keyboard.press("ArrowRight");
+    await settle();
+    const stepped = await at();
+    check("presenting from the editor shows the bar with \"n / N\", without the … menu", start.bar === "flex" && start.more === "none" && start.label === "1 / " + start.count, JSON.stringify(start));
+    check("PageDown goes a whole slide on, its builds shown", paged.slide === 2 && paged.step === paged.steps && !paged.end && paged.label === "3 / " + paged.count, JSON.stringify(paged));
+    check("PageUp a whole slide back", pagedBack.slide === 1 && pagedBack.step === pagedBack.steps, JSON.stringify(pagedBack));
+    check("End is the last slide, Home the first from its start", last.slide === last.count - 1 && !last.end && home.slide === 0 && home.step === 0, JSON.stringify({ last, home }));
+    check("a typed number shows in the counter and Enter goes there", typing.label === "3 / " + typing.count && typed.slide === 2 && typed.label === "3 / " + typed.count, JSON.stringify({ typing, typed }));
+    check("the counter takes a number", counted.slide === 1, JSON.stringify(counted));
+    check("⏮ is the first slide, and the arrows still work after it", first.slide === 0 && keysBack && (stepped.slide === 1 || stepped.step === 1), JSON.stringify({ first, keysBack, stepped }));
+    await page.keyboard.press("Escape");
+    await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+  }
+
   await page.evaluate(() => { window.__app.present(true); window.__app.takeRequest(); window.__app.speaker = true; window.__app.next(); });
   await page.waitForTimeout(300);
   await shot("2-speaker.png");

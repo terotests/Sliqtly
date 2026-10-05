@@ -11,6 +11,7 @@ Import "PresControlsFade.rgr"
 Import "PresFollow.rgr"
 Import "PresReview.rgr"
 Import "PresPick.rgr"
+Import "PresNav.rgr"
 
 class PresCheck {
     def fails:int 0
@@ -94,12 +95,31 @@ class PresCheck {
 
         this.ok(((PresTimeline.slideAtTime(deck (s0.duration + 0.01))) == 1) "deck time to slide")
         this.ok(((deck.pageOfOffset((indexOf text "Toka"))) == 1) "source offset to slide")
+        this.codeSteps()
         this.diagram()
         this.bigTitle()
         this.orientation()
         this.chartModel()
         this.review()
         this.reviewDiagram()
+    }
+
+    ; ```js {lines=2|3 .build}: the code is there from the start, and each
+    ; highlight (a band and a bar at its left) comes at a build step
+    fn codeSteps:void () {
+        def deck (new PresDeck())
+        deck.setText("## Koodi\n\n```js {lines=2|3 .build}\nalpha()\nbeta()\ngamma()\n```\n")
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        this.ok((s.steps == 2) ("code highlights: two steps, got " + (to_string s.steps)))
+        def early:EVGDisplayList (PresTimeline.frame(deck 0 0.1))
+        def one:EVGDisplayList (PresTimeline.frame(deck 0 ((PresTimeline.stepDone(s 1)) + 0.05)))
+        def late:EVGDisplayList (PresTimeline.frame(deck 0 s.duration))
+        this.ok(((PresCheck.textsLike(early "gamma")) == 1) "code highlights: the code is there before the steps")
+        ; the highlight bar's blue on a light listing
+        this.ok(((PresCheck.fills(early 9 105 218)) == 0) "code highlights: none before step 1")
+        this.ok(((PresCheck.fills(one 9 105 218)) == 1) "code highlights: one after step 1")
+        this.ok(((PresCheck.fills(late 9 105 218)) == 2) "code highlights: both at the end")
     }
 
     ; Review comments: threads on slides, closing, deleting, the file, two
@@ -1737,6 +1757,83 @@ class PresCheck {
         this.ok(((indexOf v2 "Uusi") < 0) "pick: the added slide is not in the view")
     }
 
+    ; PresNav: the jumps while presenting (Home, End, PageUp/PageDown, a
+    ; typed number) and where each lands
+    fn navJumps:void () {
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Eka\n\n1. a\n2. b\n3. c\n{.build}\n\n"
+            + "## Toka {transition=slide seconds=0.8}\n\nteksti\n\n## Kolmas\n\n1. x\n2. y\n{.build}\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def n:int (deck.slideCount())
+        this.ok((n == 3) ("nav: three slides, got " + (to_string n)))
+        if (n != 3) {
+            return
+        }
+        def s0:PresSlide (deck.slideAt(0))
+        def s1:PresSlide (deck.slideAt(1))
+        def s2:PresSlide (deck.slideAt(2))
+        this.ok((s0.steps == 3) "nav: the first slide has three builds")
+        this.ok(((s0.settled > 0.0) && (s0.settled < s0.duration)) ("nav: settled before the end, " + (to_string s0.settled)))
+        this.ok(((fabs ((s0.duration - s0.settled) - s0.hold)) < 0.001) "nav: the hold comes after it")
+        this.ok((s1.settled >= (PresTimeline.transitionSeconds(s1))) "nav: settled is past the transition")
+        ; Home: the first slide at its start, builds to come
+        def a:PresNavAt (PresNav.first(deck))
+        this.ok((((a.slide == 0) && (a.step == 0)) && (a.clock == 0.0)) "nav: first is the start")
+        ; PageDown: the next slide whole, past its transition
+        def b:PresNavAt (PresNav.pageNext(deck 0 false))
+        this.ok(((b.slide == 1) && (b.ended == false)) "nav: PageDown is the next slide")
+        this.ok(((fabs (b.clock - ((PresTimeline.slideStart(deck 1)) + s1.settled))) < 0.001) "nav: at its settled time")
+        this.ok((b.clock >= ((PresTimeline.slideStart(deck 1)) + (PresTimeline.transitionSeconds(s1)))) "nav: no transition left")
+        def c:PresNavAt (PresNav.pageNext(deck 1 false))
+        this.ok(((c.slide == 2) && (c.step == s2.steps)) "nav: PageDown shows every build")
+        this.ok(((PresTimeline.slideAtTime(deck c.clock)) == 2) "nav: the clock is in that slide")
+        def d:PresNavAt (PresNav.pageNext(deck 2 false))
+        this.ok(((d.slide == 2) && d.ended) "nav: PageDown on the last slide is the end")
+        ; PageUp
+        def e:PresNavAt (PresNav.pagePrev(deck 2 true))
+        this.ok(((e.slide == 2) && (e.ended == false)) "nav: PageUp from the end is the last slide")
+        def f:PresNavAt (PresNav.pagePrev(deck 2 false))
+        this.ok(((f.slide == 1) && (f.step == s1.steps)) "nav: PageUp is the slide before, whole")
+        def g:PresNavAt (PresNav.pagePrev(deck 1 false))
+        this.ok(((g.slide == 0) && (g.step == 3)) "nav: PageUp to the first slide shows its builds")
+        def h:PresNavAt (PresNav.pagePrev(deck 0 false))
+        this.ok(((h.slide == 0) && (h.clock == 0.0)) "nav: PageUp on the first slide is its start")
+        ; End
+        def l:PresNavAt (PresNav.last(deck))
+        this.ok((((l.slide == 2) && (l.step == 2)) && (l.ended == false)) "nav: End is the last slide whole")
+        ; numbers
+        this.ok(((PresNav.number("2" 3)) == 1) "nav: 2 is the second slide")
+        this.ok(((PresNav.number(" 3 " 3)) == 2) "nav: spaces around")
+        this.ok(((PresNav.number("99" 3)) == 2) "nav: past the end is the last")
+        this.ok(((PresNav.number("0" 3)) == 0) "nav: 0 is the first")
+        this.ok(((PresNav.number("" 3)) == -1) "nav: nothing is no number")
+        this.ok(((PresNav.number("2a" 3)) == -1) "nav: letters are no number")
+        this.ok(((PresNav.number("1" 0)) == -1) "nav: no slides")
+        def w:PresNavAt (PresNav.whole(deck 7))
+        this.ok((w.slide == 2) "nav: whole holds the index inside the deck")
+        ; the label and the typed number
+        this.ok(((PresNav.label(0 3 "")) == "1 / 3") "nav: label")
+        this.ok(((PresNav.label(2 3 "12")) == "12 / 3") "nav: label while typing")
+        def nav (new PresNav())
+        this.ok((nav.digit("1")) "nav: a digit is taken")
+        this.ok((! (nav.digit("x"))) "nav: a letter is not")
+        nav.digit("2")
+        nav.digit("3")
+        nav.digit("4")
+        nav.digit("5")
+        this.ok((nav.typed == "1234") ("nav: four digits at most, got " + nav.typed))
+        nav.clear()
+        nav.digit("2")
+        this.ok(((nav.take(3)) == 1) "nav: Enter takes the number")
+        this.ok(((nav.typing()) == false) "nav: and it is gone")
+        this.ok(((nav.take(3)) == -1) "nav: Enter with nothing typed")
+        ; an empty deck lands nowhere in particular
+        def empty (new PresDeck())
+        def z:PresNavAt (PresNav.pageNext(empty 0 false))
+        this.ok((((z.slide == 0) && (z.ended == false)) && (z.clock == 0.0)) "nav: an empty deck")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -1757,6 +1854,7 @@ class PresCheck {
         c.controlsFade()
         c.followEdits()
         c.picks()
+        c.navJumps()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"
