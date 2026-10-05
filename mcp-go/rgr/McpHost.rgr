@@ -87,6 +87,25 @@ operators {
             go ( (e 1) ".NameKey(" (e 2) ")" )
         }
     }
+    ; the tools the host adds (rooms on a server of one's own) as a JSON
+    ; array of tool entries, "[]" for none
+    host_tools_json _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".HostTools()" )
+        }
+    }
+    host_has_tool _:boolean (h:McpHost name:string) {
+        templates {
+            go ( (e 1) ".HasTool(" (e 2) ")" )
+        }
+    }
+    ; runs one for uid with the arguments (JSON): the answer as JSON text,
+    ; or "" and host_error saying why. who is the rate limit's key.
+    host_call_tool _:string (h:McpHost uid:string who:string name:string args:string) {
+        templates {
+            go ( (e 1) ".CallTool(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
+        }
+    }
     host_asset _:string (h:McpHost name:string) {
         templates {
             go ( (e 1) ".Asset(" (e 2) ")" )

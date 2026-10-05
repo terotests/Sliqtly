@@ -70,7 +70,7 @@ type migration struct {
 
 var migrations = []migration{
 	{From: 1, Note: "decks and files in 256 shard folders", Run: func(root, _ string) (int, error) { return 0, shardFolders(root) }},
-	{From: 2, Note: "every deck in its owner's home room", Run: homeRooms},
+	{From: 2, Note: "rooms General and Playground, every deck in General", Run: homeRooms},
 }
 
 func readFormat(root string) (*formatFile, error) {
@@ -412,9 +412,8 @@ func shardFolders(root string) error {
 	return nil
 }
 
-// 2 → 3: every deck goes to its owner's home room ("My presentations",
-// ADR 0001), the room and the owner's membership made where they are not
-// there yet. A deck does not see the room's files (inherit_room_files is
+// 2 → 3: the rooms General and Playground (ADR 0001), owned by the
+// server's user, and every deck in General. A deck does not see the room's files (inherit_room_files is
 // false), and its address does not change. The decks are written in place,
 // a new file renamed over each (store.WriteAtomic), so the backup keeps
 // the old ones.

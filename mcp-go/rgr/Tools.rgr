@@ -427,6 +427,14 @@ class Tools {
         tools.add((Tools.tool("end_work" "Finish work on a presentation" "Release the slides claimed with begin_work, once your changes are saved (or given up), so other assistants may work on them." (Tools.schema(ewp ([] _:string ("deck_id" "work_id")))) (Tools.annotations(false 0 true false)) eitherMeta)))
 
         tools.add((Tools.tool("list_presentations" "List my presentations" "List the signed-in user's own Sliqtly presentations (newest first) with their links and deck_ids. Needs sign-in." (Tools.schema((MfJ.newObj()) none)) (Tools.annotations(true -1 false false)) listMeta)))
+        ; the host's own (rooms)
+        def more:MfJ (J.parse((host_tools_json host)))
+        if (more.kind == 4) {
+            for more.arr ht:MfJ hi {
+                ht.put("_meta" listMeta)
+                tools.add(ht)
+            }
+        }
         return tools
     }
 
@@ -971,6 +979,18 @@ class Tools {
             }
             g.put("content" (Tools.text(guide)))
             return g
+        }
+        if (host_has_tool host name) {
+            def answer:string (host_call_tool host caller.uid caller.who name (JOut.text(args)))
+            def herr:string (host_error host)
+            if ((strlen herr) > 0) {
+                host_clear_error host
+                return (Tools.fail(herr))
+            }
+            def hr:MfJ (MfJ.newObj())
+            hr.put("content" (Tools.text(answer)))
+            hr.put("structuredContent" (J.parse(answer)))
+            return hr
         }
         def writes:boolean ((((name == "create_presentation") || (name == "update_presentation")) || (name == "bind_chart_data")) || (name == "write_workbook"))
         if (writes || ((((name == "add_comment") || (name == "resolve_comment")) || (name == "begin_work")) || (name == "end_work"))) {

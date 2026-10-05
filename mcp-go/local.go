@@ -84,6 +84,7 @@ func localEnv(dir, baseURL, user string) (*Env, *fsBucket, error) {
 		Limiter: rateLimiter(2000, 10*time.Minute),
 	}
 	e.FilesURL = e.BaseURL + "/files"
+	e.rooms = newRoomService(e)
 	e.GitHubToken = os.Getenv("SLIQTLY_GITHUB_TOKEN")
 	return e, bucket, nil
 }
