@@ -79,6 +79,10 @@ class PresFlowModel {
     ; the line under the fence
     def attrInInfo:boolean false
     def attrs:[string]
+    ; the opening line as typed, and the attribute line under the block
+    ; counted from it (-1: none)
+    def head:string ""
+    def attrLine:int -1
     def lines:[PresFlowLine]
     def nodes:[PresFlowNode]
     def edges:[PresFlowEdge]
@@ -149,7 +153,8 @@ class PresFlowModel {
         if (n < 2) {
             return m
         }
-        def head:string (trim (itemAt all 0))
+        m.head = (itemAt all 0)
+        def head:string (trim m.head)
         def f:int 0
         def ch:int (charAt head 0)
         if ((ch != 96) && (ch != 126)) {
@@ -191,6 +196,7 @@ class PresFlowModel {
             if ((m.attrInInfo == false) && (PresFlowModel.isAttrLine(under))) {
                 def u:string (trim under)
                 m.attrs = (PresFlowModel.attrWords((substring u 1 ((strlen u) - 1))))
+                m.attrLine = (close + 1)
             }
         }
         def b:int 1
@@ -572,6 +578,51 @@ class PresFlowModel {
         if ((this.attr("style")) != "holo") {
             this.setAttr("style" "")
         }
+    }
+
+    ; A look picked over the fence's language word in the code editor: one
+    ; line changes, the one with the block's settings. `lookLineAt` is that
+    ; line counted from the opening fence (0, or the attribute line under the
+    ; block), `lookLine` its text with the look set. With no settings yet they
+    ; go in braces on the fence line, as the guide writes them.
+    fn lookLineAt:int () {
+        if ((attrInInfo == false) && (attrLine >= 0)) {
+            return attrLine
+        }
+        return 0
+    }
+
+    fn lookLine:string (v:string) {
+        this.setLook(v)
+        def words:string (PresFlowModel.joined(attrs))
+        if ((attrInInfo == false) && (attrLine >= 0)) {
+            if ((strlen words) == 0) {
+                return ""
+            }
+            return ((PresFlowModel.indentOf(head)) + "{" + words + "}")
+        }
+        def br:int (indexOf head "{")
+        def cb:int (indexOf head "}")
+        if (attrInInfo && ((br >= 0) && (cb > br))) {
+            def before:string (substring head 0 br)
+            def after:string (substring head (cb + 1) (strlen head))
+            if ((strlen words) == 0) {
+                return ((PresFlowModel.rtrim(before)) + after)
+            }
+            return (before + "{" + words + "}" + after)
+        }
+        if ((strlen words) == 0) {
+            return head
+        }
+        return ((PresFlowModel.rtrim(head)) + " {" + words + "}")
+    }
+
+    sfn rtrim:string (s:string) {
+        def n:int (strlen s)
+        while ((n > 0) && (((charAt s (n - 1)) == 32) || ((charAt s (n - 1)) == 9))) {
+            n = (n - 1)
+        }
+        return (substring s 0 n)
     }
 
     ; a yes/no option: `tour=on` when it is on, `ball=off` when it is off
