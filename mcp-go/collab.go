@@ -53,6 +53,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/terotests/sliqtly/mcp-go/store"
 )
 
 const (
@@ -177,16 +179,25 @@ type collabRoom struct {
 	fileMd  []uint16
 	fileRev int
 	fileGap []delta
-	// the room's own write under way; saveMu keeps one at a time, so a
-	// flush waits for a timer's write rather than passing it
-	saving    []uint16
-	savingRev int
-	saveMu    sync.Mutex
+	// the deck's revision the room has taken in: a change the store tells
+	// that is not newer is one the room has read already
+	docRev store.Rev
+	// the room's own writes not yet told back by the store, oldest first;
+	// saveMu keeps one write at a time, so a flush waits for a timer's
+	// write rather than passing it
+	pending []*collabSave
+	saveMu  sync.Mutex
 
 	dirty     bool
 	saveTimer *time.Timer
 	dirtyAt   time.Time
 	idleTimer *time.Timer
+}
+
+// one write of the room's: its text, which was the room's at rev
+type collabSave struct {
+	text []uint16
+	rev  int
 }
 
 type collabRooms struct {
@@ -224,13 +235,14 @@ func (s *localServer) room(ctx context.Context, id string) (*collabRoom, error) 
 	rm.load.Do(func() {
 		// read without the room locked: a write meanwhile (its callback
 		// sees the room not ready) is the newer text, and wins
-		d, _ := s.env.DB.Get(ctx, "shares", id)
+		d, rev, _ := s.env.Store.Get(ctx, "shares", id)
 		md, _ := d["md"].(string)
 		chat := readChat(s.chatFile(id))
 		rm.mu.Lock()
-		if !rm.ready {
+		if !rm.ready || rev > rm.docRev {
 			rm.text = toU16(md)
 			rm.fileMd = rm.text
+			rm.docRev = rev
 		}
 		rm.chat = chat
 		rm.ready = true
@@ -239,22 +251,27 @@ func (s *localServer) room(ctx context.Context, id string) (*collabRoom, error) 
 	return rm, nil
 }
 
-// fsDB tells every write, in order, while the folder is locked
-func (s *localServer) collabWritten(col, id string, doc Doc) {
-	if col != "shares" {
+// the store tells every write, in the order made (local.go)
+func (s *localServer) collabWritten(c store.Change) {
+	if c.Col != "shares" {
 		return
 	}
-	rm := s.openRoom(id)
+	rm := s.openRoom(c.ID)
 	if rm == nil {
 		return
 	}
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
-	if doc == nil {
+	if c.Doc == nil {
+		rm.docRev, rm.pending = 0, nil
 		rm.broadcast(map[string]any{"t": "reset"}, 0)
 		return
 	}
-	md, _ := doc["md"].(string)
+	if c.Rev <= rm.docRev {
+		return
+	}
+	rm.docRev = c.Rev
+	md, _ := c.Doc["md"].(string)
 	got := toU16(md)
 	if !rm.ready {
 		rm.text = got
@@ -262,10 +279,11 @@ func (s *localServer) collabWritten(col, id string, doc Doc) {
 		rm.ready = true
 		return
 	}
-	if rm.saving != nil && sameU16(got, rm.saving) {
+	if len(rm.pending) > 0 && sameU16(got, rm.pending[0].text) {
 		// the room's own write
-		rm.fileMd, rm.fileRev, rm.fileGap = rm.saving, rm.savingRev, nil
-		rm.saving = nil
+		w := rm.pending[0]
+		rm.pending = rm.pending[1:]
+		rm.fileMd, rm.fileRev, rm.fileGap = w.text, w.rev, nil
 		return
 	}
 	if sameU16(got, rm.fileMd) {
@@ -399,12 +417,11 @@ func (rm *collabRoom) save() {
 		rm.mu.Unlock()
 		return
 	}
-	rm.saving = append([]uint16(nil), rm.text...)
-	rm.savingRev = rm.rev
+	w := &collabSave{text: append([]uint16(nil), rm.text...), rev: rm.rev}
+	rm.pending = append(rm.pending, w)
 	rm.dirty = false
-	md := fromU16(rm.saving)
+	md := fromU16(w.text)
 	rm.mu.Unlock()
-	// not under the room's lock: the write calls back into the room
 	shareMu.Lock()
 	err := rm.s.env.DB.Update(context.Background(), "shares", rm.id, Doc{"md": md, "updated": time.Now().UTC()})
 	shareMu.Unlock()
@@ -416,7 +433,15 @@ func (rm *collabRoom) save() {
 		again = gerr != nil || d != nil
 	}
 	rm.mu.Lock()
-	rm.saving = nil
+	if err != nil {
+		// not written: nothing will be told of it
+		for i, p := range rm.pending {
+			if p == w {
+				rm.pending = append(rm.pending[:i:i], rm.pending[i+1:]...)
+				break
+			}
+		}
+	}
 	if again {
 		rm.changed()
 	}

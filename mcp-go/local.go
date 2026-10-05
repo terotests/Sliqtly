@@ -21,6 +21,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"embed"
 	"encoding/base64"
@@ -74,6 +75,7 @@ func localEnv(dir, baseURL, user string) (*Env, *fsBucket, error) {
 		BaseURL:   strings.TrimRight(baseURL, "/"),
 		Client:    newPublicClient(),
 		DB:        db,
+		Store:     db.e,
 		Bucket:    bucket,
 		LocalUser: user,
 		Themes:    builtinTheme,
@@ -98,12 +100,19 @@ func newLocalServer(env *Env, bucket *fsBucket, token string, web fs.FS) http.Ha
 		}
 	}
 	s := &localServer{env: env, app: NewApp(env), bucket: bucket, token: token, web: web, board: newStatusBoard("ready", version)}
-	if db, ok := env.DB.(*fsDB); ok {
+	if env.Store != nil {
 		s.hub = newChangeHub()
 		s.collab = newCollabRooms()
-		db.changed = func(col, id string, doc Doc) {
-			s.collabWritten(col, id, doc)
-			s.hub.written(col, id, doc)
+		// every write, in the order made, from now: whoever made it (a
+		// page, an assistant, a room) and whatever the store is
+		changes, err := env.Store.Watch(context.Background(), env.Store.Head())
+		if err == nil {
+			go func() {
+				for c := range changes {
+					s.collabWritten(c)
+					s.hub.written(c.Col, c.ID, c.Doc)
+				}
+			}()
 		}
 	}
 	s.loadSettings()
