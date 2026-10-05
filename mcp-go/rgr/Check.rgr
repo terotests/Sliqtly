@@ -146,7 +146,10 @@ class Check {
 
     ; the files the charts read, handed over as the page hands them (twice:
     ; a chart kept in a file names its data only once the file is read)
-    sfn chartData:void (host:McpHost din:DeckIn d:PresDeck) {
+    ; what the deck names that it does not have comes back, told to the deck
+    ; too, so its tables say so in place of waiting for the file
+    sfn chartData:[string] (host:McpHost din:DeckIn d:PresDeck) {
+        def missing:[string]
         def tried:[string]
         def round:int 0
         while (round < 2) {
@@ -160,10 +163,20 @@ class Check {
                 def body:string (Check.dataText(host din u))
                 if ((strlen body) > 0) {
                     d.setChartData(u body)
+                } {
+                    ; a live address is read only where it is allowed; a
+                    ; file of the deck that is not there is a mistake
+                    if (((startsWith u "https://") == false) && ((startsWith u "http://") == false)) {
+                        push missing u
+                    }
                 }
             }
             round = (round + 1)
         }
+        for missing m:string mi {
+            d.setChartDataMissing(m)
+        }
+        return missing
     }
 
     sfn run:Checked (host:McpHost din:DeckIn) {
@@ -192,7 +205,9 @@ class Check {
             d.addImage(pic.name (itemAt din.data pi) (itemAt din.types pi) pic.w pic.h)
         }
         d.setText(md)
-        Check.chartData(host din d)
+        for (Check.chartData(host din d)) gone:string gi {
+            push c.warnings (gone + " is read by a chart or table but the presentation has no such file. list_files lists the names its files are read by; add the file with files.")
+        }
         c.width = d.pageW
         c.height = d.pageH
         c.slides = (d.slideCount())
@@ -279,7 +294,8 @@ class Check {
     }
 
     ; per command of the slide list just drawn: true for text struck through
-    ; (`~~…~~`, `<s>`, `<del>`), which the layout draws muted on purpose
+    ; (`~~…~~`, `<s>`, `<del>`) and the "[alt]" standing in for a picture
+    ; with no bytes, which the layout draws muted on purpose
     sfn struck:[boolean] (d:PresDeck l:MdLayout n:int) {
         def out:[boolean]
         def owner:[int] d.boxOfCmd
@@ -290,7 +306,7 @@ class Check {
                 def ob:int (itemAt owner i)
                 if ((ob >= 0) && (ob < (array_length l.boxes))) {
                     def b:MdBox (itemAt l.boxes ob)
-                    q = b.strike
+                    q = (b.strike || b.quiet)
                 }
             }
             push out q

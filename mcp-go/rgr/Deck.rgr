@@ -493,6 +493,13 @@ class Deck {
                 res.err = ("Image " + name + ": unknown picture type; name it .png, .jpg, .gif, .webp or .svg (or .xml for a SmartArt diagram).")
                 return res
             }
+            if (((type == "image/png") || (type == "image/jpeg")) || ((type == "image/gif") || (type == "image/webp"))) {
+                def bad:string (host_image_error host handle)
+                if ((strlen bad) > 0) {
+                    res.err = ("Image " + name + " is not a picture Sliqtly can read (" + bad + "). Long base64 is easily corrupted on the way: send the picture as a url instead, or an SVG as text.")
+                    return res
+                }
+            }
             def im (new Img)
             im.name = name
             im.type = type
