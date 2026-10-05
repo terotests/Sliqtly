@@ -980,5 +980,7 @@
   "This presentation is no longer here.": "Tätä esitystä ei enää ole.",
   "The diagram's look.": "Kaavion ulkoasu.",
   "The presentation's Markdown": "Esityksen Markdown",
-  "The open comments, numbered, with the Markdown of their slides: to hand to an assistant": "Avoimet kommentit numeroituina, diojensa Markdownin kanssa: annettavaksi avustajalle"
+  "The open comments, numbered, with the Markdown of their slides: to hand to an assistant": "Avoimet kommentit numeroituina, diojensa Markdownin kanssa: annettavaksi avustajalle",
+  "Markdown with comments": "Markdown kommentteineen",
+  "The presentation's Markdown with the open comments as numbered footnotes": "Esityksen Markdown, avoimet kommentit numeroituina alaviitteinä"
 }

@@ -4347,7 +4347,7 @@ vExport.addEventListener("click", () => openViewSub(vExportSub.hidden ? vExport 
 vCopy.addEventListener("click", () => openViewSub(vCopySub.hidden ? vCopy : null));
 // Copy ▸ Markdown: the deck's text; Copy ▸ Comments: the open comments
 // numbered, each slide's Markdown under them (PresReview.openMarkdown)
-const VIEW_COPIES = { md: () => app.source(), comments: () => app.reviewOpenMarkdown() };
+const VIEW_COPIES = { md: () => app.source(), mdc: () => app.reviewMarkdownWithComments(), comments: () => app.reviewOpenMarkdown() };
 vMenu.addEventListener("click", (ev) => {
   const what = ev.target.closest("[data-copy]")?.dataset.copy;
   if (what && VIEW_COPIES[what]) {
