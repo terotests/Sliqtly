@@ -52,7 +52,7 @@ class PresPanels {
     ; The editor's skin ("" or "retro"): a theme name added to this host's own.
     def skin:string ""
     ; the standard skin's colours as chosen: "light", "dark" or "system"
-    def lookMode:string "system"
+    def lookMode:string "light"
     ; ...and its base colour, as a hue (`--retro-hue`).
     def skinHue:double 88.0
     def w:double 1200.0
