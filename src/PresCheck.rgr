@@ -179,6 +179,22 @@ class PresCheck {
         q3.merge(q2)
         def q3d:PresReviewThread (unwrap (q3.find("d")))
         this.ok(((q3d.dia == 0) && (q3d.node == "B")) "review: a merge takes the diagram point")
+        ; dragged somewhere else: off the diagram, and the latest move wins
+        ; a merge (the other copy still has the old point on the diagram)
+        this.ok(((q3.move("d" 0.9 1.4 (t0 + 500.0))) && ((q3.move("nope" 0.5 0.5 t0)) == false)) "review: a thread is moved")
+        this.ok(((((q3d.x == 0.9) && (q3d.y == 1.0)) && (q3d.dia == -1)) && (q3d.node == "")) "review: a moved thread is off its diagram, inside the slide")
+        def q4:PresReview (PresReview.parse((q3.toJson())))
+        def q4d:PresReviewThread (unwrap (q4.find("d")))
+        this.ok(((q4d.moved == (t0 + 500.0)) && (q4d.x == 0.9)) ("review: the move is in the file: " + (q3.toJson())))
+        q2.merge(q4)
+        this.ok(((((qd.x == 0.9) && (qd.dia == -1)) && (qd.moved == (t0 + 500.0))) && ((q4.merge(q2)) == false)) "review: a merge takes the newer place, not the old diagram point")
+        q4.anchor("d" 1 "C" 0.5 0.5)
+        q2.merge(q4)
+        this.ok(((qd.dia == 1) && (qd.node == "C")) "review: dropped on another diagram's box, the merge takes it")
+        q2.move("d" 0.1 0.1 (t0 + 900.0))
+        q4.move("d" 0.7 0.7 (t0 + 600.0))
+        q2.merge(q4)
+        this.ok(((qd.x == 0.1) && (qd.y == 0.1)) "review: an older move does not win a merge")
         ; times
         def now:double 1759658400000.0
         this.ok(((PresReview.timeText(now now 180)) == "13:00") ("review: today, the clock: " + (PresReview.timeText(now now 180))))

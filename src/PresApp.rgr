@@ -2797,15 +2797,16 @@ class PresApp {
             activeDia = tapDia
             activatedNow = ((tapDia >= 0) && (mode == "edit"))
         }
+        ; a swipe sideways: left for the next slide, right for the one before
+        def dx:double (lastX - downX)
+        def dy:double (lastY - downY)
+        def adx:double (fabs dx)
+        def ady:double (fabs dy)
+        def swiped:boolean ((adx >= swipeMin) && (adx > (ady * 1.2)))
         if (mode == "present") {
-            ; a swipe sideways: left for the next slide, right for the one
-            ; before (from the end panel straight to it); a press that went
+            ; (from the end panel straight to it); a press that went
             ; elsewhere does nothing
-            def dx:double (lastX - downX)
-            def dy:double (lastY - downY)
-            def adx:double (fabs dx)
-            def ady:double (fabs dy)
-            if ((adx >= swipeMin) && (adx > (ady * 1.2))) {
+            if swiped {
                 if (dx < 0.0) {
                     this.next()
                 } {
@@ -2822,6 +2823,11 @@ class PresApp {
                 this.next()
             }
         } {
+            if swiped {
+                this.selectSlide((? (dx < 0.0) (selected + 1) (selected - 1)))
+                chromeRev = (chromeRev + 1)
+                return
+            }
             ; a diagram's or a table's own controls take the press first; the
             ; block under it is picked all the same
             this.stagePress(downX downY)
@@ -2849,6 +2855,13 @@ class PresApp {
         ; a drag selecting in a comment's text field
         if review.selecting {
             review.dragTo(x)
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        ; a comment's pin held: dragged to another place
+        if ((strlen review.pinDown) > 0) {
+            this.place()
+            review.dragPin(x y)
             chromeRev = (chromeRev + 1)
             return
         }
@@ -2958,7 +2971,11 @@ class PresApp {
     }
 
     fn pointerUp:void () {
-        review.release()
+        if (review.release()) {
+            this.reviewSpots()
+            this.afterReview()
+            chromeRev = (chromeRev + 1)
+        }
         panels.chatRelease()
         panels.textRelease()
         if (hint.isOpen && (hint.dragging())) {
@@ -3141,6 +3158,9 @@ class PresApp {
 
     fn cursorAt:string (x:double y:double) {
         this.place()
+        if review.dragging {
+            return "grabbing"
+        }
         if (review.on && ((this.layerAt(x y)) == "review")) {
             def rc:string (review.cursorAt(x y))
             if ((strlen rc) > 0) {
@@ -4763,21 +4783,40 @@ class PresApp {
         def t:double (this.stageTime())
         def pw:double deck.pageW
         def ph:double deck.pageH
+        ; a pin dropped somewhere else: on the diagram (and its box) under it,
+        ; if any
+        if ((strlen review.moveAsk) > 0) {
+            def mid:string review.moveAsk
+            review.moveAsk = ""
+            def mh@(optional):PresReviewThread (review.model.find(mid))
+            if (!null? mh) {
+                def mt:PresReviewThread (unwrap mh)
+                if (mt.slide == selected) {
+                    def ma:[double] (this.reviewAnchorAt(t (mt.x * pw) (mt.y * ph)))
+                    if ((array_length ma) == 4) {
+                        def mdu@(optional):PresDiaUse (deck.diagramUse(selected (floor (itemAt ma 0))))
+                        if (!null? mdu) {
+                            def mu:PresDiaUse (unwrap mdu)
+                            review.model.anchor(mid (floor (itemAt ma 0)) (mu.diagram.nodeIdAt((floor (itemAt ma 1)))) (itemAt ma 2) (itemAt ma 3))
+                        }
+                    }
+                }
+                review.save()
+            }
+        }
         if review.draftAsk {
             review.draftAsk = false
             if (review.draftSlide == selected) {
-                def px:double (review.draftX * pw)
-                def py:double (review.draftY * ph)
-                def k:int (deck.diagramAt(selected px py))
-                def hit@(optional):PresDiaUse (deck.diagramUse(selected k))
-                if (!null? hit) {
-                    def du:PresDiaUse (unwrap hit)
-                    def a:[double] (du.diagram.anchorAt((t - du.start) du.bx du.by du.bw du.bh px py))
-                    if ((array_length a) == 3) {
+                def a:[double] (this.reviewAnchorAt(t (review.draftX * pw) (review.draftY * ph)))
+                if ((array_length a) == 4) {
+                    def k:int (floor (itemAt a 0))
+                    def hit@(optional):PresDiaUse (deck.diagramUse(selected k))
+                    if (!null? hit) {
+                        def du:PresDiaUse (unwrap hit)
                         review.draftDia = k
-                        review.draftNode = (du.diagram.nodeIdAt((floor (itemAt a 0))))
-                        review.draftAX = (itemAt a 1)
-                        review.draftAY = (itemAt a 2)
+                        review.draftNode = (du.diagram.nodeIdAt((floor (itemAt a 1))))
+                        review.draftAX = (itemAt a 2)
+                        review.draftAY = (itemAt a 3)
                     }
                 }
             }
@@ -4805,6 +4844,26 @@ class PresApp {
                 }
             }
         }
+    }
+
+    ; The diagram under a point of the selected slide (slide units) at time
+    ; `t`: [its index, the node's index (-1 none), u, v], empty when none.
+    fn reviewAnchorAt:[double] (t:double px:double py:double) {
+        def r:[double]
+        def k:int (deck.diagramAt(selected px py))
+        def hit@(optional):PresDiaUse (deck.diagramUse(selected k))
+        if (null? hit) {
+            return r
+        }
+        def du:PresDiaUse (unwrap hit)
+        def a:[double] (du.diagram.anchorAt((t - du.start) du.bx du.by du.bw du.bh px py))
+        if ((array_length a) == 3) {
+            push r (to_double k)
+            push r (itemAt a 0)
+            push r (itemAt a 1)
+            push r (itemAt a 2)
+        }
+        return r
     }
 
     ; review mode's layer, for the page to paint where `layerOrder` puts it

@@ -66,6 +66,9 @@ class PresReviewThread {
     def node:string ""
     def ax:double 0.0
     def ay:double 0.0
+    ; when it was dragged somewhere else last (0 never): the latest move wins
+    ; a merge
+    def moved:double 0.0
 
     fn count:int () {
         return (array_length msgs)
@@ -289,6 +292,25 @@ class PresReview {
         return true
     }
 
+    ; Dragged to (`x`, `y`) of the slide at time `at`: off any diagram until
+    ; `anchor` puts it on one again. False when there is no such thread.
+    fn move:boolean (id:string x:double y:double at:double) {
+        def i:int (this.indexOf(id))
+        if (i < 0) {
+            return false
+        }
+        def t:PresReviewThread (itemAt threads i)
+        t.x = (PresReview.clamp01(x))
+        t.y = (PresReview.clamp01(y))
+        t.dia = -1
+        t.node = ""
+        t.ax = 0.0
+        t.ay = 0.0
+        t.moved = at
+        rev = (rev + 1)
+        return true
+    }
+
     ; Deleted for good: only a closed thread.
     fn remove:boolean (id:string) {
         def i:int (this.indexOf(id))
@@ -395,7 +417,17 @@ class PresReview {
                             changed = true
                         }
                     }
-                    if ((mine.dia < 0) && (ot.dia >= 0)) {
+                    if (ot.moved > mine.moved) {
+                        mine.x = ot.x
+                        mine.y = ot.y
+                        mine.dia = ot.dia
+                        mine.node = ot.node
+                        mine.ax = ot.ax
+                        mine.ay = ot.ay
+                        mine.moved = ot.moved
+                        changed = true
+                    }
+                    if (((mine.dia < 0) && (ot.dia >= 0)) && (ot.moved == mine.moved)) {
                         mine.dia = ot.dia
                         mine.node = ot.node
                         mine.ax = ot.ax
@@ -432,6 +464,7 @@ class PresReview {
         c.node = t.node
         c.ax = t.ax
         c.ay = t.ay
+        c.moved = t.moved
         for t.msgs m:PresReviewMsg i {
             push c.msgs (PresReview.msg(m.id m.who m.name m.color m.text m.at))
         }
@@ -464,6 +497,9 @@ class PresReview {
             o.setMember("state" (PresReview.num(t.state)))
             o.setMember("by" (VlJson.stringValue(t.by)))
             o.setMember("created" (PresReview.num(t.created)))
+            if (t.moved > 0.0) {
+                o.setMember("moved" (PresReview.num(t.moved)))
+            }
             if (t.dia >= 0) {
                 def on:VlJson (VlJson.objectValue())
                 on.setMember("diagram" (VlJson.intValue(t.dia)))
@@ -543,6 +579,7 @@ class PresReview {
                 t.state = (o.doubleOr("state" 0.0))
                 t.by = (o.stringOr("by" ""))
                 t.created = (o.doubleOr("created" 0.0))
+                t.moved = (o.doubleOr("moved" 0.0))
                 def on:VlJson (o.get("on"))
                 if ((on.isObject()) && ((on.intOr("diagram" -1)) >= 0)) {
                     t.dia = (on.intOr("diagram" -1))

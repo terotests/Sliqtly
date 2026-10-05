@@ -102,6 +102,17 @@ class PresReviewUi {
     def draftNode:string ""
     def draftAX:double 0.0
     def draftAY:double 0.0
+    ; A pin held down (its control id, "" none): a click opens its thread on
+    ; release, a drag moves it to (`dragX`, `dragY`) of the slide. A thread
+    ; dropped somewhere waits in `moveAsk` for the host to put it on the
+    ; diagram under it, if any, and save.
+    def pinDown:string ""
+    def downX:double 0.0
+    def downY:double 0.0
+    def dragging:boolean false
+    def dragX:double 0.0
+    def dragY:double 0.0
+    def moveAsk:string ""
 
     Constructor () {
         chat.setup("rv-chat" (PresI18n.t("Comment")))
@@ -344,6 +355,10 @@ class PresReviewUi {
         def k:int 0
         for model.threads t:PresReviewThread i {
             def at:int (this.spotIndex(t.id))
+            def held:boolean (dragging && (pinDown == ("rv-pin-" + t.id)))
+            if held {
+                at = -1
+            }
             if (((t.slide == slide) && (at >= 0)) && ((itemAt spotOn at) == false)) {
                 ; out of the diagram's view: no pin, but still counted
                 k = (k + 1)
@@ -356,7 +371,11 @@ class PresReviewUi {
                     fx = (itemAt spotXs at)
                     fy = (itemAt spotYs at)
                 }
-                def p:PinCtl (PinCtl.make(("rv-pin-" + t.id) (sx + (fx * sw)) (sy + (fy * sh)) (to_string (t.count()))))
+                if held {
+                    fx = dragX
+                    fy = dragY
+                }
+                def p:PinCtl (PinCtl.make(("rv-pin-" + t.id) (sx + (fx * sw)) (sy + (fy * sh)) "!"))
                 p.color = color
                 p.closed = t.closed
                 p.active = (t.id == openId)
@@ -372,6 +391,10 @@ class PresReviewUi {
             }
         }
         def da:int (this.spotIndex("rv-draft"))
+        def dheld:boolean (dragging && (pinDown == "rv-draft"))
+        if dheld {
+            da = -1
+        }
         if ((drafting && (draftSlide == slide)) && ((da < 0) || (itemAt spotOn da))) {
             def dfx:double draftX
             def dfy:double draftY
@@ -379,11 +402,16 @@ class PresReviewUi {
                 dfx = (itemAt spotXs da)
                 dfy = (itemAt spotYs da)
             }
+            if dheld {
+                dfx = dragX
+                dfy = dragY
+            }
             def dp:PinCtl (PinCtl.make("rv-draft" (sx + (dfx * sw)) (sy + (dfy * sh)) "+"))
             dp.color = color
             dp.active = true
             dp.info = (PresI18n.t("New comment"))
             dp.build()
+            push pins dp
             push host.ctls dp
             root.addChild((unwrap dp.rootEl))
         }
@@ -615,18 +643,12 @@ class PresReviewUi {
         }
         def pin:string (this.pinAt(px py))
         if ((strlen pin) > 0) {
+            ; what it does waits for the release: a click or a drag
             placing = false
-            if (pin == "rv-draft") {
-                typing = true
-                this.changed()
-                return true
-            }
-            def id:string (substring pin 7 (strlen pin))
-            if ((id == openId) && (drafting == false)) {
-                this.closePanel()
-            } {
-                this.openThread(id)
-            }
+            pinDown = pin
+            downX = px
+            downY = py
+            dragging = false
             return true
         }
         if (placing && (this.inSlide(px py))) {
@@ -788,11 +810,68 @@ class PresReviewUi {
         }
     }
 
-    fn release:void () {
+    ; a pin held and dragged: it follows the pointer, inside the slide, once
+    ; it has moved a few pixels
+    fn dragPin:void (px:double py:double) {
+        if ((strlen pinDown) == 0) {
+            return
+        }
+        if (dragging == false) {
+            def dx:double (px - downX)
+            def dy:double (py - downY)
+            if (((dx * dx) + (dy * dy)) < 16.0) {
+                return
+            }
+            dragging = true
+        }
+        if ((sw <= 0.0) || (sh <= 0.0)) {
+            return
+        }
+        dragX = (PresReview.clamp01(((px - sx) / sw)))
+        dragY = (PresReview.clamp01(((py - sy) / sh)))
+        this.changed()
+    }
+
+    ; -> true when a pin was let go (the host then finds the diagram a moved
+    ; one is on, and passes the requests on)
+    fn release:boolean () {
         if selecting {
             chat.textPointerUp()
         }
         selecting = false
+        if ((strlen pinDown) == 0) {
+            return false
+        }
+        def pin:string pinDown
+        def moved:boolean dragging
+        pinDown = ""
+        dragging = false
+        if (pin == "rv-draft") {
+            if moved {
+                draftX = dragX
+                draftY = dragY
+                draftAsk = true
+                draftDia = -1
+                draftNode = ""
+            }
+            typing = true
+            this.changed()
+            return true
+        }
+        def id:string (substring pin 7 (strlen pin))
+        if moved {
+            if (model.move(id dragX dragY nowMs)) {
+                moveAsk = id
+            }
+            this.changed()
+            return true
+        }
+        if ((id == openId) && (drafting == false)) {
+            this.closePanel()
+        } {
+            this.openThread(id)
+        }
+        return true
     }
 
     fn wheel:boolean (px:double py:double dy:double) {
@@ -926,8 +1005,14 @@ class PresReviewUi {
             }
             return "default"
         }
-        if ((this.inBar(px py)) || ((strlen (this.pinAt(px py))) > 0)) {
+        if dragging {
+            return "grabbing"
+        }
+        if (this.inBar(px py)) {
             return "pointer"
+        }
+        if ((strlen (this.pinAt(px py))) > 0) {
+            return "grab"
         }
         if (placing && (this.inSlide(px py))) {
             return "crosshair"
