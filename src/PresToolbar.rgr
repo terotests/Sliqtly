@@ -192,10 +192,20 @@ class PresToolbar {
     }
 
     fn button:ButtonCtl (id:string name:string variant:string parent:EVGElement) {
+        return (this.iconButton(id name variant "" parent))
+    }
+
+    ; A button drawn as an icon alone (a path on a 24 grid, centred by its
+    ; box, where a glyph sits wherever its font puts it); `name` is what a
+    ; reader is told. "" draws the words.
+    fn iconButton:ButtonCtl (id:string name:string variant:string icon:string parent:EVGElement) {
         def c (new ButtonCtl())
         c.tid = ("tb-" + id)
         c.name = name
         c.variant = variant
+        c.icon = icon
+        c.iconOnly = ((strlen icon) > 0)
+        c.iconClass = ("tb-icon-" + id)
         c.build()
         def r:EVGElement (unwrap c.rootEl)
         UiTree.addClass(r ("tb-button tb-b-" + id))
@@ -788,15 +798,12 @@ class PresToolbar {
         def pane:EVGElement (this.div("tb-rooms"))
         def head:EVGElement (this.div("tb-rooms-head"))
         ; "‹" before the heading folds the panel away, on every screen
-        def close:ButtonCtl (this.button("room-close" "‹" "ghost" head))
-        def cel:EVGElement (unwrap close.rootEl)
-        UiTree.addClass(cel "tb-rooms-close")
-        if ((cel.getChildCount()) > 0) {
-            UiTree.addClass((cel.getChild(0)) "tb-rooms-close-label")
-        }
+        def close:ButtonCtl (this.iconButton("room-close" (PresI18n.t("Close")) "ghost" "M15 5l-7 7 7 7" head))
+        UiTree.addClass((unwrap close.rootEl) "tb-rooms-close")
         head.addChild((this.text("tb-rooms-title" (PresI18n.t("Rooms")))))
         head.addChild((this.div("tb-grow")))
-        this.button("room-new" "+" "ghost" head)
+        def add:ButtonCtl (this.iconButton("room-new" (PresI18n.t("New room")) "ghost" "M12 5v14M5 12h14" head))
+        UiTree.addClass((unwrap add.rootEl) "tb-rooms-add")
         pane.addChild(head)
         ; "+" asks the new room's name in a field at the top of the list; the
         ; search row is a field too, the list then the rooms it finds
