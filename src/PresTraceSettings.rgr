@@ -1,0 +1,274 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresTraceSettings.rgr — how a picture is turned into vectors
+; ============================================================================
+;
+; The settings of the vectorizer (PresTrace, lib/evg EvgBitmapTracer): a
+; preset and the options set on top of it, by the tracer's own option names
+; (the same as `evg_trace_cli --name value`). Kept apart from the tracer so
+; the editor can show and change them without carrying the tracer itself;
+; the tracer runs in its own bundle (pres_trace.js) and in the MCP server.
+;
+; As text, one `name=value` per line, `preset=` first:
+;
+;   preset=photo
+;   colorCount=24
+;
+; Besides the tracer's options: `maxSide`, the longest side in pixels the
+; picture is traced at (a larger one is scaled down first).
+; ============================================================================
+
+class PresTraceSettings {
+    def preset:string "illustration"
+    def names:[string]
+    def values:[string]
+
+    Constructor () {
+    }
+
+    sfn presetNames:[string] () {
+        return ([] _:string ("logo" "illustration" "poster" "photo" "lineart"))
+    }
+
+    sfn isPreset:boolean (name:string) {
+        for (PresTraceSettings.presetNames()) p:string i {
+            if (p == name) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; What a preset sets. Each names every option the presets differ in, so
+    ; switching from one to another leaves nothing of the first behind.
+    sfn presetPairs:[string] (name:string) {
+        if (name == "logo") {
+            return ([] _:string ("colorCount=4" "smooth=0" "minRegion=12" "absorbContrast=40" "turdsize=8" "alphamax=1.0" "opttolerance=0.35" "bgMode=auto" "paletteBias=area" "paletteChroma=0" "maxSide=1000" "threshold=128"))
+        }
+        if (name == "poster") {
+            return ([] _:string ("colorCount=12" "smooth=0" "minRegion=4" "absorbContrast=24" "turdsize=2" "alphamax=1.0" "opttolerance=0.2" "bgMode=none" "paletteBias=distinct" "paletteChroma=300" "maxSide=1000" "threshold=128"))
+        }
+        if (name == "photo") {
+            return ([] _:string ("colorCount=24" "smooth=2" "minRegion=60" "absorbContrast=56" "turdsize=2" "alphamax=1.0" "opttolerance=0.2" "bgMode=none" "paletteBias=area" "paletteChroma=0" "maxSide=900" "threshold=128"))
+        }
+        if (name == "lineart") {
+            return ([] _:string ("colorCount=1" "smooth=0" "minRegion=6" "absorbContrast=40" "turdsize=4" "alphamax=1.0" "opttolerance=0.2" "bgMode=auto" "paletteBias=area" "paletteChroma=0" "maxSide=1400" "threshold=-1"))
+        }
+        ; illustration
+        return ([] _:string ("colorCount=8" "smooth=0" "minRegion=6" "absorbContrast=40" "turdsize=2" "alphamax=1.0" "opttolerance=0.2" "bgMode=none" "paletteBias=area" "paletteChroma=0" "maxSide=1000" "threshold=128"))
+    }
+
+    sfn keyOf:string (pair:string) {
+        def at:int (indexOf pair "=")
+        if (at < 0) {
+            return (trim pair)
+        }
+        return (trim (substring pair 0 at))
+    }
+
+    sfn valueOf:string (pair:string) {
+        def at:int (indexOf pair "=")
+        if (at < 0) {
+            return ""
+        }
+        return (trim (substring pair (at + 1) (strlen pair)))
+    }
+
+    fn usePreset:void (name:string) {
+        preset = name
+        if ((PresTraceSettings.isPreset(name)) == false) {
+            preset = "illustration"
+        }
+        def n:[string]
+        def v:[string]
+        names = n
+        values = v
+    }
+
+    ; An option set on top of the preset; "" takes it off again.
+    fn set:void (name:string value:string) {
+        if (name == "preset") {
+            this.usePreset(value)
+            return
+        }
+        def n:[string]
+        def v:[string]
+        for names k:string i {
+            if (k != name) {
+                push n k
+                push v (itemAt values i)
+            }
+        }
+        if ((strlen value) > 0) {
+            push n name
+            push v value
+        }
+        names = n
+        values = v
+    }
+
+    fn isSet:boolean (name:string) {
+        for names k:string i {
+            if (k == name) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; the option's value: set, else the preset's, else `dflt`
+    fn get:string (name:string dflt:string) {
+        for names k:string i {
+            if (k == name) {
+                return (itemAt values i)
+            }
+        }
+        for (PresTraceSettings.presetPairs(preset)) p:string j {
+            if ((PresTraceSettings.keyOf(p)) == name) {
+                return (PresTraceSettings.valueOf(p))
+            }
+        }
+        return dflt
+    }
+
+    fn intOf:int (name:string dflt:int) {
+        def s:string (this.get(name ""))
+        if ((strlen s) == 0) {
+            return dflt
+        }
+        def d:double (?? (str2double s) (to_double dflt))
+        if (d < 0.0) {
+            return (0 - (to_int ((0.0 - d) + 0.5)))
+        }
+        return (to_int (d + 0.5))
+    }
+
+    fn numOf:double (name:string dflt:double) {
+        def s:string (this.get(name ""))
+        if ((strlen s) == 0) {
+            return dflt
+        }
+        return (?? (str2double s) dflt)
+    }
+
+    ; every option, the preset's first and the ones set after them
+    fn pairs:[string] () {
+        def out:[string]
+        for (PresTraceSettings.presetPairs(preset)) p:string i {
+            def k:string (PresTraceSettings.keyOf(p))
+            if ((this.isSet(k)) == false) {
+                push out p
+            }
+        }
+        for names k2:string j {
+            push out (k2 + "=" + (itemAt values j))
+        }
+        return out
+    }
+
+    fn text:string () {
+        def s:string ("preset=" + preset + "\n")
+        for names k:string i {
+            s = (s + k + "=" + (itemAt values i) + "\n")
+        }
+        return s
+    }
+
+    ; `name=value` lines, or `;` between them
+    sfn parse:PresTraceSettings (text:string) {
+        def st (new PresTraceSettings())
+        def cur:string ""
+        def i:int 0
+        def n:int (strlen text)
+        while (i <= n) {
+            def ch:int 10
+            if (i < n) {
+                ch = (charAt text i)
+            }
+            if (((ch == 10) || (ch == 59)) || (ch == 13)) {
+                def line:string (trim cur)
+                if ((strlen line) > 0) {
+                    st.set((PresTraceSettings.keyOf(line)) (PresTraceSettings.valueOf(line)))
+                }
+                cur = ""
+            } {
+                cur = (cur + (substring text i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return st
+    }
+}
+
+; Where a deck uses a file: its paths in the Markdown and the theme CSS.
+class PresTraceRefs {
+    sfn pathChar:boolean (ch:int) {
+        if (((ch >= 48) && (ch <= 57)) || ((ch >= 65) && (ch <= 90))) {
+            return true
+        }
+        if ((ch >= 97) && (ch <= 122)) {
+            return true
+        }
+        return ((((ch == 45) || (ch == 95)) || (ch == 46)) || ((ch == 47) || (ch == 37)))
+    }
+
+    ; Every use of the file `from` in a Markdown or CSS text pointed at `to`:
+    ; `from` as a whole path (not the tail of a longer one, nor the head), with
+    ; or without a leading slash.
+    sfn swapRef:string (text:string from:string to:string) {
+        def f:string from
+        while (startsWith f "/") {
+            f = (substring f 1 (strlen f))
+        }
+        def t:string to
+        while (startsWith t "/") {
+            t = (substring t 1 (strlen t))
+        }
+        if ((strlen f) == 0) {
+            return text
+        }
+        def out:string ""
+        def i:int 0
+        def n:int (strlen text)
+        def fl:int (strlen f)
+        while (i < n) {
+            def at:int (indexOfFrom text f i)
+            if (at < 0) {
+                out = (out + (substring text i n))
+                i = n
+            } {
+                def before:int 32
+                if (at > 0) {
+                    before = (charAt text (at - 1))
+                }
+                def after:int 32
+                if ((at + fl) < n) {
+                    after = (charAt text (at + fl))
+                }
+                def headOk:boolean (((PresTraceRefs.pathChar(before)) == false) || (before == 47))
+                if (before == 47) {
+                    ; a slash before it is only the leading one: "/media/x.png"
+                    headOk = ((at < 2) || ((PresTraceRefs.pathChar((charAt text (at - 2)))) == false))
+                }
+                if (headOk && ((PresTraceRefs.pathChar(after)) == false)) {
+                    out = (out + (substring text i at) + t)
+                } {
+                    out = (out + (substring text i (at + fl)))
+                }
+                i = (at + fl)
+            }
+        }
+        return out
+    }
+
+    ; how many times `from` is used in the text, as swapRef counts them
+    sfn countRefs:int (text:string from:string) {
+        def f:string from
+        while (startsWith f "/") {
+            f = (substring f 1 (strlen f))
+        }
+        ; each use swapped for itself and one more character
+        return ((strlen (PresTraceRefs.swapRef(text f (f + "#")))) - (strlen text))
+    }
+}

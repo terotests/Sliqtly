@@ -22,7 +22,7 @@ import { sortFiles, pastePlan, fileClipboard, CLIP_KEY } from "./fileclip.js";
 import { deckKey, canReturn, reopenPlan, tabLabel, readDeckTabs, keepDeckTabs } from "./decktabs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
-import { scaled, previewOf, render } from "./image-adjust.js";
+import { scaled, previewOf, render, asPicture } from "./image-adjust.js";
 import { decodePicture, isSvg, isSmartArt, SMARTART_TYPE } from "./picture.js";
 import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versions.js";
 import { showHistory, askMerge } from "./versions-ui.js";
@@ -296,6 +296,7 @@ async function placePasted() {
   app.placePicture(rel, plan.alt || "image", plan.to);
   dropThumbs();
   afterInput();
+  if (plan.trace && !isSvg(type, rel)) await openTraceEditor(rel);
 }
 
 // A picture of the files tab, clicked: the image editor (PresChartEditor's
@@ -388,6 +389,139 @@ function cropOf(plan) {
   if (plan.whole) return null;
   const [x, y, cw, ch] = String(plan.crop).split(",").map(Number);
   return cw > 0 && ch > 0 ? [x, y, cw, ch] : null;
+}
+
+// A picture of the deck traced into an SVG (PresChartEditor's "trace" mode,
+// opened from Edit image's "Vectorize…"). The tracer is src/PresTrace.rgr —
+// lib/evg's EvgBitmapTracer — in its own bundle, run in a worker
+// (trace-worker.js) so the page keeps drawing while it works. While the
+// window is open the slides show the latest trace; Save keeps it as an SVG
+// beside the picture and, when asked, points the picture's uses at it.
+let tracing = null;
+let traceWorker = null;
+let traceSeq = 0;
+const TRACE_MOST = 2000;
+
+function traceWorkerOf() {
+  if (!traceWorker) {
+    traceWorker = new Worker("./trace-worker.js?v=" + BUILD, { name: BUILD });
+    traceWorker.onmessage = (e) => traceResult(e.data).catch(fail);
+    traceWorker.onerror = (e) => {
+      traceWorker = null;
+      if (tracing) app.traceDone("", "", t("The vectorizer did not load: ") + (e.message || ""));
+      needsPaint = true;
+    };
+  }
+  return traceWorker;
+}
+
+async function openTraceEditor(path) {
+  const f = (await docFiles()).find((x) => x.path === path);
+  if (!f || !(f.data instanceof Blob)) { toast(t("This file cannot be opened as an image.")); return; }
+  const blob = f.data.type ? f.data : new Blob([f.data], { type: f.type || "image/png" });
+  if (isSvg(blob.type, path)) { toast(t("This picture is already a vector image.")); return; }
+  let bmp;
+  try {
+    bmp = await createImageBitmap(blob);
+  } catch (_) {
+    toast(t("This file cannot be opened as an image."));
+    return;
+  }
+  const w = bmp.width;
+  const h = bmp.height;
+  // the pixels the tracer gets: at most TRACE_MOST on the longer side (its
+  // own maxSide scales them further), drawn by the browser
+  const k = Math.min(1, TRACE_MOST / Math.max(w, h));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(w * k));
+  c.height = Math.max(1, Math.round(h * k));
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close();
+  const rgba = g.getImageData(0, 0, c.width, c.height).data;
+  dropTracing();
+  traceSeq += 1;
+  const orig = `/__trace/${Date.now().toString(36)}-${traceSeq}`;
+  pictures.set(orig, asPicture(c));
+  tracing = { path, w, h, rgba, rw: c.width, rh: c.height, orig, preview: null, svg: null, run: 0, original: pictures.get("/" + path), bytes: blob.size };
+  if (!app.openTrace(orig, path, w, h)) dropTracing();
+  needsPaint = true;
+}
+
+function runTrace() {
+  const tr = tracing;
+  if (!tr) return;
+  tr.run += 1;
+  const copy = tr.rgba.slice().buffer;
+  traceWorkerOf().postMessage({ seq: tr.run, rgba: copy, w: tr.rw, h: tr.rh, settings: app.traceSettings() }, [copy]);
+}
+
+function kb(n) {
+  return n < 1024 * 1024 ? Math.max(1, Math.round(n / 1024)) + " KB" : (n / 1048576).toFixed(1) + " MB";
+}
+
+async function traceResult(r) {
+  const tr = tracing;
+  // an answer for a window since closed, or for settings since changed
+  if (!tr || r.seq !== tr.run) return;
+  if (r.err || !r.svg) {
+    app.traceDone("", "", r.err || t("Nothing came out of the picture."));
+    needsPaint = true;
+    return;
+  }
+  const bytes = new TextEncoder().encode(r.svg);
+  const p = await decodePicture(bytes.buffer, "image/svg+xml", tr.path + ".svg");
+  if (tracing !== tr || r.seq !== tr.run) return;
+  if (!p.img) {
+    app.traceDone("", "", t("The SVG could not be drawn."));
+    needsPaint = true;
+    return;
+  }
+  tr.svg = r.svg;
+  if (tr.preview) pictures.delete(tr.preview);
+  tr.preview = `${tr.orig}-${r.seq}`;
+  pictures.set(tr.preview, p.img);
+  pictures.set("/" + tr.path, p.img);
+  let info = t("{n} colors, {size} SVG (the picture {was})").replace("{n}", String(r.layers)).replace("{size}", kb(bytes.byteLength)).replace("{was}", kb(tr.bytes));
+  if (r.tracedW && (r.tracedW !== tr.w || r.tracedH !== tr.h)) info += t(", traced at ") + r.tracedW + "×" + r.tracedH;
+  app.traceDone(tr.preview, info + ".", "");
+  needsPaint = true;
+}
+
+function dropTracing() {
+  const tr = tracing;
+  if (!tr) return;
+  pictures.delete(tr.orig);
+  if (tr.preview) pictures.delete(tr.preview);
+  if (tr.original) pictures.set("/" + tr.path, tr.original);
+  tracing = null;
+  needsPaint = true;
+}
+
+window.__traceState = () => (tracing ? { path: tracing.path, run: tracing.run, svg: tracing.svg ? tracing.svg.length : 0 } : null);
+
+async function saveTraced() {
+  const tr = tracing;
+  if (!tr) return;
+  const plan = JSON.parse(app.tracePlan());
+  const svg = tr.svg;
+  dropTracing();
+  if (!svg) { toast(t("Nothing was saved: the picture had not been vectorized yet.")); return; }
+  const files = await docFiles();
+  const base = tr.path.replace(/\.[^./]+$/, "");
+  let target = base + ".svg";
+  for (let i = 2; files.some((x) => x.path === target); i += 1) target = `${base}-${i}.svg`;
+  const bytes = new TextEncoder().encode(svg);
+  await addPicture("/" + target, bytes.buffer.slice(0), "image/svg+xml");
+  await keepFile({ path: target, type: "image/svg+xml", size: bytes.byteLength, data: new Blob([bytes], { type: "image/svg+xml" }) });
+  const n = plan.replace ? app.swapPictureRefs(tr.path, target) : 0;
+  dropThumbs();
+  afterInput();
+  needsPaint = true;
+  const said = n === 1 ? t("Saved {file}, used where the picture was.")
+    : n > 1 ? t("Saved {file}, used in {n} places instead of the picture.")
+    : t("Saved {file} beside the picture.");
+  toast(said.replace("{file}", target).replace("{n}", String(n)));
 }
 
 // A picture made again from its original and the edits made to it, one
@@ -3107,6 +3241,16 @@ function handleRequests() {
       saveAdjusted().catch(fail);
     } else if (r === "image-cancel") {
       dropAdjusting();
+    } else if (r.startsWith("image-edit:")) {
+      openImageEditor(r.slice(11)).catch(fail);
+    } else if (r.startsWith("image-trace:")) {
+      openTraceEditor(r.slice(12)).catch(fail);
+    } else if (r === "trace-run") {
+      runTrace();
+    } else if (r === "trace-save") {
+      saveTraced().catch(fail);
+    } else if (r === "trace-cancel") {
+      dropTracing();
     } else if (r === "sheet-edit") {
       liveSheets.editFirst();
     } else if (r.startsWith("data-keep:")) {
