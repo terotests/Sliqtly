@@ -1972,7 +1972,7 @@ try {
       return { newKids, newReqs, kids, zip, red, last, asked, confirm, okDanger: !!ok && (ok.className || "").includes("ui-button-danger"), closed: !a.chart.isOpen, after };
     });
     check("…File → New offers Presentation… (the window) and Datasheet… (the spreadsheet editor)", fx.newKids.join() === "newPres,newSheet" && fx.newReqs.join() === "files:new,files:newsheet", JSON.stringify(fx));
-    check("…File → Export lists .md, .pptx, .pdf and .zip, and the zip row is the page's ZIP button", fx.kids.join() === "x-save,x-pptx,x-pdf,x-zip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
+    check("…File → Export lists .md, .pptx, .docx, .pdf and .zip, and the zip row is the page's ZIP button", fx.kids.join() === "x-save,x-pptx,x-docx,x-pdf,x-zip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
     check("…File → Delete presentation… is red and last, and asks first; Esc deletes nothing", fx.red && fx.last && fx.asked.includes("files:deletedeck") && fx.confirm && fx.okDanger && fx.closed && !fx.after.some((r) => r.startsWith("confirm:")), JSON.stringify(fx));
 
     // File → Recent: Browse all… first (the Files tab), a line, then the decks
@@ -3047,6 +3047,31 @@ try {
   });
   const pdf = Buffer.from(exp.pdf, "base64");
   check("PDF export", pdf.subarray(0, 5).toString() === "%PDF-", `${pdf.length} bytes`);
+  // Word: a document of the slides; a diagram goes in as the picture the
+  // stage draws of it, the table as a Word table, the notes under their slide
+  const wordExp = await page.evaluate(async () => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.setSource("---\ntitle: Raportti\nslide-split-level: 2\n---\n\n## Eka\n\nTeksti [linkki](https://sliqtly.com).\n\n::: notes\nPuhe.\n:::\n\n"
+      + "## Taulu\n\n| A | B |\n| --- | --: |\n| 1 | 2 |\n\n## Kaavio\n\n```mermaid\nflowchart LR\n  A --> B\n```\n");
+    const shots = JSON.parse(a.docxBegin(false));
+    await window.__renderDocxShots(shots);
+    const u = new Uint8Array(a.docxEnd());
+    a.setSource(src0);
+    let s = "";
+    for (let i = 0; i < u.length; i += 1) s += String.fromCharCode(u[i]);
+    return { shots: shots.length, docx: btoa(s) };
+  });
+  {
+    const parts = unzip(Buffer.from(wordExp.docx, "base64"));
+    const body = parts.get("word/document.xml") || "";
+    const png = [...parts.keys()].filter((k) => /^word\/media\/image\d+\.png$/.test(k));
+    if (shots) fs.writeFileSync(path.join(shots, "export.docx"), Buffer.from(wordExp.docx, "base64"));
+    check("Word export: headings, a table, the notes, a link and the diagram as a picture",
+      wordExp.shots === 1 && png.length === 1 && body.includes("<w:tbl>") && body.includes("w:val=\"Heading2\"")
+        && body.includes("w:val=\"Notes\"") && body.includes("<w:hyperlink") && body.includes("Raportti"),
+      JSON.stringify({ shots: wordExp.shots, png, bytes: body.length }));
+  }
   // A slide's effect goes into both exports as a picture under the content
   const fxExp = await page.evaluate(async () => {
     const a = window.__app;
@@ -4234,6 +4259,21 @@ try {
     await drag(pg, "decktabs-tab-sample:esittely", 0);
     await front(pg, "sample:esittely");
     const pressed = (await row(pg))[0];
+    // mid-drag: a see-through copy under the pointer, the tab's place a slot
+    const mid = await (async () => {
+      const b = await boxOf(pg, "decktabs-tab-sample:esittely");
+      await pg.mouse.move(b[0], b[1]);
+      await pg.mouse.down();
+      for (let i = 1; i <= 4; i++) await pg.mouse.move(b[0] + 20 * i, b[1]);
+      await pg.waitForTimeout(200);
+      const g = await boxOf(pg, "decktabs-ghost");
+      const slot = await pg.evaluate(() => window.__app.deckTabs.tabEls.some((e) => / ui-doctab-state-slot/.test(" " + e.className)));
+      await pg.mouse.move(b[0], b[1]);
+      await pg.mouse.up();
+      await pg.waitForTimeout(300);
+      const gone = !(await boxOf(pg, "decktabs-ghost"));
+      return { dx: g ? Math.round(g[0] - b[0]) : null, slot, gone };
+    })();
     // dragged past the others: last
     await drag(pg, "decktabs-tab-sample:esittely", 420);
     const moved = keysOf(await row(pg));
@@ -4253,6 +4293,7 @@ try {
     check("deck tabs: a sample's tab takes the deck's id once it is kept", keptId && !keptId.startsWith("sample:") && kept[2] === keptId + "\tMyynti 2027", kept.join(" | "));
     check("deck tabs: another deck adds a tab, in front", keysOf(three).join() === ["sample:esittely", keptId, "sample:welcome"].join() && three[0] === "sample:welcome", three.join(" | "));
     check("deck tabs: a press on a tab opens its deck", pressed === "sample:esittely", pressed);
+    check("deck tabs: a dragged tab's copy follows the pointer over a slot, and goes on release", mid.dx === 80 && mid.slot && mid.gone, JSON.stringify(mid));
     check("deck tabs: a tab dragged past the others goes last", moved.join() === [keptId, "sample:welcome", "sample:esittely"].join(), moved.join());
     check("deck tabs: the row and the tab in front last over a reload", keysOf(reloaded).join() === moved.join() && reloaded[0] === "sample:esittely", reloaded.join(" | "));
     check("deck tabs: closing the tab in front opens the one used before", closed[0] === "sample:welcome" && keysOf(closed).join() === [keptId, "sample:welcome"].join(), closed.join(" | "));
