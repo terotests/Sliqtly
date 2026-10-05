@@ -55,6 +55,9 @@
    dragged, and the gap it would land in */
 .thumb-ring { border: 2px solid var(--accent); border-radius: 7px; background-color: rgba(0,0,0,0); }
 .thumb-carried { opacity: 0.45; }
+/* picked for an export or a shared view (Ctrl/⌘ or Shift + click), its
+   number ticked */
+.thumb-picked { background-color: #f59e0b; }
 .thumb-drop { background-color: var(--accent); border-radius: 2px; }
 .thumb-num { color: var(--ink-dim); font-size: 11px; height: 14px; }
 /* the "+" after the last thumbnail, and its two choices once pressed */

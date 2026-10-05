@@ -68,6 +68,8 @@ class PresToolbar {
     def mac:boolean false
     ; the deck is taller than wide: Slide → Orientation ticks Portrait
     def portrait:boolean false
+    ; slides picked on the strip: Export and the strip's menu offer them
+    def picked:int 0
     ; The filmstrip's context menu (PresApp.openSlideMenu): open, where it
     ; was asked for, and which of its rows can act on the slide.
     def ctxOpen:boolean false
@@ -329,6 +331,20 @@ class PresToolbar {
         MenuCtl.addKid(parent "x-pptx" (PresI18n.t("PowerPoint (.pptx)")) false)
         MenuCtl.addKid(parent "x-pdf" (PresI18n.t("PDF (.pdf)")) false)
         MenuCtl.addKid(parent "x-zip" (PresI18n.t("All files (.zip)")) false)
+        if (picked > 0) {
+            MenuCtl.addKidSeparator(parent)
+            MenuCtl.addKid(parent "x-pptxPicked" (this.pickedLabel("PowerPoint (.pptx)")) false)
+            MenuCtl.addKid(parent "x-pdfPicked" (this.pickedLabel("PDF (.pdf)")) false)
+        }
+    }
+
+    ; "PDF (.pdf) – 3 selected slides"
+    fn pickedLabel:string (format:string) {
+        def what:string (PresI18n.t("selected slides"))
+        if (picked == 1) {
+            what = (PresI18n.t("selected slide"))
+        }
+        return ((PresI18n.t(format)) + " – " + (to_string picked) + " " + what)
     }
 
     ; Recent's rows: every deck first (the Files tab), then the latest ones.
@@ -421,6 +437,12 @@ class PresToolbar {
         cm.addItem("slideRight" (PresI18n.t("Move right")) (ctxRight == false))
         cm.addSeparator()
         cm.addItem("slideDelete" (PresI18n.t("Delete slide")) (ctxDelete == false))
+        if (picked > 0) {
+            cm.addSeparator()
+            cm.addItem("x-pptxPicked" (this.pickedLabel("PowerPoint (.pptx)")) false)
+            cm.addItem("x-pdfPicked" (this.pickedLabel("PDF (.pdf)")) false)
+            cm.addItem("x-share" (PresI18n.t("Share selected slides…")) false)
+        }
         cm.setShortcut("slideNew" "Control+M")
         cm.setShortcut("slideDuplicate" (this.modKey("D")))
         cm.setShortcut("slideLeft" (this.modKey("ArrowLeft")))

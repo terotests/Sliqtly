@@ -1830,6 +1830,7 @@ const mirror = createA11yMirror(stageEl, {
   tabbable: "all",
   onActivate: (node) => {
     pressAtCentre(node, (x, y) => {
+      app.setCtrl(false);
       app.pointerDown(x, y, false, 1);
       app.pointerUp();
     });
@@ -2813,9 +2814,16 @@ function loadEmojiFace() {
   return emojiFace;
 }
 
-async function exportPdf() {
+// `picked`: only the slides picked on the strip (Ctrl/⌘ or Shift + click),
+// named by their numbers
+function pickedName() {
+  return exportName() + " (" + t("slides") + " " + app.pickList() + ")";
+}
+async function exportPdf(picked = false) {
   await Promise.all([renderFxStills(), loadEmojiFace()]);
-  window.__lastDownload = deliver(app.pdf(), exportName() + ".pdf", "application/pdf");
+  window.__lastDownload = picked && app.pickCount() > 0
+    ? deliver(app.pdfPicked(), pickedName() + ".pdf", "application/pdf")
+    : deliver(app.pdf(), exportName() + ".pdf", "application/pdf");
 }
 // The runs the contrast guard repairs on the stage (a colour that reads, or an
 // outline round big letters) are a judgement made while drawing, over the
@@ -2847,15 +2855,18 @@ async function judgeExportContrast() {
 }
 window.__judgeExportContrast = judgeExportContrast;
 
-async function exportPptx() {
+async function exportPptx(picked = false) {
   await renderFxStills();
   await judgeExportContrast();
-  window.__lastDownload = deliver(app.pptx(), exportName() + ".pptx",
+  const some = picked && app.pickCount() > 0;
+  window.__lastDownload = deliver(some ? app.pptxPicked() : app.pptx(), (some ? pickedName() : exportName()) + ".pptx",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation");
 }
 document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
 document.getElementById("zip").addEventListener("click", () => { exportZip().catch(fail); });
+document.getElementById("pdfPicked").addEventListener("click", () => { exportPdf(true).catch(fail); });
+document.getElementById("pptxPicked").addEventListener("click", () => { exportPptx(true).catch(fail); });
 // Open: a presentation (.md) replaces the deck; data (Excel, CSV, JSON) and
 // pictures go to the Files tab as if dropped there. One data file opens the
 // import dialog, like a drop on the editor; several are only kept.
@@ -3513,10 +3524,12 @@ function cloudFailure(e) {
   return t("Cloud sharing failed: ") + why + ". " + t("Sharing the text in the link instead.");
 }
 
-function showShare(showUrl, editUrl, note) {
+function showShare(showUrl, editUrl, note, viewUrl = "", live = false) {
+  app.setShareView(viewUrl, live);
   app.openShare(showUrl, editUrl, note);
   window.__lastShare = editUrl;
   window.__lastShareShow = showUrl;
+  window.__lastShareView = viewUrl;
   needsPaint = true;
 }
 
@@ -3534,19 +3547,29 @@ async function shareLink() {
   const editUrl = base + "#" + q.toString();
   q.set("mode", "show");
   const showUrl = base + "#" + q.toString();
+  // the slides picked on the strip: a link of their own, which carries only
+  // their text, or (in the cloud) names them in the deck's short link
+  const picked = app.pickCount() > 0;
+  const keys = picked ? app.pickKeys() : "";
+  let viewUrl = "";
+  if (picked) {
+    q.set("md", await packText(app.pickViewText()));
+    viewUrl = base + "#" + q.toString();
+  }
   const pictures = /\]\(media\//.test(text) ? t(" Attached images are not included in the link.") : "";
   const textNote = editUrl.length + t(" characters.") + pictures;
   if (!window.sliqtly?.user?.()) {
-    showShare(showUrl, editUrl, textNote);
+    showShare(showUrl, editUrl, textNote, viewUrl);
     return;
   }
-  showShare(showUrl, editUrl, t("Creating a short link in the cloud…"));
+  showShare(showUrl, editUrl, t("Creating a short link in the cloud…"), viewUrl);
   try {
     const id = await shareCloud();
     const short = location.origin + "/s/" + id;
-    showShare(short, short + "?edit", t("A short link to a copy in the cloud, with its images and data. Only you can change the original."));
+    const view = picked ? short + "?slides=" + encodeURIComponent(keys) : "";
+    showShare(short, short + "?edit", t("A short link to a copy in the cloud, with its images and data. Only you can change the original."), view, true);
   } catch (e) {
-    showShare(showUrl, editUrl, cloudFailure(e) + " " + textNote);
+    showShare(showUrl, editUrl, cloudFailure(e) + " " + textNote, viewUrl);
   }
 }
 
@@ -3626,7 +3649,7 @@ document.getElementById("aiClaude").addEventListener("click", () => { editInAI("
 // A copy button in the share dialog (drawn on the canvas): the browser copies.
 let copiedTimer = 0;
 async function copyShare(which) {
-  const text = which === "show" ? window.__lastShareShow : window.__lastShare;
+  const text = which === "show" ? window.__lastShareShow : which === "view" ? window.__lastShareView : window.__lastShare;
   let copied = false;
   try {
     await navigator.clipboard.writeText(text);
@@ -3852,7 +3875,7 @@ function createFromViewed() {
 }
 // the shown deck on the site, exporting itself there
 function exportOnSite(kind) {
-  if (viewShare) return siteLink(siteUrl("s/" + viewShare.id + "?export=" + kind));
+  if (viewShare) return siteLink(siteUrl("s/" + viewShare.id + "?" + (viewShare.slides ? "slides=" + encodeURIComponent(viewShare.slides) + "&" : "") + "export=" + kind));
   const q = hashParams();
   q.set("mode", "show");
   q.set("export", kind);
@@ -4048,12 +4071,15 @@ async function openFromShare() {
       return false;
     }
     const editing = (!!m && new URLSearchParams(location.search).has("edit")) || !!own;
+    // ?slides=…: a view of only some of its slides (PresPick), shown, never
+    // edited
+    const slides = m && !editing ? new URLSearchParams(location.search).get("slides") : null;
     if (editing) originShare = { id, owner: shared.owner || "", md: shared.md || "" };
     beginDoc(shared.md || "");
     liveFromShare = !editing;
     proNow();
     if (own) doc.id = own.deck;
-    else if (!editing) viewShare = { id, owner: shared.owner, deck: shared.deck, shown: shared };
+    else if (!editing) viewShare = { id, owner: shared.owner, deck: shared.deck, shown: shared, slides };
     if (shared.theme != null) {
       themeSel.value = shared.theme;
       app.setStyleSheet(shared.theme ? themeCss[shared.theme] || "" : "");
@@ -4085,6 +4111,9 @@ async function openFromShare() {
     if (missing.length) toast(t("Some pictures or data files of this presentation could not be loaded: ") + missing.join(", "));
     docName = shared.name || "shared";
     shownDoc(shared.md || "");
+    // cut once the deck is laid out with its theme, which says at which
+    // heading level its slides break
+    if (slides) showSlidesOf(shared.md || "", slides);
     dropThumbs();
     needsPaint = true;
     if (!editing) {
@@ -4099,6 +4128,18 @@ async function openFromShare() {
     toast(t("Could not open the shared presentation."));
     return false;
   }
+}
+
+// A view of some slides: the share's Markdown with only the sections the
+// link names. None of them there any more (renamed, deleted): said, and
+// nothing of the rest shown.
+function slidesOf(md, keys) {
+  const v = app.viewOf(md, keys);
+  return v || "# " + t("These slides are no longer in the presentation.") + "\n";
+}
+function showSlidesOf(md, keys) {
+  document.body.classList.add("slidesView");
+  app.setSource(slidesOf(md, keys));
 }
 
 // The player of a share on a server of one's own follows its deck as it
@@ -4156,7 +4197,7 @@ async function followShareNow(id) {
     await useFile(rec);
   }
   for (const f of was.files || []) if (!(shared.files || []).some((g) => g.path === f.path)) readFiles.delete(f.path);
-  const md = shared.md || "";
+  const md = viewShare.slides ? slidesOf(shared.md || "", viewShare.slides) : shared.md || "";
   for (const e of editsOf(RdOtDelta.diff(app.source(), md, -1))) app.applyRemoteMd(e.offset, e.removed, e.text);
   app.syncRemote();
   rebaseClock();
@@ -4611,6 +4652,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   // on the stage becomes a drag
   app.setDragSlop(finger ? 16 : 6);
   app.setTouch(finger);
+  app.setCtrl(ev.ctrlKey || ev.metaKey);
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
   if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb" || where === "select" || where === "panel") {

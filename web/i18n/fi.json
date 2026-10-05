@@ -633,7 +633,7 @@
   "Delete slide": "Poista dia",
   "Move left": "Siirrä vasemmalle",
   "Move right": "Siirrä oikealle",
-  "Arrows move between slides, Ctrl and an arrow moves the slide, Delete deletes it, Shift+F10 opens its menu.": "Nuolet siirtävät diasta toiseen, Ctrl ja nuoli siirtää diaa, Delete poistaa sen, Shift+F10 avaa sen valikon.",
+  "Arrows move between slides, Shift and an arrow picks several, Ctrl and an arrow moves the slide, Delete deletes it, Shift+F10 opens its menu.": "Nuolet siirtävät diasta toiseen, Shift ja nuoli valitsee useita, Ctrl ja nuoli siirtää diaa, Delete poistaa sen, Shift+F10 avaa sen valikon.",
   "Orientation": "Suunta",
   "Landscape": "Vaaka",
   "Portrait": "Pysty",
@@ -920,5 +920,13 @@
   "Pasted ": "Liitetty ",
   " got a new name, as the names were taken.": " sai uuden nimen, koska nimet olivat jo käytössä.",
   " were here already.": " oli täällä jo valmiiksi.",
-  "These files are here already.": "Nämä tiedostot ovat täällä jo."
+  "These files are here already.": "Nämä tiedostot ovat täällä jo.",
+  "Selected slides": "Valitut diat",
+  "Only these slides, in presentation mode. They follow the presentation's changes; the presentation itself stays whole.": "Vain nämä diat esitystilassa. Esityksen muutokset näkyvät niissä; itse esitys pysyy kokonaisena.",
+  "Only these slides, in presentation mode, with their text in the link.": "Vain nämä diat esitystilassa, niiden teksti linkissä.",
+  "selected slides": "valittua diaa",
+  "selected slide": "valittu dia",
+  "Share selected slides…": "Jaa valitut diat…",
+  "slides": "diat",
+  "These slides are no longer in the presentation.": "Näitä dioja ei enää ole esityksessä."
 }

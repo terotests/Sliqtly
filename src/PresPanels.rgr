@@ -68,6 +68,12 @@ class PresPanels {
     def shareShow:string ""
     def shareEdit:string ""
     def shareNote:string ""
+    ; a link to only the slides picked on the strip ("" without a pick), how
+    ; many they are, and whether it follows the deck (a cloud share) or
+    ; carries their text
+    def shareView:string ""
+    def shareViewCount:int 0
+    def shareViewLive:boolean false
     ; which modal dialog `shareOpen` shows: "share", or "open" (a file from
     ; the computer or a sample deck, `openRows` "value<TAB>label" lines)
     def dialogKind:string "share"
@@ -381,6 +387,13 @@ class PresPanels {
             helpSlide = slide
             this.rebuild()
         }
+    }
+
+    ; set before openShare; "" for none
+    fn setShareView:void (url:string count:int live:boolean) {
+        shareView = url
+        shareViewCount = count
+        shareViewLive = live
     }
 
     fn openShare:void (showUrl:string editUrl:string note:string) {
@@ -1256,9 +1269,21 @@ class PresPanels {
         d.id = "pn-dialog"
         UiTree.surface(d "free" "start")
         d.overlayX = ((w - 520.0) * 0.5)
-        d.overlayY = ((h - 330.0) * 0.5)
+        def tall:double 330.0
+        if ((strlen shareView) > 0) {
+            tall = 440.0
+        }
+        d.overlayY = ((h - tall) * 0.5)
         d.addChild((this.words("pn-dtitle" (PresI18n.t("Share presentation")))))
         d.addChild((this.shareOption("show" (PresI18n.t("Presentation")) (PresI18n.t("Opens straight into presentation mode, without the editor or edit buttons.")) shareShow "primary")))
+        if ((strlen shareView) > 0) {
+            def title:string ((PresI18n.t("Selected slides")) + " (" + (to_string shareViewCount) + ")")
+            def desc:string (PresI18n.t("Only these slides, in presentation mode. They follow the presentation's changes; the presentation itself stays whole."))
+            if (shareViewLive == false) {
+                desc = (PresI18n.t("Only these slides, in presentation mode, with their text in the link."))
+            }
+            d.addChild((this.shareOption("view" title desc shareView "secondary")))
+        }
         d.addChild((this.shareOption("edit" (PresI18n.t("Editing")) (PresI18n.t("Opens in the editor: the recipient can edit their own copy.")) shareEdit "secondary")))
         def foot:EVGElement (this.div("pn-dfoot"))
         foot.addChild((this.copyable("pn-share-note" "pn-note" shareNote)))
@@ -2315,7 +2340,7 @@ class PresPanels {
         }
         if (shareOpen && (quiet == false)) {
             def c:string (this.ownerAt(px py))
-            if ((c == "pn-copy-show") || (c == "pn-copy-edit")) {
+            if (((c == "pn-copy-show") || (c == "pn-copy-edit")) || (c == "pn-copy-view")) {
                 push requests ("copy:" + (substring c 8 (strlen c)))
                 return
             }

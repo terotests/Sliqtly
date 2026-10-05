@@ -30,6 +30,7 @@
 
 Import "PresTimeline.rgr"
 Import "PresFollow.rgr"
+Import "PresPick.rgr"
 Import "PresI18n.rgr"
 Import "../datagrid/src/script/ScriptEditor.rgr"
 Import "../game_engine/ui/UITextRenderer.rgr"
@@ -162,6 +163,14 @@ class PresApp {
     ; the gap it would land in (0 = before the first, n = after the last).
     def stripReorder:boolean false
     def stripDrop:int -1
+    ; Slides picked for an export or a shared view (PresPick): Ctrl/⌘ +
+    ; click and Shift + click on the strip, Shift + an arrow on its keys.
+    ; `pressCtrl` / `pressShift`: the keys held at the strip's press.
+    def picks:PresPick (new PresPick())
+    def pressCtrl:boolean false
+    def pressShift:boolean false
+    ; the exports write only the picked slides (pdfPicked, pptxPicked)
+    def exportPick:boolean false
     ; The "+" after the last thumbnail: pressed, it offers an empty slide or
     ; a copy of the selected one. `stripAdd` is what the press on it asks
     ; for: "open", "empty", "dup" or "".
@@ -620,6 +629,7 @@ class PresApp {
         this.showTab("md")
         ; the slides of the deck before say nothing about this one's
         sourceNew = true
+        this.dropPicks()
         mdEditor.init(text)
         bufSynced = mdEditor.buf.version
         selected = 0
@@ -661,6 +671,13 @@ class PresApp {
             toolbar.portrait = tall
             if ((strlen toolbar.css) > 0) {
                 toolbar.rebuild()
+            }
+        }
+        if ((picks.active()) && ((picks.count()) > 0)) {
+            def had:int (picks.count())
+            picks.limit((deck.slideCount()))
+            if ((picks.count()) != had) {
+                this.pickChanged()
             }
         }
         if (selected >= (deck.slideCount())) {
@@ -828,6 +845,7 @@ class PresApp {
     ; one with a heading at the selected slide's level, its words selected
     ; to be typed over. The new slide is selected.
     fn addSlide:void (dup:boolean) {
+        this.dropPicks()
         addOpen = false
         if (edTab != "md") {
             this.showTab("md")
@@ -1780,6 +1798,11 @@ class PresApp {
         touch = on
     }
 
+    ; Ctrl or ⌘ held at the next press (a thumbnail clicked so is picked)
+    fn setCtrl:void (on:boolean) {
+        pressCtrl = on
+    }
+
     ; True once after a tap made a diagram the one a finger pans.
     fn takeActivated:boolean () {
         def was:boolean activatedNow
@@ -2322,6 +2345,9 @@ class PresApp {
                 if (i == selected) {
                     cls = "thumb thumb-on"
                 }
+                if (picks.has(i)) {
+                    cls = (cls + " thumb-picked")
+                }
                 if (stripReorder && (i == stripIdx)) {
                     cls = (cls + " thumb-carried")
                 }
@@ -2330,7 +2356,11 @@ class PresApp {
                 if ((focus == "strip") && (i == selected)) {
                     box.addChild((PresApp.div("thumb-ring" "thumb-ring" ((x - 6.0) - ox) (((this.thumbY()) - 6.0) - r.y) (thumbW + 12.0) (thumbH + 12.0))))
                 }
-                box.addChild((PresApp.label(("tn" + (to_string i)) "thumb-num" (to_string (i + 1)) (x - ox) 4.0)))
+                def num:string (to_string (i + 1))
+                if (picks.has(i)) {
+                    num = ("✓ " + num)
+                }
+                box.addChild((PresApp.label(("tn" + (to_string i)) "thumb-num" num (x - ox) 4.0)))
             }
             i = (i + 1)
         }
@@ -2600,6 +2630,7 @@ class PresApp {
             ; selected when let go without having moved (pointerUp); a drag
             ; moves the slide pressed on (a mouse) or scrolls the strip
             stripPressed = true
+            pressShift = shift
             stripDragging = false
             stripReorder = false
             stripDrop = -1
@@ -2915,6 +2946,16 @@ class PresApp {
                 if playing {
                     playing = false
                 }
+                if pressCtrl {
+                    picks.toggle(stripIdx selected)
+                } {
+                    if pressShift {
+                        picks.extend(stripIdx selected)
+                    } {
+                        picks.clear()
+                    }
+                }
+                this.pickChanged()
                 this.selectSlide(stripIdx)
             }
             if ((! stripDragging) && ((strlen stripAdd) > 0)) {
@@ -3270,32 +3311,57 @@ class PresApp {
         if (ctrl && (back || fwd)) {
             this.slideCommand((? back "left" "right"))
         } {
-            if back {
-                this.selectSlide((selected - 1))
+            if (shift && (back || fwd)) {
+                ; Shift + an arrow: the pick runs from where it began
+                def to:int (? back (selected - 1) (selected + 1))
+                if ((to >= 0) && (to < n)) {
+                    if ((picks.active()) == false) {
+                        picks.anchor = selected
+                    }
+                    picks.extend(to selected)
+                    this.pickChanged()
+                    this.selectSlide(to)
+                }
             } {
-                if fwd {
-                    this.selectSlide((selected + 1))
+                if (back || fwd) {
+                    if (picks.active()) {
+                        picks.clear()
+                        this.pickChanged()
+                    }
+                }
+                if back {
+                    this.selectSlide((selected - 1))
                 } {
-                    if (name == "home") {
-                        this.selectSlide(0)
+                    if fwd {
+                        this.selectSlide((selected + 1))
                     } {
-                        if (name == "end") {
-                            this.selectSlide((n - 1))
+                        if (name == "home") {
+                            this.selectSlide(0)
                         } {
-                            if ((name == "delete") || (name == "backspace")) {
-                                this.slideCommand("delete")
+                            if (name == "end") {
+                                this.selectSlide((n - 1))
                             } {
-                                if ((name == "enter") || (name == "escape")) {
-                                    ; Enter: the slide's heading in the editor
-                                    if (name == "enter") {
-                                        this.showTab("md")
-                                    }
-                                    focus = "editor"
-                                    a11yFocus = ""
-                                    chromeRev = (chromeRev + 1)
-                                    return true
+                                if ((name == "delete") || (name == "backspace")) {
+                                    this.slideCommand("delete")
                                 } {
-                                    used = false
+                                    if ((name == "escape") && (picks.active())) {
+                                        ; Esc lets the picked slides go first
+                                        picks.clear()
+                                        this.pickChanged()
+                                    } {
+                                        if ((name == "enter") || (name == "escape")) {
+                                            ; Enter: the slide's heading in the editor
+                                            if (name == "enter") {
+                                                this.showTab("md")
+                                            }
+                                            focus = "editor"
+                                            a11yFocus = ""
+                                            chromeRev = (chromeRev + 1)
+                                            return true
+                                        } {
+                                            used = false
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -4627,6 +4693,12 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; The share dialog's link to only the picked slides, set before
+    ; openShare ("" for none); `live`: it follows the deck (a cloud share).
+    fn setShareView:void (url:string live:boolean) {
+        panels.setShareView(url (picks.count()) live)
+    }
+
     fn openShare:void (showUrl:string editUrl:string note:string) {
         this.closeHint()
         panels.openShare(showUrl editUrl note)
@@ -5173,7 +5245,7 @@ class PresApp {
                 def page2:EVGElement (unwrap chromeRoot)
                 def list:EVGA11yNode (t.node("slides" "app" (EVGA11yRole.listBox())))
                 list.name = (PresI18n.t("Slides"))
-                list.description = (PresI18n.t("Arrows move between slides, Ctrl and an arrow moves the slide, Delete deletes it, Shift+F10 opens its menu."))
+                list.description = (PresI18n.t("Arrows move between slides, Shift and an arrow picks several, Ctrl and an arrow moves the slide, Delete deletes it, Shift+F10 opens its menu."))
                 t.place(list (to_int stripRect.x) (to_int stripRect.y) (to_int stripRect.w) (to_int stripRect.h))
                 def i:int 0
                 while (i < n) {
@@ -5185,7 +5257,7 @@ class PresApp {
                         b.name = ((PresI18n.t("Slide ")) + (to_string (i + 1)) + ": " + s.title)
                         b.focusable = true
                         b.actActivate = true
-                        b.selected = (i == selected)
+                        b.selected = ((i == selected) || (picks.has(i)))
                         b.setSize = n
                         b.posInSet = (i + 1)
                         PresA11y.placeAt(b e)
@@ -6627,6 +6699,7 @@ class PresApp {
     ; The slide's Markdown (its whole section, as slideLines finds it) taken
     ; out. The last slide of a deck stays: a deck has at least one.
     fn deleteSlide:boolean (i:int) {
+        this.dropPicks()
         def n:int (deck.slideCount())
         if ((n < 2) || ((i < 0) || (i >= n))) {
             return false
@@ -6788,6 +6861,7 @@ class PresApp {
         if ((to >= f) && (to <= t)) {
             return false
         }
+        this.dropPicks()
         def block:string (this.linesText(f t))
         def from:int f
         def upto:int t
@@ -7378,6 +7452,10 @@ class PresApp {
         deck.still = true
         def i:int 0
         while (i < (deck.slideCount())) {
+            if (exportPick && ((picks.has(i)) == false)) {
+                i = (i + 1)
+                continue
+            }
             def groups:[int]
             def dl:EVGDisplayList (deck.slideList(i groups 0.0))
             def kept:[EVGDrawCmd]
@@ -7467,7 +7545,81 @@ class PresApp {
         }
         d.pres.theme.majorFont = "Arial"
         d.pres.theme.minorFont = "Arial"
+        if exportPick {
+            def kept:[PptxSlide]
+            def k:int 0
+            while (k < n) {
+                if (picks.has(k)) {
+                    push kept (itemAt d.pres.slides k)
+                }
+                k = (k + 1)
+            }
+            d.pres.slides = kept
+        }
         return (d.save())
+    }
+
+    ; --- picked slides (PresPick) ------------------------------------------------
+    ; The PDF and the PPTX of only the picked slides; all of them when none
+    ; is picked. The pages keep the numbers they have in the deck.
+    fn pdfPicked:buffer () {
+        exportPick = (picks.active())
+        def b:buffer (this.pdf())
+        exportPick = false
+        return b
+    }
+
+    fn pptxPicked:buffer () {
+        exportPick = (picks.active())
+        def b:buffer (this.pptx())
+        exportPick = false
+        return b
+    }
+
+    fn pickCount:int () {
+        return (picks.count())
+    }
+
+    ; "2,4,5": the picked slides' numbers
+    fn pickList:string () {
+        return (picks.list())
+    }
+
+    fn dropPicks:void () {
+        if (picks.active()) {
+            picks.clear()
+            this.pickChanged()
+        }
+    }
+
+    ; The bar's Export rows and the strip's menu offer the picked slides.
+    fn pickChanged:void () {
+        if (toolbar.picked != (picks.count())) {
+            toolbar.picked = (picks.count())
+            if ((strlen toolbar.css) > 0) {
+                toolbar.rebuild()
+            }
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The keys of the picked slides' sections, for a shared view's link
+    ; (`?slides=`).
+    fn pickKeys:string () {
+        return (PresPick.keysOfPages(deck (this.source()) picks.pages))
+    }
+
+    ; `text` (the deck's Markdown, or the one a share has now) with only the
+    ; sections `keys` names; "" when none of them is there. Sections are cut
+    ; at the level this deck's slides break at.
+    fn viewOf:string (text:string keys:string) {
+        def l:MdLayout (deck.layout())
+        return (PresPick.viewText(text l.splitLevel keys))
+    }
+
+    ; the picked slides' Markdown, for a link that carries its text
+    fn pickViewText:string () {
+        return (this.viewOf((this.source()) (this.pickKeys())))
     }
 
     ; The faces the stage draws with are shipped with the page, not with
