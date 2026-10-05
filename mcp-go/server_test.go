@@ -136,6 +136,22 @@ func (f *fakeDB) Create(_ context.Context, col, id string, d Doc) (Doc, error) {
 	f.data[col+"/"+id] = clone(d)
 	return nil, nil
 }
+func (f *fakeDB) UpdateIf(_ context.Context, col, id, field, want string, d Doc) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cur := f.data[col+"/"+id]
+	if fieldText(cur, field) != want {
+		return false, nil
+	}
+	if cur == nil {
+		cur = Doc{}
+		f.data[col+"/"+id] = cur
+	}
+	for k, v := range clone(d) {
+		cur[k] = v
+	}
+	return true, nil
+}
 func (f *fakeDB) Increment(_ context.Context, col, id string, add Doc) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -358,7 +374,7 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	eq(t, names, []string{"add_comment", "bind_chart_data", "create_presentation", "get_presentation", "list_comments", "list_files", "list_presentations", "read_file", "render_overview", "render_slide", "resolve_comment", "sliqtly_guide", "update_presentation", "write_workbook"})
+	eq(t, names, []string{"add_comment", "begin_work", "bind_chart_data", "create_presentation", "end_work", "get_presentation", "list_comments", "list_files", "list_presentations", "read_file", "render_overview", "render_slide", "resolve_comment", "sliqtly_guide", "update_presentation", "write_workbook"})
 	uri, _ := create.Meta["ui"].(map[string]any)["resourceUri"].(string)
 	match(t, uri, `^ui://sliqtly/preview-[0-9a-f]{10}\.html$`)
 	eq(t, create.Meta["openai/outputTemplate"], uri)

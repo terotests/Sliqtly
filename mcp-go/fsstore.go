@@ -386,6 +386,33 @@ func (d *fsDB) Create(_ context.Context, col, id string, doc Doc) (Doc, error) {
 	return nil, nil
 }
 
+func (d *fsDB) UpdateIf(_ context.Context, col, id, field, want string, doc Doc) (bool, error) {
+	p, err := d.file(col, id)
+	if err != nil {
+		return false, err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	cur, err := readDoc(p)
+	if err != nil {
+		return false, err
+	}
+	if fieldText(cur, field) != want {
+		return false, nil
+	}
+	if cur == nil {
+		cur = Doc{}
+	}
+	for k, v := range doc {
+		cur[k] = v
+	}
+	if err := writeDoc(p, cur); err != nil {
+		return false, err
+	}
+	d.wrote(col, id, cur)
+	return true, nil
+}
+
 func (d *fsDB) Increment(_ context.Context, col, id string, add Doc) error {
 	p, err := d.file(col, id)
 	if err != nil {

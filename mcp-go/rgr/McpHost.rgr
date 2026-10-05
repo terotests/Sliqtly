@@ -140,6 +140,15 @@ operators {
             go ( (e 1) ".CreateDoc(" (e 2) ", " (e 3) ", " (e 4) ")" )
         }
     }
+    ; the update only when the document's string field `field` is `want`
+    ; (a missing field or document reads as ""; a missing document is
+    ; written whole): "" when written, "changed" when the field was not
+    ; `want`; the read and the write are one transaction
+    host_update_if _:string (h:McpHost col:string id:string field:string want:string json:string) {
+        templates {
+            go ( (e 1) ".UpdateDocIf(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ", " (e 6) ")" )
+        }
+    }
     ; adds the numbers of a JSON object (nested objects for nested fields)
     ; to the document's, creating what is missing (FieldValue.increment)
     host_increment_doc _:void (h:McpHost col:string id:string json:string) {
