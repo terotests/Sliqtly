@@ -57,12 +57,33 @@ Write `![Alt text](media/<name>)` and pass the picture in the tool call's
 `images` list with the same `name` (for example `name: "team.jpg"` →
 `![](media/team.jpg)`). A picture can also cover the slide:
 `## Title {bg=media/cover.jpg bg-dim=0.4}`. Give each picture either a
-public `https` URL or base64 data. PNG, JPEG, GIF, WebP and SVG, up to 5 MB.
+public `https` URL or base64 data, or an SVG's source as `text` (readable,
+no base64). PNG, JPEG, GIF, WebP and SVG, up to 5 MB.
 Pictures, data files and workbooks are stored only when the user is signed
 in; without sign-in a deck is text only and is deleted 30 days after its
 last change.
 When text on a picture is hard to read ("low contrast"), raise that slide's
 `bg-dim` (0.6–0.8) with update_presentation; the picture stays as it is.
+
+SVG pictures, backgrounds included:
+
+- `bg=media/x.svg` works like any picture: it covers the slide, scaled to
+  fill it with its middle kept and the rest cut off (as
+  `preserveAspectRatio="xMidYMid slice"`). Give a background the slide's
+  shape: `viewBox="0 0 1920 1080"` for a 16:9 slide.
+- The root needs `xmlns="http://www.w3.org/2000/svg"`; without it a
+  browser draws nothing. Give it a `viewBox`.
+- Shown as a picture, an SVG loads nothing from outside itself: put
+  pictures in it as `data:` URLs. Its text is drawn in each viewer's own
+  fonts, so draw words as paths, or write them on the slide in Markdown.
+- The player draws the SVG once to a PNG 2560 px on its longer side; the
+  slides, the PDF and the PPTX all use that PNG, so in PDF and PPTX it is a
+  raster picture, not vectors. The deck keeps the SVG itself.
+- `render_slide` and `render_overview` draw SVG pictures, and the result of
+  create/update has a line for each SVG ("SVG ok, viewBox 1920×1080
+  (16:9), 14 paths") with a ⚠ for what will go wrong in the player: no
+  xmlns, no viewBox, a background not in the slide's shape, things loaded
+  from outside, text, filter effects.
 
 ## Charts, diagrams, math, tables
 
@@ -374,8 +395,8 @@ The report measures; it does not see. Look at the slides themselves:
 - `render_overview` (deck_id) gives every slide as a numbered thumbnail in
   one picture. Look once before telling the user the deck is done.
 
-Effects (`fx=`), picture corners and SVG pictures are not drawn in these
-pictures; the player draws them.
+Effects (`fx=`) and picture corners are not drawn in these pictures; the
+player draws them. SVG pictures are drawn.
 
 ## Review comments
 

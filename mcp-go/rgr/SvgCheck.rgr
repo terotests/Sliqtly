@@ -1,0 +1,691 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; An SVG picture read for what the player will make of it, so the report
+; can say "SVG ok, viewBox 1920×1080 (16:9), 14 paths" or name what will go
+; wrong where the preview cannot show it: a root a browser draws as nothing
+; (no SVG namespace), no viewBox, a background whose shape is not the
+; slide's, things it loads from outside (a picture's SVG loads nothing),
+; text left to the viewer's fonts, filter effects, scripts.
+;
+; The player draws an SVG once to a PNG in the browser (web/picture.js);
+; render_slide draws it with resvg (svgraster.go). This model reads only
+; the text and knows nothing of decks; Tools.rgr gives it each SVG picture
+; and whether it is a slide background; svgcheck_test.go tests it.
+
+class SvgFacts {
+    ; there is an <svg> root
+    def isSvg:boolean false
+    ; the root is in the SVG namespace (xmlns="http://www.w3.org/2000/svg")
+    def xmlns:boolean false
+    def hasViewBox:boolean false
+    def vbW:double 0.0
+    def vbH:double 0.0
+    ; its own size in CSS px, as web/picture.js svgSize gives it
+    def w:double 300.0
+    def h:double 150.0
+    def paths:int 0
+    ; rect, circle, ellipse, line, polyline, polygon
+    def shapes:int 0
+    def texts:int 0
+    def gradients:int 0
+    def patterns:int 0
+    def filters:int 0
+    ; the filter primitives used (feGaussianBlur, feTurbulence …), once each
+    def effects:[string]
+    def images:int 0
+    def uses:int 0
+    def masks:int 0
+    def scripts:int 0
+    def foreign:int 0
+    ; addresses outside the file: href, url(…), @import
+    def external:[string]
+    ; font families named, not the generic ones
+    def fonts:[string]
+}
+
+class SvgOut {
+    def line:string ""
+    def flags:[string]
+}
+
+class SvgCheck {
+
+    sfn isNameChar:boolean (c:int) {
+        if ((((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90))) || ((c >= 48) && (c <= 57))) {
+            return true
+        }
+        return ((((c == 45) || (c == 95)) || (c == 58)) || (c == 46))
+    }
+
+    ; where key is in s at or after from; -1 when it is not
+    sfn find:int (s:string key:string from:int) {
+        def at:int (indexOf (substring s from (strlen s)) key)
+        if (at < 0) {
+            return -1
+        }
+        return (from + at)
+    }
+
+    sfn startsAt:boolean (s:string key:string from:int) {
+        def e:int (from + (strlen key))
+        if (e > (strlen s)) {
+            return false
+        }
+        return ((substring s from e) == key)
+    }
+
+    sfn isSpace:boolean (c:int) {
+        return ((((c == 32) || (c == 9)) || (c == 10)) || (c == 13))
+    }
+
+    sfn addOnce:void (list:[string] s:string) {
+        if ((indexOf list s) < 0) {
+            push list s
+        }
+    }
+
+    ; a length attribute in CSS px; 0 when it has none (absent, a
+    ; percentage, or nonsense), as web/picture.js svgLength
+    sfn lengthPx:double (v:string) {
+        def t:string (trim v)
+        def n:int (strlen t)
+        def e:int n
+        while ((e > 0) && ((((charAt t (e - 1)) >= 97) && ((charAt t (e - 1)) <= 122)) || (((charAt t (e - 1)) >= 65) && ((charAt t (e - 1)) <= 90)))) {
+            e = (e - 1)
+        }
+        def num:string (trim (substring t 0 e))
+        def unit:string (to_lowercase (substring t e n))
+        if ((strlen num) == 0) {
+            return 0.0
+        }
+        def i:int 0
+        while (i < (strlen num)) {
+            def c:int (charAt num i)
+            if (((c < 48) || (c > 57)) && ((((c != 46) && (c != 45)) && (c != 43)) && ((c != 101) && (c != 69)))) {
+                return 0.0
+            }
+            i = (i + 1)
+        }
+        def k:double -1.0
+        if ((unit == "") || (unit == "px")) {
+            k = 1.0
+        }
+        if (unit == "pt") {
+            k = (96.0 / 72.0)
+        }
+        if (unit == "pc") {
+            k = 16.0
+        }
+        if (unit == "in") {
+            k = 96.0
+        }
+        if (unit == "cm") {
+            k = (96.0 / 2.54)
+        }
+        if (unit == "mm") {
+            k = (96.0 / 25.4)
+        }
+        if (unit == "q") {
+            k = (96.0 / 101.6)
+        }
+        if ((unit == "em") || (unit == "rem")) {
+            k = 16.0
+        }
+        if ((unit == "ex") || (unit == "ch")) {
+            k = 8.0
+        }
+        if (k < 0.0) {
+            return 0.0
+        }
+        def got@(optional):double (to_double num)
+        if (null? got) {
+            return 0.0
+        }
+        def x:double (unwrap got)
+        if (x <= 0.0) {
+            return 0.0
+        }
+        return (x * k)
+    }
+
+    ; the first family of a font-family value, without quotes; "" for a
+    ; generic family
+    sfn family:string (v:string) {
+        def s:string v
+        def comma:int (indexOf s ",")
+        if (comma >= 0) {
+            s = (substring s 0 comma)
+        }
+        s = (trim s)
+        if ((strlen s) >= 2) {
+            def q:int (charAt s 0)
+            if ((q == 34) || (q == 39)) {
+                s = (trim (substring s 1 ((strlen s) - 1)))
+            }
+        }
+        def g:string (to_lowercase s)
+        if ((((g == "serif") || (g == "sans-serif")) || ((g == "monospace") || (g == "cursive"))) || (((g == "fantasy") || (g == "system-ui")) || ((g == "inherit") || (g == "")))) {
+            return ""
+        }
+        return s
+    }
+
+    ; font-family values in a style text (an attribute or a <style>)
+    sfn stylesFonts:void (f:SvgFacts css:string) {
+        def from:int 0
+        while true {
+            def rest:string (substring css from (strlen css))
+            def at:int (indexOf rest "font-family")
+            if (at < 0) {
+                return
+            }
+            def colon:int (SvgCheck.find(rest ":" at))
+            if (colon < 0) {
+                return
+            }
+            def end:int (strlen rest)
+            def semi:int (SvgCheck.find(rest ";" colon))
+            if ((semi >= 0) && (semi < end)) {
+                end = semi
+            }
+            def brace:int (SvgCheck.find(rest "}" colon))
+            if ((brace >= 0) && (brace < end)) {
+                end = brace
+            }
+            def fam:string (SvgCheck.family((substring rest (colon + 1) end)))
+            if ((strlen fam) > 0) {
+                SvgCheck.addOnce(f.fonts fam)
+            }
+            from = (from + end)
+        }
+    }
+
+    ; addresses in url(…) and @import in a style text that are not inside
+    ; the file
+    sfn styleRefs:void (f:SvgFacts css:string) {
+        def from:int 0
+        while true {
+            def rest:string (substring css from (strlen css))
+            def at:int (indexOf rest "url(")
+            if (at < 0) {
+                break
+            }
+            def close:int (SvgCheck.find(rest ")" at))
+            if (close < 0) {
+                break
+            }
+            def u:string (trim (substring rest (at + 4) close))
+            if ((strlen u) >= 2) {
+                def q:int (charAt u 0)
+                if ((q == 34) || (q == 39)) {
+                    u = (trim (substring u 1 ((strlen u) - 1)))
+                }
+            }
+            SvgCheck.ref(f u)
+            from = ((from + close) + 1)
+        }
+        def imp:int (indexOf css "@import")
+        if (imp >= 0) {
+            def tail:string (substring css (imp + 7) (strlen css))
+            def semi:int (indexOf tail ";")
+            if (semi < 0) {
+                semi = (strlen tail)
+            }
+            ; @import url(…) was read above; @import "…" is read here
+            def what:string (trim (substring tail 0 semi))
+            if ((strlen what) >= 2) {
+                def q:int (charAt what 0)
+                if ((q == 34) || (q == 39)) {
+                    SvgCheck.ref(f (substring what 1 ((strlen what) - 1)))
+                }
+            }
+        }
+    }
+
+    ; an address: kept when it leads out of the file
+    sfn ref:void (f:SvgFacts u:string) {
+        def t:string (trim u)
+        if ((strlen t) == 0) {
+            return
+        }
+        if ((startsWith t "#") || (startsWith (to_lowercase t) "data:")) {
+            return
+        }
+        SvgCheck.addOnce(f.external t)
+    }
+
+    sfn read:SvgFacts (text:string) {
+        def f (new SvgFacts)
+        def n:int (strlen text)
+        def i:int 0
+        def root:boolean true
+        def inStyle:boolean false
+        def styleFrom:int 0
+        while (i < n) {
+            def lt:int (SvgCheck.find(text "<" i))
+            if (lt < 0) {
+                break
+            }
+            if (SvgCheck.startsAt(text "<!--" lt)) {
+                def ce:int (SvgCheck.find(text "-->" (lt + 4)))
+                if (ce < 0) {
+                    break
+                }
+                i = (ce + 3)
+                continue
+            }
+            if (SvgCheck.startsAt(text "<![CDATA[" lt)) {
+                def de:int (SvgCheck.find(text "]]>" (lt + 9)))
+                if (de < 0) {
+                    break
+                }
+                i = (de + 3)
+                continue
+            }
+            def c1:int 0
+            if ((lt + 1) < n) {
+                c1 = (charAt text (lt + 1))
+            }
+            ; <?xml …?>, <!DOCTYPE …>
+            if ((c1 == 63) || (c1 == 33)) {
+                def ge:int (SvgCheck.find(text ">" lt))
+                if (ge < 0) {
+                    break
+                }
+                i = (ge + 1)
+                continue
+            }
+            ; an end tag
+            if (c1 == 47) {
+                def ge2:int (SvgCheck.find(text ">" lt))
+                if (ge2 < 0) {
+                    break
+                }
+                def endName:string (trim (substring text (lt + 2) ge2))
+                if (inStyle && ((endName == "style") || (endName == "svg:style"))) {
+                    def css:string (substring text styleFrom lt)
+                    SvgCheck.stylesFonts(f css)
+                    SvgCheck.styleRefs(f css)
+                    inStyle = false
+                }
+                i = (ge2 + 1)
+                continue
+            }
+            ; a start tag: its name, then its attributes to the >
+            def p:int (lt + 1)
+            while ((p < n) && (SvgCheck.isNameChar((charAt text p)))) {
+                p = (p + 1)
+            }
+            def name:string (substring text (lt + 1) p)
+            if ((strlen name) == 0) {
+                i = (lt + 1)
+                continue
+            }
+            def colon:int (indexOf name ":")
+            def local:string name
+            if (colon >= 0) {
+                local = (substring name (colon + 1) (strlen name))
+            }
+            def attrs:[string]
+            def vals:[string]
+            def closed:boolean false
+            while (p < n) {
+                def c:int (charAt text p)
+                if (c == 62) {
+                    p = (p + 1)
+                    closed = true
+                    break
+                }
+                if (SvgCheck.isNameChar(c)) {
+                    def an:int p
+                    while ((p < n) && (SvgCheck.isNameChar((charAt text p)))) {
+                        p = (p + 1)
+                    }
+                    def aname:string (substring text an p)
+                    while ((p < n) && (SvgCheck.isSpace((charAt text p)))) {
+                        p = (p + 1)
+                    }
+                    def val:string ""
+                    if ((p < n) && ((charAt text p) == 61)) {
+                        p = (p + 1)
+                        while ((p < n) && (SvgCheck.isSpace((charAt text p)))) {
+                            p = (p + 1)
+                        }
+                        if (p < n) {
+                            def q:int (charAt text p)
+                            if ((q == 34) || (q == 39)) {
+                                def qe:int (SvgCheck.find(text (substring text p (p + 1)) (p + 1)))
+                                if (qe < 0) {
+                                    qe = n
+                                }
+                                val = (substring text (p + 1) qe)
+                                p = (qe + 1)
+                            } {
+                                def vs:int p
+                                while (((p < n) && ((SvgCheck.isSpace((charAt text p))) == false)) && ((charAt text p) != 62)) {
+                                    p = (p + 1)
+                                }
+                                val = (substring text vs p)
+                            }
+                        }
+                    }
+                    push attrs aname
+                    push vals val
+                    continue
+                }
+                p = (p + 1)
+            }
+            if (closed == false) {
+                break
+            }
+            if root {
+                root = false
+                if (local != "svg") {
+                    return f
+                }
+                f.isSvg = true
+                SvgCheck.rootAttrs(f attrs vals)
+            }
+            SvgCheck.element(f local attrs vals)
+            if (local == "style") {
+                def selfClosed:boolean ((p >= 2) && ((charAt text (p - 2)) == 47))
+                if (selfClosed == false) {
+                    inStyle = true
+                    styleFrom = p
+                }
+            }
+            i = p
+        }
+        return f
+    }
+
+    sfn rootAttrs:void (f:SvgFacts attrs:[string] vals:[string]) {
+        def w:double 0.0
+        def h:double 0.0
+        for attrs a:string k {
+            def v:string (itemAt vals k)
+            if ((a == "xmlns") && ((trim v) == "http://www.w3.org/2000/svg")) {
+                f.xmlns = true
+            }
+            if (a == "width") {
+                w = (SvgCheck.lengthPx(v))
+            }
+            if (a == "height") {
+                h = (SvgCheck.lengthPx(v))
+            }
+            if (a == "viewBox") {
+                SvgCheck.viewBox(f v)
+            }
+        }
+        if f.hasViewBox {
+            if ((w > 0.0) && (h == 0.0)) {
+                h = ((w * f.vbH) / f.vbW)
+            }
+            if ((h > 0.0) && (w == 0.0)) {
+                w = ((h * f.vbW) / f.vbH)
+            }
+            if ((w == 0.0) && (h == 0.0)) {
+                w = f.vbW
+                h = f.vbH
+            }
+        }
+        if (w > 0.0) {
+            f.w = w
+        }
+        if (h > 0.0) {
+            f.h = h
+        }
+    }
+
+    sfn viewBox:void (f:SvgFacts v:string) {
+        def nums:[double]
+        def cur:string ""
+        def t:string (v + " ")
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if ((SvgCheck.isSpace(c)) || (c == 44)) {
+                if ((strlen cur) > 0) {
+                    if ((SvgCheck.isNumber(cur)) == false) {
+                        return
+                    }
+                    def got@(optional):double (to_double cur)
+                    if (null? got) {
+                        return
+                    }
+                    push nums (unwrap got)
+                    cur = ""
+                }
+            } {
+                cur = (cur + (substring t i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        if ((array_length nums) != 4) {
+            return
+        }
+        if (((itemAt nums 2) <= 0.0) || ((itemAt nums 3) <= 0.0)) {
+            return
+        }
+        f.hasViewBox = true
+        f.vbW = (itemAt nums 2)
+        f.vbH = (itemAt nums 3)
+    }
+
+    sfn isNumber:boolean (s:string) {
+        def digits:int 0
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if ((c >= 48) && (c <= 57)) {
+                digits = (digits + 1)
+            } {
+                if ((((c != 46) && (c != 45)) && (c != 43)) && ((c != 101) && (c != 69))) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return (digits > 0)
+    }
+
+    sfn element:void (f:SvgFacts local:string attrs:[string] vals:[string]) {
+        if (local == "path") {
+            f.paths = (f.paths + 1)
+        }
+        if ((((local == "rect") || (local == "circle")) || ((local == "ellipse") || (local == "line"))) || ((local == "polyline") || (local == "polygon"))) {
+            f.shapes = (f.shapes + 1)
+        }
+        if (local == "text") {
+            f.texts = (f.texts + 1)
+        }
+        if ((local == "linearGradient") || (local == "radialGradient")) {
+            f.gradients = (f.gradients + 1)
+        }
+        if (local == "pattern") {
+            f.patterns = (f.patterns + 1)
+        }
+        if (local == "filter") {
+            f.filters = (f.filters + 1)
+        }
+        if ((startsWith local "fe") && ((strlen local) > 2)) {
+            def c:int (charAt local 2)
+            if ((c >= 65) && (c <= 90)) {
+                SvgCheck.addOnce(f.effects local)
+            }
+        }
+        if (local == "image") {
+            f.images = (f.images + 1)
+        }
+        if (local == "use") {
+            f.uses = (f.uses + 1)
+        }
+        if (local == "mask") {
+            f.masks = (f.masks + 1)
+        }
+        if (local == "script") {
+            f.scripts = (f.scripts + 1)
+        }
+        if (local == "foreignObject") {
+            f.foreign = (f.foreign + 1)
+        }
+        for attrs a:string k {
+            def v:string (itemAt vals k)
+            if ((a == "href") || (a == "xlink:href")) {
+                SvgCheck.ref(f v)
+            }
+            if (a == "font-family") {
+                def fam:string (SvgCheck.family(v))
+                if ((strlen fam) > 0) {
+                    SvgCheck.addOnce(f.fonts fam)
+                }
+            }
+            if (a == "style") {
+                SvgCheck.stylesFonts(f v)
+                SvgCheck.styleRefs(f v)
+            }
+            if ((indexOf v "url(") >= 0) {
+                if (a != "style") {
+                    SvgCheck.styleRefs(f v)
+                }
+            }
+        }
+    }
+
+    ; --- the report's words
+
+    sfn num:string (x:double) {
+        def r:int (floor (x + 0.5))
+        if ((fabs ((x - (to_double r)))) < 0.01) {
+            return (to_string r)
+        }
+        return (to_string ((to_double (floor ((x * 10.0) + 0.5))) / 10.0))
+    }
+
+    ; "16:9", "4:3" … when the shape is one of them, else "1.85:1"
+    sfn ratio:string (w:double h:double) {
+        if ((w <= 0.0) || (h <= 0.0)) {
+            return ""
+        }
+        def r:double (w / h)
+        def names:[string] ([] _:string ("16:9" "4:3" "16:10" "1:1" "3:2" "21:9" "9:16" "3:4" "10:16" "2:3"))
+        def vals:[double] ([] _:double ((16.0 / 9.0) (4.0 / 3.0) 1.6 1.0 1.5 (21.0 / 9.0) (9.0 / 16.0) 0.75 0.625 (2.0 / 3.0)))
+        for vals v:double i {
+            if ((fabs (((r / v) - 1.0))) < 0.01) {
+                return (itemAt names i)
+            }
+        }
+        if (r >= 1.0) {
+            return ((SvgCheck.num(r)) + ":1")
+        }
+        return ("1:" + (SvgCheck.num((1.0 / r))))
+    }
+
+    sfn count:void (parts:[string] n:int one:string many:string) {
+        if (n == 1) {
+            push parts ("1 " + one)
+        }
+        if (n > 1) {
+            push parts ((to_string n) + " " + many)
+        }
+    }
+
+    ; what the report says of one SVG picture: `name` as the Markdown names
+    ; it (media/bg.svg); `bg` when a slide uses it as its background, on a
+    ; slide slideW × slideH; drawErr why it did not draw, "" when it did
+    sfn report:SvgOut (f:SvgFacts name:string bg:boolean slideW:double slideH:double drawErr:string) {
+        def o (new SvgOut)
+        if (f.isSvg == false) {
+            o.line = (name + ": not an SVG (no <svg> root); the player draws nothing.")
+            push o.flags (name + " is not an SVG: its first element is not <svg>.")
+            return o
+        }
+        def parts:[string]
+        if f.hasViewBox {
+            push parts ("viewBox " + (SvgCheck.num(f.vbW)) + "×" + (SvgCheck.num(f.vbH)) + " (" + (SvgCheck.ratio(f.vbW f.vbH)) + ")")
+        } {
+            push parts ("no viewBox, " + (SvgCheck.num(f.w)) + "×" + (SvgCheck.num(f.h)) + " px (" + (SvgCheck.ratio(f.w f.h)) + ")")
+        }
+        SvgCheck.count(parts f.paths "path" "paths")
+        SvgCheck.count(parts f.shapes "shape" "shapes")
+        SvgCheck.count(parts f.texts "text" "texts")
+        SvgCheck.count(parts f.gradients "gradient" "gradients")
+        SvgCheck.count(parts f.patterns "pattern" "patterns")
+        SvgCheck.count(parts f.filters "filter" "filters")
+        SvgCheck.count(parts f.images "embedded picture" "embedded pictures")
+        def use:string ""
+        if bg {
+            use = "; the slide's background (it covers the slide: scaled to fill it, the middle kept, the rest cut off, as preserveAspectRatio=\"xMidYMid slice\")"
+        }
+        def drawn:string "; drawn in render_slide"
+        if ((strlen drawErr) > 0) {
+            drawn = ("; does not draw: " + drawErr)
+        }
+        ; what will go wrong in the player
+        if (((strlen drawErr) > 0) && f.xmlns) {
+            push o.flags (name + " does not draw (" + drawErr + "); a browser will not draw it either. Fix the file.")
+        }
+        if (f.xmlns == false) {
+            push o.flags (name + " has no xmlns=\"http://www.w3.org/2000/svg\" on its <svg>: a browser shows such a file as nothing. Add it.")
+        }
+        if (f.hasViewBox == false) {
+            def hint:string ""
+            if bg {
+                hint = (" (viewBox=\"0 0 1920 1080\" for a 16:9 slide)")
+            }
+            push o.flags (name + " has no viewBox: give it one" + hint + " so it scales cleanly to any size.")
+        }
+        if bg {
+            def sw:double f.w
+            def sh:double f.h
+            if f.hasViewBox {
+                sw = f.vbW
+                sh = f.vbH
+            }
+            def pr:double (sw / sh)
+            def sr:double (slideW / slideH)
+            if ((fabs (((pr / sr) - 1.0))) > 0.02) {
+                def side:string "height"
+                def cut:double (1.0 - (pr / sr))
+                if (pr > sr) {
+                    side = "width"
+                    cut = (1.0 - (sr / pr))
+                }
+                push o.flags (name + " is " + (SvgCheck.ratio(sw sh)) + " but the slide is " + (SvgCheck.ratio(slideW slideH)) + ": as the background it is cut to the slide's shape, " + (to_string (floor ((cut * 100.0) + 0.5))) + "% of its " + side + " off. Make it " + (SvgCheck.ratio(slideW slideH)) + " (viewBox=\"0 0 " + (SvgCheck.num(((1080.0 * slideW) / slideH))) + " 1080\").")
+            }
+        }
+        if ((array_length f.external) > 0) {
+            def more:string ""
+            if ((array_length f.external) > 1) {
+                more = (" and " + (to_string ((array_length f.external) - 1)) + " more")
+            }
+            push o.flags (name + " loads " + (itemAt f.external 0) + more + " from outside the file: an SVG shown as a picture loads nothing from outside itself, so that part is not drawn. Put pictures in as data: URLs and draw text as paths.")
+        }
+        if (f.texts > 0) {
+            def font:string ""
+            if ((array_length f.fonts) > 0) {
+                font = (" in " + (join f.fonts ", "))
+            }
+            push o.flags (name + " has text" + font + ": each viewer's own fonts draw it (the preview uses Open Sans), so it looks different from device to device and may not fit. Turn the text into paths, or write it on the slide in Markdown.")
+        }
+        if (f.filters > 0) {
+            def kinds:string ""
+            if ((array_length f.effects) > 0) {
+                kinds = (" (" + (join f.effects ", ") + ")")
+            }
+            push o.flags (name + " uses filter effects" + kinds + ": browsers draw them a little differently from each other and from the preview. Check it with render_slide.")
+        }
+        if (f.scripts > 0) {
+            push o.flags (name + " has a <script>: an SVG shown as a picture runs no scripts.")
+        }
+        if (f.foreign > 0) {
+            push o.flags (name + " has a <foreignObject>: HTML inside an SVG is not drawn in the preview, and browsers differ. Draw it with SVG shapes.")
+        }
+        def verdict:string "SVG ok"
+        if ((array_length o.flags) > 0) {
+            verdict = "SVG"
+        }
+        o.line = (name + ": " + verdict + ", " + (join parts ", ") + use + drawn + ".")
+        return o
+    }
+}

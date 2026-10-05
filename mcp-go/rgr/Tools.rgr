@@ -16,6 +16,7 @@ Import "Check.rgr"
 Import "Charts.rgr"
 Import "Store.rgr"
 Import "Files.rgr"
+Import "SvgCheck.rgr"
 Import "../presentation/PresReview.rgr"
 
 ; who is asking, for one request
@@ -130,6 +131,7 @@ class Tools {
         ip.put("name" (Tools.prop("string" "File name the Markdown uses as media/<name>, e.g. \"team.jpg\" → ![](media/team.jpg)")))
         ip.put("url" (Tools.prop("string" "A public https URL of the picture")))
         ip.put("data_base64" (Tools.prop("string" "The picture's bytes as base64 (instead of url)")))
+        ip.put("text" (Tools.prop("string" "An SVG's source as it is (instead of url or data_base64): readable and fixable, no base64. Name it .svg.")))
         ip.put("mime_type" (Tools.prop("string" "image/png, image/jpeg, image/gif, image/webp or image/svg+xml, or a SmartArt diagram (a dgm:dataModel, name it .xml); inferred from the name when left out")))
         def item:MfJ (MfJ.newObj())
         item.putStr("type" "object")
@@ -502,6 +504,10 @@ class Tools {
         if ((strlen lay) > 0) {
             push lines lay
         }
+        def svgs:string (Tools.svgText((out.field("pictures"))))
+        if ((strlen svgs) > 0) {
+            push lines svgs
+        }
         push lines "Give the user the presentation link."
         def r:MfJ (MfJ.newObj())
         r.put("content" (Tools.text((join lines "\n"))))
@@ -519,6 +525,45 @@ class Tools {
     }
 
     ; --- the layout report
+
+    ; each SVG picture the deck names, read by SvgCheck: what it is, whether
+    ; a slide has it as its background (on a slide w × h), and what will go
+    ; wrong in the player; [{"name","line","flags"}]
+    sfn svgPictures:MfJ (host:McpHost md:string bgs:CheckPics w:double h:double) {
+        def a:MfJ (MfJ.newArr())
+        for bgs.pics p:CheckPic i {
+            def type:string (itemAt bgs.types i)
+            if (((endsWith (to_lowercase p.name) ".svg") == false) && (type != "image/svg+xml")) {
+                continue
+            }
+            def data:buffer (itemAt bgs.data i)
+            def name:string (substring p.name 1 (strlen p.name))
+            def bg:boolean (((indexOf md ("bg=" + name)) >= 0) || ((indexOf md ("bg=\"" + name)) >= 0))
+            def o:SvgOut (SvgCheck.report((SvgCheck.read((buffer_to_string data))) name bg w h (host_svg_error host data)))
+            def e:MfJ (MfJ.newObj())
+            e.putStr("name" name)
+            e.putStr("line" o.line)
+            e.put("flags" (J.strs(o.flags)))
+            a.add(e)
+        }
+        return a
+    }
+
+    ; the SVG pictures as the text a model reads
+    sfn svgText:string (pics:MfJ) {
+        if ((pics.count()) == 0) {
+            return ""
+        }
+        def lines:[string]
+        push lines "SVG pictures (render_slide and render_overview draw them; the player draws each once to a PNG):"
+        for pics.arr e:MfJ i {
+            push lines ("- " + (e.str_("line")))
+            for (J.strList((e.field("flags")))) f:string j {
+                push lines ("  ⚠ " + f)
+            }
+        }
+        return (join lines "\n")
+    }
 
     sfn layoutJson:MfJ (outs:[RSlideOut]) {
         def a:MfJ (MfJ.newArr())
@@ -985,12 +1030,14 @@ class Tools {
         def none:[string]
         def ws:[string] (Deck.warnings(md names none))
         def none2:[string]
-        def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css (Tools.backgrounds(host md loaded.imgs "")) data.imgs "" none2))
+        def bgs:CheckPics (Tools.backgrounds(host md loaded.imgs ""))
+        def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css bgs data.imgs "" none2))
         for ck.warnings cw:string ci {
             push ws cw
         }
         def out:MfJ (MfJ.newObj())
         out.put("layout" (Tools.layoutJson(ck.report)))
+        out.put("pictures" (Tools.svgPictures(host md bgs ck.width ck.height)))
         out.putStr("title" (a.str_("title")))
         out.putStr("theme" theme)
         out.putInt("slides" ck.slides)
@@ -1192,12 +1239,14 @@ class Tools {
         for (saved.list("files")) sf:MfJ sfi {
             push storedPaths (sf.str_("path"))
         }
-        def ck:Checked (Tools.checkDeck(host md (saved.str_("theme")) (savedCss.kind == 3) (saved.str_("css")) (Tools.backgrounds(host md noImgs id)) noImgs id storedPaths))
+        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def ck:Checked (Tools.checkDeck(host md (saved.str_("theme")) (savedCss.kind == 3) (saved.str_("css")) bgs noImgs id storedPaths))
         for ck.warnings cw:string ci {
             push ws cw
         }
         def out:MfJ (MfJ.newObj())
         out.put("layout" (Tools.layoutJson(ck.report)))
+        out.put("pictures" (Tools.svgPictures(host md bgs ck.width ck.height)))
         out.put("title" (saved.field("name")))
         out.put("theme" (saved.field("theme")))
         out.putInt("slides" ck.slides)
@@ -1616,7 +1665,11 @@ class Tools {
             push one (itemAt ck.report at)
             push lines (Tools.layoutText((Tools.layoutJson(one)) false))
         }
-        push lines "Drawn as the player shows each slide at the end of its animations. Effects, and pictures that are SVG, are not drawn here."
+        def svgs:string (Tools.svgText((Tools.svgPictures(host md bgs ck.width ck.height))))
+        if ((strlen svgs) > 0) {
+            push lines svgs
+        }
+        push lines "Drawn as the player shows each slide at the end of its animations. Effects (fx=) and picture corners are not drawn here; SVG pictures are."
         def tc:MfJ (MfJ.newObj())
         tc.putStr("type" "text")
         tc.putStr("text" (join lines "\n"))

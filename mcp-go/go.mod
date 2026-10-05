@@ -7,6 +7,7 @@ require (
 	cloud.google.com/go/storage v1.69.0
 	firebase.google.com/go/v4 v4.22.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
+	github.com/tetratelabs/wazero v1.12.0
 	golang.org/x/image v0.46.0
 	golang.org/x/net v0.58.0
 	google.golang.org/api v0.288.0

@@ -83,9 +83,12 @@ export function svgSizedTo(text, w, h) {
   const tag = rootTag(src);
   if (!tag) return null;
   const size = svgSize(src);
-  let inner = tag.inner.replace(/\s(width|height)\s*=\s*("[^"]*"|'[^']*')/gi, "");
+  let inner = tag.inner.replace(/\s(width|height)\s*=\s*("[^"]*"|'[^']*')/gi, "").trimEnd();
+  // <svg …/>: the attributes go before its slash
+  const closed = inner.endsWith("/");
+  if (closed) inner = inner.slice(0, -1).trimEnd();
   if (!viewBoxOf(tag.attrs)) inner += ` viewBox="0 0 ${size[0]} ${size[1]}"`;
-  inner += ` width="${w}" height="${h}"`;
+  inner += ` width="${w}" height="${h}"` + (closed ? "/" : "");
   return src.slice(0, tag.start) + "<svg" + inner + ">" + src.slice(tag.end);
 }
 
