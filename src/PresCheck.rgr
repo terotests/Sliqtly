@@ -10,6 +10,7 @@ Import "PresGridModel.rgr"
 Import "PresControlsFade.rgr"
 Import "PresFollow.rgr"
 Import "PresReview.rgr"
+Import "PresReviewDot.rgr"
 Import "PresPick.rgr"
 Import "PresNav.rgr"
 Import "PresDocx.rgr"
@@ -130,6 +131,22 @@ class PresCheck {
     ; Review comments: threads on slides, closing, deleting, the file, two
     ; copies merged, slides found again by title, times.
     fn review:void () {
+        ; the pin: a ball centred on its point, pulsing; hidden, it takes no press
+        def dot:PresReviewDot (PresReviewDot.make("d" 100.0 200.0 "#d97706"))
+        dot.build()
+        dot.pose(0.0 1.0)
+        def de:EVGElement (unwrap dot.rootEl)
+        def s0:double de.width.pixels
+        dot.pose(0.9 1.0)
+        def s1:double de.width.pixels
+        this.ok((((de.overlayX + (s1 / 2.0)) == 100.0) && ((de.overlayY + (s1 / 2.0)) == 200.0)) "review dot: centred on its point")
+        this.ok(((s1 > s0) && (dot.pulses())) "review dot: its ring swells as it pulses")
+        this.ok(((dot.has(105.0 205.0)) && ((dot.has(130.0 200.0)) == false)) "review dot: a press on the ball")
+        dot.pose(0.9 0.0)
+        this.ok(((dot.has(100.0 200.0)) == false) "review dot: hidden, no press")
+        dot.closed = true
+        dot.pose(0.9 1.0)
+        this.ok(((dot.pulses()) == false) "review dot: a closed one is still")
         def r (new PresReview())
         def t0:double 1759658400000.0
         this.ok((r.start("a" 2 "Sales" 0.25 0.5 (PresReview.msg("m1" "u1" "Ada" "#ea580c" "  Bigger font  " t0)))) "review: a thread starts with its message")
