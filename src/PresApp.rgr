@@ -33,6 +33,7 @@ Import "PresSlideSpans.rgr"
 Import "PresFollow.rgr"
 Import "PresPick.rgr"
 Import "PresNav.rgr"
+Import "PresExport.rgr"
 Import "PresI18n.rgr"
 Import "../datagrid/src/script/ScriptEditor.rgr"
 Import "../game_engine/ui/UITextRenderer.rgr"
@@ -188,8 +189,6 @@ class PresApp {
     def picks:PresPick (new PresPick())
     def pressCtrl:boolean false
     def pressShift:boolean false
-    ; the exports write only the picked slides (pdfPicked, pptxPicked)
-    def exportPick:boolean false
     ; The "+" after the last thumbnail: pressed, it offers an empty slide or
     ; a copy of the selected one. `stripAdd` is what the press on it asks
     ; for: "open", "empty", "dup" or "".
@@ -239,9 +238,9 @@ class PresApp {
     def follow:PresFollow (new PresFollow())
     def posLine:int 0
     def posCol:int 0
-    ; Effects rendered to pictures by the host for an export: slide index,
-    ; pixels (RGBA, top row first) for the PDF, a JPEG for the PPTX.
-    def stillIdx:[int]
+    ; the PDF and PPTX exports, with the effects the host rendered to
+    ; pictures for them and the contrast guard's repairs
+    def exporter:PresExport (new PresExport())
     ; The chart settings editor, and the fence it is editing: the lines of
     ; its opening and closing ``` in the Markdown.
     def chart:PresChartEditor (new PresChartEditor())
@@ -292,17 +291,6 @@ class PresApp {
     def barH:double 0.0
     def chartWinY:double -1.0
     def chartEnd:int -1
-    def stillRgba:[buffer]
-    def stillW:[int]
-    def stillH:[int]
-    def stillJpeg:[buffer]
-    ; The runs the host's contrast guard repaired on each slide, for the
-    ; PPTX: the slide, the run's text, "colour" or "outline", and the colour
-    ; it was given ("#rrggbb", for "colour").
-    def fixSlide:[int]
-    def fixText:[string]
-    def fixKind:[string]
-    def fixColor:[string]
 
     Constructor () {
         def r:[string]
@@ -8037,27 +8025,29 @@ class PresApp {
         return (this.listJson((deck.fxOnlyList(i))))
     }
 
+    ; Effects rendered to pictures by the host for an export: slide index,
+    ; pixels (RGBA, top row first) for the PDF, a JPEG for the PPTX.
     fn clearFxStills:void () {
         def a:[int]
-        stillIdx = a
+        exporter.stillIdx = a
         def b:[buffer]
-        stillRgba = b
+        exporter.stillRgba = b
         def c:[int]
-        stillW = c
+        exporter.stillW = c
         def d:[int]
-        stillH = d
+        exporter.stillH = d
         def e:[buffer]
-        stillJpeg = e
+        exporter.stillJpeg = e
         def f:[int]
         deck.fxStills = f
     }
 
     fn setFxStill:void (i:int rgba:buffer w:int h:int jpeg:buffer) {
-        push stillIdx i
-        push stillRgba rgba
-        push stillW w
-        push stillH h
-        push stillJpeg jpeg
+        push exporter.stillIdx i
+        push exporter.stillRgba rgba
+        push exporter.stillW w
+        push exporter.stillH h
+        push exporter.stillJpeg jpeg
         ; only an effect's still stands in for it in the PDF
         def s:PresSlide (deck.slideAt(i))
         if ((strlen s.fx) > 0) {
@@ -8065,286 +8055,60 @@ class PresApp {
         }
     }
 
+    ; The runs the host's contrast guard repaired on each slide, for the
+    ; PPTX: the slide, the run's text, "colour" or "outline", and the colour
+    ; it was given ("#rrggbb", for "colour").
     fn clearExportContrast:void () {
         def a:[int]
-        fixSlide = a
+        exporter.fixSlide = a
         def b:[string]
-        fixText = b
+        exporter.fixText = b
         def c:[string]
-        fixKind = c
+        exporter.fixKind = c
         def d:[string]
-        fixColor = d
+        exporter.fixColor = d
     }
 
-    ; One slide's `lowContrast` list from the guard, as the stage keeps it:
-    ; [{"text", "fixed": "colour" | "outline", "to": [r, g, b]}].
+    ; One slide's `lowContrast` list from the guard, as the stage keeps it.
     fn addExportContrast:void (i:int json:string) {
-        def p (new VlJsonParser())
-        def j:VlJson (p.parse(json))
-        def k:int 0
-        while (k < (j.count())) {
-            def e:VlJson (j.at(k))
-            def text:string (trim (e.stringOr("text" "")))
-            def fixed:string (e.stringOr("fixed" ""))
-            def colour:string ""
-            if (e.has("to")) {
-                def to:VlJson (e.get("to"))
-                if ((to.count()) >= 3) {
-                    colour = (PresApp.hexOfRgb(((to.at(0)).asDouble()) ((to.at(1)).asDouble()) ((to.at(2)).asDouble())))
+        exporter.addExportContrast(i json)
+    }
+
+    ; the slides an export writes: the picked ones, or all (picked false)
+    fn exportOf:PresExport (picked:boolean) {
+        this.settleAll()
+        exporter.deck = deck
+        def only:[int]
+        if (picked && (picks.active())) {
+            def i:int 0
+            while (i < (deck.slideCount())) {
+                if (picks.has(i)) {
+                    push only i
                 }
+                i = (i + 1)
             }
-            if (((strlen text) > 0) && ((fixed == "outline") || ((fixed == "colour") && ((strlen colour) > 0)))) {
-                push fixSlide i
-                push fixText text
-                push fixKind fixed
-                push fixColor colour
-            }
-            k = (k + 1)
         }
-    }
-
-    sfn hexOfRgb:string (r:double g:double b:double) {
-        def k:double 1.0
-        ; channels as 0–1 or as 0–255
-        if (((r <= 1.0) && (g <= 1.0)) && (b <= 1.0)) {
-            k = 255.0
-        }
-        return ("#" + (PresApp.hexByte((r * k))) + (PresApp.hexByte((g * k))) + (PresApp.hexByte((b * k))))
-    }
-
-    sfn hexByte:string (v:double) {
-        def n:int (to_int (v + 0.5))
-        if (n < 0) {
-            n = 0
-        }
-        if (n > 255) {
-            n = 255
-        }
-        def digits:string "0123456789abcdef"
-        def hi:int (idiv n 16)
-        def lo:int (n - (hi * 16))
-        return ((substring digits hi (hi + 1)) + (substring digits lo (lo + 1)))
-    }
-
-    ; The guard's repairs onto the PPTX's runs: a paragraph that holds a
-    ; repaired run's text takes its colour, or, for big letters the stage
-    ; outlines, a glow in black or white round them.
-    fn contrastFixes:void (shapes:[PptxShape] i:int) {
-        def si:int 0
-        while (si < (array_length shapes)) {
-            def sh:PptxShape (itemAt shapes si)
-            def p:int 0
-            while (p < (array_length sh.text.paragraphs)) {
-                def para:PptxParagraph (itemAt sh.text.paragraphs p)
-                def text:string (PresApp.paraText(para))
-                def f:int 0
-                while (f < (array_length fixSlide)) {
-                    if (((itemAt fixSlide f) == i) && ((indexOf text (itemAt fixText f)) >= 0)) {
-                        def r:int 0
-                        while (r < (array_length para.runs)) {
-                            def run:PptxTextRun (itemAt para.runs r)
-                            if ((itemAt fixKind f) == "colour") {
-                                run.color = (PptxApi.colorOf((itemAt fixColor f)))
-                            } {
-                                def halo:string "#ffffff"
-                                if (PresApp.isLight((PresApp.runHex(run)))) {
-                                    halo = "#000000"
-                                }
-                                run.glow = (PptxApi.colorOf(halo))
-                                run.glow.alpha = 0.7
-                                run.glowPt = (run.fontSizePt * 0.08)
-                            }
-                            r = (r + 1)
-                        }
-                    }
-                    f = (f + 1)
-                }
-                p = (p + 1)
-            }
-            this.contrastFixes(sh.children i)
-            si = (si + 1)
-        }
-    }
-
-    sfn runHex:string (run:PptxTextRun) {
-        if ((strlen run.color.srgb) > 0) {
-            return ("#" + run.color.srgb)
-        }
-        return "#000000"
+        exporter.only = only
+        return exporter
     }
 
     fn pdf:buffer () {
-        this.settleAll()
-        def mw:MarkdownWeb deck.md
-        def e:MarkdownEdit mw.edit
-        def l:MdLayout (deck.layout())
-        def paper:string "#ffffff"
-        if ((strlen l.style.pageBackground) > 0) {
-            paper = l.style.pageBackground
-        }
-        def bg:EVGColor (EVGColor.parse(paper))
-        def pw:double deck.pageW
-        def ph:double deck.pageH
-        def root:EVGElement (EVGListToElements.printRoot(pw ph))
-        def section:EVGElement (EVGListToElements.sectionOf(root))
-        def renderer (new EVGPDFRenderer())
-        renderer.init(renderer)
-        renderer.setPageSize(pw ph)
-        ; the effects the host rendered: sharp enough for a full page
-        def si:int 0
-        while (si < (array_length stillIdx)) {
-            def ib (new ImageBuffer())
-            ib.width = (itemAt stillW si)
-            ib.height = (itemAt stillH si)
-            ib.pixels = (itemAt stillRgba si)
-            renderer.registerImage((PresDeck.fxStillPath((itemAt stillIdx si))) ib)
-            renderer.maxImageWidth = 1600
-            renderer.maxImageHeight = 1600
-            si = (si + 1)
-        }
-        if (mw.faceCount > 0) {
-            renderer.setFontManager(mw.fontManager)
-            if (!null? mw.measurer) {
-                renderer.setMeasurer((unwrap mw.measurer))
-            }
-        }
-        ; Every picture on a page is handed over as pixels: the renderer can
-        ; only otherwise open it as a file, which a browser has no way to do
-        ; (`require` is not defined). That is the slides' own pictures, a
-        ; slide's background and a logo in the header or footer alike; one
-        ; the deck has no bytes for is left out rather than failing the file.
-        def known:[string]
-        def si2:int 0
-        while (si2 < (array_length stillIdx)) {
-            push known (PresDeck.fxStillPath((itemAt stillIdx si2)))
-            si2 = (si2 + 1)
-        }
-        def missing:[string]
-        deck.still = true
-        def i:int 0
-        while (i < (deck.slideCount())) {
-            if (exportPick && ((picks.has(i)) == false)) {
-                i = (i + 1)
-                continue
-            }
-            def groups:[int]
-            def dl:EVGDisplayList (deck.slideList(i groups 0.0))
-            def kept:[EVGDrawCmd]
-            def c:int 0
-            while (c < (array_length dl.cmds)) {
-                def cmd:EVGDrawCmd (itemAt dl.cmds c)
-                def keep:boolean true
-                if (cmd.kind == 2) {
-                    keep = (PresApp.pdfImage(renderer e cmd.src known missing))
-                }
-                if keep {
-                    push kept cmd
-                }
-                c = (c + 1)
-            }
-            dl.cmds = kept
-            section.addChild((EVGListToElements.pageFrom(dl pw ph bg true)))
-            i = (i + 1)
-        }
-        deck.still = false
-        return (renderer.render(root))
+        return ((this.exportOf(false)).pdf())
     }
 
-    ; Whether the PDF can draw the picture at `src`: registered with the
-    ; renderer the first time it is met, from the deck's own files.
-    sfn pdfImage:boolean (renderer:EVGPDFRenderer e:MarkdownEdit src:string known:[string] missing:[string]) {
-        if ((strlen src) == 0) {
-            return false
-        }
-        if ((indexOf known src) >= 0) {
-            return true
-        }
-        if ((indexOf missing src) >= 0) {
-            return false
-        }
-        def bytes:buffer (e.imageStore.read(src))
-        if ((buffer_length bytes) > 0) {
-            def pix@(optional):ImageBuffer (EVGImageDecode.decode(bytes))
-            if (!null? pix) {
-                renderer.registerImage(src (unwrap pix))
-                push known src
-                return true
-            }
-        }
-        push missing src
-        return false
-    }
-
-    ; The deck through the markdown module's own PPTX road, then what the
-    ; presentation adds on each slide: the speaker's notes, the transition,
-    ; and a build step per `{.build}` item.
     fn pptx:buffer () {
-        this.settleAll()
-        ; The stage's own layout, not one laid out again with the markdown
-        ; module's deck defaults: that one had other text sizes and spacing,
-        ; no task boxes and no theme rules, and the file did not look like
-        ; the slides.
-        def conv (new MdToPptx())
-        conv.rules = true
-        def d:PptxDeck (conv.deck(deck.md.edit.doc (deck.layout())))
-        def n:int (array_length d.pres.slides)
-        ; slide points per stage unit
-        def unit:double (d.pres.slideWidth / deck.pageW)
-        def i:int 0
-        while (i < n) {
-            if (i < (deck.slideCount())) {
-                def ps:PptxSlide (itemAt d.pres.slides i)
-                def s:PresSlide (deck.slideAt(i))
-                this.stillDiagrams(ps s unit)
-                this.stillCharts(ps i unit)
-                this.stillSmartArt(ps s i unit)
-                this.slideArt(ps s i unit)
-                PresApp.dressSlide(ps s)
-                ; the slide's effect, rendered by the host, as its background
-                def si:int 0
-                while (si < (array_length stillIdx)) {
-                    if ((itemAt stillIdx si) == i) {
-                        ps.bgImage = (itemAt stillJpeg si)
-                        ps.bgImageName = ("media/" + (PresDeck.fxStillPath(i)))
-                    }
-                    si = (si + 1)
-                }
-            }
-            PresApp.fontsIn(((itemAt d.pres.slides i).shapes))
-            this.contrastFixes(((itemAt d.pres.slides i).shapes) i)
-            i = (i + 1)
-        }
-        d.pres.theme.majorFont = "Arial"
-        d.pres.theme.minorFont = "Arial"
-        if exportPick {
-            def kept:[PptxSlide]
-            def k:int 0
-            while (k < n) {
-                if (picks.has(k)) {
-                    push kept (itemAt d.pres.slides k)
-                }
-                k = (k + 1)
-            }
-            d.pres.slides = kept
-        }
-        return (d.save())
+        return ((this.exportOf(false)).pptx())
     }
 
     ; --- picked slides (PresPick) ------------------------------------------------
     ; The PDF and the PPTX of only the picked slides; all of them when none
     ; is picked. The pages keep the numbers they have in the deck.
     fn pdfPicked:buffer () {
-        exportPick = (picks.active())
-        def b:buffer (this.pdf())
-        exportPick = false
-        return b
+        return ((this.exportOf(true)).pdf())
     }
 
     fn pptxPicked:buffer () {
-        exportPick = (picks.active())
-        def b:buffer (this.pptx())
-        exportPick = false
-        return b
+        return ((this.exportOf(true)).pptx())
     }
 
     fn pickCount:int () {
@@ -8393,362 +8157,17 @@ class PresApp {
         return (this.viewOf((this.source()) (this.pickKeys())))
     }
 
-    ; The faces the stage draws with are shipped with the page, not with
-    ; Keynote or PowerPoint: a file that names them opens with "missing font".
-    ; Arial is on every Mac and every Windows machine, and it is narrower than
-    ; Open Sans, so every line still fits the box it was measured for.
-    sfn exportFont:string (f:string) {
-        if ((strlen f) == 0) {
-            return f
-        }
-        ; …and the generic "sans-serif" a chart's labels ask for, which comes
-        ; out as Calibri or as a made-up face name
-        def low:string (MdChar.lower(f))
-        if (((indexOf low "sans") >= 0) || ((indexOf low "calibri") >= 0)) {
-            return "Arial"
-        }
-        return f
-    }
 
-    sfn fontsInBody:void (body:PptxTextBody) {
-        def p:int 0
-        while (p < (array_length body.paragraphs)) {
-            def para:PptxParagraph (itemAt body.paragraphs p)
-            para.bulletFont = (PresApp.exportFont(para.bulletFont))
-            def r:int 0
-            while (r < (array_length para.runs)) {
-                def run:PptxTextRun (itemAt para.runs r)
-                run.fontFamily = (PresApp.exportFont(run.fontFamily))
-                r = (r + 1)
-            }
-            p = (p + 1)
-        }
-    }
 
-    sfn fontsIn:void (shapes:[PptxShape]) {
-        def i:int 0
-        while (i < (array_length shapes)) {
-            def sh:PptxShape (itemAt shapes i)
-            PresApp.fontsInBody(sh.text)
-            def c:int 0
-            while (c < (array_length sh.tableCells)) {
-                def cell:PptxTableCell (itemAt sh.tableCells c)
-                PresApp.fontsInBody(cell.body)
-                c = (c + 1)
-            }
-            PresApp.fontsIn(sh.children)
-            i = (i + 1)
-        }
-    }
 
-    ; The diagrams as the stage draws them, at rest, in place of the markdown
-    ; module's plain drawing: the glass nodes, the lines of light and the
-    ; label pills, in the direction the stage chose and filling the room the
-    ; stage gives them. The plain drawing is laid out at the fence's written
-    ; direction and the column's width, so a long left-to-right chain came out
-    ; as a strip with labels too small to keep. The group keeps the plain
-    ; one's name, alt text and embedded source, so it still reads back.
-    ; The slide's line art (`{art=waves}`) as strokes behind everything else
-    ; on it, so it stays a vector a reader can recolour or delete.
-    fn slideArt:void (ps:PptxSlide s:PresSlide i:int unit:double) {
-        def sc:FlowScene (deck.artScene(s i))
-        if ((array_length sc.items) == 0) {
-            return
-        }
-        def dl (new EVGDisplayList())
-        sc.emitInto(dl)
-        def conv (new PptxFromEvg())
-        conv.unit = unit
-        def group:PptxShape (conv.build(dl 0.0 0.0))
-        if ((array_length group.children) == 0) {
-            return
-        }
-        group.name = ("Background art: " + s.art)
-        group.altText = ""
-        def all:[PptxShape]
-        push all group
-        def k:int 0
-        while (k < (array_length ps.shapes)) {
-            push all (itemAt ps.shapes k)
-            k = (k + 1)
-        }
-        ps.shapes = all
-    }
 
-    fn stillDiagrams:void (ps:PptxSlide s:PresSlide unit:double) {
-        def l:MdLayout (deck.layout())
-        def paper:string "#ffffff"
-        if ((strlen l.style.pageBackground) > 0) {
-            paper = l.style.pageBackground
-        }
-        def k:int 0
-        while (k < (array_length s.diagrams)) {
-            def u:PresDiaUse (itemAt s.diagrams k)
-            def at:int -1
-            def j:int 0
-            while (j < (array_length ps.shapes)) {
-                def sh:PptxShape (itemAt ps.shapes j)
-                if ((at < 0) && (sh.embedSource == u.source)) {
-                    at = j
-                }
-                j = (j + 1)
-            }
-            if (at >= 0) {
-                def dl (new EVGDisplayList())
-                u.diagram.paintStill(dl u.bx u.by u.bw u.bh l.style.textColor paper l)
-                def conv (new PptxFromEvg())
-                conv.unit = unit
-                ; The stage reads small labels by zooming in; a still cannot,
-                ; so a small label is kept rather than left an empty pill.
-                conv.minFontPt = 1.0
-                def group:PptxShape (conv.build(dl 0.0 0.0))
-                if ((array_length group.children) > 0) {
-                    PresApp.tighten(group)
-                    def old:PptxShape (itemAt ps.shapes at)
-                    group.name = old.name
-                    group.altText = old.altText
-                    group.embedNotation = old.embedNotation
-                    group.embedSource = old.embedSource
-                    group.mdSrcStart = old.mdSrcStart
-                    group.mdSrcEnd = old.mdSrcEnd
-                    set ps.shapes at group
-                }
-            }
-            k = (k + 1)
-        }
-    }
 
-    ; A SmartArt reference went out as a picture whose bytes are the XML;
-    ; PowerPoint cannot show that. In its place: the diagram as shapes, laid
-    ; out for the picture's box (points), in the theme's colours, with the
-    ; picture's name and alt text. A diagram that cannot be laid out is taken
-    ; off the slide rather than left as a broken picture.
-    fn stillSmartArt:void (ps:PptxSlide s:PresSlide page:int unit:double) {
-        def j:int 0
-        while (j < (array_length ps.shapes)) {
-            def sh:PptxShape (itemAt ps.shapes j)
-            if ((sh.kind == (PptxShapeKind.picture())) && (deck.isSmartArtPath(sh.imagePart))) {
-                def u (new PresSmartArtUse())
-                u.path = sh.imagePart
-                def k:int 0
-                while (k < (array_length s.smartArts)) {
-                    def su:PresSmartArtUse (itemAt s.smartArts k)
-                    if (su.path == sh.imagePart) {
-                        u = su
-                    }
-                    k = (k + 1)
-                }
-                ; across the width the stage gives it (PresDeck.smartArtSpan),
-                ; in this deck's units
-                def gx:double sh.x
-                def gw:double sh.width
-                def l:MdLayout (deck.layout())
-                def bi:int 0
-                while (bi < (array_length l.boxes)) {
-                    def b:MdBox (itemAt l.boxes bi)
-                    if ((((b.page == page) && (b.kind == 4)) && (b.imagePath == u.path)) && (b.w > 0.0)) {
-                        def k:double (sh.width / b.w)
-                        def span:[double] (deck.smartArtSpan(page b u))
-                        gx = (sh.x + (((itemAt span 0) - b.x) * k))
-                        gw = ((itemAt span 1) * k)
-                        bi = (array_length l.boxes)
-                    }
-                    bi = (bi + 1)
-                }
-                def r:SaResult (PresSmartArt.laidOut(u deck.md deck.figStyle deck.smartArtCache gw sh.height))
-                if (r.ok && ((array_length r.shape.children) > 0)) {
-                    def g:PptxShape r.shape
-                    g.x = gx
-                    g.y = sh.y
-                    g.name = sh.name
-                    g.altText = sh.altText
-                    if ((strlen g.altText) == 0) {
-                        g.altText = g.diagramText
-                    }
-                    set ps.shapes j g
-                    j = (j + 1)
-                } {
-                    remove_index ps.shapes j
-                }
-            } {
-                j = (j + 1)
-            }
-        }
-    }
 
-    ; The charts as the stage draws them when they have finished (PresChart:
-    ; the warm columns, the accent grid), in place of the markdown module's
-    ; flat drawing, keeping its name, alt text and embedded source.
-    fn stillCharts:void (ps:PptxSlide i:int unit:double) {
-        def l:MdLayout (deck.layout())
-        def boxes:[int] (deck.chartBoxes(i))
-        def k:int 0
-        while (k < (array_length boxes)) {
-            def bi:int (itemAt boxes k)
-            def b:MdBox (itemAt l.boxes bi)
-            def at:int -1
-            def j:int 0
-            while (j < (array_length ps.shapes)) {
-                def sh:PptxShape (itemAt ps.shapes j)
-                if ((at < 0) && (sh.embedSource == b.embedSource)) {
-                    at = j
-                }
-                j = (j + 1)
-            }
-            if (at >= 0) {
-                def dl:EVGDisplayList (deck.chartStill(bi))
-                def conv (new PptxFromEvg())
-                conv.unit = unit
-                conv.minFontPt = 1.0
-                def group:PptxShape (conv.build(dl 0.0 0.0))
-                if ((array_length group.children) > 0) {
-                    PresApp.tighten(group)
-                    def old:PptxShape (itemAt ps.shapes at)
-                    group.name = old.name
-                    group.altText = old.altText
-                    group.embedNotation = old.embedNotation
-                    group.embedSource = old.embedSource
-                    group.mdSrcStart = old.mdSrcStart
-                    group.mdSrcEnd = old.mdSrcEnd
-                    set ps.shapes at group
-                }
-            }
-            k = (k + 1)
-        }
-    }
 
-    ; A group's box around what is in it, not from the slide's corner.
-    sfn tighten:void (group:PptxShape) {
-        def x0:double 1000000.0
-        def y0:double 1000000.0
-        def x1:double -1000000.0
-        def y1:double -1000000.0
-        def i:int 0
-        while (i < (array_length group.children)) {
-            def c:PptxShape (itemAt group.children i)
-            if (c.x < x0) { x0 = c.x }
-            if (c.y < y0) { y0 = c.y }
-            if ((c.x + c.width) > x1) { x1 = (c.x + c.width) }
-            if ((c.y + c.height) > y1) { y1 = (c.y + c.height) }
-            i = (i + 1)
-        }
-        group.x = x0
-        group.y = y0
-        group.width = (x1 - x0)
-        group.height = (y1 - y0)
-        group.chX = x0
-        group.chY = y0
-        group.chW = group.width
-        group.chH = group.height
-    }
 
-    sfn dressSlide:void (ps:PptxSlide s:PresSlide) {
-        if ((strlen s.notes) > 0) {
-            ps.notes.hasText = true
-            PptxEditor.setBodyText(ps.notes.text (PresApp.speakable(s.notes)))
-        }
-        if ((s.transition != "none") && (s.index > 0)) {
-            def tr:PptxTransition ps.transition
-            tr.isSet = true
-            tr.kind = "fade"
-            if (s.transition == "slide") {
-                tr.kind = "push"
-                tr.dir = "l"
-            }
-            if (s.transition == "zoom") {
-                tr.kind = "zoom"
-            }
-            tr.seconds = s.seconds
-        }
-        ; One build step per revealed group. The shape is the one the markdown
-        ; module made from the group's source: by the source range when the
-        ; shape carries one, otherwise by the paragraph whose words the group
-        ; begins with (a list shape carries no range, and its items are its
-        ; paragraphs). The writer finds a step's shape by `editId`, so each
-        ; target gets one.
-        def g:int 0
-        while (g < (array_length s.groups)) {
-            def gr:PresGroup (itemAt s.groups g)
-            if (gr.step > 0) {
-                PresApp.addBuild(ps gr (9000 + g))
-            }
-            g = (g + 1)
-        }
-    }
 
-    sfn paraText:string (para:PptxParagraph) {
-        def out:string ""
-        def j:int 0
-        while (j < (array_length para.runs)) {
-            def run:PptxTextRun (itemAt para.runs j)
-            out = (out + run.text)
-            j = (j + 1)
-        }
-        return (trim out)
-    }
 
-    sfn addBuild:void (ps:PptxSlide gr:PresGroup editId:int) {
-        def want:string (trim gr.label)
-        if ((strlen want) > 12) {
-            want = (substring want 0 12)
-        }
-        def k:int 0
-        while (k < (array_length ps.shapes)) {
-            def sh:PptxShape (itemAt ps.shapes k)
-            def para:int -2
-            if ((sh.mdSrcStart >= 0) && ((gr.start >= sh.mdSrcStart) && (gr.start < sh.mdSrcEnd))) {
-                para = -1
-            }
-            if ((para == -2) && sh.hasText) {
-                def p:int 0
-                while (p < (array_length sh.text.paragraphs)) {
-                    def words:string (PresApp.paraText((itemAt sh.text.paragraphs p)))
-                    if (((strlen want) > 0) && ((indexOf words want) == 0)) {
-                        para = p
-                        break
-                    }
-                    p = (p + 1)
-                }
-            }
-            if (para > -2) {
-                if (sh.editId <= 0) {
-                    sh.editId = editId
-                }
-                def b (new PptxBuildStep())
-                b.editId = sh.editId
-                b.kind = "fade"
-                if (gr.anim == "fly") {
-                    b.kind = "fly"
-                    b.dir = "l"
-                }
-                b.seconds = gr.seconds
-                b.paragraph = para
-                push ps.build b
-                return
-            }
-            k = (k + 1)
-        }
-    }
 
-    ; Notes as a person reads them: the cue marks out.
-    sfn speakable:string (notes:string) {
-        def out:string ""
-        def i:int 0
-        def n:int (strlen notes)
-        while (i < n) {
-            if (((i + 1) < n) && (((charAt notes i) == 91) && ((charAt notes (i + 1)) == 91))) {
-                def rest:string (substring notes i n)
-                def close:int (indexOf rest "]]")
-                if (close > 0) {
-                    i = ((i + close) + 2)
-                    continue
-                }
-            }
-            out = (out + (substring notes i (i + 1)))
-            i = (i + 1)
-        }
-        return out
-    }
 
     fn statusText:string () {
         def n:int (deck.slideCount())

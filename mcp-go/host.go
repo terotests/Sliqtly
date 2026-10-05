@@ -530,6 +530,7 @@ func (h *McpHost) FileBytes(id, path string) string {
 }
 
 func (h *McpHost) KeepText(text string) int64 { return h.keep([]byte(text)) }
+func (h *McpHost) KeepBytes(b []byte) int64   { return h.keep(b) }
 func (h *McpHost) Text(handle int64) string   { return string(h.images[handle]) }
 
 func (h *McpHost) XlsxSheets(handle int64) string {
