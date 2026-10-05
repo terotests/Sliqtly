@@ -84,7 +84,10 @@ stays one Go binary without cgo. The SVG is sized as the player sizes it
 the editor's faces. The contrast check reads an SVG background from the
 same drawing, and `rgr/SvgCheck.rgr` reads each SVG picture for the result
 of create/update (viewBox, shape against the slide, what loads from
-outside, text, filters; `svgcheck_test.go`).
+outside, text, filters; `svgcheck_test.go`). How closely the preview matches the player
+is measured against the W3C SVG 1.1 test suite in
+[`bench/svgcompat/`](bench/svgcompat/README.md): 95 % of its 513 tests
+draw the same or nearly the same.
 
 Building `PresDeck` for Go needed fixes in Ranger's Go target (terotests/Ranger):
 an array parameter the callee grows is now passed by pointer (ISSUES.md #58,

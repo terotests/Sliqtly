@@ -1,0 +1,3594 @@
+[
+ {
+  "name": "animate-dom-01-f-manual",
+  "chapter": "animate",
+  "diff_percent": 4.177083333333333,
+  "class": "close",
+  "ms": 227.359
+ },
+ {
+  "name": "animate-dom-02-f-manual",
+  "chapter": "animate",
+  "diff_percent": 0.5972222222222222,
+  "class": "same",
+  "ms": 68.307
+ },
+ {
+  "name": "animate-elem-02-t-manual",
+  "chapter": "animate",
+  "diff_percent": 24.822337962962962,
+  "class": "differs",
+  "ms": 88.772
+ },
+ {
+  "name": "animate-elem-03-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.9664351851851851,
+  "class": "close",
+  "ms": 91.166
+ },
+ {
+  "name": "animate-elem-04-t-manual",
+  "chapter": "animate",
+  "diff_percent": 2.9612268518518516,
+  "class": "close",
+  "ms": 108.799
+ },
+ {
+  "name": "animate-elem-05-t-manual",
+  "chapter": "animate",
+  "diff_percent": 2.4502314814814814,
+  "class": "close",
+  "ms": 93.893
+ },
+ {
+  "name": "animate-elem-06-t-manual",
+  "chapter": "animate",
+  "diff_percent": 2.5202546296296298,
+  "class": "close",
+  "ms": 98.124
+ },
+ {
+  "name": "animate-elem-07-t-manual",
+  "chapter": "animate",
+  "diff_percent": 2.9733796296296298,
+  "class": "close",
+  "ms": 107.876
+ },
+ {
+  "name": "animate-elem-08-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.4311342592592593,
+  "class": "close",
+  "ms": 99.417
+ },
+ {
+  "name": "animate-elem-09-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.759837962962963,
+  "class": "close",
+  "ms": 115.928
+ },
+ {
+  "name": "animate-elem-10-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.8478009259259258,
+  "class": "close",
+  "ms": 92.878
+ },
+ {
+  "name": "animate-elem-11-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.8038194444444444,
+  "class": "close",
+  "ms": 101.187
+ },
+ {
+  "name": "animate-elem-12-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.8478009259259258,
+  "class": "close",
+  "ms": 101.953
+ },
+ {
+  "name": "animate-elem-13-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.7048611111111112,
+  "class": "same",
+  "ms": 88.395
+ },
+ {
+  "name": "animate-elem-14-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.1695601851851851,
+  "class": "close",
+  "ms": 110.946
+ },
+ {
+  "name": "animate-elem-15-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.318287037037037,
+  "class": "close",
+  "ms": 113.921
+ },
+ {
+  "name": "animate-elem-17-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.2581018518518519,
+  "class": "close",
+  "ms": 131.225
+ },
+ {
+  "name": "animate-elem-19-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.2667824074074074,
+  "class": "close",
+  "ms": 139.357
+ },
+ {
+  "name": "animate-elem-20-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.49537037037037035,
+  "class": "same",
+  "ms": 67.726
+ },
+ {
+  "name": "animate-elem-21-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.49537037037037035,
+  "class": "same",
+  "ms": 83.299
+ },
+ {
+  "name": "animate-elem-22-b-manual",
+  "chapter": "animate",
+  "diff_percent": 0.45891203703703703,
+  "class": "same",
+  "ms": 93.495
+ },
+ {
+  "name": "animate-elem-23-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.28414351851851855,
+  "class": "same",
+  "ms": 79.433
+ },
+ {
+  "name": "animate-elem-24-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.5306712962962963,
+  "class": "same",
+  "ms": 108.316
+ },
+ {
+  "name": "animate-elem-25-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.0133101851851851,
+  "class": "close",
+  "ms": 83.746
+ },
+ {
+  "name": "animate-elem-26-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.4375,
+  "class": "same",
+  "ms": 107.626
+ },
+ {
+  "name": "animate-elem-27-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.1469907407407407,
+  "class": "close",
+  "ms": 81.252
+ },
+ {
+  "name": "animate-elem-28-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.2170138888888889,
+  "class": "same",
+  "ms": 85.667
+ },
+ {
+  "name": "animate-elem-29-b-manual",
+  "chapter": "animate",
+  "diff_percent": 0.4913194444444444,
+  "class": "same",
+  "ms": 93.813
+ },
+ {
+  "name": "animate-elem-30-t-manual",
+  "chapter": "animate",
+  "diff_percent": 3.5815972222222223,
+  "class": "close",
+  "ms": 109.482
+ },
+ {
+  "name": "animate-elem-31-t-manual",
+  "chapter": "animate",
+  "diff_percent": 3.0231481481481484,
+  "class": "close",
+  "ms": 127.952
+ },
+ {
+  "name": "animate-elem-32-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.3194444444444444,
+  "class": "same",
+  "ms": 112.887
+ },
+ {
+  "name": "animate-elem-33-t-manual",
+  "chapter": "animate",
+  "diff_percent": 4.011574074074074,
+  "class": "close",
+  "ms": 227.374
+ },
+ {
+  "name": "animate-elem-34-t-manual",
+  "chapter": "animate",
+  "diff_percent": 3.8871527777777777,
+  "class": "close",
+  "ms": 166.663
+ },
+ {
+  "name": "animate-elem-35-t-manual",
+  "chapter": "animate",
+  "diff_percent": 7.255208333333333,
+  "class": "differs",
+  "ms": 154.836
+ },
+ {
+  "name": "animate-elem-36-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.9079861111111112,
+  "class": "same",
+  "ms": 216.942
+ },
+ {
+  "name": "animate-elem-37-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.8292824074074074,
+  "class": "same",
+  "ms": 123.535
+ },
+ {
+  "name": "animate-elem-38-t-manual",
+  "chapter": "animate",
+  "diff_percent": 26.92650462962963,
+  "class": "differs",
+  "ms": 129.153
+ },
+ {
+  "name": "animate-elem-39-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.7633101851851852,
+  "class": "same",
+  "ms": 193.318
+ },
+ {
+  "name": "animate-elem-40-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.5856481481481481,
+  "class": "close",
+  "ms": 228.954
+ },
+ {
+  "name": "animate-elem-41-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.7725694444444444,
+  "class": "same",
+  "ms": 148.658
+ },
+ {
+  "name": "animate-elem-44-t-manual",
+  "chapter": "animate",
+  "diff_percent": 2.6828703703703702,
+  "class": "close",
+  "ms": 187.978
+ },
+ {
+  "name": "animate-elem-46-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.1423611111111112,
+  "class": "close",
+  "ms": 316.866
+ },
+ {
+  "name": "animate-elem-52-t-manual",
+  "chapter": "animate",
+  "diff_percent": 3.1064814814814814,
+  "class": "close",
+  "ms": 201.309
+ },
+ {
+  "name": "animate-elem-53-t-manual",
+  "chapter": "animate",
+  "diff_percent": 3.0318287037037037,
+  "class": "close",
+  "ms": 205.052
+ },
+ {
+  "name": "animate-elem-60-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.8339120370370371,
+  "class": "same",
+  "ms": 173.765
+ },
+ {
+  "name": "animate-elem-61-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.8234953703703703,
+  "class": "same",
+  "ms": 119.684
+ },
+ {
+  "name": "animate-elem-62-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.8368055555555556,
+  "class": "close",
+  "ms": 140.456
+ },
+ {
+  "name": "animate-elem-63-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.2320601851851851,
+  "class": "close",
+  "ms": 148.396
+ },
+ {
+  "name": "animate-elem-64-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.1869212962962963,
+  "class": "close",
+  "ms": 99.571
+ },
+ {
+  "name": "animate-elem-65-t-manual",
+  "chapter": "animate",
+  "diff_percent": 3.178240740740741,
+  "class": "close",
+  "ms": 132.717
+ },
+ {
+  "name": "animate-elem-66-t-manual",
+  "chapter": "animate",
+  "diff_percent": 3.1203703703703702,
+  "class": "close",
+  "ms": 135.819
+ },
+ {
+  "name": "animate-elem-67-t-manual",
+  "chapter": "animate",
+  "diff_percent": 2.3385416666666665,
+  "class": "close",
+  "ms": 108.107
+ },
+ {
+  "name": "animate-elem-68-t-manual",
+  "chapter": "animate",
+  "diff_percent": 2.2690972222222223,
+  "class": "close",
+  "ms": 119.539
+ },
+ {
+  "name": "animate-elem-69-t-manual",
+  "chapter": "animate",
+  "diff_percent": 2.6047453703703702,
+  "class": "close",
+  "ms": 139.963
+ },
+ {
+  "name": "animate-elem-70-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.9010416666666667,
+  "class": "close",
+  "ms": 107.491
+ },
+ {
+  "name": "animate-elem-77-t-manual",
+  "chapter": "animate",
+  "diff_percent": 2.298611111111111,
+  "class": "close",
+  "ms": 312.781
+ },
+ {
+  "name": "animate-elem-78-t-manual",
+  "chapter": "animate",
+  "diff_percent": 3.232060185185185,
+  "class": "close",
+  "ms": 162.246
+ },
+ {
+  "name": "animate-elem-80-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.9710648148148148,
+  "class": "same",
+  "ms": 213.198
+ },
+ {
+  "name": "animate-elem-81-t-manual",
+  "chapter": "animate",
+  "diff_percent": 2.079861111111111,
+  "class": "close",
+  "ms": 146.04
+ },
+ {
+  "name": "animate-elem-82-t-manual",
+  "chapter": "animate",
+  "diff_percent": 4.258101851851852,
+  "class": "close",
+  "ms": 174.639
+ },
+ {
+  "name": "animate-elem-83-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.1938657407407407,
+  "class": "close",
+  "ms": 239.469
+ },
+ {
+  "name": "animate-elem-84-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.4027777777777778,
+  "class": "same",
+  "ms": 49.708
+ },
+ {
+  "name": "animate-elem-85-t-manual",
+  "chapter": "animate",
+  "diff_percent": 21.083912037037038,
+  "class": "differs",
+  "ms": 62.298
+ },
+ {
+  "name": "animate-elem-86-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.7395833333333334,
+  "class": "same",
+  "ms": 84.897
+ },
+ {
+  "name": "animate-elem-87-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.0439814814814814,
+  "class": "close",
+  "ms": 136.288
+ },
+ {
+  "name": "animate-elem-88-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.41030092592592593,
+  "class": "same",
+  "ms": 50.902
+ },
+ {
+  "name": "animate-elem-89-t-manual",
+  "chapter": "animate",
+  "diff_percent": 3.0034722222222223,
+  "class": "close",
+  "ms": 62.601
+ },
+ {
+  "name": "animate-elem-90-b-manual",
+  "chapter": "animate",
+  "diff_percent": 0.30324074074074076,
+  "class": "same",
+  "ms": 71.749
+ },
+ {
+  "name": "animate-elem-91-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.4884259259259258,
+  "class": "close",
+  "ms": 202.495
+ },
+ {
+  "name": "animate-elem-92-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.8645833333333334,
+  "class": "same",
+  "ms": 113.706
+ },
+ {
+  "name": "animate-interact-events-01-t-manual",
+  "chapter": "animate",
+  "diff_percent": 1.7552083333333333,
+  "class": "close",
+  "ms": 151.934
+ },
+ {
+  "name": "animate-interact-pevents-01-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.25462962962962965,
+  "class": "same",
+  "ms": 276.198
+ },
+ {
+  "name": "animate-interact-pevents-02-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.7858796296296297,
+  "class": "same",
+  "ms": 243.012
+ },
+ {
+  "name": "animate-interact-pevents-03-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.9762731481481481,
+  "class": "same",
+  "ms": 281.887
+ },
+ {
+  "name": "animate-interact-pevents-04-t-manual",
+  "chapter": "animate",
+  "diff_percent": 0.8368055555555556,
+  "class": "same",
+  "ms": 247.895
+ },
+ {
+  "name": "animate-pservers-grad-01-b-manual",
+  "chapter": "animate",
+  "diff_percent": 8.43113425925926,
+  "class": "differs",
+  "ms": 86.349
+ },
+ {
+  "name": "animate-script-elem-01-b-manual",
+  "chapter": "animate",
+  "diff_percent": 2.9814814814814814,
+  "class": "close",
+  "ms": 87.877
+ },
+ {
+  "name": "animate-struct-dom-01-b-manual",
+  "chapter": "animate",
+  "diff_percent": 1.5850694444444444,
+  "class": "close",
+  "ms": 79.554
+ },
+ {
+  "name": "color-prof-01-f-manual",
+  "chapter": "color",
+  "diff_percent": 0.25983796296296297,
+  "class": "same",
+  "ms": 63.952
+ },
+ {
+  "name": "color-prop-01-b-manual",
+  "chapter": "color",
+  "diff_percent": 0.47453703703703703,
+  "class": "same",
+  "ms": 92.601
+ },
+ {
+  "name": "color-prop-02-f-manual",
+  "chapter": "color",
+  "diff_percent": 0.2337962962962963,
+  "class": "same",
+  "ms": 93.501
+ },
+ {
+  "name": "color-prop-03-t-manual",
+  "chapter": "color",
+  "diff_percent": 0.2349537037037037,
+  "class": "same",
+  "ms": 77.369
+ },
+ {
+  "name": "color-prop-04-t-manual",
+  "chapter": "color",
+  "diff_percent": 67.28819444444444,
+  "class": "differs",
+  "ms": 230.74
+ },
+ {
+  "name": "color-prop-05-t-manual",
+  "chapter": "color",
+  "diff_percent": 0.21064814814814814,
+  "class": "same",
+  "ms": 43.378
+ },
+ {
+  "name": "conform-viewers-02-f-manual",
+  "chapter": "conform",
+  "diff_percent": 13.317708333333334,
+  "class": "differs",
+  "ms": 52.329
+ },
+ {
+  "name": "conform-viewers-03-f-manual",
+  "chapter": "conform",
+  "diff_percent": 0.4184027777777778,
+  "class": "same",
+  "ms": 59.752
+ },
+ {
+  "name": "coords-coord-01-t-manual",
+  "chapter": "coords",
+  "diff_percent": 0.21469907407407407,
+  "class": "same",
+  "ms": 35.381
+ },
+ {
+  "name": "coords-coord-02-t-manual",
+  "chapter": "coords",
+  "diff_percent": 0.2037037037037037,
+  "class": "same",
+  "ms": 32.308
+ },
+ {
+  "name": "coords-dom-01-f-manual",
+  "chapter": "coords",
+  "diff_percent": 0.21412037037037038,
+  "class": "same",
+  "ms": 39.68
+ },
+ {
+  "name": "coords-dom-02-f-manual",
+  "chapter": "coords",
+  "diff_percent": 0.22395833333333334,
+  "class": "same",
+  "ms": 37.561
+ },
+ {
+  "name": "coords-dom-03-f-manual",
+  "chapter": "coords",
+  "diff_percent": 1.2424768518518519,
+  "class": "close",
+  "ms": 92.58
+ },
+ {
+  "name": "coords-dom-04-f-manual",
+  "chapter": "coords",
+  "diff_percent": 0.4427083333333333,
+  "class": "same",
+  "ms": 44.004
+ },
+ {
+  "name": "coords-trans-01-b-manual",
+  "chapter": "coords",
+  "diff_percent": 0.7465277777777778,
+  "class": "same",
+  "ms": 215.271
+ },
+ {
+  "name": "coords-trans-02-t-manual",
+  "chapter": "coords",
+  "diff_percent": 0.9212962962962963,
+  "class": "same",
+  "ms": 57.044
+ },
+ {
+  "name": "coords-trans-03-t-manual",
+  "chapter": "coords",
+  "diff_percent": 0.4756944444444444,
+  "class": "same",
+  "ms": 61.007
+ },
+ {
+  "name": "coords-trans-04-t-manual",
+  "chapter": "coords",
+  "diff_percent": 0.32233796296296297,
+  "class": "same",
+  "ms": 44.466
+ },
+ {
+  "name": "coords-trans-05-t-manual",
+  "chapter": "coords",
+  "diff_percent": 0.7731481481481481,
+  "class": "same",
+  "ms": 68.556
+ },
+ {
+  "name": "coords-trans-06-t-manual",
+  "chapter": "coords",
+  "diff_percent": 0.7094907407407407,
+  "class": "same",
+  "ms": 55.629
+ },
+ {
+  "name": "coords-trans-07-t-manual",
+  "chapter": "coords",
+  "diff_percent": 0.4693287037037037,
+  "class": "same",
+  "ms": 60.22
+ },
+ {
+  "name": "coords-trans-08-t-manual",
+  "chapter": "coords",
+  "diff_percent": 0.4369212962962963,
+  "class": "same",
+  "ms": 85.297
+ },
+ {
+  "name": "coords-trans-09-t-manual",
+  "chapter": "coords",
+  "diff_percent": 2.857638888888889,
+  "class": "close",
+  "ms": 135.684
+ },
+ {
+  "name": "coords-trans-10-f-manual",
+  "chapter": "coords",
+  "diff_percent": 0.3287037037037037,
+  "class": "same",
+  "ms": 108.448
+ },
+ {
+  "name": "coords-trans-11-f-manual",
+  "chapter": "coords",
+  "diff_percent": 0.6215277777777778,
+  "class": "same",
+  "ms": 160.915
+ },
+ {
+  "name": "coords-trans-12-f-manual",
+  "chapter": "coords",
+  "diff_percent": 0.3229166666666667,
+  "class": "same",
+  "ms": 106.781
+ },
+ {
+  "name": "coords-trans-13-f-manual",
+  "chapter": "coords",
+  "diff_percent": 0.27372685185185186,
+  "class": "same",
+  "ms": 125.48
+ },
+ {
+  "name": "coords-trans-14-f-manual",
+  "chapter": "coords",
+  "diff_percent": 0.2673611111111111,
+  "class": "same",
+  "ms": 107.627
+ },
+ {
+  "name": "coords-transformattr-01-f-manual",
+  "chapter": "coords",
+  "diff_percent": 0.1886574074074074,
+  "class": "same",
+  "ms": 123.154
+ },
+ {
+  "name": "coords-transformattr-02-f-manual",
+  "chapter": "coords",
+  "diff_percent": 0.2824074074074074,
+  "class": "same",
+  "ms": 78.754
+ },
+ {
+  "name": "coords-transformattr-03-f-manual",
+  "chapter": "coords",
+  "diff_percent": 0.22395833333333334,
+  "class": "same",
+  "ms": 63.654
+ },
+ {
+  "name": "coords-transformattr-04-f-manual",
+  "chapter": "coords",
+  "diff_percent": 0.22337962962962962,
+  "class": "same",
+  "ms": 62.512
+ },
+ {
+  "name": "coords-transformattr-05-f-manual",
+  "chapter": "coords",
+  "diff_percent": 0.2505787037037037,
+  "class": "same",
+  "ms": 77.02
+ },
+ {
+  "name": "coords-units-01-b-manual",
+  "chapter": "coords",
+  "diff_percent": 2.605324074074074,
+  "class": "close",
+  "ms": 212.75
+ },
+ {
+  "name": "coords-units-02-b-manual",
+  "chapter": "coords",
+  "diff_percent": 3.3894675925925926,
+  "class": "close",
+  "ms": 168.941
+ },
+ {
+  "name": "coords-units-03-b-manual",
+  "chapter": "coords",
+  "diff_percent": 2.4108796296296298,
+  "class": "close",
+  "ms": 243.359
+ },
+ {
+  "name": "coords-viewattr-01-b-manual",
+  "chapter": "coords",
+  "diff_percent": 0.9484953703703703,
+  "class": "same",
+  "ms": 322.37
+ },
+ {
+  "name": "coords-viewattr-02-b-manual",
+  "chapter": "coords",
+  "diff_percent": 1.1759259259259258,
+  "class": "close",
+  "ms": 386.167
+ },
+ {
+  "name": "coords-viewattr-03-b-manual",
+  "chapter": "coords",
+  "diff_percent": 2.230324074074074,
+  "class": "close",
+  "ms": 344.531
+ },
+ {
+  "name": "coords-viewattr-04-f-manual",
+  "chapter": "coords",
+  "diff_percent": 1.1059027777777777,
+  "class": "close",
+  "ms": 191.496
+ },
+ {
+  "name": "extend-namespace-01-f-manual",
+  "chapter": "extend",
+  "diff_percent": 0.7175925925925926,
+  "class": "same",
+  "ms": 61.037
+ },
+ {
+  "name": "filters-background-01-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.2534722222222222,
+  "class": "same",
+  "ms": 1379.596
+ },
+ {
+  "name": "filters-blend-01-b-manual",
+  "chapter": "filters",
+  "diff_percent": 0.5225694444444444,
+  "class": "same",
+  "ms": 986.744
+ },
+ {
+  "name": "filters-color-01-b-manual",
+  "chapter": "filters",
+  "diff_percent": 1.6880787037037037,
+  "class": "close",
+  "ms": 600.36
+ },
+ {
+  "name": "filters-color-02-b-manual",
+  "chapter": "filters",
+  "diff_percent": 0.35127314814814814,
+  "class": "same",
+  "ms": 156.441
+ },
+ {
+  "name": "filters-composite-02-b-manual",
+  "chapter": "filters",
+  "diff_percent": 1.8333333333333333,
+  "class": "close",
+  "ms": 295.672
+ },
+ {
+  "name": "filters-composite-03-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.24074074074074073,
+  "class": "same",
+  "ms": 145.016
+ },
+ {
+  "name": "filters-composite-04-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.25983796296296297,
+  "class": "same",
+  "ms": 49.048
+ },
+ {
+  "name": "filters-composite-05-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.25983796296296297,
+  "class": "same",
+  "ms": 47.581
+ },
+ {
+  "name": "filters-comptran-01-b-manual",
+  "chapter": "filters",
+  "diff_percent": 2.0324074074074074,
+  "class": "close",
+  "ms": 560.551
+ },
+ {
+  "name": "filters-conv-01-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.24189814814814814,
+  "class": "same",
+  "ms": 77.964
+ },
+ {
+  "name": "filters-conv-02-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.6545138888888888,
+  "class": "same",
+  "ms": 63.43
+ },
+ {
+  "name": "filters-conv-03-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.5358796296296297,
+  "class": "same",
+  "ms": 95.819
+ },
+ {
+  "name": "filters-conv-04-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.49594907407407407,
+  "class": "same",
+  "ms": 317.361
+ },
+ {
+  "name": "filters-conv-05-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.5416666666666666,
+  "class": "same",
+  "ms": 231.447
+ },
+ {
+  "name": "filters-diffuse-01-f-manual",
+  "chapter": "filters",
+  "diff_percent": 2.5972222222222223,
+  "class": "close",
+  "ms": 107.333
+ },
+ {
+  "name": "filters-displace-01-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.6950231481481481,
+  "class": "same",
+  "ms": 361.844
+ },
+ {
+  "name": "filters-displace-02-f-manual",
+  "chapter": "filters",
+  "diff_percent": 22.250578703703702,
+  "class": "differs",
+  "ms": 522.54
+ },
+ {
+  "name": "filters-example-01-b-manual",
+  "chapter": "filters",
+  "diff_percent": 0.3888888888888889,
+  "class": "same",
+  "ms": 568.145
+ },
+ {
+  "name": "filters-felem-01-b-manual",
+  "chapter": "filters",
+  "diff_percent": 3.740740740740741,
+  "class": "close",
+  "ms": 107.44
+ },
+ {
+  "name": "filters-felem-02-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.2037037037037037,
+  "class": "same",
+  "ms": 1872.515
+ },
+ {
+  "name": "filters-gauss-01-b-manual",
+  "chapter": "filters",
+  "diff_percent": 0.22858796296296297,
+  "class": "same",
+  "ms": 191.319
+ },
+ {
+  "name": "filters-gauss-02-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.2175925925925926,
+  "class": "same",
+  "ms": 197.729
+ },
+ {
+  "name": "filters-gauss-03-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.21643518518518517,
+  "class": "same",
+  "ms": 63.483
+ },
+ {
+  "name": "filters-image-01-b-manual",
+  "chapter": "filters",
+  "diff_percent": 0.37094907407407407,
+  "class": "same",
+  "ms": 460.433
+ },
+ {
+  "name": "filters-image-02-b-manual",
+  "chapter": "filters",
+  "diff_percent": 0.6967592592592593,
+  "class": "same",
+  "ms": 111.155
+ },
+ {
+  "name": "filters-image-03-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.2349537037037037,
+  "class": "same",
+  "ms": 122.334
+ },
+ {
+  "name": "filters-image-04-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.6307870370370371,
+  "class": "same",
+  "ms": 127.749
+ },
+ {
+  "name": "filters-image-05-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.8981481481481481,
+  "class": "same",
+  "ms": 212.837
+ },
+ {
+  "name": "filters-light-01-f-manual",
+  "chapter": "filters",
+  "diff_percent": 3.9635416666666665,
+  "class": "close",
+  "ms": 258.019
+ },
+ {
+  "name": "filters-light-02-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.3773148148148148,
+  "class": "same",
+  "ms": 178.909
+ },
+ {
+  "name": "filters-light-03-f-manual",
+  "chapter": "filters",
+  "diff_percent": 2.092013888888889,
+  "class": "close",
+  "ms": 229.184
+ },
+ {
+  "name": "filters-light-04-f-manual",
+  "chapter": "filters",
+  "diff_percent": 2.5127314814814814,
+  "class": "close",
+  "ms": 106.771
+ },
+ {
+  "name": "filters-light-05-f-manual",
+  "chapter": "filters",
+  "diff_percent": 2.247685185185185,
+  "class": "close",
+  "ms": 331.067
+ },
+ {
+  "name": "filters-morph-01-f-manual",
+  "chapter": "filters",
+  "diff_percent": 1.2309027777777777,
+  "class": "close",
+  "ms": 535.826
+ },
+ {
+  "name": "filters-offset-01-b-manual",
+  "chapter": "filters",
+  "diff_percent": 0.21643518518518517,
+  "class": "same",
+  "ms": 882.934
+ },
+ {
+  "name": "filters-offset-02-b-manual",
+  "chapter": "filters",
+  "diff_percent": 1.7696759259259258,
+  "class": "close",
+  "ms": 322.491
+ },
+ {
+  "name": "filters-overview-01-b-manual",
+  "chapter": "filters",
+  "diff_percent": 6.731481481481482,
+  "class": "differs",
+  "ms": 596.933
+ },
+ {
+  "name": "filters-overview-02-b-manual",
+  "chapter": "filters",
+  "diff_percent": 6.726273148148148,
+  "class": "differs",
+  "ms": 665.738
+ },
+ {
+  "name": "filters-overview-03-b-manual",
+  "chapter": "filters",
+  "diff_percent": 6.719907407407407,
+  "class": "differs",
+  "ms": 645.99
+ },
+ {
+  "name": "filters-specular-01-f-manual",
+  "chapter": "filters",
+  "diff_percent": 3.306134259259259,
+  "class": "close",
+  "ms": 165.85
+ },
+ {
+  "name": "filters-tile-01-b-manual",
+  "chapter": "filters",
+  "diff_percent": 15.47337962962963,
+  "class": "differs",
+  "ms": 327.793
+ },
+ {
+  "name": "filters-turb-01-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.9427083333333334,
+  "class": "same",
+  "ms": 330.269
+ },
+ {
+  "name": "filters-turb-02-f-manual",
+  "chapter": "filters",
+  "diff_percent": 0.703125,
+  "class": "same",
+  "ms": 196.764
+ },
+ {
+  "name": "fonts-desc-01-t-manual",
+  "chapter": "fonts",
+  "diff_percent": 0.27546296296296297,
+  "class": "same",
+  "ms": 65.234
+ },
+ {
+  "name": "fonts-desc-02-t-manual",
+  "chapter": "fonts",
+  "diff_percent": 0.6840277777777778,
+  "class": "same",
+  "ms": 85.548
+ },
+ {
+  "name": "fonts-desc-03-t-manual",
+  "chapter": "fonts",
+  "diff_percent": 0.27372685185185186,
+  "class": "same",
+  "ms": 73.721
+ },
+ {
+  "name": "fonts-desc-04-t-manual",
+  "chapter": "fonts",
+  "diff_percent": 0.33969907407407407,
+  "class": "same",
+  "ms": 96.488
+ },
+ {
+  "name": "fonts-desc-05-t-manual",
+  "chapter": "fonts",
+  "diff_percent": 0.5601851851851852,
+  "class": "same",
+  "ms": 92.71
+ },
+ {
+  "name": "fonts-elem-01-t-manual",
+  "chapter": "fonts",
+  "diff_percent": 0.8587962962962963,
+  "class": "same",
+  "ms": 141.911
+ },
+ {
+  "name": "fonts-elem-02-t-manual",
+  "chapter": "fonts",
+  "diff_percent": 0.9334490740740741,
+  "class": "same",
+  "ms": 141.257
+ },
+ {
+  "name": "fonts-elem-03-b-manual",
+  "chapter": "fonts",
+  "diff_percent": 1.6770833333333333,
+  "class": "close",
+  "ms": 135.017
+ },
+ {
+  "name": "fonts-elem-04-b-manual",
+  "chapter": "fonts",
+  "diff_percent": 1.4884259259259258,
+  "class": "close",
+  "ms": 122.208
+ },
+ {
+  "name": "fonts-elem-05-t-manual",
+  "chapter": "fonts",
+  "diff_percent": 1.3952546296296295,
+  "class": "close",
+  "ms": 113.853
+ },
+ {
+  "name": "fonts-elem-06-t-manual",
+  "chapter": "fonts",
+  "diff_percent": 1.0960648148148149,
+  "class": "close",
+  "ms": 88.575
+ },
+ {
+  "name": "fonts-elem-07-b-manual",
+  "chapter": "fonts",
+  "diff_percent": 0.8587962962962963,
+  "class": "same",
+  "ms": 128.848
+ },
+ {
+  "name": "fonts-glyph-02-t-manual",
+  "chapter": "fonts",
+  "diff_percent": 2.040509259259259,
+  "class": "close",
+  "ms": 62.556
+ },
+ {
+  "name": "fonts-glyph-03-t-manual",
+  "chapter": "fonts",
+  "diff_percent": 0.2962962962962963,
+  "class": "same",
+  "ms": 68.802
+ },
+ {
+  "name": "fonts-glyph-04-t-manual",
+  "chapter": "fonts",
+  "diff_percent": 0.2523148148148148,
+  "class": "same",
+  "ms": 50.511
+ },
+ {
+  "name": "fonts-kern-01-t-manual",
+  "chapter": "fonts",
+  "diff_percent": 1.4519675925925926,
+  "class": "close",
+  "ms": 242.35
+ },
+ {
+  "name": "fonts-overview-201-t-manual",
+  "chapter": "fonts",
+  "diff_percent": 0.5758101851851852,
+  "class": "same",
+  "ms": 114.405
+ },
+ {
+  "name": "imp-path-01-f-manual",
+  "chapter": "imp",
+  "diff_percent": 0.2621527777777778,
+  "class": "same",
+  "ms": 2101.676
+ },
+ {
+  "name": "interact-cursor-01-f-manual",
+  "chapter": "interact",
+  "diff_percent": 0.6938657407407407,
+  "class": "same",
+  "ms": 182.544
+ },
+ {
+  "name": "interact-dom-01-b-manual",
+  "chapter": "interact",
+  "diff_percent": 0.44907407407407407,
+  "class": "same",
+  "ms": 72.259
+ },
+ {
+  "name": "interact-events-01-b-manual",
+  "chapter": "interact",
+  "diff_percent": 1.4207175925925926,
+  "class": "close",
+  "ms": 110.185
+ },
+ {
+  "name": "interact-events-02-b-manual",
+  "chapter": "interact",
+  "diff_percent": 0.5543981481481481,
+  "class": "same",
+  "ms": 66.437
+ },
+ {
+  "name": "interact-events-202-f-manual",
+  "chapter": "interact",
+  "diff_percent": 0.21643518518518517,
+  "class": "same",
+  "ms": 29.374
+ },
+ {
+  "name": "interact-events-203-t-manual",
+  "chapter": "interact",
+  "diff_percent": 1.7824074074074074,
+  "class": "close",
+  "ms": 176.246
+ },
+ {
+  "name": "interact-order-01-b-manual",
+  "chapter": "interact",
+  "diff_percent": 2.144675925925926,
+  "class": "close",
+  "ms": 148.681
+ },
+ {
+  "name": "interact-order-02-b-manual",
+  "chapter": "interact",
+  "diff_percent": 1.5896990740740742,
+  "class": "close",
+  "ms": 134.987
+ },
+ {
+  "name": "interact-order-03-b-manual",
+  "chapter": "interact",
+  "diff_percent": 3.957175925925926,
+  "class": "close",
+  "ms": 189.41
+ },
+ {
+  "name": "interact-pevents-01-b-manual",
+  "chapter": "interact",
+  "diff_percent": 0.27662037037037035,
+  "class": "same",
+  "ms": 326.529
+ },
+ {
+  "name": "interact-pevents-03-b-manual",
+  "chapter": "interact",
+  "diff_percent": 3.761574074074074,
+  "class": "close",
+  "ms": 102.055
+ },
+ {
+  "name": "interact-pevents-04-t-manual",
+  "chapter": "interact",
+  "diff_percent": 0.22916666666666666,
+  "class": "same",
+  "ms": 93.663
+ },
+ {
+  "name": "interact-pevents-05-b-manual",
+  "chapter": "interact",
+  "diff_percent": 1.9409722222222223,
+  "class": "close",
+  "ms": 63.989
+ },
+ {
+  "name": "interact-pevents-07-t-manual",
+  "chapter": "interact",
+  "diff_percent": 0.7858796296296297,
+  "class": "same",
+  "ms": 211.048
+ },
+ {
+  "name": "interact-pevents-08-f-manual",
+  "chapter": "interact",
+  "diff_percent": 0.9791666666666666,
+  "class": "same",
+  "ms": 299.167
+ },
+ {
+  "name": "interact-pevents-09-f-manual",
+  "chapter": "interact",
+  "diff_percent": 0.8396990740740741,
+  "class": "same",
+  "ms": 309.303
+ },
+ {
+  "name": "interact-pevents-10-f-manual",
+  "chapter": "interact",
+  "diff_percent": 0.24074074074074073,
+  "class": "same",
+  "ms": 54.702
+ },
+ {
+  "name": "interact-pointer-01-t-manual",
+  "chapter": "interact",
+  "diff_percent": 1.0104166666666667,
+  "class": "close",
+  "ms": 105.359
+ },
+ {
+  "name": "interact-pointer-02-t-manual",
+  "chapter": "interact",
+  "diff_percent": 1.4027777777777777,
+  "class": "close",
+  "ms": 101.621
+ },
+ {
+  "name": "interact-pointer-03-t-manual",
+  "chapter": "interact",
+  "diff_percent": 0.6186342592592593,
+  "class": "same",
+  "ms": 65.079
+ },
+ {
+  "name": "interact-pointer-04-f-manual",
+  "chapter": "interact",
+  "diff_percent": 0.2534722222222222,
+  "class": "same",
+  "ms": 106.992
+ },
+ {
+  "name": "interact-zoom-01-t-manual",
+  "chapter": "interact",
+  "diff_percent": 0.2361111111111111,
+  "class": "same",
+  "ms": 62.954
+ },
+ {
+  "name": "interact-zoom-02-t-manual",
+  "chapter": "interact",
+  "diff_percent": 0.2349537037037037,
+  "class": "same",
+  "ms": 50.106
+ },
+ {
+  "name": "interact-zoom-03-t-manual",
+  "chapter": "interact",
+  "diff_percent": 1.4270833333333333,
+  "class": "close",
+  "ms": 132.839
+ },
+ {
+  "name": "linking-a-01-b-manual",
+  "chapter": "linking",
+  "diff_percent": 0.2222222222222222,
+  "class": "same",
+  "ms": 46.315
+ },
+ {
+  "name": "linking-a-03-b-manual",
+  "chapter": "linking",
+  "diff_percent": 0.2222222222222222,
+  "class": "same",
+  "ms": 48.403
+ },
+ {
+  "name": "linking-a-04-t-manual",
+  "chapter": "linking",
+  "diff_percent": 0.5086805555555556,
+  "class": "same",
+  "ms": 88.748
+ },
+ {
+  "name": "linking-a-05-t-manual",
+  "chapter": "linking",
+  "diff_percent": 0.6950231481481481,
+  "class": "same",
+  "ms": 120.27
+ },
+ {
+  "name": "linking-a-07-t-manual",
+  "chapter": "linking",
+  "diff_percent": 0.37962962962962965,
+  "class": "same",
+  "ms": 68.71
+ },
+ {
+  "name": "linking-a-08-t-manual",
+  "chapter": "linking",
+  "diff_percent": 0.5063657407407407,
+  "class": "same",
+  "ms": 49.114
+ },
+ {
+  "name": "linking-a-09-b-manual",
+  "chapter": "linking",
+  "diff_percent": 0.6892361111111112,
+  "class": "same",
+  "ms": 70.369
+ },
+ {
+  "name": "linking-a-10-f-manual",
+  "chapter": "linking",
+  "diff_percent": 0.25810185185185186,
+  "class": "same",
+  "ms": 659.744
+ },
+ {
+  "name": "linking-frag-01-f-manual",
+  "chapter": "linking",
+  "diff_percent": 0.2534722222222222,
+  "class": "same",
+  "ms": 64.175
+ },
+ {
+  "name": "linking-uri-01-b-manual",
+  "chapter": "linking",
+  "diff_percent": 1.4664351851851851,
+  "class": "close",
+  "ms": 198.479
+ },
+ {
+  "name": "linking-uri-02-b-manual",
+  "chapter": "linking",
+  "diff_percent": 1.5196759259259258,
+  "class": "close",
+  "ms": 225.271
+ },
+ {
+  "name": "linking-uri-03-t-manual",
+  "chapter": "linking",
+  "diff_percent": 1.2048611111111112,
+  "class": "close",
+  "ms": 135.674
+ },
+ {
+  "name": "masking-filter-01-f-manual",
+  "chapter": "masking",
+  "diff_percent": 0.4722222222222222,
+  "class": "same",
+  "ms": 123.967
+ },
+ {
+  "name": "masking-intro-01-f-manual",
+  "chapter": "masking",
+  "diff_percent": 1.0931712962962963,
+  "class": "close",
+  "ms": 251.595
+ },
+ {
+  "name": "masking-mask-01-b-manual",
+  "chapter": "masking",
+  "diff_percent": 1.2887731481481481,
+  "class": "close",
+  "ms": 206.64
+ },
+ {
+  "name": "masking-mask-02-f-manual",
+  "chapter": "masking",
+  "diff_percent": 0.21643518518518517,
+  "class": "same",
+  "ms": 35.273
+ },
+ {
+  "name": "masking-opacity-01-b-manual",
+  "chapter": "masking",
+  "diff_percent": 3.2418981481481484,
+  "class": "close",
+  "ms": 233.303
+ },
+ {
+  "name": "masking-path-01-b-manual",
+  "chapter": "masking",
+  "diff_percent": 1.1863425925925926,
+  "class": "close",
+  "ms": 203.327
+ },
+ {
+  "name": "masking-path-02-b-manual",
+  "chapter": "masking",
+  "diff_percent": 1.4756944444444444,
+  "class": "close",
+  "ms": 198.938
+ },
+ {
+  "name": "masking-path-03-b-manual",
+  "chapter": "masking",
+  "diff_percent": 1.6863425925925926,
+  "class": "close",
+  "ms": 278.13
+ },
+ {
+  "name": "masking-path-04-b-manual",
+  "chapter": "masking",
+  "diff_percent": 0.7158564814814815,
+  "class": "same",
+  "ms": 50.052
+ },
+ {
+  "name": "masking-path-05-f-manual",
+  "chapter": "masking",
+  "diff_percent": 0.6215277777777778,
+  "class": "same",
+  "ms": 165.3
+ },
+ {
+  "name": "masking-path-06-b-manual",
+  "chapter": "masking",
+  "diff_percent": 0.78125,
+  "class": "same",
+  "ms": 101.543
+ },
+ {
+  "name": "masking-path-07-b-manual",
+  "chapter": "masking",
+  "diff_percent": 0.6359953703703703,
+  "class": "same",
+  "ms": 672.638
+ },
+ {
+  "name": "masking-path-08-b-manual",
+  "chapter": "masking",
+  "diff_percent": 0.7476851851851852,
+  "class": "same",
+  "ms": 110.604
+ },
+ {
+  "name": "masking-path-09-b-manual",
+  "chapter": "masking",
+  "diff_percent": 0.42824074074074076,
+  "class": "same",
+  "ms": 57.231
+ },
+ {
+  "name": "masking-path-10-b-manual",
+  "chapter": "masking",
+  "diff_percent": 0.6730324074074074,
+  "class": "same",
+  "ms": 103.263
+ },
+ {
+  "name": "masking-path-11-b-manual",
+  "chapter": "masking",
+  "diff_percent": 0.36342592592592593,
+  "class": "same",
+  "ms": 62.897
+ },
+ {
+  "name": "masking-path-12-f-manual",
+  "chapter": "masking",
+  "diff_percent": 0.2222222222222222,
+  "class": "same",
+  "ms": 31.318
+ },
+ {
+  "name": "masking-path-13-f-manual",
+  "chapter": "masking",
+  "diff_percent": 0.21354166666666666,
+  "class": "same",
+  "ms": 31.981
+ },
+ {
+  "name": "masking-path-14-f-manual",
+  "chapter": "masking",
+  "diff_percent": 0.21296296296296297,
+  "class": "same",
+  "ms": 319.088
+ },
+ {
+  "name": "metadata-example-01-t-manual",
+  "chapter": "metadata",
+  "diff_percent": 0.28125,
+  "class": "same",
+  "ms": 532.123
+ },
+ {
+  "name": "painting-control-01-f-manual",
+  "chapter": "painting",
+  "diff_percent": 0.24016203703703703,
+  "class": "same",
+  "ms": 41.317
+ },
+ {
+  "name": "painting-control-02-f-manual",
+  "chapter": "painting",
+  "diff_percent": 0.21643518518518517,
+  "class": "same",
+  "ms": 40.416
+ },
+ {
+  "name": "painting-control-03-f-manual",
+  "chapter": "painting",
+  "diff_percent": 0.2222222222222222,
+  "class": "same",
+  "ms": 76.581
+ },
+ {
+  "name": "painting-control-04-f-manual",
+  "chapter": "painting",
+  "diff_percent": 0.24074074074074073,
+  "class": "same",
+  "ms": 35.985
+ },
+ {
+  "name": "painting-control-05-f-manual",
+  "chapter": "painting",
+  "diff_percent": 0.22106481481481483,
+  "class": "same",
+  "ms": 125.832
+ },
+ {
+  "name": "painting-control-06-f-manual",
+  "chapter": "painting",
+  "diff_percent": 0.24074074074074073,
+  "class": "same",
+  "ms": 33.647
+ },
+ {
+  "name": "painting-fill-01-t-manual",
+  "chapter": "painting",
+  "diff_percent": 1.6371527777777777,
+  "class": "close",
+  "ms": 98.757
+ },
+ {
+  "name": "painting-fill-02-t-manual",
+  "chapter": "painting",
+  "diff_percent": 1.6944444444444444,
+  "class": "close",
+  "ms": 133.037
+ },
+ {
+  "name": "painting-fill-03-t-manual",
+  "chapter": "painting",
+  "diff_percent": 1.5052083333333333,
+  "class": "close",
+  "ms": 122.404
+ },
+ {
+  "name": "painting-fill-04-t-manual",
+  "chapter": "painting",
+  "diff_percent": 0.21469907407407407,
+  "class": "same",
+  "ms": 56.463
+ },
+ {
+  "name": "painting-fill-05-b-manual",
+  "chapter": "painting",
+  "diff_percent": 0.24074074074074073,
+  "class": "same",
+  "ms": 103.99
+ },
+ {
+  "name": "painting-render-01-b-manual",
+  "chapter": "painting",
+  "diff_percent": 4.917824074074074,
+  "class": "close",
+  "ms": 165.239
+ },
+ {
+  "name": "painting-render-02-b-manual",
+  "chapter": "painting",
+  "diff_percent": 0.26099537037037035,
+  "class": "same",
+  "ms": 112.481
+ },
+ {
+  "name": "painting-stroke-01-t-manual",
+  "chapter": "painting",
+  "diff_percent": 1.8761574074074074,
+  "class": "close",
+  "ms": 84.962
+ },
+ {
+  "name": "painting-stroke-02-t-manual",
+  "chapter": "painting",
+  "diff_percent": 2.127314814814815,
+  "class": "close",
+  "ms": 107.663
+ },
+ {
+  "name": "painting-stroke-03-t-manual",
+  "chapter": "painting",
+  "diff_percent": 2.1475694444444446,
+  "class": "close",
+  "ms": 104.804
+ },
+ {
+  "name": "painting-stroke-04-t-manual",
+  "chapter": "painting",
+  "diff_percent": 2.15625,
+  "class": "close",
+  "ms": 96.979
+ },
+ {
+  "name": "painting-stroke-05-t-manual",
+  "chapter": "painting",
+  "diff_percent": 0.4583333333333333,
+  "class": "same",
+  "ms": 194.057
+ },
+ {
+  "name": "painting-stroke-06-t-manual",
+  "chapter": "painting",
+  "diff_percent": 0.2037037037037037,
+  "class": "same",
+  "ms": 115.857
+ },
+ {
+  "name": "painting-stroke-07-t-manual",
+  "chapter": "painting",
+  "diff_percent": 0.21064814814814814,
+  "class": "same",
+  "ms": 67.066
+ },
+ {
+  "name": "painting-stroke-08-t-manual",
+  "chapter": "painting",
+  "diff_percent": 0.2175925925925926,
+  "class": "same",
+  "ms": 88.871
+ },
+ {
+  "name": "painting-stroke-09-t-manual",
+  "chapter": "painting",
+  "diff_percent": 0.2037037037037037,
+  "class": "same",
+  "ms": 43.787
+ },
+ {
+  "name": "painting-stroke-10-t-manual",
+  "chapter": "painting",
+  "diff_percent": 0.7013888888888888,
+  "class": "same",
+  "ms": 95.962
+ },
+ {
+  "name": "paths-data-01-t-manual",
+  "chapter": "paths",
+  "diff_percent": 0.453125,
+  "class": "same",
+  "ms": 159.618
+ },
+ {
+  "name": "paths-data-02-t-manual",
+  "chapter": "paths",
+  "diff_percent": 0.5179398148148148,
+  "class": "same",
+  "ms": 153.058
+ },
+ {
+  "name": "paths-data-03-f-manual",
+  "chapter": "paths",
+  "diff_percent": 0.5028935185185185,
+  "class": "same",
+  "ms": 126.691
+ },
+ {
+  "name": "paths-data-04-t-manual",
+  "chapter": "paths",
+  "diff_percent": 0.6545138888888888,
+  "class": "same",
+  "ms": 92.02
+ },
+ {
+  "name": "paths-data-05-t-manual",
+  "chapter": "paths",
+  "diff_percent": 0.5127314814814815,
+  "class": "same",
+  "ms": 77.049
+ },
+ {
+  "name": "paths-data-06-t-manual",
+  "chapter": "paths",
+  "diff_percent": 0.328125,
+  "class": "same",
+  "ms": 52.403
+ },
+ {
+  "name": "paths-data-07-t-manual",
+  "chapter": "paths",
+  "diff_percent": 0.36921296296296297,
+  "class": "same",
+  "ms": 50.87
+ },
+ {
+  "name": "paths-data-08-t-manual",
+  "chapter": "paths",
+  "diff_percent": 0.84375,
+  "class": "same",
+  "ms": 103.775
+ },
+ {
+  "name": "paths-data-09-t-manual",
+  "chapter": "paths",
+  "diff_percent": 0.5827546296296297,
+  "class": "same",
+  "ms": 105.844
+ },
+ {
+  "name": "paths-data-10-t-manual",
+  "chapter": "paths",
+  "diff_percent": 1.3327546296296295,
+  "class": "close",
+  "ms": 296.053
+ },
+ {
+  "name": "paths-data-12-t-manual",
+  "chapter": "paths",
+  "diff_percent": 0.22453703703703703,
+  "class": "same",
+  "ms": 57.008
+ },
+ {
+  "name": "paths-data-13-t-manual",
+  "chapter": "paths",
+  "diff_percent": 0.2222222222222222,
+  "class": "same",
+  "ms": 43.036
+ },
+ {
+  "name": "paths-data-14-t-manual",
+  "chapter": "paths",
+  "diff_percent": 0.21469907407407407,
+  "class": "same",
+  "ms": 71.708
+ },
+ {
+  "name": "paths-data-15-t-manual",
+  "chapter": "paths",
+  "diff_percent": 0.21469907407407407,
+  "class": "same",
+  "ms": 47.47
+ },
+ {
+  "name": "paths-data-16-t-manual",
+  "chapter": "paths",
+  "diff_percent": 0.5133101851851852,
+  "class": "same",
+  "ms": 89.97
+ },
+ {
+  "name": "paths-data-17-f-manual",
+  "chapter": "paths",
+  "diff_percent": 0.24074074074074073,
+  "class": "same",
+  "ms": 43.039
+ },
+ {
+  "name": "paths-data-18-f-manual",
+  "chapter": "paths",
+  "diff_percent": 0.21469907407407407,
+  "class": "same",
+  "ms": 37.008
+ },
+ {
+  "name": "paths-data-19-f-manual",
+  "chapter": "paths",
+  "diff_percent": 0.24363425925925927,
+  "class": "same",
+  "ms": 162.444
+ },
+ {
+  "name": "paths-data-20-f-manual",
+  "chapter": "paths",
+  "diff_percent": 0.21643518518518517,
+  "class": "same",
+  "ms": 71.712
+ },
+ {
+  "name": "paths-dom-01-f-manual",
+  "chapter": "paths",
+  "diff_percent": 2.2193287037037037,
+  "class": "close",
+  "ms": 186.01
+ },
+ {
+  "name": "paths-dom-02-f-manual",
+  "chapter": "paths",
+  "diff_percent": 0.2621527777777778,
+  "class": "same",
+  "ms": 50.405
+ },
+ {
+  "name": "pservers-grad-01-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.9097222222222222,
+  "class": "same",
+  "ms": 147.722
+ },
+ {
+  "name": "pservers-grad-02-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 1.1672453703703705,
+  "class": "close",
+  "ms": 215.61
+ },
+ {
+  "name": "pservers-grad-03-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 1.0740740740740742,
+  "class": "close",
+  "ms": 162.505
+ },
+ {
+  "name": "pservers-grad-04-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 1.8344907407407407,
+  "class": "close",
+  "ms": 169.976
+ },
+ {
+  "name": "pservers-grad-05-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.5011574074074074,
+  "class": "same",
+  "ms": 203.633
+ },
+ {
+  "name": "pservers-grad-06-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 2.2731481481481484,
+  "class": "close",
+  "ms": 448.966
+ },
+ {
+  "name": "pservers-grad-07-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 3.357638888888889,
+  "class": "close",
+  "ms": 181.406
+ },
+ {
+  "name": "pservers-grad-08-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 3.4108796296296298,
+  "class": "close",
+  "ms": 362.678
+ },
+ {
+  "name": "pservers-grad-09-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.5787037037037037,
+  "class": "same",
+  "ms": 104.084
+ },
+ {
+  "name": "pservers-grad-10-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.7696759259259259,
+  "class": "same",
+  "ms": 169.013
+ },
+ {
+  "name": "pservers-grad-11-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 2.2980324074074074,
+  "class": "close",
+  "ms": 432.048
+ },
+ {
+  "name": "pservers-grad-12-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 1.8177083333333333,
+  "class": "close",
+  "ms": 275.34
+ },
+ {
+  "name": "pservers-grad-13-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.47337962962962965,
+  "class": "same",
+  "ms": 710.6
+ },
+ {
+  "name": "pservers-grad-14-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 2.9270833333333335,
+  "class": "close",
+  "ms": 258.26
+ },
+ {
+  "name": "pservers-grad-15-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.21469907407407407,
+  "class": "same",
+  "ms": 134.524
+ },
+ {
+  "name": "pservers-grad-16-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.2222222222222222,
+  "class": "same",
+  "ms": 81.843
+ },
+ {
+  "name": "pservers-grad-17-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.5190972222222222,
+  "class": "same",
+  "ms": 92.3
+ },
+ {
+  "name": "pservers-grad-18-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.2222222222222222,
+  "class": "same",
+  "ms": 103.69
+ },
+ {
+  "name": "pservers-grad-20-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.4820601851851852,
+  "class": "same",
+  "ms": 87.424
+ },
+ {
+  "name": "pservers-grad-21-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.2777777777777778,
+  "class": "same",
+  "ms": 329.184
+ },
+ {
+  "name": "pservers-grad-22-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.24074074074074073,
+  "class": "same",
+  "ms": 65.7
+ },
+ {
+  "name": "pservers-grad-23-f-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.25636574074074076,
+  "class": "same",
+  "ms": 48.291
+ },
+ {
+  "name": "pservers-grad-24-f-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.45601851851851855,
+  "class": "same",
+  "ms": 58.107
+ },
+ {
+  "name": "pservers-grad-stops-01-f-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.25636574074074076,
+  "class": "same",
+  "ms": 71.242
+ },
+ {
+  "name": "pservers-pattern-01-b-manual",
+  "chapter": "pservers",
+  "diff_percent": 2.3952546296296298,
+  "class": "close",
+  "ms": 223.602
+ },
+ {
+  "name": "pservers-pattern-02-f-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.23032407407407407,
+  "class": "same",
+  "ms": 1535.202
+ },
+ {
+  "name": "pservers-pattern-03-f-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.2621527777777778,
+  "class": "same",
+  "ms": 98.474
+ },
+ {
+  "name": "pservers-pattern-04-f-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.22106481481481483,
+  "class": "same",
+  "ms": 138.983
+ },
+ {
+  "name": "pservers-pattern-05-f-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.25810185185185186,
+  "class": "same",
+  "ms": 60.961
+ },
+ {
+  "name": "pservers-pattern-06-f-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.2534722222222222,
+  "class": "same",
+  "ms": 47.145
+ },
+ {
+  "name": "pservers-pattern-07-f-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.25810185185185186,
+  "class": "same",
+  "ms": 148.809
+ },
+ {
+  "name": "pservers-pattern-08-f-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.25810185185185186,
+  "class": "same",
+  "ms": 167.747
+ },
+ {
+  "name": "pservers-pattern-09-f-manual",
+  "chapter": "pservers",
+  "diff_percent": 0.25983796296296297,
+  "class": "same",
+  "ms": 109.107
+ },
+ {
+  "name": "render-elems-01-t-manual",
+  "chapter": "render",
+  "diff_percent": 0.3159722222222222,
+  "class": "same",
+  "ms": 51.153
+ },
+ {
+  "name": "render-elems-02-t-manual",
+  "chapter": "render",
+  "diff_percent": 0.3923611111111111,
+  "class": "same",
+  "ms": 62.655
+ },
+ {
+  "name": "render-elems-03-t-manual",
+  "chapter": "render",
+  "diff_percent": 0.4212962962962963,
+  "class": "same",
+  "ms": 75.486
+ },
+ {
+  "name": "render-elems-06-t-manual",
+  "chapter": "render",
+  "diff_percent": 0.53125,
+  "class": "same",
+  "ms": 73.345
+ },
+ {
+  "name": "render-elems-07-t-manual",
+  "chapter": "render",
+  "diff_percent": 0.6805555555555556,
+  "class": "same",
+  "ms": 94.926
+ },
+ {
+  "name": "render-elems-08-t-manual",
+  "chapter": "render",
+  "diff_percent": 1.2019675925925926,
+  "class": "close",
+  "ms": 126.746
+ },
+ {
+  "name": "render-groups-01-b-manual",
+  "chapter": "render",
+  "diff_percent": 0.22569444444444445,
+  "class": "same",
+  "ms": 234.719
+ },
+ {
+  "name": "render-groups-03-t-manual",
+  "chapter": "render",
+  "diff_percent": 0.3605324074074074,
+  "class": "same",
+  "ms": 156.556
+ },
+ {
+  "name": "script-handle-01-b-manual",
+  "chapter": "script",
+  "diff_percent": 0.5428240740740741,
+  "class": "same",
+  "ms": 77.773
+ },
+ {
+  "name": "script-handle-02-b-manual",
+  "chapter": "script",
+  "diff_percent": 2.152199074074074,
+  "class": "close",
+  "ms": 147.582
+ },
+ {
+  "name": "script-handle-03-b-manual",
+  "chapter": "script",
+  "diff_percent": 2.006365740740741,
+  "class": "close",
+  "ms": 113.541
+ },
+ {
+  "name": "script-handle-04-b-manual",
+  "chapter": "script",
+  "diff_percent": 2.0225694444444446,
+  "class": "close",
+  "ms": 119.564
+ },
+ {
+  "name": "script-specify-01-f-manual",
+  "chapter": "script",
+  "diff_percent": 0.6296296296296297,
+  "class": "same",
+  "ms": 82.388
+ },
+ {
+  "name": "script-specify-02-f-manual",
+  "chapter": "script",
+  "diff_percent": 0.9577546296296297,
+  "class": "same",
+  "ms": 77.473
+ },
+ {
+  "name": "shapes-circle-01-t-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.2175925925925926,
+  "class": "same",
+  "ms": 62.276
+ },
+ {
+  "name": "shapes-circle-02-t-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.22974537037037038,
+  "class": "same",
+  "ms": 53.889
+ },
+ {
+  "name": "shapes-ellipse-01-t-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.21296296296296297,
+  "class": "same",
+  "ms": 75.643
+ },
+ {
+  "name": "shapes-ellipse-02-t-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.2175925925925926,
+  "class": "same",
+  "ms": 54.337
+ },
+ {
+  "name": "shapes-ellipse-03-f-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.22511574074074073,
+  "class": "same",
+  "ms": 70.304
+ },
+ {
+  "name": "shapes-grammar-01-f-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.21354166666666666,
+  "class": "same",
+  "ms": 68.014
+ },
+ {
+  "name": "shapes-intro-01-t-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.3269675925925926,
+  "class": "same",
+  "ms": 100.088
+ },
+ {
+  "name": "shapes-intro-02-f-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.22511574074074073,
+  "class": "same",
+  "ms": 88.15
+ },
+ {
+  "name": "shapes-line-01-t-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.2222222222222222,
+  "class": "same",
+  "ms": 53.101
+ },
+ {
+  "name": "shapes-line-02-f-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.21643518518518517,
+  "class": "same",
+  "ms": 38.531
+ },
+ {
+  "name": "shapes-polygon-01-t-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.2048611111111111,
+  "class": "same",
+  "ms": 71.173
+ },
+ {
+  "name": "shapes-polygon-02-t-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.21469907407407407,
+  "class": "same",
+  "ms": 118.307
+ },
+ {
+  "name": "shapes-polygon-03-t-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.2199074074074074,
+  "class": "same",
+  "ms": 48.782
+ },
+ {
+  "name": "shapes-polyline-01-t-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.22337962962962962,
+  "class": "same",
+  "ms": 77.447
+ },
+ {
+  "name": "shapes-polyline-02-t-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.2170138888888889,
+  "class": "same",
+  "ms": 139.429
+ },
+ {
+  "name": "shapes-rect-02-t-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.22453703703703703,
+  "class": "same",
+  "ms": 48.025
+ },
+ {
+  "name": "shapes-rect-03-t-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.27662037037037035,
+  "class": "same",
+  "ms": 143.111
+ },
+ {
+  "name": "shapes-rect-04-f-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.21875,
+  "class": "same",
+  "ms": 43.021
+ },
+ {
+  "name": "shapes-rect-05-f-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.2204861111111111,
+  "class": "same",
+  "ms": 45.067
+ },
+ {
+  "name": "shapes-rect-06-f-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.2789351851851852,
+  "class": "same",
+  "ms": 70.237
+ },
+ {
+  "name": "shapes-rect-07-f-manual",
+  "chapter": "shapes",
+  "diff_percent": 0.24479166666666666,
+  "class": "same",
+  "ms": 50.67
+ },
+ {
+  "name": "struct-cond-01-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.2222222222222222,
+  "class": "same",
+  "ms": 34.145
+ },
+ {
+  "name": "struct-cond-02-t-manual",
+  "chapter": "struct",
+  "diff_percent": 3.8512731481481484,
+  "class": "close",
+  "ms": 78.232
+ },
+ {
+  "name": "struct-cond-03-t-manual",
+  "chapter": "struct",
+  "diff_percent": 31.800925925925927,
+  "class": "differs",
+  "ms": 34.087
+ },
+ {
+  "name": "struct-cond-overview-02-f-manual",
+  "chapter": "struct",
+  "diff_percent": 9.55613425925926,
+  "class": "differs",
+  "ms": 50.997
+ },
+ {
+  "name": "struct-cond-overview-03-f-manual",
+  "chapter": "struct",
+  "diff_percent": 4.898148148148148,
+  "class": "close",
+  "ms": 49.061
+ },
+ {
+  "name": "struct-cond-overview-04-f-manual",
+  "chapter": "struct",
+  "diff_percent": 4.8969907407407405,
+  "class": "close",
+  "ms": 48.577
+ },
+ {
+  "name": "struct-cond-overview-05-f-manual",
+  "chapter": "struct",
+  "diff_percent": 4.8686342592592595,
+  "class": "close",
+  "ms": 49.796
+ },
+ {
+  "name": "struct-defs-01-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.21469907407407407,
+  "class": "same",
+  "ms": 31.064
+ },
+ {
+  "name": "struct-dom-01-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.21064814814814814,
+  "class": "same",
+  "ms": 32.387
+ },
+ {
+  "name": "struct-dom-02-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.2199074074074074,
+  "class": "same",
+  "ms": 32.267
+ },
+ {
+  "name": "struct-dom-03-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.21064814814814814,
+  "class": "same",
+  "ms": 35.981
+ },
+ {
+  "name": "struct-dom-04-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.21064814814814814,
+  "class": "same",
+  "ms": 31.04
+ },
+ {
+  "name": "struct-dom-05-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.2037037037037037,
+  "class": "same",
+  "ms": 30.219
+ },
+ {
+  "name": "struct-dom-06-b-manual",
+  "chapter": "struct",
+  "diff_percent": 1.0011574074074074,
+  "class": "close",
+  "ms": 59.899
+ },
+ {
+  "name": "struct-dom-07-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.21064814814814814,
+  "class": "same",
+  "ms": 92.941
+ },
+ {
+  "name": "struct-dom-08-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.5109953703703703,
+  "class": "same",
+  "ms": 54.251
+ },
+ {
+  "name": "struct-dom-11-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.7754629629629629,
+  "class": "same",
+  "ms": 78.068
+ },
+ {
+  "name": "struct-dom-12-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.9571759259259259,
+  "class": "same",
+  "ms": 116.551
+ },
+ {
+  "name": "struct-dom-13-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.2806712962962963,
+  "class": "same",
+  "ms": 49.889
+ },
+ {
+  "name": "struct-dom-14-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.24247685185185186,
+  "class": "same",
+  "ms": 45.046
+ },
+ {
+  "name": "struct-dom-15-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.22337962962962962,
+  "class": "same",
+  "ms": 36.345
+ },
+ {
+  "name": "struct-dom-16-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.3773148148148148,
+  "class": "same",
+  "ms": 54.723
+ },
+ {
+  "name": "struct-dom-17-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.3715277777777778,
+  "class": "same",
+  "ms": 57.779
+ },
+ {
+  "name": "struct-dom-18-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.4184027777777778,
+  "class": "same",
+  "ms": 75.558
+ },
+ {
+  "name": "struct-dom-19-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.46122685185185186,
+  "class": "same",
+  "ms": 56.841
+ },
+ {
+  "name": "struct-dom-20-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.25810185185185186,
+  "class": "same",
+  "ms": 48.366
+ },
+ {
+  "name": "struct-frag-01-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0,
+  "class": "same",
+  "ms": 0.928
+ },
+ {
+  "name": "struct-frag-02-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.024305555555555556,
+  "class": "same",
+  "ms": 54.33
+ },
+ {
+  "name": "struct-frag-03-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.019097222222222224,
+  "class": "same",
+  "ms": 42.692
+ },
+ {
+  "name": "struct-frag-04-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.005208333333333333,
+  "class": "same",
+  "ms": 17.449
+ },
+ {
+  "name": "struct-frag-05-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.35185185185185186,
+  "class": "same",
+  "ms": 51.762
+ },
+ {
+  "name": "struct-frag-06-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.7471064814814815,
+  "class": "same",
+  "ms": 116.185
+ },
+ {
+  "name": "struct-group-01-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.22164351851851852,
+  "class": "same",
+  "ms": 38.614
+ },
+ {
+  "name": "struct-group-02-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.21469907407407407,
+  "class": "same",
+  "ms": 191.342
+ },
+ {
+  "name": "struct-group-03-t-manual",
+  "chapter": "struct",
+  "diff_percent": 1.6886574074074074,
+  "class": "close",
+  "ms": 357.895
+ },
+ {
+  "name": "struct-image-01-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.2037037037037037,
+  "class": "same",
+  "ms": 30.109
+ },
+ {
+  "name": "struct-image-02-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.2199074074074074,
+  "class": "same",
+  "ms": 191.002
+ },
+ {
+  "name": "struct-image-03-t-manual",
+  "chapter": "struct",
+  "diff_percent": 1.0271990740740742,
+  "class": "close",
+  "ms": 56.497
+ },
+ {
+  "name": "struct-image-04-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.203125,
+  "class": "same",
+  "ms": 121.152
+ },
+ {
+  "name": "struct-image-05-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.21469907407407407,
+  "class": "same",
+  "ms": 31.558
+ },
+ {
+  "name": "struct-image-06-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.3125,
+  "class": "same",
+  "ms": 81.627
+ },
+ {
+  "name": "struct-image-07-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.9456018518518519,
+  "class": "same",
+  "ms": 103.255
+ },
+ {
+  "name": "struct-image-08-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.2222222222222222,
+  "class": "same",
+  "ms": 36.465
+ },
+ {
+  "name": "struct-image-09-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.2222222222222222,
+  "class": "same",
+  "ms": 35.989
+ },
+ {
+  "name": "struct-image-10-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.2222222222222222,
+  "class": "same",
+  "ms": 34.483
+ },
+ {
+  "name": "struct-image-11-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.24363425925925927,
+  "class": "same",
+  "ms": 47.434
+ },
+ {
+  "name": "struct-image-12-b-manual",
+  "chapter": "struct",
+  "diff_percent": 18.81134259259259,
+  "class": "differs",
+  "ms": 49.517
+ },
+ {
+  "name": "struct-image-13-f-manual",
+  "chapter": "struct",
+  "diff_percent": 1.5804398148148149,
+  "class": "close",
+  "ms": 119.867
+ },
+ {
+  "name": "struct-image-14-f-manual",
+  "chapter": "struct",
+  "diff_percent": 1.6984953703703705,
+  "class": "close",
+  "ms": 116.43
+ },
+ {
+  "name": "struct-image-15-f-manual",
+  "chapter": "struct",
+  "diff_percent": 1.0393518518518519,
+  "class": "close",
+  "ms": 82.5
+ },
+ {
+  "name": "struct-image-16-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.21643518518518517,
+  "class": "same",
+  "ms": 39.072
+ },
+ {
+  "name": "struct-image-17-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.4710648148148148,
+  "class": "same",
+  "ms": 76.954
+ },
+ {
+  "name": "struct-image-18-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.26157407407407407,
+  "class": "same",
+  "ms": 58.823
+ },
+ {
+  "name": "struct-image-19-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.2644675925925926,
+  "class": "same",
+  "ms": 65.318
+ },
+ {
+  "name": "struct-svg-01-f-manual",
+  "chapter": "struct",
+  "diff_percent": 3.0277777777777777,
+  "class": "close",
+  "ms": 157.46
+ },
+ {
+  "name": "struct-svg-02-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.2621527777777778,
+  "class": "same",
+  "ms": 56.711
+ },
+ {
+  "name": "struct-svg-03-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.25983796296296297,
+  "class": "same",
+  "ms": 131.529
+ },
+ {
+  "name": "struct-symbol-01-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.2037037037037037,
+  "class": "same",
+  "ms": 110.756
+ },
+ {
+  "name": "struct-use-01-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.7743055555555556,
+  "class": "same",
+  "ms": 138.335
+ },
+ {
+  "name": "struct-use-03-t-manual",
+  "chapter": "struct",
+  "diff_percent": 0.29282407407407407,
+  "class": "same",
+  "ms": 89.312
+ },
+ {
+  "name": "struct-use-04-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.41377314814814814,
+  "class": "same",
+  "ms": 56.375
+ },
+ {
+  "name": "struct-use-05-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.8842592592592593,
+  "class": "same",
+  "ms": 66.396
+ },
+ {
+  "name": "struct-use-06-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.2621527777777778,
+  "class": "same",
+  "ms": 62.911
+ },
+ {
+  "name": "struct-use-07-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.24363425925925927,
+  "class": "same",
+  "ms": 185.392
+ },
+ {
+  "name": "struct-use-08-b-manual",
+  "chapter": "struct",
+  "diff_percent": 1.0989583333333333,
+  "class": "close",
+  "ms": 109.378
+ },
+ {
+  "name": "struct-use-09-b-manual",
+  "chapter": "struct",
+  "diff_percent": 0.2621527777777778,
+  "class": "same",
+  "ms": 93.894
+ },
+ {
+  "name": "struct-use-10-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.44733796296296297,
+  "class": "same",
+  "ms": 56.761
+ },
+ {
+  "name": "struct-use-11-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.21643518518518517,
+  "class": "same",
+  "ms": 74.294
+ },
+ {
+  "name": "struct-use-12-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.21585648148148148,
+  "class": "same",
+  "ms": 33.709
+ },
+ {
+  "name": "struct-use-13-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.21585648148148148,
+  "class": "same",
+  "ms": 36.197
+ },
+ {
+  "name": "struct-use-14-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.25636574074074076,
+  "class": "same",
+  "ms": 58.124
+ },
+ {
+  "name": "struct-use-15-f-manual",
+  "chapter": "struct",
+  "diff_percent": 0.25578703703703703,
+  "class": "same",
+  "ms": 60.775
+ },
+ {
+  "name": "styling-class-01-f-manual",
+  "chapter": "styling",
+  "diff_percent": 0.21643518518518517,
+  "class": "same",
+  "ms": 35.408
+ },
+ {
+  "name": "styling-css-01-b-manual",
+  "chapter": "styling",
+  "diff_percent": 0.35358796296296297,
+  "class": "same",
+  "ms": 60.639
+ },
+ {
+  "name": "styling-css-02-b-manual",
+  "chapter": "styling",
+  "diff_percent": 0.28703703703703703,
+  "class": "same",
+  "ms": 61.215
+ },
+ {
+  "name": "styling-css-03-b-manual",
+  "chapter": "styling",
+  "diff_percent": 0.5457175925925926,
+  "class": "same",
+  "ms": 95.872
+ },
+ {
+  "name": "styling-css-04-f-manual",
+  "chapter": "styling",
+  "diff_percent": 0.4207175925925926,
+  "class": "same",
+  "ms": 160.88
+ },
+ {
+  "name": "styling-css-05-b-manual",
+  "chapter": "styling",
+  "diff_percent": 2.490740740740741,
+  "class": "close",
+  "ms": 80.909
+ },
+ {
+  "name": "styling-css-06-b-manual",
+  "chapter": "styling",
+  "diff_percent": 1.1695601851851851,
+  "class": "close",
+  "ms": 105.932
+ },
+ {
+  "name": "styling-css-07-f-manual",
+  "chapter": "styling",
+  "diff_percent": 0.21643518518518517,
+  "class": "same",
+  "ms": 28.795
+ },
+ {
+  "name": "styling-css-08-f-manual",
+  "chapter": "styling",
+  "diff_percent": 0.23726851851851852,
+  "class": "same",
+  "ms": 54.515
+ },
+ {
+  "name": "styling-css-09-f-manual",
+  "chapter": "styling",
+  "diff_percent": 0.2829861111111111,
+  "class": "same",
+  "ms": 81.614
+ },
+ {
+  "name": "styling-css-10-f-manual",
+  "chapter": "styling",
+  "diff_percent": 9.382523148148149,
+  "class": "differs",
+  "ms": 61.929
+ },
+ {
+  "name": "styling-elem-01-b-manual",
+  "chapter": "styling",
+  "diff_percent": 0.8113425925925926,
+  "class": "same",
+  "ms": 76.337
+ },
+ {
+  "name": "styling-inherit-01-b-manual",
+  "chapter": "styling",
+  "diff_percent": 0.2222222222222222,
+  "class": "same",
+  "ms": 122.272
+ },
+ {
+  "name": "styling-pres-01-t-manual",
+  "chapter": "styling",
+  "diff_percent": 0.2037037037037037,
+  "class": "same",
+  "ms": 40.043
+ },
+ {
+  "name": "styling-pres-02-f-manual",
+  "chapter": "styling",
+  "diff_percent": 3.435763888888889,
+  "class": "close",
+  "ms": 214.744
+ },
+ {
+  "name": "styling-pres-03-f-manual",
+  "chapter": "styling",
+  "diff_percent": 0.25636574074074076,
+  "class": "same",
+  "ms": 53.203
+ },
+ {
+  "name": "styling-pres-04-f-manual",
+  "chapter": "styling",
+  "diff_percent": 0.21180555555555555,
+  "class": "same",
+  "ms": 61.642
+ },
+ {
+  "name": "styling-pres-05-f-manual",
+  "chapter": "styling",
+  "diff_percent": 0.2743055555555556,
+  "class": "same",
+  "ms": 65.966
+ },
+ {
+  "name": "svgdom-over-01-f-manual",
+  "chapter": "svgdom",
+  "diff_percent": 0.25983796296296297,
+  "class": "same",
+  "ms": 52.155
+ },
+ {
+  "name": "text-align-01-b-manual",
+  "chapter": "text",
+  "diff_percent": 3.7934027777777777,
+  "class": "close",
+  "ms": 116.973
+ },
+ {
+  "name": "text-align-02-b-manual",
+  "chapter": "text",
+  "diff_percent": 4.0717592592592595,
+  "class": "close",
+  "ms": 191.499
+ },
+ {
+  "name": "text-align-03-b-manual",
+  "chapter": "text",
+  "diff_percent": 1.6377314814814814,
+  "class": "close",
+  "ms": 112.332
+ },
+ {
+  "name": "text-align-04-b-manual",
+  "chapter": "text",
+  "diff_percent": 1.775462962962963,
+  "class": "close",
+  "ms": 126.078
+ },
+ {
+  "name": "text-align-05-b-manual",
+  "chapter": "text",
+  "diff_percent": 1.0324074074074074,
+  "class": "close",
+  "ms": 95.351
+ },
+ {
+  "name": "text-align-06-b-manual",
+  "chapter": "text",
+  "diff_percent": 1.6116898148148149,
+  "class": "close",
+  "ms": 133.573
+ },
+ {
+  "name": "text-align-07-t-manual",
+  "chapter": "text",
+  "diff_percent": 1.1394675925925926,
+  "class": "close",
+  "ms": 106.105
+ },
+ {
+  "name": "text-align-08-b-manual",
+  "chapter": "text",
+  "diff_percent": 4.902199074074074,
+  "class": "close",
+  "ms": 92.707
+ },
+ {
+  "name": "text-altglyph-01-b-manual",
+  "chapter": "text",
+  "diff_percent": 1.4594907407407407,
+  "class": "close",
+  "ms": 101.438
+ },
+ {
+  "name": "text-altglyph-02-b-manual",
+  "chapter": "text",
+  "diff_percent": 1.1059027777777777,
+  "class": "close",
+  "ms": 374.637
+ },
+ {
+  "name": "text-altglyph-03-b-manual",
+  "chapter": "text",
+  "diff_percent": 1.287037037037037,
+  "class": "close",
+  "ms": 537.448
+ },
+ {
+  "name": "text-bidi-01-t-manual",
+  "chapter": "text",
+  "diff_percent": 0.3726851851851852,
+  "class": "same",
+  "ms": 73.633
+ },
+ {
+  "name": "text-deco-01-b-manual",
+  "chapter": "text",
+  "diff_percent": 2.7818287037037037,
+  "class": "close",
+  "ms": 332.516
+ },
+ {
+  "name": "text-dom-01-f-manual",
+  "chapter": "text",
+  "diff_percent": 6.184027777777778,
+  "class": "differs",
+  "ms": 280.721
+ },
+ {
+  "name": "text-dom-02-f-manual",
+  "chapter": "text",
+  "diff_percent": 0.9212962962962963,
+  "class": "same",
+  "ms": 97.997
+ },
+ {
+  "name": "text-dom-03-f-manual",
+  "chapter": "text",
+  "diff_percent": 0.9884259259259259,
+  "class": "same",
+  "ms": 111.894
+ },
+ {
+  "name": "text-dom-04-f-manual",
+  "chapter": "text",
+  "diff_percent": 4.695023148148148,
+  "class": "close",
+  "ms": 88.706
+ },
+ {
+  "name": "text-dom-05-f-manual",
+  "chapter": "text",
+  "diff_percent": 1.3819444444444444,
+  "class": "close",
+  "ms": 195.241
+ },
+ {
+  "name": "text-fonts-01-t-manual",
+  "chapter": "text",
+  "diff_percent": 2.9913194444444446,
+  "class": "close",
+  "ms": 133.903
+ },
+ {
+  "name": "text-fonts-02-t-manual",
+  "chapter": "text",
+  "diff_percent": 2.1012731481481484,
+  "class": "close",
+  "ms": 165.77
+ },
+ {
+  "name": "text-fonts-03-t-manual",
+  "chapter": "text",
+  "diff_percent": 1.2164351851851851,
+  "class": "close",
+  "ms": 118.662
+ },
+ {
+  "name": "text-fonts-04-t-manual",
+  "chapter": "text",
+  "diff_percent": 1.2164351851851851,
+  "class": "close",
+  "ms": 112.402
+ },
+ {
+  "name": "text-fonts-05-f-manual",
+  "chapter": "text",
+  "diff_percent": 0.5167824074074074,
+  "class": "same",
+  "ms": 76.151
+ },
+ {
+  "name": "text-fonts-202-t-manual",
+  "chapter": "text",
+  "diff_percent": 2.9247685185185186,
+  "class": "close",
+  "ms": 180.999
+ },
+ {
+  "name": "text-fonts-203-t-manual",
+  "chapter": "text",
+  "diff_percent": 4.921875,
+  "class": "close",
+  "ms": 219.93
+ },
+ {
+  "name": "text-fonts-204-t-manual",
+  "chapter": "text",
+  "diff_percent": 4.9594907407407405,
+  "class": "close",
+  "ms": 192.174
+ },
+ {
+  "name": "text-intro-01-t-manual",
+  "chapter": "text",
+  "diff_percent": 2.9965277777777777,
+  "class": "close",
+  "ms": 154.055
+ },
+ {
+  "name": "text-intro-02-b-manual",
+  "chapter": "text",
+  "diff_percent": 5.392939814814815,
+  "class": "differs",
+  "ms": 146.239
+ },
+ {
+  "name": "text-intro-03-b-manual",
+  "chapter": "text",
+  "diff_percent": 2.263888888888889,
+  "class": "close",
+  "ms": 96.438
+ },
+ {
+  "name": "text-intro-04-t-manual",
+  "chapter": "text",
+  "diff_percent": 4.194444444444445,
+  "class": "close",
+  "ms": 176.364
+ },
+ {
+  "name": "text-intro-05-t-manual",
+  "chapter": "text",
+  "diff_percent": 5.980324074074074,
+  "class": "differs",
+  "ms": 45.814
+ },
+ {
+  "name": "text-intro-06-t-manual",
+  "chapter": "text",
+  "diff_percent": 0.8611111111111112,
+  "class": "same",
+  "ms": 62.098
+ },
+ {
+  "name": "text-intro-07-t-manual",
+  "chapter": "text",
+  "diff_percent": 0.8310185185185185,
+  "class": "same",
+  "ms": 58.443
+ },
+ {
+  "name": "text-intro-09-b-manual",
+  "chapter": "text",
+  "diff_percent": 5.3530092592592595,
+  "class": "differs",
+  "ms": 132.984
+ },
+ {
+  "name": "text-intro-10-f-manual",
+  "chapter": "text",
+  "diff_percent": 6.030092592592593,
+  "class": "differs",
+  "ms": 65.092
+ },
+ {
+  "name": "text-intro-11-t-manual",
+  "chapter": "text",
+  "diff_percent": 0.8067129629629629,
+  "class": "same",
+  "ms": 110.816
+ },
+ {
+  "name": "text-intro-12-t-manual",
+  "chapter": "text",
+  "diff_percent": 0.8506944444444444,
+  "class": "same",
+  "ms": 75.819
+ },
+ {
+  "name": "text-path-01-b-manual",
+  "chapter": "text",
+  "diff_percent": 1.9872685185185186,
+  "class": "close",
+  "ms": 143.444
+ },
+ {
+  "name": "text-path-02-b-manual",
+  "chapter": "text",
+  "diff_percent": 0.9490740740740741,
+  "class": "same",
+  "ms": 119.052
+ },
+ {
+  "name": "text-spacing-01-b-manual",
+  "chapter": "text",
+  "diff_percent": 2.743634259259259,
+  "class": "close",
+  "ms": 133.646
+ },
+ {
+  "name": "text-text-01-b-manual",
+  "chapter": "text",
+  "diff_percent": 6.124421296296297,
+  "class": "differs",
+  "ms": 405.984
+ },
+ {
+  "name": "text-text-03-b-manual",
+  "chapter": "text",
+  "diff_percent": 4.044560185185185,
+  "class": "close",
+  "ms": 146.094
+ },
+ {
+  "name": "text-text-04-t-manual",
+  "chapter": "text",
+  "diff_percent": 0.8865740740740741,
+  "class": "same",
+  "ms": 251.227
+ },
+ {
+  "name": "text-text-05-t-manual",
+  "chapter": "text",
+  "diff_percent": 0.4195601851851852,
+  "class": "same",
+  "ms": 258.289
+ },
+ {
+  "name": "text-text-06-t-manual",
+  "chapter": "text",
+  "diff_percent": 0.47511574074074076,
+  "class": "same",
+  "ms": 111.173
+ },
+ {
+  "name": "text-text-07-t-manual",
+  "chapter": "text",
+  "diff_percent": 0.30092592592592593,
+  "class": "same",
+  "ms": 119.453
+ },
+ {
+  "name": "text-text-08-b-manual",
+  "chapter": "text",
+  "diff_percent": 1.3842592592592593,
+  "class": "close",
+  "ms": 323.012
+ },
+ {
+  "name": "text-text-09-t-manual",
+  "chapter": "text",
+  "diff_percent": 0.3275462962962963,
+  "class": "same",
+  "ms": 100.281
+ },
+ {
+  "name": "text-text-10-t-manual",
+  "chapter": "text",
+  "diff_percent": 1.8107638888888888,
+  "class": "close",
+  "ms": 373.16
+ },
+ {
+  "name": "text-text-11-t-manual",
+  "chapter": "text",
+  "diff_percent": 1.8107638888888888,
+  "class": "close",
+  "ms": 395.337
+ },
+ {
+  "name": "text-text-12-t-manual",
+  "chapter": "text",
+  "diff_percent": 0.7465277777777778,
+  "class": "same",
+  "ms": 338.553
+ },
+ {
+  "name": "text-tref-01-b-manual",
+  "chapter": "text",
+  "diff_percent": 0.6128472222222222,
+  "class": "same",
+  "ms": 62.468
+ },
+ {
+  "name": "text-tref-02-b-manual",
+  "chapter": "text",
+  "diff_percent": 4.046296296296297,
+  "class": "player-shows-nothing",
+  "ms": 58.219,
+  "chromium": "tainted"
+ },
+ {
+  "name": "text-tref-03-b-manual",
+  "chapter": "text",
+  "diff_percent": 1.3009259259259258,
+  "class": "close",
+  "ms": 66.546
+ },
+ {
+  "name": "text-tselect-01-b-manual",
+  "chapter": "text",
+  "diff_percent": 4.449074074074074,
+  "class": "close",
+  "ms": 234.897
+ },
+ {
+  "name": "text-tselect-02-f-manual",
+  "chapter": "text",
+  "diff_percent": 3.876736111111111,
+  "class": "close",
+  "ms": 100.909
+ },
+ {
+  "name": "text-tselect-03-f-manual",
+  "chapter": "text",
+  "diff_percent": 3.771990740740741,
+  "class": "close",
+  "ms": 108.492
+ },
+ {
+  "name": "text-tspan-01-b-manual",
+  "chapter": "text",
+  "diff_percent": 4.212962962962963,
+  "class": "close",
+  "ms": 353.066
+ },
+ {
+  "name": "text-tspan-02-b-manual",
+  "chapter": "text",
+  "diff_percent": 1.5196759259259258,
+  "class": "close",
+  "ms": 395.973
+ },
+ {
+  "name": "types-basic-01-f-manual",
+  "chapter": "types",
+  "diff_percent": 0.6388888888888888,
+  "class": "same",
+  "ms": 79.941
+ },
+ {
+  "name": "types-basic-02-f-manual",
+  "chapter": "types",
+  "diff_percent": 7.669560185185185,
+  "class": "differs",
+  "ms": 147.602
+ },
+ {
+  "name": "types-dom-01-b-manual",
+  "chapter": "types",
+  "diff_percent": 0.5543981481481481,
+  "class": "same",
+  "ms": 113.232
+ },
+ {
+  "name": "types-dom-02-f-manual",
+  "chapter": "types",
+  "diff_percent": 1.7378472222222223,
+  "class": "close",
+  "ms": 154.481
+ },
+ {
+  "name": "types-dom-03-b-manual",
+  "chapter": "types",
+  "diff_percent": 0.46875,
+  "class": "same",
+  "ms": 65.833
+ },
+ {
+  "name": "types-dom-04-b-manual",
+  "chapter": "types",
+  "diff_percent": 2.6927083333333335,
+  "class": "close",
+  "ms": 200.661
+ },
+ {
+  "name": "types-dom-05-b-manual",
+  "chapter": "types",
+  "diff_percent": 1.3715277777777777,
+  "class": "close",
+  "ms": 98.912
+ },
+ {
+  "name": "types-dom-06-f-manual",
+  "chapter": "types",
+  "diff_percent": 5.561342592592593,
+  "class": "differs",
+  "ms": 61.39
+ },
+ {
+  "name": "types-dom-07-f-manual",
+  "chapter": "types",
+  "diff_percent": 1.7679398148148149,
+  "class": "close",
+  "ms": 154.893
+ },
+ {
+  "name": "types-dom-08-f-manual",
+  "chapter": "types",
+  "diff_percent": 0.6111111111111112,
+  "class": "same",
+  "ms": 123.669
+ },
+ {
+  "name": "types-dom-svgfittoviewbox-01-f-manual",
+  "chapter": "types",
+  "diff_percent": 0.4670138888888889,
+  "class": "same",
+  "ms": 69.072
+ },
+ {
+  "name": "types-dom-svglengthlist-01-f-manual",
+  "chapter": "types",
+  "diff_percent": 0.40219907407407407,
+  "class": "same",
+  "ms": 57.86
+ },
+ {
+  "name": "types-dom-svgnumberlist-01-f-manual",
+  "chapter": "types",
+  "diff_percent": 0.3836805555555556,
+  "class": "same",
+  "ms": 57.429
+ },
+ {
+  "name": "types-dom-svgstringlist-01-f-manual",
+  "chapter": "types",
+  "diff_percent": 0.40219907407407407,
+  "class": "same",
+  "ms": 72.565
+ },
+ {
+  "name": "types-dom-svgtransformable-01-f-manual",
+  "chapter": "types",
+  "diff_percent": 0.4670138888888889,
+  "class": "same",
+  "ms": 72.446
+ }
+]
