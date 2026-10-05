@@ -2029,7 +2029,7 @@ class PresApp {
     }
 
     fn uiBusy:boolean () {
-        return (deck.uiBusy(selected))
+        return ((deck.uiBusy(selected)) || reviewBusy)
     }
 
     ; Called by the page each frame: one more rebuild while charts are still
@@ -5032,6 +5032,8 @@ class PresApp {
     ; The slides' titles to the review (threads follow their slides), and
     ; where the stage and the slide are now.
     def reviewSlide:int -1
+    ; the pins pulse (or fade in): the page draws again each frame
+    def reviewBusy:boolean false
 
     fn reviewReady:void () {
         ; presenting, a thread of another slide closes when the slide changes
@@ -5220,8 +5222,27 @@ class PresApp {
         return review.clip
     }
 
+    ; How much of the pins shows: while the slide plays they wait until
+    ; everything on it has arrived (`settled`), then come in over 0.4 s.
+    fn reviewShow:double () {
+        if ((this.isPlaying()) == false) {
+            return 1.0
+        }
+        def sl:PresSlide (deck.slideAt(selected))
+        def local:double (clock - (PresTimeline.slideStart(deck selected)))
+        def f:double ((local - sl.settled) / 0.4)
+        if (f < 0.0) {
+            return 0.0
+        }
+        if (f > 1.0) {
+            return 1.0
+        }
+        return f
+    }
+
     ; review mode's layer, for the page to paint where `layerOrder` puts it
     fn reviewJson:string () {
+        reviewBusy = false
         if ((review.on == false) || ((deck.slideCount()) == 0)) {
             return ""
         }
@@ -5230,6 +5251,7 @@ class PresApp {
         }
         this.place()
         this.reviewReady()
+        reviewBusy = (review.pulse(deck.uiNow (this.reviewShow())))
         def dl:EVGDisplayList (review.displayList())
         return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
