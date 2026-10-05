@@ -398,6 +398,33 @@ The report measures; it does not see. Look at the slides themselves:
 Effects (`fx=`) and picture corners are not drawn in these pictures; the
 player draws them. SVG pictures are drawn.
 
+## Changing a deck
+
+For a small change, send `edits` to `update_presentation` instead of the
+whole `markdown`:
+
+```json
+{ "deck_id": "…", "edits": [
+  { "find": "Revenue grew 12 %", "replace": "Revenue grew 14 %" },
+  { "slide": 4, "markdown": "## Costs\n\n- Rent\n- Salaries" },
+  { "slide_title": "Old plan", "markdown": "" },
+  { "after_slide": 6, "markdown": "## Next steps\n\n- Pilot in May" }
+] }
+```
+
+- `find` + `replace`: the text exactly as it is in the deck (spaces and
+  line breaks too); it must be there once, or add `"all": true`.
+- `slide` (number) or `slide_title` + `markdown`: the slide's whole new
+  text from its heading; `""` deletes the slide. A slide whose text ran
+  over onto the next ones is replaced with all of them.
+- `after_slide` + `markdown`: new slides after that one (0 = before the
+  first).
+
+Slide numbers are the ones the layout report and `render_overview` show,
+before these edits; their order does not matter. An edit that does not
+apply cleanly (text not found or found twice, two edits on the same text)
+saves nothing and says why. The answer lists what each edit changed.
+
 ## Review comments
 
 People comment slides in the editor's review mode: a speech bubble pinned

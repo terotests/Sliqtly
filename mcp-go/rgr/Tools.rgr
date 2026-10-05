@@ -17,6 +17,7 @@ Import "Charts.rgr"
 Import "Store.rgr"
 Import "Files.rgr"
 Import "SvgCheck.rgr"
+Import "Edits.rgr"
 Import "../presentation/PresReview.rgr"
 
 ; who is asking, for one request
@@ -202,9 +203,27 @@ class Tools {
         def title2:MfJ (Tools.prop("string" (Tools.withNameRule(host "A new name for the presentation; leave out to keep it."))))
         title2.putInt("maxLength" 200)
         up.put("title" title2)
-        up.put("markdown" (Tools.prop("string" "The whole deck as Sliqtly Markdown")))
+        up.put("markdown" (Tools.prop("string" "The whole deck as Sliqtly Markdown. For a small change send edits instead.")))
+        def ep:MfJ (MfJ.newObj())
+        ep.put("find" (Tools.prop("string" "Text to change, exactly as it is in the deck (spaces and line breaks too); it must be there once, or give all: true")))
+        ep.put("replace" (Tools.prop("string" "What find becomes (\"\" removes it)")))
+        ep.put("all" (Tools.prop("boolean" "Change every place find is, not just one")))
+        def sn:MfJ (Tools.prop("integer" "Slide to replace or delete, numbered as in render_overview and the layout report (1 = first)"))
+        sn.putInt("minimum" 1)
+        ep.put("slide" sn)
+        ep.put("slide_title" (Tools.prop("string" "Slide to replace or delete by its title (instead of slide)")))
+        def an:MfJ (Tools.prop("integer" "Add the markdown's slides after this slide (0 = before the first)"))
+        an.putInt("minimum" 0)
+        ep.put("after_slide" an)
+        ep.put("markdown" (Tools.prop("string" "With slide/slide_title: the slide's whole new Markdown from its heading (\"\" deletes the slide). With after_slide: the new slides.")))
+        def eitem:MfJ (MfJ.newObj())
+        eitem.putStr("type" "object")
+        eitem.put("properties" ep)
+        def edits:MfJ (Tools.prop("array" "Changes to the deck's Markdown instead of sending all of it: each edit is find + replace, slide (or slide_title) + markdown, or after_slide + markdown. Slide numbers and find refer to the deck as it is before these edits; two edits may not touch the same text. Not with markdown."))
+        edits.put("items" eitem)
+        up.put("edits" edits)
         Tools.deckFields(up)
-        tools.add((Tools.tool("update_presentation" "Update a presentation" "Change a presentation made with create_presentation, keeping its link. Send only what changes: markdown replaces the whole text; images and files are added (or replace ones of the same name)." (Tools.schema(up ([] _:string ("deck_id")))) (Tools.annotations(false 1 true true)) (Tools.uiMeta(host)))))
+        tools.add((Tools.tool("update_presentation" "Update a presentation" "Change a presentation made with create_presentation, keeping its link. Send only what changes: edits change parts of the text (a phrase, one slide, new slides), markdown replaces the whole text; images and files are added (or replace ones of the same name)." (Tools.schema(up ([] _:string ("deck_id")))) (Tools.annotations(false 1 true true)) (Tools.uiMeta(host)))))
 
         def bp:MfJ (MfJ.newObj())
         bp.put("deck_id" (Tools.prop("string" "deck_id from create_presentation")))
@@ -1154,6 +1173,19 @@ class Tools {
             p.hasMd = true
             p.md = (a.str_("markdown"))
         }
+        def editNote:string ""
+        if ((a.field("edits")).kind != 0) {
+            def eo:DeckEditsOut (Tools.applyEdits(host id cur a))
+            if ((strlen eo.err) > 0) {
+                return (Tools.fail(("Not updated: " + eo.err)))
+            }
+            if ((strlen eo.md) > (Deck.MAX_MD())) {
+                return (Tools.fail("Not updated: with these edits the markdown is larger than 300 KB."))
+            }
+            p.hasMd = true
+            p.md = eo.md
+            editNote = (join eo.done "\n")
+        }
         if (Tools.has(a "theme")) {
             p.hasTheme = true
             p.theme = (a.str_("theme"))
@@ -1177,7 +1209,105 @@ class Tools {
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "update_presentation" (host_error host)))
         }
-        return (Tools.withData(host (Tools.updated(host caller id saved "")) data.imgs))
+        return (Tools.withData(host (Tools.updated(host caller id saved editNote)) data.imgs))
+    }
+
+    ; the edits of update_presentation made on the stored deck's Markdown,
+    ; its slides numbered as the stored theme and CSS lay them out
+    sfn applyEdits:DeckEditsOut (host:McpHost id:string cur:MfJ a:MfJ) {
+        def out (new DeckEditsOut)
+        def list:MfJ (a.field("edits"))
+        if ((list.isArr()) == false) {
+            out.err = "edits is a list of edits."
+            return out
+        }
+        if (Tools.has(a "markdown")) {
+            out.err = "give markdown (the whole deck) or edits, not both."
+            return out
+        }
+        def edits:[DeckEdit]
+        def n:int 0
+        for (a.list("edits")) ej:MfJ ei {
+            n = (ei + 1)
+            def lead:string ("Edit " + n + ": ")
+            if ((ej.isObj()) == false) {
+                out.err = (lead + "an edit is an object.")
+                return out
+            }
+            for ([] _:string ("find" "replace" "slide_title" "markdown")) k:string kj {
+                def v:MfJ (ej.field(k))
+                if ((v.kind != 0) && (v.kind != 3)) {
+                    out.err = (lead + k + " is a string.")
+                    return out
+                }
+            }
+            for ([] _:string ("slide" "after_slide")) nk:string nj {
+                def nv:MfJ (ej.field(nk))
+                if ((nv.kind != 0) && ((nv.kind != 2) || (nv.num != (to_double (to_int nv.num))))) {
+                    out.err = (lead + nk + " is a whole number.")
+                    return out
+                }
+            }
+            def e (new DeckEdit)
+            def ways:int 0
+            if ((ej.field("find")).kind == 3) {
+                ways = (ways + 1)
+                e.kind = "text"
+                e.find = (ej.str_("find"))
+                if ((ej.field("replace")).kind != 3) {
+                    out.err = (lead + "find needs replace (\"\" to remove the text).")
+                    return out
+                }
+                e.replace = (ej.str_("replace"))
+                e.all = (ej.bool_("all" false))
+            }
+            if (((ej.field("slide")).kind == 2) || ((ej.field("slide_title")).kind == 3)) {
+                ways = (ways + 1)
+                e.kind = "slide"
+                e.slide = (ej.int_("slide" 0))
+                e.title = (ej.str_("slide_title"))
+            }
+            if ((ej.field("after_slide")).kind == 2) {
+                ways = (ways + 1)
+                e.kind = "insert"
+                e.after = (ej.int_("after_slide" 0))
+            }
+            if (ways != 1) {
+                out.err = (lead + "an edit has find (and replace), or slide (or slide_title) and markdown, or after_slide and markdown.")
+                return out
+            }
+            if ((e.kind != "text") && ((ej.field("markdown")).kind != 3)) {
+                out.err = (lead + "markdown is needed (\"\" deletes a slide).")
+                return out
+            }
+            e.markdown = (ej.str_("markdown"))
+            push edits e
+        }
+        def md:string (cur.str_("md"))
+        def starts:[int]
+        def titles:[string]
+        if (Tools.needsSlides(edits)) {
+            def noImgs:[Img]
+            def stored:[string]
+            for (cur.list("files")) sf:MfJ sfi {
+                push stored (sf.str_("path"))
+            }
+            def css:MfJ (cur.field("css"))
+            def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+            def ck:Checked (Tools.checkDeck(host md (cur.str_("theme")) (css.kind == 3) (cur.str_("css")) bgs noImgs id stored))
+            starts = ck.starts
+            titles = ck.titles
+        }
+        return (DeckEdits.apply(md edits starts titles))
+    }
+
+    sfn needsSlides:boolean (edits:[DeckEdit]) {
+        for edits one:DeckEdit i {
+            if (one.kind != "text") {
+                return true
+            }
+        }
+        return false
     }
 
     ; the stored deck, if this caller may change it (a host error stops it too)

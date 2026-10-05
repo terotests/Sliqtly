@@ -38,6 +38,8 @@ class Checked {
     def slides:int 0
     ; each slide's title, as the player numbers them
     def titles:[string]
+    ; where each slide starts in the Markdown (-1: it drew nothing)
+    def starts:[int]
     def warnings:[string]
     ; the layout report, slide by slide
     def report:[RSlideOut]
@@ -189,6 +191,7 @@ class Check {
         while (ti < c.slides) {
             def ts:PresSlide (d.slideAt(ti))
             push c.titles ts.title
+            push c.starts ts.srcStart
             ti = (ti + 1)
         }
         ; a slide that runs over goes on in untitled slides after it

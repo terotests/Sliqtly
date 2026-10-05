@@ -1,0 +1,440 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Partial updates: a few edits to a deck's Markdown instead of the whole text.
+; An edit replaces a piece of text found in the deck, replaces or deletes one
+; slide, or adds slides after one. Every edit is placed on the Markdown as it
+; was before any of them (slide numbers are the ones render_overview and the
+; layout report show), so their order does not matter; two edits on the same
+; text are refused. Store- and UI-free (edits_test.go).
+
+Import "../presentation/PresSlideSpans.rgr"
+
+class DeckEdit {
+    ; "text": find → replace; "slide": the slide's section becomes markdown
+    ; ("" deletes it); "insert": markdown goes after slide `after` (0 = before
+    ; the first slide)
+    def kind:string ""
+    def find:string ""
+    def replace:string ""
+    def all:boolean false
+    ; 1 = first; 0 = by title
+    def slide:int 0
+    def title:string ""
+    def after:int 0
+    def markdown:string ""
+}
+
+; a piece of the old text and what goes in its place
+class DeckEditCut {
+    def from:int 0
+    def to:int 0
+    def text:string ""
+    ; which edit (1 = first), for the messages
+    def edit:int 0
+}
+
+class DeckEditsOut {
+    def md:string ""
+    def err:string ""
+    ; a line per edit saying what it changed
+    def done:[string]
+}
+
+class DeckEdits {
+    ; md with edits made; starts/titles: each slide's first source offset
+    ; (-1: none) and title, from the deck as laid out
+    sfn apply:DeckEditsOut (md:string edits:[DeckEdit] starts:[int] titles:[string]) {
+        def out (new DeckEditsOut)
+        def cuts:[DeckEditCut]
+        if ((array_length edits) == 0) {
+            out.err = "edits is empty."
+            return out
+        }
+        def n:int 0
+        for edits e:DeckEdit ei {
+            n = (ei + 1)
+            def lead:string ("Edit " + n + ": ")
+            if (e.kind == "text") {
+                if ((strlen e.find) == 0) {
+                    out.err = (lead + "find is empty.")
+                    return out
+                }
+                def at:[int] (DeckEdits.occurrences(md e.find))
+                if ((array_length at) == 0) {
+                    out.err = (lead + "the text in find is not in the deck (it must match exactly, spaces and line breaks too). Read the deck with get_presentation.")
+                    return out
+                }
+                if (((array_length at) > 1) && (e.all == false)) {
+                    out.err = (lead + "the text in find is in the deck " + (array_length at) + " times: give more of the text around it, or all: true to change every one.")
+                    return out
+                }
+                for at a:int ai {
+                    def c (new DeckEditCut)
+                    c.from = a
+                    c.to = (a + (strlen e.find))
+                    c.text = e.replace
+                    c.edit = n
+                    push cuts c
+                }
+                def times:string ""
+                if ((array_length at) > 1) {
+                    times = (" (" + (array_length at) + " times)")
+                }
+                push out.done (lead + "text replaced" + times + " on " + (DeckEdits.slidesNote(md at starts)) + ".")
+                continue
+            }
+            if (e.kind == "slide") {
+                def i:int (DeckEdits.slideIndex(e titles))
+                if (i < 0) {
+                    out.err = (lead + (DeckEdits.noSlide(e titles)))
+                    return out
+                }
+                def span:[int] (PresSlideSpans.lines(md starts titles i))
+                if ((itemAt span 0) < 0) {
+                    out.err = (lead + "slide " + (i + 1) + " has no Markdown of its own to replace.")
+                    return out
+                }
+                def body:string (DeckEdits.trimEnd(e.markdown))
+                if (((strlen body) > 0) && ((DeckEdits.startsWithHeading(body)) == false)) {
+                    out.err = (lead + "markdown starts with the slide's heading (## Title), or is \"\" to delete the slide.")
+                    return out
+                }
+                def c2 (new DeckEditCut)
+                c2.from = (DeckEdits.offsetOfLine(md (itemAt span 0)))
+                c2.to = (DeckEdits.offsetOfLine(md (itemAt span 1)))
+                c2.edit = n
+                if ((strlen body) > 0) {
+                    c2.text = (DeckEdits.asSection(md c2.from c2.to body))
+                }
+                push cuts c2
+                def what:string "replaced"
+                if ((strlen body) == 0) {
+                    what = "deleted"
+                }
+                push out.done (lead + (DeckEdits.slideName(i titles)) + " " + what + (DeckEdits.overflowNote(md starts titles i)) + ".")
+                continue
+            }
+            if (e.kind == "insert") {
+                def count:int (array_length titles)
+                if ((e.after < 0) || (e.after > count)) {
+                    out.err = (lead + "after is a slide number from 0 (before the first) to " + count + ".")
+                    return out
+                }
+                def body2:string (DeckEdits.trimEnd(e.markdown))
+                if ((DeckEdits.startsWithHeading(body2)) == false) {
+                    out.err = (lead + "markdown of new slides starts with a heading (## Title).")
+                    return out
+                }
+                def pos:int 0
+                if (e.after == 0) {
+                    def first:[int] (PresSlideSpans.lines(md starts titles 0))
+                    if ((itemAt first 0) >= 0) {
+                        pos = (DeckEdits.offsetOfLine(md (itemAt first 0)))
+                    } {
+                        pos = (strlen md)
+                    }
+                } {
+                    def sp:[int] (PresSlideSpans.lines(md starts titles (e.after - 1)))
+                    if ((itemAt sp 0) < 0) {
+                        out.err = (lead + "slide " + e.after + " has no Markdown of its own to add slides after.")
+                        return out
+                    }
+                    pos = (DeckEdits.offsetOfLine(md (itemAt sp 1)))
+                }
+                def c3 (new DeckEditCut)
+                c3.from = pos
+                c3.to = pos
+                c3.text = (DeckEdits.asSection(md pos pos body2))
+                c3.edit = n
+                push cuts c3
+                if (e.after == 0) {
+                    push out.done (lead + "slides added before the first slide.")
+                } {
+                    push out.done (lead + "slides added after " + (DeckEdits.slideName((e.after - 1) titles)) + ".")
+                }
+                continue
+            }
+            out.err = (lead + "an edit has find (and replace), or slide (or slide_title) and markdown, or after_slide and markdown.")
+            return out
+        }
+        def sorted:[DeckEditCut] (DeckEdits.sortCuts(cuts))
+        def k:int 1
+        while (k < (array_length sorted)) {
+            def p:DeckEditCut (itemAt sorted (k - 1))
+            def q:DeckEditCut (itemAt sorted k)
+            def clash:boolean (q.from < p.to)
+            if (clash && (p.edit != q.edit)) {
+                out.err = ("Edits " + p.edit + " and " + q.edit + " change the same part of the deck: make them one edit.")
+                return out
+            }
+            k = (k + 1)
+        }
+        def res:string ""
+        def at2:int 0
+        for sorted s:DeckEditCut si {
+            res = (res + (substring md at2 s.from) + s.text)
+            at2 = s.to
+        }
+        res = (res + (substring md at2 (strlen md)))
+        out.md = res
+        return out
+    }
+
+    ; where find is in md, not overlapping, first to last
+    sfn occurrences:[int] (md:string find:string) {
+        def out:[int]
+        def from:int 0
+        def n:int (strlen find)
+        while (from <= ((strlen md) - n)) {
+            def rest:string (substring md from (strlen md))
+            def at:int (indexOf rest find)
+            if (at < 0) {
+                break
+            }
+            push out (from + at)
+            from = ((from + at) + n)
+        }
+        return out
+    }
+
+    ; the slide an edit names (0 = first), -1 when there is none or the
+    ; title is on more than one slide
+    sfn slideIndex:int (e:DeckEdit titles:[string]) {
+        def count:int (array_length titles)
+        if (e.slide > 0) {
+            if (e.slide > count) {
+                return -1
+            }
+            return (e.slide - 1)
+        }
+        def want:string (trim e.title)
+        if ((strlen want) == 0) {
+            return -1
+        }
+        def hits:[int] (DeckEdits.titled(titles want false))
+        if ((array_length hits) == 0) {
+            hits = (DeckEdits.titled(titles want true))
+        }
+        if ((array_length hits) == 1) {
+            return (itemAt hits 0)
+        }
+        return -1
+    }
+
+    ; the slides titled want; an overflow slide (same title as the one
+    ; before it) is its first slide's
+    sfn titled:[int] (titles:[string] want:string fold:boolean) {
+        def out:[int]
+        def w:string want
+        if fold {
+            w = (to_lowercase w)
+        }
+        for titles t:string i {
+            def tt:string (trim t)
+            if fold {
+                tt = (to_lowercase tt)
+            }
+            if (tt != w) {
+                continue
+            }
+            if ((i > 0) && ((itemAt titles (i - 1)) == t)) {
+                continue
+            }
+            push out i
+        }
+        return out
+    }
+
+    sfn noSlide:string (e:DeckEdit titles:[string]) {
+        def count:int (array_length titles)
+        if (e.slide > 0) {
+            return ("there is no slide " + e.slide + "; the deck has " + count + ".")
+        }
+        def want:string (trim e.title)
+        if ((strlen want) == 0) {
+            return "slide (a number from 1) or slide_title is needed."
+        }
+        def hits:[int] (DeckEdits.titled(titles want false))
+        if ((array_length hits) == 0) {
+            hits = (DeckEdits.titled(titles want true))
+        }
+        if ((array_length hits) > 1) {
+            def nums:[string]
+            for hits h:int hi {
+                push nums (to_string (h + 1))
+            }
+            return ("slides " + (join nums ", ") + " are all titled \"" + want + "\": give the slide number.")
+        }
+        return ("no slide is titled \"" + want + "\".")
+    }
+
+    sfn slideName:string (i:int titles:[string]) {
+        def t:string (itemAt titles i)
+        if ((strlen t) > 0) {
+            return ("slide " + (i + 1) + " \"" + t + "\"")
+        }
+        return ("slide " + (i + 1))
+    }
+
+    ; a slide the overflow went on to was replaced with its whole section
+    sfn overflowNote:string (md:string starts:[int] titles:[string] i:int) {
+        def first:int i
+        while ((first > 0) && ((itemAt titles first) == (itemAt titles (first - 1)))) {
+            def sp:[int] (PresSlideSpans.lines(md starts titles (first - 1)))
+            def mine:[int] (PresSlideSpans.lines(md starts titles first))
+            if ((itemAt sp 0) != (itemAt mine 0)) {
+                break
+            }
+            first = (first - 1)
+        }
+        def last:int i
+        def count:int (array_length titles)
+        def me:[int] (PresSlideSpans.lines(md starts titles i))
+        while ((last + 1) < count) {
+            def nx:[int] (PresSlideSpans.lines(md starts titles (last + 1)))
+            if ((itemAt nx 0) != (itemAt me 0)) {
+                break
+            }
+            last = (last + 1)
+        }
+        if (first == last) {
+            return ""
+        }
+        return (" (with slides " + (first + 1) + "–" + (last + 1) + ", which its text runs over)")
+    }
+
+    ; "slide 3" / "slides 2, 5": the slides offsets in md are on
+    sfn slidesNote:string (md:string at:[int] starts:[int]) {
+        def nums:[string]
+        if ((array_length starts) == 0) {
+            return "the deck"
+        }
+        for at a:int ai {
+            def s:int 0
+            for starts st:int si {
+                if ((st >= 0) && (st <= a)) {
+                    s = si
+                }
+            }
+            def name:string (to_string (s + 1))
+            def seen:boolean false
+            for nums x:string xi {
+                if (x == name) {
+                    seen = true
+                }
+            }
+            if (seen == false) {
+                push nums name
+            }
+        }
+        if ((array_length nums) == 1) {
+            return ("slide " + (itemAt nums 0))
+        }
+        return ("slides " + (join nums ", "))
+    }
+
+    ; body as a slide section put at [from, to) of md: a blank line after it
+    ; when more follows, and before it when it follows text with no blank
+    ; line
+    sfn asSection:string (md:string from:int to:int body:string) {
+        def out:string body
+        if (to < (strlen md)) {
+            out = (out + "\n\n")
+        } {
+            out = (out + "\n")
+        }
+        if (from > 0) {
+            def before:string (substring md 0 from)
+            if ((endsWith before "\n\n") == false) {
+                if (endsWith before "\n") {
+                    out = ("\n" + out)
+                } {
+                    out = ("\n\n" + out)
+                }
+            }
+        }
+        return out
+    }
+
+    sfn startsWithHeading:boolean (s:string) {
+        def t:string (trim s)
+        return (((strlen t) > 0) && ((charAt t 0) == 35))
+    }
+
+    sfn trimEnd:string (s:string) {
+        def end:int (strlen s)
+        while (end > 0) {
+            def c:int (charAt s (end - 1))
+            if ((c != 10) && ((c != 13) && ((c != 32) && (c != 9)))) {
+                break
+            }
+            end = (end - 1)
+        }
+        def start:int 0
+        ; leading blank lines only, so a slide's indentation stays
+        def k:int 0
+        while (k < end) {
+            def c2:int (charAt s k)
+            if (c2 == 10) {
+                start = (k + 1)
+            }
+            if ((c2 != 10) && ((c2 != 13) && ((c2 != 32) && (c2 != 9)))) {
+                break
+            }
+            k = (k + 1)
+        }
+        return (substring s start end)
+    }
+
+    ; the offset line `line` starts at; the text's length past the end
+    sfn offsetOfLine:int (md:string line:int) {
+        def n:int (strlen md)
+        def at:int 0
+        def l:int 0
+        while ((l < line) && (at < n)) {
+            if ((charAt md at) == 10) {
+                l = (l + 1)
+            }
+            at = (at + 1)
+        }
+        return at
+    }
+
+    ; a goes before b: by place, an insertion before a replacement at the
+    ; same place, then in the order the edits came
+    sfn before:boolean (a:DeckEditCut b:DeckEditCut) {
+        if (a.from != b.from) {
+            return (a.from < b.from)
+        }
+        def ai:boolean (a.from == a.to)
+        def bi:boolean (b.from == b.to)
+        if (ai != bi) {
+            return ai
+        }
+        return (a.edit < b.edit)
+    }
+
+    ; by place, an insertion before a replacement at the same place
+    sfn sortCuts:[DeckEditCut] (cuts:[DeckEditCut]) {
+        def out:[DeckEditCut]
+        for cuts c:DeckEditCut ci {
+            push out c
+        }
+        def i:int 1
+        while (i < (array_length out)) {
+            def j:int i
+            while (j > 0) {
+                def a:DeckEditCut (itemAt out (j - 1))
+                def b:DeckEditCut (itemAt out j)
+                if ((DeckEdits.before(a b)) || ((DeckEdits.before(b a)) == false)) {
+                    break
+                }
+                set out (j - 1) b
+                set out j a
+                j = (j - 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

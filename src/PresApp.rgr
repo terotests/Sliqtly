@@ -29,6 +29,7 @@
 ; ============================================================================
 
 Import "PresTimeline.rgr"
+Import "PresSlideSpans.rgr"
 Import "PresFollow.rgr"
 Import "PresPick.rgr"
 Import "PresI18n.rgr"
@@ -806,43 +807,21 @@ class PresApp {
     ; count after the last). A slide the overflow went on to counts from its
     ; heading's slide, so a slide is always its whole section.
     fn slideLines:void (i:int) {
-        def text:string (mdEditor.text())
-        def lc:int (mdEditor.buf.lineCount())
+        def starts:[int]
+        def titles:[string]
         def n:int (deck.slideCount())
-        linesFrom = -1
-        linesAt = lc
-        if ((n > 0) && ((i >= 0) && (i < n))) {
-            ; a slide the overflow went on to starts on its heading's slide
-            def k:int i
-            while (k > 0) {
-                def sk:PresSlide (deck.slideAt(k))
-                def sp:PresSlide (deck.slideAt((k - 1)))
-                if ((sk.srcStart < 0) || (sk.title != sp.title)) {
-                    break
-                }
-                this.posOf(text sk.srcStart)
-                if (PresApp.isHeading((mdEditor.buf.lineAt(posLine)))) {
-                    break
-                }
-                k = (k - 1)
-            }
-            def s:PresSlide (deck.slideAt(k))
-            if (s.srcStart >= 0) {
-                this.posOf(text s.srcStart)
-                linesFrom = posLine
-                def j:int (i + 1)
-                while (j < n) {
-                    def sj:PresSlide (deck.slideAt(j))
-                    if (sj.srcStart >= 0) {
-                        this.posOf(text sj.srcStart)
-                        if ((posLine > linesFrom) && ((PresApp.isHeading((mdEditor.buf.lineAt(posLine)))) || (sj.title != s.title))) {
-                            linesAt = posLine
-                            break
-                        }
-                    }
-                    j = (j + 1)
-                }
-            }
+        def k:int 0
+        while (k < n) {
+            def sk:PresSlide (deck.slideAt(k))
+            push starts sk.srcStart
+            push titles sk.title
+            k = (k + 1)
+        }
+        def span:[int] (PresSlideSpans.lines((mdEditor.text()) starts titles i))
+        linesFrom = (itemAt span 0)
+        linesAt = (itemAt span 1)
+        if (linesFrom < 0) {
+            linesAt = (mdEditor.buf.lineCount())
         }
     }
 
