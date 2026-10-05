@@ -614,7 +614,7 @@ class PresCheck {
     fn diagramLookHint:void () {
         def j:string (PresHints.forLine("md" "```mermaid {tour=on}" 5 false))
         this.ok(((indexOf j "\"looks\":[\"holo\",\"sketch\",\"classic\",\"mermaid\",\"jurassic\",\"cartoon\",\"romantic\"]") >= 0) ("a diagram's fence offers its looks: " + j))
-        this.ok(((indexOf j "\"options\":[\"mermaid\",\"dot\",\"d2\",\"plantuml\"]") >= 0) ("…and only diagram notations to switch to: " + j))
+        this.ok(((indexOf j "\"options\":[]") >= 0) ("…and no notations to switch to: " + j))
         def code:string (PresHints.forLine("md" "```python" 5 false))
         this.ok(((indexOf code "looks") < 0) "a code fence has no looks")
         def body:string "flowchart LR\n  A --> B\n```\n"
