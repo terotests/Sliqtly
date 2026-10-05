@@ -9,8 +9,8 @@
 // are taken from it.
 //
 // What is not drawn: GPU effects (an effect's rectangle is drawn as its
-// colour), backdrop blur, a picture's rounded corners and rotation, and
-// pictures that are not PNG, JPEG, GIF or WebP (an SVG).
+// colour), backdrop blur, a picture's rounded corners and rotation. An SVG
+// picture is drawn by svgraster.go.
 
 package main
 
@@ -776,6 +776,10 @@ func (h *McpHost) RenderPic(name string, data []byte) {
 	}
 	if img, _, err := image.Decode(bytes.NewReader(data)); err == nil {
 		h.renderPics[name] = img
+	} else if img, err := drawSvg(data, svgRenderSide); err == nil {
+		h.renderPics[name] = img
+	} else if _, _, isSvg := svgSize(data); isSvg {
+		h.Log("render " + name + ": " + err.Error())
 	}
 }
 

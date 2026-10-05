@@ -62,3 +62,7 @@ test("a SmartArt file is told apart, and is not a picture to decode", () => {
   assert.equal(isSmartArt("image/svg+xml", "media/logo.svg"), false);
   assert.equal(isSvg(SMARTART_TYPE, "media/steps.xml"), false);
 });
+
+test("a root that closes itself keeps its slash last", () => {
+  assert.equal(svgSizedTo('<svg viewBox="0 0 20 10" />', 40, 20), '<svg viewBox="0 0 20 10" width="40" height="20"/>');
+});

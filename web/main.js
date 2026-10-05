@@ -19,6 +19,7 @@ import { prepareDisplayList, setFontFallback, fontSpec, textObstacles } from "./
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { sortFiles, pastePlan, fileClipboard, CLIP_KEY } from "./fileclip.js";
+import { deckKey, canReturn, reopenPlan, tabLabel, readDeckTabs, keepDeckTabs } from "./decktabs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
 import { scaled, previewOf, render } from "./image-adjust.js";
@@ -437,14 +438,26 @@ let savedCss = null;
 let savedTheme = null;
 let saving = null;
 
+// The open presentations' tabs (web/decktabs.js, PresApp's deck tabs).
+// shownKey: the tab of the deck shown, as it was keyed when it was shown
+let shownKey = null;
+// the tab whose deck is being opened: the deck it opens may be keyed
+// otherwise (a kept deck opened from the cloud, where it is newer), and the
+// tab then takes that key where it stands
+let openingKey = null;
+
 // A deck being opened: from beginDoc until shownDoc puts its text in the
 // editor, the editor still shows the deck before it, so nothing is saved or
 // sent (the old text would be written under the new deck's id: a deck
 // overwritten by the one opened before it).
 function beginDoc(text) {
+  // the deck left: its tab goes when nothing could open it again
+  if (shownKey && !canReturn(doc)) app.deckTabClose(shownKey);
+  shownKey = null;
   doc.loading = true;
   doc.id = newId();
   doc.persisted = false;
+  doc.src = null;
   doc.created = Date.now();
   doc.openedText = text;
   doc.openedCss = null;
@@ -468,13 +481,69 @@ function beginDoc(text) {
   app.reviewLoad("", false);
   showLiveButton();
   if (app.openFilePath()) app.closeFile();
-  app.clearOpenTabs();
 }
 
-function shownDoc(text) {
+// quiet: no tab for it (the empty deck shown while a deleted one's
+// successor is found)
+function shownDoc(text, quiet = false) {
   app.setSource(text);
   doc.loading = false;
+  if (!viewer && !quiet) showDeckTab();
   loadReview(false).catch((e) => console.warn("review comments not read", e));
+}
+
+// --- the open presentations' tabs (web/decktabs.js) ------------------------------
+function keepTabs() {
+  if (!viewer) keepDeckTabs(sessionStorage, app.deckTabsState());
+}
+function showDeckTab() {
+  shownKey = deckKey(doc);
+  if (openingKey && openingKey !== shownKey) app.deckTabRename(openingKey, shownKey, tabLabel(exportName()));
+  openingKey = null;
+  app.deckTabOpen(shownKey, tabLabel(exportName()));
+  keepTabs();
+}
+// after a save: its name may have changed, and a deck kept for the first
+// time is its id from now on
+function updateDeckTab() {
+  if (viewer || !shownKey) return;
+  const k = deckKey(doc);
+  app.deckTabRename(shownKey, k, tabLabel(exportName()));
+  shownKey = k;
+  keepTabs();
+}
+// The deck behind a tab, opened: false when it is not there any more.
+async function openDeckKey(key) {
+  openingKey = key;
+  try {
+    const p = reopenPlan(key);
+    if (p.kind === "sample") {
+      if (!(SAMPLES[p.arg] || HIDDEN_SAMPLES[p.arg])) return false;
+      await openSample(p.arg);
+      return true;
+    }
+    if (p.kind === "cloud") return await openOwnCloud(p.arg);
+    const d = vfs ? await vfs.getDoc(p.arg) : null;
+    if (!d) return false;
+    // a PRO deck: from its share, which has the latest (as at the start)
+    if (d.cloud && (await openOwnCloud(d.cloud).catch(() => false))) return true;
+    return await openDoc(p.arg);
+  } finally {
+    openingKey = null;
+  }
+}
+// A tab pressed or swiped to, or the one in front after a close.
+async function switchDeck(key) {
+  if (!key || key === shownKey) return;
+  if (makingDeck) await makingDeck;
+  const ok = await loadingScreen(() => openDeckKey(key).catch((e) => { console.warn(e); return false; }));
+  if (!ok) {
+    toast(t("This presentation is no longer here."));
+    app.deckTabClose(key);
+    if (shownKey) app.deckTabOpen(shownKey, tabLabel(exportName()));
+    keepTabs();
+  }
+  needsPaint = true;
 }
 
 function bare(path) {
@@ -648,6 +717,7 @@ async function saveDocNow(force) {
       pending.clear();
       plainAddress();
     }
+    updateDeckTab();
     savedText = md;
     savedCss = css;
     savedTheme = key;
@@ -772,11 +842,21 @@ async function deleteDeck() {
     }
   }
   if (vfs && doc.persisted) await vfs.deleteDoc(id);
+  // its tab goes; the tab used before it comes to the front
+  if (shownKey) app.deckTabClose(shownKey);
+  shownKey = null;
+  keepTabs();
   // let go of it, so leaving it does not save it again
   beginDoc("");
-  shownDoc("");
-  const next = vfs ? (await vfs.listDocs()).filter((d) => d.id !== id).sort((a, b) => (b.updated || 0) - (a.updated || 0))[0] : null;
-  if (!(next && (await openDoc(next.id)))) {
+  shownDoc("", true);
+  const front = app.deckTabFront();
+  let opened = !!front && (await openDeckKey(front).catch(() => false));
+  if (front && !opened) app.deckTabClose(front);
+  if (!opened) {
+    const next = vfs ? (await vfs.listDocs()).filter((d) => d.id !== id).sort((a, b) => (b.updated || 0) - (a.updated || 0))[0] : null;
+    opened = !!next && (await openDoc(next.id));
+  }
+  if (!opened) {
     try { localStorage.removeItem("evgp.doc"); } catch (_) { /* fine */ }
     await newDeck({ name: t("New presentation"), theme: themeSel.value || "", data: "none" });
   }
@@ -1118,8 +1198,6 @@ async function refreshFiles() {
         return row;
       });
     const sorted = sortFiles(files);
-    // the tabs of files that are gone close
-    app.keepOpenTabs(sorted.map((f) => f.path).join("\n"));
     const name = (docName || "presentation").replace(/\s+/g, "-");
     const head = [{ path: name + ".md", size: new TextEncoder().encode(app.source()).length, kind: "md" }];
     const key = themeSel.value || "";
@@ -1398,7 +1476,6 @@ async function fileRequest(r) {
   } else if (action === "open") {
     const f = (await docFiles()).find((x) => x.path === what);
     if (!f) return;
-    if (/\.(xlsx|csv)$/i.test(f.path)) app.noteOpened(f.path);
     if (/\.xlsx$/i.test(f.path)) {
       const blob = typeof f.data === "string" ? new Blob([f.data]) : f.data;
       liveSheets.openDialog({
@@ -2725,6 +2802,11 @@ function handleRequests() {
       refreshFiles();
     } else if (r.startsWith("files:")) {
       fileRequest(r.slice(6)).catch(fail);
+    } else if (r.startsWith("deck:switch:")) {
+      switchDeck(r.slice(12)).catch(fail);
+    } else if (r === "deck:tabs") {
+      keepTabs();
+      needsPaint = true;
     } else if (r.startsWith("chart-file:")) {
       const path = bare(r.slice(11));
       const text = app.chartFileBody();
@@ -3210,6 +3292,7 @@ async function openOwnCloudNow(id) {
   if (local && local.md !== local.cloudMd && shared.md === local.cloudMd) return openDoc(local.id);
   await leaveDoc();
   beginDoc(shared.md || "");
+  doc.src = "cloud:" + id;
   doc.id = local?.id || newId();
   if (local) await vfs.deleteDoc(local.id, true); // the cloud's files replace this browser's; its versions stay
   doc.created = local?.created || Date.now();
@@ -4340,6 +4423,7 @@ async function openSample(key) {
       useTheme(s[2]);
     }
     beginDoc(text);
+    doc.src = "sample:" + key;
     await useSampleFiles(key, s[3] || []);
     shownDoc(text);
     dropThumbs();
@@ -4766,7 +4850,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   app.setCtrl(ev.ctrlKey || ev.metaKey);
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
-  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb" || where === "select" || where === "panel") {
+  if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb" || where === "select" || where === "panel" || where === "decktabs") {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
   if (where === "editor" && clicks === 1) {
@@ -5152,6 +5236,9 @@ async function start() {
     app.setToolbarCss(chromeSheets.toolbar + skinCss());
     document.body.classList.add("canvas-bar");
     canvasBar = true;
+    // the presentations open in this tab, as they were before a reload
+    app.useDeckTabs(true);
+    app.deckTabsRestore(readDeckTabs(sessionStorage));
     syncBarExtras();
     new MutationObserver(syncBarExtras).observe(document.getElementById("bar"),
       { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["hidden", "data-canvas"] });
@@ -5229,24 +5316,30 @@ async function start() {
   else if (own && vfs && (await ownIsNewer(own)) && (await openDoc(own.deck))) plainAddress();
   else if (!(await openFromShare()) && !(await openFromHash())) {
     const want = q.get("sample");
-    // no sample asked for: the deck worked on last, if this browser kept one,
-    // from the cloud when it lives there
-    let last = null;
-    try { last = localStorage.getItem("evgp.doc"); } catch (_) { /* none */ }
-    // the deck this tab had (keepTabDoc), or an older link's #doc={id},
-    // when this browser keeps it
-    let asked = at.get("doc");
-    if (!asked && !framed) {
-      try { asked = sessionStorage.getItem(TAB_DOC); } catch (_) { /* none */ }
-    }
-    if (asked && /^[A-Za-z0-9_-]{1,64}$/.test(asked) && vfs && (await vfs.getDoc(asked))) last = asked;
-    const lastCloud = !want && last && vfs ? (await vfs.getDoc(last))?.cloud : null;
-    if (lastCloud && (await openOwnCloud(lastCloud).catch(() => false))) { /* opened */ }
-    else if (want || !last || !(await openDoc(last))) {
-      const sample = SAMPLES[want] || HIDDEN_SAMPLES[want] ? want : "welcome";
-      if (SAMPLES[sample]) sampleSel.value = sample;
-      await openSample(sample);
-      if (!want) welcomeCard();
+    // the tab in front before a reload, when its deck is still there
+    const front = want || at.get("doc") ? "" : app.deckTabFront();
+    if (front && (await openDeckKey(front).catch(() => false))) { /* opened */ }
+    else {
+      if (front) app.deckTabClose(front);
+      // no sample asked for: the deck worked on last, if this browser kept one,
+      // from the cloud when it lives there
+      let last = null;
+      try { last = localStorage.getItem("evgp.doc"); } catch (_) { /* none */ }
+      // the deck this tab had (keepTabDoc), or an older link's #doc={id},
+      // when this browser keeps it
+      let asked = at.get("doc");
+      if (!asked && !framed) {
+        try { asked = sessionStorage.getItem(TAB_DOC); } catch (_) { /* none */ }
+      }
+      if (asked && /^[A-Za-z0-9_-]{1,64}$/.test(asked) && vfs && (await vfs.getDoc(asked))) last = asked;
+      const lastCloud = !want && last && vfs ? (await vfs.getDoc(last))?.cloud : null;
+      if (lastCloud && (await openOwnCloud(lastCloud).catch(() => false))) { /* opened */ }
+      else if (want || !last || !(await openDoc(last))) {
+        const sample = SAMPLES[want] || HIDDEN_SAMPLES[want] ? want : "welcome";
+        if (SAMPLES[sample]) sampleSel.value = sample;
+        await openSample(sample);
+        if (!want) welcomeCard();
+      }
     }
   }
   refreshRecent().catch(() => {});

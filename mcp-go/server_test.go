@@ -462,7 +462,7 @@ func TestRefusesWhatItShouldNotFetchOrStore(t *testing.T) {
 		{map[string]any{"name": "a.png", "url": "https://images.test/page.html"}, `not a picture`},
 		{map[string]any{"name": "../a.png", "url": "https://images.test/cat.png"}, `not usable`},
 		{map[string]any{"name": "a.bmp", "data_base64": "AAAA"}, `unknown picture type`},
-		{map[string]any{"name": "a.png"}, `url or data_base64`},
+		{map[string]any{"name": "a.png"}, `url, data_base64 or \(for an SVG\) text`},
 	} {
 		r := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": "# x", "images": []any{c.img}})
 		if !r.IsError {

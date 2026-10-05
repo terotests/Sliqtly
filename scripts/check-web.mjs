@@ -3438,10 +3438,12 @@ try {
       // empty, with the hint drawn as a placeholder and not as a value
       check("New presentation: Name starts empty", (await nameOf()) === "");
       await pc.keyboard.type("Myynti 2026");
-      await pc.mouse.move(584, 235);
+      // the window opens under the top bar and the presentations' row
+      const ny = 235 + (await pc.evaluate(() => window.__app.deckRect.h));
+      await pc.mouse.move(584, ny);
       await pc.mouse.down();
-      await pc.mouse.move(610, 235);
-      await pc.mouse.move(628, 235);
+      await pc.mouse.move(610, ny);
+      await pc.mouse.move(628, ny);
       await pc.mouse.up();
       await pc.keyboard.type("Tulos");
       const replaced = await nameOf();
@@ -3451,7 +3453,7 @@ try {
       await pc.keyboard.press("Control+a");
       await pc.keyboard.type("Uusi");
       const all = await nameOf();
-      await pc.mouse.click(832, 235);
+      await pc.mouse.click(832, ny);
       await pc.waitForTimeout(200);
       const cleared = await nameOf();
       await pc.keyboard.type("Z");
@@ -4004,8 +4006,8 @@ try {
 
   // The Files tab as a data table (web/fileclip.js, UiPick): files ticked
   // in one deck are copied, a deck in another tab pastes them (a taken name
-  // gets -2, a file already there is left be), a file opened gets a tab of
-  // its own after Files (UiOpenTabs), and ticked files are deleted together.
+  // gets -2, a file already there is left be), and ticked files are deleted
+  // together.
   {
     const ctx = await browser.newContext({ viewport: { width: 1300, height: 820 } });
     const fdir = fs.mkdtempSync(path.join(os.tmpdir(), "evgp-clip-"));
@@ -4048,30 +4050,108 @@ try {
     await B.evaluate(() => window.__fileRequest("paste"));
     await B.waitForTimeout(800);
     const again = await files(B);
-    // tabs: two files open, the one in front closed
-    await B.evaluate(() => window.__fileRequest("open:data/ohlc.json"));
-    await B.waitForTimeout(300);
-    await B.evaluate(() => window.__fileRequest("open:data/cars.json"));
-    await B.waitForTimeout(500);
-    const tabs = await B.evaluate(() => ({ open: window.__app.openFilePath(), tabs: window.__app.openTabs.tabs.slice(), strip: window.__app.tabs.items.map((i) => i.value) }));
-    await B.evaluate(() => window.__app.closeFileTab("data/cars.json"));
-    await B.waitForTimeout(500);
-    await B.evaluate(() => window.__handleRequests());
-    await B.waitForTimeout(500);
-    const closed = await B.evaluate(() => ({ open: window.__app.openFilePath(), tabs: window.__app.openTabs.tabs.slice() }));
     await ask(B, "files:delmany:data/ohlc.json\ndata/ohlc-2.json");
     await B.waitForTimeout(800);
     await B.evaluate(() => window.__app.showTab("files"));
     await B.waitForTimeout(800);
     const deleted = await files(B);
-    const tabsAfter = await B.evaluate(() => window.__app.openTabs.tabs.slice());
     check("Files: shift-click ticks the rows between", ticked.join() === "data/cars.json,data/ohlc.json,data/sales.csv", ticked.join());
     check("Files: another tab offers Paste for what was copied", clipB && clipB.count === 3, JSON.stringify(clipB));
     check("Files: Paste adds the copies, a taken name gets -2", ["data/cars.json", "data/ohlc.json", "data/ohlc-2.json", "data/sales.csv"].every((p) => pasted.includes(p)) && pasted.length === 4, pasted.join());
     check("Files: pasting again adds nothing that is already there", again.length === pasted.length, again.join());
-    check("Files: an opened file gets a closable tab after Files", tabs.open === "data/cars.json" && tabs.tabs.join() === "data/ohlc.json,data/cars.json" && tabs.strip.includes("f:data/cars.json"), JSON.stringify(tabs));
-    check("Files: closing the tab in front opens the one used before", closed.open === "data/ohlc.json" && closed.tabs.join() === "data/ohlc.json", JSON.stringify(closed));
-    check("Files: ticked files are deleted together, and their tabs close", deleted.join() === "data/cars.json,data/sales.csv" && tabsAfter.length === 0, deleted.join() + " " + tabsAfter.join());
+    check("Files: ticked files are deleted together", deleted.join() === "data/cars.json,data/sales.csv", deleted.join());
+    await ctx.close();
+  }
+
+  // The presentations open in a tab of the browser, a tab each in the row
+  // under the top bar (PresApp deck tabs, EVGUI DocTabsCtl, web/decktabs.js):
+  // a sample's tab takes the deck's id when it is kept, a press opens a
+  // deck, a drag moves its tab, the row lasts over a reload, closing the tab
+  // in front opens the one used before and keeps the deck, a finger swipes.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+    const derr = [];
+    const pg = await ctx.newPage();
+    pg.on("pageerror", (e) => derr.push(e.message));
+    await pg.goto(url + "?sample=esittely");
+    await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const row = (p) => p.evaluate(() => window.__app.deckTabsState().split("\n"));
+    const keysOf = (r) => r.slice(1).map((l) => l.split("\t")[0]);
+    const front = (p, k) => p.waitForFunction((k) => window.__app.deckTabFront() === k, k, { timeout: 30000 }).then(() => p.waitForTimeout(600), () => {});
+    const go = async (p, k) => { await p.evaluate((k) => { window.__app.request("deck:switch:" + k); window.__handleRequests(); }, k); await front(p, k); };
+    const boxOf = (p, id) => p.evaluate((id) => {
+      const a = window.__app;
+      a.chromeJson();
+      const walk = (el) => { if (!el) return null; if (el.id === id) return el; for (let i = 0; i < el.getChildCount(); i++) { const f = walk(el.getChild(i)); if (f) return f; } return null; };
+      const el = walk(a.chromeRoot);
+      return el ? [el.calculatedX + el.calculatedWidth / 2, el.calculatedY + el.calculatedHeight / 2, el.calculatedWidth] : null;
+    }, id);
+    const drag = async (p, id, dx) => {
+      const b = await boxOf(p, id);
+      if (!b) return;
+      await p.mouse.move(b[0], b[1]);
+      await p.mouse.down();
+      for (let i = 1; i <= 8; i++) await p.mouse.move(b[0] + (dx * i) / 8, b[1]);
+      await p.mouse.up();
+      await p.waitForTimeout(400);
+      await p.evaluate(() => window.__handleRequests());
+    };
+    const one = await row(pg);
+    await go(pg, "sample:uutta");
+    await pg.evaluate(() => window.__app.setSource("# Myynti 2027\n\nLuvut.\n"));
+    await pg.waitForFunction(() => !window.__app.deckTabFront().startsWith("sample:"), null, { timeout: 15000 }).catch(() => {});
+    const kept = await row(pg);
+    const keptId = kept[0];
+    await go(pg, "sample:welcome");
+    const three = await row(pg);
+    const shape = await pg.evaluate(() => {
+      const a = window.__app;
+      a.chromeJson();
+      const walk = (el, id) => { if (!el) return null; if (el.id === id) return el; for (let i = 0; i < el.getChildCount(); i++) { const f = walk(el.getChild(i), id); if (f) return f; } return null; };
+      const r = walk(a.chromeRoot, "decktabs");
+      const t = walk(a.chromeRoot, "decktabs-tab-sample:welcome");
+      return { y: r.calculatedY, h: r.calculatedHeight, bar: a.toolbar.barH, wings: t.getChildCount(), edY: a.tabRect.y };
+    });
+    // a press on the first tab opens its deck
+    await drag(pg, "decktabs-tab-sample:esittely", 0);
+    await front(pg, "sample:esittely");
+    const pressed = (await row(pg))[0];
+    // dragged past the others: last
+    await drag(pg, "decktabs-tab-sample:esittely", 420);
+    const moved = keysOf(await row(pg));
+    await pg.reload();
+    await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await pg.waitForTimeout(800);
+    const reloaded = await row(pg);
+    // the tab in front closed: the one used before opens, the deck is kept
+    await drag(pg, "decktabs-close-sample:esittely", 0);
+    await front(pg, "sample:welcome");
+    const closed = await row(pg);
+    await go(pg, keptId);
+    const back = await pg.evaluate(() => window.__app.source());
+    check("deck tabs: the row is under the top bar and the editor under it", shape.y === shape.bar && shape.h === 40 && shape.edY === shape.bar + 40 && shape.wings === 3, JSON.stringify(shape));
+    check("deck tabs: the deck shown has the one tab", one.length === 2 && one[0] === "sample:esittely", one.join(" | "));
+    check("deck tabs: a sample's tab takes the deck's id once it is kept", keptId && !keptId.startsWith("sample:") && kept[2] === keptId + "\tMyynti 2027", kept.join(" | "));
+    check("deck tabs: another deck adds a tab, in front", keysOf(three).join() === ["sample:esittely", keptId, "sample:welcome"].join() && three[0] === "sample:welcome", three.join(" | "));
+    check("deck tabs: a press on a tab opens its deck", pressed === "sample:esittely", pressed);
+    check("deck tabs: a tab dragged past the others goes last", moved.join() === [keptId, "sample:welcome", "sample:esittely"].join(), moved.join());
+    check("deck tabs: the row and the tab in front last over a reload", keysOf(reloaded).join() === moved.join() && reloaded[0] === "sample:esittely", reloaded.join(" | "));
+    check("deck tabs: closing the tab in front opens the one used before", closed[0] === "sample:welcome" && keysOf(closed).join() === [keptId, "sample:welcome"].join(), closed.join(" | "));
+    check("deck tabs: a closed tab's deck is still kept", back.includes("Myynti 2027"), back.slice(0, 40));
+    // a finger: a swipe to the right brings the deck on the left
+    const phone = await browser.newContext({ viewport: { width: 390, height: 800 }, hasTouch: true, isMobile: true });
+    const m = await phone.newPage();
+    m.on("pageerror", (e) => derr.push(e.message));
+    await m.goto(url + "?sample=esittely");
+    await m.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await go(m, "sample:uutta");
+    const rb = await boxOf(m, "decktabs");
+    await m.evaluate(([x, y]) => { const a = window.__app; a.setTouch(true); a.pointerDown(x, y, false, 1); a.pointerMove(x + 120, y + 4); a.pointerUp(); window.__handleRequests(); }, [rb[0] - 60, rb[1]]);
+    await front(m, "sample:esittely");
+    const swiped = await row(m);
+    check("deck tabs: a swipe to the right brings the deck on the left", swiped[0] === "sample:esittely", swiped.join(" | "));
+    check("no page errors with deck tabs", derr.length === 0, derr.join(" | "));
+    await phone.close();
     await ctx.close();
   }
 

@@ -958,5 +958,8 @@
   "All": "Kaikki",
   "Comments": "Kommentit",
   "Copy open comments": "Kopioi avoimet kommentit",
-  "No open comments.": "Ei avoimia kommentteja."
+  "No open comments.": "Ei avoimia kommentteja.",
+  "Open presentations": "Avoimet esitykset",
+  "Close ": "Sulje ",
+  "This presentation is no longer here.": "Tätä esitystä ei enää ole."
 }
