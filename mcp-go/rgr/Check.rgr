@@ -36,6 +36,8 @@ class Checked {
     ; player's (the sheet says which headings start a slide)
     def laidOut:boolean false
     def slides:int 0
+    ; each slide's title, as the player numbers them
+    def titles:[string]
     def warnings:[string]
     ; the layout report, slide by slide
     def report:[RSlideOut]
@@ -183,6 +185,12 @@ class Check {
         c.width = d.pageW
         c.height = d.pageH
         c.slides = (d.slideCount())
+        def ti:int 0
+        while (ti < c.slides) {
+            def ts:PresSlide (d.slideAt(ti))
+            push c.titles ts.title
+            ti = (ti + 1)
+        }
         ; a slide that runs over goes on in untitled slides after it
         def i:int 0
         while (i < c.slides) {

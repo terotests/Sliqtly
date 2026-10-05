@@ -24,7 +24,7 @@ of it, and the rewrites pointed back at the function.
 | [`rgr/App.rgr`](rgr/App.rgr) | routing, CORS, the `/mcp` transport checks, sign-in on a request, the `/api/hit` beacon |
 | [`rgr/Stats.rgr`](rgr/Stats.rgr) | the site's cookieless visitor counts (`stats/<day>`), read by the Stats workflow (`ops/stats.mjs`) |
 | [`rgr/Mcp.rgr`](rgr/Mcp.rgr) | MCP: JSON-RPC, `initialize`, `tools/*`, `resources/*` |
-| [`rgr/Tools.rgr`](rgr/Tools.rgr) | the eleven tools, their schemas and UI metadata, the preview resource |
+| [`rgr/Tools.rgr`](rgr/Tools.rgr) | the fourteen tools, their schemas and UI metadata, the preview resource; review comments (`list_comments`, `add_comment`, `resolve_comment`) read and write the editor's `review/comments.json` through its own model ([`src/PresReview.rgr`](../src/PresReview.rgr)) |
 | [`rgr/OAuth.rgr`](rgr/OAuth.rgr) | the OAuth 2.1 server: registration, authorize, approve, token, refresh |
 | [`rgr/Store.rgr`](rgr/Store.rgr) | shares, edit keys, pictures, listing |
 | [`rgr/Deck.rgr`](rgr/Deck.rgr) | the checks: picture names and types, outline, warnings |
@@ -334,7 +334,7 @@ that is only on a laptop or inside a network.
 
 Actions → **Deploy MCP (Go)** (`.github/workflows/deploy-mcp-go.yml`) runs
 the tests, builds the image, deploys the service and checks that it answers
-(initialize, the eleven tools, the OAuth metadata, `/api/hit`):
+(initialize, the fourteen tools, the OAuth metadata, `/api/hit`):
 ```
 IMAGE=europe-west1-docker.pkg.dev/sliqtly/mcp/sliqtly-mcp-go
 docker build -f mcp-go/Dockerfile -t $IMAGE .     # from the repository root

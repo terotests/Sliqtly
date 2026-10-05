@@ -269,6 +269,8 @@
   body.viewer #c { cursor: default; }
   body.viewer.idle #c { cursor: none; }
   body.presenting #c { cursor: none; }
+  /* review mode: the pointer places and opens comments while presenting */
+  body.presenting.reviewing #c { cursor: default; }
   @media (max-width: 700px) { #bar .wide { display: none; } }
 </style>
 <!-- The faces the first frame needs: fetched while pres_app.js loads, at the

@@ -437,6 +437,9 @@ class PresPanels {
 
     ; File → Settings: the editor's own preferences, kept by the page.
     def autoContrast:boolean true
+    ; review mode (comments on the slides) and its pins' colour
+    def reviewOn:boolean false
+    def reviewColor:string "#fde047"
 
     fn openSettings:void (contrast:boolean) {
         autoContrast = contrast
@@ -526,6 +529,16 @@ class PresPanels {
         push v 275
         push v 335
         return v
+    }
+
+    ; The pins' colours (review mode): a name and the fill.
+    ; i18n: "Yellow" "Orange" "Pink" "Cyan" "Green"
+    sfn pinNames:[string] () {
+        return ([] _:string ("Yellow" "Orange" "Pink" "Cyan" "Green"))
+    }
+
+    sfn pinColours:[string] () {
+        return ([] _:string ("#fde047" "#fdba74" "#f9a8d4" "#67e8f9" "#86efac"))
     }
 
     sfn isColour:boolean (v:string) {
@@ -1723,6 +1736,28 @@ class PresPanels {
             lk.addChild(hr)
         }
         d.addChild(lk)
+        ; review mode: comments pinned to the slides, also while presenting
+        def rv:EVGElement (this.div("pn-opt"))
+        rv.addChild((this.words("pn-otitle" (PresI18n.t("Review mode")))))
+        rv.addChild((this.words("pn-odesc" (PresI18n.t("Comment on the slides, also while presenting: a press on 💬 Comment and then on the slide pins a comment there, and each comment is its own conversation. The comments are kept in the presentation's files.")))))
+        def rr:EVGElement (this.div("pn-orow"))
+        this.button("pn-set-review" (? reviewOn (PresI18n.t("On")) (PresI18n.t("Off"))) (? reviewOn "primary" "secondary") rr)
+        rv.addChild(rr)
+        if reviewOn {
+            def cr:EVGElement (this.div("pn-orow"))
+            def cn:[string] (PresPanels.pinNames())
+            def cv:[string] (PresPanels.pinColours())
+            def ci:int 0
+            while (ci < (array_length cv)) {
+                def cval:string (itemAt cv ci)
+                def cb:ButtonCtl (this.button(("pn-set-pin-" + (to_string ci)) (PresI18n.t((itemAt cn ci))) (? (cval == reviewColor) "primary" "secondary") cr))
+                def cbr:EVGElement (unwrap cb.rootEl)
+                cbr.addChild((this.swatch(cval)))
+                ci = (ci + 1)
+            }
+            rv.addChild(cr)
+        }
+        d.addChild(rv)
         def foot:EVGElement (this.div("pn-dfoot"))
         foot.addChild((this.div("pn-grow")))
         this.button("pn-set-close" (PresI18n.t("Close")) "secondary" foot)
@@ -2292,6 +2327,22 @@ class PresPanels {
                 autoContrast = (autoContrast == false)
                 push requests ("setting:contrast:" + (? autoContrast "on" "off"))
                 this.rebuild()
+                return
+            }
+            if (sc == "pn-set-review") {
+                reviewOn = (reviewOn == false)
+                push requests ("setting:review:" + (? reviewOn "on" "off"))
+                this.rebuild()
+                return
+            }
+            if ((indexOf sc "pn-set-pin-") == 0) {
+                def pi:int (?? (str2int (substring sc 11 (strlen sc))) -1)
+                def pcs:[string] (PresPanels.pinColours())
+                if ((pi >= 0) && (pi < (array_length pcs))) {
+                    reviewColor = (itemAt pcs pi)
+                    push requests ("setting:reviewcolor:" + reviewColor)
+                    this.rebuild()
+                }
                 return
             }
             if ((indexOf sc "pn-set-hue-") == 0) {

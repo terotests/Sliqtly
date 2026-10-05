@@ -141,6 +141,11 @@ class PresChartEditor {
     def cfText:string ""
     def cfOk:string ""
     def wantsConfirm:boolean false
+    ; A question with two answers rather than a warning (`cfAlt` is the
+    ; other one's word): `ok` is then the main button, not a red one, and the
+    ; other sets `wantsAlt` ("confirm:<key>:alt" to the page).
+    def cfAlt:string ""
+    def wantsAlt:boolean false
     ; The document's settings (`mode` "docset"): the front matter's title,
     ; transition, header and footer (`ds`), the tab showing ("header",
     ; "footer", "deck") and the deck's pictures, for a logo. Every change is
@@ -290,7 +295,9 @@ class PresChartEditor {
         cfTitle = title
         cfText = words
         cfOk = ok
+        cfAlt = ""
         wantsConfirm = false
+        wantsAlt = false
         this.openAt(px py pw ph)
     }
 
@@ -1402,7 +1409,12 @@ class PresChartEditor {
         def bottom:EVGElement (this.div("ce-foot"))
         this.button("cf-cancel" (PresI18n.t("Cancel")) "outline" bottom)
         bottom.addChild((this.div("ce-grow")))
-        this.button("cf-ok" cfOk "danger" bottom)
+        if ((strlen cfAlt) > 0) {
+            this.button("cf-alt" cfAlt "outline" bottom)
+            this.button("cf-ok" cfOk "primary" bottom)
+        } {
+            this.button("cf-ok" cfOk "danger" bottom)
+        }
         root.addChild(bottom)
     }
 
@@ -1413,6 +1425,11 @@ class PresChartEditor {
         }
         if (tid == "cf-ok") {
             wantsConfirm = true
+            wantsClose = true
+            return true
+        }
+        if (tid == "cf-alt") {
+            wantsAlt = true
             wantsClose = true
             return true
         }

@@ -465,6 +465,7 @@ function beginDoc(text) {
   copyNoted = false;
   privateNoted = false;
   app.clearChartData();
+  app.reviewLoad("", false);
   showLiveButton();
   if (app.openFilePath()) app.closeFile();
   app.clearOpenTabs();
@@ -473,6 +474,7 @@ function beginDoc(text) {
 function shownDoc(text) {
   app.setSource(text);
   doc.loading = false;
+  loadReview(false).catch((e) => console.warn("review comments not read", e));
 }
 
 function bare(path) {
@@ -783,7 +785,17 @@ async function deleteDeck() {
 
 // File → Export → All files (.zip): the Markdown, the theme's CSS as it is
 // now (edits included) and every file of the deck at its own path.
-async function exportZip() {
+// File → Export → .zip: a deck with review comments asks whether they go in
+// the ZIP too (they are notes on the deck, not part of it).
+async function askZip() {
+  const has = (await docFiles()).some((f) => f.path === REVIEW_PATH) && app.reviewCount() > 0;
+  if (has && app.openChoice("zip", t("Export ZIP"), t("This presentation has review comments. Include them in the ZIP file?"), t("Include comments"), t("Without comments"))) {
+    needsPaint = true;
+    return;
+  }
+  await exportZip(true);
+}
+async function exportZip(withComments) {
   const enc = new TextEncoder();
   const base = exportName();
   const entries = [
@@ -791,6 +803,7 @@ async function exportZip() {
     { name: (themeSel.value || "theme") + ".css", data: enc.encode(app.themeCss()) },
   ];
   for (const f of await docFiles()) {
+    if (!withComments && f.path === REVIEW_PATH) continue;
     const data = typeof f.data === "string" ? enc.encode(f.data) : new Uint8Array(await f.data.arrayBuffer());
     entries.push({ name: f.path, data });
   }
@@ -1550,6 +1563,76 @@ async function saveOpenFile(path) {
 // File → Settings: automatic contrast correction, on unless turned off here.
 let autoContrast = true;
 try { autoContrast = localStorage.getItem("sliqtly.autoContrast") !== "off"; } catch (_) { /* on */ }
+
+// --- review mode: comments pinned to the slides (src/PresReviewUi.rgr) ----------------
+// File → Settings turns it on or off; without a choice made it is on where
+// the page is served by a server of one's own (a team's review tool) and off
+// on the site. The comments are the deck's file review/comments.json
+// (src/PresReview.rgr); a copy changed elsewhere (another person, an
+// assistant through MCP) is united with this one, not put in its place.
+const REVIEW_PATH = "review/comments.json";
+const REVIEW_KEY = "sliqtly.review";
+const REVIEW_COLOR_KEY = "sliqtly.reviewColor";
+function reviewChoice() {
+  try { return localStorage.getItem(REVIEW_KEY); } catch (_) { return null; }
+}
+function ownServer() {
+  return typeof window.sliqtly?.serverVersion === "function";
+}
+function applyReviewMode() {
+  const choice = reviewChoice();
+  const on = !viewer && !versionFrame && (choice ? choice === "on" : ownServer());
+  if (app.reviewMode() !== on) {
+    app.setReviewMode(on);
+    document.body.classList.toggle("reviewing", on);
+    needsPaint = true;
+  }
+}
+function reviewMe() {
+  const u = window.sliqtly?.user?.();
+  // on a server of one's own everyone is its one user: the name chosen for
+  // editing together says who wrote what
+  const name = collabOn() || ownServer() ? shownName() : (u?.displayName || shownName());
+  const color = collabOn() ? collab.me.color : collabMe.color;
+  app.reviewSetMe(collabMe.who, name, color, collabMe.client);
+}
+// the deck's comments into the review; `merge` unites them with what is here
+async function loadReview(merge) {
+  const which = doc.id;
+  const blob = await readDocFile(REVIEW_PATH);
+  if (doc.id !== which) return;
+  const text = blob ? await blob.text() : "";
+  if (!merge || text) app.reviewLoad(text, merge);
+  needsPaint = true;
+}
+async function keepReview() {
+  const text = app.reviewFile();
+  await keepFile({ path: REVIEW_PATH, type: "application/json", size: new Blob([text]).size, data: text });
+}
+// The share's comments as they are there (changed by someone else, or by an
+// assistant): united with the ones here. When the two differ, the united
+// file is what goes up next.
+async function takeCloudReview(s) {
+  const f = (s.files || []).find((x) => x.path === REVIEW_PATH);
+  if (!f || !(await docFiles()).some((x) => x.path === REVIEW_PATH)) return false;
+  let text = "";
+  try {
+    const res = await fetch(f.url, { cache: "no-store" });
+    if (!res.ok) return false;
+    text = await res.text();
+  } catch (_) {
+    return false;
+  }
+  const before = app.reviewFile();
+  app.reviewLoad(text, true);
+  const after = app.reviewFile();
+  if (after !== before) await keepReview();
+  const push = after !== text;
+  if (push) doc.cloudStamps.delete(REVIEW_PATH);
+  needsPaint = true;
+  // true when the comments here changed or theirs need ours
+  return after !== before || push;
+}
 // The editor's skin (File → Settings → Look): "" or "retro", and the skin's
 // base colour as a hue (its sheets' --retro-hue), per browser.
 let skin = "";
@@ -1778,6 +1861,8 @@ function paintOnce() {
   for (const layer of app.layerOrder().split(",")) {
     if (layer === "bar") {
       if (canvasBar) paintBar();
+    } else if (layer === "review") {
+      paintList(app.reviewJson());
     } else if (layer === "hint") {
       paintList(app.hintJson());
     } else if (layer === "chart") {
@@ -2357,6 +2442,7 @@ function frame() {
   try {
     const now = performance.now();
     app.setUiTime(now / 1000);
+    app.reviewClock(Date.now(), -new Date().getTimezoneOffset());
     if (app.uiBusy()) needsPaint = true;
     // charts whose theme changed are drawn again a few a frame (PresApp.settle)
     if (app.settle()) needsPaint = true;
@@ -2474,6 +2560,7 @@ function renameMe(name) {
   saveMe(collabStore, collabMe);
   app.chatRename(collabMe.who, n, collabOn() ? collab.me.color : collabMe.color);
   collab?.rename(n).catch(() => {});
+  reviewMe();
   refreshCollabBar();
 }
 function collabButton(id, onClick) {
@@ -2489,6 +2576,7 @@ function collabButton(id, onClick) {
   return b;
 }
 function refreshCollabBar() {
+  reviewMe();
   const on = collabOn();
   const me = collabButton("collabName", () => { if (app.openAskName(shownName())) needsPaint = true; });
   const chat = collabButton("collabChat", () => {
@@ -2590,6 +2678,19 @@ function handleRequests() {
       try { localStorage.setItem("sliqtly.autoContrast", autoContrast ? "on" : "off"); } catch (_) { /* this session only */ }
       dropThumbs();
       needsPaint = true;
+    } else if (r.startsWith("setting:review:")) {
+      try { localStorage.setItem(REVIEW_KEY, r.endsWith(":on") ? "on" : "off"); } catch (_) { /* this session only */ }
+      applyReviewMode();
+    } else if (r.startsWith("setting:reviewcolor:")) {
+      const c = r.slice("setting:reviewcolor:".length);
+      try { localStorage.setItem(REVIEW_COLOR_KEY, c); } catch (_) { /* this session only */ }
+      app.reviewColor(c);
+    } else if (r === "review-save") {
+      keepReview().catch(fail);
+    } else if (r === "confirm:zip") {
+      exportZip(true).catch(fail);
+    } else if (r === "confirm:zip:alt") {
+      exportZip(false).catch(fail);
     } else if (r.startsWith("setting:skin:")) {
       setSkinName(r.endsWith(":retro") ? "retro" : "");
     } else if (r.startsWith("setting:skinhue:")) {
@@ -2864,7 +2965,7 @@ async function exportPptx(picked = false) {
 }
 document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
-document.getElementById("zip").addEventListener("click", () => { exportZip().catch(fail); });
+document.getElementById("zip").addEventListener("click", () => { askZip().catch(fail); });
 document.getElementById("pdfPicked").addEventListener("click", () => { exportPdf(true).catch(fail); });
 document.getElementById("pptxPicked").addEventListener("click", () => { exportPptx(true).catch(fail); });
 // Open: a presentation (.md) replaces the deck; data (Excel, CSV, JSON) and
@@ -3327,7 +3428,9 @@ async function cloudCheck() {
     // in a room the Markdown arrives as edits (web/collab.js): not compared
     if (collabOn()) theirs.md = base.md;
     const moved = !sameCopy(theirs, base);
+    const reviewMoved = await takeCloudReview(s);
     const filesMoved = await takeCloudFiles(s);
+    if (filesMoved) await loadReview(true);
     let mergedHere = false;
     if (moved) mergedHere = await exclusive(() => takeCopy(base, theirs, "cloud"));
     if (moved || filesMoved) {
@@ -3340,7 +3443,7 @@ async function cloudCheck() {
       refreshFiles();
     }
     if (s.head) await followCloudHead(s.head, mergedHere);
-    if (moved || filesMoved) cloudSoon();
+    if (moved || filesMoved || reviewMoved) cloudSoon();
   })();
   try {
     return await cloudChecking;
@@ -4465,7 +4568,7 @@ keys.addEventListener("keydown", (ev) => {
     return;
   }
   if (presenting) {
-    if ((ev.key === "r" || ev.key === "R") && !mod && !ev.altKey) {
+    if ((ev.key === "r" || ev.key === "R") && !mod && !ev.altKey && !app.reviewHasKeys()) {
       ev.preventDefault();
       refreshLiveData();
       return;
@@ -5050,6 +5153,15 @@ async function start() {
   const r = stageEl.getBoundingClientRect();
   app.init(css, Math.max(320, r.width), Math.max(240, r.height));
   if (!viewer) applySkin();
+  try {
+    const rc = localStorage.getItem(REVIEW_COLOR_KEY);
+    if (rc && /^#[0-9a-fA-F]{6}$/.test(rc)) app.reviewColor(rc);
+  } catch (_) { /* the default yellow */ }
+  reviewMe();
+  applyReviewMode();
+  // a server of one's own is known once its window.sliqtly is there
+  window.addEventListener("sliqtly:ready", () => { applyReviewMode(); reviewMe(); });
+  window.addEventListener("sliqtly:user", () => reviewMe());
   app.setCoarse(isCoarse());
   app.setMac(IS_MAC);
   try { emojiRecent = localStorage.getItem(EMOJI_RECENT) || ""; } catch (_) { emojiRecent = ""; }
