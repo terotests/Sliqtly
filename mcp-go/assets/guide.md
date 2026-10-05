@@ -104,7 +104,12 @@ SVG pictures, backgrounds included:
   whole diagram, as large as it fits; ▶ beside the zoom buttons (T while
   presenting) starts a guided tour, box by box. Under the fence:
   `{tour=on}` (the tour starts with the slide), `{style=sketch}`
-  (hand-drawn), `{layout=keep}` (keep the direction as written),
+  (hand-drawn), `{style=mermaid}` (pastel cards on a dotted grid),
+  `{style=jurassic}` (poster: ochre circles, grey diamonds, heavy square
+  lines), `{style=cartoon}` (speech bubbles, fat outlines, offset shadows,
+  numbered boxes), `{style=romantic}` (black caption boxes, terracotta
+  circles, dashed lines; round nodes `((…))`/`([…])` become the circles),
+  `{layout=keep}` (keep the direction as written),
   `{ball=off}`, `{choose=off}` (do not stop at named branches),
   `{zoom=2}` (largest scale a box is drawn at, default 3),
   `{diagram=classic}` (the plain drawing on the slide's own background,

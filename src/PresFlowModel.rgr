@@ -13,8 +13,10 @@
 ;
 ; What the diagram window edits:
 ;
-;   the look       holo (the default), sketch (`style=sketch`) or the
-;                  document's own drawing (`diagram=classic`)
+;   the look       holo (the default), sketch (`style=sketch`), one of
+;                  RangerFlow's looks (`style=mermaid|jurassic|cartoon|
+;                  romantic`) or the document's own drawing
+;                  (`diagram=classic`)
 ;   the options    `tour=on` (the tour starts with the slide), `ball=off`
 ;                  (no moving dot), `choose=off` (no questions),
 ;                  `layout=keep` (the direction as written, not the one
@@ -29,6 +31,8 @@
 ; diagram in another notation (Graphviz, D2, PlantUML, a sequence diagram…)
 ; is edited for its look and options; its text stays in the Markdown.
 ; ============================================================================
+
+Import "../rangerflow/core/FlowLook.rgr"
 
 class PresFlowNode {
     def id:string ""
@@ -540,13 +544,15 @@ class PresFlowModel {
         attrs = out
     }
 
-    ; "holo", "sketch" or "classic"
+    ; "holo", "sketch", "classic" or one of RangerFlow's looks (mermaid,
+    ; jurassic, cartoon, romantic)
     fn look:string () {
         if ((this.attr("diagram")) == "classic") {
             return "classic"
         }
-        if ((this.attr("style")) == "sketch") {
-            return "sketch"
+        def st:string (this.attr("style"))
+        if ((st == "sketch") || (FlowLook.knows(st))) {
+            return st
         }
         return "holo"
     }
@@ -559,8 +565,8 @@ class PresFlowModel {
             return
         }
         this.setAttr("diagram" "")
-        if (v == "sketch") {
-            this.setAttr("style" "sketch")
+        if ((v == "sketch") || (FlowLook.knows(v))) {
+            this.setAttr("style" v)
             return
         }
         if ((this.attr("style")) != "holo") {

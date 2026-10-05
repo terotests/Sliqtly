@@ -132,7 +132,10 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   panels and curved arrows. Only the arrow being travelled glows and moves, in a
   warm orange; the others are thin, dim and still, so the eye has one place to
   go. A grid moves with the camera. Under the
-  fence: `{style=sketch}` (hand-drawn), `{tour=off}` (everything drawn at
+  fence: `{style=sketch}` (hand-drawn), `{style=mermaid|jurassic|cartoon|romantic}`
+  (RangerFlow's looks, `core/FlowLook.rgr`: pastel cards, a poster, speech
+  bubbles, black and terracotta; each has a light- and a dark-ground
+  variant, and its faces are fetched the first time a deck uses it), `{tour=off}` (everything drawn at
   once), `{zoom=3}` (the largest scale a box is drawn at),
   `{layout=keep}` (the direction as written) or `{diagram=classic}` (the
   original drawing, still, on the slide's background). PDF and PPTX use the original drawing.
@@ -313,7 +316,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | --- | --- |
 | `src/PresSource.rgr` | Lifts `:::` blocks out of the Markdown (masks them without changing offsets) |
 | `src/PresDeck.rgr` | Markdown → slides with the markdown module's layout; slide attributes, groups, the effect layer |
-| `src/PresDiagram.rgr` | Diagram animation: the holo and sketch styles, curved edges, reveal, the tour and the camera keyframes |
+| `src/PresDiagram.rgr` | Diagram animation: the holo and sketch styles, the FlowLook looks, curved edges, reveal, the tour and the camera keyframes |
 | `src/PresChart.rgr` | (colours the spec states itself win: a mark `color`, `labelColor`/`titleColor`, `gridColor`/`domainColor`/`tickColor`) A ```vega-lite chart dressed for the stage: grid in the accent, columns of warm light burning into rust with a glowing cap, rising in turn, one scan pass |
 | `src/PresTimeline.rgr` | (deck, slide, t) → display list. Deterministic: no clock of its own |
 | `src/PresApp.rgr` | The editor: panels, tracks, filmstrip, presenting, exports |

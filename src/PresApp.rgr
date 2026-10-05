@@ -354,6 +354,10 @@ class PresApp {
 
     fn attachFont:boolean (name:string data:buffer) {
         def ok:boolean (deck.md.attachFont(name data))
+        if ok {
+            set deck.haveFaces name true
+            chromeRev = (chromeRev + 1)
+        }
         if (name == editor.fontFamily) {
             tr.loadFontBytes(name data)
         }
@@ -361,6 +365,12 @@ class PresApp {
             measurer = (new TTFTextMeasurer(deck.md.fontManager))
         }
         return ok
+    }
+
+    ; The faces the deck's diagram looks want (comma-separated): the page
+    ; loads the ones it has not and hands them to `attachFont`.
+    fn wantedFaces:string () {
+        return deck.wantFaces
     }
 
     fn addImage:boolean (name:string data:buffer contentType:string w:int h:int) {

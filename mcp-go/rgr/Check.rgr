@@ -55,7 +55,7 @@ class Check {
     ; the faces the editor lays slides out with (web/main.js FACES, and the
     ; emoji face it adds when one is typed)
     sfn FACES:[string] () {
-        return ([] _:string ("Open Sans" "Open Sans-Bold" "Open Sans-Italic" "Open Sans-BoldItalic" "Noto Sans" "Noto Sans-Bold" "Noto Emoji-Regular"))
+        return ([] _:string ("Open Sans" "Open Sans-Bold" "Open Sans-Italic" "Open Sans-BoldItalic" "Noto Sans" "Noto Sans-Bold" "Noto Emoji-Regular" "Gloria Hallelujah" "Fjalla One" "Josefin Sans-Bold" "Droid Serif-BoldItalic"))
     }
 
     ; a file a chart reads, as text: this call's files, the deck's stored
@@ -171,7 +171,9 @@ class Check {
         for (Check.FACES()) face:string fi {
             def fb:buffer (host_font host face)
             if ((buffer_length fb) > 0) {
-                d.md.attachFont(face fb)
+                if (d.md.attachFont(face fb)) {
+                    set d.haveFaces face true
+                }
             }
         }
         if ((strlen css) > 0) {
