@@ -27,26 +27,40 @@ pub struct Model {
     pub id_mismatch: Vec<(Vec<u8>, String)>,
     /// `meta/<name>` entries, value as UTF-8 text.
     pub meta: BTreeMap<String, String>,
+    /// Every pair not decoded into rooms, documents or memberships: the
+    /// `sliqtly_kv` table, so `.dump` loses nothing.
+    pub other: Vec<(Vec<u8>, Vec<u8>)>,
 }
 
 impl Model {
     pub fn build(db: &Loaded) -> Model {
         let mut m = Model::default();
         for (k, v) in &db.entries {
-            let Some(&t) = k.first() else { continue };
-            if t == tag(KeyType::Room) {
+            let t = k.first().copied().unwrap_or(0);
+            let before = m.undecodable.len();
+            let semantic = if t == tag(KeyType::Room) {
                 m.room(k, v);
+                true
             } else if t == tag(KeyType::Document) {
                 m.document(k, v);
+                true
             } else if t == tag(KeyType::Membership) {
                 m.membership(k, v);
-            } else if t == tag(KeyType::Meta) {
-                if let Some(name) = KeyReader::new(k).string() {
-                    m.meta.insert(
-                        name,
-                        String::from_utf8_lossy(v).trim_matches('"').to_string(),
-                    );
+                true
+            } else {
+                if t == tag(KeyType::Meta) {
+                    if let Some(name) = KeyReader::new(k).string() {
+                        m.meta.insert(
+                            name,
+                            String::from_utf8_lossy(v).trim_matches('"').to_string(),
+                        );
+                    }
                 }
+                false
+            };
+            // Anything not cleanly decoded stays visible, byte for byte.
+            if !semantic || m.undecodable.len() > before {
+                m.other.push((k.clone(), v.clone()));
             }
         }
         m

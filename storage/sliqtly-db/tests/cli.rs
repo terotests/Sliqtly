@@ -1,143 +1,18 @@
 //! End-to-end tests: databases written through `sliqtly_store`, inspected
 //! through the `sliqtly-db` binary.
 
-use chrono::Utc;
+mod common;
+
+use common::*;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sliqtly_store::engine::KvEngine;
 use sliqtly_store::key::{KeyBuilder, KeyType};
-use sliqtly_store::record::{Document, Membership, Role, Room};
 use sliqtly_store::{Database, FjallEngine};
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Command;
 use tempfile::TempDir;
 use uuid::Uuid;
-
-fn cli(db: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_sliqtly-db"))
-        .arg("--db")
-        .arg(db)
-        .args(args)
-        .output()
-        .expect("run sliqtly-db")
-}
-
-fn stdout(o: &Output) -> String {
-    String::from_utf8_lossy(&o.stdout).into_owned()
-}
-
-fn stderr(o: &Output) -> String {
-    String::from_utf8_lossy(&o.stderr).into_owned()
-}
-
-fn json(o: &Output) -> Value {
-    serde_json::from_slice(&o.stdout).unwrap_or_else(|e| panic!("{e}: {}{}", stdout(o), stderr(o)))
-}
-
-struct Seeded {
-    dir: TempDir,
-    rooms: Vec<Uuid>,
-    docs: Vec<Uuid>,
-}
-
-fn room(title: &str) -> Room {
-    let t = Utc::now();
-    Room {
-        id: Uuid::now_v7(),
-        title: title.into(),
-        description: None,
-        created_by: Uuid::now_v7(),
-        created_at: t,
-        updated_at: t,
-        metadata: serde_json::json!({}),
-    }
-}
-
-fn doc(room_id: Uuid, title: &str) -> Document {
-    Document {
-        id: Uuid::now_v7(),
-        room_id,
-        title: title.into(),
-        created_by: Uuid::now_v7(),
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-        version: 0,
-        metadata: serde_json::json!({}),
-    }
-}
-
-/// 3 rooms, 5 documents, 2 memberships, 1 blob; one commit per write.
-fn seed() -> Seeded {
-    let dir = TempDir::new().unwrap();
-    let db = Database::open(dir.path()).unwrap();
-    let mut rooms = Vec::new();
-    let mut docs = Vec::new();
-    for title in ["Alpha", "Beta", "Gamma"] {
-        let r = room(title);
-        let mut tx = db.write().unwrap();
-        tx.put_room(r.clone()).unwrap();
-        tx.commit(&db).unwrap();
-        rooms.push(r.id);
-    }
-    for (i, title) in ["one", "two", "three", "four", "five"].iter().enumerate() {
-        let d = doc(rooms[i % 2], title);
-        let mut tx = db.write().unwrap();
-        tx.put_document(d.clone()).unwrap();
-        tx.commit(&db).unwrap();
-        docs.push(d.id);
-    }
-    for (user, r) in [(Uuid::now_v7(), rooms[0]), (Uuid::now_v7(), rooms[1])] {
-        let mut tx = db.write().unwrap();
-        tx.add_membership(Membership {
-            user_id: user,
-            room_id: r,
-            role: Role::Editor,
-            joined_at: Utc::now(),
-            metadata: serde_json::json!({}),
-        })
-        .unwrap();
-        tx.commit(&db).unwrap();
-    }
-    let data = b"\x89PNG fake image bytes".to_vec();
-    let id = format!("{:x}", Sha256::digest(&data));
-    put_raw(
-        &db,
-        KeyBuilder::new(KeyType::Blob).push_str(&id).build(),
-        data.clone(),
-    );
-    let meta = serde_json::json!({"id": id, "size": data.len(), "checksum": adler32(&data)});
-    put_raw(
-        &db,
-        KeyBuilder::new(KeyType::Blob)
-            .push_str(&id)
-            .push_str("_meta")
-            .build(),
-        serde_json::to_vec(&meta).unwrap(),
-    );
-    Seeded { dir, rooms, docs }
-}
-
-fn put_raw(db: &Database, k: Vec<u8>, v: Vec<u8>) {
-    let mut tx = db.write().unwrap();
-    tx.put_raw(k, v).unwrap();
-    tx.commit(db).unwrap();
-}
-
-fn raw(dir: &Path, k: Vec<u8>, v: Vec<u8>) {
-    put_raw(&Database::open(dir).unwrap(), k, v);
-}
-
-fn adler32(data: &[u8]) -> String {
-    let (mut a, mut b) = (1u32, 0u32);
-    for &x in data {
-        a = (a + x as u32) % 65521;
-        b = (b + a) % 65521;
-    }
-    format!("{:08x}", (b << 16) | a)
-}
-
-/// Seeded commits: 3 rooms + 5 docs + 2 memberships + 2 blob keys.
-const SEEDED_SEQ: u64 = 12;
 
 fn check<'a>(report: &'a Value, name: &str) -> &'a Value {
     report["checks"]
@@ -366,6 +241,10 @@ fn missing_database_is_an_error_and_creates_nothing() {
 fn query(dir: &Path, sql: &str) -> Value {
     let o = cli(dir, &["query", "--json", sql]);
     assert!(o.status.success(), "{sql}: {}", stderr(&o));
+    // Like sqlite3 -json, an empty result prints nothing.
+    if o.stdout.is_empty() {
+        return Value::Array(vec![]);
+    }
     json(&o)
 }
 
@@ -400,7 +279,7 @@ fn query_filters_orders_and_limits() {
         s.dir.path(),
         "select count(*) from documents where title like 't%' or version > 5",
     );
-    assert_eq!(v[0]["count"], 2.0);
+    assert_eq!(v[0]["count(*)"], 2);
 
     let v = query(
         s.dir.path(),
@@ -425,11 +304,14 @@ fn query_filters_orders_and_limits() {
 fn query_rejects_writes_and_unknown_names() {
     let s = seed();
     for (sql, msg) in [
-        ("DELETE FROM rooms", "expected select"),
-        ("SELECT * FROM rooms; DELETE FROM rooms", "read-only"),
-        ("SELECT nope FROM rooms", "unknown column nope"),
-        ("SELECT * FROM users", "unknown table users"),
-        ("SELECT * FROM rooms WHERE title = 'x", "unterminated"),
+        ("DELETE FROM rooms", "attempt to write a readonly database"),
+        (
+            "SELECT * FROM rooms; DELETE FROM rooms",
+            "attempt to write a readonly database",
+        ),
+        ("SELECT nope FROM rooms", "no such column: nope"),
+        ("SELECT * FROM users", "no such table: users"),
+        ("SELECT * FROM rooms WHERE title = 'x", "unrecognized token"),
     ] {
         let o = cli(s.dir.path(), &["query", sql]);
         assert_eq!(o.status.code(), Some(2), "{sql}");
@@ -441,7 +323,7 @@ fn query_rejects_writes_and_unknown_names() {
 fn query_shell_reads_statements_from_stdin() {
     use std::io::Write;
     let s = seed();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_sliqtly-db"))
+    let mut child = Command::new(BIN)
         .arg("--db")
         .arg(s.dir.path())
         .arg("query")
@@ -458,9 +340,9 @@ fn query_shell_reads_statements_from_stdin() {
         .unwrap();
     let o = child.wait_with_output().unwrap();
     let out = stdout(&o);
-    assert!(out.contains("3\n"), "{out}");
+    assert!(out.contains(" 3 |"), "{out}");
     assert!(out.contains("Beta"), "{out}");
-    assert!(stderr(&o).contains("unknown column bad"), "{}", stderr(&o));
+    assert!(stderr(&o).contains("no such column: bad"), "{}", stderr(&o));
 }
 
 // ------------------------------------------------------------------ backup / restore

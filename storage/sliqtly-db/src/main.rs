@@ -9,11 +9,12 @@ mod catalog;
 mod model;
 mod query;
 mod report;
+mod schema;
+mod shell;
 mod verify;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use std::io::{BufRead, IsTerminal, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use verify::Status;
@@ -52,7 +53,7 @@ enum Cmd {
         #[arg(long)]
         strict: bool,
     },
-    /// Read-only SQL over rooms, documents and memberships. Without SQL, reads statements from stdin.
+    /// Read-only SQL (SQLite dialect) with table output. Without SQL, reads statements from stdin.
     Query {
         /// e.g. "SELECT id, title FROM rooms ORDER BY updated DESC LIMIT 10"
         sql: Option<String>,
@@ -75,7 +76,35 @@ enum Cmd {
     },
 }
 
+const SUBCOMMANDS: &[&str] = &[
+    "info", "stats", "verify", "query", "backup", "restore", "help",
+];
+
+/// `sliqtly-db --db DIR info` style when a subcommand (or --db) is present;
+/// otherwise behave like the sqlite3 program: `sliqtly-db [OPTIONS] DIR [SQL]`.
+fn wants_subcommand(args: &[String]) -> bool {
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--db" | "-d" => return true,
+            "--help" | "--version" | "-V" | "-h" => return args.iter().all(|x| x.starts_with('-')),
+            x if x.starts_with("--db=") => return true,
+            x if x.starts_with('-') => {
+                if ["-separator", "-newline", "-nullvalue", "-cmd", "-init"].contains(&x) {
+                    it.next();
+                }
+            }
+            x => return SUBCOMMANDS.contains(&x),
+        }
+    }
+    false
+}
+
 fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if !wants_subcommand(&args) {
+        return ExitCode::from(shell::main_sqlite(args).clamp(0, 255) as u8);
+    }
     let cli = Cli::parse();
     match run(cli) {
         Ok(code) => code,
@@ -126,11 +155,26 @@ fn run(cli: Cli) -> Result<ExitCode> {
             return Ok(verify_exit(r.worst(), *strict));
         }
         Cmd::Query { sql } => {
-            let db = backend::open(&db_path(&cli)?)?;
-            let model = model::Model::build(&db);
+            let mut settings = shell::Settings::default();
+            if cli.json {
+                settings.mode = shell::Mode::Json;
+            } else {
+                settings.mode = shell::Mode::Table;
+                settings.headers = true;
+            }
+            let mut sh = shell::Shell::new(settings);
+            sh.open(&db_path(&cli)?)?;
             match sql {
-                Some(sql) => run_query(&model, sql, cli.json)?,
-                None => shell(&model, cli.json)?,
+                Some(sql) => {
+                    sh.s.bail = true;
+                    sh.run_script(sql);
+                }
+                None => {
+                    sh.interact();
+                }
+            }
+            if sh.errors > 0 {
+                return Ok(ExitCode::from(2));
             }
         }
         Cmd::Backup { dest } => {
@@ -232,55 +276,4 @@ fn print_verify(r: &verify::Report) {
         _ => "passed",
     };
     println!("verify {verdict}");
-}
-
-fn run_query(model: &model::Model, sql: &str, json: bool) -> Result<()> {
-    let q = query::parse(sql)?;
-    let rs = query::execute(model, &q, chrono::Utc::now())?;
-    if json {
-        print_json(&query::render_json(&rs))?;
-    } else {
-        print!("{}", query::render_table(&rs));
-    }
-    Ok(())
-}
-
-/// Statements end with `;`. Errors are reported and the shell continues.
-fn shell(model: &model::Model, json: bool) -> Result<()> {
-    let stdin = std::io::stdin();
-    let interactive = stdin.is_terminal();
-    if interactive {
-        eprintln!(
-            "sliqtly-db query (read-only). Tables: {}. End statements with ';'. Ctrl-D to exit.",
-            query::TABLES
-                .iter()
-                .map(|t| t.name)
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-    }
-    let mut buf = String::new();
-    let prompt = |cont: bool| {
-        if interactive {
-            eprint!("{}", if cont { "   ...> " } else { "sliqtly> " });
-            let _ = std::io::stderr().flush();
-        }
-    };
-    prompt(false);
-    for line in stdin.lock().lines() {
-        let line = line?;
-        buf.push_str(&line);
-        buf.push('\n');
-        if line.trim_end().ends_with(';') {
-            if let Err(e) = run_query(model, &buf, json) {
-                eprintln!("error: {e:#}");
-            }
-            buf.clear();
-        }
-        prompt(!buf.trim().is_empty());
-    }
-    if !buf.trim().is_empty() {
-        run_query(model, &buf, json)?;
-    }
-    Ok(())
 }
