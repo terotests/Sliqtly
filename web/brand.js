@@ -17,8 +17,9 @@ export const INTRO_MS = 2600;
  * Whether a presentation opened for showing gets the intro.
  *   from: "link"   the Markdown packed into the address (#md=…&mode=show)
  *         "share"  a cloud share (/s/{id}, or #share={id} in an assistant's preview)
+ *         "file"   a presentation exported as one .html file (web/player-file.js)
  * Anything else (the editor, the owner editing their own deck) gets none.
  */
 export function wantsIntro({ from } = {}) {
-  return from === "link" || from === "share";
+  return from === "link" || from === "share" || from === "file";
 }

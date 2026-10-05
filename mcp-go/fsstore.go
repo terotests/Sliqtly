@@ -3,7 +3,8 @@
 // The DB and Bucket on a folder, for a server of one's own (SLIQTLY_DATA):
 //
 //	<root>/format.json                       the layout's version (datafmt.go)
-//	<root>/db/<collection>/<sh>/<id>.json    a document (store.FileStore)
+//	<root>/db/<collection>/<sh>/<id>.json    a document (store.FileStore); since
+//	                                         format 3 every deck has a home room
 //	<root>/files/<top>/<sh>/<name>/<rest>    a kept file: shares/{id}/media/x
 //	                                         is files/shares/<sh>/{id}/media/x
 //
@@ -50,10 +51,14 @@ type fsBucket struct {
 	mu   sync.Mutex
 }
 
+// the folder server's one tenant
+const localTenant = "local"
+
 // the store on a folder in the current layout; prepareData (datafmt.go)
 // brings an older one up to it first, and a folder in another layout is
-// refused rather than read wrong
-func newFSStore(root string) (*engineDB, *fsBucket, error) {
+// refused rather than read wrong. A deck written without a room goes to
+// General; user owns the starter rooms.
+func newFSStore(root, user string) (*engineDB, *fsBucket, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, nil, err
@@ -81,7 +86,8 @@ func newFSStore(root string) (*engineDB, *fsBucket, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return &engineDB{fs}, &fsBucket{root: filepath.Join(abs, "files")}, nil
+	e := &store.HomeRooms{Engine: fs, Cols: map[string]bool{"shares": true}, Tenant: localTenant, Owner: user}
+	return &engineDB{e}, &fsBucket{root: filepath.Join(abs, "files")}, nil
 }
 
 func (d *engineDB) Get(ctx context.Context, col, id string) (Doc, error) {
@@ -170,6 +176,27 @@ func (d *engineDB) Create(ctx context.Context, col, id string, doc Doc) (Doc, er
 }
 
 var errExists = errors.New("exists")
+
+func (d *engineDB) UpdateIf(ctx context.Context, col, id, field, want string, doc Doc) (bool, error) {
+	_, _, err := d.e.Update(ctx, col, id, func(cur Doc, _ store.Rev) (Doc, error) {
+		if fieldText(cur, field) != want {
+			return nil, errNotWanted
+		}
+		if cur == nil {
+			cur = Doc{}
+		}
+		for k, v := range doc {
+			cur[k] = v
+		}
+		return cur, nil
+	})
+	if errors.Is(err, errNotWanted) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+var errNotWanted = errors.New("field changed")
 
 func (d *engineDB) Increment(ctx context.Context, col, id string, add Doc) error {
 	var inc func(cur, add Doc) Doc
@@ -267,7 +294,7 @@ func (b *fsBucket) Open(path string) (f *os.File, contentType string, ok bool) {
 
 // the collections whose documents go once their `expires` has passed, as
 // Firestore's TTL policies have them (firestore.indexes.json)
-var ttlCollections = []string{"shares", "mcp_keys", "mcp_quota", "mcp_oauth_requests", "mcp_oauth_codes", "mcp_oauth_tokens", "stats_salt", "stats_seen"}
+var ttlCollections = []string{"shares", "mcp_keys", "mcp_quota", "mcp_oauth_requests", "mcp_oauth_codes", "mcp_oauth_tokens", "stats_salt", "stats_seen", "mcp_work", "mcp_bases"}
 
 // removes the documents of col whose `expires` is before t, each looked at
 // again as it is removed, so one given a later `expires` meanwhile stays.

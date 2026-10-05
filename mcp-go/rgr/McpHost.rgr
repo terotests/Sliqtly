@@ -68,6 +68,14 @@ operators {
             go ( (e 1) ".LocalUser()" )
         }
     }
+    ; true when the server's GitHub token may read private repositories
+    ; for this caller: a user SLIQTLY_GITHUB_USERS names, or anyone on a
+    ; server of one's own
+    host_github_private_ok _:boolean (h:McpHost uid:string) {
+        templates {
+            go ( (e 1) ".GitHubPrivateOK(" (e 2) ")" )
+        }
+    }
     ; the form a presentation's name must have (names.go), in words; ""
     ; when any name will do
     host_name_rule _:string (h:McpHost) {
@@ -85,6 +93,25 @@ operators {
     host_name_key _:string (h:McpHost name:string) {
         templates {
             go ( (e 1) ".NameKey(" (e 2) ")" )
+        }
+    }
+    ; the tools the host adds (rooms on a server of one's own) as a JSON
+    ; array of tool entries, "[]" for none
+    host_tools_json _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".HostTools()" )
+        }
+    }
+    host_has_tool _:boolean (h:McpHost name:string) {
+        templates {
+            go ( (e 1) ".HasTool(" (e 2) ")" )
+        }
+    }
+    ; runs one for uid with the arguments (JSON): the answer as JSON text,
+    ; or "" and host_error saying why. who is the rate limit's key.
+    host_call_tool _:string (h:McpHost uid:string who:string name:string args:string) {
+        templates {
+            go ( (e 1) ".CallTool(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
         }
     }
     host_asset _:string (h:McpHost name:string) {
@@ -140,6 +167,15 @@ operators {
             go ( (e 1) ".CreateDoc(" (e 2) ", " (e 3) ", " (e 4) ")" )
         }
     }
+    ; the update only when the document's string field `field` is `want`
+    ; (a missing field or document reads as ""; a missing document is
+    ; written whole): "" when written, "changed" when the field was not
+    ; `want`; the read and the write are one transaction
+    host_update_if _:string (h:McpHost col:string id:string field:string want:string json:string) {
+        templates {
+            go ( (e 1) ".UpdateDocIf(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ", " (e 6) ")" )
+        }
+    }
     ; adds the numbers of a JSON object (nested objects for nested fields)
     ; to the document's, creating what is missing (FieldValue.increment)
     host_increment_doc _:void (h:McpHost col:string id:string json:string) {
@@ -167,6 +203,13 @@ operators {
     host_image_url _:string (h:McpHost url:string limit:int) {
         templates {
             go ( (e 1) ".ImageFromURL(" (e 2) ", " (e 3) ")" )
+        }
+    }
+    ; why the PNG, JPEG, GIF or WebP in the handle does not decode; "" when
+    ; it does
+    host_image_error _:string (h:McpHost handle:int) {
+        templates {
+            go ( (e 1) ".ImageError(" (e 2) ")" )
         }
     }
     ; the picture in the handle as the contrast check samples it: width,
@@ -202,6 +245,13 @@ operators {
     host_render _:string (h:McpHost list:string w:double ht:double width:int) {
         templates {
             go ( (e 1) ".Render(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
+        }
+    }
+    ; the (x, y, w, h) rectangle of a slide's list (slide units) as a PNG
+    ; `width` pixels wide; empty when it could not be drawn
+    host_render_crop _:buffer (h:McpHost list:string w:double ht:double x:double y:double cw:double ch:double width:int) {
+        templates {
+            go ( (e 1) ".RenderCrop(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ", " (e 6) ", " (e 7) ", " (e 8) ", " (e 9) ")" )
         }
     }
     ; every slide as a numbered thumbnail, `cols` across, `width` pixels in

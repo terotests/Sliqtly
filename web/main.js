@@ -22,13 +22,15 @@ import { sortFiles, pastePlan, fileClipboard, CLIP_KEY } from "./fileclip.js";
 import { deckKey, canReturn, reopenPlan, tabLabel, readDeckTabs, keepDeckTabs } from "./decktabs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
-import { scaled, previewOf, render } from "./image-adjust.js";
+import { scaled, previewOf, render, asPicture } from "./image-adjust.js";
 import { decodePicture, isSvg, isSmartArt, SMARTART_TYPE } from "./picture.js";
 import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versions.js";
 import { showHistory, askMerge } from "./versions-ui.js";
 import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
+import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
+import { parseRooms, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, ONBOARDING } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { secondaryPress, pickKeyHeld } from "./press.js";
@@ -127,20 +129,26 @@ function fresh(url) {
   return url + (url.includes("?") ? "&" : "?") + "v=" + BUILD;
 }
 
+// A player file (web/player-file.js) carries the page's own files: they are
+// read from it, and fetched on any other page.
+async function pageFetch(url) {
+  return (await embeddedAsset(url)) || (await fetch(url));
+}
+
 async function bytesOf(url) {
-  const res = await fetch(fresh(url));
+  const res = await pageFetch(fresh(url));
   if (!res.ok) throw new Error(url + " → " + res.status);
   return await res.arrayBuffer();
 }
 
 async function fontBytes(file) {
-  const res = await fetch(fontUrl(file));
+  const res = await pageFetch(fontUrl(file));
   if (!res.ok) throw new Error(file + " → " + res.status);
   return await res.arrayBuffer();
 }
 
 async function textOf(url) {
-  const res = await fetch(fresh(url));
+  const res = await pageFetch(fresh(url));
   if (!res.ok) throw new Error(url + " → " + res.status);
   return await res.text();
 }
@@ -289,6 +297,7 @@ async function placePasted() {
   app.placePicture(rel, plan.alt || "image", plan.to);
   dropThumbs();
   afterInput();
+  if (plan.trace && !isSvg(type, rel)) await openTraceEditor(rel);
 }
 
 // A picture of the files tab, clicked: the image editor (PresChartEditor's
@@ -381,6 +390,139 @@ function cropOf(plan) {
   if (plan.whole) return null;
   const [x, y, cw, ch] = String(plan.crop).split(",").map(Number);
   return cw > 0 && ch > 0 ? [x, y, cw, ch] : null;
+}
+
+// A picture of the deck traced into an SVG (PresChartEditor's "trace" mode,
+// opened from Edit image's "Vectorize…"). The tracer is src/PresTrace.rgr —
+// lib/evg's EvgBitmapTracer — in its own bundle, run in a worker
+// (trace-worker.js) so the page keeps drawing while it works. While the
+// window is open the slides show the latest trace; Save keeps it as an SVG
+// beside the picture and, when asked, points the picture's uses at it.
+let tracing = null;
+let traceWorker = null;
+let traceSeq = 0;
+const TRACE_MOST = 2000;
+
+function traceWorkerOf() {
+  if (!traceWorker) {
+    traceWorker = new Worker("./trace-worker.js?v=" + BUILD, { name: BUILD });
+    traceWorker.onmessage = (e) => traceResult(e.data).catch(fail);
+    traceWorker.onerror = (e) => {
+      traceWorker = null;
+      if (tracing) app.traceDone("", "", t("The vectorizer did not load: ") + (e.message || ""));
+      needsPaint = true;
+    };
+  }
+  return traceWorker;
+}
+
+async function openTraceEditor(path) {
+  const f = (await docFiles()).find((x) => x.path === path);
+  if (!f || !(f.data instanceof Blob)) { toast(t("This file cannot be opened as an image.")); return; }
+  const blob = f.data.type ? f.data : new Blob([f.data], { type: f.type || "image/png" });
+  if (isSvg(blob.type, path)) { toast(t("This picture is already a vector image.")); return; }
+  let bmp;
+  try {
+    bmp = await createImageBitmap(blob);
+  } catch (_) {
+    toast(t("This file cannot be opened as an image."));
+    return;
+  }
+  const w = bmp.width;
+  const h = bmp.height;
+  // the pixels the tracer gets: at most TRACE_MOST on the longer side (its
+  // own maxSide scales them further), drawn by the browser
+  const k = Math.min(1, TRACE_MOST / Math.max(w, h));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(w * k));
+  c.height = Math.max(1, Math.round(h * k));
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close();
+  const rgba = g.getImageData(0, 0, c.width, c.height).data;
+  dropTracing();
+  traceSeq += 1;
+  const orig = `/__trace/${Date.now().toString(36)}-${traceSeq}`;
+  pictures.set(orig, asPicture(c));
+  tracing = { path, w, h, rgba, rw: c.width, rh: c.height, orig, preview: null, svg: null, run: 0, original: pictures.get("/" + path), bytes: blob.size };
+  if (!app.openTrace(orig, path, w, h)) dropTracing();
+  needsPaint = true;
+}
+
+function runTrace() {
+  const tr = tracing;
+  if (!tr) return;
+  tr.run += 1;
+  const copy = tr.rgba.slice().buffer;
+  traceWorkerOf().postMessage({ seq: tr.run, rgba: copy, w: tr.rw, h: tr.rh, settings: app.traceSettings() }, [copy]);
+}
+
+function kb(n) {
+  return n < 1024 * 1024 ? Math.max(1, Math.round(n / 1024)) + " KB" : (n / 1048576).toFixed(1) + " MB";
+}
+
+async function traceResult(r) {
+  const tr = tracing;
+  // an answer for a window since closed, or for settings since changed
+  if (!tr || r.seq !== tr.run) return;
+  if (r.err || !r.svg) {
+    app.traceDone("", "", r.err || t("Nothing came out of the picture."));
+    needsPaint = true;
+    return;
+  }
+  const bytes = new TextEncoder().encode(r.svg);
+  const p = await decodePicture(bytes.buffer, "image/svg+xml", tr.path + ".svg");
+  if (tracing !== tr || r.seq !== tr.run) return;
+  if (!p.img) {
+    app.traceDone("", "", t("The SVG could not be drawn."));
+    needsPaint = true;
+    return;
+  }
+  tr.svg = r.svg;
+  if (tr.preview) pictures.delete(tr.preview);
+  tr.preview = `${tr.orig}-${r.seq}`;
+  pictures.set(tr.preview, p.img);
+  pictures.set("/" + tr.path, p.img);
+  let info = t("{n} colors, {size} SVG (the picture {was})").replace("{n}", String(r.layers)).replace("{size}", kb(bytes.byteLength)).replace("{was}", kb(tr.bytes));
+  if (r.tracedW && (r.tracedW !== tr.w || r.tracedH !== tr.h)) info += t(", traced at ") + r.tracedW + "×" + r.tracedH;
+  app.traceDone(tr.preview, info + ".", "");
+  needsPaint = true;
+}
+
+function dropTracing() {
+  const tr = tracing;
+  if (!tr) return;
+  pictures.delete(tr.orig);
+  if (tr.preview) pictures.delete(tr.preview);
+  if (tr.original) pictures.set("/" + tr.path, tr.original);
+  tracing = null;
+  needsPaint = true;
+}
+
+window.__traceState = () => (tracing ? { path: tracing.path, run: tracing.run, svg: tracing.svg ? tracing.svg.length : 0 } : null);
+
+async function saveTraced() {
+  const tr = tracing;
+  if (!tr) return;
+  const plan = JSON.parse(app.tracePlan());
+  const svg = tr.svg;
+  dropTracing();
+  if (!svg) { toast(t("Nothing was saved: the picture had not been vectorized yet.")); return; }
+  const files = await docFiles();
+  const base = tr.path.replace(/\.[^./]+$/, "");
+  let target = base + ".svg";
+  for (let i = 2; files.some((x) => x.path === target); i += 1) target = `${base}-${i}.svg`;
+  const bytes = new TextEncoder().encode(svg);
+  await addPicture("/" + target, bytes.buffer.slice(0), "image/svg+xml");
+  await keepFile({ path: target, type: "image/svg+xml", size: bytes.byteLength, data: new Blob([bytes], { type: "image/svg+xml" }) });
+  const n = plan.replace ? app.swapPictureRefs(tr.path, target) : 0;
+  dropThumbs();
+  afterInput();
+  needsPaint = true;
+  const said = n === 1 ? t("Saved {file}, used where the picture was.")
+    : n > 1 ? t("Saved {file}, used in {n} places instead of the picture.")
+    : t("Saved {file} beside the picture.");
+  toast(said.replace("{file}", target).replace("{n}", String(n)));
 }
 
 // A picture made again from its original and the edits made to it, one
@@ -486,11 +628,18 @@ function beginDoc(text) {
 
 // quiet: no tab for it (the empty deck shown while a deleted one's
 // successor is found)
+// the Rooms panel's state (its requests: roomsRequest, below)
+const ROOMS_KEY = "sliqtly.rooms";
+let roomShown = "";
+let roomsHere = parseRooms(null);
+try { roomsHere = parseRooms(localStorage.getItem(ROOMS_KEY)); } catch (_) { /* none kept */ }
 function shownDoc(text, quiet = false) {
   app.setSource(text);
   doc.loading = false;
   if (!viewer && !quiet) showDeckTab();
   loadReview(false).catch((e) => console.warn("review comments not read", e));
+  // the Rooms panel marks the presentation now open
+  if (!viewer && roomShown) roomsRequest("room:list").catch(() => {});
 }
 
 // --- the open presentations' tabs (web/decktabs.js) ------------------------------
@@ -775,6 +924,160 @@ async function newDeck(plan) {
 // Markdown, theme CSS and files copied, named `asked` (empty: "<name>
 // (copy)"). This one is saved first; the copy is kept at once under an id of
 // its own (a PRO deck gets its own share).
+// Rooms beside the rail (ADR 0001): on a server of one's own its rooms
+// (POST /api/rooms/<op>); elsewhere this browser's (web/rooms.js), kept in
+// localStorage. The open room's presentations are listed under it, at most
+// five, "… Show all" opening the rest in the presentations window.
+function keepRooms(next) {
+  roomsHere = next;
+  try { localStorage.setItem(ROOMS_KEY, JSON.stringify(next)); } catch (_) { /* this page only */ }
+}
+async function roomsCall(op, args) {
+  const res = await fetch("/api/rooms/" + op, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(args || {}) });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(out.error || res.status);
+  return out;
+}
+const clean = (s) => String(s || "").replace(/[\t\n\r]+/g, " ");
+function sampleRows() {
+  return [...sampleSel.options].filter((o) => o.value).map((o) => ({ key: o.value, name: o.textContent.trim(), current: doc.src === "sample:" + o.value }));
+}
+// The rooms: [{ room_id, title, presentations }]
+async function roomsList() {
+  if (ownServer()) return (await roomsCall("list_rooms")).rooms || [];
+  return listRooms(roomsHere, await allDocs(), sampleRows());
+}
+// A room's presentations: [{ id, name, current }], ids as fileRequest's
+// "doc:" takes them ("sample:<key>" for a sample).
+async function roomRows(room) {
+  if (ownServer()) {
+    const g = await roomsCall("get_room", { room_id: room });
+    return (g.presentations || []).map((p) => ({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud }));
+  }
+  return roomDecks(roomsHere, room, await allDocs(), sampleRows());
+}
+// The open presentation's id in the room lists ("" while it is not kept yet,
+// as an unedited sample is not).
+async function currentRoomId() {
+  if (ownServer()) return doc.cloud ? "cloud:" + doc.cloud : "";
+  return (await allDocs()).find((d) => d.current)?.id || "";
+}
+// the search field's text while it is open (null: the rooms one is active in)
+let roomsQuery = null;
+async function roomsRequest(r) {
+  const [, action, ...rest] = r.split(":");
+  const what = rest.join(":");
+  if (action === "list") {
+    const q = roomsQuery;
+    const all = await roomsList();
+    // typed on since: that text's own list is the one to show
+    if (roomsQuery !== q) return;
+    // the rooms one is active in, or what the search finds; the open room
+    // stays listed
+    let rooms, hidden = 0;
+    const searching = q !== null && q.trim() !== "";
+    if (searching) rooms = searchRooms(all, q);
+    else ({ shown: rooms, hidden } = activeRooms(all, roomsHere));
+    if (!searching && !rooms.some((x) => x.room_id === roomShown)) {
+      const open = all.find((x) => x.room_id === roomShown);
+      if (open) rooms = [...rooms, open];
+      else roomShown = rooms[0]?.room_id || "";
+    }
+    const rows = rooms.map((x) => [x.room_id, clean(x.title), x.presentations ?? ""].join("\t"));
+    app.setToolbarOptions("roomsearch", "", t("Search rooms…") + (hidden ? " (" + hidden + t(" more") + ")" : ""));
+    app.setToolbarOptions("rooms", rows.join("\n"), roomShown);
+    if (roomShown && rooms.some((x) => x.room_id === roomShown)) await roomsRequest("room:open:" + roomShown);
+    else app.setToolbarOptions("roomdecks", "", roomShown);
+  } else if (action === "search") {
+    roomsQuery = what;
+    await roomsRequest("room:list");
+  } else if (action === "searchend") {
+    roomsQuery = null;
+    await roomsRequest("room:list");
+  } else if (action === "searchgo" || action === "pick") {
+    // Enter: the first room found; a press: that room. Either is now one of
+    // the rooms one is active in
+    const id = action === "pick" ? what : searchRooms(await roomsList(), what)[0]?.room_id;
+    roomsQuery = null;
+    if (id) {
+      roomShown = id;
+      keepRooms(touchRoom(roomsHere, id));
+    }
+    await roomsRequest("room:list");
+  } else if (action === "drop") {
+    // a presentation dragged from the open room onto another
+    const [room, ...deck] = rest;
+    await roomsRequest("room:moveid:" + room + ":" + deck.join(":"));
+  } else if (action === "moveid") {
+    const [room, ...deckParts] = rest;
+    const deck = deckParts.join(":");
+    if (ownServer()) await roomsCall("move_presentation", { deck_id: deck.replace(/^cloud:/, ""), room_id: room });
+    else if (!deck.startsWith("sample:")) keepRooms(touchRoom(moveDeck(roomsHere, deck, room), room));
+    await roomsRequest("room:list");
+  } else if (action === "open") {
+    roomShown = what;
+    keepRooms(touchRoom(roomsHere, roomShown));
+    const rows = await roomRows(roomShown);
+    const lines = deckLines(rows, {
+      showAll: "… " + t("Show all") + " (" + rows.length + ")",
+      moveHere: roomShown === ONBOARDING ? "" : "+ " + t("Move this presentation here"),
+      currentId: await currentRoomId(),
+    });
+    app.setToolbarOptions("roomdecks", lines, roomShown);
+  } else if (action === "deck") {
+    if (what.startsWith("sample:")) await openSample(what.slice(7));
+    else await fileRequest("doc:" + what);
+    await roomsRequest("room:list");
+  } else if (action === "all") {
+    // the samples are in Open; a room's decks in the presentations window
+    if (what === ONBOARDING) {
+      app.openOpen([...sampleSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
+    } else {
+      const title = (await roomsList()).find((x) => x.room_id === what)?.title || "";
+      decksRoom = { ids: new Set((await roomRows(what)).map((x) => x.id)), title };
+      await openDecks();
+    }
+  } else if (action === "create") {
+    if (ownServer()) {
+      const { room_id } = await roomsCall("create_room", { title: what });
+      roomShown = room_id || roomShown;
+    } else {
+      const made = createRoom(roomsHere, what, newId);
+      if (made.id) {
+        keepRooms(made.state);
+        roomShown = made.id;
+      }
+    }
+    await roomsRequest("room:list");
+  } else if (action === "move") {
+    const id = await currentRoomId();
+    if (!id) {
+      toast(t("Make a change first: a sample becomes a presentation of your own when it is edited."));
+    } else {
+      await roomsRequest("room:moveid:" + what + ":" + id);
+      return;
+    }
+    await roomsRequest("room:list");
+  }
+  needsPaint = true;
+}
+// The name edited at the start of the bar: the deck's title (front matter
+// `title:`, else its first heading) rewritten, as one edit that undoes, and
+// the open presentations' tab follows.
+function renameDeck(name) {
+  name = String(name || "").replace(/\s+/g, " ").trim();
+  if (!name) return;
+  const before = app.source().split("\n");
+  const after = retitled(app.source(), name).split("\n");
+  const i = after.findIndex((l, k) => l !== before[k]);
+  if (i >= 0) app.renameLine(i, after[i]);
+  // no title anywhere: a heading first
+  else if (app.docTitle() !== name) app.renameLine(0, "# " + name + "\n\n" + (before[0] || ""));
+  docName = name;
+  if (shownKey) app.deckTabOpen(shownKey, tabLabel(exportName()));
+  collab?.takeLocal();
+  needsPaint = true;
+}
 function copyName() {
   return exportName() + " " + t("(copy)");
 }
@@ -1117,6 +1420,9 @@ async function allDocs(fresh = false) {
 // { by, dir }, kept as "by" or "by:dir" (a column's head pressed again
 // turns its order round)
 let decksSort = { by: "updated", dir: "desc" };
+// the room the window lists, from its "… Show all" ({ ids, title }), or null
+// for every presentation
+let decksRoom = null;
 try {
   const [by, dir] = (localStorage.getItem("sliqtly.decksSort") || "updated").split(":");
   decksSort = { by, dir: dir || firstDir(by) };
@@ -1126,7 +1432,10 @@ async function decksJson(fresh = false) {
   const note = cloudList.error
     ? t("The presentations in your cloud could not be read: ") + cloudList.error
     : signedOut ? t("Sign in (PRO) to see the presentations in your cloud, such as those made by an assistant.") : "";
-  return deckListJson(await allDocs(fresh), decksSort.by, t, note, decksSort.dir);
+  const all = await allDocs(fresh);
+  const rows = decksRoom ? all.filter((d) => decksRoom.ids.has(d.id)) : all;
+  const inRoom = decksRoom ? t("Room: ") + decksRoom.title : "";
+  return deckListJson(rows, decksSort.by, t, [inRoom, note].filter(Boolean).join(" · "), decksSort.dir);
 }
 async function openDecks() {
   if (!vfs) return;
@@ -1275,13 +1584,13 @@ let importing = null;
 let presData = null;
 function loadPresData() {
   if (!presData) {
-    presData = new Promise((ok, bad) => {
+    presData = embeddedScriptUrl("./pres_data.js").then((own) => new Promise((ok, bad) => {
       const s = document.createElement("script");
-      s.src = "./pres_data.js?v=" + BUILD;
+      s.src = own || "./pres_data.js?v=" + BUILD;
       s.onload = () => ok(globalThis.PresData);
       s.onerror = () => { presData = null; bad(new Error("pres_data.js did not load")); };
       document.head.appendChild(s);
-    });
+    }));
   }
   return presData;
 }
@@ -1815,6 +2124,8 @@ function applySkin() {
   root.dataset.skin = skin || "standard";
   root.dataset.mode = lookTheme() === "dark" ? "dark" : "light";
   root.style.setProperty("--retro-hue", String(skinHue));
+  // the rail's switch shows Light while the editor is dark
+  app.setToolbarOptions("dark", "", lookTheme() !== "" ? "1" : "");
   const btn = document.getElementById("modeBtn");
   if (btn) {
     const dark = lookTheme() !== "";
@@ -2569,6 +2880,8 @@ function fetchChartFiles(rev) {
     got.then((text) => {
       if (text == null) {
         toast(t("Could not load the chart file: ") + url);
+        app.setChartDataMissing(url);
+        needsPaint = true;
         return;
       }
       app.setChartData(url, text);
@@ -2846,7 +3159,17 @@ function handleRequests() {
       setMode(r.slice("setting:mode:".length));
     } else if (r.startsWith("setting:skinhue:")) {
       setSkinHue(parseInt(r.slice("setting:skinhue:".length), 10));
+    } else if (r.startsWith("room:")) {
+      roomsRequest(r).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+    } else if (r.startsWith("title:")) {
+      renameDeck(r.slice(6));
+    } else if (r === "rail:review") {
+      // the rail's Review: review mode on or off, kept as Settings keeps it
+      const on = !app.reviewMode();
+      try { localStorage.setItem(REVIEW_KEY, on ? "on" : "off"); } catch (_) { /* this session only */ }
+      applyReviewMode();
     } else if (r === "decks") {
+      decksRoom = null;
       openDecks().catch(fail);
     } else if (r.startsWith("decks:")) {
       decksRequest(r).catch(fail);
@@ -2919,6 +3242,16 @@ function handleRequests() {
       saveAdjusted().catch(fail);
     } else if (r === "image-cancel") {
       dropAdjusting();
+    } else if (r.startsWith("image-edit:")) {
+      openImageEditor(r.slice(11)).catch(fail);
+    } else if (r.startsWith("image-trace:")) {
+      openTraceEditor(r.slice(12)).catch(fail);
+    } else if (r === "trace-run") {
+      runTrace();
+    } else if (r === "trace-save") {
+      saveTraced().catch(fail);
+    } else if (r === "trace-cancel") {
+      dropTracing();
     } else if (r === "sheet-edit") {
       liveSheets.editFirst();
     } else if (r.startsWith("data-keep:")) {
@@ -3157,6 +3490,88 @@ async function exportPptx(picked = false) {
   window.__lastDownload = deliver(some ? app.pptxPicked() : app.pptx(), (some ? pickedName() : exportName()) + ".pptx",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation");
 }
+// Word: the blocks only the stage can draw (a diagram, a chart, a list
+// figure, a SmartArt) go in as pictures. The app names each one's
+// rectangle on its slide and what to draw for it (PresDocx.shotList: a
+// diagram whole and still, a chart at rest, else the slide at rest); each is
+// drawn here, cut to its rectangle and handed back as a PNG, and the app
+// writes the file.
+const DOCX_SHOT_W = 1400;
+async function renderDocxShots(shots) {
+  if (!shots.length) return;
+  const c = document.createElement("canvas");
+  const g = c.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!g) return;
+  const cut = document.createElement("canvas");
+  const cg = cut.getContext("2d");
+  for (const s of shots) {
+    const doc = atRest(JSON.parse(app.docxShotJson(s.key)));
+    // sharp enough for a page wide picture, within the GPU's limits
+    const k = Math.min(4, DOCX_SHOT_W / Math.max(1, s.w), 4096 / doc.width, 4096 / doc.height);
+    c.width = Math.round(doc.width * k);
+    c.height = Math.round(doc.height * k);
+    const f = prepareDisplayList(g, doc, { dpr: k, images: pictures });
+    f.draw(null, null);
+    const x = Math.max(0, Math.floor(s.x * k));
+    const y = Math.max(0, Math.floor(s.y * k));
+    const w = Math.min(c.width - x, Math.ceil(s.w * k));
+    const h = Math.min(c.height - y, Math.ceil(s.h * k));
+    if (w > 0 && h > 0) {
+      // GL rows run bottom up
+      const up = new Uint8Array(w * h * 4);
+      g.readPixels(x, c.height - y - h, w, h, g.RGBA, g.UNSIGNED_BYTE, up);
+      const rgba = new Uint8ClampedArray(w * h * 4);
+      for (let r = 0; r < h; r++) rgba.set(up.subarray((h - 1 - r) * w * 4, (h - r) * w * 4), r * w * 4);
+      for (let p = 3; p < rgba.length; p += 4) rgba[p] = 255;
+      cut.width = w;
+      cut.height = h;
+      cg.putImageData(new ImageData(rgba, w, h), 0, 0);
+      const blob = await new Promise((r) => cut.toBlob(r, "image/png"));
+      if (blob) app.setDocxShot(s.key, asRangerBuffer(await blob.arrayBuffer()), w, h);
+    }
+    f.dispose();
+  }
+  const lose = g.getExtension("WEBGL_lose_context");
+  if (lose) lose.loseContext();
+}
+async function exportDocx(picked = false) {
+  const some = picked && app.pickCount() > 0;
+  await renderDocxShots(JSON.parse(app.docxBegin(some)));
+  window.__lastDownload = deliver(app.docxEnd(), (some ? pickedName() : exportName()) + ".docx",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+}
+// A web page: the same reading as Word, the same pictures, one .html file.
+async function exportHtml(picked = false) {
+  const some = picked && app.pickCount() > 0;
+  await renderDocxShots(JSON.parse(app.docxBegin(some)));
+  window.__lastDownload = deliver(app.htmlEnd(), (some ? pickedName() : exportName()) + ".html", "text/html;charset=utf-8");
+}
+// A presentation player: the site's own player page (web/dist/player.html,
+// scripts/player.mjs) with this deck in it, one .html file that plays
+// offline. Review comments stay out: they are notes on the deck.
+async function exportPlayer() {
+  const enc = new TextEncoder();
+  const files = [];
+  for (const f of await docFiles()) {
+    if (f.path === REVIEW_PATH) continue;
+    if (typeof f.data === "string") files.push({ path: f.path, type: f.type || "", text: f.data });
+    else if (isText(f.path, f.type)) files.push({ path: f.path, type: f.type || "", text: await f.data.text() });
+    else files.push({ path: f.path, type: f.type || f.data.type || "", b64: base64(new Uint8Array(await f.data.arrayBuffer())) });
+  }
+  const theme = themeSel.value || "";
+  const deck = { name: exportName(), md: app.source(), theme, css: editedCss[theme] ?? null, files };
+  const html = playerHtml(await textOf("./player.html"), deck);
+  window.__lastDownload = deliver(enc.encode(html), exportName() + "-player.html", "text/html;charset=utf-8");
+}
+window.__exportPlayer = exportPlayer;
+window.__exportDocx = exportDocx;
+window.__exportHtml = exportHtml;
+window.__renderDocxShots = renderDocxShots;
+document.getElementById("docx").addEventListener("click", () => { exportDocx().catch(fail); });
+document.getElementById("docxPicked").addEventListener("click", () => { exportDocx(true).catch(fail); });
+document.getElementById("html").addEventListener("click", () => { exportHtml().catch(fail); });
+document.getElementById("player").addEventListener("click", () => { exportPlayer().catch(fail); });
+document.getElementById("htmlPicked").addEventListener("click", () => { exportHtml(true).catch(fail); });
 document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
 document.getElementById("zip").addEventListener("click", () => { askZip().catch(fail); });
@@ -4044,30 +4459,24 @@ function hideIntro() {
   el.classList.add("out");
   setTimeout(() => { el.hidden = true; el.classList.remove("out"); }, 350);
 }
-// Another deck being opened: the logo and "Loading presentation…" over the
-// editor, when it takes longer than a glance (the deck before is saved and
-// sent first, then the new one's files come).
+// Another deck being opened (a tab of the presentations' row, the
+// presentations window). The logo is the page's start only: shown again
+// for a switch it flashed over the editor each time a deck took a moment.
+// The deck before stays in view, the pointer says the page is busy, and a
+// note comes only when it takes long (files from the cloud).
 let loadingDepth = 0;
 async function loadingScreen(work) {
-  const el = document.getElementById("brandIntro");
   loadingDepth++;
-  const timer = setTimeout(() => {
-    if (!el || !el.hidden) return;
-    loadNote.textContent = t("Loading presentation…");
-    el.classList.add("loading");
-    el.hidden = false;
-  }, 250);
+  document.body.classList.add("busy");
+  const timer = setTimeout(() => toast(t("Loading presentation…")), 1500);
   try {
     return await work();
   } finally {
     clearTimeout(timer);
-    if (--loadingDepth === 0 && el?.classList.contains("loading")) {
-      el.classList.remove("loading");
-      loadNote.textContent = "";
-      hideIntro();
-    }
+    if (--loadingDepth === 0) document.body.classList.remove("busy");
   }
 }
+window.__loadingScreen = loadingScreen;
 function playIntro() {
   const el = document.getElementById("brandIntro");
   if (!el) return Promise.resolve();
@@ -4190,11 +4599,13 @@ window.__goTo = { open: openGoTo, close: closeGoTo, label: () => vCount.textCont
 // srcdoc, with <meta name="sliqtly-link">) the page has no address and its
 // sandbox allows no downloads or windows: every item opens sliqtly.com in a
 // new tab through the preview (window.__sliqtlyOpenLink, the host's
-// ui/open-link), exports with ?export=pdf|pptx|md, which the site runs on load.
+// ui/open-link), exports with ?export=pdf|pptx|docx|html|md, which the site runs on load.
 const vMenu = document.getElementById("vMenu");
 const vMore = document.getElementById("vMore");
 const vExportSub = document.getElementById("vExportSub");
 const vExport = document.getElementById("vExport");
+const vCopySub = document.getElementById("vCopySub");
+const vCopy = document.getElementById("vCopy");
 const framed = location.protocol === "blob:" || !!document.querySelector('meta[name="sliqtly-link"]');
 function siteUrl(path) {
   return new URL(path, framed ? SITE + "/" : document.baseURI).href;
@@ -4208,8 +4619,7 @@ function toggleViewMenu(open) {
   vMenu.hidden = !open;
   vMore.setAttribute("aria-expanded", String(open));
   if (!open) {
-    vExportSub.hidden = true;
-    vExport.setAttribute("aria-expanded", "false");
+    openViewSub(null);
     return;
   }
   document.getElementById("vEdit").hidden = !ownsShare();
@@ -4244,18 +4654,32 @@ function exportOnSite(kind) {
   q.set("export", kind);
   siteLink(siteUrl("").replace(/#.*$/, "") + "#" + q.toString());
 }
-const EXPORTS = { pdf: () => exportPdf(), pptx: () => exportPptx(), md: () => exportMd() };
+const EXPORTS = { pdf: () => exportPdf(), pptx: () => exportPptx(), docx: () => exportDocx(), html: () => exportHtml(), player: () => exportPlayer(), md: () => exportMd() };
 async function exportMd() {
   window.__lastDownload = deliver(new TextEncoder().encode(app.source()), exportName() + ".md", "text/markdown");
 }
 window.__viewMenu = { toggle: toggleViewMenu, ownsShare, share: () => viewShare };
 vMore.addEventListener("click", () => toggleViewMenu(vMenu.hidden));
-vExport.addEventListener("click", () => {
-  vExportSub.hidden = !vExportSub.hidden;
-  vExport.setAttribute("aria-expanded", String(!vExportSub.hidden));
-  if (!vExportSub.hidden) vExportSub.querySelector("button").focus();
-});
+// Export ▸ and Copy ▸: one open at a time (null: neither)
+function openViewSub(which) {
+  for (const [btn, sub] of [[vExport, vExportSub], [vCopy, vCopySub]]) {
+    sub.hidden = btn !== which;
+    btn.setAttribute("aria-expanded", String(btn === which));
+  }
+  if (which) (which === vExport ? vExportSub : vCopySub).querySelector("button").focus();
+}
+vExport.addEventListener("click", () => openViewSub(vExportSub.hidden ? vExport : null));
+vCopy.addEventListener("click", () => openViewSub(vCopySub.hidden ? vCopy : null));
+// Copy ▸ Markdown: the deck's text; Copy ▸ Comments: the open comments
+// numbered, each slide's Markdown under them (PresReview.openMarkdown)
+const VIEW_COPIES = { md: () => app.source(), mdc: () => app.reviewMarkdownWithComments(), comments: () => app.reviewOpenMarkdown() };
 vMenu.addEventListener("click", (ev) => {
+  const what = ev.target.closest("[data-copy]")?.dataset.copy;
+  if (what && VIEW_COPIES[what]) {
+    toggleViewMenu(false);
+    writeClip(VIEW_COPIES[what]()).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
+    return;
+  }
   const act = ev.target.closest("[data-act]")?.dataset.act;
   if (!act) return;
   toggleViewMenu(false);
@@ -5341,6 +5765,13 @@ if (versionFrame) {
   viewer = true;
   document.body.classList.add("viewer", "versionFrame");
 }
+// A presentation exported as one .html file (web/player-file.js): the viewer
+// from the start, the deck from the file, no store, nothing saved.
+const playerDeck = versionFrame ? null : embeddedDeck(document);
+if (playerDeck) {
+  viewer = true;
+  document.body.classList.add("viewer", "playerFile");
+}
 // → the version the editor hands over, once this page says it is ready
 function versionFromEditor() {
   return new Promise((done) => {
@@ -5375,6 +5806,29 @@ async function openVersionView() {
   dropThumbs();
   needsPaint = true;
   enterViewer({ from: "version" });
+}
+
+async function openPlayerDeck() {
+  const d = playerDeck;
+  beginDoc(d.md);
+  themeSel.value = d.theme;
+  app.setStyleSheet(d.theme ? themeCss[d.theme] || "" : "");
+  if (d.css != null) {
+    editedCss[d.theme] = d.css;
+    app.setStyleSheet(d.css);
+  }
+  for (const f of d.files) {
+    const data = fileData(f);
+    const size = typeof data === "string" ? data.length : data.size;
+    const rec = { doc: doc.id, path: f.path, type: f.type, size, data, updated: Date.now() };
+    readFiles.set(rec.path, rec);
+    await useFile(rec).catch((e) => console.warn("file not shown: " + f.path, e));
+  }
+  docName = d.name;
+  shownDoc(d.md);
+  dropThumbs();
+  needsPaint = true;
+  enterViewer({ from: "file" });
 }
 
 async function start() {
@@ -5484,6 +5938,7 @@ async function start() {
   const editId = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(location.pathname)?.[1] || own?.from;
   const editing = !!own || (!!editId && q.has("edit"));
   if (versionFrame) await openVersionView();
+  else if (playerDeck) await openPlayerDeck();
   else if (editing && editId && (await openOwnCloud(editId).catch((e) => { console.warn(e); return false; }))) { /* opened */ }
   else if (own && vfs && (await ownIsNewer(own)) && (await openDoc(own.deck))) plainAddress();
   else if (!(await openFromShare()) && !(await openFromHash())) {
@@ -5538,7 +5993,7 @@ async function start() {
   }
   // opening the deck tidied the address; it follows the screen from here
   followAddress();
-  // ?export=pdf|pptx|md (or in the #…): an export asked for from the
+  // ?export=pdf|pptx|docx|html|md (or in the #…): an export asked for from the
   // assistant's preview, which cannot download
   const ask = q.get("export") || hashParams().get("export");
   if (viewer && !framed && EXPORTS[ask]) {

@@ -21,6 +21,7 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"image/png"
 	"math"
 	"strconv"
 	"strings"
@@ -738,7 +739,8 @@ func renderList(dst *image.RGBA, listJSON string, slideW, slideH float64, area i
 		c.Text, c.Font, c.Src = utf8Of(c.Text), utf8Of(c.Font), utf8Of(c.Src)
 	}
 	p := &painter{dst: dst, k: float64(area.Dx()) / slideW, off: pt{float64(area.Min.X), float64(area.Min.Y)}, pics: pics}
-	p.clips = []image.Rectangle{area}
+	// the area may reach past the picture (RenderCrop draws part of a slide)
+	p.clips = []image.Rectangle{area.Intersect(dst.Bounds())}
 	p.paint(&doc)
 	return nil
 }
@@ -797,6 +799,32 @@ func (h *McpHost) Render(listJSON string, slideW, slideH float64, width int64) s
 		return ""
 	}
 	return jpegBase64(dst)
+}
+
+// RenderCrop is the (x, y, w, h) rectangle of a slide's list, in slide
+// units, as a PNG `width` pixels wide (the height as w:h has it): the Word
+// and web page exports' picture of a block only the stage draws
+// (src/PresDocx.rgr). nil when the list does not read.
+func (h *McpHost) RenderCrop(listJSON string, slideW, slideH, x, y, w, ht float64, width int64) []byte {
+	if slideW <= 0 || slideH <= 0 || w <= 0 || ht <= 0 || width <= 0 {
+		return nil
+	}
+	k := float64(width) / w
+	ph := int(math.Floor(float64(width)*ht/w + 0.5))
+	dst := image.NewRGBA(image.Rect(0, 0, int(width), ph))
+	draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
+	// the whole slide, placed so the rectangle lands on the picture
+	ox, oy := int(math.Round(-x*k)), int(math.Round(-y*k))
+	area := image.Rect(ox, oy, ox+int(math.Round(slideW*k)), oy+int(math.Round(slideH*k)))
+	if err := renderList(dst, listJSON, slideW, slideH, area, h.renderPics); err != nil {
+		h.Log("render: " + err.Error())
+		return nil
+	}
+	var b bytes.Buffer
+	if err := png.Encode(&b, dst); err != nil {
+		return nil
+	}
+	return b.Bytes()
 }
 
 // RenderGrid is every slide as a thumbnail in one picture, cols across,

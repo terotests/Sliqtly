@@ -1,0 +1,496 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; A GitHub pull request as the source of a review deck: which PR a text
+; names, the PR read from GitHub's REST API answers (the PR, its files with
+; their patches, its commits), and a first draft of the deck in Sliqtly
+; Markdown: what and why, the changed files, the biggest changes as diff
+; slides, the commits on a timeline. Fetch-free (github_test.go); Tools.rgr
+; does the fetching.
+
+Import "McpJson.rgr"
+
+class GhRef {
+    def owner:string ""
+    def repo:string ""
+    def number:int 0
+    ; why the text names no PR, "" when it does
+    def err:string ""
+
+    ; "https://github.com/o/r/pull/12", "o/r#12", "o/r/pull/12", with
+    ; anything after the number (/files, #discussion…) left out
+    sfn parse:GhRef (text:string) {
+        def r (new GhRef)
+        def t:string (trim text)
+        def at:int (indexOf t "github.com/")
+        if (at >= 0) {
+            t = (substring t (at + 11) (strlen t))
+        }
+        def owner:string ""
+        def repo:string ""
+        def num:string ""
+        def slash:int (indexOf t "/")
+        if (slash > 0) {
+            owner = (substring t 0 slash)
+            def rest:string (substring t (slash + 1) (strlen t))
+            def hash:int (indexOf rest "#")
+            def pull:int (indexOf rest "/pull/")
+            if ((pull > 0) && ((hash < 0) || (pull < hash))) {
+                repo = (substring rest 0 pull)
+                num = (substring rest (pull + 6) (strlen rest))
+            } {
+                if (hash > 0) {
+                    repo = (substring rest 0 hash)
+                    num = (substring rest (hash + 1) (strlen rest))
+                }
+            }
+        }
+        def n:int 0
+        def k:int 0
+        while ((k < (strlen num)) && (((charAt num k) >= 48) && ((charAt num k) <= 57))) {
+            n = ((n * 10) + ((charAt num k) - 48))
+            k = (k + 1)
+        }
+        if ((((strlen owner) == 0) || ((strlen repo) == 0)) || ((k == 0) || (n <= 0))) {
+            r.err = "pr is a pull request's link (https://github.com/owner/repo/pull/12) or owner/repo#12."
+            return r
+        }
+        if (((GhRef.nameOk(owner)) == false) || ((GhRef.nameOk(repo)) == false)) {
+            r.err = "the owner or repository name in pr is not one GitHub allows."
+            return r
+        }
+        r.owner = owner
+        r.repo = repo
+        r.number = n
+        return r
+    }
+
+    ; letters, digits, - _ .
+    sfn nameOk:boolean (s:string) {
+        if (((strlen s) == 0) || ((strlen s) > 100)) {
+            return false
+        }
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            def ok:boolean ((((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90))) || ((c >= 48) && (c <= 57)))
+            if ((ok == false) && ((c != 45) && ((c != 95) && (c != 46)))) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return (s != "..")
+    }
+
+    fn api:string () {
+        return ("https://api.github.com/repos/" + owner + "/" + repo + "/pulls/" + number)
+    }
+
+    fn web:string () {
+        return ("https://github.com/" + owner + "/" + repo + "/pull/" + number)
+    }
+
+    fn name:string () {
+        return (owner + "/" + repo + "#" + number)
+    }
+}
+
+class GhFile {
+    def name:string ""
+    ; added, removed, modified, renamed, …
+    def status:string ""
+    def additions:int 0
+    def deletions:int 0
+    ; the unified diff of the file; "" for a binary file or one too big
+    def patch:string ""
+}
+
+class GhCommit {
+    def sha:string ""
+    ; the message's first line
+    def title:string ""
+    def author:string ""
+    ; YYYY-MM-DD
+    def date:string ""
+}
+
+class GhPr {
+    def ref:GhRef (new GhRef)
+    def title:string ""
+    def body:string ""
+    def author:string ""
+    ; open, closed, merged, draft
+    def state:string ""
+    def base:string ""
+    def head:string ""
+    def additions:int 0
+    def deletions:int 0
+    def changedFiles:int 0
+    def commitCount:int 0
+    def files:[GhFile]
+    def commits:[GhCommit]
+
+    ; from the answers of GET …/pulls/N, …/files and …/commits
+    sfn read:GhPr (ref:GhRef pr:MfJ files:MfJ commits:MfJ) {
+        def p (new GhPr)
+        p.ref = ref
+        p.title = (pr.str_("title"))
+        p.body = (pr.str_("body"))
+        def user:MfJ (pr.field("user"))
+        if (user.isObj()) {
+            p.author = (user.str_("login"))
+        }
+        p.state = (pr.str_("state"))
+        if ((pr.field("merged_at")).kind == 3) {
+            p.state = "merged"
+        }
+        if ((p.state == "open") && (pr.bool_("draft" false))) {
+            p.state = "draft"
+        }
+        def base:MfJ (pr.field("base"))
+        if (base.isObj()) {
+            p.base = (base.str_("ref"))
+        }
+        def head:MfJ (pr.field("head"))
+        if (head.isObj()) {
+            p.head = (head.str_("ref"))
+        }
+        p.additions = (pr.int_("additions" 0))
+        p.deletions = (pr.int_("deletions" 0))
+        p.changedFiles = (pr.int_("changed_files" 0))
+        p.commitCount = (pr.int_("commits" 0))
+        if (files.isArr()) {
+            def fi:int 0
+            while (fi < (files.count())) {
+                def f:MfJ (files.item(fi))
+                def g (new GhFile)
+                g.name = (f.str_("filename"))
+                g.status = (f.str_("status"))
+                g.additions = (f.int_("additions" 0))
+                g.deletions = (f.int_("deletions" 0))
+                g.patch = (f.str_("patch"))
+                push p.files g
+                fi = (fi + 1)
+            }
+        }
+        if (commits.isArr()) {
+            def ci:int 0
+            while (ci < (commits.count())) {
+                def c:MfJ (commits.item(ci))
+                def gc (new GhCommit)
+                gc.sha = (c.str_("sha"))
+                if ((strlen gc.sha) > 7) {
+                    gc.sha = (substring gc.sha 0 7)
+                }
+                def cm:MfJ (c.field("commit"))
+                if (cm.isObj()) {
+                    gc.title = (GhPr.firstLine((cm.str_("message"))))
+                    def ca:MfJ (cm.field("author"))
+                    if (ca.isObj()) {
+                        gc.author = (ca.str_("name"))
+                        def d:string (ca.str_("date"))
+                        if ((strlen d) >= 10) {
+                            gc.date = (substring d 0 10)
+                        }
+                    }
+                }
+                def au:MfJ (c.field("author"))
+                if ((au.isObj()) && ((strlen (au.str_("login"))) > 0)) {
+                    gc.author = (au.str_("login"))
+                }
+                push p.commits gc
+                ci = (ci + 1)
+            }
+        }
+        if (p.changedFiles == 0) {
+            p.changedFiles = (array_length p.files)
+        }
+        if (p.commitCount == 0) {
+            p.commitCount = (array_length p.commits)
+        }
+        return p
+    }
+
+    sfn firstLine:string (s:string) {
+        def nl:int (indexOf s "\n")
+        if (nl >= 0) {
+            return (trim (substring s 0 nl))
+        }
+        return (trim s)
+    }
+
+    ; the files, most lines changed first (ties keep GitHub's order)
+    fn byChange:[GhFile] () {
+        def out:[GhFile]
+        for files f:GhFile i {
+            push out f
+        }
+        def i:int 1
+        while (i < (array_length out)) {
+            def j:int i
+            while (j > 0) {
+                def a:GhFile (itemAt out (j - 1))
+                def b:GhFile (itemAt out j)
+                if ((a.additions + a.deletions) >= (b.additions + b.deletions)) {
+                    break
+                }
+                set out (j - 1) b
+                set out j a
+                j = (j - 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+class GhDeck {
+    ; how many diff slides, and lines on each
+    sfn DIFF_SLIDES:int () {
+        return 5
+    }
+
+    sfn DIFF_LINES:int () {
+        return 11
+    }
+
+    ; rows in the changed files table
+    sfn FILE_ROWS:int () {
+        return 6
+    }
+
+    ; a first draft of a review deck
+    sfn draft:string (p:GhPr) {
+        def out:[string]
+        push out ("---\ntitle: \"" + (GhDeck.quoted(p.title)) + "\"\nfooter-left: \"" + (GhDeck.quoted((p.ref.name()))) + "\"\nfooter-right: \"{page} / {pages}\"\nfooter-skip: first\n---")
+        push out ("# " + (GhDeck.oneLine(p.title)))
+        def who:string ""
+        if ((strlen p.author) > 0) {
+            who = (" · " + p.author)
+        }
+        push out ("[" + (p.ref.name()) + "](" + (p.ref.web()) + ")" + who + " · " + p.state + "\n{.lead}")
+        def files:string "files"
+        if (p.changedFiles == 1) {
+            files = "file"
+        }
+        def commitWord:string "commits"
+        if (p.commitCount == 1) {
+            commitWord = "commit"
+        }
+        def facts:string ("- **" + p.changedFiles + " " + files + "**, +" + p.additions + " −" + p.deletions + "\n- " + p.commitCount + " " + commitWord + ", `" + p.head + "` → `" + p.base + "`")
+        push out ("## What and why\n\n" + (GhDeck.summary(p.body)) + "\n\n" + facts)
+        ; the changed files
+        def rows:[string]
+        push rows "| File | Change | + | − |\n|---|---|---:|---:|"
+        def ordered:[GhFile] (p.byChange())
+        def shown:int 0
+        for ordered f:GhFile fi {
+            if (shown >= (GhDeck.FILE_ROWS())) {
+                break
+            }
+            push rows ("| `" + (GhDeck.cell(f.name)) + "` | " + f.status + " | " + f.additions + " | " + f.deletions + " |")
+            shown = (shown + 1)
+        }
+        def more:string ""
+        if ((array_length ordered) > shown) {
+            more = ("\n\nAnd " + ((array_length ordered) - shown) + " more files.")
+        }
+        push out ("## Changed files\n\n" + (join rows "\n") + more)
+        ; the biggest changes
+        def diffs:int 0
+        for ordered g:GhFile gi {
+            if (diffs >= (GhDeck.DIFF_SLIDES())) {
+                break
+            }
+            if ((strlen g.patch) == 0) {
+                continue
+            }
+            def lang:string (GhDeck.langOf(g.name))
+            def info:string "diff"
+            if ((strlen lang) > 0) {
+                info = ("diff " + lang)
+            }
+            def cut:string (GhDeck.trimPatch(g.patch (GhDeck.DIFF_LINES())))
+            ; a fence longer than any run of backticks in the patch
+            def fence:string "```"
+            while ((indexOf cut fence) >= 0) {
+                fence = (fence + "`")
+            }
+            ; one slide a file: the counts go in the heading, the path is in the table
+            push out ("## " + (GhDeck.baseName(g.name)) + " · +" + g.additions + " −" + g.deletions + "\n\n" + fence + info + " {.numbers}\n" + cut + "\n" + fence)
+            diffs = (diffs + 1)
+        }
+        ; the commits
+        if ((array_length p.commits) > 1) {
+            def items:[string]
+            def from:int 0
+            if ((array_length p.commits) > 8) {
+                from = ((array_length p.commits) - 8)
+            }
+            def ci:int from
+            while (ci < (array_length p.commits)) {
+                def c:GhCommit (itemAt p.commits ci)
+                def label:string c.date
+                if ((strlen label) == 0) {
+                    label = c.sha
+                }
+                push items ("- " + label + ": " + (GhDeck.listText(c.title)))
+                ci = (ci + 1)
+            }
+            push out ("## Commits\n\n```timeline\n" + (join items "\n") + "\n```")
+        }
+        push out "## Decision\n\n- Approve\n- Request changes\n{.build}"
+        return ((join out "\n\n") + "\n")
+    }
+
+    ; the description's first paragraphs, up to about 500 characters,
+    ; without its HTML comments and images
+    sfn summary:string (body:string) {
+        def t:string body
+        def c:int (indexOf t "<!--")
+        while (c >= 0) {
+            def rest:string (substring t c (strlen t))
+            def e:int (indexOf rest "-->")
+            if (e < 0) {
+                t = (substring t 0 c)
+                break
+            }
+            t = ((substring t 0 c) + (substring rest (e + 3) (strlen rest)))
+            c = (indexOf t "<!--")
+        }
+        def paras:[string] (strsplit (GhDeck.unCr(t)) "\n\n")
+        def kept:[string]
+        def size:int 0
+        for paras para:string pi {
+            def s:string (trim para)
+            if ((strlen s) == 0) {
+                continue
+            }
+            if ((startsWith s "![") || (startsWith s "<img")) {
+                continue
+            }
+            if (((size + (strlen s)) > 500) && ((array_length kept) > 0)) {
+                break
+            }
+            push kept s
+            size = (size + (strlen s))
+        }
+        if ((array_length kept) == 0) {
+            return "No description."
+        }
+        return (join kept "\n\n")
+    }
+
+    ; the patch's first lines up to max, whole hunks while they fit, else
+    ; the first hunk cut; "…" says more follows
+    sfn trimPatch:string (patch:string max:int) {
+        def all:[string] (strsplit (GhDeck.unCr((GhDeck.trimEnd(patch)))) "\n")
+        ; git's "\ No newline at end of file" is not a line of the file
+        def lines:[string]
+        for all l0:string i0 {
+            if ((startsWith l0 "\\ ") == false) {
+                push lines l0
+            }
+        }
+        if ((array_length lines) <= max) {
+            return (join lines "\n")
+        }
+        def out:[string]
+        def i:int 0
+        def lastHunkEnd:int 0
+        while ((i < (array_length lines)) && (i < max)) {
+            def l:string (itemAt lines i)
+            if ((i > 0) && (startsWith l "@@")) {
+                lastHunkEnd = i
+            }
+            push out l
+            i = (i + 1)
+        }
+        if (lastHunkEnd > 0) {
+            def kept:[string]
+            def k:int 0
+            while (k < lastHunkEnd) {
+                push kept (itemAt out k)
+                k = (k + 1)
+            }
+            out = kept
+        }
+        return (join out "\n")
+    }
+
+    sfn trimEnd:string (s:string) {
+        def e:int (strlen s)
+        while ((e > 0) && (((charAt s (e - 1)) == 10) || ((charAt s (e - 1)) == 13))) {
+            e = (e - 1)
+        }
+        return (substring s 0 e)
+    }
+
+    sfn unCr:string (s:string) {
+        def parts:[string] (strsplit s "\r")
+        return (join parts "")
+    }
+
+    ; the language a fence colours the file as, "" for none
+    sfn langOf:string (name:string) {
+        def dot:int (lastIndexOf name ".")
+        if (dot < 0) {
+            return ""
+        }
+        def ext:string (to_lowercase (substring name (dot + 1) (strlen name)))
+        def known:[string] ([] _:string ("js" "mjs" "cjs" "jsx" "ts" "tsx" "go" "py" "rs" "swift" "kt" "cs" "java" "c" "cc" "cpp" "h" "hpp" "sql" "json" "sh" "bash" "css" "scss" "less" "yml" "yaml" "toml" "ini" "rgr"))
+        for known k:string i {
+            if (k == ext) {
+                if ((ext == "mjs") || (ext == "cjs")) {
+                    return "js"
+                }
+                return ext
+            }
+        }
+        return ""
+    }
+
+    sfn baseName:string (path:string) {
+        def s:int (lastIndexOf path "/")
+        if (s >= 0) {
+            return (substring path (s + 1) (strlen path))
+        }
+        return path
+    }
+
+    ; a title on one line, no trailing {…} that would read as attributes
+    sfn oneLine:string (s:string) {
+        def t:string (GhPr.firstLine(s))
+        if ((strlen t) == 0) {
+            return "Pull request"
+        }
+        if (endsWith t "}") {
+            t = (t + " ")
+        }
+        return t
+    }
+
+    sfn quoted:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def t:string (GhPr.firstLine(s))
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if ((c == 34) || (c == 92)) {
+                out = (out + "\\")
+            }
+            out = (out + (substring t i (i + 1)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; text for a table cell: no | breaking it
+    sfn cell:string (s:string) {
+        return (join (strsplit s "|") "\\|")
+    }
+
+    ; a list item's text: a ":" would end the timeline's title early
+    sfn listText:string (s:string) {
+        return (join (strsplit s ":") " –")
+    }
+}

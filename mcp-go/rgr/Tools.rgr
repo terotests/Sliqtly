@@ -5,7 +5,8 @@
 ;
 ; Tools: sliqtly_guide, create_presentation, update_presentation,
 ; bind_chart_data, get_presentation, list_files, read_file,
-; list_presentations, list_comments, add_comment, resolve_comment. create/update also name a UI
+; list_presentations, list_comments, add_comment, resolve_comment,
+; begin_work, end_work (two assistants on one deck: Work.rgr). create/update also name a UI
 ; resource (MCP Apps, and the same template for ChatGPT) that shows the deck
 ; inline in the chat.
 
@@ -16,9 +17,12 @@ Import "Check.rgr"
 Import "Charts.rgr"
 Import "Store.rgr"
 Import "Files.rgr"
+Import "WorkStore.rgr"
 Import "SvgCheck.rgr"
 Import "Edits.rgr"
+Import "GitHub.rgr"
 Import "../presentation/PresReview.rgr"
+Import "../presentation/PresTrace.rgr"
 
 ; who is asking, for one request
 class Caller {
@@ -222,8 +226,10 @@ class Tools {
         def edits:MfJ (Tools.prop("array" "Changes to the deck's Markdown instead of sending all of it: each edit is find + replace, slide (or slide_title) + markdown, or after_slide + markdown. Slide numbers and find refer to the deck as it is before these edits; two edits may not touch the same text. Not with markdown."))
         edits.put("items" eitem)
         up.put("edits" edits)
+        up.put("base_version" (Tools.prop("string" "The version your markdown started from (from get_presentation, begin_work or your last update). When the deck changed since, the changes are merged; a change to the same lines is refused. Needed with markdown when another assistant is working on the deck; edits are made on the deck as it is and need none.")))
+        up.put("work_id" (Tools.prop("string" "Your work_id from begin_work; renews your claim")))
         Tools.deckFields(up)
-        tools.add((Tools.tool("update_presentation" "Update a presentation" "Change a presentation made with create_presentation, keeping its link. Send only what changes: edits change parts of the text (a phrase, one slide, new slides), markdown replaces the whole text; images and files are added (or replace ones of the same name)." (Tools.schema(up ([] _:string ("deck_id")))) (Tools.annotations(false 1 true true)) (Tools.uiMeta(host)))))
+        tools.add((Tools.tool("update_presentation" "Update a presentation" "Change a presentation made with create_presentation, keeping its link. Send only what changes: edits change parts of the text (a phrase, one slide, new slides), markdown replaces the whole text; images and files are added (or replace ones of the same name). With markdown send base_version, so edits saved meanwhile by someone else are merged rather than overwritten." (Tools.schema(up ([] _:string ("deck_id")))) (Tools.annotations(false 1 true true)) (Tools.uiMeta(host)))))
 
         def bp:MfJ (MfJ.newObj())
         bp.put("deck_id" (Tools.prop("string" "deck_id from create_presentation")))
@@ -277,10 +283,14 @@ class Tools {
         rop.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
         tools.add((Tools.tool("render_overview" "Look at all slides" "Every slide of a Sliqtly presentation as a numbered thumbnail in one picture (JPEG), with a line per slide from the layout report. One call checks the whole deck; ask render_slide for a closer look at a slide. Look once before saying a presentation is done." (Tools.schema(rop ([] _:string ("deck_id")))) (Tools.annotations(true -1 true false)) eitherMeta)))
 
+        def ghp:MfJ (MfJ.newObj())
+        ghp.put("pr" (Tools.prop("string" "The pull request: its link (https://github.com/owner/repo/pull/12) or owner/repo#12")))
+        tools.add((Tools.tool("read_github_pr" "Read a GitHub pull request" "A GitHub pull request as the source of a review deck: its title, description, author, state, each changed file with its lines added and removed and its diff, and its commits, with a first draft of the deck in Sliqtly Markdown (what and why, changed files, the biggest changes as ```diff slides, commits on a timeline, decision). Edit the draft (explain the change, add a diagram of the changed parts) and pass it to create_presentation. Public repositories; private ones when the server has a GitHub token and you are signed in as a user it lets read them." (Tools.schema(ghp ([] _:string ("pr")))) (Tools.annotations(true -1 false true)) eitherMeta)))
+
         def xp:MfJ (MfJ.newObj())
         xp.put("deck_id" (Tools.prop("string" "deck_id of the presentation (the id in https://sliqtly.com/s/<id>)")))
-        def fmt:MfJ (Tools.prop("string" "pdf or pptx (PowerPoint)"))
-        fmt.put("enum" (J.strs(([] _:string ("pdf" "pptx")))))
+        def fmt:MfJ (Tools.prop("string" "pdf, pptx (PowerPoint), docx (Word) or html (one web page)"))
+        fmt.put("enum" (J.strs(([] _:string ("pdf" "pptx" "docx" "html")))))
         xp.put("format" fmt)
         def xn:MfJ (MfJ.newObj())
         xn.putStr("type" "integer")
@@ -288,7 +298,7 @@ class Tools {
         def xs:MfJ (Tools.prop("array" "Only these slides (numbers as in render_overview); all when left out"))
         xs.put("items" xn)
         xp.put("slides" xs)
-        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF or a PowerPoint (.pptx) file, by its deck_id: a download link to give the user, kept until the next export of the same format. Slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. Effects (fx=) are not drawn; the editor's File → Export draws them." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
+        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF, a PowerPoint (.pptx), a Word document (.docx) or one self-contained web page (.html), by its deck_id: a download link to give the user, kept until the next export of the same format. PDF and PPTX: slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. DOCX and HTML: the deck read as a document, slide after slide, with headings, text, lists, tables, formulas (Word equations / SVG), the speaker notes under each slide, and diagrams and charts as pictures. Effects (fx=) are not drawn; the editor's File → Export draws them." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
 
         def lp:MfJ (MfJ.newObj())
         lp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
@@ -381,11 +391,66 @@ class Tools {
         wp.put("sheets" sheetsP)
         tools.add((Tools.tool("write_workbook" "Write a presentation's workbook" "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text; a cell may be a formula { f: \"=SUM(C2:C13)\", v: 1234.5 }. Use this rather than sending an .xlsx as base64, which gets corrupted when long. Formatting, colours, filters and column widths are not kept. Needs sign-in." (Tools.schema(wp ([] _:string ("deck_id" "path" "sheets")))) (Tools.annotations(false 1 true false)) eitherMeta)))
 
+        def vp:MfJ (MfJ.newObj())
+        vp.put("deck_id" (Tools.prop("string" "A presentation's id (the id in https://sliqtly.com/s/<id>): vectorize one of its pictures and keep the SVG in it. Leave out to vectorize image_base64 or image_url and get the SVG back")))
+        vp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
+        vp.put("path" (Tools.prop("string" "With deck_id: the picture's path from list_files, e.g. media/logo.png")))
+        vp.put("image_base64" (Tools.prop("string" "Without deck_id: a PNG or JPEG as base64 (a data: URL is fine)")))
+        vp.put("image_url" (Tools.prop("string" "Without deck_id: a public https address of a PNG or JPEG")))
+        def vpre:MfJ (Tools.prop("string" "Starting point: logo (few flat colours, background dropped), illustration (8 colours, the default), poster (12 vivid colours), photo (24 colours, noise smoothed), lineart (black and white)"))
+        vpre.put("enum" (J.strs((PresTraceSettings.presetNames()))))
+        vp.put("preset" vpre)
+        def vopt:MfJ (Tools.prop("object" "Tracer options on top of the preset, by name: colorCount (1-64), turdsize (speckles below this many pixels dropped), alphamax (0-1.34, higher = rounder corners), opttolerance (curve fit, 0-2), smooth (median passes against noise), minRegion, threshold (lineart, -1 = automatic), bgMode (auto drops a flat background, none keeps everything), paletteMode (auto, fixed, seeded) with paletteHex (\"#112233,#ffcc00\"), paletteBias (area, balanced, distinct), gradientFill (true/false), maxSide (the longest side traced, default 1000). Any EvgTraceOptions field is accepted."))
+        vp.put("options" vopt)
+        vp.put("replace" (Tools.prop("boolean" "With deck_id: point the Markdown's and the theme CSS's uses of the picture at the SVG (default true). The original stays in the deck's files")))
+        vp.put("save_as" (Tools.prop("string" "With deck_id: the SVG's path (default the picture's path with .svg)")))
+        tools.add((Tools.tool("vectorize_image" "Vectorize a picture" "Trace a bitmap (PNG or JPEG) into an SVG with Sliqtly's tracer: the picture is posterized into flat colour regions, their edges fitted with curves, one path per colour. Sharp at any size, and often a fraction of the bytes for logos, icons, illustrations and low-resolution pictures; a photo becomes a poster-like drawing. With deck_id and path the SVG is kept in the presentation and (replace) put where the picture was used, background images in the theme included; without, the SVG is returned." (Tools.schema(vp none)) (Tools.annotations(false 1 false true)) eitherMeta)))
+
         def listMeta:MfJ (MfJ.newObj())
         def only:MfJ (MfJ.newArr())
         only.add((Tools.oauthScheme()))
         listMeta.put("securitySchemes" only)
+        def bwp:MfJ (MfJ.newObj())
+        bwp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
+        bwp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
+        bwp.put("agent" (Tools.prop("string" "Who you are, as other assistants and the user will read it, e.g. \"Claude (budget chat)\"")))
+        def wnum:MfJ (MfJ.newObj())
+        wnum.putStr("type" "integer")
+        wnum.putInt("minimum" 1)
+        def wslideOf:MfJ (MfJ.newArr())
+        wslideOf.add(wnum)
+        def wname:MfJ (MfJ.newObj())
+        wname.putStr("type" "string")
+        wslideOf.add(wname)
+        def wslide:MfJ (MfJ.newObj())
+        wslide.put("anyOf" wslideOf)
+        def wslides:MfJ (Tools.prop("array" "The slides you will change, by number (1 = first) or title; leave out for the whole deck"))
+        wslides.put("items" wslide)
+        bwp.put("slides" wslides)
+        bwp.put("note" (Tools.prop("string" "What you are about to do, in a few words")))
+        def mins:MfJ (Tools.prop("integer" "How long the claim lasts unless renewed (default 15, at most 120); each update_presentation with work_id renews it"))
+        mins.putInt("minimum" 1)
+        mins.putInt("maximum" (WorkStore.MAX_MINUTES()))
+        bwp.put("minutes" mins)
+        bwp.put("work_id" (Tools.prop("string" "Your work_id from an earlier begin_work, to change or renew your claim")))
+        bwp.put("force" (Tools.prop("boolean" "Take the slides even though another assistant holds some of them; only when the user wants both to work on them")))
+        tools.add((Tools.tool("begin_work" "Start work on a presentation" "Before changing a Sliqtly presentation, say which slides you will work on, so another assistant editing the same deck at the same time knows. Returns your work_id, the deck's version (base_version for update_presentation) and the other assistants' claims. When another assistant holds some of those slides, nothing is claimed and you hear who holds them and why: take other slides, or ask the user whether to wait for it. Call end_work when you are done." (Tools.schema(bwp ([] _:string ("deck_id")))) (Tools.annotations(false 0 false false)) eitherMeta)))
+
+        def ewp:MfJ (MfJ.newObj())
+        ewp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
+        ewp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
+        ewp.put("work_id" (Tools.prop("string" "Your work_id from begin_work")))
+        tools.add((Tools.tool("end_work" "Finish work on a presentation" "Release the slides claimed with begin_work, once your changes are saved (or given up), so other assistants may work on them." (Tools.schema(ewp ([] _:string ("deck_id" "work_id")))) (Tools.annotations(false 0 true false)) eitherMeta)))
+
         tools.add((Tools.tool("list_presentations" "List my presentations" "List the signed-in user's own Sliqtly presentations (newest first) with their links and deck_ids. Needs sign-in." (Tools.schema((MfJ.newObj()) none)) (Tools.annotations(true -1 false false)) listMeta)))
+        ; the host's own (rooms)
+        def more:MfJ (J.parse((host_tools_json host)))
+        if (more.kind == 4) {
+            for more.arr ht:MfJ hi {
+                ht.put("_meta" listMeta)
+                tools.add(ht)
+            }
+        }
         return tools
     }
 
@@ -931,8 +996,20 @@ class Tools {
             g.put("content" (Tools.text(guide)))
             return g
         }
-        def writes:boolean ((((name == "create_presentation") || (name == "update_presentation")) || (name == "bind_chart_data")) || (name == "write_workbook"))
-        if (writes || ((name == "add_comment") || (name == "resolve_comment"))) {
+        if (host_has_tool host name) {
+            def answer:string (host_call_tool host caller.uid caller.who name (JOut.text(args)))
+            def herr:string (host_error host)
+            if ((strlen herr) > 0) {
+                host_clear_error host
+                return (Tools.fail(herr))
+            }
+            def hr:MfJ (MfJ.newObj())
+            hr.put("content" (Tools.text(answer)))
+            hr.put("structuredContent" (J.parse(answer)))
+            return hr
+        }
+        def writes:boolean ((((name == "create_presentation") || (name == "update_presentation")) || (name == "bind_chart_data")) || ((name == "write_workbook") || (name == "vectorize_image")))
+        if (writes || ((((name == "add_comment") || (name == "resolve_comment")) || (name == "begin_work")) || (name == "end_work"))) {
             def why:string (host_rate_limit host caller.who)
             if ((strlen why) > 0) {
                 return (Tools.fail(why))
@@ -963,11 +1040,17 @@ class Tools {
         if (name == "read_file") {
             r = (Tools.readFile(host caller args))
         }
+        if (name == "read_github_pr") {
+            r = (Tools.readGitHubPr(host caller args))
+        }
         if (name == "export_presentation") {
             r = (Tools.exportDeck(host args))
         }
         if (name == "write_workbook") {
             r = (Tools.writeWorkbook(host caller args))
+        }
+        if (name == "vectorize_image") {
+            r = (Tools.vectorize(host caller args))
         }
         if (name == "list_presentations") {
             r = (Tools.listMine(host caller))
@@ -980,6 +1063,12 @@ class Tools {
         }
         if (name == "resolve_comment") {
             r = (Tools.resolveComment(host caller args))
+        }
+        if (name == "begin_work") {
+            r = (Tools.beginWork(host caller args))
+        }
+        if (name == "end_work") {
+            r = (Tools.endWork(host caller args))
         }
         if (r.kind == 0) {
             return r
@@ -1113,7 +1202,15 @@ class Tools {
         Tools.links(out base made.id)
         out.putStr("deck_id" made.id)
         out.putStr("edit_key" made.key)
-        return (Tools.withData(host (Tools.result(host caller out "Created")) data.imgs))
+        WorkStore.keep(host made.id md)
+        if ((strlen (host_error host)) > 0) {
+            host_log host ("create_presentation work board: " + (host_error host))
+            host_clear_error host
+        }
+        def made2:MfJ (Tools.result(host caller out "Created"))
+        def none:[WorkClaim]
+        Tools.withWork(host made2 (WorkStore.version(host md)) none)
+        return (Tools.withData(host made2 data.imgs))
     }
 
     sfn update:MfJ (host:McpHost caller:Caller a:MfJ) {
@@ -1221,11 +1318,379 @@ class Tools {
         for data.imgs di:Img dk {
             push kept di
         }
-        def saved:MfJ (Store.update(host id (mine == false) key p kept))
+        ; edits are made on the deck as it is now: they need no base version
+        def ws:WorkSave (Tools.saveWork(host a id mine key cur p kept ((a.field("edits")).kind != 0)))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "update_presentation" (host_error host)))
         }
-        return (Tools.withData(host (Tools.updated(host caller id saved editNote)) data.imgs))
+        if ((strlen ws.fail) > 0) {
+            return (Tools.fail(ws.fail))
+        }
+        def notes:[string]
+        for ([] _:string (editNote ws.note)) nt:string ni {
+            if ((strlen nt) > 0) {
+                push notes nt
+            }
+        }
+        def r:MfJ (Tools.updated(host caller id ws.saved (join notes "\n")))
+        Tools.withWork(host r ws.version ws.others)
+        return (Tools.withData(host r data.imgs))
+    }
+
+    ; --- two assistants on one deck (Work.rgr, WorkStore.rgr)
+
+    ; the sheet a stored deck is shown with: its own, or its theme's
+    sfn sheetOf:string (host:McpHost d:MfJ) {
+        if ((d.field("css")).kind == 3) {
+            return (d.str_("css"))
+        }
+        def sheet:string (host_theme_css host (d.str_("theme")))
+        if ((strlen (host_error host)) > 0) {
+            host_log host ("theme for slide spans: " + (host_error host))
+            host_clear_error host
+            return ""
+        }
+        return sheet
+    }
+
+    ; the line each slide of md starts on
+    sfn startsOf:[int] (host:McpHost md:string sheet:string) {
+        return (WorkSpans.lineStarts(md (Check.slideStarts(host md sheet))))
+    }
+
+    ; "slide 3" / "slides 2, 3 and 5"
+    sfn slidesText:string (nums:[int]) {
+        if ((array_length nums) == 1) {
+            return ("slide " + (WorkSpans.listText(nums)))
+        }
+        return ("slides " + (WorkSpans.listText(nums)))
+    }
+
+    ; the save of update_presentation: merged with what was saved since the
+    ; edit's base version, never over a change it did not see. onCur: the
+    ; Markdown was made from cur (edits), so cur is its base
+    sfn saveWork:WorkSave (host:McpHost a:MfJ id:string mine:boolean key:string cur:MfJ p:DeckPatch kept:[Img] onCur:boolean) {
+        def out (new WorkSave)
+        def workId:string (trim (a.str_("work_id")))
+        def baseV:string (trim (a.str_("base_version")))
+        if onCur {
+            baseV = ""
+        }
+        def board:WorkBoard (WorkStore.read(host id))
+        if ((strlen (host_error host)) > 0) {
+            return out
+        }
+        def others:[WorkClaim] (board.others(workId))
+        def lead:[string]
+        if (((strlen workId) > 0) && ((board.indexOf(workId)) < 0)) {
+            push lead ("Your claim " + workId + " had ended or run out; call begin_work again if you go on working on this deck.")
+        }
+        def notes:[string]
+        if (p.hasMd == false) {
+            out.saved = (Store.update(host id (mine == false) key p kept))
+        } {
+            def edit:string p.md
+            def done:boolean false
+            def tries:int 0
+            while ((done == false) && (tries < 3)) {
+                tries = (tries + 1)
+                notes = (WorkStore.noLines())
+                p.md = edit
+                def curMd:string (cur.str_("md"))
+                def curV:string (WorkStore.version(host curMd))
+                if ((((strlen baseV) == 0) && (onCur == false)) && ((array_length others) > 0)) {
+                    def who:[string]
+                    for others oc:WorkClaim oi {
+                        push who (WorkStore.line(host oc))
+                    }
+                    out.fail = ("Not saved: another assistant is working on this presentation (" + (join who "; ") + "). Send base_version (from get_presentation, begin_work or your last update) so its changes are merged with yours instead of overwritten.")
+                    return out
+                }
+                def touched:[int]
+                if (((strlen baseV) > 0) && (baseV != curV)) {
+                    def bt:WorkBase (WorkStore.baseText(host id baseV))
+                    if ((strlen (host_error host)) > 0) {
+                        return out
+                    }
+                    if (bt.found == false) {
+                        out.fail = ("Not saved: the presentation has changed since version " + baseV + ", and that version is not kept here to merge with (not one this server handed out, or too old). Call get_presentation and make your change on the current text (version " + curV + ").")
+                        return out
+                    }
+                    def starts:[int] (Tools.startsOf(host bt.md (Tools.sheetOf(host cur))))
+                    def wm:WorkMerge (WorkMerge.run(bt.md curMd edit starts))
+                    if ((wm.clean()) == false) {
+                        def by:[string]
+                        for (board.touching(workId wm.clash)) bc:WorkClaim bi {
+                            push by (WorkStore.line(host bc))
+                        }
+                        def msg:string ("Not saved: since version " + baseV + " someone else changed the same lines on " + (Tools.slidesText(wm.clash)) + " (numbered as in that version)")
+                        if ((array_length by) > 0) {
+                            msg = (msg + "; " + (join by "; "))
+                        }
+                        out.fail = (msg + ". Nothing was written. Call get_presentation for the current text (version " + curV + "), make your change on it and update with that base_version, or ask the user which change to keep.")
+                        return out
+                    }
+                    p.md = wm.text
+                    touched = wm.mine
+                    push notes ("Merged with the changes saved since version " + baseV + " (" + (Tools.slidesText(wm.theirs)) + ", numbered as in that version); read the deck again with get_presentation before changing those slides.")
+                } {
+                    if ((array_length others) > 0) {
+                        def starts2:[int] (Tools.startsOf(host curMd (Tools.sheetOf(host cur))))
+                        touched = (WorkMerge.edited(curMd edit starts2))
+                    }
+                }
+                for (board.touching(workId touched)) tc:WorkClaim ti {
+                    push notes ("You changed " + (Tools.slidesText(touched)) + " while " + (WorkStore.line(host tc)) + ". Tell the user, or leave those slides to it.")
+                }
+                def sv:Saved (Store.save(host id (mine == false) key p kept true curMd))
+                if ((strlen (host_error host)) > 0) {
+                    return out
+                }
+                if sv.changed {
+                    ; saved by someone else between the read and the write:
+                    ; merge with that too
+                    cur = (Store.get(host id))
+                    if ((strlen (host_error host)) > 0) {
+                        return out
+                    }
+                    if ((strlen baseV) == 0) {
+                        ; the edit was made on what was read: merge from it
+                        WorkStore.keep(host id curMd)
+                        if ((strlen (host_error host)) > 0) {
+                            return out
+                        }
+                        baseV = curV
+                    }
+                } {
+                    out.saved = sv.doc
+                    done = true
+                }
+            }
+            if (done == false) {
+                out.fail = "Not saved: the presentation kept changing while this was saved. Call update_presentation again."
+                return out
+            }
+        }
+        if ((out.saved.isObj()) == false) {
+            return out
+        }
+        def saved:MfJ out.saved
+        def step (new WorkStep)
+        step.base = (WorkStore.version(host (saved.str_("md"))))
+        step.baseMd = (saved.str_("md"))
+        if ((strlen workId) > 0) {
+            step.renew = workId
+            step.until = ((host_now_ms host) + (((WorkStore.MINUTES()) * 60) * 1000))
+        }
+        WorkStore.run(host id step)
+        if ((strlen (host_error host)) > 0) {
+            ; the deck is saved: a claim not renewed or a version not kept
+            ; must not turn that into a failure
+            host_log host ("update_presentation work board: " + (host_error host))
+            host_clear_error host
+        }
+        out.version = step.base
+        out.others = (step.board.others(workId))
+        for notes n:string ni {
+            push lead n
+        }
+        out.note = (join lead "\n")
+        return out
+    }
+
+    ; the deck's version and the others' claims, on a create/update/get result
+    sfn withWork:void (host:McpHost r:MfJ version:string others:[WorkClaim]) {
+        def sc:MfJ (r.field("structuredContent"))
+        if ((sc.isObj()) == false) {
+            return
+        }
+        sc.putStr("version" version)
+        sc.put("work" (WorkStore.claimsJson(host others)))
+        def c0:MfJ (itemAt (r.list("content")) 0)
+        def add:[string]
+        push add ("Version: " + version + " (base_version for your next update_presentation).")
+        for others c:WorkClaim i {
+            push add ("Also working on this deck: " + (WorkStore.line(host c)) + ".")
+        }
+        c0.putStr("text" ((c0.str_("text")) + "\n" + (join add "\n")))
+    }
+
+    ; the slides a begin_work names, 1-based, with their titles; fail says
+    ; which one is not there
+    sfn claimSlides:WorkClaim (a:MfJ titles:[string]) {
+        def c (new WorkClaim)
+        for (a.list("slides")) v:MfJ i {
+            def one:MfJ (MfJ.newObj())
+            one.put("slide" v)
+            def at:int (Tools.slideIndex(one titles))
+            if (at < 0) {
+                def said:string (JOut.text(v))
+                c.note = ("No slide " + said + " in this presentation; it has " + (to_string (array_length titles)) + " slides: " + (Tools.titleList(titles)) + ".")
+                return c
+            }
+            if ((c.hasSlide((at + 1))) == false) {
+                push c.slides (at + 1)
+                push c.titles (itemAt titles at)
+            }
+        }
+        return c
+    }
+
+    ; "1 “Intro”, 2 “Budget”, …"
+    sfn titleList:string (titles:[string]) {
+        def parts:[string]
+        for titles t:string i {
+            push parts ((to_string (i + 1)) + " \"" + t + "\"")
+        }
+        return (join parts ", ")
+    }
+
+    sfn workEditable:Editable (host:McpHost caller:Caller a:MfJ required:[string]) {
+        def ed (new Editable)
+        if ((host_store_kind host) == "link") {
+            ed.fail = "This server keeps no decks (no cloud storage configured)."
+            return ed
+        }
+        def bad:string (Tools.checkArgs(a required))
+        if ((strlen bad) == 0) {
+            for ([] _:string ("work_id" "agent" "note")) k:string j {
+                def v:MfJ (a.field(k))
+                if (((v.kind != 0) && (v.kind != 3)) && ((strlen bad) == 0)) {
+                    bad = ("Invalid arguments: " + k + " is a string.")
+                }
+            }
+            def sl:MfJ (a.field("slides"))
+            if (((sl.kind != 0) && (sl.kind != 4)) && ((strlen bad) == 0)) {
+                bad = "Invalid arguments: slides is a list of slide numbers or titles."
+            }
+        }
+        if ((strlen bad) > 0) {
+            ed.fail = bad
+            return ed
+        }
+        if (((Tools.chars((a.str_("note")))) > 300) || ((Tools.chars((a.str_("agent")))) > 80)) {
+            ed.fail = "note is at most 300 characters and agent at most 80."
+            return ed
+        }
+        return (Tools.editable(host caller (a.str_("deck_id")) (a.str_("edit_key"))))
+    }
+
+    sfn beginWork:MfJ (host:McpHost caller:Caller a:MfJ) {
+        def ed:Editable (Tools.workEditable(host caller a ([] _:string ("deck_id"))))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "begin_work" (host_error host)))
+        }
+        if ((strlen ed.fail) > 0) {
+            return (Tools.fail(ed.fail))
+        }
+        def id:string (a.str_("deck_id"))
+        def mins:int (a.int_("minutes" (WorkStore.MINUTES())))
+        if ((mins < 1) || (mins > (WorkStore.MAX_MINUTES()))) {
+            return (Tools.fail(("minutes is 1 to " + (to_string (WorkStore.MAX_MINUTES())) + ".")))
+        }
+        def titles:[string] (Tools.reviewTitles(host id ed.cur))
+        def c:WorkClaim (Tools.claimSlides(a titles))
+        if ((strlen c.note) > 0) {
+            return (Tools.fail(c.note))
+        }
+        c.id = (trim (a.str_("work_id")))
+        if ((strlen c.id) == 0) {
+            c.id = ("w" + (host_short_id host 10))
+        }
+        c.agent = (trim (a.str_("agent")))
+        if ((strlen c.agent) == 0) {
+            c.agent = "An assistant"
+        }
+        c.note = (trim (a.str_("note")))
+        def now:int (host_now_ms host)
+        c.started = now
+        c.expires = (now + ((mins * 60) * 1000))
+        def md:string (ed.cur.str_("md"))
+        def step (new WorkStep)
+        step.hasClaim = true
+        step.claim = c
+        step.force = (a.bool_("force" false))
+        step.base = (WorkStore.version(host md))
+        step.baseMd = md
+        WorkStore.run(host id step)
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "begin_work" (host_error host)))
+        }
+        if step.failed {
+            return (Tools.fail("Not claimed: the claims of this presentation kept changing; call begin_work again."))
+        }
+        def others:[WorkClaim] (step.board.others(c.id))
+        def lines:[string]
+        def sc:MfJ (MfJ.newObj())
+        sc.putStr("deck_id" id)
+        sc.putBool("claimed" step.taken)
+        sc.putStr("version" step.base)
+        sc.put("clashes" (WorkStore.claimsJson(host step.clashes)))
+        sc.put("work" (WorkStore.claimsJson(host others)))
+        sc.putInt("slides" (array_length titles))
+        if step.taken {
+            sc.putStr("work_id" c.id)
+            sc.putStr("expires" (host_iso_time host c.expires))
+            push lines ("Claimed " + (c.what()) + " of \"" + (ed.cur.str_("name")) + "\" for " + c.agent + " until " + (WorkStore.clock(host c.expires)) + ".")
+            push lines ("work_id: " + c.id)
+            push lines ("Version: " + step.base + ". Send base_version and work_id with update_presentation (each update renews the claim), and call end_work when done.")
+            for step.clashes fc:WorkClaim fi {
+                push lines ("Taken although " + (WorkStore.line(host fc)) + ": the edits are merged line by line, and a change both make to the same lines is refused.")
+            }
+            for others oc:WorkClaim oi {
+                if ((WorkStore.hasClaim(step.clashes oc.id)) == false) {
+                    push lines ("Also working on this deck: " + (WorkStore.line(host oc)) + ".")
+                }
+            }
+        } {
+            push lines ("Not claimed: " + (c.what()) + " of \"" + (ed.cur.str_("name")) + "\" overlaps another assistant's work.")
+            for step.clashes cc:WorkClaim ci {
+                push lines ("- " + (WorkStore.line(host cc)) + ".")
+            }
+            push lines "Work on other slides (begin_work again with them), or ask the user whether to wait until that assistant is done (its claim ends with end_work or when it runs out). Use force true only if the user wants both of you on the same slides."
+        }
+        def r:MfJ (MfJ.newObj())
+        r.put("content" (Tools.text((join lines "\n"))))
+        r.put("structuredContent" sc)
+        return r
+    }
+
+    sfn endWork:MfJ (host:McpHost caller:Caller a:MfJ) {
+        def ed:Editable (Tools.workEditable(host caller a ([] _:string ("deck_id" "work_id"))))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "end_work" (host_error host)))
+        }
+        if ((strlen ed.fail) > 0) {
+            return (Tools.fail(ed.fail))
+        }
+        def id:string (a.str_("deck_id"))
+        def step (new WorkStep)
+        step.end = (trim (a.str_("work_id")))
+        WorkStore.run(host id step)
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "end_work" (host_error host)))
+        }
+        if step.failed {
+            return (Tools.fail("Not ended: the claims of this presentation kept changing; call end_work again."))
+        }
+        def said:string ("Ended " + step.end + ": its slides are free for others.")
+        if (step.ended == false) {
+            said = ("No claim " + step.end + " on this presentation (it had ended or run out).")
+        }
+        def others:[WorkClaim] (step.board.others(step.end))
+        def lines:[string]
+        push lines said
+        for others oc:WorkClaim oi {
+            push lines ("Still working on this deck: " + (WorkStore.line(host oc)) + ".")
+        }
+        def sc:MfJ (MfJ.newObj())
+        sc.putStr("deck_id" id)
+        sc.putBool("ended" step.ended)
+        sc.put("work" (WorkStore.claimsJson(host others)))
+        def r:MfJ (MfJ.newObj())
+        r.put("content" (Tools.text((join lines "\n"))))
+        r.put("structuredContent" sc)
+        return r
     }
 
     ; the edits of update_presentation made on the stored deck's Markdown,
@@ -1516,6 +1981,223 @@ class Tools {
         return (Tools.withData(host (Tools.updated(host caller id saved note)) kept))
     }
 
+    ; vectorize_image's settings: the preset, then each option as text
+    sfn traceSettings:string (a:MfJ) {
+        def text:string "preset=illustration\n"
+        if (Tools.has(a "preset")) {
+            text = ("preset=" + (a.str_("preset")) + "\n")
+        }
+        def o:MfJ (a.field("options"))
+        if (o.isObj()) {
+            for o.ks k:string i {
+                def v:MfJ (itemAt o.vs i)
+                def vs:string ""
+                if (v.kind == 3) {
+                    vs = v.str
+                }
+                if (v.kind == 2) {
+                    vs = (to_string v.num)
+                }
+                if (v.kind == 1) {
+                    vs = "false"
+                    if v.flag {
+                        vs = "true"
+                    }
+                }
+                if (v.kind == 4) {
+                    for v.arr e:MfJ j {
+                        if ((strlen vs) > 0) {
+                            vs = (vs + ",")
+                        }
+                        vs = (vs + e.str)
+                    }
+                }
+                text = (text + k + "=" + vs + "\n")
+            }
+        }
+        return text
+    }
+
+    sfn traceLine:string (res:PresTraceResult) {
+        def kb:int (idiv ((strlen res.svg) + 512) 1024)
+        def line:string ((to_string res.layers) + " colour layers (" + res.colors + "), " + (to_string kb) + " KB")
+        if ((res.tracedW != res.width) || (res.tracedH != res.height)) {
+            line = (line + ", traced at " + (to_string res.tracedW) + "x" + (to_string res.tracedH) + " of " + (to_string res.width) + "x" + (to_string res.height))
+        }
+        return line
+    }
+
+    sfn vectorize:MfJ (host:McpHost caller:Caller a:MfJ) {
+        def preset:string (a.str_("preset"))
+        if ((Tools.has(a "preset")) && ((PresTraceSettings.isPreset(preset)) == false)) {
+            return (Tools.fail(("Invalid arguments: preset is one of logo, illustration, poster, photo, lineart.")))
+        }
+        def opts:MfJ (a.field("options"))
+        if ((opts.kind != 0) && ((opts.isObj()) == false)) {
+            return (Tools.fail("Invalid arguments: options is an object of tracer option names and values."))
+        }
+        def settings:string (Tools.traceSettings(a))
+        def bad:string (PresTrace.unknown((PresTraceSettings.parse(settings))))
+        if ((strlen bad) > 0) {
+            return (Tools.fail(("Unknown tracer option: " + bad + ". Names are EvgTraceOptions fields, e.g. colorCount, turdsize, alphamax, opttolerance, smooth, minRegion, bgMode, paletteHex, maxSide.")))
+        }
+        if ((Tools.has(a "deck_id")) == false) {
+            return (Tools.vectorizeLoose(host a settings))
+        }
+        if ((host_store_kind host) == "link") {
+            return (Tools.fail("This server keeps no decks (no cloud storage configured): give the picture as image_base64 instead of deck_id."))
+        }
+        def miss:string (Tools.checkArgs(a ([] _:string ("deck_id" "path"))))
+        if ((strlen miss) > 0) {
+            return (Tools.fail(miss))
+        }
+        if (caller.signedIn == false) {
+            return (Tools.needsSignIn(caller "pictures"))
+        }
+        def id:string (a.str_("deck_id"))
+        def ed:Editable (Tools.editable(host caller id (a.str_("edit_key"))))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "vectorize_image" (host_error host)))
+        }
+        if ((strlen ed.fail) > 0) {
+            return (Tools.fail(ed.fail))
+        }
+        def path:string (trim (a.str_("path")))
+        while (startsWith path "/") {
+            path = (substring path 1 (strlen path))
+        }
+        def found:boolean false
+        for (ed.cur.list("files")) f:MfJ i {
+            if ((f.str_("path")) == path) {
+                found = true
+            }
+        }
+        if (found == false) {
+            return (Tools.fail(("The presentation has no file " + path + "; list_files names its pictures.")))
+        }
+        def low:string (to_lowercase path)
+        if (((endsWith low ".png") || ((endsWith low ".jpg") || (endsWith low ".jpeg"))) == false) {
+            return (Tools.fail(("Only PNG and JPEG pictures are vectorized; " + path + " is not one.")))
+        }
+        def got:MfJ (J.parse((host_file_bytes host id path)))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "vectorize_image" (host_error host)))
+        }
+        def res:PresTraceResult (PresTrace.traceBytes((host_image_bytes host (got.int_("handle" 0))) settings))
+        if ((strlen res.err) > 0) {
+            return (Tools.fail(res.err))
+        }
+        if ((strlen res.svg) > (Deck.MAX_IMAGE())) {
+            return (Tools.fail(("The SVG would be larger than 5 MB (" + (Tools.traceLine(res)) + "): fewer colours (options.colorCount), a larger turdsize or minRegion, or a smaller maxSide.")))
+        }
+        def target:string (trim (a.str_("save_as")))
+        while (startsWith target "/") {
+            target = (substring target 1 (strlen target))
+        }
+        if ((strlen target) == 0) {
+            def dot:int (lastIndexOf path ".")
+            target = ((substring path 0 dot) + ".svg")
+        }
+        if ((endsWith (to_lowercase target) ".svg") == false) {
+            return (Tools.fail("save_as is a path ending in .svg."))
+        }
+        def im (new Img)
+        im.name = target
+        def slash:int (lastIndexOf target "/")
+        if (slash >= 0) {
+            im.name = (substring target (slash + 1) (strlen target))
+        }
+        im.path = target
+        im.type = "image/svg+xml"
+        im.handle = (host_keep_text host res.svg)
+        im.size = (strlen res.svg)
+        def kept:[Img]
+        push kept im
+        def p (new DeckPatch)
+        def note:string ("Vectorized " + path + " into " + target + ": " + (Tools.traceLine(res)) + ".")
+        if (a.bool_("replace" true)) {
+            def md:string (ed.cur.str_("md"))
+            def inMd:int (PresTraceRefs.countRefs(md path))
+            if (inMd > 0) {
+                p.hasMd = true
+                p.md = (PresTraceRefs.swapRef(md path target))
+            }
+            def inCss:int 0
+            def css:MfJ (ed.cur.field("css"))
+            if (css.kind == 3) {
+                inCss = (PresTraceRefs.countRefs(css.str path))
+                if (inCss > 0) {
+                    p.cssMode = 1
+                    p.css = (PresTraceRefs.swapRef(css.str path target))
+                }
+            }
+            note = (note + " Uses pointed at the SVG: " + (to_string inMd) + " in the Markdown, " + (to_string inCss) + " in the theme CSS. " + path + " stays in the files.")
+        } {
+            note = (note + " Nothing points at it yet: use it as ![](" + target + ") or url(" + target + ").")
+        }
+        def saved:MfJ (Store.update(host id (ed.mine == false) ed.key p kept))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "vectorize_image" (host_error host)))
+        }
+        return (Tools.updated(host caller id saved note))
+    }
+
+    ; a picture given as base64 or a URL, traced and handed back
+    sfn vectorizeLoose:MfJ (host:McpHost a:MfJ settings:string) {
+        def b64:string (trim (a.str_("image_base64")))
+        def url:string (trim (a.str_("image_url")))
+        if (((strlen b64) == 0) == ((strlen url) == 0)) {
+            return (Tools.fail("Give deck_id and path, or one of image_base64 and image_url."))
+        }
+        def handle:int 0
+        if ((strlen b64) > 0) {
+            if (startsWith b64 "data:") {
+                def at:int (indexOf b64 ";base64,")
+                if (at > 0) {
+                    b64 = (substring b64 (at + 8) (strlen b64))
+                }
+            }
+            def got:MfJ (J.parse((host_image_base64 host b64)))
+            if ((got.int_("size" 0)) == 0) {
+                return (Tools.fail("image_base64 is not a picture."))
+            }
+            handle = (got.int_("handle" 0))
+        } {
+            def u:MfJ (J.parse((host_parse_url host url)))
+            if (((u.isObj()) == false) || (((u.str_("scheme")) != "https") || (Deck.privateHost((u.str_("hostname")))))) {
+                return (Tools.fail("image_url is a public https address."))
+            }
+            def got2:MfJ (J.parse((host_image_url host url ((Deck.MAX_IMAGE()) + 1))))
+            def status:int (got2.int_("status" 0))
+            if ((status < 200) || (status > 299)) {
+                return (Tools.fail(("image_url could not be fetched (" + (to_string status) + ").")))
+            }
+            if ((got2.int_("length" 0)) > (Deck.MAX_IMAGE())) {
+                return (Tools.fail("image_url is larger than 5 MB."))
+            }
+            handle = (got2.int_("handle" 0))
+        }
+        def res:PresTraceResult (PresTrace.traceBytes((host_image_bytes host handle) settings))
+        if ((strlen res.err) > 0) {
+            return (Tools.fail(res.err))
+        }
+        if ((strlen res.svg) > (Deck.MAX_IMAGE())) {
+            return (Tools.fail(("The SVG would be larger than 5 MB (" + (Tools.traceLine(res)) + "): fewer colours, a larger turdsize or minRegion, or a smaller maxSide.")))
+        }
+        def sc:MfJ (MfJ.newObj())
+        sc.putStr("svg" res.svg)
+        sc.putInt("width" res.width)
+        sc.putInt("height" res.height)
+        sc.putInt("traced_width" res.tracedW)
+        sc.putInt("traced_height" res.tracedH)
+        sc.putInt("layers" res.layers)
+        sc.put("colors" (J.strs((PresTrace.list_(res.colors)))))
+        def r:MfJ (MfJ.newObj())
+        r.put("content" (Tools.text(("Vectorized: " + (Tools.traceLine(res)) + ". The SVG:\n\n" + res.svg))))
+        r.put("structuredContent" sc)
+        return r
+    }
+
     sfn bindChart:MfJ (host:McpHost caller:Caller a:MfJ) {
         if ((host_store_kind host) == "link") {
             return (Tools.fail("This server keeps no decks (no cloud storage configured): call create_presentation again with the whole deck."))
@@ -1652,6 +2334,21 @@ class Tools {
         def r:MfJ (MfJ.newObj())
         r.put("content" (Tools.text((join parts "\n"))))
         r.put("structuredContent" out)
+        ; the version read is kept, to merge an edit made on it
+        def step (new WorkStep)
+        step.base = (WorkStore.version(host md))
+        step.baseMd = md
+        WorkStore.run(host id step)
+        if ((strlen (host_error host)) > 0) {
+            host_log host ("get_presentation work board: " + (host_error host))
+            host_clear_error host
+        }
+        def none:[WorkClaim]
+        def others:[WorkClaim] (step.board.others(""))
+        if step.failed {
+            others = none
+        }
+        Tools.withWork(host r step.base others)
         return r
     }
 
@@ -1696,6 +2393,123 @@ class Tools {
         return -1
     }
 
+    ; read_github_pr: the PR, its files and commits from GitHub's REST API,
+    ; and a draft deck (GitHub.rgr)
+    sfn readGitHubPr:MfJ (host:McpHost caller:Caller a:MfJ) {
+        def bad:string (Tools.checkArgs(a ([] _:string ("pr"))))
+        if ((strlen bad) > 0) {
+            return (Tools.fail(bad))
+        }
+        def ref:GhRef (GhRef.parse((a.str_("pr"))))
+        if ((strlen ref.err) > 0) {
+            return (Tools.fail(("Invalid arguments: " + ref.err)))
+        }
+        def accept:string "application/vnd.github+json"
+        def got:MfJ (J.parse((host_fetch_text host (ref.api()) accept 1000000)))
+        def why:string (Tools.githubFailed(ref (got.int_("status" 0))))
+        if ((strlen why) > 0) {
+            return (Tools.fail(why))
+        }
+        def pr:MfJ (J.parse((got.str_("body"))))
+        if ((pr.isObj()) == false) {
+            return (Tools.fail(("GitHub's answer about " + (ref.name()) + " could not be read.")))
+        }
+        if ((pr.field("base")).isObj()) {
+            def brepo:MfJ ((pr.field("base")).field("repo"))
+            if ((brepo.bool_("private" false)) && ((host_github_private_ok host caller.uid) == false)) {
+                return (Tools.fail((Tools.privateRefused(caller (ref.owner + "/" + ref.repo)))))
+            }
+        }
+        def files:MfJ (MfJ.newArr())
+        def gf:MfJ (J.parse((host_fetch_text host ((ref.api()) + "/files?per_page=100") accept 8000000)))
+        if ((gf.int_("status" 0)) == 200) {
+            files = (J.parse((gf.str_("body"))))
+        }
+        def commits:MfJ (MfJ.newArr())
+        def gc:MfJ (J.parse((host_fetch_text host ((ref.api()) + "/commits?per_page=100") accept 2000000)))
+        if ((gc.int_("status" 0)) == 200) {
+            commits = (J.parse((gc.str_("body"))))
+        }
+        def p:GhPr (GhPr.read(ref pr files commits))
+        def md:string (GhDeck.draft(p))
+        def out:MfJ (MfJ.newObj())
+        out.putStr("pr" (ref.name()))
+        out.putStr("url" (ref.web()))
+        out.putStr("title" p.title)
+        out.putStr("author" p.author)
+        out.putStr("state" p.state)
+        out.putStr("base" p.base)
+        out.putStr("head" p.head)
+        out.putInt("additions" p.additions)
+        out.putInt("deletions" p.deletions)
+        out.putStr("description" p.body)
+        def fl:MfJ (MfJ.newArr())
+        for p.files f:GhFile fi {
+            def fo:MfJ (MfJ.newObj())
+            fo.putStr("file" f.name)
+            fo.putStr("status" f.status)
+            fo.putInt("additions" f.additions)
+            fo.putInt("deletions" f.deletions)
+            def patch:string f.patch
+            if ((strlen patch) > 6000) {
+                patch = ((substring patch 0 6000) + "\n…")
+            }
+            fo.putStr("patch" patch)
+            fl.add(fo)
+        }
+        out.put("files" fl)
+        def cl:MfJ (MfJ.newArr())
+        for p.commits c:GhCommit ci {
+            def co:MfJ (MfJ.newObj())
+            co.putStr("sha" c.sha)
+            co.putStr("date" c.date)
+            co.putStr("author" c.author)
+            co.putStr("title" c.title)
+            cl.add(co)
+        }
+        out.put("commits" cl)
+        out.putStr("markdown" md)
+        def lines:[string]
+        push lines ((ref.name()) + ": \"" + p.title + "\" by " + p.author + ", " + p.state + "; " + p.changedFiles + " files, +" + p.additions + " −" + p.deletions + ", " + p.commitCount + " commits.")
+        if ((array_length p.files) < p.changedFiles) {
+            push lines ("Only the first " + (array_length p.files) + " files were read.")
+        }
+        push lines "Files and diffs are in the structured result (files[].patch). A first draft of a review deck, to edit and pass to create_presentation:"
+        push lines ""
+        push lines md
+        def r:MfJ (MfJ.newObj())
+        r.put("content" (Tools.text((join lines "\n"))))
+        r.put("structuredContent" out)
+        return r
+    }
+
+    ; a private repository read with the server's token is for the users
+    ; the server names (SLIQTLY_GITHUB_USERS) only: anyone may call this
+    ; server, and the token is its owner's
+    sfn privateRefused:string (caller:Caller repo:string) {
+        if (caller.signedIn == false) {
+            return (repo + " is private. Sign in to Sliqtly (Google) as a user this server lets read private repositories, then ask again.")
+        }
+        return (repo + " is private, and this server reads private repositories only for the users it names. Your Sliqtly user id is " + caller.uid + ": the server's owner can add it to SLIQTLY_GITHUB_USERS.")
+    }
+
+    ; why GitHub's answer is not the PR, "" when it is
+    sfn githubFailed:string (ref:GhRef status:int) {
+        if (status == 200) {
+            return ""
+        }
+        if (status == 404) {
+            return ("GitHub has no pull request " + (ref.name()) + " that this server can read: it does not exist, or the repository is private and the server's GitHub token (SLIQTLY_GITHUB_TOKEN) is missing or does not reach it.")
+        }
+        if ((status == 403) || (status == 429)) {
+            return "GitHub refused for now (its limit on requests without sign-in); try again in a while."
+        }
+        if (status == 0) {
+            return "GitHub could not be reached; try again."
+        }
+        return ("GitHub answered " + status + " about " + (ref.name()) + ".")
+    }
+
     ; export_presentation: the file made by the editor's own export
     ; (src/PresExport.rgr), kept in Storage beside the deck as
     ; exports/<name>.<format>
@@ -1709,8 +2523,8 @@ class Tools {
             return (Tools.fail(bad))
         }
         def format:string (a.str_("format"))
-        if ((format != "pdf") && (format != "pptx")) {
-            return (Tools.fail("Invalid arguments: format is pdf or pptx."))
+        if ((((format != "pdf") && (format != "pptx")) && (format != "docx")) && (format != "html")) {
+            return (Tools.fail("Invalid arguments: format is pdf, pptx, docx or html."))
         }
         def id:string (a.str_("deck_id"))
         if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
@@ -1775,6 +2589,12 @@ class Tools {
         if (format == "pptx") {
             type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
         }
+        if (format == "docx") {
+            type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        }
+        if (format == "html") {
+            type = "text/html; charset=utf-8"
+        }
         def full:string ("shares/" + id + "/" + path)
         def token:string (host_uuid host)
         host_upload host (host_keep_bytes host bytes) full type token
@@ -1791,6 +2611,12 @@ class Tools {
         def what:string "PDF"
         if (format == "pptx") {
             what = "PowerPoint file"
+        }
+        if (format == "docx") {
+            what = "Word document"
+        }
+        if (format == "html") {
+            what = "Web page"
         }
         def out:MfJ (MfJ.newObj())
         out.putStr("deck_id" id)
@@ -2809,6 +3635,16 @@ class Tools {
         r2.put("structuredContent" sc)
         return r2
     }
+}
+
+; update_presentation's save: why not, or the deck as saved, its version,
+; the others' claims and what to tell about the merge
+class WorkSave {
+    def fail:string ""
+    def note:string ""
+    def saved:MfJ (new MfJ)
+    def version:string ""
+    def others:[WorkClaim]
 }
 
 ; the deck's stylesheet: hasCss false stores none; err is the model's

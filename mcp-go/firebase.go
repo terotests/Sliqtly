@@ -84,6 +84,35 @@ func (d firestoreDB) Create(ctx context.Context, col, id string, doc Doc) (Doc, 
 	return snap.Data(), nil
 }
 
+func (d firestoreDB) UpdateIf(ctx context.Context, col, id, field, want string, doc Doc) (bool, error) {
+	ref := d.c.Collection(col).Doc(id)
+	ok := false
+	err := d.c.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		ok = false
+		snap, err := tx.Get(ref)
+		if status.Code(err) == codes.NotFound {
+			if want != "" {
+				return nil
+			}
+			ok = true
+			return tx.Set(ref, doc)
+		}
+		if err != nil {
+			return err
+		}
+		if fieldText(snap.Data(), field) != want {
+			return nil
+		}
+		ok = true
+		ups := []firestore.Update{}
+		for k, v := range doc {
+			ups = append(ups, firestore.Update{Path: k, Value: v})
+		}
+		return tx.Update(ref, ups)
+	})
+	return ok, err
+}
+
 // the leaves as firestore.Increment, merged into the document: map keys are
 // field names, so a referrer's "example.com" stays one field
 func (d firestoreDB) Increment(ctx context.Context, col, id string, add Doc) error {

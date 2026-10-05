@@ -1384,6 +1384,8 @@ class PresDeck {
     ; Files the charts read (`"data": {"url": …}`), fetched by the page.
     def dataUrls:[string]
     def dataTexts:[string]
+    ; files the page looked for and the document does not have
+    def dataMissing:[string]
     ; the ```table fences (PresTable), and the page each was left on, by
     ; "<path>#<ordinal>"
     def tables:[PresTableUse]
@@ -1395,6 +1397,18 @@ class PresDeck {
         def t:[string]
         dataUrls = u
         dataTexts = t
+        def m:[string]
+        dataMissing = m
+    }
+
+    ; The page found no such file: a table that reads it says so instead of
+    ; waiting for it.
+    fn setChartDataMissing:void (url:string) {
+        if ((indexOf dataMissing url) >= 0) {
+            return
+        }
+        push dataMissing url
+        this.rebuild()
     }
 
     fn setChartData:void (url:string body:string) {
@@ -1514,6 +1528,7 @@ class PresDeck {
                 u.page = (unwrap (get tablePages pk))
             }
             PresTable.load(u dataUrls dataTexts)
+            u.missing = ((u.loaded == false) && ((indexOf dataMissing (MdVegaRender.resolveUrl(u.path))) >= 0))
             push urls u.key
             push texts (PresTable.spec(u))
             tk = (tk + 1)

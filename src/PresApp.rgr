@@ -1586,29 +1586,31 @@ class PresApp {
             this.placePresent()
             return
         }
+        ; the rail (and Rooms beside it) take the left edge under the bar
+        def L:double (this.leftW())
         if (deckOn && (barH > 0.0)) {
-            deckRect.set(0.0 toolbar.barH W deckH)
+            deckRect.set(L toolbar.barH (W - L) deckH)
         } {
             deckRect.set(0.0 0.0 0.0 0.0)
         }
         ; the help panel, the chat or a comment's thread, when open, takes
         ; the right edge
-        def AW:double W
+        def AW:double (W - L)
         if (((this.dockW()) > 0.0) && (barH > 0.0)) {
-            AW = (W - (this.dockW()))
+            AW = ((W - L) - (this.dockW()))
         }
-        if ((AW < 320.0) && (AW < W)) {
-            AW = W
+        if ((AW < 320.0) && (AW < (W - L))) {
+            AW = (W - L)
         }
         def stripH:double (thumbH + 34.0)
         def trackH:double 118.0
-        def rx:double 0.0
+        def rx:double L
         if (this.isCompact()) {
             ; narrow (a phone, a small window): the slides only, no editor
             ; and no timeline; widening brings them back
-            tabRect.set(0.0 barH 0.0 0.0)
-            edRect.set(0.0 barH 0.0 0.0)
-            sepRect.set(0.0 barH 0.0 0.0)
+            tabRect.set(L barH 0.0 0.0)
+            edRect.set(L barH 0.0 0.0)
+            sepRect.set(L barH 0.0 0.0)
             trackH = 0.0
             if (focus == "editor") {
                 focus = "stage"
@@ -1617,12 +1619,12 @@ class PresApp {
             def edW:double (AW * split)
             if (edW < 280.0) { edW = 280.0 }
             if (edW > (AW - 360.0)) { edW = (AW - 360.0) }
-            tabRect.set(0.0 barH edW tabH)
-            edRect.set(0.0 (barH + tabH) edW ((H - tabH) - barH))
-            sepRect.set(edW barH 6.0 (H - barH))
-            rx = (edW + 6.0)
+            tabRect.set(L barH edW tabH)
+            edRect.set(L (barH + tabH) edW ((H - tabH) - barH))
+            sepRect.set((L + edW) barH 6.0 (H - barH))
+            rx = ((L + edW) + 6.0)
         }
-        def rw:double (AW - rx)
+        def rw:double ((L + AW) - rx)
         stripRect.set(rx (H - stripH) rw stripH)
         trackRect.set(rx ((H - stripH) - trackH) rw trackH)
         laneX = (rx + 92.0)
@@ -1640,13 +1642,23 @@ class PresApp {
         return (panels.dockW())
     }
 
+    ; What the bar's left rail and Rooms take, 0 without the bar.
+    fn leftW:double () {
+        if ((barH <= 0.0) || (mode == "present")) {
+            return 0.0
+        }
+        toolbar.w = W
+        return (toolbar.leftW())
+    }
+
     ; Narrower than an editor and a slide side by side need.
     fn isCompact:boolean () {
-        def AW:double W
+        def L:double (this.leftW())
+        def AW:double (W - L)
         if (((this.dockW()) > 0.0) && (barH > 0.0)) {
-            AW = (W - (this.dockW()))
+            AW = ((W - L) - (this.dockW()))
             if (AW < 320.0) {
-                AW = W
+                AW = (W - L)
             }
         }
         return (AW < 700.0)
@@ -2017,7 +2029,7 @@ class PresApp {
     }
 
     fn uiBusy:boolean () {
-        return (deck.uiBusy(selected))
+        return ((deck.uiBusy(selected)) || reviewBusy)
     }
 
     ; Called by the page each frame: one more rebuild while charts are still
@@ -2850,6 +2862,12 @@ class PresApp {
             this.deckMove(x y)
             return
         }
+        ; a presentation of a Rooms list dragged towards another room
+        if (toolbar.roomDragging()) {
+            toolbar.roomDragTo(x y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         ; a drag selecting in a comment's text field
         if review.selecting {
             review.dragTo(x y)
@@ -2928,7 +2946,7 @@ class PresApp {
             return
         }
         if splitDrag {
-            def f:double (x / W)
+            def f:double ((x - (this.leftW())) / (W - (this.leftW())))
             if (f < 0.2) { f = 0.2 }
             if (f > 0.7) { f = 0.7 }
             split = f
@@ -2978,6 +2996,10 @@ class PresApp {
     fn pointerUp:void () {
         if deckDown {
             this.deckRelease()
+        }
+        if (toolbar.roomDragging()) {
+            toolbar.roomDragEnd()
+            this.takeToolbar()
         }
         if (review.release()) {
             this.reviewSpots()
@@ -3258,6 +3280,12 @@ class PresApp {
     }
 
     fn key:boolean (name:string shift:boolean ctrl:boolean) {
+        ; the deck's name being edited in the bar has the keys
+        if ((barH > 0.0) && toolbar.titleEditing) {
+            def usedT:boolean (toolbar.titleKey(name shift ctrl))
+            this.takeToolbar()
+            return usedT
+        }
         if (review.hasKeys()) {
             return (this.reviewKey(name shift ctrl))
         }
@@ -3504,6 +3532,11 @@ class PresApp {
     }
 
     fn text:void (s:string) {
+        if ((barH > 0.0) && toolbar.titleEditing) {
+            toolbar.titleType(s)
+            this.takeToolbar()
+            return
+        }
         if (review.hasKeys()) {
             review.text(s)
             chromeRev = (chromeRev + 1)
@@ -3591,6 +3624,11 @@ class PresApp {
     ; document is read from its first slide: the caret goes to the top
     ; rather than being left at the end of what came in.
     fn pasteText:void (s:string) {
+        if ((barH > 0.0) && toolbar.titleEditing) {
+            toolbar.titleType(s)
+            this.takeToolbar()
+            return
+        }
         if (review.hasKeys()) {
             review.text((PresReviewUi.oneLine(s)))
             chromeRev = (chromeRev + 1)
@@ -3738,6 +3776,18 @@ class PresApp {
         }
         ; a `---` of the front matter: what the block is
         def fence:boolean (this.frontMatterFence(line))
+        ; a picture of the deck under the caret: url(…) in the theme, ![](…) or
+        ; bg= in the Markdown; its card offers the image editor and the
+        ; vectorizer
+        def pic:PresPicRef (PresApp.pictureAt(text col))
+        if (((strlen j) == 0) && ((strlen pic.path) > 0)) {
+            def ph:PresHint (PresHint.make("doc" (PresI18n.t("Image")) pic.path pic.start pic.end))
+            ph.doc = (PresI18n.t("A picture of the deck's files."))
+            j = (ph.json())
+        }
+        if ((strlen pic.path) > 0) {
+            j = ((substring j 0 ((strlen j) - 1)) + ",\"picture\":" + (PresHint.q(pic.path)) + "}")
+        }
         if (((strlen j) == 0) && fence) {
             def fh:PresHint (PresHint.make("doc" (PresI18n.t("Front matter")) "" 0 (strlen text)))
             fh.doc = (PresI18n.t("The deck's own settings: title, transition, header and footer."))
@@ -3750,6 +3800,13 @@ class PresApp {
         if (inFm || fence) {
             j = ((substring j 0 ((strlen j) - 1)) + ",\"docset\":true}")
         }
+        ; a diagram's fence: the look it has, read from the whole block
+        if ((edTab == "md") && ((indexOf j "\"looks\":[") >= 0)) {
+            def dm:PresFlowModel (this.diagramAt(line))
+            if dm.ok {
+                j = ((substring j 0 ((strlen j) - 1)) + ",\"look\":" + (PresHint.q((dm.look()))) + "}")
+            }
+        }
         def st:int (?? (str2int (PresApp.jsonNum(j "start"))) 0)
         def en:int (?? (str2int (PresApp.jsonNum(j "end"))) st)
         def x0:int (editor.caretViewX(tr line st))
@@ -3757,6 +3814,101 @@ class PresApp {
         def y0:int (editor.layout.caretPixelY(line))
         def extra:string (",\"line\":" + (to_string line) + ",\"tab\":\"" + edTab + "\",\"x\":" + (to_string x0) + ",\"y\":" + (to_string y0) + ",\"w\":" + (to_string (x1 - x0)) + ",\"h\":" + (to_string editor.layout.lineHeight) + ",\"text\":" + (PresHint.q(text)) + "}")
         return ((substring j 0 ((strlen j) - 1)) + extra)
+    }
+
+    sfn isPicturePath:boolean (p:string) {
+        def l:string (to_lowercase p)
+        def exts:[string] ([] _:string (".png" ".jpg" ".jpeg" ".webp" ".gif" ".svg"))
+        for exts e:string i {
+            if (endsWith l e) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; The picture a column of a line is on: inside url(…), ![…](…) or bg=…;
+    ; an empty path when none.
+    sfn pictureAt:PresPicRef (line:string col:int) {
+        def out (new PresPicRef())
+        def n:int (strlen line)
+        ; url(…)
+        def at:int (indexOf line "url(")
+        while (at >= 0) {
+            def end:int (indexOfFrom line ")" at)
+            if (end < 0) {
+                end = n
+            }
+            if ((col >= at) && (col <= (end + 1))) {
+                def p:string (PresApp.urlPath((substring line at (end + 1))))
+                if (PresApp.isPicturePath(p)) {
+                    out.path = p
+                    out.start = (at + 4)
+                    out.end = end
+                    return out
+                }
+            }
+            at = (indexOfFrom line "url(" (end + 1))
+        }
+        ; ![alt](path "title")
+        def im:int (indexOf line "![")
+        while (im >= 0) {
+            def mid:int (indexOfFrom line "](" im)
+            if (mid < 0) {
+                im = -1
+            } {
+                def close:int (indexOfFrom line ")" mid)
+                if (close < 0) {
+                    close = n
+                }
+                if ((col >= im) && (col <= (close + 1))) {
+                    def inner:string (trim (substring line (mid + 2) close))
+                    def sp:int (indexOf inner " ")
+                    if (sp > 0) {
+                        inner = (substring inner 0 sp)
+                    }
+                    while (startsWith inner "/") {
+                        inner = (substring inner 1 (strlen inner))
+                    }
+                    if (PresApp.isPicturePath(inner)) {
+                        out.path = inner
+                        out.start = (mid + 2)
+                        out.end = close
+                        return out
+                    }
+                }
+                im = (indexOfFrom line "![" (close + 1))
+            }
+        }
+        ; bg=path in an attribute block
+        def bg:int (indexOf line "bg=")
+        while (bg >= 0) {
+            def e:int (bg + 3)
+            while ((e < n) && (((charAt line e) != 32) && ((charAt line e) != 125))) {
+                e = (e + 1)
+            }
+            if ((col >= bg) && (col <= e)) {
+                def bp:string (substring line (bg + 3) e)
+                def q:int 0
+                if ((strlen bp) > 0) {
+                    q = (charAt bp 0)
+                }
+                if (((q == 34) || (q == 39)) && ((strlen bp) >= 2)) {
+                    bp = (substring bp 1 ((strlen bp) - 1))
+                }
+                while (startsWith bp "/") {
+                    bp = (substring bp 1 (strlen bp))
+                }
+                if (PresApp.isPicturePath(bp)) {
+                    out.path = bp
+                    out.start = (bg + 3)
+                    out.end = e
+                    return out
+                }
+            }
+            bg = (indexOfFrom line "bg=" (e + 1))
+        }
+        return out
     }
 
     ; The theme rule a column of the CSS tab is in ("" in the Markdown).
@@ -4325,6 +4477,8 @@ class PresApp {
             toolbar.rebuild()
         }
         toolbar.setState(playing (this.statusText()))
+        ; Rooms is the rail's one place that stays open; the rest act at once
+        toolbar.setRailState("" review.on (this.docTitle()))
         def dl:EVGDisplayList (toolbar.displayList())
         return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
@@ -4719,6 +4873,13 @@ class PresApp {
         }
         def none:[PresHintEdit]
         hint.edits = none
+        if ((strlen hint.wantsLook) > 0) {
+            def lk:string hint.wantsLook
+            hint.wantsLook = ""
+            if ((hint.tab == "md") && (edTab == "md")) {
+                this.setDiagramLook(hint.line lk)
+            }
+        }
         if hint.wantsClose {
             hint.wantsClose = false
             this.closeHint()
@@ -4734,6 +4895,17 @@ class PresApp {
             hint.wantsDoc = false
             this.closeHint()
             push requests "docset"
+        }
+        if ((strlen hint.wantsPic) > 0) {
+            def act:string hint.wantsPic
+            def path:string hint.picture
+            hint.wantsPic = ""
+            this.closeHint()
+            if (act == "trace") {
+                push requests ("image-trace:" + path)
+            } {
+                push requests ("image-edit:" + path)
+            }
         }
         if ((strlen hint.wantsProp) > 0) {
             def parts:[string] (strsplit hint.wantsProp (strfromcode 9))
@@ -4985,6 +5157,8 @@ class PresApp {
     ; The slides' titles to the review (threads follow their slides), and
     ; where the stage and the slide are now.
     def reviewSlide:int -1
+    ; the pins pulse (or fade in): the page draws again each frame
+    def reviewBusy:boolean false
 
     fn reviewReady:void () {
         ; presenting, a thread of another slide closes when the slide changes
@@ -5119,6 +5293,26 @@ class PresApp {
 
     ; The open comments with the Markdown of the slides they are on, for the
     ; clipboard (PresReview.openMarkdown): a slide's Markdown is its section.
+    ; where each slide's section starts in the Markdown (-1: none)
+    fn reviewSectionStarts:[int] () {
+        def src:string (this.source())
+        def l:MdLayout (deck.layout())
+        def secs:[PresPickSection] (PresPick.sections(src l.splitLevel))
+        def starts:[int]
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def k:int (PresPick.sectionAt(secs (this.spanFrom(i))))
+            if (k >= 0) {
+                def sec:PresPickSection (itemAt secs k)
+                push starts sec.start
+            } {
+                push starts -1
+            }
+            i = (i + 1)
+        }
+        return starts
+    }
+
     fn reviewOpenMarkdown:string () {
         def src:string (this.source())
         def l:MdLayout (deck.layout())
@@ -5143,13 +5337,37 @@ class PresApp {
         return (review.model.openMarkdown(name review.titles sources))
     }
 
+    ; the deck's Markdown with the open comments in it as footnotes
+    fn reviewMarkdownWithComments:string () {
+        return (review.model.markdownWithComments((this.source()) (this.reviewSectionStarts()) review.titles))
+    }
+
     ; the text a copy in review mode put aside ("review-copy")
     fn reviewClip:string () {
         return review.clip
     }
 
+    ; How much of the pins shows: while the slide plays they wait until
+    ; everything on it has arrived (`settled`), then come in over 0.4 s.
+    fn reviewShow:double () {
+        if ((this.isPlaying()) == false) {
+            return 1.0
+        }
+        def sl:PresSlide (deck.slideAt(selected))
+        def local:double (clock - (PresTimeline.slideStart(deck selected)))
+        def f:double ((local - sl.settled) / 0.4)
+        if (f < 0.0) {
+            return 0.0
+        }
+        if (f > 1.0) {
+            return 1.0
+        }
+        return f
+    }
+
     ; review mode's layer, for the page to paint where `layerOrder` puts it
     fn reviewJson:string () {
+        reviewBusy = false
         if ((review.on == false) || ((deck.slideCount()) == 0)) {
             return ""
         }
@@ -5158,6 +5376,7 @@ class PresApp {
         }
         this.place()
         this.reviewReady()
+        reviewBusy = (review.pulse(deck.uiNow (this.reviewShow())))
         def dl:EVGDisplayList (review.displayList())
         return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
@@ -5887,7 +6106,7 @@ class PresApp {
     fn panelsReady:boolean () {
         this.placeFiles()
         ; the chat's field shows its caret while it has the keys
-        panels.chat.input.focused = (this.chatHasKeys())
+        panels.chat.input.setFocused((this.chatHasKeys()))
         if ((panels.any()) == false) {
             return false
         }
@@ -6212,6 +6431,12 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    fn setChartDataMissing:void (url:string) {
+        deck.setChartDataMissing(url)
+        PresTimeline.planAll(deck)
+        chromeRev = (chromeRev + 1)
+    }
+
     fn setChartData:void (url:string body:string) {
         deck.setChartData(url body)
         ; the slides are new objects: timed again, or every one lasts 0 s
@@ -6474,6 +6699,93 @@ class PresApp {
         return ("{\"file\":" + (PresApp.jsonStr(chart.adjFile)) + ",\"crop\":\"" + (chart.crop.cropPixels()) + "\",\"whole\":" + whole + ",\"bright\":" + (to_string chart.adjBright) + ",\"contrast\":" + (to_string chart.adjContrast) + ",\"sat\":" + (to_string chart.adjSat) + ",\"temp\":" + (to_string chart.adjTemp) + ",\"tint\":" + (to_string chart.adjTint) + "}")
     }
 
+    ; --- a picture of the files, vectorized ----------------------------------------
+    ; The vectorizer (PresChartEditor's "trace" mode) for `file`: the page has
+    ; registered the picture at `orig` (`iw` × `ih` its pixels) and traces it
+    ; in its own bundle (pres_trace.js) as "trace-run" asks, with
+    ; `traceSettings`, handing the result back through `traceDone`. Save is
+    ; "trace-save" (the page keeps the SVG and calls `swapPictureRefs` when
+    ; `tracePlan` says so), anything else "trace-cancel".
+    fn openTrace:boolean (orig:string file:string iw:int ih:int) {
+        if (mode == "present") {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 560.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        def py:double (barH + 16.0)
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        def uses:int ((PresTraceRefs.countRefs((this.source()) file)) + (PresTraceRefs.countRefs((this.themeCss()) file)))
+        chart.openTrace(orig file (to_double iw) (to_double ih) uses px py W H)
+        def at:int (indexOf (this.source()) file)
+        if (at >= 0) {
+            this.selectSlide((deck.pageOfOffset(at)))
+        }
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        push requests "trace-run"
+        return true
+    }
+
+    fn traceSettings:string () {
+        return (chart.trSet.text())
+    }
+
+    fn traceDone:void (preview:string info:string err:string) {
+        if ((chart.isOpen == false) || (chart.mode != "trace")) {
+            return
+        }
+        chart.traceDone(preview info err)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; {"file", "replace": point the picture's uses at the SVG}
+    fn tracePlan:string () {
+        def rep:string "false"
+        if chart.trReplace {
+            rep = "true"
+        }
+        return ("{\"file\":" + (PresApp.jsonStr(chart.trFile)) + ",\"replace\":" + rep + "}")
+    }
+
+    ; Every use of the file `from` in the Markdown and the theme pointed at
+    ; `to`, as edits that undo; how many there were.
+    fn swapPictureRefs:int (from:string to:string) {
+        def was:string edTab
+        def n:int 0
+        def tabsToDo:[string] ([] _:string ("md" "css"))
+        for tabsToDo tab:string ti {
+            this.showTab(tab)
+            def ln:int 0
+            while (ln < (editor.buf.lineCount())) {
+                def lt:string (editor.buf.lineAt(ln))
+                def c:int (PresTraceRefs.countRefs(lt from))
+                if (c > 0) {
+                    def cl:int editor.sel.caret.line
+                    def cc:int editor.sel.caret.col
+                    editor.moveCaret(ln 0 false)
+                    editor.moveCaret(ln (strlen lt) true)
+                    editor.insert((PresTraceRefs.swapRef(lt from to)))
+                    editor.moveCaret(cl cc false)
+                    n = (n + c)
+                }
+                ln = (ln + 1)
+            }
+            this.syncEditor()
+        }
+        this.showTab(was)
+        chromeRev = (chromeRev + 1)
+        return n
+    }
+
     ; --- a new presentation ------------------------------------------------------
     ; File → New presentation: the window asks the name, the theme (`rows`,
     ; the page's "value<TAB>label" lines; `theme` the one in use) and what
@@ -6591,6 +6903,22 @@ class PresApp {
             }
             e = (e + 1)
         }
+        ; the theme's background picture, pickable whether or not it is
+        ; among the deck's files
+        def bg:string (PresApp.urlPath((this.cssValue("page" "background-image"))))
+        if ((strlen bg) > 0) {
+            def bgKnown:boolean false
+            for list lp:string li {
+                if (lp == bg) {
+                    bgKnown = true
+                }
+            }
+            if (bgKnown == false) {
+                push list bg
+            }
+        }
+        chart.dsBg = bg
+        chart.dsBgAct = ""
         ; the pick's buttons would cover the header it changes
         pick.clear()
         chartStart = -1
@@ -6601,6 +6929,101 @@ class PresApp {
         focus = "chart"
         chromeRev = (chromeRev + 1)
         return true
+    }
+
+    ; The Background tab's choice: the theme's page rule written, or the
+    ; picture handed to the image editor or the vectorizer.
+    fn writeDocBackground:void () {
+        def act:string chart.dsBgAct
+        chart.dsBgAct = ""
+        if ((strlen act) == 0) {
+            return
+        }
+        if (startsWith act "set:") {
+            this.cssSet("page" "background-image" ("url(" + (substring act 4 (strlen act)) + ")"))
+            focus = "chart"
+            return
+        }
+        if (act == "none") {
+            if ((strlen (this.cssValue("page" "background-image"))) > 0) {
+                this.cssSet("page" "background-image" "none")
+                focus = "chart"
+            }
+            return
+        }
+        if ((strlen chart.dsBg) == 0) {
+            return
+        }
+        if (act == "edit") {
+            push requests ("image-edit:" + chart.dsBg)
+        }
+        if (act == "trace") {
+            push requests ("image-trace:" + chart.dsBg)
+        }
+    }
+
+    ; A declaration's value in the theme's CSS: the last `prop` in a rule
+    ; whose selector names `sel` ("" none).
+    fn cssValue:string (sel:string prop:string) {
+        def ed:ScriptEditor cssEditor
+        def n:int (ed.buf.lineCount())
+        def out:string ""
+        def inRule:boolean false
+        def i:int 0
+        while (i < n) {
+            def t:string (ed.buf.lineAt(i))
+            def from:int 0
+            if (inRule == false) {
+                def open:int (indexOf t "{")
+                if ((open > 0) && (PresHelp.names((substring t 0 open) sel))) {
+                    inRule = true
+                    from = (open + 1)
+                }
+            }
+            if inRule {
+                def close:int (indexOfFrom t "}" from)
+                def body:string (substring t from (strlen t))
+                if (close >= 0) {
+                    body = (substring t from close)
+                }
+                def at:int (indexOf body (prop + ":"))
+                if (at >= 0) {
+                    def end:int (indexOfFrom body ";" at)
+                    if (end < 0) {
+                        end = (strlen body)
+                    }
+                    out = (trim (substring body (at + (strlen prop) + 1) end))
+                }
+                if (close >= 0) {
+                    inRule = false
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; the picture of `url(media/x.png)` (quoted or not), "" for none
+    sfn urlPath:string (v:string) {
+        def at:int (indexOf v "url(")
+        if (at < 0) {
+            return ""
+        }
+        def end:int (indexOfFrom v ")" at)
+        if (end < 0) {
+            return ""
+        }
+        def p:string (trim (substring v (at + 4) end))
+        if ((strlen p) >= 2) {
+            def q:int (charAt p 0)
+            if ((q == 34) || (q == 39)) {
+                p = (substring p 1 ((strlen p) - 1))
+            }
+        }
+        while (startsWith p "/") {
+            p = (substring p 1 (strlen p))
+        }
+        return p
     }
 
     ; The front matter with the window's keys: a key's line is rewritten in
@@ -6769,11 +7192,15 @@ class PresApp {
     ; {"to": "slide"|"bg-slide"|"bg-all", "crop": "x,y,w,h" in pixels,
     ;  "whole": true when nothing was cut away, "alt": the description}
     fn pastePlan:string () {
+        def trace:string "false"
+        if chart.pasteTrace {
+            trace = "true"
+        }
         def whole:string "false"
         if (chart.crop.isWhole()) {
             whole = "true"
         }
-        return ("{\"to\":\"" + chart.pasteTo + "\",\"crop\":\"" + (chart.crop.cropPixels()) + "\",\"whole\":" + whole + ",\"alt\":" + (PresApp.jsonStr(chart.pasteAlt)) + "}")
+        return ("{\"to\":\"" + chart.pasteTo + "\",\"crop\":\"" + (chart.crop.cropPixels()) + "\",\"whole\":" + whole + ",\"alt\":" + (PresApp.jsonStr(chart.pasteAlt)) + ",\"trace\":" + trace + "}")
     }
 
     sfn jsonStr:string (v:string) {
@@ -6941,13 +7368,29 @@ class PresApp {
         if (mode == "present") {
             return false
         }
+        def m:PresFlowModel (this.diagramAt(line))
+        if (m.ok == false) {
+            return false
+        }
+        this.placeChartWindow()
+        chart.openDiagram(m chartWinX chartWinY W H)
+        this.selectSlide((deck.pageOfOffset((this.offsetOf(line 0)))))
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The fenced block opening on `line`, read as a diagram's model (`ok`
+    ; false when the line opens none).
+    fn diagramAt:PresFlowModel (line:int) {
+        def none (new PresFlowModel())
         def n:int (mdEditor.buf.lineCount())
         if ((line < 0) || (line >= n)) {
-            return false
+            return none
         }
         def head:string (trim (mdEditor.buf.lineAt(line)))
         if (((indexOf head "```") != 0) && ((indexOf head "~~~") != 0)) {
-            return false
+            return none
         }
         def fence:string (substring head 0 3)
         def close:int -1
@@ -6959,7 +7402,7 @@ class PresApp {
             k = (k + 1)
         }
         if (close < 0) {
-            return false
+            return none
         }
         def last:int close
         if (((close + 1) < n) && ((indexOf head "{") < 0)) {
@@ -6968,17 +7411,26 @@ class PresApp {
             }
         }
         def m:PresFlowModel (PresFlowModel.read((this.blockText(line last))))
-        if (m.ok == false) {
-            return false
-        }
         m.first = line
         m.last = last
-        this.placeChartWindow()
-        chart.openDiagram(m chartWinX chartWinY W H)
-        this.selectSlide((deck.pageOfOffset((this.offsetOf(line 0)))))
-        focus = "chart"
-        chromeRev = (chromeRev + 1)
-        return true
+        return m
+    }
+
+    ; A look picked on the diagram's card: the block's settings line
+    ; rewritten, as one edit (Ctrl+Z undoes it).
+    fn setDiagramLook:void (line:int v:string) {
+        def m:PresFlowModel (this.diagramAt(line))
+        if (m.ok == false) {
+            return
+        }
+        def at:int (line + (m.lookLineAt()))
+        def t:string (m.lookLine(v))
+        this.replaceRange(at 0 (strlen (mdEditor.buf.lineAt(at))) t)
+        if (at == line) {
+            hint.text = t
+        }
+        hint.look = v
+        hint.rebuild()
     }
 
     ; The table on `line` (a Markdown table's first line, or a ```table /
@@ -7204,6 +7656,18 @@ class PresApp {
             } {
                 push requests "image-cancel"
             }
+            if chart.wantsTrace {
+                chart.wantsTrace = false
+                push requests ("image-trace:" + chart.adjFile)
+            }
+        }
+        if (chart.isOpen && (chart.mode == "trace")) {
+            if chart.wantsTraceSave {
+                chart.wantsTraceSave = false
+                push requests "trace-save"
+            } {
+                push requests "trace-cancel"
+            }
         }
         if (chart.isOpen && (chart.mode == "docset")) {
             def keepBase:int chartUndoBase
@@ -7315,12 +7779,26 @@ class PresApp {
         }
         if (chart.mode == "docset") {
             this.writeDocSettings()
+            this.writeDocBackground()
             return
         }
         if (chart.mode == "adjust") {
             if chart.adjDirty {
                 chart.adjDirty = false
                 push requests "image-adjust"
+            }
+            return
+        }
+        if (chart.mode == "trace") {
+            if chart.trDirty {
+                if (chart.dragging()) {
+                    chart.changed = true
+                    return
+                }
+                chart.trDirty = false
+                chart.trBusy = true
+                chart.rebuild()
+                push requests "trace-run"
             }
             return
         }
@@ -7386,6 +7864,19 @@ class PresApp {
         deck.md.fontManager.setPlatformMeasure(f)
         mdEditor.contentWPx = 0
         cssEditor.contentWPx = 0
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The deck's name changed in the bar: line `line` of the Markdown becomes
+    ; `text`, one edit of the Markdown editor (it undoes there), whichever
+    ; tab is shown.
+    fn renameLine:void (line:int text:string) {
+        def was:ScriptEditor editor
+        editor = mdEditor
+        if ((line >= 0) && (line < (editor.buf.lineCount()))) {
+            this.replaceRange(line 0 (strlen (editor.buf.lineAt(line))) text)
+        }
+        editor = was
         chromeRev = (chromeRev + 1)
     }
 
@@ -7786,6 +8277,26 @@ class PresApp {
             this.slideCommand((substring r 6 (strlen r)))
             return
         }
+        ; the rail's places: the editor's tabs here, the rest the page's own
+        ; requests (a window, a button); review is turned on or off by the page
+        if ((indexOf r "rail:") == 0) {
+            def p:string (substring r 5 (strlen r))
+            if (p == "history") {
+                push requests "click:history"
+            }
+            if (p == "settings") {
+                push requests "settings"
+            }
+            ; the editor's dark or light look: the bar's switch (#modeBtn)
+            if (p == "dark") {
+                push requests "click:modeBtn"
+            }
+            if (p == "review") {
+                push requests "rail:review"
+            }
+            chromeRev = (chromeRev + 1)
+            return
+        }
         push requests r
     }
 
@@ -7972,21 +8483,7 @@ class PresApp {
     ; What the deck calls itself, for an exported file's name: the front
     ; matter's `title`, or the first heading when there is none, or "".
     fn docTitle:string () {
-        def doc:MdNode deck.md.edit.doc
-        def meta:MdMeta (MdFrontMatter.of(doc))
-        def t:string (trim (meta.get("title" "")))
-        if ((strlen t) > 0) {
-            return t
-        }
-        def i:int 0
-        while (i < (doc.childCount())) {
-            def ch:MdNode (doc.childAt(i))
-            if (ch.kind == "heading") {
-                return (trim (ch.plainText()))
-            }
-            i = (i + 1)
-        }
-        return ""
+        return (PresDocx.titleOf(deck.md.edit.doc))
     }
 
     ; The slides with an effect, "[1,3]", for the host to render before an
@@ -8121,6 +8618,33 @@ class PresApp {
         return ((this.exportOf(true)).pptx())
     }
 
+    ; --- Word (PresExport.docx) ----------------------------------------------------
+    ; Two steps, because the stage draws some blocks (a diagram, a chart, a
+    ; SmartArt) that only the host can turn into pictures: `docxBegin` names
+    ; them, the host draws each one (`docxShotJson`) and hands the PNG to
+    ; `setDocxShot`, and `docxEnd` writes the file. `picked`: only the picked
+    ; slides, all of them when none is picked.
+    fn docxBegin:string (picked:boolean) {
+        return ((this.exportOf(picked)).docxShots())
+    }
+
+    fn docxShotJson:string (key:int) {
+        return (this.listJson((exporter.word.shotList(deck key))))
+    }
+
+    fn setDocxShot:void (key:int png:buffer pxW:int pxH:int) {
+        exporter.word.setShot(key png pxW pxH)
+    }
+
+    fn docxEnd:buffer () {
+        return (exporter.docx())
+    }
+
+    ; The same shots, then the deck as one web page (PresExport.html).
+    fn htmlEnd:string () {
+        return (exporter.html())
+    }
+
     fn pickCount:int () {
         return (picks.count())
     }
@@ -8183,4 +8707,11 @@ class PresApp {
         def n:int (deck.slideCount())
         return ((to_string n) + (PresI18n.t(" slides · ")) + (PresApp.secs((PresTimeline.total(deck)))))
     }
+}
+
+; a picture named in a line: its path and the columns it takes
+class PresPicRef {
+    def path:string ""
+    def start:int 0
+    def end:int 0
 }

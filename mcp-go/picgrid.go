@@ -45,6 +45,16 @@ func (h *McpHost) ImageGrid(handle int64) []int64 {
 	return lumaGrid(img)
 }
 
+// ImageError is why a raster picture's bytes do not decode ("" when they do):
+// a cut-short base64 string otherwise becomes a picture the slide draws as
+// nothing, with no word why.
+func (h *McpHost) ImageError(handle int64) string {
+	if _, _, err := image.Decode(bytes.NewReader(h.images[handle])); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
 // the longer side an SVG is drawn at for the contrast grid: ten pixels
 // and more to each of its cells
 const svgGridSide = 480

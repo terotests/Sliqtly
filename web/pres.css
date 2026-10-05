@@ -71,19 +71,28 @@
 
 /* The open presentations, a row under the top bar (EVGUI DocTabsCtl): notebook
    tabs with slanted edges (the wings are paths), the one in front white like
-   the editor pane under it, the others a shade darker. */
-.deck-row { background-color: var(--bg); border-bottom: 1px solid var(--line); }
+   the editor pane under it, the others a shade darker. The row is the light
+   end of the warm band under the top bar (toolbar.css .tb-bar): #f7f7f8 and
+   #e4e4e7 in lightness, warm in hue. */
+.deck-row { background-color: #fbf6f0; border-bottom: 1px solid #e8e4de; }
 .ui-doctabs { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: flex-end; height: 40px; padding: 0 12px; gap: 2px; }
 .ui-doctab { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: flex-end; height: 33px; flex-shrink: 1; cursor: pointer; }
-.ui-doctab-wing { width: 12px; min-width: 12px; height: 33px; fill: #e4e4e7; }
+.ui-doctab-wing { width: 12px; min-width: 12px; height: 33px; fill: #e8e4de; }
 .ui-doctab-wing-state-active { fill: #ffffff; }
-.ui-doctab-body { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; height: 33px; padding: 0 6px 0 6px; min-width: 60px; background-color: #e4e4e7; shadow-color: rgba(0, 0, 0, 0.06); shadow-radius: 3px; shadow-offset-y: -1px; }
+.ui-doctab-body { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; height: 33px; padding: 0 6px 0 6px; min-width: 60px; background-color: #e8e4de; shadow-color: rgba(0, 0, 0, 0.06); shadow-radius: 3px; shadow-offset-y: -1px; }
 .ui-doctab-body-state-active { background-color: #ffffff; shadow-color: rgba(0, 0, 0, 0.14); shadow-radius: 5px; shadow-offset-y: -1px; }
 .ui-doctab-name { font-size: 13px; font-weight: 500; color: #52525b; white-space: nowrap; height: 18px; line-height: 18px; flex-shrink: 1; }
 .ui-doctab-name-state-active { color: #09090b; }
 .ui-doctab-close { width: 18px; min-width: 18px; height: 18px; line-height: 17px; text-align: center; font-size: 13px; border-radius: 9px; background-color: #a1a1aa; color: #ffffff; cursor: pointer; }
 .ui-doctab-close:hover { background-color: #52525b; }
-.ui-doctab-dragging { opacity: 0.75; }
+/* a tab dragged: its place an empty dashed slot where it lands, a see-through copy under the pointer */
+.ui-doctab-wing-state-slot { fill: rgba(0, 0, 0, 0); }
+.ui-doctab-body-state-slot { background-color: rgba(0, 0, 0, 0); border: 2px dashed #a1a1aa; border-radius: 6px; shadow-color: rgba(0, 0, 0, 0); }
+.ui-doctab-name-state-slot { color: rgba(0, 0, 0, 0); }
+.ui-doctab-wing-state-ghost { fill: #bfdbfe; }
+.ui-doctab-body-state-ghost { background-color: #bfdbfe; shadow-color: rgba(30, 64, 175, 0.35); shadow-radius: 10px; shadow-offset-y: 3px; }
+.ui-doctab-name-state-ghost { color: #1e3a8a; }
+.ui-doctab-ghost { opacity: 0.8; }
 .ui-doctab-add { width: 24px; min-width: 24px; height: 24px; line-height: 23px; text-align: center; font-size: 17px; border-radius: 12px; margin: 0 0 5px 10px; background-color: #d4d4d8; color: #3f3f46; cursor: pointer; }
 .ui-doctab-add:hover { background-color: #a1a1aa; color: #ffffff; }
 

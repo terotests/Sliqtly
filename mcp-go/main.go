@@ -75,7 +75,7 @@ func main() {
 		board := newStatusBoard("migrating", version)
 		sw.set(maintenance(board))
 		serve()
-		release, err := prepareData(*data, version, func(m string) { log.Print(m) })
+		release, err := prepareData(*data, version, *user, func(m string) { log.Print(m) })
 		if err != nil {
 			log.Printf("data folder %s: %v", *data, err)
 			// the reason is in the log; the pages are told only that it failed
@@ -129,7 +129,7 @@ func main() {
 		if u == "" {
 			u = "https://sliqtly.com"
 		}
-		e := &Env{BaseURL: u, Client: newPublicClient()}
+		e := &Env{BaseURL: u, Client: newPublicClient(), GitHubToken: os.Getenv("SLIQTLY_GITHUB_TOKEN"), GitHubUsers: githubUsers(os.Getenv("SLIQTLY_GITHUB_USERS"))}
 		cloud := os.Getenv("K_SERVICE") != "" || os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") != "" || os.Getenv("FIRESTORE_EMULATOR_HOST") != ""
 		if env("SLIQTLY_STORE", "") == "link" {
 			cloud = false

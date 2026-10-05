@@ -30,7 +30,7 @@ class DeckIn {
     def live:boolean false
     ; keep each slide's display list as JSON, for drawing it
     def lists:boolean false
-    ; "pdf" or "pptx": the deck exported as that file (Checked.file), only
+    ; "pdf", "pptx", "docx" or "html": the deck exported as that file (Checked.file), only
     ; the slides in `only` (0 = first) when it is not empty
     def export:string ""
     def only:[int]
@@ -146,7 +146,10 @@ class Check {
 
     ; the files the charts read, handed over as the page hands them (twice:
     ; a chart kept in a file names its data only once the file is read)
-    sfn chartData:void (host:McpHost din:DeckIn d:PresDeck) {
+    ; what the deck names that it does not have comes back, told to the deck
+    ; too, so its tables say so in place of waiting for the file
+    sfn chartData:[string] (host:McpHost din:DeckIn d:PresDeck) {
+        def missing:[string]
         def tried:[string]
         def round:int 0
         while (round < 2) {
@@ -160,10 +163,47 @@ class Check {
                 def body:string (Check.dataText(host din u))
                 if ((strlen body) > 0) {
                     d.setChartData(u body)
+                } {
+                    ; a live address is read only where it is allowed; a
+                    ; file of the deck that is not there is a mistake
+                    if (((startsWith u "https://") == false) && ((startsWith u "http://") == false)) {
+                        push missing u
+                    }
                 }
             }
             round = (round + 1)
         }
+        for missing m:string mi {
+            d.setChartDataMissing(m)
+        }
+        return missing
+    }
+
+    ; where each slide starts in md (its first source offset, -1 when it
+    ; drew nothing), laid out as run lays it out, without the checks: what
+    ; Work.rgr numbers merged edits and claims by
+    sfn slideStarts:[int] (host:McpHost md:string css:string) {
+        def d (new PresDeck)
+        d.artAllowed = ((host_store_kind host) == "cloud")
+        for (Check.FACES()) face:string fi {
+            def fb:buffer (host_font host face)
+            if ((buffer_length fb) > 0) {
+                d.md.attachFont(face fb)
+            }
+        }
+        if ((strlen css) > 0) {
+            d.setTheme(css)
+            d.md.setStyleSheet(css)
+        }
+        d.setText(md)
+        def out:[int]
+        def i:int 0
+        while (i < (d.slideCount())) {
+            def s:PresSlide (d.slideAt(i))
+            push out s.srcStart
+            i = (i + 1)
+        }
+        return out
     }
 
     sfn run:Checked (host:McpHost din:DeckIn) {
@@ -192,7 +232,9 @@ class Check {
             d.addImage(pic.name (itemAt din.data pi) (itemAt din.types pi) pic.w pic.h)
         }
         d.setText(md)
-        Check.chartData(host din d)
+        for (Check.chartData(host din d)) gone:string gi {
+            push c.warnings (gone + " is read by a chart or table but the presentation has no such file. list_files lists the names its files are read by; add the file with files.")
+        }
         c.width = d.pageW
         c.height = d.pageH
         c.slides = (d.slideCount())
@@ -271,15 +313,44 @@ class Check {
             ex.only = din.only
             if (din.export == "pdf") {
                 c.file = (ex.pdf())
-            } {
+            }
+            if (din.export == "pptx") {
                 c.file = (ex.pptx())
+            }
+            if (din.export == "docx") {
+                Check.shots(host ex d)
+                c.file = (ex.docx())
+            }
+            if (din.export == "html") {
+                Check.shots(host ex d)
+                c.file = (PptxWriter.utf8((ex.html())))
             }
         }
         return c
     }
 
+    ; The Word and web page exports' pictures of what only the stage draws
+    ; (diagrams, charts, SmartArt; PresDocx): each block's rectangle of its
+    ; slide at rest, drawn here as the editor draws it in WebGL.
+    sfn shots:void (host:McpHost ex:PresExport d:PresDeck) {
+        ex.docxShots()
+        for ex.word.shots s:PresDocxShot si {
+            def dl:EVGDisplayList (ex.word.shotList(d s.key))
+            ; sharp enough for a page-wide picture
+            def px:int (to_int ((s.w * 2.0) + 0.5))
+            if (px > 1400) {
+                px = 1400
+            }
+            def png:buffer (host_render_crop host (dl.toJson()) d.pageW d.pageH s.x s.y s.w s.h px)
+            if ((buffer_length png) > 0) {
+                ex.word.setShot(s.key png px (to_int ((((to_double px) * s.h) / s.w) + 0.5)))
+            }
+        }
+    }
+
     ; per command of the slide list just drawn: true for text struck through
-    ; (`~~…~~`, `<s>`, `<del>`), which the layout draws muted on purpose
+    ; (`~~…~~`, `<s>`, `<del>`) and the "[alt]" standing in for a picture
+    ; with no bytes, which the layout draws muted on purpose
     sfn struck:[boolean] (d:PresDeck l:MdLayout n:int) {
         def out:[boolean]
         def owner:[int] d.boxOfCmd
@@ -290,7 +361,7 @@ class Check {
                 def ob:int (itemAt owner i)
                 if ((ob >= 0) && (ob < (array_length l.boxes))) {
                     def b:MdBox (itemAt l.boxes ob)
-                    q = b.strike
+                    q = (b.strike || b.quiet)
                 }
             }
             push out q

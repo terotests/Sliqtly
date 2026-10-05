@@ -11,6 +11,7 @@ import crypto from "node:crypto";
 import { ensureRanger, ensureRangerDiff, compile, root, webDir, distDir, log } from "./lib.mjs";
 import { createRequire } from "node:module";
 import { formatCss } from "./format-css.mjs";
+import { buildPlayer } from "./player.mjs";
 import { stampImports, unstampedImports } from "./stamp.mjs";
 
 // esbuild (npm install) shrinks the two compiled bundles to about 60 %
@@ -50,14 +51,21 @@ export function build({ ranger } = {}) {
   compile(ranger, "PresData.rgr", dataJs);
   fs.writeFileSync(dataJs, "// loaded on demand: a .xlsx as CSV, one per sheet.\n"
     + "(function () {\n" + fs.readFileSync(dataJs, "utf8") + "\n;globalThis.PresData = PresData;\n})();\n");
+  // The vectorizer (lib/evg's EvgBitmapTracer) likewise, loaded by its
+  // worker (web/trace-worker.js) the first time a picture is vectorized.
+  const traceJs = path.join(distDir, "pres_trace.js");
+  compile(ranger, "PresTrace.rgr", traceJs);
+  fs.writeFileSync(traceJs, "// loaded on demand by trace-worker.js: a picture traced into an SVG.\n"
+    + "(function () {\n" + fs.readFileSync(traceJs, "utf8") + "\n;globalThis.PresTrace = PresTrace;\n})();\n");
   minify(appJs);
   minify(dataJs);
+  minify(traceJs);
 
   const copy = (from, to) => {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
   };
-  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "fileclip.js", "decktabs.js", "version-view.js", "collab.js", "eventline.js", "press.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "rooms.js", "fileclip.js", "decktabs.js", "version-view.js", "player-file.js", "collab.js", "eventline.js", "press.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
   // versions and deltas (web/versions.js): RangerDiff's built module
   copy(path.join(ensureRangerDiff(), "dist", "rangerdiff.mjs"), path.join(distDir, "rangerdiff.mjs"));
   // the interface in other languages (web/i18n.js)
@@ -124,7 +132,8 @@ export function build({ ranger } = {}) {
   // Every URL the page loads carries the hash of the build, so a reload
   // never mixes an old script with a new one.
   const h = crypto.createHash("sha1");
-  for (const f of distFiles().filter((f) => !f.startsWith("fonts/"))) h.update(f).update(fs.readFileSync(path.join(distDir, f)));
+  // player.html is made from the rest after this (scripts/player.mjs)
+  for (const f of distFiles().filter((f) => !f.startsWith("fonts/") && f !== "player.html")) h.update(f).update(fs.readFileSync(path.join(distDir, f)));
   const stamp = h.digest("hex").slice(0, 10);
   // The fonts change far more seldom than the code: their own hash, so a
   // new build is not 1.5 MB of the same faces again for every visitor.
@@ -139,10 +148,14 @@ export function build({ ranger } = {}) {
     .split("__FONTS__").join(fonts)
     .split("__BUILT__").join(new Date().toISOString().slice(0, 10))
     .split("__BUILD__").join(stamp));
+  // the player page bundles the modules as they are now, before their
+  // imports carry the stamp
+  const player = buildPlayer(distDir);
+  if (player) log(`build  web/dist/player.html (${(player / 1048576).toFixed(1)} MB)`);
   // every relative import of every module we ship carries the stamp
   // (scripts/stamp.mjs); the two compiled bundles are classic scripts, and
   // EVGSheets' own build (sheets/) is left as it came
-  const classic = new Set(["pres_app.js", "pres_data.js"]);
+  const classic = new Set(["pres_app.js", "pres_data.js", "pres_trace.js", "trace-worker.js"]);
   const modules = distFiles().filter((f) => /\.m?js$/.test(f) && !classic.has(f) && !f.startsWith("sheets/"));
   for (const f of modules) {
     const file = path.join(distDir, f);

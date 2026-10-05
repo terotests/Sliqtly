@@ -76,6 +76,10 @@ class PresHintPopover {
     def text:string ""
     def options:[string]
     def adds:[string]
+    ; a diagram's fence: its looks and the one it has
+    def looks:[string]
+    def look:string ""
+    def wantsLook:string ""
     def hasRange:boolean false
     def rmin:double 0.0
     def rmax:double 100.0
@@ -93,6 +97,10 @@ class PresHintPopover {
     ; the hint is in the front matter: a button opens the document settings
     def docset:boolean false
     def wantsDoc:boolean false
+    ; the hint is on a picture of the deck: buttons open it in the image
+    ; editor ("edit") or the vectorizer ("trace")
+    def picture:string ""
+    def wantsPic:string ""
     ; "sel<TAB>prop<TAB>default" when a property of a selector was picked
     def wantsProp:string ""
     ; the doc line of the selector property under the pointer
@@ -149,6 +157,7 @@ class PresHintPopover {
         tab = (j.stringOr("tab" "md"))
         line = (j.intOr("line" 0))
         docset = (j.boolOr("docset" false))
+        picture = (j.stringOr("picture" ""))
         start = (j.intOr("start" 0))
         end = (j.intOr("end" 0))
         wholeStart = (j.intOr("wholeStart" -1))
@@ -175,6 +184,16 @@ class PresHintPopover {
             i = (i + 1)
         }
         adds = ad
+        def lk:[string]
+        def lv:VlJson (j.get("looks"))
+        i = 0
+        while (i < (lv.count())) {
+            push lk ((lv.at(i)).asString())
+            i = (i + 1)
+        }
+        looks = lk
+        look = (j.stringOr("look" "holo"))
+        wantsLook = ""
         hasRange = ((j.has("min")) && (j.has("max")))
         rmin = (j.doubleOr("min" 0.0))
         rmax = (j.doubleOr("max" 100.0))
@@ -189,6 +208,7 @@ class PresHintPopover {
         wantsBack = false
         canBack = false
         wantsDoc = false
+        wantsPic = ""
         wantsProp = ""
         dragPart = ""
         sliding = false
@@ -375,7 +395,24 @@ class PresHintPopover {
         if (kind == "selector") {
             this.selectorRows(card)
         }
-        if (((kind == "enum") || (kind == "class")) || (kind == "font")) {
+        if ((array_length looks) > 0) {
+            card.addChild((this.words("hp-label" (PresI18n.t("Look")))))
+            def lc:EVGElement (this.div("hp-chips"))
+            def li:int 0
+            while (li < (array_length looks)) {
+                def lo:string (itemAt looks li)
+                def lvar:string "secondary"
+                if (lo == look) {
+                    lvar = "primary"
+                }
+                this.button(("hp-look-" + (to_string li)) lo lvar lc)
+                li = (li + 1)
+            }
+            card.addChild(lc)
+        }
+        ; a diagram's card offers its looks only: the notation stays as written
+        def showOptions:boolean ((array_length looks) == 0)
+        if (showOptions && (((kind == "enum") || (kind == "class")) || (kind == "font"))) {
             def chips:EVGElement (this.div("hp-chips"))
             def i:int 0
             while (i < (array_length options)) {
@@ -430,6 +467,17 @@ class PresHintPopover {
             }
         }
         def hasRemove:boolean ((wholeStart >= 0) && (wholeEnd > wholeStart))
+        if ((strlen picture) > 0) {
+            def pf:EVGElement (this.div("hp-foot"))
+            def low:string (to_lowercase picture)
+            if ((endsWith low ".svg") == false) {
+                this.button("hp-pic-edit" (PresI18n.t("Edit image…")) "secondary" pf)
+                this.button("hp-pic-trace" (PresI18n.t("Vectorize…")) "secondary" pf)
+            } {
+                pf.addChild((this.words("hp-doc" (PresI18n.t("A vector picture: sharp at any size.")))))
+            }
+            card.addChild(pf)
+        }
         if (hasRemove || docset) {
             def foot:EVGElement (this.div("hp-foot"))
             if docset {
@@ -890,6 +938,13 @@ class PresHintPopover {
             return
         }
         this.leaveField()
+        if ((indexOf ctlTid "hp-look-") == 0) {
+            def li:int (?? (str2int (substring ctlTid 8 (strlen ctlTid))) -1)
+            if ((li >= 0) && (li < (array_length looks))) {
+                wantsLook = (itemAt looks li)
+            }
+            return
+        }
         if ((indexOf ctlTid "hp-opt-") == 0) {
             def oi:int (?? (str2int (substring ctlTid 7 (strlen ctlTid))) -1)
             if ((oi >= 0) && (oi < (array_length options))) {
@@ -908,6 +963,14 @@ class PresHintPopover {
         }
         if (ctlTid == "hp-docset") {
             wantsDoc = true
+            return
+        }
+        if (ctlTid == "hp-pic-edit") {
+            wantsPic = "edit"
+            return
+        }
+        if (ctlTid == "hp-pic-trace") {
+            wantsPic = "trace"
             return
         }
         if (ctlTid == "hp-close") {

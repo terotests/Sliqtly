@@ -18,6 +18,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"io"
@@ -63,6 +64,10 @@ type DB interface {
 	// Increment adds the int64 leaves of add to the document's fields
 	// (nested maps for nested fields), creating what is missing.
 	Increment(ctx context.Context, col, id string, add Doc) error
+	// UpdateIf updates the document (writes it whole when there is none)
+	// only when its string field `field` is `want` (missing reads as ""),
+	// in one transaction; false when the field was something else.
+	UpdateIf(ctx context.Context, col, id, field, want string, d Doc) (bool, error)
 }
 
 // Bucket is the little of Cloud Storage the server uses.
@@ -99,10 +104,20 @@ type Env struct {
 	// needs more than DB says (revisions, the change feed); nil elsewhere
 	Store    store.Engine
 	FilesURL string // e.g. https://host/files; "": Storage download URLs
-	Themes   func(name string) (string, bool)
+	// GitHubToken: sent to api.github.com (read_github_pr), for its
+	// higher limit; "" reads as anyone
+	GitHubToken string
+	// GitHubUsers: the Sliqtly user ids (Firebase uids) for whom the token
+	// may read private repositories (SLIQTLY_GITHUB_USERS, comma-separated).
+	// Anyone may call the server, so a private repository the token reaches
+	// is refused to everyone else.
+	GitHubUsers []string
+	Themes      func(name string) (string, bool)
 	// the form a presentation's name must have (names.go): only on a server
 	// of one's own, set from its settings page; nil: any name
 	names atomic.Pointer[nameRule]
+	// rooms (roomsapi.go): with Store and LocalUser; nil elsewhere
+	rooms *roomService
 
 	themesMu sync.Mutex
 	themes   map[string]string
@@ -446,6 +461,28 @@ func (h *McpHost) CreateDoc(col, id, text string) string {
 	return toJSON(plain(had))
 }
 
+func (h *McpHost) UpdateDocIf(col, id, field, want, text string) string {
+	d := h.parseDoc(text)
+	if d == nil || !h.db() {
+		return ""
+	}
+	ok, err := h.env.DB.UpdateIf(h.ctx, col, id, field, want, d)
+	if err != nil {
+		h.fail(err)
+		return ""
+	}
+	if !ok {
+		return "changed"
+	}
+	return ""
+}
+
+// the string a document's field holds, "" when it is missing or not a string
+func fieldText(d Doc, field string) string {
+	s, _ := d[field].(string)
+	return s
+}
+
 func (h *McpHost) IncrementDoc(col, id, text string) {
 	if d := h.parseDoc(text); d != nil && h.db() {
 		h.fail(h.env.DB.Increment(h.ctx, col, id, d))
@@ -554,6 +591,73 @@ func (h *McpHost) Precision(n string, digits int64) string {
 }
 
 func (h *McpHost) LocalUser() string { return h.env.LocalUser }
+
+func (h *McpHost) GitHubPrivateOK(uid string) bool {
+	if h.env.LocalUser != "" {
+		return true
+	}
+	if uid == "" {
+		return false
+	}
+	for _, u := range h.env.GitHubUsers {
+		if u == uid {
+			return true
+		}
+	}
+	return false
+}
+
+// githubUsers reads SLIQTLY_GITHUB_USERS: ids split at commas and spaces
+func githubUsers(s string) []string {
+	var out []string
+	for _, f := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' }) {
+		out = append(out, f)
+	}
+	return out
+}
+
+// HostTools is the tools the Go side adds (rooms, roomsapi.go) as a JSON
+// array of MCP tool entries; "[]" where it adds none
+func (h *McpHost) HostTools() string {
+	if h.env.rooms == nil {
+		return "[]"
+	}
+	return roomJSON(h.env.rooms.toolsJSON())
+}
+
+// HasTool: name is one of HostTools
+func (h *McpHost) HasTool(name string) bool { return h.env.rooms != nil && findRoomTool(name) }
+
+// CallTool runs one of HostTools for uid with args (JSON) → the answer as
+// JSON text; a caller's mistake or a failure is the host's error. who is
+// the rate limit's key, counted for the tools that change something.
+func (h *McpHost) CallTool(uid, who, name, args string) string {
+	if !h.HasTool(name) {
+		h.fail(fmt.Errorf("no tool %s", name))
+		return ""
+	}
+	for _, t := range roomTools {
+		if t.name == name && !t.readOnly {
+			if why := h.env.Limiter(who); why != "" {
+				h.fail(errors.New(why))
+				return ""
+			}
+		}
+	}
+	a := map[string]any{}
+	if strings.TrimSpace(args) != "" && strings.TrimSpace(args) != "null" {
+		if err := json.Unmarshal([]byte(args), &a); err != nil {
+			h.fail(fmt.Errorf("the arguments are not a JSON object"))
+			return ""
+		}
+	}
+	out, err := h.env.rooms.call(h.ctx, uid, name, a)
+	if err != nil {
+		h.fail(err)
+		return ""
+	}
+	return roomJSON(out)
+}
 
 // NameRule says what a name must look like, for the tools' descriptions;
 // "" when any name will do
@@ -669,6 +773,9 @@ func (h *McpHost) FetchText(u, accept string, limit int64) string {
 		return `{"status":0}`
 	}
 	req.Header.Set("accept", accept)
+	if h.env.GitHubToken != "" && strings.HasPrefix(u, "https://api.github.com/") {
+		req.Header.Set("authorization", "Bearer "+h.env.GitHubToken)
+	}
 	res, err := h.env.Client.Do(req)
 	if err != nil {
 		return `{"status":0}`

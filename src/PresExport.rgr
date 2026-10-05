@@ -5,6 +5,8 @@
 ; contrast guard's repairs; the MCP server exports with neither.
 
 Import "PresDeck.rgr"
+Import "PresDocx.rgr"
+Import "PresHtml.rgr"
 Import "pkg:evg/EVGImageDecode.rgr"
 
 class PresExport {
@@ -24,6 +26,10 @@ class PresExport {
     def fixText:[string]
     def fixKind:[string]
     def fixColor:[string]
+    ; the Word export: the blocks only the stage draws, and the pictures the
+    ; host made of them (none from the MCP server: those blocks are written
+    ; as their names)
+    def word:PresDocx (new PresDocx())
 
     Constructor () {
     }
@@ -634,21 +640,40 @@ class PresExport {
 
     ; Notes as a person reads them: the cue marks out.
     sfn speakable:string (notes:string) {
-        def out:string ""
-        def i:int 0
-        def n:int (strlen notes)
-        while (i < n) {
-            if (((i + 1) < n) && (((charAt notes i) == 91) && ((charAt notes (i + 1)) == 91))) {
-                def rest:string (substring notes i n)
-                def close:int (indexOf rest "]]")
-                if (close > 0) {
-                    i = ((i + close) + 2)
-                    continue
-                }
-            }
-            out = (out + (substring notes i (i + 1)))
-            i = (i + 1)
-        }
-        return out
+        return (PresDocx.notesText(notes))
+    }
+
+    ; --- Word ---------------------------------------------------------------------
+    ; The blocks of the slides to export that only the stage can draw, as
+    ; `PresDocx.shotsJson`; a host that can draw them hands each one's PNG to
+    ; `word.setShot` before `docx`.
+    fn docxShots:string () {
+        word = (new PresDocx())
+        def d:PresDeck (unwrap deck)
+        word.onlyPages = only
+        word.findShots(d)
+        return (word.shotsJson())
+    }
+
+    ; The deck as a Word document (PresDocx): the shots given since
+    ; `docxShots`, the rest of what only the stage draws as its name.
+    fn docx:buffer () {
+        def d:PresDeck (unwrap deck)
+        word.onlyPages = only
+        def b:buffer (word.docx(d (PresDocx.titleOf(d.md.edit.doc))))
+        word = (new PresDocx())
+        return b
+    }
+
+    ; --- a web page -----------------------------------------------------------------
+    ; The deck as one HTML file (PresHtml), with the shots `docxShots` asked
+    ; for, as Word has them.
+    fn html:string () {
+        def d:PresDeck (unwrap deck)
+        def page (new PresHtml())
+        page.onlyPages = only
+        def s:string (page.html(d (PresDocx.titleOf(d.md.edit.doc)) word))
+        word = (new PresDocx())
+        return s
     }
 }

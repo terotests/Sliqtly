@@ -36,7 +36,7 @@
 .pn-pline { display: flex; flex-direction: row; align-items: center; gap: 6px; }
 .pn-nm { font-size: 12px; color: #0550ae; }
 .pn-val { font-size: 12px; color: #953800; }
-.pn-unset { font-size: 11px; color: #4f46e5; }
+.pn-unset { font-size: 11px; color: #a34a24; }
 .pn-pd { font-size: 11px; color: #71717a; }
 .pn-swatch { width: 11px; height: 11px; min-width: 11px; border-radius: 3px; border: 1px solid #e4e4e7; }
 .pn-attr { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -77,7 +77,8 @@
 .theme-pn .ui-input { background-color: #fafafa; border: 1px solid #e4e4e7; border-radius: 6px; height: 30px; padding: 0 8px; }
 .theme-pn .ui-input-text { color: #3f3f46; font-size: 12px; font-family: Open Sans; }
 .theme-pn .pn-url { width: 360px; min-width: 360px; }
-.theme-pn .ui-input-caret { background-color: #3f3f46; }
+/* no caret colour: InputCtl draws the caret in the field's text colour, so
+   it shows on the light panel and on the dark review callout alike */
 .theme-pn .ui-input-selection { background-color: #bfdbfe; }
 /* a label never wraps ("100 %" split at its space), and a button does not
    shrink below its label */
@@ -154,7 +155,7 @@
 .pf-promo-title { font-size: 14px; font-weight: 700; color: #3730a3; }
 .pf-promo-text { font-size: 12px; color: #312e81; }
 .pf-promo-row { display: flex; flex-direction: row; padding-top: 2px; }
-.theme-pn .pf-promo-btn { background-color: #4f46e5; border-color: #4f46e5; }
+.theme-pn .pf-promo-btn { background-color: #a34a24; border-color: #a34a24; }
 .pf-note { font-size: 11px; color: #71717a; padding: 10px 0 0; flex-shrink: 0; }
 .theme-pn .pf-act { height: 26px; padding: 0 9px; }
 /* the Open dialog's sample decks: a select as wide as its longest title */
@@ -328,6 +329,9 @@
 .theme-rvg .chat-composer { border-color: rgba(255, 255, 255, 0.14); padding: 10px 12px; }
 .theme-rvg .chat-field { background-color: rgba(0, 0, 0, 0.25); border-color: rgba(255, 255, 255, 0.25); height: 34px; }
 .theme-rvg .chat-draft { color: #ffffff; font-size: 15px; }
+/* the hint (InputCtl placeholderClass, on the run instead of .chat-draft):
+   clearly fainter than typed text, same size */
+.theme-rvg .chat-placeholder { color: rgba(255, 255, 255, 0.4); font-size: 15px; }
 .theme-rvg .chat-send { background-color: #0d9488; color: #ffffff; }
 .theme-rvg .chat-send-off { background-color: rgba(13, 148, 136, 0.4); }
 .theme-rvg .chat-ro-text { color: rgba(255, 255, 255, 0.6); }
@@ -338,7 +342,8 @@
 .theme-rvg .rv-row-text { color: #f4f4f5; font-size: 15px; }
 .theme-rvg .rv-list-btn { background-color: #0d9488; color: #ffffff; }
 
-/* the pins: a muted fill (the setting's), white mark, a soft edge */
-.pin { color: #ffffff; border: 1.5px solid rgba(0, 0, 0, 0.28); }
-.pin-on { border: 2.5px solid rgba(255, 255, 255, 0.9); }
-.pin:hover { border-color: rgba(255, 255, 255, 0.9); }
+/* the pins (src/PresReviewDot.rgr): a ball in the setting's colour with a
+   glow and a ring that pulses out of it (sizes and colours set in code);
+   the open one or one being written has a white edge (also in code) */
+.rv-dot { display: flex; align-items: center; justify-content: center; }
+.rv-dot-ball { flex-shrink: 0; }

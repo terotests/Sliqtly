@@ -37,7 +37,7 @@
 .hp-prop { display: flex; flex-direction: row; align-items: center; gap: 6px; width: 100%; padding: 4px 8px; border-radius: 5px; background-color: #fafafa; }
 .hp-pname { font-size: 12px; color: #09090b; }
 .hp-pvalue { font-size: 12px; color: #52525b; }
-.hp-padd { font-size: 11px; color: #4f46e5; }
+.hp-padd { font-size: 11px; color: #a34a24; }
 /* set: blue; can be added: grey */
 .hp-pname-set { color: #2563eb; font-weight: 600; }
 .hp-pname-unset { color: #a1a1aa; }

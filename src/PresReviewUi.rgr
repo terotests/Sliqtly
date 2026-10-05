@@ -7,8 +7,8 @@
 ; Review mode (File → Settings) lets a reader comment on slides, while
 ; editing and while presenting alike:
 ;
-;   pins     each thread of the slide shown, as a speech bubble (EVGUI
-;            PinCtl) at its point; a closed one is faint. A press opens it.
+;   pins     each thread of the slide shown, as a pulsing ball at its point
+;            (PresReviewDot); a closed one is faint. A press opens it.
 ;   bar      a small bar at the foot of the stage: "Comment" (then a press
 ;            on the slide says where), how many are open, and "Next" (the
 ;            next open one, on whatever slide it is)
@@ -24,7 +24,7 @@
 
 Import "../evgui/src/UiHost.rgr"
 Import "../evgui/src/ChatCtl.rgr"
-Import "../evgui/src/PinCtl.rgr"
+Import "PresReviewDot.rgr"
 Import "../evgui/src/CalloutCtl.rgr"
 Import "PresReview.rgr"
 Import "PresI18n.rgr"
@@ -57,7 +57,7 @@ class PresReviewUi {
     def titles:[string]
     def panelW:double 360.0
     def chat:ChatCtl (new ChatCtl())
-    def pins:[PinCtl]
+    def pins:[PresReviewDot]
     ; the thread open on the right ("" none), or a new one being written
     ; at (draftSlide, draftX, draftY)
     def openId:string ""
@@ -108,6 +108,10 @@ class PresReviewUi {
     ; dropped somewhere waits in `moveAsk` for the host to put it on the
     ; diagram under it, if any, and save.
     def pinDown:string ""
+    ; the pins' pulse: the wall clock (seconds) and how much of them shows
+    ; (presenting, none while the slide is still animating)
+    def pulseNow:double 0.0
+    def shown:double 1.0
     def downX:double 0.0
     def downY:double 0.0
     def dragging:boolean false
@@ -193,10 +197,30 @@ class PresReviewUi {
         return ((((px >= sx) && (px <= (sx + sw))) && (py >= sy)) && (py <= (sy + sh)))
     }
 
+    ; The pins at the wall-clock time `now`, faded by `show`; -> true while
+    ; one pulses or fades (the page draws again each frame then).
+    fn pulse:boolean (now:double show:double) {
+        def faded:boolean (show != shown)
+        pulseNow = now
+        shown = show
+        def busy:boolean faded
+        for pins p:PresReviewDot i {
+            def s:double show
+            if (p.tid == "rv-draft") {
+                s = 1.0
+            }
+            p.pose(now s)
+            if (p.pulses()) {
+                busy = true
+            }
+        }
+        return busy
+    }
+
     fn pinAt:string (px:double py:double) {
         def i:int ((array_length pins) - 1)
         while (i >= 0) {
-            def p:PinCtl (itemAt pins i)
+            def p:PresReviewDot (itemAt pins i)
             if (p.has(px py)) {
                 return p.tid
             }
@@ -368,7 +392,7 @@ class PresReviewUi {
         ; presenting, the callout's insides are dark (`.theme-rvg`)
         host.setTheme((trim ("pn " + (? present "rvg " "") + skin)))
         host.setPageSize(w h)
-        def none:[PinCtl]
+        def none:[PresReviewDot]
         pins = none
         def root:EVGElement (unwrap host.root)
         root.className = "ui-root rv-page"
@@ -401,12 +425,12 @@ class PresReviewUi {
                     fx = dragX
                     fy = dragY
                 }
+                def p:PresReviewDot (PresReviewDot.make(("rv-pin-" + t.id) (sx + (fx * sw)) (sy + (fy * sh)) color))
                 if (t.id == openId) {
-                    coPX = ((sx + (fx * sw)) + 13.0)
-                    coPY = ((sy + (fy * sh)) - 11.0)
+                    coPX = (p.midX())
+                    coPY = (p.midY())
                 }
-                def p:PinCtl (PinCtl.make(("rv-pin-" + t.id) (sx + (fx * sw)) (sy + (fy * sh)) "!"))
-                p.color = color
+                p.show = shown
                 p.closed = t.closed
                 p.active = (t.id == openId)
                 def what:string ((PresI18n.t("Comment")) + " " + (to_string k) + ": " + (t.firstText()))
@@ -415,6 +439,7 @@ class PresReviewUi {
                 }
                 p.info = what
                 p.build()
+                p.pose(pulseNow shown)
                 push pins p
                 push host.ctls p
                 push pinEls (unwrap p.rootEl)
@@ -436,13 +461,14 @@ class PresReviewUi {
                 dfx = dragX
                 dfy = dragY
             }
-            coPX = ((sx + (dfx * sw)) + 13.0)
-            coPY = ((sy + (dfy * sh)) - 11.0)
-            def dp:PinCtl (PinCtl.make("rv-draft" (sx + (dfx * sw)) (sy + (dfy * sh)) "+"))
-            dp.color = color
+            def dp:PresReviewDot (PresReviewDot.make("rv-draft" (sx + (dfx * sw)) (sy + (dfy * sh)) color))
+            coPX = (dp.midX())
+            coPY = (dp.midY())
+            dp.show = 1.0
             dp.active = true
             dp.info = (PresI18n.t("New comment"))
             dp.build()
+            dp.pose(pulseNow 1.0)
             push pins dp
             push host.ctls dp
             push pinEls (unwrap dp.rootEl)
@@ -754,6 +780,8 @@ class PresReviewUi {
     ; --- the display list ------------------------------------------------------------
 
     fn page:EVGElement () {
+        ; before styling: the field redraws itself for focus (its hint goes)
+        chat.input.setFocused(typing)
         def r:EVGElement (unwrap host.root)
         def s:EVGStyleSheet (unwrap host.sheet)
         s.setViewport(w h false)
@@ -807,7 +835,6 @@ class PresReviewUi {
                 coH = ce.calculatedHeight
             }
         }
-        chat.input.focused = typing
         host.placeText((lay.getTextEngine()))
         host.lastPage = pg
         return pg

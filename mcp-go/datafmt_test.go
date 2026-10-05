@@ -43,7 +43,7 @@ func formatOneFolder(t *testing.T) string {
 
 func TestNewFolderIsCurrentFormat(t *testing.T) {
 	dir := t.TempDir()
-	release, err := prepareData(dir, "1.2.3", quiet)
+	release, err := prepareData(dir, "1.2.3", "local", quiet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,24 +58,25 @@ func TestNewFolderIsCurrentFormat(t *testing.T) {
 	}
 }
 
-func TestMigrateOneToTwo(t *testing.T) {
+func TestMigrateOneToCurrent(t *testing.T) {
 	dir := formatOneFolder(t)
 	n, _ := dataFormat(dir)
 	eq(t, n, 1)
-	if _, _, err := newFSStore(dir); err == nil {
+	if _, _, err := newFSStore(dir, "local"); err == nil {
 		t.Fatal("format 1 was read as it is")
 	}
-	release, err := prepareData(dir, "1.1.3", quiet)
+	release, err := prepareData(dir, "1.1.3", "local", quiet)
 	if err != nil {
 		t.Fatal(err)
 	}
 	release()
 	f, _ := readFormat(dir)
-	eq(t, f.Format, 2)
+	eq(t, f.Format, currentFormat)
+	eq(t, len(f.History), 2)
 	eq(t, f.History[len(f.History)-1].Server, "1.1.3")
 
 	// every deck, file and type where the store looks for it
-	db, bucket, err := newFSStore(dir)
+	db, bucket, err := newFSStore(dir, "local")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +126,7 @@ func TestMigrateOneToTwo(t *testing.T) {
 	match(t, string(b), `Deck aaaaaa1111`)
 
 	// and a second start does nothing more
-	release, err = prepareData(dir, "1.1.3", quiet)
+	release, err = prepareData(dir, "1.1.3", "local", quiet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,12 +147,12 @@ func TestMigrationResumes(t *testing.T) {
 	if err := moveInto(dir, filepath.Join(dir, "files", "shares", id), filepath.Join(dir, "files", "shares", sh, id)); err != nil {
 		t.Fatal(err)
 	}
-	release, err := prepareData(dir, "1.1.4", quiet)
+	release, err := prepareData(dir, "1.1.4", "local", quiet)
 	if err != nil {
 		t.Fatal(err)
 	}
 	release()
-	db, _, _ := newFSStore(dir)
+	db, _, _ := newFSStore(dir, "local")
 	_, ids, _ := db.WhereEq(context.Background(), "shares", "owner", "local")
 	eq(t, len(ids), 3)
 }
@@ -161,22 +162,129 @@ func TestMigrationSetsAsideConflicts(t *testing.T) {
 	dir := formatOneFolder(t)
 	id := "bbbbbb2222"
 	put(t, filepath.Join(dir, "db", "shares", shard(id), id+".json"), `{"name":"Newer","owner":"local"}`)
-	release, err := prepareData(dir, "1.1.4", quiet)
+	release, err := prepareData(dir, "1.1.4", "local", quiet)
 	if err != nil {
 		t.Fatal(err)
 	}
 	release()
 	n, _ := countConflicts(dir)
 	eq(t, n, 1)
-	db, _, _ := newFSStore(dir)
+	db, _, _ := newFSStore(dir, "local")
 	d, _ := db.Get(context.Background(), "shares", id)
 	eq(t, d["name"], "Newer")
+}
+
+// a folder as format 2 left it: decks of two owners, one naming none, and
+// one already in a room
+func formatTwoFolder(t *testing.T) string {
+	dir := t.TempDir()
+	put(t, filepath.Join(dir, "format.json"), `{"format":2,"server":"1.2.0"}`)
+	deck := func(id, body string) {
+		put(t, filepath.Join(dir, "db", "shares", shard(id), id+".json"), body)
+	}
+	deck("aaaaaa1111", `{"name":"A","owner":"local","created":{"$ts":1700000000000}}`)
+	deck("bbbbbb2222", `{"name":"B","owner":"mcp"}`)
+	deck("cccccc3333", `{"name":"C"}`)
+	deck("dddddd4444", `{"name":"D","owner":"local","room":"r1","inherit_room_files":true}`)
+	put(t, filepath.Join(dir, "files", "shares", shard("aaaaaa1111"), "aaaaaa1111", "media", "a.png"), "png")
+	return dir
+}
+
+func TestMigrateTwoToThree(t *testing.T) {
+	dir := formatTwoFolder(t)
+	if _, _, err := newFSStore(dir, "local"); err == nil {
+		t.Fatal("format 2 was read as it is")
+	}
+	release, err := prepareData(dir, "1.3.0", "local", quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	f, _ := readFormat(dir)
+	eq(t, f.Format, 3)
+
+	db, bucket, err := newFSStore(dir, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for id, want := range map[string][]any{
+		"aaaaaa1111": {"general", false},
+		"bbbbbb2222": {"general", false}, // whoever owns it
+		"cccccc3333": {"general", false},
+		"dddddd4444": {"r1", true}, // already in a room: stays
+	} {
+		d, _ := db.Get(ctx, "shares", id)
+		eq(t, []any{d["room"], d["inherit_room_files"], d["tenant"]}, append(want, "local"))
+	}
+	a, _ := db.Get(ctx, "shares", "aaaaaa1111")
+	eq(t, []any{a["name"], a["created"].(time.Time).UnixMilli()}, []any{"A", int64(1700000000000)})
+	if _, _, ok := bucket.Open("shares/aaaaaa1111/media/a.png"); !ok {
+		t.Fatal("the deck's file was lost")
+	}
+	for id, title := range map[string]string{"general": "General", "playground": "Playground"} {
+		room, _ := db.Get(ctx, "rooms", id)
+		eq(t, []any{room["title"], room["kind"], room["tenant"], room["archived"]}, []any{title, id, "local", false})
+		m, _ := db.Get(ctx, "room_members", id+"~user-local")
+		eq(t, []any{m["room"], m["member"], m["role"]}, []any{id, "user:local", "owner"})
+	}
+	if r, _ := db.Get(ctx, "rooms", "home-mcp"); r != nil {
+		t.Fatal("a room per owner")
+	}
+
+	// the backup has the decks as they were
+	backups, _ := os.ReadDir(filepath.Join(dir, "backups"))
+	eq(t, len(backups), 1)
+	b, _ := os.ReadFile(filepath.Join(dir, "backups", backups[0].Name(), "db", "shares", shard("aaaaaa1111"), "aaaaaa1111.json"))
+	if strings.Contains(string(b), "room") {
+		t.Fatal("the backup was written into: " + string(b))
+	}
+}
+
+// stopped after one deck: the second run makes what is missing only
+func TestHomeRoomsResume(t *testing.T) {
+	dir := formatTwoFolder(t)
+	if _, err := homeRooms(dir, "local"); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(dir, "db", "shares", shard("eeeeee5555"), "eeeeee5555.json"), `{"name":"E","owner":"local"}`)
+	n, err := homeRooms(dir, "local")
+	eq(t, []any{n, err}, []any{0, nil})
+	release, err := prepareData(dir, "1.3.0", "local", quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+}
+
+// after the migration every deck written has a room, General for a new
+// one, and a writer
+// that replaces a deck keeps the room it is in
+func TestDecksKeepTheirRoom(t *testing.T) {
+	dir := formatTwoFolder(t)
+	release, err := prepareData(dir, "1.3.0", "local", quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	db, _, _ := newFSStore(dir, "local")
+	ctx := context.Background()
+	if err := db.Set(ctx, "shares", "ffffff6666", Doc{"name": "New", "owner": "someone else"}); err != nil {
+		t.Fatal(err)
+	}
+	d, _ := db.Get(ctx, "shares", "ffffff6666")
+	eq(t, []any{d["room"], d["inherit_room_files"]}, []any{"general", false})
+	if err := db.Set(ctx, "shares", "dddddd4444", Doc{"name": "D2", "owner": "local"}); err != nil {
+		t.Fatal(err)
+	}
+	d, _ = db.Get(ctx, "shares", "dddddd4444")
+	eq(t, []any{d["name"], d["room"], d["inherit_room_files"]}, []any{"D2", "r1", true})
 }
 
 func TestNewerFormatIsRefused(t *testing.T) {
 	dir := t.TempDir()
 	put(t, filepath.Join(dir, "format.json"), `{"format":99,"server":"9.0.0"}`)
-	_, err := prepareData(dir, "1.1.3", quiet)
+	_, err := prepareData(dir, "1.1.3", "local", quiet)
 	if err == nil {
 		t.Fatal("a newer format was accepted")
 	}
@@ -185,15 +293,15 @@ func TestNewerFormatIsRefused(t *testing.T) {
 
 func TestFolderIsLocked(t *testing.T) {
 	dir := t.TempDir()
-	release, err := prepareData(dir, "1", quiet)
+	release, err := prepareData(dir, "1", "local", quiet)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepareData(dir, "1", quiet); err == nil {
+	if _, err := prepareData(dir, "1", "local", quiet); err == nil {
 		t.Fatal("a second server got the folder")
 	}
 	release()
-	release, err = prepareData(dir, "1", quiet)
+	release, err = prepareData(dir, "1", "local", quiet)
 	if err != nil {
 		t.Fatal(err)
 	}

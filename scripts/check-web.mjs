@@ -289,6 +289,41 @@ try {
     check("…a drag selects from where it was pressed", r.drag[0] === 0 && r.drag[1] > 2 && r.drag[1] < 10, JSON.stringify(r));
   }
 
+  // The comment box while presenting (review mode, the dark callout): the
+  // hint reads as a hint, not as text typed; it goes once the box has the
+  // keys, and the caret shows. The bugs: .chat-draft's white won over the
+  // hint's colour, the hint stayed on focus and the caret was dark on dark
+  // with no height in an empty box.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app, rv = a.review;
+      const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const el = (id) => { a.reviewJson(); return walk(rv.host.lastPage, id); };
+      const wasOn = a.reviewMode();
+      a.setReviewMode(true);
+      a.present(true);
+      a.takeRequest();
+      rv.startDraft(a.slideShown(), 0.5, 0.5);
+      const out = {};
+      let txt = el("rv-chat-field-text"), car = el("rv-chat-field-caret");
+      out.focusedText = txt && txt.textContent;
+      out.caret = !!car && car.calculatedWidth > 0 && car.calculatedHeight > 8;
+      out.caretLight = !!car && car.backgroundColor.r > 200;
+      rv.typing = false;
+      rv.changed();
+      txt = el("rv-chat-field-text");
+      out.hint = txt && txt.textContent;
+      out.ph = rv.chat.placeholder;
+      out.hintAlpha = txt && txt.color.a;
+      rv.closePanel();
+      a.key("escape", false, false);
+      a.setReviewMode(wasOn);
+      return out;
+    });
+    check("a comment box with the keys hides its hint and shows a light caret", r.focusedText === "" && r.caret && r.caretLight, JSON.stringify(r));
+    check("…without the keys its hint is faint, not the text's white", r.hint === r.ph && !!r.ph && r.hintAlpha < 0.6, JSON.stringify(r));
+  }
+
   // Text the reader needs elsewhere can be selected and copied (EVGUI
   // TextCtl): About's build line, a toast. A double click takes the build
   // hash, a drag selects, Ctrl+C (the copy event on the page's key field)
@@ -1309,6 +1344,68 @@ try {
   check("…and the window says how the slide's text reads over it", /^Slide \d+: /.test(ed.note || ""), JSON.stringify(ed.note));
   check("…and Save writes the adjusted picture over the file", ed.closed && grey && ed.after[0] < ed.before[0], JSON.stringify({ before: ed.before, after: ed.after, plan: ed.plan }));
 
+  // Edit image → Vectorize…: the picture traced in the worker (pres_trace.js),
+  // the slides showing the trace, a preset tracing it again, and Save keeping
+  // an SVG beside it that the Markdown then uses.
+  const vec = await page.evaluate(async (rel) => {
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+    const a = window.__app;
+    a.openAdjust("/" + rel, rel, 64, 40);
+    a.chart.act("ae-trace");
+    a.closeChart();
+    window.__handleRequests();
+    for (let i = 0; i < 50 && a.chart.mode !== "trace"; i += 1) { await sleep(100); window.__handleRequests(); }
+    let first = "";
+    for (let i = 0; i < 150 && !first; i += 1) { await sleep(100); window.__handleRequests(); first = a.chart.trPreview || a.chart.trErr; }
+    const win = JSON.parse(a.chartJson());
+    const shown = win.list.cmds.some((c) => c.k === 2 && c.src === a.chart.trPreview);
+    const onSlide = window.__pictureTag("/" + rel);
+    a.chart.act("tr-pre-photo");
+    a.writeChart();
+    window.__handleRequests();
+    let again = first;
+    for (let i = 0; i < 150 && again === first; i += 1) { await sleep(100); window.__handleRequests(); again = a.chart.trPreview || a.chart.trErr; }
+    const info = a.chart.trInfo;
+    const err = a.chart.trErr;
+    a.chart.act("tr-save");
+    a.closeChart();
+    window.__handleRequests();
+    const svg = rel.replace(/\.png$/, ".svg");
+    let files = [];
+    for (let i = 0; i < 150; i += 1) {
+      await sleep(100);
+      window.__handleRequests();
+      files = await window.__docFiles();
+      if (files.includes(svg) && a.source().includes("](" + svg + ")")) break;
+    }
+    return { mode: a.chart.mode, first, again, shown, onSlide, info, err, kept: files.includes(svg), md: a.source().includes("](" + svg + ")"), closed: !a.chartIsOpen() };
+  }, pic.rel);
+  check("Vectorize… traces the picture in the worker and shows it", vec.shown && /^\/__trace\//.test(vec.first) && !vec.err, JSON.stringify(vec));
+  check("…the slides show the trace while the window is open", vec.onSlide === "CANVAS", vec.onSlide);
+  check("…a preset traces it again", vec.again !== vec.first && /colors/.test(vec.info || ""), JSON.stringify({ first: vec.first, again: vec.again, info: vec.info }));
+  check("…and Save keeps the SVG and the Markdown uses it", vec.closed && vec.kept && vec.md, JSON.stringify(vec));
+
+  // a picture under the caret in the theme (url(…)): its card offers the
+  // image editor and the vectorizer
+  const picHint = await page.evaluate(() => {
+    const a = window.__app;
+    a.cssSet("page", "background-image", "url(media/bg.png)");
+    a.showTab("css");
+    const lines = a.themeCss().split("\n");
+    const ln = lines.findIndex((l) => l.includes("url(media/bg.png)"));
+    a.cssEditor.moveCaret(ln, lines[ln].indexOf("url(") + 6, false);
+    const h = JSON.parse(a.hintAtCaret() || "null");
+    a.openHint(JSON.stringify(h));
+    a.hintJson();
+    const walk = (e, f, out = []) => { if (f(e)) out.push(e); for (const k of e.children || []) walk(k, f, out); return out; };
+    const ids = walk(a.hint.host.lastPage, (e) => /^hp-pic-/.test(e.id || "")).map((e) => e.id);
+    a.closeHint();
+    a.undo();
+    a.showTab("md");
+    return { picture: h && h.picture, ids };
+  });
+  check("a picture's url() in the theme offers Edit image and Vectorize", picHint.picture === "media/bg.png" && picHint.ids.includes("hp-pic-edit") && picHint.ids.includes("hp-pic-trace"), JSON.stringify(picHint));
+
   // TeX math: $…$ in a line and a $$ display are drawn as filled outlines
   const math = await page.evaluate(() => {
     const a = window.__app;
@@ -1914,6 +2011,144 @@ try {
     });
     check("…over the Files tab the File menu is on top, and its row takes the press", onFiles.onTop && onFiles.underPanel && onFiles.reqs.includes("click:save") && onFiles.closed, JSON.stringify(onFiles));
 
+    // The left rail (EVGUI RailCtl): the places beside the bar. Its dark
+    // switch presses the bar's own; Rooms opens beside the rail and moves the
+    // editor over; the deck's name at the start of the bar is a field when
+    // pressed, and Enter renames the deck as one edit that undoes.
+    const findJs = `(id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); }`;
+    const railTop = await page.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      const take = () => { const out = []; for (;;) { const r = a.takeRequest(); if (!r) break; out.push(r); } return out; };
+      take();
+      const edX0 = a.edRect.x;
+      const places = ["rooms", "review", "history", "dark", "settings"].map((p) => !!find("tb-rail-" + p));
+      const gone = ["edit", "files", "decks", "help"].some((p) => !!find("tb-rail-" + p));
+      press(find("tb-rail-dark"));
+      const dark = take();
+      press(find("tb-rail-rooms"));
+      a.place();
+      return { edX0, places, gone, dark, roomsX: a.edRect.x };
+    }, findJs);
+    // the rooms are the page's (this browser's here): General, Playground, Onboarding
+    await page.waitForFunction(() => { const a = window.__app; a.toolbarJson(); return JSON.stringify(a.toolbar.host.lastPage).includes("tb-room-onboarding"); }, null, { timeout: 5000 }).catch(() => {});
+    const railed = await page.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      const roomsShown = ["general", "playground", "onboarding"].every((r) => !!find("tb-room-" + r)) && !find("tb-room-q4");
+      press(find("tb-rail-rooms"));
+      a.place();
+      const backX = a.edRect.x;
+      press(find("tb-rail-rooms"));
+      press(find("tb-room-close"));
+      a.place();
+      const chevronX = a.edRect.x;
+      const fileX0 = find("tb-m-file-trigger").calculatedX;
+      press(find("tb-title"));
+      const editing = a.toolbar.titleEditing;
+      a.key("a", false, true);
+      a.text("Renamed deck");
+      a.key("enter", false, false);
+      return { roomsShown, backX, chevronX, editing, after: a.toolbar.titleEditing, fileX0 };
+    }, findJs);
+    await page.waitForFunction(() => window.__app.docTitle() === "Renamed deck", null, { timeout: 5000 }).catch(() => {});
+    const renamed = await page.evaluate(() => {
+      const a = window.__app;
+      const title = a.docTitle();
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const fileX1 = find("tb-m-file-trigger").calculatedX;
+      a.undo();
+      return { title, undone: a.docTitle(), tab: a.deckTabsState(), fileX1 };
+    });
+    check("the rail sits left of the editor: Rooms, Review, Versions, the dark switch and Settings; its switch presses the bar's", railTop.edX0 === 72 && railTop.places.every(Boolean) && !railTop.gone && railTop.dark.includes("click:modeBtn"), JSON.stringify(railTop));
+    check("…Rooms opens beside the rail with General, Playground and Onboarding, the editor moved over, then back", railed.roomsShown && railTop.roomsX === 72 + 248 && railed.backX === 72, JSON.stringify({ railTop, railed }));
+    check("…the ‹ before the Rooms heading closes the panel", railed.chevronX === 72, JSON.stringify(railed));
+    check("…the name's button keeps its width, so the menus after it stay put when the name changes", railed.fileX0 === renamed.fileX1, JSON.stringify({ before: railed.fileX0, after: renamed.fileX1 }));
+    check("…the name at the start of the bar becomes a field; Enter renames the deck, as one edit that undoes", railed.editing && !railed.after && renamed.title === "Renamed deck" && renamed.undone !== "Renamed deck", JSON.stringify(renamed));
+
+    // Rooms' "+": a field for the name, Enter makes the room (this browser's,
+    // web/rooms.js) and opens it; its last row moves the open presentation in.
+    // A page of its own, with a deck kept in this browser.
+    const rctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+    const rp = await rctx.newPage();
+    await rp.goto(url + "?sample=esittely");
+    await rp.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await rp.evaluate(() => { const a = window.__app; a.setSource(a.source() + "\n\n## Huone\n\nteksti\n"); });
+    const pageHas = (needle) => rp.waitForFunction((n) => { const a = window.__app; a.toolbarJson(); return JSON.stringify(a.toolbar.host.lastPage).includes(n); }, needle, { timeout: 10000 }).then(() => true, () => false);
+    await rp.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      press(find("tb-rail-rooms"));
+    }, findJs);
+    await pageHas("tb-room-general");
+    const naming = await rp.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      press(find("tb-room-new"));
+      const field = !!find("tb-title-in") && a.toolbar.editFor === "room";
+      a.text("Team room");
+      a.key("enter", false, false);
+      return { field, after: a.toolbar.titleEditing };
+    }, findJs);
+    const made = await pageHas("Team room");
+    // the move row once the deck is kept (a list again after the save)
+    await rp.waitForTimeout(1500);
+    await rp.evaluate(() => window.__app.request("room:list"));
+    const canMove = await pageHas("tb-roomdeck-move");
+    if (canMove) await rp.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      press(find("tb-roomdeck-move"));
+    }, findJs);
+    const movedIn = await rp.waitForFunction(() => { try { const s = JSON.parse(localStorage.getItem("sliqtly.rooms")); const r = s.rooms.find((x) => x.title === "Team room"); return !!r && Object.values(s.placed).includes(r.id); } catch (_) { return false; } }, null, { timeout: 5000 }).then(() => true, () => false);
+    const moveGone = movedIn && await rp.waitForFunction(() => { const a = window.__app; a.toolbarJson(); return !JSON.stringify(a.toolbar.host.lastPage).includes("tb-roomdeck-move"); }, null, { timeout: 5000 }).then(() => true, () => false);
+    check("…Rooms' + asks a name; Enter makes the room, and the open presentation moves into it", naming.field && !naming.after && made && canMove && movedIn && moveGone, JSON.stringify({ naming, made, canMove, movedIn, moveGone }));
+    // a presentation dragged from its room's list onto General moves back
+    const dragged = await rp.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      a.toolbarJson();
+      const deckRow = JSON.stringify(a.toolbar.host.lastPage).match(/"(tb-roomdeck-d-[^"]+)"/);
+      const from = deckRow && find(deckRow[1]);
+      if (!from) return { from: false };
+      const room = a.toolbar.roomOpen;
+      a.pointerDown(from.calculatedX + 20, from.calculatedY + 8, false, 1);
+      a.pointerMove(from.calculatedX + 30, from.calculatedY + 30);
+      const to = find("tb-room-general");
+      if (!to) return { from: true, to: false };
+      a.pointerMove(to.calculatedX + 30, to.calculatedY + 10);
+      const lit = a.toolbar.dropRoom;
+      a.pointerUp();
+      return { from: true, to: true, lit, room };
+    }, findJs);
+    const backInGeneral = await rp.waitForFunction(() => { try { return Object.keys(JSON.parse(localStorage.getItem("sliqtly.rooms")).placed).length === 0; } catch (_) { return false; } }, null, { timeout: 5000 }).then(() => true, () => false);
+    check("…a presentation dragged onto another room moves there", dragged.room !== "general" && dragged.lit === "general" && backInGeneral, JSON.stringify({ dragged, backInGeneral }));
+    // the search row: a field whose text lists the rooms found
+    await rp.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      press(find("tb-roomsearch"));
+      a.text("team");
+    }, findJs);
+    const found = await rp.waitForFunction(() => { const r = window.__app.toolbar.roomRows; return r.includes("Team room") && !r.includes("Playground"); }, null, { timeout: 5000 }).then(() => true, () => false);
+    await rp.evaluate(() => window.__app.key("escape", false, false));
+    const back = await rp.waitForFunction(() => window.__app.toolbar.roomRows.includes("Playground"), null, { timeout: 5000 }).then(() => true, () => false);
+    check("…Search rooms lists the rooms found, Escape the active ones again", found && back, JSON.stringify({ found, back }));
+    await rp.evaluate((findJs) => {
+      const a = window.__app;
+      const find = eval(findJs);
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      press(find("tb-room-close"));
+      localStorage.removeItem("sliqtly.rooms");
+    }, findJs);
+    await rctx.close();
+
     // the File menu's groups: new | open | save | the assistants | settings, lines between them
     // that take no press
     const seps = await page.evaluate(() => {
@@ -1923,7 +2158,7 @@ try {
       const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY, false, 1); a.pointerUp(); };
       press(find("tb-m-file-trigger"));
       const lines = all();
-      const ys = ["new", "openbox", "save", "aiClaude", "settings", "deleteDeck"].map((id) => find("tb-m-file-item-" + id).calculatedY);
+      const ys = ["new", "openbox", "save", "aiClaude", "docset", "deleteDeck"].map((id) => find("tb-m-file-item-" + id).calculatedY);
       const between = lines.length === 5 && lines.every((l, i) => l.calculatedY > ys[i] && l.calculatedY < ys[i + 1] && l.calculatedHeight === 1);
       for (;;) { if (!a.takeRequest()) break; }
       press(lines[0]);
@@ -1982,7 +2217,7 @@ try {
       return { newKids, newReqs, kids, zip, red, last, asked, confirm, okDanger: !!ok && (ok.className || "").includes("ui-button-danger"), closed: !a.chart.isOpen, after };
     });
     check("…File → New offers Presentation… (the window) and Datasheet… (the spreadsheet editor)", fx.newKids.join() === "newPres,newSheet" && fx.newReqs.join() === "files:new,files:newsheet", JSON.stringify(fx));
-    check("…File → Export lists .md, .pptx, .pdf and .zip, and the zip row is the page's ZIP button", fx.kids.join() === "x-save,x-pptx,x-pdf,x-zip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
+    check("…File → Export lists .md, .pptx, .docx, .html, the player, .pdf and .zip, and the zip row is the page's ZIP button", fx.kids.join() === "x-save,x-pptx,x-docx,x-html,x-player,x-pdf,x-zip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
     check("…File → Delete presentation… is red and last, and asks first; Esc deletes nothing", fx.red && fx.last && fx.asked.includes("files:deletedeck") && fx.confirm && fx.okDanger && fx.closed && !fx.after.some((r) => r.startsWith("confirm:")), JSON.stringify(fx));
 
     // File → Recent: Browse all… first (the Files tab), a line, then the decks
@@ -3057,6 +3292,68 @@ try {
   });
   const pdf = Buffer.from(exp.pdf, "base64");
   check("PDF export", pdf.subarray(0, 5).toString() === "%PDF-", `${pdf.length} bytes`);
+  // Word: a document of the slides; a diagram goes in as the picture the
+  // stage draws of it, the table as a Word table, the notes under their slide
+  const wordExp = await page.evaluate(async () => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.setSource("---\ntitle: Raportti\nslide-split-level: 2\n---\n\n## Eka\n\nTeksti [linkki](https://sliqtly.com).\n\n::: notes\nPuhe.\n:::\n\n"
+      + "## Taulu\n\n| A | B |\n| --- | --: |\n| 1 | 2 |\n\n## Kaavio\n\n```mermaid\nflowchart LR\n  A --> B\n```\n");
+    const shots = JSON.parse(a.docxBegin(false));
+    await window.__renderDocxShots(shots);
+    const u = new Uint8Array(a.docxEnd());
+    a.setSource(src0);
+    let s = "";
+    for (let i = 0; i < u.length; i += 1) s += String.fromCharCode(u[i]);
+    return { shots: shots.length, docx: btoa(s) };
+  });
+  {
+    const parts = unzip(Buffer.from(wordExp.docx, "base64"));
+    const body = parts.get("word/document.xml") || "";
+    const png = [...parts.keys()].filter((k) => /^word\/media\/image\d+\.png$/.test(k));
+    if (shots) fs.writeFileSync(path.join(shots, "export.docx"), Buffer.from(wordExp.docx, "base64"));
+    check("Word export: headings, a table, the notes, a link and the diagram as a picture",
+      wordExp.shots === 1 && png.length === 1 && body.includes("<w:tbl>") && body.includes("w:val=\"Heading2\"")
+        && body.includes("w:val=\"Notes\"") && body.includes("<w:hyperlink") && body.includes("Raportti"),
+      JSON.stringify({ shots: wordExp.shots, png, bytes: body.length }));
+  }
+  // A web page: the same reading in one .html file, the diagram written in
+  const htmlExp = await page.evaluate(async () => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.setSource("---\ntitle: Raportti\nslide-split-level: 2\n---\n\n## Eka\n\nTeksti [linkki](https://sliqtly.com).\n\n::: notes\nPuhe.\n:::\n\n"
+      + "## Kaavio\n\n```mermaid\nflowchart LR\n  A --> B\n```\n");
+    await window.__renderDocxShots(JSON.parse(a.docxBegin(false)));
+    const h = a.htmlEnd();
+    a.setSource(src0);
+    return h;
+  });
+  if (shots) fs.writeFileSync(path.join(shots, "export.html"), htmlExp);
+  check("Web page export: sections, the notes, a link and the diagram as a picture in the file",
+    htmlExp.startsWith("<!DOCTYPE html>") && htmlExp.includes("<section class=\"slide\" id=\"slide-2\">")
+      && htmlExp.includes("<aside class=\"notes\">") && htmlExp.includes("href=\"https://sliqtly.com\"")
+      && /<img src="data:image\/png;base64,[A-Za-z0-9+/]{200,}/.test(htmlExp),
+    `${htmlExp.length} chars`);
+  // The player: one .html file that plays the deck from disk, offline
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    await page.evaluate(() => window.__app.setSource("# Soitin\n\n## Toinen\n\nteksti\n"));
+    const got = page.waitForEvent("download");
+    await page.evaluate(() => window.__exportPlayer());
+    const file = await (await got).path();
+    const off = await browser.newContext({ viewport: { width: 900, height: 560 }, offline: true });
+    const pl = await off.newPage();
+    const errs = [];
+    pl.on("pageerror", (e) => errs.push(e.message));
+    await pl.goto("file://" + file);
+    const ran = await pl.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 }).then(() => true, () => false);
+    const seen = ran ? await pl.evaluate(() => ({ cls: document.body.className, src: window.__app.source() })) : {};
+    check("Player export: one file that opens offline from disk and shows the deck",
+      ran && seen.cls.includes("playerFile") && seen.src.includes("## Toinen") && !errs.length,
+      JSON.stringify({ ran, cls: seen.cls, bytes: fs.statSync(file).size, errs: errs.slice(0, 3) }));
+    await off.close();
+    await page.evaluate((src) => window.__app.setSource(src), src0);
+  }
   // A slide's effect goes into both exports as a picture under the content
   const fxExp = await page.evaluate(async () => {
     const a = window.__app;
@@ -4213,6 +4510,18 @@ try {
       await p.evaluate(() => window.__handleRequests());
     };
     const one = await row(pg);
+    // a deck that takes a moment to open: the logo of the page's start is
+    // not shown again (it flashed over the editor at every switch)
+    const slow = await pg.evaluate(async () => {
+      const el = document.getElementById("brandIntro");
+      let shown = false;
+      const seen = new MutationObserver(() => { if (!el.hidden) shown = true; });
+      seen.observe(el, { attributes: true });
+      let busy = false;
+      await window.__loadingScreen(() => new Promise((ok) => setTimeout(() => { busy = document.body.classList.contains("busy"); ok(); }, 800)));
+      seen.disconnect();
+      return { shown: shown || !el.hidden, busy, after: document.body.classList.contains("busy") };
+    });
     await go(pg, "sample:uutta");
     await pg.evaluate(() => window.__app.setSource("# Myynti 2027\n\nLuvut.\n"));
     await pg.waitForFunction(() => !window.__app.deckTabFront().startsWith("sample:"), null, { timeout: 15000 }).catch(() => {});
@@ -4232,6 +4541,21 @@ try {
     await drag(pg, "decktabs-tab-sample:esittely", 0);
     await front(pg, "sample:esittely");
     const pressed = (await row(pg))[0];
+    // mid-drag: a see-through copy under the pointer, the tab's place a slot
+    const mid = await (async () => {
+      const b = await boxOf(pg, "decktabs-tab-sample:esittely");
+      await pg.mouse.move(b[0], b[1]);
+      await pg.mouse.down();
+      for (let i = 1; i <= 4; i++) await pg.mouse.move(b[0] + 20 * i, b[1]);
+      await pg.waitForTimeout(200);
+      const g = await boxOf(pg, "decktabs-ghost");
+      const slot = await pg.evaluate(() => window.__app.deckTabs.tabEls.some((e) => / ui-doctab-state-slot/.test(" " + e.className)));
+      await pg.mouse.move(b[0], b[1]);
+      await pg.mouse.up();
+      await pg.waitForTimeout(300);
+      const gone = !(await boxOf(pg, "decktabs-ghost"));
+      return { dx: g ? Math.round(g[0] - b[0]) : null, slot, gone };
+    })();
     // dragged past the others: last
     await drag(pg, "decktabs-tab-sample:esittely", 420);
     const moved = keysOf(await row(pg));
@@ -4246,10 +4570,12 @@ try {
     await go(pg, keptId);
     const back = await pg.evaluate(() => window.__app.source());
     check("deck tabs: the row is under the top bar and the editor under it", shape.y === shape.bar && shape.h === 40 && shape.edY === shape.bar + 40 && shape.wings === 3, JSON.stringify(shape));
+    check("deck tabs: a deck slow to open shows no logo, only a busy pointer", !slow.shown && slow.busy && !slow.after, JSON.stringify(slow));
     check("deck tabs: the deck shown has the one tab", one.length === 2 && one[0] === "sample:esittely", one.join(" | "));
     check("deck tabs: a sample's tab takes the deck's id once it is kept", keptId && !keptId.startsWith("sample:") && kept[2] === keptId + "\tMyynti 2027", kept.join(" | "));
     check("deck tabs: another deck adds a tab, in front", keysOf(three).join() === ["sample:esittely", keptId, "sample:welcome"].join() && three[0] === "sample:welcome", three.join(" | "));
     check("deck tabs: a press on a tab opens its deck", pressed === "sample:esittely", pressed);
+    check("deck tabs: a dragged tab's copy follows the pointer over a slot, and goes on release", mid.dx === 80 && mid.slot && mid.gone, JSON.stringify(mid));
     check("deck tabs: a tab dragged past the others goes last", moved.join() === [keptId, "sample:welcome", "sample:esittely"].join(), moved.join());
     check("deck tabs: the row and the tab in front last over a reload", keysOf(reloaded).join() === moved.join() && reloaded[0] === "sample:esittely", reloaded.join(" | "));
     check("deck tabs: closing the tab in front opens the one used before", closed[0] === "sample:welcome" && keysOf(closed).join() === [keptId, "sample:welcome"].join(), closed.join(" | "));

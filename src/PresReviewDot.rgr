@@ -1,0 +1,182 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; PresReviewDot.rgr — a comment's mark on a slide: a glowing, pulsing ball
+; =============================================================================
+; A small ball centred on the comment's point, lit from above, with a soft
+; glow of its own colour round it (like a star in a nebula) and a thin ring
+; that swells out of it and fades, once every `period` seconds. A closed
+; comment (dealt with) is a faint ball that does not pulse; the one open
+; beside it, or one being written, is a little bigger with a white edge.
+;
+; `pose(now show)` moves the pulse to the wall-clock time `now` (seconds)
+; and fades the whole dot by `show` (0..1): presenting, the host keeps the
+; dots hidden while the slide is still animating and lets them in after.
+; Posing changes the elements in place, so the page is not built again for
+; each frame of the pulse.
+;
+; TO A READER: a button, "<info>" (the host says what it is); pressing it
+; opens the conversation.
+; =============================================================================
+
+Import "../evgui/src/UiCtl.rgr"
+Import "../evgui/src/UiTree.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+
+class PresReviewDot extends UiCtl {
+    ; the point, on the page: the ball's middle
+    def x:double 0.0
+    def y:double 0.0
+    def color:string "#d97706"
+    def closed:boolean false
+    def active:boolean false
+    def info:string ""
+    ; the ball's diameter, and how far the ring swells
+    def core:double 14.0
+    def reach:double 36.0
+    ; seconds from one pulse to the next
+    def period:double 1.8
+    ; how much of it shows (the host's fade)
+    def show:double 1.0
+    def coreEl@(optional):EVGElement
+
+    Constructor () {
+    }
+
+    sfn make:PresReviewDot (tid:string x:double y:double color:string) {
+        def p (new PresReviewDot())
+        p.tid = tid
+        p.x = x
+        p.y = y
+        p.color = color
+        return p
+    }
+
+    fn midX:double () {
+        return x
+    }
+
+    fn midY:double () {
+        return y
+    }
+
+    fn coreSize:double () {
+        if active {
+            return (core + 4.0)
+        }
+        return core
+    }
+
+    ; A press on the ball, with room round it for a finger; a hidden dot
+    ; takes none.
+    fn has:boolean (px:double py:double) {
+        if (show < 0.5) {
+            return false
+        }
+        def r:double 13.0
+        def dx:double (px - x)
+        def dy:double (py - y)
+        return (((dx * dx) + (dy * dy)) <= (r * r))
+    }
+
+    fn pulses:boolean () {
+        return ((closed == false) && (show > 0.0))
+    }
+
+    ; where in its pulse a dot is at `now`: 0 as the ring leaves the ball,
+    ; towards 1 as it fades out
+    fn phase:double (now:double) {
+        def n:double (now / period)
+        def f:double (n - (to_double (to_int n)))
+        if (f < 0.0) {
+            f = (f + 1.0)
+        }
+        return f
+    }
+
+    fn rgba:string (a:double) {
+        def c:EVGColor (EVGColor.parse(color))
+        return ((c.withAlpha(a)).toCSSString())
+    }
+
+    fn build:void () {
+        def cs:double (this.coreSize())
+        def ring:EVGElement (UiTree.div(tid "rv-dot"))
+        UiTree.surface(ring "free" "start")
+        def c:EVGElement (UiTree.div((tid + "-ball") (? active "rv-dot-ball rv-dot-on" "rv-dot-ball")))
+        c.width = (EVGUnit.px(cs))
+        c.height = (EVGUnit.px(cs))
+        UiTree.inline(c "border-radius" ((to_string (cs / 2.0)) + "px"))
+        UiTree.inline(c "shadow-offset-y" "0px")
+        c.a11yHidden = true
+        ring.addChild(c)
+        coreEl = c
+        rootEl = ring
+        this.pose(0.0 show)
+    }
+
+    ; The pulse at `now`, the whole faded by `show`.
+    fn pose:void (now:double s:double) {
+        show = s
+        def ring:EVGElement (unwrap rootEl)
+        def cs:double (this.coreSize())
+        def p:double (this.phase(now))
+        ; the ring swells fast and slows (ease out), fading as it goes
+        def q:double (1.0 - ((1.0 - p) * (1.0 - p)))
+        def size:double (cs + ((reach - cs) * q))
+        def ringA:double (0.75 * (1.0 - p))
+        ; the glow breathes: brightest as the ring leaves
+        def glow:double (8.0 + (12.0 * (1.0 - p)))
+        ; faded by hand: a gradient and a glow are not scaled by `opacity`
+        def op:double s
+        if closed {
+            size = (cs + 4.0)
+            ringA = 0.0
+            glow = 3.0
+            op = (s * 0.4)
+        }
+        ring.width = (EVGUnit.px(size))
+        ring.height = (EVGUnit.px(size))
+        ring.overlayX = (x - (size / 2.0))
+        ring.overlayY = (y - (size / 2.0))
+        UiTree.inline(ring "border-radius" ((to_string (size / 2.0)) + "px"))
+        UiTree.inline(ring "border" ("1.5px solid " + (this.rgba((ringA * op)))))
+        ; and a soft haze swelling with it
+        UiTree.inline(ring "shadow-color" (this.rgba((0.4 * ringA * op))))
+        UiTree.inline(ring "shadow-radius" "10px")
+        if (!null? coreEl) {
+            def c:EVGElement (unwrap coreEl)
+            def base:EVGColor (EVGColor.parse(color))
+            def lit:EVGColor (base.lighten(0.45))
+            UiTree.inline(c "background" ("linear-gradient(180deg, " + ((lit.withAlpha(op)).toCSSString()) + ", " + ((base.withAlpha(op)).toCSSString()) + ")"))
+            UiTree.inline(c "shadow-color" (this.rgba(op)))
+            UiTree.inline(c "shadow-radius" ((to_string glow) + "px"))
+            if active {
+                UiTree.inline(c "border" ("2px solid rgba(255,255,255," + (to_string (0.95 * op)) + ")"))
+            }
+        }
+    }
+
+    fn activate:string (target:string) {
+        if (target == tid) {
+            return target
+        }
+        return ""
+    }
+
+    fn isFocusable:boolean (target:string) {
+        return (target == tid)
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def r:UiRow (UiRow.of(tid (EVGA11yRole.button()) info))
+        r.focusable = true
+        r.tabStop = true
+        push out r
+        return out
+    }
+}

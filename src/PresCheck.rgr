@@ -10,8 +10,13 @@ Import "PresGridModel.rgr"
 Import "PresControlsFade.rgr"
 Import "PresFollow.rgr"
 Import "PresReview.rgr"
+Import "PresReviewDot.rgr"
 Import "PresPick.rgr"
 Import "PresNav.rgr"
+Import "PresDocx.rgr"
+Import "PresHtml.rgr"
+Import "PresTrace.rgr"
+Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
     def fails:int 0
@@ -96,6 +101,8 @@ class PresCheck {
         this.ok(((PresTimeline.slideAtTime(deck (s0.duration + 0.01))) == 1) "deck time to slide")
         this.ok(((deck.pageOfOffset((indexOf text "Toka"))) == 1) "source offset to slide")
         this.codeSteps()
+        this.chartHeaderInk()
+        this.tableMissing()
         this.diagram()
         this.bigTitle()
         this.orientation()
@@ -125,6 +132,22 @@ class PresCheck {
     ; Review comments: threads on slides, closing, deleting, the file, two
     ; copies merged, slides found again by title, times.
     fn review:void () {
+        ; the pin: a ball centred on its point, pulsing; hidden, it takes no press
+        def dot:PresReviewDot (PresReviewDot.make("d" 100.0 200.0 "#d97706"))
+        dot.build()
+        dot.pose(0.0 1.0)
+        def de:EVGElement (unwrap dot.rootEl)
+        def s0:double de.width.pixels
+        dot.pose(0.9 1.0)
+        def s1:double de.width.pixels
+        this.ok((((de.overlayX + (s1 / 2.0)) == 100.0) && ((de.overlayY + (s1 / 2.0)) == 200.0)) "review dot: centred on its point")
+        this.ok(((s1 > s0) && (dot.pulses())) "review dot: its ring swells as it pulses")
+        this.ok(((dot.has(105.0 205.0)) && ((dot.has(130.0 200.0)) == false)) "review dot: a press on the ball")
+        dot.pose(0.9 0.0)
+        this.ok(((dot.has(100.0 200.0)) == false) "review dot: hidden, no press")
+        dot.closed = true
+        dot.pose(0.9 1.0)
+        this.ok(((dot.pulses()) == false) "review dot: a closed one is still")
         def r (new PresReview())
         def t0:double 1759658400000.0
         this.ok((r.start("a" 2 "Sales" 0.25 0.5 (PresReview.msg("m1" "u1" "Ada" "#ea580c" "  Bigger font  " t0)))) "review: a thread starts with its message")
@@ -233,6 +256,12 @@ class PresCheck {
         this.ok((((indexOf md "[2] at 42 %") > 0) && ((indexOf md "done") < 0)) "review: resolved ones are left out")
         this.ok(((indexOf md ("````markdown" + nl + "# Three" + nl + "```js")) > 0) ("review: the slide's Markdown in a fence longer than its own: " + md))
         this.ok(((indexOf md "# Two") < 0) "review: a slide without open comments is left out")
+        def deckSrc:string ("Intro text" + nl + nl + "# One" + nl + nl + "a" + nl + "# Two" + nl + "# Three" + nl + "b")
+        def wc:string (cp.markdownWithComments(deckSrc (([] _:int (12 21 27))) tts))
+        this.ok(((indexOf wc ("Intro text" + nl + nl + "# One [^1]" + nl + nl + "a" + nl + "# Two" + nl + "# Three [^2]" + nl + "b" + nl + nl + "[^1]: Slide 1 · One, at 50 % across, 50 % down, on the diagram's box \"B\"" + nl + "    Ann: Logo here" + nl + "[^2]: Slide 3 · Three, at 42 % across")) == 0) ("review: with comments, marks on the headings and notes at the end: " + wc))
+        this.ok(((indexOf wc "done") < 0) "review: with comments, resolved ones are left out")
+        def wc2:string (cp.markdownWithComments(("```js" + nl + "x" + nl + "```" + nl) (([] _:int (0 0 0))) tts))
+        this.ok(((indexOf wc2 ("[^1][^2]" + nl + nl + "```js")) == 0) ("review: with comments, no heading: the marks on a line above: " + wc2))
         ; times
         def now:double 1759658400000.0
         this.ok(((PresReview.timeText(now now 180)) == "13:00") ("review: today, the clock: " + (PresReview.timeText(now now 180))))
@@ -441,8 +470,73 @@ class PresCheck {
         this.longChain()
         this.portraitChain()
         this.diagramLooks()
+        this.diagramLookHint()
         this.steering()
         this.diagramColour()
+        this.diagramLabels()
+    }
+
+    ; Line names on a crowded ER diagram (a box with a line to itself and
+    ; five out of one side, two boxes each joined to two others): every name
+    ; is drawn, on no other name, with no other line through it, and the
+    ; line to itself does not pass through its own box. A flowchart with a
+    ; loop among three lines out of one box: every name drawn, none on
+    ; another.
+    fn diagramLabels:void () {
+        this.ok((PresDiagram.segInRect(0.0 5.0 10.0 5.0 2.0 2.0 4.0 4.0)) "a segment across a box meets it")
+        this.ok(((PresDiagram.segInRect(0.0 9.0 10.0 9.0 2.0 2.0 4.0 4.0)) == false) "a segment below a box misses it")
+        this.ok((PresDiagram.segInRect(4.0 0.0 4.0 20.0 2.0 2.0 4.0 4.0)) "an upright segment through a box meets it")
+        def er:string ("erDiagram\n  CONTAINER ||--o{ CONTAINER : parent\n  CONTAINER ||--o{ DECK_LINK : sisaltaa\n"
+            + "  DECK ||--o{ DECK_LINK : kuuluu\n  CONTAINER ||--o{ FILE_REF : files\n  DECK ||--o{ FILE_REF : files\n"
+            + "  FILE_REF }o--|| BLOB : osoittaa\n  CONTAINER ||--o{ LINK : viittaa\n  CONTAINER ||--o| EXT_REF : master\n")
+        this.labelsClear(er "er" true)
+        def fl:string ("flowchart LR\n  A[Request] -->|valid| B[Process]\n  A -->|invalid| C[Reject]\n  B -->|ok| D[Store]\n"
+            + "  B -->|retry| B\n  D -->|notify| E[Mail]\n  C -->|log| E\n  B -->|error| C\n")
+        ; set in a column on this slide, the loop's name has no stretch
+        ; clear of the line passing it: names apart is what holds there
+        this.labelsClear(fl "flowchart" false)
+    }
+
+    fn labelsClear:void (src:string what:string lines:boolean) {
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Malli\n\n```mermaid\n" + src + "```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false (what + " labels: the diagram is there"))
+            return
+        }
+        def d:PresDiagram (itemAt s.diagrams 0).diagram
+        def fin:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def named:int 0
+        def i:int 0
+        while (i < (array_length d.edges)) {
+            def e:PresDEdge (itemAt d.edges i)
+            if (e.lw > 0.0) {
+                named = (named + 1)
+                def j:int 0
+                while (j < (array_length d.edges)) {
+                    def o:PresDEdge (itemAt d.edges j)
+                    if (j != i) {
+                        if ((o.lw > 0.0) && ((((e.lx < (o.lx + o.lw)) && ((e.lx + e.lw) > o.lx)) && (e.ly < (o.ly + o.lh))) && ((e.ly + e.lh) > o.ly))) {
+                            this.ok(false (what + " labels: " + e.id + " lies on " + o.id))
+                        }
+                        if (lines && (PresDiagram.lineInRect(o.line e.lx e.ly e.lw e.lh))) {
+                            this.ok(false (what + " labels: the line " + o.id + " (" + (itemAt (PresDiagram.labelLines(o)) 0) + ") runs through the name of " + e.id + " " + (itemAt (PresDiagram.labelLines(e)) 0) + " (tier " + (to_string e.pTier) + " at " + (to_string e.lx) + "," + (to_string e.ly) + " " + (to_string e.lw) + "x" + (to_string e.lh) + ")"))
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            if (e.from == e.to) {
+                def n:PresDNode (itemAt d.nodes e.from)
+                ; its own box, a little in from the edges the line leaves by
+                this.ok(((PresDiagram.lineInRect(e.line (n.x + 4.0) (n.y + 4.0) (n.w - 8.0) (n.h - 8.0))) == false) (what + " labels: the line from " + n.id + " to itself goes round it, not through it"))
+            }
+            i = (i + 1)
+        }
+        this.ok((named >= 7) (what + " labels: every line's name is drawn, got " + (to_string named)))
     }
 
     ; `diagram { color }` is the warm light: without a tour it colours the
@@ -603,6 +697,43 @@ class PresCheck {
     ; round part (jurassic: an ochre circle), the lines keep their right
     ; angles, words are set in capitals where the look says so, and until a
     ; face is loaded the words are in Open Sans.
+    ; Over a diagram fence's language word the card offers the looks; a look
+    ; changes only the block's settings line.
+    fn diagramLookHint:void () {
+        def j:string (PresHints.forLine("md" "```mermaid {tour=on}" 5 false))
+        this.ok(((indexOf j "\"looks\":[\"holo\",\"sketch\",\"classic\",\"mermaid\",\"jurassic\",\"cartoon\",\"romantic\"]") >= 0) ("a diagram's fence offers its looks: " + j))
+        this.ok(((indexOf j "\"options\":[]") >= 0) ("…and no notations to switch to: " + j))
+        def code:string (PresHints.forLine("md" "```python" 5 false))
+        this.ok(((indexOf code "looks") < 0) "a code fence has no looks")
+        def body:string "flowchart LR\n  A --> B\n```\n"
+        ; settings in the fence line: the style word set there, the rest kept
+        def m1:PresFlowModel (PresFlowModel.read(("```mermaid {tour=on}\n" + body)))
+        this.ok(((m1.lookLineAt()) == 0) "settings in the fence: its line")
+        this.ok(((m1.lookLine("cartoon")) == "```mermaid {tour=on style=cartoon}") ("cartoon added: " + (m1.lookLine("cartoon"))))
+        def m1b:PresFlowModel (PresFlowModel.read(("```mermaid {style=jurassic}\n" + body)))
+        this.ok(((m1b.lookLine("holo")) == "```mermaid") ("holo drops the braces: " + (m1b.lookLine("holo"))))
+        def m1c:PresFlowModel (PresFlowModel.read(("```mermaid {style=jurassic}\n" + body)))
+        this.ok(((m1c.lookLine("classic")) == "```mermaid {diagram=classic}") ("classic: " + (m1c.lookLine("classic"))))
+        ; no settings yet: braces on the fence line
+        def m2:PresFlowModel (PresFlowModel.read(("```dot\n" + body)))
+        this.ok(((m2.lookLine("romantic")) == "```dot {style=romantic}") ("braces added: " + (m2.lookLine("romantic"))))
+        ; settings under the block: that line
+        def m3:PresFlowModel (PresFlowModel.read(("```mermaid\n" + body + "{style=sketch tour=on}\n")))
+        this.ok(((m3.lookLineAt()) == 4) ("the settings line under the block: " + (to_string (m3.lookLineAt()))))
+        this.ok(((m3.lookLine("mermaid")) == "{style=mermaid tour=on}") ("set in its place: " + (m3.lookLine("mermaid"))))
+        ; the braces on the fence line are the block's settings too
+        def deck (new PresDeck())
+        deck.setText(("## A\n\n```mermaid {style=cartoon}\n" + body))
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false "the fence with braces is a diagram")
+            return
+        }
+        def d:PresDiagram (itemAt s.diagrams 0).diagram
+        this.ok((d.looked && (d.style == "cartoon")) ("a look in the fence's braces is drawn: " + d.style))
+    }
+
     fn diagramLooks:void () {
         def text:string ("---\nslide-split-level: 2\n---\n\n## Kuva\n\n```mermaid\nflowchart LR\n"
             + "  A((Alku)) --> B[Tilaus]\n  B --> C{Varastossa?}\n  C -->|kyllä| D[Lähetä]\n  C -->|ei| E([Odota])\n```\n{style=jurassic}\n")
@@ -987,6 +1118,58 @@ class PresCheck {
         def u2:PresChartUse (itemAt s2.charts 0)
         this.ok((u2.start == (PresTimeline.stepTime(s2 2))) ("a chart starts with its step: " + (to_string u2.start)))
         this.ok((s2.duration >= (u2.start + motion)) "and the slide waits for it")
+    }
+
+    ; A facet header's own colour is kept, and the axes under it still take
+    ; the theme's: one labelColor is not every word coloured.
+    fn chartHeaderInk:void () {
+        def text:string "## Alueet\n\n```vega-lite\n{\"data\":{\"values\":[{\"g\":\"North\",\"k\":\"A\",\"v\":3},{\"g\":\"South\",\"k\":\"B\",\"v\":2}]},\"facet\":{\"column\":{\"field\":\"g\",\"header\":{\"labelColor\":\"#ff8800\"}}},\"spec\":{\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"k\",\"type\":\"nominal\"},\"y\":{\"field\":\"v\",\"type\":\"quantitative\"}}}}\n```\n"
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def l:EVGDisplayList (PresTimeline.frame(deck 0 30.0))
+        def black:int 0
+        def header:int 0
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if (c.kind == 3) {
+                if (((c.r == 0) && (c.g == 0)) && (c.b == 0)) {
+                    black = (black + 1)
+                }
+                if (((c.r == 255) && (c.g == 136)) && (c.b == 0)) {
+                    header = (header + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        this.ok((header == 2) ("both facet headers keep their colour: " + (to_string header)))
+        this.ok((black == 0) ("no word left in the chart's black: " + (to_string black)))
+    }
+
+    ; A table whose file the page could not find says so, not "Loading".
+    fn tableMissing:void () {
+        def deck (new PresDeck())
+        deck.setText("## Myynti\n\n```table\ndata/myynti.csv\nrows: 5\n```\n")
+        PresTimeline.planAll(deck)
+        this.ok((this.frameHas(deck "Loading")) "a table waits for its file")
+        deck.setChartDataMissing("data/myynti.csv")
+        PresTimeline.planAll(deck)
+        this.ok((this.frameHas(deck "No such file in this presentation: data/myynti.csv")) "and then says it has none")
+        this.ok(((this.frameHas(deck "Loading")) == false) "instead of waiting")
+    }
+
+    fn frameHas:boolean (deck:PresDeck s:string) {
+        def l:EVGDisplayList (PresTimeline.frame(deck 0 5.0))
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if ((c.kind == 3) && ((indexOf c.text s) >= 0)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     ; The scan beam's bright core in a frame.
@@ -1834,6 +2017,268 @@ class PresCheck {
         this.ok((((z.slide == 0) && (z.ended == false)) && (z.clock == 0.0)) "nav: an empty deck")
     }
 
+    ; PresDocx + DocxWriter: the deck as a Word document, opened again with
+    ; Ranger's own .docx reader (WordMlParser) and compared
+    ; The deck as one web page: sections per slide, notes, the shot written in,
+    ; nothing that runs, headings linkable, picked slides only.
+    fn htmlPage:void () {
+        def text:string ("---\ntitle: Raportti\nlang: fi\nslide-split-level: 2\n---\n\n"
+            + "## Eka & toka\n\nTeksti [linkki](https://sliqtly.com) ja [paha](javascript:alert(1)).\n\n<script>alert(2)</script>\n\n"
+            + "::: notes\nPuhe ensin. [[1]] Sitten.\n:::\n\n"
+            + "## Taulu\n\n| Nimi | Määrä |\n| :--- | ---: |\n| omena | 3 |\n\n$$\\frac{a}{b}$$\n\n"
+            + "## Kuva\n\n```mermaid\nflowchart LR\n  A --> B\n```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        def shots (new PresDocx())
+        shots.findShots(deck)
+        this.ok(((array_length shots.shots) == 1) "html: the diagram is a shot")
+        if ((array_length shots.shots) == 1) {
+            def s0:PresDocxShot (itemAt shots.shots 0)
+            def png:buffer (buffer_alloc 3)
+            buffer_set png 0 77
+            buffer_set png 1 97
+            buffer_set png 2 110
+            shots.setShot(s0.key png 200 100)
+        }
+        def page (new PresHtml())
+        def h:string (page.html(deck "Raportti" shots))
+        this.ok(((indexOf h "<!DOCTYPE html>") == 0) "html: a whole page")
+        this.ok(((indexOf h "<html lang=\"fi\">") > 0) "html: the deck's language")
+        this.ok(((indexOf h "<title>Raportti</title>") > 0) "html: its title")
+        this.ok(((indexOf h "<p class=\"title\">Raportti</p>") > 0) "html: the title on the page (no heading says it)")
+        this.ok((page.slides == 3) ("html: three slides, got " + (to_string page.slides)))
+        this.ok(((indexOf h "<section class=\"slide\" id=\"slide-3\">") > 0) "html: a section per slide")
+        this.ok(((indexOf h "<h2 id=\"eka-toka\">Eka &amp; toka</h2>") > 0) "html: headings escaped and linkable")
+        this.ok(((indexOf h "href=\"https://sliqtly.com\"") > 0) "html: the link")
+        this.ok(((indexOf h "<a>paha</a>") > 0) "html: a script link loses its address")
+        this.ok(((indexOf h "<script") < 0) "html: nothing that runs")
+        this.ok(((indexOf h "<td align=\"right\">3</td>") > 0) "html: the table, aligned")
+        this.ok(((indexOf h "class=\"math-display\"") > 0) "html: the formula")
+        this.ok(((indexOf h "<svg") > 0) "html: …drawn as SVG")
+        this.ok((page.notes == 1) "html: one slide's notes")
+        this.ok(((indexOf h "<aside class=\"notes\">\n<p>Puhe ensin.  Sitten.</p>") > 0) "html: notes without cues")
+        this.ok((page.shotsPlaced == 1) "html: the shot placed")
+        this.ok(((indexOf h "<img src=\"data:image/png;base64,TWFu\"") > 0) "html: …written in")
+        this.ok(((indexOf h "flowchart LR") < 0) "html: the diagram's source not also written")
+        this.ok(((indexOf h "slide-split-level") < 0) "html: no front matter")
+
+        def none (new PresDocx())
+        def plain (new PresHtml())
+        def bare:string (plain.html(deck "" none))
+        this.ok(((indexOf bare "<code class=\"language-mermaid\">") > 0) "html: no shot, the diagram as its source")
+
+        def picked (new PresHtml())
+        push picked.onlyPages 1
+        def one:string (picked.html(deck "Raportti" none))
+        this.ok((picked.slides == 1) "html: only the picked slide")
+        this.ok((((indexOf one "slide-2") > 0) && ((indexOf one "Eka") < 0)) "html: …and nothing else")
+    }
+
+    fn docx:void () {
+        def text:string ("---\ntitle: Raportti\nslide-split-level: 2\n---\n\n"
+            + "## Eka & toka\n\nTeksti **lihava** ja [linkki](https://sliqtly.com).\n\n- yksi\n- kaksi\n  - sisempi\n\n"
+            + "::: notes\nPuhe ensin. [[1]] Sitten.\n:::\n\n"
+            + "## Taulu\n\n| Nimi | Määrä |\n| :--- | ---: |\n| omena | 3 |\n\n1. a\n2. b\n\nväli\n\n1. c\n\n"
+            + "## Kuva\n\n```mermaid\nflowchart LR\n  A --> B\n```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        this.ok(((deck.slideCount()) == 3) ("docx: three slides, got " + (to_string (deck.slideCount()))))
+        def conv (new PresDocx())
+        conv.findShots(deck)
+        this.ok(((array_length conv.shots) == 1) ("docx: the diagram is a shot, got " + (conv.shotsJson())))
+        if ((array_length conv.shots) == 1) {
+            def s0:PresDocxShot (itemAt conv.shots 0)
+            this.ok((s0.page == 2) ("docx: the shot is on slide 3, got " + (to_string s0.page)))
+            this.ok(((s0.w > 0.0) && (s0.h > 0.0)) "docx: the shot has a size")
+            ; a stand-in picture: an 8-byte PNG signature is enough for the package
+            def png:buffer (buffer_alloc 8)
+            def sig:[int] ([] _:int (137 80 78 71 13 10 26 10))
+            def k:int 0
+            while (k < 8) {
+                buffer_set png k (itemAt sig k)
+                k = (k + 1)
+            }
+            conv.setShot(s0.key png 200 100)
+        }
+        def rd:RichDocument (conv.build(deck "Raportti"))
+        this.ok((conv.slides == 3) ("docx: three slides written, got " + (to_string conv.slides)))
+        this.ok((conv.notes == 1) "docx: one slide's notes")
+        this.ok((conv.shotsPlaced == 1) "docx: the shot placed")
+        this.ok(((PresDocx.notesText("Puhe ensin. [[1]] Sitten.")) == "Puhe ensin.  Sitten.") "docx: cues out of the notes")
+
+        def w (new DocxWriter())
+        def bytes:buffer (w.write(rd))
+        this.ok(((buffer_length bytes) > 1000) "docx: a file came out")
+        this.ok((w.tables == 1) "docx: one table written")
+        this.ok((w.pictures == 1) "docx: one picture written")
+        this.ok((w.unwritten == 0) ("docx: nothing written as its name, got " + (to_string w.unwritten)))
+
+        def pkg (new DocxPackage())
+        this.ok((pkg.openBytes(bytes "deck.docx")) "docx: the reader opens it")
+        def xml:string (pkg.documentXml())
+        this.ok(((indexOf xml "Eka &amp; toka") > 0) "docx: text escaped")
+        this.ok(((indexOf xml "<w:hyperlink r:id=") > 0) "docx: the link is a hyperlink")
+        def rels:string (pkg.documentRelsXml())
+        this.ok(((indexOf rels "https://sliqtly.com") > 0) "docx: …to its target")
+        this.ok(((buffer_length (pkg.opc.readBinary("word/media/image1.png"))) == 8) "docx: the picture's bytes in the package")
+        this.ok(((pkg.opc.contentTypeFor("word/media/image1.png")) == "image/png") "docx: …as a PNG")
+        def parser (new WordMlParser())
+        def back:RichDocument (parser.parsePackage(pkg))
+        def heads:string ""
+        def bullets:int 0
+        def numbered:[int]
+        def notesSeen:string ""
+        def title:string ""
+        def pics:int 0
+        def i:int 0
+        while (i < (array_length back.blocks)) {
+            def b:DocBlock (itemAt back.blocks i)
+            if (b.kind == (DocBlockKind.para())) {
+                def p:Paragraph b.paragraph
+                if (p.styleId == "Heading2") {
+                    heads = ((heads + (p.plainText())) + "|")
+                }
+                if (p.styleId == "Title") {
+                    title = (p.plainText())
+                }
+                if (p.styleId == "Notes") {
+                    notesSeen = (notesSeen + (p.plainText()))
+                }
+                if (p.listKind == 1) {
+                    bullets = (bullets + 1)
+                }
+                if ((p.listKind == 2) && ((indexOf numbered p.listNumId) < 0)) {
+                    push numbered p.listNumId
+                }
+                pics = (pics + (array_length p.images))
+            }
+            i = (i + 1)
+        }
+        this.ok((title == "Raportti") ("docx: the title, got " + title))
+        this.ok((heads == "Eka & toka|Taulu|Kuva|") ("docx: the slides' headings, got " + heads))
+        this.ok((bullets == 3) ("docx: three bullets, got " + (to_string bullets)))
+        this.ok(((array_length numbered) == 2) ("docx: two numbered lists, each its own, got " + (to_string (array_length numbered))))
+        this.ok((notesSeen == "Puhe ensin.  Sitten.") ("docx: the notes, got " + notesSeen))
+        this.ok((pics == 1) ("docx: the picture read back, got " + (to_string pics)))
+        this.ok(((array_length back.tables) == 1) "docx: the table read back")
+        if ((array_length back.tables) == 1) {
+            def t:DocumentTable (itemAt back.tables 0)
+            this.ok((((t.rowCount()) == 2) && ((t.columnCount()) == 2)) "docx: two rows, two columns")
+            def r0:DocTableRow (itemAt t.rows 0)
+            def c1:DocTableCell (itemAt r0.cells 1)
+            def cp:Paragraph (itemAt c1.paragraphs 0)
+            this.ok(((cp.plainText()) == "Määrä") ("docx: a cell's words survive UTF-8, got " + (cp.plainText())))
+            this.ok((cp.align == 2) "docx: the column's alignment")
+            this.ok(((strlen c1.fillHex) == 6) "docx: the header row shaded")
+        }
+        def sec:DocSection (back.sectionAt(0))
+        this.ok(((sec.pageWTwips == 11906) && (sec.pageHTwips == 16838)) ("docx: A4, got " + (to_string sec.pageWTwips) + "x" + (to_string sec.pageHTwips)))
+
+        ; formulas are Word equations, not pictures
+        def mdeck (new PresDeck())
+        mdeck.setText("---\nslide-split-level: 2\n---\n\n## Kaava\n\nKun $a^2 + b^2 = c^2$ niin\n\n$$\n\\frac{1}{2}\n$$\n")
+        def mconv (new PresDocx())
+        mconv.findShots(mdeck)
+        this.ok(((array_length mconv.shots) == 0) "docx: a formula is no shot")
+        def mw (new DocxWriter())
+        def mbytes:buffer (mw.write((mconv.build(mdeck ""))))
+        this.ok((mw.equations == 2) ("docx: two equations written, got " + (to_string mw.equations)))
+        def mpkg (new DocxPackage())
+        mpkg.openBytes(mbytes "kaava.docx")
+        def mxml:string (mpkg.documentXml())
+        this.ok(((indexOf mxml "<m:oMathPara>") > 0) "docx: the display formula is an equation paragraph")
+        this.ok(((indexOf mxml "<m:num") > 0) "docx: …with its fraction")
+        this.ok(((indexOf mxml "<m:sSup") > 0) "docx: the inline one has its powers")
+        this.ok(((indexOf mxml "a^2") < 0) "docx: no TeX left in the text")
+
+        ; picked slides: only those
+        def only (new PresDocx())
+        push only.onlyPages 1
+        def rd2:RichDocument (only.build(deck ""))
+        this.ok((only.slides == 1) "docx: one picked slide")
+        this.ok((only.notes == 0) "docx: …without the other slide's notes")
+        this.ok(((array_length rd2.tables) == 1) "docx: …with its table")
+        ; with page breaks between slides
+        def paged (new PresDocx())
+        paged.pageBreaks = true
+        def rd3:RichDocument (paged.build(deck ""))
+        def breaks:int 0
+        def j:int 0
+        while (j < (array_length rd3.blocks)) {
+            if ((itemAt rd3.blocks j).kind == (DocBlockKind.pageBreak())) {
+                breaks = (breaks + 1)
+            }
+            j = (j + 1)
+        }
+        this.ok((breaks == 2) ("docx: a break before slides 2 and 3, got " + (to_string breaks)))
+    }
+
+    ; --- the vectorizer (PresTrace, PresTraceSettings) -----------------------
+    fn traceChecks:void () {
+        def st (new PresTraceSettings())
+        this.ok(((st.get("colorCount" "")) == "8") "trace: the default preset is illustration, 8 colours")
+        st.usePreset("photo")
+        st.set("colorCount" "30")
+        this.ok(((st.intOf("colorCount" 0)) == 30) "trace: a set option wins over the preset")
+        this.ok(((st.intOf("smooth" 0)) == 2) "trace: …the rest come from the preset")
+        def back:PresTraceSettings (PresTraceSettings.parse((st.text())))
+        this.ok((back.preset == "photo") "trace: the text keeps the preset")
+        this.ok(((back.intOf("colorCount" 0)) == 30) "trace: …and what was set")
+        st.set("colorCount" "")
+        this.ok(((st.intOf("colorCount" 0)) == 24) "trace: an empty value takes the option off")
+        def semi:PresTraceSettings (PresTraceSettings.parse("preset=logo;turdsize=3"))
+        this.ok(((semi.intOf("turdsize" 0)) == 3) "trace: ; separates options too")
+        this.ok(((PresTrace.unknown((PresTraceSettings.parse("colorcount=4")))) == "colorcount") "trace: a misspelt option is named")
+
+        ; references
+        def md:string "![a](media/x.png) and ![b](/media/x.png) not media/x.png.bak nor amedia/x.png"
+        def sw:string (PresTraceRefs.swapRef(md "media/x.png" "media/x.svg"))
+        this.ok((sw == "![a](media/x.svg) and ![b](/media/x.svg) not media/x.png.bak nor amedia/x.png") ("trace: swapRef, got " + sw))
+        def css:string "page { background-image: url(\"media/x.png\"); }"
+        this.ok(((PresTraceRefs.swapRef(css "/media/x.png" "media/x.svg")) == "page { background-image: url(\"media/x.svg\"); }") "trace: swapRef in CSS")
+        this.ok(((PresTraceRefs.countRefs(md "media/x.png")) == 2) "trace: countRefs")
+
+        ; a picture: white, a red block, a black block
+        def w:int 60
+        def h:int 40
+        def px:buffer (buffer_alloc (w * h * 4))
+        def y:int 0
+        while (y < h) {
+            def x:int 0
+            while (x < w) {
+                def o:int (((y * w) + x) * 4)
+                def r:int 255
+                def g:int 255
+                def b:int 255
+                if ((((x >= 6) && (x < 26)) && (y >= 8)) && (y < 32)) {
+                    g = 0
+                    b = 0
+                }
+                if ((((x >= 34) && (x < 54)) && (y >= 8)) && (y < 32)) {
+                    r = 0
+                    g = 0
+                    b = 0
+                }
+                buffer_set px o r
+                buffer_set px (o + 1) g
+                buffer_set px (o + 2) b
+                buffer_set px (o + 3) 255
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        def res:PresTraceResult (PresTrace.traceRgba(px w h "preset=logo\ncolorCount=3"))
+        this.ok(((strlen res.err) == 0) ("trace: traced without an error: " + res.err))
+        this.ok((startsWith res.svg "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"60\" height=\"40\" viewBox=\"0 0 60 40\"") ("trace: the svg is the picture's size: " + (substring res.svg 0 90)))
+        this.ok((res.layers >= 2) ("trace: a layer per colour, got " + (to_string res.layers) + " " + res.colors))
+        this.ok(((indexOf (to_lowercase res.colors) "#000000") >= 0) ("trace: the black block is a layer: " + res.colors))
+        def scaled:PresTraceResult (PresTrace.traceRgba(px w h "preset=logo\nmaxSide=30"))
+        this.ok(((scaled.tracedW == 30) && (scaled.tracedH == 20)) ("trace: maxSide scales it down, got " + (to_string scaled.tracedW) + "x" + (to_string scaled.tracedH)))
+        this.ok(((indexOf scaled.svg "width=\"60\" height=\"40\" viewBox=\"0 0 30 20\"") > 0) "trace: …and draws it at the picture's size")
+        def bad:PresTraceResult (PresTrace.traceBytes((buffer_alloc 10) ""))
+        this.ok(((strlen bad.err) > 0) "trace: bytes that are no picture say so")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -1855,6 +2300,9 @@ class PresCheck {
         c.followEdits()
         c.picks()
         c.navJumps()
+        c.docx()
+        c.htmlPage()
+        c.traceChecks()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"
