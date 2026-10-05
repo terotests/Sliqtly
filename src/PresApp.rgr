@@ -6494,6 +6494,93 @@ class PresApp {
         return ("{\"file\":" + (PresApp.jsonStr(chart.adjFile)) + ",\"crop\":\"" + (chart.crop.cropPixels()) + "\",\"whole\":" + whole + ",\"bright\":" + (to_string chart.adjBright) + ",\"contrast\":" + (to_string chart.adjContrast) + ",\"sat\":" + (to_string chart.adjSat) + ",\"temp\":" + (to_string chart.adjTemp) + ",\"tint\":" + (to_string chart.adjTint) + "}")
     }
 
+    ; --- a picture of the files, vectorized ----------------------------------------
+    ; The vectorizer (PresChartEditor's "trace" mode) for `file`: the page has
+    ; registered the picture at `orig` (`iw` × `ih` its pixels) and traces it
+    ; in its own bundle (pres_trace.js) as "trace-run" asks, with
+    ; `traceSettings`, handing the result back through `traceDone`. Save is
+    ; "trace-save" (the page keeps the SVG and calls `swapPictureRefs` when
+    ; `tracePlan` says so), anything else "trace-cancel".
+    fn openTrace:boolean (orig:string file:string iw:int ih:int) {
+        if (mode == "present") {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 560.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        def py:double (barH + 16.0)
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        def uses:int ((PresTraceRefs.countRefs((this.source()) file)) + (PresTraceRefs.countRefs((this.themeCss()) file)))
+        chart.openTrace(orig file (to_double iw) (to_double ih) uses px py W H)
+        def at:int (indexOf (this.source()) file)
+        if (at >= 0) {
+            this.selectSlide((deck.pageOfOffset(at)))
+        }
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        push requests "trace-run"
+        return true
+    }
+
+    fn traceSettings:string () {
+        return (chart.trSet.text())
+    }
+
+    fn traceDone:void (preview:string info:string err:string) {
+        if ((chart.isOpen == false) || (chart.mode != "trace")) {
+            return
+        }
+        chart.traceDone(preview info err)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; {"file", "replace": point the picture's uses at the SVG}
+    fn tracePlan:string () {
+        def rep:string "false"
+        if chart.trReplace {
+            rep = "true"
+        }
+        return ("{\"file\":" + (PresApp.jsonStr(chart.trFile)) + ",\"replace\":" + rep + "}")
+    }
+
+    ; Every use of the file `from` in the Markdown and the theme pointed at
+    ; `to`, as edits that undo; how many there were.
+    fn swapPictureRefs:int (from:string to:string) {
+        def was:string edTab
+        def n:int 0
+        def tabsToDo:[string] ([] _:string ("md" "css"))
+        for tabsToDo tab:string ti {
+            this.showTab(tab)
+            def ln:int 0
+            while (ln < (editor.buf.lineCount())) {
+                def lt:string (editor.buf.lineAt(ln))
+                def c:int (PresTraceRefs.countRefs(lt from))
+                if (c > 0) {
+                    def cl:int editor.sel.caret.line
+                    def cc:int editor.sel.caret.col
+                    editor.moveCaret(ln 0 false)
+                    editor.moveCaret(ln (strlen lt) true)
+                    editor.insert((PresTraceRefs.swapRef(lt from to)))
+                    editor.moveCaret(cl cc false)
+                    n = (n + c)
+                }
+                ln = (ln + 1)
+            }
+            this.syncEditor()
+        }
+        this.showTab(was)
+        chromeRev = (chromeRev + 1)
+        return n
+    }
+
     ; --- a new presentation ------------------------------------------------------
     ; File → New presentation: the window asks the name, the theme (`rows`,
     ; the page's "value<TAB>label" lines; `theme` the one in use) and what
@@ -7249,6 +7336,18 @@ class PresApp {
             } {
                 push requests "image-cancel"
             }
+            if chart.wantsTrace {
+                chart.wantsTrace = false
+                push requests ("image-trace:" + chart.adjFile)
+            }
+        }
+        if (chart.isOpen && (chart.mode == "trace")) {
+            if chart.wantsTraceSave {
+                chart.wantsTraceSave = false
+                push requests "trace-save"
+            } {
+                push requests "trace-cancel"
+            }
         }
         if (chart.isOpen && (chart.mode == "docset")) {
             def keepBase:int chartUndoBase
@@ -7366,6 +7465,19 @@ class PresApp {
             if chart.adjDirty {
                 chart.adjDirty = false
                 push requests "image-adjust"
+            }
+            return
+        }
+        if (chart.mode == "trace") {
+            if chart.trDirty {
+                if (chart.dragging()) {
+                    chart.changed = true
+                    return
+                }
+                chart.trDirty = false
+                chart.trBusy = true
+                chart.rebuild()
+                push requests "trace-run"
             }
             return
         }

@@ -2145,11 +2145,11 @@ class PresCheck {
 
         ; references
         def md:string "![a](media/x.png) and ![b](/media/x.png) not media/x.png.bak nor amedia/x.png"
-        def sw:string (PresTrace.swapRef(md "media/x.png" "media/x.svg"))
+        def sw:string (PresTraceRefs.swapRef(md "media/x.png" "media/x.svg"))
         this.ok((sw == "![a](media/x.svg) and ![b](/media/x.svg) not media/x.png.bak nor amedia/x.png") ("trace: swapRef, got " + sw))
         def css:string "page { background-image: url(\"media/x.png\"); }"
-        this.ok(((PresTrace.swapRef(css "/media/x.png" "media/x.svg")) == "page { background-image: url(\"media/x.svg\"); }") "trace: swapRef in CSS")
-        this.ok(((PresTrace.countRefs(md "media/x.png")) == 2) "trace: countRefs")
+        this.ok(((PresTraceRefs.swapRef(css "/media/x.png" "media/x.svg")) == "page { background-image: url(\"media/x.svg\"); }") "trace: swapRef in CSS")
+        this.ok(((PresTraceRefs.countRefs(md "media/x.png")) == 2) "trace: countRefs")
 
         ; a picture: white, a red block, a black block
         def w:int 60

@@ -2117,18 +2117,18 @@ class Tools {
         def note:string ("Vectorized " + path + " into " + target + ": " + (Tools.traceLine(res)) + ".")
         if (a.bool_("replace" true)) {
             def md:string (ed.cur.str_("md"))
-            def inMd:int (PresTrace.countRefs(md path))
+            def inMd:int (PresTraceRefs.countRefs(md path))
             if (inMd > 0) {
                 p.hasMd = true
-                p.md = (PresTrace.swapRef(md path target))
+                p.md = (PresTraceRefs.swapRef(md path target))
             }
             def inCss:int 0
             def css:MfJ (ed.cur.field("css"))
             if (css.kind == 3) {
-                inCss = (PresTrace.countRefs(css.str path))
+                inCss = (PresTraceRefs.countRefs(css.str path))
                 if (inCss > 0) {
                     p.cssMode = 1
-                    p.css = (PresTrace.swapRef(css.str path target))
+                    p.css = (PresTraceRefs.swapRef(css.str path target))
                 }
             }
             note = (note + " Uses pointed at the SVG: " + (to_string inMd) + " in the Markdown, " + (to_string inCss) + " in the theme CSS. " + path + " stays in the files.")
