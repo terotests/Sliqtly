@@ -95,7 +95,10 @@ type Env struct {
 	// LocalUser, files are read from FilesURL, themes are the built-in ones.
 	LocalUser string
 	FilesURL  string // e.g. https://host/files; "": Storage download URLs
-	Themes    func(name string) (string, bool)
+	// GitHubToken: sent to api.github.com (read_github_pr), for its higher
+	// limit; "" reads as anyone
+	GitHubToken string
+	Themes      func(name string) (string, bool)
 	// the form a presentation's name must have (names.go): only on a server
 	// of one's own, set from its settings page; nil: any name
 	names atomic.Pointer[nameRule]
@@ -665,6 +668,9 @@ func (h *McpHost) FetchText(u, accept string, limit int64) string {
 		return `{"status":0}`
 	}
 	req.Header.Set("accept", accept)
+	if h.env.GitHubToken != "" && strings.HasPrefix(u, "https://api.github.com/") {
+		req.Header.Set("authorization", "Bearer "+h.env.GitHubToken)
+	}
 	res, err := h.env.Client.Do(req)
 	if err != nil {
 		return `{"status":0}`
