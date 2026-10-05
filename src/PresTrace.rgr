@@ -1,0 +1,523 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresTrace.rgr — a picture of the deck traced into an SVG
+; ============================================================================
+;
+; The tracer is lib/evg's EvgBitmapTracer, as it is: this file only reads the
+; picture, scales it to the size it is traced at, hands the tracer its
+; options (PresTraceSettings) and gives back the SVG, sized like the picture
+; it replaces.
+;
+; Two places run it: the editor, as its own bundle (pres_trace.js, loaded
+; the first time a picture is vectorized, in a worker), and the MCP server
+; (rgr/Tools.rgr, vectorize_image), compiled to Go.
+; ============================================================================
+
+Import "PresTraceSettings.rgr"
+Import "pkg:evg/EvgBitmapTracer.rgr"
+Import "pkg:evg/EVGImageDecode.rgr"
+
+class PresTraceResult {
+    def svg:string ""
+    def err:string ""
+    def layers:int 0
+    ; the picture's pixels, and the size it was traced at
+    def width:int 0
+    def height:int 0
+    def tracedW:int 0
+    def tracedH:int 0
+    ; colours of the layers, comma separated
+    def colors:string ""
+
+    Constructor () {
+    }
+}
+
+class PresTrace {
+
+    sfn int_:int (s:string) {
+        def d:double (?? (str2double s) 0.0)
+        if (d < 0.0) {
+            return (0 - (to_int ((0.0 - d) + 0.5)))
+        }
+        return (to_int (d + 0.5))
+    }
+
+    sfn num_:double (s:string) {
+        return (?? (str2double s) 0.0)
+    }
+
+    sfn bool_:boolean (s:string) {
+        def l:string (to_lowercase (trim s))
+        return (((l == "true") || (l == "1")) || ((l == "yes") || (l == "on")))
+    }
+
+    sfn list_:[string] (s:string) {
+        def out:[string]
+        def cur:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i <= n) {
+            def ch:int 44
+            if (i < n) {
+                ch = (charAt s i)
+            }
+            if (ch == 44) {
+                def t:string (trim cur)
+                if ((strlen t) > 0) {
+                    push out t
+                }
+                cur = ""
+            } {
+                cur = (cur + (substring s i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; One option onto the tracer's, by its name in EvgTraceOptions (the names
+    ; evg_trace_cli takes). False for a name that is not one.
+    sfn apply:boolean (o:EvgTraceOptions name:string value:string) {
+        if (name == "turdsize") {
+            o.turdsize = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "alphamax") {
+            o.alphamax = (PresTrace.num_(value))
+            return true
+        }
+        if (name == "turnpolicy") {
+            o.turnpolicy = value
+            return true
+        }
+        if (name == "optcurve") {
+            o.optcurve = (PresTrace.bool_(value))
+            return true
+        }
+        if (name == "opttolerance") {
+            o.opttolerance = (PresTrace.num_(value))
+            return true
+        }
+        if (name == "threshold") {
+            o.threshold = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "blackOnWhite") {
+            o.blackOnWhite = (PresTrace.bool_(value))
+            return true
+        }
+        if (name == "fillHex") {
+            o.fillHex = value
+            return true
+        }
+        if (name == "colorCount") {
+            o.colorCount = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "skipLuma") {
+            o.skipLuma = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "flatTolerance") {
+            o.flatTolerance = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "edgeSnap") {
+            o.edgeSnap = (PresTrace.bool_(value))
+            return true
+        }
+        if (name == "snapRatio") {
+            o.snapRatio = (PresTrace.num_(value))
+            return true
+        }
+        if (name == "lumaWeight") {
+            o.lumaWeight = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "colorSpace") {
+            o.colorSpace = value
+            return true
+        }
+        if (name == "paletteMode") {
+            o.paletteMode = value
+            return true
+        }
+        if (name == "paletteHex") {
+            o.paletteHex = (PresTrace.list_(value))
+            return true
+        }
+        if (name == "paletteBias") {
+            o.paletteBias = value
+            return true
+        }
+        if (name == "paletteChroma") {
+            o.paletteChroma = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "paletteMute") {
+            o.paletteMute = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "paletteTint") {
+            o.paletteTint = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "paletteWarm") {
+            o.paletteWarm = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "paletteContrast") {
+            o.paletteContrast = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "minColorDelta") {
+            o.minColorDelta = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "contourMode") {
+            o.contourMode = value
+            return true
+        }
+        if (name == "overlaySimilar") {
+            o.overlaySimilar = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "overlayFollowBase") {
+            o.overlayFollowBase = (PresTrace.bool_(value))
+            return true
+        }
+        if (name == "detailSwatches") {
+            o.detailSwatches = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "detailSpread") {
+            o.detailSpread = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "detailRadius") {
+            o.detailRadius = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "detailBoost") {
+            o.detailBoost = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "detailTrueColor") {
+            o.detailTrueColor = (PresTrace.bool_(value))
+            return true
+        }
+        if (name == "detailColors") {
+            o.detailColors = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "detailMinShare") {
+            o.detailMinShare = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "detailColorMerge") {
+            o.detailColorMerge = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "detailColorMax") {
+            o.detailColorMax = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "edgeMinRun") {
+            o.edgeMinRun = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "contourEdge") {
+            o.contourEdge = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "contourSpread") {
+            o.contourSpread = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "gradientFill") {
+            o.gradientFill = (PresTrace.bool_(value))
+            return true
+        }
+        if (name == "gradientGain") {
+            o.gradientGain = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "layerMode") {
+            o.layerMode = value
+            return true
+        }
+        if (name == "pathFormat") {
+            o.pathFormat = value
+            return true
+        }
+        if (name == "pathPrecision") {
+            o.pathPrecision = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "smooth") {
+            o.smooth = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "minRegion") {
+            o.minRegion = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "absorbContrast") {
+            o.absorbContrast = (PresTrace.int_(value))
+            return true
+        }
+        if (name == "bgMode") {
+            o.bgMode = value
+            return true
+        }
+        if (name == "bgColor") {
+            o.bgColor = value
+            return true
+        }
+        if (name == "bgTolerance") {
+            o.bgTolerance = (PresTrace.int_(value))
+            return true
+        }
+        return false
+    }
+
+    ; the names `apply` does not know, comma separated ("" all known);
+    ; maxSide is the picture's, not the tracer's
+    sfn unknown:string (s:PresTraceSettings) {
+        def probe (new EvgTraceOptions())
+        def bad:string ""
+        for s.names k:string i {
+            if ((k != "maxSide") && ((PresTrace.apply(probe k (itemAt s.values i))) == false)) {
+                if ((strlen bad) > 0) {
+                    bad = (bad + ", ")
+                }
+                bad = (bad + k)
+            }
+        }
+        return bad
+    }
+
+    sfn options:EvgTraceOptions (s:PresTraceSettings) {
+        def o (new EvgTraceOptions())
+        for (s.pairs()) p:string i {
+            PresTrace.apply(o (PresTraceSettings.keyOf(p)) (PresTraceSettings.valueOf(p)))
+        }
+        return o
+    }
+
+    ; RGBA bytes, four to a pixel, row by row (a canvas's ImageData)
+    sfn fromRgba:ImageBuffer (px:buffer w:int h:int) {
+        def img (new ImageBuffer())
+        img.width = w
+        img.height = h
+        img.pixels = px
+        return img
+    }
+
+    ; The picture with its longer side at most `most` pixels: each pixel the
+    ; mean of the source pixels it covers, so a photo is not traced as noise.
+    sfn shrink:ImageBuffer (img:ImageBuffer most:int) {
+        def w:int img.width
+        def h:int img.height
+        def longer:int w
+        if (h > longer) {
+            longer = h
+        }
+        if ((most <= 0) || (longer <= most)) {
+            return img
+        }
+        def k:double ((to_double longer) / (to_double most))
+        def nw:int (to_int (((to_double w) / k) + 0.5))
+        def nh:int (to_int (((to_double h) / k) + 0.5))
+        if (nw < 1) {
+            nw = 1
+        }
+        if (nh < 1) {
+            nh = 1
+        }
+        def out (new ImageBuffer())
+        out.init(nw nh)
+        def src:buffer img.pixels
+        def dst:buffer out.pixels
+        def y:int 0
+        while (y < nh) {
+            def y0:int (to_int ((to_double y) * k))
+            def y1:int (to_int ((to_double (y + 1)) * k))
+            if (y1 > h) {
+                y1 = h
+            }
+            if (y1 <= y0) {
+                y1 = (y0 + 1)
+            }
+            def x:int 0
+            while (x < nw) {
+                def x0:int (to_int ((to_double x) * k))
+                def x1:int (to_int ((to_double (x + 1)) * k))
+                if (x1 > w) {
+                    x1 = w
+                }
+                if (x1 <= x0) {
+                    x1 = (x0 + 1)
+                }
+                def sr:int 0
+                def sg:int 0
+                def sb:int 0
+                def sa:int 0
+                def cnt:int 0
+                def yy:int y0
+                while (yy < y1) {
+                    def at:int (((yy * w) + x0) * 4)
+                    def xx:int x0
+                    while (xx < x1) {
+                        sr = (sr + (buffer_get src at))
+                        sg = (sg + (buffer_get src (at + 1)))
+                        sb = (sb + (buffer_get src (at + 2)))
+                        sa = (sa + (buffer_get src (at + 3)))
+                        cnt = (cnt + 1)
+                        at = (at + 4)
+                        xx = (xx + 1)
+                    }
+                    yy = (yy + 1)
+                }
+                def o:int (((y * nw) + x) * 4)
+                def half:int (idiv cnt 2)
+                buffer_set dst o (idiv (sr + half) cnt)
+                buffer_set dst (o + 1) (idiv (sg + half) cnt)
+                buffer_set dst (o + 2) (idiv (sb + half) cnt)
+                buffer_set dst (o + 3) (idiv (sa + half) cnt)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return out
+    }
+
+    ; The traced SVG drawn at the picture's own size: the tracer's viewBox
+    ; (the scaled pixels), the original's width and height.
+    sfn sized:string (svg:string w:int h:int) {
+        def at:int (indexOf svg "viewBox=")
+        if (at < 0) {
+            return svg
+        }
+        return ("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" + (to_string w) + "\" height=\"" + (to_string h) + "\" " + (substring svg at (strlen svg)))
+    }
+
+    sfn traceImage:PresTraceResult (img:ImageBuffer settingsText:string) {
+        def r (new PresTraceResult())
+        def s:PresTraceSettings (PresTraceSettings.parse(settingsText))
+        def bad:string (PresTrace.unknown(s))
+        if ((strlen bad) > 0) {
+            r.err = ("Unknown tracer option: " + bad)
+            return r
+        }
+        r.width = img.width
+        r.height = img.height
+        if ((img.width < 1) || (img.height < 1)) {
+            r.err = "The picture has no pixels."
+            return r
+        }
+        def small:ImageBuffer (PresTrace.shrink(img (s.intOf("maxSide" 1000))))
+        r.tracedW = small.width
+        r.tracedH = small.height
+        def t:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer(small (PresTrace.options(s))))
+        t.trace()
+        r.layers = (t.layerCount())
+        def cs:string ""
+        for (t.getLayers()) l:EvgTraceLayer i {
+            if ((strlen cs) > 0) {
+                cs = (cs + ",")
+            }
+            cs = (cs + l.fillHex)
+        }
+        r.colors = cs
+        r.svg = (PresTrace.sized((t.toSVG()) img.width img.height))
+        return r
+    }
+
+    ; a PNG or JPEG file's bytes
+    sfn traceBytes:PresTraceResult (bytes:buffer settingsText:string) {
+        def img@(optional):ImageBuffer (EVGImageDecode.decode(bytes))
+        if (null? img) {
+            def r (new PresTraceResult())
+            r.err = "The picture could not be read: PNG and JPEG can be vectorized."
+            return r
+        }
+        def got:ImageBuffer (unwrap img)
+        return (PresTrace.traceImage(got settingsText))
+    }
+
+    sfn traceRgba:PresTraceResult (px:buffer w:int h:int settingsText:string) {
+        return (PresTrace.traceImage((PresTrace.fromRgba(px w h)) settingsText))
+    }
+
+    sfn pathChar:boolean (ch:int) {
+        if (((ch >= 48) && (ch <= 57)) || ((ch >= 65) && (ch <= 90))) {
+            return true
+        }
+        if ((ch >= 97) && (ch <= 122)) {
+            return true
+        }
+        return ((((ch == 45) || (ch == 95)) || (ch == 46)) || ((ch == 47) || (ch == 37)))
+    }
+
+    ; Every use of the file `from` in a Markdown or CSS text pointed at `to`:
+    ; `from` as a whole path (not the tail of a longer one, nor the head), with
+    ; or without a leading slash.
+    sfn swapRef:string (text:string from:string to:string) {
+        def f:string from
+        while (startsWith f "/") {
+            f = (substring f 1 (strlen f))
+        }
+        def t:string to
+        while (startsWith t "/") {
+            t = (substring t 1 (strlen t))
+        }
+        if ((strlen f) == 0) {
+            return text
+        }
+        def out:string ""
+        def i:int 0
+        def n:int (strlen text)
+        def fl:int (strlen f)
+        while (i < n) {
+            def at:int (indexOfFrom text f i)
+            if (at < 0) {
+                out = (out + (substring text i n))
+                i = n
+            } {
+                def before:int 32
+                if (at > 0) {
+                    before = (charAt text (at - 1))
+                }
+                def after:int 32
+                if ((at + fl) < n) {
+                    after = (charAt text (at + fl))
+                }
+                def headOk:boolean (((PresTrace.pathChar(before)) == false) || (before == 47))
+                if (before == 47) {
+                    ; a slash before it is only the leading one: "/media/x.png"
+                    headOk = ((at < 2) || ((PresTrace.pathChar((charAt text (at - 2)))) == false))
+                }
+                if (headOk && ((PresTrace.pathChar(after)) == false)) {
+                    out = (out + (substring text i at) + t)
+                } {
+                    out = (out + (substring text i (at + fl)))
+                }
+                i = (at + fl)
+            }
+        }
+        return out
+    }
+
+    ; how many times `from` is used in the text, as swapRef counts them
+    sfn countRefs:int (text:string from:string) {
+        def f:string from
+        while (startsWith f "/") {
+            f = (substring f 1 (strlen f))
+        }
+        ; each use swapped for itself and one more character
+        return ((strlen (PresTrace.swapRef(text f (f + "#")))) - (strlen text))
+    }
+}
