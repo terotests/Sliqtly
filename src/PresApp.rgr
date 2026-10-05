@@ -43,6 +43,7 @@ Import "PresChartEditor.rgr"
 Import "PresToolbar.rgr"
 Import "PresHintPopover.rgr"
 Import "PresPanels.rgr"
+Import "PresReviewUi.rgr"
 Import "PresA11y.rgr"
 Import "PresSelect.rgr"
 Import "../evgui/src/TabsCtl.rgr"
@@ -234,6 +235,9 @@ class PresApp {
     def stageHintY:double 0.0
     def stageHintH:double 0.0
     def panels:PresPanels (new PresPanels())
+    ; review mode: comments pinned to the slides (PresReviewUi, PresReview)
+    def review:PresReviewUi (new PresReviewUi())
+    def reviewTitlesKey:string ""
     ; Which surface over the chrome is on top: the order they are painted in
     ; (`layerOrder`, read by the page) and the order a press, a wheel or the
     ; cursor goes to them (`layerAt`). EVGUI's UiLayers; see `syncLayers`.
@@ -279,6 +283,7 @@ class PresApp {
         ; toast over all
         layers.add("bar" "docked")
         layers.add("panels" "docked")
+        layers.add("review" "docked")
         layers.add("hint" "window")
         layers.add("chart" "window")
         layers.add("dialog" "modal")
@@ -1570,10 +1575,11 @@ class PresApp {
             this.placePresent()
             return
         }
-        ; the help panel or the chat, when open, takes the right edge
+        ; the help panel, the chat or a comment's thread, when open, takes
+        ; the right edge
         def AW:double W
-        if (((panels.dockW()) > 0.0) && (barH > 0.0)) {
-            AW = (W - (panels.dockW()))
+        if (((this.dockW()) > 0.0) && (barH > 0.0)) {
+            AW = (W - (this.dockW()))
         }
         if ((AW < 320.0) && (AW < W)) {
             AW = W
@@ -1609,11 +1615,20 @@ class PresApp {
         this.fitSlide(stageArea 20.0)
     }
 
+    ; What is docked on the right takes: a comment's thread, else the help
+    ; panel or the chat.
+    fn dockW:double () {
+        if ((review.dockW()) > 0.0) {
+            return (review.dockW())
+        }
+        return (panels.dockW())
+    }
+
     ; Narrower than an editor and a slide side by side need.
     fn isCompact:boolean () {
         def AW:double W
-        if (((panels.dockW()) > 0.0) && (barH > 0.0)) {
-            AW = (W - (panels.dockW()))
+        if (((this.dockW()) > 0.0) && (barH > 0.0)) {
+            AW = (W - (this.dockW()))
             if (AW < 320.0) {
                 AW = W
             }
@@ -2444,6 +2459,7 @@ class PresApp {
         out = (out + ":" + (to_string editor.layout.scrollLine) + ":" + (to_string blink))
         out = (out + ":" + focus + ":" + mode + ":" + (EVGDisplayList.num(W)) + "x" + (EVGDisplayList.num(H)))
         out = (out + ":c" + (to_string chart.rev) + ":t" + (to_string toolbar.rev) + ":h" + (to_string hint.rev) + ":p" + (to_string panels.rev))
+        out = (out + ":r" + (to_string review.rev))
         return out
     }
 
@@ -2462,6 +2478,20 @@ class PresApp {
     ; Where a press landed: "editor", "sep", "scrub", "thumb", "stage" or "".
     fn pointerDown:string (x:double y:double shift:boolean clicks:int) {
         this.place()
+        ; review mode: a pin, its bar, a thread, or where a new comment goes
+        if review.on {
+            if (((this.layerAt(x y)) == "review") && (review.press(x y clicks shift))) {
+                this.afterReview()
+                return "review"
+            }
+            if review.typing {
+                review.typing = false
+                review.changed()
+                if (focus == "review") {
+                    focus = (? (mode == "present") "stage" "editor")
+                }
+            }
+        }
         if (mode == "present") {
             this.stageDown(x y)
             return "stage"
@@ -2785,6 +2815,12 @@ class PresApp {
     }
 
     fn pointerMove:void (x:double y:double) {
+        ; a drag selecting in a comment's text field
+        if review.selecting {
+            review.dragTo(x)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         ; a drag selecting in the chat's text field
         if panels.chatSelecting {
             panels.chatDragTo(x)
@@ -2891,6 +2927,7 @@ class PresApp {
     }
 
     fn pointerUp:void () {
+        review.release()
         panels.chatRelease()
         panels.textRelease()
         if (hint.isOpen && (hint.dragging())) {
@@ -2989,6 +3026,12 @@ class PresApp {
     }
 
     fn wheel:boolean (x:double y:double dy:double) {
+        if (review.on && ((this.layerAt(x y)) == "review")) {
+            if (review.wheel(x y dy)) {
+                chromeRev = (chromeRev + 1)
+                return true
+            }
+        }
         if (mode == "present") {
             return false
         }
@@ -3057,6 +3100,12 @@ class PresApp {
 
     fn cursorAt:string (x:double y:double) {
         this.place()
+        if (review.on && ((this.layerAt(x y)) == "review")) {
+            def rc:string (review.cursorAt(x y))
+            if ((strlen rc) > 0) {
+                return rc
+            }
+        }
         if (mode == "present") {
             return "default"
         }
@@ -3131,6 +3180,16 @@ class PresApp {
     }
 
     fn key:boolean (name:string shift:boolean ctrl:boolean) {
+        if (review.hasKeys()) {
+            return (this.reviewKey(name shift ctrl))
+        }
+        if ((name == "escape") && (review.escape())) {
+            if (focus == "review") {
+                focus = (? (mode == "present") "stage" "editor")
+            }
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         if (((name == "escape") && pick.on) && (((hint.isOpen == false) && (mode != "present")) && (focus == "stage"))) {
             pick.clear()
             chromeRev = (chromeRev + 1)
@@ -3315,6 +3374,11 @@ class PresApp {
     }
 
     fn text:void (s:string) {
+        if (review.hasKeys()) {
+            review.text(s)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if (this.chatHasKeys()) {
             panels.chat.typeChar("" s)
             panels.rebuild()
@@ -3383,6 +3447,11 @@ class PresApp {
     ; document is read from its first slide: the caret goes to the top
     ; rather than being left at the end of what came in.
     fn pasteText:void (s:string) {
+        if (review.hasKeys()) {
+            review.text((PresReviewUi.oneLine(s)))
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if (chart.isOpen && (mode != "present")) {
             chart.type(s)
             this.afterChart()
@@ -3425,6 +3494,13 @@ class PresApp {
     }
 
     fn chord:boolean (ch:string) {
+        if (review.hasKeys()) {
+            if (ch == "a") {
+                review.selectAll()
+                chromeRev = (chromeRev + 1)
+            }
+            return true
+        }
         if (mode == "present") {
             return false
         }
@@ -3847,6 +3923,7 @@ class PresApp {
             layers.setBand("bar" "docked")
         }
         layers.setOpen("panels" (((panels.helpOpen || panels.filesOpen) || panels.chat.open) && edit))
+        layers.setOpen("review" (review.on && ((deck.slideCount()) > 0)))
         layers.setOpen("hint" (hint.isOpen && edit))
         layers.setOpen("chart" chart.isOpen)
         layers.setOpen("dialog" (panels.shareOpen && edit))
@@ -3866,6 +3943,10 @@ class PresApp {
         }
         if (id == "panels") {
             return (panels.dockedHas(x y))
+        }
+        if (id == "review") {
+            this.reviewReady()
+            return (review.has(x y))
         }
         if (id == "hint") {
             return (hint.has(x y))
@@ -4470,10 +4551,235 @@ class PresApp {
     fn setPanelsCss:void (css:string) {
         panels.css = css
         panels.rebuild()
+        review.css = css
+        review.changed()
+    }
+
+    ; =========================================================================
+    ; Review mode (PresReviewUi): comments pinned to the slides
+    ; =========================================================================
+    ; on or off (File → Settings; the page keeps the choice)
+    fn setReviewMode:void (on:boolean) {
+        review.setOn(on)
+        if ((on == false) && (focus == "review")) {
+            focus = (? (mode == "present") "stage" "editor")
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn reviewMode:boolean () {
+        return review.on
+    }
+
+    ; a comment is being written: the page's keys go to it
+    fn reviewHasKeys:boolean () {
+        return (review.hasKeys())
+    }
+
+    ; who writes the comments made here: an id for the person, the name and
+    ; colour shown, and a prefix for the ids made here (unique to the page)
+    fn reviewSetMe:void (who:string name:string color:string prefix:string) {
+        review.setMe(who name color prefix)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; the page's clock: ms since 1970 and the time zone (minutes east of UTC)
+    fn reviewClock:void (now:double zone:int) {
+        review.nowMs = now
+        review.zoneMin = zone
+    }
+
+    ; the pins' colour, "#rrggbb"
+    fn reviewColor:void (c:string) {
+        review.color = c
+        review.changed()
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; the deck's review/comments.json; `merge` unites it with what is here
+    ; (a copy from elsewhere) instead of putting it in its place (a deck
+    ; opened). "" is a deck without comments.
+    fn reviewLoad:void (text:string merge:boolean) {
+        if ((merge == false) && ((strlen text) == 0)) {
+            review.reset()
+        } {
+            review.load(text merge)
+        }
+        reviewTitlesKey = ""
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; Where review mode's parts are, for the page's checks:
+    ; {"on", "slide": [x, y, w, h], "bar": [x, y, w, h], "panel": [x, y, w, h]
+    ;  or null, "placing", "open" (the thread's id), "drafting", "typing",
+    ;  "threads", "openCount"}
+    fn reviewState:string () {
+        this.place()
+        this.reviewReady()
+        if (review.on) {
+            review.displayList()
+        }
+        def o:VlJson (VlJson.objectValue())
+        o.setMember("on" (VlJson.boolValue(review.on)))
+        o.setMember("slide" (PresApp.rectJson(review.sx review.sy review.sw review.sh)))
+        o.setMember("bar" (PresApp.rectJson((review.barX()) (review.barY()) review.barW review.barH)))
+        if (review.panelOpen()) {
+            o.setMember("panel" (PresApp.rectJson((review.panelX()) review.top review.panelW (H - review.top))))
+        } {
+            o.setMember("panel" (VlJson.nullValue()))
+        }
+        o.setMember("placing" (VlJson.boolValue(review.placing)))
+        o.setMember("open" (VlJson.stringValue(review.openId)))
+        o.setMember("drafting" (VlJson.boolValue(review.drafting)))
+        o.setMember("typing" (VlJson.boolValue((review.hasKeys()))))
+        o.setMember("threads" (VlJson.intValue((review.model.count()))))
+        o.setMember("openCount" (VlJson.intValue((review.model.openCount()))))
+        def w (new VlJsonWriter())
+        return (w.write(o))
+    }
+
+    sfn rectJson:VlJson (x:double y:double w:double h:double) {
+        def a:VlJson (VlJson.arrayValue())
+        push a.arr (VlJson.numberValue(x))
+        push a.arr (VlJson.numberValue(y))
+        push a.arr (VlJson.numberValue(w))
+        push a.arr (VlJson.numberValue(h))
+        return a
+    }
+
+    ; the file to keep, after "review-save"
+    fn reviewFile:string () {
+        return (review.fileText())
+    }
+
+    fn reviewCount:int () {
+        return (review.model.count())
+    }
+
+    fn reviewOpenCount:int () {
+        return (review.model.openCount())
+    }
+
+    ; The slides' titles to the review (threads follow their slides), and
+    ; where the stage and the slide are now.
+    fn reviewReady:void () {
+        def key:string ((to_string mdEditor.buf.version) + ":" + (to_string (deck.slideCount())))
+        if (key != reviewTitlesKey) {
+            reviewTitlesKey = key
+            def ts:[string]
+            def i:int 0
+            while (i < (deck.slideCount())) {
+                def sl:PresSlide (deck.slideAt(i))
+                push ts sl.title
+                i = (i + 1)
+            }
+            review.setTitles(ts)
+        }
+        review.measurer = measurer
+        review.skin = skin
+        def pres:boolean (mode == "present")
+        if pres {
+            review.place(W H 0.0 true selected slideRect.x slideRect.y slideRect.w slideRect.h 0.0 W H)
+        } {
+            review.place(W H barH false selected slideRect.x slideRect.y slideRect.w slideRect.h stageArea.x stageArea.w (stageArea.y + stageArea.h))
+        }
+    }
+
+    ; review mode's layer, for the page to paint where `layerOrder` puts it
+    fn reviewJson:string () {
+        if ((review.on == false) || ((deck.slideCount()) == 0)) {
+            return ""
+        }
+        if ((mode == "present") && ended) {
+            return ""
+        }
+        this.place()
+        this.reviewReady()
+        def dl:EVGDisplayList (review.displayList())
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
+    }
+
+    ; after a press or a key in review mode: the keys, a slide to go to, the
+    ; file to write
+    fn afterReview:void () {
+        if (review.hasKeys()) {
+            focus = "review"
+        } {
+            if (focus == "review") {
+                focus = (? (mode == "present") "stage" "editor")
+            }
+        }
+        if ((review.panelOpen()) && (mode != "present")) {
+            if panels.helpOpen {
+                panels.setHelp(false)
+            }
+            if panels.chat.open {
+                panels.setChat(false)
+                push requests "chat-closed"
+            }
+        }
+        if (review.wantSlide >= 0) {
+            def to:int review.wantSlide
+            review.wantSlide = -1
+            this.showSlideForReview(to)
+        }
+        while ((array_length review.requests) > 0) {
+            push requests (itemAt review.requests 0)
+            remove_index review.requests 0
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; a slide shown whole: edited, it is selected; presenting, it is shown as
+    ; it stands after its last step
+    fn showSlideForReview:void (i:int) {
+        if ((i < 0) || (i >= (deck.slideCount()))) {
+            return
+        }
+        if (mode == "present") {
+            ended = false
+            selected = i
+            this.viewReset()
+            activeDia = -1
+            def s:PresSlide (deck.slideAt(i))
+            pStep = s.steps
+            clock = ((PresTimeline.slideStart(deck i)) + s.duration)
+            chromeRev = (chromeRev + 1)
+        } {
+            if playing {
+                this.stop()
+            }
+            this.selectSlide(i)
+        }
+    }
+
+    fn reviewKey:boolean (name:string shift:boolean ctrl:boolean) {
+        def k:string (PresChartEditor.kitKey(name))
+        if (name == "escape") {
+            k = "Escape"
+        }
+        if (name == "enter") {
+            k = "Enter"
+        }
+        if (name == "pageUp") {
+            k = "PageUp"
+        }
+        if (name == "pageDown") {
+            k = "PageDown"
+        }
+        if ((strlen k) == 0) {
+            return false
+        }
+        review.key(k shift ctrl)
+        this.afterReview()
+        return true
     }
 
     fn setHelp:void (on:boolean) {
         panels.setHelp(on)
+        if on {
+            review.closePanel()
+        }
         panelsKey = ""
         chromeRev = (chromeRev + 1)
     }
@@ -4488,6 +4794,7 @@ class PresApp {
     fn chatOpen:void (on:boolean) {
         panels.setChat(on)
         if on {
+            review.closePanel()
             focus = "chat"
         } {
             if (focus == "chat") {
@@ -4750,6 +5057,8 @@ class PresApp {
     }
 
     fn openSettings:void (contrast:boolean) {
+        panels.reviewOn = review.on
+        panels.reviewColor = review.color
         panels.openSettings(contrast)
         chromeRev = (chromeRev + 1)
     }
@@ -5918,6 +6227,17 @@ class PresApp {
         return true
     }
 
+    ; The same window with two answers: `ok` ("confirm:<key>") and `alt`
+    ; ("confirm:<key>:alt"), and Cancel.
+    fn openChoice:boolean (key:string title:string words:string ok:string alt:string) {
+        if ((this.openConfirm(key title words ok)) == false) {
+            return false
+        }
+        chart.cfAlt = alt
+        chart.rebuild()
+        return true
+    }
+
     ; Help → About: the same window with the app's name and version, `words`
     ; one line each, and only an OK button
     fn openAbout:boolean (title:string words:string) {
@@ -6428,6 +6748,10 @@ class PresApp {
             if ((chart.mode == "confirm") && chart.wantsConfirm) {
                 chart.wantsConfirm = false
                 push requests ("confirm:" + chart.cfKey)
+            }
+            if ((chart.mode == "confirm") && chart.wantsAlt) {
+                chart.wantsAlt = false
+                push requests ("confirm:" + chart.cfKey + ":alt")
             }
             if (chart.mode == "paste") {
                 if chart.wantsPlace {
@@ -6981,6 +7305,12 @@ class PresApp {
     ; open window's text or field, the panels' (the toast, a note, a link,
     ; the chat field) — else the editor's.
     fn readSelection:string () {
+        if (review.hasKeys()) {
+            def rt:string (review.copyText())
+            if ((strlen rt) > 0) {
+                return rt
+            }
+        }
         if chart.isOpen {
             def ct:string (chart.copyText())
             if ((strlen ct) > 0) {

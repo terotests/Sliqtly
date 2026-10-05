@@ -1,0 +1,571 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresReview.rgr — review comments pinned to slides
+; ============================================================================
+;
+; In review mode a reader pins a comment to a point on a slide, and a
+; conversation grows under it: a thread. A thread that has been dealt with is
+; closed (resolved): it stays, faint, and can be opened again; only a closed
+; one can be deleted for good. Nothing here draws or knows a clock; the host
+; gives the ids, the names and the times (milliseconds since 1970).
+;
+; A thread is anchored to its slide by the slide's title and its number then
+; (`slide`, `title`). Slides move, are added and renamed while a deck is
+; edited, so `place(titles)` finds each thread's slide again: the same number
+; while the title there is the same, else the nearest slide with that title,
+; else the same number (a renamed slide), the last slide past the end.
+;
+; The deck keeps them as one file, review/comments.json:
+;
+;   {"version": 1,
+;    "threads": [{"id", "slide" (1 = first), "title", "x", "y" (0..1 of the
+;                 slide's width and height), "closed", "state" (when closed or
+;                 opened last, ms), "by" (who did that), "created",
+;                 "messages": [{"id", "who", "name", "color", "text", "at"}]}],
+;    "deleted": [thread ids]}
+;
+; Two copies of the file (two people, an assistant through MCP, another tab)
+; merge (`merge`): threads and messages are united by id, a thread's open or
+; closed state is the one set last, and a thread deleted in either stays
+; deleted (its id is kept in "deleted" so a copy that still has it does not
+; bring it back).
+; ============================================================================
+
+Import "../vela/src/VlJson.rgr"
+
+class PresReviewMsg {
+    def id:string ""
+    ; who wrote it: the host's id for a person
+    def who:string ""
+    def name:string ""
+    ; "#rrggbb"
+    def color:string ""
+    def text:string ""
+    def at:double 0.0
+}
+
+class PresReviewThread {
+    def id:string ""
+    ; the slide it is on, 0 = first, and that slide's title
+    def slide:int 0
+    def title:string ""
+    ; where on the slide, 0..1 of its width and height
+    def x:double 0.5
+    def y:double 0.5
+    def closed:boolean false
+    ; when it was closed or opened last, and by whom
+    def state:double 0.0
+    def by:string ""
+    def created:double 0.0
+    def msgs:[PresReviewMsg]
+
+    fn count:int () {
+        return (array_length msgs)
+    }
+
+    fn hasMsg:boolean (id:string) {
+        for msgs m:PresReviewMsg i {
+            if (m.id == id) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; the first message, the thread's subject ("" when there is none)
+    fn firstText:string () {
+        if ((array_length msgs) == 0) {
+            return ""
+        }
+        def m:PresReviewMsg (itemAt msgs 0)
+        return m.text
+    }
+
+    ; when anything last happened in it
+    fn lastAt:double () {
+        def t:double created
+        if (state > t) {
+            t = state
+        }
+        for msgs m:PresReviewMsg i {
+            if (m.at > t) {
+                t = m.at
+            }
+        }
+        return t
+    }
+
+    ; a message in time order (equal times keep their order)
+    fn addMsg:void (m:PresReviewMsg) {
+        def i:int (array_length msgs)
+        while (i > 0) {
+            def prev:PresReviewMsg (itemAt msgs (i - 1))
+            if (prev.at <= m.at) {
+                break
+            }
+            i = (i - 1)
+        }
+        insert msgs i m
+    }
+}
+
+class PresReview {
+    def threads:[PresReviewThread]
+    ; the ids of threads deleted for good
+    def gone:[string]
+    ; one more on every change, for a host that redraws on it
+    def rev:int 0
+
+    Constructor () {
+    }
+
+    ; --- finding ----------------------------------------------------------------
+
+    fn indexOf:int (id:string) {
+        def i:int 0
+        while (i < (array_length threads)) {
+            def t:PresReviewThread (itemAt threads i)
+            if (t.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn has:boolean (id:string) {
+        return ((this.indexOf(id)) >= 0)
+    }
+
+    fn find@(optional):PresReviewThread (id:string) {
+        def i:int (this.indexOf(id))
+        def none@(optional):PresReviewThread
+        if (i < 0) {
+            return none
+        }
+        def t@(optional):PresReviewThread (itemAt threads i)
+        return t
+    }
+
+    fn isGone:boolean (id:string) {
+        for gone g:string i {
+            if (g == id) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn count:int () {
+        return (array_length threads)
+    }
+
+    fn openCount:int () {
+        def n:int 0
+        for threads t:PresReviewThread i {
+            if (t.closed == false) {
+                n = (n + 1)
+            }
+        }
+        return n
+    }
+
+    ; the threads on a slide, in the order they were made
+    fn onSlide:[PresReviewThread] (slide:int) {
+        def out:[PresReviewThread]
+        for threads t:PresReviewThread i {
+            if (t.slide == slide) {
+                push out t
+            }
+        }
+        return out
+    }
+
+    ; --- changing ---------------------------------------------------------------
+
+    sfn clamp01:double (v:double) {
+        if (v < 0.0) {
+            return 0.0
+        }
+        if (v > 1.0) {
+            return 1.0
+        }
+        return v
+    }
+
+    sfn msg:PresReviewMsg (id:string who:string name:string color:string text:string at:double) {
+        def m (new PresReviewMsg())
+        m.id = id
+        m.who = who
+        m.name = name
+        m.color = color
+        m.text = text
+        m.at = at
+        return m
+    }
+
+    ; A new thread with its first message; false when the id is taken (or was
+    ; deleted) or there is nothing to say.
+    fn start:boolean (id:string slide:int title:string x:double y:double m:PresReviewMsg) {
+        if ((((strlen id) == 0) || (this.has(id))) || (this.isGone(id))) {
+            return false
+        }
+        if ((strlen (trim m.text)) == 0) {
+            return false
+        }
+        def t (new PresReviewThread())
+        t.id = id
+        t.slide = slide
+        if (t.slide < 0) {
+            t.slide = 0
+        }
+        t.title = title
+        t.x = (PresReview.clamp01(x))
+        t.y = (PresReview.clamp01(y))
+        t.created = m.at
+        t.state = m.at
+        t.by = m.who
+        m.text = (trim m.text)
+        push t.msgs m
+        push threads t
+        rev = (rev + 1)
+        return true
+    }
+
+    ; A message in a thread. A closed thread takes none: it is opened first.
+    fn reply:boolean (id:string m:PresReviewMsg) {
+        def i:int (this.indexOf(id))
+        if (i < 0) {
+            return false
+        }
+        def t:PresReviewThread (itemAt threads i)
+        if ((t.closed || ((strlen (trim m.text)) == 0)) || (t.hasMsg(m.id))) {
+            return false
+        }
+        m.text = (trim m.text)
+        t.addMsg(m)
+        rev = (rev + 1)
+        return true
+    }
+
+    ; closed (true) or open again (false); false when it already was
+    fn setClosed:boolean (id:string closed:boolean who:string at:double) {
+        def i:int (this.indexOf(id))
+        if (i < 0) {
+            return false
+        }
+        def t:PresReviewThread (itemAt threads i)
+        if (t.closed == closed) {
+            return false
+        }
+        t.closed = closed
+        t.state = at
+        t.by = who
+        rev = (rev + 1)
+        return true
+    }
+
+    ; Deleted for good: only a closed thread.
+    fn remove:boolean (id:string) {
+        def i:int (this.indexOf(id))
+        if (i < 0) {
+            return false
+        }
+        def t:PresReviewThread (itemAt threads i)
+        if (t.closed == false) {
+            return false
+        }
+        remove_index threads i
+        push gone id
+        rev = (rev + 1)
+        return true
+    }
+
+    ; --- the slides moved --------------------------------------------------------
+
+    ; Each thread to its slide again, by `titles` (the deck's slide titles in
+    ; order). -> true when a thread moved.
+    fn place:boolean (titles:[string]) {
+        def n:int (array_length titles)
+        def moved:boolean false
+        for threads t:PresReviewThread i {
+            def at:int (PresReview.slideFor(t.slide t.title titles))
+            if (at != t.slide) {
+                t.slide = at
+                moved = true
+            }
+            if ((at >= 0) && (at < n)) {
+                t.title = (itemAt titles at)
+            }
+        }
+        if moved {
+            rev = (rev + 1)
+        }
+        return moved
+    }
+
+    sfn slideFor:int (slide:int title:string titles:[string]) {
+        def n:int (array_length titles)
+        if (n == 0) {
+            return slide
+        }
+        if (((slide >= 0) && (slide < n)) && ((itemAt titles slide) == title)) {
+            return slide
+        }
+        if ((strlen title) > 0) {
+            def best:int -1
+            def bestD:int 1000000
+            def j:int 0
+            while (j < n) {
+                if ((itemAt titles j) == title) {
+                    def d:int (j - slide)
+                    if (d < 0) {
+                        d = (0 - d)
+                    }
+                    if (d < bestD) {
+                        best = j
+                        bestD = d
+                    }
+                }
+                j = (j + 1)
+            }
+            if (best >= 0) {
+                return best
+            }
+        }
+        if (slide >= n) {
+            return (n - 1)
+        }
+        if (slide < 0) {
+            return 0
+        }
+        return slide
+    }
+
+    ; --- two copies --------------------------------------------------------------
+
+    ; What `other` has that this does not; -> true when anything changed.
+    fn merge:boolean (other:PresReview) {
+        def changed:boolean false
+        for other.gone g:string gi {
+            if ((this.isGone(g)) == false) {
+                push gone g
+                def k:int (this.indexOf(g))
+                if (k >= 0) {
+                    remove_index threads k
+                }
+                changed = true
+            }
+        }
+        for other.threads ot:PresReviewThread i {
+            if ((this.isGone(ot.id)) == false) {
+                def k2:int (this.indexOf(ot.id))
+                if (k2 < 0) {
+                    push threads (PresReview.copyThread(ot))
+                    changed = true
+                } {
+                    def mine:PresReviewThread (itemAt threads k2)
+                    for ot.msgs om:PresReviewMsg j {
+                        if ((mine.hasMsg(om.id)) == false) {
+                            mine.addMsg((PresReview.msg(om.id om.who om.name om.color om.text om.at)))
+                            changed = true
+                        }
+                    }
+                    if ((ot.state > mine.state) && ((ot.closed != mine.closed) || (ot.by != mine.by))) {
+                        mine.closed = ot.closed
+                        mine.state = ot.state
+                        mine.by = ot.by
+                        changed = true
+                    }
+                }
+            }
+        }
+        if changed {
+            rev = (rev + 1)
+        }
+        return changed
+    }
+
+    sfn copyThread:PresReviewThread (t:PresReviewThread) {
+        def c (new PresReviewThread())
+        c.id = t.id
+        c.slide = t.slide
+        c.title = t.title
+        c.x = t.x
+        c.y = t.y
+        c.closed = t.closed
+        c.state = t.state
+        c.by = t.by
+        c.created = t.created
+        for t.msgs m:PresReviewMsg i {
+            push c.msgs (PresReview.msg(m.id m.who m.name m.color m.text m.at))
+        }
+        return c
+    }
+
+    ; --- the file ------------------------------------------------------------------
+
+    sfn PATH:string () {
+        return "review/comments.json"
+    }
+
+    sfn num:VlJson (v:double) {
+        return (VlJson.numberValue(v))
+    }
+
+    fn toJson:string () {
+        def root:VlJson (VlJson.objectValue())
+        root.setMember("version" (VlJson.intValue(1)))
+        def arr:VlJson (VlJson.arrayValue())
+        for threads t:PresReviewThread i {
+            def o:VlJson (VlJson.objectValue())
+            o.setMember("id" (VlJson.stringValue(t.id)))
+            ; one-based in the file, as people count slides
+            o.setMember("slide" (VlJson.intValue((t.slide + 1))))
+            o.setMember("title" (VlJson.stringValue(t.title)))
+            o.setMember("x" (PresReview.num((PresReview.round4(t.x)))))
+            o.setMember("y" (PresReview.num((PresReview.round4(t.y)))))
+            o.setMember("closed" (VlJson.boolValue(t.closed)))
+            o.setMember("state" (PresReview.num(t.state)))
+            o.setMember("by" (VlJson.stringValue(t.by)))
+            o.setMember("created" (PresReview.num(t.created)))
+            def ms:VlJson (VlJson.arrayValue())
+            for t.msgs m:PresReviewMsg j {
+                def mo:VlJson (VlJson.objectValue())
+                mo.setMember("id" (VlJson.stringValue(m.id)))
+                mo.setMember("who" (VlJson.stringValue(m.who)))
+                mo.setMember("name" (VlJson.stringValue(m.name)))
+                mo.setMember("color" (VlJson.stringValue(m.color)))
+                mo.setMember("text" (VlJson.stringValue(m.text)))
+                mo.setMember("at" (PresReview.num(m.at)))
+                push ms.arr mo
+            }
+            o.setMember("messages" ms)
+            push arr.arr o
+        }
+        root.setMember("threads" arr)
+        def del:VlJson (VlJson.arrayValue())
+        for gone g:string k {
+            push del.arr (VlJson.stringValue(g))
+        }
+        root.setMember("deleted" del)
+        def w (new VlJsonWriter())
+        w.decimals = 4
+        return (w.writePretty(root))
+    }
+
+    sfn round4:double (v:double) {
+        return ((to_double (to_int ((v * 10000.0) + 0.5))) / 10000.0)
+    }
+
+    ; A file read back; an empty review when the text is not one. Threads
+    ; without an id or a message are left out.
+    sfn parse:PresReview (text:string) {
+        def r (new PresReview())
+        if ((strlen (trim text)) == 0) {
+            return r
+        }
+        def p (new VlJsonParser())
+        def root:VlJson (p.parse(text))
+        if ((p.ok == false) || ((root.isObject()) == false)) {
+            return r
+        }
+        def del:VlJson (root.get("deleted"))
+        def d:int 0
+        while (d < (del.count())) {
+            def g:VlJson (del.at(d))
+            if ((g.isString()) && (((strlen (g.asString())) > 0) && ((r.isGone((g.asString()))) == false))) {
+                push r.gone (g.asString())
+            }
+            d = (d + 1)
+        }
+        def arr:VlJson (root.get("threads"))
+        def i:int 0
+        while (i < (arr.count())) {
+            def o:VlJson (arr.at(i))
+            def id:string (o.stringOr("id" ""))
+            if ((o.isObject()) && ((((strlen id) > 0) && ((r.has(id)) == false)) && ((r.isGone(id)) == false))) {
+                def t (new PresReviewThread())
+                t.id = id
+                t.slide = ((o.intOr("slide" 1)) - 1)
+                if (t.slide < 0) {
+                    t.slide = 0
+                }
+                t.title = (o.stringOr("title" ""))
+                t.x = (PresReview.clamp01((o.doubleOr("x" 0.5))))
+                t.y = (PresReview.clamp01((o.doubleOr("y" 0.5))))
+                t.closed = (o.boolOr("closed" false))
+                t.state = (o.doubleOr("state" 0.0))
+                t.by = (o.stringOr("by" ""))
+                t.created = (o.doubleOr("created" 0.0))
+                def ms:VlJson (o.get("messages"))
+                def j:int 0
+                while (j < (ms.count())) {
+                    def mo:VlJson (ms.at(j))
+                    def mid:string (mo.stringOr("id" ""))
+                    def mt:string (mo.stringOr("text" ""))
+                    if ((mo.isObject()) && ((((strlen mid) > 0) && ((strlen mt) > 0)) && ((t.hasMsg(mid)) == false))) {
+                        t.addMsg((PresReview.msg(mid (mo.stringOr("who" "")) (mo.stringOr("name" "")) (mo.stringOr("color" "")) mt (mo.doubleOr("at" 0.0)))))
+                    }
+                    j = (j + 1)
+                }
+                if ((array_length t.msgs) > 0) {
+                    push r.threads t
+                }
+            }
+            i = (i + 1)
+        }
+        return r
+    }
+
+    ; --- times as people read them -------------------------------------------------
+
+    ; "14:05" today, "3.10. 14:05" this year, "3.10.2025 14:05" before;
+    ; `offsetMin` is the reader's time zone (minutes east of UTC).
+    sfn timeText:string (at:double now:double offsetMin:int) {
+        def day:double 86400000.0
+        def a:double (at + ((to_double offsetMin) * 60000.0))
+        def n:double (now + ((to_double offsetMin) * 60000.0))
+        def ad:int (floor (a / day))
+        def nd:int (floor (n / day))
+        def mins:int (floor ((a - ((to_double ad) * day)) / 60000.0))
+        def hh:int (idiv mins 60)
+        def mm:int (mins - (hh * 60))
+        def clock:string ((to_string hh) + ":" + (? (mm < 10) "0" "") + (to_string mm))
+        if (ad == nd) {
+            return clock
+        }
+        def ymd:[int] (PresReview.civil(ad))
+        def nymd:[int] (PresReview.civil(nd))
+        def date:string ((to_string (itemAt ymd 2)) + "." + (to_string (itemAt ymd 1)) + ".")
+        if ((itemAt ymd 0) != (itemAt nymd 0)) {
+            date = (date + (to_string (itemAt ymd 0)))
+        }
+        return (date + " " + clock)
+    }
+
+    ; days since 1970-01-01 → [year, month, day] (Howard Hinnant's algorithm)
+    sfn civil:[int] (days:int) {
+        def z:int (days + 719468)
+        def era:int (idiv z 146097)
+        if (z < 0) {
+            era = (idiv (z - 146096) 146097)
+        }
+        def doe:int (z - (era * 146097))
+        def yoe:int (idiv (((doe - (idiv doe 1460)) + (idiv doe 36524)) - (idiv doe 146096)) 365)
+        def y:int (yoe + (era * 400))
+        def doy:int (doe - (((365 * yoe) + (idiv yoe 4)) - (idiv yoe 100)))
+        def mp:int (idiv ((5 * doy) + 2) 153)
+        def d:int ((doy - (idiv ((153 * mp) + 2) 5)) + 1)
+        def m:int (? (mp < 10) (mp + 3) (mp - 9))
+        if (m <= 2) {
+            y = (y + 1)
+        }
+        def out:[int]
+        push out y
+        push out m
+        push out d
+        return out
+    }
+}

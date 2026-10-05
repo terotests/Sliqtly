@@ -5,7 +5,7 @@
 ;
 ; Tools: sliqtly_guide, create_presentation, update_presentation,
 ; bind_chart_data, get_presentation, list_files, read_file,
-; list_presentations. create/update also name a UI
+; list_presentations, list_comments, add_comment, resolve_comment. create/update also name a UI
 ; resource (MCP Apps, and the same template for ChatGPT) that shows the deck
 ; inline in the chat.
 
@@ -16,6 +16,7 @@ Import "Check.rgr"
 Import "Charts.rgr"
 Import "Store.rgr"
 Import "Files.rgr"
+Import "../presentation/PresReview.rgr"
 
 ; who is asking, for one request
 class Caller {
@@ -271,6 +272,40 @@ class Tools {
         lim.putInt("maximum" 2000)
         rp.put("limit" lim)
         tools.add((Tools.tool("read_file" "Read a presentation's data file" "Read the values in one of a Sliqtly presentation's data files by its deck_id and path: a workbook's sheet (path data/x.xlsx with sheet, or the sheet's CSV name from list_files such as data/x-Sheet.csv), a CSV or TSV (as rows), or a JSON or text file. Rows come up to `limit` at a time from `offset`." (Tools.schema(rp ([] _:string ("deck_id" "path")))) (Tools.annotations(true -1 false false)) eitherMeta)))
+
+        def lcp:MfJ (MfJ.newObj())
+        lcp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
+        lcp.put("include_resolved" (Tools.prop("boolean" "Also list resolved (closed) threads; default true")))
+        tools.add((Tools.tool("list_comments" "Read review comments" "The review comments people left on a Sliqtly presentation's slides in review mode: each thread with its id, slide number and title, where on the slide it is pinned, whether it is resolved, and its messages in order. Answer them with add_comment; close one that is dealt with with resolve_comment." (Tools.schema(lcp ([] _:string ("deck_id")))) (Tools.annotations(true -1 false false)) eitherMeta)))
+
+        def acp:MfJ (MfJ.newObj())
+        acp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
+        acp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
+        acp.put("text" (Tools.prop("string" "The message")))
+        acp.put("thread_id" (Tools.prop("string" "Answer this thread (an id from list_comments); leave out to start a new comment on a slide")))
+        def slideP:MfJ (Tools.prop("integer" "A new comment's slide number, 1 = the first slide"))
+        slideP.putInt("minimum" 1)
+        acp.put("slide" slideP)
+        acp.put("slide_title" (Tools.prop("string" "A new comment's slide by its title, instead of slide")))
+        def xP:MfJ (Tools.prop("number" "Where on the slide the comment is pinned, 0 = left edge, 1 = right edge (default near the top right)"))
+        xP.putInt("minimum" 0)
+        xP.putInt("maximum" 1)
+        acp.put("x" xP)
+        def yP:MfJ (Tools.prop("number" "0 = top edge, 1 = bottom edge"))
+        yP.putInt("minimum" 0)
+        yP.putInt("maximum" 1)
+        acp.put("y" yP)
+        acp.put("author" (Tools.prop("string" "The name shown on the message (default \"AI assistant\")")))
+        tools.add((Tools.tool("add_comment" "Add a review comment" "Add a review comment to a Sliqtly presentation: a new comment pinned on a slide (slide or slide_title, optionally x and y), or an answer in a thread from list_comments (thread_id). A resolved thread is opened again by an answer. People see it in the editor's review mode." (Tools.schema(acp ([] _:string ("deck_id" "text")))) (Tools.annotations(false 0 false false)) eitherMeta)))
+
+        def rcp:MfJ (MfJ.newObj())
+        rcp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
+        rcp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
+        rcp.put("thread_id" (Tools.prop("string" "The thread's id from list_comments")))
+        rcp.put("resolved" (Tools.prop("boolean" "true (default) marks it resolved; false opens it again")))
+        rcp.put("text" (Tools.prop("string" "A last message in the thread first, e.g. what was changed")))
+        rcp.put("author" (Tools.prop("string" "The name shown on that message (default \"AI assistant\")")))
+        tools.add((Tools.tool("resolve_comment" "Resolve a review comment" "Mark a review comment thread of a Sliqtly presentation resolved once it is dealt with (or open it again with resolved false). A resolved thread stays on the slide, dimmed; only people delete threads." (Tools.schema(rcp ([] _:string ("deck_id" "thread_id")))) (Tools.annotations(false 0 true false)) eitherMeta)))
 
         def wp:MfJ (MfJ.newObj())
         wp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
@@ -819,7 +854,8 @@ class Tools {
             g.put("content" (Tools.text(guide)))
             return g
         }
-        if ((((name == "create_presentation") || (name == "update_presentation")) || (name == "bind_chart_data")) || (name == "write_workbook")) {
+        def writes:boolean ((((name == "create_presentation") || (name == "update_presentation")) || (name == "bind_chart_data")) || (name == "write_workbook"))
+        if (writes || ((name == "add_comment") || (name == "resolve_comment"))) {
             def why:string (host_rate_limit host caller.who)
             if ((strlen why) > 0) {
                 return (Tools.fail(why))
@@ -855,6 +891,15 @@ class Tools {
         }
         if (name == "list_presentations") {
             r = (Tools.listMine(host caller))
+        }
+        if (name == "list_comments") {
+            r = (Tools.listComments(host caller args))
+        }
+        if (name == "add_comment") {
+            r = (Tools.addComment(host caller args))
+        }
+        if (name == "resolve_comment") {
+            r = (Tools.resolveComment(host caller args))
         }
         if (r.kind == 0) {
             return r
@@ -1991,6 +2036,362 @@ class Tools {
             return ts
         }
         return (Files.tables(host (got.int_("handle" 0)) (f.str_("path"))))
+    }
+
+    ; --- review comments: the editor's review/comments.json (src/PresReview.rgr)
+
+    ; the colour an assistant's messages are shown with
+    sfn AI_COLOR:string () {
+        return "#c4b5fd"
+    }
+
+    ; the deck's comments as kept; a Storage error is left on the host
+    sfn reviewOf:PresReview (host:McpHost id:string d:MfJ) {
+        for (d.list("files")) f:MfJ i {
+            if ((f.str_("path")) == (PresReview.PATH())) {
+                def got:MfJ (J.parse((host_file_bytes host id (f.str_("path")))))
+                if ((strlen (host_error host)) > 0) {
+                    return (new PresReview())
+                }
+                return (PresReview.parse((host_text host (got.int_("handle" 0)))))
+            }
+        }
+        return (new PresReview())
+    }
+
+    ; the slides' titles as the player numbers them (a slide that runs over
+    ; goes on in untitled slides); none when the theme could not be read
+    sfn reviewTitles:[string] (host:McpHost id:string d:MfJ) {
+        def md:string (d.str_("md"))
+        def stored:[string]
+        for (d.list("files")) f:MfJ fi {
+            push stored (f.str_("path"))
+        }
+        def noImgs:[Img]
+        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def din (new DeckIn)
+        din.deckId = id
+        din.stored = stored
+        def css:MfJ (d.field("css"))
+        def ck:Checked (Tools.checkWith(host md (d.str_("theme")) (css.kind == 3) (d.str_("css")) bgs din))
+        host_clear_error host
+        return ck.titles
+    }
+
+    sfn slideLabel:string (t:PresReviewThread) {
+        def s:string ("slide " + (to_string (t.slide + 1)))
+        if ((strlen t.title) > 0) {
+            s = (s + " \"" + t.title + "\"")
+        }
+        return s
+    }
+
+    sfn threadJson:MfJ (host:McpHost t:PresReviewThread) {
+        def o:MfJ (MfJ.newObj())
+        o.putStr("thread_id" t.id)
+        o.putInt("slide" (t.slide + 1))
+        o.putStr("slide_title" t.title)
+        o.putNum("x" (PresReview.round4(t.x)))
+        o.putNum("y" (PresReview.round4(t.y)))
+        o.putBool("resolved" t.closed)
+        def ms:MfJ (MfJ.newArr())
+        for t.msgs m:PresReviewMsg i {
+            def mo:MfJ (MfJ.newObj())
+            mo.putStr("author" m.name)
+            mo.putStr("text" m.text)
+            mo.putStr("at" (host_iso_time host (to_int m.at)))
+            ms.add(mo)
+        }
+        o.put("messages" ms)
+        return o
+    }
+
+    sfn threadText:string (host:McpHost t:PresReviewThread) {
+        def state:string "open"
+        if t.closed {
+            state = "resolved"
+        }
+        def lines:[string]
+        push lines ("Thread " + t.id + " (" + state + ") on " + (Tools.slideLabel(t)) + ", pinned at x " + (to_string (PresReview.round4(t.x))) + ", y " + (to_string (PresReview.round4(t.y))) + ":")
+        for t.msgs m:PresReviewMsg i {
+            def who:string m.name
+            if ((strlen who) == 0) {
+                who = "Someone"
+            }
+            push lines ("  " + who + " (" + (host_iso_time host (to_int m.at)) + "): " + m.text)
+        }
+        return (join lines "\n")
+    }
+
+    sfn listComments:MfJ (host:McpHost caller:Caller a:MfJ) {
+        def got:MfJ (Tools.readable(host a ([] _:string ("deck_id"))))
+        if ((got.field("fail")).isObj()) {
+            return (got.field("fail"))
+        }
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "list_comments" (host_error host)))
+        }
+        def id:string (a.str_("deck_id"))
+        def d:MfJ (got.field("deck"))
+        def rv:PresReview (Tools.reviewOf(host id d))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "list_comments" (host_error host)))
+        }
+        def withClosed:boolean (a.bool_("include_resolved" true))
+        if ((rv.count()) > 0) {
+            rv.place((Tools.reviewTitles(host id d)))
+        }
+        ; slide by slide, each slide's threads in the order they were started
+        def last:int -1
+        for rv.threads t0:PresReviewThread i0 {
+            if (t0.slide > last) {
+                last = t0.slide
+            }
+        }
+        def list:MfJ (MfJ.newArr())
+        def lines:[string]
+        def s:int 0
+        while (s <= last) {
+            for (rv.onSlide(s)) t:PresReviewThread i {
+                if (t.closed && (withClosed == false)) {
+                    continue
+                }
+                list.add((Tools.threadJson(host t)))
+                push lines (Tools.threadText(host t))
+            }
+            s = (s + 1)
+        }
+        def open:int (rv.openCount())
+        def lead:string ("\"" + (d.str_("name")) + "\": " + (to_string (rv.count())) + " review comment threads, " + (to_string open) + " open.")
+        if ((rv.count()) == 0) {
+            lead = ("\"" + (d.str_("name")) + "\" has no review comments.")
+        }
+        if ((withClosed == false) && ((rv.count()) > open)) {
+            lead = (lead + " Resolved ones are left out.")
+        }
+        def all:[string]
+        push all lead
+        for lines ln:string li {
+            push all ln
+        }
+        def sc:MfJ (MfJ.newObj())
+        sc.putStr("deck_id" id)
+        sc.putInt("open" open)
+        sc.put("threads" list)
+        def r:MfJ (MfJ.newObj())
+        r.put("content" (Tools.text((join all "\n\n"))))
+        r.put("structuredContent" sc)
+        return r
+    }
+
+    ; the deck a comment changes, or why not (in fail)
+    sfn reviewEditable:Editable (host:McpHost caller:Caller a:MfJ required:[string]) {
+        def ed (new Editable)
+        if ((host_store_kind host) == "link") {
+            ed.fail = "This server keeps no decks (no cloud storage configured)."
+            return ed
+        }
+        def bad:string (Tools.checkArgs(a required))
+        if ((strlen bad) == 0) {
+            for ([] _:string ("thread_id" "text" "author" "slide_title")) k:string j {
+                def v:MfJ (a.field(k))
+                if (((v.kind != 0) && (v.kind != 3)) && ((strlen bad) == 0)) {
+                    bad = ("Invalid arguments: " + k + " is a string.")
+                }
+            }
+        }
+        if ((strlen bad) > 0) {
+            ed.fail = bad
+            return ed
+        }
+        def txt:string (trim (a.str_("text")))
+        if ((Tools.chars(txt)) > 4000) {
+            ed.fail = "text is longer than 4000 characters."
+            return ed
+        }
+        if ((Tools.chars((trim (a.str_("author"))))) > 60) {
+            ed.fail = "author is longer than 60 characters."
+            return ed
+        }
+        return (Tools.editable(host caller (a.str_("deck_id")) (a.str_("edit_key"))))
+    }
+
+    sfn reviewAuthor:string (a:MfJ) {
+        def n:string (trim (a.str_("author")))
+        if ((strlen n) == 0) {
+            return "AI assistant"
+        }
+        return n
+    }
+
+    ; the comments back into the deck: the deck as saved, a null value when
+    ; the key does not match
+    sfn keepReview:MfJ (host:McpHost id:string ed:Editable rv:PresReview) {
+        def text:string (rv.toJson())
+        def im (new Img)
+        im.name = "comments.json"
+        im.path = (PresReview.PATH())
+        im.type = "application/json"
+        im.handle = (host_keep_text host text)
+        im.size = (strlen text)
+        def kept:[Img]
+        push kept im
+        return (Store.update(host id (ed.mine == false) ed.key (new DeckPatch) kept))
+    }
+
+    sfn reviewAnswer:MfJ (host:McpHost id:string t:PresReviewThread said:string) {
+        def sc:MfJ (MfJ.newObj())
+        sc.putStr("deck_id" id)
+        sc.put("thread" (Tools.threadJson(host t)))
+        def r:MfJ (MfJ.newObj())
+        r.put("content" (Tools.text((said + " People see it in the editor's review mode."))))
+        r.put("structuredContent" sc)
+        return r
+    }
+
+    sfn noThread:MfJ (rv:PresReview tid:string) {
+        if (rv.isGone(tid)) {
+            return (Tools.fail(("Thread " + tid + " was deleted.")))
+        }
+        return (Tools.fail(("No comment thread " + tid + " in this presentation; list_comments gives the ids.")))
+    }
+
+    sfn addComment:MfJ (host:McpHost caller:Caller a:MfJ) {
+        def ed:Editable (Tools.reviewEditable(host caller a ([] _:string ("deck_id" "text"))))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "add_comment" (host_error host)))
+        }
+        if ((strlen ed.fail) > 0) {
+            return (Tools.fail(ed.fail))
+        }
+        def text:string (trim (a.str_("text")))
+        if ((strlen text) == 0) {
+            return (Tools.fail("Invalid arguments: text is empty."))
+        }
+        def id:string (a.str_("deck_id"))
+        def rv:PresReview (Tools.reviewOf(host id ed.cur))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "add_comment" (host_error host)))
+        }
+        def now:double (to_double (host_now_ms host))
+        def m:PresReviewMsg (PresReview.msg(("ai" + (host_short_id host 12)) "ai" (Tools.reviewAuthor(a)) (Tools.AI_COLOR()) text now))
+        def tid:string (trim (a.str_("thread_id")))
+        def said:string ""
+        if ((strlen tid) > 0) {
+            if ((rv.has(tid)) == false) {
+                return (Tools.noThread(rv tid))
+            }
+            def reopened:boolean (rv.setClosed(tid false "ai" now))
+            rv.reply(tid m)
+            said = ("Answered thread " + tid + ".")
+            if reopened {
+                said = ("Answered thread " + tid + " and opened it again (it was resolved).")
+            }
+        } {
+            def titles:[string] (Tools.reviewTitles(host id ed.cur))
+            def n:int (array_length titles)
+            def slide:int -1
+            def sv:MfJ (a.field("slide"))
+            if (sv.kind == 2) {
+                slide = ((a.int_("slide" 0)) - 1)
+                if ((slide < 0) || ((n > 0) && (slide >= n))) {
+                    return (Tools.fail(("slide is a number from 1 to " + (to_string n) + ".")))
+                }
+            } {
+                def want:string (to_lowercase (trim (a.str_("slide_title"))))
+                if ((strlen want) == 0) {
+                    return (Tools.fail("Say where the comment goes: slide (a number) or slide_title, or thread_id to answer a thread."))
+                }
+                def j:int 0
+                while ((j < n) && (slide < 0)) {
+                    if ((to_lowercase (trim (itemAt titles j))) == want) {
+                        slide = j
+                    }
+                    j = (j + 1)
+                }
+                if (slide < 0) {
+                    def named:[string]
+                    for titles tt:string ti {
+                        if ((strlen tt) > 0) {
+                            push named ((to_string (ti + 1)) + " \"" + tt + "\"")
+                        }
+                    }
+                    return (Tools.fail(("No slide is titled \"" + (a.str_("slide_title")) + "\". The slides: " + (join named ", ") + ".")))
+                }
+            }
+            ; by default down the right edge, under the slide's other comments
+            def x:double (a.num_("x" 0.9))
+            def y:double (a.num_("y" (0.1 + (0.09 * (to_double (array_length (rv.onSlide(slide))))))))
+            def title:string ""
+            if (slide < n) {
+                title = (itemAt titles slide)
+            }
+            tid = ("ai" + (host_short_id host 12))
+            if ((rv.start(tid slide title x y m)) == false) {
+                return (Tools.fail("The comment could not be added."))
+            }
+            def t0:PresReviewThread (unwrap (rv.find(tid)))
+            said = ("Comment added on " + (Tools.slideLabel(t0)) + " (thread " + tid + ").")
+        }
+        def saved:MfJ (Tools.keepReview(host id ed rv))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "add_comment" (host_error host)))
+        }
+        if ((saved.isObj()) == false) {
+            return (Tools.fail("The edit_key does not match this presentation."))
+        }
+        return (Tools.reviewAnswer(host id (unwrap (rv.find(tid))) said))
+    }
+
+    sfn resolveComment:MfJ (host:McpHost caller:Caller a:MfJ) {
+        def ed:Editable (Tools.reviewEditable(host caller a ([] _:string ("deck_id" "thread_id"))))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "resolve_comment" (host_error host)))
+        }
+        if ((strlen ed.fail) > 0) {
+            return (Tools.fail(ed.fail))
+        }
+        def id:string (a.str_("deck_id"))
+        def rv:PresReview (Tools.reviewOf(host id ed.cur))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "resolve_comment" (host_error host)))
+        }
+        def tid:string (trim (a.str_("thread_id")))
+        if ((rv.has(tid)) == false) {
+            return (Tools.noThread(rv tid))
+        }
+        def closing:boolean (a.bool_("resolved" true))
+        def now:double (to_double (host_now_ms host))
+        def text:string (trim (a.str_("text")))
+        def wrote:boolean false
+        if ((strlen text) > 0) {
+            ; a closed thread takes no message: open it for the last word
+            rv.setClosed(tid false "ai" now)
+            wrote = (rv.reply(tid (PresReview.msg(("ai" + (host_short_id host 12)) "ai" (Tools.reviewAuthor(a)) (Tools.AI_COLOR()) text now))))
+        }
+        def changed:boolean (rv.setClosed(tid closing "ai" now))
+        def said:string ""
+        if closing {
+            said = ("Thread " + tid + " is resolved.")
+            if ((changed == false) && (wrote == false)) {
+                said = ("Thread " + tid + " was already resolved.")
+            }
+        } {
+            said = ("Thread " + tid + " is open again.")
+            if ((changed == false) && (wrote == false)) {
+                said = ("Thread " + tid + " was already open.")
+            }
+        }
+        if (changed || wrote) {
+            def saved:MfJ (Tools.keepReview(host id ed rv))
+            if ((strlen (host_error host)) > 0) {
+                return (Tools.failed(host "resolve_comment" (host_error host)))
+            }
+            if ((saved.isObj()) == false) {
+                return (Tools.fail("The edit_key does not match this presentation."))
+            }
+        }
+        return (Tools.reviewAnswer(host id (unwrap (rv.find(tid))) said))
     }
 
     sfn listMine:MfJ (host:McpHost caller:Caller) {

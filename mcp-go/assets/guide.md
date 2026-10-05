@@ -377,6 +377,21 @@ The report measures; it does not see. Look at the slides themselves:
 Effects (`fx=`), picture corners and SVG pictures are not drawn in these
 pictures; the player draws them.
 
+## Review comments
+
+People comment slides in the editor's review mode: a speech bubble pinned
+on a slide, with a thread of messages beside it. `list_comments` (deck_id)
+reads them: each thread's id, slide number and title, place on the slide,
+whether it is resolved, and its messages. Work through the open ones:
+
+- Change the deck as asked (`update_presentation`), then answer the thread
+  with `add_comment` (deck_id, thread_id, text) or close it with
+  `resolve_comment` (deck_id, thread_id, optional text saying what was
+  done). A resolved thread stays on the slide, dimmed; people delete them.
+- A comment of your own on a slide: `add_comment` with `slide` (number) or
+  `slide_title`, and `x`, `y` (0..1 of the slide) to point at something.
+- `author` names you on the message; the default is "AI assistant".
+
 ## Result
 
 `create_presentation` returns a share link that opens straight into the

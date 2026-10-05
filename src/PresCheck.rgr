@@ -9,6 +9,7 @@ Import "PresFlowModel.rgr"
 Import "PresGridModel.rgr"
 Import "PresControlsFade.rgr"
 Import "PresFollow.rgr"
+Import "PresReview.rgr"
 
 class PresCheck {
     def fails:int 0
@@ -96,6 +97,79 @@ class PresCheck {
         this.bigTitle()
         this.orientation()
         this.chartModel()
+        this.review()
+    }
+
+    ; Review comments: threads on slides, closing, deleting, the file, two
+    ; copies merged, slides found again by title, times.
+    fn review:void () {
+        def r (new PresReview())
+        def t0:double 1759658400000.0
+        this.ok((r.start("a" 2 "Sales" 0.25 0.5 (PresReview.msg("m1" "u1" "Ada" "#ea580c" "  Bigger font  " t0)))) "review: a thread starts with its message")
+        this.ok(((r.start("b" 0 "Intro" 1.4 -0.2 (PresReview.msg("m2" "u2" "Bo" "#2563eb" "Typo" (t0 + 1000.0))))) && ((r.count()) == 2)) "review: a second one")
+        this.ok(((r.start("a" 1 "X" 0.1 0.1 (PresReview.msg("m3" "u1" "Ada" "" "again" t0)))) == false) "review: an id once")
+        this.ok(((r.start("c" 1 "X" 0.1 0.1 (PresReview.msg("m4" "u1" "Ada" "" "   " t0)))) == false) "review: nothing said, no thread")
+        def b:PresReviewThread (unwrap (r.find("b")))
+        this.ok(((b.x == 1.0) && (b.y == 0.0)) "review: the point stays on the slide")
+        def a:PresReviewThread (unwrap (r.find("a")))
+        this.ok(((a.firstText()) == "Bigger font") "review: the text trimmed")
+        this.ok((r.reply("a" (PresReview.msg("m5" "u2" "Bo" "" "Done?" (t0 + 5000.0))))) "review: a reply")
+        this.ok((r.reply("a" (PresReview.msg("m6" "u1" "Ada" "" "Earlier" (t0 + 2000.0))))) "review: another")
+        def a2:PresReviewThread (unwrap (r.find("a")))
+        def mid:PresReviewMsg (itemAt a2.msgs 1)
+        this.ok((((a2.count()) == 3) && (mid.id == "m6")) "review: messages in time order")
+        this.ok(((r.reply("a" (PresReview.msg("m5" "u2" "Bo" "" "Done?" (t0 + 5000.0))))) == false) "review: a message once")
+        this.ok(((array_length (r.onSlide(2))) == 1) "review: threads of a slide")
+        this.ok(((r.remove("a")) == false) "review: an open thread is not deleted")
+        this.ok((r.setClosed("a" true "u2" (t0 + 9000.0))) "review: closed")
+        this.ok(((r.openCount()) == 1) "review: one open")
+        this.ok(((r.reply("a" (PresReview.msg("m7" "u2" "Bo" "" "more" (t0 + 9500.0))))) == false) "review: a closed thread takes no reply")
+        this.ok(((r.setClosed("a" true "u2" (t0 + 9600.0))) == false) "review: closed once")
+        ; the file and back
+        def text:string (r.toJson())
+        def back:PresReview (PresReview.parse(text))
+        this.ok(((back.count()) == 2) ("review: the file read back: " + text))
+        def ba:PresReviewThread (unwrap (back.find("a")))
+        this.ok((((ba.slide == 2) && ba.closed) && ((ba.count()) == 3)) "review: slide, state and messages kept")
+        this.ok(((indexOf text "\"slide\": 3") >= 0) "review: slides counted from 1 in the file")
+        this.ok((ba.state == (t0 + 9000.0)) ("review: times kept whole: " + (to_string ba.state)))
+        this.ok(((back.toJson()) == text) "review: the same file again")
+        this.ok((((PresReview.parse("not json")).count()) == 0) "review: not a file, nothing")
+        ; two copies
+        def other:PresReview (PresReview.parse(text))
+        other.setClosed("a" false "u3" (t0 + 20000.0))
+        other.reply("a" (PresReview.msg("m8" "u3" "Cy" "" "Not yet" (t0 + 21000.0))))
+        other.start("d" 0 "Intro" 0.5 0.5 (PresReview.msg("m9" "u3" "Cy" "" "New one" (t0 + 22000.0))))
+        this.ok((r.merge(other)) "review: a merge changes")
+        def ma:PresReviewThread (unwrap (r.find("a")))
+        this.ok((((r.count()) == 3) && ((ma.closed == false) && ((ma.count()) == 4))) "review: united, the later state wins")
+        this.ok(((r.merge(other)) == false) "review: the same merge again changes nothing")
+        r.setClosed("b" true "u1" (t0 + 30000.0))
+        r.remove("b")
+        def older:PresReview (PresReview.parse(text))
+        r.merge(older)
+        this.ok((((r.has("b")) == false) && (r.isGone("b"))) "review: deleted stays deleted")
+        other.merge(r)
+        this.ok(((other.has("b")) == false) "review: a deletion travels")
+        ; slides moved
+        def p (new PresReview())
+        p.start("s" 1 "Two" 0.5 0.5 (PresReview.msg("x1" "u" "U" "" "hi" t0)))
+        p.start("t" 3 "Four" 0.5 0.5 (PresReview.msg("x2" "u" "U" "" "hi" t0)))
+        p.place(([] _:string ("One" "New" "Two" "Three" "Four")))
+        def ps:PresReviewThread (unwrap (p.find("s")))
+        def pt:PresReviewThread (unwrap (p.find("t")))
+        this.ok(((ps.slide == 2) && (pt.slide == 4)) "review: a slide added before: found by title")
+        p.place(([] _:string ("One" "New" "Two!" "Three" "Four")))
+        def ps2:PresReviewThread (unwrap (p.find("s")))
+        this.ok(((ps2.slide == 2) && (ps2.title == "Two!")) "review: a renamed slide keeps its comments")
+        p.place(([] _:string ("One")))
+        def pt2:PresReviewThread (unwrap (p.find("t")))
+        this.ok((pt2.slide == 0) "review: past the end, the last slide")
+        ; times
+        def now:double 1759658400000.0
+        this.ok(((PresReview.timeText(now now 180)) == "13:00") ("review: today, the clock: " + (PresReview.timeText(now now 180))))
+        this.ok(((PresReview.timeText((now - 86400000.0) now 180)) == "4.10. 13:00") ("review: this year, the date: " + (PresReview.timeText((now - 86400000.0) now 180))))
+        this.ok(((PresReview.timeText((now - (400.0 * 86400000.0)) now 0)) == "31.8.2024 10:00") ("review: before, the year: " + (PresReview.timeText((now - (400.0 * 86400000.0)) now 0))))
     }
 
     ; A title set large enough to wrap keeps the diagram under it on its own

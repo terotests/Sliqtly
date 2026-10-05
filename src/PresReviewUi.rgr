@@ -1,0 +1,871 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresReviewUi.rgr — review mode over the slide: pins, the bar, the thread
+; ============================================================================
+;
+; Review mode (File → Settings) lets a reader comment on slides, while
+; editing and while presenting alike:
+;
+;   pins     each thread of the slide shown, as a speech bubble (EVGUI
+;            PinCtl) at its point; a closed one is faint. A press opens it.
+;   bar      a small bar at the foot of the stage: "Comment" (then a press
+;            on the slide says where), how many are open, and "Next" (the
+;            next open one, on whatever slide it is)
+;   thread   the conversation docked on the right (EVGUI ChatCtl as a
+;            thread): its messages, a line to answer on, Resolve; a resolved
+;            one Reopen and Delete (pressed twice), and no line to answer on
+;
+; The comments themselves are PresReview (the model, and the deck's file
+; review/comments.json). This draws them and takes presses and keys; what
+; changed is asked of the page as "review-save" (it writes the file), and a
+; jump to another slide as `wantSlide`.
+; ============================================================================
+
+Import "../evgui/src/UiHost.rgr"
+Import "../evgui/src/ChatCtl.rgr"
+Import "../evgui/src/PinCtl.rgr"
+Import "PresReview.rgr"
+Import "PresI18n.rgr"
+
+class PresReviewUi {
+    def model:PresReview (new PresReview())
+    def on:boolean false
+    def host:UiHost (new UiHost())
+    def css:string ""
+    def skin:string ""
+    def measurer@(optional):TTFTextMeasurer
+    ; the page, the band the bar takes at the top, presenting or not
+    def w:double 1200.0
+    def h:double 700.0
+    def top:double 0.0
+    def present:boolean false
+    ; the slide shown and where it is drawn
+    def slide:int 0
+    def sx:double 0.0
+    def sy:double 0.0
+    def sw:double 0.0
+    def sh:double 0.0
+    ; where the bar goes: the middle of `areaX`…`areaX + areaW`, above `areaB`
+    def areaX:double 0.0
+    def areaW:double 0.0
+    def areaB:double 0.0
+    def barW:double 0.0
+    def barH:double 40.0
+    ; the slides' titles, for "Slide 3" and for finding threads again
+    def titles:[string]
+    def panelW:double 360.0
+    def chat:ChatCtl (new ChatCtl())
+    def pins:[PinCtl]
+    ; the thread open on the right ("" none), or a new one being written
+    ; at (draftSlide, draftX, draftY)
+    def openId:string ""
+    def drafting:boolean false
+    def draftSlide:int 0
+    def draftX:double 0.0
+    def draftY:double 0.0
+    ; "Comment" was pressed: the next press on the slide says where
+    def placing:boolean false
+    ; Delete pressed once, waiting for the second
+    def armed:boolean false
+    ; the composer has the keys
+    def typing:boolean false
+    def selecting:boolean false
+    ; who writes, and the ids the page hands out (`prefix` + a count)
+    def meWho:string ""
+    def meName:string ""
+    def meColor:string "#2563eb"
+    def idPrefix:string "c"
+    def idCount:int 0
+    ; the page's clock: ms since 1970, and its time zone (minutes east)
+    def nowMs:double 0.0
+    def zoneMin:int 0
+    ; the pins' fill (File → Settings)
+    def color:string "#fde047"
+    def requests:[string]
+    ; a slide to show (the next comment), -1 none
+    def wantSlide:int -1
+    def rev:int 0
+    def builtKey:string ""
+
+    Constructor () {
+        chat.setup("rv-chat" (PresI18n.t("Comment")))
+        chat.placeholder = (PresI18n.t("Write a comment…"))
+        chat.emptyText = (PresI18n.t("Say what should change here."))
+        chat.sendText = (PresI18n.t("Send"))
+        chat.closeText = (PresI18n.t("Close"))
+        chat.newText = (PresI18n.t("new"))
+        chat.shown = 12
+        chat.keep = 1000
+    }
+
+    ; --- what shows -------------------------------------------------------------
+
+    fn panelOpen:boolean () {
+        return (on && (drafting || ((strlen openId) > 0)))
+    }
+
+    ; the width the thread takes off the right edge while editing (presenting,
+    ; it lies over the slide)
+    fn dockW:double () {
+        if ((this.panelOpen()) && (present == false)) {
+            return panelW
+        }
+        return 0.0
+    }
+
+    fn panelX:double () {
+        return (w - panelW)
+    }
+
+    fn inPanel:boolean (px:double py:double) {
+        return ((((this.panelOpen()) && (px >= (this.panelX()))) && (py >= top)) && (py <= h))
+    }
+
+    fn barX:double () {
+        return ((areaX + (areaW * 0.5)) - (barW * 0.5))
+    }
+
+    fn barY:double () {
+        return ((areaB - barH) - 12.0)
+    }
+
+    fn inBar:boolean (px:double py:double) {
+        if ((on == false) || (barW <= 0.0)) {
+            return false
+        }
+        def bx:double (this.barX())
+        def by:double (this.barY())
+        return ((((px >= bx) && (px <= (bx + barW))) && (py >= by)) && (py <= (by + barH)))
+    }
+
+    fn inSlide:boolean (px:double py:double) {
+        return ((((px >= sx) && (px <= (sx + sw))) && (py >= sy)) && (py <= (sy + sh)))
+    }
+
+    fn pinAt:string (px:double py:double) {
+        def i:int ((array_length pins) - 1)
+        while (i >= 0) {
+            def p:PinCtl (itemAt pins i)
+            if (p.has(px py)) {
+                return p.tid
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+
+    ; a press here is review mode's
+    fn has:boolean (px:double py:double) {
+        if (on == false) {
+            return false
+        }
+        if (((this.inPanel(px py)) || (this.inBar(px py))) || ((strlen (this.pinAt(px py))) > 0)) {
+            return true
+        }
+        return (placing && (this.inSlide(px py)))
+    }
+
+    ; --- the page's part -----------------------------------------------------------
+
+    fn setOn:void (o:boolean) {
+        if (o == on) {
+            return
+        }
+        on = o
+        if (on == false) {
+            this.closePanel()
+            placing = false
+        }
+        this.changed()
+    }
+
+    fn setMe:void (who:string name:string col:string prefix:string) {
+        meWho = who
+        meName = name
+        meColor = col
+        if ((strlen prefix) > 0) {
+            idPrefix = prefix
+        }
+        this.changed()
+    }
+
+    fn newId:string () {
+        idCount = (idCount + 1)
+        return (idPrefix + "-" + (to_string idCount))
+    }
+
+    ; the file read (a deck opened); `merge`: a copy from elsewhere, united
+    ; with this one rather than put in its place
+    fn load:void (text:string merge:boolean) {
+        def r:PresReview (PresReview.parse(text))
+        if merge {
+            if (model.merge(r)) {
+                this.changed()
+            }
+        } {
+            model = r
+            if ((strlen openId) > 0) {
+                if ((model.has(openId)) == false) {
+                    this.closePanel()
+                }
+            }
+            this.changed()
+        }
+        model.place(titles)
+    }
+
+    ; a new deck: nothing open, nothing being written
+    fn reset:void () {
+        model = (new PresReview())
+        this.closePanel()
+        placing = false
+        this.changed()
+    }
+
+    fn fileText:string () {
+        return (model.toJson())
+    }
+
+    fn setTitles:void (t:[string]) {
+        titles = t
+        if (model.place(titles)) {
+            this.changed()
+        }
+    }
+
+    fn save:void () {
+        push requests "review-save"
+    }
+
+    fn changed:void () {
+        builtKey = ""
+        rev = (rev + 1)
+    }
+
+    ; --- placing it -----------------------------------------------------------------
+
+    ; Where everything is now; built again only when something moved.
+    fn place:void (pw:double ph:double topBand:double presenting:boolean shown:int x:double y:double sW:double sH:double aX:double aW:double aB:double) {
+        def key:string ((EVGDisplayList.num(pw)) + ":" + (EVGDisplayList.num(ph)) + ":" + (EVGDisplayList.num(topBand)) + ":" + (? presenting "p" "e") + ":" + (to_string shown) + ":" + (EVGDisplayList.num(x)) + ":" + (EVGDisplayList.num(y)) + ":" + (EVGDisplayList.num(sW)) + ":" + (EVGDisplayList.num(sH)) + ":" + (EVGDisplayList.num(aX)) + ":" + (EVGDisplayList.num(aW)) + ":" + (EVGDisplayList.num(aB)) + ":" + (to_string model.rev))
+        if (key == builtKey) {
+            return
+        }
+        w = pw
+        h = ph
+        top = topBand
+        present = presenting
+        slide = shown
+        sx = x
+        sy = y
+        sw = sW
+        sh = sH
+        areaX = aX
+        areaW = aW
+        areaB = aB
+        this.rebuild()
+        builtKey = key
+    }
+
+    ; --- building ----------------------------------------------------------------------
+
+    fn label:EVGElement (id:string cls:string t:string) {
+        return (UiTree.label(id cls t))
+    }
+
+    fn slideName:string (i:int) {
+        def s:string ((PresI18n.t("Slide ")) + (to_string (i + 1)))
+        if ((i >= 0) && (i < (array_length titles))) {
+            def tt:string (itemAt titles i)
+            if ((strlen tt) > 0) {
+                s = (s + " · " + tt)
+            }
+        }
+        return s
+    }
+
+    fn rebuild:void () {
+        def fresh (new UiHost())
+        host = fresh
+        host.addStyleSheet(css)
+        host.setTheme((trim ("pn " + skin)))
+        host.setPageSize(w h)
+        def none:[PinCtl]
+        pins = none
+        def root:EVGElement (unwrap host.root)
+        root.className = "ui-root rv-page"
+        if (on == false) {
+            rev = (rev + 1)
+            return
+        }
+        ; the pins of the slide shown
+        def k:int 0
+        for model.threads t:PresReviewThread i {
+            if (t.slide == slide) {
+                k = (k + 1)
+                def p:PinCtl (PinCtl.make(("rv-pin-" + t.id) (sx + (t.x * sw)) (sy + (t.y * sh)) (to_string (t.count()))))
+                p.color = color
+                p.closed = t.closed
+                p.active = (t.id == openId)
+                def what:string ((PresI18n.t("Comment")) + " " + (to_string k) + ": " + (t.firstText()))
+                if t.closed {
+                    what = (what + " (" + (PresI18n.t("resolved")) + ")")
+                }
+                p.info = what
+                p.build()
+                push pins p
+                push host.ctls p
+                root.addChild((unwrap p.rootEl))
+            }
+        }
+        if (drafting && (draftSlide == slide)) {
+            def dp:PinCtl (PinCtl.make("rv-draft" (sx + (draftX * sw)) (sy + (draftY * sh)) "+"))
+            dp.color = color
+            dp.active = true
+            dp.info = (PresI18n.t("New comment"))
+            dp.build()
+            push host.ctls dp
+            root.addChild((unwrap dp.rootEl))
+        }
+        root.addChild((this.bar()))
+        if (this.panelOpen()) {
+            root.addChild((this.panel()))
+        }
+        rev = (rev + 1)
+    }
+
+    ; "Comment" (or what to do while placing), how many are open, "Next"
+    fn bar:EVGElement () {
+        def b:EVGElement (UiTree.div("rv-bar" "rv-bar"))
+        UiTree.surface(b "free" "start")
+        def n:int (model.openCount())
+        if placing {
+            b.addChild((this.label("rv-hint" "rv-hint" (PresI18n.t("Click where the comment goes")))))
+            b.addChild((this.label("rv-cancel" "rv-btn" (PresI18n.t("Cancel")))))
+        } {
+            b.addChild((this.label("rv-add" "rv-btn rv-btn-main" ("💬 " + (PresI18n.t("Comment"))))))
+            def cnt:string ((to_string n) + " " + (PresI18n.t("open")))
+            b.addChild((this.label("rv-count" "rv-count" cnt)))
+            if (n > 0) {
+                b.addChild((this.label("rv-next" "rv-btn" ((PresI18n.t("Next")) + " ›"))))
+            }
+        }
+        ; placed where it goes once its size is known (`page`)
+        b.overlayX = (this.barX())
+        b.overlayY = (this.barY())
+        return b
+    }
+
+    fn panel:EVGElement () {
+        def p:EVGElement (UiTree.div("rv-dock" "rv-dock"))
+        UiTree.surface(p "free" "start")
+        p.overlayX = (this.panelX())
+        p.overlayY = top
+        p.width = (EVGUnit.px(panelW))
+        p.height = (EVGUnit.px((h - top)))
+        chat.clearActions()
+        chat.readOnly = false
+        chat.subtitle = ""
+        if drafting {
+            chat.title = (PresI18n.t("New comment"))
+            chat.subtitle = (this.slideName(draftSlide))
+            def none:[UiChatMessage]
+            chat.messages = none
+            chat.top = 0
+        } {
+            def found@(optional):PresReviewThread (model.find(openId))
+            if (!null? found) {
+                def t:PresReviewThread (unwrap found)
+                chat.title = (PresI18n.t("Comment"))
+                def sub:string (this.slideName(t.slide))
+                if t.closed {
+                    def who:string ""
+                    if ((strlen t.by) > 0) {
+                        who = (this.nameOf(t t.by))
+                    }
+                    sub = (sub + " · " + (PresI18n.t("Resolved")))
+                    if ((strlen who) > 0) {
+                        sub = (sub + " (" + who + ")")
+                    }
+                    chat.addAction("reopen" (PresI18n.t("Reopen")) "")
+                    if armed {
+                        chat.addAction("delete" (PresI18n.t("Delete for good?")) "danger")
+                    } {
+                        chat.addAction("delete" (PresI18n.t("Delete…")) "")
+                    }
+                    chat.readOnly = true
+                    chat.readOnlyText = (PresI18n.t("Resolved. Reopen it to answer."))
+                } {
+                    chat.addAction("resolve" ("✓ " + (PresI18n.t("Resolve"))) "primary")
+                }
+                chat.subtitle = sub
+                this.fillChat(t)
+            }
+        }
+        chat.height = (h - top)
+        chat.open = true
+        chat.build()
+        def cr:EVGElement (unwrap chat.rootEl)
+        UiTree.inline(cr "width" ((to_string panelW) + "px"))
+        UiTree.inline(cr "border-radius" "0px")
+        UiTree.inline(cr "border-width" "0px")
+        push host.ctls chat
+        p.addChild(cr)
+        return p
+    }
+
+    ; the thread's messages into the chat, as they are now
+    fn fillChat:void (t:PresReviewThread) {
+        def same:boolean ((array_length chat.messages) == (t.count()))
+        if same {
+            def i:int 0
+            while (i < (t.count())) {
+                def m:PresReviewMsg (itemAt t.msgs i)
+                def c:UiChatMessage (itemAt chat.messages i)
+                if (c.id != m.id) {
+                    same = false
+                }
+                i = (i + 1)
+            }
+        }
+        if same {
+            return
+        }
+        def none:[UiChatMessage]
+        chat.messages = none
+        chat.top = 0
+        chat.follow = true
+        for t.msgs m2:PresReviewMsg j {
+            def col:string m2.color
+            if ((strlen col) == 0) {
+                col = "#475569"
+            }
+            def nm:string m2.name
+            if ((strlen nm) == 0) {
+                nm = (PresI18n.t("Someone"))
+            }
+            chat.add(m2.id m2.who nm col m2.text (PresReview.timeText(m2.at nowMs zoneMin)) (m2.who == meWho))
+        }
+        chat.unread = 0
+        chat.toEnd()
+    }
+
+    ; who that is, by the name they wrote under in the thread
+    fn nameOf:string (t:PresReviewThread who:string) {
+        if (who == meWho) {
+            return meName
+        }
+        def nm:string ""
+        for t.msgs m:PresReviewMsg i {
+            if ((m.who == who) && ((strlen m.name) > 0)) {
+                nm = m.name
+            }
+        }
+        return nm
+    }
+
+    ; --- the display list ------------------------------------------------------------
+
+    fn page:EVGElement () {
+        def r:EVGElement (unwrap host.root)
+        def s:EVGStyleSheet (unwrap host.sheet)
+        s.setViewport(w h false)
+        host.markStates(r)
+        s.applyTree(r host.theme)
+        def pg (EVGElement.createDiv())
+        pg.id = "page"
+        pg.width = (EVGUnit.px(w))
+        pg.height = (EVGUnit.px(h))
+        pg.addChild(r)
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        lay.layout(pg)
+        ; the bar in the middle of the stage, now that its size is known
+        def bf@(optional):EVGElement (host.findEl(r "rv-bar"))
+        if (!null? bf) {
+            def be:EVGElement (unwrap bf)
+            ; as wide as its words (a row's width is the sum of its parts)
+            def sum:double 0.0
+            def k:int 0
+            while (k < (be.getChildCount())) {
+                sum = (sum + (lay.intrinsicWidthOf((be.getChild(k)))))
+                k = (k + 1)
+            }
+            if (k > 1) {
+                sum = (sum + ((to_double (k - 1)) * 6.0))
+            }
+            barW = (sum + (be.box.getHorizontalChrome()))
+            be.width = (EVGUnit.px(barW))
+            barH = be.calculatedHeight
+            be.overlayX = (this.barX())
+            be.overlayY = (this.barY())
+            lay.layout(pg)
+        }
+        chat.input.focused = typing
+        host.placeText((lay.getTextEngine()))
+        host.lastPage = pg
+        return pg
+    }
+
+    fn displayList:EVGDisplayList () {
+        def pg:EVGElement (this.page())
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(pg)
+        return dl
+    }
+
+    ; --- presses ----------------------------------------------------------------------
+
+    ; -> true when the press was review mode's
+    fn press:boolean (px:double py:double clicks:int shift:boolean) {
+        if ((this.has(px py)) == false) {
+            return false
+        }
+        if (null? host.lastPage) {
+            this.page()
+        }
+        if (this.inPanel(px py)) {
+            this.panelPress(px py clicks shift)
+            return true
+        }
+        typing = false
+        if (this.inBar(px py)) {
+            def tid:string (this.barButtonAt(px py))
+            if (tid == "rv-add") {
+                placing = true
+                this.changed()
+            }
+            if (tid == "rv-cancel") {
+                placing = false
+                this.changed()
+            }
+            if (tid == "rv-next") {
+                this.openNext()
+            }
+            return true
+        }
+        def pin:string (this.pinAt(px py))
+        if ((strlen pin) > 0) {
+            placing = false
+            if (pin == "rv-draft") {
+                typing = true
+                this.changed()
+                return true
+            }
+            def id:string (substring pin 7 (strlen pin))
+            if ((id == openId) && (drafting == false)) {
+                this.closePanel()
+            } {
+                this.openThread(id)
+            }
+            return true
+        }
+        if (placing && (this.inSlide(px py))) {
+            placing = false
+            this.startDraft(slide ((px - sx) / sw) ((py - sy) / sh))
+            return true
+        }
+        return false
+    }
+
+    ; the bar's button under the point ("" none): its words are not a
+    ; control's, so they are looked up by id
+    fn barButtonAt:string (px:double py:double) {
+        if (null? host.lastPage) {
+            return ""
+        }
+        def pg:EVGElement (unwrap host.lastPage)
+        for ([] _:string ("rv-add" "rv-cancel" "rv-next")) id:string i {
+            def f@(optional):EVGElement (host.findEl(pg id))
+            if (!null? f) {
+                def el:EVGElement (unwrap f)
+                if (host.containsPoint(el px py)) {
+                    return id
+                }
+            }
+        }
+        return ""
+    }
+
+    fn startDraft:void (s:int x:double y:double) {
+        openId = ""
+        armed = false
+        drafting = true
+        draftSlide = s
+        draftX = (PresReview.clamp01(x))
+        draftY = (PresReview.clamp01(y))
+        chat.input.setValue("")
+        chat.input.moveTo(0 false)
+        typing = true
+        this.changed()
+    }
+
+    fn openThread:void (id:string) {
+        if ((model.has(id)) == false) {
+            return
+        }
+        def none:[UiChatMessage]
+        chat.messages = none
+        drafting = false
+        armed = false
+        openId = id
+        def t:PresReviewThread (unwrap (model.find(id)))
+        typing = (t.closed == false)
+        this.changed()
+    }
+
+    fn closePanel:void () {
+        openId = ""
+        drafting = false
+        armed = false
+        typing = false
+        selecting = false
+        this.changed()
+    }
+
+    ; The next open thread after the one open (by slide, then as made), on
+    ; whatever slide it is: that slide is asked for (`wantSlide`).
+    fn openNext:void () {
+        def n:int (array_length model.threads)
+        if (n == 0) {
+            return
+        }
+        ; the threads in slide order
+        def order:[PresReviewThread]
+        def s:int 0
+        def maxS:int 0
+        for model.threads t0:PresReviewThread i0 {
+            if (t0.slide > maxS) {
+                maxS = t0.slide
+            }
+        }
+        while (s <= maxS) {
+            for model.threads t1:PresReviewThread i1 {
+                if (t1.slide == s) {
+                    push order t1
+                }
+            }
+            s = (s + 1)
+        }
+        ; from the one open, or from the slide shown
+        def start:int -1
+        def k:int 0
+        while (k < (array_length order)) {
+            def tk:PresReviewThread (itemAt order k)
+            if (tk.id == openId) {
+                start = k
+            }
+            k = (k + 1)
+        }
+        if (start < 0) {
+            def j:int 0
+            while (j < (array_length order)) {
+                def tj:PresReviewThread (itemAt order j)
+                if (tj.slide < slide) {
+                    start = j
+                }
+                j = (j + 1)
+            }
+        }
+        def step:int 1
+        while (step <= (array_length order)) {
+            def at:int (start + step)
+            def len:int (array_length order)
+            while (at >= len) {
+                at = (at - len)
+            }
+            def t:PresReviewThread (itemAt order at)
+            if (t.closed == false) {
+                if (t.slide != slide) {
+                    wantSlide = t.slide
+                }
+                this.openThread(t.id)
+                return
+            }
+            step = (step + 1)
+        }
+    }
+
+    fn panelPress:void (px:double py:double clicks:int shift:boolean) {
+        def tid:string (host.hitTest(px py))
+        def c:string chat.tid
+        if (chat.input.owns(tid)) {
+            typing = true
+            selecting = (chat.textPointerDown(tid px clicks shift))
+            this.changed()
+            return
+        }
+        if ((indexOf tid (c + "-act-")) == 0) {
+            chat.activate(tid)
+            this.takeChat()
+            return
+        }
+        if (((tid == (c + "-close")) || (tid == (c + "-send"))) || (tid == (c + "-jump"))) {
+            chat.activate(tid)
+            this.takeChat()
+            return
+        }
+        typing = ((chat.readOnly == false) && (typing || drafting))
+        this.changed()
+    }
+
+    fn dragTo:void (px:double) {
+        if selecting {
+            chat.textPointerDrag(px)
+            rev = (rev + 1)
+        }
+    }
+
+    fn release:void () {
+        if selecting {
+            chat.textPointerUp()
+        }
+        selecting = false
+    }
+
+    fn wheel:boolean (px:double py:double dy:double) {
+        if ((this.inPanel(px py)) == false) {
+            return false
+        }
+        chat.scrollBy((? (dy < 0.0) -1 1))
+        this.changed()
+        return true
+    }
+
+    ; --- keys ----------------------------------------------------------------------------
+
+    fn hasKeys:boolean () {
+        return ((typing && (this.panelOpen())) && (chat.readOnly == false))
+    }
+
+    ; a key in the composer (the kit's names: "Enter", "Escape", "ArrowLeft"…)
+    fn key:void (k:string shift:boolean ctrl:boolean) {
+        chat.keyDownWith("" k shift ctrl)
+        this.takeChat()
+    }
+
+    fn text:void (s:string) {
+        chat.typeChar("" s)
+        this.changed()
+    }
+
+    ; Escape with the keys elsewhere: placing stops, the panel closes
+    fn escape:boolean () {
+        if placing {
+            placing = false
+            this.changed()
+            return true
+        }
+        if (this.panelOpen()) {
+            this.closePanel()
+            return true
+        }
+        return false
+    }
+
+    ; What the chat was asked: a message sent, a button, closed.
+    fn takeChat:void () {
+        def sent:string (chat.takeSent())
+        if ((strlen sent) > 0) {
+            def m:PresReviewMsg (PresReview.msg((this.newId()) meWho meName meColor sent nowMs))
+            if drafting {
+                def id:string (this.newId())
+                def title:string ""
+                if ((draftSlide >= 0) && (draftSlide < (array_length titles))) {
+                    title = (itemAt titles draftSlide)
+                }
+                if (model.start(id draftSlide title draftX draftY m)) {
+                    drafting = false
+                    openId = id
+                    this.save()
+                }
+            } {
+                if (model.reply(openId m)) {
+                    this.save()
+                }
+            }
+        }
+        def act:string (chat.takeAction())
+        if (act == "resolve") {
+            if (model.setClosed(openId true meWho nowMs)) {
+                typing = false
+                this.save()
+            }
+        }
+        if (act == "reopen") {
+            if (model.setClosed(openId false meWho nowMs)) {
+                armed = false
+                typing = true
+                this.save()
+            }
+        }
+        if (act == "delete") {
+            if armed {
+                if (model.remove(openId)) {
+                    this.save()
+                }
+                this.closePanel()
+            } {
+                armed = true
+            }
+        }
+        if (chat.open == false) {
+            this.closePanel()
+        }
+        this.changed()
+    }
+
+    ; pasted lines as one: the field is one line
+    sfn oneLine:string (t:string) {
+        def parts:[string] (strsplit t (strfromcode 10))
+        def out:string ""
+        for parts p:string i {
+            def q:string (trim p)
+            if ((strlen q) > 0) {
+                if ((strlen out) > 0) {
+                    out = (out + " ")
+                }
+                out = (out + q)
+            }
+        }
+        return out
+    }
+
+    fn copyText:string () {
+        return (chat.input.selectedText())
+    }
+
+    fn selectAll:void () {
+        chat.input.selectAll()
+        this.changed()
+    }
+
+    fn cursorAt:string (px:double py:double) {
+        if (this.inPanel(px py)) {
+            def tid:string (host.hitTest(px py))
+            if (chat.input.owns(tid)) {
+                return "text"
+            }
+            if (((indexOf tid (chat.tid + "-act-")) == 0) || (((tid == (chat.tid + "-close")) || (tid == (chat.tid + "-send"))) || (tid == (chat.tid + "-jump")))) {
+                return "pointer"
+            }
+            return "default"
+        }
+        if ((this.inBar(px py)) || ((strlen (this.pinAt(px py))) > 0)) {
+            return "pointer"
+        }
+        if (placing && (this.inSlide(px py))) {
+            return "crosshair"
+        }
+        return ""
+    }
+}

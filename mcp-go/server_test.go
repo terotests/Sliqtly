@@ -358,7 +358,7 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	eq(t, names, []string{"bind_chart_data", "create_presentation", "get_presentation", "list_files", "list_presentations", "read_file", "render_overview", "render_slide", "sliqtly_guide", "update_presentation", "write_workbook"})
+	eq(t, names, []string{"add_comment", "bind_chart_data", "create_presentation", "get_presentation", "list_comments", "list_files", "list_presentations", "read_file", "render_overview", "render_slide", "resolve_comment", "sliqtly_guide", "update_presentation", "write_workbook"})
 	uri, _ := create.Meta["ui"].(map[string]any)["resourceUri"].(string)
 	match(t, uri, `^ui://sliqtly/preview-[0-9a-f]{10}\.html$`)
 	eq(t, create.Meta["openai/outputTemplate"], uri)
@@ -1251,4 +1251,69 @@ func TestOneSheetBookAnswersToTheSheetsName(t *testing.T) {
 		t.Fatal(textOf(u))
 	}
 	match(t, textOf(u), `- chart \(Vega-Lite\) at \d+,\d+ size \d+×\d+: \d+ labels`)
+}
+
+func TestReviewCommentsReadAddAndResolve(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, testEnv(&f, nil), "")
+	defer s.close()
+	c := call(t, s, "create_presentation", map[string]any{"title": "Review", "markdown": "# Plan\n\n## Budget\n\nNumbers\n\n## Risks\n\nSome"})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	key := sc(c)["edit_key"]
+	match(t, textOf(call(t, s, "list_comments", map[string]any{"deck_id": id})), `has no review comments`)
+
+	a := call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide": 2, "text": "Add last year's numbers", "author": "Claude"})
+	if a.IsError {
+		t.Fatal(textOf(a))
+	}
+	match(t, textOf(a), `Comment added on slide 2 "Budget"`)
+	th := mapOf(sc(a)["thread"])
+	tid := th["thread_id"].(string)
+	eq(t, []any{th["slide"], th["resolved"], th["x"]}, []any{2, false, 0.9})
+
+	b := call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide_title": "risks", "x": 0.25, "y": 0.5, "text": "Rank these"})
+	match(t, textOf(b), `slide 3 "Risks"`)
+	tid2 := mapOf(sc(b)["thread"])["thread_id"].(string)
+	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide": 9, "text": "x"})), `from 1 to 3`)
+	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide_title": "Nope", "text": "x"})), `No slide is titled "Nope". The slides: 1 "Plan", 2 "Budget", 3 "Risks"`)
+	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "text": "x", "slide": 1})), `edit_key is needed`)
+
+	r := call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "thread_id": tid, "text": "Also the forecast"})
+	match(t, textOf(r), `Answered thread `+tid)
+	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "thread_id": "zz", "text": "x"})), `No comment thread zz`)
+
+	z := call(t, s, "resolve_comment", map[string]any{"deck_id": id, "edit_key": key, "thread_id": tid, "text": "Done: both added"})
+	match(t, textOf(z), `is resolved`)
+	eq(t, mapOf(sc(z)["thread"])["resolved"], true)
+	match(t, textOf(call(t, s, "resolve_comment", map[string]any{"deck_id": id, "edit_key": key, "thread_id": tid})), `was already resolved`)
+
+	l := call(t, s, "list_comments", map[string]any{"deck_id": id})
+	match(t, textOf(l), `2 review comment threads, 1 open`)
+	match(t, textOf(l), `Thread `+tid+` \(resolved\) on slide 2 "Budget"`)
+	match(t, textOf(l), `Claude \([^)]+\): Add last year's numbers\n  AI assistant \([^)]+\): Also the forecast\n  AI assistant \([^)]+\): Done: both added`)
+	open := call(t, s, "list_comments", map[string]any{"deck_id": id, "include_resolved": false})
+	eq(t, len(list(sc(open)["threads"])), 1)
+	eq(t, mapOf(list(sc(open)["threads"])[0])["thread_id"], tid2)
+
+	// the file the editor reads: review/comments.json, slides counted from 1
+	saved, ok := f.bucket.saved["shares/"+id+"/review/comments.json"]
+	if !ok {
+		t.Fatal("no review/comments.json")
+	}
+	var file map[string]any
+	if err := json.Unmarshal(saved.data, &file); err != nil {
+		t.Fatal(err)
+	}
+	eq(t, file["version"], 1)
+	threads := list(file["threads"])
+	eq(t, len(threads), 2)
+	first := mapOf(threads[0])
+	eq(t, []any{first["slide"], first["title"], first["closed"], len(list(first["messages"]))}, []any{2, "Budget", true, 3})
+	eq(t, mapOf(list(first["messages"])[0])["who"], "ai")
+
+	// opened again
+	match(t, textOf(call(t, s, "resolve_comment", map[string]any{"deck_id": id, "edit_key": key, "thread_id": tid, "resolved": false})), `is open again`)
 }
