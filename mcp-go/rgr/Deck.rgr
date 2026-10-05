@@ -399,6 +399,31 @@ class Deck {
             def size:int 0
             def b64:string (img.str_("data_base64"))
             def url:string (img.str_("url"))
+            ; an SVG (or a SmartArt .xml) is text: it may come as it is
+            def hasText:boolean ((img.field("text")).kind == 3)
+            def given:int 0
+            if hasText {
+                given = (given + 1)
+            }
+            if ((strlen b64) > 0) {
+                given = (given + 1)
+            }
+            if ((strlen url) > 0) {
+                given = (given + 1)
+            }
+            if (given > 1) {
+                res.err = ("Image " + name + ": give one of text, data_base64 or url.")
+                return res
+            }
+            if hasText {
+                if ((type != "image/svg+xml") && (type != (SaFile.TYPE()))) {
+                    res.err = ("Image " + name + ": text is for an SVG (name it .svg) or a SmartArt .xml; send other pictures as data_base64 or url.")
+                    return res
+                }
+                def text:string (img.str_("text"))
+                handle = (host_keep_text host text)
+                size = (strlen text)
+            }
             if ((strlen b64) > 0) {
                 if (startsWith b64 "data:") {
                     def semi:int (indexOf b64 ";base64,")
@@ -450,8 +475,10 @@ class Deck {
                         type = (Deck.typeOf(name ct))
                     }
                 } {
-                    res.err = ("Image " + name + ": give either url or data_base64.")
-                    return res
+                    if (hasText == false) {
+                        res.err = ("Image " + name + ": give one of url, data_base64 or (for an SVG) text.")
+                        return res
+                    }
                 }
             }
             if (size == 0) {

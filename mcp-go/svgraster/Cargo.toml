@@ -1,0 +1,24 @@
+[package]
+name = "svgraster"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+# An SVG drawn to pixels for render_slide / render_overview (svgraster.go):
+# resvg built to WebAssembly, run in Go by wazero, so the server stays one
+# static Go binary. ./build.sh writes svgraster.wasm, which is committed.
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+resvg = { version = "=0.48.1", default-features = false, features = ["text", "raster-images"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
