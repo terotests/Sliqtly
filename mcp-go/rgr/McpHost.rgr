@@ -237,6 +237,12 @@ operators {
             go ( (e 1) ".KeepText(" (e 2) ")" )
         }
     }
+    ; bytes made here (an export), for an upload: their handle
+    host_keep_bytes _:int (h:McpHost data:buffer) {
+        templates {
+            go ( (e 1) ".KeepBytes(" (e 2) ")" )
+        }
+    }
     ; the workbook in the handle as the editor reads it: PresData.xlsxSheets,
     ; compiled on its own (rgr/PresDataGo.rgr → presdata/), since the
     ; workbook reader and the deck model cannot share one compile

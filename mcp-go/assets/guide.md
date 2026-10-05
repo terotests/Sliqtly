@@ -458,6 +458,15 @@ whether it is resolved, and its messages. Work through the open ones:
   `slide_title`, and `x`, `y` (0..1 of the slide) to point at something.
 - `author` names you on the message; the default is "AI assistant".
 
+## Exporting
+
+`export_presentation` (deck_id, `format`: `pdf` or `pptx`, optional
+`slides`: [2, 5]) makes the file the editor's File → Export makes and
+returns a download link for the user. The PPTX keeps text editable, with
+build steps, speaker notes and transitions; charts and diagrams are
+shapes. Effects (`fx=`) are left out; the editor's own export draws them.
+A new export of the same format replaces the file behind the old link.
+
 ## Result
 
 `create_presentation` returns a share link that opens straight into the
