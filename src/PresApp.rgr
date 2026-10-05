@@ -4307,6 +4307,17 @@ class PresApp {
     fn deckMove:void (x:double y:double) {
         deckXN = x
         deckYN = y
+        ; over the Rooms panel the tab is a presentation going to a room:
+        ; the row keeps its order
+        def far:double (((x - deckX0) * (x - deckX0)) + ((y - deckY0) * (y - deckY0)))
+        if (((touch == false) && toolbar.roomsOpen) && (((strlen deckPressed) > 0) && (far >= 36.0))) {
+            if (x < (toolbar.railW + toolbar.roomsW)) {
+                toolbar.tabDragTo(deckPressed (deckTabs.labelOf(deckPressed)) x y)
+                chromeRev = (chromeRev + 1)
+                return
+            }
+            toolbar.tabDragTo("" "" x y)
+        }
         if ((touch == false) && (deckTabs.dragTo(x))) {
             push requests "deck:tabs"
         }
@@ -4317,6 +4328,13 @@ class PresApp {
 
     fn deckRelease:void () {
         deckDown = false
+        def room:string (toolbar.tabDragEnd())
+        if ((strlen room) > 0) {
+            deckTabs.release()
+            push requests ("room:tabdrop:" + room + ":" + deckPressed)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if (deckTabs.release()) {
             chromeRev = (chromeRev + 1)
             return
@@ -6827,6 +6845,18 @@ class PresApp {
         return true
     }
 
+    ; Rooms' "+" (`id` "") or a room's gear: the room's window, its name and
+    ; description; `state` "new", "made" or "archived". Save is
+    ; "newdeck-create" with the plan's "ask" "room", "room", "desc" and "act"
+    ; ("" save, "archive", "unarchive", "delete").
+    fn openRoomDialog:boolean (id:string state:string name:string desc:string) {
+        if ((this.openDupDeck(name)) == false) {
+            return false
+        }
+        chart.openRoom(id state name desc chart.x chart.y W H)
+        return true
+    }
+
     fn openDupDeck:boolean (name:string) {
         if (mode == "present") {
             return false
@@ -7186,7 +7216,7 @@ class PresApp {
         if (chart.ndDup && (chart.ndAsk == "dup")) {
             dup = "true"
         }
-        return ("{\"name\":" + (PresApp.jsonStr(chart.ndName)) + ",\"theme\":" + (PresApp.jsonStr(chart.ndTheme)) + ",\"data\":" + (PresApp.jsonStr(chart.ndData)) + ",\"dup\":" + dup + ",\"ask\":" + (PresApp.jsonStr(chart.ndAsk)) + "}")
+        return ("{\"name\":" + (PresApp.jsonStr(chart.ndName)) + ",\"theme\":" + (PresApp.jsonStr(chart.ndTheme)) + ",\"data\":" + (PresApp.jsonStr(chart.ndData)) + ",\"dup\":" + dup + ",\"ask\":" + (PresApp.jsonStr(chart.ndAsk)) + ",\"room\":" + (PresApp.jsonStr(chart.rmId)) + ",\"desc\":" + (PresApp.jsonStr(chart.ndDesc)) + ",\"act\":" + (PresApp.jsonStr(chart.rmAct)) + "}")
     }
 
     ; {"to": "slide"|"bg-slide"|"bg-all", "crop": "x,y,w,h" in pixels,

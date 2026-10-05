@@ -216,9 +216,10 @@ func (rs Rooms) SetMember(ctx context.Context, p Principal, room, member string,
 	return rs.setMember(ctx, p.TenantID, room, member, role)
 }
 
-// Archive puts the room in the archive (on) or takes it out: owners only.
-// Archived, it is read only; nothing in it is removed.
-func (rs Rooms) Archive(ctx context.Context, p Principal, room string, on bool) error {
+// owns: p is an owner of the room (the tenant's admin is of every one),
+// asked of the memberships themselves since an archived room caps everyone
+// at Viewer. ErrNotFound when p has no role there.
+func (rs Rooms) owns(ctx context.Context, p Principal, room string) error {
 	acc, err := rs.Access(ctx, p)
 	if err != nil {
 		return err
@@ -226,20 +227,26 @@ func (rs Rooms) Archive(ctx context.Context, p Principal, room string, on bool) 
 	if acc[room] == NoRole {
 		return ErrNotFound
 	}
-	// an archived room caps everyone at Viewer: its owners are asked of
-	// the memberships themselves
-	owner := p.HasRole("admin")
-	if !owner {
-		ms, err := rs.S.Privileged().Query(ctx, Query{From: MembersCol, Where: And{Eq("room", room), Eq("role", string(Owner)), In("member", memberNames(p)...)}})
-		if err != nil {
-			return err
-		}
-		owner = len(ms) > 0
+	if p.HasRole("admin") {
+		return nil
 	}
-	if !owner {
+	ms, err := rs.S.Privileged().Query(ctx, Query{From: MembersCol, Where: And{Eq("room", room), Eq("role", string(Owner)), In("member", memberNames(p)...)}})
+	if err != nil {
+		return err
+	}
+	if len(ms) == 0 {
 		return ErrDenied
 	}
-	_, _, err = rs.S.Privileged().Update(ctx, RoomsCol, room, func(cur Doc, _ Rev) (Doc, error) {
+	return nil
+}
+
+// Archive puts the room in the archive (on) or takes it out: owners only.
+// Archived, it is read only; nothing in it is removed.
+func (rs Rooms) Archive(ctx context.Context, p Principal, room string, on bool) error {
+	if err := rs.owns(ctx, p, room); err != nil {
+		return err
+	}
+	_, _, err := rs.S.Privileged().Update(ctx, RoomsCol, room, func(cur Doc, _ Rev) (Doc, error) {
 		if cur == nil {
 			return nil, ErrNotFound
 		}
@@ -252,6 +259,76 @@ func (rs Rooms) Archive(ctx context.Context, p Principal, room string, on bool) 
 		return cur, nil
 	})
 	return err
+}
+
+// Edit changes a room's title and description (nil: as they are): owners
+// only, not in the archive, and not the starter rooms, whose names are the
+// same for everyone.
+func (rs Rooms) Edit(ctx context.Context, p Principal, room string, title, description *string) error {
+	if room == GeneralRoom || room == PlaygroundRoom {
+		return ErrDenied
+	}
+	if err := rs.owns(ctx, p, room); err != nil {
+		return err
+	}
+	_, _, err := rs.S.Privileged().Update(ctx, RoomsCol, room, func(cur Doc, _ Rev) (Doc, error) {
+		if cur == nil {
+			return nil, ErrNotFound
+		}
+		if cur["archived"] == true {
+			return nil, ErrDenied
+		}
+		if title != nil {
+			cur["title"] = *title
+		}
+		if description != nil {
+			cur["description"] = *description
+		}
+		return cur, nil
+	})
+	return err
+}
+
+// Remove deletes a room: owners only, not the starter rooms. Nothing in it
+// is deleted with it: the documents of cols that are in it go to General,
+// and its memberships go. Links to it stay, read by no one (a link is seen
+// only when both its ends can be read).
+func (rs Rooms) Remove(ctx context.Context, p Principal, room string, cols ...string) error {
+	if room == GeneralRoom || room == PlaygroundRoom {
+		return ErrDenied
+	}
+	if err := rs.owns(ctx, p, room); err != nil {
+		return err
+	}
+	e := rs.S.Privileged()
+	for _, col := range cols {
+		items, err := e.Query(ctx, Query{From: col, Where: And{Eq("tenant", p.TenantID), Eq(RoomField, room)}})
+		if err != nil {
+			return err
+		}
+		for _, it := range items {
+			_, _, err := e.Update(ctx, col, it.ID, func(cur Doc, _ Rev) (Doc, error) {
+				if cur == nil || cur[RoomField] != room {
+					return cur, nil
+				}
+				cur[RoomField] = GeneralRoom
+				return cur, nil
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
+	ms, err := e.Query(ctx, Query{From: MembersCol, Where: And{Eq("tenant", p.TenantID), Eq("room", room)}})
+	if err != nil {
+		return err
+	}
+	for _, m := range ms {
+		if err := Delete(ctx, e, MembersCol, m.ID, AnyRev); err != nil {
+			return err
+		}
+	}
+	return Delete(ctx, e, RoomsCol, room, AnyRev)
 }
 
 // RoomPolicy guards documents that live in a room (their "room" field):

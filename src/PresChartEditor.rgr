@@ -158,8 +158,16 @@ class PresChartEditor {
     ; File → Duplicate asks only the copy's name: `ndDup` hides the theme and
     ; data tabs, the name starts as the page's suggestion, all selected
     def ndDup:boolean false
-    ; ...the same window asking one's own name for editing together ("name")
+    ; ...the same window asking one's own name for editing together ("name"),
+    ; or a room's name and description ("room")
     def ndAsk:string ""
+    ; The room's window: `rmId` "" for a new room; `rmState` "new", "made" or
+    ; "archived"; `ndDesc` its description. Archive and Delete set `rmAct`
+    ; and answer as Save does ("newdeck-create", the plan's "act").
+    def rmId:string ""
+    def rmState:string ""
+    def ndDesc:string ""
+    def rmAct:string ""
     ; A question before something that cannot be undone (`mode` "confirm"):
     ; `cfKey` names it to the page, `cfOk` is the red button's word. The red
     ; button sets `wantsConfirm` and closes; Cancel and Esc only close. With
@@ -308,6 +316,18 @@ class PresChartEditor {
         this.openAt(px py pw ph)
         this.focusInput("nd-name")
         this.selectAllInField()
+    }
+
+    ; Rooms' "+" (no `id`) or a room's gear: its name and description, and
+    ; for a room that is there, Archive (or Restore) and Delete.
+    fn openRoom:void (id:string state:string name:string desc:string px:double py:double pw:double ph:double) {
+        this.openDupDeck(name px py pw ph)
+        ndAsk = "room"
+        rmId = id
+        rmState = state
+        ndDesc = desc
+        rmAct = ""
+        this.rebuild()
     }
 
     ; Editing together: the name the others see, all selected.
@@ -748,6 +768,12 @@ class PresChartEditor {
             }
             if (ndAsk == "name") {
                 win.name = (PresI18n.t("Your name"))
+            }
+            if (ndAsk == "room") {
+                win.name = (PresI18n.t("New room"))
+                if ((strlen rmId) > 0) {
+                    win.name = (PresI18n.t("Room settings"))
+                }
             }
             win.title = win.name
         }
@@ -1383,6 +1409,10 @@ class PresChartEditor {
             this.askNameBody(root)
             return
         }
+        if (ndAsk == "room") {
+            this.roomBody(root)
+            return
+        }
         def pane:EVGElement (this.div("ce-pane"))
         def sec:EVGElement (this.section(pane (PresI18n.t("The copy"))))
         def nr:EVGElement (this.field((PresI18n.t("Name"))))
@@ -1395,6 +1425,45 @@ class PresChartEditor {
         this.button("nd-cancel" (PresI18n.t("Cancel")) "outline" bottom)
         bottom.addChild((this.div("ce-grow")))
         this.button("nd-create" (PresI18n.t("Duplicate")) "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    ; A room: one whole piece of work (a task, a ticket, a user story). Its
+    ; name and description; a room that is there can be archived (read only,
+    ; out of the list, found by search) or deleted (its presentations go to
+    ; General).
+    fn roomBody:void (root:EVGElement) {
+        def pane:EVGElement (this.div("ce-pane"))
+        def sec:EVGElement (this.section(pane (PresI18n.t("Room"))))
+        def nr:EVGElement (this.field((PresI18n.t("Name"))))
+        this.inputWith("nd-name" (PresI18n.t("Name")) ndName (PresI18n.t("e.g. PROJ-123 Checkout retry")) "ce-wide" nr)
+        sec.addChild(nr)
+        def dr:EVGElement (this.field((PresI18n.t("Description"))))
+        this.inputWith("nd-desc" (PresI18n.t("Description")) ndDesc (PresI18n.t("What the work is, a link to the ticket…")) "ce-wide" dr)
+        sec.addChild(dr)
+        sec.addChild((this.text("ce-doc" (PresI18n.t("A room holds one whole piece of work: a task, a Jira ticket, a user story. Its presentations are listed under it.")))))
+        if ((strlen rmId) > 0) {
+            def sec2:EVGElement (this.section(pane (PresI18n.t("Archive or delete"))))
+            def row:EVGElement (this.div("ce-chips"))
+            if (rmState == "archived") {
+                this.button("rm-unarchive" (PresI18n.t("Restore from archive")) "outline" row)
+            } {
+                this.button("rm-archive" (PresI18n.t("Archive")) "outline" row)
+            }
+            this.button("rm-delete" (PresI18n.t("Delete room…")) "danger" row)
+            sec2.addChild(row)
+            sec2.addChild((this.text("ce-doc" (PresI18n.t("An archived room is out of the list and read only; search still finds it. Deleting a room moves its presentations to General; none of them is deleted.")))))
+        }
+        root.addChild(pane)
+
+        def bottom:EVGElement (this.div("ce-foot"))
+        this.button("nd-cancel" (PresI18n.t("Cancel")) "outline" bottom)
+        bottom.addChild((this.div("ce-grow")))
+        def ok:string (PresI18n.t("Create"))
+        if ((strlen rmId) > 0) {
+            ok = (PresI18n.t("Save"))
+        }
+        this.button("nd-create" ok "primary" bottom)
         root.addChild(bottom)
     }
 
@@ -1882,6 +1951,13 @@ class PresChartEditor {
             return true
         }
         if (tid == "nd-create") {
+            rmAct = ""
+            wantsCreate = true
+            wantsClose = true
+            return true
+        }
+        if (((tid == "rm-archive") || (tid == "rm-unarchive")) || (tid == "rm-delete")) {
+            rmAct = (substring tid 3 (strlen tid))
             wantsCreate = true
             wantsClose = true
             return true
@@ -3442,6 +3518,9 @@ class PresChartEditor {
         if (focusTid == "nd-name") {
             ndName = v
         }
+        if (focusTid == "nd-desc") {
+            ndDesc = v
+        }
         if (focusTid == "ds-title") {
             ds.title = v
         }
@@ -3567,6 +3646,7 @@ class PresChartEditor {
         }
         ; a new presentation: Enter makes it
         if ((mode == "newdeck") && (name == "enter")) {
+            rmAct = ""
             wantsCreate = true
             wantsClose = true
             return true

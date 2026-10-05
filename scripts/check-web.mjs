@@ -2068,8 +2068,8 @@ try {
     check("…the name's button keeps its width, so the menus after it stay put when the name changes", railed.fileX0 === renamed.fileX1, JSON.stringify({ before: railed.fileX0, after: renamed.fileX1 }));
     check("…the name at the start of the bar becomes a field; Enter renames the deck, as one edit that undoes", railed.editing && !railed.after && renamed.title === "Renamed deck" && renamed.undone !== "Renamed deck", JSON.stringify(renamed));
 
-    // Rooms' "+": a field for the name, Enter makes the room (this browser's,
-    // web/rooms.js) and opens it; its last row moves the open presentation in.
+    // Rooms' "+": the room's window (name, description), Enter makes the
+    // room (this browser's, web/rooms.js), first after the built-in ones.
     // A page of its own, with a deck kept in this browser.
     const rctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
     const rp = await rctx.newPage();
@@ -2077,68 +2077,109 @@ try {
     await rp.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
     await rp.evaluate(() => { const a = window.__app; a.setSource(a.source() + "\n\n## Huone\n\nteksti\n"); });
     const pageHas = (needle) => rp.waitForFunction((n) => { const a = window.__app; a.toolbarJson(); return JSON.stringify(a.toolbar.host.lastPage).includes(n); }, needle, { timeout: 10000 }).then(() => true, () => false);
-    await rp.evaluate((findJs) => {
-      const a = window.__app;
-      const find = eval(findJs);
-      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
-      press(find("tb-rail-rooms"));
-    }, findJs);
+    const until = (fn, arg, ms = 10000) => rp.waitForFunction(fn, arg, { timeout: ms }).then(() => true, () => false);
+    // in the page: t(id) presses a bar control, c(id) a button of the window
+    const rjs = `const a = window.__app;
+      const walk = (e, id) => { if (!e) return null; if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      const tb = (id) => { a.toolbarJson(); return walk(a.toolbar.host.lastPage, id); };
+      const at = (e) => [e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2];
+      const t = (id) => { const e = tb(id); if (!e) return false; a.pointerDown(...at(e), false, 1); a.pointerUp(); return true; };
+      const c = (id) => { a.chartJson(); const e = walk(a.chart.host.lastPage, id); if (!e) return false; a.pointerDown(...at(e), false, 1); a.pointerUp(); return true; };
+      const order = () => a.toolbar.roomRows.split("\\n").map((l) => l.split("\\t")[1]);
+      const idOf = (title) => (a.toolbar.roomRows.split("\\n").map((l) => l.split("\\t")).find((x) => x[1] === title) || [])[0];
+      const kept = () => { try { return JSON.parse(localStorage.getItem("sliqtly.rooms")); } catch (_) { return null; } };`;
+    const R = (body, arg) => rp.evaluate(new Function("arg", rjs + body), arg);
+    await R(`t("tb-rail-rooms");`);
     await pageHas("tb-room-general");
-    const naming = await rp.evaluate((findJs) => {
-      const a = window.__app;
-      const find = eval(findJs);
-      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
-      press(find("tb-room-new"));
-      const field = !!find("tb-title-in") && a.toolbar.editFor === "room";
-      a.text("Team room");
-      a.key("enter", false, false);
-      return { field, after: a.toolbar.titleEditing };
-    }, findJs);
-    const made = await pageHas("Team room");
-    // the move row once the deck is kept (a list again after the save)
-    await rp.waitForTimeout(1500);
-    await rp.evaluate(() => window.__app.request("room:list"));
-    const canMove = await pageHas("tb-roomdeck-move");
-    if (canMove) await rp.evaluate((findJs) => {
-      const a = window.__app;
-      const find = eval(findJs);
-      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
-      press(find("tb-roomdeck-move"));
-    }, findJs);
-    const movedIn = await rp.waitForFunction(() => { try { const s = JSON.parse(localStorage.getItem("sliqtly.rooms")); const r = s.rooms.find((x) => x.title === "Team room"); return !!r && Object.values(s.placed).includes(r.id); } catch (_) { return false; } }, null, { timeout: 5000 }).then(() => true, () => false);
-    const moveGone = movedIn && await rp.waitForFunction(() => { const a = window.__app; a.toolbarJson(); return !JSON.stringify(a.toolbar.host.lastPage).includes("tb-roomdeck-move"); }, null, { timeout: 5000 }).then(() => true, () => false);
-    check("…Rooms' + asks a name; Enter makes the room, and the open presentation moves into it", naming.field && !naming.after && made && canMove && movedIn && moveGone, JSON.stringify({ naming, made, canMove, movedIn, moveGone }));
-    // a presentation dragged from its room's list onto General moves back
-    const dragged = await rp.evaluate((findJs) => {
-      const a = window.__app;
-      const find = eval(findJs);
-      a.toolbarJson();
+    const makeRoom = async (name) => {
+      await R(`t("tb-room-new");`);
+      const open = await until(() => window.__app.chart.isOpen && window.__app.chart.ndAsk === "room");
+      await R(`a.text(arg); a.key("enter", false, false);`, name);
+      return open && await until((n) => window.__app.toolbar.roomRows.includes(n), name);
+    };
+    const made1 = await makeRoom("Team room");
+    const made2 = await makeRoom("Second room");
+    const newest = await R(`const o = order(); return o.indexOf("Second room") === 3 && o.indexOf("Team room") === 4;`);
+    check("…Rooms' + opens the room's window; Enter makes the room, the newest first after the built-in ones", made1 && made2 && newest, JSON.stringify({ made1, made2, newest }));
+    // a room dragged before another keeps its place; let go where pressed it opens
+    await R(`const from = tb("tb-room-" + idOf("Team room"));
+      a.pointerDown(...at(from), false, 1); a.pointerMove(at(from)[0], at(from)[1] - 10);
+      a.pointerMove(...at(tb("tb-room-" + idOf("Second room")))); a.pointerUp();`);
+    const reordered = await until(() => { const o = window.__app.toolbar.roomRows.split("\n").map((l) => l.split("\t")[1]); return o.indexOf("Team room") === 3 && o.indexOf("Second room") === 4; });
+    const keptOrder = await R(`const s = kept(); return !!s && s.order[0] === idOf("Team room");`);
+    check("…a room dragged before another moves there, and the order is kept", reordered && keptOrder, JSON.stringify({ reordered, keptOrder }));
+    // the deck's tab dragged onto a room asks Move, Copy or Cancel; Copy
+    // makes a copy in that room and opens it
+    await until(() => !window.__app.deckTabFront().startsWith("sample:"), null, 15000);
+    const before = await R(`return a.deckTabFront();`);
+    const asked = await R(`a.chromeJson();
+      const tab = (() => { const w = (el) => { if (!el) return null; if ((el.id || "").startsWith("decktabs-tab-") && !el.id.includes("close")) return el; for (let i = 0; i < el.getChildCount(); i++) { const f = w(el.getChild(i)); if (f) return f; } return null; }; return w(a.chromeRoot); })();
+      if (!tab) return { tab: false };
+      const room = tb("tb-room-" + idOf("Team room"));
+      a.pointerDown(...at(tab), false, 1); a.pointerMove(at(tab)[0] - 30, at(tab)[1] + 10); a.pointerMove(...at(room));
+      const lit = a.toolbar.dropRoom === idOf("Team room");
+      a.pointerUp();
+      return { tab: true, lit };`);
+    const choice = await until(() => window.__app.chart.isOpen && window.__app.chart.cfKey.startsWith("roomdrop:"));
+    await R(`c("cf-alt");`);
+    const copied = await until((orig) => { const a = window.__app; try { const s = JSON.parse(localStorage.getItem("sliqtly.rooms")); const team = s.rooms.find((r) => r.title === "Team room").id; const ids = Object.keys(s.placed).filter((k) => s.placed[k] === team); return ids.length === 1 && ids[0] !== orig && a.deckTabFront() === ids[0]; } catch (_) { return false; } }, before, 45000);
+    check("…a deck's tab dragged onto a room asks Move, Copy or Cancel; Copy puts a copy there and opens it", asked.lit && choice && copied, JSON.stringify({ before, asked, choice, copied }));
+    // a presentation dragged from its room's list onto General: Move
+    await R(`t("tb-room-" + idOf("Team room"));`);
+    await pageHas("tb-roomdeck-d-");
+    const dragged = await R(`a.toolbarJson();
       const deckRow = JSON.stringify(a.toolbar.host.lastPage).match(/"(tb-roomdeck-d-[^"]+)"/);
-      const from = deckRow && find(deckRow[1]);
+      const from = deckRow && tb(deckRow[1]);
       if (!from) return { from: false };
       const room = a.toolbar.roomOpen;
       a.pointerDown(from.calculatedX + 20, from.calculatedY + 8, false, 1);
       a.pointerMove(from.calculatedX + 30, from.calculatedY + 30);
-      const to = find("tb-room-general");
-      if (!to) return { from: true, to: false };
-      a.pointerMove(to.calculatedX + 30, to.calculatedY + 10);
+      const to = tb("tb-room-general");
+      a.pointerMove(...at(to));
       const lit = a.toolbar.dropRoom;
       a.pointerUp();
-      return { from: true, to: true, lit, room };
-    }, findJs);
-    const backInGeneral = await rp.waitForFunction(() => { try { return Object.keys(JSON.parse(localStorage.getItem("sliqtly.rooms")).placed).length === 0; } catch (_) { return false; } }, null, { timeout: 5000 }).then(() => true, () => false);
-    check("…a presentation dragged onto another room moves there", dragged.room !== "general" && dragged.lit === "general" && backInGeneral, JSON.stringify({ dragged, backInGeneral }));
+      return { from: true, lit, room };`);
+    const moveAsked = await until(() => window.__app.chart.isOpen && window.__app.chart.cfKey.startsWith("roomdrop:general:"));
+    await R(`c("cf-ok");`);
+    const backInGeneral = await until(() => { try { return Object.keys(JSON.parse(localStorage.getItem("sliqtly.rooms")).placed).length === 0; } catch (_) { return false; } });
+    check("…a presentation dragged onto another room asks, and Move moves it there", dragged.room !== "general" && dragged.lit === "general" && moveAsked && backInGeneral, JSON.stringify({ dragged, moveAsked, backInGeneral }));
+    // a room's gear: its settings; Archive takes it out of the list, search
+    // still finds it; Delete asks first, and its decks are in General
+    await R(`t("tb-roomgear-" + idOf("Second room"));`);
+    const settings = await until(() => { const ch = window.__app.chart; return ch.isOpen && ch.ndAsk === "room" && ch.ndName === "Second room" && ch.rmState === "made"; });
+    await R(`c("rm-archive");`);
+    const archived = await until(() => !window.__app.toolbar.roomRows.includes("Second room"));
+    await R(`t("tb-roomsearch"); a.text("second");`);
+    const foundArchived = await until(() => window.__app.toolbar.roomRows.includes("Second room ("));
+    await R(`a.key("escape", false, false);`);
+    await until(() => window.__app.toolbar.roomRows.includes("Team room"));
+    await R(`t("tb-roomgear-" + idOf("Team room"));`);
+    await until(() => window.__app.chart.isOpen && window.__app.chart.ndName === "Team room");
+    await R(`c("rm-delete");`);
+    const delAsked = await until(() => window.__app.chart.isOpen && window.__app.chart.cfKey.startsWith("roomdelete:"));
+    await R(`c("cf-ok");`);
+    const deleted = await until(() => { try { const s = JSON.parse(localStorage.getItem("sliqtly.rooms")); return !s.rooms.some((r) => r.title === "Team room") && Object.keys(s.placed).length === 0; } catch (_) { return false; } });
+    check("…a room's gear opens its settings: Archive hides it (search finds it), Delete asks and moves its decks to General", settings && archived && foundArchived && delAsked && deleted, JSON.stringify({ settings, archived, foundArchived, delAsked, deleted }));
+    // "+ Add new presentation" under a room: File → New's window, and the
+    // deck it makes is in that room
+    await R(`t("tb-room-playground");`);
+    await pageHas("tb-roomdeck-new");
+    await R(`t("tb-roomdeck-new");`);
+    const newWin = await until(() => window.__app.chart.isOpen && window.__app.chart.mode === "newdeck" && window.__app.chart.ndAsk === "");
+    await R(`a.text("Fresh deck"); a.key("enter", false, false);`);
+    const inPlay = await until(() => { try { return Object.values(JSON.parse(localStorage.getItem("sliqtly.rooms")).placed).includes("playground"); } catch (_) { return false; } }, null, 20000);
+    check("…a room's + Add new presentation makes the new deck in that room", newWin && inPlay, JSON.stringify({ newWin, inPlay }));
     // the search row: a field whose text lists the rooms found
     await rp.evaluate((findJs) => {
       const a = window.__app;
       const find = eval(findJs);
       const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
       press(find("tb-roomsearch"));
-      a.text("team");
+      a.text("play");
     }, findJs);
-    const found = await rp.waitForFunction(() => { const r = window.__app.toolbar.roomRows; return r.includes("Team room") && !r.includes("Playground"); }, null, { timeout: 5000 }).then(() => true, () => false);
+    const found = await rp.waitForFunction(() => { const r = window.__app.toolbar.roomRows; return r.includes("Playground") && !r.includes("General"); }, null, { timeout: 5000 }).then(() => true, () => false);
     await rp.evaluate(() => window.__app.key("escape", false, false));
-    const back = await rp.waitForFunction(() => window.__app.toolbar.roomRows.includes("Playground"), null, { timeout: 5000 }).then(() => true, () => false);
+    const back = await rp.waitForFunction(() => window.__app.toolbar.roomRows.includes("General"), null, { timeout: 5000 }).then(() => true, () => false);
     check("…Search rooms lists the rooms found, Escape the active ones again", found && back, JSON.stringify({ found, back }));
     await rp.evaluate((findJs) => {
       const a = window.__app;
