@@ -208,3 +208,11 @@
 .theme-tb .tb-rooms-close-label { font-size: 30px; font-weight: 400; color: #27272a; }
 .theme-tb .tb-title { justify-content: flex-start; }
 .tb-title-slot { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; align-self: stretch; flex-shrink: 0; }
+.theme-tb .tb-roomdeck-act { color: #4f46e5; font-size: 12px; }
+.theme-tb .tb-roomname-field { width: 100%; margin: 0 0 4px 0; }
+.theme-tb .tb-roomname-box { height: 30px; font-size: 14px; border: 1px solid #4f46e5; border-radius: 6px; padding: 0 8px; background-color: #ffffff; }
+.theme-tb .tb-room-drop { background-color: #c7d2fe; border: 1px dashed #4f46e5; }
+.theme-tb .tb-roomsearch { height: 30px; padding: 0 10px; margin: 0 0 6px 0; border: 1px solid #e4e4e7; border-radius: 6px; background-color: #ffffff; display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: flex-start; }
+.theme-tb .tb-roomsearch-label { font-size: 13px; font-weight: 400; color: #71717a; white-space: nowrap; }
+.tb-dragchip { padding: 4px 10px; border-radius: 6px; background-color: #4f46e5; font-family: Open Sans; }
+.tb-dragchip-label { font-size: 13px; color: #ffffff; white-space: nowrap; }

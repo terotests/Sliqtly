@@ -30,6 +30,7 @@ import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
+import { parseRooms, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, ONBOARDING } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 
@@ -626,11 +627,18 @@ function beginDoc(text) {
 
 // quiet: no tab for it (the empty deck shown while a deleted one's
 // successor is found)
+// the Rooms panel's state (its requests: roomsRequest, below)
+const ROOMS_KEY = "sliqtly.rooms";
+let roomShown = "";
+let roomsHere = parseRooms(null);
+try { roomsHere = parseRooms(localStorage.getItem(ROOMS_KEY)); } catch (_) { /* none kept */ }
 function shownDoc(text, quiet = false) {
   app.setSource(text);
   doc.loading = false;
   if (!viewer && !quiet) showDeckTab();
   loadReview(false).catch((e) => console.warn("review comments not read", e));
+  // the Rooms panel marks the presentation now open
+  if (!viewer && roomShown) roomsRequest("room:list").catch(() => {});
 }
 
 // --- the open presentations' tabs (web/decktabs.js) ------------------------------
@@ -916,9 +924,13 @@ async function newDeck(plan) {
 // (copy)"). This one is saved first; the copy is kept at once under an id of
 // its own (a PRO deck gets its own share).
 // Rooms beside the rail (ADR 0001): on a server of one's own its rooms
-// (POST /api/rooms/<op>), the open one's presentations under it; on the site
-// the panel keeps its sketch until the cloud has rooms.
-let roomShown = "";
+// (POST /api/rooms/<op>); elsewhere this browser's (web/rooms.js), kept in
+// localStorage. The open room's presentations are listed under it, at most
+// five, "… Show all" opening the rest in the presentations window.
+function keepRooms(next) {
+  roomsHere = next;
+  try { localStorage.setItem(ROOMS_KEY, JSON.stringify(next)); } catch (_) { /* this page only */ }
+}
 async function roomsCall(op, args) {
   const res = await fetch("/api/rooms/" + op, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(args || {}) });
   const out = await res.json().catch(() => ({}));
@@ -926,20 +938,125 @@ async function roomsCall(op, args) {
   return out;
 }
 const clean = (s) => String(s || "").replace(/[\t\n\r]+/g, " ");
+function sampleRows() {
+  return [...sampleSel.options].filter((o) => o.value).map((o) => ({ key: o.value, name: o.textContent.trim(), current: doc.src === "sample:" + o.value }));
+}
+// The rooms: [{ room_id, title, presentations }]
+async function roomsList() {
+  if (ownServer()) return (await roomsCall("list_rooms")).rooms || [];
+  return listRooms(roomsHere, await allDocs(), sampleRows());
+}
+// A room's presentations: [{ id, name, current }], ids as fileRequest's
+// "doc:" takes them ("sample:<key>" for a sample).
+async function roomRows(room) {
+  if (ownServer()) {
+    const g = await roomsCall("get_room", { room_id: room });
+    return (g.presentations || []).map((p) => ({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud }));
+  }
+  return roomDecks(roomsHere, room, await allDocs(), sampleRows());
+}
+// The open presentation's id in the room lists ("" while it is not kept yet,
+// as an unedited sample is not).
+async function currentRoomId() {
+  if (ownServer()) return doc.cloud ? "cloud:" + doc.cloud : "";
+  return (await allDocs()).find((d) => d.current)?.id || "";
+}
+// the search field's text while it is open (null: the rooms one is active in)
+let roomsQuery = null;
 async function roomsRequest(r) {
-  if (!ownServer()) return;
   const [, action, ...rest] = r.split(":");
+  const what = rest.join(":");
   if (action === "list") {
-    const { rooms = [] } = await roomsCall("list_rooms");
+    const q = roomsQuery;
+    const all = await roomsList();
+    // typed on since: that text's own list is the one to show
+    if (roomsQuery !== q) return;
+    // the rooms one is active in, or what the search finds; the open room
+    // stays listed
+    let rooms, hidden = 0;
+    const searching = q !== null && q.trim() !== "";
+    if (searching) rooms = searchRooms(all, q);
+    else ({ shown: rooms, hidden } = activeRooms(all, roomsHere));
+    if (!searching && !rooms.some((x) => x.room_id === roomShown)) {
+      const open = all.find((x) => x.room_id === roomShown);
+      if (open) rooms = [...rooms, open];
+      else roomShown = rooms[0]?.room_id || "";
+    }
     const rows = rooms.map((x) => [x.room_id, clean(x.title), x.presentations ?? ""].join("\t"));
-    if (!rooms.some((x) => x.room_id === roomShown)) roomShown = rooms[0]?.room_id || "";
+    app.setToolbarOptions("roomsearch", "", t("Search rooms…") + (hidden ? " (" + hidden + t(" more") + ")" : ""));
     app.setToolbarOptions("rooms", rows.join("\n"), roomShown);
-    if (roomShown) await roomsRequest("room:open:" + roomShown);
+    if (roomShown && rooms.some((x) => x.room_id === roomShown)) await roomsRequest("room:open:" + roomShown);
+    else app.setToolbarOptions("roomdecks", "", roomShown);
+  } else if (action === "search") {
+    roomsQuery = what;
+    await roomsRequest("room:list");
+  } else if (action === "searchend") {
+    roomsQuery = null;
+    await roomsRequest("room:list");
+  } else if (action === "searchgo" || action === "pick") {
+    // Enter: the first room found; a press: that room. Either is now one of
+    // the rooms one is active in
+    const id = action === "pick" ? what : searchRooms(await roomsList(), what)[0]?.room_id;
+    roomsQuery = null;
+    if (id) {
+      roomShown = id;
+      keepRooms(touchRoom(roomsHere, id));
+    }
+    await roomsRequest("room:list");
+  } else if (action === "drop") {
+    // a presentation dragged from the open room onto another
+    const [room, ...deck] = rest;
+    await roomsRequest("room:moveid:" + room + ":" + deck.join(":"));
+  } else if (action === "moveid") {
+    const [room, ...deckParts] = rest;
+    const deck = deckParts.join(":");
+    if (ownServer()) await roomsCall("move_presentation", { deck_id: deck.replace(/^cloud:/, ""), room_id: room });
+    else if (!deck.startsWith("sample:")) keepRooms(touchRoom(moveDeck(roomsHere, deck, room), room));
+    await roomsRequest("room:list");
   } else if (action === "open") {
-    roomShown = rest.join(":");
-    const g = await roomsCall("get_room", { room_id: roomShown });
-    const rows = (g.presentations || []).map((p) => [p.deck_id, clean(p.name) || t("presentation"), p.deck_id === doc.cloud ? "1" : ""].join("\t"));
-    app.setToolbarOptions("roomdecks", rows.join("\n"), roomShown);
+    roomShown = what;
+    keepRooms(touchRoom(roomsHere, roomShown));
+    const rows = await roomRows(roomShown);
+    const lines = deckLines(rows, {
+      showAll: "… " + t("Show all") + " (" + rows.length + ")",
+      moveHere: roomShown === ONBOARDING ? "" : "+ " + t("Move this presentation here"),
+      currentId: await currentRoomId(),
+    });
+    app.setToolbarOptions("roomdecks", lines, roomShown);
+  } else if (action === "deck") {
+    if (what.startsWith("sample:")) await openSample(what.slice(7));
+    else await fileRequest("doc:" + what);
+    await roomsRequest("room:list");
+  } else if (action === "all") {
+    // the samples are in Open; a room's decks in the presentations window
+    if (what === ONBOARDING) {
+      app.openOpen([...sampleSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
+    } else {
+      const title = (await roomsList()).find((x) => x.room_id === what)?.title || "";
+      decksRoom = { ids: new Set((await roomRows(what)).map((x) => x.id)), title };
+      await openDecks();
+    }
+  } else if (action === "create") {
+    if (ownServer()) {
+      const { room_id } = await roomsCall("create_room", { title: what });
+      roomShown = room_id || roomShown;
+    } else {
+      const made = createRoom(roomsHere, what, newId);
+      if (made.id) {
+        keepRooms(made.state);
+        roomShown = made.id;
+      }
+    }
+    await roomsRequest("room:list");
+  } else if (action === "move") {
+    const id = await currentRoomId();
+    if (!id) {
+      toast(t("Make a change first: a sample becomes a presentation of your own when it is edited."));
+    } else {
+      await roomsRequest("room:moveid:" + what + ":" + id);
+      return;
+    }
+    await roomsRequest("room:list");
   }
   needsPaint = true;
 }
@@ -1302,6 +1419,9 @@ async function allDocs(fresh = false) {
 // { by, dir }, kept as "by" or "by:dir" (a column's head pressed again
 // turns its order round)
 let decksSort = { by: "updated", dir: "desc" };
+// the room the window lists, from its "… Show all" ({ ids, title }), or null
+// for every presentation
+let decksRoom = null;
 try {
   const [by, dir] = (localStorage.getItem("sliqtly.decksSort") || "updated").split(":");
   decksSort = { by, dir: dir || firstDir(by) };
@@ -1311,7 +1431,10 @@ async function decksJson(fresh = false) {
   const note = cloudList.error
     ? t("The presentations in your cloud could not be read: ") + cloudList.error
     : signedOut ? t("Sign in (PRO) to see the presentations in your cloud, such as those made by an assistant.") : "";
-  return deckListJson(await allDocs(fresh), decksSort.by, t, note, decksSort.dir);
+  const all = await allDocs(fresh);
+  const rows = decksRoom ? all.filter((d) => decksRoom.ids.has(d.id)) : all;
+  const inRoom = decksRoom ? t("Room: ") + decksRoom.title : "";
+  return deckListJson(rows, decksSort.by, t, [inRoom, note].filter(Boolean).join(" · "), decksSort.dir);
 }
 async function openDecks() {
   if (!vfs) return;
@@ -2000,6 +2123,8 @@ function applySkin() {
   root.dataset.skin = skin || "standard";
   root.dataset.mode = lookTheme() === "dark" ? "dark" : "light";
   root.style.setProperty("--retro-hue", String(skinHue));
+  // the rail's switch shows Light while the editor is dark
+  app.setToolbarOptions("dark", "", lookTheme() !== "" ? "1" : "");
   const btn = document.getElementById("modeBtn");
   if (btn) {
     const dark = lookTheme() !== "";
@@ -3043,6 +3168,7 @@ function handleRequests() {
       try { localStorage.setItem(REVIEW_KEY, on ? "on" : "off"); } catch (_) { /* this session only */ }
       applyReviewMode();
     } else if (r === "decks") {
+      decksRoom = null;
       openDecks().catch(fail);
     } else if (r.startsWith("decks:")) {
       decksRequest(r).catch(fail);
