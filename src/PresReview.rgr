@@ -641,6 +641,117 @@ class PresReview {
         return out
     }
 
+    ; the offset of the line break at or after `at`, -1 when none
+    sfn lineEnd:int (text:string at:int) {
+        def len:int (strlen text)
+        def k:int at
+        while (k < len) {
+            if ((charAt text k) == 10) {
+                return k
+            }
+            k = (k + 1)
+        }
+        return -1
+    }
+
+    ; Where a slide's footnote marks go in `src`, its section starting at
+    ; `at`: [offset, 0] to add " [^n]" at the end of its heading line, or
+    ; [offset, 1] to put them on a line of their own above what it starts
+    ; with (no heading: a fence, a table, text).
+    sfn markPlace:[int] (src:string at:int) {
+        def len:int (strlen src)
+        def k:int at
+        while (k < len) {
+            def nl:int (PresReview.lineEnd(src k))
+            def stop:int nl
+            if (nl < 0) {
+                stop = len
+            }
+            def line:string (trim (substring src k stop))
+            if ((strlen line) > 0) {
+                if ((indexOf line "#") == 0) {
+                    def e:int stop
+                    while ((e > k) && ((charAt src (e - 1)) == 13)) {
+                        e = (e - 1)
+                    }
+                    return ([] _:int (e 0))
+                }
+                return ([] _:int (k 1))
+            }
+            if (nl < 0) {
+                k = len
+            } {
+                k = (nl + 1)
+            }
+        }
+        return ([] _:int (len 1))
+    }
+
+    ; The deck's Markdown with the open comments in it as footnotes: [^n] on
+    ; each commented slide's heading (`starts`: where each slide's section
+    ; begins in `src`, -1 when unknown), numbered as `openMarkdown` numbers
+    ; them, and the notes themselves at the end.
+    fn markdownWithComments:string (src:string starts:[int] titles:[string]) {
+        def nl:string (strfromcode 10)
+        def order:[PresReviewThread] (this.openOrder())
+        if ((array_length order) == 0) {
+            return src
+        }
+        ; the marks, gathered by where they go
+        def places:[int]
+        def modes:[int]
+        def marks:[string]
+        for order t:PresReviewThread k {
+            def at:int -1
+            if ((t.slide >= 0) && (t.slide < (array_length starts))) {
+                at = (itemAt starts t.slide)
+            }
+            if (at >= 0) {
+                def pm:[int] (PresReview.markPlace(src at))
+                def pos:int (itemAt pm 0)
+                def mark:string ("[^" + (to_string (k + 1)) + "]")
+                def found:int (indexOf places pos)
+                if (found < 0) {
+                    push places pos
+                    push modes (itemAt pm 1)
+                    push marks mark
+                } {
+                    set marks found ((itemAt marks found) + mark)
+                }
+            }
+        }
+        ; put in from the last place back, so the earlier offsets hold
+        def out:string src
+        def done:[int]
+        def left:int (array_length places)
+        while (left > 0) {
+            def best:int -1
+            for places p:int i {
+                if ((indexOf done i) < 0) {
+                    if ((best < 0) || (p > (itemAt places best))) {
+                        best = i
+                    }
+                }
+            }
+            push done best
+            def pos:int (itemAt places best)
+            def ins:string (" " + (itemAt marks best))
+            if ((itemAt modes best) == 1) {
+                ins = ((itemAt marks best) + nl + nl)
+            }
+            out = ((substring out 0 pos) + ins + (substring out pos (strlen out)))
+            left = (left - 1)
+        }
+        if (((strlen out) > 0) && ((substring out ((strlen out) - 1) (strlen out)) != nl)) {
+            out = (out + nl)
+        }
+        out = (out + nl)
+        for order t2:PresReviewThread k2 {
+            out = (out + "[^" + (to_string (k2 + 1)) + "]: " + (PresReview.slideLabel(t2.slide titles)) + ", " + (PresReview.whereText(t2)) + nl + (PresReview.messagesText(t2 "    ")))
+        }
+        return out
+    }
+
     ; --- the file ------------------------------------------------------------------
 
     sfn PATH:string () {
