@@ -658,6 +658,8 @@ class PresDiagram {
     ; diagram gave it its colour. The styles redraw the body their own way and
     ; keep the shape, the colour and the dash.
     fn readShapes:void () {
+        boxText = 0.0
+        labSize = -1.0
         def i:int 0
         while (i < (array_length nodes)) {
             def n:PresDNode (itemAt nodes i)
@@ -665,6 +667,11 @@ class PresDiagram {
             def k:int 0
             while (k < (array_length n.items)) {
                 def it:SceneItem (itemAt n.items k)
+                if ((it.kind == 1) && ((strlen it.text) > 0)) {
+                    if ((boxText <= 0.0) || (it.fontSize < boxText)) {
+                        boxText = it.fontSize
+                    }
+                }
                 if ((it.kind == 0) && (bodied == false)) {
                     bodied = true
                     n.radius = it.radius
@@ -1690,6 +1697,7 @@ class PresDiagram {
                 rY = y0
                 spotLx = (itemAt p 0)
                 spotLy = (itemAt p 1)
+                spotTier = 0
                 return true
             }
             i = (i + 1)
@@ -1723,6 +1731,7 @@ class PresDiagram {
                         rY = sy
                         spotLx = (itemAt p 0)
                         spotLy = (itemAt p 1)
+                        spotTier = 1
                         return true
                     }
                     side = (side + 1)
@@ -1759,6 +1768,7 @@ class PresDiagram {
                         rY = my0
                         spotLx = (itemAt p 0)
                         spotLy = (itemAt p 1)
+                        spotTier = 2
                         return true
                     }
                     ms = (ms + 1)
@@ -1769,8 +1779,13 @@ class PresDiagram {
         PresDiagram.pointAt(e.line (e.len * 0.5) p)
         rX = ((itemAt p 0) - (w * 0.5))
         rY = ((itemAt p 1) - (h * 0.5))
+        spotTier = 3
         return false
     }
+
+    ; Where the last `freeSpot` put the box: 0 on the line, 1 beside it,
+    ; 2 over a box's edge (no place clear of the boxes), 3 nowhere free.
+    def spotTier:int 0
 
     ; A free place for an option's pill: as CLOSE TO THE BOX IT LEAVES as it
     ; fits, however long the line is — the choice belongs to the question,
@@ -1868,7 +1883,7 @@ class PresDiagram {
     }
 
     fn blocked:boolean (x:double y:double w:double h:double upto:int) {
-        def pad:double 6.0
+        def pad:double 10.0
         if (this.onLabel(x y w h)) {
             return true
         }
@@ -4629,6 +4644,7 @@ class PresDiagram {
 
     fn holoEdges:void (out:EVGDisplayList t:double l:MdLayout) {
         clear labRects
+        this.labelSizeFor(l)
         ; at a question the chosen way is the one active line, not the way in
         def active:int (this.activeEdge(t))
         if (this.asking(t)) {
@@ -4770,32 +4786,129 @@ class PresDiagram {
         }
     }
 
-    fn holoLabel:void (out:EVGDisplayList e:PresDEdge alpha:double l:MdLayout on:boolean) {
-        ; the label's own box from the scene, re-centred on its text
-        def text:string ""
-        def size:double 12.0
-        def cx:double 0.0
-        def cy:double 0.0
-        def found:boolean false
+    ; The smallest text in the boxes (scene units): a line's name is set
+    ; no larger than the boxes' own words, so it reads as a note on the line.
+    def boxText:double 0.0
+
+    ; The size a line's name is drawn at: the scene's, but no more than
+    ; the boxes' smallest text.
+    sfn labelSize:double (scene:double boxes:double) {
+        if (boxes <= 0.0) {
+            return scene
+        }
+        def most:double boxes
+        if (scene > most) {
+            return most
+        }
+        return scene
+    }
+
+    ; Round ends for one line, a rounded box for two
+    sfn pillRadius:double (h:double size:double) {
+        def r:double (h * 0.5)
+        if (r > (size * 0.75)) {
+            return (size * 0.75)
+        }
+        return r
+    }
+
+    ; Every line of an edge's label as the scene broke it, in order.
+    sfn labelLines:[string] (e:PresDEdge) {
+        def lines:[string]
         def k:int 0
         while (k < (array_length e.labels)) {
             def it:SceneItem (itemAt e.labels k)
-            if (it.kind == 1) {
-                text = it.text
-                size = it.fontSize
-                cx = (it.x + (it.w * 0.5))
-                cy = (it.y + (it.h * 0.5))
-                found = true
+            if ((it.kind == 1) && ((strlen it.text) > 0)) {
+                push lines it.text
             }
             k = (k + 1)
         }
-        if (! found) {
+        return lines
+    }
+
+    ; The pill a label's lines need at this size (sets pillW, pillH).
+    def labW:double 0.0
+    def labH:double 0.0
+    fn labelPill:void (lines:[string] size:double l:MdLayout) {
+        def wd:double 0.0
+        def li:int 0
+        while (li < (array_length lines)) {
+            def lw:double (l.measureStyled((itemAt lines li) "Open Sans" size false false))
+            if (lw > wd) {
+                wd = lw
+            }
+            li = (li + 1)
+        }
+        labW = (wd + (size * 1.2))
+        labH = (((size * 1.2) * (to_double (array_length lines))) + (size * 0.5))
+    }
+
+    ; One size for every line's name in the diagram, worked out once: the
+    ; scene's, at most the boxes' text (`labelSize`), and smaller, down to
+    ; under half the boxes' text, as far as a name needs to get a place on
+    ; or beside its line clear of the boxes. -1 until worked out.
+    def labSize:double -1.0
+    fn labelSizeFor:double (l:MdLayout) {
+        if (labSize > 0.0) {
+            return labSize
+        }
+        def size:double 12.0
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresDEdge (itemAt edges i)
+            def k:int 0
+            while (k < (array_length e.labels)) {
+                def it:SceneItem (itemAt e.labels k)
+                if ((it.kind == 1) && ((strlen it.text) > 0)) {
+                    size = it.fontSize
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        size = (PresDiagram.labelSize(size boxText))
+        def least:double (size * 0.5)
+        if (boxText > 0.0) {
+            least = (boxText * 0.45)
+        }
+        ; a name that has no clear place even at the least size would not
+        ; get one by shrinking, and does not shrink the others
+        def chosen:double size
+        def j:int 0
+        while (j < (array_length edges)) {
+            def ej:PresDEdge (itemAt edges j)
+            def lines:[string] (PresDiagram.labelLines(ej))
+            if (((array_length lines) > 0) && ((array_length ej.line) >= 4)) {
+                def at:double size
+                def fits:double -1.0
+                while ((at >= least) && (fits < 0.0)) {
+                    this.labelPill(lines at l)
+                    this.freeSpot(ej labW labH 0)
+                    if (spotTier <= 1) {
+                        fits = at
+                    }
+                    at = (at * 0.9)
+                }
+                if ((fits > 0.0) && (fits < chosen)) {
+                    chosen = fits
+                }
+            }
+            j = (j + 1)
+        }
+        labSize = chosen
+        return chosen
+    }
+
+    fn holoLabel:void (out:EVGDisplayList e:PresDEdge alpha:double l:MdLayout on:boolean) {
+        def lines:[string] (PresDiagram.labelLines(e))
+        if ((array_length lines) == 0) {
             return
         }
-        ; on the curve, at a place along it that no box covers
-        def wd:double (l.measureStyled(text "Open Sans" size false false))
-        def pw:double (wd + 14.0)
-        def ph:double (size + 8.0)
+        def size:double (this.labelSizeFor(l))
+        this.labelPill(lines size l)
+        def lineH:double (size * 1.2)
+        def pw:double labW
+        def ph:double labH
         ; while a question is open its option pills are in the way too; a
         ; label that finds no free place then waits until the choice is made
         def upto:int 0
@@ -4821,7 +4934,7 @@ class PresDiagram {
         bg.y = (my - (ph * 0.5))
         bg.w = pw
         bg.h = ph
-        bg.radius = (ph * 0.5)
+        bg.radius = (PresDiagram.pillRadius(ph size))
         PresDiagram.tint(bg (PresDiagram.rgba(bgR bgG bgB 0.85)) alpha)
         push out.cmds bg
         def bd (new EVGDrawCmd())
@@ -4830,7 +4943,7 @@ class PresDiagram {
         bd.y = bg.y
         bd.w = pw
         bd.h = ph
-        bd.radius = (ph * 0.5)
+        bd.radius = (PresDiagram.pillRadius(ph size))
         bd.thickness = 1.0
         if on {
             bd.thickness = 2.0
@@ -4839,17 +4952,24 @@ class PresDiagram {
             PresDiagram.tint(bd (PresDiagram.rgba(acR acG acB 0.4)) alpha)
         }
         push out.cmds bd
-        def tc (new EVGDrawCmd())
-        tc.kind = 3
-        tc.x = (mx - (wd * 0.5))
-        tc.y = (my - (size * 0.5))
-        tc.w = wd
-        tc.h = size
-        tc.text = text
-        tc.fontFamily = "Open Sans"
-        tc.fontSize = size
-        PresDiagram.tint(tc (PresDiagram.rgba(txR txG txB 1.0)) alpha)
-        push out.cmds tc
+        def top:double (my - ((lineH * (to_double (array_length lines))) * 0.5))
+        def ln:int 0
+        while (ln < (array_length lines)) {
+            def tx:string (itemAt lines ln)
+            def tw:double (l.measureStyled(tx "Open Sans" size false false))
+            def tc (new EVGDrawCmd())
+            tc.kind = 3
+            tc.x = (mx - (tw * 0.5))
+            tc.y = ((top + ((to_double ln) * lineH)) + ((lineH - size) * 0.5))
+            tc.w = tw
+            tc.h = size
+            tc.text = tx
+            tc.fontFamily = "Open Sans"
+            tc.fontSize = size
+            PresDiagram.tint(tc (PresDiagram.rgba(txR txG txB 1.0)) alpha)
+            push out.cmds tc
+            ln = (ln + 1)
+        }
     }
 
     ; A node as a pane of glass: a halo, a tinted body, a thin frame, bright
