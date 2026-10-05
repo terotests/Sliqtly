@@ -5966,7 +5966,7 @@ class PresApp {
     fn panelsReady:boolean () {
         this.placeFiles()
         ; the chat's field shows its caret while it has the keys
-        panels.chat.input.focused = (this.chatHasKeys())
+        panels.chat.input.setFocused((this.chatHasKeys()))
         if ((panels.any()) == false) {
             return false
         }
