@@ -523,7 +523,8 @@ files, the biggest changes as ```` ```diff ```` slides (one file each,
 shortened), the commits on a timeline and a decision slide. Change the draft
 to say what matters (pick the lines with `{lines=…}`, add `.build` to step
 through them) and create it with `create_presentation`. Public repositories
-work as they are; a private one needs a token on the server.
+work as they are; a private one needs a token on the server and a signed-in
+user the server lets read private repositories.
 
 ## Result
 

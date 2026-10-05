@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"net/http"
 	"strings"
 	"testing"
@@ -67,7 +68,7 @@ func TestReadGitHubPr(t *testing.T) {
 		case api + "/files?per_page=100":
 			return respond(200, "application/json", ghJSON([]any{
 				map[string]any{"filename": "docs/notes.md", "status": "modified", "additions": 1, "deletions": 0, "patch": "@@ -1 +1,2 @@\n a\n+b"},
-				map[string]any{"filename": "src/total.js", "status": "modified", "additions": 11, "deletions": 3, "patch": "@@ -10,3 +10,4 @@\n let s = 0\n-for (const r of rows) s += r.a\n+for (const r of rows) {\n+  s += r.a * (1 + r.vat)\n+}"},
+				map[string]any{"filename": "src/total.js", "status": "modified", "additions": 11, "deletions": 3, "patch": "@@ -10,3 +10,4 @@\n let s = 0\n-for (const r of rows) s += r.a\n+for (const r of rows) {\n+  s += r.a * (1 + r.vat)\n+}\n\\ No newline at end of file"},
 				map[string]any{"filename": "logo.png", "status": "added", "additions": 0, "deletions": 0},
 			})), nil
 		case api + "/commits?per_page=100":
@@ -108,6 +109,9 @@ func TestReadGitHubPr(t *testing.T) {
 			t.Fatalf("the draft has no %q:\n%s", want, md)
 		}
 	}
+	if strings.Contains(md, "No newline") {
+		t.Fatal("git's no-newline note is not a line of the diff:\n" + md)
+	}
 	if strings.Index(md, "## total.js") > strings.Index(md, "## notes.md") {
 		t.Fatal("the biggest change goes first")
 	}
@@ -128,4 +132,57 @@ func TestReadGitHubPr(t *testing.T) {
 
 	match(t, textOf(call(t, s, "read_github_pr", map[string]any{"pr": "terotests/Hidden#1"})), `no pull request terotests/Hidden#1 that this server can read`)
 	match(t, textOf(call(t, s, "read_github_pr", map[string]any{"pr": "nonsense"})), `^Invalid arguments: pr is a pull request's link`)
+}
+
+// a private repository read with the server's token: only for the users the
+// server names, since anyone may call it
+func TestGitHubPrivateRepos(t *testing.T) {
+	api := "https://api.github.com/repos/tero/Secret/pulls/3"
+	gh := &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.String() {
+		case api:
+			return respond(200, "application/json", ghJSON(map[string]any{"title": "Secret", "state": "open",
+				"base": map[string]any{"ref": "main", "repo": map[string]any{"private": true}}, "head": map[string]any{"ref": "x"}})), nil
+		case api + "/files?per_page=100", api + "/commits?per_page=100":
+			return respond(200, "application/json", "[]"), nil
+		}
+		return respond(404, "application/json", `{}`), nil
+	})}
+	for _, c := range []struct {
+		users  []string
+		signed bool
+		want   string
+	}{
+		{nil, false, `tero/Secret is private\. Sign in to Sliqtly`},
+		{[]string{"someone"}, true, `only for the users it names\. Your Sliqtly user id is u1`},
+		{[]string{"x", "u1"}, true, ``},
+	} {
+		f := fakeFirebase()
+		env := testEnv(&f, nil)
+		env.Client = gh
+		env.GitHubToken = "ghtok"
+		env.GitHubUsers = c.users
+		tok := ""
+		if c.signed {
+			env = withSignIn(env)
+			tok = signIn(f)
+		}
+		s := start(t, env, tok)
+		for _, r := range []*mcp.CallToolResult{
+			call(t, s, "read_github_pr", map[string]any{"pr": "tero/Secret#3"}),
+		} {
+			if c.want == "" {
+				if r.IsError {
+					t.Fatal(textOf(r))
+				}
+			} else {
+				if !r.IsError {
+					t.Fatal("a private repository was read for", c.users, c.signed)
+				}
+				match(t, textOf(r), c.want)
+			}
+		}
+		s.close()
+	}
+	eq(t, strings.Join(githubUsers(" u1, u2 ,u3"), "|"), "u1|u2|u3")
 }

@@ -77,7 +77,8 @@
 .theme-pn .ui-input { background-color: #fafafa; border: 1px solid #e4e4e7; border-radius: 6px; height: 30px; padding: 0 8px; }
 .theme-pn .ui-input-text { color: #3f3f46; font-size: 12px; font-family: Open Sans; }
 .theme-pn .pn-url { width: 360px; min-width: 360px; }
-.theme-pn .ui-input-caret { background-color: #3f3f46; }
+/* no caret colour: InputCtl draws the caret in the field's text colour, so
+   it shows on the light panel and on the dark review callout alike */
 .theme-pn .ui-input-selection { background-color: #bfdbfe; }
 /* a label never wraps ("100 %" split at its space), and a button does not
    shrink below its label */
@@ -328,6 +329,9 @@
 .theme-rvg .chat-composer { border-color: rgba(255, 255, 255, 0.14); padding: 10px 12px; }
 .theme-rvg .chat-field { background-color: rgba(0, 0, 0, 0.25); border-color: rgba(255, 255, 255, 0.25); height: 34px; }
 .theme-rvg .chat-draft { color: #ffffff; font-size: 15px; }
+/* the hint (InputCtl placeholderClass, on the run instead of .chat-draft):
+   clearly fainter than typed text, same size */
+.theme-rvg .chat-placeholder { color: rgba(255, 255, 255, 0.4); font-size: 15px; }
 .theme-rvg .chat-send { background-color: #0d9488; color: #ffffff; }
 .theme-rvg .chat-send-off { background-color: rgba(13, 148, 136, 0.4); }
 .theme-rvg .chat-ro-text { color: rgba(255, 255, 255, 0.6); }

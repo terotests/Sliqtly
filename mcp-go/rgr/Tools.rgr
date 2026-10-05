@@ -285,7 +285,7 @@ class Tools {
 
         def ghp:MfJ (MfJ.newObj())
         ghp.put("pr" (Tools.prop("string" "The pull request: its link (https://github.com/owner/repo/pull/12) or owner/repo#12")))
-        tools.add((Tools.tool("read_github_pr" "Read a GitHub pull request" "A GitHub pull request as the source of a review deck: its title, description, author, state, each changed file with its lines added and removed and its diff, and its commits, with a first draft of the deck in Sliqtly Markdown (what and why, changed files, the biggest changes as ```diff slides, commits on a timeline, decision). Edit the draft (explain the change, add a diagram of the changed parts) and pass it to create_presentation. Public repositories." (Tools.schema(ghp ([] _:string ("pr")))) (Tools.annotations(true -1 false true)) eitherMeta)))
+        tools.add((Tools.tool("read_github_pr" "Read a GitHub pull request" "A GitHub pull request as the source of a review deck: its title, description, author, state, each changed file with its lines added and removed and its diff, and its commits, with a first draft of the deck in Sliqtly Markdown (what and why, changed files, the biggest changes as ```diff slides, commits on a timeline, decision). Edit the draft (explain the change, add a diagram of the changed parts) and pass it to create_presentation. Public repositories; private ones when the server has a GitHub token and you are signed in as a user it lets read them." (Tools.schema(ghp ([] _:string ("pr")))) (Tools.annotations(true -1 false true)) eitherMeta)))
 
         def xp:MfJ (MfJ.newObj())
         xp.put("deck_id" (Tools.prop("string" "deck_id of the presentation (the id in https://sliqtly.com/s/<id>)")))
@@ -1041,7 +1041,7 @@ class Tools {
             r = (Tools.readFile(host caller args))
         }
         if (name == "read_github_pr") {
-            r = (Tools.readGitHubPr(host args))
+            r = (Tools.readGitHubPr(host caller args))
         }
         if (name == "export_presentation") {
             r = (Tools.exportDeck(host args))
@@ -2395,7 +2395,7 @@ class Tools {
 
     ; read_github_pr: the PR, its files and commits from GitHub's REST API,
     ; and a draft deck (GitHub.rgr)
-    sfn readGitHubPr:MfJ (host:McpHost a:MfJ) {
+    sfn readGitHubPr:MfJ (host:McpHost caller:Caller a:MfJ) {
         def bad:string (Tools.checkArgs(a ([] _:string ("pr"))))
         if ((strlen bad) > 0) {
             return (Tools.fail(bad))
@@ -2413,6 +2413,12 @@ class Tools {
         def pr:MfJ (J.parse((got.str_("body"))))
         if ((pr.isObj()) == false) {
             return (Tools.fail(("GitHub's answer about " + (ref.name()) + " could not be read.")))
+        }
+        if ((pr.field("base")).isObj()) {
+            def brepo:MfJ ((pr.field("base")).field("repo"))
+            if ((brepo.bool_("private" false)) && ((host_github_private_ok host caller.uid) == false)) {
+                return (Tools.fail((Tools.privateRefused(caller (ref.owner + "/" + ref.repo)))))
+            }
         }
         def files:MfJ (MfJ.newArr())
         def gf:MfJ (J.parse((host_fetch_text host ((ref.api()) + "/files?per_page=100") accept 8000000)))
@@ -2477,13 +2483,23 @@ class Tools {
         return r
     }
 
+    ; a private repository read with the server's token is for the users
+    ; the server names (SLIQTLY_GITHUB_USERS) only: anyone may call this
+    ; server, and the token is its owner's
+    sfn privateRefused:string (caller:Caller repo:string) {
+        if (caller.signedIn == false) {
+            return (repo + " is private. Sign in to Sliqtly (Google) as a user this server lets read private repositories, then ask again.")
+        }
+        return (repo + " is private, and this server reads private repositories only for the users it names. Your Sliqtly user id is " + caller.uid + ": the server's owner can add it to SLIQTLY_GITHUB_USERS.")
+    }
+
     ; why GitHub's answer is not the PR, "" when it is
     sfn githubFailed:string (ref:GhRef status:int) {
         if (status == 200) {
             return ""
         }
         if (status == 404) {
-            return ("GitHub has no pull request " + (ref.name()) + " that this server can read: it does not exist, or the repository is private (only public repositories can be read).")
+            return ("GitHub has no pull request " + (ref.name()) + " that this server can read: it does not exist, or the repository is private and the server's GitHub token (SLIQTLY_GITHUB_TOKEN) is missing or does not reach it.")
         }
         if ((status == 403) || (status == 429)) {
             return "GitHub refused for now (its limit on requests without sign-in); try again in a while."

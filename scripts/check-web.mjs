@@ -289,6 +289,41 @@ try {
     check("…a drag selects from where it was pressed", r.drag[0] === 0 && r.drag[1] > 2 && r.drag[1] < 10, JSON.stringify(r));
   }
 
+  // The comment box while presenting (review mode, the dark callout): the
+  // hint reads as a hint, not as text typed; it goes once the box has the
+  // keys, and the caret shows. The bugs: .chat-draft's white won over the
+  // hint's colour, the hint stayed on focus and the caret was dark on dark
+  // with no height in an empty box.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app, rv = a.review;
+      const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const el = (id) => { a.reviewJson(); return walk(rv.host.lastPage, id); };
+      const wasOn = a.reviewMode();
+      a.setReviewMode(true);
+      a.present(true);
+      a.takeRequest();
+      rv.startDraft(a.slideShown(), 0.5, 0.5);
+      const out = {};
+      let txt = el("rv-chat-field-text"), car = el("rv-chat-field-caret");
+      out.focusedText = txt && txt.textContent;
+      out.caret = !!car && car.calculatedWidth > 0 && car.calculatedHeight > 8;
+      out.caretLight = !!car && car.backgroundColor.r > 200;
+      rv.typing = false;
+      rv.changed();
+      txt = el("rv-chat-field-text");
+      out.hint = txt && txt.textContent;
+      out.ph = rv.chat.placeholder;
+      out.hintAlpha = txt && txt.color.a;
+      rv.closePanel();
+      a.key("escape", false, false);
+      a.setReviewMode(wasOn);
+      return out;
+    });
+    check("a comment box with the keys hides its hint and shows a light caret", r.focusedText === "" && r.caret && r.caretLight, JSON.stringify(r));
+    check("…without the keys its hint is faint, not the text's white", r.hint === r.ph && !!r.ph && r.hintAlpha < 0.6, JSON.stringify(r));
+  }
+
   // Text the reader needs elsewhere can be selected and copied (EVGUI
   // TextCtl): About's build line, a toast. A double click takes the build
   // hash, a drag selects, Ctrl+C (the copy event on the page's key field)
@@ -1966,6 +2001,57 @@ try {
     });
     check("…over the Files tab the File menu is on top, and its row takes the press", onFiles.onTop && onFiles.underPanel && onFiles.reqs.includes("click:save") && onFiles.closed, JSON.stringify(onFiles));
 
+    // The left rail (EVGUI RailCtl): the places beside the bar. Files and
+    // Edit switch the editor's tab, Rooms opens beside the rail and moves the
+    // editor over; the deck's name at the start of the bar is a field when
+    // pressed, and Enter renames the deck as one edit that undoes.
+    const railed = await page.evaluate(() => {
+      const a = window.__app;
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+      const take = () => { const out = []; for (;;) { const r = a.takeRequest(); if (!r) break; out.push(r); } return out; };
+      take();
+      const edX0 = a.edRect.x;
+      press(find("tb-rail-files"));
+      const files = a.edTab;
+      press(find("tb-rail-edit"));
+      const md = a.edTab;
+      press(find("tb-rail-decks"));
+      const decks = take();
+      press(find("tb-rail-rooms"));
+      a.place();
+      const roomsX = a.edRect.x;
+      const roomsShown = !!find("tb-room-q4");
+      press(find("tb-rail-rooms"));
+      a.place();
+      const backX = a.edRect.x;
+      press(find("tb-rail-rooms"));
+      press(find("tb-room-close"));
+      a.place();
+      const chevronX = a.edRect.x;
+      const fileX0 = find("tb-m-file-trigger").calculatedX;
+      press(find("tb-title"));
+      const editing = a.toolbar.titleEditing;
+      a.key("a", false, true);
+      a.text("Renamed deck");
+      a.key("enter", false, false);
+      return { edX0, files, md, decks, roomsX, roomsShown, backX, chevronX, editing, after: a.toolbar.titleEditing, fileX0 };
+    });
+    await page.waitForFunction(() => window.__app.docTitle() === "Renamed deck", null, { timeout: 5000 }).catch(() => {});
+    const renamed = await page.evaluate(() => {
+      const a = window.__app;
+      const title = a.docTitle();
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const fileX1 = find("tb-m-file-trigger").calculatedX;
+      a.undo();
+      return { title, undone: a.docTitle(), tab: a.deckTabsState(), fileX1 };
+    });
+    check("the rail sits left of the editor; Files and Edit switch its tab, Decks opens the presentations", railed.edX0 === 72 && railed.files === "files" && railed.md === "md" && railed.decks.includes("decks"), JSON.stringify(railed));
+    check("…Rooms opens beside the rail and the editor moves over, then back", railed.roomsShown && railed.roomsX === 72 + 248 && railed.backX === 72, JSON.stringify(railed));
+    check("…the ‹ before the Rooms heading closes the panel", railed.chevronX === 72, JSON.stringify(railed));
+    check("…the name's button keeps its width, so the menus after it stay put when the name changes", railed.fileX0 === renamed.fileX1, JSON.stringify({ before: railed.fileX0, after: renamed.fileX1 }));
+    check("…the name at the start of the bar becomes a field; Enter renames the deck, as one edit that undoes", railed.editing && !railed.after && renamed.title === "Renamed deck" && renamed.undone !== "Renamed deck", JSON.stringify(renamed));
+
     // the File menu's groups: new | open | save | the assistants | settings, lines between them
     // that take no press
     const seps = await page.evaluate(() => {
@@ -1975,7 +2061,7 @@ try {
       const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY, false, 1); a.pointerUp(); };
       press(find("tb-m-file-trigger"));
       const lines = all();
-      const ys = ["new", "openbox", "save", "aiClaude", "settings", "deleteDeck"].map((id) => find("tb-m-file-item-" + id).calculatedY);
+      const ys = ["new", "openbox", "save", "aiClaude", "docset", "deleteDeck"].map((id) => find("tb-m-file-item-" + id).calculatedY);
       const between = lines.length === 5 && lines.every((l, i) => l.calculatedY > ys[i] && l.calculatedY < ys[i + 1] && l.calculatedHeight === 1);
       for (;;) { if (!a.takeRequest()) break; }
       press(lines[0]);

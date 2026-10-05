@@ -104,9 +104,14 @@ type Env struct {
 	// needs more than DB says (revisions, the change feed); nil elsewhere
 	Store    store.Engine
 	FilesURL string // e.g. https://host/files; "": Storage download URLs
-	// GitHubToken: sent to api.github.com (read_github_pr), for its higher
-	// limit; "" reads as anyone
+	// GitHubToken: sent to api.github.com (read_github_pr), for its
+	// higher limit; "" reads as anyone
 	GitHubToken string
+	// GitHubUsers: the Sliqtly user ids (Firebase uids) for whom the token
+	// may read private repositories (SLIQTLY_GITHUB_USERS, comma-separated).
+	// Anyone may call the server, so a private repository the token reaches
+	// is refused to everyone else.
+	GitHubUsers []string
 	Themes      func(name string) (string, bool)
 	// the form a presentation's name must have (names.go): only on a server
 	// of one's own, set from its settings page; nil: any name
@@ -586,6 +591,30 @@ func (h *McpHost) Precision(n string, digits int64) string {
 }
 
 func (h *McpHost) LocalUser() string { return h.env.LocalUser }
+
+func (h *McpHost) GitHubPrivateOK(uid string) bool {
+	if h.env.LocalUser != "" {
+		return true
+	}
+	if uid == "" {
+		return false
+	}
+	for _, u := range h.env.GitHubUsers {
+		if u == uid {
+			return true
+		}
+	}
+	return false
+}
+
+// githubUsers reads SLIQTLY_GITHUB_USERS: ids split at commas and spaces
+func githubUsers(s string) []string {
+	var out []string
+	for _, f := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' }) {
+		out = append(out, f)
+	}
+	return out
+}
 
 // HostTools is the tools the Go side adds (rooms, roomsapi.go) as a JSON
 // array of MCP tool entries; "[]" where it adds none
