@@ -59,6 +59,7 @@ for (const [dir, face] of [
   ["Open_Sans", "OpenSans-Regular"], ["Open_Sans", "OpenSans-Bold"], ["Open_Sans", "OpenSans-Italic"], ["Open_Sans", "OpenSans-BoldItalic"],
   ["Noto_Sans", "NotoSans-Regular"], ["Noto_Sans", "NotoSans-Bold"], ["Noto_Sans", "NotoSans-Italic"], ["Noto_Sans", "NotoSans-BoldItalic"],
   ["Noto_Emoji", "NotoEmoji-Regular"],
+  ["Gloria_Hallelujah", "GloriaHallelujah"], ["Fjalla_One", "FjallaOne-Regular"], ["Josefin_Sans", "JosefinSans-Bold"], ["Droid_Serif", "DroidSerif-BoldItalic"],
 ]) {
   fs.copyFileSync(path.join(ranger, "gallery/pdf_writer/assets/fonts", dir, `${face}.ttf`), path.join(fontsDir, `${face}.ttf`));
 }

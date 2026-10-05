@@ -193,8 +193,15 @@ class PresDeck {
     ; document must not lay every diagram out again.
     def diaKeys:[string]
     def diaVals:[PresDiagram]
+    ; The faces the diagrams' looks draw with (comma-separated, for the page
+    ; to load) and those it has loaded (handed to each diagram, which reads
+    ; them as they arrive)
+    def wantFaces:string ""
+    def haveFaces:[string:boolean]
 
     Constructor () {
+        def hf:[string:boolean]
+        haveFaces = hf
         def s:[PresSlide]
         slides = s
         def tk:[string]
@@ -905,6 +912,25 @@ class PresDeck {
         }
         d.setPalette(paper (this.themeColour("diagram" "accent-color")) (this.themeColour("diagram" "color")))
         d.rimFade = (this.flatGround(s))
+        ; `{style=mermaid}` and the other RangerFlow looks; their faces are
+        ; asked of the page (`wantedFaces`) and drawn once it has them
+        def lookName:string (trim (n.attrValue("style")))
+        if ((! classic) && (FlowLook.knows(lookName))) {
+            d.haveFaces = haveFaces
+            d.useLook(lookName)
+            def fs:[string] (d.look.faces())
+            def fi:int 0
+            while (fi < (array_length fs)) {
+                def f:string (itemAt fs fi)
+                if ((indexOf ("," + wantFaces + ",") ("," + f + ",")) < 0) {
+                    if ((strlen wantFaces) > 0) {
+                        wantFaces = (wantFaces + ",")
+                    }
+                    wantFaces = (wantFaces + f)
+                }
+                fi = (fi + 1)
+            }
+        }
         def oi:int (this.takeOldUse(n.literal))
         if (oi >= 0) {
             def was:PresDiaUse (itemAt oldUses oi)

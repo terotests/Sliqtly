@@ -2611,6 +2611,7 @@ function frame() {
       needsPaint = false;
       lastRev = rev;
       syncEndPanel();
+      loadLookFaces();
       paintOnce();
       handleRequests();
       followAddress();
@@ -3057,6 +3058,41 @@ async function renderFxStills() {
   if (lose) lose.loseContext();
 }
 window.__renderFxStills = renderFxStills;
+
+// The faces a diagram look draws with ({style=cartoon}, …): fetched the first
+// time a deck asks for one (app.wantedFaces), not with every page. Until a
+// face is here the look's words are set in Open Sans.
+const LOOK_FACES = {
+  "Gloria Hallelujah": "GloriaHallelujah.ttf",
+  "Fjalla One": "FjallaOne-Regular.ttf",
+  "Josefin Sans-Bold": "JosefinSans-Bold.ttf",
+  "Droid Serif-BoldItalic": "DroidSerif-BoldItalic.ttf",
+};
+let lookFacesAsked = "";
+const lookFacesHad = new Set();
+let pageFaces = [];
+function loadLookFaces() {
+  const want = app.wantedFaces();
+  if (want === lookFacesAsked) return;
+  lookFacesAsked = want;
+  for (const name of want.split(",")) {
+    const file = LOOK_FACES[name];
+    if (!file || lookFacesHad.has(name)) continue;
+    lookFacesHad.add(name);
+    fontBytes(file)
+      .then(async (bytes) => {
+        const face = new FontFace(name, bytes);
+        await face.load();
+        document.fonts.add(face);
+        // the family the painter names it by must be one it knows is loaded
+        pageFaces = pageFaces.concat(name);
+        setFontFallback(pageFaces);
+        app.attachFont(name, asRangerBuffer(bytes.slice(0)));
+        needsPaint = true;
+      })
+      .catch((e) => console.warn("face not loaded: " + name, e));
+  }
+}
 
 // The PDF writer's fallback for emoji (monochrome Noto Emoji). Only the
 // writer gets it: the screen keeps the browser's own colour emoji. Fetched
@@ -5351,7 +5387,8 @@ async function start() {
       console.warn("face not loaded: " + name, e);
     }
   }));
-  setFontFallback(FACES.filter((_, i) => got[i]).map(([name]) => name));
+  pageFaces = FACES.filter((_, i) => got[i]).map(([name]) => name);
+  setFontFallback(pageFaces);
   // An emoji, and anything no loaded face has, is drawn from a face only the
   // browser knows; the editor and the slides ask the browser for its width,
   // per cluster, in the font stack the painter draws with.
