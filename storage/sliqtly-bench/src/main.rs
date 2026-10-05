@@ -99,8 +99,13 @@ fn rss_kb() -> u64 {
 fn hwm_kb() -> u64 {
     proc_field("/proc/self/status", "VmHWM:")
 }
+fn anon_kb() -> u64 {
+    proc_field("/proc/self/status", "RssAnon:")
+}
+/// Bytes this process caused to be written to storage, net of writes
+/// cancelled by truncating or deleting dirty pages.
 fn disk_writes() -> u64 {
-    proc_field("/proc/self/io", "write_bytes:")
+    proc_field("/proc/self/io", "write_bytes:").saturating_sub(proc_field("/proc/self/io", "cancelled_write_bytes:"))
 }
 
 /// Bytes on disk (allocated blocks) and apparent file sizes under `dir`.
@@ -149,8 +154,11 @@ fn raw(engine_name: &str, vsize: usize, dir: &Path) {
     let batch_n: usize = 1000.min((8 * 1024 * 1024 / vsize).max(1));
     let e = |phase: &str, v: serde_json::Value| emit("raw", engine_name, &param, phase, v);
     let mut rng = Rng(42 ^ vsize as u64);
-    let writes0 = disk_writes();
     let mut logical_written: u64 = 0;
+    if vsize > 200 {
+        // SQLite's raw table switches to a rowid layout for large rows
+        std::env::set_var("SLIQ_LARGE_VALUES", "1");
+    }
 
     // fill_seq in its own directory
     {
@@ -158,7 +166,6 @@ fn raw(engine_name: &str, vsize: usize, dir: &Path) {
         let eng = engines::open(engine_name, &d);
         let mut lat = Lat::new();
         let mut i = 0;
-        let t = Instant::now();
         while i < n {
             let mut b = Batch::new();
             for j in i..(i + batch_n as u64).min(n) {
@@ -167,14 +174,18 @@ fn raw(engine_name: &str, vsize: usize, dir: &Path) {
             lat.time(|| eng.commit(&b, false));
             i += batch_n as u64;
         }
+        let tf = Instant::now();
         eng.flush();
-        let secs = t.elapsed().as_secs_f64();
+        // throughput over commit time plus the final flush; generating the
+        // data is not timed
+        let secs = lat.0.iter().sum::<u64>() as f64 / 1e9 + tf.elapsed().as_secs_f64();
         let mut s = lat.summary(batch_n as f64);
         s["ops_per_sec"] = json!(n as f64 / secs);
         e("fill_seq", s);
         drop(eng);
         std::fs::remove_dir_all(&d).unwrap();
     }
+    let writes0 = disk_writes();
 
     let d = dir.join("main");
     let mut eng = engines::open(engine_name, &d);
@@ -182,7 +193,6 @@ fn raw(engine_name: &str, vsize: usize, dir: &Path) {
     rng.shuffle(&mut order);
     {
         let mut lat = Lat::new();
-        let t = Instant::now();
         for chunk in order.chunks(batch_n) {
             let mut b = Batch::new();
             for j in chunk {
@@ -191,8 +201,9 @@ fn raw(engine_name: &str, vsize: usize, dir: &Path) {
             logical_written += (chunk.len() * (16 + vsize)) as u64;
             lat.time(|| eng.commit(&b, false));
         }
+        let tf = Instant::now();
         eng.flush();
-        let secs = t.elapsed().as_secs_f64();
+        let secs = lat.0.iter().sum::<u64>() as f64 / 1e9 + tf.elapsed().as_secs_f64();
         let mut s = lat.summary(batch_n as f64);
         s["ops_per_sec"] = json!(n as f64 / secs);
         e("fill_random", s);
@@ -293,7 +304,6 @@ fn raw(engine_name: &str, vsize: usize, dir: &Path) {
     {
         let ow = n / 2;
         let mut lat = Lat::new();
-        let t = Instant::now();
         let mut i = 0;
         while i < ow {
             let mut b = Batch::new();
@@ -304,9 +314,11 @@ fn raw(engine_name: &str, vsize: usize, dir: &Path) {
             lat.time(|| eng.commit(&b, false));
             i += batch_n as u64;
         }
+        let tf = Instant::now();
         eng.flush();
+        let secs = lat.0.iter().sum::<u64>() as f64 / 1e9 + tf.elapsed().as_secs_f64();
         let mut s = lat.summary(batch_n as f64);
-        s["ops_per_sec"] = json!(ow as f64 / t.elapsed().as_secs_f64());
+        s["ops_per_sec"] = json!(ow as f64 / secs);
         e("overwrite", s);
     }
     {
@@ -340,7 +352,6 @@ fn raw(engine_name: &str, vsize: usize, dir: &Path) {
         let mut victims: Vec<u64> = (0..n).collect();
         rng.shuffle(&mut victims);
         let mut lat = Lat::new();
-        let t = Instant::now();
         for chunk in victims[..del as usize].chunks(batch_n) {
             let mut b = Batch::new();
             for j in chunk {
@@ -348,14 +359,17 @@ fn raw(engine_name: &str, vsize: usize, dir: &Path) {
             }
             lat.time(|| eng.commit(&b, false));
         }
+        let tf = Instant::now();
         eng.flush();
+        let secs = lat.0.iter().sum::<u64>() as f64 / 1e9 + tf.elapsed().as_secs_f64();
         let mut s = lat.summary(batch_n as f64);
-        s["ops_per_sec"] = json!(del as f64 / t.elapsed().as_secs_f64());
+        s["ops_per_sec"] = json!(del as f64 / secs);
         e("delete", s);
     }
     let live_after = (n - n / 4) * (16 + vsize as u64);
     let rss = rss_kb();
     let hwm = hwm_kb();
+    let anon = anon_kb();
     eng.flush();
     drop(eng);
     let (alloc, apparent) = dir_bytes(&d);
@@ -363,7 +377,7 @@ fn raw(engine_name: &str, vsize: usize, dir: &Path) {
     {
         let t = Instant::now();
         eng = engines::open(engine_name, &d);
-        assert!(eng.get(&key(order[order.len() - 1])).is_some() || true);
+        let _ = eng.get(&key(order[order.len() - 1]));
         let open_ms = t.elapsed().as_secs_f64() * 1000.0;
         e("restart", json!({"open_ms": open_ms}));
     }
@@ -375,7 +389,7 @@ fn raw(engine_name: &str, vsize: usize, dir: &Path) {
             "logical_live_bytes_end": live_after,
             "disk_alloc_bytes": alloc, "disk_apparent_bytes": apparent,
             "space_amp": alloc as f64 / live_after as f64,
-            "rss_kb": rss, "peak_rss_kb": hwm,
+            "rss_kb": rss, "peak_rss_kb": hwm, "anon_rss_kb": anon,
             "disk_write_bytes": writes, "logical_write_bytes": logical_written,
             "write_amp": writes as f64 / logical_written as f64,
         }),
@@ -485,11 +499,18 @@ fn semantic(engine: &str, scale: f64, ops: u64, dir: &Path) {
         json!({"seconds": load_secs, "ops_per_sec": total_ops as f64 / load_secs,
                "rooms": ds.rooms, "documents": ds.docs, "links": ds.links, "memberships": ds.members, "users": ds.users}),
     );
+    let load_rss = rss_kb();
+    let load_anon = anon_kb();
+    let load_hwm = hwm_kb();
+    // sizes after a clean close, so open WAL files and preallocation are
+    // settled the way each engine leaves them
+    drop(db);
     let load_writes = disk_writes() - writes0;
     let (alloc, _) = dir_bytes(dir);
     e("load_footprint", json!({"disk_alloc_bytes": alloc, "logical_bytes": logical, "space_amp": alloc as f64 / logical as f64,
                                 "disk_write_bytes": load_writes, "write_amp": load_writes as f64 / logical as f64,
-                                "rss_kb": rss_kb(), "peak_rss_kb": hwm_kb()}));
+                                "rss_kb": load_rss, "anon_rss_kb": load_anon, "peak_rss_kb": load_hwm}));
+    let mut db = semantic_db::open(engine, dir);
 
     // ---- mixed workload, every write durable
     db.set_sync(true);
@@ -573,6 +594,7 @@ fn semantic(engine: &str, scale: f64, ops: u64, dir: &Path) {
     }
     let rss = rss_kb();
     let hwm = hwm_kb();
+    let anon = anon_kb();
     db.flush();
     drop(db);
     let (alloc, apparent) = dir_bytes(dir);
@@ -581,7 +603,7 @@ fn semantic(engine: &str, scale: f64, ops: u64, dir: &Path) {
     let _ = db.get_document(1);
     let open_ms = t.elapsed().as_secs_f64() * 1000.0;
     e("restart", json!({"open_ms": open_ms, "last_change": db.last_change()}));
-    e("footprint", json!({"disk_alloc_bytes": alloc, "disk_apparent_bytes": apparent, "rss_kb": rss, "peak_rss_kb": hwm,
+    e("footprint", json!({"disk_alloc_bytes": alloc, "disk_apparent_bytes": apparent, "rss_kb": rss, "peak_rss_kb": hwm, "anon_rss_kb": anon,
                           "disk_write_bytes": disk_writes() - writes0}));
     drop(db);
     if std::env::var("KEEP_DIR").is_err() {

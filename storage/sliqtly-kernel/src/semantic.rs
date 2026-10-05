@@ -9,7 +9,7 @@
 //! - `rd/{room}/{max - updated}/{doc}` room's documents, newest first
 //! - `mu/{user}/{room}`, `mr/{room}/{user}`   role
 //! - `lf/{from}/{kind}/{to}`, `lt/{to}/{kind}/{from}`
-//! - `ch/{seq}`                       change feed entry; `meta/chg` the last seq
+//! - `ch/{seq}`                       change feed entry (8 base-36 digits)
 use ranger::prelude::*;
 use std::collections::HashSet;
 
@@ -100,10 +100,11 @@ pub struct Sliqtly {
 
 impl Sliqtly {
     pub fn new(kv: Box<dyn Kv>) -> Sliqtly {
+        // the last change feed key holds the counter
         let mut change: i64 = 0;
-        match kv.kv_get("meta/chg") {
-            Some(v) => change = to_int(&v),
-            None => {}
+        let keys = kv.kv_scan_keys("ch/", "", 1000000000000);
+        if keys.len() > 0 {
+            change = unb36(&keys[keys.len() - 1][3..11]);
         }
         Sliqtly { kv: kv, change: change }
     }
@@ -115,7 +116,6 @@ impl Sliqtly {
     fn note(&mut self, b: &mut Batch, what: &str) {
         let n = self.change + 1;
         b.put(&format!("ch/{}", b36(n, 8)), what);
-        b.put("meta/chg", &format!("{}", n));
     }
 
     fn commit_noted(&mut self, b: &Batch) -> i64 {

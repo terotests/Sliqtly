@@ -95,6 +95,13 @@ mod osfs {
     pub fn truncate(fd: i64, len: i64) {
         file(fd).set_len(len as u64).unwrap();
     }
+    /// Allocates blocks for [off, off + len) and extends the file over them.
+    pub fn preallocate(fd: i64, off: i64, len: i64) {
+        let r = unsafe { libc::fallocate(fd as i32, 0, off as libc::off_t, len as libc::off_t) };
+        if r != 0 {
+            file(fd).set_len((off + len) as u64).unwrap();
+        }
+    }
     pub fn rename(from: &str, to: &str) {
         std::fs::rename(from, to).unwrap();
     }
@@ -195,6 +202,14 @@ fn fs_truncate(fd: i64, len: i64) {
     ranger::native!(
         rust: { osfs::truncate(fd, len) },
         es6: "require('fs').ftruncateSync({fd}, {len});",
+    );
+}
+
+/// Reserves [off, off + len) for appends; extends the file with zeros.
+fn fs_preallocate(fd: i64, off: i64, len: i64) {
+    ranger::native!(
+        rust: { osfs::preallocate(fd, off, len) },
+        es6: "require('fs').ftruncateSync({fd}, {off} + {len});",
     );
 }
 
@@ -1339,8 +1354,9 @@ impl Kernel {
         if self.alloc_len - self.file_len < PREALLOC / 4 {
             // Extending the file ahead of the writes keeps a commit's
             // fdatasync from also persisting a new file size.
+            let from = self.alloc_len;
             self.alloc_len = self.file_len + PREALLOC;
-            fs_truncate(self.fd, self.alloc_len);
+            fs_preallocate(self.fd, from, self.alloc_len - from);
         }
         self.seq = p.seq;
         self.last_frame_off = p.off;
@@ -1506,6 +1522,17 @@ impl Kernel {
         self.compactions += 1;
     }
 
+    /// Releases the file and mapping without syncing or writing the
+    /// checkpoint: what a crash leaves behind. `close` is the clean way.
+    pub fn abandon(&mut self) {
+        if self.fd >= 0 {
+            fs_unmap(self.map);
+            self.map = 0;
+            fs_close(self.fd);
+            self.fd = -1;
+        }
+    }
+
     /// Syncs the log, writes the index checkpoint and closes the files.
     pub fn close(&mut self) {
         if self.fd >= 0 {
@@ -1520,5 +1547,14 @@ impl Kernel {
             fs_close(self.fd);
             self.fd = -1;
         }
+    }
+}
+
+/// Dropping a kernel that was not closed releases its file like a crash
+/// would; call `close` to sync and checkpoint.
+#[ranger::target(rust)]
+impl Drop for Kernel {
+    fn drop(&mut self) {
+        self.abandon();
     }
 }

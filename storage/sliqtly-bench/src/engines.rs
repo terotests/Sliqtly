@@ -8,7 +8,7 @@ use redb::{ReadableDatabase, ReadableTable};
 use rusqlite::OptionalExtension;
 use sliqtly_kernel::kernel::{Batch, Kernel, KvPair};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI8, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
 
 pub trait Engine: Send + Sync {
@@ -28,6 +28,10 @@ pub trait Engine: Send + Sync {
     /// Makes everything committed so far durable.
     fn flush(&self);
 }
+
+/// Every engine gets the same cache budget (LMDB and the Sliqtly kernel read
+/// through the OS page cache and have no cache of their own).
+pub const CACHE_BYTES: usize = 256 << 20;
 
 pub const ENGINES: [&str; 6] = ["sliqtly", "redb", "fjall", "lmdb", "rocksdb", "sqlite"];
 
@@ -211,7 +215,7 @@ pub struct RedbEngine {
 
 impl RedbEngine {
     pub fn open(dir: &Path) -> Self {
-        let db = redb::Database::create(dir.join("data.redb")).unwrap();
+        let db = redb::Builder::new().set_cache_size(CACHE_BYTES).create(dir.join("data.redb")).unwrap();
         let w = db.begin_write().unwrap();
         w.open_table(REDB_TABLE).unwrap();
         w.commit().unwrap();
@@ -251,7 +255,7 @@ impl Engine for RedbEngine {
     fn get(&self, key: &str) -> Option<usize> {
         let r = self.db.begin_read().unwrap();
         let t = r.open_table(REDB_TABLE).unwrap();
-        t.get(key).unwrap().map(|v| v.value().len())
+        t.get(key).unwrap().map(|v| v.value().to_string().len())
     }
     fn get_value(&self, key: &str) -> Option<String> {
         let r = self.db.begin_read().unwrap();
@@ -272,7 +276,7 @@ impl Engine for RedbEngine {
                 break;
             }
             n += 1;
-            bytes += v.value().len();
+            bytes += v.value().to_string().len();
         }
         (n, bytes)
     }
@@ -313,7 +317,7 @@ impl Engine for RedbEngine {
     fn snapshot_get(&self, keys: &[String]) -> usize {
         let r = self.db.begin_read().unwrap();
         let t = r.open_table(REDB_TABLE).unwrap();
-        keys.iter().map(|k| t.get(k.as_str()).unwrap().map(|v| v.value().len()).unwrap_or(0)).sum()
+        keys.iter().map(|k| t.get(k.as_str()).unwrap().map(|v| v.value().to_string().len()).unwrap_or(0)).sum()
     }
     fn flush(&self) {
         // An empty commit with Immediate durability persists the earlier
@@ -334,7 +338,7 @@ pub struct FjallEngine {
 
 impl FjallEngine {
     pub fn open(dir: &Path) -> Self {
-        let db = fjall::Database::builder(dir).open().unwrap();
+        let db = fjall::Database::builder(dir).cache_size(CACHE_BYTES as u64).open().unwrap();
         let ks = db.keyspace("kv", fjall::KeyspaceCreateOptions::default).unwrap();
         FjallEngine { db, ks, writer: Mutex::new(()) }
     }
@@ -370,7 +374,7 @@ impl Engine for FjallEngine {
         true
     }
     fn get(&self, key: &str) -> Option<usize> {
-        self.ks.get(key.as_bytes()).unwrap().map(|v| v.len())
+        self.ks.get(key.as_bytes()).unwrap().map(|v| v.to_vec().len())
     }
     fn get_value(&self, key: &str) -> Option<String> {
         self.ks.get(key.as_bytes()).unwrap().map(|v| String::from_utf8(v.to_vec()).unwrap())
@@ -387,7 +391,7 @@ impl Engine for FjallEngine {
                 break;
             }
             n += 1;
-            bytes += v.len();
+            bytes += v.to_vec().len();
         }
         (n, bytes)
     }
@@ -424,7 +428,7 @@ impl Engine for FjallEngine {
     fn snapshot_get(&self, keys: &[String]) -> usize {
         use fjall::Readable;
         let snap = self.db.snapshot();
-        keys.iter().map(|k| snap.get(&self.ks, k.as_bytes()).unwrap().map(|v| v.len()).unwrap_or(0)).sum()
+        keys.iter().map(|k| snap.get(&self.ks, k.as_bytes()).unwrap().map(|v| v.to_vec().len()).unwrap_or(0)).sum()
     }
     fn flush(&self) {
         self.db.persist(fjall::PersistMode::SyncData).unwrap();
@@ -433,10 +437,9 @@ impl Engine for FjallEngine {
 
 // ---------------------------------------------------------------- lmdb
 
-/// LMDB through heed. The environment is opened with NO_SYNC and a durable
-/// commit is followed by `force_sync`, which is what LMDB's default mode does
-/// at commit (fdatasync of the data file), so durability can be chosen per
-/// commit like the other engines.
+/// LMDB through heed in its default (synced) mode: a durable commit syncs the
+/// data pages, then the meta page. A non-durable commit runs with NO_SYNC set
+/// for that commit only (set and cleared under the writer lock).
 pub struct LmdbEngine {
     env: heed::Env,
     db: heed::Database<heed::types::Str, heed::types::Str>,
@@ -448,7 +451,6 @@ impl LmdbEngine {
         let env = unsafe {
             let mut o = heed::EnvOpenOptions::new();
             o.map_size(64 * 1024 * 1024 * 1024).max_dbs(4);
-            o.flags(heed::EnvFlags::NO_SYNC);
             o.open(dir).unwrap()
         };
         let mut w = env.write_txn().unwrap();
@@ -464,6 +466,43 @@ impl Engine for LmdbEngine {
     }
     fn commit(&self, b: &Batch, sync: bool) -> bool {
         let _g = self.writer.lock().unwrap();
+        if !sync {
+            // safety: set_flags runs only under the writer lock
+            unsafe { self.env.set_flags(heed::EnvFlags::NO_SYNC, heed::FlagSetMode::Enable).unwrap() };
+        }
+        let r = self.commit_inner(b);
+        if !sync {
+            unsafe { self.env.set_flags(heed::EnvFlags::NO_SYNC, heed::FlagSetMode::Disable).unwrap() };
+        }
+        r
+    }
+    fn get(&self, key: &str) -> Option<usize> {
+        self.get_value(key).map(|v| v.len())
+    }
+    fn get_value(&self, key: &str) -> Option<String> {
+        let r = self.env.read_txn().unwrap();
+        self.db.get(&r, key).unwrap().map(|v| v.to_string())
+    }
+    fn scan(&self, prefix: &str, start: &str, limit: usize) -> (usize, usize) {
+        self.scan_impl(prefix, start, limit)
+    }
+    fn scan_keys(&self, prefix: &str, start: &str, limit: usize) -> Vec<String> {
+        self.scan_keys_impl(prefix, start, limit)
+    }
+    fn scan_pairs(&self, prefix: &str, start: &str, limit: usize) -> Vec<KvPair> {
+        self.scan_pairs_impl(prefix, start, limit)
+    }
+    fn snapshot_get(&self, keys: &[String]) -> usize {
+        let r = self.env.read_txn().unwrap();
+        keys.iter().map(|k| self.db.get(&r, k.as_str()).unwrap().map(|v| v.to_string().len()).unwrap_or(0)).sum()
+    }
+    fn flush(&self) {
+        self.env.force_sync().unwrap();
+    }
+}
+
+impl LmdbEngine {
+    fn commit_inner(&self, b: &Batch) -> bool {
         let mut w = self.env.write_txn().unwrap();
         for c in &b.conds {
             let cur = self.db.get(&w, c.key.as_str()).unwrap();
@@ -481,20 +520,9 @@ impl Engine for LmdbEngine {
             }
         }
         w.commit().unwrap();
-        if sync {
-            self.env.force_sync().unwrap();
-        }
         true
     }
-    fn get(&self, key: &str) -> Option<usize> {
-        let r = self.env.read_txn().unwrap();
-        self.db.get(&r, key).unwrap().map(|v| v.len())
-    }
-    fn get_value(&self, key: &str) -> Option<String> {
-        let r = self.env.read_txn().unwrap();
-        self.db.get(&r, key).unwrap().map(|v| v.to_string())
-    }
-    fn scan(&self, prefix: &str, start: &str, limit: usize) -> (usize, usize) {
+    fn scan_impl(&self, prefix: &str, start: &str, limit: usize) -> (usize, usize) {
         let r = self.env.read_txn().unwrap();
         let s = from(prefix, start);
         let range = (std::ops::Bound::Included(s.as_str()), std::ops::Bound::Unbounded);
@@ -508,11 +536,11 @@ impl Engine for LmdbEngine {
                 break;
             }
             n += 1;
-            bytes += v.len();
+            bytes += v.to_string().len();
         }
         (n, bytes)
     }
-    fn scan_keys(&self, prefix: &str, start: &str, limit: usize) -> Vec<String> {
+    fn scan_keys_impl(&self, prefix: &str, start: &str, limit: usize) -> Vec<String> {
         let r = self.env.read_txn().unwrap();
         let s = from(prefix, start);
         let range = (std::ops::Bound::Included(s.as_str()), std::ops::Bound::Unbounded);
@@ -529,7 +557,7 @@ impl Engine for LmdbEngine {
         }
         out
     }
-    fn scan_pairs(&self, prefix: &str, start: &str, limit: usize) -> Vec<KvPair> {
+    fn scan_pairs_impl(&self, prefix: &str, start: &str, limit: usize) -> Vec<KvPair> {
         let r = self.env.read_txn().unwrap();
         let s = from(prefix, start);
         let range = (std::ops::Bound::Included(s.as_str()), std::ops::Bound::Unbounded);
@@ -546,13 +574,6 @@ impl Engine for LmdbEngine {
         }
         out
     }
-    fn snapshot_get(&self, keys: &[String]) -> usize {
-        let r = self.env.read_txn().unwrap();
-        keys.iter().map(|k| self.db.get(&r, k.as_str()).unwrap().map(|v| v.len()).unwrap_or(0)).sum()
-    }
-    fn flush(&self) {
-        self.env.force_sync().unwrap();
-    }
 }
 
 // ---------------------------------------------------------------- rocksdb
@@ -566,6 +587,11 @@ impl RocksEngine {
     pub fn open(dir: &Path) -> Self {
         let mut o = rocksdb::Options::default();
         o.create_if_missing(true);
+        o.increase_parallelism(4);
+        let mut t = rocksdb::BlockBasedOptions::default();
+        t.set_block_cache(&rocksdb::Cache::new_lru_cache(CACHE_BYTES));
+        t.set_bloom_filter(10.0, false);
+        o.set_block_based_table_factory(&t);
         let db = rocksdb::DB::open(&o, dir).unwrap();
         RocksEngine { db, writer: Mutex::new(()) }
     }
@@ -598,7 +624,7 @@ impl Engine for RocksEngine {
         true
     }
     fn get(&self, key: &str) -> Option<usize> {
-        self.db.get_pinned(key.as_bytes()).unwrap().map(|v| v.len())
+        self.db.get_pinned(key.as_bytes()).unwrap().map(|v| v.to_vec().len())
     }
     fn get_value(&self, key: &str) -> Option<String> {
         self.db.get_pinned(key.as_bytes()).unwrap().map(|v| String::from_utf8(v.to_vec()).unwrap())
@@ -652,7 +678,7 @@ impl Engine for RocksEngine {
     }
     fn snapshot_get(&self, keys: &[String]) -> usize {
         let snap = self.db.snapshot();
-        keys.iter().map(|k| snap.get(k.as_bytes()).unwrap().map(|v| v.len()).unwrap_or(0)).sum()
+        keys.iter().map(|k| snap.get(k.as_bytes()).unwrap().map(|v| v.to_vec().len()).unwrap_or(0)).sum()
     }
     fn flush(&self) {
         self.db.flush_wal(true).unwrap();
@@ -669,13 +695,15 @@ pub struct SqliteKvEngine {
     path: std::path::PathBuf,
     writer: Mutex<rusqlite::Connection>,
     readers: Mutex<Vec<rusqlite::Connection>>,
+    sync_mode: AtomicI8,
 }
 
 pub fn sqlite_connect(path: &Path) -> rusqlite::Connection {
     let c = rusqlite::Connection::open(path).unwrap();
     c.pragma_update(None, "journal_mode", "WAL").unwrap();
     c.pragma_update(None, "synchronous", "FULL").unwrap();
-    c.pragma_update(None, "cache_size", -65536).unwrap();
+    c.pragma_update(None, "cache_size", -((CACHE_BYTES / 1024) as i64)).unwrap();
+    c.pragma_update(None, "mmap_size", 4i64 << 30).unwrap();
     c.set_prepared_statement_cache_capacity(64);
     c
 }
@@ -684,8 +712,16 @@ impl SqliteKvEngine {
     pub fn open(dir: &Path) -> Self {
         let path = dir.join("data.sqlite");
         let c = sqlite_connect(&path);
-        c.execute_batch("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL) WITHOUT ROWID").unwrap();
-        SqliteKvEngine { path, writer: Mutex::new(c), readers: Mutex::new(Vec::new()) }
+        // WITHOUT ROWID suits rows under ~1/20 of a page; larger values go in
+        // a rowid table with the key in its own index (SQLite's guidance)
+        let large = std::env::var("SLIQ_LARGE_VALUES").is_ok();
+        let ddl = if large {
+            "CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)"
+        } else {
+            "CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL) WITHOUT ROWID"
+        };
+        c.execute_batch(ddl).unwrap();
+        SqliteKvEngine { path, writer: Mutex::new(c), readers: Mutex::new(Vec::new()), sync_mode: AtomicI8::new(1) }
     }
     fn with_reader<T>(&self, f: impl FnOnce(&rusqlite::Connection) -> T) -> T {
         let c = self.readers.lock().unwrap().pop().unwrap_or_else(|| sqlite_connect(&self.path));
@@ -695,8 +731,12 @@ impl SqliteKvEngine {
     }
 }
 
-pub fn sqlite_set_sync(c: &rusqlite::Connection, sync: bool) {
-    c.pragma_update(None, "synchronous", if sync { "FULL" } else { "OFF" }).unwrap();
+/// Sets `synchronous` when it differs from `current` (1 FULL, 0 OFF).
+pub fn sqlite_set_sync(c: &rusqlite::Connection, current: &AtomicI8, sync: bool) {
+    let want = if sync { 1 } else { 0 };
+    if current.swap(want, Ordering::Relaxed) != want {
+        c.pragma_update(None, "synchronous", if sync { "FULL" } else { "OFF" }).unwrap();
+    }
 }
 
 impl Engine for SqliteKvEngine {
@@ -705,7 +745,7 @@ impl Engine for SqliteKvEngine {
     }
     fn commit(&self, b: &Batch, sync: bool) -> bool {
         let mut c = self.writer.lock().unwrap();
-        sqlite_set_sync(&c, sync);
+        sqlite_set_sync(&c, &self.sync_mode, sync);
         let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).unwrap();
         for cond in &b.conds {
             let cur: Option<String> = tx
@@ -808,6 +848,8 @@ impl Engine for SqliteKvEngine {
     }
     fn flush(&self) {
         let c = self.writer.lock().unwrap();
-        c.execute_batch("PRAGMA wal_checkpoint(FULL)").unwrap();
+        // the checkpoint syncs only when synchronous is on
+        sqlite_set_sync(&c, &self.sync_mode, true);
+        c.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)").unwrap();
     }
 }

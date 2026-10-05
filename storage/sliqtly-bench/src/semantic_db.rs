@@ -9,7 +9,7 @@ use sliqtly_kernel::kernel::{Batch, KvPair};
 use sliqtly_kernel::semantic::{self, Kv, Sliqtly};
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI8, Ordering};
 use std::sync::Arc;
 
 pub enum LoadOp {
@@ -192,6 +192,7 @@ CREATE TABLE IF NOT EXISTS changes (seq INTEGER PRIMARY KEY, what TEXT NOT NULL)
 pub struct SqliteSemantic {
     c: rusqlite::Connection,
     change: i64,
+    sync_mode: AtomicI8,
 }
 
 impl SqliteSemantic {
@@ -200,7 +201,7 @@ impl SqliteSemantic {
         let c = sqlite_connect(&dir.join("semantic.sqlite"));
         c.execute_batch(SCHEMA).unwrap();
         let change: i64 = c.query_row("SELECT COALESCE(MAX(seq), 0) FROM changes", [], |r| r.get(0)).unwrap();
-        SqliteSemantic { c, change }
+        SqliteSemantic { c, change, sync_mode: AtomicI8::new(1) }
     }
 
     fn write<T>(&mut self, what: String, f: impl FnOnce(&rusqlite::Transaction) -> Option<T>) -> Option<T> {
@@ -254,10 +255,13 @@ impl SemanticDb for SqliteSemantic {
         tx.commit().unwrap();
     }
     fn set_sync(&mut self, sync: bool) {
-        sqlite_set_sync(&self.c, sync);
+        sqlite_set_sync(&self.c, &self.sync_mode, sync);
     }
     fn flush(&mut self) {
-        self.c.execute_batch("PRAGMA wal_checkpoint(FULL)").unwrap();
+        let was = self.sync_mode.load(Ordering::Relaxed) == 1;
+        sqlite_set_sync(&self.c, &self.sync_mode, true);
+        self.c.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)").unwrap();
+        sqlite_set_sync(&self.c, &self.sync_mode, was);
     }
     fn create_room(&mut self, room: i64, title: &str, owner: i64, ts: i64) -> bool {
         self.write(format!("room {}", room), |tx| {
