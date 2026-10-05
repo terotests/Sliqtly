@@ -98,20 +98,26 @@
 .ui-tabpanel { display: none; }
 
 /* --- the element picked on the slide (src/PresSelect.rgr) -------------------
-   The outline, its corner handles and a badge in the editor's blue; the
-   theme's spacing as bands: blue where the theme sets it, grey where it is
-   the default. */
+   The outline, its corner handles and badge in a dark blue; "Edit content"
+   and "Style" as dark blue tabs standing on the outline. The theme's spacing
+   as bands in grey: hatched where the theme sets it, plain where it is the
+   default. Kept muted so it reads on light and dark slides alike. */
 .pick-layer { background-color: rgba(0, 0, 0, 0); }
-.sel-hover { border: 1px solid #93c5fd; border-radius: 2px; }
-.sel-box { border: 2px solid #3b82f6; border-radius: 2px; }
-.sel-handle { background-color: #ffffff; border: 1.5px solid #3b82f6; }
-.sel-badge { background-color: #3b82f6; color: #ffffff; font-size: 11px; font-weight: 600; text-align: center; border-radius: 4px; }
-.sel-btn { background-color: #ffffff; color: #1d4ed8; font-size: 12px; font-weight: 600; text-align: center; border: 1px solid #93c5fd; border-radius: 6px; shadow-color: rgba(0, 0, 0, 0.14); shadow-radius: 6px; shadow-offset-y: 2px; cursor: pointer; }
-.sel-btn-hot { background-color: #3b82f6; color: #ffffff; border: 1px solid #3b82f6; }
+.sel-hover { border: 1px solid rgba(30, 58, 138, 0.55); border-radius: 2px; }
+.sel-halo { border: 1px solid rgba(255, 255, 255, 0.6); }
+.sel-box { border: 2px solid #1e3a8a; }
+.sel-handle { background-color: #ffffff; border: 1.5px solid #1e3a8a; }
+.sel-badge { background-color: #1e3a8a; color: #ffffff; font-size: 11px; font-weight: 600; text-align: center; border-radius: 3px; }
+.sel-btn { cursor: pointer; }
+.sel-tab { fill: #1e3a8a; }
+.sel-btn-hot.sel-tab { fill: #1d4ed8; }
+.sel-btn-text { color: #ffffff; font-size: 12px; font-weight: 600; text-align: center; background-color: rgba(0, 0, 0, 0); cursor: pointer; }
 .sel-band { cursor: pointer; }
-.sel-band-set { background-color: rgba(59, 130, 246, 0.32); }
-.sel-band-unset { background-color: rgba(161, 161, 170, 0.32); }
-.sel-band-hot { background-color: rgba(59, 130, 246, 0.5); border: 1px solid #3b82f6; }
-.sel-bline-set { background-color: #3b82f6; }
+.sel-band-set { background-color: rgba(113, 113, 122, 0.12); border: 1px solid rgba(63, 63, 70, 0.55); }
+.sel-band-unset { background-color: rgba(113, 113, 122, 0.16); }
+.sel-band-hot { background-color: rgba(113, 113, 122, 0.24); border: 1px solid #3f3f46; }
+.sel-hatch { fill: rgba(113, 113, 122, 0.38); }
+.sel-hatch-hot { fill: rgba(82, 82, 91, 0.6); }
+.sel-bline-set { background-color: #3f3f46; }
 .sel-bline-unset { background-color: #a1a1aa; }
 .sel-blabel { color: #ffffff; font-size: 10px; font-weight: 600; text-align: center; border-radius: 3px; }
