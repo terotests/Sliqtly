@@ -29,8 +29,11 @@
 ; ============================================================================
 
 Import "PresTimeline.rgr"
+Import "PresSlideSpans.rgr"
 Import "PresFollow.rgr"
 Import "PresPick.rgr"
+Import "PresNav.rgr"
+Import "PresExport.rgr"
 Import "PresI18n.rgr"
 Import "../datagrid/src/script/ScriptEditor.rgr"
 Import "../game_engine/ui/UITextRenderer.rgr"
@@ -49,7 +52,7 @@ Import "PresA11y.rgr"
 Import "PresSelect.rgr"
 Import "../evgui/src/TabsCtl.rgr"
 Import "../evgui/src/UiLayers.rgr"
-Import "../evgui/src/UiOpenTabs.rgr"
+Import "../evgui/src/DocTabsCtl.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
@@ -97,9 +100,6 @@ class PresApp {
     ; spec) in an editor of its own; "" while the list shows
     def fileEditor:ScriptEditor (new ScriptEditor())
     def filePath:string ""
-    ; the files opened from the files tab, each a tab after Files (VS Code's
-    ; open editors): "f:<path>" in the strip
-    def openTabs:UiOpenTabs (new UiOpenTabs())
     def fileSynced:int 0
     ; the chart editor's chart, when it lives in a file of the document
     def chartFile:string ""
@@ -116,6 +116,25 @@ class PresApp {
     def laidTabs:TabsCtl (new TabsCtl())
     def tabRect:PresRect (new PresRect())
     def tabH:double 34.0
+    ; The presentations open in this tab of the browser, a tab each, in a row
+    ; of their own under the top bar (EVGUI's DocTabsCtl). The page says
+    ; which are open (deckTabOpen…) and opens the one a press, a swipe or a
+    ; close asks for ("deck:switch:<key>").
+    def deckTabs:DocTabsCtl (new DocTabsCtl())
+    def deckRect:PresRect (new PresRect())
+    def deckH:double 40.0
+    def deckOn:boolean false
+    ; a press in the row: the tab pressed, where and when it began, where
+    ; the pointer is now
+    def deckDown:boolean false
+    def deckPressed:string ""
+    def deckX0:double 0.0
+    def deckY0:double 0.0
+    def deckT0:double 0.0
+    def deckXN:double 0.0
+    def deckYN:double 0.0
+    ; a sideways wheel over the row, summed until it is a step
+    def deckWheel:double 0.0
     def sheet:EVGStyleSheet (new EVGStyleSheet())
     def measurer@(optional):TTFTextMeasurer
     def chromeRoot@(optional):EVGElement
@@ -170,8 +189,6 @@ class PresApp {
     def picks:PresPick (new PresPick())
     def pressCtrl:boolean false
     def pressShift:boolean false
-    ; the exports write only the picked slides (pdfPicked, pptxPicked)
-    def exportPick:boolean false
     ; The "+" after the last thumbnail: pressed, it offers an empty slide or
     ; a copy of the selected one. `stripAdd` is what the press on it asks
     ; for: "open", "empty", "dup" or "".
@@ -221,9 +238,9 @@ class PresApp {
     def follow:PresFollow (new PresFollow())
     def posLine:int 0
     def posCol:int 0
-    ; Effects rendered to pictures by the host for an export: slide index,
-    ; pixels (RGBA, top row first) for the PDF, a JPEG for the PPTX.
-    def stillIdx:[int]
+    ; the PDF and PPTX exports, with the effects the host rendered to
+    ; pictures for them and the contrast guard's repairs
+    def exporter:PresExport (new PresExport())
     ; The chart settings editor, and the fence it is editing: the lines of
     ; its opening and closing ``` in the Markdown.
     def chart:PresChartEditor (new PresChartEditor())
@@ -246,6 +263,8 @@ class PresApp {
     def panels:PresPanels (new PresPanels())
     ; review mode: comments pinned to the slides (PresReviewUi, PresReview)
     def review:PresReviewUi (new PresReviewUi())
+    ; the jumps while presenting and the slide number being typed
+    def nav:PresNav (new PresNav())
     def reviewTitlesKey:string ""
     ; Which surface over the chrome is on top: the order they are painted in
     ; (`layerOrder`, read by the page) and the order a press, a wheel or the
@@ -253,9 +272,10 @@ class PresApp {
     def layers:UiLayers (new UiLayers())
     ; the page is used with a finger: `@media (pointer: coarse)`
     def coarse:boolean false
-    ; The editor's skin: "" for the light look, "retro" for the glossy lime
-    ; one. It is a theme name every chrome sheet is applied with; the skins'
-    ; rules are `.theme-retro .x`, so "" leaves them all asleep.
+    ; The editor's skin: "" for the light look, "dark" for the dark one,
+    ; "retro" for the glossy lime one. It is a theme name every chrome sheet
+    ; is applied with; the skins' rules are `.theme-retro .x` and
+    ; `.theme-dark .x`, so "" leaves them all asleep.
     def skin:string ""
     ; the mirrored control the keyboard is on ("" = the editor or the stage)
     def a11yFocus:string ""
@@ -271,17 +291,6 @@ class PresApp {
     def barH:double 0.0
     def chartWinY:double -1.0
     def chartEnd:int -1
-    def stillRgba:[buffer]
-    def stillW:[int]
-    def stillH:[int]
-    def stillJpeg:[buffer]
-    ; The runs the host's contrast guard repaired on each slide, for the
-    ; PPTX: the slide, the run's text, "colour" or "outline", and the colour
-    ; it was given ("#rrggbb", for "colour").
-    def fixSlide:[int]
-    def fixText:[string]
-    def fixKind:[string]
-    def fixColor:[string]
 
     Constructor () {
         def r:[string]
@@ -333,6 +342,10 @@ class PresApp {
 
     fn attachFont:boolean (name:string data:buffer) {
         def ok:boolean (deck.md.attachFont(name data))
+        if ok {
+            set deck.haveFaces name true
+            chromeRev = (chromeRev + 1)
+        }
         if (name == editor.fontFamily) {
             tr.loadFontBytes(name data)
         }
@@ -340,6 +353,12 @@ class PresApp {
             measurer = (new TTFTextMeasurer(deck.md.fontManager))
         }
         return ok
+    }
+
+    ; The faces the deck's diagram looks want (comma-separated): the page
+    ; loads the ones it has not and hands them to `attachFont`.
+    fn wantedFaces:string () {
+        return deck.wantFaces
     }
 
     fn addImage:boolean (name:string data:buffer contentType:string w:int h:int) {
@@ -389,12 +408,66 @@ class PresApp {
         t.hBarEdge = (EVGColor.rgb(228 228 231))
     }
 
+    ; The editors in the dark look: the light look's colours through the same
+    ; map the chrome's sheets go through (EVGUI's UiDark), so every contrast
+    ; in the editor stays what it was.
+    sfn darkEditor:void (ed:ScriptEditor) {
+        PresApp.lightEditor(ed)
+        def t:ScriptEditorTheme ed.theme
+        t.bg = (UiDark.color(t.bg))
+        t.gutterBg = (UiDark.color(t.gutterBg))
+        t.gutterText = (UiDark.color(t.gutterText))
+        t.gutterActive = (UiDark.color(t.gutterActive))
+        t.currentLine = (UiDark.color(t.currentLine))
+        t.selection = (UiDark.color(t.selection))
+        t.caret = (UiDark.color(t.caret))
+        t.border = (UiDark.color(t.border))
+        t.plain = (UiDark.color(t.plain))
+        t.keyword = (UiDark.color(t.keyword))
+        t.builtin = (UiDark.color(t.builtin))
+        t.number = (UiDark.color(t.number))
+        t.text = (UiDark.color(t.text))
+        t.comment = (UiDark.color(t.comment))
+        t.punct = (UiDark.color(t.punct))
+        t.tag = (UiDark.color(t.tag))
+        t.attr = (UiDark.color(t.attr))
+        t.popupBg = (UiDark.color(t.popupBg))
+        t.popupEdge = (UiDark.color(t.popupEdge))
+        t.popupPick = (UiDark.color(t.popupPick))
+        t.popupDetail = (UiDark.color(t.popupDetail))
+        t.findBg = (UiDark.color(t.findBg))
+        t.findEdge = (UiDark.color(t.findEdge))
+        t.findInk = (UiDark.color(t.findInk))
+        t.findDim = (UiDark.color(t.findDim))
+        t.errorInk = (UiDark.color(t.errorInk))
+        t.warningInk = (UiDark.color(t.warningInk))
+        t.minimapBg = (UiDark.color(t.minimapBg))
+        t.minimapSlider = (UiDark.color(t.minimapSlider))
+        t.minimapEdge = (UiDark.color(t.minimapEdge))
+        t.hBarTrack = (UiDark.color(t.hBarTrack))
+        t.hBarThumb = (UiDark.color(t.hBarThumb))
+        t.hBarEdge = (UiDark.color(t.hBarEdge))
+    }
+
     sfn skinEditor:void (ed:ScriptEditor s:string hue:double) {
         if (s == "retro") {
             PresApp.retroEditor(ed hue)
-        } {
-            PresApp.lightEditor(ed)
+            return
         }
+        if (s == "dark") {
+            PresApp.darkEditor(ed)
+            return
+        }
+        PresApp.lightEditor(ed)
+    }
+
+    ; The dark overlay of a light chrome sheet for a host applied with
+    ; `theme` (EVGUI's UiDark.overlay): the page appends it to each sheet.
+    ; What is drawn over the slide (the picked element's frame, the review
+    ; bar) and the presenting screen keep their colours: they are read
+    ; against the slide, which keeps its own theme.
+    sfn darkCss:string (css:string theme:string) {
+        return (UiDark.overlayKeep(css theme "sel- pick- rv- present"))
     }
 
     ; The editors in the retro skin: a dark display with phosphor text in the
@@ -475,132 +548,8 @@ class PresApp {
         }
         tabs.addItem("css" cssLabel "" false)
         tabs.addItem("files" (PresI18n.t("Files")) "" false)
-        def shown:[string] (this.shownFileTabs())
-        def i:int 0
-        while (i < (array_length shown)) {
-            def path:string (itemAt shown i)
-            tabs.addClosable(("f:" + path) (PresApp.shortLabel((openTabs.label(path)))))
-            i = (i + 1)
-        }
-        tabs.value = (this.activeTab())
+        tabs.value = edTab
         tabs.build()
-    }
-
-    ; The strip's tab in front: an open file's when one is in the editor.
-    fn activeTab:string () {
-        if ((edTab == "files") && ((strlen filePath) > 0)) {
-            return ("f:" + filePath)
-        }
-        return edTab
-    }
-
-    sfn shortLabel:string (s:string) {
-        if ((strlen s) > 22) {
-            return ((substring s 0 21) + "…")
-        }
-        return s
-    }
-
-    ; The open files' tabs that fit beside the editor's own three, in the
-    ; order they were opened: the one in front always, then the ones used
-    ; last. The rest stay open and come back when there is room.
-    fn shownFileTabs:[string] () {
-        def out:[string]
-        def n:int (openTabs.count())
-        if (n == 0) {
-            return out
-        }
-        def room:double (tabRect.w - 270.0)
-        def take:[string]
-        def k:int ((array_length openTabs.used) - 1)
-        if ((strlen filePath) > 0) {
-            push take filePath
-            room = (room - (PresApp.tabWidth((openTabs.label(filePath)))))
-        }
-        while (k >= 0) {
-            def u:string (itemAt openTabs.used k)
-            if (u != filePath) {
-                def tw:double (PresApp.tabWidth((openTabs.label(u))))
-                if (room >= tw) {
-                    push take u
-                    room = (room - tw)
-                }
-            }
-            k = (k - 1)
-        }
-        def i:int 0
-        while (i < n) {
-            def t:string (openTabs.at(i))
-            def j:int 0
-            while (j < (array_length take)) {
-                if ((itemAt take j) == t) {
-                    push out t
-                }
-                j = (j + 1)
-            }
-            i = (i + 1)
-        }
-        return out
-    }
-
-    ; about what a tab with its close mark takes (13px text)
-    sfn tabWidth:double (label:string) {
-        def len:int (strlen (PresApp.shortLabel(label)))
-        return (((to_double len) * 7.0) + 40.0)
-    }
-
-    ; A tab's close mark pressed: the next tab used comes to the front, or
-    ; the files list when no file is left.
-    fn closeFileTab:void (path:string) {
-        def front:boolean (path == filePath)
-        def next:string (openTabs.close(path))
-        if front {
-            this.closeFile()
-            if (edTab == "files") {
-                if ((strlen next) > 0) {
-                    push requests ("files:open:" + next)
-                } {
-                    push requests "files-list"
-                }
-            }
-        }
-        chromeRev = (chromeRev + 1)
-    }
-
-    ; Files the page opened in a window of its own (a CSV, a workbook): a
-    ; tab too, pressed to open it again.
-    fn noteOpened:void (path:string) {
-        openTabs.open(path)
-        chromeRev = (chromeRev + 1)
-    }
-
-    ; The deck's files as they are now ("\n" between): the tabs of the rest close.
-    fn keepOpenTabs:void (paths:string) {
-        def keys:[string] (strsplit paths (strfromcode 10))
-        if ((strlen filePath) > 0) {
-            def still:boolean false
-            def i:int 0
-            while (i < (array_length keys)) {
-                if ((itemAt keys i) == filePath) {
-                    still = true
-                }
-                i = (i + 1)
-            }
-            if (still == false) {
-                this.closeFile()
-            }
-        }
-        def before:int (openTabs.count())
-        openTabs.retain(keys)
-        if ((openTabs.count()) != before) {
-            chromeRev = (chromeRev + 1)
-        }
-    }
-
-    ; Another deck: its own files, none of this one's tabs.
-    fn clearOpenTabs:void () {
-        openTabs = (new UiOpenTabs())
-        chromeRev = (chromeRev + 1)
     }
 
     fn editorTab:string () {
@@ -806,43 +755,21 @@ class PresApp {
     ; count after the last). A slide the overflow went on to counts from its
     ; heading's slide, so a slide is always its whole section.
     fn slideLines:void (i:int) {
-        def text:string (mdEditor.text())
-        def lc:int (mdEditor.buf.lineCount())
+        def starts:[int]
+        def titles:[string]
         def n:int (deck.slideCount())
-        linesFrom = -1
-        linesAt = lc
-        if ((n > 0) && ((i >= 0) && (i < n))) {
-            ; a slide the overflow went on to starts on its heading's slide
-            def k:int i
-            while (k > 0) {
-                def sk:PresSlide (deck.slideAt(k))
-                def sp:PresSlide (deck.slideAt((k - 1)))
-                if ((sk.srcStart < 0) || (sk.title != sp.title)) {
-                    break
-                }
-                this.posOf(text sk.srcStart)
-                if (PresApp.isHeading((mdEditor.buf.lineAt(posLine)))) {
-                    break
-                }
-                k = (k - 1)
-            }
-            def s:PresSlide (deck.slideAt(k))
-            if (s.srcStart >= 0) {
-                this.posOf(text s.srcStart)
-                linesFrom = posLine
-                def j:int (i + 1)
-                while (j < n) {
-                    def sj:PresSlide (deck.slideAt(j))
-                    if (sj.srcStart >= 0) {
-                        this.posOf(text sj.srcStart)
-                        if ((posLine > linesFrom) && ((PresApp.isHeading((mdEditor.buf.lineAt(posLine)))) || (sj.title != s.title))) {
-                            linesAt = posLine
-                            break
-                        }
-                    }
-                    j = (j + 1)
-                }
-            }
+        def k:int 0
+        while (k < n) {
+            def sk:PresSlide (deck.slideAt(k))
+            push starts sk.srcStart
+            push titles sk.title
+            k = (k + 1)
+        }
+        def span:[int] (PresSlideSpans.lines((mdEditor.text()) starts titles i))
+        linesFrom = (itemAt span 0)
+        linesAt = (itemAt span 1)
+        if (linesFrom < 0) {
+            linesAt = (mdEditor.buf.lineCount())
         }
     }
 
@@ -1481,6 +1408,8 @@ class PresApp {
     ; =========================================================================
     fn present:void (fromStart:boolean) {
         this.dropPick()
+        ; the comments' panel opens only when asked for
+        review.closePanel()
         mode = "present"
         this.viewReset()
         activeDia = -1
@@ -1490,6 +1419,7 @@ class PresApp {
         }
         ended = false
         pStep = 0
+        nav.clear()
         clock = (PresTimeline.slideStart(deck selected))
         elapsed = 0.0
         deck.resetExplore()
@@ -1585,13 +1515,81 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; A jump (PresNav): straight to where it lands, no transition on the way.
+    fn jump:void (at:PresNavAt) {
+        if ((mode != "present") || ((deck.slideCount()) == 0)) {
+            return
+        }
+        nav.clear()
+        selected = at.slide
+        pStep = at.step
+        clock = at.clock
+        ended = at.ended
+        this.viewReset()
+        activeDia = -1
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; Home, ⏮: the first slide from its start.
+    fn firstSlide:void () {
+        this.jump((PresNav.first(deck)))
+        deck.resetExplore()
+    }
+
+    ; End: the last slide, whole.
+    fn lastSlide:void () {
+        this.jump((PresNav.last(deck)))
+    }
+
+    ; PageDown / PageUp: the next / previous slide, whole.
+    fn pageNext:void () {
+        this.jump((PresNav.pageNext(deck selected ended)))
+    }
+
+    fn pagePrev:void () {
+        this.jump((PresNav.pagePrev(deck selected ended)))
+    }
+
+    ; Slide `text` (a number from 1, as the counter shows it), whole. False
+    ; when it is no number.
+    fn goToSlide:boolean (text:string) {
+        def k:int (PresNav.number(text (deck.slideCount())))
+        if ((k < 0) || (mode != "present")) {
+            return false
+        }
+        this.jump((PresNav.whole(deck k)))
+        return true
+    }
+
+    ; The counter: "3 / 12", or the number being typed.
+    fn slideLabel:string () {
+        return (PresNav.label(selected (deck.slideCount()) nav.typed))
+    }
+
+    fn navTyping:boolean () {
+        return (nav.typing())
+    }
+
+    fn navClear:void () {
+        if (nav.typing()) {
+            nav.clear()
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
     ; =========================================================================
     ; Layout
     ; =========================================================================
     fn place:void () {
         if (mode == "present") {
+            deckRect.set(0.0 0.0 0.0 0.0)
             this.placePresent()
             return
+        }
+        if (deckOn && (barH > 0.0)) {
+            deckRect.set(0.0 toolbar.barH W deckH)
+        } {
+            deckRect.set(0.0 0.0 0.0 0.0)
         }
         ; the help panel, the chat or a comment's thread, when open, takes
         ; the right edge
@@ -2223,6 +2221,13 @@ class PresApp {
             this.presentChrome(root)
             return root
         }
+        ; the open presentations, under the top bar
+        if (deckRect.h > 0.0) {
+            def row:EVGElement (PresApp.div("deck-row" "deck-row" deckRect.x deckRect.y deckRect.w deckRect.h))
+            this.makeDeckTabs()
+            row.addChild((unwrap deckTabs.rootEl))
+            root.addChild(row)
+        }
         ; the tabs over the editor pane: Ranger UI's TabsCtl, styled in pres.css
         if (edRect.w > 0.0) {
             def tabBar:EVGElement (PresApp.div("ed-tabs" "ed-tabs" tabRect.x tabRect.y tabRect.w tabRect.h))
@@ -2585,30 +2590,19 @@ class PresApp {
             this.takeToolbar()
             return "bar"
         }
+        if (deckRect.has(x y)) {
+            this.deckPress(x y)
+            chromeRev = (chromeRev + 1)
+            return "decktabs"
+        }
         if (sepRect.has(x y)) {
             splitDrag = true
             return "sep"
         }
         if (tabRect.has(x y)) {
-            def shut:string (laidTabs.closeAt(x y))
-            if ((indexOf shut "f:") == 0) {
-                this.closeFileTab((substring shut 2 (strlen shut)))
-                return "editor"
-            }
             def hitTab:string (this.tabAt(x))
-            if ((indexOf hitTab "f:") == 0) {
-                def fp:string (substring hitTab 2 (strlen hitTab))
-                if (fp != filePath) {
-                    ; the page reads it and hands it back (openFile), or
-                    ; opens its window (a CSV, a workbook)
-                    push requests ("files:open:" + fp)
-                } {
-                    this.showTab("files")
-                }
-                return "editor"
-            }
             if ((hitTab == "files") && ((strlen filePath) > 0)) {
-                ; the list again; the file keeps its tab
+                ; the list again
                 this.closeFile()
                 this.showTab("files")
                 return "editor"
@@ -2797,15 +2791,16 @@ class PresApp {
             activeDia = tapDia
             activatedNow = ((tapDia >= 0) && (mode == "edit"))
         }
+        ; a swipe sideways: left for the next slide, right for the one before
+        def dx:double (lastX - downX)
+        def dy:double (lastY - downY)
+        def adx:double (fabs dx)
+        def ady:double (fabs dy)
+        def swiped:boolean ((adx >= swipeMin) && (adx > (ady * 1.2)))
         if (mode == "present") {
-            ; a swipe sideways: left for the next slide, right for the one
-            ; before (from the end panel straight to it); a press that went
+            ; (from the end panel straight to it); a press that went
             ; elsewhere does nothing
-            def dx:double (lastX - downX)
-            def dy:double (lastY - downY)
-            def adx:double (fabs dx)
-            def ady:double (fabs dy)
-            if ((adx >= swipeMin) && (adx > (ady * 1.2))) {
+            if swiped {
                 if (dx < 0.0) {
                     this.next()
                 } {
@@ -2822,6 +2817,11 @@ class PresApp {
                 this.next()
             }
         } {
+            if swiped {
+                this.selectSlide((? (dx < 0.0) (selected + 1) (selected - 1)))
+                chromeRev = (chromeRev + 1)
+                return
+            }
             ; a diagram's or a table's own controls take the press first; the
             ; block under it is picked all the same
             this.stagePress(downX downY)
@@ -2846,9 +2846,27 @@ class PresApp {
     }
 
     fn pointerMove:void (x:double y:double) {
+        if deckDown {
+            this.deckMove(x y)
+            return
+        }
         ; a drag selecting in a comment's text field
         if review.selecting {
-            review.dragTo(x)
+            review.dragTo(x y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        ; the comment's callout held by its head (presenting)
+        if review.co.dragging {
+            this.place()
+            review.calloutDrag(x y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        ; a comment's pin held: dragged to another place
+        if ((strlen review.pinDown) > 0) {
+            this.place()
+            review.dragPin(x y)
             chromeRev = (chromeRev + 1)
             return
         }
@@ -2958,7 +2976,14 @@ class PresApp {
     }
 
     fn pointerUp:void () {
-        review.release()
+        if deckDown {
+            this.deckRelease()
+        }
+        if (review.release()) {
+            this.reviewSpots()
+            this.afterReview()
+            chromeRev = (chromeRev + 1)
+        }
         panels.chatRelease()
         panels.textRelease()
         if (hint.isOpen && (hint.dragging())) {
@@ -3054,6 +3079,12 @@ class PresApp {
         if ((this.layerAt(x y)) == "chart") {
             return true
         }
+        if ((deckRect.has(x y)) && ((this.layerAt(x y)) == "")) {
+            if ((fabs dx) > (fabs dy)) {
+                this.deckWheelBy(dx)
+            }
+            return true
+        }
         if (((mode != "present") && (edRect.has(x y))) && ((fabs dx) > (fabs dy))) {
             editor.scrollByX((to_int dx))
             chromeRev = (chromeRev + 1)
@@ -3141,6 +3172,9 @@ class PresApp {
 
     fn cursorAt:string (x:double y:double) {
         this.place()
+        if (review.dragging || review.co.dragging) {
+            return "grabbing"
+        }
         if (review.on && ((this.layerAt(x y)) == "review")) {
             def rc:string (review.cursorAt(x y))
             if ((strlen rc) > 0) {
@@ -3171,6 +3205,9 @@ class PresApp {
         }
         if ((barH > 0.0) && (toolbar.has(x y))) {
             return (toolbar.cursorAt(x y))
+        }
+        if ((deckRect.has(x y)) && ((strlen (deckTabs.hitAt(x y))) > 0)) {
+            return "pointer"
         }
         if (tabRect.has(x y)) {
             if ((strlen (this.tabAt(x))) > 0) {
@@ -3267,18 +3304,45 @@ class PresApp {
             this.afterChart()
             return used
         }
+        ; a slide number being typed: Enter goes there, Esc forgets it
+        if ((mode == "present") && (nav.typing())) {
+            if (name == "enter") {
+                def k:int (nav.take((deck.slideCount())))
+                this.jump((PresNav.whole(deck k)))
+                return true
+            }
+            if (name == "escape") {
+                this.navClear()
+                return true
+            }
+            if (name == "backspace") {
+                nav.typed = (substring nav.typed 0 ((strlen nav.typed) - 1))
+                chromeRev = (chromeRev + 1)
+                return true
+            }
+            nav.clear()
+            chromeRev = (chromeRev + 1)
+        }
         if ((mode == "present") || (focus == "stage")) {
             if (this.diagramKey(name)) {
                 return true
             }
         }
         if (mode == "present") {
-            if ((((name == "right") || (name == "down")) || (name == "pageDown")) || (name == "enter")) {
+            if (((name == "right") || (name == "down")) || (name == "enter")) {
                 this.next()
                 return true
             }
-            if (((name == "left") || (name == "up")) || (name == "pageUp")) {
+            if ((name == "left") || (name == "up")) {
                 this.prev()
+                return true
+            }
+            if (name == "pageDown") {
+                this.pageNext()
+                return true
+            }
+            if (name == "pageUp") {
+                this.pagePrev()
                 return true
             }
             if (name == "escape") {
@@ -3286,11 +3350,11 @@ class PresApp {
                 return true
             }
             if (name == "home") {
-                ended = false
-                selected = 0
-                pStep = 0
-                clock = 0.0
-                chromeRev = (chromeRev + 1)
+                this.firstSlide()
+                return true
+            }
+            if (name == "end") {
+                this.lastSlide()
                 return true
             }
             return false
@@ -3462,6 +3526,16 @@ class PresApp {
             this.afterHint()
             return
         }
+        ; a slide number: digits, then Enter (a number already begun takes
+        ; the digits before a diagram's own keys do)
+        if ((mode == "present") && (nav.typing())) {
+            if (nav.digit(s)) {
+                chromeRev = (chromeRev + 1)
+                return
+            }
+            nav.clear()
+            chromeRev = (chromeRev + 1)
+        }
         ; T: the diagram's tour on this slide, started or stopped
         if (((mode == "present") || (focus == "stage")) && ((s == "t") || (s == "T"))) {
             if (this.toggleTour(0)) {
@@ -3478,6 +3552,10 @@ class PresApp {
             }
         }
         if (mode == "present") {
+            if (nav.digit(s)) {
+                chromeRev = (chromeRev + 1)
+                return
+            }
             if (s == " ") {
                 this.next()
             }
@@ -3930,10 +4008,189 @@ class PresApp {
     fn useToolbar:void (on:boolean) {
         if on {
             barH = toolbar.barH
+            if deckOn {
+                ; the presentations' row is under it: what is below the bar
+                ; starts below both
+                barH = (barH + deckH)
+            }
         } {
             barH = 0.0
         }
         chromeRev = (chromeRev + 1)
+    }
+
+    ; --- the open presentations' tabs ------------------------------------------------
+    ; The row on or off (the editor's page has it; a reader's has no bar).
+    fn useDeckTabs:void (on:boolean) {
+        deckOn = on
+        deckTabs.tid = "decktabs"
+        deckTabs.tabs.most = 10
+        this.useToolbar((barH > 0.0))
+    }
+
+    ; The deck shown now is `k`, called `label`: its tab, in front.
+    fn deckTabOpen:void (k:string label:string) {
+        deckTabs.tabs.open(k)
+        deckTabs.setLabel(k label)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The deck of tab `from` is now `to` (a sample kept on its first change
+    ; gets an id of its own), called `label`. Nothing when it has no tab.
+    fn deckTabRename:void (from:string to:string label:string) {
+        if ((deckTabs.tabs.has(from)) && (from != to)) {
+            deckTabs.tabs.rename(from to)
+        }
+        if (deckTabs.tabs.has(to)) {
+            deckTabs.setLabel(to label)
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    ; Its tab closed (the deck stays where it is kept): the tab now in front.
+    fn deckTabClose:string (k:string) {
+        def next:string (deckTabs.tabs.close(k))
+        chromeRev = (chromeRev + 1)
+        return next
+    }
+
+    fn deckTabFront:string () {
+        return deckTabs.tabs.active
+    }
+
+    ; The row as the page keeps it over a reload: the tab in front on the
+    ; first line, then "<key>\t<label>" for each tab in order.
+    fn deckTabsState:string () {
+        def out:string deckTabs.tabs.active
+        def i:int 0
+        while (i < (deckTabs.tabs.count())) {
+            def k:string (deckTabs.tabs.at(i))
+            out = (out + (strfromcode 10) + k + (strfromcode 9) + (deckTabs.labelOf(k)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The row kept by deckTabsState, before the deck it shows is opened.
+    fn deckTabsRestore:void (state:string) {
+        def lines:[string] (strsplit state (strfromcode 10))
+        def i:int 1
+        while (i < (array_length lines)) {
+            def parts:[string] (strsplit (itemAt lines i) (strfromcode 9))
+            if ((array_length parts) >= 2) {
+                deckTabs.tabs.open((itemAt parts 0))
+                deckTabs.setLabel((itemAt parts 0) (itemAt parts 1))
+            }
+            i = (i + 1)
+        }
+        if ((array_length lines) > 0) {
+            def front:string (itemAt lines 0)
+            if (deckTabs.tabs.has(front)) {
+                deckTabs.tabs.open(front)
+            }
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; Fresh elements for each layout, sized to the row: tabs that do not fit
+    ; wait beside it, and long names are cut to what a tab has room for.
+    fn makeDeckTabs:void () {
+        deckTabs.name = (PresI18n.t("Open presentations"))
+        deckTabs.addWord = (PresI18n.t("New presentation"))
+        deckTabs.closeWord = (PresI18n.t("Close "))
+        deckTabs.room = deckRect.w
+        def n:int (deckTabs.tabs.count())
+        def chars:int 26
+        if (n > 0) {
+            def each:double (((deckRect.w - 56.0) / (to_double n)) - 58.0)
+            def fit:int (to_int (each / 7.0))
+            if (fit < chars) {
+                chars = fit
+            }
+        }
+        if (chars < 6) {
+            chars = 6
+        }
+        deckTabs.maxChars = chars
+        deckTabs.build()
+    }
+
+    fn deckSwitch:void (k:string) {
+        if (((strlen k) > 0) && (k != deckTabs.tabs.active)) {
+            push requests ("deck:switch:" + k)
+        }
+    }
+
+    fn deckPress:void (x:double y:double) {
+        def hit:string (deckTabs.pressAt(x y))
+        deckPressed = ""
+        deckDown = false
+        if ((indexOf hit "close:") == 0) {
+            def k:string (substring hit 6 (strlen hit))
+            def front:boolean (k == deckTabs.tabs.active)
+            def next:string (this.deckTabClose(k))
+            if front {
+                push requests ("deck:switch:" + next)
+            }
+            push requests "deck:tabs"
+            return
+        }
+        if (hit == "add") {
+            push requests "files:new"
+            return
+        }
+        deckDown = true
+        deckX0 = x
+        deckY0 = y
+        deckXN = x
+        deckYN = y
+        deckT0 = deck.uiNow
+        if ((indexOf hit "tab:") == 0) {
+            deckPressed = (substring hit 4 (strlen hit))
+        }
+    }
+
+    ; With a mouse a pressed tab is dragged to another place; a finger
+    ; swipes the row instead, to the deck beside the one in front.
+    fn deckMove:void (x:double y:double) {
+        deckXN = x
+        deckYN = y
+        if ((touch == false) && (deckTabs.dragTo(x))) {
+            push requests "deck:tabs"
+        }
+        if deckTabs.dragged {
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    fn deckRelease:void () {
+        deckDown = false
+        if (deckTabs.release()) {
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        if touch {
+            def ms:double ((deck.uiNow - deckT0) * 1000.0)
+            def dir:int (DocTabsCtl.swipeDir((deckXN - deckX0) (deckYN - deckY0) ms))
+            if (dir != 0) {
+                this.deckSwitch((deckTabs.tabs.neighbour(dir)))
+                return
+            }
+        }
+        this.deckSwitch(deckPressed)
+    }
+
+    ; A sideways wheel or two fingers on a touchpad: a step to the deck beside.
+    fn deckWheelBy:void (dx:double) {
+        deckWheel = (deckWheel + dx)
+        if ((fabs deckWheel) >= 120.0) {
+            def dir:int 1
+            if (deckWheel < 0.0) {
+                dir = -1
+            }
+            deckWheel = 0.0
+            this.deckSwitch((deckTabs.tabs.neighbour(dir)))
+        }
     }
 
     fn setAppName:void (name:string) {
@@ -4543,7 +4800,6 @@ class PresApp {
         }
         fileEditor.init(text)
         fileSynced = fileEditor.buf.version
-        openTabs.open(path)
         this.showTab("files")
         focus = "editor"
         chromeRev = (chromeRev + 1)
@@ -4728,7 +4984,22 @@ class PresApp {
 
     ; The slides' titles to the review (threads follow their slides), and
     ; where the stage and the slide are now.
+    def reviewSlide:int -1
+
     fn reviewReady:void () {
+        ; presenting, a thread of another slide closes when the slide changes
+        if (selected != reviewSlide) {
+            reviewSlide = selected
+            if ((mode == "present") && ((strlen review.openId) > 0)) {
+                def ot@(optional):PresReviewThread (review.model.find(review.openId))
+                if (!null? ot) {
+                    def otv:PresReviewThread (unwrap ot)
+                    if (otv.slide != selected) {
+                        review.closePanel()
+                    }
+                }
+            }
+        }
         def key:string ((to_string mdEditor.buf.version) + ":" + (to_string (deck.slideCount())))
         if (key != reviewTitlesKey) {
             reviewTitlesKey = key
@@ -4743,12 +5014,138 @@ class PresApp {
         }
         review.measurer = measurer
         review.skin = skin
+        this.reviewSpots()
         def pres:boolean (mode == "present")
         if pres {
             review.place(W H 0.0 true selected slideRect.x slideRect.y slideRect.w slideRect.h 0.0 W H)
         } {
             review.place(W H barH false selected slideRect.x slideRect.y slideRect.w slideRect.h stageArea.x stageArea.w (stageArea.y + stageArea.h))
         }
+    }
+
+    ; A comment pinned on a diagram is a point of the diagram: where the
+    ; diagram's camera shows it now, or nowhere when it is out of view. A
+    ; draft placed on one is given its point first.
+    fn reviewSpots:void () {
+        review.clearSpots()
+        if (((selected < 0) || (selected >= (deck.slideCount()))) || ((deck.pageW <= 0.0) || (deck.pageH <= 0.0))) {
+            return
+        }
+        def t:double (this.stageTime())
+        def pw:double deck.pageW
+        def ph:double deck.pageH
+        ; a pin dropped somewhere else: on the diagram (and its box) under it,
+        ; if any
+        if ((strlen review.moveAsk) > 0) {
+            def mid:string review.moveAsk
+            review.moveAsk = ""
+            def mh@(optional):PresReviewThread (review.model.find(mid))
+            if (!null? mh) {
+                def mt:PresReviewThread (unwrap mh)
+                if (mt.slide == selected) {
+                    def ma:[double] (this.reviewAnchorAt(t (mt.x * pw) (mt.y * ph)))
+                    if ((array_length ma) == 4) {
+                        def mdu@(optional):PresDiaUse (deck.diagramUse(selected (floor (itemAt ma 0))))
+                        if (!null? mdu) {
+                            def mu:PresDiaUse (unwrap mdu)
+                            review.model.anchor(mid (floor (itemAt ma 0)) (mu.diagram.nodeIdAt((floor (itemAt ma 1)))) (itemAt ma 2) (itemAt ma 3))
+                        }
+                    }
+                }
+                review.save()
+            }
+        }
+        if review.draftAsk {
+            review.draftAsk = false
+            if (review.draftSlide == selected) {
+                def a:[double] (this.reviewAnchorAt(t (review.draftX * pw) (review.draftY * ph)))
+                if ((array_length a) == 4) {
+                    def k:int (floor (itemAt a 0))
+                    def hit@(optional):PresDiaUse (deck.diagramUse(selected k))
+                    if (!null? hit) {
+                        def du:PresDiaUse (unwrap hit)
+                        review.draftDia = k
+                        review.draftNode = (du.diagram.nodeIdAt((floor (itemAt a 1))))
+                        review.draftAX = (itemAt a 2)
+                        review.draftAY = (itemAt a 3)
+                    }
+                }
+            }
+        }
+        def out:[double]
+        if ((review.drafting && (review.draftSlide == selected)) && (review.draftDia >= 0)) {
+            def dh@(optional):PresDiaUse (deck.diagramUse(selected review.draftDia))
+            if (!null? dh) {
+                def dd:PresDiaUse (unwrap dh)
+                def seen:boolean (dd.diagram.anchorPoint((t - dd.start) dd.bx dd.by dd.bw dd.bh review.draftNode review.draftAX review.draftAY out))
+                if ((array_length out) == 2) {
+                    review.setSpot("rv-draft" ((itemAt out 0) / pw) ((itemAt out 1) / ph) seen)
+                }
+            }
+        }
+        for review.model.threads th:PresReviewThread i {
+            if ((th.slide == selected) && (th.dia >= 0)) {
+                def uh@(optional):PresDiaUse (deck.diagramUse(selected th.dia))
+                if (!null? uh) {
+                    def u:PresDiaUse (unwrap uh)
+                    def on:boolean (u.diagram.anchorPoint((t - u.start) u.bx u.by u.bw u.bh th.node th.ax th.ay out))
+                    if ((array_length out) == 2) {
+                        review.setSpot(th.id ((itemAt out 0) / pw) ((itemAt out 1) / ph) on)
+                    }
+                }
+            }
+        }
+    }
+
+    ; The diagram under a point of the selected slide (slide units) at time
+    ; `t`: [its index, the node's index (-1 none), u, v], empty when none.
+    fn reviewAnchorAt:[double] (t:double px:double py:double) {
+        def r:[double]
+        def k:int (deck.diagramAt(selected px py))
+        def hit@(optional):PresDiaUse (deck.diagramUse(selected k))
+        if (null? hit) {
+            return r
+        }
+        def du:PresDiaUse (unwrap hit)
+        def a:[double] (du.diagram.anchorAt((t - du.start) du.bx du.by du.bw du.bh px py))
+        if ((array_length a) == 3) {
+            push r (to_double k)
+            push r (itemAt a 0)
+            push r (itemAt a 1)
+            push r (itemAt a 2)
+        }
+        return r
+    }
+
+    ; The open comments with the Markdown of the slides they are on, for the
+    ; clipboard (PresReview.openMarkdown): a slide's Markdown is its section.
+    fn reviewOpenMarkdown:string () {
+        def src:string (this.source())
+        def l:MdLayout (deck.layout())
+        def secs:[PresPickSection] (PresPick.sections(src l.splitLevel))
+        def sources:[string]
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def k:int (PresPick.sectionAt(secs (this.spanFrom(i))))
+            if (k >= 0) {
+                def sec:PresPickSection (itemAt secs k)
+                push sources (substring src sec.start sec.end)
+            } {
+                push sources ""
+            }
+            i = (i + 1)
+        }
+        def name:string ""
+        if ((deck.slideCount()) > 0) {
+            def first:PresSlide (deck.slideAt(0))
+            name = first.title
+        }
+        return (review.model.openMarkdown(name review.titles sources))
+    }
+
+    ; the text a copy in review mode put aside ("review-copy")
+    fn reviewClip:string () {
+        return review.clip
     }
 
     ; review mode's layer, for the page to paint where `layerOrder` puts it
@@ -4790,7 +5187,12 @@ class PresApp {
             this.showSlideForReview(to)
         }
         while ((array_length review.requests) > 0) {
-            push requests (itemAt review.requests 0)
+            def rq:string (itemAt review.requests 0)
+            if (rq == "review-copy-open") {
+                review.clip = (this.reviewOpenMarkdown())
+                rq = "review-copy"
+            }
+            push requests rq
             remove_index review.requests 0
         }
         chromeRev = (chromeRev + 1)
@@ -5135,14 +5537,27 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; File → Settings → Look: the standard skin's colours as chosen,
+    ; "light", "dark" or "system" (what setSkin is given is the outcome).
+    fn setLookMode:void (mode:string) {
+        if (panels.lookMode == mode) {
+            return
+        }
+        panels.lookMode = mode
+        if ((strlen panels.css) > 0) {
+            panels.rebuild()
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
     ; File → Settings → Look. Every host is built again under the new theme;
     ; the code editors have no stylesheet, so their palette is set here from
     ; the skin's hue (the page puts the same hue in the sheets as
     ; `--retro-hue`, see setChromeCss).
     fn setSkin:void (name:string hue:double) {
         def s:string ""
-        if (name == "retro") {
-            s = "retro"
+        if ((name == "retro") || (name == "dark")) {
+            s = name
         }
         skin = s
         toolbar.skin = s
@@ -5530,8 +5945,11 @@ class PresApp {
             if (barH > 0.0) {
                 def bar:EVGA11yNode (t.node("bar" "app" (EVGA11yRole.toolbar())))
                 bar.name = (PresI18n.t("Toolbar"))
-                t.place(bar 0 0 (to_int W) (to_int barH))
+                t.place(bar 0 0 (to_int W) (to_int toolbar.barH))
                 PresA11y.addHost(t toolbar.host "bar")
+            }
+            if ((deckRect.h > 0.0) && (!null? chromeRoot)) {
+                this.a11yDeckTabs(t (unwrap chromeRoot))
             }
             if ((edRect.w > 0.0) && (!null? chromeRoot)) {
                 def page:EVGElement (unwrap chromeRoot)
@@ -5541,14 +5959,6 @@ class PresApp {
                 this.a11yTab(t page "md" "Markdown")
                 this.a11yTab(t page "css" (PresI18n.t("Theme (CSS)")))
                 this.a11yTab(t page "files" (PresI18n.t("Files")))
-                def ft:int 0
-                while (ft < (array_length tabs.items)) {
-                    def fit:UiItem (itemAt tabs.items ft)
-                    if ((indexOf fit.value "f:") == 0) {
-                        this.a11yTab(t page fit.value fit.name)
-                    }
-                    ft = (ft + 1)
-                }
             }
             if (!null? chromeRoot) {
                 def page2:EVGElement (unwrap chromeRoot)
@@ -5647,6 +6057,35 @@ class PresApp {
         return (t.toJson())
     }
 
+    ; The open presentations' row: a tab list, each tab with its close button.
+    fn a11yDeckTabs:void (t:EVGA11yTree page:EVGElement) {
+        def rows:[UiRow] (deckTabs.rows())
+        def i:int 0
+        while (i < (array_length rows)) {
+            def row:UiRow (itemAt rows i)
+            def parent:string "app"
+            if (((strlen row.parentTid) > 0) && (t.has(row.parentTid))) {
+                parent = row.parentTid
+            }
+            def n:EVGA11yNode (t.node(row.tid parent row.role))
+            n.name = row.name
+            n.focusable = row.focusable
+            if (row.role != (EVGA11yRole.tabList())) {
+                n.actActivate = true
+            }
+            n.selected = (row.selected == (EVGA11yTri.yes()))
+            if (row.tid == deckTabs.tid) {
+                t.place(n (to_int deckRect.x) (to_int deckRect.y) (to_int deckRect.w) (to_int deckRect.h))
+            } {
+                def el@(optional):EVGElement (PresA11y.find(page row.tid))
+                if (!null? el) {
+                    PresA11y.placeAt(n (unwrap el))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
     fn a11yTab:void (t:EVGA11yTree page:EVGElement v:string name:string) {
         def id:string (tabs.tabTid(v))
         def el@(optional):EVGElement (PresA11y.find(page id))
@@ -5657,7 +6096,7 @@ class PresApp {
         n.name = name
         n.focusable = true
         n.actActivate = true
-        n.selected = (v == (this.activeTab()))
+        n.selected = (v == edTab)
         PresA11y.placeAt(n (unwrap el))
     }
 
@@ -7596,27 +8035,29 @@ class PresApp {
         return (this.listJson((deck.fxOnlyList(i))))
     }
 
+    ; Effects rendered to pictures by the host for an export: slide index,
+    ; pixels (RGBA, top row first) for the PDF, a JPEG for the PPTX.
     fn clearFxStills:void () {
         def a:[int]
-        stillIdx = a
+        exporter.stillIdx = a
         def b:[buffer]
-        stillRgba = b
+        exporter.stillRgba = b
         def c:[int]
-        stillW = c
+        exporter.stillW = c
         def d:[int]
-        stillH = d
+        exporter.stillH = d
         def e:[buffer]
-        stillJpeg = e
+        exporter.stillJpeg = e
         def f:[int]
         deck.fxStills = f
     }
 
     fn setFxStill:void (i:int rgba:buffer w:int h:int jpeg:buffer) {
-        push stillIdx i
-        push stillRgba rgba
-        push stillW w
-        push stillH h
-        push stillJpeg jpeg
+        push exporter.stillIdx i
+        push exporter.stillRgba rgba
+        push exporter.stillW w
+        push exporter.stillH h
+        push exporter.stillJpeg jpeg
         ; only an effect's still stands in for it in the PDF
         def s:PresSlide (deck.slideAt(i))
         if ((strlen s.fx) > 0) {
@@ -7624,286 +8065,60 @@ class PresApp {
         }
     }
 
+    ; The runs the host's contrast guard repaired on each slide, for the
+    ; PPTX: the slide, the run's text, "colour" or "outline", and the colour
+    ; it was given ("#rrggbb", for "colour").
     fn clearExportContrast:void () {
         def a:[int]
-        fixSlide = a
+        exporter.fixSlide = a
         def b:[string]
-        fixText = b
+        exporter.fixText = b
         def c:[string]
-        fixKind = c
+        exporter.fixKind = c
         def d:[string]
-        fixColor = d
+        exporter.fixColor = d
     }
 
-    ; One slide's `lowContrast` list from the guard, as the stage keeps it:
-    ; [{"text", "fixed": "colour" | "outline", "to": [r, g, b]}].
+    ; One slide's `lowContrast` list from the guard, as the stage keeps it.
     fn addExportContrast:void (i:int json:string) {
-        def p (new VlJsonParser())
-        def j:VlJson (p.parse(json))
-        def k:int 0
-        while (k < (j.count())) {
-            def e:VlJson (j.at(k))
-            def text:string (trim (e.stringOr("text" "")))
-            def fixed:string (e.stringOr("fixed" ""))
-            def colour:string ""
-            if (e.has("to")) {
-                def to:VlJson (e.get("to"))
-                if ((to.count()) >= 3) {
-                    colour = (PresApp.hexOfRgb(((to.at(0)).asDouble()) ((to.at(1)).asDouble()) ((to.at(2)).asDouble())))
+        exporter.addExportContrast(i json)
+    }
+
+    ; the slides an export writes: the picked ones, or all (picked false)
+    fn exportOf:PresExport (picked:boolean) {
+        this.settleAll()
+        exporter.deck = deck
+        def only:[int]
+        if (picked && (picks.active())) {
+            def i:int 0
+            while (i < (deck.slideCount())) {
+                if (picks.has(i)) {
+                    push only i
                 }
+                i = (i + 1)
             }
-            if (((strlen text) > 0) && ((fixed == "outline") || ((fixed == "colour") && ((strlen colour) > 0)))) {
-                push fixSlide i
-                push fixText text
-                push fixKind fixed
-                push fixColor colour
-            }
-            k = (k + 1)
         }
-    }
-
-    sfn hexOfRgb:string (r:double g:double b:double) {
-        def k:double 1.0
-        ; channels as 0–1 or as 0–255
-        if (((r <= 1.0) && (g <= 1.0)) && (b <= 1.0)) {
-            k = 255.0
-        }
-        return ("#" + (PresApp.hexByte((r * k))) + (PresApp.hexByte((g * k))) + (PresApp.hexByte((b * k))))
-    }
-
-    sfn hexByte:string (v:double) {
-        def n:int (to_int (v + 0.5))
-        if (n < 0) {
-            n = 0
-        }
-        if (n > 255) {
-            n = 255
-        }
-        def digits:string "0123456789abcdef"
-        def hi:int (idiv n 16)
-        def lo:int (n - (hi * 16))
-        return ((substring digits hi (hi + 1)) + (substring digits lo (lo + 1)))
-    }
-
-    ; The guard's repairs onto the PPTX's runs: a paragraph that holds a
-    ; repaired run's text takes its colour, or, for big letters the stage
-    ; outlines, a glow in black or white round them.
-    fn contrastFixes:void (shapes:[PptxShape] i:int) {
-        def si:int 0
-        while (si < (array_length shapes)) {
-            def sh:PptxShape (itemAt shapes si)
-            def p:int 0
-            while (p < (array_length sh.text.paragraphs)) {
-                def para:PptxParagraph (itemAt sh.text.paragraphs p)
-                def text:string (PresApp.paraText(para))
-                def f:int 0
-                while (f < (array_length fixSlide)) {
-                    if (((itemAt fixSlide f) == i) && ((indexOf text (itemAt fixText f)) >= 0)) {
-                        def r:int 0
-                        while (r < (array_length para.runs)) {
-                            def run:PptxTextRun (itemAt para.runs r)
-                            if ((itemAt fixKind f) == "colour") {
-                                run.color = (PptxApi.colorOf((itemAt fixColor f)))
-                            } {
-                                def halo:string "#ffffff"
-                                if (PresApp.isLight((PresApp.runHex(run)))) {
-                                    halo = "#000000"
-                                }
-                                run.glow = (PptxApi.colorOf(halo))
-                                run.glow.alpha = 0.7
-                                run.glowPt = (run.fontSizePt * 0.08)
-                            }
-                            r = (r + 1)
-                        }
-                    }
-                    f = (f + 1)
-                }
-                p = (p + 1)
-            }
-            this.contrastFixes(sh.children i)
-            si = (si + 1)
-        }
-    }
-
-    sfn runHex:string (run:PptxTextRun) {
-        if ((strlen run.color.srgb) > 0) {
-            return ("#" + run.color.srgb)
-        }
-        return "#000000"
+        exporter.only = only
+        return exporter
     }
 
     fn pdf:buffer () {
-        this.settleAll()
-        def mw:MarkdownWeb deck.md
-        def e:MarkdownEdit mw.edit
-        def l:MdLayout (deck.layout())
-        def paper:string "#ffffff"
-        if ((strlen l.style.pageBackground) > 0) {
-            paper = l.style.pageBackground
-        }
-        def bg:EVGColor (EVGColor.parse(paper))
-        def pw:double deck.pageW
-        def ph:double deck.pageH
-        def root:EVGElement (EVGListToElements.printRoot(pw ph))
-        def section:EVGElement (EVGListToElements.sectionOf(root))
-        def renderer (new EVGPDFRenderer())
-        renderer.init(renderer)
-        renderer.setPageSize(pw ph)
-        ; the effects the host rendered: sharp enough for a full page
-        def si:int 0
-        while (si < (array_length stillIdx)) {
-            def ib (new ImageBuffer())
-            ib.width = (itemAt stillW si)
-            ib.height = (itemAt stillH si)
-            ib.pixels = (itemAt stillRgba si)
-            renderer.registerImage((PresDeck.fxStillPath((itemAt stillIdx si))) ib)
-            renderer.maxImageWidth = 1600
-            renderer.maxImageHeight = 1600
-            si = (si + 1)
-        }
-        if (mw.faceCount > 0) {
-            renderer.setFontManager(mw.fontManager)
-            if (!null? mw.measurer) {
-                renderer.setMeasurer((unwrap mw.measurer))
-            }
-        }
-        ; Every picture on a page is handed over as pixels: the renderer can
-        ; only otherwise open it as a file, which a browser has no way to do
-        ; (`require` is not defined). That is the slides' own pictures, a
-        ; slide's background and a logo in the header or footer alike; one
-        ; the deck has no bytes for is left out rather than failing the file.
-        def known:[string]
-        def si2:int 0
-        while (si2 < (array_length stillIdx)) {
-            push known (PresDeck.fxStillPath((itemAt stillIdx si2)))
-            si2 = (si2 + 1)
-        }
-        def missing:[string]
-        deck.still = true
-        def i:int 0
-        while (i < (deck.slideCount())) {
-            if (exportPick && ((picks.has(i)) == false)) {
-                i = (i + 1)
-                continue
-            }
-            def groups:[int]
-            def dl:EVGDisplayList (deck.slideList(i groups 0.0))
-            def kept:[EVGDrawCmd]
-            def c:int 0
-            while (c < (array_length dl.cmds)) {
-                def cmd:EVGDrawCmd (itemAt dl.cmds c)
-                def keep:boolean true
-                if (cmd.kind == 2) {
-                    keep = (PresApp.pdfImage(renderer e cmd.src known missing))
-                }
-                if keep {
-                    push kept cmd
-                }
-                c = (c + 1)
-            }
-            dl.cmds = kept
-            section.addChild((EVGListToElements.pageFrom(dl pw ph bg true)))
-            i = (i + 1)
-        }
-        deck.still = false
-        return (renderer.render(root))
+        return ((this.exportOf(false)).pdf())
     }
 
-    ; Whether the PDF can draw the picture at `src`: registered with the
-    ; renderer the first time it is met, from the deck's own files.
-    sfn pdfImage:boolean (renderer:EVGPDFRenderer e:MarkdownEdit src:string known:[string] missing:[string]) {
-        if ((strlen src) == 0) {
-            return false
-        }
-        if ((indexOf known src) >= 0) {
-            return true
-        }
-        if ((indexOf missing src) >= 0) {
-            return false
-        }
-        def bytes:buffer (e.imageStore.read(src))
-        if ((buffer_length bytes) > 0) {
-            def pix@(optional):ImageBuffer (EVGImageDecode.decode(bytes))
-            if (!null? pix) {
-                renderer.registerImage(src (unwrap pix))
-                push known src
-                return true
-            }
-        }
-        push missing src
-        return false
-    }
-
-    ; The deck through the markdown module's own PPTX road, then what the
-    ; presentation adds on each slide: the speaker's notes, the transition,
-    ; and a build step per `{.build}` item.
     fn pptx:buffer () {
-        this.settleAll()
-        ; The stage's own layout, not one laid out again with the markdown
-        ; module's deck defaults: that one had other text sizes and spacing,
-        ; no task boxes and no theme rules, and the file did not look like
-        ; the slides.
-        def conv (new MdToPptx())
-        conv.rules = true
-        def d:PptxDeck (conv.deck(deck.md.edit.doc (deck.layout())))
-        def n:int (array_length d.pres.slides)
-        ; slide points per stage unit
-        def unit:double (d.pres.slideWidth / deck.pageW)
-        def i:int 0
-        while (i < n) {
-            if (i < (deck.slideCount())) {
-                def ps:PptxSlide (itemAt d.pres.slides i)
-                def s:PresSlide (deck.slideAt(i))
-                this.stillDiagrams(ps s unit)
-                this.stillCharts(ps i unit)
-                this.stillSmartArt(ps s i unit)
-                this.slideArt(ps s i unit)
-                PresApp.dressSlide(ps s)
-                ; the slide's effect, rendered by the host, as its background
-                def si:int 0
-                while (si < (array_length stillIdx)) {
-                    if ((itemAt stillIdx si) == i) {
-                        ps.bgImage = (itemAt stillJpeg si)
-                        ps.bgImageName = ("media/" + (PresDeck.fxStillPath(i)))
-                    }
-                    si = (si + 1)
-                }
-            }
-            PresApp.fontsIn(((itemAt d.pres.slides i).shapes))
-            this.contrastFixes(((itemAt d.pres.slides i).shapes) i)
-            i = (i + 1)
-        }
-        d.pres.theme.majorFont = "Arial"
-        d.pres.theme.minorFont = "Arial"
-        if exportPick {
-            def kept:[PptxSlide]
-            def k:int 0
-            while (k < n) {
-                if (picks.has(k)) {
-                    push kept (itemAt d.pres.slides k)
-                }
-                k = (k + 1)
-            }
-            d.pres.slides = kept
-        }
-        return (d.save())
+        return ((this.exportOf(false)).pptx())
     }
 
     ; --- picked slides (PresPick) ------------------------------------------------
     ; The PDF and the PPTX of only the picked slides; all of them when none
     ; is picked. The pages keep the numbers they have in the deck.
     fn pdfPicked:buffer () {
-        exportPick = (picks.active())
-        def b:buffer (this.pdf())
-        exportPick = false
-        return b
+        return ((this.exportOf(true)).pdf())
     }
 
     fn pptxPicked:buffer () {
-        exportPick = (picks.active())
-        def b:buffer (this.pptx())
-        exportPick = false
-        return b
+        return ((this.exportOf(true)).pptx())
     }
 
     fn pickCount:int () {
@@ -7952,362 +8167,17 @@ class PresApp {
         return (this.viewOf((this.source()) (this.pickKeys())))
     }
 
-    ; The faces the stage draws with are shipped with the page, not with
-    ; Keynote or PowerPoint: a file that names them opens with "missing font".
-    ; Arial is on every Mac and every Windows machine, and it is narrower than
-    ; Open Sans, so every line still fits the box it was measured for.
-    sfn exportFont:string (f:string) {
-        if ((strlen f) == 0) {
-            return f
-        }
-        ; …and the generic "sans-serif" a chart's labels ask for, which comes
-        ; out as Calibri or as a made-up face name
-        def low:string (MdChar.lower(f))
-        if (((indexOf low "sans") >= 0) || ((indexOf low "calibri") >= 0)) {
-            return "Arial"
-        }
-        return f
-    }
 
-    sfn fontsInBody:void (body:PptxTextBody) {
-        def p:int 0
-        while (p < (array_length body.paragraphs)) {
-            def para:PptxParagraph (itemAt body.paragraphs p)
-            para.bulletFont = (PresApp.exportFont(para.bulletFont))
-            def r:int 0
-            while (r < (array_length para.runs)) {
-                def run:PptxTextRun (itemAt para.runs r)
-                run.fontFamily = (PresApp.exportFont(run.fontFamily))
-                r = (r + 1)
-            }
-            p = (p + 1)
-        }
-    }
 
-    sfn fontsIn:void (shapes:[PptxShape]) {
-        def i:int 0
-        while (i < (array_length shapes)) {
-            def sh:PptxShape (itemAt shapes i)
-            PresApp.fontsInBody(sh.text)
-            def c:int 0
-            while (c < (array_length sh.tableCells)) {
-                def cell:PptxTableCell (itemAt sh.tableCells c)
-                PresApp.fontsInBody(cell.body)
-                c = (c + 1)
-            }
-            PresApp.fontsIn(sh.children)
-            i = (i + 1)
-        }
-    }
 
-    ; The diagrams as the stage draws them, at rest, in place of the markdown
-    ; module's plain drawing: the glass nodes, the lines of light and the
-    ; label pills, in the direction the stage chose and filling the room the
-    ; stage gives them. The plain drawing is laid out at the fence's written
-    ; direction and the column's width, so a long left-to-right chain came out
-    ; as a strip with labels too small to keep. The group keeps the plain
-    ; one's name, alt text and embedded source, so it still reads back.
-    ; The slide's line art (`{art=waves}`) as strokes behind everything else
-    ; on it, so it stays a vector a reader can recolour or delete.
-    fn slideArt:void (ps:PptxSlide s:PresSlide i:int unit:double) {
-        def sc:FlowScene (deck.artScene(s i))
-        if ((array_length sc.items) == 0) {
-            return
-        }
-        def dl (new EVGDisplayList())
-        sc.emitInto(dl)
-        def conv (new PptxFromEvg())
-        conv.unit = unit
-        def group:PptxShape (conv.build(dl 0.0 0.0))
-        if ((array_length group.children) == 0) {
-            return
-        }
-        group.name = ("Background art: " + s.art)
-        group.altText = ""
-        def all:[PptxShape]
-        push all group
-        def k:int 0
-        while (k < (array_length ps.shapes)) {
-            push all (itemAt ps.shapes k)
-            k = (k + 1)
-        }
-        ps.shapes = all
-    }
 
-    fn stillDiagrams:void (ps:PptxSlide s:PresSlide unit:double) {
-        def l:MdLayout (deck.layout())
-        def paper:string "#ffffff"
-        if ((strlen l.style.pageBackground) > 0) {
-            paper = l.style.pageBackground
-        }
-        def k:int 0
-        while (k < (array_length s.diagrams)) {
-            def u:PresDiaUse (itemAt s.diagrams k)
-            def at:int -1
-            def j:int 0
-            while (j < (array_length ps.shapes)) {
-                def sh:PptxShape (itemAt ps.shapes j)
-                if ((at < 0) && (sh.embedSource == u.source)) {
-                    at = j
-                }
-                j = (j + 1)
-            }
-            if (at >= 0) {
-                def dl (new EVGDisplayList())
-                u.diagram.paintStill(dl u.bx u.by u.bw u.bh l.style.textColor paper l)
-                def conv (new PptxFromEvg())
-                conv.unit = unit
-                ; The stage reads small labels by zooming in; a still cannot,
-                ; so a small label is kept rather than left an empty pill.
-                conv.minFontPt = 1.0
-                def group:PptxShape (conv.build(dl 0.0 0.0))
-                if ((array_length group.children) > 0) {
-                    PresApp.tighten(group)
-                    def old:PptxShape (itemAt ps.shapes at)
-                    group.name = old.name
-                    group.altText = old.altText
-                    group.embedNotation = old.embedNotation
-                    group.embedSource = old.embedSource
-                    group.mdSrcStart = old.mdSrcStart
-                    group.mdSrcEnd = old.mdSrcEnd
-                    set ps.shapes at group
-                }
-            }
-            k = (k + 1)
-        }
-    }
 
-    ; A SmartArt reference went out as a picture whose bytes are the XML;
-    ; PowerPoint cannot show that. In its place: the diagram as shapes, laid
-    ; out for the picture's box (points), in the theme's colours, with the
-    ; picture's name and alt text. A diagram that cannot be laid out is taken
-    ; off the slide rather than left as a broken picture.
-    fn stillSmartArt:void (ps:PptxSlide s:PresSlide page:int unit:double) {
-        def j:int 0
-        while (j < (array_length ps.shapes)) {
-            def sh:PptxShape (itemAt ps.shapes j)
-            if ((sh.kind == (PptxShapeKind.picture())) && (deck.isSmartArtPath(sh.imagePart))) {
-                def u (new PresSmartArtUse())
-                u.path = sh.imagePart
-                def k:int 0
-                while (k < (array_length s.smartArts)) {
-                    def su:PresSmartArtUse (itemAt s.smartArts k)
-                    if (su.path == sh.imagePart) {
-                        u = su
-                    }
-                    k = (k + 1)
-                }
-                ; across the width the stage gives it (PresDeck.smartArtSpan),
-                ; in this deck's units
-                def gx:double sh.x
-                def gw:double sh.width
-                def l:MdLayout (deck.layout())
-                def bi:int 0
-                while (bi < (array_length l.boxes)) {
-                    def b:MdBox (itemAt l.boxes bi)
-                    if ((((b.page == page) && (b.kind == 4)) && (b.imagePath == u.path)) && (b.w > 0.0)) {
-                        def k:double (sh.width / b.w)
-                        def span:[double] (deck.smartArtSpan(page b u))
-                        gx = (sh.x + (((itemAt span 0) - b.x) * k))
-                        gw = ((itemAt span 1) * k)
-                        bi = (array_length l.boxes)
-                    }
-                    bi = (bi + 1)
-                }
-                def r:SaResult (PresSmartArt.laidOut(u deck.md deck.figStyle deck.smartArtCache gw sh.height))
-                if (r.ok && ((array_length r.shape.children) > 0)) {
-                    def g:PptxShape r.shape
-                    g.x = gx
-                    g.y = sh.y
-                    g.name = sh.name
-                    g.altText = sh.altText
-                    if ((strlen g.altText) == 0) {
-                        g.altText = g.diagramText
-                    }
-                    set ps.shapes j g
-                    j = (j + 1)
-                } {
-                    remove_index ps.shapes j
-                }
-            } {
-                j = (j + 1)
-            }
-        }
-    }
 
-    ; The charts as the stage draws them when they have finished (PresChart:
-    ; the warm columns, the accent grid), in place of the markdown module's
-    ; flat drawing, keeping its name, alt text and embedded source.
-    fn stillCharts:void (ps:PptxSlide i:int unit:double) {
-        def l:MdLayout (deck.layout())
-        def boxes:[int] (deck.chartBoxes(i))
-        def k:int 0
-        while (k < (array_length boxes)) {
-            def bi:int (itemAt boxes k)
-            def b:MdBox (itemAt l.boxes bi)
-            def at:int -1
-            def j:int 0
-            while (j < (array_length ps.shapes)) {
-                def sh:PptxShape (itemAt ps.shapes j)
-                if ((at < 0) && (sh.embedSource == b.embedSource)) {
-                    at = j
-                }
-                j = (j + 1)
-            }
-            if (at >= 0) {
-                def dl:EVGDisplayList (deck.chartStill(bi))
-                def conv (new PptxFromEvg())
-                conv.unit = unit
-                conv.minFontPt = 1.0
-                def group:PptxShape (conv.build(dl 0.0 0.0))
-                if ((array_length group.children) > 0) {
-                    PresApp.tighten(group)
-                    def old:PptxShape (itemAt ps.shapes at)
-                    group.name = old.name
-                    group.altText = old.altText
-                    group.embedNotation = old.embedNotation
-                    group.embedSource = old.embedSource
-                    group.mdSrcStart = old.mdSrcStart
-                    group.mdSrcEnd = old.mdSrcEnd
-                    set ps.shapes at group
-                }
-            }
-            k = (k + 1)
-        }
-    }
 
-    ; A group's box around what is in it, not from the slide's corner.
-    sfn tighten:void (group:PptxShape) {
-        def x0:double 1000000.0
-        def y0:double 1000000.0
-        def x1:double -1000000.0
-        def y1:double -1000000.0
-        def i:int 0
-        while (i < (array_length group.children)) {
-            def c:PptxShape (itemAt group.children i)
-            if (c.x < x0) { x0 = c.x }
-            if (c.y < y0) { y0 = c.y }
-            if ((c.x + c.width) > x1) { x1 = (c.x + c.width) }
-            if ((c.y + c.height) > y1) { y1 = (c.y + c.height) }
-            i = (i + 1)
-        }
-        group.x = x0
-        group.y = y0
-        group.width = (x1 - x0)
-        group.height = (y1 - y0)
-        group.chX = x0
-        group.chY = y0
-        group.chW = group.width
-        group.chH = group.height
-    }
 
-    sfn dressSlide:void (ps:PptxSlide s:PresSlide) {
-        if ((strlen s.notes) > 0) {
-            ps.notes.hasText = true
-            PptxEditor.setBodyText(ps.notes.text (PresApp.speakable(s.notes)))
-        }
-        if ((s.transition != "none") && (s.index > 0)) {
-            def tr:PptxTransition ps.transition
-            tr.isSet = true
-            tr.kind = "fade"
-            if (s.transition == "slide") {
-                tr.kind = "push"
-                tr.dir = "l"
-            }
-            if (s.transition == "zoom") {
-                tr.kind = "zoom"
-            }
-            tr.seconds = s.seconds
-        }
-        ; One build step per revealed group. The shape is the one the markdown
-        ; module made from the group's source: by the source range when the
-        ; shape carries one, otherwise by the paragraph whose words the group
-        ; begins with (a list shape carries no range, and its items are its
-        ; paragraphs). The writer finds a step's shape by `editId`, so each
-        ; target gets one.
-        def g:int 0
-        while (g < (array_length s.groups)) {
-            def gr:PresGroup (itemAt s.groups g)
-            if (gr.step > 0) {
-                PresApp.addBuild(ps gr (9000 + g))
-            }
-            g = (g + 1)
-        }
-    }
 
-    sfn paraText:string (para:PptxParagraph) {
-        def out:string ""
-        def j:int 0
-        while (j < (array_length para.runs)) {
-            def run:PptxTextRun (itemAt para.runs j)
-            out = (out + run.text)
-            j = (j + 1)
-        }
-        return (trim out)
-    }
 
-    sfn addBuild:void (ps:PptxSlide gr:PresGroup editId:int) {
-        def want:string (trim gr.label)
-        if ((strlen want) > 12) {
-            want = (substring want 0 12)
-        }
-        def k:int 0
-        while (k < (array_length ps.shapes)) {
-            def sh:PptxShape (itemAt ps.shapes k)
-            def para:int -2
-            if ((sh.mdSrcStart >= 0) && ((gr.start >= sh.mdSrcStart) && (gr.start < sh.mdSrcEnd))) {
-                para = -1
-            }
-            if ((para == -2) && sh.hasText) {
-                def p:int 0
-                while (p < (array_length sh.text.paragraphs)) {
-                    def words:string (PresApp.paraText((itemAt sh.text.paragraphs p)))
-                    if (((strlen want) > 0) && ((indexOf words want) == 0)) {
-                        para = p
-                        break
-                    }
-                    p = (p + 1)
-                }
-            }
-            if (para > -2) {
-                if (sh.editId <= 0) {
-                    sh.editId = editId
-                }
-                def b (new PptxBuildStep())
-                b.editId = sh.editId
-                b.kind = "fade"
-                if (gr.anim == "fly") {
-                    b.kind = "fly"
-                    b.dir = "l"
-                }
-                b.seconds = gr.seconds
-                b.paragraph = para
-                push ps.build b
-                return
-            }
-            k = (k + 1)
-        }
-    }
 
-    ; Notes as a person reads them: the cue marks out.
-    sfn speakable:string (notes:string) {
-        def out:string ""
-        def i:int 0
-        def n:int (strlen notes)
-        while (i < n) {
-            if (((i + 1) < n) && (((charAt notes i) == 91) && ((charAt notes (i + 1)) == 91))) {
-                def rest:string (substring notes i n)
-                def close:int (indexOf rest "]]")
-                if (close > 0) {
-                    i = ((i + close) + 2)
-                    continue
-                }
-            }
-            out = (out + (substring notes i (i + 1)))
-            i = (i + 1)
-        }
-        return out
-    }
 
     fn statusText:string () {
         def n:int (deck.slideCount())

@@ -59,6 +59,16 @@ class PresReviewThread {
     def by:string ""
     def created:double 0.0
     def msgs:[PresReviewMsg]
+    ; Pinned on a diagram (its index on the slide; -1 not): the point is
+    ; the diagram's, so it moves with the diagram's camera. On a node it is
+    ; (`ax`, `ay`) of the node's box, else of the whole diagram's.
+    def dia:int -1
+    def node:string ""
+    def ax:double 0.0
+    def ay:double 0.0
+    ; when it was dragged somewhere else last (0 never): the latest move wins
+    ; a merge
+    def moved:double 0.0
 
     fn count:int () {
         return (array_length msgs)
@@ -266,6 +276,41 @@ class PresReview {
         return true
     }
 
+    ; The thread's point on a diagram (see PresReviewThread.dia); false when
+    ; there is no such thread.
+    fn anchor:boolean (id:string dia:int node:string ax:double ay:double) {
+        def i:int (this.indexOf(id))
+        if ((i < 0) || (dia < 0)) {
+            return false
+        }
+        def t:PresReviewThread (itemAt threads i)
+        t.dia = dia
+        t.node = node
+        t.ax = (PresReview.clamp01(ax))
+        t.ay = (PresReview.clamp01(ay))
+        rev = (rev + 1)
+        return true
+    }
+
+    ; Dragged to (`x`, `y`) of the slide at time `at`: off any diagram until
+    ; `anchor` puts it on one again. False when there is no such thread.
+    fn move:boolean (id:string x:double y:double at:double) {
+        def i:int (this.indexOf(id))
+        if (i < 0) {
+            return false
+        }
+        def t:PresReviewThread (itemAt threads i)
+        t.x = (PresReview.clamp01(x))
+        t.y = (PresReview.clamp01(y))
+        t.dia = -1
+        t.node = ""
+        t.ax = 0.0
+        t.ay = 0.0
+        t.moved = at
+        rev = (rev + 1)
+        return true
+    }
+
     ; Deleted for good: only a closed thread.
     fn remove:boolean (id:string) {
         def i:int (this.indexOf(id))
@@ -372,6 +417,23 @@ class PresReview {
                             changed = true
                         }
                     }
+                    if (ot.moved > mine.moved) {
+                        mine.x = ot.x
+                        mine.y = ot.y
+                        mine.dia = ot.dia
+                        mine.node = ot.node
+                        mine.ax = ot.ax
+                        mine.ay = ot.ay
+                        mine.moved = ot.moved
+                        changed = true
+                    }
+                    if (((mine.dia < 0) && (ot.dia >= 0)) && (ot.moved == mine.moved)) {
+                        mine.dia = ot.dia
+                        mine.node = ot.node
+                        mine.ax = ot.ax
+                        mine.ay = ot.ay
+                        changed = true
+                    }
                     if ((ot.state > mine.state) && ((ot.closed != mine.closed) || (ot.by != mine.by))) {
                         mine.closed = ot.closed
                         mine.state = ot.state
@@ -398,10 +460,185 @@ class PresReview {
         c.state = t.state
         c.by = t.by
         c.created = t.created
+        c.dia = t.dia
+        c.node = t.node
+        c.ax = t.ax
+        c.ay = t.ay
+        c.moved = t.moved
         for t.msgs m:PresReviewMsg i {
             push c.msgs (PresReview.msg(m.id m.who m.name m.color m.text m.at))
         }
         return c
+    }
+
+    ; --- as text, to copy --------------------------------------------------------------
+
+    ; The open threads by slide, then as they were made.
+    fn openOrder:[PresReviewThread] () {
+        def out:[PresReviewThread]
+        def maxS:int 0
+        for threads t0:PresReviewThread i0 {
+            if (t0.slide > maxS) {
+                maxS = t0.slide
+            }
+        }
+        def s:int 0
+        while (s <= maxS) {
+            for threads t:PresReviewThread i {
+                if ((t.slide == s) && (t.closed == false)) {
+                    push out t
+                }
+            }
+            s = (s + 1)
+        }
+        return out
+    }
+
+    ; "Slide 3 · Title" (one-based)
+    sfn slideLabel:string (slide:int titles:[string]) {
+        def s:string ("Slide " + (to_string (slide + 1)))
+        if ((slide >= 0) && (slide < (array_length titles))) {
+            def tt:string (itemAt titles slide)
+            if ((strlen tt) > 0) {
+                s = (s + " · " + tt)
+            }
+        }
+        return s
+    }
+
+    ; where on the slide, in words: "at 42 % across, 30 % down", and the
+    ; diagram's box when it is on one
+    sfn whereText:string (t:PresReviewThread) {
+        def s:string ("at " + (to_string (to_int ((t.x * 100.0) + 0.5))) + " % across, " + (to_string (to_int ((t.y * 100.0) + 0.5))) + " % down")
+        if (t.dia >= 0) {
+            if ((strlen t.node) > 0) {
+                s = (s + ", on the diagram's box \"" + t.node + "\"")
+            } {
+                s = (s + ", on the diagram")
+            }
+        }
+        return s
+    }
+
+    ; the messages, one per line: "Name: text" (a line break in a message
+    ; is kept, indented)
+    sfn messagesText:string (t:PresReviewThread indent:string) {
+        def nl:string (strfromcode 10)
+        def out:string ""
+        for t.msgs m:PresReviewMsg i {
+            def nm:string m.name
+            if ((strlen nm) == 0) {
+                nm = "Someone"
+            }
+            def body:string (PresReview.joinLines((strsplit m.text nl) (nl + indent + "  ")))
+            out = (out + indent + nm + ": " + body + nl)
+        }
+        return out
+    }
+
+    sfn joinLines:string (parts:[string] sep:string) {
+        def out:string ""
+        for parts p:string i {
+            if (i > 0) {
+                out = (out + sep)
+            }
+            out = (out + p)
+        }
+        return out
+    }
+
+    ; One thread to copy: where it is, then its messages.
+    fn threadText:string (id:string titles:[string]) {
+        def f@(optional):PresReviewThread (this.find(id))
+        if (null? f) {
+            return ""
+        }
+        def t:PresReviewThread (unwrap f)
+        def nl:string (strfromcode 10)
+        def head:string ((PresReview.slideLabel(t.slide titles)) + ", " + (PresReview.whereText(t)))
+        if t.closed {
+            head = (head + " (resolved)")
+        }
+        return (head + nl + (PresReview.messagesText(t "")))
+    }
+
+    ; A fence longer than any run of backticks in `text` (at least three).
+    sfn fenceFor:string (text:string) {
+        def best:int 0
+        def run:int 0
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            if ((substring text i (i + 1)) == "`") {
+                run = (run + 1)
+                if (run > best) {
+                    best = run
+                }
+            } {
+                run = 0
+            }
+            i = (i + 1)
+        }
+        def f:string "```"
+        def k:int 3
+        while (k <= best) {
+            f = (f + "`")
+            k = (k + 1)
+        }
+        return f
+    }
+
+    ; The open comments as instructions for someone (an agent) to act on:
+    ; numbered [1], [2]… in slide order, and under each slide that has some
+    ; its Markdown (`sources`, one per slide; "" leaves it out).
+    fn openMarkdown:string (deck:string titles:[string] sources:[string]) {
+        def nl:string (strfromcode 10)
+        def order:[PresReviewThread] (this.openOrder())
+        def out:string ("# Open comments")
+        if ((strlen deck) > 0) {
+            out = (out + ": " + deck)
+        }
+        out = (out + nl + nl)
+        if ((array_length order) == 0) {
+            return (out + "No open comments." + nl)
+        }
+        def slides:int 0
+        def last:int -1
+        for order t0:PresReviewThread i0 {
+            if (t0.slide != last) {
+                slides = (slides + 1)
+                last = t0.slide
+            }
+        }
+        out = (out + (to_string (array_length order)) + " open comment" + (? ((array_length order) == 1) "" "s") + " on " + (to_string slides) + " slide" + (? (slides == 1) "" "s") + ". Each is numbered [n] and placed on its slide (from the top left). Change the slides so each comment is taken care of." + nl)
+        def k:int 0
+        last = -1
+        while (k < (array_length order)) {
+            def t:PresReviewThread (itemAt order k)
+            if (t.slide != last) {
+                last = t.slide
+                out = (out + nl + "## " + (PresReview.slideLabel(t.slide titles)) + nl + nl)
+                def j:int k
+                while (j < (array_length order)) {
+                    def tj:PresReviewThread (itemAt order j)
+                    if (tj.slide == t.slide) {
+                        out = (out + "[" + (to_string (j + 1)) + "] " + (PresReview.whereText(tj)) + nl + (PresReview.messagesText(tj "    ")))
+                    }
+                    j = (j + 1)
+                }
+                if ((t.slide < (array_length sources)) && ((strlen (trim (itemAt sources t.slide))) > 0)) {
+                    def src:string (itemAt sources t.slide)
+                    def fence:string (PresReview.fenceFor(src))
+                    def body:string src
+                    if ((substring body ((strlen body) - 1) (strlen body)) != nl) {
+                        body = (body + nl)
+                    }
+                    out = (out + nl + "The slide's Markdown:" + nl + nl + fence + "markdown" + nl + body + fence + nl)
+                }
+            }
+            k = (k + 1)
+        }
+        return out
     }
 
     ; --- the file ------------------------------------------------------------------
@@ -430,6 +667,19 @@ class PresReview {
             o.setMember("state" (PresReview.num(t.state)))
             o.setMember("by" (VlJson.stringValue(t.by)))
             o.setMember("created" (PresReview.num(t.created)))
+            if (t.moved > 0.0) {
+                o.setMember("moved" (PresReview.num(t.moved)))
+            }
+            if (t.dia >= 0) {
+                def on:VlJson (VlJson.objectValue())
+                on.setMember("diagram" (VlJson.intValue(t.dia)))
+                if ((strlen t.node) > 0) {
+                    on.setMember("node" (VlJson.stringValue(t.node)))
+                }
+                on.setMember("x" (PresReview.num((PresReview.round4(t.ax)))))
+                on.setMember("y" (PresReview.num((PresReview.round4(t.ay)))))
+                o.setMember("on" on)
+            }
             def ms:VlJson (VlJson.arrayValue())
             for t.msgs m:PresReviewMsg j {
                 def mo:VlJson (VlJson.objectValue())
@@ -499,6 +749,14 @@ class PresReview {
                 t.state = (o.doubleOr("state" 0.0))
                 t.by = (o.stringOr("by" ""))
                 t.created = (o.doubleOr("created" 0.0))
+                t.moved = (o.doubleOr("moved" 0.0))
+                def on:VlJson (o.get("on"))
+                if ((on.isObject()) && ((on.intOr("diagram" -1)) >= 0)) {
+                    t.dia = (on.intOr("diagram" -1))
+                    t.node = (on.stringOr("node" ""))
+                    t.ax = (PresReview.clamp01((on.doubleOr("x" 0.5))))
+                    t.ay = (PresReview.clamp01((on.doubleOr("y" 0.5))))
+                }
                 def ms:VlJson (o.get("messages"))
                 def j:int 0
                 while (j < (ms.count())) {

@@ -34,6 +34,7 @@ Import "pkg:evg/EVGDisplayList.rgr"
 Import "pkg:evg/EVGColor.rgr"
 Import "PresI18n.rgr"
 Import "PresControlsFade.rgr"
+Import "../rangerflow/core/FlowLook.rgr"
 
 class PresDNode {
     def id:string ""
@@ -100,6 +101,10 @@ class PresDEdge {
     def ly:double 0.0
     def lw:double 0.0
     def lh:double 0.0
+    ; in a look: where the line leaves its start's drawn outline and enters
+    ; its end's (-1: not measured yet)
+    def lc0:double -1.0
+    def lc1:double -1.0
 
     Constructor () {
         def r:[double]
@@ -156,8 +161,9 @@ class PresDiagram {
     def ball:boolean true
     ; the largest the camera draws a node: slide units per diagram unit
     def zoom:double 3.0
-    ; "holo" (glass panels, glowing curves), "sketch" (hand-drawn) or
-    ; "classic" (the document's drawing, still)
+    ; "holo" (glass panels, glowing curves), "sketch" (hand-drawn),
+    ; "classic" (the document's drawing, still), or one of RangerFlow's
+    ; looks (`FlowLook`: mermaid, jurassic, cartoon, romantic; `looked`)
     def style:string "holo"
     ; The palette, from the slide it is on: light lines on a dark slide,
     ; dark lines on a light one; accent and warm can come from the theme.
@@ -371,6 +377,10 @@ class PresDiagram {
         exSN = ex4
         def lr:[double]
         labRects = lr
+        def ks:[string]
+        kinds = ks
+        def hf:[string:boolean]
+        haveFaces = hf
     }
 
     ; ------------------------------------------------------------------
@@ -2612,7 +2622,7 @@ class PresDiagram {
         if (f >= 1.0) {
             ballLift = 0.0
         }
-        if (style != "sketch") {
+        if ((style != "sketch") && (! (looked && look.bounce))) {
             ballLift = 0.0
         }
         ballSquash = (PresDiagram.clamp01((1.0 - (hop * 4.0))))
@@ -3211,6 +3221,109 @@ class PresDiagram {
         return true
     }
 
+    ; ------------------------------------------------------------------
+    ; A point of the diagram (a review comment is pinned on one)
+    ; ------------------------------------------------------------------
+
+    ; The diagram's point under box point (px, py) at time t, as the camera
+    ; shows it then: on a node, [node index, u, v] of the node's box;
+    ; elsewhere [-1, u, v] of the whole diagram. Empty when there is no
+    ; diagram to point at.
+    fn anchorAt:[double] (t:double bx:double by:double bw:double bh:double px:double py:double) {
+        def out:[double]
+        if ((! ok) || ((worldW <= 0.0) || (worldH <= 0.0))) {
+            return out
+        }
+        if (showAll && (! inAll)) {
+            this.allBegin()
+            def r:[double] (this.anchorAt(1000000.0 bx by bw bh px py))
+            this.allEnd()
+            return r
+        }
+        this.cameraAt(t bw bh)
+        def sc:double ((this.fitOf(bw bh)) * camZ)
+        if (sc <= 0.0) {
+            return out
+        }
+        def wx:double ((px - ((bx + (bw * 0.5)) - (camX * sc))) / sc)
+        def wy:double ((py - ((by + (bh * 0.5)) - (camY * sc))) / sc)
+        def i:int ((array_length nodes) - 1)
+        while (i >= 0) {
+            def n:PresDNode (itemAt nodes i)
+            if ((((n.at <= t) && (n.w > 0.0)) && (n.h > 0.0)) && ((((wx >= n.x) && (wx <= (n.x + n.w))) && (wy >= n.y)) && (wy <= (n.y + n.h)))) {
+                push out (to_double i)
+                push out ((wx - n.x) / n.w)
+                push out ((wy - n.y) / n.h)
+                return out
+            }
+            i = (i - 1)
+        }
+        push out -1.0
+        push out ((wx - worldX) / worldW)
+        push out ((wy - worldY) / worldH)
+        return out
+    }
+
+    fn nodeIndex:int (id:string) {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:PresDNode (itemAt nodes i)
+            if (n.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn nodeIdAt:string (i:int) {
+        if ((i < 0) || (i >= (array_length nodes))) {
+            return ""
+        }
+        def n:PresDNode (itemAt nodes i)
+        return n.id
+    }
+
+    ; Where an anchor (`anchorAt`; a node by its id, "" the whole diagram)
+    ; is drawn in the box at time t: [x, y] in out. True when it is in view:
+    ; inside the box, on a node that has come in. A node no longer in the
+    ; diagram leaves the out empty.
+    fn anchorPoint:boolean (t:double bx:double by:double bw:double bh:double node:string u:double v:double out:[double]) {
+        clear out
+        if ((! ok) || ((worldW <= 0.0) || (worldH <= 0.0))) {
+            return false
+        }
+        if (showAll && (! inAll)) {
+            this.allBegin()
+            def r:boolean (this.anchorPoint(1000000.0 bx by bw bh node u v out))
+            this.allEnd()
+            return r
+        }
+        def wx:double (worldX + (u * worldW))
+        def wy:double (worldY + (v * worldH))
+        def came:boolean true
+        if ((strlen node) > 0) {
+            def k:int (this.nodeIndex(node))
+            if (k < 0) {
+                return false
+            }
+            def n:PresDNode (itemAt nodes k)
+            wx = (n.x + (u * n.w))
+            wy = (n.y + (v * n.h))
+            came = (n.at <= t)
+        }
+        this.cameraAt(t bw bh)
+        def sc:double ((this.fitOf(bw bh)) * camZ)
+        if (sc <= 0.0) {
+            return false
+        }
+        def x:double (((bx + (bw * 0.5)) - (camX * sc)) + (wx * sc))
+        def y:double (((by + (bh * 0.5)) - (camY * sc)) + (wy * sc))
+        push out x
+        push out y
+        return (came && ((((x >= bx) && (x <= (bx + bw))) && (y >= by)) && (y <= (by + bh))))
+    }
+
     fn uiBusy:boolean () {
         ; a question pulses its choices on the wall clock; the buttons fade
         ctl.hold = menuOpen
@@ -3277,6 +3390,15 @@ class PresDiagram {
             this.paintEdges(world t inkC paper boil l)
             this.paintNodes(world t inkC boil l)
             this.paintBall(world inkC)
+        }
+        if looked {
+            if rimFade {
+                this.lookGrid(world bx by bw bh sc dx dy)
+            }
+            this.lookRest(world l)
+            this.lookEdges(world t paper l)
+            this.lookNodes(world t l)
+            this.lookBall(world)
         }
         if (style == "holo") {
             ; the grid stops at the box's edge: without the rim fade it is a
@@ -5164,5 +5286,677 @@ class PresDiagram {
             }
             g = (g + 1)
         }
+    }
+
+    ; ==================================================================
+    ; The looks: mermaid, jurassic, cartoon, romantic (`{style=…}`)
+    ; ==================================================================
+    ;
+    ; What each looks like is RangerFlow's `FlowLook` (data, tested there);
+    ; this draws it, with the same reveal (a node pops in, a line draws
+    ; itself) and the same tour as the other styles. A look's own faces are
+    ; loaded by the page when a deck first asks for them (`haveFaces`); until
+    ; then its words are set in Open Sans.
+    def look:FlowLook (new FlowLook())
+    def looked:boolean false
+    ; per node: "box", "round", "decision" or "start"
+    def kinds:[string]
+    ; the faces the page has loaded (shared with the deck, filled as they come)
+    def haveFaces:[string:boolean]
+
+    fn useLook:void (name:string) {
+        style = (trim name)
+        looked = true
+        look = (FlowLook.named(style light))
+        def ks:[string]
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:PresDNode (itemAt nodes i)
+            def k:string (FlowLook.kindOf(n.ring n.x n.y n.w n.h n.radius))
+            if ((k == "round") && ((this.incoming(i)) == 0)) {
+                k = "start"
+            }
+            push ks k
+            i = (i + 1)
+        }
+        kinds = ks
+        if (look.edgeForm == "square") {
+            this.squareLines(look.corner)
+        }
+    }
+
+    ; The lines as the router drew them, right angles kept and the corners
+    ; rounded. New edges: the scene's are shared with the other styles.
+    fn squareLines:void (corner:double) {
+        if straight {
+            return
+        }
+        def out:[PresDEdge]
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresDEdge (itemAt edges i)
+            def c (new PresDEdge())
+            c.id = e.id
+            c.from = e.from
+            c.to = e.to
+            c.labels = e.labels
+            c.route = e.route
+            c.at = e.at
+            c.draw = e.draw
+            if ((array_length e.route) >= 4) {
+                c.line = (FlowLook.roundCorners(e.route corner))
+            } {
+                c.line = e.line
+            }
+            c.len = (FlowScene.polyLength(c.line))
+            push out c
+            i = (i + 1)
+        }
+        edges = out
+    }
+
+    ; The face a look names, when the page has it; Open Sans until then.
+    fn faceOf:string (font:string bold:boolean italic:boolean) {
+        def f:string (FlowLook.faceName(font bold italic))
+        if (font == "Open Sans") {
+            return f
+        }
+        if (has haveFaces f) {
+            return f
+        }
+        return (FlowLook.faceName("Open Sans" bold italic))
+    }
+
+    sfn upperIf:string (text:string up:boolean) {
+        if up {
+            return (to_uppercase text)
+        }
+        return text
+    }
+
+    ; One run of words in a look's face, centred on (cx, y + h/2) and no
+    ; wider than `room` (smaller until it fits).
+    fn lookText:void (out:EVGDisplayList text:string cx:double y:double h:double room:double size:double face:string col:EVGColor alpha:double l:MdLayout) {
+        def sz:double size
+        def wd:double (l.measureStyled(text face sz false false))
+        if ((wd > room) && (room > 0.0)) {
+            sz = ((sz * room) / wd)
+            wd = (l.measureStyled(text face sz false false))
+        }
+        def c (new EVGDrawCmd())
+        c.kind = 3
+        c.x = (cx - (wd * 0.5))
+        c.y = (y + ((h - sz) * 0.5))
+        c.w = wd
+        c.h = sz
+        c.text = text
+        c.fontFamily = face
+        c.fontSize = sz
+        PresDiagram.tint(c col alpha)
+        push out.cmds c
+    }
+
+    ; The ground: Mermaid's plus signs and dots, dots, or lines; in world
+    ; space like holo's grid, so it moves with the camera.
+    fn lookGrid:void (out:EVGDisplayList bx:double by:double bw:double bh:double sc:double dx:double dy:double) {
+        if (look.grid == 0) {
+            return
+        }
+        def x0:double ((bx - dx) / sc)
+        def y0:double ((by - dy) / sc)
+        def x1:double (((bx + bw) - dx) / sc)
+        def y1:double (((by + bh) - dy) / sc)
+        def step:double (look.gridStep * 0.5)
+        def col:EVGColor ((EVGColor.parse(look.gridColor)).withAlpha(look.gridAlpha))
+        if (look.grid == 3) {
+            def gx:double (step * (to_double (floor (x0 / step))))
+            while (gx <= x1) {
+                out.addPolyline(([] _:double (gx y0 gx y1)) 1.0 col)
+                gx = (gx + step)
+            }
+            def gy:double (step * (to_double (floor (y0 / step))))
+            while (gy <= y1) {
+                out.addPolyline(([] _:double (x0 gy x1 gy)) 1.0 col)
+                gy = (gy + step)
+            }
+            return
+        }
+        def iy:int (floor (y0 / step))
+        def y:double ((to_double iy) * step)
+        while (y <= y1) {
+            def ix:int (floor (x0 / step))
+            def x:double ((to_double ix) * step)
+            while (x <= x1) {
+                def plus:boolean ((look.grid == 2) && (((ix + iy) - ((idiv (ix + iy) 2) * 2)) == 0))
+                if plus {
+                    out.addPolyline(([] _:double ((x - 4.0) y (x + 4.0) y)) 1.6 col)
+                    out.addPolyline(([] _:double (x (y - 4.0) x (y + 4.0))) 1.6 col)
+                } {
+                    PresDiagram.disc(out x y 1.4 col)
+                }
+                x = (x + step)
+                ix = (ix + 1)
+            }
+            y = (y + step)
+            iy = (iy + 1)
+        }
+    }
+
+    ; A piece of line, solid or dashed.
+    fn lookStroke:void (out:EVGDisplayList pts:[double] th:double col:EVGColor dash:double) {
+        if ((array_length pts) < 4) {
+            return
+        }
+        if (dash <= 0.0) {
+            out.addPolyline(pts th col)
+            PresDiagram.roundLast(out)
+            return
+        }
+        def parts:int (FlowScene.dashCount(pts (dash * 2.0)))
+        def d:int 0
+        while (d < parts) {
+            def piece:[double] (FlowScene.dashAt(pts (dash * 2.0) d))
+            if ((array_length piece) >= 4) {
+                out.addPolyline(piece th col)
+            }
+            d = (d + 1)
+        }
+    }
+
+    fn lookEdges:void (out:EVGDisplayList t:double paper:string l:MdLayout) {
+        clear labRects
+        this.labelSizeFor(l)
+        def active:int (this.activeEdge(t))
+        if (this.asking(t)) {
+            active = -1
+        }
+        def way:int (this.exWay(t))
+        if (way >= 0) {
+            active = way
+        }
+        def ink:EVGColor (EVGColor.parse(look.edgeColor))
+        def acc:EVGColor (EVGColor.parse(look.accent))
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresDEdge (itemAt edges i)
+            if (((array_length e.line) >= 4) && (t >= e.at)) {
+                this.lookCuts(e)
+                def p:double (PresDiagram.smooth(((t - e.at) / e.draw)))
+                def on:boolean (i == active)
+                def col:EVGColor ink
+                def th:double look.edgeWidth
+                if on {
+                    col = acc
+                    th = (look.edgeWidth * 1.6)
+                }
+                ; up to the end's outline, less the arrowhead
+                def s1:double e.lc1
+                if (look.arrow != "none") {
+                    s1 = (s1 - (look.arrowSize * 0.6))
+                }
+                if (s1 > (e.len * p)) {
+                    s1 = (e.len * p)
+                }
+                if (s1 > e.lc0) {
+                    this.lookStroke(out (FlowScene.sliceByLength(e.line e.lc0 s1)) th col look.edgeDash)
+                }
+                if look.dots {
+                    def a0:[double]
+                    PresDiagram.pointAt(e.line e.lc0 a0)
+                    PresDiagram.disc(out (itemAt a0 0) (itemAt a0 1) (look.edgeWidth * 1.9) col)
+                }
+                if (p >= 0.98) {
+                    this.lookArrow(out e col th)
+                }
+                def la:double (PresDiagram.clamp01(((p - 0.6) / 0.4)))
+                if (this.isOption(i t)) {
+                    la = 0.0
+                }
+                if (la > 0.0) {
+                    this.lookLabel(out e la paper l on)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn lookArrow:void (out:EVGDisplayList e:PresDEdge col:EVGColor th:double) {
+        def tipAt:double e.lc1
+        if ((tipAt < 12.0) || (tipAt > e.len)) {
+            tipAt = e.len
+        }
+        def tip:[double]
+        PresDiagram.pointAt(e.line tipAt tip)
+        def tx:double (itemAt tip 0)
+        def ty:double (itemAt tip 1)
+        if look.dots {
+            PresDiagram.disc(out tx ty (look.edgeWidth * 1.9) col)
+        }
+        if (look.arrow == "none") {
+            return
+        }
+        def back:[double]
+        PresDiagram.pointAt(e.line (tipAt - 8.0) back)
+        def ddx:double (tx - (itemAt back 0))
+        def ddy:double (ty - (itemAt back 1))
+        def len:double (sqrt ((ddx * ddx) + (ddy * ddy)))
+        if (len <= 0.0) {
+            return
+        }
+        def ux:double (ddx / len)
+        def uy:double (ddy / len)
+        def size:double (look.arrowSize + (th * 0.8))
+        def wing:double (size * 0.55)
+        def pts:[double] ([] _:double (((tx - (ux * size)) - (uy * wing)) ((ty - (uy * size)) + (ux * wing)) tx ty ((tx - (ux * size)) + (uy * wing)) ((ty - (uy * size)) - (ux * wing))))
+        if (look.arrow == "solid") {
+            out.addPolygon(pts col)
+        } {
+            out.addPolyline(pts th col)
+            PresDiagram.roundLast(out)
+        }
+    }
+
+    ; A line's name: on a patch of the ground, in a dashed frame, or on a
+    ; chip; placed like holo's (`freeSpot`), clear of the boxes.
+    fn lookLabel:void (out:EVGDisplayList e:PresDEdge alpha:double paper:string l:MdLayout on:boolean) {
+        def lines:[string] (PresDiagram.labelLines(e))
+        if ((array_length lines) == 0) {
+            return
+        }
+        def size:double (this.labelSizeFor(l))
+        def face:string (this.faceOf(look.labelFont look.labelBold look.labelItalic))
+        def wd:double 0.0
+        def li:int 0
+        while (li < (array_length lines)) {
+            def lw:double (l.measureStyled((PresDiagram.upperIf((itemAt lines li) look.labelUpper)) face size false false))
+            if (lw > wd) {
+                wd = lw
+            }
+            li = (li + 1)
+        }
+        def lineH:double (size * 1.25)
+        def pw:double (wd + (size * 1.2))
+        def ph:double ((lineH * (to_double (array_length lines))) + (size * 0.5))
+        def upto:int 0
+        if waiting {
+            upto = (array_length pillX)
+        }
+        if ((! (this.freeSpot(e pw ph upto))) && (upto > 0)) {
+            return
+        }
+        e.lx = rX
+        e.ly = rY
+        e.lw = pw
+        e.lh = ph
+        push labRects rX
+        push labRects rY
+        push labRects pw
+        push labRects ph
+        def patch:string look.labelFill
+        if ((strlen patch) == 0) {
+            patch = paper
+        }
+        def bg (new EVGDrawCmd())
+        bg.kind = 0
+        bg.x = rX
+        bg.y = rY
+        bg.w = pw
+        bg.h = ph
+        if (look.labelForm == "pill") {
+            bg.radius = (PresDiagram.pillRadius(ph size))
+        }
+        def ba:double alpha
+        if (look.labelForm == "plain") {
+            ba = (alpha * 0.85)
+        }
+        PresDiagram.tint(bg (EVGColor.parse(patch)) ba)
+        push out.cmds bg
+        if (look.labelForm == "box") {
+            def frame:[double] (FlowShapes.roundRectRing(rX rY pw ph 0.0))
+            push frame (itemAt frame 0)
+            push frame (itemAt frame 1)
+            def sc:EVGColor (EVGColor.parse(look.labelStroke))
+            if on {
+                sc = (EVGColor.parse(look.accent))
+            }
+            PresDiagram.strokeRing(out frame 1.0 (sc.withAlpha(alpha)) 3.0)
+        }
+        def tc:EVGColor (EVGColor.parse(look.labelText))
+        def top:double ((rY + (ph * 0.5)) - ((lineH * (to_double (array_length lines))) * 0.5))
+        def ln:int 0
+        while (ln < (array_length lines)) {
+            def tx:string (PresDiagram.upperIf((itemAt lines ln) look.labelUpper))
+            this.lookText(out tx (rX + (pw * 0.5)) (top + ((to_double ln) * lineH)) lineH pw size face tc alpha l)
+            ln = (ln + 1)
+        }
+    }
+
+    ; A closed outline for node n drawn as `part`: a circle round it, a
+    ; speech bubble, or its own shape.
+    fn lookRing:[double] (n:PresDNode part:FlowLookPart) {
+        def out:[double]
+        if (part.form == "circle") {
+            def c:[double] (FlowLook.circleFor(n.x n.y n.w n.h))
+            def k:int 0
+            while (k < 48) {
+                def a:double (((to_double k) / 48.0) * 6.2831853)
+                push out ((itemAt c 0) + ((itemAt c 2) * (cos a)))
+                push out ((itemAt c 1) + ((itemAt c 3) * (sin a)))
+                k = (k + 1)
+            }
+            return out
+        }
+        if ((array_length n.ring) >= 6) {
+            def p:int 0
+            while (p < (array_length n.ring)) {
+                push out (itemAt n.ring p)
+                p = (p + 1)
+            }
+            return out
+        }
+        def r:double look.radius
+        if (n.radius > (n.h * 0.4)) {
+            r = n.radius
+        }
+        if (part.form != "bubble") {
+            def rr:[double] (FlowShapes.roundRectRing(n.x n.y n.w n.h r))
+            def q:int 0
+            while (q < (array_length rr)) {
+                push out (itemAt rr q)
+                q = (q + 1)
+            }
+            return out
+        }
+        ; a speech bubble: the rounded box, clockwise from its top left, with
+        ; a tail under its left part
+        def x0:double n.x
+        def y0:double n.y
+        def x1:double (n.x + n.w)
+        def y1:double (n.y + n.h)
+        if (r > (n.h * 0.45)) {
+            r = (n.h * 0.45)
+        }
+        PresDiagram.arcTo(out (x0 + r) (y0 + r) r 3.14159265)
+        PresDiagram.arcTo(out (x1 - r) (y0 + r) r 4.71238898)
+        PresDiagram.arcTo(out (x1 - r) (y1 - r) r 0.0)
+        def tail:double 14.0
+        push out (x0 + (n.w * 0.3))
+        push out y1
+        push out (x0 + (n.w * 0.08))
+        push out (y1 + tail)
+        push out (x0 + (n.w * 0.16))
+        push out y1
+        PresDiagram.arcTo(out (x0 + r) (y1 - r) r 1.57079633)
+        return out
+    }
+
+    ; A quarter circle about (cx, cy) from angle a0, clockwise on screen.
+    sfn arcTo:void (out:[double] cx:double cy:double r:double a0:double) {
+        def k:int 0
+        while (k <= 6) {
+            def a:double (a0 + (((to_double k) / 6.0) * 1.57079633))
+            push out (cx + (r * (cos a)))
+            push out (cy + (r * (sin a)))
+            k = (k + 1)
+        }
+    }
+
+    ; Whether (px, py) is inside a closed outline (even-odd rule).
+    sfn inRing:boolean (ring:[double] px:double py:double) {
+        def n:int (idiv (array_length ring) 2)
+        def inside:boolean false
+        def j:int (n - 1)
+        def i:int 0
+        while (i < n) {
+            def xi:double (itemAt ring (i * 2))
+            def yi:double (itemAt ring ((i * 2) + 1))
+            def xj:double (itemAt ring (j * 2))
+            def yj:double (itemAt ring ((j * 2) + 1))
+            if ((yi > py) != (yj > py)) {
+                def xc:double (xi + (((py - yi) / (yj - yi)) * (xj - xi)))
+                if (px < xc) {
+                    inside = (! inside)
+                }
+            }
+            j = i
+            i = (i + 1)
+        }
+        return inside
+    }
+
+    ; Where e leaves its start node's drawn outline and enters its end's.
+    fn lookCuts:void (e:PresDEdge) {
+        if (e.lc0 >= 0.0) {
+            return
+        }
+        e.lc0 = 0.0
+        e.lc1 = e.len
+        def p:[double]
+        def step:double 1.5
+        if ((e.from >= 0) && (e.from < (array_length nodes))) {
+            def ra:[double] (this.lookRing((itemAt nodes e.from) (look.partFor((this.kindAt(e.from))))))
+            def s0:double 0.0
+            def going:boolean true
+            while (going && (s0 < e.len)) {
+                PresDiagram.pointAt(e.line s0 p)
+                if (PresDiagram.inRing(ra (itemAt p 0) (itemAt p 1))) {
+                    s0 = (s0 + step)
+                } {
+                    going = false
+                }
+            }
+            if (s0 < e.len) {
+                e.lc0 = s0
+            }
+        }
+        if ((e.to >= 0) && (e.to < (array_length nodes))) {
+            def rb:[double] (this.lookRing((itemAt nodes e.to) (look.partFor((this.kindAt(e.to))))))
+            def s1:double e.len
+            def going1:boolean true
+            while (going1 && (s1 > e.lc0)) {
+                PresDiagram.pointAt(e.line s1 p)
+                if (PresDiagram.inRing(rb (itemAt p 0) (itemAt p 1))) {
+                    s1 = (s1 - step)
+                } {
+                    going1 = false
+                }
+            }
+            e.lc1 = s1
+        }
+    }
+
+    fn kindAt:string (i:int) {
+        if ((i >= 0) && (i < (array_length kinds))) {
+            return (itemAt kinds i)
+        }
+        return "box"
+    }
+
+    sfn shifted:[double] (pts:[double] dx:double dy:double) {
+        def out:[double]
+        def i:int 0
+        while ((i + 1) < (array_length pts)) {
+            push out ((itemAt pts i) + dx)
+            push out ((itemAt pts (i + 1)) + dy)
+            i = (i + 2)
+        }
+        return out
+    }
+
+    sfn closed:[double] (pts:[double]) {
+        def out:[double]
+        def i:int 0
+        while (i < (array_length pts)) {
+            push out (itemAt pts i)
+            i = (i + 1)
+        }
+        if ((array_length pts) >= 2) {
+            push out (itemAt pts 0)
+            push out (itemAt pts 1)
+        }
+        return out
+    }
+
+    fn lookNodes:void (out:EVGDisplayList t:double l:MdLayout) {
+        def active:int (this.activeNode(t))
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:PresDNode (itemAt nodes i)
+            if ((t >= n.at) && (n.w > 0.0)) {
+                def grow:double (PresDiagram.backOut(((t - n.at) / 0.45)))
+                def k:int 0
+                while (k < (array_length n.landings)) {
+                    def lt:double (itemAt n.landings k)
+                    if ((t >= lt) && (t < (lt + 0.4))) {
+                        grow = (grow * (1.0 + (0.1 * (sin (((t - lt) / 0.4) * 3.14159265)))))
+                    }
+                    k = (k + 1)
+                }
+                if (grow > 0.01) {
+                    def on:boolean ((i == active) && ((t > tourStart) && (t < (tourEnd + 0.5))))
+                    def kind:string "box"
+                    if (i < (array_length kinds)) {
+                        kind = (itemAt kinds i)
+                    }
+                    def part:FlowLookPart (look.partFor(kind))
+                    def fill:string (look.fillOf(kind n.order))
+                    if ((strlen n.own) > 0) {
+                        fill = n.own
+                    }
+                    def stroke:string (look.strokeOf(kind n.order))
+                    def text:string part.text
+                    if ((strlen text) == 0) {
+                        text = (FlowLook.textOn(fill))
+                    }
+                    def one (new EVGDisplayList())
+                    def ring:[double] (this.lookRing(n part))
+                    def sh:string (look.shadowOf(fill))
+                    if ((strlen sh) > 0) {
+                        one.addPolygon((PresDiagram.shifted(ring look.shadowDx look.shadowDy)) ((EVGColor.parse(sh)).withAlpha(look.shadowAlpha)))
+                    }
+                    one.addPolygon(ring (EVGColor.parse(fill)))
+                    def sw:double part.strokeWidth
+                    def scol:EVGColor (EVGColor.parse(stroke))
+                    if on {
+                        sw = (sw + 1.5)
+                        scol = (EVGColor.parse(look.accent))
+                    }
+                    if (sw > 0.0) {
+                        PresDiagram.strokeRing(one (PresDiagram.closed(ring)) sw scol n.dash)
+                    }
+                    if look.shine {
+                        this.lookShine(one n part)
+                    }
+                    def mk:int 0
+                    while (mk < (array_length n.marks)) {
+                        def mit:SceneItem (itemAt n.marks mk)
+                        one.addPolyline(mit.pts sw scol)
+                        PresDiagram.roundLast(one)
+                        mk = (mk + 1)
+                    }
+                    def face:string (this.faceOf(part.font part.bold part.italic))
+                    def tcol:EVGColor (EVGColor.parse(text))
+                    def m:int 0
+                    while (m < (array_length n.items)) {
+                        def it:SceneItem (itemAt n.items m)
+                        if ((it.kind == 1) && ((strlen it.text) > 0)) {
+                            def room:double it.w
+                            if ((room <= 0.0) || (room > n.w)) {
+                                room = (n.w - 8.0)
+                            }
+                            def a:double 1.0
+                            def ttag:string it.tag
+                            def tl:int (strlen ttag)
+                            if ((tl > 5) && ((substring ttag (tl - 5) tl) == ":type")) {
+                                a = 0.7
+                            }
+                            def cx:double (it.x + (it.w * 0.5))
+                            if (it.align == "left") {
+                                cx = (it.x + ((l.measureStyled(it.text "Open Sans" it.fontSize it.bold it.italic)) * 0.5))
+                            }
+                            this.lookText(one (PresDiagram.upperIf(it.text part.upper)) cx it.y it.h room it.fontSize face tcol a l)
+                        }
+                        m = (m + 1)
+                    }
+                    if look.numbers {
+                        def num:string (to_string (n.order + 1))
+                        if ((strlen num) < 2) {
+                            num = ("0" + num)
+                        }
+                        def nsz:double boxText
+                        if (nsz <= 0.0) {
+                            nsz = 14.0
+                        }
+                        this.lookText(one num (n.x - (nsz * 0.2)) ((n.y - (nsz * 1.3)) - 4.0) (nsz * 1.3) 0.0 (nsz * 1.1) (this.faceOf(part.font false false)) (EVGColor.parse(look.edgeColor)) 1.0 l)
+                    }
+                    def fadeIn:double (PresDiagram.clamp01(((t - n.at) / 0.2)))
+                    def c:int 0
+                    while (c < (array_length one.cmds)) {
+                        def cmd:EVGDrawCmd (itemAt one.cmds c)
+                        PresDiagram.xf(cmd (n.cx()) (n.cy()) grow 0.0 0.0 fadeIn)
+                        push out.cmds cmd
+                        c = (c + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The cartoon's highlight: a white stroke inside the lower left.
+    fn lookShine:void (out:EVGDisplayList n:PresDNode part:FlowLookPart) {
+        def col:EVGColor (EVGColor.rgba(255 255 255 0.75))
+        def pts:[double]
+        if (part.form == "circle") {
+            def c:[double] (FlowLook.circleFor(n.x n.y n.w n.h))
+            def k:int 0
+            while (k <= 10) {
+                def a:double (1.95 + (((to_double k) / 10.0) * 0.9))
+                push pts ((itemAt c 0) + (((itemAt c 2) * 0.78) * (cos a)))
+                push pts ((itemAt c 1) + (((itemAt c 3) * 0.78) * (sin a)))
+                k = (k + 1)
+            }
+        } {
+            if ((array_length n.ring) >= 6) {
+                return
+            }
+            def y:double ((n.y + n.h) - 7.0)
+            pts = ([] _:double ((n.x + 10.0) y (n.x + (n.w * 0.34)) y))
+        }
+        out.addPolyline(pts 3.0 col)
+        PresDiagram.roundLast(out)
+    }
+
+    ; Untagged items in a look: a cluster's frame, a title.
+    fn lookRest:void (out:EVGDisplayList l:MdLayout) {
+        def ink:EVGColor (EVGColor.parse(look.edgeColor))
+        def face:string (this.faceOf(look.labelFont look.labelBold look.labelItalic))
+        def i:int 0
+        while (i < (array_length rest)) {
+            def it:SceneItem (itemAt rest i)
+            if ((it.kind == 2) && ((array_length it.pts) >= 4)) {
+                this.lookStroke(out it.pts 1.2 (ink.withAlpha(0.45)) 4.0)
+            }
+            if ((it.kind == 1) && ((strlen it.text) > 0)) {
+                this.lookText(out (PresDiagram.upperIf(it.text look.labelUpper)) (it.x + (it.w * 0.5)) it.y it.h 0.0 it.fontSize face ink 0.85 l)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The travelling dot: the sketch's bouncing ball, or a dot in the
+    ; look's accent gliding along the line.
+    fn lookBall:void (out:EVGDisplayList) {
+        if ((! ballOn) || ((! tour) || (! ball))) {
+            return
+        }
+        if look.bounce {
+            this.paintBall(out (EVGColor.parse(look.edgeColor)))
+            return
+        }
+        def acc:EVGColor (EVGColor.parse(look.accent))
+        PresDiagram.disc(out ballX ballY 11.0 (acc.withAlpha(0.25)))
+        PresDiagram.disc(out ballX ballY 7.0 acc)
+        PresDiagram.disc(out ballX ballY 2.6 (EVGColor.parse("#ffffff")))
     }
 }

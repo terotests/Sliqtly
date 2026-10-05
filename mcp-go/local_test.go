@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/terotests/sliqtly/mcp-go/store"
 )
 
 func TestFolderDB(t *testing.T) {
@@ -166,7 +168,8 @@ func TestLocalServer(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "db", "shares", shard(id), id+".json")); err != nil {
 		t.Fatal(err)
 	}
-	share, _ := (&fsDB{root: filepath.Join(dir, "db")}).Get(context.Background(), "shares", id)
+	fs, _ := store.NewFileStore(filepath.Join(dir, "db"))
+	share, _, _ := fs.Get(context.Background(), "shares", id)
 	files := list(share["files"])
 	eq(t, mapOf(files[0])["url"], srv.URL+"/files/shares/"+id+"/media/cat.png")
 	code, ct, body := get(t, srv.URL+"/files/shares/"+id+"/media/cat.png")
@@ -379,4 +382,36 @@ func TestLocalEvents(t *testing.T) {
 			t.Fatal("no event for " + id)
 		}
 	}
+}
+
+// what has expired goes from the folder as Firestore's TTL takes it there:
+// a deck with its files; what is still valid, or has no `expires`, stays
+func TestFolderExpired(t *testing.T) {
+	ctx := context.Background()
+	srv, session := startLocal(t, t.TempDir(), "")
+	defer srv.Close()
+	defer session.Close()
+	ls := srv.Config.Handler.(*localServer)
+	db := ls.env.DB
+	now := time.Now()
+	old, later := now.Add(-time.Hour), now.Add(time.Hour)
+	db.Set(ctx, "stats_seen", "a", Doc{"expires": old})
+	db.Set(ctx, "stats_seen", "b", Doc{"expires": later})
+	db.Set(ctx, "mcp_quota", "c", Doc{"n": 1})
+	db.Set(ctx, "shares", "gone1", Doc{"owner": "mcp", "md": "x", "expires": old})
+	ls.bucket.Save(ctx, "shares/gone1/media/p.png", "image/png", []byte("png"), nil)
+	ls.bucket.Save(ctx, "shares/kept1/media/p.png", "image/png", []byte("png"), nil)
+	db.Set(ctx, "shares", "kept1", Doc{"owner": "mcp", "md": "x", "expires": later})
+	ls.sweepOnce(now)
+	has := func(col, id string) bool {
+		d, err := db.Get(ctx, col, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d != nil
+	}
+	eq(t, []bool{has("stats_seen", "a"), has("stats_seen", "b"), has("mcp_quota", "c"), has("shares", "gone1"), has("shares", "kept1")}, []bool{false, true, true, false, true})
+	_, errGone := ls.bucket.Read(ctx, "shares/gone1/media/p.png", 10)
+	_, errKept := ls.bucket.Read(ctx, "shares/kept1/media/p.png", 10)
+	eq(t, []bool{errGone != nil, errKept == nil}, []bool{true, true})
 }

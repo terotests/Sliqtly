@@ -1,0 +1,101 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Which lines of the Markdown a slide is written on, from where each slide
+; of the laid-out deck starts in the source (PresSlide.srcStart, -1 for a
+; slide that drew nothing) and its title. A slide the overflow went on to
+; belongs to its heading's section: its lines are the whole section's.
+; The editor moves, deletes and copies slides by these lines; the MCP
+; server replaces a slide by them.
+
+class PresSlideSpans {
+    ; the line (0 = first) the character at offset is on
+    sfn lineOf:int (text:string offset:int) {
+        def n:int (strlen text)
+        def stop:int offset
+        if (stop > n) {
+            stop = n
+        }
+        def line:int 0
+        def i:int 0
+        while (i < stop) {
+            if ((charAt text i) == 10) {
+                line = (line + 1)
+            }
+            i = (i + 1)
+        }
+        return line
+    }
+
+    ; the text of line `line` (0 = first), "" past the end
+    sfn lineText:string (text:string line:int) {
+        def n:int (strlen text)
+        def at:int 0
+        def l:int 0
+        while ((l < line) && (at < n)) {
+            if ((charAt text at) == 10) {
+                l = (l + 1)
+            }
+            at = (at + 1)
+        }
+        if (l < line) {
+            return ""
+        }
+        def end:int at
+        while ((end < n) && ((charAt text end) != 10)) {
+            end = (end + 1)
+        }
+        return (substring text at end)
+    }
+
+    sfn lineCount:int (text:string) {
+        return ((PresSlideSpans.lineOf(text (strlen text))) + 1)
+    }
+
+    sfn isHeading:boolean (line:string) {
+        return (((strlen line) > 0) && ((charAt line 0) == 35))
+    }
+
+    ; [from, to): the lines of slide i's section; from is -1 when the slide
+    ; has no place in the source (or i is not a slide), to is then the
+    ; line count
+    sfn lines:[int] (text:string starts:[int] titles:[string] i:int) {
+        def out:[int]
+        def n:int (array_length starts)
+        def from:int -1
+        def upto:int (PresSlideSpans.lineCount(text))
+        if ((n > 0) && ((i >= 0) && (i < n))) {
+            ; a slide the overflow went on to starts on its heading's slide
+            def k:int i
+            while (k > 0) {
+                def sk:int (itemAt starts k)
+                if ((sk < 0) || ((itemAt titles k) != (itemAt titles (k - 1)))) {
+                    break
+                }
+                if (PresSlideSpans.isHeading((PresSlideSpans.lineText(text (PresSlideSpans.lineOf(text sk)))))) {
+                    break
+                }
+                k = (k - 1)
+            }
+            def s0:int (itemAt starts k)
+            if (s0 >= 0) {
+                from = (PresSlideSpans.lineOf(text s0))
+                def title:string (itemAt titles k)
+                def j:int (i + 1)
+                while (j < n) {
+                    def sj:int (itemAt starts j)
+                    if (sj >= 0) {
+                        def lj:int (PresSlideSpans.lineOf(text sj))
+                        if ((lj > from) && ((PresSlideSpans.isHeading((PresSlideSpans.lineText(text lj)))) || ((itemAt titles j) != title))) {
+                            upto = lj
+                            break
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+        }
+        push out from
+        push out upto
+        return out
+    }
+}

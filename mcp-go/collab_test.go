@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -448,4 +449,83 @@ func TestCollabNamesFree(t *testing.T) {
 	}
 	eq(t, list("ANIMALS"), collabAnimals)
 	eq(t, list("COLORS"), collabColors)
+}
+
+// a page that comes back to a room opened again (restart, idle close) with
+// its old revision and epoch is told to read the deck again: the new room
+// counts its revisions from 0, and its log is not the page's
+func TestCollabEpochReset(t *testing.T) {
+	srv, session := startLocal(t, t.TempDir(), "")
+	defer srv.Close()
+	defer session.Close()
+	ls := srv.Config.Handler.(*localServer)
+	id := newDeck(t, srv.URL, "abc")
+	epoch := snapshot(t, srv.URL, id)["epoch"].(string)
+	if epoch == "" {
+		t.Fatal("no epoch")
+	}
+	a := joinTest(t, srv.URL, id, "pageA1", "A", 0)
+	a.next("peers")
+	code, _ := a.post("/op", map[string]any{"rev": 0, "ops": delta{}.insert(toU16("x")).json(), "epoch": epoch})
+	eq(t, code, 200)
+	a.close()
+
+	// the room goes as when nobody has been there for a while
+	rm := ls.openRoom(id)
+	for i := 0; ls.openRoom(id) != nil && i < 100; i++ {
+		rm.close()
+		time.Sleep(20 * time.Millisecond)
+	}
+	if ls.openRoom(id) != nil {
+		t.Fatal("the room is still open")
+	}
+	epoch2 := snapshot(t, srv.URL, id)["epoch"].(string)
+	if epoch2 == epoch {
+		t.Fatal("the room opened again has the old epoch")
+	}
+
+	code, out := a.post("/op", map[string]any{"rev": 1, "ops": delta{}.retain(1).insert(toU16("y")).json(), "epoch": epoch})
+	eq(t, code, 409, "an op from the old room")
+	eq(t, out["code"], "reset")
+
+	url := fmt.Sprintf("%s/api/events?room=%s&client=pageA1&name=A&rev=1&epoch=%s", srv.URL, id, epoch)
+	res, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	p := &testPeer{t: t, client: "pageA1", events: make(chan map[string]any, 100)}
+	go func() {
+		sc := bufio.NewScanner(res.Body)
+		for sc.Scan() {
+			var m map[string]any
+			if l := sc.Text(); strings.HasPrefix(l, "data: ") && json.Unmarshal([]byte(l[6:]), &m) == nil {
+				p.events <- m
+			}
+		}
+		close(p.events)
+	}()
+	p.next("reset")
+	eq(t, snapshot(t, srv.URL, id)["md"], "xabc")
+}
+
+// at shutdown the rooms write what they took, before their save timers
+func TestCollabFlushRooms(t *testing.T) {
+	dir := t.TempDir()
+	srv, session := startLocal(t, dir, "")
+	ls := srv.Config.Handler.(*localServer)
+	id := newDeck(t, srv.URL, "abc")
+	a := joinTest(t, srv.URL, id, "pageA1", "A", 0)
+	a.next("peers")
+	code, _ := a.post("/op", map[string]any{"rev": 0, "ops": delta{}.insert(toU16("x")).json()})
+	eq(t, code, 200)
+	ls.flushRooms()
+	d, err := ls.env.DB.Get(context.Background(), "shares", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eq(t, d["md"], "xabc")
+	a.close()
+	session.Close()
+	srv.Close()
 }

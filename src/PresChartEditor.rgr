@@ -1841,6 +1841,10 @@ class PresChartEditor {
         def look:string (flow.look())
         this.chip("de-look-holo" (PresI18n.t("Holo")) (look == "holo") chips)
         this.chip("de-look-sketch" (PresI18n.t("Sketch")) (look == "sketch") chips)
+        this.chip("de-look-mermaid" (PresI18n.t("Mermaid")) (look == "mermaid") chips)
+        this.chip("de-look-jurassic" (PresI18n.t("Jurassic")) (look == "jurassic") chips)
+        this.chip("de-look-cartoon" (PresI18n.t("Cartoon")) (look == "cartoon") chips)
+        this.chip("de-look-romantic" (PresI18n.t("Romantic")) (look == "romantic") chips)
         this.chip("de-look-classic" (PresI18n.t("Classic")) (look == "classic") chips)
         lk.addChild(chips)
         if (look == "classic") {

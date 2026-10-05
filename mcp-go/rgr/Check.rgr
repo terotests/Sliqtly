@@ -10,6 +10,7 @@ Import "../presentation/PresDeck.rgr"
 Import "Contrast.rgr"
 Import "Files.rgr"
 Import "Layout.rgr"
+Import "../presentation/PresExport.rgr"
 
 ; what a deck is checked with
 class DeckIn {
@@ -29,6 +30,10 @@ class DeckIn {
     def live:boolean false
     ; keep each slide's display list as JSON, for drawing it
     def lists:boolean false
+    ; "pdf" or "pptx": the deck exported as that file (Checked.file), only
+    ; the slides in `only` (0 = first) when it is not empty
+    def export:string ""
+    def only:[int]
 }
 
 class Checked {
@@ -38,6 +43,8 @@ class Checked {
     def slides:int 0
     ; each slide's title, as the player numbers them
     def titles:[string]
+    ; where each slide starts in the Markdown (-1: it drew nothing)
+    def starts:[int]
     def warnings:[string]
     ; the layout report, slide by slide
     def report:[RSlideOut]
@@ -45,6 +52,8 @@ class Checked {
     def lists:[string]
     def width:double 960.0
     def height:double 540.0
+    ; with DeckIn.export: the file
+    def file:buffer (buffer_from_string "")
 }
 
 class Check {
@@ -53,7 +62,7 @@ class Check {
     ; the faces the editor lays slides out with (web/main.js FACES, and the
     ; emoji face it adds when one is typed)
     sfn FACES:[string] () {
-        return ([] _:string ("Open Sans" "Open Sans-Bold" "Open Sans-Italic" "Open Sans-BoldItalic" "Noto Sans" "Noto Sans-Bold" "Noto Emoji-Regular"))
+        return ([] _:string ("Open Sans" "Open Sans-Bold" "Open Sans-Italic" "Open Sans-BoldItalic" "Noto Sans" "Noto Sans-Bold" "Noto Emoji-Regular" "Gloria Hallelujah" "Fjalla One" "Josefin Sans-Bold" "Droid Serif-BoldItalic"))
     }
 
     ; a file a chart reads, as text: this call's files, the deck's stored
@@ -169,7 +178,9 @@ class Check {
         for (Check.FACES()) face:string fi {
             def fb:buffer (host_font host face)
             if ((buffer_length fb) > 0) {
-                d.md.attachFont(face fb)
+                if (d.md.attachFont(face fb)) {
+                    set d.haveFaces face true
+                }
             }
         }
         if ((strlen css) > 0) {
@@ -189,6 +200,7 @@ class Check {
         while (ti < c.slides) {
             def ts:PresSlide (d.slideAt(ti))
             push c.titles ts.title
+            push c.starts ts.srcStart
             ti = (ti + 1)
         }
         ; a slide that runs over goes on in untitled slides after it
@@ -252,6 +264,16 @@ class Check {
                 }
             }
             d.still = false
+        }
+        if ((strlen din.export) > 0) {
+            def ex (new PresExport())
+            ex.deck = d
+            ex.only = din.only
+            if (din.export == "pdf") {
+                c.file = (ex.pdf())
+            } {
+                c.file = (ex.pptx())
+            }
         }
         return c
     }
