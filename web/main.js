@@ -32,6 +32,7 @@ import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, b
 import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
+import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 
 // One beacon per page load for the visitor counts (mcp-go/rgr/Stats.rgr): the
 // page, mobile or desktop on the server's side, and the site the visitor
@@ -497,6 +498,7 @@ function shownDoc(text, quiet = false) {
   doc.loading = false;
   if (!viewer && !quiet) showDeckTab();
   loadReview(false).catch((e) => console.warn("review comments not read", e));
+  loadRecording().catch((e) => console.warn("recording not read", e));
 }
 
 // --- the open presentations' tabs (web/decktabs.js) ------------------------------
@@ -1035,6 +1037,7 @@ async function useFile(f) {
     const bytes = await f.data.arrayBuffer();
     await addPicture("/" + f.path, bytes, f.type);
   } else if (typeof f.data === "string") {
+    if (f.path === REC_JSON) app.loadRecording(f.data);
     if (f.path.startsWith("data/live/")) liveCopies.set(f.path, f.data);
     chartFiles.set(f.path, Promise.resolve(f.data));
     app.setChartData(f.path, f.data);
@@ -1916,6 +1919,17 @@ function paintOnce() {
     const stageStats = sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false });
     grew = grewBy(stageStats) || grew;
     sf.dispose();
+    // what is drawn on the slide and the pointer (presenting with the pen,
+    // recording, a replay), in the slide's units like the stage
+    const ij = app.inkJson();
+    if (ij) {
+      const ink = JSON.parse(ij);
+      ink.width = W;
+      ink.height = H;
+      const inf = prepareDisplayList(gl, ink, { dpr });
+      grew = grewBy(inf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false })) || grew;
+      inf.dispose();
+    }
     // Only while editing: not to an audience, and not mid-animation, where a
     // fading line is briefly faint by design.
     if (layout.mode !== "present" && !viewer && !app.isPlaying()) {
@@ -2600,7 +2614,10 @@ function frame() {
     if (app.uiBusy()) needsPaint = true;
     // charts whose theme changed are drawn again a few a frame (PresApp.settle)
     if (app.settle()) needsPaint = true;
-    if (app.isPlaying()) {
+    if (app.isReplaying()) {
+      // a recording played: its time drives the presentation (recFrame)
+      needsPaint = true;
+    } else if (app.isPlaying()) {
       const want = clockBase + (now - clockAt) / 1000;
       const got = app.setTime(want);
       // held back (a step, a question) or moved on (a skipped question):
@@ -2612,6 +2629,7 @@ function frame() {
       if (lastLayout && lastLayout.mode === "present") app.setElapsed((now - presentStartedAt) / 1000);
       needsPaint = true;
     }
+    recFrame();
     if ((doc.cloud || "") !== collabWant) collabFollow();
     collab?.tick();
     const rev = app.revision();
@@ -2621,6 +2639,7 @@ function frame() {
       lastRev = rev;
       syncEndPanel();
       syncCounter();
+      syncRecBar();
       loadLookFaces();
       paintOnce();
       handleRequests();
@@ -2815,6 +2834,8 @@ function handleRequests() {
       // arrive in; a presentation without keys is a slideshow nobody can drive.
       keys.focus({ preventScroll: true });
       requestAnimationFrame(resize);
+    } else if (recRequest(r)) {
+      // Record, Play recording, the voice (above)
     } else if (r.startsWith("click:")) {
       // the canvas bar: the page's own button does what it always did
       const b = document.getElementById(r.slice(6));
@@ -4267,6 +4288,221 @@ vGo.addEventListener("input", () => { vGo.value = vGo.value.replace(/[^0-9]/g, "
 vGo.addEventListener("blur", () => setTimeout(closeGoTo, 0));
 window.__goTo = { open: openGoTo, close: closeGoTo, label: () => vCount.textContent };
 
+// --- drawing on the slide, Record and Play recording ----------------------------------
+// Presenting, ✎ in the bar turns the pen on: a press on the slide that moves
+// draws (one that does not still goes on), the pointer over the slide is
+// drawn as an arrow, Backspace wipes (PresInk). Record → Record presentation
+// presents from the start with the pen on and the microphone recording
+// (web/recorder.js); everything the presentation does is written down
+// (PresRecord) and kept beside the sound in the deck's recordings/. Play
+// recording presents again from it, through the voice chosen in Record →
+// Voice. The bar while recording: the red time (pressed: stop) and pause;
+// while playing: back, pause, on, the time (pressed: stop).
+const REC_JSON = "recordings/take.json";
+const PEN_TOOLS = ["pen", "arrow", "line", "ellipse"];
+const PEN_ICONS = { pen: "〰", arrow: "↗", line: "╱", ellipse: "◯" };
+const PEN_COLORS = ["#ef4444", "#facc15", "#22c55e", "#3b82f6", "#ffffff", "#111111"];
+let voiceRec = null;
+let player = null;
+const vPen = document.getElementById("vPen");
+const vTool = document.getElementById("vTool");
+const vColor = document.getElementById("vColor");
+const vWipe = document.getElementById("vWipe");
+const vBack = document.getElementById("vBack");
+const vPause = document.getElementById("vPause");
+const vFwd = document.getElementById("vFwd");
+const vRec = document.getElementById("vRec");
+const vPlayRec = document.getElementById("vPlayRec");
+
+// The deck's recording, read when it opens (and when its file arrives from
+// the share).
+async function loadRecording() {
+  const which = doc.id;
+  const blob = await readDocFile(REC_JSON);
+  if (doc.id !== which) return;
+  app.loadRecording(blob ? await blob.text() : "");
+  needsPaint = true;
+}
+
+async function startVoice() {
+  const r = new VoiceRecorder();
+  voiceRec = r;
+  document.body.classList.add("recording");
+  try {
+    await r.start();
+  } catch (e) {
+    console.warn("no microphone", e);
+    r.startSilent();
+    toast(t("No microphone: the presentation is recorded without sound."));
+  }
+  // left before the microphone answered
+  if (voiceRec !== r) await r.stop();
+}
+
+// Files of an older take that the new one does not use.
+async function dropTakeFiles(keep) {
+  for (const f of await docFiles()) {
+    if (!f.path.startsWith("recordings/take.") || keep.includes(f.path)) continue;
+    pending.delete(f.path);
+    if (doc.persisted && vfs) await vfs.deleteFile(doc.id, f.path);
+  }
+}
+
+async function finishRecording() {
+  const r = voiceRec;
+  voiceRec = null;
+  document.body.classList.remove("recording", "recPaused");
+  if (!r) return;
+  const { blob, ext, type } = await r.stop();
+  let audio = "";
+  if (blob && blob.size) {
+    audio = "recordings/take." + ext;
+    await keepFile({ path: audio, type, size: blob.size, data: blob });
+  }
+  app.setRecordingAudio(audio);
+  const text = app.recordingJson();
+  await keepFile({ path: REC_JSON, type: "application/json", size: new Blob([text]).size, data: text });
+  await dropTakeFiles([audio, REC_JSON]);
+  app.loadRecording(text);
+  toast(t("Recording kept (") + clockText(app.recordingDuration()) + t("). Record ▸ Play recording plays it."));
+  needsPaint = true;
+}
+
+async function startReplay() {
+  const at = app.replayTime();
+  const path = app.recordingAudio();
+  const blob = path ? await readDocFile(path) : null;
+  if (!app.isReplaying()) return;
+  player?.close();
+  player = new VoicePlayer(blob, app.recordingVoice(), app.recordingDuration());
+  document.body.classList.add("replaying");
+  await player.play(at);
+}
+
+function stopReplay() {
+  player?.close();
+  player = null;
+  document.body.classList.remove("replaying", "recPaused");
+}
+
+async function keepVoice(v) {
+  app.setRecordingVoice(v);
+  player?.setVoice(v);
+  if (!app.hasRecording()) return;
+  const text = app.recordingJson();
+  await keepFile({ path: REC_JSON, type: "application/json", size: new Blob([text]).size, data: text });
+}
+
+async function deleteRecording() {
+  await dropTakeFiles([]);
+  app.dropRecording();
+  refreshFiles();
+  toast(t("Recording deleted."));
+}
+
+function recRequest(r) {
+  if (r === "record:start") startVoice().catch(fail);
+  else if (r === "record:stop") finishRecording().catch(fail);
+  else if (r === "replay:start") startReplay().catch(fail);
+  else if (r === "replay:stop") stopReplay();
+  else if (r.startsWith("rec:voice-")) keepVoice(r.slice(10)).catch(fail);
+  else if (r === "rec:delete") {
+    app.openConfirm("recdelete", t("Delete recording"), t("Delete this presentation's recording, its sound and what was drawn? This cannot be undone."), t("Delete"));
+  } else if (r === "confirm:recdelete") deleteRecording().catch(fail);
+  else return false;
+  return true;
+}
+
+// The time the recording is at, each frame; a replay at its end stops.
+function recFrame() {
+  if (voiceRec && app.isRecording()) app.recordTime(voiceRec.time());
+  if (app.isReplaying() && player) {
+    app.replayAt(player.time());
+    if (player.ended() && !player.paused) {
+      app.replayStop();
+      handleRequests();
+    }
+  }
+  if (app.inkBusy()) needsPaint = true;
+}
+
+function togglePause() {
+  const p = voiceRec || player;
+  if (!p) return;
+  if (p.paused) p.resume();
+  else p.pause();
+  document.body.classList.toggle("recPaused", p.paused);
+  needsPaint = true;
+}
+
+function seekBy(s) {
+  if (!player) return;
+  player.seek(player.time() + s);
+  app.replayAt(player.time());
+  needsPaint = true;
+}
+
+let penShown = "";
+function syncRecBar() {
+  if (!presentingNow()) return;
+  const st = JSON.parse(app.inkState());
+  const sig = [st.on, st.tool, st.color, st.recording, st.replaying, st.strokes > 0, Math.floor(st.t), !!(voiceRec || player)?.paused, app.hasRecording()].join();
+  if (sig === penShown) return;
+  penShown = sig;
+  const drive = !st.replaying;
+  vPen.hidden = !drive || st.recording;
+  vPen.setAttribute("aria-pressed", st.on ? "true" : "false");
+  vTool.hidden = !drive || !st.on;
+  vTool.textContent = PEN_ICONS[st.tool] || "〰";
+  vColor.hidden = !drive || !st.on;
+  vColor.style.setProperty("--pen", st.color);
+  vWipe.hidden = !drive || st.strokes === 0;
+  vBack.hidden = vFwd.hidden = !st.replaying;
+  vPause.hidden = !st.recording && !st.replaying;
+  const paused = !!(voiceRec || player)?.paused;
+  vPause.textContent = paused ? "▶︎" : "⏸︎";
+  vRec.hidden = !st.recording && !st.replaying;
+  vRec.textContent = st.recording ? "● " + clockText(st.t) + " ■" : clockText(st.t) + " / " + clockText(st.duration) + " ■";
+  vPlayRec.hidden = !app.hasRecording() || st.recording;
+}
+
+vPen.addEventListener("click", () => { app.setInk(vPen.getAttribute("aria-pressed") !== "true"); needsPaint = true; });
+vTool.addEventListener("click", () => {
+  const st = JSON.parse(app.inkState());
+  app.setInkTool(PEN_TOOLS[(PEN_TOOLS.indexOf(st.tool) + 1) % PEN_TOOLS.length]);
+  needsPaint = true;
+});
+vColor.addEventListener("click", () => {
+  const st = JSON.parse(app.inkState());
+  app.setInkColor(PEN_COLORS[(PEN_COLORS.indexOf(st.color) + 1) % PEN_COLORS.length]);
+  needsPaint = true;
+});
+vWipe.addEventListener("click", () => { app.key("backspace", false, false); needsPaint = true; });
+vPause.addEventListener("click", togglePause);
+vBack.addEventListener("click", () => seekBy(-10));
+vFwd.addEventListener("click", () => seekBy(10));
+vRec.addEventListener("click", () => {
+  if (app.isReplaying()) app.replayStop();
+  else app.endPresent();
+  handleRequests();
+  needsPaint = true;
+});
+
+// A replay's keys: Space pauses, the arrows seek, Esc stops; the rest is
+// not for it. True when the key was a replay's.
+function replayKey(ev) {
+  if (!app.isReplaying()) return false;
+  ev.preventDefault();
+  if (ev.key === " ") togglePause();
+  else if (ev.key === "ArrowLeft") seekBy(-5);
+  else if (ev.key === "ArrowRight") seekBy(5);
+  else if (ev.key === "Escape") {
+    app.replayStop();
+    handleRequests();
+  }
+  return true;
+}
+
 // The … menu: the deck as PDF, PPTX or Markdown (the editor's exports), a new
 // deck of the reader's own based on this one, and, for the signed-in owner of
 // a cloud share, Edit, which opens their own deck in the editor.
@@ -4362,6 +4598,10 @@ vMenu.addEventListener("click", (ev) => {
     if (framed) exportOnSite(act);
     else EXPORTS[act]().catch(fail);
   } else if (act === "new") createFromViewed();
+  else if (act === "playrec") {
+    app.replayFromSlide();
+    handleRequests();
+  }
   else if (act === "edit" && ownsShare()) {
     siteLink(siteUrl("s/" + viewShare.id + "?edit"));
   }
@@ -4898,6 +5138,7 @@ keys.addEventListener("keydown", (ev) => {
   // cancelled by a click) must not leave typing switched off.
   if (!ev.isComposing && ev.keyCode !== 229) composing = false;
   const presenting = lastLayout && lastLayout.mode === "present";
+  if (presenting && replayKey(ev)) return;
   if (ev.key === "F5") {
     ev.preventDefault();
     app.present(!ev.shiftKey);

@@ -1,0 +1,456 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresRecord.rgr — a presentation recorded: where it was, what was drawn
+; ============================================================================
+;
+; Record mode is presenting with the microphone on. What is kept is the
+; speaker's voice (the host's file, beside this one) and a list of timed
+; operations, so the talk can be played again exactly as it went:
+;
+;   nav    the presentation moved: slide, build step, deck clock, at the end
+;   ptr    the pointer over the slide moved (slide units)
+;   down   a line began: tool, colour, width, where
+;   move   it went on to here
+;   up     it was let go
+;   clear  what was drawn was wiped (Backspace, or a new slide)
+;
+; Times are seconds from the start of the recording (pauses left out).
+;
+; THE CLOCK BETWEEN NAV OPERATIONS. Presenting, the deck's clock runs with
+; time and stops at the next build step until a click (PresApp.setClock). A
+; nav operation is written only when that relation breaks: the slide, the
+; step or the end changed, or the clock went back or leapt forward. In a
+; replay the app is put where the last nav operation says and given that
+; clock plus the time since, and it holds at the same steps by itself.
+;
+; The file (recordings/take.json in the deck):
+;
+;   {"version":1,"duration":81.2,"voice":"clean","audio":"recordings/take.webm",
+;    "ops":[[0,"nav",0,0,0,0],[0.52,"ptr",410.5,233],[1.1,"down","arrow",
+;           "#ef4444",6,400,240],[1.13,"move",420,250],[1.4,"up"],…]}
+;
+; Nothing here draws, plays sound or reads a clock: PresApp feeds it, the
+; host plays the audio. Checked in PresCheck.recording.
+; ============================================================================
+
+Import "PresInk.rgr"
+Import "../vela/src/VlJson.rgr"
+
+class PresRecOp {
+    def t:double 0.0
+    def k:string ""
+    def x:double 0.0
+    def y:double 0.0
+    def slide:int 0
+    def step:int 0
+    def clock:double 0.0
+    def ended:boolean false
+    def tool:string ""
+    def color:string ""
+    def width:double 0.0
+}
+
+class PresRecording {
+    def ops:[PresRecOp]
+    def duration:double 0.0
+    ; the voice's filter (the host's presets: clean, warm, radio, phone,
+    ; echo, robot, none); played through it, the file is as spoken
+    def voice:string "clean"
+    ; the deck's file with the sound, "" when there is none (no microphone)
+    def audio:string ""
+
+    sfn PATH:string () {
+        return "recordings/take.json"
+    }
+
+    fn count:int () {
+        return (array_length ops)
+    }
+
+    fn op:PresRecOp (t:double k:string) {
+        def o (new PresRecOp())
+        o.t = t
+        o.k = k
+        push ops o
+        if (t > duration) {
+            duration = t
+        }
+        return o
+    }
+
+    fn nav:void (t:double slide:int step:int clock:double ended:boolean) {
+        def o:PresRecOp (this.op(t "nav"))
+        o.slide = slide
+        o.step = step
+        o.clock = clock
+        o.ended = ended
+    }
+
+    fn ptr:void (t:double x:double y:double) {
+        def o:PresRecOp (this.op(t "ptr"))
+        o.x = x
+        o.y = y
+    }
+
+    fn down:void (t:double tool:string color:string width:double x:double y:double) {
+        def o:PresRecOp (this.op(t "down"))
+        o.tool = tool
+        o.color = color
+        o.width = width
+        o.x = x
+        o.y = y
+    }
+
+    fn move:void (t:double x:double y:double) {
+        def o:PresRecOp (this.op(t "move"))
+        o.x = x
+        o.y = y
+    }
+
+    fn up:void (t:double) {
+        this.op(t "up")
+    }
+
+    fn clear:void (t:double) {
+        this.op(t "clear")
+    }
+
+    fn hide:void (t:double) {
+        this.op(t "hide")
+    }
+
+    ; What the operation does to the ink (nav does nothing to it).
+    sfn apply:void (o:PresRecOp ink:PresInk) {
+        if (o.k == "ptr") {
+            ink.pointer(o.x o.y o.t)
+            return
+        }
+        if (o.k == "down") {
+            ink.down(o.tool o.color o.width o.x o.y)
+            return
+        }
+        if (o.k == "move") {
+            ink.move(o.x o.y)
+            return
+        }
+        if (o.k == "up") {
+            ink.up()
+            return
+        }
+        if (o.k == "clear") {
+            ink.clear()
+            return
+        }
+        if (o.k == "hide") {
+            ink.hidePointer()
+        }
+    }
+
+    ; The nav operations' times on slide `slide`, as [start, end, start,
+    ; end, …]: when the recording shows it (the Speech lane of its track).
+    fn slideSpans:[double] (slide:int) {
+        def out:[double]
+        def on:boolean false
+        def i:int 0
+        while (i < (array_length ops)) {
+            def o:PresRecOp (itemAt ops i)
+            if (o.k == "nav") {
+                def here:boolean ((o.slide == slide) && (o.ended == false))
+                if (here && (on == false)) {
+                    push out o.t
+                    on = true
+                }
+                if ((here == false) && on) {
+                    push out o.t
+                    on = false
+                }
+            }
+            i = (i + 1)
+        }
+        if on {
+            push out duration
+        }
+        return out
+    }
+
+    ; When slide `slide` first shows, -1 never.
+    fn slideStart:double (slide:int) {
+        def sp:[double] (this.slideSpans(slide))
+        if ((array_length sp) == 0) {
+            return -1.0
+        }
+        return (itemAt sp 0)
+    }
+
+    ; --- the file ------------------------------------------------------------
+
+    sfn r3:double (v:double) {
+        if (v < 0.0) {
+            return (0.0 - (PresRecording.r3((0.0 - v))))
+        }
+        return ((to_double (to_int ((v * 1000.0) + 0.5))) / 1000.0)
+    }
+
+    sfn r1:double (v:double) {
+        if (v < 0.0) {
+            return (0.0 - (PresRecording.r1((0.0 - v))))
+        }
+        return ((to_double (to_int ((v * 10.0) + 0.5))) / 10.0)
+    }
+
+    sfn num:VlJson (v:double) {
+        return (VlJson.numberValue(v))
+    }
+
+    fn toJson:string () {
+        def root:VlJson (VlJson.objectValue())
+        root.setMember("version" (VlJson.intValue(1)))
+        root.setMember("duration" (PresRecording.num((PresRecording.r3(duration)))))
+        root.setMember("voice" (VlJson.stringValue(voice)))
+        root.setMember("audio" (VlJson.stringValue(audio)))
+        def arr:VlJson (VlJson.arrayValue())
+        def i:int 0
+        while (i < (array_length ops)) {
+            def o:PresRecOp (itemAt ops i)
+            def a:VlJson (VlJson.arrayValue())
+            push a.arr (PresRecording.num((PresRecording.r3(o.t))))
+            push a.arr (VlJson.stringValue(o.k))
+            if (o.k == "nav") {
+                push a.arr (VlJson.intValue(o.slide))
+                push a.arr (VlJson.intValue(o.step))
+                push a.arr (PresRecording.num((PresRecording.r3(o.clock))))
+                push a.arr (VlJson.intValue((? o.ended 1 0)))
+            }
+            if (o.k == "down") {
+                push a.arr (VlJson.stringValue(o.tool))
+                push a.arr (VlJson.stringValue(o.color))
+                push a.arr (PresRecording.num((PresRecording.r1(o.width))))
+            }
+            if (((o.k == "ptr") || (o.k == "down")) || (o.k == "move")) {
+                push a.arr (PresRecording.num((PresRecording.r1(o.x))))
+                push a.arr (PresRecording.num((PresRecording.r1(o.y))))
+            }
+            push arr.arr a
+            i = (i + 1)
+        }
+        root.setMember("ops" arr)
+        def w (new VlJsonWriter())
+        w.decimals = 3
+        return (w.write(root))
+    }
+
+    ; A file read back; an empty recording when the text is not one.
+    ; Operations it does not know are skipped; times never go back.
+    sfn parse:PresRecording (text:string) {
+        def r (new PresRecording())
+        if ((strlen (trim text)) == 0) {
+            return r
+        }
+        def p (new VlJsonParser())
+        def root:VlJson (p.parse(text))
+        if ((p.ok == false) || ((root.isObject()) == false)) {
+            return r
+        }
+        r.voice = (root.stringOr("voice" "clean"))
+        r.audio = (root.stringOr("audio" ""))
+        def arr:VlJson (root.get("ops"))
+        def last:double 0.0
+        def i:int 0
+        while (i < (arr.count())) {
+            def a:VlJson (arr.at(i))
+            if ((a.count()) >= 2) {
+                def t:double ((a.at(0)).asDouble())
+                if (t < last) {
+                    t = last
+                }
+                last = t
+                def k:string ((a.at(1)).asString())
+                if ((k == "nav") && ((a.count()) >= 6)) {
+                    r.nav(t ((a.at(2)).asInt()) ((a.at(3)).asInt()) ((a.at(4)).asDouble()) (((a.at(5)).asInt()) != 0))
+                }
+                if ((k == "ptr") && ((a.count()) >= 4)) {
+                    r.ptr(t ((a.at(2)).asDouble()) ((a.at(3)).asDouble()))
+                }
+                if ((k == "down") && ((a.count()) >= 7)) {
+                    r.down(t ((a.at(2)).asString()) ((a.at(3)).asString()) ((a.at(4)).asDouble()) ((a.at(5)).asDouble()) ((a.at(6)).asDouble()))
+                }
+                if ((k == "move") && ((a.count()) >= 4)) {
+                    r.move(t ((a.at(2)).asDouble()) ((a.at(3)).asDouble()))
+                }
+                if (k == "up") {
+                    r.up(t)
+                }
+                if (k == "clear") {
+                    r.clear(t)
+                }
+                if (k == "hide") {
+                    r.hide(t)
+                }
+            }
+            i = (i + 1)
+        }
+        def d:double (root.doubleOr("duration" 0.0))
+        if (d > r.duration) {
+            r.duration = d
+        }
+        return r
+    }
+}
+
+; Recording: what the presentation does each frame, written down only
+; where the replay could not work it out (see the top of this file), and the
+; pointer thinned to what can be seen.
+class PresRecorder {
+    def rec:PresRecording (new PresRecording())
+    def started:boolean false
+    def lastT:double 0.0
+    def lastSlide:int -1
+    def lastStep:int -1
+    def lastEnded:boolean false
+    def lastClock:double 0.0
+    def ptrT:double -1.0
+    def ptrX:double 0.0
+    def ptrY:double 0.0
+
+    ; How far (s) the deck clock may run ahead of time between two looks
+    ; before it counts as a jump.
+    sfn LEAP:double () {
+        return 0.25
+    }
+
+    ; The presentation at time t. True when a nav operation was written.
+    fn observe:boolean (t:double slide:int step:int clock:double ended:boolean) {
+        def write:boolean (started == false)
+        if started {
+            if (((slide != lastSlide) || (step != lastStep)) || (ended != lastEnded)) {
+                write = true
+            }
+            def dc:double (clock - lastClock)
+            def dt:double (t - lastT)
+            if (dc < -0.001) {
+                write = true
+            }
+            if (dc > (dt + (PresRecorder.LEAP()))) {
+                write = true
+            }
+        }
+        started = true
+        lastT = t
+        lastSlide = slide
+        lastStep = step
+        lastEnded = ended
+        lastClock = clock
+        if write {
+            rec.nav(t slide step clock ended)
+        }
+        if (t > rec.duration) {
+            rec.duration = t
+        }
+        return write
+    }
+
+    ; The pointer at (x, y): written when it moved a unit or more, at most
+    ; 30 times a second. True when written.
+    fn pointer:boolean (t:double x:double y:double) {
+        if (ptrT >= 0.0) {
+            def dx:double (x - ptrX)
+            def dy:double (y - ptrY)
+            if (((dx * dx) + (dy * dy)) < 1.0) {
+                return false
+            }
+            if ((t - ptrT) < (1.0 / 30.0)) {
+                return false
+            }
+        }
+        ptrT = t
+        ptrX = x
+        ptrY = y
+        rec.ptr(t x y)
+        return true
+    }
+}
+
+; Playing a recording: the ink as it was at time t, and the nav operation
+; in force then. Forward it only applies what is new; back (a seek) it starts
+; over from the beginning, which is quick (a list of numbers).
+class PresReplay {
+    def rec:PresRecording (new PresRecording())
+    def ink:PresInk (new PresInk())
+    ; the next operation to apply
+    def at:int 0
+    def t:double 0.0
+    ; the nav operation in force (an index into rec.ops), -1 none yet
+    def nav:int -1
+    ; set when `nav` changed; the app takes it (takeNav)
+    def navMoved:boolean false
+
+    fn load:void (r:PresRecording) {
+        rec = r
+        this.restart()
+    }
+
+    fn restart:void () {
+        ink = (new PresInk())
+        at = 0
+        t = 0.0
+        nav = -1
+        navMoved = true
+    }
+
+    fn seek:void (now:double) {
+        if (now < t) {
+            def keep:int nav
+            this.restart()
+            this.forward(now)
+            ; the same nav as before: the app need not jump
+            if (nav == keep) {
+                navMoved = false
+            }
+            return
+        }
+        this.forward(now)
+    }
+
+    fn forward:void (now:double) {
+        while (at < (array_length rec.ops)) {
+            def o:PresRecOp (itemAt rec.ops at)
+            if (o.t > now) {
+                t = now
+                return
+            }
+            if (o.k == "nav") {
+                nav = at
+                navMoved = true
+            } {
+                PresRecording.apply(o ink)
+            }
+            at = (at + 1)
+        }
+        t = now
+    }
+
+    fn takeNav:boolean () {
+        def m:boolean navMoved
+        navMoved = false
+        return m
+    }
+
+    ; The nav operation in force; an empty one (slide 0 at 0) before the first.
+    fn navOp:PresRecOp () {
+        if ((nav < 0) || (nav >= (array_length rec.ops))) {
+            return (new PresRecOp())
+        }
+        return (itemAt rec.ops nav)
+    }
+
+    ; The deck clock at the time: the nav's clock plus the time since.
+    fn clockAt:double (now:double) {
+        def o:PresRecOp (this.navOp())
+        return (o.clock + (now - o.t))
+    }
+
+    fn done:boolean () {
+        return (t >= rec.duration)
+    }
+}
