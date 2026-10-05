@@ -1,0 +1,12 @@
+/home/user/sliqtly/storage/target/debug/deps/lz4_flex-d82c856595f31541.d: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/block/mod.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/block/compress.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/block/hashtable.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/block/decompress.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/fastcpy.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/fastcpy_unsafe.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/sink.rs
+
+/home/user/sliqtly/storage/target/debug/deps/liblz4_flex-d82c856595f31541.rmeta: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/block/mod.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/block/compress.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/block/hashtable.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/block/decompress.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/fastcpy.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/fastcpy_unsafe.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/sink.rs
+
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/lib.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/block/mod.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/block/compress.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/block/hashtable.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/block/decompress.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/fastcpy.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/fastcpy_unsafe.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lz4_flex-0.11.6/src/sink.rs:
