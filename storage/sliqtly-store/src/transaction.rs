@@ -1,71 +1,74 @@
-//! Transaction and database layer with in-memory storage.
+//! Transaction and database layer.
 //!
-//! MVP uses HashMap + JSON serialization. Later can be swapped for
-//! a proper KV engine (redb, fjall, rocksdb) without changing the API.
+//! Semantic transactions on top of KV engine abstraction.
+//! Engine can be swapped (MemoryEngine, FjallEngine, RedbEngine) without API changes.
 
+use crate::engine::{CommitResult, CommitSeq, DbSnapshot, KvEngine, WriteBatch};
 use crate::error::Result;
 use crate::key::{KeyBuilder, KeyType};
-use crate::record::{Room, Document, Membership, Change, Seq, RoomId, DocumentId};
-use parking_lot::RwLock;
-use std::collections::BTreeMap;
+use crate::memory_engine::MemoryEngine;
+use crate::record::{Document, DocumentId, Membership, Room, RoomId};
 use std::path::Path;
 use std::sync::Arc;
 
-type KvStore = BTreeMap<Vec<u8>, Vec<u8>>;
-
 /// The main database handle.
 pub struct Database {
-    store: Arc<RwLock<KvStore>>,
-    seq: Arc<RwLock<Seq>>,
+    engine: Arc<dyn KvEngine>,
 }
 
 impl Database {
     /// Open or create a database at the given path.
+    /// Currently uses in-memory engine; will support Fjall/Redb later.
     pub fn open<P: AsRef<Path>>(_path: P) -> Result<Self> {
         Ok(Database {
-            store: Arc::new(RwLock::new(BTreeMap::new())),
-            seq: Arc::new(RwLock::new(0u64)),
+            engine: Arc::new(MemoryEngine::new()),
         })
     }
 
     /// Begin a read-only transaction.
     pub fn read(&self) -> Result<ReadTx> {
-        Ok(ReadTx {
-            store: self.store.clone(),
-            seq: *self.seq.read(),
-        })
+        let snapshot = self.engine.snapshot()?;
+        Ok(ReadTx { snapshot })
     }
 
     /// Begin a write transaction.
     pub fn write(&self) -> Result<WriteTx> {
         Ok(WriteTx {
-            store: self.store.clone(),
-            seq: self.seq.clone(),
-            changes: Vec::new(),
+            mutations: Vec::new(),
         })
     }
 
     /// Get current sequence number.
-    pub fn current_seq(&self) -> Seq {
-        *self.seq.read()
+    pub fn current_seq(&self) -> CommitSeq {
+        match self.engine.snapshot() {
+            Ok(snap) => snap.seq(),
+            Err(_) => 0,
+        }
+    }
+
+    /// Commit a write transaction.
+    pub(crate) fn commit_batch(&self, batch: WriteBatch) -> Result<CommitSeq> {
+        match self.engine.commit(batch)? {
+            CommitResult::NoChanges => Ok(self.current_seq()),
+            CommitResult::Applied { seq } => Ok(seq),
+        }
     }
 }
 
-/// Read-only transaction.
+/// Read-only transaction providing a consistent snapshot view.
+/// All operations in this transaction see exactly one committed database state.
 pub struct ReadTx {
-    store: Arc<RwLock<KvStore>>,
-    seq: Seq,
+    snapshot: Arc<dyn DbSnapshot>,
 }
 
 impl ReadTx {
     /// Get a room by ID.
     pub fn get_room(&self, room_id: RoomId) -> Result<Option<Room>> {
         let key = KeyBuilder::new(KeyType::Room).push_uuid(room_id).build();
-        let store = self.store.read();
 
-        match store.get(key.as_slice()) {
+        match self.snapshot.get(key.as_slice())? {
             Some(bytes) => {
-                let room = serde_json::from_slice(bytes)?;
+                let room = serde_json::from_slice(&bytes)?;
                 Ok(Some(room))
             }
             None => Ok(None),
@@ -75,86 +78,76 @@ impl ReadTx {
     /// Get a document by ID.
     pub fn get_document(&self, doc_id: DocumentId) -> Result<Option<Document>> {
         let key = KeyBuilder::new(KeyType::Document).push_uuid(doc_id).build();
-        let store = self.store.read();
 
-        match store.get(key.as_slice()) {
+        match self.snapshot.get(key.as_slice())? {
             Some(bytes) => {
-                let doc = serde_json::from_slice(bytes)?;
+                let doc = serde_json::from_slice(&bytes)?;
                 Ok(Some(doc))
             }
             None => Ok(None),
         }
     }
 
-    pub fn seq(&self) -> Seq {
-        self.seq
+    /// Get the commit sequence this snapshot observes.
+    pub fn seq(&self) -> CommitSeq {
+        self.snapshot.seq()
     }
 }
 
-/// Write transaction with change log semantics.
+/// Write transaction collecting mutations to commit atomically.
+/// Does not mutate database until commit() is called.
 pub struct WriteTx {
-    store: Arc<RwLock<KvStore>>,
-    seq: Arc<RwLock<Seq>>,
-    changes: Vec<Change>,
+    mutations: Vec<(Vec<u8>, Option<Vec<u8>>)>, // key, Some(value) | None means delete
 }
 
 impl WriteTx {
     /// Insert or update a room.
+    /// Does not affect database until commit() is called.
     pub fn put_room(&mut self, mut room: Room) -> Result<Room> {
         room.updated_at = chrono::Utc::now();
-        self.changes.push(Change::RoomUpdated {
-            room: room.clone(),
-            version: 1,
-        });
-
+        let key = KeyBuilder::new(KeyType::Room).push_uuid(room.id).build();
+        let value = serde_json::to_vec(&room)?;
+        self.mutations.push((key, Some(value)));
         Ok(room)
     }
 
     /// Insert or update a document.
+    /// Does not affect database until commit() is called.
     pub fn put_document(&mut self, mut doc: Document) -> Result<Document> {
         doc.updated_at = chrono::Utc::now();
         doc.version += 1;
-
-        self.changes.push(Change::DocumentUpdated {
-            doc: doc.clone(),
-            version: doc.version,
-        });
-
+        let key = KeyBuilder::new(KeyType::Document).push_uuid(doc.id).build();
+        let value = serde_json::to_vec(&doc)?;
+        self.mutations.push((key, Some(value)));
         Ok(doc)
     }
 
     /// Add a membership.
+    /// Does not affect database until commit() is called.
     pub fn add_membership(&mut self, membership: Membership) -> Result<()> {
-        self.changes.push(Change::MembershipAdded {
-            membership: membership.clone(),
-        });
-
+        // Key: Membership | user_id | room_id
+        let key = KeyBuilder::new(KeyType::Membership)
+            .push_uuid(membership.user_id)
+            .push_uuid(membership.room_id)
+            .build();
+        let value = serde_json::to_vec(&membership)?;
+        self.mutations.push((key, Some(value)));
         Ok(())
     }
 
-    /// Commit all changes atomically.
-    pub fn commit(self) -> Result<Seq> {
-        let mut store = self.store.write();
-        let mut seq = self.seq.write();
-        *seq += 1;
-        let commit_seq = *seq;
+    /// Commit all collected mutations atomically.
+    /// Empty transactions return NoChanges and do not increment sequence.
+    pub fn commit(self, db: &Database) -> Result<CommitSeq> {
+        let mut batch = WriteBatch::new();
 
-        // Write all changes to log
-        for (idx, change) in self.changes.iter().enumerate() {
-            let key = KeyBuilder::new(KeyType::Changes)
-                .push_be_u64(commit_seq)
-                .push_be_u32(idx as u32)
-                .build();
-
-            let value = serde_json::to_vec(change)?;
-            store.insert(key, value);
+        for (key, value_opt) in self.mutations {
+            match value_opt {
+                Some(value) => batch.put(key, value),
+                None => batch.delete(key),
+            }
         }
 
-        Ok(commit_seq)
-    }
-
-    pub fn add_change(&mut self, change: Change) {
-        self.changes.push(change);
+        db.commit_batch(batch)
     }
 }
 
@@ -163,7 +156,6 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::thread;
-    use tempfile::TempDir;
     use uuid::Uuid;
 
     fn create_test_room(title: &str) -> Room {
@@ -193,22 +185,19 @@ mod tests {
 
     #[test]
     fn test_database_creation() {
-        let dir = TempDir::new().unwrap();
-        let db = Database::open(dir.path()).unwrap();
+        let db = Database::open(".").unwrap();
         assert_eq!(db.current_seq(), 0);
     }
 
     #[test]
     fn test_single_room_write_read() {
-        let dir = TempDir::new().unwrap();
-        let db = Database::open(dir.path()).unwrap();
-
+        let db = Database::open(".").unwrap();
         let room = create_test_room("Test Room");
 
         {
             let mut tx = db.write().unwrap();
             tx.put_room(room).unwrap();
-            let seq = tx.commit().unwrap();
+            let seq = tx.commit(&db).unwrap();
             assert_eq!(seq, 1);
         }
 
@@ -220,14 +209,13 @@ mod tests {
 
     #[test]
     fn test_multiple_writes_increment_seq() {
-        let dir = TempDir::new().unwrap();
-        let db = Database::open(dir.path()).unwrap();
+        let db = Database::open(".").unwrap();
 
         for i in 0..5 {
             let mut tx = db.write().unwrap();
             let room = create_test_room(&format!("Room {}", i));
             tx.put_room(room).unwrap();
-            let seq = tx.commit().unwrap();
+            let seq = tx.commit(&db).unwrap();
             assert_eq!(seq, (i + 1) as u64);
         }
 
@@ -237,23 +225,21 @@ mod tests {
 
     #[test]
     fn test_document_in_room() {
-        let dir = TempDir::new().unwrap();
-        let db = Database::open(dir.path()).unwrap();
-
+        let db = Database::open(".").unwrap();
         let room = create_test_room("Parent Room");
         let room_id = room.id;
 
         {
             let mut tx = db.write().unwrap();
             tx.put_room(room).unwrap();
-            tx.commit().unwrap();
+            tx.commit(&db).unwrap();
         }
 
         let doc = create_test_doc(room_id, "Doc 1");
         {
             let mut tx = db.write().unwrap();
             tx.put_document(doc.clone()).unwrap();
-            let seq = tx.commit().unwrap();
+            let seq = tx.commit(&db).unwrap();
             assert_eq!(seq, 2);
         }
 
@@ -264,31 +250,30 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_write_increments_seq() {
-        let dir = TempDir::new().unwrap();
-        let db = Database::open(dir.path()).unwrap();
+    fn test_empty_write_no_seq_increment() {
+        let db = Database::open(".").unwrap();
+        assert_eq!(db.current_seq(), 0);
 
         {
             let tx = db.write().unwrap();
-            // Empty transaction - no adds
-            let seq = tx.commit().unwrap();
-            assert_eq!(seq, 1);
+            // Empty transaction - no mutations
+            let seq = tx.commit(&db).unwrap();
+            assert_eq!(seq, 0); // NoChanges, seq unchanged
         }
 
-        let tx = db.read().unwrap();
-        assert_eq!(tx.seq(), 1);
+        // Verify seq did not increment
+        assert_eq!(db.current_seq(), 0);
     }
 
     #[test]
     fn test_concurrent_readers() {
-        let dir = TempDir::new().unwrap();
-        let db = Arc::new(Database::open(dir.path()).unwrap());
+        let db = Arc::new(Database::open(".").unwrap());
 
         {
             let mut tx = db.write().unwrap();
             let room = create_test_room("Concurrent Room");
             tx.put_room(room).unwrap();
-            tx.commit().unwrap();
+            tx.commit(&db).unwrap();
         }
 
         // Spawn 10 concurrent readers
@@ -309,9 +294,7 @@ mod tests {
 
     #[test]
     fn test_membership_changes() {
-        let dir = TempDir::new().unwrap();
-        let db = Database::open(dir.path()).unwrap();
-
+        let db = Database::open(".").unwrap();
         let room_id = Uuid::now_v7();
         let user_id = Uuid::now_v7();
 
@@ -325,7 +308,7 @@ mod tests {
                 metadata: serde_json::json!({}),
             };
             tx.add_membership(membership).unwrap();
-            let seq = tx.commit().unwrap();
+            let seq = tx.commit(&db).unwrap();
             assert_eq!(seq, 1);
         }
 
@@ -337,9 +320,7 @@ mod tests {
 
     #[test]
     fn test_multiple_changes_in_one_commit() {
-        let dir = TempDir::new().unwrap();
-        let db = Database::open(dir.path()).unwrap();
-
+        let db = Database::open(".").unwrap();
         let room_id = Uuid::now_v7();
 
         {
@@ -363,15 +344,14 @@ mod tests {
             };
             tx.add_membership(membership).unwrap();
 
-            let seq = tx.commit().unwrap();
+            let seq = tx.commit(&db).unwrap();
             assert_eq!(seq, 1);
         }
     }
 
     #[test]
     fn test_seq_monotonicity() {
-        let dir = TempDir::new().unwrap();
-        let db = Arc::new(Database::open(dir.path()).unwrap());
+        let db = Arc::new(Database::open(".").unwrap());
 
         let mut last_seq = 0u64;
 
@@ -379,7 +359,7 @@ mod tests {
             let mut tx = db.write().unwrap();
             let room = create_test_room("Test");
             tx.put_room(room).unwrap();
-            let seq = tx.commit().unwrap();
+            let seq = tx.commit(&db).unwrap();
 
             assert!(seq > last_seq, "Seq must be strictly increasing");
             last_seq = seq;
@@ -390,8 +370,7 @@ mod tests {
 
     #[test]
     fn test_reads_see_committed_seq() {
-        let dir = TempDir::new().unwrap();
-        let db = Database::open(dir.path()).unwrap();
+        let db = Database::open(".").unwrap();
 
         let initial_seq = db.current_seq();
         assert_eq!(initial_seq, 0);
@@ -400,7 +379,7 @@ mod tests {
             let mut tx = db.write().unwrap();
             let room = create_test_room("Seq Check");
             tx.put_room(room).unwrap();
-            tx.commit().unwrap();
+            tx.commit(&db).unwrap();
         }
 
         assert_eq!(db.current_seq(), 1);
@@ -413,8 +392,7 @@ mod tests {
 
     #[test]
     fn test_large_payload() {
-        let dir = TempDir::new().unwrap();
-        let db = Database::open(dir.path()).unwrap();
+        let db = Database::open(".").unwrap();
 
         let mut room = create_test_room("Large Payload Room");
         room.metadata = serde_json::json!({
@@ -427,7 +405,7 @@ mod tests {
         {
             let mut tx = db.write().unwrap();
             tx.put_room(room.clone()).unwrap();
-            let seq = tx.commit().unwrap();
+            let seq = tx.commit(&db).unwrap();
             assert_eq!(seq, 1);
         }
 
@@ -437,9 +415,7 @@ mod tests {
 
     #[test]
     fn test_document_version_increment() {
-        let dir = TempDir::new().unwrap();
-        let db = Database::open(dir.path()).unwrap();
-
+        let db = Database::open(".").unwrap();
         let room_id = Uuid::now_v7();
         let doc = create_test_doc(room_id, "Versioned Doc");
         let initial_version = doc.version;
@@ -449,21 +425,20 @@ mod tests {
             let mut tx = db.write().unwrap();
             current_doc = tx.put_document(current_doc).unwrap();
             assert_eq!(current_doc.version, initial_version + 1);
-            tx.commit().unwrap();
+            tx.commit(&db).unwrap();
         }
 
         {
             let mut tx = db.write().unwrap();
             current_doc = tx.put_document(current_doc).unwrap();
             assert_eq!(current_doc.version, initial_version + 2);
-            tx.commit().unwrap();
+            tx.commit(&db).unwrap();
         }
     }
 
     #[test]
     fn test_room_timestamp_updates() {
-        let dir = TempDir::new().unwrap();
-        let db = Database::open(dir.path()).unwrap();
+        let db = Database::open(".").unwrap();
 
         let room = create_test_room("Timestamp Test");
         let original_timestamp = room.updated_at;
@@ -472,7 +447,7 @@ mod tests {
             let mut tx = db.write().unwrap();
             let updated_room = tx.put_room(room).unwrap();
             assert!(updated_room.updated_at >= original_timestamp);
-            tx.commit().unwrap();
+            tx.commit(&db).unwrap();
         }
     }
 }

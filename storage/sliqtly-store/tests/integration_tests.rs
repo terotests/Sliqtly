@@ -28,7 +28,7 @@ fn test_complete_workflow() {
     {
         let mut tx = db.write().unwrap();
         tx.put_room(room.clone()).unwrap();
-        let seq = tx.commit().unwrap();
+        let seq = tx.commit(&db).unwrap();
         assert_eq!(seq, 1);
     }
 
@@ -48,7 +48,7 @@ fn test_complete_workflow() {
         {
             let mut tx = db.write().unwrap();
             tx.put_document(doc).unwrap();
-            let seq = tx.commit().unwrap();
+            let seq = tx.commit(&db).unwrap();
             assert_eq!(seq, 1 + i as u64 + 1);
         }
     }
@@ -70,7 +70,7 @@ fn test_complete_workflow() {
         {
             let mut tx = db.write().unwrap();
             tx.add_membership(membership).unwrap();
-            tx.commit().unwrap();
+            tx.commit(&db).unwrap();
         }
     }
 
@@ -98,7 +98,7 @@ fn test_crash_recovery_simulation() {
                 metadata: serde_json::json!({}),
             };
             tx.put_room(room).unwrap();
-            tx.commit().unwrap();
+            tx.commit(&db).unwrap();
         }
 
         assert_eq!(db.current_seq(), 10);
@@ -134,7 +134,7 @@ fn test_high_write_throughput() {
             metadata: serde_json::json!({}),
         };
         tx.put_room(room).unwrap();
-        tx.commit().unwrap();
+        tx.commit(&db).unwrap();
     }
 
     let elapsed = start.elapsed();
@@ -168,7 +168,7 @@ fn test_concurrent_read_load() {
                 metadata: serde_json::json!({}),
             };
             tx.put_room(room).unwrap();
-            tx.commit().unwrap();
+            tx.commit(&db).unwrap();
         }
     }
 
@@ -223,7 +223,7 @@ fn test_write_after_many_reads() {
             metadata: serde_json::json!({}),
         };
         tx.put_room(room).unwrap();
-        tx.commit().unwrap();
+        tx.commit(&db).unwrap();
     }
 
     // Lots of concurrent reads
@@ -251,7 +251,7 @@ fn test_write_after_many_reads() {
             metadata: serde_json::json!({}),
         };
         tx.put_room(room).unwrap();
-        tx.commit().unwrap();
+        tx.commit(&db).unwrap();
     }
 
     // Wait for readers
@@ -281,7 +281,7 @@ fn test_seq_never_reused() {
             metadata: serde_json::json!({}),
         };
         tx.put_room(room).unwrap();
-        let seq = tx.commit().unwrap();
+        let seq = tx.commit(&db).unwrap();
         observed_seqs.push(seq);
     }
 
@@ -315,13 +315,13 @@ fn test_empty_database_operations() {
         assert_eq!(tx.seq(), 0);
     }
 
-    // Empty write (commit without changes)
+    // Empty write (commit without changes) - seq unchanged
     {
         let tx = db.write().unwrap();
-        let seq = tx.commit().unwrap();
-        assert_eq!(seq, 1);
+        let seq = tx.commit(&db).unwrap();
+        assert_eq!(seq, 0); // NoChanges: seq unchanged
     }
 
-    // Verify seq incremented even with empty commit
-    assert_eq!(db.current_seq(), 1);
+    // Verify seq did not increment
+    assert_eq!(db.current_seq(), 0);
 }

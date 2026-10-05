@@ -24,7 +24,7 @@ fn prop_seq_always_increases_on_writes() {
             metadata: serde_json::json!({}),
         };
         tx.put_room(room).unwrap();
-        let seq = tx.commit().unwrap();
+        let seq = tx.commit(&db).unwrap();
         assert!(seq > last_seq, "seq {} must be > previous {}", seq, last_seq);
         last_seq = seq;
     }
@@ -48,7 +48,7 @@ fn prop_current_seq_matches_read_seq() {
             metadata: serde_json::json!({}),
         };
         tx.put_room(room).unwrap();
-        tx.commit().unwrap();
+        tx.commit(&db).unwrap();
     }
 
     let db_seq = db.current_seq();
@@ -77,7 +77,7 @@ fn prop_seq_never_wraps_or_repeats() {
             metadata: serde_json::json!({}),
         };
         tx.put_room(room).unwrap();
-        let seq = tx.commit().unwrap();
+        let seq = tx.commit(&db).unwrap();
         seqs.push(seq);
     }
 
@@ -98,17 +98,16 @@ fn prop_seq_never_wraps_or_repeats() {
 }
 
 #[test]
-fn prop_empty_commits_increment_seq() {
-    let dir = TempDir::new().unwrap();
-    let db = Database::open(dir.path()).unwrap();
+fn prop_empty_commits_no_seq_increment() {
+    let db = Database::open(".").unwrap();
 
-    for i in 0..30 {
+    for _ in 0..30 {
         let tx = db.write().unwrap();
-        let seq = tx.commit().unwrap();
-        assert_eq!(seq, (i + 1) as u64);
+        let seq = tx.commit(&db).unwrap();
+        assert_eq!(seq, 0); // Empty commits return current seq (0)
     }
 
-    assert_eq!(db.current_seq(), 30);
+    assert_eq!(db.current_seq(), 0); // Seq never incremented
 }
 
 #[test]
@@ -135,7 +134,7 @@ fn prop_multiple_changes_one_commit() {
             tx.put_document(doc).unwrap();
         }
 
-        let seq = tx.commit().unwrap();
+        let seq = tx.commit(&db).unwrap();
         assert_eq!(seq, (batch + 1) as u64);
     }
 }
@@ -166,7 +165,7 @@ fn prop_room_timestamp_always_updates() {
                 updated_room.updated_at >= original_time,
                 "Timestamp must be updated to current time or later"
             );
-            tx.commit().unwrap();
+            tx.commit(&db).unwrap();
         }
     }
 }
@@ -196,7 +195,7 @@ fn prop_document_version_increments() {
                 doc.version, expected_version,
                 "Version should increment sequentially"
             );
-            tx.commit().unwrap();
+            tx.commit(&db).unwrap();
         }
     }
 
@@ -226,7 +225,7 @@ fn prop_large_metadata_handling() {
         {
             let mut tx = db.write().unwrap();
             tx.put_room(room).unwrap();
-            let seq = tx.commit().unwrap();
+            let seq = tx.commit(&db).unwrap();
             assert!(seq > 0);
         }
     }
@@ -253,7 +252,7 @@ fn prop_concurrent_writes_serialize() {
             metadata: serde_json::json!({}),
         };
         tx.put_room(room).unwrap();
-        let seq = tx.commit().unwrap();
+        let seq = tx.commit(&db).unwrap();
         assert_eq!(seq, (i + 1) as u64);
     }
 }

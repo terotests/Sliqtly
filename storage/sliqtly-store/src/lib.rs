@@ -22,8 +22,10 @@
 //!     └──────────────────────┘
 //! ```
 
+pub mod engine;
 pub mod error;
 pub mod key;
+pub mod memory_engine;
 pub mod record;
 pub mod transaction;
 
