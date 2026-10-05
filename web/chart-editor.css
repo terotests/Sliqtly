@@ -218,7 +218,7 @@
   transition: background-color 120ms ease-out;
 }
 .cp-iconbtn:hover { background-color: #f4f4f5; }
-.cp-iconbtn-on { background-color: #e0e7ff; border-color: #6366f1; }
+.cp-iconbtn-on { background-color: #f7e4da; border-color: #b4532a; }
 
 /* The current colour over a two-square checkerboard. */
 .cp-current {
