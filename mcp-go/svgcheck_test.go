@@ -49,7 +49,7 @@ func TestSvgCheckWarnsOfWhatThePlayerWillNotShow(t *testing.T) {
 		{`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080"><style><![CDATA[ text { font-family: 'Inter', sans-serif } ]]></style><text>Hi</text></svg>`, `has text in Inter: each viewer's own fonts draw it`},
 		{`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080"><text font-family="sans-serif">Hi</text></svg>`, `has text: each viewer's own fonts draw it`},
 		{`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080"><script>x()</script></svg>`, `has a <script>: an SVG shown as a picture runs no scripts`},
-		{`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080"><foreignObject/></svg>`, `has a <foreignObject>`},
+		{`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080"><foreignObject/></svg>`, `has a <foreignObject>: the player shows such an SVG as nothing`},
 		{`<html><svg viewBox="0 0 1 1"/></html>`, `is not an SVG: its first element is not <svg>`},
 	} {
 		o := svgReport(c.src, true, "")
