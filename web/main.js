@@ -6780,6 +6780,16 @@ function syncToolbar() {
 function tabsInTheWay() {
   loadNote.textContent = t("Waiting for your other Sliqtly tabs. Close or reload the ones opened before the update.");
 }
+// The browser's store did not answer a call in time (web/vfs.js): it was
+// tried again over a new connection. Said once, while it lasts.
+let stallNoted = false;
+function storeStalled() {
+  if (stallNoted) return;
+  stallNoted = true;
+  setTimeout(() => { stallNoted = false; }, 60000);
+  if (document.body.classList.contains("booting")) loadNote.textContent = t("The browser's storage is not answering. Waiting for it; closing other Sliqtly tabs may help.");
+  else toast(t("The browser's storage is not answering. Your changes are saved once it does; closing other Sliqtly tabs may help."));
+}
 // A newer Sliqtly in another tab took the store over: this page can no
 // longer save, and says so until it is reloaded.
 function closedByUpdate() {
@@ -6957,50 +6967,58 @@ async function start() {
   const theme = q.has("theme") ? q.get("theme") : "aurora";
   themeSel.value = theme;
   app.setStyleSheet(theme ? themeCss[theme] || "" : "");
-  if (!viewer && !hashShare()) vfs = await openVfs({ waiting: tabsInTheWay, closed: closedByUpdate });
+  if (!viewer && !hashShare()) vfs = await openVfs({ waiting: tabsInTheWay, closed: closedByUpdate, stalled: storeStalled });
   const own = ownDeck();
   // /s/{id}?edit (or an older ?deck=…&from={id}) of the signed-in owner's
   // own deck: opened from the cloud, where it lives
   const editId = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(location.pathname)?.[1] || own?.from;
   const editing = !!own || (!!editId && q.has("edit"));
-  if (versionFrame) await openVersionView();
-  else if (playerDeck) await openPlayerDeck();
-  else if (editing && editId && (await openOwnCloud(editId).catch((e) => { console.warn(e); return false; }))) {
-    // a deck's link on a server of one's own: its room open on the left,
-    // with the room's presentations
-    if (ownServer() && roomShown) {
-      app.showRooms();
-      roomsRequest("room:list").catch(() => {});
-    }
-  }
-  else if (own && vfs && (await ownIsNewer(own)) && (await openDoc(own.deck))) plainAddress();
-  else if (!(await openFromShare()) && !(await openFromHash())) {
-    const want = q.get("sample");
-    // the tab in front before a reload, when its deck is still there
-    const front = want || at.get("doc") ? "" : app.deckTabFront();
-    if (front && (await openDeckKey(front).catch(() => false))) { /* opened */ }
-    else {
-      if (front) app.deckTabClose(front);
-      // no sample asked for: the deck worked on last, if this browser kept one,
-      // from the cloud when it lives there
-      let last = null;
-      try { last = localStorage.getItem("evgp.doc"); } catch (_) { /* none */ }
-      // the deck this tab had (keepTabDoc), or an older link's #doc={id},
-      // when this browser keeps it
-      let asked = at.get("doc");
-      if (!asked && !framed) {
-        try { asked = sessionStorage.getItem(TAB_DOC); } catch (_) { /* none */ }
-      }
-      if (asked && /^[A-Za-z0-9_-]{1,64}$/.test(asked) && vfs && (await vfs.getDoc(asked))) last = asked;
-      const lastCloud = !want && last && vfs ? (await vfs.getDoc(last))?.cloud : null;
-      if (lastCloud && (await openOwnCloud(lastCloud).catch(() => false))) { /* opened */ }
-      else if (want || !last || !(await openDoc(last))) {
-        const sample = SAMPLES[want] || HIDDEN_SAMPLES[want] ? want : "welcome";
-        if (SAMPLES[sample]) sampleSel.value = sample;
-        await openSample(sample);
-        if (!want) welcomeCard();
+  // the browser's store not answering (web/vfs.js gives up on a stuck
+  // call) leaves no page behind the loader: the welcome deck opens, and the
+  // notice says why one's own is not there
+  try {
+    if (versionFrame) await openVersionView();
+    else if (playerDeck) await openPlayerDeck();
+    else if (editing && editId && (await openOwnCloud(editId).catch((e) => { console.warn(e); return false; }))) {
+      // a deck's link on a server of one's own: its room open on the left,
+      // with the room's presentations
+      if (ownServer() && roomShown) {
+        app.showRooms();
+        roomsRequest("room:list").catch(() => {});
       }
     }
+    else if (own && vfs && (await ownIsNewer(own)) && (await openDoc(own.deck))) plainAddress();
+    else if (!(await openFromShare()) && !(await openFromHash())) {
+      const want = q.get("sample");
+      // the tab in front before a reload, when its deck is still there
+      const front = want || at.get("doc") ? "" : app.deckTabFront();
+      if (front && (await openDeckKey(front).catch(() => false))) { /* opened */ }
+      else {
+        if (front) app.deckTabClose(front);
+        // no sample asked for: the deck worked on last, if this browser kept one,
+        // from the cloud when it lives there
+        let last = null;
+        try { last = localStorage.getItem("evgp.doc"); } catch (_) { /* none */ }
+        // the deck this tab had (keepTabDoc), or an older link's #doc={id},
+        // when this browser keeps it
+        let asked = at.get("doc");
+        if (!asked && !framed) {
+          try { asked = sessionStorage.getItem(TAB_DOC); } catch (_) { /* none */ }
+        }
+        if (asked && /^[A-Za-z0-9_-]{1,64}$/.test(asked) && vfs && (await vfs.getDoc(asked))) last = asked;
+        const lastCloud = !want && last && vfs ? (await vfs.getDoc(last))?.cloud : null;
+        if (lastCloud && (await openOwnCloud(lastCloud).catch(() => false))) { /* opened */ }
+        else if (want || !last || !(await openDoc(last))) {
+          const sample = SAMPLES[want] || HIDDEN_SAMPLES[want] ? want : "welcome";
+          if (SAMPLES[sample]) sampleSel.value = sample;
+          await openSample(sample);
+          if (!want) welcomeCard();
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("the deck could not be opened", e);
+    if (doc.loading || !app.source()) await openSample("welcome");
   }
   refreshRecent().catch(() => {});
   useAddress(at);

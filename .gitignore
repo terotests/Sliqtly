@@ -3,3 +3,4 @@ node_modules/
 web/dist/
 bin/
 *.log
+web/dist-view/

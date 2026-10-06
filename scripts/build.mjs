@@ -25,6 +25,30 @@ function minify(file) {
   fs.writeFileSync(file, out.code);
 }
 
+// The faces the pages draw with, from Ranger's checkout into `<dir>/fonts`:
+// Open Sans and Noto Sans, the diagram looks' faces (RangerFlow FlowLook,
+// fetched when a deck uses one) and, for the PDF writer, Noto Emoji.
+export function copyFaces(ranger, dir, { emoji = false } = {}) {
+  const put = (from, name) => {
+    fs.mkdirSync(path.join(dir, "fonts"), { recursive: true });
+    fs.copyFileSync(path.join(ranger, "gallery/pdf_writer/assets/fonts", from), path.join(dir, "fonts", name));
+  };
+  for (const face of ["OpenSans-Regular", "OpenSans-Bold", "OpenSans-Italic", "OpenSans-BoldItalic"]) put(`Open_Sans/${face}.ttf`, `${face}.ttf`);
+  for (const face of ["NotoSans-Regular", "NotoSans-Bold"]) put(`Noto_Sans/${face}.ttf`, `${face}.ttf`);
+  if (emoji) put("Noto_Emoji/NotoEmoji-Regular.ttf", "NotoEmoji-Regular.ttf");
+  for (const [d, face] of [["Gloria_Hallelujah", "GloriaHallelujah"], ["Fjalla_One", "FjallaOne-Regular"], ["Josefin_Sans", "JosefinSans-Bold"], ["Droid_Serif", "DroidSerif-BoldItalic"]]) {
+    put(`${d}/${face}.ttf`, `${face}.ttf`);
+  }
+}
+
+// The fonts change far more seldom than the code: their own hash, so a new
+// build is not 1.5 MB of the same faces again for every visitor.
+export function facesStamp(dir) {
+  const fh = crypto.createHash("sha1");
+  for (const f of fs.readdirSync(path.join(dir, "fonts")).sort()) fh.update(f).update(fs.readFileSync(path.join(dir, "fonts", f)));
+  return fh.digest("hex").slice(0, 10);
+}
+
 // every file in web/dist, relative and sorted
 function distFiles() {
   return fs.readdirSync(distDir, { recursive: true })
@@ -82,17 +106,7 @@ export function build({ ranger } = {}) {
   copy(path.join(root, "brand/sliqtly-icon.svg"), path.join(distDir, "favicon.svg"));
   copy(path.join(ranger, "lib/evg/gl/evg-webgl.js"), path.join(distDir, "gl/evg-webgl.js"));
   copy(path.join(ranger, "lib/evg/gl/evg-a11y.js"), path.join(distDir, "gl/evg-a11y.js"));
-  for (const face of ["OpenSans-Regular", "OpenSans-Bold", "OpenSans-Italic", "OpenSans-BoldItalic"]) {
-    copy(path.join(ranger, `gallery/pdf_writer/assets/fonts/Open_Sans/${face}.ttf`), path.join(distDir, `fonts/${face}.ttf`));
-  }
-  for (const face of ["NotoSans-Regular", "NotoSans-Bold"]) {
-    copy(path.join(ranger, `gallery/pdf_writer/assets/fonts/Noto_Sans/${face}.ttf`), path.join(distDir, `fonts/${face}.ttf`));
-  }
-  copy(path.join(ranger, "gallery/pdf_writer/assets/fonts/Noto_Emoji/NotoEmoji-Regular.ttf"), path.join(distDir, "fonts/NotoEmoji-Regular.ttf"));
-  // the diagram looks' faces (RangerFlow FlowLook), fetched when a deck uses one
-  for (const [dir, face] of [["Gloria_Hallelujah", "GloriaHallelujah"], ["Fjalla_One", "FjallaOne-Regular"], ["Josefin_Sans", "JosefinSans-Bold"], ["Droid_Serif", "DroidSerif-BoldItalic"]]) {
-    copy(path.join(ranger, `gallery/pdf_writer/assets/fonts/${dir}/${face}.ttf`), path.join(distDir, `fonts/${face}.ttf`));
-  }
+  copyFaces(ranger, distDir, { emoji: true });
   for (const f of fs.readdirSync(path.join(root, "themes"))) copy(path.join(root, "themes", f), path.join(distDir, "themes", f));
   // Live spreadsheets (```sheet, .xlsx in Files) are EVGSheets. A built copy
   // goes beside the page when there is one — $EVGSHEETS_DIST, or
@@ -141,11 +155,7 @@ export function build({ ranger } = {}) {
   // player.html is made from the rest after this (scripts/player.mjs)
   for (const f of distFiles().filter((f) => !f.startsWith("fonts/") && f !== "player.html")) h.update(f).update(fs.readFileSync(path.join(distDir, f)));
   const stamp = h.digest("hex").slice(0, 10);
-  // The fonts change far more seldom than the code: their own hash, so a
-  // new build is not 1.5 MB of the same faces again for every visitor.
-  const fh = crypto.createHash("sha1");
-  for (const f of fs.readdirSync(path.join(distDir, "fonts")).sort()) fh.update(f).update(fs.readFileSync(path.join(distDir, "fonts", f)));
-  const fonts = fh.digest("hex").slice(0, 10);
+  const fonts = facesStamp(distDir);
   const html = path.join(distDir, "index.html");
   fs.writeFileSync(html, fs.readFileSync(html, "utf8").split("__BUILD__").join(stamp).split("__FONTS__").join(fonts));
   const main = path.join(distDir, "main.js");

@@ -1113,18 +1113,23 @@ class Tools {
         return (Tools.checkWith(host md theme hasCss css bgs din))
     }
 
-    sfn checkWith:Checked (host:McpHost md:string theme:string hasCss:boolean css:string bgs:CheckPics din:DeckIn) {
-        def sheet:string css
-        if (hasCss == false) {
-            sheet = (host_theme_css host theme)
-            if ((strlen (host_error host)) > 0) {
-                host_log host ("theme for the checks: " + (host_error host))
-                host_clear_error host
-                sheet = ""
-            }
+    ; the deck's own CSS, else its theme's sheet ("" when that cannot be read)
+    sfn sheetFor:string (host:McpHost theme:string hasCss:boolean css:string) {
+        if hasCss {
+            return css
         }
+        def sheet:string (host_theme_css host theme)
+        if ((strlen (host_error host)) > 0) {
+            host_log host ("theme for the checks: " + (host_error host))
+            host_clear_error host
+            sheet = ""
+        }
+        return sheet
+    }
+
+    sfn checkWith:Checked (host:McpHost md:string theme:string hasCss:boolean css:string bgs:CheckPics din:DeckIn) {
         din.md = md
-        din.css = sheet
+        din.css = (Tools.sheetFor(host theme hasCss css))
         din.pics = bgs.pics
         din.data = bgs.data
         din.types = bgs.types
