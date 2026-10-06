@@ -1143,8 +1143,6 @@
   "File → Export   PDF   PowerPoint   Word   Web page   Presentation player   Markdown   All files (.zip)": "Tiedosto → Vie   PDF   PowerPoint   Word   Verkkosivu   Esityssoitin   Markdown   Kaikki tiedostot (.zip)",
   "Saves the presentation as a file. Pick slides in the strip with Ctrl/⌘ or Shift + click to export only them. The presentation player is one .html file that presents without Sliqtly.": "Tallentaa esityksen tiedostoksi. Valitse dioja nauhasta Ctrl/⌘- tai Shift-napsautuksella, niin vain ne viedään. Esityssoitin on yksi .html-tiedosto, joka esittää ilman Sliqtlyä.",
   "Copy to the clipboard": "Kopioi leikepöydälle",
-  "while presenting ⋯ → Copy ▸ Markdown   Markdown with comments   Comments": "esittäessä ⋯ → Kopioi ▸ Markdown   Markdown kommentteineen   Kommentit",
-  "Copies the presentation's Markdown, the Markdown with the open comments as footnotes, or only the open comments with their slides, for example to hand to an assistant.": "Kopioi esityksen Markdownin, Markdownin avoimet kommentit alaviitteinä tai pelkät avoimet kommentit dioineen, esimerkiksi avustajalle annettavaksi.",
   "Sharing": "Jakaminen",
   "Gives a link that shows the presentation and a link to edit a copy of it. Signed in, the link is short and carries the pictures and data. With slides picked in the strip, also a link that shows only them.": "Antaa linkin, joka näyttää esityksen, ja linkin sen kopion muokkaamiseen. Kirjautuneena linkki on lyhyt ja kuljettaa kuvat ja datan. Kun nauhasta on valittu dioja, myös linkin, joka näyttää vain ne.",
   "Rooms in the left rail": "Huoneet vasemmassa palkissa",
@@ -1163,5 +1161,7 @@
   "What Sliqtly is used for and where each thing is.": "Mihin Sliqtlyä käytetään ja mistä kukin asia löytyy.",
   "How to use Sliqtly": "Sliqtlyn käyttö",
   "Current and next slide, notes and the clock, for your own screen": "Nykyinen ja seuraava dia, muistiinpanot ja kello omalle näytöllesi",
-  "The slides go on by themselves": "Diat etenevät itsestään"
+  "The slides go on by themselves": "Diat etenevät itsestään",
+  "File → Export ▸ Clipboard   right click a slide → Copy ▸   while presenting ⋯ → Copy ▸": "Tiedosto → Vie ▸ Leikepöytä   napsauta diaa oikealla → Kopioi ▸   esittäessä ⋯ → Kopioi ▸",
+  "Copies the Markdown of this slide, the picked slides or the whole presentation, with the open comments as footnotes or without, or only the open comments with their slides, for example to hand to an assistant.": "Kopioi tämän dian, valittujen diojen tai koko esityksen Markdownin, avoimet kommentit alaviitteinä tai ilman, tai pelkät avoimet kommentit dioineen, esimerkiksi avustajalle annettavaksi."
 }
