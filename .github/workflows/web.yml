@@ -1,0 +1,39 @@
+# Builds the editor and runs the same checks the deploy runs before it goes
+# live (scripts/check.mjs, and every sample deck opened in Chrome), on each
+# pull request, so a change that breaks them is seen before it is merged
+# rather than when main is deployed. Deploys nothing.
+name: Web
+
+on:
+  pull_request:
+    paths-ignore: ["mcp-go/**", "**/*.md", "docs/**", "ops/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # the Ranger compiler needs more than Node's default heap (deploy.yml)
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Git access to RangerFlow, RangerMarkdown and RangerPPTX
+        env:
+          DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}
+        run: sh scripts/ci-git-auth.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --no-audit --no-fund
+      - name: Build the page
+        run: node scripts/build.mjs
+      - name: Check the deck and the timeline
+        run: node scripts/check.mjs
+      - name: Check the sample decks load cleanly
+        run: node scripts/check-samples.mjs
