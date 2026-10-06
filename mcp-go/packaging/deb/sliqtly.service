@@ -7,6 +7,9 @@ Wants=network-online.target
 [Service]
 # a server: other computers connect (sliqtly.env can say otherwise)
 Environment=SLIQTLY_LISTEN=network
+# backups on, also when an upgrade keeps an older sliqtly.env without this
+# line (SLIQTLY_BACKUP= there turns them off)
+Environment=SLIQTLY_BACKUP=/var/lib/sliqtly-backup
 EnvironmentFile=/etc/sliqtly/sliqtly.env
 ExecStart=/usr/bin/sliqtly-server
 Restart=on-failure
