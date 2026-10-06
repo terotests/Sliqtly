@@ -306,6 +306,15 @@ class Check {
                 }
             }
             d.still = false
+            ; a deck with `@media print` rules: what the printing house would
+            ; say about the pages it gets (PrintReport)
+            if (d.hasPrint()) {
+                d.setMedia("print")
+                for (PrintReport.notes((Layout.printPages(d)))) pn:string pni {
+                    push c.warnings pn
+                }
+                d.setMedia("screen")
+            }
         }
         if ((strlen din.export) > 0) {
             def ex (new PresExport())

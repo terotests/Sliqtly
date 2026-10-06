@@ -19,7 +19,7 @@ import { prepareDisplayList, setFontFallback, fontSpec, textObstacles } from "./
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { sortFiles, pastePlan, fileClipboard, CLIP_KEY } from "./fileclip.js";
-import { deckKey, canReturn, reopenPlan, tabLabel, readDeckTabs, keepDeckTabs } from "./decktabs.js";
+import { deckKey, canReturn, reopenPlan, tabLabel, readDeckTabs, keepDeckTabs, rowToKeep } from "./decktabs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
 import { scaled, previewOf, render, asPicture } from "./image-adjust.js";
@@ -32,9 +32,11 @@ import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, b
 import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
 import { parseRooms, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
+import { RoomChat } from "./roomchat.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
+import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 
 // One beacon per page load for the visitor counts (mcp-go/rgr/Stats.rgr): the
 // page, mobile or desktop on the server's side, and the site the visitor
@@ -218,6 +220,8 @@ async function addPicture(path, bytes, type) {
   }
   const p = await decodePicture(bytes, type || "image/png", path);
   app.addImage(path, asRangerBuffer(p.bytes.slice(0)), p.type || "image/png", p.w, p.h);
+  // an SVG's own text too: the PDF and the PPTX keep it a vector
+  if (p.svg) app.addSvgPicture(path, p.svg, asRangerBuffer(p.svgBytes.slice(0)), asRangerBuffer(p.fallback ? p.fallback.slice(0) : new ArrayBuffer(0)));
   pictures.set(path, p.img);
   return p;
 }
@@ -241,6 +245,7 @@ async function addPictureFile(file) {
     pasting = { bytes, type, w, h, preview };
     if (app.openPaste(preview, w, h, alt, storageNote())) {
       needsPaint = true;
+      measureFlat(pasting).catch(() => {});
       return;
     }
     dropPasting();
@@ -250,6 +255,23 @@ async function addPictureFile(file) {
   app.insertPicture(rel, alt);
   dropThumbs();
   afterInput();
+}
+
+// A flat picture on its way in (web/trace-source.js looksFlat) is added
+// vectorized unless asked otherwise: the window says so.
+async function measureFlat(p) {
+  const bmp = await createImageBitmap(new Blob([p.bytes], { type: p.type }));
+  const k = Math.min(1, 400 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(bmp.width * k));
+  c.height = Math.max(1, Math.round(bmp.height * k));
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close();
+  const flat = looksFlat(g.getImageData(0, 0, c.width, c.height).data, c.width, c.height);
+  if (pasting !== p) return;
+  app.pasteFlat(flat);
+  needsPaint = true;
 }
 
 function dropPasting() {
@@ -417,7 +439,44 @@ function traceWorkerOf() {
   return traceWorker;
 }
 
-async function openTraceEditor(path) {
+// An SVG's text (its first `most` bytes: the stamp is at its start).
+async function fileText(f, most) {
+  const blob = f.data instanceof Blob ? f.data : new Blob([f.data || ""]);
+  return blob.slice(0, most || blob.size).text();
+}
+
+// Edit on an SVG of the files: the vectorizer again, on the picture it was
+// traced from (web/trace-source.js) with the settings it was traced with;
+// Save writes this SVG.
+async function retraceSvg(svgPath) {
+  const files = await docFiles();
+  const f = files.find((x) => x.path === svgPath);
+  if (!f) { toast(t("This file cannot be opened as an image.")); return; }
+  const stamp = readStamp(await fileText(f, 8192));
+  const source = retraceSource(svgPath, stamp, files.map((x) => x.path));
+  if (!source) {
+    toast(t("The picture this SVG was made from is no longer in the files, so it cannot be vectorized again."));
+    return;
+  }
+  await openTraceEditor(source, { target: svgPath, settings: stamp && stamp.source === source ? stamp.settings : "" });
+}
+
+// Whether each SVG of the files can be traced again ("retrace" on its row):
+// its stamp, read once per file and size.
+const stampSeen = new Map();
+async function retraceable(files) {
+  const paths = files.map((x) => x.path);
+  const out = new Set();
+  for (const f of files) {
+    if (!isSvg(f.type || "", f.path)) continue;
+    const key = f.path + "\t" + f.size;
+    if (!stampSeen.has(key)) stampSeen.set(key, await fileText(f, 8192).then(readStamp).catch(() => null));
+    if (retraceSource(f.path, stampSeen.get(key), paths)) out.add(f.path);
+  }
+  return out;
+}
+
+async function openTraceEditor(path, opts = {}) {
   const f = (await docFiles()).find((x) => x.path === path);
   if (!f || !(f.data instanceof Blob)) { toast(t("This file cannot be opened as an image.")); return; }
   const blob = f.data.type ? f.data : new Blob([f.data], { type: f.type || "image/png" });
@@ -445,8 +504,13 @@ async function openTraceEditor(path) {
   traceSeq += 1;
   const orig = `/__trace/${Date.now().toString(36)}-${traceSeq}`;
   pictures.set(orig, asPicture(c));
-  tracing = { path, w, h, rgba, rw: c.width, rh: c.height, orig, preview: null, svg: null, run: 0, original: pictures.get("/" + path), bytes: blob.size };
-  if (!app.openTrace(orig, path, w, h)) dropTracing();
+  // the slides show the trace where they show the picture, or the SVG
+  // being made again
+  const target = opts.target || "";
+  const shown = target || path;
+  tracing = { path, target, shown, w, h, rgba, rw: c.width, rh: c.height, orig, preview: null, svg: null, run: 0, original: pictures.get("/" + shown), bytes: blob.size };
+  if (!app.openTrace(orig, path, w, h)) { dropTracing(); return; }
+  if (target) app.traceAgain(target, opts.settings || "");
   needsPaint = true;
 }
 
@@ -483,7 +547,7 @@ async function traceResult(r) {
   if (tr.preview) pictures.delete(tr.preview);
   tr.preview = `${tr.orig}-${r.seq}`;
   pictures.set(tr.preview, p.img);
-  pictures.set("/" + tr.path, p.img);
+  pictures.set("/" + tr.shown, p.img);
   let info = t("{n} colors, {size} SVG (the picture {was})").replace("{n}", String(r.layers)).replace("{size}", kb(bytes.byteLength)).replace("{was}", kb(tr.bytes));
   if (r.tracedW && (r.tracedW !== tr.w || r.tracedH !== tr.h)) info += t(", traced at ") + r.tracedW + "×" + r.tracedH;
   app.traceDone(tr.preview, info + ".", "");
@@ -495,29 +559,58 @@ function dropTracing() {
   if (!tr) return;
   pictures.delete(tr.orig);
   if (tr.preview) pictures.delete(tr.preview);
-  if (tr.original) pictures.set("/" + tr.path, tr.original);
+  if (tr.original) pictures.set("/" + tr.shown, tr.original);
   tracing = null;
   needsPaint = true;
 }
 
 window.__traceState = () => (tracing ? { path: tracing.path, run: tracing.run, svg: tracing.svg ? tracing.svg.length : 0 } : null);
 
+// A trace saved: over the SVG it was opened from (Edit on an SVG), else as
+// the picture's SVG — when that already exists, asked first whether to
+// replace it or keep both ("confirm:tracesave", ":alt" a new name).
+let traceAsk = null;
+
 async function saveTraced() {
   const tr = tracing;
   if (!tr) return;
   const plan = JSON.parse(app.tracePlan());
   const svg = tr.svg;
+  const settings = app.traceSettings();
   dropTracing();
   if (!svg) { toast(t("Nothing was saved: the picture had not been vectorized yet.")); return; }
-  const files = await docFiles();
-  const base = tr.path.replace(/\.[^./]+$/, "");
-  let target = base + ".svg";
-  for (let i = 2; files.some((x) => x.path === target); i += 1) target = `${base}-${i}.svg`;
-  const bytes = new TextEncoder().encode(svg);
+  const job = { path: tr.path, svg: stampSvg(svg, tr.path, settings), replace: plan.replace };
+  if (tr.target) {
+    await writeTraced(job, tr.target, false);
+    return;
+  }
+  const where = svgTarget(tr.path, (await docFiles()).map((x) => x.path));
+  if (!where.existing) {
+    await writeTraced(job, where.fresh, plan.replace);
+    return;
+  }
+  traceAsk = { job, where };
+  const name = where.existing.split("/").pop();
+  app.openChoice("tracesave", t("Replace the earlier SVG?"),
+    t("{file} is already in the files. Replace it with this one, or keep both?").replace("{file}", name),
+    t("Replace"), t("Keep both"));
+}
+
+async function answerTraceSave(replace) {
+  const ask = traceAsk;
+  traceAsk = null;
+  if (!ask) return;
+  const target = replace ? ask.where.existing : ask.where.fresh;
+  await writeTraced(ask.job, target, ask.job.replace);
+}
+
+async function writeTraced(job, target, swap) {
+  const bytes = new TextEncoder().encode(job.svg);
   await addPicture("/" + target, bytes.buffer.slice(0), "image/svg+xml");
   await keepFile({ path: target, type: "image/svg+xml", size: bytes.byteLength, data: new Blob([bytes], { type: "image/svg+xml" }) });
-  const n = plan.replace ? app.swapPictureRefs(tr.path, target) : 0;
+  const n = swap ? app.swapPictureRefs(job.path, target) : 0;
   dropThumbs();
+  refreshFiles().catch(() => {});
   afterInput();
   needsPaint = true;
   const said = n === 1 ? t("Saved {file}, used where the picture was.")
@@ -648,7 +741,7 @@ function shownDoc(text, quiet = false) {
 
 // --- the open presentations' tabs (web/decktabs.js) ------------------------------
 function keepTabs() {
-  if (!viewer) keepDeckTabs(sessionStorage, app.deckTabsState());
+  if (!viewer) keepDeckTabs(sessionStorage, rowToKeep(app.deckTabsState(), shownKey && !canReturn(doc) ? shownKey : ""));
 }
 function showDeckTab() {
   shownKey = deckKey(doc);
@@ -1017,7 +1110,7 @@ async function roomsRequest(r) {
     const rows = rooms.map((x) => [x.room_id, clean(x.title) + (x.archived ? " (" + t("archived") + ")" : ""), x.presentations ?? ""].join("\t"));
     app.setToolbarOptions("roomsearch", "", t("Search rooms…") + (hidden ? " (" + hidden + t(" more") + ")" : ""));
     app.setToolbarOptions("rooms", rows.join("\n"), roomShown);
-    if (roomShown && rooms.some((x) => x.room_id === roomShown)) await roomsRequest("room:open:" + roomShown);
+    if (roomShown && rooms.some((x) => x.room_id === roomShown)) await roomsRequest("room:decks:" + roomShown);
     else app.setToolbarOptions("roomdecks", "", roomShown);
   } else if (action === "search") {
     roomsQuery = what;
@@ -1035,6 +1128,7 @@ async function roomsRequest(r) {
       keepRooms(touchRoom(roomsHere, id));
     }
     await roomsRequest("room:list");
+    if (id) await roomChat().open(id);
   } else if (action === "drop" || action === "tabdrop") {
     // a presentation dragged from the open room, or a deck's tab, onto a
     // room: Move, Copy or Cancel (a sample is only copied)
@@ -1109,7 +1203,9 @@ async function roomsRequest(r) {
     if (ownServer()) await roomsCall("move_presentation", { deck_id: deck.replace(/^cloud:/, ""), room_id: room });
     else if (!deck.startsWith("sample:")) keepRooms(touchRoom(moveDeck(roomsHere, deck, room), room));
     await roomsRequest("room:list");
-  } else if (action === "open") {
+  } else if (action === "open" || action === "decks") {
+    // a room pressed opens its chat (web/roomchat.js); the list shown again
+    // ("decks") only lists its presentations
     roomShown = what;
     keepRooms(touchRoom(roomsHere, roomShown));
     const rows = await roomRows(roomShown);
@@ -1118,7 +1214,9 @@ async function roomsRequest(r) {
       addNew: roomShown === ONBOARDING ? "" : "+ " + t("Add new presentation"),
     });
     app.setToolbarOptions("roomdecks", lines, roomShown);
+    if (action === "open") await roomChat().open(roomShown);
   } else if (action === "deck") {
+    roomChat().close();
     if (what.startsWith("sample:")) await openSample(what.slice(7));
     else await fileRequest("doc:" + what);
     await roomsRequest("room:list");
@@ -1157,6 +1255,37 @@ async function roomsRequest(r) {
   }
   needsPaint = true;
 }
+// A room's chat (web/roomchat.js): made the first time a room is opened.
+let roomChatOne = null;
+function roomChat() {
+  if (roomChatOne) return roomChatOne;
+  let store = null;
+  try { store = localStorage; } catch (_) { store = { getItem: () => null, setItem: () => {} }; }
+  roomChatOne = new RoomChat({
+    app, store, t, toast, ownServer,
+    name: shownName(),
+    call: roomsCall,
+    now: () => Date.now(),
+    zone: () => -new Date().getTimezoneOffset(),
+    rooms: () => roomsList({ archived: true }),
+    roomsChanged: () => roomsRequest("room:list"),
+    openLink: (u) => { if (/^https?:\/\//i.test(u)) window.open(u, "_blank", "noopener"); },
+    openDeck: async (deck, slide) => {
+      await roomsRequest("room:deck:cloud:" + deck);
+      if (slide > 0) app.selectSlide(slide - 1);
+      needsPaint = true;
+    },
+    openRoom: (id) => roomsRequest("room:pick:" + id),
+    copy: async (s) => {
+      const ok = await writeClip(s);
+      toast(ok ? t("Copied") : t("Could not copy"));
+    },
+    paint: () => { needsPaint = true; },
+  });
+  window.addEventListener("sliqtly:chat", (ev) => { roomChatOne.event(ev.detail).catch(() => {}); });
+  return roomChatOne;
+}
+
 // The name edited at the start of the bar: the deck's title (front matter
 // `title:`, else its first heading) rewritten, as one edit that undoes, and
 // the open presentations' tab follows.
@@ -1586,6 +1715,7 @@ async function refreshFiles() {
   filesListing = true;
   try {
     const all = await docFiles();
+    const again = await retraceable(all);
     const take = all.find((f) => f.path === REC_JSON);
     const files = all
       // the recording is one row (its sound goes with it)
@@ -1614,6 +1744,7 @@ async function refreshFiles() {
         // a picture's pixels, for the preview beside the row
         const img = row.kind === "image" ? pictures.get("/" + f.path) : null;
         if (img) Object.assign(row, { w: img.naturalWidth, h: img.naturalHeight });
+        if (again.has(f.path)) row.retrace = true;
         return row;
       });
     const sorted = sortFiles(files);
@@ -1930,7 +2061,8 @@ async function fileRequest(r) {
     else if (action === "refresh" && url) await refreshLive([url]);
     else if (action === "unlink" && f) await unlinkLive(f, url);
   } else if (action === "imgedit") {
-    await openImageEditor(what);
+    if (isSvg("", what)) await retraceSvg(what);
+    else await openImageEditor(what);
     return;
   } else if (action === "recplay") {
     if (app.hasRecording()) app.replayStart(0);
@@ -2449,6 +2581,8 @@ function paintOnce() {
   for (const layer of app.layerOrder().split(",")) {
     if (layer === "bar") {
       if (canvasBar) paintBar();
+    } else if (layer === "room") {
+      paintList(app.roomJson());
     } else if (layer === "review") {
       paintList(app.reviewJson());
     } else if (layer === "hint") {
@@ -3270,6 +3404,9 @@ function handleRequests() {
       });
     } else if (r === "about") {
       openAbout().catch(fail);
+    } else if (r === "help-guide") {
+      app.openHelpTab("guide");
+      needsPaint = true;
     } else if (r === "settings") {
       app.openSettings(autoContrast);
       needsPaint = true;
@@ -3299,6 +3436,8 @@ function handleRequests() {
       setSkinHue(parseInt(r.slice("setting:skinhue:".length), 10));
     } else if (r.startsWith("room:")) {
       roomsRequest(r).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+    } else if (r.startsWith("roomchat:")) {
+      roomChat().request(r.slice(9)).catch((e) => toast(t("Chat: ") + (e.message || e)));
     } else if (r.startsWith("title:")) {
       renameDeck(r.slice(6));
     } else if (r === "rail:review") {
@@ -3320,6 +3459,9 @@ function handleRequests() {
       needsPaint = true;
     } else if (r.startsWith("copy:")) {
       copyShare(r.slice(5)).catch(fail);
+    } else if (r.startsWith("clip:")) {
+      // Copy ▸ / Export ▸ Clipboard: the Markdown, with the comments, the slide's
+      writeClip(app.copyText(r.slice(5))).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
     } else if (r === "review-copy") {
       // a comment thread, or the open comments with their slides (review mode)
       writeClip(app.reviewClip()).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
@@ -3352,6 +3494,8 @@ function handleRequests() {
       roomsRequest("room:delete:" + r.slice("confirm:roomdelete:".length)).catch((e) => toast(t("Rooms: ") + (e.message || e)));
     } else if (r.startsWith("confirm:roomdrop:")) {
       roomsRequest("room:dropgo:" + r.slice("confirm:roomdrop:".length)).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+    } else if (r === "confirm:tracesave" || r === "confirm:tracesave:alt") {
+      answerTraceSave(r === "confirm:tracesave").catch(fail);
     } else if (r === "confirm:deletedeck") {
       deleteDeck().catch(fail);
     } else if (r === "newdeck-create") {
@@ -5123,8 +5267,10 @@ function toggleViewMenu(open) {
     return;
   }
   document.getElementById("vEdit").hidden = !ownsShare();
+  document.getElementById("vSpeaker").setAttribute("aria-checked", String(app.speakerOn()));
+  document.getElementById("vAuto").setAttribute("aria-checked", String(app.autoOn()));
   wakeViewer();
-  vMenu.querySelector("button:not([hidden])").focus();
+  [...vMenu.querySelectorAll("button")].find((b) => b.offsetParent)?.focus();
 }
 window.addEventListener("sliqtly:user", () => { document.getElementById("vEdit").hidden = !ownsShare(); });
 function siteLink(url) {
@@ -5172,7 +5318,7 @@ vExport.addEventListener("click", () => openViewSub(vExportSub.hidden ? vExport 
 vCopy.addEventListener("click", () => openViewSub(vCopySub.hidden ? vCopy : null));
 // Copy ▸ Markdown: the deck's text; Copy ▸ Comments: the open comments
 // numbered, each slide's Markdown under them (PresReview.openMarkdown)
-const VIEW_COPIES = { md: () => app.source(), mdc: () => app.reviewMarkdownWithComments(), comments: () => app.reviewOpenMarkdown() };
+const VIEW_COPIES = { md: () => app.copyText("md"), mdc: () => app.copyText("mdc"), comments: () => app.copyText("comments") };
 vMenu.addEventListener("click", (ev) => {
   const what = ev.target.closest("[data-copy]")?.dataset.copy;
   if (what && VIEW_COPIES[what]) {
@@ -5186,6 +5332,12 @@ vMenu.addEventListener("click", (ev) => {
   if (EXPORTS[act]) {
     if (framed) exportOnSite(act);
     else EXPORTS[act]().catch(fail);
+  } else if (act === "speaker") {
+    app.setSpeaker(!app.speakerOn());
+    needsPaint = true;
+  } else if (act === "auto") {
+    app.setAuto(!app.autoOn());
+    needsPaint = true;
   } else if (act === "new") createFromViewed();
   else if (act === "playrec") {
     app.replayFromSlide();
@@ -5411,7 +5563,7 @@ async function openFromShare() {
       enterViewer({ from: "share" });
       // changed while it opened: followed now
       if (shareMoved) followShare(id);
-    }
+    } else if (!own) notOwnerNotice(id, shared.owner || "");
     return true;
   } catch (e) {
     if (doc.loading) shownDoc(doc.openedText);
@@ -5419,6 +5571,43 @@ async function openFromShare() {
     toast(t("Could not open the shared presentation."));
     return false;
   }
+}
+
+// /s/{id}?edit of a deck that is not the signed-in user's own opens a copy:
+// nothing done here (text, comments) reaches the share, nor an assistant
+// reading it. Said plainly. Signed in, the user may still be its owner under
+// another Google account (an assistant's connector signed in with that one),
+// so switching is offered; once the owner is signed in, the deck itself opens.
+const SWITCH_FLAG = "sliqtly:switchFor";
+async function notOwnerNotice(id, owner) {
+  if (ownServer()) return;
+  const p = await pro();
+  if (typeof p.switchAccount !== "function") return;
+  const who = await Promise.race([p.signedIn(), new Promise((ok) => setTimeout(() => ok(null), 8000))]);
+  // its owner after all (the cloud copy did not open): not a copy to warn of
+  if (who && who.uid === owner) return;
+  // the owner signs in from here on (this question, or Sign in): theirs opens
+  window.addEventListener("sliqtly:user", () => {
+    const u = p.user?.();
+    if (u && owner && u.uid === owner && u.uid !== who?.uid) location.href = "/s/" + id + "?edit";
+  });
+  let asked = false;
+  try { asked = sessionStorage.getItem(SWITCH_FLAG) === id; sessionStorage.removeItem(SWITCH_FLAG); } catch (_) { /* ask */ }
+  if (!who || owner === "mcp" || !owner || asked) {
+    toast(t("You are editing a copy: changes and comments stay in your copy, and the shared presentation does not change."));
+    return;
+  }
+  // after the deck is drawn, so it shows behind the question
+  setTimeout(() => {
+    const q = t("This presentation belongs to another Sliqtly account than {account}. Your changes and comments go to your own copy, not to it, and an assistant reading it does not see them.\n\nIf it is yours under another Google account (for example the one the Claude connector signed in with), press OK and choose that account. Cancel keeps editing a copy.")
+      .replace("{account}", who.email || who.displayName || "");
+    if (!confirm(q)) {
+      toast(t("You are editing a copy: changes and comments stay in your copy, and the shared presentation does not change."));
+      return;
+    }
+    try { sessionStorage.setItem(SWITCH_FLAG, id); } catch (_) { /* asked again after a redirect */ }
+    p.switchAccount();
+  }, 400);
 }
 
 // A view of some slides: the share's Markdown with only the sections the
@@ -5756,7 +5945,7 @@ keys.addEventListener("keydown", (ev) => {
   }
   const special = KEY_MAP[ev.key];
   if (special) {
-    if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart") return;
+    if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart" && app.focusTarget() !== "room") return;
     if (app.key(special, ev.shiftKey, mod)) ev.preventDefault();
     else if (app.focusTarget() === "editor" || app.focusTarget() === "chart") ev.preventDefault();
     afterInput();
@@ -6115,8 +6304,11 @@ function showHint(h) {
 // at the values the theme gives them now. Only what the slide has is
 // listed. A property opens the theme at its line (added when the theme has
 // none) with its value popover.
+// Help for this slide closes the panel when it already shows the slide;
+// Help → How to use Sliqtly opens it at the guide (PresHelp.guide).
 function toggleHelp(on) {
-  app.setHelp(on ?? !app.helpIsOpen());
+  if (on ?? !(app.helpIsOpen() && app.helpTab() === "slide")) app.openHelpTab("slide");
+  else app.setHelp(false);
   needsPaint = true;
 }
 

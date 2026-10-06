@@ -309,6 +309,17 @@ try {
       out.focusedText = txt && txt.textContent;
       out.caret = !!car && car.calculatedWidth > 0 && car.calculatedHeight > 8;
       out.caretLight = !!car && car.backgroundColor.r > 200;
+      // a long comment wraps: the box grows and the caret stays in it;
+      // Shift+Enter breaks the line and does not send
+      const f0 = el("rv-chat-field").calculatedHeight;
+      a.text("This comment is long enough to run past the end of the box, so it has to wrap onto more lines");
+      const f1 = el("rv-chat-field"), c1 = el("rv-chat-field-caret");
+      out.grew = [f0, f1.calculatedHeight];
+      out.caretIn = c1.calculatedWidth > 0 && c1.calculatedY >= f1.calculatedY && c1.calculatedY + c1.calculatedHeight <= f1.calculatedY + f1.calculatedHeight + 0.5;
+      a.key("enter", true, false);
+      out.newline = rv.chat.input.value.includes("\n");
+      rv.chat.input.setValue("");
+      rv.chat.build();
       rv.typing = false;
       rv.changed();
       txt = el("rv-chat-field-text");
@@ -321,6 +332,8 @@ try {
       return out;
     });
     check("a comment box with the keys hides its hint and shows a light caret", r.focusedText === "" && r.caret && r.caretLight, JSON.stringify(r));
+    check("…a long comment wraps and the box grows, the caret in it", r.grew[1] > r.grew[0] + 5 && r.caretIn, JSON.stringify(r));
+    check("…Shift+Enter breaks the line instead of sending", r.newline, JSON.stringify(r));
     check("…without the keys its hint is faint, not the text's white", r.hint === r.ph && !!r.ph && r.hintAlpha < 0.6, JSON.stringify(r));
   }
 
@@ -666,7 +679,18 @@ try {
     await page.keyboard.press("ArrowRight");
     await settle();
     const stepped = await at();
-    check("presenting from the editor shows the bar with \"n / N\", without the … menu", start.bar === "flex" && start.more === "none" && start.label === "1 / " + start.count, JSON.stringify(start));
+    check("presenting from the editor shows the bar with \"n / N\" and the … menu", start.bar === "flex" && start.more !== "none" && start.label === "1 / " + start.count, JSON.stringify(start));
+    // its … menu: only Speaker view and Auto-advance, and Speaker view switches it
+    await press("#vMore");
+    const sp = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll("#vMenu > *")].filter((e) => getComputedStyle(e).display !== "none").map((e) => e.dataset.act || e.tagName);
+      document.querySelector('#vMenu [data-act="speaker"]').click();
+      const on = window.__app.speakerOn();
+      window.__app.setSpeaker(false);
+      document.getElementById("keys").focus();
+      return { rows, on };
+    });
+    check("…the editor's … menu has Speaker view and Auto-advance, and switches the speaker view", sp.on && sp.rows.join() === "speaker,auto", JSON.stringify(sp));
     check("PageDown goes a whole slide on, its builds shown", paged.slide === 2 && paged.step === paged.steps && !paged.end && paged.label === "3 / " + paged.count, JSON.stringify(paged));
     check("PageUp a whole slide back", pagedBack.slide === 1 && pagedBack.step === pagedBack.steps, JSON.stringify(pagedBack));
     check("End is the last slide, Home the first from its start", last.slide === last.count - 1 && !last.end && home.slide === 0 && home.step === 0, JSON.stringify({ last, home }));
@@ -1242,8 +1266,11 @@ try {
     focus: document.activeElement?.dataset.act || "",
   }));
   check("the viewer's … menu opens Export from the keyboard; no Edit for a reader", menu.open && menu.sub && !menu.edit && menu.focus === "pdf", JSON.stringify(menu));
-  await page3.keyboard.press("ArrowDown");
-  await page3.keyboard.press("ArrowDown");
+  // Markdown is the last of the export items; walk down to it.
+  for (let i = 0; i < 8; i += 1) {
+    if (await page3.evaluate(() => document.activeElement?.dataset.act === "md")) break;
+    await page3.keyboard.press("ArrowDown");
+  }
   await page3.evaluate(() => { window.__lastDownload = ""; });
   await page3.keyboard.press("Enter");
   await page3.waitForTimeout(200);
@@ -1315,12 +1342,18 @@ try {
     window.__handleRequests();
     // cut and kept asynchronously (a canvas, IndexedDB)
     for (let i = 0; i < 80 && !a.source().includes("](media/liitetty-"); i += 1) await new Promise((res) => setTimeout(res, 100));
+    // a flat picture (one colour): Enter vectorizes it, so the vectorizer
+    // opens after it is placed; cancelled here, the picture stays
+    for (let i = 0; i < 40 && !(a.chartIsOpen() && a.chart.mode === "trace"); i += 1) await new Promise((res) => setTimeout(res, 100));
+    const traced = a.chartIsOpen() && a.chart.mode === "trace";
+    if (a.chartIsOpen()) a.key("escape", false, false);
+    window.__handleRequests();
     const stage = JSON.parse(a.stageJson());
     const src = a.source();
     const rel = (src.match(/\]\((media\/liitetty-[^)]+)\)/) || [])[1] || "";
     const bmp = rel ? await window.__pictureSize("/" + rel) : [0, 0];
     return {
-      dialog, shown: !!shown, before, plan, rel,
+      dialog, shown: !!shown, before, plan, rel, flat: plan.trace, traced,
       md: !!rel,
       image: stage.list.cmds.some((c) => c.k === 2 && String(c.src || "").includes("media/liitetty-")),
       size: bmp,
@@ -1331,6 +1364,46 @@ try {
   check("…and Add writes it into the markdown", pic.md);
   check("…drawn on the slide", pic.image);
   check("…cut to the part kept", pic.size.join("x") === "32x20", JSON.stringify(pic.size));
+  check("…a flat picture: Enter adds it vectorized (the vectorizer opens)", pic.flat === true && pic.traced, JSON.stringify(pic));
+
+  // A picture picked on the slide: a side dragged writes its width, the
+  // picture dragged sideways its place, Delete takes it out (PresImageDrag).
+  const hand = await page.evaluate(() => {
+    const a = window.__app;
+    const before = a.source();
+    a.setSource("---\ntitle: K\n---\n\n## Kuva\n\n![k](" + (before.match(/\]\((media\/liitetty-[^)]+)\)/) || [])[1] + ")\n\nTeksti.\n");
+    const st = JSON.parse(a.layoutJson()).stage;
+    const im = JSON.parse(a.stageJson()).list.cmds.find((c) => c.k === 2 && String(c.src || "").includes("liitetty"));
+    if (!im) return { none: true };
+    a.pointerDown(st[0] + (im.x + im.w / 2) * st[2], st[1] + (im.y + im.h / 2) * st[2], false, 1);
+    a.pointerUp();
+    a.pickJson();
+    const p = a.pick;
+    const out = { picked: p.on && p.sel === "img" };
+    const ex = p.ox + p.ow - 3, ey = p.oy + p.oh / 2;
+    out.cursor = a.cursorAt(ex, ey);
+    a.pointerDown(ex, ey, false, 1);
+    a.pointerMove(ex - 30, ey);
+    a.pointerMove(ex - 60, ey);
+    out.ghost = p.ghostOn;
+    a.pointerUp();
+    out.sized = (a.source().match(/\{width=\d+%\}/) || [""])[0];
+    a.pickJson();
+    const cx = p.ox + p.ow / 2, cy = p.oy + p.oh / 2;
+    a.pointerDown(cx, cy, false, 1);
+    for (let k = 1; k <= 12; k += 1) a.pointerMove(cx + k * 40, cy);
+    a.pointerUp();
+    out.moved = (a.source().match(/\{width=\d+% align=\w+\}/) || [""])[0];
+    a.setFocus("stage");
+    a.key("delete", false, false);
+    out.deleted = a.source();
+    a.setSource(before);
+    return out;
+  });
+  check("a picked picture shows a resize pointer on its edge", hand.picked && hand.cursor === "ew-resize", JSON.stringify(hand));
+  check("…its side dragged writes a width", /^\{width=\d+%\}$/.test(hand.sized) && hand.ghost, JSON.stringify(hand));
+  check("…dragged to the right, align=right", /align=right/.test(hand.moved), JSON.stringify(hand));
+  check("…and Delete takes it out", !/liitetty/.test(hand.deleted) && /Teksti\./.test(hand.deleted), JSON.stringify(hand.deleted));
 
   // An SVG with only a viewBox, as the MCP server's decks have them: the
   // browser decodes no bitmap from it and gives it no size of its own, and the
@@ -1362,7 +1435,7 @@ try {
   check("a pasted SVG goes on the slide as an SVG file", !!svgPic.rel && !svgPic.window && svgPic.drawn, JSON.stringify(svgPic));
   check("…in its viewBox's shape, drawn at full-slide size", svgPic.shape === 1.78 && svgPic.size.join("x") === "2560x1440", JSON.stringify(svgPic));
   check("…with its own colours", svgPic.pixel[0] === 0x2a && svgPic.pixel[1] === 0x7f && svgPic.pixel[2] === 0x3e, JSON.stringify(svgPic.pixel));
-  check("…and in the PDF", svgPic.pdf[1] === svgPic.pdf[0] + 1, JSON.stringify(svgPic.pdf));
+  check("…and in the PDF as its paths, not as pixels", svgPic.pdf[1] === svgPic.pdf[0], JSON.stringify(svgPic.pdf));
 
   // the same picture as the background of the slide at the caret
   const bg = await page.evaluate(() => {
@@ -1582,6 +1655,28 @@ try {
   });
   check("a selector's popover lists its properties", !!selHint && selHint.kind === "selector" && selHint.props.includes("padding=") && selHint.props.includes("background-image+"), JSON.stringify(selHint));
 
+  // The card's corner × sits in the middle of its button. `.theme-hp .hp-x`
+  // came before the general button rule of the same weight, so the 22px
+  // button kept 10px sides, its label got no width and the × was drawn from
+  // the centre rightwards.
+  const closeX = await page.evaluate(() => {
+    const a = window.__app;
+    a.showTab("css");
+    const lines = a.themeCss().split("\n");
+    const ln = lines.findIndex((l) => /^\s*padding:/.test(l));
+    const h = JSON.parse(a.hintFor(ln, 4) || "null");
+    a.openHint(JSON.stringify(h));
+    a.hintJson();
+    const walk = (e) => { if (e.id === "hp-close") return e; for (const c of e.children || []) { const f = walk(c); if (f) return f; } return null; };
+    const b = walk(a.hint.host.lastPage);
+    const t = b && b.children && b.children[0];
+    a.closeHint();
+    a.showTab("md");
+    if (!t) return null;
+    return { w: b.calculatedWidth, h: b.calculatedHeight, tw: t.calculatedWidth, dx: (t.calculatedX + t.calculatedWidth / 2) - (b.calculatedX + b.calculatedWidth / 2), dy: (t.calculatedY + t.calculatedHeight / 2) - (b.calculatedY + b.calculatedHeight / 2) };
+  });
+  check("the popover's × is in the middle of its 22px button", !!closeX && closeX.w === 22 && closeX.h === 22 && closeX.tw > 0 && Math.abs(closeX.dx) < 0.5 && Math.abs(closeX.dy) < 0.5, JSON.stringify(closeX));
+
   // …and its doc line under the pointer never moves the rows: the card keeps the
   // tallest line's height, also when it sits above the value near the bottom
   const selHover = await page.evaluate(() => {
@@ -1612,7 +1707,7 @@ try {
   check("…and hovering its properties never moves the rows (also flipped above)", selHover.every((r) => r.rows > 3 && r.moved === 0 && r.tip), JSON.stringify(selHover));
 
   // A click on the slide picks the block under it: an outline, its theme
-  // spacing as bands, "Edit content" and "Style" next to it
+  // spacing as bands, "Edit text" and "Style" next to it
   const pk = await page.evaluate(() => {
     const a = window.__app;
     const src0 = a.source();
@@ -1691,8 +1786,35 @@ try {
   check("a list item is picked as li (text from the document, bullets from list)", pk.li.join("|") === "li|text|list" && pk.liContent.join(",") === "md,5,0,5,7", JSON.stringify([pk.li, pk.liContent]));
   check("…a paragraph with {.lead} gets the class's rule too, and Esc lets go", pk.p.join("|") === "p|.lead" && pk.cleared, JSON.stringify([pk.p, pk.cleared]));
 
+  // A paragraph on a {container=bubble} plate: laid out rounded,
+  // with its tail, under the text; picked, its Style lists the theme's
+  // container rule as well
+  {
+    const pl = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      a.showTab("md");
+      a.setSource("# D\n\n## Kupla\n\nLyhyt kupla.\n{container=bubble}\n");
+      a.selectSlide(1);
+      a.place();
+      const bx = a.deck.layout().boxes;
+      const pi = bx.findIndex((b) => b.page === a.selected && b.kind === 1 && b.radius > 0);
+      const ti = bx.findIndex((b) => b.page === a.selected && b.kind === 0 && b.text.startsWith("Lyhyt"));
+      const plate = bx[pi], text = bx[ti];
+      const r = a.slideRect, sc = a.slideScale();
+      a.pointerDown(r.x + (text.x + 4) * sc, r.y + (text.y + text.h / 2) * sc, false, 1);
+      a.pointerUp();
+      const props = a.pick.cascade(a.themeCss()).facets.map((f) => f.own + ">" + f.prop);
+      const pick = a.pick.plate;
+      a.setSource(src0);
+      return { plate: !!plate && plate.tail > 0 && pi < ti, inside: !!plate && text.x > plate.x && text.y > plate.y, at: [pi, ti], pick, props };
+    });
+    check("a {container=bubble} paragraph sits on a rounded plate with a tail, drawn under its text", pl.plate && pl.inside, JSON.stringify(pl));
+    check("…picked, its Style lists the theme's container rule", pl.pick === "bubble" && pl.props.includes("container>background-color") && pl.props.includes("container>border-radius"), JSON.stringify([pl.pick, pl.props]));
+  }
+
   // A diagram: the pointer over it outlines it before anything is picked; a
-  // click picks it, and its "Edit content" opens the diagram window, whose
+  // click picks it, and its "Settings" opens the diagram window, whose
   // look, boxes and links are written into the fence. A table's opens the
   // table window.
   {
@@ -1764,10 +1886,10 @@ try {
     await page.evaluate(() => window.__app.closeChart());
     await page.evaluate((t) => { const a = window.__app; a.pick.clear(); a.setSource(t); }, src0);
     check("the pointer over a diagram outlines it before anything is picked", hov.join(",") === "false,true,true,true", JSON.stringify(hov));
-    check("…a click picks it, and Edit content opens the diagram window", btn[0] === "diagram" && btn[3] === "content" && win.join(",") === "true,diagram,true,3", JSON.stringify([btn, win]));
+    check("…a click picks it, and Settings opens the diagram window", btn[0] === "diagram" && btn[3] === "content" && win.join(",") === "true,diagram,true,3", JSON.stringify([btn, win]));
     check("…its look and direction are written under and into the fence", /flowchart TD\n/.test(looks) && /\{style=sketch layout=keep\}/.test(looks), looks);
     check("…a box's words and shape, and a link to a box by its words", /B\{Toinen2\}/.test(boxes) && /C --> A\n/.test(boxes) && pressed.every(Boolean) && closed, JSON.stringify([boxes, pressed]));
-    check("a table's Edit content opens the table window: a cell, an alignment and a row written", tl.join(",") === "true,grid,2,1" && table === "| Alue | Myynti |\n| :--- | :---: |\n| Etelä | 1205 |\n| Länsi |  |", JSON.stringify([tl, table]));
+    check("a table's Settings opens the table window: a cell, an alignment and a row written", tl.join(",") === "true,grid,2,1" && table === "| Alue | Myynti |\n| :--- | :---: |\n| Etelä | 1205 |\n| Länsi |  |", JSON.stringify([tl, table]));
     check("…a data file's table opens with its options", dataTable.join(",") === "true,file,data/check-sales.csv,8", JSON.stringify(dataTable));
   }
 
@@ -2265,6 +2387,8 @@ try {
     // "+ Add new presentation" under a room: File → New's window, and the
     // deck it makes is in that room
     await R(`t("tb-room-playground");`);
+    // General's list (open from the step before) has a "+" too: Playground's first
+    await until(() => window.__app.toolbar.roomOpen === "playground");
     await pageHas("tb-roomdeck-new");
     await R(`t("tb-roomdeck-new");`);
     const newWin = await until(() => window.__app.chart.isOpen && window.__app.chart.mode === "newdeck" && window.__app.chart.ndAsk === "");
@@ -4222,8 +4346,14 @@ try {
     await pc.waitForTimeout(500);
     const home = await pc.evaluate(() => ({ md: window.__app.source(), hash: location.hash }));
     check("after it, the site's plain address opens the welcome deck with no #doc", home.md.startsWith("---\ntitle: Sliqtly - Demo") && home.hash === "", JSON.stringify({ ...home, md: home.md.slice(0, 80) }));
-    await pc.goto(url.replace(/\/$/, "") + "/s/zzOthersDeck?edit");
-    await pc.waitForFunction(() => window.__pageStarted === true && window.__app.source().startsWith("# Toisen pakka"), null, { timeout: 90000 });
+    // reloaded again and again, the copy (a new one each time) has one tab
+    for (let i = 0; i < 3; i++) {
+      await pc.goto(url.replace(/\/$/, "") + "/s/zzOthersDeck?edit");
+      await pc.waitForFunction(() => window.__pageStarted === true && window.__app.source().startsWith("# Toisen pakka"), null, { timeout: 90000 });
+    }
+    await pc.waitForTimeout(500);
+    const row = await pc.evaluate(() => window.__app.deckTabsState().split("\n").slice(1).map((l) => l.split("\t")[1]));
+    check("reloads of a copy not kept leave one tab for it", row.filter((l) => l === "Toisen pakka").length === 1, JSON.stringify(row));
     await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Oma lisäys\n"));
     await pc.waitForTimeout(2500);
     const changed = await pc.evaluate(() => ({ kept: localStorage.getItem("evgp.doc"), hash: location.hash }));

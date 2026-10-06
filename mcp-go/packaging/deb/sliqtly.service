@@ -13,7 +13,8 @@ Restart=on-failure
 RestartSec=2
 # a user of its own, made by systemd; the decks in /var/lib/sliqtly survive it
 DynamicUser=yes
-StateDirectory=sliqtly
+# /var/lib/sliqtly-backup: the backups (SLIQTLY_BACKUP in sliqtly.env)
+StateDirectory=sliqtly sliqtly-backup
 StateDirectoryMode=0750
 NoNewPrivileges=yes
 ProtectSystem=strict

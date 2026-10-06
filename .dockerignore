@@ -4,6 +4,8 @@ node_modules
 web/dist
 mcp-go/sliqtly_mcp.go
 mcp-go/presdata/presdata.go
+mcp-go/rdiff/rdsmart.go
+mcp-go/.rdiff-build
 mcp-go/fonts
 mcp-go/themes
 mcp-go/webdist/*

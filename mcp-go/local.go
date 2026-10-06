@@ -64,6 +64,7 @@ type localServer struct {
 	collab *collabRooms
 	board  *statusBoard // the server's state, for /api/status and /api/events
 	expo   *exposure    // who can connect (netaccess.go); nil: not managed here
+	hosts  *hostGuard   // which names and pages it answers (localguard.go)
 }
 
 // the env of a server whose decks are in dir, reached at baseURL
@@ -77,6 +78,7 @@ func localEnv(dir, baseURL, user string) (*Env, *localBucket, error) {
 		Client:    newPublicClient(),
 		DB:        db,
 		Store:     db.e,
+		Chat:      db.chat,
 		Bucket:    bucket,
 		LocalUser: user,
 		Themes:    builtinTheme,
@@ -102,10 +104,18 @@ func newLocalServer(env *Env, bucket *localBucket, token string, web fs.FS) http
 			return builtinTheme(name)
 		}
 	}
-	s := &localServer{env: env, app: NewApp(env), bucket: bucket, token: token, web: web, board: newStatusBoard("ready", version)}
+	s := &localServer{env: env, app: NewApp(env), bucket: bucket, token: token, web: web, board: newStatusBoard("ready", version), hosts: newHostGuard(env.BaseURL, !env.TrustHost)}
 	if env.Store != nil {
 		s.hub = newChangeHub()
 		s.collab = newCollabRooms()
+		if env.rooms != nil {
+			hub := s.hub
+			env.rooms.notify = func(_ string, v map[string]any) {
+				if b, err := json.Marshal(v); err == nil {
+					hub.publishChat(b)
+				}
+			}
+		}
 		// every write, in the order made, from now: whoever made it (a
 		// page, an assistant, a room) and whatever the store is
 		changes, err := env.Store.Watch(context.Background(), env.Store.Head())
@@ -132,6 +142,9 @@ var (
 
 func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Path
+	if !s.guard(w, r) {
+		return
+	}
 	if p == "/mcp" && s.token != "" && !s.authorized(r) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("WWW-Authenticate", `Bearer realm="sliqtly"`)
@@ -219,6 +232,10 @@ func (s *localServer) file(w http.ResponseWriter, r *http.Request, path string) 
 		w.Header().Set("Content-Type", ct)
 	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// a deck's file is whatever was uploaded with whatever type it was given:
+	// opened by itself (an SVG, an .html), it runs as a page of no origin,
+	// never as one of this server's, so its scripts cannot use the API
+	w.Header().Set("Content-Security-Policy", "sandbox allow-scripts allow-popups allow-downloads")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	http.ServeContent(w, r, "", f.ModTime, f)
 }

@@ -182,6 +182,8 @@ Another platform: `GOOS=windows GOARCH=amd64` (or `darwin`/`linux`,
 ```
 docker build -f mcp-go/Dockerfile --target local -t sliqtly-server .     # from the repository root
 docker run -p 8080:8080 -v sliqtly-data:/data sliqtly-server
+# with backups on another disk
+docker run -p 8080:8080 -v sliqtly-data:/data -v /mnt/disk2/sliqtly:/backup -e SLIQTLY_BACKUP=/backup sliqtly-server
 ```
 
 | Flag | Environment | Default | |
@@ -194,6 +196,11 @@ docker run -p 8080:8080 -v sliqtly-data:/data sliqtly-server
 | `-web` | `SLIQTLY_WEB` | the copy built in | a built `web/dist` to serve |
 | `-listen` | `SLIQTLY_LISTEN` | `local` (the settings page decides) | who can connect: `local`, `wired` or `network` (below) |
 | `-allow` | `SLIQTLY_ALLOW` | | other computers' address ranges let in, e.g. `10.20.0.0/16` |
+| | `SLIQTLY_HOSTS` | | further names the server answers to, comma separated (below) |
+| | `SLIQTLY_TRUSTED_PROXIES` | | address ranges of reverse proxies in front of the server, so the rate limits key the caller behind them (`clientip.go`) |
+| | `SLIQTLY_BACKUP` | (the `.deb`: `/var/lib/sliqtly-backup`) | a folder for incremental backups (below); unset: none |
+| | `SLIQTLY_BACKUP_EVERY` | `24h` | how often |
+| | `SLIQTLY_BACKUP_KEEP` | `last=3,daily=14,weekly=8` | which backups are kept; `all` keeps every one |
 
 **Who can connect** (`netaccess.go`). By default only this computer: the
 server listens on 127.0.0.1 and ::1, so one run on a laptop is not open to
@@ -217,6 +224,22 @@ the café's Wi-Fi. `/settings` (in a browser on the same computer) or
 - **Changing it:** only a browser on the server's own computer can change
   the setting on the page. When `SLIQTLY_LISTEN` or `SLIQTLY_ALLOW` sets it,
   the page cannot change it.
+
+**Which pages may use it** (`localguard.go`). The server answers only
+names that are its own: `localhost` (and `*.localhost`), any IP address,
+the machine's name (and `name.local`), the host of `SLIQTLY_URL`, and the
+names in `SLIQTLY_HOSTS`. Any other name gets `421`, so a page on the
+internet that points a name of its own at 127.0.0.1 (DNS rebinding) reaches
+nothing. Behind a reverse proxy, or reached by a DNS name, set
+`SLIQTLY_URL` or `SLIQTLY_HOSTS` to that name. A page of another origin
+(and the assistant's preview, whose origin is `null`) may only read what a
+link to one deck opens: the page and its files, the themes, one deck by its
+id (`GET /api/shares/{id}`), its files and pictures, and `/api/status`.
+The deck list, rooms, editing together, the event streams, settings, every
+write and `/mcp` answer only the server's own pages and programs that send
+no `Origin` (MCP clients, curl). A deck's file opened by itself
+(`/files/…`) is sent with `Content-Security-Policy: sandbox`, so an
+uploaded SVG or HTML runs as no origin and cannot use the API.
 
 What it serves besides `/mcp` (`local.go`, `localweb.go`):
 
@@ -242,21 +265,76 @@ The folder (`fsstore.go`), since data format 4 (ADR 0002):
 | --- | --- |
 | `format.json` | the layout's version and what was done to it |
 | `sliqtly.db` | SQLite: the documents (`store.SQLiteStore`), the kept files by path (`file_refs`: path → blob hash, size, type) and append-only logs such as a room's chat (`file_lines`) |
-| `blobs.db` | SQLite: the files' bytes by SHA-256, in 1 MiB chunks (`store.SQLiteBlobStore`); the same bytes under two paths are kept once |
+| `blobs.db` | SQLite: the files' bytes by SHA-256, in 255 KiB chunks (`store.SQLiteBlobStore`); the same bytes under two paths are kept once, and an older version still named elsewhere (a copied deck) as a delta against the newer |
 | `backups/` | the folder as it was before each migration (the three newest) |
 | `.lock` | held by the server using the folder |
 
 Both files use WAL with `synchronous=FULL`: a write is on disk when it
 returns. A file is written as its blob first and its path after, so a crash
 between the two leaves a blob nothing names, which the hourly sweep removes
-(after an hour's grace). Back up with `sqlite3 sliqtly.db ".backup x.db"`
-(or `VACUUM INTO`), not by copying the files while the server runs.
+(after an hour's grace). Do not back up by copying the files while the
+server runs; use the backups below.
 
 Each database's schema is a numbered list of migrations
 (`store.SQLiteSchema`, `store.SQLiteBlobSchema`; `store/sqlmigrate.go`):
 `PRAGMA user_version` is the last applied, `schema_history` records each,
 a file at a newer version is refused, and an existing file is copied to
-`backups/` with `VACUUM INTO` before it is migrated.
+`backups/` with `VACUUM INTO` before it is migrated (not for a migration
+that only adds columns or indexes, such as blobs.db's deltas: a copy of
+blobs.db can be gigabytes).
+
+**Deltas** (`store/sqliteblobs.go`, `rdiff/`). A blob is kept whole or as
+a delta against another blob, by RangerDiff's `RdSmart` compiled to Go
+(`go generate` writes `rdiff/rdsmart.go`): a byte delta, a ZIP-part delta
+for XLSX/DOCX/PPTX or a PNG delta. Only a delta that rebuilds the very
+bytes is kept, and only when it is under 80 % of the file; the newest
+version stays whole and older ones are deltas against it, at most 16 deep.
+Reads give the same bytes as before, checked against the hash. Files over
+64 MB (video) are always whole; JPEG and video gain nothing from deltas.
+
+**Backups** (`backup.go`, `store/backup.go`). With `SLIQTLY_BACKUP` set the
+server takes a backup at start when the last is older than
+`SLIQTLY_BACKUP_EVERY`, then on that interval, and prunes by
+`SLIQTLY_BACKUP_KEEP` after each. A backup folder holds:
+
+| | |
+| --- | --- |
+| `backup.json` | what the folder is |
+| `blobs.db` | every file kept, once, by hash; older versions as deltas |
+| `snapshots/<time>.json` | one per backup: its copy of `sliqtly.db` and every file it names, by path and hash |
+
+A backup copies `sliqtly.db` with `VACUUM INTO` (consistent, beside the
+running server), then only the files the backup folder does not have yet,
+then writes its manifest last, so a backup cut short is not a backup and
+its blobs are pruned later. A file removed by the sweep while being copied
+makes the backup start over once. The next backup costs what changed: an
+edited deck adds its new text, the previous text becomes a delta.
+
+```
+sliqtly-server backup run     -data /var/lib/sliqtly -repo /mnt/b   # now, beside the running server
+sliqtly-server backup list    -repo /mnt/b
+sliqtly-server backup verify  -repo /mnt/b [-deep]   # every blob read back against its hash, sliqtly.db checked
+sliqtly-server backup restore -repo /mnt/b [-id 20261006T023135Z] -into /var/lib/sliqtly-restored
+sliqtly-server backup prune   -repo /mnt/b -keep last=3,daily=14,weekly=8
+```
+
+`-repo` defaults to `SLIQTLY_BACKUP`, `-data` to `SLIQTLY_DATA`. A restore
+writes a new data folder (never over one), checks it (SQLite's integrity
+check, every file reference's blob there, every blob against its hash)
+and removes it again if anything is wrong. Serve it with
+`sliqtly-server -data <folder>`, or stop the server and move it into place.
+With the `.deb` (run as root; the backup folder's files keep the service's
+owner, and systemd gives a moved-in data folder to the service on start):
+
+```
+sudo systemctl stop sliqtly
+sudo sliqtly-server backup restore -repo /var/lib/sliqtly-backup -into /var/lib/sliqtly-restored
+sudo mv /var/lib/private/sliqtly /var/lib/private/sliqtly-old
+sudo mv /var/lib/sliqtly-restored /var/lib/private/sliqtly
+sudo systemctl start sliqtly
+```
+`backup_test.go` takes backups beside a running server, restores them and
+reads the decks and pictures back through a server on the restored folder.
 
 Formats 1–3 kept a JSON file per document (`db/<collection>/<sh>/<id>.json`)
 and the files under `files/shares/<sh>/{id}/…`; the migration to format 4

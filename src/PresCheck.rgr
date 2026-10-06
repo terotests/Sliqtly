@@ -3,20 +3,26 @@
 Import "PresTimeline.rgr"
 Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
+Import "PresSelect.rgr"
 Import "PresDocSettings.rgr"
 Import "PresHints.rgr"
+Import "PresHelp.rgr"
 Import "PresFlowModel.rgr"
+Import "PresThemeEdit.rgr"
 Import "PresGridModel.rgr"
 Import "PresControlsFade.rgr"
 Import "PresFollow.rgr"
 Import "PresReview.rgr"
 Import "PresReviewDot.rgr"
 Import "PresPick.rgr"
+Import "PresSelect.rgr"
 Import "PresNav.rgr"
 Import "PresRecord.rgr"
 Import "PresDocx.rgr"
 Import "PresHtml.rgr"
 Import "PresTrace.rgr"
+Import "PresImageDrag.rgr"
+Import "PresImageModel.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -110,6 +116,25 @@ class PresCheck {
         this.chartModel()
         this.review()
         this.reviewDiagram()
+        this.helpGuide()
+    }
+
+    ; Help → How to use Sliqtly: the guide parses as the help panel's parts
+    ; and names the speaker view's key
+    fn helpGuide:void () {
+        def p (new VlJsonParser())
+        def parts:VlJson (p.parse((PresHelp.guide())))
+        this.ok((p.ok && ((parts.count()) >= 10)) ("help guide: parts, got " + (to_string (parts.count()))))
+        def found:boolean false
+        def i:int 0
+        while (i < (parts.count())) {
+            def f:VlJson (parts.at(i))
+            if (((f.stringOr("key" "")) == "speaker") && ((indexOf (f.stringOr("syntax" "")) "S ") == 0)) {
+                found = true
+            }
+            i = (i + 1)
+        }
+        this.ok(found "help guide: speaker view with its key")
     }
 
     ; ```js {lines=2|3 .build}: the code is there from the start, and each
@@ -258,11 +283,13 @@ class PresCheck {
         this.ok(((indexOf md ("````markdown" + nl + "# Three" + nl + "```js")) > 0) ("review: the slide's Markdown in a fence longer than its own: " + md))
         this.ok(((indexOf md "# Two") < 0) "review: a slide without open comments is left out")
         def deckSrc:string ("Intro text" + nl + nl + "# One" + nl + nl + "a" + nl + "# Two" + nl + "# Three" + nl + "b")
-        def wc:string (cp.markdownWithComments(deckSrc (([] _:int (12 21 27))) tts))
+        def wc:string (cp.markdownWithComments(deckSrc (([] _:int (12 21 27))) tts false))
         this.ok(((indexOf wc ("Intro text" + nl + nl + "# One [^1]" + nl + nl + "a" + nl + "# Two" + nl + "# Three [^2]" + nl + "b" + nl + nl + "[^1]: Slide 1 · One, at 50 % across, 50 % down, on the diagram's box \"B\"" + nl + "    Ann: Logo here" + nl + "[^2]: Slide 3 · Three, at 42 % across")) == 0) ("review: with comments, marks on the headings and notes at the end: " + wc))
         this.ok(((indexOf wc "done") < 0) "review: with comments, resolved ones are left out")
-        def wc2:string (cp.markdownWithComments(("```js" + nl + "x" + nl + "```" + nl) (([] _:int (0 0 0))) tts))
+        def wc2:string (cp.markdownWithComments(("```js" + nl + "x" + nl + "```" + nl) (([] _:int (0 0 0))) tts false))
         this.ok(((indexOf wc2 ("[^1][^2]" + nl + nl + "```js")) == 0) ("review: with comments, no heading: the marks on a line above: " + wc2))
+        def wc3:string (cp.markdownWithComments(("# Three" + nl + "b" + nl) (([] _:int (-1 -1 0))) tts true))
+        this.ok((wc3 == ("# Three [^1]" + nl + "b" + nl + nl + "[^1]: Slide 3 · Three, at 42 % across, 30 % down" + nl + "    Ann: Bigger font" + nl + "    Bob: Agreed" + nl + "      and bold" + nl)) ("review: with comments, some slides: only theirs, numbered from 1: " + wc3))
         ; times
         def now:double 1759658400000.0
         this.ok(((PresReview.timeText(now now 180)) == "13:00") ("review: today, the clock: " + (PresReview.timeText(now now 180))))
@@ -472,6 +499,8 @@ class PresCheck {
         this.portraitChain()
         this.diagramLooks()
         this.diagramLookHint()
+        this.themeEdit()
+        this.fenceCards()
         this.steering()
         this.diagramColour()
         this.diagramLabels()
@@ -733,6 +762,35 @@ class PresCheck {
         }
         def d:PresDiagram (itemAt s.diagrams 0).diagram
         this.ok((d.looked && (d.style == "cartoon")) ("a look in the fence's braces is drawn: " + d.style))
+    }
+
+    ; A theme property set from a card: the value replaced in place, added to
+    ; its rule, or the rule added; comments and the rest kept.
+    fn themeEdit:void () {
+        def css:string "/* the layouts ({art=waves}) */\nfigure {\n  colors: #B96926 #59C3C4;\n  font-size: 18pt;\n}\n"
+        def a:string (PresThemeEdit.setProp(css "figure" "colors" "#111111 #222222"))
+        this.ok((a == "/* the layouts ({art=waves}) */\nfigure {\n  colors: #111111 #222222;\n  font-size: 18pt;\n}\n") ("the value is replaced in place: " + a))
+        def b:string (PresThemeEdit.setProp("page { padding: 1in }\nfigure {\n  font-size: 18pt;\n}\n" "figure" "colors" "#111111"))
+        this.ok((b == "page { padding: 1in }\nfigure {\n  font-size: 18pt;\n  colors: #111111;\n}\n") ("added to its rule: " + b))
+        def c:string (PresThemeEdit.setProp("page { padding: 1in }\n" "figure" "colors" "#111111"))
+        this.ok((c == "page { padding: 1in }\n\nfigure {\n  colors: #111111;\n}\n") ("the rule is added: " + c))
+        def d:string (PresThemeEdit.setProp("figure { font-size: 18pt }" "figure" "colors" "#111111"))
+        this.ok((d == "figure { font-size: 18pt; colors: #111111; }") ("a one-line rule: " + d))
+        def e:string (PresThemeEdit.setProp("chart, figure { colors: #000000 }" "figure" "colors" "#111111"))
+        this.ok((e == "chart, figure { colors: #111111 }") ("a rule naming several: " + e))
+        this.ok(((join (PresThemeEdit.colorWords(" #a, #b  #c ")) "|") == "#a|#b|#c") "colour words")
+    }
+
+    ; Each fence's card offers what that kind of block can turn into, no more.
+    fn fenceCards:void () {
+        def tl:string (PresHints.forLine("md" "```timeline" 5 false))
+        this.ok(((indexOf tl "\"options\":[\"process\",\"swot\",\"timeline\"]") >= 0) ("a list layout: the layouts only: " + tl))
+        this.ok(((indexOf tl "\"figure\":true") >= 0) ("…and the figure colours: " + tl))
+        def code:string (PresHints.forLine("md" "```python" 5 false))
+        this.ok((((indexOf code "mermaid") < 0) && ((indexOf code "timeline") < 0)) ("code: languages only: " + code))
+        this.ok(((indexOf code "\"js\"") >= 0) ("…such as js: " + code))
+        def m:string (PresHints.forLine("md" "```math" 5 false))
+        this.ok(((indexOf m "\"options\":[]") >= 0) ("a formula: nothing to switch to: " + m))
     }
 
     fn diagramLooks:void () {
@@ -1056,6 +1114,20 @@ class PresCheck {
         this.ok(((un.facet("margin-bottom")).value == "4pt") "p margin-bottom")
         ; the universal selector reaches every rule
         this.ok((((((PresCascade.of("* { color: #010203 }")).element("p" none "")).facet("color")).value) == "#010203") "* reaches the text")
+        ; a block on a {container=…} plate: the theme's container rule, its
+        ; colour and corners
+        def pc:PresCascade (PresCascade.of("container { background-color: #ffffffcc }"))
+        def pe:PresCssElement (pc.element("p" none ""))
+        pc.plateFacets(pe)
+        this.ok((((pe.facet("plate-color")).value == "#ffffffcc") && ((pe.facet("plate-color")).own == "container")) ("plate colour: " + (pe.dump())))
+        this.ok(((pe.facet("plate-radius")).isDefault()) "plate corners unset")
+        def ps:PresSelect (new PresSelect())
+        ps.srcA = 0
+        ps.srcB = 5
+        ps.readClasses("Hello\n{container=bubble .lead}\n")
+        this.ok(((ps.plate == "bubble") && ((array_length ps.classes) == 1)) ("the pick reads the plate: " + ps.plate))
+        ps.readClasses("Hello\n{.lead}\n")
+        this.ok((ps.plate == "") "no plate, none read")
         ; and against the layout: what the slide is drawn in
         def md:string "## Otsikko\n\nTeksti tässä\n\n- kohta\n\n> lainaus\n\nIso\n{.lead}\n"
         this.ink(css1 md "h2" "" "Otsikko" "document" "a heading drawn in the document colour")
@@ -1069,6 +1141,63 @@ class PresCheck {
     ; A chart's columns rise and a beam crosses it once. Presenting, the
     ; clock holds at the slide's end and at each build step; it held before
     ; the beam was across, and the beam stayed half way over the chart.
+    ; Charts in the diagrams' looks, and the document's style for both.
+    fn chartLooks:void () {
+        this.ok(((PresChart.lookName("" "cartoon" "forge")) == "cartoon") "look: the document's style over the theme's")
+        this.ok(((PresChart.lookName("forge" "cartoon" "")) == "") "look: a chart's own dressing beats the document's look")
+        this.ok(((PresChart.lookName("romantic" "cartoon" "")) == "romantic") "look: a chart's own look first")
+        this.ok(((PresChart.lookName("" "" "jurassic glow")) == "jurassic") "look: the theme's chart-style can name one")
+        this.ok(((PresChart.lookName("" "holo" "flat")) == "") "look: no look is none")
+        def bars:string "```vega-lite\n{\"data\":{\"values\":[{\"k\":\"A\",\"c\":\"x\",\"n\":4},{\"k\":\"A\",\"c\":\"y\",\"n\":7},{\"k\":\"B\",\"c\":\"x\",\"n\":5},{\"k\":\"B\",\"c\":\"y\",\"n\":3}]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"k\",\"type\":\"nominal\"},\"y\":{\"field\":\"n\",\"type\":\"quantitative\"},\"color\":{\"field\":\"c\",\"type\":\"nominal\"}}}\n```\n"
+        def text:string ("---\nslide-split-level: 2\nstyle: cartoon\n---\n\n## Myynti\n\n" + bars + "\n## Kulku\n\n```mermaid\nflowchart LR\n  A --> B\n```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        this.ok((deck.docStyle == "cartoon") ("look: the front matter's style is read, got " + deck.docStyle))
+        def l:MdLayout (deck.layout())
+        def bi:int -1
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 3) && ((indexOf b.embedSource "vega") < 0) && ((indexOf b.embedSource "\"mark\"") >= 0)) {
+                bi = i
+            }
+            i = (i + 1)
+        }
+        this.ok((bi >= 0) "look: the chart is laid out")
+        if (bi >= 0) {
+            def dl:EVGDisplayList (deck.chartStill(bi))
+            def look:FlowLook (FlowLook.cartoon(true))
+            def want0:string (look.seriesFill(0))
+            def want1:string (look.seriesFill(1))
+            def w0:EVGColor (EVGColor.parse(want0))
+            def w1:EVGColor (EVGColor.parse(want1))
+            def seen0:int 0
+            def seen1:int 0
+            def k:int 0
+            while (k < (array_length dl.cmds)) {
+                def c:EVGDrawCmd (itemAt dl.cmds k)
+                if (c.kind == 0) {
+                    if (((c.r == (w0.red())) && (c.g == (w0.green()))) && (c.b == (w0.blue()))) { seen0 = (seen0 + 1) }
+                    if (((c.r == (w1.red())) && (c.g == (w1.green()))) && (c.b == (w1.blue()))) { seen1 = (seen1 + 1) }
+                }
+                k = (k + 1)
+            }
+            ; two bars and a legend swatch each
+            this.ok((seen0 >= 3) ("look: the first series in cartoon's first colour, bars and swatch: " + (to_string seen0)))
+            this.ok((seen1 >= 3) ("look: the second series in its second: " + (to_string seen1)))
+            this.ok(((indexOf deck.wantFaces "Gloria Hallelujah") >= 0) ("look: the page is asked for the look's face: " + deck.wantFaces))
+        }
+        if ((deck.slideCount()) >= 2) {
+            def s1:PresSlide (deck.slideAt(1))
+            this.ok(((array_length s1.diagrams) == 1) "look: the diagram is read")
+            if ((array_length s1.diagrams) == 1) {
+                def du:PresDiaUse (itemAt s1.diagrams 0)
+                this.ok((du.diagram.style == "cartoon") ("look: the diagram takes the document's style, got " + du.diagram.style))
+            }
+        }
+        this.ok(((deck.chartLookName("{\"usermeta\":{\"presStyle\":\"flat\"}}")) == "") "look: a chart's own flat keeps it out of the document's look")
+    }
+
     fn chartMotion:void () {
         def vals:string ""
         def v:int 0
@@ -1819,6 +1948,99 @@ class PresCheck {
         this.ok(((deck.diagramHit(0 t px py)) == "0:zin") "fade: a tap brings it up")
     }
 
+    ; A diagram's zoom pill: says the zoom in view, and a press opens a menu
+    ; of levels; a level picked is where the view goes.
+    fn zoomMenu:void () {
+        this.ok(((PresDiagram.zoomText(1.0)) == "100 %") ("zoom: the whole diagram is 100 %: " + (PresDiagram.zoomText(1.0))))
+        this.ok(((PresDiagram.zoomText(2.496)) == "250 %") ("zoom: 2.496 reads 250 %: " + (PresDiagram.zoomText(2.496))))
+        def lv:[int] (PresDiagram.zoomLevels(3.2))
+        this.ok(((array_length lv) == 4) ("zoom: levels up to 320 %: " + (to_string (array_length lv))))
+        this.ok((((itemAt lv 0) == 100) && ((itemAt lv 3) == 300)) "zoom: 100 % first, 300 % last")
+        this.ok(((array_length (PresDiagram.zoomLevels(0.5))) == 1) "zoom: 100 % is always offered")
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Kaavio\n\n```mermaid\nflowchart LR\n  A[Alku] --> B[Loppu]\n```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false "zoom: the diagram is there")
+            return
+        }
+        def u:PresDiaUse (itemAt s.diagrams 0)
+        def t:double (u.start + 30.0)
+        def cy:double ((u.by + u.bh) - 24.0)
+        deck.uiNow = 200.0
+        deck.diagramTouched(0 0)
+        deck.uiNow = 200.3
+        this.ok(((deck.diagramHit(0 t ((u.bx + u.bw) - 46.0) cy)) == "0:fit") "zoom: the pill is pressed")
+        u.diagram.zoomOpen = true
+        this.ok((u.diagram.controlsUp()) "zoom: an open menu holds the buttons")
+        def n:int (array_length (PresDiagram.zoomLevels((u.diagram.zoomMax()))))
+        def top:double (PresDiagram.zoomMenuTop(cy n))
+        def hit:string (deck.diagramHit(0 t ((u.bx + u.bw) - 60.0) (top + 19.0)))
+        this.ok((hit == "0:zoom100") ("zoom: the first row is 100 %: " + hit))
+        this.ok((u.diagram.zoomOpen == false) "zoom: picking a level closes the menu")
+        u.diagram.zoomOpen = true
+        this.ok(((deck.diagramHit(0 t (u.bx + 10.0) (u.by + 10.0))) == "0:none") "zoom: a press elsewhere only closes it")
+        this.ok((u.diagram.zoomOpen == false) "zoom: and it is closed")
+        u.diagram.lastFit = 1.0
+        u.diagram.zoomTo(2.0)
+        this.ok((u.diagram.exploring && (u.diagram.exTZ == 2.0)) ("zoom: 200 % is where the view goes: " + (to_string u.diagram.exTZ)))
+        u.diagram.zoomTo(1.0)
+        this.ok((u.diagram.exTZ == 1.0) "zoom: 100 % is the whole diagram")
+    }
+
+    ; A circle node stays round when the view zooms in: its ring is made
+    ; again with points close enough for the size it is drawn at.
+    fn roundNodes:void () {
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Ympyrä\n\n```mermaid\nflowchart LR\n  A((Ympyrä)) --> B[Loppu]\n```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false "round: the diagram is there")
+            return
+        }
+        def d:PresDiagram (itemAt s.diagrams 0).diagram
+        def n:PresDNode (d.nodeNamed("A"))
+        this.ok(n.oval ("round: a circle node is known as round: " + (to_string (array_length n.ring))))
+        if (n.oval == false) {
+            return
+        }
+        d.fitRings(1.0)
+        def few:int n.ringSteps
+        d.fitRings(4.0)
+        this.ok((n.ringSteps > few) ("round: zoomed in it has more points: " + (to_string few) + " → " + (to_string n.ringSteps)))
+        this.ok(((array_length n.ring) == (n.ringSteps * 2)) "round: the ring holds them")
+        def worst:double 0.0
+        def far:double 0.0
+        def k:int 0
+        while (k < n.ringSteps) {
+            def j:int (k + 1)
+            if (j == n.ringSteps) {
+                j = 0
+            }
+            def ex:double ((itemAt n.ring (j * 2)) - (itemAt n.ring (k * 2)))
+            def ey:double ((itemAt n.ring ((j * 2) + 1)) - (itemAt n.ring ((k * 2) + 1)))
+            def chord:double ((sqrt ((ex * ex) + (ey * ey))) * 4.0)
+            if (chord > worst) {
+                worst = chord
+            }
+            def rx:double (((itemAt n.ring (k * 2)) - n.ovalCX) / n.ovalRX)
+            def ry:double (((itemAt n.ring ((k * 2) + 1)) - n.ovalCY) / n.ovalRY)
+            def off:double ((((rx * rx) + (ry * ry)) - 1.0))
+            if (off < 0.0) {
+                off = (0.0 - off)
+            }
+            if (off > far) {
+                far = off
+            }
+            k = (k + 1)
+        }
+        this.ok((worst <= 1.6) ("round: no edge longer than 1.6 slide units as drawn: " + (to_string worst)))
+        this.ok((far < 0.001) "round: every point on the circle")
+    }
+
     ; Someone else's edits under the slide shown (PresFollow): it stays the
     ; slide shown, at the same time into it.
     fn followEdits:void () {
@@ -1875,6 +2097,13 @@ class PresCheck {
     ; Slides picked in the strip (PresPick), and a view of only some of them
     ; named by their sections' keys.
     fn picks:void () {
+        ; the on-slide pick's first button: a window of its own is "Settings"
+        this.ok(((PresSelect.contentLabel("chart")) == "Settings") "select: a chart's first button is Settings")
+        this.ok(((PresSelect.contentLabel("diagram")) == "Settings") "select: a diagram's first button is Settings")
+        this.ok(((PresSelect.contentLabel("img")) == "Settings") "select: a picture's first button is Settings")
+        this.ok(((PresSelect.contentLabel("table")) == "Settings") "select: a table's first button is Settings")
+        this.ok(((PresSelect.contentLabel("p")) == "Edit text") "select: a paragraph's first button is Edit text")
+        this.ok(((PresSelect.contentLabel("page")) == "Document settings") "select: the page's first button is Document settings")
         def p (new PresPick())
         this.ok(((p.active()) == false) "pick: empty at first")
         ; Ctrl + click on 3 with 1 selected picks both
@@ -2482,12 +2711,79 @@ class PresCheck {
         this.ok(((strlen bad.err) > 0) "trace: bytes that are no picture say so")
     }
 
+    ; --- a picture resized and moved on the slide (PresImageDrag) ---------------
+    fn imageDrag:void () {
+        ; the handles of a 200 × 100 box at (100, 50), a grip of 6
+        this.ok(((PresImageDrag.zoneAt(100.0 50.0 200.0 100.0 99.0 100.0 6.0)) == "l") "image drag: the left edge")
+        this.ok(((PresImageDrag.zoneAt(100.0 50.0 200.0 100.0 303.0 148.0 6.0)) == "br") "image drag: a corner")
+        this.ok(((PresImageDrag.zoneAt(100.0 50.0 200.0 100.0 200.0 47.0 6.0)) == "t") "image drag: the top")
+        this.ok(((PresImageDrag.zoneAt(100.0 50.0 200.0 100.0 200.0 100.0 6.0)) == "move") "image drag: inside it moves it")
+        this.ok(((PresImageDrag.zoneAt(100.0 50.0 200.0 100.0 320.0 100.0 6.0)) == "") "image drag: outside it nothing")
+        this.ok(((PresImageDrag.zoneAt(100.0 50.0 8.0 100.0 103.0 100.0 6.0)) == "l") "image drag: a thin box, the nearer side")
+
+        ; a centred picture in a column 0…800, 400 high: the right edge 50
+        ; out grows it by 100 (both sides), its shape kept
+        def d (new PresImageDrag())
+        d.begin("r" 300.0 50.0 200.0 100.0 0.0 800.0 400.0 "" 500.0 100.0)
+        d.moveTo(502.0 100.0)
+        this.ok((d.moved == false) "image drag: a few units are still a click")
+        d.moveTo(550.0 100.0)
+        this.ok((((d.w == 300.0) && (d.h == 150.0)) && (d.x == 250.0)) ("image drag: centred, grows on both sides: " + (to_string d.x) + " " + (to_string d.w) + "x" + (to_string d.h)))
+        this.ok((d.outWidth == "38%") ("image drag: width of the column, got " + d.outWidth))
+        def m:PresImageModel (PresImageModel.read("![a](media/x.png)" "{height=40% .round}"))
+        this.ok((d.apply(m)) "image drag: the width written")
+        this.ok(((m.markdown()) == "![a](media/x.png)\n{width=38% .round}") ("image drag: height taken away, the rest kept: " + (m.markdown())))
+        ; never past the column
+        d.moveTo(2000.0 100.0)
+        this.ok(((d.w == 800.0) && (d.outWidth == "100%")) ("image drag: clamped to the margins: " + (to_string d.w)))
+        ; …nor the content height
+        def tall (new PresImageDrag())
+        tall.begin("b" 300.0 50.0 100.0 200.0 0.0 800.0 400.0 "left" 350.0 250.0)
+        tall.moveTo(350.0 900.0)
+        this.ok(((tall.h == 400.0) && (tall.w == 200.0)) ("image drag: the bottom stops at the content height: " + (to_string tall.w) + "x" + (to_string tall.h)))
+        this.ok(((tall.outHeight == "100%") && ((strlen tall.outWidth) == 0)) "image drag: the bottom writes the height")
+        this.ok((tall.x == 0.0) "image drag: a left picture stays at the left")
+        ; a left picture's left edge pulled in narrows it
+        def lft (new PresImageDrag())
+        lft.begin("l" 0.0 50.0 400.0 200.0 0.0 800.0 400.0 "left" 0.0 100.0)
+        lft.moveTo(100.0 100.0)
+        this.ok(((lft.w == 300.0) && (lft.outWidth == "38%")) ("image drag: the left edge narrows it: " + (to_string lft.w)))
+
+        ; moved: the third of the column its middle is let go in
+        def mv (new PresImageDrag())
+        mv.begin("move" 300.0 50.0 200.0 100.0 0.0 800.0 400.0 "" 400.0 100.0)
+        mv.moveTo(150.0 120.0)
+        this.ok(((mv.outAlign == "left") && (mv.x == 0.0)) ("image drag: to the left third: " + mv.outAlign))
+        def m2:PresImageModel (PresImageModel.read("![a](media/x.png)" ""))
+        this.ok((mv.apply(m2)) "image drag: align written")
+        this.ok(((m2.markdown()) == "![a](media/x.png)\n{align=left}") ("image drag: " + (m2.markdown())))
+        mv.moveTo(700.0 100.0)
+        this.ok(((mv.outAlign == "right") && (mv.x == 600.0)) "image drag: to the right third")
+        mv.moveTo(410.0 100.0)
+        def m3:PresImageModel (PresImageModel.read("![a](media/x.png)" ""))
+        this.ok(((mv.apply(m3)) == false) "image drag: let go where it was, nothing written")
+        def click (new PresImageDrag())
+        click.begin("move" 300.0 50.0 200.0 100.0 0.0 800.0 400.0 "" 400.0 100.0)
+        this.ok(((click.apply(m3)) == false) "image drag: a click writes nothing")
+        this.ok(((PresImageDrag.placeOf("end")) == "right") "image drag: the theme's end is right")
+
+        ; an SVG picture in the PDF: drawn from its paths when the importer
+        ; reads all of it, from its PNG when something is out of profile
+        def dk (new PresDeck())
+        dk.addSvgPicture("/media/a.svg" "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><path d=\"M0 0h10v10z\" fill=\"#c00\"/></svg>" (buffer_alloc 0) (buffer_alloc 0))
+        dk.addSvgPicture("/media/b.svg" "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><text x=\"1\" y=\"8\">A</text></svg>" (buffer_alloc 0) (buffer_alloc 0))
+        this.ok((dk.svgVector("/media/a.svg")) "svg: paths are drawn as vectors")
+        this.ok(((dk.svgVector("/media/b.svg")) == false) "svg: text is not, the PNG is used")
+        this.ok(((dk.svgVector("/media/c.svg")) == false) "svg: an unknown picture is not")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
         c.edges()
         c.cascade()
         c.chartMotion()
+        c.chartLooks()
         c.figures()
         c.listFigures()
         c.smartArt()
@@ -2500,6 +2796,8 @@ class PresCheck {
         c.flowModel()
         c.gridModel()
         c.controlsFade()
+        c.zoomMenu()
+        c.roundNodes()
         c.followEdits()
         c.picks()
         c.navJumps()
@@ -2507,6 +2805,7 @@ class PresCheck {
         c.docx()
         c.htmlPage()
         c.traceChecks()
+        c.imageDrag()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

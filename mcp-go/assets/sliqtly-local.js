@@ -306,6 +306,12 @@ function listen() {
       open = true;
       clearTimeout(lost);
       lost = 0;
+      // a room's chat open on the page asks for what it missed meanwhile
+      window.dispatchEvent(new CustomEvent("sliqtly:chat", { detail: { t: "reopen" } }));
+    },
+    // rooms' chats (web/roomchat.js): a message posted or changed, who is here
+    chat(v) {
+      window.dispatchEvent(new CustomEvent("sliqtly:chat", { detail: v }));
     },
     lost() {
       open = false;

@@ -39,6 +39,9 @@ func env(name, def string) string {
 func main() {
 	start := time.Now()
 	store.Build = version
+	if len(os.Args) > 1 && os.Args[1] == "backup" {
+		os.Exit(backupCmd(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	data := flag.String("data", env("SLIQTLY_DATA", ""), "keep decks in this folder (SLIQTLY_DATA)")
 	port := flag.String("port", env("PORT", "8080"), "port to listen on (PORT)")
 	base := flag.String("url", env("SLIQTLY_URL", ""), "the address people and links use, e.g. https://sliqtly.example.com (SLIQTLY_URL)")
@@ -72,6 +75,13 @@ func main() {
 		go expo.run(stop)
 	}
 	if *data != "" && env("SLIQTLY_STORE", "") != "link" {
+		backups, err := backupFromEnv()
+		if err == nil && backups.Repo != "" {
+			err = checkBackupPlace(*data, backups.Repo)
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
 		// the folder is locked and brought to this version's format before
 		// anything reads it; meanwhile the port answers "being updated"
 		// (localstatus.go), so open pages wait instead of losing the server
@@ -114,6 +124,9 @@ func main() {
 		}
 		sw.set(ls)
 		go ls.sweepExpired(stop)
+		if backups.Repo != "" {
+			go ls.backupLoop(stop, *data, backups)
+		}
 		board.set("ready", "")
 		log.Printf("Sliqtly MCP %s (%s) on port %s, ready in %s", version, kind, *port, time.Since(start).Round(time.Microsecond))
 		<-stop.Done()

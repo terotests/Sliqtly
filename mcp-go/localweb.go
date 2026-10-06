@@ -554,7 +554,7 @@ func (s *localServer) roomsAPI(r *http.Request, op string) (any, error) {
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&a); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fail(400, "", "a JSON object is expected")
 	}
-	out, err := s.env.rooms.call(r.Context(), s.env.LocalUser, op, a)
+	out, err := s.env.rooms.callVia(r.Context(), s.env.LocalUser, viaPage, op, a)
 	var re roomErr
 	if errors.As(err, &re) {
 		return nil, fail(400, "", re.msg)

@@ -194,6 +194,18 @@ function syncClone(name, url, ref, dir, marker, update) {
     if (remote === head) return;
     why = `${ref} ${head.slice(0, 7)} → ${remote.slice(0, 7)}`;
   }
+  // A clone with edits of its own (work on the engine before its PR is up)
+  // is not checked out over: `checkout -f` would throw the edits away.
+  let dirty = "";
+  try {
+    dirty = git(["status", "--porcelain", "--untracked-files=no"], dir);
+  } catch {
+    dirty = "";
+  }
+  if (dirty.trim()) {
+    log(`${name}: has local changes, building on the clone as it is (not ${why})`);
+    return;
+  }
   log(`update ${name} (${why})`);
   git(["fetch", "--depth", "1", "origin", ref || "HEAD"], dir);
   git(["checkout", "-q", "-f", "--detach", "FETCH_HEAD"], dir);

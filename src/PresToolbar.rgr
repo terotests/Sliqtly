@@ -148,11 +148,11 @@ class PresToolbar {
             langRows = rows
             langValue = current
         }
+        ; the open room changes only with its presentations ("roomdecks", which
+        ; the page always sends after the rooms): a room shown open with
+        ; another one's list, or none, for a frame flickered
         if (id == "rooms") {
             roomRows = rows
-            if (((strlen current) > 0) && (current != roomOpen)) {
-                roomOpen = current
-            }
         }
         if (id == "dark") {
             darkOn = (current == "1")
@@ -297,6 +297,10 @@ class PresToolbar {
             return "files:deletedeck"
         }
         ; File → Export's rows: the page's own export buttons
+        ; Copy's rows: to the clipboard (the page writes it)
+        if ((indexOf id "cp-") == 0) {
+            return ("clip:" + (substring id 3 (strlen id)))
+        }
         if ((indexOf id "x-") == 0) {
             return ("click:" + (substring id 2 (strlen id)))
         }
@@ -332,6 +336,9 @@ class PresToolbar {
         }
         if (id == "about") {
             return "about"
+        }
+        if (id == "helpGuide") {
+            return "help-guide"
         }
         if (id == "docset") {
             return "docset"
@@ -445,6 +452,37 @@ class PresToolbar {
         }
     }
 
+    ; Copy's rows (to the clipboard): the Markdown, the Markdown with the
+    ; open comments as footnotes, the open comments with their slides; with
+    ; `forSlide` (the slide's own menu) the selected slide's first, and the
+    ; picked slides' when some are.
+    fn clipboardKids:void (parent:UiItem forSlide:boolean) {
+        if forSlide {
+            MenuCtl.addKid(parent "cp-mdSlide" ((PresI18n.t("Markdown")) + " – " + (PresI18n.t("this slide"))) false)
+            MenuCtl.addKid(parent "cp-mdcSlide" ((PresI18n.t("Markdown + comments")) + " – " + (PresI18n.t("this slide"))) false)
+        }
+        if (picked > 0) {
+            MenuCtl.addKid(parent "cp-mdPicked" (this.pickedLabel("Markdown")) false)
+            MenuCtl.addKid(parent "cp-mdcPicked" (this.pickedLabel("Markdown + comments")) false)
+        }
+        if (forSlide || (picked > 0)) {
+            MenuCtl.addKidSeparator(parent)
+        }
+        def whole:string ""
+        if (forSlide || (picked > 0)) {
+            whole = (" – " + (PresI18n.t("whole presentation")))
+        }
+        MenuCtl.addKid(parent "cp-md" ((PresI18n.t("Markdown")) + whole) false)
+        MenuCtl.addKid(parent "cp-mdc" ((PresI18n.t("Markdown + comments")) + whole) false)
+        MenuCtl.addKid(parent "cp-comments" (PresI18n.t("Open comments")) false)
+    }
+
+    ; Export's two groups: Clipboard ▸ and File ▸.
+    fn exportGroups:void (clip:UiItem file:UiItem) {
+        this.clipboardKids(clip false)
+        this.exportKids(file)
+    }
+
     ; "PDF (.pdf) – 3 selected slides"
     fn pickedLabel:string (format:string) {
         def what:string (PresI18n.t("selected slides"))
@@ -544,6 +582,9 @@ class PresToolbar {
         cm.addItem("slideRight" (PresI18n.t("Move right")) (ctxRight == false))
         cm.addSeparator()
         cm.addItem("slideDelete" (PresI18n.t("Delete slide")) (ctxDelete == false))
+        cm.addSeparator()
+        def cp:UiItem (cm.addSub("ctx-copy" (PresI18n.t("Copy")) false))
+        this.clipboardKids(cp true)
         if (picked > 0) {
             cm.addSeparator()
             cm.addItem("x-pptxPicked" (this.pickedLabel("PowerPoint (.pptx)")) false)
@@ -949,9 +990,10 @@ class PresToolbar {
                     push requests ("room:order:" + dragRoom + ":" + dropRoom)
                 }
             } {
-                roomOpen = dragRoom
-                roomDecks = ""
-                push requests ("room:open:" + roomOpen)
+                ; the open room and its presentations change together when the
+                ; page answers (setOptions "roomdecks"): no frame in between
+                ; with the room shut, which flickered
+                push requests ("room:open:" + dragRoom)
             }
         } {
             if dragOn {
@@ -1291,7 +1333,9 @@ class PresToolbar {
             file.addSeparator()
             file.addItem("save" (PresI18n.t("Save .md")) false)
             def xs:UiItem (file.addSub("export" (PresI18n.t("Export")) false))
-            this.exportKids(xs)
+            def xsClip:UiItem (MenuCtl.addKid(xs "x-clip" (PresI18n.t("Clipboard")) false))
+            def xsFile:UiItem (MenuCtl.addKid(xs "x-file" (PresI18n.t("File")) false))
+            this.exportGroups(xsClip xsFile)
             file.addSeparator()
             file.addItem("aiClaude" (PresI18n.t("Edit in Claude…")) false)
             file.addSeparator()
@@ -1330,14 +1374,11 @@ class PresToolbar {
                 rc2.setVariant("rec-delete" "destructive")
             }
             def ex:MenuCtl (this.dropdown("export" (PresI18n.t("Export"))))
-            ex.addItem("x-save" (PresI18n.t("Markdown (.md)")) false)
-            ex.addItem("pptx" (PresI18n.t("PowerPoint (.pptx)")) false)
-            ex.addItem("docx" (PresI18n.t("Word (.docx)")) false)
-            ex.addItem("html" (PresI18n.t("Web page (.html)")) false)
-            ex.addItem("player" (PresI18n.t("Presentation player (.html)")) false)
-            ex.addItem("pdf" (PresI18n.t("PDF (.pdf)")) false)
-            ex.addItem("zip" (PresI18n.t("All files (.zip)")) false)
+            def exClip:UiItem (ex.addSub("x-clip" (PresI18n.t("Clipboard")) false))
+            def exFile:UiItem (ex.addSub("x-file" (PresI18n.t("File")) false))
+            this.exportGroups(exClip exFile)
             def hp:MenuCtl (this.dropdown("help" (PresI18n.t("Help"))))
+            hp.addItem("helpGuide" (PresI18n.t("How to use Sliqtly")) false)
             hp.addItem("helpBtn" (PresI18n.t("Help for this slide")) false)
             hp.addSeparator()
             hp.addItem("about" (PresI18n.t("About")) false)
@@ -1471,6 +1512,10 @@ class PresToolbar {
                 this.drawerRows(body "t-" themeRows themeValue)
             }
             this.button("dr-css" (PresI18n.t("Edit theme CSS…")) "ghost" body)
+            body.addChild((this.text("tb-dr-label" (PresI18n.t("Clipboard")))))
+            this.button("dr-cp-md" (PresI18n.t("Markdown")) "ghost" body)
+            this.button("dr-cp-mdc" (PresI18n.t("Markdown + comments")) "ghost" body)
+            this.button("dr-cp-comments" (PresI18n.t("Open comments")) "ghost" body)
             body.addChild((this.text("tb-dr-label" (PresI18n.t("Export")))))
             this.button("dr-x-save" (PresI18n.t("Markdown (.md)")) "ghost" body)
             this.button("dr-pptx" (PresI18n.t("PowerPoint (.pptx)")) "ghost" body)
@@ -1486,6 +1531,7 @@ class PresToolbar {
                 this.button("dr-rec-edit" (PresI18n.t("✂ Edit recording…")) "ghost" body)
             }
             body.addChild((this.text("tb-dr-label" (PresI18n.t("Help")))))
+            this.button("dr-helpGuide" (PresI18n.t("How to use Sliqtly")) "ghost" body)
             this.button("dr-helpBtn" (PresI18n.t("Help for this slide")) "ghost" body)
             this.button("dr-about" (PresI18n.t("About")) "ghost" body)
             if ((strlen langRows) > 0) {
@@ -1714,10 +1760,7 @@ class PresToolbar {
                 dropRoom = ""
                 return
             }
-            roomOpen = id
-            roomDecks = ""
-            push requests ("room:open:" + roomOpen)
-            this.rebuild()
+            push requests ("room:open:" + id)
             return
         }
         if ((indexOf ctlTid "tb-roomdeck-d-") == 0) {

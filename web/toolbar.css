@@ -165,10 +165,11 @@
 .tb-railpad { height: 1px; }
 .tb-logo { width: 36px; height: 36px; min-height: 36px; margin: 0 0 6px 0; }
 .tb-logo-part { width: 36px; height: 36px; }
-.tb-logo-ghost1 { fill: #B52619; }
-.tb-logo-ghost2 { fill: #7CC33A; }
-.tb-logo-card { fill: #2B1AC0; }
-.tb-logo-play { fill: #F2F1FC; }
+/* brand/make_logo.py's gradients, each at its middle */
+.tb-logo-ghost1 { fill: #DDB691; }
+.tb-logo-ghost2 { fill: #CD946A; }
+.tb-logo-card { fill: #B5602F; }
+.tb-logo-play { fill: #F9EDDF; }
 .theme-tb .ui-rail { flex-grow: 1; font-family: Open Sans; }
 
 /* The deck's name at the start of the bar (Google Drive's): a quiet button
