@@ -136,6 +136,32 @@ brew services start sliqtly         <span class="c"># now and at every login</sp
   }
 }</code></pre>
 
+  <h3 id="script">Without an MCP client: from a script</h3>
+  <p>An agent that can only run code (a browser panel's JavaScript, a notebook) can call <code>/mcp</code> with plain HTTP POSTs. The server answers each call with one JSON object (<code>Content-Type: application/json</code>), not an event stream; a client must still accept both, as MCP's HTTP transport says. This helper reads either:</p>
+  <pre><code>let session = "";
+async function sliqtly(method, params = {}) {
+  const res = await fetch("http://localhost:8080/mcp", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      ...(session ? { "Mcp-Session-Id": session } : {}),
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params }),
+  });
+  session = res.headers.get("Mcp-Session-Id") || session;
+  const text = await res.text();
+  const json = (res.headers.get("Content-Type") || "").includes("text/event-stream")
+    ? text.split("\n").filter((l) => l.startsWith("data:")).pop().slice(5)
+    : text;
+  const answer = JSON.parse(json);
+  if (answer.error) throw new Error(answer.error.message);
+  return answer.result;
+}
+await sliqtly("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "script", version: "1" } });
+const guide = await sliqtly("tools/call", { name: "sliqtly_guide", arguments: {} });
+// then create_presentation, render_slide (its picture is result.content[i].data, base64 PNG), …</code></pre>
+
   <h3 id="claude-apps">claude.ai, the mobile apps and Desktop's Connectors</h3>
   <p>A custom connector added in claude.ai (Customize → Connectors) is called from Anthropic's cloud, not from your computer, and its address must start with <code>https://</code>. <code>http://localhost:8080/mcp</code> is refused there, and would not be reachable anyway. The same goes for connectors in the mobile apps and in Claude Desktop's Settings → Connectors. ChatGPT works the same way.</p>
   <p>The only way to use your own server from these apps is a public HTTPS tunnel to it, for example:</p>
