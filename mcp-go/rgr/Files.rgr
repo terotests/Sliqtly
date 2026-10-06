@@ -111,9 +111,15 @@ class Files {
         def quoted:boolean false
         def n:int (strlen text)
         def i:int 0
-        ; a UTF-8 byte order mark
+        ; a byte order mark: EF BB BF as bytes (Go), U+FEFF as a character
+        ; (JS); a text that only starts with EF (U+F000..U+FFFF) keeps it
+        if (n >= 1) {
+            if ((charAt text 0) == 65279) {
+                i = 1
+            }
+        }
         if (n >= 3) {
-            if ((charAt text 0) == 239) {
+            if ((((charAt text 0) == 239) && ((charAt text 1) == 187)) && ((charAt text 2) == 191)) {
                 i = 3
             }
         }
