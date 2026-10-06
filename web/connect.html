@@ -89,7 +89,7 @@
     <p>An owner adds it once under <b>Organization settings → Connectors → Add → Custom</b> (type <b>Web</b>) with the same URL. Members then find it under <b>Customize → Connectors</b> and click <b>Connect</b>.</p>
     <h3>In a chat</h3>
     <p>Open the <b>+</b> menu → <b>Connectors</b> and turn Sliqtly on. The presentation appears in the conversation and its link opens it full size.</p>
-    <p class="note local">Running Sliqtly locally? claude.ai runs in the cloud and cannot reach a server on your computer; use one of the local clients below with <code>http://localhost:8080/mcp</code> (<a href="/local.html">how to run it locally</a>).</p>
+    <p class="note local">Running Sliqtly locally? Connectors added here are called from Anthropic's cloud and need an <code>https://</code> address, so <code>http://localhost:8080/mcp</code> is refused. In Claude Desktop, add the server to its config file through <code>mcp-remote</code> instead. claude.ai on the web and the mobile apps reach it only through a public HTTPS tunnel, which opens your server to the internet (<a href="/local.html#claude-apps">Claude apps and a local server</a>).</p>
   </section>
 
   <section id="claude-code">
