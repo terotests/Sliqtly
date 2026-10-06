@@ -29,10 +29,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -143,6 +145,8 @@ type exposure struct {
 	conns  map[*keptConn]struct{}
 	logged map[string]time.Time // refused addresses, logged once a minute
 	poke   chan struct{}
+	// where calls' TCP connections go (meet.go); nil: closed
+	ice atomic.Pointer[chanListener]
 }
 
 func newExposure(srv *http.Server, port string, p *netPolicy) *exposure {
@@ -227,7 +231,7 @@ func (x *exposure) sync(first bool) error {
 		x.open[a] = l
 		changed = true
 		go func() {
-			if err := x.srv.Serve(&filtered{Listener: l, x: x}); err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
+			if err := x.srv.Serve(newSniffed(&filtered{Listener: l, x: x}, x)); err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
 				log.Printf("serve %s: %v", a, err)
 			}
 		}()
@@ -252,6 +256,39 @@ func (x *exposure) listening() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// own: ip is one of this computer's addresses (a connection from it, to
+// 127.0.0.1, is this computer's: a call's TCP comes so from a browser here)
+func (x *exposure) own(ip net.IP) bool {
+	for _, it := range *x.ifaces.Load() {
+		for _, n := range it.nets {
+			if n.IP.Equal(ip) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// reachedOn: ip is one of this computer's addresses the server is reached
+// on now (calls offer only those)
+func (x *exposure) reachedOn(ip net.IP) bool {
+	if ip.IsLoopback() {
+		return true
+	}
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	for a := range x.open {
+		h, _, err := net.SplitHostPort(a)
+		if err != nil {
+			continue
+		}
+		if h == "" || ip.Equal(net.ParseIP(h)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (x *exposure) Listening() []string {
@@ -281,7 +318,7 @@ func (x *exposure) admits(ip net.IP) bool {
 	if ip == nil {
 		return false
 	}
-	if ip.IsLoopback() {
+	if ip.IsLoopback() || x.own(ip) {
 		return true
 	}
 	p := x.policy.Load()
@@ -373,4 +410,139 @@ func (x *exposure) refused(ip net.IP) {
 		return
 	}
 	x.mu.Unlock()
+}
+
+// --- calls over the HTTP port
+
+// sniffed hands a connection to calls (meet.go) when it is one: ICE over
+// TCP (RFC 4571) starts with a two-byte length, and the first message, a
+// STUN request, is far under 256 bytes, so its first byte is 0. HTTP starts
+// with a letter (and TLS with 22). The first byte is waited for apart from
+// Accept, so a page slow to send does not hold up the others.
+type sniffed struct {
+	net.Listener
+	x    *exposure
+	ch   chan net.Conn
+	errc chan error
+	done chan struct{}
+	shut sync.Once
+}
+
+func newSniffed(l net.Listener, x *exposure) *sniffed {
+	s := &sniffed{Listener: l, x: x, ch: make(chan net.Conn), errc: make(chan error, 1), done: make(chan struct{})}
+	go s.loop()
+	return s
+}
+
+const sniffWait = 30 * time.Second
+
+func (s *sniffed) Accept() (net.Conn, error) {
+	select {
+	case c := <-s.ch:
+		return c, nil
+	case err := <-s.errc:
+		return nil, err
+	}
+}
+
+func (s *sniffed) Close() error {
+	err := s.Listener.Close()
+	s.shut.Do(func() { close(s.done) })
+	return err
+}
+
+func (s *sniffed) loop() {
+	for {
+		c, err := s.Listener.Accept()
+		if err != nil {
+			s.errc <- err
+			return
+		}
+		go s.route(c)
+	}
+}
+
+func (s *sniffed) route(c net.Conn) {
+	var b [1]byte
+	c.SetReadDeadline(time.Now().Add(sniffWait))
+	if _, err := io.ReadFull(c, b[:]); err != nil {
+		c.Close()
+		return
+	}
+	c.SetReadDeadline(time.Time{})
+	pc := &peeked{Conn: c, first: b[:]}
+	if b[0] == 0 {
+		if l := s.x.ice.Load(); l != nil && l.give(pc) {
+			return
+		}
+		c.Close()
+		return
+	}
+	select {
+	case s.ch <- pc:
+	case <-s.done:
+		c.Close()
+	}
+}
+
+// a connection with its first bytes read already
+type peeked struct {
+	net.Conn
+	first []byte
+}
+
+func (p *peeked) Read(b []byte) (int, error) {
+	if len(p.first) > 0 {
+		n := copy(b, p.first)
+		p.first = p.first[n:]
+		return n, nil
+	}
+	return p.Conn.Read(b)
+}
+
+// chanListener is the listener calls' TCP connections come out of
+type chanListener struct {
+	ch   chan net.Conn
+	done chan struct{}
+	shut sync.Once
+	port int
+}
+
+func (l *chanListener) give(c net.Conn) bool {
+	select {
+	case l.ch <- c:
+		return true
+	case <-l.done:
+		return false
+	case <-time.After(5 * time.Second):
+		return false
+	}
+}
+
+func (l *chanListener) Accept() (net.Conn, error) {
+	select {
+	case c := <-l.ch:
+		return c, nil
+	case <-l.done:
+		return nil, net.ErrClosed
+	}
+}
+
+func (l *chanListener) Close() error {
+	l.shut.Do(func() { close(l.done) })
+	return nil
+}
+
+// every address it is reached on, at the HTTP port
+func (l *chanListener) Addr() net.Addr { return &net.TCPAddr{IP: net.IPv4zero, Port: l.port} }
+
+// iceListener: a new listener for calls' TCP connections, in place of the
+// one before
+func (x *exposure) iceListener() *chanListener {
+	port, _ := strconv.Atoi(x.port)
+	l := &chanListener{ch: make(chan net.Conn), done: make(chan struct{}), port: port}
+	if old := x.ice.Swap(l); old != nil {
+		old.Close()
+	}
+	return l
 }

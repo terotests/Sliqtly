@@ -37,6 +37,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -65,6 +66,9 @@ type localServer struct {
 	board  *statusBoard // the server's state, for /api/status and /api/events
 	expo   *exposure    // who can connect (netaccess.go); nil: not managed here
 	hosts  *hostGuard   // which names and pages it answers (localguard.go)
+	// calls' network (meet.go), made when the first call starts
+	callMu sync.Mutex
+	cnet   *callNet
 }
 
 // the env of a server whose decks are in dir, reached at baseURL
