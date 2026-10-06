@@ -7141,6 +7141,11 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    fn roomChatAbout:void (hasTitle:boolean title:string hasAbout:boolean about:string) {
+        room.about(hasTitle title hasAbout about)
+        chromeRev = (chromeRev + 1)
+    }
+
     fn roomChatHide:void () {
         room.hide()
         if (focus == "room") {

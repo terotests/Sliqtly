@@ -412,9 +412,19 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 			}
 			about = &v
 		}
-		if err := s.rooms.Edit(ctx, p, argStr(a, "room_id"), title, about); err != nil {
+		id := argStr(a, "room_id")
+		if err := s.rooms.Edit(ctx, p, id, title, about); err != nil {
 			return nil, err
 		}
+		// the room's open chats show the new name and description
+		v := map[string]any{"t": "room"}
+		if title != nil {
+			v["title"] = *title
+		}
+		if about != nil {
+			v["description"] = *about
+		}
+		s.tell(id, v)
 		return map[string]any{"ok": true}, nil
 
 	case "delete_room":

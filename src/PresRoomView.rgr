@@ -104,6 +104,17 @@ class PresRoomView {
         this.changed()
     }
 
+    ; the room renamed or described again (by anyone): the head shows it
+    fn about:void (hasTitle:boolean title:string hasAbout:boolean desc:string) {
+        if hasTitle {
+            ch.title = title
+        }
+        if hasAbout {
+            ch.description = desc
+        }
+        this.changed()
+    }
+
     fn hide:void () {
         open = false
         selecting = false

@@ -172,6 +172,11 @@ CGO_ENABLED=0 go build -o sliqtly-server .
 ./sliqtly-server -data ./data -port 8080      # http://localhost:8080, MCP at /mcp
 ```
 
+`npm run serve` (from the repository root) does all of that in one go and
+starts the server on `mcp-go/data`: `-- --port=8080`, `-- --data=<folder>`,
+`-- --check` (npm run check and the Go tests first), `-- --no-build`
+(start the last compiled one); other flags go to the server.
+
 Without `npm run build` the binary has no editor: `/s/{id}` then shows the
 slides as pictures drawn on the server. `-web ../web/dist` serves a build
 from disk instead of the copy built in.
