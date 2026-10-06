@@ -1923,6 +1923,57 @@ class PresCheck {
         this.ok((u.diagram.exTZ == 1.0) "zoom: 100 % is the whole diagram")
     }
 
+    ; A circle node stays round when the view zooms in: its ring is made
+    ; again with points close enough for the size it is drawn at.
+    fn roundNodes:void () {
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Ympyrä\n\n```mermaid\nflowchart LR\n  A((Ympyrä)) --> B[Loppu]\n```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false "round: the diagram is there")
+            return
+        }
+        def d:PresDiagram (itemAt s.diagrams 0).diagram
+        def n:PresDNode (d.nodeNamed("A"))
+        this.ok(n.oval ("round: a circle node is known as round: " + (to_string (array_length n.ring))))
+        if (n.oval == false) {
+            return
+        }
+        d.fitRings(1.0)
+        def few:int n.ringSteps
+        d.fitRings(4.0)
+        this.ok((n.ringSteps > few) ("round: zoomed in it has more points: " + (to_string few) + " → " + (to_string n.ringSteps)))
+        this.ok(((array_length n.ring) == (n.ringSteps * 2)) "round: the ring holds them")
+        def worst:double 0.0
+        def far:double 0.0
+        def k:int 0
+        while (k < n.ringSteps) {
+            def j:int (k + 1)
+            if (j == n.ringSteps) {
+                j = 0
+            }
+            def ex:double ((itemAt n.ring (j * 2)) - (itemAt n.ring (k * 2)))
+            def ey:double ((itemAt n.ring ((j * 2) + 1)) - (itemAt n.ring ((k * 2) + 1)))
+            def chord:double ((sqrt ((ex * ex) + (ey * ey))) * 4.0)
+            if (chord > worst) {
+                worst = chord
+            }
+            def rx:double (((itemAt n.ring (k * 2)) - n.ovalCX) / n.ovalRX)
+            def ry:double (((itemAt n.ring ((k * 2) + 1)) - n.ovalCY) / n.ovalRY)
+            def off:double ((((rx * rx) + (ry * ry)) - 1.0))
+            if (off < 0.0) {
+                off = (0.0 - off)
+            }
+            if (off > far) {
+                far = off
+            }
+            k = (k + 1)
+        }
+        this.ok((worst <= 1.6) ("round: no edge longer than 1.6 slide units as drawn: " + (to_string worst)))
+        this.ok((far < 0.001) "round: every point on the circle")
+    }
+
     ; Someone else's edits under the slide shown (PresFollow): it stays the
     ; slide shown, at the same time into it.
     fn followEdits:void () {
@@ -2581,6 +2632,7 @@ class PresCheck {
         c.gridModel()
         c.controlsFade()
         c.zoomMenu()
+        c.roundNodes()
         c.followEdits()
         c.picks()
         c.navJumps()
