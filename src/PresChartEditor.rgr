@@ -60,6 +60,9 @@ class PresChartEditor {
     ; the fields of the card before the last rebuild (inputWith keeps their caret)
     def before:[InputCtl]
     def sliders:[SliderCtl]
+    ; the window's dropdowns, and the one whose list is open ("" none)
+    def sels:[SelectCtl]
+    def openSel:string ""
     def focusTid:string ""
     ; the model changed since the fence was last written
     def changed:boolean false
@@ -641,6 +644,72 @@ class PresChartEditor {
         }
     }
 
+    ; A dropdown of `values` named by `names`. Choosing one acts as the chip
+    ; `tid + "-" + value` would (`act`), so a list of chips becomes a
+    ; dropdown without a second path for what it does.
+    fn dropdown:SelectCtl (tid:string name:string value:string values:[string] names:[string] parent:EVGElement) {
+        def c (new SelectCtl())
+        c.tid = tid
+        c.name = name
+        def i:int 0
+        while (i < (array_length values)) {
+            c.addItem((itemAt values i) (itemAt names i) false)
+            i = (i + 1)
+        }
+        c.value = value
+        if (openSel == tid) {
+            c.openList()
+        }
+        c.build()
+        UiTree.addClass((unwrap c.rootEl) "ce-select")
+        push sels c
+        this.put(c parent)
+        return c
+    }
+
+    fn selFor@(optional):SelectCtl (tid:string) {
+        def found@(optional):SelectCtl
+        def i:int 0
+        while (i < (array_length sels)) {
+            def c:SelectCtl (itemAt sels i)
+            if (c.tid == tid) {
+                found = c
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    ; A press on a dropdown: its list opens or closes, or an item is chosen
+    ; and acted on. Any other press closes an open list (and is not taken).
+    fn pressSelect:boolean (ctlTid:string tid:string) {
+        def asSel@(optional):SelectCtl (this.selFor(ctlTid))
+        if (!null? asSel) {
+            def sel:SelectCtl (unwrap asSel)
+            if ((strlen focusTid) > 0) {
+                this.focusInput("")
+            }
+            def was:string sel.value
+            host.click(tid)
+            keep.restore()
+            if (sel.value != was) {
+                openSel = ""
+                this.act((sel.tid + "-" + sel.value))
+                this.rebuild()
+                return true
+            }
+            openSel = (? sel.open sel.tid "")
+            this.rebuild()
+            return true
+        }
+        if ((strlen openSel) > 0) {
+            openSel = ""
+            this.rebuild()
+            return true
+        }
+        return false
+    }
+
     ; A toggle among others: the pressed one is the primary.
     fn chip:ButtonCtl (tid:string name:string on:boolean parent:EVGElement) {
         def v:string "outline"
@@ -746,6 +815,8 @@ class PresChartEditor {
         texts = noTexts
         def noSliders:[SliderCtl]
         sliders = noSliders
+        def noSels:[SelectCtl]
+        sels = noSels
         def page0:EVGElement (unwrap host.root)
         page0.className = "ui-root ce-page"
         def w0 (new WindowCtl())
@@ -1647,6 +1718,18 @@ class PresChartEditor {
             sec2.addChild(tc)
             sec2.addChild((this.text("ce-doc" (PresI18n.t("For every slide; a slide's own heading can say otherwise: ## Title {transition=zoom}.")))))
             sec2.addChild((this.text("ce-doc" (PresI18n.t("One slide without it: {header=off} or {footer=off} on its heading.")))))
+            def sec3:EVGElement (this.section(pane (PresI18n.t("Style"))))
+            def cr:EVGElement (this.field((PresI18n.t("Charts"))))
+            def cv:[string] (strsplit ",flat,forge,neon,glass,mermaid,jurassic,cartoon,romantic" ",")
+            def cn:[string] (strsplit ((PresI18n.t("From theme")) + "," + (PresI18n.t("Flat")) + "," + (PresI18n.t("Forge")) + "," + (PresI18n.t("Neon")) + "," + (PresI18n.t("Glass")) + "," + (PresI18n.t("Mermaid")) + "," + (PresI18n.t("Jurassic")) + "," + (PresI18n.t("Cartoon")) + "," + (PresI18n.t("Romantic"))) ",")
+            this.dropdown("ds-cs" (PresI18n.t("Charts")) ds.chartStyle cv cn cr)
+            sec3.addChild(cr)
+            def fr:EVGElement (this.field((PresI18n.t("Diagrams"))))
+            def fv:[string] (strsplit ",sketch,mermaid,jurassic,cartoon,romantic" ",")
+            def fnm:[string] (strsplit ((PresI18n.t("From theme")) + "," + (PresI18n.t("Sketch")) + "," + (PresI18n.t("Mermaid")) + "," + (PresI18n.t("Jurassic")) + "," + (PresI18n.t("Cartoon")) + "," + (PresI18n.t("Romantic"))) ",")
+            this.dropdown("ds-fs" (PresI18n.t("Diagrams")) ds.diagramStyle fv fnm fr)
+            sec3.addChild(fr)
+            sec3.addChild((this.text("ce-doc" (PresI18n.t("For charts and diagrams that choose none; a chart's own Style on slide or a diagram's {style=…} goes over it.")))))
         } {
             if (dsTab != "bg") {
                 this.edgePane(pane (this.dsEdge()))
@@ -1813,6 +1896,16 @@ class PresChartEditor {
         def e:int (this.dsEdge())
         if (tid == "ds-done") {
             wantsClose = true
+            return true
+        }
+        if ((indexOf tid "ds-cs-") == 0) {
+            ds.chartStyle = (substring tid 6 (strlen tid))
+            changed = true
+            return true
+        }
+        if ((indexOf tid "ds-fs-") == 0) {
+            ds.diagramStyle = (substring tid 6 (strlen tid))
+            changed = true
             return true
         }
         if ((indexOf tid "ds-tr-") == 0) {
@@ -2156,17 +2249,29 @@ class PresChartEditor {
     fn looksTab:void (pane:EVGElement) {
         def col:EVGElement (this.section(pane (PresI18n.t("Colors"))))
         def cols:EVGElement (this.div("ce-chips"))
-        this.chip("ce-scheme-" (PresI18n.t("From theme")) (((strlen model.scheme) == 0) && ((strlen model.color) == 0)) cols)
-        this.chip("ce-pick-color" (PresI18n.t("Custom color")) ((strlen model.color) > 0) cols)
-        if ((strlen model.color) > 0) {
-            cols.addChild((this.swatch(model.color)))
-        }
+        def sv:[string]
+        def sn:[string]
+        push sv ""
+        push sn (PresI18n.t("From theme"))
         def names:[string] (strsplit (PresChartModel.schemes()) " ")
         def s:int 0
         while (s < (array_length names)) {
-            def nm:string (itemAt names s)
-            this.chip(("ce-scheme-" + nm) nm (nm == model.scheme) cols)
+            push sv (itemAt names s)
+            push sn (itemAt names s)
             s = (s + 1)
+        }
+        def scheme:string model.scheme
+        if ((strlen model.color) > 0) {
+            ; a colour of its own: the list says so, and choosing a scheme
+            ; or the theme's colours lets it go
+            push sv "custom"
+            push sn (PresI18n.t("Custom color"))
+            scheme = "custom"
+        }
+        this.dropdown("ce-scheme" (PresI18n.t("Colors")) scheme sv sn cols)
+        this.chip("ce-pick-color" (PresI18n.t("Custom color")) ((strlen model.color) > 0) cols)
+        if ((strlen model.color) > 0) {
+            cols.addChild((this.swatch(model.color)))
         }
         col.addChild(cols)
 
@@ -2184,12 +2289,8 @@ class PresChartEditor {
         ; the stage's own dressings, then the looks the diagrams have
         ; (RangerFlow's FlowLook)
         def effects:[string] (strsplit ",flat,forge,neon,glass,mermaid,jurassic,cartoon,romantic" ",")
-        def effectNames:[string] (strsplit ((PresI18n.t("From theme")) + "," + (PresI18n.t("Flat")) + "," + (PresI18n.t("Forge")) + "," + (PresI18n.t("Neon")) + "," + (PresI18n.t("Glass")) + "," + (PresI18n.t("Mermaid")) + "," + (PresI18n.t("Jurassic")) + "," + (PresI18n.t("Cartoon")) + "," + (PresI18n.t("Romantic"))) ",")
-        def e:int 0
-        while (e < (array_length effects)) {
-            this.chip(("ce-effect-" + (itemAt effects e)) (itemAt effectNames e) ((itemAt effects e) == model.effect) ef)
-            e = (e + 1)
-        }
+        def effectNames:[string] (strsplit ((PresI18n.t("Document default")) + "," + (PresI18n.t("Flat")) + "," + (PresI18n.t("Forge")) + "," + (PresI18n.t("Neon")) + "," + (PresI18n.t("Glass")) + "," + (PresI18n.t("Mermaid")) + "," + (PresI18n.t("Jurassic")) + "," + (PresI18n.t("Cartoon")) + "," + (PresI18n.t("Romantic"))) ",")
+        this.dropdown("ce-effect" (PresI18n.t("Style on slide")) model.effect effects effectNames ef)
         st.addChild(ef)
         def sw:EVGElement (this.div("ce-row ce-switches"))
         this.switchOf("ce-glow" (PresI18n.t("Glow")) model.glow sw)
@@ -3022,6 +3123,9 @@ class PresChartEditor {
         if (!null? maybe) {
             def owner:UiCtl (unwrap maybe)
             ctlTid = owner.tid
+        }
+        if (this.pressSelect(ctlTid tid)) {
+            return
         }
         ; the colour picker's parts
         if (((strlen pickFor) > 0) && (ctlTid == picker.tid)) {
