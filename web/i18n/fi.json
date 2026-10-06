@@ -1122,5 +1122,13 @@
   "Gallery: cover fills the cell and crops, contain shows the whole picture.": "Galleria: cover täyttää solun ja rajaa, contain näyttää koko kuvan.",
   "Gallery: overlay (on the picture, with a dim band), below or none.": "Galleria: overlay (kuvan päällä himmennyksen kanssa), below tai none.",
   "The part of a picture kept in the crop: top, bottom left, 30% 70%.": "Kuvan osa, joka säilyy rajauksessa: top, bottom left, 30% 70%.",
-  "Gallery: how many columns the cell takes, e.g. 2.": "Galleria: montako saraketta solu vie, esim. 2."
+  "Gallery: how many columns the cell takes, e.g. 2.": "Galleria: montako saraketta solu vie, esim. 2.",
+  "Draw on slide": "Piirrä diaan",
+  "Drawing": "Piirtäminen",
+  "Select": "Valitse",
+  "Pen": "Kynä",
+  "Arrow": "Nuoli",
+  "Ellipse": "Ellipsi",
+  "White": "Valkoinen",
+  "Black": "Musta"
 }

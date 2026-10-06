@@ -287,6 +287,19 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   same file, so every slide that shows it changes; *Cancel*, **Esc** or a
   click outside leaves the file as it was. The pixel work is
   `web/image-adjust.js`. SVG pictures only get the preview.
+- **Drawing on a slide** (Slide → Draw on slide, or the slide's context
+  menu): a pen, an arrow, a line, an ellipse and text (T), in six colours and
+  three sizes. The drawing is a file of the deck (`drawings/<slide>.ink`,
+  JSON in slide units, `PresSketch`) and the slide refers to it like a
+  picture, `![](drawings/<slide>.ink)`, which takes no room on the slide;
+  deleting that line takes the drawing off. When the slide plays, the items
+  appear in the order they were drawn after the slide's content (with its
+  build step when the line is inside a `{.build}` block). With the select
+  tool (↖) items are picked, dragged, recoloured, deleted (Delete) and moved
+  with the arrow keys; a double click edits text; Ctrl+Z undoes. The palette
+  is EVGUI's `DrawToolsCtl`, the editing `src/PresSketchUi.rgr`. PDF shows
+  the drawings; the PPTX, Word and HTML exports and the MCP server do not
+  include them yet.
 
 ## Using it
 

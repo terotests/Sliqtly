@@ -20,6 +20,8 @@ Import "PresHtml.rgr"
 Import "PresTrace.rgr"
 Import "PresImageDrag.rgr"
 Import "PresImageModel.rgr"
+Import "PresSketch.rgr"
+Import "PresSketchUi.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -2519,6 +2521,170 @@ class PresCheck {
         this.ok(((dk.svgVector("/media/c.svg")) == false) "svg: an unknown picture is not")
     }
 
+    ; --- drawings made on a slide while editing (PresSketch) --------------------
+    fn sketches:void () {
+        def k (new PresSketch())
+        k.w = 960.0
+        k.h = 540.0
+        k.begin("arrow" "#facc15" 4.0 100.0 100.0)
+        k.extend(150.0 120.0)
+        k.extend(200.0 160.0)
+        k.extend(300.0 300.0)
+        this.ok((k.finish(3.0)) "sketch: a line drawn stays")
+        k.begin("pen" "#fff" 4.0 50.0 50.0)
+        k.extend(51.0 50.5)
+        this.ok(((k.finish(3.0)) == false) "sketch: a click is no line")
+        this.ok(((k.count()) == 1) "sketch: …and is dropped")
+        def ti:int (k.addText(400.0 60.0 "Katso\ntästä" "#ffffff" 30.0))
+        this.ok((ti == 1) "sketch: text is the second item")
+        k.begin("ellipse" "#ef4444" 4.0 600.0 300.0)
+        k.extend(650.0 320.0)
+        k.extend(700.0 380.0)
+        this.ok((k.finish(3.0)) "sketch: an ellipse stays")
+        def el:PresSketchItem (k.itemAt(2))
+        this.ok(((array_length el.pts) == 4) "sketch: an ellipse keeps its two corners")
+
+        ; the file, and back
+        def back:PresSketch (PresSketch.parse((k.toJson())))
+        this.ok(((back.count()) == 3) ("sketch: three items read back, got " + (to_string (back.count()))))
+        def b0:PresSketchItem (back.itemAt(0))
+        def b1:PresSketchItem (back.itemAt(1))
+        def b2:PresSketchItem (back.itemAt(2))
+        this.ok(((b0.tool == "arrow") && (b1.text == "Katso\ntästä")) "sketch: tools and text read back")
+        this.ok(((b2.color == "#ef4444") && (b0.width == 4.0)) "sketch: colour and width read back")
+        def broken:PresSketch (PresSketch.parse("not json"))
+        this.ok(((broken.count()) == 0) "sketch: a broken file is an empty drawing")
+        def junk:PresSketch (PresSketch.parse("{\"items\":[{\"tool\":\"laser\",\"pts\":[1,2,3,4]},{\"tool\":\"pen\",\"pts\":[1,2]},{\"tool\":\"text\",\"text\":\"  \"}]}"))
+        this.ok(((junk.count()) == 0) "sketch: unknown tools, one-point lines and empty text are left out")
+        this.ok((PresSketch.isPath("drawings/a.ink")) "sketch: *.ink is a drawing")
+        this.ok(((PresSketch.isPath("media/a.png")) == false) "sketch: a picture is not")
+
+        ; hits: the one drawn last first, near the line, not its box
+        this.ok(((k.hit(200.0 160.0 4.0)) == 0) "sketch: a press on the arrow takes it")
+        this.ok(((k.hit(120.0 290.0 4.0)) == -1) "sketch: inside its box but off the line, nothing")
+        this.ok(((k.hit(410.0 75.0 4.0)) == 1) "sketch: a press on the text takes it")
+        this.ok(((k.hit(650.0 300.0 4.0)) == 2) "sketch: on the ellipse's ring")
+        this.ok(((k.hit(650.0 340.0 2.0)) == -1) "sketch: …not in its middle")
+        k.moveBy(1 100.0 50.0)
+        def tx:PresSketchItem (k.itemAt(1))
+        this.ok(((tx.x == 500.0) && (tx.y == 110.0)) "sketch: text moves")
+        k.moveBy(0 10.0 0.0)
+        def mv0:PresSketchItem (k.itemAt(0))
+        this.ok(((itemAt mv0.pts 0) == 110.0) "sketch: a line moves, every point")
+
+        ; time: one after another, in the order drawn
+        def s0:double (k.seconds(0))
+        this.ok(((s0 >= 0.25) && (s0 <= 1.4)) ("sketch: a line takes a hand's time: " + (to_string s0)))
+        this.ok(((fabs ((k.startOf(1)) - (s0 + (PresSketch.GAP())))) < 0.0001) "sketch: the second starts after the first")
+        this.ok(((fabs ((k.total()) - ((k.startOf(2)) + (k.seconds(2))))) < 0.0001) "sketch: the total ends with the last")
+        def part:[double] (PresSketch.cut(([] _:double (0.0 0.0 100.0 0.0)) 0.25))
+        this.ok((((array_length part) == 4) && ((itemAt part 2) == 25.0)) "sketch: a quarter of a line")
+        ; painted: nothing before it starts, the first item part way, all at the end
+        def none (new EVGDisplayList())
+        k.paint(none -0.1 "Open Sans" -1)
+        this.ok(((array_length none.cmds) == 0) "sketch: nothing before it starts")
+        def mid (new EVGDisplayList())
+        k.paint(mid (s0 * 0.5) "Open Sans" -1)
+        this.ok(((array_length mid.cmds) == 1) ("sketch: half way, the first line without its head: " + (to_string (array_length mid.cmds))))
+        def all (new EVGDisplayList())
+        k.paint(all 1000.0 "Open Sans" -1)
+        def texts:int 0
+        def ci:int 0
+        while (ci < (array_length all.cmds)) {
+            def cc:EVGDrawCmd (itemAt all.cmds ci)
+            if (cc.kind == 3) {
+                texts = (texts + 1)
+            }
+            ci = (ci + 1)
+        }
+        this.ok((texts == 2) ("sketch: the text's two lines at the end: " + (to_string texts)))
+        def hidden (new EVGDisplayList())
+        k.paint(hidden 1000.0 "Open Sans" 1)
+        this.ok(((array_length hidden.cmds) == ((array_length all.cmds) - 2)) "sketch: the text being written is left to the editor")
+
+        ; another page size: everything follows
+        def f:PresSketch (PresSketch.parse((k.toJson())))
+        f.fitTo(1920.0 1080.0)
+        def ft:PresSketchItem (f.itemAt(1))
+        this.ok((((ft.x == 1000.0) && (ft.y == 220.0)) && (ft.size == 60.0)) "sketch: fitted to a page twice the size")
+        k.removeAt(0)
+        def r0:PresSketchItem (k.itemAt(0))
+        this.ok((((k.count()) == 2) && (r0.isText())) "sketch: an item removed")
+
+        ; on the slides: the reference takes no room, comes after the build
+        def md:string "---\nslide-split-level: 2\n---\n\n## Yksi\n\nEnsin\n\n![](drawings/a.ink)\n\nSitten\n\n## Kaksi\n\n- a\n- b\n{.build}\n"
+        def plain (new PresDeck())
+        plain.setText("---\nslide-split-level: 2\n---\n\n## Yksi\n\nEnsin\n\nSitten\n\n## Kaksi\n\n- a\n- b\n{.build}\n")
+        PresTimeline.planAll(plain)
+        def deck (new PresDeck())
+        deck.setText(md)
+        deck.setChartData("drawings/a.ink" (k.toJson()))
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 2) "sketch: two slides")
+        def s1:PresSlide (deck.slideAt(0))
+        this.ok(((array_length s1.sketches) == 1) ("sketch: the drawing is on slide 1: " + (to_string (array_length s1.sketches))))
+        def s2:PresSlide (deck.slideAt(1))
+        this.ok(((array_length s2.sketches) == 0) "sketch: not on slide 2")
+        def boxes:int 0
+        def pboxes:int 0
+        def dl0:MdLayout (deck.layout())
+        def pl0:MdLayout (plain.layout())
+        def bi:int 0
+        while (bi < (array_length dl0.boxes)) {
+            def bx0:MdBox (itemAt dl0.boxes bi)
+            if (bx0.page == 0) {
+                boxes = (boxes + 1)
+            }
+            bi = (bi + 1)
+        }
+        bi = 0
+        while (bi < (array_length pl0.boxes)) {
+            def bx1:MdBox (itemAt pl0.boxes bi)
+            if (bx1.page == 0) {
+                pboxes = (pboxes + 1)
+            }
+            bi = (bi + 1)
+        }
+        this.ok((boxes == pboxes) ("sketch: no box for the reference: " + (to_string boxes) + " vs " + (to_string pboxes)))
+        if ((array_length s1.sketches) == 1) {
+            def u:PresSketchUse (itemAt s1.sketches 0)
+            this.ok((u.start > 0.0) "sketch: starts after the slide's content")
+            this.ok((s1.settled >= (u.start + (u.sketch.total()))) "sketch: the slide waits for it")
+            def ps0:PresSlide (plain.slideAt(0))
+            this.ok((s1.duration > ps0.duration) "sketch: …and lasts longer for it")
+            def g1:[int]
+            def g2:[int]
+            def early:EVGDisplayList (deck.slideList(0 g1 (u.start * 0.5)))
+            def late:EVGDisplayList (deck.slideList(0 g2 s1.duration))
+            this.ok(((array_length late.cmds) > (array_length early.cmds)) "sketch: drawn by the end, not before it starts")
+        }
+        ; written again: the slide reads the new file
+        def k2 (new PresSketch())
+        k2.addText(10.0 10.0 "Uusi" "#000" 20.0)
+        deck.setChartData("drawings/a.ink" (k2.toJson()))
+        PresTimeline.planAll(deck)
+        def s1b:PresSlide (deck.slideAt(0))
+        this.ok(((array_length s1b.sketches) == 1) "sketch: still one drawing")
+        if ((array_length s1b.sketches) == 1) {
+            def ub:PresSketchUse (itemAt s1b.sketches 0)
+            this.ok(((ub.sketch.count()) == 1) "sketch: a file written again is read again")
+        }
+        ; the editor: a second click edits text only when the first was on it
+        def ui (new PresSketchUi())
+        ui.on = true
+        ui.palette.setTool("select")
+        def km (new PresSketch())
+        def ti:int (km.addText(100.0 100.0 "Hei" "#000" 30.0))
+        ui.pressSlide(10.0 300.0 1 km)
+        ui.release(km)
+        ui.pressSlide(105.0 110.0 2 km)
+        ui.release(km)
+        this.ok((ui.typing < 0) "sketch ui: a double click begun elsewhere picks, does not edit")
+        this.ok((ui.picked == ti) "sketch ui: the text is picked")
+        ui.pressSlide(105.0 110.0 2 km)
+        this.ok((ui.typing == ti) "sketch ui: a double click on the text edits it")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -2546,6 +2712,7 @@ class PresCheck {
         c.htmlPage()
         c.traceChecks()
         c.imageDrag()
+        c.sketches()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"
