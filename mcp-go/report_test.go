@@ -420,3 +420,22 @@ func TestPrintReportSafeArea(t *testing.T) {
 		t.Fatal(n)
 	}
 }
+
+// A quote nested three deep is one element: its bars span every level's
+// paragraph, and are not reported as quotes drawn over each other
+func TestReportNestedQuoteIsOneElement(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "Quotes", "markdown": "## Blockquotes\n\n> Blockquotes can also be nested...\n>> ...by using additional greater-than signs right next to each other...\n> > > ...or with spaces between arrows.\n",
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	text := textOf(c)
+	if strings.Contains(text, "overlap") {
+		t.Fatalf("nested quotes reported as overlapping:\n%s", text)
+	}
+	match(t, text, `- quote "Blockquotes can also be nested\.\.\." at \d+,\d+`)
+}

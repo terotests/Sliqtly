@@ -8,10 +8,10 @@
 ;   What the speaker says. [[1]] marks where build step 1 lands.
 ;   :::
 ;
-; A `:::` block is not CommonMark, and the markdown module would lay it out as
-; a paragraph of colons. So before the markdown sees the text, every such
-; block is MASKED: its characters become spaces and its newlines stay. The
-; masked text has exactly the length and the line breaks of the original, so
+; A `:::` block is not CommonMark. Before the markdown sees the text, every
+; `::: notes` and `::: audio` block (isDeckBlock; any other word is the
+; markdown's own container) is MASKED: its characters become spaces and its
+; newlines stay. The masked text has exactly the length and the line breaks of the original, so
 ; every offset the layout hands back (a box's `srcStart`, a click's caret)
 ; is an offset into the text the editor holds. Nothing has to be mapped.
 ;
@@ -20,7 +20,7 @@
 ; ============================================================================
 
 class PresBlock {
-    ; "notes", "audio", or whatever word followed the colons
+    ; "notes" or "audio"
     def kind:string ""
     ; the rest of the opening line, e.g. `src=puhe-3.mp3`
     def args:string ""
@@ -67,6 +67,13 @@ class PresSource {
             return ""
         }
         return (trim (substring rest sp (strlen rest)))
+    }
+
+    ; The deck's own blocks. Any other `::: word` (markdown-it's custom
+    ; containers: `::: warning`, `::: tip`) is the markdown's, a plate
+    ; around its content, and stays in the text.
+    sfn isDeckBlock:boolean (word:string) {
+        return ((word == "notes") || (word == "audio"))
     }
 
     sfn isClosing:boolean (t:string) {
@@ -123,7 +130,7 @@ class PresSource {
                 }
                 if (! inFence) {
                     def word:string (PresSource.openingWord(line))
-                    if ((strlen word) > 0) {
+                    if (PresSource.isDeckBlock(word)) {
                         def b (new PresBlock())
                         b.kind = word
                         b.args = (PresSource.openingArgs(line))

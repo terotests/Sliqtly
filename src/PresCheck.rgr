@@ -59,6 +59,11 @@ class PresCheck {
         this.ok(((array_length src.blocks) == 2) "two ::: blocks")
         def nb:PresBlock (itemAt src.blocks 0)
         this.ok((nb.body == "Puhe ensin. [[1]] Sitten.") ("notes body: " + nb.body))
+        ; a markdown container is the markdown's: it stays in the text
+        def wsrc (new PresSource())
+        wsrc.read("## A\n\n::: warning\n*here be dragons*\n:::\n")
+        this.ok(((array_length wsrc.blocks) == 0) "::: warning is not a deck block")
+        this.ok(((indexOf wsrc.masked "here be dragons") > 0) "::: warning keeps its content")
 
         def deck (new PresDeck())
         deck.setText(text)
