@@ -2524,7 +2524,7 @@ class PresDeck {
             }
         }
         if ((((strlen s.fx) > 0) && ((PresDeck.fxOnTop(s.fx)) == false)) && (useStill == false)) {
-            this.addFx(out s paper)
+            this.addFx(out s (PresDeck.fxPaper(s paper)))
             while ((array_length groupOfCmd) < (array_length out.cmds)) {
                 push groupOfCmd -1
             }
@@ -3041,7 +3041,7 @@ class PresDeck {
             if (PresDeck.fxOnTop(s.fx)) {
                 this.addFx(out s "")
             } {
-                this.addFx(out s paper)
+                this.addFx(out s (PresDeck.fxPaper(s paper)))
             }
         }
         return out
@@ -3051,6 +3051,16 @@ class PresDeck {
     ; WebGL painter) rather than paint a picture of their own.
     sfn fxOnTop:boolean (fx:string) {
         return ((((fx == "liquid-glass") || (fx == "raindrop")) || (fx == "bubbles")) || (fx == "drops")) || (fx == "raindrops2")
+    }
+
+    ; The colour an effect drawn under the content lays down first: the
+    ; page's, unless the slide has its own picture (`bg=`), which the effect
+    ; is drawn over, so `bg=sky.svg fx=starfield` is stars over the sky
+    sfn fxPaper:string (s:PresSlide paper:string) {
+        if ((strlen s.bg) > 0) {
+            return ""
+        }
+        return paper
     }
 
     ; The slide's surface effect: an element as big as the slide, dressed by

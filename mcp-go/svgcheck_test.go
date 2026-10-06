@@ -62,6 +62,39 @@ func TestSvgCheckWarnsOfWhatThePlayerWillNotShow(t *testing.T) {
 	match(t, o.flags[0], `^media/bg\.svg does not draw \(unexpected end of stream\); a browser will not draw it either`)
 }
 
+// An effect under the content is drawn over the slide's own picture, not
+// over the page colour: `bg=` with `fx=starfield` (from an MCP client's
+// title slide) showed a plain dark page
+func TestSlidePictureUnderAnEffect(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	const bg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080"><rect width="1920" height="1080" fill="#00ff00"/><path d="M0 0h960v1080H0z" fill="#ff0000"/></svg>`
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "Sky", "markdown": "# Sky {bg=media/bg.svg fx=starfield}\n\n## Plain {fx=starfield}\n\nText.\n",
+		"images": []any{map[string]any{"name": "bg.svg", "text": bg}},
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	r := call(t, s, "render_slide", map[string]any{"deck_id": id, "slide": 1})
+	if r.IsError {
+		t.Fatal(lastText(r))
+	}
+	img := decodeJPEG(t, r)
+	near(t, "left half", img.At(40, 500), color.RGBA{255, 0, 0, 255})
+	near(t, "right half", img.At(920, 500), color.RGBA{0, 255, 0, 255})
+	// a slide without a picture keeps the page's colour under its effect
+	r = call(t, s, "render_slide", map[string]any{"deck_id": id, "slide": 2})
+	if r.IsError {
+		t.Fatal(lastText(r))
+	}
+	if cr, cg, _, _ := decodeJPEG(t, r).At(40, 500).RGBA(); cr>>8 > 200 && cg>>8 < 60 {
+		t.Error("the picture of slide 1 shows on slide 2")
+	}
+}
+
 func TestSvgCheckSizeAsThePlayer(t *testing.T) {
 	for _, c := range []struct {
 		src  string
