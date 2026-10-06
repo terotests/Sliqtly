@@ -1,6 +1,6 @@
 {
   "hosting": {
-    "public": "web/dist",
+    "public": "web/dist-view",
     "ignore": [
       "**/.*"
     ],
@@ -166,6 +166,13 @@
       },
       {
         "source": "/api/hit",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/api/view/**",
         "run": {
           "serviceId": "sliqtly-mcp",
           "region": "europe-west1"

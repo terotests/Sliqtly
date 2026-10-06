@@ -1,7 +1,9 @@
-// node --test: every file the assistant's preview fetches from the site
-// (mcp-go/assets/preview.html: index.html, its scripts and pictures, and the
-// modules they import) is served with Access-Control-Allow-Origin
-// (firebase.json), or the preview fails with "Failed to fetch".
+// node --test: what Firebase Hosting serves (firebase.json). The site is the
+// viewer's build (scripts/build-view.mjs, page web/view.html), and every file
+// the assistant's preview fetches from it (mcp-go/assets/preview.html:
+// index.html, its scripts and pictures, and the modules they import) is
+// served with Access-Control-Allow-Origin, or the preview fails with
+// "Failed to fetch".
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -22,7 +24,7 @@ function corsExtensions() {
 // what the preview fetches: the page's <script src> and <img src>, and
 // every relative import of those modules, followed through
 function fetched() {
-  const html = fs.readFileSync(path.join(web, "index.html"), "utf8");
+  const html = fs.readFileSync(path.join(web, "view.html"), "utf8");
   const files = new Set();
   const todo = [];
   for (const m of html.matchAll(/<(?:script|img)\b[^>]*\ssrc="\.\/([^"?]+)/g)) {
@@ -32,7 +34,7 @@ function fetched() {
   while (todo.length) {
     const f = todo.pop();
     const file = path.join(web, f);
-    if (!fs.existsSync(file)) continue; // built, not in web/ (pres_app.js, rangerdiff.mjs …)
+    if (!fs.existsSync(file)) continue; // built, not in web/ (gl/evg-webgl.js)
     const text = fs.readFileSync(file, "utf8");
     for (const m of text.matchAll(/\b(?:from|import)\s*\(?\s*["'](\.{1,2}\/[^"']+)["']/g)) {
       const rel = path.posix.normalize(path.posix.join(path.posix.dirname(f), m[1]));
@@ -48,7 +50,29 @@ function fetched() {
 test("every file the preview fetches is served to other origins", () => {
   const ok = corsExtensions();
   const files = fetched();
-  assert.ok(files.includes("main.js") && files.includes("rangerdiff.mjs"), files.join(", "));
+  assert.ok(files.includes("view.js") && files.includes("gl/evg-webgl.js"), files.join(", "));
   const missing = files.filter((f) => !ok.has(path.extname(f).slice(1)));
   assert.deepEqual(missing, []);
+});
+
+const hosting = () => JSON.parse(fs.readFileSync(path.join(root, "firebase.json"), "utf8")).hosting;
+
+test("the site is the viewer's build, not the editor's", () => {
+  assert.equal(hosting().public, "web/dist-view");
+});
+
+test("a shared presentation is the viewer's page, its slides the server's", () => {
+  const rw = hosting().rewrites;
+  const at = (src) => rw.findIndex((r) => r.source === src);
+  assert.equal(rw[at("/s/**")].destination, "/index.html");
+  assert.equal(rw[at("/api/view/**")].run.serviceId, "sliqtly-mcp");
+  // the first rule that matches wins
+  assert.ok(at("/api/view/**") < at("/s/**"));
+});
+
+test("the editor's pages and the engine are not in the viewer's build", async () => {
+  const src = fs.readFileSync(path.join(root, "scripts", "build-view.mjs"), "utf8");
+  for (const f of ["main.js", "pres_app.js", "sliqtly.js", "vfs.js", "rooms.js", "collab.js"]) {
+    assert.ok(!src.includes(`"${f}"`), f);
+  }
 });

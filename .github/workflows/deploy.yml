@@ -1,6 +1,8 @@
-# Builds the editor (web/dist is static: the editor, the layout and the
-# exports all run in the tab) and deploys it to Firebase Hosting, project
-# `sliqtly` (.firebaserc). Ranger is cloned by the build from
+# Builds and checks the editor (web/dist), then deploys the public viewer
+# (web/dist-view, scripts/build-view.mjs) to Firebase Hosting, project
+# `sliqtly` (.firebaserc). The viewer reads /api/view/{id} from the MCP
+# server, so a change to that answer goes out with Deploy MCP (Go) first.
+# Ranger is cloned by the build from
 # presentation.config.json.
 #
 # One-time setting (Settings → Secrets and variables → Actions):
@@ -46,6 +48,11 @@ jobs:
       # built page: no 404 (a chart's data/ file, a font) and no console error.
       - name: Check the sample decks load cleanly
         run: node scripts/check-samples.mjs
+      # The public site is the viewer's build (firebase.json "public"): the
+      # front page and /s/{id} painted from the server's display lists, no
+      # editor and no engine. Opened in Chrome like the samples above.
+      - name: Build and check the public viewer
+        run: node scripts/build-view.mjs && node scripts/check-view.mjs
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}

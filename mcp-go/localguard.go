@@ -101,7 +101,7 @@ func crossOriginReadable(r *http.Request) bool {
 	switch {
 	case p == "/api/status", p == "/api/me":
 		return true
-	case shareAPIPath.MatchString(p):
+	case shareAPIPath.MatchString(p), strings.HasPrefix(p, "/api/view/"):
 		return true
 	case strings.HasPrefix(p, "/api/"), p == "/mcp", strings.HasPrefix(p, "/oauth/"),
 		strings.HasPrefix(p, "/.well-known/"), p == "/settings", p == "/decks":

@@ -1,0 +1,323 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- sliqtly.com: the front page, and the public viewer at /s/{id}
+     (firebase.json). A shared presentation's slides come laid out from the
+     server (/api/view/{id}, mcp-go/rgr/View.rgr) and view.js paints them;
+     the editor is not part of this build (scripts/build-view.mjs). The front
+     page follows the look of Ranger's (terotests.github.io/Ranger: ink,
+     hairline rules, a small monospaced label over every block, one section
+     in the brand colour), with an acid green accent. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="build" content="__BUILD__" />
+<meta name="fonts" content="__FONTS__" />
+<base href="/" />
+<title>Sliqtly: better slides through MCP</title>
+<meta name="description" content="An MCP-native presentation engine for agents: create, inspect, edit and render slide decks without another heavyweight presentation app." />
+<meta name="theme-color" content="#070708" />
+<link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+<!-- a presentation (/s/{id}, or the link the assistant's preview gives in
+     <meta name="sliqtly-link">) or the front page, decided before the first
+     paint so neither flashes over the other -->
+<script>
+  (function () {
+    var m = document.querySelector('meta[name="sliqtly-link"]');
+    var h = m ? m.content : location.hash;
+    if (/^\/s\//.test(location.pathname) || /(^#|&)(share|md)=/.test(h)) document.documentElement.classList.add("deck");
+  })();
+</script>
+<style>
+  :root {
+    --accent: #c8ff3c; --accent-hi: #d8ff74;
+    --ink: #070708; --paper: #eeeee8; --dim: #9a9ca3; --dimmer: #6c6e75;
+    --line: rgba(255, 255, 255, .10); --line-2: rgba(255, 255, 255, .20);
+    --grotesk: "Helvetica Neue", "Arial Nova", "Inter", Helvetica, Arial, sans-serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --wrap: 1240px; --pad: clamp(16px, 5vw, 60px);
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--ink); color: var(--paper); }
+  body { font: 400 17px/1.6 var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  html.deck, html.deck body { height: 100%; overflow: hidden; overscroll-behavior: none; background: #0b0f1f; }
+  html.deck .home { display: none; }
+  html:not(.deck) #c, html:not(.deck) #brandIntro, html:not(.deck) #viewBar { display: none !important; }
+
+  /* ------------------------------------------------ the front page ---- */
+  .home a { color: inherit; }
+  .home :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .wrap { max-width: var(--wrap); margin-inline: auto; padding-inline: var(--pad); }
+  .label { font: 400 11.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin: 0 0 18px; }
+  .display { font-family: var(--grotesk); font-weight: 800; letter-spacing: -.04em; line-height: .94; margin: 0 0 28px; text-wrap: balance; }
+  .display--xl { font-size: clamp(48px, 9vw, 128px); }
+  .display--lg { font-size: clamp(34px, 5.6vw, 76px); }
+  .accent { color: var(--accent); }
+  .home p { margin: 0 0 16px; }
+  .home p:last-child { margin-bottom: 0; }
+  .lead { color: var(--dim); font-size: clamp(16px, 1.5vw, 19px); max-width: 64ch; }
+  .lead--mono { font: 15px/1.6 var(--mono); }
+  .lead.accent { color: var(--accent); }
+
+  .nav { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 26px;
+    padding: 13px var(--pad); background: rgba(7, 7, 8, .92); border-bottom: 1px solid var(--line); }
+  .nav__brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 700 16px/1 var(--grotesk); }
+  .nav__brand img { width: 22px; height: 22px; }
+  .nav__links { display: flex; gap: 20px; margin-left: 8px; }
+  .nav__links a { color: var(--dim); text-decoration: none; font: 13px/1 var(--mono); }
+  .nav__links a:hover { color: var(--paper); }
+  .nav__cta { margin-left: auto; }
+  @media (max-width: 760px) { .nav__links { display: none; } }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 18px;
+    font: 500 13.5px/1 var(--mono); text-decoration: none; white-space: nowrap; border: 1px solid var(--line-2); color: var(--paper); }
+  .btn:hover { border-color: var(--paper); }
+  .btn--solid { background: var(--accent); border-color: var(--accent); color: var(--ink); font-weight: 600; }
+  .btn--solid:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+  .btn--lg { height: 50px; padding: 0 24px; font-size: 14.5px; }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: clamp(32px, 4vw, 48px); }
+
+  .hero { padding: clamp(56px, 8vw, 120px) 0 clamp(56px, 7vw, 96px); border-bottom: 1px solid var(--line); }
+  .hero .sub { font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--grotesk); letter-spacing: -.015em; margin: 0 0 14px; max-width: 30ch; }
+  .section { padding: clamp(64px, 8vw, 112px) 0; border-bottom: 1px solid var(--line); }
+
+  /* thin boxes: the engine block, the claims, the flow */
+  .box { border: 1px solid var(--line-2); padding: clamp(22px, 3vw, 36px); }
+  /* "Sliqtly" stays, the word after it and its line roll up and the next
+     comes from below (the script at the end of the page) */
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; margin: 0; padding: 0; }
+  .roll__head { font: 800 clamp(34px, 7.4vw, 104px)/1.02 var(--grotesk); letter-spacing: -.04em; margin: 0 0 24px; white-space: nowrap; }
+  .roll__stack { display: inline-grid; overflow: hidden; vertical-align: bottom; }
+  .roll__text { display: grid; max-width: 52ch; }
+  .roll__stack > * { grid-area: 1 / 1; transform: translateY(105%); opacity: 0;
+    transition: transform .6s cubic-bezier(.6, 0, .2, 1), opacity .6s; }
+  .roll__stack > .on { transform: none; opacity: 1; }
+  .roll__stack > .off { transform: translateY(-105%); opacity: 0; }
+  .roll__text > p { color: var(--dim); font-size: clamp(16px, 1.6vw, 20px); margin: 0; }
+  @media (prefers-reduced-motion: reduce) { .roll__stack > * { transition: none; } }
+  .tablebox { border: 1px solid var(--line-2); overflow-x: auto; }
+  .measure { width: 100%; border-collapse: collapse; font: 15px/1.4 var(--mono); min-width: 560px; }
+  .measure th, .measure td { text-align: left; padding: 16px 20px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .measure tbody tr:last-child > * { border-bottom: 0; }
+  .measure thead th { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); font-weight: 400; }
+  .measure thead th.accent { color: var(--accent); }
+  .measure tbody th { font-weight: 400; color: var(--dim); }
+  .measure td { color: var(--paper); font-size: 17px; }
+  .measure td.accent { color: var(--accent); font-weight: 700; }
+  .measure .note { display: block; font-size: 12px; color: var(--dimmer); margin-top: 4px; }
+  .flow { font: 15px/1.7 var(--mono); color: var(--paper); margin: 0; white-space: pre; overflow-x: auto; }
+  .flow b { color: var(--accent); font-weight: 400; }
+  .split { display: grid; gap: clamp(28px, 4vw, 56px); grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); align-items: start; }
+  .cmd { font: 13px/1 var(--mono); color: var(--dim); border: 1px dashed var(--line-2); padding: 14px; max-width: 100%; overflow-x: auto; white-space: nowrap; }
+
+  /* the notice: the accent's border, never easy to miss */
+  .notice { border: 1px solid var(--accent); padding: clamp(24px, 4vw, 48px); max-width: 86ch; }
+  .notice .display { color: var(--accent); }
+  .notice p:not(.label) { color: var(--paper); font-size: 16px; }
+  .foot { padding: 44px 0 56px; }
+  .foot__in { display: flex; flex-wrap: wrap; gap: 18px 32px; justify-content: space-between; align-items: flex-start; font: 13px/1.6 var(--mono); color: var(--dimmer); }
+  .foot__in strong { color: var(--paper); font: 700 16px/1.4 var(--grotesk); display: block; }
+  .foot__in nav { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+  .foot__in a { color: var(--dim); text-decoration: none; }
+  .foot__in a:hover { color: var(--accent); }
+
+  /* --------------------------------------------------- a presentation ---- */
+  #c { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: default; }
+  body.idle #c { cursor: none; }
+  /* Sliqtly's logo and name: the screen while the slides load, and the
+     intro every shared presentation opens with (web/brand.js) */
+  #brandIntro {
+    position: fixed; inset: 0; z-index: 30; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: clamp(10px, 2.5vmin, 24px); color: #fafafa; font-family: "Open Sans", system-ui, sans-serif;
+    background: radial-gradient(ellipse at 50% 45%, #1a2147 0%, #0b0f1f 70%);
+    transition: opacity .35s;
+  }
+  #brandIntro[hidden] { display: none; }
+  #brandIntro.out { opacity: 0; pointer-events: none; }
+  #brandIntro .logo { width: clamp(96px, 24vmin, 220px); height: auto; animation: introTurn 1.2s cubic-bezier(.5, 0, .25, 1) both; }
+  #brandIntro .name { font-size: clamp(48px, 13vmin, 150px); font-weight: 700; letter-spacing: .01em; line-height: 1; animation: introRise .6s .55s ease-out both; }
+  #brandIntro .site { font-size: clamp(15px, 2.6vmin, 26px); opacity: .7; animation: introRise .6s .8s ease-out both; }
+  #brandIntro .note { max-width: min(520px, calc(100vw - 32px)); text-align: center; font-size: 15px; opacity: .85; }
+  #brandIntro .note:empty { display: none; }
+  #brandIntro .note a { color: #93c5fd; }
+  @keyframes introTurn {
+    0% { transform: perspective(600px) scale(.4) rotateY(0deg); opacity: 0; }
+    25% { opacity: 1; }
+    100% { transform: perspective(600px) scale(1) rotateY(360deg); opacity: 1; }
+  }
+  @keyframes introRise { from { transform: translateY(18px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    #brandIntro .logo, #brandIntro .name, #brandIntro .site { animation: none; }
+  }
+  /* the way round the slides: a small bar that fades when nothing moves */
+  #viewBar { position: fixed; right: 16px; bottom: 16px; display: flex; gap: 8px; z-index: 5; transition: opacity .4s; }
+  #viewBar[hidden] { display: none; }
+  body.idle #viewBar { opacity: 0; pointer-events: none; }
+  #viewBar > button, #viewBar > input {
+    height: 44px; min-width: 44px; border-radius: 22px; border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(24, 24, 27, 0.72); color: #fafafa; font-size: 18px; cursor: pointer;
+  }
+  #viewBar > #vCount, #viewBar > #vGo {
+    padding: 0 14px; font: 15px/1 "Open Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  #viewBar > #vGo { width: 88px; text-align: center; border-color: #60a5fa; cursor: text; }
+  #viewBar > [hidden] { display: none; }
+</style>
+</head>
+<body>
+<div class="home">
+  <header class="nav">
+    <a class="nav__brand" href="/"><img src="./favicon.svg" alt="" width="22" height="22" />Sliqtly</a>
+    <nav class="nav__links" aria-label="Sections">
+      <a href="#why">Why</a>
+      <a href="#measured">Measured</a>
+      <a href="#mcp">MCP</a>
+      <a href="#terms">Terms</a>
+    </nav>
+    <div class="nav__cta"><a class="btn btn--solid" href="/connect.html">Connect via MCP</a></div>
+  </header>
+  <main>
+    <section class="hero">
+      <div class="wrap">
+        <p class="label">MCP-native presentation engine</p>
+        <h1 class="display display--xl">Sliqtly<br /><span class="accent">better slides.</span></h1>
+        <p class="sub">An MCP-native presentation engine for agents.</p>
+        <p class="lead">Create, inspect, edit and render slide decks without another heavyweight presentation app.</p>
+        <div class="actions">
+          <a class="btn btn--solid btn--lg" href="/connect.html">Connect via MCP</a>
+          <a class="btn btn--lg" href="/connect.html">Read the docs</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap">
+        <div class="box">
+          <p class="label">The engine</p>
+          <h2 class="display display--lg">Slides are files.<br />Sliqtly is the engine.</h2>
+          <p class="lead">Your AI agent can inspect slides, edit content, change layouts, render previews and export the finished deck through MCP.</p>
+          <p class="lead lead--mono accent">No proprietary editor required.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="why">
+      <div class="wrap">
+        <p class="label">Why Sliqtly</p>
+        <div class="box roll" id="roll">
+          <ul class="sr"><li>Sliqtly faster. Go from prompt to editable deck without bouncing between chat, PowerPoint and export workflows.</li><li>Sliqtly smaller. A focused presentation engine instead of another giant office suite.</li><li>Sliqtly cheaper. Use the tools and models you already have. Sliqtly handles the slides.</li><li>Sliqtly yours. Designed for local and hosted workflows.</li></ul>
+          <h2 class="roll__head" aria-hidden="true">Sliqtly <span class="roll__stack accent"><span class="on">faster.</span><span>smaller.</span><span>cheaper.</span><span>yours.</span></span></h2>
+          <div class="roll__stack roll__text" aria-hidden="true">
+            <p class="on">Go from prompt to editable deck without bouncing between chat, PowerPoint and export workflows.</p>
+            <p>A focused presentation engine instead of another giant office suite.</p>
+            <p>Use the tools and models you already have. Sliqtly handles the slides.</p>
+            <p>Designed for local and hosted workflows.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="measured">
+      <div class="wrap">
+        <p class="label">Measured by Claude Opus 5.5</p>
+        <h2 class="display display--lg">4× fewer tokens than PowerPoint.<br /><span class="accent">20× fewer than Google Slides.</span></h2>
+        <div class="tablebox">
+          <table class="measure">
+            <thead><tr><th>Same 6-slide deck, tokens</th><th class="accent">Sliqtly</th><th>PowerPoint (python-pptx)</th><th>Google Slides (API)</th></tr></thead>
+            <tbody>
+              <tr><th>Create, the AI writes</th><td class="accent">~256</td><td>~956</td><td>~5,177 <span class="note">100 requests + 3 Sheets calls</span></td></tr>
+              <tr><th>Edit, the AI writes</th><td class="accent">~54</td><td>~182</td><td>~280</td></tr>
+              <tr><th>Read before editing</th><td class="accent">0–256</td><td>~407</td><td>5,000+</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="mcp">
+      <div class="wrap">
+        <p class="label">Built for agents</p>
+        <h2 class="display display--lg">Connect <span class="accent">with MCP.</span></h2>
+        <div class="split">
+          <div class="box">
+<pre class="flow">Your agent
+   <b>↓</b>
+  MCP
+   <b>↓</b>
+Sliqtly
+   <b>↓</b>
+deck <b>→</b> render <b>→</b> edit <b>→</b> export</pre>
+          </div>
+          <div>
+            <p class="lead">Works with MCP-capable agents and clients. Let the agent see the slide, modify it, render it again and iterate.</p>
+            <div class="actions">
+              <a class="btn btn--solid btn--lg" href="/connect.html">Connect via MCP</a>
+              <span class="cmd">https://sliqtly.com/mcp</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="terms">
+      <div class="wrap"><div class="notice">
+        <p class="label">Terms</p>
+        <h2 class="display display--lg">Experimental service — use at your own risk</h2>
+        <p>Sliqtly is currently provided as an experimental service on an "AS IS" and "AS AVAILABLE" basis, without warranties of any kind, whether express or implied.</p>
+        <p>The service may contain errors, experience interruptions, change without notice, or result in loss or corruption of data. You are solely responsible for maintaining appropriate backups of any files or content you use with the service.</p>
+        <p>Do not upload, store, process or transmit confidential, sensitive, secret, regulated, personal health, financial, authentication, or other information that requires secure or guaranteed handling.</p>
+        <p>To the maximum extent permitted by applicable law, the operator of Sliqtly shall not be liable for loss of data, loss of business, loss of profits, service interruptions, indirect or consequential damages, or other losses resulting from the use of or inability to use the service.</p>
+        <p>By using the service, you acknowledge that it is experimental and that you use it at your own risk.</p>
+      </div></div>
+    </section>
+  </main>
+  <footer class="foot">
+    <div class="wrap foot__in">
+      <div><strong>Sliqtly — Better slides through MCP.</strong>Experimental software · As Is · No confidential data</div>
+      <nav aria-label="Links"><a href="/connect.html">Docs</a><a href="#terms">Terms</a></nav>
+    </div>
+  </footer>
+</div>
+
+<script>
+  // the four claims in turn, every 3 s while the page is in view
+  (function () {
+    var roll = document.getElementById("roll");
+    if (!roll || document.documentElement.classList.contains("deck")) return;
+    var stacks = roll.querySelectorAll(".roll__stack");
+    var n = stacks[0].children.length, i = 0;
+    setInterval(function () {
+      if (document.hidden) return;
+      var j = (i + 1) % n;
+      stacks.forEach(function (st) {
+        var old = st.children[i], next = st.children[j];
+        // the next one starts below, without sliding there
+        next.style.transition = "none";
+        next.classList.remove("off");
+        void next.offsetWidth;
+        next.style.transition = "";
+        old.classList.remove("on");
+        old.classList.add("off");
+        next.classList.add("on");
+      });
+      i = j;
+    }, 3000);
+  })();
+</script>
+
+<canvas id="c" aria-label="Presentation"></canvas>
+<div id="brandIntro" role="img" aria-label="Sliqtly"><img class="logo" src="./favicon.svg" alt="" width="220" height="220" /><span class="name">Sliqtly</span><span class="site">sliqtly.com</span><span id="note" class="note" role="status"></span></div>
+<script>window.__introAt = performance.now();</script>
+<div id="viewBar" aria-label="Presentation controls" hidden>
+  <button id="vFirst" title="First slide (Home)">⏮&#xFE0E;</button>
+  <button id="vPrev" title="Previous (←)">◀</button>
+  <button id="vNext" title="Next (→, Space)">▶</button>
+  <button id="vCount" title="Go to slide… (type the number and Enter)" aria-live="polite">1 / 1</button>
+  <input id="vGo" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" aria-label="Slide number" hidden />
+  <button id="vFull" title="Full screen">⛶</button>
+</div>
+<script type="module" src="./view.js?v=__BUILD__"></script>
+</body>
+</html>

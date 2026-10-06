@@ -15,6 +15,7 @@ Import "OAuth.rgr"
 Import "Tools.rgr"
 Import "Mcp.rgr"
 Import "Stats.rgr"
+Import "View.rgr"
 
 class App {
     sfn cors:void (res:HttpResponse) {
@@ -90,6 +91,21 @@ class App {
     ; The page's visit beacon (web/main.js countVisit, Stats.rgr): counted
     ; only when it comes from the site itself. Always 204, so the page learns
     ; nothing; the answer waits for the write.
+    ; the public viewer's deck (View.rgr): the same for everyone who has the
+    ; link, so a minute in the CDN's cache (Hosting keeps a rewrite's answer
+    ; by its Cache-Control) spares the layout for the next reader
+    sfn serveView:void (host:McpHost req:HttpRequest res:HttpResponse id:string) {
+        def q:MfJ (J.parse((http_query_json req)))
+        def body:string (View.json(host id (q.str_("slides"))))
+        if ((strlen body) == 0) {
+            http_set_header res "Cache-Control" "no-store"
+            App.sendJson(res 404 "{\"error\":\"This shared presentation was not found.\"}")
+            return
+        }
+        http_set_header res "Cache-Control" "public, max-age=30, s-maxage=60"
+        App.sendJson(res 200 body)
+    }
+
     sfn serveHit:void (host:McpHost req:HttpRequest res:HttpResponse) {
         def body:string (host_body_json host)
         def origin:string (http_get_header req "Origin")
@@ -136,6 +152,10 @@ class App {
         }
         if ((path == "/api/hit") && (method == "POST")) {
             App.serveHit(host req res)
+            return
+        }
+        if (((method == "GET") || (method == "HEAD")) && ((indexOf path "/api/view/") == 0)) {
+            App.serveView(host req res (substring path 10 (strlen path)))
             return
         }
         http_set_header res "Content-Type" "text/plain; charset=utf-8"

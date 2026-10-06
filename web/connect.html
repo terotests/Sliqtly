@@ -76,7 +76,7 @@
       <li>Open <b>Customize → Connectors</b> (in older versions <b>Settings → Connectors</b>).</li>
       <li>Click <b>Add custom connector</b>.</li>
       <li>Name: <code>Sliqtly</code>. URL: <code>https://sliqtly.com/mcp</code>.</li>
-      <li>Authentication: <b>Sign in now</b> keeps the presentations in your own Sliqtly account (Google, the same as PRO in the editor). <b>No sign-in</b> works too, for text only: the presentations then belong to no account, are open to anyone with their link, and are deleted 30 days after their last change. Pictures and data files need sign-in.</li>
+      <li>Authentication: <b>Sign in now</b> keeps the presentations in your own Sliqtly account (Google). <b>No sign-in</b> works too, for text only: the presentations then belong to no account, are open to anyone with their link, and are deleted 30 days after their last change. Pictures and data files need sign-in.</li>
       <li>Click <b>Add</b>, and with sign-in, <b>Connect</b>: a Sliqtly page asks you to continue with Google.</li>
     </ol>
     <h3>Team and Enterprise</h3>
@@ -163,7 +163,7 @@
     <p>The assistant gets these tools:</p>
     <table class="tools">
       <tr><td><code>sliqtly_guide</code></td><td>The Markdown syntax, themes and CSS selectors.</td></tr>
-      <tr><td><code>create_presentation</code></td><td>Makes the presentation (with its pictures and Excel, CSV or JSON data) and returns its link, plus a link that opens a copy in the Sliqtly editor.</td></tr>
+      <tr><td><code>create_presentation</code></td><td>Makes the presentation (with its pictures and Excel, CSV or JSON data) and returns its link.</td></tr>
       <tr><td><code>update_presentation</code></td><td>Changes it later, keeping the same link.</td></tr>
       <tr><td><code>bind_chart_data</code></td><td>Connects a chart to live data: a CSV or JSON address, or a Google Sheet shared with anyone who has the link.</td></tr>
       <tr><td><code>get_presentation</code></td><td>Reads a presentation back by its link's id.</td></tr>
@@ -173,7 +173,8 @@
       <tr><td><code>vectorize_image</code></td><td>Turns a PNG or JPEG into a sharp SVG, and puts it where the picture was used, background images included.</td></tr>
       <tr><td><code>list_presentations</code></td><td>Lists your own presentations (signed in).</td></tr>
     </table>
-    <p class="note">Signed in, a presentation is yours: the assistant can list and change it later, and you can change it in the editor with the same Google account. Anyone with a presentation's link can view it, so do not put anything secret in it. Pictures are fetched from public https addresses or sent by the assistant, up to 5 MB each, when you are signed in.</p>
+    <p class="note">Signed in, a presentation is yours: the assistant can list and change it later. Anyone with a presentation's link can view it, so do not put anything secret in it. Pictures are fetched from public https addresses or sent by the assistant, up to 5 MB each, when you are signed in.</p>
+    <p class="note">Sliqtly is provided as is, and you store data in it at your own risk: read the <a href="/#terms">terms</a>.</p>
   </section>
 </main>
 <script>

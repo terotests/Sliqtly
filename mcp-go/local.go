@@ -179,7 +179,7 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.settingsPage(w)
 		return
 	}
-	if strings.HasPrefix(p, "/api/") && p != "/api/hit" {
+	if strings.HasPrefix(p, "/api/") && p != "/api/hit" && !strings.HasPrefix(p, "/api/view/") {
 		s.api(w, r)
 		return
 	}

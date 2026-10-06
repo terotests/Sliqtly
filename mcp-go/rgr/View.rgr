@@ -1,0 +1,111 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; A shared presentation for the public viewer: GET /api/view/<id>
+; [?slides=<keys>]. The deck is laid out here, with the editor's own model
+; (Check.prepare, as render_slide lays it out), and each slide goes to the
+; page as its display list at rest. The page (web/view.js) only paints
+; the lists, so the site ships a painter and no Markdown, layout or chart
+; code.
+;
+;   { "deck": { "name", "width", "height", "slides",
+;               "files": [{ "path", "type", "url" }] },
+;     "lists": [ <EVGDisplayList.toJson>, … ] }
+;
+; `files` are the deck's stored files a list draws (pictures, by the
+; "/media/<name>" a command's src names). `slides`: a view of only those
+; sections (PresPick keys, the link the editor's picked slides share).
+; =============================================================================
+
+Import "McpHost.rgr"
+Import "McpJson.rgr"
+Import "Tools.rgr"
+Import "../presentation/PresPick.rgr"
+
+class View {
+    ; the answer's body, or "" when there is no such presentation
+    sfn json:string (host:McpHost id:string keys:string) {
+        if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
+            return ""
+        }
+        def doc:MfJ (Store.get(host id))
+        if ((strlen (host_error host)) > 0) {
+            host_log host ("view " + id + ": " + (host_error host))
+            host_clear_error host
+            return ""
+        }
+        if ((doc.isObj()) == false) {
+            return ""
+        }
+        ; a private deck is its owner's only, and the viewer has no
+        ; sign-in: it is "not found" here like a missing one
+        if ((doc.str_("visibility")) == "private") {
+            return ""
+        }
+        def md:string (doc.str_("md"))
+        def stored:[string]
+        for (doc.list("files")) f:MfJ fi {
+            push stored (f.str_("path"))
+        }
+        def noImgs:[Img]
+        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def din (new DeckIn)
+        din.deckId = id
+        din.stored = stored
+        din.live = true
+        din.md = md
+        def css:MfJ (doc.field("css"))
+        din.css = (Tools.sheetFor(host (doc.str_("theme")) (css.kind == 3) (doc.str_("css"))))
+        din.pics = bgs.pics
+        din.data = bgs.data
+        din.types = bgs.types
+        def c (new Checked)
+        def d:PresDeck (Check.prepare(host din c))
+        if ((strlen keys) > 0) {
+            ; the sections the link names and nothing else: laid out once
+            ; more from their own text, as the player shows such a link
+            def l:MdLayout (d.layout())
+            din.md = (PresPick.viewText(md l.splitLevel keys))
+            if ((strlen din.md) == 0) {
+                ; renamed or deleted since: said, and nothing of the rest shown
+                ; (web/main.js slidesOf)
+                din.md = "# These slides are no longer in the presentation.\n"
+            }
+            d = (Check.prepare(host din (new Checked)))
+        }
+        ; at rest: every build step shown, charts grown (render_slide's state)
+        d.still = true
+        def lists:[string]
+        def n:int (d.slideCount())
+        def i:int 0
+        while (i < n) {
+            def groups:[int]
+            push lists ((d.slideList(i groups 0.0)).toJson())
+            i = (i + 1)
+        }
+        def all:string (join lists ",")
+        def files:MfJ (MfJ.newArr())
+        for (doc.list("files")) f2:MfJ f2i {
+            def path:string (f2.str_("path"))
+            def url:string (f2.str_("url"))
+            if (((strlen path) == 0) || ((strlen url) == 0)) {
+                continue
+            }
+            if ((indexOf all ("\"/" + path + "\"")) < 0) {
+                continue
+            }
+            def o:MfJ (MfJ.newObj())
+            o.putStr("path" path)
+            o.putStr("type" (f2.str_("type")))
+            o.putStr("url" url)
+            files.add(o)
+        }
+        def deck:MfJ (MfJ.newObj())
+        deck.putStr("name" (doc.str_("name")))
+        deck.putNum("width" d.pageW)
+        deck.putNum("height" d.pageH)
+        deck.putInt("slides" n)
+        deck.put("files" files)
+        return ("{\"deck\":" + (JOut.text(deck)) + ",\"lists\":[" + all + "]}")
+    }
+}
