@@ -55,6 +55,9 @@ class RBlock {
     def cells:[RCell]
     ; a table's column headings
     def heads:[string]
+    ; a gallery: its pictures on this slide, and the cropped ones' names
+    def pictures:int 0
+    def cropped:[string]
     ; where its commands drew, as Layout.rgr finds it
     def inkX:double 0.0
     def inkY:double 0.0
@@ -272,7 +275,7 @@ class Report {
 
     sfn what:string (b:RBlock) {
         if ((strlen b.label) > 0) {
-            if (((b.kind == "chart") || (b.kind == "diagram")) || ((b.kind == "picture") || (b.kind == "figure"))) {
+            if ((((b.kind == "chart") || (b.kind == "diagram")) || ((b.kind == "picture") || (b.kind == "figure"))) || (b.kind == "gallery")) {
                 return (b.kind + " (" + b.label + ")")
             }
             return (b.kind + " \"" + (Report.short(b.label 40)) + "\"")
@@ -281,7 +284,7 @@ class Report {
     }
 
     sfn visual:boolean (b:RBlock) {
-        return ((((b.kind == "chart") || (b.kind == "diagram")) || (b.kind == "picture")) || ((b.kind == "figure") || (b.kind == "table")))
+        return (((((b.kind == "chart") || (b.kind == "diagram")) || (b.kind == "picture")) || ((b.kind == "figure") || (b.kind == "table"))) || (b.kind == "gallery"))
     }
 
     sfn slide:RSlideOut (s:RSlide) {
@@ -321,6 +324,9 @@ class Report {
             } {
                 if (b.kind == "table") {
                     line = (line + ": " + (to_string (array_length b.heads)) + " columns")
+                }
+                if ((b.kind == "gallery") && ((array_length b.cropped) > 0)) {
+                    line = (line + ": cropped " + (join b.cropped ", "))
                 }
                 if (ms > 0.0) {
                     line = (line + ", text " + (Report.px(ms k)) + " px")

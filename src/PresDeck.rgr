@@ -2204,6 +2204,16 @@ class PresDeck {
             }
             c = (c + 1)
         }
+        ; A slide a block runs onto (a full-page album's next picture) has no
+        ; heading of its own: the name the layout gave it.
+        def ni:int 0
+        while (ni < (array_length slides)) {
+            def ns:PresSlide (itemAt slides ni)
+            if ((strlen ns.title) == 0) {
+                ns.title = (l.pageName(ni))
+            }
+            ni = (ni + 1)
+        }
         this.readBands(l doc)
         this.readSketches(l)
         ; The notes and the audio go to the slide the block sits under.

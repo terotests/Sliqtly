@@ -71,6 +71,10 @@ class Layout {
             return "quote"
         }
         if ((startsWith line "```") || (startsWith line "~~~")) {
+            def info:string (trim (substring line 3 (strlen line)))
+            if ((info == "gallery") || (startsWith info "gallery ")) {
+                return "gallery"
+            }
             return "code"
         }
         if (((c == 45) || (c == 42)) || (c == 43)) {
@@ -173,7 +177,15 @@ class Layout {
                     }
                 }
             }
-            if (b.kind == 4) {
+            if ((b.kind == 4) && (blk.kind == "gallery")) {
+                ; a gallery's pictures are its cells: counted, and the
+                ; cropped ones named
+                blk.pictures = (blk.pictures + 1)
+                if b.hasCrop {
+                    push blk.cropped (Layout.baseName(b.imagePath))
+                }
+            }
+            if ((b.kind == 4) && (blk.kind != "gallery")) {
                 blk.kind = "picture"
                 ; a SmartArt file is drawn as a diagram, and checked as one
                 if (d.isSmartArtPath(b.imagePath)) {
@@ -196,6 +208,11 @@ class Layout {
             }
             Layout.grow(blk b.x b.y b.w b.h)
             bi = (bi + 1)
+        }
+        for blocks gb:RBlock gbi {
+            if (gb.kind == "gallery") {
+                gb.label = (Layout.galleryLabel(md (itemAt keys gbi) gb.pictures))
+            }
         }
         ; what each block drew: the boxes give the slot, the commands the ink
         def drawn:[boolean]
@@ -598,5 +615,38 @@ class Layout {
             }
         }
         return out
+    }
+
+    ; "grid, 6 pictures" or "full page, 1 picture": the layout from the
+    ; attribute line under the gallery's closing fence
+    sfn galleryLabel:string (md:string at:int pictures:int) {
+        def layout:string "grid"
+        if ((at >= 0) && (at < (strlen md))) {
+            def rest:string (substring md at (strlen md))
+            def lines:[string] (strsplit rest "\n")
+            def open:string ""
+            for lines ln:string li {
+                def t:string (trim ln)
+                if (li == 0) {
+                    open = (substring t 0 3)
+                    continue
+                }
+                if ((strlen open) > 0) {
+                    if (startsWith t open) {
+                        open = ""
+                    }
+                    continue
+                }
+                if ((startsWith t "{") && ((indexOf t "layout=full") >= 0)) {
+                    layout = "full page"
+                }
+                break
+            }
+        }
+        def what:string " pictures"
+        if (pictures == 1) {
+            what = " picture"
+        }
+        return (layout + ", " + (to_string pictures) + what)
     }
 }
