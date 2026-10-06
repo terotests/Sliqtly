@@ -56,6 +56,39 @@
 .theme-retro .ui-drawer-panel { border-right: 3px solid var(--retro-shell-b); }
 .theme-retro .tb-dr-label { color: var(--retro-ink-dim); }
 .theme-retro .tb-dr-sep { background-color: var(--retro-screen-3); }
+/* the deck's name on the bar; its field is a dark display like every input */
+.theme-retro .tb-title-label { color: var(--retro-btn-ink); }
+.theme-retro .tb-title:hover { border: 1px solid var(--retro-edge); }
+.theme-retro .tb-title-box,
+.theme-retro .tb-roomname-box { background-color: var(--retro-screen); border: 1px solid var(--retro-hot-b); }
+
+/* --- the left rail and Rooms beside it: the player's dark side panel --------- */
+.theme-retro .tb-railcol {
+  background: linear-gradient(90deg, var(--retro-screen-2), var(--retro-screen));
+  border-right: 2px solid var(--retro-shell-b);
+}
+.theme-retro .tb-rooms {
+  background: linear-gradient(180deg, var(--retro-screen-2), var(--retro-screen));
+  border-right: 2px solid var(--retro-shell-b);
+}
+.theme-retro .tb-rooms-title { color: var(--retro-hot-b); }
+.theme-retro .tb-icon-room-close,
+.theme-retro .tb-icon-room-new { stroke: var(--retro-ink); }
+.theme-retro .tb-icon-roomgear { stroke: var(--retro-ink-dim); }
+.theme-retro .tb-room-open { background-color: var(--retro-screen-3); }
+.theme-retro .tb-room-name { color: var(--retro-ink); }
+.theme-retro .tb-room-count { color: var(--retro-ink-dim); }
+.theme-retro .tb-roomdeck-label { color: var(--retro-ink-dim); }
+.theme-retro .tb-roomdeck-current { background-color: var(--retro-screen-3); border: 1px solid var(--retro-shell-b); }
+.theme-retro .tb-roomdeck-act { color: var(--retro-hot-b); }
+.theme-retro .tb-rooms-sep { background-color: var(--retro-screen-3); }
+.theme-retro .tb-rooms-note { color: var(--retro-ink-dim); }
+.theme-retro .tb-room-before { border-top: 2px solid var(--retro-hot-b); }
+.theme-retro .tb-room-drop { background-color: var(--retro-screen-3); border: 1px dashed var(--retro-hot-b); }
+.theme-retro .tb-roomsearch { background-color: var(--retro-screen); border: 1px solid var(--retro-screen-3); }
+.theme-retro .tb-roomsearch-label { color: var(--retro-ink-dim); }
+.theme-retro .tb-dragchip { background: linear-gradient(180deg, var(--retro-play-a), var(--retro-play-b)); }
+.theme-retro .tb-dragchip-label { color: var(--retro-btn-ink); }
 
 /* --- the editor tabs, the tracks, the strip: dark displays -------------------- */
 /* the open-presentation row under the bar: a dark screen the tabs sit on */

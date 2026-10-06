@@ -99,16 +99,21 @@ export const roomText = (text) => String(text || "").replace(/\r/g, "").trim().s
 
 // A new room, first in the panel; its id from `idOf` (a fresh one each
 // call). A title already used is still a room of its own, as the server's are.
+// It stays out of `order`: a room not dragged yet comes before the dragged
+// ones and the newest of those first (orderRooms), so a room made here or on
+// the server is on top whatever rooms were made before there was an order.
 export function createRoom(state, title, idOf, { description = "" } = {}) {
   const name = roomTitle(title);
   if (!name) return { state, id: "" };
   let id = "r-" + idOf();
   while (BUILT_IN.includes(id) || state.rooms.some((r) => r.id === id)) id = "r-" + idOf();
   const now = Date.now();
-  const room = { id, title: name, created: now };
+  // newer than every room here, also one made within the same millisecond
+  const created = Math.max(now, ...state.rooms.map((r) => (r.created || 0) + 1));
+  const room = { id, title: name, created };
   if (roomText(description)) room.description = roomText(description);
   return {
-    state: { ...state, rooms: [...state.rooms, room], touched: { ...state.touched, [id]: now }, order: [id, ...(state.order || []).filter((x) => x !== id)] },
+    state: { ...state, rooms: [...state.rooms, room], touched: { ...state.touched, [id]: now } },
     id,
   };
 }

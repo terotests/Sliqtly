@@ -100,6 +100,10 @@ class PresChartEditor {
     def wantsPlace:boolean false
     ; Add and vectorize: placed, then opened in the vectorizer
     def pasteTrace:boolean false
+    ; the picture on its way in is flat (few colours: a drawing, a logo, a
+    ; chart, a screenshot — the page measures it): vectorizing is what
+    ; Add (and Enter) does, since an SVG stays sharp on any screen
+    def pasteVector:boolean false
     ; A picture of the deck's files edited where it is kept (`mode`
     ; "adjust"): the part to keep (`crop`, as for a paste) and its colours,
     ; each -100…100 with 0 leaving it as it is. The page draws the preview
@@ -143,6 +147,9 @@ class PresChartEditor {
     def trDirty:boolean false
     def trReplace:boolean true
     def trUses:int 0
+    ; the SVG traced again (Edit on an SVG of the files): Save writes over
+    ; it; "" a new SVG beside the picture
+    def trTarget:string ""
     def wantsTraceSave:boolean false
     ; A new presentation (`mode` "newdeck"): its name, theme and what data it
     ; starts with ("none", "sample" a chart with a sample table, "file" a
@@ -252,6 +259,7 @@ class PresChartEditor {
         }
         wantsPlace = false
         pasteTrace = false
+        pasteVector = false
         this.openAt(px py pw ph)
     }
 
@@ -996,6 +1004,9 @@ class PresChartEditor {
             this.input("pe-alt" (PresI18n.t("Description")) pasteAlt "ce-wide" al)
             to.addChild(al)
         }
+        if (pasteVector && (pasteTo == "slide")) {
+            pane.addChild((this.text("ce-doc" (PresI18n.t("A drawing with few colors: it is vectorized into an SVG, which stays sharp at any size. The original is kept in the files.")))))
+        }
         if ((strlen pasteNote) > 0) {
             pane.addChild((this.copyable("ce-t-paste" "ce-doc" pasteNote)))
         }
@@ -1003,8 +1014,13 @@ class PresChartEditor {
         def bottom:EVGElement (this.div("ce-foot"))
         this.button("pe-cancel" (PresI18n.t("Cancel")) "outline" bottom)
         bottom.addChild((this.div("ce-grow")))
-        this.button("pe-add-trace" (PresI18n.t("Add and vectorize…")) "outline" bottom)
-        this.button("pe-add" (PresI18n.t("Add image")) "primary" bottom)
+        if (pasteVector && (pasteTo == "slide")) {
+            this.button("pe-add" (PresI18n.t("Add as it is")) "outline" bottom)
+            this.button("pe-add-trace" (PresI18n.t("Add and vectorize…")) "primary" bottom)
+        } {
+            this.button("pe-add-trace" (PresI18n.t("Add and vectorize…")) "outline" bottom)
+            this.button("pe-add" (PresI18n.t("Add image")) "primary" bottom)
+        }
         root.addChild(bottom)
     }
 
@@ -1113,6 +1129,7 @@ class PresChartEditor {
         trBusy = true
         trDirty = false
         trReplace = (uses > 0)
+        trTarget = ""
         wantsTraceSave = false
         this.openAt(px py pw ph)
     }
@@ -1311,7 +1328,11 @@ class PresChartEditor {
             this.trSlider(de "maxSide" (PresI18n.t("Traced at (px)")) 200 2000 100 1 "")
             de.addChild((this.text("ce-doc" (PresI18n.t("The longer side the picture is traced at. More is finer and slower; the SVG is drawn at the picture's own size either way.")))))
         }
-        if (trTab == "use") {
+        if ((trTab == "use") && ((strlen trTarget) > 0)) {
+            def ua:EVGElement (this.section(pane (PresI18n.t("Save"))))
+            ua.addChild((this.text("ce-doc" ((PresI18n.t("Saved over ")) + trTarget + (PresI18n.t(", where the slides already use it."))))))
+        }
+        if ((trTab == "use") && ((strlen trTarget) == 0)) {
             def us:EVGElement (this.section(pane (PresI18n.t("Save"))))
             def uc:EVGElement (this.div("ce-chips"))
             this.chip("tr-rep-on" ((PresI18n.t("Use it where the picture is used")) + " (" + (to_string trUses) + ")") trReplace uc)
@@ -3659,6 +3680,7 @@ class PresChartEditor {
                     wantsSave = true
                 } {
                     wantsPlace = true
+                    pasteTrace = (pasteVector && (pasteTo == "slide"))
                 }
                 wantsClose = true
                 return true

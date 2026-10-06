@@ -1,0 +1,433 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresInk.rgr — lines drawn over a slide while presenting, and the pointer
+; ============================================================================
+;
+; While presenting with the pen on (and always while recording, PresRecord),
+; a press on the slide that moves draws instead of going on, and the pointer
+; over the slide is drawn on it as an arrow, so a recording shows where the
+; speaker pointed. A press that does not move still steps the presentation.
+;
+;   pen      the line as drawn, smoothed
+;   arrow    the same, with a head at its end
+;   line     straight, from the press to the release
+;   ellipse  in the box from the press to the release (a circle round
+;            something)
+;
+; Backspace wipes everything drawn; a new slide starts clean.
+;
+; Everything is in the slide's own units (the stage's list), so the ink
+; scales with the slide and lands on the same words in a replay at another
+; window size. Nothing here knows time but the pointer's: it fades after it
+; has been still a moment, as the mouse pointer does.
+; ============================================================================
+
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
+
+class PresInkStroke {
+    def tool:string "pen"
+    def color:string "#ef4444"
+    ; in slide units (on a slide 1280 wide)
+    def width:double 6.0
+    ; as drawn: x, y, x, y, … For a line and an ellipse only the first and
+    ; the last point count.
+    def pts:[double]
+}
+
+class PresInk {
+    def strokes:[PresInkStroke]
+    ; a stroke is being drawn (the last one)
+    def drawing:boolean false
+    def ptrX:double 0.0
+    def ptrY:double 0.0
+    ; when the pointer last moved (seconds, the caller's clock), -1 never
+    ; or hidden
+    def ptrAt:double -1.0
+    ; bumped on every change, for the host's repaint
+    def rev:int 0
+
+    ; How long the pointer stays after it stops, and how long it fades.
+    sfn PTR_STAY:double () {
+        return 1.5
+    }
+
+    sfn PTR_FADE:double () {
+        return 0.5
+    }
+
+    sfn tools:[string] () {
+        return ([] _:string ("pen" "arrow" "line" "ellipse"))
+    }
+
+    sfn knownTool:boolean (t:string) {
+        return ((((t == "pen") || (t == "arrow")) || (t == "line")) || (t == "ellipse"))
+    }
+
+    fn count:int () {
+        return (array_length strokes)
+    }
+
+    fn down:void (tool:string color:string width:double x:double y:double) {
+        def s (new PresInkStroke())
+        s.tool = tool
+        if ((PresInk.knownTool(tool)) == false) {
+            s.tool = "pen"
+        }
+        s.color = color
+        s.width = width
+        if (s.width <= 0.0) {
+            s.width = 6.0
+        }
+        push s.pts x
+        push s.pts y
+        push strokes s
+        drawing = true
+        rev = (rev + 1)
+    }
+
+    ; The stroke being drawn goes on to (x, y). A line and an ellipse keep
+    ; their first point and the latest one.
+    fn move:void (x:double y:double) {
+        if ((drawing == false) || ((array_length strokes) == 0)) {
+            return
+        }
+        def s:PresInkStroke (itemAt strokes ((array_length strokes) - 1))
+        def n:int (array_length s.pts)
+        if ((s.tool == "line") || (s.tool == "ellipse")) {
+            if (n >= 4) {
+                set s.pts (n - 2) x
+                set s.pts (n - 1) y
+            } {
+                push s.pts x
+                push s.pts y
+            }
+            rev = (rev + 1)
+            return
+        }
+        push s.pts x
+        push s.pts y
+        rev = (rev + 1)
+    }
+
+    fn up:void () {
+        drawing = false
+        rev = (rev + 1)
+    }
+
+    fn clear:void () {
+        def none:[PresInkStroke]
+        strokes = none
+        drawing = false
+        rev = (rev + 1)
+    }
+
+    fn pointer:void (x:double y:double t:double) {
+        ptrX = x
+        ptrY = y
+        ptrAt = t
+        rev = (rev + 1)
+    }
+
+    fn hidePointer:void () {
+        if (ptrAt >= 0.0) {
+            ptrAt = -1.0
+            rev = (rev + 1)
+        }
+    }
+
+    ; 1 while the pointer moves and a moment after, then fading to 0.
+    fn pointerAlpha:double (now:double) {
+        if (ptrAt < 0.0) {
+            return 0.0
+        }
+        def idle:double (now - ptrAt)
+        if (idle < 0.0) {
+            return 1.0
+        }
+        if (idle <= (PresInk.PTR_STAY())) {
+            return 1.0
+        }
+        def f:double ((idle - (PresInk.PTR_STAY())) / (PresInk.PTR_FADE()))
+        if (f >= 1.0) {
+            return 0.0
+        }
+        return (1.0 - f)
+    }
+
+    ; Something on it still changes by itself (the pointer fading): the host
+    ; paints again.
+    fn busy:boolean (now:double) {
+        if (ptrAt < 0.0) {
+            return false
+        }
+        return ((now - ptrAt) <= ((PresInk.PTR_STAY()) + (PresInk.PTR_FADE())))
+    }
+
+    ; --- the shapes ------------------------------------------------------------
+
+    ; Corners cut twice (Chaikin), the ends kept: a hand's line without its
+    ; jitter. Points closer than half a unit to the one before are dropped
+    ; first.
+    sfn smooth:[double] (pts:[double]) {
+        def clean:[double]
+        def n:int (idiv (array_length pts) 2)
+        def i:int 0
+        while (i < n) {
+            def x:double (itemAt pts (i * 2))
+            def y:double (itemAt pts ((i * 2) + 1))
+            def m:int (array_length clean)
+            if (m >= 2) {
+                def dx:double (x - (itemAt clean (m - 2)))
+                def dy:double (y - (itemAt clean (m - 1)))
+                if ((((dx * dx) + (dy * dy)) >= 0.25) || (i == (n - 1))) {
+                    push clean x
+                    push clean y
+                }
+            } {
+                push clean x
+                push clean y
+            }
+            i = (i + 1)
+        }
+        def out:[double] clean
+        def pass:int 0
+        while (pass < 2) {
+            def k:int (idiv (array_length out) 2)
+            if (k < 3) {
+                return out
+            }
+            def next:[double]
+            push next (itemAt out 0)
+            push next (itemAt out 1)
+            def j:int 0
+            while (j < (k - 1)) {
+                def ax:double (itemAt out (j * 2))
+                def ay:double (itemAt out ((j * 2) + 1))
+                def bx:double (itemAt out ((j + 1) * 2))
+                def by:double (itemAt out (((j + 1) * 2) + 1))
+                if (j > 0) {
+                    push next ((0.75 * ax) + (0.25 * bx))
+                    push next ((0.75 * ay) + (0.25 * by))
+                }
+                if (j < (k - 2)) {
+                    push next ((0.25 * ax) + (0.75 * bx))
+                    push next ((0.25 * ay) + (0.75 * by))
+                }
+                j = (j + 1)
+            }
+            push next (itemAt out ((k - 1) * 2))
+            push next (itemAt out (((k - 1) * 2) + 1))
+            out = next
+            pass = (pass + 1)
+        }
+        return out
+    }
+
+    ; The ellipse in the box of (x0, y0) and (x1, y1), as a closed ring.
+    sfn ellipse:[double] (x0:double y0:double x1:double y1:double) {
+        def cx:double ((x0 + x1) / 2.0)
+        def cy:double ((y0 + y1) / 2.0)
+        def rx:double (fabs ((x1 - x0) / 2.0))
+        def ry:double (fabs ((y1 - y0) / 2.0))
+        def out:[double]
+        def segs:int 64
+        def i:int 0
+        while (i <= segs) {
+            def a:double (((to_double i) / (to_double segs)) * 6.283185307179586)
+            push out (cx + (rx * (cos a)))
+            push out (cy + (ry * (sin a)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The line a stroke is drawn as.
+    sfn shape:[double] (s:PresInkStroke) {
+        def n:int (array_length s.pts)
+        if (n < 2) {
+            def none:[double]
+            return none
+        }
+        def x0:double (itemAt s.pts 0)
+        def y0:double (itemAt s.pts 1)
+        def x1:double (itemAt s.pts (n - 2))
+        def y1:double (itemAt s.pts (n - 1))
+        if (s.tool == "line") {
+            def ln:[double]
+            push ln x0
+            push ln y0
+            push ln x1
+            push ln y1
+            return ln
+        }
+        if (s.tool == "ellipse") {
+            return (PresInk.ellipse(x0 y0 x1 y1))
+        }
+        return (PresInk.smooth(s.pts))
+    }
+
+    ; An arrow's head at the end of `line`: a triangle, its tip on the last
+    ; point, pointing the way the last stretch (a few widths of it) went.
+    ; Empty when the line is too short to have a direction.
+    sfn head:[double] (line:[double] width:double) {
+        def out:[double]
+        def n:int (idiv (array_length line) 2)
+        if (n < 2) {
+            return out
+        }
+        def tx:double (itemAt line ((n - 1) * 2))
+        def ty:double (itemAt line (((n - 1) * 2) + 1))
+        def size:double (width * 4.0)
+        if (size < 16.0) {
+            size = 16.0
+        }
+        ; back along the line until it is a head's length away
+        def bx:double tx
+        def by:double ty
+        def i:int (n - 2)
+        while (i >= 0) {
+            bx = (itemAt line (i * 2))
+            by = (itemAt line ((i * 2) + 1))
+            def ddx:double (tx - bx)
+            def ddy:double (ty - by)
+            if (((ddx * ddx) + (ddy * ddy)) >= (size * size)) {
+                i = -1
+            }
+            i = (i - 1)
+        }
+        def dx:double (tx - bx)
+        def dy:double (ty - by)
+        def len:double (sqrt ((dx * dx) + (dy * dy)))
+        if (len < 0.5) {
+            return out
+        }
+        def ux:double (dx / len)
+        def uy:double (dy / len)
+        ; the base: a head's length back, half as wide each way
+        def baseX:double (tx - (ux * size))
+        def baseY:double (ty - (uy * size))
+        def half:double (size * 0.55)
+        push out tx
+        push out ty
+        push out (baseX - (uy * half))
+        push out (baseY + (ux * half))
+        push out (baseX + (uy * half))
+        push out (baseY - (ux * half))
+        return out
+    }
+
+    ; The line stops short of an arrow's tip, so its round end does not show
+    ; past the head.
+    sfn trimEnd:[double] (line:[double] by:double) {
+        def n:int (idiv (array_length line) 2)
+        if (n < 2) {
+            return line
+        }
+        def out:[double]
+        def i:int 0
+        while (i < (n - 1)) {
+            push out (itemAt line (i * 2))
+            push out (itemAt line ((i * 2) + 1))
+            i = (i + 1)
+        }
+        def tx:double (itemAt line ((n - 1) * 2))
+        def ty:double (itemAt line (((n - 1) * 2) + 1))
+        def px:double (itemAt line ((n - 2) * 2))
+        def py:double (itemAt line (((n - 2) * 2) + 1))
+        def dx:double (tx - px)
+        def dy:double (ty - py)
+        def len:double (sqrt ((dx * dx) + (dy * dy)))
+        if (len <= by) {
+            push out px
+            push out py
+            return out
+        }
+        push out (tx - ((dx / len) * by))
+        push out (ty - ((dy / len) * by))
+        return out
+    }
+
+    ; The pointer: the arrow of a mouse pointer, its tip at (x, y), `size`
+    ; units tall. One ring.
+    sfn pointerShape:[double] (x:double y:double size:double) {
+        def u:double (size / 24.0)
+        def xs:[double] ([] _:double (0.0 0.0 5.6 9.4 12.6 9.0 16.0))
+        def ys:[double] ([] _:double (0.0 21.0 16.2 23.8 22.4 14.8 14.8))
+        def out:[double]
+        def i:int 0
+        while (i < (array_length xs)) {
+            push out (x + ((itemAt xs i) * u))
+            push out (y + ((itemAt ys i) * u))
+            i = (i + 1)
+        }
+        push out x
+        push out y
+        return out
+    }
+
+    ; Everything drawn and the pointer into `dl`, in slide units; `unit` is
+    ; the slide's width over 1280 (the pointer's size follows the slide).
+    fn draw:void (dl:EVGDisplayList now:double unit:double) {
+        def i:int 0
+        while (i < (array_length strokes)) {
+            def s:PresInkStroke (itemAt strokes i)
+            PresInk.drawStroke(dl s)
+            i = (i + 1)
+        }
+        def a:double (this.pointerAlpha(now))
+        if (a > 0.0) {
+            def ring:[double] (PresInk.pointerShape(ptrX ptrY (30.0 * unit)))
+            dl.addPolygon(ring (EVGColor.rgba(255 255 255 a)))
+            dl.addPolyline(ring (2.0 * unit) (EVGColor.rgba(17 17 17 a)))
+            this.roundLast(dl)
+        }
+    }
+
+    fn roundLast:void (dl:EVGDisplayList) {
+        def n:int (array_length dl.cmds)
+        if (n > 0) {
+            def c:EVGDrawCmd (itemAt dl.cmds (n - 1))
+            c.strokeCap = 1
+            c.strokeJoin = 1
+        }
+    }
+
+    sfn drawStroke:void (dl:EVGDisplayList s:PresInkStroke) {
+        def col:EVGColor (EVGColor.parse(s.color))
+        def line:[double] (PresInk.shape(s))
+        if ((array_length line) < 2) {
+            return
+        }
+        if ((array_length line) == 2) {
+            ; a dot: a press that only just moved
+            def dot:[double] (PresInk.ellipse(((itemAt line 0) - (s.width / 2.0)) ((itemAt line 1) - (s.width / 2.0)) ((itemAt line 0) + (s.width / 2.0)) ((itemAt line 1) + (s.width / 2.0))))
+            dl.addPolygon(dot col)
+            return
+        }
+        if (s.tool == "arrow") {
+            def hd:[double] (PresInk.head(line s.width))
+            if ((array_length hd) == 6) {
+                def size:double (s.width * 4.0)
+                if (size < 16.0) {
+                    size = 16.0
+                }
+                PresInk.strokeLine(dl (PresInk.trimEnd(line (size * 0.6))) s.width col)
+                dl.addPolygon(hd col)
+                return
+            }
+        }
+        PresInk.strokeLine(dl line s.width col)
+    }
+
+    sfn strokeLine:void (dl:EVGDisplayList line:[double] width:double col:EVGColor) {
+        dl.addPolyline(line width col)
+        def n:int (array_length dl.cmds)
+        if (n > 0) {
+            def c:EVGDrawCmd (itemAt dl.cmds (n - 1))
+            c.strokeCap = 1
+            c.strokeJoin = 1
+        }
+    }
+}

@@ -52,7 +52,7 @@ class PresPanels {
     ; The editor's skin ("" or "retro"): a theme name added to this host's own.
     def skin:string ""
     ; the standard skin's colours as chosen: "light", "dark" or "system"
-    def lookMode:string "system"
+    def lookMode:string "light"
     ; ...and its base colour, as a hue (`--retro-hue`).
     def skinHue:double 88.0
     def w:double 1200.0
@@ -1024,7 +1024,9 @@ class PresPanels {
             return row
         }
         if (kind == "image") {
-            if (PresPanels.editable(path)) {
+            ; an SVG: Edit vectorizes its picture again, while the picture
+            ; is in the files (the page marks the row `retrace`)
+            if ((PresPanels.editable(path)) || (f.boolOr("retrace" false))) {
                 this.act("imgedit" path (PresI18n.t("Edit")) "secondary" row)
             }
             this.act("insert" path (PresI18n.t("Add to slide")) "secondary" row)

@@ -33,6 +33,7 @@ Import "PresSlideSpans.rgr"
 Import "PresFollow.rgr"
 Import "PresPick.rgr"
 Import "PresNav.rgr"
+Import "PresRecord.rgr"
 Import "PresExport.rgr"
 Import "PresI18n.rgr"
 Import "../datagrid/src/script/ScriptEditor.rgr"
@@ -363,6 +364,12 @@ class PresApp {
 
     fn addImage:boolean (name:string data:buffer contentType:string w:int h:int) {
         return (deck.addImage(name data contentType w h))
+    }
+
+    ; An SVG picture's own text and bytes, and a small PNG of it, beside the
+    ; PNG `addImage` was given: the PDF draws its paths, the PPTX carries it.
+    fn addSvgPicture:void (name:string text:string bytes:buffer small:buffer) {
+        deck.addSvgPicture(name text bytes small)
     }
 
     fn addTemplate:void (name:string css:string) {
@@ -941,6 +948,9 @@ class PresApp {
     ; second or more is a seek and not a hold.
     fn setTime:double (t:double) {
         def got:double (this.setClock(t))
+        if (mode == "present") {
+            this.inkFollow()
+        }
         if (selected != fxSlide) {
             fxSlide = selected
             fxHeld = 0.0
@@ -1138,6 +1148,7 @@ class PresApp {
     ; The pointer left the page.
     fn pointerLeft:void () {
         deck.diagramPointer(selected -1 0.0 0.0 0.0)
+        this.inkHide()
     }
 
     ; A press on the stage that meant something to a diagram.
@@ -1414,6 +1425,9 @@ class PresApp {
         this.viewReset()
         activeDia = -1
         playing = false
+        ink.clear()
+        ink.hidePointer()
+        inkSlide = -1
         if fromStart {
             selected = 0
         }
@@ -1431,6 +1445,17 @@ class PresApp {
         if (mode != "present") {
             return
         }
+        if recording {
+            this.recordStop()
+        }
+        if replaying {
+            replaying = false
+            push requests "replay:stop"
+        }
+        ink.clear()
+        ink.hidePointer()
+        inkPress = false
+        inkLine = false
         mode = "edit"
         ended = false
         this.viewReset()
@@ -1470,6 +1495,7 @@ class PresApp {
                 ended = true
             }
         }
+        this.inkFollow()
         chromeRev = (chromeRev + 1)
     }
 
@@ -1512,6 +1538,7 @@ class PresApp {
         def s:PresSlide (deck.slideAt(selected))
         pStep = s.steps
         clock = ((PresTimeline.slideStart(deck selected)) + s.duration)
+        this.inkFollow()
         chromeRev = (chromeRev + 1)
     }
 
@@ -1527,6 +1554,7 @@ class PresApp {
         ended = at.ended
         this.viewReset()
         activeDia = -1
+        this.inkFollow()
         chromeRev = (chromeRev + 1)
     }
 
@@ -1575,6 +1603,398 @@ class PresApp {
             nav.clear()
             chromeRev = (chromeRev + 1)
         }
+    }
+
+    ; =========================================================================
+    ; Drawing on the slide and recording the presentation (PresInk, PresRecord)
+    ; =========================================================================
+    ;
+    ; Presenting with the pen on, a press on the slide that moves draws (a
+    ; press that does not still goes on), the pointer over the slide is drawn
+    ; as an arrow, Backspace wipes the drawing and a new slide starts clean.
+    ; Record is presenting from the start with the pen on and everything
+    ; written down (PresRecorder); the host records the voice beside it and
+    ; keeps both in the deck's recordings/. A replay drives the presentation
+    ; from the recording: the host gives the time (`replayAt`), the app goes
+    ; where the recording went and draws what was drawn then.
+    def ink:PresInk (new PresInk())
+    def inkOn:boolean false
+    def inkTool:string "pen"
+    def inkColor:string "#ef4444"
+    ; on a slide 1280 wide; a narrower slide draws thinner
+    def inkWidth:double 6.0
+    def inkSlide:int -1
+    def inkPress:boolean false
+    def inkLine:boolean false
+    def inkSX:double 0.0
+    def inkSY:double 0.0
+    def recording:boolean false
+    def recorder:PresRecorder (new PresRecorder())
+    def recT:double 0.0
+    ; the deck's recording (recordings/take.json), empty when it has none
+    def take:PresRecording (new PresRecording())
+    def replaying:boolean false
+    def replay:PresReplay (new PresReplay())
+    def replayT:double 0.0
+
+    fn inkActive:boolean () {
+        return ((((mode == "present") && (recording || inkOn)) && (replaying == false)) && (ended == false))
+    }
+
+    ; The clock the pointer's fading goes by: the recording's while one is
+    ; made or played, so a replay fades it as it faded.
+    fn inkNow:double () {
+        if recording {
+            return recT
+        }
+        if replaying {
+            return replayT
+        }
+        return deck.uiNow
+    }
+
+    fn inkUnit:double () {
+        if (deck.pageW <= 0.0) {
+            return 1.0
+        }
+        return (deck.pageW / 1280.0)
+    }
+
+    fn shownInk:PresInk () {
+        if replaying {
+            return replay.ink
+        }
+        return ink
+    }
+
+    fn setInk:void (on:boolean) {
+        inkOn = on
+        if (on == false) {
+            this.inkHide()
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn setInkTool:void (t:string) {
+        if (PresInk.knownTool(t)) {
+            inkTool = t
+            inkOn = true
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    fn setInkColor:void (c:string) {
+        if ((strlen c) > 0) {
+            inkColor = c
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    ; For the presenting bar: {"on","tool","color","recording","replaying",
+    ; "t","duration","take","voice","strokes"}.
+    fn inkState:string () {
+        def o:VlJson (VlJson.objectValue())
+        o.setMember("on" (VlJson.boolValue((recording || inkOn))))
+        o.setMember("tool" (VlJson.stringValue(inkTool)))
+        o.setMember("color" (VlJson.stringValue(inkColor)))
+        o.setMember("recording" (VlJson.boolValue(recording)))
+        o.setMember("replaying" (VlJson.boolValue(replaying)))
+        o.setMember("t" (VlJson.numberValue((? replaying replayT recT))))
+        o.setMember("duration" (VlJson.numberValue(take.duration)))
+        o.setMember("take" (VlJson.boolValue((this.hasRecording()))))
+        o.setMember("voice" (VlJson.stringValue(take.voice)))
+        o.setMember("audio" (VlJson.stringValue(take.audio)))
+        o.setMember("strokes" (VlJson.intValue(((this.shownInk()).count()))))
+        def w (new VlJsonWriter())
+        return (w.write(o))
+    }
+
+    ; What is drawn on the shown slide and the pointer, as a list in the
+    ; slide's units (the host draws it with the stage's camera), "" when
+    ; there is nothing.
+    fn inkJson:string () {
+        if ((mode != "present") || ((deck.slideCount()) == 0)) {
+            return ""
+        }
+        def k:PresInk (this.shownInk())
+        def now:double (this.inkNow())
+        if (((k.count()) == 0) && ((k.pointerAlpha(now)) <= 0.0)) {
+            return ""
+        }
+        def dl (new EVGDisplayList())
+        k.draw(dl now (this.inkUnit()))
+        return (this.listJson(dl))
+    }
+
+    ; The pointer is fading: the host paints again.
+    fn inkBusy:boolean () {
+        if (mode != "present") {
+            return false
+        }
+        return ((this.shownInk()).busy((this.inkNow())))
+    }
+
+    fn inkDown:void (x:double y:double) {
+        def w:double (inkWidth * (this.inkUnit()))
+        ink.down(inkTool inkColor w x y)
+        if recording {
+            recorder.rec.down(recT inkTool inkColor w x y)
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn inkMove:void (x:double y:double) {
+        ink.move(x y)
+        if recording {
+            recorder.rec.move(recT x y)
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn inkUp:void () {
+        ink.up()
+        if recording {
+            recorder.rec.up(recT)
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn inkClear:void () {
+        if (((ink.count()) == 0) && (ink.drawing == false)) {
+            return
+        }
+        ink.clear()
+        if recording {
+            recorder.rec.clear(recT)
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn inkHide:void () {
+        if (ink.ptrAt >= 0.0) {
+            ink.hidePointer()
+            if recording {
+                recorder.rec.hide(recT)
+            }
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    ; The pointer over the stage while presenting with the pen.
+    fn inkHover:void (x:double y:double) {
+        if ((this.inkActive()) == false) {
+            return
+        }
+        if (slideRect.has(x y)) {
+            this.slidePoint(x y)
+            ink.pointer(spX spY (this.inkNow()))
+            if recording {
+                recorder.pointer(recT spX spY)
+            }
+            chromeRev = (chromeRev + 1)
+        } {
+            this.inkHide()
+        }
+    }
+
+    ; A new slide starts clean (and so does the end panel).
+    fn inkFollow:void () {
+        if (mode != "present") {
+            return
+        }
+        def at:int selected
+        if ended {
+            at = -2
+        }
+        if (at != inkSlide) {
+            if (inkSlide != -1) {
+                this.inkClear()
+            }
+            inkSlide = at
+        }
+    }
+
+    ; --- recording ------------------------------------------------------------
+
+    ; Record: present from the first slide with everything written down. The
+    ; host starts the microphone ("record:start") and gives the time
+    ; (`recordTime`) each frame.
+    fn record:void () {
+        if ((deck.slideCount()) == 0) {
+            return
+        }
+        replaying = false
+        this.present(true)
+        recording = true
+        recorder = (new PresRecorder())
+        recorder.rec.voice = take.voice
+        recT = 0.0
+        ink.clear()
+        inkSlide = selected
+        recorder.observe(0.0 selected pStep clock ended)
+        push requests "record:start"
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn isRecording:boolean () {
+        return recording
+    }
+
+    fn recordTime:void (t:double) {
+        if (recording == false) {
+            return
+        }
+        recT = t
+        if (mode == "present") {
+            this.inkFollow()
+            recorder.observe(t selected pStep clock ended)
+        }
+    }
+
+    ; The end of the recording (■, Esc, the presentation left): it becomes
+    ; the deck's take; the host keeps the sound and the file
+    ; ("record:stop", then `recordingJson`).
+    fn recordStop:void () {
+        if (recording == false) {
+            return
+        }
+        recording = false
+        if (recT > recorder.rec.duration) {
+            recorder.rec.duration = recT
+        }
+        take = recorder.rec
+        ink.clear()
+        push requests "record:stop"
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn hasRecording:boolean () {
+        return ((take.count()) > 0)
+    }
+
+    fn recordingJson:string () {
+        return (take.toJson())
+    }
+
+    fn recordingDuration:double () {
+        return take.duration
+    }
+
+    fn recordingVoice:string () {
+        return take.voice
+    }
+
+    fn recordingAudio:string () {
+        return take.audio
+    }
+
+    fn setRecordingAudio:void (path:string) {
+        take.audio = path
+    }
+
+    fn setRecordingVoice:void (v:string) {
+        if ((strlen v) > 0) {
+            take.voice = v
+            toolbar.recVoice = v
+            toolbar.rebuild()
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    ; The deck's recordings/take.json, read when the deck opens ("" none).
+    fn loadRecording:void (text:string) {
+        take = (PresRecording.parse(text))
+        toolbar.hasRec = ((take.count()) > 0)
+        toolbar.recVoice = take.voice
+        toolbar.rebuild()
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn dropRecording:void () {
+        take = (new PresRecording())
+        toolbar.hasRec = false
+        toolbar.rebuild()
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; When the recording first shows slide `i` (seconds), -1 never.
+    fn recordingAt:double (i:int) {
+        return (take.slideStart(i))
+    }
+
+    ; --- playing it back --------------------------------------------------------
+
+    ; From `t` seconds into the recording: presenting, driven by it. The
+    ; host plays the sound ("replay:start") and gives the time each frame.
+    fn replayStart:void (t:double) {
+        if ((this.hasRecording()) == false) {
+            return
+        }
+        if recording {
+            this.recordStop()
+        }
+        this.present(true)
+        replaying = true
+        replay.load(take)
+        replayT = 0.0
+        this.replayAt(t)
+        push requests "replay:start"
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn isReplaying:boolean () {
+        return replaying
+    }
+
+    fn replayTime:double () {
+        return replayT
+    }
+
+    ; The recording at time t: the presentation where it was, the drawing
+    ; as it was. Returns the deck clock.
+    fn replayAt:double (t:double) {
+        if ((replaying == false) || (mode != "present")) {
+            return clock
+        }
+        replayT = t
+        replay.seek(t)
+        if (replay.takeNav()) {
+            def o:PresRecOp (replay.navOp())
+            def at (new PresNavAt())
+            at.slide = o.slide
+            if (at.slide >= (deck.slideCount())) {
+                at.slide = ((deck.slideCount()) - 1)
+            }
+            at.step = o.step
+            at.clock = o.clock
+            at.ended = o.ended
+            this.jump(at)
+        }
+        def got:double (this.setTime((replay.clockAt(t))))
+        chromeRev = (chromeRev + 1)
+        return got
+    }
+
+    ; Play recording: from where the recording first shows the selected
+    ; slide, else from its start.
+    fn replayFromSlide:void () {
+        def at:double (take.slideStart(selected))
+        if (at < 0.0) {
+            at = 0.0
+        }
+        this.replayStart(at)
+    }
+
+    fn replayDone:boolean () {
+        return (replaying && (replay.done()))
+    }
+
+    fn replayStop:void () {
+        if (replaying == false) {
+            return
+        }
+        replaying = false
+        this.endPresent()
     }
 
     ; =========================================================================
@@ -2311,15 +2731,29 @@ class PresApp {
         }
         ; speech
         def sy:double (rowY + (rowH + 2.0))
-        if ((strlen s.audio) > 0) {
+        def recSp:[double] (take.slideSpans(selected))
+        if ((array_length recSp) >= 2) {
+            ; the recording's time on this slide (pressed: played from there)
+            def said:double 0.0
+            def q:int 0
+            while ((q + 1) < (array_length recSp)) {
+                said = (said + ((itemAt recSp (q + 1)) - (itemAt recSp q)))
+                q = (q + 2)
+            }
+            root.addChild((PresApp.div("aud" "clip clip-audio" laneX (sy + 3.0) laneW (rowH - 6.0))))
+            def rl:string ((PresI18n.t("▶ Recording")) + "  " + (PresApp.clockText((itemAt recSp 0))) + " · " + (PresApp.secs(said)))
+            root.addChild((PresApp.label("audl" "clip-label" rl (laneX + 6.0) (sy + 7.0))))
+        } {
+          if ((strlen s.audio) > 0) {
             root.addChild((PresApp.div("aud" "clip clip-audio" laneX (sy + 3.0) laneW (rowH - 6.0))))
             root.addChild((PresApp.label("audl" "clip-label" s.audio (laneX + 6.0) (sy + 7.0))))
-        } {
-            def hint:string (PresI18n.t("no audio"))
-            if ((strlen s.notes) > 0) {
-                hint = (PresI18n.t("notes ready, audio comes in phase 5"))
+          } {
+            def hint:string (PresI18n.t("no audio · Record ▸ Record presentation"))
+            if ((this.hasRecording())) {
+                hint = (PresI18n.t("not in the recording"))
             }
             root.addChild((PresApp.label("audl" "lane-hint" hint (laneX + 8.0) (sy + 7.0))))
+          }
         }
         ; animation: the transition in, the surface effect across
         def ay:double (rowY + ((rowH + 2.0) * 2.0))
@@ -2540,6 +2974,11 @@ class PresApp {
             }
         }
         if (mode == "present") {
+            ; a replay is watched, not driven (the bar and the keys are the
+            ; host's)
+            if replaying {
+                return "stage"
+            }
             this.stageDown(x y)
             return "stage"
         }
@@ -2643,6 +3082,12 @@ class PresApp {
             return "editor"
         }
         if (trackRect.has(x y)) {
+            ; the Speech lane with the recording on it: played from this slide
+            def speechY:double ((trackRect.y + 28.0) + 28.0)
+            if ((((x >= laneX) && (x <= (laneX + laneW))) && ((y >= speechY) && (y <= (speechY + 26.0)))) && ((array_length (take.slideSpans(selected))) >= 2)) {
+                this.replayFromSlide()
+                return ""
+            }
             if ((x >= laneX) && (x <= (laneX + laneW))) {
                 if playing {
                     this.stop()
@@ -2683,6 +3128,12 @@ class PresApp {
         ; the pick's buttons and spacing bands, over the slide and around it
         if (stageArea.has(x y)) {
             def part:string (pick.partAt(x y))
+            ; a picked picture's edges resize it, the picture itself moves it
+            if (((part != "content") && (part != "style")) && (this.imageGrab(x y clicks))) {
+                focus = "stage"
+                chromeRev = (chromeRev + 1)
+                return "select"
+            }
             if ((strlen part) > 0) {
                 focus = "stage"
                 this.pickPress(part)
@@ -2733,6 +3184,13 @@ class PresApp {
             if (touch && (stageDia != activeDia)) {
                 stageDia = -1
             }
+            ; with the pen a press that moves draws
+            if (this.inkActive()) {
+                inkPress = true
+                inkLine = false
+                inkSX = spX
+                inkSY = spY
+            }
         }
     }
     def tapDia:int -1
@@ -2746,6 +3204,24 @@ class PresApp {
     }
 
     fn stageMove:void (x:double y:double) {
+        if inkPress {
+            if (inkLine == false) {
+                def ix:double (x - downX)
+                def iy:double (y - downY)
+                if (((ix * ix) + (iy * iy)) < (dragSlop * dragSlop)) {
+                    return
+                }
+                inkLine = true
+                this.inkDown(inkSX inkSY)
+            }
+            this.slidePoint(x y)
+            this.inkMove(spX spY)
+            ink.pointer(spX spY (this.inkNow()))
+            if recording {
+                recorder.pointer(recT spX spY)
+            }
+            return
+        }
         if ((stageDia < 0) && (viewZoom > 1.0)) {
             ; zoomed in: a drag off a diagram moves the view
             if (! stagePanning) {
@@ -2795,6 +3271,14 @@ class PresApp {
             return
         }
         stagePressed = false
+        if inkPress {
+            inkPress = false
+            if inkLine {
+                inkLine = false
+                this.inkUp()
+                return
+            }
+        }
         if stagePanning {
             stagePanning = false
             return
@@ -2858,6 +3342,10 @@ class PresApp {
     }
 
     fn pointerMove:void (x:double y:double) {
+        if (imgDrag.active()) {
+            this.imageDragTo(x y)
+            return
+        }
         if deckDown {
             this.deckMove(x y)
             return
@@ -2906,6 +3394,9 @@ class PresApp {
         ; hover is the top surface's: one under a window shows none
         def top:string (this.layerAt(x y))
         this.diagramPointer(x y top)
+        if ((mode == "present") && (inkPress == false)) {
+            this.inkHover(x y)
+        }
         if (panels.any()) {
             if (PresApp.panelLayer(top)) {
                 panels.hoverAt(x y)
@@ -2994,6 +3485,9 @@ class PresApp {
     }
 
     fn pointerUp:void () {
+        if (imgDrag.active()) {
+            this.imageDrop()
+        }
         if deckDown {
             this.deckRelease()
         }
@@ -3204,6 +3698,10 @@ class PresApp {
             }
         }
         if (mode == "present") {
+            ; with the pen the slide's pointer is the one drawn (and recorded)
+            if ((this.inkActive()) && (slideRect.has(x y))) {
+                return "none"
+            }
             return "default"
         }
         ; the surface on top under the pointer says (the bar's open menu
@@ -3238,6 +3736,24 @@ class PresApp {
         }
         if (sepRect.has(x y)) {
             return "col-resize"
+        }
+        if (imgDrag.active()) {
+            if (imgDrag.zone == "move") {
+                return "grabbing"
+            }
+            return (PresImageDrag.cursorOf(imgDrag.zone))
+        }
+        if ((stageArea.has(x y)) && ((strlen (pick.partAt(x y))) > 0)) {
+            def cpart:string (pick.partAt(x y))
+            if ((cpart == "content") || (cpart == "style")) {
+                return "pointer"
+            }
+        }
+        if (stageArea.has(x y)) {
+            def iz:string (pick.imageZoneAt(x y))
+            if ((strlen iz) > 0) {
+                return (PresImageDrag.cursorOf(iz))
+            }
         }
         if ((stageArea.has(x y)) && ((strlen (pick.partAt(x y))) > 0)) {
             return "pointer"
@@ -3296,6 +3812,13 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return true
         }
+        ; a picture being resized or moved: Esc lets it go unchanged
+        if ((name == "escape") && (imgDrag.active())) {
+            imgDrag.cancel()
+            pick.ghostOn = false
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         if (((name == "escape") && pick.on) && (((hint.isOpen == false) && (mode != "present")) && (focus == "stage"))) {
             pick.clear()
             chromeRev = (chromeRev + 1)
@@ -3331,6 +3854,19 @@ class PresApp {
             def used:boolean (chart.key(name shift ctrl))
             this.afterChart()
             return used
+        }
+        ; a replay: Esc ends it, nothing else drives it (the host's keys
+        ; pause and seek it)
+        if ((mode == "present") && replaying) {
+            if (name == "escape") {
+                this.replayStop()
+            }
+            return true
+        }
+        ; Backspace wipes what was drawn
+        if ((((mode == "present") && (name == "backspace")) && ((ink.count()) > 0)) && ((nav.typing()) == false)) {
+            this.inkClear()
+            return true
         }
         ; a slide number being typed: Enter goes there, Esc forgets it
         if ((mode == "present") && (nav.typing())) {
@@ -3391,6 +3927,14 @@ class PresApp {
             return (this.stripKey(name shift ctrl))
         }
         if (focus == "stage") {
+            ; the picked picture: Delete or Backspace takes it out (Ctrl+Z
+            ; brings it back)
+            if (((name == "delete") || (name == "backspace")) && (pick.on && (pick.sel == "img"))) {
+                if (this.pickValid()) {
+                    this.removePickedImage()
+                    return true
+                }
+            }
             if ((name == "right") || (name == "down")) {
                 this.selectSlide((selected + 1))
                 return true
@@ -3559,6 +4103,9 @@ class PresApp {
             this.afterHint()
             return
         }
+        if ((mode == "present") && replaying) {
+            return
+        }
         ; a slide number: digits, then Enter (a number already begun takes
         ; the digits before a diagram's own keys do)
         if ((mode == "present") && (nav.typing())) {
@@ -3713,7 +4260,7 @@ class PresApp {
         if ((strlen ch) != 1) {
             return false
         }
-        if ((focus == "strip") && ((ch == "z") || (ch == "y"))) {
+        if (((focus == "strip") || (focus == "stage")) && ((ch == "z") || (ch == "y"))) {
             return (this.stripUndo((ch == "z")))
         }
         def took:boolean (editor.handleCtrlChar((charAt ch 0)))
@@ -6554,6 +7101,151 @@ class PresApp {
         return true
     }
 
+    ; --- a picked picture resized, moved or deleted on the slide ---------------------
+    ; PresImageDrag: an edge or a corner held resizes it, the picture held
+    ; moves it to the left, the middle or the right of the column; letting go
+    ; writes its attribute line as one edit. Delete or Backspace takes it out.
+    def imgDrag:PresImageDrag (new PresImageDrag())
+
+    ; The picture on Markdown line `line` and its attribute line, as a model
+    ; (an empty path when the line is not a picture).
+    fn imageModelAt:PresImageModel (line:int) {
+        def n:int (mdEditor.buf.lineCount())
+        if ((line < 0) || (line >= n)) {
+            return (new PresImageModel())
+        }
+        def attr:string ""
+        def attrLine:int -1
+        if ((line + 1) < n) {
+            def next:string (mdEditor.buf.lineAt((line + 1)))
+            if (PresImageModel.isAttrLine(next)) {
+                attr = next
+                attrLine = (line + 1)
+            }
+        }
+        def m:PresImageModel (PresImageModel.read((mdEditor.buf.lineAt(line)) attr))
+        m.line = line
+        m.attrLine = attrLine
+        return m
+    }
+
+    fn imageGrab:boolean (x:double y:double clicks:int) {
+        if (((mode != "edit") || playing) || (review.on)) {
+            return false
+        }
+        if ((pick.on == false) || (pick.sel != "img")) {
+            return false
+        }
+        if ((this.pickValid()) == false) {
+            return false
+        }
+        def z:string (pick.imageZoneAt(x y))
+        if ((strlen z) == 0) {
+            return false
+        }
+        ; a double click on the picture opens its settings, as before
+        if ((z == "move") && (clicks >= 2)) {
+            return false
+        }
+        def m:PresImageModel (this.imageModelAt(pick.line))
+        if ((m.ok()) == false) {
+            return false
+        }
+        def l:MdLayout (deck.layout())
+        def place:string m.align
+        if ((strlen place) == 0) {
+            place = l.style.imgAlign
+        }
+        this.slidePoint(x y)
+        def sc:double (this.slideScale())
+        if (sc > 0.0) {
+            imgDrag.slop = (4.0 / sc)
+        }
+        imgDrag.begin(z pick.x pick.y pick.w pick.h l.contentX l.contentW (l.contentBottom - l.contentTop) place spX spY)
+        return true
+    }
+
+    fn imageDragTo:void (x:double y:double) {
+        this.slidePoint(x y)
+        imgDrag.moveTo(spX spY)
+        if imgDrag.moved {
+            pick.ghostOn = true
+            pick.gx = imgDrag.x
+            pick.gy = imgDrag.y
+            pick.gw = imgDrag.w
+            pick.gh = imgDrag.h
+            pick.ghostLabel = (PresApp.imageDragLabel(imgDrag))
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    sfn imageDragLabel:string (d:PresImageDrag) {
+        if (d.zone == "move") {
+            if (d.outAlign == "left") {
+                return (PresI18n.t("Left"))
+            }
+            if (d.outAlign == "right") {
+                return (PresI18n.t("Right"))
+            }
+            return (PresI18n.t("Center"))
+        }
+        if ((strlen d.outHeight) > 0) {
+            return ((PresI18n.t("height")) + " " + d.outHeight)
+        }
+        return ((PresI18n.t("width")) + " " + d.outWidth)
+    }
+
+    fn imageDrop:void () {
+        pick.ghostOn = false
+        chromeRev = (chromeRev + 1)
+        if (imgDrag.moved == false) {
+            ; a click on the picked picture: it stays picked
+            imgDrag.cancel()
+            return
+        }
+        def line:int pick.line
+        def m:PresImageModel (this.imageModelAt(line))
+        def changed:boolean ((m.ok()) && (imgDrag.apply(m)))
+        imgDrag.cancel()
+        if (changed == false) {
+            return
+        }
+        def last:int m.line
+        if (m.attrLine >= 0) {
+            last = m.attrLine
+        }
+        this.replaceLines(m.line last (m.markdown()))
+        ; the edit moved the offsets: the same picture picked again
+        def at:int (this.offsetOf(line 0))
+        def pg:int (deck.pageOfOffset(at))
+        if (pg != selected) {
+            this.selectSlide(pg)
+        }
+        pick.pickSource((deck.layout()) selected at (mdEditor.text()) mdEditor.buf.version)
+        pick.markSet((this.themeCss()))
+    }
+
+    ; The picked picture's lines taken out, and a blank line with them when
+    ; there would be two in a row; one edit, undone with Ctrl+Z.
+    fn removePickedImage:void () {
+        def m:PresImageModel (this.imageModelAt(pick.line))
+        if ((m.ok()) == false) {
+            return
+        }
+        def last:int m.line
+        if (m.attrLine >= 0) {
+            last = m.attrLine
+        }
+        def n:int (mdEditor.buf.lineCount())
+        def blankBefore:boolean ((m.line == 0) || ((strlen (trim (mdEditor.buf.lineAt((m.line - 1))))) == 0))
+        if ((blankBefore && ((last + 1) < n)) && ((strlen (trim (mdEditor.buf.lineAt((last + 1))))) == 0)) {
+            last = (last + 1)
+        }
+        pick.clear()
+        this.replaceLines(m.line last "")
+        chromeRev = (chromeRev + 1)
+    }
+
     ; --- a picture's settings (the same window, in its image mode) ------------------
     ; The picture on Markdown line `line` (`![alt](path)` alone on it).
     fn openImageEditor:boolean (line:int) {
@@ -6604,6 +7296,16 @@ class PresApp {
     ; where it will be kept. Add is "picture-place" to the page, which reads
     ; `pastePlan`, cuts and keeps the picture and calls `placePicture`;
     ; anything else is "picture-cancel".
+    ; The picture in the paste window is flat (the page measured it): Add
+    ; vectorizes it.
+    fn pasteFlat:void (flat:boolean) {
+        if (chart.isOpen && (chart.mode == "paste")) {
+            chart.pasteVector = flat
+            chart.rebuild()
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
     fn openPaste:boolean (path:string iw:int ih:int alt:string note:string) {
         if (mode == "present") {
             return false
@@ -6751,6 +7453,22 @@ class PresApp {
         chromeRev = (chromeRev + 1)
         push requests "trace-run"
         return true
+    }
+
+    ; The vectorizer opened to make the SVG `target` again: Save writes over
+    ; it, and the settings it was made with (`settings`, "" the defaults)
+    ; are where it starts.
+    fn traceAgain:void (target:string settings:string) {
+        if ((chart.isOpen == false) || (chart.mode != "trace")) {
+            return
+        }
+        chart.trTarget = target
+        chart.trReplace = false
+        if ((strlen settings) > 0) {
+            chart.trSet = (PresTraceSettings.parse(settings))
+        }
+        chart.rebuild()
+        chromeRev = (chromeRev + 1)
     }
 
     fn traceSettings:string () {
@@ -8305,6 +9023,14 @@ class PresApp {
     fn request:void (r:string) {
         if ((indexOf r "slide:") == 0) {
             this.slideCommand((substring r 6 (strlen r)))
+            return
+        }
+        if (r == "rec:start") {
+            this.record()
+            return
+        }
+        if (r == "rec:play") {
+            this.replayFromSlide()
             return
         }
         ; the rail's places: the editor's tabs here, the rest the page's own

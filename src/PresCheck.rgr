@@ -13,9 +13,12 @@ Import "PresReview.rgr"
 Import "PresReviewDot.rgr"
 Import "PresPick.rgr"
 Import "PresNav.rgr"
+Import "PresRecord.rgr"
 Import "PresDocx.rgr"
 Import "PresHtml.rgr"
 Import "PresTrace.rgr"
+Import "PresImageDrag.rgr"
+Import "PresImageModel.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -1942,6 +1945,110 @@ class PresCheck {
 
     ; PresNav: the jumps while presenting (Home, End, PageUp/PageDown, a
     ; typed number) and where each lands
+    ; Drawing over a slide (PresInk) and a recorded presentation (PresRecord).
+    fn recording:void () {
+        def ink (new PresInk())
+        ink.down("pen" "#ef4444" 6.0 10.0 10.0)
+        ink.move(20.0 12.0)
+        ink.move(30.0 18.0)
+        ink.move(40.0 30.0)
+        ink.up()
+        this.ok(((ink.count()) == 1) "ink: one stroke")
+        def s0:PresInkStroke (itemAt ink.strokes 0)
+        def sm:[double] (PresInk.smooth(s0.pts))
+        this.ok(((array_length sm) > 8) ("ink: smoothing adds points, " + (to_string (array_length sm))))
+        this.ok((((itemAt sm 0) == 10.0) && ((itemAt sm ((array_length sm) - 1)) == 30.0)) "ink: smoothing keeps the ends")
+        ; a line and an ellipse keep the press and the latest point only
+        ink.down("line" "#fff" 4.0 0.0 0.0)
+        ink.move(5.0 5.0)
+        ink.move(50.0 0.0)
+        ink.up()
+        def ls:PresInkStroke (itemAt ink.strokes 1)
+        this.ok(((array_length ls.pts) == 4) "ink: a line is two points")
+        this.ok(((itemAt ls.pts 2) == 50.0) "ink: a line ends where it was let go")
+        def el:[double] (PresInk.ellipse(0.0 0.0 100.0 50.0))
+        this.ok((((fabs ((itemAt el 0) - 100.0)) < 0.001) && ((fabs ((itemAt el 1) - 25.0)) < 0.001)) "ink: the ellipse starts at its right edge")
+        this.ok(((fabs ((itemAt el 0) - (itemAt el ((array_length el) - 2)))) < 0.001) "ink: the ellipse is closed")
+        ; an arrow's head points the way the line went (to the right here)
+        def hl:[double] ([] _:double (0.0 0.0 50.0 0.0 100.0 0.0))
+        def hd:[double] (PresInk.head(hl 6.0))
+        this.ok(((array_length hd) == 6) "ink: an arrow has a head")
+        this.ok((((itemAt hd 0) == 100.0) && ((itemAt hd 2) < 100.0)) "ink: the tip is at the end, the base behind it")
+        this.ok((((itemAt hd 3) > 0.0) && ((itemAt hd 5) < 0.0)) "ink: the head is as wide either side")
+        def none:[double] ([] _:double (5.0 5.0 5.0 5.0))
+        this.ok(((array_length (PresInk.head(none 6.0))) == 0) "ink: no head without a direction")
+        ; the pointer stays, then fades
+        ink.pointer(100.0 100.0 10.0)
+        this.ok(((ink.pointerAlpha(11.0)) == 1.0) "ink: the pointer shows while it moves")
+        def mid:double (ink.pointerAlpha(11.75))
+        this.ok(((mid > 0.0) && (mid < 1.0)) ("ink: then fades, " + (to_string mid)))
+        this.ok(((ink.pointerAlpha(13.0)) == 0.0) "ink: and is gone")
+        this.ok((ink.busy(11.9) && ((ink.busy(13.0)) == false)) "ink: busy only while fading")
+        def dl (new EVGDisplayList())
+        ink.draw(dl 11.0 1.0)
+        this.ok(((array_length dl.cmds) >= 4) ("ink: strokes and the pointer drawn, " + (to_string (array_length dl.cmds))))
+        ink.clear()
+        this.ok(((ink.count()) == 0) "ink: Backspace wipes it")
+
+        ; the recorder writes nav only where the clock cannot be worked out
+        def r (new PresRecorder())
+        this.ok((r.observe(0.0 0 0 0.0 false)) "rec: the start is written")
+        this.ok(((r.observe(0.5 0 0 0.5 false)) == false) "rec: running on is not")
+        this.ok(((r.observe(1.0 0 0 0.6 false)) == false) "rec: held at a step is not")
+        this.ok(((r.observe(4.0 0 0 0.6 false)) == false) "rec: still held")
+        this.ok((r.observe(4.1 0 1 1.2 false)) "rec: a click to the next step is")
+        this.ok((r.observe(4.2 2 0 10.0 false)) "rec: a jump is")
+        this.ok(((r.observe(4.3 2 0 10.1 false)) == false) "rec: on from the jump is not")
+        this.ok((r.observe(4.4 1 3 9.0 false)) "rec: back is")
+        this.ok((r.pointer(1.0 10.0 10.0)) "rec: the pointer is written")
+        this.ok(((r.pointer(1.01 30.0 30.0)) == false) "rec: not more than 30 times a second")
+        this.ok(((r.pointer(1.2 10.2 10.2)) == false) "rec: not when it hardly moved")
+        r.rec.down(5.0 "arrow" "#22c55e" 5.0 1.0 2.0)
+        r.rec.move(5.1 3.0 4.0)
+        r.rec.up(5.2)
+        r.rec.clear(6.0)
+        r.rec.voice = "radio"
+        r.rec.audio = "recordings/take.webm"
+        def text:string (r.rec.toJson())
+        def back:PresRecording (PresRecording.parse(text))
+        this.ok(((back.count()) == (r.rec.count())) ("rec: the file reads back, " + (to_string (back.count())) + " of " + (to_string (r.rec.count()))))
+        this.ok(((back.voice == "radio") && (back.audio == "recordings/take.webm")) "rec: with its voice and its sound file")
+        this.ok(((fabs (back.duration - 6.0)) < 0.001) ("rec: and its length, " + (to_string back.duration)))
+        def bd:PresRecOp (itemAt back.ops ((back.count()) - 4))
+        this.ok((((bd.k == "down") && (bd.tool == "arrow")) && ((bd.color == "#22c55e") && (bd.y == 2.0))) "rec: a line's start reads back")
+        def broken:PresRecording (PresRecording.parse("not json"))
+        this.ok(((broken.count()) == 0) "rec: a broken file is an empty recording")
+        ; when each slide shows
+        def sp:[double] (back.slideSpans(0))
+        this.ok((((array_length sp) == 2) && ((itemAt sp 1) == 4.2)) "rec: slide 1 shows until the jump")
+        def sp2:[double] (back.slideSpans(2))
+        this.ok((((array_length sp2) == 2) && ((itemAt sp2 0) == 4.2)) "rec: slide 3 from the jump")
+        this.ok(((back.slideStart(5)) < 0.0) "rec: a slide never shown has no start")
+
+        ; the replay: forward applies what is new, back starts over
+        def rp (new PresReplay())
+        rp.load(back)
+        rp.seek(0.2)
+        def n0:PresRecOp (rp.navOp())
+        this.ok((rp.takeNav() && (n0.slide == 0)) "replay: the start's nav")
+        this.ok(((fabs ((rp.clockAt(0.9)) - 0.9)) < 0.001) "replay: the clock runs from it")
+        rp.seek(4.15)
+        def n1:PresRecOp (rp.navOp())
+        this.ok((rp.takeNav() && (n1.step == 1)) "replay: the click's step")
+        rp.seek(5.15)
+        this.ok(((rp.ink.count()) == 1) "replay: the line being drawn")
+        this.ok(rp.ink.drawing "replay: still held")
+        rp.seek(5.5)
+        this.ok(((rp.ink.drawing == false) && ((rp.ink.count()) == 1)) "replay: let go")
+        rp.takeNav()
+        rp.seek(4.45)
+        this.ok(((rp.ink.count()) == 0) "replay: back before the line, it is gone")
+        this.ok(((rp.takeNav()) == false) "replay: the same nav after a seek is no jump")
+        rp.seek(7.0)
+        this.ok(((rp.ink.count()) == 0) "replay: wiped by the clear")
+        this.ok((rp.done()) "replay: at the end")
+    }
+
     fn navJumps:void () {
         def text:string ("---\nslide-split-level: 2\n---\n\n## Eka\n\n1. a\n2. b\n3. c\n{.build}\n\n"
             + "## Toka {transition=slide seconds=0.8}\n\nteksti\n\n## Kolmas\n\n1. x\n2. y\n{.build}\n")
@@ -2279,6 +2386,72 @@ class PresCheck {
         this.ok(((strlen bad.err) > 0) "trace: bytes that are no picture say so")
     }
 
+    ; --- a picture resized and moved on the slide (PresImageDrag) ---------------
+    fn imageDrag:void () {
+        ; the handles of a 200 × 100 box at (100, 50), a grip of 6
+        this.ok(((PresImageDrag.zoneAt(100.0 50.0 200.0 100.0 99.0 100.0 6.0)) == "l") "image drag: the left edge")
+        this.ok(((PresImageDrag.zoneAt(100.0 50.0 200.0 100.0 303.0 148.0 6.0)) == "br") "image drag: a corner")
+        this.ok(((PresImageDrag.zoneAt(100.0 50.0 200.0 100.0 200.0 47.0 6.0)) == "t") "image drag: the top")
+        this.ok(((PresImageDrag.zoneAt(100.0 50.0 200.0 100.0 200.0 100.0 6.0)) == "move") "image drag: inside it moves it")
+        this.ok(((PresImageDrag.zoneAt(100.0 50.0 200.0 100.0 320.0 100.0 6.0)) == "") "image drag: outside it nothing")
+        this.ok(((PresImageDrag.zoneAt(100.0 50.0 8.0 100.0 103.0 100.0 6.0)) == "l") "image drag: a thin box, the nearer side")
+
+        ; a centred picture in a column 0…800, 400 high: the right edge 50
+        ; out grows it by 100 (both sides), its shape kept
+        def d (new PresImageDrag())
+        d.begin("r" 300.0 50.0 200.0 100.0 0.0 800.0 400.0 "" 500.0 100.0)
+        d.moveTo(502.0 100.0)
+        this.ok((d.moved == false) "image drag: a few units are still a click")
+        d.moveTo(550.0 100.0)
+        this.ok((((d.w == 300.0) && (d.h == 150.0)) && (d.x == 250.0)) ("image drag: centred, grows on both sides: " + (to_string d.x) + " " + (to_string d.w) + "x" + (to_string d.h)))
+        this.ok((d.outWidth == "38%") ("image drag: width of the column, got " + d.outWidth))
+        def m:PresImageModel (PresImageModel.read("![a](media/x.png)" "{height=40% .round}"))
+        this.ok((d.apply(m)) "image drag: the width written")
+        this.ok(((m.markdown()) == "![a](media/x.png)\n{width=38% .round}") ("image drag: height taken away, the rest kept: " + (m.markdown())))
+        ; never past the column
+        d.moveTo(2000.0 100.0)
+        this.ok(((d.w == 800.0) && (d.outWidth == "100%")) ("image drag: clamped to the margins: " + (to_string d.w)))
+        ; …nor the content height
+        def tall (new PresImageDrag())
+        tall.begin("b" 300.0 50.0 100.0 200.0 0.0 800.0 400.0 "left" 350.0 250.0)
+        tall.moveTo(350.0 900.0)
+        this.ok(((tall.h == 400.0) && (tall.w == 200.0)) ("image drag: the bottom stops at the content height: " + (to_string tall.w) + "x" + (to_string tall.h)))
+        this.ok(((tall.outHeight == "100%") && ((strlen tall.outWidth) == 0)) "image drag: the bottom writes the height")
+        this.ok((tall.x == 0.0) "image drag: a left picture stays at the left")
+        ; a left picture's left edge pulled in narrows it
+        def lft (new PresImageDrag())
+        lft.begin("l" 0.0 50.0 400.0 200.0 0.0 800.0 400.0 "left" 0.0 100.0)
+        lft.moveTo(100.0 100.0)
+        this.ok(((lft.w == 300.0) && (lft.outWidth == "38%")) ("image drag: the left edge narrows it: " + (to_string lft.w)))
+
+        ; moved: the third of the column its middle is let go in
+        def mv (new PresImageDrag())
+        mv.begin("move" 300.0 50.0 200.0 100.0 0.0 800.0 400.0 "" 400.0 100.0)
+        mv.moveTo(150.0 120.0)
+        this.ok(((mv.outAlign == "left") && (mv.x == 0.0)) ("image drag: to the left third: " + mv.outAlign))
+        def m2:PresImageModel (PresImageModel.read("![a](media/x.png)" ""))
+        this.ok((mv.apply(m2)) "image drag: align written")
+        this.ok(((m2.markdown()) == "![a](media/x.png)\n{align=left}") ("image drag: " + (m2.markdown())))
+        mv.moveTo(700.0 100.0)
+        this.ok(((mv.outAlign == "right") && (mv.x == 600.0)) "image drag: to the right third")
+        mv.moveTo(410.0 100.0)
+        def m3:PresImageModel (PresImageModel.read("![a](media/x.png)" ""))
+        this.ok(((mv.apply(m3)) == false) "image drag: let go where it was, nothing written")
+        def click (new PresImageDrag())
+        click.begin("move" 300.0 50.0 200.0 100.0 0.0 800.0 400.0 "" 400.0 100.0)
+        this.ok(((click.apply(m3)) == false) "image drag: a click writes nothing")
+        this.ok(((PresImageDrag.placeOf("end")) == "right") "image drag: the theme's end is right")
+
+        ; an SVG picture in the PDF: drawn from its paths when the importer
+        ; reads all of it, from its PNG when something is out of profile
+        def dk (new PresDeck())
+        dk.addSvgPicture("/media/a.svg" "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><path d=\"M0 0h10v10z\" fill=\"#c00\"/></svg>" (buffer_alloc 0) (buffer_alloc 0))
+        dk.addSvgPicture("/media/b.svg" "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><text x=\"1\" y=\"8\">A</text></svg>" (buffer_alloc 0) (buffer_alloc 0))
+        this.ok((dk.svgVector("/media/a.svg")) "svg: paths are drawn as vectors")
+        this.ok(((dk.svgVector("/media/b.svg")) == false) "svg: text is not, the PNG is used")
+        this.ok(((dk.svgVector("/media/c.svg")) == false) "svg: an unknown picture is not")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -2300,9 +2473,11 @@ class PresCheck {
         c.followEdits()
         c.picks()
         c.navJumps()
+        c.recording()
         c.docx()
         c.htmlPage()
         c.traceChecks()
+        c.imageDrag()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

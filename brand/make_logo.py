@@ -57,19 +57,20 @@ ICON = f"""
   <path d="{card(89, 1.0)}" fill="url(#g-card)"/>
   <path d="{rounded([(131, 73), (203, 115), (131, 157)], 13)}" fill="url(#g-play)"/>"""
 
+# muted oranges: light sand at the back, deep burnt orange in front, a cream play
 DEFS = """
   <defs>
     <linearGradient id="g-card" x1="95" y1="25" x2="225" y2="190" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#59C3C4"/><stop offset=".5" stop-color="#0000BE"/><stop offset="1" stop-color="#8819BF"/>
+      <stop offset="0" stop-color="#D27A45"/><stop offset=".5" stop-color="#B5602F"/><stop offset="1" stop-color="#8F4A26"/>
     </linearGradient>
     <linearGradient id="g-ghost2" x1="49" y1="47" x2="95" y2="178" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#C6C640"/><stop offset="1" stop-color="#59C339"/>
+      <stop offset="0" stop-color="#D9A178"/><stop offset="1" stop-color="#C2875C"/>
     </linearGradient>
     <linearGradient id="g-ghost1" x1="21" y1="75" x2="50" y2="150" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#B96926"/><stop offset="1" stop-color="#B52619"/>
+      <stop offset="0" stop-color="#E6C3A0"/><stop offset="1" stop-color="#D4AA82"/>
     </linearGradient>
     <linearGradient id="g-play" x1="140" y1="75" x2="160" y2="160" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#FFFFFF"/><stop offset=".55" stop-color="#F2F1FC"/><stop offset="1" stop-color="#B9BDF5"/>
+      <stop offset="0" stop-color="#FFF8EF"/><stop offset="1" stop-color="#F3E3CF"/>
     </linearGradient>
   </defs>"""
 

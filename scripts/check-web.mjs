@@ -690,6 +690,57 @@ try {
     await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
   }
 
+  // Record (PresRecord, web/recorder.js): presenting from the start with
+  // the pen on; a press that moves draws, one that does not goes on,
+  // Backspace wipes; ■ keeps recordings/take.json (silent here: no
+  // microphone), and Play recording presents from it again, drawing what
+  // was drawn.
+  {
+    const ink = () => page.evaluate(() => ({ ...JSON.parse(window.__app.inkState()), slide: window.__app.slideShown(), mode: JSON.parse(window.__app.layoutJson()).mode }));
+    await page.evaluate(() => { window.__app.selectSlide(0); window.__app.request("rec:start"); });
+    await page.waitForFunction(() => document.body.classList.contains("recording"), null, { timeout: 8000 });
+    const slideBox = await page.evaluate(() => {
+      const l = JSON.parse(window.__app.layoutJson());
+      const c = document.getElementById("c").getBoundingClientRect();
+      return { x: c.left + l.stage[0], y: c.top + l.stage[1], s: l.stage[2], w: window.__app.deck.pageW, h: window.__app.deck.pageH };
+    });
+    const sx = (fx) => slideBox.x + slideBox.w * slideBox.s * fx;
+    const sy = (fy) => slideBox.y + slideBox.h * slideBox.s * fy;
+    await page.mouse.move(sx(0.3), sy(0.5));
+    await page.mouse.down();
+    for (let i = 1; i <= 8; i += 1) await page.mouse.move(sx(0.3 + i * 0.04), sy(0.5 + i * 0.02));
+    await page.mouse.up();
+    const drawn = await ink();
+    await page.mouse.click(sx(0.5), sy(0.5));
+    await page.waitForTimeout(200);
+    const clicked = await ink();
+    await page.mouse.move(sx(0.4), sy(0.4));
+    await page.mouse.down();
+    for (let i = 1; i <= 6; i += 1) await page.mouse.move(sx(0.4 + i * 0.03), sy(0.4));
+    await page.mouse.up();
+    await page.evaluate(() => document.getElementById("keys").focus());
+    await page.keyboard.press("Backspace");
+    const wiped = await ink();
+    await page.evaluate(() => document.getElementById("vRec").click());
+    await page.waitForFunction(() => window.__app.hasRecording() && !document.body.classList.contains("recording"), null, { timeout: 8000 });
+    await page.waitForFunction(() => window.__docFiles().then((f) => f.includes("recordings/take.json")), null, { timeout: 8000 });
+    const take = await page.evaluate(() => JSON.parse(window.__app.recordingJson()));
+    const kinds = take.ops.map((o) => o[1]);
+    check("Record: a press that moves draws, one that does not goes on, Backspace wipes", drawn.strokes === 1 && drawn.slide === 0 && clicked.slide !== 0 && clicked.strokes === 0 && wiped.strokes === 0, JSON.stringify({ drawn, clicked, wiped }));
+    check("…■ keeps the take: the slides, the pointer and what was drawn", ["nav", "ptr", "down", "move", "up", "clear"].every((k) => kinds.includes(k)) && take.ops.filter((o) => o[1] === "nav").some((o) => o[2] === 1), JSON.stringify(kinds.slice(0, 40)));
+    await page.evaluate(() => { window.__app.selectSlide(0); window.__app.request("rec:play"); });
+    await page.waitForFunction(() => document.body.classList.contains("replaying"), null, { timeout: 8000 });
+    await page.waitForFunction(() => JSON.parse(window.__app.inkState()).strokes > 0, null, { timeout: 20000 }).catch(() => {});
+    const played = await ink();
+    await page.waitForFunction(() => window.__app.slideShown() !== 0 || !window.__app.isReplaying(), null, { timeout: 20000 }).catch(() => {});
+    const on = await ink();
+    check("Play recording draws what was drawn and goes on where it went", played.replaying && played.strokes === 1 && played.slide === 0 && on.slide !== 0, JSON.stringify({ played, on }));
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !window.__app.isReplaying(), null, { timeout: 8000 }).catch(() => {});
+    await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+    check("…Esc ends the replay", !(await page.evaluate(() => window.__app.isReplaying())));
+  }
+
   await page.evaluate(() => { window.__app.present(true); window.__app.takeRequest(); window.__app.speaker = true; window.__app.next(); });
   await page.waitForTimeout(300);
   await shot("2-speaker.png");
@@ -1226,12 +1277,18 @@ try {
     window.__handleRequests();
     // cut and kept asynchronously (a canvas, IndexedDB)
     for (let i = 0; i < 80 && !a.source().includes("](media/liitetty-"); i += 1) await new Promise((res) => setTimeout(res, 100));
+    // a flat picture (one colour): Enter vectorizes it, so the vectorizer
+    // opens after it is placed; cancelled here, the picture stays
+    for (let i = 0; i < 40 && !(a.chartIsOpen() && a.chart.mode === "trace"); i += 1) await new Promise((res) => setTimeout(res, 100));
+    const traced = a.chartIsOpen() && a.chart.mode === "trace";
+    if (a.chartIsOpen()) a.key("escape", false, false);
+    window.__handleRequests();
     const stage = JSON.parse(a.stageJson());
     const src = a.source();
     const rel = (src.match(/\]\((media\/liitetty-[^)]+)\)/) || [])[1] || "";
     const bmp = rel ? await window.__pictureSize("/" + rel) : [0, 0];
     return {
-      dialog, shown: !!shown, before, plan, rel,
+      dialog, shown: !!shown, before, plan, rel, flat: plan.trace, traced,
       md: !!rel,
       image: stage.list.cmds.some((c) => c.k === 2 && String(c.src || "").includes("media/liitetty-")),
       size: bmp,
@@ -1242,6 +1299,46 @@ try {
   check("…and Add writes it into the markdown", pic.md);
   check("…drawn on the slide", pic.image);
   check("…cut to the part kept", pic.size.join("x") === "32x20", JSON.stringify(pic.size));
+  check("…a flat picture: Enter adds it vectorized (the vectorizer opens)", pic.flat === true && pic.traced, JSON.stringify(pic));
+
+  // A picture picked on the slide: a side dragged writes its width, the
+  // picture dragged sideways its place, Delete takes it out (PresImageDrag).
+  const hand = await page.evaluate(() => {
+    const a = window.__app;
+    const before = a.source();
+    a.setSource("---\ntitle: K\n---\n\n## Kuva\n\n![k](" + (before.match(/\]\((media\/liitetty-[^)]+)\)/) || [])[1] + ")\n\nTeksti.\n");
+    const st = JSON.parse(a.layoutJson()).stage;
+    const im = JSON.parse(a.stageJson()).list.cmds.find((c) => c.k === 2 && String(c.src || "").includes("liitetty"));
+    if (!im) return { none: true };
+    a.pointerDown(st[0] + (im.x + im.w / 2) * st[2], st[1] + (im.y + im.h / 2) * st[2], false, 1);
+    a.pointerUp();
+    a.pickJson();
+    const p = a.pick;
+    const out = { picked: p.on && p.sel === "img" };
+    const ex = p.ox + p.ow - 3, ey = p.oy + p.oh / 2;
+    out.cursor = a.cursorAt(ex, ey);
+    a.pointerDown(ex, ey, false, 1);
+    a.pointerMove(ex - 30, ey);
+    a.pointerMove(ex - 60, ey);
+    out.ghost = p.ghostOn;
+    a.pointerUp();
+    out.sized = (a.source().match(/\{width=\d+%\}/) || [""])[0];
+    a.pickJson();
+    const cx = p.ox + p.ow / 2, cy = p.oy + p.oh / 2;
+    a.pointerDown(cx, cy, false, 1);
+    for (let k = 1; k <= 12; k += 1) a.pointerMove(cx + k * 40, cy);
+    a.pointerUp();
+    out.moved = (a.source().match(/\{width=\d+% align=\w+\}/) || [""])[0];
+    a.setFocus("stage");
+    a.key("delete", false, false);
+    out.deleted = a.source();
+    a.setSource(before);
+    return out;
+  });
+  check("a picked picture shows a resize pointer on its edge", hand.picked && hand.cursor === "ew-resize", JSON.stringify(hand));
+  check("…its side dragged writes a width", /^\{width=\d+%\}$/.test(hand.sized) && hand.ghost, JSON.stringify(hand));
+  check("…dragged to the right, align=right", /align=right/.test(hand.moved), JSON.stringify(hand));
+  check("…and Delete takes it out", !/liitetty/.test(hand.deleted) && /Teksti\./.test(hand.deleted), JSON.stringify(hand.deleted));
 
   // An SVG with only a viewBox, as the MCP server's decks have them: the
   // browser decodes no bitmap from it and gives it no size of its own, and the
@@ -1273,7 +1370,7 @@ try {
   check("a pasted SVG goes on the slide as an SVG file", !!svgPic.rel && !svgPic.window && svgPic.drawn, JSON.stringify(svgPic));
   check("…in its viewBox's shape, drawn at full-slide size", svgPic.shape === 1.78 && svgPic.size.join("x") === "2560x1440", JSON.stringify(svgPic));
   check("…with its own colours", svgPic.pixel[0] === 0x2a && svgPic.pixel[1] === 0x7f && svgPic.pixel[2] === 0x3e, JSON.stringify(svgPic.pixel));
-  check("…and in the PDF", svgPic.pdf[1] === svgPic.pdf[0] + 1, JSON.stringify(svgPic.pdf));
+  check("…and in the PDF as its paths, not as pixels", svgPic.pdf[1] === svgPic.pdf[0], JSON.stringify(svgPic.pdf));
 
   // the same picture as the background of the slide at the caret
   const bg = await page.evaluate(() => {
@@ -2176,6 +2273,8 @@ try {
     // "+ Add new presentation" under a room: File → New's window, and the
     // deck it makes is in that room
     await R(`t("tb-room-playground");`);
+    // General's list (open from the step before) has a "+" too: Playground's first
+    await until(() => window.__app.toolbar.roomOpen === "playground");
     await pageHas("tb-roomdeck-new");
     await R(`t("tb-roomdeck-new");`);
     const newWin = await until(() => window.__app.chart.isOpen && window.__app.chart.mode === "newdeck" && window.__app.chart.ndAsk === "");
@@ -4133,8 +4232,14 @@ try {
     await pc.waitForTimeout(500);
     const home = await pc.evaluate(() => ({ md: window.__app.source(), hash: location.hash }));
     check("after it, the site's plain address opens the welcome deck with no #doc", home.md.startsWith("---\ntitle: Sliqtly - Demo") && home.hash === "", JSON.stringify({ ...home, md: home.md.slice(0, 80) }));
-    await pc.goto(url.replace(/\/$/, "") + "/s/zzOthersDeck?edit");
-    await pc.waitForFunction(() => window.__pageStarted === true && window.__app.source().startsWith("# Toisen pakka"), null, { timeout: 90000 });
+    // reloaded again and again, the copy (a new one each time) has one tab
+    for (let i = 0; i < 3; i++) {
+      await pc.goto(url.replace(/\/$/, "") + "/s/zzOthersDeck?edit");
+      await pc.waitForFunction(() => window.__pageStarted === true && window.__app.source().startsWith("# Toisen pakka"), null, { timeout: 90000 });
+    }
+    await pc.waitForTimeout(500);
+    const row = await pc.evaluate(() => window.__app.deckTabsState().split("\n").slice(1).map((l) => l.split("\t")[1]));
+    check("reloads of a copy not kept leave one tab for it", row.filter((l) => l === "Toisen pakka").length === 1, JSON.stringify(row));
     await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Oma lisäys\n"));
     await pc.waitForTimeout(2500);
     const changed = await pc.evaluate(() => ({ kept: localStorage.getItem("evgp.doc"), hash: location.hash }));

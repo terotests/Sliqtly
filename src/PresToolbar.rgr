@@ -59,6 +59,10 @@ class PresToolbar {
     ; File → Recent: "<deck id>\t<name>" a line, the latest first
     def recentRows:string ""
     def playing:boolean false
+    ; the deck has a recording (Record → Play recording), played through
+    ; this voice
+    def hasRec:boolean false
+    def recVoice:string "clean"
     def status:string ""
     def requests:[string]
     def rev:int 0
@@ -144,11 +148,11 @@ class PresToolbar {
             langRows = rows
             langValue = current
         }
+        ; the open room changes only with its presentations ("roomdecks", which
+        ; the page always sends after the rooms): a room shown open with
+        ; another one's list, or none, for a frame flickered
         if (id == "rooms") {
             roomRows = rows
-            if (((strlen current) > 0) && (current != roomOpen)) {
-                roomOpen = current
-            }
         }
         if (id == "dark") {
             darkOn = (current == "1")
@@ -320,6 +324,9 @@ class PresToolbar {
         if (id == "openbox") {
             return "openbox"
         }
+        if ((indexOf id "rec-") == 0) {
+            return ("rec:" + (substring id 4 (strlen id)))
+        }
         if (id == "settings") {
             return "settings"
         }
@@ -388,6 +395,23 @@ class PresToolbar {
             return ("Meta+" + key)
         }
         return ("Control+" + key)
+    }
+
+    ; Record's Voice rows: the host's filters (web/recorder.js), the one in
+    ; use ticked.
+    fn voiceKids:void (parent:UiItem) {
+        ; i18n: "Clean" "Warm" "Radio" "Phone" "Echo" "Robot" "As recorded"
+        def ids:[string] ([] _:string ("clean" "warm" "radio" "phone" "echo" "robot" "none"))
+        def names:[string] ([] _:string ("Clean" "Warm" "Radio" "Phone" "Echo" "Robot" "As recorded"))
+        def i:int 0
+        while (i < (array_length ids)) {
+            def mark:string "    "
+            if ((itemAt ids i) == recVoice) {
+                mark = "✓  "
+            }
+            MenuCtl.addKid(parent ("rec-voice-" + (itemAt ids i)) (mark + (PresI18n.t((itemAt names i)))) false)
+            i = (i + 1)
+        }
     }
 
     ; Orientation's two rows, the deck's one ticked.
@@ -925,9 +949,10 @@ class PresToolbar {
                     push requests ("room:order:" + dragRoom + ":" + dropRoom)
                 }
             } {
-                roomOpen = dragRoom
-                roomDecks = ""
-                push requests ("room:open:" + roomOpen)
+                ; the open room and its presentations change together when the
+                ; page answers (setOptions "roomdecks"): no frame in between
+                ; with the room shut, which flickered
+                push requests ("room:open:" + dragRoom)
             }
         } {
             if dragOn {
@@ -1291,6 +1316,19 @@ class PresToolbar {
             this.subRows(th "t-" themeRows themeValue)
             slide.addSeparator()
             slide.addItem("css" (PresI18n.t("Edit theme CSS…")) false)
+            ; Record: the presentation with the voice, the pointer and what is
+            ; drawn on it (PresRecord), played again from here
+            def rc2:MenuCtl (this.dropdown("record" (PresI18n.t("Record"))))
+            rc2.addItem("rec-start" (PresI18n.t("● Record presentation")) false)
+            rc2.addItem("rec-play" (PresI18n.t("▶ Play recording")) (hasRec == false))
+            ; the rest only once there is a recording
+            if hasRec {
+                def vo:UiItem (rc2.addSub("rec-voice" (PresI18n.t("Voice")) false))
+                this.voiceKids(vo)
+                rc2.addSeparator()
+                rc2.addItem("rec-delete" (PresI18n.t("Delete recording…")) false)
+                rc2.setVariant("rec-delete" "destructive")
+            }
             def ex:MenuCtl (this.dropdown("export" (PresI18n.t("Export"))))
             ex.addItem("x-save" (PresI18n.t("Markdown (.md)")) false)
             ex.addItem("pptx" (PresI18n.t("PowerPoint (.pptx)")) false)
@@ -1441,6 +1479,11 @@ class PresToolbar {
             this.button("dr-player" (PresI18n.t("Presentation player (.html)")) "ghost" body)
             this.button("dr-pdf" (PresI18n.t("PDF (.pdf)")) "ghost" body)
             this.button("dr-zip" (PresI18n.t("All files (.zip)")) "ghost" body)
+            body.addChild((this.text("tb-dr-label" (PresI18n.t("Record")))))
+            this.button("dr-rec-start" (PresI18n.t("● Record presentation")) "ghost" body)
+            if hasRec {
+                this.button("dr-rec-play" (PresI18n.t("▶ Play recording")) "ghost" body)
+            }
             body.addChild((this.text("tb-dr-label" (PresI18n.t("Help")))))
             this.button("dr-helpBtn" (PresI18n.t("Help for this slide")) "ghost" body)
             this.button("dr-about" (PresI18n.t("About")) "ghost" body)
@@ -1670,10 +1713,7 @@ class PresToolbar {
                 dropRoom = ""
                 return
             }
-            roomOpen = id
-            roomDecks = ""
-            push requests ("room:open:" + roomOpen)
-            this.rebuild()
+            push requests ("room:open:" + id)
             return
         }
         if ((indexOf ctlTid "tb-roomdeck-d-") == 0) {
