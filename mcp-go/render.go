@@ -776,7 +776,7 @@ func (h *McpHost) RenderPic(name string, data []byte) {
 	if h.renderPics == nil {
 		h.renderPics = map[string]image.Image{}
 	}
-	if img, _, err := image.Decode(bytes.NewReader(data)); err == nil {
+	if img, err := decodePicture(data); err == nil {
 		h.renderPics[name] = img
 	} else if img, err := drawSvg(data, svgRenderSide); err == nil {
 		h.renderPics[name] = img

@@ -59,6 +59,16 @@ class PresDNode {
     def marks:[SceneItem]
     def dash:double 0.0
     def own:string ""
+    ; A round outline (a circle, an ellipse: the scene carries its exact
+    ; curve): its centre and radii, and how many points `ring` has now. The
+    ; ring is made again for the size it is drawn at (`fitRings`), so it
+    ; stays round however far the view zooms in.
+    def oval:boolean false
+    def ovalCX:double 0.0
+    def ovalCY:double 0.0
+    def ovalRX:double 0.0
+    def ovalRY:double 0.0
+    def ringSteps:int 0
 
     Constructor () {
         def a:[SceneItem]
@@ -296,6 +306,9 @@ class PresDiagram {
     ; reached; the ⋯ menu that offers it (and a restart) is open or not
     def showAll:boolean false
     def menuOpen:boolean false
+    ; The scale the diagram was last painted at (slide units per diagram
+    ; unit), for outlines made while painting.
+    def paintScale:double 1.0
     ; The zoom pill's menu of levels (`zoomLevels`) is open or not.
     def zoomOpen:boolean false
     def inAll:boolean false
@@ -710,6 +723,9 @@ class PresDiagram {
                                 push n.ring (itemAt it.pts p)
                                 p = (p + 1)
                             }
+                            if ((strlen it.d) > 0) {
+                                PresDiagram.ovalOf(n)
+                            }
                             if it.own {
                                 n.own = it.fill
                             }
@@ -726,6 +742,73 @@ class PresDiagram {
                     }
                 }
                 k = (k + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A round node's centre and radii, from the ring the scene gave it.
+    sfn ovalOf:void (n:PresDNode) {
+        def m:int (array_length n.ring)
+        if (m < 6) {
+            return
+        }
+        def x0:double (itemAt n.ring 0)
+        def x1:double x0
+        def y0:double (itemAt n.ring 1)
+        def y1:double y0
+        def p:int 2
+        while ((p + 1) < m) {
+            def x:double (itemAt n.ring p)
+            def y:double (itemAt n.ring (p + 1))
+            if (x < x0) { x0 = x }
+            if (x > x1) { x1 = x }
+            if (y < y0) { y0 = y }
+            if (y > y1) { y1 = y }
+            p = (p + 2)
+        }
+        n.oval = true
+        n.ovalCX = ((x0 + x1) * 0.5)
+        n.ovalCY = ((y0 + y1) * 0.5)
+        n.ovalRX = ((x1 - x0) * 0.5)
+        n.ovalRY = ((y1 - y0) * 0.5)
+        n.ringSteps = (idiv m 2)
+    }
+
+    ; How many points a round outline of radius r (slide units, as drawn)
+    ; needs to look round: a point every 1.5 units, which on a stage up to
+    ; three times the slide's size is a chord of 4.5 pixels.
+    sfn ovalSteps:int (r:double) {
+        def n:int (to_int (((r * 6.2831853) / 1.5) + 1.0))
+        if (n < 32) {
+            return 32
+        }
+        if (n > 2048) {
+            return 2048
+        }
+        return n
+    }
+
+    sfn maxOf:double (a:double b:double) {
+        if (a > b) {
+            return a
+        }
+        return b
+    }
+
+    ; The round nodes' rings, made again for the scale `sc` they are drawn at
+    ; when that needs more (or fewer) points than they have.
+    fn fitRings:void (sc:double) {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:PresDNode (itemAt nodes i)
+            if n.oval {
+                def steps:int (PresDiagram.ovalSteps(((PresDiagram.maxOf(n.ovalRX n.ovalRY)) * sc)))
+                if (steps != n.ringSteps) {
+                    clear n.ring
+                    FlowShapes.ellipseInto(n.ring n.ovalCX n.ovalCY n.ovalRX n.ovalRY steps)
+                    n.ringSteps = steps
+                }
             }
             i = (i + 1)
         }
@@ -3781,6 +3864,8 @@ class PresDiagram {
         this.ballAt(t)
         def fit:double (this.fitOf(bw bh))
         def sc:double (fit * camZ)
+        paintScale = sc
+        this.fitRings(sc)
         ; The camera is on its node, kept over the diagram (`keepInside`);
         ; where the diagram runs past the box, the rim fades it out.
         def dx:double ((bx + (bw * 0.5)) - (camX * sc))
@@ -6143,9 +6228,10 @@ class PresDiagram {
         def out:[double]
         if (part.form == "circle") {
             def c:[double] (FlowLook.circleFor(n.x n.y n.w n.h))
+            def steps:int (PresDiagram.ovalSteps(((PresDiagram.maxOf((itemAt c 2) (itemAt c 3))) * paintScale)))
             def k:int 0
-            while (k < 48) {
-                def a:double (((to_double k) / 48.0) * 6.2831853)
+            while (k < steps) {
+                def a:double (((to_double k) / (to_double steps)) * 6.2831853)
                 push out ((itemAt c 0) + ((itemAt c 2) * (cos a)))
                 push out ((itemAt c 1) + ((itemAt c 3) * (sin a)))
                 k = (k + 1)

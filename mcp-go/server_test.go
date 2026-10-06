@@ -109,6 +109,16 @@ func (f *fakeDB) Delete(_ context.Context, col, id string) error {
 	delete(f.data, col+"/"+id)
 	return nil
 }
+func (f *fakeDB) Take(_ context.Context, col, id string) (Doc, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	d, ok := f.data[col+"/"+id]
+	if !ok {
+		return nil, nil
+	}
+	delete(f.data, col+"/"+id)
+	return clone(d), nil
+}
 func (f *fakeDB) WhereEq(_ context.Context, col, field string, value any) ([]Doc, []string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -954,6 +964,13 @@ func TestReadFileWorkbookSheetsCSVAndJSON(t *testing.T) {
 	f.bucket.saved["shares/abcDEF1234/data/risk.xlsx"] = savedFile{book, ""}
 	f.bucket.saved["shares/abcDEF1234/data/notes.csv"] = savedFile{[]byte("a,b\r\n\"x, y\",2\n\n3,\"q\"\"\"\n"), ""}
 	f.bucket.saved["shares/abcDEF1234/data/spec.json"] = savedFile{[]byte(`{"a": 1}`), ""}
+	// a byte order mark is dropped; a first character that only starts
+	// with the same byte (U+FF21, EF BC A1) is kept
+	f.bucket.saved["shares/abcDEF1234/data/bom.csv"] = savedFile{[]byte("\xEF\xBB\xBFa,b\n1,2\n"), ""}
+	f.bucket.saved["shares/abcDEF1234/data/wide.csv"] = savedFile{[]byte("\uFF21,b\n1,2\n"), ""}
+	f.db.data["shares/abcDEF1234"]["files"] = append(f.db.data["shares/abcDEF1234"]["files"].([]any),
+		map[string]any{"path": "data/bom.csv", "type": "text/csv", "size": int64(15)},
+		map[string]any{"path": "data/wide.csv", "type": "text/csv", "size": int64(14)})
 	s := start(t, testEnv(&f, nil), "")
 	defer s.close()
 	read := func(args map[string]any) *mcp.CallToolResult {
@@ -1005,6 +1022,8 @@ func TestReadFileWorkbookSheetsCSVAndJSON(t *testing.T) {
 	eq(t, c["columns"], []string{"a", "b"})
 	eq(t, c["rows"], [][]string{{"x, y", "2"}, {"3", `q"`}})
 	eq(t, sc(read(map[string]any{"path": "data/spec.json"}))["text"], `{"a": 1}`)
+	eq(t, sc(read(map[string]any{"path": "data/bom.csv"}))["columns"], []string{"a", "b"})
+	eq(t, sc(read(map[string]any{"path": "data/wide.csv"}))["columns"], []string{"\uFF21", "b"})
 	match(t, textOf(read(map[string]any{"path": "media/cat.png"})), `is a picture`)
 	match(t, textOf(read(map[string]any{"path": "data/other.csv"})), `No file data/other\.csv .* Its files: data/risk\.xlsx, data/notes\.csv, data/spec\.json`)
 

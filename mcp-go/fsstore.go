@@ -137,6 +137,23 @@ func (d *engineDB) Delete(ctx context.Context, col, id string) error {
 	return store.Delete(ctx, d.e, col, id, store.AnyRev)
 }
 
+func (d *engineDB) Take(ctx context.Context, col, id string) (Doc, error) {
+	doc, rev, err := d.e.Get(ctx, col, id)
+	if err != nil || doc == nil {
+		return nil, err
+	}
+	// deleted only at the revision read: a second taker finds it changed
+	// or gone, and gets nothing
+	err = store.Delete(ctx, d.e, col, id, rev)
+	if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return doc, nil
+}
+
 // equal as the stored value, the Ranger side passing every value as a
 // string: "3" finds 3, and 3 finds "3"
 func (d *engineDB) WhereEq(ctx context.Context, col, field string, value any) ([]Doc, []string, error) {

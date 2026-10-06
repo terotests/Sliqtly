@@ -25,7 +25,6 @@ import (
 	"log"
 	"math"
 	"mime"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -68,6 +67,10 @@ type DB interface {
 	// only when its string field `field` is `want` (missing reads as ""),
 	// in one transaction; false when the field was something else.
 	UpdateIf(ctx context.Context, col, id, field, want string, d Doc) (bool, error)
+	// Take reads the document and deletes it in one step: of two callers
+	// taking the same document, one gets it and the other nil (a one-time
+	// code or refresh token is spent once).
+	Take(ctx context.Context, col, id string) (Doc, error)
 }
 
 // Bucket is the little of Cloud Storage the server uses.
@@ -229,15 +232,6 @@ func dailyQuota(db DB, anonymous, signedIn int64, now func() time.Time) func(ctx
 	}
 }
 
-// the caller's address as the rate limits key it (rgr/App.rgr does the same)
-func clientIP(r *http.Request) string {
-	ip := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0])
-	if ip == "" {
-		ip, _, _ = net.SplitHostPort(r.RemoteAddr)
-	}
-	return ip
-}
-
 type McpHost struct {
 	env    *Env
 	r      *http.Request
@@ -307,13 +301,8 @@ func queryJSON(r *http.Request) string {
 	return toJSON(out)
 }
 
-func (h *McpHost) RemoteIP() string {
-	ip, _, err := net.SplitHostPort(h.r.RemoteAddr)
-	if err != nil {
-		return h.r.RemoteAddr
-	}
-	return ip
-}
+// the caller's address, as the rate limits and quota key it (clientip.go)
+func (h *McpHost) ClientIP() string { return clientIP(h.r) }
 
 func (h *McpHost) TLS() bool       { return h.r.TLS != nil }
 func (h *McpHost) BaseURL() string { return h.env.BaseURL }
@@ -425,6 +414,20 @@ func (h *McpHost) GetDoc(col, id string) string {
 		return ""
 	}
 	d, err := h.env.DB.Get(h.ctx, col, id)
+	if err != nil || d == nil {
+		h.fail(err)
+		return ""
+	}
+	return toJSON(plain(d))
+}
+
+// the document, deleted as it is read: "" when it was not there (or
+// another request took it first)
+func (h *McpHost) TakeDoc(col, id string) string {
+	if !h.db() {
+		return ""
+	}
+	d, err := h.env.DB.Take(h.ctx, col, id)
 	if err != nil || d == nil {
 		h.fail(err)
 		return ""
