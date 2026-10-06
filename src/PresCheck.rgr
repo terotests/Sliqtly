@@ -12,6 +12,7 @@ Import "PresFollow.rgr"
 Import "PresReview.rgr"
 Import "PresReviewDot.rgr"
 Import "PresPick.rgr"
+Import "PresSelect.rgr"
 Import "PresNav.rgr"
 Import "PresRecord.rgr"
 Import "PresDocx.rgr"
@@ -1073,6 +1074,63 @@ class PresCheck {
     ; A chart's columns rise and a beam crosses it once. Presenting, the
     ; clock holds at the slide's end and at each build step; it held before
     ; the beam was across, and the beam stayed half way over the chart.
+    ; Charts in the diagrams' looks, and the document's style for both.
+    fn chartLooks:void () {
+        this.ok(((PresChart.lookName("" "cartoon" "forge")) == "cartoon") "look: the document's style over the theme's")
+        this.ok(((PresChart.lookName("forge" "cartoon" "")) == "") "look: a chart's own dressing beats the document's look")
+        this.ok(((PresChart.lookName("romantic" "cartoon" "")) == "romantic") "look: a chart's own look first")
+        this.ok(((PresChart.lookName("" "" "jurassic glow")) == "jurassic") "look: the theme's chart-style can name one")
+        this.ok(((PresChart.lookName("" "holo" "flat")) == "") "look: no look is none")
+        def bars:string "```vega-lite\n{\"data\":{\"values\":[{\"k\":\"A\",\"c\":\"x\",\"n\":4},{\"k\":\"A\",\"c\":\"y\",\"n\":7},{\"k\":\"B\",\"c\":\"x\",\"n\":5},{\"k\":\"B\",\"c\":\"y\",\"n\":3}]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"k\",\"type\":\"nominal\"},\"y\":{\"field\":\"n\",\"type\":\"quantitative\"},\"color\":{\"field\":\"c\",\"type\":\"nominal\"}}}\n```\n"
+        def text:string ("---\nslide-split-level: 2\nstyle: cartoon\n---\n\n## Myynti\n\n" + bars + "\n## Kulku\n\n```mermaid\nflowchart LR\n  A --> B\n```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        this.ok((deck.docStyle == "cartoon") ("look: the front matter's style is read, got " + deck.docStyle))
+        def l:MdLayout (deck.layout())
+        def bi:int -1
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 3) && ((indexOf b.embedSource "vega") < 0) && ((indexOf b.embedSource "\"mark\"") >= 0)) {
+                bi = i
+            }
+            i = (i + 1)
+        }
+        this.ok((bi >= 0) "look: the chart is laid out")
+        if (bi >= 0) {
+            def dl:EVGDisplayList (deck.chartStill(bi))
+            def look:FlowLook (FlowLook.cartoon(true))
+            def want0:string (look.seriesFill(0))
+            def want1:string (look.seriesFill(1))
+            def w0:EVGColor (EVGColor.parse(want0))
+            def w1:EVGColor (EVGColor.parse(want1))
+            def seen0:int 0
+            def seen1:int 0
+            def k:int 0
+            while (k < (array_length dl.cmds)) {
+                def c:EVGDrawCmd (itemAt dl.cmds k)
+                if (c.kind == 0) {
+                    if (((c.r == (w0.red())) && (c.g == (w0.green()))) && (c.b == (w0.blue()))) { seen0 = (seen0 + 1) }
+                    if (((c.r == (w1.red())) && (c.g == (w1.green()))) && (c.b == (w1.blue()))) { seen1 = (seen1 + 1) }
+                }
+                k = (k + 1)
+            }
+            ; two bars and a legend swatch each
+            this.ok((seen0 >= 3) ("look: the first series in cartoon's first colour, bars and swatch: " + (to_string seen0)))
+            this.ok((seen1 >= 3) ("look: the second series in its second: " + (to_string seen1)))
+            this.ok(((indexOf deck.wantFaces "Gloria Hallelujah") >= 0) ("look: the page is asked for the look's face: " + deck.wantFaces))
+        }
+        if ((deck.slideCount()) >= 2) {
+            def s1:PresSlide (deck.slideAt(1))
+            this.ok(((array_length s1.diagrams) == 1) "look: the diagram is read")
+            if ((array_length s1.diagrams) == 1) {
+                def du:PresDiaUse (itemAt s1.diagrams 0)
+                this.ok((du.diagram.style == "cartoon") ("look: the diagram takes the document's style, got " + du.diagram.style))
+            }
+        }
+        this.ok(((deck.chartLookName("{\"usermeta\":{\"presStyle\":\"flat\"}}")) == "") "look: a chart's own flat keeps it out of the document's look")
+    }
+
     fn chartMotion:void () {
         def vals:string ""
         def v:int 0
@@ -1879,6 +1937,13 @@ class PresCheck {
     ; Slides picked in the strip (PresPick), and a view of only some of them
     ; named by their sections' keys.
     fn picks:void () {
+        ; the on-slide pick's first button: a window of its own is "Settings"
+        this.ok(((PresSelect.contentLabel("chart")) == "Settings") "select: a chart's first button is Settings")
+        this.ok(((PresSelect.contentLabel("diagram")) == "Settings") "select: a diagram's first button is Settings")
+        this.ok(((PresSelect.contentLabel("img")) == "Settings") "select: a picture's first button is Settings")
+        this.ok(((PresSelect.contentLabel("table")) == "Settings") "select: a table's first button is Settings")
+        this.ok(((PresSelect.contentLabel("p")) == "Edit text") "select: a paragraph's first button is Edit text")
+        this.ok(((PresSelect.contentLabel("page")) == "Document settings") "select: the page's first button is Document settings")
         def p (new PresPick())
         this.ok(((p.active()) == false) "pick: empty at first")
         ; Ctrl + click on 3 with 1 selected picks both
@@ -2460,6 +2525,7 @@ class PresCheck {
         c.edges()
         c.cascade()
         c.chartMotion()
+        c.chartLooks()
         c.figures()
         c.listFigures()
         c.smartArt()

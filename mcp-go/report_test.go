@@ -184,7 +184,7 @@ func twentyMonths() string {
 	for i := 0; i < 20; i++ {
 		vals = append(vals, fmt.Sprintf(`{"m":"Month number %d","v":%d}`, i+1, (i*7)%23+3))
 	}
-	return `{"data":{"values":[` + strings.Join(vals, ",") + `]},"mark":"bar","encoding":{"x":{"field":"m","type":"ordinal","sort":null,"axis":{"labelAngle":0}},"y":{"field":"v","type":"quantitative"}}}`
+	return `{"data":{"values":[` + strings.Join(vals, ",") + `]},"mark":"bar","encoding":{"x":{"field":"m","type":"ordinal","sort":null,"axis":{"labelAngle":0,"labelOverlap":false}},"y":{"field":"v","type":"quantitative"}}}`
 }
 
 func decodeJPEG(t *testing.T, r *mcp.CallToolResult) image.Image {

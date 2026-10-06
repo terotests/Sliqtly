@@ -420,6 +420,371 @@ class PresChart {
         }
     }
 
+    ; A chart in one of the diagrams' looks (RangerFlow's FlowLook: mermaid,
+    ; jurassic, cartoon, romantic), chosen by the chart (`presStyle`), the
+    ; document (`style:` in its front matter) or the theme. The card is
+    ; dropped as in `dress`; each series takes the look's colour for its
+    ; place (bars, lines, points and the legend's swatches alike, so the
+    ; legend still says which is which), bars get the look's corners,
+    ; outline and shadow and rise as in `dress`; grid and axes are drawn in
+    ; the look's line colour (dashed in a dashed look) and the words in its
+    ; ink and, once the page has them, its faces — never wider than the
+    ; words they replace, which the chart's layout made room for.
+    sfn dressLook:void (out:EVGDisplayList from:int t:double still:boolean look:FlowLook spec:string ground:string l:MdLayout haveFaces:[string:boolean]) {
+        def tail:[EVGDrawCmd]
+        def i:int from
+        while (i < (array_length out.cmds)) {
+            push tail (itemAt out.cmds i)
+            i = (i + 1)
+        }
+        while ((array_length out.cmds) > from) {
+            removeLast out.cmds
+        }
+        def ramp:[boolean] (PresChart.rampStripes(tail))
+        def cells:boolean (PresChart.rectChart(spec))
+        def keys:[string] (PresChart.seriesKeys(tail ramp cells))
+        def bars:[EVGDrawCmd]
+        def groundSeen:boolean false
+        def k:int 0
+        while (k < (array_length tail)) {
+            def c:EVGDrawCmd (itemAt tail k)
+            if (c.kind == 0) {
+                if (! groundSeen) {
+                    groundSeen = true
+                } {
+                    if (((PresChart.isBar(c)) && (cells == false)) && ((itemAt ramp k) == false)) {
+                        push bars c
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        def nb:int (array_length bars)
+        def growStart:double (PresChart.growStart())
+        def growEach:double 0.1
+        if (((to_double nb) * growEach) > (PresChart.growSpread())) {
+            growEach = ((PresChart.growSpread()) / (to_double nb))
+        }
+        def growDur:double (PresChart.growDur())
+        def tt:double t
+        if still {
+            tt = 1000000.0
+        }
+        def line:EVGColor (EVGColor.parse(look.edgeColor))
+        def ink:EVGColor (EVGColor.parse(look.labelText))
+        def barAt:int 0
+        groundSeen = false
+        k = 0
+        while (k < (array_length tail)) {
+            def c:EVGDrawCmd (itemAt tail k)
+            def si:int (PresChart.seriesOf(keys c))
+            if (c.kind == 0) {
+                if (! groundSeen) {
+                    ; the card: left out
+                    groundSeen = true
+                    k = (k + 1)
+                    continue
+                }
+                if (((PresChart.isBar(c)) && (cells == false)) && ((itemAt ramp k) == false)) {
+                    def b:int si
+                    if (b < 0) {
+                        b = 0
+                    }
+                    PresChart.lookColumn(out c barAt tt growStart growEach growDur look b)
+                    barAt = (barAt + 1)
+                    k = (k + 1)
+                    continue
+                }
+                if (((itemAt ramp k) == false) && ((cells == false) && (si >= 0))) {
+                    ; a legend's swatch or a point: its series' colour
+                    PresChart.tintHex(c (look.seriesFill(si)))
+                    push out.cmds c
+                    if ((strlen (look.seriesStroke(si))) > 0) {
+                        def ring:EVGDrawCmd (PresChart.edgeCmd(c.x c.y c.w c.h ((look.chartStrokeWidth * 0.5) + 0.5) 0 0 0 1.0))
+                        ring.radius = c.radius
+                        PresChart.tintHex(ring (look.seriesStroke(si)))
+                        push out.cmds ring
+                    }
+                    k = (k + 1)
+                    continue
+                }
+                if (PresChart.greyish(c)) {
+                    ; a rule drawn as a thin rect: the look's lines
+                    c.r = (line.red())
+                    c.g = (line.green())
+                    c.b = (line.blue())
+                }
+                push out.cmds c
+                k = (k + 1)
+                continue
+            }
+            if (c.kind == 3) {
+                PresChart.lookWords(c look ink l haveFaces)
+                push out.cmds c
+                k = (k + 1)
+                continue
+            }
+            if ((c.kind == 7) && (PresChart.isDataLine(c))) {
+                def li:int si
+                if (li < 0) {
+                    li = 0
+                }
+                PresChart.tintHex(c (look.seriesInk(li ground)))
+                if (c.thickness < 3.0) {
+                    c.thickness = 3.0
+                }
+                c.strokeCap = 1
+                c.strokeJoin = 1
+                push out.cmds c
+                k = (k + 1)
+                continue
+            }
+            if (c.kind == 7) {
+                ; grid and axes in the look's line colour: the grid faint
+                def axis:boolean (c.r > 70)
+                c.r = (line.red())
+                c.g = (line.green())
+                c.b = (line.blue())
+                if axis {
+                    c.a = 0.75
+                } {
+                    c.a = 0.14
+                    if (look.edgeDash > 0.0) {
+                        c.strokeDash = "4 4"
+                    }
+                }
+                push out.cmds c
+                k = (k + 1)
+                continue
+            }
+            if ((si >= 0) && ((c.kind == 1) || (c.kind == 6))) {
+                ; a point's ring, an area: the series' colour, the alpha kept
+                if (c.kind == 1) {
+                    PresChart.tintHex(c (look.seriesInk(si ground)))
+                } {
+                    PresChart.tintHex(c (look.seriesFill(si)))
+                }
+            }
+            push out.cmds c
+            k = (k + 1)
+        }
+    }
+
+    ; The series of a chart, in the order they are first drawn: each data
+    ; colour (not a grey, not the card, not a ramp's or a heat map's cell)
+    ; as "r,g,b", once. The bars come first, so the first series is the
+    ; first column's.
+    sfn seriesKeys:[string] (tail:[EVGDrawCmd] ramp:[boolean] cells:boolean) {
+        def out:[string]
+        if cells {
+            return out
+        }
+        def pass:int 0
+        while (pass < 2) {
+            def groundSeen:boolean false
+            def k:int 0
+            while (k < (array_length tail)) {
+                def c:EVGDrawCmd (itemAt tail k)
+                def take:boolean false
+                if (c.kind == 0) {
+                    if (! groundSeen) {
+                        groundSeen = true
+                    } {
+                        if ((itemAt ramp k) == false) {
+                            def bar:boolean (PresChart.isBar(c))
+                            take = ((bar == (pass == 0)) && ((PresChart.greyish(c)) == false))
+                        }
+                    }
+                }
+                if ((pass == 1) && ((((c.kind == 7) && (PresChart.isDataLine(c))) || (c.kind == 1)) || (c.kind == 6))) {
+                    take = ((PresChart.greyish(c)) == false)
+                }
+                if take {
+                    def key:string (PresChart.keyOf(c))
+                    def seen:boolean false
+                    def j:int 0
+                    while (j < (array_length out)) {
+                        if ((itemAt out j) == key) {
+                            seen = true
+                        }
+                        j = (j + 1)
+                    }
+                    if (seen == false) {
+                        push out key
+                    }
+                }
+                k = (k + 1)
+            }
+            pass = (pass + 1)
+        }
+        return out
+    }
+
+    sfn keyOf:string (c:EVGDrawCmd) {
+        return ((to_string c.r) + "," + (to_string c.g) + "," + (to_string c.b))
+    }
+
+    ; Which series a command is drawn in (-1: none, furniture or a grey).
+    sfn seriesOf:int (keys:[string] c:EVGDrawCmd) {
+        if (PresChart.greyish(c)) {
+            return -1
+        }
+        def key:string (PresChart.keyOf(c))
+        def j:int 0
+        while (j < (array_length keys)) {
+            if ((itemAt keys j) == key) {
+                return j
+            }
+            j = (j + 1)
+        }
+        return -1
+    }
+
+    ; Grey: the chart's furniture (grid, axes, ticks), not data.
+    sfn greyish:boolean (c:EVGDrawCmd) {
+        return (((PresChart.absI((c.r - c.g))) < 14) && ((PresChart.absI((c.g - c.b))) < 14))
+    }
+
+    sfn tintHex:void (c:EVGDrawCmd hex:string) {
+        if ((strlen hex) == 0) {
+            return
+        }
+        def col:EVGColor (EVGColor.parse(hex))
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+    }
+
+    ; One column in a look: rising as in `dress`, the look's top corners, its
+    ; shadow (an offset copy, the fill darker or a soft black), its outline,
+    ; and cartoon's highlight stroke.
+    sfn lookColumn:void (out:EVGDisplayList c:EVGDrawCmd j:int t:double g0:double ge:double gd:double look:FlowLook series:int) {
+        def u:double ((t - (g0 + (ge * (to_double j)))) / gd)
+        if (u <= 0.0) {
+            return
+        }
+        if (u > 1.0) { u = 1.0 }
+        def e:double (1.0 - ((1.0 - u) * (1.0 - u) * (1.0 - u)))
+        def bottom:double (c.y + c.h)
+        def h:double (c.h * e)
+        def y:double (bottom - h)
+        def x:double c.x
+        def w:double c.w
+        def fill:string (look.seriesFill(series))
+        def stroke:string (look.seriesStroke(series))
+        def fc:EVGColor (EVGColor.parse(fill))
+        ; a narrow bar takes a smaller corner and shadow
+        def k:double (w / 40.0)
+        if (k > 1.0) { k = 1.0 }
+        def rad:double (look.chartRadius * k)
+        if (rad > (h * 0.5)) {
+            rad = (h * 0.5)
+        }
+        if ((strlen look.shadow) > 0) {
+            def shHex:string (look.shadowOf(fill))
+            def sc:EVGColor (EVGColor.parse(shHex))
+            def sh:EVGDrawCmd (PresChart.rectCmd((x + (look.shadowDx * k)) (y + (look.shadowDy * k)) w h (sc.red()) (sc.green()) (sc.blue()) look.shadowAlpha))
+            PresChart.topCorners(sh rad)
+            push out.cmds sh
+        }
+        def body:EVGDrawCmd (PresChart.rectCmd(x y w h (fc.red()) (fc.green()) (fc.blue()) 1.0))
+        PresChart.topCorners(body rad)
+        push out.cmds body
+        if look.shine {
+            ; a gloss along the top, inside the rounded corner
+            def gh:double (4.0 * k)
+            def gw:double (w * 0.3)
+            if ((h > (gh * 4.0)) && (gh >= 1.5)) {
+                def shine:EVGDrawCmd (PresChart.rectCmd((x + (rad * 0.9) + (2.0 * k)) (y + (4.0 * k)) gw gh 255 255 255 0.5))
+                shine.radius = (gh * 0.5)
+                push out.cmds shine
+            }
+        }
+        if ((strlen stroke) > 0) {
+            def th:double (look.chartStrokeWidth * k)
+            if (th < 1.0) { th = 1.0 }
+            def ring:EVGDrawCmd (PresChart.edgeCmd(x y w h th 0 0 0 1.0))
+            PresChart.tintHex(ring stroke)
+            PresChart.topCorners(ring rad)
+            push out.cmds ring
+        }
+    }
+
+    sfn topCorners:void (c:EVGDrawCmd rad:double) {
+        if (rad <= 0.0) {
+            return
+        }
+        c.radius = rad
+        c.perCorner = true
+        c.radiusTR = rad
+        c.radiusBR = 0.0
+        c.radiusBL = 0.0
+    }
+
+    ; A chart's words in a look: its ink where the chart left the default
+    ; (black or a grey), and its face once the page has it — titles (bold)
+    ; in the title face — set no wider than the words were, about the same
+    ; anchor (the left, the middle or the right of the run).
+    sfn lookWords:void (c:EVGDrawCmd look:FlowLook ink:EVGColor l:MdLayout haveFaces:[string:boolean]) {
+        if ((PresChart.defaultInk(c)) || (PresChart.greyish(c))) {
+            c.r = (ink.red())
+            c.g = (ink.green())
+            c.b = (ink.blue())
+        }
+        def bold:boolean (c.fontWeight == "bold")
+        def face:string (look.chartFace())
+        if (bold && ((strlen (look.chartTitleFace())) > 0)) {
+            face = (look.chartTitleFace())
+        }
+        if (((strlen face) == 0) || ((has haveFaces face) == false)) {
+            return
+        }
+        def was:double (l.measureStyled(c.text c.fontFamily c.fontSize bold false))
+        def size:double c.fontSize
+        def now:double (l.measureStyled(c.text face size false false))
+        if ((now > was) && (now > 0.0)) {
+            size = ((size * was) / now)
+            now = (l.measureStyled(c.text face size false false))
+        }
+        if (c.rotate == 0.0) {
+            if (c.textAlign == "center") {
+                c.x = (c.x + ((was - now) * 0.5))
+            }
+            if (c.textAlign == "right") {
+                c.x = (c.x + (was - now))
+            }
+        }
+        c.fontFamily = face
+        c.fontWeight = ""
+        c.fontSize = size
+    }
+
+    ; Which look a chart is drawn in, "" for none: the chart's own style
+    ; first (a dressing of the stage's own, flat/forge/neon/glass, is no
+    ; look and stops the search), then the document's, then the theme's
+    ; chart-style (its first word).
+    sfn lookName:string (own:string docStyle:string themeStyle:string) {
+        def o:string (trim own)
+        if ((((o == "flat") || (o == "forge")) || (o == "neon")) || (o == "glass")) {
+            return ""
+        }
+        if (FlowLook.knows(o)) {
+            return o
+        }
+        def d:string (trim docStyle)
+        if (FlowLook.knows(d)) {
+            return d
+        }
+        def words:[string] (strsplit (trim themeStyle) " ")
+        if ((array_length words) > 0) {
+            def w:string (itemAt words 0)
+            if (FlowLook.knows(w)) {
+                return w
+            }
+        }
+        return ""
+    }
+
     ; The column a text names the value of: the one it stands over or inside,
     ; centred on it. An axis label sits below the floor and a legend's off to
     ; the side, so neither is taken for one. -1 when it is none.

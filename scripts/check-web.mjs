@@ -1204,8 +1204,11 @@ try {
     focus: document.activeElement?.dataset.act || "",
   }));
   check("the viewer's … menu opens Export from the keyboard; no Edit for a reader", menu.open && menu.sub && !menu.edit && menu.focus === "pdf", JSON.stringify(menu));
-  await page3.keyboard.press("ArrowDown");
-  await page3.keyboard.press("ArrowDown");
+  // Markdown is the last of the export items; walk down to it.
+  for (let i = 0; i < 8; i += 1) {
+    if (await page3.evaluate(() => document.activeElement?.dataset.act === "md")) break;
+    await page3.keyboard.press("ArrowDown");
+  }
   await page3.evaluate(() => { window.__lastDownload = ""; });
   await page3.keyboard.press("Enter");
   await page3.waitForTimeout(200);
@@ -1620,7 +1623,7 @@ try {
   check("…and hovering its properties never moves the rows (also flipped above)", selHover.every((r) => r.rows > 3 && r.moved === 0 && r.tip), JSON.stringify(selHover));
 
   // A click on the slide picks the block under it: an outline, its theme
-  // spacing as bands, "Edit content" and "Style" next to it
+  // spacing as bands, "Edit text" and "Style" next to it
   const pk = await page.evaluate(() => {
     const a = window.__app;
     const src0 = a.source();
@@ -1700,7 +1703,7 @@ try {
   check("…a paragraph with {.lead} gets the class's rule too, and Esc lets go", pk.p.join("|") === "p|.lead" && pk.cleared, JSON.stringify([pk.p, pk.cleared]));
 
   // A diagram: the pointer over it outlines it before anything is picked; a
-  // click picks it, and its "Edit content" opens the diagram window, whose
+  // click picks it, and its "Settings" opens the diagram window, whose
   // look, boxes and links are written into the fence. A table's opens the
   // table window.
   {
@@ -1772,10 +1775,10 @@ try {
     await page.evaluate(() => window.__app.closeChart());
     await page.evaluate((t) => { const a = window.__app; a.pick.clear(); a.setSource(t); }, src0);
     check("the pointer over a diagram outlines it before anything is picked", hov.join(",") === "false,true,true,true", JSON.stringify(hov));
-    check("…a click picks it, and Edit content opens the diagram window", btn[0] === "diagram" && btn[3] === "content" && win.join(",") === "true,diagram,true,3", JSON.stringify([btn, win]));
+    check("…a click picks it, and Settings opens the diagram window", btn[0] === "diagram" && btn[3] === "content" && win.join(",") === "true,diagram,true,3", JSON.stringify([btn, win]));
     check("…its look and direction are written under and into the fence", /flowchart TD\n/.test(looks) && /\{style=sketch layout=keep\}/.test(looks), looks);
     check("…a box's words and shape, and a link to a box by its words", /B\{Toinen2\}/.test(boxes) && /C --> A\n/.test(boxes) && pressed.every(Boolean) && closed, JSON.stringify([boxes, pressed]));
-    check("a table's Edit content opens the table window: a cell, an alignment and a row written", tl.join(",") === "true,grid,2,1" && table === "| Alue | Myynti |\n| :--- | :---: |\n| Etelä | 1205 |\n| Länsi |  |", JSON.stringify([tl, table]));
+    check("a table's Settings opens the table window: a cell, an alignment and a row written", tl.join(",") === "true,grid,2,1" && table === "| Alue | Myynti |\n| :--- | :---: |\n| Etelä | 1205 |\n| Länsi |  |", JSON.stringify([tl, table]));
     check("…a data file's table opens with its options", dataTable.join(",") === "true,file,data/check-sales.csv,8", JSON.stringify(dataTable));
   }
 
