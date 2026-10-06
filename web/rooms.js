@@ -48,6 +48,71 @@ export function parseRooms(text) {
   }
 }
 
+// Kept in `store` (localStorage) one fact per key under `key` + "/": each
+// room ("room/<id>", its JSON), each placed deck ("deck/<deckId>", its room),
+// each room's last use ("touched/<id>") and the order ("order"). Every tab of
+// the browser shares them, and a tab hears another's writes only a while
+// later (later still when it is busy), so a tab writing all of the rooms as
+// one value would put back what it last heard over moves made in another
+// tab since. A change writes only the facts it changed: opening a room in one
+// tab writes that room's use, and a deck moved in another tab stays moved.
+// The one value of before (`key` itself) is read, split up on the first
+// change, and removed.
+function factsOf(state) {
+  const out = new Map();
+  for (const r of state.rooms) out.set("room/" + r.id, JSON.stringify(r));
+  for (const [deck, room] of Object.entries(state.placed)) out.set("deck/" + deck, String(room));
+  for (const [room, ms] of Object.entries(state.touched)) out.set("touched/" + room, String(ms));
+  if (state.order?.length) out.set("order", JSON.stringify(state.order));
+  return out;
+}
+
+// The rooms as `store` keeps them now.
+export function readKept(store, key) {
+  const s = parseRooms(store.getItem(key));
+  const rooms = new Map(s.rooms.map((r) => [r.id, r]));
+  const pre = key + "/";
+  for (let i = 0; i < store.length; i++) {
+    const k = store.key(i);
+    if (!k || !k.startsWith(pre)) continue;
+    const name = k.slice(pre.length);
+    const v = store.getItem(k);
+    if (v === null) continue;
+    const slash = name.indexOf("/");
+    const kind = slash < 0 ? name : name.slice(0, slash);
+    const id = slash < 0 ? "" : name.slice(slash + 1);
+    try {
+      if (kind === "room") {
+        const r = JSON.parse(v);
+        if (r && r.id === id && typeof r.title === "string") rooms.set(id, r);
+      } else if (kind === "deck" && id) s.placed[id] = v;
+      else if (kind === "touched" && id && Number.isFinite(Number(v))) s.touched[id] = Number(v);
+      else if (kind === "order") {
+        const o = JSON.parse(v);
+        if (Array.isArray(o)) s.order = o.filter((x) => typeof x === "string");
+      }
+    } catch (_) { /* a fact that does not read is left out */ }
+  }
+  // as made: the order of the list (orderRooms) does not hang on it
+  s.rooms = [...rooms.values()].sort((a, b) => (a.created || 0) - (b.created || 0));
+  return s;
+}
+
+// A change to the rooms `store` keeps: fn gets them as kept now, and only
+// the facts it changed are written (a room deleted takes its facts with it).
+// → the state now
+export function changeKept(store, key, fn) {
+  const before = readKept(store, key);
+  const next = fn(before);
+  const legacy = store.getItem(key) !== null;
+  const had = legacy ? new Map() : factsOf(before);
+  const now = factsOf(next);
+  for (const [k, v] of now) if (had.get(k) !== v) store.setItem(key + "/" + k, v);
+  for (const k of factsOf(before).keys()) if (!now.has(k)) store.removeItem(key + "/" + k);
+  if (legacy) store.removeItem(key);
+  return next;
+}
+
 // The room a deck is in: the one it was moved to, if that room still
 // exists, else General.
 export function roomOf(state, deckId) {
