@@ -32,6 +32,7 @@ import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, b
 import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
 import { parseRooms, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
+import { RoomChat } from "./roomchat.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
@@ -1108,7 +1109,7 @@ async function roomsRequest(r) {
     const rows = rooms.map((x) => [x.room_id, clean(x.title) + (x.archived ? " (" + t("archived") + ")" : ""), x.presentations ?? ""].join("\t"));
     app.setToolbarOptions("roomsearch", "", t("Search rooms…") + (hidden ? " (" + hidden + t(" more") + ")" : ""));
     app.setToolbarOptions("rooms", rows.join("\n"), roomShown);
-    if (roomShown && rooms.some((x) => x.room_id === roomShown)) await roomsRequest("room:open:" + roomShown);
+    if (roomShown && rooms.some((x) => x.room_id === roomShown)) await roomsRequest("room:decks:" + roomShown);
     else app.setToolbarOptions("roomdecks", "", roomShown);
   } else if (action === "search") {
     roomsQuery = what;
@@ -1126,6 +1127,7 @@ async function roomsRequest(r) {
       keepRooms(touchRoom(roomsHere, id));
     }
     await roomsRequest("room:list");
+    if (id) await roomChat().open(id);
   } else if (action === "drop" || action === "tabdrop") {
     // a presentation dragged from the open room, or a deck's tab, onto a
     // room: Move, Copy or Cancel (a sample is only copied)
@@ -1200,7 +1202,9 @@ async function roomsRequest(r) {
     if (ownServer()) await roomsCall("move_presentation", { deck_id: deck.replace(/^cloud:/, ""), room_id: room });
     else if (!deck.startsWith("sample:")) keepRooms(touchRoom(moveDeck(roomsHere, deck, room), room));
     await roomsRequest("room:list");
-  } else if (action === "open") {
+  } else if (action === "open" || action === "decks") {
+    // a room pressed opens its chat (web/roomchat.js); the list shown again
+    // ("decks") only lists its presentations
     roomShown = what;
     keepRooms(touchRoom(roomsHere, roomShown));
     const rows = await roomRows(roomShown);
@@ -1209,7 +1213,9 @@ async function roomsRequest(r) {
       addNew: roomShown === ONBOARDING ? "" : "+ " + t("Add new presentation"),
     });
     app.setToolbarOptions("roomdecks", lines, roomShown);
+    if (action === "open") await roomChat().open(roomShown);
   } else if (action === "deck") {
+    roomChat().close();
     if (what.startsWith("sample:")) await openSample(what.slice(7));
     else await fileRequest("doc:" + what);
     await roomsRequest("room:list");
@@ -1248,6 +1254,37 @@ async function roomsRequest(r) {
   }
   needsPaint = true;
 }
+// A room's chat (web/roomchat.js): made the first time a room is opened.
+let roomChatOne = null;
+function roomChat() {
+  if (roomChatOne) return roomChatOne;
+  let store = null;
+  try { store = localStorage; } catch (_) { store = { getItem: () => null, setItem: () => {} }; }
+  roomChatOne = new RoomChat({
+    app, store, t, toast, ownServer,
+    name: shownName(),
+    call: roomsCall,
+    now: () => Date.now(),
+    zone: () => -new Date().getTimezoneOffset(),
+    rooms: () => roomsList({ archived: true }),
+    roomsChanged: () => roomsRequest("room:list"),
+    openLink: (u) => { if (/^https?:\/\//i.test(u)) window.open(u, "_blank", "noopener"); },
+    openDeck: async (deck, slide) => {
+      await roomsRequest("room:deck:cloud:" + deck);
+      if (slide > 0) app.selectSlide(slide - 1);
+      needsPaint = true;
+    },
+    openRoom: (id) => roomsRequest("room:pick:" + id),
+    copy: async (s) => {
+      const ok = await writeClip(s);
+      toast(ok ? t("Copied") : t("Could not copy"));
+    },
+    paint: () => { needsPaint = true; },
+  });
+  window.addEventListener("sliqtly:chat", (ev) => { roomChatOne.event(ev.detail).catch(() => {}); });
+  return roomChatOne;
+}
+
 // The name edited at the start of the bar: the deck's title (front matter
 // `title:`, else its first heading) rewritten, as one edit that undoes, and
 // the open presentations' tab follows.
@@ -2522,6 +2559,8 @@ function paintOnce() {
   for (const layer of app.layerOrder().split(",")) {
     if (layer === "bar") {
       if (canvasBar) paintBar();
+    } else if (layer === "room") {
+      paintList(app.roomJson());
     } else if (layer === "review") {
       paintList(app.reviewJson());
     } else if (layer === "hint") {
@@ -3372,6 +3411,8 @@ function handleRequests() {
       setSkinHue(parseInt(r.slice("setting:skinhue:".length), 10));
     } else if (r.startsWith("room:")) {
       roomsRequest(r).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+    } else if (r.startsWith("roomchat:")) {
+      roomChat().request(r.slice(9)).catch((e) => toast(t("Chat: ") + (e.message || e)));
     } else if (r.startsWith("title:")) {
       renameDeck(r.slice(6));
     } else if (r === "rail:review") {
@@ -5725,7 +5766,7 @@ keys.addEventListener("keydown", (ev) => {
   }
   const special = KEY_MAP[ev.key];
   if (special) {
-    if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart") return;
+    if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart" && app.focusTarget() !== "room") return;
     if (app.key(special, ev.shiftKey, mod)) ev.preventDefault();
     else if (app.focusTarget() === "editor" || app.focusTarget() === "chart") ev.preventDefault();
     afterInput();

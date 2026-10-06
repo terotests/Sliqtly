@@ -102,7 +102,9 @@ type Env struct {
 	LocalUser string
 	// Store: the documents of a server of one's own, under DB, for what
 	// needs more than DB says (revisions, the change feed); nil elsewhere
-	Store    store.Engine
+	Store store.Engine
+	// Chat: the rooms' messages, beside Store; nil elsewhere
+	Chat     store.ChatLog
 	FilesURL string // e.g. https://host/files; "": Storage download URLs
 	// GitHubToken: sent to api.github.com (read_github_pr), for its
 	// higher limit; "" reads as anyone
@@ -626,7 +628,7 @@ func (h *McpHost) HostTools() string {
 }
 
 // HasTool: name is one of HostTools
-func (h *McpHost) HasTool(name string) bool { return h.env.rooms != nil && findRoomTool(name) }
+func (h *McpHost) HasTool(name string) bool { return h.env.rooms != nil && findMcpRoomTool(name) }
 
 // CallTool runs one of HostTools for uid with args (JSON) → the answer as
 // JSON text; a caller's mistake or a failure is the host's error. who is
@@ -636,7 +638,7 @@ func (h *McpHost) CallTool(uid, who, name, args string) string {
 		h.fail(fmt.Errorf("no tool %s", name))
 		return ""
 	}
-	for _, t := range roomTools {
+	for _, t := range allRoomTools() {
 		if t.name == name && !t.readOnly {
 			if why := h.env.Limiter(who); why != "" {
 				h.fail(errors.New(why))

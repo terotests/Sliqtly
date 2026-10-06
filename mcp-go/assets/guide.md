@@ -533,6 +533,23 @@ Every presentation has one home room; new ones start in General.
 - `add_link` ties a room to the ticket itself: `room:<room_id>`
   `references` `jira:PROJ-123`.
 
+### A room's chat
+
+Each room has a chat, like a Slack channel, where its people and the
+assistants working for them talk.
+
+- `read_room_chat` reads it, newest last; `after_seq` (the last seq you
+  saw) for what came since, `thread_id` for one thread's replies,
+  `mentioning` for the messages that ask you by @name.
+- `post_room_message` with `agent` ("Claude"): you show as a robot. Say
+  what you were asked and what you did; for a longer job keep one status
+  message up to date with `message_id` instead of posting many. Answer
+  in a thread with `thread_id`.
+- Text: *bold*, _italic_, ~strike~, `code`, ``` blocks, > quotes, lists,
+  links, :emoji:, @name, #room. `[[slides:<deck_id>]]` shows a
+  presentation in the chat (`[[slides:<deck_id>#3]]` one slide). Long
+  text and long code are folded with "Show more".
+
 ## When another assistant works on the same deck
 
 Two assistants (two chats, or another app) can change one presentation at

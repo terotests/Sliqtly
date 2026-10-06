@@ -77,6 +77,7 @@ func localEnv(dir, baseURL, user string) (*Env, *localBucket, error) {
 		Client:    newPublicClient(),
 		DB:        db,
 		Store:     db.e,
+		Chat:      db.chat,
 		Bucket:    bucket,
 		LocalUser: user,
 		Themes:    builtinTheme,
@@ -106,6 +107,14 @@ func newLocalServer(env *Env, bucket *localBucket, token string, web fs.FS) http
 	if env.Store != nil {
 		s.hub = newChangeHub()
 		s.collab = newCollabRooms()
+		if env.rooms != nil {
+			hub := s.hub
+			env.rooms.notify = func(_ string, v map[string]any) {
+				if b, err := json.Marshal(v); err == nil {
+					hub.publishChat(b)
+				}
+			}
+		}
 		// every write, in the order made, from now: whoever made it (a
 		// page, an assistant, a room) and whatever the store is
 		changes, err := env.Store.Watch(context.Background(), env.Store.Head())
