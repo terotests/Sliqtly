@@ -243,14 +243,14 @@ func TestNetworkSettingsAPI(t *testing.T) {
 	eq(t, code, 400)
 
 	// from another computer: seen, not changed
-	r := httptest.NewRequest("PUT", "/api/settings/network", strings.NewReader(`{"access":"network"}`))
+	r := httptest.NewRequest("PUT", "http://localhost/api/settings/network", strings.NewReader(`{"access":"network"}`))
 	r.Header.Set("Content-Type", "application/json")
 	r.RemoteAddr = "10.20.3.9:51000"
 	w := httptest.NewRecorder()
 	ls.ServeHTTP(w, r)
 	eq(t, w.Code, 403)
 	eq(t, ls.expo.policy.Load().Access, "wired")
-	r = httptest.NewRequest("GET", "/api/settings/network", nil)
+	r = httptest.NewRequest("GET", "http://localhost/api/settings/network", nil)
 	r.RemoteAddr = "10.20.3.9:51000"
 	w = httptest.NewRecorder()
 	ls.ServeHTTP(w, r)

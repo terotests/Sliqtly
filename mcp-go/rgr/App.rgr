@@ -81,19 +81,10 @@ class App {
         return base
     }
 
-    ; the caller's address: the first X-Forwarded-For value (Hosting and
-    ; Cloud Run put the client first), else the connection's
+    ; the caller's address: X-Forwarded-For read from the right past our
+    ; own proxies (clientip.go); its first value is the client's own text
     sfn clientIp:string (host:McpHost req:HttpRequest) {
-        def ip:string (http_get_header req "X-Forwarded-For")
-        def comma:int (indexOf ip ",")
-        if (comma >= 0) {
-            ip = (substring ip 0 comma)
-        }
-        ip = (trim ip)
-        if ((strlen ip) == 0) {
-            ip = (host_remote_ip host)
-        }
-        return ip
+        return (host_client_ip host)
     }
 
     ; The page's visit beacon (web/main.js countVisit, Stats.rgr): counted

@@ -30,9 +30,10 @@ operators {
             go ( (e 1) ".BodyJSON()" )
         }
     }
-    host_remote_ip _:string (h:McpHost) {
+    ; the caller's address through our proxies (clientip.go)
+    host_client_ip _:string (h:McpHost) {
         templates {
-            go ( (e 1) ".RemoteIP()" )
+            go ( (e 1) ".ClientIP()" )
         }
     }
     host_tls _:boolean (h:McpHost) {
@@ -143,6 +144,13 @@ operators {
     host_get_doc _:string (h:McpHost col:string id:string) {
         templates {
             go ( (e 1) ".GetDoc(" (e 2) ", " (e 3) ")" )
+        }
+    }
+    ; read and delete in one step (a one-time code): "" when it was not
+    ; there or another request took it first
+    host_take_doc _:string (h:McpHost col:string id:string) {
+        templates {
+            go ( (e 1) ".TakeDoc(" (e 2) ", " (e 3) ")" )
         }
     }
     host_set_doc _:void (h:McpHost col:string id:string json:string) {
