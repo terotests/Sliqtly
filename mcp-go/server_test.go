@@ -655,6 +655,7 @@ func TestOptionalSignIn(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	match(t, textOf(c), `account of Tero`)
+	match(t, textOf(c), `signed in with another, it opens a copy`)
 	id := sc(c)["deck_id"].(string)
 	eq(t, f.db.doc("shares/" + id)["owner"], "u1")
 	u := call(t, me, "update_presentation", map[string]any{"deck_id": id, "markdown": "# m\n\n## two"})
