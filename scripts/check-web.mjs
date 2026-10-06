@@ -2203,6 +2203,43 @@ try {
     check("…the name's button keeps its width, so the menus after it stay put when the name changes", railed.fileX0 === renamed.fileX1, JSON.stringify({ before: railed.fileX0, after: renamed.fileX1 }));
     check("…the name at the start of the bar becomes a field; Enter renames the deck, as one edit that undoes", railed.editing && !railed.after && renamed.title === "Renamed deck" && renamed.undone !== "Renamed deck", JSON.stringify(renamed));
 
+    // The deck's name in the bar, a field when pressed: a page of its own.
+    // It shows its selection and caret (the bar lays its tree out itself and
+    // places the fields' text): all of the name picked at first, a caret
+    // where pressed, a drag's band, Ctrl+A all again, its width kept.
+    {
+      const tctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+      const tp = await tctx.newPage();
+      await tp.goto(url + "?sample=esittely");
+      await tp.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+      const tf = await tp.evaluate((findJs) => {
+        const a = window.__app;
+        const find = eval(findJs);
+        const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+        press(find("tb-title"));
+        const sel = () => { const e = find("tb-title-in-sel"); return e ? { w: Math.round(e.calculatedWidth), h: Math.round(e.calculatedHeight) } : null; };
+        const caretH = () => { const e = find("tb-title-in-caret"); return e ? Math.round(e.calculatedHeight) : -1; };
+        const text = find("tb-title-in-text");
+        const out = { editing: a.toolbar.titleEditing, all: sel(), w: Math.round(find("tb-title-in").calculatedWidth) };
+        const ty = text.calculatedY + text.calculatedHeight / 2;
+        a.pointerDown(text.calculatedX + text.calculatedWidth / 2, ty, false, 1);
+        a.pointerUp();
+        out.caret = caretH();
+        out.none = sel()?.w;
+        a.pointerDown(text.calculatedX + 4, ty, false, 1);
+        a.pointerMove(text.calculatedX + text.calculatedWidth / 2, ty);
+        a.pointerUp();
+        out.dragged = sel()?.w;
+        a.chord("a");
+        out.again = sel()?.w;
+        out.wAfter = Math.round(find("tb-title-in").calculatedWidth);
+        a.key("escape", false, false);
+        return out;
+      }, findJs);
+      check("…the name's field shows its selection and caret: all picked at first, a caret where pressed, a drag's band, Ctrl+A all again, its width kept", tf.editing && tf.all?.w > 20 && tf.all?.h > 10 && tf.caret > 10 && tf.none === 0 && tf.dragged > 10 && tf.dragged < tf.all.w && tf.again === tf.all.w && tf.wAfter === tf.w, JSON.stringify(tf));
+      await tctx.close();
+    }
+
     // Rooms' "+": the room's window (name, description), Enter makes the
     // room (this browser's, web/rooms.js), first after the built-in ones.
     // A page of its own, with a deck kept in this browser.

@@ -98,12 +98,13 @@
 
 /* The tabs over the editor pane (Ranger UI TabsCtl) */
 .ed-tabs { background-color: var(--panel); border-bottom: 1px solid var(--line); padding-left: 10px; padding-top: 1px; }
-/* EVGUI's pill tabs: a muted track, the active tab a white raised pill. The
+/* EVGUI's pill tabs on the white of the deck's tab above, so the tab and
+   its document read as one piece; the active tab a pill with an edge. The
    tab is a text leaf, so its height and line-height place the label. */
 .ui-tabs { display: flex; flex-direction: column; }
-.ui-tablist { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 2px; padding: 3px; height: 32px; border-radius: 8px; background-color: #f4f4f5; }
-.ui-tab { color: #71717a; font-size: 13px; font-weight: 500; height: 24px; line-height: 24px; padding: 0 12px; border-radius: 6px; border: 1px solid #f4f4f5; background-color: #f4f4f5; cursor: pointer; }
-.ui-tab-state-active { background-color: #ffffff; color: #09090b; border-color: #e4e4e7; shadow-color: rgba(0, 0, 0, 0.10); shadow-radius: 3px; shadow-offset-y: 1px; }
+.ui-tablist { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 2px; padding: 3px; height: 32px; border-radius: 8px; background-color: #ffffff; }
+.ui-tab { color: #71717a; font-size: 13px; font-weight: 500; height: 24px; line-height: 24px; padding: 0 12px; border-radius: 6px; border: 1px solid #ffffff; background-color: #ffffff; cursor: pointer; }
+.ui-tab-state-active { background-color: #f4f4f5; color: #09090b; border-color: #e4e4e7; shadow-color: rgba(0, 0, 0, 0.10); shadow-radius: 3px; shadow-offset-y: 1px; }
 .ui-tabpanel { display: none; }
 
 /* --- the element picked on the slide (src/PresSelect.rgr) -------------------
