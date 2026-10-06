@@ -213,6 +213,9 @@ class Layout {
             if (gb.kind == "gallery") {
                 gb.label = (Layout.galleryLabel(md (itemAt keys gbi) gb.pictures))
             }
+            if (gb.kind == "diagram") {
+                gb.keep = ((indexOf (Layout.fenceAttrs(md (itemAt keys gbi))) "layout=keep") >= 0)
+            }
         }
         ; what each block drew: the boxes give the slot, the commands the ink
         def drawn:[boolean]
@@ -617,31 +620,41 @@ class Layout {
         return out
     }
 
+    ; the attribute line under a fenced block that starts at `at`
+    ; ("{layout=full …}"), "" when it has none
+    sfn fenceAttrs:string (md:string at:int) {
+        if ((at < 0) || (at >= (strlen md))) {
+            return ""
+        }
+        def rest:string (substring md at (strlen md))
+        def lines:[string] (strsplit rest "\n")
+        def open:string ""
+        for lines ln:string li {
+            def t:string (trim ln)
+            if (li == 0) {
+                open = (substring t 0 3)
+                continue
+            }
+            if ((strlen open) > 0) {
+                if (startsWith t open) {
+                    open = ""
+                }
+                continue
+            }
+            if (startsWith t "{") {
+                return t
+            }
+            return ""
+        }
+        return ""
+    }
+
     ; "grid, 6 pictures" or "full page, 1 picture": the layout from the
     ; attribute line under the gallery's closing fence
     sfn galleryLabel:string (md:string at:int pictures:int) {
         def layout:string "grid"
-        if ((at >= 0) && (at < (strlen md))) {
-            def rest:string (substring md at (strlen md))
-            def lines:[string] (strsplit rest "\n")
-            def open:string ""
-            for lines ln:string li {
-                def t:string (trim ln)
-                if (li == 0) {
-                    open = (substring t 0 3)
-                    continue
-                }
-                if ((strlen open) > 0) {
-                    if (startsWith t open) {
-                        open = ""
-                    }
-                    continue
-                }
-                if ((startsWith t "{") && ((indexOf t "layout=full") >= 0)) {
-                    layout = "full page"
-                }
-                break
-            }
+        if ((indexOf (Layout.fenceAttrs(md at)) "layout=full") >= 0) {
+            layout = "full page"
         }
         def what:string " pictures"
         if (pictures == 1) {

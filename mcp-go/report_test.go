@@ -81,7 +81,10 @@ func TestReportDiagramTextTooSmall(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		d.runs = append(d.runs, run("Step", 70+float64(i)*170, 190, 40, 9, 7, 0))
 	}
-	match(t, flagsOf(slideOf(d)), `diagram \(Mermaid\): its text is drawn at 14 px, too small to read \(it is 1704 px wide with 5 boxes in a row\)\. Lay it out top-down`)
+	match(t, flagsOf(slideOf(d)), `diagram \(Mermaid\): its text is drawn at 14 px, too small to read \(it is 1704 px wide with 5 boxes in a row\)\. Shorten the labels or split it`)
+	// held to its written direction: the advice is to let the slide turn it
+	d.keep = true
+	match(t, flagsOf(slideOf(d)), `too small to read \(it is 1704 px wide with 5 boxes in a row\)\. Remove \{layout=keep\}`)
 }
 
 func TestReportOverlapsAndEdges(t *testing.T) {
