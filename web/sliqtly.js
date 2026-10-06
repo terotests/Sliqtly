@@ -194,8 +194,9 @@ function shortId() {
 
 // Keeps the deck as its owner's and makes a copy anyone with the link can
 // read: { deckId, name, md, theme, css, files: [{ path, type, data }] } →
-// the share's id.
-async function share(deck) {
+// the share's id. made(id), when given, is told the id as soon as the share
+// exists, before its files go.
+async function share(deck, made) {
   if (!user) throw new Error("not signed in");
   const { db, files } = await store();
   const fb = globalThis.firebase;
@@ -210,6 +211,7 @@ async function share(deck) {
   // the deck keeps it and the next save sends the files again instead of
   // making another share
   try {
+    if (made) await made(id);
     const kept = [];
     for (const f of deck.files || []) {
       const blob = f.data instanceof Blob ? f.data : new Blob([f.data ?? ""], { type: f.type || "text/plain" });

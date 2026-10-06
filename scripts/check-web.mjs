@@ -4161,9 +4161,10 @@ try {
     const fakeFiles = new Map();
     let puts = 0;
     let failPuts = 0;
+    let putDelay = 0;
     const stamp = (o) => { for (const k of Object.keys(o)) if (o[k] && o[k].__ts) o[k] = Date.now(); return o; };
     const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
-    await ctx.exposeFunction("__fakeFirebase", (op, a) => {
+    await ctx.exposeFunction("__fakeFirebase", async (op, a) => {
       if (op === "get") return fakeDb.get(a.k) ?? null;
       if (op === "query") {
         return [...fakeDb.entries()].filter(([k, d]) => k.startsWith(a.c + "/") && d[a.f] === a.v).slice(0, a.n)
@@ -4174,6 +4175,7 @@ try {
         if (!fakeDb.has(a.k)) throw new Error("no document " + a.k);
         fakeDb.set(a.k, stamp({ ...fakeDb.get(a.k), ...a.data }));
       } else if (op === "put") {
+        if (putDelay) await new Promise((ok) => setTimeout(ok, putDelay));
         if (failPuts > 0) { failPuts -= 1; throw new Error("storage/retry-limit-exceeded"); }
         puts += 1; fakeFiles.set(a.p, { type: a.type, buf: Buffer.from(a.b64, "base64") }); }
       else if (op === "del") fakeFiles.delete(a.p);
@@ -4434,6 +4436,34 @@ try {
     await pc.waitForTimeout(2000);
     const opened = { md: await pc.evaluate(() => window.__app.source()), at: await pc.evaluate(() => location.pathname + location.search) };
     check("PRO: a cloud deck opens from the cloud", opened.md.startsWith("# Vain pilvessä"), JSON.stringify(opened));
+    // a copy left while its pictures still go to its new share, opened again
+    // from the cloud's list (Duplicate, then the copy's row): it is that
+    // share's deck already, not a second one, and its picture stays with it
+    {
+      fakeFiles.set("shares/zzWithPic/media/kansi.png", { type: "image/png", buf: fs.readFileSync(path.join(dir, "cloud-pic.png")) });
+      fakeDb.set("shares/zzWithPic", { name: "Kuvallinen", md: "# Kuvallinen\n\n## Kansi\n\n![k](media/kansi.png)\n", theme: "aurora", css: null, owner: "u1", deck: "mcp", source: "mcp", created: 1000,
+        files: [{ path: "media/kansi.png", type: "image/png", size: 68, url: url + "__fakefiles/" + encodeURIComponent("shares/zzWithPic/media/kansi.png") }] });
+      await pc.evaluate(() => window.__fileRequest("doc:cloud:zzWithPic"));
+      await pc.waitForTimeout(1500);
+      const before = shareId();
+      putDelay = 6000;
+      await pc.evaluate(() => window.__fileRequest("duplicate"));
+      await pc.waitForTimeout(300);
+      await pc.keyboard.press("Enter");
+      await pc.waitForFunction((b) => window.__app.source().startsWith("# Kuvallinen ("), null, { timeout: 8000 }).catch(() => {});
+      await pc.waitForTimeout(1000);
+      const copyId = shareId().find((k) => !before.includes(k)) || "";
+      const midway = (fakeDb.get("shares/" + copyId)?.files || []).length;
+      await pc.evaluate((k) => window.__fileRequest("doc:cloud:" + k), copyId);
+      putDelay = 0;
+      await pc.waitForTimeout(9000);
+      const reopened = { md: (await pc.evaluate(() => window.__app.source())).slice(0, 24), files: await pc.evaluate(() => window.__docFiles()) };
+      const sameDeck = await pc.evaluate((k) => window.__docState().cloud === k, copyId);
+      const rows = await pc.evaluate(async (k) => (await window.__allDocs()).filter((d) => d.id === "cloud:" + k).length, copyId);
+      check("PRO: a copy opened from the cloud while its pictures still go keeps them, as the same deck",
+        !!copyId && midway === 0 && reopened.files.includes("media/kansi.png") && sameDeck && rows === 0 && (fakeDb.get("shares/" + copyId)?.files || []).some((f) => f.path === "media/kansi.png"),
+        JSON.stringify({ copyId, midway, reopened, sameDeck, rows, share: (fakeDb.get("shares/" + copyId)?.files || []).map((f) => f.path) }));
+    }
     // every shared deck opens with Sliqtly's intro (web/brand.js), a PRO
     // owner's too, and the show begins when it ends by itself
     // (looked at as the page's HTML is read: a slow load may outlast the intro)

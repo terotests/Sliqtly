@@ -2787,6 +2787,32 @@ class PresCheck {
     }
 
     ; --- a picture resized and moved on the slide (PresImageDrag) ---------------
+    ; Another deck opened in this one's place starts without its pictures:
+    ; one the next deck names but does not have is not drawn from the deck
+    ; before (a copy whose files did not come looked whole that way).
+    fn imagesCleared:void () {
+        def css:string "page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 }"
+        def text:string "---\nslide-split-level: 2\n---\n\n## Kuva\n\n![Kansi](media/kansi.png)\n"
+        def deck (new PresDeck())
+        deck.md.setStyleSheet(css)
+        deck.setTheme(css)
+        deck.addImage("/media/kansi.png" (buffer_from_string "png") "image/png" 40 30)
+        deck.addImage("/media/steps.xml" (buffer_from_string "<dgm:dataModel/>") "" 0 0)
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((PresCheck.images((PresTimeline.finalFrame(deck 0)) "/media/kansi.png")) == 1) "a deck's picture is drawn")
+        deck.clearImages()
+        this.ok(((deck.md.imageCount()) == 0) "after clearImages the store is empty")
+        this.ok(((deck.isSmartArtPath("/media/steps.xml")) == false) "and no SmartArt file is known")
+        deck.setText((text + "\n"))
+        PresTimeline.planAll(deck)
+        this.ok(((PresCheck.images((PresTimeline.finalFrame(deck 0)) "/media/kansi.png")) == 0) "the picture is not drawn for the next deck")
+        deck.addImage("/media/kansi.png" (buffer_from_string "png") "image/png" 40 30)
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((PresCheck.images((PresTimeline.finalFrame(deck 0)) "/media/kansi.png")) == 1) "and is again once handed over")
+    }
+
     fn imageDrag:void () {
         ; the handles of a 200 × 100 box at (100, 50), a grip of 6
         this.ok(((PresImageDrag.zoneAt(100.0 50.0 200.0 100.0 99.0 100.0 6.0)) == "l") "image drag: the left edge")
@@ -3045,6 +3071,7 @@ class PresCheck {
         c.htmlPage()
         c.traceChecks()
         c.imageDrag()
+        c.imagesCleared()
         c.sketches()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
