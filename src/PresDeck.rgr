@@ -1887,21 +1887,6 @@ class PresDeck {
         return (MdChar.lower(v))
     }
 
-    ; A chart's own ground (the diagram library's page colour) would be a
-    ; white card on a dark slide: it is left out, and the chart sits on the
-    ; slide's own ground.
-    sfn clearGround:void (out:EVGDisplayList from:int) {
-        def i:int from
-        while (i < (array_length out.cmds)) {
-            def cmd:EVGDrawCmd (itemAt out.cmds i)
-            if (cmd.kind == 0) {
-                cmd.a = 0.0
-                return
-            }
-            i = (i + 1)
-        }
-    }
-
     fn layout:MdLayout () {
         return md.edit.layout
     }

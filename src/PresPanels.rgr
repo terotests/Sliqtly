@@ -2216,14 +2216,6 @@ class PresPanels {
         return "docked"
     }
 
-    fn dockedOpen:boolean () {
-        return (((helpOpen || filesOpen) || chat.open) && (quiet == false))
-    }
-
-    fn dialogOpen:boolean () {
-        return (shareOpen && (quiet == false))
-    }
-
     fn toastOpen:boolean () {
         return ((strlen toastText) > 0)
     }

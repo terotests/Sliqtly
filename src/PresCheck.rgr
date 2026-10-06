@@ -13,6 +13,7 @@ Import "PresGridModel.rgr"
 Import "PresControlsFade.rgr"
 Import "PresFollow.rgr"
 Import "PresReview.rgr"
+Import "PresColorPanel.rgr"
 Import "PresReviewDot.rgr"
 Import "PresPick.rgr"
 Import "PresSelect.rgr"
@@ -115,6 +116,7 @@ class PresCheck {
         this.orientation()
         this.chartModel()
         this.review()
+        this.colorWords()
         this.reviewDiagram()
         this.helpGuide()
     }
@@ -157,6 +159,19 @@ class PresCheck {
 
     ; Review comments: threads on slides, closing, deleting, the file, two
     ; copies merged, slides found again by title, times.
+    ; EVGUI's colour picker in the interface's language (PresColorPanel.localize)
+    fn colorWords:void () {
+        def c (new ColorPickerCtl())
+        PresI18n.use("fi" ((("Hex" + (strfromcode 1)) + "Heksadesimaali") + (strfromcode 2)) + (("Presets" + (strfromcode 1)) + "Valmiit värit"))
+        PresColorPanel.localize(c)
+        this.ok(((c.fieldName(0)) == "Heksadesimaali") ("picker field in Finnish: " + (c.fieldName(0))))
+        this.ok((c.swatchTitle == "Valmiit värit") ("presets title in Finnish: " + c.swatchTitle))
+        this.ok(((indexOf (c.hueText()) " degrees") > 0) ("an untranslated phrase stays English: " + (c.hueText())))
+        PresI18n.use("en" "")
+        PresColorPanel.localize(c)
+        this.ok(((c.fieldName(0)) == "Hex") ("back in English: " + (c.fieldName(0))))
+    }
+
     fn review:void () {
         ; the pin: a ball centred on its point, pulsing; hidden, it takes no press
         def dot:PresReviewDot (PresReviewDot.make("d" 100.0 200.0 "#d97706"))
