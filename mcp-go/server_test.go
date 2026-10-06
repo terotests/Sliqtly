@@ -1290,9 +1290,11 @@ func TestReviewCommentsReadAddAndResolve(t *testing.T) {
 	tid := th["thread_id"].(string)
 	eq(t, []any{th["slide"], th["resolved"], th["x"]}, []any{2, false, 0.9})
 
-	b := call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide_title": "risks", "x": 0.25, "y": 0.5, "text": "Rank these"})
-	match(t, textOf(b), `slide 3 "Risks"`)
+	b := call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide_title": "risks", "x": 0.25, "y": 0.5, "text": "Rank these", "severity": "high"})
+	match(t, textOf(b), `slide 3 "Risks".* Severity high\.`)
 	tid2 := mapOf(sc(b)["thread"])["thread_id"].(string)
+	eq(t, mapOf(sc(b)["thread"])["severity"], "high")
+	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide": 1, "text": "x", "severity": "urgent"})), `severity is low, medium, high or none`)
 	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide": 9, "text": "x"})), `from 1 to 3`)
 	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide_title": "Nope", "text": "x"})), `No slide is titled "Nope". The slides: 1 "Plan", 2 "Budget", 3 "Risks"`)
 	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "text": "x", "slide": 1})), `edit_key is needed`)
@@ -1313,6 +1315,11 @@ func TestReviewCommentsReadAddAndResolve(t *testing.T) {
 	open := call(t, s, "list_comments", map[string]any{"deck_id": id, "include_resolved": false})
 	eq(t, len(list(sc(open)["threads"])), 1)
 	eq(t, mapOf(list(sc(open)["threads"])[0])["thread_id"], tid2)
+	match(t, textOf(open), `Thread `+tid2+` \(open, severity high\)`)
+	eq(t, mapOf(list(sc(open)["threads"])[0])["severity"], "high")
+	m := call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "thread_id": tid2, "text": "Less urgent now", "severity": "low"})
+	match(t, textOf(m), `Severity low\.`)
+	eq(t, mapOf(sc(m)["thread"])["severity"], "low")
 
 	// the file the editor reads: review/comments.json, slides counted from 1
 	saved, ok := f.bucket.saved["shares/"+id+"/review/comments.json"]

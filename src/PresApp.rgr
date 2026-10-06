@@ -3686,6 +3686,19 @@ class PresApp {
         return ""
     }
 
+    ; A tip for what is under the pointer (main.js shows it): review mode's
+    ; bar and pins say what they are; "" elsewhere.
+    fn tipAt:string (x:double y:double) {
+        this.place()
+        if ((review.dragging || review.co.dragging) || ((strlen review.pinDown) > 0)) {
+            return ""
+        }
+        if (review.on && ((this.layerAt(x y)) == "review")) {
+            return (review.tipAt(x y))
+        }
+        return ""
+    }
+
     fn cursorAt:string (x:double y:double) {
         this.place()
         if (review.dragging || review.co.dragging) {

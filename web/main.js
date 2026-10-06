@@ -4795,6 +4795,49 @@ document.getElementById("viewBar").addEventListener("click", (ev) => {
   if (viewer || isCoarse() || ev.target === vCount || ev.target.closest?.("#vGo, #vMore, #vMenu")) return;
   if (ev.target.closest?.("button")) keys.focus({ preventScroll: true });
 });
+// Tips: what a button does, in words, shortly after the pointer rests on
+// it (the browser's own title tip comes late and small). The presenting
+// bar's buttons say their title; on the canvas the app says (app.tipAt:
+// review mode's bar and pins). One tip at a time, above what it is about.
+const tipEl = document.getElementById("tip");
+let tipTimer = 0, tipText = "", tipFor = null;
+function showTip(text, x, top, owner) {
+  if (text === tipText && owner === tipFor) return;
+  hideTip();
+  if (!text) return;
+  tipText = text;
+  tipFor = owner;
+  tipTimer = setTimeout(() => {
+    tipEl.textContent = text;
+    tipEl.hidden = false;
+    const w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+    const left = Math.max(8, Math.min(window.innerWidth - w - 8, x - w / 2));
+    tipEl.style.left = left + "px";
+    tipEl.style.top = Math.max(8, top - h - 8) + "px";
+  }, 350);
+}
+function hideTip() {
+  clearTimeout(tipTimer);
+  tipEl.hidden = true;
+  tipText = "";
+  tipFor = null;
+}
+for (const b of document.querySelectorAll("#viewBar > button")) {
+  // the title moves to data-tip while the tip shows, so the browser's own
+  // does not show over it
+  b.addEventListener("pointerenter", (ev) => {
+    if (ev.pointerType !== "mouse") return;
+    const t = b.getAttribute("title") || b.dataset.tip || "";
+    if (b.hasAttribute("title")) { b.dataset.tip = t; b.removeAttribute("title"); }
+    const r = b.getBoundingClientRect();
+    showTip(t, r.left + r.width / 2, r.top, b);
+  });
+  b.addEventListener("pointerleave", () => {
+    if (b.dataset.tip && !b.hasAttribute("title")) b.setAttribute("title", b.dataset.tip);
+    if (tipFor === b) hideTip();
+  });
+  b.addEventListener("click", () => { if (tipFor === b) hideTip(); });
+}
 vGo.addEventListener("keydown", (ev) => {
   if (ev.key === "Enter") {
     ev.preventDefault();
@@ -5951,11 +5994,17 @@ canvas.addEventListener("pointermove", (ev) => {
   }
   app.pointerMove(x, y);
   canvas.style.cursor = app.cursorAt(x, y);
-  if (ev.buttons) needsPaint = true;
-  else if (ev.pointerType === "mouse") hintHover(x, y);
+  if (ev.buttons) { needsPaint = true; if (tipFor === canvas) hideTip(); }
+  else if (ev.pointerType === "mouse") {
+    hintHover(x, y);
+    const tip = app.tipAt(x, y);
+    if (tip) showTip(tip, ev.clientX, ev.clientY - 12, canvas);
+    else if (tipFor === canvas) hideTip();
+  }
 });
 // off the page a diagram's buttons fade, as when the pointer leaves the diagram
-canvas.addEventListener("pointerleave", () => app.pointerLeft());
+canvas.addEventListener("pointerleave", () => { app.pointerLeft(); if (tipFor === canvas) hideTip(); });
+canvas.addEventListener("pointerdown", () => { if (tipFor === canvas) hideTip(); });
 
 // --- hints: what a value under the pointer does, and what else it can be ------------
 //

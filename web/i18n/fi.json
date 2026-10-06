@@ -1112,5 +1112,13 @@
   "Replace the earlier SVG?": "Korvataanko aiempi SVG?",
   "{file} is already in the files. Replace it with this one, or keep both?": "{file} on jo tiedostoissa. Korvataanko se tällä vai pidetäänkö molemmat?",
   "Replace": "Korvaa",
-  "Keep both": "Pidä molemmat"
+  "Keep both": "Pidä molemmat",
+  "Add comment": "Lisää kommentti",
+  "Minor": "Pieni",
+  "Moderate": "Kohtalainen",
+  "Serious": "Vakava",
+  "Add a comment: then click where it goes on the slide": "Lisää kommentti: napsauta sitten kohtaa, johon se tulee dialla",
+  "Stop adding the comment (Esc)": "Lopeta kommentin lisääminen (Esc)",
+  "The open comments, as a list": "Avoimet kommentit listana",
+  "The next open comment, on whatever slide it is": "Seuraava avoin kommentti, millä dialla se onkin"
 }

@@ -342,6 +342,21 @@
 .theme-rvg .rv-row-text { color: #f4f4f5; font-size: 15px; }
 .theme-rvg .rv-list-btn { background-color: #0d9488; color: #ffffff; }
 
+/* how serious a comment is (PresReviewUi.severityActions): muted green,
+   yellow and red; the one picked filled. The pins take the same fills. */
+.theme-pn .chat-act-sev-low { color: #4f7a56; }
+.theme-pn .chat-act-sev-medium { color: #8a6d22; }
+.theme-pn .chat-act-sev-high { color: #a14d46; }
+.theme-pn .chat-act-sev-low-on { background-color: #6f9a76; border-color: #6f9a76; color: #ffffff; }
+.theme-pn .chat-act-sev-medium-on { background-color: #c9a54e; border-color: #c9a54e; color: #ffffff; }
+.theme-pn .chat-act-sev-high-on { background-color: #b8625b; border-color: #b8625b; color: #ffffff; }
+.theme-rvg .chat-act-sev-low { color: #9cc4a2; }
+.theme-rvg .chat-act-sev-medium { color: #e2c57c; }
+.theme-rvg .chat-act-sev-high { color: #e09a93; }
+.theme-rvg .chat-act-sev-low-on { background-color: #6f9a76; border-color: #6f9a76; color: #ffffff; }
+.theme-rvg .chat-act-sev-medium-on { background-color: #c9a54e; border-color: #c9a54e; color: #ffffff; }
+.theme-rvg .chat-act-sev-high-on { background-color: #b8625b; border-color: #b8625b; color: #ffffff; }
+
 /* the pins (src/PresReviewDot.rgr): a ball in the setting's colour with a
    glow and a ring that pulses out of it (sizes and colours set in code);
    the open one or one being written has a white edge (also in code) */
