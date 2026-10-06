@@ -160,12 +160,12 @@ func TestSQLiteSchemaVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.From != 1 || rep.To != 2 || rep.Backup == "" {
+	if n := len(store.SQLiteSchema); rep.From != n || rep.To != n+1 || rep.Backup == "" {
 		t.Fatalf("report %+v", rep)
 	}
 	var notes int
 	s.DB().QueryRow(`SELECT count(*) FROM schema_history`).Scan(&notes)
-	if notes != 2 {
+	if notes != len(store.SQLiteSchema)+1 {
 		t.Fatalf("%d history rows", notes)
 	}
 	s.Close()

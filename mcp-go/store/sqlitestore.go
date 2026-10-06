@@ -9,11 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	_ "modernc.org/sqlite" // pure Go: the server is built with CGO_ENABLED=0
 )
@@ -32,9 +34,11 @@ import (
 // lock keeps writes in order, which is also the order Watch tells them in.
 // Reads go to the database directly and run beside a write.
 //
-// Query evaluates the Query in Go over the collection's rows (Match, Run),
-// as the folder and memory do, so the three cannot differ; compiling it to
-// SQL is a later step for collections too large to read.
+// Query narrows the rows in SQL where it can say exactly what Match would
+// (sqlWhere: a field equal to a string, in a list of them, a list holding
+// one; on indexed fields for the ones every room and share query names),
+// then evaluates the Query in Go over what is left (Match, Run), as the
+// folder and memory do, so the three cannot differ.
 type SQLiteStore struct {
 	path   string
 	db     *sql.DB
@@ -42,6 +46,7 @@ type SQLiteStore struct {
 	state  sync.RWMutex // closed
 	closed bool
 	feed   *feed
+	stop   chan struct{} // ends the optimize loop
 }
 
 // Build names the server build, as recorded in a database's schema_history.
@@ -75,6 +80,11 @@ CREATE TABLE file_lines (
   line TEXT NOT NULL,
   PRIMARY KEY (path, n)
 ) WITHOUT ROWID;`)},
+	{Version: 2, Note: "indexes on the fields queries name", Up: SQLExec(`
+CREATE INDEX docs_tenant ON docs (col, json_extract(doc, '$.tenant'));
+CREATE INDEX docs_owner  ON docs (col, json_extract(doc, '$.owner'));
+CREATE INDEX docs_room   ON docs (col, json_extract(doc, '$.room'));
+CREATE INDEX docs_member ON docs (col, json_extract(doc, '$.member'));`)},
 }
 
 // OpenSQLiteStore opens (or creates) the documents in the SQLite file at path.
@@ -83,7 +93,7 @@ func OpenSQLiteStore(path string) (*SQLiteStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", sqliteDSN(abs))
+	db, err := sql.Open("sqlite", sqliteDSN(abs, "analysis_limit(400)"))
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +101,37 @@ func OpenSQLiteStore(path string) (*SQLiteStore, error) {
 		db.Close()
 		return nil, err
 	}
-	return &SQLiteStore{path: abs, db: db, feed: newFeed(4096)}, nil
+	s := &SQLiteStore{path: abs, db: db, feed: newFeed(4096), stop: make(chan struct{})}
+	s.optimize()
+	go s.optimizeLoop()
+	return s, nil
+}
+
+// optimize refreshes the planner's statistics where they are missing or
+// stale, so a query takes the field indexes rather than reading the whole
+// collection: without them SQLite guesses, and guesses the primary key.
+// analysis_limit keeps each run to a sample of rows.
+func (s *SQLiteStore) optimize() {
+	if _, err := s.db.Exec(`PRAGMA optimize=0x10002`); err != nil {
+		log.Printf("sqlite optimize: %v", err)
+	}
+}
+
+// how often a long-running server refreshes the statistics, as SQLite
+// advises for long-lived connections
+const optimizeEvery = 3 * time.Hour
+
+func (s *SQLiteStore) optimizeLoop() {
+	t := time.NewTicker(optimizeEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-t.C:
+			s.optimize()
+		}
+	}
 }
 
 // the connection settings every SQLite file of the server uses: WAL,
@@ -249,7 +289,12 @@ func (s *SQLiteStore) Query(ctx context.Context, q Query) ([]Item, error) {
 	if s.closed {
 		return nil, ErrClosed
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, rev, doc FROM docs WHERE col = ?`, q.From)
+	sel, args := `SELECT id, rev, doc FROM docs WHERE col = ?`, []any{q.From}
+	if w, a := sqlWhere(q.Where); w != "" {
+		sel += " AND " + w
+		args = append(args, a...)
+	}
+	rows, err := s.db.QueryContext(ctx, sel, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +340,9 @@ func (s *SQLiteStore) Close() error {
 	}
 	s.closed = true
 	s.state.Unlock()
+	close(s.stop)
 	s.feed.close()
+	s.optimize()
 	return s.db.Close()
 }
 
