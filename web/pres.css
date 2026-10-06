@@ -54,6 +54,7 @@
 .rec-mark { background-color: #ef4444; border-radius: 2px; }
 .rec-mark-text { background-color: #a855f7; }
 .rec-sel { background-color: rgba(59, 130, 246, 0.22); border: 1px solid #3b82f6; }
+.rec-knob { background-color: #f59e0b; border-radius: 3px; cursor: ew-resize; }
 .rec-cut { background-color: rgba(9, 9, 11, 0.55); border-radius: 3px; }
 .rec-btn { background-color: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
 .rec-btn-cut { background-color: #dc2626; border: 1px solid #dc2626; }

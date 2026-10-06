@@ -5326,7 +5326,8 @@ function syncRecBadge(st) {
   const on = !!(st && st.recording && voiceRec);
   recBadge.hidden = !on;
   if (!on) return;
-  const paused = !!voiceRec.paused;
+  // paused by the user, not the clock before it has started
+  const paused = !!voiceRec.paused && voiceRec.clock.at >= 0;
   document.getElementById("recTime").textContent = clockText(st.t);
   document.getElementById("recMute").hidden = voiceRec.hasSound;
   document.getElementById("recPauseBtn").textContent = paused ? t("▶ Go on") : t("⏸ Pause");

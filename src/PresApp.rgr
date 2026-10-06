@@ -2260,6 +2260,8 @@ class PresApp {
     def recHead:double 0.0
     def recPress:boolean false
     def recPressX:double 0.0
+    ; the playhead itself pressed: a drag moves it
+    def recScrub:boolean false
     ; the voice's loudness, one value (0…1) for each RECPEAK seconds
     def recPeaks:[double]
     def recPrev:PresReplay (new PresReplay())
@@ -2417,6 +2419,12 @@ class PresApp {
             this.recButton(b)
             return
         }
+        ; on the playhead: dragged, it goes through the recording
+        if ((fabs (x - (this.recX(recHead)))) <= 8.0) {
+            recScrub = true
+            this.recShowAt((this.recTimeAt(x)))
+            return
+        }
         if ((x >= laneX) && (x <= (laneX + laneW))) {
             recPress = true
             recPressX = x
@@ -2426,9 +2434,28 @@ class PresApp {
         }
     }
 
+    ; The pointer moving with the timeline pressed: the playhead dragged,
+    ; or a part marked; the slide shows the moment the pointer is at.
+    fn recTimelineMove:void (x:double) {
+        def t:double (this.recTimeAt(x))
+        if recPress {
+            recSelB = t
+        }
+        this.recShowAt(t)
+    }
+
+    ; The wheel over the timeline moves the playhead, a second a notch.
+    fn recTimelineWheel:void (dy:double) {
+        def t:double (recHead + (dy * 0.01))
+        if (t < 0.0) { t = 0.0 }
+        if (t > take.duration) { t = take.duration }
+        this.recShowAt(t)
+    }
+
     fn recTimelineUp:void () {
+        recScrub = false
         recPress = false
-        if ((this.recSelFrom()) < 0.0) {
+        if (((this.recSelFrom()) < 0.0) && (recSelA >= 0.0)) {
             ; a click: the playhead goes there
             def t:double recSelA
             recSelA = -1.0
@@ -2486,7 +2513,7 @@ class PresApp {
         if (from >= 0.0) {
             head = (head + " · " + (PresI18n.t("marked")) + " " + (PresApp.clockText(from)) + "–" + (PresApp.clockText((this.recSelTo()))))
         } {
-            head = (head + " · " + (PresI18n.t("drag to mark a part")))
+            head = (head + " · " + (PresI18n.t("drag the orange handle to move, elsewhere to mark a part")))
         }
         root.addChild((PresApp.label("tr-head" "track-head" head (r.x + 12.0) (r.y + 6.0))))
         ; the buttons, right to left
@@ -2628,6 +2655,8 @@ class PresApp {
         ; the playhead: the recording's own time, or the replay's
         def ph:double recHead
         root.addChild((PresApp.div("playhead" "playhead" ((this.recX(ph)) - 1.0) (rowY - 4.0) 2.0 full)))
+        ; its handle: dragged, the playhead goes through the recording
+        root.addChild((PresApp.div("rec-knob" "rec-knob" ((this.recX(ph)) - 6.0) (rowY - 10.0) 12.0 10.0)))
     }
 
     ; =========================================================================
@@ -4143,9 +4172,8 @@ class PresApp {
         if scrubDrag {
             this.scrubTo(x)
         }
-        if recPress {
-            recSelB = (this.recTimeAt(x))
-            chromeRev = (chromeRev + 1)
+        if (recPress || recScrub) {
+            this.recTimelineMove(x)
         }
         if stripPressed {
             if (! stripDragging) {
@@ -4219,7 +4247,7 @@ class PresApp {
         editorDrag = false
         splitDrag = false
         scrubDrag = false
-        if recPress {
+        if (recPress || recScrub) {
             this.recTimelineUp()
         }
         if stripPressed {
@@ -4331,6 +4359,10 @@ class PresApp {
         }
         if (mode == "present") {
             return false
+        }
+        if (recEditing && (trackRect.has(x y))) {
+            this.recTimelineWheel(dy)
+            return true
         }
         ; a dialog, or a window over what is under the pointer, keeps the wheel
         def top:string (this.layerAt(x y))
