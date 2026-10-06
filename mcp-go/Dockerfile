@@ -9,7 +9,7 @@
 FROM node:22 AS gen
 WORKDIR /src
 COPY presentation.config.json ./
-COPY scripts/lib.mjs scripts/
+COPY scripts/lib.mjs scripts/format-css.mjs scripts/
 COPY src/ src/
 COPY themes/ themes/
 COPY mcp-go/gen.mjs mcp-go/
