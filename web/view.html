@@ -6,7 +6,7 @@
      the editor is not part of this build (scripts/build-view.mjs). The front
      page follows the look of Ranger's (terotests.github.io/Ranger: ink,
      hairline rules, a small monospaced label over every block, one section
-     in the brand colour), in Sliqtly's terracotta. -->
+     in the brand colour), with an acid green accent. -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -14,9 +14,9 @@
 <meta name="build" content="__BUILD__" />
 <meta name="fonts" content="__FONTS__" />
 <base href="/" />
-<title>Sliqtly: presentations your AI assistant writes</title>
-<meta name="description" content="Sliqtly is an MCP service: your AI assistant writes a slide presentation from Markdown, checks it slide by slide and gives you a link that plays it." />
-<meta name="theme-color" content="#07070a" />
+<title>Sliqtly: better slides through MCP</title>
+<meta name="description" content="An MCP-native presentation engine for agents: create, inspect, edit and render slide decks without another heavyweight presentation app." />
+<meta name="theme-color" content="#070708" />
 <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
 <!-- a presentation (/s/{id}, or the link the assistant's preview gives in
      <meta name="sliqtly-link">) or the front page, decided before the first
@@ -30,9 +30,10 @@
 </script>
 <style>
   :root {
-    --accent: #d27a45; --accent-hi: #e08b55;
-    --ink: #07070a; --ink-2: #0c0d11; --paper: #eeece6; --dim: #8d919c; --dimmer: #666a75;
+    --accent: #c8ff3c; --accent-hi: #d8ff74;
+    --ink: #070708; --paper: #eeeee8; --dim: #9a9ca3; --dimmer: #6c6e75;
     --line: rgba(255, 255, 255, .10); --line-2: rgba(255, 255, 255, .20);
+    --grotesk: "Helvetica Neue", "Arial Nova", "Inter", Helvetica, Arial, sans-serif;
     --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
     --wrap: 1240px; --pad: clamp(16px, 5vw, 60px);
@@ -46,72 +47,63 @@
 
   /* ------------------------------------------------ the front page ---- */
   .home a { color: inherit; }
-  .home code { font-family: var(--mono); font-size: .87em; overflow-wrap: anywhere; color: #d9d5cc;
-    background: rgba(255, 255, 255, .055); border: 1px solid var(--line); border-radius: 4px; padding: .08em .36em; }
   .home :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   .wrap { max-width: var(--wrap); margin-inline: auto; padding-inline: var(--pad); }
-  .label { font: 400 11.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin: 0 0 16px; }
-  .display { font-weight: 700; letter-spacing: -.035em; line-height: .96; margin: 0 0 32px; text-wrap: balance; }
-  .display--xl { font-size: clamp(44px, 8.2vw, 116px); }
-  .display--lg { font-size: clamp(32px, 5.4vw, 72px); }
-  .display code { font-size: .8em; padding: 0 .2em; border-radius: 6px; }
+  .label { font: 400 11.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin: 0 0 18px; }
+  .display { font-family: var(--grotesk); font-weight: 800; letter-spacing: -.04em; line-height: .94; margin: 0 0 28px; text-wrap: balance; }
+  .display--xl { font-size: clamp(48px, 9vw, 128px); }
+  .display--lg { font-size: clamp(34px, 5.6vw, 76px); }
   .accent { color: var(--accent); }
   .home p { margin: 0 0 16px; }
   .home p:last-child { margin-bottom: 0; }
-  .lead { color: var(--dim); font-size: clamp(16px, 1.5vw, 19px); max-width: 72ch; }
+  .lead { color: var(--dim); font-size: clamp(16px, 1.5vw, 19px); max-width: 64ch; }
+  .lead--mono { font: 15px/1.6 var(--mono); }
+  .lead.accent { color: var(--accent); }
 
   .nav { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 26px;
-    padding: 13px var(--pad); background: rgba(7, 7, 10, .9); border-bottom: 1px solid var(--line);
-    backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); }
-  .nav__brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 600 16px/1 var(--sans); }
+    padding: 13px var(--pad); background: rgba(7, 7, 8, .92); border-bottom: 1px solid var(--line); }
+  .nav__brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 700 16px/1 var(--grotesk); }
   .nav__brand img { width: 22px; height: 22px; }
   .nav__links { display: flex; gap: 20px; margin-left: 8px; }
-  .nav__links a { color: var(--dim); text-decoration: none; font-size: 14px; }
+  .nav__links a { color: var(--dim); text-decoration: none; font: 13px/1 var(--mono); }
   .nav__links a:hover { color: var(--paper); }
   .nav__cta { margin-left: auto; }
   @media (max-width: 760px) { .nav__links { display: none; } }
 
-  .btn { display: inline-flex; align-items: center; justify-content: center; height: 38px; padding: 0 17px;
-    font: 500 14px/1 var(--sans); text-decoration: none; white-space: nowrap; border: 1px solid var(--line-2); color: var(--paper); }
-  .btn--solid { background: var(--accent); border-color: var(--accent); color: var(--ink); font-weight: 650; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 18px;
+    font: 500 13.5px/1 var(--mono); text-decoration: none; white-space: nowrap; border: 1px solid var(--line-2); color: var(--paper); }
+  .btn:hover { border-color: var(--paper); }
+  .btn--solid { background: var(--accent); border-color: var(--accent); color: var(--ink); font-weight: 600; }
   .btn--solid:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
-  .btn--lg { height: 50px; padding: 0 26px; font-size: 15.5px; }
+  .btn--lg { height: 50px; padding: 0 24px; font-size: 14.5px; }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: clamp(32px, 4vw, 48px); }
 
-  .hero { padding: clamp(48px, 7vw, 92px) 0 clamp(56px, 7vw, 96px); border-bottom: 1px solid var(--line);
-    background: radial-gradient(ellipse at 85% 30%, rgba(210, 122, 69, .16) 0%, rgba(7, 7, 10, 0) 55%); }
-  .cols { display: grid; gap: 0; margin-top: 44px; }
-  .cols--2 { grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr)); max-width: 820px; }
-  .cols--3 { grid-template-columns: repeat(auto-fit, minmax(min(270px, 100%), 1fr)); }
-  .cols > * { min-width: 0; }
-  .rules .col { padding: 0 28px; border-left: 1px solid var(--line-2); }
-  .rules .col:first-child { padding-left: 0; border-left: 0; }
-  .cols p:not(.label) { color: var(--dim); font-size: 15.5px; }
-  @media (max-width: 760px) {
-    .rules .col { padding: 0 0 0 18px; border-left: 1px solid var(--line-2); margin-bottom: 28px; }
-    .rules .col:first-child { padding-left: 18px; border-left: 1px solid var(--line-2); }
-  }
-  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: clamp(34px, 4vw, 52px); }
-  .cmd { font: 13px/1 var(--mono); color: var(--dim); border: 1px dashed var(--line-2); padding: 12px 14px; max-width: 100%; overflow-x: auto; white-space: nowrap; }
+  .hero { padding: clamp(56px, 8vw, 120px) 0 clamp(56px, 7vw, 96px); border-bottom: 1px solid var(--line); }
+  .hero .sub { font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--grotesk); letter-spacing: -.015em; margin: 0 0 14px; max-width: 30ch; }
+  .section { padding: clamp(64px, 8vw, 112px) 0; border-bottom: 1px solid var(--line); }
 
-  .section { padding: clamp(64px, 8vw, 120px) 0; }
-  .section--dark { background: var(--ink-2); border-block: 1px solid var(--line); }
-  /* the one section in the brand colour rather than wearing it */
-  .section--accent { background: var(--accent); color: var(--ink); }
-  .section--accent .label { color: rgba(7, 7, 10, .62); }
-  .section--accent .lead, .section--accent .cols p:not(.label) { color: rgba(7, 7, 10, .82); }
-  .section--accent .rules .col { border-left-color: rgba(7, 7, 10, .24); }
-  .section--accent code { color: rgba(7, 7, 10, .9); background: rgba(7, 7, 10, .07); border-color: rgba(7, 7, 10, .18); }
-  .tools { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-  .tools li { font: 12.5px/1 var(--mono); border: 1px solid rgba(7, 7, 10, .24); padding: 6px 9px; }
+  /* thin boxes: the engine block, the four claims, the flow */
+  .box { border: 1px solid var(--line-2); padding: clamp(22px, 3vw, 36px); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line-2); border-left: 1px solid var(--line-2); }
+  .grid > * { min-width: 0; border-right: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); padding: clamp(24px, 3vw, 40px); }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .claim h3 { font: 800 clamp(28px, 3.4vw, 44px)/1 var(--grotesk); letter-spacing: -.035em; margin: 0 0 18px; }
+  .claim p { color: var(--dim); font-size: 16px; max-width: 46ch; }
+  .flow { font: 15px/1.7 var(--mono); color: var(--paper); margin: 0; white-space: pre; overflow-x: auto; }
+  .flow b { color: var(--accent); font-weight: 400; }
+  .split { display: grid; gap: clamp(28px, 4vw, 56px); grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); align-items: start; }
+  .cmd { font: 13px/1 var(--mono); color: var(--dim); border: 1px dashed var(--line-2); padding: 14px; max-width: 100%; overflow-x: auto; white-space: nowrap; }
 
-  .terms { max-width: 78ch; }
-  .terms p:not(.label) { color: var(--dim); font-size: 15.5px; }
-  .terms strong { color: var(--paper); font-weight: 650; }
-  .foot { border-top: 1px solid var(--line); padding: 44px 0 56px; }
-  .foot__in { display: flex; flex-wrap: wrap; gap: 24px; justify-content: space-between; align-items: center; color: var(--dimmer); font-size: 14px; }
+  /* the notice: the accent's border, never easy to miss */
+  .notice { border: 1px solid var(--accent); padding: clamp(24px, 4vw, 48px); max-width: 86ch; }
+  .notice .display { color: var(--accent); }
+  .notice p:not(.label) { color: var(--paper); font-size: 16px; }
+  .foot { padding: 44px 0 56px; }
+  .foot__in { display: flex; flex-wrap: wrap; gap: 18px 32px; justify-content: space-between; align-items: flex-start; font: 13px/1.6 var(--mono); color: var(--dimmer); }
+  .foot__in strong { color: var(--paper); font: 700 16px/1.4 var(--grotesk); display: block; }
   .foot__in nav { display: flex; flex-wrap: wrap; gap: 8px 22px; }
   .foot__in a { color: var(--dim); text-decoration: none; }
-  .foot__in a:hover { color: var(--paper); }
+  .foot__in a:hover { color: var(--accent); }
 
   /* --------------------------------------------------- a presentation ---- */
   #c { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: default; }
@@ -162,91 +154,106 @@
   <header class="nav">
     <a class="nav__brand" href="/"><img src="./favicon.svg" alt="" width="22" height="22" />Sliqtly</a>
     <nav class="nav__links" aria-label="Sections">
-      <a href="#mcp">MCP service</a>
-      <a href="#account">Sign-in</a>
+      <a href="#why">Why</a>
+      <a href="#mcp">MCP</a>
       <a href="#terms">Terms</a>
     </nav>
-    <div class="nav__cta"><a class="btn btn--solid" href="/connect.html">Connect an assistant</a></div>
+    <div class="nav__cta"><a class="btn btn--solid" href="/connect.html">Connect via MCP</a></div>
   </header>
   <main>
     <section class="hero">
       <div class="wrap">
-        <p class="label">Markdown → animated slides</p>
-        <h1 class="display display--xl">Slides your<br /><span class="accent">assistant writes.</span></h1>
-        <div class="cols cols--2 rules">
-          <div class="col">
-            <p class="label">Ask, then present.</p>
-            <p>Tell Claude, ChatGPT, Cursor or any other MCP client what the presentation is about. It writes the slides in Markdown with Sliqtly's tools, checks the layout slide by slide and gives you a link.</p>
-          </div>
-          <div class="col">
-            <p class="label">One link.</p>
-            <p>The link plays the presentation here, with its charts, diagrams, tables, formulas and pictures. Anyone who has the link can watch it; links are not listed anywhere.</p>
-          </div>
-        </div>
+        <p class="label">MCP-native presentation engine</p>
+        <h1 class="display display--xl">Sliqtly<br /><span class="accent">better slides.</span></h1>
+        <p class="sub">An MCP-native presentation engine for agents.</p>
+        <p class="lead">Create, inspect, edit and render slide decks without another heavyweight presentation app.</p>
         <div class="actions">
-          <a class="btn btn--solid btn--lg" href="/connect.html">Connect an assistant</a>
-          <span class="cmd">https://sliqtly.com/mcp</span>
+          <a class="btn btn--solid btn--lg" href="/connect.html">Connect via MCP</a>
+          <a class="btn btn--lg" href="/connect.html">Read the docs</a>
         </div>
       </div>
     </section>
 
-    <section class="section section--accent" id="mcp">
+    <section class="section">
       <div class="wrap">
-        <p class="label">The MCP service</p>
-        <h2 class="display display--lg">One endpoint: <code>/mcp</code></h2>
-        <p class="lead">Sliqtly is a remote MCP server (streamable HTTP) at <code>https://sliqtly.com/mcp</code>. The assistant calls its tools; the presentation is laid out on the server with the same model that plays it, so what the assistant checks is what you see.</p>
-        <div class="cols cols--3 rules">
-          <div class="col">
-            <p class="label">Write</p>
-            <p>A presentation from Markdown, with a theme or CSS of its own, pictures, Excel, CSV or JSON data, Vega-Lite charts and Mermaid diagrams. Later changes keep the same link.</p>
-            <ul class="tools"><li>create_presentation</li><li>update_presentation</li><li>bind_chart_data</li><li>write_workbook</li></ul>
-          </div>
-          <div class="col">
-            <p class="label">Check</p>
-            <p>Every change comes back with a layout report: text that runs over, overlaps, small or faint text. The assistant can look at a slide, or at all of them at once.</p>
-            <ul class="tools"><li>render_slide</li><li>render_overview</li><li>sliqtly_guide</li></ul>
-          </div>
-          <div class="col">
-            <p class="label">Deliver</p>
-            <p>The link to play it, and files to take elsewhere: PDF, PowerPoint, Word or a web page, each behind a download link that lasts 24 hours.</p>
-            <ul class="tools"><li>export_presentation</li><li>list_presentations</li><li>list_comments</li></ul>
-          </div>
+        <div class="box">
+          <p class="label">The engine</p>
+          <h2 class="display display--lg">Slides are files.<br />Sliqtly is the engine.</h2>
+          <p class="lead">Your AI agent can inspect slides, edit content, change layouts, render previews and export the finished deck through MCP.</p>
+          <p class="lead lead--mono accent">No proprietary editor required.</p>
         </div>
       </div>
     </section>
 
-    <section class="section" id="account">
+    <section class="section" id="why">
       <div class="wrap">
-        <p class="label">Sign-in</p>
-        <h2 class="display display--lg">Optional, <span class="accent">with Google.</span></h2>
-        <div class="cols cols--2 rules">
-          <div class="col">
-            <p class="label">Without sign-in</p>
-            <p>Text-only presentations that belong to no account. Anyone with the link can open them, and they are deleted 30 days after their last change. A daily limit applies per address.</p>
+        <p class="label">Why Sliqtly</p>
+        <div class="grid">
+          <div class="claim">
+            <p class="label">01</p>
+            <h3>Sliqtly <span class="accent">faster.</span></h3>
+            <p>Go from prompt to editable deck without bouncing between chat, PowerPoint and export workflows.</p>
           </div>
-          <div class="col">
-            <p class="label">Signed in</p>
-            <p>The presentations are yours: the assistant can list and change them later, and they can carry pictures and data files. The connector asks you to sign in when you add it.</p>
+          <div class="claim">
+            <p class="label">02</p>
+            <h3>Sliqtly <span class="accent">smaller.</span></h3>
+            <p>A focused presentation engine instead of another giant office suite.</p>
+          </div>
+          <div class="claim">
+            <p class="label">03</p>
+            <h3>Sliqtly <span class="accent">cheaper.</span></h3>
+            <p>Use the tools and models you already have. Sliqtly handles the slides.</p>
+          </div>
+          <div class="claim">
+            <p class="label">04</p>
+            <h3>Sliqtly <span class="accent">yours.</span></h3>
+            <p>Designed for local and hosted workflows.</p>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="section section--dark" id="terms">
-      <div class="wrap"><div class="terms">
+    <section class="section" id="mcp">
+      <div class="wrap">
+        <p class="label">Built for agents</p>
+        <h2 class="display display--lg">Connect <span class="accent">with MCP.</span></h2>
+        <div class="split">
+          <div class="box">
+<pre class="flow">Your agent
+   <b>↓</b>
+  MCP
+   <b>↓</b>
+Sliqtly
+   <b>↓</b>
+deck <b>→</b> render <b>→</b> edit <b>→</b> export</pre>
+          </div>
+          <div>
+            <p class="lead">Works with MCP-capable agents and clients. Let the agent see the slide, modify it, render it again and iterate.</p>
+            <div class="actions">
+              <a class="btn btn--solid btn--lg" href="/connect.html">Connect via MCP</a>
+              <span class="cmd">https://sliqtly.com/mcp</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="terms">
+      <div class="wrap"><div class="notice">
         <p class="label">Terms</p>
-        <h2 class="display display--lg">As is.</h2>
-        <p><strong>Sliqtly is provided "as is" and "as available", without warranty of any kind,</strong> express or implied, including the warranties of merchantability, fitness for a particular purpose and non-infringement.</p>
-        <p><strong>You use Sliqtly and store data in it at your own risk.</strong> Presentations, pictures and data files can be lost, changed or become unavailable, and the service can change or end without notice. Keep your own copies of anything you need.</p>
-        <p><strong>Do not store confidential or sensitive information in Sliqtly,</strong> such as personal data, health or financial details, trade secrets, passwords or keys. A shared presentation opens for anyone who has its link.</p>
-        <p>To the extent the law allows, the makers of Sliqtly are not liable for any damage or loss that comes from using the service or from not being able to use it.</p>
+        <h2 class="display display--lg">Experimental service — use at your own risk</h2>
+        <p>Sliqtly is currently provided as an experimental service on an "AS IS" and "AS AVAILABLE" basis, without warranties of any kind, whether express or implied.</p>
+        <p>The service may contain errors, experience interruptions, change without notice, or result in loss or corruption of data. You are solely responsible for maintaining appropriate backups of any files or content you use with the service.</p>
+        <p>Do not upload, store, process or transmit confidential, sensitive, secret, regulated, personal health, financial, authentication, or other information that requires secure or guaranteed handling.</p>
+        <p>To the maximum extent permitted by applicable law, the operator of Sliqtly shall not be liable for loss of data, loss of business, loss of profits, service interruptions, indirect or consequential damages, or other losses resulting from the use of or inability to use the service.</p>
+        <p>By using the service, you acknowledge that it is experimental and that you use it at your own risk.</p>
       </div></div>
     </section>
   </main>
   <footer class="foot">
     <div class="wrap foot__in">
-      <span>Sliqtly · sliqtly.com</span>
-      <nav aria-label="Links"><a href="/connect.html">Connect an assistant</a><a href="#mcp">MCP service</a><a href="#terms">Terms</a></nav>
+      <div><strong>Sliqtly — Better slides through MCP.</strong>Experimental software · As Is · No confidential data</div>
+      <nav aria-label="Links"><a href="/connect.html">Docs</a><a href="#terms">Terms</a></nav>
     </div>
   </footer>
 </div>

@@ -119,14 +119,14 @@ try {
   if (!/not found|ei löytynyt/.test(await text(page, "note"))) fail("a missing presentation was not said");
   await page.close();
 
-  // the front page: no editor; the MCP service, the way to the assistants'
-  // page and the terms; no presentation's screen over it
+  // the front page: no editor; the MCP part, the way to the assistants'
+  // page and the experimental-service terms; no presentation's screen over it
   page = await open("/");
   await page.waitForTimeout(500);
   const home = await page.evaluate(() => ({
     connect: !!document.querySelector('.home a[href="/connect.html"]'),
     mcp: !!document.getElementById("mcp"),
-    terms: /as is/i.test(document.getElementById("terms")?.textContent || ""),
+    terms: /experimental service[\s\S]*"AS IS"/i.test(document.getElementById("terms")?.textContent || ""),
     intro: getComputedStyle(document.getElementById("brandIntro")).display,
     wide: document.documentElement.scrollWidth > window.innerWidth,
   }));
