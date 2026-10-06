@@ -3,6 +3,7 @@
 Import "PresTimeline.rgr"
 Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
+Import "PresSelect.rgr"
 Import "PresDocSettings.rgr"
 Import "PresHints.rgr"
 Import "PresFlowModel.rgr"
@@ -1061,6 +1062,20 @@ class PresCheck {
         this.ok(((un.facet("margin-bottom")).value == "4pt") "p margin-bottom")
         ; the universal selector reaches every rule
         this.ok((((((PresCascade.of("* { color: #010203 }")).element("p" none "")).facet("color")).value) == "#010203") "* reaches the text")
+        ; a block on a {container=…} plate: the theme's container rule, its
+        ; colour and corners
+        def pc:PresCascade (PresCascade.of("container { background-color: #ffffffcc }"))
+        def pe:PresCssElement (pc.element("p" none ""))
+        pc.plateFacets(pe)
+        this.ok((((pe.facet("plate-color")).value == "#ffffffcc") && ((pe.facet("plate-color")).own == "container")) ("plate colour: " + (pe.dump())))
+        this.ok(((pe.facet("plate-radius")).isDefault()) "plate corners unset")
+        def ps:PresSelect (new PresSelect())
+        ps.srcA = 0
+        ps.srcB = 5
+        ps.readClasses("Hello\n{container=bubble .lead}\n")
+        this.ok(((ps.plate == "bubble") && ((array_length ps.classes) == 1)) ("the pick reads the plate: " + ps.plate))
+        ps.readClasses("Hello\n{.lead}\n")
+        this.ok((ps.plate == "") "no plate, none read")
         ; and against the layout: what the slide is drawn in
         def md:string "## Otsikko\n\nTeksti tässä\n\n- kohta\n\n> lainaus\n\nIso\n{.lead}\n"
         this.ink(css1 md "h2" "" "Otsikko" "document" "a heading drawn in the document colour")

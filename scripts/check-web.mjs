@@ -1724,6 +1724,33 @@ try {
   check("a list item is picked as li (text from the document, bullets from list)", pk.li.join("|") === "li|text|list" && pk.liContent.join(",") === "md,5,0,5,7", JSON.stringify([pk.li, pk.liContent]));
   check("…a paragraph with {.lead} gets the class's rule too, and Esc lets go", pk.p.join("|") === "p|.lead" && pk.cleared, JSON.stringify([pk.p, pk.cleared]));
 
+  // A paragraph on a {container=bubble} plate: laid out rounded,
+  // with its tail, under the text; picked, its Style lists the theme's
+  // container rule as well
+  {
+    const pl = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      a.showTab("md");
+      a.setSource("# D\n\n## Kupla\n\nLyhyt kupla.\n{container=bubble}\n");
+      a.selectSlide(1);
+      a.place();
+      const bx = a.deck.layout().boxes;
+      const pi = bx.findIndex((b) => b.page === a.selected && b.kind === 1 && b.radius > 0);
+      const ti = bx.findIndex((b) => b.page === a.selected && b.kind === 0 && b.text.startsWith("Lyhyt"));
+      const plate = bx[pi], text = bx[ti];
+      const r = a.slideRect, sc = a.slideScale();
+      a.pointerDown(r.x + (text.x + 4) * sc, r.y + (text.y + text.h / 2) * sc, false, 1);
+      a.pointerUp();
+      const props = a.pick.cascade(a.themeCss()).facets.map((f) => f.own + ">" + f.prop);
+      const pick = a.pick.plate;
+      a.setSource(src0);
+      return { plate: !!plate && plate.tail > 0 && pi < ti, inside: !!plate && text.x > plate.x && text.y > plate.y, at: [pi, ti], pick, props };
+    });
+    check("a {container=bubble} paragraph sits on a rounded plate with a tail, drawn under its text", pl.plate && pl.inside, JSON.stringify(pl));
+    check("…picked, its Style lists the theme's container rule", pl.pick === "bubble" && pl.props.includes("container>background-color") && pl.props.includes("container>border-radius"), JSON.stringify([pl.pick, pl.props]));
+  }
+
   // A diagram: the pointer over it outlines it before anything is picked; a
   // click picks it, and its "Settings" opens the diagram window, whose
   // look, boxes and links are written into the fence. A table's opens the
