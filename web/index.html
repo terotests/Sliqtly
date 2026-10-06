@@ -187,6 +187,35 @@
   body.viewer:not(.replaying) #viewBar > #vPen { display: none; }
   body.replaying #viewBar > #vFirst, body.replaying #viewBar > #vPrev, body.replaying #viewBar > #vNext,
   body.replaying #viewBar > #vCount, body.replaying #viewBar > #vPen { display: none; }
+  /* recording (main.js syncRecBadge): a badge at the top that says so and
+     what to do, and the count before it starts */
+  #recBadge {
+    position: fixed; left: 50%; top: 14px; transform: translateX(-50%); z-index: 6;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px;
+    max-width: calc(100vw - 32px); padding: 6px 8px 6px 14px; border-radius: 22px;
+    background: rgba(24, 24, 27, 0.82); color: #fafafa; border: 1.5px solid #ef4444;
+    font: 15px/1.2 "Open Sans", system-ui, sans-serif; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  }
+  #recBadge[hidden], #recBadge [hidden] { display: none; }
+  #recBadge .dot { width: 12px; height: 12px; border-radius: 6px; background: #ef4444; }
+  body.recording:not(.recPaused) #recBadge .dot { animation: recBlink 1.2s steps(2, start) infinite; }
+  @keyframes recBlink { to { visibility: hidden; } }
+  #recBadge b { letter-spacing: 0.08em; color: #fca5a5; }
+  #recTime { font-variant-numeric: tabular-nums; }
+  #recMute { color: #fde68a; font-size: 13px; }
+  #recBadge button {
+    height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.3);
+    background: transparent; color: inherit; font: inherit; font-size: 14px; cursor: pointer;
+  }
+  #recBadge #recStopBtn { background: #dc2626; border-color: #dc2626; }
+  #recHint { flex-basis: 100%; text-align: center; font-size: 13px; color: #d4d4d8; padding: 0 6px 2px; }
+  #recCount {
+    position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px; background: rgba(0, 0, 0, 0.55); color: #fafafa; font: 15px/1.3 "Open Sans", system-ui, sans-serif;
+  }
+  #recCount[hidden] { display: none; }
+  #recCountN { font-size: 140px; font-weight: 700; line-height: 1; color: #fca5a5; font-variant-numeric: tabular-nums; }
+  #recCount small { font-size: 16px; color: #e4e4e7; text-align: center; padding: 0 16px; }
   #vGo {
     width: 72px; height: 44px; box-sizing: border-box; border-radius: 22px; padding: 0 12px;
     border: 1px solid #60a5fa; background: rgba(24, 24, 27, 0.92); color: #fafafa;
@@ -402,6 +431,17 @@
     <button id="endPrev" title="The slide before the last one" data-i18n-title data-i18n>◀ Previous slide</button>
     <button id="endExit" title="Stop presenting (Esc)" data-i18n-title data-i18n>✕ Exit</button>
   </div>
+</div>
+<div id="recBadge" role="status" hidden>
+  <span class="dot" aria-hidden="true"></span><b data-i18n>REC</b><span id="recTime">0:00</span>
+  <span id="recMute" data-i18n hidden>no sound</span>
+  <button id="recPauseBtn" data-i18n>⏸ Pause</button>
+  <button id="recStopBtn" title="Stop and keep the recording (Esc)" data-i18n-title data-i18n>■ Stop</button>
+  <div id="recHint"></div>
+</div>
+<div id="recCount" role="dialog" aria-live="assertive" hidden>
+  <span id="recCountN">3</span>
+  <small id="recCountWords"></small>
 </div>
 <div id="viewBar" aria-label="Presentation controls" data-i18n-aria>
   <button id="vFirst" title="First slide (Home)" data-i18n-title>⏮&#xFE0E;</button>

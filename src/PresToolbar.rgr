@@ -1366,6 +1366,7 @@ class PresToolbar {
             rc2.addItem("rec-play" (PresI18n.t("▶ Play recording")) (hasRec == false))
             ; the rest only once there is a recording
             if hasRec {
+                rc2.addItem("rec-edit" (PresI18n.t("✂ Edit recording…")) false)
                 def vo:UiItem (rc2.addSub("rec-voice" (PresI18n.t("Voice")) false))
                 this.voiceKids(vo)
                 rc2.addSeparator()
@@ -1527,6 +1528,7 @@ class PresToolbar {
             this.button("dr-rec-start" (PresI18n.t("● Record presentation")) "ghost" body)
             if hasRec {
                 this.button("dr-rec-play" (PresI18n.t("▶ Play recording")) "ghost" body)
+                this.button("dr-rec-edit" (PresI18n.t("✂ Edit recording…")) "ghost" body)
             }
             body.addChild((this.text("tb-dr-label" (PresI18n.t("Help")))))
             this.button("dr-helpGuide" (PresI18n.t("How to use Sliqtly")) "ghost" body)
