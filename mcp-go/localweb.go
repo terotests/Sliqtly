@@ -28,6 +28,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/terotests/sliqtly/mcp-go/store"
 )
 
 //go:embed all:webdist
@@ -160,8 +162,41 @@ func newShareID() string {
 	return string(b)
 }
 
-// one change to a share at a time: read, check, write
-var shareMu sync.Mutex
+// one change to a share at a time: read, check, write. Each share has its
+// own turn, so an upload to one deck or a room saving its text holds up
+// no other deck.
+var shareLocks = keyedLocks{m: map[string]*keyedLock{}}
+
+type keyedLocks struct {
+	mu sync.Mutex
+	m  map[string]*keyedLock
+}
+
+type keyedLock struct {
+	sync.Mutex
+	users int
+}
+
+// lock takes the share's turn; the func it returns gives it back
+func (k *keyedLocks) lock(id string) func() {
+	k.mu.Lock()
+	l := k.m[id]
+	if l == nil {
+		l = &keyedLock{}
+		k.m[id] = l
+	}
+	l.users++
+	k.mu.Unlock()
+	l.Lock()
+	return func() {
+		l.Unlock()
+		k.mu.Lock()
+		if l.users--; l.users == 0 {
+			delete(k.m, id)
+		}
+		k.mu.Unlock()
+	}
+}
 
 const maxUpload = 20 << 20
 const logMax = 300
@@ -212,6 +247,9 @@ func (s *localServer) api(w http.ResponseWriter, r *http.Request) {
 		status = 201
 	case strings.HasPrefix(p, "/api/rooms/") && r.Method == http.MethodPost:
 		out, err = s.roomsAPI(r, strings.TrimPrefix(p, "/api/rooms/"))
+	case strings.HasPrefix(p, "/api/files/rooms/") && r.Method == http.MethodPut:
+		out, err = s.roomFileAPI(r, strings.TrimPrefix(p, "/api/files/rooms/"))
+		status = 201
 	case strings.HasPrefix(p, "/api/files/shares/"):
 		out, err = s.fileAPI(r, strings.TrimPrefix(p, "/api/files/"))
 	case shareAPIPath.MatchString(p):
@@ -331,8 +369,7 @@ func (s *localServer) createShare(r *http.Request) (any, error) {
 		d["files"] = []any{}
 	}
 	d["created"] = time.Now().UTC()
-	shareMu.Lock()
-	defer shareMu.Unlock()
+	// Create writes only where there is nothing: a new id needs no turn
 	for range 5 {
 		id := newShareID()
 		had, err := s.env.DB.Create(r.Context(), "shares", id, d)
@@ -366,8 +403,7 @@ func (s *localServer) patchShare(r *http.Request, id string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	shareMu.Lock()
-	defer shareMu.Unlock()
+	defer shareLocks.lock(id)()
 	cur, err := s.own(r.Context(), id)
 	if err != nil {
 		return nil, err
@@ -387,16 +423,23 @@ func (s *localServer) patchShare(r *http.Request, id string) (any, error) {
 }
 
 func (s *localServer) deleteShare(ctx context.Context, id string) error {
-	shareMu.Lock()
-	defer shareMu.Unlock()
+	defer shareLocks.lock(id)()
 	if _, err := s.own(ctx, id); err != nil {
 		return err
 	}
-	if err := s.bucket.RemoveAll("shares/" + id); err != nil {
+	// the records first: a deck whose files went but whose record did not
+	// would point at nothing, while files left behind by a failed removal
+	// are swept as named by nothing (sweepExpired)
+	if err := s.env.DB.Delete(ctx, "mcp_keys", id); err != nil {
 		return err
 	}
-	s.env.DB.Delete(ctx, "mcp_keys", id)
-	return s.env.DB.Delete(ctx, "shares", id)
+	if err := s.env.DB.Delete(ctx, "shares", id); err != nil {
+		return err
+	}
+	if err := s.bucket.RemoveAll("shares/" + id); err != nil {
+		log.Printf("deck %s removed, its files not yet: %v", id, err)
+	}
+	return nil
 }
 
 // web/sliqtly.js pushHead: the head moves from expect to head, with the
@@ -409,8 +452,7 @@ func (s *localServer) pushHead(r *http.Request, id string) (any, error) {
 	head, _ := body["head"].(string)
 	expect, _ := body["expect"].(string)
 	entries, _ := body["entries"].([]any)
-	shareMu.Lock()
-	defer shareMu.Unlock()
+	defer shareLocks.lock(id)()
 	cur, err := s.own(r.Context(), id)
 	if err != nil {
 		return nil, err
@@ -466,8 +508,7 @@ func (s *localServer) fileAPI(r *http.Request, name string) (any, error) {
 		return nil, fail(400, "", "bad file path")
 	}
 	id, rel := parts[1], parts[2]
-	shareMu.Lock()
-	defer shareMu.Unlock()
+	defer shareLocks.lock(id)()
 	if _, err := s.own(r.Context(), id); err != nil {
 		return nil, err
 	}
@@ -498,6 +539,35 @@ func (s *localServer) fileAPI(r *http.Request, name string) (any, error) {
 	return nil, fail(405, "", "method not allowed")
 }
 
+// PUT /api/files/rooms/{room}/{name}: a file into the room's files
+// (roomfiles.go); ?unique=1 gives it another name when the room has one
+// by it
+func (s *localServer) roomFileAPI(r *http.Request, rest string) (any, error) {
+	if s.env.rooms == nil {
+		return nil, fail(404, "", "not found")
+	}
+	room, name, ok := strings.Cut(rest, "/")
+	if !ok || name == "" {
+		return nil, fail(400, "", "bad file path")
+	}
+	data, err := io.ReadAll(io.LimitReader(r.Body, maxUpload+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxUpload {
+		return nil, fail(413, "", "a file is at most 20 MB")
+	}
+	out, err := s.env.rooms.putFile(r.Context(), s.env.LocalUser, room, name, r.Header.Get("Content-Type"), data, r.URL.Query().Get("unique") == "1")
+	var re roomErr
+	switch {
+	case errors.As(err, &re):
+		return nil, fail(400, "", re.msg)
+	case errors.Is(err, store.ErrNotFound):
+		return nil, fail(404, "", "no such room")
+	}
+	return out, err
+}
+
 // what has expired goes, as Firestore's TTL policies do there: at start and
 // then every hour until ctx ends. An expired deck's files go with it.
 func (s *localServer) sweepExpired(ctx context.Context) {
@@ -526,11 +596,11 @@ func (s *localServer) sweepOnce(t time.Time) {
 			continue
 		}
 		for _, id := range ids {
-			shareMu.Lock()
+			unlock := shareLocks.lock(id)
 			if err := s.bucket.RemoveAll("shares/" + id); err != nil {
 				log.Printf("expired deck %s: %v", id, err)
 			}
-			shareMu.Unlock()
+			unlock()
 		}
 	}
 	// the bytes of files nothing names any more (removed, replaced, or of
@@ -554,7 +624,7 @@ func (s *localServer) roomsAPI(r *http.Request, op string) (any, error) {
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&a); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fail(400, "", "a JSON object is expected")
 	}
-	out, err := s.env.rooms.call(r.Context(), s.env.LocalUser, op, a)
+	out, err := s.env.rooms.callVia(r.Context(), s.env.LocalUser, viaPage, op, a)
 	var re roomErr
 	if errors.As(err, &re) {
 		return nil, fail(400, "", re.msg)

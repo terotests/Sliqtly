@@ -47,6 +47,12 @@ Speaker notes. Not shown on the slide.
   `# Title` then `{.center}` on the next line). In `css`, `text-align`
   does the same for a kind of block: `h1 { text-align: center }`,
   `.lead { text-align: center }`. Lists, tables and code stay left.
+- `container=box` or `container=bubble` under a paragraph (or a list)
+  sets it on a rounded plate so its text reads over a busy picture: `box`
+  spans the column, `bubble` is as wide as the text with a speech-bubble
+  tail. `background=#ffffffcc` picks the plate's colour (default: the
+  slide's colour, see-through; the text turns dark or light to read on
+  it). For every plate in `css`: `container { background-color; border-radius }`.
 - Effects (`fx=`): `starfield`, `plasma-wave`, `smoke`, `ambient-light`,
   `liquid-glass`, `drops` (rain running down a window),
   `raindrops2` (rain whose running drops leave lines of water), `bubbles` (round
@@ -67,7 +73,8 @@ Pictures, data files and workbooks are stored only when the user is signed
 in; without sign-in a deck is text only and is deleted 30 days after its
 last change.
 When text on a picture is hard to read ("low contrast"), raise that slide's
-`bg-dim` (0.6–0.8) with update_presentation; the picture stays as it is.
+`bg-dim` (0.6–0.8) with update_presentation, or put the text on a plate
+(`{container=box}` under it); the picture stays as it is.
 
 SVG pictures, backgrounds included:
 
@@ -88,6 +95,50 @@ SVG pictures, backgrounds included:
   (16:9), 14 paths") with a ⚠ for what will go wrong in the player: no
   xmlns, no viewBox, a background not in the slide's shape, things loaded
   from outside, text, filter effects.
+
+### Photo albums
+
+A `gallery` fence is a photo grid or one photo per slide. Each line is a
+picture with its caption (`- media/a.jpg: Caption` or `- ![Caption](media/a.jpg)`),
+or plain text for a text cell. Under the fence:
+
+````markdown
+## Hietaniemi {heading=hidden}
+
+```gallery
+- media/ranta.jpg: Hietaniemi in July {focus=top}
+- media/sauna.jpg: Sauna {span=2}
+```
+{layout=full fit=cover caption=overlay .polaroid}
+````
+
+- `layout=grid` (default) or `layout=full`: one picture per slide, edge to
+  edge, without the page margins.
+- `fit=cover` fills the cell and crops, `fit=contain` shows the whole
+  picture. `focus=` keeps a part in the crop: `top`, `bottom left`,
+  `30% 70%`. `span=2` makes a cell two columns wide.
+- `caption=overlay|below|none`; an overlay caption gets a dim band behind it.
+- `{heading=hidden}` on a slide's heading keeps it as the slide's name
+  (overview, contents, screen readers) but does not draw it.
+- CSS: `gallery { gap: 8pt; columns: 3; background-color: … }`,
+  `cell { border-radius: 4pt; padding: 0 }`, `caption { font-size: 14pt }`,
+  `cell.text { … }`, one cell `cell:nth(3) { … }`, an album's own class
+  `.polaroid cell { padding: 10pt 10pt 32pt; background-color: #fff }`.
+
+For print, put the page in `@media print` in `css`:
+
+```css
+@media print {
+  page { width: 297mm; height: 210mm; bleed: 3mm; safe-area: 8mm; }
+  deck { crop-marks: on; }
+}
+```
+
+The screen is unchanged. The PDF export then uses the print page, runs
+edge-to-edge pictures and backgrounds into the bleed and adds crop marks.
+The result of create/update warns about text outside the safe area and
+pictures under 300 dpi in print ("media/sauna.jpg: 180 dpi in print, under
+300"). Colours stay RGB.
 
 ## Charts, diagrams, math, tables
 
@@ -489,6 +540,28 @@ Every presentation has one home room; new ones start in General.
 - `add_link` ties a room to the ticket itself: `room:<room_id>`
   `references` `jira:PROJ-123`.
 
+### A room's chat
+
+Each room has a chat, like a Slack channel, where its people and the
+assistants working for them talk.
+
+- `read_room_chat` reads it, newest last; `after_seq` (the last seq you
+  saw) for what came since, `thread_id` for one thread's replies,
+  `mentioning` for the messages that ask you by @name.
+- `post_room_message` with `agent` ("Claude"): you show as a robot. Say
+  what you were asked and what you did; for a longer job keep one status
+  message up to date with `message_id` instead of posting many. Answer
+  in a thread with `thread_id`.
+- Text: *bold*, _italic_, ~strike~, `code`, ``` blocks, > quotes, lists,
+  links, :emoji:, @name, #room. `[[slides:<deck_id>]]` shows a
+  presentation in the chat (`[[slides:<deck_id>#3]]` one slide). Long
+  text and long code are folded with "Show more".
+- Files: what people attach goes into the room's files; `list_room_files`
+  lists them with their addresses. Show some with a message by
+  `files` (their names) on `post_room_message`; the text may then be
+  empty. Links in a message get a preview (site, title, summary) shortly
+  after it is posted.
+
 ## When another assistant works on the same deck
 
 Two assistants (two chats, or another app) can change one presentation at
@@ -529,7 +602,8 @@ diagrams are shapes. `docx` (Word) and `html` (one self-contained web
 page) read the deck as a document: each slide's headings, text, lists,
 tables and formulas, its speaker notes under it, and charts and diagrams
 as pictures. Effects (`fx=`) are left out; the editor's own export draws
-them. A new export of the same format replaces the file behind the old
+them. A deck with `@media print` rules gets a PDF on the print page with
+bleed and crop marks. A new export of the same format replaces the file behind the old
 link.
 
 ## A pull request as source

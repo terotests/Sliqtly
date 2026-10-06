@@ -59,6 +59,16 @@ class PresDNode {
     def marks:[SceneItem]
     def dash:double 0.0
     def own:string ""
+    ; A round outline (a circle, an ellipse: the scene carries its exact
+    ; curve): its centre and radii, and how many points `ring` has now. The
+    ; ring is made again for the size it is drawn at (`fitRings`), so it
+    ; stays round however far the view zooms in.
+    def oval:boolean false
+    def ovalCX:double 0.0
+    def ovalCY:double 0.0
+    def ovalRX:double 0.0
+    def ovalRY:double 0.0
+    def ringSteps:int 0
 
     Constructor () {
         def a:[SceneItem]
@@ -296,6 +306,11 @@ class PresDiagram {
     ; reached; the ⋯ menu that offers it (and a restart) is open or not
     def showAll:boolean false
     def menuOpen:boolean false
+    ; The scale the diagram was last painted at (slide units per diagram
+    ; unit), for outlines made while painting.
+    def paintScale:double 1.0
+    ; The zoom pill's menu of levels (`zoomLevels`) is open or not.
+    def zoomOpen:boolean false
     def inAll:boolean false
     def keptNodeAt:[double]
     def keptEdgeAt:[double]
@@ -708,6 +723,9 @@ class PresDiagram {
                                 push n.ring (itemAt it.pts p)
                                 p = (p + 1)
                             }
+                            if ((strlen it.d) > 0) {
+                                PresDiagram.ovalOf(n)
+                            }
                             if it.own {
                                 n.own = it.fill
                             }
@@ -724,6 +742,73 @@ class PresDiagram {
                     }
                 }
                 k = (k + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A round node's centre and radii, from the ring the scene gave it.
+    sfn ovalOf:void (n:PresDNode) {
+        def m:int (array_length n.ring)
+        if (m < 6) {
+            return
+        }
+        def x0:double (itemAt n.ring 0)
+        def x1:double x0
+        def y0:double (itemAt n.ring 1)
+        def y1:double y0
+        def p:int 2
+        while ((p + 1) < m) {
+            def x:double (itemAt n.ring p)
+            def y:double (itemAt n.ring (p + 1))
+            if (x < x0) { x0 = x }
+            if (x > x1) { x1 = x }
+            if (y < y0) { y0 = y }
+            if (y > y1) { y1 = y }
+            p = (p + 2)
+        }
+        n.oval = true
+        n.ovalCX = ((x0 + x1) * 0.5)
+        n.ovalCY = ((y0 + y1) * 0.5)
+        n.ovalRX = ((x1 - x0) * 0.5)
+        n.ovalRY = ((y1 - y0) * 0.5)
+        n.ringSteps = (idiv m 2)
+    }
+
+    ; How many points a round outline of radius r (slide units, as drawn)
+    ; needs to look round: a point every 1.5 units, which on a stage up to
+    ; three times the slide's size is a chord of 4.5 pixels.
+    sfn ovalSteps:int (r:double) {
+        def n:int (to_int (((r * 6.2831853) / 1.5) + 1.0))
+        if (n < 32) {
+            return 32
+        }
+        if (n > 2048) {
+            return 2048
+        }
+        return n
+    }
+
+    sfn maxOf:double (a:double b:double) {
+        if (a > b) {
+            return a
+        }
+        return b
+    }
+
+    ; The round nodes' rings, made again for the scale `sc` they are drawn at
+    ; when that needs more (or fewer) points than they have.
+    fn fitRings:void (sc:double) {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:PresDNode (itemAt nodes i)
+            if n.oval {
+                def steps:int (PresDiagram.ovalSteps(((PresDiagram.maxOf(n.ovalRX n.ovalRY)) * sc)))
+                if (steps != n.ringSteps) {
+                    clear n.ring
+                    FlowShapes.ellipseInto(n.ring n.ovalCX n.ovalCY n.ovalRX n.ovalRY steps)
+                    n.ringSteps = steps
+                }
             }
             i = (i + 1)
         }
@@ -2462,6 +2547,22 @@ class PresDiagram {
         if (up && (PresDiagram.near(px py ((bx + bw) - 22.0) (by + 22.0) 17.0))) {
             return -6
         }
+        ; -1000 - p: the zoom menu's level p %
+        if zoomOpen {
+            def lv:[int] (PresDiagram.zoomLevels((this.zoomMax())))
+            def zn:int (array_length lv)
+            def zx:double ((bx + bw) - 110.0)
+            def zy:double (PresDiagram.zoomMenuTop(((by + bh) - 24.0) zn))
+            zoomOpen = false
+            if ((((px >= zx) && (px <= (zx + 96.0))) && (py >= (zy + 4.0))) && (py < ((zy + 4.0) + ((to_double zn) * 30.0)))) {
+                def row:int (to_int ((py - (zy + 4.0)) / 30.0))
+                if (row >= zn) {
+                    row = (zn - 1)
+                }
+                return (-1000 - (itemAt lv row))
+            }
+            return -9
+        }
         if menuOpen {
             def mx:double ((bx + bw) - 200.0)
             def my:double (by + 44.0)
@@ -3432,6 +3533,52 @@ class PresDiagram {
         return true
     }
 
+    ; The zoom levels the pill's menu offers, in %, up to the deepest zoom
+    ; `maxZ` (1.0 is the whole diagram, 100 %).
+    sfn zoomLevels:[int] (maxZ:double) {
+        def out:[int]
+        def all:[int] ([] 100 150 200 300 400)
+        def i:int 0
+        while (i < (array_length all)) {
+            def p:int (itemAt all i)
+            if ((p == 100) || ((to_double p) <= ((maxZ * 100.0) + 0.5))) {
+                push out p
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The pill's text for zoom z: "250 %".
+    sfn zoomText:string (z:double) {
+        return ((to_string (to_int ((z * 100.0) + 0.5))) + " %")
+    }
+
+    ; Where the zoom menu's panel starts, above the pill at cy, for n rows.
+    sfn zoomMenuTop:double (cy:double n:int) {
+        return (((cy - 23.0) - ((to_double n) * 30.0)) - 8.0)
+    }
+
+    ; The deepest zoom `exMove` allows.
+    fn zoomMax:double () {
+        if (lastFit <= 0.0) {
+            return 1.0
+        }
+        return ((zoom * 2.0) / lastFit)
+    }
+
+    ; To level z (1.0 the whole diagram, centred), around what is in view.
+    fn zoomTo:void (z:double) {
+        zoomOpen = false
+        if (z <= 1.0) {
+            this.exploreOverview()
+            return
+        }
+        this.exPush()
+        this.exMove(camX camY z)
+        exploring = true
+    }
+
     fn zoomBy:void (f:double) {
         this.exPush()
         this.exMove(camX camY (camZ * f))
@@ -3473,6 +3620,7 @@ class PresDiagram {
         skipLeft = -1.0
         showAll = false
         menuOpen = false
+        zoomOpen = false
         exploring = false
         exReturn = false
         exNode = -1
@@ -3668,13 +3816,13 @@ class PresDiagram {
 
     fn uiBusy:boolean () {
         ; a question pulses its choices on the wall clock; the buttons fade
-        ctl.hold = menuOpen
+        ctl.hold = (menuOpen || zoomOpen)
         return ((waiting || (exploring && ((uiNow - exT0) < 0.7))) || (ctl.busy(uiNow)))
     }
 
     ; The buttons take a press: showing, or the menu open.
     fn controlsUp:boolean () {
-        return (menuOpen || (ctl.shown(uiNow)))
+        return ((menuOpen || zoomOpen) || (ctl.shown(uiNow)))
     }
 
     ; Over one of the buttons (where `hit` finds them), drawn in
@@ -3716,6 +3864,8 @@ class PresDiagram {
         this.ballAt(t)
         def fit:double (this.fitOf(bw bh))
         def sc:double (fit * camZ)
+        paintScale = sc
+        this.fitRings(sc)
         ; The camera is on its node, kept over the diagram (`keepInside`);
         ; where the diagram runs past the box, the rim fades it out.
         def dx:double ((bx + (bw * 0.5)) - (camX * sc))
@@ -3799,7 +3949,7 @@ class PresDiagram {
         }
         def ua:double 1.0
         if showControls {
-            ctl.hold = menuOpen
+            ctl.hold = (menuOpen || zoomOpen)
             ua = (ctl.alpha(uiNow))
             def cy:double ((by + bh) - 24.0)
             if canTour {
@@ -3812,6 +3962,7 @@ class PresDiagram {
             this.paintButton(ui ((bx + bw) - 150.0) cy 1)
             this.paintButton(ui ((bx + bw) - 112.0) cy 2)
             this.paintHome(ui ((bx + bw) - 46.0) cy l)
+            this.paintZoomMenu(ui ((bx + bw) - 110.0) cy l)
             this.paintMenu(ui bx by bw l)
         }
         if (ua > 0.01) {
@@ -3993,8 +4144,8 @@ class PresDiagram {
         frame.thickness = 1.2
         PresDiagram.tint(frame (PresDiagram.rgba(acR acG acB 0.6)) 1.0)
         push out.cmds frame
-        this.menuItem(out (mx + 16.0) (my + 10.0) ("↺  " + (PresI18n.t("Start over"))) l)
-        this.menuItem(out (mx + 16.0) (my + 42.0) ("◎  " + (PresI18n.t("Show all"))) l)
+        this.menuItem(out (mx + 16.0) (my + 10.0) ("↺  " + (PresI18n.t("Animate"))) l)
+        this.menuItem(out (mx + 16.0) (my + 42.0) ("◎  " + (PresI18n.t("Zoom to fit"))) l)
     }
 
     fn menuItem:void (out:EVGDisplayList x:double y:double text:string l:MdLayout) {
@@ -4178,7 +4329,49 @@ class PresDiagram {
         push out.cmds tc
     }
 
-    ; "100 %": back to the presentation's own view, as a pill.
+    ; The zoom pill's menu, open: the levels above the pill, the one in view
+    ; ticked.
+    fn paintZoomMenu:void (out:EVGDisplayList mx:double cy:double l:MdLayout) {
+        if (! zoomOpen) {
+            return
+        }
+        def lv:[int] (PresDiagram.zoomLevels((this.zoomMax())))
+        def n:int (array_length lv)
+        def my:double (PresDiagram.zoomMenuTop(cy n))
+        def ph:double (((to_double n) * 30.0) + 8.0)
+        def panel (new EVGDrawCmd())
+        panel.kind = 0
+        panel.x = mx
+        panel.y = my
+        panel.w = 96.0
+        panel.h = ph
+        panel.radius = 10.0
+        PresDiagram.tint(panel (PresDiagram.rgba(bgR bgG bgB 0.95)) 1.0)
+        push out.cmds panel
+        def frame (new EVGDrawCmd())
+        frame.kind = 1
+        frame.x = mx
+        frame.y = my
+        frame.w = 96.0
+        frame.h = ph
+        frame.radius = 10.0
+        frame.thickness = 1.2
+        PresDiagram.tint(frame (PresDiagram.rgba(acR acG acB 0.6)) 1.0)
+        push out.cmds frame
+        def now:string (PresDiagram.zoomText(camZ))
+        def i:int 0
+        while (i < n) {
+            def t:string (PresDiagram.zoomText((to_double (itemAt lv i)) / 100.0))
+            def mark:string "     "
+            if (t == now) {
+                mark = "✓  "
+            }
+            this.menuItem(out (mx + 12.0) ((my + 4.0) + ((to_double i) * 30.0)) (mark + t) l)
+            i = (i + 1)
+        }
+    }
+
+    ; The zoom in view ("250 %") as a pill; a press opens its menu.
     fn paintHome:void (out:EVGDisplayList cx:double cy:double l:MdLayout) {
         def w:double 64.0
         def h:double 30.0
@@ -4199,13 +4392,13 @@ class PresDiagram {
         ring.h = h
         ring.radius = (h * 0.5)
         ring.thickness = 1.3
-        if exploring {
+        if (exploring || zoomOpen) {
             PresDiagram.tint(ring (PresDiagram.rgba(wmR wmG wmB 0.9)) 1.0)
         } {
             PresDiagram.tint(ring (PresDiagram.rgba(dmR dmG dmB 0.8)) 1.0)
         }
         push out.cmds ring
-        def text:string "100 %"
+        def text:string (PresDiagram.zoomText(camZ))
         def size:double 13.0
         def tw:double (l.measureStyled(text "Open Sans" size true false))
         def tc (new EVGDrawCmd())
@@ -4276,6 +4469,7 @@ class PresDiagram {
         exSel = o.exSel
         showAll = o.showAll
         menuOpen = o.menuOpen
+        zoomOpen = o.zoomOpen
         uiNow = o.uiNow
         ctl.takeFrom(o.ctl)
         lastFit = o.lastFit
@@ -6034,9 +6228,10 @@ class PresDiagram {
         def out:[double]
         if (part.form == "circle") {
             def c:[double] (FlowLook.circleFor(n.x n.y n.w n.h))
+            def steps:int (PresDiagram.ovalSteps(((PresDiagram.maxOf((itemAt c 2) (itemAt c 3))) * paintScale)))
             def k:int 0
-            while (k < 48) {
-                def a:double (((to_double k) / 48.0) * 6.2831853)
+            while (k < steps) {
+                def a:double (((to_double k) / (to_double steps)) * 6.2831853)
                 push out ((itemAt c 0) + ((itemAt c 2) * (cos a)))
                 push out ((itemAt c 1) + ((itemAt c 3) * (sin a)))
                 k = (k + 1)

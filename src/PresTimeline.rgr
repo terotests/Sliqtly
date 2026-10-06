@@ -118,6 +118,38 @@ class PresTimeline {
             }
             di = (di + 1)
         }
+        ; The drawings made on the slide: one written among a build step's
+        ; blocks comes with that step, any other after everything else has
+        ; arrived, one after another.
+        def ki:int 0
+        while (ki < (array_length s.sketches)) {
+            def su:PresSketchUse (itemAt s.sketches ki)
+            su.start = -1.0
+            def sg:int 0
+            while (sg < (array_length s.groups)) {
+                def gs:PresGroup (itemAt s.groups sg)
+                if (((gs.step > 0) && (su.srcStart >= gs.start)) && (su.srcStart < gs.end)) {
+                    su.start = gs.at
+                }
+                sg = (sg + 1)
+            }
+            if (su.start >= 0.0) {
+                def send:double (su.start + (su.sketch.total()))
+                if (send > last) {
+                    last = send
+                }
+            }
+            ki = (ki + 1)
+        }
+        ki = 0
+        while (ki < (array_length s.sketches)) {
+            def sv:PresSketchUse (itemAt s.sketches ki)
+            if (sv.start < 0.0) {
+                sv.start = (last + 0.2)
+                last = (sv.start + (sv.sketch.total()))
+            }
+            ki = (ki + 1)
+        }
         s.settled = last
         def d:double (last + s.hold)
         if (s.wantDuration > 0.0) {

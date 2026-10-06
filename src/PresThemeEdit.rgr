@@ -1,0 +1,227 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresThemeEdit.rgr — one property of the theme set, as text
+; ============================================================================
+;
+; A card over the Markdown can change the theme without opening it (the list
+; layouts' `figure { colors: … }` from a ```timeline fence's card). This is
+; that edit, on the CSS text alone:
+;
+;   setProp(css "figure" "colors" "#B96926 #59C3C4")
+;
+; sets the value where the rule has the property, adds the property to the
+; rule when it lacks it, and adds the rule at the end when there is none.
+; The rest of the text is kept byte for byte, so the app can apply the
+; difference as one edit (`changeAt`, `changeEnd`, `changeText`), which one
+; Ctrl+Z undoes.
+; ============================================================================
+
+class PresThemeEdit {
+    ; the change from the old text to the new: [at, end) in the old text is
+    ; replaced by `text`
+    def at:int 0
+    def end:int 0
+    def text:string ""
+
+    Constructor () {
+    }
+
+    ; Where the rule for `sel` opens ("{" offset), -1 when there is none.
+    ; A rule may name several selectors (`figure, chart {`): any of them.
+    ; `css` has its comments masked.
+    sfn ruleOpen:int (css:string sel:string) {
+        def n:int (strlen css)
+        def from:int 0
+        while (from < n) {
+            def open:int (indexOfFrom css "{" from)
+            if (open < 0) {
+                return -1
+            }
+            ; the selector text: back to the last `}` or `*/`
+            def a:int open
+            while ((a > 0) && ((charAt css (a - 1)) != 125)) {
+                a = (a - 1)
+            }
+            def head:string (trim (substring css a open))
+            if (PresThemeEdit.names(head sel)) {
+                return open
+            }
+            def close:int (indexOfFrom css "}" open)
+            if (close < 0) {
+                return -1
+            }
+            from = (close + 1)
+        }
+        return -1
+    }
+
+    sfn names:boolean (head:string sel:string) {
+        def parts:[string] (strsplit head ",")
+        def i:int 0
+        while (i < (array_length parts)) {
+            if ((trim (itemAt parts i)) == sel) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The theme with `prop: value` in `sel`'s rule.
+    sfn setProp:string (css:string sel:string prop:string value:string) {
+        def e:PresThemeEdit (PresThemeEdit.change(css sel prop value))
+        return ((substring css 0 e.at) + e.text + (substring css e.end (strlen css)))
+    }
+
+    sfn change:PresThemeEdit (css0:string sel:string prop:string value:string) {
+        ; comments read as spaces: a `{` in one is not a rule
+        def css:string (PresThemeEdit.masked(css0))
+        def e (new PresThemeEdit())
+        def n:int (strlen css)
+        def open:int (PresThemeEdit.ruleOpen(css sel))
+        if (open < 0) {
+            ; a rule of its own at the end
+            def lead:string "\n\n"
+            if (n == 0) {
+                lead = ""
+            } {
+                if ((charAt css (n - 1)) == 10) {
+                    lead = "\n"
+                }
+            }
+            e.at = n
+            e.end = n
+            e.text = (lead + sel + " {\n  " + prop + ": " + value + ";\n}\n")
+            return e
+        }
+        def close:int (indexOfFrom css "}" open)
+        if (close < 0) {
+            close = n
+        }
+        ; the property in the rule: its value's span
+        def k:int (open + 1)
+        while (k < close) {
+            def at:int (indexOfFrom css (prop + ":") k)
+            if ((at < 0) || (at >= close)) {
+                k = close
+            } {
+                def before:int (charAt css (at - 1))
+                if ((before == 32) || ((before == 9) || ((before == 10) || ((before == 59) || (before == 123))))) {
+                    def v:int (at + (strlen prop) + 1)
+                    while ((v < close) && ((charAt css v) == 32)) {
+                        v = (v + 1)
+                    }
+                    def ve:int v
+                    while ((ve < close) && ((charAt css ve) != 59) && ((charAt css ve) != 10)) {
+                        ve = (ve + 1)
+                    }
+                    while ((ve > v) && ((charAt css (ve - 1)) == 32)) {
+                        ve = (ve - 1)
+                    }
+                    e.at = v
+                    e.end = ve
+                    e.text = value
+                    return e
+                }
+                k = (at + 1)
+            }
+        }
+        ; not there: added before the rule closes
+        def inner:string (substring css (open + 1) close)
+        if ((indexOf inner "\n") >= 0) {
+            ; a rule over several lines: a line of its own before the `}`
+            def ls:int close
+            while ((ls > 0) && ((charAt css (ls - 1)) != 10)) {
+                ls = (ls - 1)
+            }
+            def lastSemi:int ls
+            ; the line before may lack its `;`
+            def p:int (ls - 1)
+            while ((p > open) && (((charAt css p) == 10) || ((charAt css p) == 32))) {
+                p = (p - 1)
+            }
+            def sep:string ""
+            if ((p > open) && ((charAt css p) != 59) && ((charAt css p) != 123)) {
+                e.at = (p + 1)
+                e.end = (p + 1)
+                e.text = (";\n  " + prop + ": " + value + ";")
+                return e
+            }
+            e.at = lastSemi
+            e.end = lastSemi
+            e.text = (sep + "  " + prop + ": " + value + ";\n")
+            return e
+        }
+        ; `sel { a: b }` on one line
+        def t:string (trim inner)
+        def sep2:string " "
+        if (((strlen t) > 0) && ((charAt t ((strlen t) - 1)) != 59)) {
+            sep2 = "; "
+        }
+        def b:int close
+        while ((b > (open + 1)) && ((charAt css (b - 1)) == 32)) {
+            b = (b - 1)
+        }
+        e.at = b
+        e.end = close
+        if ((strlen t) == 0) {
+            sep2 = " "
+        }
+        e.text = (sep2 + prop + ": " + value + "; ")
+        return e
+    }
+
+    ; The text with each comment's characters as spaces (same length).
+    sfn masked:string (css:string) {
+        def n:int (strlen css)
+        def out:string ""
+        def i:int 0
+        def from:int 0
+        while (i < n) {
+            def a:int (indexOfFrom css "/*" i)
+            if (a < 0) {
+                i = n
+            } {
+                def b:int (indexOfFrom css "*/" (a + 2))
+                if (b < 0) {
+                    b = (n - 2)
+                }
+                out = (out + (substring css from a))
+                def k:int a
+                while (k < (b + 2)) {
+                    if ((charAt css k) == 10) {
+                        out = (out + "\n")
+                    } {
+                        out = (out + " ")
+                    }
+                    k = (k + 1)
+                }
+                from = (b + 2)
+                i = from
+            }
+        }
+        if (from < n) {
+            out = (out + (substring css from n))
+        }
+        return out
+    }
+
+    ; The colours of a `colors:` value, one per word.
+    sfn colorWords:[string] (v:string) {
+        def out:[string]
+        def parts:[string] (strsplit (trim v) " ")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def w:string (trim (itemAt parts i))
+            if (((strlen w) > 0) && ((charAt w ((strlen w) - 1)) == 44)) {
+                w = (substring w 0 ((strlen w) - 1))
+            }
+            if ((strlen w) > 0) {
+                push out w
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

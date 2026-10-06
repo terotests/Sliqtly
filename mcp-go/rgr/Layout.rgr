@@ -545,4 +545,58 @@ class Layout {
         }
         b.heads = heads
     }
+
+    ; The pages of a deck laid out for print (PresDeck.setMedia("print")) as
+    ; PrintReport reads them: the text boxes and the pictures with the pixels
+    ; of the part shown.
+    sfn printPages:[RPrintPage] (d:PresDeck) {
+        def out:[RPrintPage]
+        def l:MdLayout (d.layout())
+        def p:int 0
+        while (p < l.pageCount) {
+            def pg (new RPrintPage)
+            pg.index = p
+            if (p < (d.slideCount())) {
+                def ps:PresSlide (d.slideAt(p))
+                pg.title = ps.title
+            }
+            pg.w = l.style.pageWidth
+            pg.h = l.style.pageHeight
+            pg.safe = l.style.safeArea
+            push out pg
+            p = (p + 1)
+        }
+        for l.boxes b:MdBox bi {
+            if ((b.page < 0) || (b.page >= (array_length out))) {
+                continue
+            }
+            def pg2:RPrintPage (itemAt out b.page)
+            if ((b.kind == 0) && ((strlen (trim b.text)) > 0)) {
+                def r (new RRun)
+                r.x = b.x
+                r.y = b.y
+                r.w = b.w
+                r.h = b.h
+                r.text = b.text
+                push pg2.runs r
+            }
+            if ((b.kind == 4) && (b.imageNaturalW > 0)) {
+                def pic (new RPrintPic)
+                pic.name = b.imagePath
+                if ((indexOf pic.name "/") == 0) {
+                    pic.name = (substring pic.name 1 (strlen pic.name))
+                }
+                pic.shownW = (to_double b.imageNaturalW)
+                pic.shownH = (to_double b.imageNaturalH)
+                if b.hasCrop {
+                    pic.shownW = (pic.shownW * b.cropW)
+                    pic.shownH = (pic.shownH * b.cropH)
+                }
+                pic.w = b.w
+                pic.h = b.h
+                push pg2.pics pic
+            }
+        }
+        return out
+    }
 }

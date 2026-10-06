@@ -4,19 +4,19 @@
 ; PresColorPanel.rgr — EVGUI's colour picker, drawn as its demo draws it
 ; ============================================================================
 ;
-; The picker's behaviour is `ColorPickerCtl` (src/ColorPickerCtl.rgr, from
-; terotests/EVGUI). This is the drawing and the pointer that its demo
+; The picker's behaviour is EVGUI's `ColorPickerCtl`, in the interface's
+; language through its `words` (`localize`). This is the drawing and the pointer that its demo
 ; (EVGUI demo/ColorPickerDemo.rgr) wraps around it, taken over nearly as it
 ; is: the saturation / brightness area with its round thumb, the hue and alpha
 ; sliders beside the current colour over a checkerboard, the value as HEX /
-; RGB / HSL fields with the format button, and a row of presets. Left out:
-; the eyedropper (it needs the host's pixels) and the popover (the chart
-; editor shows the panel open, in place). Styled by the demo's own sheet,
+; RGB / HSL fields with the format button, the muted tones and a row of
+; presets, and the pipette, whose pixels the page supplies. Left out: the
+; popover (the chart editor shows the panel open, in place). Styled by the demo's own sheet,
 ; web/chart-editor.css.
 ; ============================================================================
 
 Import "PresI18n.rgr"
-Import "ColorPickerCtl.rgr"
+Import "../evgui/src/ColorPickerCtl.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGUnit.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
@@ -88,6 +88,8 @@ treefactory Cp {
 class PresColorPanel {
     ; the field holding the keys, "" for none
     def focused:string ""
+    ; the host samples pixels: the pipette is drawn
+    def eyeOn:boolean false
     def eng@(optional):EVGTextEngine
 
     Constructor () {
@@ -274,7 +276,21 @@ class PresColorPanel {
         return box
     }
 
+    ; The picker's words in the interface's language. Every drawing asks
+    ; again, so a change of language reaches a picker already open.
+    sfn localize:void (c:ColorPickerCtl) {
+        def ps:[string] (ColorPickerCtl.phrases())
+        def i:int 0
+        while (i < (array_length ps)) {
+            def en:string (itemAt ps i)
+            set c.words en (PresI18n.t(en))
+            i = (i + 1)
+        }
+        c.swatchTitle = (PresI18n.t("Presets"))
+    }
+
     fn panel:EVGElement (c:ColorPickerCtl) {
+        PresColorPanel.localize(c)
         def p (tree Cp (Panel (props (id (c.panelTid())))))
         if (c.inline == false) {
             p.className = "cp-panel cp-panel-pop"
@@ -288,6 +304,19 @@ class PresColorPanel {
         p.addChild((this.svArea(c)))
 
         def tools (tree Cp (Tools (props (id (c.tid + "-tools")))))
+        ; the pipette: the page picks from the screen (EyeDropper) or, where
+        ; there is none, from the next pixel pressed on the canvas
+        if eyeOn {
+            def eye (tree Cp (IconBtn (props (id (c.eyeTid())) (a11yLabel (PresI18n.t("Pick a color from the screen"))))))
+            if c.picking {
+                eye.className = "cp-iconbtn cp-iconbtn-on"
+                eye.a11yPressed = (EVGA11yTri.yes())
+            } {
+                eye.a11yPressed = (EVGA11yTri.no())
+            }
+            eye.addChild((this.icon("M2 22 L3 21 L6 21 L14.5 12.5 M3 21 L3 18 L11.5 9.5 M10.5 8 L16 13.5 M14 8 L17.5 4.5 A2.12 2.12 0 0 1 20.5 7.5 L17 11")))
+            tools.addChild(eye)
+        }
         tools.addChild((this.swatchBox(c (c.swatchTid()) "cp-current")))
         def sl (tree Cp (Sliders (props (id (c.tid + "-sliders")))))
         sl.addChild((this.hueTrack(c)))
@@ -298,10 +327,39 @@ class PresColorPanel {
         p.addChild(tools)
 
         p.addChild((this.fields(c)))
+        p.addChild((this.mutedRow(c)))
         if ((c.swatchCount()) > 0) {
             p.addChild((this.presetRow(c)))
         }
         return p
+    }
+
+    ; The colour's muted tones (ColorPickerCtl.mutedAt): the hue kept, the
+    ; saturation down a step each; the first is the colour itself.
+    fn mutedRow:EVGElement (c:ColorPickerCtl) {
+        def box (tree Cp (Presets (props (id (c.tid + "-muted")) (a11yLabel (c.name + ", muted tones")))))
+        box.addChild((tree Cp (PTitle (props (id (c.tid + "-muted-title"))) (PresI18n.t("Muted")))))
+        def row (tree Cp (PRow (props (id (c.tid + "-muted-row")))))
+        def now:string (c.hex6())
+        def i:int 0
+        while (i < (c.mutedCount())) {
+            def hx:string (c.mutedAt(i))
+            def p (tree Cp (Preset (props (id (c.mutedTid(i))) (a11yLabel hx))))
+            p.a11yFocusable = true
+            p.a11yPosInSet = (i + 1)
+            p.a11ySetSize = (c.mutedCount())
+            if (hx == now) {
+                p.a11yChecked = (EVGA11yTri.yes())
+                p.className = "cp-preset cp-preset-on"
+            } {
+                p.a11yChecked = (EVGA11yTri.no())
+            }
+            UiTree.inline(p "background-color" hx)
+            row.addChild(p)
+            i = (i + 1)
+        }
+        box.addChild(row)
+        return box
     }
 
     ; --- after layout -------------------------------------------------------------

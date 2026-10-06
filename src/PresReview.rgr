@@ -737,10 +737,22 @@ class PresReview {
     ; The deck's Markdown with the open comments in it as footnotes: [^n] on
     ; each commented slide's heading (`starts`: where each slide's section
     ; begins in `src`, -1 when unknown), numbered as `openMarkdown` numbers
-    ; them, and the notes themselves at the end.
-    fn markdownWithComments:string (src:string starts:[int] titles:[string]) {
+    ; them, and the notes themselves at the end. `placedOnly`: only the
+    ; comments on slides that are in `src` (a start other than -1), as when
+    ; `src` is some of the deck's slides.
+    fn markdownWithComments:string (src:string starts:[int] titles:[string] placedOnly:boolean) {
         def nl:string (strfromcode 10)
-        def order:[PresReviewThread] (this.openOrder())
+        def all:[PresReviewThread] (this.openOrder())
+        def order:[PresReviewThread]
+        for all t0:PresReviewThread i0 {
+            def placed:boolean false
+            if ((t0.slide >= 0) && (t0.slide < (array_length starts))) {
+                placed = ((itemAt starts t0.slide) >= 0)
+            }
+            if ((placedOnly == false) || placed) {
+                push order t0
+            }
+        }
         if ((array_length order) == 0) {
             return src
         }

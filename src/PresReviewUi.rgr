@@ -55,6 +55,9 @@ class PresReviewUi {
     def areaB:double 0.0
     def barW:double 0.0
     def barH:double 40.0
+    ; moved off the middle by this much (the drawing pill beside it, so the
+    ; two sit in the middle together)
+    def shift:double 0.0
     ; the slides' titles, for "Slide 3" and for finding threads again
     def titles:[string]
     def panelW:double 360.0
@@ -206,7 +209,7 @@ class PresReviewUi {
     }
 
     fn barX:double () {
-        return ((areaX + (areaW * 0.5)) - (barW * 0.5))
+        return (((areaX + (areaW * 0.5)) - (barW * 0.5)) + shift)
     }
 
     fn barY:double () {

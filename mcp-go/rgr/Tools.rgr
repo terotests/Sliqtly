@@ -586,6 +586,10 @@ class Tools {
                 who = "the signed-in user"
             }
             push lines ("Saved in the Sliqtly account of " + who + ".")
+            ; a Google account on sliqtly.com: the editor link writes only there
+            if ((strlen (host_local_user host)) == 0) {
+                push lines "The editor link writes to it only in a browser signed in to Sliqtly with this same Google account; signed in with another, it opens a copy whose changes and comments do not reach this presentation."
+            }
         } {
             if (out.has("deck_id")) {
                 push lines "Not signed in: the presentation is deleted 30 days after its last change. Sign in to keep it, or to add pictures and files."

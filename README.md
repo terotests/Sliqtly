@@ -52,6 +52,7 @@ seconds: 0.6            # transition length
 step: 1.2               # seconds between build steps when played
 hold: 2.5               # seconds after the last step
 fx: starfield           # optional default surface effect
+style: cartoon          # optional look for every diagram and chart: mermaid | jurassic | cartoon | romantic
 ---
 
 ## Title {#id transition=slide seconds=0.5 fx=starfield fx-density=1.6 duration=8}
@@ -217,7 +218,8 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
     colour and the text colour from EVGUI's colour picker (`ColorPickerCtl`,
     copied into `src/`, drawn by `PresColorPanel` as EVGUI's demo draws it:
     the area, hue and alpha, HEX / RGB / HSL fields, presets) in a card beside
-    the window; the stage style (flat / forge / neon / glass), glow, shadow and
+    the window; the stage style (flat / forge / neon / glass, or one of the
+    diagrams' looks: mermaid / jurassic / cartoon / romantic), glow, shadow and
     gradient, and a line's width.
   - *Tiedot*: the data as a table, categories down the side and a column per
     series, rows and series added and removed.
@@ -227,6 +229,14 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   preview; Ctrl+Z undoes it after the window is closed. The stage settings
   travel in the spec's `usermeta`; other renderers ignore them. The theme can
   turn the effects on for every chart: `chart { chart-effects: glow gradient; }`.
+  A chart in a look (`PresChart.dressLook`) takes the look's series colours,
+  bar corners, outline, shadow and faces from RangerFlow's `FlowLook`; the
+  chart's own choice wins, then the document's `style:` in the front matter,
+  then the theme's `chart-style`. A diagram with no `{style=…}` of its own
+  takes the document's `style:` too.
+  An axis title longer than its axis is set a little smaller, then on two
+  lines (Vela `VlText.fitTitle`, document mode), and cut only when it would
+  get very small; the whole title then shows in a tip under the pointer.
   A chart with layers, transforms or data from a URL is not a table and the
   window says so.
 - **Live spreadsheets** ([EVGSheets](https://github.com/terotests/EVGSheets)).
@@ -277,6 +287,21 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   same file, so every slide that shows it changes; *Cancel*, **Esc** or a
   click outside leaves the file as it was. The pixel work is
   `web/image-adjust.js`. SVG pictures only get the preview.
+- **Drawing on a slide**: a small pill at the foot of the stage (beside the
+  Comment bar in review mode): ✎ turns drawing on and off (also Slide → Draw
+  on slide, or the slide's context menu), the next button opens the tools
+  upward (select, pen, arrow, line, ellipse, text) and the colour dot the six
+  colours and three sizes. The drawing is a file of the deck (`drawings/<slide>.ink`,
+  JSON in slide units, `PresSketch`) and the slide refers to it like a
+  picture, `![](drawings/<slide>.ink)`, which takes no room on the slide;
+  deleting that line takes the drawing off. When the slide plays, the items
+  appear in the order they were drawn after the slide's content (with its
+  build step when the line is inside a `{.build}` block). With the select
+  tool (↖) items are picked, dragged, recoloured, deleted (Delete) and moved
+  with the arrow keys; a double click edits text; Ctrl+Z undoes. The palette
+  is EVGUI's `DrawToolsCtl` (compact), the editing `src/PresSketchUi.rgr`. PDF shows
+  the drawings; the PPTX, Word and HTML exports and the MCP server do not
+  include them yet.
 
 ## Using it
 
@@ -296,7 +321,8 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | While presenting: A | steps advance by themselves |
 | While presenting: Esc | end |
 | While presenting: ✎ in the bar | the pen: a press on the slide that moves draws (a press that does not still goes on), the pointer over the slide is drawn as an arrow; the bar's next buttons pick what it draws (line, arrow, straight line, ellipse) and its colour; Backspace or ⌫ wipes the drawing, a new slide starts clean |
-| Record ▸ ● Record presentation | presents from the start with the pen on and the microphone recording; the red time in the bar stops it (Esc too), ⏸ pauses. The voice and everything the presentation did (slides, build steps, the pointer, what was drawn) are kept in the deck as `recordings/take.json` and `recordings/take.webm` (`src/PresRecord.rgr`, `web/recorder.js`); a new take replaces the old one. Without a microphone it is recorded silent |
+| Record ▸ ● Record presentation | asks first: with your voice or without. Then 3, 2, 1 (Esc cancels) and it presents from the start with the pen on; a REC badge at the top shows the time, "no sound" when recorded without, ⏸ Pause and ■ Stop (Esc too), and what can be done. Drag to draw; with the pen's Aa tool, click and type to write on the slide in a hand-written face (Enter ends, Shift+Enter a new line), and while writing letters and Space never change the slide, only ←/→ and PageUp/PageDown. Without Aa the keys stay the presentation's (S the speaker view). The voice and everything the presentation did (slides, build steps, the pointer, what was drawn and written) are kept in the deck as `recordings/take.json` and `recordings/take.webm` (`src/PresRecord.rgr`, `web/recorder.js`); a new take replaces the old one |
+| Files: the REC row, Record ▸ ✂ Edit recording… | the recording as one row with ▶ Play, Edit and ✕. Edit shows it on the timeline (the slides, the voice's loudness, what was drawn): drag to mark a part, ✂ Cut leaves it out, ↺ Put back returns a cut part, a click shows the slide as it was then. Cuts are kept in the take; nothing is removed from the sound |
 | Record ▸ ▶ Play recording, or the Speech lane | presents again from the recording, from where it first shows the selected slide: Space pauses, ←/→ seek 5 s (⏪ ⏩ 10 s), Esc stops. A shared link's ⋯ menu has it too |
 | Record ▸ Voice | the filter the voice plays through: Clean (no rumble, a little presence, even loudness), Warm, Radio, Phone, Echo, Robot, or As recorded. The file stays as spoken |
 | At a diagram's question: click, ←/→ + Enter, or 1–9 | choose the way on |

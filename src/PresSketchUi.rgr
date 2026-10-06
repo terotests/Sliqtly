@@ -1,0 +1,710 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresSketchUi.rgr — drawing on the slide while editing
+; ============================================================================
+;
+; While editing, a small pill at the foot of the stage (EVGUI DrawToolsCtl,
+; compact; beside review mode's Comment bar when that is on): ✎ turns
+; drawing on and off (Slide → Draw on slide too), the next button opens the
+; tools upward, the colour dot the colours and sizes:
+;
+;   ↖ select   a press picks what was drawn (the one drawn last first), a
+;              drag moves it, Delete removes it, a double press on text
+;              writes in it
+;   ✎ pen      freehand, smoothed
+;   ↗ arrow    the same with a head at its end
+;   ╱ line     straight
+;   ◯ ellipse  in the box of the drag
+;   T text     a press puts a line of text there (or writes in the text
+;              pressed); Enter ends it, Shift+Enter starts a new line
+;
+; a colour, three sizes (a line's width, or the text's size; a picked item
+; takes the colour and size chosen); Esc or ✎ again puts it away.
+;
+; What is drawn goes into the slide's drawing (PresSketch, a file of the
+; deck, the deck's own copy edited in place); the slide shows it as it is
+; drawn. This keeps which drawing is the slide's (`path`), what is picked
+; and what is being written, and asks the host:
+;
+;   "sketch-save"   the drawing changed: write its file (the host adds the
+;                   slide's reference to it first when there is none)
+;   "sketch-on"     drawing was turned on from the pill
+;   "sketch-done"   drawing was put away
+;
+; Coordinates in: the page's (the canvas); the drawing is in slide units,
+; the stage's slide at (`sx`, `sy`) scaled by `sc`.
+; ============================================================================
+
+Import "../evgui/src/UiHost.rgr"
+Import "../evgui/src/DrawToolsCtl.rgr"
+Import "PresSketch.rgr"
+Import "PresI18n.rgr"
+
+class PresSketchUi {
+    def on:boolean false
+    def host:UiHost (new UiHost())
+    def css:string ""
+    def skin:string ""
+    def measurer@(optional):TTFTextMeasurer
+    ; the page, and the slide on the stage
+    def w:double 1200.0
+    def h:double 700.0
+    def sx:double 0.0
+    def sy:double 0.0
+    def sc:double 1.0
+    def slideW:double 0.0
+    def slideH:double 0.0
+    ; the pill: shown (editing), its top left and size; the stage around it
+    def bar:boolean false
+    def barX:double 0.0
+    def barY:double 0.0
+    def barW:double 106.0
+    def barH:double 42.0
+    def areaX:double 0.0
+    def areaY:double 0.0
+    def areaW:double 0.0
+    def areaH:double 0.0
+    def palette:DrawToolsCtl (DrawToolsCtl.make("sk-tools"))
+    ; the slide's drawing ("" none yet), and the slide it is on
+    def path:string ""
+    def slide:int -1
+    ; the item picked, the text being written (-1 none)
+    def picked:int -1
+    ; the item the last press on the slide landed on: a second click edits
+    ; text only when the first one was on it too (the page counts clicks
+    ; wherever they land)
+    def lastHit:int -1
+    def typing:int -1
+    ; a line being drawn, an item being moved (and whether it has moved)
+    def drawing:boolean false
+    def dragging:boolean false
+    def moved:boolean false
+    def downX:double 0.0
+    def downY:double 0.0
+    def lastX:double 0.0
+    def lastY:double 0.0
+    ; the drawing as it was when the gesture began, for undo
+    def before:string ""
+    ; earlier states, the latest last: "<path>\n<json>"
+    def history:[string]
+    def requests:[string]
+    def rev:int 0
+
+    Constructor () {
+        def r:[string]
+        requests = r
+        def hs:[string]
+        history = hs
+        this.setupPalette()
+    }
+
+    fn setupPalette:void () {
+        def p:DrawToolsCtl (DrawToolsCtl.make("sk-tools"))
+        p.compact = true
+        p.name = (PresI18n.t("Drawing"))
+        p.doneName = (PresI18n.t("Done"))
+        p.penName = (PresI18n.t("Draw on slide"))
+        p.toolMenuName = (PresI18n.t("Tool"))
+        p.colorMenuName = (PresI18n.t("Colour"))
+        p.addTool("select" "↖" (PresI18n.t("Select")))
+        p.addTool("pen" "〰" (PresI18n.t("Pen")))
+        p.addTool("arrow" "↗" (PresI18n.t("Arrow")))
+        p.addTool("line" "╱" (PresI18n.t("Line")))
+        p.addTool("ellipse" "◯" (PresI18n.t("Ellipse")))
+        p.addTool("text" "Aa" (PresI18n.t("Text")))
+        p.addColor("#facc15" (PresI18n.t("Yellow")))
+        p.addColor("#ef4444" (PresI18n.t("Red")))
+        p.addColor("#22c55e" (PresI18n.t("Green")))
+        p.addColor("#3b82f6" (PresI18n.t("Blue")))
+        p.addColor("#ffffff" (PresI18n.t("White")))
+        p.addColor("#111111" (PresI18n.t("Black")))
+        p.setTool("pen")
+        palette = p
+    }
+
+    fn tool:string () {
+        return palette.tool
+    }
+
+    ; A line's width and a text's size for the size chosen, on a page `pw`
+    ; wide (a slide 960 wide: 2.5, 4.5, 8; text 22, 32, 46).
+    sfn widthFor:double (size:int pw:double) {
+        def k:double (pw / 960.0)
+        if (size <= 1) {
+            return (2.5 * k)
+        }
+        if (size >= 3) {
+            return (8.0 * k)
+        }
+        return (4.5 * k)
+    }
+
+    sfn textSizeFor:double (size:int pw:double) {
+        def k:double (pw / 960.0)
+        if (size <= 1) {
+            return (22.0 * k)
+        }
+        if (size >= 3) {
+            return (46.0 * k)
+        }
+        return (32.0 * k)
+    }
+
+    ; --- where things are ---------------------------------------------------------
+
+    ; The stage's slide (at `x`, `y`, `sw` × `shh` on the page, `scale` page
+    ; pixels to a slide unit) and the stage area round it (`ax`, `ay`, `aw`,
+    ; `ah`); the pill's top left is the host's (`barX`, `barY`).
+    fn place:void (pw:double ph:double x:double y:double sw:double shh:double scale:double ax:double ay:double aw:double ah:double) {
+        w = pw
+        h = ph
+        sx = x
+        sy = y
+        slideW = sw
+        slideH = shh
+        sc = scale
+        if (sc <= 0.0) {
+            sc = 1.0
+        }
+        areaX = ax
+        areaY = ay
+        areaW = aw
+        areaH = ah
+        palette.x = barX
+        palette.y = barY
+    }
+
+    fn toX:double (px:double) {
+        return ((px - sx) / sc)
+    }
+
+    fn toY:double (py:double) {
+        return ((py - sy) / sc)
+    }
+
+    fn onSlide:boolean (px:double py:double) {
+        return ((((px >= sx) && (px <= (sx + slideW))) && (py >= sy)) && (py <= (sy + slideH)))
+    }
+
+    fn paletteAt:string (px:double py:double) {
+        if (null? host.lastPage) {
+            return ""
+        }
+        return (host.hitTest(px py))
+    }
+
+    ; Whether a press at the point is the drawing's: the pill or its menu,
+    ; anywhere on the stage while a menu is open (a press there closes it),
+    ; or the slide while drawing.
+    fn has:boolean (px:double py:double) {
+        if (bar == false) {
+            return false
+        }
+        if ((strlen (this.paletteAt(px py))) > 0) {
+            return true
+        }
+        if (((strlen palette.menu) > 0) && ((((px >= areaX) && (px <= (areaX + areaW))) && (py >= areaY)) && (py <= (areaY + areaH)))) {
+            return true
+        }
+        return (on && (this.onSlide(px py)))
+    }
+
+    ; A menu of the pill is open.
+    fn menuOpen:boolean () {
+        return ((strlen palette.menu) > 0)
+    }
+
+    fn closeMenu:void () {
+        palette.menu = ""
+        rev = (rev + 1)
+    }
+
+    ; Drawing turned on or off from outside (the Slide menu): the pen shows it.
+    fn setActive:void (o:boolean) {
+        on = o
+        palette.active = o
+        if (o == false) {
+            palette.menu = ""
+        }
+        rev = (rev + 1)
+    }
+
+    ; A press, a move or a key is being handled here (a line, a drag, text).
+    fn busy:boolean () {
+        return (drawing || dragging)
+    }
+
+    fn hasKeys:boolean () {
+        return (on && ((typing >= 0) || (picked >= 0)))
+    }
+
+    ; The slide shown is another one: what was picked or written there is
+    ; let go.
+    fn showSlide:void (i:int drawingPath:string) {
+        if (i != slide) {
+            slide = i
+            picked = -1
+            typing = -1
+            drawing = false
+            dragging = false
+        }
+        path = drawingPath
+    }
+
+    ; --- changes -------------------------------------------------------------------
+
+    fn begin:void (model:PresSketch) {
+        before = (model.toJson())
+    }
+
+    ; The gesture is over: when the drawing is not what it was, the state
+    ; before goes on the undo list and the file is written.
+    fn commit:void (model:PresSketch) {
+        def now:string (model.toJson())
+        if (now != before) {
+            push history (path + "\n" + before)
+            if ((array_length history) > 100) {
+                def keep:[string]
+                def i:int 1
+                while (i < (array_length history)) {
+                    push keep (itemAt history i)
+                    i = (i + 1)
+                }
+                history = keep
+            }
+            push requests "sketch-save"
+        }
+        before = now
+        rev = (rev + 1)
+    }
+
+    ; Undo: the drawing and the state to put back, "<path>\n<json>", or ""
+    ; when there is nothing to undo.
+    fn takeUndo:string () {
+        def n:int (array_length history)
+        if (n == 0) {
+            return ""
+        }
+        def last:string (itemAt history (n - 1))
+        removeLast history
+        picked = -1
+        typing = -1
+        rev = (rev + 1)
+        return last
+    }
+
+    ; --- presses --------------------------------------------------------------------
+
+    ; On the palette: a tool, a colour or a size chosen (a picked item takes
+    ; the colour and the size), or Done.
+    fn pressPalette:boolean (px:double py:double model:PresSketch) {
+        def ct:string (this.paletteAt(px py))
+        if ((strlen ct) == 0) {
+            return false
+        }
+        def was:boolean on
+        def what:string (palette.activate(ct))
+        lastHit = -1
+        if ((palette.active) && (was == false)) {
+            on = true
+            push requests "sketch-on"
+        }
+        if ((palette.active == false) && was) {
+            this.close(model)
+        }
+        if ((indexOf what "tool:") == 0) {
+            this.endTyping(model)
+            if ((palette.tool) != "select") {
+                picked = -1
+            }
+        }
+        if ((((indexOf what "color:") == 0) || ((indexOf what "size:") == 0)) && ((picked >= 0) && (picked < (model.count())))) {
+            this.begin(model)
+            def it:PresSketchItem (model.itemAt(picked))
+            it.color = palette.color
+            if (it.isText()) {
+                it.size = (PresSketchUi.textSizeFor(palette.size model.w))
+                it.tw = 0.0
+            } {
+                it.width = (PresSketchUi.widthFor(palette.size model.w))
+            }
+            model.rev = (model.rev + 1)
+            this.commit(model)
+        }
+        if (what == "done") {
+            this.close(model)
+        }
+        rev = (rev + 1)
+        return true
+    }
+
+    fn close:void (model:PresSketch) {
+        this.endTyping(model)
+        on = false
+        palette.active = false
+        palette.menu = ""
+        picked = -1
+        drawing = false
+        dragging = false
+        push requests "sketch-done"
+        rev = (rev + 1)
+    }
+
+    ; On the slide, with the tool chosen. `model` is the slide's drawing
+    ; (the host makes one for a slide without).
+    fn pressSlide:void (px:double py:double clicks:int model:PresSketch) {
+        def x:double (this.toX(px))
+        def y:double (this.toY(py))
+        def slop:double (6.0 / sc)
+        def t:string (palette.tool)
+        def prevHit:int lastHit
+        lastHit = -1
+        ; a press elsewhere ends the text being written
+        if (typing >= 0) {
+            def tHit:int (model.hit(x y slop))
+            if ((tHit == typing) && (t != "select")) {
+                return
+            }
+            this.endTyping(model)
+        }
+        downX = x
+        downY = y
+        lastX = x
+        lastY = y
+        moved = false
+        if (t == "select") {
+            picked = (model.hit(x y slop))
+            def again:boolean ((clicks >= 2) && (prevHit == picked))
+            lastHit = picked
+            if (picked >= 0) {
+                def it:PresSketchItem (model.itemAt(picked))
+                if (again && (it.isText())) {
+                    this.begin(model)
+                    typing = picked
+                    rev = (rev + 1)
+                    return
+                }
+                this.begin(model)
+                dragging = true
+            }
+            rev = (rev + 1)
+            return
+        }
+        if (t == "text") {
+            def hitT:int (model.hit(x y slop))
+            this.begin(model)
+            if (hitT >= 0) {
+                def ht:PresSketchItem (model.itemAt(hitT))
+                if (ht.isText()) {
+                    typing = hitT
+                    picked = hitT
+                    rev = (rev + 1)
+                    return
+                }
+            }
+            def size:double (PresSketchUi.textSizeFor(palette.size model.w))
+            typing = (model.addText(x (y - (size * 0.6)) "" palette.color size))
+            picked = typing
+            rev = (rev + 1)
+            return
+        }
+        this.begin(model)
+        picked = -1
+        model.begin(t palette.color (PresSketchUi.widthFor(palette.size model.w)) x y)
+        drawing = true
+        rev = (rev + 1)
+    }
+
+    fn move:void (px:double py:double model:PresSketch) {
+        def x:double (this.toX(px))
+        def y:double (this.toY(py))
+        if drawing {
+            model.extend(x y)
+            rev = (rev + 1)
+            return
+        }
+        if (dragging && (picked >= 0)) {
+            if (moved == false) {
+                def dx0:double ((x - downX) * sc)
+                def dy0:double ((y - downY) * sc)
+                if (((dx0 * dx0) + (dy0 * dy0)) < 16.0) {
+                    return
+                }
+                moved = true
+            }
+            model.moveBy(picked (x - lastX) (y - lastY))
+            lastX = x
+            lastY = y
+            rev = (rev + 1)
+        }
+    }
+
+    fn release:void (model:PresSketch) {
+        if drawing {
+            drawing = false
+            model.finish((3.0 / sc))
+            this.commit(model)
+            return
+        }
+        if dragging {
+            dragging = false
+            if moved {
+                this.commit(model)
+            }
+            rev = (rev + 1)
+        }
+    }
+
+    ; --- keys ------------------------------------------------------------------------
+
+    ; The text being written ends: kept when it says something, else gone.
+    fn endTyping:void (model:PresSketch) {
+        if (typing < 0) {
+            return
+        }
+        def i:int typing
+        typing = -1
+        if (i < (model.count())) {
+            def it:PresSketchItem (model.itemAt(i))
+            if ((strlen (trim it.text)) == 0) {
+                model.removeAt(i)
+                if (picked == i) {
+                    picked = -1
+                }
+            }
+        }
+        this.commit(model)
+    }
+
+    fn text:boolean (s:string model:PresSketch) {
+        if ((typing < 0) || (typing >= (model.count()))) {
+            return false
+        }
+        def it:PresSketchItem (model.itemAt(typing))
+        model.setText(typing (it.text + s))
+        rev = (rev + 1)
+        return true
+    }
+
+    ; Esc, Enter, Backspace, Delete and the arrows; true when they were the
+    ; drawing's.
+    fn key:boolean (name:string shift:boolean model:PresSketch) {
+        if ((name == "escape") && (this.menuOpen())) {
+            this.closeMenu()
+            return true
+        }
+        if (on == false) {
+            return false
+        }
+        if ((typing >= 0) && (typing < (model.count()))) {
+            def it:PresSketchItem (model.itemAt(typing))
+            if (name == "backspace") {
+                def n:int (strlen it.text)
+                if (n > 0) {
+                    model.setText(typing (substring it.text 0 (n - 1)))
+                }
+                rev = (rev + 1)
+                return true
+            }
+            if ((name == "enter") && shift) {
+                model.setText(typing (it.text + "\n"))
+                rev = (rev + 1)
+                return true
+            }
+            if ((name == "enter") || (name == "escape")) {
+                this.endTyping(model)
+                return true
+            }
+            return true
+        }
+        if (name == "escape") {
+            if (this.menuOpen()) {
+                this.closeMenu()
+                return true
+            }
+            if (picked >= 0) {
+                picked = -1
+                rev = (rev + 1)
+                return true
+            }
+            this.close(model)
+            return true
+        }
+        if ((picked < 0) || (picked >= (model.count()))) {
+            return false
+        }
+        if ((name == "delete") || (name == "backspace")) {
+            this.begin(model)
+            model.removeAt(picked)
+            picked = -1
+            this.commit(model)
+            return true
+        }
+        if (name == "enter") {
+            def pi:PresSketchItem (model.itemAt(picked))
+            if (pi.isText()) {
+                this.begin(model)
+                typing = picked
+                rev = (rev + 1)
+                return true
+            }
+        }
+        def step:double (? shift 10.0 1.0)
+        def dx:double 0.0
+        def dy:double 0.0
+        if (name == "left") {
+            dx = (0.0 - step)
+        }
+        if (name == "right") {
+            dx = step
+        }
+        if (name == "up") {
+            dy = (0.0 - step)
+        }
+        if (name == "down") {
+            dy = step
+        }
+        if ((dx != 0.0) || (dy != 0.0)) {
+            this.begin(model)
+            model.moveBy(picked dx dy)
+            this.commit(model)
+            return true
+        }
+        return false
+    }
+
+    ; --- the picture -------------------------------------------------------------------
+
+    fn page:EVGElement () {
+        def fresh (new UiHost())
+        host = fresh
+        host.addStyleSheet(css)
+        host.setTheme((trim ("pn " + skin)))
+        host.setPageSize(w h)
+        def root:EVGElement (unwrap host.root)
+        root.className = "ui-root sk-page"
+        palette.build()
+        push host.ctls palette
+        root.addChild((unwrap palette.rootEl))
+        def r:EVGElement (unwrap host.root)
+        def s:EVGStyleSheet (unwrap host.sheet)
+        s.setViewport(w h false)
+        host.markStates(r)
+        s.applyTree(r host.theme)
+        def pg (EVGElement.createDiv())
+        pg.id = "page"
+        pg.width = (EVGUnit.px(w))
+        pg.height = (EVGUnit.px(h))
+        pg.addChild(r)
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        lay.layout(pg)
+        ; the pill as wide as its buttons, and its open menu as wide as its
+        ; widest line, above the button that opened it
+        def pf@(optional):EVGElement (host.findEl(r palette.tid))
+        def mf@(optional):EVGElement (host.findEl(r (palette.menuTid())))
+        if (!null? pf) {
+            def pe:EVGElement (unwrap pf)
+            def sum:double 0.0
+            def n:int 0
+            def k:int 0
+            while (k < (pe.getChildCount())) {
+                def ch:EVGElement (pe.getChild(k))
+                if (ch.isOverlay == false) {
+                    sum = (sum + (lay.intrinsicWidthOf(ch)))
+                    n = (n + 1)
+                }
+                k = (k + 1)
+            }
+            if (n > 1) {
+                sum = (sum + ((to_double (n - 1)) * 2.0))
+            }
+            barW = (sum + (pe.box.getHorizontalChrome()))
+            pe.width = (EVGUnit.px(barW))
+            barH = pe.calculatedHeight
+        }
+        if (!null? mf) {
+            def mw:EVGElement (unwrap mf)
+            def widest:double 0.0
+            def j:int 0
+            while (j < (mw.getChildCount())) {
+                def line:double (lay.intrinsicWidthOf((mw.getChild(j))))
+                if (line > widest) {
+                    widest = line
+                }
+                j = (j + 1)
+            }
+            mw.width = (EVGUnit.px((widest + (mw.box.getHorizontalChrome()))))
+        }
+        lay.layout(pg)
+        if (!null? mf) {
+            def me:EVGElement (unwrap mf)
+            def bt:string (? (palette.menu == "tool") (palette.kindTid()) (palette.hueTid()))
+            def mx:double barX
+            def bf@(optional):EVGElement (host.findEl(r bt))
+            if (!null? bf) {
+                def be:EVGElement (unwrap bf)
+                mx = (be.calculatedX - 4.0)
+            }
+            if ((mx + me.calculatedWidth) > (w - 4.0)) {
+                mx = ((w - 4.0) - me.calculatedWidth)
+            }
+            me.overlayX = mx
+            me.overlayY = ((barY - me.calculatedHeight) - 6.0)
+            lay.layout(pg)
+        }
+        host.placeText((lay.getTextEngine()))
+        host.lastPage = pg
+        return pg
+    }
+
+    ; The palette, a frame round what is picked and the caret of the text
+    ; being written, over the page. `caretOn`: the caret's blink.
+    fn displayList:EVGDisplayList (model:PresSketch caretOn:boolean) {
+        def pg:EVGElement (this.page())
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(pg)
+        def mark:int typing
+        if (mark < 0) {
+            mark = picked
+        }
+        if (on == false) {
+            mark = -1
+        }
+        if ((mark >= 0) && (mark < (model.count()))) {
+            def b:[double] (model.bounds(mark))
+            def pad:double 4.0
+            def x0:double ((sx + ((itemAt b 0) * sc)) - pad)
+            def y0:double ((sy + ((itemAt b 1) * sc)) - pad)
+            def bw:double ((((itemAt b 2) - (itemAt b 0)) * sc) + (pad * 2.0))
+            def bh:double ((((itemAt b 3) - (itemAt b 1)) * sc) + (pad * 2.0))
+            if (bw < 12.0) {
+                bw = 12.0
+            }
+            dl.addFrame(x0 y0 bw bh 3.0 (EVGColor.rgba(255 255 255 0.85)))
+            dl.addFrame((x0 + 1.0) (y0 + 1.0) (bw - 2.0) (bh - 2.0) 1.5 (EVGColor.rgb(30 58 138)))
+        }
+        if ((typing >= 0) && (typing < (model.count()))) {
+            def it:PresSketchItem (model.itemAt(typing))
+            if caretOn {
+                def ls:[string] (it.lines())
+                def last:int ((array_length ls) - 1)
+                def lw:double (PresSketch.lastLineWidth(it))
+                def cx:double (sx + ((it.x + lw) * sc))
+                def cy:double (sy + ((it.y + ((to_double last) * (it.lineHeight()))) * sc))
+                dl.addRect((cx + 1.0) cy 2.0 (it.size * sc) (EVGColor.parse(it.color)))
+            }
+        }
+        return dl
+    }
+}

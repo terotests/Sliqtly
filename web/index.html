@@ -124,8 +124,9 @@
   }
   body.viewer #viewBar, body.presenting #viewBar { display: flex; }
   body.viewer.idle #viewBar, body.presenting.idle #viewBar { opacity: 0; pointer-events: none; }
-  /* presenting from the editor: the way round the slides; the … menu is the reader's */
-  body.presenting:not(.viewer) #vMore { display: none; }
+  /* presenting from the editor: the way round the slides; the … menu only
+     switches the speaker view and auto-advance (the rest is the reader's) */
+  body.presenting:not(.viewer) #vMenu > :not([role="menuitemcheckbox"]) { display: none; }
   #viewBar > button[hidden] { display: none; }
   /* main.js tips: what a button does, on hover, above it (the presenting
      bar's buttons, and review mode's bar and pins drawn on the canvas) */
@@ -195,6 +196,35 @@
   body.viewer:not(.replaying) #viewBar > #vPen { display: none; }
   body.replaying #viewBar > #vFirst, body.replaying #viewBar > #vPrev, body.replaying #viewBar > #vNext,
   body.replaying #viewBar > #vCount, body.replaying #viewBar > #vPen { display: none; }
+  /* recording (main.js syncRecBadge): a badge at the top that says so and
+     what to do, and the count before it starts */
+  #recBadge {
+    position: fixed; left: 50%; top: 14px; transform: translateX(-50%); z-index: 6;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px;
+    max-width: calc(100vw - 32px); padding: 6px 8px 6px 14px; border-radius: 22px;
+    background: rgba(24, 24, 27, 0.82); color: #fafafa; border: 1.5px solid #ef4444;
+    font: 15px/1.2 "Open Sans", system-ui, sans-serif; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  }
+  #recBadge[hidden], #recBadge [hidden] { display: none; }
+  #recBadge .dot { width: 12px; height: 12px; border-radius: 6px; background: #ef4444; }
+  body.recording:not(.recPaused) #recBadge .dot { animation: recBlink 1.2s steps(2, start) infinite; }
+  @keyframes recBlink { to { visibility: hidden; } }
+  #recBadge b { letter-spacing: 0.08em; color: #fca5a5; }
+  #recTime { font-variant-numeric: tabular-nums; }
+  #recMute { color: #fde68a; font-size: 13px; }
+  #recBadge button {
+    height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.3);
+    background: transparent; color: inherit; font: inherit; font-size: 14px; cursor: pointer;
+  }
+  #recBadge #recStopBtn { background: #dc2626; border-color: #dc2626; }
+  #recHint { flex-basis: 100%; text-align: center; font-size: 13px; color: #d4d4d8; padding: 0 6px 2px; }
+  #recCount {
+    position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px; background: rgba(0, 0, 0, 0.55); color: #fafafa; font: 15px/1.3 "Open Sans", system-ui, sans-serif;
+  }
+  #recCount[hidden] { display: none; }
+  #recCountN { font-size: 140px; font-weight: 700; line-height: 1; color: #fca5a5; font-variant-numeric: tabular-nums; }
+  #recCount small { font-size: 16px; color: #e4e4e7; text-align: center; padding: 0 16px; }
   #vGo {
     width: 72px; height: 44px; box-sizing: border-box; border-radius: 22px; padding: 0 12px;
     border: 1px solid #60a5fa; background: rgba(24, 24, 27, 0.92); color: #fafafa;
@@ -225,6 +255,10 @@
   }
   #vMenu button:hover, #vMenu button:focus-visible { background: rgba(255, 255, 255, 0.12); outline: none; }
   #vMenu .sub button { padding-left: 28px; }
+  /* Speaker view and Auto-advance: a tick when on, the key that does the same */
+  #vMenu [role="menuitemcheckbox"] { padding-left: 28px; position: relative; }
+  #vMenu [aria-checked="true"]::before { content: "✓"; position: absolute; left: 10px; }
+  #vMenu .vKey { font-size: 12px; opacity: 0.6; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 4px; padding: 0 5px; }
   #vMenu hr { width: 100%; border: 0; border-top: 1px solid rgba(255, 255, 255, 0.14); margin: 4px 0; }
   /* Past the last slide while presenting (PresApp.atEnd): where to go next. */
   #endPanel {
@@ -408,6 +442,17 @@
   </div>
 </div>
 <div id="tip" role="tooltip" hidden></div>
+<div id="recBadge" role="status" hidden>
+  <span class="dot" aria-hidden="true"></span><b data-i18n>REC</b><span id="recTime">0:00</span>
+  <span id="recMute" data-i18n hidden>no sound</span>
+  <button id="recPauseBtn" data-i18n>⏸ Pause</button>
+  <button id="recStopBtn" title="Stop and keep the recording (Esc)" data-i18n-title data-i18n>■ Stop</button>
+  <div id="recHint"></div>
+</div>
+<div id="recCount" role="dialog" aria-live="assertive" hidden>
+  <span id="recCountN">3</span>
+  <small id="recCountWords"></small>
+</div>
 <div id="viewBar" aria-label="Presentation controls" data-i18n-aria>
   <button id="vFirst" title="First slide (Home)" data-i18n-title>⏮&#xFE0E;</button>
   <button id="vPrev" title="Previous (←)" data-i18n-title>◀</button>
@@ -439,9 +484,12 @@
     <button id="vCopy" role="menuitem" aria-haspopup="menu" aria-expanded="false"><span data-i18n>Copy</span><span aria-hidden="true">›</span></button>
     <div class="sub" id="vCopySub" role="group" hidden>
       <button role="menuitem" data-copy="md" title="The presentation's Markdown" data-i18n-title>Markdown</button>
-      <button role="menuitem" data-copy="mdc" title="The presentation's Markdown with the open comments as numbered footnotes" data-i18n-title data-i18n>Markdown with comments</button>
-      <button role="menuitem" data-copy="comments" title="The open comments, numbered, with the Markdown of their slides: to hand to an assistant" data-i18n-title data-i18n>Comments</button>
+      <button role="menuitem" data-copy="mdc" title="The presentation's Markdown with the open comments as numbered footnotes" data-i18n-title data-i18n>Markdown + comments</button>
+      <button role="menuitem" data-copy="comments" title="The open comments, numbered, with the Markdown of their slides: to hand to an assistant" data-i18n-title data-i18n>Open comments</button>
     </div>
+    <hr />
+    <button role="menuitemcheckbox" data-act="speaker" id="vSpeaker" aria-checked="false" title="Current and next slide, notes and the clock, for your own screen" data-i18n-title><span data-i18n>Speaker view</span><span class="vKey" aria-hidden="true">S</span></button>
+    <button role="menuitemcheckbox" data-act="auto" id="vAuto" aria-checked="false" title="The slides go on by themselves" data-i18n-title><span data-i18n>Auto-advance</span><span class="vKey" aria-hidden="true">A</span></button>
     <hr />
     <button role="menuitem" data-act="playrec" id="vPlayRec" data-i18n hidden>▶ Play recording</button>
     <button role="menuitem" data-act="new" title="A new presentation of your own, based on this one" data-i18n-title data-i18n>Create New…</button>

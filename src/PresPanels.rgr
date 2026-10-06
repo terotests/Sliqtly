@@ -30,6 +30,7 @@ Import "../evgui/src/UiPick.rgr"
 Import "../vela/src/VlJson.rgr"
 Import "PresI18n.rgr"
 Import "PresImport.rgr"
+Import "PresHelp.rgr"
 
 ; A select that says what it is for while nothing is chosen. SelectCtl draws
 ; the chosen item's label in its trigger, so a prompt there used to be a
@@ -62,6 +63,9 @@ class PresPanels {
     ; the help panel
     def helpOpen:boolean false
     def helpJson:string ""
+    ; the help panel's tab: "slide" (this slide's parts) or "guide" (how
+    ; Sliqtly is used, PresHelp.guide)
+    def helpTab:string "slide"
     def helpSlide:int 0
     def helpScroll:double 0.0
     def helpKeys:[string]
@@ -379,6 +383,14 @@ class PresPanels {
         }
     }
 
+    fn setHelpTab:void (tab:string) {
+        if (tab != helpTab) {
+            helpTab = tab
+            helpScroll = 0.0
+            this.rebuild()
+        }
+    }
+
     ; The slide's parts, rebuilt only when they changed.
     fn setHelpData:void (json:string slide:int) {
         if ((json != helpJson) || (slide != helpSlide)) {
@@ -614,7 +626,9 @@ class PresPanels {
         p.width = (EVGUnit.px(helpW))
         p.height = (EVGUnit.px((h - barH)))
         def top:EVGElement (this.div("pn-top"))
-        top.addChild((this.words("pn-title" ((PresI18n.t("Help: slide ")) + (to_string (helpSlide + 1))))))
+        def guide:boolean (helpTab == "guide")
+        this.button("pn-help-slide" ((PresI18n.t("Slide ")) + (to_string (helpSlide + 1))) (? guide "ghost" "secondary") top)
+        this.button("pn-help-guide" (PresI18n.t("How to use")) (? guide "secondary" "ghost") top)
         top.addChild((this.div("pn-grow")))
         this.button("pn-help-close" "✕" "ghost" top)
         p.addChild(top)
@@ -624,6 +638,19 @@ class PresPanels {
         view.scrollTop = helpScroll
         view.height = (EVGUnit.px(((h - barH) - 49.0)))
         def body:EVGElement (this.div("pn-body"))
+        if guide {
+            body.addChild((this.words("pn-intro" (PresI18n.t("What Sliqtly is used for and where each thing is.")))))
+            def pg (new VlJsonParser())
+            def parts:VlJson (pg.parse((PresHelp.guide())))
+            def g:int 0
+            while (g < (parts.count())) {
+                body.addChild((this.feature((parts.at(g)))))
+                g = (g + 1)
+            }
+            view.addChild(body)
+            p.addChild(view)
+            return p
+        }
         body.addChild((this.words("pn-intro" (PresI18n.t("This slide has these parts. Click a property to change it in the theme CSS.")))))
         body.addChild((this.words("pn-intro" (PresI18n.t("Keys: F6 moves between areas (bar, tabs, editor, slides, help), arrows and Tab within an area, Enter selects, Ctrl+Space opens the choices for the value at the cursor, Esc returns to the editor.")))))
         def p0 (new VlJsonParser())
@@ -996,6 +1023,24 @@ class PresPanels {
                 this.act("unlink" path (PresI18n.t("Unlink?")) "primary" row)
             } {
                 this.act("unlink" path (PresI18n.t("Unlink")) "ghost" row)
+            }
+            return row
+        }
+        if (kind == "recording") {
+            ; the presentation recorded (its sound with it): played, its
+            ; parts cut in Edit, deleted
+            row.addChild((this.words("pf-tag pf-tag-rec" "REC")))
+            def rn:EVGElement (this.div("pf-name"))
+            rn.addChild((this.words("pf-fname" (f.stringOr("title" name)))))
+            rn.addChild((this.words("pf-fsize" (f.stringOr("note" "")))))
+            row.addChild(rn)
+            row.addChild((this.div("pn-grow")))
+            this.act("recplay" path (PresI18n.t("▶ Play")) "secondary" row)
+            this.act("recedit" path (PresI18n.t("Edit")) "secondary" row)
+            if (filesArmed == ("del" + (strfromcode 9) + path)) {
+                this.act("del" path (PresI18n.t("Delete?")) "primary" row)
+            } {
+                this.act("del" path "✕" "ghost" row)
             }
             return row
         }
@@ -2146,14 +2191,6 @@ class PresPanels {
         return "docked"
     }
 
-    fn dockedOpen:boolean () {
-        return (((helpOpen || filesOpen) || chat.open) && (quiet == false))
-    }
-
-    fn dialogOpen:boolean () {
-        return (shareOpen && (quiet == false))
-    }
-
     fn toastOpen:boolean () {
         return ((strlen toastText) > 0)
     }
@@ -2394,6 +2431,14 @@ class PresPanels {
             def c2:string (this.ownerAt(px py))
             if (c2 == "pn-help-close") {
                 push requests "help-close"
+                return
+            }
+            if (c2 == "pn-help-slide") {
+                this.setHelpTab("slide")
+                return
+            }
+            if (c2 == "pn-help-guide") {
+                this.setHelpTab("guide")
                 return
             }
             def k:int (this.propAt(px py))

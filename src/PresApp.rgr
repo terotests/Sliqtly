@@ -33,6 +33,7 @@ Import "PresSlideSpans.rgr"
 Import "PresFollow.rgr"
 Import "PresPick.rgr"
 Import "PresNav.rgr"
+Import "PresThemeEdit.rgr"
 Import "PresRecord.rgr"
 Import "PresExport.rgr"
 Import "PresI18n.rgr"
@@ -49,6 +50,8 @@ Import "PresToolbar.rgr"
 Import "PresHintPopover.rgr"
 Import "PresPanels.rgr"
 Import "PresReviewUi.rgr"
+Import "PresSketchUi.rgr"
+Import "PresRoomView.rgr"
 Import "PresA11y.rgr"
 Import "PresSelect.rgr"
 Import "../evgui/src/TabsCtl.rgr"
@@ -264,6 +267,15 @@ class PresApp {
     def panels:PresPanels (new PresPanels())
     ; review mode: comments pinned to the slides (PresReviewUi, PresReview)
     def review:PresReviewUi (new PresReviewUi())
+    ; Slide → Draw on slide: what is drawn stays on the slide (PresSketchUi,
+    ; PresSketch); a drawing begun on a slide without one, until its
+    ; reference is written (`sketchNewPath` on `sketchNewSlide`)
+    def sketch:PresSketchUi (new PresSketchUi())
+    def sketchNewPath:string ""
+    def sketchNewSlide:int -1
+    def sketchScratch:PresSketch (new PresSketch())
+    ; a room's chat over the work area (PresRoomView, EVGUI ChannelCtl)
+    def room:PresRoomView (new PresRoomView())
     ; the jumps while presenting and the slide number being typed
     def nav:PresNav (new PresNav())
     def reviewTitlesKey:string ""
@@ -300,8 +312,10 @@ class PresApp {
         ; open) and the help and files panels; windows: the value popover
         ; ("Style") and the chart / picture editor; the modal dialogs; the
         ; toast over all
+        layers.add("room" "docked")
         layers.add("bar" "docked")
         layers.add("panels" "docked")
+        layers.add("sketch" "docked")
         layers.add("review" "docked")
         layers.add("hint" "window")
         layers.add("chart" "window")
@@ -359,6 +373,12 @@ class PresApp {
     ; The faces the deck's diagram looks want (comma-separated): the page
     ; loads the ones it has not and hands them to `attachFont`.
     fn wantedFaces:string () {
+        if inkFace {
+            if ((strlen deck.wantFaces) == 0) {
+                return (PresInk.FACE())
+            }
+            return (deck.wantFaces + "," + (PresInk.FACE()))
+        }
         return deck.wantFaces
     }
 
@@ -534,6 +554,53 @@ class PresApp {
     fn applyTheme:void (css:string) {
         deck.setStyleSheet(css)
         this.rebuildDeck()
+    }
+
+    ; The value card's pipette was pressed: the page samples a colour and
+    ; hands it to `hintPicked` ("" when it was called off).
+    fn hintWantsPick:boolean () {
+        return (hint.isOpen && hint.wantsPick)
+    }
+
+    fn hintPicked:void (hex:string) {
+        if (hint.isOpen == false) {
+            return
+        }
+        hint.pickedColor(hex)
+        this.afterHint()
+    }
+
+    ; One property of the theme set from a card over the Markdown, as one
+    ; edit of the CSS tab (Ctrl+Z there undoes it); the slides follow.
+    fn setThemeProp:void (sel:string prop:string value:string) {
+        def css:string (cssEditor.text())
+        def e:PresThemeEdit (PresThemeEdit.change(css sel prop value))
+        def a:[int] (PresApp.lineColOf(css e.at))
+        def b:[int] (PresApp.lineColOf(css e.end))
+        cssEditor.buf.replaceRange((itemAt a 0) (itemAt a 1) (itemAt b 0) (itemAt b 1) e.text true)
+        cssEditor.dirty = true
+        cssSynced = cssEditor.buf.version
+        themeText = (cssEditor.text())
+        this.applyTheme(themeText)
+        push requests "theme-edited"
+        chromeRev = (chromeRev + 1)
+    }
+
+    sfn lineColOf:[int] (text:string off:int) {
+        def line:int 0
+        def start:int 0
+        def i:int 0
+        while (i < off) {
+            if ((charAt text i) == 10) {
+                line = (line + 1)
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        def out:[int]
+        push out line
+        push out (off - start)
+        return out
     }
 
     ; The theme as it stands in the CSS tab (the host keeps an edited one).
@@ -1143,11 +1210,20 @@ class PresApp {
             k = (deck.diagramAt(selected spX spY))
         }
         deck.diagramPointer(selected k (this.stageTime()) spX spY)
+        ; a chart's words cut to fit: shown whole under the pointer
+        if (k < 0) {
+            if (((strlen top) == 0) && (slideRect.has(x y))) {
+                deck.chartPointer(selected spX spY)
+            } {
+                deck.chartPointer(-1 0.0 0.0)
+            }
+        }
     }
 
     ; The pointer left the page.
     fn pointerLeft:void () {
         deck.diagramPointer(selected -1 0.0 0.0 0.0)
+        deck.chartPointer(-1 0.0 0.0)
         this.inkHide()
     }
 
@@ -1196,6 +1272,7 @@ class PresApp {
         }
         if (what == "menu") {
             du.diagram.menuOpen = (! du.diagram.menuOpen)
+            du.diagram.zoomOpen = false
             chromeRev = (chromeRev + 1)
             return true
         }
@@ -1235,7 +1312,14 @@ class PresApp {
             return true
         }
         if (what == "fit") {
-            du.diagram.exploreOverview()
+            du.diagram.zoomOpen = (! du.diagram.zoomOpen)
+            du.diagram.menuOpen = false
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        if (((strlen what) > 4) && ((substring what 0 4) == "zoom")) {
+            def zp@(optional):int (str2int (substring what 4 (strlen what)))
+            du.diagram.zoomTo(((to_double (?? zp 100)) / 100.0))
             chromeRev = (chromeRev + 1)
             return true
         }
@@ -1626,8 +1710,12 @@ class PresApp {
     def inkSlide:int -1
     def inkPress:boolean false
     def inkLine:boolean false
+    ; the press ended a text being written (and does nothing else)
+    def inkEnded:boolean false
     def inkSX:double 0.0
     def inkSY:double 0.0
+    ; writing has been (or may be) shown: the page loads its face
+    def inkFace:boolean false
     def recording:boolean false
     def recorder:PresRecorder (new PresRecorder())
     def recT:double 0.0
@@ -1650,6 +1738,9 @@ class PresApp {
         if replaying {
             return replayT
         }
+        if ((mode == "edit") && recEditing) {
+            return recHead
+        }
         return deck.uiNow
     }
 
@@ -1664,12 +1755,16 @@ class PresApp {
         if replaying {
             return replay.ink
         }
+        if ((mode == "edit") && recEditing) {
+            return recPrev.ink
+        }
         return ink
     }
 
     fn setInk:void (on:boolean) {
         inkOn = on
         if (on == false) {
+            this.inkEndText()
             this.inkHide()
         }
         chromeRev = (chromeRev + 1)
@@ -1679,6 +1774,11 @@ class PresApp {
         if (PresInk.knownTool(t)) {
             inkTool = t
             inkOn = true
+            if (t == "text") {
+                inkFace = true
+            } {
+                this.inkEndText()
+            }
             chromeRev = (chromeRev + 1)
         }
     }
@@ -1705,6 +1805,7 @@ class PresApp {
         o.setMember("voice" (VlJson.stringValue(take.voice)))
         o.setMember("audio" (VlJson.stringValue(take.audio)))
         o.setMember("strokes" (VlJson.intValue(((this.shownInk()).count()))))
+        o.setMember("typing" (VlJson.boolValue(ink.typing)))
         def w (new VlJsonWriter())
         return (w.write(o))
     }
@@ -1712,8 +1813,23 @@ class PresApp {
     ; What is drawn on the shown slide and the pointer, as a list in the
     ; slide's units (the host draws it with the stage's camera), "" when
     ; there is nothing.
+    ; How wide the last line being written is, in the hand-written face as
+    ; the slides measure it; -1 until the face is here.
+    fn inkCaretW:double (k:PresInk) {
+        if (((k.typing == false) || ((array_length k.strokes) == 0)) || ((deck.md.fontManager.hasFont((PresInk.FACE()))) == false)) {
+            return -1.0
+        }
+        def s:PresInkStroke (itemAt k.strokes ((array_length k.strokes) - 1))
+        def lines:[string] (strsplit s.text "\n")
+        def last:string ""
+        if ((array_length lines) > 0) {
+            last = (itemAt lines ((array_length lines) - 1))
+        }
+        return (deck.md.fontManager.measureText(last (PresInk.FACE()) (PresInk.textSize(s))))
+    }
+
     fn inkJson:string () {
-        if ((mode != "present") || ((deck.slideCount()) == 0)) {
+        if ((((mode != "present") && (recEditing == false)) || ((deck.slideCount()) == 0))) {
             return ""
         }
         def k:PresInk (this.shownInk())
@@ -1722,6 +1838,7 @@ class PresApp {
             return ""
         }
         def dl (new EVGDisplayList())
+        k.caretW = (this.inkCaretW(k))
         k.draw(dl now (this.inkUnit()))
         return (this.listJson(dl))
     }
@@ -1778,6 +1895,109 @@ class PresApp {
             }
             chromeRev = (chromeRev + 1)
         }
+    }
+
+    ; --- writing on the slide ---------------------------------------------------
+
+    fn inkTextAt:void (x:double y:double) {
+        def w:double (inkWidth * (this.inkUnit()))
+        ink.startText(inkColor w x y)
+        if recording {
+            recorder.rec.textStart(recT inkColor w x y)
+        }
+        inkFace = true
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; `s` typed with the pen on: written on the slide, from where the pointer
+    ; is (or near the top left when it is off the slide), on what is being
+    ; written when something is.
+    fn inkType:void (s:string) {
+        if (ink.typing == false) {
+            def x:double (deck.pageW * 0.06)
+            def y:double (deck.pageH * 0.08)
+            if (ink.ptrAt >= 0.0) {
+                x = ink.ptrX
+                y = (ink.ptrY - ((inkWidth * (this.inkUnit())) * 4.5))
+                if (y < 0.0) {
+                    y = 0.0
+                }
+            }
+            this.inkTextAt(x y)
+        }
+        this.inkSetText(((ink.typed()) + s))
+    }
+
+    ; Letters write on the slide only with the text tool (Aa) or while a
+    ; text is being written; otherwise they are the presentation's own keys
+    ; (S the speaker view, R the data).
+    fn inkWrites:boolean () {
+        return ((this.inkActive()) && (ink.typing || (inkTool == "text")))
+    }
+
+    fn inkSetText:void (t:string) {
+        ink.setText(t)
+        if recording {
+            recorder.rec.type(recT t)
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; Backspace while writing: the last letter goes.
+    fn inkBack:void () {
+        def t:string (ink.typed())
+        if ((strlen t) > 0) {
+            this.inkSetText((substring t 0 ((strlen t) - 1)))
+        }
+    }
+
+    fn inkEndText:void () {
+        if (ink.typing == false) {
+            return
+        }
+        ink.endText()
+        if recording {
+            recorder.rec.textEnd(recT)
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The keys while a text is written: only the arrows and Page Up / Page
+    ; Down change slides (Space and Enter do not); otherwise Backspace wipes
+    ; the drawing and the rest are the presentation's. True when the key was
+    ; the pen's.
+    fn inkKey:boolean (name:string shift:boolean) {
+        def nav:boolean (((((name == "right") || (name == "left")) || (name == "up")) || (name == "down")) || ((name == "pageUp") || (name == "pageDown")))
+        if ink.typing {
+            if (name == "backspace") {
+                this.inkBack()
+                return true
+            }
+            if (name == "enter") {
+                if shift {
+                    this.inkSetText(((ink.typed()) + "\n"))
+                } {
+                    this.inkEndText()
+                }
+                return true
+            }
+            if (name == "escape") {
+                this.inkEndText()
+                return true
+            }
+            this.inkEndText()
+            return (nav == false)
+        }
+        if (name == "backspace") {
+            this.inkClear()
+            return true
+        }
+        return false
+    }
+
+    ; The page fetches the hand-written face once writing is about.
+    fn inkFaceWanted:boolean () {
+        return inkFace
     }
 
     ; The pointer over the stage while presenting with the pen.
@@ -1888,6 +2108,25 @@ class PresApp {
         return take.audio
     }
 
+    ; The recording as played, its cuts skipped: how long, the time
+    ; played at source time t, the source time at played time p, and t
+    ; moved past a cut it falls in.
+    fn recordingPlayLength:double () {
+        return (take.playLength())
+    }
+
+    fn recordingPlayTime:double (t:double) {
+        return (take.toPlay(t))
+    }
+
+    fn recordingSourceTime:double (p:double) {
+        return (take.toSource(p))
+    }
+
+    fn recordingSkip:double (t:double) {
+        return (take.skip(t))
+    }
+
     fn setRecordingAudio:void (path:string) {
         take.audio = path
     }
@@ -1903,7 +2142,22 @@ class PresApp {
 
     ; The deck's recordings/take.json, read when the deck opens ("" none).
     fn loadRecording:void (text:string) {
+        def was:string take.audio
         take = (PresRecording.parse(text))
+        if (take.audio != was) {
+            def none:[double]
+            recPeaks = none
+        }
+        if recEditing {
+            if ((take.count()) == 0) {
+                recEditing = false
+            } {
+                recPrev.load(take)
+            }
+        }
+        if (take.hasText()) {
+            inkFace = true
+        }
         toolbar.hasRec = ((take.count()) > 0)
         toolbar.recVoice = take.voice
         toolbar.rebuild()
@@ -1912,14 +2166,12 @@ class PresApp {
 
     fn dropRecording:void () {
         take = (new PresRecording())
+        recEditing = false
+        def none:[double]
+        recPeaks = none
         toolbar.hasRec = false
         toolbar.rebuild()
         chromeRev = (chromeRev + 1)
-    }
-
-    ; When the recording first shows slide `i` (seconds), -1 never.
-    fn recordingAt:double (i:int) {
-        return (take.slideStart(i))
     }
 
     ; --- playing it back --------------------------------------------------------
@@ -1985,16 +2237,397 @@ class PresApp {
         this.replayStart(at)
     }
 
-    fn replayDone:boolean () {
-        return (replaying && (replay.done()))
-    }
-
     fn replayStop:void () {
         if (replaying == false) {
             return
         }
         replaying = false
         this.endPresent()
+    }
+
+    ; --- the recording's timeline: seeing it whole and cutting parts away -------
+    ;
+    ; Record ▸ Edit recording (or Edit on the recording's row in Files) turns
+    ; the tracks under the slide into the whole recording: the slides it
+    ; showed, its voice and where something was drawn, with the parts cut
+    ; away shaded. A drag marks a part, Cut cuts it away (PresRecording cuts:
+    ; nothing is removed, playing skips it), a click puts the playhead there
+    ; and shows the slide and the drawing as they were then; on a cut, Put
+    ; back returns it. Each change is kept ("rec:save").
+    def recEditing:boolean false
+    def recSelA:double -1.0
+    def recSelB:double -1.0
+    def recHead:double 0.0
+    def recPress:boolean false
+    def recPressX:double 0.0
+    ; the voice's loudness, one value (0…1) for each RECPEAK seconds
+    def recPeaks:[double]
+    def recPrev:PresReplay (new PresReplay())
+
+    sfn RECPEAK:double () {
+        return 0.1
+    }
+
+    fn recEditOpen:void (on:boolean) {
+        if (on && ((this.hasRecording()) == false)) {
+            return
+        }
+        recEditing = on
+        recSelA = -1.0
+        recSelB = -1.0
+        recPress = false
+        if on {
+            recPrev.load(take)
+            this.recShowAt(recHead)
+            if (((array_length recPeaks) == 0) && ((strlen take.audio) > 0)) {
+                push requests "rec:peaks"
+            }
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn isRecEditing:boolean () {
+        return recEditing
+    }
+
+    ; The page's measure of the voice: "0.1,0.52,…", one for each RECPEAK s.
+    fn setRecordingPeaks:void (text:string) {
+        def out:[double]
+        def parts:[string] (strsplit text ",")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def v:double (?? (str2double (trim (itemAt parts i))) 0.0)
+            if (v < 0.0) { v = 0.0 }
+            if (v > 1.0) { v = 1.0 }
+            push out v
+            i = (i + 1)
+        }
+        recPeaks = out
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn recX:double (t:double) {
+        if (take.duration <= 0.0) {
+            return laneX
+        }
+        return (laneX + ((t / take.duration) * laneW))
+    }
+
+    fn recTimeAt:double (x:double) {
+        if (laneW <= 0.0) {
+            return 0.0
+        }
+        def t:double (((x - laneX) / laneW) * take.duration)
+        if (t < 0.0) { t = 0.0 }
+        if (t > take.duration) { t = take.duration }
+        return t
+    }
+
+    ; The selection, in order; -1 none (too short to be one).
+    fn recSelFrom:double () {
+        if ((fabs (recSelB - recSelA)) < 0.05) {
+            return -1.0
+        }
+        if (recSelA < recSelB) {
+            return recSelA
+        }
+        return recSelB
+    }
+
+    fn recSelTo:double () {
+        if ((fabs (recSelB - recSelA)) < 0.05) {
+            return -1.0
+        }
+        if (recSelA < recSelB) {
+            return recSelB
+        }
+        return recSelA
+    }
+
+    ; The slide and the drawing as the recording had them at t.
+    fn recShowAt:void (t:double) {
+        recHead = t
+        recPrev.seek(t)
+        def o:PresRecOp (recPrev.navOp())
+        if ((deck.slideCount()) > 0) {
+            def k:int o.slide
+            if (k >= (deck.slideCount())) {
+                k = ((deck.slideCount()) - 1)
+            }
+            if (k != selected) {
+                this.selectSlide(k)
+            }
+            def s:PresSlide (deck.slideAt(k))
+            def lt:double (recPrev.clockAt(t))
+            if (o.ended || (lt >= s.duration)) {
+                localT = -1.0
+            } {
+                localT = lt
+            }
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The buttons over the timeline: id, label, and where (x, width), right
+    ; to left.
+    fn recButtons:[string] () {
+        def out:[string]
+        push out "close"
+        push out "✕"
+        if ((take.cutAt(recHead)) >= 0) {
+            push out "restore"
+            push out (PresI18n.t("↺ Put back"))
+        }
+        if ((this.recSelFrom()) >= 0.0) {
+            push out "cut"
+            push out (PresI18n.t("✂ Cut"))
+        }
+        push out "play"
+        push out (PresI18n.t("▶ Play"))
+        return out
+    }
+
+    sfn recButtonW:double (label:string) {
+        return (((to_double (strlen label)) * 7.0) + 22.0)
+    }
+
+    ; The button at x, y ("" none).
+    fn recButtonAt:string (x:double y:double) {
+        def r:PresRect trackRect
+        if ((y < (r.y + 3.0)) || (y > (r.y + 25.0))) {
+            return ""
+        }
+        def bs:[string] (this.recButtons())
+        def right:double ((r.x + r.w) - 10.0)
+        def i:int 0
+        while ((i + 1) < (array_length bs)) {
+            def w:double (PresApp.recButtonW((itemAt bs (i + 1))))
+            if ((x >= (right - w)) && (x <= right)) {
+                return (itemAt bs i)
+            }
+            right = ((right - w) - 6.0)
+            i = (i + 2)
+        }
+        return ""
+    }
+
+    fn recTimelineDown:void (x:double y:double) {
+        def b:string (this.recButtonAt(x y))
+        if ((strlen b) > 0) {
+            this.recButton(b)
+            return
+        }
+        if ((x >= laneX) && (x <= (laneX + laneW))) {
+            recPress = true
+            recPressX = x
+            recSelA = (this.recTimeAt(x))
+            recSelB = recSelA
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    fn recTimelineUp:void () {
+        recPress = false
+        if ((this.recSelFrom()) < 0.0) {
+            ; a click: the playhead goes there
+            def t:double recSelA
+            recSelA = -1.0
+            recSelB = -1.0
+            this.recShowAt(t)
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn recButton:void (b:string) {
+        if (b == "close") {
+            this.recEditOpen(false)
+            return
+        }
+        if (b == "play") {
+            def from:double (this.recSelFrom())
+            if (from < 0.0) {
+                from = recHead
+            }
+            if (from >= (take.duration - 0.05)) {
+                from = 0.0
+            }
+            this.replayStart((take.skip(from)))
+            return
+        }
+        if (b == "cut") {
+            if (take.addCut((this.recSelFrom()) (this.recSelTo()))) {
+                recSelA = -1.0
+                recSelB = -1.0
+                recPrev.load(take)
+                this.recShowAt(recHead)
+                push requests "rec:save"
+            }
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        if (b == "restore") {
+            take.removeCut((take.cutAt(recHead)))
+            recPrev.load(take)
+            this.recShowAt(recHead)
+            push requests "rec:save"
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    fn recTimeline:void (root:EVGElement) {
+        def r:PresRect trackRect
+        root.addChild((PresApp.div("tracks" "tracks" r.x r.y r.w r.h)))
+        def dur:double take.duration
+        def head:string ((PresI18n.t("Recording")) + "  " + (PresApp.clockText((take.playLength()))))
+        if ((take.cutCount()) > 0) {
+            head = (head + " · " + (PresI18n.t("cut")) + " " + (PresApp.clockText((dur - (take.playLength())))))
+        }
+        def from:double (this.recSelFrom())
+        if (from >= 0.0) {
+            head = (head + " · " + (PresI18n.t("marked")) + " " + (PresApp.clockText(from)) + "–" + (PresApp.clockText((this.recSelTo()))))
+        } {
+            head = (head + " · " + (PresI18n.t("drag to mark a part")))
+        }
+        root.addChild((PresApp.label("tr-head" "track-head" head (r.x + 12.0) (r.y + 6.0))))
+        ; the buttons, right to left
+        def bs:[string] (this.recButtons())
+        def right:double ((r.x + r.w) - 10.0)
+        def bi:int 0
+        while ((bi + 1) < (array_length bs)) {
+            def lbl:string (itemAt bs (bi + 1))
+            def w:double (PresApp.recButtonW(lbl))
+            def cls:string "rec-btn"
+            def lcls:string "rec-btn-label"
+            if ((itemAt bs bi) == "cut") {
+                cls = "rec-btn rec-btn-cut"
+                lcls = "rec-btn-label rec-btn-label-on"
+            }
+            root.addChild((PresApp.div(("recb-" + (itemAt bs bi)) cls (right - w) (r.y + 3.0) w 22.0)))
+            root.addChild((PresApp.label(("recbl-" + (itemAt bs bi)) lcls lbl ((right - w) + 11.0) (r.y + 6.0))))
+            right = ((right - w) - 6.0)
+            bi = (bi + 2)
+        }
+        def rowY:double (r.y + 28.0)
+        def rowH:double 26.0
+        def names:[string]
+        push names (PresI18n.t("Slides"))
+        push names (PresI18n.t("Voice"))
+        push names (PresI18n.t("Drawing"))
+        def k:int 0
+        while (k < 3) {
+            def y:double (rowY + ((to_double k) * (rowH + 2.0)))
+            root.addChild((PresApp.label(("tr-name" + (to_string k)) "track-name" (itemAt names k) (r.x + 12.0) (y + 5.0))))
+            root.addChild((PresApp.div(("lane" + (to_string k)) "lane" laneX y laneW rowH)))
+            k = (k + 1)
+        }
+        ; the slides shown, one piece each time the slide changed
+        def segFrom:double -1.0
+        def segSlide:int -1
+        def segEnd:boolean false
+        def nseg:int 0
+        def i:int 0
+        while (i <= (array_length take.ops)) {
+            def at:double dur
+            def sl:int -2
+            def en:boolean false
+            def isNav:boolean (i == (array_length take.ops))
+            if (i < (array_length take.ops)) {
+                def o:PresRecOp (itemAt take.ops i)
+                if (o.k == "nav") {
+                    isNav = true
+                    at = o.t
+                    sl = o.slide
+                    en = o.ended
+                }
+            }
+            if (isNav && (((sl != segSlide) || (en != segEnd)) || (i == (array_length take.ops)))) {
+                if (segFrom >= 0.0) {
+                    def x0:double (this.recX(segFrom))
+                    def x1:double (this.recX(at))
+                    if ((x1 - x0) >= 1.0) {
+                        def lab:string (to_string (segSlide + 1))
+                        if segEnd {
+                            lab = (PresI18n.t("end"))
+                        }
+                        root.addChild((PresApp.div(("rs" + (to_string nseg)) "clip clip-text rec-seg" x0 (rowY + 3.0) ((x1 - x0) - 1.0) (rowH - 6.0))))
+                        if ((x1 - x0) > 18.0) {
+                            root.addChild((PresApp.label(("rsl" + (to_string nseg)) "clip-label" lab (x0 + 4.0) (rowY + 7.0))))
+                        }
+                        nseg = (nseg + 1)
+                    }
+                }
+                segFrom = at
+                segSlide = sl
+                segEnd = en
+            }
+            i = (i + 1)
+        }
+        ; the voice: its loudness as bars, a few pixels each
+        def vy:double (rowY + (rowH + 2.0))
+        def np:int (array_length recPeaks)
+        if (np > 0) {
+            def bars:int (to_int (laneW / 4.0))
+            if (bars > 400) { bars = 400 }
+            def b:int 0
+            while (b < bars) {
+                def t0:double (((to_double b) / (to_double bars)) * dur)
+                def t1:double (((to_double (b + 1)) / (to_double bars)) * dur)
+                def p0:int (to_int (t0 / (PresApp.RECPEAK())))
+                def p1:int (to_int (t1 / (PresApp.RECPEAK())))
+                def peak:double 0.0
+                def q:int p0
+                while ((q <= p1) && (q < np)) {
+                    if ((itemAt recPeaks q) > peak) {
+                        peak = (itemAt recPeaks q)
+                    }
+                    q = (q + 1)
+                }
+                def bh:double (2.0 + (peak * (rowH - 8.0)))
+                def bx:double (laneX + (((to_double b) / (to_double bars)) * laneW))
+                root.addChild((PresApp.div(("rw" + (to_string b)) "rec-wave" bx ((vy + (rowH / 2.0)) - (bh / 2.0)) 2.0 bh)))
+                b = (b + 1)
+            }
+        } {
+            def vh:string (PresI18n.t("no sound"))
+            if ((strlen take.audio) > 0) {
+                vh = (PresI18n.t("reading the sound…"))
+            }
+            root.addChild((PresApp.label("rvh" "lane-hint" vh (laneX + 8.0) (vy + 7.0))))
+        }
+        ; where something was drawn or written
+        def dy:double (rowY + ((rowH + 2.0) * 2.0))
+        def nd:int 0
+        def j:int 0
+        while (j < (array_length take.ops)) {
+            def d:PresRecOp (itemAt take.ops j)
+            if ((d.k == "down") || (d.k == "text")) {
+                def dx:double (this.recX(d.t))
+                def dcls:string "rec-mark"
+                if (d.k == "text") {
+                    dcls = "rec-mark rec-mark-text"
+                }
+                root.addChild((PresApp.div(("rd" + (to_string nd)) dcls (dx - 1.0) (dy + 4.0) 3.0 (rowH - 8.0))))
+                nd = (nd + 1)
+            }
+            j = (j + 1)
+        }
+        ; the parts cut away, over all three
+        def full:double ((rowH + 2.0) * 3.0)
+        def c:int 0
+        while (c < (take.cutCount())) {
+            def cx0:double (this.recX((take.cutStart(c))))
+            def cx1:double (this.recX((take.cutEnd(c))))
+            root.addChild((PresApp.div(("rc" + (to_string c)) "rec-cut" cx0 (rowY - 2.0) (cx1 - cx0) full)))
+            c = (c + 1)
+        }
+        if (from >= 0.0) {
+            def sx0:double (this.recX(from))
+            def sx1:double (this.recX((this.recSelTo())))
+            root.addChild((PresApp.div("rsel" "rec-sel" sx0 (rowY - 2.0) (sx1 - sx0) full)))
+        }
+        ; the playhead: the recording's own time, or the replay's
+        def ph:double recHead
+        root.addChild((PresApp.div("playhead" "playhead" ((this.recX(ph)) - 1.0) (rowY - 4.0) 2.0 full)))
     }
 
     ; =========================================================================
@@ -2197,10 +2830,6 @@ class PresApp {
         viewZoom = 1.0
         viewU = 0.5
         viewV = 0.5
-    }
-
-    fn viewZoomed:boolean () {
-        return (viewZoom > 1.0)
     }
 
     ; A double tap: in to 2.5 times at the tap, or back out when already in.
@@ -2679,7 +3308,11 @@ class PresApp {
             root.addChild((PresApp.label("empty" "empty" (PresI18n.t("Type on the left: ## Title starts a slide")) (stageArea.x + 24.0) (stageArea.y + 24.0))))
         }
         if (trackRect.h > 0.0) {
-            this.tracks(root)
+            if (recEditing && (this.hasRecording())) {
+                this.recTimeline(root)
+            } {
+                this.tracks(root)
+            }
         }
         this.filmstrip(root)
         return root
@@ -2940,7 +3573,7 @@ class PresApp {
         out = (out + ":" + (to_string editor.layout.scrollLine) + ":" + (to_string blink))
         out = (out + ":" + focus + ":" + mode + ":" + (EVGDisplayList.num(W)) + "x" + (EVGDisplayList.num(H)))
         out = (out + ":c" + (to_string chart.rev) + ":t" + (to_string toolbar.rev) + ":h" + (to_string hint.rev) + ":p" + (to_string panels.rev))
-        out = (out + ":r" + (to_string review.rev))
+        out = (out + ":r" + (to_string review.rev) + ":m" + (to_string room.rev))
         return out
     }
 
@@ -2993,9 +3626,14 @@ class PresApp {
         ; outside a window closes it, unless it lands in a dialog over it
         def top:string (this.layerAt(x y))
         if (top == "bar") {
-            toolbar.press(x y)
+            toolbar.pressWith(x y clicks shift)
             this.takeToolbar()
             return "bar"
+        }
+        if (top == "sketch") {
+            focus = "sketch"
+            this.sketchPress(x y clicks)
+            return "sketch"
         }
         if chart.isOpen {
             if (top == "chart") {
@@ -3019,6 +3657,16 @@ class PresApp {
                 this.closeHint()
             }
         }
+        if (top == "room") {
+            room.press(x y clicks shift)
+            this.afterRoom()
+            return "room"
+        }
+        if (focus == "room") {
+            focus = "editor"
+            room.ch.keys = ""
+            room.changed()
+        }
         if (PresApp.panelLayer(top)) {
             if (panels.chatHas(x y)) {
                 focus = "chat"
@@ -3037,11 +3685,15 @@ class PresApp {
             }
         }
         if ((barH > 0.0) && (toolbar.has(x y))) {
-            toolbar.press(x y)
+            toolbar.pressWith(x y clicks shift)
             this.takeToolbar()
             return "bar"
         }
         if (deckRect.has(x y)) {
+            ; a presentation's tab: back to the slides
+            if room.open {
+                push requests "roomchat:close"
+            }
             this.deckPress(x y)
             chromeRev = (chromeRev + 1)
             return "decktabs"
@@ -3080,6 +3732,10 @@ class PresApp {
             this.syncEditor()
             chromeRev = (chromeRev + 1)
             return "editor"
+        }
+        if ((trackRect.has(x y)) && recEditing) {
+            this.recTimelineDown(x y)
+            return ""
         }
         if (trackRect.has(x y)) {
             ; the Speech lane with the recording on it: played from this slide
@@ -3184,12 +3840,20 @@ class PresApp {
             if (touch && (stageDia != activeDia)) {
                 stageDia = -1
             }
-            ; with the pen a press that moves draws
+            ; with the pen a press that moves draws; the text tool's press
+            ; is where writing begins
             if (this.inkActive()) {
                 inkPress = true
                 inkLine = false
                 inkSX = spX
                 inkSY = spY
+                inkEnded = ink.typing
+                if (inkTool == "text") {
+                    this.inkTextAt(spX spY)
+                    inkLine = true
+                } {
+                    this.inkEndText()
+                }
             }
         }
     }
@@ -3204,6 +3868,9 @@ class PresApp {
     }
 
     fn stageMove:void (x:double y:double) {
+        if (inkPress && (inkTool == "text")) {
+            return
+        }
         if inkPress {
             if (inkLine == false) {
                 def ix:double (x - downX)
@@ -3275,7 +3942,14 @@ class PresApp {
             inkPress = false
             if inkLine {
                 inkLine = false
-                this.inkUp()
+                if (inkTool != "text") {
+                    this.inkUp()
+                }
+                return
+            }
+            ; a click that ended the writing does only that
+            if inkEnded {
+                inkEnded = false
                 return
             }
         }
@@ -3342,6 +4016,11 @@ class PresApp {
     }
 
     fn pointerMove:void (x:double y:double) {
+        if (sketch.busy()) {
+            sketch.move(x y (this.sketchModel()))
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if (imgDrag.active()) {
             this.imageDragTo(x y)
             return
@@ -3350,9 +4029,21 @@ class PresApp {
             this.deckMove(x y)
             return
         }
+        ; a drag selecting in the deck's name (or the rooms' search) in the bar
+        if toolbar.titleSelecting {
+            toolbar.titleDragTo(x)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         ; a presentation of a Rooms list dragged towards another room
         if (toolbar.roomDragging()) {
             toolbar.roomDragTo(x y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        ; a drag selecting in the channel's text fields
+        if room.selecting {
+            room.dragTo(x y)
             chromeRev = (chromeRev + 1)
             return
         }
@@ -3452,6 +4143,10 @@ class PresApp {
         if scrubDrag {
             this.scrubTo(x)
         }
+        if recPress {
+            recSelB = (this.recTimeAt(x))
+            chromeRev = (chromeRev + 1)
+        }
         if stripPressed {
             if (! stripDragging) {
                 if ((fabs (x - stripDownX)) < dragSlop) {
@@ -3485,6 +4180,10 @@ class PresApp {
     }
 
     fn pointerUp:void () {
+        if (sketch.busy()) {
+            sketch.release((this.sketchModel()))
+            this.afterSketch()
+        }
         if (imgDrag.active()) {
             this.imageDrop()
         }
@@ -3495,11 +4194,13 @@ class PresApp {
             toolbar.roomDragEnd()
             this.takeToolbar()
         }
+        toolbar.titleRelease()
         if (review.release()) {
             this.reviewSpots()
             this.afterReview()
             chromeRev = (chromeRev + 1)
         }
+        room.release()
         panels.chatRelease()
         panels.textRelease()
         if (hint.isOpen && (hint.dragging())) {
@@ -3518,6 +4219,9 @@ class PresApp {
         editorDrag = false
         splitDrag = false
         scrubDrag = false
+        if recPress {
+            this.recTimelineUp()
+        }
         if stripPressed {
             stripPressed = false
             if ((! stripDragging) && (stripIdx >= 0)) {
@@ -3614,6 +4318,11 @@ class PresApp {
     }
 
     fn wheel:boolean (x:double y:double dy:double) {
+        if ((this.layerAt(x y)) == "room") {
+            room.wheel(x y dy)
+            this.afterRoom()
+            return true
+        }
         if (review.on && ((this.layerAt(x y)) == "review")) {
             if (review.wheel(x y dy)) {
                 chromeRev = (chromeRev + 1)
@@ -3704,6 +4413,15 @@ class PresApp {
         if (review.dragging || review.co.dragging) {
             return "grabbing"
         }
+        if (room.open && (mode != "present")) {
+            if (room.hoverAt(x y)) {
+                chromeRev = (chromeRev + 1)
+            }
+            if ((this.layerAt(x y)) == "room") {
+                def mc:string (room.cursorAt(x y))
+                return (? ((strlen mc) > 0) mc "default")
+            }
+        }
         if (review.on && ((this.layerAt(x y)) == "review")) {
             def rc:string (review.cursorAt(x y))
             if ((strlen rc) > 0) {
@@ -3720,6 +4438,9 @@ class PresApp {
         ; the surface on top under the pointer says (the bar's open menu
         ; below, with the bar)
         def top:string (this.layerAt(x y))
+        if (top == "sketch") {
+            return (this.sketchCursor(x y))
+        }
         if (((strlen top) > 0) && (top != "bar")) {
             def lc:string ""
             if (top == "hint") {
@@ -3815,8 +4536,17 @@ class PresApp {
             this.takeToolbar()
             return usedT
         }
+        if (this.roomHasKeys()) {
+            return (this.roomKey(name shift ctrl))
+        }
         if (review.hasKeys()) {
             return (this.reviewKey(name shift ctrl))
+        }
+        if ((((sketch.on || (sketch.menuOpen())) && (mode != "present")) && (focus == "sketch")) && (ctrl == false)) {
+            if (sketch.key(name shift (this.sketchModel()))) {
+                this.afterSketch()
+                return true
+            }
         }
         if ((name == "escape") && (review.escape())) {
             if (focus == "review") {
@@ -3875,6 +4605,13 @@ class PresApp {
                 this.replayStop()
             }
             return true
+        }
+        ; the pen has the keyboard: writing, and only the arrows and Page Up /
+        ; Page Down change slides
+        if (this.inkActive()) {
+            if (this.inkKey(name shift)) {
+                return true
+            }
         }
         ; Backspace wipes what was drawn
         if ((((mode == "present") && (name == "backspace")) && ((ink.count()) > 0)) && ((nav.typing()) == false)) {
@@ -4094,8 +4831,18 @@ class PresApp {
             this.takeToolbar()
             return
         }
+        if (this.roomHasKeys()) {
+            room.text(s)
+            this.afterRoom()
+            return
+        }
         if (review.hasKeys()) {
             review.text(s)
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        if (((sketch.on && (mode != "present")) && (focus == "sketch")) && (sketch.typing >= 0)) {
+            sketch.text(s (this.sketchModel()))
             chromeRev = (chromeRev + 1)
             return
         }
@@ -4117,6 +4864,10 @@ class PresApp {
             return
         }
         if ((mode == "present") && replaying) {
+            return
+        }
+        if (this.inkWrites()) {
+            this.inkType(s)
             return
         }
         ; a slide number: digits, then Enter (a number already begun takes
@@ -4189,6 +4940,11 @@ class PresApp {
             this.takeToolbar()
             return
         }
+        if (this.roomHasKeys()) {
+            room.text(s)
+            this.afterRoom()
+            return
+        }
         if (review.hasKeys()) {
             review.text((PresReviewUi.oneLine(s)))
             chromeRev = (chromeRev + 1)
@@ -4236,6 +4992,22 @@ class PresApp {
     }
 
     fn chord:boolean (ch:string) {
+        ; Ctrl+A in the deck's name (or the rooms' search) in the bar
+        if ((barH > 0.0) && toolbar.titleEditing) {
+            if (ch == "a") {
+                toolbar.titleKey("a" false true)
+                this.takeToolbar()
+                chromeRev = (chromeRev + 1)
+            }
+            return true
+        }
+        if (this.roomHasKeys()) {
+            if (ch == "a") {
+                room.selectAll()
+                chromeRev = (chromeRev + 1)
+            }
+            return true
+        }
         if (review.hasKeys()) {
             if (ch == "a") {
                 review.selectAll()
@@ -4245,6 +5017,13 @@ class PresApp {
         }
         if (mode == "present") {
             return false
+        }
+        ; drawing: Ctrl+Z takes back the last change to a drawing
+        if (sketch.on && (focus == "sketch")) {
+            if (ch == "z") {
+                this.sketchUndo()
+            }
+            return true
         }
         ; the editor's fields have no undo of their own, and an undo in the
         ; Markdown under it would move the fence it is writing
@@ -4366,6 +5145,20 @@ class PresApp {
             if dm.ok {
                 j = ((substring j 0 ((strlen j) - 1)) + ",\"look\":" + (PresHint.q((dm.look()))) + "}")
             }
+        }
+        ; a list layout's fence: the theme's figure colours as they are drawn
+        if ((edTab == "md") && ((indexOf j "\"figure\":true") >= 0)) {
+            def fcl:string "["
+            def fst:MdFigureStyle (deck.figureStyle())
+            def fk:int 0
+            while (fk < (array_length fst.colors)) {
+                if (fk > 0) {
+                    fcl = (fcl + ",")
+                }
+                fcl = (fcl + (PresHint.q((itemAt fst.colors fk))))
+                fk = (fk + 1)
+            }
+            j = ((substring j 0 ((strlen j) - 1)) + ",\"figColors\":" + fcl + "]}")
         }
         def st:int (?? (str2int (PresApp.jsonNum(j "start"))) 0)
         def en:int (?? (str2int (PresApp.jsonNum(j "end"))) st)
@@ -4969,6 +5762,7 @@ class PresApp {
     ; since the last look comes to the front of its band.
     fn syncLayers:void () {
         def edit:boolean (mode != "present")
+        layers.setOpen("room" (room.open && edit))
         layers.setOpen("bar" ((barH > 0.0) && edit))
         if (this.toolbarOnTop()) {
             layers.setBand("bar" "menu")
@@ -4976,6 +5770,7 @@ class PresApp {
             layers.setBand("bar" "docked")
         }
         layers.setOpen("panels" (((panels.helpOpen || panels.filesOpen) || panels.chat.open) && edit))
+        layers.setOpen("sketch" (edit && ((deck.slideCount()) > 0)))
         layers.setOpen("review" (review.on && ((deck.slideCount()) > 0)))
         layers.setOpen("hint" (hint.isOpen && edit))
         layers.setOpen("chart" chart.isOpen)
@@ -4991,6 +5786,10 @@ class PresApp {
     ; a menu or list open (anywhere: a press outside closes it); otherwise it
     ; is chrome and its press is handled with the chrome. A dialog is modal.
     fn layerHas:boolean (id:string x:double y:double) {
+        if (id == "room") {
+            this.placeRoom()
+            return (room.has(x y))
+        }
         if (id == "bar") {
             return (this.toolbarOnTop())
         }
@@ -5000,6 +5799,10 @@ class PresApp {
         if (id == "review") {
             this.reviewReady()
             return (review.has(x y))
+        }
+        if (id == "sketch") {
+            this.sketchPlace()
+            return (sketch.has(x y))
         }
         if (id == "hint") {
             return (hint.has(x y))
@@ -5232,7 +6035,7 @@ class PresApp {
         }
     }
 
-    ; "Edit content": a picture's, a chart's, a diagram's or a table's own
+    ; "Settings" / "Edit text": a picture's, a chart's, a diagram's or a table's own
     ; editor; otherwise its
     ; Markdown, selected in the editor. For the page, the document settings
     ; (the page lists the pictures for the logo first).
@@ -5331,10 +6134,10 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
-    ; The page keeps a popover opened from the stage open while the pointer
-    ; is elsewhere: a press outside closes it.
+    ; The page keeps a popover opened from the stage, or one pressed in, open
+    ; while the pointer is elsewhere: a press outside closes it.
     fn hintPinned:boolean () {
-        return (hint.isOpen && (hintFromStage || (hint.kind == "emoji")))
+        return (hint.isOpen && ((hintFromStage || hint.engaged) || (hint.kind == "emoji")))
     }
 
     ; --- the emoji picker -----------------------------------------------------------
@@ -5378,14 +6181,6 @@ class PresApp {
 
     fn setEmojiRecent:void (s:string) {
         hint.emoji.setRecentText(s)
-    }
-
-    fn pickIsOn:boolean () {
-        return pick.on
-    }
-
-    fn pickSelector:string () {
-        return pick.sel
     }
 
     ; The pick and its handles over the stage, as a display list ("" when
@@ -5451,6 +6246,11 @@ class PresApp {
         }
         def none:[PresHintEdit]
         hint.edits = none
+        if ((strlen hint.wantsFigColors) > 0) {
+            def fcs:string hint.wantsFigColors
+            hint.wantsFigColors = ""
+            this.setThemeProp("figure" "colors" fcs)
+        }
         if ((strlen hint.wantsLook) > 0) {
             def lk:string hint.wantsLook
             hint.wantsLook = ""
@@ -5623,6 +6423,8 @@ class PresApp {
     fn setPanelsCss:void (css:string) {
         panels.css = css
         panels.rebuild()
+        room.css = css
+        room.changed()
         review.css = css
         review.changed()
     }
@@ -5674,35 +6476,6 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
-    ; Where review mode's parts are, for the page's checks:
-    ; {"on", "slide": [x, y, w, h], "bar": [x, y, w, h], "panel": [x, y, w, h]
-    ;  or null, "placing", "open" (the thread's id), "drafting", "typing",
-    ;  "threads", "openCount"}
-    fn reviewState:string () {
-        this.place()
-        this.reviewReady()
-        if (review.on) {
-            review.displayList()
-        }
-        def o:VlJson (VlJson.objectValue())
-        o.setMember("on" (VlJson.boolValue(review.on)))
-        o.setMember("slide" (PresApp.rectJson(review.sx review.sy review.sw review.sh)))
-        o.setMember("bar" (PresApp.rectJson((review.barX()) (review.barY()) review.barW review.barH)))
-        if (review.panelOpen()) {
-            o.setMember("panel" (PresApp.rectJson((review.panelX()) review.top review.panelW (H - review.top))))
-        } {
-            o.setMember("panel" (VlJson.nullValue()))
-        }
-        o.setMember("placing" (VlJson.boolValue(review.placing)))
-        o.setMember("open" (VlJson.stringValue(review.openId)))
-        o.setMember("drafting" (VlJson.boolValue(review.drafting)))
-        o.setMember("typing" (VlJson.boolValue((review.hasKeys()))))
-        o.setMember("threads" (VlJson.intValue((review.model.count()))))
-        o.setMember("openCount" (VlJson.intValue((review.model.openCount()))))
-        def w (new VlJsonWriter())
-        return (w.write(o))
-    }
-
     sfn rectJson:VlJson (x:double y:double w:double h:double) {
         def a:VlJson (VlJson.arrayValue())
         push a.arr (VlJson.numberValue(x))
@@ -5719,10 +6492,6 @@ class PresApp {
 
     fn reviewCount:int () {
         return (review.model.count())
-    }
-
-    fn reviewOpenCount:int () {
-        return (review.model.openCount())
     }
 
     ; The slides' titles to the review (threads follow their slides), and
@@ -5764,6 +6533,7 @@ class PresApp {
         if pres {
             review.place(W H 0.0 true selected slideRect.x slideRect.y slideRect.w slideRect.h 0.0 W H)
         } {
+            review.shift = (0.0 - ((sketch.barW + 8.0) * 0.5))
             review.place(W H barH false selected slideRect.x slideRect.y slideRect.w slideRect.h stageArea.x stageArea.w (stageArea.y + stageArea.h))
         }
     }
@@ -5910,7 +6680,91 @@ class PresApp {
 
     ; the deck's Markdown with the open comments in it as footnotes
     fn reviewMarkdownWithComments:string () {
-        return (review.model.markdownWithComments((this.source()) (this.reviewSectionStarts()) review.titles))
+        return (review.model.markdownWithComments((this.source()) (this.reviewSectionStarts()) review.titles false))
+    }
+
+    ; The Markdown of these slides (the sections they are in, under the
+    ; front matter), with the open comments on them as footnotes when
+    ; `notes`.
+    fn slidesMarkdown:string (pages:[int] notes:boolean) {
+        def src:string (this.source())
+        def l:MdLayout (deck.layout())
+        def secs:[PresPickSection] (PresPick.sections(src l.splitLevel))
+        def want:[boolean]
+        for secs s0:PresPickSection i0 {
+            push want false
+        }
+        for pages p:int ip {
+            if ((p >= 0) && (p < (deck.slideCount()))) {
+                def k:int (PresPick.sectionAt(secs (this.spanFrom(p))))
+                if (k >= 0) {
+                    set want k true
+                }
+            }
+        }
+        def keys:string ""
+        for secs s1:PresPickSection i1 {
+            if (itemAt want i1) {
+                if ((strlen keys) > 0) {
+                    keys = (keys + ",")
+                }
+                keys = (keys + s1.key)
+            }
+        }
+        def text:string (PresPick.viewText(src l.splitLevel keys))
+        if ((notes == false) || ((strlen text) == 0)) {
+            return text
+        }
+        ; the sections kept are there in the same order: the j-th one kept
+        ; starts where the j-th section of `text` does
+        def sub:[PresPickSection] (PresPick.sections(text l.splitLevel))
+        def pos:[int]
+        def j:int 0
+        for secs s2:PresPickSection i2 {
+            def at:int -1
+            if ((itemAt want i2) && (j < (array_length sub))) {
+                def sj:PresPickSection (itemAt sub j)
+                at = sj.start
+                j = (j + 1)
+            }
+            push pos at
+        }
+        def starts:[int]
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def k2:int (PresPick.sectionAt(secs (this.spanFrom(i))))
+            if (k2 >= 0) {
+                push starts (itemAt pos k2)
+            } {
+                push starts -1
+            }
+            i = (i + 1)
+        }
+        return (review.model.markdownWithComments(text starts review.titles true))
+    }
+
+    ; What Copy puts on the clipboard: "md" the deck's Markdown, "mdc" with
+    ; the open comments as footnotes, "comments" the open comments with
+    ; their slides; "mdSlide"/"mdcSlide" the selected slide's, and
+    ; "mdPicked"/"mdcPicked" the picked slides'.
+    fn copyText:string (which:string) {
+        ; the slides' titles, for the comments' labels
+        this.reviewReady()
+        if (which == "mdc") {
+            return (this.reviewMarkdownWithComments())
+        }
+        if (which == "comments") {
+            return (this.reviewOpenMarkdown())
+        }
+        if ((which == "mdSlide") || (which == "mdcSlide")) {
+            def one:[int]
+            push one selected
+            return (this.slidesMarkdown(one (which == "mdcSlide")))
+        }
+        if ((which == "mdPicked") || (which == "mdcPicked")) {
+            return (this.slidesMarkdown(picks.pages (which == "mdcPicked")))
+        }
+        return (this.source())
     }
 
     ; the text a copy in review mode put aside ("review-copy")
@@ -5934,6 +6788,477 @@ class PresApp {
             return 1.0
         }
         return f
+    }
+
+    ; --- drawing on the slide (PresSketchUi) ------------------------------------------
+
+    fn setSketching:void (on:boolean) {
+        if (on && (mode == "present")) {
+            return
+        }
+        sketch.setActive(on)
+        if on {
+            this.dropPicks()
+            focus = "sketch"
+            this.sketchPlace()
+        } {
+            sketch.close((this.sketchModel()))
+            this.afterSketch()
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn sketching:boolean () {
+        return (sketch.on && (mode != "present"))
+    }
+
+    ; The slide's drawing: the first it refers to, the one begun on it, or
+    ; none ("").
+    fn sketchPathOf:string (i:int) {
+        if ((i < 0) || (i >= (deck.slideCount()))) {
+            return ""
+        }
+        def sl:PresSlide (deck.slideAt(i))
+        if ((array_length sl.sketches) > 0) {
+            def u:PresSketchUse (itemAt sl.sketches 0)
+            return u.path
+        }
+        if ((sketchNewSlide == i) && ((strlen sketchNewPath) > 0)) {
+            return (PresDeck.sketchKey(sketchNewPath))
+        }
+        return ""
+    }
+
+    ; The pill at the foot of the stage: beside review mode's bar (the two in
+    ; the middle together), or in the middle by itself.
+    fn sketchPlace:void () {
+        this.place()
+        sketch.bar = ((mode != "present") && ((deck.slideCount()) > 0))
+        def foot:double (stageArea.y + stageArea.h)
+        sketch.barY = ((foot - sketch.barH) - 12.0)
+        sketch.barX = ((stageArea.x + (stageArea.w * 0.5)) - (sketch.barW * 0.5))
+        if (review.on && (review.barW > 0.0)) {
+            sketch.barX = ((review.barX()) + review.barW + 8.0)
+        }
+        sketch.place(W H slideRect.x slideRect.y slideRect.w slideRect.h (this.slideScale()) stageArea.x stageArea.y stageArea.w stageArea.h)
+        sketch.showSlide(selected (this.sketchPathOf(selected)))
+        sketch.css = panels.css
+        sketch.skin = skin
+        sketch.measurer = measurer
+    }
+
+    ; The drawing being edited (an empty one stands in on a slide without).
+    fn sketchModel:PresSketch () {
+        if ((strlen sketch.path) == 0) {
+            sketchScratch.w = deck.pageW
+            sketchScratch.h = deck.pageH
+            return sketchScratch
+        }
+        return (deck.sketchFor(sketch.path))
+    }
+
+    fn sketchPress:void (x:double y:double clicks:int) {
+        this.sketchPlace()
+        if (sketch.pressPalette(x y (this.sketchModel()))) {
+            this.afterSketch()
+            return
+        }
+        ; a press beside an open menu only closes it
+        if (sketch.menuOpen()) {
+            sketch.closeMenu()
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        if (sketch.on == false) {
+            return
+        }
+        ; the first line or text on a slide without a drawing begins one
+        if (((strlen sketch.path) == 0) && ((sketch.tool()) != "select")) {
+            sketchNewPath = (this.newSketchPath(selected))
+            sketchNewSlide = selected
+            deck.sketchFor(sketchNewPath)
+            sketch.path = (PresDeck.sketchKey(sketchNewPath))
+        }
+        sketch.pressSlide(x y clicks (this.sketchModel()))
+        this.afterSketch()
+    }
+
+    fn afterSketch:void () {
+        def rs:[string] sketch.requests
+        def none:[string]
+        sketch.requests = none
+        def i:int 0
+        while (i < (array_length rs)) {
+            def r:string (itemAt rs i)
+            if (r == "sketch-save") {
+                this.sketchSave()
+            }
+            if (r == "sketch-on") {
+                this.dropPicks()
+                focus = "sketch"
+            }
+            if (r == "sketch-done") {
+                if (focus == "sketch") {
+                    focus = "editor"
+                }
+            }
+            i = (i + 1)
+        }
+        PresTimeline.planAll(deck)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The drawing changed: the slide refers to it (the line is added when
+    ; it does not), and the page writes its file.
+    fn sketchSave:void () {
+        def path:string sketch.path
+        if ((strlen path) == 0) {
+            return
+        }
+        if ((sketchNewSlide == selected) && ((PresDeck.sketchKey(sketchNewPath)) == path)) {
+            def sl:PresSlide (deck.slideAt(selected))
+            if ((array_length sl.sketches) == 0) {
+                this.sketchRef(selected (substring path 1 (strlen path)))
+            }
+            sketchNewPath = ""
+            sketchNewSlide = -1
+        }
+        push requests ("sketch-file:" + (substring path 1 (strlen path)))
+    }
+
+    ; What the page writes to the drawing's file.
+    fn sketchFileBody:string (path:string) {
+        return ((deck.sketchFor(path)).toJson())
+    }
+
+    fn sketchUndo:void () {
+        def u:string (sketch.takeUndo())
+        def at:int (indexOf u "\n")
+        if (at <= 0) {
+            return
+        }
+        def path:string (substring u 0 at)
+        deck.setSketch(path (substring u (at + 1) (strlen u)))
+        PresTimeline.planAll(deck)
+        push requests ("sketch-file:" + (substring path 1 (strlen path)))
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; A file name for slide i's drawing: drawings/<its id or title>.ink,
+    ; numbered when taken.
+    fn newSketchPath:string (i:int) {
+        def base:string ""
+        if ((i >= 0) && (i < (deck.slideCount()))) {
+            def sl:PresSlide (deck.slideAt(i))
+            base = (PresApp.slug(sl.id))
+            if ((strlen base) == 0) {
+                base = (PresApp.slug(sl.title))
+            }
+        }
+        if ((strlen base) == 0) {
+            base = ("slide-" + (to_string (i + 1)))
+        }
+        def p:string ("drawings/" + base + ".ink")
+        def n:int 2
+        while (deck.hasSketch(p)) {
+            p = ("drawings/" + base + "-" + (to_string n) + ".ink")
+            n = (n + 1)
+        }
+        return p
+    }
+
+    ; Lower-case letters and digits, the rest one "-"; at most 40.
+    sfn slug:string (t:string) {
+        def out:string ""
+        def dash:boolean false
+        def low:string (to_lowercase t)
+        def i:int 0
+        while ((i < (strlen low)) && ((strlen out) < 40)) {
+            def c:int (charAt low i)
+            ; ä å → a, ö → o
+            if ((c == 228) || (c == 229)) {
+                c = 97
+            }
+            if (c == 246) {
+                c = 111
+            }
+            if (((c >= 97) && (c <= 122)) || ((c >= 48) && (c <= 57))) {
+                if (dash && ((strlen out) > 0)) {
+                    out = (out + "-")
+                }
+                out = (out + (strfromcode c))
+                dash = false
+            } {
+                dash = true
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; `![](path)` on slide i, after its last block (before its notes), as
+    ; one edit of the Markdown.
+    fn sketchRef:void (i:int path:string) {
+        this.slideLines(i)
+        if (linesFrom < 0) {
+            return
+        }
+        def last:int linesFrom
+        def k:int linesFrom
+        def going:boolean true
+        while (going && (k < linesAt)) {
+            def ln:string (trim (mdEditor.buf.lineAt(k)))
+            if ((k > linesFrom) && ((indexOf ln ":::") == 0)) {
+                going = false
+            } {
+                if ((strlen ln) > 0) {
+                    last = k
+                }
+                k = (k + 1)
+            }
+        }
+        def cl:int mdEditor.sel.caret.line
+        def cc:int mdEditor.sel.caret.col
+        def after:string ""
+        if ((last + 1) < (mdEditor.buf.lineCount())) {
+            if ((strlen (trim (mdEditor.buf.lineAt((last + 1))))) > 0) {
+                after = "\n"
+            }
+        }
+        mdEditor.moveCaret(last (strlen (mdEditor.buf.lineAt(last))) false)
+        mdEditor.insert(("\n\n![](" + path + ")" + after))
+        if (cl > last) {
+            cl = (cl + 2)
+        }
+        mdEditor.moveCaret(cl cc false)
+        this.syncEditor()
+    }
+
+    fn sketchCursor:string (x:double y:double) {
+        if ((strlen (sketch.paletteAt(x y))) > 0) {
+            return "pointer"
+        }
+        if sketch.dragging {
+            return "grabbing"
+        }
+        def t:string (sketch.tool())
+        if (t == "select") {
+            def m:PresSketch (this.sketchModel())
+            if ((m.hit((sketch.toX(x)) (sketch.toY(y)) (6.0 / sketch.sc))) >= 0) {
+                return "move"
+            }
+            return "default"
+        }
+        if (t == "text") {
+            return "text"
+        }
+        return "crosshair"
+    }
+
+    ; The drawing's layer: the palette, what is picked, the caret.
+    fn sketchJson:string () {
+        if ((mode == "present") || ((deck.slideCount()) == 0)) {
+            return ""
+        }
+        this.sketchPlace()
+        def m:PresSketch (this.sketchModel())
+        def l:MdLayout (deck.layout())
+        m.measure(l.engine l.style.bodyFamily)
+        def dl:EVGDisplayList (sketch.displayList(m ((blink % 2) == 0)))
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
+    }
+
+    ; =========================================================================
+    ; A room's chat (PresRoomView): the work area right of the rail
+    ; =========================================================================
+    fn placeRoom:void () {
+        def L:double (this.leftW())
+        def top:double barH
+        def rw:double ((W - L) - (this.dockW()))
+        if (rw < 320.0) {
+            rw = (W - L)
+        }
+        room.place(L top rw (H - top) W H)
+        room.measurer = measurer
+        if (room.skin != skin) {
+            room.skin = skin
+            room.changed()
+        }
+    }
+
+    fn roomJson:string () {
+        if ((room.open == false) || (mode == "present")) {
+            return ""
+        }
+        this.placeRoom()
+        def dl:EVGDisplayList (room.displayList())
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
+    }
+
+    fn roomHasKeys:boolean () {
+        return (((focus == "room") && (room.hasKeys())) && (mode != "present"))
+    }
+
+    fn roomKey:boolean (name:string shift:boolean ctrl:boolean) {
+        def k:string (PresChartEditor.kitKey(name))
+        if (name == "pageUp") {
+            k = "PageUp"
+        }
+        if (name == "pageDown") {
+            k = "PageDown"
+        }
+        if (name == "tab") {
+            k = "Tab"
+        }
+        if ((strlen k) == 0) {
+            return false
+        }
+        room.key(k shift ctrl)
+        this.afterRoom()
+        return true
+    }
+
+    ; after a press, a key or the wheel in the channel: who has the keys,
+    ; and what the reader asked for, to the page ("roomchat:<request>")
+    fn afterRoom:void () {
+        if (room.hasKeys()) {
+            focus = "room"
+        } {
+            if (focus == "room") {
+                focus = "editor"
+            }
+        }
+        def r:string (room.take())
+        while ((strlen r) > 0) {
+            push requests ("roomchat:" + r)
+            r = (room.take())
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; --- the page's side ---------------------------------------------------------
+    ; The channel of room `id` opens (or shows another room); `notice` is a
+    ; line under its head ("" none).
+    fn roomChatShow:void (id:string title:string about:string readOnly:boolean notice:string) {
+        room.css = panels.css
+        room.show(id title about readOnly notice)
+        focus = "room"
+        room.ch.keys = "main"
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn roomChatHide:void () {
+        room.hide()
+        if (focus == "room") {
+            focus = "editor"
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The rooms panel open on the left (the rail's Rooms), as a deck's link
+    ; opens it on a server of one's own.
+    fn showRooms:void () {
+        if (toolbar.roomsOpen == false) {
+            toolbar.roomsOpen = true
+            toolbar.rebuild()
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn roomChatOpen:boolean () {
+        return room.open
+    }
+
+    ; A paste while the channel is shown is the channel's: it covers the
+    ; editor, the slide and the strip, so focus left on those (a press on a
+    ; message, the rail) passes to its composer. -> true when it takes it.
+    fn roomTakesPaste:boolean () {
+        if ((room.open == false) || (mode == "present")) {
+            return false
+        }
+        if (focus == "room") {
+            if ((strlen room.ch.keys) == 0) {
+                room.ch.keys = "main"
+                room.changed()
+            }
+            return true
+        }
+        if (((focus == "editor") || (focus == "stage")) || (focus == "strip")) {
+            focus = "room"
+            room.ch.keys = "main"
+            room.changed()
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        return false
+    }
+
+    fn roomChatRoom:string () {
+        return room.room
+    }
+
+    fn roomChatMe:void (id:string name:string avatar:string color:string) {
+        room.setMe(id name avatar color)
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn roomChatClock:void (now:double zone:int) {
+        room.clock(now zone)
+    }
+
+    ; read_room_chat's answer; `older` when it is earlier messages
+    fn roomChatLoad:void (json:string older:boolean) {
+        room.load(json older)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; a message posted or changed: → the seq to ask "after" when some were
+    ; missed, -1 none
+    fn roomChatPut:int (json:string) {
+        def missed:int (room.put(json))
+        chromeRev = (chromeRev + 1)
+        return missed
+    }
+
+    fn roomChatHere:void (json:string) {
+        room.here(json)
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn roomChatChannels:void (names:string) {
+        room.setChannels(names)
+    }
+
+    fn roomChatDeck:void (deck:string title:string) {
+        room.setDeckTitle(deck title)
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn roomChatReadUpTo:void (seq:int) {
+        room.readUpTo(seq)
+    }
+
+    ; a file put into the room's files waits in the composer (the thread's)
+    fn roomChatPending:void (inThread:boolean name:string url:string type:string size:int w:int h:int) {
+        room.pending(inThread name url type size w h)
+    }
+
+    fn roomChatUploading:void (inThread:boolean n:int) {
+        room.uploading(inThread n)
+    }
+
+    ; where an embedded presentation's slide is drawn from: {deck}, {slide}
+    fn roomChatPictures:void (pattern:string) {
+        room.embedPictures(pattern)
+    }
+
+    ; the thread's composer has the keys (a pasted file goes there)
+    fn roomChatInThread:boolean () {
+        return (room.ch.keys == "thread")
+    }
+
+    fn roomChatLastSeq:int () {
+        return (room.lastSeq())
     }
 
     ; review mode's layer, for the page to paint where `layerOrder` puts it
@@ -6044,6 +7369,38 @@ class PresApp {
 
     fn helpIsOpen:boolean () {
         return panels.helpOpen
+    }
+
+    ; Help → How to use Sliqtly: the help panel open at its guide tab
+    ; ("guide"), or at the slide's parts ("slide").
+    fn openHelpTab:void (tab:string) {
+        panels.setHelpTab(tab)
+        this.setHelp(true)
+    }
+
+    fn helpTab:string () {
+        return panels.helpTab
+    }
+
+    ; --- the speaker view and auto-advance (S and A while presenting) ---------------
+    ; The presenting bar's ⋯ menu shows and switches them too, so they are
+    ; found without knowing the keys.
+    fn speakerOn:boolean () {
+        return speaker
+    }
+
+    fn setSpeaker:void (on:boolean) {
+        speaker = on
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn autoOn:boolean () {
+        return auto
+    }
+
+    fn setAuto:void (on:boolean) {
+        auto = on
+        chromeRev = (chromeRev + 1)
     }
 
     ; --- editing together (a server of one's own: web/collab.js) --------------------
@@ -6460,7 +7817,7 @@ class PresApp {
             if (found >= 0) {
                 def box:MdBox (itemAt l.boxes found)
                 def head:string (PresI18n.t("Low contrast: ") + (PresApp.ratioWords(ratio)) + ":1, " + (PresI18n.t("needs ")) + (PresApp.ratioWords(need)) + ":1.")
-                def light:boolean (PresApp.isLight(box.color))
+                def light:boolean (PresExport.isLight(box.color))
                 def mdFix:string (PresI18n.t("Use a lighter text colour in the theme (CSS), or a lighter background."))
                 def cssFix:string (PresI18n.t("Use a lighter colour here, or a lighter background."))
                 if light {
@@ -6605,11 +7962,6 @@ class PresApp {
         return false
     }
 
-    sfn isLight:boolean (hex:string) {
-        def c:EVGColor (EVGColor.parse(hex))
-        def y:double ((((0.2126 * (to_double (c.red()))) + (0.7152 * (to_double (c.green())))) + (0.0722 * (to_double (c.blue())))) / 255.0)
-        return (y > 0.5)
-    }
 
     sfn ratioWords:string (v:double) {
         def t:int (to_int ((v * 10.0) + 0.5))
@@ -6802,6 +8154,9 @@ class PresApp {
             t.place(hintNode (to_int slideRect.x) (to_int slideRect.y) (to_int slideRect.w) 1)
         }
         if (mode != "present") {
+            if room.open {
+                PresA11y.addHost(t room.host "app")
+            }
             if (panels.any()) {
                 PresA11y.addHost(t panels.host "app")
                 if (panels.helpOpen && (!null? panels.host.lastPage)) {
@@ -7956,23 +9311,11 @@ class PresApp {
         return ("{\"to\":\"" + chart.pasteTo + "\",\"crop\":\"" + (chart.crop.cropPixels()) + "\",\"whole\":" + whole + ",\"alt\":" + (PresApp.jsonStr(chart.pasteAlt)) + ",\"trace\":" + trace + "}")
     }
 
+    ; v as a JSON string, every character kept (a description's line breaks
+    ; included)
     sfn jsonStr:string (v:string) {
-        def out:string ""
-        def i:int 0
-        while (i < (strlen v)) {
-            def c:int (charAt v i)
-            if ((c == 34) || (c == 92)) {
-                out = (out + "\\" + (strfromcode c))
-            } {
-                if (c < 32) {
-                    out = (out + " ")
-                } {
-                    out = (out + (substring v i (i + 1)))
-                }
-            }
-            i = (i + 1)
-        }
-        return ("\"" + out + "\"")
+        def w (new VlJsonWriter())
+        return (w.write((VlJson.stringValue(v))))
     }
 
     ; The kept picture into the deck: on the slide at the caret, as the
@@ -8700,6 +10043,10 @@ class PresApp {
             this.setOrientation(what)
             return true
         }
+        if (what == "draw") {
+            this.setSketching(true)
+            return true
+        }
         return false
     }
 
@@ -8908,10 +10255,18 @@ class PresApp {
 
     ; --- the strip's context menu -------------------------------------------------
     ; A right click on a thumbnail selects it and opens New / Duplicate /
-    ; Move left / Move right / Delete there. False when x, y is not on one.
+    ; Move left / Move right / Delete / Copy there; on the slide being
+    ; edited, the same menu for it. False when x, y is on neither.
     fn slideMenuAt:boolean (x:double y:double) {
         this.place()
-        if (((mode == "present") || (barH <= 0.0)) || ((stripRect.has(x y)) == false)) {
+        if ((mode == "present") || ((deck.slideCount()) == 0)) {
+            return false
+        }
+        if (slideRect.has(x y)) {
+            this.openSlideMenu(selected x y)
+            return true
+        }
+        if ((barH <= 0.0) || ((stripRect.has(x y)) == false)) {
             return false
         }
         def i:int 0
@@ -9031,7 +10386,13 @@ class PresApp {
             return
         }
         if (r == "rec:start") {
-            this.record()
+            ; with the voice or without: asked first (the page counts down,
+            ; then calls record)
+            this.openChoice("recstart" (PresI18n.t("Record presentation")) (PresI18n.t("Record your voice as you present, or only the pointer, the drawings and the slides? You can draw with the mouse and write by typing while it records.")) (PresI18n.t("With voice")) (PresI18n.t("Without voice")))
+            return
+        }
+        if (r == "rec:edit") {
+            this.recEditOpen(true)
             return
         }
         if (r == "rec:play") {
@@ -9054,6 +10415,10 @@ class PresApp {
             }
             if (p == "review") {
                 push requests "rail:review"
+            }
+            ; the slides' places close a room's chat over them
+            if (((p == "review") || (p == "history")) && room.open) {
+                push requests "roomchat:close"
             }
             chromeRev = (chromeRev + 1)
             return
@@ -9090,6 +10455,15 @@ class PresApp {
     ; open window's text or field, the panels' (the toast, a note, a link,
     ; the chat field) — else the editor's.
     fn readSelection:string () {
+        if ((barH > 0.0) && toolbar.titleEditing) {
+            return (toolbar.titleIn.selectedText())
+        }
+        if (this.roomHasKeys()) {
+            def mt:string (room.copyText())
+            if ((strlen mt) > 0) {
+                return mt
+            }
+        }
         if (review.hasKeys()) {
             def rt:string (review.copyText())
             if ((strlen rt) > 0) {
@@ -9116,7 +10490,8 @@ class PresApp {
     ; Ctrl+X cuts from the editor only; text selected elsewhere is not the
     ; editor's to cut (and is read, not edited), so nothing is cut then.
     fn cutSelection:string () {
-        if ((strlen (this.readSelection())) > 0) {
+        ; the bar's name field is not the editor's: nothing of the editor goes
+        if (((strlen (this.readSelection())) > 0) || ((barH > 0.0) && toolbar.titleEditing)) {
             return ""
         }
         def out:string (editor.cutSelection())
