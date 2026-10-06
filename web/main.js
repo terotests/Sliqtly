@@ -3393,6 +3393,9 @@ function handleRequests() {
       needsPaint = true;
     } else if (r.startsWith("copy:")) {
       copyShare(r.slice(5)).catch(fail);
+    } else if (r.startsWith("clip:")) {
+      // Copy ▸ / Export ▸ Clipboard: the Markdown, with the comments, the slide's
+      writeClip(app.copyText(r.slice(5))).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
     } else if (r === "review-copy") {
       // a comment thread, or the open comments with their slides (review mode)
       writeClip(app.reviewClip()).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
@@ -5106,7 +5109,7 @@ vExport.addEventListener("click", () => openViewSub(vExportSub.hidden ? vExport 
 vCopy.addEventListener("click", () => openViewSub(vCopySub.hidden ? vCopy : null));
 // Copy ▸ Markdown: the deck's text; Copy ▸ Comments: the open comments
 // numbered, each slide's Markdown under them (PresReview.openMarkdown)
-const VIEW_COPIES = { md: () => app.source(), mdc: () => app.reviewMarkdownWithComments(), comments: () => app.reviewOpenMarkdown() };
+const VIEW_COPIES = { md: () => app.copyText("md"), mdc: () => app.copyText("mdc"), comments: () => app.copyText("comments") };
 vMenu.addEventListener("click", (ev) => {
   const what = ev.target.closest("[data-copy]")?.dataset.copy;
   if (what && VIEW_COPIES[what]) {

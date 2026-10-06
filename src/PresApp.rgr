@@ -5904,7 +5904,91 @@ class PresApp {
 
     ; the deck's Markdown with the open comments in it as footnotes
     fn reviewMarkdownWithComments:string () {
-        return (review.model.markdownWithComments((this.source()) (this.reviewSectionStarts()) review.titles))
+        return (review.model.markdownWithComments((this.source()) (this.reviewSectionStarts()) review.titles false))
+    }
+
+    ; The Markdown of these slides (the sections they are in, under the
+    ; front matter), with the open comments on them as footnotes when
+    ; `notes`.
+    fn slidesMarkdown:string (pages:[int] notes:boolean) {
+        def src:string (this.source())
+        def l:MdLayout (deck.layout())
+        def secs:[PresPickSection] (PresPick.sections(src l.splitLevel))
+        def want:[boolean]
+        for secs s0:PresPickSection i0 {
+            push want false
+        }
+        for pages p:int ip {
+            if ((p >= 0) && (p < (deck.slideCount()))) {
+                def k:int (PresPick.sectionAt(secs (this.spanFrom(p))))
+                if (k >= 0) {
+                    set want k true
+                }
+            }
+        }
+        def keys:string ""
+        for secs s1:PresPickSection i1 {
+            if (itemAt want i1) {
+                if ((strlen keys) > 0) {
+                    keys = (keys + ",")
+                }
+                keys = (keys + s1.key)
+            }
+        }
+        def text:string (PresPick.viewText(src l.splitLevel keys))
+        if ((notes == false) || ((strlen text) == 0)) {
+            return text
+        }
+        ; the sections kept are there in the same order: the j-th one kept
+        ; starts where the j-th section of `text` does
+        def sub:[PresPickSection] (PresPick.sections(text l.splitLevel))
+        def pos:[int]
+        def j:int 0
+        for secs s2:PresPickSection i2 {
+            def at:int -1
+            if ((itemAt want i2) && (j < (array_length sub))) {
+                def sj:PresPickSection (itemAt sub j)
+                at = sj.start
+                j = (j + 1)
+            }
+            push pos at
+        }
+        def starts:[int]
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def k2:int (PresPick.sectionAt(secs (this.spanFrom(i))))
+            if (k2 >= 0) {
+                push starts (itemAt pos k2)
+            } {
+                push starts -1
+            }
+            i = (i + 1)
+        }
+        return (review.model.markdownWithComments(text starts review.titles true))
+    }
+
+    ; What Copy puts on the clipboard: "md" the deck's Markdown, "mdc" with
+    ; the open comments as footnotes, "comments" the open comments with
+    ; their slides; "mdSlide"/"mdcSlide" the selected slide's, and
+    ; "mdPicked"/"mdcPicked" the picked slides'.
+    fn copyText:string (which:string) {
+        ; the slides' titles, for the comments' labels
+        this.reviewReady()
+        if (which == "mdc") {
+            return (this.reviewMarkdownWithComments())
+        }
+        if (which == "comments") {
+            return (this.reviewOpenMarkdown())
+        }
+        if ((which == "mdSlide") || (which == "mdcSlide")) {
+            def one:[int]
+            push one selected
+            return (this.slidesMarkdown(one (which == "mdcSlide")))
+        }
+        if ((which == "mdPicked") || (which == "mdcPicked")) {
+            return (this.slidesMarkdown(picks.pages (which == "mdcPicked")))
+        }
+        return (this.source())
     }
 
     ; the text a copy in review mode put aside ("review-copy")
@@ -8903,10 +8987,18 @@ class PresApp {
 
     ; --- the strip's context menu -------------------------------------------------
     ; A right click on a thumbnail selects it and opens New / Duplicate /
-    ; Move left / Move right / Delete there. False when x, y is not on one.
+    ; Move left / Move right / Delete / Copy there; on the slide being
+    ; edited, the same menu for it. False when x, y is on neither.
     fn slideMenuAt:boolean (x:double y:double) {
         this.place()
-        if (((mode == "present") || (barH <= 0.0)) || ((stripRect.has(x y)) == false)) {
+        if ((mode == "present") || ((deck.slideCount()) == 0)) {
+            return false
+        }
+        if (slideRect.has(x y)) {
+            this.openSlideMenu(selected x y)
+            return true
+        }
+        if ((barH <= 0.0) || ((stripRect.has(x y)) == false)) {
             return false
         }
         def i:int 0
