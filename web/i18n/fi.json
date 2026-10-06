@@ -1101,5 +1101,16 @@
   "Back 10 s (←)": "Taakse 10 s (←)",
   "Pause (Space)": "Tauko (välilyönti)",
   "On 10 s (→)": "Eteen 10 s (→)",
-  "Stop (Esc)": "Lopeta (Esc)"
+  "Stop (Esc)": "Lopeta (Esc)",
+  "height": "korkeus",
+  "width": "leveys",
+  "A drawing with few colors: it is vectorized into an SVG, which stays sharp at any size. The original is kept in the files.": "Piirros, jossa on vähän värejä: se vektoroidaan SVG:ksi, joka pysyy terävänä missä koossa tahansa. Alkuperäinen jää tiedostoihin.",
+  "Add as it is": "Lisää sellaisenaan",
+  "Saved over ": "Tallennetaan tiedoston ",
+  ", where the slides already use it.": " päälle; diat käyttävät sitä jo.",
+  "The picture this SVG was made from is no longer in the files, so it cannot be vectorized again.": "Kuvaa, josta tämä SVG tehtiin, ei enää ole tiedostoissa, joten sitä ei voi vektoroida uudelleen.",
+  "Replace the earlier SVG?": "Korvataanko aiempi SVG?",
+  "{file} is already in the files. Replace it with this one, or keep both?": "{file} on jo tiedostoissa. Korvataanko se tällä vai pidetäänkö molemmat?",
+  "Replace": "Korvaa",
+  "Keep both": "Pidä molemmat"
 }

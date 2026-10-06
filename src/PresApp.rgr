@@ -3122,6 +3122,12 @@ class PresApp {
         ; the pick's buttons and spacing bands, over the slide and around it
         if (stageArea.has(x y)) {
             def part:string (pick.partAt(x y))
+            ; a picked picture's edges resize it, the picture itself moves it
+            if (((part != "content") && (part != "style")) && (this.imageGrab(x y clicks))) {
+                focus = "stage"
+                chromeRev = (chromeRev + 1)
+                return "select"
+            }
             if ((strlen part) > 0) {
                 focus = "stage"
                 this.pickPress(part)
@@ -3330,6 +3336,10 @@ class PresApp {
     }
 
     fn pointerMove:void (x:double y:double) {
+        if (imgDrag.active()) {
+            this.imageDragTo(x y)
+            return
+        }
         if deckDown {
             this.deckMove(x y)
             return
@@ -3469,6 +3479,9 @@ class PresApp {
     }
 
     fn pointerUp:void () {
+        if (imgDrag.active()) {
+            this.imageDrop()
+        }
         if deckDown {
             this.deckRelease()
         }
@@ -3718,6 +3731,24 @@ class PresApp {
         if (sepRect.has(x y)) {
             return "col-resize"
         }
+        if (imgDrag.active()) {
+            if (imgDrag.zone == "move") {
+                return "grabbing"
+            }
+            return (PresImageDrag.cursorOf(imgDrag.zone))
+        }
+        if ((stageArea.has(x y)) && ((strlen (pick.partAt(x y))) > 0)) {
+            def cpart:string (pick.partAt(x y))
+            if ((cpart == "content") || (cpart == "style")) {
+                return "pointer"
+            }
+        }
+        if (stageArea.has(x y)) {
+            def iz:string (pick.imageZoneAt(x y))
+            if ((strlen iz) > 0) {
+                return (PresImageDrag.cursorOf(iz))
+            }
+        }
         if ((stageArea.has(x y)) && ((strlen (pick.partAt(x y))) > 0)) {
             return "pointer"
         }
@@ -3772,6 +3803,13 @@ class PresApp {
             if (focus == "review") {
                 focus = (? (mode == "present") "stage" "editor")
             }
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        ; a picture being resized or moved: Esc lets it go unchanged
+        if ((name == "escape") && (imgDrag.active())) {
+            imgDrag.cancel()
+            pick.ghostOn = false
             chromeRev = (chromeRev + 1)
             return true
         }
@@ -3883,6 +3921,14 @@ class PresApp {
             return (this.stripKey(name shift ctrl))
         }
         if (focus == "stage") {
+            ; the picked picture: Delete or Backspace takes it out (Ctrl+Z
+            ; brings it back)
+            if (((name == "delete") || (name == "backspace")) && (pick.on && (pick.sel == "img"))) {
+                if (this.pickValid()) {
+                    this.removePickedImage()
+                    return true
+                }
+            }
             if ((name == "right") || (name == "down")) {
                 this.selectSlide((selected + 1))
                 return true
@@ -4208,7 +4254,7 @@ class PresApp {
         if ((strlen ch) != 1) {
             return false
         }
-        if ((focus == "strip") && ((ch == "z") || (ch == "y"))) {
+        if (((focus == "strip") || (focus == "stage")) && ((ch == "z") || (ch == "y"))) {
             return (this.stripUndo((ch == "z")))
         }
         def took:boolean (editor.handleCtrlChar((charAt ch 0)))
@@ -7049,6 +7095,151 @@ class PresApp {
         return true
     }
 
+    ; --- a picked picture resized, moved or deleted on the slide ---------------------
+    ; PresImageDrag: an edge or a corner held resizes it, the picture held
+    ; moves it to the left, the middle or the right of the column; letting go
+    ; writes its attribute line as one edit. Delete or Backspace takes it out.
+    def imgDrag:PresImageDrag (new PresImageDrag())
+
+    ; The picture on Markdown line `line` and its attribute line, as a model
+    ; (an empty path when the line is not a picture).
+    fn imageModelAt:PresImageModel (line:int) {
+        def n:int (mdEditor.buf.lineCount())
+        if ((line < 0) || (line >= n)) {
+            return (new PresImageModel())
+        }
+        def attr:string ""
+        def attrLine:int -1
+        if ((line + 1) < n) {
+            def next:string (mdEditor.buf.lineAt((line + 1)))
+            if (PresImageModel.isAttrLine(next)) {
+                attr = next
+                attrLine = (line + 1)
+            }
+        }
+        def m:PresImageModel (PresImageModel.read((mdEditor.buf.lineAt(line)) attr))
+        m.line = line
+        m.attrLine = attrLine
+        return m
+    }
+
+    fn imageGrab:boolean (x:double y:double clicks:int) {
+        if (((mode != "edit") || playing) || (review.on)) {
+            return false
+        }
+        if ((pick.on == false) || (pick.sel != "img")) {
+            return false
+        }
+        if ((this.pickValid()) == false) {
+            return false
+        }
+        def z:string (pick.imageZoneAt(x y))
+        if ((strlen z) == 0) {
+            return false
+        }
+        ; a double click on the picture opens its settings, as before
+        if ((z == "move") && (clicks >= 2)) {
+            return false
+        }
+        def m:PresImageModel (this.imageModelAt(pick.line))
+        if ((m.ok()) == false) {
+            return false
+        }
+        def l:MdLayout (deck.layout())
+        def place:string m.align
+        if ((strlen place) == 0) {
+            place = l.style.imgAlign
+        }
+        this.slidePoint(x y)
+        def sc:double (this.slideScale())
+        if (sc > 0.0) {
+            imgDrag.slop = (4.0 / sc)
+        }
+        imgDrag.begin(z pick.x pick.y pick.w pick.h l.contentX l.contentW (l.contentBottom - l.contentTop) place spX spY)
+        return true
+    }
+
+    fn imageDragTo:void (x:double y:double) {
+        this.slidePoint(x y)
+        imgDrag.moveTo(spX spY)
+        if imgDrag.moved {
+            pick.ghostOn = true
+            pick.gx = imgDrag.x
+            pick.gy = imgDrag.y
+            pick.gw = imgDrag.w
+            pick.gh = imgDrag.h
+            pick.ghostLabel = (PresApp.imageDragLabel(imgDrag))
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    sfn imageDragLabel:string (d:PresImageDrag) {
+        if (d.zone == "move") {
+            if (d.outAlign == "left") {
+                return (PresI18n.t("Left"))
+            }
+            if (d.outAlign == "right") {
+                return (PresI18n.t("Right"))
+            }
+            return (PresI18n.t("Center"))
+        }
+        if ((strlen d.outHeight) > 0) {
+            return ((PresI18n.t("height")) + " " + d.outHeight)
+        }
+        return ((PresI18n.t("width")) + " " + d.outWidth)
+    }
+
+    fn imageDrop:void () {
+        pick.ghostOn = false
+        chromeRev = (chromeRev + 1)
+        if (imgDrag.moved == false) {
+            ; a click on the picked picture: it stays picked
+            imgDrag.cancel()
+            return
+        }
+        def line:int pick.line
+        def m:PresImageModel (this.imageModelAt(line))
+        def changed:boolean ((m.ok()) && (imgDrag.apply(m)))
+        imgDrag.cancel()
+        if (changed == false) {
+            return
+        }
+        def last:int m.line
+        if (m.attrLine >= 0) {
+            last = m.attrLine
+        }
+        this.replaceLines(m.line last (m.markdown()))
+        ; the edit moved the offsets: the same picture picked again
+        def at:int (this.offsetOf(line 0))
+        def pg:int (deck.pageOfOffset(at))
+        if (pg != selected) {
+            this.selectSlide(pg)
+        }
+        pick.pickSource((deck.layout()) selected at (mdEditor.text()) mdEditor.buf.version)
+        pick.markSet((this.themeCss()))
+    }
+
+    ; The picked picture's lines taken out, and a blank line with them when
+    ; there would be two in a row; one edit, undone with Ctrl+Z.
+    fn removePickedImage:void () {
+        def m:PresImageModel (this.imageModelAt(pick.line))
+        if ((m.ok()) == false) {
+            return
+        }
+        def last:int m.line
+        if (m.attrLine >= 0) {
+            last = m.attrLine
+        }
+        def n:int (mdEditor.buf.lineCount())
+        def blankBefore:boolean ((m.line == 0) || ((strlen (trim (mdEditor.buf.lineAt((m.line - 1))))) == 0))
+        if ((blankBefore && ((last + 1) < n)) && ((strlen (trim (mdEditor.buf.lineAt((last + 1))))) == 0)) {
+            last = (last + 1)
+        }
+        pick.clear()
+        this.replaceLines(m.line last "")
+        chromeRev = (chromeRev + 1)
+    }
+
     ; --- a picture's settings (the same window, in its image mode) ------------------
     ; The picture on Markdown line `line` (`![alt](path)` alone on it).
     fn openImageEditor:boolean (line:int) {
@@ -7099,6 +7290,16 @@ class PresApp {
     ; where it will be kept. Add is "picture-place" to the page, which reads
     ; `pastePlan`, cuts and keeps the picture and calls `placePicture`;
     ; anything else is "picture-cancel".
+    ; The picture in the paste window is flat (the page measured it): Add
+    ; vectorizes it.
+    fn pasteFlat:void (flat:boolean) {
+        if (chart.isOpen && (chart.mode == "paste")) {
+            chart.pasteVector = flat
+            chart.rebuild()
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
     fn openPaste:boolean (path:string iw:int ih:int alt:string note:string) {
         if (mode == "present") {
             return false
@@ -7246,6 +7447,22 @@ class PresApp {
         chromeRev = (chromeRev + 1)
         push requests "trace-run"
         return true
+    }
+
+    ; The vectorizer opened to make the SVG `target` again: Save writes over
+    ; it, and the settings it was made with (`settings`, "" the defaults)
+    ; are where it starts.
+    fn traceAgain:void (target:string settings:string) {
+        if ((chart.isOpen == false) || (chart.mode != "trace")) {
+            return
+        }
+        chart.trTarget = target
+        chart.trReplace = false
+        if ((strlen settings) > 0) {
+            chart.trSet = (PresTraceSettings.parse(settings))
+        }
+        chart.rebuild()
+        chromeRev = (chromeRev + 1)
     }
 
     fn traceSettings:string () {

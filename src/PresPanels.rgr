@@ -1024,7 +1024,9 @@ class PresPanels {
             return row
         }
         if (kind == "image") {
-            if (PresPanels.editable(path)) {
+            ; an SVG: Edit vectorizes its picture again, while the picture
+            ; is in the files (the page marks the row `retrace`)
+            if ((PresPanels.editable(path)) || (f.boolOr("retrace" false))) {
                 this.act("imgedit" path (PresI18n.t("Edit")) "secondary" row)
             }
             this.act("insert" path (PresI18n.t("Add to slide")) "secondary" row)
