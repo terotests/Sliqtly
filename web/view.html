@@ -82,13 +82,20 @@
   .hero .sub { font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--grotesk); letter-spacing: -.015em; margin: 0 0 14px; max-width: 30ch; }
   .section { padding: clamp(64px, 8vw, 112px) 0; border-bottom: 1px solid var(--line); }
 
-  /* thin boxes: the engine block, the four claims, the flow */
+  /* thin boxes: the engine block, the claims, the flow */
   .box { border: 1px solid var(--line-2); padding: clamp(22px, 3vw, 36px); }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line-2); border-left: 1px solid var(--line-2); }
-  .grid > * { min-width: 0; border-right: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); padding: clamp(24px, 3vw, 40px); }
-  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
-  .claim h3 { font: 800 clamp(28px, 3.4vw, 44px)/1 var(--grotesk); letter-spacing: -.035em; margin: 0 0 18px; }
-  .claim p { color: var(--dim); font-size: 16px; max-width: 46ch; }
+  /* "Sliqtly" stays, the word after it and its line roll up and the next
+     comes from below (the script at the end of the page) */
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; margin: 0; padding: 0; }
+  .roll__head { font: 800 clamp(34px, 7.4vw, 104px)/1.02 var(--grotesk); letter-spacing: -.04em; margin: 0 0 24px; white-space: nowrap; }
+  .roll__stack { display: inline-grid; overflow: hidden; vertical-align: bottom; }
+  .roll__text { display: grid; max-width: 52ch; }
+  .roll__stack > * { grid-area: 1 / 1; transform: translateY(105%); opacity: 0;
+    transition: transform .6s cubic-bezier(.6, 0, .2, 1), opacity .6s; }
+  .roll__stack > .on { transform: none; opacity: 1; }
+  .roll__stack > .off { transform: translateY(-105%); opacity: 0; }
+  .roll__text > p { color: var(--dim); font-size: clamp(16px, 1.6vw, 20px); margin: 0; }
+  @media (prefers-reduced-motion: reduce) { .roll__stack > * { transition: none; } }
   .flow { font: 15px/1.7 var(--mono); color: var(--paper); margin: 0; white-space: pre; overflow-x: auto; }
   .flow b { color: var(--accent); font-weight: 400; }
   .split { display: grid; gap: clamp(28px, 4vw, 56px); grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); align-items: start; }
@@ -188,25 +195,13 @@
     <section class="section" id="why">
       <div class="wrap">
         <p class="label">Why Sliqtly</p>
-        <div class="grid">
-          <div class="claim">
-            <p class="label">01</p>
-            <h3>Sliqtly <span class="accent">faster.</span></h3>
-            <p>Go from prompt to editable deck without bouncing between chat, PowerPoint and export workflows.</p>
-          </div>
-          <div class="claim">
-            <p class="label">02</p>
-            <h3>Sliqtly <span class="accent">smaller.</span></h3>
+        <div class="box roll" id="roll">
+          <ul class="sr"><li>Sliqtly faster. Go from prompt to editable deck without bouncing between chat, PowerPoint and export workflows.</li><li>Sliqtly smaller. A focused presentation engine instead of another giant office suite.</li><li>Sliqtly cheaper. Use the tools and models you already have. Sliqtly handles the slides.</li><li>Sliqtly yours. Designed for local and hosted workflows.</li></ul>
+          <h2 class="roll__head" aria-hidden="true">Sliqtly <span class="roll__stack accent"><span class="on">faster.</span><span>smaller.</span><span>cheaper.</span><span>yours.</span></span></h2>
+          <div class="roll__stack roll__text" aria-hidden="true">
+            <p class="on">Go from prompt to editable deck without bouncing between chat, PowerPoint and export workflows.</p>
             <p>A focused presentation engine instead of another giant office suite.</p>
-          </div>
-          <div class="claim">
-            <p class="label">03</p>
-            <h3>Sliqtly <span class="accent">cheaper.</span></h3>
             <p>Use the tools and models you already have. Sliqtly handles the slides.</p>
-          </div>
-          <div class="claim">
-            <p class="label">04</p>
-            <h3>Sliqtly <span class="accent">yours.</span></h3>
             <p>Designed for local and hosted workflows.</p>
           </div>
         </div>
@@ -257,6 +252,32 @@ deck <b>→</b> render <b>→</b> edit <b>→</b> export</pre>
     </div>
   </footer>
 </div>
+
+<script>
+  // the four claims in turn, every 3 s while the page is in view
+  (function () {
+    var roll = document.getElementById("roll");
+    if (!roll || document.documentElement.classList.contains("deck")) return;
+    var stacks = roll.querySelectorAll(".roll__stack");
+    var n = stacks[0].children.length, i = 0;
+    setInterval(function () {
+      if (document.hidden) return;
+      var j = (i + 1) % n;
+      stacks.forEach(function (st) {
+        var old = st.children[i], next = st.children[j];
+        // the next one starts below, without sliding there
+        next.style.transition = "none";
+        next.classList.remove("off");
+        void next.offsetWidth;
+        next.style.transition = "";
+        old.classList.remove("on");
+        old.classList.add("off");
+        next.classList.add("on");
+      });
+      i = j;
+    }, 3000);
+  })();
+</script>
 
 <canvas id="c" aria-label="Presentation"></canvas>
 <div id="brandIntro" role="img" aria-label="Sliqtly"><img class="logo" src="./favicon.svg" alt="" width="220" height="220" /><span class="name">Sliqtly</span><span class="site">sliqtly.com</span><span id="note" class="note" role="status"></span></div>
