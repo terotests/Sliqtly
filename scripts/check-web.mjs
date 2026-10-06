@@ -1191,8 +1191,11 @@ try {
     focus: document.activeElement?.dataset.act || "",
   }));
   check("the viewer's … menu opens Export from the keyboard; no Edit for a reader", menu.open && menu.sub && !menu.edit && menu.focus === "pdf", JSON.stringify(menu));
-  await page3.keyboard.press("ArrowDown");
-  await page3.keyboard.press("ArrowDown");
+  // Markdown is the last of the export items; walk down to it.
+  for (let i = 0; i < 8; i += 1) {
+    if (await page3.evaluate(() => document.activeElement?.dataset.act === "md")) break;
+    await page3.keyboard.press("ArrowDown");
+  }
   await page3.evaluate(() => { window.__lastDownload = ""; });
   await page3.keyboard.press("Enter");
   await page3.waitForTimeout(200);
