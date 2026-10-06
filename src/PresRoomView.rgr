@@ -1,0 +1,540 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresRoomView.rgr — a room's chat in the work area
+; ============================================================================
+;
+; A room pressed in Rooms opens its channel where the editor and the slides
+; are, right of the rail and under the bar: EVGUI's ChannelCtl in a host of
+; its own, painted as the app's "room" layer. Its × (or a presentation
+; opened) closes it again.
+;
+; The page (web/roomchat.js) talks to the folder server: it hands over what
+; the server says as JSON (`load`, `put`, `here`) and takes what the reader
+; asked for (`take`, ChannelCtl's request strings) to post it. Times come
+; as ms since 1970 and are shown on the page's clock (`zoneMin`).
+; ============================================================================
+
+Import "../evgui/src/UiHost.rgr"
+Import "../evgui/src/ChannelCtl.rgr"
+Import "../vela/src/VlJson.rgr"
+Import "PresI18n.rgr"
+
+class PresRoomView {
+    def host:UiHost (new UiHost())
+    def ch:ChannelCtl (new ChannelCtl())
+    def css:string ""
+    def skin:string ""
+    def measurer@(optional):TTFTextMeasurer
+    def open:boolean false
+    def room:string ""
+    ; where it is drawn on the page
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 800.0
+    def h:double 600.0
+    def pw:double 1200.0
+    def ph:double 800.0
+    ; the page's time zone, minutes east of UTC
+    def zoneMin:int 0
+    ; a press in a text field, while the button is down
+    def selecting:boolean false
+    def built:boolean false
+    def rev:int 0
+
+    Constructor () {
+        ch.setup("ch" (PresI18n.t("Channel")))
+        ch.closable = true
+        ch.placeholderText = (PresI18n.t("Message"))
+        ch.threadPlaceholder = (PresI18n.t("Reply…"))
+        ch.sendText = (PresI18n.t("Send"))
+        ch.latestText = (PresI18n.t("Latest messages"))
+        ch.newMessagesText = (PresI18n.t("new messages"))
+        ch.newLineText = (PresI18n.t("New"))
+        ch.todayText = (PresI18n.t("Today"))
+        ch.yesterdayText = (PresI18n.t("Yesterday"))
+        ch.replyText = (PresI18n.t("reply"))
+        ch.repliesText = (PresI18n.t("replies"))
+        ch.lastReplyText = (PresI18n.t("Last reply"))
+        ch.threadText = (PresI18n.t("Thread"))
+        ch.showMoreText = (PresI18n.t("Show more"))
+        ch.showLessText = (PresI18n.t("Show less"))
+        ch.editedText = (PresI18n.t("(edited)"))
+        ch.deletedText = (PresI18n.t("This message was deleted."))
+        ch.hereText = (PresI18n.t("here"))
+        ch.membersText = (PresI18n.t("members"))
+        ch.openText = (PresI18n.t("Open"))
+        ch.presentationText = (PresI18n.t("Presentation"))
+        ch.slideText = (PresI18n.t("Slide"))
+        ch.replyInThreadText = (PresI18n.t("Reply in thread"))
+        ch.copyText = (PresI18n.t("Copy"))
+        ch.deleteText = (PresI18n.t("Delete"))
+        ch.addDescText = (PresI18n.t("Add a description"))
+        ch.saveText = (PresI18n.t("Save"))
+        ch.cancelText = (PresI18n.t("Cancel"))
+        ch.profileText = (PresI18n.t("Your profile"))
+        ch.nameText = (PresI18n.t("Name"))
+        ch.characterText = (PresI18n.t("Character"))
+        ch.colorText = (PresI18n.t("Colour"))
+        ch.olderText = (PresI18n.t("Show earlier messages"))
+        ch.loadingText = (PresI18n.t("Loading…"))
+        ch.emptyText = (PresI18n.t("No messages yet. Say hello!"))
+        ch.closeText = (PresI18n.t("Close"))
+        ch.readOnlyText = (PresI18n.t("This room is archived: its chat is read only."))
+    }
+
+    ; --- what the page says -------------------------------------------------------------
+
+    fn show:void (id:string title:string about:string readOnly:boolean notice:string) {
+        if (id != room) {
+            ch.reset()
+        }
+        room = id
+        open = true
+        ch.title = title
+        ch.description = about
+        ch.readOnly = readOnly
+        ch.notice = notice
+        if (ch.keys == "") {
+            ch.keys = "main"
+        }
+        this.changed()
+    }
+
+    fn hide:void () {
+        open = false
+        selecting = false
+        this.changed()
+    }
+
+    fn setMe:void (id:string nm:string avatar:string color:string) {
+        ch.setMe(id nm avatar color)
+        this.changed()
+    }
+
+    fn clock:void (now:double zone:int) {
+        zoneMin = zone
+        ch.now = (now + ((to_double zone) * 60000.0))
+    }
+
+    fn local:double (at:double) {
+        return (at + ((to_double zoneMin) * 60000.0))
+    }
+
+    ; the other rooms' names, for #, one per line
+    fn setChannels:void (names:string) {
+        def none:[string]
+        ch.channels = none
+        def lines:[string] (strsplit names "\n")
+        for lines n:string i {
+            if ((strlen (trim n)) > 0) {
+                push ch.channels (trim n)
+            }
+        }
+        this.changed()
+    }
+
+    fn setDeckTitle:void (deck:string title:string) {
+        ch.setDeckTitle(deck title)
+        this.changed()
+    }
+
+    ; One message as the server writes it.
+    fn msgOf:UiFeedMsg (j:VlJson) {
+        def m (new UiFeedMsg())
+        m.id = (j.stringOr("id" ""))
+        m.seq = (j.intOr("seq" 0))
+        m.thread = (j.stringOr("thread" ""))
+        m.at = (this.local((j.doubleOr("at" 0.0))))
+        def f:VlJson (j.get("from"))
+        m.who = (f.stringOr("id" ""))
+        m.name = (f.stringOr("name" ""))
+        m.kind = (f.stringOr("kind" "person"))
+        m.avatar = (f.stringOr("avatar" ""))
+        m.color = (f.stringOr("color" ""))
+        m.text = (j.stringOr("text" ""))
+        m.edited = ((j.doubleOr("edited" 0.0)) > 0.0)
+        m.deleted = (j.boolOr("deleted" false))
+        m.replies = (j.intOr("replies" 0))
+        def lr:double (j.doubleOr("last_reply" 0.0))
+        if (lr > 0.0) {
+            m.lastReply = (this.local(lr))
+        }
+        def rs:VlJson (j.get("repliers"))
+        def k:int 0
+        while (k < (rs.count())) {
+            def rj:VlJson (rs.at(k))
+            push m.repliers (rj.asString())
+            k = (k + 1)
+        }
+        def rx:VlJson (j.get("reactions"))
+        def lines:[string]
+        if (rx.isObject()) {
+            for rx.keys e:string i {
+                def ids:VlJson (rx.get(e))
+                def who:[string]
+                def n:int 0
+                while (n < (ids.count())) {
+                    def ij:VlJson (ids.at(n))
+                    push who (ij.asString())
+                    n = (n + 1)
+                }
+                push lines (e + "\t" + (join who ","))
+            }
+        }
+        m.setReactions((join lines "\n") ch.me)
+        return m
+    }
+
+    ; A message posted or changed (a socket event). → the seq to ask
+    ; "after" when some were missed before it, -1 none.
+    fn put:int (text:string) {
+        def p (new VlJsonParser())
+        def j:VlJson (p.parse(text))
+        def m:UiFeedMsg (this.msgOf(j))
+        if ((strlen m.id) == 0) {
+            return -1
+        }
+        def missed:int -1
+        if ((strlen m.thread) == 0) {
+            def had:boolean (ch.feed.has(m.id))
+            if (had == false) {
+                missed = (ch.feed.missingAfter(m.seq))
+            }
+        }
+        ch.feed.put(m)
+        if ((strlen ch.threadId) > 0) {
+            ch.tfeed.put(m)
+        }
+        this.changed()
+        return missed
+    }
+
+    ; read_room_chat's answer: a page of the channel or the open thread.
+    ; `older` puts earlier ones in front, keeping the reader's place.
+    fn load:void (text:string older:boolean) {
+        def p (new VlJsonParser())
+        def j:VlJson (p.parse(text))
+        def r:VlJson (j.get("room"))
+        if (r.isObject()) {
+            ch.title = (r.stringOr("title" ch.title))
+            ch.description = (r.stringOr("description" ch.description))
+            ch.here = (r.intOr("here" ch.here))
+            if (r.boolOr("archived" false)) {
+                ch.readOnly = true
+            }
+        }
+        this.peopleFrom((j.get("people")))
+        def ms:VlJson (j.get("messages"))
+        def inThread:boolean (j.has("root"))
+        if inThread {
+            def root:UiFeedMsg (this.msgOf((j.get("root"))))
+            if (root.id != ch.threadId) {
+                ch.loading = false
+                return
+            }
+            ch.feed.put(root)
+        }
+        if older {
+            ch.keepPlace(inThread)
+        }
+        def k:int 0
+        while (k < (ms.count())) {
+            def m:UiFeedMsg (this.msgOf((ms.at(k))))
+            if inThread {
+                ch.tfeed.put(m)
+            } {
+                ch.feed.put(m)
+            }
+            k = (k + 1)
+        }
+        ; a full page: there may be earlier ones
+        def full:boolean ((ms.count()) >= 50)
+        if inThread {
+            ch.tHasOlder = full
+        } {
+            ch.hasOlder = full
+            ch.feed.note((j.intOr("last_seq" 0)))
+        }
+        ch.loading = false
+        this.changed()
+    }
+
+    ; who is here (a socket event, or chat_here's answer)
+    fn here:void (text:string) {
+        def p (new VlJsonParser())
+        def j:VlJson (p.parse(text))
+        ch.here = (j.intOr("here" ch.here))
+        this.peopleFrom((j.get("people")))
+        this.changed()
+    }
+
+    fn peopleFrom:void (ps:VlJson) {
+        if ((ps.isArray()) == false) {
+            return
+        }
+        ch.clearPeople()
+        def k:int 0
+        while (k < (ps.count())) {
+            def q:VlJson (ps.at(k))
+            ch.setPerson((q.stringOr("id" "")) (q.stringOr("name" "")) (q.stringOr("kind" "person")) (q.stringOr("avatar" "")) (q.stringOr("color" "")) (q.boolOr("here" false)))
+            k = (k + 1)
+        }
+    }
+
+    ; the last message read before the channel opened, for the New line
+    fn readUpTo:void (seq:int) {
+        ch.feed.readUpTo = seq
+        this.changed()
+    }
+
+    fn lastSeq:int () {
+        return (ch.feed.lastSeq())
+    }
+
+    ; the next thing the reader asked for, "" none
+    fn take:string () {
+        return (ch.take())
+    }
+
+    ; --- the page ------------------------------------------------------------------------
+
+    fn changed:void () {
+        built = false
+        rev = (rev + 1)
+    }
+
+    fn place:void (px:double py:double pw2:double ph2:double pageW:double pageH:double) {
+        if ((((px != x) || (py != y)) || ((pw2 != w) || (ph2 != h))) || ((pageW != pw) || (pageH != ph))) {
+            x = px
+            y = py
+            w = pw2
+            h = ph2
+            pw = pageW
+            ph = pageH
+            this.changed()
+        }
+    }
+
+    fn has:boolean (px:double py:double) {
+        if (open == false) {
+            return false
+        }
+        return ((((px >= x) && (px < (x + w))) && (py >= y)) && (py < (y + h)))
+    }
+
+    fn rebuild:void () {
+        def fresh (new UiHost())
+        host = fresh
+        host.addStyleSheet(css)
+        host.setTheme((trim ("pn " + skin)))
+        host.setPageSize(pw ph)
+        def root:EVGElement (unwrap host.root)
+        root.className = "ui-root rm-page"
+        if (open == false) {
+            built = true
+            return
+        }
+        ch.width = w
+        ch.height = h
+        ch.threadW = 380.0
+        if (w < 1000.0) {
+            ch.threadW = 320.0
+        }
+        ch.build()
+        ; in the page's flow, moved to its place (an overlay of its own would
+        ; put the channel's anchored lists, the suggestions, out of place)
+        def frame:EVGElement (UiTree.div("rm-frame" "rm-frame"))
+        UiTree.inline(frame "margin-left" ((EVGDisplayList.num(x)) + "px"))
+        UiTree.inline(frame "margin-top" ((EVGDisplayList.num(y)) + "px"))
+        UiTree.inline(frame "width" ((EVGDisplayList.num(w)) + "px"))
+        UiTree.inline(frame "height" ((EVGDisplayList.num(h)) + "px"))
+        frame.addChild((unwrap ch.rootEl))
+        root.addChild(frame)
+        push host.ctls ch
+        built = true
+    }
+
+    fn page:EVGElement () {
+        if (built == false) {
+            this.rebuild()
+        }
+        def pg:EVGElement (this.layOut())
+        ; the messages' scroll as the layout clamped it; a kept place lays
+        ; them out once more
+        def again:boolean (this.readScroll(pg))
+        if again {
+            this.rebuild()
+            def pg2:EVGElement (this.layOut())
+            this.readScroll(pg2)
+            return pg2
+        }
+        return pg
+    }
+
+    fn layOut:EVGElement () {
+        def r:EVGElement (unwrap host.root)
+        def s:EVGStyleSheet (unwrap host.sheet)
+        s.setViewport(pw ph false)
+        host.markStates(r)
+        s.applyTree(r host.theme)
+        def pg (EVGElement.createDiv())
+        pg.id = "page"
+        pg.width = (EVGUnit.px(pw))
+        pg.height = (EVGUnit.px(ph))
+        pg.addChild(r)
+        def lay (new EVGLayout())
+        lay.setPageSize(pw ph)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        lay.layout(pg)
+        host.placeText((lay.getTextEngine()))
+        host.lastPage = pg
+        return pg
+    }
+
+    fn readScroll:boolean (pg:EVGElement) {
+        def again:boolean false
+        def f@(optional):EVGElement (host.findEl(pg "ch-feed"))
+        if (!null? f) {
+            def fe:EVGElement (unwrap f)
+            if (ch.laidOut(false fe.scrollTop (fe.maxScrollTop()))) {
+                again = true
+            }
+        }
+        def t@(optional):EVGElement (host.findEl(pg "ch-tfeed"))
+        if (!null? t) {
+            def te:EVGElement (unwrap t)
+            if (ch.laidOut(true te.scrollTop (te.maxScrollTop()))) {
+                again = true
+            }
+        }
+        return again
+    }
+
+    fn displayList:EVGDisplayList () {
+        def pg:EVGElement (this.page())
+        def lay (new EVGLayout())
+        lay.setPageSize(pw ph)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(pg)
+        return dl
+    }
+
+    ; --- the pointer -----------------------------------------------------------------------
+
+    fn hitAt:string (px:double py:double) {
+        if ((built == false) || (null? host.lastPage)) {
+            this.page()
+        }
+        return (host.hitTest(px py))
+    }
+
+    ; -> true when the press was the channel's
+    fn press:boolean (px:double py:double clicks:int shift:boolean) {
+        if ((this.has(px py)) == false) {
+            return false
+        }
+        def tid:string (this.hitAt(px py))
+        selecting = false
+        if (ch.textPointerDownAt(tid px py clicks shift)) {
+            selecting = true
+            this.changed()
+            return true
+        }
+        ch.activate(tid)
+        this.changed()
+        return true
+    }
+
+    fn dragTo:void (px:double py:double) {
+        if selecting {
+            ch.textPointerDragAt(px py)
+            rev = (rev + 1)
+            built = false
+        }
+    }
+
+    fn release:void () {
+        if selecting {
+            ch.textPointerUp()
+            selecting = false
+        }
+    }
+
+    ; the pointer moved over the channel: the message under it shows its
+    ; actions. → true when that changed.
+    fn hoverAt:boolean (px:double py:double) {
+        if ((this.has(px py)) == false) {
+            if (ch.hoverSeq != 0) {
+                ch.unhover()
+                this.changed()
+                return true
+            }
+            return false
+        }
+        def before:string ((ch.hoverWhere) + (to_string ch.hoverSeq))
+        def tid:string (this.hitAt(px py))
+        ch.hover(tid)
+        if (((ch.hoverWhere) + (to_string ch.hoverSeq)) != before) {
+            this.changed()
+            return true
+        }
+        return false
+    }
+
+    fn wheel:boolean (px:double py:double dy:double) {
+        if ((this.has(px py)) == false) {
+            return false
+        }
+        def inThread:boolean (((strlen ch.threadId) > 0) && (px >= ((x + w) - ch.threadW)))
+        if (((strlen ch.threadId) > 0) && (w < 720.0)) {
+            inThread = true
+        }
+        ch.scrollBy(inThread dy)
+        this.changed()
+        return true
+    }
+
+    fn cursorAt:string (px:double py:double) {
+        if ((this.has(px py)) == false) {
+            return ""
+        }
+        def tid:string (this.hitAt(px py))
+        if ((((ch.input.owns(tid)) || (ch.tinput.owns(tid))) || (ch.dinput.owns(tid))) || (ch.pinput.owns(tid))) {
+            return "text"
+        }
+        return ""
+    }
+
+    ; --- keys ----------------------------------------------------------------------------------
+
+    fn hasKeys:boolean () {
+        return (open && (ch.hasField()))
+    }
+
+    fn key:void (k:string shift:boolean ctrl:boolean) {
+        ch.keyDownWith("" k shift ctrl)
+        this.changed()
+    }
+
+    fn text:void (s:string) {
+        ch.typeChar("" s)
+        this.changed()
+    }
+
+    fn copyText:string () {
+        return (ch.selectedText())
+    }
+
+    fn selectAll:void () {
+        def f:InputCtl (ch.field())
+        f.selectAll()
+        this.changed()
+    }
+}

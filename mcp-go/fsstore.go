@@ -44,7 +44,11 @@ var (
 )
 
 // engineDB is host.go's DB on a store.Engine
-type engineDB struct{ e store.Engine }
+type engineDB struct {
+	e store.Engine
+	// the rooms' chat, in the same database (roomchat.go)
+	chat store.ChatLog
+}
 
 // the folder server's one tenant
 const localTenant = "local"
@@ -85,7 +89,7 @@ func newFSStore(root, user string) (*engineDB, *localBucket, error) {
 		return nil, nil, err
 	}
 	e := &store.HomeRooms{Engine: docs, Cols: map[string]bool{"shares": true}, Tenant: localTenant, Owner: user}
-	return &engineDB{e}, &localBucket{refs: store.NewFileRefs(docs), blobs: blobs, docs: docs.DB()}, nil
+	return &engineDB{e: e, chat: store.NewSQLiteChat(docs)}, &localBucket{refs: store.NewFileRefs(docs), blobs: blobs, docs: docs.DB()}, nil
 }
 
 // the folder's two databases

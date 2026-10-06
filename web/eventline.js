@@ -122,6 +122,7 @@ export class EventLine {
       if (m.k === "status") this.on.status?.(m.v || {});
       else if (m.k === "changed") this.on.changed?.(m.id || "");
       else if (m.k === "room" && m.v?.t) this.roomEvent(m.v);
+      else if (m.k === "chat" && m.v?.t) this.on.chat?.(m.v);
     };
     ws.onerror = () => {};
     ws.onclose = () => {
@@ -147,6 +148,10 @@ export class EventLine {
     es.addEventListener("status", (ev) => {
       if (es !== this.conn) return;
       try { this.on.status?.(JSON.parse(ev.data)); } catch (_) { /* not one */ }
+    });
+    es.addEventListener("chat", (ev) => {
+      if (es !== this.conn) return;
+      try { this.on.chat?.(JSON.parse(ev.data)); } catch (_) { /* not one */ }
     });
     es.onopen = () => this.opened(es);
     es.onerror = () => { if (es === this.conn) this.on.lost?.(); };
