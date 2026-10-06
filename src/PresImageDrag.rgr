@@ -1,0 +1,270 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresImageDrag.rgr — a picture on the slide resized or moved by hand
+; ============================================================================
+;
+; A picked picture (PresSelect) has handles on its outline:
+;
+;   - an edge or a corner dragged resizes it, its shape kept, never past the
+;     column (the slide's margins) nor the slide's content height. A side or
+;     a corner writes `width=N%` (of the column), the top or the bottom
+;     `height=N%` (of the content height) — the size it is shown at on a
+;     slide (MdLayout.pictureBlock).
+;   - the picture itself dragged sideways sets where it sits in the column:
+;     `align=left`, `center` or `right`, by the third of the column its
+;     middle is let go in.
+;
+; Markdown places nothing absolutely, so these are the only things the hand
+; can change; they are written into the picture's attribute line
+; (PresImageModel) when the drag ends. While it goes on, `x y w h` is the
+; box the picture would get, drawn as a preview.
+;
+; Everything here is in slide units (the layout's), the pointer included.
+; ============================================================================
+
+Import "PresImageModel.rgr"
+
+class PresImageDrag {
+    ; "" nothing held; "move"; "l" "r" "t" "b" "tl" "tr" "bl" "br"
+    def zone:string ""
+    ; past the slop: a drag, not a click
+    def moved:boolean false
+    def slop:double 4.0
+    ; the box at the press
+    def x0:double 0.0
+    def y0:double 0.0
+    def w0:double 0.0
+    def h0:double 0.0
+    ; the column it is laid out in and the height the slide gives content
+    def colX:double 0.0
+    def colW:double 0.0
+    def roomH:double 0.0
+    ; where it sits now: "left" "center" "right"
+    def align:string "center"
+    def startX:double 0.0
+    def startY:double 0.0
+    ; the box it would get now
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    ; what letting go writes: `align` for a move; `width` or `height` (the
+    ; other one taken away) for a resize
+    def outAlign:string ""
+    def outWidth:string ""
+    def outHeight:string ""
+
+    Constructor () {
+    }
+
+    fn active:boolean () {
+        return ((strlen zone) > 0)
+    }
+
+    ; The handle under (px, py) of the box (bx, by, bw, bh): an edge or a
+    ; corner within `grip` of the outline, "move" inside it, "" outside.
+    sfn zoneAt:string (bx:double by:double bw:double bh:double px:double py:double grip:double) {
+        if ((((px < (bx - grip)) || (px > ((bx + bw) + grip))) || (py < (by - grip))) || (py > ((by + bh) + grip))) {
+            return ""
+        }
+        def nearL:boolean (px <= (bx + grip))
+        def nearR:boolean (px >= ((bx + bw) - grip))
+        def nearT:boolean (py <= (by + grip))
+        def nearB:boolean (py >= ((by + bh) - grip))
+        ; a box narrower than two grips: the nearer side
+        if (nearL && nearR) {
+            nearL = (px < (bx + (bw * 0.5)))
+            nearR = (nearL == false)
+        }
+        if (nearT && nearB) {
+            nearT = (py < (by + (bh * 0.5)))
+            nearB = (nearT == false)
+        }
+        if (nearT && nearL) { return "tl" }
+        if (nearT && nearR) { return "tr" }
+        if (nearB && nearL) { return "bl" }
+        if (nearB && nearR) { return "br" }
+        if nearL { return "l" }
+        if nearR { return "r" }
+        if nearT { return "t" }
+        if nearB { return "b" }
+        return "move"
+    }
+
+    ; The pointer's shape over a handle (CSS cursor names).
+    sfn cursorOf:string (z:string) {
+        if ((z == "l") || (z == "r")) { return "ew-resize" }
+        if ((z == "t") || (z == "b")) { return "ns-resize" }
+        if ((z == "tl") || (z == "br")) { return "nwse-resize" }
+        if ((z == "tr") || (z == "bl")) { return "nesw-resize" }
+        if (z == "move") { return "move" }
+        return ""
+    }
+
+    ; An `align=` word as the three places: "left", "center", "right".
+    sfn placeOf:string (a:string) {
+        if ((a == "left") || ((a == "start") || (a == "flex-start"))) { return "left" }
+        if ((a == "right") || ((a == "end") || (a == "flex-end"))) { return "right" }
+        return "center"
+    }
+
+    ; The place a middle at `cx` picks: the third of the column it is in.
+    sfn alignAt:string (cx:double cX:double cW:double) {
+        if (cW <= 0.0) {
+            return "center"
+        }
+        def t:double ((cx - cX) / cW)
+        if (t < (1.0 / 3.0)) { return "left" }
+        if (t > (2.0 / 3.0)) { return "right" }
+        return "center"
+    }
+
+    ; A share as a whole percentage, 5…100.
+    sfn pct:string (part:double whole:double) {
+        if (whole <= 0.0) {
+            return ""
+        }
+        def p:int (to_int (((part / whole) * 100.0) + 0.5))
+        if (p < 5) { p = 5 }
+        if (p > 100) { p = 100 }
+        return ((to_string p) + "%")
+    }
+
+    fn begin:void (z:string bx:double by:double bw:double bh:double cX:double cW:double rH:double place:string px:double py:double) {
+        zone = z
+        moved = false
+        x0 = bx
+        y0 = by
+        w0 = bw
+        h0 = bh
+        colX = cX
+        colW = cW
+        roomH = rH
+        align = (PresImageDrag.placeOf(place))
+        startX = px
+        startY = py
+        x = bx
+        y = by
+        w = bw
+        h = bh
+        outAlign = ""
+        outWidth = ""
+        outHeight = ""
+    }
+
+    fn cancel:void () {
+        zone = ""
+        moved = false
+    }
+
+    ; the box's left edge at width `bw` where `a` puts it in the column
+    fn leftFor:double (a:string bw:double) {
+        if (a == "left") {
+            return colX
+        }
+        if (a == "right") {
+            return ((colX + colW) - bw)
+        }
+        return (colX + ((colW - bw) * 0.5))
+    }
+
+    fn moveTo:void (px:double py:double) {
+        if ((strlen zone) == 0) {
+            return
+        }
+        def dx:double (px - startX)
+        def dy:double (py - startY)
+        if (moved == false) {
+            if (((dx * dx) + (dy * dy)) < (slop * slop)) {
+                return
+            }
+            moved = true
+        }
+        if (zone == "move") {
+            def a:string (PresImageDrag.alignAt(((x0 + (w0 * 0.5)) + dx) colX colW))
+            outAlign = a
+            w = w0
+            h = h0
+            x = (this.leftFor(a w0))
+            y = y0
+            return
+        }
+        if ((w0 <= 0.0) || (h0 <= 0.0)) {
+            return
+        }
+        def ratio:double (h0 / w0)
+        def least:double 24.0
+        if ((zone == "t") || (zone == "b")) {
+            def dh:double dy
+            if (zone == "t") {
+                dh = (0.0 - dy)
+            }
+            def nh:double (h0 + dh)
+            if ((roomH > 0.0) && (nh > roomH)) { nh = roomH }
+            if (nh < least) { nh = least }
+            def nw:double (nh / ratio)
+            if (nw > colW) {
+                nw = colW
+                nh = (nw * ratio)
+            }
+            w = nw
+            h = nh
+            outHeight = (PresImageDrag.pct(nh roomH))
+            outWidth = ""
+        } {
+            ; a side or a corner: the width; a centred picture grows on both
+            ; sides, so the edge follows the pointer
+            def dw:double dx
+            if (((zone == "l") || (zone == "tl")) || (zone == "bl")) {
+                dw = (0.0 - dx)
+            }
+            if (align == "center") {
+                dw = (dw * 2.0)
+            }
+            def nw2:double (w0 + dw)
+            if (nw2 > colW) { nw2 = colW }
+            if (nw2 < least) { nw2 = least }
+            def nh2:double (nw2 * ratio)
+            if ((roomH > 0.0) && (nh2 > roomH)) {
+                nh2 = roomH
+                nw2 = (nh2 / ratio)
+            }
+            w = nw2
+            h = nh2
+            outWidth = (PresImageDrag.pct(nw2 colW))
+            outHeight = ""
+        }
+        x = (this.leftFor(align w))
+        ; the top stays: a slide's blocks flow down from it
+        y = y0
+    }
+
+    ; What the drag asks of the picture, written into `m`; whether that
+    ; changes anything.
+    fn apply:boolean (m:PresImageModel) {
+        if ((moved == false) || ((strlen zone) == 0)) {
+            return false
+        }
+        if (zone == "move") {
+            if ((strlen outAlign) == 0) {
+                return false
+            }
+            ; let go where it already sits
+            if (outAlign == align) {
+                return false
+            }
+            m.align = outAlign
+            return true
+        }
+        if (((strlen outWidth) == 0) && ((strlen outHeight) == 0)) {
+            return false
+        }
+        if ((m.width == outWidth) && (m.height == outHeight)) {
+            return false
+        }
+        m.width = outWidth
+        m.height = outHeight
+        return true
+    }
+}

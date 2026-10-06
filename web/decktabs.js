@@ -13,6 +13,9 @@
 //
 // The row lasts over a reload of the tab: sessionStorage, DECK_TABS_KEY, in
 // PresApp.deckTabsState's form (the key in front, then "<key>\t<label>").
+// The tab of a deck that cannot come back is not in it: its key (a new id
+// each time such a deck is opened) would be a tab of its own after the
+// reload, beside the one the deck opened again gets.
 
 export const DECK_TABS_KEY = "sliqtly.deckTabs";
 
@@ -38,6 +41,13 @@ export function reopenPlan(key) {
 /** A label as a tab can carry it: one line, no tab character. */
 export function tabLabel(name) {
   return String(name || "").replace(/[\t\r\n]+/g, " ").trim() || "presentation";
+}
+
+/** The row as kept over a reload: `state` without the tab of key `gone`. */
+export function rowToKeep(state, gone) {
+  if (!gone) return state || "";
+  const lines = String(state || "").split("\n");
+  return [lines[0], ...lines.slice(1).filter((l) => l.split("\t")[0] !== gone)].join("\n");
 }
 
 export function readDeckTabs(storage) {

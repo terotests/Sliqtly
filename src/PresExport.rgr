@@ -207,7 +207,13 @@ class PresExport {
                 def cmd:EVGDrawCmd (itemAt dl.cmds c)
                 def keep:boolean true
                 if (cmd.kind == 2) {
-                    keep = (PresExport.pdfImage(renderer e cmd.src known missing))
+                    ; an SVG picture shown whole is drawn as its paths
+                    ; (`vectorize` below); the rest as pixels
+                    if (this.svgWhole(cmd)) {
+                        keep = true
+                    } {
+                        keep = (PresExport.pdfImage(renderer e cmd.src known missing))
+                    }
                 }
                 if keep {
                     push kept cmd
@@ -215,11 +221,40 @@ class PresExport {
                 c = (c + 1)
             }
             dl.cmds = kept
-            section.addChild((EVGListToElements.pageFrom(dl pw ph bg true)))
+            def pageEl:EVGElement (EVGListToElements.pageFrom(dl pw ph bg true))
+            this.vectorize(pageEl)
+            section.addChild(pageEl)
             i = (i + 1)
         }
         deck.still = false
         return (renderer.render(root))
+    }
+
+    ; A picture command the PDF draws from the SVG's paths: an SVG the
+    ; importer reads in full, shown whole (not cropped, not mirrored).
+    fn svgWhole:boolean (cmd:EVGDrawCmd) {
+        if ((cmd.hasCrop || cmd.flipH) || cmd.flipV) {
+            return false
+        }
+        return (deck.svgVector(cmd.src))
+    }
+
+    ; The page's pictures that are such SVGs turned into the SVG drawing in
+    ; the same box and the same place in the order: the PDF writer draws its
+    ; paths (EVGPDFRenderer.renderSvgDocument), sharp at any zoom.
+    fn vectorize:void (pageEl:EVGElement) {
+        def k:int 0
+        while (k < (array_length pageEl.children)) {
+            def el:EVGElement (itemAt pageEl.children k)
+            if ((el.tagName == "img") && (deck.svgVector(el.src))) {
+                def at:int (deck.svgIndex(el.src))
+                el.tagName = "svg"
+                el.elementType = 3
+                el.svgSource = (itemAt deck.svgTexts at)
+                el.src = ""
+            }
+            k = (k + 1)
+        }
     }
 
     ; Whether the PDF can draw the picture at `src`: registered with the
@@ -271,6 +306,7 @@ class PresExport {
                 this.stillSmartArt(ps s i unit)
                 this.slideArt(ps s i unit)
                 PresExport.dressSlide(ps s)
+                this.svgPictures(ps.shapes)
                 ; the slide's effect, rendered by the host, as its background
                 def si:int 0
                 while (si < (array_length stillIdx)) {
@@ -299,6 +335,41 @@ class PresExport {
             d.pres.slides = kept
         }
         return (d.save())
+    }
+
+    ; The deck's SVG pictures as SVGs: PowerPoint and LibreOffice draw the
+    ; vector, and the PNG beside it (for readers that cannot) is the small
+    ; one, not the full-slide one the stage draws from.
+    fn svgPictures:void (shapes:[PptxShape]) {
+        def k:int 0
+        while (k < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes k)
+            if (sh.kind == (PptxShapeKind.picture())) {
+                def at:int (deck.svgIndex(sh.imagePart))
+                if (at >= 0) {
+                    sh.svgBytes = (itemAt deck.svgBytes at)
+                    sh.svgPart = sh.imagePart
+                    def small:buffer (itemAt deck.svgSmall at)
+                    if ((buffer_length small) > 0) {
+                        sh.imageBytes = small
+                        sh.imagePart = ((PresExport.withoutExt(sh.imagePart)) + ".png")
+                    }
+                }
+            }
+            if ((array_length sh.children) > 0) {
+                this.svgPictures(sh.children)
+            }
+            k = (k + 1)
+        }
+    }
+
+    sfn withoutExt:string (p:string) {
+        def dot:int (lastIndexOf p ".")
+        def slash:int (lastIndexOf p "/")
+        if (dot > slash) {
+            return (substring p 0 dot)
+        }
+        return p
     }
 
     ; The faces the stage draws with are shipped with the page, not with
