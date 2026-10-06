@@ -30,7 +30,6 @@
 .hp-grow { flex-grow: 1; }
 .hp-xroom { width: 22px; min-width: 22px; height: 22px; flex-shrink: 0; }
 .hp-warnhead { padding-top: 0; border-top: 0px solid #ffffff; }
-.theme-hp .hp-x { height: 22px; width: 22px; min-width: 22px; padding: 0; flex-shrink: 0; border-color: #ffffff; }
 .hp-tip { font-size: 11px; color: #71717a; width: 100%; }
 
 .hp-props { display: flex; flex-direction: column; gap: 1px; width: 100%; }
@@ -50,6 +49,10 @@
 .theme-hp .ui-button-label { font-weight: 500; font-size: 12px; color: #09090b; }
 .theme-hp .hp-onprimary { color: #fafafa; }
 .theme-hp .hp-ondanger { color: #ffffff; }
+/* the corner × and ‹: after the button rules above, which have the same
+   weight — before them the 28px height and 10px sides won, and a 22px
+   button had no room left for its glyph, drawn right of centre */
+.theme-hp .hp-x { height: 22px; width: 22px; min-width: 22px; padding: 0; flex-shrink: 0; border-color: #ffffff; }
 
 .theme-hp .ui-slider { width: 160px; min-width: 160px; flex-shrink: 0; }
 .theme-hp .ui-slider-track { width: 160px; background-color: #e4e4e7; }

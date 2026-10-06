@@ -1590,6 +1590,28 @@ try {
   });
   check("a selector's popover lists its properties", !!selHint && selHint.kind === "selector" && selHint.props.includes("padding=") && selHint.props.includes("background-image+"), JSON.stringify(selHint));
 
+  // The card's corner × sits in the middle of its button. `.theme-hp .hp-x`
+  // came before the general button rule of the same weight, so the 22px
+  // button kept 10px sides, its label got no width and the × was drawn from
+  // the centre rightwards.
+  const closeX = await page.evaluate(() => {
+    const a = window.__app;
+    a.showTab("css");
+    const lines = a.themeCss().split("\n");
+    const ln = lines.findIndex((l) => /^\s*padding:/.test(l));
+    const h = JSON.parse(a.hintFor(ln, 4) || "null");
+    a.openHint(JSON.stringify(h));
+    a.hintJson();
+    const walk = (e) => { if (e.id === "hp-close") return e; for (const c of e.children || []) { const f = walk(c); if (f) return f; } return null; };
+    const b = walk(a.hint.host.lastPage);
+    const t = b && b.children && b.children[0];
+    a.closeHint();
+    a.showTab("md");
+    if (!t) return null;
+    return { w: b.calculatedWidth, h: b.calculatedHeight, tw: t.calculatedWidth, dx: (t.calculatedX + t.calculatedWidth / 2) - (b.calculatedX + b.calculatedWidth / 2), dy: (t.calculatedY + t.calculatedHeight / 2) - (b.calculatedY + b.calculatedHeight / 2) };
+  });
+  check("the popover's × is in the middle of its 22px button", !!closeX && closeX.w === 22 && closeX.h === 22 && closeX.tw > 0 && Math.abs(closeX.dx) < 0.5 && Math.abs(closeX.dy) < 0.5, JSON.stringify(closeX));
+
   // …and its doc line under the pointer never moves the rows: the card keeps the
   // tallest line's height, also when it sits above the value near the bottom
   const selHover = await page.evaluate(() => {
