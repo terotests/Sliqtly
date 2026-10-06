@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -268,4 +269,95 @@ func signInAs(f fb, tok, uid, name string) string {
 	sum := sha256.Sum256([]byte(tok))
 	f.db.Set(context.Background(), "mcp_oauth_tokens", hex.EncodeToString(sum[:]), Doc{"uid": uid, "name": name, "kind": "access", "exp": time.Now().Add(time.Hour).UnixMilli()})
 	return tok
+}
+
+// What one caller may keep on a shared server (Tero, 2026-10-06): decks per
+// session without sign-in and per account, slides per deck, a deck's bytes,
+// and drawings at once.
+func TestLimitsPerCaller(t *testing.T) {
+	f := fakeFirebase()
+	anon := start(t, testEnv(&f, nil), "")
+	defer anon.close()
+	for i := 1; i <= 3; i++ {
+		if c := call(t, anon, "create_presentation", map[string]any{"title": "A", "markdown": "# A"}); c.IsError {
+			t.Fatal(textOf(c))
+		}
+	}
+	match(t, textOf(call(t, anon, "create_presentation", map[string]any{"title": "A", "markdown": "# A"})), `without sign-in one conversation makes at most 3 presentations`)
+
+	long := func(n int) string {
+		md := "# Long"
+		for i := 2; i <= n; i++ {
+			md += fmt.Sprintf("\n\n## Slide %d\n\nText.", i)
+		}
+		return md
+	}
+	other := start(t, testEnv(&f, nil), "")
+	defer other.close()
+	match(t, textOf(call(t, other, "create_presentation", map[string]any{"title": "L", "markdown": long(21)})), `21 slides; a presentation has at most 20.*sign in for up to 100`)
+	ok := call(t, other, "create_presentation", map[string]any{"title": "L", "markdown": long(20)})
+	if ok.IsError {
+		t.Fatal(textOf(ok))
+	}
+	match(t, textOf(call(t, other, "update_presentation", map[string]any{"deck_id": sc(ok)["deck_id"], "markdown": long(22)})), `22 slides; a presentation has at most 20`)
+
+	me := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer me.close()
+	if c := call(t, me, "create_presentation", map[string]any{"title": "L", "markdown": long(60)}); c.IsError {
+		t.Fatal(textOf(c))
+	}
+	// a deck's pictures and files together: 200 MB
+	f.db.Set(context.Background(), "shares", "BigDeck001", Doc{"owner": "u1", "md": "# Big", "theme": "aurora", "visibility": "private",
+		"files": []any{map[string]any{"path": "data/huge.csv", "type": "text/csv", "size": int64(200 << 20), "url": "x"}}})
+	match(t, textOf(call(t, me, "update_presentation", map[string]any{"deck_id": "BigDeck001", "files": []any{map[string]any{"name": "more.csv", "text": "a,b\n1,2\n"}}})), `would come to 200 MB; one presentation keeps at most 200 MB`)
+	if r := call(t, me, "update_presentation", map[string]any{"deck_id": "BigDeck001", "files": []any{map[string]any{"name": "huge.csv", "text": "a,b\n1,2\n"}}}); r.IsError {
+		t.Fatal("replacing the big file refused: " + textOf(r))
+	}
+	// an account's decks: 50
+	for i := 0; i < 50; i++ {
+		f.db.Set(context.Background(), "shares", fmt.Sprintf("Many%06d", i), Doc{"owner": "u1", "md": "# M"})
+	}
+	match(t, textOf(call(t, me, "create_presentation", map[string]any{"title": "M", "markdown": "# M"})), `already keeps 5[0-9] presentations, the most it may`)
+}
+
+// At most two drawings at once per caller; a daily count per caller and per
+// address on top (dailyRenders).
+func TestRenderSlotsAndDailyRenders(t *testing.T) {
+	r := &renderSlots{max: 2, lease: time.Minute, held: map[string][]time.Time{}}
+	if !r.take("a") || !r.take("a") || r.take("a") {
+		t.Fatal("two at once")
+	}
+	if !r.take("b") {
+		t.Fatal("another caller waits for a")
+	}
+	r.give("a")
+	if !r.take("a") {
+		t.Fatal("a slot given back")
+	}
+	stale := &renderSlots{max: 1, lease: time.Millisecond, held: map[string][]time.Time{}}
+	stale.take("a")
+	time.Sleep(3 * time.Millisecond)
+	if !stale.take("a") {
+		t.Fatal("a slot never given back frees itself")
+	}
+
+	db := newFakeDB()
+	day := func() time.Time { return time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC) }
+	q := dailyRenders(db, 2, 3, day)
+	ctx := context.Background()
+	for i := 0; i < 2; i++ {
+		eq(t, q(ctx, "1.2.3.4", "1.2.3.4"), "")
+	}
+	match(t, q(ctx, "1.2.3.4", "1.2.3.4"), `daily limit of 2 pictures and exports from here.*sign in`)
+	for i := 0; i < 3; i++ {
+		eq(t, q(ctx, "uid:u1", "5.6.7.8"), "")
+	}
+	match(t, q(ctx, "uid:u1", "5.6.7.8"), `daily limit of 3 pictures`)
+	// the address: twice an account's count (6), whichever accounts
+	for i := 0; i < 2; i++ {
+		eq(t, q(ctx, "uid:u2", "5.6.7.8"), "")
+	}
+	eq(t, q(ctx, "uid:u3", "5.6.7.8"), "")
+	match(t, q(ctx, "uid:u3", "5.6.7.8"), `daily limit of 3`)
+	eq(t, q(ctx, "uid:u3", "9.9.9.9"), "")
 }

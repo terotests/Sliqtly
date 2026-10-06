@@ -129,6 +129,21 @@ On Cloud Run the platform adds its own start-up to both. Firestore and Storage
 calls take the same time from either language and were not part of the load
 test.
 
+## Who may do what, and how much
+
+The deck id locates a deck and grants nothing. A signed-in user's deck is
+read and changed by its owner (`visibility: "link"` lets anyone read it);
+a deck made without sign-in is read by anyone with its id and changed only
+by the MCP session that made it (`mcp_sessions/{sha256(Mcp-Session-Id)}`,
+a day after its last change, or until `DELETE /mcp`). On a shared server
+(`rgr/Store.rgr` `Limits`, `host.go` `dailyQuota`/`dailyRenders`): 3 decks
+per session without sign-in and 50 per account, 20 / 100 slides per deck,
+200 MB of pictures and files per deck, decks without sign-in deleted 7
+days after their last change, 50 / 500 saved changes a day, 100 / 500
+drawings (render_slide, render_overview, export_presentation) a day per
+caller, a signed-in user's address 1000, at most two drawings at once per
+caller. A server of one's own has none of these.
+
 ## Run and test
 
 ```

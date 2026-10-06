@@ -255,6 +255,7 @@ class App {
             caller.name = local
         }
         caller.who = (App.clientIp(host req))
+        caller.ip = caller.who
         if caller.signedIn {
             caller.who = ("uid:" + caller.uid)
         }

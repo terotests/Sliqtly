@@ -35,6 +35,8 @@ class Caller {
     def who:string ""
     ; the MCP session's record (Store.sessionKey), "" without one
     def session:string ""
+    ; the client's address
+    def ip:string ""
 }
 
 ; the stored deck a caller may change, or why not
@@ -557,6 +559,70 @@ class Tools {
         return r
     }
 
+    ; --- what one caller may keep (Limits in Store.rgr): on a shared
+    ; server, not on a server of one's own
+
+    sfn limited:boolean (host:McpHost) {
+        return (((host_store_kind host) != "link") && ((strlen (host_local_user host)) == 0))
+    }
+
+    ; why this caller may not make another deck, or "" (a storage error is
+    ; left on the host)
+    sfn decksFull:string (host:McpHost caller:Caller) {
+        if caller.signedIn {
+            def mine:MfJ (J.parse((host_query_eq host "shares" "owner" caller.uid)))
+            if ((mine.count()) >= (Limits.USER_DECKS())) {
+                return ("Not created: this Sliqtly account already keeps " + (to_string (mine.count())) + " presentations, the most it may. Ask the user to delete some they no longer need (in the Sliqtly editor), or change one of them with update_presentation.")
+            }
+            return ""
+        }
+        if ((Store.sessionCount(host caller.session)) >= (Limits.ANON_DECKS())) {
+            return ("Not created: without sign-in one conversation makes at most " + (to_string (Limits.ANON_DECKS())) + " presentations. Change one of them with update_presentation, or sign in (Google) to keep more.")
+        }
+        return ""
+    }
+
+    ; why a deck of n slides is too long for this caller, or ""
+    sfn slidesOver:string (caller:Caller n:int) {
+        def max:int (Limits.slides(caller.signedIn))
+        if (n <= max) {
+            return ""
+        }
+        def more:string ""
+        if (caller.signedIn == false) {
+            more = (", or sign in for up to " + (to_string (Limits.USER_SLIDES())))
+        }
+        return ("Not saved: " + (to_string n) + " slides; a presentation has at most " + (to_string max) + ". Shorten it or split it into two" + more + ".")
+    }
+
+    ; the bytes of a deck's pictures and files once kept are saved: the
+    ; stored ones that kept do not replace, and kept
+    sfn bytesAfter:int (cur:MfJ kept:[Img]) {
+        def paths:[string]
+        def n:int 0
+        for kept k:Img i {
+            def path:string ("media/" + k.name)
+            if ((strlen k.path) > 0) {
+                path = k.path
+            }
+            push paths path
+            n = (n + k.size)
+        }
+        for (cur.list("files")) f:MfJ j {
+            if ((Deck.inList(paths (f.str_("path")))) == false) {
+                n = (n + (f.int_("size" 0)))
+            }
+        }
+        return n
+    }
+
+    sfn bytesOver:string (n:int) {
+        if (n <= (Limits.DECK_BYTES())) {
+            return ""
+        }
+        return ("Not saved: the presentation's pictures and files would come to " + (to_string (to_int ((to_double n) / 1048576.0))) + " MB; one presentation keeps at most " + (to_string (to_int ((to_double (Limits.DECK_BYTES())) / 1048576.0))) + " MB. Leave some out or make them smaller.")
+    }
+
     ; the visibility asked for: "" when left out, "bad" when it is not
     ; private or link
     sfn visibilityArg:string (a:MfJ) {
@@ -638,7 +704,7 @@ class Tools {
             }
         } {
             if (out.has("deck_id")) {
-                push lines "Not signed in: anyone with the link can view it; only this conversation's Sliqtly session can change it, until the session ends or goes unused for a day. It is deleted 30 days after its last change. Sign in to keep it, or to add pictures and files."
+                push lines "Not signed in: anyone with the link can view it; only this conversation's Sliqtly session can change it, until the session ends or goes unused for a day. It is deleted 7 days after its last change. Sign in to keep it, or to add pictures and files."
             }
         }
         if ((out.str_("visibility")) == "private") {
@@ -1157,6 +1223,14 @@ class Tools {
                 return (Tools.fail(why))
             }
         }
+        ; drawing costs the most: counted a day, two at once
+        def draws:boolean (((name == "render_slide") || (name == "render_overview")) || (name == "export_presentation"))
+        if draws {
+            def whyR:string (host_render_limit host caller.who caller.ip)
+            if ((strlen whyR) > 0) {
+                return (Tools.fail(whyR))
+            }
+        }
         def r:MfJ (new MfJ)
         if (name == "create_presentation") {
             r = (Tools.create(host caller args))
@@ -1211,6 +1285,9 @@ class Tools {
         }
         if (name == "end_work") {
             r = (Tools.endWork(host caller args))
+        }
+        if draws {
+            host_render_done host caller.who
         }
         if (r.kind == 0) {
             return r
@@ -1273,6 +1350,15 @@ class Tools {
                 vis = "private"
             }
         }
+        if (Tools.limited(host)) {
+            def full:string (Tools.decksFull(host caller))
+            if ((strlen (host_error host)) > 0) {
+                return (Tools.failed(host "create_presentation" (host_error host)))
+            }
+            if ((strlen full) > 0) {
+                return (Tools.fail(full))
+            }
+        }
         def md:string (a.str_("markdown"))
         def theme:string "aurora"
         if (Tools.has(a "theme")) {
@@ -1303,6 +1389,17 @@ class Tools {
         if ((strlen data.err) > 0) {
             return (Tools.fail(data.err))
         }
+        def all:[Img]
+        for loaded.imgs ai:Img ak {
+            push all ai
+        }
+        for data.imgs di0:Img dk0 {
+            push all di0
+        }
+        def over:string (Tools.bytesOver((Tools.bytesAfter((MfJ.newObj()) all))))
+        if ((strlen over) > 0) {
+            return (Tools.fail(over))
+        }
         def names:[string]
         for loaded.imgs im:Img i {
             push names im.name
@@ -1312,6 +1409,12 @@ class Tools {
         def none2:[string]
         def bgs:CheckPics (Tools.backgrounds(host md loaded.imgs ""))
         def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css bgs data.imgs "" none2))
+        if (Tools.limited(host)) {
+            def long:string (Tools.slidesOver(caller ck.slides))
+            if ((strlen long) > 0) {
+                return (Tools.fail(long))
+            }
+        }
         for ck.warnings cw:string ci {
             push ws cw
         }
@@ -1497,6 +1600,18 @@ class Tools {
         }
         for data.imgs di:Img dk {
             push kept di
+        }
+        if (Tools.limited(host)) {
+            if p.hasMd {
+                def long:string (Tools.slidesOver(caller (array_length (Check.slideStarts(host p.md (Tools.sheetOf(host cur)))))))
+                if ((strlen long) > 0) {
+                    return (Tools.fail(long))
+                }
+            }
+            def over:string (Tools.bytesOver((Tools.bytesAfter(cur kept))))
+            if ((strlen over) > 0) {
+                return (Tools.fail(over))
+            }
         }
         ; edits are made on the deck as it is now: they need no base version
         def ws:WorkSave (Tools.saveWork(host a id cur p kept ((a.field("edits")).kind != 0)))
@@ -2179,6 +2294,12 @@ class Tools {
         im.size = (made.int_("size" 0))
         def kept:[Img]
         push kept im
+        if (Tools.limited(host)) {
+            def over:string (Tools.bytesOver((Tools.bytesAfter(ed.cur kept))))
+            if ((strlen over) > 0) {
+                return (Tools.fail(over))
+            }
+        }
         def saved:MfJ (Store.update(host id (new DeckPatch) kept))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "write_workbook" (host_error host)))
@@ -2340,6 +2461,12 @@ class Tools {
             note = (note + " Uses pointed at the SVG: " + (to_string inMd) + " in the Markdown, " + (to_string inCss) + " in the theme CSS. " + path + " stays in the files.")
         } {
             note = (note + " Nothing points at it yet: use it as ![](" + target + ") or url(" + target + ").")
+        }
+        if (Tools.limited(host)) {
+            def over:string (Tools.bytesOver((Tools.bytesAfter(ed.cur kept))))
+            if ((strlen over) > 0) {
+                return (Tools.fail(over))
+            }
         }
         def saved:MfJ (Store.update(host id p kept))
         if ((strlen (host_error host)) > 0) {

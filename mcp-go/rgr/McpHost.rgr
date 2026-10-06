@@ -430,6 +430,20 @@ operators {
             go ( (e 1) ".RateLimit(" (e 2) ")" )
         }
     }
+    ; "" when this caller may draw now (render_slide, render_overview,
+    ; export_presentation): a daily count per caller and per address, and
+    ; at most two at once per caller; else why not. host_render_done when
+    ; it is drawn.
+    host_render_limit _:string (h:McpHost who:string ip:string) {
+        templates {
+            go ( (e 1) ".RenderLimit(" (e 2) ", " (e 3) ")" )
+        }
+    }
+    host_render_done _:void (h:McpHost who:string) {
+        templates {
+            go ( (e 1) ".RenderDone(" (e 2) ")" )
+        }
+    }
     ; "" or why a visit beacon from this address is not counted (sliding
     ; window per instance)
     host_hit_limit _:string (h:McpHost who:string) {

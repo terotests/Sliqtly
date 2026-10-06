@@ -19,6 +19,41 @@ Import "McpHost.rgr"
 Import "McpJson.rgr"
 Import "Deck.rgr"
 
+; What one caller may keep (Tero 2026-10-06: an open test, so that one
+; script cannot run up the bill). The daily counts of changes and of
+; drawings are the host's (host.go dailyQuota, dailyRenders). A server of
+; one's own has none of these.
+class Limits {
+    ; decks one session without sign-in holds; a signed-in user's decks
+    sfn ANON_DECKS:int () {
+        return 3
+    }
+    sfn USER_DECKS:int () {
+        return 50
+    }
+    ; slides in one deck
+    sfn ANON_SLIDES:int () {
+        return 20
+    }
+    sfn USER_SLIDES:int () {
+        return 100
+    }
+    ; all of one deck's pictures and files together (bytes)
+    sfn DECK_BYTES:int () {
+        return ((200 * 1024) * 1024)
+    }
+    ; days a deck made without sign-in is kept after its last change
+    sfn ANON_DAYS:int () {
+        return 7
+    }
+    sfn slides:int (signedIn:boolean) {
+        if signedIn {
+            return (Limits.USER_SLIDES())
+        }
+        return (Limits.ANON_SLIDES())
+    }
+}
+
 class Created {
     def id:string ""
     def err:string ""
@@ -52,10 +87,10 @@ class Store {
         return t
     }
 
-    ; a deck nobody signed in for is deleted 30 days after its last change
+    ; a deck nobody signed in for is deleted 7 days after its last change
     ; (Firestore's TTL policy on `expires`: firestore.indexes.json)
     sfn anonExpires:MfJ (host:McpHost) {
-        return (J.timeAt(((host_now_ms host) + ((((30 * 24) * 60) * 60) * 1000))))
+        return (J.timeAt(((host_now_ms host) + ((((Limits.ANON_DAYS()) * 24) * 60) * 60) * 1000)))
     }
 
     sfn validId:boolean (id:string) {
@@ -90,10 +125,6 @@ class Store {
         return (((24 * 60) * 60) * 1000)
     }
 
-    ; the most decks one session holds
-    sfn SESSION_DECKS:int () {
-        return 20
-    }
 
     ; the session's record id: the hash of its id (sid as the client sends
     ; it), "" for none
@@ -134,7 +165,7 @@ class Store {
             ids = (J.strList((d.field("decks"))))
         }
         if ((Deck.inList(ids id)) == false) {
-            if ((array_length ids) >= (Store.SESSION_DECKS())) {
+            if ((array_length ids) >= (Limits.ANON_DECKS())) {
                 return false
             }
             push ids id
@@ -146,6 +177,18 @@ class Store {
         doc.put("expires" (J.timeAt(exp)))
         host_set_doc host "mcp_sessions" key (JOut.text(doc))
         return ((strlen (host_error host)) == 0)
+    }
+
+    ; how many decks the session holds now
+    sfn sessionCount:int (host:McpHost key:string) {
+        if ((strlen key) == 0) {
+            return 0
+        }
+        def d:MfJ (J.parse((host_get_doc host "mcp_sessions" key)))
+        if (((d.isObj()) == false) || ((d.int_("exp" 0)) <= (host_now_ms host))) {
+            return 0
+        }
+        return (array_length (J.strList((d.field("decks")))))
     }
 
     ; the session is over: what it held goes with it

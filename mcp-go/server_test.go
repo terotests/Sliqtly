@@ -1175,7 +1175,7 @@ func storedTime(t *testing.T, v any) time.Time {
 	return tm
 }
 
-func TestWithoutSignInTextOnlyAndDeletedAfter30Days(t *testing.T) {
+func TestWithoutSignInTextOnlyAndDeletedAfter7Days(t *testing.T) {
 	f := fakeFirebase()
 	s := start(t, withSignIn(testEnv(&f, nil)), "")
 	defer s.close()
@@ -1195,13 +1195,13 @@ func TestWithoutSignInTextOnlyAndDeletedAfter30Days(t *testing.T) {
 		t.Fatal("bytes were saved")
 	}
 	c := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": "# x"})
-	match(t, textOf(c), `deleted 30 days after its last change`)
+	match(t, textOf(c), `deleted 7 days after its last change`)
 	out := sc(c)
 	id := out["deck_id"].(string)
-	in30 := time.Now().Add(30 * 24 * time.Hour)
+	in7 := time.Now().Add(7 * 24 * time.Hour)
 	for _, col := range []string{"shares/"} {
-		if d := storedTime(t, f.db.doc(col + id)["expires"]).Sub(in30); d < -time.Minute || d > time.Minute {
-			t.Fatalf("%s expires %v off 30 days", col, d)
+		if d := storedTime(t, f.db.doc(col + id)["expires"]).Sub(in7); d < -time.Minute || d > time.Minute {
+			t.Fatalf("%s expires %v off 7 days", col, d)
 		}
 	}
 	match(t, textOf(call(t, s, "update_presentation", map[string]any{"deck_id": id, "images": []any{map[string]any{"name": "cat.png", "url": "https://images.test/cat.png"}}})), `needs sign-in`)
