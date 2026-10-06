@@ -415,6 +415,16 @@ journalctl -u sliqtly -f
 A newer package installed the same way restarts the service; decks and
 settings stay. `apt remove` stops it and leaves the decks.
 
+That is the PRO package (the editor built in), which is not public. The
+Personal package, `sliqtly-personal`, is the one anyone can download
+(sliqtly.com/download/sliqtly-personal_amd64.deb, the front page's "Wanna
+run local?"): the same server with the public viewer built in instead of the
+editor (`npm run build:view`, `SLIQTLY_BUILD_WEB=viewer go generate`,
+`EDITION=personal packaging/build-deb.sh …`), listening on this computer
+only, its front page the list of decks, under its own license
+(`packaging/personal/LICENSE`). The **Personal package** workflow builds and
+uploads it. Either package replaces the other.
+
 ### Connecting an assistant
 
 Claude Code:

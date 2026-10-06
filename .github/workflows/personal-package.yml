@@ -1,0 +1,139 @@
+# The Personal package: sliqtly-personal_<version>_<arch>.deb for amd64 and
+# arm64 (mcp-go/packaging/build-deb.sh with EDITION=personal): the server
+# with the public viewer built in and no editor, listening on this computer
+# only. Anyone may download it: the files go to the Storage bucket under
+# downloads/personal/, which storage.rules lets anyone read, and
+# sliqtly.com/download/sliqtly-personal_<arch>.deb (firebase.json) sends a
+# browser to the latest one. The front page links there ("Wanna run local?").
+#
+#   curl -fLo /tmp/sliqtly-personal.deb https://sliqtly.com/download/sliqtly-personal_amd64.deb
+#   sudo apt install /tmp/sliqtly-personal.deb
+#
+# The PRO package (server-package.yml: the editor built in) is a different
+# package, not public; either replaces the other where both are installed.
+#
+# The version counts up from the newest tag personal-v<version> (the first
+# is 0.1.0), as server-package.yml does with its own tags.
+# The FIREBASE_SERVICE_ACCOUNT secret's account needs Storage Object Admin
+# (or Firebase Storage Admin) on the bucket.
+name: Personal package
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Which number goes up"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      version:
+        description: "Or this version exactly (e.g. 1.0.0); empty: counted"
+        required: false
+        default: ""
+
+permissions:
+  contents: write # the personal-v<version> tag
+
+concurrency:
+  group: personal-package
+  cancel-in-progress: false
+
+env:
+  PROJECT: sliqtly
+  BUCKET: sliqtly.firebasestorage.app
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the tags, to count from
+      - name: Git access to RangerFlow, RangerMarkdown and RangerPPTX
+        env:
+          DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}
+        run: sh scripts/ci-git-auth.sh
+      - name: Work out the version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+          GIVEN: ${{ inputs.version }}
+        run: |
+          # before the first tag: 0.1.0 is next
+          last=$(git tag --list 'personal-v*' | sed 's/^personal-v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          last=${last:-0.0.9}
+          if [ -n "$GIVEN" ]; then
+            next=$GIVEN
+          else
+            IFS=. read -r major minor patch <<< "$last"
+            case "$BUMP" in
+              major) next="$((major + 1)).0.0" ;;
+              minor) next="$major.$((minor + 1)).0" ;;
+              *) next="$major.$minor.$((patch + 1))" ;;
+            esac
+          fi
+          if git rev-parse -q --verify "refs/tags/personal-v$next" >/dev/null; then
+            echo "personal-v$next exists already" >&2
+            exit 1
+          fi
+          echo "after $last: $next"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: mcp-go/go.mod
+          cache-dependency-path: mcp-go/go.sum
+      - name: Check the version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([~+.-][A-Za-z0-9.~+-]+)?$'
+      - name: Build and check the viewer
+        run: npm ci --no-audit --no-fund && node scripts/build-view.mjs && node scripts/check-view.mjs
+      - name: Generate and test the server, the viewer built in
+        working-directory: mcp-go
+        env:
+          SLIQTLY_BUILD_WEB: viewer
+        run: go generate ./... && go test ./...
+      - name: Build the packages
+        working-directory: mcp-go
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          EDITION: personal
+        run: |
+          packaging/build-deb.sh "$VERSION" amd64
+          packaging/build-deb.sh "$VERSION" arm64
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Upload where anyone can read them
+        working-directory: mcp-go
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          {
+            echo "## sliqtly-personal $VERSION"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          for f in dist/sliqtly-personal_*.deb; do
+            name=$(basename "$f")
+            arch=${name##*_}; arch=${arch%.deb}
+            gcloud storage cp "$f" "gs://$BUCKET/downloads/personal/$name" \
+              --content-type=application/vnd.debian.binary-package --quiet
+            # the latest: what sliqtly.com/download/sliqtly-personal_<arch>.deb
+            # sends to; short-cached so a new version shows soon
+            gcloud storage cp "$f" "gs://$BUCKET/downloads/personal/sliqtly-personal_latest_${arch}.deb" \
+              --content-type=application/vnd.debian.binary-package \
+              --cache-control="public, max-age=300" --quiet
+            echo "- $arch: https://sliqtly.com/download/sliqtly-personal_${arch}.deb ($(sha256sum "$f" | cut -d' ' -f1))" >> "$GITHUB_STEP_SUMMARY"
+          done
+      - name: Tag the commit
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git tag "personal-v$VERSION" "$GITHUB_SHA"
+          git push origin "personal-v$VERSION"
