@@ -44,6 +44,17 @@ const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/cs
 const missing = [];
 const server = http.createServer((req, res) => {
   let rel = decodeURIComponent(new URL(req.url, "http://x").pathname);
+  // the downloads (View.rgr ViewExport): the Markdown here, a refusal for PDF
+  if (rel.startsWith("/api/export/")) {
+    if (rel === "/api/export/" + ID + "/md") {
+      res.writeHead(200, { "content-type": "text/markdown; charset=utf-8" });
+      res.end("# Take charge of your money\n");
+    } else {
+      res.writeHead(429, { "content-type": "application/json" });
+      res.end('{"error":"Too many drawings today."}');
+    }
+    return;
+  }
   if (rel.startsWith("/api/view/")) {
     const found = rel === "/api/view/" + ID;
     res.writeHead(found ? 200 : 404, { "content-type": "application/json" });
@@ -107,6 +118,20 @@ try {
   await page.keyboard.press("End");
   await page.waitForTimeout(200);
   if ((await text(page, "vCount")) !== `${slides} / ${slides}`) fail("End did not go to the last slide");
+
+  // Export ▾ at the bar's right end: PDF, PowerPoint, Markdown; a download
+  // saved under the deck's name, a refusal said on the button
+  await page.click("#vExport");
+  const formats = await page.$$eval("#vMenu [data-format]", (bs) => bs.map((b) => b.dataset.format).join(","));
+  if (formats !== "pdf,pptx,md") fail(`Export offers "${formats}"`);
+  const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 5000 }).catch(() => null), page.click('#vMenu [data-format="md"]')]);
+  if (!dl) fail("Markdown export downloaded nothing");
+  else if (dl.suggestedFilename() !== "talous.en.md") fail(`Markdown saved as "${dl.suggestedFilename()}"`);
+  await page.click("#vExport");
+  await page.click('#vMenu [data-format="pdf"]');
+  await page.waitForFunction(() => /failed|epäonnistui/.test(document.getElementById("vExport").textContent), null, { timeout: 5000 })
+    .catch(() => fail("a refused PDF export was not said"));
+  if (!(await page.evaluate(() => document.getElementById("vMenu").hidden))) fail("the Export menu stayed open");
   await page.close();
 
   // the slide a link names
@@ -148,4 +173,4 @@ if (failures.length) {
   for (const f of failures) log(`FAIL ${f}`);
   process.exit(1);
 }
-log(`view   web/dist-view: ${slides} slides painted, keys, links, 404 and the front page`);
+log(`view   web/dist-view: ${slides} slides painted, keys, links, Export, 404 and the front page`);

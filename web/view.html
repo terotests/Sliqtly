@@ -175,6 +175,16 @@
   }
   #viewBar > #vGo { width: 88px; text-align: center; border-color: #60a5fa; cursor: text; }
   #viewBar > [hidden] { display: none; }
+  #viewBar > #vExport { padding: 0 16px; font: 15px/1 "Open Sans", system-ui, sans-serif; white-space: nowrap; }
+  #viewBar > #vExport[aria-busy="true"] { cursor: progress; opacity: .8; }
+  /* the formats, above the bar at its right end */
+  #vMenu { position: absolute; right: 0; bottom: 52px; min-width: 200px; padding: 6px; display: flex; flex-direction: column; gap: 2px;
+    border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.25); background: rgba(24, 24, 27, 0.92); }
+  #vMenu[hidden] { display: none; }
+  #vMenu button { display: flex; justify-content: space-between; gap: 16px; padding: 10px 12px; border: 0; border-radius: 9px;
+    background: transparent; color: #fafafa; font: 15px/1.2 "Open Sans", system-ui, sans-serif; text-align: left; cursor: pointer; }
+  #vMenu button span { color: #a1a1aa; }
+  #vMenu button:hover, #vMenu button:focus-visible { background: rgba(255, 255, 255, 0.12); outline: none; }
 </style>
 </head>
 <body>
@@ -359,6 +369,12 @@ deck <b>→</b> render <b>→</b> edit <b>→</b> export</pre>
   <button id="vCount" title="Go to slide… (type the number and Enter)" aria-live="polite">1 / 1</button>
   <input id="vGo" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" aria-label="Slide number" hidden />
   <button id="vFull" title="Full screen">⛶</button>
+  <button id="vExport" title="Download the presentation" aria-haspopup="menu" aria-expanded="false" aria-controls="vMenu">Export ▾</button>
+  <div id="vMenu" role="menu" aria-label="Download as" hidden>
+    <button role="menuitem" data-format="pdf">PDF <span>.pdf</span></button>
+    <button role="menuitem" data-format="pptx">PowerPoint <span>.pptx</span></button>
+    <button role="menuitem" data-format="md">Markdown <span>.md</span></button>
+  </div>
 </div>
 <script type="module" src="./view.js?v=__BUILD__"></script>
 </body>

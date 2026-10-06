@@ -34,6 +34,17 @@ export function viewUrl(link) {
   return "/api/view/" + link.id + (link.slides ? "?slides=" + encodeURIComponent(link.slides) : "");
 }
 
+/** The address of `link`'s download as format (pdf, pptx or md; View.rgr ViewExport). */
+export function exportUrl(link, format) {
+  return "/api/export/" + link.id + "/" + format + (link.slides ? "?slides=" + encodeURIComponent(link.slides) : "");
+}
+
+/** A file name for a download of the deck named `name`. */
+export function exportName(name, format) {
+  const base = String(name || "").replace(/[\u0000-\u001f\/\\:*?"<>|#]/g, "-").trim().slice(0, 80) || "presentation";
+  return base + "." + format;
+}
+
 /**
  * The pictures to fetch: each stored file a slide draws, under the name its
  * commands use ("/media/x.png"), with the address to fetch it from.

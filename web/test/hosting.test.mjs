@@ -68,6 +68,8 @@ test("a shared presentation is the viewer's page, its slides the server's", () =
   assert.equal(rw[at("/api/view/**")].run.serviceId, "sliqtly-mcp");
   // the first rule that matches wins
   assert.ok(at("/api/view/**") < at("/s/**"));
+  // the viewer's downloads (Export ▾) are made there too
+  assert.equal(rw[at("/api/export/**")].run.serviceId, "sliqtly-mcp");
 });
 
 test("the editor's pages and the engine are not in the viewer's build", async () => {

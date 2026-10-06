@@ -179,6 +179,13 @@
         }
       },
       {
+        "source": "/api/export/**",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/s/**",
         "destination": "/index.html"
       }

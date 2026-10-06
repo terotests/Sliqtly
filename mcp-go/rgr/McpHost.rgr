@@ -451,6 +451,13 @@ operators {
             go ( (e 1) ".RenderDone(" (e 2) ")" )
         }
     }
+    ; a Content-Disposition that downloads the file under this name
+    ; (non-ASCII names as RFC 6266 filename*)
+    host_attachment _:string (h:McpHost name:string) {
+        templates {
+            go ( (e 1) ".Attachment(" (e 2) ")" )
+        }
+    }
     ; "" or why a visit beacon from this address is not counted (sliding
     ; window per instance)
     host_hit_limit _:string (h:McpHost who:string) {

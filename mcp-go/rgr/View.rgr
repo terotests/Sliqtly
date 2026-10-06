@@ -109,3 +109,243 @@ class View {
         return ("{\"deck\":" + (JOut.text(deck)) + ",\"lists\":[" + all + "]}")
     }
 }
+
+; =============================================================================
+; The viewer's downloads: GET /api/export/<id>/<format>[?slides=<keys>],
+; format pdf, pptx or md. Whoever may view the deck may download it: a
+; deck shared by link, not a private one. PDF and PPTX are the editor's own
+; export (as export_presentation makes them, slides at the end of their
+; animations); md is the deck's text without Sliqtly's styling (PlainMd).
+; Nothing is stored: the file goes straight to the browser.
+; =============================================================================
+
+class ViewFile {
+    ; 200, 400 (no such format), 404 (no such shared presentation) or 500
+    def status:int 404
+    def why:string ""
+    def name:string ""
+    def type:string ""
+    def bytes:buffer (buffer_from_string "")
+}
+
+class ViewExport {
+    sfn file:ViewFile (host:McpHost id:string format:string keys:string) {
+        def out (new ViewFile)
+        if (((format != "pdf") && (format != "pptx")) && (format != "md")) {
+            out.status = 400
+            out.why = "The format is pdf, pptx or md."
+            return out
+        }
+        out.why = "This shared presentation was not found."
+        if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
+            return out
+        }
+        def doc:MfJ (Store.get(host id))
+        if ((strlen (host_error host)) > 0) {
+            host_log host ("export " + id + ": " + (host_error host))
+            host_clear_error host
+            return out
+        }
+        if ((doc.isObj()) == false) {
+            return out
+        }
+        ; as /api/view: a private deck is not found by the viewer
+        if ((doc.str_("visibility")) == "private") {
+            return out
+        }
+        def md:string (doc.str_("md"))
+        def stored:[string]
+        for (doc.list("files")) f:MfJ fi {
+            push stored (f.str_("path"))
+        }
+        def noImgs:[Img]
+        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def css:MfJ (doc.field("css"))
+        def theme:string (doc.str_("theme"))
+        def hasCss:boolean (css.kind == 3)
+        def sheet:string (doc.str_("css"))
+        if ((strlen keys) > 0) {
+            ; the view link's sections only, as /api/view shows them
+            def pin (new DeckIn)
+            pin.deckId = id
+            pin.stored = stored
+            pin.live = true
+            pin.md = md
+            pin.css = (Tools.sheetFor(host theme hasCss sheet))
+            pin.pics = bgs.pics
+            pin.data = bgs.data
+            pin.types = bgs.types
+            def d:PresDeck (Check.prepare(host pin (new Checked)))
+            def l:MdLayout (d.layout())
+            md = (PresPick.viewText(md l.splitLevel keys))
+            if ((strlen md) == 0) {
+                md = "# These slides are no longer in the presentation.\n"
+            }
+        }
+        def name:string (Tools.fileName((doc.str_("name"))))
+        if (format == "md") {
+            out.status = 200
+            out.why = ""
+            out.name = (name + ".md")
+            out.type = "text/markdown; charset=utf-8"
+            out.bytes = (buffer_from_string (PlainMd.text(md)))
+            return out
+        }
+        def din (new DeckIn)
+        din.deckId = id
+        din.stored = stored
+        din.live = true
+        din.export = format
+        def ck:Checked (Tools.checkWith(host md theme hasCss sheet bgs din))
+        if ((ck.laidOut == false) || ((buffer_length ck.file) == 0)) {
+            out.status = 500
+            out.why = "The file could not be made."
+            return out
+        }
+        out.status = 200
+        out.why = ""
+        out.name = (name + "." + format)
+        out.type = "application/pdf"
+        if (format == "pptx") {
+            out.type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        }
+        out.bytes = ck.file
+        return out
+    }
+}
+
+; =============================================================================
+; A deck's Markdown without Sliqtly's styling, for any Markdown reader:
+; attribute blocks ({.lead}, {#id}, {art=waves}, {.build anim=rise}) go,
+; on a line of their own or at the end of one, and the front matter keeps
+; only the title. Code blocks and math stay as they are; so do speaker
+; notes (::: notes), which are text. The theme's CSS is never in the text.
+; =============================================================================
+
+class PlainMd {
+    sfn text:string (md:string) {
+        def lines:[string] (strsplit md "\n")
+        def out:[string]
+        def n:int (array_length lines)
+        def i:int 0
+        ; front matter: --- on the first line to the next ---
+        if ((n > 0) && ((trim (itemAt lines 0)) == "---")) {
+            def j:int 1
+            def title:string ""
+            while ((j < n) && ((trim (itemAt lines j)) != "---")) {
+                def fl:string (itemAt lines j)
+                if ((indexOf fl "title:") == 0) {
+                    title = fl
+                }
+                j = (j + 1)
+            }
+            if (j < n) {
+                if ((strlen title) > 0) {
+                    push out "---"
+                    push out title
+                    push out "---"
+                }
+                i = (j + 1)
+            }
+        }
+        def fence:string ""
+        while (i < n) {
+            def line:string (itemAt lines i)
+            i = (i + 1)
+            def t:string (trim line)
+            def f:string (Deck.fenceOf(line))
+            if ((strlen fence) > 0) {
+                push out line
+                if (((strlen f) > 0) && (((charAt f 0) == (charAt fence 0)) && ((strlen f) >= (strlen fence)))) {
+                    fence = ""
+                }
+                continue
+            }
+            if ((strlen f) > 0) {
+                fence = f
+                push out line
+                continue
+            }
+            if (PlainMd.isAttrs(t)) {
+                continue
+            }
+            push out (PlainMd.dropTrailing(line))
+        }
+        return (join out "\n")
+    }
+
+    ; a line's text without the attribute block it ends with
+    sfn dropTrailing:string (line:string) {
+        def r:string (trim line)
+        if (((strlen r) < 3) || ((lastIndexOf r "}") != ((strlen r) - 1))) {
+            return line
+        }
+        def at:int (lastIndexOf r "{")
+        if (at < 1) {
+            return line
+        }
+        if (PlainMd.isAttrs((substring r at (strlen r))) == false) {
+            return line
+        }
+        ; {…} after a space; inline math ($x^{2}$) never reads as attributes
+        def before:string (substring r 0 at)
+        if (((lastIndexOf before " ") != ((strlen before) - 1)) && ((lastIndexOf before "]") != ((strlen before) - 1))) {
+            return line
+        }
+        def lead:int (indexOf line r)
+        return ((substring line 0 lead) + (trim before))
+    }
+
+    ; "{.a #b key=value …}": every word a class, an id or key=value
+    sfn isAttrs:boolean (t:string) {
+        def n:int (strlen t)
+        if (((n < 3) || ((indexOf t "{") != 0)) || ((lastIndexOf t "}") != (n - 1))) {
+            return false
+        }
+        def inner:string (trim (substring t 1 (n - 1)))
+        if (((strlen inner) == 0) || ((indexOf inner "{") >= 0)) {
+            return false
+        }
+        for (strsplit inner " ") w:string wi {
+            if ((strlen w) == 0) {
+                continue
+            }
+            if (PlainMd.isAttr(w) == false) {
+                return false
+            }
+        }
+        return true
+    }
+
+    sfn isAttr:boolean (w:string) {
+        def c:int (charAt w 0)
+        if ((c == 46) || (c == 35)) {
+            ; .class or #id
+            return (PlainMd.isName((substring w 1 (strlen w))))
+        }
+        def eq:int (indexOf w "=")
+        if (eq < 1) {
+            return false
+        }
+        return (PlainMd.isName((substring w 0 eq)))
+    }
+
+    ; letters first, then letters, digits, - and _
+    sfn isName:boolean (s:string) {
+        def n:int (strlen s)
+        if (n == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            def letter:boolean (((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90)))
+            def other:boolean ((((c >= 48) && (c <= 57)) || (c == 45)) || (c == 95))
+            if ((letter == false) && ((i == 0) || (other == false))) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+}
