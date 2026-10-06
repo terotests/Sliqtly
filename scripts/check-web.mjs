@@ -708,8 +708,22 @@ try {
   // was drawn.
   {
     const ink = () => page.evaluate(() => ({ ...JSON.parse(window.__app.inkState()), slide: window.__app.slideShown(), mode: JSON.parse(window.__app.layoutJson()).mode }));
-    await page.evaluate(() => { window.__app.selectSlide(0); window.__app.request("rec:start"); });
+    // Record asks first (with the voice or without), then counts 3, 2, 1
+    const asked = await page.evaluate(() => {
+      const a = window.__app;
+      a.selectSlide(0);
+      a.request("rec:start");
+      const open = a.chart.isOpen && a.chart.mode === "confirm" && a.chart.cfKey === "recstart";
+      a.chart.confirmAct("cf-alt");
+      a.afterChart();
+      return open;
+    });
+    await page.waitForFunction(() => !document.getElementById("recCount").hidden, null, { timeout: 8000 }).catch(() => {});
+    const counted = await page.evaluate(() => !document.getElementById("recCount").hidden && !document.body.classList.contains("recording"));
     await page.waitForFunction(() => document.body.classList.contains("recording"), null, { timeout: 8000 });
+    await page.waitForTimeout(300);
+    const badge = await page.evaluate(() => ({ shown: !document.getElementById("recBadge").hidden, mute: !document.getElementById("recMute").hidden, hint: document.getElementById("recHint").textContent }));
+    check("Record asks with or without the voice, counts down, then shows REC (no sound) and what to do", asked && counted && badge.shown && badge.mute && badge.hint.length > 0, JSON.stringify({ asked, counted, badge }));
     const slideBox = await page.evaluate(() => {
       const l = JSON.parse(window.__app.layoutJson());
       const c = document.getElementById("c").getBoundingClientRect();
@@ -722,6 +736,19 @@ try {
     for (let i = 1; i <= 8; i += 1) await page.mouse.move(sx(0.3 + i * 0.04), sy(0.5 + i * 0.02));
     await page.mouse.up();
     const drawn = await ink();
+    // with Aa typing writes on the slide; Space and letters do not change it
+    await page.evaluate(() => { window.__app.setInkTool("text"); document.getElementById("keys").focus(); });
+    await page.keyboard.type("This is good!");
+    const typing = await ink();
+    const face = await page.waitForFunction(() => [...document.fonts].some((f) => f.family === "Gloria Hallelujah" && f.status === "loaded") && window.__app.deck.md.fontManager.hasFont("Gloria Hallelujah"), null, { timeout: 8000 }).then(() => true, () => false);
+    check("…written in the hand-written face", face);
+    await page.waitForTimeout(200);
+    await shot("rec-typing.png");
+    await page.keyboard.press("Enter");
+    const typed = await ink();
+    // back to the pen, left off as it was (recording draws with it anyway)
+    await page.evaluate(() => { window.__app.setInkTool("pen"); window.__app.setInk(false); });
+    check("Typing while recording writes on the slide, Space does not go on, Enter ends it", typing.typing && typing.slide === 0 && typed.strokes === 2 && !typed.typing && typed.slide === 0, JSON.stringify({ typing, typed }));
     await page.mouse.click(sx(0.5), sy(0.5));
     await page.waitForTimeout(200);
     const clicked = await ink();
@@ -737,6 +764,7 @@ try {
     await page.waitForFunction(() => window.__docFiles().then((f) => f.includes("recordings/take.json")), null, { timeout: 8000 });
     const take = await page.evaluate(() => JSON.parse(window.__app.recordingJson()));
     const kinds = take.ops.map((o) => o[1]);
+    check("…the words are in the take", take.ops.some((o) => o[1] === "text") && take.ops.some((o) => o[1] === "type" && o[2] === "This is good!"), JSON.stringify(kinds.slice(0, 40)));
     check("Record: a press that moves draws, one that does not goes on, Backspace wipes", drawn.strokes === 1 && drawn.slide === 0 && clicked.slide !== 0 && clicked.strokes === 0 && wiped.strokes === 0, JSON.stringify({ drawn, clicked, wiped }));
     check("…■ keeps the take: the slides, the pointer and what was drawn", ["nav", "ptr", "down", "move", "up", "clear"].every((k) => kinds.includes(k)) && take.ops.filter((o) => o[1] === "nav").some((o) => o[2] === 1), JSON.stringify(kinds.slice(0, 40)));
     await page.evaluate(() => { window.__app.selectSlide(0); window.__app.request("rec:play"); });
@@ -750,6 +778,29 @@ try {
     await page.waitForFunction(() => !window.__app.isReplaying(), null, { timeout: 8000 }).catch(() => {});
     await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
     check("…Esc ends the replay", !(await page.evaluate(() => window.__app.isReplaying())));
+    // Edit recording: a part marked and cut is kept in the take's file
+    const cut = await page.evaluate(async () => {
+      const a = window.__app;
+      a.request("rec:edit");
+      const editing = a.isRecEditing();
+      const d = a.recordingDuration();
+      a.recSelA = d * 0.25;
+      a.recSelB = d * 0.5;
+      a.recButton("cut");
+      a.recHead = d * 0.1;
+      const short = a.recordingPlayLength() < d - d * 0.2;
+      for (let n = 0; n < 40; n++) {
+        const blob = await window.__docFile?.("recordings/take.json");
+        const text = blob ? await blob.text() : "";
+        if (text.includes("\"cuts\":[[")) return { editing, short, kept: true };
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return { editing, short, kept: false };
+    });
+    await page.waitForTimeout(300);
+    await shot("rec-timeline.png");
+    await page.evaluate(() => window.__app.recEditOpen(false));
+    check("Edit recording cuts a marked part away and keeps it", cut.editing && cut.short && cut.kept, JSON.stringify(cut));
   }
 
   await page.evaluate(() => { window.__app.present(true); window.__app.takeRequest(); window.__app.speaker = true; window.__app.next(); });
@@ -2240,6 +2291,43 @@ try {
     check("…the ‹ before the Rooms heading closes the panel", railed.chevronX === 72, JSON.stringify(railed));
     check("…the name's button keeps its width, so the menus after it stay put when the name changes", railed.fileX0 === renamed.fileX1, JSON.stringify({ before: railed.fileX0, after: renamed.fileX1 }));
     check("…the name at the start of the bar becomes a field; Enter renames the deck, as one edit that undoes", railed.editing && !railed.after && renamed.title === "Renamed deck" && renamed.undone !== "Renamed deck", JSON.stringify(renamed));
+
+    // The deck's name in the bar, a field when pressed: a page of its own.
+    // It shows its selection and caret (the bar lays its tree out itself and
+    // places the fields' text): all of the name picked at first, a caret
+    // where pressed, a drag's band, Ctrl+A all again, its width kept.
+    {
+      const tctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+      const tp = await tctx.newPage();
+      await tp.goto(url + "?sample=esittely");
+      await tp.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+      const tf = await tp.evaluate((findJs) => {
+        const a = window.__app;
+        const find = eval(findJs);
+        const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+        press(find("tb-title"));
+        const sel = () => { const e = find("tb-title-in-sel"); return e ? { w: Math.round(e.calculatedWidth), h: Math.round(e.calculatedHeight) } : null; };
+        const caretH = () => { const e = find("tb-title-in-caret"); return e ? Math.round(e.calculatedHeight) : -1; };
+        const text = find("tb-title-in-text");
+        const out = { editing: a.toolbar.titleEditing, all: sel(), w: Math.round(find("tb-title-in").calculatedWidth) };
+        const ty = text.calculatedY + text.calculatedHeight / 2;
+        a.pointerDown(text.calculatedX + text.calculatedWidth / 2, ty, false, 1);
+        a.pointerUp();
+        out.caret = caretH();
+        out.none = sel()?.w;
+        a.pointerDown(text.calculatedX + 4, ty, false, 1);
+        a.pointerMove(text.calculatedX + text.calculatedWidth / 2, ty);
+        a.pointerUp();
+        out.dragged = sel()?.w;
+        a.chord("a");
+        out.again = sel()?.w;
+        out.wAfter = Math.round(find("tb-title-in").calculatedWidth);
+        a.key("escape", false, false);
+        return out;
+      }, findJs);
+      check("…the name's field shows its selection and caret: all picked at first, a caret where pressed, a drag's band, Ctrl+A all again, its width kept", tf.editing && tf.all?.w > 20 && tf.all?.h > 10 && tf.caret > 10 && tf.none === 0 && tf.dragged > 10 && tf.dragged < tf.all.w && tf.again === tf.all.w && tf.wAfter === tf.w, JSON.stringify(tf));
+      await tctx.close();
+    }
 
     // Rooms' "+": the room's window (name, description), Enter makes the
     // room (this browser's, web/rooms.js), first after the built-in ones.

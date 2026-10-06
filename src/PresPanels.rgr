@@ -1037,6 +1037,24 @@ class PresPanels {
             }
             return row
         }
+        if (kind == "recording") {
+            ; the presentation recorded (its sound with it): played, its
+            ; parts cut in Edit, deleted
+            row.addChild((this.words("pf-tag pf-tag-rec" "REC")))
+            def rn:EVGElement (this.div("pf-name"))
+            rn.addChild((this.words("pf-fname" (f.stringOr("title" name)))))
+            rn.addChild((this.words("pf-fsize" (f.stringOr("note" "")))))
+            row.addChild(rn)
+            row.addChild((this.div("pn-grow")))
+            this.act("recplay" path (PresI18n.t("▶ Play")) "secondary" row)
+            this.act("recedit" path (PresI18n.t("Edit")) "secondary" row)
+            if (filesArmed == ("del" + (strfromcode 9) + path)) {
+                this.act("del" path (PresI18n.t("Delete?")) "primary" row)
+            } {
+                this.act("del" path "✕" "ghost" row)
+            }
+            return row
+        }
         row.addChild((this.words(("pf-tag pf-tag-" + kind) tag)))
         def nm:EVGElement (this.div("pf-name"))
         nm.addChild((this.words("pf-fname" name)))
@@ -2196,14 +2214,6 @@ class PresPanels {
             return "toast"
         }
         return "docked"
-    }
-
-    fn dockedOpen:boolean () {
-        return (((helpOpen || filesOpen) || chat.open) && (quiet == false))
-    }
-
-    fn dialogOpen:boolean () {
-        return (shareOpen && (quiet == false))
     }
 
     fn toastOpen:boolean () {

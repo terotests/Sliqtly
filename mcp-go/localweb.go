@@ -162,8 +162,41 @@ func newShareID() string {
 	return string(b)
 }
 
-// one change to a share at a time: read, check, write
-var shareMu sync.Mutex
+// one change to a share at a time: read, check, write. Each share has its
+// own turn, so an upload to one deck or a room saving its text holds up
+// no other deck.
+var shareLocks = keyedLocks{m: map[string]*keyedLock{}}
+
+type keyedLocks struct {
+	mu sync.Mutex
+	m  map[string]*keyedLock
+}
+
+type keyedLock struct {
+	sync.Mutex
+	users int
+}
+
+// lock takes the share's turn; the func it returns gives it back
+func (k *keyedLocks) lock(id string) func() {
+	k.mu.Lock()
+	l := k.m[id]
+	if l == nil {
+		l = &keyedLock{}
+		k.m[id] = l
+	}
+	l.users++
+	k.mu.Unlock()
+	l.Lock()
+	return func() {
+		l.Unlock()
+		k.mu.Lock()
+		if l.users--; l.users == 0 {
+			delete(k.m, id)
+		}
+		k.mu.Unlock()
+	}
+}
 
 const maxUpload = 20 << 20
 const logMax = 300
@@ -336,8 +369,7 @@ func (s *localServer) createShare(r *http.Request) (any, error) {
 		d["files"] = []any{}
 	}
 	d["created"] = time.Now().UTC()
-	shareMu.Lock()
-	defer shareMu.Unlock()
+	// Create writes only where there is nothing: a new id needs no turn
 	for range 5 {
 		id := newShareID()
 		had, err := s.env.DB.Create(r.Context(), "shares", id, d)
@@ -371,8 +403,7 @@ func (s *localServer) patchShare(r *http.Request, id string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	shareMu.Lock()
-	defer shareMu.Unlock()
+	defer shareLocks.lock(id)()
 	cur, err := s.own(r.Context(), id)
 	if err != nil {
 		return nil, err
@@ -392,16 +423,23 @@ func (s *localServer) patchShare(r *http.Request, id string) (any, error) {
 }
 
 func (s *localServer) deleteShare(ctx context.Context, id string) error {
-	shareMu.Lock()
-	defer shareMu.Unlock()
+	defer shareLocks.lock(id)()
 	if _, err := s.own(ctx, id); err != nil {
 		return err
 	}
-	if err := s.bucket.RemoveAll("shares/" + id); err != nil {
+	// the records first: a deck whose files went but whose record did not
+	// would point at nothing, while files left behind by a failed removal
+	// are swept as named by nothing (sweepExpired)
+	if err := s.env.DB.Delete(ctx, "mcp_keys", id); err != nil {
 		return err
 	}
-	s.env.DB.Delete(ctx, "mcp_keys", id)
-	return s.env.DB.Delete(ctx, "shares", id)
+	if err := s.env.DB.Delete(ctx, "shares", id); err != nil {
+		return err
+	}
+	if err := s.bucket.RemoveAll("shares/" + id); err != nil {
+		log.Printf("deck %s removed, its files not yet: %v", id, err)
+	}
+	return nil
 }
 
 // web/sliqtly.js pushHead: the head moves from expect to head, with the
@@ -414,8 +452,7 @@ func (s *localServer) pushHead(r *http.Request, id string) (any, error) {
 	head, _ := body["head"].(string)
 	expect, _ := body["expect"].(string)
 	entries, _ := body["entries"].([]any)
-	shareMu.Lock()
-	defer shareMu.Unlock()
+	defer shareLocks.lock(id)()
 	cur, err := s.own(r.Context(), id)
 	if err != nil {
 		return nil, err
@@ -471,8 +508,7 @@ func (s *localServer) fileAPI(r *http.Request, name string) (any, error) {
 		return nil, fail(400, "", "bad file path")
 	}
 	id, rel := parts[1], parts[2]
-	shareMu.Lock()
-	defer shareMu.Unlock()
+	defer shareLocks.lock(id)()
 	if _, err := s.own(r.Context(), id); err != nil {
 		return nil, err
 	}
@@ -560,11 +596,11 @@ func (s *localServer) sweepOnce(t time.Time) {
 			continue
 		}
 		for _, id := range ids {
-			shareMu.Lock()
+			unlock := shareLocks.lock(id)
 			if err := s.bucket.RemoveAll("shares/" + id); err != nil {
 				log.Printf("expired deck %s: %v", id, err)
 			}
-			shareMu.Unlock()
+			unlock()
 		}
 	}
 	// the bytes of files nothing names any more (removed, replaced, or of

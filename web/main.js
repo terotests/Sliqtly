@@ -203,6 +203,10 @@ function resize() {
   needsPaint = true;
 }
 
+// A drawing made on a slide (drawings/*.ink, src/PresSketch.rgr): JSON, kept
+// as text and handed to the slides as a text file is.
+const SKETCH_TYPE = "application/vnd.sliqtly.ink+json";
+
 // --- pictures -------------------------------------------------------------------
 const pictures = new Map();
 async function registerPicture(path, bytes, type) {
@@ -671,6 +675,10 @@ const pending = new Map();
 // A shared presentation opened to read: its files, which nothing saves
 const readFiles = new Map();
 let savedText = null;
+// the editor's change count (app.mdVersion) when its text was last found
+// equal to savedText: the 1.5 s check reads the whole text only when it
+// moved. -1 whenever savedText is set from elsewhere.
+let savedVersion = -1;
 let savedCss = null;
 let savedTheme = null;
 let saving = null;
@@ -704,6 +712,7 @@ function beginDoc(text) {
   pending.clear();
   readFiles.clear();
   savedText = null;
+  savedVersion = -1;
   savedCss = null;
   for (const k of Object.keys(editedCss)) delete editedCss[k];
   chartFiles.clear();
@@ -918,6 +927,7 @@ window.__liveSheets = liveSheets;
 window.__saveWorkbook = (path, raw) => saveWorkbook(path, raw);
 // for check:web: what the document keeps as files
 window.__docFiles = () => docFiles().then((fs) => fs.map((f) => f.path));
+window.__docFile = (path) => readDocFile(path);
 
 async function docFiles() {
   const out = new Map();
@@ -942,10 +952,16 @@ async function saveDoc(force) {
 
 async function saveDocNow(force) {
   if (merging || doc.loading) return;
-  const md = app.source();
   const key = themeSel.value || "";
   const css = key in editedCss ? editedCss[key] : null;
-  if (md === savedText && css === savedCss && key === savedTheme && !force) return;
+  const version = app.mdVersion();
+  const same = css === savedCss && key === savedTheme;
+  if (same && version === savedVersion && !force) return;
+  const md = app.source();
+  if (md === savedText && same && !force) {
+    savedVersion = version;
+    return;
+  }
   // a deck as it was opened is not kept until someone changes it (a shared
   // deck opens with its own CSS: that is as opened too), nor an empty one
   if (!doc.persisted && !force && ((md === doc.openedText && css === doc.openedCss) || !md.trim())) return;
@@ -966,6 +982,7 @@ async function saveDocNow(force) {
     }
     updateDeckTab();
     savedText = md;
+    savedVersion = version;
     savedCss = css;
     savedTheme = key;
     try { localStorage.setItem("evgp.doc", doc.id); } catch (_) { /* the next start opens a sample */ }
@@ -1629,6 +1646,7 @@ async function openDocNow(id) {
   docName = d.name || "presentation";
   shownDoc(d.md);
   savedText = d.md;
+  savedVersion = -1;
   savedCss = d.css == null ? null : d.css;
   savedTheme = d.theme || "";
   try { localStorage.setItem("evgp.doc", doc.id); } catch (_) { /* fine */ }
@@ -1752,8 +1770,19 @@ async function refreshFiles() {
   try {
     const all = await docFiles();
     const again = await retraceable(all);
+    const take = all.find((f) => f.path === REC_JSON);
     const files = all
+      // the recording is one row (its sound goes with it)
+      .filter((f) => !(take && f.path.startsWith("recordings/take.") && f.path !== REC_JSON))
       .map((f) => {
+        if (f === take) {
+          const audio = all.find((x) => x.path === app.recordingAudio());
+          return {
+            path: f.path, kind: "recording", title: t("Recording"),
+            size: (f.size || 0) + (audio ? audio.size || 0 : 0),
+            note: clockText(app.recordingPlayLength()) + " · " + (audio ? t("with voice") : t("no sound")),
+          };
+        }
         const row = { path: f.path, size: f.size == null ? -1 : f.size, kind: kindOf(f.path, f.type) };
         // a copy kept of a linked source: named after it, with where and when it was read
         if (f.path.startsWith("data/live/")) {
@@ -2089,6 +2118,12 @@ async function fileRequest(r) {
     if (isSvg("", what)) await retraceSvg(what);
     else await openImageEditor(what);
     return;
+  } else if (action === "recplay") {
+    if (app.hasRecording()) app.replayStart(0);
+  } else if (action === "recedit") {
+    app.recEditOpen(true);
+  } else if (action === "del" && what === REC_JSON) {
+    await deleteRecording();
   } else if (action === "del") {
     pending.delete(what);
     if (doc.persisted) await vfs.deleteFile(doc.id, what);
@@ -2157,6 +2192,10 @@ async function deleteFiles(paths) {
     if (doc.persisted) await vfs.deleteFile(doc.id, path);
     if (path.startsWith("data/live/")) liveCopies.delete(path);
     if (app.openFilePath() === path) app.closeFile();
+  }
+  if (paths.includes(REC_JSON)) {
+    await dropTakeFiles([]);
+    app.dropRecording();
   }
   cloudSoon();
   dropThumbs();
@@ -2596,6 +2635,8 @@ function paintOnce() {
   for (const layer of app.layerOrder().split(",")) {
     if (layer === "bar") {
       if (canvasBar) paintBar();
+    } else if (layer === "sketch") {
+      paintList(app.sketchJson());
     } else if (layer === "room") {
       // the channel's pictures (attached ones, embedded slides) as they load
       const j = app.roomJson();
@@ -3505,6 +3546,12 @@ function handleRequests() {
     } else if (r === "deck:tabs") {
       keepTabs();
       needsPaint = true;
+    } else if (r.startsWith("sketch-file:")) {
+      // a drawing made on a slide (PresSketch): its file, written again
+      const path = bare(r.slice(12));
+      const text = app.sketchFileBody(path);
+      keepFile({ path, type: SKETCH_TYPE, size: text.length, data: text }).catch(fail);
+      dropThumbs();
     } else if (r.startsWith("chart-file:")) {
       const path = bare(r.slice(11));
       const text = app.chartFileBody();
@@ -4312,6 +4359,7 @@ async function takeLocal() {
   const mergedHere = await takeCopy(base, theirs, "tab");
   // the record is what this one stands on now
   savedText = theirs.md;
+  savedVersion = -1;
   savedCss = theirs.css;
   savedTheme = theirs.theme;
   if (cur.cloud) doc.cloud = cur.cloud;
@@ -4917,8 +4965,8 @@ window.__goTo = { open: openGoTo, close: closeGoTo, label: () => vCount.textCont
 // Voice. The bar while recording: the red time (pressed: stop) and pause;
 // while playing: back, pause, on, the time (pressed: stop).
 const REC_JSON = "recordings/take.json";
-const PEN_TOOLS = ["pen", "arrow", "line", "ellipse"];
-const PEN_ICONS = { pen: "〰", arrow: "↗", line: "╱", ellipse: "◯" };
+const PEN_TOOLS = ["pen", "arrow", "line", "ellipse", "text"];
+const PEN_ICONS = { pen: "〰", arrow: "↗", line: "╱", ellipse: "◯", text: "Aa" };
 const PEN_COLORS = ["#ef4444", "#facc15", "#22c55e", "#3b82f6", "#ffffff", "#111111"];
 let voiceRec = null;
 let player = null;
@@ -4942,18 +4990,80 @@ async function loadRecording() {
   needsPaint = true;
 }
 
-async function startVoice() {
-  const r = new VoiceRecorder();
-  voiceRec = r;
-  document.body.classList.add("recording");
-  try {
-    await r.start();
-  } catch (e) {
-    console.warn("no microphone", e);
-    r.startSilent();
-    toast(t("No microphone: the presentation is recorded without sound."));
+// Record asks first: with the voice or without (PresApp "confirm:recstart",
+// ":alt" without). With it the microphone is asked for before anything runs;
+// then 3, 2, 1 (Esc cancels) and the presentation starts recording.
+let recReady = null;
+let recCounting = null;
+const recCount = document.getElementById("recCount");
+const recCountN = document.getElementById("recCountN");
+async function prepareRecording(withVoice) {
+  // full screen while the press that chose still counts as one
+  if (!viewer && document.documentElement.requestFullscreen && !document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
   }
-  // left before the microphone answered
+  const r = new VoiceRecorder();
+  if (withVoice) {
+    try {
+      await r.open();
+    } catch (e) {
+      console.warn("no microphone", e);
+      toast(t("No microphone (") + (e.name || e.message || e) + t("): recording without sound."));
+    }
+  }
+  if (!(await countDown())) {
+    r.close();
+    return;
+  }
+  recReady = r;
+  app.record();
+  if (!app.isRecording()) {
+    // nothing to present (no slides): the microphone is let go
+    recReady = null;
+    r.close();
+  }
+  handleRequests();
+  needsPaint = true;
+}
+
+// 3, 2, 1 over the page; false when Esc (or a press on it) cancelled.
+function countDown() {
+  return new Promise((resolve) => {
+    let n = 3;
+    document.getElementById("recCountWords").textContent = t("Recording starts. Esc cancels.");
+    recCount.hidden = false;
+    const show = () => { recCountN.textContent = String(n); };
+    show();
+    const done = (ok) => {
+      clearInterval(timer);
+      recCount.hidden = true;
+      recCounting = null;
+      resolve(ok);
+    };
+    const timer = setInterval(() => {
+      n -= 1;
+      if (n <= 0) done(true);
+      else show();
+    }, 800);
+    recCounting = () => done(false);
+  });
+}
+recCount.addEventListener("pointerdown", (ev) => {
+  ev.preventDefault();
+  recCounting?.();
+});
+
+async function startVoice() {
+  const r = recReady || new VoiceRecorder();
+  recReady = null;
+  voiceRec = r;
+  recShownAt = performance.now();
+  document.body.classList.add("recording");
+  // shown at once, not when the canvas next paints
+  syncRecBadge(JSON.parse(app.inkState()));
+  await r.begin();
+  needsPaint = true;
+  // left before the recording began
   if (voiceRec !== r) await r.stop();
 }
 
@@ -4970,6 +5080,7 @@ async function finishRecording() {
   const r = voiceRec;
   voiceRec = null;
   document.body.classList.remove("recording", "recPaused");
+  syncRecBadge();
   if (!r) return;
   const { blob, ext, type } = await r.stop();
   let audio = "";
@@ -4982,7 +5093,8 @@ async function finishRecording() {
   await keepFile({ path: REC_JSON, type: "application/json", size: new Blob([text]).size, data: text });
   await dropTakeFiles([audio, REC_JSON]);
   app.loadRecording(text);
-  toast(t("Recording kept (") + clockText(app.recordingDuration()) + t("). Record ▸ Play recording plays it."));
+  toast(t("Recording kept (") + clockText(app.recordingDuration()) + t("). Play or edit it in Files or the Record menu."));
+  refreshFiles();
   needsPaint = true;
 }
 
@@ -5014,12 +5126,51 @@ async function keepVoice(v) {
 async function deleteRecording() {
   await dropTakeFiles([]);
   app.dropRecording();
+  cloudSoon();
   refreshFiles();
   toast(t("Recording deleted."));
 }
 
+// The take kept again after a cut (Edit recording).
+async function saveTake() {
+  if (!app.hasRecording()) return;
+  const text = app.recordingJson();
+  await keepFile({ path: REC_JSON, type: "application/json", size: new Blob([text]).size, data: text });
+  cloudSoon();
+}
+
+// The voice's loudness for Edit recording's timeline: the sound decoded
+// once, the loudest sample in each tenth of a second.
+async function recordingPeaks() {
+  const path = app.recordingAudio();
+  const blob = path ? await readDocFile(path) : null;
+  if (!blob) { app.setRecordingPeaks(""); return; }
+  const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const ctx = new Ctx(1, 1, 8000);
+  const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+  const data = buf.getChannelData(0);
+  const step = Math.max(1, Math.round(buf.sampleRate * 0.1));
+  const peaks = [];
+  let top = 0;
+  for (let i = 0; i < data.length; i += step) {
+    let m = 0;
+    const end = Math.min(data.length, i + step);
+    for (let j = i; j < end; j++) m = Math.max(m, Math.abs(data[j]));
+    peaks.push(m);
+    top = Math.max(top, m);
+  }
+  // quiet speech still shows: scaled to the loudest part
+  const k = top > 0 ? 1 / top : 0;
+  app.setRecordingPeaks(peaks.map((v) => (v * k).toFixed(2)).join(","));
+  needsPaint = true;
+}
+
 function recRequest(r) {
-  if (r === "record:start") startVoice().catch(fail);
+  if (r === "confirm:recstart") prepareRecording(true).catch(fail);
+  else if (r === "confirm:recstart:alt") prepareRecording(false).catch(fail);
+  else if (r === "record:start") startVoice().catch(fail);
+  else if (r === "rec:save") saveTake().catch(fail);
+  else if (r === "rec:peaks") recordingPeaks().catch((e) => { console.warn("peaks", e); app.setRecordingPeaks(""); needsPaint = true; });
   else if (r === "record:stop") finishRecording().catch(fail);
   else if (r === "replay:start") startReplay().catch(fail);
   else if (r === "replay:stop") stopReplay();
@@ -5035,6 +5186,10 @@ function recRequest(r) {
 function recFrame() {
   if (voiceRec && app.isRecording()) app.recordTime(voiceRec.time());
   if (app.isReplaying() && player) {
+    // a part cut away (Edit recording) is jumped over
+    const at = player.time();
+    const past = app.recordingSkip(at);
+    if (past > at + 0.01) player.seek(past);
     app.replayAt(player.time());
     if (player.ended() && !player.paused) {
       app.replayStop();
@@ -5053,9 +5208,11 @@ function togglePause() {
   needsPaint = true;
 }
 
+// s seconds on or back in the recording as played (cuts left out)
 function seekBy(s) {
   if (!player) return;
-  player.seek(player.time() + s);
+  const p = app.recordingPlayTime(player.time()) + s;
+  player.seek(app.recordingSourceTime(Math.max(0, Math.min(app.recordingPlayLength(), p))));
   app.replayAt(player.time());
   needsPaint = true;
 }
@@ -5064,7 +5221,7 @@ let penShown = "";
 function syncRecBar() {
   if (!presentingNow()) return;
   const st = JSON.parse(app.inkState());
-  const sig = [st.on, st.tool, st.color, st.recording, st.replaying, st.strokes > 0, Math.floor(st.t), !!(voiceRec || player)?.paused, app.hasRecording()].join();
+  const sig = [st.on, st.tool, st.color, st.recording, st.replaying, st.strokes > 0, Math.floor(st.t), !!(voiceRec || player)?.paused, app.hasRecording(), st.typing, !!voiceRec].join();
   if (sig === penShown) return;
   penShown = sig;
   const drive = !st.replaying;
@@ -5080,9 +5237,41 @@ function syncRecBar() {
   const paused = !!(voiceRec || player)?.paused;
   vPause.textContent = paused ? "▶︎" : "⏸︎";
   vRec.hidden = !st.recording && !st.replaying;
-  vRec.textContent = st.recording ? "● " + clockText(st.t) + " ■" : clockText(st.t) + " / " + clockText(st.duration) + " ■";
+  vRec.textContent = st.recording ? "● " + clockText(st.t) + " ■" : clockText(app.recordingPlayTime(st.t)) + " / " + clockText(app.recordingPlayLength()) + " ■";
   vPlayRec.hidden = !app.hasRecording() || st.recording;
+  syncRecBadge(st);
 }
+
+// The badge at the top while recording: REC and the time, no sound when
+// recorded without, Pause and Stop, and what can be done (for the first
+// seconds, while paused and while writing).
+const recBadge = document.getElementById("recBadge");
+const recHint = document.getElementById("recHint");
+let recShownAt = 0;
+function syncRecBadge(st) {
+  const on = !!(st && st.recording && voiceRec);
+  recBadge.hidden = !on;
+  if (!on) return;
+  const paused = !!voiceRec.paused;
+  document.getElementById("recTime").textContent = clockText(st.t);
+  document.getElementById("recMute").hidden = voiceRec.hasSound;
+  document.getElementById("recPauseBtn").textContent = paused ? t("▶ Go on") : t("⏸ Pause");
+  const fresh = performance.now() - recShownAt < 12000;
+  const hint = st.typing
+    ? t("Writing: Enter ends it, Shift+Enter a new line, Backspace deletes")
+    : paused ? t("Paused: nothing is recorded until you go on")
+    : st.tool === "text" ? t("Aa: click where to write, then type. ← → PageUp PageDown change slides.")
+    : fresh ? t("Draw with the mouse; the pen button's Aa writes text. ← → change slides. Esc stops.")
+    : "";
+  recHint.textContent = hint;
+  recHint.hidden = !hint;
+}
+document.getElementById("recPauseBtn").addEventListener("click", () => { togglePause(); keys.focus({ preventScroll: true }); });
+document.getElementById("recStopBtn").addEventListener("click", () => {
+  app.endPresent();
+  handleRequests();
+  needsPaint = true;
+});
 
 vPen.addEventListener("click", () => { app.setInk(vPen.getAttribute("aria-pressed") !== "true"); needsPaint = true; });
 vTool.addEventListener("click", () => {
@@ -5750,6 +5939,11 @@ function afterInput() {
 }
 
 keys.addEventListener("keydown", (ev) => {
+  if (canvasPicking && ev.key === "Escape") {
+    ev.preventDefault();
+    endCanvasPick("");
+    return;
+  }
   if (ev.key === "F6") {
     ev.preventDefault();
     cycleRegion(ev.shiftKey);
@@ -5800,6 +5994,11 @@ keys.addEventListener("keydown", (ev) => {
   // A composition that ended without a compositionend (a dead key, an IME
   // cancelled by a click) must not leave typing switched off.
   if (!ev.isComposing && ev.keyCode !== 229) composing = false;
+  if (recCounting) {
+    ev.preventDefault();
+    if (ev.key === "Escape") recCounting();
+    return;
+  }
   const presenting = lastLayout && lastLayout.mode === "present";
   if (presenting && replayKey(ev)) return;
   if (ev.key === "F5") {
@@ -5832,12 +6031,14 @@ keys.addEventListener("keydown", (ev) => {
     return;
   }
   if (presenting) {
-    if ((ev.key === "r" || ev.key === "R") && !mod && !ev.altKey && !app.reviewHasKeys()) {
+    // with the text tool (Aa) letters write on the slide
+    const writing = app.inkWrites();
+    if ((ev.key === "r" || ev.key === "R") && !mod && !ev.altKey && !app.reviewHasKeys() && !writing) {
       ev.preventDefault();
       refreshLiveData();
       return;
     }
-    if (ev.key.length === 1) {
+    if (ev.key.length === 1 || (writing && !mod && [...ev.key].length === 1)) {
       ev.preventDefault();
       app.text(ev.key);
       afterInput();
@@ -5987,8 +6188,48 @@ function pinchSpan() {
   return { d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, mx: (a[0] + b[0]) / 2, my: (a[1] + b[1]) / 2 };
 }
 
+// The colour card's pipette: the screen's own picker where the browser has
+// one (EyeDropper), else the next press on the page samples its pixel.
+let canvasPicking = false;
+// the release of the press that sampled: not a click on what is under it
+let pickRelease = false;
+
+function startColorPick() {
+  if (window.EyeDropper) {
+    new window.EyeDropper().open().then(
+      (r) => { app.hintPicked(r.sRGBHex || ""); afterInput(); },
+      () => { app.hintPicked(""); afterInput(); },
+    );
+    return;
+  }
+  canvasPicking = true;
+  canvas.style.cursor = "crosshair";
+}
+
+function endCanvasPick(hex) {
+  canvasPicking = false;
+  canvas.style.cursor = "";
+  app.hintPicked(hex);
+  afterInput();
+}
+
+function pixelAt(x, y) {
+  const r = canvas.getBoundingClientRect();
+  const px = Math.floor((x * canvas.width) / r.width);
+  const py = canvas.height - 1 - Math.floor((y * canvas.height) / r.height);
+  const out = new Uint8Array(4);
+  gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out);
+  return "#" + [out[0], out[1], out[2]].map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+
 canvas.addEventListener("pointerdown", (ev) => {
   const [x, y] = at(ev);
+  if (canvasPicking) {
+    ev.preventDefault();
+    pickRelease = true;
+    endCanvasPick(pixelAt(x, y));
+    return;
+  }
   const finger = ev.pointerType !== "mouse";
   if (finger) touches.set(ev.pointerId, [x, y]);
   if (finger && touches.size === 2) {
@@ -6033,6 +6274,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   app.setCtrl(pickKeyHeld(ev, IS_MAC));
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
+  if (where === "hint" && app.hintWantsPick()) startColorPick();
   if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb" || where === "select" || where === "panel" || where === "decktabs") {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
@@ -6214,6 +6456,10 @@ document.getElementById("modeBtn").addEventListener("click", () => toggleMode())
 
 function endPointer(ev) {
   touches.delete(ev.pointerId);
+  if (pickRelease) {
+    pickRelease = false;
+    return;
+  }
   if (pinch) {
     // the pinch lasts until the last finger is lifted
     if (touches.size === 0) {

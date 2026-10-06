@@ -287,6 +287,19 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   same file, so every slide that shows it changes; *Cancel*, **Esc** or a
   click outside leaves the file as it was. The pixel work is
   `web/image-adjust.js`. SVG pictures only get the preview.
+- **Drawing on a slide** (Slide → Draw on slide, or the slide's context
+  menu): a pen, an arrow, a line, an ellipse and text (T), in six colours and
+  three sizes. The drawing is a file of the deck (`drawings/<slide>.ink`,
+  JSON in slide units, `PresSketch`) and the slide refers to it like a
+  picture, `![](drawings/<slide>.ink)`, which takes no room on the slide;
+  deleting that line takes the drawing off. When the slide plays, the items
+  appear in the order they were drawn after the slide's content (with its
+  build step when the line is inside a `{.build}` block). With the select
+  tool (↖) items are picked, dragged, recoloured, deleted (Delete) and moved
+  with the arrow keys; a double click edits text; Ctrl+Z undoes. The palette
+  is EVGUI's `DrawToolsCtl`, the editing `src/PresSketchUi.rgr`. PDF shows
+  the drawings; the PPTX, Word and HTML exports and the MCP server do not
+  include them yet.
 
 ## Using it
 
@@ -306,7 +319,8 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | While presenting: A | steps advance by themselves |
 | While presenting: Esc | end |
 | While presenting: ✎ in the bar | the pen: a press on the slide that moves draws (a press that does not still goes on), the pointer over the slide is drawn as an arrow; the bar's next buttons pick what it draws (line, arrow, straight line, ellipse) and its colour; Backspace or ⌫ wipes the drawing, a new slide starts clean |
-| Record ▸ ● Record presentation | presents from the start with the pen on and the microphone recording; the red time in the bar stops it (Esc too), ⏸ pauses. The voice and everything the presentation did (slides, build steps, the pointer, what was drawn) are kept in the deck as `recordings/take.json` and `recordings/take.webm` (`src/PresRecord.rgr`, `web/recorder.js`); a new take replaces the old one. Without a microphone it is recorded silent |
+| Record ▸ ● Record presentation | asks first: with your voice or without. Then 3, 2, 1 (Esc cancels) and it presents from the start with the pen on; a REC badge at the top shows the time, "no sound" when recorded without, ⏸ Pause and ■ Stop (Esc too), and what can be done. Drag to draw; with the pen's Aa tool, click and type to write on the slide in a hand-written face (Enter ends, Shift+Enter a new line), and while writing letters and Space never change the slide, only ←/→ and PageUp/PageDown. Without Aa the keys stay the presentation's (S the speaker view). The voice and everything the presentation did (slides, build steps, the pointer, what was drawn and written) are kept in the deck as `recordings/take.json` and `recordings/take.webm` (`src/PresRecord.rgr`, `web/recorder.js`); a new take replaces the old one |
+| Files: the REC row, Record ▸ ✂ Edit recording… | the recording as one row with ▶ Play, Edit and ✕. Edit shows it on the timeline (the slides, the voice's loudness, what was drawn): drag to mark a part, ✂ Cut leaves it out, ↺ Put back returns a cut part, a click shows the slide as it was then. Cuts are kept in the take; nothing is removed from the sound |
 | Record ▸ ▶ Play recording, or the Speech lane | presents again from the recording, from where it first shows the selected slide: Space pauses, ←/→ seek 5 s (⏪ ⏩ 10 s), Esc stops. A shared link's ⋯ menu has it too |
 | Record ▸ Voice | the filter the voice plays through: Clean (no rumble, a little presence, even loudness), Warm, Radio, Phone, Echo, Robot, or As recorded. The file stays as spoken |
 | At a diagram's question: click, ←/→ + Enter, or 1–9 | choose the way on |

@@ -24,6 +24,7 @@
 ;                duration=8 fx=starfield fx-density=1.6}
 ;   any block   {.build}           reveal in steps (a list: one per item)
 ;               {anim=fade|rise|fly|zoom seconds=0.5}
+;   ![](drawings/a.ink)  a drawing made on the slide (PresSketch), over it
 ;   front matter  transition, seconds, fx, fx-*, step (seconds between
 ;                 build steps), hold (seconds after the last step)
 ; ============================================================================
@@ -34,6 +35,7 @@ Import "PresDiagram.rgr"
 Import "PresChart.rgr"
 Import "PresTable.rgr"
 Import "PresSmartArt.rgr"
+Import "PresSketch.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGStyleSheet.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -83,6 +85,15 @@ class PresDiaUse {
     def bh:double 0.0
 }
 
+; A drawing on a slide: its file, where its reference is written, and when
+; it starts coming on (PresTimeline.plan).
+class PresSketchUse {
+    def path:string ""
+    def srcStart:int 0
+    def start:double 0.0
+    def sketch:PresSketch (new PresSketch())
+}
+
 class PresSlide {
     def index:int 0
     def id:string ""
@@ -120,10 +131,13 @@ class PresSlide {
     def diagrams:[PresDiaUse]
     def charts:[PresChartUse]
     def smartArts:[PresSmartArtUse]
+    def sketches:[PresSketchUse]
 
     Constructor () {
         def sau:[PresSmartArtUse]
         smartArts = sau
+        def sku:[PresSketchUse]
+        sketches = sku
         def du:[PresDiaUse]
         diagrams = du
         def cu:[PresChartUse]
@@ -1640,6 +1654,11 @@ class PresDeck {
     }
 
     fn setChartData:void (url:string body:string) {
+        ; a drawing comes in as the text file it is
+        if (PresSketch.isPath(url)) {
+            this.setSketch(url body)
+            return
+        }
         def i:int 0
         while (i < (array_length dataUrls)) {
             if ((itemAt dataUrls i) == url) {
@@ -1764,6 +1783,10 @@ class PresDeck {
         def e:MarkdownEdit md.edit
         e.open(masked)
         e.slideMode = true
+        ; a reference to a drawing takes no room: it is drawn over the slide
+        if ((indexOf e.layout.overlayTypes (PresSketch.TYPE())) < 0) {
+            push e.layout.overlayTypes (PresSketch.TYPE())
+        }
         e.sheetGap = (MdToEvg.sheetGap())
         ; a slide with room is set larger (the front matter's `slide-grow`
         ; overrides; `slide-grow: off` keeps the document's sizes)
@@ -1887,21 +1910,6 @@ class PresDeck {
         return (MdChar.lower(v))
     }
 
-    ; A chart's own ground (the diagram library's page colour) would be a
-    ; white card on a dark slide: it is left out, and the chart sits on the
-    ; slide's own ground.
-    sfn clearGround:void (out:EVGDisplayList from:int) {
-        def i:int from
-        while (i < (array_length out.cmds)) {
-            def cmd:EVGDrawCmd (itemAt out.cmds i)
-            if (cmd.kind == 0) {
-                cmd.a = 0.0
-                return
-            }
-            i = (i + 1)
-        }
-    }
-
     fn layout:MdLayout () {
         return md.edit.layout
     }
@@ -2008,6 +2016,103 @@ class PresDeck {
         return -1
     }
 
+    ; --- drawings made on the slides (PresSketch) -------------------------------
+    ; The files (drawings/*.ink) by path ("/drawings/a.ink"), read. The
+    ; layout is told of each as a picture of the drawing type, which takes no
+    ; room (MdLayout.overlayTypes) and is noted with the slide it is on.
+    def sketchPaths:[string]
+    def sketchModels:[PresSketch]
+
+    sfn sketchKey:string (path:string) {
+        if (((strlen path) > 0) && ((substring path 0 1) == "/")) {
+            return path
+        }
+        return ("/" + path)
+    }
+
+    sfn bytesOf:buffer (text:string) {
+        def n:int (strlen text)
+        def buf:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set buf i (charAt text i)
+            i = (i + 1)
+        }
+        return buf
+    }
+
+    ; A drawing file, new or written again.
+    fn setSketch:void (path:string text:string) {
+        def key:string (PresDeck.sketchKey(path))
+        def model:PresSketch (PresSketch.parse(text))
+        def at:int (indexOf sketchPaths key)
+        if (at >= 0) {
+            set_at sketchModels at model
+        } {
+            push sketchPaths key
+            push sketchModels model
+        }
+        md.addImage(key (PresDeck.bytesOf(text)) (PresSketch.TYPE()) 0 0)
+        this.rebuild()
+    }
+
+    ; The drawing kept at `path`, made empty when there is none yet (the
+    ; editor draws into it before its file is written).
+    fn sketchFor:PresSketch (path:string) {
+        def key:string (PresDeck.sketchKey(path))
+        def at:int (indexOf sketchPaths key)
+        if (at >= 0) {
+            return (itemAt sketchModels at)
+        }
+        def fresh (new PresSketch())
+        fresh.w = pageW
+        fresh.h = pageH
+        push sketchPaths key
+        push sketchModels fresh
+        md.addImage(key (PresDeck.bytesOf((fresh.toJson()))) (PresSketch.TYPE()) 0 0)
+        return fresh
+    }
+
+    fn hasSketch:boolean (path:string) {
+        return ((indexOf sketchPaths (PresDeck.sketchKey(path))) >= 0)
+    }
+
+    ; The references the layout noted, onto their slides; each drawing
+    ; fitted to the page and its text measured.
+    fn readSketches:void (l:MdLayout) {
+        def i:int 0
+        while (i < (array_length l.overlaySrc)) {
+            def pg:int (itemAt l.overlayPage i)
+            def path:string (itemAt l.overlayPath i)
+            def at:int (indexOf sketchPaths path)
+            if (((pg >= 0) && (pg < (array_length slides))) && (at >= 0)) {
+                def u (new PresSketchUse())
+                u.path = path
+                u.srcStart = (itemAt l.overlaySrc i)
+                u.sketch = (itemAt sketchModels at)
+                u.sketch.fitTo(pageW pageH)
+                u.sketch.measure(l.engine l.style.bodyFamily)
+                def sl:PresSlide (itemAt slides pg)
+                push sl.sketches u
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The slide's drawings at its time t (all of them when still).
+    fn paintSketches:void (out:EVGDisplayList s:PresSlide t:double l:MdLayout) {
+        def k:int 0
+        while (k < (array_length s.sketches)) {
+            def u:PresSketchUse (itemAt s.sketches k)
+            def at:double (t - u.start)
+            if still {
+                at = 1000000.0
+            }
+            u.sketch.paint(out at l.style.bodyFamily -1)
+            k = (k + 1)
+        }
+    }
+
     fn readSlides:void () {
         this.keepOldUses()
         clear slides
@@ -2100,6 +2205,7 @@ class PresDeck {
             c = (c + 1)
         }
         this.readBands(l doc)
+        this.readSketches(l)
         ; The notes and the audio go to the slide the block sits under.
         def k:int 0
         while (k < (array_length src.blocks)) {
@@ -2513,6 +2619,11 @@ class PresDeck {
             while ((array_length groupOfCmd) < (array_length out.cmds)) {
                 push groupOfCmd -1
             }
+        }
+        ; the drawings made on the slide, over its content
+        this.paintSketches(out s t l)
+        while ((array_length groupOfCmd) < (array_length out.cmds)) {
+            push groupOfCmd -1
         }
         ; a chart's cut words under the pointer, over everything: on the
         ; stage only (not in a thumbnail or an export)
