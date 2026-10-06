@@ -260,11 +260,13 @@ class PresCheck {
         this.ok(((indexOf md ("````markdown" + nl + "# Three" + nl + "```js")) > 0) ("review: the slide's Markdown in a fence longer than its own: " + md))
         this.ok(((indexOf md "# Two") < 0) "review: a slide without open comments is left out")
         def deckSrc:string ("Intro text" + nl + nl + "# One" + nl + nl + "a" + nl + "# Two" + nl + "# Three" + nl + "b")
-        def wc:string (cp.markdownWithComments(deckSrc (([] _:int (12 21 27))) tts))
+        def wc:string (cp.markdownWithComments(deckSrc (([] _:int (12 21 27))) tts false))
         this.ok(((indexOf wc ("Intro text" + nl + nl + "# One [^1]" + nl + nl + "a" + nl + "# Two" + nl + "# Three [^2]" + nl + "b" + nl + nl + "[^1]: Slide 1 · One, at 50 % across, 50 % down, on the diagram's box \"B\"" + nl + "    Ann: Logo here" + nl + "[^2]: Slide 3 · Three, at 42 % across")) == 0) ("review: with comments, marks on the headings and notes at the end: " + wc))
         this.ok(((indexOf wc "done") < 0) "review: with comments, resolved ones are left out")
-        def wc2:string (cp.markdownWithComments(("```js" + nl + "x" + nl + "```" + nl) (([] _:int (0 0 0))) tts))
+        def wc2:string (cp.markdownWithComments(("```js" + nl + "x" + nl + "```" + nl) (([] _:int (0 0 0))) tts false))
         this.ok(((indexOf wc2 ("[^1][^2]" + nl + nl + "```js")) == 0) ("review: with comments, no heading: the marks on a line above: " + wc2))
+        def wc3:string (cp.markdownWithComments(("# Three" + nl + "b" + nl) (([] _:int (-1 -1 0))) tts true))
+        this.ok((wc3 == ("# Three [^1]" + nl + "b" + nl + nl + "[^1]: Slide 3 · Three, at 42 % across, 30 % down" + nl + "    Ann: Bigger font" + nl + "    Bob: Agreed" + nl + "      and bold" + nl)) ("review: with comments, some slides: only theirs, numbered from 1: " + wc3))
         ; times
         def now:double 1759658400000.0
         this.ok(((PresReview.timeText(now now 180)) == "13:00") ("review: today, the clock: " + (PresReview.timeText(now now 180))))
