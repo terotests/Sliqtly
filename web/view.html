@@ -96,6 +96,16 @@
   .roll__stack > .off { transform: translateY(-105%); opacity: 0; }
   .roll__text > p { color: var(--dim); font-size: clamp(16px, 1.6vw, 20px); margin: 0; }
   @media (prefers-reduced-motion: reduce) { .roll__stack > * { transition: none; } }
+  .tablebox { border: 1px solid var(--line-2); overflow-x: auto; }
+  .measure { width: 100%; border-collapse: collapse; font: 15px/1.4 var(--mono); min-width: 560px; }
+  .measure th, .measure td { text-align: left; padding: 16px 20px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .measure tbody tr:last-child > * { border-bottom: 0; }
+  .measure thead th { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); font-weight: 400; }
+  .measure thead th.accent { color: var(--accent); }
+  .measure tbody th { font-weight: 400; color: var(--dim); }
+  .measure td { color: var(--paper); font-size: 17px; }
+  .measure td.accent { color: var(--accent); font-weight: 700; }
+  .measure .note { display: block; font-size: 12px; color: var(--dimmer); margin-top: 4px; }
   .flow { font: 15px/1.7 var(--mono); color: var(--paper); margin: 0; white-space: pre; overflow-x: auto; }
   .flow b { color: var(--accent); font-weight: 400; }
   .split { display: grid; gap: clamp(28px, 4vw, 56px); grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); align-items: start; }
@@ -162,6 +172,7 @@
     <a class="nav__brand" href="/"><img src="./favicon.svg" alt="" width="22" height="22" />Sliqtly</a>
     <nav class="nav__links" aria-label="Sections">
       <a href="#why">Why</a>
+      <a href="#measured">Measured</a>
       <a href="#mcp">MCP</a>
       <a href="#terms">Terms</a>
     </nav>
@@ -204,6 +215,23 @@
             <p>Use the tools and models you already have. Sliqtly handles the slides.</p>
             <p>Designed for local and hosted workflows.</p>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="measured">
+      <div class="wrap">
+        <p class="label">Measured by Claude Opus 5.5</p>
+        <h2 class="display display--lg">4× fewer tokens than PowerPoint.<br /><span class="accent">20× fewer than Google Slides.</span></h2>
+        <div class="tablebox">
+          <table class="measure">
+            <thead><tr><th>Same 6-slide deck, tokens</th><th class="accent">Sliqtly</th><th>PowerPoint (python-pptx)</th><th>Google Slides (API)</th></tr></thead>
+            <tbody>
+              <tr><th>Create, the AI writes</th><td class="accent">~256</td><td>~956</td><td>~5,177 <span class="note">100 requests + 3 Sheets calls</span></td></tr>
+              <tr><th>Edit, the AI writes</th><td class="accent">~54</td><td>~182</td><td>~280</td></tr>
+              <tr><th>Read before editing</th><td class="accent">0–256</td><td>~407</td><td>5,000+</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </section>
