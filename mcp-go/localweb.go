@@ -53,6 +53,18 @@ func webFiles(dir string) fs.FS {
 	return sub
 }
 
+// the public viewer's build (web/dist-view, npm run build:view) rather
+// than the editor's: it plays presentations and has no editor, so the
+// server's front page is its list of decks
+func viewerOnly(web fs.FS) bool {
+	if web == nil {
+		return false
+	}
+	_, err := fs.Stat(web, "view.js")
+	_, editor := fs.Stat(web, "pres_app.js")
+	return err == nil && editor != nil
+}
+
 // --- the page
 
 var (

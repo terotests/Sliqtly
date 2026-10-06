@@ -115,8 +115,11 @@ log("copied mcp-go/themes/*.css");
 
 // The editor and player (web/dist, npm run build), built into the binary so
 // a server of one's own serves them (localweb.go). Without a build the
-// server shows its decks as pictures only.
-const webDist = path.join(here, "..", "web", "dist");
+// server shows its decks as pictures only. SLIQTLY_BUILD_WEB=viewer builds
+// in the public viewer instead (web/dist-view, npm run build:view): the
+// server plays presentations and has no editor (the .deb's default).
+const viewer = process.env.SLIQTLY_BUILD_WEB === "viewer";
+const webDist = path.join(here, "..", "web", viewer ? "dist-view" : "dist");
 const webOut = path.join(here, "webdist");
 fs.mkdirSync(webOut, { recursive: true });
 for (const f of fs.readdirSync(webOut)) if (f !== "README") fs.rmSync(path.join(webOut, f), { recursive: true, force: true });
@@ -124,7 +127,9 @@ if (fs.existsSync(path.join(webDist, "index.html"))) {
   // fonts/ is left out: the server serves the page's faces from its own
   // copy (fonts.go, the same files)
   fs.cpSync(webDist, webOut, { recursive: true, filter: (src) => path.relative(webDist, src).split(path.sep)[0] !== "fonts" });
-  log("copied web/dist → mcp-go/webdist");
+  log(`copied web/${viewer ? "dist-view" : "dist"} → mcp-go/webdist`);
+} else if (viewer) {
+  throw new Error("no web/dist-view (npm run build:view) for SLIQTLY_BUILD_WEB=viewer");
 } else {
   log("no web/dist (npm run build): the binary will have no editor");
 }
