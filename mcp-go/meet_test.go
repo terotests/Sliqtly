@@ -234,6 +234,11 @@ func TestCallTwoPages(t *testing.T) {
 		_, body := req(t, "GET", srv.URL+"/api/collab/"+id, "", "")
 		return strings.Contains(body, `"call":[]`)
 	})
+	// the deck's room was told, and its line says the call ended, who was in it
+	waitFor(t, "the room's line to say it ended", func() bool {
+		_, body := req(t, "POST", srv.URL+"/api/rooms/read_room_chat", "application/json", `{"room_id":"general"}`)
+		return strings.Contains(body, "Call on [[slides:"+id+"]] ended") && strings.Contains(body, "Ada, Bo") && !strings.Contains(body, "started a call")
+	})
 }
 
 // Where UDP does not pass, the call goes over TCP on the HTTP port itself:

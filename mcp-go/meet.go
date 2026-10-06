@@ -31,6 +31,12 @@
 // the page came in on (netaccess.go hands such connections here by their
 // first byte). Anything that can open the page can carry its call.
 //
+// The call is told in the deck's home room chat (roomchat.go): a line by
+// "Sliqtly" when it starts, changed to say how long it was and who took
+// part when it ends. People in the room see a call is on and open the deck
+// to join; assistants reading the room's chat (read_room_chat) see it too.
+// A room's own call (the "huddle") can start one through startCall.
+//
 // Muting is kept by the server too: a muted member's packets are not
 // forwarded, whatever the page sends. The first to join is the host, who
 // may mute anyone; when the host leaves, the next one is.
@@ -38,9 +44,12 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -50,6 +59,7 @@ import (
 	"github.com/pion/ice/v4"
 	"github.com/pion/logging"
 	"github.com/pion/webrtc/v4"
+	"github.com/terotests/sliqtly/mcp-go/store"
 )
 
 const callMost = 50 // members in one call
@@ -75,6 +85,12 @@ type roomCall struct {
 	mu      sync.Mutex
 	members map[string]*callMember
 	voices  map[string]*webrtc.TrackLocalStaticRTP // each member's voice, as forwarded
+	started time.Time
+	people  []string // everyone who was in it, by name, in the order they came
+	// its line in the room's chat: posted is closed once it is (id "" when
+	// it could not be)
+	notice string
+	posted chan struct{}
 }
 
 type callRow struct {
@@ -95,17 +111,19 @@ func (rm *collabRoom) callOp(body map[string]any, client string) (any, error) {
 		name, color, who = p.Name, p.Color, p.Who
 	}
 	c := rm.call
+	started := false
 	if c == nil && op == "join" && p != nil {
-		api, err := rm.s.callAPI()
-		if err != nil {
+		var err error
+		if c, err = rm.startCall(); err != nil {
 			rm.mu.Unlock()
-			log.Printf("call: %v", err)
-			return nil, fail(503, "no-call", "calls cannot start on this server: "+err.Error())
+			return nil, err
 		}
-		c = &roomCall{rm: rm, api: api, members: map[string]*callMember{}, voices: map[string]*webrtc.TrackLocalStaticRTP{}}
-		rm.call = c
+		started = true
 	}
 	rm.mu.Unlock()
+	if started {
+		go c.tellStart(name)
+	}
 	if p == nil {
 		return nil, fail(409, "not-here", "open the room's stream first")
 	}
@@ -131,6 +149,74 @@ func (rm *collabRoom) callOp(body map[string]any, client string) (any, error) {
 		return map[string]bool{"ok": true}, nil
 	}
 	return nil, fail(400, "", "op: join, answer, mute or leave")
+}
+
+// (locked) startCall: the room's call, made now. The deck's page starts
+// one by joining; a room's huddle would start it the same way.
+func (rm *collabRoom) startCall() (*roomCall, error) {
+	api, err := rm.s.callAPI()
+	if err != nil {
+		log.Printf("call: %v", err)
+		return nil, fail(503, "no-call", "calls cannot start on this server: "+err.Error())
+	}
+	c := &roomCall{rm: rm, api: api, members: map[string]*callMember{}, voices: map[string]*webrtc.TrackLocalStaticRTP{}, started: time.Now(), posted: make(chan struct{})}
+	rm.call = c
+	return c, nil
+}
+
+// the call's line in the room's chat, when it starts and when it ends
+func (c *roomCall) tellStart(by string) {
+	defer close(c.posted)
+	c.notice = c.rm.s.callNotice("", c.rm.id, fmt.Sprintf("📞 %s started a call on [[slides:%s]]. Open the presentation and press *Join call*.", by, c.rm.id))
+}
+
+func (c *roomCall) tellEnd() {
+	<-c.posted
+	if c.notice == "" {
+		return
+	}
+	c.mu.Lock()
+	people := append([]string{}, c.people...)
+	c.mu.Unlock()
+	mins := int(time.Since(c.started).Round(time.Minute) / time.Minute)
+	took := "under a minute"
+	if mins == 1 {
+		took = "1 minute"
+	} else if mins > 1 {
+		took = fmt.Sprintf("%d minutes", mins)
+	}
+	c.rm.s.callNotice(c.notice, c.rm.id, fmt.Sprintf("📞 Call on [[slides:%s]] ended · %s · %s", c.rm.id, took, strings.Join(people, ", ")))
+}
+
+// callNotice posts text in deck's home room chat as Sliqtly (or changes
+// the line id posted before) → its id; "" when the server keeps no rooms
+func (s *localServer) callNotice(id, deck, text string) string {
+	rs := s.env.rooms
+	if rs == nil || s.env.DB == nil {
+		return ""
+	}
+	ctx, done := context.WithTimeout(context.Background(), 10*time.Second)
+	defer done()
+	d, err := s.env.DB.Get(ctx, "shares", deck)
+	if err != nil || d == nil {
+		return ""
+	}
+	room, _ := d[store.RoomField].(string)
+	if room == "" {
+		return ""
+	}
+	a := map[string]any{"room_id": room, "text": text, "agent": "Sliqtly"}
+	if id != "" {
+		a["message_id"] = id
+	}
+	out, err := rs.callVia(ctx, s.env.LocalUser, viaMcp, "post_room_message", a)
+	if err != nil {
+		log.Printf("call: telling room %s: %v", room, err)
+		return ""
+	}
+	m, _ := out.(map[string]any)
+	got, _ := m["message_id"].(string)
+	return got
 }
 
 func (c *roomCall) join(client, who, name, color string, muted bool) (any, error) {
@@ -164,6 +250,9 @@ func (c *roomCall) join(client, who, name, color string, muted bool) (any, error
 		}
 	})
 	c.members[client] = m
+	if !slices.Contains(c.people, name) {
+		c.people = append(c.people, name)
+	}
 	c.offer(m)
 	c.tell()
 	return map[string]any{"ok": true}, nil
@@ -380,6 +469,7 @@ func (c *roomCall) tell() {
 		c.mu.Unlock()
 		if len(rows) == 0 && rm.call == c {
 			rm.call = nil
+			go c.tellEnd()
 		}
 		rm.broadcast(map[string]any{"t": "call", "members": rows}, 0)
 	}()
