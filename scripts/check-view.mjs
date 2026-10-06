@@ -84,6 +84,8 @@ try {
   await page.waitForTimeout(300);
   const counter = await text(page, "vCount");
   if (counter !== `1 / ${slides}`) fail(`counter "${counter}", not "1 / ${slides}"`);
+  // the assistant's preview waits for this (mcp-go/assets/preview.html)
+  if (!(await page.evaluate(() => window.__pageStarted))) fail("window.__pageStarted is not set");
   // more than one colour on the canvas: something was drawn
   const colours = await page.evaluate(() => {
     const c = document.getElementById("c");
@@ -117,6 +119,7 @@ try {
   page = await open("/s/Nothing999");
   await page.waitForFunction(() => document.getElementById("note").textContent.length > 0, null, { timeout: 15000 });
   if (!/not found|ei löytynyt/.test(await text(page, "note"))) fail("a missing presentation was not said");
+  if (!(await page.evaluate(() => window.__pageStarted))) fail("a missing presentation does not count as started");
   await page.close();
 
   // the front page: no editor; the MCP part, the way to the assistants'

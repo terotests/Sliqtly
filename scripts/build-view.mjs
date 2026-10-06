@@ -13,6 +13,8 @@
  *   view.js …    web/view.js, viewlink.js, picture.js and what it imports, brand.js
  *   gl/          evg-webgl.js, the painter
  *   fonts/       the faces the slides are drawn with
+ *   personal-license.txt   the Personal package's license (its download)
+ *   local.html                 how to run the Personal package on Ubuntu/Debian
  *   connect.html, oauth.html   the assistants' pages (/mcp sends a browser
  *                to the first; sign-in for the MCP server is the second)
  */
@@ -28,7 +30,7 @@ export const viewDir = path.join(webDir, "dist-view");
 // everything the viewer's modules may import, and nothing more: a module
 // that imports anything else fails the build (below)
 const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"]];
-const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"]];
+const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"], ["local.html", "local.html"]];
 
 function files(dir) {
   return fs.readdirSync(dir, { recursive: true })
@@ -47,6 +49,8 @@ export function buildView({ ranger } = {}) {
   for (const [from, to] of [...PAGES, ...MODULES]) copy(path.join(webDir, from), to);
   copy(path.join(ranger, "lib/evg/gl/evg-webgl.js"), "gl/evg-webgl.js");
   copy(path.join(root, "brand/sliqtly-icon.svg"), "favicon.svg");
+  // the Personal package's license, linked from the front page
+  copy(path.join(root, "mcp-go/packaging/personal/LICENSE"), "personal-license.txt");
   copyFaces(ranger, viewDir);
 
   // every module's relative imports are among the files copied

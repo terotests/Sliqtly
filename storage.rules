@@ -35,6 +35,13 @@ service firebase.storage {
       allow delete: if owner();
     }
 
+    // The Personal package (.github/workflows/personal-package.yml): anyone
+    // may download it (sliqtly.com/download/… sends a browser here); only
+    // the workflow's service account writes it, which rules do not cover
+    match /downloads/personal/{file} {
+      allow get: if true;
+    }
+
     // A signed-in user's own files (pictures added to a deck, web/sliqtly.js
     // putFile): read and written by that user only.
     match /users/{uid}/{path=**} {

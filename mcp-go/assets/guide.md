@@ -98,9 +98,8 @@ SVG pictures, backgrounds included:
 - Shown as a picture, an SVG loads nothing from outside itself: put
   pictures in it as `data:` URLs. Its text is drawn in each viewer's own
   fonts, so draw words as paths, or write them on the slide in Markdown.
-- The player draws the SVG once to a PNG 2560 px on its longer side; the
-  slides, the PDF and the PPTX all use that PNG, so in PDF and PPTX it is a
-  raster picture, not vectors. The deck keeps the SVG itself.
+- In PDF and PPTX an SVG picture is a raster picture, not vectors. The deck
+  keeps the SVG itself.
 - `render_slide` and `render_overview` draw SVG pictures, and the result of
   create/update has a line for each SVG ("SVG ok, viewBox 1920×1080
   (16:9), 14 paths") with a ⚠ for what will go wrong in the player: no
@@ -364,11 +363,10 @@ pictures under 300 dpi in print ("media/sauna.jpg: 180 dpi in print, under
   strip wraps into rows of three or more; `width=` keeps it in its own box.
   Text that would not read on its fill (a pale column on a dark theme) is
   set in the theme's paper or ink colour instead. Styles (`style=`): `simple1` … `simple5` (thicker outlines,
-  then shadows). They come from the theme. A whole SmartArt from a .pptx
-  also works as one file: a Flat OPC package (`pkg:package`) holding its
-  data, layout, style, colours and, when PowerPoint saved one, its drawing;
-  `tools/extract_smartart.py deck.pptx out/` in RangerPPTX writes one per
-  diagram. Such a file is drawn as PowerPoint drew it (scaled to the box),
+  then shadows). They come from the theme. A SmartArt from PowerPoint
+  also works, taken out of the .pptx as one file: a Flat OPC package
+  (`pkg:package`) holding its data, layout, style, colours and, when
+  PowerPoint saved one, its drawing. Such a file is drawn as PowerPoint drew it (scaled to the box),
   or laid out again from its own layout when `layout=`, `colors=` or
   `style=` is given. A file that is not a diagram, and a data model with
   no items, is shown as the reason in its place and named in the warnings. The PDF
@@ -426,8 +424,7 @@ pictures under 300 dpi in print ("media/sauna.jpg: 180 dpi in print, under
   JPEG's `path` traces it into an SVG (`media/<name>.svg`) and points the
   Markdown's and the theme CSS's uses of it at the SVG; the original stays
   in the files. `preset` is logo, illustration (the default), poster, photo
-  or lineart; `options` sets tracer options on top of it, e.g.
-  `{ "colorCount": 6, "turdsize": 8, "maxSide": 1200 }`. Good for logos,
+  or lineart; `options.colorCount` (e.g. 6) sets how many colours. Good for logos,
   icons, drawings and blurry low-resolution pictures; a photo becomes a
   poster-like drawing. Without a deck_id, `image_base64` or `image_url`
   gives the SVG back. `vectorize_image` is on every Sliqtly server; if it
@@ -556,12 +553,10 @@ whether it is resolved, and its messages. Work through the open ones:
   `slide_title`, and `x`, `y` (0..1 of the slide) to point at something.
 - `author` names you on the message; the default is "AI assistant".
 
+<!-- rooms -->
 ## Rooms
 
-Rooms are only on a Sliqtly server of one's own (sliqtly.com has none, so
-`list_rooms` and the other room tools are missing there). On such a server
-(`list_rooms` is in the tool list), the
-presentations are kept in rooms. A room is one whole piece of work: a
+On this server the presentations are kept in rooms. A room is one whole piece of work: a
 task, a Jira ticket, a user story, or another whole such as a project.
 Every presentation has one home room; new ones start in General.
 
@@ -598,6 +593,7 @@ assistants working for them talk.
   empty. Links in a message get a preview (site, title, summary) shortly
   after it is posted.
 
+<!-- /rooms -->
 ## When another assistant works on the same deck
 
 Two assistants (two chats, or another app) can change one presentation at
@@ -653,15 +649,13 @@ files, the biggest changes as ```` ```diff ```` slides (one file each,
 shortened), the commits on a timeline and a decision slide. Change the draft
 to say what matters (pick the lines with `{lines=…}`, add `.build` to step
 through them) and create it with `create_presentation`. Public repositories
-work as they are; a private one needs a token on the server and a signed-in
-user the server lets read private repositories.
+work as they are; a private one needs separate access.
 
 ## Result
 
 `create_presentation` returns a share link that opens straight into the
-presentation (full screen button, arrow keys) and an edit link that opens a
-copy in the Sliqtly editor. Keep `deck_id` to change the same deck later
-with `update_presentation`; the share link stays the same. The id finds a
-presentation, it does not let anyone change it: a signed-in user's is
-changed by its owner, one made without sign-in only in this connection's
-session (until it ends or goes unused for a day).
+presentation (full screen button, arrow keys). Keep `deck_id` to change the
+same deck later with `update_presentation`; the share link stays the same.
+The id finds a presentation, it does not let anyone change it: a signed-in
+user's is changed by its owner, one made without sign-in only in this
+connection's session (until it ends or goes unused for a day).

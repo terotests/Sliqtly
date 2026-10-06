@@ -8,6 +8,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { ensureRanger, ensureRangerDiff, log } from "../scripts/lib.mjs";
+import { formatCss } from "../scripts/format-css.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ranger = ensureRanger();
@@ -103,20 +104,30 @@ for (const [dir, face] of [
 }
 log("copied mcp-go/fonts/*.ttf");
 
-// The themes' sheets, for a server that keeps decks in a folder
-// (SLIQTLY_DATA): it has no site to fetch /themes/{name}.css from.
+// The themes' sheets, built into every server (host.go Theme): the public
+// site no longer serves /themes/, and a server that keeps decks in a
+// folder (SLIQTLY_DATA) has no site at all.
 const themesDir = path.join(here, "themes");
 fs.rmSync(themesDir, { recursive: true, force: true });
 fs.mkdirSync(themesDir, { recursive: true });
 for (const f of fs.readdirSync(path.join(here, "..", "themes"))) {
   if (f.endsWith(".css")) fs.copyFileSync(path.join(here, "..", "themes", f), path.join(themesDir, f));
 }
+// corporate and editorial come from Ranger, as the editor's build takes
+// them (scripts/build.mjs): every theme is built in, so the server never
+// needs the site to lay a deck out
+for (const t of ["corporate", "editorial"]) {
+  fs.writeFileSync(path.join(themesDir, `${t}.css`), formatCss(fs.readFileSync(path.join(ranger, `gallery/markdown/fixtures/themes/${t}.css`), "utf8")));
+}
 log("copied mcp-go/themes/*.css");
 
 // The editor and player (web/dist, npm run build), built into the binary so
 // a server of one's own serves them (localweb.go). Without a build the
-// server shows its decks as pictures only.
-const webDist = path.join(here, "..", "web", "dist");
+// server shows its decks as pictures only. SLIQTLY_BUILD_WEB=viewer builds
+// in the public viewer instead (web/dist-view, npm run build:view): the
+// server plays presentations and has no editor (the .deb's default).
+const viewer = process.env.SLIQTLY_BUILD_WEB === "viewer";
+const webDist = path.join(here, "..", "web", viewer ? "dist-view" : "dist");
 const webOut = path.join(here, "webdist");
 fs.mkdirSync(webOut, { recursive: true });
 for (const f of fs.readdirSync(webOut)) if (f !== "README") fs.rmSync(path.join(webOut, f), { recursive: true, force: true });
@@ -124,7 +135,9 @@ if (fs.existsSync(path.join(webDist, "index.html"))) {
   // fonts/ is left out: the server serves the page's faces from its own
   // copy (fonts.go, the same files)
   fs.cpSync(webDist, webOut, { recursive: true, filter: (src) => path.relative(webDist, src).split(path.sep)[0] !== "fonts" });
-  log("copied web/dist → mcp-go/webdist");
+  log(`copied web/${viewer ? "dist-view" : "dist"} → mcp-go/webdist`);
+} else if (viewer) {
+  throw new Error("no web/dist-view (npm run build:view) for SLIQTLY_BUILD_WEB=viewer");
 } else {
   log("no web/dist (npm run build): the binary will have no editor");
 }

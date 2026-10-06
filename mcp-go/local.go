@@ -61,6 +61,7 @@ type localServer struct {
 	bucket *localBucket
 	token  string
 	web    fs.FS      // the built page; nil: none
+	viewer bool       // web is the viewer's build: plays, no editor
 	hub    *changeHub // the decks' changes, for /api/events
 	collab *collabRooms
 	board  *statusBoard // the server's state, for /api/status and /api/events
@@ -109,7 +110,8 @@ func newLocalServer(env *Env, bucket *localBucket, token string, web fs.FS) http
 			return builtinTheme(name)
 		}
 	}
-	s := &localServer{env: env, app: NewApp(env), bucket: bucket, token: token, web: web, board: newStatusBoard("ready", version), hosts: newHostGuard(env.BaseURL, !env.TrustHost)}
+	env.Editor = web != nil && !viewerOnly(web)
+	s := &localServer{env: env, app: NewApp(env), bucket: bucket, token: token, web: web, viewer: viewerOnly(web), board: newStatusBoard("ready", version), hosts: newHostGuard(env.BaseURL, !env.TrustHost)}
 	if env.Store != nil {
 		s.hub = newChangeHub()
 		s.collab = newCollabRooms()
@@ -188,7 +190,7 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
-	case (p == "/" || p == "/index.html") && s.web != nil:
+	case (p == "/" && s.web != nil && !s.viewer) || (p == "/index.html" && s.web != nil):
 		s.page(w, r)
 	case p == "/" || p == "/decks":
 		s.index(w, r)
@@ -347,7 +349,7 @@ figcaption { color: var(--muted); font-size: .85rem; margin-top: 6px; }
 pre { white-space: pre-wrap; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 12px; font-size: .85rem; }
 </style></head><body><main>
 {{if .Deck}}
-<p class="muted"><a href="/decks">All presentations</a>{{if .Web}} · <a href="/s/{{.ID}}">play</a> · <a href="/s/{{.ID}}?edit">edit</a>{{end}}</p>
+<p class="muted"><a href="/decks">All presentations</a>{{if .Web}} · <a href="/s/{{.ID}}">play</a>{{end}}{{if .Edit}} · <a href="/s/{{.ID}}?edit">edit</a>{{end}}</p>
 <h1>{{.Title}}</h1>
 <p class="muted">{{.Slides}} slides · theme {{.Theme}} · <a href="/s/{{.ID}}/overview.jpg">overview</a></p>
 {{range .Numbers}}<figure><img loading="lazy" src="/s/{{$.ID}}/{{.N}}.jpg" alt="Slide {{.N}}: {{.Title}}" width="960" height="540"><figcaption>{{.N}}. {{.Title}}</figcaption></figure>
@@ -355,7 +357,7 @@ pre { white-space: pre-wrap; background: var(--card); border: 1px solid var(--li
 {{else}}
 <h1>Presentations</h1>
 <p class="muted">Kept in this server's folder. MCP: <code>{{.MCP}}</code> · <a href="/settings">Settings</a></p>
-<ul>{{range .Decks}}<li><a href="/s/{{.ID}}">{{.Name}}</a> <span class="muted">{{.When}} · <a href="/s/{{.ID}}/slides">slides</a>{{if $.Web}} · <a href="/s/{{.ID}}?edit">edit</a>{{end}}</span></li>
+<ul>{{range .Decks}}<li><a href="/s/{{.ID}}">{{.Name}}</a> <span class="muted">{{.When}} · <a href="/s/{{.ID}}/slides">slides</a>{{if $.Edit}} · <a href="/s/{{.ID}}?edit">edit</a>{{end}}</span></li>
 {{else}}<li class="muted">None yet. Ask an assistant connected to {{$.MCP}} to make one.</li>{{end}}</ul>
 {{end}}
 </main></body></html>`))
@@ -401,7 +403,7 @@ func (s *localServer) index(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Slice(rows, func(a, b int) bool { return rows[a].at > rows[b].at })
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTmpl.Execute(w, map[string]any{"Title": "Sliqtly", "Decks": rows, "MCP": s.env.BaseURL + "/mcp", "Web": s.web != nil})
+	pageTmpl.Execute(w, map[string]any{"Title": "Sliqtly", "Decks": rows, "MCP": s.env.BaseURL + "/mcp", "Web": s.web != nil, "Edit": s.web != nil && !s.viewer})
 }
 
 var (
@@ -446,5 +448,5 @@ func (s *localServer) deck(w http.ResponseWriter, r *http.Request, id string) {
 		name = id
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTmpl.Execute(w, map[string]any{"Deck": true, "ID": id, "Title": name, "Slides": n, "Theme": theme, "Numbers": slides, "Web": s.web != nil})
+	pageTmpl.Execute(w, map[string]any{"Deck": true, "ID": id, "Title": name, "Slides": n, "Theme": theme, "Numbers": slides, "Web": s.web != nil, "Edit": s.web != nil && !s.viewer})
 }
