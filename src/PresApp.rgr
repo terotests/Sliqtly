@@ -50,6 +50,7 @@ Import "PresToolbar.rgr"
 Import "PresHintPopover.rgr"
 Import "PresPanels.rgr"
 Import "PresReviewUi.rgr"
+Import "PresSketchUi.rgr"
 Import "PresRoomView.rgr"
 Import "PresA11y.rgr"
 Import "PresSelect.rgr"
@@ -266,6 +267,13 @@ class PresApp {
     def panels:PresPanels (new PresPanels())
     ; review mode: comments pinned to the slides (PresReviewUi, PresReview)
     def review:PresReviewUi (new PresReviewUi())
+    ; Slide → Draw on slide: what is drawn stays on the slide (PresSketchUi,
+    ; PresSketch); a drawing begun on a slide without one, until its
+    ; reference is written (`sketchNewPath` on `sketchNewSlide`)
+    def sketch:PresSketchUi (new PresSketchUi())
+    def sketchNewPath:string ""
+    def sketchNewSlide:int -1
+    def sketchScratch:PresSketch (new PresSketch())
     ; a room's chat over the work area (PresRoomView, EVGUI ChannelCtl)
     def room:PresRoomView (new PresRoomView())
     ; the jumps while presenting and the slide number being typed
@@ -307,6 +315,7 @@ class PresApp {
         layers.add("room" "docked")
         layers.add("bar" "docked")
         layers.add("panels" "docked")
+        layers.add("sketch" "docked")
         layers.add("review" "docked")
         layers.add("hint" "window")
         layers.add("chart" "window")
@@ -3621,6 +3630,11 @@ class PresApp {
             this.takeToolbar()
             return "bar"
         }
+        if (top == "sketch") {
+            focus = "sketch"
+            this.sketchPress(x y clicks)
+            return "sketch"
+        }
         if chart.isOpen {
             if (top == "chart") {
                 layers.raise("chart")
@@ -4002,6 +4016,11 @@ class PresApp {
     }
 
     fn pointerMove:void (x:double y:double) {
+        if (sketch.busy()) {
+            sketch.move(x y (this.sketchModel()))
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if (imgDrag.active()) {
             this.imageDragTo(x y)
             return
@@ -4161,6 +4180,10 @@ class PresApp {
     }
 
     fn pointerUp:void () {
+        if (sketch.busy()) {
+            sketch.release((this.sketchModel()))
+            this.afterSketch()
+        }
         if (imgDrag.active()) {
             this.imageDrop()
         }
@@ -4402,6 +4425,9 @@ class PresApp {
         ; the surface on top under the pointer says (the bar's open menu
         ; below, with the bar)
         def top:string (this.layerAt(x y))
+        if (top == "sketch") {
+            return (this.sketchCursor(x y))
+        }
         if (((strlen top) > 0) && (top != "bar")) {
             def lc:string ""
             if (top == "hint") {
@@ -4502,6 +4528,12 @@ class PresApp {
         }
         if (review.hasKeys()) {
             return (this.reviewKey(name shift ctrl))
+        }
+        if (((sketch.on && (mode != "present")) && (focus == "sketch")) && (ctrl == false)) {
+            if (sketch.key(name shift (this.sketchModel()))) {
+                this.afterSketch()
+                return true
+            }
         }
         if ((name == "escape") && (review.escape())) {
             if (focus == "review") {
@@ -4796,6 +4828,11 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
+        if (((sketch.on && (mode != "present")) && (focus == "sketch")) && (sketch.typing >= 0)) {
+            sketch.text(s (this.sketchModel()))
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if (this.chatHasKeys()) {
             panels.chat.typeChar("" s)
             panels.rebuild()
@@ -4967,6 +5004,13 @@ class PresApp {
         }
         if (mode == "present") {
             return false
+        }
+        ; drawing: Ctrl+Z takes back the last change to a drawing
+        if (sketch.on && (focus == "sketch")) {
+            if (ch == "z") {
+                this.sketchUndo()
+            }
+            return true
         }
         ; the editor's fields have no undo of their own, and an undo in the
         ; Markdown under it would move the fence it is writing
@@ -5713,6 +5757,7 @@ class PresApp {
             layers.setBand("bar" "docked")
         }
         layers.setOpen("panels" (((panels.helpOpen || panels.filesOpen) || panels.chat.open) && edit))
+        layers.setOpen("sketch" ((sketch.on && edit) && ((deck.slideCount()) > 0)))
         layers.setOpen("review" (review.on && ((deck.slideCount()) > 0)))
         layers.setOpen("hint" (hint.isOpen && edit))
         layers.setOpen("chart" chart.isOpen)
@@ -5741,6 +5786,10 @@ class PresApp {
         if (id == "review") {
             this.reviewReady()
             return (review.has(x y))
+        }
+        if (id == "sketch") {
+            this.sketchPlace()
+            return (sketch.has(x y))
         }
         if (id == "hint") {
             return (hint.has(x y))
@@ -6732,6 +6781,262 @@ class PresApp {
             return 1.0
         }
         return f
+    }
+
+    ; --- drawing on the slide (PresSketchUi) ------------------------------------------
+
+    fn setSketching:void (on:boolean) {
+        if (on && (mode == "present")) {
+            return
+        }
+        sketch.on = on
+        if on {
+            this.dropPicks()
+            focus = "sketch"
+            this.sketchPlace()
+        } {
+            sketch.close((this.sketchModel()))
+            this.afterSketch()
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn sketching:boolean () {
+        return (sketch.on && (mode != "present"))
+    }
+
+    ; The slide's drawing: the first it refers to, the one begun on it, or
+    ; none ("").
+    fn sketchPathOf:string (i:int) {
+        if ((i < 0) || (i >= (deck.slideCount()))) {
+            return ""
+        }
+        def sl:PresSlide (deck.slideAt(i))
+        if ((array_length sl.sketches) > 0) {
+            def u:PresSketchUse (itemAt sl.sketches 0)
+            return u.path
+        }
+        if ((sketchNewSlide == i) && ((strlen sketchNewPath) > 0)) {
+            return (PresDeck.sketchKey(sketchNewPath))
+        }
+        return ""
+    }
+
+    fn sketchPlace:void () {
+        this.place()
+        sketch.place(W H slideRect.x slideRect.y slideRect.w slideRect.h (this.slideScale()) stageArea.x)
+        sketch.showSlide(selected (this.sketchPathOf(selected)))
+        sketch.css = panels.css
+        sketch.skin = skin
+        sketch.measurer = measurer
+    }
+
+    ; The drawing being edited (an empty one stands in on a slide without).
+    fn sketchModel:PresSketch () {
+        if ((strlen sketch.path) == 0) {
+            sketchScratch.w = deck.pageW
+            sketchScratch.h = deck.pageH
+            return sketchScratch
+        }
+        return (deck.sketchFor(sketch.path))
+    }
+
+    fn sketchPress:void (x:double y:double clicks:int) {
+        this.sketchPlace()
+        if (sketch.pressPalette(x y (this.sketchModel()))) {
+            this.afterSketch()
+            return
+        }
+        ; the first line or text on a slide without a drawing begins one
+        if (((strlen sketch.path) == 0) && ((sketch.tool()) != "select")) {
+            sketchNewPath = (this.newSketchPath(selected))
+            sketchNewSlide = selected
+            deck.sketchFor(sketchNewPath)
+            sketch.path = (PresDeck.sketchKey(sketchNewPath))
+        }
+        sketch.pressSlide(x y clicks (this.sketchModel()))
+        this.afterSketch()
+    }
+
+    fn afterSketch:void () {
+        def rs:[string] sketch.requests
+        def none:[string]
+        sketch.requests = none
+        def i:int 0
+        while (i < (array_length rs)) {
+            def r:string (itemAt rs i)
+            if (r == "sketch-save") {
+                this.sketchSave()
+            }
+            if (r == "sketch-done") {
+                if (focus == "sketch") {
+                    focus = "editor"
+                }
+            }
+            i = (i + 1)
+        }
+        PresTimeline.planAll(deck)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The drawing changed: the slide refers to it (the line is added when
+    ; it does not), and the page writes its file.
+    fn sketchSave:void () {
+        def path:string sketch.path
+        if ((strlen path) == 0) {
+            return
+        }
+        if ((sketchNewSlide == selected) && ((PresDeck.sketchKey(sketchNewPath)) == path)) {
+            def sl:PresSlide (deck.slideAt(selected))
+            if ((array_length sl.sketches) == 0) {
+                this.sketchRef(selected (substring path 1 (strlen path)))
+            }
+            sketchNewPath = ""
+            sketchNewSlide = -1
+        }
+        push requests ("sketch-file:" + (substring path 1 (strlen path)))
+    }
+
+    ; What the page writes to the drawing's file.
+    fn sketchFileBody:string (path:string) {
+        return ((deck.sketchFor(path)).toJson())
+    }
+
+    fn sketchUndo:void () {
+        def u:string (sketch.takeUndo())
+        def at:int (indexOf u "\n")
+        if (at <= 0) {
+            return
+        }
+        def path:string (substring u 0 at)
+        deck.setSketch(path (substring u (at + 1) (strlen u)))
+        PresTimeline.planAll(deck)
+        push requests ("sketch-file:" + (substring path 1 (strlen path)))
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; A file name for slide i's drawing: drawings/<its id or title>.ink,
+    ; numbered when taken.
+    fn newSketchPath:string (i:int) {
+        def base:string ""
+        if ((i >= 0) && (i < (deck.slideCount()))) {
+            def sl:PresSlide (deck.slideAt(i))
+            base = (PresApp.slug(sl.id))
+            if ((strlen base) == 0) {
+                base = (PresApp.slug(sl.title))
+            }
+        }
+        if ((strlen base) == 0) {
+            base = ("slide-" + (to_string (i + 1)))
+        }
+        def p:string ("drawings/" + base + ".ink")
+        def n:int 2
+        while (deck.hasSketch(p)) {
+            p = ("drawings/" + base + "-" + (to_string n) + ".ink")
+            n = (n + 1)
+        }
+        return p
+    }
+
+    ; Lower-case letters and digits, the rest one "-"; at most 40.
+    sfn slug:string (t:string) {
+        def out:string ""
+        def dash:boolean false
+        def low:string (to_lowercase t)
+        def i:int 0
+        while ((i < (strlen low)) && ((strlen out) < 40)) {
+            def c:int (charAt low i)
+            ; ä å → a, ö → o
+            if ((c == 228) || (c == 229)) {
+                c = 97
+            }
+            if (c == 246) {
+                c = 111
+            }
+            if (((c >= 97) && (c <= 122)) || ((c >= 48) && (c <= 57))) {
+                if (dash && ((strlen out) > 0)) {
+                    out = (out + "-")
+                }
+                out = (out + (strfromcode c))
+                dash = false
+            } {
+                dash = true
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; `![](path)` on slide i, after its last block (before its notes), as
+    ; one edit of the Markdown.
+    fn sketchRef:void (i:int path:string) {
+        this.slideLines(i)
+        if (linesFrom < 0) {
+            return
+        }
+        def last:int linesFrom
+        def k:int linesFrom
+        def going:boolean true
+        while (going && (k < linesAt)) {
+            def ln:string (trim (mdEditor.buf.lineAt(k)))
+            if ((k > linesFrom) && ((indexOf ln ":::") == 0)) {
+                going = false
+            } {
+                if ((strlen ln) > 0) {
+                    last = k
+                }
+                k = (k + 1)
+            }
+        }
+        def cl:int mdEditor.sel.caret.line
+        def cc:int mdEditor.sel.caret.col
+        def after:string ""
+        if ((last + 1) < (mdEditor.buf.lineCount())) {
+            if ((strlen (trim (mdEditor.buf.lineAt((last + 1))))) > 0) {
+                after = "\n"
+            }
+        }
+        mdEditor.moveCaret(last (strlen (mdEditor.buf.lineAt(last))) false)
+        mdEditor.insert(("\n\n![](" + path + ")" + after))
+        if (cl > last) {
+            cl = (cl + 2)
+        }
+        mdEditor.moveCaret(cl cc false)
+        this.syncEditor()
+    }
+
+    fn sketchCursor:string (x:double y:double) {
+        if ((strlen (sketch.paletteAt(x y))) > 0) {
+            return "pointer"
+        }
+        if sketch.dragging {
+            return "grabbing"
+        }
+        def t:string (sketch.tool())
+        if (t == "select") {
+            def m:PresSketch (this.sketchModel())
+            if ((m.hit((sketch.toX(x)) (sketch.toY(y)) (6.0 / sketch.sc))) >= 0) {
+                return "move"
+            }
+            return "default"
+        }
+        if (t == "text") {
+            return "text"
+        }
+        return "crosshair"
+    }
+
+    ; The drawing's layer: the palette, what is picked, the caret.
+    fn sketchJson:string () {
+        if (((this.sketching()) == false) || ((deck.slideCount()) == 0)) {
+            return ""
+        }
+        this.sketchPlace()
+        def m:PresSketch (this.sketchModel())
+        def l:MdLayout (deck.layout())
+        m.measure(l.engine l.style.bodyFamily)
+        def dl:EVGDisplayList (sketch.displayList(m ((blink % 2) == 0)))
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
 
     ; =========================================================================
@@ -9651,6 +9956,10 @@ class PresApp {
         }
         if ((what == "portrait") || (what == "landscape")) {
             this.setOrientation(what)
+            return true
+        }
+        if (what == "draw") {
+            this.setSketching(true)
             return true
         }
         return false

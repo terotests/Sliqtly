@@ -321,6 +321,9 @@ class PresToolbar {
         if (id == "slideDelete") {
             return "slide:delete"
         }
+        if (id == "slideDraw") {
+            return "slide:draw"
+        }
         if (id == "slideLeft") {
             return "slide:left"
         }
@@ -582,6 +585,7 @@ class PresToolbar {
         cm.contextMode = true
         cm.addItem("slideNew" (PresI18n.t("New slide")) false)
         cm.addItem("slideDuplicate" (PresI18n.t("Duplicate slide")) false)
+        cm.addItem("slideDraw" (PresI18n.t("Draw on slide")) false)
         cm.addSeparator()
         cm.addItem("slideLeft" (PresI18n.t("Move left")) (ctxLeft == false))
         cm.addItem("slideRight" (PresI18n.t("Move right")) (ctxRight == false))
@@ -1364,6 +1368,8 @@ class PresToolbar {
             slide.addItem("slideNew" (PresI18n.t("New slide")) false)
             slide.addItem("slideDuplicate" (PresI18n.t("Duplicate slide")) false)
             slide.addItem("slideDelete" (PresI18n.t("Delete slide")) false)
+            slide.addSeparator()
+            slide.addItem("slideDraw" (PresI18n.t("Draw on slide")) false)
             slide.setShortcut("slideNew" "Control+M")
             slide.setShortcut("slideDuplicate" (this.modKey("D")))
             slide.addSeparator()
@@ -1514,6 +1520,7 @@ class PresToolbar {
             this.button("dr-slideNew" (PresI18n.t("New slide")) "ghost" body)
             this.button("dr-slideDuplicate" (PresI18n.t("Duplicate slide")) "ghost" body)
             this.button("dr-slideDelete" (PresI18n.t("Delete slide")) "ghost" body)
+            this.button("dr-slideDraw" (PresI18n.t("Draw on slide")) "ghost" body)
             def otherWay:string "o-portrait"
             def otherName:string (PresI18n.t("Portrait"))
             if portrait {

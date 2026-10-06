@@ -203,6 +203,10 @@ function resize() {
   needsPaint = true;
 }
 
+// A drawing made on a slide (drawings/*.ink, src/PresSketch.rgr): JSON, kept
+// as text and handed to the slides as a text file is.
+const SKETCH_TYPE = "application/vnd.sliqtly.ink+json";
+
 // --- pictures -------------------------------------------------------------------
 const pictures = new Map();
 async function registerPicture(path, bytes, type) {
@@ -2594,6 +2598,8 @@ function paintOnce() {
   for (const layer of app.layerOrder().split(",")) {
     if (layer === "bar") {
       if (canvasBar) paintBar();
+    } else if (layer === "sketch") {
+      paintList(app.sketchJson());
     } else if (layer === "room") {
       paintList(app.roomJson());
     } else if (layer === "review") {
@@ -3497,6 +3503,12 @@ function handleRequests() {
     } else if (r === "deck:tabs") {
       keepTabs();
       needsPaint = true;
+    } else if (r.startsWith("sketch-file:")) {
+      // a drawing made on a slide (PresSketch): its file, written again
+      const path = bare(r.slice(12));
+      const text = app.sketchFileBody(path);
+      keepFile({ path, type: SKETCH_TYPE, size: text.length, data: text }).catch(fail);
+      dropThumbs();
     } else if (r.startsWith("chart-file:")) {
       const path = bare(r.slice(11));
       const text = app.chartFileBody();
