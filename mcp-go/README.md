@@ -131,11 +131,14 @@ test.
 
 ## Who may do what, and how much
 
-The deck id locates a deck and grants nothing. A signed-in user's deck is
-read and changed by its owner (`visibility: "link"` lets anyone read it);
-a deck made without sign-in is read by anyone with its id and changed only
-by the MCP session that made it (`mcp_sessions/{sha256(Mcp-Session-Id)}`,
-a day after its last change, or until `DELETE /mcp`). On a shared server
+The deck id locates a deck and grants nothing to change it. sliqtly.com is
+an open demo: a deck is read by anyone with its link (`visibility: "link"`,
+the default; every result says so) unless its signed-in owner made it
+`private`. A signed-in user's deck is changed and deleted
+(`delete_presentation`: the record, then `shares/<id>/` in Storage) by its
+owner; a deck made without sign-in only by the MCP session that made it
+(`mcp_sessions/{sha256(Mcp-Session-Id)}`, a day after its last change, or
+until `DELETE /mcp`). On a shared server
 (`rgr/Store.rgr` `Limits`, `host.go` `dailyQuota`/`dailyRenders`): 3 decks
 per session without sign-in and 50 per account, 20 / 100 slides per deck,
 200 MB of pictures and files per deck, decks without sign-in deleted 7

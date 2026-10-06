@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -137,7 +138,8 @@ func TestDownloadLinkExpires(t *testing.T) {
 	eq(t, get(), 410, "expired")
 }
 
-// A signed-in user's deck is private by default: only that Google account
+// sliqtly.com is an open demo: a deck is seen by its link unless made
+// private, and the result says so. A private deck: only that Google account
 // reads it through the read tools; visibility "link" opens it to anyone with
 // the id, and only the owner changes that. A deck made without sign-in is
 // read by anyone with its id and changed only by the session that made it.
@@ -150,7 +152,14 @@ func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 	anon := start(t, testEnv(&f, nil), "")
 	defer anon.close()
 
-	c := call(t, me, "create_presentation", map[string]any{"title": "Mine", "markdown": "# Mine\n\n## Two\n\nText.",
+	open := call(t, me, "create_presentation", map[string]any{"title": "Open", "markdown": "# Open\n\nText."})
+	if open.IsError {
+		t.Fatal(textOf(open))
+	}
+	eq(t, sc(open)["visibility"], "link")
+	match(t, textOf(open), `not for private or confidential data\. Anyone who has this presentation's link can open every slide`)
+
+	c := call(t, me, "create_presentation", map[string]any{"title": "Mine", "markdown": "# Mine\n\n## Two\n\nText.", "visibility": "private",
 		"files": []any{map[string]any{"name": "d.csv", "text": "a,b\nx,1\n"}}})
 	if c.IsError {
 		t.Fatal(textOf(c))
@@ -191,7 +200,7 @@ func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 		match(t, textOf(got), `this connector is not signed in`)
 	}
 	// list_presentations: only the owner's, with its visibility
-	match(t, textOf(call(t, me, "list_presentations", map[string]any{})), id+`, private\)`)
+	match(t, textOf(call(t, me, "list_presentations", map[string]any{})), id+`, private, created `)
 	if strings.Contains(textOf(call(t, other, "list_presentations", map[string]any{})), id) {
 		t.Fatal("listed for another account")
 	}
@@ -219,11 +228,12 @@ func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 	// asked for by link at creation
 	l := call(t, me, "create_presentation", map[string]any{"title": "Open", "markdown": "# Open", "visibility": "link"})
 	eq(t, sc(l)["visibility"], "link")
-	match(t, textOf(l), `Anyone with the link can view it`)
+	match(t, textOf(l), `Anyone who has this presentation.s link can open every slide`)
 
 	// without sign-in: always by link; private needs sign-in
 	a := call(t, anon, "create_presentation", map[string]any{"title": "Anon", "markdown": "# Anon"})
 	eq(t, sc(a)["visibility"], "link")
+	match(t, textOf(a), `not for private or confidential data`)
 	eq(t, f.db.doc("shares/" + str(sc(a)["deck_id"]))["visibility"], "link")
 	match(t, textOf(call(t, anon, "create_presentation", map[string]any{"title": "P", "markdown": "# P", "visibility": "private"})), `A private presentation needs sign-in`)
 	match(t, textOf(call(t, anon, "update_presentation", map[string]any{"deck_id": sc(a)["deck_id"], "visibility": "private"})), `made without sign-in`)
@@ -360,4 +370,111 @@ func TestRenderSlotsAndDailyRenders(t *testing.T) {
 	eq(t, q(ctx, "uid:u3", "5.6.7.8"), "")
 	match(t, q(ctx, "uid:u3", "5.6.7.8"), `daily limit of 3`)
 	eq(t, q(ctx, "uid:u3", "9.9.9.9"), "")
+}
+
+// delete_presentation: the owner, or the session that made a deck without
+// sign-in; the id alone deletes nothing. The record, the files and the
+// session's hold go.
+func TestDeletePresentation(t *testing.T) {
+	f := fakeFirebase()
+	me := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer me.close()
+	other := start(t, withSignIn(testEnv(&f, nil)), signInAs(f, "other-token", "u2", "Someone"))
+	defer other.close()
+	anon := start(t, testEnv(&f, nil), "")
+	defer anon.close()
+	stranger := start(t, testEnv(&f, nil), "")
+	defer stranger.close()
+
+	c := call(t, me, "create_presentation", map[string]any{"title": "Mine", "markdown": "# Mine\n\n![dot](media/dot.png)",
+		"images": []any{map[string]any{"name": "dot.png", "data_base64": base64.StdEncoding.EncodeToString(squarePNG())}}})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := str(sc(c)["deck_id"])
+	files := func(id string) int {
+		f.bucket.mu.Lock()
+		defer f.bucket.mu.Unlock()
+		n := 0
+		for p := range f.bucket.saved {
+			if strings.HasPrefix(p, "shares/"+id+"/") {
+				n++
+			}
+		}
+		return n
+	}
+	if files(id) == 0 {
+		t.Fatal("no files kept to delete")
+	}
+	for _, who := range []*testServer{other, anon} {
+		r := call(t, who, "delete_presentation", map[string]any{"deck_id": id})
+		if !r.IsError {
+			t.Fatal("deleted by someone else")
+		}
+		match(t, textOf(r), `^Not deleted: `)
+	}
+	if f.db.doc("shares/"+id) == nil {
+		t.Fatal("gone after a refused delete")
+	}
+	r := call(t, me, "delete_presentation", map[string]any{"deck_id": id})
+	if r.IsError {
+		t.Fatal(textOf(r))
+	}
+	match(t, textOf(r), `Deleted "Mine"`)
+	if f.db.doc("shares/"+id) != nil || files(id) != 0 {
+		t.Fatalf("left behind: record %v, %d files", f.db.doc("shares/"+id) != nil, files(id))
+	}
+	if r := call(t, me, "delete_presentation", map[string]any{"deck_id": id}); !r.IsError {
+		t.Fatal("deleted twice")
+	}
+
+	// without sign-in: only the session that made it, which may then make
+	// another in its place
+	var made []string
+	for i := 0; i < 3; i++ {
+		a := call(t, anon, "create_presentation", map[string]any{"title": "Anon", "markdown": "# Anon"})
+		if a.IsError {
+			t.Fatal(textOf(a))
+		}
+		made = append(made, str(sc(a)["deck_id"]))
+	}
+	match(t, textOf(call(t, stranger, "delete_presentation", map[string]any{"deck_id": made[0]})), `Not deleted: presentation \w+ was made without sign-in in another Sliqtly session`)
+	if r := call(t, me, "delete_presentation", map[string]any{"deck_id": made[0]}); !r.IsError {
+		t.Fatal("a signed-in account deleted another session's deck")
+	}
+	if r := call(t, anon, "delete_presentation", map[string]any{"deck_id": made[0]}); r.IsError {
+		t.Fatal(textOf(r))
+	}
+	if f.db.doc("shares/"+made[0]) != nil {
+		t.Fatal("the session's deck was not deleted")
+	}
+	for _, d := range f.db.all("mcp_sessions/") {
+		if len(list(d["decks"])) == 3 {
+			t.Fatal("the session still holds the deleted deck")
+		}
+	}
+	if a := call(t, anon, "create_presentation", map[string]any{"title": "Again", "markdown": "# Again"}); a.IsError {
+		t.Fatal(textOf(a))
+	}
+}
+
+// Every deck says when it was made: "created" on create; a deck from
+// before that was kept gets its last change as the earliest time known,
+// shown at once and written with its next change.
+func TestCreatedDate(t *testing.T) {
+	f := fakeFirebase()
+	me := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer me.close()
+	ctx := context.Background()
+	made := time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)
+	f.db.Set(ctx, "shares", "OldDeck123", Doc{"name": "Old", "md": "# Old", "theme": "aurora", "owner": "u1", "source": "mcp",
+		"files": []any{}, "updated": made.UnixMilli()})
+	match(t, textOf(call(t, me, "list_presentations", map[string]any{})), `Old \(OldDeck123, link, created 2026-03-04\)`)
+	g := call(t, me, "get_presentation", map[string]any{"deck_id": "OldDeck123"})
+	eq(t, sc(g)["created"], "2026-03-04T12:00:00.000Z")
+	match(t, textOf(g), `created 2026-03-04`)
+	if r := call(t, me, "update_presentation", map[string]any{"deck_id": "OldDeck123", "title": "Old 2"}); r.IsError {
+		t.Fatal(textOf(r))
+	}
+	eq(t, f.db.doc("shares/OldDeck123")["created"], made.Format(time.RFC3339))
 }

@@ -15,7 +15,8 @@
 import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
 import { decodePicture } from "./picture.js";
 import { INTRO_MS } from "./brand.js";
-import { linkOf, viewUrl, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide } from "./viewlink.js";
+import { currentUser, signIn, authHeaders } from "./viewauth.js";
+import { linkOf, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide } from "./viewlink.js";
 
 const FONTS = document.querySelector('meta[name="fonts"]')?.content || "";
 const fi = /^fi\b/i.test(navigator.language || "");
@@ -34,7 +35,13 @@ for (const [id, en, fiText] of [
   ["vNext", "Next (→, Space)", "Seuraava (→, välilyönti)"],
   ["vCount", "Go to slide… (type the number and Enter)", "Siirry diaan… (kirjoita numero ja Enter)"],
   ["vFull", "Full screen", "Koko näyttö"],
+  ["vExport", "Download the presentation", "Lataa esitys"],
 ]) document.getElementById(id).title = say(en, fiText);
+const vExport = document.getElementById("vExport");
+const vMenu = document.getElementById("vMenu");
+const EXPORT_LABEL = say("Export ▾", "Vie ▾");
+vExport.textContent = EXPORT_LABEL;
+vMenu.setAttribute("aria-label", say("Download as", "Lataa muodossa"));
 
 // the address, or the one the assistant's preview gives in <meta>
 const given = document.querySelector('meta[name="sliqtly-link"]')?.content || "";
@@ -91,7 +98,11 @@ function playIntro() {
       window.removeEventListener("pointerdown", end, true);
       window.removeEventListener("keydown", end, true);
       intro.classList.add("out");
-      setTimeout(() => { intro.hidden = true; intro.classList.remove("out"); }, 350);
+      // a note said meanwhile (not found, no WebGL) keeps the screen up
+      setTimeout(() => {
+        intro.classList.remove("out");
+        if (!note.textContent) intro.hidden = true;
+      }, 350);
       done();
     };
     window.addEventListener("pointerdown", end, true);
@@ -160,7 +171,7 @@ function wake() {
   document.body.classList.remove("idle");
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
-    if (vGo.hidden) document.body.classList.add("idle");
+    if (vGo.hidden && vMenu.hidden) document.body.classList.add("idle");
     else wake();
   }, 2500);
 }
@@ -193,6 +204,61 @@ document.getElementById("vFull").addEventListener("click", () => {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   else document.documentElement.requestFullscreen?.().catch(() => {});
 });
+
+// Export ▾: the deck as a PDF, a PowerPoint file or its Markdown, made on
+// the server (GET /api/export/{id}/{format}) and saved under the deck's name
+function openMenu(open) {
+  vMenu.hidden = !open;
+  vExport.setAttribute("aria-expanded", String(open));
+  if (open) vMenu.querySelector("button")?.focus();
+}
+vExport.addEventListener("click", () => openMenu(vMenu.hidden));
+document.addEventListener("pointerdown", (ev) => {
+  if (!vMenu.hidden && !ev.target.closest?.("#vMenu, #vExport")) openMenu(false);
+});
+vMenu.addEventListener("keydown", (ev) => {
+  ev.stopPropagation();
+  const items = [...vMenu.querySelectorAll("button")];
+  const i = items.indexOf(document.activeElement);
+  if (ev.key === "Escape") {
+    openMenu(false);
+    vExport.focus();
+  } else if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+    ev.preventDefault();
+    items[(i + (ev.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
+  }
+});
+for (const b of vMenu.querySelectorAll("button")) b.addEventListener("click", () => download(b.dataset.format));
+
+async function download(format) {
+  openMenu(false);
+  if (!link?.id || vExport.getAttribute("aria-busy") === "true") return;
+  vExport.setAttribute("aria-busy", "true");
+  vExport.textContent = say("Exporting…", "Viedään…");
+  let failed = "";
+  try {
+    const res = await fetch(exportUrl(link, format), { headers: await authHeaders(user) });
+    if (!res.ok) {
+      const why = await res.json().catch(() => null);
+      throw new Error((why && why.error) || "HTTP " + res.status);
+    }
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = exportName(deck?.name, format);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  } catch (e) {
+    console.warn("export " + format, e);
+    failed = say("Download failed, try again ▾", "Lataus epäonnistui, yritä uudelleen ▾");
+  } finally {
+    vExport.removeAttribute("aria-busy");
+    vExport.textContent = failed || EXPORT_LABEL;
+    if (failed) setTimeout(() => { if (vExport.textContent === failed) vExport.textContent = EXPORT_LABEL; }, 6000);
+  }
+}
 
 // a number typed and Enter goes to that slide, as in the editor's presenting
 let typed = "";
@@ -244,6 +310,33 @@ async function pictureOf(p) {
   }
 }
 
+// who is signed in on the page, when a private presentation needed it
+let user = null;
+
+function notFound() {
+  if (given) {
+    showNote(say("This shared presentation was not found.", "Jaettua esitystä ei löytynyt."));
+    return;
+  }
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => "&#" + c.charCodeAt(0) + ";");
+  const who = user ? esc(user.email || user.displayName || "") : "";
+  showNote(say("This presentation was not found, or it is private.", "Esitystä ei löytynyt, tai se on yksityinen.") + "<br>" +
+    (user
+      ? say(`Signed in as ${who}, which does not own it.`, `Kirjautuneena ${who}, joka ei omista sitä.`)
+      : say("If it is yours, sign in with the Google account that owns it.", "Jos se on sinun, kirjaudu sen omistavalla Google-tilillä.")) +
+    `<br><button id="vSignIn" type="button">${user ? say("Use another Google account", "Käytä toista Google-tiliä") : say("Sign in with Google", "Kirjaudu Googlella")}</button>`);
+  document.getElementById("vSignIn").addEventListener("click", async (ev) => {
+    ev.stopPropagation();
+    try {
+      await signIn(!!user);
+      location.reload();
+    } catch (e) {
+      console.warn("sign-in", e);
+      if (e?.code !== "auth/popup-closed-by-user") note.insertAdjacentText("beforeend", " " + say("Sign-in did not go through.", "Kirjautuminen ei onnistunut."));
+    }
+  });
+}
+
 async function start() {
   // the front page (view.html shows it when the address is no presentation)
   if (!link) return;
@@ -262,10 +355,15 @@ async function start() {
   const fonts = loadFaces(FACES);
   let got;
   try {
-    const res = await fetch(viewUrl(link));
+    let res = await fetch(viewUrl(link));
+    // not found, or private: shown to its owner signed in here (viewauth.js)
+    if (res.status === 404 && !given) {
+      user = await currentUser();
+      if (user) res = await fetch(viewUrl(link), { headers: await authHeaders(user) });
+    }
     if (res.status === 404) {
       await shown;
-      showNote(say("This shared presentation was not found.", "Jaettua esitystä ei löytynyt."));
+      notFound();
       return;
     }
     if (!res.ok) throw new Error("HTTP " + res.status);

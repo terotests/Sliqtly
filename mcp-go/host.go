@@ -528,6 +528,20 @@ func (h *McpHost) UpdateDoc(col, id, text string) {
 	}
 }
 
+// A Bucket that removes every file under a prefix (a deck's folder).
+type prefixRemover interface {
+	RemovePrefix(ctx context.Context, prefix string) error
+}
+
+func (h *McpHost) RemoveFiles(prefix string) {
+	if h.env.Bucket == nil || !strings.HasSuffix(prefix, "/") || len(prefix) < 3 {
+		return
+	}
+	if r, ok := h.env.Bucket.(prefixRemover); ok {
+		h.fail(r.RemovePrefix(h.ctx, prefix))
+	}
+}
+
 func (h *McpHost) DeleteDoc(col, id string) {
 	if h.db() {
 		h.fail(h.env.DB.Delete(h.ctx, col, id))
@@ -1001,6 +1015,15 @@ func (h *McpHost) RenderLimit(who, ip string) string {
 }
 
 func (h *McpHost) RenderDone(who string) { h.env.renders.give(who) }
+
+// A Content-Disposition that downloads the file as name (RFC 6266; a
+// non-ASCII name goes as filename*).
+func (h *McpHost) Attachment(name string) string {
+	if v := mime.FormatMediaType("attachment", map[string]string{"filename": name}); v != "" {
+		return v
+	}
+	return "attachment"
+}
 
 // What each caller is drawing now, per instance: at most max at once. A
 // slot lasts at most lease, so one never given back (a request that

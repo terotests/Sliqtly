@@ -96,14 +96,77 @@ class App {
     ; by its Cache-Control) spares the layout for the next reader
     sfn serveView:void (host:McpHost req:HttpRequest res:HttpResponse id:string) {
         def q:MfJ (J.parse((http_query_json req)))
-        def body:string (View.json(host id (q.str_("slides"))))
+        def uid:string (App.pageUser(host req))
+        def body:string (View.json(host id (q.str_("slides")) uid))
         if ((strlen body) == 0) {
             http_set_header res "Cache-Control" "no-store"
             App.sendJson(res 404 "{\"error\":\"This shared presentation was not found.\"}")
             return
         }
-        http_set_header res "Cache-Control" "public, max-age=30, s-maxage=60"
+        ; shown to a signed-in page: maybe a private deck, never cached
+        if ((strlen uid) > 0) {
+            http_set_header res "Cache-Control" "private, no-store"
+        } {
+            http_set_header res "Cache-Control" "public, max-age=30, s-maxage=60"
+        }
         App.sendJson(res 200 body)
+    }
+
+    ; the Google account signed in on the viewer page: a Firebase ID token
+    ; as "Authorization: Bearer <token>", verified; "" without one
+    sfn pageUser:string (host:McpHost req:HttpRequest) {
+        def h:string (http_get_header req "Authorization")
+        if ((indexOf h "Bearer ") != 0) {
+            return ""
+        }
+        def token:string (trim (substring h 7 (strlen h)))
+        if ((strlen token) == 0) {
+            return ""
+        }
+        def who:MfJ (J.parse((host_verify_id_token host token)))
+        return (who.str_("uid"))
+    }
+
+    ; GET /api/export/<id>/<format>: the viewer's download (ViewExport).
+    ; Drawing a file costs as a render does: counted per address, two at once.
+    sfn serveExport:void (host:McpHost req:HttpRequest res:HttpResponse rest:string) {
+        def slash:int (indexOf rest "/")
+        def id:string rest
+        def format:string ""
+        if (slash > 0) {
+            id = (substring rest 0 slash)
+            format = (substring rest (slash + 1) (strlen rest))
+        }
+        http_set_header res "Cache-Control" "no-store"
+        def ip:string (App.clientIp(host req))
+        def draws:boolean ((format == "pdf") || (format == "pptx"))
+        if draws {
+            def why:string (host_render_limit host ip ip)
+            if ((strlen why) > 0) {
+                App.sendJson(res 429 (JOut.text((App.errorObj(why)))))
+                return
+            }
+        }
+        def q:MfJ (J.parse((http_query_json req)))
+        def f:ViewFile (ViewExport.file(host id format (q.str_("slides")) (App.pageUser(host req))))
+        if draws {
+            host_render_done host ip
+        }
+        if (f.status != 200) {
+            App.sendJson(res f.status (JOut.text((App.errorObj(f.why)))))
+            return
+        }
+        http_set_header res "Content-Type" f.type
+        http_set_header res "Content-Disposition" (host_attachment host f.name)
+        http_set_header res "X-Content-Type-Options" "nosniff"
+        http_set_status res 200
+        http_send_buffer res f.bytes
+    }
+
+    sfn errorObj:MfJ (why:string) {
+        def o:MfJ (MfJ.newObj())
+        o.putStr("error" why)
+        return o
     }
 
     sfn serveHit:void (host:McpHost req:HttpRequest res:HttpResponse) {
@@ -156,6 +219,10 @@ class App {
         }
         if (((method == "GET") || (method == "HEAD")) && ((indexOf path "/api/view/") == 0)) {
             App.serveView(host req res (substring path 10 (strlen path)))
+            return
+        }
+        if (((method == "GET") || (method == "HEAD")) && ((indexOf path "/api/export/") == 0)) {
+            App.serveExport(host req res (substring path 12 (strlen path)))
             return
         }
         http_set_header res "Content-Type" "text/plain; charset=utf-8"

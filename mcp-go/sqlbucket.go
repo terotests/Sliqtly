@@ -127,6 +127,10 @@ func (b *localBucket) RemoveAll(p string) error {
 	return b.refs.RemoveAll(context.Background(), c)
 }
 
+func (b *localBucket) RemovePrefix(_ context.Context, prefix string) error {
+	return b.RemoveAll(strings.TrimSuffix(prefix, "/"))
+}
+
 // the files under dir (a room's files), by path
 func (b *localBucket) List(ctx context.Context, dir string) ([]store.FileRef, error) {
 	c, err := cleanFilePath(dir)

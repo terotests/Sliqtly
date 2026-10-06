@@ -1,7 +1,7 @@
 // node --test: the public viewer's addresses and keys (web/viewlink.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { linkOf, viewUrl, picturesOf, lookFacesOf, slideForKey, fitSlide } from "../viewlink.js";
+import { linkOf, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, slideForKey, fitSlide } from "../viewlink.js";
 
 test("/s/{id} is a shared presentation, its picked slides and the slide shown", () => {
   assert.deepEqual(linkOf("/s/AbCdEf1234", "", ""), { id: "AbCdEf1234", slides: "", slide: 0 });
@@ -25,6 +25,13 @@ test("a link carrying the Markdown is told apart; the front page is none", () =>
 test("the slides' address", () => {
   assert.equal(viewUrl({ id: "AbCdEf1234", slides: "" }), "/api/view/AbCdEf1234");
   assert.equal(viewUrl({ id: "AbCdEf1234", slides: "a b,c" }), "/api/view/AbCdEf1234?slides=a%20b%2Cc");
+});
+
+test("downloads: the address per format and the file's name", () => {
+  assert.equal(exportUrl({ id: "AbCdEf1234", slides: "" }, "pdf"), "/api/export/AbCdEf1234/pdf");
+  assert.equal(exportUrl({ id: "AbCdEf1234", slides: "a,b" }, "md"), "/api/export/AbCdEf1234/md?slides=a%2Cb");
+  assert.equal(exportName("Säästöt: Q3/2026", "pptx"), "Säästöt- Q3-2026.pptx");
+  assert.equal(exportName("", "md"), "presentation.md");
 });
 
 test("pictures by the name the commands draw them by", () => {

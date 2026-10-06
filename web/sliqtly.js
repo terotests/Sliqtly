@@ -207,7 +207,7 @@ async function share(deck, made) {
   const id = shortId();
   const doc = db.collection("shares").doc(id);
   // the copy first: Storage lets only the owner it names write its files
-  await doc.set({ ...body, owner: user.uid, visibility: "private", deck: deck.deckId, files: [], created: now });
+  await doc.set({ ...body, owner: user.uid, visibility: "link", deck: deck.deckId, files: [], created: now });
   // the share exists from here: a file that fails names it (e.shareId), so
   // the deck keeps it and the next save sends the files again instead of
   // making another share

@@ -4332,8 +4332,8 @@ try {
     const ids = shareId();
     const id = ids[0] || "";
     const first = { ids, address: await pc.evaluate(() => location.pathname + location.search), share: fakeDb.get("shares/" + id) };
-    check("PRO: a changed deck is saved to the cloud, private to its owner, and the address names it",
-      ids.length === 1 && first.address === "/s/" + id + "?edit" && first.share?.owner === "u1" && first.share.visibility === "private" && first.share.md.includes("## Kuva") && (first.share.files || []).some((f) => f.path === "media/cloud-pic.png"),
+    check("PRO: a changed deck is saved to the cloud, viewable by its link, and the address names it",
+      ids.length === 1 && first.address === "/s/" + id + "?edit" && first.share?.owner === "u1" && first.share.visibility === "link" && first.share.md.includes("## Kuva") && (first.share.files || []).some((f) => f.path === "media/cloud-pic.png"),
       JSON.stringify({ ids, address: first.address, files: first.share?.files }));
 
     await pc.reload();
