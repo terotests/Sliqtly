@@ -685,6 +685,57 @@ class PresDeck {
         return (md.addImage(name data contentType w h))
     }
 
+    ; --- SVG pictures as vectors in the exports ---------------------------------
+    ; The slides draw an SVG picture from its PNG (web/picture.js); the page
+    ; hands the SVG itself here too, with a small PNG for readers that cannot
+    ; draw SVG. The PDF draws the SVG's paths (`svgVector`), the PPTX carries
+    ; the SVG with the small PNG as its fallback.
+    def svgPaths:[string]
+    def svgTexts:[string]
+    def svgBytes:[buffer]
+    def svgSmall:[buffer]
+    ; per path: 1 the PDF can draw it as paths, 0 it cannot, -1 not asked yet
+    def svgClean:[int]
+
+    fn addSvgPicture:void (name:string text:string bytes:buffer small:buffer) {
+        def at:int (indexOf svgPaths name)
+        if (at >= 0) {
+            set svgTexts at text
+            set svgBytes at bytes
+            set svgSmall at small
+            set svgClean at -1
+            return
+        }
+        push svgPaths name
+        push svgTexts text
+        push svgBytes bytes
+        push svgSmall small
+        push svgClean -1
+    }
+
+    fn svgIndex:int (name:string) {
+        return (indexOf svgPaths name)
+    }
+
+    ; Whether the PDF can draw the SVG at `name` as paths: EVG's importer
+    ; (SvgParser) reads all of it — nothing refused (gradients, text, filters
+    ; and the like are drawn from the PNG instead) and something to draw.
+    fn svgVector:boolean (name:string) {
+        def at:int (indexOf svgPaths name)
+        if (at < 0) {
+            return false
+        }
+        if ((itemAt svgClean at) < 0) {
+            def doc:SvgDocument ((new SvgParser()).parse((itemAt svgTexts at)))
+            def ok:int 0
+            if ((((doc.hasErrors()) == false) && ((doc.hasWarnings()) == false)) && ((doc.itemCount()) > 0)) {
+                ok = 1
+            }
+            set svgClean at ok
+        }
+        return ((itemAt svgClean at) == 1)
+    }
+
     fn isSmartArtPath:boolean (path:string) {
         return ((indexOf smartArtPaths path) >= 0)
     }

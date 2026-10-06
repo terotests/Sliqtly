@@ -219,6 +219,8 @@ async function addPicture(path, bytes, type) {
   }
   const p = await decodePicture(bytes, type || "image/png", path);
   app.addImage(path, asRangerBuffer(p.bytes.slice(0)), p.type || "image/png", p.w, p.h);
+  // an SVG's own text too: the PDF and the PPTX keep it a vector
+  if (p.svg) app.addSvgPicture(path, p.svg, asRangerBuffer(p.svgBytes.slice(0)), asRangerBuffer(p.fallback ? p.fallback.slice(0) : new ArrayBuffer(0)));
   pictures.set(path, p.img);
   return p;
 }

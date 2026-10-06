@@ -2441,6 +2441,15 @@ class PresCheck {
         click.begin("move" 300.0 50.0 200.0 100.0 0.0 800.0 400.0 "" 400.0 100.0)
         this.ok(((click.apply(m3)) == false) "image drag: a click writes nothing")
         this.ok(((PresImageDrag.placeOf("end")) == "right") "image drag: the theme's end is right")
+
+        ; an SVG picture in the PDF: drawn from its paths when the importer
+        ; reads all of it, from its PNG when something is out of profile
+        def dk (new PresDeck())
+        dk.addSvgPicture("/media/a.svg" "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><path d=\"M0 0h10v10z\" fill=\"#c00\"/></svg>" (buffer_alloc 0) (buffer_alloc 0))
+        dk.addSvgPicture("/media/b.svg" "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><text x=\"1\" y=\"8\">A</text></svg>" (buffer_alloc 0) (buffer_alloc 0))
+        this.ok((dk.svgVector("/media/a.svg")) "svg: paths are drawn as vectors")
+        this.ok(((dk.svgVector("/media/b.svg")) == false) "svg: text is not, the PNG is used")
+        this.ok(((dk.svgVector("/media/c.svg")) == false) "svg: an unknown picture is not")
     }
 
     sfn main:void () {
