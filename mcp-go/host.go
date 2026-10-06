@@ -106,7 +106,7 @@ type Env struct {
 	// drawing now (renderSlots).
 	Renders func(ctx context.Context, who, ip string) string
 	renders *renderSlots
-	Now  func() time.Time // nil: time.Now
+	Now     func() time.Time // nil: time.Now
 	// A server of one's own (decks in a folder, local.go): every caller is
 	// LocalUser, files are read from FilesURL, themes are the built-in ones.
 	LocalUser string
