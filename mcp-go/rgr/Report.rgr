@@ -138,12 +138,25 @@ class Report {
         return (to_string (floor ((v * k) + 0.5)))
     }
 
+    ; at most n characters (code points, so a ’ or an emoji is one and is
+    ; never cut in half)
     sfn short:string (text:string n:int) {
         def t:string (trim text)
-        if ((strlen t) <= n) {
+        if ((char_length t) <= n) {
             return t
         }
-        return ((trim (substring t 0 n)) + "…")
+        return ((trim (Report.firstChars(t n))) + "…")
+    }
+
+    sfn firstChars:string (t:string n:int) {
+        def cs:[int] (to_chars t)
+        def parts:[string]
+        for cs c:int i {
+            if (i < n) {
+                push parts (strfromcode c)
+            }
+        }
+        return (join parts "")
     }
 
     ; the run's centre after its rotation

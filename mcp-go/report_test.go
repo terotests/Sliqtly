@@ -437,7 +437,7 @@ func TestReportNestedQuoteIsOneElement(t *testing.T) {
 	if strings.Contains(text, "overlap") {
 		t.Fatalf("nested quotes reported as overlapping:\n%s", text)
 	}
-	match(t, text, `- quote "Blockquotes can also be nested\.\.\." at \d+,\d+`)
+	match(t, text, `- quote "Blockquotes can also be nested…" at \d+,\d+`)
 }
 
 // a container's plate (no text of its own) is what its text is drawn on
