@@ -105,7 +105,12 @@ class PresHints {
         if ((key == "header-image") || (key == "footer-image")) { return (PresI18n.t("Image next to the header or footer text, e.g. media/logo.png.")) }
         if ((key == "header-align") || (key == "footer-align")) { return (PresI18n.t("left, center or right.")) }
         if (key == "diagram") { return (PresI18n.t("classic: the diagram's original drawing, without a tour.")) }
-        if (key == "layout") { return (PresI18n.t("keep: the diagram's direction as written.")) }
+        if (key == "layout") { return (PresI18n.t("keep: the diagram's direction as written. Under a gallery: grid (default) or full, one picture per slide edge to edge.")) }
+        if (key == "heading") { return (PresI18n.t("hidden: the title names the slide (overview, contents, screen readers) but is not drawn.")) }
+        if (key == "fit") { return (PresI18n.t("Gallery: cover fills the cell and crops, contain shows the whole picture.")) }
+        if (key == "caption") { return (PresI18n.t("Gallery: overlay (on the picture, with a dim band), below or none.")) }
+        if (key == "focus") { return (PresI18n.t("The part of a picture kept in the crop: top, bottom left, 30% 70%.")) }
+        if (key == "span") { return (PresI18n.t("Gallery: how many columns the cell takes, e.g. 2.")) }
         if (key == "tour") { return (PresI18n.t("on: the tour starts on its own with the slide. By default the whole diagram is shown, and ▶ next to the zoom buttons (T while presenting) starts the tour.")) }
         if (key == "ball") { return (PresI18n.t("off: no ball of light along the arrows.")) }
         if (key == "choose") { return (PresI18n.t("off: don't ask which way to go at branches.")) }

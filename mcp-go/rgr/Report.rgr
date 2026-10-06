@@ -581,3 +581,129 @@ class Report {
         return all
     }
 }
+
+; --- print: a page of the deck laid out for paper (`@media print` in the
+; stylesheet), as the printing house gets it. Units are points.
+
+; a picture on a printed page: the pixels of the part shown (after a crop)
+; and the size it is printed at
+class RPrintPic {
+    def name:string ""
+    def shownW:double 0.0
+    def shownH:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+}
+
+class RPrintPage {
+    def index:int 0
+    def title:string ""
+    def w:double 0.0
+    def h:double 0.0
+    ; the safe area: text keeps this far inside the trim
+    def safe:double 0.0
+    ; the text as drawn (RRun x y w h text)
+    def runs:[RRun]
+    def pics:[RPrintPic]
+}
+
+class PrintReport {
+    ; under this a printed photo looks soft
+    sfn DPI_MIN:double () {
+        return 300.0
+    }
+
+    ; the resolution a picture prints at: its shown pixels over its printed
+    ; inches, the lower of the two directions; 0 when it has no size
+    sfn dpi:double (p:RPrintPic) {
+        if ((p.w <= 0.0) || (p.h <= 0.0)) {
+            return 0.0
+        }
+        def a:double ((p.shownW * 72.0) / p.w)
+        def b:double ((p.shownH * 72.0) / p.h)
+        if (b < a) {
+            return b
+        }
+        return a
+    }
+
+    sfn where:string (p:RPrintPage) {
+        def s:string ("Print page " + (to_string (p.index + 1)))
+        if ((strlen p.title) > 0) {
+            s = (s + " \"" + (Report.short(p.title 60)) + "\"")
+        }
+        return s
+    }
+
+    ; a run reaching into the safe area or past the trim
+    sfn outside:boolean (p:RPrintPage r:RRun) {
+        def m:double (p.safe - 0.5)
+        if ((r.x < m) || (r.y < m)) {
+            return true
+        }
+        if (((r.x + r.w) > (p.w - m)) || ((r.y + r.h) > (p.h - m))) {
+            return true
+        }
+        return false
+    }
+
+    ; what the printing house would send back: text outside the safe area,
+    ; pictures under 300 dpi (each once, at its lowest)
+    sfn notes:[string] (pages:[RPrintPage]) {
+        def out:[string]
+        def names:[string]
+        def dpis:[double]
+        def at:[string]
+        for pages p:RPrintPage pi {
+            if (p.safe > 0.0) {
+                def texts:[string]
+                for p.runs r:RRun ri {
+                    def t:string (trim r.text)
+                    if (((strlen t) > 0) && (PrintReport.outside(p r))) {
+                        if ((indexOf texts t) < 0) {
+                            push texts t
+                        }
+                    }
+                }
+                if ((array_length texts) > 0) {
+                    def shown:[string]
+                    for texts t2:string ti {
+                        if (ti < 3) {
+                            push shown ("\"" + (Report.short(t2 40)) + "\"")
+                        }
+                    }
+                    def mmi:int (floor ((((p.safe * 25.4) / 72.0) * 10.0) + 0.5))
+                    def mm:double (to_double mmi)
+                    def more:string ""
+                    if ((array_length texts) > 3) {
+                        more = (" and " + (to_string ((array_length texts) - 3)) + " more")
+                    }
+                    push out ((PrintReport.where(p)) + ": text outside the safe area (" + (to_string (mm / 10.0)) + " mm inside the trim): " + (join shown ", ") + more + ".")
+                }
+            }
+            for p.pics pic:RPrintPic qi {
+                def d:double (PrintReport.dpi(pic))
+                if (d > 0.0) {
+                    def k:int (indexOf names pic.name)
+                    if (k < 0) {
+                        push names pic.name
+                        push dpis d
+                        push at (PrintReport.where(p))
+                    } {
+                        if (d < (itemAt dpis k)) {
+                            set dpis k d
+                            set at k (PrintReport.where(p))
+                        }
+                    }
+                }
+            }
+        }
+        for names n:string ni {
+            def d2:double (itemAt dpis ni)
+            if (d2 < (PrintReport.DPI_MIN())) {
+                push out (n + ": " + (to_string (floor (d2 + 0.5))) + " dpi in print, under 300 (" + (itemAt at ni) + ").")
+            }
+        }
+        return out
+    }
+}
