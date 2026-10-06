@@ -33,6 +33,7 @@ Import "PresSlideSpans.rgr"
 Import "PresFollow.rgr"
 Import "PresPick.rgr"
 Import "PresNav.rgr"
+Import "PresThemeEdit.rgr"
 Import "PresRecord.rgr"
 Import "PresExport.rgr"
 Import "PresI18n.rgr"
@@ -50,6 +51,7 @@ Import "PresHintPopover.rgr"
 Import "PresPanels.rgr"
 Import "PresReviewUi.rgr"
 Import "PresSketchUi.rgr"
+Import "PresRoomView.rgr"
 Import "PresA11y.rgr"
 Import "PresSelect.rgr"
 Import "../evgui/src/TabsCtl.rgr"
@@ -272,6 +274,8 @@ class PresApp {
     def sketchNewPath:string ""
     def sketchNewSlide:int -1
     def sketchScratch:PresSketch (new PresSketch())
+    ; a room's chat over the work area (PresRoomView, EVGUI ChannelCtl)
+    def room:PresRoomView (new PresRoomView())
     ; the jumps while presenting and the slide number being typed
     def nav:PresNav (new PresNav())
     def reviewTitlesKey:string ""
@@ -308,6 +312,7 @@ class PresApp {
         ; open) and the help and files panels; windows: the value popover
         ; ("Style") and the chart / picture editor; the modal dialogs; the
         ; toast over all
+        layers.add("room" "docked")
         layers.add("bar" "docked")
         layers.add("panels" "docked")
         layers.add("sketch" "docked")
@@ -543,6 +548,39 @@ class PresApp {
     fn applyTheme:void (css:string) {
         deck.setStyleSheet(css)
         this.rebuildDeck()
+    }
+
+    ; One property of the theme set from a card over the Markdown, as one
+    ; edit of the CSS tab (Ctrl+Z there undoes it); the slides follow.
+    fn setThemeProp:void (sel:string prop:string value:string) {
+        def css:string (cssEditor.text())
+        def e:PresThemeEdit (PresThemeEdit.change(css sel prop value))
+        def a:[int] (PresApp.lineColOf(css e.at))
+        def b:[int] (PresApp.lineColOf(css e.end))
+        cssEditor.buf.replaceRange((itemAt a 0) (itemAt a 1) (itemAt b 0) (itemAt b 1) e.text true)
+        cssEditor.dirty = true
+        cssSynced = cssEditor.buf.version
+        themeText = (cssEditor.text())
+        this.applyTheme(themeText)
+        push requests "theme-edited"
+        chromeRev = (chromeRev + 1)
+    }
+
+    sfn lineColOf:[int] (text:string off:int) {
+        def line:int 0
+        def start:int 0
+        def i:int 0
+        while (i < off) {
+            if ((charAt text i) == 10) {
+                line = (line + 1)
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        def out:[int]
+        push out line
+        push out (off - start)
+        return out
     }
 
     ; The theme as it stands in the CSS tab (the host keeps an edited one).
@@ -1214,6 +1252,7 @@ class PresApp {
         }
         if (what == "menu") {
             du.diagram.menuOpen = (! du.diagram.menuOpen)
+            du.diagram.zoomOpen = false
             chromeRev = (chromeRev + 1)
             return true
         }
@@ -1253,7 +1292,14 @@ class PresApp {
             return true
         }
         if (what == "fit") {
-            du.diagram.exploreOverview()
+            du.diagram.zoomOpen = (! du.diagram.zoomOpen)
+            du.diagram.menuOpen = false
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        if (((strlen what) > 4) && ((substring what 0 4) == "zoom")) {
+            def zp@(optional):int (str2int (substring what 4 (strlen what)))
+            du.diagram.zoomTo(((to_double (?? zp 100)) / 100.0))
             chromeRev = (chromeRev + 1)
             return true
         }
@@ -2958,7 +3004,7 @@ class PresApp {
         out = (out + ":" + (to_string editor.layout.scrollLine) + ":" + (to_string blink))
         out = (out + ":" + focus + ":" + mode + ":" + (EVGDisplayList.num(W)) + "x" + (EVGDisplayList.num(H)))
         out = (out + ":c" + (to_string chart.rev) + ":t" + (to_string toolbar.rev) + ":h" + (to_string hint.rev) + ":p" + (to_string panels.rev))
-        out = (out + ":r" + (to_string review.rev))
+        out = (out + ":r" + (to_string review.rev) + ":m" + (to_string room.rev))
         return out
     }
 
@@ -3042,6 +3088,16 @@ class PresApp {
                 this.closeHint()
             }
         }
+        if (top == "room") {
+            room.press(x y clicks shift)
+            this.afterRoom()
+            return "room"
+        }
+        if (focus == "room") {
+            focus = "editor"
+            room.ch.keys = ""
+            room.changed()
+        }
         if (PresApp.panelLayer(top)) {
             if (panels.chatHas(x y)) {
                 focus = "chat"
@@ -3065,6 +3121,10 @@ class PresApp {
             return "bar"
         }
         if (deckRect.has(x y)) {
+            ; a presentation's tab: back to the slides
+            if room.open {
+                push requests "roomchat:close"
+            }
             this.deckPress(x y)
             chromeRev = (chromeRev + 1)
             return "decktabs"
@@ -3384,6 +3444,12 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
+        ; a drag selecting in the channel's text fields
+        if room.selecting {
+            room.dragTo(x y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         ; a drag selecting in a comment's text field
         if review.selecting {
             review.dragTo(x y)
@@ -3532,6 +3598,7 @@ class PresApp {
             this.afterReview()
             chromeRev = (chromeRev + 1)
         }
+        room.release()
         panels.chatRelease()
         panels.textRelease()
         if (hint.isOpen && (hint.dragging())) {
@@ -3646,6 +3713,11 @@ class PresApp {
     }
 
     fn wheel:boolean (x:double y:double dy:double) {
+        if ((this.layerAt(x y)) == "room") {
+            room.wheel(x y dy)
+            this.afterRoom()
+            return true
+        }
         if (review.on && ((this.layerAt(x y)) == "review")) {
             if (review.wheel(x y dy)) {
                 chromeRev = (chromeRev + 1)
@@ -3722,6 +3794,15 @@ class PresApp {
         this.place()
         if (review.dragging || review.co.dragging) {
             return "grabbing"
+        }
+        if (room.open && (mode != "present")) {
+            if (room.hoverAt(x y)) {
+                chromeRev = (chromeRev + 1)
+            }
+            if ((this.layerAt(x y)) == "room") {
+                def mc:string (room.cursorAt(x y))
+                return (? ((strlen mc) > 0) mc "default")
+            }
         }
         if (review.on && ((this.layerAt(x y)) == "review")) {
             def rc:string (review.cursorAt(x y))
@@ -3836,6 +3917,9 @@ class PresApp {
             def usedT:boolean (toolbar.titleKey(name shift ctrl))
             this.takeToolbar()
             return usedT
+        }
+        if (this.roomHasKeys()) {
+            return (this.roomKey(name shift ctrl))
         }
         if (review.hasKeys()) {
             return (this.reviewKey(name shift ctrl))
@@ -4122,6 +4206,11 @@ class PresApp {
             this.takeToolbar()
             return
         }
+        if (this.roomHasKeys()) {
+            room.text(s)
+            this.afterRoom()
+            return
+        }
         if (review.hasKeys()) {
             review.text(s)
             chromeRev = (chromeRev + 1)
@@ -4222,6 +4311,11 @@ class PresApp {
             this.takeToolbar()
             return
         }
+        if (this.roomHasKeys()) {
+            room.text(s)
+            this.afterRoom()
+            return
+        }
         if (review.hasKeys()) {
             review.text((PresReviewUi.oneLine(s)))
             chromeRev = (chromeRev + 1)
@@ -4269,6 +4363,13 @@ class PresApp {
     }
 
     fn chord:boolean (ch:string) {
+        if (this.roomHasKeys()) {
+            if (ch == "a") {
+                room.selectAll()
+                chromeRev = (chromeRev + 1)
+            }
+            return true
+        }
         if (review.hasKeys()) {
             if (ch == "a") {
                 review.selectAll()
@@ -4406,6 +4507,20 @@ class PresApp {
             if dm.ok {
                 j = ((substring j 0 ((strlen j) - 1)) + ",\"look\":" + (PresHint.q((dm.look()))) + "}")
             }
+        }
+        ; a list layout's fence: the theme's figure colours as they are drawn
+        if ((edTab == "md") && ((indexOf j "\"figure\":true") >= 0)) {
+            def fcl:string "["
+            def fst:MdFigureStyle (deck.figureStyle())
+            def fk:int 0
+            while (fk < (array_length fst.colors)) {
+                if (fk > 0) {
+                    fcl = (fcl + ",")
+                }
+                fcl = (fcl + (PresHint.q((itemAt fst.colors fk))))
+                fk = (fk + 1)
+            }
+            j = ((substring j 0 ((strlen j) - 1)) + ",\"figColors\":" + fcl + "]}")
         }
         def st:int (?? (str2int (PresApp.jsonNum(j "start"))) 0)
         def en:int (?? (str2int (PresApp.jsonNum(j "end"))) st)
@@ -5009,6 +5124,7 @@ class PresApp {
     ; since the last look comes to the front of its band.
     fn syncLayers:void () {
         def edit:boolean (mode != "present")
+        layers.setOpen("room" (room.open && edit))
         layers.setOpen("bar" ((barH > 0.0) && edit))
         if (this.toolbarOnTop()) {
             layers.setBand("bar" "menu")
@@ -5032,6 +5148,10 @@ class PresApp {
     ; a menu or list open (anywhere: a press outside closes it); otherwise it
     ; is chrome and its press is handled with the chrome. A dialog is modal.
     fn layerHas:boolean (id:string x:double y:double) {
+        if (id == "room") {
+            this.placeRoom()
+            return (room.has(x y))
+        }
         if (id == "bar") {
             return (this.toolbarOnTop())
         }
@@ -5496,6 +5616,11 @@ class PresApp {
         }
         def none:[PresHintEdit]
         hint.edits = none
+        if ((strlen hint.wantsFigColors) > 0) {
+            def fcs:string hint.wantsFigColors
+            hint.wantsFigColors = ""
+            this.setThemeProp("figure" "colors" fcs)
+        }
         if ((strlen hint.wantsLook) > 0) {
             def lk:string hint.wantsLook
             hint.wantsLook = ""
@@ -5668,6 +5793,8 @@ class PresApp {
     fn setPanelsCss:void (css:string) {
         panels.css = css
         panels.rebuild()
+        room.css = css
+        room.changed()
         review.css = css
         review.changed()
     }
@@ -6328,6 +6455,146 @@ class PresApp {
         return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
 
+    ; =========================================================================
+    ; A room's chat (PresRoomView): the work area right of the rail
+    ; =========================================================================
+    fn placeRoom:void () {
+        def L:double (this.leftW())
+        def top:double barH
+        def rw:double ((W - L) - (this.dockW()))
+        if (rw < 320.0) {
+            rw = (W - L)
+        }
+        room.place(L top rw (H - top) W H)
+        room.measurer = measurer
+        if (room.skin != skin) {
+            room.skin = skin
+            room.changed()
+        }
+    }
+
+    fn roomJson:string () {
+        if ((room.open == false) || (mode == "present")) {
+            return ""
+        }
+        this.placeRoom()
+        def dl:EVGDisplayList (room.displayList())
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
+    }
+
+    fn roomHasKeys:boolean () {
+        return (((focus == "room") && (room.hasKeys())) && (mode != "present"))
+    }
+
+    fn roomKey:boolean (name:string shift:boolean ctrl:boolean) {
+        def k:string (PresChartEditor.kitKey(name))
+        if (name == "pageUp") {
+            k = "PageUp"
+        }
+        if (name == "pageDown") {
+            k = "PageDown"
+        }
+        if (name == "tab") {
+            k = "Tab"
+        }
+        if ((strlen k) == 0) {
+            return false
+        }
+        room.key(k shift ctrl)
+        this.afterRoom()
+        return true
+    }
+
+    ; after a press, a key or the wheel in the channel: who has the keys,
+    ; and what the reader asked for, to the page ("roomchat:<request>")
+    fn afterRoom:void () {
+        if (room.hasKeys()) {
+            focus = "room"
+        } {
+            if (focus == "room") {
+                focus = "editor"
+            }
+        }
+        def r:string (room.take())
+        while ((strlen r) > 0) {
+            push requests ("roomchat:" + r)
+            r = (room.take())
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; --- the page's side ---------------------------------------------------------
+    ; The channel of room `id` opens (or shows another room); `notice` is a
+    ; line under its head ("" none).
+    fn roomChatShow:void (id:string title:string about:string readOnly:boolean notice:string) {
+        room.css = panels.css
+        room.show(id title about readOnly notice)
+        focus = "room"
+        room.ch.keys = "main"
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn roomChatHide:void () {
+        room.hide()
+        if (focus == "room") {
+            focus = "editor"
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn roomChatOpen:boolean () {
+        return room.open
+    }
+
+    fn roomChatRoom:string () {
+        return room.room
+    }
+
+    fn roomChatMe:void (id:string name:string avatar:string color:string) {
+        room.setMe(id name avatar color)
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn roomChatClock:void (now:double zone:int) {
+        room.clock(now zone)
+    }
+
+    ; read_room_chat's answer; `older` when it is earlier messages
+    fn roomChatLoad:void (json:string older:boolean) {
+        room.load(json older)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; a message posted or changed: → the seq to ask "after" when some were
+    ; missed, -1 none
+    fn roomChatPut:int (json:string) {
+        def missed:int (room.put(json))
+        chromeRev = (chromeRev + 1)
+        return missed
+    }
+
+    fn roomChatHere:void (json:string) {
+        room.here(json)
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn roomChatChannels:void (names:string) {
+        room.setChannels(names)
+    }
+
+    fn roomChatDeck:void (deck:string title:string) {
+        room.setDeckTitle(deck title)
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn roomChatReadUpTo:void (seq:int) {
+        room.readUpTo(seq)
+    }
+
+    fn roomChatLastSeq:int () {
+        return (room.lastSeq())
+    }
+
     ; review mode's layer, for the page to paint where `layerOrder` puts it
     fn reviewJson:string () {
         reviewBusy = false
@@ -6436,6 +6703,38 @@ class PresApp {
 
     fn helpIsOpen:boolean () {
         return panels.helpOpen
+    }
+
+    ; Help → How to use Sliqtly: the help panel open at its guide tab
+    ; ("guide"), or at the slide's parts ("slide").
+    fn openHelpTab:void (tab:string) {
+        panels.setHelpTab(tab)
+        this.setHelp(true)
+    }
+
+    fn helpTab:string () {
+        return panels.helpTab
+    }
+
+    ; --- the speaker view and auto-advance (S and A while presenting) ---------------
+    ; The presenting bar's ⋯ menu shows and switches them too, so they are
+    ; found without knowing the keys.
+    fn speakerOn:boolean () {
+        return speaker
+    }
+
+    fn setSpeaker:void (on:boolean) {
+        speaker = on
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn autoOn:boolean () {
+        return auto
+    }
+
+    fn setAuto:void (on:boolean) {
+        auto = on
+        chromeRev = (chromeRev + 1)
     }
 
     ; --- editing together (a server of one's own: web/collab.js) --------------------
@@ -7195,6 +7494,9 @@ class PresApp {
             t.place(hintNode (to_int slideRect.x) (to_int slideRect.y) (to_int slideRect.w) 1)
         }
         if (mode != "present") {
+            if room.open {
+                PresA11y.addHost(t room.host "app")
+            }
             if (panels.any()) {
                 PresA11y.addHost(t panels.host "app")
                 if (panels.helpOpen && (!null? panels.host.lastPage)) {
@@ -9460,6 +9762,10 @@ class PresApp {
             if (p == "review") {
                 push requests "rail:review"
             }
+            ; the slides' places close a room's chat over them
+            if (((p == "review") || (p == "history")) && room.open) {
+                push requests "roomchat:close"
+            }
             chromeRev = (chromeRev + 1)
             return
         }
@@ -9495,6 +9801,12 @@ class PresApp {
     ; open window's text or field, the panels' (the toast, a note, a link,
     ; the chat field) — else the editor's.
     fn readSelection:string () {
+        if (this.roomHasKeys()) {
+            def mt:string (room.copyText())
+            if ((strlen mt) > 0) {
+                return mt
+            }
+        }
         if (review.hasKeys()) {
             def rt:string (review.copyText())
             if ((strlen rt) > 0) {

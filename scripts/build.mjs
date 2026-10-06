@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { ensureRanger, ensureRangerDiff, compile, root, webDir, distDir, log } from "./lib.mjs";
+import { ensureRanger, ensureRangerDiff, depsUsed, compile, root, webDir, distDir, log } from "./lib.mjs";
 import { createRequire } from "node:module";
 import { formatCss } from "./format-css.mjs";
 import { buildPlayer } from "./player.mjs";
@@ -65,7 +65,7 @@ export function build({ ranger } = {}) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
   };
-  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "rooms.js", "fileclip.js", "decktabs.js", "version-view.js", "player-file.js", "collab.js", "eventline.js", "recorder.js", "press.js", "trace-source.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "rooms.js", "roomchat.js", "fileclip.js", "decktabs.js", "version-view.js", "player-file.js", "collab.js", "eventline.js", "recorder.js", "press.js", "trace-source.js", "sliqtly.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
   // versions and deltas (web/versions.js): RangerDiff's built module
   copy(path.join(ensureRangerDiff(), "dist", "rangerdiff.mjs"), path.join(distDir, "rangerdiff.mjs"));
   // the interface in other languages (web/i18n.js)
@@ -128,6 +128,12 @@ export function build({ ranger } = {}) {
   // the page where the chart looks first (Vega's example datasets, samples/data)
   for (const f of fs.readdirSync(path.join(root, "samples", "data")).filter((f) => !f.endsWith(".md"))) copy(path.join(root, "samples", "data", f), path.join(distDir, "data", f));
   copy(path.join(ranger, "gallery/markdown/fixtures/deck.md"), path.join(distDir, "samples/deck.md"));
+
+  // the commit each dependency was built from: the config names branches,
+  // so this is what says which engine code a deployed page holds
+  const deps = depsUsed();
+  fs.writeFileSync(path.join(distDir, "deps.json"), JSON.stringify(deps, null, 2) + "\n");
+  for (const [name, d] of Object.entries(deps)) log(`deps   ${name} ${d.ref || "HEAD"} ${d.commit.slice(0, 12)}${d.changed ? " (with local changes)" : ""}`);
 
   // Every URL the page loads carries the hash of the build, so a reload
   // never mixes an old script with a new one.

@@ -52,6 +52,27 @@ func (d firestoreDB) Delete(ctx context.Context, col, id string) error {
 	return err
 }
 
+func (d firestoreDB) Take(ctx context.Context, col, id string) (Doc, error) {
+	ref := d.c.Collection(col).Doc(id)
+	var got Doc
+	err := d.c.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		got = nil
+		snap, err := tx.Get(ref)
+		if status.Code(err) == codes.NotFound {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		got = snap.Data()
+		return tx.Delete(ref)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return got, nil
+}
+
 func (d firestoreDB) WhereEq(ctx context.Context, col, field string, value any) ([]Doc, []string, error) {
 	it := d.c.Collection(col).Where(field, "==", value).Documents(ctx)
 	defer it.Stop()

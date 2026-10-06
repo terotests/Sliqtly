@@ -80,6 +80,8 @@ class PresSelect {
     ; its classes (`{.lead}` under it or after a heading), their rules in the
     ; style panel too
     def classes:[string]
+    ; the block's `{container=…}` plate ("box" / "bubble"), "" for none
+    def plate:string ""
     ; the Markdown's version when it was picked
     def version:int -1
     ; its box on the slide, in slide units
@@ -363,6 +365,7 @@ class PresSelect {
     fn readClasses:void (text:string) {
         def noCls:[string]
         classes = noCls
+        plate = ""
         if (srcA < 0) {
             return
         }
@@ -392,6 +395,11 @@ class PresSelect {
             def w0:string (trim (itemAt words i))
             if (((strlen w0) > 1) && ((charAt w0 0) == 46)) {
                 push classes w0
+            }
+            if ((indexOf w0 "container=") == 0) {
+                def nd:MdNode (new MdNode())
+                nd.setAttr("container" (substring w0 10 (strlen w0)))
+                plate = (MdContainer.kindOf(nd))
             }
             i = (i + 1)
         }
@@ -746,7 +754,12 @@ class PresSelect {
 
     ; What the theme says about the pick, rule by rule (PresCascade.rgr).
     fn cascade:PresCssElement (css:string) {
-        return ((PresCascade.of((PresHelp.noComments(css)))).element(sel classes ""))
+        def pc:PresCascade (PresCascade.of((PresHelp.noComments(css))))
+        def e:PresCssElement (pc.element(sel classes ""))
+        if ((strlen plate) > 0) {
+            pc.plateFacets(e)
+        }
+        return e
     }
 
     ; Every pick has a first button: "Settings" for a block that has a

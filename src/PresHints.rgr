@@ -88,6 +88,8 @@ class PresHints {
         if (key == "height") { return (PresI18n.t("Image height: in points or as a percentage of the slide's content height (50%).")) }
         if (key == "align") { return (PresI18n.t("Image position in the column: left, center or right.")) }
         if (key == "bg") { return (PresI18n.t("Slide background image, covers the whole slide: bg=media/kuva.jpg")) }
+        if (key == "container") { return (PresI18n.t("The block above on a rounded plate, so its text reads over a busy picture: box (across the column) or bubble (as wide as the text, with a tail). none: no plate.")) }
+        if (key == "background") { return (PresI18n.t("The plate's colour, e.g. #fff8 (the last digit is the opacity). By default the slide's colour, see-through; the text turns dark or light when it would not read on it.")) }
         if (key == "art") { return (PresI18n.t("PRO: line art drawn behind the slide in the theme's colours (waves). art=off leaves it off this slide.")) }
         if (key == "list-style") { return (PresI18n.t("The list above drawn as a layout: process (steps), swot (a 2×2 grid) or timeline. Items are Title: description.")) }
         if (key == "art-seed") { return (PresI18n.t("A number that moves the art's curves: another number, another picture.")) }
@@ -133,6 +135,7 @@ class PresHints {
         if (key == "furniture") { return "off" }
         if (key == "art") { return "waves off" }
         if (key == "list-style") { return "process swot timeline" }
+        if (key == "container") { return "box bubble none" }
         if (((key == "align") || (key == "header-align")) || (key == "footer-align")) { return "left center right" }
         return ""
     }
@@ -280,6 +283,7 @@ class PresHints {
         if (sel == "heading") { return (PresI18n.t("All headings.")) }
         if (sel == "chart") { return (PresI18n.t("Vega-Lite charts on stage, in PDF and in PPTX.")) }
         if (sel == "diagram") { return (PresI18n.t("Mermaid, DOT, D2 and PlantUML diagrams on stage.")) }
+        if (sel == "container") { return (PresI18n.t("The rounded plates under {container=box} and {container=bubble} blocks.")) }
         if (sel == "list") { return (PresI18n.t("Lists.")) }
         if (sel == "li") { return (PresI18n.t("List item.")) }
         if (((indexOf sel "#") == 0) && ((indexOf sel " chart") > 0)) { return (PresI18n.t("Charts under one heading: #anchor is the heading in lowercase, spaces as hyphens.")) }
@@ -326,6 +330,29 @@ class PresHints {
         return ((((l == "mermaid") || (l == "dot")) || ((l == "graphviz") || (l == "d2"))) || ((l == "plantuml") || (l == "puml")))
     }
 
+    ; What kind of block a fence's language makes: "diagram", "figure",
+    ; "chart", "math" or "code".
+    sfn fenceGroup:string (lang:string) {
+        def l:string (to_lowercase (trim lang))
+        if (PresHints.isDiagramLang(l)) {
+            return "diagram"
+        }
+        if (((l == "process") || (l == "swot")) || (l == "timeline")) {
+            return "figure"
+        }
+        if (((l == "vega-lite") || (l == "vegalite")) || (l == "vega")) {
+            return "chart"
+        }
+        if (l == "math") {
+            return "math"
+        }
+        return "code"
+    }
+
+    sfn codeLangs:string () {
+        return "js ts python bash json html css sql"
+    }
+
     ; The looks a diagram can take (`style=`, `diagram=classic`).
     sfn diagramLooks:string () {
         return "holo sketch classic mermaid jurassic cartoon romantic"
@@ -349,15 +376,33 @@ class PresHints {
         }
         def lang:string (substring line a b)
         def h:PresHint (PresHint.make("enum" (PresI18n.t("language")) lang a b))
-        h.doc = (PresI18n.t("What the block is: a diagram, a formula or code. process, swot and timeline draw a layout from a list, one `Title: description` per line."))
-        h.options = "mermaid dot plantuml d2 vega-lite process swot timeline math js python bash json"
-        ; a diagram: its looks; the notation is not switched from here
-        if (PresHints.isDiagramLang(lang)) {
+        ; what the block can turn into without its body meaning something
+        ; else: a list layout another layout, code another language
+        def group:string (PresHints.fenceGroup(lang))
+        if (group == "diagram") {
+            ; its looks; the notation is not switched from here
             h.name = (PresI18n.t("Diagram"))
             h.doc = (PresI18n.t("The diagram's look."))
             h.looks = (PresHints.diagramLooks())
-            h.options = ""
+            return (h.json())
         }
+        if (group == "figure") {
+            h.name = (PresI18n.t("Layout"))
+            h.doc = (PresI18n.t("A layout drawn from a list, one `Title: description` per line. Its colours are the theme's figure colors."))
+            h.options = "process swot timeline"
+            h.figure = true
+            return (h.json())
+        }
+        if (group == "chart") {
+            h.doc = (PresI18n.t("A Vega-Lite chart."))
+            return (h.json())
+        }
+        if (group == "math") {
+            h.doc = (PresI18n.t("A formula in LaTeX."))
+            return (h.json())
+        }
+        h.doc = (PresI18n.t("The code's language, for its colours."))
+        h.options = (PresHints.codeLangs())
         return (h.json())
     }
 
@@ -496,6 +541,14 @@ class PresHints {
         h.wholeStart = wa
         h.wholeEnd = wb
         h.doc = (PresHints.attrDoc(key))
+        ; a plate's colour: `background=#fff8`, or `bg=` when it is a colour
+        if ((key == "background") || ((key == "bg") && (((strlen value) > 0) && ((charAt value 0) == 35)))) {
+            h.kind = "color"
+            if (key == "bg") {
+                h.doc = (PresHints.attrDoc("background"))
+            }
+            return (h.json())
+        }
         def en:string (PresHints.attrEnum(key))
         if ((strlen en) > 0) {
             h.kind = "enum"
@@ -727,6 +780,8 @@ class PresHint {
     ; it has (set by the app, which reads the whole block)
     def looks:string ""
     def look:string ""
+    ; a list layout's fence: the card edits the theme's figure colours
+    def figure:boolean false
 
     Constructor () {
     }
@@ -792,6 +847,9 @@ class PresHint {
         out = (out + ",\"options\":" + (PresHint.list(options)) + ",\"adds\":" + (PresHint.list(adds)) + ",\"unit\":" + (PresHint.q(unit)))
         if ((strlen looks) > 0) {
             out = (out + ",\"looks\":" + (PresHint.list(looks)))
+        }
+        if figure {
+            out = (out + ",\"figure\":true")
         }
         if ((strlen look) > 0) {
             out = (out + ",\"look\":" + (PresHint.q(look)))

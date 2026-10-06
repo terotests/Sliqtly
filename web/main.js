@@ -32,6 +32,7 @@ import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, b
 import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
 import { parseRooms, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
+import { RoomChat } from "./roomchat.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
@@ -674,6 +675,10 @@ const pending = new Map();
 // A shared presentation opened to read: its files, which nothing saves
 const readFiles = new Map();
 let savedText = null;
+// the editor's change count (app.mdVersion) when its text was last found
+// equal to savedText: the 1.5 s check reads the whole text only when it
+// moved. -1 whenever savedText is set from elsewhere.
+let savedVersion = -1;
 let savedCss = null;
 let savedTheme = null;
 let saving = null;
@@ -707,6 +712,7 @@ function beginDoc(text) {
   pending.clear();
   readFiles.clear();
   savedText = null;
+  savedVersion = -1;
   savedCss = null;
   for (const k of Object.keys(editedCss)) delete editedCss[k];
   chartFiles.clear();
@@ -945,10 +951,16 @@ async function saveDoc(force) {
 
 async function saveDocNow(force) {
   if (merging || doc.loading) return;
-  const md = app.source();
   const key = themeSel.value || "";
   const css = key in editedCss ? editedCss[key] : null;
-  if (md === savedText && css === savedCss && key === savedTheme && !force) return;
+  const version = app.mdVersion();
+  const same = css === savedCss && key === savedTheme;
+  if (same && version === savedVersion && !force) return;
+  const md = app.source();
+  if (md === savedText && same && !force) {
+    savedVersion = version;
+    return;
+  }
   // a deck as it was opened is not kept until someone changes it (a shared
   // deck opens with its own CSS: that is as opened too), nor an empty one
   if (!doc.persisted && !force && ((md === doc.openedText && css === doc.openedCss) || !md.trim())) return;
@@ -969,6 +981,7 @@ async function saveDocNow(force) {
     }
     updateDeckTab();
     savedText = md;
+    savedVersion = version;
     savedCss = css;
     savedTheme = key;
     try { localStorage.setItem("evgp.doc", doc.id); } catch (_) { /* the next start opens a sample */ }
@@ -1112,7 +1125,7 @@ async function roomsRequest(r) {
     const rows = rooms.map((x) => [x.room_id, clean(x.title) + (x.archived ? " (" + t("archived") + ")" : ""), x.presentations ?? ""].join("\t"));
     app.setToolbarOptions("roomsearch", "", t("Search rooms…") + (hidden ? " (" + hidden + t(" more") + ")" : ""));
     app.setToolbarOptions("rooms", rows.join("\n"), roomShown);
-    if (roomShown && rooms.some((x) => x.room_id === roomShown)) await roomsRequest("room:open:" + roomShown);
+    if (roomShown && rooms.some((x) => x.room_id === roomShown)) await roomsRequest("room:decks:" + roomShown);
     else app.setToolbarOptions("roomdecks", "", roomShown);
   } else if (action === "search") {
     roomsQuery = what;
@@ -1130,6 +1143,7 @@ async function roomsRequest(r) {
       keepRooms(touchRoom(roomsHere, id));
     }
     await roomsRequest("room:list");
+    if (id) await roomChat().open(id);
   } else if (action === "drop" || action === "tabdrop") {
     // a presentation dragged from the open room, or a deck's tab, onto a
     // room: Move, Copy or Cancel (a sample is only copied)
@@ -1204,7 +1218,9 @@ async function roomsRequest(r) {
     if (ownServer()) await roomsCall("move_presentation", { deck_id: deck.replace(/^cloud:/, ""), room_id: room });
     else if (!deck.startsWith("sample:")) keepRooms(touchRoom(moveDeck(roomsHere, deck, room), room));
     await roomsRequest("room:list");
-  } else if (action === "open") {
+  } else if (action === "open" || action === "decks") {
+    // a room pressed opens its chat (web/roomchat.js); the list shown again
+    // ("decks") only lists its presentations
     roomShown = what;
     keepRooms(touchRoom(roomsHere, roomShown));
     const rows = await roomRows(roomShown);
@@ -1213,7 +1229,9 @@ async function roomsRequest(r) {
       addNew: roomShown === ONBOARDING ? "" : "+ " + t("Add new presentation"),
     });
     app.setToolbarOptions("roomdecks", lines, roomShown);
+    if (action === "open") await roomChat().open(roomShown);
   } else if (action === "deck") {
+    roomChat().close();
     if (what.startsWith("sample:")) await openSample(what.slice(7));
     else await fileRequest("doc:" + what);
     await roomsRequest("room:list");
@@ -1252,6 +1270,37 @@ async function roomsRequest(r) {
   }
   needsPaint = true;
 }
+// A room's chat (web/roomchat.js): made the first time a room is opened.
+let roomChatOne = null;
+function roomChat() {
+  if (roomChatOne) return roomChatOne;
+  let store = null;
+  try { store = localStorage; } catch (_) { store = { getItem: () => null, setItem: () => {} }; }
+  roomChatOne = new RoomChat({
+    app, store, t, toast, ownServer,
+    name: shownName(),
+    call: roomsCall,
+    now: () => Date.now(),
+    zone: () => -new Date().getTimezoneOffset(),
+    rooms: () => roomsList({ archived: true }),
+    roomsChanged: () => roomsRequest("room:list"),
+    openLink: (u) => { if (/^https?:\/\//i.test(u)) window.open(u, "_blank", "noopener"); },
+    openDeck: async (deck, slide) => {
+      await roomsRequest("room:deck:cloud:" + deck);
+      if (slide > 0) app.selectSlide(slide - 1);
+      needsPaint = true;
+    },
+    openRoom: (id) => roomsRequest("room:pick:" + id),
+    copy: async (s) => {
+      const ok = await writeClip(s);
+      toast(ok ? t("Copied") : t("Could not copy"));
+    },
+    paint: () => { needsPaint = true; },
+  });
+  window.addEventListener("sliqtly:chat", (ev) => { roomChatOne.event(ev.detail).catch(() => {}); });
+  return roomChatOne;
+}
+
 // The name edited at the start of the bar: the deck's title (front matter
 // `title:`, else its first heading) rewritten, as one edit that undoes, and
 // the open presentations' tab follows.
@@ -1559,6 +1608,7 @@ async function openDocNow(id) {
   docName = d.name || "presentation";
   shownDoc(d.md);
   savedText = d.md;
+  savedVersion = -1;
   savedCss = d.css == null ? null : d.css;
   savedTheme = d.theme || "";
   try { localStorage.setItem("evgp.doc", doc.id); } catch (_) { /* fine */ }
@@ -2528,6 +2578,8 @@ function paintOnce() {
       if (canvasBar) paintBar();
     } else if (layer === "sketch") {
       paintList(app.sketchJson());
+    } else if (layer === "room") {
+      paintList(app.roomJson());
     } else if (layer === "review") {
       paintList(app.reviewJson());
     } else if (layer === "hint") {
@@ -3349,6 +3401,9 @@ function handleRequests() {
       });
     } else if (r === "about") {
       openAbout().catch(fail);
+    } else if (r === "help-guide") {
+      app.openHelpTab("guide");
+      needsPaint = true;
     } else if (r === "settings") {
       app.openSettings(autoContrast);
       needsPaint = true;
@@ -3378,6 +3433,8 @@ function handleRequests() {
       setSkinHue(parseInt(r.slice("setting:skinhue:".length), 10));
     } else if (r.startsWith("room:")) {
       roomsRequest(r).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+    } else if (r.startsWith("roomchat:")) {
+      roomChat().request(r.slice(9)).catch((e) => toast(t("Chat: ") + (e.message || e)));
     } else if (r.startsWith("title:")) {
       renameDeck(r.slice(6));
     } else if (r === "rail:review") {
@@ -4232,6 +4289,7 @@ async function takeLocal() {
   const mergedHere = await takeCopy(base, theirs, "tab");
   // the record is what this one stands on now
   savedText = theirs.md;
+  savedVersion = -1;
   savedCss = theirs.css;
   savedTheme = theirs.theme;
   if (cur.cloud) doc.cloud = cur.cloud;
@@ -5072,8 +5130,10 @@ function toggleViewMenu(open) {
     return;
   }
   document.getElementById("vEdit").hidden = !ownsShare();
+  document.getElementById("vSpeaker").setAttribute("aria-checked", String(app.speakerOn()));
+  document.getElementById("vAuto").setAttribute("aria-checked", String(app.autoOn()));
   wakeViewer();
-  vMenu.querySelector("button:not([hidden])").focus();
+  [...vMenu.querySelectorAll("button")].find((b) => b.offsetParent)?.focus();
 }
 window.addEventListener("sliqtly:user", () => { document.getElementById("vEdit").hidden = !ownsShare(); });
 function siteLink(url) {
@@ -5135,6 +5195,12 @@ vMenu.addEventListener("click", (ev) => {
   if (EXPORTS[act]) {
     if (framed) exportOnSite(act);
     else EXPORTS[act]().catch(fail);
+  } else if (act === "speaker") {
+    app.setSpeaker(!app.speakerOn());
+    needsPaint = true;
+  } else if (act === "auto") {
+    app.setAuto(!app.autoOn());
+    needsPaint = true;
   } else if (act === "new") createFromViewed();
   else if (act === "playrec") {
     app.replayFromSlide();
@@ -5360,7 +5426,7 @@ async function openFromShare() {
       enterViewer({ from: "share" });
       // changed while it opened: followed now
       if (shareMoved) followShare(id);
-    }
+    } else if (!own) notOwnerNotice(id, shared.owner || "");
     return true;
   } catch (e) {
     if (doc.loading) shownDoc(doc.openedText);
@@ -5368,6 +5434,43 @@ async function openFromShare() {
     toast(t("Could not open the shared presentation."));
     return false;
   }
+}
+
+// /s/{id}?edit of a deck that is not the signed-in user's own opens a copy:
+// nothing done here (text, comments) reaches the share, nor an assistant
+// reading it. Said plainly. Signed in, the user may still be its owner under
+// another Google account (an assistant's connector signed in with that one),
+// so switching is offered; once the owner is signed in, the deck itself opens.
+const SWITCH_FLAG = "sliqtly:switchFor";
+async function notOwnerNotice(id, owner) {
+  if (ownServer()) return;
+  const p = await pro();
+  if (typeof p.switchAccount !== "function") return;
+  const who = await Promise.race([p.signedIn(), new Promise((ok) => setTimeout(() => ok(null), 8000))]);
+  // its owner after all (the cloud copy did not open): not a copy to warn of
+  if (who && who.uid === owner) return;
+  // the owner signs in from here on (this question, or Sign in): theirs opens
+  window.addEventListener("sliqtly:user", () => {
+    const u = p.user?.();
+    if (u && owner && u.uid === owner && u.uid !== who?.uid) location.href = "/s/" + id + "?edit";
+  });
+  let asked = false;
+  try { asked = sessionStorage.getItem(SWITCH_FLAG) === id; sessionStorage.removeItem(SWITCH_FLAG); } catch (_) { /* ask */ }
+  if (!who || owner === "mcp" || !owner || asked) {
+    toast(t("You are editing a copy: changes and comments stay in your copy, and the shared presentation does not change."));
+    return;
+  }
+  // after the deck is drawn, so it shows behind the question
+  setTimeout(() => {
+    const q = t("This presentation belongs to another Sliqtly account than {account}. Your changes and comments go to your own copy, not to it, and an assistant reading it does not see them.\n\nIf it is yours under another Google account (for example the one the Claude connector signed in with), press OK and choose that account. Cancel keeps editing a copy.")
+      .replace("{account}", who.email || who.displayName || "");
+    if (!confirm(q)) {
+      toast(t("You are editing a copy: changes and comments stay in your copy, and the shared presentation does not change."));
+      return;
+    }
+    try { sessionStorage.setItem(SWITCH_FLAG, id); } catch (_) { /* asked again after a redirect */ }
+    p.switchAccount();
+  }, 400);
 }
 
 // A view of some slides: the share's Markdown with only the sections the
@@ -5700,7 +5803,7 @@ keys.addEventListener("keydown", (ev) => {
   }
   const special = KEY_MAP[ev.key];
   if (special) {
-    if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart") return;
+    if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart" && app.focusTarget() !== "room") return;
     if (app.key(special, ev.shiftKey, mod)) ev.preventDefault();
     else if (app.focusTarget() === "editor" || app.focusTarget() === "chart") ev.preventDefault();
     afterInput();
@@ -6057,8 +6160,11 @@ function showHint(h) {
 // at the values the theme gives them now. Only what the slide has is
 // listed. A property opens the theme at its line (added when the theme has
 // none) with its value popover.
+// Help for this slide closes the panel when it already shows the slide;
+// Help → How to use Sliqtly opens it at the guide (PresHelp.guide).
 function toggleHelp(on) {
-  app.setHelp(on ?? !app.helpIsOpen());
+  if (on ?? !(app.helpIsOpen() && app.helpTab() === "slide")) app.openHelpTab("slide");
+  else app.setHelp(false);
   needsPaint = true;
 }
 

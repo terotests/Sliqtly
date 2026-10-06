@@ -13,6 +13,7 @@
 //	{"k":"status","v":{"state":"ready","version":"1.1.3"}}
 //	{"k":"changed","id":"<deck id>"}
 //	{"k":"room","id":12,"v":{"t":"op",…}}      (id: the rev, when it has one)
+//	{"k":"chat","v":{"t":"msg","room":"…","msg":{…}}}   (a room's chat, roomchat.go)
 //
 // GET /api/events is the same as Server-Sent Events, for a page that cannot
 // open a WebSocket (a proxy in front that does not pass them on):
@@ -24,6 +25,9 @@
 //
 //	id: 12
 //	data: {"t":"op",…}
+//
+//	event: chat
+//	data: {"t":"msg","room":"…","msg":{…}}
 //
 // Why a WebSocket: a browser opens at most six HTTP/1.1 connections to one
 // server, for all its tabs together, and an event stream holds one for as
@@ -51,33 +55,45 @@ import (
 // who is listening, and what to tell them
 type changeHub struct {
 	mu   sync.Mutex
-	subs map[chan string]struct{}
+	subs map[chan hubMsg]struct{}
 }
 
-func newChangeHub() *changeHub { return &changeHub{subs: map[chan string]struct{}{}} }
+// one thing told: a deck that changed (id), or a room's chat event (chat,
+// its JSON)
+type hubMsg struct {
+	id   string
+	chat []byte
+}
 
-func (h *changeHub) subscribe() chan string {
-	ch := make(chan string, 16)
+func newChangeHub() *changeHub { return &changeHub{subs: map[chan hubMsg]struct{}{}} }
+
+func (h *changeHub) subscribe() chan hubMsg {
+	ch := make(chan hubMsg, 64)
 	h.mu.Lock()
 	h.subs[ch] = struct{}{}
 	h.mu.Unlock()
 	return ch
 }
 
-func (h *changeHub) unsubscribe(ch chan string) {
+func (h *changeHub) unsubscribe(ch chan hubMsg) {
 	h.mu.Lock()
 	delete(h.subs, ch)
 	h.mu.Unlock()
 }
 
 // a listener too slow to take it misses one; the next change, or its
-// minute's check, catches it up
-func (h *changeHub) publish(id string) {
+// minute's check, catches it up (a chat sees the gap in its seq numbers
+// and asks for what came after)
+func (h *changeHub) publish(id string) { h.send(hubMsg{id: id}) }
+
+func (h *changeHub) publishChat(v []byte) { h.send(hubMsg{chat: v}) }
+
+func (h *changeHub) send(m hubMsg) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for ch := range h.subs {
 		select {
-		case ch <- id:
+		case ch <- m:
 		default:
 		}
 	}
@@ -95,6 +111,7 @@ type eventSink interface {
 	status(st serverStatus)
 	changed(id string)
 	room(e collabEvt)
+	chat(v []byte)
 	keepAlive()
 	flush() error
 }
@@ -111,6 +128,7 @@ func (k sseSink) changed(id string) {
 	io.WriteString(k.w, "data: "+string(b)+"\n\n")
 }
 func (k sseSink) room(e collabEvt) { k.w.Write(e.sse()) }
+func (k sseSink) chat(v []byte)    { io.WriteString(k.w, "event: chat\ndata: "+string(v)+"\n\n") }
 func (k sseSink) keepAlive()       { io.WriteString(k.w, ": keep-alive\n\n") }
 func (k sseSink) flush() error     { k.fl.Flush(); return nil }
 
@@ -126,6 +144,7 @@ func (k *wsSink) add(v any) {
 }
 func (k *wsSink) status(st serverStatus) { k.add(map[string]any{"k": "status", "v": st}) }
 func (k *wsSink) changed(id string)      { k.add(map[string]any{"k": "changed", "id": id}) }
+func (k *wsSink) chat(v []byte)          { k.add(map[string]any{"k": "chat", "v": json.RawMessage(v)}) }
 func (k *wsSink) room(e collabEvt) {
 	m := map[string]any{"k": "room", "v": json.RawMessage(e.data)}
 	if e.id > 0 {
@@ -243,8 +262,12 @@ func (s *localServer) stream(ctx context.Context, out eventSink, sub *collabSub)
 			}
 		case <-tick.C:
 			out.keepAlive()
-		case id := <-ch:
-			out.changed(id)
+		case m := <-ch:
+			if m.chat != nil {
+				out.chat(m.chat)
+			} else {
+				out.changed(m.id)
+			}
 		case <-wake:
 			if !roomEvents(out, sub) {
 				// too far behind: it comes back with the rev it had

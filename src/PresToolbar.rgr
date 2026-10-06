@@ -340,6 +340,9 @@ class PresToolbar {
         if (id == "about") {
             return "about"
         }
+        if (id == "helpGuide") {
+            return "help-guide"
+        }
         if (id == "docset") {
             return "docset"
         }
@@ -1380,6 +1383,7 @@ class PresToolbar {
             def exFile:UiItem (ex.addSub("x-file" (PresI18n.t("File")) false))
             this.exportGroups(exClip exFile)
             def hp:MenuCtl (this.dropdown("help" (PresI18n.t("Help"))))
+            hp.addItem("helpGuide" (PresI18n.t("How to use Sliqtly")) false)
             hp.addItem("helpBtn" (PresI18n.t("Help for this slide")) false)
             hp.addSeparator()
             hp.addItem("about" (PresI18n.t("About")) false)
@@ -1532,6 +1536,7 @@ class PresToolbar {
                 this.button("dr-rec-play" (PresI18n.t("▶ Play recording")) "ghost" body)
             }
             body.addChild((this.text("tb-dr-label" (PresI18n.t("Help")))))
+            this.button("dr-helpGuide" (PresI18n.t("How to use Sliqtly")) "ghost" body)
             this.button("dr-helpBtn" (PresI18n.t("Help for this slide")) "ghost" body)
             this.button("dr-about" (PresI18n.t("About")) "ghost" body)
             if ((strlen langRows) > 0) {
