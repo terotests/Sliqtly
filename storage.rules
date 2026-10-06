@@ -1,7 +1,8 @@
 rules_version = '2';
 
 // A share's pictures and data files: read like the share (anyone with its
-// id), written and deleted only by the owner its Firestore copy names.
+// id; not its exports/), written and deleted only by the owner its
+// Firestore copy names.
 // A user's own files: that user's alone.
 service firebase.storage {
   // What may be kept: pictures, sound, video, data, documents and the editor's
@@ -20,7 +21,10 @@ service firebase.storage {
         return request.auth != null
           && firestore.get(/databases/(default)/documents/shares/$(shareId)).data.owner == request.auth.uid;
       }
-      allow read: if true;
+      // exports/ are the MCP server's (export_presentation), sent only
+      // through its expiring sliqtly.com/d/… links (mcp-go/download.go)
+      allow get: if !resource.name.matches('shares/[^/]+/exports/.*');
+      allow list: if true;
       allow create, update: if owner() && request.resource.size < 20 * 1024 * 1024 && storedType();
       allow delete: if owner();
     }

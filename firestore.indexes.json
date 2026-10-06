@@ -8,6 +8,12 @@
       "indexes": []
     },
     {
+      "collectionGroup": "mcp_downloads",
+      "fieldPath": "expires",
+      "ttl": true,
+      "indexes": []
+    },
+    {
       "collectionGroup": "mcp_keys",
       "fieldPath": "expires",
       "ttl": true,
