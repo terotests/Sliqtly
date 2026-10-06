@@ -316,6 +316,10 @@ try {
       const f1 = el("rv-chat-field"), c1 = el("rv-chat-field-caret");
       out.grew = [f0, f1.calculatedHeight];
       out.caretIn = c1.calculatedWidth > 0 && c1.calculatedY >= f1.calculatedY && c1.calculatedY + c1.calculatedHeight <= f1.calculatedY + f1.calculatedHeight + 0.5;
+      // every line shows: the text's view is as tall as its lines (it
+      // stayed one line high and cut the rest)
+      const v1 = el("rv-chat-field-view"), n1 = rv.chat.input.placed ? rv.chat.input.placed.count() : 0;
+      out.lines = [n1, v1.calculatedHeight, rv.chat.input.lineBox];
       a.key("enter", true, false);
       out.newline = rv.chat.input.value.includes("\n");
       rv.chat.input.setValue("");
@@ -333,6 +337,7 @@ try {
     });
     check("a comment box with the keys hides its hint and shows a light caret", r.focusedText === "" && r.caret && r.caretLight, JSON.stringify(r));
     check("…a long comment wraps and the box grows, the caret in it", r.grew[1] > r.grew[0] + 5 && r.caretIn, JSON.stringify(r));
+    check("…and every line of it shows", r.lines[0] >= 2 && r.lines[1] + 0.5 >= r.lines[0] * r.lines[2], JSON.stringify(r));
     check("…Shift+Enter breaks the line instead of sending", r.newline, JSON.stringify(r));
     check("…without the keys its hint is faint, not the text's white", r.hint === r.ph && !!r.ph && r.hintAlpha < 0.6, JSON.stringify(r));
   }

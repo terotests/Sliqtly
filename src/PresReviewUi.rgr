@@ -85,7 +85,8 @@ class PresReviewUi {
     ; the page's clock: ms since 1970, and its time zone (minutes east)
     def nowMs:double 0.0
     def zoneMin:int 0
-    ; the pins' fill (File → Settings)
+    ; the fill of a pin whose severity is not said (one with a severity is
+    ; green, yellow or red: severityColor)
     def color:string "#e08a3c"
     def requests:[string]
     ; a slide to show (the next comment), -1 none
@@ -142,6 +143,8 @@ class PresReviewUi {
     def coY:double 0.0
     def coW:double 0.0
     def coH:double 0.0
+    ; page() is building the draft again for its lines (`linesChanged`)
+    def regrowing:boolean false
 
     Constructor () {
         chat.setup("rv-chat" (PresI18n.t("Comment")))
@@ -499,13 +502,14 @@ class PresReviewUi {
             push host.ctls dp
             push pinEls (unwrap dp.rootEl)
         }
-        ; a callout goes under the pins: its wedge ends at the middle of its
-        ; pin, which stays in sight
-        if ((this.panelOpen()) && (this.floating())) {
-            root.addChild((this.calloutEl()))
-        }
+        ; the callout over the pins: its wedge ends at its own pin, beside
+        ; it, and a pin it lies over (dragged there, or another one) does not
+        ; draw over what is written in it
         for pinEls pe:EVGElement pi {
             root.addChild(pe)
+        }
+        if ((this.panelOpen()) && (this.floating())) {
+            root.addChild((this.calloutEl()))
         }
         root.addChild((this.bar()))
         if ((this.panelOpen()) && ((this.floating()) == false)) {
@@ -642,7 +646,14 @@ class PresReviewUi {
         co.look = "glass"
         co.frameClass = "rv-glass"
         co.closeLabel = (PresI18n.t("Close"))
+        ; between the editor's bar at the top and review mode's bar, which
+        ; stay in sight and pressable
+        def roomH:double h
+        if ((barW > 0.0) && ((this.barY()) > (top + 120.0))) {
+            roomH = ((this.barY()) - 4.0)
+        }
         co.setPage(w h)
+        co.setRows(top roomH)
         co.setPoint(coPX coPY)
         if listing {
             co.title = (PresI18n.t("Comments"))
@@ -881,6 +892,15 @@ class PresReviewUi {
         }
         host.placeText((lay.getTextEngine()))
         host.lastPage = pg
+        ; a draft placed with more or fewer lines than its box was built for
+        ; (pasted into a new comment): built again, once, as tall as they are
+        if ((((this.panelOpen()) && (listing == false)) && (chat.input.linesChanged())) && (regrowing == false)) {
+            regrowing = true
+            this.rebuild()
+            def again:EVGElement (this.page())
+            regrowing = false
+            return again
+        }
         return pg
     }
 

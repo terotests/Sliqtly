@@ -2152,7 +2152,6 @@ try { autoContrast = localStorage.getItem("sliqtly.autoContrast") !== "off"; } c
 // assistant through MCP) is united with this one, not put in its place.
 const REVIEW_PATH = "review/comments.json";
 const REVIEW_KEY = "sliqtly.review";
-const REVIEW_COLOR_KEY = "sliqtly.reviewColor";
 function reviewChoice() {
   try { return localStorage.getItem(REVIEW_KEY); } catch (_) { return null; }
 }
@@ -3354,10 +3353,6 @@ function handleRequests() {
     } else if (r.startsWith("setting:review:")) {
       try { localStorage.setItem(REVIEW_KEY, r.endsWith(":on") ? "on" : "off"); } catch (_) { /* this session only */ }
       applyReviewMode();
-    } else if (r.startsWith("setting:reviewcolor:")) {
-      const c = r.slice("setting:reviewcolor:".length);
-      try { localStorage.setItem(REVIEW_COLOR_KEY, c); } catch (_) { /* this session only */ }
-      app.reviewColor(c);
     } else if (r === "review-save") {
       keepReview().catch(fail);
     } else if (r === "confirm:zip") {
@@ -6361,13 +6356,6 @@ async function start() {
   const r = stageEl.getBoundingClientRect();
   app.init(css, Math.max(320, r.width), Math.max(240, r.height));
   if (!viewer) applySkin();
-  try {
-    const rc = localStorage.getItem(REVIEW_COLOR_KEY);
-    // the first, bright pin colours became muted ones: a pick of one of
-    // those is the same pick in the new set
-    const OLD_PINS = { "#fde047": "#d9a93e", "#fdba74": "#e08a3c", "#f9a8d4": "#d07a92", "#67e8f9": "#3a9fa6", "#86efac": "#6aa86a" };
-    if (rc && /^#[0-9a-fA-F]{6}$/.test(rc)) app.reviewColor(OLD_PINS[rc.toLowerCase()] || rc);
-  } catch (_) { /* the default yellow */ }
   reviewMe();
   applyReviewMode();
   // a server of one's own is known once its window.sliqtly is there
