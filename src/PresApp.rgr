@@ -1205,6 +1205,7 @@ class PresApp {
         }
         if (what == "menu") {
             du.diagram.menuOpen = (! du.diagram.menuOpen)
+            du.diagram.zoomOpen = false
             chromeRev = (chromeRev + 1)
             return true
         }
@@ -1244,7 +1245,14 @@ class PresApp {
             return true
         }
         if (what == "fit") {
-            du.diagram.exploreOverview()
+            du.diagram.zoomOpen = (! du.diagram.zoomOpen)
+            du.diagram.menuOpen = false
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        if (((strlen what) > 4) && ((substring what 0 4) == "zoom")) {
+            def zp@(optional):int (str2int (substring what 4 (strlen what)))
+            du.diagram.zoomTo(((to_double (?? zp 100)) / 100.0))
             chromeRev = (chromeRev + 1)
             return true
         }
