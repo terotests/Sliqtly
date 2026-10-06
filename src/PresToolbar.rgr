@@ -103,6 +103,11 @@ class PresToolbar {
     ; pressed, it is a field: Enter or a press elsewhere renames, Esc not.
     def docTitle:string ""
     def titleEditing:boolean false
+    ; a drag selecting in the name or search field, and the press's click
+    ; count and shift (a double click picks a word)
+    def titleSelecting:boolean false
+    def pressClicks:int 1
+    def pressShift:boolean false
     ; what the field is for: "title" the deck's name, "search" the rooms'
     def editFor:string "title"
     ; the editor's look is dark (the rail's switch shows Light then)
@@ -912,7 +917,6 @@ class PresToolbar {
             c.boxClass = "tb-roomname-box"
             c.focused = true
             c.build()
-            UiTree.addClass((unwrap c.rootEl) "tb-roomname-field")
             this.put(c pane)
         }
         if ((fieldOn == false) && ((strlen roomSearchLabel) > 0)) {
@@ -1057,6 +1061,9 @@ class PresToolbar {
     fn liveRooms:void (pane:EVGElement) {
         def lines:[string] (strsplit roomRows (strfromcode 10))
         def i:int 0
+        ; the built-in rooms come last (web/rooms.js orderRooms), a group of
+        ; their own under a line when made rooms are over them
+        def madeAbove:boolean false
         while (i < (array_length lines)) {
             def parts:[string] (strsplit (itemAt lines i) (strfromcode 9))
             if ((array_length parts) >= 2) {
@@ -1064,6 +1071,14 @@ class PresToolbar {
                 def count:string ""
                 if ((array_length parts) >= 3) {
                     count = (itemAt parts 2)
+                }
+                if (PresToolbar.builtInRoom(id)) {
+                    if madeAbove {
+                        pane.addChild((this.div("tb-rooms-sep")))
+                        madeAbove = false
+                    }
+                } {
+                    madeAbove = true
                 }
                 this.roomRow(pane id (itemAt parts 1) count)
                 if (id == roomOpen) {
@@ -1111,10 +1126,10 @@ class PresToolbar {
             def c:InputCtl titleIn
             c.tid = "tb-title-in"
             c.name = (PresI18n.t("Presentation name"))
+            ; the field's whole look is its box class, which its own rebuilds keep
             c.boxClass = "tb-title-box"
             c.focused = true
             c.build()
-            UiTree.addClass((unwrap c.rootEl) "tb-title-field")
             this.put(c slot)
             return
         }
@@ -1640,6 +1655,9 @@ class PresToolbar {
         if (UiHost.fitSurfaces(r lay)) {
             lay.layout(pg)
         }
+        ; the fields' caret and selection onto the laid out text (UiHost.layout
+        ; does this; the bar lays its tree out itself)
+        host.placeText((lay.getTextEngine()))
         host.lastPage = pg
         return pg
     }
@@ -1670,6 +1688,30 @@ class PresToolbar {
         return (((py < barH) || (this.listOpen())) || (px < (this.leftW())))
     }
 
+    ; A press with the page's click count and shift, for the name field.
+    fn pressWith:void (px:double py:double clicks:int shift:boolean) {
+        pressClicks = clicks
+        pressShift = shift
+        this.press(px py)
+        pressClicks = 1
+        pressShift = false
+    }
+
+    ; A drag from a press in the name or search field selects in it.
+    fn titleDragTo:void (px:double) {
+        if titleSelecting {
+            host.textDragTo(px)
+            rev = (rev + 1)
+        }
+    }
+
+    fn titleRelease:void () {
+        if titleSelecting {
+            host.textRelease()
+        }
+        titleSelecting = false
+    }
+
     fn press:void (px:double py:double) {
         if (null? host.lastPage) {
             this.page()
@@ -1688,7 +1730,7 @@ class PresToolbar {
         ; else renames (and does nothing else)
         if titleEditing {
             if (ctlTid == "tb-title-in") {
-                host.textPress(tid px 1 false)
+                titleSelecting = (host.textPress(tid px pressClicks pressShift))
                 rev = (rev + 1)
                 return
             }

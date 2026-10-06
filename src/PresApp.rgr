@@ -3630,7 +3630,7 @@ class PresApp {
         ; outside a window closes it, unless it lands in a dialog over it
         def top:string (this.layerAt(x y))
         if (top == "bar") {
-            toolbar.press(x y)
+            toolbar.pressWith(x y clicks shift)
             this.takeToolbar()
             return "bar"
         }
@@ -3684,7 +3684,7 @@ class PresApp {
             }
         }
         if ((barH > 0.0) && (toolbar.has(x y))) {
-            toolbar.press(x y)
+            toolbar.pressWith(x y clicks shift)
             this.takeToolbar()
             return "bar"
         }
@@ -4023,6 +4023,12 @@ class PresApp {
             this.deckMove(x y)
             return
         }
+        ; a drag selecting in the deck's name (or the rooms' search) in the bar
+        if toolbar.titleSelecting {
+            toolbar.titleDragTo(x)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         ; a presentation of a Rooms list dragged towards another room
         if (toolbar.roomDragging()) {
             toolbar.roomDragTo(x y)
@@ -4178,6 +4184,7 @@ class PresApp {
             toolbar.roomDragEnd()
             this.takeToolbar()
         }
+        toolbar.titleRelease()
         if (review.release()) {
             this.reviewSpots()
             this.afterReview()
@@ -4948,6 +4955,15 @@ class PresApp {
     }
 
     fn chord:boolean (ch:string) {
+        ; Ctrl+A in the deck's name (or the rooms' search) in the bar
+        if ((barH > 0.0) && toolbar.titleEditing) {
+            if (ch == "a") {
+                toolbar.titleKey("a" false true)
+                this.takeToolbar()
+                chromeRev = (chromeRev + 1)
+            }
+            return true
+        }
         if (this.roomHasKeys()) {
             if (ch == "a") {
                 room.selectAll()
@@ -10120,6 +10136,9 @@ class PresApp {
     ; open window's text or field, the panels' (the toast, a note, a link,
     ; the chat field) — else the editor's.
     fn readSelection:string () {
+        if ((barH > 0.0) && toolbar.titleEditing) {
+            return (toolbar.titleIn.selectedText())
+        }
         if (this.roomHasKeys()) {
             def mt:string (room.copyText())
             if ((strlen mt) > 0) {
@@ -10152,7 +10171,8 @@ class PresApp {
     ; Ctrl+X cuts from the editor only; text selected elsewhere is not the
     ; editor's to cut (and is read, not edited), so nothing is cut then.
     fn cutSelection:string () {
-        if ((strlen (this.readSelection())) > 0) {
+        ; the bar's name field is not the editor's: nothing of the editor goes
+        if (((strlen (this.readSelection())) > 0) || ((barH > 0.0) && toolbar.titleEditing)) {
             return ""
         }
         def out:string (editor.cutSelection())
