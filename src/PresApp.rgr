@@ -2890,7 +2890,7 @@ class PresApp {
         }
         ; a drag selecting in the chat's text field
         if panels.chatSelecting {
-            panels.chatDragTo(x)
+            panels.chatDragTo(x y)
             chromeRev = (chromeRev + 1)
             return
         }

@@ -279,9 +279,9 @@ class PresPanels {
         return false
     }
 
-    fn chatDragTo:void (px:double) {
+    fn chatDragTo:void (px:double py:double) {
         if chatSelecting {
-            chat.textPointerDrag(px)
+            chat.textPointerDragAt(px py)
         }
     }
 
@@ -320,7 +320,7 @@ class PresPanels {
         def tid:string (host.hitTest(px py))
         def c:string (chat.tid)
         if (chat.input.owns(tid)) {
-            chatSelecting = (chat.textPointerDown(tid px clicks shift))
+            chatSelecting = (chat.textPointerDownAt(tid px py clicks shift))
             return
         }
         if ((tid == (c + "-close")) || (tid == (c + "-send")) || (tid == (c + "-jump"))) {

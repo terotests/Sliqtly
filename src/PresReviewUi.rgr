@@ -1077,7 +1077,8 @@ class PresReviewUi {
         }
         if (chat.input.owns(tid)) {
             typing = true
-            selecting = (chat.textPointerDown(tid px clicks shift))
+            ; with the y: the draft wraps, and the press picks its line
+            selecting = (chat.textPointerDownAt(tid px py clicks shift))
             this.changed()
             return
         }
