@@ -431,7 +431,10 @@ func TestCreateUpdateReadWithPictures(t *testing.T) {
 	eq(t, out["slides"], 2)
 	eq(t, out["warnings"], []string{EMPTY_FLOW})
 	eq(t, out["share_url"], BASE+"/s/"+id)
-	eq(t, out["edit_url"], BASE+"/s/"+id+"?edit")
+	// sliqtly.com serves the viewer only: no editor link
+	if _, ok := out["edit_url"]; ok {
+		t.Fatalf("edit_url %v", out["edit_url"])
+	}
 	share := f.db.doc("shares/" + id)
 	eq(t, share["source"], "mcp")
 	eq(t, share["theme"], "aurora")
@@ -531,8 +534,8 @@ func TestDeckTravelsInTheLinkWithoutCloudStorage(t *testing.T) {
 	eq(t, md, DECK)
 	eq(t, q.Get("theme"), "ember")
 	eq(t, q.Get("mode"), "show")
-	if strings.Contains(out["edit_url"].(string), "mode=show") {
-		t.Fatal("edit_url opens the show")
+	if _, ok := out["edit_url"]; ok {
+		t.Fatalf("edit_url %v without an editor", out["edit_url"])
 	}
 }
 
@@ -668,7 +671,10 @@ func TestOptionalSignIn(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	match(t, textOf(c), `account of Tero`)
-	match(t, textOf(c), `signed in with another, it opens a copy`)
+	// no editor on sliqtly.com, so no word on which account the editor writes as
+	if strings.Contains(textOf(c), "editor") {
+		t.Fatal(textOf(c))
+	}
 	id := sc(c)["deck_id"].(string)
 	eq(t, f.db.doc("shares/" + id)["owner"], "u1")
 	u := call(t, me, "update_presentation", map[string]any{"deck_id": id, "markdown": "# m\n\n## two"})

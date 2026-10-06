@@ -17,6 +17,11 @@
   .meta { color: var(--muted); }
   a, button.link { color: var(--accent); background: none; border: 0; padding: 0; font: inherit; cursor: pointer; text-decoration: none; }
   a:hover, button.link:hover { text-decoration: underline; }
+  .dl { position: relative; }
+  .menu { position: absolute; right: 0; bottom: calc(100% + 6px); display: flex; flex-direction: column; min-width: 150px; padding: 4px; border-radius: 8px; background: var(--bg); box-shadow: 0 4px 16px rgba(0, 0, 0, .25); z-index: 2; }
+  .menu[hidden] { display: none; }
+  .menu button { text-align: left; padding: 6px 10px; border-radius: 6px; }
+  .menu button:hover { background: rgba(127, 127, 127, .15); text-decoration: none; }
 </style>
 </head>
 <body>
@@ -25,7 +30,13 @@
   <span class="title" id="title"></span>
   <span class="meta" id="meta"></span>
   <button class="link" id="open">Open ↗</button>
-  <button class="link" id="edit">Edit in Sliqtly ↗</button>
+  <span class="dl"><button class="link" id="download" aria-haspopup="menu" aria-expanded="false">Download ▾</button>
+    <span class="menu" id="formats" role="menu" hidden>
+      <button class="link" role="menuitem" data-format="pdf">PDF</button>
+      <button class="link" role="menuitem" data-format="pptx">PowerPoint (.pptx)</button>
+      <button class="link" role="menuitem" data-format="docx">Word (.docx)</button>
+      <button class="link" role="menuitem" data-format="html">Web page (.html)</button>
+    </span></span>
 </div>
 <script>
 (() => {
@@ -226,7 +237,52 @@
   }
 
   document.getElementById("open").onclick = () => deck && openLink(deck.share_url);
-  document.getElementById("edit").onclick = () => deck && openLink(deck.edit_url);
+  // Download: export_presentation called from here (the host lets the
+  // widget call its server's tools), then the file's link opened
+  async function callTool(name, args) {
+    if (window.openai && window.openai.callTool) {
+      const r = await window.openai.callTool(name, args);
+      return (r && (r.structuredContent || r)) || {};
+    }
+    const r = await request("tools/call", { name, arguments: args });
+    if (r && r.error) throw new Error(r.error.message || "the export failed");
+    const res = r || {};
+    if (res.isError) throw new Error(((res.content || [])[0] || {}).text || "the export failed");
+    return res.structuredContent || {};
+  }
+  const dl = document.getElementById("download");
+  const formats = document.getElementById("formats");
+  const label = dl.textContent;
+  dl.onclick = () => {
+    formats.hidden = !formats.hidden;
+    dl.setAttribute("aria-expanded", String(!formats.hidden));
+  };
+  for (const b of formats.querySelectorAll("button")) b.onclick = async () => {
+    formats.hidden = true;
+    dl.setAttribute("aria-expanded", "false");
+    if (!deck || !deck.deck_id) return;
+    dl.disabled = true;
+    dl.textContent = "Exporting…";
+    try {
+      const args = { deck_id: deck.deck_id, format: b.dataset.format };
+      if (deck.edit_key) args.edit_key = deck.edit_key;
+      const out = await callTool("export_presentation", args);
+      if (!out.url) throw new Error("no download link came back");
+      openLink(out.url);
+      dl.textContent = label;
+    } catch (e) {
+      console.warn("Sliqtly preview: export", e);
+      dl.textContent = "Download failed, try again ▾";
+    } finally {
+      dl.disabled = false;
+    }
+  };
+  document.addEventListener("click", (e) => {
+    if (!formats.hidden && !e.target.closest(".dl")) {
+      formats.hidden = true;
+      dl.setAttribute("aria-expanded", "false");
+    }
+  });
 
   // ChatGPT gives window.openai and is also an MCP Apps host, which may not
   // count the app as open before ui/initialize: both are spoken
@@ -239,7 +295,7 @@
     const m = e.data;
     if (!m || m.jsonrpc !== "2.0") return;
     if (m.id != null && pending.has(m.id) && !m.method) {
-      pending.get(m.id)(m.result);
+      pending.get(m.id)(m.error ? { error: m.error } : m.result);
       pending.delete(m.id);
       return;
     }

@@ -110,6 +110,7 @@ func newLocalServer(env *Env, bucket *localBucket, token string, web fs.FS) http
 			return builtinTheme(name)
 		}
 	}
+	env.Editor = web != nil && !viewerOnly(web)
 	s := &localServer{env: env, app: NewApp(env), bucket: bucket, token: token, web: web, viewer: viewerOnly(web), board: newStatusBoard("ready", version), hosts: newHostGuard(env.BaseURL, !env.TrustHost)}
 	if env.Store != nil {
 		s.hub = newChangeHub()

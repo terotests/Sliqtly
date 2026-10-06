@@ -104,6 +104,10 @@ type Env struct {
 	// A server of one's own (decks in a folder, local.go): every caller is
 	// LocalUser, files are read from FilesURL, themes are the built-in ones.
 	LocalUser string
+	// Editor: the server serves the editor (a server of one's own with
+	// web/dist built in), so results carry an editor link; sliqtly.com
+	// serves the viewer only
+	Editor bool
 	// Store: the documents of a server of one's own, under DB, for what
 	// needs more than DB says (revisions, the change feed); nil elsewhere
 	Store store.Engine
@@ -605,6 +609,8 @@ func (h *McpHost) Precision(n string, digits int64) string {
 }
 
 func (h *McpHost) LocalUser() string { return h.env.LocalUser }
+
+func (h *McpHost) EditorOn() bool { return h.env.Editor }
 
 func (h *McpHost) GitHubPrivateOK(uid string) bool {
 	if h.env.LocalUser != "" {

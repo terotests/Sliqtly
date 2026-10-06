@@ -571,16 +571,22 @@ class Tools {
         return ""
     }
 
-    sfn links:void (out:MfJ base:string id:string) {
+    ; the link that plays it, and the editor's only where the server
+    ; serves the editor (sliqtly.com serves the viewer alone)
+    sfn links:void (host:McpHost out:MfJ base:string id:string) {
         out.putStr("share_url" (base + "/s/" + id))
-        out.putStr("edit_url" (base + "/s/" + id + "?edit"))
+        if (host_editor host) {
+            out.putStr("edit_url" (base + "/s/" + id + "?edit"))
+        }
     }
 
     sfn result:MfJ (host:McpHost caller:Caller out:MfJ verb:string) {
         def lines:[string]
         push lines (verb + ": \"" + (out.str_("title")) + "\" (" + (out.str_("slides")) + " slides, theme " + (out.str_("theme")) + ").")
         push lines ("Presentation: " + (out.str_("share_url")))
-        push lines ("Open in the editor: " + (out.str_("edit_url")))
+        if (out.has("edit_url")) {
+            push lines ("Open in the editor: " + (out.str_("edit_url")))
+        }
         if caller.signedIn {
             def who:string caller.name
             if ((strlen who) == 0) {
@@ -588,7 +594,7 @@ class Tools {
             }
             push lines ("Saved in the Sliqtly account of " + who + ".")
             ; a Google account on sliqtly.com: the editor link writes only there
-            if ((strlen (host_local_user host)) == 0) {
+            if (((strlen (host_local_user host)) == 0) && (out.has("edit_url"))) {
                 push lines "The editor link writes to it only in a browser signed in to Sliqtly with this same Google account; signed in with another, it opens a copy whose changes and comments do not reach this presentation."
             }
         } {
@@ -1274,7 +1280,9 @@ class Tools {
                 q = (q + "&css=" + (host_pack_text host sh.css))
             }
             out.putStr("share_url" (base + "/#" + q + "&mode=show"))
-            out.putStr("edit_url" (base + "/#" + q))
+            if (host_editor host) {
+                out.putStr("edit_url" (base + "/#" + q))
+            }
             return (Tools.result(host caller out "Created"))
         }
         out.put("warnings" (J.strs(ws)))
@@ -1293,7 +1301,7 @@ class Tools {
         if ((strlen made.err) > 0) {
             return (Tools.failed(host "create_presentation" made.err))
         }
-        Tools.links(out base made.id)
+        Tools.links(host out base made.id)
         out.putStr("deck_id" made.id)
         out.putStr("edit_key" made.key)
         WorkStore.keep(host made.id md)
@@ -1952,7 +1960,7 @@ class Tools {
         out.put("theme" (saved.field("theme")))
         out.putInt("slides" ck.slides)
         out.put("warnings" (J.strs(ws)))
-        Tools.links(out (host_base_url host) id)
+        Tools.links(host out (host_base_url host) id)
         out.putStr("deck_id" id)
         def r:MfJ (Tools.result(host caller out "Updated"))
         if ((strlen note) > 0) {
@@ -2397,7 +2405,7 @@ class Tools {
         out.put("images" images)
         def files:MfJ (Tools.filesOf(host id d))
         out.put("files" files)
-        Tools.links(out (host_base_url host) id)
+        Tools.links(host out (host_base_url host) id)
         def themeName:string (d.str_("theme"))
         if ((strlen themeName) == 0) {
             themeName = "(document's own)"
@@ -3752,7 +3760,7 @@ class Tools {
             } {
                 deck.put("updated" (new MfJ))
             }
-            Tools.links(deck base id)
+            Tools.links(host deck base id)
             decks.add(deck)
             def title:string (d.str_("name"))
             if ((strlen title) == 0) {
