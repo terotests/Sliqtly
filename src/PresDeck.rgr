@@ -204,8 +204,12 @@ class PresDeck {
     ; them as they arrive)
     def wantFaces:string ""
     ; The document's style (`style: cartoon` in its front matter): a look
-    ; for every diagram and chart that does not name its own
+    ; for every diagram and chart that does not name its own. `chart-style:`
+    ; and `diagram-style:` say it for one kind only (`docChartStyle`,
+    ; `docDiagramStyle`, which `style:` fills when they are not given).
     def docStyle:string ""
+    def docChartStyle:string ""
+    def docDiagramStyle:string ""
     ; The whole of a chart's cut words (an axis title too long even on two
     ; lines) under the pointer, shown in a tip over the slide: what, where
     ; (slide coordinates), on which slide; tipRev moves with every change and
@@ -1058,7 +1062,7 @@ class PresDeck {
         if (n.hasAttr("zoom")) {
             d.zoom = (PresDeck.num((n.attrValue("zoom")) 3.0))
         }
-        if (((n.attrValue("style")) == "sketch") || (((strlen (n.attrValue("style"))) == 0) && (docStyle == "sketch"))) {
+        if (((n.attrValue("style")) == "sketch") || (((strlen (n.attrValue("style"))) == 0) && (docDiagramStyle == "sketch"))) {
             d.style = "sketch"
         }
         if classic {
@@ -1082,7 +1086,7 @@ class PresDeck {
         ; with none of its own, the document's (`style:` in the front matter)
         def lookName:string (trim (n.attrValue("style")))
         if ((strlen lookName) == 0) {
-            lookName = docStyle
+            lookName = docDiagramStyle
         }
         if ((! classic) && (FlowLook.knows(lookName))) {
             d.haveFaces = haveFaces
@@ -1340,7 +1344,7 @@ class PresDeck {
     ; when it made one, else the document's `style:`, else the theme's
     ; `chart { chart-style }`.
     fn chartLookName:string (spec:string) {
-        return (PresChart.lookName((PresChart.specString(spec "presStyle")) docStyle (this.themeRule("chart" "chart-style"))))
+        return (PresChart.lookName((PresChart.specString(spec "presStyle")) docChartStyle (this.themeRule("chart" "chart-style"))))
     }
 
     ; A chart's commands from `before` on, dressed for the stage: in a look,
@@ -1367,6 +1371,10 @@ class PresDeck {
     ; (black marks are then drawn light, not left invisible).
     fn chartStyleWords:string () {
         def w:string ((this.themeRule("chart" "chart-style")) + " " + (this.themeRule("chart" "chart-effects")))
+        ; the document's dressing (`chart-style: neon`) goes over the theme's
+        if (PresChart.isDressing(docChartStyle)) {
+            w = (docChartStyle + " " + (this.themeRule("chart" "chart-effects")))
+        }
         def st:MdStyle (this.layout()).style
         def paper:string st.pageBackground
         def isDark:boolean false
@@ -2019,6 +2027,8 @@ class PresDeck {
         def dStep:double (PresDeck.num((meta.get("step" "1.2")) 1.2))
         def dHold:double (PresDeck.num((meta.get("hold" "2.5")) 2.5))
         docStyle = (trim (meta.get("style" "")))
+        docChartStyle = (trim (meta.get("chart-style" docStyle)))
+        docDiagramStyle = (trim (meta.get("diagram-style" docStyle)))
         def p:int 0
         while (p < l.pageCount) {
             def s (new PresSlide())

@@ -5,7 +5,7 @@
 ; ============================================================================
 ;
 ; The front matter keys the Document settings window shows: the title, the
-; transition, and the header and the footer (MdLayout's three places an
+; transition, the default style of charts and of diagrams, and the header and the footer (MdLayout's three places an
 ; edge, a logo in one of them, the slides they are left off, colour, band
 ; and size). `read` takes them from the front matter; `build` gives the keys
 ; back with their values, "" for a key to take out, so the app can rewrite
@@ -19,6 +19,10 @@ Import "../markdown/web/markdown_web.rgr"
 class PresDocSettings {
     def title:string ""
     def transition:string ""
+    ; the look every chart and every diagram takes when it names none
+    ; (`chart-style:`, `diagram-style:`; `style:` says both at once)
+    def chartStyle:string ""
+    def diagramStyle:string ""
     ; header left, centre, right, then the footer's, without the logo
     def texts:[string]
     ; per edge (0 header, 1 footer): the logo's path and its place (0 1 2)
@@ -98,6 +102,9 @@ class PresDocSettings {
         this.clear()
         title = (meta.get("title" ""))
         transition = (meta.get("transition" ""))
+        def both:string (trim (meta.get("style" "")))
+        chartStyle = (trim (meta.get("chart-style" both)))
+        diagramStyle = (trim (meta.get("diagram-style" both)))
         def e:int 0
         while (e < 2) {
             def k:string (PresDocSettings.edgeKey(e))
@@ -188,6 +195,16 @@ class PresDocSettings {
         outVals = ov
         this.put("title" title)
         this.put("transition" transition)
+        ; one `style:` when the two agree, else a key for each
+        if ((chartStyle == diagramStyle) && ((strlen chartStyle) > 0)) {
+            this.put("style" chartStyle)
+            this.put("chart-style" "")
+            this.put("diagram-style" "")
+        } {
+            this.put("style" "")
+            this.put("chart-style" chartStyle)
+            this.put("diagram-style" diagramStyle)
+        }
         def e:int 0
         while (e < 2) {
             def k:string (PresDocSettings.edgeKey(e))

@@ -249,6 +249,25 @@ try {
     check("a window dragged by its title bar keeps the retro skin", r.dragging && !r.white, JSON.stringify(r));
   }
 
+  // Document settings: the default styles of charts and diagrams, picked
+  // from their dropdowns, go into the front matter.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      a.setSource("# D\n\n## A\n\nx\n");
+      const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const tap = (id) => { a.chartJson(); const el = walk(a.chart.host.lastPage, id); if (!el) return false; a.pointerDown(el.calculatedX + 8, el.calculatedY + 8, false, 1); a.pointerUp(); return true; };
+      a.openDocSettings("");
+      const opened = tap("ds-cs-trigger") && tap("ds-cs-item-cartoon") && tap("ds-fs-trigger") && tap("ds-fs-item-romantic");
+      const md = a.source();
+      a.key("escape", false, false);
+      a.setSource(src0);
+      return { opened, chart: /\nchart-style: cartoon\n/.test(md), diagram: /\ndiagram-style: romantic\n/.test(md), md: md.slice(0, 80) };
+    });
+    check("Document settings: the charts' and diagrams' default styles from their dropdowns", r.opened && r.chart && r.diagram, JSON.stringify(r));
+  }
+
   // A text field in a window (InputCtl draws its own caret and selection):
   // the caret shows after what was typed, Ctrl+A's band covers exactly the
   // text, a double click takes a word, a triple click all of it, a drag
@@ -1982,7 +2001,11 @@ try {
     a.openChartEditor(5);
     const press = (id, dx = 6, dy = 6) => { a.chartJson(); const q = at(id); a.pointerDown(q[0] - 8 + dx, q[1] - 8 + dy, false, 1); a.pointerUp(); };
     press("ce-tabs-tab-ulkoasu");
-    press("ce-scheme-tableau10");
+    // the palette and the style are dropdowns: open, then pick a row
+    press("ce-scheme-trigger");
+    press("ce-scheme-item-tableau10");
+    press("ce-effect-trigger");
+    press("ce-effect-item-cartoon");
     press("ce-glow");
     press("ce-pick-text");
     a.chartJson();
@@ -1999,7 +2022,7 @@ try {
     a.pointerUp();
     const dragged = a.chart.model.textColor;
     const styled = a.source();
-    const looks = preset && /"scheme":"tableau10"/.test(styled) && /"presGlow":true/.test(styled) && styled.includes('"labelColor":"' + dragged + '"') && dragged !== "#eab308";
+    const looks = preset && /"scheme":"tableau10"/.test(styled) && /"presStyle":"cartoon"/.test(styled) && /"presGlow":true/.test(styled) && styled.includes('"labelColor":"' + dragged + '"') && dragged !== "#eab308";
     // the size, by its slider
     press("ce-tabs-tab-kaavio");
     a.chartJson();
@@ -2024,7 +2047,7 @@ try {
   check("…a number typed into the table goes into the chart", ce.typed, JSON.stringify(ce));
   check("…its window moves by the title bar", ce.moved === 100 && ce.stillOpen, JSON.stringify(ce));
   check("…a click outside closes it; a chart it cannot tabulate opens for its look and says why", ce.closed && ce.refused, JSON.stringify(ce));
-  check("…its look: a palette, a glow and a picked text colour go into the fence", ce.looks, JSON.stringify(ce));
+  check("…its look: a palette and a style from their dropdowns, a glow and a picked text colour go into the fence", ce.looks, JSON.stringify(ce));
   check("…its width, from its slider", ce.sized, JSON.stringify(ce));
   check("…its height, from its own slider, the width kept", ce.heightOnly, JSON.stringify(ce));
 
