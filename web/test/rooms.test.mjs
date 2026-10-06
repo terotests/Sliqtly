@@ -132,6 +132,17 @@ test("a room dragged before another, to the end, or onto a built-in (the top)", 
   assert.deepEqual(titles(s), ["D", "B", "C", "A"]);
 });
 
+test("a new room is first also next to rooms made before there was an order", () => {
+  // kept before rooms had an order, then one room dragged, then a new room
+  let s = parseRooms(JSON.stringify({ rooms: [{ id: "r-old", title: "Testi", created: 1 }, { id: "r-two", title: "Two", created: 2 }], placed: {}, touched: {} }));
+  s = moveRoom(s, listRooms(s, [], []), "r-old", "");
+  ({ state: s } = createRoom(s, "N3D-6531", idOf));
+  assert.deepEqual(listRooms(s, [], []).slice(3).map((r) => r.title), ["N3D-6531", "Two", "Testi"]);
+  s = parseRooms(JSON.stringify({ rooms: [{ id: "r-old", title: "Testi", created: 1 }], placed: {}, touched: {} }));
+  ({ state: s } = createRoom(s, "N3D-6531", idOf));
+  assert.deepEqual(listRooms(s, [], []).slice(3).map((r) => r.title), ["N3D-6531", "Testi"]);
+});
+
 test("a room's settings: renamed, described, archived and back, deleted with its decks back in General", () => {
   let { state: s, id } = createRoom(emptyRooms(), "Ticket", idOf);
   s = updateRoom(s, id, { title: "  PROJ-7  login ", description: "Users sign in" });
