@@ -62,7 +62,7 @@
   <h1>Run Sliqtly locally.</h1>
   <p>The Personal server runs on your own computer: the MCP endpoint your agent writes presentations through, and a viewer that plays them in your browser. It runs as a background service and keeps the presentations on your own disk: data stays between your machine and your agent. Out of the box only your own computer can connect.</p>
   <nav class="pick" aria-label="Install">
-    <a href="#how">How it keeps data</a>
+    <a href="#how">Advantages and responsibilities</a>
     <a href="#deb">Ubuntu / Debian (.deb)</a>
     <a href="#brew">macOS (Homebrew)</a>
     <a href="#docker">Docker</a>
@@ -71,13 +71,23 @@
     <a href="#data">Data and backups</a>
   </nav>
 
-  <h2 id="how">How the local server keeps data</h2>
+  <h2 id="how">Advantages of running locally</h2>
   <ul>
-    <li><strong>No sign-in.</strong> Everyone who can reach the server is the same user: every connected agent can read, change and remove every presentation, from any conversation. A new conversation keeps working on the old presentations by their links.</li>
-    <li><strong>Nothing expires.</strong> Presentations and their files stay until you delete them. (The cloud demo at sliqtly.com removes anonymous presentations some days after their last change.)</li>
-    <li><strong>You look after it.</strong> Cleaning up, backups and who can reach the server are yours: it is an open store for everything you make. So is the infrastructure it runs on: the computer or server, its operating system and updates, disks, network, firewall and any proxy in front of it. Ask your agent to tidy up, or delete a presentation with <code>curl -X DELETE http://localhost:8080/api/shares/&lt;id&gt;</code>.</li>
+    <li><strong>Data stays between your machine and your agent.</strong> Presentations, pictures and data files are kept on your own disk, not in a cloud service.</li>
+    <li><strong>Private, if you keep it to yourself.</strong> Out of the box only this computer can connect, so nothing is reachable by a link from outside.</li>
+    <li><strong>Nothing expires.</strong> Presentations and their files stay until you delete them. (The cloud demo removes anonymous presentations some days after their last change.)</li>
+    <li><strong>No sign-in, no quotas.</strong> Every connected agent can read, change and remove every presentation, from any conversation; a new conversation keeps working on old presentations by their links.</li>
+    <li><strong>Works offline</strong> once installed, apart from pictures your agent asks it to fetch from the web.</li>
   </ul>
-  <p>Keep the server to this computer (the default) unless you trust everyone on the network, since anyone who reaches it can do the same; see <a href="#networks">Networks</a>.</p>
+
+  <h2>Responsibilities for local users</h2>
+  <ul>
+    <li><strong>Your data.</strong> The server is an open store for everything you make: what goes in it, and who may see it, is up to you.</li>
+    <li><strong>Cleaning up.</strong> Nothing is removed for you. Ask your agent to tidy up, or delete a presentation with <code>curl -X DELETE http://localhost:8080/api/shares/&lt;id&gt;</code>.</li>
+    <li><strong>Backups.</strong> The server takes daily backups, but keeping them on another disk, checking them and restoring is yours; see <a href="#data">Where the data is, and backups</a>.</li>
+    <li><strong>Access.</strong> Anyone who can reach the server can do everything an agent can. Keep it to this computer unless you trust everyone on the network; see <a href="#networks">Networks</a> and <a href="#firewall">Firewall</a>.</li>
+    <li><strong>Infrastructure.</strong> The computer or server it runs on, its operating system and updates, disks, network, firewall and any proxy in front of it, and updating Sliqtly itself.</li>
+  </ul>
 
   <h2>1. Install</h2>
   <h3 id="deb">Ubuntu and Debian</h3>
