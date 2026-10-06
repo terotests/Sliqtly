@@ -88,6 +88,8 @@ class PresHints {
         if (key == "height") { return (PresI18n.t("Image height: in points or as a percentage of the slide's content height (50%).")) }
         if (key == "align") { return (PresI18n.t("Image position in the column: left, center or right.")) }
         if (key == "bg") { return (PresI18n.t("Slide background image, covers the whole slide: bg=media/kuva.jpg")) }
+        if (key == "container") { return (PresI18n.t("The block above on a rounded plate, so its text reads over a busy picture: box (across the column) or bubble (as wide as the text, with a tail). none: no plate.")) }
+        if (key == "background") { return (PresI18n.t("The plate's colour, e.g. #fff8 (the last digit is the opacity). By default the slide's colour, see-through; the text turns dark or light when it would not read on it.")) }
         if (key == "art") { return (PresI18n.t("PRO: line art drawn behind the slide in the theme's colours (waves). art=off leaves it off this slide.")) }
         if (key == "list-style") { return (PresI18n.t("The list above drawn as a layout: process (steps), swot (a 2×2 grid) or timeline. Items are Title: description.")) }
         if (key == "art-seed") { return (PresI18n.t("A number that moves the art's curves: another number, another picture.")) }
@@ -133,6 +135,7 @@ class PresHints {
         if (key == "furniture") { return "off" }
         if (key == "art") { return "waves off" }
         if (key == "list-style") { return "process swot timeline" }
+        if (key == "container") { return "box bubble none" }
         if (((key == "align") || (key == "header-align")) || (key == "footer-align")) { return "left center right" }
         return ""
     }
@@ -280,6 +283,7 @@ class PresHints {
         if (sel == "heading") { return (PresI18n.t("All headings.")) }
         if (sel == "chart") { return (PresI18n.t("Vega-Lite charts on stage, in PDF and in PPTX.")) }
         if (sel == "diagram") { return (PresI18n.t("Mermaid, DOT, D2 and PlantUML diagrams on stage.")) }
+        if (sel == "container") { return (PresI18n.t("The rounded plates under {container=box} and {container=bubble} blocks.")) }
         if (sel == "list") { return (PresI18n.t("Lists.")) }
         if (sel == "li") { return (PresI18n.t("List item.")) }
         if (((indexOf sel "#") == 0) && ((indexOf sel " chart") > 0)) { return (PresI18n.t("Charts under one heading: #anchor is the heading in lowercase, spaces as hyphens.")) }
@@ -496,6 +500,14 @@ class PresHints {
         h.wholeStart = wa
         h.wholeEnd = wb
         h.doc = (PresHints.attrDoc(key))
+        ; a plate's colour: `background=#fff8`, or `bg=` when it is a colour
+        if ((key == "background") || ((key == "bg") && (((strlen value) > 0) && ((charAt value 0) == 35)))) {
+            h.kind = "color"
+            if (key == "bg") {
+                h.doc = (PresHints.attrDoc("background"))
+            }
+            return (h.json())
+        }
         def en:string (PresHints.attrEnum(key))
         if ((strlen en) > 0) {
             h.kind = "enum"

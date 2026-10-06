@@ -235,6 +235,8 @@ class PresHelp {
         if ((sel == "mark") && (prop == "background-color")) { return (PresI18n.t("Highlight background color.")) }
         if ((sel == "mark") && (prop == "color")) { return (PresI18n.t("Highlighted text color.")) }
         if ((sel == "table") && (prop == "background-color")) { return (PresI18n.t("Header row background.")) }
+        if ((sel == "container") && (prop == "background-color")) { return (PresI18n.t("The colour of the plates under {container=box} and {container=bubble} blocks. Translucent: #ffffffcc (the last two digits are the opacity).")) }
+        if ((sel == "container") && (prop == "border-radius")) { return (PresI18n.t("How round the plates' corners are, e.g. 8pt.")) }
         if ((sel == "code") && (prop == "background-color")) { return (PresI18n.t("Code background. Translucent: #151c4833 (the last two digits are the opacity) or none.")) }
         if ((sel == "page") && (prop == "padding")) { return (PresI18n.t("Margin at the slide edges.")) }
         if ((sel == "hr") && (prop == "color")) { return (PresI18n.t("Rule color (also under headings).")) }
@@ -282,6 +284,7 @@ class PresHelp {
         ; `#anchor chart`: the charts under one heading
         if (((indexOf sel "#") == 0) && ((indexOf sel " chart") > 0)) { return "font-size,title-font-size,title-gap,padding,justify-content" }
         if (sel == "diagram") { return "color,accent-color" }
+        if (sel == "container") { return "background-color,border-radius" }
         if (((strlen sel) > 1) && ((charAt sel 0) == 46)) { return "font-size,color,column-count,column-gap" }
         return ""
     }
