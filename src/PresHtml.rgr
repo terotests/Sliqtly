@@ -182,6 +182,12 @@ class PresHtml {
         c = (c + "blockquote{margin:1rem 0;padding:0 1rem;border-left:4px solid var(--rule);color:var(--muted)}\n")
         c = (c + "table{border-collapse:collapse;margin:1rem 0;display:block;overflow-x:auto}\nth,td{border:1px solid var(--rule);padding:0.35rem 0.7rem}\nth{background:var(--code)}\n")
         c = (c + ".math-display{overflow-x:auto}\n")
+        ; a `{heading=hidden}` title: read by screen readers, not shown
+        c = (c + ".visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}\n")
+        ; a ```gallery: a grid of figures; `layout=full` one picture a row
+        c = (c + "figure.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));gap:0.5rem;margin:1rem 0}\nfigure.gallery.layout-full{grid-template-columns:1fr}\n")
+        c = (c + "figure.gallery figure.cell{margin:0}\nfigure.gallery img{width:100%;aspect-ratio:3/2;object-fit:cover;display:block}\nfigure.gallery.fit-contain img{object-fit:contain}\n")
+        c = (c + "figure.gallery figcaption{font-size:0.9em;color:var(--muted);margin-top:0.25rem}\nfigure.gallery .cell.text{margin:0;padding:0.6rem}\n")
         c = (c + "aside.notes{margin:1rem 0;padding:0.6rem 1rem;border-left:3px solid var(--rule);color:var(--muted);font-size:0.9em}\naside.notes p{margin:0.25rem 0}\n")
         c = (c + "@media print{aside.notes{break-inside:avoid}}\n")
         return c

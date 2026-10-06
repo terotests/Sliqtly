@@ -1022,6 +1022,24 @@ class PresDeck {
     ; and that pass drew every chart again at that width; the cache keeps a
     ; chart at one width, so the slides' pass that followed drew them all
     ; once more. A theme edit cost two layouts and every chart twice.
+    ; "print" lays the deck out for paper: the stylesheet's `@media print`
+    ; rules, its printed page and bleed. Back to "screen" after the file.
+    fn setMedia:void (m:string) {
+        def e:MarkdownEdit md.edit
+        if (e.media == m) {
+            return
+        }
+        e.media = m
+        this.setTheme(themeCss)
+        e.stale = true
+        this.rebuild()
+    }
+
+    ; Whether the stylesheet says anything about paper.
+    fn hasPrint:boolean () {
+        return (md.edit.sheet.hasPrint())
+    }
+
     fn setStyleSheet:void (css:string) {
         this.setTheme(css)
         md.edit.setStyleSheet(css)
@@ -1049,12 +1067,23 @@ class PresDeck {
         return (md.edit.layout.embeds.undrawnIn(from to))
     }
 
+    ; The theme's CSS as it was given, read again when the medium changes.
+    def themeCss:string ""
+
     fn setTheme:void (css:string) {
+        themeCss = css
         clear themeKeys
         clear themeVals
         clear ruleKeys
         clear ruleVals
-        this.readRules(css)
+        ; `@media print { … }` counts only for paper, `@media screen` only on
+        ; the stage (MdCss.splitMedia: the rest, print, screen)
+        def parts:[string] (MdCss.splitMedia(css))
+        def medium:string (itemAt parts 2)
+        if (md.edit.media == "print") {
+            medium = (itemAt parts 1)
+        }
+        this.readRules((((itemAt parts 0) + "\n") + medium))
         this.readPresComment(css)
         ; `deck { fx: starfield; fx-hue: 280 }`: the theme's effect as CSS,
         ; over the older comment
@@ -1648,7 +1677,7 @@ class PresDeck {
         ; kept from the last one made with the same stylesheet and `page:`;
         ; anything else (or a change) costs one layout more.
         orientation = (PresDeck.frontValue(text "orientation"))
-        def baseOf:string (((e.sheet.text()) + "\npage: ") + (PresDeck.frontValue(text "page")))
+        def baseOf:string (((((e.sheet.text()) + "\npage: ") + (PresDeck.frontValue(text "page"))) + "\nmedia: ") + e.media)
         e.pageSize = ""
         if ((baseOf == themeSizeOf) && (PresDeck.turns(orientation themeTall))) {
             e.pageSize = themeSizeTurned
@@ -1754,6 +1783,16 @@ class PresDeck {
             }
             i = (i + 1)
         }
+        ; hidden titles have no box but start their slide
+        def h:int 0
+        while (h < (array_length l.hiddenSrc)) {
+            def hs:int (itemAt l.hiddenSrc h)
+            if ((hs <= off) && (hs > bestSrc)) {
+                bestSrc = hs
+                best = (itemAt l.hiddenPage h)
+            }
+            h = (h + 1)
+        }
         return best
     }
 
@@ -1777,7 +1816,8 @@ class PresDeck {
             }
             i = (i + 1)
         }
-        return -1
+        ; a `{heading=hidden}` title draws nothing but still names its slide
+        return (l.pageOfHidden(n.srcStart))
     }
 
     ; ------------------------------------------------------------------
@@ -1878,6 +1918,19 @@ class PresDeck {
                 }
             }
             bi = (bi + 1)
+        }
+        ; A hidden title draws no box, yet its slide starts where it is written.
+        def hi:int 0
+        while (hi < (array_length l.hiddenSrc)) {
+            def hp:int (itemAt l.hiddenPage hi)
+            def hs:int (itemAt l.hiddenSrc hi)
+            if ((hp >= 0) && (hp < (array_length slides))) {
+                def hsl:PresSlide (itemAt slides hp)
+                if ((hsl.srcStart < 0) || (hs < hsl.srcStart)) {
+                    hsl.srcStart = hs
+                }
+            }
+            hi = (hi + 1)
         }
         ; The blocks: a heading names its slide, a build or an anim makes groups.
         def c:int 0

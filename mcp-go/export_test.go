@@ -177,3 +177,40 @@ func TestExportPdfAndPptx(t *testing.T) {
 	}
 	match(t, textOf(call(t, s, "export_presentation", map[string]any{"deck_id": "nosuchdeck1", "format": "pdf"})), `No presentation nosuchdeck1`)
 }
+
+// A photo album for print: `@media print` in the deck's css gives a PDF on
+// the print page with bleed and crop marks, and the result of create warns
+// about a picture too small for paper.
+func TestPrintAlbum(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "# Summer {heading=hidden}\n\nThe pictures.\n\n## Beach {heading=hidden}\n\n```gallery\n- media/dot.png: The beach in July\n```\n{layout=full fit=cover caption=overlay}\n"
+	css := "@media print {\n  page { width: 297mm; height: 210mm; bleed: 3mm; safe-area: 8mm; }\n  deck { crop-marks: on; }\n}\n"
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "Album", "markdown": md, "css": css,
+		"images": []any{map[string]any{"name": "dot.png", "data_base64": base64.StdEncoding.EncodeToString(squarePNG())}},
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	eq(t, sc(c)["slides"], float64(2))
+	ws := fmt.Sprint(sc(c)["warnings"])
+	if !strings.Contains(ws, "media/dot.png: ") || !strings.Contains(ws, "dpi in print, under 300") {
+		t.Fatal(ws)
+	}
+	id := sc(c)["deck_id"].(string)
+	p := call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "pdf"})
+	if p.IsError {
+		t.Fatal(textOf(p))
+	}
+	pdf := f.bucket.saved["shares/"+id+"/exports/Album.pdf"]
+	eq(t, len(regexp.MustCompile(`/Type\s*/Page[^s]`).FindAll(pdf.data, -1)), 2, "a page per slide")
+	// 3mm bleed + 20pt slug = 28.5pt in; 297 × 210 mm = 841.89 × 595.28pt
+	if !regexp.MustCompile(`/TrimBox \[28\.50\d* 28\.50\d* 870\.39\d* 623\.77\d*\]`).Match(pdf.data) {
+		t.Fatal(regexp.MustCompile(`/TrimBox \[[^]]*\]`).FindString(string(pdf.data)))
+	}
+	if !bytes.Contains(pdf.data, []byte("/BleedBox [20 20 ")) {
+		t.Fatal("no bleed box")
+	}
+}

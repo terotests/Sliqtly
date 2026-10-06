@@ -487,7 +487,6 @@
   "Just the file": "Pelkkä tiedosto",
   "Keep": "Säilytä",
   "Keep the direction as written": "Pidä kirjoitettu suunta",
-  "keep: the diagram's direction as written.": "keep: kaavion suunta niin kuin se on kirjoitettu.",
   "Kept under data/ for charts and tables to use.": "Tallennetaan data/-kansioon kaavioiden ja taulukoiden käyttöön.",
   "Key": "Näppäin",
   "Key cap border (default: the code border).": "Näppäimen reuna (oletus: koodin reuna).",
@@ -1112,5 +1111,11 @@
   "Replace the earlier SVG?": "Korvataanko aiempi SVG?",
   "{file} is already in the files. Replace it with this one, or keep both?": "{file} on jo tiedostoissa. Korvataanko se tällä vai pidetäänkö molemmat?",
   "Replace": "Korvaa",
-  "Keep both": "Pidä molemmat"
+  "Keep both": "Pidä molemmat",
+  "keep: the diagram's direction as written. Under a gallery: grid (default) or full, one picture per slide edge to edge.": "keep: kaavion suunta niin kuin se on kirjoitettu. Gallerian alla: grid (oletus) tai full, yksi kuva diaa kohden reunasta reunaan.",
+  "hidden: the title names the slide (overview, contents, screen readers) but is not drawn.": "hidden: otsikko on dian nimi (yleiskuva, sisällysluettelo, ruudunlukija), mutta sitä ei piirretä.",
+  "Gallery: cover fills the cell and crops, contain shows the whole picture.": "Galleria: cover täyttää solun ja rajaa, contain näyttää koko kuvan.",
+  "Gallery: overlay (on the picture, with a dim band), below or none.": "Galleria: overlay (kuvan päällä himmennyksen kanssa), below tai none.",
+  "The part of a picture kept in the crop: top, bottom left, 30% 70%.": "Kuvan osa, joka säilyy rajauksessa: top, bottom left, 30% 70%.",
+  "Gallery: how many columns the cell takes, e.g. 2.": "Galleria: montako saraketta solu vie, esim. 2."
 }

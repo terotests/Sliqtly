@@ -370,3 +370,50 @@ func TestReportFigureWithTextBeside(t *testing.T) {
 		t.Fatalf("alone: %q", fl)
 	}
 }
+
+// --- print (`@media print`): safe area and resolution (PrintReport)
+
+func printPage(title string, safe float64) *RPrintPage {
+	p := CreateNew_RPrintPage()
+	p.title, p.w, p.h, p.safe = title, 841.89, 595.28, safe
+	return p
+}
+
+func printPic(name string, shownW, shownH, w, h float64) *RPrintPic {
+	q := CreateNew_RPrintPic()
+	q.name, q.shownW, q.shownH, q.w, q.h = name, shownW, shownH, w, h
+	return q
+}
+
+func TestPrintReportDpi(t *testing.T) {
+	// 1500 px over 600 pt (8.33 in) is 180 dpi
+	if d := PrintReport_static_dpi(printPic("a", 1500, 1500, 600, 300)); d < 179.9 || d > 180.1 {
+		t.Fatalf("dpi %v", d)
+	}
+	p := printPage("Sauna", 22.68)
+	p.pics = append(p.pics, printPic("media/sauna.jpg", 1500, 1000, 600, 400))
+	p.pics = append(p.pics, printPic("media/sharp.jpg", 4000, 3000, 600, 400))
+	q := printPage("Again", 22.68)
+	q.pics = append(q.pics, printPic("media/sauna.jpg", 1500, 1000, 300, 200))
+	notes := PrintReport_static_notes([]*RPrintPage{p, q})
+	if len(notes) != 1 {
+		t.Fatal(notes)
+	}
+	match(t, notes[0], `^media/sauna\.jpg: 180 dpi in print, under 300 \(Print page 1 "Sauna"\)\.$`)
+}
+
+func TestPrintReportSafeArea(t *testing.T) {
+	p := printPage("Hietaniemi", 22.68)
+	p.runs = append(p.runs, run("Inside", 40, 40, 100, 14, 12, 0))
+	p.runs = append(p.runs, run("Too close", 10, 560, 100, 14, 12, 0))
+	notes := PrintReport_static_notes([]*RPrintPage{p})
+	if len(notes) != 1 {
+		t.Fatal(notes)
+	}
+	match(t, notes[0], `^Print page 1 "Hietaniemi": text outside the safe area \(8 mm inside the trim\): "Too close"\.$`)
+	// no safe area asked for: nothing to say
+	p.safe = 0
+	if n := PrintReport_static_notes([]*RPrintPage{p}); len(n) != 0 {
+		t.Fatal(n)
+	}
+}
