@@ -153,6 +153,8 @@ type collabRoom struct {
 	id   string
 	load sync.Once
 	mu   sync.Mutex
+	// one chat message at a time, held while its line is written
+	chatMu sync.Mutex
 	// this run of the room: revs count from 0 in each, so a page that comes
 	// back from another run (the server restarted, or the room was left
 	// empty and opened again) reads the deck again rather than taking this
@@ -420,9 +422,9 @@ func (rm *collabRoom) save() {
 	rm.dirty = false
 	md := fromU16(w.text)
 	rm.mu.Unlock()
-	shareMu.Lock()
+	unlock := shareLocks.lock(rm.id)
 	err := rm.s.env.DB.Update(context.Background(), "shares", rm.id, Doc{"md": md, "updated": time.Now().UTC()})
-	shareMu.Unlock()
+	unlock()
 	again := false
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sliqtly: writing %s: %v\n", rm.id, err)
@@ -651,9 +653,18 @@ func (rm *collabRoom) say(body map[string]any, client string) (any, error) {
 	if utf8.RuneCountInString(text) > collabChatMax {
 		return nil, fail(413, "", "the message is too long")
 	}
+	// one message at a time, in the file and the room in the same order;
+	// the room itself (edits, presence, streams) is not held while the
+	// line is written
+	rm.chatMu.Lock()
+	defer rm.chatMu.Unlock()
 	rm.mu.Lock()
-	defer rm.mu.Unlock()
 	p := rm.peers[client]
+	var who, name, color string
+	if p != nil {
+		who, name, color = p.Who, p.Name, p.Color
+	}
+	rm.mu.Unlock()
 	if p == nil {
 		return nil, fail(409, "not-here", "open the room's stream first")
 	}
@@ -664,11 +675,13 @@ func (rm *collabRoom) say(body map[string]any, client string) (any, error) {
 	now := time.Now()
 	m := collabChat{
 		ID:  strconv.FormatInt(now.UnixMilli(), 36) + "-" + strconv.FormatInt(n, 36),
-		Who: p.Who, Name: p.Name, Color: p.Color, Text: text, At: now.UnixMilli(),
+		Who: who, Name: name, Color: color, Text: text, At: now.UnixMilli(),
 	}
 	if err := rm.s.appendChat(rm.id, m); err != nil {
 		return nil, err
 	}
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
 	rm.chat = append(rm.chat, m)
 	if len(rm.chat) > collabChatKeep {
 		rm.chat = append([]collabChat(nil), rm.chat[len(rm.chat)-collabChatKeep:]...)
