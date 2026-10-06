@@ -52,6 +52,7 @@ seconds: 0.6            # transition length
 step: 1.2               # seconds between build steps when played
 hold: 2.5               # seconds after the last step
 fx: starfield           # optional default surface effect
+style: cartoon          # optional look for every diagram and chart: mermaid | jurassic | cartoon | romantic
 ---
 
 ## Title {#id transition=slide seconds=0.5 fx=starfield fx-density=1.6 duration=8}
@@ -217,7 +218,8 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
     colour and the text colour from EVGUI's colour picker (`ColorPickerCtl`,
     copied into `src/`, drawn by `PresColorPanel` as EVGUI's demo draws it:
     the area, hue and alpha, HEX / RGB / HSL fields, presets) in a card beside
-    the window; the stage style (flat / forge / neon / glass), glow, shadow and
+    the window; the stage style (flat / forge / neon / glass, or one of the
+    diagrams' looks: mermaid / jurassic / cartoon / romantic), glow, shadow and
     gradient, and a line's width.
   - *Tiedot*: the data as a table, categories down the side and a column per
     series, rows and series added and removed.
@@ -227,6 +229,14 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   preview; Ctrl+Z undoes it after the window is closed. The stage settings
   travel in the spec's `usermeta`; other renderers ignore them. The theme can
   turn the effects on for every chart: `chart { chart-effects: glow gradient; }`.
+  A chart in a look (`PresChart.dressLook`) takes the look's series colours,
+  bar corners, outline, shadow and faces from RangerFlow's `FlowLook`; the
+  chart's own choice wins, then the document's `style:` in the front matter,
+  then the theme's `chart-style`. A diagram with no `{style=…}` of its own
+  takes the document's `style:` too.
+  An axis title longer than its axis is set a little smaller, then on two
+  lines (Vela `VlText.fitTitle`, document mode), and cut only when it would
+  get very small; the whole title then shows in a tip under the pointer.
   A chart with layers, transforms or data from a URL is not a table and the
   window says so.
 - **Live spreadsheets** ([EVGSheets](https://github.com/terotests/EVGSheets)).

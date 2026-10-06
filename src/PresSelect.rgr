@@ -10,7 +10,7 @@
 ; block. The pick is drawn over the stage the way a design tool draws one:
 ;
 ;   - an outline with corner handles and a badge with what it is and its size
-;   - two buttons over it: "Edit content" (its Markdown, or the picture's
+;   - two buttons over it: "Settings" / "Edit text" (its Markdown, or the picture's
 ;     or the chart's own editor) and "Style" (the theme rule for it: what it
 ;     can have, set ones blue and the rest grey)
 ;   - the spacing the theme gives it, on the side it is on: margins outside
@@ -740,10 +740,23 @@ class PresSelect {
         return ((PresCascade.of((PresHelp.noComments(css)))).element(sel classes ""))
     }
 
-    ; Every pick has a first button: "Edit content" for a block of the
-    ; Markdown, "Document settings" for the whole page.
+    ; Every pick has a first button: "Settings" for a block that has a
+    ; window of its own (a picture, a chart, a diagram, a table), "Edit text"
+    ; for one whose Markdown is selected in the editor, "Document settings"
+    ; for the whole page.
     fn hasContent:boolean () {
         return true
+    }
+
+    ; The first button's words for a pick of `sel`.
+    sfn contentLabel:string (sel:string) {
+        if (sel == "page") {
+            return (PresI18n.t("Document settings"))
+        }
+        if ((((sel == "img") || (sel == "chart")) || (sel == "diagram")) || (sel == "table")) {
+            return (PresI18n.t("Settings"))
+        }
+        return (PresI18n.t("Edit text"))
     }
 
     ; The band's value as the theme writes it.
@@ -968,10 +981,7 @@ class PresSelect {
         ; the two buttons: tabs standing on the outline's top left (over the
         ; top margin band's left end when there is one), or hanging inside
         ; it from its top edge when there is no room above (and for the page)
-        def ct:string (PresI18n.t("Edit content"))
-        if (sel == "page") {
-            ct = (PresI18n.t("Document settings"))
-        }
+        def ct:string (PresSelect.contentLabel(sel))
         def stt:string (PresI18n.t("Style"))
         cw = 0.0
         if (this.hasContent()) {

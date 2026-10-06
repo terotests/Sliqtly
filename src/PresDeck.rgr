@@ -203,6 +203,19 @@ class PresDeck {
     ; to load) and those it has loaded (handed to each diagram, which reads
     ; them as they arrive)
     def wantFaces:string ""
+    ; The document's style (`style: cartoon` in its front matter): a look
+    ; for every diagram and chart that does not name its own
+    def docStyle:string ""
+    ; The whole of a chart's cut words (an axis title too long even on two
+    ; lines) under the pointer, shown in a tip over the slide: what, where
+    ; (slide coordinates), on which slide; tipRev moves with every change and
+    ; tipDrawn is the one painted, so a change asks for a frame.
+    def tipText:string ""
+    def tipX:double 0.0
+    def tipY:double 0.0
+    def tipSlide:int -1
+    def tipRev:int 0
+    def tipDrawn:int 0
     def haveFaces:[string:boolean]
 
     Constructor () {
@@ -410,7 +423,7 @@ class PresDeck {
         }
         def painter (new MdToEvg())
         painter.paintBox(dl l b 0.0)
-        PresChart.dress(dl 0 1000000.0 true (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) b.embedSource (this.chartStyleWords()))
+        this.dressChart(dl 0 1000000.0 true b.embedSource)
         def ground:string l.style.pageBackground
         if ((strlen ground) == 0) {
             ground = "#ffffff"
@@ -512,7 +525,97 @@ class PresDeck {
         }
     }
 
+    ; The pointer at (px, py) on slide i (or off it, px < -1e5): the tip with
+    ; a chart's cut words when it is over them. True when the tip changed.
+    fn chartPointer:boolean (i:int px:double py:double) {
+        def text:string ""
+        if ((i >= 0) && (i < (array_length slides))) {
+            def l:MdLayout (this.layout())
+            def bi:int 0
+            while ((bi < (array_length l.boxes)) && ((strlen text) == 0)) {
+                def b:MdBox (itemAt l.boxes bi)
+                if (((b.page == i) && (b.kind == 3)) && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(b.embedKind)))) == "vega")) {
+                    ; a turned title stands just outside its box's left edge
+                    if ((((px >= (b.x - 40.0)) && (px <= (b.x + b.w))) && (py >= b.y)) && (py <= (b.y + b.h))) {
+                        text = (MdToEvg.cutTextAt(l b px py))
+                    }
+                }
+                bi = (bi + 1)
+            }
+        }
+        if ((strlen text) == 0) {
+            if ((strlen tipText) == 0) {
+                return false
+            }
+            tipText = ""
+            tipRev = (tipRev + 1)
+            return true
+        }
+        if (((text == tipText) && (tipSlide == i)) && (((fabs (px - tipX)) < 0.5) && ((fabs (py - tipY)) < 0.5))) {
+            return false
+        }
+        tipText = text
+        tipSlide = i
+        tipX = px
+        tipY = py
+        tipRev = (tipRev + 1)
+        return true
+    }
+
+    ; The tip: the words on a dark card above the pointer, kept on the page.
+    fn paintTip:void (out:EVGDisplayList l:MdLayout) {
+        def size:double 18.0
+        def pad:double 8.0
+        def tw:double (l.measureStyled(tipText "Open Sans" size false false))
+        def w:double (tw + (pad * 2.0))
+        def h:double ((size * 1.3) + (pad * 2.0))
+        def x:double (tipX + 12.0)
+        def y:double ((tipY - h) - 12.0)
+        if ((x + w) > (pageW - 4.0)) {
+            x = ((pageW - 4.0) - w)
+        }
+        if (x < 4.0) {
+            x = 4.0
+        }
+        if (y < 4.0) {
+            y = (tipY + 20.0)
+        }
+        def card (new EVGDrawCmd())
+        card.kind = 0
+        card.x = x
+        card.y = y
+        card.w = w
+        card.h = h
+        card.radius = 6.0
+        card.r = 24
+        card.g = 28
+        card.b = 36
+        card.a = 0.92
+        card.hasShadow = true
+        card.shadowY = 2.0
+        card.shadowBlur = 8.0
+        card.shadowA = 0.3
+        push out.cmds card
+        def t (new EVGDrawCmd())
+        t.kind = 3
+        t.x = (x + pad)
+        t.y = (y + pad)
+        t.w = tw
+        t.h = (size * 1.3)
+        t.text = tipText
+        t.fontFamily = "Open Sans"
+        t.fontSize = size
+        t.r = 255
+        t.g = 255
+        t.b = 255
+        t.a = 1.0
+        push out.cmds t
+    }
+
     fn uiBusy:boolean (i:int) {
+        if (tipRev != tipDrawn) {
+            return true
+        }
         if ((i < 0) || (i >= (array_length slides))) {
             return false
         }
@@ -650,6 +753,11 @@ class PresDeck {
             u.source = n.literal
             u.srcStart = n.srcStart
             push s.charts u
+            ; a chart in a look: its faces asked of the page now
+            def lk:string (this.chartLookName(n.literal))
+            if ((strlen lk) > 0) {
+                this.wantLookFaces((FlowLook.named(lk true)))
+            }
             return
         }
         def i:int 0
@@ -899,7 +1007,7 @@ class PresDeck {
         if (n.hasAttr("zoom")) {
             d.zoom = (PresDeck.num((n.attrValue("zoom")) 3.0))
         }
-        if ((n.attrValue("style")) == "sketch") {
+        if (((n.attrValue("style")) == "sketch") || (((strlen (n.attrValue("style"))) == 0) && (docStyle == "sketch"))) {
             d.style = "sketch"
         }
         if classic {
@@ -920,22 +1028,15 @@ class PresDeck {
         d.rimFade = (this.flatGround(s))
         ; `{style=mermaid}` and the other RangerFlow looks; their faces are
         ; asked of the page (`wantedFaces`) and drawn once it has them
+        ; with none of its own, the document's (`style:` in the front matter)
         def lookName:string (trim (n.attrValue("style")))
+        if ((strlen lookName) == 0) {
+            lookName = docStyle
+        }
         if ((! classic) && (FlowLook.knows(lookName))) {
             d.haveFaces = haveFaces
             d.useLook(lookName)
-            def fs:[string] (d.look.faces())
-            def fi:int 0
-            while (fi < (array_length fs)) {
-                def f:string (itemAt fs fi)
-                if ((indexOf ("," + wantFaces + ",") ("," + f + ",")) < 0) {
-                    if ((strlen wantFaces) > 0) {
-                        wantFaces = (wantFaces + ",")
-                    }
-                    wantFaces = (wantFaces + f)
-                }
-                fi = (fi + 1)
-            }
+            this.wantLookFaces(d.look)
         }
         def oi:int (this.takeOldUse(n.literal))
         if (oi >= 0) {
@@ -1136,6 +1237,50 @@ class PresDeck {
             }
             at = (((at + open) + 1) + (close + 1))
         }
+    }
+
+    ; A look's faces, asked of the page (once each).
+    fn wantLookFaces:void (look:FlowLook) {
+        def fs:[string] (look.faces())
+        def fi:int 0
+        while (fi < (array_length fs)) {
+            def f:string (itemAt fs fi)
+            if ((indexOf ("," + wantFaces + ",") ("," + f + ",")) < 0) {
+                if ((strlen wantFaces) > 0) {
+                    wantFaces = (wantFaces + ",")
+                }
+                wantFaces = (wantFaces + f)
+            }
+            fi = (fi + 1)
+        }
+    }
+
+    ; The look a chart is drawn in ("" for the stage's own dressings): the
+    ; chart's own choice (`presStyle`, the chart window's "Style on slide")
+    ; when it made one, else the document's `style:`, else the theme's
+    ; `chart { chart-style }`.
+    fn chartLookName:string (spec:string) {
+        return (PresChart.lookName((PresChart.specString(spec "presStyle")) docStyle (this.themeRule("chart" "chart-style"))))
+    }
+
+    ; A chart's commands from `before` on, dressed for the stage: in a look,
+    ; or the theme's way (`PresChart.dress`).
+    fn dressChart:void (out:EVGDisplayList before:int t:double still:boolean spec:string) {
+        def lk:string (this.chartLookName(spec))
+        if ((strlen lk) > 0) {
+            def l:MdLayout (this.layout())
+            def paper:string l.style.pageBackground
+            if ((strlen paper) == 0) {
+                paper = "#ffffff"
+            }
+            def pc:EVGColor (EVGColor.parse(paper))
+            def lum:double ((((to_double (pc.red())) * 0.299) + ((to_double (pc.green())) * 0.587)) + ((to_double (pc.blue())) * 0.114))
+            def look:FlowLook (FlowLook.named(lk (lum > 150.0)))
+            this.wantLookFaces(look)
+            PresChart.dressLook(out before t still look spec paper l haveFaces)
+            return
+        }
+        PresChart.dress(out before t still (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) spec (this.chartStyleWords()))
     }
 
     ; The theme's chart-style and chart-effects, and "dark" on a dark slide
@@ -1782,6 +1927,7 @@ class PresDeck {
         def dArtSeed:int (to_int (PresDeck.num((meta.get("art-seed" "-1")) -1.0)))
         def dStep:double (PresDeck.num((meta.get("step" "1.2")) 1.2))
         def dHold:double (PresDeck.num((meta.get("hold" "2.5")) 2.5))
+        docStyle = (trim (meta.get("style" "")))
         def p:int 0
         while (p < l.pageCount) {
             def s (new PresSlide())
@@ -2235,7 +2381,7 @@ class PresDeck {
                 def before:int (array_length out.cmds)
                 painter.paintBox(out l kb 0.0)
                 if ((kb.kind == 3) && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(kb.embedKind)))) == "vega")) {
-                    PresChart.dress(out before (t - (this.chartStart(s kb.embedSource))) still (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) kb.embedSource (this.chartStyleWords()))
+                    this.dressChart(out before (t - (this.chartStart(s kb.embedSource))) still kb.embedSource)
                     if still {
                         PresChart.flatten(out before paper)
                     }
@@ -2260,6 +2406,17 @@ class PresDeck {
             while ((array_length groupOfCmd) < (array_length out.cmds)) {
                 push groupOfCmd -1
             }
+        }
+        ; a chart's cut words under the pointer, over everything: on the
+        ; stage only (not in a thumbnail or an export)
+        if (((i == tipSlide) && (still == false)) && showControls) {
+            if ((strlen tipText) > 0) {
+                this.paintTip(out l)
+                while ((array_length groupOfCmd) < (array_length out.cmds)) {
+                    push groupOfCmd -1
+                }
+            }
+            tipDrawn = tipRev
         }
         while ((array_length boxOfCmd) < (array_length out.cmds)) {
             push boxOfCmd -1

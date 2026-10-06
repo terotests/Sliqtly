@@ -2160,8 +2160,10 @@ class PresChartEditor {
 
         def st:EVGElement (this.section(pane (PresI18n.t("Style on slide"))))
         def ef:EVGElement (this.div("ce-chips"))
-        def effects:[string] (strsplit ",flat,forge,neon,glass" ",")
-        def effectNames:[string] (strsplit ((PresI18n.t("From theme")) + "," + (PresI18n.t("Flat")) + "," + (PresI18n.t("Forge")) + "," + (PresI18n.t("Neon")) + "," + (PresI18n.t("Glass"))) ",")
+        ; the stage's own dressings, then the looks the diagrams have
+        ; (RangerFlow's FlowLook)
+        def effects:[string] (strsplit ",flat,forge,neon,glass,mermaid,jurassic,cartoon,romantic" ",")
+        def effectNames:[string] (strsplit ((PresI18n.t("From theme")) + "," + (PresI18n.t("Flat")) + "," + (PresI18n.t("Forge")) + "," + (PresI18n.t("Neon")) + "," + (PresI18n.t("Glass")) + "," + (PresI18n.t("Mermaid")) + "," + (PresI18n.t("Jurassic")) + "," + (PresI18n.t("Cartoon")) + "," + (PresI18n.t("Romantic"))) ",")
         def e:int 0
         while (e < (array_length effects)) {
             this.chip(("ce-effect-" + (itemAt effects e)) (itemAt effectNames e) ((itemAt effects e) == model.effect) ef)

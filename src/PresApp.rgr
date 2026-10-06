@@ -1137,11 +1137,20 @@ class PresApp {
             k = (deck.diagramAt(selected spX spY))
         }
         deck.diagramPointer(selected k (this.stageTime()) spX spY)
+        ; a chart's words cut to fit: shown whole under the pointer
+        if (k < 0) {
+            if (((strlen top) == 0) && (slideRect.has(x y))) {
+                deck.chartPointer(selected spX spY)
+            } {
+                deck.chartPointer(-1 0.0 0.0)
+            }
+        }
     }
 
     ; The pointer left the page.
     fn pointerLeft:void () {
         deck.diagramPointer(selected -1 0.0 0.0 0.0)
+        deck.chartPointer(-1 0.0 0.0)
         this.inkHide()
     }
 
@@ -5167,7 +5176,7 @@ class PresApp {
         }
     }
 
-    ; "Edit content": a picture's, a chart's, a diagram's or a table's own
+    ; "Settings" / "Edit text": a picture's, a chart's, a diagram's or a table's own
     ; editor; otherwise its
     ; Markdown, selected in the editor. For the page, the document settings
     ; (the page lists the pictures for the logo first).

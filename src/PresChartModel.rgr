@@ -58,8 +58,9 @@ class PresChartModel {
     ; a line's measured points as dots: white, about twice the line's width,
     ; ringed in the line's colour
     def points:boolean false
-    ; the stage's dressing: "" (the theme's chart-style), flat, forge, neon,
-    ; glass — and what goes on top of any of them. Carried in `usermeta`, which
+    ; the stage's dressing: "" (the document's style, else the theme's
+    ; chart-style), flat, forge, neon, glass, or a look (mermaid, jurassic,
+    ; cartoon, romantic) — and what goes on top of any of them. Carried in `usermeta`, which
     ; Vega-Lite keeps for exactly this and every renderer ignores.
     def effect:string ""
     def glow:boolean false
