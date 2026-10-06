@@ -82,6 +82,12 @@
 
   .hero { padding: clamp(56px, 8vw, 120px) 0 clamp(56px, 7vw, 96px); border-bottom: 1px solid var(--line); }
   .hero .sub { font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--grotesk); letter-spacing: -.015em; margin: 0 0 14px; max-width: 30ch; }
+  .deal p { color: var(--dim); font-size: clamp(16px, 1.5vw, 19px); max-width: 64ch; margin: 0 0 18px; }
+  .deal strong { color: var(--paper); }
+  .deal strong.accent { color: var(--accent); }
+  .deal code { font: .88em var(--mono); color: var(--paper); background: rgba(255, 255, 255, .06); border: 1px solid var(--line); padding: .05em .35em; }
+  .home .deal .deal__enter { color: var(--paper); font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--grotesk); letter-spacing: -.015em; margin: 36px 0 18px; }
+  .home .deal .deal__turn { color: var(--paper); font: 600 15px/1.6 var(--mono); }
   .section { padding: clamp(64px, 8vw, 112px) 0; border-bottom: 1px solid var(--line); }
 
   /* thin boxes: the engine block, the claims, the flow */
@@ -185,6 +191,21 @@
     <div class="nav__cta"><a class="coffee" href="https://buymeacoffee.com/sliqtly" target="_blank" rel="noopener" title="Buy me a coffee" aria-label="Buy me a coffee"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 3.5c-.6.8.6 1.6 0 2.5M12 3.5c-.6.8.6 1.6 0 2.5"/></svg></a><a class="btn btn--solid" href="/connect.html">Connect via MCP</a></div>
   </header>
   <main>
+    <section class="section deal" id="deal">
+      <div class="wrap">
+        <h2 class="display display--lg">So, what's the deal here?</h2>
+        <p>A lot of people seem to be asking how to convert Markdown files to PDF, PowerPoint or Word. The point being... it gets pretty expensive when the document goes through the same chat many times!</p>
+        <p>And <code>.md</code> files don't really have formatting. And what about charts, flowcharts, theming...</p>
+        <p>Crazy stuff, right?</p>
+        <p class="deal__enter">So, enter <span class="accent">Sliqtly</span> — a slightly better solution to that.</p>
+        <p>Give your agent a description, whether it's Markdown, an Excel file or a Git pull request, and the MCP service Sliqtly offers will create wonderful, readable, presentable...</p>
+        <p>Or should I say... <strong class="accent">Lovable?</strong></p>
+        <p>...slides.</p>
+        <p>So, here's the talk.</p>
+        <p class="deal__turn">Your turn.</p>
+      </div>
+    </section>
+
     <section class="hero">
       <div class="wrap">
         <p class="label">MCP-native presentation engine</p>
