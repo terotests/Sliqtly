@@ -1357,7 +1357,7 @@ try {
   check("a pasted SVG goes on the slide as an SVG file", !!svgPic.rel && !svgPic.window && svgPic.drawn, JSON.stringify(svgPic));
   check("…in its viewBox's shape, drawn at full-slide size", svgPic.shape === 1.78 && svgPic.size.join("x") === "2560x1440", JSON.stringify(svgPic));
   check("…with its own colours", svgPic.pixel[0] === 0x2a && svgPic.pixel[1] === 0x7f && svgPic.pixel[2] === 0x3e, JSON.stringify(svgPic.pixel));
-  check("…and in the PDF", svgPic.pdf[1] === svgPic.pdf[0] + 1, JSON.stringify(svgPic.pdf));
+  check("…and in the PDF as its paths, not as pixels", svgPic.pdf[1] === svgPic.pdf[0], JSON.stringify(svgPic.pdf));
 
   // the same picture as the background of the slide at the caret
   const bg = await page.evaluate(() => {
