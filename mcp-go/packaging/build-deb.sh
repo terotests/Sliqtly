@@ -64,7 +64,8 @@ if [ "$edition" = personal ]; then
 #SLIQTLY_LISTEN=local' "$root/etc/sliqtly/sliqtly.env"
 fi
 install -m 0755 "$here/deb/postinst" "$here/deb/prerm" "$here/deb/postrm" "$root/DEBIAN/"
-install -m 0644 "$mcp/../LICENSE" "$root/usr/share/doc/sliqtly-server/copyright" 2>/dev/null || true
+# the PRO package: the repository's license, if it has one (Personal has its own, above)
+[ "$edition" = personal ] || install -m 0644 "$mcp/../LICENSE" "$root/usr/share/doc/sliqtly-server/copyright" 2>/dev/null || true
 echo /etc/sliqtly/sliqtly.env > "$root/DEBIAN/conffiles"
 size=$(du -sk "$root/usr" "$root/lib" "$root/etc" | awk '{s+=$1} END {print s}')
 cat > "$root/DEBIAN/control" <<CONTROL
