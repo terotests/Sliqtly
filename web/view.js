@@ -69,6 +69,13 @@ async function loadFaces(names) {
 function showNote(html) {
   note.innerHTML = html;
   intro.hidden = false;
+  started();
+}
+
+// the assistant's preview (mcp-go/assets/preview.html) waits for this: the
+// viewer started, and showed slides or said why not
+function started() {
+  window.__pageStarted = true;
 }
 
 // --- the intro: Sliqtly's logo and name before the slides (web/brand.js) ----
@@ -280,5 +287,6 @@ async function start() {
   at = -1;
   go(Math.min(link.slide, lists.length - 1));
   wake();
+  started();
 }
 start();

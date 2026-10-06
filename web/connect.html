@@ -4,62 +4,63 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sliqtly for AI assistants</title>
+<meta name="theme-color" content="#070708">
 <meta name="description" content="Connect Sliqtly to Claude, ChatGPT, Cursor and other MCP clients, and have your assistant make slide presentations from Markdown.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
   :root {
-    --bg: #f6f7fb; --card: #ffffff; --fg: #1d2233; --muted: #5d6480; --line: #dfe3ef;
-    --accent: #4b5bdc; --code-bg: #eef0f8; --warm: #c46a12;
+    --accent: #c8ff3c; --ink: #070708; --paper: #eeeee8; --dim: #9a9ca3; --dimmer: #6c6e75;
+    --line: rgba(255, 255, 255, .10); --line-2: rgba(255, 255, 255, .20);
+    --grotesk: "Helvetica Neue", "Arial Nova", "Inter", Helvetica, Arial, sans-serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #0b1030; --card: #121944; --fg: #e8ecff; --muted: #9aa3c7; --line: #2d3a7a;
-      --accent: #8fa0ff; --code-bg: #0b1030; --warm: #ffa546;
-    }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
-  header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-  header img { width: 36px; height: 36px; }
-  header a { color: inherit; text-decoration: none; font-weight: 700; font-size: 20px; }
-  h1 { font-size: 30px; line-height: 1.2; margin: 24px 0 8px; }
-  h2 { font-size: 22px; margin: 0 0 4px; display: flex; gap: 10px; align-items: baseline; }
-  h3 { font-size: 16px; margin: 18px 0 6px; }
-  p, li { color: var(--fg); }
-  .lead { color: var(--muted); font-size: 18px; margin: 0 0 24px; }
-  .url { display: flex; gap: 8px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 0 0 28px; }
-  .url code { flex: 1; font-size: 17px; background: none; padding: 0; overflow-wrap: anywhere; }
-  button.copy { border: 1px solid var(--line); background: var(--code-bg); color: var(--fg); border-radius: 7px; padding: 4px 10px; font: inherit; font-size: 14px; cursor: pointer; }
-  button.copy:hover { border-color: var(--accent); }
-  nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 28px; }
-  nav a { border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: 999px; padding: 4px 14px; text-decoration: none; font-size: 15px; }
-  nav a:hover { border-color: var(--accent); }
-  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; margin: 0 0 18px; }
-  .tag { font-size: 13px; font-weight: 500; color: var(--muted); }
-  ol, ul { padding-left: 22px; margin: 8px 0; }
-  li { margin: 4px 0; }
-  code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.92em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
-  pre { position: relative; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 8px 0; }
-  pre code { background: none; padding: 0; font-size: 14px; }
-  pre button.copy { position: absolute; top: 6px; right: 6px; }
-  .note { color: var(--muted); font-size: 15px; }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--ink); color: var(--paper); }
+  body { font: 400 16.5px/1.65 var(--sans); -webkit-font-smoothing: antialiased; }
   a { color: var(--accent); }
-  .tools td { padding: 4px 12px 4px 0; vertical-align: top; }
-  .tools td:first-child { white-space: nowrap; }
-  blockquote { margin: 8px 0; padding: 8px 14px; border-left: 3px solid var(--warm); background: var(--code-bg); border-radius: 0 8px 8px 0; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .nav { display: flex; align-items: center; gap: 10px; padding: 13px clamp(16px, 5vw, 60px); border-bottom: 1px solid var(--line); }
+  .nav a { display: flex; align-items: center; gap: 10px; color: var(--paper); text-decoration: none; font: 700 16px/1 var(--grotesk); }
+  .nav img { width: 22px; height: 22px; }
+  main { max-width: 860px; margin: 0 auto; padding: clamp(40px, 6vw, 80px) 16px 80px; }
+  .label { font: 400 11.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin: 0 0 16px; }
+  h1 { font: 800 clamp(38px, 6vw, 72px)/1 var(--grotesk); letter-spacing: -.04em; margin: 0 0 20px; }
+  h2 { font: 800 clamp(24px, 3vw, 32px)/1.1 var(--grotesk); letter-spacing: -.02em; margin: 0 0 14px; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+  h3 { font: 700 17px/1.3 var(--grotesk); margin: 22px 0 8px; }
+  p, li { color: var(--dim); }
+  b, strong { color: var(--paper); font-weight: 600; }
+  .lead { font-size: 18px; margin: 0 0 28px; }
+  .url { display: flex; gap: 10px; align-items: center; border: 1px solid var(--line-2); background: #0e0e10; padding: 12px 14px; margin: 0 0 28px; }
+  .url code { flex: 1; font-size: 17px; background: none; border: 0; padding: 0; color: var(--accent); }
+  button.copy { border: 1px solid var(--line-2); background: transparent; color: var(--paper); padding: 5px 12px; font: 600 12.5px/1 var(--mono); cursor: pointer; }
+  button.copy:hover { border-color: var(--accent); color: var(--accent); }
+  .clients { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
+  .clients a { border: 1px solid var(--line-2); color: var(--paper); padding: 6px 14px; text-decoration: none; font: 400 13px/1.2 var(--mono); }
+  .clients a:hover { border-color: var(--accent); color: var(--accent); }
+  section { margin: 48px 0 0; padding-top: 28px; border-top: 1px solid var(--line); }
+  .tag { font: 400 12px/1.4 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dimmer); }
+  ol, ul { padding-left: 22px; margin: 8px 0; }
+  li { margin: 6px 0; }
+  code { font: .88em var(--mono); color: var(--paper); background: rgba(255, 255, 255, .06); border: 1px solid var(--line); padding: .05em .35em; overflow-wrap: anywhere; }
+  pre { position: relative; font: 13.5px/1.65 var(--mono); color: var(--paper); background: #0e0e10; border: 1px solid var(--line-2); padding: 14px 16px; overflow-x: auto; margin: 12px 0 18px; }
+  pre code { background: none; border: 0; padding: 0; font-size: 13.5px; }
+  pre button.copy { position: absolute; top: 8px; right: 8px; background: #0e0e10; }
+  .note { color: var(--dimmer); font-size: 15px; }
+  blockquote { margin: 10px 0; padding: 4px 0 4px 16px; border-left: 2px solid var(--accent); color: var(--paper); }
 </style>
 </head>
 <body>
+<header class="nav"><a href="/"><img src="/favicon.svg" alt="" width="22" height="22">Sliqtly</a></header>
 <main>
-  <header><img src="/favicon.svg" alt=""><a href="/">Sliqtly</a></header>
+  <p class="label">MCP · Model Context Protocol</p>
 
   <h1>Sliqtly for AI assistants</h1>
   <p class="lead">Connect Sliqtly to your assistant and ask it for a presentation. It writes the slides in Markdown, picks a theme, adds CSS, pictures, charts and diagrams, and gives you a link that opens the finished presentation.</p>
 
   <div class="url"><code id="server">https://sliqtly.com/mcp</code><button class="copy" data-copy="server">Copy</button></div>
 
-  <nav aria-label="Clients">
+  <nav class="clients" aria-label="Clients">
     <a href="#claude">Claude</a>
     <a href="#claude-code">Claude Code</a>
     <a href="#chatgpt">ChatGPT</a>
@@ -160,20 +161,7 @@
     <p>Ask in your own words, for example:</p>
     <blockquote>Make a 6-slide presentation of our Q3 results with the ember theme: a bar chart of revenue by month, a diagram of the sales process, and this photo on the title slide: https://…/team.jpg</blockquote>
     <blockquote>Change slide 3 to a two-column comparison and make the headings orange.</blockquote>
-    <p>The assistant gets these tools:</p>
-    <table class="tools">
-      <tr><td><code>sliqtly_guide</code></td><td>The Markdown syntax, themes and CSS selectors.</td></tr>
-      <tr><td><code>create_presentation</code></td><td>Makes the presentation (with its pictures and Excel, CSV or JSON data) and returns its link.</td></tr>
-      <tr><td><code>update_presentation</code></td><td>Changes it later, keeping the same link.</td></tr>
-      <tr><td><code>bind_chart_data</code></td><td>Connects a chart to live data: a CSV or JSON address, or a Google Sheet shared with anyone who has the link.</td></tr>
-      <tr><td><code>get_presentation</code></td><td>Reads a presentation back by its link's id.</td></tr>
-      <tr><td><code>list_files</code></td><td>Lists a presentation's files, and the sheets and columns of its Excel workbooks.</td></tr>
-      <tr><td><code>read_file</code></td><td>Reads the values of a presentation's Excel sheet, CSV or JSON file.</td></tr>
-      <tr><td><code>write_workbook</code></td><td>Rewrites a presentation's Excel workbook with tidied sheets, values and formulas.</td></tr>
-      <tr><td><code>vectorize_image</code></td><td>Turns a PNG or JPEG into a sharp SVG, and puts it where the picture was used, background images included.</td></tr>
-      <tr><td><code>list_presentations</code></td><td>Lists your own presentations (signed in).</td></tr>
-    </table>
-    <p class="note">Signed in, a presentation is yours: the assistant can list and change it later. Anyone with a presentation's link can view it, so do not put anything secret in it. Pictures are fetched from public https addresses or sent by the assistant, up to 5 MB each, when you are signed in.</p>
+    <p class="note">To run the server on your own computer instead, see <a href="/local.html">Run Sliqtly locally</a>.</p>
     <p class="note">Sliqtly is provided as is, and you store data in it at your own risk: read the <a href="/#terms">terms</a>.</p>
   </section>
 </main>

@@ -104,6 +104,10 @@ type Env struct {
 	// A server of one's own (decks in a folder, local.go): every caller is
 	// LocalUser, files are read from FilesURL, themes are the built-in ones.
 	LocalUser string
+	// Editor: the server serves the editor (a server of one's own with
+	// web/dist built in), so results carry an editor link; sliqtly.com
+	// serves the viewer only
+	Editor bool
 	// Store: the documents of a server of one's own, under DB, for what
 	// needs more than DB says (revisions, the change feed); nil elsewhere
 	Store store.Engine
@@ -331,11 +335,30 @@ func (h *McpHost) StoreKind() string {
 func (h *McpHost) Asset(name string) string {
 	switch name {
 	case "guide.md":
+		if h.env.rooms == nil {
+			return withoutRooms(guideMD)
+		}
 		return guideMD
 	case "preview.html":
 		return previewHTML
 	}
 	return ""
+}
+
+// what a caller hears when a theme cannot be had; the cause goes to the log
+func themeUnavailable(theme string) error {
+	return fmt.Errorf("The theme %q could not be loaded. Try again in a moment, or choose another theme.", theme)
+}
+
+// the guide without its Rooms part, on a server that has no rooms
+// (sliqtly.com): <!-- rooms --> … <!-- /rooms --> in assets/guide.md
+func withoutRooms(md string) string {
+	i := strings.Index(md, "<!-- rooms -->")
+	j := strings.Index(md, "<!-- /rooms -->")
+	if i < 0 || j < i {
+		return md
+	}
+	return md[:i] + strings.TrimLeft(md[j+len("<!-- /rooms -->"):], "\n")
 }
 
 // --- Firestore
@@ -606,6 +629,8 @@ func (h *McpHost) Precision(n string, digits int64) string {
 
 func (h *McpHost) LocalUser() string { return h.env.LocalUser }
 
+func (h *McpHost) EditorOn() bool { return h.env.Editor }
+
 func (h *McpHost) GitHubPrivateOK(uid string) bool {
 	if h.env.LocalUser != "" {
 		return true
@@ -710,8 +735,13 @@ func (h *McpHost) ThemeCSS(theme string) string {
 	if e.Themes != nil {
 		css, ok := e.Themes(theme)
 		if !ok {
-			h.fail(fmt.Errorf("theme %s: not built in", theme))
+			h.fail(fmt.Errorf("There is no theme %q; the themes are aurora, carbon, corporate, editorial, ember, midnight and nebula.", theme))
 		}
+		return css
+	}
+	// every theme is built in (gen.mjs); the site is asked only for one
+	// that is not, since sliqtly.com serves the viewer and no /themes/
+	if css, ok := builtinTheme(theme); ok {
 		return css
 	}
 	e.themesMu.Lock()
@@ -724,17 +754,20 @@ func (h *McpHost) ThemeCSS(theme string) string {
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/themes/%s.css", e.BaseURL, theme), nil)
 	if err != nil {
-		h.fail(fmt.Errorf("theme %s: %w", theme, err))
+		log.Printf("theme %s: %v", theme, err)
+		h.fail(themeUnavailable(theme))
 		return ""
 	}
 	res, err := e.ThemeClient.Do(req)
 	if err != nil {
-		h.fail(fmt.Errorf("theme %s: %w", theme, err))
+		log.Printf("theme %s: %v", theme, err)
+		h.fail(themeUnavailable(theme))
 		return ""
 	}
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode > 299 {
-		h.fail(fmt.Errorf("theme %s: %d", theme, res.StatusCode))
+		log.Printf("theme %s: HTTP %d", theme, res.StatusCode)
+		h.fail(themeUnavailable(theme))
 		return ""
 	}
 	b, err := io.ReadAll(res.Body)

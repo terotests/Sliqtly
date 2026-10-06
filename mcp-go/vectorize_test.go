@@ -49,7 +49,7 @@ func TestVectorizeADecksPicture(t *testing.T) {
 	key := sc(c)["edit_key"]
 
 	bad := call(t, s, "vectorize_image", map[string]any{"deck_id": id, "edit_key": key, "path": "media/logo.png", "options": map[string]any{"colorcount": 3}})
-	match(t, textOf(bad), `Unknown tracer option: colorcount`)
+	match(t, textOf(bad), `Unknown option: colorcount`)
 	missing := call(t, s, "vectorize_image", map[string]any{"deck_id": id, "edit_key": key, "path": "media/none.png"})
 	match(t, textOf(missing), `has no file media/none\.png`)
 

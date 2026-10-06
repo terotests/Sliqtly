@@ -14,6 +14,7 @@
  *   gl/          evg-webgl.js, the painter
  *   fonts/       the faces the slides are drawn with
  *   personal-license.txt   the Personal package's license (its download)
+ *   local.html                 how to run the Personal package on Ubuntu/Debian
  *   connect.html, oauth.html   the assistants' pages (/mcp sends a browser
  *                to the first; sign-in for the MCP server is the second)
  */
@@ -29,7 +30,7 @@ export const viewDir = path.join(webDir, "dist-view");
 // everything the viewer's modules may import, and nothing more: a module
 // that imports anything else fails the build (below)
 const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"]];
-const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"]];
+const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"], ["local.html", "local.html"]];
 
 function files(dir) {
   return fs.readdirSync(dir, { recursive: true })
