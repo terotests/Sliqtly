@@ -13,6 +13,7 @@ Import "PresReview.rgr"
 Import "PresReviewDot.rgr"
 Import "PresPick.rgr"
 Import "PresNav.rgr"
+Import "PresRecord.rgr"
 Import "PresDocx.rgr"
 Import "PresHtml.rgr"
 Import "PresTrace.rgr"
@@ -1942,6 +1943,110 @@ class PresCheck {
 
     ; PresNav: the jumps while presenting (Home, End, PageUp/PageDown, a
     ; typed number) and where each lands
+    ; Drawing over a slide (PresInk) and a recorded presentation (PresRecord).
+    fn recording:void () {
+        def ink (new PresInk())
+        ink.down("pen" "#ef4444" 6.0 10.0 10.0)
+        ink.move(20.0 12.0)
+        ink.move(30.0 18.0)
+        ink.move(40.0 30.0)
+        ink.up()
+        this.ok(((ink.count()) == 1) "ink: one stroke")
+        def s0:PresInkStroke (itemAt ink.strokes 0)
+        def sm:[double] (PresInk.smooth(s0.pts))
+        this.ok(((array_length sm) > 8) ("ink: smoothing adds points, " + (to_string (array_length sm))))
+        this.ok((((itemAt sm 0) == 10.0) && ((itemAt sm ((array_length sm) - 1)) == 30.0)) "ink: smoothing keeps the ends")
+        ; a line and an ellipse keep the press and the latest point only
+        ink.down("line" "#fff" 4.0 0.0 0.0)
+        ink.move(5.0 5.0)
+        ink.move(50.0 0.0)
+        ink.up()
+        def ls:PresInkStroke (itemAt ink.strokes 1)
+        this.ok(((array_length ls.pts) == 4) "ink: a line is two points")
+        this.ok(((itemAt ls.pts 2) == 50.0) "ink: a line ends where it was let go")
+        def el:[double] (PresInk.ellipse(0.0 0.0 100.0 50.0))
+        this.ok((((fabs ((itemAt el 0) - 100.0)) < 0.001) && ((fabs ((itemAt el 1) - 25.0)) < 0.001)) "ink: the ellipse starts at its right edge")
+        this.ok(((fabs ((itemAt el 0) - (itemAt el ((array_length el) - 2)))) < 0.001) "ink: the ellipse is closed")
+        ; an arrow's head points the way the line went (to the right here)
+        def hl:[double] ([] _:double (0.0 0.0 50.0 0.0 100.0 0.0))
+        def hd:[double] (PresInk.head(hl 6.0))
+        this.ok(((array_length hd) == 6) "ink: an arrow has a head")
+        this.ok((((itemAt hd 0) == 100.0) && ((itemAt hd 2) < 100.0)) "ink: the tip is at the end, the base behind it")
+        this.ok((((itemAt hd 3) > 0.0) && ((itemAt hd 5) < 0.0)) "ink: the head is as wide either side")
+        def none:[double] ([] _:double (5.0 5.0 5.0 5.0))
+        this.ok(((array_length (PresInk.head(none 6.0))) == 0) "ink: no head without a direction")
+        ; the pointer stays, then fades
+        ink.pointer(100.0 100.0 10.0)
+        this.ok(((ink.pointerAlpha(11.0)) == 1.0) "ink: the pointer shows while it moves")
+        def mid:double (ink.pointerAlpha(11.75))
+        this.ok(((mid > 0.0) && (mid < 1.0)) ("ink: then fades, " + (to_string mid)))
+        this.ok(((ink.pointerAlpha(13.0)) == 0.0) "ink: and is gone")
+        this.ok((ink.busy(11.9) && ((ink.busy(13.0)) == false)) "ink: busy only while fading")
+        def dl (new EVGDisplayList())
+        ink.draw(dl 11.0 1.0)
+        this.ok(((array_length dl.cmds) >= 4) ("ink: strokes and the pointer drawn, " + (to_string (array_length dl.cmds))))
+        ink.clear()
+        this.ok(((ink.count()) == 0) "ink: Backspace wipes it")
+
+        ; the recorder writes nav only where the clock cannot be worked out
+        def r (new PresRecorder())
+        this.ok((r.observe(0.0 0 0 0.0 false)) "rec: the start is written")
+        this.ok(((r.observe(0.5 0 0 0.5 false)) == false) "rec: running on is not")
+        this.ok(((r.observe(1.0 0 0 0.6 false)) == false) "rec: held at a step is not")
+        this.ok(((r.observe(4.0 0 0 0.6 false)) == false) "rec: still held")
+        this.ok((r.observe(4.1 0 1 1.2 false)) "rec: a click to the next step is")
+        this.ok((r.observe(4.2 2 0 10.0 false)) "rec: a jump is")
+        this.ok(((r.observe(4.3 2 0 10.1 false)) == false) "rec: on from the jump is not")
+        this.ok((r.observe(4.4 1 3 9.0 false)) "rec: back is")
+        this.ok((r.pointer(1.0 10.0 10.0)) "rec: the pointer is written")
+        this.ok(((r.pointer(1.01 30.0 30.0)) == false) "rec: not more than 30 times a second")
+        this.ok(((r.pointer(1.2 10.2 10.2)) == false) "rec: not when it hardly moved")
+        r.rec.down(5.0 "arrow" "#22c55e" 5.0 1.0 2.0)
+        r.rec.move(5.1 3.0 4.0)
+        r.rec.up(5.2)
+        r.rec.clear(6.0)
+        r.rec.voice = "radio"
+        r.rec.audio = "recordings/take.webm"
+        def text:string (r.rec.toJson())
+        def back:PresRecording (PresRecording.parse(text))
+        this.ok(((back.count()) == (r.rec.count())) ("rec: the file reads back, " + (to_string (back.count())) + " of " + (to_string (r.rec.count()))))
+        this.ok(((back.voice == "radio") && (back.audio == "recordings/take.webm")) "rec: with its voice and its sound file")
+        this.ok(((fabs (back.duration - 6.0)) < 0.001) ("rec: and its length, " + (to_string back.duration)))
+        def bd:PresRecOp (itemAt back.ops ((back.count()) - 4))
+        this.ok((((bd.k == "down") && (bd.tool == "arrow")) && ((bd.color == "#22c55e") && (bd.y == 2.0))) "rec: a line's start reads back")
+        def broken:PresRecording (PresRecording.parse("not json"))
+        this.ok(((broken.count()) == 0) "rec: a broken file is an empty recording")
+        ; when each slide shows
+        def sp:[double] (back.slideSpans(0))
+        this.ok((((array_length sp) == 2) && ((itemAt sp 1) == 4.2)) "rec: slide 1 shows until the jump")
+        def sp2:[double] (back.slideSpans(2))
+        this.ok((((array_length sp2) == 2) && ((itemAt sp2 0) == 4.2)) "rec: slide 3 from the jump")
+        this.ok(((back.slideStart(5)) < 0.0) "rec: a slide never shown has no start")
+
+        ; the replay: forward applies what is new, back starts over
+        def rp (new PresReplay())
+        rp.load(back)
+        rp.seek(0.2)
+        def n0:PresRecOp (rp.navOp())
+        this.ok((rp.takeNav() && (n0.slide == 0)) "replay: the start's nav")
+        this.ok(((fabs ((rp.clockAt(0.9)) - 0.9)) < 0.001) "replay: the clock runs from it")
+        rp.seek(4.15)
+        def n1:PresRecOp (rp.navOp())
+        this.ok((rp.takeNav() && (n1.step == 1)) "replay: the click's step")
+        rp.seek(5.15)
+        this.ok(((rp.ink.count()) == 1) "replay: the line being drawn")
+        this.ok(rp.ink.drawing "replay: still held")
+        rp.seek(5.5)
+        this.ok(((rp.ink.drawing == false) && ((rp.ink.count()) == 1)) "replay: let go")
+        rp.takeNav()
+        rp.seek(4.45)
+        this.ok(((rp.ink.count()) == 0) "replay: back before the line, it is gone")
+        this.ok(((rp.takeNav()) == false) "replay: the same nav after a seek is no jump")
+        rp.seek(7.0)
+        this.ok(((rp.ink.count()) == 0) "replay: wiped by the clear")
+        this.ok((rp.done()) "replay: at the end")
+    }
+
     fn navJumps:void () {
         def text:string ("---\nslide-split-level: 2\n---\n\n## Eka\n\n1. a\n2. b\n3. c\n{.build}\n\n"
             + "## Toka {transition=slide seconds=0.8}\n\nteksti\n\n## Kolmas\n\n1. x\n2. y\n{.build}\n")
@@ -2300,6 +2405,7 @@ class PresCheck {
         c.followEdits()
         c.picks()
         c.navJumps()
+        c.recording()
         c.docx()
         c.htmlPage()
         c.traceChecks()

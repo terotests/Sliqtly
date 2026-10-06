@@ -295,6 +295,10 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | While presenting: S | speaker view (next slide, notes, clock) |
 | While presenting: A | steps advance by themselves |
 | While presenting: Esc | end |
+| While presenting: ✎ in the bar | the pen: a press on the slide that moves draws (a press that does not still goes on), the pointer over the slide is drawn as an arrow; the bar's next buttons pick what it draws (line, arrow, straight line, ellipse) and its colour; Backspace or ⌫ wipes the drawing, a new slide starts clean |
+| Record ▸ ● Record presentation | presents from the start with the pen on and the microphone recording; the red time in the bar stops it (Esc too), ⏸ pauses. The voice and everything the presentation did (slides, build steps, the pointer, what was drawn) are kept in the deck as `recordings/take.json` and `recordings/take.webm` (`src/PresRecord.rgr`, `web/recorder.js`); a new take replaces the old one. Without a microphone it is recorded silent |
+| Record ▸ ▶ Play recording, or the Speech lane | presents again from the recording, from where it first shows the selected slide: Space pauses, ←/→ seek 5 s (⏪ ⏩ 10 s), Esc stops. A shared link's ⋯ menu has it too |
+| Record ▸ Voice | the filter the voice plays through: Clean (no rumble, a little presence, even loudness), Warm, Radio, Phone, Echo, Robot, or As recorded. The file stays as spoken |
 | At a diagram's question: click, ←/→ + Enter, or 1–9 | choose the way on |
 | While playing, at a question: Ohita » (bottom right) | skip to the next slide; untouched, it skips by itself after 8 s, so a loop never traps the room |
 | In a diagram: ‹ ring or Backspace | one step back (press again for more) |
@@ -318,6 +322,8 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | `src/PresDeck.rgr` | Markdown → slides with the markdown module's layout; slide attributes, groups, the effect layer |
 | `src/PresDiagram.rgr` | Diagram animation: the holo and sketch styles, the FlowLook looks, curved edges, reveal, the tour and the camera keyframes |
 | `src/PresChart.rgr` | (colours the spec states itself win: a mark `color`, `labelColor`/`titleColor`, `gridColor`/`domainColor`/`tickColor`) A ```vega-lite chart dressed for the stage: grid in the accent, columns of warm light burning into rust with a glowing cap, rising in turn, one scan pass |
+| `src/PresInk.rgr`, `src/PresRecord.rgr` | Drawing on the slide while presenting and the pointer; a recording's operations, its file and its replay |
+| `web/recorder.js` | The microphone into a file, and the voices it plays through (Web Audio) |
 | `src/PresTimeline.rgr` | (deck, slide, t) → display list. Deterministic: no clock of its own |
 | `src/PresApp.rgr` | The editor: panels, tracks, filmstrip, presenting, exports |
 | `src/PresCheck.rgr` | Node checks |

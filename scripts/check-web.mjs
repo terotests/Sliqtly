@@ -677,6 +677,57 @@ try {
     await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
   }
 
+  // Record (PresRecord, web/recorder.js): presenting from the start with
+  // the pen on; a press that moves draws, one that does not goes on,
+  // Backspace wipes; ■ keeps recordings/take.json (silent here: no
+  // microphone), and Play recording presents from it again, drawing what
+  // was drawn.
+  {
+    const ink = () => page.evaluate(() => ({ ...JSON.parse(window.__app.inkState()), slide: window.__app.slideShown(), mode: JSON.parse(window.__app.layoutJson()).mode }));
+    await page.evaluate(() => { window.__app.selectSlide(0); window.__app.request("rec:start"); });
+    await page.waitForFunction(() => document.body.classList.contains("recording"), null, { timeout: 8000 });
+    const slideBox = await page.evaluate(() => {
+      const l = JSON.parse(window.__app.layoutJson());
+      const c = document.getElementById("c").getBoundingClientRect();
+      return { x: c.left + l.stage[0], y: c.top + l.stage[1], s: l.stage[2], w: window.__app.deck.pageW, h: window.__app.deck.pageH };
+    });
+    const sx = (fx) => slideBox.x + slideBox.w * slideBox.s * fx;
+    const sy = (fy) => slideBox.y + slideBox.h * slideBox.s * fy;
+    await page.mouse.move(sx(0.3), sy(0.5));
+    await page.mouse.down();
+    for (let i = 1; i <= 8; i += 1) await page.mouse.move(sx(0.3 + i * 0.04), sy(0.5 + i * 0.02));
+    await page.mouse.up();
+    const drawn = await ink();
+    await page.mouse.click(sx(0.5), sy(0.5));
+    await page.waitForTimeout(200);
+    const clicked = await ink();
+    await page.mouse.move(sx(0.4), sy(0.4));
+    await page.mouse.down();
+    for (let i = 1; i <= 6; i += 1) await page.mouse.move(sx(0.4 + i * 0.03), sy(0.4));
+    await page.mouse.up();
+    await page.evaluate(() => document.getElementById("keys").focus());
+    await page.keyboard.press("Backspace");
+    const wiped = await ink();
+    await page.evaluate(() => document.getElementById("vRec").click());
+    await page.waitForFunction(() => window.__app.hasRecording() && !document.body.classList.contains("recording"), null, { timeout: 8000 });
+    await page.waitForFunction(() => window.__docFiles().then((f) => f.includes("recordings/take.json")), null, { timeout: 8000 });
+    const take = await page.evaluate(() => JSON.parse(window.__app.recordingJson()));
+    const kinds = take.ops.map((o) => o[1]);
+    check("Record: a press that moves draws, one that does not goes on, Backspace wipes", drawn.strokes === 1 && drawn.slide === 0 && clicked.slide !== 0 && clicked.strokes === 0 && wiped.strokes === 0, JSON.stringify({ drawn, clicked, wiped }));
+    check("…■ keeps the take: the slides, the pointer and what was drawn", ["nav", "ptr", "down", "move", "up", "clear"].every((k) => kinds.includes(k)) && take.ops.filter((o) => o[1] === "nav").some((o) => o[2] === 1), JSON.stringify(kinds.slice(0, 40)));
+    await page.evaluate(() => { window.__app.selectSlide(0); window.__app.request("rec:play"); });
+    await page.waitForFunction(() => document.body.classList.contains("replaying"), null, { timeout: 8000 });
+    await page.waitForFunction(() => JSON.parse(window.__app.inkState()).strokes > 0, null, { timeout: 20000 }).catch(() => {});
+    const played = await ink();
+    await page.waitForFunction(() => window.__app.slideShown() !== 0 || !window.__app.isReplaying(), null, { timeout: 20000 }).catch(() => {});
+    const on = await ink();
+    check("Play recording draws what was drawn and goes on where it went", played.replaying && played.strokes === 1 && played.slide === 0 && on.slide !== 0, JSON.stringify({ played, on }));
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !window.__app.isReplaying(), null, { timeout: 8000 }).catch(() => {});
+    await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+    check("…Esc ends the replay", !(await page.evaluate(() => window.__app.isReplaying())));
+  }
+
   await page.evaluate(() => { window.__app.present(true); window.__app.takeRequest(); window.__app.speaker = true; window.__app.next(); });
   await page.waitForTimeout(300);
   await shot("2-speaker.png");

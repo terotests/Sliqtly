@@ -169,6 +169,23 @@
     font-variant-numeric: tabular-nums; white-space: nowrap;
   }
   #viewBar > #vCount.typing { border-color: #60a5fa; }
+  /* the pen, Record and Play recording (main.js syncRecBar) */
+  #viewBar > #vPen[aria-pressed="true"] { border-color: #60a5fa; background: rgba(37, 99, 235, 0.55); }
+  #viewBar > #vColor .dot { display: inline-block; width: 18px; height: 18px; border-radius: 9px; background: var(--pen, #ef4444); border: 2px solid rgba(255, 255, 255, 0.8); vertical-align: middle; }
+  #viewBar > #vRec {
+    width: auto; min-width: 72px; padding: 0 14px; font: 15px/1 "Open Sans", system-ui, sans-serif;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  body.recording #viewBar > #vRec { border-color: #ef4444; color: #fecaca; }
+  body.recording:not(.recPaused) #viewBar > #vRec { animation: recPulse 1.6s ease-in-out infinite; }
+  @keyframes recPulse { 50% { background: rgba(239, 68, 68, 0.35); } }
+  /* while recording the red time stays when the bar goes (it is not in the recording) */
+  body.recording.idle #viewBar { opacity: 1; pointer-events: auto; }
+  body.recording.idle #viewBar > :not(#vRec) { visibility: hidden; }
+  /* a replay is driven by its own buttons */
+  body.viewer:not(.replaying) #viewBar > #vPen { display: none; }
+  body.replaying #viewBar > #vFirst, body.replaying #viewBar > #vPrev, body.replaying #viewBar > #vNext,
+  body.replaying #viewBar > #vCount, body.replaying #viewBar > #vPen { display: none; }
   #vGo {
     width: 72px; height: 44px; box-sizing: border-box; border-radius: 22px; padding: 0 12px;
     border: 1px solid #60a5fa; background: rgba(24, 24, 27, 0.92); color: #fafafa;
@@ -388,6 +405,15 @@
   <button id="vCount" title="Go to slide… (type the number and Enter)" aria-live="polite" data-i18n-title>1 / 1</button>
   <input id="vGo" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" aria-label="Slide number" data-i18n-aria hidden />
   <button id="vData" title="Fetch the charts' data again (R)" data-i18n-title hidden>⟳</button>
+  <!-- drawing on the slide (PresInk) and Record / Play recording (PresRecord, web/recorder.js) -->
+  <button id="vPen" title="Pen: draw on the slide (a press that moves draws)" aria-pressed="false" data-i18n-title>✎</button>
+  <button id="vTool" title="What the pen draws: line, arrow, straight line, ellipse" data-i18n-title hidden>〰</button>
+  <button id="vColor" title="Pen colour" data-i18n-title hidden><span class="dot"></span></button>
+  <button id="vWipe" title="Wipe the drawing (Backspace)" data-i18n-title hidden>⌫</button>
+  <button id="vBack" title="Back 10 s (←)" data-i18n-title hidden>⏪&#xFE0E;</button>
+  <button id="vPause" title="Pause (Space)" data-i18n-title hidden>⏸&#xFE0E;</button>
+  <button id="vFwd" title="On 10 s (→)" data-i18n-title hidden>⏩&#xFE0E;</button>
+  <button id="vRec" title="Stop (Esc)" data-i18n-title hidden>● 0:00 ■</button>
   <button id="vFull" title="Full screen" data-i18n-title>⛶</button>
   <button id="vMore" title="More" aria-haspopup="menu" aria-expanded="false" aria-controls="vMenu" data-i18n-title>⋯</button>
   <div id="vMenu" role="menu" hidden>
@@ -407,6 +433,7 @@
       <button role="menuitem" data-copy="comments" title="The open comments, numbered, with the Markdown of their slides: to hand to an assistant" data-i18n-title data-i18n>Comments</button>
     </div>
     <hr />
+    <button role="menuitem" data-act="playrec" id="vPlayRec" data-i18n hidden>▶ Play recording</button>
     <button role="menuitem" data-act="new" title="A new presentation of your own, based on this one" data-i18n-title data-i18n>Create New…</button>
     <button role="menuitem" data-act="edit" id="vEdit" title="Edit this presentation" data-i18n-title data-i18n hidden>Edit</button>
   </div>
