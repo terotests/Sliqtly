@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -112,6 +113,14 @@ func main() {
 		ls := newLocalServer(e, bucket, *token, page).(*localServer)
 		ls.board = board
 		ls.expo = expo
+		// https:// with the server's own certificate, for microphones on
+		// other computers
+		if certs, err := loadOwnCerts(filepath.Join(*data, "tls"), ls.hosts.list(), ls.hosts.hostOK); err != nil {
+			log.Printf("own certificate: %v (https:// is off)", err)
+		} else {
+			ls.certs = certs
+			expo.tls.Store(certs.config())
+		}
 		// who can connect, as the settings page last set it
 		if !policy.Fixed {
 			if p, err := loadNetPolicy(context.Background(), e.DB); err == nil {

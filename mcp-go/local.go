@@ -69,6 +69,7 @@ type localServer struct {
 	// calls' network (meet.go), made when the first call starts
 	callMu sync.Mutex
 	cnet   *callNet
+	certs  *ownCerts // https:// (owncert.go); nil: none
 }
 
 // the env of a server whose decks are in dir, reached at baseURL
@@ -164,6 +165,14 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if p == "/api/settings" || p == "/api/settings/check" || p == "/api/settings/network" {
 		s.settingsAPI(w, r)
+		return
+	}
+	if p == "/ca" && r.Method == http.MethodGet {
+		s.caPage(w, r)
+		return
+	}
+	if p == "/ca.crt" && r.Method == http.MethodGet {
+		s.caFile(w)
 		return
 	}
 	if p == "/settings" && r.Method == http.MethodGet {

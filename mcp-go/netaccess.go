@@ -27,6 +27,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -147,6 +148,8 @@ type exposure struct {
 	poke   chan struct{}
 	// where calls' TCP connections go (meet.go); nil: closed
 	ice atomic.Pointer[chanListener]
+	// https:// on the same port (owncert.go); nil: http:// only
+	tls atomic.Pointer[tls.Config]
 }
 
 func newExposure(srv *http.Server, port string, p *netPolicy) *exposure {
@@ -416,8 +419,9 @@ func (x *exposure) refused(ip net.IP) {
 
 // sniffed hands a connection to calls (meet.go) when it is one: ICE over
 // TCP (RFC 4571) starts with a two-byte length, and the first message, a
-// STUN request, is far under 256 bytes, so its first byte is 0. HTTP starts
-// with a letter (and TLS with 22). The first byte is waited for apart from
+// STUN request, is far under 256 bytes, so its first byte is 0. TLS starts
+// with 22 (a handshake record): https:// with the server's own certificate
+// (owncert.go). HTTP starts with a letter. The first byte is waited for apart from
 // Accept, so a page slow to send does not hold up the others.
 type sniffed struct {
 	net.Listener
@@ -470,13 +474,21 @@ func (s *sniffed) route(c net.Conn) {
 		return
 	}
 	c.SetReadDeadline(time.Time{})
-	pc := &peeked{Conn: c, first: b[:]}
-	if b[0] == 0 {
+	var pc net.Conn = &peeked{Conn: c, first: b[:]}
+	switch b[0] {
+	case 0:
 		if l := s.x.ice.Load(); l != nil && l.give(pc) {
 			return
 		}
 		c.Close()
 		return
+	case 22:
+		cfg := s.x.tls.Load()
+		if cfg == nil {
+			c.Close()
+			return
+		}
+		pc = tls.Server(pc, cfg)
 	}
 	select {
 	case s.ch <- pc:
