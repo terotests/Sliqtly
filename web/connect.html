@@ -46,6 +46,8 @@
   pre { position: relative; font: 13.5px/1.65 var(--mono); color: var(--paper); background: #0e0e10; border: 1px solid var(--line-2); padding: 14px 16px; overflow-x: auto; margin: 12px 0 18px; }
   pre code { background: none; border: 0; padding: 0; font-size: 13.5px; }
   pre button.copy { position: absolute; top: 8px; right: 8px; background: #0e0e10; }
+  .demo-warn { margin: 0 0 16px; padding: 14px 18px; border: 1px solid #ff6b5a; color: var(--paper); font-size: 15px; }
+  .demo-warn b, .demo-warn strong { color: #ff8a7d; }
   .note { color: var(--dimmer); font-size: 15px; }
   .note.local { border-left: 2px solid var(--accent); padding-left: 12px; color: var(--dim); }
   blockquote { margin: 10px 0; padding: 4px 0 4px 16px; border-left: 2px solid var(--accent); color: var(--paper); }
@@ -60,6 +62,7 @@
   <p class="lead">Connect Sliqtly to your assistant and ask it for a presentation. It writes the slides in Markdown, picks a theme, adds CSS, pictures, charts and diagrams, and gives you a link that opens the finished presentation.</p>
 
   <div class="url"><code id="server">https://sliqtly.com/mcp</code><button class="copy" data-copy="server">Copy</button></div>
+  <p class="demo-warn"><strong>The cloud service at sliqtly.com is a demo, not for private data.</strong> Every presentation made there can be opened by anyone who has its link, even though the link is not listed anywhere. For private material, <a href="/local.html">run Sliqtly locally</a>.</p>
   <p class="note local">Running Sliqtly locally? The address is <code>http://localhost:8080/mcp</code> (another port if you chose one); see <a href="/local.html">how to run it locally</a>.</p>
 
   <nav class="clients" aria-label="Clients">
@@ -79,7 +82,7 @@
       <li>Open <b>Customize → Connectors</b> (in older versions <b>Settings → Connectors</b>).</li>
       <li>Click <b>Add custom connector</b>.</li>
       <li>Name: <code>Sliqtly</code>. URL: <code>https://sliqtly.com/mcp</code>.</li>
-      <li>Authentication: <b>Sign in now</b> keeps the presentations in your own Sliqtly account (Google). <b>No sign-in</b> works too, for text only: the presentations then belong to no account, are open to anyone with their link, and are deleted 30 days after their last change. Pictures and data files need sign-in.</li>
+      <li>Authentication: <b>Sign in now</b> keeps the presentations in your own Sliqtly account (Google), so only you can change them; anyone with a link can still view them. <b>No sign-in</b> works too, for text only: the presentations then belong to no account, are open to anyone with their link, and are deleted 30 days after their last change. Pictures and data files need sign-in.</li>
       <li>Click <b>Add</b>, and with sign-in, <b>Connect</b>: a Sliqtly page asks you to continue with Google.</li>
     </ol>
     <h3>Team and Enterprise</h3>
