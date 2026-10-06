@@ -1,0 +1,142 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- sliqtly.com/local.html: how to run the Personal package
+     (sliqtly-personal, mcp-go/packaging/build-deb.sh EDITION=personal) on
+     Ubuntu or Debian. The front page's "Get Local" section links here. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Run Sliqtly locally</title>
+<meta name="description" content="Install the Sliqtly Personal server on Ubuntu or Debian, connect your AI agent over MCP, change the port and manage the service." />
+<meta name="theme-color" content="#070708" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<style>
+  :root {
+    --accent: #c8ff3c; --ink: #070708; --paper: #eeeee8; --dim: #9a9ca3; --dimmer: #6c6e75;
+    --line: rgba(255, 255, 255, .10); --line-2: rgba(255, 255, 255, .20);
+    --grotesk: "Helvetica Neue", "Arial Nova", "Inter", Helvetica, Arial, sans-serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--ink); color: var(--paper); }
+  body { font: 400 16.5px/1.65 var(--sans); -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .nav { display: flex; align-items: center; gap: 10px; padding: 13px clamp(16px, 5vw, 60px); border-bottom: 1px solid var(--line); }
+  .nav a { display: flex; align-items: center; gap: 10px; color: var(--paper); text-decoration: none; font: 700 16px/1 var(--grotesk); }
+  .nav img { width: 22px; height: 22px; }
+  main { max-width: 860px; margin: 0 auto; padding: clamp(40px, 6vw, 80px) 16px 80px; }
+  .label { font: 400 11.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin: 0 0 16px; }
+  h1 { font: 800 clamp(38px, 6vw, 72px)/1 var(--grotesk); letter-spacing: -.04em; margin: 0 0 20px; }
+  h2 { font: 800 clamp(24px, 3vw, 32px)/1.1 var(--grotesk); letter-spacing: -.02em; margin: 56px 0 14px; padding-top: 28px; border-top: 1px solid var(--line); }
+  p, li { color: var(--dim); }
+  strong { color: var(--paper); font-weight: 600; }
+  code { font: .88em var(--mono); color: var(--paper); background: rgba(255, 255, 255, .06); border: 1px solid var(--line); padding: .05em .35em; overflow-wrap: anywhere; }
+  pre { font: 13.5px/1.65 var(--mono); color: var(--paper); background: #0e0e10; border: 1px solid var(--line-2); padding: 14px 16px; overflow-x: auto; margin: 12px 0 18px; }
+  pre code { background: none; border: 0; padding: 0; }
+  pre .c { color: var(--dimmer); }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; margin: 12px 0 18px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font: 400 12px/1.4 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+  td:first-child { white-space: nowrap; }
+  .tablebox { overflow-x: auto; border: 1px solid var(--line-2); }
+  .tablebox table { margin: 0; min-width: 560px; }
+  .note { border-left: 2px solid var(--accent); padding: 4px 0 4px 16px; }
+  .btn { display: inline-flex; align-items: center; height: 46px; padding: 0 22px; margin: 8px 8px 0 0; font: 600 14px/1 var(--mono); text-decoration: none; border: 1px solid var(--line-2); color: var(--paper); }
+  .btn--solid { background: var(--accent); border-color: var(--accent); color: var(--ink); }
+</style>
+</head>
+<body>
+<header class="nav"><a href="/"><img src="/favicon.svg" alt="" width="22" height="22" />Sliqtly</a></header>
+<main>
+  <p class="label">Sliqtly Personal · Ubuntu and Debian</p>
+  <h1>Run Sliqtly locally.</h1>
+  <p>The Personal package is the Sliqtly server for one computer: the MCP endpoint your agent writes presentations through, and a viewer that plays them in your browser. It runs as a system service and keeps the presentations on your own disk.</p>
+  <p>
+    <a class="btn btn--solid" href="/download/sliqtly-personal_amd64.deb" download>Download (.deb, amd64)</a>
+    <a class="btn" href="/download/sliqtly-personal_arm64.deb" download>ARM (arm64)</a>
+  </p>
+
+  <h2>1. Install</h2>
+  <pre><code>curl -fLo /tmp/sliqtly-personal.deb https://sliqtly.com/download/sliqtly-personal_amd64.deb
+sudo apt install /tmp/sliqtly-personal.deb</code></pre>
+  <p>On an ARM computer (a Raspberry Pi with a 64-bit system, an ARM laptop) take <code>sliqtly-personal_arm64.deb</code>. The service starts right away and again at every boot. Open <a href="http://localhost:8080/">http://localhost:8080/</a>: the page lists your presentations, and each one plays in the viewer.</p>
+
+  <h2>2. Connect your agent</h2>
+  <p>The MCP endpoint is <code>http://localhost:8080/mcp</code>.</p>
+  <p><strong>Claude Code</strong></p>
+  <pre><code>claude mcp add --transport http sliqtly http://localhost:8080/mcp</code></pre>
+  <p><strong>Cursor</strong> (<code>~/.cursor/mcp.json</code>)</p>
+  <pre><code>{
+  "mcpServers": {
+    "sliqtly": { "url": "http://localhost:8080/mcp" }
+  }
+}</code></pre>
+  <p><strong>VS Code</strong> (<code>.vscode/mcp.json</code>)</p>
+  <pre><code>{
+  "servers": {
+    "sliqtly": { "type": "http", "url": "http://localhost:8080/mcp" }
+  }
+}</code></pre>
+  <p><strong>Claude Desktop</strong>, which starts its servers as programs (needs Node.js)</p>
+  <pre><code>{
+  "mcpServers": {
+    "sliqtly": { "command": "npx", "args": ["-y", "mcp-remote", "http://localhost:8080/mcp"] }
+  }
+}</code></pre>
+  <p class="note">Agents that run in their vendor's cloud (claude.ai connectors, ChatGPT) cannot reach a server on your own computer. Use a local client, or the hosted service at <code>https://sliqtly.com/mcp</code>.</p>
+
+  <h2>3. Use the service</h2>
+  <pre><code>systemctl status sliqtly          <span class="c"># is it running, and since when</span>
+sudo systemctl restart sliqtly    <span class="c"># after changing the settings</span>
+sudo systemctl stop sliqtly       <span class="c"># stop it for now</span>
+sudo systemctl start sliqtly
+sudo systemctl disable sliqtly    <span class="c"># do not start it at boot</span>
+sudo systemctl enable sliqtly     <span class="c"># start it at boot again</span>
+journalctl -u sliqtly -f          <span class="c"># follow its log</span></code></pre>
+
+  <h2>4. Choose the port</h2>
+  <p>The settings are in <code>/etc/sliqtly/sliqtly.env</code>. To use port 8090 instead of 8080:</p>
+  <pre><code>sudo nano /etc/sliqtly/sliqtly.env      <span class="c"># set PORT=8090</span>
+sudo systemctl restart sliqtly</code></pre>
+  <p>Then open <code>http://localhost:8090/</code> and point your agent at <code>http://localhost:8090/mcp</code>. A port below 1024 needs extra rights; pick one above it.</p>
+  <div class="tablebox"><table>
+    <thead><tr><th>Setting</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>PORT</code></td><td>8080</td><td>The port the server listens on.</td></tr>
+      <tr><td><code>SLIQTLY_LISTEN</code></td><td><code>local</code></td><td>Who can connect: <code>local</code> (this computer only), <code>wired</code> (also computers on a wired network) or <code>network</code> (every interface).</td></tr>
+      <tr><td><code>SLIQTLY_ALLOW</code></td><td>empty</td><td>With <code>wired</code> or <code>network</code>: only these address ranges, e.g. <code>192.168.1.0/24</code>.</td></tr>
+      <tr><td><code>SLIQTLY_URL</code></td><td><code>http://localhost:&lt;port&gt;</code></td><td>The address in the links the server gives, e.g. <code>http://my-pc:8080</code> when other computers use it.</td></tr>
+      <tr><td><code>SLIQTLY_TOKEN</code></td><td>empty</td><td>When set, <code>/mcp</code> needs <code>Authorization: Bearer &lt;token&gt;</code>.</td></tr>
+      <tr><td><code>SLIQTLY_DATA</code></td><td><code>/var/lib/sliqtly</code></td><td>Where the presentations are kept.</td></tr>
+      <tr><td><code>SLIQTLY_BACKUP</code></td><td><code>/var/lib/sliqtly-backup</code></td><td>A daily backup of the presentations; empty turns it off.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>5. Other computers</h2>
+  <p>By default only your own computer can connect. To let others on your network use it, set in <code>/etc/sliqtly/sliqtly.env</code>:</p>
+  <pre><code>SLIQTLY_LISTEN=network
+SLIQTLY_ALLOW=192.168.1.0/24
+SLIQTLY_URL=http://my-pc:8080
+SLIQTLY_TOKEN=a-long-random-secret</code></pre>
+  <p>and restart the service. Agents on those computers then add the header <code>Authorization: Bearer a-long-random-secret</code> (Claude Code: <code>--header "Authorization: Bearer …"</code>).</p>
+  <p class="note">The token protects the MCP endpoint only. Anyone who can reach the server can open the presentations on it, so open it only on a network you trust.</p>
+
+  <h2>6. Presentations and backups</h2>
+  <p>Presentations live in <code>/var/lib/sliqtly</code>, and a backup is taken every day into <code>/var/lib/sliqtly-backup</code> (mount another disk there to keep it apart). To see and check the backups:</p>
+  <pre><code>sudo sliqtly-server backup list -repo /var/lib/sliqtly-backup
+sudo sliqtly-server backup verify -repo /var/lib/sliqtly-backup</code></pre>
+
+  <h2>7. Update or remove</h2>
+  <p>To update, download the newest package and install it the same way. The service restarts by itself, and your presentations and settings stay.</p>
+  <pre><code>sudo apt remove sliqtly-personal    <span class="c"># stops it; the presentations stay</span>
+sudo apt purge sliqtly-personal     <span class="c"># also removes /etc/sliqtly</span></code></pre>
+  <p>Removing the package leaves <code>/var/lib/sliqtly</code> as it is, so you can keep or delete the presentations yourself.</p>
+
+  <h2>License</h2>
+  <p>Free for personal use and qualifying solo businesses with annual gross revenue below €200,000. All other commercial use requires a commercial license. <a href="/personal-license.txt">Read the license</a>. Sliqtly is experimental software, provided as is; see the <a href="/#terms">terms</a>.</p>
+</main>
+</body>
+</html>
