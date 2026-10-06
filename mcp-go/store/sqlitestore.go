@@ -75,6 +75,22 @@ CREATE TABLE file_lines (
   line TEXT NOT NULL,
   PRIMARY KEY (path, n)
 ) WITHOUT ROWID;`)},
+	{Version: 2, Note: "rooms' chat messages", Up: SQLExec(`
+-- one row per message (chat.go): seq orders a room's messages, a reply
+-- names its root's id in thread ("" at the top level); doc is the message
+-- as JSON
+CREATE TABLE chat_msgs (
+  tenant TEXT NOT NULL,
+  room   TEXT NOT NULL,
+  seq    INTEGER NOT NULL,
+  id     TEXT NOT NULL,
+  thread TEXT NOT NULL,
+  at     INTEGER NOT NULL,
+  doc    TEXT NOT NULL,
+  PRIMARY KEY (tenant, room, seq)
+) WITHOUT ROWID;
+CREATE UNIQUE INDEX chat_msgs_id ON chat_msgs (tenant, room, id);
+CREATE INDEX chat_msgs_thread ON chat_msgs (tenant, room, thread, seq);`)},
 }
 
 // OpenSQLiteStore opens (or creates) the documents in the SQLite file at path.

@@ -679,7 +679,18 @@ try {
     await page.keyboard.press("ArrowRight");
     await settle();
     const stepped = await at();
-    check("presenting from the editor shows the bar with \"n / N\", without the … menu", start.bar === "flex" && start.more === "none" && start.label === "1 / " + start.count, JSON.stringify(start));
+    check("presenting from the editor shows the bar with \"n / N\" and the … menu", start.bar === "flex" && start.more !== "none" && start.label === "1 / " + start.count, JSON.stringify(start));
+    // its … menu: only Speaker view and Auto-advance, and Speaker view switches it
+    await press("#vMore");
+    const sp = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll("#vMenu > *")].filter((e) => getComputedStyle(e).display !== "none").map((e) => e.dataset.act || e.tagName);
+      document.querySelector('#vMenu [data-act="speaker"]').click();
+      const on = window.__app.speakerOn();
+      window.__app.setSpeaker(false);
+      document.getElementById("keys").focus();
+      return { rows, on };
+    });
+    check("…the editor's … menu has Speaker view and Auto-advance, and switches the speaker view", sp.on && sp.rows.join() === "speaker,auto", JSON.stringify(sp));
     check("PageDown goes a whole slide on, its builds shown", paged.slide === 2 && paged.step === paged.steps && !paged.end && paged.label === "3 / " + paged.count, JSON.stringify(paged));
     check("PageUp a whole slide back", pagedBack.slide === 1 && pagedBack.step === pagedBack.steps, JSON.stringify(pagedBack));
     check("End is the last slide, Home the first from its start", last.slide === last.count - 1 && !last.end && home.slide === 0 && home.step === 0, JSON.stringify({ last, home }));
