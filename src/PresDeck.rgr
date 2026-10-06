@@ -222,6 +222,8 @@ class PresDeck {
     ; and `diagram-style:` say it for one kind only (`docChartStyle`,
     ; `docDiagramStyle`, which `style:` fills when they are not given).
     def docStyle:string ""
+    ; the front matter's `lang:` (fi, sv, de…): how the charts write numbers
+    def docLang:string ""
     def docChartStyle:string ""
     def docDiagramStyle:string ""
     ; The whole of a chart's cut words (an axis title too long even on two
@@ -1530,6 +1532,14 @@ class PresDeck {
             if ((strlen parts) > 0) { parts = (parts + ", ") }
             parts = (parts + "\"axis\": " + guide + ", \"legend\": " + guide)
         }
+        ; every chart's: the deck's numbers and colours (`chartLook`)
+        if roomy {
+            def look:string (this.chartLook())
+            if ((strlen look) > 0) {
+                if ((strlen parts) > 0) { parts = (parts + ", ") }
+                parts = (parts + look)
+            }
+        }
         def out:string ""
         if ((strlen parts) > 0) {
             out = ("\"config\": {" + parts + "}")
@@ -1559,6 +1569,125 @@ class PresDeck {
             return ""
         }
         return ("{" + out + "}")
+    }
+
+    ; What every chart in the deck shares, as `config` members:
+    ; - its numbers in the deck's language (`lang: fi` → 50 292 and 552,66,
+    ;   thousands grouped in value labels too), so a chart needs no format
+    ;   of its own to read right in Finnish;
+    ; - its categories in the theme's colours: the chart colour first (what a
+    ;   one-series chart is drawn in) and its accent, then `figure { colors }`,
+    ;   then Vega's own to make up ten. Left to Vega, a chart coloured by category came
+    ;   out blue and orange beside the theme's columns on the next slide.
+    fn chartLook:string () {
+        def out:string ""
+        def loc:string (PresDeck.numberLocale(docLang))
+        if ((strlen loc) > 0) {
+            out = ("\"locale\": {\"number\": " + loc + "}, ")
+        }
+        if ((strlen docLang) > 0) {
+            out = (out + "\"numberFormat\": \",\", ")
+        }
+        def cols:[string]
+        push cols (this.chartColour("color"))
+        push cols (this.chartColour("accent-color"))
+        def fig:MdFigureStyle (this.figureStyle())
+        for fig.colors fc:string fci {
+            push cols fc
+        }
+        def vega:[string] (strsplit "#4c78a8 #f58518 #e45756 #72b7b2 #54a24b #eeca3b #b279a2 #ff9da6 #9d755d #bab0ac" " ")
+        for vega vc:string vci {
+            push cols vc
+        }
+        def picked:[string]
+        def seen:string " "
+        for cols c0:string ci {
+            def c:string (MdHtml.lower((trim c0)))
+            if ((((indexOf c "#") == 0) && ((indexOf seen (" " + c + " ")) < 0)) && ((array_length picked) < 10)) {
+                if (((strlen c) == 4) || ((strlen c) == 7)) {
+                    push picked ("\"" + c + "\"")
+                    seen = (seen + c + " ")
+                }
+            }
+        }
+        if ((array_length picked) > 0) {
+            out = (out + "\"range\": {\"category\": [" + (join picked ", ") + "]}")
+        }
+        if ((strlen out) > 0) {
+            if ((lastIndexOf out ", ") == ((strlen out) - 2)) {
+                out = (substring out 0 ((strlen out) - 2))
+            }
+        }
+        return out
+    }
+
+    ; One key of the text's front matter (the `---` block it opens with),
+    ; read from the text itself: the charts' defaults are set before the
+    ; layout parses the new text.
+    sfn frontMatterValue:string (text:string key:string) {
+        if ((indexOf text "---") != 0) {
+            return ""
+        }
+        def nl:int (indexOf text "\n")
+        if (nl < 0) {
+            return ""
+        }
+        def rest:string (substring text (nl + 1) (strlen text))
+        def end:int (indexOf rest "\n---")
+        def block:string rest
+        if ((indexOf rest "---") == 0) {
+            block = ""
+        } {
+            if (end < 0) {
+                return ""
+            }
+            block = (substring rest 0 end)
+        }
+        def meta (new MdMeta())
+        MdFrontMatter.parseInto(block meta)
+        return (trim (meta.get(key "")))
+    }
+
+    ; The chart colour (`color`) or its accent (`accent-color`) as the
+    ; charts are painted in it: the theme's, else PresChart.dress's own
+    ; fallback. A theme with no chart rule (corporate) drew its charts in
+    ; that fallback and its figures in MdFigureStyle's blue: two palettes.
+    fn chartColour:string (prop:string) {
+        def c:string (trim (this.themeColour("chart" prop)))
+        if ((strlen c) > 0) {
+            return c
+        }
+        if (prop == "color") {
+            return "#B96926"
+        }
+        return "#59C3C4"
+    }
+
+    ; d3-format's number locale (decimal mark, thousands separator) for a
+    ; language code ("fi", "sv-SE", "de"), as JSON; "" for English and for
+    ; the languages it does not know.
+    sfn numberLocale:string (lang:string) {
+        def l:string (MdHtml.lower((trim lang)))
+        def dash:int (indexOf l "-")
+        if (dash < 0) {
+            dash = (indexOf l "_")
+        }
+        if (dash > 0) {
+            l = (substring l 0 dash)
+        }
+        ; a space between the thousands (no-break, so a number stays whole)
+        def spaced:string " fi sv nb nn no fr et cs sk pl ru uk lv lt hu bg "
+        def dotted:string " de da nl es it pt id tr el ro hr sl sr is "
+        if ((strlen l) == 0) {
+            return ""
+        }
+        if ((indexOf spaced (" " + l + " ")) >= 0) {
+            return "{\"decimal\": \",\", \"thousands\": \"\\u00a0\"}"
+        }
+        if ((indexOf dotted (" " + l + " ")) >= 0) {
+            return "{\"decimal\": \",\", \"thousands\": \".\"}"
+        }
+        return ""
     }
 
     ; The anchors the theme has chart rules for ("#a", "#b").
@@ -1809,6 +1938,7 @@ class PresDeck {
         }
         def e:MarkdownEdit md.edit
         e.open(masked)
+        docLang = (PresDeck.frontMatterValue(masked "lang"))
         e.slideMode = true
         ; a reference to a drawing takes no room: it is drawn over the slide
         if ((indexOf e.layout.overlayTypes (PresSketch.TYPE())) < 0) {
@@ -2729,10 +2859,10 @@ class PresDeck {
             def c1:string (trim (this.themeRule("figure" "color")))
             def c2:string (trim (this.themeRule("figure" "accent-color")))
             if ((strlen c1) == 0) {
-                c1 = (trim (this.themeColour("chart" "color")))
+                c1 = (this.chartColour("color"))
             }
             if ((strlen c2) == 0) {
-                c2 = (trim (this.themeColour("chart" "accent-color")))
+                c2 = (this.chartColour("accent-color"))
             }
             if ((strlen c1) > 0) {
                 push cols c1

@@ -63,6 +63,53 @@ Speaker notes. Not shown on the slide.
 - Keep a slide short: a heading and 3–6 bullets, or a heading and one
   picture, chart, table or diagram. A slide that runs over is split.
 
+## Designing the deck
+
+The theme gives fonts, colours and spacing; what makes a deck look finished
+is how each slide uses them. Before writing, decide the story: one finding
+per slide, in order.
+
+- **The conclusion under the title.** Every content slide has a short
+  heading (the topic) and, under it, one sentence saying what the slide
+  shows, as a lead: `## Sales by country` then
+  `The four largest countries bring half of the total.` and `{.lead}`.
+  The reader gets the point before the chart.
+- **Key figures as cards, not bullets.** A ```` ```stats ```` fence draws
+  each `Number: label` line as a card with the number large (up to four in
+  a row, then rows of three or four), in the theme's colour, in the PDF and
+  PowerPoint too:
+
+  ````markdown
+  ```stats
+  - 91: customers
+  - 50 292: transactions in all
+  - 552,66: mean per customer
+  ```
+  ````
+- **One palette for the whole deck.** Leave chart colours to the theme:
+  a one-series chart is drawn in the theme's chart colour and a chart
+  coloured by category in the theme's palette (chart colour first), the
+  same on every slide. Do not set `scheme`, `range` or a mark `color` per
+  chart. To make a point, colour the few marks that matter and leave the
+  rest in the second colour: colour by a computed field
+  (`"calculate": "datum.rank <= 4 ? 'Top 4' : 'Others'"`) with
+  `"legend": null`.
+- **A chart with a side card.** Under the chart `{width=62%}`, then the
+  takeaway as a short list or paragraph: it stands beside the chart, not
+  under it. `{container=box background=#00000010}` under it sets it on a
+  card (on a dark theme `#ffffff14`).
+- **Numbers in the deck's language.** `lang: fi` in the front matter (or
+  `sv`, `de`, `fr`…) writes every chart's numbers that language's way
+  (`50 292`, `552,66`), axes, value labels and tooltips alike, with no
+  `format` in the charts. Write the numbers in the text the same way.
+- **Title and closing slides** stay short: the `#` title with one `.lead`
+  line; the last slide the conclusions or next steps, 3–4 lines.
+- Fill the slide: one chart takes its room; a lone short list or a few
+  words on an otherwise empty slide reads unfinished. Two related small
+  things go side by side (`.c2`), not on two slides.
+- Look at `render_overview` before saying the deck is done: same colours
+  on every slide, nothing small or crowded, no slide mostly empty.
+
 ## Pictures
 
 Write `![Alt text](media/<name>)` and pass the picture in the tool call's
@@ -170,7 +217,10 @@ pictures under 300 dpi in print ("media/sauna.jpg: 180 dpi in print, under
 
 - Charts: a ```` ```vega-lite ```` fence with a Vega-Lite JSON spec. Bar,
   line, area, point, arc (pie) and more. Use
-  `"background": "rgba(0,0,0,0)"` so the theme shows through. An encoding's
+  `"background": "rgba(0,0,0,0)"` so the theme shows through. Value labels
+  beside bars are a layer of `bar` and a layer of `text` sharing the
+  encoding; a `"sort": "-x"` on the shared `y` orders both. Numbers follow
+  the front matter's `lang:` (see Designing the deck). An encoding's
   `type` is `quantitative`, `ordinal`, `nominal` or `temporal` (never
   `"point"`: that puts every mark at 0). The data is
   inline `data.values`, or live, read each time the deck opens:
@@ -306,7 +356,8 @@ pictures under 300 dpi in print ("media/sauna.jpg: 180 dpi in print, under
 - Tables: ordinary Markdown tables, or HTML `<table>` with `rowspan`/`colspan`.
 - Layouts from lists: a ```` ```process ```` fence (chevron steps),
   ```` ```swot ```` (a 2×2 grid of four items: Strengths, Weaknesses,
-  Opportunities, Threats) or ```` ```timeline ````, one item per
+  Opportunities, Threats), ```` ```timeline ```` or ```` ```stats ````
+  (key figures as cards, `Number: label`), one item per
   line as `Title: description`; an indented `- point` belongs to the item
   above. `{width=60%}` under the fence makes it narrower. They are drawn in
   the theme's colours and go into the PDF and PowerPoint as shapes, for
