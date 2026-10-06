@@ -229,6 +229,16 @@ function link(target, at) {
   log(`link   ${at} → ${target}`);
 }
 
+/**
+ * Heap for the Ranger compiler, in MB. PresApp pulls in some 16 MB of Ranger
+ * source and its compile holds 4-5 GB at its peak; Node's default limit
+ * depends on the machine (about 4 GB on many Macs, more on others), so the
+ * same build passed on one machine and ran out of memory on another. The
+ * limit is a ceiling, not memory taken up front. NODE_OPTIONS with its own
+ * --max-old-space-size wins.
+ */
+const COMPILER_HEAP_MB = 8192;
+
 /** Compile one Ranger file of src/ to `out` (absolute). */
 export function compile(ranger, file, out, flag = "") {
   fs.mkdirSync(path.dirname(out), { recursive: true });
@@ -237,7 +247,8 @@ export function compile(ranger, file, out, flag = "") {
   const name = path.basename(out);
   const staged = path.join(stage, name);
   fs.rmSync(staged, { force: true });
-  const args = ["dist/rgrc.js", "-es6", ...(flag ? [flag] : []), `./${LINK}/${file}`, `-d=./gallery/presentation-build`, `-o=${name}`];
+  const heap = /--max-old-space-size/.test(process.env.NODE_OPTIONS || "") ? [] : [`--max-old-space-size=${COMPILER_HEAP_MB}`];
+  const args = [...heap, "dist/rgrc.js", "-es6", ...(flag ? [flag] : []), `./${LINK}/${file}`, `-d=./gallery/presentation-build`, `-o=${name}`];
   const t0 = Date.now();
   const r = spawnSync(process.execPath, args, {
     cwd: ranger,
@@ -249,7 +260,11 @@ export function compile(ranger, file, out, flag = "") {
   if (r.status !== 0 || /Compilation FAILED/.test(text) || !fs.existsSync(staged)) {
     const lines = text.split("\n");
     const at = lines.findIndex((l) => /\[FAIL\]/.test(l));
-    const show = at >= 0 ? lines.slice(Math.max(0, at - 6), at + 8) : lines.slice(-30);
+    // A crash of Node itself ends in its native stack, which says nothing;
+    // the reason is the FATAL ERROR line above it.
+    const fatal = lines.findIndex((l) => /FATAL ERROR|RangeError|out of memory/.test(l));
+    const show = at >= 0 ? lines.slice(Math.max(0, at - 6), at + 8) : fatal >= 0 ? lines.slice(Math.max(0, fatal - 2), fatal + 3) : lines.slice(-30);
+    if (/out of memory/.test(text)) show.push(`The compiler ran out of heap; raise it with NODE_OPTIONS=--max-old-space-size=<MB> (default here ${COMPILER_HEAP_MB}).`);
     throw new Error(`compile ${file} failed:\n${show.join("\n")}`);
   }
   fs.copyFileSync(staged, out);
