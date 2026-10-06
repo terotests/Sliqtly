@@ -44,6 +44,7 @@ function world({ socketsWork = true } = {}) {
     changed: (id) => w.log.push("changed " + id),
     open: () => w.log.push("open"),
     lost: () => w.log.push("lost"),
+    chat: (v) => w.log.push("chat " + v.t + " " + (v.room || "")),
   };
   w.socketsWork = socketsWork;
   w.open = () => w.sockets.filter((s) => !s.closed);
@@ -188,4 +189,24 @@ test("no WebSocket at all: events from the start", () => {
   w.env.WebSocket = undefined;
   new EventLine(w.env, w.on).start();
   assert.equal(w.sources.length, 1);
+});
+
+test("rooms' chat events come on the same stream, socket and events alike", () => {
+  const w = world();
+  const line = new EventLine(w.env, w.on);
+  line.start();
+  const s = w.sockets[0];
+  s.up();
+  s.send({ k: "chat", v: { t: "msg", room: "r1", msg: { id: "m1" } } });
+  s.send({ k: "chat", v: { t: "here", room: "r1", here: 2 } });
+  s.send({ k: "chat", v: {} });
+  assert.deepEqual(w.log, ["open", "chat msg r1", "chat here r1"]);
+
+  const sse = new EventLine({ ...w.env, WebSocket: undefined }, w.on);
+  sse.start();
+  const es = w.sources[0];
+  w.log.length = 0;
+  es.named.chat({ data: JSON.stringify({ t: "msg", room: "r2" }) });
+  es.named.chat({ data: "not json" });
+  assert.deepEqual(w.log, ["chat msg r2"]);
 });

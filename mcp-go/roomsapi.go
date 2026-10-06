@@ -29,6 +29,11 @@ type roomService struct {
 	rooms store.Rooms
 	links store.Links
 	types *store.LinkTypes
+	// the rooms' chat (roomchat.go): nil where none is kept
+	chat     store.ChatLog
+	presence chatPresence
+	// tells the pages a chat event of a room (localevents.go); nil: none
+	notify func(room string, v map[string]any)
 }
 
 // nil where decks are not kept in a store of rooms (the cloud for now)
@@ -43,6 +48,7 @@ func newRoomService(env *Env) *roomService {
 		rooms: store.Rooms{S: st},
 		links: store.Links{S: st, Types: types, Resolve: resolveRef},
 		types: types,
+		chat:  env.Chat,
 	}
 }
 
@@ -71,6 +77,8 @@ type roomTool struct {
 	required          []string
 	readOnly          bool
 	destructive       bool
+	// the page's only (POST /api/rooms/<op>), not an assistant's tool
+	pageOnly bool
 }
 
 func strProp(desc string) map[string]any {
@@ -128,19 +136,36 @@ var roomTools = []roomTool{
 		required: []string{"ref"}},
 }
 
+// every operation: the rooms' and their chat's (roomchat.go)
+func allRoomTools() []roomTool { return append(append([]roomTool{}, roomTools...), chatTools...) }
+
 func findRoomTool(name string) bool {
-	for _, t := range roomTools {
+	_, ok := roomToolOf(name)
+	return ok
+}
+
+func roomToolOf(name string) (roomTool, bool) {
+	for _, t := range allRoomTools() {
 		if t.name == name {
-			return true
+			return t, true
 		}
 	}
-	return false
+	return roomTool{}, false
+}
+
+// one of the assistant's tools (not the page's own)
+func findMcpRoomTool(name string) bool {
+	t, ok := roomToolOf(name)
+	return ok && !t.pageOnly
 }
 
 // the MCP tool list's entries
 func (s *roomService) toolsJSON() []any {
 	var out []any
-	for _, t := range roomTools {
+	for _, t := range allRoomTools() {
+		if t.pageOnly {
+			continue
+		}
 		props := t.props
 		if props == nil {
 			props = map[string]any{}
@@ -178,9 +203,21 @@ func argBool(a map[string]any, k string, def bool) bool {
 
 func millisOf(v any) int64 { return millis(v) }
 
-// call runs op for uid. → a JSON-able answer
+// call runs op for uid, as an assistant's tool. → a JSON-able answer
 func (s *roomService) call(ctx context.Context, uid, op string, a map[string]any) (any, error) {
-	if !findRoomTool(op) {
+	return s.callVia(ctx, uid, viaMcp, op, a)
+}
+
+// who is calling: an assistant (MCP) or the page; an assistant's chat
+// messages are a robot's, the page's a person's
+const (
+	viaMcp  = "mcp"
+	viaPage = "page"
+)
+
+func (s *roomService) callVia(ctx context.Context, uid, via, op string, a map[string]any) (any, error) {
+	t, ok := roomToolOf(op)
+	if !ok || (t.pageOnly && via != viaPage) {
 		return nil, roomErr{"no such operation: " + op}
 	}
 	if uid == "" {
@@ -190,16 +227,17 @@ func (s *roomService) call(ctx context.Context, uid, op string, a map[string]any
 	if err != nil {
 		return nil, err
 	}
-	for _, t := range roomTools {
-		if t.name == op {
-			for _, k := range t.required {
-				if _, ok := a[k]; !ok {
-					return nil, roomErr{k + " is missing"}
-				}
-			}
+	for _, k := range t.required {
+		if _, ok := a[k]; !ok {
+			return nil, roomErr{k + " is missing"}
 		}
 	}
-	out, err := s.run(ctx, p, op, a)
+	var out any
+	if isChatTool(op) {
+		out, err = s.runChat(ctx, p, via, op, a)
+	} else {
+		out, err = s.run(ctx, p, op, a)
+	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return nil, roomErr{"not found, or not yours to see"}

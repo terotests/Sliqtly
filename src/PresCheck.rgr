@@ -3,9 +3,12 @@
 Import "PresTimeline.rgr"
 Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
+Import "PresSelect.rgr"
 Import "PresDocSettings.rgr"
 Import "PresHints.rgr"
+Import "PresHelp.rgr"
 Import "PresFlowModel.rgr"
+Import "PresThemeEdit.rgr"
 Import "PresGridModel.rgr"
 Import "PresControlsFade.rgr"
 Import "PresFollow.rgr"
@@ -113,6 +116,25 @@ class PresCheck {
         this.chartModel()
         this.review()
         this.reviewDiagram()
+        this.helpGuide()
+    }
+
+    ; Help → How to use Sliqtly: the guide parses as the help panel's parts
+    ; and names the speaker view's key
+    fn helpGuide:void () {
+        def p (new VlJsonParser())
+        def parts:VlJson (p.parse((PresHelp.guide())))
+        this.ok((p.ok && ((parts.count()) >= 10)) ("help guide: parts, got " + (to_string (parts.count()))))
+        def found:boolean false
+        def i:int 0
+        while (i < (parts.count())) {
+            def f:VlJson (parts.at(i))
+            if (((f.stringOr("key" "")) == "speaker") && ((indexOf (f.stringOr("syntax" "")) "S ") == 0)) {
+                found = true
+            }
+            i = (i + 1)
+        }
+        this.ok(found "help guide: speaker view with its key")
     }
 
     ; ```js {lines=2|3 .build}: the code is there from the start, and each
@@ -477,6 +499,8 @@ class PresCheck {
         this.portraitChain()
         this.diagramLooks()
         this.diagramLookHint()
+        this.themeEdit()
+        this.fenceCards()
         this.steering()
         this.diagramColour()
         this.diagramLabels()
@@ -738,6 +762,35 @@ class PresCheck {
         }
         def d:PresDiagram (itemAt s.diagrams 0).diagram
         this.ok((d.looked && (d.style == "cartoon")) ("a look in the fence's braces is drawn: " + d.style))
+    }
+
+    ; A theme property set from a card: the value replaced in place, added to
+    ; its rule, or the rule added; comments and the rest kept.
+    fn themeEdit:void () {
+        def css:string "/* the layouts ({art=waves}) */\nfigure {\n  colors: #B96926 #59C3C4;\n  font-size: 18pt;\n}\n"
+        def a:string (PresThemeEdit.setProp(css "figure" "colors" "#111111 #222222"))
+        this.ok((a == "/* the layouts ({art=waves}) */\nfigure {\n  colors: #111111 #222222;\n  font-size: 18pt;\n}\n") ("the value is replaced in place: " + a))
+        def b:string (PresThemeEdit.setProp("page { padding: 1in }\nfigure {\n  font-size: 18pt;\n}\n" "figure" "colors" "#111111"))
+        this.ok((b == "page { padding: 1in }\nfigure {\n  font-size: 18pt;\n  colors: #111111;\n}\n") ("added to its rule: " + b))
+        def c:string (PresThemeEdit.setProp("page { padding: 1in }\n" "figure" "colors" "#111111"))
+        this.ok((c == "page { padding: 1in }\n\nfigure {\n  colors: #111111;\n}\n") ("the rule is added: " + c))
+        def d:string (PresThemeEdit.setProp("figure { font-size: 18pt }" "figure" "colors" "#111111"))
+        this.ok((d == "figure { font-size: 18pt; colors: #111111; }") ("a one-line rule: " + d))
+        def e:string (PresThemeEdit.setProp("chart, figure { colors: #000000 }" "figure" "colors" "#111111"))
+        this.ok((e == "chart, figure { colors: #111111 }") ("a rule naming several: " + e))
+        this.ok(((join (PresThemeEdit.colorWords(" #a, #b  #c ")) "|") == "#a|#b|#c") "colour words")
+    }
+
+    ; Each fence's card offers what that kind of block can turn into, no more.
+    fn fenceCards:void () {
+        def tl:string (PresHints.forLine("md" "```timeline" 5 false))
+        this.ok(((indexOf tl "\"options\":[\"process\",\"swot\",\"timeline\"]") >= 0) ("a list layout: the layouts only: " + tl))
+        this.ok(((indexOf tl "\"figure\":true") >= 0) ("…and the figure colours: " + tl))
+        def code:string (PresHints.forLine("md" "```python" 5 false))
+        this.ok((((indexOf code "mermaid") < 0) && ((indexOf code "timeline") < 0)) ("code: languages only: " + code))
+        this.ok(((indexOf code "\"js\"") >= 0) ("…such as js: " + code))
+        def m:string (PresHints.forLine("md" "```math" 5 false))
+        this.ok(((indexOf m "\"options\":[]") >= 0) ("a formula: nothing to switch to: " + m))
     }
 
     fn diagramLooks:void () {
@@ -1061,6 +1114,20 @@ class PresCheck {
         this.ok(((un.facet("margin-bottom")).value == "4pt") "p margin-bottom")
         ; the universal selector reaches every rule
         this.ok((((((PresCascade.of("* { color: #010203 }")).element("p" none "")).facet("color")).value) == "#010203") "* reaches the text")
+        ; a block on a {container=…} plate: the theme's container rule, its
+        ; colour and corners
+        def pc:PresCascade (PresCascade.of("container { background-color: #ffffffcc }"))
+        def pe:PresCssElement (pc.element("p" none ""))
+        pc.plateFacets(pe)
+        this.ok((((pe.facet("plate-color")).value == "#ffffffcc") && ((pe.facet("plate-color")).own == "container")) ("plate colour: " + (pe.dump())))
+        this.ok(((pe.facet("plate-radius")).isDefault()) "plate corners unset")
+        def ps:PresSelect (new PresSelect())
+        ps.srcA = 0
+        ps.srcB = 5
+        ps.readClasses("Hello\n{container=bubble .lead}\n")
+        this.ok(((ps.plate == "bubble") && ((array_length ps.classes) == 1)) ("the pick reads the plate: " + ps.plate))
+        ps.readClasses("Hello\n{.lead}\n")
+        this.ok((ps.plate == "") "no plate, none read")
         ; and against the layout: what the slide is drawn in
         def md:string "## Otsikko\n\nTeksti tässä\n\n- kohta\n\n> lainaus\n\nIso\n{.lead}\n"
         this.ink(css1 md "h2" "" "Otsikko" "document" "a heading drawn in the document colour")

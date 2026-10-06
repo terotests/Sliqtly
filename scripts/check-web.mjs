@@ -679,7 +679,18 @@ try {
     await page.keyboard.press("ArrowRight");
     await settle();
     const stepped = await at();
-    check("presenting from the editor shows the bar with \"n / N\", without the … menu", start.bar === "flex" && start.more === "none" && start.label === "1 / " + start.count, JSON.stringify(start));
+    check("presenting from the editor shows the bar with \"n / N\" and the … menu", start.bar === "flex" && start.more !== "none" && start.label === "1 / " + start.count, JSON.stringify(start));
+    // its … menu: only Speaker view and Auto-advance, and Speaker view switches it
+    await press("#vMore");
+    const sp = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll("#vMenu > *")].filter((e) => getComputedStyle(e).display !== "none").map((e) => e.dataset.act || e.tagName);
+      document.querySelector('#vMenu [data-act="speaker"]').click();
+      const on = window.__app.speakerOn();
+      window.__app.setSpeaker(false);
+      document.getElementById("keys").focus();
+      return { rows, on };
+    });
+    check("…the editor's … menu has Speaker view and Auto-advance, and switches the speaker view", sp.on && sp.rows.join() === "speaker,auto", JSON.stringify(sp));
     check("PageDown goes a whole slide on, its builds shown", paged.slide === 2 && paged.step === paged.steps && !paged.end && paged.label === "3 / " + paged.count, JSON.stringify(paged));
     check("PageUp a whole slide back", pagedBack.slide === 1 && pagedBack.step === pagedBack.steps, JSON.stringify(pagedBack));
     check("End is the last slide, Home the first from its start", last.slide === last.count - 1 && !last.end && home.slide === 0 && home.step === 0, JSON.stringify({ last, home }));
@@ -1723,6 +1734,33 @@ try {
   check("…its colour row shows the value the slide uses and its rule, as the cascade has it", pk.headInk && pk.headInk[0] === "h2" && pk.headInk[1] === pk.headModel[1] && pk.headInk[2] === pk.headModel[2] && pk.headInk[1] !== "", JSON.stringify([pk.headInk, pk.headModel]));
   check("a list item is picked as li (text from the document, bullets from list)", pk.li.join("|") === "li|text|list" && pk.liContent.join(",") === "md,5,0,5,7", JSON.stringify([pk.li, pk.liContent]));
   check("…a paragraph with {.lead} gets the class's rule too, and Esc lets go", pk.p.join("|") === "p|.lead" && pk.cleared, JSON.stringify([pk.p, pk.cleared]));
+
+  // A paragraph on a {container=bubble} plate: laid out rounded,
+  // with its tail, under the text; picked, its Style lists the theme's
+  // container rule as well
+  {
+    const pl = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      a.showTab("md");
+      a.setSource("# D\n\n## Kupla\n\nLyhyt kupla.\n{container=bubble}\n");
+      a.selectSlide(1);
+      a.place();
+      const bx = a.deck.layout().boxes;
+      const pi = bx.findIndex((b) => b.page === a.selected && b.kind === 1 && b.radius > 0);
+      const ti = bx.findIndex((b) => b.page === a.selected && b.kind === 0 && b.text.startsWith("Lyhyt"));
+      const plate = bx[pi], text = bx[ti];
+      const r = a.slideRect, sc = a.slideScale();
+      a.pointerDown(r.x + (text.x + 4) * sc, r.y + (text.y + text.h / 2) * sc, false, 1);
+      a.pointerUp();
+      const props = a.pick.cascade(a.themeCss()).facets.map((f) => f.own + ">" + f.prop);
+      const pick = a.pick.plate;
+      a.setSource(src0);
+      return { plate: !!plate && plate.tail > 0 && pi < ti, inside: !!plate && text.x > plate.x && text.y > plate.y, at: [pi, ti], pick, props };
+    });
+    check("a {container=bubble} paragraph sits on a rounded plate with a tail, drawn under its text", pl.plate && pl.inside, JSON.stringify(pl));
+    check("…picked, its Style lists the theme's container rule", pl.pick === "bubble" && pl.props.includes("container>background-color") && pl.props.includes("container>border-radius"), JSON.stringify([pl.pick, pl.props]));
+  }
 
   // A diagram: the pointer over it outlines it before anything is picked; a
   // click picks it, and its "Settings" opens the diagram window, whose

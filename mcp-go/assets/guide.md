@@ -47,6 +47,12 @@ Speaker notes. Not shown on the slide.
   `# Title` then `{.center}` on the next line). In `css`, `text-align`
   does the same for a kind of block: `h1 { text-align: center }`,
   `.lead { text-align: center }`. Lists, tables and code stay left.
+- `container=box` or `container=bubble` under a paragraph (or a list)
+  sets it on a rounded plate so its text reads over a busy picture: `box`
+  spans the column, `bubble` is as wide as the text with a speech-bubble
+  tail. `background=#ffffffcc` picks the plate's colour (default: the
+  slide's colour, see-through; the text turns dark or light to read on
+  it). For every plate in `css`: `container { background-color; border-radius }`.
 - Effects (`fx=`): `starfield`, `plasma-wave`, `smoke`, `ambient-light`,
   `liquid-glass`, `drops` (rain running down a window),
   `raindrops2` (rain whose running drops leave lines of water), `bubbles` (round
@@ -67,7 +73,8 @@ Pictures, data files and workbooks are stored only when the user is signed
 in; without sign-in a deck is text only and is deleted 30 days after its
 last change.
 When text on a picture is hard to read ("low contrast"), raise that slide's
-`bg-dim` (0.6–0.8) with update_presentation; the picture stays as it is.
+`bg-dim` (0.6–0.8) with update_presentation, or put the text on a plate
+(`{container=box}` under it); the picture stays as it is.
 
 SVG pictures, backgrounds included:
 
@@ -532,6 +539,23 @@ Every presentation has one home room; new ones start in General.
   General.
 - `add_link` ties a room to the ticket itself: `room:<room_id>`
   `references` `jira:PROJ-123`.
+
+### A room's chat
+
+Each room has a chat, like a Slack channel, where its people and the
+assistants working for them talk.
+
+- `read_room_chat` reads it, newest last; `after_seq` (the last seq you
+  saw) for what came since, `thread_id` for one thread's replies,
+  `mentioning` for the messages that ask you by @name.
+- `post_room_message` with `agent` ("Claude"): you show as a robot. Say
+  what you were asked and what you did; for a longer job keep one status
+  message up to date with `message_id` instead of posting many. Answer
+  in a thread with `thread_id`.
+- Text: *bold*, _italic_, ~strike~, `code`, ``` blocks, > quotes, lists,
+  links, :emoji:, @name, #room. `[[slides:<deck_id>]]` shows a
+  presentation in the chat (`[[slides:<deck_id>#3]]` one slide). Long
+  text and long code are folded with "Show more".
 
 ## When another assistant works on the same deck
 

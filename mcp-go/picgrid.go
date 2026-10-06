@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -20,6 +21,26 @@ import (
 // check, as the editor's painter does (LUMA_GRID in lib/evg/gl/evg-webgl.js).
 const gridSize = 48
 
+// maxPicturePixels is the most pixels a picture is decoded with. Decoding
+// takes 4 bytes a pixel at once, and a few bytes of PNG can claim any size,
+// so the size is read from the header first: 40 million (8000×5000, 160 MB)
+// is above any camera's or screen's picture a slide needs.
+const maxPicturePixels = 40_000_000
+
+// decodePicture decodes a raster picture whose header claims no more than
+// maxPicturePixels.
+func decodePicture(data []byte) (image.Image, error) {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > maxPicturePixels {
+		return nil, fmt.Errorf("the picture is %d×%d pixels; pictures of up to %d million pixels are read", cfg.Width, cfg.Height, maxPicturePixels/1_000_000)
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	return img, err
+}
+
 // ImageGrid is the picture in the handle as the contrast check reads it:
 // width, height, then gridSize×gridSize RGBA values (each cell the mean of
 // the pixels it covers, colours not premultiplied). Empty when the bytes do
@@ -28,7 +49,7 @@ const gridSize = 48
 // of its drawing (svgraster.go); its size alone when it does not draw.
 func (h *McpHost) ImageGrid(handle int64) []int64 {
 	data := h.images[handle]
-	img, _, err := image.Decode(bytes.NewReader(data))
+	img, err := decodePicture(data)
 	if err != nil {
 		w, ht, ok := svgSize(data)
 		if !ok {
@@ -49,7 +70,7 @@ func (h *McpHost) ImageGrid(handle int64) []int64 {
 // a cut-short base64 string otherwise becomes a picture the slide draws as
 // nothing, with no word why.
 func (h *McpHost) ImageError(handle int64) string {
-	if _, _, err := image.Decode(bytes.NewReader(h.images[handle])); err != nil {
+	if _, err := decodePicture(h.images[handle]); err != nil {
 		return err.Error()
 	}
 	return ""
