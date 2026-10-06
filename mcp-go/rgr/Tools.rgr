@@ -653,7 +653,7 @@ class Tools {
             }
         } {
             if (out.has("deck_id")) {
-                push lines "Not signed in: anyone who knows its id can view and change it, and it is deleted 30 days after its last change. Sign in to keep it private, or to add pictures and files."
+                push lines "Not signed in: the presentation is deleted 30 days after its last change. Sign in to keep it, or to add pictures and files."
             }
         }
         if ((out.str_("visibility")) == "private") {
@@ -1430,10 +1430,10 @@ class Tools {
         if (vis == "bad") {
             return (Tools.fail("Invalid arguments: visibility is private or link."))
         }
-        if (((strlen vis) > 0) && ((cur.str_("owner")) == "mcp")) {
-            return (Tools.fail("Not updated: this presentation was made without sign-in, so it has no owner to keep it private; anyone with its id can view and change it. Leave visibility out, or make a new one with create_presentation while signed in."))
-        }
         if (((strlen vis) > 0) && (mine == false)) {
+            if ((cur.str_("owner")) == "mcp") {
+                return (Tools.fail("Not updated: this presentation was made without sign-in, so it has no owner to keep it private; anyone with its link can view it. Leave visibility out, or make a new one with create_presentation while signed in."))
+            }
             return (Tools.fail("Not updated: only the presentation's owner, signed in, changes who sees it (visibility); an edit_key does not. Leave visibility out."))
         }
         def th:string "aurora"
@@ -2005,15 +2005,12 @@ class Tools {
             }
             return ed
         }
-        ; a deck made without sign-in has no owner: anyone who knows its id
-        ; changes it, no edit_key needed
-        def open:boolean ((cur.str_("owner")) == "mcp")
-        if (((mine == false) && (open == false)) && ((strlen key) == 0)) {
+        if ((mine == false) && ((strlen key) == 0)) {
             ed.fail = "edit_key is needed: the presentation is not this signed-in user's own."
             return ed
         }
         ed.cur = cur
-        ed.mine = (mine || open)
+        ed.mine = mine
         return ed
     }
 

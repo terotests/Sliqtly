@@ -63,7 +63,13 @@ func TestExportNeedsEditRights(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	id, key := sc(c)["deck_id"].(string), sc(c)["edit_key"].(string)
-	// a deck made without sign-in: anyone with its id
+	match(t, textOf(call(t, anon, "export_presentation", map[string]any{"deck_id": id, "format": "pdf"})), `edit_key is needed`)
+	match(t, textOf(call(t, anon, "export_presentation", map[string]any{"deck_id": id, "format": "pdf", "edit_key": "wrong"})), `The edit_key does not match`)
+	for p := range f.bucket.saved {
+		if strings.Contains(p, "/exports/") {
+			t.Fatal("written without the key: " + p)
+		}
+	}
 	ok := call(t, anon, "export_presentation", map[string]any{"deck_id": id, "format": "pdf", "edit_key": key})
 	if ok.IsError {
 		t.Fatal(textOf(ok))
@@ -221,23 +227,6 @@ func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 	eq(t, f.db.doc("shares/" + str(sc(a)["deck_id"]))["visibility"], "link")
 	match(t, textOf(call(t, anon, "create_presentation", map[string]any{"title": "P", "markdown": "# P", "visibility": "private"})), `A private presentation needs sign-in`)
 	match(t, textOf(call(t, anon, "update_presentation", map[string]any{"deck_id": sc(a)["deck_id"], "edit_key": sc(a)["edit_key"], "visibility": "private"})), `made without sign-in`)
-
-	// a deck made without sign-in has no owner: anyone who knows its id
-	// changes it, no edit_key (Tero, 2026-10-06)
-	aid := str(sc(a)["deck_id"])
-	match(t, textOf(a), `anyone who knows its id can view and change it`)
-	for _, who := range []*testServer{anon, other} {
-		if r := call(t, who, "update_presentation", map[string]any{"deck_id": aid, "edits": []any{map[string]any{"find": "# Anon", "replace": "# Anon!"}}}); r.IsError {
-			t.Fatal(textOf(r))
-		}
-		if r := call(t, who, "add_comment", map[string]any{"deck_id": aid, "slide": 1, "text": "ok"}); r.IsError {
-			t.Fatal(textOf(r))
-		}
-	}
-	eq(t, f.db.doc("shares/"+aid)["md"], "# Anon!!")
-	// a signed-in user's deck is not: another account needs its edit key
-	match(t, textOf(call(t, other, "update_presentation", map[string]any{"deck_id": str(sc(l)["deck_id"]), "markdown": "# x"})), `edit_key is needed`)
-	match(t, textOf(call(t, anon, "add_comment", map[string]any{"deck_id": id, "slide": 1, "text": "x"})), `edit_key is needed`)
 
 	// a share from before visibility existed stays readable by its id
 	f.db.Set(context.Background(), "shares", "OldShare01", Doc{"name": "Old", "md": "# Old", "owner": "u1", "theme": "aurora", "files": []any{}})
