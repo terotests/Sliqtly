@@ -33,6 +33,7 @@ Import "PresSlideSpans.rgr"
 Import "PresFollow.rgr"
 Import "PresPick.rgr"
 Import "PresNav.rgr"
+Import "PresThemeEdit.rgr"
 Import "PresRecord.rgr"
 Import "PresExport.rgr"
 Import "PresI18n.rgr"
@@ -534,6 +535,39 @@ class PresApp {
     fn applyTheme:void (css:string) {
         deck.setStyleSheet(css)
         this.rebuildDeck()
+    }
+
+    ; One property of the theme set from a card over the Markdown, as one
+    ; edit of the CSS tab (Ctrl+Z there undoes it); the slides follow.
+    fn setThemeProp:void (sel:string prop:string value:string) {
+        def css:string (cssEditor.text())
+        def e:PresThemeEdit (PresThemeEdit.change(css sel prop value))
+        def a:[int] (PresApp.lineColOf(css e.at))
+        def b:[int] (PresApp.lineColOf(css e.end))
+        cssEditor.buf.replaceRange((itemAt a 0) (itemAt a 1) (itemAt b 0) (itemAt b 1) e.text true)
+        cssEditor.dirty = true
+        cssSynced = cssEditor.buf.version
+        themeText = (cssEditor.text())
+        this.applyTheme(themeText)
+        push requests "theme-edited"
+        chromeRev = (chromeRev + 1)
+    }
+
+    sfn lineColOf:[int] (text:string off:int) {
+        def line:int 0
+        def start:int 0
+        def i:int 0
+        while (i < off) {
+            if ((charAt text i) == 10) {
+                line = (line + 1)
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        def out:[int]
+        push out line
+        push out (off - start)
+        return out
     }
 
     ; The theme as it stands in the CSS tab (the host keeps an edited one).
@@ -4371,6 +4405,20 @@ class PresApp {
                 j = ((substring j 0 ((strlen j) - 1)) + ",\"look\":" + (PresHint.q((dm.look()))) + "}")
             }
         }
+        ; a list layout's fence: the theme's figure colours as they are drawn
+        if ((edTab == "md") && ((indexOf j "\"figure\":true") >= 0)) {
+            def fcl:string "["
+            def fst:MdFigureStyle (deck.figureStyle())
+            def fk:int 0
+            while (fk < (array_length fst.colors)) {
+                if (fk > 0) {
+                    fcl = (fcl + ",")
+                }
+                fcl = (fcl + (PresHint.q((itemAt fst.colors fk))))
+                fk = (fk + 1)
+            }
+            j = ((substring j 0 ((strlen j) - 1)) + ",\"figColors\":" + fcl + "]}")
+        }
         def st:int (?? (str2int (PresApp.jsonNum(j "start"))) 0)
         def en:int (?? (str2int (PresApp.jsonNum(j "end"))) st)
         def x0:int (editor.caretViewX(tr line st))
@@ -5455,6 +5503,11 @@ class PresApp {
         }
         def none:[PresHintEdit]
         hint.edits = none
+        if ((strlen hint.wantsFigColors) > 0) {
+            def fcs:string hint.wantsFigColors
+            hint.wantsFigColors = ""
+            this.setThemeProp("figure" "colors" fcs)
+        }
         if ((strlen hint.wantsLook) > 0) {
             def lk:string hint.wantsLook
             hint.wantsLook = ""

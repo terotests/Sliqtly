@@ -94,3 +94,5 @@
 
 /* a placeholder is a hint, not a value: faded and italic */
 .theme-hp .ui-input-placeholder { color: #a1a1aa; font-family: Open Sans-Italic; }
+/* the figure colour being picked */
+.theme-hp .hp-fsel { border-width: 3px; border-color: #18181b; }
