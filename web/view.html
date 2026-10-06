@@ -113,6 +113,9 @@
   .home .fine { font: 13px/1.6 var(--mono); color: var(--dim); margin-top: 20px; max-width: 78ch; }
   .fine a { color: var(--accent); }
   /* the notice: the accent's border, never easy to miss */
+  .home .demo-warn { margin: 28px 0 0; max-width: 72ch; padding: 14px 18px; border: 1px solid #ff6b5a; color: var(--paper); font-size: 15px; }
+  .home .demo-warn strong { color: #ff8a7d; }
+  .home .demo-warn a { color: var(--accent); }
   .notice { border: 1px solid var(--accent); padding: clamp(24px, 4vw, 48px); max-width: 86ch; }
   .notice .display { color: var(--accent); }
   .notice p:not(.label) { color: var(--paper); font-size: 16px; }
@@ -210,6 +213,7 @@
           <a class="btn btn--solid btn--lg" href="/connect.html">Connect via MCP</a>
           <a class="btn btn--lg" href="/connect.html">Read the docs</a>
         </div>
+        <p class="demo-warn"><strong>The cloud service at sliqtly.com is a demo, not for private data.</strong> Every presentation made there can be opened by anyone who has its link, even though the link is not listed anywhere. For private material, <a href="/local.html">run Sliqtly locally</a>.</p>
       </div>
     </section>
 
