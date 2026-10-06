@@ -129,13 +129,20 @@ brew services start sliqtly         <span class="c"># now and at every login</sp
     "sliqtly": { "type": "http", "url": "http://localhost:8080/mcp" }
   }
 }</code></pre>
-  <p><strong>Claude Desktop</strong>, which starts its servers as programs (needs Node.js)</p>
+  <p><strong>Claude Desktop</strong>: not under Settings → Connectors, but in its config file (Settings → Developer → Edit Config, i.e. <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> on macOS, <code>%APPDATA%\Claude\claude_desktop_config.json</code> on Windows). Desktop starts the bridge <code>mcp-remote</code> as a program on your computer, so it needs Node.js. Restart Desktop after saving.</p>
   <pre><code>{
   "mcpServers": {
     "sliqtly": { "command": "npx", "args": ["-y", "mcp-remote", "http://localhost:8080/mcp"] }
   }
 }</code></pre>
-  <p class="note">Agents that run in their vendor's cloud (claude.ai connectors, ChatGPT) cannot reach a server on your own computer. Use a local client, or the hosted service at <code>https://sliqtly.com/mcp</code>.</p>
+
+  <h3 id="claude-apps">claude.ai, the mobile apps and Desktop's Connectors</h3>
+  <p>A custom connector added in claude.ai (Customize → Connectors) is called from Anthropic's cloud, not from your computer, and its address must start with <code>https://</code>. <code>http://localhost:8080/mcp</code> is refused there, and would not be reachable anyway. The same goes for connectors in the mobile apps and in Claude Desktop's Settings → Connectors. ChatGPT works the same way.</p>
+  <p>The only way to use your own server from these apps is a public HTTPS tunnel to it, for example:</p>
+  <pre><code>cloudflared tunnel --url http://localhost:8080   <span class="c"># prints https://&lt;random&gt;.trycloudflare.com</span>
+tailscale funnel 8080                           <span class="c"># https://&lt;computer&gt;.&lt;tailnet&gt;.ts.net</span></code></pre>
+  <p>Then set <code>SLIQTLY_URL</code> to that address (e.g. <code>SLIQTLY_URL=https://abc-def.trycloudflare.com</code>, Docker: <code>-e SLIQTLY_URL=…</code>) and restart Sliqtly; without it the server refuses requests that come in under the tunnel's name. Add <code>https://…/mcp</code> as the connector. A quick Cloudflare tunnel gets a new address every time it starts, so both have to be changed each time.</p>
+  <p class="note warn">A tunnel puts your server on the internet. claude.ai can send <code>SLIQTLY_TOKEN</code> only if your organization has connector request headers (a beta for a few organizations); otherwise leave the token unset, and anyone who learns the tunnel address can change and delete every presentation through <code>/mcp</code>. Even with the token, it covers <code>/mcp</code> only: the presentation list, <code>/api</code> (including deleting) and <code>/files</code> stay open to anyone with the address. Run a tunnel only while you use it, keep nothing private on the server meanwhile, and prefer Claude Code, Desktop's config file or the hosted <code>https://sliqtly.com/mcp</code>.</p>
 
   <h2>3. Use the service</h2>
   <h3>Ubuntu and Debian (systemd)</h3>
