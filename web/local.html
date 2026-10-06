@@ -67,6 +67,7 @@
     <a href="#docker">Docker</a>
     <a href="#networks">Networks</a>
     <a href="#firewall">Firewall</a>
+    <a href="#data">Data and backups</a>
   </nav>
 
   <h2>1. Install</h2>
@@ -204,15 +205,44 @@ sudo ufw status numbered</code></pre>
   <p class="note warn">Docker's published ports go around ufw and firewalld: a container started with <code>-p 8080:8080</code> is open to every network the computer is on, whatever <code>ufw status</code> says. Always give <code>-p</code> an address (<code>127.0.0.1</code> or the LAN address), or filter in the <code>DOCKER-USER</code> chain:</p>
   <pre><code>sudo iptables -I DOCKER-USER -p tcp --dport 8080 ! -s 192.168.1.0/24 -j DROP</code></pre>
 
-  <h2>7. Presentations and backups</h2>
-  <p>A backup is taken every day into the backup folder (mount another disk there to keep it apart). To see and check the backups:</p>
-  <pre><code><span class="c"># .deb</span>
-sudo sliqtly-server backup list -repo /var/lib/sliqtly-backup
-sudo sliqtly-server backup verify -repo /var/lib/sliqtly-backup
-<span class="c"># Homebrew</span>
-sliqtly-server backup list -repo "$(brew --prefix)/var/sliqtly-backup"
-<span class="c"># Docker</span>
-docker exec sliqtly /sliqtly-server backup list -repo /backup</code></pre>
+  <h2 id="data">7. Where the data is, and backups</h2>
+  <p>Everything the server keeps is in one data folder, in two SQLite databases:</p>
+  <div class="tablebox"><table>
+    <thead><tr><th>File</th><th>What is in it</th></tr></thead>
+    <tbody>
+      <tr><td><code>sliqtly.db</code></td><td>The presentations, their versions and comments, and the server's settings.</td></tr>
+      <tr><td><code>blobs.db</code></td><td>The files: pictures, Excel and CSV data, drawings.</td></tr>
+    </tbody>
+  </table></div>
+  <p>Next to them are small working files (<code>-wal</code> and <code>-shm</code> files while the server runs). The folder is:</p>
+  <div class="tablebox"><table class="settings">
+    <thead><tr><th>Install</th><th>Data folder</th><th>Daily backups</th></tr></thead>
+    <tbody>
+      <tr><td>.deb</td><td><code>/var/lib/sliqtly</code></td><td><code>/var/lib/sliqtly-backup</code></td></tr>
+      <tr><td>Homebrew</td><td><code>$(brew --prefix)/var/sliqtly</code></td><td><code>$(brew --prefix)/var/sliqtly-backup</code></td></tr>
+      <tr><td>Docker</td><td><code>/data</code> (volume <code>sliqtly-data</code>)</td><td><code>/backup</code> (volume <code>sliqtly-backup</code>)</td></tr>
+    </tbody>
+  </table></div>
+  <p><code>SLIQTLY_DATA</code> and <code>SLIQTLY_BACKUP</code> move them. Do not copy the databases while the server runs: a copy taken mid-write can be broken. Either stop the service and copy the whole folder, or use the built-in backup, which is safe beside a running server.</p>
+
+  <h3>The built-in backup</h3>
+  <p>The server takes a backup at start when the last one is older than a day, then every day (<code>SLIQTLY_BACKUP_EVERY</code>, e.g. <code>12h</code>), and keeps the last 3, 14 daily and 8 weekly ones (<code>SLIQTLY_BACKUP_KEEP</code>). Backups are incremental: an unchanged picture is stored once. An empty <code>SLIQTLY_BACKUP</code> turns them off. Mount another disk at the backup folder to keep it apart from the data.</p>
+  <pre><code><span class="c"># see and check the backups (.deb; Homebrew without sudo and with its folder)</span>
+sudo sliqtly-server backup list   -repo /var/lib/sliqtly-backup
+sudo sliqtly-server backup verify -repo /var/lib/sliqtly-backup -deep
+
+<span class="c"># a backup now, e.g. to a USB disk; safe while the server runs</span>
+sudo sliqtly-server backup run -data /var/lib/sliqtly -repo /media/usb/sliqtly-backup
+
+<span class="c"># restore into a new folder (never over the live one); it is checked as it is written</span>
+sudo sliqtly-server backup restore -repo /var/lib/sliqtly-backup -id latest -into /var/lib/sliqtly-restored
+
+<span class="c"># drop old backups by the same rule the server uses</span>
+sudo sliqtly-server backup prune -repo /var/lib/sliqtly-backup -keep last=3,daily=14,weekly=8</code></pre>
+  <p>To look at a restored folder before using it, run a second server on it: <code>sliqtly-server -data /var/lib/sliqtly-restored -port 8099</code>. To switch to it, stop the service, move the old data folder aside, move the restored one into its place and start the service again.</p>
+  <p>In Docker the same commands run inside the container:</p>
+  <pre><code>docker exec sliqtly /sliqtly-server backup list -repo /backup
+docker exec sliqtly /sliqtly-server backup run -data /data -repo /backup</code></pre>
 
   <h2>8. Update or remove</h2>
   <h3>.deb</h3>
