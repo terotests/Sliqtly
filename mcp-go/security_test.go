@@ -137,7 +137,8 @@ func TestDownloadLinkExpires(t *testing.T) {
 	eq(t, get(), 410, "expired")
 }
 
-// A signed-in user's deck is private by default: only that Google account
+// sliqtly.com is an open demo: a deck is seen by its link unless made
+// private, and the result says so. A private deck: only that Google account
 // reads it through the read tools; visibility "link" opens it to anyone with
 // the id, and only the owner changes that. A deck made without sign-in is
 // read by anyone with its id and changed only by the session that made it.
@@ -150,7 +151,14 @@ func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 	anon := start(t, testEnv(&f, nil), "")
 	defer anon.close()
 
-	c := call(t, me, "create_presentation", map[string]any{"title": "Mine", "markdown": "# Mine\n\n## Two\n\nText.",
+	open := call(t, me, "create_presentation", map[string]any{"title": "Open", "markdown": "# Open\n\nText."})
+	if open.IsError {
+		t.Fatal(textOf(open))
+	}
+	eq(t, sc(open)["visibility"], "link")
+	match(t, textOf(open), `not for private or confidential data\. Anyone who has this presentation's link can open every slide`)
+
+	c := call(t, me, "create_presentation", map[string]any{"title": "Mine", "markdown": "# Mine\n\n## Two\n\nText.", "visibility": "private",
 		"files": []any{map[string]any{"name": "d.csv", "text": "a,b\nx,1\n"}}})
 	if c.IsError {
 		t.Fatal(textOf(c))
@@ -219,11 +227,12 @@ func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 	// asked for by link at creation
 	l := call(t, me, "create_presentation", map[string]any{"title": "Open", "markdown": "# Open", "visibility": "link"})
 	eq(t, sc(l)["visibility"], "link")
-	match(t, textOf(l), `Anyone with the link can view it`)
+	match(t, textOf(l), `Anyone who has this presentation.s link can open every slide`)
 
 	// without sign-in: always by link; private needs sign-in
 	a := call(t, anon, "create_presentation", map[string]any{"title": "Anon", "markdown": "# Anon"})
 	eq(t, sc(a)["visibility"], "link")
+	match(t, textOf(a), `not for private or confidential data`)
 	eq(t, f.db.doc("shares/" + str(sc(a)["deck_id"]))["visibility"], "link")
 	match(t, textOf(call(t, anon, "create_presentation", map[string]any{"title": "P", "markdown": "# P", "visibility": "private"})), `A private presentation needs sign-in`)
 	match(t, textOf(call(t, anon, "update_presentation", map[string]any{"deck_id": sc(a)["deck_id"], "visibility": "private"})), `made without sign-in`)

@@ -129,6 +129,11 @@ class Tools {
         return s
     }
 
+    ; said with every presentation sliqtly.com keeps by link
+    sfn DEMO_WARNING:string () {
+        return "Warning: the Sliqtly cloud is an experimental demo, not for private or confidential data. Anyone who has this presentation's link can open every slide, its pictures and its files (visibility link). Tell the user."
+    }
+
     sfn deckFields:void (p:MfJ) {
         def theme:MfJ (Tools.prop("string" "Theme: aurora (default), nebula, carbon, ember, midnight (dark); corporate, editorial (light)"))
         theme.put("enum" (J.strs((Deck.THEMES()))))
@@ -137,7 +142,7 @@ class Tools {
         def mode:MfJ (Tools.prop("string" "extend (default): css is added after the theme's rules and, on update, after the deck's own rules so far (sending all of them again replaces them). own: css replaces the deck's own rules, on top of the theme. replace: css is the whole stylesheet."))
         mode.put("enum" (J.strs(([] _:string ("extend" "own" "replace")))))
         p.put("css_mode" mode)
-        def vis:MfJ (Tools.prop("string" "Who sees the presentation. private (the default when signed in): only the Google account it is saved in, in Sliqtly, at its link and through this connector. link: anyone with the link can view it; ask the user before making a private presentation visible by link. Without sign-in a presentation is always link."))
+        def vis:MfJ (Tools.prop("string" "Who sees the presentation. link (the default): anyone with the link can view it. private (needs sign-in): only the Google account it is saved in, at its link after signing in there and through this connector; ask the user before making a private presentation visible by link."))
         vis.put("enum" (J.strs(([] _:string ("private" "link")))))
         p.put("visibility" vis)
         def ip:MfJ (MfJ.newObj())
@@ -716,8 +721,8 @@ class Tools {
         if ((out.str_("visibility")) == "private") {
             push lines "Private: only this Google account sees it (through this connector, and at its link after signing in there with Google); the link opens it for nobody else. To let anyone with the link view it, the user asks for it and you call update_presentation with visibility \"link\"."
         }
-        if (((out.str_("visibility")) == "link") && caller.signedIn) {
-            push lines "Anyone with the link can view it (visibility link)."
+        if (((out.str_("visibility")) == "link") && (Tools.limited(host))) {
+            push lines (Tools.DEMO_WARNING())
         }
         if (out.has("deck_id")) {
             push lines ("deck_id: " + (out.str_("deck_id")))
@@ -1349,12 +1354,10 @@ class Tools {
         if (((vis == "private") && (caller.signedIn == false)) && ((host_store_kind host) != "link")) {
             return (Tools.fail("A private presentation needs sign-in: it is kept for one Google account. Connect Sliqtly with sign-in (Google), or leave visibility out: without sign-in anyone with the link can view a presentation."))
         }
-        ; a server of one's own (one user, no sign-in) keeps decks by link
+        ; Tero 2026-10-06: the cloud is an open demo, a deck is seen by
+        ; anyone with its link unless asked to be private
         if ((strlen vis) == 0) {
             vis = "link"
-            if (caller.signedIn && ((strlen (host_local_user host)) == 0)) {
-                vis = "private"
-            }
         }
         if (Tools.limited(host)) {
             def full:string (Tools.decksFull(host caller))

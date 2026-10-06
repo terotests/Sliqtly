@@ -79,10 +79,12 @@ each; signed in, 50 presentations per account and 100 slides each; a
 presentation's pictures and files together up to 200 MB. render_slide,
 render_overview and export_presentation are counted a day (100 without
 sign-in, 500 signed in), two at a time.
-A signed-in user's presentation is private: only their Google account sees
-it, at its link too. To share it, ask the user first, then call
-`update_presentation` with `visibility: "link"` (anyone with the link can
-view it); `visibility: "private"` closes it again.
+**The Sliqtly cloud (sliqtly.com) is an experimental demo, not for private
+or confidential data.** A presentation is seen by anyone who has its link:
+every slide, picture and file. Say so to the user when you give the link.
+Signed in, `visibility: "private"` keeps one for the user's Google account
+only (it opens at its link after signing in there with that account);
+`visibility: "link"` opens it again.
 When text on a picture is hard to read ("low contrast"), raise that slide's
 `bg-dim` (0.6–0.8) with update_presentation, or put the text on a plate
 (`{container=box}` under it); the picture stays as it is.
