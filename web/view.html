@@ -82,6 +82,13 @@
 
   .hero { padding: clamp(56px, 8vw, 120px) 0 clamp(56px, 7vw, 96px); border-bottom: 1px solid var(--line); }
   .hero .sub { font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--grotesk); letter-spacing: -.015em; margin: 0 0 14px; max-width: 30ch; }
+  .deal p { color: var(--dim); font-size: clamp(16px, 1.5vw, 19px); max-width: 64ch; margin: 0 0 18px; }
+  .deal strong { color: var(--paper); }
+  .deal strong.accent { color: var(--accent); }
+  .home .deal .deal__q { color: var(--paper); font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--grotesk); letter-spacing: -.015em; max-width: 30ch; }
+  .home .deal .deal__list { color: var(--paper); font: 15px/1.9 var(--mono); border-left: 2px solid var(--accent); padding-left: 16px; }
+  .home .deal .deal__enter { color: var(--accent); font: 800 clamp(26px, 3.4vw, 44px)/1.05 var(--grotesk); letter-spacing: -.03em; margin: 40px 0 14px; }
+  .home .deal .deal__turn { color: var(--paper); font: 600 15px/1.6 var(--mono); }
   .section { padding: clamp(64px, 8vw, 112px) 0; border-bottom: 1px solid var(--line); }
 
   /* thin boxes: the engine block, the claims, the flow */
@@ -185,6 +192,27 @@
     <div class="nav__cta"><a class="coffee" href="https://buymeacoffee.com/sliqtly" target="_blank" rel="noopener" title="Buy me a coffee" aria-label="Buy me a coffee"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 3.5c-.6.8.6 1.6 0 2.5M12 3.5c-.6.8.6 1.6 0 2.5"/></svg></a><a class="btn btn--solid" href="/connect.html">Connect via MCP</a></div>
   </header>
   <main>
+    <section class="section deal" id="deal">
+      <div class="wrap">
+        <h2 class="display display--lg">So, what's the deal here?</h2>
+        <p>A lot of people seem to be asking the same thing:</p>
+        <p class="deal__q">How do I turn this Markdown into a PDF, PowerPoint or Word document?</p>
+        <p>Fair question.</p>
+        <p>The problem is that during a single chat, that document may get generated, converted, edited and regenerated over and over again. That gets surprisingly expensive.</p>
+        <p>And Markdown is great for content, but let's be real: it doesn't give you much in the way of layout.</p>
+        <p class="deal__list">What about charts?<br />Flowcharts?<br />Themes?<br />Images?<br />Consistent typography?<br />Something that actually looks presentable?</p>
+        <p>Crazy stuff, right?</p>
+        <p class="deal__enter">Enter Sliqtly.</p>
+        <p>A slightly better way to let your agent create slides.</p>
+        <p>Give your agent the source material — Markdown, an Excel file, a Git pull request, notes, data, whatever you've got — and Sliqtly's MCP service turns it into clear, readable and genuinely presentable slides.</p>
+        <p>Maybe even... <strong class="accent">lovable</strong> slides?</p>
+        <p>Your agent can create them, look at them, edit them, render them again and keep iterating without hauling a heavyweight presentation app through every step of the conversation.</p>
+        <p class="deal__enter">Sliqtly better slides.</p>
+        <p>That's it, put it simply.</p>
+        <p class="deal__turn">Your turn.</p>
+      </div>
+    </section>
+
     <section class="hero">
       <div class="wrap">
         <p class="label">MCP-native presentation engine</p>
