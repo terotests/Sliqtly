@@ -33,14 +33,19 @@ class Caller {
     def signIn:string ""
     ; the rate limit key: "uid:…" or the address
     def who:string ""
+    ; the MCP session's record (Store.sessionKey), "" without one
+    def session:string ""
+    ; the client's address
+    def ip:string ""
 }
 
 ; the stored deck a caller may change, or why not
 class Editable {
     def fail:string ""
     def cur:MfJ (new MfJ)
+    ; the caller may change it: its owner, or the session that made it
+    ; without sign-in
     def mine:boolean false
-    def key:string ""
 }
 
 class CheckPics {
@@ -132,6 +137,9 @@ class Tools {
         def mode:MfJ (Tools.prop("string" "extend (default): css is added after the theme's rules and, on update, after the deck's own rules so far (sending all of them again replaces them). own: css replaces the deck's own rules, on top of the theme. replace: css is the whole stylesheet."))
         mode.put("enum" (J.strs(([] _:string ("extend" "own" "replace")))))
         p.put("css_mode" mode)
+        def vis:MfJ (Tools.prop("string" "Who sees the presentation. private (the default when signed in): only the Google account it is saved in, in Sliqtly, at its link and through this connector. link: anyone with the link can view it; ask the user before making a private presentation visible by link. Without sign-in a presentation is always link."))
+        vis.put("enum" (J.strs(([] _:string ("private" "link")))))
+        p.put("visibility" vis)
         def ip:MfJ (MfJ.newObj())
         ip.put("name" (Tools.prop("string" "File name the Markdown uses as media/<name>, e.g. \"team.jpg\" → ![](media/team.jpg)")))
         ip.put("url" (Tools.prop("string" "A public https URL of the picture")))
@@ -203,7 +211,6 @@ class Tools {
 
         def up:MfJ (MfJ.newObj())
         up.put("deck_id" (Tools.prop("string" "deck_id from create_presentation")))
-        up.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
         def title2:MfJ (Tools.prop("string" (Tools.withNameRule(host "A new name for the presentation; leave out to keep it."))))
         title2.putInt("maxLength" 200)
         up.put("title" title2)
@@ -233,7 +240,6 @@ class Tools {
 
         def bp:MfJ (MfJ.newObj())
         bp.put("deck_id" (Tools.prop("string" "deck_id from create_presentation")))
-        bp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
         def num:MfJ (MfJ.newObj())
         num.putStr("type" "integer")
         num.putInt("minimum" 1)
@@ -298,8 +304,7 @@ class Tools {
         def xs:MfJ (Tools.prop("array" "Only these slides (numbers as in render_overview); all when left out"))
         xs.put("items" xn)
         xp.put("slides" xs)
-        xp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
-        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF, a PowerPoint (.pptx), a Word document (.docx) or one self-contained web page (.html), by its deck_id and edit_key (not needed when signed in as its owner): a download link to give the user, kept until the next export of the same format (on sliqtly.com it works for 24 hours). PDF and PPTX: slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. DOCX and HTML: the deck read as a document, slide after slide, with headings, text, lists, tables, formulas (Word equations / SVG), the speaker notes under each slide, and diagrams and charts as pictures. Effects (fx=) are not drawn; the editor's File → Export draws them." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
+        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF, a PowerPoint (.pptx), a Word document (.docx) or one self-contained web page (.html), by its deck_id (its owner signed in, or the session that made it without sign-in): a download link to give the user, kept until the next export of the same format (on sliqtly.com it works for 24 hours). PDF and PPTX: slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. DOCX and HTML: the deck read as a document, slide after slide, with headings, text, lists, tables, formulas (Word equations / SVG), the speaker notes under each slide, and diagrams and charts as pictures. Effects (fx=) are not drawn; the editor's File → Export draws them." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
 
         def lp:MfJ (MfJ.newObj())
         lp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
@@ -325,7 +330,6 @@ class Tools {
 
         def acp:MfJ (MfJ.newObj())
         acp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
-        acp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
         acp.put("text" (Tools.prop("string" "The message")))
         acp.put("thread_id" (Tools.prop("string" "Answer this thread (an id from list_comments); leave out to start a new comment on a slide")))
         def slideP:MfJ (Tools.prop("integer" "A new comment's slide number, 1 = the first slide"))
@@ -348,7 +352,6 @@ class Tools {
 
         def rcp:MfJ (MfJ.newObj())
         rcp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
-        rcp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
         rcp.put("thread_id" (Tools.prop("string" "The thread's id from list_comments")))
         rcp.put("resolved" (Tools.prop("boolean" "true (default) marks it resolved; false opens it again")))
         rcp.put("text" (Tools.prop("string" "A last message in the thread first, e.g. what was changed")))
@@ -357,7 +360,6 @@ class Tools {
 
         def wp:MfJ (MfJ.newObj())
         wp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
-        wp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
         wp.put("path" (Tools.prop("string" "The workbook's path, e.g. data/budget.xlsx")))
         def plain:MfJ (MfJ.newObj())
         plain.put("type" (J.strs(([] _:string ("string" "number" "null")))))
@@ -397,7 +399,6 @@ class Tools {
 
         def vp:MfJ (MfJ.newObj())
         vp.put("deck_id" (Tools.prop("string" "A presentation's id (the id in https://sliqtly.com/s/<id>): vectorize one of its pictures and keep the SVG in it. Leave out to vectorize image_base64 or image_url and get the SVG back")))
-        vp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
         vp.put("path" (Tools.prop("string" "With deck_id: the picture's path from list_files, e.g. media/logo.png")))
         vp.put("image_base64" (Tools.prop("string" "Without deck_id: a PNG or JPEG as base64 (a data: URL is fine)")))
         vp.put("image_url" (Tools.prop("string" "Without deck_id: a public https address of a PNG or JPEG")))
@@ -416,7 +417,6 @@ class Tools {
         listMeta.put("securitySchemes" only)
         def bwp:MfJ (MfJ.newObj())
         bwp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
-        bwp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
         bwp.put("agent" (Tools.prop("string" "Who you are, as other assistants and the user will read it, e.g. \"Claude (budget chat)\"")))
         def wnum:MfJ (MfJ.newObj())
         wnum.putStr("type" "integer")
@@ -442,7 +442,6 @@ class Tools {
 
         def ewp:MfJ (MfJ.newObj())
         ewp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
-        ewp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
         ewp.put("work_id" (Tools.prop("string" "Your work_id from begin_work")))
         tools.add((Tools.tool("end_work" "Finish work on a presentation" "Release the slides claimed with begin_work, once your changes are saved (or given up), so other assistants may work on them." (Tools.schema(ewp ([] _:string ("deck_id" "work_id")))) (Tools.annotations(false 0 true false)) eitherMeta)))
 
@@ -560,6 +559,118 @@ class Tools {
         return r
     }
 
+    ; --- what one caller may keep (Limits in Store.rgr): on a shared
+    ; server, not on a server of one's own
+
+    sfn limited:boolean (host:McpHost) {
+        return (((host_store_kind host) != "link") && ((strlen (host_local_user host)) == 0))
+    }
+
+    ; why this caller may not make another deck, or "" (a storage error is
+    ; left on the host)
+    sfn decksFull:string (host:McpHost caller:Caller) {
+        if caller.signedIn {
+            def mine:MfJ (J.parse((host_query_eq host "shares" "owner" caller.uid)))
+            if ((mine.count()) >= (Limits.USER_DECKS())) {
+                return ("Not created: this Sliqtly account already keeps " + (to_string (mine.count())) + " presentations, the most it may. Ask the user to delete some they no longer need (in the Sliqtly editor), or change one of them with update_presentation.")
+            }
+            return ""
+        }
+        if ((Store.sessionCount(host caller.session)) >= (Limits.ANON_DECKS())) {
+            return ("Not created: without sign-in one conversation makes at most " + (to_string (Limits.ANON_DECKS())) + " presentations. Change one of them with update_presentation, or sign in (Google) to keep more.")
+        }
+        return ""
+    }
+
+    ; why a deck of n slides is too long for this caller, or ""
+    sfn slidesOver:string (caller:Caller n:int) {
+        def max:int (Limits.slides(caller.signedIn))
+        if (n <= max) {
+            return ""
+        }
+        def more:string ""
+        if (caller.signedIn == false) {
+            more = (", or sign in for up to " + (to_string (Limits.USER_SLIDES())))
+        }
+        return ("Not saved: " + (to_string n) + " slides; a presentation has at most " + (to_string max) + ". Shorten it or split it into two" + more + ".")
+    }
+
+    ; the bytes of a deck's pictures and files once kept are saved: the
+    ; stored ones that kept do not replace, and kept
+    sfn bytesAfter:int (cur:MfJ kept:[Img]) {
+        def paths:[string]
+        def n:int 0
+        for kept k:Img i {
+            def path:string ("media/" + k.name)
+            if ((strlen k.path) > 0) {
+                path = k.path
+            }
+            push paths path
+            n = (n + k.size)
+        }
+        for (cur.list("files")) f:MfJ j {
+            if ((Deck.inList(paths (f.str_("path")))) == false) {
+                n = (n + (f.int_("size" 0)))
+            }
+        }
+        return n
+    }
+
+    sfn bytesOver:string (n:int) {
+        if (n <= (Limits.DECK_BYTES())) {
+            return ""
+        }
+        return ("Not saved: the presentation's pictures and files would come to " + (to_string (to_int ((to_double n) / 1048576.0))) + " MB; one presentation keeps at most " + (to_string (to_int ((to_double (Limits.DECK_BYTES())) / 1048576.0))) + " MB. Leave some out or make them smaller.")
+    }
+
+    ; the visibility asked for: "" when left out, "bad" when it is not
+    ; private or link
+    sfn visibilityArg:string (a:MfJ) {
+        if ((Tools.has(a "visibility")) == false) {
+            if ((a.field("visibility")).kind == 0) {
+                return ""
+            }
+            return "bad"
+        }
+        def v:string (a.str_("visibility"))
+        if ((v == "private") || (v == "link")) {
+            return v
+        }
+        return "bad"
+    }
+
+    ; a stored deck's visibility as the answer names it
+    sfn visibilityOf:string (d:MfJ) {
+        if (Store.isPrivate(d)) {
+            return "private"
+        }
+        return "link"
+    }
+
+    ; why this caller may not read a private deck, or "" when it may (a
+    ; storage error is left on the host)
+    sfn hiddenFrom:string (caller:Caller d:MfJ id:string) {
+        if (Store.readableBy(d caller.signedIn caller.uid)) {
+            return ""
+        }
+        if caller.signedIn {
+            return ("Presentation " + id + " is private to the Google account that owns it, and this connector is signed in with another account (" + caller.name + "). Tell the user, and do not make a copy unasked. To read it, the user reconnects the Sliqtly connector (disconnect, then connect) with the Google account that owns it.")
+        }
+        return ("Presentation " + id + " is private to the Google account that owns it, and this connector is not signed in. Tell the user; to read it, they connect the Sliqtly connector with that Google account.")
+    }
+
+    ; the deck carried in the link itself (its text, theme and CSS, no
+    ; pictures or files): what the chat preview shows of a private deck,
+    ; which the viewer could not read by its id
+    sfn textLink:string (host:McpHost base:string md:string theme:string hasCss:boolean css:string) {
+        def q:string ("md=" + (host_pack_text host md))
+        q = (q + "&theme=" + (host_uri_encode host theme))
+        if hasCss {
+            q = (q + "&css=" + (host_pack_text host css))
+        }
+        return (base + "/#" + q + "&mode=show")
+    }
+
     ; "pictures", "data files" or "" for what a call would store
     sfn uploads:string (a:MfJ) {
         if ((array_length (a.list("images"))) > 0) {
@@ -599,14 +710,17 @@ class Tools {
             }
         } {
             if (out.has("deck_id")) {
-                push lines "Not signed in: the presentation is deleted 30 days after its last change. Sign in to keep it, or to add pictures and files."
+                push lines "Not signed in: anyone with the link can view it; only this conversation's Sliqtly session can change it, until the session ends or goes unused for a day. It is deleted 7 days after its last change. Sign in to keep it, or to add pictures and files."
             }
+        }
+        if ((out.str_("visibility")) == "private") {
+            push lines "Private: only this Google account sees it (in Sliqtly, at its link, and through this connector); the link opens it for nobody else. To let anyone with the link view it, the user asks for it and you call update_presentation with visibility \"link\"."
+        }
+        if (((out.str_("visibility")) == "link") && caller.signedIn) {
+            push lines "Anyone with the link can view it (visibility link)."
         }
         if (out.has("deck_id")) {
             push lines ("deck_id: " + (out.str_("deck_id")))
-        }
-        if (out.has("edit_key")) {
-            push lines ("edit_key: " + (out.str_("edit_key")) + " (needed for update_presentation; do not show it to others)")
         }
         for (J.strList((out.field("warnings")))) w:string i {
             push lines ("Note: " + w)
@@ -733,7 +847,7 @@ class Tools {
                 return ("Invalid arguments: " + r + " is required.")
             }
         }
-        for ([] _:string ("title" "markdown" "theme" "css" "css_mode" "deck_id" "edit_key" "path" "sheet")) k:string j {
+        for ([] _:string ("title" "markdown" "theme" "css" "css_mode" "deck_id" "path" "sheet")) k:string j {
             def v:MfJ (a.field(k))
             if ((v.kind != 0) && (v.kind != 3)) {
                 return ("Invalid arguments: " + k + " is a string.")
@@ -1115,6 +1229,14 @@ class Tools {
                 return (Tools.fail(why))
             }
         }
+        ; drawing costs the most: counted a day, two at once
+        def draws:boolean (((name == "render_slide") || (name == "render_overview")) || (name == "export_presentation"))
+        if draws {
+            def whyR:string (host_render_limit host caller.who caller.ip)
+            if ((strlen whyR) > 0) {
+                return (Tools.fail(whyR))
+            }
+        }
         def r:MfJ (new MfJ)
         if (name == "create_presentation") {
             r = (Tools.create(host caller args))
@@ -1132,10 +1254,10 @@ class Tools {
             r = (Tools.listFiles(host caller args))
         }
         if (name == "render_slide") {
-            r = (Tools.render(host args false))
+            r = (Tools.render(host caller args false))
         }
         if (name == "render_overview") {
-            r = (Tools.render(host args true))
+            r = (Tools.render(host caller args true))
         }
         if (name == "read_file") {
             r = (Tools.readFile(host caller args))
@@ -1169,6 +1291,9 @@ class Tools {
         }
         if (name == "end_work") {
             r = (Tools.endWork(host caller args))
+        }
+        if draws {
+            host_render_done host caller.who
         }
         if (r.kind == 0) {
             return r
@@ -1217,6 +1342,29 @@ class Tools {
         if (((caller.signedIn == false) && ((host_store_kind host) != "link")) && ((strlen up) > 0)) {
             return (Tools.needsSignIn(caller up))
         }
+        def vis:string (Tools.visibilityArg(a))
+        if (vis == "bad") {
+            return (Tools.fail("Invalid arguments: visibility is private or link."))
+        }
+        if (((vis == "private") && (caller.signedIn == false)) && ((host_store_kind host) != "link")) {
+            return (Tools.fail("A private presentation needs sign-in: it is kept for one Google account. Connect Sliqtly with sign-in (Google), or leave visibility out: without sign-in anyone with the link can view a presentation."))
+        }
+        ; a server of one's own (one user, no sign-in) keeps decks by link
+        if ((strlen vis) == 0) {
+            vis = "link"
+            if (caller.signedIn && ((strlen (host_local_user host)) == 0)) {
+                vis = "private"
+            }
+        }
+        if (Tools.limited(host)) {
+            def full:string (Tools.decksFull(host caller))
+            if ((strlen (host_error host)) > 0) {
+                return (Tools.failed(host "create_presentation" (host_error host)))
+            }
+            if ((strlen full) > 0) {
+                return (Tools.fail(full))
+            }
+        }
         def md:string (a.str_("markdown"))
         def theme:string "aurora"
         if (Tools.has(a "theme")) {
@@ -1247,6 +1395,17 @@ class Tools {
         if ((strlen data.err) > 0) {
             return (Tools.fail(data.err))
         }
+        def all:[Img]
+        for loaded.imgs ai:Img ak {
+            push all ai
+        }
+        for data.imgs di0:Img dk0 {
+            push all di0
+        }
+        def over:string (Tools.bytesOver((Tools.bytesAfter((MfJ.newObj()) all))))
+        if ((strlen over) > 0) {
+            return (Tools.fail(over))
+        }
         def names:[string]
         for loaded.imgs im:Img i {
             push names im.name
@@ -1256,6 +1415,12 @@ class Tools {
         def none2:[string]
         def bgs:CheckPics (Tools.backgrounds(host md loaded.imgs ""))
         def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css bgs data.imgs "" none2))
+        if (Tools.limited(host)) {
+            def long:string (Tools.slidesOver(caller ck.slides))
+            if ((strlen long) > 0) {
+                return (Tools.fail(long))
+            }
+        }
         for ck.warnings cw:string ci {
             push ws cw
         }
@@ -1297,13 +1462,30 @@ class Tools {
         for data.imgs di:Img dk {
             push kept di
         }
-        def made:Created (Store.create(host (a.str_("title")) md theme sh.hasCss sh.css kept owner))
+        def made:Created (Store.create(host (a.str_("title")) md theme sh.hasCss sh.css kept owner vis))
         if ((strlen made.err) > 0) {
             return (Tools.failed(host "create_presentation" made.err))
         }
         Tools.links(host out base made.id)
         out.putStr("deck_id" made.id)
-        out.putStr("edit_key" made.key)
+        if (owner == "mcp") {
+            ; changed later only by this session
+            if ((Store.sessionGrant(host caller.session made.id)) == false) {
+                if ((strlen (host_error host)) > 0) {
+                    host_log host ("create_presentation session: " + (host_error host))
+                    host_clear_error host
+                }
+                push ws "This connection keeps no Sliqtly session, so the presentation cannot be changed later; sign in to keep editing it."
+                out.put("warnings" (J.strs(ws)))
+            }
+        }
+        if (owner == "mcp") {
+            vis = "link"
+        }
+        out.putStr("visibility" vis)
+        if (vis == "private") {
+            out.putStr("preview_url" (Tools.textLink(host base md theme sh.hasCss sh.css)))
+        }
         WorkStore.keep(host made.id md)
         if ((strlen (host_error host)) > 0) {
             host_log host ("create_presentation work board: " + (host_error host))
@@ -1337,7 +1519,7 @@ class Tools {
             return (Tools.fail("markdown is larger than 300 KB."))
         }
         def id:string (a.str_("deck_id"))
-        def ed:Editable (Tools.editable(host caller id (a.str_("edit_key"))))
+        def ed:Editable (Tools.editable(host caller id))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "update_presentation" (host_error host)))
         }
@@ -1346,7 +1528,14 @@ class Tools {
         }
         def cur:MfJ ed.cur
         def mine:boolean ed.mine
-        def key:string ed.key
+        def vis:string (Tools.visibilityArg(a))
+        if (vis == "bad") {
+            return (Tools.fail("Invalid arguments: visibility is private or link."))
+        }
+        ; editable: the owner, or the session that made an ownerless deck
+        if (((strlen vis) > 0) && ((cur.str_("owner")) == "mcp")) {
+            return (Tools.fail("Not updated: this presentation was made without sign-in, so it has no owner to keep it private; anyone with its link can view it. Leave visibility out, or make a new one with create_presentation while signed in."))
+        }
         def th:string "aurora"
         if (Tools.has(a "theme")) {
             th = (a.str_("theme"))
@@ -1356,6 +1545,10 @@ class Tools {
             }
         }
         def p (new DeckPatch)
+        if ((strlen vis) > 0) {
+            p.hasVisibility = true
+            p.visibility = vis
+        }
         def mode:string "extend"
         if (Tools.has(a "css_mode")) {
             mode = (a.str_("css_mode"))
@@ -1416,8 +1609,20 @@ class Tools {
         for data.imgs di:Img dk {
             push kept di
         }
+        if (Tools.limited(host)) {
+            if p.hasMd {
+                def long:string (Tools.slidesOver(caller (array_length (Check.slideStarts(host p.md (Tools.sheetOf(host cur)))))))
+                if ((strlen long) > 0) {
+                    return (Tools.fail(long))
+                }
+            }
+            def over:string (Tools.bytesOver((Tools.bytesAfter(cur kept))))
+            if ((strlen over) > 0) {
+                return (Tools.fail(over))
+            }
+        }
         ; edits are made on the deck as it is now: they need no base version
-        def ws:WorkSave (Tools.saveWork(host a id mine key cur p kept ((a.field("edits")).kind != 0)))
+        def ws:WorkSave (Tools.saveWork(host a id cur p kept ((a.field("edits")).kind != 0)))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "update_presentation" (host_error host)))
         }
@@ -1467,7 +1672,7 @@ class Tools {
     ; the save of update_presentation: merged with what was saved since the
     ; edit's base version, never over a change it did not see. onCur: the
     ; Markdown was made from cur (edits), so cur is its base
-    sfn saveWork:WorkSave (host:McpHost a:MfJ id:string mine:boolean key:string cur:MfJ p:DeckPatch kept:[Img] onCur:boolean) {
+    sfn saveWork:WorkSave (host:McpHost a:MfJ id:string cur:MfJ p:DeckPatch kept:[Img] onCur:boolean) {
         def out (new WorkSave)
         def workId:string (trim (a.str_("work_id")))
         def baseV:string (trim (a.str_("base_version")))
@@ -1485,7 +1690,7 @@ class Tools {
         }
         def notes:[string]
         if (p.hasMd == false) {
-            out.saved = (Store.update(host id (mine == false) key p kept))
+            out.saved = (Store.update(host id p kept))
         } {
             def edit:string p.md
             def done:boolean false
@@ -1540,7 +1745,7 @@ class Tools {
                 for (board.touching(workId touched)) tc:WorkClaim ti {
                     push notes ("You changed " + (Tools.slidesText(touched)) + " while " + (WorkStore.line(host tc)) + ". Tell the user, or leave those slides to it.")
                 }
-                def sv:Saved (Store.save(host id (mine == false) key p kept true curMd))
+                def sv:Saved (Store.save(host id p kept true curMd))
                 if ((strlen (host_error host)) > 0) {
                     return out
                 }
@@ -1670,7 +1875,7 @@ class Tools {
             ed.fail = "note is at most 300 characters and agent at most 80."
             return ed
         }
-        return (Tools.editable(host caller (a.str_("deck_id")) (a.str_("edit_key"))))
+        return (Tools.editable(host caller (a.str_("deck_id"))))
     }
 
     sfn beginWork:MfJ (host:McpHost caller:Caller a:MfJ) {
@@ -1890,9 +2095,8 @@ class Tools {
     }
 
     ; the stored deck, if this caller may change it (a host error stops it too)
-    sfn editable:Editable (host:McpHost caller:Caller id:string key:string) {
+    sfn editable:Editable (host:McpHost caller:Caller id:string) {
         def ed (new Editable)
-        ed.key = key
         def cur:MfJ (Store.get(host id))
         if ((strlen (host_error host)) > 0) {
             return ed
@@ -1912,8 +2116,31 @@ class Tools {
             }
             return ed
         }
-        if ((mine == false) && ((strlen key) == 0)) {
-            ed.fail = "edit_key is needed: the presentation is not this signed-in user's own."
+        def owner:string (cur.str_("owner"))
+        if ((mine == false) && (owner == "mcp")) {
+            ; made without sign-in: only the session that made it
+            mine = (Store.sessionHolds(host caller.session id))
+            if ((strlen (host_error host)) > 0) {
+                return ed
+            }
+            if mine {
+                ; held a day from this change
+                Store.sessionGrant(host caller.session id)
+                if ((strlen (host_error host)) > 0) {
+                    return ed
+                }
+            }
+            if (mine == false) {
+                ed.fail = ("Not saved: presentation " + id + " was made without sign-in in another Sliqtly session (a conversation that has ended, or more than a day ago), and only that session could change it. Anyone with its link can still view it. Tell the user, and do not make a copy unasked; a copy made with create_presentation is a new presentation with its own link.")
+                return ed
+            }
+        }
+        if (mine == false) {
+            if caller.signedIn {
+                ed.fail = ("Not saved: presentation " + id + " belongs to another Sliqtly account than the one this connector is signed in with (" + caller.name + "). Tell the user, and do not make a copy unasked.")
+            } {
+                ed.fail = ("Not saved: presentation " + id + " belongs to a signed-in Sliqtly user and this connector is not signed in. Tell the user, and do not make a copy unasked.")
+            }
             return ed
         }
         ed.cur = cur
@@ -1924,7 +2151,7 @@ class Tools {
     ; the answer to a change; note goes on its own line after the rest
     sfn updated:MfJ (host:McpHost caller:Caller id:string saved:MfJ note:string) {
         if ((saved.isObj()) == false) {
-            return (Tools.fail("The edit_key does not match this presentation."))
+            return (Tools.fail("No presentation by that id any more."))
         }
         def stored:[string]
         for (saved.list("files")) f:MfJ i {
@@ -1962,6 +2189,10 @@ class Tools {
         out.put("warnings" (J.strs(ws)))
         Tools.links(host out (host_base_url host) id)
         out.putStr("deck_id" id)
+        out.putStr("visibility" (Tools.visibilityOf(saved)))
+        if (Store.isPrivate(saved)) {
+            out.putStr("preview_url" (Tools.textLink(host (host_base_url host) md (saved.str_("theme")) (savedCss.kind == 3) (saved.str_("css")))))
+        }
         def r:MfJ (Tools.result(host caller out "Updated"))
         if ((strlen note) > 0) {
             def c0:MfJ (itemAt (r.list("content")) 0)
@@ -2056,7 +2287,7 @@ class Tools {
             return (Tools.fail("The workbook would be larger than 10 MB."))
         }
         def id:string (a.str_("deck_id"))
-        def ed:Editable (Tools.editable(host caller id (a.str_("edit_key"))))
+        def ed:Editable (Tools.editable(host caller id))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "write_workbook" (host_error host)))
         }
@@ -2071,7 +2302,13 @@ class Tools {
         im.size = (made.int_("size" 0))
         def kept:[Img]
         push kept im
-        def saved:MfJ (Store.update(host id (ed.mine == false) ed.key (new DeckPatch) kept))
+        if (Tools.limited(host)) {
+            def over:string (Tools.bytesOver((Tools.bytesAfter(ed.cur kept))))
+            if ((strlen over) > 0) {
+                return (Tools.fail(over))
+            }
+        }
+        def saved:MfJ (Store.update(host id (new DeckPatch) kept))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "write_workbook" (host_error host)))
         }
@@ -2153,7 +2390,7 @@ class Tools {
             return (Tools.needsSignIn(caller "pictures"))
         }
         def id:string (a.str_("deck_id"))
-        def ed:Editable (Tools.editable(host caller id (a.str_("edit_key"))))
+        def ed:Editable (Tools.editable(host caller id))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "vectorize_image" (host_error host)))
         }
@@ -2233,7 +2470,13 @@ class Tools {
         } {
             note = (note + " Nothing points at it yet: use it as ![](" + target + ") or url(" + target + ").")
         }
-        def saved:MfJ (Store.update(host id (ed.mine == false) ed.key p kept))
+        if (Tools.limited(host)) {
+            def over:string (Tools.bytesOver((Tools.bytesAfter(ed.cur kept))))
+            if ((strlen over) > 0) {
+                return (Tools.fail(over))
+            }
+        }
+        def saved:MfJ (Store.update(host id p kept))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "vectorize_image" (host_error host)))
         }
@@ -2313,7 +2556,7 @@ class Tools {
             return (Tools.fail("Invalid arguments: source is required."))
         }
         def id:string (a.str_("deck_id"))
-        def ed:Editable (Tools.editable(host caller id (a.str_("edit_key"))))
+        def ed:Editable (Tools.editable(host caller id))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "bind_chart_data" (host_error host)))
         }
@@ -2331,7 +2574,7 @@ class Tools {
         p.hasMd = true
         p.md = bound.md
         def noImgs:[Img]
-        def saved:MfJ (Store.update(host id (ed.mine == false) ed.key p noImgs))
+        def saved:MfJ (Store.update(host id p noImgs))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "bind_chart_data" (host_error host)))
         }
@@ -2367,6 +2610,13 @@ class Tools {
         }
         if ((d.isObj()) == false) {
             return (Tools.fail(("No presentation " + id + ".")))
+        }
+        def hid:string (Tools.hiddenFrom(caller d id))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "get_presentation" (host_error host)))
+        }
+        if ((strlen hid) > 0) {
+            return (Tools.fail(hid))
         }
         def images:MfJ (MfJ.newArr())
         def names:[string]
@@ -2637,18 +2887,12 @@ class Tools {
             return (Tools.fail("deck_id is the 10-character id in the share link."))
         }
         ; the file is written beside the deck: only by whoever may change it
-        def ed:Editable (Tools.editable(host caller id (a.str_("edit_key"))))
+        def ed:Editable (Tools.editable(host caller id))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host tool (host_error host)))
         }
         if ((strlen ed.fail) > 0) {
             return (Tools.fail(ed.fail))
-        }
-        if ((ed.mine == false) && ((Store.keyMatches(host id ed.key)) == false)) {
-            if ((strlen (host_error host)) > 0) {
-                return (Tools.failed(host tool (host_error host)))
-            }
-            return (Tools.fail("The edit_key does not match this presentation."))
         }
         def d:MfJ ed.cur
         def md:string (d.str_("md"))
@@ -2795,7 +3039,7 @@ class Tools {
         return out
     }
 
-    sfn render:MfJ (host:McpHost a:MfJ all:boolean) {
+    sfn render:MfJ (host:McpHost caller:Caller a:MfJ all:boolean) {
         def tool:string "render_slide"
         if all {
             tool = "render_overview"
@@ -2830,6 +3074,13 @@ class Tools {
         }
         if ((d.isObj()) == false) {
             return (Tools.fail(("No presentation " + id + ".")))
+        }
+        def hid:string (Tools.hiddenFrom(caller d id))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host tool (host_error host)))
+        }
+        if ((strlen hid) > 0) {
+            return (Tools.fail(hid))
         }
         def md:string (d.str_("md"))
         def stored:[string]
@@ -3033,7 +3284,7 @@ class Tools {
     }
 
     ; the stored deck for list_files and read_file, or why not
-    sfn readable:MfJ (host:McpHost a:MfJ required:[string]) {
+    sfn readable:MfJ (host:McpHost caller:Caller a:MfJ required:[string]) {
         def r:MfJ (MfJ.newObj())
         if ((host_store_kind host) == "link") {
             r.put("fail" (Tools.fail("This server keeps no decks (no cloud storage configured).")))
@@ -3057,12 +3308,20 @@ class Tools {
             r.put("fail" (Tools.fail(("No presentation " + id + "."))))
             return r
         }
+        def hid:string (Tools.hiddenFrom(caller d id))
+        if ((strlen (host_error host)) > 0) {
+            return r
+        }
+        if ((strlen hid) > 0) {
+            r.put("fail" (Tools.fail(hid)))
+            return r
+        }
         r.put("deck" d)
         return r
     }
 
     sfn listFiles:MfJ (host:McpHost caller:Caller a:MfJ) {
-        def got:MfJ (Tools.readable(host a ([] _:string ("deck_id"))))
+        def got:MfJ (Tools.readable(host caller a ([] _:string ("deck_id"))))
         if ((got.field("fail")).isObj()) {
             return (got.field("fail"))
         }
@@ -3082,7 +3341,7 @@ class Tools {
     ; workbook's path, or the CSV name the deck reads the sheet by) or a CSV,
     ; TSV, JSON or text file; rows a window at a time
     sfn readFile:MfJ (host:McpHost caller:Caller a:MfJ) {
-        def got:MfJ (Tools.readable(host a ([] _:string ("deck_id" "path"))))
+        def got:MfJ (Tools.readable(host caller a ([] _:string ("deck_id" "path"))))
         if ((got.field("fail")).isObj()) {
             return (got.field("fail"))
         }
@@ -3435,7 +3694,7 @@ class Tools {
     }
 
     sfn listComments:MfJ (host:McpHost caller:Caller a:MfJ) {
-        def got:MfJ (Tools.readable(host a ([] _:string ("deck_id"))))
+        def got:MfJ (Tools.readable(host caller a ([] _:string ("deck_id"))))
         if ((got.field("fail")).isObj()) {
             return (got.field("fail"))
         }
@@ -3529,7 +3788,7 @@ class Tools {
             ed.fail = "author is longer than 60 characters."
             return ed
         }
-        return (Tools.editable(host caller (a.str_("deck_id")) (a.str_("edit_key"))))
+        return (Tools.editable(host caller (a.str_("deck_id"))))
     }
 
     sfn reviewAuthor:string (a:MfJ) {
@@ -3541,7 +3800,7 @@ class Tools {
     }
 
     ; the comments back into the deck: the deck as saved, a null value when
-    ; the key does not match
+    ; it is gone
     sfn keepReview:MfJ (host:McpHost id:string ed:Editable rv:PresReview) {
         def text:string (rv.toJson())
         def im (new Img)
@@ -3552,7 +3811,7 @@ class Tools {
         im.size = (strlen text)
         def kept:[Img]
         push kept im
-        return (Store.update(host id (ed.mine == false) ed.key (new DeckPatch) kept))
+        return (Store.update(host id (new DeckPatch) kept))
     }
 
     sfn reviewAnswer:MfJ (host:McpHost id:string t:PresReviewThread said:string) {
@@ -3666,7 +3925,7 @@ class Tools {
             return (Tools.failed(host "add_comment" (host_error host)))
         }
         if ((saved.isObj()) == false) {
-            return (Tools.fail("The edit_key does not match this presentation."))
+            return (Tools.fail("No presentation by that id any more."))
         }
         return (Tools.reviewAnswer(host id (unwrap (rv.find(tid))) said))
     }
@@ -3716,7 +3975,7 @@ class Tools {
                 return (Tools.failed(host "resolve_comment" (host_error host)))
             }
             if ((saved.isObj()) == false) {
-                return (Tools.fail("The edit_key does not match this presentation."))
+                return (Tools.fail("No presentation by that id any more."))
             }
         }
         return (Tools.reviewAnswer(host id (unwrap (rv.find(tid))) said))
@@ -3754,6 +4013,7 @@ class Tools {
                 deck.putStr("key" nameKey)
             }
             deck.putStr("theme" (d.str_("theme")))
+            deck.putStr("visibility" (Tools.visibilityOf(d)))
             def t:double (Store.stamp(d))
             if (t > 0.0) {
                 deck.putStr("updated" (host_iso_time host (to_int t)))
@@ -3766,7 +4026,7 @@ class Tools {
             if ((strlen title) == 0) {
                 title = "(untitled)"
             }
-            push lines ("- " + title + " (" + id + "): " + (deck.str_("share_url")))
+            push lines ("- " + title + " (" + id + ", " + (deck.str_("visibility")) + "): " + (deck.str_("share_url")))
         }
         def txt:string (join lines "\n")
         if ((array_length lines) == 0) {

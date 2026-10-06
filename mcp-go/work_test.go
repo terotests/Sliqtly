@@ -154,12 +154,11 @@ func TestTwoAssistantsClaimSlidesAndMergeTheirEdits(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	id := sc(c)["deck_id"].(string)
-	key := sc(c)["edit_key"]
 	v0 := sc(c)["version"].(string)
 	match(t, textOf(c), `Version: [0-9a-f]{12} \(base_version`)
 
 	// A claims the budget slide
-	a := call(t, s, "begin_work", map[string]any{"deck_id": id, "edit_key": key, "agent": "Claude (budget chat)", "slides": []any{2}, "note": "new numbers"})
+	a := call(t, s, "begin_work", map[string]any{"deck_id": id, "agent": "Claude (budget chat)", "slides": []any{2}, "note": "new numbers"})
 	if a.IsError {
 		t.Fatal(textOf(a))
 	}
@@ -169,17 +168,17 @@ func TestTwoAssistantsClaimSlidesAndMergeTheirEdits(t *testing.T) {
 	match(t, textOf(a), `Claimed slide 2 \("Budget"\) of "Work" for Claude \(budget chat\) until 13:15 UTC`)
 
 	// B asks for the budget by title and hears who holds it
-	b := call(t, s, "begin_work", map[string]any{"deck_id": id, "edit_key": key, "agent": "Claude (risks chat)", "slides": []any{"budget", 3}})
+	b := call(t, s, "begin_work", map[string]any{"deck_id": id, "agent": "Claude (risks chat)", "slides": []any{"budget", 3}})
 	eq(t, sc(b)["claimed"], false)
 	match(t, textOf(b), `Not claimed: slides 2, 3 \("Budget", "Risks"\)`)
 	match(t, textOf(b), `- Claude \(budget chat\) is working on slide 2 \("Budget"\): new numbers \(until 13:15 UTC\)`)
 	match(t, textOf(b), `ask the user whether to wait`)
 	// and takes the risks slide only
-	b = call(t, s, "begin_work", map[string]any{"deck_id": id, "edit_key": key, "agent": "Claude (risks chat)", "slides": []any{3}})
+	b = call(t, s, "begin_work", map[string]any{"deck_id": id, "agent": "Claude (risks chat)", "slides": []any{3}})
 	eq(t, sc(b)["claimed"], true)
 	wb := sc(b)["work_id"].(string)
 	match(t, textOf(b), `Also working on this deck: Claude \(budget chat\)`)
-	match(t, textOf(call(t, s, "begin_work", map[string]any{"deck_id": id, "edit_key": key, "slides": []any{9}})), `No slide 9 in this presentation; it has 3 slides: 1 "Plan", 2 "Budget", 3 "Risks"`)
+	match(t, textOf(call(t, s, "begin_work", map[string]any{"deck_id": id, "slides": []any{9}})), `No slide 9 in this presentation; it has 3 slides: 1 "Plan", 2 "Budget", 3 "Risks"`)
 
 	// get shows the claims and the version
 	g := call(t, s, "get_presentation", map[string]any{"deck_id": id})
@@ -188,12 +187,12 @@ func TestTwoAssistantsClaimSlidesAndMergeTheirEdits(t *testing.T) {
 	match(t, textOf(g), `Also working on this deck: Claude \(risks chat\) is working on slide 3`)
 
 	// without base_version while another works on the deck: refused
-	nb := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "work_id": wa, "markdown": strings.Replace(BASE_DECK, "Numbers", "Numbers for 2027", 1)})
+	nb := call(t, s, "update_presentation", map[string]any{"deck_id": id, "work_id": wa, "markdown": strings.Replace(BASE_DECK, "Numbers", "Numbers for 2027", 1)})
 	eq(t, nb.IsError, true)
 	match(t, textOf(nb), `Not saved: another assistant is working on this presentation \(Claude \(risks chat\)`)
 
 	// A saves on v0
-	ua := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "work_id": wa, "base_version": v0, "markdown": strings.Replace(BASE_DECK, "Numbers", "Numbers for 2027", 1)})
+	ua := call(t, s, "update_presentation", map[string]any{"deck_id": id, "work_id": wa, "base_version": v0, "markdown": strings.Replace(BASE_DECK, "Numbers", "Numbers for 2027", 1)})
 	if ua.IsError {
 		t.Fatal(textOf(ua))
 	}
@@ -202,7 +201,7 @@ func TestTwoAssistantsClaimSlidesAndMergeTheirEdits(t *testing.T) {
 		t.Fatal("version did not change")
 	}
 	// B saves on v0 too: merged, A's change kept
-	ub := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "work_id": wb, "base_version": v0, "markdown": strings.Replace(BASE_DECK, "Some", "Some, ranked", 1)})
+	ub := call(t, s, "update_presentation", map[string]any{"deck_id": id, "work_id": wb, "base_version": v0, "markdown": strings.Replace(BASE_DECK, "Some", "Some, ranked", 1)})
 	if ub.IsError {
 		t.Fatal(textOf(ub))
 	}
@@ -213,30 +212,30 @@ func TestTwoAssistantsClaimSlidesAndMergeTheirEdits(t *testing.T) {
 
 	// A changes the same line on v1 that B's merge did not touch, then
 	// B edits the budget line on its old base: a conflict, nothing written
-	ua2 := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "work_id": wa, "base_version": v2, "markdown": "# Plan\n\nIntro\n\n## Budget\n\nNumbers for 2028\n\n## Risks\n\nSome, ranked"})
+	ua2 := call(t, s, "update_presentation", map[string]any{"deck_id": id, "work_id": wa, "base_version": v2, "markdown": "# Plan\n\nIntro\n\n## Budget\n\nNumbers for 2028\n\n## Risks\n\nSome, ranked"})
 	if ua2.IsError {
 		t.Fatal(textOf(ua2))
 	}
-	clash := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "work_id": wb, "base_version": v2, "markdown": "# Plan\n\nIntro\n\n## Budget\n\nNo numbers\n\n## Risks\n\nSome, ranked"})
+	clash := call(t, s, "update_presentation", map[string]any{"deck_id": id, "work_id": wb, "base_version": v2, "markdown": "# Plan\n\nIntro\n\n## Budget\n\nNo numbers\n\n## Risks\n\nSome, ranked"})
 	eq(t, clash.IsError, true)
 	match(t, textOf(clash), `Not saved: since version `+v2+` someone else changed the same lines on slide 2 \(numbered as in that version\); Claude \(budget chat\) is working on slide 2`)
 	doc, _ = f.db.Get(context.Background(), "shares", id)
 	match(t, doc["md"].(string), `Numbers for 2028`)
 
 	// a version this server never handed out cannot be merged with
-	match(t, textOf(call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "base_version": "000000000000", "markdown": "# X"})), `that version is not kept here`)
+	match(t, textOf(call(t, s, "update_presentation", map[string]any{"deck_id": id, "base_version": "000000000000", "markdown": "# X"})), `that version is not kept here`)
 
 	// B is done
-	ew := call(t, s, "end_work", map[string]any{"deck_id": id, "edit_key": key, "work_id": wb})
+	ew := call(t, s, "end_work", map[string]any{"deck_id": id, "work_id": wb})
 	eq(t, sc(ew)["ended"], true)
 	match(t, textOf(ew), `Still working on this deck: Claude \(budget chat\)`)
-	match(t, textOf(call(t, s, "end_work", map[string]any{"deck_id": id, "edit_key": key, "work_id": wb})), `No claim `+wb)
+	match(t, textOf(call(t, s, "end_work", map[string]any{"deck_id": id, "work_id": wb})), `No claim `+wb)
 
 	// A's claim runs out: the deck is free and an update without a base saves
 	now = now.Add(20 * time.Minute)
 	g = call(t, s, "get_presentation", map[string]any{"deck_id": id})
 	eq(t, len(list(sc(g)["work"])), 0)
-	free := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "work_id": wa, "markdown": "# Plan\n\nDone"})
+	free := call(t, s, "update_presentation", map[string]any{"deck_id": id, "work_id": wa, "markdown": "# Plan\n\nDone"})
 	if free.IsError {
 		t.Fatal(textOf(free))
 	}
@@ -258,12 +257,10 @@ func TestClaimsNeedTheEditKey(t *testing.T) {
 	defer s.close()
 	c := call(t, s, "create_presentation", map[string]any{"title": "Work", "markdown": BASE_DECK})
 	id := sc(c)["deck_id"].(string)
-	match(t, textOf(call(t, s, "begin_work", map[string]any{"deck_id": id})), `edit_key is needed`)
-	match(t, textOf(call(t, s, "begin_work", map[string]any{"deck_id": id, "edit_key": sc(c)["edit_key"], "minutes": 500})), `minutes is 1 to 120`)
+	match(t, textOf(call(t, s, "begin_work", map[string]any{"deck_id": id, "minutes": 500})), `minutes is 1 to 120`)
 	// forced onto slides another holds, after the user agreed
-	key := sc(c)["edit_key"]
-	call(t, s, "begin_work", map[string]any{"deck_id": id, "edit_key": key, "agent": "A"})
-	f2 := call(t, s, "begin_work", map[string]any{"deck_id": id, "edit_key": key, "agent": "B", "slides": []any{2}, "force": true})
+	call(t, s, "begin_work", map[string]any{"deck_id": id, "agent": "A"})
+	f2 := call(t, s, "begin_work", map[string]any{"deck_id": id, "agent": "B", "slides": []any{2}, "force": true})
 	eq(t, sc(f2)["claimed"], true)
 	match(t, textOf(f2), `Taken although A is working on the whole deck`)
 }
@@ -291,9 +288,9 @@ func TestEditsNeedNoBaseVersionWhileOthersWork(t *testing.T) {
 	s := start(t, testEnv(&f, nil), "")
 	defer s.close()
 	c := call(t, s, "create_presentation", map[string]any{"title": "Work", "markdown": BASE_DECK})
-	id, key := sc(c)["deck_id"].(string), sc(c)["edit_key"]
-	call(t, s, "begin_work", map[string]any{"deck_id": id, "edit_key": key, "agent": "A", "slides": []any{2}})
-	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "edits": []any{map[string]any{"find": "Some", "replace": "Some, ranked"}}})
+	id := sc(c)["deck_id"].(string)
+	call(t, s, "begin_work", map[string]any{"deck_id": id, "agent": "A", "slides": []any{2}})
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edits": []any{map[string]any{"find": "Some", "replace": "Some, ranked"}}})
 	if u.IsError {
 		t.Fatal(textOf(u))
 	}

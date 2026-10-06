@@ -72,13 +72,13 @@ func TestNamingRule(t *testing.T) {
 		t.Fatal(textOf(good))
 	}
 	id := sc(good)["deck_id"].(string)
-	upd := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": sc(good)["edit_key"], "title": "Renamed"})
+	upd := call(t, s, "update_presentation", map[string]any{"deck_id": id, "title": "Renamed"})
 	if !upd.IsError {
 		t.Fatal("a rename without a key was taken")
 	}
 	match(t, textOf(upd), `Not updated`)
 	// a change that leaves the name alone needs no rule
-	if c := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": sc(good)["edit_key"], "markdown": "# Q2\n"}); c.IsError {
+	if c := call(t, s, "update_presentation", map[string]any{"deck_id": id, "markdown": "# Q2\n"}); c.IsError {
 		t.Fatal(textOf(c))
 	}
 	list := sc(call(t, s, "list_presentations", map[string]any{}))

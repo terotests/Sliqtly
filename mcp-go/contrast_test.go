@@ -65,7 +65,7 @@ func TestWarnsOfTextThatDoesNotStandOut(t *testing.T) {
 
 	// the suggested dim is enough
 	dim := regexp1(t, ws, `bg-dim=(0\.\d+)`)
-	u := call(t, s, "update_presentation", map[string]any{"deck_id": out["deck_id"], "edit_key": out["edit_key"],
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": out["deck_id"],
 		"markdown": strings.Replace(md, "{bg=media/sky.png}", "{bg=media/sky.png bg-dim="+dim+"}", 1)})
 	if u.IsError {
 		t.Fatal(textOf(u))
@@ -75,7 +75,7 @@ func TestWarnsOfTextThatDoesNotStandOut(t *testing.T) {
 	}
 
 	// an update reads the stored picture back for the check
-	u2 := call(t, s, "update_presentation", map[string]any{"deck_id": out["deck_id"], "edit_key": out["edit_key"], "markdown": md})
+	u2 := call(t, s, "update_presentation", map[string]any{"deck_id": out["deck_id"], "markdown": md})
 	match(t, fmt.Sprint(sc(u2)["warnings"]), `Slide "Cloudy": text is hard to read over the background picture`)
 }
 

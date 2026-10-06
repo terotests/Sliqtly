@@ -100,7 +100,13 @@ type Env struct {
 	Registrations func(who string) string
 	// Hits: a limiter for the visit beacon POST /api/hit, per address.
 	Hits func(who string) string
-	Now  func() time.Time // nil: time.Now
+	// Renders: drawings (render_slide, render_overview,
+	// export_presentation) per caller and per address per day, counted in
+	// Firestore (dailyCount); nil: none. renders: what each caller is
+	// drawing now (renderSlots).
+	Renders func(ctx context.Context, who, ip string) string
+	renders *renderSlots
+	Now     func() time.Time // nil: time.Now
 	// A server of one's own (decks in a folder, local.go): every caller is
 	// LocalUser, files are read from FilesURL, themes are the built-in ones.
 	LocalUser string
@@ -149,6 +155,9 @@ func NewApp(env *Env) http.Handler {
 	}
 	if env.Hits == nil {
 		env.Hits = rateLimiter(120, 10*time.Minute)
+	}
+	if env.renders == nil {
+		env.renders = &renderSlots{max: 2, lease: 3 * time.Minute, held: map[string][]time.Time{}}
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 40<<20)
@@ -202,6 +211,49 @@ func rateLimiter(max int, window time.Duration) func(who string) string {
 					delete(hits, k)
 				}
 			}
+		}
+		return ""
+	}
+}
+
+// Drawings per day (Tero 2026-10-06: rendering is where the bill can
+// surprise): a caller without sign-in `anonymous` a day from its address, a
+// signed-in one `signedIn` for the account and twice that for its address
+// (many accounts behind one address). Counted like dailyQuota, under
+// mcp_quota/<sha256("render " + who)>-<day>.
+func dailyRenders(db DB, anonymous, signedIn int64, now func() time.Time) func(ctx context.Context, who, ip string) string {
+	count := func(ctx context.Context, key string, max int64) bool {
+		t := now().UTC()
+		sum := sha256.Sum256([]byte("render " + key))
+		id := hex.EncodeToString(sum[:]) + "-" + t.Format("2006-01-02")
+		d, err := db.Get(ctx, "mcp_quota", id)
+		if err != nil {
+			log.Printf("render quota: %v", err)
+			return true
+		}
+		var n int64
+		if d != nil {
+			if v, ok := d["n"].(int64); ok {
+				n = v
+			}
+		}
+		if n >= max {
+			return false
+		}
+		if err := db.Set(ctx, "mcp_quota", id, Doc{"n": n + 1, "expires": t.Add(48 * time.Hour)}); err != nil {
+			log.Printf("render quota: %v", err)
+		}
+		return true
+	}
+	return func(ctx context.Context, who, ip string) string {
+		if !strings.HasPrefix(who, "uid:") {
+			if !count(ctx, ip, anonymous) {
+				return fmt.Sprintf("The daily limit of %d pictures and exports from here is used up; try again tomorrow, or sign in for a higher limit.", anonymous)
+			}
+			return ""
+		}
+		if !count(ctx, who, signedIn) || !count(ctx, ip, 2*signedIn) {
+			return fmt.Sprintf("The daily limit of %d pictures and exports is used up; try again tomorrow.", signedIn)
 		}
 		return ""
 	}
@@ -934,6 +986,60 @@ func (h *McpHost) RateLimit(who string) string {
 }
 
 func (h *McpHost) HitLimit(who string) string { return h.env.Hits(who) }
+
+func (h *McpHost) RenderLimit(who, ip string) string {
+	if !h.env.renders.take(who) {
+		return "Already drawing two pictures for you; wait for them, then ask again."
+	}
+	if h.env.Renders != nil {
+		if why := h.env.Renders(h.ctx, who, ip); why != "" {
+			h.env.renders.give(who)
+			return why
+		}
+	}
+	return ""
+}
+
+func (h *McpHost) RenderDone(who string) { h.env.renders.give(who) }
+
+// What each caller is drawing now, per instance: at most max at once. A
+// slot lasts at most lease, so one never given back (a request that
+// failed midway) frees itself.
+type renderSlots struct {
+	mu    sync.Mutex
+	max   int
+	lease time.Duration
+	held  map[string][]time.Time
+}
+
+func (r *renderSlots) take(who string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	keep := r.held[who][:0]
+	for _, t := range r.held[who] {
+		if now.Sub(t) < r.lease {
+			keep = append(keep, t)
+		}
+	}
+	if len(keep) >= r.max {
+		r.held[who] = keep
+		return false
+	}
+	r.held[who] = append(keep, now)
+	return true
+}
+
+func (r *renderSlots) give(who string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if h := r.held[who]; len(h) > 0 {
+		r.held[who] = h[1:]
+	}
+	if len(r.held[who]) == 0 {
+		delete(r.held, who)
+	}
+}
 
 // at most a few keys: the cache is emptied when it grows past them
 func (h *McpHost) CacheGet(key string) string {

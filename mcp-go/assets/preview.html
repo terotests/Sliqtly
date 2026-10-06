@@ -218,7 +218,9 @@
     let local = false;
     let why = "";
     let doc = null;
-    try { doc = await viewerPage(out.share_url, meta && meta["sliqtly/firebase"]); local = true; } catch (e) { why = String((e && e.message) || e); console.warn("Sliqtly preview: framing the link", e); }
+    // a private deck: the viewer here is signed in to nobody, so it shows
+    // the deck carried in the link (preview_url: text, theme and CSS)
+    try { doc = await viewerPage(out.preview_url || out.share_url, meta && meta["sliqtly/firebase"]); local = true; } catch (e) { why = String((e && e.message) || e); console.warn("Sliqtly preview: framing the link", e); }
     if (n !== shown) return;
     const stage = document.querySelector(".stage");
     // Claude frames no other site, so there the link is no way out
@@ -265,7 +267,6 @@
     dl.textContent = "Exporting…";
     try {
       const args = { deck_id: deck.deck_id, format: b.dataset.format };
-      if (deck.edit_key) args.edit_key = deck.edit_key;
       const out = await callTool("export_presentation", args);
       if (!out.url) throw new Error("no download link came back");
       openLink(out.url);

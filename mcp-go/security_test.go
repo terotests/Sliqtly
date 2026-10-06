@@ -3,6 +3,10 @@
 package main
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -49,25 +53,26 @@ func TestGitHubTokenOnlyForPullRequests(t *testing.T) {
 	eq(t, auth, "", "no token on a chart's data")
 }
 
-// export_presentation writes beside the deck: only its owner, or whoever
-// has its edit key, may.
+// export_presentation writes beside the deck: only its owner, or the
+// session that made it without sign-in, may.
 func TestExportNeedsEditRights(t *testing.T) {
 	f := fakeFirebase()
 	anon := start(t, testEnv(&f, nil), "")
 	defer anon.close()
+	stranger := start(t, testEnv(&f, nil), "")
+	defer stranger.close()
 	c := call(t, anon, "create_presentation", map[string]any{"title": "Anon", "markdown": "# Anon\n\n## Two\n\nText."})
 	if c.IsError {
 		t.Fatal(textOf(c))
 	}
-	id, key := sc(c)["deck_id"].(string), sc(c)["edit_key"].(string)
-	match(t, textOf(call(t, anon, "export_presentation", map[string]any{"deck_id": id, "format": "pdf"})), `edit_key is needed`)
-	match(t, textOf(call(t, anon, "export_presentation", map[string]any{"deck_id": id, "format": "pdf", "edit_key": "wrong"})), `The edit_key does not match`)
+	id := sc(c)["deck_id"].(string)
+	match(t, textOf(call(t, stranger, "export_presentation", map[string]any{"deck_id": id, "format": "pdf"})), `made without sign-in in another Sliqtly session`)
 	for p := range f.bucket.saved {
 		if strings.Contains(p, "/exports/") {
-			t.Fatal("written without the key: " + p)
+			t.Fatal("written by another session: " + p)
 		}
 	}
-	ok := call(t, anon, "export_presentation", map[string]any{"deck_id": id, "format": "pdf", "edit_key": key})
+	ok := call(t, anon, "export_presentation", map[string]any{"deck_id": id, "format": "pdf"})
 	if ok.IsError {
 		t.Fatal(textOf(ok))
 	}
@@ -83,7 +88,7 @@ func TestExportNeedsEditRights(t *testing.T) {
 	if r := call(t, me, "export_presentation", map[string]any{"deck_id": mid, "format": "pdf"}); r.IsError {
 		t.Fatal(textOf(r))
 	}
-	match(t, textOf(call(t, anon, "export_presentation", map[string]any{"deck_id": mid, "format": "pdf"})), `edit_key is needed`)
+	match(t, textOf(call(t, anon, "export_presentation", map[string]any{"deck_id": mid, "format": "pdf"})), `belongs to a signed-in Sliqtly user`)
 }
 
 // data_base64 that is not base64 is named as such, not as an empty picture
@@ -130,4 +135,229 @@ func TestDownloadLinkExpires(t *testing.T) {
 	eq(t, get(), 200, "still within the day")
 	now = now.Add(2 * time.Minute)
 	eq(t, get(), 410, "expired")
+}
+
+// A signed-in user's deck is private by default: only that Google account
+// reads it through the read tools; visibility "link" opens it to anyone with
+// the id, and only the owner changes that. A deck made without sign-in is
+// read by anyone with its id and changed only by the session that made it.
+func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
+	f := fakeFirebase()
+	me := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer me.close()
+	other := start(t, withSignIn(testEnv(&f, nil)), signInAs(f, "other-token", "u2", "Someone"))
+	defer other.close()
+	anon := start(t, testEnv(&f, nil), "")
+	defer anon.close()
+
+	c := call(t, me, "create_presentation", map[string]any{"title": "Mine", "markdown": "# Mine\n\n## Two\n\nText.",
+		"files": []any{map[string]any{"name": "d.csv", "text": "a,b\nx,1\n"}}})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	if _, has := sc(c)["edit_key"]; has {
+		t.Fatal("an edit key handed out")
+	}
+	eq(t, sc(c)["visibility"], "private")
+	eq(t, f.db.doc("shares/" + id)["visibility"], "private")
+	match(t, textOf(c), `Private: only this Google account sees it`)
+	match(t, str(sc(c)["preview_url"]), `/#md=`)
+
+	reads := []struct {
+		name string
+		args map[string]any
+	}{
+		{"get_presentation", map[string]any{"deck_id": id}},
+		{"render_slide", map[string]any{"deck_id": id, "slide": 1}},
+		{"render_overview", map[string]any{"deck_id": id}},
+		{"list_files", map[string]any{"deck_id": id}},
+		{"read_file", map[string]any{"deck_id": id, "path": "data/d.csv"}},
+		{"list_comments", map[string]any{"deck_id": id}},
+	}
+	for _, r := range reads {
+		if got := call(t, me, r.name, r.args); got.IsError {
+			t.Fatalf("%s as the owner: %s", r.name, textOf(got))
+		}
+		got := call(t, other, r.name, r.args)
+		if !got.IsError {
+			t.Fatalf("%s read another account's private deck", r.name)
+		}
+		match(t, textOf(got), `private to the Google account that owns it, and this connector is signed in with another account \(Someone\)`)
+		got = call(t, anon, r.name, r.args)
+		if !got.IsError {
+			t.Fatalf("%s read a private deck without sign-in", r.name)
+		}
+		match(t, textOf(got), `this connector is not signed in`)
+	}
+	// list_presentations: only the owner's, with its visibility
+	match(t, textOf(call(t, me, "list_presentations", map[string]any{})), id+`, private\)`)
+	if strings.Contains(textOf(call(t, other, "list_presentations", map[string]any{})), id) {
+		t.Fatal("listed for another account")
+	}
+
+	// only the owner opens it by link
+	match(t, textOf(call(t, anon, "update_presentation", map[string]any{"deck_id": id, "visibility": "link"})), `belongs to a signed-in Sliqtly user`)
+	match(t, textOf(call(t, other, "update_presentation", map[string]any{"deck_id": id, "visibility": "link"})), `belongs to another Sliqtly account`)
+	match(t, textOf(call(t, me, "update_presentation", map[string]any{"deck_id": id, "visibility": "public"})), `visibility is private or link`)
+	u := call(t, me, "update_presentation", map[string]any{"deck_id": id, "visibility": "link"})
+	if u.IsError {
+		t.Fatal(textOf(u))
+	}
+	eq(t, sc(u)["visibility"], "link")
+	eq(t, f.db.doc("shares/" + id)["visibility"], "link")
+	if got := call(t, other, "get_presentation", map[string]any{"deck_id": id}); got.IsError {
+		t.Fatal("a link deck refused: " + textOf(got))
+	}
+	if r := call(t, me, "update_presentation", map[string]any{"deck_id": id, "visibility": "private"}); r.IsError {
+		t.Fatal(textOf(r))
+	}
+	if got := call(t, other, "get_presentation", map[string]any{"deck_id": id}); !got.IsError {
+		t.Fatal("private again, still read by another account")
+	}
+
+	// asked for by link at creation
+	l := call(t, me, "create_presentation", map[string]any{"title": "Open", "markdown": "# Open", "visibility": "link"})
+	eq(t, sc(l)["visibility"], "link")
+	match(t, textOf(l), `Anyone with the link can view it`)
+
+	// without sign-in: always by link; private needs sign-in
+	a := call(t, anon, "create_presentation", map[string]any{"title": "Anon", "markdown": "# Anon"})
+	eq(t, sc(a)["visibility"], "link")
+	eq(t, f.db.doc("shares/" + str(sc(a)["deck_id"]))["visibility"], "link")
+	match(t, textOf(call(t, anon, "create_presentation", map[string]any{"title": "P", "markdown": "# P", "visibility": "private"})), `A private presentation needs sign-in`)
+	match(t, textOf(call(t, anon, "update_presentation", map[string]any{"deck_id": sc(a)["deck_id"], "visibility": "private"})), `made without sign-in`)
+
+	// a deck made without sign-in: read by anyone with its id, changed only
+	// in the session that made it, and no longer once that session ended
+	aid := str(sc(a)["deck_id"])
+	match(t, textOf(a), `only this conversation's Sliqtly session can change it`)
+	if r := call(t, anon, "update_presentation", map[string]any{"deck_id": aid, "markdown": "# Anon 2"}); r.IsError {
+		t.Fatal(textOf(r))
+	}
+	stranger := start(t, testEnv(&f, nil), "")
+	defer stranger.close()
+	if r := call(t, stranger, "get_presentation", map[string]any{"deck_id": aid}); r.IsError {
+		t.Fatal(textOf(r))
+	}
+	for _, who := range []*testServer{stranger, other, me} {
+		match(t, textOf(call(t, who, "update_presentation", map[string]any{"deck_id": aid, "markdown": "# x"})), `made without sign-in in another Sliqtly session`)
+		match(t, textOf(call(t, who, "add_comment", map[string]any{"deck_id": aid, "slide": 1, "text": "x"})), `made without sign-in in another Sliqtly session`)
+	}
+	eq(t, f.db.doc("shares/" + aid)["md"], "# Anon 2")
+	// the session's record: the hash of its id, never the id
+	var held int
+	for k, d := range f.db.all("mcp_sessions/") {
+		held++
+		match(t, k, `^mcp_sessions/[0-9a-f]{64}$`)
+		eq(t, list(d["decks"]), []any{aid})
+	}
+	eq(t, held, 1)
+	anon.close()
+	if n := len(f.db.all("mcp_sessions/")); n != 0 {
+		t.Fatalf("%d sessions left after the client ended its own", n)
+	}
+
+	// a share from before visibility existed stays readable by its id
+	f.db.Set(context.Background(), "shares", "OldShare01", Doc{"name": "Old", "md": "# Old", "owner": "u1", "theme": "aurora", "files": []any{}})
+	if got := call(t, other, "get_presentation", map[string]any{"deck_id": "OldShare01"}); got.IsError {
+		t.Fatal("an older share refused: " + textOf(got))
+	}
+}
+
+func signInAs(f fb, tok, uid, name string) string {
+	sum := sha256.Sum256([]byte(tok))
+	f.db.Set(context.Background(), "mcp_oauth_tokens", hex.EncodeToString(sum[:]), Doc{"uid": uid, "name": name, "kind": "access", "exp": time.Now().Add(time.Hour).UnixMilli()})
+	return tok
+}
+
+// What one caller may keep on a shared server (Tero, 2026-10-06): decks per
+// session without sign-in and per account, slides per deck, a deck's bytes,
+// and drawings at once.
+func TestLimitsPerCaller(t *testing.T) {
+	f := fakeFirebase()
+	anon := start(t, testEnv(&f, nil), "")
+	defer anon.close()
+	for i := 1; i <= 3; i++ {
+		if c := call(t, anon, "create_presentation", map[string]any{"title": "A", "markdown": "# A"}); c.IsError {
+			t.Fatal(textOf(c))
+		}
+	}
+	match(t, textOf(call(t, anon, "create_presentation", map[string]any{"title": "A", "markdown": "# A"})), `without sign-in one conversation makes at most 3 presentations`)
+
+	long := func(n int) string {
+		md := "# Long"
+		for i := 2; i <= n; i++ {
+			md += fmt.Sprintf("\n\n## Slide %d\n\nText.", i)
+		}
+		return md
+	}
+	other := start(t, testEnv(&f, nil), "")
+	defer other.close()
+	match(t, textOf(call(t, other, "create_presentation", map[string]any{"title": "L", "markdown": long(21)})), `21 slides; a presentation has at most 20.*sign in for up to 100`)
+	ok := call(t, other, "create_presentation", map[string]any{"title": "L", "markdown": long(20)})
+	if ok.IsError {
+		t.Fatal(textOf(ok))
+	}
+	match(t, textOf(call(t, other, "update_presentation", map[string]any{"deck_id": sc(ok)["deck_id"], "markdown": long(22)})), `22 slides; a presentation has at most 20`)
+
+	me := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer me.close()
+	if c := call(t, me, "create_presentation", map[string]any{"title": "L", "markdown": long(60)}); c.IsError {
+		t.Fatal(textOf(c))
+	}
+	// a deck's pictures and files together: 200 MB
+	f.db.Set(context.Background(), "shares", "BigDeck001", Doc{"owner": "u1", "md": "# Big", "theme": "aurora", "visibility": "private",
+		"files": []any{map[string]any{"path": "data/huge.csv", "type": "text/csv", "size": int64(200 << 20), "url": "x"}}})
+	match(t, textOf(call(t, me, "update_presentation", map[string]any{"deck_id": "BigDeck001", "files": []any{map[string]any{"name": "more.csv", "text": "a,b\n1,2\n"}}})), `would come to 200 MB; one presentation keeps at most 200 MB`)
+	if r := call(t, me, "update_presentation", map[string]any{"deck_id": "BigDeck001", "files": []any{map[string]any{"name": "huge.csv", "text": "a,b\n1,2\n"}}}); r.IsError {
+		t.Fatal("replacing the big file refused: " + textOf(r))
+	}
+	// an account's decks: 50
+	for i := 0; i < 50; i++ {
+		f.db.Set(context.Background(), "shares", fmt.Sprintf("Many%06d", i), Doc{"owner": "u1", "md": "# M"})
+	}
+	match(t, textOf(call(t, me, "create_presentation", map[string]any{"title": "M", "markdown": "# M"})), `already keeps 5[0-9] presentations, the most it may`)
+}
+
+// At most two drawings at once per caller; a daily count per caller and per
+// address on top (dailyRenders).
+func TestRenderSlotsAndDailyRenders(t *testing.T) {
+	r := &renderSlots{max: 2, lease: time.Minute, held: map[string][]time.Time{}}
+	if !r.take("a") || !r.take("a") || r.take("a") {
+		t.Fatal("two at once")
+	}
+	if !r.take("b") {
+		t.Fatal("another caller waits for a")
+	}
+	r.give("a")
+	if !r.take("a") {
+		t.Fatal("a slot given back")
+	}
+	stale := &renderSlots{max: 1, lease: time.Millisecond, held: map[string][]time.Time{}}
+	stale.take("a")
+	time.Sleep(3 * time.Millisecond)
+	if !stale.take("a") {
+		t.Fatal("a slot never given back frees itself")
+	}
+
+	db := newFakeDB()
+	day := func() time.Time { return time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC) }
+	q := dailyRenders(db, 2, 3, day)
+	ctx := context.Background()
+	for i := 0; i < 2; i++ {
+		eq(t, q(ctx, "1.2.3.4", "1.2.3.4"), "")
+	}
+	match(t, q(ctx, "1.2.3.4", "1.2.3.4"), `daily limit of 2 pictures and exports from here.*sign in`)
+	for i := 0; i < 3; i++ {
+		eq(t, q(ctx, "uid:u1", "5.6.7.8"), "")
+	}
+	match(t, q(ctx, "uid:u1", "5.6.7.8"), `daily limit of 3 pictures`)
+	// the address: twice an account's count (6), whichever accounts
+	for i := 0; i < 2; i++ {
+		eq(t, q(ctx, "uid:u2", "5.6.7.8"), "")
+	}
+	eq(t, q(ctx, "uid:u3", "5.6.7.8"), "")
+	match(t, q(ctx, "uid:u3", "5.6.7.8"), `daily limit of 3`)
+	eq(t, q(ctx, "uid:u3", "9.9.9.9"), "")
 }

@@ -4735,9 +4735,12 @@ async function shareLink() {
   showShare(showUrl, editUrl, t("Creating a short link in the cloud…"), viewUrl);
   try {
     const id = await shareCloud();
+    // the deck is private in the cloud until shared: Share opens it to
+    // anyone with the link
+    await window.sliqtly.setVisibility(id, "link");
     const short = location.origin + "/s/" + id;
     const view = picked ? short + "?slides=" + encodeURIComponent(keys) : "";
-    showShare(short, short + "?edit", t("A short link to a copy in the cloud, with its images and data. Only you can change the original."), view, true);
+    showShare(short, short + "?edit", t("A short link to a copy in the cloud, with its images and data. Anyone with the link can view it; only you can change the original."), view, true);
   } catch (e) {
     showShare(showUrl, editUrl, cloudFailure(e) + " " + textNote, viewUrl);
   }
@@ -4746,7 +4749,7 @@ async function shareLink() {
 // Edit in Claude: the assistant opens with a prompt that names the
 // deck, and edits it through the Sliqtly connector (mcp-go/): get_presentation
 // reads a share, update_presentation saves it when the assistant is signed
-// in as the share's owner (or holds its edit key). So the deck handed over
+// in as the share's owner. So the deck handed over
 // is a share: the one this page was opened from when it is the reader's own
 // and unchanged, else a fresh share of the deck (signed in). Signed out, the
 // Markdown goes in the prompt for create_presentation. The changes land in
@@ -5820,7 +5823,9 @@ async function openFromShare() {
   } catch (e) {
     if (doc.loading) shownDoc(doc.openedText);
     console.warn(e);
-    toast(t("Could not open the shared presentation."));
+    toast(e?.code === "private"
+      ? t("This presentation is private: sign in with the Google account that owns it.")
+      : t("Could not open the shared presentation."));
     return false;
   }
 }

@@ -1,10 +1,12 @@
 rules_version = '2';
 
 // decks: a presentation, its owner's alone.
-// shares: the copy made when a deck is shared. Anyone holding the short id
-// reads it; only its owner lists its own (a query on owner), changes or
-// deletes it.
-// mcp_keys, mcp_oauth_*, mcp_work, mcp_bases: the MCP server's edit keys,
+// shares: a deck in the cloud (the editor's PRO deck, an assistant's deck
+// made through mcp-go/). `visibility` says who reads it: "private" only its
+// owner, "link" anyone holding the short id. A share without the field is
+// "link" (every share made before it existed). Only its owner lists its own
+// (a query on owner), changes or deletes it.
+// mcp_sessions, mcp_keys (older), mcp_oauth_*, mcp_work, mcp_bases: the MCP server's sessions and what they may change,
 // sign-in state, assistants' claims on a deck and the versions it merges
 // edits with (mcp-go/). No rule matches them, so only the Admin SDK reads or writes them.
 // stats, stats_salt, stats_seen: the visitor counts (mcp-go/rgr/Stats.rgr); no
@@ -12,6 +14,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
+    function visibility(data) { return data.get('visibility', 'link'); }
 
     match /decks/{deckId} {
       allow read, delete: if signedIn() && resource.data.owner == request.auth.uid;
@@ -21,11 +24,15 @@ service cloud.firestore {
     }
 
     match /shares/{shareId} {
-      allow get: if true;
+      // none by that id: the reader is told so (resource is null)
+      allow get: if resource == null || visibility(resource.data) != 'private'
+                 || (signedIn() && resource.data.owner == request.auth.uid);
       allow list: if signedIn() && resource.data.owner == request.auth.uid;
-      allow create: if signedIn() && request.resource.data.owner == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.owner == request.auth.uid
+                    && visibility(request.resource.data) in ['private', 'link'];
       allow update: if signedIn() && resource.data.owner == request.auth.uid
-                    && request.resource.data.owner == request.auth.uid;
+                    && request.resource.data.owner == request.auth.uid
+                    && visibility(request.resource.data) in ['private', 'link'];
       allow delete: if signedIn() && resource.data.owner == request.auth.uid;
     }
   }

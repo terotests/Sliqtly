@@ -192,9 +192,10 @@ function shortId() {
   return [...bytes].map((b) => abc[b % abc.length]).join("");
 }
 
-// Keeps the deck as its owner's and makes a copy anyone with the link can
-// read: { deckId, name, md, theme, css, files: [{ path, type, data }] } →
-// the share's id. made(id), when given, is told the id as soon as the share
+// Keeps the deck as its owner's and makes its copy in the cloud, private to
+// the owner until Share opens it by link (setVisibility; firestore.rules):
+// { deckId, name, md, theme, css, files: [{ path, type, data }] } → the
+// share's id. made(id), when given, is told the id as soon as the share
 // exists, before its files go.
 async function share(deck, made) {
   if (!user) throw new Error("not signed in");
@@ -206,7 +207,7 @@ async function share(deck, made) {
   const id = shortId();
   const doc = db.collection("shares").doc(id);
   // the copy first: Storage lets only the owner it names write its files
-  await doc.set({ ...body, owner: user.uid, deck: deck.deckId, files: [], created: now });
+  await doc.set({ ...body, owner: user.uid, visibility: "private", deck: deck.deckId, files: [], created: now });
   // the share exists from here: a file that fails names it (e.shareId), so
   // the deck keeps it and the next save sends the files again instead of
   // making another share
@@ -226,12 +227,30 @@ async function share(deck, made) {
   return id;
 }
 
-// A shared copy: { name, md, theme, css, files: [{ path, type, size, url }] },
-// or null when there is none by that id.
+// A shared copy: { name, md, theme, css, visibility, files: [{ path, type,
+// size, url }] }, or null when there is none by that id. A private one is
+// read only by its owner: the sign-in from an earlier visit is waited for
+// (a few seconds at most), and anyone else gets an error with code
+// "private".
 async function loadShare(id) {
   const { db } = await store();
-  const snap = await db.collection("shares").doc(id).get();
+  await Promise.race([signedIn(), new Promise((ok) => setTimeout(ok, 5000))]);
+  let snap;
+  try {
+    snap = await db.collection("shares").doc(id).get();
+  } catch (e) {
+    if (e?.code === "permission-denied") throw Object.assign(new Error("private"), { code: "private" });
+    throw e;
+  }
   return snap.exists ? snap.data() : null;
+}
+
+// Who reads the owner's share: "private" (the owner only) or "link" (anyone
+// with its id).
+async function setVisibility(id, visibility) {
+  if (!user) throw new Error("not signed in");
+  const { db } = await store();
+  await db.collection("shares").doc(id).update({ visibility });
 }
 
 // The signed-in user's own shares, newest first: [{ id, name, updated }]
@@ -497,5 +516,5 @@ async function readSheet(gviz, ask) {
   return rows.map((row) => Array.from({ length: width }, (_, i) => csvCell(row[i])).join(",")).join("\n") + "\n";
 }
 
-window.sliqtly = { auth, user: () => user, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, listMine, readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
+window.sliqtly = { auth, user: () => user, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
 window.dispatchEvent(new Event("sliqtly:ready"));

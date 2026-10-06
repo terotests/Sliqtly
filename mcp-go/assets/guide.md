@@ -72,8 +72,17 @@ Write `![Alt text](media/<name>)` and pass the picture in the tool call's
 public `https` URL or base64 data, or an SVG's source as `text` (readable,
 no base64). PNG, JPEG, GIF, WebP and SVG, up to 5 MB.
 Pictures, data files and workbooks are stored only when the user is signed
-in; without sign-in a deck is text only and is deleted 30 days after its
+in; without sign-in a deck is text only and is deleted 7 days after its
 last change.
+Limits: without sign-in, 3 presentations per conversation and 20 slides
+each; signed in, 50 presentations per account and 100 slides each; a
+presentation's pictures and files together up to 200 MB. render_slide,
+render_overview and export_presentation are counted a day (100 without
+sign-in, 500 signed in), two at a time.
+A signed-in user's presentation is private: only their Google account sees
+it, at its link too. To share it, ask the user first, then call
+`update_presentation` with `visibility: "link"` (anyone with the link can
+view it); `visibility: "private"` closes it again.
 When text on a picture is hard to read ("low contrast"), raise that slide's
 `bg-dim` (0.6–0.8) with update_presentation, or put the text on a plate
 (`{container=box}` under it); the picture stays as it is.
@@ -618,8 +627,8 @@ the others' claims ("Also working on this deck").
 ## Exporting
 
 `export_presentation` (deck_id, `format`: `pdf`, `pptx`, `docx` or
-`html`, optional `slides`: [2, 5], and `edit_key` unless signed in as the
-deck's owner) makes the file the editor's File → Export makes and returns
+`html`, optional `slides`: [2, 5]; by the deck's owner, or by the session
+that made it without sign-in) makes the file the editor's File → Export makes and returns
 a download link for the user, on sliqtly.com (`https://sliqtly.com/d/…`,
 working for 24 hours). The PPTX keeps text
 editable, with build steps, speaker notes and transitions; charts and
@@ -645,5 +654,8 @@ work as they are; a private one needs separate access.
 ## Result
 
 `create_presentation` returns a share link that opens straight into the
-presentation (full screen button, arrow keys). Keep `deck_id` and `edit_key` to change the same
-deck later with `update_presentation`; the share link stays the same.
+presentation (full screen button, arrow keys). Keep `deck_id` to change the
+same deck later with `update_presentation`; the share link stays the same.
+The id finds a presentation, it does not let anyone change it: a signed-in
+user's is changed by its owner, one made without sign-in only in this
+connection's session (until it ends or goes unused for a day).

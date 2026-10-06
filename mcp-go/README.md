@@ -27,7 +27,7 @@ of it, and the rewrites pointed back at the function.
 | [`rgr/Tools.rgr`](rgr/Tools.rgr) | the tools, their schemas and UI metadata, the preview resource; review comments (`list_comments`, `add_comment`, `resolve_comment`) read and write the editor's `review/comments.json` through its own model ([`src/PresReview.rgr`](../src/PresReview.rgr)) |
 | [`rgr/Work.rgr`](rgr/Work.rgr), [`rgr/WorkStore.rgr`](rgr/WorkStore.rgr) | two assistants on one deck: `begin_work` / `end_work` claims (which slides, by whom, until when; `mcp_work/{id}`), and `update_presentation`'s `base_version`: an edit made on an older version is merged with what was saved since by RangerDiff's diff3 ([`src/RdText.rgr`](https://github.com/terotests/RangerDiff/blob/main/src/RdText.rgr), linked into Ranger as `gallery/rangerdiff` by `gen.mjs`), and refused with the slides it is on when both changed the same lines. Versions handed out are kept in `mcp_bases/{id}-{version}` (the newest 12). Board and deck are written only over what was read (`host_update_if`, a Firestore transaction or the folder store's lock) (`work_test.go`) |
 | [`rgr/OAuth.rgr`](rgr/OAuth.rgr) | the OAuth 2.1 server: registration, authorize, approve, token, refresh |
-| [`rgr/Store.rgr`](rgr/Store.rgr) | shares, edit keys, pictures, listing |
+| [`rgr/Store.rgr`](rgr/Store.rgr) | shares, who may read and change them (owner, visibility, MCP sessions), pictures, listing |
 | [`rgr/Deck.rgr`](rgr/Deck.rgr) | the checks: picture names and types, outline, warnings |
 | [`rgr/Charts.rgr`](rgr/Charts.rgr) | `bind_chart_data`: finds a deck's ```` ```vega-lite ```` charts and points one at a CSV/JSON URL or a Google Sheet |
 | [`rgr/Files.rgr`](rgr/Files.rgr) | a deck's data files: `list_files`, `read_file`, `write_workbook` and `files` on create/update; workbooks read and tidied as the editor reads them |
@@ -128,6 +128,21 @@ about 200 ms per call; a deck of a few text slides takes a few milliseconds.
 On Cloud Run the platform adds its own start-up to both. Firestore and Storage
 calls take the same time from either language and were not part of the load
 test.
+
+## Who may do what, and how much
+
+The deck id locates a deck and grants nothing. A signed-in user's deck is
+read and changed by its owner (`visibility: "link"` lets anyone read it);
+a deck made without sign-in is read by anyone with its id and changed only
+by the MCP session that made it (`mcp_sessions/{sha256(Mcp-Session-Id)}`,
+a day after its last change, or until `DELETE /mcp`). On a shared server
+(`rgr/Store.rgr` `Limits`, `host.go` `dailyQuota`/`dailyRenders`): 3 decks
+per session without sign-in and 50 per account, 20 / 100 slides per deck,
+200 MB of pictures and files per deck, decks without sign-in deleted 7
+days after their last change, 50 / 500 saved changes a day, 100 / 500
+drawings (render_slide, render_overview, export_presentation) a day per
+caller, a signed-in user's address 1000, at most two drawings at once per
+caller. A server of one's own has none of these.
 
 ## Run and test
 

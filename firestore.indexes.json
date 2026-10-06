@@ -20,6 +20,12 @@
       "indexes": []
     },
     {
+      "collectionGroup": "mcp_sessions",
+      "fieldPath": "expires",
+      "ttl": true,
+      "indexes": []
+    },
+    {
       "collectionGroup": "mcp_work",
       "fieldPath": "expires",
       "ttl": true,

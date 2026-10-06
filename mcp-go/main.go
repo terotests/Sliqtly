@@ -166,6 +166,7 @@ func main() {
 			}
 			kind = "cloud"
 			e.Quota = dailyQuota(e.DB, 50, 500, time.Now)
+			e.Renders = dailyRenders(e.DB, 100, 500, time.Now)
 		} else {
 			e.TrustHost = true
 		}

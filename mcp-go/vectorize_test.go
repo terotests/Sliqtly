@@ -46,14 +46,13 @@ func TestVectorizeADecksPicture(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	id := sc(c)["deck_id"].(string)
-	key := sc(c)["edit_key"]
 
-	bad := call(t, s, "vectorize_image", map[string]any{"deck_id": id, "edit_key": key, "path": "media/logo.png", "options": map[string]any{"colorcount": 3}})
+	bad := call(t, s, "vectorize_image", map[string]any{"deck_id": id, "path": "media/logo.png", "options": map[string]any{"colorcount": 3}})
 	match(t, textOf(bad), `Unknown option: colorcount`)
-	missing := call(t, s, "vectorize_image", map[string]any{"deck_id": id, "edit_key": key, "path": "media/none.png"})
+	missing := call(t, s, "vectorize_image", map[string]any{"deck_id": id, "path": "media/none.png"})
 	match(t, textOf(missing), `has no file media/none\.png`)
 
-	v := call(t, s, "vectorize_image", map[string]any{"deck_id": id, "edit_key": key, "path": "media/logo.png", "preset": "logo", "options": map[string]any{"colorCount": 3}})
+	v := call(t, s, "vectorize_image", map[string]any{"deck_id": id, "path": "media/logo.png", "preset": "logo", "options": map[string]any{"colorCount": 3}})
 	if v.IsError {
 		t.Fatal(textOf(v))
 	}

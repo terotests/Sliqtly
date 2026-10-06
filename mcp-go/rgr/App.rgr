@@ -209,9 +209,20 @@ class App {
             App.redirect(res ((host_base_url host) + "/connect.html"))
             return
         }
+        def sid:string (http_get_header req "Mcp-Session-Id")
+        if (method == "DELETE") {
+            ; the client ends its session: what it held (decks made without
+            ; sign-in) can no longer be changed
+            Store.sessionEnd(host (Store.sessionKey(host sid)))
+            if ((strlen (host_error host)) > 0) {
+                host_log host ("session end failed: " + (host_error host))
+            }
+            http_set_status res 204
+            return
+        }
         if (method != "POST") {
-            http_set_header res "Allow" "POST"
-            App.sendJson(res 405 (App.rpcError(-32000 "Method not allowed: this server is stateless, POST only.")))
+            http_set_header res "Allow" "POST, DELETE"
+            App.sendJson(res 405 (App.rpcError(-32000 "Method not allowed: POST, or DELETE to end the session.")))
             return
         }
         ; no token: anonymous; a token that does not hold: 401, so the client
@@ -244,9 +255,18 @@ class App {
             caller.name = local
         }
         caller.who = (App.clientIp(host req))
+        caller.ip = caller.who
         if caller.signedIn {
             caller.who = ("uid:" + caller.uid)
         }
+        ; the session: a new one (256 random bits) when the client brings
+        ; none; it comes back in Mcp-Session-Id, never in a URL. Only its
+        ; hash is kept, with what it may change (Store.rgr).
+        if ((strlen sid) == 0) {
+            sid = (host_short_id host 44)
+            http_set_header res "Mcp-Session-Id" sid
+        }
+        caller.session = (Store.sessionKey(host sid))
         ; what the transport asks of a client
         if (((indexOf accept "application/json") < 0) || ((indexOf accept "text/event-stream") < 0)) {
             App.sendJson(res 406 (App.rpcError(-32000 "Not Acceptable: Client must accept both application/json and text/event-stream")))
