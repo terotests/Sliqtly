@@ -178,6 +178,22 @@ func (g gcsBucket) Read(ctx context.Context, path string, limit int64) ([]byte, 
 	return io.ReadAll(io.LimitReader(r, limit))
 }
 
+func (g gcsBucket) RemovePrefix(ctx context.Context, prefix string) error {
+	it := g.b.Objects(ctx, &storage.Query{Prefix: prefix})
+	for {
+		a, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := g.b.Object(a.Name).Delete(ctx); err != nil && !errors.Is(err, storage.ErrObjectNotExist) {
+			return err
+		}
+	}
+}
+
 // The Firebase project's Firestore, Storage and Auth, with Application
 // Default Credentials (the Cloud Run service account).
 func connectFirebase(ctx context.Context, env *Env, projectID, bucket string) error {

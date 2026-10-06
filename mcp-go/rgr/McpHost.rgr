@@ -175,6 +175,12 @@ operators {
             go ( (e 1) ".DeleteDoc(" (e 2) ", " (e 3) ")" nl )
         }
     }
+    ; every stored file whose path starts with prefix ("shares/<id>/")
+    host_remove_files _:void (h:McpHost prefix:string) {
+        templates {
+            go ( (e 1) ".RemoveFiles(" (e 2) ")" nl )
+        }
+    }
     ; writes the document only when there is none: "" when it was written,
     ; the one already there (JSON) when not
     host_create_doc _:string (h:McpHost col:string id:string json:string) {

@@ -528,6 +528,20 @@ func (h *McpHost) UpdateDoc(col, id, text string) {
 	}
 }
 
+// A Bucket that removes every file under a prefix (a deck's folder).
+type prefixRemover interface {
+	RemovePrefix(ctx context.Context, prefix string) error
+}
+
+func (h *McpHost) RemoveFiles(prefix string) {
+	if h.env.Bucket == nil || !strings.HasSuffix(prefix, "/") || len(prefix) < 3 {
+		return
+	}
+	if r, ok := h.env.Bucket.(prefixRemover); ok {
+		h.fail(r.RemovePrefix(h.ctx, prefix))
+	}
+}
+
 func (h *McpHost) DeleteDoc(col, id string) {
 	if h.db() {
 		h.fail(h.env.DB.Delete(h.ctx, col, id))

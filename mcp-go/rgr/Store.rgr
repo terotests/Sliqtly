@@ -191,6 +191,38 @@ class Store {
         return (array_length (J.strList((d.field("decks")))))
     }
 
+    ; the session no longer holds deck id (deleted)
+    sfn sessionDrop:void (host:McpHost key:string id:string) {
+        if ((strlen key) == 0) {
+            return
+        }
+        def d:MfJ (J.parse((host_get_doc host "mcp_sessions" key)))
+        if ((d.isObj()) == false) {
+            return
+        }
+        def ids:[string]
+        for (J.strList((d.field("decks")))) x:string xi {
+            if (x != id) {
+                push ids x
+            }
+        }
+        d.put("decks" (J.strs(ids)))
+        host_set_doc host "mcp_sessions" key (JOut.text(d))
+    }
+
+    ; deck id gone for good: its record first, so nothing points at files
+    ; that are gone (files a failed removal leaves are named by nothing),
+    ; then its pictures, data files and exports, and the work board
+    sfn remove:void (host:McpHost id:string) {
+        host_delete_doc host "shares" id
+        if ((strlen (host_error host)) > 0) {
+            return
+        }
+        host_delete_doc host "mcp_work" id
+        host_clear_error host
+        host_remove_files host ("shares/" + id + "/")
+    }
+
     ; the session is over: what it held goes with it
     sfn sessionEnd:void (host:McpHost key:string) {
         if ((strlen key) > 0) {

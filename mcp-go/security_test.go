@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -369,4 +370,90 @@ func TestRenderSlotsAndDailyRenders(t *testing.T) {
 	eq(t, q(ctx, "uid:u3", "5.6.7.8"), "")
 	match(t, q(ctx, "uid:u3", "5.6.7.8"), `daily limit of 3`)
 	eq(t, q(ctx, "uid:u3", "9.9.9.9"), "")
+}
+
+// delete_presentation: the owner, or the session that made a deck without
+// sign-in; the id alone deletes nothing. The record, the files and the
+// session's hold go.
+func TestDeletePresentation(t *testing.T) {
+	f := fakeFirebase()
+	me := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer me.close()
+	other := start(t, withSignIn(testEnv(&f, nil)), signInAs(f, "other-token", "u2", "Someone"))
+	defer other.close()
+	anon := start(t, testEnv(&f, nil), "")
+	defer anon.close()
+	stranger := start(t, testEnv(&f, nil), "")
+	defer stranger.close()
+
+	c := call(t, me, "create_presentation", map[string]any{"title": "Mine", "markdown": "# Mine\n\n![dot](media/dot.png)",
+		"images": []any{map[string]any{"name": "dot.png", "data_base64": base64.StdEncoding.EncodeToString(squarePNG())}}})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := str(sc(c)["deck_id"])
+	files := func(id string) int {
+		f.bucket.mu.Lock()
+		defer f.bucket.mu.Unlock()
+		n := 0
+		for p := range f.bucket.saved {
+			if strings.HasPrefix(p, "shares/"+id+"/") {
+				n++
+			}
+		}
+		return n
+	}
+	if files(id) == 0 {
+		t.Fatal("no files kept to delete")
+	}
+	for _, who := range []*testServer{other, anon} {
+		r := call(t, who, "delete_presentation", map[string]any{"deck_id": id})
+		if !r.IsError {
+			t.Fatal("deleted by someone else")
+		}
+		match(t, textOf(r), `^Not deleted: `)
+	}
+	if f.db.doc("shares/"+id) == nil {
+		t.Fatal("gone after a refused delete")
+	}
+	r := call(t, me, "delete_presentation", map[string]any{"deck_id": id})
+	if r.IsError {
+		t.Fatal(textOf(r))
+	}
+	match(t, textOf(r), `Deleted "Mine"`)
+	if f.db.doc("shares/"+id) != nil || files(id) != 0 {
+		t.Fatalf("left behind: record %v, %d files", f.db.doc("shares/"+id) != nil, files(id))
+	}
+	if r := call(t, me, "delete_presentation", map[string]any{"deck_id": id}); !r.IsError {
+		t.Fatal("deleted twice")
+	}
+
+	// without sign-in: only the session that made it, which may then make
+	// another in its place
+	var made []string
+	for i := 0; i < 3; i++ {
+		a := call(t, anon, "create_presentation", map[string]any{"title": "Anon", "markdown": "# Anon"})
+		if a.IsError {
+			t.Fatal(textOf(a))
+		}
+		made = append(made, str(sc(a)["deck_id"]))
+	}
+	match(t, textOf(call(t, stranger, "delete_presentation", map[string]any{"deck_id": made[0]})), `Not deleted: presentation \w+ was made without sign-in in another Sliqtly session`)
+	if r := call(t, me, "delete_presentation", map[string]any{"deck_id": made[0]}); !r.IsError {
+		t.Fatal("a signed-in account deleted another session's deck")
+	}
+	if r := call(t, anon, "delete_presentation", map[string]any{"deck_id": made[0]}); r.IsError {
+		t.Fatal(textOf(r))
+	}
+	if f.db.doc("shares/"+made[0]) != nil {
+		t.Fatal("the session's deck was not deleted")
+	}
+	for _, d := range f.db.all("mcp_sessions/") {
+		if len(list(d["decks"])) == 3 {
+			t.Fatal("the session still holds the deleted deck")
+		}
+	}
+	if a := call(t, anon, "create_presentation", map[string]any{"title": "Again", "markdown": "# Again"}); a.IsError {
+		t.Fatal(textOf(a))
+	}
 }

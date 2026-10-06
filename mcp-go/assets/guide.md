@@ -85,6 +85,9 @@ every slide, picture and file. Say so to the user when you give the link.
 Signed in, `visibility: "private"` keeps one for the user's Google account
 only (it opens at its link after signing in there with that account);
 `visibility: "link"` opens it again.
+`delete_presentation` (deck_id) deletes one for good, pictures and files
+too: its owner signed in, or the conversation that made it without sign-in.
+Ask the user first.
 When text on a picture is hard to read ("low contrast"), raise that slide's
 `bg-dim` (0.6–0.8) with update_presentation, or put the text on a plate
 (`{container=box}` under it); the picture stays as it is.
