@@ -10,7 +10,7 @@ function memStore(init = {}) {
 }
 
 function world({ own = true } = {}) {
-  const w = { calls: [], log: [], open: false, last: 0, toasts: [], links: [], decks: [], rooms: [] };
+  const w = { calls: [], log: [], open: false, last: 0, toasts: [], links: [], decks: [], rooms: [], puts: [], picked: [], loads: [] };
   w.app = {
     roomChatOpen: () => w.open,
     roomChatShow: (id, title, about, ro, notice) => { w.open = true; w.log.push(["show", id, title, about, ro, notice]); },
@@ -24,6 +24,9 @@ function world({ own = true } = {}) {
     roomChatHere: (json) => w.log.push(["here", JSON.parse(json).here]),
     roomChatDeck: (id, name) => w.log.push(["deck", id, name]),
     roomChatLastSeq: () => w.last,
+    roomChatPictures: (pattern) => w.log.push(["pictures", pattern]),
+    roomChatUploading: (th, n) => w.log.push(["uploading", th, n]),
+    roomChatPending: (th, name, url, type, size, pw, ph) => w.log.push(["pending", th, name, url, type, size, pw, ph]),
   };
   w.answers = {
     read_room_chat: () => ({ room: { room_id: "r1" }, messages: [], last_seq: 4 }),
@@ -49,6 +52,15 @@ function world({ own = true } = {}) {
     openRoom: async (id) => w.log.push(["room", id]),
     copy: async (s) => w.log.push(["copy", s]),
     paint: () => {},
+    put: async (path, file, type) => {
+      w.puts.push([path, file.name, type]);
+      if (file.name === "bad.bin") throw new Error("too big");
+      return { name: file.name === "dup.png" ? "dup (2).png" : file.name, url: "http://h/files/" + file.name, type, size: file.size };
+    },
+    pickFiles: async () => w.picked,
+    deckName: async (id) => (id === "abcdef1" ? "Budget" : ""),
+    sizeOf: async (f) => ({ w: 640, h: 480 }),
+    load: async (src) => { w.loads.push(src); if (src.includes("broken")) throw new Error("no"); return { src }; },
   });
   return w;
 }
@@ -72,6 +84,7 @@ test("opening a room shows its channel, loads it and says one is here", async ()
   assert.deepEqual(shown, ["show", "r1", "PAY 817", "Retry", false, ""]);
   assert.deepEqual(w.log.find((l) => l[0] === "read"), ["read", 2]);
   assert.deepEqual(w.log.find((l) => l[0] === "channels"), ["channels", "general"]);
+  assert.deepEqual(w.log.find((l) => l[0] === "pictures"), ["pictures", "/s/{deck}/{slide}.jpg"]);
   assert.deepEqual(w.calls.map((c) => c[0]).slice(0, 2), ["read_room_chat", "chat_here"]);
   assert.equal(w.calls[1][1].as.name, "Ada");
   await new Promise((r) => setTimeout(r, 0));
@@ -94,9 +107,9 @@ test("requests go to the server as the person", async () => {
   const w = world();
   await w.chat.open("r1");
   w.calls.length = 0;
-  await w.chat.request("send\t\thello\tthere");
+  await w.chat.request("send\t\t\thello\tthere");
   assert.deepEqual(w.calls[0], ["post_room_message", { room_id: "r1", text: "hello\tthere", thread_id: undefined, as: w.chat.as() }]);
-  await w.chat.request("send\tm1\tin a thread");
+  await w.chat.request("send\tm1\t\tin a thread");
   assert.equal(w.calls[1][1].thread_id, "m1");
   await w.chat.request("react\tm1\t👍");
   assert.deepEqual(w.calls[2], ["chat_react", { room_id: "r1", message_id: "m1", emoji: "👍", as: w.chat.as() }]);
@@ -154,4 +167,47 @@ test("events: the open room's are drawn, a gap asks for what was missed", async 
   assert.deepEqual(w.calls.at(-1), ["read_room_chat", { room_id: "r1", after_seq: 3, limit: 500 }]);
   w.chat.close();
   assert.equal(JSON.parse(w.store.getItem(READ_KEY)).r1, 3);
+});
+
+test("files go into the room's files, wait in the composer and go with the message", async () => {
+  const w = world();
+  await w.chat.open("r1");
+  w.calls.length = 0;
+  w.picked = [{ name: "dup.png", type: "image/png", size: 10 }, { name: "notes.txt", type: "text/plain", size: 3 }, { name: "bad.bin", type: "", size: 1 }];
+  await w.chat.request("attach\tthread");
+  assert.deepEqual(w.puts.map((p) => p[0]), ["/api/files/rooms/r1/dup.png?unique=1", "/api/files/rooms/r1/notes.txt?unique=1", "/api/files/rooms/r1/bad.bin?unique=1"]);
+  assert.deepEqual(w.log.filter((l) => l[0] === "pending"), [
+    ["pending", true, "dup (2).png", "http://h/files/dup.png", "image/png", 10, 640, 480],
+    ["pending", true, "notes.txt", "http://h/files/notes.txt", "text/plain", 3, 0, 0],
+  ]);
+  assert.deepEqual(w.log.filter((l) => l[0] === "uploading").map((l) => l[2]), [3, 2, 1, 0]);
+  assert.equal(w.toasts.length, 1);
+  assert.match(w.toasts[0], /bad\.bin: too big/);
+  await w.chat.request("send\tm1\tdup (2).png\nnotes.txt\tsee these");
+  assert.deepEqual(w.calls.at(-1), ["post_room_message", { room_id: "r1", text: "see these", thread_id: "m1", as: w.chat.as(), files: [{ name: "dup (2).png", w: 640, h: 480 }, "notes.txt"] }]);
+  await w.chat.request("file\thttp://h/files/notes.txt\tnotes.txt");
+  assert.deepEqual(w.links, ["http://h/files/notes.txt"]);
+  w.chat.close();
+});
+
+test("pictures the channel draws are loaded once", async () => {
+  const w = world();
+  w.chat.want(["/a.png", "/broken.png", "/a.png", ""]);
+  w.chat.want(["/a.png"]);
+  await new Promise((r) => setTimeout(r, 0));
+  w.chat.want(["/a.png", "/broken.png"]);
+  assert.deepEqual(w.loads, ["/a.png", "/broken.png"]);
+  assert.deepEqual(w.chat.pictures.get("/a.png"), { src: "/a.png" });
+  assert.equal(w.chat.pictures.get("/broken.png"), null);
+});
+
+test("embedded presentations are named, each asked for once", async () => {
+  const w = world();
+  w.answers.read_room_chat = () => ({ room: { room_id: "r1" }, messages: [{ id: "a", seq: 1, text: "[[slides:abcdef1#2]] and https://h/s/zzzzzz9" }], last_seq: 1 });
+  await w.chat.open("r1");
+  await w.chat.event({ t: "msg", room: "r1", msg: { id: "b", seq: 2, text: "again [[slides:abcdef1]]" } });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(w.log.filter((l) => l[0] === "deck" && l[1] !== "d1"), [["deck", "abcdef1", "Budget"]]);
+  assert.deepEqual([...w.chat.named], ["abcdef1", "zzzzzz9"]);
+  w.chat.close();
 });

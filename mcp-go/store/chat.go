@@ -57,6 +57,28 @@ type ChatMsg struct {
 	Replies   int      `json:"replies,omitempty"`
 	LastReply int64    `json:"last_reply,omitempty"`
 	Repliers  []string `json:"repliers,omitempty"`
+	// files of the room shown with it (the room's own, rooms/{id}/files/…)
+	Files []ChatFile `json:"files,omitempty"`
+	// what its links lead to, as the server read them after it was posted
+	Links []ChatLink `json:"links,omitempty"`
+}
+
+// ChatFile is a file of the room a message shows: its name in the room's
+// files, type and size; a picture's size in pixels when it is one.
+type ChatFile struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Size int64  `json:"size"`
+	W    int    `json:"w,omitempty"`
+	H    int    `json:"h,omitempty"`
+}
+
+// ChatLink is a link's preview: the page's site name, title and summary.
+type ChatLink struct {
+	URL   string `json:"url"`
+	Site  string `json:"site,omitempty"`
+	Title string `json:"title,omitempty"`
+	Desc  string `json:"desc,omitempty"`
 }
 
 // ChatPage asks for a room's messages: the top level (Thread "") or one
@@ -182,6 +204,12 @@ func copyMsg(m ChatMsg) ChatMsg {
 	m.Repliers = append([]string(nil), m.Repliers...)
 	if len(m.Repliers) == 0 {
 		m.Repliers = nil
+	}
+	if m.Files != nil {
+		m.Files = append([]ChatFile(nil), m.Files...)
+	}
+	if m.Links != nil {
+		m.Links = append([]ChatLink(nil), m.Links...)
 	}
 	return m
 }

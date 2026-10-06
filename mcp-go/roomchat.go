@@ -23,6 +23,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
@@ -64,8 +65,15 @@ var chatTools = []roomTool{
 			"thread_id":  strProp("Reply in this message's thread"),
 			"message_id": strProp("Replace the text of a message you posted earlier (progress) instead of posting a new one"),
 			"agent":      strProp("Your name as the room sees it: \"Claude\", \"Cursor\", … (default \"Assistant\")"),
+			"files":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Names of the room's files (list_room_files) to show with the message: pictures are shown, other files as a link to download"},
 		},
-		required: []string{"room_id", "text"}},
+		required: []string{"room_id"}},
+	{name: "list_room_files", title: "List a room's files", readOnly: true,
+		desc: "The room's own files: what people put into its chat (pictures, documents), with each one's name, type, size and address. A message shows them with post_room_message's files. The room's presentations have files of their own (list_files).",
+		props: map[string]any{
+			"room_id": strProp("room_id from list_rooms"),
+		},
+		required: []string{"room_id"}},
 	// the page's own
 	{name: "chat_delete", title: "Delete a chat message", pageOnly: true, destructive: true,
 		props:    map[string]any{"room_id": strProp(""), "message_id": strProp(""), "as": map[string]any{"type": "object"}},
@@ -194,20 +202,34 @@ func argInt(a map[string]any, k string) int64 {
 		return int64(v)
 	case int64:
 		return v
+	case json.Number:
+		n, _ := v.Int64()
+		return n
 	}
 	return 0
 }
 
-// a message as answered: the time also as text, for an assistant reading
+// a message as answered: the time also as text, for an assistant reading;
+// its files with their addresses
 type chatOut struct {
 	store.ChatMsg
-	Time string `json:"time"`
+	Time  string        `json:"time"`
+	Files []chatFileOut `json:"files,omitempty"`
 }
 
-func outMsgs(ms []store.ChatMsg) []chatOut {
+type chatFileOut struct {
+	store.ChatFile
+	URL string `json:"url"`
+}
+
+func (s *roomService) outMsgs(ms []store.ChatMsg) []chatOut {
 	out := make([]chatOut, 0, len(ms))
 	for _, m := range ms {
-		out = append(out, chatOut{m, time.UnixMilli(m.At).UTC().Format(time.RFC3339)})
+		o := chatOut{ChatMsg: m, Time: time.UnixMilli(m.At).UTC().Format(time.RFC3339)}
+		for _, f := range m.Files {
+			o.Files = append(o.Files, chatFileOut{f, s.fileURL(m.Room, f.Name)})
+		}
+		out = append(out, o)
 	}
 	return out
 }
@@ -358,7 +380,7 @@ func (s *roomService) runChat(ctx context.Context, p store.Principal, via, op st
 		about, _ := d["description"].(string)
 		out := map[string]any{
 			"room":     map[string]any{"room_id": room, "title": title, "description": about, "here": len(s.presence.here(room, s.now())), "members": len(ps), "archived": d["archived"] == true},
-			"messages": outMsgs(ms),
+			"messages": s.outMsgs(ms),
 			"last_seq": last,
 			"people":   ps,
 		}
@@ -367,7 +389,7 @@ func (s *roomService) runChat(ctx context.Context, p store.Principal, via, op st
 			if err != nil {
 				return nil, err
 			}
-			out["root"] = outMsgs([]store.ChatMsg{root})[0]
+			out["root"] = s.outMsgs([]store.ChatMsg{root})[0]
 		}
 		return out, nil
 
@@ -381,7 +403,11 @@ func (s *roomService) runChat(ctx context.Context, p store.Principal, via, op st
 		}
 		text := strings.TrimRight(strings.ReplaceAll(argRaw(a, "text"), "\r\n", "\n"), " \n\t")
 		text = strings.TrimLeft(text, "\n")
-		if strings.TrimSpace(text) == "" {
+		files, err := s.chatFiles(ctx, room, a["files"])
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(text) == "" && len(files) == 0 {
 			return nil, roomErr{"the message is empty"}
 		}
 		if utf8.RuneCountInString(text) > chatMaxText {
@@ -394,13 +420,19 @@ func (s *roomService) runChat(ctx context.Context, p store.Principal, via, op st
 				if x.From.ID != from.ID || x.Deleted {
 					return roomErr{"only a message of your own can be changed"}
 				}
+				if x.Text != text {
+					x.Links = nil
+				}
 				x.Text = text
+				if _, given := a["files"]; given {
+					x.Files = files
+				}
 				x.Edited = time.Now().UnixMilli()
 				x.From.Name, x.From.Avatar, x.From.Color = from.Name, from.Avatar, from.Color
 				return nil
 			})
 		} else {
-			m, err = s.chat.Append(ctx, store.ChatMsg{Tenant: tenant, Room: room, Thread: argStr(a, "thread_id"), From: from, Text: text})
+			m, err = s.chat.Append(ctx, store.ChatMsg{Tenant: tenant, Room: room, Thread: argStr(a, "thread_id"), From: from, Text: text, Files: files})
 		}
 		if err != nil {
 			return nil, err
@@ -409,6 +441,14 @@ func (s *roomService) runChat(ctx context.Context, p store.Principal, via, op st
 			return nil, err
 		}
 		s.tellMsg(ctx, tenant, room, m, edit == "")
+		if len(m.Links) == 0 {
+			id, said := m.ID, m.Text
+			run := s.later
+			if run == nil {
+				run = func(fn func()) { go fn() }
+			}
+			run(func() { s.previews(tenant, room, id, said) })
+		}
 		return map[string]any{"message_id": m.ID, "seq": m.Seq, "thread_id": m.Thread}, nil
 
 	case "chat_delete", "chat_react":
@@ -442,6 +482,19 @@ func (s *roomService) runChat(ctx context.Context, p store.Principal, via, op st
 		}
 		s.tellMsg(ctx, tenant, room, m, false)
 		return map[string]any{"ok": true}, nil
+
+	case "list_room_files":
+		if err := s.chatRole(p, room, false); err != nil {
+			return nil, err
+		}
+		if s.files == nil {
+			return nil, roomErr{"this server keeps no room files"}
+		}
+		_, out, err := s.roomFiles(ctx, room)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"files": out}, nil
 
 	case "chat_here":
 		if err := s.chatRole(p, room, false); err != nil {
@@ -485,10 +538,10 @@ func argRaw(a map[string]any, k string) string {
 
 // a message told to the pages; a new reply tells its root too (its count)
 func (s *roomService) tellMsg(ctx context.Context, tenant, room string, m store.ChatMsg, posted bool) {
-	s.tell(room, map[string]any{"t": "msg", "msg": outMsgs([]store.ChatMsg{m})[0]})
+	s.tell(room, map[string]any{"t": "msg", "msg": s.outMsgs([]store.ChatMsg{m})[0]})
 	if posted && m.Thread != "" {
 		if root, err := s.chat.Get(ctx, tenant, room, m.Thread); err == nil {
-			s.tell(room, map[string]any{"t": "msg", "msg": outMsgs([]store.ChatMsg{root})[0]})
+			s.tell(room, map[string]any{"t": "msg", "msg": s.outMsgs([]store.ChatMsg{root})[0]})
 		}
 	}
 }

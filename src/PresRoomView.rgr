@@ -81,6 +81,9 @@ class PresRoomView {
         ch.emptyText = (PresI18n.t("No messages yet. Say hello!"))
         ch.closeText = (PresI18n.t("Close"))
         ch.readOnlyText = (PresI18n.t("This room is archived: its chat is read only."))
+        ch.attachText = (PresI18n.t("Attach a file"))
+        ch.uploadingText = (PresI18n.t("Uploading…"))
+        ch.removeText = (PresI18n.t("Remove"))
     }
 
     ; --- what the page says -------------------------------------------------------------
@@ -183,7 +186,52 @@ class PresRoomView {
             }
         }
         m.setReactions((join lines "\n") ch.me)
+        def fs:VlJson (j.get("files"))
+        def fi:int 0
+        while (fi < (fs.count())) {
+            def fj:VlJson (fs.at(fi))
+            def file (new UiFeedFile())
+            file.name = (fj.stringOr("name" ""))
+            file.url = (fj.stringOr("url" ""))
+            file.type = (fj.stringOr("type" ""))
+            file.size = (fj.intOr("size" 0))
+            file.w = (fj.intOr("w" 0))
+            file.h = (fj.intOr("h" 0))
+            push m.files file
+            fi = (fi + 1)
+        }
+        def ls:VlJson (j.get("links"))
+        def li:int 0
+        while (li < (ls.count())) {
+            def lj:VlJson (ls.at(li))
+            def l (new UiFeedLink())
+            l.url = (lj.stringOr("url" ""))
+            l.site = (lj.stringOr("site" ""))
+            l.title = (lj.stringOr("title" ""))
+            l.desc = (lj.stringOr("desc" ""))
+            push m.links l
+            li = (li + 1)
+        }
         return m
+    }
+
+    ; a file put into the room's files, waiting in a composer
+    fn pending:void (inThread:boolean name:string url:string type:string size:int w:int h:int) {
+        ch.addPending(inThread name url type size w h)
+        this.changed()
+    }
+
+    fn uploading:void (inThread:boolean n:int) {
+        ch.setUploading(inThread n)
+        this.changed()
+    }
+
+    ; where an embedded presentation's slide picture is read ("" none)
+    fn embedPictures:void (pattern:string) {
+        if (ch.embedPicture != pattern) {
+            ch.embedPicture = pattern
+            this.changed()
+        }
     }
 
     ; A message posted or changed (a socket event). → the seq to ask

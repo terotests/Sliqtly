@@ -127,6 +127,15 @@ func (b *localBucket) RemoveAll(p string) error {
 	return b.refs.RemoveAll(context.Background(), c)
 }
 
+// the files under dir (a room's files), by path
+func (b *localBucket) List(ctx context.Context, dir string) ([]store.FileRef, error) {
+	c, err := cleanFilePath(dir)
+	if err != nil {
+		return nil, err
+	}
+	return b.refs.List(ctx, c)
+}
+
 // the lines of an append-only file (a room's chat), the last `last`
 func (b *localBucket) Lines(p string, last int) ([]string, error) {
 	c, err := cleanFilePath(p)

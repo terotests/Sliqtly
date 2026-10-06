@@ -1209,5 +1209,8 @@
   "This room is archived: its chat is read only.": "Tämä huone on arkistoitu: sen keskustelua voi vain lukea.",
   "Chat: ": "Keskustelu: ",
   "The chat works on a Sliqtly server of your own (sliqtly serve) for now.": "Keskustelu toimii toistaiseksi vain omalla Sliqtly-palvelimella (sliqtly serve).",
-  "No room called #": "Ei huonetta nimeltä #"
+  "No room called #": "Ei huonetta nimeltä #",
+  "Attach a file": "Liitä tiedosto",
+  "Uploading…": "Lähetetään…",
+  "Could not attach ": "Liittäminen ei onnistunut: "
 }

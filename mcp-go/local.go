@@ -181,7 +181,7 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.index(w, r)
 	case p == "/healthz":
 		io.WriteString(w, "ok\n")
-	case strings.HasPrefix(p, "/files/shares/"):
+	case strings.HasPrefix(p, "/files/shares/"), strings.HasPrefix(p, "/files/rooms/"):
 		s.file(w, r, strings.TrimPrefix(p, "/files/"))
 	case themePath.MatchString(p):
 		css, ok := s.env.Themes(themePath.FindStringSubmatch(p)[1])

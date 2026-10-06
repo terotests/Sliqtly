@@ -1280,6 +1280,38 @@ function roomChat() {
       toast(ok ? t("Copied") : t("Could not copy"));
     },
     paint: () => { needsPaint = true; },
+    put: async (path, body, type) => {
+      const res = await fetch(path, { method: "PUT", headers: { "Content-Type": type }, body });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(out.error || res.status);
+      return out;
+    },
+    // the picker now, while the press still counts as one
+    pickFiles: () => new Promise((resolve) => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.multiple = true;
+      input.hidden = true;
+      const done = (files) => { input.remove(); resolve(files); };
+      input.addEventListener("change", () => done([...(input.files || [])]));
+      input.addEventListener("cancel", () => done([]));
+      document.body.append(input);
+      input.click();
+    }),
+    sizeOf: async (file) => {
+      const p = await decodePicture(new Uint8Array(await file.arrayBuffer()), file.type, file.name);
+      return { w: p.img.width, h: p.img.height };
+    },
+    deckName: async (id) => {
+      const res = await fetch("/api/shares/" + encodeURIComponent(id));
+      return res.ok ? (await res.json()).name || "" : "";
+    },
+    load: async (src) => {
+      const res = await fetch(src);
+      if (!res.ok) throw new Error(res.status);
+      const type = res.headers.get("Content-Type") || "image/png";
+      return (await decodePicture(new Uint8Array(await res.arrayBuffer()), type, src)).img;
+    },
   });
   window.addEventListener("sliqtly:chat", (ev) => { roomChatOne.event(ev.detail).catch(() => {}); });
   return roomChatOne;
@@ -2546,7 +2578,7 @@ function paintOnce() {
   // menu, the toast. A press goes to them in the same order, top first.
   const paintList = (j, images, at) => {
     if (!j) return;
-    const doc = JSON.parse(j);
+    const doc = typeof j === "string" ? JSON.parse(j) : j;
     doc.width = W;
     doc.height = H;
     const f = prepareDisplayList(gl, doc, images ? { dpr, images } : { dpr });
@@ -2560,7 +2592,13 @@ function paintOnce() {
     if (layer === "bar") {
       if (canvasBar) paintBar();
     } else if (layer === "room") {
-      paintList(app.roomJson());
+      // the channel's pictures (attached ones, embedded slides) as they load
+      const j = app.roomJson();
+      if (j && roomChatOne) {
+        const d = JSON.parse(j);
+        roomChatOne.want((d.list?.cmds || []).filter((c) => c.k === 2 && c.src).map((c) => c.src));
+        paintList(d, roomChatOne.pictures);
+      } else paintList(j);
     } else if (layer === "review") {
       paintList(app.reviewJson());
     } else if (layer === "hint") {
@@ -5889,6 +5927,14 @@ keys.addEventListener("cut", (ev) => {
 keys.addEventListener("paste", (ev) => {
   ev.preventDefault();
   const items = ev.clipboardData ? [...ev.clipboardData.items] : [];
+  // in a room's chat, files go with the message being written
+  if (app.focusTarget() === "room") {
+    const files = items.filter((it) => it.kind === "file").map((it) => it.getAsFile()).filter(Boolean);
+    if (files.length) {
+      roomChat().attach(files, app.roomChatInThread()).catch(fail);
+      return;
+    }
+  }
   const picture = items.find((it) => it.kind === "file" && /^image\/(png|jpeg|gif|webp|svg\+xml)$/.test(it.type));
   if (picture) {
     const file = picture.getAsFile();
@@ -6244,6 +6290,12 @@ canvas.addEventListener("dragover", (ev) => ev.preventDefault());
 canvas.addEventListener("drop", (ev) => {
   ev.preventDefault();
   const files = ev.dataTransfer ? [...ev.dataTransfer.files] : [];
+  // dropped on a room's chat: files for the message being written there
+  const [dx, dy] = at(ev);
+  if (files.length && app.roomChatOpen() && app.layerAt(dx, dy) === "room") {
+    roomChat().attach(files, app.roomChatInThread()).catch(fail);
+    return;
+  }
   for (const f of files) {
     if (/^image\//.test(f.type)) addPictureFile(f).catch(fail);
     else addDocFile(f, true).catch(fail);

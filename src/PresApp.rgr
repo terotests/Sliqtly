@@ -6286,6 +6286,25 @@ class PresApp {
         room.readUpTo(seq)
     }
 
+    ; a file put into the room's files waits in the composer (the thread's)
+    fn roomChatPending:void (inThread:boolean name:string url:string type:string size:int w:int h:int) {
+        room.pending(inThread name url type size w h)
+    }
+
+    fn roomChatUploading:void (inThread:boolean n:int) {
+        room.uploading(inThread n)
+    }
+
+    ; where an embedded presentation's slide is drawn from: {deck}, {slide}
+    fn roomChatPictures:void (pattern:string) {
+        room.embedPictures(pattern)
+    }
+
+    ; the thread's composer has the keys (a pasted file goes there)
+    fn roomChatInThread:boolean () {
+        return (room.ch.keys == "thread")
+    }
+
     fn roomChatLastSeq:int () {
         return (room.lastSeq())
     }

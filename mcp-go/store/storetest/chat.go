@@ -25,6 +25,7 @@ func RunChat(t *testing.T, open func(t *testing.T) store.ChatLog) {
 		{"Reactions", chatReactions},
 		{"RoomsApart", chatRoomsApart},
 		{"Concurrent", chatConcurrent},
+		{"FilesAndLinks", chatFilesAndLinks},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) { tc.fn(t, open(t)) })
@@ -256,5 +257,31 @@ func chatConcurrent(t *testing.T, c store.ChatLog) {
 	r, _ := c.Get(ctx, "t1", "r", root.ID)
 	if r.Replies != 10 {
 		t.Fatalf("replies counted under load: %d", r.Replies)
+	}
+}
+
+// a message's files and its links' previews are kept with it, and a change
+// keeps them or sets them
+func chatFilesAndLinks(t *testing.T, c store.ChatLog) {
+	ctx := context.Background()
+	m, err := c.Append(ctx, store.ChatMsg{Tenant: "t1", Room: "r", From: store.ChatFrom{ID: "ann"}, Text: "see https://example.com",
+		Files: []store.ChatFile{{Name: "plan.png", Type: "image/png", Size: 120, W: 640, H: 480}, {Name: "notes.txt", Type: "text/plain", Size: 9}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.Get(ctx, "t1", "r", m.ID)
+	if err != nil || len(got.Files) != 2 || got.Files[0] != m.Files[0] || got.Files[1].Name != "notes.txt" {
+		t.Fatalf("files: %+v %v", got.Files, err)
+	}
+	ch, err := c.Change(ctx, "t1", "r", m.ID, func(x *store.ChatMsg) error {
+		x.Links = []store.ChatLink{{URL: "https://example.com", Site: "Example", Title: "Example Domain", Desc: "For examples."}}
+		return nil
+	})
+	if err != nil || len(ch.Links) != 1 || len(ch.Files) != 2 {
+		t.Fatalf("change: %+v %v", ch, err)
+	}
+	page, err := c.Page(ctx, "t1", "r", store.ChatPage{})
+	if err != nil || len(page) != 1 || page[0].Links[0].Title != "Example Domain" || page[0].Files[0].W != 640 {
+		t.Fatalf("page: %+v %v", page, err)
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 
@@ -34,6 +35,14 @@ type roomService struct {
 	presence chatPresence
 	// tells the pages a chat event of a room (localevents.go); nil: none
 	notify func(room string, v map[string]any)
+	// the rooms' own files (roomfiles.go) and their address; nil: none
+	files    roomFileStore
+	filesURL func(path string) string
+	// reads the pages a message links to (linkpreview.go); nil: no previews
+	client *http.Client
+	ownURL string
+	// runs a message's previews; tests wait for it
+	later func(fn func())
 }
 
 // nil where decks are not kept in a store of rooms (the cloud for now)
@@ -43,13 +52,21 @@ func newRoomService(env *Env) *roomService {
 	}
 	st := store.New(env.Store, store.RoomPolicy{Cols: map[string]bool{"shares": true}})
 	types := store.DefaultLinkTypes()
-	return &roomService{
-		st:    st,
-		rooms: store.Rooms{S: st},
-		links: store.Links{S: st, Types: types, Resolve: resolveRef},
-		types: types,
-		chat:  env.Chat,
+	rs := &roomService{
+		st:     st,
+		rooms:  store.Rooms{S: st},
+		links:  store.Links{S: st, Types: types, Resolve: resolveRef},
+		types:  types,
+		chat:   env.Chat,
+		client: env.Client,
+		ownURL: env.BaseURL,
 	}
+	if f, ok := env.Bucket.(roomFileStore); ok {
+		rs.files = f
+		h := &McpHost{env: env}
+		rs.filesURL = func(p string) string { return h.FileURL(p, "") }
+	}
+	return rs
 }
 
 // where a ref's document is kept; other kinds (jira:, url:) are told of by
@@ -391,8 +408,15 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 		return map[string]any{"ok": true}, nil
 
 	case "delete_room":
-		if err := s.rooms.Remove(ctx, p, argStr(a, "room_id"), "shares"); err != nil {
+		room := argStr(a, "room_id")
+		if err := s.rooms.Remove(ctx, p, room, "shares"); err != nil {
 			return nil, err
+		}
+		// the room's own files go with it
+		if s.files != nil && roomIDPattern.MatchString(room) {
+			if err := s.files.RemoveAll("rooms/" + room); err != nil {
+				return nil, err
+			}
 		}
 		return map[string]any{"deleted": true}, nil
 
