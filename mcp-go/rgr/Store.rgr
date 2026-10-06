@@ -317,6 +317,16 @@ class Store {
         def patch:MfJ (MfJ.newObj())
         patch.put("files" files)
         patch.put("updated" (Store.serverTime()))
+        ; a deck from before "created" was kept gets the earliest time known
+        ; of it: its last change so far
+        if ((cur.num_("created" 0.0)) == 0.0) {
+            def was:double (Store.stamp(cur))
+            if (was > 0.0) {
+                patch.put("created" (J.timeAt((to_int was))))
+            } {
+                patch.put("created" (Store.serverTime()))
+            }
+        }
         if p.hasName {
             patch.putStr("name" p.name)
         }
@@ -401,6 +411,16 @@ class Store {
             }
         }
         return out
+    }
+
+    ; when the deck was made, in ms: "created", or for a deck from before
+    ; that was kept, the earliest time known (its last change); 0 unknown
+    sfn createdAt:double (d:MfJ) {
+        def c:double (d.num_("created" 0.0))
+        if (c != 0.0) {
+            return c
+        }
+        return (d.num_("updated" 0.0))
     }
 
     sfn stamp:double (d:MfJ) {

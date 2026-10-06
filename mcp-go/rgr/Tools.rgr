@@ -2665,6 +2665,12 @@ class Tools {
         def files:MfJ (Tools.filesOf(host id d))
         out.put("files" files)
         Tools.links(host out (host_base_url host) id)
+        def made:double (Store.createdAt(d))
+        def madeOn:string ""
+        if (made > 0.0) {
+            out.putStr("created" (host_iso_time host (to_int made)))
+            madeOn = (", created " + (substring (out.str_("created")) 0 10))
+        }
         def themeName:string (d.str_("theme"))
         if ((strlen themeName) == 0) {
             themeName = "(document's own)"
@@ -2674,7 +2680,7 @@ class Tools {
             pics = "none"
         }
         def parts:[string]
-        push parts ("\"" + (out.str_("title")) + "\", theme " + themeName + ", " + (to_string (array_length names)) + " pictures: " + pics + ".")
+        push parts ("\"" + (out.str_("title")) + "\", theme " + themeName + madeOn + ", " + (to_string (array_length names)) + " pictures: " + pics + ".")
         def others:MfJ (MfJ.newArr())
         for files.arr of:MfJ oi {
             if ((of.str_("kind")) != "picture") {
@@ -4073,13 +4079,23 @@ class Tools {
             } {
                 deck.put("updated" (new MfJ))
             }
+            def made:double (Store.createdAt(d))
+            if (made > 0.0) {
+                deck.putStr("created" (host_iso_time host (to_int made)))
+            } {
+                deck.put("created" (new MfJ))
+            }
             Tools.links(host deck base id)
             decks.add(deck)
             def title:string (d.str_("name"))
             if ((strlen title) == 0) {
                 title = "(untitled)"
             }
-            push lines ("- " + title + " (" + id + ", " + (deck.str_("visibility")) + "): " + (deck.str_("share_url")))
+            def madeOn:string ""
+            if (made > 0.0) {
+                madeOn = (", created " + (substring (deck.str_("created")) 0 10))
+            }
+            push lines ("- " + title + " (" + id + ", " + (deck.str_("visibility")) + madeOn + "): " + (deck.str_("share_url")))
         }
         def txt:string (join lines "\n")
         if ((array_length lines) == 0) {

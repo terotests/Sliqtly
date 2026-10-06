@@ -200,7 +200,7 @@ func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 		match(t, textOf(got), `this connector is not signed in`)
 	}
 	// list_presentations: only the owner's, with its visibility
-	match(t, textOf(call(t, me, "list_presentations", map[string]any{})), id+`, private\)`)
+	match(t, textOf(call(t, me, "list_presentations", map[string]any{})), id+`, private, created `)
 	if strings.Contains(textOf(call(t, other, "list_presentations", map[string]any{})), id) {
 		t.Fatal("listed for another account")
 	}
@@ -456,4 +456,25 @@ func TestDeletePresentation(t *testing.T) {
 	if a := call(t, anon, "create_presentation", map[string]any{"title": "Again", "markdown": "# Again"}); a.IsError {
 		t.Fatal(textOf(a))
 	}
+}
+
+// Every deck says when it was made: "created" on create; a deck from
+// before that was kept gets its last change as the earliest time known,
+// shown at once and written with its next change.
+func TestCreatedDate(t *testing.T) {
+	f := fakeFirebase()
+	me := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer me.close()
+	ctx := context.Background()
+	made := time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)
+	f.db.Set(ctx, "shares", "OldDeck123", Doc{"name": "Old", "md": "# Old", "theme": "aurora", "owner": "u1", "source": "mcp",
+		"files": []any{}, "updated": made.UnixMilli()})
+	match(t, textOf(call(t, me, "list_presentations", map[string]any{})), `Old \(OldDeck123, link, created 2026-03-04\)`)
+	g := call(t, me, "get_presentation", map[string]any{"deck_id": "OldDeck123"})
+	eq(t, sc(g)["created"], "2026-03-04T12:00:00.000Z")
+	match(t, textOf(g), `created 2026-03-04`)
+	if r := call(t, me, "update_presentation", map[string]any{"deck_id": "OldDeck123", "title": "Old 2"}); r.IsError {
+		t.Fatal(textOf(r))
+	}
+	eq(t, f.db.doc("shares/OldDeck123")["created"], made.Format(time.RFC3339))
 }
