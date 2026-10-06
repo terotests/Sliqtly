@@ -614,9 +614,10 @@ the others' claims ("Also working on this deck").
 ## Exporting
 
 `export_presentation` (deck_id, `format`: `pdf`, `pptx`, `docx` or
-`html`, optional `slides`: [2, 5]) makes the file the editor's File →
-Export makes and returns a download link for the user, on sliqtly.com
-(`https://sliqtly.com/d/…`). The PPTX keeps text
+`html`, optional `slides`: [2, 5], and `edit_key` unless signed in as the
+deck's owner) makes the file the editor's File → Export makes and returns
+a download link for the user, on sliqtly.com (`https://sliqtly.com/d/…`,
+working for 24 hours). The PPTX keeps text
 editable, with build steps, speaker notes and transitions; charts and
 diagrams are shapes. `docx` (Word) and `html` (one self-contained web
 page) read the deck as a document: each slide's headings, text, lists,

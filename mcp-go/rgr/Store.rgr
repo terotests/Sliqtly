@@ -111,6 +111,19 @@ class Store {
         return out
     }
 
+    ; key is the deck's edit key (its hash in mcp_keys/{id}); a storage
+    ; error is left on the host
+    sfn keyMatches:boolean (host:McpHost id:string key:string) {
+        if ((strlen key) == 0) {
+            return false
+        }
+        def kd:MfJ (J.parse((host_get_doc host "mcp_keys" id)))
+        if ((kd.isObj()) == false) {
+            return false
+        }
+        return (host_same_secret host (kd.str_("hash")) (host_sha256_hex host key))
+    }
+
     ; the deck as saved, or a null value when the id or the key does not
     ; match; checkKey false: the caller has checked that the signed-in user
     ; owns it. A storage error is left on the host.
@@ -128,11 +141,7 @@ class Store {
             return out
         }
         if checkKey {
-            def kd:MfJ (J.parse((host_get_doc host "mcp_keys" id)))
-            if ((kd.isObj()) == false) {
-                return out
-            }
-            if ((kd.str_("hash")) != (host_sha256_hex host key)) {
+            if ((Store.keyMatches(host id key)) == false) {
                 return out
             }
         }

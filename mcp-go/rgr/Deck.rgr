@@ -443,6 +443,10 @@ class Deck {
                     }
                 }
                 def got:MfJ (J.parse((host_image_base64 host b64)))
+                if (got.bool_("bad" false)) {
+                    res.err = ("Image " + name + ": data_base64 is not valid base64.")
+                    return res
+                }
                 handle = (got.int_("handle" 0))
                 size = (got.int_("size" 0))
             } {
