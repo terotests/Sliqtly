@@ -5359,7 +5359,7 @@ async function openFromShare() {
       enterViewer({ from: "share" });
       // changed while it opened: followed now
       if (shareMoved) followShare(id);
-    }
+    } else if (!own) notOwnerNotice(id, shared.owner || "");
     return true;
   } catch (e) {
     if (doc.loading) shownDoc(doc.openedText);
@@ -5367,6 +5367,43 @@ async function openFromShare() {
     toast(t("Could not open the shared presentation."));
     return false;
   }
+}
+
+// /s/{id}?edit of a deck that is not the signed-in user's own opens a copy:
+// nothing done here (text, comments) reaches the share, nor an assistant
+// reading it. Said plainly. Signed in, the user may still be its owner under
+// another Google account (an assistant's connector signed in with that one),
+// so switching is offered; once the owner is signed in, the deck itself opens.
+const SWITCH_FLAG = "sliqtly:switchFor";
+async function notOwnerNotice(id, owner) {
+  if (ownServer()) return;
+  const p = await pro();
+  if (typeof p.switchAccount !== "function") return;
+  const who = await Promise.race([p.signedIn(), new Promise((ok) => setTimeout(() => ok(null), 8000))]);
+  // its owner after all (the cloud copy did not open): not a copy to warn of
+  if (who && who.uid === owner) return;
+  // the owner signs in from here on (this question, or Sign in): theirs opens
+  window.addEventListener("sliqtly:user", () => {
+    const u = p.user?.();
+    if (u && owner && u.uid === owner && u.uid !== who?.uid) location.href = "/s/" + id + "?edit";
+  });
+  let asked = false;
+  try { asked = sessionStorage.getItem(SWITCH_FLAG) === id; sessionStorage.removeItem(SWITCH_FLAG); } catch (_) { /* ask */ }
+  if (!who || owner === "mcp" || !owner || asked) {
+    toast(t("You are editing a copy: changes and comments stay in your copy, and the shared presentation does not change."));
+    return;
+  }
+  // after the deck is drawn, so it shows behind the question
+  setTimeout(() => {
+    const q = t("This presentation belongs to another Sliqtly account than {account}. Your changes and comments go to your own copy, not to it, and an assistant reading it does not see them.\n\nIf it is yours under another Google account (for example the one the Claude connector signed in with), press OK and choose that account. Cancel keeps editing a copy.")
+      .replace("{account}", who.email || who.displayName || "");
+    if (!confirm(q)) {
+      toast(t("You are editing a copy: changes and comments stay in your copy, and the shared presentation does not change."));
+      return;
+    }
+    try { sessionStorage.setItem(SWITCH_FLAG, id); } catch (_) { /* asked again after a redirect */ }
+    p.switchAccount();
+  }, 400);
 }
 
 // A view of some slides: the share's Markdown with only the sections the

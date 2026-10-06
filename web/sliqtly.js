@@ -119,10 +119,17 @@ async function redirectAuth() {
   return a;
 }
 
-async function signInByRedirect() {
+async function signInByRedirect(pick) {
   try { sessionStorage.setItem(REDIRECT_FLAG, "1"); } catch (_) { /* the result is still read below */ }
   const a = await redirectAuth();
-  await a.signInWithRedirect(new globalThis.firebase.auth.GoogleAuthProvider());
+  await a.signInWithRedirect(google(pick));
+}
+
+// Google's sign-in; `pick` asks which account even when one is signed in
+function google(pick) {
+  const p = new globalThis.firebase.auth.GoogleAuthProvider();
+  if (pick) p.setCustomParameters({ prompt: "select_account" });
+  return p;
 }
 
 // back from Google's page: its credential signs in the page's own app
@@ -139,20 +146,26 @@ async function finishRedirect() {
   }
 }
 
-function signInFailed(e) {
+function signInFailed(e, pick) {
   if (e?.code === "auth/popup-closed-by-user" || e?.code === "auth/cancelled-popup-request") return;
   if (e?.code === "auth/popup-blocked" && canRedirect()) {
-    signInByRedirect().catch(signInFailed);
+    signInByRedirect(pick).catch(signInFailed);
     return;
   }
   console.error(e);
   alert(t("Sign-in failed: ") + (e?.message || e));
 }
 
-function signIn(a) {
-  if (standalone && canRedirect()) return signInByRedirect().catch(signInFailed);
+function signIn(a, pick) {
+  if (standalone && canRedirect()) return signInByRedirect(pick).catch((e) => signInFailed(e, pick));
   // no await before this: the window opens within the press
-  return a.signInWithPopup(new globalThis.firebase.auth.GoogleAuthProvider()).catch(signInFailed);
+  return a.signInWithPopup(google(pick)).catch((e) => signInFailed(e, pick));
+}
+
+// Another Google account in place of this one (the owner of a deck opened
+// here, signed in under a different account): Google asks which.
+function switchAccount() {
+  return authNow ? signIn(authNow, true) : auth().then((a) => signIn(a, true));
 }
 
 pro.addEventListener("click", () => {
@@ -481,5 +494,5 @@ async function readSheet(gviz, ask) {
   return rows.map((row) => Array.from({ length: width }, (_, i) => csvCell(row[i])).join(",")).join("\n") + "\n";
 }
 
-window.sliqtly = { auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, listMine, readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
+window.sliqtly = { auth, user: () => user, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, listMine, readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
 window.dispatchEvent(new Event("sliqtly:ready"));

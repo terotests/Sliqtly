@@ -871,7 +871,7 @@
   "Stacked area": "Pinottu alue",
   "Standard": "Tavallinen",
   "Start from a table": "Aloita taulukosta",
-  "Start over": "Aloita alusta",
+  "Animate": "Animoi",
   "Start with": "Aloita",
   "Start your own deck": "Aloita oma esitys",
   "Starting point": "Lähtökohta",
@@ -1073,6 +1073,7 @@
   "Your name for the others: press to change it": "Nimesi muille: vaihda painamalla",
   "Your presentations and their pictures and data are saved in the cloud as you work.": "Esityksesi kuvineen ja datoineen tallentuvat pilveen sitä mukaa kun työskentelet.",
   "Zoom": "Zoomaus",
+  "Zoom to fit": "Sovita näkymään",
   "Decks": "Esitykset",
   "Archived": "Arkistoidut",
   "Draft: rooms are not on the server yet.": "Luonnos: huoneet eivät ole vielä palvelimella.",
@@ -1163,5 +1164,7 @@
   "Current and next slide, notes and the clock, for your own screen": "Nykyinen ja seuraava dia, muistiinpanot ja kello omalle näytöllesi",
   "The slides go on by themselves": "Diat etenevät itsestään",
   "File → Export ▸ Clipboard   right click a slide → Copy ▸   while presenting ⋯ → Copy ▸": "Tiedosto → Vie ▸ Leikepöytä   napsauta diaa oikealla → Kopioi ▸   esittäessä ⋯ → Kopioi ▸",
-  "Copies the Markdown of this slide, the picked slides or the whole presentation, with the open comments as footnotes or without, or only the open comments with their slides, for example to hand to an assistant.": "Kopioi tämän dian, valittujen diojen tai koko esityksen Markdownin, avoimet kommentit alaviitteinä tai ilman, tai pelkät avoimet kommentit dioineen, esimerkiksi avustajalle annettavaksi."
+  "Copies the Markdown of this slide, the picked slides or the whole presentation, with the open comments as footnotes or without, or only the open comments with their slides, for example to hand to an assistant.": "Kopioi tämän dian, valittujen diojen tai koko esityksen Markdownin, avoimet kommentit alaviitteinä tai ilman, tai pelkät avoimet kommentit dioineen, esimerkiksi avustajalle annettavaksi.",
+  "You are editing a copy: changes and comments stay in your copy, and the shared presentation does not change.": "Muokkaat kopiota: muutokset ja kommentit jäävät kopioosi, eikä jaettu esitys muutu.",
+  "This presentation belongs to another Sliqtly account than {account}. Your changes and comments go to your own copy, not to it, and an assistant reading it does not see them.\n\nIf it is yours under another Google account (for example the one the Claude connector signed in with), press OK and choose that account. Cancel keeps editing a copy.": "Tämä esitys kuuluu toiselle Sliqtly-tilille kuin {account}. Muutoksesi ja kommenttisi tallentuvat omaan kopioosi, eivät tähän esitykseen, eikä sitä lukeva avustaja näe niitä.\n\nJos esitys on sinun toisella Google-tilillä (esimerkiksi sillä, jolla Claude-yhdistin kirjautui), paina OK ja valitse se tili. Peruuta jatkaa kopion muokkausta."
 }
