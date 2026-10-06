@@ -89,6 +89,8 @@ class ColorPickerCtl extends UiCtl {
     ; The eyedropper.
     def picking:boolean false
     def screenAsk:boolean false
+    ; the colour a muted tone was made from ("" none picked yet)
+    def mutedFrom:string ""
     ; Presets, or the recent colours when `recent` is set (a commit then puts
     ; the colour at the front).
     def swatches:[string]
@@ -1113,6 +1115,92 @@ class ColorPickerCtl extends UiCtl {
     }
 
     ; =========================================================================
+    ; muted tones
+    ; =========================================================================
+    ;
+    ; The colour with its hue kept and its saturation taken down, a step at a
+    ; time, and its lightness drawn a little toward the middle: the "broken"
+    ; tones a palette of strong colours wants beside them. The row starts
+    ; from the colour as it was before a muted tone was picked, so picking
+    ; one after another does not keep muting, and its first chip is that
+    ; colour itself.
+
+    sfn mutedHex:string (hex:string amount0:double) {
+        def p:[double] (ColorPickerCtl.parse(hex))
+        if ((array_length p) == 0) {
+            return hex
+        }
+        def amount:double (ColorPickerCtl.clampd(amount0 0.0 1.0))
+        def h:double (itemAt p 0)
+        if (h < 0.0) {
+            h = 0.0
+        }
+        def s0:double (itemAt p 1)
+        if (s0 < 0.0) {
+            s0 = 0.0
+        }
+        def hsl:[double] (ColorPickerCtl.hsvToHsl(h s0 (itemAt p 2)))
+        def sl:double ((itemAt hsl 1) * (1.0 - amount))
+        def l0:double (itemAt hsl 2)
+        def l:double (l0 + (((0.55 - l0) * amount) * 0.3))
+        def hsv:[double] (ColorPickerCtl.hslToHsv(h sl l))
+        def c:[double] (ColorPickerCtl.hsvToRgb(h (itemAt hsv 1) (itemAt hsv 2)))
+        return (ColorPickerCtl.hexOf((ColorPickerCtl.roundi((itemAt c 0))) (ColorPickerCtl.roundi((itemAt c 1))) (ColorPickerCtl.roundi((itemAt c 2)))))
+    }
+
+    fn mutedCount:int () {
+        return 5
+    }
+
+    sfn mutedAmount:double (i:int) {
+        return ((to_double i) * 0.2)
+    }
+
+    fn mutedTid:string (i:int) {
+        return (tid + "-muted-" + (to_string i))
+    }
+
+    ; The colour the row is made from.
+    fn mutedBase:string () {
+        def now:string (this.hex6())
+        if ((strlen mutedFrom) > 0) {
+            def i:int 0
+            while (i < (this.mutedCount())) {
+                if ((ColorPickerCtl.mutedHex(mutedFrom (ColorPickerCtl.mutedAmount(i)))) == now) {
+                    return mutedFrom
+                }
+                i = (i + 1)
+            }
+        }
+        return now
+    }
+
+    fn mutedAt:string (i:int) {
+        return (ColorPickerCtl.mutedHex((this.mutedBase()) (ColorPickerCtl.mutedAmount(i))))
+    }
+
+    fn mutedIndex:int (target:string) {
+        def i:int 0
+        while (i < (this.mutedCount())) {
+            if (target == (this.mutedTid(i))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn applyMuted:void (i:int) {
+        def base:string (this.mutedBase())
+        def keep:double alpha
+        editing = ""
+        this.setFromString((ColorPickerCtl.mutedHex(base (ColorPickerCtl.mutedAmount(i)))))
+        alpha = keep
+        mutedFrom = base
+        this.syncFields()
+    }
+
+    ; =========================================================================
     ; swatches
     ; =========================================================================
 
@@ -1494,6 +1582,11 @@ class ColorPickerCtl extends UiCtl {
         def si:int (this.presetIndex(target))
         if (si >= 0) {
             this.applySwatch(si)
+            return target
+        }
+        def mi:int (this.mutedIndex(target))
+        if (mi >= 0) {
+            this.applyMuted(mi)
             return target
         }
         return ""

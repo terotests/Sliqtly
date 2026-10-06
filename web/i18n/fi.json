@@ -1208,6 +1208,8 @@
   "Chat: ": "Keskustelu: ",
   "The chat works on a Sliqtly server of your own (sliqtly serve) for now.": "Keskustelu toimii toistaiseksi vain omalla Sliqtly-palvelimella (sliqtly serve).",
   "No room called #": "Ei huonetta nimeltä #",
+  "Muted": "Murretut",
+  "Pick a color from the screen": "Poimi väri näytöltä",
   "). Play or edit it in Files or the Record menu.": "). Toista tai muokkaa sitä Tiedostoissa tai Nauhoita-valikosta.",
   "): recording without sound.": "): nauhoitetaan ilman ääntä.",
   "No microphone (": "Ei mikrofonia (",

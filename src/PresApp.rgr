@@ -547,6 +547,20 @@ class PresApp {
         this.rebuildDeck()
     }
 
+    ; The value card's pipette was pressed: the page samples a colour and
+    ; hands it to `hintPicked` ("" when it was called off).
+    fn hintWantsPick:boolean () {
+        return (hint.isOpen && hint.wantsPick)
+    }
+
+    fn hintPicked:void (hex:string) {
+        if (hint.isOpen == false) {
+            return
+        }
+        hint.pickedColor(hex)
+        this.afterHint()
+    }
+
     ; One property of the theme set from a card over the Markdown, as one
     ; edit of the CSS tab (Ctrl+Z there undoes it); the slides follow.
     fn setThemeProp:void (sel:string prop:string value:string) {
@@ -6055,10 +6069,10 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
-    ; The page keeps a popover opened from the stage open while the pointer
-    ; is elsewhere: a press outside closes it.
+    ; The page keeps a popover opened from the stage, or one pressed in, open
+    ; while the pointer is elsewhere: a press outside closes it.
     fn hintPinned:boolean () {
-        return (hint.isOpen && (hintFromStage || (hint.kind == "emoji")))
+        return (hint.isOpen && ((hintFromStage || hint.engaged) || (hint.kind == "emoji")))
     }
 
     ; --- the emoji picker -----------------------------------------------------------

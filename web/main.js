@@ -5879,6 +5879,11 @@ function afterInput() {
 }
 
 keys.addEventListener("keydown", (ev) => {
+  if (canvasPicking && ev.key === "Escape") {
+    ev.preventDefault();
+    endCanvasPick("");
+    return;
+  }
   if (ev.key === "F6") {
     ev.preventDefault();
     cycleRegion(ev.shiftKey);
@@ -6113,8 +6118,48 @@ function pinchSpan() {
   return { d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, mx: (a[0] + b[0]) / 2, my: (a[1] + b[1]) / 2 };
 }
 
+// The colour card's pipette: the screen's own picker where the browser has
+// one (EyeDropper), else the next press on the page samples its pixel.
+let canvasPicking = false;
+// the release of the press that sampled: not a click on what is under it
+let pickRelease = false;
+
+function startColorPick() {
+  if (window.EyeDropper) {
+    new window.EyeDropper().open().then(
+      (r) => { app.hintPicked(r.sRGBHex || ""); afterInput(); },
+      () => { app.hintPicked(""); afterInput(); },
+    );
+    return;
+  }
+  canvasPicking = true;
+  canvas.style.cursor = "crosshair";
+}
+
+function endCanvasPick(hex) {
+  canvasPicking = false;
+  canvas.style.cursor = "";
+  app.hintPicked(hex);
+  afterInput();
+}
+
+function pixelAt(x, y) {
+  const r = canvas.getBoundingClientRect();
+  const px = Math.floor((x * canvas.width) / r.width);
+  const py = canvas.height - 1 - Math.floor((y * canvas.height) / r.height);
+  const out = new Uint8Array(4);
+  gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out);
+  return "#" + [out[0], out[1], out[2]].map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+
 canvas.addEventListener("pointerdown", (ev) => {
   const [x, y] = at(ev);
+  if (canvasPicking) {
+    ev.preventDefault();
+    pickRelease = true;
+    endCanvasPick(pixelAt(x, y));
+    return;
+  }
   const finger = ev.pointerType !== "mouse";
   if (finger) touches.set(ev.pointerId, [x, y]);
   if (finger && touches.size === 2) {
@@ -6159,6 +6204,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   app.setCtrl(pickKeyHeld(ev, IS_MAC));
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
+  if (where === "hint" && app.hintWantsPick()) startColorPick();
   if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb" || where === "select" || where === "panel" || where === "decktabs") {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
@@ -6340,6 +6386,10 @@ document.getElementById("modeBtn").addEventListener("click", () => toggleMode())
 
 function endPointer(ev) {
   touches.delete(ev.pointerId);
+  if (pickRelease) {
+    pickRelease = false;
+    return;
+  }
   if (pinch) {
     // the pinch lasts until the last finger is lifted
     if (touches.size === 0) {

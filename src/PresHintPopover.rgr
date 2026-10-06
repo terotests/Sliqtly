@@ -86,6 +86,11 @@ class PresHintPopover {
     def figColors:[string]
     def figSel:int -1
     def wantsFigColors:string ""
+    ; the pipette was pressed: the page samples a colour (pickedColor)
+    def wantsPick:boolean false
+    ; pressed in since it opened: it stays (pinned) until a press outside it,
+    ; so the pointer can go to the slide (to look, or to sample a colour)
+    def engaged:boolean false
     def hasRange:boolean false
     def rmin:double 0.0
     def rmax:double 100.0
@@ -133,6 +138,7 @@ class PresHintPopover {
     def valueEl:EVGElement (EVGElement.createSpan())
 
     Constructor () {
+        cp.eyeOn = true
     }
 
     ; --- opening ------------------------------------------------------------------
@@ -200,6 +206,8 @@ class PresHintPopover {
         looks = lk
         look = (j.stringOr("look" "holo"))
         wantsLook = ""
+        engaged = false
+        wantsPick = false
         figure = (j.boolOr("figure" false))
         def fcs:[string]
         def fv:VlJson (j.get("figColors"))
@@ -449,8 +457,11 @@ class PresHintPopover {
             def fi0:int 0
             while (fi0 < (array_length figColors)) {
                 def hex:string (itemAt figColors fi0)
-                def b:ButtonCtl (this.button(("hp-fcol-" + (to_string fi0)) hex "secondary" fc))
+                ; every chip as wide as the widest label: a label that
+                ; changes while the colour is dragged moves nothing
+                def b:ButtonCtl (this.button(("hp-fcol-" + (to_string fi0)) (to_uppercase hex) "secondary" fc))
                 def r:EVGElement (unwrap b.rootEl)
+                UiTree.addClass(r "hp-fcolor")
                 UiTree.inline(r "background-color" hex)
                 if ((r.getChildCount()) > 0) {
                     UiTree.inline((r.getChild(0)) "color" (PresHintPopover.inkOn(hex)))
@@ -916,6 +927,7 @@ class PresHintPopover {
     ; `clicks` is the page's count (2 a double click, 3 a triple) and `shift`
     ; extends a field's selection.
     fn press:void (px:double py:double clicks:int shift:boolean) {
+        engaged = true
         if (null? host.lastPage) {
             this.page()
         }
@@ -962,6 +974,9 @@ class PresHintPopover {
             }
             if (what == "changed") {
                 this.takeColor((picker.hex()))
+            }
+            if picker.picking {
+                wantsPick = true
             }
             this.rebuild()
             return
@@ -1097,6 +1112,19 @@ class PresHintPopover {
             wantsClose = true
             return
         }
+    }
+
+    ; The pipette's colour from the page ("" when it was called off).
+    fn pickedColor:void (hex:string) {
+        wantsPick = false
+        if ((strlen hex) == 0) {
+            picker.pickCancel()
+        } {
+            if (picker.pickResult(hex)) {
+                this.takeColor((picker.hex()))
+            }
+        }
+        this.rebuild()
     }
 
     ; A colour from the picker: the value's text, or the figure colour picked.
