@@ -28,6 +28,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/terotests/sliqtly/mcp-go/store"
 )
 
 //go:embed all:webdist
@@ -245,6 +247,9 @@ func (s *localServer) api(w http.ResponseWriter, r *http.Request) {
 		status = 201
 	case strings.HasPrefix(p, "/api/rooms/") && r.Method == http.MethodPost:
 		out, err = s.roomsAPI(r, strings.TrimPrefix(p, "/api/rooms/"))
+	case strings.HasPrefix(p, "/api/files/rooms/") && r.Method == http.MethodPut:
+		out, err = s.roomFileAPI(r, strings.TrimPrefix(p, "/api/files/rooms/"))
+		status = 201
 	case strings.HasPrefix(p, "/api/files/shares/"):
 		out, err = s.fileAPI(r, strings.TrimPrefix(p, "/api/files/"))
 	case shareAPIPath.MatchString(p):
@@ -532,6 +537,35 @@ func (s *localServer) fileAPI(r *http.Request, name string) (any, error) {
 		return map[string]bool{"ok": true}, nil
 	}
 	return nil, fail(405, "", "method not allowed")
+}
+
+// PUT /api/files/rooms/{room}/{name}: a file into the room's files
+// (roomfiles.go); ?unique=1 gives it another name when the room has one
+// by it
+func (s *localServer) roomFileAPI(r *http.Request, rest string) (any, error) {
+	if s.env.rooms == nil {
+		return nil, fail(404, "", "not found")
+	}
+	room, name, ok := strings.Cut(rest, "/")
+	if !ok || name == "" {
+		return nil, fail(400, "", "bad file path")
+	}
+	data, err := io.ReadAll(io.LimitReader(r.Body, maxUpload+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxUpload {
+		return nil, fail(413, "", "a file is at most 20 MB")
+	}
+	out, err := s.env.rooms.putFile(r.Context(), s.env.LocalUser, room, name, r.Header.Get("Content-Type"), data, r.URL.Query().Get("unique") == "1")
+	var re roomErr
+	switch {
+	case errors.As(err, &re):
+		return nil, fail(400, "", re.msg)
+	case errors.Is(err, store.ErrNotFound):
+		return nil, fail(404, "", "no such room")
+	}
+	return out, err
 }
 
 // what has expired goes, as Firestore's TTL policies do there: at start and

@@ -1107,6 +1107,11 @@ async function currentRoomId() {
 }
 // the search field's text while it is open (null: the rooms one is active in)
 let roomsQuery = null;
+// a room made, renamed, archived or removed, or a deck moved, by anyone:
+// the server says so on the page's stream, and the list is read again
+window.addEventListener("sliqtly:chat", (ev) => {
+  if ((ev.detail?.t === "rooms" || ev.detail?.t === "reopen") && ownServer()) roomsRequest("room:list").then(() => { needsPaint = true; }, () => {});
+});
 async function roomsRequest(r) {
   const [, action, ...rest] = r.split(":");
   const what = rest.join(":");
@@ -1300,6 +1305,38 @@ function roomChat() {
       toast(ok ? t("Copied") : t("Could not copy"));
     },
     paint: () => { needsPaint = true; },
+    put: async (path, body, type) => {
+      const res = await fetch(path, { method: "PUT", headers: { "Content-Type": type }, body });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(out.error || res.status);
+      return out;
+    },
+    // the picker now, while the press still counts as one
+    pickFiles: () => new Promise((resolve) => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.multiple = true;
+      input.hidden = true;
+      const done = (files) => { input.remove(); resolve(files); };
+      input.addEventListener("change", () => done([...(input.files || [])]));
+      input.addEventListener("cancel", () => done([]));
+      document.body.append(input);
+      input.click();
+    }),
+    sizeOf: async (file) => {
+      const p = await decodePicture(new Uint8Array(await file.arrayBuffer()), file.type, file.name);
+      return { w: p.img.width, h: p.img.height };
+    },
+    deckName: async (id) => {
+      const res = await fetch("/api/shares/" + encodeURIComponent(id));
+      return res.ok ? (await res.json()).name || "" : "";
+    },
+    load: async (src) => {
+      const res = await fetch(src);
+      if (!res.ok) throw new Error(res.status);
+      const type = res.headers.get("Content-Type") || "image/png";
+      return (await decodePicture(new Uint8Array(await res.arrayBuffer()), type, src)).img;
+    },
   });
   window.addEventListener("sliqtly:chat", (ev) => { roomChatOne.event(ev.detail).catch(() => {}); });
   return roomChatOne;
@@ -2588,7 +2625,7 @@ function paintOnce() {
   // menu, the toast. A press goes to them in the same order, top first.
   const paintList = (j, images, at) => {
     if (!j) return;
-    const doc = JSON.parse(j);
+    const doc = typeof j === "string" ? JSON.parse(j) : j;
     doc.width = W;
     doc.height = H;
     const f = prepareDisplayList(gl, doc, images ? { dpr, images } : { dpr });
@@ -2604,7 +2641,13 @@ function paintOnce() {
     } else if (layer === "sketch") {
       paintList(app.sketchJson());
     } else if (layer === "room") {
-      paintList(app.roomJson());
+      // the channel's pictures (attached ones, embedded slides) as they load
+      const j = app.roomJson();
+      if (j && roomChatOne) {
+        const d = JSON.parse(j);
+        roomChatOne.want((d.list?.cmds || []).filter((c) => c.k === 2 && c.src).map((c) => c.src));
+        paintList(d, roomChatOne.pictures);
+      } else paintList(j);
     } else if (layer === "review") {
       paintList(app.reviewJson());
     } else if (layer === "hint") {
@@ -4160,6 +4203,11 @@ async function openOwnCloudNow(id) {
   docName = shared.name || "presentation";
   shownDoc(shared.md || "");
   doc.cloud = id;
+  // on a server of one's own the rooms panel shows the deck's room
+  if (ownServer() && shared.room) {
+    roomShown = shared.room;
+    keepRooms(touchRoom(roomsHere, shared.room));
+  }
   doc.cloudMd = shared.md || "";
   doc.cloudCss = shared.css ?? null;
   doc.cloudTheme = shared.theme || "";
@@ -6093,6 +6141,16 @@ keys.addEventListener("cut", (ev) => {
 keys.addEventListener("paste", (ev) => {
   ev.preventDefault();
   const items = ev.clipboardData ? [...ev.clipboardData.items] : [];
+  // while a room's chat is shown, files go with the message being written
+  // (into the room's files), text into its composer
+  if (app.roomTakesPaste()) {
+    const files = items.filter((it) => it.kind === "file").map((it) => it.getAsFile()).filter(Boolean);
+    if (files.length) {
+      roomChat().attach(files, app.roomChatInThread()).catch(fail);
+      needsPaint = true;
+      return;
+    }
+  }
   const picture = items.find((it) => it.kind === "file" && /^image\/(png|jpeg|gif|webp|svg\+xml)$/.test(it.type));
   if (picture) {
     const file = picture.getAsFile();
@@ -6493,6 +6551,12 @@ canvas.addEventListener("dragover", (ev) => ev.preventDefault());
 canvas.addEventListener("drop", (ev) => {
   ev.preventDefault();
   const files = ev.dataTransfer ? [...ev.dataTransfer.files] : [];
+  // dropped on a room's chat: files for the message being written there
+  const [dx, dy] = at(ev);
+  if (files.length && app.roomChatOpen() && app.layerAt(dx, dy) === "room") {
+    roomChat().attach(files, app.roomChatInThread()).catch(fail);
+    return;
+  }
   for (const f of files) {
     if (/^image\//.test(f.type)) addPictureFile(f).catch(fail);
     else addDocFile(f, true).catch(fail);
@@ -6722,7 +6786,14 @@ async function start() {
   const editing = !!own || (!!editId && q.has("edit"));
   if (versionFrame) await openVersionView();
   else if (playerDeck) await openPlayerDeck();
-  else if (editing && editId && (await openOwnCloud(editId).catch((e) => { console.warn(e); return false; }))) { /* opened */ }
+  else if (editing && editId && (await openOwnCloud(editId).catch((e) => { console.warn(e); return false; }))) {
+    // a deck's link on a server of one's own: its room open on the left,
+    // with the room's presentations
+    if (ownServer() && roomShown) {
+      app.showRooms();
+      roomsRequest("room:list").catch(() => {});
+    }
+  }
   else if (own && vfs && (await ownIsNewer(own)) && (await openDoc(own.deck))) plainAddress();
   else if (!(await openFromShare()) && !(await openFromHash())) {
     const want = q.get("sample");

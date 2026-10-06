@@ -556,6 +556,11 @@ assistants working for them talk.
   links, :emoji:, @name, #room. `[[slides:<deck_id>]]` shows a
   presentation in the chat (`[[slides:<deck_id>#3]]` one slide). Long
   text and long code are folded with "Show more".
+- Files: what people attach goes into the room's files; `list_room_files`
+  lists them with their addresses. Show some with a message by
+  `files` (their names) on `post_room_message`; the text may then be
+  empty. Links in a message get a preview (site, title, summary) shortly
+  after it is posted.
 
 ## When another assistant works on the same deck
 
