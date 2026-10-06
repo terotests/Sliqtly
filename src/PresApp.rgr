@@ -3677,6 +3677,7 @@ class PresApp {
         if chart.isOpen {
             if (top == "chart") {
                 layers.raise("chart")
+                chart.touch = touch
                 chart.press(x y clicks shift)
                 this.afterChart()
                 return "chart"
@@ -3710,6 +3711,7 @@ class PresApp {
             if (panels.chatHas(x y)) {
                 focus = "chat"
             }
+            panels.touch = touch
             panels.press(x y clicks shift)
             this.takePanels()
             return "panel"
@@ -4112,6 +4114,12 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
+        ; a finger scrolling a dialog
+        if (panels.dialogPanning()) {
+            panels.dialogPanTo(y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         ; ...or in a text of the panels (the toast, a note, a link)
         if panels.textSelecting {
             panels.textDragTo(x y)
@@ -4155,7 +4163,7 @@ class PresApp {
             ; a slider or the picker shows on the slide as it moves, not only
             ; when it is let go (at most every 50 ms: each write lays the
             ; deck out again)
-            if ((chart.win.dragging == false) && ((deck.uiNow - chartLiveAt) >= 0.05)) {
+            if (((chart.win.dragging == false) && ((chart.win.panning()) == false)) && ((deck.uiNow - chartLiveAt) >= 0.05)) {
                 chartLiveAt = deck.uiNow
                 if (chartUndoBase < 0) {
                     chartUndoBase = (array_length mdEditor.buf.undoStack)
@@ -4241,14 +4249,25 @@ class PresApp {
         room.release()
         panels.chatRelease()
         panels.textRelease()
+        ; a finger on a dialog that did not scroll is a tap, pressed now
+        if (panels.dialogPanning()) {
+            if (panels.dialogPanEnd()) {
+                this.takePanels()
+            }
+            chromeRev = (chromeRev + 1)
+        }
         if (hint.isOpen && (hint.dragging())) {
             hint.release()
             this.afterHint()
         }
         if chart.isOpen {
-            chart.release()
+            ; a finger's tap on the window is pressed as it lifts
+            def tapped:boolean (chart.release())
             this.writeChart()
             this.mergeChartUndo()
+            if tapped {
+                this.afterChart()
+            }
         }
         chartUndoBase = -1
         if editorDrag {
@@ -4335,6 +4354,9 @@ class PresApp {
     ; sideways, everything else goes where a vertical wheel goes.
     fn wheelXY:boolean (x:double y:double dx:double dy:double) {
         if ((this.layerAt(x y)) == "chart") {
+            if (chart.wheel(dy)) {
+                chromeRev = (chromeRev + 1)
+            }
             return true
         }
         if ((deckRect.has(x y)) && ((this.layerAt(x y)) == "")) {
@@ -4381,12 +4403,24 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return true
         }
+        ; a dialog taller than the page scrolls; the presentations window's
+        ; wheel otherwise turns its pages
+        if ((top == "dialog") && (panels.dialogWheel(dy))) {
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         if ((top == "dialog") && (panels.decksShowing())) {
             panels.decksWheel(dy)
             chromeRev = (chromeRev + 1)
             return true
         }
-        if ((top == "dialog") || (top == "chart")) {
+        if (top == "chart") {
+            if (chart.wheel(dy)) {
+                chromeRev = (chromeRev + 1)
+            }
+            return true
+        }
+        if (top == "dialog") {
             return true
         }
         if (panels.helpHas(x y)) {

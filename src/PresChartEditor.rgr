@@ -56,6 +56,14 @@ class PresChartEditor {
     def tab:string "kaavio"
     def dragX:double 0.0
     def dragY:double 0.0
+    ; A finger (the page says so before each press): a press on the window's
+    ; body waits to see whether it is a tap or the start of a scroll
+    ; (WindowCtl's `beginPan`). A tap is pressed when the finger lifts.
+    def touch:boolean false
+    def tapping:boolean false
+    ; the field last scrolled into sight (`page`): Tab to one below the fold
+    ; brings it up once, not on every frame
+    def revealed:string ""
     def inputs:[InputCtl]
     ; the fields of the card before the last rebuild (inputWith keeps their caret)
     def before:[InputCtl]
@@ -404,6 +412,9 @@ class PresChartEditor {
         y = py
         w = pw
         h = ph
+        ; a window opened starts at its top
+        win.scroll.reset()
+        revealed = ""
         isOpen = true
         wantsClose = false
         wantsFresh = false
@@ -454,7 +465,7 @@ class PresChartEditor {
     }
 
     fn dragging:boolean () {
-        return ((((win.dragging || sliding) || ((strlen dragPart) > 0)) || ((this.cropping()) && (crop.dragging()))) || ((strlen selecting) > 0))
+        return (((((win.dragging || (win.panning())) || sliding) || ((strlen dragPart) > 0)) || ((this.cropping()) && (crop.dragging()))) || ((strlen selecting) > 0)))
     }
 
     ; A point as fractions of the crop's rectangle, as last laid out.
@@ -475,6 +486,12 @@ class PresChartEditor {
     }
 
     fn dragTo:void (px:double py:double) {
+        if (win.panning()) {
+            if (win.panTo(py)) {
+                rev = (rev + 1)
+            }
+            return
+        }
         if ((strlen selecting) > 0) {
             this.selectTo(px py)
             return
@@ -523,7 +540,21 @@ class PresChartEditor {
         rev = (rev + 1)
     }
 
-    fn release:void () {
+    ; True when the finger lifted was a tap, pressed now: the page then
+    ; does what it does after a press.
+    fn release:boolean () {
+        if (win.panning()) {
+            if ((win.endPan()) == false) {
+                rev = (rev + 1)
+                return false
+            }
+            def sc:UiScroll win.scroll
+            tapping = true
+            this.press(sc.downX sc.downY sc.clicks sc.shift)
+            tapping = false
+            this.release()
+            return true
+        }
         if ((strlen selecting) > 0) {
             def maybe@(optional):InputCtl (this.inputFor(selecting))
             if (!null? maybe) {
@@ -556,6 +587,45 @@ class PresChartEditor {
             dragPart = ""
             this.rebuild()
         }
+        return false
+    }
+
+    ; The wheel over the window: its body scrolls.
+    fn wheel:boolean (dy:double) {
+        if (win.scrollBody(dy)) {
+            rev = (rev + 1)
+            return true
+        }
+        return false
+    }
+
+    ; Where a finger on the body scrolls it rather than working the control
+    ; under it: anything but a field (its caret and selection), a slider, the
+    ; crop and the colour picker, which all take a drag of their own.
+    fn pansAt:boolean (px:double py:double) {
+        if ((win.overBody(px py)) == false) {
+            return false
+        }
+        def tid:string (host.hitTest(px py))
+        def ctlTid:string tid
+        def maybe@(optional):UiCtl (host.ctlFor(tid))
+        if (!null? maybe) {
+            def owner:UiCtl (unwrap maybe)
+            ctlTid = owner.tid
+        }
+        if (!null? (this.inputFor(ctlTid))) {
+            return false
+        }
+        if (PresChartEditor.isSlider(ctlTid)) {
+            return false
+        }
+        if ((this.cropping()) && (ctlTid == crop.tid)) {
+            return false
+        }
+        if (((strlen pickFor) > 0) && (ctlTid == picker.tid)) {
+            return false
+        }
+        return true
     }
 
     ; --- building ---------------------------------------------------------------
@@ -820,6 +890,10 @@ class PresChartEditor {
         def page0:EVGElement (unwrap host.root)
         page0.className = "ui-root ce-page"
         def w0 (new WindowCtl())
+        ; the rebuilt window stays scrolled where it was, a finger on it
+        ; included
+        def sc:UiScroll win.scroll
+        def chrome:double win.chromeH
         win = w0
         win.tid = "ce-win"
         win.name = (PresI18n.t("Chart settings"))
@@ -879,6 +953,8 @@ class PresChartEditor {
         win.pageW = w
         win.pageH = h
         win.openWindow()
+        win.scroll = sc
+        win.chromeH = chrome
         def body:EVGElement (unwrap win.bodyEl)
         body.className = "ce-body"
         UiTree.clearChildren(body)
@@ -3018,6 +3094,22 @@ class PresChartEditor {
         def eng:EVGTextEngine (lay.getTextEngine())
         cp.eng = eng
         lay.layout(pg)
+        ; the window held to the page measures its title bar, and the body's
+        ; bound follows
+        if (host.settle()) {
+            lay.layout(pg)
+        }
+        ; a field focused below the fold (Tab) is scrolled into sight
+        if (host.focusId != revealed) {
+            revealed = host.focusId
+            def fe@(optional):EVGElement (host.findEl(pg host.focusId))
+            if (((strlen host.focusId) > 0) && (!null? fe)) {
+                def f:EVGElement (unwrap fe)
+                if (win.revealBody(f.calculatedY (f.calculatedY + f.calculatedHeight))) {
+                    lay.layout(pg)
+                }
+            }
+        }
         ; the fields draw their caret and selection on what was laid out
         host.placeText(eng)
         if ((strlen pickFor) > 0) {
@@ -3098,6 +3190,10 @@ class PresChartEditor {
         }
         if (null? host.lastPage) {
             this.page()
+        }
+        if ((touch && (tapping == false)) && (this.pansAt(px py))) {
+            win.beginPan(px py clicks shift)
+            return
         }
         def tid:string (host.hitTest(px py))
         ; a press anywhere but in a text lets its selection go
