@@ -15,7 +15,9 @@
 package main
 
 import (
+	lru "container/list"
 	"context"
+	"crypto/sha256"
 	_ "embed"
 	"errors"
 	"image"
@@ -33,11 +35,18 @@ var svgRasterWasm []byte
 
 // the longest side an SVG is drawn at here: sharper than a 960-pixel
 // render_slide needs, a full-slide background included, and smaller than
-// the player's 2560 (web/picture.js SVG_RASTER), which a render need not be
+// the player's 2560 (web/picture.js SVG_RASTER), which a render need not be.
+// The layout report's "drawn" and the contrast grid read this same drawing,
+// so what the report says is what render_slide shows.
 const svgRenderSide = 1920
 
 // how long one SVG may take to draw before it is given up as not drawn
 const svgRenderTime = 10 * time.Second
+
+// how many bytes of drawn SVGs are kept (a 1920×1080 drawing is 8 MB): a
+// deck's pictures are drawn once for the check, the contrast grid and
+// every render_slide after it, not once per use
+const svgCacheBytes = 96 << 20
 
 type svgRasterizer struct {
 	mu  sync.Mutex
@@ -115,8 +124,13 @@ func (r *svgRasterizer) draw(data []byte, w, h int) (*image.RGBA, error) {
 	}
 	res, err := r.mod.ExportedFunction("render").Call(ctx, p, uint64(len(data)), uint64(w), uint64(h))
 	if err != nil {
-		// a draw that ran out of time closed the module: start again next time
-		r.mod, r.err = nil, nil
+		// a draw that ran out of time closed the module: start again next
+		// time, and let go of the old runtime's compiled code
+		r.rt.Close(context.Background())
+		r.mod, r.rt, r.err = nil, nil, nil
+		if ctx.Err() != nil {
+			return nil, errors.New("svg: it takes more than " + svgRenderTime.String() + " to draw")
+		}
 		return nil, err
 	}
 	r.mod.ExportedFunction("dealloc").Call(ctx, p, uint64(len(data)))
@@ -143,8 +157,25 @@ func (r *svgRasterizer) draw(data []byte, w, h int) (*image.RGBA, error) {
 
 // drawSvg is the SVG `data` drawn with its longer side `side` pixels, as
 // the player draws it: the root sized to the SVG's own shape (svgSize), its
-// viewBox kept. An error: not an SVG, or it does not draw.
+// viewBox kept. An error: not an SVG, or it does not draw. The same bytes
+// at the same side are drawn once (svgCache).
 func drawSvg(data []byte, side int) (image.Image, error) {
+	key := svgKey{sha256.Sum256(data), side}
+	if img, err, ok := svgDrawn.get(key); ok {
+		if err != nil {
+			return nil, err
+		}
+		return img, nil
+	}
+	img, err := drawSvgNow(data, side)
+	svgDrawn.put(key, img, err)
+	if err != nil {
+		return nil, err
+	}
+	return img, nil
+}
+
+func drawSvgNow(data []byte, side int) (*image.RGBA, error) {
 	w, h, ok := svgSize(data)
 	if !ok {
 		return nil, errors.New("not an SVG")
@@ -164,10 +195,90 @@ func drawSvg(data []byte, side int) (image.Image, error) {
 	return svgRaster.draw(sized, pw, ph)
 }
 
+// blank: no pixel of img is drawn
+func blank(img *image.RGBA) bool {
+	for i := 3; i < len(img.Pix); i += 4 {
+		if img.Pix[i] != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+type svgKey struct {
+	sum  [32]byte
+	side int
+}
+
+type svgEntry struct {
+	key svgKey
+	img *image.RGBA
+	err error
+}
+
+// svgCache: drawn SVGs (and the reason one does not draw, so a picture
+// that runs out of time is not drawn again on every call), the most
+// recently used kept up to svgCacheBytes
+type svgCache struct {
+	mu    sync.Mutex
+	order lru.List // of *svgEntry, most recent first
+	at    map[svgKey]*lru.Element
+	bytes int
+}
+
+var svgDrawn svgCache
+
+func (c *svgCache) get(k svgKey) (*image.RGBA, error, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	el, ok := c.at[k]
+	if !ok {
+		return nil, nil, false
+	}
+	c.order.MoveToFront(el)
+	e := el.Value.(*svgEntry)
+	return e.img, e.err, true
+}
+
+func (c *svgCache) put(k svgKey, img *image.RGBA, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.at == nil {
+		c.at = map[svgKey]*lru.Element{}
+	}
+	if _, ok := c.at[k]; ok {
+		return
+	}
+	if err != nil {
+		img = nil
+	}
+	c.at[k] = c.order.PushFront(&svgEntry{k, img, err})
+	c.bytes += entrySize(img)
+	for c.bytes > svgCacheBytes && c.order.Len() > 1 {
+		el := c.order.Back()
+		e := el.Value.(*svgEntry)
+		c.order.Remove(el)
+		delete(c.at, e.key)
+		c.bytes -= entrySize(e.img)
+	}
+}
+
+func entrySize(img *image.RGBA) int {
+	if img == nil {
+		return 64
+	}
+	return len(img.Pix)
+}
+
 // SvgError is host_svg_error: why the SVG does not draw, "" when it does.
+// It is the drawing render_slide uses, so "drawn" in the report holds there.
 func (h *McpHost) SvgError(data []byte) string {
-	if _, err := drawSvg(data, svgGridSide); err != nil {
+	img, err := drawSvg(data, svgRenderSide)
+	if err != nil {
 		return strings.TrimPrefix(err.Error(), "svg: ")
+	}
+	if rgba, ok := img.(*image.RGBA); ok && blank(rgba) {
+		return "every pixel of it is transparent"
 	}
 	return ""
 }

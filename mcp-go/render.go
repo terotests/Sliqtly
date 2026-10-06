@@ -84,7 +84,7 @@ type painter struct {
 	k     float64
 	off   pt // where the slide's (0, 0) is in dst
 	clips []image.Rectangle
-	pics  map[string]image.Image
+	pics  *renderPics
 	z     vector.Rasterizer
 	buf   sfnt.Buffer
 }
@@ -641,7 +641,7 @@ func (p *painter) glyphs(gs []glyphPath, deg, cx, cy float64, src image.Image) {
 
 // a picture, object-fit: cover, or the crop window the command names
 func (p *painter) picture(c *dlCmd) {
-	img := p.pics[c.Src]
+	img := p.pics.get(c.Src)
 	if img == nil || c.W <= 0 || c.H <= 0 {
 		return
 	}
@@ -729,7 +729,7 @@ func (p *painter) paint(doc *dlDoc) {
 }
 
 // renderList paints one slide's list into a w×h-sized area of dst at off
-func renderList(dst *image.RGBA, listJSON string, slideW, slideH float64, area image.Rectangle, pics map[string]image.Image) error {
+func renderList(dst *image.RGBA, listJSON string, slideW, slideH float64, area image.Rectangle, pics *renderPics) error {
 	var doc dlDoc
 	if err := json.Unmarshal([]byte(listJSON), &doc); err != nil {
 		return err
@@ -771,18 +771,48 @@ func jpegBase64(img image.Image) string {
 
 // --- the host operators
 
+// renderPics: the pictures the lists may name ("/media/x.png"), decoded or
+// drawn (an SVG) the first time a list draws one, so a render_slide draws
+// that slide's pictures and not every picture of the deck
+type renderPics struct {
+	data map[string][]byte
+	img  map[string]image.Image
+	log  func(string)
+}
+
+func (s *renderPics) get(name string) image.Image {
+	if s == nil {
+		return nil
+	}
+	if img, ok := s.img[name]; ok {
+		return img
+	}
+	data, ok := s.data[name]
+	if !ok {
+		return nil
+	}
+	var img image.Image
+	if pic, err := decodePicture(data); err == nil {
+		img = pic
+	} else if pic, err := drawSvg(data, svgRenderSide); err == nil {
+		img = pic
+	} else if _, _, isSvg := svgSize(data); isSvg && s.log != nil {
+		s.log("render " + name + ": " + err.Error())
+	}
+	if s.img == nil {
+		s.img = map[string]image.Image{}
+	}
+	s.img[name] = img
+	return img
+}
+
 // RenderPic hands the painter a picture the lists name ("/media/x.png").
 func (h *McpHost) RenderPic(name string, data []byte) {
 	if h.renderPics == nil {
-		h.renderPics = map[string]image.Image{}
+		h.renderPics = &renderPics{data: map[string][]byte{}, log: h.Log}
 	}
-	if img, err := decodePicture(data); err == nil {
-		h.renderPics[name] = img
-	} else if img, err := drawSvg(data, svgRenderSide); err == nil {
-		h.renderPics[name] = img
-	} else if _, _, isSvg := svgSize(data); isSvg {
-		h.Log("render " + name + ": " + err.Error())
-	}
+	h.renderPics.data[name] = data
+	delete(h.renderPics.img, name)
 }
 
 // Render is one slide, width pixels wide, as base64 JPEG; "" when the list

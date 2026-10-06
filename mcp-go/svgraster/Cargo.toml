@@ -17,7 +17,7 @@ path = "src/lib.rs"
 resvg = { version = "=0.48.1", default-features = false, features = ["text", "raster-images"] }
 
 [profile.release]
-opt-level = "s"
+opt-level = 3 # speed over size: see build.sh
 lto = true
 codegen-units = 1
 panic = "abort"
