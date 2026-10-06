@@ -1,7 +1,7 @@
 // node --test: rooms in this browser (web/rooms.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { emptyRooms, parseRooms, roomOf, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, GENERAL, PLAYGROUND, ONBOARDING, SHOWN, ACTIVE_DAYS, ACTIVE_MAX } from "../rooms.js";
+import { emptyRooms, parseRooms, changeKept, readKept, roomOf, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, GENERAL, PLAYGROUND, ONBOARDING, SHOWN, ACTIVE_DAYS, ACTIVE_MAX } from "../rooms.js";
 
 const decks = [
   { id: "a", name: "Budget", updated: 300 },
@@ -176,4 +176,58 @@ test("a room's settings: renamed, described, archived and back, deleted with its
   // built-in and unknown rooms are not changed
   assert.equal(deleteRoom(s, GENERAL), s);
   assert.equal(archiveRoom(s, PLAYGROUND), s);
+});
+
+// localStorage as a tab sees it: `seen` is what the tab has heard of the
+// shared values so far (another tab's writes reach it a while later)
+function tabStore(box, seen = box) {
+  return {
+    get length() { return seen.size; },
+    key: (i) => [...seen.keys()][i] ?? null,
+    getItem: (k) => seen.get(k) ?? null,
+    setItem: (k, v) => { box.set(k, String(v)); if (seen !== box) seen.set(k, String(v)); },
+    removeItem: (k) => { box.delete(k); if (seen !== box) seen.delete(k); },
+  };
+}
+const KEY = "sliqtly.rooms";
+
+test("two tabs: opening a room in a tab that has not heard of the moves yet keeps them", () => {
+  const box = new Map();
+  const a = tabStore(box);
+  let id = "";
+  changeKept(a, KEY, (s) => {
+    const made = createRoom(s, "Sliqtly", idOf);
+    id = made.id;
+    return made.state;
+  });
+  // tab B heard this much; then tab A moves two decks into the room
+  const b = tabStore(box, new Map(box));
+  changeKept(a, KEY, (s) => moveDeck(s, "a", id));
+  changeKept(a, KEY, (s) => moveDeck(s, "b", id));
+  // B opens the room: only that room's use is written
+  const inB = changeKept(b, KEY, (s) => touchRoom(s, id, 5));
+  assert.equal(inB.touched[id], 5);
+  // a reload reads both
+  const now = readKept(tabStore(box), KEY);
+  assert.deepEqual(roomDecks(now, id, decks, samples).map((d) => d.id), ["a", "b"]);
+  assert.equal(now.touched[id], 5);
+  // a deck moved back in B, a room deleted in A: each only its own facts
+  changeKept(b, KEY, (s) => moveDeck(s, "a", PLAYGROUND));
+  assert.equal(roomOf(readKept(tabStore(box), KEY), "a"), PLAYGROUND);
+  assert.equal(roomOf(readKept(tabStore(box), KEY), "b"), id);
+  changeKept(a, KEY, (s) => deleteRoom(s, id));
+  assert.deepEqual([...box.keys()], [KEY + "/deck/a"]);
+});
+
+test("the one value kept before is split into facts on the first change", () => {
+  const box = new Map([[KEY, JSON.stringify({ rooms: [{ id: "r-x", title: "X", created: 1 }], placed: { a: "r-x" }, touched: { "r-x": 9 }, order: ["r-x"] })]]);
+  const st = tabStore(box);
+  assert.equal(roomOf(readKept(st, KEY), "a"), "r-x");
+  changeKept(st, KEY, (s) => touchRoom(s, "r-x", 10));
+  assert.equal(box.has(KEY), false);
+  const now = readKept(st, KEY);
+  assert.deepEqual(now.rooms.map((r) => r.id), ["r-x"]);
+  assert.equal(roomOf(now, "a"), "r-x");
+  assert.equal(now.touched["r-x"], 10);
+  assert.deepEqual(now.order, ["r-x"]);
 });

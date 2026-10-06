@@ -30,7 +30,7 @@ import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
-import { emptyRooms, parseRooms, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { Meet } from "./meet.js";
 import { RoomChat } from "./roomchat.js";
@@ -750,7 +750,7 @@ let roomShown = "";
 let roomForNew = "";
 let roomChatOne = null;
 let roomsHere = emptyRooms();
-try { roomsHere = parseRooms(localStorage.getItem(ROOMS_KEY)); } catch (_) { /* none kept */ }
+try { roomsHere = readKept(localStorage, ROOMS_KEY); } catch (_) { /* none kept */ }
 function shownDoc(text, quiet = false) {
   app.setSource(text);
   doc.loading = false;
@@ -1066,10 +1066,17 @@ async function newDeck(plan) {
 // (POST /api/rooms/<op>); elsewhere this browser's (web/rooms.js), kept in
 // localStorage. The open room's presentations are listed under it, at most
 // five, "… Show all" opening the rest in the presentations window.
-function keepRooms(next) {
-  roomsHere = next;
-  try { localStorage.setItem(ROOMS_KEY, JSON.stringify(next)); } catch (_) { /* this page only */ }
+// A change to the rooms: only what it changes is written, over what
+// localStorage holds now (web/rooms.js changeKept: other tabs write too)
+function keepRooms(fn) {
+  try { roomsHere = changeKept(localStorage, ROOMS_KEY, fn); } catch (_) { roomsHere = fn(roomsHere); /* this page only */ }
 }
+// another tab changed the rooms: this one shows the same
+window.addEventListener("storage", (e) => {
+  if (e.key !== null && e.key !== ROOMS_KEY && !e.key.startsWith(ROOMS_KEY + "/")) return;
+  try { roomsHere = readKept(localStorage, ROOMS_KEY); } catch (_) { return; }
+  if (!viewer && roomShown) roomsRequest("room:list").catch(() => {});
+});
 async function roomsCall(op, args) {
   const res = await fetch("/api/rooms/" + op, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(args || {}) });
   const out = await res.json().catch(() => ({}));
@@ -1145,7 +1152,8 @@ async function roomsRequest(r) {
       if (open) rooms = [...rooms, open];
       else roomShown = rooms[0]?.room_id || "";
     }
-    const rows = rooms.map((x) => [x.room_id, clean(x.title) + (x.archived ? " (" + t("archived") + ")" : ""), x.presentations ?? ""].join("\t"));
+    // an empty room shows no count ("0" says nothing the empty list does not)
+    const rows = rooms.map((x) => [x.room_id, clean(x.title) + (x.archived ? " (" + t("archived") + ")" : ""), x.presentations || ""].join("\t"));
     app.setToolbarOptions("roomsearch", "", t("Search rooms…") + (hidden ? " (" + hidden + t(" more") + ")" : ""));
     app.setToolbarOptions("rooms", rows.join("\n"), roomShown);
     if (roomShown && rooms.some((x) => x.room_id === roomShown)) await roomsRequest("room:decks:" + roomShown);
@@ -1163,7 +1171,7 @@ async function roomsRequest(r) {
     roomsQuery = null;
     if (id) {
       roomShown = id;
-      keepRooms(touchRoom(roomsHere, id));
+      keepRooms((s) => touchRoom(s, id));
     }
     await roomsRequest("room:list");
     if (id) await roomChat().open(id);
@@ -1199,7 +1207,8 @@ async function roomsRequest(r) {
   } else if (action === "order") {
     // a room dragged before another (onto a built-in one: first)
     const [id, before] = rest;
-    keepRooms(moveRoom(roomsHere, await roomsList({ archived: true }), id, before || ""));
+    const rows = await roomsList({ archived: true });
+    keepRooms((s) => moveRoom(s, rows, id, before || ""));
     await roomsRequest("room:list");
   } else if (action === "new") {
     app.openRoomDialog("", "new", "", "");
@@ -1219,12 +1228,12 @@ async function roomsRequest(r) {
     if (plan.act === "archive" || plan.act === "unarchive") {
       const on = plan.act === "archive";
       if (ownServer()) await roomsCall("archive_room", { room_id: id, archived: on });
-      else keepRooms(archiveRoom(roomsHere, id, on));
+      else keepRooms((s) => archiveRoom(s, id, on));
       if (on && roomShown === id) roomShown = "";
       toast(on ? t("Room archived. Search finds it.") : t("Room restored."));
     } else if (id) {
       if (ownServer()) await roomsCall("update_room", { room_id: id, title: plan.name, description: plan.desc });
-      else keepRooms(updateRoom(roomsHere, id, { title: plan.name, description: plan.desc }));
+      else keepRooms((s) => updateRoom(s, id, { title: plan.name, description: plan.desc }));
     } else {
       await roomsRequest("room:create:" + JSON.stringify({ title: plan.name, description: plan.desc }));
       return;
@@ -1232,20 +1241,21 @@ async function roomsRequest(r) {
     await roomsRequest("room:list");
   } else if (action === "delete") {
     if (ownServer()) await roomsCall("delete_room", { room_id: what });
-    else keepRooms(deleteRoom(roomsHere, what));
+    else keepRooms((s) => deleteRoom(s, what));
     if (roomShown === what) roomShown = "";
     await roomsRequest("room:list");
   } else if (action === "moveid") {
     const [room, ...deckParts] = rest;
     const deck = deckParts.join(":");
     if (ownServer()) await roomsCall("move_presentation", { deck_id: deck.replace(/^cloud:/, ""), room_id: room });
-    else if (!deck.startsWith("sample:")) keepRooms(touchRoom(moveDeck(roomsHere, deck, room), room));
+    else if (!deck.startsWith("sample:")) keepRooms((s) => touchRoom(moveDeck(s, deck, room), room));
     await roomsRequest("room:list");
   } else if (action === "open" || action === "decks") {
     // a room pressed opens its chat (web/roomchat.js); the list shown again
     // ("decks") only lists its presentations
     roomShown = what;
-    keepRooms(touchRoom(roomsHere, roomShown));
+    // pressed: a room one is active in (the list shown again is no use of it)
+    if (action === "open") keepRooms((s) => touchRoom(s, roomShown));
     const rows = await roomRows(roomShown);
     const lines = deckLines(rows, {
       showAll: "… " + t("Show all") + " (" + rows.length + ")",
@@ -1275,14 +1285,16 @@ async function roomsRequest(r) {
       const { room_id } = await roomsCall("create_room", { title: String(title).replace(/\s+/g, " ").trim(), description: description || "" });
       if (room_id) {
         roomShown = room_id;
-        keepRooms(touchRoom(roomsHere, room_id));
+        keepRooms((s) => touchRoom(s, room_id));
       }
     } else {
-      const made = createRoom(roomsHere, title, newId, { description });
-      if (made.id) {
-        keepRooms(made.state);
-        roomShown = made.id;
-      }
+      let id = "";
+      keepRooms((s) => {
+        const made = createRoom(s, title, newId, { description });
+        id = made.id;
+        return made.state;
+      });
+      if (id) roomShown = id;
     }
     await roomsRequest("room:list");
   } else if (action === "newin") {
@@ -4286,7 +4298,7 @@ async function openOwnCloudNow(id) {
   // on a server of one's own the rooms panel shows the deck's room
   if (ownServer() && shared.room) {
     roomShown = shared.room;
-    keepRooms(touchRoom(roomsHere, shared.room));
+    keepRooms((s) => touchRoom(s, shared.room));
   }
   doc.cloudMd = shared.md || "";
   doc.cloudCss = shared.css ?? null;

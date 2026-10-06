@@ -936,7 +936,7 @@ class PresToolbar {
     }
 
     fn roomDeck:void (body:EVGElement id:string name:string current:boolean) {
-        def shown:string (UiText.fit((this.engine()) name "Open Sans" 13.0 (roomsW - 58.0)))
+        def shown:string (UiText.fit((this.engine()) name "Open Sans" 13.0 (roomsW - 63.0)))
         def b:ButtonCtl (this.button(("roomdeck-" + id) shown "ghost" body))
         def el:EVGElement (unwrap b.rootEl)
         UiTree.addClass(el "tb-roomdeck")
@@ -947,6 +947,9 @@ class PresToolbar {
         el.addChild((this.div("tb-grow")))
         if current {
             UiTree.addClass(el "tb-roomdeck-current")
+            if ((el.getChildCount()) > 0) {
+                UiTree.addClass((el.getChild(0)) "tb-roomdeck-label-current")
+            }
         }
         ; "… Show all" and the row moving the open one here: the room's own
         ; actions, quieter than its presentations
@@ -1144,6 +1147,11 @@ class PresToolbar {
                 }
                 this.roomRow(pane id (itemAt parts 1) count)
                 if (id == roomOpen) {
+                    ; the room's presentations hang from a thin line under its "#"
+                    def nest:EVGElement (this.div("tb-roomdecks"))
+                    nest.addChild((this.div("tb-roomdecks-line")))
+                    def list:EVGElement (this.div("tb-roomdecks-list"))
+                    nest.addChild(list)
                     def ds:[string] (strsplit roomDecks (strfromcode 10))
                     def k:int 0
                     while (k < (array_length ds)) {
@@ -1160,16 +1168,19 @@ class PresToolbar {
                                 kind = (itemAt dp 3)
                             }
                             if (kind == "n") {
-                                this.roomDeck(pane "new" (itemAt dp 1) false)
+                                this.roomDeck(list "new" (itemAt dp 1) false)
                             }
                             if (kind == "a") {
-                                this.roomDeck(pane "all" (itemAt dp 1) false)
+                                this.roomDeck(list "all" (itemAt dp 1) false)
                             }
                             if ((strlen kind) == 0) {
-                                this.roomDeck(pane ("d-" + (itemAt dp 0)) (itemAt dp 1) cur)
+                                this.roomDeck(list ("d-" + (itemAt dp 0)) (itemAt dp 1) cur)
                             }
                         }
                         k = (k + 1)
+                    }
+                    if ((list.getChildCount()) > 0) {
+                        pane.addChild(nest)
                     }
                 }
             }

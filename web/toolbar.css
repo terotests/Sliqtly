@@ -194,9 +194,16 @@
 .theme-tb .tb-room-open { background-color: #e0e7ff; }
 .tb-room-name { font-size: 13px; font-weight: 500; color: #27272a; white-space: nowrap; }
 .tb-room-count { font-size: 11px; color: #71717a; }
-.theme-tb .tb-roomdeck { height: 28px; padding: 0 8px 0 26px; border-radius: 6px; display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: flex-start; }
+/* a room's presentations: rows on the panel's own ground, hung from a thin
+   line under the room's "#" (EVG draws no one-sided border: the line is an
+   element); the open one tinted like the open room, its name in bold */
+.tb-roomdecks { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: stretch; margin: 0 0 2px 17px; }
+.tb-roomdecks-line { width: 1px; min-width: 1px; background-color: #e4e4e7; margin: 2px 0; }
+.tb-roomdecks-list { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; flex-grow: 1; gap: 1px; padding: 0 0 0 6px; }
+.theme-tb .tb-roomdeck { height: 28px; padding: 0 8px; border-radius: 6px; display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: flex-start; }
 .theme-tb .tb-roomdeck-label { text-align: left; font-size: 13px; font-weight: 400; color: #52525b; white-space: nowrap; }
-.theme-tb .tb-roomdeck-current { background-color: #ffffff; border: 1px solid #e4e4e7; }
+.theme-tb .tb-roomdeck-current { background-color: #eef2ff; }
+.theme-tb .tb-roomdeck-label-current { color: #18181b; font-weight: 600; }
 .tb-rooms-sep { height: 1px; background-color: #e4e4e7; margin: 6px 4px; }
 .tb-rooms-note { font-size: 11px; color: #a1a1aa; padding: 0 8px 4px 8px; }
 /* a phone's drawer: the places as a grid at its top */

@@ -2478,7 +2478,16 @@ try {
       const c = (id) => { a.chartJson(); const e = walk(a.chart.host.lastPage, id); if (!e) return false; a.pointerDown(...at(e), false, 1); a.pointerUp(); return true; };
       const order = () => a.toolbar.roomRows.split("\\n").map((l) => l.split("\\t")[1]);
       const idOf = (title) => (a.toolbar.roomRows.split("\\n").map((l) => l.split("\\t")).find((x) => x[1] === title) || [])[0];
-      const kept = () => { try { return JSON.parse(localStorage.getItem("sliqtly.rooms")); } catch (_) { return null; } };`;
+      // the rooms as web/rooms.js keeps them: a fact per key under "sliqtly.rooms/"
+      window.__keptRooms = () => { const s = { rooms: [], placed: {}, order: [] };
+        for (const k of Object.keys(localStorage)) {
+          const v = localStorage.getItem(k);
+          if (k.startsWith("sliqtly.rooms/room/")) s.rooms.push(JSON.parse(v));
+          else if (k.startsWith("sliqtly.rooms/deck/")) s.placed[k.slice(19)] = v;
+          else if (k === "sliqtly.rooms/order") s.order = JSON.parse(v);
+        }
+        return s; };
+      const kept = () => window.__keptRooms();`;
     const R = (body, arg) => rp.evaluate(new Function("arg", rjs + body), arg);
     await R(`t("tb-rail-rooms");`);
     await pageHas("tb-room-general");
@@ -2490,13 +2499,13 @@ try {
     };
     const made1 = await makeRoom("Team room");
     const made2 = await makeRoom("Second room");
-    const newest = await R(`const o = order(); return o.indexOf("Second room") === 3 && o.indexOf("Team room") === 4;`);
-    check("…Rooms' + opens the room's window; Enter makes the room, the newest first after the built-in ones", made1 && made2 && newest, JSON.stringify({ made1, made2, newest }));
+    const newest = await R(`const o = order(); return o.indexOf("Second room") === 0 && o.indexOf("Team room") === 1;`);
+    check("…Rooms' + opens the room's window; Enter makes the room, the newest first, the built-in ones after the made ones", made1 && made2 && newest, JSON.stringify({ made1, made2, newest }));
     // a room dragged before another keeps its place; let go where pressed it opens
     await R(`const from = tb("tb-room-" + idOf("Team room"));
       a.pointerDown(...at(from), false, 1); a.pointerMove(at(from)[0], at(from)[1] - 10);
       a.pointerMove(...at(tb("tb-room-" + idOf("Second room")))); a.pointerUp();`);
-    const reordered = await until(() => { const o = window.__app.toolbar.roomRows.split("\n").map((l) => l.split("\t")[1]); return o.indexOf("Team room") === 3 && o.indexOf("Second room") === 4; });
+    const reordered = await until(() => { const o = window.__app.toolbar.roomRows.split("\n").map((l) => l.split("\t")[1]); return o.indexOf("Team room") === 0 && o.indexOf("Second room") === 1; });
     const keptOrder = await R(`const s = kept(); return !!s && s.order[0] === idOf("Team room");`);
     check("…a room dragged before another moves there, and the order is kept", reordered && keptOrder, JSON.stringify({ reordered, keptOrder }));
     // the deck's tab dragged onto a room asks Move, Copy or Cancel; Copy
@@ -2513,7 +2522,7 @@ try {
       return { tab: true, lit };`);
     const choice = await until(() => window.__app.chart.isOpen && window.__app.chart.cfKey.startsWith("roomdrop:"));
     await R(`c("cf-alt");`);
-    const copied = await until((orig) => { const a = window.__app; try { const s = JSON.parse(localStorage.getItem("sliqtly.rooms")); const team = s.rooms.find((r) => r.title === "Team room").id; const ids = Object.keys(s.placed).filter((k) => s.placed[k] === team); return ids.length === 1 && ids[0] !== orig && a.deckTabFront() === ids[0]; } catch (_) { return false; } }, before, 45000);
+    const copied = await until((orig) => { const a = window.__app; try { const s = window.__keptRooms(); const team = s.rooms.find((r) => r.title === "Team room").id; const ids = Object.keys(s.placed).filter((k) => s.placed[k] === team); return ids.length === 1 && ids[0] !== orig && a.deckTabFront() === ids[0]; } catch (_) { return false; } }, before, 45000);
     check("…a deck's tab dragged onto a room asks Move, Copy or Cancel; Copy puts a copy there and opens it", asked.lit && choice && copied, JSON.stringify({ before, asked, choice, copied }));
     // a presentation dragged from its room's list onto General: Move
     await R(`t("tb-room-" + idOf("Team room"));`);
@@ -2532,7 +2541,7 @@ try {
       return { from: true, lit, room };`);
     const moveAsked = await until(() => window.__app.chart.isOpen && window.__app.chart.cfKey.startsWith("roomdrop:general:"));
     await R(`c("cf-ok");`);
-    const backInGeneral = await until(() => { try { return Object.keys(JSON.parse(localStorage.getItem("sliqtly.rooms")).placed).length === 0; } catch (_) { return false; } });
+    const backInGeneral = await until(() => { try { return Object.keys(window.__keptRooms().placed).length === 0; } catch (_) { return false; } });
     check("…a presentation dragged onto another room asks, and Move moves it there", dragged.room !== "general" && dragged.lit === "general" && moveAsked && backInGeneral, JSON.stringify({ dragged, moveAsked, backInGeneral }));
     // a room's gear: its settings; Archive takes it out of the list, search
     // still finds it; Delete asks first, and its decks are in General
@@ -2549,7 +2558,7 @@ try {
     await R(`c("rm-delete");`);
     const delAsked = await until(() => window.__app.chart.isOpen && window.__app.chart.cfKey.startsWith("roomdelete:"));
     await R(`c("cf-ok");`);
-    const deleted = await until(() => { try { const s = JSON.parse(localStorage.getItem("sliqtly.rooms")); return !s.rooms.some((r) => r.title === "Team room") && Object.keys(s.placed).length === 0; } catch (_) { return false; } });
+    const deleted = await until(() => { try { const s = window.__keptRooms(); return !s.rooms.some((r) => r.title === "Team room") && Object.keys(s.placed).length === 0; } catch (_) { return false; } });
     check("…a room's gear opens its settings: Archive hides it (search finds it), Delete asks and moves its decks to General", settings && archived && foundArchived && delAsked && deleted, JSON.stringify({ settings, archived, foundArchived, delAsked, deleted }));
     // "+ Add new presentation" under a room: File → New's window, and the
     // deck it makes is in that room
@@ -2561,7 +2570,7 @@ try {
     await R(`t("tb-roomdeck-new");`);
     const newWin = await until(() => window.__app.chart.isOpen && window.__app.chart.mode === "newdeck" && window.__app.chart.ndAsk === "");
     await R(`a.text("Fresh deck"); a.key("enter", false, false);`);
-    const inPlay = await until(() => { try { return Object.values(JSON.parse(localStorage.getItem("sliqtly.rooms")).placed).includes("playground"); } catch (_) { return false; } }, null, 20000);
+    const inPlay = await until(() => { try { return Object.values(window.__keptRooms().placed).includes("playground"); } catch (_) { return false; } }, null, 20000);
     // the room's chat was over the work area: the new deck shows instead
     const chatGone = await until(() => !window.__app.roomChatOpen());
     check("…a room's + Add new presentation makes the new deck in that room and shows it, not the room's chat", newWin && inPlay && chatUp && chatGone, JSON.stringify({ newWin, inPlay, chatUp, chatGone }));
@@ -2582,7 +2591,7 @@ try {
       const find = eval(findJs);
       const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
       press(find("tb-room-close"));
-      localStorage.removeItem("sliqtly.rooms");
+      for (const k of Object.keys(localStorage)) if (k.startsWith("sliqtly.rooms")) localStorage.removeItem(k);
     }, findJs);
     await rctx.close();
 
