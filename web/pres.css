@@ -79,8 +79,8 @@
 .ui-doctab { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: flex-end; height: 33px; flex-shrink: 1; cursor: pointer; }
 .ui-doctab-wing { width: 12px; min-width: 12px; height: 33px; fill: #e8e4de; }
 .ui-doctab-wing-state-active { fill: #ffffff; }
-.ui-doctab-body { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; height: 33px; padding: 0 6px 0 6px; min-width: 60px; background-color: #e8e4de; shadow-color: rgba(0, 0, 0, 0.06); shadow-radius: 3px; shadow-offset-y: -1px; }
-.ui-doctab-body-state-active { background-color: #ffffff; shadow-color: rgba(0, 0, 0, 0.14); shadow-radius: 5px; shadow-offset-y: -1px; }
+.ui-doctab-body { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; height: 33px; padding: 0 6px 0 6px; min-width: 60px; background-color: #e8e4de; }
+.ui-doctab-body-state-active { background-color: #ffffff; }
 .ui-doctab-name { font-size: 13px; font-weight: 500; color: #52525b; white-space: nowrap; height: 18px; line-height: 18px; flex-shrink: 1; }
 .ui-doctab-name-state-active { color: #09090b; }
 .ui-doctab-close { width: 18px; min-width: 18px; height: 18px; line-height: 17px; text-align: center; font-size: 13px; border-radius: 9px; background-color: #a1a1aa; color: #ffffff; cursor: pointer; }

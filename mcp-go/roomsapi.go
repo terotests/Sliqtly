@@ -77,18 +77,29 @@ func strProp(desc string) map[string]any {
 	return map[string]any{"type": "string", "description": desc}
 }
 
+// what a room is, for the assistant choosing where work goes
+const roomIdea = "A room is one whole piece of work: a task, a Jira ticket, a user story, or another whole such as a project or a theme. It holds that work's presentations, members and links."
+
 var roomTools = []roomTool{
 	{name: "list_rooms", title: "List rooms", readOnly: true,
-		desc:  "List the rooms you are in, with your role and how many presentations each holds. A room bounds one subject (often a ticket): its presentations, members and links. Every presentation has one home room; new ones start in General, and there is a Playground for trying things.",
+		desc:  "List the rooms you are in, newest first, with your role, description and how many presentations each holds. " + roomIdea + " Every presentation has one home room; new ones start in General, and there is a Playground for trying things.",
 		props: map[string]any{"archived": map[string]any{"type": "boolean", "description": "Also list archived rooms"}}},
 	{name: "get_room", title: "Show a room", readOnly: true,
 		desc:     "A room's members, presentations (deck_id and name) and links.",
 		props:    map[string]any{"room_id": strProp("room_id from list_rooms")},
 		required: []string{"room_id"}},
 	{name: "create_room", title: "Create a room",
-		desc:     "Make a room for one subject, with you as its owner. → room_id",
-		props:    map[string]any{"title": strProp("The room's name"), "kind": strProp("What sort of room: ticket, project, team, … (free text)")},
+		desc:     "Make a room for one whole piece of work, with you as its owner. " + roomIdea + " Name it as the work is known (e.g. \"PROJ-123 Checkout retry\" or the story's title) and put the ticket's link or the story in the description; then move its presentations there with move_presentation. → room_id",
+		props:    map[string]any{"title": strProp("The room's name, as the task, ticket or story is known"), "description": strProp("What the work is: the ticket's or story's summary, a link to it"), "kind": strProp("What sort of room: task, ticket, story, project, team, … (free text)")},
 		required: []string{"title"}},
+	{name: "update_room", title: "Rename or describe a room",
+		desc:     "Change a room's name or description (owners only; not General or Playground, nor a room in the archive). Leave out what stays as it is.",
+		props:    map[string]any{"room_id": strProp("The room"), "title": strProp("Its new name"), "description": strProp("Its new description (\"\" clears it)")},
+		required: []string{"room_id"}},
+	{name: "delete_room", title: "Delete a room", destructive: true,
+		desc:     "Delete a room (owners only; not General or Playground). Its presentations are not deleted: they move to General. To keep the room's history, archive it with archive_room instead.",
+		props:    map[string]any{"room_id": strProp("The room")},
+		required: []string{"room_id"}},
 	{name: "move_presentation", title: "Move a presentation to a room",
 		desc:     "Make room_id the presentation's home room. Needs editor rights in both rooms. Its files stay its own; the room's files are not shared with it.",
 		props:    map[string]any{"deck_id": strProp("The presentation's deck_id"), "room_id": strProp("The room to move it to")},
@@ -201,6 +212,8 @@ func (s *roomService) call(ctx context.Context, uid, op string, a map[string]any
 type roomRow struct {
 	RoomID   string `json:"room_id"`
 	Title    string `json:"title"`
+	About    string `json:"description,omitempty"`
+	Created  int64  `json:"created,omitempty"`
 	Kind     string `json:"kind,omitempty"`
 	Role     string `json:"role"`
 	Archived bool   `json:"archived"`
@@ -233,7 +246,8 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 		for _, r := range rs {
 			rows = append(rows, roomRowOf(r.ID, r.Role, r.Doc, count[r.ID]))
 		}
-		// General and Playground first, then by name
+		// General and Playground first, then the newest first: rooms are
+		// a running process, the latest work on top
 		first := func(id string) int {
 			switch id {
 			case store.GeneralRoom:
@@ -243,7 +257,13 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 			}
 			return 2
 		}
-		sort.SliceStable(rows, func(i, j int) bool { return first(rows[i].RoomID) < first(rows[j].RoomID) })
+		sort.SliceStable(rows, func(i, j int) bool {
+			a, b := first(rows[i].RoomID), first(rows[j].RoomID)
+			if a != b {
+				return a < b
+			}
+			return rows[i].Created > rows[j].Created
+		})
 		return map[string]any{"rooms": rows}, nil
 
 	case "get_room":
@@ -294,11 +314,49 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 		if title == "" || len(title) > 200 {
 			return nil, roomErr{"a room needs a title of at most 200 characters"}
 		}
+		about := argStr(a, "description")
+		if len(about) > 2000 {
+			return nil, roomErr{"a room's description is at most 2000 characters"}
+		}
 		id, err := s.rooms.Create(ctx, p, title, argStr(a, "kind"))
 		if err != nil {
 			return nil, err
 		}
+		if about != "" {
+			if p, err = s.rooms.For(ctx, p); err != nil {
+				return nil, err
+			}
+			if err := s.rooms.Edit(ctx, p, id, nil, &about); err != nil {
+				return nil, err
+			}
+		}
 		return map[string]any{"room_id": id}, nil
+
+	case "update_room":
+		var title, about *string
+		if v, ok := a["title"].(string); ok {
+			v = strings.Join(strings.Fields(v), " ")
+			if v == "" || len(v) > 200 {
+				return nil, roomErr{"a room needs a title of at most 200 characters"}
+			}
+			title = &v
+		}
+		if v, ok := a["description"].(string); ok {
+			if len(v) > 2000 {
+				return nil, roomErr{"a room's description is at most 2000 characters"}
+			}
+			about = &v
+		}
+		if err := s.rooms.Edit(ctx, p, argStr(a, "room_id"), title, about); err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true}, nil
+
+	case "delete_room":
+		if err := s.rooms.Remove(ctx, p, argStr(a, "room_id"), "shares"); err != nil {
+			return nil, err
+		}
+		return map[string]any{"deleted": true}, nil
 
 	case "move_presentation":
 		deck, room := argStr(a, "deck_id"), argStr(a, "room_id")
@@ -373,7 +431,8 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 func roomRowOf(id string, role store.Role, d store.Doc, decks int) roomRow {
 	title, _ := d["title"].(string)
 	kind, _ := d["kind"].(string)
-	return roomRow{RoomID: id, Title: title, Kind: kind, Role: string(role), Archived: d["archived"] == true, Decks: decks}
+	about, _ := d["description"].(string)
+	return roomRow{RoomID: id, Title: title, About: about, Created: millisOf(d["created"]), Kind: kind, Role: string(role), Archived: d["archived"] == true, Decks: decks}
 }
 
 func (s *roomService) linkArg(a map[string]any) (store.Link, error) {

@@ -30,7 +30,7 @@ import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
-import { parseRooms, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, ONBOARDING } from "./rooms.js";
+import { parseRooms, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
@@ -632,6 +632,8 @@ function beginDoc(text) {
 // the Rooms panel's state (its requests: roomsRequest, below)
 const ROOMS_KEY = "sliqtly.rooms";
 let roomShown = "";
+// the room whose "+ Add new presentation" opened File → New's window
+let roomForNew = "";
 let roomsHere = parseRooms(null);
 try { roomsHere = parseRooms(localStorage.getItem(ROOMS_KEY)); } catch (_) { /* none kept */ }
 function shownDoc(text, quiet = false) {
@@ -921,6 +923,13 @@ async function newDeck(plan) {
   if (cloudReady()) await cloudSync().catch(cloudTrouble);
   refreshFiles();
   needsPaint = true;
+  // made by a room's "+ Add new presentation": it goes there
+  const room = roomForNew;
+  roomForNew = "";
+  if (room) {
+    const id = await currentRoomId();
+    if (id) await roomsRequest("room:moveid:" + room + ":" + id);
+  }
 }
 // File → Duplicate, its name asked first: a new deck from this one, its
 // Markdown, theme CSS and files copied, named `asked` (empty: "<name>
@@ -944,10 +953,29 @@ const clean = (s) => String(s || "").replace(/[\t\n\r]+/g, " ");
 function sampleRows() {
   return [...sampleSel.options].filter((o) => o.value).map((o) => ({ key: o.value, name: o.textContent.trim(), current: doc.src === "sample:" + o.value }));
 }
-// The rooms: [{ room_id, title, presentations }]
-async function roomsList() {
-  if (ownServer()) return (await roomsCall("list_rooms")).rooms || [];
-  return listRooms(roomsHere, await allDocs(), sampleRows());
+// The rooms in the panel's order (web/rooms.js orderRooms: newest first,
+// then as dragged): [{ room_id, title, description, archived, presentations }]
+async function roomsList({ archived = false } = {}) {
+  if (ownServer()) return orderRooms((await roomsCall("list_rooms", { archived })).rooms || [], roomsHere.order);
+  return listRooms(roomsHere, await allDocs(), sampleRows(), { archived });
+}
+// A deck's tab key (web/decktabs.js) as the room lists name it: a kept
+// deck's id, on a server of one's own "cloud:<share>"; "" when not kept.
+async function tabDeckId(key) {
+  if (key.startsWith("sample:") || key.startsWith("cloud:")) return key;
+  if (!ownServer()) return key;
+  const d = (await vfs.listDocs()).find((x) => x.id === key);
+  return d?.cloud ? "cloud:" + d.cloud : "";
+}
+// A copy of a presentation in `room`: it is opened and duplicated (File →
+// Duplicate's way), and the copy, now open, goes to the room.
+async function copyDeckTo(room, deck) {
+  if (deck.startsWith("sample:")) await openSample(deck.slice(7));
+  else await fileRequest("doc:" + deck);
+  makingDeck = duplicateDeck("");
+  try { await makingDeck; } finally { makingDeck = null; }
+  const id = await currentRoomId();
+  if (id) await roomsRequest("room:moveid:" + room + ":" + id);
 }
 // A room's presentations: [{ id, name, current }], ids as fileRequest's
 // "doc:" takes them ("sample:<key>" for a sample).
@@ -978,14 +1006,14 @@ async function roomsRequest(r) {
     // stays listed
     let rooms, hidden = 0;
     const searching = q !== null && q.trim() !== "";
-    if (searching) rooms = searchRooms(all, q);
+    if (searching) rooms = searchRooms(await roomsList({ archived: true }), q);
     else ({ shown: rooms, hidden } = activeRooms(all, roomsHere));
     if (!searching && !rooms.some((x) => x.room_id === roomShown)) {
       const open = all.find((x) => x.room_id === roomShown);
       if (open) rooms = [...rooms, open];
       else roomShown = rooms[0]?.room_id || "";
     }
-    const rows = rooms.map((x) => [x.room_id, clean(x.title), x.presentations ?? ""].join("\t"));
+    const rows = rooms.map((x) => [x.room_id, clean(x.title) + (x.archived ? " (" + t("archived") + ")" : ""), x.presentations ?? ""].join("\t"));
     app.setToolbarOptions("roomsearch", "", t("Search rooms…") + (hidden ? " (" + hidden + t(" more") + ")" : ""));
     app.setToolbarOptions("rooms", rows.join("\n"), roomShown);
     if (roomShown && rooms.some((x) => x.room_id === roomShown)) await roomsRequest("room:open:" + roomShown);
@@ -999,17 +1027,81 @@ async function roomsRequest(r) {
   } else if (action === "searchgo" || action === "pick") {
     // Enter: the first room found; a press: that room. Either is now one of
     // the rooms one is active in
-    const id = action === "pick" ? what : searchRooms(await roomsList(), what)[0]?.room_id;
+    const id = action === "pick" ? what : searchRooms(await roomsList({ archived: true }), what)[0]?.room_id;
     roomsQuery = null;
     if (id) {
       roomShown = id;
       keepRooms(touchRoom(roomsHere, id));
     }
     await roomsRequest("room:list");
-  } else if (action === "drop") {
-    // a presentation dragged from the open room onto another
-    const [room, ...deck] = rest;
-    await roomsRequest("room:moveid:" + room + ":" + deck.join(":"));
+  } else if (action === "drop" || action === "tabdrop") {
+    // a presentation dragged from the open room, or a deck's tab, onto a
+    // room: Move, Copy or Cancel (a sample is only copied)
+    const [room, ...deckParts] = rest;
+    const deck = action === "tabdrop" ? await tabDeckId(deckParts.join(":")) : deckParts.join(":");
+    if (!deck) {
+      toast(t("Make a change first: a sample becomes a presentation of your own when it is edited."));
+      return;
+    }
+    const all = await roomsList({ archived: true });
+    const to = all.find((x) => x.room_id === room)?.title || room;
+    if (deck.startsWith("sample:")) {
+      await copyDeckTo(room, deck);
+      return;
+    }
+    if (room === ONBOARDING) {
+      toast(t("Onboarding holds the sample presentations only."));
+      return;
+    }
+    app.openChoice("roomdrop:" + room + ":" + deck, t("Move or copy?"),
+      t("Move the presentation to the room, or make a copy of it there?") + "\n" + "# " + to, t("Move"), t("Copy"));
+  } else if (action === "dropgo") {
+    // the answer: "<room>:<deck>" moved, "<room>:<deck>:alt" copied
+    const copy = what.endsWith(":alt");
+    const [room, ...deckParts] = (copy ? what.slice(0, -4) : what).split(":");
+    const deck = deckParts.join(":");
+    if (copy) await copyDeckTo(room, deck);
+    else await roomsRequest("room:moveid:" + room + ":" + deck);
+    return;
+  } else if (action === "order") {
+    // a room dragged before another (onto a built-in one: first)
+    const [id, before] = rest;
+    keepRooms(moveRoom(roomsHere, await roomsList({ archived: true }), id, before || ""));
+    await roomsRequest("room:list");
+  } else if (action === "new") {
+    app.openRoomDialog("", "new", "", "");
+  } else if (action === "settings") {
+    const x = (await roomsList({ archived: true })).find((r) => r.room_id === what);
+    if (x && !isBuiltIn(what)) app.openRoomDialog(what, x.archived ? "archived" : "made", x.title, x.description || "");
+  } else if (action === "save") {
+    // the room's window answered (newdeck-create, "ask" "room")
+    const plan = JSON.parse(what);
+    const id = plan.room;
+    if (plan.act === "delete") {
+      const x = (await roomsList({ archived: true })).find((r) => r.room_id === id);
+      app.openConfirm("roomdelete:" + id, t("Delete room"),
+        t("Delete the room ") + "\"" + (x?.title || "") + "\"? " + t("Its presentations move to General; none of them is deleted."), t("Delete"));
+      return;
+    }
+    if (plan.act === "archive" || plan.act === "unarchive") {
+      const on = plan.act === "archive";
+      if (ownServer()) await roomsCall("archive_room", { room_id: id, archived: on });
+      else keepRooms(archiveRoom(roomsHere, id, on));
+      if (on && roomShown === id) roomShown = "";
+      toast(on ? t("Room archived. Search finds it.") : t("Room restored."));
+    } else if (id) {
+      if (ownServer()) await roomsCall("update_room", { room_id: id, title: plan.name, description: plan.desc });
+      else keepRooms(updateRoom(roomsHere, id, { title: plan.name, description: plan.desc }));
+    } else {
+      await roomsRequest("room:create:" + JSON.stringify({ title: plan.name, description: plan.desc }));
+      return;
+    }
+    await roomsRequest("room:list");
+  } else if (action === "delete") {
+    if (ownServer()) await roomsCall("delete_room", { room_id: what });
+    else keepRooms(deleteRoom(roomsHere, what));
+    if (roomShown === what) roomShown = "";
+    await roomsRequest("room:list");
   } else if (action === "moveid") {
     const [room, ...deckParts] = rest;
     const deck = deckParts.join(":");
@@ -1022,8 +1114,7 @@ async function roomsRequest(r) {
     const rows = await roomRows(roomShown);
     const lines = deckLines(rows, {
       showAll: "… " + t("Show all") + " (" + rows.length + ")",
-      moveHere: roomShown === ONBOARDING ? "" : "+ " + t("Move this presentation here"),
-      currentId: await currentRoomId(),
+      addNew: roomShown === ONBOARDING ? "" : "+ " + t("Add new presentation"),
     });
     app.setToolbarOptions("roomdecks", lines, roomShown);
   } else if (action === "deck") {
@@ -1040,26 +1131,28 @@ async function roomsRequest(r) {
       await openDecks();
     }
   } else if (action === "create") {
+    // { title, description }: the new room is first in the list, and open
+    const { title, description } = JSON.parse(what);
+    if (!String(title || "").trim()) return;
     if (ownServer()) {
-      const { room_id } = await roomsCall("create_room", { title: what });
-      roomShown = room_id || roomShown;
+      const { room_id } = await roomsCall("create_room", { title: String(title).replace(/\s+/g, " ").trim(), description: description || "" });
+      if (room_id) {
+        roomShown = room_id;
+        keepRooms(touchRoom(roomsHere, room_id));
+      }
     } else {
-      const made = createRoom(roomsHere, what, newId);
+      const made = createRoom(roomsHere, title, newId, { description });
       if (made.id) {
         keepRooms(made.state);
         roomShown = made.id;
       }
     }
     await roomsRequest("room:list");
-  } else if (action === "move") {
-    const id = await currentRoomId();
-    if (!id) {
-      toast(t("Make a change first: a sample becomes a presentation of your own when it is edited."));
-    } else {
-      await roomsRequest("room:moveid:" + what + ":" + id);
-      return;
-    }
-    await roomsRequest("room:list");
+  } else if (action === "newin") {
+    // File → New's window; the deck it makes goes to this room (newDeck)
+    const rows = [...themeSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n");
+    app.openNewDeck(rows, themeSel.value || "", "");
+    roomForNew = what;
   }
   needsPaint = true;
 }
@@ -1778,6 +1871,7 @@ async function fileRequest(r) {
   } else if (action === "promo") {
     document.getElementById("pro")?.click();
   } else if (action === "new") {
+    roomForNew = "";
     // asked first: an accidental press is cancelled and the deck stays
     const rows = [...themeSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n");
     app.openNewDeck(rows, themeSel.value || "", "");
@@ -2027,16 +2121,16 @@ async function takeCloudReview(s) {
 // base colour as a hue (its sheets' --retro-hue), per browser.
 let skin = "";
 let skinHue = 88;
-// The standard skin's colours: "light", "dark" or "system" (the device's
-// setting, followed as it changes), per browser. The slides keep their
-// own theme in both.
-let mode = "system";
+// The standard skin's colours: "light" (the default), "dark" or "system"
+// (the device's setting, followed as it changes), per browser. The slides
+// keep their own theme in both.
+let mode = "light";
 try {
   skin = localStorage.getItem("sliqtly.skin") === "retro" ? "retro" : "";
   const h = parseInt(localStorage.getItem("sliqtly.skinHue") || "", 10);
   if (h >= 0 && h < 360) skinHue = h;
   const m = localStorage.getItem("sliqtly.mode");
-  if (m === "light" || m === "dark") mode = m;
+  if (m === "dark" || m === "system") mode = m;
 } catch (_) { /* standard */ }
 const darkQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 function isDark() {
@@ -3231,11 +3325,17 @@ function handleRequests() {
       keepFile({ path, type: "application/json", size: text.length, data: text }).catch(fail);
       chartFiles.set(path, Promise.resolve(text));
       dropThumbs();
+    } else if (r.startsWith("confirm:roomdelete:")) {
+      roomsRequest("room:delete:" + r.slice("confirm:roomdelete:".length)).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+    } else if (r.startsWith("confirm:roomdrop:")) {
+      roomsRequest("room:dropgo:" + r.slice("confirm:roomdrop:".length)).catch((e) => toast(t("Rooms: ") + (e.message || e)));
     } else if (r === "confirm:deletedeck") {
       deleteDeck().catch(fail);
     } else if (r === "newdeck-create") {
       const plan = JSON.parse(app.newDeckPlan());
-      if (plan.ask === "name") {
+      if (plan.ask === "room") {
+        roomsRequest("room:save:" + JSON.stringify(plan)).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+      } else if (plan.ask === "name") {
         renameMe(plan.name);
       } else if (plan.dup) {
         makingDeck = duplicateDeck(plan.name).catch((e) => toast(t("Duplicating failed: ") + (e.message || e))).finally(() => { makingDeck = null; });
