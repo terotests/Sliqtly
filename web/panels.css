@@ -51,6 +51,9 @@
   shadow-color: rgba(0, 0, 0, 0.22); shadow-radius: 28px; shadow-offset-y: 10px;
   font-family: Open Sans;
 }
+/* what scrolls in a dialog taller than the page (PresPanels.holdDialog) */
+.pn-dscroll { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.pd-dscroll { gap: 8px; }
 .pn-dtitle { font-size: 16px; font-weight: 700; color: #09090b; }
 .pn-opt { display: flex; flex-direction: column; gap: 3px; padding: 12px; border: 1px solid #e4e4e7; border-radius: 10px; }
 .pn-otitle { font-size: 13px; font-weight: 700; color: #09090b; }

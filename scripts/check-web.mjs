@@ -148,6 +148,90 @@ try {
     await ctx.close();
   }
 
+  // A window taller than the screen (Document settings on a phone, or on a
+  // low desktop window) stays on the page: its body scrolls by a finger or
+  // the wheel, a tap still presses, and its last button can be reached.
+  {
+    const frame = (p) => p.evaluate(() => {
+      const a = window.__app;
+      a.chartJson();
+      const f = a.chart.win.frameEl, b = a.chart.win.bodyEl;
+      return { open: a.chart.isOpen, x: f.calculatedX, y: f.calculatedY, w: f.calculatedWidth, h: f.calculatedHeight, max: b.maxScrollTop(), scroll: a.chart.win.scroll.top };
+    });
+    const doneAt = (p) => p.evaluate(() => {
+      const a = window.__app;
+      a.chartJson();
+      const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const d = walk(a.chart.host.lastPage, "ds-done");
+      return d ? [d.calculatedX + d.calculatedWidth / 2, d.calculatedY + d.calculatedHeight / 2] : null;
+    });
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 700 }, hasTouch: true, isMobile: true });
+    const phone = await ctx.newPage();
+    await phone.goto(url + "?sample=esittely");
+    await phone.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await phone.evaluate(() => window.__app.openDocSettings(""));
+    const cdp = await ctx.newCDPSession(phone);
+    const touch = (type, pts) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+    const f0 = await frame(phone);
+    check("a window on a phone fits the screen", f0.x >= 0 && f0.x + f0.w <= 390.5 && f0.y + f0.h <= 700.5 && f0.max > 0, JSON.stringify(f0));
+    await touch("touchStart", [[200, 600]]);
+    for (let y = 600; y >= 200; y -= 20) await touch("touchMove", [[200, y]]);
+    await touch("touchEnd", []);
+    const f1 = await frame(phone);
+    check("a finger drawn up scrolls its body to the end", f1.open && Math.abs(f1.scroll - f1.max) < 0.5, JSON.stringify(f1));
+    const done = await doneAt(phone);
+    const inside = done && done[1] < f1.y + f1.h;
+    if (inside) {
+      await touch("touchStart", [done]);
+      await touch("touchEnd", []);
+    }
+    const f2 = await frame(phone);
+    check("…and a tap on its last button presses it", inside && !f2.open, JSON.stringify({ done, open: f2.open }));
+    // the panels' dialogs (File → Settings here): as wide as the phone at
+    // most, a finger scrolls them, a tap still presses
+    const dlg = (p) => p.evaluate(() => {
+      const a = window.__app;
+      a.panelsJson && a.panelsJson();
+      const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const pg = a.panels.host.lastPage;
+      const d = pg && a.panels.shareOpen ? walk(pg, "pn-dialog") : null;
+      const inner = d ? walk(d, "pn-dscroll") : null;
+      return d ? { x: d.calculatedX, y: d.calculatedY, w: d.calculatedWidth, h: d.calculatedHeight, max: inner.maxScrollTop(), scroll: a.panels.dlgScroll.top } : null;
+    });
+    await phone.evaluate(() => window.__app.openSettings(true));
+    const s0 = await dlg(phone);
+    check("a dialog on a phone fits the screen", s0 && s0.x >= 0 && s0.x + s0.w <= 390.5 && s0.y >= 0 && s0.y + s0.h <= 700.5, JSON.stringify(s0));
+    await touch("touchStart", [[200, 500]]);
+    for (let y = 500; y >= 300; y -= 20) await touch("touchMove", [[200, y]]);
+    await touch("touchEnd", []);
+    const s1 = await dlg(phone);
+    check("…a finger scrolls it when it does not fit", s1 && (s0.max === 0 || s1.scroll > 0), JSON.stringify(s1));
+    await touch("touchStart", [[30, 30]]);
+    await touch("touchEnd", []);
+    check("…and a tap outside it closes it", (await dlg(phone)) === null);
+    await ctx.close();
+
+    const low = await browser.newPage({ viewport: { width: 1280, height: 480 } });
+    await low.goto(url + "?sample=esittely");
+    await low.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await low.evaluate(() => window.__app.openDocSettings(""));
+    const l0 = await frame(low);
+    await low.mouse.move(l0.x + 100, l0.y + 150);
+    for (let i = 0; i < 8; i++) await low.mouse.wheel(0, 100);
+    await low.waitForTimeout(100);
+    const l1 = await frame(low);
+    check("a low desktop window: the window fits and the wheel scrolls it", l0.y + l0.h <= 480.5 && l0.max > 0 && Math.abs(l1.scroll - l1.max) < 0.5, JSON.stringify([l0, l1]));
+    await low.keyboard.press("Escape");
+    await low.evaluate(() => window.__app.openSettings(true));
+    const d0 = await dlg(low);
+    await low.mouse.move(d0.x + 100, d0.y + 150);
+    for (let i = 0; i < 8; i++) await low.mouse.wheel(0, 100);
+    await low.waitForTimeout(100);
+    const d1 = await dlg(low);
+    check("…and so does a dialog of the panels", d0.y >= 0 && d0.y + d0.h <= 480.5 && d0.max > 0 && Math.abs(d1.scroll - d1.max) < 0.5, JSON.stringify([d0, d1]));
+    await low.close();
+  }
+
   const page = await browser.newPage({ viewport: { width: 1400, height: 820 } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));

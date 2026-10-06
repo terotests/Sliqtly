@@ -87,6 +87,15 @@ class PresPanels {
     ; which modal dialog `shareOpen` shows: "share", or "open" (a file from
     ; the computer or a sample deck, `openRows` "value<TAB>label" lines)
     def dialogKind:string "share"
+    ; The dialog is held to the page (`holdDialog`): what does not fit
+    ; scrolls in it, by the wheel or a finger (`touch`, set by the page before
+    ; each press: a press waits to see whether it is a tap or a scroll).
+    def dlgScroll:UiScroll (new UiScroll())
+    ; the dialog's padding and border, down: what its scrolling part is
+    ; shorter than the page by (measured after a layout, a guess before)
+    def dlgChrome:double 42.0
+    def touch:boolean false
+    def tapping:boolean false
     def openRows:string ""
     ; File → Presentations… ("decks"): the decks of this browser and the
     ; user's cloud, from the page (web/decklist.js deckListJson):
@@ -493,6 +502,7 @@ class PresPanels {
         shareEdit = editUrl
         shareNote = note
         dialogKind = "share"
+        dlgScroll.reset()
         shareOpen = true
         copied = ""
         this.rebuild()
@@ -501,6 +511,7 @@ class PresPanels {
     fn openOpen:void (rows:string) {
         openRows = rows
         dialogKind = "open"
+        dlgScroll.reset()
         shareOpen = true
         this.rebuild()
     }
@@ -510,6 +521,7 @@ class PresPanels {
         decksPager.page = 1
         decksArmed = ""
         dialogKind = "decks"
+        dlgScroll.reset()
         shareOpen = true
         this.rebuild()
     }
@@ -536,6 +548,7 @@ class PresPanels {
     fn openSettings:void (contrast:boolean) {
         autoContrast = contrast
         dialogKind = "settings"
+        dlgScroll.reset()
         shareOpen = true
         this.rebuild()
     }
@@ -544,6 +557,7 @@ class PresPanels {
         imp = i
         dialogKind = "data"
         dataOpenSel = ""
+        dlgScroll.reset()
         shareOpen = true
         this.rebuild()
     }
@@ -691,8 +705,99 @@ class PresPanels {
               }
               }
             }
+            this.holdDialog()
         }
         rev = (rev + 1)
+    }
+
+    ; The dialog on the page whatever the page's size: never wider than it
+    ; less 8 pixels a side, never taller, and what does not fit scrolls. On a
+    ; phone (390 wide) the 520-pixel dialogs ran off both sides, and on a low
+    ; window Settings ran off the top and the bottom.
+    ;
+    ; What scrolls is a column inside the dialog (`pn-dscroll`), not the
+    ; dialog: EVG measures a floating surface's scroll extent after it has
+    ; moved the content by the scroll, so a dialog that scrolled itself had
+    ; less to scroll the further it went. `page` centres it on its real size.
+    fn holdDialog:void () {
+        def r:EVGElement (unwrap host.root)
+        def d@(optional):EVGElement (host.findEl(r "pn-dialog"))
+        if (null? d) {
+            return
+        }
+        def de:EVGElement (unwrap d)
+        UiTree.inline(de "max-width" ((to_string (to_int (w - 16.0))) + "px"))
+        def inner:EVGElement (this.div("pn-dscroll"))
+        inner.id = "pn-dscroll"
+        if ((indexOf de.className "pd-dialog") >= 0) {
+            UiTree.addClass(inner "pd-dscroll")
+        }
+        def kids:[EVGElement] de.children
+        UiTree.clearChildren(de)
+        def i:int 0
+        while (i < (array_length kids)) {
+            inner.addChild((itemAt kids i))
+            i = (i + 1)
+        }
+        de.addChild(inner)
+        UiTree.inline(inner "overflow-y" "auto")
+        this.fitDialog(inner)
+        inner.scrollTop = dlgScroll.top
+    }
+
+    fn fitDialog:void (inner:EVGElement) {
+        def mh:double ((h - 16.0) - dlgChrome)
+        if (mh < 60.0) {
+            mh = 60.0
+        }
+        UiTree.inline(inner "max-height" ((to_string (to_int mh)) + "px"))
+    }
+
+    fn dialogEl@(optional):EVGElement () {
+        def none@(optional):EVGElement
+        if ((shareOpen == false) || quiet) {
+            return none
+        }
+        if (null? host.lastPage) {
+            this.page()
+        }
+        return (host.findEl((unwrap host.lastPage) "pn-dscroll"))
+    }
+
+    ; The wheel over the dialog: it scrolls. True when it moved.
+    fn dialogWheel:boolean (dy:double) {
+        def d@(optional):EVGElement (this.dialogEl())
+        if (null? d) {
+            return false
+        }
+        if (dlgScroll.scrollBy((unwrap d) dy)) {
+            rev = (rev + 1)
+            return true
+        }
+        return false
+    }
+
+    fn dialogPanning:boolean () {
+        return dlgScroll.panning
+    }
+
+    ; A finger moved on the dialog.
+    fn dialogPanTo:void (py:double) {
+        def d@(optional):EVGElement (this.dialogEl())
+        if ((!null? d) && (dlgScroll.panTo((unwrap d) py))) {
+            rev = (rev + 1)
+        }
+    }
+
+    ; It lifted: true when it was a tap, pressed now.
+    fn dialogPanEnd:boolean () {
+        if ((dlgScroll.endPan()) == false) {
+            return false
+        }
+        tapping = true
+        this.press(dlgScroll.downX dlgScroll.downY dlgScroll.clicks dlgScroll.shift)
+        tapping = false
+        return true
     }
 
     ; --- the help panel -------------------------------------------------------------
@@ -2227,13 +2332,43 @@ class PresPanels {
             lay.setMeasurer((unwrap measurer))
         }
         lay.layout(pg)
-        ; the dialog in the middle, now that its height is known
+        ; the dialog in the middle, now that its height is known, and on the
+        ; page (`holdDialog` keeps it no taller)
         if shareOpen {
             def d@(optional):EVGElement (host.findEl(r "pn-dialog"))
             if (!null? d) {
                 def de:EVGElement (unwrap d)
-                de.overlayY = ((h - de.calculatedHeight) * 0.5)
-                lay.layout(pg)
+                ; its scrolling part as tall as the page leaves it
+                def inner@(optional):EVGElement (host.findEl(de "pn-dscroll"))
+                if (!null? inner) {
+                    def ie:EVGElement (unwrap inner)
+                    def chrome:double (de.calculatedHeight - ie.calculatedHeight)
+                    if (((chrome - dlgChrome) * (chrome - dlgChrome)) > 0.25) {
+                        dlgChrome = chrome
+                        this.fitDialog(ie)
+                        lay.layout(pg)
+                    }
+                }
+                def left:double ((w - de.calculatedWidth) * 0.5)
+                if (left < 8.0) {
+                    left = 8.0
+                }
+                def top:double ((h - de.calculatedHeight) * 0.5)
+                if (top < 8.0) {
+                    top = 8.0
+                }
+                ; laid out again only when it moved: a second pass over a
+                ; scrolled dialog measured its content short by the scroll
+                ; (the wheel then stopped before the end)
+                if ((de.overlayX != left) || (de.overlayY != top)) {
+                    de.overlayX = left
+                    de.overlayY = top
+                    lay.layout(pg)
+                }
+                if (!null? inner) {
+                    def ie2:EVGElement (unwrap inner)
+                    dlgScroll.top = ie2.scrollTop
+                }
             }
         }
         ; the scroll as the layout clamped it
@@ -2412,6 +2547,14 @@ class PresPanels {
     fn press:void (px:double py:double clicks:int shift:boolean) {
         if (null? host.lastPage) {
             this.page()
+        }
+        ; a finger on the dialog: a tap or a scroll, known when it lifts or
+        ; moves (a link's field, which selects, takes its own press)
+        if ((touch && (tapping == false)) && (this.inEl("pn-dialog" px py))) {
+            if ((indexOf (this.ownerAt(px py)) "pn-url-") != 0) {
+                dlgScroll.beginPan(px py clicks shift)
+                return
+            }
         }
         ; a press in a text that can be copied selects in it (a drag, a
         ; word, the paragraph); a press anywhere else lets a selection go
