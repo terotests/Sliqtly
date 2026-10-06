@@ -736,12 +736,15 @@ const ROOMS_KEY = "sliqtly.rooms";
 let roomShown = "";
 // the room whose "+ Add new presentation" opened File → New's window
 let roomForNew = "";
+let roomChatOne = null;
 let roomsHere = parseRooms(null);
 try { roomsHere = parseRooms(localStorage.getItem(ROOMS_KEY)); } catch (_) { /* none kept */ }
 function shownDoc(text, quiet = false) {
   app.setSource(text);
   doc.loading = false;
   if (!viewer && !quiet) showDeckTab();
+  // a room's chat over the work area steps aside for the presentation opened
+  if (roomChatOne) roomChatOne.close();
   loadReview(false).catch((e) => console.warn("review comments not read", e));
   loadRecording().catch((e) => console.warn("recording not read", e));
   // the Rooms panel marks the presentation now open
@@ -1276,8 +1279,8 @@ async function roomsRequest(r) {
   }
   needsPaint = true;
 }
-// A room's chat (web/roomchat.js): made the first time a room is opened.
-let roomChatOne = null;
+// A room's chat (web/roomchat.js): made the first time a room is opened
+// (roomChatOne, declared with the Rooms panel's state above).
 function roomChat() {
   if (roomChatOne) return roomChatOne;
   let store = null;

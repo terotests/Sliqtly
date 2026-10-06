@@ -24,7 +24,7 @@
 //                               openLink, openDeck, openRoom, copy, rooms,
 //                               put, pickFiles, sizeOf, load })
 //   chat.open(room)         a room pressed: its channel
-//   chat.close()
+//   chat.close()           the room's chat steps aside (a presentation opened)
 //   chat.request(r)         one of the app's "roomchat:" requests
 //   chat.event(v)           a `chat` event from the stream
 //   chat.attach(files, inThread)   files picked, pasted or dropped
@@ -76,6 +76,9 @@ export class RoomChat {
     this.pictures = new Map();
     this.loading = new Set();
     this.up = { main: 0, thread: 0 };
+    // which open() is the latest: a close() while one still waits for the
+    // rooms keeps the chat closed when they arrive
+    this.opening = 0;
   }
 
   // the person as the server takes it ("as"): their id becomes p-<id>
@@ -91,10 +94,12 @@ export class RoomChat {
     const { app } = this.d;
     if (!room) return;
     const same = room === this.room && app.roomChatOpen();
+    const turn = ++this.opening;
     this.room = room;
     app.roomChatMe(this.fromId(), this.me.name, this.me.avatar, this.me.color);
     app.roomChatClock(this.d.now(), this.d.zone());
     const info = (await this.d.rooms()).find((r) => r.room_id === room) || { title: room };
+    if (turn !== this.opening) return;
     // a presentation embedded in the chat shows its slide, drawn by the
     // server of one's own (/s/<deck>/<n>.jpg)
     app.roomChatPictures(this.d.ownServer() ? "/s/{deck}/{slide}.jpg" : "");
@@ -107,7 +112,7 @@ export class RoomChat {
     app.roomChatReadUpTo(read(this.d.store, READ_KEY, {})[room] || 0);
     app.roomChatChannels((await this.d.rooms()).filter((r) => r.room_id !== room).map((r) => String(r.title || "").replace(/\s+/g, "_")).join("\n"));
     const got = await this.d.call("read_room_chat", { room_id: room });
-    if (this.room !== room) return;
+    if (turn !== this.opening) return;
     app.roomChatLoad(JSON.stringify(got), false);
     this.names(got);
     this.markRead();
@@ -117,6 +122,7 @@ export class RoomChat {
 
   close() {
     const { app } = this.d;
+    this.opening++;
     if (!app.roomChatOpen()) return;
     this.markRead();
     app.roomChatHide();
