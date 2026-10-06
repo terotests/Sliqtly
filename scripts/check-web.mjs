@@ -884,6 +884,28 @@ try {
     });
     await page.waitForTimeout(300);
     await shot("rec-timeline.png");
+    // the playhead's handle dragged goes through the recording, the slide
+    // with it; the wheel over the timeline moves it too
+    const scrub = await (async () => {
+      const g = await page.evaluate(() => {
+        const a = window.__app;
+        a.recShowAt(0);
+        const c = document.getElementById("c").getBoundingClientRect();
+        return { x: c.left + a.recX(0), y: c.top + a.trackRect.y + 23, lx: c.left + a.laneX, lw: a.laneW, d: a.recordingDuration() };
+      });
+      await page.mouse.move(g.x, g.y);
+      await page.mouse.down();
+      await page.mouse.move(g.lx + g.lw * 0.9, g.y, { steps: 12 });
+      const mid = await page.evaluate(() => ({ head: window.__app.recHead, slide: window.__app.selectedSlide() }));
+      await page.mouse.up();
+      const after = await page.evaluate(() => ({ head: window.__app.recHead, marked: window.__app.recSelFrom() }));
+      await page.mouse.move(g.lx + g.lw * 0.5, g.y + 30);
+      await page.mouse.wheel(0, -300);
+      await page.waitForTimeout(200);
+      const wheeled = await page.evaluate(() => window.__app.recHead);
+      return { d: g.d, mid, after, wheeled };
+    })();
+    check("…the playhead is dragged through the whole recording, the slide follows, the wheel moves it", scrub.mid.head > scrub.d * 0.8 && scrub.mid.slide > 0 && scrub.after.marked < 0 && Math.abs(scrub.wheeled - (scrub.after.head - 3)) < 0.5, JSON.stringify(scrub));
     await page.evaluate(() => window.__app.recEditOpen(false));
     check("Edit recording cuts a marked part away and keeps it", cut.editing && cut.short && cut.kept, JSON.stringify(cut));
   }

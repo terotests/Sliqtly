@@ -1240,7 +1240,6 @@
   "Without voice": "Ilman ääntä",
   "Writing: Enter ends it, Shift+Enter a new line, Backspace deletes": "Kirjoitat: Enter lopettaa, Shift+Enter uusi rivi, Backspace poistaa",
   "cut": "leikattu",
-  "drag to mark a part": "vedä merkitäksesi osan",
   "end": "loppu",
   "marked": "merkitty",
   "no sound": "ei ääntä",
@@ -1262,5 +1261,6 @@
   "This site is blocked from the microphone. Click the icon left of the address (the lock or the settings icon), set Microphone to Allow, reload the page and record again.": "Tämän sivuston mikrofoni on estetty. Napsauta osoitteen vasemmalla puolella olevaa kuvaketta (lukko tai säätimet), aseta Mikrofoni sallituksi, lataa sivu uudelleen ja nauhoita uudelleen.",
   "The operating system blocks the browser from the microphone. On a Mac: System Settings → Privacy & Security → Microphone, turn your browser on and restart it.": "Käyttöjärjestelmä estää selainta käyttämästä mikrofonia. Macissa: Järjestelmäasetukset → Tietosuoja ja suojaus → Mikrofoni, salli selaimesi ja käynnistä se uudelleen.",
   "The browser did not give the microphone (": "Selain ei antanut mikrofonia (",
-  "). If it asked, choose Allow; otherwise click the icon left of the address, set Microphone to Allow and record again.": "). Jos selain kysyi, valitse Salli; muuten napsauta osoitteen vasemmalla puolella olevaa kuvaketta, aseta Mikrofoni sallituksi ja nauhoita uudelleen."
+  "). If it asked, choose Allow; otherwise click the icon left of the address, set Microphone to Allow and record again.": "). Jos selain kysyi, valitse Salli; muuten napsauta osoitteen vasemmalla puolella olevaa kuvaketta, aseta Mikrofoni sallituksi ja nauhoita uudelleen.",
+  "drag the orange handle to move, elsewhere to mark a part": "vedä oranssista kahvasta siirtääksesi, muualta merkitäksesi osan"
 }
