@@ -85,9 +85,8 @@
   .deal p { color: var(--dim); font-size: clamp(16px, 1.5vw, 19px); max-width: 64ch; margin: 0 0 18px; }
   .deal strong { color: var(--paper); }
   .deal strong.accent { color: var(--accent); }
-  .home .deal .deal__q { color: var(--paper); font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--grotesk); letter-spacing: -.015em; max-width: 30ch; }
-  .home .deal .deal__list { color: var(--paper); font: 15px/1.9 var(--mono); border-left: 2px solid var(--accent); padding-left: 16px; }
-  .home .deal .deal__enter { color: var(--accent); font: 800 clamp(26px, 3.4vw, 44px)/1.05 var(--grotesk); letter-spacing: -.03em; margin: 40px 0 14px; }
+  .deal code { font: .88em var(--mono); color: var(--paper); background: rgba(255, 255, 255, .06); border: 1px solid var(--line); padding: .05em .35em; }
+  .home .deal .deal__enter { color: var(--paper); font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--grotesk); letter-spacing: -.015em; margin: 36px 0 18px; }
   .home .deal .deal__turn { color: var(--paper); font: 600 15px/1.6 var(--mono); }
   .section { padding: clamp(64px, 8vw, 112px) 0; border-bottom: 1px solid var(--line); }
 
@@ -195,20 +194,14 @@
     <section class="section deal" id="deal">
       <div class="wrap">
         <h2 class="display display--lg">So, what's the deal here?</h2>
-        <p>A lot of people seem to be asking the same thing:</p>
-        <p class="deal__q">How do I turn this Markdown into a PDF, PowerPoint or Word document?</p>
-        <p>Fair question.</p>
-        <p>The problem is that during a single chat, that document may get generated, converted, edited and regenerated over and over again. That gets surprisingly expensive.</p>
-        <p>And Markdown is great for content, but let's be real: it doesn't give you much in the way of layout.</p>
-        <p class="deal__list">What about charts?<br />Flowcharts?<br />Themes?<br />Images?<br />Consistent typography?<br />Something that actually looks presentable?</p>
+        <p>A lot of people seem to be asking how to convert Markdown files to PDF, PowerPoint or Word. The point being... it gets pretty expensive when the document goes through the same chat many times!</p>
+        <p>And <code>.md</code> files don't really have formatting. And what about charts, flowcharts, theming...</p>
         <p>Crazy stuff, right?</p>
-        <p class="deal__enter">Enter Sliqtly.</p>
-        <p>A slightly better way to let your agent create slides.</p>
-        <p>Give your agent the source material — Markdown, an Excel file, a Git pull request, notes, data, whatever you've got — and Sliqtly's MCP service turns it into clear, readable and genuinely presentable slides.</p>
-        <p>Maybe even... <strong class="accent">lovable</strong> slides?</p>
-        <p>Your agent can create them, look at them, edit them, render them again and keep iterating without hauling a heavyweight presentation app through every step of the conversation.</p>
-        <p class="deal__enter">Sliqtly better slides.</p>
-        <p>That's it, put it simply.</p>
+        <p class="deal__enter">So, enter <span class="accent">Sliqtly</span> — a slightly better solution to that.</p>
+        <p>Give your agent a description, whether it's Markdown, an Excel file or a Git pull request, and the MCP service Sliqtly offers will create wonderful, readable, presentable...</p>
+        <p>Or should I say... <strong class="accent">Lovable?</strong></p>
+        <p>...slides.</p>
+        <p>So, here's the talk.</p>
         <p class="deal__turn">Your turn.</p>
       </div>
     </section>
