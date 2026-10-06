@@ -67,7 +67,9 @@
   .nav__links { display: flex; gap: 20px; margin-left: 8px; }
   .nav__links a { color: var(--dim); text-decoration: none; font: 13px/1 var(--mono); }
   .nav__links a:hover { color: var(--paper); }
-  .nav__cta { margin-left: auto; }
+  .nav__cta { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .home .coffee { display: inline-flex; padding: 6px; color: var(--paper); }
+  .home .coffee:hover { color: var(--accent); }
   @media (max-width: 760px) { .nav__links { display: none; } }
 
   .btn { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 18px;
@@ -180,7 +182,7 @@
       <a href="#local">Get Local</a>
       <a href="#terms">Terms</a>
     </nav>
-    <div class="nav__cta"><a class="btn btn--solid" href="/connect.html">Connect via MCP</a></div>
+    <div class="nav__cta"><a class="coffee" href="https://buymeacoffee.com/sliqtly" target="_blank" rel="noopener" title="Buy me a coffee" aria-label="Buy me a coffee"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 3.5c-.6.8.6 1.6 0 2.5M12 3.5c-.6.8.6 1.6 0 2.5"/></svg></a><a class="btn btn--solid" href="/connect.html">Connect via MCP</a></div>
   </header>
   <main>
     <section class="hero">
@@ -295,7 +297,7 @@ deck <b>→</b> render <b>→</b> edit <b>→</b> export</pre>
   <footer class="foot">
     <div class="wrap foot__in">
       <div><strong>Sliqtly — Better slides through MCP.</strong>Experimental software · As Is · No confidential data</div>
-      <nav aria-label="Links"><a href="/connect.html">Docs</a><a href="#local">Download</a><a href="#terms">Terms</a><a href="/personal-license.txt">License</a></nav>
+      <nav aria-label="Links"><a href="/connect.html">Docs</a><a href="#local">Download</a><a href="#terms">Terms</a><a href="/personal-license.txt">License</a><a href="https://buymeacoffee.com/sliqtly" target="_blank" rel="noopener">Buy me a coffee ☕</a></nav>
     </div>
   </footer>
 </div>
