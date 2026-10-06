@@ -4749,7 +4749,7 @@ async function shareLink() {
 // Edit in Claude: the assistant opens with a prompt that names the
 // deck, and edits it through the Sliqtly connector (mcp-go/): get_presentation
 // reads a share, update_presentation saves it when the assistant is signed
-// in as the share's owner (or holds its edit key). So the deck handed over
+// in as the share's owner. So the deck handed over
 // is a share: the one this page was opened from when it is the reader's own
 // and unchanged, else a fresh share of the deck (signed in). Signed out, the
 // Markdown goes in the prompt for create_presentation. The changes land in

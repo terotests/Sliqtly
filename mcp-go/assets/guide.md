@@ -626,8 +626,8 @@ the others' claims ("Also working on this deck").
 ## Exporting
 
 `export_presentation` (deck_id, `format`: `pdf`, `pptx`, `docx` or
-`html`, optional `slides`: [2, 5], and `edit_key` unless signed in as the
-deck's owner) makes the file the editor's File → Export makes and returns
+`html`, optional `slides`: [2, 5]; by the deck's owner, or by the session
+that made it without sign-in) makes the file the editor's File → Export makes and returns
 a download link for the user, on sliqtly.com (`https://sliqtly.com/d/…`,
 working for 24 hours). The PPTX keeps text
 editable, with build steps, speaker notes and transitions; charts and
@@ -655,5 +655,8 @@ user the server lets read private repositories.
 
 `create_presentation` returns a share link that opens straight into the
 presentation (full screen button, arrow keys) and an edit link that opens a
-copy in the Sliqtly editor. Keep `deck_id` and `edit_key` to change the same
-deck later with `update_presentation`; the share link stays the same.
+copy in the Sliqtly editor. Keep `deck_id` to change the same deck later
+with `update_presentation`; the share link stays the same. The id finds a
+presentation, it does not let anyone change it: a signed-in user's is
+changed by its owner, one made without sign-in only in this connection's
+session (until it ends or goes unused for a day).

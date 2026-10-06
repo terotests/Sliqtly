@@ -6,7 +6,7 @@ rules_version = '2';
 // owner, "link" anyone holding the short id. A share without the field is
 // "link" (every share made before it existed). Only its owner lists its own
 // (a query on owner), changes or deletes it.
-// mcp_keys, mcp_oauth_*, mcp_work, mcp_bases: the MCP server's edit keys,
+// mcp_sessions, mcp_keys (older), mcp_oauth_*, mcp_work, mcp_bases: the MCP server's sessions and what they may change,
 // sign-in state, assistants' claims on a deck and the versions it merges
 // edits with (mcp-go/). No rule matches them, so only the Admin SDK reads or writes them.
 // stats, stats_salt, stats_seen: the visitor counts (mcp-go/rgr/Stats.rgr); no

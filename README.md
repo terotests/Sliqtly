@@ -422,7 +422,11 @@ reads it: `private` only its owner's Google account, `link` anyone with
 `/s/{id}`. A deck starts private (in the editor, and when an assistant signed
 in makes it through the MCP server); **Share** makes it `link`, and so does
 `update_presentation` with `visibility: "link"`. A share without the field (made
-before it existed, or by an assistant without sign-in) is `link`. Nobody can
+before it existed, or by an assistant without sign-in) is `link`. The id
+locates a deck and grants nothing: an assistant without sign-in changes its
+deck only within the MCP session that made it (`mcp_sessions`, keyed by the
+hash of the session id the server hands out in `Mcp-Session-Id`, gone when
+the session ends or after a day unused). Nobody can
 list the ids, only the owner can change or delete the copy
 (`firestore.rules`, `storage.rules`; the MCP read tools check the same
 field). `/s/{id}?edit` opens the copy as a new deck of the reader's own.

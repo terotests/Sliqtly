@@ -63,7 +63,7 @@ func TestSmartArtFile(t *testing.T) {
 	if rr := lastText(r); !strings.Contains(rr, "- diagram (steps.xml) at ") || strings.Contains(rr, "picture (steps.xml)") {
 		t.Fatalf("render_slide does not draw the stored SmartArt as a diagram:\n%s", rr)
 	}
-	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": out["edit_key"], "markdown": md + "\n## More\n\nText.\n"})
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "markdown": md + "\n## More\n\nText.\n"})
 	if u.IsError {
 		t.Fatal(textOf(u))
 	}

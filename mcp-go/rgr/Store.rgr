@@ -4,8 +4,14 @@
 ;
 ; The same share the editor's Share button makes (web/sliqtly.js):
 ; shares/{id} in Firestore, its pictures in Storage under shares/{id}/media/…,
-; so /s/{id} opens it with no change to the page. The edit key's hash lives
-; apart, in mcp_keys/{id}, which only the server reaches.
+; so /s/{id} opens it with no change to the page.
+;
+; The id locates a deck; it grants nothing. A signed-in user's deck is
+; changed by its owner only. A deck made without sign-in is changed only in
+; the MCP session that made it: the session's id (a 256-bit random value the
+; server hands out at initialize, sent back in the Mcp-Session-Id header,
+; never in a URL or a tool's arguments) holds it in mcp_sessions/{sha256 of
+; the id} until the session ends (DELETE /mcp) or goes unused for a day.
 ;
 ; Without cloud storage ("link") nothing is kept: the deck travels in the link.
 
@@ -15,7 +21,6 @@ Import "Deck.rgr"
 
 class Created {
     def id:string ""
-    def key:string ""
     def err:string ""
 }
 
@@ -70,18 +75,84 @@ class Store {
     }
 
     ; whether this caller may read the deck: a "link" deck anyone, a
-    ; private one its owner signed in, or with the deck's edit key. A
-    ; storage error is left on the host.
-    sfn readableBy:boolean (host:McpHost doc:MfJ id:string signedIn:boolean uid:string key:string) {
+    ; private one only its owner signed in
+    sfn readableBy:boolean (doc:MfJ signedIn:boolean uid:string) {
         if ((Store.isPrivate(doc)) == false) {
             return true
         }
-        if (signedIn && ((strlen uid) > 0)) {
-            if ((doc.str_("owner")) == uid) {
-                return true
-            }
+        return ((signedIn && ((strlen uid) > 0)) && ((doc.str_("owner")) == uid))
+    }
+
+    ; --- MCP sessions: what a session without sign-in may change
+
+    ; a session unused this long is over (ms)
+    sfn SESSION_MS:int () {
+        return (((24 * 60) * 60) * 1000)
+    }
+
+    ; the most decks one session holds
+    sfn SESSION_DECKS:int () {
+        return 20
+    }
+
+    ; the session's record id: the hash of its id (sid as the client sends
+    ; it), "" for none
+    sfn sessionKey:string (host:McpHost sid:string) {
+        def n:int (strlen sid)
+        if ((n < 32) || (n > 128)) {
+            return ""
         }
-        return (Store.keyMatches(host id key))
+        return (host_sha256_hex host sid)
+    }
+
+    ; whether the session (its key) holds deck id; a storage error is left on
+    ; the host
+    sfn sessionHolds:boolean (host:McpHost key:string id:string) {
+        if ((strlen key) == 0) {
+            return false
+        }
+        def d:MfJ (J.parse((host_get_doc host "mcp_sessions" key)))
+        if ((d.isObj()) == false) {
+            return false
+        }
+        if ((d.int_("exp" 0)) <= (host_now_ms host)) {
+            return false
+        }
+        return (Deck.inList((J.strList((d.field("decks")))) id))
+    }
+
+    ; the session holds deck id from now on, for a day after its last use
+    ; (renewed by each change it makes); false when it holds as many as it
+    ; may
+    sfn sessionGrant:boolean (host:McpHost key:string id:string) {
+        if ((strlen key) == 0) {
+            return false
+        }
+        def d:MfJ (J.parse((host_get_doc host "mcp_sessions" key)))
+        def ids:[string]
+        if ((d.isObj()) && ((d.int_("exp" 0)) > (host_now_ms host))) {
+            ids = (J.strList((d.field("decks"))))
+        }
+        if ((Deck.inList(ids id)) == false) {
+            if ((array_length ids) >= (Store.SESSION_DECKS())) {
+                return false
+            }
+            push ids id
+        }
+        def exp:int ((host_now_ms host) + (Store.SESSION_MS()))
+        def doc:MfJ (MfJ.newObj())
+        doc.put("decks" (J.strs(ids)))
+        doc.putInt("exp" exp)
+        doc.put("expires" (J.timeAt(exp)))
+        host_set_doc host "mcp_sessions" key (JOut.text(doc))
+        return ((strlen (host_error host)) == 0)
+    }
+
+    ; the session is over: what it held goes with it
+    sfn sessionEnd:void (host:McpHost key:string) {
+        if ((strlen key) > 0) {
+            host_delete_doc host "mcp_sessions" key
+        }
     }
 
     ; owner: the signed-in user's uid, or "mcp"; css "" with hasCss false
@@ -90,19 +161,6 @@ class Store {
     sfn create:Created (host:McpHost name:string md:string theme:string hasCss:boolean css:string imgs:[Img] owner:string visibility:string) {
         def out (new Created)
         def id:string (host_short_id host 10)
-        def key:string (host_short_id host 24)
-        def k:MfJ (MfJ.newObj())
-        k.putStr("hash" (host_sha256_hex host key))
-        k.put("created" (Store.serverTime()))
-        if (owner == "mcp") {
-            k.put("expires" (Store.anonExpires(host)))
-        }
-        host_set_doc host "mcp_keys" id (JOut.text(k))
-        def e1:string (host_error host)
-        if ((strlen e1) > 0) {
-            out.err = e1
-            return out
-        }
         def files:MfJ (Store.upload(host id imgs))
         def e2:string (host_error host)
         if ((strlen e2) > 0) {
@@ -138,43 +196,24 @@ class Store {
             return out
         }
         out.id = id
-        out.key = key
         return out
     }
 
-    ; key is the deck's edit key (its hash in mcp_keys/{id}); a storage
-    ; error is left on the host
-    sfn keyMatches:boolean (host:McpHost id:string key:string) {
-        if ((strlen key) == 0) {
-            return false
-        }
-        def kd:MfJ (J.parse((host_get_doc host "mcp_keys" id)))
-        if ((kd.isObj()) == false) {
-            return false
-        }
-        return (host_same_secret host (kd.str_("hash")) (host_sha256_hex host key))
-    }
-
-    ; the deck as saved, or a null value when the id or the key does not
-    ; match; checkKey false: the caller has checked that the signed-in user
-    ; owns it. A storage error is left on the host.
-    sfn update:MfJ (host:McpHost id:string checkKey:boolean key:string p:DeckPatch imgs:[Img]) {
-        def s:Saved (Store.save(host id checkKey key p imgs false ""))
+    ; the deck as saved, or a null value when there is none by that id; the
+    ; caller has checked that it may change it (Tools.editable). A storage
+    ; error is left on the host.
+    sfn update:MfJ (host:McpHost id:string p:DeckPatch imgs:[Img]) {
+        def s:Saved (Store.save(host id p imgs false ""))
         return s.doc
     }
 
     ; update, and with guard only while the deck's Markdown is still `want`
     ; (read and write in one transaction): changed when it was not, and
     ; nothing written
-    sfn save:Saved (host:McpHost id:string checkKey:boolean key:string p:DeckPatch imgs:[Img] guard:boolean want:string) {
+    sfn save:Saved (host:McpHost id:string p:DeckPatch imgs:[Img] guard:boolean want:string) {
         def out (new Saved)
         if ((Store.validId(id)) == false) {
             return out
-        }
-        if checkKey {
-            if ((Store.keyMatches(host id key)) == false) {
-                return out
-            }
         }
         def cur:MfJ (J.parse((host_get_doc host "shares" id)))
         if ((cur.isObj()) == false) {
@@ -223,9 +262,6 @@ class Store {
         }
         if ((cur.str_("owner")) == "mcp") {
             patch.put("expires" (Store.anonExpires(host)))
-            def kp:MfJ (MfJ.newObj())
-            kp.put("expires" (patch.field("expires")))
-            host_update_doc host "mcp_keys" id (JOut.text(kp))
         }
         if guard {
             def r:string (host_update_if host "shares" id "md" want (JOut.text(patch)))

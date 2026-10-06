@@ -125,9 +125,9 @@ func TestUpdateWithEdits(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	out := sc(c)
-	id, key := out["deck_id"].(string), out["edit_key"]
+	id := out["deck_id"].(string)
 
-	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "edits": []any{
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edits": []any{
 		map[string]any{"find": "Intro", "replace": "Welcome"},
 		map[string]any{"slide": 4, "markdown": "## Three\n\nThe very end"},
 		map[string]any{"after_slide": 2, "markdown": "## Extra\n\n- z"},
@@ -139,13 +139,13 @@ func TestUpdateWithEdits(t *testing.T) {
 	eq(t, sc(u)["slides"], 5)
 	match(t, textOf(u), `Edit 2: slide 4 "Three" replaced\.`)
 
-	bad := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "edits": []any{map[string]any{"find": "nothing like this", "replace": "x"}}})
+	bad := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edits": []any{map[string]any{"find": "nothing like this", "replace": "x"}}})
 	if !bad.IsError {
 		t.Fatal("an edit that found nothing was saved")
 	}
 	match(t, textOf(bad), `^Not updated: Edit 1: the text in find is not in the deck`)
-	both := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "markdown": "# x", "edits": []any{}})
+	both := call(t, s, "update_presentation", map[string]any{"deck_id": id, "markdown": "# x", "edits": []any{}})
 	match(t, textOf(both), `markdown \(the whole deck\) or edits, not both`)
-	odd := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "edits": []any{map[string]any{"slide": 2}}})
+	odd := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edits": []any{map[string]any{"slide": 2}}})
 	match(t, textOf(odd), `Edit 1: markdown is needed`)
 }

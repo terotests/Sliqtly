@@ -73,7 +73,7 @@ func TestServerBackupAndRestore(t *testing.T) {
 	if c.IsError {
 		t.Fatal(textOf(c))
 	}
-	id, key := sc(c)["deck_id"].(string), sc(c)["edit_key"]
+	id := sc(c)["deck_id"].(string)
 
 	// the server's backup
 	cfg := backupConfig{Repo: repo, Every: time.Hour, Keep: store.DefaultBackupKeep}
@@ -89,7 +89,7 @@ func TestServerBackupAndRestore(t *testing.T) {
 	}
 
 	// an edit, then a backup from the command line beside the running server
-	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "markdown": DECK + "\n## More\n\nText.\n"})
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "markdown": DECK + "\n## More\n\nText.\n"})
 	if u.IsError {
 		t.Fatal(textOf(u))
 	}

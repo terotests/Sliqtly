@@ -52,25 +52,26 @@ func TestGitHubTokenOnlyForPullRequests(t *testing.T) {
 	eq(t, auth, "", "no token on a chart's data")
 }
 
-// export_presentation writes beside the deck: only its owner, or whoever
-// has its edit key, may.
+// export_presentation writes beside the deck: only its owner, or the
+// session that made it without sign-in, may.
 func TestExportNeedsEditRights(t *testing.T) {
 	f := fakeFirebase()
 	anon := start(t, testEnv(&f, nil), "")
 	defer anon.close()
+	stranger := start(t, testEnv(&f, nil), "")
+	defer stranger.close()
 	c := call(t, anon, "create_presentation", map[string]any{"title": "Anon", "markdown": "# Anon\n\n## Two\n\nText."})
 	if c.IsError {
 		t.Fatal(textOf(c))
 	}
-	id, key := sc(c)["deck_id"].(string), sc(c)["edit_key"].(string)
-	match(t, textOf(call(t, anon, "export_presentation", map[string]any{"deck_id": id, "format": "pdf"})), `edit_key is needed`)
-	match(t, textOf(call(t, anon, "export_presentation", map[string]any{"deck_id": id, "format": "pdf", "edit_key": "wrong"})), `The edit_key does not match`)
+	id := sc(c)["deck_id"].(string)
+	match(t, textOf(call(t, stranger, "export_presentation", map[string]any{"deck_id": id, "format": "pdf"})), `made without sign-in in another Sliqtly session`)
 	for p := range f.bucket.saved {
 		if strings.Contains(p, "/exports/") {
-			t.Fatal("written without the key: " + p)
+			t.Fatal("written by another session: " + p)
 		}
 	}
-	ok := call(t, anon, "export_presentation", map[string]any{"deck_id": id, "format": "pdf", "edit_key": key})
+	ok := call(t, anon, "export_presentation", map[string]any{"deck_id": id, "format": "pdf"})
 	if ok.IsError {
 		t.Fatal(textOf(ok))
 	}
@@ -86,7 +87,7 @@ func TestExportNeedsEditRights(t *testing.T) {
 	if r := call(t, me, "export_presentation", map[string]any{"deck_id": mid, "format": "pdf"}); r.IsError {
 		t.Fatal(textOf(r))
 	}
-	match(t, textOf(call(t, anon, "export_presentation", map[string]any{"deck_id": mid, "format": "pdf"})), `edit_key is needed`)
+	match(t, textOf(call(t, anon, "export_presentation", map[string]any{"deck_id": mid, "format": "pdf"})), `belongs to a signed-in Sliqtly user`)
 }
 
 // data_base64 that is not base64 is named as such, not as an empty picture
@@ -136,8 +137,9 @@ func TestDownloadLinkExpires(t *testing.T) {
 }
 
 // A signed-in user's deck is private by default: only that Google account
-// (or the deck's edit key) reads it through the read tools; visibility
-// "link" opens it to anyone with the id, and only the owner changes that.
+// reads it through the read tools; visibility "link" opens it to anyone with
+// the id, and only the owner changes that. A deck made without sign-in is
+// read by anyone with its id and changed only by the session that made it.
 func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 	f := fakeFirebase()
 	me := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
@@ -152,7 +154,10 @@ func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 	if c.IsError {
 		t.Fatal(textOf(c))
 	}
-	id, key := sc(c)["deck_id"].(string), sc(c)["edit_key"].(string)
+	id := sc(c)["deck_id"].(string)
+	if _, has := sc(c)["edit_key"]; has {
+		t.Fatal("an edit key handed out")
+	}
 	eq(t, sc(c)["visibility"], "private")
 	eq(t, f.db.doc("shares/" + id)["visibility"], "private")
 	match(t, textOf(c), `Private: only this Google account sees it`)
@@ -183,13 +188,6 @@ func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 			t.Fatalf("%s read a private deck without sign-in", r.name)
 		}
 		match(t, textOf(got), `this connector is not signed in`)
-		withKey := map[string]any{"edit_key": key}
-		for k, v := range r.args {
-			withKey[k] = v
-		}
-		if got := call(t, anon, r.name, withKey); got.IsError {
-			t.Fatalf("%s with the edit key: %s", r.name, textOf(got))
-		}
 	}
 	// list_presentations: only the owner's, with its visibility
 	match(t, textOf(call(t, me, "list_presentations", map[string]any{})), id+`, private\)`)
@@ -197,8 +195,9 @@ func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 		t.Fatal("listed for another account")
 	}
 
-	// only the owner opens it by link; an edit key does not
-	match(t, textOf(call(t, anon, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "visibility": "link"})), `only the presentation's owner, signed in, changes who sees it`)
+	// only the owner opens it by link
+	match(t, textOf(call(t, anon, "update_presentation", map[string]any{"deck_id": id, "visibility": "link"})), `belongs to a signed-in Sliqtly user`)
+	match(t, textOf(call(t, other, "update_presentation", map[string]any{"deck_id": id, "visibility": "link"})), `belongs to another Sliqtly account`)
 	match(t, textOf(call(t, me, "update_presentation", map[string]any{"deck_id": id, "visibility": "public"})), `visibility is private or link`)
 	u := call(t, me, "update_presentation", map[string]any{"deck_id": id, "visibility": "link"})
 	if u.IsError {
@@ -226,7 +225,37 @@ func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 	eq(t, sc(a)["visibility"], "link")
 	eq(t, f.db.doc("shares/" + str(sc(a)["deck_id"]))["visibility"], "link")
 	match(t, textOf(call(t, anon, "create_presentation", map[string]any{"title": "P", "markdown": "# P", "visibility": "private"})), `A private presentation needs sign-in`)
-	match(t, textOf(call(t, anon, "update_presentation", map[string]any{"deck_id": sc(a)["deck_id"], "edit_key": sc(a)["edit_key"], "visibility": "private"})), `made without sign-in`)
+	match(t, textOf(call(t, anon, "update_presentation", map[string]any{"deck_id": sc(a)["deck_id"], "visibility": "private"})), `made without sign-in`)
+
+	// a deck made without sign-in: read by anyone with its id, changed only
+	// in the session that made it, and no longer once that session ended
+	aid := str(sc(a)["deck_id"])
+	match(t, textOf(a), `only this conversation's Sliqtly session can change it`)
+	if r := call(t, anon, "update_presentation", map[string]any{"deck_id": aid, "markdown": "# Anon 2"}); r.IsError {
+		t.Fatal(textOf(r))
+	}
+	stranger := start(t, testEnv(&f, nil), "")
+	defer stranger.close()
+	if r := call(t, stranger, "get_presentation", map[string]any{"deck_id": aid}); r.IsError {
+		t.Fatal(textOf(r))
+	}
+	for _, who := range []*testServer{stranger, other, me} {
+		match(t, textOf(call(t, who, "update_presentation", map[string]any{"deck_id": aid, "markdown": "# x"})), `made without sign-in in another Sliqtly session`)
+		match(t, textOf(call(t, who, "add_comment", map[string]any{"deck_id": aid, "slide": 1, "text": "x"})), `made without sign-in in another Sliqtly session`)
+	}
+	eq(t, f.db.doc("shares/" + aid)["md"], "# Anon 2")
+	// the session's record: the hash of its id, never the id
+	var held int
+	for k, d := range f.db.all("mcp_sessions/") {
+		held++
+		match(t, k, `^mcp_sessions/[0-9a-f]{64}$`)
+		eq(t, list(d["decks"]), []any{aid})
+	}
+	eq(t, held, 1)
+	anon.close()
+	if n := len(f.db.all("mcp_sessions/")); n != 0 {
+		t.Fatalf("%d sessions left after the client ended its own", n)
+	}
 
 	// a share from before visibility existed stays readable by its id
 	f.db.Set(context.Background(), "shares", "OldShare01", Doc{"name": "Old", "md": "# Old", "owner": "u1", "theme": "aurora", "files": []any{}})

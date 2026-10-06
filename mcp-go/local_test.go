@@ -201,7 +201,7 @@ func TestLocalServer(t *testing.T) {
 	defer srv2.Close()
 	defer session2.Close()
 	s2 := &testServer{root: srv2.URL, session: session2}
-	u := call(t, s2, "update_presentation", map[string]any{"deck_id": id, "edit_key": out["edit_key"], "markdown": DECK + "\n## More\n\nText.\n"})
+	u := call(t, s2, "update_presentation", map[string]any{"deck_id": id, "markdown": DECK + "\n## More\n\nText.\n"})
 	if u.IsError {
 		t.Fatal(textOf(u))
 	}

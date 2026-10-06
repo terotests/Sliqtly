@@ -56,7 +56,7 @@ func TestViewLists(t *testing.T) {
 	defer s.close()
 	md := fmt.Sprintf(testDeck, twentyMonths()) + "\n## Picture\n\n![A dot](media/dot.png)\n"
 	c := call(t, s, "create_presentation", map[string]any{
-		"title": "Viewed", "markdown": md,
+		"title": "Viewed", "markdown": md, "visibility": "link",
 		"files":  []any{map[string]any{"name": "sales.csv", "text": "month,sales\nJan,10\nFeb,14\nMar,9\n"}},
 		"images": []any{map[string]any{"name": "dot.png", "data_base64": base64.StdEncoding.EncodeToString(squarePNG())}},
 	})

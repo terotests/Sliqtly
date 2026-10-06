@@ -116,7 +116,7 @@ func TestSvgBackgroundSentAsTextIsDrawnAndChecked(t *testing.T) {
 	match(t, lastText(r), `- media/bg\.svg: SVG ok`)
 
 	// read back from storage on update: still an SVG, still checked
-	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": out["edit_key"], "markdown": "# Vector {bg=media/bg.svg}\n\nMore.\n"})
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "markdown": "# Vector {bg=media/bg.svg}\n\nMore.\n"})
 	if u.IsError {
 		t.Fatal(textOf(u))
 	}

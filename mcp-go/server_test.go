@@ -190,6 +190,19 @@ func (f *fakeDB) doc(k string) Doc {
 	return f.data[k]
 }
 
+// every document under a prefix ("col/"), by its key
+func (f *fakeDB) all(prefix string) map[string]Doc {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := map[string]Doc{}
+	for k, d := range f.data {
+		if strings.HasPrefix(k, prefix) {
+			out[k] = d
+		}
+	}
+	return out
+}
+
 type savedFile struct {
 	data        []byte
 	contentType string
@@ -440,20 +453,17 @@ func TestCreateUpdateReadWithPictures(t *testing.T) {
 	eq(t, []any{mapOf(files[0])["path"], mapOf(files[1])["path"]}, []string{"media/cat.png", "media/dot.png"})
 	match(t, str(mapOf(files[0])["url"]), `^https://firebasestorage\.googleapis\.com/v0/b/bucket\.test/o/shares%2F.*%2Fmedia%2Fcat\.png\?alt=media&token=`)
 	eq(t, f.bucket.saved["shares/"+id+"/media/cat.png"].contentType, "image/png")
-	if f.db.doc("mcp_keys/" + id)["hash"] == out["edit_key"] {
-		t.Fatal("the key is stored as is")
-	}
 
 	// the owner's deck: someone else, not signed in, with a wrong key
 	anon := start(t, testEnv(&f, nil), "")
-	bad := call(t, anon, "update_presentation", map[string]any{"deck_id": id, "edit_key": "wrong", "markdown": "# x"})
+	bad := call(t, anon, "update_presentation", map[string]any{"deck_id": id, "markdown": "# x"})
 	anon.close()
 	if !bad.IsError {
 		t.Fatal("a wrong key changed the deck")
 	}
 	eq(t, f.db.doc("shares/" + id)["md"], DECK)
 
-	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": out["edit_key"], "markdown": DECK + "\n## More\n\n![](media/new.png)\n", "theme": "corporate"})
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "markdown": DECK + "\n## More\n\n![](media/new.png)\n", "theme": "corporate"})
 	if u.IsError {
 		t.Fatal(textOf(u))
 	}
@@ -676,7 +686,8 @@ func TestOptionalSignIn(t *testing.T) {
 		t.Fatal(textOf(u))
 	}
 	eq(t, sc(u)["slides"], 2)
-	match(t, textOf(call(t, me, "update_presentation", map[string]any{"deck_id": anonID, "markdown": "# x"})), `edit_key is needed`)
+	// a deck made without sign-in: only the session that made it
+	match(t, textOf(call(t, me, "update_presentation", map[string]any{"deck_id": anonID, "markdown": "# x"})), `made without sign-in in another Sliqtly session`)
 	// another account's editor deck: refused with the account named, no copy
 	f.db.Set(context.Background(), "shares", "EdOther001", Doc{"owner": "u2", "source": "editor", "md": "# theirs", "theme": "aurora"})
 	other := textOf(call(t, me, "update_presentation", map[string]any{"deck_id": "EdOther001", "markdown": "# x"}))
@@ -857,9 +868,9 @@ func TestBindChartDataPointsAChartAtLiveData(t *testing.T) {
 	if c.IsError {
 		t.Fatal(textOf(c))
 	}
-	id, key := sc(c)["deck_id"].(string), sc(c)["edit_key"].(string)
+	id := sc(c)["deck_id"].(string)
 
-	a := call(t, s, "bind_chart_data", map[string]any{"deck_id": id, "edit_key": key, "chart": "revenue", "source": map[string]any{"google_sheets": "SHEET1", "range": "Monthly!A:B"}})
+	a := call(t, s, "bind_chart_data", map[string]any{"deck_id": id, "chart": "revenue", "source": map[string]any{"google_sheets": "SHEET1", "range": "Monthly!A:B"}})
 	if a.IsError {
 		t.Fatal(textOf(a))
 	}
@@ -871,7 +882,7 @@ func TestBindChartDataPointsAChartAtLiveData(t *testing.T) {
 	eq(t, ao["share_url"], sc(c)["share_url"])
 	match(t, textOf(a), `Chart 1 \(on "Revenue"\) now reads \{"source":"google-sheets","id":"SHEET1","range":"Monthly!A:B"\}\. PDF and PPTX`)
 
-	b := call(t, s, "bind_chart_data", map[string]any{"deck_id": id, "edit_key": key, "chart": 2, "source": "https://data.test/costs.csv"})
+	b := call(t, s, "bind_chart_data", map[string]any{"deck_id": id, "chart": 2, "source": "https://data.test/costs.csv"})
 	if b.IsError {
 		t.Fatal(textOf(b))
 	}
@@ -890,9 +901,8 @@ func TestBindChartDataPointsAChartAtLiveData(t *testing.T) {
 		{map[string]any{"chart": 3, "source": "https://data.test/x.csv"}, `has 2 charts`},
 		{map[string]any{"chart": "Nope", "source": "https://data.test/x.csv"}, `No chart on a slide titled`},
 		{map[string]any{"chart": 1, "source": "http://data.test/x.csv"}, `https URL`},
-		{map[string]any{"chart": 1, "source": "https://data.test/x.csv", "edit_key": "wrong"}, `edit_key does not match`},
 	} {
-		args := map[string]any{"deck_id": id, "edit_key": key}
+		args := map[string]any{"deck_id": id}
 		for k, v := range tc.args {
 			args[k] = v
 		}
@@ -1059,7 +1069,7 @@ func TestCreateAndUpdateKeepDataFiles(t *testing.T) {
 	back := sc(call(t, s, "read_file", map[string]any{"deck_id": id, "path": "data/risk-Monthly.csv", "limit": 1}))
 	eq(t, back["rows"], [][]string{{"01/01/2022", "10"}})
 
-	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": sc(c)["edit_key"],
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": id,
 		"files": []any{map[string]any{"name": "extra.csv", "text": "a,b\n3,4\n"}, map[string]any{"name": "more.json", "text": "[1]"}}})
 	if u.IsError {
 		t.Fatal(textOf(u))
@@ -1098,9 +1108,8 @@ func TestWriteWorkbookReplacesADecksWorkbook(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	id := sc(c)["deck_id"].(string)
-	key := sc(c)["edit_key"]
 	write := func(args map[string]any) *mcp.CallToolResult {
-		a := map[string]any{"deck_id": id, "edit_key": key, "path": "data/risk.xlsx"}
+		a := map[string]any{"deck_id": id, "path": "data/risk.xlsx"}
 		for k, v := range args {
 			a[k] = v
 		}
@@ -1188,15 +1197,15 @@ func TestWithoutSignInTextOnlyAndDeletedAfter30Days(t *testing.T) {
 	c := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": "# x"})
 	match(t, textOf(c), `deleted 30 days after its last change`)
 	out := sc(c)
-	id, key := out["deck_id"].(string), out["edit_key"].(string)
+	id := out["deck_id"].(string)
 	in30 := time.Now().Add(30 * 24 * time.Hour)
-	for _, col := range []string{"shares/", "mcp_keys/"} {
+	for _, col := range []string{"shares/"} {
 		if d := storedTime(t, f.db.doc(col + id)["expires"]).Sub(in30); d < -time.Minute || d > time.Minute {
 			t.Fatalf("%s expires %v off 30 days", col, d)
 		}
 	}
-	match(t, textOf(call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": key, "images": []any{map[string]any{"name": "cat.png", "url": "https://images.test/cat.png"}}})), `needs sign-in`)
-	match(t, textOf(call(t, s, "write_workbook", map[string]any{"deck_id": id, "edit_key": key, "path": "data/a.xlsx", "sheets": []any{map[string]any{"name": "A", "rows": []any{[]any{"x"}}}}})), `needs sign-in`)
+	match(t, textOf(call(t, s, "update_presentation", map[string]any{"deck_id": id, "images": []any{map[string]any{"name": "cat.png", "url": "https://images.test/cat.png"}}})), `needs sign-in`)
+	match(t, textOf(call(t, s, "write_workbook", map[string]any{"deck_id": id, "path": "data/a.xlsx", "sheets": []any{map[string]any{"name": "A", "rows": []any{[]any{"x"}}}}})), `needs sign-in`)
 
 	me := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
 	defer me.close()
@@ -1268,7 +1277,7 @@ func TestOneSheetBookAnswersToTheSheetsName(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	id := sc(c)["deck_id"].(string)
-	w := call(t, s, "write_workbook", map[string]any{"deck_id": id, "edit_key": sc(c)["edit_key"], "path": "data/budjetti.xlsx", "sheets": []any{
+	w := call(t, s, "write_workbook", map[string]any{"deck_id": id, "path": "data/budjetti.xlsx", "sheets": []any{
 		map[string]any{"name": "Kulut", "rows": []any{[]any{"Kuukausi", "Vuokra"}, []any{"Tammi", 950}, []any{"Helmi", 975}}},
 	}})
 	if w.IsError {
@@ -1285,7 +1294,7 @@ func TestOneSheetBookAnswersToTheSheetsName(t *testing.T) {
 	// a chart reading the sheet by its name draws its bars' labels
 	md := "# Budget\n\n## Rent\n\n```vega-lite\n{\"data\": {\"url\": \"data/budjetti-Kulut.csv\"}, \"mark\": \"bar\", " +
 		"\"encoding\": {\"x\": {\"field\": \"Kuukausi\", \"type\": \"nominal\"}, \"y\": {\"field\": \"Vuokra\", \"type\": \"quantitative\"}}}\n```\n"
-	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edit_key": sc(c)["edit_key"], "markdown": md})
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "markdown": md})
 	if u.IsError {
 		t.Fatal(textOf(u))
 	}
@@ -1301,10 +1310,9 @@ func TestReviewCommentsReadAddAndResolve(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	id := sc(c)["deck_id"].(string)
-	key := sc(c)["edit_key"]
 	match(t, textOf(call(t, s, "list_comments", map[string]any{"deck_id": id})), `has no review comments`)
 
-	a := call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide": 2, "text": "Add last year's numbers", "author": "Claude"})
+	a := call(t, s, "add_comment", map[string]any{"deck_id": id, "slide": 2, "text": "Add last year's numbers", "author": "Claude"})
 	if a.IsError {
 		t.Fatal(textOf(a))
 	}
@@ -1313,23 +1321,22 @@ func TestReviewCommentsReadAddAndResolve(t *testing.T) {
 	tid := th["thread_id"].(string)
 	eq(t, []any{th["slide"], th["resolved"], th["x"]}, []any{2, false, 0.9})
 
-	b := call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide_title": "risks", "x": 0.25, "y": 0.5, "text": "Rank these", "severity": "high"})
+	b := call(t, s, "add_comment", map[string]any{"deck_id": id, "slide_title": "risks", "x": 0.25, "y": 0.5, "text": "Rank these", "severity": "high"})
 	match(t, textOf(b), `slide 3 "Risks".* Severity high\.`)
 	tid2 := mapOf(sc(b)["thread"])["thread_id"].(string)
 	eq(t, mapOf(sc(b)["thread"])["severity"], "high")
-	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide": 1, "text": "x", "severity": "urgent"})), `severity is low, medium, high or none`)
-	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide": 9, "text": "x"})), `from 1 to 3`)
-	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide_title": "Nope", "text": "x"})), `No slide is titled "Nope". The slides: 1 "Plan", 2 "Budget", 3 "Risks"`)
-	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "text": "x", "slide": 1})), `edit_key is needed`)
+	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "slide": 1, "text": "x", "severity": "urgent"})), `severity is low, medium, high or none`)
+	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "slide": 9, "text": "x"})), `from 1 to 3`)
+	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "slide_title": "Nope", "text": "x"})), `No slide is titled "Nope". The slides: 1 "Plan", 2 "Budget", 3 "Risks"`)
 
-	r := call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "thread_id": tid, "text": "Also the forecast"})
+	r := call(t, s, "add_comment", map[string]any{"deck_id": id, "thread_id": tid, "text": "Also the forecast"})
 	match(t, textOf(r), `Answered thread `+tid)
-	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "thread_id": "zz", "text": "x"})), `No comment thread zz`)
+	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "thread_id": "zz", "text": "x"})), `No comment thread zz`)
 
-	z := call(t, s, "resolve_comment", map[string]any{"deck_id": id, "edit_key": key, "thread_id": tid, "text": "Done: both added"})
+	z := call(t, s, "resolve_comment", map[string]any{"deck_id": id, "thread_id": tid, "text": "Done: both added"})
 	match(t, textOf(z), `is resolved`)
 	eq(t, mapOf(sc(z)["thread"])["resolved"], true)
-	match(t, textOf(call(t, s, "resolve_comment", map[string]any{"deck_id": id, "edit_key": key, "thread_id": tid})), `was already resolved`)
+	match(t, textOf(call(t, s, "resolve_comment", map[string]any{"deck_id": id, "thread_id": tid})), `was already resolved`)
 
 	l := call(t, s, "list_comments", map[string]any{"deck_id": id})
 	match(t, textOf(l), `2 review comment threads, 1 open`)
@@ -1340,7 +1347,7 @@ func TestReviewCommentsReadAddAndResolve(t *testing.T) {
 	eq(t, mapOf(list(sc(open)["threads"])[0])["thread_id"], tid2)
 	match(t, textOf(open), `Thread `+tid2+` \(open, severity high\)`)
 	eq(t, mapOf(list(sc(open)["threads"])[0])["severity"], "high")
-	m := call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "thread_id": tid2, "text": "Less urgent now", "severity": "low"})
+	m := call(t, s, "add_comment", map[string]any{"deck_id": id, "thread_id": tid2, "text": "Less urgent now", "severity": "low"})
 	match(t, textOf(m), `Severity low\.`)
 	eq(t, mapOf(sc(m)["thread"])["severity"], "low")
 
@@ -1361,5 +1368,5 @@ func TestReviewCommentsReadAddAndResolve(t *testing.T) {
 	eq(t, mapOf(list(first["messages"])[0])["who"], "ai")
 
 	// opened again
-	match(t, textOf(call(t, s, "resolve_comment", map[string]any{"deck_id": id, "edit_key": key, "thread_id": tid, "resolved": false})), `is open again`)
+	match(t, textOf(call(t, s, "resolve_comment", map[string]any{"deck_id": id, "thread_id": tid, "resolved": false})), `is open again`)
 }
