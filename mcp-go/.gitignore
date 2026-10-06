@@ -9,3 +9,4 @@
 /webdist/*
 !/webdist/README
 /dist/
+/data/

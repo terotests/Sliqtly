@@ -191,7 +191,9 @@ export class RoomChat {
       return;
     }
     if (v.room !== this.room) return;
-    if (v.t === "here") {
+    if (v.t === "room") {
+      app.roomChatAbout(typeof v.title === "string", v.title || "", typeof v.description === "string", v.description || "");
+    } else if (v.t === "here") {
       app.roomChatHere(JSON.stringify(v));
     } else if (v.t === "msg" && v.msg) {
       const missed = app.roomChatPut(JSON.stringify(v.msg));

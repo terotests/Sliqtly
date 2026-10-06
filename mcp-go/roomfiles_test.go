@@ -202,22 +202,33 @@ func TestRoomListEvents(t *testing.T) {
 		}
 		close(lines)
 	}()
-	r := call(t, &testServer{root: srv.URL, session: session}, "create_room", map[string]any{"title": "Bob's room"})
+	ts := &testServer{root: srv.URL, session: session}
+	r := call(t, ts, "create_room", map[string]any{"title": "Bob's room"})
 	if r.IsError {
 		t.Fatal(textOf(r))
 	}
-	deadline := time.After(5 * time.Second)
-	for {
-		select {
-		case l, ok := <-lines:
-			if !ok {
-				t.Fatal("the stream ended")
+	wait := func(want string) {
+		t.Helper()
+		deadline := time.After(5 * time.Second)
+		for {
+			select {
+			case l, ok := <-lines:
+				if !ok {
+					t.Fatal("the stream ended")
+				}
+				if l == want {
+					return
+				}
+			case <-deadline:
+				t.Fatal("no event " + want)
 			}
-			if l == `data: {"room":"","t":"rooms"}` {
-				return
-			}
-		case <-deadline:
-			t.Fatal("no rooms event")
 		}
 	}
+	wait(`data: {"room":"","t":"rooms"}`)
+	// described again: the room's open chats show it at once
+	room := sc(r)["room_id"].(string)
+	if r := call(t, ts, "update_room", map[string]any{"room_id": room, "description": "Retry, then a person"}); r.IsError {
+		t.Fatal(textOf(r))
+	}
+	wait(`data: {"description":"Retry, then a person","room":"` + room + `","t":"room"}`)
 }

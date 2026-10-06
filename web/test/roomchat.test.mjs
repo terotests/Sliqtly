@@ -22,6 +22,7 @@ function world({ own = true } = {}) {
     roomChatLoad: (json, older) => { w.log.push(["load", JSON.parse(json), older]); },
     roomChatPut: (json) => { const m = JSON.parse(json); w.log.push(["put", m.id]); const gap = m.seq > w.last + 1 ? w.last : -1; w.last = Math.max(w.last, m.seq); return gap; },
     roomChatHere: (json) => w.log.push(["here", JSON.parse(json).here]),
+    roomChatAbout: (ht, title, ha, about) => w.log.push(["about", ht, title, ha, about]),
     roomChatDeck: (id, name) => w.log.push(["deck", id, name]),
     roomChatLastSeq: () => w.last,
     roomChatPictures: (pattern) => w.log.push(["pictures", pattern]),
@@ -199,6 +200,9 @@ test("events: the open room's are drawn, a gap asks for what was missed", async 
   assert.deepEqual(w.calls[0], ["read_room_chat", { room_id: "r1", after_seq: 1, limit: 500 }]);
   await w.chat.event({ t: "here", room: "r1", here: 3, people: [] });
   assert.deepEqual(w.log.at(-1), ["here", 3]);
+  // described again by someone else: the head shows it, the name stays
+  await w.chat.event({ t: "room", room: "r1", description: "Retry, then a person" });
+  assert.deepEqual(w.log.at(-1), ["about", false, "", true, "Retry, then a person"]);
   await w.chat.event({ t: "reopen" });
   assert.deepEqual(w.calls.at(-1), ["read_room_chat", { room_id: "r1", after_seq: 3, limit: 500 }]);
   w.chat.close();
