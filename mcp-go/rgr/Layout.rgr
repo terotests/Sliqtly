@@ -649,6 +649,31 @@ class Layout {
         return ""
     }
 
+    ; the gallery's cells that are text, not a picture: its "- " items with
+    ; no media/ path in them
+    sfn galleryTexts:int (md:string at:int) {
+        if ((at < 0) || (at >= (strlen md))) {
+            return 0
+        }
+        def lines:[string] (strsplit (substring md at (strlen md)) "\n")
+        def open:string ""
+        def n:int 0
+        for lines ln:string li {
+            def t:string (trim ln)
+            if (li == 0) {
+                open = (substring t 0 3)
+                continue
+            }
+            if (startsWith t open) {
+                return n
+            }
+            if ((startsWith t "- ") && ((indexOf t "media/") < 0)) {
+                n = (n + 1)
+            }
+        }
+        return n
+    }
+
     ; "grid, 6 pictures" or "full page, 1 picture": the layout from the
     ; attribute line under the gallery's closing fence
     sfn galleryLabel:string (md:string at:int pictures:int) {
@@ -660,6 +685,14 @@ class Layout {
         if (pictures == 1) {
             what = " picture"
         }
-        return (layout + ", " + (to_string pictures) + what)
+        def out:string (layout + ", " + (to_string pictures) + what)
+        def texts:int (Layout.galleryTexts(md at))
+        if (texts == 1) {
+            out = (out + ", 1 text cell")
+        }
+        if (texts > 1) {
+            out = (out + ", " + (to_string texts) + " text cells")
+        }
+        return out
     }
 }

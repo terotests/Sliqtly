@@ -246,7 +246,7 @@ func TestGalleryChecks(t *testing.T) {
 	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
 	defer s.close()
 	pic := base64.StdEncoding.EncodeToString(squarePNG())
-	md := "## Summer\n\n```gallery\n- media/k1.png: Beach\n- media/k2.png\n- media/k3.png\n```\n\n## Every day {heading=hidden}\n\n```gallery\n- media/k1.png: Morning\n- media/k2.png\n```\n{layout=full fit=cover}\n"
+	md := "## Summer\n\n```gallery\n- media/k1.png: Beach\n- media/k2.png\n- media/k3.png\n- The first days went by just looking.\n```\n\n## Every day {heading=hidden}\n\n```gallery\n- media/k1.png: Morning\n- media/k2.png\n```\n{layout=full fit=cover}\n"
 	c := call(t, s, "create_presentation", map[string]any{
 		"title": "Album", "markdown": md,
 		"images": []any{
@@ -264,7 +264,7 @@ func TestGalleryChecks(t *testing.T) {
 		t.Fatal(ws)
 	}
 	eq(t, sc(c)["slides"], float64(3))
-	match(t, text, `- gallery \(grid, 3 pictures\) at `)
+	match(t, text, `- gallery \(grid, 3 pictures, 1 text cell\) at `)
 	match(t, text, `Slide 3 "Every day \(2\)"`)
 	match(t, text, `- gallery \(full page, 1 picture\) at `)
 }
