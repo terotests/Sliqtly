@@ -55,7 +55,7 @@ func (h *McpHost) ImageGrid(handle int64) []int64 {
 		if !ok {
 			return []int64{}
 		}
-		pic, err := drawSvg(data, svgGridSide)
+		pic, err := drawSvg(data, svgRenderSide)
 		if err != nil {
 			return []int64{w, ht}
 		}
@@ -75,10 +75,6 @@ func (h *McpHost) ImageError(handle int64) string {
 	}
 	return ""
 }
-
-// the longer side an SVG is drawn at for the contrast grid: ten pixels
-// and more to each of its cells
-const svgGridSide = 480
 
 var (
 	svgRoot    = regexp.MustCompile(`(?is)<svg\b((?:[^>"']|"[^"]*"|'[^']*')*)>`)

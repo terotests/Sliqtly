@@ -5,6 +5,7 @@ package main
 import (
 	"image"
 	"image/color"
+	"os"
 	"strings"
 	"testing"
 )
@@ -111,7 +112,55 @@ func TestDrawSvgNeedsTheNamespace(t *testing.T) {
 func TestRenderPicDrawsSvg(t *testing.T) {
 	h := &McpHost{}
 	h.RenderPic("/media/bg.svg", []byte(svgBackground))
-	if h.renderPics["/media/bg.svg"] == nil {
+	if h.renderPics.get("/media/bg.svg") == nil {
 		t.Fatal("an SVG picture is not given to the painter")
+	}
+}
+
+// An aurora curtain (gradients through clip paths, a pattern of rays, the
+// paths reaching past the top) from an MCP client's deck: it took over
+// 10 s and was left out of render_slide while the report said "drawn"
+func TestDrawSvgAuroraCurtain(t *testing.T) {
+	src, err := os.ReadFile("testdata/aurora.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &McpHost{}
+	if e := h.SvgError(src); e != "" {
+		t.Fatalf("not drawn: %s", e)
+	}
+	img, err := drawSvg(src, svgRenderSide)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the curtain's light over the dark sky
+	k := float64(img.Bounds().Dx()) / 960
+	if r, g, _, _ := img.At(int(480*k), int(200*k)).RGBA(); g>>8 < 150 || r>>8 < 100 {
+		t.Errorf("no curtain at (480, 200): %v", img.At(int(480*k), int(200*k)))
+	}
+	// the check, the contrast grid and the render share one drawing
+	again, _ := drawSvg(src, svgRenderSide)
+	if again != img {
+		t.Error("the same SVG was drawn twice")
+	}
+}
+
+func TestSvgErrorSaysWhenNothingIsDrawn(t *testing.T) {
+	h := &McpHost{}
+	if e := h.SvgError([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="none"/></svg>`)); !strings.Contains(e, "transparent") {
+		t.Fatalf("an SVG that draws nothing: %q", e)
+	}
+}
+
+// render_slide draws the pictures its slide shows, not every picture of the deck
+func TestRenderPicDrawsOnlyWhatIsShown(t *testing.T) {
+	h := &McpHost{}
+	h.RenderPic("/media/a.svg", []byte(svgBackground))
+	h.RenderPic("/media/b.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>`))
+	if h.renderPics.get("/media/a.svg") == nil {
+		t.Fatal("not drawn")
+	}
+	if _, drawn := h.renderPics.img["/media/b.svg"]; drawn {
+		t.Error("a picture no list asked for was drawn")
 	}
 }

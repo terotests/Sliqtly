@@ -623,7 +623,13 @@ class SvgCheck {
         }
         ; what will go wrong in the player
         if (((strlen drawErr) > 0) && f.xmlns) {
-            push o.flags (name + " does not draw (" + drawErr + "); a browser will not draw it either. Fix the file.")
+            if ((indexOf drawErr "takes more than") == 0) {
+                ; too slow for the preview: a browser may still draw it,
+                ; slowly, on every device that opens the deck
+                push o.flags (name + " is not drawn in render_slide: it " + (substring drawErr 3 (strlen drawErr)) + ". Players on slow devices struggle with it too: use fewer clip paths, patterns and filters, or a PNG.")
+            } {
+                push o.flags (name + " does not draw (" + drawErr + "); a browser will not draw it either. Fix the file.")
+            }
         }
         if (f.xmlns == false) {
             push o.flags (name + " has no xmlns=\"http://www.w3.org/2000/svg\" on its <svg>: a browser shows such a file as nothing. Add it.")
