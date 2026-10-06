@@ -4,8 +4,8 @@
 ; PresColorPanel.rgr — EVGUI's colour picker, drawn as its demo draws it
 ; ============================================================================
 ;
-; The picker's behaviour is `ColorPickerCtl` (src/ColorPickerCtl.rgr, from
-; terotests/EVGUI). This is the drawing and the pointer that its demo
+; The picker's behaviour is EVGUI's `ColorPickerCtl`, in the interface's
+; language through its `words` (`localize`). This is the drawing and the pointer that its demo
 ; (EVGUI demo/ColorPickerDemo.rgr) wraps around it, taken over nearly as it
 ; is: the saturation / brightness area with its round thumb, the hue and alpha
 ; sliders beside the current colour over a checkerboard, the value as HEX /
@@ -16,7 +16,7 @@
 ; ============================================================================
 
 Import "PresI18n.rgr"
-Import "ColorPickerCtl.rgr"
+Import "../evgui/src/ColorPickerCtl.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGUnit.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
@@ -276,7 +276,21 @@ class PresColorPanel {
         return box
     }
 
+    ; The picker's words in the interface's language. Every drawing asks
+    ; again, so a change of language reaches a picker already open.
+    sfn localize:void (c:ColorPickerCtl) {
+        def ps:[string] (ColorPickerCtl.phrases())
+        def i:int 0
+        while (i < (array_length ps)) {
+            def en:string (itemAt ps i)
+            set c.words en (PresI18n.t(en))
+            i = (i + 1)
+        }
+        c.swatchTitle = (PresI18n.t("Presets"))
+    }
+
     fn panel:EVGElement (c:ColorPickerCtl) {
+        PresColorPanel.localize(c)
         def p (tree Cp (Panel (props (id (c.panelTid())))))
         if (c.inline == false) {
             p.className = "cp-panel cp-panel-pop"

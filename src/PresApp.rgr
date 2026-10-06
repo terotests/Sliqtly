@@ -2165,11 +2165,6 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
-    ; When the recording first shows slide `i` (seconds), -1 never.
-    fn recordingAt:double (i:int) {
-        return (take.slideStart(i))
-    }
-
     ; --- playing it back --------------------------------------------------------
 
     ; From `t` seconds into the recording: presenting, driven by it. The
@@ -2231,10 +2226,6 @@ class PresApp {
             at = 0.0
         }
         this.replayStart(at)
-    }
-
-    fn replayDone:boolean () {
-        return (replaying && (replay.done()))
     }
 
     fn replayStop:void () {
@@ -2830,10 +2821,6 @@ class PresApp {
         viewZoom = 1.0
         viewU = 0.5
         viewV = 0.5
-    }
-
-    fn viewZoomed:boolean () {
-        return (viewZoom > 1.0)
     }
 
     ; A double tap: in to 2.5 times at the tap, or back out when already in.
@@ -6134,14 +6121,6 @@ class PresApp {
         hint.emoji.setRecentText(s)
     }
 
-    fn pickIsOn:boolean () {
-        return pick.on
-    }
-
-    fn pickSelector:string () {
-        return pick.sel
-    }
-
     ; The pick and its handles over the stage, as a display list ("" when
     ; there is nothing to draw).
     fn pickJson:string () {
@@ -6442,35 +6421,6 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
-    ; Where review mode's parts are, for the page's checks:
-    ; {"on", "slide": [x, y, w, h], "bar": [x, y, w, h], "panel": [x, y, w, h]
-    ;  or null, "placing", "open" (the thread's id), "drafting", "typing",
-    ;  "threads", "openCount"}
-    fn reviewState:string () {
-        this.place()
-        this.reviewReady()
-        if (review.on) {
-            review.displayList()
-        }
-        def o:VlJson (VlJson.objectValue())
-        o.setMember("on" (VlJson.boolValue(review.on)))
-        o.setMember("slide" (PresApp.rectJson(review.sx review.sy review.sw review.sh)))
-        o.setMember("bar" (PresApp.rectJson((review.barX()) (review.barY()) review.barW review.barH)))
-        if (review.panelOpen()) {
-            o.setMember("panel" (PresApp.rectJson((review.panelX()) review.top review.panelW (H - review.top))))
-        } {
-            o.setMember("panel" (VlJson.nullValue()))
-        }
-        o.setMember("placing" (VlJson.boolValue(review.placing)))
-        o.setMember("open" (VlJson.stringValue(review.openId)))
-        o.setMember("drafting" (VlJson.boolValue(review.drafting)))
-        o.setMember("typing" (VlJson.boolValue((review.hasKeys()))))
-        o.setMember("threads" (VlJson.intValue((review.model.count()))))
-        o.setMember("openCount" (VlJson.intValue((review.model.openCount()))))
-        def w (new VlJsonWriter())
-        return (w.write(o))
-    }
-
     sfn rectJson:VlJson (x:double y:double w:double h:double) {
         def a:VlJson (VlJson.arrayValue())
         push a.arr (VlJson.numberValue(x))
@@ -6487,10 +6437,6 @@ class PresApp {
 
     fn reviewCount:int () {
         return (review.model.count())
-    }
-
-    fn reviewOpenCount:int () {
-        return (review.model.openCount())
     }
 
     ; The slides' titles to the review (threads follow their slides), and
@@ -6877,10 +6823,6 @@ class PresApp {
 
     fn roomChatOpen:boolean () {
         return room.open
-    }
-
-    fn roomChatRoom:string () {
-        return room.room
     }
 
     fn roomChatMe:void (id:string name:string avatar:string color:string) {
@@ -7485,7 +7427,7 @@ class PresApp {
             if (found >= 0) {
                 def box:MdBox (itemAt l.boxes found)
                 def head:string (PresI18n.t("Low contrast: ") + (PresApp.ratioWords(ratio)) + ":1, " + (PresI18n.t("needs ")) + (PresApp.ratioWords(need)) + ":1.")
-                def light:boolean (PresApp.isLight(box.color))
+                def light:boolean (PresExport.isLight(box.color))
                 def mdFix:string (PresI18n.t("Use a lighter text colour in the theme (CSS), or a lighter background."))
                 def cssFix:string (PresI18n.t("Use a lighter colour here, or a lighter background."))
                 if light {
@@ -7630,11 +7572,6 @@ class PresApp {
         return false
     }
 
-    sfn isLight:boolean (hex:string) {
-        def c:EVGColor (EVGColor.parse(hex))
-        def y:double ((((0.2126 * (to_double (c.red()))) + (0.7152 * (to_double (c.green())))) + (0.0722 * (to_double (c.blue())))) / 255.0)
-        return (y > 0.5)
-    }
 
     sfn ratioWords:string (v:double) {
         def t:int (to_int ((v * 10.0) + 0.5))
@@ -8984,23 +8921,11 @@ class PresApp {
         return ("{\"to\":\"" + chart.pasteTo + "\",\"crop\":\"" + (chart.crop.cropPixels()) + "\",\"whole\":" + whole + ",\"alt\":" + (PresApp.jsonStr(chart.pasteAlt)) + ",\"trace\":" + trace + "}")
     }
 
+    ; v as a JSON string, every character kept (a description's line breaks
+    ; included)
     sfn jsonStr:string (v:string) {
-        def out:string ""
-        def i:int 0
-        while (i < (strlen v)) {
-            def c:int (charAt v i)
-            if ((c == 34) || (c == 92)) {
-                out = (out + "\\" + (strfromcode c))
-            } {
-                if (c < 32) {
-                    out = (out + " ")
-                } {
-                    out = (out + (substring v i (i + 1)))
-                }
-            }
-            i = (i + 1)
-        }
-        return ("\"" + out + "\"")
+        def w (new VlJsonWriter())
+        return (w.write((VlJson.stringValue(v))))
     }
 
     ; The kept picture into the deck: on the slide at the caret, as the
