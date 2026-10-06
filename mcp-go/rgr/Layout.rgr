@@ -133,7 +133,10 @@ class Layout {
                 continue
             }
             def key:int b.srcStart
-            if (key < 0) {
+            ; the slide's title said again on a continuation carries the
+            ; block it was laid out in (a table cut in two): a heading of
+            ; its own, not part of that block's extent
+            if ((key < 0) || b.retold) {
                 key = (0 - (bi + 2))
             }
             def at:int (indexOf keys key)
@@ -142,6 +145,9 @@ class Layout {
                 push keys key
                 def nb (new RBlock)
                 nb.kind = (Layout.kindAt(md b.srcStart))
+                if b.retold {
+                    nb.kind = "heading"
+                }
                 nb.x = -1.0
                 push blocks nb
                 push rawLabel ""

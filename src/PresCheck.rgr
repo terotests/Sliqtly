@@ -1649,6 +1649,7 @@ class PresCheck {
         this.ok(((indexOf cfg "\"thousands\": \"\\u00a0\"") > 0) ("lang fi: a space between thousands: " + cfg))
         this.ok(((indexOf cfg "\"numberFormat\": \",\"") > 0) ("lang fi: value labels grouped: " + cfg))
         this.ok(((indexOf cfg "\"category\": [\"#b96926\", \"#59c3c4\", \"#a321d9\", \"#4c78a8\"") > 0) ("theme palette first, no repeats: " + cfg))
+        this.ok(((indexOf cfg "\"text\": {\"fontSize\": 15}") > 0) ("value labels as large as the axis labels: " + cfg))
         def p (new VlJsonParser())
         def j:VlJson (p.parse(cfg))
         this.ok(p.ok ("chart defaults are JSON: " + cfg))
@@ -1657,6 +1658,35 @@ class PresCheck {
         this.ok(((indexOf en "locale") < 0) ("no lang: Vega's own number marks: " + en))
         this.ok(((PresDeck.numberLocale("de-DE")) == "{\"decimal\": \",\", \"thousands\": \".\"}") "de: 1.234,5")
         this.ok(((PresDeck.numberLocale("en")) == "") "en: Vega's own")
+    }
+
+    ; A chart grown to its slide's room and a line written under it: the
+    ; chart is drawn for the room left, the line stays on the slide under
+    ; it (Tero's cloud run 2026-10-06: the line went to a slide of its own).
+    fn chartLeavesRoom:void () {
+        def css:string "page { width: 13.333in; height: 7.5in; padding: 0.7in } deck { split-level: 2 } document { font-size: 15pt }"
+        def md:string "## Maat\n\nNeljä maata tuo puolet summasta.\n{.lead}\n\n```vega-lite\n{\"height\": 340, \"width\": \"container\", \"data\": {\"values\": [{\"m\": \"a\", \"n\": 3}, {\"m\": \"b\", \"n\": 5}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"m\", \"type\": \"nominal\"}, \"y\": {\"field\": \"n\", \"type\": \"quantitative\"}}}\n```\n\nLähde: Customers.xlsx\n"
+        def deck (new PresDeck())
+        deck.setStyleSheet(css)
+        deck.setText(md)
+        deck.setText(md)
+        this.ok(((deck.slideCount()) == 1) ("a chart and the line under it: one slide, got " + (to_string (deck.slideCount()))))
+        def l:MdLayout (deck.layout())
+        def chartBottom:double -1.0
+        def lineTop:double -1.0
+        def k:int 0
+        while (k < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes k)
+            if (b.kind == 3) {
+                def drawnH:double (l.embeds.heightFor(b.embedKind b.embedSource b.w))
+                chartBottom = (b.y + drawnH)
+            }
+            if ((b.kind == 0) && ((indexOf b.text "Lähde") == 0)) {
+                lineTop = b.y
+            }
+            k = (k + 1)
+        }
+        this.ok(((lineTop > 0.0) && (chartBottom > 0.0) && (chartBottom <= (lineTop + 0.5))) ("the chart is drawn above the line: chart to " + (to_string chartBottom) + ", line at " + (to_string lineTop)))
     }
 
     ; A change to `chart { … }` draws the charts again a few per rebuild,
@@ -3154,6 +3184,7 @@ class PresCheck {
         c.ranges()
         c.limits()
         c.chartLocale()
+        c.chartLeavesRoom()
         c.staggered()
         c.flowModel()
         c.gridModel()

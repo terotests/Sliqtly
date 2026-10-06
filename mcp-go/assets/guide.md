@@ -93,17 +93,32 @@ per slide, in order.
   chart. To make a point, colour the few marks that matter and leave the
   rest in the second colour: colour by a computed field
   (`"calculate": "datum.rank <= 4 ? 'Top 4' : 'Others'"`) with
-  `"legend": null`.
-- **A chart with a side card.** Under the chart `{width=62%}`, then the
-  takeaway as a short list or paragraph: it stands beside the chart, not
-  under it. `{container=box background=#00000010}` under it sets it on a
-  card (on a dark theme `#ffffff14`).
+  `"legend": null`. Every theme has such a palette, `corporate` too (dark
+  blue, then a light grey-blue), and the ```` ```stats ```` cards and side
+  cards take the same colours.
+- **Many categories: horizontal bars.** Over about 12 bars, put the
+  category on `y` and the value on `x` (`"sort": "-x"`): the names and
+  value labels read at full size instead of slanted and small. Leave the
+  font sizes to the theme; a `fontSize` of 10 is too small on a slide.
+- **A chart or table with a side card.** Under the chart or table
+  `{width=62%}`, then the takeaway as a short list or paragraph: it stands
+  beside it, not under it. `{container=box background=#00000010}` under it
+  sets it on a card (on a dark theme `#ffffff14`); its text stays the
+  theme's. A line under a full-width chart (a source, a note) stays on the
+  chart's slide.
+- **Tables** span the slide. One of ten or more rows reads better a little
+  smaller than the body text: `table { font-size: 13pt }` in `css` (the
+  body is 15pt in `corporate`, 20pt in the dark themes).
 - **Numbers in the deck's language.** `lang: fi` in the front matter (or
   `sv`, `de`, `fr`…) writes every chart's numbers that language's way
   (`50 292`, `552,66`), axes, value labels and tooltips alike, with no
   `format` in the charts. Write the numbers in the text the same way.
-- **Title and closing slides** stay short: the `#` title with one `.lead`
-  line; the last slide the conclusions or next steps, 3–4 lines.
+- **Title and closing slides** are not bare lines. The title: the `#`
+  heading, one `.lead` line, and the deck's three key figures as a
+  ```` ```stats ```` fence (or a picture, `bg=media/…`). The closing slide:
+  the conclusions or next steps as a ```` ```process ```` or
+  ```` ```stats ```` fence, or 3–4 lines on a card
+  (`{container=box}`), not a plain list on an empty slide.
 - Fill the slide: one chart takes its room; a lone short list or a few
   words on an otherwise empty slide reads unfinished. Two related small
   things go side by side (`.c2`), not on two slides.
@@ -126,7 +141,9 @@ Pictures, data files and workbooks are stored only when the user is signed
 in; without sign-in a deck is text only and is deleted 7 days after its
 last change.
 Limits: without sign-in, 3 presentations per conversation and 20 slides
-each; signed in, 50 presentations per account and 100 slides each; a
+each; signed in, 50 presentations per account and 100 slides each (on a
+shared server the end of this guide says how many more you can create:
+read it before writing a deck); a
 presentation's pictures and files together up to 200 MB. render_slide,
 render_overview and export_presentation are counted a day (100 without
 sign-in, 500 signed in), two at a time.

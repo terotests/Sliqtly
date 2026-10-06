@@ -124,7 +124,7 @@ export function build({ ranger } = {}) {
   }
   // GitHub Pages serves the directory as it is; no Jekyll pass over it.
   fs.writeFileSync(path.join(distDir, ".nojekyll"), "");
-  for (const t of ["corporate", "editorial"]) {
+  for (const t of ["editorial"]) {
     // one declaration per line, as the editor's CSS tab shows our own themes
     fs.mkdirSync(path.join(distDir, "themes"), { recursive: true });
     fs.writeFileSync(path.join(distDir, `themes/${t}.css`),
