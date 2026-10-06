@@ -113,10 +113,10 @@ fs.mkdirSync(themesDir, { recursive: true });
 for (const f of fs.readdirSync(path.join(here, "..", "themes"))) {
   if (f.endsWith(".css")) fs.copyFileSync(path.join(here, "..", "themes", f), path.join(themesDir, f));
 }
-// corporate and editorial come from Ranger, as the editor's build takes
-// them (scripts/build.mjs): every theme is built in, so the server never
+// editorial comes from Ranger, as the editor's build takes
+// it (scripts/build.mjs): every theme is built in, so the server never
 // needs the site to lay a deck out
-for (const t of ["corporate", "editorial"]) {
+for (const t of ["editorial"]) {
   fs.writeFileSync(path.join(themesDir, `${t}.css`), formatCss(fs.readFileSync(path.join(ranger, `gallery/markdown/fixtures/themes/${t}.css`), "utf8")));
 }
 log("copied mcp-go/themes/*.css");

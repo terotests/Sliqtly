@@ -294,6 +294,8 @@ func TestLimitsPerCaller(t *testing.T) {
 		}
 	}
 	match(t, textOf(call(t, anon, "create_presentation", map[string]any{"title": "A", "markdown": "# A"})), `without sign-in one conversation makes at most 3 presentations`)
+	// the guide says so before a deck is written
+	match(t, textOf(call(t, anon, "sliqtly_guide", map[string]any{})), `## Room for new presentations\s+This conversation \(without sign-in\) already keeps 3 presentations, the most it may`)
 
 	long := func(n int) string {
 		md := "# Long"
@@ -305,6 +307,7 @@ func TestLimitsPerCaller(t *testing.T) {
 	other := start(t, testEnv(&f, nil), "")
 	defer other.close()
 	match(t, textOf(call(t, other, "create_presentation", map[string]any{"title": "L", "markdown": long(21)})), `21 slides; a presentation has at most 20.*sign in for up to 100`)
+	match(t, textOf(call(t, other, "sliqtly_guide", map[string]any{})), `keeps 0 of at most 3 presentations; 3 more can be created`)
 	ok := call(t, other, "create_presentation", map[string]any{"title": "L", "markdown": long(20)})
 	if ok.IsError {
 		t.Fatal(textOf(ok))
@@ -328,6 +331,7 @@ func TestLimitsPerCaller(t *testing.T) {
 		f.db.Set(context.Background(), "shares", fmt.Sprintf("Many%06d", i), Doc{"owner": "u1", "md": "# M"})
 	}
 	match(t, textOf(call(t, me, "create_presentation", map[string]any{"title": "M", "markdown": "# M"})), `already keeps 5[0-9] presentations, the most it may`)
+	match(t, textOf(call(t, me, "sliqtly_guide", map[string]any{})), `This Sliqtly account already keeps 5[0-9] presentations, the most it may: create_presentation will refuse a new one`)
 }
 
 // At most two drawings at once per caller; a daily count per caller and per

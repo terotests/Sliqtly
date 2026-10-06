@@ -455,3 +455,28 @@ func TestReportContainerPlateIsNotAnOverlap(t *testing.T) {
 		t.Fatal("overlapping texts not flagged")
 	}
 }
+
+// A table at 62% with a card beside it, too long for one slide: on the
+// continuation the title said again is a heading of its own, not part of
+// the table, and the card beside the table's rest does not overlap it.
+func TestReportTableContinuationWithCard(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "---\ntheme: corporate\n---\n\n## Asiakkaat\n\n| # | Asiakas | Kaupunki | Maa | Summa |\n|---|---|---|---|---:|\n"
+	for i := 1; i <= 14; i++ {
+		md += fmt.Sprintf("| %d | Hungry Owl All-Night Grocers | Buenos Aires | Argentiina | %d |\n", i, 900+i)
+	}
+	md += "{width=62%}\n\n- Kaikki yli 900\n- Kaksi Buenos Airesista\n{container=box}\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Split", "markdown": md})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	text := textOf(c)
+	t.Log(text)
+	match(t, text, `Slide 2: .*\n- heading "Asiakkaat" .*\n- table at 108,`)
+	match(t, text, `Slide \d+: .*\n- heading "Asiakkaat" .*\n- table at .*\n- list "•" at 1\d\d\d,`)
+	if strings.Contains(text, "overlap") {
+		t.Fatal("the card beside the table's rest is reported as overlapping it")
+	}
+}

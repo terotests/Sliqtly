@@ -1531,6 +1531,11 @@ class PresDeck {
             def guide:string ("{\"labelFontSize\": " + fs + ", \"titleFontSize\": " + ft + "}")
             if ((strlen parts) > 0) { parts = (parts + ", ") }
             parts = (parts + "\"axis\": " + guide + ", \"legend\": " + guide)
+            ; value labels (a `text` layer) as large as the axis labels:
+            ; Vega's 11 read small beside them (Tero's cloud run 2026-10-06)
+            if roomy {
+                parts = (parts + ", \"text\": {\"fontSize\": " + fs + "}")
+            }
         }
         ; every chart's: the deck's numbers and colours (`chartLook`)
         if roomy {

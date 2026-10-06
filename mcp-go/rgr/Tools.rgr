@@ -598,6 +598,30 @@ class Tools {
         return ""
     }
 
+    ; how many more decks this caller may make, said before an assistant
+    ; writes one: a full account was only told so by create_presentation,
+    ; after the whole deck had been written (Tero 2026-10-06)
+    sfn deckRoom:string (host:McpHost caller:Caller) {
+        def have:int 0
+        def most:int (Limits.ANON_DECKS())
+        def who:string "This conversation (without sign-in)"
+        if caller.signedIn {
+            def mine:MfJ (J.parse((host_query_eq host "shares" "owner" caller.uid)))
+            if ((strlen (host_error host)) > 0) {
+                return ""
+            }
+            have = (mine.count())
+            most = (Limits.USER_DECKS())
+            who = "This Sliqtly account"
+        } {
+            have = (Store.sessionCount(host caller.session))
+        }
+        if (have >= most) {
+            return (who + " already keeps " + (to_string have) + " presentations, the most it may: create_presentation will refuse a new one. Before writing a deck, ask the user which presentation to delete (list_presentations, then delete_presentation), or change an existing one with update_presentation.")
+        }
+        return (who + " keeps " + (to_string have) + " of at most " + (to_string most) + " presentations; " + (to_string (most - have)) + " more can be created.")
+    }
+
     ; why a deck of n slides is too long for this caller, or ""
     sfn slidesOver:string (caller:Caller n:int) {
         def max:int (Limits.slides(caller.signedIn))
@@ -1227,6 +1251,13 @@ class Tools {
             def rule:string (host_name_rule host)
             if ((strlen rule) > 0) {
                 guide = (guide + "\n\n## Naming presentations on this server\n\n" + rule + " create_presentation and update_presentation refuse a title that does not follow it. list_presentations gives each presentation's key apart from its name.\n")
+            }
+            if (Tools.limited(host)) {
+                def room:string (Tools.deckRoom(host caller))
+                host_clear_error host
+                if ((strlen room) > 0) {
+                    guide = (guide + "\n\n## Room for new presentations\n\n" + room + "\n")
+                }
             }
             g.put("content" (Tools.text(guide)))
             return g
