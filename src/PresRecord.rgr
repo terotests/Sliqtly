@@ -14,6 +14,15 @@
 ;   move   it went on to here
 ;   up     it was let go
 ;   clear  what was drawn was wiped (Backspace, or a new slide)
+;   text   writing began: colour, width, where (its top left)
+;   type   what is written now (the whole text)
+;   tend   writing ended
+;
+; CUTS. Parts of a take can be cut away afterwards (the recording's
+; timeline in the editor). Nothing is removed: the cuts are kept as times
+; beside the operations and the sound, and playing skips them. Inside a cut
+; the presentation still moves (a nav there is where the next part starts),
+; but nothing drawn or pointed at there shows.
 ;
 ; Times are seconds from the start of the recording (pauses left out).
 ;
@@ -27,6 +36,7 @@
 ; The file (recordings/take.json in the deck):
 ;
 ;   {"version":1,"duration":81.2,"voice":"clean","audio":"recordings/take.webm",
+;    "cuts":[[12.5,20.1]],
 ;    "ops":[[0,"nav",0,0,0,0],[0.52,"ptr",410.5,233],[1.1,"down","arrow",
 ;           "#ef4444",6,400,240],[1.13,"move",420,250],[1.4,"up"],…]}
 ;
@@ -49,6 +59,7 @@ class PresRecOp {
     def tool:string ""
     def color:string ""
     def width:double 0.0
+    def text:string ""
 }
 
 class PresRecording {
@@ -59,9 +70,21 @@ class PresRecording {
     def voice:string "clean"
     ; the deck's file with the sound, "" when there is none (no microphone)
     def audio:string ""
+    ; the parts cut away: start, end, start, end, … in order, apart
+    def cuts:[double]
 
     sfn PATH:string () {
         return "recordings/take.json"
+    }
+
+    ; Whether anything was written on it (the hand-written face is wanted).
+    fn hasText:boolean () {
+        for ops o:PresRecOp i {
+            if (o.k == "text") {
+                return true
+            }
+        }
+        return false
     }
 
     fn count:int () {
@@ -120,6 +143,178 @@ class PresRecording {
         this.op(t "hide")
     }
 
+    fn textStart:void (t:double color:string width:double x:double y:double) {
+        def o:PresRecOp (this.op(t "text"))
+        o.color = color
+        o.width = width
+        o.x = x
+        o.y = y
+    }
+
+    fn type:void (t:double text:string) {
+        def o:PresRecOp (this.op(t "type"))
+        o.text = text
+    }
+
+    fn textEnd:void (t:double) {
+        this.op(t "tend")
+    }
+
+    ; --- cuts ----------------------------------------------------------------
+
+    fn cutCount:int () {
+        return (idiv (array_length cuts) 2)
+    }
+
+    fn cutStart:double (i:int) {
+        return (itemAt cuts (i * 2))
+    }
+
+    fn cutEnd:double (i:int) {
+        return (itemAt cuts ((i * 2) + 1))
+    }
+
+    ; [a, b] cut away too; cuts that meet or overlap become one. A cut under
+    ; a twentieth of a second, or one that would leave nothing, is not made.
+    ; True when the cuts changed.
+    fn addCut:boolean (a:double b:double) {
+        def lo:double a
+        def hi:double b
+        if (hi < lo) {
+            lo = b
+            hi = a
+        }
+        if (lo < 0.0) { lo = 0.0 }
+        if (hi > duration) { hi = duration }
+        if ((hi - lo) < 0.05) {
+            return false
+        }
+        def out:[double]
+        def placed:boolean false
+        def i:int 0
+        def n:int (this.cutCount())
+        while (i < n) {
+            def ca:double (this.cutStart(i))
+            def cb:double (this.cutEnd(i))
+            if (cb < lo) {
+                push out ca
+                push out cb
+            } {
+                if (ca > hi) {
+                    if (placed == false) {
+                        push out lo
+                        push out hi
+                        placed = true
+                    }
+                    push out ca
+                    push out cb
+                } {
+                    ; touching: one cut
+                    if (ca < lo) { lo = ca }
+                    if (cb > hi) { hi = cb }
+                }
+            }
+            i = (i + 1)
+        }
+        if (placed == false) {
+            push out lo
+            push out hi
+        }
+        ; everything cut: nothing would be left to play
+        def left:double duration
+        def j:int 0
+        while (j < (idiv (array_length out) 2)) {
+            left = (left - ((itemAt out ((j * 2) + 1)) - (itemAt out (j * 2))))
+            j = (j + 1)
+        }
+        if (left < 0.05) {
+            return false
+        }
+        cuts = out
+        return true
+    }
+
+    ; Cut i put back.
+    fn removeCut:void (i:int) {
+        if ((i < 0) || (i >= (this.cutCount()))) {
+            return
+        }
+        def out:[double]
+        def k:int 0
+        while (k < (this.cutCount())) {
+            if (k != i) {
+                push out (this.cutStart(k))
+                push out (this.cutEnd(k))
+            }
+            k = (k + 1)
+        }
+        cuts = out
+    }
+
+    ; The cut time t is in, -1 none (a cut's end is not in it).
+    fn cutAt:int (t:double) {
+        def i:int 0
+        while (i < (this.cutCount())) {
+            if ((t >= (this.cutStart(i))) && (t < (this.cutEnd(i)))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Where playing at t goes on: the end of the cut t is in, else t.
+    fn skip:double (t:double) {
+        def c:int (this.cutAt(t))
+        if (c < 0) {
+            return t
+        }
+        return (this.cutEnd(c))
+    }
+
+    ; How long it plays, the cuts left out.
+    fn playLength:double () {
+        return (this.toPlay(duration))
+    }
+
+    ; The recording's time t as played (the cuts before it left out; inside
+    ; a cut, where the cut starts).
+    fn toPlay:double (t:double) {
+        def p:double t
+        def i:int 0
+        while (i < (this.cutCount())) {
+            def a:double (this.cutStart(i))
+            def b:double (this.cutEnd(i))
+            if (t >= b) {
+                p = (p - (b - a))
+            } {
+                if (t > a) {
+                    p = (p - (t - a))
+                }
+            }
+            i = (i + 1)
+        }
+        return p
+    }
+
+    ; A time as played back to the recording's own (after a cut, not in it).
+    fn toSource:double (p:double) {
+        def t:double p
+        def i:int 0
+        while (i < (this.cutCount())) {
+            def a:double (this.cutStart(i))
+            def b:double (this.cutEnd(i))
+            if (t >= a) {
+                t = (t + (b - a))
+            }
+            i = (i + 1)
+        }
+        if (t > duration) {
+            t = duration
+        }
+        return t
+    }
+
     ; What the operation does to the ink (nav does nothing to it).
     sfn apply:void (o:PresRecOp ink:PresInk) {
         if (o.k == "ptr") {
@@ -144,6 +339,18 @@ class PresRecording {
         }
         if (o.k == "hide") {
             ink.hidePointer()
+            return
+        }
+        if (o.k == "text") {
+            ink.startText(o.color o.width o.x o.y)
+            return
+        }
+        if (o.k == "type") {
+            ink.setText(o.text)
+            return
+        }
+        if (o.k == "tend") {
+            ink.endText()
         }
     }
 
@@ -209,6 +416,18 @@ class PresRecording {
         root.setMember("duration" (PresRecording.num((PresRecording.r3(duration)))))
         root.setMember("voice" (VlJson.stringValue(voice)))
         root.setMember("audio" (VlJson.stringValue(audio)))
+        if ((this.cutCount()) > 0) {
+            def ca:VlJson (VlJson.arrayValue())
+            def ci:int 0
+            while (ci < (this.cutCount())) {
+                def pair:VlJson (VlJson.arrayValue())
+                push pair.arr (PresRecording.num((PresRecording.r3((this.cutStart(ci))))))
+                push pair.arr (PresRecording.num((PresRecording.r3((this.cutEnd(ci))))))
+                push ca.arr pair
+                ci = (ci + 1)
+            }
+            root.setMember("cuts" ca)
+        }
         def arr:VlJson (VlJson.arrayValue())
         def i:int 0
         while (i < (array_length ops)) {
@@ -227,7 +446,14 @@ class PresRecording {
                 push a.arr (VlJson.stringValue(o.color))
                 push a.arr (PresRecording.num((PresRecording.r1(o.width))))
             }
-            if (((o.k == "ptr") || (o.k == "down")) || (o.k == "move")) {
+            if (o.k == "text") {
+                push a.arr (VlJson.stringValue(o.color))
+                push a.arr (PresRecording.num((PresRecording.r1(o.width))))
+            }
+            if (o.k == "type") {
+                push a.arr (VlJson.stringValue(o.text))
+            }
+            if ((((o.k == "ptr") || (o.k == "down")) || (o.k == "move")) || (o.k == "text")) {
                 push a.arr (PresRecording.num((PresRecording.r1(o.x))))
                 push a.arr (PresRecording.num((PresRecording.r1(o.y))))
             }
@@ -287,12 +513,30 @@ class PresRecording {
                 if (k == "hide") {
                     r.hide(t)
                 }
+                if ((k == "text") && ((a.count()) >= 6)) {
+                    r.textStart(t ((a.at(2)).asString()) ((a.at(3)).asDouble()) ((a.at(4)).asDouble()) ((a.at(5)).asDouble()))
+                }
+                if ((k == "type") && ((a.count()) >= 3)) {
+                    r.type(t ((a.at(2)).asString()))
+                }
+                if (k == "tend") {
+                    r.textEnd(t)
+                }
             }
             i = (i + 1)
         }
         def d:double (root.doubleOr("duration" 0.0))
         if (d > r.duration) {
             r.duration = d
+        }
+        def cs:VlJson (root.get("cuts"))
+        def c:int 0
+        while (c < (cs.count())) {
+            def pr:VlJson (cs.at(c))
+            if ((pr.count()) >= 2) {
+                r.addCut(((pr.at(0)).asDouble()) ((pr.at(1)).asDouble()))
+            }
+            c = (c + 1)
         }
         return r
     }
@@ -423,7 +667,11 @@ class PresReplay {
                 nav = at
                 navMoved = true
             } {
-                PresRecording.apply(o ink)
+                ; what was drawn or pointed at in a cut does not show; a
+                ; wipe there still wipes, and writing begun before one ends
+                if (((rec.cutAt(o.t)) < 0) || (((o.k == "clear") || (o.k == "tend")) || (o.k == "up"))) {
+                    PresRecording.apply(o ink)
+                }
             }
             at = (at + 1)
         }

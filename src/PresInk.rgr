@@ -14,6 +14,9 @@
 ;   line     straight, from the press to the release
 ;   ellipse  in the box from the press to the release (a circle round
 ;            something)
+;   text     words written on the slide, large, in a hand-written face
+;            (FACE): begun with a click (the text tool) or by typing with
+;            the pointer over the slide, ended with Enter, Esc or a click
 ;
 ; Backspace wipes everything drawn; a new slide starts clean.
 ;
@@ -32,8 +35,10 @@ class PresInkStroke {
     ; in slide units (on a slide 1280 wide)
     def width:double 6.0
     ; as drawn: x, y, x, y, … For a line and an ellipse only the first and
-    ; the last point count.
+    ; the last point count; for text, where its top left is.
     def pts:[double]
+    ; a text's words
+    def text:string ""
 }
 
 class PresInk {
@@ -47,6 +52,10 @@ class PresInk {
     def ptrAt:double -1.0
     ; bumped on every change, for the host's repaint
     def rev:int 0
+    ; a text is being written (the last stroke)
+    def typing:boolean false
+    ; the written line's width, measured by the app (-1 not measured)
+    def caretW:double -1.0
 
     ; How long the pointer stays after it stops, and how long it fades.
     sfn PTR_STAY:double () {
@@ -58,11 +67,27 @@ class PresInk {
     }
 
     sfn tools:[string] () {
-        return ([] _:string ("pen" "arrow" "line" "ellipse"))
+        return ([] _:string ("pen" "arrow" "line" "ellipse" "text"))
     }
 
     sfn knownTool:boolean (t:string) {
-        return ((((t == "pen") || (t == "arrow")) || (t == "line")) || (t == "ellipse"))
+        return (((((t == "pen") || (t == "arrow")) || (t == "line")) || (t == "ellipse")) || (t == "text"))
+    }
+
+    ; The face text is written in: hand-written, so it reads as said over
+    ; the slide, not as part of it.
+    sfn FACE:string () {
+        return "Gloria Hallelujah"
+    }
+
+    ; A text's letters are this many times its stroke width tall: a 6 wide
+    ; pen writes 54 high on a slide 1280 wide.
+    sfn TEXT_SCALE:double () {
+        return 9.0
+    }
+
+    sfn textSize:double (s:PresInkStroke) {
+        return (s.width * (PresInk.TEXT_SCALE()))
     }
 
     fn count:int () {
@@ -70,6 +95,7 @@ class PresInk {
     }
 
     fn down:void (tool:string color:string width:double x:double y:double) {
+        this.endText()
         def s (new PresInkStroke())
         s.tool = tool
         if ((PresInk.knownTool(tool)) == false) {
@@ -120,7 +146,81 @@ class PresInk {
         def none:[PresInkStroke]
         strokes = none
         drawing = false
+        typing = false
         rev = (rev + 1)
+    }
+
+    ; --- text ------------------------------------------------------------------
+
+    ; A text begins at (x, y), its top left; the one being written ends first.
+    fn startText:void (color:string width:double x:double y:double) {
+        this.endText()
+        def s (new PresInkStroke())
+        s.tool = "text"
+        s.color = color
+        s.width = width
+        if (s.width <= 0.0) {
+            s.width = 6.0
+        }
+        push s.pts x
+        push s.pts y
+        push strokes s
+        typing = true
+        rev = (rev + 1)
+    }
+
+    ; The text being written is `t` now (the whole of it: a replay sets it
+    ; as it was).
+    fn setText:void (t:string) {
+        if ((typing == false) || ((array_length strokes) == 0)) {
+            return
+        }
+        def s:PresInkStroke (itemAt strokes ((array_length strokes) - 1))
+        s.text = t
+        rev = (rev + 1)
+    }
+
+    ; The text being written, "" when none.
+    fn typed:string () {
+        if ((typing == false) || ((array_length strokes) == 0)) {
+            return ""
+        }
+        def s:PresInkStroke (itemAt strokes ((array_length strokes) - 1))
+        return s.text
+    }
+
+    ; Writing ends; a text left empty is no text.
+    fn endText:void () {
+        if (typing == false) {
+            return
+        }
+        typing = false
+        def n:int (array_length strokes)
+        if (n > 0) {
+            def s:PresInkStroke (itemAt strokes (n - 1))
+            if ((strlen (trim s.text)) == 0) {
+                def keep:[PresInkStroke]
+                def i:int 0
+                while (i < (n - 1)) {
+                    push keep (itemAt strokes i)
+                    i = (i + 1)
+                }
+                strokes = keep
+            }
+        }
+        rev = (rev + 1)
+    }
+
+    ; A text is on it (the host fetches the face).
+    fn hasText:boolean () {
+        def i:int 0
+        while (i < (array_length strokes)) {
+            if ((itemAt strokes i).tool == "text") {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     fn pointer:void (x:double y:double t:double) {
@@ -376,6 +476,9 @@ class PresInk {
             PresInk.drawStroke(dl s)
             i = (i + 1)
         }
+        if (typing && ((array_length strokes) > 0)) {
+            this.drawCaret(dl (itemAt strokes ((array_length strokes) - 1)))
+        }
         def a:double (this.pointerAlpha(now))
         if (a > 0.0) {
             def ring:[double] (PresInk.pointerShape(ptrX ptrY (30.0 * unit)))
@@ -383,6 +486,32 @@ class PresInk {
             dl.addPolyline(ring (2.0 * unit) (EVGColor.rgba(17 17 17 a)))
             this.roundLast(dl)
         }
+    }
+
+    ; Where writing goes on: a bar after the last line. Nothing here measures
+    ; letters, so its place is the face's average width (about 0.55 of the
+    ; size) times the letters: near enough to show where typing lands.
+    fn drawCaret:void (dl:EVGDisplayList s:PresInkStroke) {
+        if ((array_length s.pts) < 2) {
+            return
+        }
+        def size:double (PresInk.textSize(s))
+        def lines:[string] (strsplit s.text "\n")
+        def last:string ""
+        def n:int (array_length lines)
+        if (n > 0) {
+            last = (itemAt lines (n - 1))
+        } {
+            n = 1
+        }
+        ; the width the app measured, or near enough before the face loads
+        def w:double caretW
+        if (w < 0.0) {
+            w = ((to_double (strlen last)) * (size * 0.55))
+        }
+        def cx:double ((itemAt s.pts 0) + w)
+        def cy:double ((itemAt s.pts 1) + ((to_double (n - 1)) * (size * 1.35)))
+        dl.addRect(cx (cy + (size * 0.2)) (s.width * 0.6) (size * 1.2) (EVGColor.parse(s.color)))
     }
 
     fn roundLast:void (dl:EVGDisplayList) {
@@ -396,6 +525,10 @@ class PresInk {
 
     sfn drawStroke:void (dl:EVGDisplayList s:PresInkStroke) {
         def col:EVGColor (EVGColor.parse(s.color))
+        if (s.tool == "text") {
+            PresInk.drawText(dl s col)
+            return
+        }
         def line:[double] (PresInk.shape(s))
         if ((array_length line) < 2) {
             return
@@ -419,6 +552,26 @@ class PresInk {
             }
         }
         PresInk.strokeLine(dl line s.width col)
+    }
+
+    ; Large, with a dark shadow under it so it reads on any slide.
+    sfn drawText:void (dl:EVGDisplayList s:PresInkStroke col:EVGColor) {
+        if ((array_length s.pts) < 2) {
+            return
+        }
+        def x:double (itemAt s.pts 0)
+        def y:double (itemAt s.pts 1)
+        def size:double (PresInk.textSize(s))
+        def lines:[string] (strsplit s.text "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:string (itemAt lines i)
+            def ly:double (y + ((to_double i) * (size * 1.35)))
+            def off:double (size * 0.05)
+            dl.addText(ln (x + off) (ly + off) size (EVGColor.rgba(0 0 0 0.55)) (PresInk.FACE()) false false (size * 40.0) (size * 1.6))
+            dl.addText(ln x ly size col (PresInk.FACE()) false false (size * 40.0) (size * 1.6))
+            i = (i + 1)
+        }
     }
 
     sfn strokeLine:void (dl:EVGDisplayList line:[double] width:double col:EVGColor) {
