@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -101,6 +102,15 @@ func TestViewLists(t *testing.T) {
 	code, _, gone, _ := getView(t, s.root+"/api/view/"+id+"?slides=nothing-like-it")
 	eq(t, code, 200)
 	eq(t, gone.Deck.Slides, 1)
+
+	// a private deck is not shown: the viewer has no sign-in
+	ctx := context.Background()
+	if err := f.db.Update(ctx, "shares", id, Doc{"visibility": "private"}); err != nil {
+		t.Fatal(err)
+	}
+	code, h, _, _ = getView(t, s.root+"/api/view/"+id)
+	eq(t, code, 404)
+	eq(t, h.Get("Cache-Control"), "no-store")
 
 	// no such presentation, and an id that is not one
 	for _, bad := range []string{"/api/view/AbCdEf1234", "/api/view/../x", "/api/view/", "/api/view/a"} {

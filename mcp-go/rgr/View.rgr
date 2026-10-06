@@ -37,6 +37,11 @@ class View {
         if ((doc.isObj()) == false) {
             return ""
         }
+        ; a private deck is its owner's only, and the viewer has no
+        ; sign-in: it is "not found" here like a missing one
+        if ((doc.str_("visibility")) == "private") {
+            return ""
+        }
         def md:string (doc.str_("md"))
         def stored:[string]
         for (doc.list("files")) f:MfJ fi {
