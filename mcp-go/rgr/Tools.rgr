@@ -2000,6 +2000,13 @@ class Tools {
             if ((strlen (host_error host)) > 0) {
                 return ed
             }
+            if mine {
+                ; held a day from this change
+                Store.sessionGrant(host caller.session id)
+                if ((strlen (host_error host)) > 0) {
+                    return ed
+                }
+            }
             if (mine == false) {
                 ed.fail = ("Not saved: presentation " + id + " was made without sign-in in another Sliqtly session (a conversation that has ended, or more than a day ago), and only that session could change it. Anyone with its link can still view it. Tell the user, and do not make a copy unasked; a copy made with create_presentation is a new presentation with its own link.")
                 return ed
