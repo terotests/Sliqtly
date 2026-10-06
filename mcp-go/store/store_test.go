@@ -80,6 +80,21 @@ func TestSQLiteStore(t *testing.T) {
 	})
 }
 
+func TestMemChat(t *testing.T) {
+	storetest.RunChat(t, func(t *testing.T) store.ChatLog { return store.NewMemChat() })
+}
+
+func TestSQLiteChat(t *testing.T) {
+	storetest.RunChat(t, func(t *testing.T) store.ChatLog {
+		s, err := store.OpenSQLiteStore(filepath.Join(t.TempDir(), "sliqtly.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { s.Close() })
+		return store.NewSQLiteChat(s)
+	})
+}
+
 func TestSQLiteBlobStore(t *testing.T) {
 	storetest.RunBlobs(t, func(t *testing.T) store.BlobStore {
 		b, err := store.OpenSQLiteBlobStore(filepath.Join(t.TempDir(), "blobs.db"))
@@ -160,7 +175,7 @@ func TestSQLiteSchemaVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := len(store.SQLiteSchema); rep.From != n || rep.To != n+1 || rep.Backup == "" {
+	if rep.From != len(store.SQLiteSchema) || rep.To != len(store.SQLiteSchema)+1 || rep.Backup == "" {
 		t.Fatalf("report %+v", rep)
 	}
 	var notes int

@@ -330,6 +330,29 @@ class PresHints {
         return ((((l == "mermaid") || (l == "dot")) || ((l == "graphviz") || (l == "d2"))) || ((l == "plantuml") || (l == "puml")))
     }
 
+    ; What kind of block a fence's language makes: "diagram", "figure",
+    ; "chart", "math" or "code".
+    sfn fenceGroup:string (lang:string) {
+        def l:string (to_lowercase (trim lang))
+        if (PresHints.isDiagramLang(l)) {
+            return "diagram"
+        }
+        if (((l == "process") || (l == "swot")) || (l == "timeline")) {
+            return "figure"
+        }
+        if (((l == "vega-lite") || (l == "vegalite")) || (l == "vega")) {
+            return "chart"
+        }
+        if (l == "math") {
+            return "math"
+        }
+        return "code"
+    }
+
+    sfn codeLangs:string () {
+        return "js ts python bash json html css sql"
+    }
+
     ; The looks a diagram can take (`style=`, `diagram=classic`).
     sfn diagramLooks:string () {
         return "holo sketch classic mermaid jurassic cartoon romantic"
@@ -353,15 +376,33 @@ class PresHints {
         }
         def lang:string (substring line a b)
         def h:PresHint (PresHint.make("enum" (PresI18n.t("language")) lang a b))
-        h.doc = (PresI18n.t("What the block is: a diagram, a formula or code. process, swot and timeline draw a layout from a list, one `Title: description` per line."))
-        h.options = "mermaid dot plantuml d2 vega-lite process swot timeline math js python bash json"
-        ; a diagram: its looks; the notation is not switched from here
-        if (PresHints.isDiagramLang(lang)) {
+        ; what the block can turn into without its body meaning something
+        ; else: a list layout another layout, code another language
+        def group:string (PresHints.fenceGroup(lang))
+        if (group == "diagram") {
+            ; its looks; the notation is not switched from here
             h.name = (PresI18n.t("Diagram"))
             h.doc = (PresI18n.t("The diagram's look."))
             h.looks = (PresHints.diagramLooks())
-            h.options = ""
+            return (h.json())
         }
+        if (group == "figure") {
+            h.name = (PresI18n.t("Layout"))
+            h.doc = (PresI18n.t("A layout drawn from a list, one `Title: description` per line. Its colours are the theme's figure colors."))
+            h.options = "process swot timeline"
+            h.figure = true
+            return (h.json())
+        }
+        if (group == "chart") {
+            h.doc = (PresI18n.t("A Vega-Lite chart."))
+            return (h.json())
+        }
+        if (group == "math") {
+            h.doc = (PresI18n.t("A formula in LaTeX."))
+            return (h.json())
+        }
+        h.doc = (PresI18n.t("The code's language, for its colours."))
+        h.options = (PresHints.codeLangs())
         return (h.json())
     }
 
@@ -739,6 +780,8 @@ class PresHint {
     ; it has (set by the app, which reads the whole block)
     def looks:string ""
     def look:string ""
+    ; a list layout's fence: the card edits the theme's figure colours
+    def figure:boolean false
 
     Constructor () {
     }
@@ -804,6 +847,9 @@ class PresHint {
         out = (out + ",\"options\":" + (PresHint.list(options)) + ",\"adds\":" + (PresHint.list(adds)) + ",\"unit\":" + (PresHint.q(unit)))
         if ((strlen looks) > 0) {
             out = (out + ",\"looks\":" + (PresHint.list(looks)))
+        }
+        if figure {
+            out = (out + ",\"figure\":true")
         }
         if ((strlen look) > 0) {
             out = (out + ",\"look\":" + (PresHint.q(look)))
