@@ -128,6 +128,15 @@
      switches the speaker view and auto-advance (the rest is the reader's) */
   body.presenting:not(.viewer) #vMenu > :not([role="menuitemcheckbox"]) { display: none; }
   #viewBar > button[hidden] { display: none; }
+  /* main.js tips: what a button does, on hover, above it (the presenting
+     bar's buttons, and review mode's bar and pins drawn on the canvas) */
+  #tip {
+    position: fixed; z-index: 30; max-width: min(320px, calc(100vw - 32px)); box-sizing: border-box;
+    padding: 6px 10px; border-radius: 6px; background: rgba(24, 24, 27, 0.92); color: #fafafa;
+    border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    font: 13px/1.35 "Open Sans", system-ui, sans-serif; pointer-events: none; white-space: pre-line;
+  }
+  #tip[hidden] { display: none; }
   /* main.js pressCard: a Google Sheet link confirmed, Google's window opened from a press */
   .gCard {
     position: fixed; left: 50%; top: 30%; transform: translateX(-50%); z-index: 20;
@@ -432,6 +441,7 @@
     <button id="endExit" title="Stop presenting (Esc)" data-i18n-title data-i18n>✕ Exit</button>
   </div>
 </div>
+<div id="tip" role="tooltip" hidden></div>
 <div id="recBadge" role="status" hidden>
   <span class="dot" aria-hidden="true"></span><b data-i18n>REC</b><span id="recTime">0:00</span>
   <span id="recMute" data-i18n hidden>no sound</span>

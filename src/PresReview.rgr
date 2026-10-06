@@ -22,6 +22,8 @@
 ;    "threads": [{"id", "slide" (1 = first), "title", "x", "y" (0..1 of the
 ;                 slide's width and height), "closed", "state" (when closed or
 ;                 opened last, ms), "by" (who did that), "created",
+;                 "severity" ("low", "medium", "high"; left out when not
+;                 said) and "severityAt" (when it was set, ms),
 ;                 "messages": [{"id", "who", "name", "color", "text", "at"}]}],
 ;    "deleted": [thread ids]}
 ;
@@ -69,6 +71,10 @@ class PresReviewThread {
     ; when it was dragged somewhere else last (0 never): the latest move wins
     ; a merge
     def moved:double 0.0
+    ; how serious it is: "" not said, "low", "medium" or "high" (green,
+    ; yellow, red), and when it was set last (the latest wins a merge)
+    def severity:string ""
+    def sevAt:double 0.0
 
     fn count:int () {
         return (array_length msgs)
@@ -276,6 +282,33 @@ class PresReview {
         return true
     }
 
+    ; "low", "medium", "high" or "" (not said); anything else is "". False
+    ; when there is no such thread or it already was.
+    fn setSeverity:boolean (id:string sev:string at:double) {
+        def i:int (this.indexOf(id))
+        if (i < 0) {
+            return false
+        }
+        def t:PresReviewThread (itemAt threads i)
+        def v:string (PresReview.severityOf(sev))
+        if (t.severity == v) {
+            return false
+        }
+        t.severity = v
+        t.sevAt = at
+        rev = (rev + 1)
+        return true
+    }
+
+    ; a severity as kept: "low", "medium", "high" or ""
+    sfn severityOf:string (sev:string) {
+        def v:string (to_lowercase (trim sev))
+        if (((v == "low") || (v == "medium")) || (v == "high")) {
+            return v
+        }
+        return ""
+    }
+
     ; The thread's point on a diagram (see PresReviewThread.dia); false when
     ; there is no such thread.
     fn anchor:boolean (id:string dia:int node:string ax:double ay:double) {
@@ -434,6 +467,11 @@ class PresReview {
                         mine.ay = ot.ay
                         changed = true
                     }
+                    if ((ot.sevAt > mine.sevAt) && (ot.severity != mine.severity)) {
+                        mine.severity = ot.severity
+                        mine.sevAt = ot.sevAt
+                        changed = true
+                    }
                     if ((ot.state > mine.state) && ((ot.closed != mine.closed) || (ot.by != mine.by))) {
                         mine.closed = ot.closed
                         mine.state = ot.state
@@ -465,6 +503,8 @@ class PresReview {
         c.ax = t.ax
         c.ay = t.ay
         c.moved = t.moved
+        c.severity = t.severity
+        c.sevAt = t.sevAt
         for t.msgs m:PresReviewMsg i {
             push c.msgs (PresReview.msg(m.id m.who m.name m.color m.text m.at))
         }
@@ -556,6 +596,9 @@ class PresReview {
         def t:PresReviewThread (unwrap f)
         def nl:string (strfromcode 10)
         def head:string ((PresReview.slideLabel(t.slide titles)) + ", " + (PresReview.whereText(t)))
+        if ((strlen t.severity) > 0) {
+            head = (head + ", severity " + t.severity)
+        }
         if t.closed {
             head = (head + " (resolved)")
         }
@@ -622,7 +665,11 @@ class PresReview {
                 while (j < (array_length order)) {
                     def tj:PresReviewThread (itemAt order j)
                     if (tj.slide == t.slide) {
-                        out = (out + "[" + (to_string (j + 1)) + "] " + (PresReview.whereText(tj)) + nl + (PresReview.messagesText(tj "    ")))
+                        def sevNote:string ""
+                        if ((strlen tj.severity) > 0) {
+                            sevNote = (" (severity " + tj.severity + ")")
+                        }
+                        out = (out + "[" + (to_string (j + 1)) + "] " + (PresReview.whereText(tj)) + sevNote + nl + (PresReview.messagesText(tj "    ")))
                     }
                     j = (j + 1)
                 }
@@ -793,6 +840,12 @@ class PresReview {
             if (t.moved > 0.0) {
                 o.setMember("moved" (PresReview.num(t.moved)))
             }
+            if ((strlen t.severity) > 0) {
+                o.setMember("severity" (VlJson.stringValue(t.severity)))
+            }
+            if (t.sevAt > 0.0) {
+                o.setMember("severityAt" (PresReview.num(t.sevAt)))
+            }
             if (t.dia >= 0) {
                 def on:VlJson (VlJson.objectValue())
                 on.setMember("diagram" (VlJson.intValue(t.dia)))
@@ -873,6 +926,8 @@ class PresReview {
                 t.by = (o.stringOr("by" ""))
                 t.created = (o.doubleOr("created" 0.0))
                 t.moved = (o.doubleOr("moved" 0.0))
+                t.severity = (PresReview.severityOf((o.stringOr("severity" ""))))
+                t.sevAt = (o.doubleOr("severityAt" 0.0))
                 def on:VlJson (o.get("on"))
                 if ((on.isObject()) && ((on.intOr("diagram" -1)) >= 0)) {
                     t.dia = (on.intOr("diagram" -1))

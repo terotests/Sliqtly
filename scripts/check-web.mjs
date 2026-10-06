@@ -316,6 +316,10 @@ try {
       const f1 = el("rv-chat-field"), c1 = el("rv-chat-field-caret");
       out.grew = [f0, f1.calculatedHeight];
       out.caretIn = c1.calculatedWidth > 0 && c1.calculatedY >= f1.calculatedY && c1.calculatedY + c1.calculatedHeight <= f1.calculatedY + f1.calculatedHeight + 0.5;
+      // every line shows: the text's view is as tall as its lines (it
+      // stayed one line high and cut the rest)
+      const v1 = el("rv-chat-field-view"), n1 = rv.chat.input.placed ? rv.chat.input.placed.count() : 0;
+      out.lines = [n1, v1.calculatedHeight, rv.chat.input.lineBox];
       a.key("enter", true, false);
       out.newline = rv.chat.input.value.includes("\n");
       rv.chat.input.setValue("");
@@ -333,8 +337,68 @@ try {
     });
     check("a comment box with the keys hides its hint and shows a light caret", r.focusedText === "" && r.caret && r.caretLight, JSON.stringify(r));
     check("…a long comment wraps and the box grows, the caret in it", r.grew[1] > r.grew[0] + 5 && r.caretIn, JSON.stringify(r));
+    check("…and every line of it shows", r.lines[0] >= 2 && r.lines[1] + 0.5 >= r.lines[0] * r.lines[2], JSON.stringify(r));
     check("…Shift+Enter breaks the line instead of sending", r.newline, JSON.stringify(r));
     check("…without the keys its hint is faint, not the text's white", r.hint === r.ph && !!r.ph && r.hintAlpha < 0.6, JSON.stringify(r));
+  }
+
+  // A new comment while editing is written in a callout by its pin, as when
+  // presenting: the slide keeps its width (no panel opens on the right), it
+  // can be marked how serious it is (the pin takes that colour), and once
+  // sent the callout closes and leaves the pin. The bar reads "+ Add comment".
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app, rv = a.review;
+      const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const el = (id) => { a.reviewJson(); return walk(rv.host.lastPage, id); };
+      const wasOn = a.reviewMode();
+      a.setReviewMode(true);
+      a.takeRequest();
+      const out = {};
+      const words = (e) => (e.textContent || "") + (e.children || []).map(words).join("");
+      out.add = el("rv-add") && words(el("rv-add"));
+      const ad = el("rv-add");
+      out.tip = ad && a.tipAt(ad.calculatedX + ad.calculatedWidth / 2, ad.calculatedY + ad.calculatedHeight / 2);
+      const n0 = rv.model.threads.length;
+      rv.startDraft(a.slideShown(), 0.3, 0.4);
+      out.dock = rv.dockW();
+      out.callout = !!el(rv.co.frameTid()) && !el("rv-dock");
+      rv.chat.activate("rv-chat-act-sev-high");
+      rv.takeChat();
+      out.sev = rv.draftSev;
+      a.reviewJson();
+      out.pinFill = rv.pins.map((p) => p.color);
+      a.text("The total is wrong");
+      a.key("enter", false, false);
+      const t = rv.model.threads[rv.model.threads.length - 1];
+      out.made = rv.model.threads.length === n0 + 1 && t.severity === "high";
+      out.open = rv.panelOpen();
+      out.pin = !!el("rv-pin-" + t.id);
+      if (t) { rv.model.setClosed(t.id, true, "", 0); rv.model.remove(t.id); rv.save(); }
+      a.setReviewMode(wasOn);
+      return out;
+    });
+    check("the review bar reads \"+ Add comment\" and its tip says what it does", r.add === "+ Add comment" && /click where it goes/.test(r.tip), JSON.stringify(r));
+    check("…a new comment while editing is a callout by its pin, no panel", r.dock === 0 && r.callout, JSON.stringify(r));
+    check("…it can be marked serious, and its pin turns red", r.sev === "high" && r.pinFill.includes("#b8625b"), JSON.stringify(r));
+    check("…sent, the callout closes and leaves the pin", r.made && !r.open && r.pin, JSON.stringify(r));
+  }
+
+  // Tips: hovering a button says what it does, the presenting bar's (its
+  // title, sooner and larger than the browser's) and review mode's
+  {
+    const r = await page.evaluate(async () => {
+      const b = document.getElementById("vNext");
+      b.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+      await new Promise((res) => setTimeout(res, 500));
+      const tip = document.getElementById("tip");
+      const out = { shown: !tip.hidden, text: tip.textContent, noTitle: !b.hasAttribute("title") };
+      b.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
+      out.gone = tip.hidden && b.getAttribute("title") === out.text;
+      return out;
+    });
+    check("hovering a presenting button shows a tip with what it does", r.shown && /Next/.test(r.text) && r.noTitle, JSON.stringify(r));
+    check("…and it goes when the pointer leaves, the title back", r.gone, JSON.stringify(r));
   }
 
   // Text the reader needs elsewhere can be selected and copied (EVGUI

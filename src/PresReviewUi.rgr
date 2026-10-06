@@ -9,9 +9,11 @@
 ;
 ;   pins     each thread of the slide shown, as a pulsing ball at its point
 ;            (PresReviewDot); a closed one is faint. A press opens it.
-;   bar      a small bar at the foot of the stage: "Comment" (then a press
+;   bar      a small bar at the foot of the stage: "+ Add comment" (then a press
 ;            on the slide says where), how many are open, and "Next" (the
 ;            next open one, on whatever slide it is)
+;   new      a new comment is written in a callout by its pin, editing too
+;            (sent, it is a pin; how serious it is: green, yellow, red)
 ;   thread   the conversation docked on the right (EVGUI ChatCtl as a
 ;            thread): its messages, a line to answer on, Resolve; a resolved
 ;            one Reopen and Delete (pressed twice), and no line to answer on
@@ -68,6 +70,8 @@ class PresReviewUi {
     def draftSlide:int 0
     def draftX:double 0.0
     def draftY:double 0.0
+    ; the new comment's severity, picked before it is sent ("" none)
+    def draftSev:string ""
     ; "Comment" was pressed: the next press on the slide says where
     def placing:boolean false
     ; Delete pressed once, waiting for the second
@@ -84,7 +88,8 @@ class PresReviewUi {
     ; the page's clock: ms since 1970, and its time zone (minutes east)
     def nowMs:double 0.0
     def zoneMin:int 0
-    ; the pins' fill (File → Settings)
+    ; the fill of a pin whose severity is not said (one with a severity is
+    ; green, yellow or red: severityColor)
     def color:string "#e08a3c"
     def requests:[string]
     ; a slide to show (the next comment), -1 none
@@ -141,6 +146,8 @@ class PresReviewUi {
     def coY:double 0.0
     def coW:double 0.0
     def coH:double 0.0
+    ; page() is building the draft again for its lines (`linesChanged`)
+    def regrowing:boolean false
 
     Constructor () {
         chat.setup("rv-chat" (PresI18n.t("Comment")))
@@ -159,10 +166,32 @@ class PresReviewUi {
         return (on && ((drafting || listing) || ((strlen openId) > 0)))
     }
 
+    ; The thread is a callout beside its pin (`calloutEl`) rather than a
+    ; panel down the right edge: always while presenting, and while editing
+    ; for a new comment, which then stays by the point it is about.
+    fn floating:boolean () {
+        return (present || drafting)
+    }
+
+    ; the pin's fill for a severity ("" the pins' colour from Settings):
+    ; muted green, yellow and red
+    sfn severityColor:string (sev:string fallback:string) {
+        if (sev == "low") {
+            return "#6f9a76"
+        }
+        if (sev == "medium") {
+            return "#c9a54e"
+        }
+        if (sev == "high") {
+            return "#b8625b"
+        }
+        return fallback
+    }
+
     ; the width the thread takes off the right edge while editing (presenting,
     ; it lies over the slide)
     fn dockW:double () {
-        if ((this.panelOpen()) && (present == false)) {
+        if ((this.panelOpen()) && ((this.floating()) == false)) {
             return panelW
         }
         return 0.0
@@ -173,7 +202,7 @@ class PresReviewUi {
     }
 
     fn inPanel:boolean (px:double py:double) {
-        if present {
+        if (this.floating()) {
             return (((((this.panelOpen()) && (px >= coX)) && (px <= (coX + coW))) && (py >= coY)) && (py <= (coY + coH)))
         }
         return ((((this.panelOpen()) && (px >= (this.panelX()))) && (py >= top)) && (py <= h))
@@ -392,8 +421,8 @@ class PresReviewUi {
         def fresh (new UiHost())
         host = fresh
         host.addStyleSheet(css)
-        ; presenting, the callout's insides are dark (`.theme-rvg`)
-        host.setTheme((trim ("pn " + (? present "rvg " "") + skin)))
+        ; a callout's insides are dark (`.theme-rvg`)
+        host.setTheme((trim ("pn " + (? (this.floating()) "rvg " "") + skin)))
         host.setPageSize(w h)
         def none:[PresReviewDot]
         pins = none
@@ -428,7 +457,7 @@ class PresReviewUi {
                     fx = dragX
                     fy = dragY
                 }
-                def p:PresReviewDot (PresReviewDot.make(("rv-pin-" + t.id) (sx + (fx * sw)) (sy + (fy * sh)) color))
+                def p:PresReviewDot (PresReviewDot.make(("rv-pin-" + t.id) (sx + (fx * sw)) (sy + (fy * sh)) (PresReviewUi.severityColor(t.severity color))))
                 if (t.id == openId) {
                     coPX = (p.midX())
                     coPY = (p.midY())
@@ -464,7 +493,7 @@ class PresReviewUi {
                 dfx = dragX
                 dfy = dragY
             }
-            def dp:PresReviewDot (PresReviewDot.make("rv-draft" (sx + (dfx * sw)) (sy + (dfy * sh)) color))
+            def dp:PresReviewDot (PresReviewDot.make("rv-draft" (sx + (dfx * sw)) (sy + (dfy * sh)) (PresReviewUi.severityColor(draftSev color))))
             coPX = (dp.midX())
             coPY = (dp.midY())
             dp.show = 1.0
@@ -476,16 +505,17 @@ class PresReviewUi {
             push host.ctls dp
             push pinEls (unwrap dp.rootEl)
         }
-        ; presenting, the callout goes under the pins: its wedge ends at the
-        ; middle of its pin, which stays in sight
-        if ((this.panelOpen()) && present) {
-            root.addChild((this.calloutEl()))
-        }
+        ; the callout over the pins: its wedge ends at its own pin, beside
+        ; it, and a pin it lies over (dragged there, or another one) does not
+        ; draw over what is written in it
         for pinEls pe:EVGElement pi {
             root.addChild(pe)
         }
+        if ((this.panelOpen()) && (this.floating())) {
+            root.addChild((this.calloutEl()))
+        }
         root.addChild((this.bar()))
-        if ((this.panelOpen()) && (present == false)) {
+        if ((this.panelOpen()) && ((this.floating()) == false)) {
             root.addChild((this.panel()))
         }
         rev = (rev + 1)
@@ -500,7 +530,7 @@ class PresReviewUi {
             b.addChild((this.label("rv-hint" "rv-hint" (PresI18n.t("Click where the comment goes")))))
             b.addChild((this.label("rv-cancel" "rv-btn" (PresI18n.t("Cancel")))))
         } {
-            b.addChild((this.label("rv-add" "rv-btn rv-btn-main" ("💬 " + (PresI18n.t("Comment"))))))
+            b.addChild((this.label("rv-add" "rv-btn rv-btn-main" ("+ " + (PresI18n.t("Add comment"))))))
             def cnt:string ((to_string n) + " " + (PresI18n.t("open")))
             b.addChild((this.label("rv-count" (? listing "rv-count rv-count-on" "rv-count") cnt)))
             if (n > 0) {
@@ -547,6 +577,7 @@ class PresReviewUi {
         if drafting {
             chat.title = (PresI18n.t("New comment"))
             chat.subtitle = (this.slideName(draftSlide))
+            this.severityActions(draftSev)
             def none:[UiChatMessage]
             chat.messages = none
             chat.top = 0
@@ -576,6 +607,7 @@ class PresReviewUi {
                 } {
                     chat.addAction("resolve" ("✓ " + (PresI18n.t("Resolve"))) "primary")
                 }
+                this.severityActions(t.severity)
                 chat.addAction("copy" ("⧉ " + (PresI18n.t("Copy"))) "")
                 chat.addAction("list" ("☰ " + (PresI18n.t("All"))) "")
                 chat.subtitle = sub
@@ -584,7 +616,23 @@ class PresReviewUi {
         }
     }
 
-    ; Presenting: the callout beside the pin (or the bar's count, for the
+    ; How serious: three buttons, the one picked lit ("sev-low" … ; pressing
+    ; it again takes it off).
+    fn severityActions:void (sev:string) {
+        ; i18n: "Minor" "Moderate" "Serious"
+        for ([] _:string ("low" "medium" "high")) v:string i {
+            def name:string "Minor"
+            if (v == "medium") {
+                name = "Moderate"
+            }
+            if (v == "high") {
+                name = "Serious"
+            }
+            chat.addAction(("sev-" + v) ("● " + (PresI18n.t(name))) (? (sev == v) ("sev-" + v + "-on") ("sev-" + v)))
+        }
+    }
+
+    ; Presenting, or a new comment: the callout beside the pin (or the bar's count, for the
     ; list), dark and see-through, the chat in it without a head of its own.
     fn calloutEl:EVGElement () {
         def key:string openId
@@ -601,7 +649,14 @@ class PresReviewUi {
         co.look = "glass"
         co.frameClass = "rv-glass"
         co.closeLabel = (PresI18n.t("Close"))
+        ; between the editor's bar at the top and review mode's bar, which
+        ; stay in sight and pressable
+        def roomH:double h
+        if ((barW > 0.0) && ((this.barY()) > (top + 120.0))) {
+            roomH = ((this.barY()) - 4.0)
+        }
         co.setPage(w h)
+        co.setRows(top roomH)
         co.setPoint(coPX coPY)
         if listing {
             co.title = (PresI18n.t("Comments"))
@@ -823,7 +878,7 @@ class PresReviewUi {
             lay.layout(pg)
         }
         ; the callout beside its point, now that its size is known
-        if (present && (this.panelOpen())) {
+        if ((this.floating()) && (this.panelOpen())) {
             def cf@(optional):EVGElement (host.findEl(r (co.frameTid())))
             if (!null? cf) {
                 def ce:EVGElement (unwrap cf)
@@ -840,6 +895,15 @@ class PresReviewUi {
         }
         host.placeText((lay.getTextEngine()))
         host.lastPage = pg
+        ; a draft placed with more or fewer lines than its box was built for
+        ; (pasted into a new comment): built again, once, as tall as they are
+        if ((((this.panelOpen()) && (listing == false)) && (chat.input.linesChanged())) && (regrowing == false)) {
+            regrowing = true
+            this.rebuild()
+            def again:EVGElement (this.page())
+            regrowing = false
+            return again
+        }
         return pg
     }
 
@@ -935,6 +999,7 @@ class PresReviewUi {
         listing = false
         armed = false
         drafting = true
+        draftSev = ""
         draftSlide = s
         draftX = (PresReview.clamp01(x))
         draftY = (PresReview.clamp01(y))
@@ -1036,7 +1101,7 @@ class PresReviewUi {
     }
 
     fn panelPress:void (px:double py:double clicks:int shift:boolean) {
-        if present {
+        if (this.floating()) {
             def ct:string (host.hitTest(px py))
             if (ct == (co.closeTid())) {
                 this.closePanel()
@@ -1235,8 +1300,18 @@ class PresReviewUi {
                     if (draftDia >= 0) {
                         model.anchor(id draftDia draftNode draftAX draftAY)
                     }
+                    if ((strlen draftSev) > 0) {
+                        model.setSeverity(id draftSev nowMs)
+                    }
                     drafting = false
+                    draftSev = ""
                     openId = id
+                    if (present == false) {
+                        ; editing, a new comment is done once sent: its pin
+                        ; opens the thread when it is wanted
+                        openId = ""
+                        typing = false
+                    }
                     this.save()
                 }
             } {
@@ -1246,6 +1321,21 @@ class PresReviewUi {
             }
         }
         def act:string (chat.takeAction())
+        if ((indexOf act "sev-") == 0) {
+            def v:string (substring act 4 (strlen act))
+            if drafting {
+                draftSev = (? (draftSev == v) "" v)
+            } {
+                def ft@(optional):PresReviewThread (model.find(openId))
+                if (!null? ft) {
+                    def ftt:PresReviewThread (unwrap ft)
+                    def cur:string ftt.severity
+                    if (model.setSeverity(openId (? (cur == v) "" v) nowMs)) {
+                        this.save()
+                    }
+                }
+            }
+        }
         if (act == "resolve") {
             if (model.setClosed(openId true meWho nowMs)) {
                 typing = false
@@ -1308,9 +1398,42 @@ class PresReviewUi {
         this.changed()
     }
 
+    ; What is under the point, in words, for a tip ("" nothing to say):
+    ; the bar's buttons, and a pin's comment.
+    fn tipAt:string (px:double py:double) {
+        if ((on == false) || (this.inPanel(px py))) {
+            return ""
+        }
+        if (this.inBar(px py)) {
+            def tid:string (this.barButtonAt(px py))
+            if (tid == "rv-add") {
+                return (PresI18n.t("Add a comment: then click where it goes on the slide"))
+            }
+            if (tid == "rv-cancel") {
+                return (PresI18n.t("Stop adding the comment (Esc)"))
+            }
+            if (tid == "rv-count") {
+                return (PresI18n.t("The open comments, as a list"))
+            }
+            if (tid == "rv-next") {
+                return (PresI18n.t("The next open comment, on whatever slide it is"))
+            }
+            return ""
+        }
+        def pin:string (this.pinAt(px py))
+        if ((strlen pin) > 0) {
+            for pins p:PresReviewDot i {
+                if (p.tid == pin) {
+                    return p.info
+                }
+            }
+        }
+        return ""
+    }
+
     fn cursorAt:string (px:double py:double) {
         if (this.inPanel(px py)) {
-            if present {
+            if (this.floating()) {
                 def ct:string (host.hitTest(px py))
                 if (co.isHandle(ct)) {
                     return (? co.dragging "grabbing" "grab")

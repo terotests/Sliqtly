@@ -4395,6 +4395,19 @@ class PresApp {
         return ""
     }
 
+    ; A tip for what is under the pointer (main.js shows it): review mode's
+    ; bar and pins say what they are; "" elsewhere.
+    fn tipAt:string (x:double y:double) {
+        this.place()
+        if ((review.dragging || review.co.dragging) || ((strlen review.pinDown) > 0)) {
+            return ""
+        }
+        if (review.on && ((this.layerAt(x y)) == "review")) {
+            return (review.tipAt(x y))
+        }
+        return ""
+    }
+
     fn cursorAt:string (x:double y:double) {
         this.place()
         if (review.dragging || review.co.dragging) {
@@ -6450,13 +6463,6 @@ class PresApp {
         review.zoneMin = zone
     }
 
-    ; the pins' colour, "#rrggbb"
-    fn reviewColor:void (c:string) {
-        review.color = c
-        review.changed()
-        chromeRev = (chromeRev + 1)
-    }
-
     ; the deck's review/comments.json; `merge` unites it with what is here
     ; (a copy from elsewhere) instead of putting it in its place (a deck
     ; opened). "" is a deck without comments.
@@ -7678,7 +7684,6 @@ class PresApp {
 
     fn openSettings:void (contrast:boolean) {
         panels.reviewOn = review.on
-        panels.reviewColor = review.color
         panels.openSettings(contrast)
         chromeRev = (chromeRev + 1)
     }
