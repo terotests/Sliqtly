@@ -59,7 +59,9 @@ log("wrote  mcp-go/presdata/presdata.go");
 // package rdiff, for blobs kept as a delta against another blob
 // (store/sqliteblobs.go, store/backup.go). It is compiled from the
 // RangerDiff checkout, which names its Ranger packages (core, zip) in its
-// own ranger.json; `rgrc install` fetches them.
+// own ranger.json; `rgrc install` fetches them. rdsmart.go is committed
+// (unlike the other generated files), so a checkout that was built before
+// still builds after a pull without running go generate first.
 const rd = ensureRangerDiff();
 const inst = spawnSync(process.execPath, [path.join(ranger, "dist", "rgrc.js"), "install"], { cwd: rd, encoding: "utf8" });
 if (inst.status !== 0) {
