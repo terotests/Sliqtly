@@ -33,6 +33,13 @@ class PresToolbar {
     ; the page's own buttons after Ohje: "id<TAB>label<TAB>variant" rows
     ; (PresApp.setToolbarExtras); a press asks the page to click #id
     def extras:string ""
+    ; The bar did not fit at this width with these buttons (`fitKey`): first
+    ; the page's buttons take their short labels (`short`), and if it still
+    ; does not fit, the bar is the narrow one (`tight`, as under 980 px).
+    def short:boolean false
+    def tight:boolean false
+    def fitKey:string ""
+    def barEl@(optional):EVGElement
     def w:double 1200.0
     def h:double 700.0
     def barH:double 48.0
@@ -281,7 +288,52 @@ class PresToolbar {
     ; A narrow window or a finger: the bar keeps the menu button, the name,
     ; Present and the page's own buttons; the rest is in the drawer.
     fn compact:boolean () {
-        return ((w < 980.0) || coarse)
+        return (((w < 980.0) || coarse) || (tight && (fitKey == (this.fitNow()))))
+    }
+
+    ; what the bar's fit depends on
+    fn fitNow:string () {
+        return (((to_string w) + "|") + extras)
+    }
+
+    ; the page's buttons in their short form
+    fn shortNow:boolean () {
+        return (short && (fitKey == (this.fitNow())))
+    }
+
+    ; After a layout: whether the bar's buttons run past its right edge.
+    ; Then the short labels, then the narrow bar; each once for this width
+    ; and these buttons.
+    fn refit:boolean () {
+        if ((this.compact()) || (null? barEl)) {
+            return false
+        }
+        def bar:EVGElement (unwrap barEl)
+        def right:double 0.0
+        def i:int 0
+        while (i < (bar.getChildCount())) {
+            def c:EVGElement (bar.getChild(i))
+            def r:double (c.calculatedX + c.calculatedWidth)
+            if (r > right) {
+                right = r
+            }
+            i = (i + 1)
+        }
+        if (right <= (w + 0.5)) {
+            return false
+        }
+        if (fitKey != (this.fitNow())) {
+            fitKey = (this.fitNow())
+            short = false
+            tight = false
+        }
+        if (short == false) {
+            short = true
+        } {
+            tight = true
+        }
+        this.rebuild()
+        return true
     }
 
     ; What a menu's or the drawer's row asks of the page: a sample
@@ -663,7 +715,13 @@ class PresToolbar {
             ; the dark/light switch is the rail's where the rail is drawn
             def onRail:boolean (((itemAt parts 0) == "modeBtn") && (this.railShown()))
             if (((array_length parts) >= 3) && (onRail == false)) {
-                this.button((itemAt parts 0) (itemAt parts 1) (itemAt parts 2) parent)
+                def label:string (itemAt parts 1)
+                if (((array_length parts) >= 4) && (this.shortNow())) {
+                    if ((strlen (itemAt parts 3)) > 0) {
+                        label = (itemAt parts 3)
+                    }
+                }
+                this.button((itemAt parts 0) label (itemAt parts 2) parent)
             }
             k = (k + 1)
         }
@@ -1427,6 +1485,7 @@ class PresToolbar {
             }
         }
         root.addChild(bar)
+        barEl = bar
         if (small && roomsOpen) {
             this.buildRooms(root)
             def rp:EVGElement (root.getChild(((root.getChildCount()) - 1)))
@@ -1658,6 +1717,10 @@ class PresToolbar {
             lay.setMeasurer((unwrap measurer))
         }
         lay.layout(pg)
+        ; buttons past the right edge: built again shorter (at most twice)
+        if (this.refit()) {
+            return (this.page())
+        }
         ; a menu card as wide as its widest row (a submenu hangs off its row)
         if (UiHost.fitSurfaces(r lay)) {
             lay.layout(pg)

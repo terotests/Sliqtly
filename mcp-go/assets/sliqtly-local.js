@@ -176,6 +176,8 @@ const collab = {
   send: (id, body) => api("POST", "/api/collab/" + id + "/op", body),
   presence: (id, body) => api("POST", "/api/collab/" + id + "/presence", body),
   chat: (id, body) => api("POST", "/api/collab/" + id + "/chat", body),
+  // the deck's call (mcp-go/meet.go): join, answer, mute, leave
+  call: (id, body) => api("POST", "/api/collab/" + id + "/call", body),
   // the first open is the join itself, a later one a reconnect
   stream(id, q, onEvent, onOpen) {
     if (!line) throw new Error("this page has no stream to the server");

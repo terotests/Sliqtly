@@ -166,6 +166,10 @@ func TestListening(t *testing.T) {
 	defer srv.Close()
 	p, _ := newNetPolicy("", nil, false)
 	x := newExposure(srv, port, p)
+	// this computer's outside address stands in for another computer's: the
+	// server must not know it as its own (its own addresses are let in like
+	// 127.0.0.1)
+	x.ifaceKinds = func() []netIface { return nil }
 	if err := x.sync(true); err != nil {
 		t.Fatal(err)
 	}

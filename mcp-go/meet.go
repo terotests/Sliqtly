@@ -263,7 +263,13 @@ func (c *roomCall) send(m *callMember, from string, v *webrtc.TrackLocalStaticRT
 	if from == m.client || m.out[from] != nil {
 		return
 	}
-	s, err := m.pc.AddTrack(v)
+	// a place of its own, sent only: AddTrack would take the page's
+	// microphone's place (the first, which the server only receives on)
+	tr, err := m.pc.AddTransceiverFromTrack(v, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionSendonly})
+	var s *webrtc.RTPSender
+	if err == nil {
+		s = tr.Sender()
+	}
 	if err != nil {
 		log.Printf("call: forwarding %s to %s: %v", from, m.client, err)
 		return

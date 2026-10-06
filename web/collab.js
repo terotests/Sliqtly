@@ -189,8 +189,9 @@ export class CollabDoc {
 //
 //   editor:    { version(), text(), caret(), anchor(), apply(offset, removed, text), synced(), setPeers(rows) }
 //   transport: { snapshot(id), send(id, body), presence(id, body), chat(id, body),
-//                stream(id, query, onEvent, onOpen) → close }
-//   on:        { peers(list), chat(msg), state(text), me(name, color) }
+//                call(id, body), stream(id, query, onEvent, onOpen) → close }
+//   on:        { peers(list), chat(msg), state(text), me(name, color),
+//                call(event): the room's call told, or an offer to this page (web/meet.js) }
 export class CollabSession {
   constructor(ot, transport, editor, me, on = {}) {
     this.ot = ot;
@@ -248,6 +249,7 @@ export class CollabSession {
       this.sending = null;
       this.doc.setPeers(s.peers);
       for (const m of s.chat || []) this.on.chat?.(m);
+      this.on.call?.({ t: "call", members: s.call || [] });
       // the run of the room these revs belong to: a room opened again (the
       // server restarted, or it was left empty) counts from 0 once more
       this.epoch = s.epoch || "";
@@ -348,6 +350,8 @@ export class CollabSession {
       this.on.peers?.(this.people);
     } else if (m.t === "chat") {
       this.on.chat?.(m.msg);
+    } else if (m.t === "call" || m.t === "call-offer") {
+      this.on.call?.(m);
     } else if (m.t === "reset") {
       this.resync().catch(() => {});
     }
@@ -362,6 +366,12 @@ export class CollabSession {
     if (n) this.me.name = n;
     if (color && /^#[0-9a-fA-F]{6}$/.test(color)) this.me.color = color;
     if (this.active()) await this.t.presence(this.id, { client: this.me.client, name: this.me.name, color: this.me.color });
+  }
+
+  // one of the call's operations for this page (mcp-go/meet.go)
+  async callOp(body) {
+    if (!this.active() || !this.t.call) throw new Error("no call on this server");
+    return this.t.call(this.id, { ...body, client: this.me.client });
   }
 
   async say(text) {

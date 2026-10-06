@@ -32,6 +32,7 @@ import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, b
 import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
 import { emptyRooms, parseRooms, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
+import { Meet } from "./meet.js";
 import { RoomChat } from "./roomchat.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
@@ -176,11 +177,12 @@ app.setAppName(APP_NAME);
 
 // A page built on this one can add buttons of its own to the bar: an element
 // in #bar with data-canvas="<variant>" is drawn on the canvas bar after Ohje
-// (with its text, followed as it changes), and pressing it clicks it.
+// (with its text, followed as it changes), and pressing it clicks it. Its
+// data-short is the label used when the bar is too narrow for the full ones.
 function syncBarExtras() {
   const rows = [...document.querySelectorAll("#bar [data-canvas]")]
     .filter((el) => el.id && !el.hidden)
-    .map((el) => [el.id, el.textContent.trim().replace(/\s+/g, " "), el.dataset.canvas || "secondary"].join("\t"));
+    .map((el) => [el.id, el.textContent.trim().replace(/\s+/g, " "), el.dataset.canvas || "secondary", (el.dataset.short || "").replace(/\s+/g, " ")].join("\t"));
   app.setToolbarExtras(rows.join("\n"));
   needsPaint = true;
 }
@@ -3252,6 +3254,7 @@ function frame() {
     recFrame();
     if ((doc.cloud || "") !== collabWant) collabFollow();
     collab?.tick();
+    meet.tick();
     const rev = app.revision();
     const effects = window.__lastStage && window.__lastStage.list && window.__lastStage.list.effects && window.__lastStage.list.effects.length > 0;
     if (needsPaint || rev !== lastRev || effects) {
@@ -3300,12 +3303,26 @@ const collabEditor = {
 function collabOn() {
   return !!(collab && collab.active() && collab.id === doc.cloud);
 }
+// the deck's call (web/meet.js, src/PresMeet.rgr, mcp-go/meet.go): in the
+// bar as Call / Join call · 2 / In call · 2 while the deck is a room
+const meet = new Meet({
+  app,
+  session: () => (collabOn() ? collab : null),
+  mic: () => navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }),
+  toast,
+  t,
+  paint: () => { needsPaint = true; refreshCollabBar(); },
+  micHelp: (e) => micHelp(e),
+  now: () => performance.now(),
+});
+window.__meet = meet;
 // the room of the deck open now; the one before is left
 function collabFollow() {
   const tr = window.sliqtly?.collab;
   const want = tr && !viewer && doc.persisted && !doc.loading && doc.cloud ? doc.cloud : "";
   if (want === collabWant) return;
   collabWant = want;
+  meet.reset();
   if (collab) collab.stop();
   collab = null;
   collabPeople = new Map();
@@ -3321,12 +3338,14 @@ function collabFollow() {
       refreshCollabBar();
       needsPaint = true;
     },
+    call: (m) => meet.event(m),
     chat: (m) => {
       if (app.chatAdd(m.id, m.who, m.name, m.color, m.text, chatTime(m.at, Date.now(), lang), m.who === collabMe.who)) refreshCollabBar();
       needsPaint = true;
     },
   });
   collab = s;
+  app.meetClient(s.me.client);
   s.start(want).then(() => refreshCollabBar(), (e) => {
     console.warn("editing together is off for this deck", e);
     if (collab === s) collab = null;
@@ -3379,6 +3398,18 @@ function refreshCollabBar() {
     refreshCollabBar();
     needsPaint = true;
   });
+  const call = collabButton("collabCall", () => {
+    app.meetPress();
+    handleRequests();
+    refreshCollabBar();
+    needsPaint = true;
+  });
+  const callText = "📞 " + app.meetButton();
+  if (call.hidden === on) call.hidden = !on;
+  if (call.textContent !== callText) call.textContent = callText;
+  const n = app.meetCount();
+  const callShort = "📞" + (n > 0 ? " " + n : "");
+  if (call.dataset.short !== callShort) call.dataset.short = callShort;
   const others = [...collabPeople.values()];
   const meText = shownName() + (others.length ? " +" + others.length : "");
   const meTitle = t("Your name for the others: press to change it") + (others.length ? "\n" + t("Here now: ") + others.map((p) => p.name).join(", ") : "");
@@ -3386,8 +3417,12 @@ function refreshCollabBar() {
   if (me.hidden === on) me.hidden = !on;
   if (chat.hidden === on) chat.hidden = !on;
   if (me.textContent !== meText) me.textContent = meText;
+  const meShort = "👤" + (others.length ? " +" + others.length : "");
+  if (me.dataset.short !== meShort) me.dataset.short = meShort;
   if (me.title !== meTitle) me.title = meTitle;
   if (chat.textContent !== chatText) chat.textContent = chatText;
+  const chatShort = "💬" + (app.chatIsOpen() ? "" : (app.chatBadge() ? " " + app.chatBadge() : ""));
+  if (chat.dataset.short !== chatShort) chat.dataset.short = chatShort;
 }
 
 // --- what the app asks the page to do ---------------------------------------------
@@ -3454,6 +3489,9 @@ function handleRequests() {
       // arrive in; a presentation without keys is a slideshow nobody can drive.
       keys.focus({ preventScroll: true });
       requestAnimationFrame(resize);
+    } else if (r.startsWith("meet:")) {
+      meet.request(r);
+      refreshCollabBar();
     } else if (recRequest(r)) {
       // Record, Play recording, the voice (above)
     } else if (r.startsWith("click:")) {
@@ -5083,6 +5121,12 @@ async function micHelp(e) {
   let state = "";
   try { state = (await navigator.permissions.query({ name: "microphone" })).state; } catch (_) { /* not asked */ }
   if (!navigator.mediaDevices || !window.isSecureContext) {
+    // a server of one's own answers https:// too, with its own certificate
+    // (mcp-go/owncert.go): installed once, from its /ca page
+    if (window.sliqtly?.collab && location.protocol === "http:") {
+      return t("The browser allows the microphone only on https:// addresses. Open %s on this computer once to install the server's certificate, then open the presentation at %h.")
+        .replace("%s", location.origin + "/ca").replace("%h", "https://" + location.host + location.pathname + location.search + location.hash);
+    }
     return t("The browser allows the microphone only on https:// or localhost addresses. Open Sliqtly through one of them.");
   }
   if (name === "NotFoundError" || name === "OverconstrainedError") {
@@ -6791,7 +6835,7 @@ async function start() {
     app.deckTabsRestore(readDeckTabs(sessionStorage));
     syncBarExtras();
     new MutationObserver(syncBarExtras).observe(document.getElementById("bar"),
-      { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["hidden", "data-canvas"] });
+      { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["hidden", "data-canvas", "data-short"] });
     app.useToolbar(true);
     requestAnimationFrame(resize);
   }

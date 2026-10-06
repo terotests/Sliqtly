@@ -16,6 +16,9 @@
 ;   chat    docked on the right like help (one of the two at a time): the
 ;           deck's conversation on a server of one's own (EVGUI ChatCtl);
 ;           the page adds the messages and posts what is sent
+;   call    the people in the deck's call (EVGUI ParticipantsCtl, PresMeet
+;           holds it), docked on the right above the chat; a press on its
+;           buttons is "call-press\t<target>" for PresMeet
 ;
 ; Like the bar, the panels do not act themselves: a press is a request
 ; ("help:<sel>\t<prop>\t<default>", "copy:show", "copy:edit") the app or
@@ -25,6 +28,7 @@
 
 Import "../evgui/src/UiHost.rgr"
 Import "../evgui/src/ChatCtl.rgr"
+Import "../evgui/src/ParticipantsCtl.rgr"
 Import "../evgui/src/PaginationCtl.rgr"
 Import "../evgui/src/UiPick.rgr"
 Import "../vela/src/VlJson.rgr"
@@ -142,6 +146,9 @@ class PresPanels {
     def chatW:double 340.0
     ; a press in the chat's text field, while the button is down
     def chatSelecting:boolean false
+    ; the call's people (PresMeet's control) and whether they show
+    def call:ParticipantsCtl (new ParticipantsCtl())
+    def callOpen:boolean false
     ; Text that can be selected and copied (EVGUI TextCtl): the toast, the
     ; notes of the dialogs. A rebuild makes new ones and keeps what was
     ; selected in the one before with the same id and text.
@@ -168,7 +175,7 @@ class PresPanels {
 
     ; --- what is showing ---------------------------------------------------------
     fn any:boolean () {
-        return ((((helpOpen || shareOpen) || filesOpen) || chat.open) || ((strlen toastText) > 0))
+        return (((((helpOpen || shareOpen) || filesOpen) || chat.open) || callOpen) || ((strlen toastText) > 0))
     }
 
     ; the width a docked panel takes off the right edge (0: none open)
@@ -176,10 +183,76 @@ class PresPanels {
         if helpOpen {
             return helpW
         }
-        if chat.open {
+        if (chat.open || callOpen) {
             return chatW
         }
         return 0.0
+    }
+
+    ; --- the call ------------------------------------------------------------------------
+    ; Above the chat when both show; the whole edge when the chat is closed.
+    fn setCall:void (on:boolean) {
+        if (on != callOpen) {
+            callOpen = on
+            if on {
+                helpOpen = false
+            }
+            this.rebuild()
+        }
+    }
+
+    fn callShows:boolean () {
+        return ((callOpen && (helpOpen == false)) && (quiet == false))
+    }
+
+    ; the height the call takes off the top of the right edge
+    fn callH:double () {
+        if ((this.callShows()) == false) {
+            return 0.0
+        }
+        if (chat.open == false) {
+            return (h - barH)
+        }
+        def need:double (call.needH())
+        def most:double ((h - barH) * 0.5)
+        if (need > most) {
+            return most
+        }
+        return need
+    }
+
+    fn callHas:boolean (px:double py:double) {
+        return ((((this.callShows()) && (px >= (w - chatW))) && (py >= barH)) && (py < (barH + (this.callH()))))
+    }
+
+    fn callPanel:EVGElement () {
+        def ch:double (this.callH())
+        def p:EVGElement (this.div("pn-call-dock"))
+        p.id = "pn-call-dock"
+        UiTree.surface(p "free" "start")
+        p.overlayX = (w - chatW)
+        p.overlayY = barH
+        p.width = (EVGUnit.px(chatW))
+        p.height = (EVGUnit.px(ch))
+        call.build()
+        def cr:EVGElement (unwrap call.rootEl)
+        UiTree.inline(cr "width" ((to_string chatW) + "px"))
+        UiTree.inline(cr "height" ((to_string ch) + "px"))
+        UiTree.inline(cr "border-radius" "0px")
+        UiTree.inline(cr "border-width" "0px")
+        if chat.open {
+            UiTree.inline(cr "border-bottom-width" "1px")
+        }
+        this.put(call p)
+        return p
+    }
+
+    ; a press in the call's panel: for PresMeet (its buttons)
+    fn callPress:void (px:double py:double) {
+        def tid:string (host.hitTest(px py))
+        if ((strlen tid) > 0) {
+            push requests ("call-press" + (strfromcode 9) + tid)
+        }
     }
 
     ; --- the chat -----------------------------------------------------------------------
@@ -297,18 +370,19 @@ class PresPanels {
     }
 
     fn chatHas:boolean (px:double py:double) {
-        return (((chat.open && (quiet == false)) && (px >= (w - chatW))) && (py >= barH))
+        return (((chat.open && (quiet == false)) && (px >= (w - chatW))) && (py >= (barH + (this.callH()))))
     }
 
     fn chatPanel:EVGElement () {
         def p:EVGElement (this.div("pn-chat-dock"))
         p.id = "pn-chat-dock"
         UiTree.surface(p "free" "start")
+        def top:double (barH + (this.callH()))
         p.overlayX = (w - chatW)
-        p.overlayY = barH
+        p.overlayY = top
         p.width = (EVGUnit.px(chatW))
-        p.height = (EVGUnit.px((h - barH)))
-        chat.height = (h - barH)
+        p.height = (EVGUnit.px((h - top)))
+        chat.height = (h - top)
         chat.build()
         def cr:EVGElement (unwrap chat.rootEl)
         UiTree.inline(cr "width" ((to_string chatW) + "px"))
@@ -378,6 +452,10 @@ class PresPanels {
             if (on && chat.open) {
                 chat.setOpen(false)
                 push requests "chat-closed"
+            }
+            if (on && callOpen) {
+                callOpen = false
+                push requests "call-closed"
             }
             this.rebuild()
         }
@@ -569,6 +647,9 @@ class PresPanels {
         root.className = "ui-root pn-page"
         if (helpOpen && (quiet == false)) {
             root.addChild((this.helpPanel()))
+        }
+        if (this.callShows()) {
+            root.addChild((this.callPanel()))
         }
         if ((chat.open && (helpOpen == false)) && (quiet == false)) {
             root.addChild((this.chatPanel()))
@@ -2196,7 +2277,7 @@ class PresPanels {
     }
 
     fn dockedHas:boolean (px:double py:double) {
-        return (((this.helpHas(px py)) || (this.filesHas(px py))) || (this.chatHas(px py)))
+        return ((((this.helpHas(px py)) || (this.filesHas(px py))) || (this.chatHas(px py))) || (this.callHas(px py)))
     }
 
     fn toastHas:boolean (px:double py:double) {
@@ -2266,6 +2347,9 @@ class PresPanels {
             return true
         }
         if (this.chatHas(px py)) {
+            return true
+        }
+        if (this.callHas(px py)) {
             return true
         }
         if (this.filesHas(px py)) {
@@ -2425,6 +2509,10 @@ class PresPanels {
         }
         if (this.chatHas(px py)) {
             this.chatPress(px py clicks shift)
+            return
+        }
+        if (this.callHas(px py)) {
+            this.callPress(px py)
             return
         }
         if (this.helpHas(px py)) {

@@ -26,6 +26,7 @@ Import "PresImageDrag.rgr"
 Import "PresImageModel.rgr"
 Import "PresSketch.rgr"
 Import "PresSketchUi.rgr"
+Import "PresMeet.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -2812,6 +2813,72 @@ class PresCheck {
     }
 
     ; --- drawings made on a slide while editing (PresSketch) --------------------
+    ; A call on the deck (PresMeet): the bar's button, joining, the server's
+    ; tellings, leaving, the panel's buttons as requests, speaking lights.
+    fn meeting:void () {
+        def m (new PresMeet())
+        m.setClient("pageB")
+        this.ok(((m.buttonLabel()) == "Call") "no call: Call")
+        def ada:string "pageA\tAda\t#ea580c\t1\t0\t0"
+        this.ok((m.setMembers(ada)) "someone started one: a change")
+        this.ok(((m.buttonLabel()) == "Join call · 1") ("join the one on: " + (m.buttonLabel())))
+        this.ok(((m.joined()) == false) "not in it")
+        m.press()
+        this.ok((m.state == "joining") "pressed: joining")
+        def rq:[string] (m.takeRequests())
+        this.ok((((array_length rq) == 1) && ((itemAt rq 0) == "meet:join")) "the page is asked to join")
+        m.press()
+        this.ok(((array_length (m.takeRequests())) == 0) "pressed again while joining: nothing")
+        def both:string (ada + "\npageB\tBo\t#2563eb\t0\t0\t0\n")
+        m.setMembers(both)
+        this.ok((m.joined()) "told in: joined")
+        this.ok(m.panelOpen "the people show on joining")
+        this.ok(((m.buttonLabel()) == "In call · 2") (m.buttonLabel()))
+        this.ok((m.people.title == "Call · 2") m.people.title)
+        this.ok(((m.setMembers(both)) == false) "the same telling: no change")
+        m.press()
+        this.ok(((m.panelOpen == false) && (m.joined())) "in it, the button hides the people, the call goes on")
+
+        ; the panel's buttons
+        this.ok((m.act("pn-call-mic")) "my Mute")
+        def r2:[string] (m.takeRequests())
+        this.ok(((itemAt r2 0) == "meet:mute\t1") "meet:mute 1")
+        this.ok(((m.act("pn-call-p-0-mute")) == false) "Bo is not the host: no Mute on Ada")
+        m.setMembers(("pageA\tAda\t#ea580c\t0\t0\t0\npageB\tBo\t#2563eb\t1\t1\t0\nbotC\tClaude\t#7c3aed\t0\t0\t1"))
+        this.ok((m.people.amHost()) "Ada left the host's place to Bo")
+        this.ok((m.act("pn-call-mic")) "muted: Unmute")
+        this.ok(((itemAt (m.takeRequests()) 0) == "meet:mute\t0") "meet:mute 0")
+        this.ok((m.act("pn-call-p-0-mute")) "the host mutes Ada")
+        this.ok(((itemAt (m.takeRequests()) 0) == "meet:mute-other\tpageA") "meet:mute-other pageA")
+        this.ok(((m.act("pn-call-p-2-mute")) == false) "not the assistant")
+
+        ; speaking
+        this.ok((m.level("pageA" 0.4 1000.0)) "Ada speaks: a light")
+        this.ok(((m.level("pageB" 0.9 1000.0)) == false) "Bo is muted: no light")
+        this.ok((m.tick(2000.0)) "Ada stopped: the light goes")
+
+        ; leaving
+        this.ok((m.act("pn-call-leave")) "Leave")
+        this.ok(((itemAt (m.takeRequests()) 0) == "meet:leave") "meet:leave")
+        this.ok((m.state == "leaving") "leaving")
+        m.setMembers("pageA\tAda\t#ea580c\t1\t0\t0")
+        this.ok((m.state == "idle") "told out: idle")
+        this.ok(((m.buttonLabel()) == "Join call · 1") "the call goes on without me")
+        m.setMembers("")
+        this.ok(((m.buttonLabel()) == "Call") "everyone left: Call")
+
+        ; a join the page could not make
+        m.press()
+        m.takeRequests()
+        m.failed("No microphone")
+        this.ok(((m.state == "idle") && (m.error == "No microphone")) "failed: back, with why")
+        ; told in without asking (an old row): not joined
+        m.setMembers("pageB\tBo\t#2563eb\t1\t0\t0")
+        this.ok(((m.joined()) == false) "a row of mine not asked for does not join")
+        m.reset()
+        this.ok((((m.count()) == 0) && (m.panelOpen == false)) "another deck: nothing")
+    }
+
     fn sketches:void () {
         def k (new PresSketch())
         k.w = 960.0
@@ -3005,6 +3072,7 @@ class PresCheck {
         c.traceChecks()
         c.imageDrag()
         c.sketches()
+        c.meeting()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

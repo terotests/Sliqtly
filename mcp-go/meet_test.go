@@ -50,8 +50,15 @@ func joinCall(t *testing.T, base, id, client, name string, net []webrtc.NetworkT
 	}
 	p.pc = pc
 	p.mic, _ = webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2}, "mic", client)
-	pc.OnTrack(func(tr *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
+	pc.OnTrack(func(tr *webrtc.TrackRemote, rc *webrtc.RTPReceiver) {
 		from := tr.StreamID()
+		// the first place is this page's microphone, which a browser sends
+		// only: a voice coming on it is never heard there
+		for _, x := range pc.GetTransceivers() {
+			if x.Receiver() == rc && x.Mid() == "0" {
+				t.Errorf("%s's voice came on the microphone's place", from)
+			}
+		}
 		go func() {
 			for {
 				if _, _, err := tr.ReadRTP(); err != nil {

@@ -15,6 +15,7 @@
     "serve": "node scripts/serve.mjs",
     "check": "node scripts/check.mjs",
     "check:web": "node scripts/check-web.mjs",
+    "check:call": "node scripts/check-call.mjs",
     "i18n": "node scripts/i18n.mjs",
     "check:samples": "node scripts/check-samples.mjs"
   },
