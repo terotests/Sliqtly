@@ -5039,18 +5039,25 @@ let recCounting = null;
 const recCount = document.getElementById("recCount");
 const recCountN = document.getElementById("recCountN");
 async function prepareRecording(withVoice) {
-  // full screen while the press that chose still counts as one
-  if (!viewer && document.documentElement.requestFullscreen && !document.fullscreenElement) {
-    document.documentElement.requestFullscreen().catch(() => {});
-  }
   const r = new VoiceRecorder();
   if (withVoice) {
+    // The microphone first, before full screen: a permission question
+    // asked while the page goes full screen can be dismissed by the switch,
+    // which the page sees as NotAllowedError.
     try {
       await r.open();
     } catch (e) {
       console.warn("no microphone", e);
-      toast(t("No microphone (") + (e.name || e.message || e) + t("): recording without sound."));
+      // asked, not recorded silently: the voice was what was chosen
+      app.openConfirm("recnomic", t("The microphone is not available"), await micHelp(e), t("Record without voice"));
+      needsPaint = true;
+      return;
     }
+  }
+  // full screen while the press that chose still counts as one (at once
+  // when the microphone was already allowed)
+  if (!viewer && document.documentElement.requestFullscreen && !document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
   }
   if (!(await countDown())) {
     r.close();
@@ -5065,6 +5072,32 @@ async function prepareRecording(withVoice) {
   }
   handleRequests();
   needsPaint = true;
+}
+
+// Why the microphone was refused, and where to allow it: this site blocked
+// in the browser, the browser blocked by the system (macOS: System Settings
+// → Privacy & Security → Microphone), no microphone, or one in use.
+async function micHelp(e) {
+  const name = (e && e.name) || "";
+  const msg = (e && e.message) || "";
+  let state = "";
+  try { state = (await navigator.permissions.query({ name: "microphone" })).state; } catch (_) { /* not asked */ }
+  if (!navigator.mediaDevices || !window.isSecureContext) {
+    return t("The browser allows the microphone only on https:// or localhost addresses. Open Sliqtly through one of them.");
+  }
+  if (name === "NotFoundError" || name === "OverconstrainedError") {
+    return t("No microphone was found. Connect one and try again.");
+  }
+  if (name === "NotReadableError" || name === "AbortError") {
+    return t("The microphone is in use by another program, or the system did not let the browser open it. Close the other program and try again.");
+  }
+  if (state === "denied") {
+    return t("This site is blocked from the microphone. Click the icon left of the address (the lock or the settings icon), set Microphone to Allow, reload the page and record again.");
+  }
+  if (/system/i.test(msg)) {
+    return t("The operating system blocks the browser from the microphone. On a Mac: System Settings → Privacy & Security → Microphone, turn your browser on and restart it.");
+  }
+  return t("The browser did not give the microphone (") + (msg || name) + t("). If it asked, choose Allow; otherwise click the icon left of the address, set Microphone to Allow and record again.");
 }
 
 // 3, 2, 1 over the page; false when Esc (or a press on it) cancelled.
@@ -5208,7 +5241,7 @@ async function recordingPeaks() {
 
 function recRequest(r) {
   if (r === "confirm:recstart") prepareRecording(true).catch(fail);
-  else if (r === "confirm:recstart:alt") prepareRecording(false).catch(fail);
+  else if (r === "confirm:recstart:alt" || r === "confirm:recnomic") prepareRecording(false).catch(fail);
   else if (r === "record:start") startVoice().catch(fail);
   else if (r === "rec:save") saveTake().catch(fail);
   else if (r === "rec:peaks") recordingPeaks().catch((e) => { console.warn("peaks", e); app.setRecordingPeaks(""); needsPaint = true; });

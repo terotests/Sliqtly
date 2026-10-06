@@ -772,6 +772,27 @@ try {
   // was drawn.
   {
     const ink = () => page.evaluate(() => ({ ...JSON.parse(window.__app.inkState()), slide: window.__app.slideShown(), mode: JSON.parse(window.__app.layoutJson()).mode }));
+    // a microphone the browser refuses: asked whether to record without
+    // the voice, with where to allow it, not recorded silently
+    const refused = await page.evaluate(async () => {
+      const a = window.__app;
+      const was = navigator.mediaDevices.getUserMedia;
+      navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException("Permission denied", "NotAllowedError"));
+      a.selectSlide(0);
+      a.request("rec:start");
+      a.chart.confirmAct("cf-ok");
+      a.afterChart();
+      let open = false;
+      for (let n = 0; n < 50 && !open; n++) {
+        await new Promise((r) => setTimeout(r, 100));
+        open = a.chart.isOpen && a.chart.mode === "confirm" && a.chart.cfKey === "recnomic";
+      }
+      navigator.mediaDevices.getUserMedia = was;
+      const recording = a.isRecording();
+      a.key("escape", false, false);
+      return { open, recording };
+    });
+    check("Record with voice and the microphone refused asks to record without it", refused.open && !refused.recording, JSON.stringify(refused));
     // Record asks first (with the voice or without), then counts 3, 2, 1
     const asked = await page.evaluate(() => {
       const a = window.__app;
