@@ -671,6 +671,10 @@ const pending = new Map();
 // A shared presentation opened to read: its files, which nothing saves
 const readFiles = new Map();
 let savedText = null;
+// the editor's change count (app.mdVersion) when its text was last found
+// equal to savedText: the 1.5 s check reads the whole text only when it
+// moved. -1 whenever savedText is set from elsewhere.
+let savedVersion = -1;
 let savedCss = null;
 let savedTheme = null;
 let saving = null;
@@ -704,6 +708,7 @@ function beginDoc(text) {
   pending.clear();
   readFiles.clear();
   savedText = null;
+  savedVersion = -1;
   savedCss = null;
   for (const k of Object.keys(editedCss)) delete editedCss[k];
   chartFiles.clear();
@@ -942,10 +947,16 @@ async function saveDoc(force) {
 
 async function saveDocNow(force) {
   if (merging || doc.loading) return;
-  const md = app.source();
   const key = themeSel.value || "";
   const css = key in editedCss ? editedCss[key] : null;
-  if (md === savedText && css === savedCss && key === savedTheme && !force) return;
+  const version = app.mdVersion();
+  const same = css === savedCss && key === savedTheme;
+  if (same && version === savedVersion && !force) return;
+  const md = app.source();
+  if (md === savedText && same && !force) {
+    savedVersion = version;
+    return;
+  }
   // a deck as it was opened is not kept until someone changes it (a shared
   // deck opens with its own CSS: that is as opened too), nor an empty one
   if (!doc.persisted && !force && ((md === doc.openedText && css === doc.openedCss) || !md.trim())) return;
@@ -966,6 +977,7 @@ async function saveDocNow(force) {
     }
     updateDeckTab();
     savedText = md;
+    savedVersion = version;
     savedCss = css;
     savedTheme = key;
     try { localStorage.setItem("evgp.doc", doc.id); } catch (_) { /* the next start opens a sample */ }
@@ -1592,6 +1604,7 @@ async function openDocNow(id) {
   docName = d.name || "presentation";
   shownDoc(d.md);
   savedText = d.md;
+  savedVersion = -1;
   savedCss = d.css == null ? null : d.css;
   savedTheme = d.theme || "";
   try { localStorage.setItem("evgp.doc", doc.id); } catch (_) { /* fine */ }
@@ -4264,6 +4277,7 @@ async function takeLocal() {
   const mergedHere = await takeCopy(base, theirs, "tab");
   // the record is what this one stands on now
   savedText = theirs.md;
+  savedVersion = -1;
   savedCss = theirs.css;
   savedTheme = theirs.theme;
   if (cur.cloud) doc.cloud = cur.cloud;

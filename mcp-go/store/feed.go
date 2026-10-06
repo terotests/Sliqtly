@@ -9,15 +9,49 @@ import (
 
 // feed numbers an Engine's writes and hands them to its watchers: the
 // last `keep` are kept for a watcher that comes asking from a little while
-// back. Each watcher has its own queue, so a slow one holds only its own
-// changes; the writer never waits for it.
+// back, as long as they hold no more than keepBytes of text between them
+// (a change carries the whole document before and after it, and a deck is
+// its whole Markdown). Each watcher has its own queue, so a slow one holds
+// only its own changes; the writer never waits for it.
 type feed struct {
 	mu     sync.Mutex
 	head   Seq
-	recent []Change // the last ones, oldest first
+	recent []Change // the last ones, oldest first, from recent[start]
+	start  int
+	sizes  []int // each kept change's size, by the same index
+	bytes  int   // the kept changes' sizes together
 	keep   int
 	subs   map[*watcher]struct{}
 	closed bool
+}
+
+// the most text the kept changes hold between them
+const keepBytes = 32 << 20
+
+// about how much memory a change holds: its strings' lengths and a little
+// for every value
+func changeSize(c Change) int { return valueSize(c.Doc) + valueSize(c.Old) + 64 }
+
+func valueSize(v any) int {
+	switch x := v.(type) {
+	case string:
+		return len(x) + 16
+	case Doc:
+		n := 0
+		for k, e := range x {
+			n += len(k) + valueSize(e)
+		}
+		return n
+	case []any:
+		n := 0
+		for _, e := range x {
+			n += valueSize(e)
+		}
+		return n
+	case []byte:
+		return len(x)
+	}
+	return 16
 }
 
 type watcher struct {
@@ -43,9 +77,21 @@ func (f *feed) publish(c Change) {
 	defer f.mu.Unlock()
 	f.head++
 	c.Seq = f.head
+	size := changeSize(c)
 	f.recent = append(f.recent, c)
-	if len(f.recent) > f.keep {
-		f.recent = append(f.recent[:0:0], f.recent[len(f.recent)-f.keep:]...)
+	f.sizes = append(f.sizes, size)
+	f.bytes += size
+	// the oldest go first, but the newest change is always kept
+	for len(f.recent)-f.start > 1 && (len(f.recent)-f.start > f.keep || f.bytes > keepBytes) {
+		f.bytes -= f.sizes[f.start]
+		f.recent[f.start] = Change{}
+		f.start++
+	}
+	// moved down once half is dropped: each change is copied about once
+	if f.start > len(f.recent)/2 {
+		f.recent = append(f.recent[:0:0], f.recent[f.start:]...)
+		f.sizes = append(f.sizes[:0:0], f.sizes[f.start:]...)
+		f.start = 0
 	}
 	for w := range f.subs {
 		w.push(c)
@@ -73,12 +119,13 @@ func (f *feed) watch(ctx context.Context, after Seq) (<-chan Change, error) {
 	}
 	w := &watcher{wake: make(chan struct{}, 1)}
 	if after < f.head {
-		first := f.head - Seq(len(f.recent)) + 1
+		kept := f.recent[f.start:]
+		first := f.head - Seq(len(kept)) + 1
 		if after+1 < first {
 			f.mu.Unlock()
 			return nil, ErrTooOld
 		}
-		w.queue = append(w.queue, f.recent[after+1-first:]...)
+		w.queue = append(w.queue, kept[after+1-first:]...)
 		w.wake <- struct{}{}
 	}
 	f.subs[w] = struct{}{}
