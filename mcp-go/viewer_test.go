@@ -4,6 +4,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -40,5 +41,16 @@ func TestThemesBuiltIn(t *testing.T) {
 			t.Fatal(theme, textOf(c))
 		}
 		eq(t, sc(c)["slides"], 2, theme)
+	}
+}
+
+// sliqtly.com has no rooms, so its guide says nothing of them
+func TestGuideWithoutRooms(t *testing.T) {
+	g := withoutRooms(guideMD)
+	if strings.Contains(g, "## Rooms") || strings.Contains(g, "rooms -->") || !strings.Contains(guideMD, "## Rooms") {
+		t.Fatal("the Rooms part is not cut out as marked")
+	}
+	if !strings.Contains(g, "## When another assistant works on the same deck") {
+		t.Fatal("the part after Rooms went too")
 	}
 }

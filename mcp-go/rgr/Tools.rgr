@@ -404,7 +404,7 @@ class Tools {
         def vpre:MfJ (Tools.prop("string" "Starting point: logo (few flat colours, background dropped), illustration (8 colours, the default), poster (12 vivid colours), photo (24 colours, noise smoothed), lineart (black and white)"))
         vpre.put("enum" (J.strs((PresTraceSettings.presetNames()))))
         vp.put("preset" vpre)
-        def vopt:MfJ (Tools.prop("object" "Tracer options on top of the preset, by name: colorCount (1-64), turdsize (speckles below this many pixels dropped), alphamax (0-1.34, higher = rounder corners), opttolerance (curve fit, 0-2), smooth (median passes against noise), minRegion, threshold (lineart, -1 = automatic), bgMode (auto drops a flat background, none keeps everything), paletteMode (auto, fixed, seeded) with paletteHex (\"#112233,#ffcc00\"), paletteBias (area, balanced, distinct), gradientFill (true/false), maxSide (the longest side traced, default 1000). Any EvgTraceOptions field is accepted."))
+        def vopt:MfJ (Tools.prop("object" "On top of the preset: colorCount (1-64, how many colours) and maxSide (the longest side traced, default 1000)."))
         vp.put("options" vopt)
         vp.put("replace" (Tools.prop("boolean" "With deck_id: point the Markdown's and the theme CSS's uses of the picture at the SVG (default true). The original stays in the deck's files")))
         vp.put("save_as" (Tools.prop("string" "With deck_id: the SVG's path (default the picture's path with .svg)")))
@@ -2137,7 +2137,7 @@ class Tools {
         def settings:string (Tools.traceSettings(a))
         def bad:string (PresTrace.unknown((PresTraceSettings.parse(settings))))
         if ((strlen bad) > 0) {
-            return (Tools.fail(("Unknown tracer option: " + bad + ". Names are EvgTraceOptions fields, e.g. colorCount, turdsize, alphamax, opttolerance, smooth, minRegion, bgMode, paletteHex, maxSide.")))
+            return (Tools.fail(("Unknown option: " + bad + ". Use colorCount or maxSide, or choose another preset.")))
         }
         if ((Tools.has(a "deck_id")) == false) {
             return (Tools.vectorizeLoose(host a settings))
@@ -2186,7 +2186,7 @@ class Tools {
             return (Tools.fail(res.err))
         }
         if ((strlen res.svg) > (Deck.MAX_IMAGE())) {
-            return (Tools.fail(("The SVG would be larger than 5 MB (" + (Tools.traceLine(res)) + "): fewer colours (options.colorCount), a larger turdsize or minRegion, or a smaller maxSide.")))
+            return (Tools.fail(("The SVG would be larger than 5 MB (" + (Tools.traceLine(res)) + "): fewer colours (options.colorCount), a smaller maxSide, or the poster preset.")))
         }
         def target:string (trim (a.str_("save_as")))
         while (startsWith target "/") {
@@ -2280,7 +2280,7 @@ class Tools {
             return (Tools.fail(res.err))
         }
         if ((strlen res.svg) > (Deck.MAX_IMAGE())) {
-            return (Tools.fail(("The SVG would be larger than 5 MB (" + (Tools.traceLine(res)) + "): fewer colours, a larger turdsize or minRegion, or a smaller maxSide.")))
+            return (Tools.fail(("The SVG would be larger than 5 MB (" + (Tools.traceLine(res)) + "): fewer colours (options.colorCount), a smaller maxSide, or the poster preset.")))
         }
         def sc:MfJ (MfJ.newObj())
         sc.putStr("svg" res.svg)
