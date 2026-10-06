@@ -15,6 +15,7 @@
 import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
 import { decodePicture } from "./picture.js";
 import { INTRO_MS } from "./brand.js";
+import { currentUser, signIn, authHeaders } from "./viewauth.js";
 import { linkOf, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide } from "./viewlink.js";
 
 const FONTS = document.querySelector('meta[name="fonts"]')?.content || "";
@@ -97,7 +98,11 @@ function playIntro() {
       window.removeEventListener("pointerdown", end, true);
       window.removeEventListener("keydown", end, true);
       intro.classList.add("out");
-      setTimeout(() => { intro.hidden = true; intro.classList.remove("out"); }, 350);
+      // a note said meanwhile (not found, no WebGL) keeps the screen up
+      setTimeout(() => {
+        intro.classList.remove("out");
+        if (!note.textContent) intro.hidden = true;
+      }, 350);
       done();
     };
     window.addEventListener("pointerdown", end, true);
@@ -232,7 +237,7 @@ async function download(format) {
   vExport.textContent = say("Exporting…", "Viedään…");
   let failed = "";
   try {
-    const res = await fetch(exportUrl(link, format));
+    const res = await fetch(exportUrl(link, format), { headers: await authHeaders(user) });
     if (!res.ok) {
       const why = await res.json().catch(() => null);
       throw new Error((why && why.error) || "HTTP " + res.status);
@@ -305,6 +310,33 @@ async function pictureOf(p) {
   }
 }
 
+// who is signed in on the page, when a private presentation needed it
+let user = null;
+
+function notFound() {
+  if (given) {
+    showNote(say("This shared presentation was not found.", "Jaettua esitystä ei löytynyt."));
+    return;
+  }
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => "&#" + c.charCodeAt(0) + ";");
+  const who = user ? esc(user.email || user.displayName || "") : "";
+  showNote(say("This presentation was not found, or it is private.", "Esitystä ei löytynyt, tai se on yksityinen.") + "<br>" +
+    (user
+      ? say(`Signed in as ${who}, which does not own it.`, `Kirjautuneena ${who}, joka ei omista sitä.`)
+      : say("If it is yours, sign in with the Google account that owns it.", "Jos se on sinun, kirjaudu sen omistavalla Google-tilillä.")) +
+    `<br><button id="vSignIn" type="button">${user ? say("Use another Google account", "Käytä toista Google-tiliä") : say("Sign in with Google", "Kirjaudu Googlella")}</button>`);
+  document.getElementById("vSignIn").addEventListener("click", async (ev) => {
+    ev.stopPropagation();
+    try {
+      await signIn(!!user);
+      location.reload();
+    } catch (e) {
+      console.warn("sign-in", e);
+      if (e?.code !== "auth/popup-closed-by-user") note.insertAdjacentText("beforeend", " " + say("Sign-in did not go through.", "Kirjautuminen ei onnistunut."));
+    }
+  });
+}
+
 async function start() {
   // the front page (view.html shows it when the address is no presentation)
   if (!link) return;
@@ -323,10 +355,15 @@ async function start() {
   const fonts = loadFaces(FACES);
   let got;
   try {
-    const res = await fetch(viewUrl(link));
+    let res = await fetch(viewUrl(link));
+    // not found, or private: shown to its owner signed in here (viewauth.js)
+    if (res.status === 404 && !given) {
+      user = await currentUser();
+      if (user) res = await fetch(viewUrl(link), { headers: await authHeaders(user) });
+    }
     if (res.status === 404) {
       await shown;
-      showNote(say("This shared presentation was not found.", "Jaettua esitystä ei löytynyt."));
+      notFound();
       return;
     }
     if (!res.ok) throw new Error("HTTP " + res.status);

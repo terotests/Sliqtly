@@ -111,6 +111,15 @@ func TestViewLists(t *testing.T) {
 	code, h, _, _ = getView(t, s.root+"/api/view/"+id)
 	eq(t, code, 404)
 	eq(t, h.Get("Cache-Control"), "no-store")
+	// …but to its owner signed in on the page (a Firebase ID token), never cached
+	code, h, mine := getAs(t, s.root+"/api/view/"+id, "google-ok")
+	eq(t, code, 200)
+	eq(t, h.Get("Cache-Control"), "private, no-store")
+	if !strings.Contains(string(mine), `"name":"Viewed"`) {
+		t.Fatalf("owner's view: %.200s", mine)
+	}
+	code, _, _ = getAs(t, s.root+"/api/view/"+id, "forged")
+	eq(t, code, 404)
 
 	// no such presentation, and an id that is not one
 	for _, bad := range []string{"/api/view/AbCdEf1234", "/api/view/../x", "/api/view/", "/api/view/a"} {

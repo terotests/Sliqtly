@@ -61,6 +61,12 @@ const server = http.createServer((req, res) => {
     res.end(found ? deck : '{"error":"This shared presentation was not found."}');
     return;
   }
+  // Hosting's Firebase config (viewauth.js): not here, as where sign-in is off
+  if (rel.startsWith("/__/")) {
+    res.writeHead(404);
+    res.end();
+    return;
+  }
   if (rel === "/" || rel.startsWith("/s/")) rel = "/index.html";
   const file = path.join(viewDir, rel);
   if (!file.startsWith(viewDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
@@ -144,6 +150,10 @@ try {
   page = await open("/s/Nothing999");
   await page.waitForFunction(() => document.getElementById("note").textContent.length > 0, null, { timeout: 15000 });
   if (!/not found|ei löytynyt/.test(await text(page, "note"))) fail("a missing presentation was not said");
+  // it may be private: its owner is offered a sign-in
+  if (!(await page.$("#note #vSignIn"))) fail("a missing presentation offers no sign-in for its owner");
+  await page.waitForTimeout(600);
+  if (!(await page.isVisible("#note #vSignIn"))) fail("the not-found note does not stay on screen");
   if (!(await page.evaluate(() => window.__pageStarted))) fail("a missing presentation does not count as started");
   await page.close();
 

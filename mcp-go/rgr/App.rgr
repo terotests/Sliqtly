@@ -96,14 +96,35 @@ class App {
     ; by its Cache-Control) spares the layout for the next reader
     sfn serveView:void (host:McpHost req:HttpRequest res:HttpResponse id:string) {
         def q:MfJ (J.parse((http_query_json req)))
-        def body:string (View.json(host id (q.str_("slides"))))
+        def uid:string (App.pageUser(host req))
+        def body:string (View.json(host id (q.str_("slides")) uid))
         if ((strlen body) == 0) {
             http_set_header res "Cache-Control" "no-store"
             App.sendJson(res 404 "{\"error\":\"This shared presentation was not found.\"}")
             return
         }
-        http_set_header res "Cache-Control" "public, max-age=30, s-maxage=60"
+        ; shown to a signed-in page: maybe a private deck, never cached
+        if ((strlen uid) > 0) {
+            http_set_header res "Cache-Control" "private, no-store"
+        } {
+            http_set_header res "Cache-Control" "public, max-age=30, s-maxage=60"
+        }
         App.sendJson(res 200 body)
+    }
+
+    ; the Google account signed in on the viewer page: a Firebase ID token
+    ; as "Authorization: Bearer <token>", verified; "" without one
+    sfn pageUser:string (host:McpHost req:HttpRequest) {
+        def h:string (http_get_header req "Authorization")
+        if ((indexOf h "Bearer ") != 0) {
+            return ""
+        }
+        def token:string (trim (substring h 7 (strlen h)))
+        if ((strlen token) == 0) {
+            return ""
+        }
+        def who:MfJ (J.parse((host_verify_id_token host token)))
+        return (who.str_("uid"))
     }
 
     ; GET /api/export/<id>/<format>: the viewer's download (ViewExport).
@@ -127,7 +148,7 @@ class App {
             }
         }
         def q:MfJ (J.parse((http_query_json req)))
-        def f:ViewFile (ViewExport.file(host id format (q.str_("slides"))))
+        def f:ViewFile (ViewExport.file(host id format (q.str_("slides")) (App.pageUser(host req))))
         if draws {
             host_render_done host ip
         }

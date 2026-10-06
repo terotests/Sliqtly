@@ -714,7 +714,7 @@ class Tools {
             }
         }
         if ((out.str_("visibility")) == "private") {
-            push lines "Private: only this Google account sees it (in Sliqtly, at its link, and through this connector); the link opens it for nobody else. To let anyone with the link view it, the user asks for it and you call update_presentation with visibility \"link\"."
+            push lines "Private: only this Google account sees it (through this connector, and at its link after signing in there with Google); the link opens it for nobody else. To let anyone with the link view it, the user asks for it and you call update_presentation with visibility \"link\"."
         }
         if (((out.str_("visibility")) == "link") && caller.signedIn) {
             push lines "Anyone with the link can view it (visibility link)."

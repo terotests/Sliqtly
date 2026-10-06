@@ -23,8 +23,18 @@ Import "Tools.rgr"
 Import "../presentation/PresPick.rgr"
 
 class View {
+    ; whether the viewer may show doc to uid ("" for nobody signed in)
+    sfn shows:boolean (doc:MfJ uid:string) {
+        if ((doc.str_("visibility")) != "private") {
+            return true
+        }
+        return (((strlen uid) > 0) && ((doc.str_("owner")) == uid))
+    }
+
     ; the answer's body, or "" when there is no such presentation
-    sfn json:string (host:McpHost id:string keys:string) {
+    ; uid: who signed in on the page ("" for nobody), the only one a
+    ; private deck is shown to when it is theirs
+    sfn json:string (host:McpHost id:string keys:string uid:string) {
         if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
             return ""
         }
@@ -37,9 +47,9 @@ class View {
         if ((doc.isObj()) == false) {
             return ""
         }
-        ; a private deck is its owner's only, and the viewer has no
-        ; sign-in: it is "not found" here like a missing one
-        if ((doc.str_("visibility")) == "private") {
+        ; a private deck is its owner's only: "not found" to anyone else,
+        ; like a missing one
+        if ((View.shows(doc uid)) == false) {
             return ""
         }
         def md:string (doc.str_("md"))
@@ -113,7 +123,7 @@ class View {
 ; =============================================================================
 ; The viewer's downloads: GET /api/export/<id>/<format>[?slides=<keys>],
 ; format pdf, pptx or md. Whoever may view the deck may download it: a
-; deck shared by link, not a private one. PDF and PPTX are the editor's own
+; deck shared by link, a private one by its owner signed in on the page. PDF and PPTX are the editor's own
 ; export (as export_presentation makes them, slides at the end of their
 ; animations); md is the deck's text without Sliqtly's styling (PlainMd).
 ; Nothing is stored: the file goes straight to the browser.
@@ -129,7 +139,7 @@ class ViewFile {
 }
 
 class ViewExport {
-    sfn file:ViewFile (host:McpHost id:string format:string keys:string) {
+    sfn file:ViewFile (host:McpHost id:string format:string keys:string uid:string) {
         def out (new ViewFile)
         if (((format != "pdf") && (format != "pptx")) && (format != "md")) {
             out.status = 400
@@ -149,8 +159,8 @@ class ViewExport {
         if ((doc.isObj()) == false) {
             return out
         }
-        ; as /api/view: a private deck is not found by the viewer
-        if ((doc.str_("visibility")) == "private") {
+        ; as /api/view: a private deck only for its owner
+        if ((View.shows(doc uid)) == false) {
             return out
         }
         def md:string (doc.str_("md"))

@@ -25,6 +25,20 @@ func getExport(t *testing.T, url string) (int, http.Header, []byte) {
 	return res.StatusCode, res.Header, body
 }
 
+// a GET from a viewer page signed in with Google (token: the ID token)
+func getAs(t *testing.T, url, token string) (int, http.Header, []byte) {
+	t.Helper()
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	return res.StatusCode, res.Header, body
+}
+
 func TestViewerExports(t *testing.T) {
 	f := fakeFirebase()
 	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
@@ -78,6 +92,11 @@ func TestViewerExports(t *testing.T) {
 		code, _, _ = getExport(t, s.root+"/api/export/"+id+"/"+format)
 		eq(t, code, 404, format)
 	}
+	code, _, mine := getAs(t, s.root+"/api/export/"+id+"/md", "google-ok")
+	eq(t, code, 200)
+	eq(t, string(mine), want)
+	code, _, _ = getAs(t, s.root+"/api/export/"+id+"/md", "forged")
+	eq(t, code, 404)
 	for _, bad := range []string{"/api/export/AbCdEf1234/pdf", "/api/export/../x/md", "/api/export/", "/api/export/" + id} {
 		code, _, _ := getExport(t, s.root+bad)
 		if code != 404 && code != 400 {
