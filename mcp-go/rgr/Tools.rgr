@@ -703,7 +703,12 @@ class Tools {
             if ((strlen who) == 0) {
                 who = "the signed-in user"
             }
-            push lines ("Saved in the Sliqtly account of " + who + ".")
+            if ((strlen (host_local_user host)) > 0) {
+                ; a server of one's own: no sign-in, no expiry
+                push lines "Saved on this Sliqtly server. It has no sign-in: every agent connected to it can change or remove this presentation, and nothing expires; it stays until someone deletes it."
+            } {
+                push lines ("Saved in the Sliqtly account of " + who + ".")
+            }
             ; a Google account on sliqtly.com: the editor link writes only there
             if (((strlen (host_local_user host)) == 0) && (out.has("edit_url"))) {
                 push lines "The editor link writes to it only in a browser signed in to Sliqtly with this same Google account; signed in with another, it opens a copy whose changes and comments do not reach this presentation."

@@ -162,7 +162,7 @@ func TestLocalServer(t *testing.T) {
 	out := sc(c)
 	id := out["deck_id"].(string)
 	eq(t, out["share_url"], srv.URL+"/s/"+id)
-	match(t, textOf(c), `Saved in the Sliqtly account of local`)
+	match(t, textOf(c), `Saved on this Sliqtly server. It has no sign-in`)
 
 	// kept in the folder, pictures served by the server itself
 	docs, err := store.OpenSQLiteStore(filepath.Join(dir, docsFile))
