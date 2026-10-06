@@ -6,8 +6,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -82,6 +84,19 @@ func Migrate(ctx context.Context, db *sql.DB, path string, ms []SQLMigration, se
 			return rep, fmt.Errorf("backup before migrating %s: %w", path, err)
 		}
 		rep.Backup = b
+	}
+	if have > 0 {
+		// an existing file: the log says what changes in it (a new one is
+		// only made)
+		notes := make([]string, 0, want-have)
+		for _, m := range ms[have:] {
+			notes = append(notes, m.Note)
+		}
+		copied := ""
+		if rep.Backup != "" {
+			copied = ", copy of the file before in " + rep.Backup
+		}
+		log.Printf("migrating %s from schema %d to %d: %s%s", path, have, want, strings.Join(notes, "; "), copied)
 	}
 	for _, m := range ms[have:] {
 		tx, err := db.BeginTx(ctx, nil)
