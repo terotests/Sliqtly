@@ -200,7 +200,9 @@ export function touchRoom(state, roomId, now = Date.now()) {
 // rows has them. rows: listRooms's (or the server's, through orderRooms).
 // { shown, hidden }: hidden counts the rest, found by search.
 export function activeRooms(rows, state, now = Date.now()) {
-  const when = (r) => state.touched?.[r.room_id] || 0;
+  // a new room counts as used when it was made: one someone else just made
+  // shows up for everyone, not only for the one who made it
+  const when = (r) => Math.max(state.touched?.[r.room_id] || 0, r.created || 0);
   const recent = new Set(rows
     .filter((r) => !BUILT_IN.includes(r.room_id) && now - when(r) <= ACTIVE_DAYS * DAY)
     .sort((a, b) => when(b) - when(a))

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/terotests/sliqtly/mcp-go/store"
 )
@@ -179,4 +181,43 @@ func TestLinkPreviewsKept(t *testing.T) {
 	s.previews("t", "r", m2.ID, "before "+pages.URL+"/doc")
 	got2, _ := s.chat.Get(ctx, "t", "r", m2.ID)
 	eq(t, len(got2.Links), 0)
+}
+
+// a room made (or renamed, archived, removed) is told to every open page, so
+// their lists show it without a reload
+func TestRoomListEvents(t *testing.T) {
+	srv, session := startLocal(t, t.TempDir(), "")
+	defer srv.Close()
+	defer session.Close()
+	res, err := http.Get(srv.URL + "/api/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	lines := make(chan string, 64)
+	go func() {
+		sc := bufio.NewScanner(res.Body)
+		for sc.Scan() {
+			lines <- sc.Text()
+		}
+		close(lines)
+	}()
+	r := call(t, &testServer{root: srv.URL, session: session}, "create_room", map[string]any{"title": "Bob's room"})
+	if r.IsError {
+		t.Fatal(textOf(r))
+	}
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case l, ok := <-lines:
+			if !ok {
+				t.Fatal("the stream ended")
+			}
+			if l == `data: {"room":"","t":"rooms"}` {
+				return
+			}
+		case <-deadline:
+			t.Fatal("no rooms event")
+		}
+	}
 }

@@ -91,6 +91,19 @@ test("the panel lists the rooms one is active in: built-in three, then the recen
   assert.equal(hidden, rows.length - shown.length);
 });
 
+test("a room made lately is one of those listed, also for those who have not opened it", () => {
+  const now = 1_000_000_000_000;
+  const day = 86400000;
+  const rows = [
+    { room_id: GENERAL, title: "General" },
+    { room_id: "new", title: "Made by Bob", created: now - day },
+    { room_id: "old", title: "Made long ago", created: now - (ACTIVE_DAYS + 1) * day },
+  ];
+  const { shown, hidden } = activeRooms(rows, emptyRooms(), now);
+  assert.deepEqual(shown.map((r) => r.room_id), [GENERAL, "new"]);
+  assert.equal(hidden, 1);
+});
+
 test("search finds rooms by every word of the query, any case and accent", () => {
   const rows = [{ room_id: "a", title: "Q1 Päivitys" }, { room_id: "b", title: "Q1 budget" }, { room_id: "c", title: "Team" }];
   assert.deepEqual(searchRooms(rows, "q1 paivitys").map((r) => r.room_id), ["a"]);

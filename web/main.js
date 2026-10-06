@@ -1087,6 +1087,11 @@ async function currentRoomId() {
 }
 // the search field's text while it is open (null: the rooms one is active in)
 let roomsQuery = null;
+// a room made, renamed, archived or removed, or a deck moved, by anyone:
+// the server says so on the page's stream, and the list is read again
+window.addEventListener("sliqtly:chat", (ev) => {
+  if ((ev.detail?.t === "rooms" || ev.detail?.t === "reopen") && ownServer()) roomsRequest("room:list").then(() => { needsPaint = true; }, () => {});
+});
 async function roomsRequest(r) {
   const [, action, ...rest] = r.split(":");
   const what = rest.join(":");
@@ -4148,6 +4153,11 @@ async function openOwnCloudNow(id) {
   docName = shared.name || "presentation";
   shownDoc(shared.md || "");
   doc.cloud = id;
+  // on a server of one's own the rooms panel shows the deck's room
+  if (ownServer() && shared.room) {
+    roomShown = shared.room;
+    keepRooms(touchRoom(roomsHere, shared.room));
+  }
   doc.cloudMd = shared.md || "";
   doc.cloudCss = shared.css ?? null;
   doc.cloudTheme = shared.theme || "";
@@ -5927,11 +5937,13 @@ keys.addEventListener("cut", (ev) => {
 keys.addEventListener("paste", (ev) => {
   ev.preventDefault();
   const items = ev.clipboardData ? [...ev.clipboardData.items] : [];
-  // in a room's chat, files go with the message being written
-  if (app.focusTarget() === "room") {
+  // while a room's chat is shown, files go with the message being written
+  // (into the room's files), text into its composer
+  if (app.roomTakesPaste()) {
     const files = items.filter((it) => it.kind === "file").map((it) => it.getAsFile()).filter(Boolean);
     if (files.length) {
       roomChat().attach(files, app.roomChatInThread()).catch(fail);
+      needsPaint = true;
       return;
     }
   }
@@ -6525,7 +6537,14 @@ async function start() {
   const editing = !!own || (!!editId && q.has("edit"));
   if (versionFrame) await openVersionView();
   else if (playerDeck) await openPlayerDeck();
-  else if (editing && editId && (await openOwnCloud(editId).catch((e) => { console.warn(e); return false; }))) { /* opened */ }
+  else if (editing && editId && (await openOwnCloud(editId).catch((e) => { console.warn(e); return false; }))) {
+    // a deck's link on a server of one's own: its room open on the left,
+    // with the room's presentations
+    if (ownServer() && roomShown) {
+      app.showRooms();
+      roomsRequest("room:list").catch(() => {});
+    }
+  }
   else if (own && vfs && (await ownIsNewer(own)) && (await openDoc(own.deck))) plainAddress();
   else if (!(await openFromShare()) && !(await openFromHash())) {
     const want = q.get("sample");

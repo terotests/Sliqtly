@@ -261,7 +261,17 @@ func (s *roomService) callVia(ctx context.Context, uid, via, op string, a map[st
 	case errors.Is(err, store.ErrDenied):
 		return nil, roomErr{"your role does not allow that"}
 	}
+	if err == nil && roomListChanges[op] {
+		s.tell("", map[string]any{"t": "rooms"})
+	}
 	return out, err
+}
+
+// the operations after which the room lists differ: every page is told
+// ({"t":"rooms"}) and reads its list again
+var roomListChanges = map[string]bool{
+	"create_room": true, "update_room": true, "delete_room": true,
+	"archive_room": true, "move_presentation": true,
 }
 
 type roomRow struct {

@@ -6237,8 +6237,42 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; The rooms panel open on the left (the rail's Rooms), as a deck's link
+    ; opens it on a server of one's own.
+    fn showRooms:void () {
+        if (toolbar.roomsOpen == false) {
+            toolbar.roomsOpen = true
+            toolbar.rebuild()
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
     fn roomChatOpen:boolean () {
         return room.open
+    }
+
+    ; A paste while the channel is shown is the channel's: it covers the
+    ; editor, the slide and the strip, so focus left on those (a press on a
+    ; message, the rail) passes to its composer. -> true when it takes it.
+    fn roomTakesPaste:boolean () {
+        if ((room.open == false) || (mode == "present")) {
+            return false
+        }
+        if (focus == "room") {
+            if ((strlen room.ch.keys) == 0) {
+                room.ch.keys = "main"
+                room.changed()
+            }
+            return true
+        }
+        if (((focus == "editor") || (focus == "stage")) || (focus == "strip")) {
+            focus = "room"
+            room.ch.keys = "main"
+            room.changed()
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        return false
     }
 
     fn roomChatRoom:string () {
