@@ -31,7 +31,7 @@
   p, li { color: var(--dim); }
   b, strong { color: var(--paper); font-weight: 600; }
   .lead { font-size: 18px; margin: 0 0 28px; }
-  .url { display: flex; gap: 10px; align-items: center; border: 1px solid var(--line-2); background: #0e0e10; padding: 12px 14px; margin: 0 0 28px; }
+  .url { display: flex; gap: 10px; align-items: center; border: 1px solid var(--line-2); background: #0e0e10; padding: 12px 14px; margin: 0 0 12px; }
   .url code { flex: 1; font-size: 17px; background: none; border: 0; padding: 0; color: var(--accent); }
   button.copy { border: 1px solid var(--line-2); background: transparent; color: var(--paper); padding: 5px 12px; font: 600 12.5px/1 var(--mono); cursor: pointer; }
   button.copy:hover { border-color: var(--accent); color: var(--accent); }
@@ -47,6 +47,7 @@
   pre code { background: none; border: 0; padding: 0; font-size: 13.5px; }
   pre button.copy { position: absolute; top: 8px; right: 8px; background: #0e0e10; }
   .note { color: var(--dimmer); font-size: 15px; }
+  .note.local { border-left: 2px solid var(--accent); padding-left: 12px; color: var(--dim); }
   blockquote { margin: 10px 0; padding: 4px 0 4px 16px; border-left: 2px solid var(--accent); color: var(--paper); }
 </style>
 </head>
@@ -59,6 +60,7 @@
   <p class="lead">Connect Sliqtly to your assistant and ask it for a presentation. It writes the slides in Markdown, picks a theme, adds CSS, pictures, charts and diagrams, and gives you a link that opens the finished presentation.</p>
 
   <div class="url"><code id="server">https://sliqtly.com/mcp</code><button class="copy" data-copy="server">Copy</button></div>
+  <p class="note local">Running Sliqtly locally? The address is <code>http://localhost:8080/mcp</code> (another port if you chose one); see <a href="/local.html">how to run it locally</a>.</p>
 
   <nav class="clients" aria-label="Clients">
     <a href="#claude">Claude</a>
@@ -84,12 +86,14 @@
     <p>An owner adds it once under <b>Organization settings → Connectors → Add → Custom</b> (type <b>Web</b>) with the same URL. Members then find it under <b>Customize → Connectors</b> and click <b>Connect</b>.</p>
     <h3>In a chat</h3>
     <p>Open the <b>+</b> menu → <b>Connectors</b> and turn Sliqtly on. The presentation appears in the conversation and its link opens it full size.</p>
+    <p class="note local">Running Sliqtly locally? claude.ai runs in the cloud and cannot reach a server on your computer; use one of the local clients below with <code>http://localhost:8080/mcp</code> (<a href="/local.html">how to run it locally</a>).</p>
   </section>
 
   <section id="claude-code">
     <h2>Claude Code</h2>
     <pre><code id="cc">claude mcp add --transport http sliqtly https://sliqtly.com/mcp</code><button class="copy" data-copy="cc">Copy</button></pre>
     <p class="note">Add <code>--scope user</code> to have it in every project.</p>
+    <p class="note local">Running Sliqtly locally? <code>claude mcp add --transport http sliqtly http://localhost:8080/mcp</code> (<a href="/local.html">how to run it locally</a>).</p>
   </section>
 
   <section id="chatgpt">
@@ -102,6 +106,7 @@
     </ol>
     <p>In a new chat, open <b>+</b> → <b>Developer mode</b> (or <b>More</b>) and choose Sliqtly. ChatGPT asks before it makes a presentation; allow it.</p>
     <p class="note">The menu names move between ChatGPT versions. If you do not find Developer mode under Apps &amp; Connectors, look under Settings → Connectors → Advanced.</p>
+    <p class="note local">Running Sliqtly locally? ChatGPT runs in the cloud and cannot reach a server on your computer; use one of the local clients below with <code>http://localhost:8080/mcp</code> (<a href="/local.html">how to run it locally</a>).</p>
   </section>
 
   <section id="openai-api">
@@ -113,6 +118,7 @@
   "require_approval": "never"
 }</code><button class="copy" data-copy="oai">Copy</button></pre>
     <p class="note">Put it in the request's <code>tools</code> list. In the Agents SDK use <code>HostedMCPTool</code> with the same <code>tool_config</code>.</p>
+    <p class="note local">Running Sliqtly locally? OpenAI calls the server from its own cloud, so it needs an address reachable from the internet (behind a proxy with HTTPS and <code>SLIQTLY_TOKEN</code>), not <code>localhost</code> (<a href="/local.html">how to run it locally</a>).</p>
   </section>
 
   <section id="cursor">
@@ -126,6 +132,7 @@
   }
 }</code><button class="copy" data-copy="cursor-json">Copy</button></pre>
     <p class="note">In Agent mode, ask for a presentation; Cursor asks before calling the tool.</p>
+    <p class="note local">Running Sliqtly locally? Use <code>"url": "http://localhost:8080/mcp"</code> (<a href="/local.html">how to run it locally</a>).</p>
   </section>
 
   <section id="others">
@@ -152,8 +159,10 @@
     "sliqtly": { "httpUrl": "https://sliqtly.com/mcp" }
   }
 }</code><button class="copy" data-copy="gemini">Copy</button></pre>
+    <p class="note local">Running Sliqtly locally? Replace <code>https://sliqtly.com/mcp</code> with <code>http://localhost:8080/mcp</code> in each of these (<a href="/local.html">how to run it locally</a>).</p>
     <h3>A client that only runs local servers</h3>
     <pre><code id="remote">npx -y mcp-remote https://sliqtly.com/mcp</code><button class="copy" data-copy="remote">Copy</button></pre>
+    <p class="note local">Running Sliqtly locally? <code>npx -y mcp-remote http://localhost:8080/mcp</code> (<a href="/local.html">how to run it locally</a>).</p>
   </section>
 
   <section id="use">
@@ -161,7 +170,6 @@
     <p>Ask in your own words, for example:</p>
     <blockquote>Make a 6-slide presentation of our Q3 results with the ember theme: a bar chart of revenue by month, a diagram of the sales process, and this photo on the title slide: https://…/team.jpg</blockquote>
     <blockquote>Change slide 3 to a two-column comparison and make the headings orange.</blockquote>
-    <p class="note">To run the server on your own computer instead, see <a href="/local.html">Run Sliqtly locally</a>.</p>
     <p class="note">Sliqtly is provided as is, and you store data in it at your own risk: read the <a href="/#terms">terms</a>.</p>
   </section>
 </main>

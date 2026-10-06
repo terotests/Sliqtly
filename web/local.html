@@ -8,7 +8,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Run Sliqtly locally</title>
-<meta name="description" content="Install the Sliqtly Personal server on Ubuntu or Debian, connect your AI agent over MCP, change the port and manage the service." />
+<meta name="description" content="Install the Sliqtly Personal server with a .deb (Ubuntu, Debian), Homebrew (macOS) or Docker; run the service, choose the port, open it to a LAN or Wi-Fi, and set up the firewall." />
 <meta name="theme-color" content="#070708" />
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <style>
@@ -40,29 +40,58 @@
   table { width: 100%; border-collapse: collapse; font-size: 15px; margin: 12px 0 18px; }
   th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
   th { font: 400 12px/1.4 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
-  td:first-child { white-space: nowrap; }
+  .settings td:first-child { white-space: nowrap; }
+  td code { white-space: nowrap; }
+  .nets td:first-child { width: 22%; }
   .tablebox { overflow-x: auto; border: 1px solid var(--line-2); }
   .tablebox table { margin: 0; min-width: 560px; }
   .note { border-left: 2px solid var(--accent); padding: 4px 0 4px 16px; }
   .btn { display: inline-flex; align-items: center; height: 46px; padding: 0 22px; margin: 8px 8px 0 0; font: 600 14px/1 var(--mono); text-decoration: none; border: 1px solid var(--line-2); color: var(--paper); }
+  h3 { font: 700 17px/1.3 var(--grotesk); color: var(--paper); margin: 26px 0 8px; }
+  .pick { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 0; }
+  .pick a { border: 1px solid var(--line-2); color: var(--paper); padding: 6px 14px; text-decoration: none; font: 400 13px/1.2 var(--mono); }
+  .pick a:hover { border-color: var(--accent); color: var(--accent); }
+  .warn { border-left-color: #ff6b5a; }
   .btn--solid { background: var(--accent); border-color: var(--accent); color: var(--ink); }
 </style>
 </head>
 <body>
 <header class="nav"><a href="/"><img src="/favicon.svg" alt="" width="22" height="22" />Sliqtly</a></header>
 <main>
-  <p class="label">Sliqtly Personal · Ubuntu and Debian</p>
+  <p class="label">Sliqtly Personal · Linux, macOS, Docker</p>
   <h1>Run Sliqtly locally.</h1>
-  <p>The Personal package is the Sliqtly server for one computer: the MCP endpoint your agent writes presentations through, and a viewer that plays them in your browser. It runs as a system service and keeps the presentations on your own disk.</p>
+  <p>The Personal server runs on your own computer: the MCP endpoint your agent writes presentations through, and a viewer that plays them in your browser. It runs as a background service and keeps the presentations on your own disk: data stays between your machine and your agent. Out of the box only your own computer can connect.</p>
+  <nav class="pick" aria-label="Install">
+    <a href="#deb">Ubuntu / Debian (.deb)</a>
+    <a href="#brew">macOS (Homebrew)</a>
+    <a href="#docker">Docker</a>
+    <a href="#networks">Networks</a>
+    <a href="#firewall">Firewall</a>
+  </nav>
+
+  <h2>1. Install</h2>
+  <h3 id="deb">Ubuntu and Debian</h3>
   <p>
     <a class="btn btn--solid" href="/download/sliqtly-personal_amd64.deb" download>Download (.deb, amd64)</a>
     <a class="btn" href="/download/sliqtly-personal_arm64.deb" download>ARM (arm64)</a>
   </p>
-
-  <h2>1. Install</h2>
   <pre><code>curl -fLo /tmp/sliqtly-personal.deb https://sliqtly.com/download/sliqtly-personal_amd64.deb
 sudo apt install /tmp/sliqtly-personal.deb</code></pre>
-  <p>On an ARM computer (a Raspberry Pi with a 64-bit system, an ARM laptop) take <code>sliqtly-personal_arm64.deb</code>. The service starts right away and again at every boot. Open <a href="http://localhost:8080/">http://localhost:8080/</a>: the page lists your presentations, and each one plays in the viewer.</p>
+  <p>On an ARM computer (a Raspberry Pi with a 64-bit system, an ARM laptop) take <code>sliqtly-personal_arm64.deb</code>. The service starts right away and again at every boot.</p>
+
+  <h3 id="brew">macOS (Homebrew)</h3>
+  <pre><code>brew install terotests/sliqtly/sliqtly
+brew services start sliqtly         <span class="c"># now and at every login</span></code></pre>
+  <p>Apple silicon and Intel Macs both work.</p>
+
+  <h3 id="docker">Docker</h3>
+  <pre><code>docker run -d --name sliqtly --restart unless-stopped \
+  -p 127.0.0.1:8080:8080 \
+  -v sliqtly-data:/data -v sliqtly-backup:/backup \
+  ghcr.io/terotests/sliqtly-personal:latest</code></pre>
+  <p>The image runs on <code>linux/amd64</code> and <code>linux/arm64</code>, so Docker Desktop on a Mac or Windows works too. The presentations are in the <code>sliqtly-data</code> volume and survive updates. <code>127.0.0.1</code> in <code>-p</code> keeps it to this computer; see <a href="#networks">Networks</a> before you change it.</p>
+
+  <p>Then open <a href="http://localhost:8080/">http://localhost:8080/</a>: the page lists your presentations, and each one plays in the viewer.</p>
 
   <h2>2. Connect your agent</h2>
   <p>The MCP endpoint is <code>http://localhost:8080/mcp</code>.</p>
@@ -89,6 +118,7 @@ sudo apt install /tmp/sliqtly-personal.deb</code></pre>
   <p class="note">Agents that run in their vendor's cloud (claude.ai connectors, ChatGPT) cannot reach a server on your own computer. Use a local client, or the hosted service at <code>https://sliqtly.com/mcp</code>.</p>
 
   <h2>3. Use the service</h2>
+  <h3>Ubuntu and Debian (systemd)</h3>
   <pre><code>systemctl status sliqtly          <span class="c"># is it running, and since when</span>
 sudo systemctl restart sliqtly    <span class="c"># after changing the settings</span>
 sudo systemctl stop sliqtly       <span class="c"># stop it for now</span>
@@ -96,44 +126,107 @@ sudo systemctl start sliqtly
 sudo systemctl disable sliqtly    <span class="c"># do not start it at boot</span>
 sudo systemctl enable sliqtly     <span class="c"># start it at boot again</span>
 journalctl -u sliqtly -f          <span class="c"># follow its log</span></code></pre>
+  <h3>macOS (Homebrew)</h3>
+  <pre><code>brew services list                  <span class="c"># is it running</span>
+brew services restart sliqtly       <span class="c"># after changing the settings</span>
+brew services stop sliqtly          <span class="c"># stop it, and do not start it at login</span>
+brew services start sliqtly
+tail -f "$(brew --prefix)/var/log/sliqtly.log"</code></pre>
+  <h3>Docker</h3>
+  <pre><code>docker ps --filter name=sliqtly     <span class="c"># is it running</span>
+docker restart sliqtly
+docker stop sliqtly                 <span class="c"># stays stopped until docker start</span>
+docker start sliqtly
+docker logs -f sliqtly</code></pre>
 
   <h2>4. Choose the port</h2>
-  <p>The settings are in <code>/etc/sliqtly/sliqtly.env</code>. To use port 8090 instead of 8080:</p>
-  <pre><code>sudo nano /etc/sliqtly/sliqtly.env      <span class="c"># set PORT=8090</span>
-sudo systemctl restart sliqtly</code></pre>
-  <p>Then open <code>http://localhost:8090/</code> and point your agent at <code>http://localhost:8090/mcp</code>. A port below 1024 needs extra rights; pick one above it.</p>
+  <p>The server listens on 8080. To use 8090 instead:</p>
   <div class="tablebox"><table>
+    <thead><tr><th>Install</th><th>Change</th><th>Then</th></tr></thead>
+    <tbody>
+      <tr><td>.deb</td><td><code>PORT=8090</code> in <code>/etc/sliqtly/sliqtly.env</code></td><td><code>sudo systemctl restart sliqtly</code></td></tr>
+      <tr><td>Homebrew</td><td><code>PORT=8090</code> in <code>$(brew --prefix)/etc/sliqtly/sliqtly.env</code></td><td><code>brew services restart sliqtly</code></td></tr>
+      <tr><td>Docker</td><td>the left side of <code>-p</code>: <code>-p 127.0.0.1:8090:8080</code></td><td>remove the container and run it again (the volumes keep the presentations)</td></tr>
+    </tbody>
+  </table></div>
+  <p>Then open <code>http://localhost:8090/</code> and point your agent at <code>http://localhost:8090/mcp</code>. A port below 1024 needs extra rights; pick one above it. If the port is taken, the log says so and the server does not start.</p>
+
+  <h3>All the settings</h3>
+  <p>The same names go in <code>sliqtly.env</code> (.deb, Homebrew) or after <code>-e</code> in <code>docker run</code>.</p>
+  <div class="tablebox"><table class="settings">
     <thead><tr><th>Setting</th><th>Default</th><th>What it does</th></tr></thead>
     <tbody>
       <tr><td><code>PORT</code></td><td>8080</td><td>The port the server listens on.</td></tr>
-      <tr><td><code>SLIQTLY_LISTEN</code></td><td><code>local</code></td><td>Who can connect: <code>local</code> (this computer only), <code>wired</code> (also computers on a wired network) or <code>network</code> (every interface).</td></tr>
-      <tr><td><code>SLIQTLY_ALLOW</code></td><td>empty</td><td>With <code>wired</code> or <code>network</code>: only these address ranges, e.g. <code>192.168.1.0/24</code>.</td></tr>
-      <tr><td><code>SLIQTLY_URL</code></td><td><code>http://localhost:&lt;port&gt;</code></td><td>The address in the links the server gives, e.g. <code>http://my-pc:8080</code> when other computers use it.</td></tr>
+      <tr><td><code>SLIQTLY_LISTEN</code></td><td><code>local</code></td><td>Who can connect: <code>local</code>, <code>wired</code> or <code>network</code>; see <a href="#networks">Networks</a>. Docker sets <code>network</code> inside the container and leaves the choice to <code>-p</code>.</td></tr>
+      <tr><td><code>SLIQTLY_ALLOW</code></td><td>empty</td><td>With <code>wired</code> or <code>network</code>: only these address ranges, e.g. <code>192.168.1.0/24</code>. This computer is always let in.</td></tr>
       <tr><td><code>SLIQTLY_TOKEN</code></td><td>empty</td><td>When set, <code>/mcp</code> needs <code>Authorization: Bearer &lt;token&gt;</code>.</td></tr>
-      <tr><td><code>SLIQTLY_DATA</code></td><td><code>/var/lib/sliqtly</code></td><td>Where the presentations are kept.</td></tr>
-      <tr><td><code>SLIQTLY_BACKUP</code></td><td><code>/var/lib/sliqtly-backup</code></td><td>A daily backup of the presentations; empty turns it off.</td></tr>
+      <tr><td><code>SLIQTLY_URL</code></td><td>the address a request came in on</td><td>The address in the links the server gives, e.g. <code>http://my-pc.local:8080</code> or <code>https://slides.example.com</code>.</td></tr>
+      <tr><td><code>SLIQTLY_DATA</code></td><td>.deb <code>/var/lib/sliqtly</code><br />Homebrew <code>$(brew --prefix)/var/sliqtly</code><br />Docker <code>/data</code></td><td>Where the presentations are kept.</td></tr>
+      <tr><td><code>SLIQTLY_BACKUP</code></td><td>the same with <code>-backup</code> (Docker <code>/backup</code>)</td><td>A daily backup of the presentations; empty turns it off.</td></tr>
     </tbody>
   </table></div>
 
-  <h2>5. Other computers</h2>
-  <p>By default only your own computer can connect. To let others on your network use it, set in <code>/etc/sliqtly/sliqtly.env</code>:</p>
-  <pre><code>SLIQTLY_LISTEN=network
-SLIQTLY_ALLOW=192.168.1.0/24
-SLIQTLY_URL=http://my-pc:8080
-SLIQTLY_TOKEN=a-long-random-secret</code></pre>
-  <p>and restart the service. Agents on those computers then add the header <code>Authorization: Bearer a-long-random-secret</code> (Claude Code: <code>--header "Authorization: Bearer …"</code>).</p>
-  <p class="note">The token protects the MCP endpoint only. Anyone who can reach the server can open the presentations on it, so open it only on a network you trust.</p>
+  <h2 id="networks">5. Networks</h2>
+  <p>The server decides which network interfaces it listens on. Pick the row that matches where other people are; the default, this computer only, needs nothing.</p>
+  <div class="tablebox"><table class="nets">
+    <thead><tr><th>Who should connect</th><th>.deb and Homebrew</th><th>Docker</th></tr></thead>
+    <tbody>
+      <tr><td>Only this computer</td><td><code>SLIQTLY_LISTEN=local</code> (the default). It listens on 127.0.0.1 and ::1 only, so on a café or hotel Wi-Fi nobody else sees it.</td><td><code>-p 127.0.0.1:8080:8080</code></td></tr>
+      <tr><td>Computers on a wired LAN (office, home cable)</td><td><code>SLIQTLY_LISTEN=wired</code>. It listens on the Ethernet interfaces only and takes connections only from their subnets. Wi-Fi, phone tethering, VPNs and virtual interfaces stay closed, and plugging a cable in or out takes effect without a restart.</td><td><code>-p 192.168.1.10:8080:8080</code>, with this computer's LAN address</td></tr>
+      <tr><td>Computers on a Wi-Fi you trust (your home)</td><td><code>SLIQTLY_LISTEN=network</code> with <code>SLIQTLY_ALLOW=192.168.1.0/24</code> (your home network's range). <code>wired</code> never opens Wi-Fi on purpose.</td><td>as above, with the Wi-Fi address</td></tr>
+      <tr><td>The public internet</td><td colspan="2">Do not open the port directly. Put a reverse proxy with a real HTTPS certificate in front (below), keep Sliqtly on <code>local</code>, and set <code>SLIQTLY_TOKEN</code>.</td></tr>
+    </tbody>
+  </table></div>
+  <p>Whenever other computers connect, also set a token, so only your own agents can write:</p>
+  <pre><code>SLIQTLY_TOKEN=a-long-random-secret      <span class="c"># e.g. from: openssl rand -hex 24</span></code></pre>
+  <p>Their agents then add the header <code>Authorization: Bearer a-long-random-secret</code> (Claude Code: <code>--header "Authorization: Bearer …"</code>), and use this computer's name or address instead of <code>localhost</code>, e.g. <code>http://my-pc.local:8080/mcp</code>.</p>
+  <p class="note warn">The token protects the MCP endpoint only. Anyone who can reach the server can open the presentations on it, so open it only on a network you trust, and never on a public Wi-Fi.</p>
+  <p class="note">In Docker, the server sees connections through Docker's own network, so choose who reaches it with the <code>-p</code> address and the firewall rather than <code>SLIQTLY_ALLOW</code>.</p>
 
-  <h2>6. Presentations and backups</h2>
-  <p>Presentations live in <code>/var/lib/sliqtly</code>, and a backup is taken every day into <code>/var/lib/sliqtly-backup</code> (mount another disk there to keep it apart). To see and check the backups:</p>
-  <pre><code>sudo sliqtly-server backup list -repo /var/lib/sliqtly-backup
-sudo sliqtly-server backup verify -repo /var/lib/sliqtly-backup</code></pre>
+  <h3>On the internet, behind a proxy</h3>
+  <p>For a server others reach over the internet, let a web server with a real certificate take the connections. With <a href="https://caddyserver.com/">Caddy</a> and a domain pointing at the machine, <code>/etc/caddy/Caddyfile</code> is:</p>
+  <pre><code>slides.example.com {
+    reverse_proxy 127.0.0.1:8080
+}</code></pre>
+  <p>and in <code>sliqtly.env</code>: <code>SLIQTLY_LISTEN=local</code>, <code>SLIQTLY_URL=https://slides.example.com</code>, <code>SLIQTLY_TOKEN=…</code>. Only ports 80 and 443 are then open to the internet; 8080 stays closed. The Personal license allows this for your own use, not as a service for another organization.</p>
 
-  <h2>7. Update or remove</h2>
-  <p>To update, download the newest package and install it the same way. The service restarts by itself, and your presentations and settings stay.</p>
+  <h2 id="firewall">6. Firewall</h2>
+  <p>With <code>local</code> nothing needs opening. When other computers connect, open the port only to the network they are on.</p>
+  <h3>Ubuntu and Debian (ufw)</h3>
+  <pre><code>sudo ufw allow OpenSSH                                          <span class="c"># if you log in over SSH</span>
+sudo ufw allow from 192.168.1.0/24 to any port 8080 proto tcp   <span class="c"># your LAN only</span>
+sudo ufw enable
+sudo ufw status numbered</code></pre>
+  <p>Behind a proxy, open <code>80</code> and <code>443</code> (<code>sudo ufw allow 80,443/tcp</code>) and not 8080.</p>
+  <h3>macOS</h3>
+  <p>The firewall is in System Settings → Network → Firewall. With it on, macOS asks once whether <code>sliqtly-server</code> may accept incoming connections when the server first listens beyond this Mac; answer Allow on a network you trust. With <code>local</code> it never asks.</p>
+  <h3>Docker</h3>
+  <p class="note warn">Docker's published ports go around ufw and firewalld: a container started with <code>-p 8080:8080</code> is open to every network the computer is on, whatever <code>ufw status</code> says. Always give <code>-p</code> an address (<code>127.0.0.1</code> or the LAN address), or filter in the <code>DOCKER-USER</code> chain:</p>
+  <pre><code>sudo iptables -I DOCKER-USER -p tcp --dport 8080 ! -s 192.168.1.0/24 -j DROP</code></pre>
+
+  <h2>7. Presentations and backups</h2>
+  <p>A backup is taken every day into the backup folder (mount another disk there to keep it apart). To see and check the backups:</p>
+  <pre><code><span class="c"># .deb</span>
+sudo sliqtly-server backup list -repo /var/lib/sliqtly-backup
+sudo sliqtly-server backup verify -repo /var/lib/sliqtly-backup
+<span class="c"># Homebrew</span>
+sliqtly-server backup list -repo "$(brew --prefix)/var/sliqtly-backup"
+<span class="c"># Docker</span>
+docker exec sliqtly /sliqtly-server backup list -repo /backup</code></pre>
+
+  <h2>8. Update or remove</h2>
+  <h3>.deb</h3>
+  <p>Download the newest package and install it the same way; the service restarts by itself.</p>
   <pre><code>sudo apt remove sliqtly-personal    <span class="c"># stops it; the presentations stay</span>
 sudo apt purge sliqtly-personal     <span class="c"># also removes /etc/sliqtly</span></code></pre>
-  <p>Removing the package leaves <code>/var/lib/sliqtly</code> as it is, so you can keep or delete the presentations yourself.</p>
+  <h3>Homebrew</h3>
+  <pre><code>brew upgrade sliqtly && brew services restart sliqtly
+brew services stop sliqtly && brew uninstall sliqtly   <span class="c"># the presentations stay in $(brew --prefix)/var/sliqtly</span></code></pre>
+  <h3>Docker</h3>
+  <pre><code>docker pull ghcr.io/terotests/sliqtly-personal:latest
+docker rm -f sliqtly                <span class="c"># then the same docker run as above</span>
+docker volume rm sliqtly-data sliqtly-backup   <span class="c"># only to delete the presentations too</span></code></pre>
+  <p>Removing never deletes the presentations by itself; delete their folder or volume yourself if you want them gone.</p>
 
   <h2>License</h2>
   <p>Free for personal use and qualifying solo businesses with annual gross revenue below €200,000. All other commercial use requires a commercial license. <a href="/personal-license.txt">Read the license</a>. Sliqtly is experimental software, provided as is; see the <a href="/#terms">terms</a>.</p>

@@ -9,6 +9,14 @@
 #   curl -fLo /tmp/sliqtly-personal.deb https://sliqtly.com/download/sliqtly-personal_amd64.deb
 #   sudo apt install /tmp/sliqtly-personal.deb
 #
+# The same run also makes
+#   - sliqtly-personal_<version>_darwin_<arm64|amd64>.tar.gz for macOS, which
+#     the Homebrew tap terotests/homebrew-sliqtly installs: the tap's own
+#     workflow reads downloads/personal/latest.json (versions and SHA-256s)
+#     and updates its formula;
+#   - the Docker image ghcr.io/terotests/sliqtly-personal:<version> and
+#     :latest (linux/amd64, linux/arm64; packaging/personal/Dockerfile).
+#
 # The PRO package (server-package.yml: the editor built in) is a different
 # package, not public; either replaces the other where both are installed.
 #
@@ -33,6 +41,7 @@ on:
 
 permissions:
   contents: write # the personal-v<version> tag
+  packages: write # ghcr.io/terotests/sliqtly-personal
 
 concurrency:
   group: personal-package
@@ -106,6 +115,26 @@ jobs:
         run: |
           packaging/build-deb.sh "$VERSION" amd64
           packaging/build-deb.sh "$VERSION" arm64
+          for arch in arm64 amd64; do packaging/build-personal-bin.sh "$VERSION" darwin "$arch"; done
+          for arch in amd64 arm64; do packaging/build-personal-bin.sh "$VERSION" linux "$arch"; done
+          mkdir -p dist/empty
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: The Docker image
+        working-directory: mcp-go
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          docker buildx build -f packaging/personal/Dockerfile \
+            --platform linux/amd64,linux/arm64 \
+            -t "ghcr.io/terotests/sliqtly-personal:$VERSION" \
+            -t ghcr.io/terotests/sliqtly-personal:latest \
+            --push .
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
@@ -131,6 +160,26 @@ jobs:
               --cache-control="public, max-age=300" --quiet
             echo "- $arch: https://sliqtly.com/download/sliqtly-personal_${arch}.deb ($(sha256sum "$f" | cut -d' ' -f1))" >> "$GITHUB_STEP_SUMMARY"
           done
+          # macOS, for the Homebrew tap: versioned files, read straight from
+          # Storage (storage.rules lets anyone read downloads/personal/)
+          for f in dist/sliqtly-personal_*_darwin_*.tar.gz; do
+            gcloud storage cp "$f" "gs://$BUCKET/downloads/personal/$(basename "$f")" \
+              --content-type=application/gzip --quiet
+          done
+          STORE="https://firebasestorage.googleapis.com/v0/b/$BUCKET/o/downloads%2Fpersonal"
+          sum() { sha256sum "dist/sliqtly-personal_${VERSION}_darwin_$1.tar.gz" | cut -d' ' -f1; }
+          cat > dist/latest.json <<JSON
+          {
+            "version": "$VERSION",
+            "darwin_arm64": { "url": "$STORE%2Fsliqtly-personal_${VERSION}_darwin_arm64.tar.gz?alt=media", "sha256": "$(sum arm64)" },
+            "darwin_amd64": { "url": "$STORE%2Fsliqtly-personal_${VERSION}_darwin_amd64.tar.gz?alt=media", "sha256": "$(sum amd64)" },
+            "docker": "ghcr.io/terotests/sliqtly-personal:$VERSION"
+          }
+          JSON
+          gcloud storage cp dist/latest.json "gs://$BUCKET/downloads/personal/latest.json" \
+            --content-type=application/json --cache-control="public, max-age=60" --quiet
+          echo "- macOS: brew install terotests/sliqtly/sliqtly (the tap picks $VERSION up from latest.json)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Docker: ghcr.io/terotests/sliqtly-personal:$VERSION" >> "$GITHUB_STEP_SUMMARY"
       - name: Tag the commit
         env:
           VERSION: ${{ steps.version.outputs.version }}

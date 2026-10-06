@@ -440,6 +440,14 @@ only, its front page the list of decks, under its own license
 (`packaging/personal/LICENSE`). The **Personal package** workflow builds and
 uploads it. Either package replaces the other.
 
+The same workflow makes the Personal server for macOS and Docker
+(`packaging/build-personal-bin.sh`): `sliqtly-personal_<v>_darwin_<arch>.tar.gz`
+in Storage with `downloads/personal/latest.json`, which the Homebrew tap
+terotests/homebrew-sliqtly reads to update its formula (the tap's files are
+in `packaging/homebrew/`), and the image `ghcr.io/terotests/sliqtly-personal`
+(`packaging/personal/Dockerfile`). How people run them: web/local.html
+(sliqtly.com/local.html).
+
 ### Connecting an assistant
 
 Claude Code:
