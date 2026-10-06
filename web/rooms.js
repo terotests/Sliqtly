@@ -34,8 +34,10 @@ export const isBuiltIn = (id) => BUILT_IN.includes(id);
 
 // What localStorage held, or an empty state when it held nothing usable.
 export function parseRooms(text) {
+  // nothing kept is the usual first visit, not an error to throw and catch
+  if (!text) return emptyRooms();
   try {
-    const s = JSON.parse(text || "");
+    const s = JSON.parse(text);
     const rooms = Array.isArray(s?.rooms) ? s.rooms.filter((r) => r && typeof r.id === "string" && typeof r.title === "string") : [];
     const placed = s?.placed && typeof s.placed === "object" ? { ...s.placed } : {};
     const touched = s?.touched && typeof s.touched === "object" ? { ...s.touched } : {};
