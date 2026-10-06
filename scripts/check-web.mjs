@@ -2260,6 +2260,8 @@ try {
     // "+ Add new presentation" under a room: File → New's window, and the
     // deck it makes is in that room
     await R(`t("tb-room-playground");`);
+    // General's list (open from the step before) has a "+" too: Playground's first
+    await until(() => window.__app.toolbar.roomOpen === "playground");
     await pageHas("tb-roomdeck-new");
     await R(`t("tb-roomdeck-new");`);
     const newWin = await until(() => window.__app.chart.isOpen && window.__app.chart.mode === "newdeck" && window.__app.chart.ndAsk === "");
@@ -4217,8 +4219,14 @@ try {
     await pc.waitForTimeout(500);
     const home = await pc.evaluate(() => ({ md: window.__app.source(), hash: location.hash }));
     check("after it, the site's plain address opens the welcome deck with no #doc", home.md.startsWith("---\ntitle: Sliqtly - Demo") && home.hash === "", JSON.stringify({ ...home, md: home.md.slice(0, 80) }));
-    await pc.goto(url.replace(/\/$/, "") + "/s/zzOthersDeck?edit");
-    await pc.waitForFunction(() => window.__pageStarted === true && window.__app.source().startsWith("# Toisen pakka"), null, { timeout: 90000 });
+    // reloaded again and again, the copy (a new one each time) has one tab
+    for (let i = 0; i < 3; i++) {
+      await pc.goto(url.replace(/\/$/, "") + "/s/zzOthersDeck?edit");
+      await pc.waitForFunction(() => window.__pageStarted === true && window.__app.source().startsWith("# Toisen pakka"), null, { timeout: 90000 });
+    }
+    await pc.waitForTimeout(500);
+    const row = await pc.evaluate(() => window.__app.deckTabsState().split("\n").slice(1).map((l) => l.split("\t")[1]));
+    check("reloads of a copy not kept leave one tab for it", row.filter((l) => l === "Toisen pakka").length === 1, JSON.stringify(row));
     await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Oma lisäys\n"));
     await pc.waitForTimeout(2500);
     const changed = await pc.evaluate(() => ({ kept: localStorage.getItem("evgp.doc"), hash: location.hash }));
