@@ -2427,11 +2427,14 @@ try {
     // General's list (open from the step before) has a "+" too: Playground's first
     await until(() => window.__app.toolbar.roomOpen === "playground");
     await pageHas("tb-roomdeck-new");
+    const chatUp = await until(() => window.__app.roomChatOpen());
     await R(`t("tb-roomdeck-new");`);
     const newWin = await until(() => window.__app.chart.isOpen && window.__app.chart.mode === "newdeck" && window.__app.chart.ndAsk === "");
     await R(`a.text("Fresh deck"); a.key("enter", false, false);`);
     const inPlay = await until(() => { try { return Object.values(JSON.parse(localStorage.getItem("sliqtly.rooms")).placed).includes("playground"); } catch (_) { return false; } }, null, 20000);
-    check("…a room's + Add new presentation makes the new deck in that room", newWin && inPlay, JSON.stringify({ newWin, inPlay }));
+    // the room's chat was over the work area: the new deck shows instead
+    const chatGone = await until(() => !window.__app.roomChatOpen());
+    check("…a room's + Add new presentation makes the new deck in that room and shows it, not the room's chat", newWin && inPlay && chatUp && chatGone, JSON.stringify({ newWin, inPlay, chatUp, chatGone }));
     // the search row: a field whose text lists the rooms found
     await rp.evaluate((findJs) => {
       const a = window.__app;

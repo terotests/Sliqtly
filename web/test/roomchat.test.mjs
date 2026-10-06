@@ -90,6 +90,42 @@ test("without a server of one's own the channel says so and is read only", async
   assert.equal(w.calls.length, 0);
 });
 
+test("a presentation opened while the room is still being opened keeps the chat closed", async () => {
+  for (const own of [true, false]) {
+    const w = world({ own });
+    let rooms;
+    const wait = new Promise((r) => { rooms = r; });
+    w.chat.d.rooms = () => wait;
+    const opening = w.chat.open("r1");
+    // the page shows a presentation before the rooms arrive (web/main.js shownDoc)
+    w.chat.close();
+    rooms(w.rooms);
+    await opening;
+    assert.equal(w.open, false, "own server: " + own);
+    assert.ok(!w.log.some((l) => l[0] === "show"));
+    assert.ok(!w.calls.some((c) => c[0] === "chat_here"));
+    // pressing the room again opens it
+    w.chat.d.rooms = async () => w.rooms;
+    await w.chat.open("r1");
+    assert.equal(w.open, true);
+    w.chat.close();
+  }
+});
+
+test("a presentation opened while the room's messages load: nothing more is drawn or marked", async () => {
+  const w = world();
+  let answer;
+  w.answers.read_room_chat = () => new Promise((r) => { answer = r; });
+  const opening = w.chat.open("r1");
+  while (!answer) await new Promise((r) => setTimeout(r, 0));
+  w.chat.close();
+  answer({ room: { room_id: "r1" }, messages: [], last_seq: 4 });
+  await opening;
+  assert.equal(w.open, false);
+  assert.ok(!w.log.some((l) => l[0] === "load"));
+  assert.ok(!w.calls.some((c) => c[0] === "chat_here" && !c[1].away));
+});
+
 test("requests go to the server as the person", async () => {
   const w = world();
   await w.chat.open("r1");
