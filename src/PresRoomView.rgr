@@ -553,11 +553,7 @@ class PresRoomView {
         if ((this.has(px py)) == false) {
             return ""
         }
-        def tid:string (this.hitAt(px py))
-        if ((((ch.input.owns(tid)) || (ch.tinput.owns(tid))) || (ch.dinput.owns(tid))) || (ch.pinput.owns(tid))) {
-            return "text"
-        }
-        return ""
+        return (ch.cursorFor((this.hitAt(px py))))
     }
 
     ; --- keys ----------------------------------------------------------------------------------
