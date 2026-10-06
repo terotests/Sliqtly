@@ -71,18 +71,127 @@ function openDb({ waiting, closed } = {}) {
   });
 }
 
-function idbStore(db) {
-  const run = (store, mode, fn) => {
-    const tx = db.transaction(store, mode);
-    const result = fn(tx.objectStore(store));
-    return new Promise((resolve, reject) => {
-      tx.oncomplete = async () => resolve(await result);
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
-    });
+// How long a transaction may go without finishing before it is taken as
+// stuck: it waits for a lock another tab of this browser holds (a tab frozen
+// in the background, or one stuck itself), or the browser's store does not
+// answer. Every call here is a few keys or one deck's files; none takes this
+// long when the store answers.
+export const STALL_MS = 5000;
+
+export class StallError extends Error {
+  constructor(store, mode) {
+    super("browser storage did not answer (" + store + ", " + mode + ")");
+    this.name = "StallError";
+  }
+}
+
+// The store over one connection at a time. `open()` gives a connection
+// (openDb). A transaction that does not finish in `stallMs` is aborted,
+// which lets go of what it holds; the connection is then closed and the
+// call made once more over a new one (every call is a get, put or delete by
+// key, so a second go does no harm). A connection the browser closed (an
+// update in another tab, the database deleted) is replaced the same way.
+// `events.stalled(store, mode)` hears of each stuck transaction, so the page
+// can say so instead of waiting without a word.
+export function idbStore(open, events = {}, { stallMs = STALL_MS } = {}) {
+  let db = null;
+  let opening = null;
+  // the transactions not finished yet (letGo aborts them)
+  const live = new Set();
+  const leftGo = new WeakSet();
+  const connect = () => {
+    if (db) return Promise.resolve(db);
+    if (!opening) {
+      opening = open().then((d) => {
+        opening = null;
+        db = d;
+        d.addEventListener?.("close", () => { if (db === d) db = null; });
+        return d;
+      }, (e) => {
+        opening = null;
+        throw e;
+      });
+    }
+    return opening;
   };
+  const drop = (d) => {
+    if (!d || db !== d) return;
+    db = null;
+    try { d.close(); } catch (_) { /* closed already */ }
+  };
+  const once = (d, store, mode, fn) => new Promise((resolve, reject) => {
+    let tx;
+    try {
+      tx = d.transaction(store, mode);
+    } catch (e) {
+      reject(e); // "the connection is closing": a new one is opened
+      return;
+    }
+    let result;
+    try {
+      result = fn(tx.objectStore(store));
+    } catch (e) {
+      try { tx.abort(); } catch (_) { /* finished */ }
+      reject(e);
+      return;
+    }
+    Promise.resolve(result).catch(() => {}); // the transaction's own error says it
+    live.add(tx);
+    const timer = setTimeout(() => {
+      try { tx.abort(); } catch (_) { /* finished meanwhile */ }
+      reject(new StallError(store, mode));
+    }, stallMs);
+    const done = () => { clearTimeout(timer); live.delete(tx); };
+    tx.oncomplete = async () => {
+      done();
+      try { resolve(await result); } catch (e) { reject(e); }
+    };
+    tx.onerror = () => { done(); reject(tx.error); };
+    tx.onabort = () => {
+      done();
+      if (leftGo.has(tx)) {
+        const e = new Error("let go while frozen");
+        e.name = "InvalidStateError"; // made again over a new connection, without a word
+        reject(e);
+      } else reject(tx.error || new StallError(store, mode));
+    };
+  });
+  const again = (e) => e instanceof StallError || e?.name === "InvalidStateError";
+  const run = async (store, mode, fn) => {
+    const d = await connect();
+    try {
+      return await once(d, store, mode, fn);
+    } catch (e) {
+      if (!again(e)) throw e;
+      if (e instanceof StallError) {
+        console.warn("IndexedDB:", e.message, "— trying again over a new connection");
+        events.stalled?.(store, mode);
+      }
+      drop(d);
+      return once(await connect(), store, mode, fn);
+    }
+  };
+  // A page frozen in the background (Chrome freezes a busy tab there), or
+  // kept in the back/forward cache, runs no code: a transaction of its left
+  // open would hold the store up for every other tab until it is woken. It
+  // aborts what it has open (the call fails, and a save is made again when
+  // the page is back) and lets go of its connection; the next call opens a
+  // new one.
+  const letGo = () => {
+    for (const tx of [...live]) {
+      leftGo.add(tx);
+      try { tx.abort(); } catch (_) { /* finished */ }
+    }
+    live.clear();
+    drop(db);
+  };
+  if (typeof document !== "undefined") document.addEventListener("freeze", letGo);
+  if (typeof window !== "undefined") window.addEventListener("pagehide", (e) => { if (e.persisted) letGo(); });
   return {
     persistent: true,
+    // ready: the first connection made (openVfs waits for it)
+    ready: () => connect(),
+    letGo,
     listDocs: () => run("docs", "readonly", (s) => promised(s.getAll())),
     getDoc: (id) => run("docs", "readonly", (s) => promised(s.get(id))),
     putDoc: (doc) => run("docs", "readwrite", (s) => promised(s.put(doc))),
@@ -129,11 +238,13 @@ function memoryStore() {
   };
 }
 
-// events: { waiting, closed } (openDb)
+// events: { waiting, closed } (openDb), { stalled } (idbStore)
 export async function openVfs(events) {
   try {
     if (typeof indexedDB === "undefined") throw new Error("no IndexedDB");
-    return idbStore(await openDb(events));
+    const store = idbStore(() => openDb(events), events);
+    await store.ready();
+    return store;
   } catch (e) {
     console.warn("files kept in memory only:", e);
     return memoryStore();

@@ -1282,5 +1282,7 @@
   "Nobody is in the call.": "Puhelussa ei ole ketään.",
   "Calls work on a Sliqtly server of one's own, with the presentation open in Edit mode.": "Puhelut toimivat omalla Sliqtly-palvelimella, kun esitys on auki muokkaustilassa.",
   "The call's connection to the server failed.": "Puhelun yhteys palvelimeen katkesi.",
-  "The browser allows the microphone only on https:// addresses. Open %s on this computer once to install the server's certificate, then open the presentation at %h.": "Selain sallii mikrofonin vain https://-osoitteissa. Avaa tällä koneella kerran %s ja asenna palvelimen varmenne, ja avaa sitten esitys osoitteessa %h."
+  "The browser allows the microphone only on https:// addresses. Open %s on this computer once to install the server's certificate, then open the presentation at %h.": "Selain sallii mikrofonin vain https://-osoitteissa. Avaa tällä koneella kerran %s ja asenna palvelimen varmenne, ja avaa sitten esitys osoitteessa %h.",
+  "The browser's storage is not answering. Waiting for it; closing other Sliqtly tabs may help.": "Selaimen tallennustila ei vastaa. Odotetaan; muiden Sliqtly-välilehtien sulkeminen voi auttaa.",
+  "The browser's storage is not answering. Your changes are saved once it does; closing other Sliqtly tabs may help.": "Selaimen tallennustila ei vastaa. Muutoksesi tallennetaan, kun se vastaa; muiden Sliqtly-välilehtien sulkeminen voi auttaa."
 }
