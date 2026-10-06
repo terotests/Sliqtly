@@ -778,4 +778,35 @@ class PresHelp {
         }
         return (json + "]")
     }
+
+    ; --- how Sliqtly is used --------------------------------------------------------
+    ; The help panel's other tab: the everyday things, each with where it is
+    ; and the keys for it, in the same shape as forSlide's parts (no rules).
+    sfn guide:string () {
+        def out:[string]
+        push out (PresHelp.feature("present" (PresI18n.t("Presenting")) (PresI18n.t("⛶ Present   F5   → Space click: next   ← back   PageDown PageUp: whole slide   Home End   number + Enter   Esc: stop")) (PresI18n.t("Shows the presentation full screen. A step is the next build on the slide, then the next slide. The bar at the bottom right has the same jumps, the slide counter (type a number) and ⋯ for export and copy.")) ""))
+        push out (PresHelp.feature("speaker" (PresI18n.t("Speaker view")) (PresI18n.t("S while presenting   ⋯ → Speaker view")) (PresI18n.t("For the presenter's own screen: the current slide on the left, the next slide, the time since you started, the slide number and the slide's notes on the right. Write the notes under the slide in a ::: notes block. S again (or the same menu row) goes back to the slide alone.")) ""))
+        push out (PresHelp.feature("auto" (PresI18n.t("Auto-advance")) (PresI18n.t("A while presenting   ⋯ → Auto-advance")) (PresI18n.t("The slides go on by themselves, each after its own time ({seconds=…} on the slide). A again stops it.")) ""))
+        push out (PresHelp.feature("pen" (PresI18n.t("Pen and pointer")) (PresI18n.t("✎ in the presenting bar   Backspace: wipe")) (PresI18n.t("Draw lines, arrows and ellipses on the slide while presenting. The drawing goes away when the slide changes.")) ""))
+        push out (PresHelp.feature("record" (PresI18n.t("Recording")) (PresI18n.t("Record → ● Record presentation   Record → ▶ Play recording")) (PresI18n.t("Presents and records your voice, the pointer and the pen at the same time. The recording is kept in the presentation's files and plays back from the Record menu, with a voice filter if you like.")) ""))
+        push out (PresHelp.feature("review" (PresI18n.t("Comments (review)")) (PresI18n.t("Settings → Review mode   Review in the left rail   💬 Comment")) (PresI18n.t("With review mode on, press 💬 Comment and then the slide to pin a comment there; each comment is its own conversation that can be closed. Review in the left rail lists them. The comments are kept in the presentation's files.")) ""))
+        push out (PresHelp.feature("export" (PresI18n.t("Export")) (PresI18n.t("File → Export   PDF   PowerPoint   Word   Web page   Presentation player   Markdown   All files (.zip)")) (PresI18n.t("Saves the presentation as a file. Pick slides in the strip with Ctrl/⌘ or Shift + click to export only them. The presentation player is one .html file that presents without Sliqtly.")) ""))
+        push out (PresHelp.feature("copy" (PresI18n.t("Copy to the clipboard")) (PresI18n.t("while presenting ⋯ → Copy ▸ Markdown   Markdown with comments   Comments")) (PresI18n.t("Copies the presentation's Markdown, the Markdown with the open comments as footnotes, or only the open comments with their slides, for example to hand to an assistant.")) ""))
+        push out (PresHelp.feature("share" (PresI18n.t("Sharing")) (PresI18n.t("Share")) (PresI18n.t("Gives a link that shows the presentation and a link to edit a copy of it. Signed in, the link is short and carries the pictures and data. With slides picked in the strip, also a link that shows only them.")) ""))
+        push out (PresHelp.feature("rooms" (PresI18n.t("Rooms")) (PresI18n.t("Rooms in the left rail")) (PresI18n.t("A room gathers presentations that belong together, for example one per project or ticket. New presentations start in General. Drag a presentation to another room to move it.")) ""))
+        push out (PresHelp.feature("versions" (PresI18n.t("Versions")) (PresI18n.t("Versions in the left rail")) (PresI18n.t("Earlier versions of the presentation: view one, and restore it if you want it back.")) ""))
+        push out (PresHelp.feature("claude" (PresI18n.t("Edit in Claude")) (PresI18n.t("File → Edit in Claude…")) (PresI18n.t("Opens Claude with the presentation and a ready prompt. Claude reads and saves the presentation with the Sliqtly connector, so add the connector first (sliqtly.com/connect.html). Open the link Claude gives to see the changes here.")) ""))
+        push out (PresHelp.feature("mcp" (PresI18n.t("Sliqtly connector (MCP)")) "https://sliqtly.com/mcp" (PresI18n.t("Lets an assistant such as Claude make and change presentations itself: create, update, render a slide, export, and read and answer comments.")) ""))
+        push out (PresHelp.feature("slidehelp" (PresI18n.t("This slide's parts")) (PresI18n.t("Help → Help for this slide")) (PresI18n.t("The other tab of this panel: what the selected slide is made of, how each part is written and which theme rules change how it looks.")) ""))
+        def json:string "["
+        def j:int 0
+        while (j < (array_length out)) {
+            if (j > 0) {
+                json = (json + ",")
+            }
+            json = (json + (itemAt out j))
+            j = (j + 1)
+        }
+        return (json + "]")
+    }
 }
