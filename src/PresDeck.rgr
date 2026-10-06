@@ -304,6 +304,9 @@ class PresDeck {
             if (r == -9) {
                 return ((to_string k) + ":none")
             }
+            if (r <= -1000) {
+                return ((to_string k) + ":zoom" + (to_string (-1000 - r)))
+            }
             if (r >= 3000) {
                 return ((to_string k) + ":way" + (to_string (r - 3000)))
             }

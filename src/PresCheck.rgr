@@ -1881,6 +1881,48 @@ class PresCheck {
         this.ok(((deck.diagramHit(0 t px py)) == "0:zin") "fade: a tap brings it up")
     }
 
+    ; A diagram's zoom pill: says the zoom in view, and a press opens a menu
+    ; of levels; a level picked is where the view goes.
+    fn zoomMenu:void () {
+        this.ok(((PresDiagram.zoomText(1.0)) == "100 %") ("zoom: the whole diagram is 100 %: " + (PresDiagram.zoomText(1.0))))
+        this.ok(((PresDiagram.zoomText(2.496)) == "250 %") ("zoom: 2.496 reads 250 %: " + (PresDiagram.zoomText(2.496))))
+        def lv:[int] (PresDiagram.zoomLevels(3.2))
+        this.ok(((array_length lv) == 4) ("zoom: levels up to 320 %: " + (to_string (array_length lv))))
+        this.ok((((itemAt lv 0) == 100) && ((itemAt lv 3) == 300)) "zoom: 100 % first, 300 % last")
+        this.ok(((array_length (PresDiagram.zoomLevels(0.5))) == 1) "zoom: 100 % is always offered")
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Kaavio\n\n```mermaid\nflowchart LR\n  A[Alku] --> B[Loppu]\n```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false "zoom: the diagram is there")
+            return
+        }
+        def u:PresDiaUse (itemAt s.diagrams 0)
+        def t:double (u.start + 30.0)
+        def cy:double ((u.by + u.bh) - 24.0)
+        deck.uiNow = 200.0
+        deck.diagramTouched(0 0)
+        deck.uiNow = 200.3
+        this.ok(((deck.diagramHit(0 t ((u.bx + u.bw) - 46.0) cy)) == "0:fit") "zoom: the pill is pressed")
+        u.diagram.zoomOpen = true
+        this.ok((u.diagram.controlsUp()) "zoom: an open menu holds the buttons")
+        def n:int (array_length (PresDiagram.zoomLevels((u.diagram.zoomMax()))))
+        def top:double (PresDiagram.zoomMenuTop(cy n))
+        def hit:string (deck.diagramHit(0 t ((u.bx + u.bw) - 60.0) (top + 19.0)))
+        this.ok((hit == "0:zoom100") ("zoom: the first row is 100 %: " + hit))
+        this.ok((u.diagram.zoomOpen == false) "zoom: picking a level closes the menu")
+        u.diagram.zoomOpen = true
+        this.ok(((deck.diagramHit(0 t (u.bx + 10.0) (u.by + 10.0))) == "0:none") "zoom: a press elsewhere only closes it")
+        this.ok((u.diagram.zoomOpen == false) "zoom: and it is closed")
+        u.diagram.lastFit = 1.0
+        u.diagram.zoomTo(2.0)
+        this.ok((u.diagram.exploring && (u.diagram.exTZ == 2.0)) ("zoom: 200 % is where the view goes: " + (to_string u.diagram.exTZ)))
+        u.diagram.zoomTo(1.0)
+        this.ok((u.diagram.exTZ == 1.0) "zoom: 100 % is the whole diagram")
+    }
+
     ; Someone else's edits under the slide shown (PresFollow): it stays the
     ; slide shown, at the same time into it.
     fn followEdits:void () {
@@ -2538,6 +2580,7 @@ class PresCheck {
         c.flowModel()
         c.gridModel()
         c.controlsFade()
+        c.zoomMenu()
         c.followEdits()
         c.picks()
         c.navJumps()
