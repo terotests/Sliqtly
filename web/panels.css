@@ -87,6 +87,11 @@
 /* a field is one line: a long value is clipped, not wrapped under the box */
 .theme-pn .ui-input { overflow: hidden; }
 .theme-pn .ui-input-text { white-space: nowrap; }
+/* the room chat's composer field (EVGUI ChannelCtl) is drawn on the frame's
+   white, as in Slack, and a code block's draft in a box of its own: the
+   panel field look above would otherwise win over the chat's own classes */
+.theme-pn .ch-field { background-color: rgba(0, 0, 0, 0); border: 1px solid rgba(0, 0, 0, 0); border-radius: 0; }
+.theme-pn .ch-field-code { background-color: #f8f8fa; border: 1px solid #d4d4d8; border-radius: 4px; }
 /* The card is rebuilt on every change, so a transition would replay from its
    start each time (a checked switch sliding in again, a pressed control
    squeezing): state is shown at once instead. */
