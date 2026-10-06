@@ -153,6 +153,10 @@ func NewApp(env *Env) http.Handler {
 			io.WriteString(w, `{"error":"slow_down","error_description":"Too many registrations from here; try again in a few minutes."}`)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/d/") && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			serveDownload(env, w, r)
+			return
+		}
 		h := &McpHost{env: env, r: r, ctx: r.Context(), images: map[int64][]byte{}}
 		defer func() {
 			if p := recover(); p != nil {
