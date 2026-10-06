@@ -298,7 +298,8 @@ class Tools {
         def xs:MfJ (Tools.prop("array" "Only these slides (numbers as in render_overview); all when left out"))
         xs.put("items" xn)
         xp.put("slides" xs)
-        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF, a PowerPoint (.pptx), a Word document (.docx) or one self-contained web page (.html), by its deck_id: a download link to give the user, kept until the next export of the same format. PDF and PPTX: slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. DOCX and HTML: the deck read as a document, slide after slide, with headings, text, lists, tables, formulas (Word equations / SVG), the speaker notes under each slide, and diagrams and charts as pictures. Effects (fx=) are not drawn; the editor's File → Export draws them." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
+        xp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
+        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF, a PowerPoint (.pptx), a Word document (.docx) or one self-contained web page (.html), by its deck_id and edit_key (not needed when signed in as its owner): a download link to give the user, kept until the next export of the same format. PDF and PPTX: slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. DOCX and HTML: the deck read as a document, slide after slide, with headings, text, lists, tables, formulas (Word equations / SVG), the speaker notes under each slide, and diagrams and charts as pictures. Effects (fx=) are not drawn; the editor's File → Export draws them." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
 
         def lp:MfJ (MfJ.newObj())
         lp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
@@ -1051,7 +1052,7 @@ class Tools {
             r = (Tools.readGitHubPr(host caller args))
         }
         if (name == "export_presentation") {
-            r = (Tools.exportDeck(host args))
+            r = (Tools.exportDeck(host caller args))
         }
         if (name == "write_workbook") {
             r = (Tools.writeWorkbook(host caller args))
@@ -2412,7 +2413,7 @@ class Tools {
             return (Tools.fail(("Invalid arguments: " + ref.err)))
         }
         def accept:string "application/vnd.github+json"
-        def got:MfJ (J.parse((host_fetch_text host (ref.api()) accept 1000000)))
+        def got:MfJ (J.parse((host_fetch_github host (ref.api()) accept 1000000)))
         def why:string (Tools.githubFailed(ref (got.int_("status" 0))))
         if ((strlen why) > 0) {
             return (Tools.fail(why))
@@ -2428,12 +2429,12 @@ class Tools {
             }
         }
         def files:MfJ (MfJ.newArr())
-        def gf:MfJ (J.parse((host_fetch_text host ((ref.api()) + "/files?per_page=100") accept 8000000)))
+        def gf:MfJ (J.parse((host_fetch_github host ((ref.api()) + "/files?per_page=100") accept 8000000)))
         if ((gf.int_("status" 0)) == 200) {
             files = (J.parse((gf.str_("body"))))
         }
         def commits:MfJ (MfJ.newArr())
-        def gc:MfJ (J.parse((host_fetch_text host ((ref.api()) + "/commits?per_page=100") accept 2000000)))
+        def gc:MfJ (J.parse((host_fetch_github host ((ref.api()) + "/commits?per_page=100") accept 2000000)))
         if ((gc.int_("status" 0)) == 200) {
             commits = (J.parse((gc.str_("body"))))
         }
@@ -2520,7 +2521,7 @@ class Tools {
     ; export_presentation: the file made by the editor's own export
     ; (src/PresExport.rgr), kept in Storage beside the deck as
     ; exports/<name>.<format>
-    sfn exportDeck:MfJ (host:McpHost a:MfJ) {
+    sfn exportDeck:MfJ (host:McpHost caller:Caller a:MfJ) {
         def tool:string "export_presentation"
         if ((host_store_kind host) == "link") {
             return (Tools.fail("This server keeps no decks (no cloud storage configured): open the presentation's link and use File → Export there."))
@@ -2537,13 +2538,21 @@ class Tools {
         if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
             return (Tools.fail("deck_id is the 10-character id in the share link."))
         }
-        def d:MfJ (Store.get(host id))
+        ; the file is written beside the deck: only by whoever may change it
+        def ed:Editable (Tools.editable(host caller id (a.str_("edit_key"))))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host tool (host_error host)))
         }
-        if ((d.isObj()) == false) {
-            return (Tools.fail(("No presentation " + id + ".")))
+        if ((strlen ed.fail) > 0) {
+            return (Tools.fail(ed.fail))
         }
+        if ((ed.mine == false) && ((Store.keyMatches(host id ed.key)) == false)) {
+            if ((strlen (host_error host)) > 0) {
+                return (Tools.failed(host tool (host_error host)))
+            }
+            return (Tools.fail("The edit_key does not match this presentation."))
+        }
+        def d:MfJ ed.cur
         def md:string (d.str_("md"))
         def stored:[string]
         for (d.list("files")) f:MfJ fi {

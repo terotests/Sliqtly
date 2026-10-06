@@ -4,6 +4,16 @@ rules_version = '2';
 // id), written and deleted only by the owner its Firestore copy names.
 // A user's own files: that user's alone.
 service firebase.storage {
+  // What may be kept: pictures, sound, video, data, documents and the editor's
+  // own files. Anything else (a web page, a script) is sent by the editor as
+  // application/octet-stream (web/sliqtly.js storedType), so a share's files
+  // cannot host a page on the bucket's address. The list in storedType is the
+  // same as this one.
+  function storedType() {
+    return request.resource.contentType.matches(
+      '(image/(png|jpeg|gif|webp|avif|bmp|svg[+]xml)|audio/[-a-z0-9.+]+|video/[-a-z0-9.+]+|text/(plain|csv|markdown|tab-separated-values)|application/(octet-stream|json|pdf|zip|vnd[.]ms-excel|vnd[.]openxmlformats-officedocument[.][-a-z0-9.+]+|vnd[.]oasis[.]opendocument[.][-a-z0-9.+]+|vnd[.]sliqtly[.][-a-z0-9.+]+))(;.*)?');
+  }
+
   match /b/{bucket}/o {
     match /shares/{shareId}/{path=**} {
       function owner() {
@@ -11,7 +21,7 @@ service firebase.storage {
           && firestore.get(/databases/(default)/documents/shares/$(shareId)).data.owner == request.auth.uid;
       }
       allow read: if true;
-      allow create, update: if owner() && request.resource.size < 20 * 1024 * 1024;
+      allow create, update: if owner() && request.resource.size < 20 * 1024 * 1024 && storedType();
       allow delete: if owner();
     }
 
@@ -20,7 +30,7 @@ service firebase.storage {
     match /users/{uid}/{path=**} {
       allow read, delete: if request.auth != null && request.auth.uid == uid;
       allow create, update: if request.auth != null && request.auth.uid == uid
-                            && request.resource.size < 20 * 1024 * 1024;
+                            && request.resource.size < 20 * 1024 * 1024 && storedType();
     }
   }
 }
