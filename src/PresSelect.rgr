@@ -31,6 +31,7 @@
 
 Import "PresHelp.rgr"
 Import "PresCascade.rgr"
+Import "PresImageDrag.rgr"
 Import "PresI18n.rgr"
 Import "../evgui/src/UiShapes.rgr"
 Import "../markdown/web/markdown_web.rgr"
@@ -117,6 +118,14 @@ class PresSelect {
     ; popover opened from it goes above or under that, not over the element
     def reachTop:double 0.0
     def reachBottom:double 0.0
+    ; a picture being resized or moved by hand (PresImageDrag): the box it
+    ; would get, in slide units, and what letting go writes ("60 %", "Left")
+    def ghostOn:boolean false
+    def gx:double 0.0
+    def gy:double 0.0
+    def gw:double 0.0
+    def gh:double 0.0
+    def ghostLabel:string ""
 
     Constructor () {
     }
@@ -940,6 +949,24 @@ class PresSelect {
         root.addChild((PresSelect.box("sel-h1" "sel-handle" ((ox + ow) - (hs / 2.0)) (oy - (hs / 2.0)) hs hs)))
         root.addChild((PresSelect.box("sel-h2" "sel-handle" (ox - (hs / 2.0)) ((oy + oh) - (hs / 2.0)) hs hs)))
         root.addChild((PresSelect.box("sel-h3" "sel-handle" ((ox + ow) - (hs / 2.0)) ((oy + oh) - (hs / 2.0)) hs hs)))
+        ; a picture is resized from its sides too
+        if (sel == "img") {
+            root.addChild((PresSelect.box("sel-h4" "sel-handle" ((ox + (ow / 2.0)) - (hs / 2.0)) (oy - (hs / 2.0)) hs hs)))
+            root.addChild((PresSelect.box("sel-h5" "sel-handle" ((ox + (ow / 2.0)) - (hs / 2.0)) ((oy + oh) - (hs / 2.0)) hs hs)))
+            root.addChild((PresSelect.box("sel-h6" "sel-handle" (ox - (hs / 2.0)) ((oy + (oh / 2.0)) - (hs / 2.0)) hs hs)))
+            root.addChild((PresSelect.box("sel-h7" "sel-handle" ((ox + ow) - (hs / 2.0)) ((oy + (oh / 2.0)) - (hs / 2.0)) hs hs)))
+        }
+        if ghostOn {
+            def gsx:double (sx0 + (gx * sc))
+            def gsy:double (sy0 + (gy * sc))
+            def gsw:double (gw * sc)
+            def gsh:double (gh * sc)
+            root.addChild((PresSelect.box("sel-ghost" "sel-ghost" gsx gsy gsw gsh)))
+            if ((strlen ghostLabel) > 0) {
+                def glw:double ((PresSelect.textW(ghostLabel 11.0)) + 16.0)
+                root.addChild((PresSelect.pill("sel-ghost-label" "sel-badge" ghostLabel ((gsx + (gsw / 2.0)) - (glw / 2.0)) ((gsy + (gsh / 2.0)) - 9.0) glw 18.0)))
+            }
+        }
         ; what it is and how big, under it (inside it at the slide's foot)
         def lab:string (this.label())
         def lbw:double ((PresSelect.textW(lab 11.0)) + 16.0)
@@ -1041,6 +1068,15 @@ class PresSelect {
             i = (i + 1)
         }
         return ""
+    }
+
+    ; The picture's handle under (px, py) on the screen, as last drawn
+    ; (PresImageDrag.zoneAt): an edge, a corner, "move" or "".
+    fn imageZoneAt:string (px:double py:double) {
+        if ((on == false) || (sel != "img")) {
+            return ""
+        }
+        return (PresImageDrag.zoneAt((ox + 2.0) (oy + 2.0) (ow - 4.0) (oh - 4.0) px py 6.0))
     }
 
     fn bandOf:int (part:string) {

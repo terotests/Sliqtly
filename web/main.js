@@ -35,6 +35,7 @@ import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./c
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
+import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 
 // One beacon per page load for the visitor counts (mcp-go/rgr/Stats.rgr): the
 // page, mobile or desktop on the server's side, and the site the visitor
@@ -241,6 +242,7 @@ async function addPictureFile(file) {
     pasting = { bytes, type, w, h, preview };
     if (app.openPaste(preview, w, h, alt, storageNote())) {
       needsPaint = true;
+      measureFlat(pasting).catch(() => {});
       return;
     }
     dropPasting();
@@ -250,6 +252,23 @@ async function addPictureFile(file) {
   app.insertPicture(rel, alt);
   dropThumbs();
   afterInput();
+}
+
+// A flat picture on its way in (web/trace-source.js looksFlat) is added
+// vectorized unless asked otherwise: the window says so.
+async function measureFlat(p) {
+  const bmp = await createImageBitmap(new Blob([p.bytes], { type: p.type }));
+  const k = Math.min(1, 400 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(bmp.width * k));
+  c.height = Math.max(1, Math.round(bmp.height * k));
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close();
+  const flat = looksFlat(g.getImageData(0, 0, c.width, c.height).data, c.width, c.height);
+  if (pasting !== p) return;
+  app.pasteFlat(flat);
+  needsPaint = true;
 }
 
 function dropPasting() {
@@ -417,7 +436,44 @@ function traceWorkerOf() {
   return traceWorker;
 }
 
-async function openTraceEditor(path) {
+// An SVG's text (its first `most` bytes: the stamp is at its start).
+async function fileText(f, most) {
+  const blob = f.data instanceof Blob ? f.data : new Blob([f.data || ""]);
+  return blob.slice(0, most || blob.size).text();
+}
+
+// Edit on an SVG of the files: the vectorizer again, on the picture it was
+// traced from (web/trace-source.js) with the settings it was traced with;
+// Save writes this SVG.
+async function retraceSvg(svgPath) {
+  const files = await docFiles();
+  const f = files.find((x) => x.path === svgPath);
+  if (!f) { toast(t("This file cannot be opened as an image.")); return; }
+  const stamp = readStamp(await fileText(f, 8192));
+  const source = retraceSource(svgPath, stamp, files.map((x) => x.path));
+  if (!source) {
+    toast(t("The picture this SVG was made from is no longer in the files, so it cannot be vectorized again."));
+    return;
+  }
+  await openTraceEditor(source, { target: svgPath, settings: stamp && stamp.source === source ? stamp.settings : "" });
+}
+
+// Whether each SVG of the files can be traced again ("retrace" on its row):
+// its stamp, read once per file and size.
+const stampSeen = new Map();
+async function retraceable(files) {
+  const paths = files.map((x) => x.path);
+  const out = new Set();
+  for (const f of files) {
+    if (!isSvg(f.type || "", f.path)) continue;
+    const key = f.path + "\t" + f.size;
+    if (!stampSeen.has(key)) stampSeen.set(key, await fileText(f, 8192).then(readStamp).catch(() => null));
+    if (retraceSource(f.path, stampSeen.get(key), paths)) out.add(f.path);
+  }
+  return out;
+}
+
+async function openTraceEditor(path, opts = {}) {
   const f = (await docFiles()).find((x) => x.path === path);
   if (!f || !(f.data instanceof Blob)) { toast(t("This file cannot be opened as an image.")); return; }
   const blob = f.data.type ? f.data : new Blob([f.data], { type: f.type || "image/png" });
@@ -445,8 +501,13 @@ async function openTraceEditor(path) {
   traceSeq += 1;
   const orig = `/__trace/${Date.now().toString(36)}-${traceSeq}`;
   pictures.set(orig, asPicture(c));
-  tracing = { path, w, h, rgba, rw: c.width, rh: c.height, orig, preview: null, svg: null, run: 0, original: pictures.get("/" + path), bytes: blob.size };
-  if (!app.openTrace(orig, path, w, h)) dropTracing();
+  // the slides show the trace where they show the picture, or the SVG
+  // being made again
+  const target = opts.target || "";
+  const shown = target || path;
+  tracing = { path, target, shown, w, h, rgba, rw: c.width, rh: c.height, orig, preview: null, svg: null, run: 0, original: pictures.get("/" + shown), bytes: blob.size };
+  if (!app.openTrace(orig, path, w, h)) { dropTracing(); return; }
+  if (target) app.traceAgain(target, opts.settings || "");
   needsPaint = true;
 }
 
@@ -483,7 +544,7 @@ async function traceResult(r) {
   if (tr.preview) pictures.delete(tr.preview);
   tr.preview = `${tr.orig}-${r.seq}`;
   pictures.set(tr.preview, p.img);
-  pictures.set("/" + tr.path, p.img);
+  pictures.set("/" + tr.shown, p.img);
   let info = t("{n} colors, {size} SVG (the picture {was})").replace("{n}", String(r.layers)).replace("{size}", kb(bytes.byteLength)).replace("{was}", kb(tr.bytes));
   if (r.tracedW && (r.tracedW !== tr.w || r.tracedH !== tr.h)) info += t(", traced at ") + r.tracedW + "×" + r.tracedH;
   app.traceDone(tr.preview, info + ".", "");
@@ -495,29 +556,58 @@ function dropTracing() {
   if (!tr) return;
   pictures.delete(tr.orig);
   if (tr.preview) pictures.delete(tr.preview);
-  if (tr.original) pictures.set("/" + tr.path, tr.original);
+  if (tr.original) pictures.set("/" + tr.shown, tr.original);
   tracing = null;
   needsPaint = true;
 }
 
 window.__traceState = () => (tracing ? { path: tracing.path, run: tracing.run, svg: tracing.svg ? tracing.svg.length : 0 } : null);
 
+// A trace saved: over the SVG it was opened from (Edit on an SVG), else as
+// the picture's SVG — when that already exists, asked first whether to
+// replace it or keep both ("confirm:tracesave", ":alt" a new name).
+let traceAsk = null;
+
 async function saveTraced() {
   const tr = tracing;
   if (!tr) return;
   const plan = JSON.parse(app.tracePlan());
   const svg = tr.svg;
+  const settings = app.traceSettings();
   dropTracing();
   if (!svg) { toast(t("Nothing was saved: the picture had not been vectorized yet.")); return; }
-  const files = await docFiles();
-  const base = tr.path.replace(/\.[^./]+$/, "");
-  let target = base + ".svg";
-  for (let i = 2; files.some((x) => x.path === target); i += 1) target = `${base}-${i}.svg`;
-  const bytes = new TextEncoder().encode(svg);
+  const job = { path: tr.path, svg: stampSvg(svg, tr.path, settings), replace: plan.replace };
+  if (tr.target) {
+    await writeTraced(job, tr.target, false);
+    return;
+  }
+  const where = svgTarget(tr.path, (await docFiles()).map((x) => x.path));
+  if (!where.existing) {
+    await writeTraced(job, where.fresh, plan.replace);
+    return;
+  }
+  traceAsk = { job, where };
+  const name = where.existing.split("/").pop();
+  app.openChoice("tracesave", t("Replace the earlier SVG?"),
+    t("{file} is already in the files. Replace it with this one, or keep both?").replace("{file}", name),
+    t("Replace"), t("Keep both"));
+}
+
+async function answerTraceSave(replace) {
+  const ask = traceAsk;
+  traceAsk = null;
+  if (!ask) return;
+  const target = replace ? ask.where.existing : ask.where.fresh;
+  await writeTraced(ask.job, target, ask.job.replace);
+}
+
+async function writeTraced(job, target, swap) {
+  const bytes = new TextEncoder().encode(job.svg);
   await addPicture("/" + target, bytes.buffer.slice(0), "image/svg+xml");
   await keepFile({ path: target, type: "image/svg+xml", size: bytes.byteLength, data: new Blob([bytes], { type: "image/svg+xml" }) });
-  const n = plan.replace ? app.swapPictureRefs(tr.path, target) : 0;
+  const n = swap ? app.swapPictureRefs(job.path, target) : 0;
   dropThumbs();
+  refreshFiles().catch(() => {});
   afterInput();
   needsPaint = true;
   const said = n === 1 ? t("Saved {file}, used where the picture was.")
@@ -1584,7 +1674,9 @@ async function refreshFiles() {
   if (!vfs || app.editorTab() !== "files" || filesListing) return;
   filesListing = true;
   try {
-    const files = (await docFiles())
+    const all = await docFiles();
+    const again = await retraceable(all);
+    const files = all
       .map((f) => {
         const row = { path: f.path, size: f.size == null ? -1 : f.size, kind: kindOf(f.path, f.type) };
         // a copy kept of a linked source: named after it, with where and when it was read
@@ -1601,6 +1693,7 @@ async function refreshFiles() {
         // a picture's pixels, for the preview beside the row
         const img = row.kind === "image" ? pictures.get("/" + f.path) : null;
         if (img) Object.assign(row, { w: img.naturalWidth, h: img.naturalHeight });
+        if (again.has(f.path)) row.retrace = true;
         return row;
       });
     const sorted = sortFiles(files);
@@ -1917,7 +2010,8 @@ async function fileRequest(r) {
     else if (action === "refresh" && url) await refreshLive([url]);
     else if (action === "unlink" && f) await unlinkLive(f, url);
   } else if (action === "imgedit") {
-    await openImageEditor(what);
+    if (isSvg("", what)) await retraceSvg(what);
+    else await openImageEditor(what);
     return;
   } else if (action === "del") {
     pending.delete(what);
@@ -3329,6 +3423,8 @@ function handleRequests() {
       roomsRequest("room:delete:" + r.slice("confirm:roomdelete:".length)).catch((e) => toast(t("Rooms: ") + (e.message || e)));
     } else if (r.startsWith("confirm:roomdrop:")) {
       roomsRequest("room:dropgo:" + r.slice("confirm:roomdrop:".length)).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+    } else if (r === "confirm:tracesave" || r === "confirm:tracesave:alt") {
+      answerTraceSave(r === "confirm:tracesave").catch(fail);
     } else if (r === "confirm:deletedeck") {
       deleteDeck().catch(fail);
     } else if (r === "newdeck-create") {

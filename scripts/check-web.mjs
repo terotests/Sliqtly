@@ -1264,12 +1264,18 @@ try {
     window.__handleRequests();
     // cut and kept asynchronously (a canvas, IndexedDB)
     for (let i = 0; i < 80 && !a.source().includes("](media/liitetty-"); i += 1) await new Promise((res) => setTimeout(res, 100));
+    // a flat picture (one colour): Enter vectorizes it, so the vectorizer
+    // opens after it is placed; cancelled here, the picture stays
+    for (let i = 0; i < 40 && !(a.chartIsOpen() && a.chart.mode === "trace"); i += 1) await new Promise((res) => setTimeout(res, 100));
+    const traced = a.chartIsOpen() && a.chart.mode === "trace";
+    if (a.chartIsOpen()) a.key("escape", false, false);
+    window.__handleRequests();
     const stage = JSON.parse(a.stageJson());
     const src = a.source();
     const rel = (src.match(/\]\((media\/liitetty-[^)]+)\)/) || [])[1] || "";
     const bmp = rel ? await window.__pictureSize("/" + rel) : [0, 0];
     return {
-      dialog, shown: !!shown, before, plan, rel,
+      dialog, shown: !!shown, before, plan, rel, flat: plan.trace, traced,
       md: !!rel,
       image: stage.list.cmds.some((c) => c.k === 2 && String(c.src || "").includes("media/liitetty-")),
       size: bmp,
@@ -1280,6 +1286,46 @@ try {
   check("…and Add writes it into the markdown", pic.md);
   check("…drawn on the slide", pic.image);
   check("…cut to the part kept", pic.size.join("x") === "32x20", JSON.stringify(pic.size));
+  check("…a flat picture: Enter adds it vectorized (the vectorizer opens)", pic.flat === true && pic.traced, JSON.stringify(pic));
+
+  // A picture picked on the slide: a side dragged writes its width, the
+  // picture dragged sideways its place, Delete takes it out (PresImageDrag).
+  const hand = await page.evaluate(() => {
+    const a = window.__app;
+    const before = a.source();
+    a.setSource("---\ntitle: K\n---\n\n## Kuva\n\n![k](" + (before.match(/\]\((media\/liitetty-[^)]+)\)/) || [])[1] + ")\n\nTeksti.\n");
+    const st = JSON.parse(a.layoutJson()).stage;
+    const im = JSON.parse(a.stageJson()).list.cmds.find((c) => c.k === 2 && String(c.src || "").includes("liitetty"));
+    if (!im) return { none: true };
+    a.pointerDown(st[0] + (im.x + im.w / 2) * st[2], st[1] + (im.y + im.h / 2) * st[2], false, 1);
+    a.pointerUp();
+    a.pickJson();
+    const p = a.pick;
+    const out = { picked: p.on && p.sel === "img" };
+    const ex = p.ox + p.ow - 3, ey = p.oy + p.oh / 2;
+    out.cursor = a.cursorAt(ex, ey);
+    a.pointerDown(ex, ey, false, 1);
+    a.pointerMove(ex - 30, ey);
+    a.pointerMove(ex - 60, ey);
+    out.ghost = p.ghostOn;
+    a.pointerUp();
+    out.sized = (a.source().match(/\{width=\d+%\}/) || [""])[0];
+    a.pickJson();
+    const cx = p.ox + p.ow / 2, cy = p.oy + p.oh / 2;
+    a.pointerDown(cx, cy, false, 1);
+    for (let k = 1; k <= 12; k += 1) a.pointerMove(cx + k * 40, cy);
+    a.pointerUp();
+    out.moved = (a.source().match(/\{width=\d+% align=\w+\}/) || [""])[0];
+    a.setFocus("stage");
+    a.key("delete", false, false);
+    out.deleted = a.source();
+    a.setSource(before);
+    return out;
+  });
+  check("a picked picture shows a resize pointer on its edge", hand.picked && hand.cursor === "ew-resize", JSON.stringify(hand));
+  check("…its side dragged writes a width", /^\{width=\d+%\}$/.test(hand.sized) && hand.ghost, JSON.stringify(hand));
+  check("…dragged to the right, align=right", /align=right/.test(hand.moved), JSON.stringify(hand));
+  check("…and Delete takes it out", !/liitetty/.test(hand.deleted) && /Teksti\./.test(hand.deleted), JSON.stringify(hand.deleted));
 
   // An SVG with only a viewBox, as the MCP server's decks have them: the
   // browser decodes no bitmap from it and gives it no size of its own, and the
