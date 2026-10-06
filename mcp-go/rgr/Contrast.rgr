@@ -569,8 +569,16 @@ class Contrast {
 
     sfn quote:string (text:string) {
         def t:string (trim text)
-        if ((strlen t) > 40) {
-            t = ((trim (substring t 0 38)) + "…")
+        ; 40 characters, counted as code points so none is cut in half
+        if ((char_length t) > 40) {
+            def cs:[int] (to_chars t)
+            def parts:[string]
+            for cs c:int i {
+                if (i < 38) {
+                    push parts (strfromcode c)
+                }
+            }
+            t = ((trim (join parts "")) + "…")
         }
         return ("\"" + t + "\"")
     }

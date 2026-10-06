@@ -320,38 +320,66 @@ class Layout {
             ti = (ti + 1)
         }
         ; the items of one list (or quote) are one element: its markers (one
-        ; box for the list) and its items' text, touching or a line apart
+        ; box for the list) and its items' text, touching or a line apart. A
+        ; box that joins two elements joins them into one (a nested quote's
+        ; bars span the paragraphs of every level)
         def merged:[RBlock]
         for blocks mb:RBlock mi {
             if (mb.w <= 0.0) {
                 continue
             }
-            def into:int -1
+            ; the elements so far this box touches
+            def hits:[int]
             if ((mb.kind == "list") || (mb.kind == "quote")) {
                 def q:int 0
                 while (q < (array_length merged)) {
                     def pb:RBlock (itemAt merged q)
                     if ((pb.kind == mb.kind) && (Layout.near(pb mb))) {
-                        into = q
+                        push hits q
                     }
                     q = (q + 1)
                 }
             }
-            if (into < 0) {
+            if ((array_length hits) == 0) {
                 push merged mb
                 continue
             }
-            def tgt:RBlock (itemAt merged into)
-            Layout.grow(tgt mb.x mb.y mb.w mb.h)
-            for mb.runs mr:RRun mri {
-                push tgt.runs mr
+            ; into the first of them, in its place: the others and the box
+            def first:int (itemAt hits 0)
+            def tgt:RBlock (itemAt merged first)
+            def next:[RBlock]
+            def r:int 0
+            while (r < (array_length merged)) {
+                def part:RBlock (itemAt merged r)
+                def joins:boolean false
+                for hits h:int hi {
+                    if ((h == r) && (r != first)) {
+                        joins = true
+                    }
+                }
+                if joins {
+                    Layout.join(tgt part)
+                } {
+                    push next part
+                }
+                r = (r + 1)
             }
-            if (((strlen tgt.label) <= 2) && ((strlen mb.label) > 2)) {
-                tgt.label = mb.label
-            }
+            Layout.join(tgt mb)
+            merged = next
         }
         rs.blocks = merged
         return rs
+    }
+
+    ; b's box, text and label into a
+    sfn join:void (a:RBlock b:RBlock) {
+        Layout.grow(a b.x b.y b.w b.h)
+        for b.runs mr:RRun mri {
+            push a.runs mr
+        }
+        if (((strlen a.label) <= 2) && ((strlen b.label) > 2)) {
+            a.label = b.label
+        }
     }
 
     ; overlapping, or less than a line apart (a list's markers stand in a

@@ -20,6 +20,7 @@ Import "Files.rgr"
 Import "WorkStore.rgr"
 Import "SvgCheck.rgr"
 Import "Edits.rgr"
+Import "WebPictures.rgr"
 Import "GitHub.rgr"
 Import "../presentation/PresReview.rgr"
 Import "../presentation/PresTrace.rgr"
@@ -52,6 +53,13 @@ class CheckPics {
     def pics:[CheckPic]
     def data:[buffer]
     def types:[string]
+}
+
+; pictures fetched from the web for a create or update (WebPictures.rgr)
+class WebFetched {
+    def md:string ""
+    def imgs:[Img]
+    def notes:[string]
 }
 
 class Tools {
@@ -1345,6 +1353,73 @@ class Tools {
         return (Tools.fail(("Sliqtly could not " + (Tools.verb(name)) + ": " + err)))
     }
 
+    ; --- pictures the Markdown takes from the web (WebPictures.rgr): each
+    ; fetched into media/ as if sent in images, the Markdown pointed at it;
+    ; one that cannot be fetched stays as written, with a warning. Names in
+    ; `taken` are not reused.
+    sfn webPictures:WebFetched (host:McpHost caller:Caller md:string taken:[string]) {
+        def r (new WebFetched)
+        r.md = md
+        def pics:[WebPic] (WebPictures.find(md))
+        if ((array_length pics) == 0) {
+            return r
+        }
+        def first:WebPic (itemAt pics 0)
+        if ((caller.signedIn == false) || ((host_store_kind host) == "link")) {
+            push r.notes ("The Markdown takes pictures from the web (" + first.url + "): a slide shows only pictures kept with the deck, so these show as their alt text. Sign in (Google) and Sliqtly fetches them into media/, or send them in images.")
+            return r
+        }
+        def urls:[string]
+        def names:[string]
+        for pics p:WebPic pi {
+            if (WebPictures.has(urls p.url)) {
+                continue
+            }
+            if ((array_length urls) >= (Deck.MAX_IMAGES())) {
+                push r.notes ("Picture " + p.url + " was not fetched: at most " + (to_string (Deck.MAX_IMAGES())) + " pictures per call.")
+                continue
+            }
+            def name:string (WebPictures.nameFor(p.url taken))
+            def one:MfJ (MfJ.newObj())
+            one.putStr("name" name)
+            one.putStr("url" p.url)
+            def asked:[MfJ]
+            push asked one
+            def got:Loaded (Deck.loadImages(host asked))
+            if (((strlen got.err) > 0) || ((array_length got.imgs) == 0)) {
+                push r.notes ("Picture " + p.url + " was not fetched (" + got.err + "); its slide shows the alt text.")
+                continue
+            }
+            def im:Img (itemAt got.imgs 0)
+            if ((indexOf name ".") < 0) {
+                name = (WebPictures.nameFor((name + (Tools.extOf(im.type))) taken))
+                im.name = name
+            }
+            push taken name
+            push urls p.url
+            push names name
+            push r.imgs im
+        }
+        if ((array_length names) > 0) {
+            r.md = (WebPictures.rewrite(md pics urls names))
+            push r.notes ("Fetched " + (to_string (array_length names)) + " picture(s) from the web into media/ (" + (join names ", ") + ") and pointed the Markdown at them: a slide shows only pictures kept with the deck.")
+        }
+        return r
+    }
+
+    sfn extOf:string (type:string) {
+        if (type == "image/jpeg") {
+            return ".jpg"
+        }
+        if (type == "image/svg+xml") {
+            return ".svg"
+        }
+        if (startsWith type "image/") {
+            return ("." + (substring type 6 (strlen type)))
+        }
+        return ""
+    }
+
     sfn create:MfJ (host:McpHost caller:Caller a:MfJ) {
         def bad:string (Tools.checkArgs(a ([] _:string ("title" "markdown"))))
         if ((strlen bad) > 0) {
@@ -1405,6 +1480,15 @@ class Tools {
         if ((strlen loaded.err) > 0) {
             return (Tools.fail(loaded.err))
         }
+        def taken:[string]
+        for loaded.imgs ti:Img tk {
+            push taken ti.name
+        }
+        def web:WebFetched (Tools.webPictures(host caller md taken))
+        md = web.md
+        for web.imgs wi:Img wk {
+            push loaded.imgs wi
+        }
         def data:Loaded (Files.loadData(host (a.list("files"))))
         if ((strlen data.err) > 0) {
             return (Tools.fail(data.err))
@@ -1426,6 +1510,9 @@ class Tools {
         }
         def none:[string]
         def ws:[string] (Deck.warnings(md names none))
+        for web.notes wn:string wnk {
+            push ws wn
+        }
         def none2:[string]
         def bgs:CheckPics (Tools.backgrounds(host md loaded.imgs ""))
         def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css bgs data.imgs "" none2))
@@ -1616,6 +1703,27 @@ class Tools {
         if ((strlen data.err) > 0) {
             return (Tools.fail(data.err))
         }
+        def webNotes:[string]
+        if p.hasMd {
+            def taken:[string]
+            for loaded.imgs ti:Img tk {
+                push taken ti.name
+            }
+            for (cur.list("files")) cf:MfJ cfi {
+                def cp:string (cf.str_("path"))
+                if (startsWith cp "media/") {
+                    push taken (substring cp 6 (strlen cp))
+                }
+            }
+            def web:WebFetched (Tools.webPictures(host caller p.md taken))
+            p.md = web.md
+            for web.imgs wi:Img wk {
+                push loaded.imgs wi
+            }
+            for web.notes wn:string wnk {
+                push webNotes wn
+            }
+        }
         def kept:[Img]
         for loaded.imgs li:Img lk {
             push kept li
@@ -1648,6 +1756,9 @@ class Tools {
             if ((strlen nt) > 0) {
                 push notes nt
             }
+        }
+        for webNotes wnt:string wni {
+            push notes wnt
         }
         def r:MfJ (Tools.updated(host caller id ws.saved (join notes "\n")))
         Tools.withWork(host r ws.version ws.others)

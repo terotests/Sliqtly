@@ -54,7 +54,7 @@ func TestWarnsOfTextThatDoesNotStandOut(t *testing.T) {
 	ws := fmt.Sprint(out["warnings"])
 	t.Log(ws)
 	match(t, ws, `Slide "Cloudy": text is hard to read over the background picture: "Cloudy" 1\.\d:1 \(needs 3\.0:1\)`)
-	match(t, ws, `"The theme's light text over a white sky\." 1\.\d:1 \(needs 3\.0:1\)`)
+	match(t, ws, `"The theme’s light text over a white sky\." 1\.\d:1 \(needs 3\.0:1\)`)
 	// aurora's slide is dark navy: dimming the picture towards it is the fix
 	match(t, ws, `Fix: a stronger dim, bg-dim=0\.\d+ in the slide's heading attributes, or a text colour such as #[0-9a-f]{6} in css\.`)
 	for _, ok := range []string{`Slide "Night"`, `Slide "Plain"`} {

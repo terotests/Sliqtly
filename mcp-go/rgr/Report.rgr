@@ -138,12 +138,25 @@ class Report {
         return (to_string (floor ((v * k) + 0.5)))
     }
 
+    ; at most n characters (code points, so a ’ or an emoji is one and is
+    ; never cut in half)
     sfn short:string (text:string n:int) {
         def t:string (trim text)
-        if ((strlen t) <= n) {
+        if ((char_length t) <= n) {
             return t
         }
-        return ((trim (substring t 0 n)) + "…")
+        return ((trim (Report.firstChars(t n))) + "…")
+    }
+
+    sfn firstChars:string (t:string n:int) {
+        def cs:[int] (to_chars t)
+        def parts:[string]
+        for cs c:int i {
+            if (i < n) {
+                push parts (strfromcode c)
+            }
+        }
+        return (join parts "")
     }
 
     ; the run's centre after its rotation
@@ -500,6 +513,15 @@ class Report {
         return s
     }
 
+    ; a is a plate behind b (a `::: warning` container, a box with no text
+    ; of its own) that b sits inside: b is drawn on it, not over it
+    sfn backdrop:boolean (a:RBlock b:RBlock) {
+        if ((a.kind != "text") || ((array_length a.runs) > 0)) {
+            return false
+        }
+        return ((((b.x >= (a.x - 2.0)) && (b.y >= (a.y - 2.0))) && ((b.x + b.w) <= ((a.x + a.w) + 2.0))) && ((b.y + b.h) <= ((a.y + a.h) + 2.0)))
+    }
+
     ; what is wrong with the slide as a whole
     sfn slideFlags:void (o:RSlideOut s:RSlide k:double x0:double y0:double x1:double y1:double) {
         def n:int (array_length s.blocks)
@@ -512,7 +534,7 @@ class Report {
                 def b:RBlock (itemAt s.blocks j)
                 def ix:double ((Report.mn((a.x + a.w) (b.x + b.w))) - (Report.mx(a.x b.x)))
                 def iy:double ((Report.mn((a.y + a.h) (b.y + b.h))) - (Report.mx(a.y b.y)))
-                if ((ix > 2.0) && (iy > 2.0)) {
+                if (((ix > 2.0) && (iy > 2.0)) && (((Report.backdrop(a b)) || (Report.backdrop(b a))) == false)) {
                     def small:double (Report.mn((a.w * a.h) (b.w * b.h)))
                     def share:double ((ix * iy) / small)
                     if (share > 0.04) {

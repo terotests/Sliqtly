@@ -420,3 +420,38 @@ func TestPrintReportSafeArea(t *testing.T) {
 		t.Fatal(n)
 	}
 }
+
+// A quote nested three deep is one element: its bars span every level's
+// paragraph, and are not reported as quotes drawn over each other
+func TestReportNestedQuoteIsOneElement(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "Quotes", "markdown": "## Blockquotes\n\n> Blockquotes can also be nested...\n>> ...by using additional greater-than signs right next to each other...\n> > > ...or with spaces between arrows.\n",
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	text := textOf(c)
+	if strings.Contains(text, "overlap") {
+		t.Fatalf("nested quotes reported as overlapping:\n%s", text)
+	}
+	match(t, text, `- quote "Blockquotes can also be nested…" at \d+,\d+`)
+}
+
+// a container's plate (no text of its own) is what its text is drawn on
+func TestReportContainerPlateIsNotAnOverlap(t *testing.T) {
+	plate := block("text", "", 100, 100, 800, 200)
+	inner := block("text", "here be dragons", 140, 140, 400, 60)
+	inner.runs = append(inner.runs, run("here be dragons", 140, 140, 400, 60, 40, 0))
+	if f := flagsOf(slideOf(plate, inner)); strings.Contains(f, "overlap") {
+		t.Fatal(f)
+	}
+	// two texts over each other still are
+	other := block("text", "other", 150, 150, 400, 60)
+	other.runs = append(other.runs, run("other", 150, 150, 400, 60, 40, 0))
+	if f := flagsOf(slideOf(inner, other)); !strings.Contains(f, "overlap") {
+		t.Fatal("overlapping texts not flagged")
+	}
+}

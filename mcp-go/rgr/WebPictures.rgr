@@ -1,0 +1,339 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Pictures the Markdown takes from the web: `![Minion](https://…/minion.png)`
+; and `![Alt][id]` with `[id]: https://…/dojocat.jpg`. A slide shows only
+; pictures kept with its deck (the player loads nothing from other sites),
+; so create/update fetch each one into media/ and point the Markdown at it;
+; one that cannot be fetched stays as it was, with a warning.
+;
+; `find` is a pure reading of the text: where each web address of a picture
+; stands (code spans and fenced code skipped), so the address alone is
+; replaced and everything around it is kept byte for byte.
+
+Import "Deck.rgr"
+
+class WebPic {
+    def url:string ""
+    ; the address's place in the Markdown
+    def start:int 0
+    def end:int 0
+}
+
+class WebRef {
+    def label:string ""
+    def url:string ""
+    def start:int 0
+    def end:int 0
+}
+
+class WebPictures {
+
+    sfn isWeb:boolean (url:string) {
+        def u:string (to_lowercase url)
+        return ((startsWith u "https://") || (startsWith u "http://"))
+    }
+
+    ; a reference label as CommonMark matches it: case and runs of spaces
+    ; do not count
+    sfn labelKey:string (s:string) {
+        def parts:[string] (strsplit (trim (to_lowercase s)) " ")
+        def kept:[string]
+        for parts p:string i {
+            if ((strlen p) > 0) {
+                push kept p
+            }
+        }
+        return (join kept " ")
+    }
+
+    ; the web addresses of pictures in md, in the order they stand
+    sfn find:[WebPic] (md:string) {
+        def out:[WebPic]
+        def refs:[WebRef]
+        def used:[string]
+        def n:int (strlen md)
+        def lineStart:int 0
+        def fence:string ""
+        while (lineStart < n) {
+            def nl:int (indexOfFrom md "\n" lineStart)
+            if (nl < 0) {
+                nl = n
+            }
+            def line:string (substring md lineStart nl)
+            def t:string (trim line)
+            if ((strlen fence) > 0) {
+                if (startsWith t fence) {
+                    fence = ""
+                }
+            } {
+                if ((startsWith t "```") || (startsWith t "~~~")) {
+                    fence = (substring t 0 3)
+                } {
+                    def ref@(optional):WebRef (WebPictures.refDef(line lineStart))
+                    if (!null? ref) {
+                        push refs (unwrap ref)
+                    } {
+                        WebPictures.inline(line lineStart out used)
+                    }
+                }
+            }
+            lineStart = (nl + 1)
+        }
+        ; definitions an image uses (a link's are left alone)
+        for refs r:WebRef ri {
+            def hit:boolean false
+            for used u:string ui {
+                if (u == r.label) {
+                    hit = true
+                }
+            }
+            if hit {
+                def p (new WebPic)
+                p.url = r.url
+                p.start = r.start
+                p.end = r.end
+                push out p
+            }
+        }
+        return out
+    }
+
+    ; `[id]: https://… "title"` (up to three spaces before it)
+    sfn refDef@(optional):WebRef (line:string at:int) {
+        def none@(optional):WebRef
+        def i:int 0
+        while ((i < 3) && ((i < (strlen line)) && ((substring line i (i + 1)) == " "))) {
+            i = (i + 1)
+        }
+        if ((i >= (strlen line)) || ((substring line i (i + 1)) != "[")) {
+            return none
+        }
+        def close:int (indexOfFrom line "]:" i)
+        if (close < 0) {
+            return none
+        }
+        def label:string (substring line (i + 1) close)
+        if (((strlen label) == 0) || ((startsWith label "^") || ((indexOf label "[") >= 0))) {
+            return none
+        }
+        def j:int (close + 2)
+        while ((j < (strlen line)) && ((substring line j (j + 1)) == " ")) {
+            j = (j + 1)
+        }
+        def s:int j
+        def e:int j
+        if ((j < (strlen line)) && ((substring line j (j + 1)) == "<")) {
+            s = (j + 1)
+            e = (indexOfFrom line ">" s)
+            if (e < 0) {
+                return none
+            }
+        } {
+            while ((e < (strlen line)) && (((substring line e (e + 1)) != " ") && ((substring line e (e + 1)) != "\t"))) {
+                e = (e + 1)
+            }
+        }
+        def url:string (substring line s e)
+        if ((WebPictures.isWeb(url)) == false) {
+            return none
+        }
+        def r (new WebRef)
+        r.label = (WebPictures.labelKey(label))
+        r.url = url
+        r.start = (at + s)
+        r.end = (at + e)
+        def found@(optional):WebRef r
+        return found
+    }
+
+    ; the pictures of one line: `![alt](url …)` addresses into out, the
+    ; labels `![alt][id]`, `![id][]` and `![id]` use into used
+    sfn inline:void (line:string at:int out:[WebPic] used:[string]) {
+        def n:int (strlen line)
+        def i:int 0
+        while (i < n) {
+            def c:string (substring line i (i + 1))
+            if (c == "`") {
+                ; a code span: to the next run of as many backticks
+                def k:int i
+                while ((k < n) && ((substring line k (k + 1)) == "`")) {
+                    k = (k + 1)
+                }
+                def ticks:string (substring line i k)
+                def shut:int (indexOfFrom line ticks k)
+                if (shut < 0) {
+                    i = k
+                } {
+                    i = (shut + (strlen ticks))
+                }
+                continue
+            }
+            if (c == "\\") {
+                i = (i + 2)
+                continue
+            }
+            if ((c != "!") || (((i + 1) >= n) || ((substring line (i + 1) (i + 2)) != "["))) {
+                i = (i + 1)
+                continue
+            }
+            ; the alt text, brackets nested
+            def depth:int 1
+            def j:int (i + 2)
+            while ((j < n) && (depth > 0)) {
+                def d:string (substring line j (j + 1))
+                if (d == "\\") {
+                    j = (j + 1)
+                } {
+                    if (d == "[") {
+                        depth = (depth + 1)
+                    }
+                    if (d == "]") {
+                        depth = (depth - 1)
+                    }
+                }
+                j = (j + 1)
+            }
+            if (depth > 0) {
+                return
+            }
+            def alt:string (substring line (i + 2) (j - 1))
+            if ((j < n) && ((substring line j (j + 1)) == "(")) {
+                def s:int (j + 1)
+                while ((s < n) && ((substring line s (s + 1)) == " ")) {
+                    s = (s + 1)
+                }
+                def e:int s
+                if ((s < n) && ((substring line s (s + 1)) == "<")) {
+                    s = (s + 1)
+                    e = (indexOfFrom line ">" s)
+                    if (e < 0) {
+                        e = s
+                    }
+                } {
+                    def par:int 0
+                    def going:boolean true
+                    while ((e < n) && going) {
+                        def d2:string (substring line e (e + 1))
+                        if ((d2 == " ") || ((d2 == ")") && (par == 0))) {
+                            going = false
+                        } {
+                            if (d2 == "(") {
+                                par = (par + 1)
+                            }
+                            if (d2 == ")") {
+                                par = (par - 1)
+                            }
+                            e = (e + 1)
+                        }
+                    }
+                }
+                def url:string (substring line s e)
+                if (WebPictures.isWeb(url)) {
+                    def p (new WebPic)
+                    p.url = url
+                    p.start = (at + s)
+                    p.end = (at + e)
+                    push out p
+                }
+                i = e
+                continue
+            }
+            if ((j < n) && ((substring line j (j + 1)) == "[")) {
+                def shut2:int (indexOfFrom line "]" (j + 1))
+                if (shut2 > j) {
+                    def lab:string (substring line (j + 1) shut2)
+                    if ((strlen (trim lab)) == 0) {
+                        lab = alt
+                    }
+                    push used (WebPictures.labelKey(lab))
+                    i = (shut2 + 1)
+                    continue
+                }
+            }
+            push used (WebPictures.labelKey(alt))
+            i = j
+        }
+    }
+
+    ; the name a fetched picture is kept as: the address's last part,
+    ; cleaned, not one of `taken`
+    sfn nameFor:string (url:string taken:[string]) {
+        def u:string url
+        def q:int (indexOf u "?")
+        if (q >= 0) {
+            u = (substring u 0 q)
+        }
+        def h:int (indexOf u "#")
+        if (h >= 0) {
+            u = (substring u 0 h)
+        }
+        def slash:int (lastIndexOf u "/")
+        def base:string (Deck.cleanName((substring u (slash + 1) (strlen u))))
+        if (((strlen base) == 0) || ((indexOf base ".") == 0)) {
+            base = "web-picture"
+        }
+        def stem:string base
+        def ext:string ""
+        def dot:int (lastIndexOf base ".")
+        if (dot > 0) {
+            stem = (substring base 0 dot)
+            ext = (substring base dot (strlen base))
+        }
+        def name:string base
+        def k:int 2
+        while (WebPictures.has(taken name)) {
+            name = (stem + "-" + (to_string k) + ext)
+            k = (k + 1)
+        }
+        return name
+    }
+
+    sfn has:boolean (list:[string] s:string) {
+        for list x:string i {
+            if (x == s) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; md with each address in pics that is one of urls replaced by
+    ; media/ and the name at the same index
+    sfn rewrite:string (md:string pics:[WebPic] urls:[string] names:[string]) {
+        def parts:[string]
+        def from:int 0
+        ; pics stand in text order except reference definitions, which come
+        ; last; take them by place
+        def going:boolean true
+        while going {
+            def best:int -1
+            def bi:int -1
+            for pics p:WebPic pi {
+                if ((p.start >= from) && ((best < 0) || (p.start < best))) {
+                    best = p.start
+                    bi = pi
+                }
+            }
+            if (bi < 0) {
+                going = false
+            } {
+                def p2:WebPic (itemAt pics bi)
+                def name:string ""
+                for urls u:string ui {
+                    if (u == p2.url) {
+                        name = (itemAt names ui)
+                    }
+                }
+                push parts (substring md from p2.start)
+                if ((strlen name) > 0) {
+                    push parts ("media/" + name)
+                } {
+                    push parts (substring md p2.start p2.end)
+                }
+                from = p2.end
+            }
+        }
+        push parts (substring md from (strlen md))
+        return (join parts "")
+    }
+}

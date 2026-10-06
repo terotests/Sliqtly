@@ -71,6 +71,10 @@ Write `![Alt text](media/<name>)` and pass the picture in the tool call's
 `## Title {bg=media/cover.jpg bg-dim=0.4}`. Give each picture either a
 public `https` URL or base64 data, or an SVG's source as `text` (readable,
 no base64). PNG, JPEG, GIF, WebP and SVG, up to 5 MB.
+A picture written with a web address (`![Logo](https://…/logo.png)`, or
+`![Logo][id]` with `[id]: https://…`) is fetched into `media/` when the deck
+is saved and the Markdown is pointed at it: a slide shows only pictures kept
+with the deck.
 Pictures, data files and workbooks are stored only when the user is signed
 in; without sign-in a deck is text only and is deleted 7 days after its
 last change.
