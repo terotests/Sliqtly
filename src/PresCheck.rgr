@@ -6,6 +6,7 @@ Import "PresCascade.rgr"
 Import "PresSelect.rgr"
 Import "PresDocSettings.rgr"
 Import "PresHints.rgr"
+Import "PresHelp.rgr"
 Import "PresFlowModel.rgr"
 Import "PresGridModel.rgr"
 Import "PresControlsFade.rgr"
@@ -114,6 +115,25 @@ class PresCheck {
         this.chartModel()
         this.review()
         this.reviewDiagram()
+        this.helpGuide()
+    }
+
+    ; Help → How to use Sliqtly: the guide parses as the help panel's parts
+    ; and names the speaker view's key
+    fn helpGuide:void () {
+        def p (new VlJsonParser())
+        def parts:VlJson (p.parse((PresHelp.guide())))
+        this.ok((p.ok && ((parts.count()) >= 10)) ("help guide: parts, got " + (to_string (parts.count()))))
+        def found:boolean false
+        def i:int 0
+        while (i < (parts.count())) {
+            def f:VlJson (parts.at(i))
+            if (((f.stringOr("key" "")) == "speaker") && ((indexOf (f.stringOr("syntax" "")) "S ") == 0)) {
+                found = true
+            }
+            i = (i + 1)
+        }
+        this.ok(found "help guide: speaker view with its key")
     }
 
     ; ```js {lines=2|3 .build}: the code is there from the start, and each

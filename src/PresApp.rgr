@@ -6141,6 +6141,38 @@ class PresApp {
         return panels.helpOpen
     }
 
+    ; Help → How to use Sliqtly: the help panel open at its guide tab
+    ; ("guide"), or at the slide's parts ("slide").
+    fn openHelpTab:void (tab:string) {
+        panels.setHelpTab(tab)
+        this.setHelp(true)
+    }
+
+    fn helpTab:string () {
+        return panels.helpTab
+    }
+
+    ; --- the speaker view and auto-advance (S and A while presenting) ---------------
+    ; The presenting bar's ⋯ menu shows and switches them too, so they are
+    ; found without knowing the keys.
+    fn speakerOn:boolean () {
+        return speaker
+    }
+
+    fn setSpeaker:void (on:boolean) {
+        speaker = on
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn autoOn:boolean () {
+        return auto
+    }
+
+    fn setAuto:void (on:boolean) {
+        auto = on
+        chromeRev = (chromeRev + 1)
+    }
+
     ; --- editing together (a server of one's own: web/collab.js) --------------------
     ; The chat beside the deck: the page adds what arrives and posts what is
     ; sent ("chat-send" asks it to take it); "chat-closed" when it closed here.

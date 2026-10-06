@@ -3343,6 +3343,9 @@ function handleRequests() {
       });
     } else if (r === "about") {
       openAbout().catch(fail);
+    } else if (r === "help-guide") {
+      app.openHelpTab("guide");
+      needsPaint = true;
     } else if (r === "settings") {
       app.openSettings(autoContrast);
       needsPaint = true;
@@ -5060,8 +5063,10 @@ function toggleViewMenu(open) {
     return;
   }
   document.getElementById("vEdit").hidden = !ownsShare();
+  document.getElementById("vSpeaker").setAttribute("aria-checked", String(app.speakerOn()));
+  document.getElementById("vAuto").setAttribute("aria-checked", String(app.autoOn()));
   wakeViewer();
-  vMenu.querySelector("button:not([hidden])").focus();
+  [...vMenu.querySelectorAll("button")].find((b) => b.offsetParent)?.focus();
 }
 window.addEventListener("sliqtly:user", () => { document.getElementById("vEdit").hidden = !ownsShare(); });
 function siteLink(url) {
@@ -5123,6 +5128,12 @@ vMenu.addEventListener("click", (ev) => {
   if (EXPORTS[act]) {
     if (framed) exportOnSite(act);
     else EXPORTS[act]().catch(fail);
+  } else if (act === "speaker") {
+    app.setSpeaker(!app.speakerOn());
+    needsPaint = true;
+  } else if (act === "auto") {
+    app.setAuto(!app.autoOn());
+    needsPaint = true;
   } else if (act === "new") createFromViewed();
   else if (act === "playrec") {
     app.replayFromSlide();
@@ -6082,8 +6093,11 @@ function showHint(h) {
 // at the values the theme gives them now. Only what the slide has is
 // listed. A property opens the theme at its line (added when the theme has
 // none) with its value popover.
+// Help for this slide closes the panel when it already shows the slide;
+// Help → How to use Sliqtly opens it at the guide (PresHelp.guide).
 function toggleHelp(on) {
-  app.setHelp(on ?? !app.helpIsOpen());
+  if (on ?? !(app.helpIsOpen() && app.helpTab() === "slide")) app.openHelpTab("slide");
+  else app.setHelp(false);
   needsPaint = true;
 }
 
