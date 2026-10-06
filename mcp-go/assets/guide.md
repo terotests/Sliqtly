@@ -78,6 +78,8 @@ A signed-in user's presentation is private: only their Google account sees
 it, at its link too. To share it, ask the user first, then call
 `update_presentation` with `visibility: "link"` (anyone with the link can
 view it); `visibility: "private"` closes it again.
+A presentation made without sign-in has no owner: anyone who knows its
+deck_id can view and change it, no `edit_key` needed.
 When text on a picture is hard to read ("low contrast"), raise that slide's
 `bg-dim` (0.6–0.8) with update_presentation, or put the text on a plate
 (`{container=box}` under it); the picture stays as it is.

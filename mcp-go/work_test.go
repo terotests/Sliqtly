@@ -258,7 +258,6 @@ func TestClaimsNeedTheEditKey(t *testing.T) {
 	defer s.close()
 	c := call(t, s, "create_presentation", map[string]any{"title": "Work", "markdown": BASE_DECK})
 	id := sc(c)["deck_id"].(string)
-	match(t, textOf(call(t, s, "begin_work", map[string]any{"deck_id": id})), `edit_key is needed`)
 	match(t, textOf(call(t, s, "begin_work", map[string]any{"deck_id": id, "edit_key": sc(c)["edit_key"], "minutes": 500})), `minutes is 1 to 120`)
 	// forced onto slides another holds, after the user agreed
 	key := sc(c)["edit_key"]

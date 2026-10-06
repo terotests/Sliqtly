@@ -676,7 +676,11 @@ func TestOptionalSignIn(t *testing.T) {
 		t.Fatal(textOf(u))
 	}
 	eq(t, sc(u)["slides"], 2)
-	match(t, textOf(call(t, me, "update_presentation", map[string]any{"deck_id": anonID, "markdown": "# x"})), `edit_key is needed`)
+	// a deck made without sign-in has no owner: changed by anyone with its id
+	if r := call(t, me, "update_presentation", map[string]any{"deck_id": anonID, "markdown": "# x"}); r.IsError {
+		t.Fatal(textOf(r))
+	}
+	eq(t, f.db.doc("shares/" + anonID)["md"], "# x")
 	// another account's editor deck: refused with the account named, no copy
 	f.db.Set(context.Background(), "shares", "EdOther001", Doc{"owner": "u2", "source": "editor", "md": "# theirs", "theme": "aurora"})
 	other := textOf(call(t, me, "update_presentation", map[string]any{"deck_id": "EdOther001", "markdown": "# x"}))
@@ -890,7 +894,6 @@ func TestBindChartDataPointsAChartAtLiveData(t *testing.T) {
 		{map[string]any{"chart": 3, "source": "https://data.test/x.csv"}, `has 2 charts`},
 		{map[string]any{"chart": "Nope", "source": "https://data.test/x.csv"}, `No chart on a slide titled`},
 		{map[string]any{"chart": 1, "source": "http://data.test/x.csv"}, `https URL`},
-		{map[string]any{"chart": 1, "source": "https://data.test/x.csv", "edit_key": "wrong"}, `edit_key does not match`},
 	} {
 		args := map[string]any{"deck_id": id, "edit_key": key}
 		for k, v := range tc.args {
@@ -1320,7 +1323,6 @@ func TestReviewCommentsReadAddAndResolve(t *testing.T) {
 	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide": 1, "text": "x", "severity": "urgent"})), `severity is low, medium, high or none`)
 	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide": 9, "text": "x"})), `from 1 to 3`)
 	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide_title": "Nope", "text": "x"})), `No slide is titled "Nope". The slides: 1 "Plan", 2 "Budget", 3 "Risks"`)
-	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "text": "x", "slide": 1})), `edit_key is needed`)
 
 	r := call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "thread_id": tid, "text": "Also the forecast"})
 	match(t, textOf(r), `Answered thread `+tid)
