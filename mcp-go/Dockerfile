@@ -26,6 +26,7 @@ RUN go mod download
 COPY mcp-go/ ./
 COPY --from=gen /src/mcp-go/sliqtly_mcp.go ./
 COPY --from=gen /src/mcp-go/presdata/presdata.go ./presdata/
+COPY --from=gen /src/mcp-go/rdiff/rdsmart.go ./rdiff/
 COPY --from=gen /src/mcp-go/fonts/ ./fonts/
 COPY --from=gen /src/mcp-go/themes/ ./themes/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server . && mkdir /data /backup
