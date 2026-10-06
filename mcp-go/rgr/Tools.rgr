@@ -129,8 +129,8 @@ class Tools {
         theme.put("enum" (J.strs((Deck.THEMES()))))
         p.put("theme" theme)
         p.put("css" (Tools.prop("string" "CSS rules added on top of the theme (selectors: page, document, h1, h2, p, list, li, code, table, chart, diagram, .lead …). See sliqtly_guide.")))
-        def mode:MfJ (Tools.prop("string" "extend (default): css is added after the theme's rules. replace: css is the whole stylesheet."))
-        mode.put("enum" (J.strs(([] _:string ("extend" "replace")))))
+        def mode:MfJ (Tools.prop("string" "extend (default): css is added after the theme's rules and, on update, after the deck's own rules so far (sending all of them again replaces them). own: css replaces the deck's own rules, on top of the theme. replace: css is the whole stylesheet."))
+        mode.put("enum" (J.strs(([] _:string ("extend" "own" "replace")))))
         p.put("css_mode" mode)
         def ip:MfJ (MfJ.newObj())
         ip.put("name" (Tools.prop("string" "File name the Markdown uses as media/<name>, e.g. \"team.jpg\" → ![](media/team.jpg)")))
@@ -298,7 +298,8 @@ class Tools {
         def xs:MfJ (Tools.prop("array" "Only these slides (numbers as in render_overview); all when left out"))
         xs.put("items" xn)
         xp.put("slides" xs)
-        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF, a PowerPoint (.pptx), a Word document (.docx) or one self-contained web page (.html), by its deck_id: a download link to give the user, kept until the next export of the same format. PDF and PPTX: slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. DOCX and HTML: the deck read as a document, slide after slide, with headings, text, lists, tables, formulas (Word equations / SVG), the speaker notes under each slide, and diagrams and charts as pictures. Effects (fx=) are not drawn; the editor's File → Export draws them." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
+        xp.put("edit_key" (Tools.prop("string" "edit_key from create_presentation; not needed when signed in as the presentation's owner")))
+        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF, a PowerPoint (.pptx), a Word document (.docx) or one self-contained web page (.html), by its deck_id and edit_key (not needed when signed in as its owner): a download link to give the user, kept until the next export of the same format (on sliqtly.com it works for 24 hours). PDF and PPTX: slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. DOCX and HTML: the deck read as a document, slide after slide, with headings, text, lists, tables, formulas (Word equations / SVG), the speaker notes under each slide, and diagrams and charts as pictures. Effects (fx=) are not drawn; the editor's File → Export draws them." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
 
         def lp:MfJ (MfJ.newObj())
         lp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
@@ -741,8 +742,8 @@ class Tools {
             return ("Invalid arguments: theme is one of " + (join (Deck.THEMES()) ", ") + ".")
         }
         def mode:MfJ (a.field("css_mode"))
-        if ((mode.kind == 3) && ((mode.str != "extend") && (mode.str != "replace"))) {
-            return "Invalid arguments: css_mode is extend or replace."
+        if ((mode.kind == 3) && (((mode.str != "extend") && (mode.str != "own")) && (mode.str != "replace"))) {
+            return "Invalid arguments: css_mode is extend, own or replace."
         }
         def chart:MfJ (a.field("chart"))
         if (chart.kind == 2) {
@@ -845,6 +846,87 @@ class Tools {
 
     ; --- the stylesheet stored with the deck: hasCss false keeps the theme
 
+    ; between the theme's sheet and the deck's own rules in a stored sheet
+    sfn OWN_MARK:string () {
+        return "\n/* --- added for this deck --- */\n"
+    }
+
+    ; the deck's own rules in a stored sheet: what follows the mark, "" when
+    ; it has none (a sheet sent whole with css_mode replace)
+    sfn ownCss:string (stored:string) {
+        def at:int (indexOf stored (Tools.OWN_MARK()))
+        if (at < 0) {
+            return ""
+        }
+        return (trim (substring stored (at + (strlen (Tools.OWN_MARK()))) (strlen stored)))
+    }
+
+    ; `theme`'s sheet with `own` rules after it
+    sfn themed:Sheet (host:McpHost theme:string own:string) {
+        def s (new Sheet)
+        s.hasCss = true
+        def base:string (host_theme_css host theme)
+        if ((strlen (host_error host)) > 0) {
+            s.fatal = (host_error host)
+            return s
+        }
+        s.css = (base + (Tools.OWN_MARK()) + own + "\n")
+        return s
+    }
+
+    ; An update's sheet. `prev` is the stored one (a string, or nothing).
+    ; extend adds to the deck's own rules (the css holding all of them is
+    ; taken as their new whole); own starts them over; replace is the
+    ; whole sheet. A new theme with no css keeps the deck's own rules on it.
+    sfn sheetOn:Sheet (host:McpHost theme:string a:MfJ mode:string prev:MfJ themeChanged:boolean) {
+        def css:string (trim (a.str_("css")))
+        def stored:string ""
+        if (prev.kind == 3) {
+            stored = prev.str
+        }
+        def own:string (Tools.ownCss(stored))
+        def hasOwn:boolean ((indexOf stored (Tools.OWN_MARK())) >= 0)
+        if (((Tools.has(a "css")) == false) || ((strlen css) == 0)) {
+            if ((Tools.has(a "css")) && (mode != "extend")) {
+                return (Tools.sheet(host theme a mode))
+            }
+            if (themeChanged && hasOwn) {
+                return (Tools.themed(host theme own))
+            }
+            def none (new Sheet)
+            if (themeChanged) {
+                ; a whole sheet of the old theme's: the new theme alone
+                none.hasCss = false
+                none.drop = true
+            }
+            return none
+        }
+        if ((mode != "extend") || ((strlen stored) == 0)) {
+            return (Tools.sheet(host theme a mode))
+        }
+        if ((strlen css) > (Deck.MAX_CSS())) {
+            def big (new Sheet)
+            big.err = "css is larger than 100 KB."
+            return big
+        }
+        if (hasOwn || themeChanged) {
+            def next:string css
+            if (((strlen own) > 0) && ((indexOf css own) < 0)) {
+                next = (own + "\n" + css)
+            }
+            return (Tools.themed(host theme next))
+        }
+        ; a whole sheet sent before: the rules go after it
+        def whole (new Sheet)
+        whole.hasCss = true
+        if ((indexOf css (trim stored)) >= 0) {
+            whole.css = css
+        } {
+            whole.css = (stored + "\n" + css + "\n")
+        }
+        return whole
+    }
+
     sfn sheet:Sheet (host:McpHost theme:string a:MfJ mode:string) {
         def s (new Sheet)
         def css:string (a.str_("css"))
@@ -868,7 +950,7 @@ class Tools {
             s.fatal = (host_error host)
             return s
         }
-        s.css = (base + "\n/* --- added for this deck --- */\n" + css + "\n")
+        s.css = (base + (Tools.OWN_MARK()) + css + "\n")
         return s
     }
 
@@ -1051,7 +1133,7 @@ class Tools {
             r = (Tools.readGitHubPr(host caller args))
         }
         if (name == "export_presentation") {
-            r = (Tools.exportDeck(host args))
+            r = (Tools.exportDeck(host caller args))
         }
         if (name == "write_workbook") {
             r = (Tools.writeWorkbook(host caller args))
@@ -1261,27 +1343,23 @@ class Tools {
             }
         }
         def p (new DeckPatch)
-        ; a new theme with no new css drops the old theme's sheet
-        if (Tools.has(a "css")) {
-            def mode:string "extend"
-            if (Tools.has(a "css_mode")) {
-                mode = (a.str_("css_mode"))
-            }
-            def sh:Sheet (Tools.sheet(host th a mode))
-            if ((strlen sh.err) > 0) {
-                return (Tools.fail(sh.err))
-            }
-            if ((strlen sh.fatal) > 0) {
-                return (Tools.failed(host "update_presentation" sh.fatal))
-            }
-            if sh.hasCss {
-                p.cssMode = 1
-                p.css = sh.css
-            } {
-                p.cssMode = 2
-            }
+        def mode:string "extend"
+        if (Tools.has(a "css_mode")) {
+            mode = (a.str_("css_mode"))
+        }
+        def changed:boolean ((Tools.has(a "theme")) && ((a.str_("theme")) != (cur.str_("theme"))))
+        def sh:Sheet (Tools.sheetOn(host th a mode (cur.field("css")) changed))
+        if ((strlen sh.err) > 0) {
+            return (Tools.fail(sh.err))
+        }
+        if ((strlen sh.fatal) > 0) {
+            return (Tools.failed(host "update_presentation" sh.fatal))
+        }
+        if sh.hasCss {
+            p.cssMode = 1
+            p.css = sh.css
         } {
-            if ((Tools.has(a "theme")) && ((a.str_("theme")) != (cur.str_("theme")))) {
+            if (sh.drop || ((Tools.has(a "css")) && (mode != "extend"))) {
                 p.cssMode = 2
             }
         }
@@ -2298,8 +2376,16 @@ class Tools {
         out.putStr("title" (d.str_("name")))
         out.putStr("theme" (d.str_("theme")))
         out.putStr("markdown" (d.str_("md")))
+        ; the deck's own rules (css_mode extend/own), or a whole sheet sent
+        ; with css_mode replace
         if hasCss {
-            out.put("css" css)
+            if ((indexOf css.str (Tools.OWN_MARK())) >= 0) {
+                out.putStr("css" (Tools.ownCss(css.str)))
+                out.putStr("css_mode" "own")
+            } {
+                out.put("css" css)
+                out.putStr("css_mode" "replace")
+            }
         } {
             out.put("css" (new MfJ))
         }
@@ -2412,7 +2498,7 @@ class Tools {
             return (Tools.fail(("Invalid arguments: " + ref.err)))
         }
         def accept:string "application/vnd.github+json"
-        def got:MfJ (J.parse((host_fetch_text host (ref.api()) accept 1000000)))
+        def got:MfJ (J.parse((host_fetch_github host (ref.api()) accept 1000000)))
         def why:string (Tools.githubFailed(ref (got.int_("status" 0))))
         if ((strlen why) > 0) {
             return (Tools.fail(why))
@@ -2428,12 +2514,12 @@ class Tools {
             }
         }
         def files:MfJ (MfJ.newArr())
-        def gf:MfJ (J.parse((host_fetch_text host ((ref.api()) + "/files?per_page=100") accept 8000000)))
+        def gf:MfJ (J.parse((host_fetch_github host ((ref.api()) + "/files?per_page=100") accept 8000000)))
         if ((gf.int_("status" 0)) == 200) {
             files = (J.parse((gf.str_("body"))))
         }
         def commits:MfJ (MfJ.newArr())
-        def gc:MfJ (J.parse((host_fetch_text host ((ref.api()) + "/commits?per_page=100") accept 2000000)))
+        def gc:MfJ (J.parse((host_fetch_github host ((ref.api()) + "/commits?per_page=100") accept 2000000)))
         if ((gc.int_("status" 0)) == 200) {
             commits = (J.parse((gc.str_("body"))))
         }
@@ -2520,7 +2606,7 @@ class Tools {
     ; export_presentation: the file made by the editor's own export
     ; (src/PresExport.rgr), kept in Storage beside the deck as
     ; exports/<name>.<format>
-    sfn exportDeck:MfJ (host:McpHost a:MfJ) {
+    sfn exportDeck:MfJ (host:McpHost caller:Caller a:MfJ) {
         def tool:string "export_presentation"
         if ((host_store_kind host) == "link") {
             return (Tools.fail("This server keeps no decks (no cloud storage configured): open the presentation's link and use File → Export there."))
@@ -2537,13 +2623,21 @@ class Tools {
         if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
             return (Tools.fail("deck_id is the 10-character id in the share link."))
         }
-        def d:MfJ (Store.get(host id))
+        ; the file is written beside the deck: only by whoever may change it
+        def ed:Editable (Tools.editable(host caller id (a.str_("edit_key"))))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host tool (host_error host)))
         }
-        if ((d.isObj()) == false) {
-            return (Tools.fail(("No presentation " + id + ".")))
+        if ((strlen ed.fail) > 0) {
+            return (Tools.fail(ed.fail))
         }
+        if ((ed.mine == false) && ((Store.keyMatches(host id ed.key)) == false)) {
+            if ((strlen (host_error host)) > 0) {
+                return (Tools.failed(host tool (host_error host)))
+            }
+            return (Tools.fail("The edit_key does not match this presentation."))
+        }
+        def d:MfJ ed.cur
         def md:string (d.str_("md"))
         def stored:[string]
         for (d.list("files")) f:MfJ fi {
@@ -2608,7 +2702,10 @@ class Tools {
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host tool (host_error host)))
         }
-        def url:string (host_file_url host full token)
+        def url:string (host_download_url host full token type (name + "." + format))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host tool (host_error host)))
+        }
         def count:int ck.slides
         if ((array_length din.only) > 0) {
             count = (array_length din.only)
@@ -2636,7 +2733,11 @@ class Tools {
         def content:MfJ (MfJ.newArr())
         def t:MfJ (MfJ.newObj())
         t.putStr("type" "text")
-        t.putStr("text" (what + " of \"" + (d.str_("name")) + "\" (" + count + " slides, " + kb + " KB): " + url + "\nGive the user this link; it is replaced by the next " + format + " export of this presentation."))
+        def lasts:string ""
+        if ((indexOf url "/d/") >= 0) {
+            lasts = " It works for 24 hours, then export again."
+        }
+        t.putStr("text" (what + " of \"" + (d.str_("name")) + "\" (" + count + " slides, " + kb + " KB): " + url + "\nGive the user this link; it is replaced by the next " + format + " export of this presentation." + lasts))
         content.add(t)
         r.put("content" content)
         r.put("structuredContent" out)
@@ -3681,6 +3782,8 @@ class WorkSave {
 ; mistake, fatal the site's
 class Sheet {
     def hasCss:boolean false
+    ; the stored sheet goes: the deck is shown with its theme's
+    def drop:boolean false
     def css:string ""
     def err:string ""
     def fatal:string ""

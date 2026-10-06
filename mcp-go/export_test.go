@@ -11,6 +11,7 @@ import (
 	"image/color"
 	"image/png"
 	"io"
+	"net/http"
 	"regexp"
 	"strings"
 	"testing"
@@ -86,7 +87,29 @@ func TestExportPdfAndPptx(t *testing.T) {
 	po := sc(p)
 	eq(t, po["name"], "Q3 - review.pdf")
 	eq(t, po["slides"], float64(n))
-	match(t, textOf(p), `^PDF of "Q3 / review" \(\d+ slides, \d+ KB\): https://firebasestorage\.googleapis\.com/v0/b/bucket\.test/o/shares%2F`+id+`%2Fexports%2FQ3%20-%20review\.pdf\?alt=media&token=`)
+	match(t, textOf(p), `^PDF of "Q3 / review" \(\d+ slides, \d+ KB\): https://sliqtly\.test/d/[0-9a-f-]{36}/Q3%20-%20review\.pdf\n`)
+	// the link is the site's own: /d/<token>/<name> sends the kept file
+	link := po["url"].(string)
+	got, err := http.Get(s.root + strings.TrimPrefix(link, BASE))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent, _ := io.ReadAll(got.Body)
+	got.Body.Close()
+	eq(t, got.StatusCode, 200)
+	eq(t, got.Header.Get("Content-Type"), "application/pdf")
+	eq(t, got.Header.Get("Content-Disposition"), "attachment; filename*=UTF-8''Q3%20-%20review.pdf")
+	if !bytes.HasPrefix(sent, []byte("%PDF-")) {
+		t.Fatal("the link does not send the PDF")
+	}
+	for _, bad := range []string{"/d/00000000-0000-4000-8000-000000000000/x.pdf", "/d/..%2F..%2Fsecret/x", "/d/"} {
+		r, err := http.Get(s.root + bad)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Body.Close()
+		eq(t, r.StatusCode, 404, bad)
+	}
 	pdf := f.bucket.saved["shares/"+id+"/exports/Q3 - review.pdf"]
 	eq(t, pdf.contentType, "application/pdf")
 	if !bytes.HasPrefix(pdf.data, []byte("%PDF-")) {
@@ -213,4 +236,35 @@ func TestPrintAlbum(t *testing.T) {
 	if !bytes.Contains(pdf.data, []byte("/BleedBox [20 20 ")) {
 		t.Fatal("no bleed box")
 	}
+}
+
+// An album the checks read as one: its pictures count as used, a full-page
+// album's slides are named (not an overflow), and the layout report shows
+// the gallery with its cells.
+func TestGalleryChecks(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	pic := base64.StdEncoding.EncodeToString(squarePNG())
+	md := "## Summer\n\n```gallery\n- media/k1.png: Beach\n- media/k2.png\n- media/k3.png\n- The first days went by just looking.\n```\n\n## Every day {heading=hidden}\n\n```gallery\n- media/k1.png: Morning\n- media/k2.png\n```\n{layout=full fit=cover}\n"
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "Album", "markdown": md,
+		"images": []any{
+			map[string]any{"name": "k1.png", "data_base64": pic},
+			map[string]any{"name": "k2.png", "data_base64": pic},
+			map[string]any{"name": "k3.png", "data_base64": pic},
+		},
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	text := textOf(c)
+	ws := fmt.Sprint(sc(c)["warnings"])
+	if strings.Contains(ws, "does not use") || strings.Contains(ws, "does not fit") {
+		t.Fatal(ws)
+	}
+	eq(t, sc(c)["slides"], float64(3))
+	match(t, text, `- gallery \(grid, 3 pictures, 1 text cell\) at `)
+	match(t, text, `Slide 3 "Every day \(2\)"`)
+	match(t, text, `- gallery \(full page, 1 picture\) at `)
 }

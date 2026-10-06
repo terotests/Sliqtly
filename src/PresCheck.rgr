@@ -1231,6 +1231,22 @@ class PresCheck {
             }
         }
         this.ok(((deck.chartLookName("{\"usermeta\":{\"presStyle\":\"flat\"}}")) == "") "look: a chart's own flat keeps it out of the document's look")
+        this.ok(((PresChart.lookName("" "neon" "cartoon")) == "") "look: the document's dressing keeps the theme's look out")
+        this.ok((PresChart.ownPalette("{\"mark\":\"bar\",\"encoding\":{\"color\":{\"field\":\"c\",\"scale\":{\"scheme\":\"pastel1\"}}}}")) "look: a scheme is the chart's own palette")
+        this.ok((PresChart.ownPalette("{\"mark\":{\"type\":\"bar\",\"color\":\"#336699\"}}")) "look: so is one colour for the marks")
+        this.ok(((PresChart.ownPalette("{\"mark\":\"bar\"}")) == false) "look: no palette of its own")
+        ; a style for each kind
+        def deck2 (new PresDeck())
+        deck2.setText(("---\nslide-split-level: 2\nchart-style: neon\ndiagram-style: romantic\n---\n\n## Myynti\n\n" + bars + "\n## Kulku\n\n```mermaid\nflowchart LR\n  A --> B\n```\n"))
+        this.ok(((deck2.chartLookName("{}")) == "") "look: chart-style: neon is no look")
+        this.ok(((indexOf (deck2.chartStyleWords()) "neon") == 0) ("look: …it dresses the chart: " + (deck2.chartStyleWords())))
+        if ((deck2.slideCount()) >= 2) {
+            def s2:PresSlide (deck2.slideAt(1))
+            if ((array_length s2.diagrams) == 1) {
+                def du2:PresDiaUse (itemAt s2.diagrams 0)
+                this.ok((du2.diagram.style == "romantic") ("look: diagram-style: for the diagram, got " + du2.diagram.style))
+            }
+        }
     }
 
     fn chartMotion:void () {
@@ -1501,6 +1517,31 @@ class PresCheck {
         this.ok((((itemAt d2.logo 0) == "logo.png") && ((itemAt d2.logoAt 0) == 0)) "docset: round trip keeps the logo")
         this.ok(((PresDocSettings.quote("say \"hi\": now")) == "'say \"hi\": now'") "docset: single quotes around double")
         this.ok(((PresDocSettings.quote("plain words")) == "plain words") "docset: plain value unquoted")
+        ; the default styles: style: says both, a key of its own for one
+        def sm (new MdMeta())
+        MdFrontMatter.parseInto("style: cartoon\ndiagram-style: sketch" sm)
+        def d3 (new PresDocSettings())
+        d3.read(sm)
+        this.ok(((d3.chartStyle == "cartoon") && (d3.diagramStyle == "sketch")) "docset: style: for charts, diagram-style: over it for diagrams")
+        d3.chartStyle = "neon"
+        d3.build()
+        def two:string ((this.outOf(d3 "style")) + "|" + (this.outOf(d3 "chart-style")) + "|" + (this.outOf(d3 "diagram-style")))
+        this.ok((two == "|neon|sketch") ("docset: two styles, a key each: " + two))
+        d3.diagramStyle = "neon"
+        d3.build()
+        def one:string ((this.outOf(d3 "style")) + "|" + (this.outOf(d3 "chart-style")) + "|" + (this.outOf(d3 "diagram-style")))
+        this.ok((one == "neon||") ("docset: the same style, one style: key: " + one))
+    }
+
+    fn outOf:string (d:PresDocSettings k:string) {
+        def i:int 0
+        while (i < (array_length d.outKeys)) {
+            if ((itemAt d.outKeys i) == k) {
+                return (itemAt d.outVals i)
+            }
+            i = (i + 1)
+        }
+        return "?"
     }
 
     ; A length's slider runs over what the slide can take: the page's

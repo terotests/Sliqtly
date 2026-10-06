@@ -47,7 +47,9 @@ Speaker notes. Not shown on the slide.
   `# Title` then `{.center}` on the next line). In `css`, `text-align`
   does the same for a kind of block: `h1 { text-align: center }`,
   `.lead { text-align: center }`. Lists, tables and code stay left.
-- `container=box` or `container=bubble` under a paragraph (or a list)
+- `container=box` or `container=bubble` under a paragraph, a list or a
+  heading (`## Title {container=box}`, also with `bg=media/x.jpg` on the
+  same heading: the plate goes round the title, the picture fills the slide)
   sets it on a rounded plate so its text reads over a busy picture: `box`
   spans the column, `bubble` is as wide as the text with a speech-bubble
   tail. `background=#ffffffcc` picks the plate's colour (default: the
@@ -117,7 +119,14 @@ or plain text for a text cell. Under the fence:
 - `fit=cover` fills the cell and crops, `fit=contain` shows the whole
   picture. `focus=` keeps a part in the crop: `top`, `bottom left`,
   `30% 70%`. `span=2` makes a cell two columns wide.
-- `caption=overlay|below|none`; an overlay caption gets a dim band behind it.
+- `caption=overlay|below|none`; an overlay caption is white text on a dark
+  see-through band that reads (4.5:1) over light and dark pictures; a
+  `caption { color }` set dark gets a light band. Captions below
+  take a colour that reads on the slide unless `caption { color }` sets one.
+- With `layout=full`, each picture's slide is named by its caption (else
+  the heading and the picture's number, "Summer (2)") in the overview and
+  contents; the album filling several slides is not an overflow.
+- The pictures listed in a gallery count as used in the Markdown.
 - `{heading=hidden}` on a slide's heading keeps it as the slide's name
   (overview, contents, screen readers) but does not draw it.
 - CSS: `gallery { gap: 8pt; columns: 3; background-color: … }`,
@@ -412,7 +421,10 @@ pictures under 300 dpi in print ("media/sauna.jpg: 180 dpi in print, under
   `{ "colorCount": 6, "turdsize": 8, "maxSide": 1200 }`. Good for logos,
   icons, drawings and blurry low-resolution pictures; a photo becomes a
   poster-like drawing. Without a deck_id, `image_base64` or `image_url`
-  gives the SVG back.
+  gives the SVG back. `vectorize_image` is on every Sliqtly server; if it
+  (or another tool this guide names) is not in your tool list, the
+  connector's tool list is older than the server: ask the user to
+  reconnect the Sliqtly connector.
 - Inline HTML: `<mark>`, `<u>`, `<s>`, `<sub>`, `<sup>`, `<kbd>`, `<small>`,
   `<br>`, and `<span style="color:#e33">`.
 
@@ -428,7 +440,13 @@ Pass `theme` as one of:
 | `ember` | dark with warm ambient light |
 | `midnight` | deep dark blue |
 | `corporate` | light, business |
-| `editorial` | light, magazine-like |
+| `editorial` | a light A4 portrait document: pages, not slides (see below) |
+
+`editorial` is for reading, not presenting: an A4 portrait page with one
+narrow column, where only `#` starts a new page and `##` / `###` are
+sections that run on down the page. For light slides use `corporate`; for
+an editorial page that breaks at every `##`, add `deck { split-level: 2; }`
+in `css`.
 
 `css` adds rules on top of the theme (later rules win). The selectors are
 element names, not HTML tags:
@@ -451,8 +469,15 @@ figure  { colors: #1f6feb #0f9d8a #7c4dff #f08c00; } /* process, swot, timeline 
 .lead { font-size: 26pt; }
 ```
 
-Fonts available: `Open Sans`, `Noto Sans`. Sizes in `pt` or `in`. Set
+Fonts available: `Open Sans`, `Noto Sans`. Sizes in `pt` or `in`.
+
+On `update_presentation`, `css` is added after the deck's own rules so
+far, so one new rule can be sent alone; sending all of the deck's own
+rules again (as `get_presentation` returns them in `css`) replaces them.
+`css_mode: "own"` starts the deck's own rules over with this `css`;
 `css_mode: "replace"` only when sending a complete stylesheet of your own.
+A new `theme` keeps the deck's own rules. The `version` a result gives
+names the Markdown (for merging edits): a change to `css` alone keeps it.
 
 ## Checking the result
 
@@ -524,7 +549,9 @@ whether it is resolved, and its messages. Work through the open ones:
 
 ## Rooms
 
-On a Sliqtly server of one's own (`list_rooms` is in the tool list), the
+Rooms are only on a Sliqtly server of one's own (sliqtly.com has none, so
+`list_rooms` and the other room tools are missing there). On such a server
+(`list_rooms` is in the tool list), the
 presentations are kept in rooms. A room is one whole piece of work: a
 task, a Jira ticket, a user story, or another whole such as a project.
 Every presentation has one home room; new ones start in General.
@@ -595,8 +622,10 @@ the others' claims ("Also working on this deck").
 ## Exporting
 
 `export_presentation` (deck_id, `format`: `pdf`, `pptx`, `docx` or
-`html`, optional `slides`: [2, 5]) makes the file the editor's File →
-Export makes and returns a download link for the user. The PPTX keeps text
+`html`, optional `slides`: [2, 5], and `edit_key` unless signed in as the
+deck's owner) makes the file the editor's File → Export makes and returns
+a download link for the user, on sliqtly.com (`https://sliqtly.com/d/…`,
+working for 24 hours). The PPTX keeps text
 editable, with build steps, speaker notes and transitions; charts and
 diagrams are shapes. `docx` (Word) and `html` (one self-contained web
 page) read the deck as a document: each slide's headings, text, lists,

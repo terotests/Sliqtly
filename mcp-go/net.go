@@ -70,6 +70,12 @@ func newPublicClient() *http.Client {
 // Node's Buffer.from(s, "base64") is lenient: either alphabet, padding or
 // not, white space ignored.
 func decodeBase64(s string) []byte {
+	b, _ := decodeBase64Err(s)
+	return b
+}
+
+// decodeBase64, and whether it was base64 at all
+func decodeBase64Err(s string) ([]byte, error) {
 	s = strings.Map(func(r rune) rune {
 		switch {
 		case r == '-':
@@ -86,7 +92,7 @@ func decodeBase64(s string) []byte {
 	}
 	b, err := base64.RawStdEncoding.DecodeString(s)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return b
+	return b, nil
 }

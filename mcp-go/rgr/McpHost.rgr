@@ -200,7 +200,7 @@ operators {
 
     ; --- pictures: the bytes stay in Go, Ranger holds a handle
 
-    ; {"handle":n,"size":n}; size 0 when it does not decode
+    ; {"handle":n,"size":n}; {"size":0,"bad":true} when it is not base64
     host_image_base64 _:string (h:McpHost data:string) {
         templates {
             go ( (e 1) ".ImageFromBase64(" (e 2) ")" )
@@ -341,6 +341,13 @@ operators {
             go ( (e 1) ".FileURL(" (e 2) ", " (e 3) ")" )
         }
     }
+    ; the link the user downloads a kept export from: on the site's own
+    ; address (/d/<token>/<name>, download.go), not Storage's
+    host_download_url _:string (h:McpHost name:string token:string type:string file:string) {
+        templates {
+            go ( (e 1) ".DownloadURL(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
+        }
+    }
 
     ; --- the network
 
@@ -363,6 +370,13 @@ operators {
             go ( (e 1) ".FetchText(" (e 2) ", " (e 3) ", " (e 4) ")" )
         }
     }
+    ; host_fetch_text on api.github.com with the server's GitHub token, for
+    ; read_github_pr alone; status 0 for any other address
+    host_fetch_github _:string (h:McpHost url:string accept:string limit:int) {
+        templates {
+            go ( (e 1) ".FetchGitHub(" (e 2) ", " (e 3) ", " (e 4) ")" )
+        }
+    }
     ; {"uid","name","email"} of a valid Firebase ID token, "" otherwise
     host_verify_id_token _:string (h:McpHost token:string) {
         templates {
@@ -375,6 +389,12 @@ operators {
     host_sha256_hex _:string (h:McpHost s:string) {
         templates {
             go ( (e 1) ".SHA256Hex(" (e 2) ")" )
+        }
+    }
+    ; a == b in a time that does not tell how much of them agrees
+    host_same_secret _:boolean (h:McpHost a:string b:string) {
+        templates {
+            go ( (e 1) ".SameSecret(" (e 2) ", " (e 3) ")" )
         }
     }
     host_sha256_b64url _:string (h:McpHost s:string) {

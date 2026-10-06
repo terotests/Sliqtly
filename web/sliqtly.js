@@ -21,6 +21,7 @@
 // Served anywhere but Firebase Hosting, sign-in is simply not available.
 
 import { t } from "./i18n.js";
+import { storedType } from "./storedtype.js";
 
 const SDK = "https://www.gstatic.com/firebasejs/10.14.1/";
 const pro = document.getElementById("pro");
@@ -213,7 +214,7 @@ async function share(deck) {
     for (const f of deck.files || []) {
       const blob = f.data instanceof Blob ? f.data : new Blob([f.data ?? ""], { type: f.type || "text/plain" });
       const ref = files.ref(`shares/${id}/${f.path}`);
-      await ref.put(blob, { contentType: f.type || blob.type || "application/octet-stream" });
+      await ref.put(blob, { contentType: storedType(f.type || blob.type) });
       kept.push({ path: f.path, type: f.type || blob.type || "", size: blob.size, url: await ref.getDownloadURL() });
     }
     if (kept.length) await doc.update({ files: kept });
@@ -282,7 +283,7 @@ async function saveShare(id, deck, since) {
     if (had.has(f.path) && since.stamps?.get(f.path) === f.stamp) continue;
     const blob = f.data instanceof Blob ? f.data : new Blob([f.data ?? ""], { type: f.type || "text/plain" });
     const obj = files.ref(`shares/${id}/${f.path}`);
-    await obj.put(blob, { contentType: f.type || blob.type || "application/octet-stream" });
+    await obj.put(blob, { contentType: storedType(f.type || blob.type) });
     sent.set(f.path, { path: f.path, type: f.type || blob.type || "", size: blob.size, url: await obj.getDownloadURL() });
   }
   let gone = [];

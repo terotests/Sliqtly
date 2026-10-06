@@ -17,8 +17,9 @@ npm run check:web    # the page in headless Chromium (build, typing, presenting,
 ```
 
 Ranger is cloned into `.deps/Ranger` on first run, from the branch in
-`presentation.config.json`. It points at `claude/nifty-dijkstra-vq2qit`, which has
-TeX math and the sequence-diagram fix; set it back to `master` once that is merged. To use an existing
+`presentation.config.json`. It points at `claude/laughing-lamport-77aaec-nifty`,
+the Ranger line Sliqtly is built on (well ahead of `master`, not merged into
+it); set it back to `master` once it is. To use an existing
 checkout instead, set `RANGER_DIR=/path/to/Ranger`. `src/` is linked into the
 checkout as `gallery/presentation`, the same way EvgHarness does it, and
 compiled with Ranger's own compiler.
@@ -53,6 +54,8 @@ step: 1.2               # seconds between build steps when played
 hold: 2.5               # seconds after the last step
 fx: starfield           # optional default surface effect
 style: cartoon          # optional look for every diagram and chart: mermaid | jurassic | cartoon | romantic
+chart-style: neon        # optional, charts only (flat | forge | neon | glass or a look); File → Document settings → Style
+diagram-style: sketch    # optional, diagrams only (sketch or a look)
 ---
 
 ## Title {#id transition=slide seconds=0.5 fx=starfield fx-density=1.6 duration=8}

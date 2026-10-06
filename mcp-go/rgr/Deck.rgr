@@ -215,6 +215,8 @@ class Deck {
     sfn outline:Outline (md:string) {
         def out (new Outline)
         def fence:string ""
+        ; a ```gallery lists pictures: its media/… count as used
+        def gallery:boolean false
         def lines:[string] (strsplit md "\n")
         for lines raw:string li {
             def line:string raw
@@ -225,14 +227,20 @@ class Deck {
             if ((strlen f) > 0) {
                 if ((strlen fence) == 0) {
                     fence = f
+                    def info:string (trim (substring line ((indexOf line f) + (strlen f)) (strlen line)))
+                    gallery = ((info == "gallery") || (startsWith info "gallery "))
                 } {
                     if (((charAt f 0) == (charAt fence 0)) && ((strlen f) >= (strlen fence))) {
                         fence = ""
+                        gallery = false
                     }
                 }
                 continue
             }
             if ((strlen fence) > 0) {
+                if gallery {
+                    Deck.mediaIn(line out)
+                }
                 continue
             }
             if (startsWith line "#") {
@@ -435,6 +443,10 @@ class Deck {
                     }
                 }
                 def got:MfJ (J.parse((host_image_base64 host b64)))
+                if (got.bool_("bad" false)) {
+                    res.err = ("Image " + name + ": data_base64 is not valid base64.")
+                    return res
+                }
                 handle = (got.int_("handle" 0))
                 size = (got.int_("size" 0))
             } {

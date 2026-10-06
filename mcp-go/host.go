@@ -14,6 +14,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
@@ -109,8 +110,9 @@ type Env struct {
 	// Chat: the rooms' messages, beside Store; nil elsewhere
 	Chat     store.ChatLog
 	FilesURL string // e.g. https://host/files; "": Storage download URLs
-	// GitHubToken: sent to api.github.com (read_github_pr), for its
-	// higher limit; "" reads as anyone
+	// GitHubToken: sent to api.github.com by read_github_pr only (never by
+	// FetchText, which fetches what decks name), for its higher limit; ""
+	// reads as anyone
 	GitHubToken string
 	// GitHubUsers: the Sliqtly user ids (Firebase uids) for whom the token
 	// may read private repositories (SLIQTLY_GITHUB_USERS, comma-separated).
@@ -151,6 +153,10 @@ func NewApp(env *Env) http.Handler {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(429)
 			io.WriteString(w, `{"error":"slow_down","error_description":"Too many registrations from here; try again in a few minutes."}`)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/d/") && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			serveDownload(env, w, r)
 			return
 		}
 		h := &McpHost{env: env, r: r, ctx: r.Context(), images: map[int64][]byte{}}
@@ -521,7 +527,10 @@ func (h *McpHost) keep(data []byte) int64 {
 }
 
 func (h *McpHost) ImageFromBase64(data string) string {
-	b := decodeBase64(data)
+	b, err := decodeBase64Err(data)
+	if err != nil {
+		return toJSON(map[string]any{"handle": 0, "size": 0, "bad": true})
+	}
 	return toJSON(map[string]any{"handle": h.keep(b), "size": len(b)})
 }
 
@@ -713,7 +722,11 @@ func (h *McpHost) ThemeCSS(theme string) string {
 	}
 	ctx, cancel := context.WithTimeout(h.ctx, 10*time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/themes/%s.css", e.BaseURL, theme), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/themes/%s.css", e.BaseURL, theme), nil)
+	if err != nil {
+		h.fail(fmt.Errorf("theme %s: %w", theme, err))
+		return ""
+	}
 	res, err := e.ThemeClient.Do(req)
 	if err != nil {
 		h.fail(fmt.Errorf("theme %s: %w", theme, err))
@@ -753,7 +766,10 @@ func (h *McpHost) WebConfig() string {
 	}
 	ctx, cancel := context.WithTimeout(h.ctx, 5*time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", e.BaseURL+"/__/firebase/init.json", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", e.BaseURL+"/__/firebase/init.json", nil)
+	if err != nil {
+		return ""
+	}
 	res, err := e.ThemeClient.Do(req)
 	if err != nil {
 		return ""
@@ -770,7 +786,24 @@ func (h *McpHost) WebConfig() string {
 	return string(b)
 }
 
+// A GET on a public address for anything a deck or a caller names (chart
+// data, client metadata): never with the server's GitHub token, or a chart
+// pointed at api.github.com would read what the token reaches.
 func (h *McpHost) FetchText(u, accept string, limit int64) string {
+	return h.fetch(u, accept, limit, "")
+}
+
+// FetchText for read_github_pr alone: api.github.com with the server's
+// token (its higher limit, and the private repositories it reaches, which
+// readGitHubPr refuses to callers not in GitHubUsers).
+func (h *McpHost) FetchGitHub(u, accept string, limit int64) string {
+	if !strings.HasPrefix(u, "https://api.github.com/") {
+		return `{"status":0}`
+	}
+	return h.fetch(u, accept, limit, h.env.GitHubToken)
+}
+
+func (h *McpHost) fetch(u, accept string, limit int64, token string) string {
 	ctx, cancel := context.WithTimeout(h.ctx, 8*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
@@ -778,8 +811,8 @@ func (h *McpHost) FetchText(u, accept string, limit int64) string {
 		return `{"status":0}`
 	}
 	req.Header.Set("accept", accept)
-	if h.env.GitHubToken != "" && strings.HasPrefix(u, "https://api.github.com/") {
-		req.Header.Set("authorization", "Bearer "+h.env.GitHubToken)
+	if token != "" {
+		req.Header.Set("authorization", "Bearer "+token)
 	}
 	res, err := h.env.Client.Do(req)
 	if err != nil {
@@ -806,6 +839,10 @@ func (h *McpHost) VerifyIDToken(token string) string {
 func (h *McpHost) SHA256Hex(s string) string {
 	x := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(x[:])
+}
+
+func (h *McpHost) SameSecret(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 func (h *McpHost) SHA256B64URL(s string) string {
