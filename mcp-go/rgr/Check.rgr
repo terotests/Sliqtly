@@ -206,11 +206,10 @@ class Check {
         return out
     }
 
-    sfn run:Checked (host:McpHost din:DeckIn) {
-        def md:string din.md
-        def css:string din.css
-        def pics:[CheckPic] din.pics
-        def c (new Checked)
+    ; The deck laid out as the player lays it out: the editor's faces, the
+    ; theme's sheet, the pictures and the files its charts read. What could
+    ; not be read goes to c.warnings.
+    sfn prepare:PresDeck (host:McpHost din:DeckIn c:Checked) {
         def d (new PresDeck)
         ; a cloud share opens with the PRO line art drawn
         ; (web/main.js liveAllowed: liveFromShare)
@@ -223,18 +222,26 @@ class Check {
                 }
             }
         }
-        if ((strlen css) > 0) {
-            d.setTheme(css)
-            d.md.setStyleSheet(css)
+        if ((strlen din.css) > 0) {
+            d.setTheme(din.css)
+            d.md.setStyleSheet(din.css)
             c.laidOut = true
         }
-        for pics pic:CheckPic pi {
+        for din.pics pic:CheckPic pi {
             d.addImage(pic.name (itemAt din.data pi) (itemAt din.types pi) pic.w pic.h)
         }
-        d.setText(md)
+        d.setText(din.md)
         for (Check.chartData(host din d)) gone:string gi {
             push c.warnings (gone + " is read by a chart or table but the presentation has no such file. list_files lists the names its files are read by; add the file with files.")
         }
+        return d
+    }
+
+    sfn run:Checked (host:McpHost din:DeckIn) {
+        def md:string din.md
+        def pics:[CheckPic] din.pics
+        def c (new Checked)
+        def d:PresDeck (Check.prepare(host din c))
         c.width = d.pageW
         c.height = d.pageH
         c.slides = (d.slideCount())

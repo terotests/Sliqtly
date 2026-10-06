@@ -11,13 +11,15 @@
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "build": "node scripts/build.mjs",
+    "build:view": "node scripts/build-view.mjs",
     "start": "node scripts/start.mjs",
     "serve": "node scripts/serve.mjs",
     "check": "node scripts/check.mjs",
     "check:web": "node scripts/check-web.mjs",
     "check:call": "node scripts/check-call.mjs",
     "i18n": "node scripts/i18n.mjs",
-    "check:samples": "node scripts/check-samples.mjs"
+    "check:samples": "node scripts/check-samples.mjs",
+    "check:view": "node scripts/check-view.mjs"
   },
   "devDependencies": {
     "playwright-core": "^1.55.0",
