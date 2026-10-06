@@ -8,6 +8,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { ensureRanger, ensureRangerDiff, log } from "../scripts/lib.mjs";
+import { formatCss } from "../scripts/format-css.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ranger = ensureRanger();
@@ -103,13 +104,20 @@ for (const [dir, face] of [
 }
 log("copied mcp-go/fonts/*.ttf");
 
-// The themes' sheets, for a server that keeps decks in a folder
-// (SLIQTLY_DATA): it has no site to fetch /themes/{name}.css from.
+// The themes' sheets, built into every server (host.go Theme): the public
+// site no longer serves /themes/, and a server that keeps decks in a
+// folder (SLIQTLY_DATA) has no site at all.
 const themesDir = path.join(here, "themes");
 fs.rmSync(themesDir, { recursive: true, force: true });
 fs.mkdirSync(themesDir, { recursive: true });
 for (const f of fs.readdirSync(path.join(here, "..", "themes"))) {
   if (f.endsWith(".css")) fs.copyFileSync(path.join(here, "..", "themes", f), path.join(themesDir, f));
+}
+// corporate and editorial come from Ranger, as the editor's build takes
+// them (scripts/build.mjs): every theme is built in, so the server never
+// needs the site to lay a deck out
+for (const t of ["corporate", "editorial"]) {
+  fs.writeFileSync(path.join(themesDir, `${t}.css`), formatCss(fs.readFileSync(path.join(ranger, `gallery/markdown/fixtures/themes/${t}.css`), "utf8")));
 }
 log("copied mcp-go/themes/*.css");
 

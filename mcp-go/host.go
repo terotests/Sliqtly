@@ -714,6 +714,11 @@ func (h *McpHost) ThemeCSS(theme string) string {
 		}
 		return css
 	}
+	// every theme is built in (gen.mjs); the site is asked only for one
+	// that is not, since sliqtly.com serves the viewer and no /themes/
+	if css, ok := builtinTheme(theme); ok {
+		return css
+	}
 	e.themesMu.Lock()
 	css, ok := e.themes[theme]
 	e.themesMu.Unlock()
