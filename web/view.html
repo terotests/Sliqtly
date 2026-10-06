@@ -15,7 +15,7 @@
 <meta name="fonts" content="__FONTS__" />
 <base href="/" />
 <title>Sliqtly: better slides through MCP</title>
-<meta name="description" content="An MCP-native presentation engine for agents: create, inspect, edit and render slide decks without another heavyweight presentation app." />
+<meta name="description" content="Sliqtly turns Markdown and other source material into readable slides your agent makes, edits and exports through MCP." />
 <meta name="theme-color" content="#070708" />
 <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
 <!-- a presentation (/s/{id}, or the link the assistant's preview gives in
@@ -51,13 +51,11 @@
   .wrap { max-width: var(--wrap); margin-inline: auto; padding-inline: var(--pad); }
   .label { font: 400 11.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin: 0 0 18px; }
   .display { font-family: var(--grotesk); font-weight: 800; letter-spacing: -.04em; line-height: .94; margin: 0 0 28px; text-wrap: balance; }
-  .display--xl { font-size: clamp(48px, 9vw, 128px); }
   .display--lg { font-size: clamp(34px, 5.6vw, 76px); }
   .accent { color: var(--accent); }
   .home p { margin: 0 0 16px; }
   .home p:last-child { margin-bottom: 0; }
   .lead { color: var(--dim); font-size: clamp(16px, 1.5vw, 19px); max-width: 64ch; }
-  .lead--mono { font: 15px/1.6 var(--mono); }
   .lead.accent { color: var(--accent); }
 
   .nav { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 26px;
@@ -80,8 +78,6 @@
   .btn--lg { height: 50px; padding: 0 24px; font-size: 14.5px; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: clamp(32px, 4vw, 48px); }
 
-  .hero { padding: clamp(56px, 8vw, 120px) 0 clamp(56px, 7vw, 96px); border-bottom: 1px solid var(--line); }
-  .hero .sub { font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--grotesk); letter-spacing: -.015em; margin: 0 0 14px; max-width: 30ch; }
   .deal p { color: var(--dim); font-size: clamp(16px, 1.5vw, 19px); max-width: 64ch; margin: 0 0 18px; }
   .deal strong { color: var(--paper); }
   .deal strong.accent { color: var(--accent); }
@@ -93,20 +89,6 @@
   .section { padding: clamp(64px, 8vw, 112px) 0; border-bottom: 1px solid var(--line); }
 
   /* thin boxes: the engine block, the flow */
-  .box { border: 1px solid var(--line-2); padding: clamp(22px, 3vw, 36px); }
-  .tablebox { border: 1px solid var(--line-2); overflow-x: auto; }
-  .measure { width: 100%; border-collapse: collapse; font: 15px/1.4 var(--mono); min-width: 560px; }
-  .measure th, .measure td { text-align: left; padding: 16px 20px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  .measure tbody tr:last-child > * { border-bottom: 0; }
-  .measure thead th { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); font-weight: 400; }
-  .measure thead th.accent { color: var(--accent); }
-  .measure tbody th { font-weight: 400; color: var(--dim); }
-  .measure td { color: var(--paper); font-size: 17px; }
-  .measure td.accent { color: var(--accent); font-weight: 700; }
-  .measure .note { display: block; font-size: 12px; color: var(--dimmer); margin-top: 4px; }
-  .flow { font: 15px/1.7 var(--mono); color: var(--paper); margin: 0; white-space: pre; overflow-x: auto; }
-  .flow b { color: var(--accent); font-weight: 400; }
-  .split { display: grid; gap: clamp(28px, 4vw, 56px); grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); align-items: start; }
   .cmd { font: 13px/1 var(--mono); color: var(--dim); border: 1px dashed var(--line-2); padding: 14px; max-width: 100%; overflow-x: auto; white-space: nowrap; }
 
   .home .install { display: inline-block; margin-top: 16px; }
@@ -188,8 +170,7 @@
   <header class="nav">
     <a class="nav__brand" href="/"><img src="./favicon.svg" alt="" width="22" height="22" />Sliqtly</a>
     <nav class="nav__links" aria-label="Sections">
-      <a href="#measured">Measured</a>
-      <a href="#mcp">MCP</a>
+      <a href="/connect.html">Connect</a>
       <a href="#local">Get Local</a>
       <a href="#terms">Terms</a>
     </nav>
@@ -208,82 +189,16 @@
         <p>...slides.</p>
         <p>So, here's the talk.</p>
         <p class="deal__turn">Your turn. Give it a try and I think you just might be positively surprised.</p>
+        <div class="actions" id="mcp">
+          <a class="btn btn--solid btn--lg" href="/connect.html">Connect via MCP</a>
+          <span class="cmd">https://sliqtly.com/mcp</span>
+        </div>
+        <p class="demo-warn"><strong>The cloud service at sliqtly.com is a demo, not for private data.</strong> Every presentation made there can be opened by anyone who has its link, even though the link is not listed anywhere. For private material, <a href="/local.html">run Sliqtly locally</a>.</p>
         <div class="who">
           <p class="deal__enter">Who?</p>
           <p>Just a software engineer working at a company called <a href="https://www.cirit.fi/" target="_blank" rel="noopener">Cirit</a>.</p>
           <p>I build software for a living, but this is my passion.</p>
           <p><a class="btn btn--solid" href="https://buymeacoffee.com/sliqtly" target="_blank" rel="noopener">Buy me a Coffee ☕</a></p>
-        </div>
-      </div>
-    </section>
-
-    <section class="hero">
-      <div class="wrap">
-        <p class="label">MCP-native presentation engine</p>
-        <h1 class="display display--xl">Sliqtly<br /><span class="accent">better slides.</span></h1>
-        <p class="sub">An MCP-native presentation engine for agents.</p>
-        <p class="lead">Create, inspect, edit and render slide decks without another heavyweight presentation app.</p>
-        <div class="actions">
-          <a class="btn btn--solid btn--lg" href="/connect.html">Connect via MCP</a>
-          <a class="btn btn--lg" href="/connect.html">Read the docs</a>
-        </div>
-        <p class="demo-warn"><strong>The cloud service at sliqtly.com is a demo, not for private data.</strong> Every presentation made there can be opened by anyone who has its link, even though the link is not listed anywhere. For private material, <a href="/local.html">run Sliqtly locally</a>.</p>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="wrap">
-        <div class="box">
-          <p class="label">The engine</p>
-          <h2 class="display display--lg">Make Markdown presentable.</h2>
-          <p class="lead">Markdown is great for fast, editable, shareable and diffable content.</p>
-          <p class="lead">Not so great when it needs to look like something.</p>
-          <p class="lead">Sliqtly turns Markdown — and other source material — into polished, readable slides your agent can inspect, edit, render and export through MCP.</p>
-          <p class="lead">Charts, layouts, themes and visuals included.</p>
-          <p class="lead lead--mono accent">No heavyweight presentation editor required.</p>
-        </div>
-      </div>
-    </section>
-
-
-    <section class="section" id="measured">
-      <div class="wrap">
-        <p class="label">Measured by Claude Opus 5.5</p>
-        <h2 class="display display--lg">4× fewer tokens than PowerPoint.<br /><span class="accent">20× fewer than Google Slides.</span></h2>
-        <div class="tablebox">
-          <table class="measure">
-            <thead><tr><th>Same 6-slide deck, tokens</th><th class="accent">Sliqtly</th><th>PowerPoint (python-pptx)</th><th>Google Slides (API)</th></tr></thead>
-            <tbody>
-              <tr><th>Create, the AI writes</th><td class="accent">~256</td><td>~956</td><td>~5,177 <span class="note">100 requests + 3 Sheets calls</span></td></tr>
-              <tr><th>Edit, the AI writes</th><td class="accent">~54</td><td>~182</td><td>~280</td></tr>
-              <tr><th>Read before editing</th><td class="accent">0–256</td><td>~407</td><td>5,000+</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <section class="section" id="mcp">
-      <div class="wrap">
-        <p class="label">Built for agents</p>
-        <h2 class="display display--lg">Connect <span class="accent">with MCP.</span></h2>
-        <div class="split">
-          <div class="box">
-<pre class="flow">Your agent
-   <b>↓</b>
-  MCP
-   <b>↓</b>
-Sliqtly
-   <b>↓</b>
-deck <b>→</b> render <b>→</b> edit <b>→</b> export</pre>
-          </div>
-          <div>
-            <p class="lead">Works with MCP-capable agents and clients. Let the agent see the slide, modify it, render it again and iterate.</p>
-            <div class="actions">
-              <a class="btn btn--solid btn--lg" href="/connect.html">Connect via MCP</a>
-              <span class="cmd">https://sliqtly.com/mcp</span>
-            </div>
-          </div>
         </div>
       </div>
     </section>
