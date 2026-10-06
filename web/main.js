@@ -19,7 +19,7 @@ import { prepareDisplayList, setFontFallback, fontSpec, textObstacles } from "./
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { sortFiles, pastePlan, fileClipboard, CLIP_KEY } from "./fileclip.js";
-import { deckKey, canReturn, reopenPlan, tabLabel, readDeckTabs, keepDeckTabs } from "./decktabs.js";
+import { deckKey, canReturn, reopenPlan, tabLabel, readDeckTabs, keepDeckTabs, rowToKeep } from "./decktabs.js";
 import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
 import { scaled, previewOf, render, asPicture } from "./image-adjust.js";
@@ -219,6 +219,8 @@ async function addPicture(path, bytes, type) {
   }
   const p = await decodePicture(bytes, type || "image/png", path);
   app.addImage(path, asRangerBuffer(p.bytes.slice(0)), p.type || "image/png", p.w, p.h);
+  // an SVG's own text too: the PDF and the PPTX keep it a vector
+  if (p.svg) app.addSvgPicture(path, p.svg, asRangerBuffer(p.svgBytes.slice(0)), asRangerBuffer(p.fallback ? p.fallback.slice(0) : new ArrayBuffer(0)));
   pictures.set(path, p.img);
   return p;
 }
@@ -738,7 +740,7 @@ function shownDoc(text, quiet = false) {
 
 // --- the open presentations' tabs (web/decktabs.js) ------------------------------
 function keepTabs() {
-  if (!viewer) keepDeckTabs(sessionStorage, app.deckTabsState());
+  if (!viewer) keepDeckTabs(sessionStorage, rowToKeep(app.deckTabsState(), shownKey && !canReturn(doc) ? shownKey : ""));
 }
 function showDeckTab() {
   shownKey = deckKey(doc);

@@ -148,11 +148,11 @@ class PresToolbar {
             langRows = rows
             langValue = current
         }
+        ; the open room changes only with its presentations ("roomdecks", which
+        ; the page always sends after the rooms): a room shown open with
+        ; another one's list, or none, for a frame flickered
         if (id == "rooms") {
             roomRows = rows
-            if (((strlen current) > 0) && (current != roomOpen)) {
-                roomOpen = current
-            }
         }
         if (id == "dark") {
             darkOn = (current == "1")
@@ -949,9 +949,10 @@ class PresToolbar {
                     push requests ("room:order:" + dragRoom + ":" + dropRoom)
                 }
             } {
-                roomOpen = dragRoom
-                roomDecks = ""
-                push requests ("room:open:" + roomOpen)
+                ; the open room and its presentations change together when the
+                ; page answers (setOptions "roomdecks"): no frame in between
+                ; with the room shut, which flickered
+                push requests ("room:open:" + dragRoom)
             }
         } {
             if dragOn {
@@ -1712,10 +1713,7 @@ class PresToolbar {
                 dropRoom = ""
                 return
             }
-            roomOpen = id
-            roomDecks = ""
-            push requests ("room:open:" + roomOpen)
-            this.rebuild()
+            push requests ("room:open:" + id)
             return
         }
         if ((indexOf ctlTid "tb-roomdeck-d-") == 0) {

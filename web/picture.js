@@ -15,6 +15,8 @@ import { asPicture } from "./image-adjust.js";
 // The longer side, in pixels, an SVG is drawn at: a full-slide background on
 // a large screen stays sharp.
 export const SVG_RASTER = 2560;
+// …and the PNG a PPTX carries beside the SVG, for readers without SVG.
+export const SVG_FALLBACK = 800;
 
 export function isSvg(type, path) {
   return /^image\/svg/i.test(type || "") || /\.svgz?$/i.test(path || "");
@@ -122,7 +124,18 @@ export async function decodePicture(bytes, type, path = "") {
     c.getContext("2d").drawImage(img, 0, 0, pw, ph);
     const png = await new Promise((r) => c.toBlob(r, "image/png"));
     if (!png) return { img: null, w: 0, h: 0, bytes, type };
-    return { img: asPicture(c), w: Math.round(size[0]), h: Math.round(size[1]), bytes: await png.arrayBuffer(), type: "image/png" };
+    // …and a small PNG for the exports' readers that cannot draw the SVG
+    // (the PDF draws its paths, the PPTX carries it: PresExport)
+    const [sw, sh] = rasterSize(size[0], size[1], SVG_FALLBACK);
+    const s = document.createElement("canvas");
+    s.width = sw;
+    s.height = sh;
+    s.getContext("2d").drawImage(img, 0, 0, sw, sh);
+    const small = await new Promise((r) => s.toBlob(r, "image/png"));
+    return {
+      img: asPicture(c), w: Math.round(size[0]), h: Math.round(size[1]), bytes: await png.arrayBuffer(), type: "image/png",
+      svg: text, svgBytes: bytes, fallback: small ? await small.arrayBuffer() : null,
+    };
   }
   const img = await loadImage(new Blob([bytes], { type }));
   return img ? { img, w: img.naturalWidth, h: img.naturalHeight, bytes, type } : { img: null, w: 0, h: 0, bytes, type };
