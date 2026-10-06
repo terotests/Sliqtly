@@ -87,6 +87,8 @@
   .deal strong.accent { color: var(--accent); }
   .deal code { font: .88em var(--mono); color: var(--paper); background: rgba(255, 255, 255, .06); border: 1px solid var(--line); padding: .05em .35em; }
   .home .deal .deal__enter { color: var(--paper); font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--grotesk); letter-spacing: -.015em; margin: 36px 0 18px; }
+  .deal .who { margin-top: 48px; padding-top: 28px; border-top: 1px solid var(--line); }
+  .home .deal .who a:not(.btn) { color: var(--accent); }
   .home .deal .deal__turn { color: var(--paper); font: 600 15px/1.6 var(--mono); }
   .section { padding: clamp(64px, 8vw, 112px) 0; border-bottom: 1px solid var(--line); }
 
@@ -203,6 +205,11 @@
         <p>...slides.</p>
         <p>So, here's the talk.</p>
         <p class="deal__turn">Your turn.</p>
+        <div class="who">
+          <p class="deal__enter">Who?</p>
+          <p>Just a Software Engineer working at a Company Called <a href="https://www.cirit.fi/" target="_blank" rel="noopener">Cirit</a>.</p>
+          <p><a class="btn btn--solid" href="https://buymeacoffee.com/sliqtly" target="_blank" rel="noopener">Buy me a Coffee ☕</a></p>
+        </div>
       </div>
     </section>
 
@@ -292,7 +299,7 @@ deck <b>→</b> render <b>→</b> edit <b>→</b> export</pre>
       <div class="wrap">
         <p class="label">Sliqtly Personal</p>
         <h2 class="display display--lg">Wanna run <span class="accent">local?</span></h2>
-        <p class="lead">The Sliqtly server for Debian and Ubuntu: the MCP endpoint for your agents and a viewer for your decks, on your own computer.</p>
+        <p class="lead">The Sliqtly server for Ubuntu and Debian, macOS (Homebrew) and Docker: the MCP endpoint for your agents and a viewer for your decks, on your own computer.</p>
         <div class="actions">
           <a class="btn btn--solid btn--lg" href="/download/sliqtly-personal_amd64.deb" download>Download for Debian (.deb)</a>
           <a class="btn btn--lg" href="/download/sliqtly-personal_arm64.deb" download>ARM (arm64)</a>
