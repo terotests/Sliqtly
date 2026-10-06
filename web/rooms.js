@@ -34,8 +34,10 @@ export const isBuiltIn = (id) => BUILT_IN.includes(id);
 
 // What localStorage held, or an empty state when it held nothing usable.
 export function parseRooms(text) {
+  // nothing kept is the usual first visit, not an error to throw and catch
+  if (!text) return emptyRooms();
   try {
-    const s = JSON.parse(text || "");
+    const s = JSON.parse(text);
     const rooms = Array.isArray(s?.rooms) ? s.rooms.filter((r) => r && typeof r.id === "string" && typeof r.title === "string") : [];
     const placed = s?.placed && typeof s.placed === "object" ? { ...s.placed } : {};
     const touched = s?.touched && typeof s.touched === "object" ? { ...s.touched } : {};
@@ -53,20 +55,21 @@ export function roomOf(state, deckId) {
   return r && (r === PLAYGROUND || state.rooms.some((x) => x.id === r)) ? r : GENERAL;
 }
 
-// Rows in the panel's order: the built-in rooms first as they came, then
-// the made ones not in `order` newest first, then those in `order` as
-// dragged. rows: [{ room_id, created }] (listRooms's or the server's).
+// Rows in the panel's order: the made rooms first, those not in `order`
+// newest first, then those in `order` as dragged; the built-in rooms last,
+// as they came, a group of their own (the work is in the made ones).
+// rows: [{ room_id, created }] (listRooms's or the server's).
 export function orderRooms(rows, order = []) {
   const at = new Map(order.map((id, i) => [id, i]));
   const fixed = rows.filter((r) => BUILT_IN.includes(r.room_id));
   const made = rows.filter((r) => !BUILT_IN.includes(r.room_id));
   const fresh = made.filter((r) => !at.has(r.room_id)).sort((a, b) => (b.created || 0) - (a.created || 0));
   const placed = made.filter((r) => at.has(r.room_id)).sort((a, b) => at.get(a.room_id) - at.get(b.room_id));
-  return [...fixed, ...fresh, ...placed];
+  return [...fresh, ...placed, ...fixed];
 }
 
-// The rooms in order: General, Playground, Onboarding, then the ones made
-// here (orderRooms). decks: the deck rows (web/decklist.js); samples:
+// The rooms in order: the ones made here, then General, Playground and
+// Onboarding (orderRooms). decks: the deck rows (web/decklist.js); samples:
 // [{ key, name }]. The three built-in rooms keep their names in every
 // language, as a channel's name does. Archived rooms only when asked.
 export function listRooms(state, decks, samples, { archived = false } = {}) {
@@ -153,8 +156,8 @@ export function deleteRoom(state, id) {
   return { ...state, rooms: state.rooms.filter((r) => r.id !== id), placed, touched, order: (state.order || []).filter((x) => x !== id) };
 }
 
-// A made room dragged before `beforeId`: "" is after the last one, a
-// built-in room (always on top) the first place. rows: the rooms as the panel orders them (listRooms's, the server's
+// A made room dragged before `beforeId`: "" or a built-in room (the group
+// under the made ones) is after the last one. rows: the rooms as the panel orders them (listRooms's, the server's
 // through orderRooms); the order kept is then all of the made ones.
 export function moveRoom(state, rows, id, beforeId) {
   if (BUILT_IN.includes(id) || id === beforeId) return state;
@@ -162,7 +165,8 @@ export function moveRoom(state, rows, id, beforeId) {
   if (!ids.includes(id)) return state;
   const rest = ids.filter((x) => x !== id);
   let at = beforeId ? rest.indexOf(beforeId) : rest.length;
-  if (BUILT_IN.includes(beforeId)) at = 0;
+  // let go on a built-in room (the group under the made ones): the last
+  if (BUILT_IN.includes(beforeId)) at = rest.length;
   if (at < 0) at = rest.length;
   rest.splice(at, 0, id);
   return { ...state, order: rest };
@@ -200,7 +204,9 @@ export function touchRoom(state, roomId, now = Date.now()) {
 // rows has them. rows: listRooms's (or the server's, through orderRooms).
 // { shown, hidden }: hidden counts the rest, found by search.
 export function activeRooms(rows, state, now = Date.now()) {
-  const when = (r) => state.touched?.[r.room_id] || 0;
+  // a new room counts as used when it was made: one someone else just made
+  // shows up for everyone, not only for the one who made it
+  const when = (r) => Math.max(state.touched?.[r.room_id] || 0, r.created || 0);
   const recent = new Set(rows
     .filter((r) => !BUILT_IN.includes(r.room_id) && now - when(r) <= ACTIVE_DAYS * DAY)
     .sort((a, b) => when(b) - when(a))

@@ -12,6 +12,7 @@
     "setup": "node scripts/setup.mjs",
     "build": "node scripts/build.mjs",
     "start": "node scripts/start.mjs",
+    "serve": "node scripts/serve.mjs",
     "check": "node scripts/check.mjs",
     "check:web": "node scripts/check-web.mjs",
     "i18n": "node scripts/i18n.mjs",

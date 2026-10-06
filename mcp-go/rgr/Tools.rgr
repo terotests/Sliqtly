@@ -320,7 +320,7 @@ class Tools {
         def lcp:MfJ (MfJ.newObj())
         lcp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
         lcp.put("include_resolved" (Tools.prop("boolean" "Also list resolved (closed) threads; default true")))
-        tools.add((Tools.tool("list_comments" "Read review comments" "The review comments people left on a Sliqtly presentation's slides in review mode: each thread with its id, slide number and title, where on the slide it is pinned, whether it is resolved, and its messages in order. Answer them with add_comment; close one that is dealt with with resolve_comment." (Tools.schema(lcp ([] _:string ("deck_id")))) (Tools.annotations(true -1 false false)) eitherMeta)))
+        tools.add((Tools.tool("list_comments" "Read review comments" "The review comments people left on a Sliqtly presentation's slides in review mode: each thread with its id, slide number and title, where on the slide it is pinned, how serious it is (severity low, medium or high, when someone said), whether it is resolved, and its messages in order. Answer them with add_comment; close one that is dealt with with resolve_comment." (Tools.schema(lcp ([] _:string ("deck_id")))) (Tools.annotations(true -1 false false)) eitherMeta)))
 
         def acp:MfJ (MfJ.newObj())
         acp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
@@ -340,7 +340,10 @@ class Tools {
         yP.putInt("maximum" 1)
         acp.put("y" yP)
         acp.put("author" (Tools.prop("string" "The name shown on the message (default \"AI assistant\")")))
-        tools.add((Tools.tool("add_comment" "Add a review comment" "Add a review comment to a Sliqtly presentation: a new comment pinned on a slide (slide or slide_title, optionally x and y), or an answer in a thread from list_comments (thread_id). A resolved thread is opened again by an answer. People see it in the editor's review mode." (Tools.schema(acp ([] _:string ("deck_id" "text")))) (Tools.annotations(false 0 false false)) eitherMeta)))
+        def sevP:MfJ (Tools.prop("string" "How serious the comment is: low (green pin), medium (yellow) or high (red); \"none\" takes it off. With thread_id it changes that thread's"))
+        sevP.put("enum" (J.strs(([] _:string ("low" "medium" "high" "none")))))
+        acp.put("severity" sevP)
+        tools.add((Tools.tool("add_comment" "Add a review comment" "Add a review comment to a Sliqtly presentation: a new comment pinned on a slide (slide or slide_title, optionally x and y), or an answer in a thread from list_comments (thread_id). A resolved thread is opened again by an answer. severity marks how serious it is (the pin is green, yellow or red). People see it in the editor's review mode." (Tools.schema(acp ([] _:string ("deck_id" "text")))) (Tools.annotations(false 0 false false)) eitherMeta)))
 
         def rcp:MfJ (MfJ.newObj())
         rcp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
@@ -583,6 +586,10 @@ class Tools {
                 who = "the signed-in user"
             }
             push lines ("Saved in the Sliqtly account of " + who + ".")
+            ; a Google account on sliqtly.com: the editor link writes only there
+            if ((strlen (host_local_user host)) == 0) {
+                push lines "The editor link writes to it only in a browser signed in to Sliqtly with this same Google account; signed in with another, it opens a copy whose changes and comments do not reach this presentation."
+            }
         } {
             if (out.has("deck_id")) {
                 push lines "Not signed in: the presentation is deleted 30 days after its last change. Sign in to keep it, or to add pictures and files."
@@ -3271,6 +3278,9 @@ class Tools {
         o.putNum("x" (PresReview.round4(t.x)))
         o.putNum("y" (PresReview.round4(t.y)))
         o.putBool("resolved" t.closed)
+        if ((strlen t.severity) > 0) {
+            o.putStr("severity" t.severity)
+        }
         if ((t.dia >= 0) && ((strlen t.node) > 0)) {
             o.putStr("diagram_node" t.node)
         }
@@ -3290,6 +3300,9 @@ class Tools {
         def state:string "open"
         if t.closed {
             state = "resolved"
+        }
+        if ((strlen t.severity) > 0) {
+            state = (state + ", severity " + t.severity)
         }
         def lines:[string]
         def onNode:string ""
@@ -3377,7 +3390,7 @@ class Tools {
         }
         def bad:string (Tools.checkArgs(a required))
         if ((strlen bad) == 0) {
-            for ([] _:string ("thread_id" "text" "author" "slide_title")) k:string j {
+            for ([] _:string ("thread_id" "text" "author" "slide_title" "severity")) k:string j {
                 def v:MfJ (a.field(k))
                 if (((v.kind != 0) && (v.kind != 3)) && ((strlen bad) == 0)) {
                     bad = ("Invalid arguments: " + k + " is a string.")
@@ -3386,6 +3399,11 @@ class Tools {
         }
         if ((strlen bad) > 0) {
             ed.fail = bad
+            return ed
+        }
+        def sev:string (trim (a.str_("severity")))
+        if ((((strlen sev) > 0) && (sev != "none")) && ((strlen (PresReview.severityOf(sev))) == 0)) {
+            ed.fail = "Invalid arguments: severity is low, medium, high or none."
             return ed
         }
         def txt:string (trim (a.str_("text")))
@@ -3516,6 +3534,18 @@ class Tools {
             }
             def t0:PresReviewThread (unwrap (rv.find(tid)))
             said = ("Comment added on " + (Tools.slideLabel(t0)) + " (thread " + tid + ").")
+        }
+        ; how serious; "none" takes it off
+        def sevArg:MfJ (a.field("severity"))
+        if (sevArg.kind == 3) {
+            if (rv.setSeverity(tid (a.str_("severity")) now)) {
+                def ts:PresReviewThread (unwrap (rv.find(tid)))
+                if ((strlen ts.severity) > 0) {
+                    said = (said + " Severity " + ts.severity + ".")
+                } {
+                    said = (said + " Severity taken off.")
+                }
+            }
         }
         def saved:MfJ (Tools.keepReview(host id ed rv))
         if ((strlen (host_error host)) > 0) {

@@ -535,6 +535,18 @@ class PresCascade {
         return e
     }
 
+    ; A block on a `{container=…}` plate: the theme's `container` rule, which
+    ; every plate of the deck takes its colour and corners from (a block's
+    ; own `background=` still wins for that block). Unset: the slide's colour,
+    ; see-through, and corners from the text size.
+    ; i18n: "plate colour" "plate corners" "every plate of the presentation; unset: the slide's colour, see-through"
+    fn plateFacets:void (e:PresCssElement) {
+        def bg:PresCssFacet (this.one("container" "plate-color" "background-color" "plate colour" ""))
+        bg.note = "every plate of the presentation; unset: the slide's colour, see-through"
+        push e.facets bg
+        push e.facets (this.one("container" "plate-radius" "border-radius" "plate corners" ""))
+    }
+
     ; h1…h6 as 1…6, else 0.
     sfn headingLevel:int (sel:string) {
         if ((strlen sel) != 2) {

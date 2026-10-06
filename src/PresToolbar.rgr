@@ -103,6 +103,11 @@ class PresToolbar {
     ; pressed, it is a field: Enter or a press elsewhere renames, Esc not.
     def docTitle:string ""
     def titleEditing:boolean false
+    ; a drag selecting in the name or search field, and the press's click
+    ; count and shift (a double click picks a word)
+    def titleSelecting:boolean false
+    def pressClicks:int 1
+    def pressShift:boolean false
     ; what the field is for: "title" the deck's name, "search" the rooms'
     def editFor:string "title"
     ; the editor's look is dark (the rail's switch shows Light then)
@@ -316,6 +321,9 @@ class PresToolbar {
         if (id == "slideDelete") {
             return "slide:delete"
         }
+        if (id == "slideDraw") {
+            return "slide:draw"
+        }
         if (id == "slideLeft") {
             return "slide:left"
         }
@@ -336,6 +344,9 @@ class PresToolbar {
         }
         if (id == "about") {
             return "about"
+        }
+        if (id == "helpGuide") {
+            return "help-guide"
         }
         if (id == "docset") {
             return "docset"
@@ -574,6 +585,7 @@ class PresToolbar {
         cm.contextMode = true
         cm.addItem("slideNew" (PresI18n.t("New slide")) false)
         cm.addItem("slideDuplicate" (PresI18n.t("Duplicate slide")) false)
+        cm.addItem("slideDraw" (PresI18n.t("Draw on slide")) false)
         cm.addSeparator()
         cm.addItem("slideLeft" (PresI18n.t("Move left")) (ctxLeft == false))
         cm.addItem("slideRight" (PresI18n.t("Move right")) (ctxRight == false))
@@ -909,7 +921,6 @@ class PresToolbar {
             c.boxClass = "tb-roomname-box"
             c.focused = true
             c.build()
-            UiTree.addClass((unwrap c.rootEl) "tb-roomname-field")
             this.put(c pane)
         }
         if ((fieldOn == false) && ((strlen roomSearchLabel) > 0)) {
@@ -1054,6 +1065,9 @@ class PresToolbar {
     fn liveRooms:void (pane:EVGElement) {
         def lines:[string] (strsplit roomRows (strfromcode 10))
         def i:int 0
+        ; the built-in rooms come last (web/rooms.js orderRooms), a group of
+        ; their own under a line when made rooms are over them
+        def madeAbove:boolean false
         while (i < (array_length lines)) {
             def parts:[string] (strsplit (itemAt lines i) (strfromcode 9))
             if ((array_length parts) >= 2) {
@@ -1061,6 +1075,14 @@ class PresToolbar {
                 def count:string ""
                 if ((array_length parts) >= 3) {
                     count = (itemAt parts 2)
+                }
+                if (PresToolbar.builtInRoom(id)) {
+                    if madeAbove {
+                        pane.addChild((this.div("tb-rooms-sep")))
+                        madeAbove = false
+                    }
+                } {
+                    madeAbove = true
                 }
                 this.roomRow(pane id (itemAt parts 1) count)
                 if (id == roomOpen) {
@@ -1108,10 +1130,10 @@ class PresToolbar {
             def c:InputCtl titleIn
             c.tid = "tb-title-in"
             c.name = (PresI18n.t("Presentation name"))
+            ; the field's whole look is its box class, which its own rebuilds keep
             c.boxClass = "tb-title-box"
             c.focused = true
             c.build()
-            UiTree.addClass((unwrap c.rootEl) "tb-title-field")
             this.put(c slot)
             return
         }
@@ -1346,6 +1368,8 @@ class PresToolbar {
             slide.addItem("slideNew" (PresI18n.t("New slide")) false)
             slide.addItem("slideDuplicate" (PresI18n.t("Duplicate slide")) false)
             slide.addItem("slideDelete" (PresI18n.t("Delete slide")) false)
+            slide.addSeparator()
+            slide.addItem("slideDraw" (PresI18n.t("Draw on slide")) false)
             slide.setShortcut("slideNew" "Control+M")
             slide.setShortcut("slideDuplicate" (this.modKey("D")))
             slide.addSeparator()
@@ -1363,6 +1387,7 @@ class PresToolbar {
             rc2.addItem("rec-play" (PresI18n.t("▶ Play recording")) (hasRec == false))
             ; the rest only once there is a recording
             if hasRec {
+                rc2.addItem("rec-edit" (PresI18n.t("✂ Edit recording…")) false)
                 def vo:UiItem (rc2.addSub("rec-voice" (PresI18n.t("Voice")) false))
                 this.voiceKids(vo)
                 rc2.addSeparator()
@@ -1374,6 +1399,7 @@ class PresToolbar {
             def exFile:UiItem (ex.addSub("x-file" (PresI18n.t("File")) false))
             this.exportGroups(exClip exFile)
             def hp:MenuCtl (this.dropdown("help" (PresI18n.t("Help"))))
+            hp.addItem("helpGuide" (PresI18n.t("How to use Sliqtly")) false)
             hp.addItem("helpBtn" (PresI18n.t("Help for this slide")) false)
             hp.addSeparator()
             hp.addItem("about" (PresI18n.t("About")) false)
@@ -1494,6 +1520,7 @@ class PresToolbar {
             this.button("dr-slideNew" (PresI18n.t("New slide")) "ghost" body)
             this.button("dr-slideDuplicate" (PresI18n.t("Duplicate slide")) "ghost" body)
             this.button("dr-slideDelete" (PresI18n.t("Delete slide")) "ghost" body)
+            this.button("dr-slideDraw" (PresI18n.t("Draw on slide")) "ghost" body)
             def otherWay:string "o-portrait"
             def otherName:string (PresI18n.t("Portrait"))
             if portrait {
@@ -1523,8 +1550,10 @@ class PresToolbar {
             this.button("dr-rec-start" (PresI18n.t("● Record presentation")) "ghost" body)
             if hasRec {
                 this.button("dr-rec-play" (PresI18n.t("▶ Play recording")) "ghost" body)
+                this.button("dr-rec-edit" (PresI18n.t("✂ Edit recording…")) "ghost" body)
             }
             body.addChild((this.text("tb-dr-label" (PresI18n.t("Help")))))
+            this.button("dr-helpGuide" (PresI18n.t("How to use Sliqtly")) "ghost" body)
             this.button("dr-helpBtn" (PresI18n.t("Help for this slide")) "ghost" body)
             this.button("dr-about" (PresI18n.t("About")) "ghost" body)
             if ((strlen langRows) > 0) {
@@ -1633,6 +1662,9 @@ class PresToolbar {
         if (UiHost.fitSurfaces(r lay)) {
             lay.layout(pg)
         }
+        ; the fields' caret and selection onto the laid out text (UiHost.layout
+        ; does this; the bar lays its tree out itself)
+        host.placeText((lay.getTextEngine()))
         host.lastPage = pg
         return pg
     }
@@ -1663,6 +1695,30 @@ class PresToolbar {
         return (((py < barH) || (this.listOpen())) || (px < (this.leftW())))
     }
 
+    ; A press with the page's click count and shift, for the name field.
+    fn pressWith:void (px:double py:double clicks:int shift:boolean) {
+        pressClicks = clicks
+        pressShift = shift
+        this.press(px py)
+        pressClicks = 1
+        pressShift = false
+    }
+
+    ; A drag from a press in the name or search field selects in it.
+    fn titleDragTo:void (px:double) {
+        if titleSelecting {
+            host.textDragTo(px)
+            rev = (rev + 1)
+        }
+    }
+
+    fn titleRelease:void () {
+        if titleSelecting {
+            host.textRelease()
+        }
+        titleSelecting = false
+    }
+
     fn press:void (px:double py:double) {
         if (null? host.lastPage) {
             this.page()
@@ -1681,7 +1737,7 @@ class PresToolbar {
         ; else renames (and does nothing else)
         if titleEditing {
             if (ctlTid == "tb-title-in") {
-                host.textPress(tid px 1 false)
+                titleSelecting = (host.textPress(tid px pressClicks pressShift))
                 rev = (rev + 1)
                 return
             }

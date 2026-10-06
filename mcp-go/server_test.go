@@ -109,6 +109,16 @@ func (f *fakeDB) Delete(_ context.Context, col, id string) error {
 	delete(f.data, col+"/"+id)
 	return nil
 }
+func (f *fakeDB) Take(_ context.Context, col, id string) (Doc, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	d, ok := f.data[col+"/"+id]
+	if !ok {
+		return nil, nil
+	}
+	delete(f.data, col+"/"+id)
+	return clone(d), nil
+}
 func (f *fakeDB) WhereEq(_ context.Context, col, field string, value any) ([]Doc, []string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -655,6 +665,7 @@ func TestOptionalSignIn(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	match(t, textOf(c), `account of Tero`)
+	match(t, textOf(c), `signed in with another, it opens a copy`)
 	id := sc(c)["deck_id"].(string)
 	eq(t, f.db.doc("shares/" + id)["owner"], "u1")
 	u := call(t, me, "update_presentation", map[string]any{"deck_id": id, "markdown": "# m\n\n## two"})
@@ -953,6 +964,13 @@ func TestReadFileWorkbookSheetsCSVAndJSON(t *testing.T) {
 	f.bucket.saved["shares/abcDEF1234/data/risk.xlsx"] = savedFile{book, ""}
 	f.bucket.saved["shares/abcDEF1234/data/notes.csv"] = savedFile{[]byte("a,b\r\n\"x, y\",2\n\n3,\"q\"\"\"\n"), ""}
 	f.bucket.saved["shares/abcDEF1234/data/spec.json"] = savedFile{[]byte(`{"a": 1}`), ""}
+	// a byte order mark is dropped; a first character that only starts
+	// with the same byte (U+FF21, EF BC A1) is kept
+	f.bucket.saved["shares/abcDEF1234/data/bom.csv"] = savedFile{[]byte("\xEF\xBB\xBFa,b\n1,2\n"), ""}
+	f.bucket.saved["shares/abcDEF1234/data/wide.csv"] = savedFile{[]byte("\uFF21,b\n1,2\n"), ""}
+	f.db.data["shares/abcDEF1234"]["files"] = append(f.db.data["shares/abcDEF1234"]["files"].([]any),
+		map[string]any{"path": "data/bom.csv", "type": "text/csv", "size": int64(15)},
+		map[string]any{"path": "data/wide.csv", "type": "text/csv", "size": int64(14)})
 	s := start(t, testEnv(&f, nil), "")
 	defer s.close()
 	read := func(args map[string]any) *mcp.CallToolResult {
@@ -1004,6 +1022,8 @@ func TestReadFileWorkbookSheetsCSVAndJSON(t *testing.T) {
 	eq(t, c["columns"], []string{"a", "b"})
 	eq(t, c["rows"], [][]string{{"x, y", "2"}, {"3", `q"`}})
 	eq(t, sc(read(map[string]any{"path": "data/spec.json"}))["text"], `{"a": 1}`)
+	eq(t, sc(read(map[string]any{"path": "data/bom.csv"}))["columns"], []string{"a", "b"})
+	eq(t, sc(read(map[string]any{"path": "data/wide.csv"}))["columns"], []string{"\uFF21", "b"})
 	match(t, textOf(read(map[string]any{"path": "media/cat.png"})), `is a picture`)
 	match(t, textOf(read(map[string]any{"path": "data/other.csv"})), `No file data/other\.csv .* Its files: data/risk\.xlsx, data/notes\.csv, data/spec\.json`)
 
@@ -1290,9 +1310,11 @@ func TestReviewCommentsReadAddAndResolve(t *testing.T) {
 	tid := th["thread_id"].(string)
 	eq(t, []any{th["slide"], th["resolved"], th["x"]}, []any{2, false, 0.9})
 
-	b := call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide_title": "risks", "x": 0.25, "y": 0.5, "text": "Rank these"})
-	match(t, textOf(b), `slide 3 "Risks"`)
+	b := call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide_title": "risks", "x": 0.25, "y": 0.5, "text": "Rank these", "severity": "high"})
+	match(t, textOf(b), `slide 3 "Risks".* Severity high\.`)
 	tid2 := mapOf(sc(b)["thread"])["thread_id"].(string)
+	eq(t, mapOf(sc(b)["thread"])["severity"], "high")
+	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide": 1, "text": "x", "severity": "urgent"})), `severity is low, medium, high or none`)
 	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide": 9, "text": "x"})), `from 1 to 3`)
 	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "slide_title": "Nope", "text": "x"})), `No slide is titled "Nope". The slides: 1 "Plan", 2 "Budget", 3 "Risks"`)
 	match(t, textOf(call(t, s, "add_comment", map[string]any{"deck_id": id, "text": "x", "slide": 1})), `edit_key is needed`)
@@ -1313,6 +1335,11 @@ func TestReviewCommentsReadAddAndResolve(t *testing.T) {
 	open := call(t, s, "list_comments", map[string]any{"deck_id": id, "include_resolved": false})
 	eq(t, len(list(sc(open)["threads"])), 1)
 	eq(t, mapOf(list(sc(open)["threads"])[0])["thread_id"], tid2)
+	match(t, textOf(open), `Thread `+tid2+` \(open, severity high\)`)
+	eq(t, mapOf(list(sc(open)["threads"])[0])["severity"], "high")
+	m := call(t, s, "add_comment", map[string]any{"deck_id": id, "edit_key": key, "thread_id": tid2, "text": "Less urgent now", "severity": "low"})
+	match(t, textOf(m), `Severity low\.`)
+	eq(t, mapOf(sc(m)["thread"])["severity"], "low")
 
 	// the file the editor reads: review/comments.json, slides counted from 1
 	saved, ok := f.bucket.saved["shares/"+id+"/review/comments.json"]

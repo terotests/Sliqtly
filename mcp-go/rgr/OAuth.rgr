@@ -482,14 +482,15 @@ class OAuth {
         def now:double (to_double (host_now_ms host))
         if (grantType == "authorization_code") {
             def id:string (host_sha256_hex host (J.textOf(b "code")))
-            def c:MfJ (J.parse((host_get_doc host (OAuth.col("codes")) id)))
+            ; taken, not read then deleted: two requests with one code
+            ; cannot both pass
+            def c:MfJ (J.parse((host_take_doc host (OAuth.col("codes")) id)))
             if ((strlen (host_error host)) > 0) {
                 return (HttpOut.fail())
             }
             if ((c.isObj()) == false) {
                 return (HttpOut.bad("invalid_grant" ""))
             }
-            host_delete_doc host (OAuth.col("codes")) id
             if ((c.num_("exp" 0.0)) < now) {
                 return (HttpOut.bad("invalid_grant" "code expired"))
             }
@@ -509,14 +510,15 @@ class OAuth {
         }
         if (grantType == "refresh_token") {
             def id2:string (host_sha256_hex host (J.textOf(b "refresh_token")))
-            def t:MfJ (J.parse((host_get_doc host (OAuth.col("tokens")) id2)))
+            ; taken in one step: a refresh token is spent once, however
+            ; many requests carry it at the same time
+            def t:MfJ (J.parse((host_take_doc host (OAuth.col("tokens")) id2)))
             if ((strlen (host_error host)) > 0) {
                 return (HttpOut.fail())
             }
             if (((t.isObj()) == false) || ((t.str_("kind")) != "refresh")) {
                 return (HttpOut.bad("invalid_grant" ""))
             }
-            host_delete_doc host (OAuth.col("tokens")) id2
             if ((t.num_("exp" 0.0)) < now) {
                 return (HttpOut.bad("invalid_grant" "refresh token expired"))
             }

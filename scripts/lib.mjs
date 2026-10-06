@@ -48,6 +48,30 @@ export function log(line) {
   process.stderr.write(`${line}\n`);
 }
 
+// the checkouts this run built from, by name: where, and the ref asked for
+const used = new Map();
+
+/**
+ * The commit each dependency was built from ({ name: { ref, commit,
+ * changed } }; `changed`: the checkout had edits of its own). The refs are
+ * branches that move, so this is what says which code a build holds.
+ */
+export function depsUsed() {
+  const out = {};
+  for (const [name, { dir, ref }] of [...used].sort((a, b) => a[0].localeCompare(b[0]))) {
+    let commit = "";
+    let changed = false;
+    try {
+      commit = git(["rev-parse", "HEAD"], dir);
+      changed = git(["status", "--porcelain", "--untracked-files=no"], dir) !== "";
+    } catch {
+      commit = "";
+    }
+    out[name] = { ref, commit, changed };
+  }
+  return out;
+}
+
 function git(args, cwd) {
   const r = spawnSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   if (r.status !== 0) throw new Error(`git ${args.join(" ")} failed:\n${(r.stderr || r.stdout || "").trim()}`);
@@ -62,6 +86,7 @@ export function ensureRanger({ update = false } = {}) {
   if (given && !fs.existsSync(dir)) throw new Error(`RANGER_DIR=${given} does not exist`);
   if (!given) syncClone("Ranger", config.ranger.url, ref, dir, marker, update);
   if (!fs.existsSync(path.join(dir, "dist", "rgrc.js"))) throw new Error(`${dir} is not a Ranger checkout (no dist/rgrc.js)`);
+  used.set("Ranger", { dir, ref });
   // RangerFlow, RangerMarkdown and RangerPPTX, cloned into the checkout
   // where it no longer tracks them
   for (const [key, at] of [
@@ -118,6 +143,7 @@ export function ensureEvgui({ update = false } = {}) {
   if (given && !fs.existsSync(dir)) throw new Error(`EVGUI_DIR=${given} does not exist`);
   if (!given) syncClone("EVGUI", config.evgui.url, ref, dir, path.join(depsDir, "evgui-ref"), update);
   if (!fs.existsSync(path.join(dir, "src", "UiHost.rgr"))) throw new Error(`${dir} is not an EVGUI checkout (no src/UiHost.rgr)`);
+  used.set("EVGUI", { dir, ref });
   return dir;
 }
 
@@ -146,6 +172,7 @@ export function ensureCheckout(key, { update = false, into = null } = {}) {
   if (!given) syncClone(name, c.url, ref, dir, marker, update);
   const must = CHECKOUT_HAS[key];
   if (must && !fs.existsSync(path.join(dir, must))) throw new Error(`${dir} is not a ${name} checkout (no ${must})`);
+  used.set(name, { dir, ref });
   return dir;
 }
 
@@ -157,6 +184,7 @@ export function ensureRangerDiff({ update = false } = {}) {
   if (given && !fs.existsSync(dir)) throw new Error(`RANGERDIFF_DIR=${given} does not exist`);
   if (!given) syncClone("RangerDiff", config.rangerdiff.url, ref, dir, path.join(depsDir, "rangerdiff-ref"), update);
   if (!fs.existsSync(path.join(dir, "dist", "rangerdiff.mjs"))) throw new Error(`${dir} is not a RangerDiff checkout (no dist/rangerdiff.mjs)`);
+  used.set("RangerDiff", { dir, ref });
   return dir;
 }
 
@@ -194,6 +222,18 @@ function syncClone(name, url, ref, dir, marker, update) {
     if (remote === head) return;
     why = `${ref} ${head.slice(0, 7)} → ${remote.slice(0, 7)}`;
   }
+  // A clone with edits of its own (work on the engine before its PR is up)
+  // is not checked out over: `checkout -f` would throw the edits away.
+  let dirty = "";
+  try {
+    dirty = git(["status", "--porcelain", "--untracked-files=no"], dir);
+  } catch {
+    dirty = "";
+  }
+  if (dirty.trim()) {
+    log(`${name}: has local changes, building on the clone as it is (not ${why})`);
+    return;
+  }
   log(`update ${name} (${why})`);
   git(["fetch", "--depth", "1", "origin", ref || "HEAD"], dir);
   git(["checkout", "-q", "-f", "--detach", "FETCH_HEAD"], dir);
@@ -217,6 +257,16 @@ function link(target, at) {
   log(`link   ${at} → ${target}`);
 }
 
+/**
+ * Heap for the Ranger compiler, in MB. PresApp pulls in some 16 MB of Ranger
+ * source and its compile holds 4-5 GB at its peak; Node's default limit
+ * depends on the machine (about 4 GB on many Macs, more on others), so the
+ * same build passed on one machine and ran out of memory on another. The
+ * limit is a ceiling, not memory taken up front. NODE_OPTIONS with its own
+ * --max-old-space-size wins.
+ */
+const COMPILER_HEAP_MB = 8192;
+
 /** Compile one Ranger file of src/ to `out` (absolute). */
 export function compile(ranger, file, out, flag = "") {
   fs.mkdirSync(path.dirname(out), { recursive: true });
@@ -225,7 +275,8 @@ export function compile(ranger, file, out, flag = "") {
   const name = path.basename(out);
   const staged = path.join(stage, name);
   fs.rmSync(staged, { force: true });
-  const args = ["dist/rgrc.js", "-es6", ...(flag ? [flag] : []), `./${LINK}/${file}`, `-d=./gallery/presentation-build`, `-o=${name}`];
+  const heap = /--max-old-space-size/.test(process.env.NODE_OPTIONS || "") ? [] : [`--max-old-space-size=${COMPILER_HEAP_MB}`];
+  const args = [...heap, "dist/rgrc.js", "-es6", ...(flag ? [flag] : []), `./${LINK}/${file}`, `-d=./gallery/presentation-build`, `-o=${name}`];
   const t0 = Date.now();
   const r = spawnSync(process.execPath, args, {
     cwd: ranger,
@@ -237,7 +288,11 @@ export function compile(ranger, file, out, flag = "") {
   if (r.status !== 0 || /Compilation FAILED/.test(text) || !fs.existsSync(staged)) {
     const lines = text.split("\n");
     const at = lines.findIndex((l) => /\[FAIL\]/.test(l));
-    const show = at >= 0 ? lines.slice(Math.max(0, at - 6), at + 8) : lines.slice(-30);
+    // A crash of Node itself ends in its native stack, which says nothing;
+    // the reason is the FATAL ERROR line above it.
+    const fatal = lines.findIndex((l) => /FATAL ERROR|RangeError|out of memory/.test(l));
+    const show = at >= 0 ? lines.slice(Math.max(0, at - 6), at + 8) : fatal >= 0 ? lines.slice(Math.max(0, fatal - 2), fatal + 3) : lines.slice(-30);
+    if (/out of memory/.test(text)) show.push(`The compiler ran out of heap; raise it with NODE_OPTIONS=--max-old-space-size=<MB> (default here ${COMPILER_HEAP_MB}).`);
     throw new Error(`compile ${file} failed:\n${show.join("\n")}`);
   }
   fs.copyFileSync(staged, out);

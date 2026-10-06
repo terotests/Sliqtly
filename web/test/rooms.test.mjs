@@ -20,17 +20,17 @@ test("every presentation starts in General, newest first; Onboarding holds the s
   assert.deepEqual(roomDecks(s, ONBOARDING, decks, samples).map((d) => d.id), ["sample:welcome", "sample:talous"]);
 });
 
-test("a new room is listed first after the built-in ones, newest first, and a deck moves into it", () => {
+test("a new room is listed first, newest first, the built-in ones under them, and a deck moves into it", () => {
   let { state, id } = createRoom(emptyRooms(), "  Zeta   team ", idOf);
   assert.ok(id.startsWith("r-"));
   ({ state } = createRoom(state, "Alpha", idOf));
-  assert.deepEqual(listRooms(state, decks, samples).map((r) => r.title), ["General", "Playground", "Onboarding", "Alpha", "Zeta team"]);
+  assert.deepEqual(listRooms(state, decks, samples).map((r) => r.title), ["Alpha", "Zeta team", "General", "Playground", "Onboarding"]);
   ({ state } = createRoom(state, "Beta", idOf, { description: "  PROJ-12 \n" }));
-  assert.deepEqual(listRooms(state, decks, samples).slice(3).map((r) => [r.title, r.description]), [["Beta", "PROJ-12"], ["Alpha", ""], ["Zeta team", ""]]);
+  assert.deepEqual(listRooms(state, decks, samples).slice(0, -3).map((r) => [r.title, r.description]), [["Beta", "PROJ-12"], ["Alpha", ""], ["Zeta team", ""]]);
   state = moveDeck(state, "a", id);
   assert.equal(roomOf(state, "a"), id);
   assert.deepEqual(roomDecks(state, id, decks, samples).map((d) => d.name), ["Budget"]);
-  assert.equal(listRooms(state, decks, samples)[0].presentations, 2);
+  assert.equal(listRooms(state, decks, samples).find((r) => r.room_id === GENERAL).presentations, 2);
   // back to General is no placing at all
   state = moveDeck(state, "a", GENERAL);
   assert.deepEqual(state.placed, {});
@@ -91,6 +91,19 @@ test("the panel lists the rooms one is active in: built-in three, then the recen
   assert.equal(hidden, rows.length - shown.length);
 });
 
+test("a room made lately is one of those listed, also for those who have not opened it", () => {
+  const now = 1_000_000_000_000;
+  const day = 86400000;
+  const rows = [
+    { room_id: GENERAL, title: "General" },
+    { room_id: "new", title: "Made by Bob", created: now - day },
+    { room_id: "old", title: "Made long ago", created: now - (ACTIVE_DAYS + 1) * day },
+  ];
+  const { shown, hidden } = activeRooms(rows, emptyRooms(), now);
+  assert.deepEqual(shown.map((r) => r.room_id), [GENERAL, "new"]);
+  assert.equal(hidden, 1);
+});
+
 test("search finds rooms by every word of the query, any case and accent", () => {
   const rows = [{ room_id: "a", title: "Q1 Päivitys" }, { room_id: "b", title: "Q1 budget" }, { room_id: "c", title: "Team" }];
   assert.deepEqual(searchRooms(rows, "q1 paivitys").map((r) => r.room_id), ["a"]);
@@ -104,18 +117,18 @@ test("a room made here is touched, so it is listed at once", () => {
   assert.ok(state.touched[id] > 0);
 });
 
-test("rooms not dragged yet come first, newest first; dragged ones keep their place", () => {
+test("rooms not dragged yet come first, newest first; dragged ones keep their place; the built-in ones last", () => {
   const rows = [
     { room_id: GENERAL }, { room_id: "a", created: 1 }, { room_id: "b", created: 3 }, { room_id: "c", created: 2 }, { room_id: "d", created: 9 },
   ];
-  assert.deepEqual(orderRooms(rows, ["c", "a"]).map((r) => r.room_id), [GENERAL, "d", "b", "c", "a"]);
-  assert.deepEqual(orderRooms(rows).map((r) => r.room_id), [GENERAL, "d", "b", "c", "a"]);
+  assert.deepEqual(orderRooms(rows, ["c", "a"]).map((r) => r.room_id), ["d", "b", "c", "a", GENERAL]);
+  assert.deepEqual(orderRooms(rows).map((r) => r.room_id), ["d", "b", "c", "a", GENERAL]);
 });
 
-test("a room dragged before another, to the end, or onto a built-in (the top)", () => {
+test("a room dragged before another, to the end, or onto a built-in (the end too)", () => {
   let s = emptyRooms();
   for (const t of ["A", "B", "C"]) ({ state: s } = createRoom(s, t, idOf));
-  const titles = (st) => listRooms(st, [], []).slice(3).map((r) => r.title);
+  const titles = (st) => listRooms(st, [], []).slice(0, -3).map((r) => r.title);
   assert.deepEqual(titles(s), ["C", "B", "A"]);
   const id = (t) => s.rooms.find((r) => r.title === t).id;
   const rows = () => listRooms(s, [], []);
@@ -123,13 +136,13 @@ test("a room dragged before another, to the end, or onto a built-in (the top)", 
   assert.deepEqual(titles(s), ["A", "C", "B"]);
   s = moveRoom(s, rows(), id("A"), "");
   assert.deepEqual(titles(s), ["C", "B", "A"]);
-  s = moveRoom(s, rows(), id("B"), GENERAL);
-  assert.deepEqual(titles(s), ["B", "C", "A"]);
+  s = moveRoom(s, rows(), id("C"), GENERAL);
+  assert.deepEqual(titles(s), ["B", "A", "C"]);
   // a built-in room stays where it is
   assert.equal(moveRoom(s, rows(), GENERAL, id("A")), s);
   // a room made after the drag is first
   ({ state: s } = createRoom(s, "D", idOf));
-  assert.deepEqual(titles(s), ["D", "B", "C", "A"]);
+  assert.deepEqual(titles(s), ["D", "B", "A", "C"]);
 });
 
 test("a new room is first also next to rooms made before there was an order", () => {
@@ -137,22 +150,22 @@ test("a new room is first also next to rooms made before there was an order", ()
   let s = parseRooms(JSON.stringify({ rooms: [{ id: "r-old", title: "Testi", created: 1 }, { id: "r-two", title: "Two", created: 2 }], placed: {}, touched: {} }));
   s = moveRoom(s, listRooms(s, [], []), "r-old", "");
   ({ state: s } = createRoom(s, "N3D-6531", idOf));
-  assert.deepEqual(listRooms(s, [], []).slice(3).map((r) => r.title), ["N3D-6531", "Two", "Testi"]);
+  assert.deepEqual(listRooms(s, [], []).slice(0, -3).map((r) => r.title), ["N3D-6531", "Two", "Testi"]);
   s = parseRooms(JSON.stringify({ rooms: [{ id: "r-old", title: "Testi", created: 1 }], placed: {}, touched: {} }));
   ({ state: s } = createRoom(s, "N3D-6531", idOf));
-  assert.deepEqual(listRooms(s, [], []).slice(3).map((r) => r.title), ["N3D-6531", "Testi"]);
+  assert.deepEqual(listRooms(s, [], []).slice(0, -3).map((r) => r.title), ["N3D-6531", "Testi"]);
 });
 
 test("a room's settings: renamed, described, archived and back, deleted with its decks back in General", () => {
   let { state: s, id } = createRoom(emptyRooms(), "Ticket", idOf);
   s = updateRoom(s, id, { title: "  PROJ-7  login ", description: "Users sign in" });
-  assert.deepEqual(listRooms(s, [], [])[3], { room_id: id, title: "PROJ-7 login", description: "Users sign in", created: s.rooms[0].created, archived: false, presentations: 0 });
+  assert.deepEqual(listRooms(s, [], [])[0], { room_id: id, title: "PROJ-7 login", description: "Users sign in", created: s.rooms[0].created, archived: false, presentations: 0 });
   assert.equal(updateRoom(s, id, { title: " " }).rooms[0].title, "PROJ-7 login");
   assert.equal(updateRoom(s, id, { description: "" }).rooms[0].description, undefined);
   s = moveDeck(s, "a", id);
   s = archiveRoom(s, id);
   assert.equal(listRooms(s, decks, samples).length, 3);
-  assert.equal(listRooms(s, decks, samples, { archived: true })[3].archived, true);
+  assert.equal(listRooms(s, decks, samples, { archived: true })[0].archived, true);
   // its presentations stay in it
   assert.equal(roomOf(s, "a"), id);
   s = archiveRoom(s, id, false);

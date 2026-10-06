@@ -335,6 +335,10 @@ try {
       const f1 = el("rv-chat-field"), c1 = el("rv-chat-field-caret");
       out.grew = [f0, f1.calculatedHeight];
       out.caretIn = c1.calculatedWidth > 0 && c1.calculatedY >= f1.calculatedY && c1.calculatedY + c1.calculatedHeight <= f1.calculatedY + f1.calculatedHeight + 0.5;
+      // every line shows: the text's view is as tall as its lines (it
+      // stayed one line high and cut the rest)
+      const v1 = el("rv-chat-field-view"), n1 = rv.chat.input.placed ? rv.chat.input.placed.count() : 0;
+      out.lines = [n1, v1.calculatedHeight, rv.chat.input.lineBox];
       a.key("enter", true, false);
       out.newline = rv.chat.input.value.includes("\n");
       rv.chat.input.setValue("");
@@ -352,8 +356,68 @@ try {
     });
     check("a comment box with the keys hides its hint and shows a light caret", r.focusedText === "" && r.caret && r.caretLight, JSON.stringify(r));
     check("…a long comment wraps and the box grows, the caret in it", r.grew[1] > r.grew[0] + 5 && r.caretIn, JSON.stringify(r));
+    check("…and every line of it shows", r.lines[0] >= 2 && r.lines[1] + 0.5 >= r.lines[0] * r.lines[2], JSON.stringify(r));
     check("…Shift+Enter breaks the line instead of sending", r.newline, JSON.stringify(r));
     check("…without the keys its hint is faint, not the text's white", r.hint === r.ph && !!r.ph && r.hintAlpha < 0.6, JSON.stringify(r));
+  }
+
+  // A new comment while editing is written in a callout by its pin, as when
+  // presenting: the slide keeps its width (no panel opens on the right), it
+  // can be marked how serious it is (the pin takes that colour), and once
+  // sent the callout closes and leaves the pin. The bar reads "+ Add comment".
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app, rv = a.review;
+      const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const el = (id) => { a.reviewJson(); return walk(rv.host.lastPage, id); };
+      const wasOn = a.reviewMode();
+      a.setReviewMode(true);
+      a.takeRequest();
+      const out = {};
+      const words = (e) => (e.textContent || "") + (e.children || []).map(words).join("");
+      out.add = el("rv-add") && words(el("rv-add"));
+      const ad = el("rv-add");
+      out.tip = ad && a.tipAt(ad.calculatedX + ad.calculatedWidth / 2, ad.calculatedY + ad.calculatedHeight / 2);
+      const n0 = rv.model.threads.length;
+      rv.startDraft(a.slideShown(), 0.3, 0.4);
+      out.dock = rv.dockW();
+      out.callout = !!el(rv.co.frameTid()) && !el("rv-dock");
+      rv.chat.activate("rv-chat-act-sev-high");
+      rv.takeChat();
+      out.sev = rv.draftSev;
+      a.reviewJson();
+      out.pinFill = rv.pins.map((p) => p.color);
+      a.text("The total is wrong");
+      a.key("enter", false, false);
+      const t = rv.model.threads[rv.model.threads.length - 1];
+      out.made = rv.model.threads.length === n0 + 1 && t.severity === "high";
+      out.open = rv.panelOpen();
+      out.pin = !!el("rv-pin-" + t.id);
+      if (t) { rv.model.setClosed(t.id, true, "", 0); rv.model.remove(t.id); rv.save(); }
+      a.setReviewMode(wasOn);
+      return out;
+    });
+    check("the review bar reads \"+ Add comment\" and its tip says what it does", r.add === "+ Add comment" && /click where it goes/.test(r.tip), JSON.stringify(r));
+    check("…a new comment while editing is a callout by its pin, no panel", r.dock === 0 && r.callout, JSON.stringify(r));
+    check("…it can be marked serious, and its pin turns red", r.sev === "high" && r.pinFill.includes("#b8625b"), JSON.stringify(r));
+    check("…sent, the callout closes and leaves the pin", r.made && !r.open && r.pin, JSON.stringify(r));
+  }
+
+  // Tips: hovering a button says what it does, the presenting bar's (its
+  // title, sooner and larger than the browser's) and review mode's
+  {
+    const r = await page.evaluate(async () => {
+      const b = document.getElementById("vNext");
+      b.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+      await new Promise((res) => setTimeout(res, 500));
+      const tip = document.getElementById("tip");
+      const out = { shown: !tip.hidden, text: tip.textContent, noTitle: !b.hasAttribute("title") };
+      b.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
+      out.gone = tip.hidden && b.getAttribute("title") === out.text;
+      return out;
+    });
+    check("hovering a presenting button shows a tip with what it does", r.shown && /Next/.test(r.text) && r.noTitle, JSON.stringify(r));
+    check("…and it goes when the pointer leaves, the title back", r.gone, JSON.stringify(r));
   }
 
   // Text the reader needs elsewhere can be selected and copied (EVGUI
@@ -698,7 +762,18 @@ try {
     await page.keyboard.press("ArrowRight");
     await settle();
     const stepped = await at();
-    check("presenting from the editor shows the bar with \"n / N\", without the … menu", start.bar === "flex" && start.more === "none" && start.label === "1 / " + start.count, JSON.stringify(start));
+    check("presenting from the editor shows the bar with \"n / N\" and the … menu", start.bar === "flex" && start.more !== "none" && start.label === "1 / " + start.count, JSON.stringify(start));
+    // its … menu: only Speaker view and Auto-advance, and Speaker view switches it
+    await press("#vMore");
+    const sp = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll("#vMenu > *")].filter((e) => getComputedStyle(e).display !== "none").map((e) => e.dataset.act || e.tagName);
+      document.querySelector('#vMenu [data-act="speaker"]').click();
+      const on = window.__app.speakerOn();
+      window.__app.setSpeaker(false);
+      document.getElementById("keys").focus();
+      return { rows, on };
+    });
+    check("…the editor's … menu has Speaker view and Auto-advance, and switches the speaker view", sp.on && sp.rows.join() === "speaker,auto", JSON.stringify(sp));
     check("PageDown goes a whole slide on, its builds shown", paged.slide === 2 && paged.step === paged.steps && !paged.end && paged.label === "3 / " + paged.count, JSON.stringify(paged));
     check("PageUp a whole slide back", pagedBack.slide === 1 && pagedBack.step === pagedBack.steps, JSON.stringify(pagedBack));
     check("End is the last slide, Home the first from its start", last.slide === last.count - 1 && !last.end && home.slide === 0 && home.step === 0, JSON.stringify({ last, home }));
@@ -716,8 +791,43 @@ try {
   // was drawn.
   {
     const ink = () => page.evaluate(() => ({ ...JSON.parse(window.__app.inkState()), slide: window.__app.slideShown(), mode: JSON.parse(window.__app.layoutJson()).mode }));
-    await page.evaluate(() => { window.__app.selectSlide(0); window.__app.request("rec:start"); });
+    // a microphone the browser refuses: asked whether to record without
+    // the voice, with where to allow it, not recorded silently
+    const refused = await page.evaluate(async () => {
+      const a = window.__app;
+      const was = navigator.mediaDevices.getUserMedia;
+      navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException("Permission denied", "NotAllowedError"));
+      a.selectSlide(0);
+      a.request("rec:start");
+      a.chart.confirmAct("cf-ok");
+      a.afterChart();
+      let open = false;
+      for (let n = 0; n < 50 && !open; n++) {
+        await new Promise((r) => setTimeout(r, 100));
+        open = a.chart.isOpen && a.chart.mode === "confirm" && a.chart.cfKey === "recnomic";
+      }
+      navigator.mediaDevices.getUserMedia = was;
+      const recording = a.isRecording();
+      a.key("escape", false, false);
+      return { open, recording };
+    });
+    check("Record with voice and the microphone refused asks to record without it", refused.open && !refused.recording, JSON.stringify(refused));
+    // Record asks first (with the voice or without), then counts 3, 2, 1
+    const asked = await page.evaluate(() => {
+      const a = window.__app;
+      a.selectSlide(0);
+      a.request("rec:start");
+      const open = a.chart.isOpen && a.chart.mode === "confirm" && a.chart.cfKey === "recstart";
+      a.chart.confirmAct("cf-alt");
+      a.afterChart();
+      return open;
+    });
+    await page.waitForFunction(() => !document.getElementById("recCount").hidden, null, { timeout: 8000 }).catch(() => {});
+    const counted = await page.evaluate(() => !document.getElementById("recCount").hidden && !document.body.classList.contains("recording"));
     await page.waitForFunction(() => document.body.classList.contains("recording"), null, { timeout: 8000 });
+    await page.waitForTimeout(300);
+    const badge = await page.evaluate(() => ({ shown: !document.getElementById("recBadge").hidden, mute: !document.getElementById("recMute").hidden, hint: document.getElementById("recHint").textContent }));
+    check("Record asks with or without the voice, counts down, then shows REC (no sound) and what to do", asked && counted && badge.shown && badge.mute && badge.hint.length > 0, JSON.stringify({ asked, counted, badge }));
     const slideBox = await page.evaluate(() => {
       const l = JSON.parse(window.__app.layoutJson());
       const c = document.getElementById("c").getBoundingClientRect();
@@ -730,6 +840,19 @@ try {
     for (let i = 1; i <= 8; i += 1) await page.mouse.move(sx(0.3 + i * 0.04), sy(0.5 + i * 0.02));
     await page.mouse.up();
     const drawn = await ink();
+    // with Aa typing writes on the slide; Space and letters do not change it
+    await page.evaluate(() => { window.__app.setInkTool("text"); document.getElementById("keys").focus(); });
+    await page.keyboard.type("This is good!");
+    const typing = await ink();
+    const face = await page.waitForFunction(() => [...document.fonts].some((f) => f.family === "Gloria Hallelujah" && f.status === "loaded") && window.__app.deck.md.fontManager.hasFont("Gloria Hallelujah"), null, { timeout: 8000 }).then(() => true, () => false);
+    check("…written in the hand-written face", face);
+    await page.waitForTimeout(200);
+    await shot("rec-typing.png");
+    await page.keyboard.press("Enter");
+    const typed = await ink();
+    // back to the pen, left off as it was (recording draws with it anyway)
+    await page.evaluate(() => { window.__app.setInkTool("pen"); window.__app.setInk(false); });
+    check("Typing while recording writes on the slide, Space does not go on, Enter ends it", typing.typing && typing.slide === 0 && typed.strokes === 2 && !typed.typing && typed.slide === 0, JSON.stringify({ typing, typed }));
     await page.mouse.click(sx(0.5), sy(0.5));
     await page.waitForTimeout(200);
     const clicked = await ink();
@@ -745,6 +868,7 @@ try {
     await page.waitForFunction(() => window.__docFiles().then((f) => f.includes("recordings/take.json")), null, { timeout: 8000 });
     const take = await page.evaluate(() => JSON.parse(window.__app.recordingJson()));
     const kinds = take.ops.map((o) => o[1]);
+    check("…the words are in the take", take.ops.some((o) => o[1] === "text") && take.ops.some((o) => o[1] === "type" && o[2] === "This is good!"), JSON.stringify(kinds.slice(0, 40)));
     check("Record: a press that moves draws, one that does not goes on, Backspace wipes", drawn.strokes === 1 && drawn.slide === 0 && clicked.slide !== 0 && clicked.strokes === 0 && wiped.strokes === 0, JSON.stringify({ drawn, clicked, wiped }));
     check("…■ keeps the take: the slides, the pointer and what was drawn", ["nav", "ptr", "down", "move", "up", "clear"].every((k) => kinds.includes(k)) && take.ops.filter((o) => o[1] === "nav").some((o) => o[2] === 1), JSON.stringify(kinds.slice(0, 40)));
     await page.evaluate(() => { window.__app.selectSlide(0); window.__app.request("rec:play"); });
@@ -758,6 +882,51 @@ try {
     await page.waitForFunction(() => !window.__app.isReplaying(), null, { timeout: 8000 }).catch(() => {});
     await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
     check("…Esc ends the replay", !(await page.evaluate(() => window.__app.isReplaying())));
+    // Edit recording: a part marked and cut is kept in the take's file
+    const cut = await page.evaluate(async () => {
+      const a = window.__app;
+      a.request("rec:edit");
+      const editing = a.isRecEditing();
+      const d = a.recordingDuration();
+      a.recSelA = d * 0.25;
+      a.recSelB = d * 0.5;
+      a.recButton("cut");
+      a.recHead = d * 0.1;
+      const short = a.recordingPlayLength() < d - d * 0.2;
+      for (let n = 0; n < 40; n++) {
+        const blob = await window.__docFile?.("recordings/take.json");
+        const text = blob ? await blob.text() : "";
+        if (text.includes("\"cuts\":[[")) return { editing, short, kept: true };
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return { editing, short, kept: false };
+    });
+    await page.waitForTimeout(300);
+    await shot("rec-timeline.png");
+    // the playhead's handle dragged goes through the recording, the slide
+    // with it; the wheel over the timeline moves it too
+    const scrub = await (async () => {
+      const g = await page.evaluate(() => {
+        const a = window.__app;
+        a.recShowAt(0);
+        const c = document.getElementById("c").getBoundingClientRect();
+        return { x: c.left + a.recX(0), y: c.top + a.trackRect.y + 23, lx: c.left + a.laneX, lw: a.laneW, d: a.recordingDuration() };
+      });
+      await page.mouse.move(g.x, g.y);
+      await page.mouse.down();
+      await page.mouse.move(g.lx + g.lw * 0.9, g.y, { steps: 12 });
+      const mid = await page.evaluate(() => ({ head: window.__app.recHead, slide: window.__app.selectedSlide() }));
+      await page.mouse.up();
+      const after = await page.evaluate(() => ({ head: window.__app.recHead, marked: window.__app.recSelFrom() }));
+      await page.mouse.move(g.lx + g.lw * 0.5, g.y + 30);
+      await page.mouse.wheel(0, -300);
+      await page.waitForTimeout(200);
+      const wheeled = await page.evaluate(() => window.__app.recHead);
+      return { d: g.d, mid, after, wheeled };
+    })();
+    check("…the playhead is dragged through the whole recording, the slide follows, the wheel moves it", scrub.mid.head > scrub.d * 0.8 && scrub.mid.slide > 0 && scrub.after.marked < 0 && Math.abs(scrub.wheeled - (scrub.after.head - 3)) < 0.5, JSON.stringify(scrub));
+    await page.evaluate(() => window.__app.recEditOpen(false));
+    check("Edit recording cuts a marked part away and keeps it", cut.editing && cut.short && cut.kept, JSON.stringify(cut));
   }
 
   await page.evaluate(() => { window.__app.present(true); window.__app.takeRequest(); window.__app.speaker = true; window.__app.next(); });
@@ -1612,6 +1781,28 @@ try {
   });
   check("a selector's popover lists its properties", !!selHint && selHint.kind === "selector" && selHint.props.includes("padding=") && selHint.props.includes("background-image+"), JSON.stringify(selHint));
 
+  // The card's corner × sits in the middle of its button. `.theme-hp .hp-x`
+  // came before the general button rule of the same weight, so the 22px
+  // button kept 10px sides, its label got no width and the × was drawn from
+  // the centre rightwards.
+  const closeX = await page.evaluate(() => {
+    const a = window.__app;
+    a.showTab("css");
+    const lines = a.themeCss().split("\n");
+    const ln = lines.findIndex((l) => /^\s*padding:/.test(l));
+    const h = JSON.parse(a.hintFor(ln, 4) || "null");
+    a.openHint(JSON.stringify(h));
+    a.hintJson();
+    const walk = (e) => { if (e.id === "hp-close") return e; for (const c of e.children || []) { const f = walk(c); if (f) return f; } return null; };
+    const b = walk(a.hint.host.lastPage);
+    const t = b && b.children && b.children[0];
+    a.closeHint();
+    a.showTab("md");
+    if (!t) return null;
+    return { w: b.calculatedWidth, h: b.calculatedHeight, tw: t.calculatedWidth, dx: (t.calculatedX + t.calculatedWidth / 2) - (b.calculatedX + b.calculatedWidth / 2), dy: (t.calculatedY + t.calculatedHeight / 2) - (b.calculatedY + b.calculatedHeight / 2) };
+  });
+  check("the popover's × is in the middle of its 22px button", !!closeX && closeX.w === 22 && closeX.h === 22 && closeX.tw > 0 && Math.abs(closeX.dx) < 0.5 && Math.abs(closeX.dy) < 0.5, JSON.stringify(closeX));
+
   // …and its doc line under the pointer never moves the rows: the card keeps the
   // tallest line's height, also when it sits above the value near the bottom
   const selHover = await page.evaluate(() => {
@@ -1720,6 +1911,33 @@ try {
   check("…its colour row shows the value the slide uses and its rule, as the cascade has it", pk.headInk && pk.headInk[0] === "h2" && pk.headInk[1] === pk.headModel[1] && pk.headInk[2] === pk.headModel[2] && pk.headInk[1] !== "", JSON.stringify([pk.headInk, pk.headModel]));
   check("a list item is picked as li (text from the document, bullets from list)", pk.li.join("|") === "li|text|list" && pk.liContent.join(",") === "md,5,0,5,7", JSON.stringify([pk.li, pk.liContent]));
   check("…a paragraph with {.lead} gets the class's rule too, and Esc lets go", pk.p.join("|") === "p|.lead" && pk.cleared, JSON.stringify([pk.p, pk.cleared]));
+
+  // A paragraph on a {container=bubble} plate: laid out rounded,
+  // with its tail, under the text; picked, its Style lists the theme's
+  // container rule as well
+  {
+    const pl = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      a.showTab("md");
+      a.setSource("# D\n\n## Kupla\n\nLyhyt kupla.\n{container=bubble}\n");
+      a.selectSlide(1);
+      a.place();
+      const bx = a.deck.layout().boxes;
+      const pi = bx.findIndex((b) => b.page === a.selected && b.kind === 1 && b.radius > 0);
+      const ti = bx.findIndex((b) => b.page === a.selected && b.kind === 0 && b.text.startsWith("Lyhyt"));
+      const plate = bx[pi], text = bx[ti];
+      const r = a.slideRect, sc = a.slideScale();
+      a.pointerDown(r.x + (text.x + 4) * sc, r.y + (text.y + text.h / 2) * sc, false, 1);
+      a.pointerUp();
+      const props = a.pick.cascade(a.themeCss()).facets.map((f) => f.own + ">" + f.prop);
+      const pick = a.pick.plate;
+      a.setSource(src0);
+      return { plate: !!plate && plate.tail > 0 && pi < ti, inside: !!plate && text.x > plate.x && text.y > plate.y, at: [pi, ti], pick, props };
+    });
+    check("a {container=bubble} paragraph sits on a rounded plate with a tail, drawn under its text", pl.plate && pl.inside, JSON.stringify(pl));
+    check("…picked, its Style lists the theme's container rule", pl.pick === "bubble" && pl.props.includes("container>background-color") && pl.props.includes("container>border-radius"), JSON.stringify([pl.pick, pl.props]));
+  }
 
   // A diagram: the pointer over it outlines it before anything is picked; a
   // click picks it, and its "Settings" opens the diagram window, whose
@@ -2204,6 +2422,43 @@ try {
     check("…the name's button keeps its width, so the menus after it stay put when the name changes", railed.fileX0 === renamed.fileX1, JSON.stringify({ before: railed.fileX0, after: renamed.fileX1 }));
     check("…the name at the start of the bar becomes a field; Enter renames the deck, as one edit that undoes", railed.editing && !railed.after && renamed.title === "Renamed deck" && renamed.undone !== "Renamed deck", JSON.stringify(renamed));
 
+    // The deck's name in the bar, a field when pressed: a page of its own.
+    // It shows its selection and caret (the bar lays its tree out itself and
+    // places the fields' text): all of the name picked at first, a caret
+    // where pressed, a drag's band, Ctrl+A all again, its width kept.
+    {
+      const tctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+      const tp = await tctx.newPage();
+      await tp.goto(url + "?sample=esittely");
+      await tp.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+      const tf = await tp.evaluate((findJs) => {
+        const a = window.__app;
+        const find = eval(findJs);
+        const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
+        press(find("tb-title"));
+        const sel = () => { const e = find("tb-title-in-sel"); return e ? { w: Math.round(e.calculatedWidth), h: Math.round(e.calculatedHeight) } : null; };
+        const caretH = () => { const e = find("tb-title-in-caret"); return e ? Math.round(e.calculatedHeight) : -1; };
+        const text = find("tb-title-in-text");
+        const out = { editing: a.toolbar.titleEditing, all: sel(), w: Math.round(find("tb-title-in").calculatedWidth) };
+        const ty = text.calculatedY + text.calculatedHeight / 2;
+        a.pointerDown(text.calculatedX + text.calculatedWidth / 2, ty, false, 1);
+        a.pointerUp();
+        out.caret = caretH();
+        out.none = sel()?.w;
+        a.pointerDown(text.calculatedX + 4, ty, false, 1);
+        a.pointerMove(text.calculatedX + text.calculatedWidth / 2, ty);
+        a.pointerUp();
+        out.dragged = sel()?.w;
+        a.chord("a");
+        out.again = sel()?.w;
+        out.wAfter = Math.round(find("tb-title-in").calculatedWidth);
+        a.key("escape", false, false);
+        return out;
+      }, findJs);
+      check("…the name's field shows its selection and caret: all picked at first, a caret where pressed, a drag's band, Ctrl+A all again, its width kept", tf.editing && tf.all?.w > 20 && tf.all?.h > 10 && tf.caret > 10 && tf.none === 0 && tf.dragged > 10 && tf.dragged < tf.all.w && tf.again === tf.all.w && tf.wAfter === tf.w, JSON.stringify(tf));
+      await tctx.close();
+    }
+
     // Rooms' "+": the room's window (name, description), Enter makes the
     // room (this browser's, web/rooms.js), first after the built-in ones.
     // A page of its own, with a deck kept in this browser.
@@ -2302,11 +2557,14 @@ try {
     // General's list (open from the step before) has a "+" too: Playground's first
     await until(() => window.__app.toolbar.roomOpen === "playground");
     await pageHas("tb-roomdeck-new");
+    const chatUp = await until(() => window.__app.roomChatOpen());
     await R(`t("tb-roomdeck-new");`);
     const newWin = await until(() => window.__app.chart.isOpen && window.__app.chart.mode === "newdeck" && window.__app.chart.ndAsk === "");
     await R(`a.text("Fresh deck"); a.key("enter", false, false);`);
     const inPlay = await until(() => { try { return Object.values(JSON.parse(localStorage.getItem("sliqtly.rooms")).placed).includes("playground"); } catch (_) { return false; } }, null, 20000);
-    check("…a room's + Add new presentation makes the new deck in that room", newWin && inPlay, JSON.stringify({ newWin, inPlay }));
+    // the room's chat was over the work area: the new deck shows instead
+    const chatGone = await until(() => !window.__app.roomChatOpen());
+    check("…a room's + Add new presentation makes the new deck in that room and shows it, not the room's chat", newWin && inPlay && chatUp && chatGone, JSON.stringify({ newWin, inPlay, chatUp, chatGone }));
     // the search row: a field whose text lists the rooms found
     await rp.evaluate((findJs) => {
       const a = window.__app;

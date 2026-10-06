@@ -80,6 +80,17 @@ class PresHintPopover {
     def looks:[string]
     def look:string ""
     def wantsLook:string ""
+    ; a list layout's fence: the theme's figure colours, the one being
+    ; picked (-1: none), and the list to write into the theme
+    def figure:boolean false
+    def figColors:[string]
+    def figSel:int -1
+    def wantsFigColors:string ""
+    ; the pipette was pressed: the page samples a colour (pickedColor)
+    def wantsPick:boolean false
+    ; pressed in since it opened: it stays (pinned) until a press outside it,
+    ; so the pointer can go to the slide (to look, or to sample a colour)
+    def engaged:boolean false
     def hasRange:boolean false
     def rmin:double 0.0
     def rmax:double 100.0
@@ -127,6 +138,7 @@ class PresHintPopover {
     def valueEl:EVGElement (EVGElement.createSpan())
 
     Constructor () {
+        cp.eyeOn = true
     }
 
     ; --- opening ------------------------------------------------------------------
@@ -194,6 +206,19 @@ class PresHintPopover {
         looks = lk
         look = (j.stringOr("look" "holo"))
         wantsLook = ""
+        engaged = false
+        wantsPick = false
+        figure = (j.boolOr("figure" false))
+        def fcs:[string]
+        def fv:VlJson (j.get("figColors"))
+        i = 0
+        while (i < (fv.count())) {
+            push fcs ((fv.at(i)).asString())
+            i = (i + 1)
+        }
+        figColors = fcs
+        figSel = -1
+        wantsFigColors = ""
         hasRange = ((j.has("min")) && (j.has("max")))
         rmin = (j.doubleOr("min" 0.0))
         rmax = (j.doubleOr("max" 100.0))
@@ -425,6 +450,39 @@ class PresHintPopover {
                 i = (i + 1)
             }
             card.addChild(chips)
+        }
+        if figure {
+            card.addChild((this.words("hp-label" (PresI18n.t("Figure colors")))))
+            def fc:EVGElement (this.div("hp-chips"))
+            def fi0:int 0
+            while (fi0 < (array_length figColors)) {
+                def hex:string (itemAt figColors fi0)
+                ; every chip as wide as the widest label: a label that
+                ; changes while the colour is dragged moves nothing
+                def b:ButtonCtl (this.button(("hp-fcol-" + (to_string fi0)) (to_uppercase hex) "secondary" fc))
+                def r:EVGElement (unwrap b.rootEl)
+                UiTree.addClass(r "hp-fcolor")
+                UiTree.inline(r "background-color" hex)
+                if ((r.getChildCount()) > 0) {
+                    UiTree.inline((r.getChild(0)) "color" (PresHintPopover.inkOn(hex)))
+                }
+                if (fi0 == figSel) {
+                    UiTree.addClass(r "hp-fsel")
+                }
+                fi0 = (fi0 + 1)
+            }
+            this.button("hp-fadd" "+" "secondary" fc)
+            card.addChild(fc)
+            if (figSel >= 0) {
+                card.addChild((cp.panel(picker)))
+                push host.ctls picker
+                if ((array_length figColors) > 1) {
+                    def ff:EVGElement (this.div("hp-foot"))
+                    ff.addChild((this.div("hp-grow")))
+                    this.button("hp-fdel" (PresI18n.t("Remove color")) "danger" ff)
+                    card.addChild(ff)
+                }
+            }
         }
         ; any of the words together: each chip turns its word on or off
         if (kind == "flags") {
@@ -766,7 +824,7 @@ class PresHintPopover {
             c.overlayY = top
             lay.layout(pg)
         }
-        if (kind == "color") {
+        if ((kind == "color") || (figSel >= 0)) {
             cp.placeThumbs(pg picker)
         }
         ; the fields (the number, the emoji search) draw their caret and
@@ -869,6 +927,7 @@ class PresHintPopover {
     ; `clicks` is the page's count (2 a double click, 3 a triple) and `shift`
     ; extends a field's selection.
     fn press:void (px:double py:double clicks:int shift:boolean) {
+        engaged = true
         if (null? host.lastPage) {
             this.page()
         }
@@ -903,18 +962,21 @@ class PresHintPopover {
             def owner:UiCtl (unwrap maybe)
             ctlTid = owner.tid
         }
-        if ((kind == "color") && (ctlTid == picker.tid)) {
+        if (((kind == "color") || (figSel >= 0)) && (ctlTid == picker.tid)) {
             def what:string (cp.press((unwrap host.lastPage) picker tid px py clicks shift))
             if (((what == "sv") || (what == "hue")) || (what == "alpha")) {
                 dragPart = what
-                this.write((picker.hex()))
+                this.takeColor((picker.hex()))
             }
             ; a press in one of its fields: a drag from there selects
             if ((what == "field") && ((strlen cp.focused) > 0)) {
                 dragPart = "field"
             }
             if (what == "changed") {
-                this.write((picker.hex()))
+                this.takeColor((picker.hex()))
+            }
+            if picker.picking {
+                wantsPick = true
             }
             this.rebuild()
             return
@@ -938,6 +1000,46 @@ class PresHintPopover {
             return
         }
         this.leaveField()
+        if ((indexOf ctlTid "hp-fcol-") == 0) {
+            def ci:int (?? (str2int (substring ctlTid 8 (strlen ctlTid))) -1)
+            if ((ci >= 0) && (ci < (array_length figColors))) {
+                if (ci == figSel) {
+                    figSel = -1
+                } {
+                    this.pickFigColor(ci)
+                }
+                this.rebuild()
+            }
+            return
+        }
+        if (ctlTid == "hp-fadd") {
+            def last:string "#888888"
+            if ((array_length figColors) > 0) {
+                last = (itemAt figColors ((array_length figColors) - 1))
+            }
+            push figColors last
+            this.sendFigColors()
+            this.pickFigColor(((array_length figColors) - 1))
+            this.rebuild()
+            return
+        }
+        if (ctlTid == "hp-fdel") {
+            if ((figSel >= 0) && ((array_length figColors) > 1)) {
+                def kept:[string]
+                def k:int 0
+                while (k < (array_length figColors)) {
+                    if (k != figSel) {
+                        push kept (itemAt figColors k)
+                    }
+                    k = (k + 1)
+                }
+                figColors = kept
+                figSel = -1
+                this.sendFigColors()
+                this.rebuild()
+            }
+            return
+        }
         if ((indexOf ctlTid "hp-look-") == 0) {
             def li:int (?? (str2int (substring ctlTid 8 (strlen ctlTid))) -1)
             if ((li >= 0) && (li < (array_length looks))) {
@@ -1012,6 +1114,76 @@ class PresHintPopover {
         }
     }
 
+    ; The pipette's colour from the page ("" when it was called off).
+    fn pickedColor:void (hex:string) {
+        wantsPick = false
+        if ((strlen hex) == 0) {
+            picker.pickCancel()
+        } {
+            if (picker.pickResult(hex)) {
+                this.takeColor((picker.hex()))
+            }
+        }
+        this.rebuild()
+    }
+
+    ; A colour from the picker: the value's text, or the figure colour picked.
+    fn takeColor:void (hex:string) {
+        if ((kind != "color") && (figSel >= 0) && (figSel < (array_length figColors))) {
+            set figColors figSel hex
+            this.sendFigColors()
+            return
+        }
+        this.write(hex)
+    }
+
+    fn sendFigColors:void () {
+        wantsFigColors = (join figColors " ")
+        rev = (rev + 1)
+    }
+
+    fn pickFigColor:void (i:int) {
+        figSel = i
+        def fresh (new ColorPickerCtl())
+        picker = fresh
+        def start0:string (itemAt figColors i)
+        if ((PresHintPopover.isHex(start0)) == false) {
+            start0 = "#888888"
+        }
+        picker.setup("hp-cp" (PresI18n.t("Color")) start0 true)
+        picker.inline = true
+        cp.focused = ""
+    }
+
+    sfn nib:int (c:int) {
+        if ((c >= 48) && (c <= 57)) {
+            return (c - 48)
+        }
+        if ((c >= 97) && (c <= 102)) {
+            return (c - 87)
+        }
+        if ((c >= 65) && (c <= 70)) {
+            return (c - 55)
+        }
+        return 8
+    }
+
+    ; Dark or light words on a colour.
+    sfn inkOn:string (hex0:string) {
+        def hex:string (trim hex0)
+        if (((strlen hex) < 7) || ((charAt hex 0) != 35)) {
+            return "#18181b"
+        }
+        def r:int (((PresHintPopover.nib((charAt hex 1))) * 16) + (PresHintPopover.nib((charAt hex 2))))
+        def g:int (((PresHintPopover.nib((charAt hex 3))) * 16) + (PresHintPopover.nib((charAt hex 4))))
+        def b:int (((PresHintPopover.nib((charAt hex 5))) * 16) + (PresHintPopover.nib((charAt hex 6))))
+        def y:double ((((to_double r) * 0.299) + ((to_double g) * 0.587)) + ((to_double b) * 0.114))
+        if (y > 150.0) {
+            return "#18181b"
+        }
+        return "#ffffff"
+    }
+
     fn leaveField:void () {
         if fieldOn {
             fieldOn = false
@@ -1065,7 +1237,7 @@ class PresHintPopover {
         }
         if ((strlen dragPart) > 0) {
             cp.dragAt((unwrap host.lastPage) picker dragPart px py)
-            this.write((picker.hex()))
+            this.takeColor((picker.hex()))
             this.rebuild()
             this.page()
             return
@@ -1196,7 +1368,7 @@ class PresHintPopover {
         if ((strlen cp.focused) > 0) {
             if ((strlen k) > 0) {
                 cp.keyWith(picker k shift ctrl)
-                this.write((picker.hex()))
+                this.takeColor((picker.hex()))
                 this.rebuild()
             }
             return true
@@ -1229,7 +1401,7 @@ class PresHintPopover {
                 cp.type(picker (substring s i (i + 1)))
                 i = (i + 1)
             }
-            this.write((picker.hex()))
+            this.takeColor((picker.hex()))
             this.rebuild()
             return
         }

@@ -30,8 +30,9 @@ import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
-import { parseRooms, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING } from "./rooms.js";
+import { emptyRooms, parseRooms, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
+import { RoomChat } from "./roomchat.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
@@ -201,6 +202,10 @@ function resize() {
   dropThumbs();
   needsPaint = true;
 }
+
+// A drawing made on a slide (drawings/*.ink, src/PresSketch.rgr): JSON, kept
+// as text and handed to the slides as a text file is.
+const SKETCH_TYPE = "application/vnd.sliqtly.ink+json";
 
 // --- pictures -------------------------------------------------------------------
 const pictures = new Map();
@@ -670,6 +675,10 @@ const pending = new Map();
 // A shared presentation opened to read: its files, which nothing saves
 const readFiles = new Map();
 let savedText = null;
+// the editor's change count (app.mdVersion) when its text was last found
+// equal to savedText: the 1.5 s check reads the whole text only when it
+// moved. -1 whenever savedText is set from elsewhere.
+let savedVersion = -1;
 let savedCss = null;
 let savedTheme = null;
 let saving = null;
@@ -703,6 +712,7 @@ function beginDoc(text) {
   pending.clear();
   readFiles.clear();
   savedText = null;
+  savedVersion = -1;
   savedCss = null;
   for (const k of Object.keys(editedCss)) delete editedCss[k];
   chartFiles.clear();
@@ -726,12 +736,15 @@ const ROOMS_KEY = "sliqtly.rooms";
 let roomShown = "";
 // the room whose "+ Add new presentation" opened File → New's window
 let roomForNew = "";
-let roomsHere = parseRooms(null);
+let roomChatOne = null;
+let roomsHere = emptyRooms();
 try { roomsHere = parseRooms(localStorage.getItem(ROOMS_KEY)); } catch (_) { /* none kept */ }
 function shownDoc(text, quiet = false) {
   app.setSource(text);
   doc.loading = false;
   if (!viewer && !quiet) showDeckTab();
+  // a room's chat over the work area steps aside for the presentation opened
+  if (roomChatOne) roomChatOne.close();
   loadReview(false).catch((e) => console.warn("review comments not read", e));
   loadRecording().catch((e) => console.warn("recording not read", e));
   // the Rooms panel marks the presentation now open
@@ -917,6 +930,7 @@ window.__liveSheets = liveSheets;
 window.__saveWorkbook = (path, raw) => saveWorkbook(path, raw);
 // for check:web: what the document keeps as files
 window.__docFiles = () => docFiles().then((fs) => fs.map((f) => f.path));
+window.__docFile = (path) => readDocFile(path);
 
 async function docFiles() {
   const out = new Map();
@@ -941,10 +955,16 @@ async function saveDoc(force) {
 
 async function saveDocNow(force) {
   if (merging || doc.loading) return;
-  const md = app.source();
   const key = themeSel.value || "";
   const css = key in editedCss ? editedCss[key] : null;
-  if (md === savedText && css === savedCss && key === savedTheme && !force) return;
+  const version = app.mdVersion();
+  const same = css === savedCss && key === savedTheme;
+  if (same && version === savedVersion && !force) return;
+  const md = app.source();
+  if (md === savedText && same && !force) {
+    savedVersion = version;
+    return;
+  }
   // a deck as it was opened is not kept until someone changes it (a shared
   // deck opens with its own CSS: that is as opened too), nor an empty one
   if (!doc.persisted && !force && ((md === doc.openedText && css === doc.openedCss) || !md.trim())) return;
@@ -965,6 +985,7 @@ async function saveDocNow(force) {
     }
     updateDeckTab();
     savedText = md;
+    savedVersion = version;
     savedCss = css;
     savedTheme = key;
     try { localStorage.setItem("evgp.doc", doc.id); } catch (_) { /* the next start opens a sample */ }
@@ -1086,6 +1107,11 @@ async function currentRoomId() {
 }
 // the search field's text while it is open (null: the rooms one is active in)
 let roomsQuery = null;
+// a room made, renamed, archived or removed, or a deck moved, by anyone:
+// the server says so on the page's stream, and the list is read again
+window.addEventListener("sliqtly:chat", (ev) => {
+  if ((ev.detail?.t === "rooms" || ev.detail?.t === "reopen") && ownServer()) roomsRequest("room:list").then(() => { needsPaint = true; }, () => {});
+});
 async function roomsRequest(r) {
   const [, action, ...rest] = r.split(":");
   const what = rest.join(":");
@@ -1108,7 +1134,7 @@ async function roomsRequest(r) {
     const rows = rooms.map((x) => [x.room_id, clean(x.title) + (x.archived ? " (" + t("archived") + ")" : ""), x.presentations ?? ""].join("\t"));
     app.setToolbarOptions("roomsearch", "", t("Search rooms…") + (hidden ? " (" + hidden + t(" more") + ")" : ""));
     app.setToolbarOptions("rooms", rows.join("\n"), roomShown);
-    if (roomShown && rooms.some((x) => x.room_id === roomShown)) await roomsRequest("room:open:" + roomShown);
+    if (roomShown && rooms.some((x) => x.room_id === roomShown)) await roomsRequest("room:decks:" + roomShown);
     else app.setToolbarOptions("roomdecks", "", roomShown);
   } else if (action === "search") {
     roomsQuery = what;
@@ -1126,6 +1152,7 @@ async function roomsRequest(r) {
       keepRooms(touchRoom(roomsHere, id));
     }
     await roomsRequest("room:list");
+    if (id) await roomChat().open(id);
   } else if (action === "drop" || action === "tabdrop") {
     // a presentation dragged from the open room, or a deck's tab, onto a
     // room: Move, Copy or Cancel (a sample is only copied)
@@ -1200,7 +1227,9 @@ async function roomsRequest(r) {
     if (ownServer()) await roomsCall("move_presentation", { deck_id: deck.replace(/^cloud:/, ""), room_id: room });
     else if (!deck.startsWith("sample:")) keepRooms(touchRoom(moveDeck(roomsHere, deck, room), room));
     await roomsRequest("room:list");
-  } else if (action === "open") {
+  } else if (action === "open" || action === "decks") {
+    // a room pressed opens its chat (web/roomchat.js); the list shown again
+    // ("decks") only lists its presentations
     roomShown = what;
     keepRooms(touchRoom(roomsHere, roomShown));
     const rows = await roomRows(roomShown);
@@ -1209,7 +1238,9 @@ async function roomsRequest(r) {
       addNew: roomShown === ONBOARDING ? "" : "+ " + t("Add new presentation"),
     });
     app.setToolbarOptions("roomdecks", lines, roomShown);
+    if (action === "open") await roomChat().open(roomShown);
   } else if (action === "deck") {
+    roomChat().close();
     if (what.startsWith("sample:")) await openSample(what.slice(7));
     else await fileRequest("doc:" + what);
     await roomsRequest("room:list");
@@ -1248,6 +1279,69 @@ async function roomsRequest(r) {
   }
   needsPaint = true;
 }
+// A room's chat (web/roomchat.js): made the first time a room is opened
+// (roomChatOne, declared with the Rooms panel's state above).
+function roomChat() {
+  if (roomChatOne) return roomChatOne;
+  let store = null;
+  try { store = localStorage; } catch (_) { store = { getItem: () => null, setItem: () => {} }; }
+  roomChatOne = new RoomChat({
+    app, store, t, toast, ownServer,
+    name: shownName(),
+    call: roomsCall,
+    now: () => Date.now(),
+    zone: () => -new Date().getTimezoneOffset(),
+    rooms: () => roomsList({ archived: true }),
+    roomsChanged: () => roomsRequest("room:list"),
+    openLink: (u) => { if (/^https?:\/\//i.test(u)) window.open(u, "_blank", "noopener"); },
+    openDeck: async (deck, slide) => {
+      await roomsRequest("room:deck:cloud:" + deck);
+      if (slide > 0) app.selectSlide(slide - 1);
+      needsPaint = true;
+    },
+    openRoom: (id) => roomsRequest("room:pick:" + id),
+    copy: async (s) => {
+      const ok = await writeClip(s);
+      toast(ok ? t("Copied") : t("Could not copy"));
+    },
+    paint: () => { needsPaint = true; },
+    put: async (path, body, type) => {
+      const res = await fetch(path, { method: "PUT", headers: { "Content-Type": type }, body });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(out.error || res.status);
+      return out;
+    },
+    // the picker now, while the press still counts as one
+    pickFiles: () => new Promise((resolve) => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.multiple = true;
+      input.hidden = true;
+      const done = (files) => { input.remove(); resolve(files); };
+      input.addEventListener("change", () => done([...(input.files || [])]));
+      input.addEventListener("cancel", () => done([]));
+      document.body.append(input);
+      input.click();
+    }),
+    sizeOf: async (file) => {
+      const p = await decodePicture(new Uint8Array(await file.arrayBuffer()), file.type, file.name);
+      return { w: p.img.width, h: p.img.height };
+    },
+    deckName: async (id) => {
+      const res = await fetch("/api/shares/" + encodeURIComponent(id));
+      return res.ok ? (await res.json()).name || "" : "";
+    },
+    load: async (src) => {
+      const res = await fetch(src);
+      if (!res.ok) throw new Error(res.status);
+      const type = res.headers.get("Content-Type") || "image/png";
+      return (await decodePicture(new Uint8Array(await res.arrayBuffer()), type, src)).img;
+    },
+  });
+  window.addEventListener("sliqtly:chat", (ev) => { roomChatOne.event(ev.detail).catch(() => {}); });
+  return roomChatOne;
+}
+
 // The name edited at the start of the bar: the deck's title (front matter
 // `title:`, else its first heading) rewritten, as one edit that undoes, and
 // the open presentations' tab follows.
@@ -1555,6 +1649,7 @@ async function openDocNow(id) {
   docName = d.name || "presentation";
   shownDoc(d.md);
   savedText = d.md;
+  savedVersion = -1;
   savedCss = d.css == null ? null : d.css;
   savedTheme = d.theme || "";
   try { localStorage.setItem("evgp.doc", doc.id); } catch (_) { /* fine */ }
@@ -1678,8 +1773,19 @@ async function refreshFiles() {
   try {
     const all = await docFiles();
     const again = await retraceable(all);
+    const take = all.find((f) => f.path === REC_JSON);
     const files = all
+      // the recording is one row (its sound goes with it)
+      .filter((f) => !(take && f.path.startsWith("recordings/take.") && f.path !== REC_JSON))
       .map((f) => {
+        if (f === take) {
+          const audio = all.find((x) => x.path === app.recordingAudio());
+          return {
+            path: f.path, kind: "recording", title: t("Recording"),
+            size: (f.size || 0) + (audio ? audio.size || 0 : 0),
+            note: clockText(app.recordingPlayLength()) + " · " + (audio ? t("with voice") : t("no sound")),
+          };
+        }
         const row = { path: f.path, size: f.size == null ? -1 : f.size, kind: kindOf(f.path, f.type) };
         // a copy kept of a linked source: named after it, with where and when it was read
         if (f.path.startsWith("data/live/")) {
@@ -2015,6 +2121,12 @@ async function fileRequest(r) {
     if (isSvg("", what)) await retraceSvg(what);
     else await openImageEditor(what);
     return;
+  } else if (action === "recplay") {
+    if (app.hasRecording()) app.replayStart(0);
+  } else if (action === "recedit") {
+    app.recEditOpen(true);
+  } else if (action === "del" && what === REC_JSON) {
+    await deleteRecording();
   } else if (action === "del") {
     pending.delete(what);
     if (doc.persisted) await vfs.deleteFile(doc.id, what);
@@ -2084,6 +2196,10 @@ async function deleteFiles(paths) {
     if (path.startsWith("data/live/")) liveCopies.delete(path);
     if (app.openFilePath() === path) app.closeFile();
   }
+  if (paths.includes(REC_JSON)) {
+    await dropTakeFiles([]);
+    app.dropRecording();
+  }
   cloudSoon();
   dropThumbs();
   toast(paths.length === 1 ? t("Deleted 1 file.") : t("Deleted ") + paths.length + t(" files."));
@@ -2152,7 +2268,6 @@ try { autoContrast = localStorage.getItem("sliqtly.autoContrast") !== "off"; } c
 // assistant through MCP) is united with this one, not put in its place.
 const REVIEW_PATH = "review/comments.json";
 const REVIEW_KEY = "sliqtly.review";
-const REVIEW_COLOR_KEY = "sliqtly.reviewColor";
 function reviewChoice() {
   try { return localStorage.getItem(REVIEW_KEY); } catch (_) { return null; }
 }
@@ -2509,7 +2624,7 @@ function paintOnce() {
   // menu, the toast. A press goes to them in the same order, top first.
   const paintList = (j, images, at) => {
     if (!j) return;
-    const doc = JSON.parse(j);
+    const doc = typeof j === "string" ? JSON.parse(j) : j;
     doc.width = W;
     doc.height = H;
     const f = prepareDisplayList(gl, doc, images ? { dpr, images } : { dpr });
@@ -2522,6 +2637,16 @@ function paintOnce() {
   for (const layer of app.layerOrder().split(",")) {
     if (layer === "bar") {
       if (canvasBar) paintBar();
+    } else if (layer === "sketch") {
+      paintList(app.sketchJson());
+    } else if (layer === "room") {
+      // the channel's pictures (attached ones, embedded slides) as they load
+      const j = app.roomJson();
+      if (j && roomChatOne) {
+        const d = JSON.parse(j);
+        roomChatOne.want((d.list?.cmds || []).filter((c) => c.k === 2 && c.src).map((c) => c.src));
+        paintList(d, roomChatOne.pictures);
+      } else paintList(j);
     } else if (layer === "review") {
       paintList(app.reviewJson());
     } else if (layer === "hint") {
@@ -3343,6 +3468,9 @@ function handleRequests() {
       });
     } else if (r === "about") {
       openAbout().catch(fail);
+    } else if (r === "help-guide") {
+      app.openHelpTab("guide");
+      needsPaint = true;
     } else if (r === "settings") {
       app.openSettings(autoContrast);
       needsPaint = true;
@@ -3354,10 +3482,6 @@ function handleRequests() {
     } else if (r.startsWith("setting:review:")) {
       try { localStorage.setItem(REVIEW_KEY, r.endsWith(":on") ? "on" : "off"); } catch (_) { /* this session only */ }
       applyReviewMode();
-    } else if (r.startsWith("setting:reviewcolor:")) {
-      const c = r.slice("setting:reviewcolor:".length);
-      try { localStorage.setItem(REVIEW_COLOR_KEY, c); } catch (_) { /* this session only */ }
-      app.reviewColor(c);
     } else if (r === "review-save") {
       keepReview().catch(fail);
     } else if (r === "confirm:zip") {
@@ -3372,6 +3496,8 @@ function handleRequests() {
       setSkinHue(parseInt(r.slice("setting:skinhue:".length), 10));
     } else if (r.startsWith("room:")) {
       roomsRequest(r).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+    } else if (r.startsWith("roomchat:")) {
+      roomChat().request(r.slice(9)).catch((e) => toast(t("Chat: ") + (e.message || e)));
     } else if (r.startsWith("title:")) {
       renameDeck(r.slice(6));
     } else if (r === "rail:review") {
@@ -3418,6 +3544,12 @@ function handleRequests() {
     } else if (r === "deck:tabs") {
       keepTabs();
       needsPaint = true;
+    } else if (r.startsWith("sketch-file:")) {
+      // a drawing made on a slide (PresSketch): its file, written again
+      const path = bare(r.slice(12));
+      const text = app.sketchFileBody(path);
+      keepFile({ path, type: SKETCH_TYPE, size: text.length, data: text }).catch(fail);
+      dropThumbs();
     } else if (r.startsWith("chart-file:")) {
       const path = bare(r.slice(11));
       const text = app.chartFileBody();
@@ -4066,6 +4198,11 @@ async function openOwnCloudNow(id) {
   docName = shared.name || "presentation";
   shownDoc(shared.md || "");
   doc.cloud = id;
+  // on a server of one's own the rooms panel shows the deck's room
+  if (ownServer() && shared.room) {
+    roomShown = shared.room;
+    keepRooms(touchRoom(roomsHere, shared.room));
+  }
   doc.cloudMd = shared.md || "";
   doc.cloudCss = shared.css ?? null;
   doc.cloudTheme = shared.theme || "";
@@ -4220,6 +4357,7 @@ async function takeLocal() {
   const mergedHere = await takeCopy(base, theirs, "tab");
   // the record is what this one stands on now
   savedText = theirs.md;
+  savedVersion = -1;
   savedCss = theirs.css;
   savedTheme = theirs.theme;
   if (cur.cloud) doc.cloud = cur.cloud;
@@ -4798,6 +4936,49 @@ document.getElementById("viewBar").addEventListener("click", (ev) => {
   if (viewer || isCoarse() || ev.target === vCount || ev.target.closest?.("#vGo, #vMore, #vMenu")) return;
   if (ev.target.closest?.("button")) keys.focus({ preventScroll: true });
 });
+// Tips: what a button does, in words, shortly after the pointer rests on
+// it (the browser's own title tip comes late and small). The presenting
+// bar's buttons say their title; on the canvas the app says (app.tipAt:
+// review mode's bar and pins). One tip at a time, above what it is about.
+const tipEl = document.getElementById("tip");
+let tipTimer = 0, tipText = "", tipFor = null;
+function showTip(text, x, top, owner) {
+  if (text === tipText && owner === tipFor) return;
+  hideTip();
+  if (!text) return;
+  tipText = text;
+  tipFor = owner;
+  tipTimer = setTimeout(() => {
+    tipEl.textContent = text;
+    tipEl.hidden = false;
+    const w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+    const left = Math.max(8, Math.min(window.innerWidth - w - 8, x - w / 2));
+    tipEl.style.left = left + "px";
+    tipEl.style.top = Math.max(8, top - h - 8) + "px";
+  }, 350);
+}
+function hideTip() {
+  clearTimeout(tipTimer);
+  tipEl.hidden = true;
+  tipText = "";
+  tipFor = null;
+}
+for (const b of document.querySelectorAll("#viewBar > button")) {
+  // the title moves to data-tip while the tip shows, so the browser's own
+  // does not show over it
+  b.addEventListener("pointerenter", (ev) => {
+    if (ev.pointerType !== "mouse") return;
+    const t = b.getAttribute("title") || b.dataset.tip || "";
+    if (b.hasAttribute("title")) { b.dataset.tip = t; b.removeAttribute("title"); }
+    const r = b.getBoundingClientRect();
+    showTip(t, r.left + r.width / 2, r.top, b);
+  });
+  b.addEventListener("pointerleave", () => {
+    if (b.dataset.tip && !b.hasAttribute("title")) b.setAttribute("title", b.dataset.tip);
+    if (tipFor === b) hideTip();
+  });
+  b.addEventListener("click", () => { if (tipFor === b) hideTip(); });
+}
 vGo.addEventListener("keydown", (ev) => {
   if (ev.key === "Enter") {
     ev.preventDefault();
@@ -4825,8 +5006,8 @@ window.__goTo = { open: openGoTo, close: closeGoTo, label: () => vCount.textCont
 // Voice. The bar while recording: the red time (pressed: stop) and pause;
 // while playing: back, pause, on, the time (pressed: stop).
 const REC_JSON = "recordings/take.json";
-const PEN_TOOLS = ["pen", "arrow", "line", "ellipse"];
-const PEN_ICONS = { pen: "〰", arrow: "↗", line: "╱", ellipse: "◯" };
+const PEN_TOOLS = ["pen", "arrow", "line", "ellipse", "text"];
+const PEN_ICONS = { pen: "〰", arrow: "↗", line: "╱", ellipse: "◯", text: "Aa" };
 const PEN_COLORS = ["#ef4444", "#facc15", "#22c55e", "#3b82f6", "#ffffff", "#111111"];
 let voiceRec = null;
 let player = null;
@@ -4850,18 +5031,113 @@ async function loadRecording() {
   needsPaint = true;
 }
 
-async function startVoice() {
+// Record asks first: with the voice or without (PresApp "confirm:recstart",
+// ":alt" without). With it the microphone is asked for before anything runs;
+// then 3, 2, 1 (Esc cancels) and the presentation starts recording.
+let recReady = null;
+let recCounting = null;
+const recCount = document.getElementById("recCount");
+const recCountN = document.getElementById("recCountN");
+async function prepareRecording(withVoice) {
   const r = new VoiceRecorder();
-  voiceRec = r;
-  document.body.classList.add("recording");
-  try {
-    await r.start();
-  } catch (e) {
-    console.warn("no microphone", e);
-    r.startSilent();
-    toast(t("No microphone: the presentation is recorded without sound."));
+  if (withVoice) {
+    // The microphone first, before full screen: a permission question
+    // asked while the page goes full screen can be dismissed by the switch,
+    // which the page sees as NotAllowedError.
+    try {
+      await r.open();
+    } catch (e) {
+      console.warn("no microphone", e);
+      // asked, not recorded silently: the voice was what was chosen
+      app.openConfirm("recnomic", t("The microphone is not available"), await micHelp(e), t("Record without voice"));
+      needsPaint = true;
+      return;
+    }
   }
-  // left before the microphone answered
+  // full screen while the press that chose still counts as one (at once
+  // when the microphone was already allowed)
+  if (!viewer && document.documentElement.requestFullscreen && !document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
+  if (!(await countDown())) {
+    r.close();
+    return;
+  }
+  recReady = r;
+  app.record();
+  if (!app.isRecording()) {
+    // nothing to present (no slides): the microphone is let go
+    recReady = null;
+    r.close();
+  }
+  handleRequests();
+  needsPaint = true;
+}
+
+// Why the microphone was refused, and where to allow it: this site blocked
+// in the browser, the browser blocked by the system (macOS: System Settings
+// → Privacy & Security → Microphone), no microphone, or one in use.
+async function micHelp(e) {
+  const name = (e && e.name) || "";
+  const msg = (e && e.message) || "";
+  let state = "";
+  try { state = (await navigator.permissions.query({ name: "microphone" })).state; } catch (_) { /* not asked */ }
+  if (!navigator.mediaDevices || !window.isSecureContext) {
+    return t("The browser allows the microphone only on https:// or localhost addresses. Open Sliqtly through one of them.");
+  }
+  if (name === "NotFoundError" || name === "OverconstrainedError") {
+    return t("No microphone was found. Connect one and try again.");
+  }
+  if (name === "NotReadableError" || name === "AbortError") {
+    return t("The microphone is in use by another program, or the system did not let the browser open it. Close the other program and try again.");
+  }
+  if (state === "denied") {
+    return t("This site is blocked from the microphone. Click the icon left of the address (the lock or the settings icon), set Microphone to Allow, reload the page and record again.");
+  }
+  if (/system/i.test(msg)) {
+    return t("The operating system blocks the browser from the microphone. On a Mac: System Settings → Privacy & Security → Microphone, turn your browser on and restart it.");
+  }
+  return t("The browser did not give the microphone (") + (msg || name) + t("). If it asked, choose Allow; otherwise click the icon left of the address, set Microphone to Allow and record again.");
+}
+
+// 3, 2, 1 over the page; false when Esc (or a press on it) cancelled.
+function countDown() {
+  return new Promise((resolve) => {
+    let n = 3;
+    document.getElementById("recCountWords").textContent = t("Recording starts. Esc cancels.");
+    recCount.hidden = false;
+    const show = () => { recCountN.textContent = String(n); };
+    show();
+    const done = (ok) => {
+      clearInterval(timer);
+      recCount.hidden = true;
+      recCounting = null;
+      resolve(ok);
+    };
+    const timer = setInterval(() => {
+      n -= 1;
+      if (n <= 0) done(true);
+      else show();
+    }, 800);
+    recCounting = () => done(false);
+  });
+}
+recCount.addEventListener("pointerdown", (ev) => {
+  ev.preventDefault();
+  recCounting?.();
+});
+
+async function startVoice() {
+  const r = recReady || new VoiceRecorder();
+  recReady = null;
+  voiceRec = r;
+  recShownAt = performance.now();
+  document.body.classList.add("recording");
+  // shown at once, not when the canvas next paints
+  syncRecBadge(JSON.parse(app.inkState()));
+  await r.begin();
+  needsPaint = true;
+  // left before the recording began
   if (voiceRec !== r) await r.stop();
 }
 
@@ -4878,6 +5154,7 @@ async function finishRecording() {
   const r = voiceRec;
   voiceRec = null;
   document.body.classList.remove("recording", "recPaused");
+  syncRecBadge();
   if (!r) return;
   const { blob, ext, type } = await r.stop();
   let audio = "";
@@ -4890,7 +5167,8 @@ async function finishRecording() {
   await keepFile({ path: REC_JSON, type: "application/json", size: new Blob([text]).size, data: text });
   await dropTakeFiles([audio, REC_JSON]);
   app.loadRecording(text);
-  toast(t("Recording kept (") + clockText(app.recordingDuration()) + t("). Record ▸ Play recording plays it."));
+  toast(t("Recording kept (") + clockText(app.recordingDuration()) + t("). Play or edit it in Files or the Record menu."));
+  refreshFiles();
   needsPaint = true;
 }
 
@@ -4922,12 +5200,51 @@ async function keepVoice(v) {
 async function deleteRecording() {
   await dropTakeFiles([]);
   app.dropRecording();
+  cloudSoon();
   refreshFiles();
   toast(t("Recording deleted."));
 }
 
+// The take kept again after a cut (Edit recording).
+async function saveTake() {
+  if (!app.hasRecording()) return;
+  const text = app.recordingJson();
+  await keepFile({ path: REC_JSON, type: "application/json", size: new Blob([text]).size, data: text });
+  cloudSoon();
+}
+
+// The voice's loudness for Edit recording's timeline: the sound decoded
+// once, the loudest sample in each tenth of a second.
+async function recordingPeaks() {
+  const path = app.recordingAudio();
+  const blob = path ? await readDocFile(path) : null;
+  if (!blob) { app.setRecordingPeaks(""); return; }
+  const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const ctx = new Ctx(1, 1, 8000);
+  const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+  const data = buf.getChannelData(0);
+  const step = Math.max(1, Math.round(buf.sampleRate * 0.1));
+  const peaks = [];
+  let top = 0;
+  for (let i = 0; i < data.length; i += step) {
+    let m = 0;
+    const end = Math.min(data.length, i + step);
+    for (let j = i; j < end; j++) m = Math.max(m, Math.abs(data[j]));
+    peaks.push(m);
+    top = Math.max(top, m);
+  }
+  // quiet speech still shows: scaled to the loudest part
+  const k = top > 0 ? 1 / top : 0;
+  app.setRecordingPeaks(peaks.map((v) => (v * k).toFixed(2)).join(","));
+  needsPaint = true;
+}
+
 function recRequest(r) {
-  if (r === "record:start") startVoice().catch(fail);
+  if (r === "confirm:recstart") prepareRecording(true).catch(fail);
+  else if (r === "confirm:recstart:alt" || r === "confirm:recnomic") prepareRecording(false).catch(fail);
+  else if (r === "record:start") startVoice().catch(fail);
+  else if (r === "rec:save") saveTake().catch(fail);
+  else if (r === "rec:peaks") recordingPeaks().catch((e) => { console.warn("peaks", e); app.setRecordingPeaks(""); needsPaint = true; });
   else if (r === "record:stop") finishRecording().catch(fail);
   else if (r === "replay:start") startReplay().catch(fail);
   else if (r === "replay:stop") stopReplay();
@@ -4943,6 +5260,10 @@ function recRequest(r) {
 function recFrame() {
   if (voiceRec && app.isRecording()) app.recordTime(voiceRec.time());
   if (app.isReplaying() && player) {
+    // a part cut away (Edit recording) is jumped over
+    const at = player.time();
+    const past = app.recordingSkip(at);
+    if (past > at + 0.01) player.seek(past);
     app.replayAt(player.time());
     if (player.ended() && !player.paused) {
       app.replayStop();
@@ -4961,9 +5282,11 @@ function togglePause() {
   needsPaint = true;
 }
 
+// s seconds on or back in the recording as played (cuts left out)
 function seekBy(s) {
   if (!player) return;
-  player.seek(player.time() + s);
+  const p = app.recordingPlayTime(player.time()) + s;
+  player.seek(app.recordingSourceTime(Math.max(0, Math.min(app.recordingPlayLength(), p))));
   app.replayAt(player.time());
   needsPaint = true;
 }
@@ -4972,7 +5295,7 @@ let penShown = "";
 function syncRecBar() {
   if (!presentingNow()) return;
   const st = JSON.parse(app.inkState());
-  const sig = [st.on, st.tool, st.color, st.recording, st.replaying, st.strokes > 0, Math.floor(st.t), !!(voiceRec || player)?.paused, app.hasRecording()].join();
+  const sig = [st.on, st.tool, st.color, st.recording, st.replaying, st.strokes > 0, Math.floor(st.t), !!(voiceRec || player)?.paused, app.hasRecording(), st.typing, !!voiceRec].join();
   if (sig === penShown) return;
   penShown = sig;
   const drive = !st.replaying;
@@ -4988,9 +5311,42 @@ function syncRecBar() {
   const paused = !!(voiceRec || player)?.paused;
   vPause.textContent = paused ? "▶︎" : "⏸︎";
   vRec.hidden = !st.recording && !st.replaying;
-  vRec.textContent = st.recording ? "● " + clockText(st.t) + " ■" : clockText(st.t) + " / " + clockText(st.duration) + " ■";
+  vRec.textContent = st.recording ? "● " + clockText(st.t) + " ■" : clockText(app.recordingPlayTime(st.t)) + " / " + clockText(app.recordingPlayLength()) + " ■";
   vPlayRec.hidden = !app.hasRecording() || st.recording;
+  syncRecBadge(st);
 }
+
+// The badge at the top while recording: REC and the time, no sound when
+// recorded without, Pause and Stop, and what can be done (for the first
+// seconds, while paused and while writing).
+const recBadge = document.getElementById("recBadge");
+const recHint = document.getElementById("recHint");
+let recShownAt = 0;
+function syncRecBadge(st) {
+  const on = !!(st && st.recording && voiceRec);
+  recBadge.hidden = !on;
+  if (!on) return;
+  // paused by the user, not the clock before it has started
+  const paused = !!voiceRec.paused && voiceRec.clock.at >= 0;
+  document.getElementById("recTime").textContent = clockText(st.t);
+  document.getElementById("recMute").hidden = voiceRec.hasSound;
+  document.getElementById("recPauseBtn").textContent = paused ? t("▶ Go on") : t("⏸ Pause");
+  const fresh = performance.now() - recShownAt < 12000;
+  const hint = st.typing
+    ? t("Writing: Enter ends it, Shift+Enter a new line, Backspace deletes")
+    : paused ? t("Paused: nothing is recorded until you go on")
+    : st.tool === "text" ? t("Aa: click where to write, then type. ← → PageUp PageDown change slides.")
+    : fresh ? t("Draw with the mouse; the pen button's Aa writes text. ← → change slides. Esc stops.")
+    : "";
+  recHint.textContent = hint;
+  recHint.hidden = !hint;
+}
+document.getElementById("recPauseBtn").addEventListener("click", () => { togglePause(); keys.focus({ preventScroll: true }); });
+document.getElementById("recStopBtn").addEventListener("click", () => {
+  app.endPresent();
+  handleRequests();
+  needsPaint = true;
+});
 
 vPen.addEventListener("click", () => { app.setInk(vPen.getAttribute("aria-pressed") !== "true"); needsPaint = true; });
 vTool.addEventListener("click", () => {
@@ -5060,8 +5416,10 @@ function toggleViewMenu(open) {
     return;
   }
   document.getElementById("vEdit").hidden = !ownsShare();
+  document.getElementById("vSpeaker").setAttribute("aria-checked", String(app.speakerOn()));
+  document.getElementById("vAuto").setAttribute("aria-checked", String(app.autoOn()));
   wakeViewer();
-  vMenu.querySelector("button:not([hidden])").focus();
+  [...vMenu.querySelectorAll("button")].find((b) => b.offsetParent)?.focus();
 }
 window.addEventListener("sliqtly:user", () => { document.getElementById("vEdit").hidden = !ownsShare(); });
 function siteLink(url) {
@@ -5123,6 +5481,12 @@ vMenu.addEventListener("click", (ev) => {
   if (EXPORTS[act]) {
     if (framed) exportOnSite(act);
     else EXPORTS[act]().catch(fail);
+  } else if (act === "speaker") {
+    app.setSpeaker(!app.speakerOn());
+    needsPaint = true;
+  } else if (act === "auto") {
+    app.setAuto(!app.autoOn());
+    needsPaint = true;
   } else if (act === "new") createFromViewed();
   else if (act === "playrec") {
     app.replayFromSlide();
@@ -5348,7 +5712,7 @@ async function openFromShare() {
       enterViewer({ from: "share" });
       // changed while it opened: followed now
       if (shareMoved) followShare(id);
-    }
+    } else if (!own) notOwnerNotice(id, shared.owner || "");
     return true;
   } catch (e) {
     if (doc.loading) shownDoc(doc.openedText);
@@ -5356,6 +5720,43 @@ async function openFromShare() {
     toast(t("Could not open the shared presentation."));
     return false;
   }
+}
+
+// /s/{id}?edit of a deck that is not the signed-in user's own opens a copy:
+// nothing done here (text, comments) reaches the share, nor an assistant
+// reading it. Said plainly. Signed in, the user may still be its owner under
+// another Google account (an assistant's connector signed in with that one),
+// so switching is offered; once the owner is signed in, the deck itself opens.
+const SWITCH_FLAG = "sliqtly:switchFor";
+async function notOwnerNotice(id, owner) {
+  if (ownServer()) return;
+  const p = await pro();
+  if (typeof p.switchAccount !== "function") return;
+  const who = await Promise.race([p.signedIn(), new Promise((ok) => setTimeout(() => ok(null), 8000))]);
+  // its owner after all (the cloud copy did not open): not a copy to warn of
+  if (who && who.uid === owner) return;
+  // the owner signs in from here on (this question, or Sign in): theirs opens
+  window.addEventListener("sliqtly:user", () => {
+    const u = p.user?.();
+    if (u && owner && u.uid === owner && u.uid !== who?.uid) location.href = "/s/" + id + "?edit";
+  });
+  let asked = false;
+  try { asked = sessionStorage.getItem(SWITCH_FLAG) === id; sessionStorage.removeItem(SWITCH_FLAG); } catch (_) { /* ask */ }
+  if (!who || owner === "mcp" || !owner || asked) {
+    toast(t("You are editing a copy: changes and comments stay in your copy, and the shared presentation does not change."));
+    return;
+  }
+  // after the deck is drawn, so it shows behind the question
+  setTimeout(() => {
+    const q = t("This presentation belongs to another Sliqtly account than {account}. Your changes and comments go to your own copy, not to it, and an assistant reading it does not see them.\n\nIf it is yours under another Google account (for example the one the Claude connector signed in with), press OK and choose that account. Cancel keeps editing a copy.")
+      .replace("{account}", who.email || who.displayName || "");
+    if (!confirm(q)) {
+      toast(t("You are editing a copy: changes and comments stay in your copy, and the shared presentation does not change."));
+      return;
+    }
+    try { sessionStorage.setItem(SWITCH_FLAG, id); } catch (_) { /* asked again after a redirect */ }
+    p.switchAccount();
+  }, 400);
 }
 
 // A view of some slides: the share's Markdown with only the sections the
@@ -5613,6 +6014,11 @@ function afterInput() {
 }
 
 keys.addEventListener("keydown", (ev) => {
+  if (canvasPicking && ev.key === "Escape") {
+    ev.preventDefault();
+    endCanvasPick("");
+    return;
+  }
   if (ev.key === "F6") {
     ev.preventDefault();
     cycleRegion(ev.shiftKey);
@@ -5663,6 +6069,11 @@ keys.addEventListener("keydown", (ev) => {
   // A composition that ended without a compositionend (a dead key, an IME
   // cancelled by a click) must not leave typing switched off.
   if (!ev.isComposing && ev.keyCode !== 229) composing = false;
+  if (recCounting) {
+    ev.preventDefault();
+    if (ev.key === "Escape") recCounting();
+    return;
+  }
   const presenting = lastLayout && lastLayout.mode === "present";
   if (presenting && replayKey(ev)) return;
   if (ev.key === "F5") {
@@ -5688,19 +6099,21 @@ keys.addEventListener("keydown", (ev) => {
   }
   const special = KEY_MAP[ev.key];
   if (special) {
-    if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart") return;
+    if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart" && app.focusTarget() !== "room") return;
     if (app.key(special, ev.shiftKey, mod)) ev.preventDefault();
     else if (app.focusTarget() === "editor" || app.focusTarget() === "chart") ev.preventDefault();
     afterInput();
     return;
   }
   if (presenting) {
-    if ((ev.key === "r" || ev.key === "R") && !mod && !ev.altKey && !app.reviewHasKeys()) {
+    // with the text tool (Aa) letters write on the slide
+    const writing = app.inkWrites();
+    if ((ev.key === "r" || ev.key === "R") && !mod && !ev.altKey && !app.reviewHasKeys() && !writing) {
       ev.preventDefault();
       refreshLiveData();
       return;
     }
-    if (ev.key.length === 1) {
+    if (ev.key.length === 1 || (writing && !mod && [...ev.key].length === 1)) {
       ev.preventDefault();
       app.text(ev.key);
       afterInput();
@@ -5800,6 +6213,16 @@ keys.addEventListener("cut", (ev) => {
 keys.addEventListener("paste", (ev) => {
   ev.preventDefault();
   const items = ev.clipboardData ? [...ev.clipboardData.items] : [];
+  // while a room's chat is shown, files go with the message being written
+  // (into the room's files), text into its composer
+  if (app.roomTakesPaste()) {
+    const files = items.filter((it) => it.kind === "file").map((it) => it.getAsFile()).filter(Boolean);
+    if (files.length) {
+      roomChat().attach(files, app.roomChatInThread()).catch(fail);
+      needsPaint = true;
+      return;
+    }
+  }
   const picture = items.find((it) => it.kind === "file" && /^image\/(png|jpeg|gif|webp|svg\+xml)$/.test(it.type));
   if (picture) {
     const file = picture.getAsFile();
@@ -5840,8 +6263,48 @@ function pinchSpan() {
   return { d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, mx: (a[0] + b[0]) / 2, my: (a[1] + b[1]) / 2 };
 }
 
+// The colour card's pipette: the screen's own picker where the browser has
+// one (EyeDropper), else the next press on the page samples its pixel.
+let canvasPicking = false;
+// the release of the press that sampled: not a click on what is under it
+let pickRelease = false;
+
+function startColorPick() {
+  if (window.EyeDropper) {
+    new window.EyeDropper().open().then(
+      (r) => { app.hintPicked(r.sRGBHex || ""); afterInput(); },
+      () => { app.hintPicked(""); afterInput(); },
+    );
+    return;
+  }
+  canvasPicking = true;
+  canvas.style.cursor = "crosshair";
+}
+
+function endCanvasPick(hex) {
+  canvasPicking = false;
+  canvas.style.cursor = "";
+  app.hintPicked(hex);
+  afterInput();
+}
+
+function pixelAt(x, y) {
+  const r = canvas.getBoundingClientRect();
+  const px = Math.floor((x * canvas.width) / r.width);
+  const py = canvas.height - 1 - Math.floor((y * canvas.height) / r.height);
+  const out = new Uint8Array(4);
+  gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out);
+  return "#" + [out[0], out[1], out[2]].map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+
 canvas.addEventListener("pointerdown", (ev) => {
   const [x, y] = at(ev);
+  if (canvasPicking) {
+    ev.preventDefault();
+    pickRelease = true;
+    endCanvasPick(pixelAt(x, y));
+    return;
+  }
   const finger = ev.pointerType !== "mouse";
   if (finger) touches.set(ev.pointerId, [x, y]);
   if (finger && touches.size === 2) {
@@ -5886,6 +6349,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   app.setCtrl(pickKeyHeld(ev, IS_MAC));
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
+  if (where === "hint" && app.hintWantsPick()) startColorPick();
   if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb" || where === "select" || where === "panel" || where === "decktabs") {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
@@ -5954,11 +6418,17 @@ canvas.addEventListener("pointermove", (ev) => {
   }
   app.pointerMove(x, y);
   canvas.style.cursor = app.cursorAt(x, y);
-  if (ev.buttons) needsPaint = true;
-  else if (ev.pointerType === "mouse") hintHover(x, y);
+  if (ev.buttons) { needsPaint = true; if (tipFor === canvas) hideTip(); }
+  else if (ev.pointerType === "mouse") {
+    hintHover(x, y);
+    const tip = app.tipAt(x, y);
+    if (tip) showTip(tip, ev.clientX, ev.clientY - 12, canvas);
+    else if (tipFor === canvas) hideTip();
+  }
 });
 // off the page a diagram's buttons fade, as when the pointer leaves the diagram
-canvas.addEventListener("pointerleave", () => app.pointerLeft());
+canvas.addEventListener("pointerleave", () => { app.pointerLeft(); if (tipFor === canvas) hideTip(); });
+canvas.addEventListener("pointerdown", () => { if (tipFor === canvas) hideTip(); });
 
 // --- hints: what a value under the pointer does, and what else it can be ------------
 //
@@ -6045,8 +6515,11 @@ function showHint(h) {
 // at the values the theme gives them now. Only what the slide has is
 // listed. A property opens the theme at its line (added when the theme has
 // none) with its value popover.
+// Help for this slide closes the panel when it already shows the slide;
+// Help → How to use Sliqtly opens it at the guide (PresHelp.guide).
 function toggleHelp(on) {
-  app.setHelp(on ?? !app.helpIsOpen());
+  if (on ?? !(app.helpIsOpen() && app.helpTab() === "slide")) app.openHelpTab("slide");
+  else app.setHelp(false);
   needsPaint = true;
 }
 
@@ -6064,6 +6537,10 @@ document.getElementById("modeBtn").addEventListener("click", () => toggleMode())
 
 function endPointer(ev) {
   touches.delete(ev.pointerId);
+  if (pickRelease) {
+    pickRelease = false;
+    return;
+  }
   if (pinch) {
     // the pinch lasts until the last finger is lifted
     if (touches.size === 0) {
@@ -6152,6 +6629,12 @@ canvas.addEventListener("dragover", (ev) => ev.preventDefault());
 canvas.addEventListener("drop", (ev) => {
   ev.preventDefault();
   const files = ev.dataTransfer ? [...ev.dataTransfer.files] : [];
+  // dropped on a room's chat: files for the message being written there
+  const [dx, dy] = at(ev);
+  if (files.length && app.roomChatOpen() && app.layerAt(dx, dy) === "room") {
+    roomChat().attach(files, app.roomChatInThread()).catch(fail);
+    return;
+  }
   for (const f of files) {
     if (/^image\//.test(f.type)) addPictureFile(f).catch(fail);
     else addDocFile(f, true).catch(fail);
@@ -6315,13 +6798,6 @@ async function start() {
   const r = stageEl.getBoundingClientRect();
   app.init(css, Math.max(320, r.width), Math.max(240, r.height));
   if (!viewer) applySkin();
-  try {
-    const rc = localStorage.getItem(REVIEW_COLOR_KEY);
-    // the first, bright pin colours became muted ones: a pick of one of
-    // those is the same pick in the new set
-    const OLD_PINS = { "#fde047": "#d9a93e", "#fdba74": "#e08a3c", "#f9a8d4": "#d07a92", "#67e8f9": "#3a9fa6", "#86efac": "#6aa86a" };
-    if (rc && /^#[0-9a-fA-F]{6}$/.test(rc)) app.reviewColor(OLD_PINS[rc.toLowerCase()] || rc);
-  } catch (_) { /* the default yellow */ }
   reviewMe();
   applyReviewMode();
   // a server of one's own is known once its window.sliqtly is there
@@ -6381,7 +6857,14 @@ async function start() {
   const editing = !!own || (!!editId && q.has("edit"));
   if (versionFrame) await openVersionView();
   else if (playerDeck) await openPlayerDeck();
-  else if (editing && editId && (await openOwnCloud(editId).catch((e) => { console.warn(e); return false; }))) { /* opened */ }
+  else if (editing && editId && (await openOwnCloud(editId).catch((e) => { console.warn(e); return false; }))) {
+    // a deck's link on a server of one's own: its room open on the left,
+    // with the room's presentations
+    if (ownServer() && roomShown) {
+      app.showRooms();
+      roomsRequest("room:list").catch(() => {});
+    }
+  }
   else if (own && vfs && (await ownIsNewer(own)) && (await openDoc(own.deck))) plainAddress();
   else if (!(await openFromShare()) && !(await openFromHash())) {
     const want = q.get("sample");

@@ -249,10 +249,22 @@ export class VoiceRecorder {
     this.chunks = [];
     this.kind = pickMime((m) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(m));
   }
-  async start() {
+  /** The microphone asked for (before the countdown, so the question
+   * comes while nothing runs yet); begin() then records from it. */
+  async open() {
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
+  }
+  get hasSound() {
+    return !!this.stream;
+  }
+  /** Recording starts: from the opened microphone, or the clock alone. */
+  async begin() {
+    if (!this.stream) {
+      this.clock.start();
+      return;
+    }
     this.rec = new MediaRecorder(this.stream, this.kind.mime ? { mimeType: this.kind.mime, audioBitsPerSecond: 48000 } : {});
     this.chunks = [];
     this.rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) this.chunks.push(ev.data); };
@@ -262,9 +274,10 @@ export class VoiceRecorder {
     });
     this.clock.start();
   }
-  /** Without a microphone: the clock alone. */
-  startSilent() {
-    this.clock.start();
+  /** The opened microphone let go without recording (the countdown cancelled). */
+  close() {
+    if (this.stream) for (const tr of this.stream.getTracks()) tr.stop();
+    this.stream = null;
   }
   time() {
     return this.clock.time();

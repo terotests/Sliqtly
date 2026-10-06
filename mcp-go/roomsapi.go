@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 
@@ -29,6 +30,19 @@ type roomService struct {
 	rooms store.Rooms
 	links store.Links
 	types *store.LinkTypes
+	// the rooms' chat (roomchat.go): nil where none is kept
+	chat     store.ChatLog
+	presence chatPresence
+	// tells the pages a chat event of a room (localevents.go); nil: none
+	notify func(room string, v map[string]any)
+	// the rooms' own files (roomfiles.go) and their address; nil: none
+	files    roomFileStore
+	filesURL func(path string) string
+	// reads the pages a message links to (linkpreview.go); nil: no previews
+	client *http.Client
+	ownURL string
+	// runs a message's previews; tests wait for it
+	later func(fn func())
 }
 
 // nil where decks are not kept in a store of rooms (the cloud for now)
@@ -38,12 +52,21 @@ func newRoomService(env *Env) *roomService {
 	}
 	st := store.New(env.Store, store.RoomPolicy{Cols: map[string]bool{"shares": true}})
 	types := store.DefaultLinkTypes()
-	return &roomService{
-		st:    st,
-		rooms: store.Rooms{S: st},
-		links: store.Links{S: st, Types: types, Resolve: resolveRef},
-		types: types,
+	rs := &roomService{
+		st:     st,
+		rooms:  store.Rooms{S: st},
+		links:  store.Links{S: st, Types: types, Resolve: resolveRef},
+		types:  types,
+		chat:   env.Chat,
+		client: env.Client,
+		ownURL: env.BaseURL,
 	}
+	if f, ok := env.Bucket.(roomFileStore); ok {
+		rs.files = f
+		h := &McpHost{env: env}
+		rs.filesURL = func(p string) string { return h.FileURL(p, "") }
+	}
+	return rs
 }
 
 // where a ref's document is kept; other kinds (jira:, url:) are told of by
@@ -71,6 +94,8 @@ type roomTool struct {
 	required          []string
 	readOnly          bool
 	destructive       bool
+	// the page's only (POST /api/rooms/<op>), not an assistant's tool
+	pageOnly bool
 }
 
 func strProp(desc string) map[string]any {
@@ -128,19 +153,36 @@ var roomTools = []roomTool{
 		required: []string{"ref"}},
 }
 
+// every operation: the rooms' and their chat's (roomchat.go)
+func allRoomTools() []roomTool { return append(append([]roomTool{}, roomTools...), chatTools...) }
+
 func findRoomTool(name string) bool {
-	for _, t := range roomTools {
+	_, ok := roomToolOf(name)
+	return ok
+}
+
+func roomToolOf(name string) (roomTool, bool) {
+	for _, t := range allRoomTools() {
 		if t.name == name {
-			return true
+			return t, true
 		}
 	}
-	return false
+	return roomTool{}, false
+}
+
+// one of the assistant's tools (not the page's own)
+func findMcpRoomTool(name string) bool {
+	t, ok := roomToolOf(name)
+	return ok && !t.pageOnly
 }
 
 // the MCP tool list's entries
 func (s *roomService) toolsJSON() []any {
 	var out []any
-	for _, t := range roomTools {
+	for _, t := range allRoomTools() {
+		if t.pageOnly {
+			continue
+		}
 		props := t.props
 		if props == nil {
 			props = map[string]any{}
@@ -178,9 +220,21 @@ func argBool(a map[string]any, k string, def bool) bool {
 
 func millisOf(v any) int64 { return millis(v) }
 
-// call runs op for uid. → a JSON-able answer
+// call runs op for uid, as an assistant's tool. → a JSON-able answer
 func (s *roomService) call(ctx context.Context, uid, op string, a map[string]any) (any, error) {
-	if !findRoomTool(op) {
+	return s.callVia(ctx, uid, viaMcp, op, a)
+}
+
+// who is calling: an assistant (MCP) or the page; an assistant's chat
+// messages are a robot's, the page's a person's
+const (
+	viaMcp  = "mcp"
+	viaPage = "page"
+)
+
+func (s *roomService) callVia(ctx context.Context, uid, via, op string, a map[string]any) (any, error) {
+	t, ok := roomToolOf(op)
+	if !ok || (t.pageOnly && via != viaPage) {
 		return nil, roomErr{"no such operation: " + op}
 	}
 	if uid == "" {
@@ -190,23 +244,34 @@ func (s *roomService) call(ctx context.Context, uid, op string, a map[string]any
 	if err != nil {
 		return nil, err
 	}
-	for _, t := range roomTools {
-		if t.name == op {
-			for _, k := range t.required {
-				if _, ok := a[k]; !ok {
-					return nil, roomErr{k + " is missing"}
-				}
-			}
+	for _, k := range t.required {
+		if _, ok := a[k]; !ok {
+			return nil, roomErr{k + " is missing"}
 		}
 	}
-	out, err := s.run(ctx, p, op, a)
+	var out any
+	if isChatTool(op) {
+		out, err = s.runChat(ctx, p, via, op, a)
+	} else {
+		out, err = s.run(ctx, p, op, a)
+	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return nil, roomErr{"not found, or not yours to see"}
 	case errors.Is(err, store.ErrDenied):
 		return nil, roomErr{"your role does not allow that"}
 	}
+	if err == nil && roomListChanges[op] {
+		s.tell("", map[string]any{"t": "rooms"})
+	}
 	return out, err
+}
+
+// the operations after which the room lists differ: every page is told
+// ({"t":"rooms"}) and reads its list again
+var roomListChanges = map[string]bool{
+	"create_room": true, "update_room": true, "delete_room": true,
+	"archive_room": true, "move_presentation": true,
 }
 
 type roomRow struct {
@@ -347,14 +412,31 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 			}
 			about = &v
 		}
-		if err := s.rooms.Edit(ctx, p, argStr(a, "room_id"), title, about); err != nil {
+		id := argStr(a, "room_id")
+		if err := s.rooms.Edit(ctx, p, id, title, about); err != nil {
 			return nil, err
 		}
+		// the room's open chats show the new name and description
+		v := map[string]any{"t": "room"}
+		if title != nil {
+			v["title"] = *title
+		}
+		if about != nil {
+			v["description"] = *about
+		}
+		s.tell(id, v)
 		return map[string]any{"ok": true}, nil
 
 	case "delete_room":
-		if err := s.rooms.Remove(ctx, p, argStr(a, "room_id"), "shares"); err != nil {
+		room := argStr(a, "room_id")
+		if err := s.rooms.Remove(ctx, p, room, "shares"); err != nil {
 			return nil, err
+		}
+		// the room's own files go with it
+		if s.files != nil && roomIDPattern.MatchString(room) {
+			if err := s.files.RemoveAll("rooms/" + room); err != nil {
+				return nil, err
+			}
 		}
 		return map[string]any{"deleted": true}, nil
 

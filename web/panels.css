@@ -87,6 +87,11 @@
 /* a field is one line: a long value is clipped, not wrapped under the box */
 .theme-pn .ui-input { overflow: hidden; }
 .theme-pn .ui-input-text { white-space: nowrap; }
+/* the room chat's composer field (EVGUI ChannelCtl) is drawn on the frame's
+   white, as in Slack, and a code block's draft in a box of its own: the
+   panel field look above would otherwise win over the chat's own classes */
+.theme-pn .ch-field { background-color: rgba(0, 0, 0, 0); border: 1px solid rgba(0, 0, 0, 0); border-radius: 0; }
+.theme-pn .ch-field-code { background-color: #f8f8fa; border: 1px solid #d4d4d8; border-radius: 4px; }
 /* The card is rebuilt on every change, so a transition would replay from its
    start each time (a checked switch sliding in again, a pressed control
    squeezing): state is shown at once instead. */
@@ -146,6 +151,7 @@
 .pf-tag-chart { background-color: #fef3c7; color: #92400e; }
 .pf-tag-data { background-color: #ede9fe; color: #5b21b6; }
 .pf-tag-live { background-color: #dcfce7; color: #166534; }
+.pf-tag-rec { background-color: #fee2e2; color: #b91c1c; }
 .pf-current { font-size: 11px; color: #16a34a; font-weight: 600; }
 .pf-promo {
   display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;
@@ -341,6 +347,21 @@
 .theme-rvg .rv-row-slide { color: rgba(255, 255, 255, 0.6); }
 .theme-rvg .rv-row-text { color: #f4f4f5; font-size: 15px; }
 .theme-rvg .rv-list-btn { background-color: #0d9488; color: #ffffff; }
+
+/* how serious a comment is (PresReviewUi.severityActions): muted green,
+   yellow and red; the one picked filled. The pins take the same fills. */
+.theme-pn .chat-act-sev-low { color: #4f7a56; }
+.theme-pn .chat-act-sev-medium { color: #8a6d22; }
+.theme-pn .chat-act-sev-high { color: #a14d46; }
+.theme-pn .chat-act-sev-low-on { background-color: #6f9a76; border-color: #6f9a76; color: #ffffff; }
+.theme-pn .chat-act-sev-medium-on { background-color: #c9a54e; border-color: #c9a54e; color: #ffffff; }
+.theme-pn .chat-act-sev-high-on { background-color: #b8625b; border-color: #b8625b; color: #ffffff; }
+.theme-rvg .chat-act-sev-low { color: #9cc4a2; }
+.theme-rvg .chat-act-sev-medium { color: #e2c57c; }
+.theme-rvg .chat-act-sev-high { color: #e09a93; }
+.theme-rvg .chat-act-sev-low-on { background-color: #6f9a76; border-color: #6f9a76; color: #ffffff; }
+.theme-rvg .chat-act-sev-medium-on { background-color: #c9a54e; border-color: #c9a54e; color: #ffffff; }
+.theme-rvg .chat-act-sev-high-on { background-color: #b8625b; border-color: #b8625b; color: #ffffff; }
 
 /* the pins (src/PresReviewDot.rgr): a ball in the setting's colour with a
    glow and a ring that pulses out of it (sizes and colours set in code);

@@ -47,6 +47,20 @@
 .clip-label { color: #ffffff; font-size: 11px; height: 14px; }
 .playhead { background-color: #f59e0b; }
 
+/* Edit recording (PresApp.recTimeline): the slides it went through, the
+   voice's loudness, what was drawn; a marked part, the parts cut away */
+.rec-seg { opacity: 0.85; }
+.rec-wave { background-color: var(--audio-clip); border-radius: 1px; }
+.rec-mark { background-color: #ef4444; border-radius: 2px; }
+.rec-mark-text { background-color: #a855f7; }
+.rec-sel { background-color: rgba(59, 130, 246, 0.22); border: 1px solid #3b82f6; }
+.rec-knob { background-color: #f59e0b; border-radius: 3px; cursor: ew-resize; }
+.rec-cut { background-color: rgba(9, 9, 11, 0.55); border-radius: 3px; }
+.rec-btn { background-color: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.rec-btn-cut { background-color: #dc2626; border: 1px solid #dc2626; }
+.rec-btn-label { color: var(--ink); font-size: 12px; height: 16px; text-align: center; }
+.rec-btn-label-on { color: #ffffff; }
+
 /* --- the filmstrip --------------------------------------------------------- */
 .strip { background-color: var(--panel); border-top: 1px solid var(--line); }
 .thumb { background-color: var(--line); border-radius: 4px; cursor: pointer; }
@@ -98,12 +112,13 @@
 
 /* The tabs over the editor pane (Ranger UI TabsCtl) */
 .ed-tabs { background-color: var(--panel); border-bottom: 1px solid var(--line); padding-left: 10px; padding-top: 1px; }
-/* EVGUI's pill tabs: a muted track, the active tab a white raised pill. The
+/* EVGUI's pill tabs on the white of the deck's tab above, so the tab and
+   its document read as one piece; the active tab a pill with an edge. The
    tab is a text leaf, so its height and line-height place the label. */
 .ui-tabs { display: flex; flex-direction: column; }
-.ui-tablist { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 2px; padding: 3px; height: 32px; border-radius: 8px; background-color: #f4f4f5; }
-.ui-tab { color: #71717a; font-size: 13px; font-weight: 500; height: 24px; line-height: 24px; padding: 0 12px; border-radius: 6px; border: 1px solid #f4f4f5; background-color: #f4f4f5; cursor: pointer; }
-.ui-tab-state-active { background-color: #ffffff; color: #09090b; border-color: #e4e4e7; shadow-color: rgba(0, 0, 0, 0.10); shadow-radius: 3px; shadow-offset-y: 1px; }
+.ui-tablist { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 2px; padding: 3px; height: 32px; border-radius: 8px; background-color: #ffffff; }
+.ui-tab { color: #71717a; font-size: 13px; font-weight: 500; height: 24px; line-height: 24px; padding: 0 12px; border-radius: 6px; border: 1px solid #ffffff; background-color: #ffffff; cursor: pointer; }
+.ui-tab-state-active { background-color: #f4f4f5; color: #09090b; border-color: #e4e4e7; shadow-color: rgba(0, 0, 0, 0.10); shadow-radius: 3px; shadow-offset-y: 1px; }
 .ui-tabpanel { display: none; }
 
 /* --- the element picked on the slide (src/PresSelect.rgr) -------------------

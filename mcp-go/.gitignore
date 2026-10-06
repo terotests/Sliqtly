@@ -3,10 +3,10 @@
 /mcp-go
 /sliqtly_mcp.go
 /presdata/presdata.go
-/rdiff/rdsmart.go
 /.rdiff-build/
 /fonts/
 /themes/
 /webdist/*
 !/webdist/README
 /dist/
+/data/

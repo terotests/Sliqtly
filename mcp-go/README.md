@@ -172,6 +172,11 @@ CGO_ENABLED=0 go build -o sliqtly-server .
 ./sliqtly-server -data ./data -port 8080      # http://localhost:8080, MCP at /mcp
 ```
 
+`npm run serve` (from the repository root) does all of that in one go and
+starts the server on `mcp-go/data`: `-- --port=8080`, `-- --data=<folder>`,
+`-- --check` (npm run check and the Go tests first), `-- --no-build`
+(start the last compiled one); other flags go to the server.
+
 Without `npm run build` the binary has no editor: `/s/{id}` then shows the
 slides as pictures drawn on the server. `-web ../web/dist` serves a build
 from disk instead of the copy built in.
@@ -196,6 +201,8 @@ docker run -p 8080:8080 -v sliqtly-data:/data -v /mnt/disk2/sliqtly:/backup -e S
 | `-web` | `SLIQTLY_WEB` | the copy built in | a built `web/dist` to serve |
 | `-listen` | `SLIQTLY_LISTEN` | `local` (the settings page decides) | who can connect: `local`, `wired` or `network` (below) |
 | `-allow` | `SLIQTLY_ALLOW` | | other computers' address ranges let in, e.g. `10.20.0.0/16` |
+| | `SLIQTLY_HOSTS` | | further names the server answers to, comma separated (below) |
+| | `SLIQTLY_TRUSTED_PROXIES` | | address ranges of reverse proxies in front of the server, so the rate limits key the caller behind them (`clientip.go`) |
 | | `SLIQTLY_BACKUP` | (the `.deb`: `/var/lib/sliqtly-backup`) | a folder for incremental backups (below); unset: none |
 | | `SLIQTLY_BACKUP_EVERY` | `24h` | how often |
 | | `SLIQTLY_BACKUP_KEEP` | `last=3,daily=14,weekly=8` | which backups are kept; `all` keeps every one |
@@ -222,6 +229,22 @@ the café's Wi-Fi. `/settings` (in a browser on the same computer) or
 - **Changing it:** only a browser on the server's own computer can change
   the setting on the page. When `SLIQTLY_LISTEN` or `SLIQTLY_ALLOW` sets it,
   the page cannot change it.
+
+**Which pages may use it** (`localguard.go`). The server answers only
+names that are its own: `localhost` (and `*.localhost`), any IP address,
+the machine's name (and `name.local`), the host of `SLIQTLY_URL`, and the
+names in `SLIQTLY_HOSTS`. Any other name gets `421`, so a page on the
+internet that points a name of its own at 127.0.0.1 (DNS rebinding) reaches
+nothing. Behind a reverse proxy, or reached by a DNS name, set
+`SLIQTLY_URL` or `SLIQTLY_HOSTS` to that name. A page of another origin
+(and the assistant's preview, whose origin is `null`) may only read what a
+link to one deck opens: the page and its files, the themes, one deck by its
+id (`GET /api/shares/{id}`), its files and pictures, and `/api/status`.
+The deck list, rooms, editing together, the event streams, settings, every
+write and `/mcp` answer only the server's own pages and programs that send
+no `Origin` (MCP clients, curl). A deck's file opened by itself
+(`/files/…`) is sent with `Content-Security-Policy: sandbox`, so an
+uploaded SVG or HTML runs as no origin and cannot use the API.
 
 What it serves besides `/mcp` (`local.go`, `localweb.go`):
 
