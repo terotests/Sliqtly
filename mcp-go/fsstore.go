@@ -85,7 +85,7 @@ func newFSStore(root, user string) (*engineDB, *localBucket, error) {
 		return nil, nil, err
 	}
 	e := &store.HomeRooms{Engine: docs, Cols: map[string]bool{"shares": true}, Tenant: localTenant, Owner: user}
-	return &engineDB{e}, &localBucket{refs: store.NewFileRefs(docs), blobs: blobs}, nil
+	return &engineDB{e}, &localBucket{refs: store.NewFileRefs(docs), blobs: blobs, docs: docs.DB()}, nil
 }
 
 // the folder's two databases

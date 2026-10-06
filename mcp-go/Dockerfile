@@ -26,9 +26,10 @@ RUN go mod download
 COPY mcp-go/ ./
 COPY --from=gen /src/mcp-go/sliqtly_mcp.go ./
 COPY --from=gen /src/mcp-go/presdata/presdata.go ./presdata/
+COPY --from=gen /src/mcp-go/rdiff/rdsmart.go ./rdiff/
 COPY --from=gen /src/mcp-go/fonts/ ./fonts/
 COPY --from=gen /src/mcp-go/themes/ ./themes/
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server . && mkdir /data
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server . && mkdir /data /backup
 
 # A server of one's own with the editor and player built in (localweb.go):
 # web/dist is built here and copied in before the binary is built again.
@@ -46,6 +47,9 @@ RUN rm -rf webdist/fonts && CGO_ENABLED=0 go build -tags nocloud -trimpath -ldfl
 FROM gcr.io/distroless/static-debian12:nonroot AS local
 COPY --from=build-local /server /server
 COPY --from=build --chown=65532:65532 /data /data
+# backups are taken when SLIQTLY_BACKUP is set: mount another disk here and
+# set SLIQTLY_BACKUP=/backup (README, "Backups")
+COPY --from=build --chown=65532:65532 /backup /backup
 ENV SLIQTLY_DATA=/data
 # in a container every interface is the container's own: the port mapping
 # (docker run -p) decides who reaches it

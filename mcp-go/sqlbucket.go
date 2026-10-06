@@ -12,6 +12,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +27,7 @@ import (
 type localBucket struct {
 	refs  *store.FileRefs
 	blobs store.BlobStore
+	docs  *sql.DB    // sliqtly.db, for backups (backup.go)
 	mu    sync.Mutex // Save and Remove of one path in order
 }
 
@@ -51,7 +53,20 @@ func (b *localBucket) Save(ctx context.Context, p, contentType string, data []by
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.refs.Set(ctx, c, info, contentType)
+	old, oldErr := b.refs.Get(ctx, c)
+	if err := b.refs.Set(ctx, c, info, contentType); err != nil {
+		return err
+	}
+	// the bytes the path held before, when another path still names them
+	// (a copied deck), are kept as a delta against the new ones
+	if oldErr == nil && old.Hash != info.Hash {
+		if d, ok := b.blobs.(store.DeltaBlobStore); ok {
+			if named, err := b.refs.Referenced(ctx, old.Hash); err == nil && named {
+				d.Deltify(ctx, old.Hash, info.Hash)
+			}
+		}
+	}
+	return nil
 }
 
 func (b *localBucket) Read(ctx context.Context, p string, limit int64) ([]byte, error) {

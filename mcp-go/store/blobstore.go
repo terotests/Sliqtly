@@ -38,6 +38,13 @@ type BlobStore interface {
 	Close() error
 }
 
+// DeltaBlobStore keeps a blob as a delta against another one when that
+// pays (SQLiteBlobStore): its hash and bytes stay the same.
+type DeltaBlobStore interface {
+	BlobStore
+	Deltify(ctx context.Context, h, base Hash) (bool, error)
+}
+
 // BlobReader is a blob's bytes: http.ServeContent takes it as it is, and
 // a Range request reads only the chunks it covers.
 type BlobReader interface {
