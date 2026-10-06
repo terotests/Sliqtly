@@ -463,7 +463,10 @@ func TestCreateUpdateReadWithPictures(t *testing.T) {
 	eq(t, uo["warnings"], []string{"media/new.png is used in the Markdown but no image by that name was sent.", EMPTY_FLOW})
 	after := f.db.doc("shares/" + id)
 	eq(t, after["theme"], "corporate")
-	eq(t, after["css"], nil, "a new theme without css drops the old theme's sheet")
+	match(t, after["css"].(string), `added for this deck[\s\S]*font-size: 60pt`)
+	if strings.Contains(after["css"].(string), "#0b1030") {
+		t.Fatal("the old theme's sheet stayed:", after["css"])
+	}
 	eq(t, len(list(after["files"])), 2)
 
 	// the preview reads the stored deck with the site's Firebase config

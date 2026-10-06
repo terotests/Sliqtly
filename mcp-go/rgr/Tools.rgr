@@ -129,8 +129,8 @@ class Tools {
         theme.put("enum" (J.strs((Deck.THEMES()))))
         p.put("theme" theme)
         p.put("css" (Tools.prop("string" "CSS rules added on top of the theme (selectors: page, document, h1, h2, p, list, li, code, table, chart, diagram, .lead …). See sliqtly_guide.")))
-        def mode:MfJ (Tools.prop("string" "extend (default): css is added after the theme's rules. replace: css is the whole stylesheet."))
-        mode.put("enum" (J.strs(([] _:string ("extend" "replace")))))
+        def mode:MfJ (Tools.prop("string" "extend (default): css is added after the theme's rules and, on update, after the deck's own rules so far (sending all of them again replaces them). own: css replaces the deck's own rules, on top of the theme. replace: css is the whole stylesheet."))
+        mode.put("enum" (J.strs(([] _:string ("extend" "own" "replace")))))
         p.put("css_mode" mode)
         def ip:MfJ (MfJ.newObj())
         ip.put("name" (Tools.prop("string" "File name the Markdown uses as media/<name>, e.g. \"team.jpg\" → ![](media/team.jpg)")))
@@ -742,8 +742,8 @@ class Tools {
             return ("Invalid arguments: theme is one of " + (join (Deck.THEMES()) ", ") + ".")
         }
         def mode:MfJ (a.field("css_mode"))
-        if ((mode.kind == 3) && ((mode.str != "extend") && (mode.str != "replace"))) {
-            return "Invalid arguments: css_mode is extend or replace."
+        if ((mode.kind == 3) && (((mode.str != "extend") && (mode.str != "own")) && (mode.str != "replace"))) {
+            return "Invalid arguments: css_mode is extend, own or replace."
         }
         def chart:MfJ (a.field("chart"))
         if (chart.kind == 2) {
@@ -846,6 +846,87 @@ class Tools {
 
     ; --- the stylesheet stored with the deck: hasCss false keeps the theme
 
+    ; between the theme's sheet and the deck's own rules in a stored sheet
+    sfn OWN_MARK:string () {
+        return "\n/* --- added for this deck --- */\n"
+    }
+
+    ; the deck's own rules in a stored sheet: what follows the mark, "" when
+    ; it has none (a sheet sent whole with css_mode replace)
+    sfn ownCss:string (stored:string) {
+        def at:int (indexOf stored (Tools.OWN_MARK()))
+        if (at < 0) {
+            return ""
+        }
+        return (trim (substring stored (at + (strlen (Tools.OWN_MARK()))) (strlen stored)))
+    }
+
+    ; `theme`'s sheet with `own` rules after it
+    sfn themed:Sheet (host:McpHost theme:string own:string) {
+        def s (new Sheet)
+        s.hasCss = true
+        def base:string (host_theme_css host theme)
+        if ((strlen (host_error host)) > 0) {
+            s.fatal = (host_error host)
+            return s
+        }
+        s.css = (base + (Tools.OWN_MARK()) + own + "\n")
+        return s
+    }
+
+    ; An update's sheet. `prev` is the stored one (a string, or nothing).
+    ; extend adds to the deck's own rules (the css holding all of them is
+    ; taken as their new whole); own starts them over; replace is the
+    ; whole sheet. A new theme with no css keeps the deck's own rules on it.
+    sfn sheetOn:Sheet (host:McpHost theme:string a:MfJ mode:string prev:MfJ themeChanged:boolean) {
+        def css:string (trim (a.str_("css")))
+        def stored:string ""
+        if (prev.kind == 3) {
+            stored = prev.str
+        }
+        def own:string (Tools.ownCss(stored))
+        def hasOwn:boolean ((indexOf stored (Tools.OWN_MARK())) >= 0)
+        if (((Tools.has(a "css")) == false) || ((strlen css) == 0)) {
+            if ((Tools.has(a "css")) && (mode != "extend")) {
+                return (Tools.sheet(host theme a mode))
+            }
+            if (themeChanged && hasOwn) {
+                return (Tools.themed(host theme own))
+            }
+            def none (new Sheet)
+            if (themeChanged) {
+                ; a whole sheet of the old theme's: the new theme alone
+                none.hasCss = false
+                none.drop = true
+            }
+            return none
+        }
+        if ((mode != "extend") || ((strlen stored) == 0)) {
+            return (Tools.sheet(host theme a mode))
+        }
+        if ((strlen css) > (Deck.MAX_CSS())) {
+            def big (new Sheet)
+            big.err = "css is larger than 100 KB."
+            return big
+        }
+        if (hasOwn || themeChanged) {
+            def next:string css
+            if (((strlen own) > 0) && ((indexOf css own) < 0)) {
+                next = (own + "\n" + css)
+            }
+            return (Tools.themed(host theme next))
+        }
+        ; a whole sheet sent before: the rules go after it
+        def whole (new Sheet)
+        whole.hasCss = true
+        if ((indexOf css (trim stored)) >= 0) {
+            whole.css = css
+        } {
+            whole.css = (stored + "\n" + css + "\n")
+        }
+        return whole
+    }
+
     sfn sheet:Sheet (host:McpHost theme:string a:MfJ mode:string) {
         def s (new Sheet)
         def css:string (a.str_("css"))
@@ -869,7 +950,7 @@ class Tools {
             s.fatal = (host_error host)
             return s
         }
-        s.css = (base + "\n/* --- added for this deck --- */\n" + css + "\n")
+        s.css = (base + (Tools.OWN_MARK()) + css + "\n")
         return s
     }
 
@@ -1262,27 +1343,23 @@ class Tools {
             }
         }
         def p (new DeckPatch)
-        ; a new theme with no new css drops the old theme's sheet
-        if (Tools.has(a "css")) {
-            def mode:string "extend"
-            if (Tools.has(a "css_mode")) {
-                mode = (a.str_("css_mode"))
-            }
-            def sh:Sheet (Tools.sheet(host th a mode))
-            if ((strlen sh.err) > 0) {
-                return (Tools.fail(sh.err))
-            }
-            if ((strlen sh.fatal) > 0) {
-                return (Tools.failed(host "update_presentation" sh.fatal))
-            }
-            if sh.hasCss {
-                p.cssMode = 1
-                p.css = sh.css
-            } {
-                p.cssMode = 2
-            }
+        def mode:string "extend"
+        if (Tools.has(a "css_mode")) {
+            mode = (a.str_("css_mode"))
+        }
+        def changed:boolean ((Tools.has(a "theme")) && ((a.str_("theme")) != (cur.str_("theme"))))
+        def sh:Sheet (Tools.sheetOn(host th a mode (cur.field("css")) changed))
+        if ((strlen sh.err) > 0) {
+            return (Tools.fail(sh.err))
+        }
+        if ((strlen sh.fatal) > 0) {
+            return (Tools.failed(host "update_presentation" sh.fatal))
+        }
+        if sh.hasCss {
+            p.cssMode = 1
+            p.css = sh.css
         } {
-            if ((Tools.has(a "theme")) && ((a.str_("theme")) != (cur.str_("theme")))) {
+            if (sh.drop || ((Tools.has(a "css")) && (mode != "extend"))) {
                 p.cssMode = 2
             }
         }
@@ -2299,8 +2376,16 @@ class Tools {
         out.putStr("title" (d.str_("name")))
         out.putStr("theme" (d.str_("theme")))
         out.putStr("markdown" (d.str_("md")))
+        ; the deck's own rules (css_mode extend/own), or a whole sheet sent
+        ; with css_mode replace
         if hasCss {
-            out.put("css" css)
+            if ((indexOf css.str (Tools.OWN_MARK())) >= 0) {
+                out.putStr("css" (Tools.ownCss(css.str)))
+                out.putStr("css_mode" "own")
+            } {
+                out.put("css" css)
+                out.putStr("css_mode" "replace")
+            }
         } {
             out.put("css" (new MfJ))
         }
@@ -3697,6 +3782,8 @@ class WorkSave {
 ; mistake, fatal the site's
 class Sheet {
     def hasCss:boolean false
+    ; the stored sheet goes: the deck is shown with its theme's
+    def drop:boolean false
     def css:string ""
     def err:string ""
     def fatal:string ""
