@@ -4529,7 +4529,7 @@ class PresApp {
         if (review.hasKeys()) {
             return (this.reviewKey(name shift ctrl))
         }
-        if (((sketch.on && (mode != "present")) && (focus == "sketch")) && (ctrl == false)) {
+        if ((((sketch.on || (sketch.menuOpen())) && (mode != "present")) && (focus == "sketch")) && (ctrl == false)) {
             if (sketch.key(name shift (this.sketchModel()))) {
                 this.afterSketch()
                 return true
@@ -5757,7 +5757,7 @@ class PresApp {
             layers.setBand("bar" "docked")
         }
         layers.setOpen("panels" (((panels.helpOpen || panels.filesOpen) || panels.chat.open) && edit))
-        layers.setOpen("sketch" ((sketch.on && edit) && ((deck.slideCount()) > 0)))
+        layers.setOpen("sketch" (edit && ((deck.slideCount()) > 0)))
         layers.setOpen("review" (review.on && ((deck.slideCount()) > 0)))
         layers.setOpen("hint" (hint.isOpen && edit))
         layers.setOpen("chart" chart.isOpen)
@@ -6527,6 +6527,7 @@ class PresApp {
         if pres {
             review.place(W H 0.0 true selected slideRect.x slideRect.y slideRect.w slideRect.h 0.0 W H)
         } {
+            review.shift = (0.0 - ((sketch.barW + 8.0) * 0.5))
             review.place(W H barH false selected slideRect.x slideRect.y slideRect.w slideRect.h stageArea.x stageArea.w (stageArea.y + stageArea.h))
         }
     }
@@ -6789,7 +6790,7 @@ class PresApp {
         if (on && (mode == "present")) {
             return
         }
-        sketch.on = on
+        sketch.setActive(on)
         if on {
             this.dropPicks()
             focus = "sketch"
@@ -6822,9 +6823,18 @@ class PresApp {
         return ""
     }
 
+    ; The pill at the foot of the stage: beside review mode's bar (the two in
+    ; the middle together), or in the middle by itself.
     fn sketchPlace:void () {
         this.place()
-        sketch.place(W H slideRect.x slideRect.y slideRect.w slideRect.h (this.slideScale()) stageArea.x)
+        sketch.bar = ((mode != "present") && ((deck.slideCount()) > 0))
+        def foot:double (stageArea.y + stageArea.h)
+        sketch.barY = ((foot - sketch.barH) - 12.0)
+        sketch.barX = ((stageArea.x + (stageArea.w * 0.5)) - (sketch.barW * 0.5))
+        if (review.on && (review.barW > 0.0)) {
+            sketch.barX = ((review.barX()) + review.barW + 8.0)
+        }
+        sketch.place(W H slideRect.x slideRect.y slideRect.w slideRect.h (this.slideScale()) stageArea.x stageArea.y stageArea.w stageArea.h)
         sketch.showSlide(selected (this.sketchPathOf(selected)))
         sketch.css = panels.css
         sketch.skin = skin
@@ -6847,6 +6857,15 @@ class PresApp {
             this.afterSketch()
             return
         }
+        ; a press beside an open menu only closes it
+        if (sketch.menuOpen()) {
+            sketch.closeMenu()
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        if (sketch.on == false) {
+            return
+        }
         ; the first line or text on a slide without a drawing begins one
         if (((strlen sketch.path) == 0) && ((sketch.tool()) != "select")) {
             sketchNewPath = (this.newSketchPath(selected))
@@ -6867,6 +6886,10 @@ class PresApp {
             def r:string (itemAt rs i)
             if (r == "sketch-save") {
                 this.sketchSave()
+            }
+            if (r == "sketch-on") {
+                this.dropPicks()
+                focus = "sketch"
             }
             if (r == "sketch-done") {
                 if (focus == "sketch") {
@@ -7028,7 +7051,7 @@ class PresApp {
 
     ; The drawing's layer: the palette, what is picked, the caret.
     fn sketchJson:string () {
-        if (((this.sketching()) == false) || ((deck.slideCount()) == 0)) {
+        if ((mode == "present") || ((deck.slideCount()) == 0)) {
             return ""
         }
         this.sketchPlace()

@@ -1245,5 +1245,6 @@
   "✂ Edit recording…": "✂ Muokkaa nauhoitusta…",
   "Drawing": "Piirros",
   "Aa: click where to write, then type. ← → PageUp PageDown change slides.": "Aa: napsauta kohtaa johon kirjoitat ja kirjoita. ← → PageUp PageDown vaihtavat diaa.",
-  "Draw with the mouse; the pen button's Aa writes text. ← → change slides. Esc stops.": "Piirrä hiirellä; kynäpainikkeen Aa kirjoittaa tekstiä. ← → vaihtavat diaa. Esc lopettaa."
+  "Draw with the mouse; the pen button's Aa writes text. ← → change slides. Esc stops.": "Piirrä hiirellä; kynäpainikkeen Aa kirjoittaa tekstiä. ← → vaihtavat diaa. Esc lopettaa.",
+  "Tool": "Työkalu"
 }
