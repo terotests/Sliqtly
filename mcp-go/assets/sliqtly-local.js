@@ -91,12 +91,15 @@ async function putFile(id, f) {
   return api("PUT", "/api/files/shares/" + id + "/" + enc(f.path), blob, f.type || blob.type || "application/octet-stream");
 }
 
-async function share(deck) {
+// made(id), when given, is told the id as soon as the share exists, before
+// its files go (web/sliqtly.js share)
+async function share(deck, made) {
   if (!user) throw new Error("not signed in");
   const { id } = await api("POST", "/api/shares", {
     name: deck.name, md: deck.md, theme: deck.theme || "", css: deck.css ?? null, deck: deck.deckId,
   });
   try {
+    if (made) await made(id);
     const kept = [];
     for (const f of deck.files || []) kept.push(await putFile(id, f));
     if (kept.length) await api("PATCH", "/api/shares/" + id, { files: kept });

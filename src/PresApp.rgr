@@ -386,6 +386,12 @@ class PresApp {
         return (deck.addImage(name data contentType w h))
     }
 
+    ; Another deck opened: the pictures of the one before are gone
+    ; (PresDeck.clearImages); the page hands over the new one's.
+    fn clearImages:void () {
+        deck.clearImages()
+    }
+
     ; An SVG picture's own text and bytes, and a small PNG of it, beside the
     ; PNG `addImage` was given: the PDF draws its paths, the PPTX carries it.
     fn addSvgPicture:void (name:string text:string bytes:buffer small:buffer) {

@@ -814,6 +814,25 @@ class PresDeck {
         return (md.addImage(name data contentType w h))
     }
 
+    ; Another deck opened in this one's place: none of this one's pictures
+    ; (nor its SmartArt files or SVG texts) is drawn, sized or exported as
+    ; if it were the next one's. Its own come in again through addImage.
+    fn clearImages:void () {
+        md.clearFiles()
+        def noPaths:[string]
+        smartArtPaths = noPaths
+        def p:[string]
+        svgPaths = p
+        def t:[string]
+        svgTexts = t
+        def b:[buffer]
+        svgBytes = b
+        def sm:[buffer]
+        svgSmall = sm
+        def c:[int]
+        svgClean = c
+    }
+
     ; --- SVG pictures as vectors in the exports ---------------------------------
     ; The slides draw an SVG picture from its PNG (web/picture.js); the page
     ; hands the SVG itself here too, with a small PNG for readers that cannot

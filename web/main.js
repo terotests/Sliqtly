@@ -670,7 +670,11 @@ const doc = { id: newId(), persisted: false, loading: false, created: Date.now()
 // there (cloudMd), the files as sent (cloudStamps: path → stamp), and what
 // was last sent (cloudSig), and the CSS and theme as last written or read
 // there (cloudCss, cloudTheme). cloudHalt: deleted, nothing more is sent.
-Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
+// cloudFiles: the paths the share is known to have, kept with the deck in
+// this browser (null: not known, as for a deck kept before it was), so a
+// file this browser has and the share never got is told from one removed
+// there (openOwnCloudNow).
+Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudFiles: null, cloudSig: "", cloudHalt: false });
 const pending = new Map();
 // A shared presentation opened to read: its files, which nothing saves
 const readFiles = new Map();
@@ -699,6 +703,12 @@ function beginDoc(text) {
   // the deck left: its tab goes when nothing could open it again
   if (shownKey && !canReturn(doc)) app.deckTabClose(shownKey);
   shownKey = null;
+  // the deck before's pictures go with it: one this deck names and does not
+  // have is not drawn from that one's as if it were here (a copy whose
+  // files did not come looked whole that way)
+  dropPasting();
+  pictures.clear();
+  app.clearImages();
   doc.loading = true;
   doc.id = newId();
   doc.persisted = false;
@@ -706,7 +716,7 @@ function beginDoc(text) {
   doc.created = Date.now();
   doc.openedText = text;
   doc.openedCss = null;
-  Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudSig: "", cloudHalt: false });
+  Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudFiles: null, cloudSig: "", cloudHalt: false });
   versions = null;
   filesAtCommit = null;
   pending.clear();
@@ -930,6 +940,8 @@ window.__liveSheets = liveSheets;
 window.__saveWorkbook = (path, raw) => saveWorkbook(path, raw);
 // for check:web: what the document keeps as files
 window.__docFiles = () => docFiles().then((fs) => fs.map((f) => f.path));
+window.__docState = () => ({ id: doc.id, cloud: doc.cloud });
+window.__allDocs = () => allDocs(true);
 window.__docFile = (path) => readDocFile(path);
 
 async function docFiles() {
@@ -975,7 +987,7 @@ async function saveDocNow(force) {
     if (cur && !collabOn() && changedElsewhere(cur)) return "merge";
     await vfs.putDoc({
       ...(cur || {}), id: doc.id, name: exportName(), md, theme: key, css, created: doc.created, updated: Date.now(), by: TAB,
-      cloud: doc.cloud, cloudMd: doc.cloudMd, cloudCss: doc.cloudCss, cloudTheme: doc.cloudTheme,
+      cloud: doc.cloud, cloudMd: doc.cloudMd, cloudCss: doc.cloudCss, cloudTheme: doc.cloudTheme, cloudFiles: doc.cloudFiles,
     });
     if (!doc.persisted) {
       doc.persisted = true;
@@ -1642,10 +1654,16 @@ async function openDocNow(id) {
   doc.cloudMd = d.cloudMd ?? null;
   doc.cloudCss = d.cloudCss ?? null;
   doc.cloudTheme = d.cloudTheme ?? null;
+  doc.cloudFiles = d.cloudFiles ?? null;
   themeSel.value = d.theme || "";
   if (d.css != null) editedCss[d.theme || ""] = d.css;
   useTheme(themeSel.value);
-  for (const f of await vfs.listFiles(doc.id)) await useFile(f);
+  const files = await vfs.listFiles(doc.id);
+  for (const f of files) await useFile(f);
+  // files the share has not got yet (the page was left while they went):
+  // sent now, not on the next change
+  const there = new Set(doc.cloudFiles || []);
+  if (doc.cloud && doc.cloudFiles && files.some((f) => !there.has(f.path))) setTimeout(cloudSoon, 0);
   docName = d.name || "presentation";
   shownDoc(d.md);
   savedText = d.md;
@@ -4082,28 +4100,40 @@ async function cloudSync() {
   const { deck, sig } = await cloudDeck();
   if (doc.cloud && (sig === doc.cloudSig || doc.cloudHalt)) return doc.cloud;
   const which = doc.id;
+  // the deck `which` is this share's from here on, in this browser too,
+  // whichever deck is open by then: `files` are the paths the share has
+  const keepShare = async (id, files) => {
+    const kept = { cloud: id, cloudMd: deck.md, cloudCss: deck.css, cloudTheme: deck.theme, cloudFiles: files };
+    if (doc.id === which) Object.assign(doc, kept);
+    const cur = await vfs.getDoc(which);
+    if (cur) await vfs.putDoc({ ...cur, ...kept });
+  };
   cloudBusy = (async () => {
     let id = doc.cloud;
+    let files = deck.files.map((f) => f.path);
     if (!id) {
-      try {
-        id = await p.share(deck);
-      } catch (e) {
-        // made, but a file did not go: the deck keeps this share, and the
-        // next save sends its files again
-        if (e?.shareId && doc.id === which) {
-          doc.cloud = e.shareId;
-          doc.cloudMd = deck.md;
-          doc.cloudCss = deck.css;
-          doc.cloudTheme = deck.theme;
+      // The share is kept with the deck as soon as it is made, before its
+      // files go: while they go (a few big pictures take a while) the deck
+      // is not a second, empty one in the cloud's list, and if they do not
+      // all go, the next save sends them again to this share
+      const made = async (made) => {
+        await keepShare(made, []);
+        if (doc.id === which) {
           doc.cloudStamps = new Map();
-          await vfs.putDoc({ ...(await vfs.getDoc(doc.id)), cloud: e.shareId, cloudMd: deck.md, cloudCss: deck.css, cloudTheme: deck.theme });
           plainAddress();
         }
+      };
+      try {
+        id = await p.share(deck, made);
+      } catch (e) {
+        // made, but a file did not go: kept already, unless made() was not
+        // reached
+        if (e?.shareId && (await vfs.getDoc(which))?.cloud !== e.shareId) await made(e.shareId);
         throw e;
       }
     } else {
       try {
-        await p.saveShare(id, deck, { md: doc.cloudMd, stamps: doc.cloudStamps, collab: collabOn() });
+        files = (await p.saveShare(id, deck, { md: doc.cloudMd, stamps: doc.cloudStamps, collab: collabOn() })).map((f) => f.path);
       } catch (e) {
         if (e?.code !== "changed-elsewhere") throw e;
         // changed elsewhere (another device, an assistant) since this page
@@ -4112,16 +4142,12 @@ async function cloudSync() {
         return id;
       }
     }
+    await keepShare(id, files);
     if (doc.id !== which) return id; // another deck was opened meanwhile
-    doc.cloud = id;
-    doc.cloudMd = deck.md;
-    doc.cloudCss = deck.css;
-    doc.cloudTheme = deck.theme;
     doc.cloudSig = sig;
     doc.cloudStamps = new Map(deck.files.map((f) => [f.path, f.stamp]));
     cloudWarned = false;
     cloudError = "";
-    await vfs.putDoc({ ...(await vfs.getDoc(doc.id)), cloud: id, cloudMd: deck.md, cloudCss: deck.css, cloudTheme: deck.theme });
     plainAddress();
     return id;
   })();
@@ -4172,7 +4198,18 @@ async function openOwnCloudNow(id) {
   beginDoc(shared.md || "");
   doc.src = "cloud:" + id;
   doc.id = local?.id || newId();
-  if (local) await vfs.deleteDoc(local.id, true); // the cloud's files replace this browser's; its versions stay
+  // the cloud's files replace this browser's (its versions stay), but not
+  // one the share never got: a file still on its way when the deck was
+  // left, or one that failed. One the share had and has no more was
+  // removed there. Not known what the share had (a deck kept before this
+  // was noted): every file of this browser's that the share lacks stays.
+  const unsent = [];
+  if (local) {
+    const there = new Set((shared.files || []).map((f) => f.path));
+    const had = new Set(local.cloudFiles || []);
+    for (const f of await vfs.listFiles(local.id)) if (!there.has(f.path) && !had.has(f.path)) unsent.push(f);
+    await vfs.deleteDoc(local.id, true);
+  }
   doc.created = local?.created || Date.now();
   if (shared.theme != null) {
     themeSel.value = shared.theme;
@@ -4195,9 +4232,19 @@ async function openOwnCloudNow(id) {
     }
   }
   if (missing.length) toast(t("Some pictures or data files of this presentation could not be loaded: ") + missing.join(", "));
+  // the files that did come are what the share has; one that did not is
+  // not sent back, so the share keeps it
+  doc.cloudStamps = new Map([...pending.values()].map((f) => [f.path, stampOf(f)]));
+  // this browser's own, not in the share: kept, and sent on the next save
+  for (const f of unsent) {
+    const rec = { ...f, doc: doc.id };
+    pending.set(rec.path, rec);
+    await useFile(rec);
+  }
   docName = shared.name || "presentation";
   shownDoc(shared.md || "");
   doc.cloud = id;
+  doc.cloudFiles = (shared.files || []).map((f) => f.path);
   // on a server of one's own the rooms panel shows the deck's room
   if (ownServer() && shared.room) {
     roomShown = shared.room;
@@ -4206,11 +4253,10 @@ async function openOwnCloudNow(id) {
   doc.cloudMd = shared.md || "";
   doc.cloudCss = shared.css ?? null;
   doc.cloudTheme = shared.theme || "";
-  // the files that did come are what the share has; one that did not is
-  // not sent back, so the share keeps it
-  doc.cloudStamps = new Map([...pending.values()].map((f) => [f.path, stampOf(f)]));
   await saveDoc(true);
-  doc.cloudSig = (await cloudDeck()).sig;
+  // with files of this browser's the share lacks, the next sync sends them
+  doc.cloudSig = unsent.length ? "" : (await cloudDeck()).sig;
+  if (unsent.length) cloudSoon();
   if (shared.head) await followCloudHead(shared.head).catch((e) => console.warn("versions not read", e));
   plainAddress();
   dropThumbs();
@@ -4457,6 +4503,7 @@ async function takeCloudFiles(s) {
     }
     doc.cloudStamps.delete(path);
   }
+  doc.cloudFiles = [...remote.keys()];
   return moved;
 }
 
