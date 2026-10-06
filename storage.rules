@@ -1,8 +1,8 @@
 rules_version = '2';
 
-// A share's pictures and data files: read like the share (anyone with its
-// id; not its exports/), written and deleted only by the owner its
-// Firestore copy names.
+// A share's pictures and data files: read like the share (a private one by
+// its owner only, else anyone with its id; not its exports/), written and
+// deleted only by the owner its Firestore copy names.
 // A user's own files: that user's alone.
 service firebase.storage {
   // What may be kept: pictures, sound, video, data, documents and the editor's
@@ -17,14 +17,20 @@ service firebase.storage {
 
   match /b/{bucket}/o {
     match /shares/{shareId}/{path=**} {
+      function share() {
+        return firestore.get(/databases/(default)/documents/shares/$(shareId)).data;
+      }
       function owner() {
-        return request.auth != null
-          && firestore.get(/databases/(default)/documents/shares/$(shareId)).data.owner == request.auth.uid;
+        return request.auth != null && share().owner == request.auth.uid;
+      }
+      // firestore.rules: "private" only its owner, else (also no field) anyone
+      function readable() {
+        return share().get('visibility', 'link') != 'private' || owner();
       }
       // exports/ are the MCP server's (export_presentation), sent only
       // through its expiring sliqtly.com/d/… links (mcp-go/download.go)
-      allow get: if !resource.name.matches('shares/[^/]+/exports/.*');
-      allow list: if true;
+      allow get: if !resource.name.matches('shares/[^/]+/exports/.*') && readable();
+      allow list: if readable();
       allow create, update: if owner() && request.resource.size < 20 * 1024 * 1024 && storedType();
       allow delete: if owner();
     }

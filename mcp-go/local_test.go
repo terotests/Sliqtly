@@ -206,7 +206,7 @@ func TestLocalServer(t *testing.T) {
 		t.Fatal(textOf(u))
 	}
 	eq(t, sc(u)["slides"], 3)
-	match(t, textOf(call(t, s2, "list_presentations", map[string]any{})), `Pilot \(`+id+`\)`)
+	match(t, textOf(call(t, s2, "list_presentations", map[string]any{})), `Pilot \(`+id+`, link\)`)
 	g := sc(call(t, s2, "get_presentation", map[string]any{"deck_id": id}))
 	eq(t, len(list(g["images"])), 2)
 }

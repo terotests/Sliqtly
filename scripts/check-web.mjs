@@ -4332,8 +4332,8 @@ try {
     const ids = shareId();
     const id = ids[0] || "";
     const first = { ids, address: await pc.evaluate(() => location.pathname + location.search), share: fakeDb.get("shares/" + id) };
-    check("PRO: a changed deck is saved to the cloud and the address names it",
-      ids.length === 1 && first.address === "/s/" + id + "?edit" && first.share?.owner === "u1" && first.share.md.includes("## Kuva") && (first.share.files || []).some((f) => f.path === "media/cloud-pic.png"),
+    check("PRO: a changed deck is saved to the cloud, private to its owner, and the address names it",
+      ids.length === 1 && first.address === "/s/" + id + "?edit" && first.share?.owner === "u1" && first.share.visibility === "private" && first.share.md.includes("## Kuva") && (first.share.files || []).some((f) => f.path === "media/cloud-pic.png"),
       JSON.stringify({ ids, address: first.address, files: first.share?.files }));
 
     await pc.reload();
@@ -4361,7 +4361,8 @@ try {
     await pc.evaluate(() => { window.__lastShare = ""; document.getElementById("share").click(); });
     await pc.waitForFunction(() => /\/s\/[A-Za-z0-9]+\?edit$/.test(window.__lastShare || ""), null, { timeout: 10000 }).catch(() => {});
     const link = await pc.evaluate(() => window.__lastShare || "");
-    check("PRO: Share links to the deck's own cloud copy", link.endsWith("/s/" + id + "?edit") && shareId().length === 1, link);
+    check("PRO: Share links to the deck's own cloud copy and opens it to anyone with the link",
+      link.endsWith("/s/" + id + "?edit") && shareId().length === 1 && fakeDb.get("shares/" + id).visibility === "link", link);
     await pc.evaluate(() => window.__app.closeShare());
 
     // changed elsewhere meanwhile: not written over, the two merged here

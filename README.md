@@ -415,13 +415,18 @@ Firebase Hosting. In the Firebase Console, once:
 
 ## Sharing (PRO)
 
-Signed in, **Share** keeps the deck as its owner's in Firestore
-(`decks/{deckId}`) and makes a copy under a short random id
-(`shares/{id}`, its pictures and data files in Storage under `shares/{id}/`).
-The link is `/s/{id}`: anyone with it sees the presentation, nobody can list
-the ids, only the owner can change or delete the copy (`firestore.rules`,
-`storage.rules`). `/s/{id}?edit` opens the copy as a new deck of the reader's
-own. Signed out, Share still packs the text into the link as before.
+Signed in, the deck is kept as its owner's in Firestore (`decks/{deckId}`)
+with a copy under a short random id (`shares/{id}`, its pictures and data
+files in Storage under `shares/{id}/`). The copy's `visibility` says who
+reads it: `private` only its owner's Google account, `link` anyone with
+`/s/{id}`. A deck starts private (in the editor, and when an assistant signed
+in makes it through the MCP server); **Share** makes it `link`, and so does
+`update_presentation` with `visibility: "link"`. A share without the field (made
+before it existed, or by an assistant without sign-in) is `link`. Nobody can
+list the ids, only the owner can change or delete the copy
+(`firestore.rules`, `storage.rules`; the MCP read tools check the same
+field). `/s/{id}?edit` opens the copy as a new deck of the reader's own.
+Signed out, Share still packs the text into the link as before.
 
 Firebase Console, once:
 1. Firestore Database → Create database (production mode).

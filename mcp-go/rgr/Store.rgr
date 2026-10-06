@@ -29,6 +29,8 @@ class DeckPatch {
     def theme:string ""
     def cssMode:int 0
     def css:string ""
+    def hasVisibility:boolean false
+    def visibility:string ""
 }
 
 ; a save: the deck as saved (null when the id or key did not match), or
@@ -59,9 +61,33 @@ class Store {
         return (Deck.allAlnum(id))
     }
 
+    ; Who sees a deck (`visibility` on shares/{id}, firestore.rules and
+    ; storage.rules read the same field): "private" only its owner (and an
+    ; edit key's holder, here), "link" anyone with its id. A share without
+    ; the field is "link": every share made before it existed.
+    sfn isPrivate:boolean (doc:MfJ) {
+        return ((doc.str_("visibility")) == "private")
+    }
+
+    ; whether this caller may read the deck: a "link" deck anyone, a
+    ; private one its owner signed in, or with the deck's edit key. A
+    ; storage error is left on the host.
+    sfn readableBy:boolean (host:McpHost doc:MfJ id:string signedIn:boolean uid:string key:string) {
+        if ((Store.isPrivate(doc)) == false) {
+            return true
+        }
+        if (signedIn && ((strlen uid) > 0)) {
+            if ((doc.str_("owner")) == uid) {
+                return true
+            }
+        }
+        return (Store.keyMatches(host id key))
+    }
+
     ; owner: the signed-in user's uid, or "mcp"; css "" with hasCss false
-    ; stores null
-    sfn create:Created (host:McpHost name:string md:string theme:string hasCss:boolean css:string imgs:[Img] owner:string) {
+    ; stores null; visibility "private" or "link" (an "mcp" deck has no
+    ; owner to keep it for: always "link")
+    sfn create:Created (host:McpHost name:string md:string theme:string hasCss:boolean css:string imgs:[Img] owner:string visibility:string) {
         def out (new Created)
         def id:string (host_short_id host 10)
         def key:string (host_short_id host 24)
@@ -93,6 +119,11 @@ class Store {
             doc.put("css" (new MfJ))
         }
         doc.putStr("owner" owner)
+        if ((owner != "mcp") && (visibility == "private")) {
+            doc.putStr("visibility" "private")
+        } {
+            doc.putStr("visibility" "link")
+        }
         doc.putStr("deck" "mcp")
         doc.putStr("source" "mcp")
         doc.put("files" files)
@@ -186,6 +217,9 @@ class Store {
         }
         if (p.cssMode == 2) {
             patch.put("css" (new MfJ))
+        }
+        if p.hasVisibility {
+            patch.putStr("visibility" p.visibility)
         }
         if ((cur.str_("owner")) == "mcp") {
             patch.put("expires" (Store.anonExpires(host)))

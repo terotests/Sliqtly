@@ -74,6 +74,10 @@ no base64). PNG, JPEG, GIF, WebP and SVG, up to 5 MB.
 Pictures, data files and workbooks are stored only when the user is signed
 in; without sign-in a deck is text only and is deleted 30 days after its
 last change.
+A signed-in user's presentation is private: only their Google account sees
+it, at its link too. To share it, ask the user first, then call
+`update_presentation` with `visibility: "link"` (anyone with the link can
+view it); `visibility: "private"` closes it again.
 When text on a picture is hard to read ("low contrast"), raise that slide's
 `bg-dim` (0.6–0.8) with update_presentation, or put the text on a plate
 (`{container=box}` under it); the picture stays as it is.
