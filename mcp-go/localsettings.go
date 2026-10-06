@@ -150,11 +150,15 @@ func (s *localServer) networkAPI(w http.ResponseWriter, r *http.Request) {
 	state := func() map[string]any {
 		p := s.expo.policy.Load()
 		ifs := *s.expo.ifaces.Load()
-		return map[string]any{
+		out := map[string]any{
 			"access": p.Access, "allow": p.Allow, "fixed": p.Fixed,
 			"editable":   !p.Fixed && fromHere(r),
 			"interfaces": ifs, "listening": s.expo.Listening(),
 		}
+		if s.certs != nil {
+			out["certificate"] = map[string]any{"fingerprint": s.certs.fingerprint(), "https": s.httpsAddrs(ifs)}
+		}
+		return out
 	}
 	switch r.Method {
 	case http.MethodGet:
@@ -196,6 +200,19 @@ func (s *localServer) networkAPI(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, 405, map[string]string{"error": "GET or PUT"})
 	}
+}
+
+// the https:// addresses other computers reach the server on now
+func (s *localServer) httpsAddrs(ifs []netIface) []string {
+	out := []string{}
+	for _, it := range ifs {
+		for _, n := range it.nets {
+			if s.expo.reachedOn(n.IP) && !n.IP.IsLoopback() {
+				out = append(out, "https://"+net.JoinHostPort(n.IP.String(), s.expo.port)+"/")
+			}
+		}
+	}
+	return out
 }
 
 // the names of the decks kept here that do not follow the rule
@@ -272,6 +289,13 @@ ul { padding-left: 20px; }
 <p id="netnote" class="muted"></p>
 <div id="ifs"></div>
 
+<div id="cert" hidden>
+<h2>Microphones on other computers</h2>
+<p class="muted">Browsers let a page use the microphone (calls, recording) only over https:// or on this computer. This server has a certificate of its own: on each other computer, open <a href="/ca">/ca</a> once, install the certificate and check that its fingerprint is this one, then open the server's https:// address.</p>
+<p><code id="fp" style="font:13px/1.4 ui-monospace,monospace;word-break:break-all"></code></p>
+<ul id="https"></ul>
+</div>
+
 <h2>Names of presentations</h2>
 <p class="muted" style="margin-top:0">Whoever can connect can change this.</p>
 
@@ -342,6 +366,7 @@ const KIND = { wired: "wired", wifi: "Wi-Fi", cellular: "phone / mobile", virtua
 function showNet(n) {
   for (const r of document.querySelectorAll("input[name=access]")) r.checked = r.value === n.access;
   $("allow").value = (n.allow || []).join("\n");
+  showCert(n.certificate);
   $("net").disabled = !n.editable;
   $("netnote").textContent = n.fixed
     ? "Set by SLIQTLY_LISTEN / SLIQTLY_ALLOW where the server is started; change it there."
@@ -357,6 +382,14 @@ function showNet(n) {
     t.append(tr);
   }
   el.append(t);
+}
+function showCert(c) {
+  $("cert").hidden = !c;
+  if (!c) return;
+  $("fp").textContent = "SHA-256 " + c.fingerprint;
+  const ul = $("https");
+  ul.textContent = "";
+  for (const u of c.https) { const li = document.createElement("li"), a = document.createElement("a"); a.href = u; a.textContent = u; li.append(a); ul.append(li); }
 }
 async function loadNet() {
   const r = await fetch("/api/settings/network", { cache: "no-store" });

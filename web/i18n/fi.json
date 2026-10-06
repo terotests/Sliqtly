@@ -1266,5 +1266,21 @@
   "The operating system blocks the browser from the microphone. On a Mac: System Settings → Privacy & Security → Microphone, turn your browser on and restart it.": "Käyttöjärjestelmä estää selainta käyttämästä mikrofonia. Macissa: Järjestelmäasetukset → Tietosuoja ja suojaus → Mikrofoni, salli selaimesi ja käynnistä se uudelleen.",
   "The browser did not give the microphone (": "Selain ei antanut mikrofonia (",
   "). If it asked, choose Allow; otherwise click the icon left of the address, set Microphone to Allow and record again.": "). Jos selain kysyi, valitse Salli; muuten napsauta osoitteen vasemmalla puolella olevaa kuvaketta, aseta Mikrofoni sallituksi ja nauhoita uudelleen.",
-  "drag the orange handle to move, elsewhere to mark a part": "vedä oranssista kahvasta siirtääksesi, muualta merkitäksesi osan"
+  "drag the orange handle to move, elsewhere to mark a part": "vedä oranssista kahvasta siirtääksesi, muualta merkitäksesi osan",
+  "Call": "Puhelu",
+  "In call": "Puhelussa",
+  "Joining…": "Liitytään…",
+  "Join call": "Liity puheluun",
+  "Mute": "Mykistä",
+  "Unmute": "Poista mykistys",
+  "Leave": "Poistu",
+  "host": "isäntä",
+  "you": "sinä",
+  "muted": "mykistetty",
+  "speaking": "puhuu",
+  "assistant": "avustaja",
+  "Nobody is in the call.": "Puhelussa ei ole ketään.",
+  "Calls work on a Sliqtly server of one's own, with the presentation open in Edit mode.": "Puhelut toimivat omalla Sliqtly-palvelimella, kun esitys on auki muokkaustilassa.",
+  "The call's connection to the server failed.": "Puhelun yhteys palvelimeen katkesi.",
+  "The browser allows the microphone only on https:// addresses. Open %s on this computer once to install the server's certificate, then open the presentation at %h.": "Selain sallii mikrofonin vain https://-osoitteissa. Avaa tällä koneella kerran %s ja asenna palvelimen varmenne, ja avaa sitten esitys osoitteessa %h."
 }

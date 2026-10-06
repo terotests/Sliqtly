@@ -49,6 +49,7 @@ Import "PresChartEditor.rgr"
 Import "PresToolbar.rgr"
 Import "PresHintPopover.rgr"
 Import "PresPanels.rgr"
+Import "PresMeet.rgr"
 Import "PresReviewUi.rgr"
 Import "PresSketchUi.rgr"
 Import "PresRoomView.rgr"
@@ -265,6 +266,8 @@ class PresApp {
     def stageHintY:double 0.0
     def stageHintH:double 0.0
     def panels:PresPanels (new PresPanels())
+    ; the deck's call on a server of one's own (PresMeet, web/meet.js)
+    def meet:PresMeet (new PresMeet())
     ; review mode: comments pinned to the slides (PresReviewUi, PresReview)
     def review:PresReviewUi (new PresReviewUi())
     ; Slide → Draw on slide: what is drawn stays on the slide (PresSketchUi,
@@ -308,6 +311,7 @@ class PresApp {
     Constructor () {
         def r:[string]
         requests = r
+        panels.call = meet.people
         ; docked: the bar (in "menu" while one of its menus or lists is
         ; open) and the help and files panels; windows: the value popover
         ; ("Style") and the chart / picture editor; the modal dialogs; the
@@ -5807,7 +5811,7 @@ class PresApp {
         } {
             layers.setBand("bar" "docked")
         }
-        layers.setOpen("panels" (((panels.helpOpen || panels.filesOpen) || panels.chat.open) && edit))
+        layers.setOpen("panels" ((((panels.helpOpen || panels.filesOpen) || panels.chat.open) || panels.callOpen) && edit))
         layers.setOpen("sketch" (edit && ((deck.slideCount()) > 0)))
         layers.setOpen("review" (review.on && ((deck.slideCount()) > 0)))
         layers.setOpen("hint" (hint.isOpen && edit))
@@ -7338,6 +7342,10 @@ class PresApp {
                 panels.setChat(false)
                 push requests "chat-closed"
             }
+            if panels.callOpen {
+                meet.panelOpen = false
+                panels.setCall(false)
+            }
         }
         if (review.wantSlide >= 0) {
             def to:int review.wantSlide
@@ -7492,6 +7500,99 @@ class PresApp {
 
     fn chatTakeSent:string () {
         return (panels.chat.takeSent())
+    }
+
+    ; --- the deck's call (PresMeet; the page's web/meet.js does the audio) ---------
+    ; The page names this page's client, hands in the server's tellings and
+    ; the loudness it hears, and takes the "meet:" requests.
+    fn meetClient:void (c:string) {
+        meet.setClient(c)
+    }
+
+    ; -> whether the bar or the panel changed
+    fn meetMembers:boolean (rows:string) {
+        def changed:boolean (meet.setMembers(rows))
+        this.meetSync()
+        return changed
+    }
+
+    fn meetLevel:boolean (c:string l:double now:double) {
+        def changed:boolean (meet.level(c l now))
+        if changed {
+            this.meetRebuild()
+        }
+        return changed
+    }
+
+    fn meetTick:boolean (now:double) {
+        def changed:boolean (meet.tick(now))
+        if changed {
+            this.meetRebuild()
+        }
+        return changed
+    }
+
+    fn meetButton:string () {
+        return (meet.buttonLabel())
+    }
+
+    fn meetState:string () {
+        return meet.state
+    }
+
+    fn meetCount:int () {
+        return (meet.count())
+    }
+
+    fn meetPress:void () {
+        meet.press()
+        this.meetSync()
+    }
+
+    fn meetLeave:void () {
+        meet.leave()
+        this.meetSync()
+    }
+
+    fn meetFailed:void (why:string) {
+        meet.failed(why)
+        this.meetSync()
+    }
+
+    fn meetReset:void () {
+        meet.reset()
+        this.meetSync()
+    }
+
+    fn meetAct:void (target:string) {
+        meet.act(target)
+        this.meetSync()
+    }
+
+    ; the panel shows as the call says, and its requests go to the page
+    fn meetSync:void () {
+        meet.label()
+        def want:boolean (meet.panelOpen && ((meet.on()) || (meet.joined())))
+        if (want != panels.callOpen) {
+            panels.setCall(want)
+            if want {
+                review.closePanel()
+            }
+        } {
+            this.meetRebuild()
+        }
+        def rq:[string] (meet.takeRequests())
+        for rq q:string i {
+            push requests q
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn meetRebuild:void () {
+        if panels.callOpen {
+            panels.rebuild()
+            chromeRev = (chromeRev + 1)
+        }
     }
 
     fn chatHasKeys:boolean () {
@@ -8031,6 +8132,12 @@ class PresApp {
                 if (r == "help-close") {
                     this.setHelp(false)
                 } {
+                  if ((indexOf r "call-press") == 0) {
+                    this.meetAct((substring r 11 (strlen r)))
+                  } {
+                  if (r == "call-closed") {
+                    meet.panelOpen = false
+                  } {
                     if ((indexOf r "files:") == 0) {
                         this.filesRequest((substring r 6 (strlen r)))
                     } {
@@ -8040,6 +8147,8 @@ class PresApp {
                         push requests r
                       }
                     }
+                  }
+                  }
                 }
             }
             i = (i + 1)

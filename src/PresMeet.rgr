@@ -1,0 +1,220 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresMeet.rgr — a call on the deck: who is in it, and where this page is
+; ============================================================================
+;
+; On a server of one's own the people who have a deck open in Edit mode can
+; talk about it (mcp-go/meet.go, web/meet.js). This is the call as the app
+; holds it, with no audio and no network in it:
+;
+;   state   "idle" (not in it), "joining" (asked, the server has not told
+;           this page in yet), "joined", "leaving"
+;   people  who is in the call as the server last told it (EVGUI
+;           ParticipantsCtl, which also draws them), this page's own row
+;           marked `me`
+;   on      a call is going on in the room, whether this page is in or not
+;
+; The page hands in the server's tellings (`setMembers`, one line a person:
+; client, name, colour, host, muted, assistant, tab separated, 1/0 for the
+; flags) and the loudness it measures (`level`); the app asks the page for
+; what to do as requests: "meet:join", "meet:leave", "meet:mute\t1"
+; (or 0), "meet:mute-other\t<client>". The bar's button says what pressing
+; it does (`buttonLabel`): start a call, join the one that is on, or show
+; the people of the one this page is in.
+; ============================================================================
+
+Import "../evgui/src/ParticipantsCtl.rgr"
+Import "PresI18n.rgr"
+
+class PresMeet {
+    def state:string "idle"
+    def client:string ""
+    def people:ParticipantsCtl (new ParticipantsCtl())
+    ; the panel with the people shows (the call goes on while it is closed)
+    def panelOpen:boolean false
+    ; why the last join failed ("" none): the page says it
+    def error:string ""
+    def requests:[string]
+
+    Constructor () {
+        people.setup("pn-call" (PresI18n.t("Call")))
+        this.label()
+    }
+
+    fn setClient:void (c:string) {
+        client = c
+    }
+
+    fn on:boolean () {
+        return ((people.count()) > 0)
+    }
+
+    fn count:int () {
+        return (people.count())
+    }
+
+    fn joined:boolean () {
+        return (state == "joined")
+    }
+
+    ; the texts of the people's panel, in the language now
+    fn label:void () {
+        people.muteText = (PresI18n.t("Mute"))
+        people.unmuteText = (PresI18n.t("Unmute"))
+        people.leaveText = (PresI18n.t("Leave"))
+        people.hostText = (PresI18n.t("host"))
+        people.youText = (PresI18n.t("you"))
+        people.mutedText = (PresI18n.t("muted"))
+        people.speakingText = (PresI18n.t("speaking"))
+        people.agentText = (PresI18n.t("assistant"))
+        people.emptyText = (PresI18n.t("Nobody is in the call."))
+        def n:int (people.count())
+        if (n > 0) {
+            people.title = (((PresI18n.t("Call")) + " · ") + (to_string n))
+        } {
+            people.title = (PresI18n.t("Call"))
+        }
+    }
+
+    ; The server told who is in the call: -> whether anything shown changed.
+    ; This page is in once its row is there; out when it is gone (it left,
+    ; or its connection did).
+    fn setMembers:boolean (rows:string) {
+        def before:string (this.shown())
+        def keep:[string]
+        def lines:[string] (strsplit rows "\n")
+        def isMe:boolean false
+        for lines line:string i {
+            if ((strlen (trim line)) > 0) {
+                def f:[string] (strsplit line "\t")
+                if ((array_length f) >= 6) {
+                    def c:string (itemAt f 0)
+                    def me:boolean (c == client)
+                    if me {
+                        isMe = true
+                    }
+                    people.put(c (itemAt f 1) (itemAt f 2) ((itemAt f 3) == "1") ((itemAt f 4) == "1") me ((itemAt f 5) == "1"))
+                    push keep c
+                }
+            }
+        }
+        people.keepOnly(keep)
+        if (isMe && (state == "joining")) {
+            state = "joined"
+            panelOpen = true
+        }
+        if ((isMe == false) && ((state == "joined") || (state == "leaving"))) {
+            state = "idle"
+        }
+        this.label()
+        return (before != (this.shown()))
+    }
+
+    ; what the bar and the panel show, to tell a change
+    fn shown:string () {
+        def s:string ((state + "|") + (people.title))
+        def i:int 0
+        while (i < (people.count())) {
+            def p:UiCallPerson (people.at(i))
+            s = (((((((s + "|") + p.client) + p.name) + p.color) + (? p.host "h" "")) + (? p.muted "m" "")) + (? p.me "i" ""))
+            i = (i + 1)
+        }
+        return s
+    }
+
+    ; --- the bar's button --------------------------------------------------------
+
+    fn buttonLabel:string () {
+        def n:int (people.count())
+        if (state == "joined") {
+            return ((PresI18n.t("In call")) + " · " + (to_string n))
+        }
+        if (state == "joining") {
+            return (PresI18n.t("Joining…"))
+        }
+        if (n > 0) {
+            return ((PresI18n.t("Join call")) + " · " + (to_string n))
+        }
+        return (PresI18n.t("Call"))
+    }
+
+    ; the button pressed: join (or start) the call, or show / hide its people
+    fn press:void () {
+        if ((state == "joined") || (state == "leaving")) {
+            panelOpen = (panelOpen == false)
+            return
+        }
+        if (state == "joining") {
+            return
+        }
+        state = "joining"
+        error = ""
+        push requests "meet:join"
+    }
+
+    ; the page could not join (no microphone, the server said no)
+    fn failed:void (why:string) {
+        if (state == "joining") {
+            state = "idle"
+        }
+        error = why
+    }
+
+    fn leave:void () {
+        if ((state == "joined") || (state == "joining")) {
+            state = "leaving"
+            push requests "meet:leave"
+        }
+    }
+
+    ; the page lost the deck's room (another deck opened, the stream gone)
+    fn reset:void () {
+        state = "idle"
+        panelOpen = false
+        people.clear()
+        this.label()
+    }
+
+    ; --- the people's panel ------------------------------------------------------
+
+    ; a press on one of its buttons (ParticipantsCtl.activate)
+    fn act:boolean (target:string) {
+        def t:string (people.activate(target))
+        if ((strlen t) == 0) {
+            return false
+        }
+        def a:string (people.takeAction())
+        if (a == "leave") {
+            this.leave()
+        }
+        if (a == "mute") {
+            push requests "meet:mute\t1"
+        }
+        if (a == "unmute") {
+            push requests "meet:mute\t0"
+        }
+        if ((indexOf a "mute:") == 0) {
+            push requests ("meet:mute-other\t" + (substring a 5 (strlen a)))
+        }
+        return true
+    }
+
+    ; the loudness of a person (this page's own microphone under its own
+    ; client) at `now` ms: -> whether a speaking light changed
+    fn level:boolean (c:string l:double now:double) {
+        people.now = now
+        return (people.setLevel(c l))
+    }
+
+    fn tick:boolean (now:double) {
+        return (people.tick(now))
+    }
+
+    fn takeRequests:[string] () {
+        def out:[string] requests
+        def none:[string]
+        requests = none
+        return out
+    }
+}

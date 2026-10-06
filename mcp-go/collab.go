@@ -15,6 +15,7 @@
 //	POST /api/collab/{id}/op       {client, rev, ops, seq}  -> {rev}
 //	POST /api/collab/{id}/presence {client, rev, caret, anchor, who, name, color}
 //	POST /api/collab/{id}/chat     {client, text}           -> the message
+//	POST /api/collab/{id}/call     {client, op, …}          (meet.go)
 //	GET  /api/socket?room={id}&client=…&who=…&name=…&color=…&rev=…
 //	GET  /api/events?room=…  (the same as Server-Sent Events)
 //
@@ -67,7 +68,7 @@ const (
 )
 
 var (
-	collabPath = regexp.MustCompile(`^/api/collab/([A-Za-z0-9]{6,32})(/op|/presence|/chat)?$`)
+	collabPath = regexp.MustCompile(`^/api/collab/([A-Za-z0-9]{6,32})(/op|/presence|/chat|/call)?$`)
 	clientID   = regexp.MustCompile(`^[A-Za-z0-9_-]{4,64}$`)
 	colorHex   = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 )
@@ -170,8 +171,10 @@ type collabRoom struct {
 	// each page's last edit taken (its "seq"): one sent again after a lost
 	// answer is not taken twice
 	seqs map[string]int
-	subs map[*collabSub]struct{}
+	subs map[*collabSub]string // each stream's page
 	chat []collabChat
+	// the call of the people here (meet.go), nil while nobody talks
+	call *roomCall
 
 	// what the deck's file holds: fileMd, which was the text at fileRev
 	// once fileGap's edits are applied to it (writes from elsewhere leave
@@ -228,7 +231,7 @@ func (s *localServer) room(ctx context.Context, id string) (*collabRoom, error) 
 	s.collab.mu.Lock()
 	rm := s.collab.rooms[id]
 	if rm == nil {
-		rm = &collabRoom{s: s, id: id, epoch: newEpoch(), peers: map[string]*collabPeer{}, seqs: map[string]int{}, subs: map[*collabSub]struct{}{}}
+		rm = &collabRoom{s: s, id: id, epoch: newEpoch(), peers: map[string]*collabPeer{}, seqs: map[string]int{}, subs: map[*collabSub]string{}}
 		s.collab.rooms[id] = rm
 	}
 	s.collab.mu.Unlock()
@@ -375,6 +378,16 @@ func (rm *collabRoom) broadcast(v any, id int) {
 	}
 }
 
+// (locked) to one page's streams only
+func (rm *collabRoom) sendTo(client string, v any) {
+	b := newEvt(v, 0)
+	for c, cl := range rm.subs {
+		if cl == client {
+			c.push(b)
+		}
+	}
+}
+
 func (rm *collabRoom) peerList() []*collabPeer {
 	out := make([]*collabPeer, 0, len(rm.peers))
 	for _, p := range rm.peers {
@@ -518,7 +531,7 @@ func (s *localServer) collabAPI(r *http.Request, id, what string) (any, error) {
 		if chat == nil {
 			chat = []collabChat{}
 		}
-		return map[string]any{"epoch": rm.epoch, "rev": rm.rev, "md": fromU16(rm.text), "peers": rm.peerList(), "chat": chat}, nil
+		return map[string]any{"epoch": rm.epoch, "rev": rm.rev, "md": fromU16(rm.text), "peers": rm.peerList(), "chat": chat, "call": rm.callRows()}, nil
 	}
 	if r.Method != http.MethodPost {
 		return nil, fail(405, "", "method not allowed")
@@ -536,6 +549,8 @@ func (s *localServer) collabAPI(r *http.Request, id, what string) (any, error) {
 		return rm.submit(body, client)
 	case "/presence":
 		return rm.presence(body, client)
+	case "/call":
+		return rm.callOp(body, client)
 	}
 	return rm.say(body, client)
 }
@@ -635,6 +650,7 @@ func (rm *collabRoom) presence(body map[string]any, client string) (any, error) 
 			}
 		}
 		rm.sendPeers()
+		rm.callRename(p.Who, p.Name, p.Color)
 	}
 	return map[string]int{"rev": rm.rev}, nil
 }
@@ -701,7 +717,7 @@ func (rm *collabRoom) join(sub *collabSub, client, who, name, color string, from
 		rm.idleTimer.Stop()
 		rm.idleTimer = nil
 	}
-	rm.subs[sub] = struct{}{}
+	rm.subs[sub] = client
 	switch {
 	case epoch != "" && epoch != rm.epoch:
 		// its rev is another run's: what it has is read again
@@ -811,6 +827,11 @@ func (rm *collabRoom) leave(sub *collabSub, client string) {
 		p.open--
 		if p.open <= 0 {
 			delete(rm.peers, client)
+			// a page gone is out of the call too (not under the room's
+			// lock: the call takes its own first)
+			if rm.call != nil {
+				go rm.call.leave(client)
+			}
 		}
 	}
 	rm.sendPeers()
