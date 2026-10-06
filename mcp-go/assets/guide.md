@@ -119,8 +119,9 @@ or plain text for a text cell. Under the fence:
 - `fit=cover` fills the cell and crops, `fit=contain` shows the whole
   picture. `focus=` keeps a part in the crop: `top`, `bottom left`,
   `30% 70%`. `span=2` makes a cell two columns wide.
-- `caption=overlay|below|none`; an overlay caption gets a band behind it,
-  dense enough that its text reads (4.5:1) over any picture. Captions below
+- `caption=overlay|below|none`; an overlay caption is white text on a dark
+  see-through band that reads (4.5:1) over light and dark pictures; a
+  `caption { color }` set dark gets a light band. Captions below
   take a colour that reads on the slide unless `caption { color }` sets one.
 - With `layout=full`, each picture's slide is named by its caption (else
   the heading and the picture's number, "Summer (2)") in the overview and
@@ -468,8 +469,15 @@ figure  { colors: #1f6feb #0f9d8a #7c4dff #f08c00; } /* process, swot, timeline 
 .lead { font-size: 26pt; }
 ```
 
-Fonts available: `Open Sans`, `Noto Sans`. Sizes in `pt` or `in`. Set
+Fonts available: `Open Sans`, `Noto Sans`. Sizes in `pt` or `in`.
+
+On `update_presentation`, `css` is added after the deck's own rules so
+far, so one new rule can be sent alone; sending all of the deck's own
+rules again (as `get_presentation` returns them in `css`) replaces them.
+`css_mode: "own"` starts the deck's own rules over with this `css`;
 `css_mode: "replace"` only when sending a complete stylesheet of your own.
+A new `theme` keeps the deck's own rules. The `version` a result gives
+names the Markdown (for merging edits): a change to `css` alone keeps it.
 
 ## Checking the result
 
