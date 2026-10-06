@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -104,6 +105,41 @@ func sqliteDSN(path string, first ...string) string {
 	}
 	q.Set("_txlock", "immediate")
 	return "file:" + path + "?" + q.Encode()
+}
+
+// openReadOnly opens the SQLite file at path for reading only, beside a
+// process that writes it, and checks that it is at schema version want.
+func openReadOnly(path string, want int) (*sql.DB, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
+	q := url.Values{}
+	q.Set("mode", "ro")
+	q.Add("_pragma", "busy_timeout(10000)")
+	db, err := sql.Open("sqlite", "file:"+path+"?"+q.Encode())
+	if err != nil {
+		return nil, err
+	}
+	have, err := SchemaVersion(context.Background(), db)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	if have != want {
+		db.Close()
+		return nil, fmt.Errorf("%s is at schema version %d, this build reads %d: start the server once to migrate it", path, have, want)
+	}
+	return db, nil
+}
+
+// OpenSQLiteReadOnly is sliqtly.db at path opened for reading only (for a
+// backup taken beside the running server).
+func OpenSQLiteReadOnly(path string) (*sql.DB, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	return openReadOnly(abs, len(SQLiteSchema))
 }
 
 // Path is the database file.

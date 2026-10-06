@@ -110,3 +110,24 @@ benchmark). Things worth keeping from it:
   checks, which have counterparts in SQLite's own `sqlite3` and
   `PRAGMA integrity_check`;
 - the prefix-scan bug it found.
+
+## Added: deltas and backups (2026-10-06)
+
+- **Deltas** are blobs.db schema 2 (`enc`, `base`, `stored`), as planned
+  above: RangerDiff's `RdSmart` compiled to Go (`mcp-go/rdiff`). A delta is
+  kept only when it rebuilds the exact bytes (RdSmart's ZIP and PNG deltas
+  rebuild the parts or pixels, not the wrapper; then a byte delta is used)
+  and is under 80 % of the file. The newest version stays whole, older ones
+  are deltas against it, chains at most 16 deep, files over 64 MB always
+  whole. Deleting a base keeps the blobs on it whole first. The column
+  migration is `Additive`: it runs without the `VACUUM INTO` copy.
+- **Backups** are `store.BackupRepo`: a folder with its own blobs.db and
+  one manifest per snapshot (sliqtly.db's `VACUUM INTO` copy plus the
+  files it names). Only new bytes are copied; the previous sliqtly.db and
+  each changed file's previous bytes become deltas. The server takes them
+  on a schedule (`SLIQTLY_BACKUP`), and `sliqtly-server backup
+  run|list|verify|restore|prune` works on them; a restore writes a new data
+  folder and checks it before it is kept.
+- **S3** stays out: it is object storage for the cloud (Amazon S3, Google
+  Cloud Storage, Cloudflare R2, MinIO). It matters for a deployment on
+  PostgreSQL, not for the folder server.

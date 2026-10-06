@@ -22,7 +22,7 @@ import (
 // file at a version this server does not know (written by a newer one) is
 // refused, not read wrong. Before an existing file is migrated it is copied
 // with VACUUM INTO to <dir>/backups/<time>-<name>-v<n>.db, a consistent
-// copy of the file as it was.
+// copy of the file as it was, unless every migration to run is Additive.
 //
 // A migration is only ever appended: one that has been released is never
 // changed, since files out there are already past it.
@@ -32,6 +32,10 @@ type SQLMigration struct {
 	Version int
 	Note    string
 	Up      func(ctx context.Context, tx *sql.Tx) error
+	// Additive: it only adds columns, tables or indexes, and the rows stay
+	// as they were. Its one transaction either happens or does not, so no
+	// copy of the file is made first: a copy of blobs.db can be gigabytes.
+	Additive bool
 }
 
 // SQLExec is a migration made of SQL statements.
@@ -68,7 +72,11 @@ func Migrate(ctx context.Context, db *sql.DB, path string, ms []SQLMigration, se
 	if have == want {
 		return rep, nil
 	}
-	if have > 0 {
+	additive := true
+	for _, m := range ms[have:] {
+		additive = additive && m.Additive
+	}
+	if have > 0 && !additive {
 		b, err := BackupSQLite(ctx, db, path, fmt.Sprintf("v%d", have))
 		if err != nil {
 			return rep, fmt.Errorf("backup before migrating %s: %w", path, err)
