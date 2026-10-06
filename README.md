@@ -54,6 +54,8 @@ step: 1.2               # seconds between build steps when played
 hold: 2.5               # seconds after the last step
 fx: starfield           # optional default surface effect
 style: cartoon          # optional look for every diagram and chart: mermaid | jurassic | cartoon | romantic
+chart-style: neon        # optional, charts only (flat | forge | neon | glass or a look); File → Document settings → Style
+diagram-style: sketch    # optional, diagrams only (sketch or a look)
 ---
 
 ## Title {#id transition=slide seconds=0.5 fx=starfield fx-density=1.6 duration=8}

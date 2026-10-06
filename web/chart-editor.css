@@ -407,3 +407,9 @@
 
 /* a placeholder is a hint, not a value: faded and italic */
 .theme-ce .ui-input-placeholder { color: #a1a1aa; font-family: Open Sans-Italic; }
+
+/* Dropdowns (a style, a palette): the trigger as wide as its longest
+   choice reads, the list's rows on one line each. */
+.theme-ce .ui-select-trigger { min-width: 170px; }
+.theme-ce .ui-select-content { width: 200px; }
+.theme-ce .ui-select-item { white-space: nowrap; width: 100%; }

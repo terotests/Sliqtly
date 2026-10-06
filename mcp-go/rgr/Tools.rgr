@@ -2617,7 +2617,10 @@ class Tools {
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host tool (host_error host)))
         }
-        def url:string (host_file_url host full token)
+        def url:string (host_download_url host full token type (name + "." + format))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host tool (host_error host)))
+        }
         def count:int ck.slides
         if ((array_length din.only) > 0) {
             count = (array_length din.only)

@@ -14,6 +14,7 @@
 ; since the slide started. `still` (an export) is the finished chart.
 
 Import "PresDiagram.rgr"
+Import "../vela/src/VlJson.rgr"
 
 class PresChart {
 
@@ -443,6 +444,9 @@ class PresChart {
         def ramp:[boolean] (PresChart.rampStripes(tail))
         def cells:boolean (PresChart.rectChart(spec))
         def keys:[string] (PresChart.seriesKeys(tail ramp cells))
+        ; a palette the chart chose (a scheme, a colour of its own) keeps its
+        ; colours: the look then gives the shapes, the lines and the words
+        def own:boolean (PresChart.ownPalette(spec))
         def bars:[EVGDrawCmd]
         def groundSeen:boolean false
         def k:int 0
@@ -490,14 +494,14 @@ class PresChart {
                     if (b < 0) {
                         b = 0
                     }
-                    PresChart.lookColumn(out c barAt tt growStart growEach growDur look b)
+                    PresChart.lookColumn(out c barAt tt growStart growEach growDur look b own)
                     barAt = (barAt + 1)
                     k = (k + 1)
                     continue
                 }
                 if (((itemAt ramp k) == false) && ((cells == false) && (si >= 0))) {
                     ; a legend's swatch or a point: its series' colour
-                    PresChart.tintHex(c (look.seriesFill(si)))
+                    PresChart.tintHex(c (PresChart.lookFill(look si own)))
                     push out.cmds c
                     if ((strlen (look.seriesStroke(si))) > 0) {
                         def ring:EVGDrawCmd (PresChart.edgeCmd(c.x c.y c.w c.h ((look.chartStrokeWidth * 0.5) + 0.5) 0 0 0 1.0))
@@ -529,7 +533,9 @@ class PresChart {
                 if (li < 0) {
                     li = 0
                 }
-                PresChart.tintHex(c (look.seriesInk(li ground)))
+                if (own == false) {
+                    PresChart.tintHex(c (look.seriesInk(li ground)))
+                }
                 if (c.thickness < 3.0) {
                     c.thickness = 3.0
                 }
@@ -559,10 +565,12 @@ class PresChart {
             }
             if ((si >= 0) && ((c.kind == 1) || (c.kind == 6))) {
                 ; a point's ring, an area: the series' colour, the alpha kept
-                if (c.kind == 1) {
-                    PresChart.tintHex(c (look.seriesInk(si ground)))
-                } {
-                    PresChart.tintHex(c (look.seriesFill(si)))
+                if (own == false) {
+                    if (c.kind == 1) {
+                        PresChart.tintHex(c (look.seriesInk(si ground)))
+                    } {
+                        PresChart.tintHex(c (look.seriesFill(si)))
+                    }
                 }
             }
             push out.cmds c
@@ -645,6 +653,55 @@ class PresChart {
         return (((PresChart.absI((c.r - c.g))) < 14) && ((PresChart.absI((c.g - c.b))) < 14))
     }
 
+    ; A series' fill in a look: the look's, or "" (the colour left as it is)
+    ; when the chart chose its own palette.
+    sfn lookFill:string (look:FlowLook si:int own:boolean) {
+        if own {
+            return ""
+        }
+        return (look.seriesFill(si))
+    }
+
+    ; Did the chart choose its colours: a scheme, or one colour for its
+    ; marks (the chart window's Colors)?
+    sfn ownPalette:boolean (spec:string) {
+        if ((strlen (PresChart.specString(spec "scheme"))) > 0) {
+            return true
+        }
+        def p (new VlJsonParser())
+        def j:VlJson (p.parse(spec))
+        if ((j.isObject()) == false) {
+            return false
+        }
+        def m:VlJson (j.get("mark"))
+        if (m.isObject()) {
+            return ((strlen (m.stringOr("color" ""))) > 0)
+        }
+        return false
+    }
+
+    sfn hexOf:string (c:EVGDrawCmd) {
+        def digits:string "0123456789abcdef"
+        def out:string "#"
+        def parts:[int]
+        push parts c.r
+        push parts c.g
+        push parts c.b
+        for parts v:int i {
+            def x:int v
+            if (x < 0) {
+                x = 0
+            }
+            if (x > 255) {
+                x = 255
+            }
+            def hi:int (to_int ((to_double x) / 16.0))
+            def lo:int (x - (hi * 16))
+            out = (out + (substring digits hi (hi + 1)) + (substring digits lo (lo + 1)))
+        }
+        return out
+    }
+
     sfn tintHex:void (c:EVGDrawCmd hex:string) {
         if ((strlen hex) == 0) {
             return
@@ -658,7 +715,7 @@ class PresChart {
     ; One column in a look: rising as in `dress`, the look's top corners, its
     ; shadow (an offset copy, the fill darker or a soft black), its outline,
     ; and cartoon's highlight stroke.
-    sfn lookColumn:void (out:EVGDisplayList c:EVGDrawCmd j:int t:double g0:double ge:double gd:double look:FlowLook series:int) {
+    sfn lookColumn:void (out:EVGDisplayList c:EVGDrawCmd j:int t:double g0:double ge:double gd:double look:FlowLook series:int own:boolean) {
         def u:double ((t - (g0 + (ge * (to_double j)))) / gd)
         if (u <= 0.0) {
             return
@@ -671,6 +728,9 @@ class PresChart {
         def x:double c.x
         def w:double c.w
         def fill:string (look.seriesFill(series))
+        if own {
+            fill = (PresChart.hexOf(c))
+        }
         def stroke:string (look.seriesStroke(series))
         def fc:EVGColor (EVGColor.parse(fill))
         ; a narrow bar takes a smaller corner and shadow
@@ -759,19 +819,27 @@ class PresChart {
         c.fontSize = size
     }
 
+    ; One of the stage's own dressings, not a look.
+    sfn isDressing:boolean (s:string) {
+        return ((((s == "flat") || (s == "forge")) || (s == "neon")) || (s == "glass"))
+    }
+
     ; Which look a chart is drawn in, "" for none: the chart's own style
     ; first (a dressing of the stage's own, flat/forge/neon/glass, is no
     ; look and stops the search), then the document's, then the theme's
     ; chart-style (its first word).
     sfn lookName:string (own:string docStyle:string themeStyle:string) {
         def o:string (trim own)
-        if ((((o == "flat") || (o == "forge")) || (o == "neon")) || (o == "glass")) {
+        if (PresChart.isDressing(o)) {
             return ""
         }
         if (FlowLook.knows(o)) {
             return o
         }
         def d:string (trim docStyle)
+        if (PresChart.isDressing(d)) {
+            return ""
+        }
         if (FlowLook.knows(d)) {
             return d
         }
