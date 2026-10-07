@@ -36,6 +36,28 @@ export function deckRows(local, cloud, currentId) {
   return rows;
 }
 
+// A room's presentations on a server of one's own (get_room's
+// [{ deck_id, name, updated }]) as rows of the window: one kept in this
+// browser too is that deck's row (its id, its times), the others the
+// server's ("cloud:<deck_id>"), as the room's list in the rail opens them.
+export function roomShareRows(presentations, local, currentId) {
+  const kept = new Map((local || []).filter((d) => d.cloud).map((d) => [d.cloud, d]));
+  return (presentations || []).map((p) => {
+    const d = kept.get(p.deck_id);
+    if (d) {
+      return {
+        id: d.id,
+        name: d.name || p.name || "",
+        created: d.created || p.updated || 0,
+        updated: Math.max(d.updated || 0, p.updated || 0),
+        where: "both",
+        current: d.id === currentId,
+      };
+    }
+    return { id: "cloud:" + p.deck_id, name: p.name || "", created: p.updated || 0, updated: p.updated || 0, where: "cloud", current: false };
+  });
+}
+
 export const SORTS = ["updated", "created", "name"];
 
 // The way a column sorts first: times newest first ("desc"), names A–Z ("asc").

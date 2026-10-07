@@ -19,7 +19,7 @@ export const PLAYGROUND = "playground";
 export const ONBOARDING = "onboarding";
 const BUILT_IN = [GENERAL, PLAYGROUND, ONBOARDING];
 // a room's presentations shown under it before "… Show all"
-export const SHOWN = 5;
+export const SHOWN = 15;
 // the rooms one is active in: used in the last ACTIVE_DAYS, at most
 // ACTIVE_MAX of them besides the built-in three
 export const ACTIVE_DAYS = 30;

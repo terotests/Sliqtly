@@ -132,7 +132,7 @@ var roomTools = []roomTool{
 		props:    map[string]any{"room_id": strProp("The room")},
 		required: []string{"room_id"}},
 	{name: "move_presentation", title: "Move a presentation to a room",
-		desc:     "Make room_id the presentation's home room. Needs editor rights in both rooms. Its files stay its own; the room's files are not shared with it.",
+		desc:     "Make room_id the presentation's home room. Needs editor rights in both rooms. Its files stay its own; the room's files are not shared with it. The open pages show it in its new room at once. → the room it came from (from_room_id), the new room's name, and moved false when it was there already",
 		props:    map[string]any{"deck_id": strProp("The presentation's deck_id"), "room_id": strProp("The room to move it to")},
 		required: []string{"deck_id", "room_id"}},
 	{name: "set_room_member", title: "Set a room member's role", destructive: true,
@@ -458,17 +458,24 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 		if p.Rooms[room] == store.NoRole {
 			return nil, store.ErrNotFound
 		}
+		from := ""
 		_, _, err := s.st.Update(ctx, p, "shares", deck, func(cur store.Doc, _ store.Rev) (store.Doc, error) {
 			if cur == nil {
 				return nil, store.ErrNotFound
 			}
+			from, _ = cur[store.RoomField].(string)
 			cur[store.RoomField] = room
 			return cur, nil
 		})
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"deck_id": deck, "room_id": room}, nil
+		// what the assistant tells the user: from where to where, by name
+		out := map[string]any{"deck_id": deck, "room_id": room, "from_room_id": from, "moved": from != room}
+		if d, _, err := s.rooms.Get(ctx, p, room); err == nil {
+			out["room"], _ = d["title"].(string)
+		}
+		return out, nil
 
 	case "set_room_member":
 		role := store.Role(argStr(a, "role"))
