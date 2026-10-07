@@ -87,6 +87,31 @@ func TestReportDiagramTextTooSmall(t *testing.T) {
 	match(t, flagsOf(slideOf(d)), `too small to read \(it is 1704 px wide with 5 boxes in a row\)\. Remove \{layout=keep\}`)
 }
 
+// The side of its place that holds a diagram small is named, with the
+// advice for that side; a diagram that could not be read says why; the
+// tour is a line of its own.
+func TestReportDiagramLimitTourRefused(t *testing.T) {
+	d := block("diagram", "PlantUML", 400, 140, 146, 331)
+	d.runs = append(d.runs, run("Step", 420, 190, 40, 9, 6.5, 0))
+	d.limit, d.slotW, d.slotH, d.drawW, d.drawH = "height", 852, 348, 146, 331
+	d.tour = "Start → Check? ⟨yes: Save | no: Reject⟩"
+	o := Report_static_slide(slideOf(d))
+	f := strings.Join(o.flags, "\n")
+	match(t, f, `its height holds it: it is drawn 292×662 px in a place 1704×696 px\)\. Give it a taller place`)
+	match(t, strings.Join(o.lines, "\n"), `- diagram \(PlantUML\) at .*\n  tour: Start → Check\? ⟨yes: Save \| no: Reject⟩`)
+	d.keep = true
+	match(t, flagsOf(slideOf(d)), `\{layout=keep\} holds it top to bottom`)
+
+	bad := block("diagram", "Mermaid", 68, 150, 347, 20)
+	bad.runs = append(bad.runs, run("the [ after A is not closed with ] — line 2", 68, 150, 347, 20, 20, 0))
+	bad.refused = "the [ after A is not closed with ] — line 2"
+	f2 := flagsOf(slideOf(bad))
+	match(t, f2, `diagram \(Mermaid\) is not drawn: the \[ after A is not closed with \] — line 2\.`)
+	if strings.Contains(f2, "most of the slide is empty: give it the room") {
+		t.Fatal("a refused diagram is told to take more room:", f2)
+	}
+}
+
 func TestReportOverlapsAndEdges(t *testing.T) {
 	p := block("picture", "cat.png", 500, 100, 400, 300)
 	tx := block("text", "Caption", 400, 300, 300, 40)
@@ -273,6 +298,24 @@ func TestLayoutReportAndRender(t *testing.T) {
 	ot := lastText(o)
 	match(t, ot, `"Render": 4 slides`)
 	match(t, ot, `Slide 4 "Plain": the elements cover`)
+}
+
+// A flowchart Mermaid would refuse is named with its line, in the notes and
+// the slide's flags; a toured diagram's report carries the tour's order.
+func TestLayoutReportFlowchartErrorsAndTour(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	deck := "# Flow\n\n## Broken\n\n```mermaid\nflowchart LR\n  A[Open --> B\n```\n\n" +
+		"## Tour\n\n```mermaid\nflowchart TD\n  S([Start]) --> V{In stock?}\n  V -->|yes| K[Pick]\n  V -->|no| T[Order]\n  T --> V\n```\n{tour=on}\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Flow", "markdown": deck})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	text := textOf(c)
+	match(t, text, `Note: The mermaid block on slide "Broken" is not shown: the \[ after A is not closed with \] — line 2\.`)
+	match(t, text, `⚠ diagram \(Mermaid\) is not drawn: the \[ after A is not closed with \] — line 2\.`)
+	match(t, text, `  tour: Start → In stock\? ⟨yes: Pick \| no: Order → In stock\? \(back\)⟩`)
 }
 
 // Every symbol a slide commonly uses has a glyph in some face the painter

@@ -60,6 +60,21 @@ class RBlock {
     def cropped:[string]
     ; a diagram with {layout=keep}: drawn in the direction written
     def keep:boolean false
+    ; a diagram: what holds its size in its room — "width", "height",
+    ; "scale" (as large as a diagram is drawn) or "" (not known) — the room
+    ; (slotW × slotH) and the diagram's own size in it (drawW × drawH)
+    def limit:string ""
+    def slotW:double 0.0
+    def slotH:double 0.0
+    def drawW:double 0.0
+    def drawH:double 0.0
+    ; a diagram: its tour's stops in order, and at a branch each way on
+    ; (PresDiagram.tourText); "" when it has none
+    def tour:string ""
+    ; the flowchart reads left to right (LR/RL) as drawn
+    def across:boolean false
+    ; a diagram that is not drawn: why (an unclosed bracket and its line)
+    def refused:string ""
     ; where its commands drew, as Layout.rgr finds it
     def inkX:double 0.0
     def inkY:double 0.0
@@ -298,6 +313,12 @@ class Report {
         return b.kind
     }
 
+    ; a diagram whose text could not be read: it drew its reason, and no
+    ; shapes
+    sfn refusedOne:boolean (b:RBlock) {
+        return (((strlen b.refused) > 0) && (b.shapes == 0))
+    }
+
     sfn visual:boolean (b:RBlock) {
         return (((((b.kind == "chart") || (b.kind == "diagram")) || (b.kind == "picture")) || ((b.kind == "figure") || (b.kind == "table"))) || (b.kind == "gallery"))
     }
@@ -348,6 +369,9 @@ class Report {
                 }
             }
             push items line
+            if ((strlen b.tour) > 0) {
+                push items ("  tour: " + b.tour)
+            }
             if ((ms > 0.0) && ((o.minPx == 0.0) || ((ms * k) < o.minPx))) {
                 o.minPx = (ms * k)
             }
@@ -397,8 +421,49 @@ class Report {
     }
 
     ; what is wrong with one element
+    ; Why a diagram is drawn as small as it is: the side of its place that
+    ; holds it, from the slide's own fit (RBlock.limit), or its width.
+    sfn diagramWhy:string (b:RBlock k:double) {
+        def row:int (Report.widestRow(b))
+        def boxes:string ""
+        if (row >= 4) {
+            boxes = (" with " + (to_string row) + " boxes in a row")
+        }
+        if ((b.limit == "height") || (b.limit == "width")) {
+            def held:string (b.limit + " holds it")
+            return (("its " + held + ": it is drawn " + (Report.px(b.drawW k)) + "×" + (Report.px(b.drawH k)) + " px in a place " + (Report.px(b.slotW k)) + "×" + (Report.px(b.slotH k)) + " px") + (? (b.limit == "width") boxes ""))
+        }
+        return ("it is " + (Report.px(b.w k)) + " px wide" + boxes)
+    }
+
+    ; What to do about it, for the side that holds it. The slide already
+    ; draws the largest of both directions and a long chain in rows or
+    ; columns, unless {layout=keep} holds it to what was written.
+    sfn diagramFix:string (b:RBlock) {
+        if (b.limit == "height") {
+            if b.keep {
+                return "{layout=keep} holds it top to bottom: remove it or write it left to right (flowchart LR), or split it."
+            }
+            return "Give it a taller place (less above or below it), or split it."
+        }
+        if (b.limit == "width") {
+            if b.keep {
+                return "{layout=keep} holds it left to right: remove it or write it top to bottom (flowchart TD), shorten the labels or split it."
+            }
+            return "Shorten the labels or split it (about 4 boxes across, 10–12 in all)."
+        }
+        if b.keep {
+            return "Remove {layout=keep} so the slide can turn it or set a long chain in columns, shorten the labels or split it."
+        }
+        return "Shorten the labels or split it (about 4 boxes across, 10–12 in all)."
+    }
+
     sfn blockFlags:void (o:RSlideOut b:RBlock s:RSlide k:double rmin:double) {
         def name:string (Report.what(b))
+        if (Report.refusedOne(b)) {
+            push o.flags (name + " is not drawn: " + b.refused + ".")
+            return
+        }
         def ms:double (Report.minSize(b))
         ; off the slide
         def off:[string]
@@ -421,18 +486,7 @@ class Report {
         if ((ms > 0.0) && (ms < rmin)) {
             def at:string (Report.px(ms k))
             if (b.kind == "diagram") {
-                def row:int (Report.widestRow(b))
-                def why:string ("it is " + (Report.px(b.w k)) + " px wide")
-                if (row >= 4) {
-                    why = (why + " with " + (to_string row) + " boxes in a row")
-                }
-                ; the slide already tries both directions and a long chain in
-                ; columns, unless {layout=keep} holds it to what was written
-                def fix:string "Shorten the labels or split it (about 4 boxes across, 10–12 in all)."
-                if b.keep {
-                    fix = "Remove {layout=keep} so the slide can turn it or set a long chain in columns, shorten the labels or split it."
-                }
-                push o.flags (name + ": its text is drawn at " + at + " px, too small to read (" + why + "). " + fix)
+                push o.flags (name + ": its text is drawn at " + at + " px, too small to read (" + (Report.diagramWhy(b k)) + "). " + (Report.diagramFix(b)))
             } {
                 if (b.kind == "chart") {
                     push o.flags (name + ": its smallest labels are " + at + " px, too small to read. Give it more room, fewer categories or a larger axis/legend font.")
@@ -573,8 +627,19 @@ class Report {
             }
         }
         def area:double (s.w * s.h)
-        if ((((visuals == 1) && (biggest < (area * 0.2))) && (o.fill < 0.45)) && (beside == false)) {
-            push o.flags ((Report.what(big)) + " takes " + (to_string (floor (((biggest / area) * 100.0) + 0.5))) + "% of the slide and most of the slide is empty: give it the room (leave out a fixed width/height) or put more beside it.")
+        if ((((visuals == 1) && (biggest < (area * 0.2))) && (o.fill < 0.45)) && ((beside == false) && ((Report.refusedOne(big)) == false))) {
+            def takes:string ((Report.what(big)) + " takes " + (to_string (floor (((biggest / area) * 100.0) + 0.5))) + "% of the slide and most of the slide is empty")
+            ; a diagram as wide as its place cannot be given more room: it
+            ; is its shape that leaves the rest empty
+            if ((big.kind == "diagram") && (big.limit == "width")) {
+                push o.flags (takes + ": it spans its place's width, drawn in the largest layout the slide found, and its shape leaves the height empty. Put text or a picture under it.")
+                return
+            }
+            if ((big.kind == "diagram") && (big.limit == "scale")) {
+                push o.flags (takes + ": it is drawn as large as a diagram is drawn. Put more beside or under it.")
+                return
+            }
+            push o.flags (takes + ": give it the room (leave out a fixed width/height) or put more beside it.")
             return
         }
         ; the lower part of a slide with content left empty (not a title
