@@ -19,6 +19,7 @@ Import "PresReviewDot.rgr"
 Import "PresPick.rgr"
 Import "PresSelect.rgr"
 Import "PresNav.rgr"
+Import "PresScrollInput.rgr"
 Import "PresRecord.rgr"
 Import "PresDocx.rgr"
 Import "PresHtml.rgr"
@@ -3277,6 +3278,82 @@ class PresCheck {
         this.ok((ui.typing == ti) "sketch ui: a double click on the text edits it")
     }
 
+    ; PresScrollInput: the user's scroll direction, a finger that holds the
+    ; page, and the glide a platform does not send
+    fn scrollInput:void () {
+        def s (new PresScrollInput())
+        s.pxPerUnit = 10.0
+        ; SDL: fingers up on a natural-scrolling trackpad report y < 0 and
+        ; FLIPPED; the view goes down (dy > 0), the flag changes nothing
+        s.sdlWheel(5.0 6.0 0.0 -1.5 true true)
+        this.ok((s.outY == 15.0) ("scroll: natural trackpad keeps its direction, " + (to_string s.outY)))
+        s.sdlWheel(5.0 6.0 0.0 -1.5 false true)
+        this.ok((s.outY == 15.0) "scroll: the flag does not turn it around")
+        s.sdlWheel(5.0 6.0 2.0 0.0 false false)
+        this.ok(((s.outX == 20.0) && (s.atX == 5.0)) "scroll: SDL x is the browser's x, at the pointer")
+        ; a finger holds the page: up 30 points is the view 30 down
+        def f (new PresScrollInput())
+        f.fingerDown(100.0 300.0)
+        f.tick(16.0)
+        f.fingerMove(100.0 270.0)
+        this.ok(((f.outY == 30.0) && (f.outX == 0.0)) ("scroll: the page follows the finger, " + (to_string f.outY)))
+        f.tick(16.0)
+        f.fingerMove(100.0 240.0)
+        this.ok((f.fingerUp()) "scroll: a moving finger that lifts throws")
+        def total:double 0.0
+        def frames:int 0
+        while ((f.tick(16.0)) && (frames < 2000)) {
+            total = (total + f.outY)
+            frames = (frames + 1)
+        }
+        this.ok(((total > 200.0) && (frames > 10)) ("scroll: the throw glides on, " + (to_string total) + " px in " + (to_string frames) + " frames"))
+        this.ok(((f.gliding()) == false) "scroll: and stops")
+        ; a finger that stopped before lifting does not throw
+        def g (new PresScrollInput())
+        g.fingerDown(0.0 300.0)
+        g.tick(16.0)
+        g.fingerMove(0.0 200.0)
+        g.tick(200.0)
+        this.ok(((g.fingerUp()) == false) "scroll: a finger that stopped stops the page")
+        ; a press catches a glide
+        def h (new PresScrollInput())
+        h.fingerDown(0.0 300.0)
+        h.tick(16.0)
+        h.fingerMove(0.0 250.0)
+        h.fingerUp()
+        h.tick(16.0)
+        h.fingerDown(0.0 0.0)
+        this.ok(((h.tick(16.0)) == false) "scroll: a finger going down catches the page")
+        ; a touchpad stream that goes quiet glides on (Linux, Windows)
+        def t (new PresScrollInput())
+        def k:int 0
+        while (k < 6) {
+            t.tick(16.0)
+            t.wheel(0.0 0.0 0.0 24.0 true)
+            k = (k + 1)
+        }
+        this.ok(((t.tick(16.0)) == false) "scroll: no glide while the fingers are still on the pad")
+        t.tick(50.0)
+        this.ok(((t.gliding()) && (t.outY > 0.0)) "scroll: a quiet touchpad glides the way it went")
+        ; macOS sends its own glide: none is added
+        def m (new PresScrollInput())
+        m.osMomentum = true
+        k = 0
+        while (k < 6) {
+            m.tick(16.0)
+            m.wheel(0.0 0.0 0.0 24.0 true)
+            k = (k + 1)
+        }
+        m.tick(100.0)
+        this.ok(((m.gliding()) == false) "scroll: no second glide where the system glides")
+        ; a notched wheel never glides
+        def w (new PresScrollInput())
+        w.tick(16.0)
+        w.wheel(0.0 0.0 0.0 100.0 false)
+        w.tick(100.0)
+        this.ok(((w.gliding()) == false) "scroll: a wheel notch does not glide")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -3313,6 +3390,7 @@ class PresCheck {
         c.imagesCleared()
         c.sketches()
         c.meeting()
+        c.scrollInput()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"
