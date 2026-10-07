@@ -277,19 +277,20 @@ class DeckEdits {
     }
 
     ; a slide the overflow went on to was replaced with its whole section
+    ; (the slides whose lines start where its own do: the overflow slides
+    ; are untitled, so titles do not tell)
     sfn overflowNote:string (md:string starts:[int] titles:[string] i:int) {
+        def me:[int] (PresSlideSpans.lines(md starts titles i))
         def first:int i
-        while ((first > 0) && ((itemAt titles first) == (itemAt titles (first - 1)))) {
+        while (first > 0) {
             def sp:[int] (PresSlideSpans.lines(md starts titles (first - 1)))
-            def mine:[int] (PresSlideSpans.lines(md starts titles first))
-            if ((itemAt sp 0) != (itemAt mine 0)) {
+            if ((itemAt sp 0) != (itemAt me 0)) {
                 break
             }
             first = (first - 1)
         }
         def last:int i
         def count:int (array_length titles)
-        def me:[int] (PresSlideSpans.lines(md starts titles i))
         while ((last + 1) < count) {
             def nx:[int] (PresSlideSpans.lines(md starts titles (last + 1)))
             if ((itemAt nx 0) != (itemAt me 0)) {

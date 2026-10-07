@@ -3,6 +3,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -54,6 +55,10 @@ func TestSlideSpansCoverSections(t *testing.T) {
 	t2 := []string{"Title", "One", "One", "Two", "Three"}
 	eq(t, PresSlideSpans_static_lines(EDECK, s2, t2, 2), []int64{7, 12})
 	eq(t, PresSlideSpans_static_lines(EDECK, s2, t2, 9), []int64{-1, 20})
+	// the layout leaves a slide the overflow went on to untitled
+	t3 := []string{"Title", "One", "", "Two", "Three"}
+	eq(t, PresSlideSpans_static_lines(EDECK, s2, t3, 1), []int64{7, 12})
+	eq(t, PresSlideSpans_static_lines(EDECK, s2, t3, 2), []int64{7, 12})
 }
 
 func TestEditsReplaceText(t *testing.T) {
@@ -148,4 +153,41 @@ func TestUpdateWithEdits(t *testing.T) {
 	match(t, textOf(both), `markdown \(the whole deck\) or edits, not both`)
 	odd := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edits": []any{map[string]any{"slide": 2}}})
 	match(t, textOf(odd), `Edit 1: markdown is needed`)
+}
+
+// A slide whose table runs over onto more slides is replaced whole, by the
+// number of its first slide, of a slide its table went on to, or by title.
+func TestUpdateReplacesSlideThatRanOver(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, testEnv(&f, nil), "")
+	defer s.close()
+	rows := ""
+	for i := 1; i <= 30; i++ {
+		rows += "| row " + strconv.Itoa(i) + " | v" + strconv.Itoa(i) + " |\n"
+	}
+	md := "# Deck\n\nIntro\n\n## Big\n\n| A | B |\n|---|---|\n" + rows + "\n## Next\n\nAfter\n"
+	want := "# Deck\n\nIntro\n\n## Small\n\nShort\n\n## Next\n\nAfter\n"
+	for _, edit := range []map[string]any{
+		{"slide": 2, "markdown": "## Small\n\nShort"},
+		// slide 3 is the first slide the table went on to: it is the Big
+		// slide's, so its whole section goes
+		{"slide": 3, "markdown": "## Small\n\nShort"},
+		{"slide_title": "Big", "markdown": "## Small\n\nShort"},
+	} {
+		c := call(t, s, "create_presentation", map[string]any{"title": "Over", "markdown": md})
+		if c.IsError {
+			t.Fatal(textOf(c))
+		}
+		id := sc(c)["deck_id"].(string)
+		// the numbers the layout report shows: the overflow slides count
+		match(t, textOf(c), `Slide "Big" does not fit and goes on over \d+ more slides`)
+		match(t, textOf(c), `Slide 3: `)
+		u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edits": []any{edit}})
+		if u.IsError {
+			t.Fatal(textOf(u))
+		}
+		eq(t, f.db.doc("shares/" + id)["md"], want)
+		eq(t, sc(u)["slides"], 3)
+		match(t, textOf(u), `Edit 1: slide \d+( "Big")? replaced \(with slides 2–\d+, which its text runs over\)\.`)
+	}
 }
