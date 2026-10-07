@@ -2327,6 +2327,11 @@ class PresDeck {
         }
     }
 
+    ; `mode: book` and its margins, from the last layout (MdBook).
+    fn book:MdBook () {
+        return md.edit.layout.book
+    }
+
     fn readSlides:void () {
         this.keepOldUses()
         clear slides

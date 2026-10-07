@@ -33,6 +33,7 @@ Import "PresSlideSpans.rgr"
 Import "PresFollow.rgr"
 Import "PresPick.rgr"
 Import "PresNav.rgr"
+Import "PresBook.rgr"
 Import "PresScrollInput.rgr"
 Import "PresThemeEdit.rgr"
 Import "PresRecord.rgr"
@@ -1570,6 +1571,22 @@ class PresApp {
         if ((deck.slideCount()) == 0) {
             return
         }
+        if (this.bookShow()) {
+            def to:int (PresBook.nextPage((deck.book()) selected (deck.slideCount())))
+            if (to < 0) {
+                ended = true
+            } {
+                selected = to
+                this.viewReset()
+                activeDia = -1
+                def ts:PresSlide (deck.slideAt(to))
+                pStep = ts.steps
+                clock = (PresTimeline.slideStart(deck selected))
+            }
+            this.inkFollow()
+            chromeRev = (chromeRev + 1)
+            return
+        }
         def s:PresSlide (deck.slideAt(selected))
         if (pStep < s.steps) {
             pStep = (pStep + 1)
@@ -1621,6 +1638,13 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
+        if (this.bookShow()) {
+            def back:int (PresBook.prevPage((deck.book()) selected (deck.slideCount())))
+            if (back >= 0) {
+                this.jump((PresNav.whole(deck back)))
+            }
+            return
+        }
         if (selected <= 0) {
             clock = 0.0
             pStep = 0
@@ -1666,11 +1690,31 @@ class PresApp {
 
     ; PageDown / PageUp: the next / previous slide, whole.
     fn pageNext:void () {
+        if (this.bookShow()) {
+            def to:int (PresBook.nextPage((deck.book()) selected (deck.slideCount())))
+            if (to < 0) {
+                def at:PresNavAt (PresNav.whole(deck selected))
+                at.ended = true
+                this.jump(at)
+            } {
+                this.jump((PresNav.whole(deck to)))
+            }
+            return
+        }
         this.jump((PresNav.pageNext(deck selected ended)))
     }
 
     fn pagePrev:void () {
+        if (this.bookShow()) {
+            this.prev()
+            return
+        }
         this.jump((PresNav.pagePrev(deck selected ended)))
+    }
+
+    ; Presenting a book: a spread at a time.
+    fn bookShow:boolean () {
+        return ((mode == "present") && ((deck.book()).isBook()))
     }
 
     ; Slide `text` (a number from 1, as the counter shows it), whole. False
@@ -1686,6 +1730,9 @@ class PresApp {
 
     ; The counter: "3 / 12", or the number being typed.
     fn slideLabel:string () {
+        if (this.bookShow()) {
+            return (PresBook.label((deck.book()) selected (deck.slideCount()) nav.typed))
+        }
         return (PresNav.label(selected (deck.slideCount()) nav.typed))
     }
 
@@ -2787,13 +2834,21 @@ class PresApp {
         def ah:double (area.h - (pad * 2.0))
         if (aw < 10.0) { aw = 10.0 }
         if (ah < 10.0) { ah = 10.0 }
-        def sc:double (aw / deck.pageW)
+        ; a book is shown a spread at a time: two pages fit, and the page
+        ; itself is the half it is on (PresBook)
+        def book:MdBook (deck.book())
+        def across:double (? (book.isBook()) 2.0 1.0)
+        def sc:double (aw / (deck.pageW * across))
         if ((deck.pageH * sc) > ah) {
             sc = (ah / deck.pageH)
         }
         def w:double (deck.pageW * sc)
         def h:double (deck.pageH * sc)
-        slideRect.set((area.x + ((area.w - w) * 0.5)) (area.y + ((area.h - h) * 0.5)) w h)
+        def sx:double (area.x + ((area.w - (w * across)) * 0.5))
+        if ((book.isBook()) && (book.isRecto(selected))) {
+            sx = (sx + w)
+        }
+        slideRect.set(sx (area.y + ((area.h - h) * 0.5)) w h)
         viewBase.set(slideRect.x slideRect.y w h)
         if (viewZoom > 1.0) {
             def zw:double (w * viewZoom)
@@ -3076,7 +3131,7 @@ class PresApp {
     fn stageJson:string () {
         deck.live = (this.isPlaying())
         deck.showControls = true
-        def l:EVGDisplayList (PresTimeline.frame(deck selected (this.stageTime())))
+        def l:EVGDisplayList (this.stageFrame())
         if (viewZoom > 1.0) {
             this.clipToStage(l)
         }
@@ -3084,6 +3139,33 @@ class PresApp {
         deck.showControls = false
         deck.live = false
         return out
+    }
+
+    ; The stage's frame: the slide, or a book's spread (PresBook).
+    fn stageFrame:EVGDisplayList () {
+        def book:MdBook (deck.book())
+        if (book.isBook()) {
+            if (mode == "present") {
+                return (PresBook.showFrame(deck selected (this.stageTime())))
+            }
+            return (PresBook.editFrame(deck selected (this.stageTime())))
+        }
+        return (PresTimeline.frame(deck selected (this.stageTime())))
+    }
+
+    ; Where page `p` of the shown spread is on screen, when it faces the
+    ; selected page (a press there turns to it while editing).
+    fn partnerAt:int (x:double y:double) {
+        def book:MdBook (deck.book())
+        def p:int (PresBook.partner(book selected (deck.slideCount())))
+        if (p < 0) {
+            return -1
+        }
+        def px:double (slideRect.x + ((PresBook.pageX(book p selected deck.pageW)) * (this.slideScale())))
+        if ((((x >= px) && (x < (px + slideRect.w))) && (y >= slideRect.y)) && (y < (slideRect.y + slideRect.h))) {
+            return p
+        }
+        return -1
     }
 
     ; Zoomed in, the slide is larger than the stage: the list is clipped to
@@ -3837,6 +3919,12 @@ class PresApp {
                 this.pickPress(part)
                 return "select"
             }
+        }
+        if ((mode == "edit") && ((this.partnerAt(x y)) >= 0)) {
+            ; a book's facing page: the press turns to it
+            this.selectSlide((this.partnerAt(x y)))
+            focus = "stage"
+            return "stage"
         }
         if (slideRect.has(x y)) {
             ; a double click on a chart opens its settings

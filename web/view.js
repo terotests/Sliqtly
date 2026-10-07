@@ -16,6 +16,8 @@ import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
 import { decodePicture } from "./picture.js";
 import { INTRO_MS } from "./brand.js";
 import { currentUser, signIn, authHeaders } from "./viewauth.js";
+import { bookOf, spreadOfPage, firstPage, spreadLabel, spreadPages, grabAt, curl, letGo, turnPath } from "./book.js";
+import { BookGL } from "./bookgl.js";
 import { linkOf, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide, pinchView, panView, isZoomed } from "./viewlink.js";
 
 const FONTS = document.querySelector('meta[name="fonts"]')?.content || "";
@@ -122,6 +124,21 @@ let raf = 0;
 // the slide seen closer by a pinch ({ x, y, scale }), or null: fitted
 let zoom = null;
 
+// `mode: book` (web/book.js): the spreads, and with `render: realistic`
+// the pages drawn as paper and turned by their corner (web/bookgl.js) on a
+// canvas over this one
+let book = null;
+let bookGl = null;
+let turn = null;
+const sheet = document.createElement("canvas");
+sheet.id = "bookSheet";
+sheet.setAttribute("aria-hidden", "true");
+sheet.hidden = true;
+// what the viewer is as wide as: a page, or a book's two
+const viewW = () => (book ? deck.width * 2 : deck.width);
+const spreadNow = () => (book ? spreadOfPage(book.spreads, at) : at);
+const realistic = () => !!(book && book.render === "realistic" && bookGl && !zoom);
+
 function paint() {
   raf = 0;
   if (!gl || !lists.length) return;
@@ -133,17 +150,127 @@ function paint() {
     canvas.height = Math.round(h * dpr);
   }
   gl.viewport(0, 0, canvas.width, canvas.height);
-  gl.clearColor(0, 0, 0, 1);
+  // a realistic book lies on a table, with room round it for its shadow
+  // and the edges of its pages
+  const table = realistic();
+  if (table) gl.clearColor(0.17, 0.16, 0.15, 1);
+  else gl.clearColor(0, 0, 0, 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-  const list = lists[at];
+  const pad = table ? Math.round(Math.min(w, h) * 0.06) : 0;
+  const fit = fitSlide(w - pad * 2, h - pad * 2, viewW(), deck.height);
+  const view = zoom || { x: fit.x + pad, y: fit.y + pad, scale: fit.scale };
+  if (table) {
+    sheet.hidden = false;
+    paintBook(view, dpr);
+    return;
+  }
+  sheet.hidden = true;
   const t = (performance.now() - shownAt) / 1000;
-  for (const e of list.effects || []) e.time = t;
-  const doc = { width: w, height: h, view: zoom || fitSlide(w, h, deck.width, deck.height), list };
-  const f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: true });
-  f.draw(null, null, { clear: false });
-  f.dispose();
+  // a slide, or the pages of a book's spread side by side
+  const shown = book ? spreadPages(book.spreads, spreadNow()) : [{ page: at, x: 0 }];
+  let moving = false;
+  for (const { page, x } of shown) {
+    const list = lists[page];
+    for (const e of list.effects || []) e.time = t;
+    moving = moving || (list.effects || []).length > 0;
+    const doc = { width: w, height: h, view: { x: view.x + x * deck.width * view.scale, y: view.y, scale: view.scale }, list };
+    const f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: true });
+    f.draw(null, null, { clear: false });
+    f.dispose();
+  }
   // a surface effect moves: drawn again on the next frame
-  if ((list.effects || []).length) raf = requestAnimationFrame(paint);
+  if (moving) raf = requestAnimationFrame(paint);
+}
+
+// --- a realistic book ------------------------------------------------------------
+// Each page drawn once by EVG into a picture as sharp as the screen shows
+// it, kept by bookGl as a texture.
+let pageGl = null;
+const pageCanvas = document.createElement("canvas");
+function ensurePage(page, pxW) {
+  if (page < 0 || page >= lists.length || bookGl.hasPage(page, pxW)) return;
+  if (!pageGl) pageGl = pageCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!pageGl) return;
+  const k = pxW / deck.width;
+  pageCanvas.width = pxW;
+  pageCanvas.height = Math.round(deck.height * k);
+  const list = lists[page];
+  for (const e of list.effects || []) e.time = 2;
+  const f = prepareDisplayList(pageGl, { width: deck.width, height: deck.height, list }, { dpr: k, images: pictures, contrastGuard: true, contrastRepair: true });
+  f.draw(null, null);
+  f.dispose();
+  bookGl.setPage(page, pageCanvas, pxW);
+}
+
+let place = null;
+function paintBook(view, dpr) {
+  const s = spreadNow();
+  const [left, right] = book.spreads[s];
+  place = { spineX: view.x + deck.width * view.scale, top: view.y, scale: view.scale };
+  const pxW = Math.min(2048, Math.max(256, Math.round(deck.width * view.scale * dpr)));
+  const need = [left, right];
+  if (turn) need.push(turn.front, turn.back, turn.under);
+  for (const p of need) ensurePage(p, pxW);
+  let t = null;
+  if (turn) {
+    if (turn.anim) {
+      const a = turn.anim;
+      const u = Math.min(1, (performance.now() - a.start) / a.ms);
+      const q = turnPath(turn.cx, turn.cy, a.fx, a.fy, u, a.over, deck.height);
+      turn.qx = q.x;
+      turn.qy = q.y;
+      if (u >= 1) {
+        const over = a.over;
+        const to = turn.to;
+        turn = null;
+        if (over) go(firstPage(book.spreads, to));
+        else repaint();
+        return paintBook(view, dpr);
+      }
+    }
+    t = { side: turn.side, front: turn.front, back: turn.back, under: turn.under, curl: curl(turn.cx, turn.cy, turn.qx, turn.qy, deck.width, deck.height) };
+  }
+  bookGl.draw({ place, W: deck.width, H: deck.height, dpr, left: turn && turn.side < 0 ? -1 : left, right: turn && turn.side > 0 ? -1 : right, turn: t });
+  if (turn && turn.anim) raf = requestAnimationFrame(paint);
+}
+
+// A turn of the page at spread s towards `side` (1 on, -1 back), held at
+// (cx, cy) on its outer edge.
+function startTurn(side, cx, cy) {
+  const s = spreadNow();
+  const to = s + side;
+  if (to < 0 || to >= book.spreads.length) return null;
+  const [l, r] = book.spreads[s];
+  const [l2, r2] = book.spreads[to];
+  turn = side > 0
+    ? { side, cx, cy, qx: cx, qy: cy, to, front: r, back: l2, under: r2 }
+    : { side, cx, cy, qx: cx, qy: cy, to, front: l, back: r2, under: l2 };
+  return turn;
+}
+
+// A turn nobody holds: a key, a click, the buttons.
+function turnBy(side) {
+  if (turn) return;
+  if (!startTurn(side, side * deck.width, deck.height)) return;
+  turn.anim = { start: performance.now(), fx: turn.cx, fy: turn.cy, over: true, ms: 750 };
+  repaint();
+}
+
+// Letting a held page go: over, or back where it lay.
+function release(vx) {
+  const over = letGo(turn.side, turn.qx, vx, deck.width);
+  turn.anim = { start: performance.now(), fx: turn.qx, fy: turn.qy, over, ms: over ? 420 : 300 };
+  repaint();
+}
+
+// The next or previous spread, or slide: turned in a realistic book.
+function step(by) {
+  if (realistic()) {
+    turnBy(by);
+    return;
+  }
+  if (book) go(firstPage(book.spreads, Math.max(0, Math.min(book.spreads.length - 1, spreadNow() + by))));
+  else go(at + by);
 }
 function repaint() {
   if (!raf) raf = requestAnimationFrame(paint);
@@ -158,12 +285,14 @@ function go(i) {
   const n = lists.length;
   if (!n) return;
   i = Math.max(0, Math.min(n - 1, i));
+  // a book is shown a spread at a time, from the spread's first page
+  if (book) i = firstPage(book.spreads, spreadOfPage(book.spreads, i));
   if (i !== at) {
     shownAt = performance.now();
     zoom = null;
   }
   at = i;
-  vCount.textContent = (at + 1) + " / " + n;
+  vCount.textContent = book ? spreadLabel(book.spreads, spreadNow(), n) : (at + 1) + " / " + n;
   if (!given) {
     const q = new URLSearchParams(location.hash.replace(/^#/, ""));
     if (at > 0) q.set("slide", String(at + 1));
@@ -206,8 +335,8 @@ vGo.addEventListener("keydown", (ev) => {
 });
 vGo.addEventListener("blur", closeGoTo);
 document.getElementById("vFirst").addEventListener("click", () => go(0));
-document.getElementById("vPrev").addEventListener("click", () => go(at - 1));
-document.getElementById("vNext").addEventListener("click", () => go(at + 1));
+document.getElementById("vPrev").addEventListener("click", () => step(-1));
+document.getElementById("vNext").addEventListener("click", () => step(1));
 document.getElementById("vFull").addEventListener("click", () => {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   else document.documentElement.requestFullscreen?.().catch(() => {});
@@ -288,6 +417,16 @@ window.addEventListener("keydown", (ev) => {
     return;
   }
   if (ev.target.closest?.("#viewBar")) return;
+  if (book) {
+    const units = book.spreads.length;
+    const s = spreadNow();
+    const k = slideForKey(ev.key, s, units);
+    if (k < 0) return;
+    ev.preventDefault();
+    if (k === s + 1 || k === s - 1) step(k - s);
+    else if (k !== s) go(firstPage(book.spreads, k));
+    return;
+  }
   const to = slideForKey(ev.key, at, lists.length);
   if (to < 0) return;
   ev.preventDefault();
@@ -306,6 +445,54 @@ function fingerSpan() {
   const [a, b] = [...fingers.values()];
   return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
 }
+// the page of a realistic book under a pointer, in page units from the spine
+const onPage = (ev) => ({ x: (ev.clientX - place.spineX) / place.scale, y: (ev.clientY - place.top) / place.scale });
+canvas.addEventListener("pointerdown", (ev) => {
+  if (!realistic() || turn || !place) return;
+  const p = onPage(ev);
+  const s = spreadNow();
+  const g = grabAt(p.x, p.y, deck.width, deck.height, s + 1 < book.spreads.length, s > 0);
+  if (!g || !startTurn(g.side, g.cx, g.cy)) return;
+  turn.held = { id: ev.pointerId, t: performance.now(), x: p.x, vx: 0 };
+  canvas.setPointerCapture(ev.pointerId);
+  // the slide's own press (a tap, a swipe, a pinch) does not see it
+  ev.stopImmediatePropagation();
+  repaint();
+});
+canvas.addEventListener("pointermove", (ev) => {
+  // a page's corner can be taken: the hand says so
+  if (!turn && realistic() && place && ev.pointerType === "mouse") {
+    const p = onPage(ev);
+    const s = spreadNow();
+    canvas.style.cursor = grabAt(p.x, p.y, deck.width, deck.height, s + 1 < book.spreads.length, s > 0) ? "grab" : "";
+  }
+  if (!turn || !turn.held || turn.held.id !== ev.pointerId) return;
+  canvas.style.cursor = "grabbing";
+  ev.stopImmediatePropagation();
+  const p = onPage(ev);
+  const now = performance.now();
+  const dt = Math.max(1, now - turn.held.t) / 1000;
+  turn.held.vx = turn.held.vx * 0.6 + ((p.x - turn.held.x) / dt) * 0.4;
+  turn.held.t = now;
+  turn.held.x = p.x;
+  turn.qx = p.x;
+  turn.qy = p.y;
+  repaint();
+});
+const letHold = (ev) => {
+  if (!turn || !turn.held || turn.held.id !== ev.pointerId) return;
+  ev.stopImmediatePropagation();
+  const vx = turn.held.vx;
+  const moved = Math.abs(turn.qx - turn.cx) + Math.abs(turn.qy - turn.cy);
+  turn.held = null;
+  canvas.style.cursor = "";
+  // a tap on the corner turns the page like a click
+  if (moved < 4) turn.anim = { start: performance.now(), fx: turn.cx, fy: turn.cy, over: true, ms: 750 };
+  else release(vx);
+  repaint();
+};
+canvas.addEventListener("pointerup", letHold);
+canvas.addEventListener("pointercancel", letHold);
 canvas.addEventListener("pointerdown", (ev) => {
   down = { x: ev.clientX, y: ev.clientY, lx: ev.clientX, ly: ev.clientY };
   if (ev.pointerType === "mouse") return;
@@ -322,11 +509,11 @@ canvas.addEventListener("pointermove", (ev) => {
   if (pinch) {
     if (fingers.size < 2) return;
     const p = fingerSpan();
-    zoom = pinchView(zoom || fitSlide(w, h, deck.width, deck.height), w, h, deck.width, deck.height, p.d / pinch.d, p.mx, p.my, p.mx - pinch.mx, p.my - pinch.my);
+    zoom = pinchView(zoom || fitSlide(w, h, viewW(), deck.height), w, h, viewW(), deck.height, p.d / pinch.d, p.mx, p.my, p.mx - pinch.mx, p.my - pinch.my);
     pinch = p;
     repaint();
   } else if (down && zoom) {
-    zoom = panView(zoom, w, h, deck.width, deck.height, ev.clientX - down.lx, ev.clientY - down.ly);
+    zoom = panView(zoom, w, h, viewW(), deck.height, ev.clientX - down.lx, ev.clientY - down.ly);
     down.lx = ev.clientX;
     down.ly = ev.clientY;
     repaint();
@@ -337,7 +524,7 @@ function lift(ev) {
   if (pinch && fingers.size < 2) {
     pinch = null;
     // pinched back out to the fitted slide: fitted again
-    if (!isZoomed(zoom, canvas.clientWidth, canvas.clientHeight, deck.width, deck.height)) zoom = null;
+    if (!isZoomed(zoom, canvas.clientWidth, canvas.clientHeight, viewW(), deck.height)) zoom = null;
   }
 }
 canvas.addEventListener("pointercancel", (ev) => {
@@ -350,8 +537,8 @@ canvas.addEventListener("pointerup", (ev) => {
   const dx = ev.clientX - down.x;
   const dy = ev.clientY - down.y;
   down = null;
-  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) && !zoom) go(at + (dx < 0 ? 1 : -1));
-  else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) go(at + (ev.clientX < canvas.clientWidth / 3 ? -1 : 1));
+  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) && !zoom) step(dx < 0 ? 1 : -1);
+  else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) step(ev.clientX < canvas.clientWidth / 3 ? -1 : 1);
 });
 // iOS Safari zooms the page on a pinch despite touch-action: not over the slide
 canvas.addEventListener("touchmove", (ev) => ev.preventDefault(), { passive: false });
@@ -434,6 +621,17 @@ async function start() {
     return;
   }
   deck = got.deck;
+  book = bookOf(deck);
+  if (book && book.render === "realistic") {
+    try {
+      canvas.after(sheet);
+      bookGl = new BookGL(sheet);
+    } catch (e) {
+      // no second WebGL context: the book is shown flat
+      console.warn("realistic book", e);
+      bookGl = null;
+    }
+  }
   if (deck.name) document.title = deck.name + " · Sliqtly";
   const looks = lookFacesOf(got.lists).map((name) => [name, LOOK_FACES[name]]);
   await Promise.all([fonts.then(() => looks.length && loadFaces(looks)), ...picturesOf(deck).map(pictureOf)]);

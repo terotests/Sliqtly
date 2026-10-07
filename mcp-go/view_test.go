@@ -131,3 +131,38 @@ func TestViewLists(t *testing.T) {
 		}
 	}
 }
+
+// `mode: book`: the viewer is sent which pages face each other and how the
+// book is drawn; a deck of slides is sent no book (PresBook, web/book.js)
+func TestViewBook(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	pages := "# Kansi\n\nA\n\n# Kaksi\n\nB\n\n# Kolme\n\nC\n\n# Neljä\n\nD\n"
+	open := func(front string) map[string]any {
+		c := call(t, s, "create_presentation", map[string]any{"title": "Kirja", "markdown": front + pages, "visibility": "link"})
+		if c.IsError {
+			t.Fatal(textOf(c))
+		}
+		code, _, _, body := getView(t, s.root+"/api/view/"+sc(c)["deck_id"].(string))
+		eq(t, code, 200)
+		var raw struct {
+			Deck map[string]any `json:"deck"`
+		}
+		if err := json.Unmarshal([]byte(body), &raw); err != nil {
+			t.Fatal(err)
+		}
+		return raw.Deck
+	}
+	d := open("---\nmode: book\nrender: realistic\n---\n\n")
+	b, ok := d["book"].(map[string]any)
+	if !ok {
+		t.Fatalf("no book: %v", d)
+	}
+	eq(t, b["render"], "realistic")
+	got, _ := json.Marshal(b["spreads"])
+	eq(t, string(got), "[[-1,0],[1,2],[3,-1]]")
+	if _, has := open("")["book"]; has {
+		t.Fatal("a deck of slides has no book")
+	}
+}

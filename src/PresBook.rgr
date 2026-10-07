@@ -1,0 +1,192 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; =============================================================================
+; PresBook — a deck with `mode: book` on the stage: two pages side by side.
+; =============================================================================
+;
+; Which pages face each other and which side a page is on is the book's
+; (RangerMarkdown MdBook, from the front matter). This is what the player
+; makes of it:
+;
+; - the stage is a SPREAD, two pages wide. The page being edited or shown
+;   keeps the place a slide has (`PresApp.slideRect`), so every press, pick
+;   and drag on it is the same as on a slide; the page it faces is drawn
+;   beside it, at rest, outside that rectangle.
+; - presenting goes a spread at a time: the next spread's first page, and
+;   the slide's transition moves the whole spread.
+; - the counter names the spread's pages: "2–3 / 12".
+;
+; A deck of slides (no `mode: book`) goes through none of this.
+; =============================================================================
+
+Import "PresTimeline.rgr"
+
+class PresBook {
+    ; Where the spread's left edge is, in the units of page `sel` (its own
+    ; left edge is 0): one page further left when `sel` is a right-hand page.
+    sfn spreadX:double (book:MdBook sel:int pageW:double) {
+        if ((book.isBook()) && (book.isRecto(sel))) {
+            return (0.0 - pageW)
+        }
+        return 0.0
+    }
+
+    ; Where page `p` of the same spread starts, in `sel`'s units.
+    sfn pageX:double (book:MdBook p:int sel:int pageW:double) {
+        def x:double (PresBook.spreadX(book sel pageW))
+        if (book.isRecto(p)) {
+            x = (x + pageW)
+        }
+        return x
+    }
+
+    ; The page facing `sel`, or -1 (the cover, the back page, a deck of
+    ; slides).
+    sfn partner:int (book:MdBook sel:int pages:int) {
+        if ((book.isBook()) == false) {
+            return -1
+        }
+        def s:int (book.spreadOf(sel))
+        def l:int (book.leftOf(s pages))
+        def r:int (book.rightOf(s pages))
+        if (l == sel) {
+            return r
+        }
+        if (r == sel) {
+            return l
+        }
+        return -1
+    }
+
+    ; The first page of the spread after `sel`'s, or -1 past the last.
+    sfn nextPage:int (book:MdBook sel:int pages:int) {
+        def s:int ((book.spreadOf(sel)) + 1)
+        if (s >= (book.spreadCount(pages))) {
+            return -1
+        }
+        return (book.firstOf(s pages))
+    }
+
+    ; The first page of the spread before `sel`'s, or -1 on the first.
+    sfn prevPage:int (book:MdBook sel:int pages:int) {
+        def s:int ((book.spreadOf(sel)) - 1)
+        if (s < 0) {
+            return -1
+        }
+        return (book.firstOf(s pages))
+    }
+
+    ; "2–3 / 12" for a spread, "1 / 12" for the cover alone; a typed number
+    ; in its place while one is being typed.
+    sfn label:string (book:MdBook sel:int pages:int typed:string) {
+        if (pages <= 0) {
+            return "0 / 0"
+        }
+        def all:string (" / " + (to_string pages))
+        if ((strlen typed) > 0) {
+            return (typed + all)
+        }
+        def s:int (book.spreadOf(sel))
+        def l:int (book.leftOf(s pages))
+        def r:int (book.rightOf(s pages))
+        if ((l >= 0) && (r >= 0)) {
+            return (((to_string (l + 1)) + "–") + (to_string (r + 1)) + all)
+        }
+        def one:int (? (l >= 0) l r)
+        return ((to_string (one + 1)) + all)
+    }
+
+    ; =========================================================================
+    ; The stage
+    ; =========================================================================
+
+    ; Page `p` at rest, moved to `x` (in `sel`'s units).
+    sfn pageAt:EVGDisplayList (deck:PresDeck p:int x:double) {
+        def l:EVGDisplayList (PresTimeline.finalFrame(deck p))
+        if (x != 0.0) {
+            def pose (new PresPose())
+            pose.dx = x
+            PresTimeline.poseAll(l pose)
+        }
+        return l
+    }
+
+    ; Both pages of `page`'s spread at rest, in `sel`'s units.
+    sfn spreadAt:EVGDisplayList (deck:PresDeck page:int sel:int) {
+        def book:MdBook (deck.book())
+        def n:int (deck.slideCount())
+        def out:EVGDisplayList (new EVGDisplayList())
+        def s:int (book.spreadOf(page))
+        def l:int (book.leftOf(s n))
+        def r:int (book.rightOf(s n))
+        if (l >= 0) {
+            PresDeck.appendAll(out (PresBook.pageAt(deck l (PresBook.pageX(book l sel deck.pageW)))))
+        }
+        if (r >= 0) {
+            PresDeck.appendAll(out (PresBook.pageAt(deck r (PresBook.pageX(book r sel deck.pageW)))))
+        }
+        return out
+    }
+
+    ; While editing: page `sel` as the stage has it at time t, and the page
+    ; facing it at rest beside it.
+    sfn editFrame:EVGDisplayList (deck:PresDeck sel:int t:double) {
+        def out:EVGDisplayList (PresTimeline.frame(deck sel t))
+        def book:MdBook (deck.book())
+        def p:int (PresBook.partner(book sel (deck.slideCount())))
+        if (p >= 0) {
+            PresDeck.appendAll(out (PresBook.pageAt(deck p (PresBook.pageX(book p sel deck.pageW)))))
+        }
+        return out
+    }
+
+    ; Presenting: the spread of `sel` at its local time t. While the
+    ; transition runs, the spread before it leaves as a slide would, the two
+    ; pages moving as one sheet.
+    sfn showFrame:EVGDisplayList (deck:PresDeck sel:int t:double) {
+        def book:MdBook (deck.book())
+        def n:int (deck.slideCount())
+        def w:double (deck.pageW * 2.0)
+        def h:double deck.pageH
+        def x0:double (PresBook.spreadX(book sel deck.pageW))
+        def out:EVGDisplayList (new EVGDisplayList())
+        def clip (new EVGDrawCmd())
+        clip.kind = 4
+        clip.x = x0
+        clip.w = w
+        clip.h = h
+        push out.cmds clip
+        if ((sel >= 0) && (sel < n)) {
+            def s:PresSlide (deck.slideAt(sel))
+            def secs:double (PresTimeline.transitionSeconds(s))
+            def before:int (PresBook.prevPage(book sel n))
+            if ((before >= 0) && (t < secs)) {
+                def pl:EVGDisplayList (PresBook.spreadAt(deck before sel))
+                def pp (new PresPose())
+                PresTimeline.slidePose(s t false w h pp)
+                pp.ox = (pp.ox + x0)
+                PresTimeline.poseAll(pl pp)
+                PresDeck.appendAll(out pl)
+            }
+            def cl:EVGDisplayList (PresBook.spreadAt(deck sel sel))
+            def cp (new PresPose())
+            PresTimeline.slidePose(s t true w h cp)
+            cp.ox = (cp.ox + x0)
+            PresTimeline.poseAll(cl cp)
+            PresDeck.appendAll(out cl)
+        }
+        def pop (new EVGDrawCmd())
+        pop.kind = 5
+        push out.cmds pop
+        return out
+    }
+
+    ; The rectangle the spread takes on screen when page `sel`'s place is
+    ; `x, y, w, h` (a page's width w): x moved left by a page for a
+    ; right-hand page, twice as wide.
+    sfn spreadLeft:double (book:MdBook sel:int x:double w:double) {
+        if ((book.isBook()) && (book.isRecto(sel))) {
+            return (x - w)
+        }
+        return x
+    }
+}
