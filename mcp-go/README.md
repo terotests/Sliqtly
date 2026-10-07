@@ -271,14 +271,14 @@ What it serves besides `/mcp` (`local.go`, `localweb.go`):
 | --- | --- |
 | `/` | the editor |
 | `/s/{id}`, `/s/{id}?edit` | the player and the editor, as on sliqtly.com; the assistant's inline preview loads the same page |
-| `/decks` | the decks kept here |
+| `/decks` | the decks kept here, only when listing is turned on in `/settings` (off by default: a deck opens only by its link). Without the editor, `/` is this page and `GET /api/shares` answers only when listing is on |
 | `/s/{id}/slides` | a deck as its slides, drawn on the server (`render.go`) |
 | `/s/{id}/{n}.jpg`, `/s/{id}/overview.jpg` | one slide, or all as thumbnails: for Markdown in a wiki, an issue or a merge request |
 | `/files/shares/{id}/…` | the deck's pictures and data files |
 | `/themes/{name}.css` | the themes (the built page's, else the ones copied from `../themes`) |
 | `/api/…` | what the page keeps decks with (`assets/sliqtly-local.js`, which the server sends as `/sliqtly.js` in place of the Firebase one) |
 | `/api/rooms/{op}` | rooms (ADR 0001), `POST` with JSON: `list_rooms`, `get_room`, `create_room`, `move_presentation`, `set_room_member`, `archive_room`, `link_types`, `add_link`, `remove_link`, `links_of`. The assistant has the same operations as MCP tools on this server (`roomsapi.go`). Every deck has a home room; decks start in General (or the `room_id` given to `create_presentation`), and there is a Playground beside it. `list_rooms` takes `query` (words in the name or description), `order` (`created`, `active`, `title`) and pages of at most 1000 (`limit`, `offset`, answer `total`, `next_offset`). No access limits on this server for now: everyone sees every room |
-| `/settings` | the server's settings: the naming rule below (`localsettings.go`) |
+| `/settings` | the server's settings: listing the decks (changed only from the server's own computer) and the naming rule below (`localsettings.go`) |
 | `/api/status` | `{"state","version"}`: `migrating`, `failed`, `ready` or `stopping` (`localstatus.go`) |
 | `/api/socket` | the page's one stream, a WebSocket: the server's state, decks changed, the room of a deck edited together (`localevents.go`, `web/eventline.js`). A browser opens at most six HTTP/1.1 connections to a server for all its tabs, and WebSockets are counted apart from them. `/api/events` is the same as Server-Sent Events, which a page uses when a proxy in front does not pass WebSockets on |
 | `/healthz` | `ok`, or 503 while the folder is not ready |

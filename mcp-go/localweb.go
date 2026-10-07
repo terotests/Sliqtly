@@ -253,6 +253,12 @@ func (s *localServer) api(w http.ResponseWriter, r *http.Request) {
 	case p == "/api/me" && r.Method == http.MethodGet:
 		out = map[string]string{"uid": s.env.LocalUser, "name": s.env.LocalUser}
 	case p == "/api/shares" && r.Method == http.MethodGet:
+		// the editor's Presentations window needs the list; without the
+		// editor it is answered only when listing is on
+		if !s.env.Editor && !s.listing.Load() {
+			err = fail(404, "not-listed", "presentations are not listed on this server")
+			break
+		}
 		out, err = s.listShares(r.Context())
 	case p == "/api/shares" && r.Method == http.MethodPost:
 		out, err = s.createShare(r)

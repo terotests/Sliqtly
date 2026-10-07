@@ -399,8 +399,10 @@ class DocxWriter {
                         if (c == 62) {
                             cur = (cur + "&gt;")
                         } {
+                            ; copied as it is: `strfromcode` of a
+                            ; `charAt` splits "ä" into its bytes on Go
                             if ((c >= 32) && ((c != 65534) && (c != 65535))) {
-                                cur = (cur + (strfromcode c))
+                                cur = (cur + (substring s i (i + 1)))
                             }
                         }
                     }

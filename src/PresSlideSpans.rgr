@@ -3,7 +3,8 @@
 ; Which lines of the Markdown a slide is written on, from where each slide
 ; of the laid-out deck starts in the source (PresSlide.srcStart, -1 for a
 ; slide that drew nothing) and its title. A slide the overflow went on to
-; belongs to its heading's section: its lines are the whole section's.
+; (untitled, or titled as the slide before it) belongs to its heading's
+; section: its lines are the whole section's.
 ; The editor moves, deletes and copies slides by these lines; the MCP
 ; server replaces a slide by them.
 
@@ -55,6 +56,13 @@ class PresSlideSpans {
         return (((strlen line) > 0) && ((charAt line 0) == 35))
     }
 
+    ; slide i may be one the overflow of slide i - 1 went on to: the layout
+    ; leaves such a slide untitled (or gives it the same title)
+    sfn goesOn:boolean (titles:[string] i:int) {
+        def t:string (itemAt titles i)
+        return (((strlen t) == 0) || (t == (itemAt titles (i - 1))))
+    }
+
     ; [from, to): the lines of slide i's section; from is -1 when the slide
     ; has no place in the source (or i is not a slide), to is then the
     ; line count
@@ -68,7 +76,7 @@ class PresSlideSpans {
             def k:int i
             while (k > 0) {
                 def sk:int (itemAt starts k)
-                if ((sk < 0) || ((itemAt titles k) != (itemAt titles (k - 1)))) {
+                if ((sk < 0) || ((PresSlideSpans.goesOn(titles k)) == false)) {
                     break
                 }
                 if (PresSlideSpans.isHeading((PresSlideSpans.lineText(text (PresSlideSpans.lineOf(text sk)))))) {
@@ -79,13 +87,12 @@ class PresSlideSpans {
             def s0:int (itemAt starts k)
             if (s0 >= 0) {
                 from = (PresSlideSpans.lineOf(text s0))
-                def title:string (itemAt titles k)
                 def j:int (i + 1)
                 while (j < n) {
                     def sj:int (itemAt starts j)
                     if (sj >= 0) {
                         def lj:int (PresSlideSpans.lineOf(text sj))
-                        if ((lj > from) && ((PresSlideSpans.isHeading((PresSlideSpans.lineText(text lj)))) || ((itemAt titles j) != title))) {
+                        if ((lj > from) && ((PresSlideSpans.isHeading((PresSlideSpans.lineText(text lj)))) || ((PresSlideSpans.goesOn(titles j)) == false))) {
                             upto = lj
                             break
                         }

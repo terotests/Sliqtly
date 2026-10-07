@@ -8,9 +8,13 @@
 //	POST /api/settings/check   {"naming": {…}, "name": "…"} → {ok, key, error}
 //	GET  /api/settings/network {access, allow, fixed, editable, interfaces, listening}
 //	PUT  /api/settings/network {access, allow}: from this computer only
+//	GET  /api/settings/listing {enabled, editable}
+//	PUT  /api/settings/listing {enabled}: from this computer only
 //
 // Like the rest of /api/ it has no sign-in: whoever reaches the server can
-// change the naming rule. Who can connect (netaccess.go) is changed only
+// change the naming rule. Whether the decks are listed on / and /decks is
+// changed only from a browser on the server's own computer, and is off
+// until turned on: a deck opens by its link. Who can connect (netaccess.go) is changed only
 // from a browser on the server's own computer, and not at all when
 // SLIQTLY_LISTEN or SLIQTLY_ALLOW set it. A write must be JSON, which a page
 // on another site cannot send without asking first, and is not answered.
@@ -31,6 +35,10 @@ import (
 func (s *localServer) loadSettings() {
 	if s.env.Store == nil {
 		return
+	}
+	if d, err := s.env.DB.Get(context.Background(), "settings", "listing"); err == nil && d != nil {
+		on, _ := d["enabled"].(bool)
+		s.listing.Store(on)
 	}
 	n, err := loadNameSettings(context.Background(), s.env.DB)
 	if err != nil {
@@ -67,13 +75,16 @@ func (s *localServer) settingsAPI(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case p == "/api/settings/network":
 		s.networkAPI(w, r)
+	case p == "/api/settings/listing":
+		s.listingAPI(w, r)
 	case p == "/api/settings" && r.Method == http.MethodGet:
 		n, err := loadNameSettings(r.Context(), s.env.DB)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"naming": n, "offNames": s.offNames(r, n)})
+		names, count := s.offNames(r, n)
+		writeJSON(w, 200, map[string]any{"naming": n, "offNames": names, "offCount": count})
 	case p == "/api/settings" && r.Method == http.MethodPut:
 		b, ok := read()
 		if !ok {
@@ -89,7 +100,8 @@ func (s *localServer) settingsAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.env.names.Store(rule)
-		writeJSON(w, 200, map[string]any{"naming": b.Naming, "offNames": s.offNames(r, b.Naming)})
+		names, count := s.offNames(r, b.Naming)
+		writeJSON(w, 200, map[string]any{"naming": b.Naming, "offNames": names, "offCount": count})
 	case p == "/api/settings/check" && r.Method == http.MethodPost:
 		b, ok := read()
 		if !ok {
@@ -108,6 +120,38 @@ func (s *localServer) settingsAPI(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"ok": true, "key": rule.key(b.Name)})
 	default:
 		writeJSON(w, 404, map[string]string{"error": "no such call"})
+	}
+}
+
+// whether / and /decks list the decks: settings/listing, off by default
+func (s *localServer) listingAPI(w http.ResponseWriter, r *http.Request) {
+	state := func() map[string]any {
+		return map[string]any{"enabled": s.listing.Load(), "editable": fromHere(r)}
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, 200, state())
+	case http.MethodPut:
+		if !fromHere(r) {
+			writeJSON(w, 403, map[string]string{"error": "listing is changed only on the server's own computer"})
+			return
+		}
+		var b struct {
+			Enabled bool `json:"enabled"`
+		}
+		data, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+		if err := json.Unmarshal(data, &b); err != nil {
+			writeJSON(w, 400, map[string]string{"error": "not JSON: " + err.Error()})
+			return
+		}
+		if err := s.env.DB.Set(r.Context(), "settings", "listing", Doc{"enabled": b.Enabled}); err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		s.listing.Store(b.Enabled)
+		writeJSON(w, 200, state())
+	default:
+		writeJSON(w, 405, map[string]string{"error": "GET or PUT"})
 	}
 }
 
@@ -215,26 +259,32 @@ func (s *localServer) httpsAddrs(ifs []netIface) []string {
 	return out
 }
 
-// the names of the decks kept here that do not follow the rule
-func (s *localServer) offNames(r *http.Request, n nameSettings) []string {
+// the decks kept here that do not follow the rule: their names when the
+// decks are listed, else only how many
+func (s *localServer) offNames(r *http.Request, n nameSettings) ([]string, int) {
 	out := []string{}
 	n.Enabled = true
 	rule, err := n.rule()
 	if err != nil {
-		return out
+		return out, 0
 	}
 	docs, _, err := s.env.DB.WhereEq(r.Context(), "shares", "owner", s.env.LocalUser)
 	if err != nil {
-		return out
+		return out, 0
 	}
+	count := 0
 	for _, d := range docs {
 		name, _ := d["name"].(string)
 		if rule.check(name) != "" {
+			count++
 			out = append(out, name)
 		}
 	}
+	if !s.listing.Load() {
+		return []string{}, count
+	}
 	sort.Strings(out)
-	return out
+	return out, count
 }
 
 func (s *localServer) settingsPage(w http.ResponseWriter) {
@@ -296,6 +346,16 @@ ul { padding-left: 20px; }
 <ul id="https"></ul>
 </div>
 
+<h2>Listing presentations</h2>
+<p class="muted">Off: the front page and /decks do not list the presentations, and each one opens only by its link. On: anyone who can connect sees every presentation's name. Changed only in a browser on the server's own computer.</p>
+<form id="lf">
+<fieldset id="list">
+<label class="inline"><input type="checkbox" id="listed"> List the presentations on the front page and /decks</label>
+<button type="submit">Save</button> <span id="lsaved" aria-live="polite"></span>
+</fieldset>
+</form>
+<p id="listnote" class="muted"></p>
+
 <h2>Names of presentations</h2>
 <p class="muted" style="margin-top:0">Whoever can connect can change this.</p>
 
@@ -320,9 +380,16 @@ ul { padding-left: 20px; }
 <script>
 const $ = (id) => document.getElementById(id);
 const form = () => ({ enabled: $("enabled").checked, pattern: $("pattern").value, example: $("example").value, rule: $("text").value });
-function showOff(names, on) {
+function showOff(names, on, count) {
   const el = $("off");
   el.textContent = "";
+  if ((!names || !names.length) && count) {
+    const p = document.createElement("p");
+    p.className = "muted";
+    p.textContent = count + (count === 1 ? " presentation's name does" : " presentations' names do") + (on ? " not follow it" : " not follow it yet") + ". Their names are shown here when presentations are listed.";
+    el.append(p);
+    return;
+  }
   if (!names || !names.length) return;
   const h = document.createElement("h2");
   h.textContent = on ? "Presentations whose names do not follow it" : "Presentations whose names would not follow it";
@@ -341,7 +408,7 @@ async function load() {
   $("example").value = s.naming.example;
   $("text").value = s.naming.rule;
   $("rule").disabled = !s.naming.enabled;
-  showOff(s.offNames, s.naming.enabled);
+  showOff(s.offNames, s.naming.enabled, s.offCount);
 }
 let timer = 0;
 async function tryName() {
@@ -360,7 +427,7 @@ $("f").addEventListener("submit", async (e) => {
   const out = await r.json();
   $("saved").className = r.ok ? "ok" : "bad";
   $("saved").textContent = r.ok ? "Saved." : out.error;
-  if (r.ok) showOff(out.offNames, out.naming.enabled);
+  if (r.ok) showOff(out.offNames, out.naming.enabled, out.offCount);
 });
 const KIND = { wired: "wired", wifi: "Wi-Fi", cellular: "phone / mobile", virtual: "virtual", other: "other (VPN, sharing…)" };
 function showNet(n) {
@@ -405,7 +472,25 @@ $("nf").addEventListener("submit", async (e) => {
   $("nsaved").textContent = r.ok ? "Saved." : out.error;
   if (r.ok) showNet(out);
 });
+function showList(l) {
+  $("listed").checked = l.enabled;
+  $("list").disabled = !l.editable;
+  $("listnote").textContent = l.editable ? "" : "Can be changed only in a browser on the server's own computer.";
+}
+async function loadList() {
+  const r = await fetch("/api/settings/listing", { cache: "no-store" });
+  if (r.ok) showList(await r.json());
+}
+$("lf").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const r = await fetch("/api/settings/listing", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: $("listed").checked }) });
+  const out = await r.json();
+  $("lsaved").className = r.ok ? "ok" : "bad";
+  $("lsaved").textContent = r.ok ? "Saved." : out.error;
+  if (r.ok) { showList(out); load(); }
+});
 loadNet();
+loadList();
 load().then(tryName);
 </script>
 </main></body></html>
