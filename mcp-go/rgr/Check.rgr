@@ -334,6 +334,9 @@ class Check {
         for (d.smartArtNotes()) note:string ni {
             push c.warnings note
         }
+        for (d.htmlNotes()) hn:string hi {
+            push c.warnings hn
+        }
         if c.laidOut {
             Check.contrast(c d l pics)
             d.still = true

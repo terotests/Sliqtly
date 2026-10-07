@@ -50,7 +50,8 @@ Speaker notes. Not shown on the slide.
   spans the column, `bubble` is as wide as the text with a speech-bubble
   tail. `background=#ffffffcc` picks the plate's colour (default: the
   slide's colour, see-through; the text turns dark or light to read on
-  it). Under a chart's fence `container=box` puts a plate round the chart,
+  it). `padding=12px` and `radius=8px` set the plate's padding and corner
+  rounding. Under a chart's fence `container=box` puts a plate round the chart,
   so its axes read over a bright background picture without dimming the
   whole picture. For every plate in `css`: `container { background-color; border-radius }`.
 - Effects (`fx=`): `starfield`, `plasma-wave`, `smoke`, `ambient-light`,
@@ -389,6 +390,9 @@ margin-inside: 20mm   # margin-inside (at the binding), margin-outside
   `git diff` output as it is; keep a slide to one hunk of about 15 lines.
 - Math: `$…$` inline, `$$…$$` as a display, or a ```` ```math ```` fence (TeX).
 - Tables: ordinary Markdown tables, or HTML `<table>` with `rowspan`/`colspan`.
+  An HTML cell reads `style="background:…; color:…; font-weight:bold"`
+  and `bgcolor`; `{cells=…}` on the line after `</table>` works for HTML
+  tables too. A table inside a cell is drawn as its rows on lines.
   Cells coloured by their text, for a risk or status table: under the table
   `{cells="Suuri=red Korkea=red Keskisuuri=amber Matala=green"}` (the whole
   cell's text, any case; tones `red`, `amber`, `green`, `blue`, `grey` or a
@@ -550,8 +554,23 @@ margin-inside: 20mm   # margin-inside (at the binding), margin-outside
   (or another tool this guide names) is not in your tool list, the
   connector's tool list is older than the server: ask the user to
   reconnect the Sliqtly connector.
-- Inline HTML: `<mark>`, `<u>`, `<s>`, `<sub>`, `<sup>`, `<kbd>`, `<small>`,
-  `<br>`, and `<span style="color:#e33">`.
+- Inline HTML: `<b>`, `<strong>`, `<i>`, `<em>`, `<u>`, `<s>`, `<del>`,
+  `<ins>`, `<mark>`, `<code>`, `<kbd>`, `<sub>`, `<sup>`, `<small>`, `<q>`,
+  `<abbr>`, `<a href>`, `<span>` and `<br>`; entities (`&amp;`, `&copy;`,
+  `&#8364;`). A `style` on a span reads `color`, `background-color`,
+  `font-size` (pt, px, em, rem, %, `large`…), `font-weight`, `font-style`
+  and `text-decoration`; colours as `#hex`, `rgb()` or names.
+- HTML blocks: `<ul>` / `<ol start="3">` with `<li>` (nested too) become
+  lists. `<div style="background:#123; color:#fff; padding:16px;
+  border-radius:8px">` becomes a `container=box` plate. `<img src alt
+  width height>` on a line of its own is a picture like `![alt](src)`
+  (a web address is fetched into media/). An `<svg>…</svg>` on lines of its
+  own is drawn as a picture; scripts, event attributes, `<foreignObject>`,
+  `<image>` and outside links are removed from it. `<iframe>`, `<video>`,
+  `<audio>`, `<script>` and `<style>` are not drawn and show as text.
+  Tags and styles that are not drawn come back as warnings from
+  `update_presentation` / `create_presentation`. `javascript:` links are
+  removed.
 
 ## Themes
 
