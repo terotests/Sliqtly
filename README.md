@@ -109,10 +109,11 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   faces which and the mirrored margins are RangerMarkdown's (`MdBook`);
   the stage shows the page being edited with the one facing it, presenting
   goes a spread at a time ("2–3 / 12", `src/PresBook.rgr`), and the shared
-  viewer shows spreads too. `render: realistic` draws the viewer's book as
-  paper and turns a page dragged by its outer edge round a cylinder
-  (`web/book.js` the geometry, `web/bookgl.js` the WebGL). The PDF keeps
-  single pages.
+  viewer shows spreads too. `render: realistic` draws the book as paper,
+  in the viewer and while presenting in the editor, and turns a page
+  dragged by its outer edge round a cylinder (`web/book.js` the geometry,
+  `web/bookturn.js` a turn between frames, `web/bookgl.js` the WebGL). The
+  PDF keeps single pages.
 - A slide with room is set larger: text, headings and spacing together, up to
   1.6×, as long as it fits and a one-line title stays one line. Slides with a
   picture or a diagram keep their sizes. `slide-grow: 1.3` in the front matter

@@ -216,7 +216,8 @@ margin-inside: 20mm   # margin-inside (at the binding), margin-outside
 - `margin-inside` is on the right of a left-hand page and on the left of a
   right-hand one; pictures with `layout=full` are not moved by it. The
   margin keys also work without `mode: book` (inside = left).
-- `render: realistic` shows the pages as paper on the shared link: a
+- `render: realistic` shows the pages as paper on the shared link and
+  while presenting in the editor: a
   shadow at the binding, and a page can be turned by dragging its outer
   edge or with the arrow keys. `flat` shows the two pages side by side.
 - The PDF export has single pages (with `@media print`, the print page,

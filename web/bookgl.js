@@ -2,9 +2,10 @@
 //
 // `render: realistic` — a book's spread drawn as paper, and a page turned
 // by its corner in 3D. web/book.js works out where every point of the leaf
-// goes; this only draws it, with WebGL 2 on a canvas of its own laid over
-// the viewer's (an EVG display list has no textured mesh, and a page turn
-// is a screen thing: the PDF has single pages).
+// goes; this only draws it, with WebGL 2: on a canvas of its own laid over
+// the viewer's, or into the editor's own WebGL context between its layers
+// (an EVG display list has no textured mesh, and a page turn is a screen
+// thing: the PDF has single pages).
 //
 // Each page is drawn once by EVG into a picture (the caller's `paint`),
 // kept as a texture, and drawn here as a quad or, while it turns, as a grid
@@ -100,10 +101,16 @@ const GRID_X = 48;
 const GRID_Y = 32;
 
 export class BookGL {
-  constructor(canvas) {
-    this.canvas = canvas;
-    const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, depth: true, alpha: true });
+  /**
+   * `target`: a canvas of its own, or a WebGL 2 context another painter
+   * draws with too (the editor's): then each frame is drawn over what is
+   * there, and the context's state is left as it was found.
+   */
+  constructor(target) {
+    this.shared = typeof WebGL2RenderingContext !== "undefined" && target instanceof WebGL2RenderingContext;
+    const gl = this.shared ? target : target.getContext("webgl2", { antialias: true, premultipliedAlpha: false, depth: true, alpha: true });
     if (!gl) throw new Error("WebGL 2 is not available");
+    this.canvas = gl.canvas;
     this.gl = gl;
     const p = gl.createProgram();
     gl.attachShader(p, shader(gl, gl.VERTEX_SHADER, VERT));
@@ -118,6 +125,8 @@ export class BookGL {
     }
     this.buf = gl.createBuffer();
     this.vao = gl.createVertexArray();
+    const vao0 = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
+    const buf0 = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
     gl.bindVertexArray(this.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
     const stride = 6 * 4;
@@ -127,12 +136,15 @@ export class BookGL {
     gl.vertexAttribPointer(this.loc.aUV, 2, gl.FLOAT, false, stride, 12);
     gl.enableVertexAttribArray(this.loc.aShade);
     gl.vertexAttribPointer(this.loc.aShade, 1, gl.FLOAT, false, stride, 20);
+    gl.bindVertexArray(vao0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf0);
     this.tex = new Map();
   }
 
   /** Page `page`'s picture (a canvas or an image), kept as its texture. */
   setPage(page, source, key) {
     const gl = this.gl;
+    const saved = this.shared ? this.save() : null;
     let t = this.tex.get(page);
     if (t && t.key === key) return;
     if (!t) {
@@ -148,6 +160,53 @@ export class BookGL {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     t.key = key;
+    if (saved) this.restore(saved);
+  }
+
+  // What a frame changes in a shared context, to put back after it.
+  save() {
+    const gl = this.gl;
+    const unit = gl.getParameter(gl.ACTIVE_TEXTURE);
+    const tex = [];
+    for (const u of [0, 1]) {
+      gl.activeTexture(gl.TEXTURE0 + u);
+      tex.push(gl.getParameter(gl.TEXTURE_BINDING_2D));
+    }
+    gl.activeTexture(unit);
+    const on = {};
+    for (const k of ["BLEND", "DEPTH_TEST", "CULL_FACE", "SCISSOR_TEST", "STENCIL_TEST"]) on[k] = gl.isEnabled(gl[k]);
+    return {
+      unit, tex, on,
+      prog: gl.getParameter(gl.CURRENT_PROGRAM),
+      vao: gl.getParameter(gl.VERTEX_ARRAY_BINDING),
+      buf: gl.getParameter(gl.ARRAY_BUFFER_BINDING),
+      viewport: gl.getParameter(gl.VIEWPORT),
+      blend: [gl.getParameter(gl.BLEND_SRC_RGB), gl.getParameter(gl.BLEND_DST_RGB), gl.getParameter(gl.BLEND_SRC_ALPHA), gl.getParameter(gl.BLEND_DST_ALPHA)],
+      depthFunc: gl.getParameter(gl.DEPTH_FUNC),
+      frontFace: gl.getParameter(gl.FRONT_FACE),
+      unpackFlip: gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL),
+    };
+  }
+
+  restore(s) {
+    const gl = this.gl;
+    for (const u of [0, 1]) {
+      gl.activeTexture(gl.TEXTURE0 + u);
+      gl.bindTexture(gl.TEXTURE_2D, s.tex[u]);
+    }
+    gl.activeTexture(s.unit);
+    for (const k of Object.keys(s.on)) {
+      if (s.on[k]) gl.enable(gl[k]);
+      else gl.disable(gl[k]);
+    }
+    gl.useProgram(s.prog);
+    gl.bindVertexArray(s.vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, s.buf);
+    gl.viewport(s.viewport[0], s.viewport[1], s.viewport[2], s.viewport[3]);
+    gl.blendFuncSeparate(s.blend[0], s.blend[1], s.blend[2], s.blend[3]);
+    gl.depthFunc(s.depthFunc);
+    gl.frontFace(s.frontFace);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, s.unpackFlip);
   }
 
   hasPage(page, key) {
@@ -167,18 +226,44 @@ export class BookGL {
    * still (-1 none); `turn`: null, or { side, curl, front, back, under } —
    * the leaf (front and back pages) turning over `under`, the page it uncovers.
    */
-  draw({ place, W, H, dpr, left, right, turn }) {
+  draw(frame) {
+    if (!this.shared) {
+      this.paint(frame);
+      return;
+    }
+    const saved = this.save();
+    try {
+      this.paint(frame);
+    } finally {
+      this.restore(saved);
+    }
+  }
+
+  paint({ place, W, H, dpr, left, right, turn }) {
     const gl = this.gl;
-    const cw = Math.round(this.canvas.clientWidth * dpr);
-    const ch = Math.round(this.canvas.clientHeight * dpr);
-    if (this.canvas.width !== cw || this.canvas.height !== ch) {
-      this.canvas.width = cw;
-      this.canvas.height = ch;
+    let cw;
+    let ch;
+    if (this.shared) {
+      cw = gl.drawingBufferWidth;
+      ch = gl.drawingBufferHeight;
+      gl.disable(gl.SCISSOR_TEST);
+      gl.disable(gl.STENCIL_TEST);
+    } else {
+      cw = Math.round(this.canvas.clientWidth * dpr);
+      ch = Math.round(this.canvas.clientHeight * dpr);
+      if (this.canvas.width !== cw || this.canvas.height !== ch) {
+        this.canvas.width = cw;
+        this.canvas.height = ch;
+      }
     }
     gl.viewport(0, 0, cw, ch);
-    gl.clearColor(0, 0, 0, 0);
     gl.clearDepth(1);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    if (this.shared) {
+      gl.clear(gl.DEPTH_BUFFER_BIT);
+    } else {
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    }
     gl.useProgram(this.prog);
     gl.bindVertexArray(this.vao);
     gl.uniform2f(this.loc.uCanvas, cw, ch);
@@ -191,7 +276,9 @@ export class BookGL {
     gl.uniform4f(this.loc.uCurl, c ? c.dx : 1, c ? c.dy : 0, c ? c.px : 0, c ? c.py : 0);
     gl.uniform1f(this.loc.uRadius, 0);
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    // the alpha left in the picture is "over" too: an opaque canvas stays
+    // opaque under the book's shadow
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
 

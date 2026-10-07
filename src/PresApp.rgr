@@ -1717,6 +1717,12 @@ class PresApp {
         return ((mode == "present") && ((deck.book()).isBook()))
     }
 
+    ; Presenting a `render: realistic` book: the page draws the spread as
+    ; paper and turns its pages (layoutJson's "book"), not the stage.
+    fn bookTurns:boolean () {
+        return ((this.bookShow()) && ((deck.book()).isRealistic()) && ((deck.slideCount()) > 0))
+    }
+
     ; Slide `text` (a number from 1, as the counter shows it), whole. False
     ; when it is no number.
     fn goToSlide:boolean (text:string) {
@@ -3038,6 +3044,11 @@ class PresApp {
         out = (out + ",\"playing\":" + (? (this.isPlaying()) "true" "false"))
         out = (out + ",\"stage\":[" + (PresApp.placeAt(slideRect.x slideRect.y sc)) + "]")
         out = (out + ",\"clip\":[" + (PresApp.nums4(stageArea.x stageArea.y stageArea.w stageArea.h)) + "]")
+        if (this.bookTurns()) {
+            out = (out + ",\"book\":" + (PresBook.turnJson((deck.book()) selected (deck.slideCount()) deck.pageW deck.pageH)))
+        } {
+            out = (out + ",\"book\":null")
+        }
         out = (out + ",\"strip\":[" + (PresApp.nums4((stripRect.x + 4.0) stripRect.y (stripRect.w - 8.0) stripRect.h)) + "]")
         out = (out + ",\"thumbs\":[")
         def first:boolean true

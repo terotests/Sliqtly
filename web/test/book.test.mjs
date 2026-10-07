@@ -116,3 +116,24 @@ test("the inside margin is at the binding on both pages", () => {
   assert.ok(Math.abs(left(1) - 10 * mm) < 1.5, `page 2 at ${left(1)}`);
   assert.ok(d.pageH > d.pageW, "A5 is upright");
 });
+
+test("presenting a realistic book hands the page its spreads and spine", () => {
+  const a = app(front("render: realistic\n") + pages);
+  assert.equal(layout(a).book, null, "editing: the stage draws the pages");
+  a.present(true);
+  let b = layout(a).book;
+  assert.deepEqual(b.spreads, [[-1, 0], [1, 2], [3, 4]]);
+  assert.equal(b.spread, 0);
+  // the cover is a right-hand page: the spine is its left edge
+  assert.equal(b.spine, 0);
+  assert.equal(Math.round(b.w), Math.round(a.deck.pageW));
+  a.next();
+  b = layout(a).book;
+  assert.equal(b.spread, 1);
+  // page 2 (left) is shown: the spine is its right edge
+  assert.equal(Math.round(b.spine), Math.round(a.deck.pageW));
+  // a flat book is the stage's to draw
+  const f = app(front() + pages);
+  f.present(true);
+  assert.equal(layout(f).book, null);
+});

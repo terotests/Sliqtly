@@ -16,7 +16,8 @@ import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
 import { decodePicture } from "./picture.js";
 import { INTRO_MS } from "./brand.js";
 import { currentUser, signIn, authHeaders } from "./viewauth.js";
-import { bookOf, spreadOfPage, firstPage, spreadLabel, spreadPages, grabAt, curl, letGo, turnPath } from "./book.js";
+import { bookOf, spreadOfPage, firstPage, spreadLabel, spreadPages, grabAt } from "./book.js";
+import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 import { BookGL } from "./bookgl.js";
 import { linkOf, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide, pinchView, panView, isZoomed } from "./viewlink.js";
 
@@ -205,62 +206,29 @@ function ensurePage(page, pxW) {
 let place = null;
 function paintBook(view, dpr) {
   const s = spreadNow();
-  const [left, right] = book.spreads[s];
   place = { spineX: view.x + deck.width * view.scale, top: view.y, scale: view.scale };
   const pxW = Math.min(2048, Math.max(256, Math.round(deck.width * view.scale * dpr)));
-  const need = [left, right];
-  if (turn) need.push(turn.front, turn.back, turn.under);
-  for (const p of need) ensurePage(p, pxW);
-  let t = null;
+  for (const p of turnPages(book.spreads, s, turn)) ensurePage(p, pxW);
   if (turn) {
-    if (turn.anim) {
-      const a = turn.anim;
-      const u = Math.min(1, (performance.now() - a.start) / a.ms);
-      const q = turnPath(turn.cx, turn.cy, a.fx, a.fy, u, a.over, deck.height);
-      turn.qx = q.x;
-      turn.qy = q.y;
-      if (u >= 1) {
-        const over = a.over;
-        const to = turn.to;
-        turn = null;
-        if (over) go(firstPage(book.spreads, to));
-        else repaint();
-        return paintBook(view, dpr);
-      }
+    const state = stepTurn(turn, performance.now(), deck.height);
+    if (state === "over" || state === "back") {
+      const to = turn.to;
+      turn = null;
+      if (state === "over") go(firstPage(book.spreads, to));
+      else repaint();
+      return paintBook(view, dpr);
     }
-    t = { side: turn.side, front: turn.front, back: turn.back, under: turn.under, curl: curl(turn.cx, turn.cy, turn.qx, turn.qy, deck.width, deck.height) };
   }
-  bookGl.draw({ place, W: deck.width, H: deck.height, dpr, left: turn && turn.side < 0 ? -1 : left, right: turn && turn.side > 0 ? -1 : right, turn: t });
+  const scene = turnScene(book.spreads, s, turn, deck.width, deck.height);
+  bookGl.draw({ place, W: deck.width, H: deck.height, dpr, ...scene });
   if (turn && turn.anim) raf = requestAnimationFrame(paint);
-}
-
-// A turn of the page at spread s towards `side` (1 on, -1 back), held at
-// (cx, cy) on its outer edge.
-function startTurn(side, cx, cy) {
-  const s = spreadNow();
-  const to = s + side;
-  if (to < 0 || to >= book.spreads.length) return null;
-  const [l, r] = book.spreads[s];
-  const [l2, r2] = book.spreads[to];
-  turn = side > 0
-    ? { side, cx, cy, qx: cx, qy: cy, to, front: r, back: l2, under: r2 }
-    : { side, cx, cy, qx: cx, qy: cy, to, front: l, back: r2, under: l2 };
-  return turn;
 }
 
 // A turn nobody holds: a key, a click, the buttons.
 function turnBy(side) {
   if (turn) return;
-  if (!startTurn(side, side * deck.width, deck.height)) return;
-  turn.anim = { start: performance.now(), fx: turn.cx, fy: turn.cy, over: true, ms: 750 };
-  repaint();
-}
-
-// Letting a held page go: over, or back where it lay.
-function release(vx) {
-  const over = letGo(turn.side, turn.qx, vx, deck.width);
-  turn.anim = { start: performance.now(), fx: turn.qx, fy: turn.qy, over, ms: over ? 420 : 300 };
-  repaint();
+  turn = autoTurn(book.spreads, spreadNow(), side, deck.width, deck.height, null);
+  if (turn) repaint();
 }
 
 // The next or previous spread, or slide: turned in a realistic book.
@@ -450,9 +418,8 @@ const onPage = (ev) => ({ x: (ev.clientX - place.spineX) / place.scale, y: (ev.c
 canvas.addEventListener("pointerdown", (ev) => {
   if (!realistic() || turn || !place) return;
   const p = onPage(ev);
-  const s = spreadNow();
-  const g = grabAt(p.x, p.y, deck.width, deck.height, s + 1 < book.spreads.length, s > 0);
-  if (!g || !startTurn(g.side, g.cx, g.cy)) return;
+  turn = grabTurn(book.spreads, spreadNow(), p.x, p.y, deck.width, deck.height);
+  if (!turn) return;
   turn.held = { id: ev.pointerId, t: performance.now(), x: p.x, vx: 0 };
   canvas.setPointerCapture(ev.pointerId);
   // the slide's own press (a tap, a swipe, a pinch) does not see it
@@ -470,25 +437,14 @@ canvas.addEventListener("pointermove", (ev) => {
   canvas.style.cursor = "grabbing";
   ev.stopImmediatePropagation();
   const p = onPage(ev);
-  const now = performance.now();
-  const dt = Math.max(1, now - turn.held.t) / 1000;
-  turn.held.vx = turn.held.vx * 0.6 + ((p.x - turn.held.x) / dt) * 0.4;
-  turn.held.t = now;
-  turn.held.x = p.x;
-  turn.qx = p.x;
-  turn.qy = p.y;
+  dragTurn(turn, p.x, p.y, performance.now());
   repaint();
 });
 const letHold = (ev) => {
   if (!turn || !turn.held || turn.held.id !== ev.pointerId) return;
   ev.stopImmediatePropagation();
-  const vx = turn.held.vx;
-  const moved = Math.abs(turn.qx - turn.cx) + Math.abs(turn.qy - turn.cy);
-  turn.held = null;
   canvas.style.cursor = "";
-  // a tap on the corner turns the page like a click
-  if (moved < 4) turn.anim = { start: performance.now(), fx: turn.cx, fy: turn.cy, over: true, ms: 750 };
-  else release(vx);
+  releaseTurn(turn, deck.width, performance.now());
   repaint();
 };
 canvas.addEventListener("pointerup", letHold);

@@ -30,7 +30,7 @@ export const viewDir = path.join(webDir, "dist-view");
 
 // everything the viewer's modules may import, and nothing more: a module
 // that imports anything else fails the build (below)
-const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["viewauth.js", "viewauth.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"], ["book.js", "book.js"], ["bookgl.js", "bookgl.js"]];
+const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["viewauth.js", "viewauth.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"], ["book.js", "book.js"], ["bookgl.js", "bookgl.js"], ["bookturn.js", "bookturn.js"]];
 const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"], ["local.html", "local.html"]];
 
 function files(dir) {

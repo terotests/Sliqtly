@@ -180,6 +180,32 @@ class PresBook {
         return out
     }
 
+    ; =========================================================================
+    ; A realistic book, presented
+    ; =========================================================================
+
+    ; What the page draws a realistic book from (web/bookturn.js): every
+    ; spread's two pages (-1 none), the one shown, and where its spine is in
+    ; page `sel`'s units (its left edge for a right-hand page, else its
+    ; right edge), and a page's size.
+    sfn turnJson:string (book:MdBook sel:int pages:int pageW:double pageH:double) {
+        def out:string "{\"spreads\":["
+        def n:int (book.spreadCount(pages))
+        def s:int 0
+        while (s < n) {
+            if (s > 0) {
+                out = (out + ",")
+            }
+            out = (out + "[" + (to_string (book.leftOf(s pages))) + "," + (to_string (book.rightOf(s pages))) + "]")
+            s = (s + 1)
+        }
+        def spine:double (? (book.isRecto(sel)) 0.0 pageW)
+        out = (out + "],\"spread\":" + (to_string (book.spreadOf(sel))))
+        out = (out + ",\"spine\":" + (EVGDisplayList.fine(spine)))
+        out = (out + ",\"w\":" + (EVGDisplayList.fine(pageW)) + ",\"h\":" + (EVGDisplayList.fine(pageH)) + "}")
+        return out
+    }
+
     ; The rectangle the spread takes on screen when page `sel`'s place is
     ; `x, y, w, h` (a page's width w): x moved left by a page for a
     ; right-hand page, twice as wide.
