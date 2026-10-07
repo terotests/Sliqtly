@@ -3275,6 +3275,33 @@ class PresCheck {
         this.ok((ui.picked == ti) "sketch ui: the text is picked")
         ui.pressSlide(105.0 110.0 2 km)
         this.ok((ui.typing == ti) "sketch ui: a double click on the text edits it")
+
+        ; a drawing begun on slide 2, which refers to none yet: on the slide
+        ; while the line is drawn and the text typed, before the reference
+        ; is written (it used to show only after the mouse was let go)
+        def g0:[int]
+        def bare:EVGDisplayList (deck.slideList(1 g0 s2.duration))
+        def nk:PresSketch (deck.sketchFor("drawings/kaksi.ink"))
+        deck.newSketchPath = (PresDeck.sketchKey("drawings/kaksi.ink"))
+        deck.newSketchSlide = 1
+        nk.begin("pen" "#facc15" 4.0 100.0 100.0)
+        nk.extend(300.0 200.0)
+        def g3:[int]
+        def mid:EVGDisplayList (deck.slideList(1 g3 s2.duration))
+        this.ok(((array_length mid.cmds) > (array_length bare.cmds)) ("sketch: a line being drawn shows on its slide: " + (to_string (array_length bare.cmds)) + " → " + (to_string (array_length mid.cmds))))
+        def nti:int (nk.addText(400.0 400.0 "" "#facc15" 40.0))
+        def g4:[int]
+        def empty:EVGDisplayList (deck.slideList(1 g4 s2.duration))
+        nk.setText(nti "Kommentti")
+        def g5:[int]
+        def typed:EVGDisplayList (deck.slideList(1 g5 s2.duration))
+        this.ok(((array_length typed.cmds) > (array_length empty.cmds)) "sketch: text being typed shows on its slide")
+        def g6:[int]
+        def other:EVGDisplayList (deck.slideList(0 g6 s1b.duration))
+        def g7:[int]
+        deck.newSketchSlide = -1
+        def other0:EVGDisplayList (deck.slideList(0 g7 s1b.duration))
+        this.ok(((array_length other.cmds) == (array_length other0.cmds)) "sketch: …and on no other slide")
     }
 
     sfn main:void () {
