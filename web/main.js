@@ -38,6 +38,8 @@ import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
+import { BookGL } from "./bookgl.js";
+import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 
 // One beacon per page load for the visitor counts (mcp-go/rgr/Stats.rgr): the
 // page, mobile or desktop on the server's side, and the site the visitor
@@ -2573,6 +2575,103 @@ function atRest(doc) {
   return withTime(doc, (e) => FX_STILL_T[e.kind] ?? 2.0);
 }
 
+// --- a realistic book, presented ------------------------------------------------
+// `mode: book` with `render: realistic`: while presenting, the spread is
+// drawn as paper (web/bookgl.js, in this canvas's own context between the
+// chrome and what goes over the slide) and a page turns by its corner in 3D
+// (web/bookturn.js). The app still says which spread is open
+// (layoutJson's "book"); a change of one spread turns the page there, and
+// a page let go over the spine moves the app on.
+let bookGl = null;
+let bookTurn = null;
+// the spread drawn last, -1: whatever the app has, without a turn
+let bookShown = -1;
+let bookPlace = null;
+let bookPageGl = null;
+const bookPageCanvas = document.createElement("canvas");
+
+// Page `page` drawn by EVG into a picture as sharp as the screen shows it,
+// kept as its texture until the deck changes (a page whose pictures have
+// not all arrived is drawn again on the next paint).
+function bookPage(page, b, pxW, rev) {
+  const key = rev + ":" + pxW;
+  if (bookGl.hasPage(page, key)) return;
+  if (!bookPageGl) bookPageGl = bookPageCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!bookPageGl) return;
+  const k = pxW / b.w;
+  bookPageCanvas.width = pxW;
+  bookPageCanvas.height = Math.round(b.h * k);
+  const doc = atRest(JSON.parse(app.slideJson(page)));
+  doc.width = b.w;
+  doc.height = b.h;
+  const f = prepareDisplayList(bookPageGl, doc, { dpr: k, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
+  f.draw(null, null);
+  f.dispose();
+  const waiting = (doc.list.cmds || []).some((c) => c.k === 2 && c.src && !pictures.has(c.src));
+  bookGl.setPage(page, bookPageCanvas, waiting ? "" : key);
+}
+
+function paintBookSpread(layout) {
+  const b = layout.book;
+  if (!bookGl) bookGl = new BookGL(gl);
+  const [sx, sy, sc] = layout.stage;
+  const pxW = Math.min(2048, Math.max(256, Math.round(b.w * sc * dpr)));
+  if (!bookTurn && bookShown >= 0 && Math.abs(b.spread - bookShown) === 1) {
+    bookTurn = autoTurn(b.spreads, bookShown, b.spread - bookShown, b.w, b.h, null);
+  }
+  // the pages first: drawing one takes a while, and the turn's clock starts
+  // once they are there
+  for (const p of turnPages(b.spreads, bookTurn ? bookTurn.from : b.spread, bookTurn)) bookPage(p, b, pxW, layout.rev);
+  if (bookTurn) {
+    const state = stepTurn(bookTurn, performance.now(), b.h);
+    if (state === "over" || state === "back") {
+      const t = bookTurn;
+      bookTurn = null;
+      // a page let go over the spine: the app goes there (a step on the
+      // page may hold it; whatever it opens is shown as it is)
+      if (state === "over" && t.byHand) {
+        if (t.side > 0) app.next();
+        else app.prev();
+        bookShown = -1;
+        needsPaint = true;
+        return;
+      }
+    }
+  }
+  const s = bookTurn ? bookTurn.from : b.spread;
+  bookShown = bookTurn ? bookShown : b.spread;
+  // the table round the book
+  const [cx, cy, cw, ch] = layout.clip;
+  gl.enable(gl.SCISSOR_TEST);
+  gl.scissor(Math.round(cx * dpr), Math.round(canvas.height - (cy + ch) * dpr), Math.round(cw * dpr), Math.round(ch * dpr));
+  gl.clearColor(0.17, 0.16, 0.15, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.disable(gl.SCISSOR_TEST);
+  bookPlace = { spineX: sx + b.spine * sc, top: sy, scale: sc, b, s };
+  bookGl.draw({ place: bookPlace, W: b.w, H: b.h, dpr, ...turnScene(b.spreads, s, bookTurn, b.w, b.h) });
+  if (bookTurn) {
+    needsPaint = true;
+    return;
+  }
+  // lying open: the pages a turn either way shows, drawn ahead, one a
+  // frame, so the turn starts at once
+  for (const n of [s + 1, s - 1]) {
+    if (n < 0 || n >= b.spreads.length) continue;
+    const p = b.spreads[n].find((q) => q >= 0 && !bookGl.hasPage(q, layout.rev + ":" + pxW));
+    if (p !== undefined) {
+      bookPage(p, b, pxW, layout.rev);
+      needsPaint = true;
+      return;
+    }
+  }
+}
+
+function forgetBook() {
+  bookTurn = null;
+  bookShown = -1;
+  bookPlace = null;
+}
+
 let lastLayout = null;
 function paintOnce() {
   errEl.textContent = "";
@@ -2603,7 +2702,11 @@ function paintOnce() {
   const cf = prepareDisplayList(gl, chrome, { dpr });
   grew = grewBy(cf.draw(null, null)) || grew;
   cf.dispose();
-  if (layout.slides > 0) {
+  if (layout.book) {
+    window.__lastStage = null;
+    paintBookSpread(layout);
+  } else forgetBook();
+  if (layout.slides > 0 && !layout.book) {
     const st = withTime(JSON.parse(app.stageJson()), clock);
     window.__lastStage = st;
     st.width = W;
@@ -6432,6 +6535,54 @@ function at(ev) {
   const r = canvas.getBoundingClientRect();
   return [ev.clientX - r.left, ev.clientY - r.top];
 }
+
+// A realistic book's page taken by its corner while presenting: the
+// presses before the stage's own (capture), which do not see them.
+const onBookPage = (ev) => {
+  const [x, y] = at(ev);
+  return { x: (x - bookPlace.spineX) / bookPlace.scale, y: (y - bookPlace.top) / bookPlace.scale };
+};
+canvas.addEventListener("pointerdown", (ev) => {
+  if (!bookPlace || bookTurn || ev.button !== 0 || !lastLayout || !lastLayout.book) return;
+  const { b, s } = bookPlace;
+  const p = onBookPage(ev);
+  const t = grabTurn(b.spreads, s, p.x, p.y, b.w, b.h);
+  if (!t) return;
+  t.held = { id: ev.pointerId, t: performance.now(), x: p.x, vx: 0 };
+  t.byHand = true;
+  bookTurn = t;
+  canvas.setPointerCapture(ev.pointerId);
+  ev.stopImmediatePropagation();
+  needsPaint = true;
+}, true);
+canvas.addEventListener("pointermove", (ev) => {
+  if (!bookPlace || !lastLayout || !lastLayout.book) return;
+  if (!bookTurn && ev.pointerType === "mouse") {
+    // a corner that can be taken: the hand says so
+    const { b, s } = bookPlace;
+    const p = onBookPage(ev);
+    if (grabTurn(b.spreads, s, p.x, p.y, b.w, b.h)) {
+      canvas.style.cursor = "grab";
+      ev.stopImmediatePropagation();
+    }
+    return;
+  }
+  if (!bookTurn || !bookTurn.held || bookTurn.held.id !== ev.pointerId) return;
+  ev.stopImmediatePropagation();
+  canvas.style.cursor = "grabbing";
+  const p = onBookPage(ev);
+  dragTurn(bookTurn, p.x, p.y, performance.now());
+  needsPaint = true;
+}, true);
+const letBookPage = (ev) => {
+  if (!bookTurn || !bookTurn.held || bookTurn.held.id !== ev.pointerId) return;
+  ev.stopImmediatePropagation();
+  canvas.style.cursor = "";
+  releaseTurn(bookTurn, bookPlace.b.w, performance.now());
+  needsPaint = true;
+};
+canvas.addEventListener("pointerup", letBookPage, true);
+canvas.addEventListener("pointercancel", letBookPage, true);
 
 let clicks = 0;
 let lastDown = 0;
