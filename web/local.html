@@ -217,8 +217,20 @@ docker logs -f sliqtly</code></pre>
       <tr><td><code>SLIQTLY_URL</code></td><td>the address a request came in on</td><td>The address in the links the server gives, e.g. <code>http://my-pc.local:8080</code> or <code>https://slides.example.com</code>.</td></tr>
       <tr><td><code>SLIQTLY_DATA</code></td><td>.deb <code>/var/lib/sliqtly</code><br />Homebrew <code>$(brew --prefix)/var/sliqtly</code><br />Docker <code>/data</code></td><td>Where the presentations are kept.</td></tr>
       <tr><td><code>SLIQTLY_BACKUP</code></td><td>the same with <code>-backup</code> (Docker <code>/backup</code>)</td><td>A daily backup of the presentations; empty turns it off.</td></tr>
+      <tr><td><code>SLIQTLY_IMPORT_DIRS</code></td><td>empty</td><td>Folders your agent may take pictures and data files from by path; see <a href="#import">Pictures from a folder</a>.</td></tr>
     </tbody>
   </table></div>
+
+  <h3 id="import">Pictures from a folder</h3>
+  <p>An agent normally sends a picture to Sliqtly as a public web address or as base64 text inside the tool call. For pictures that are only on your computer, name the folders they are in when the server starts, comma separated:</p>
+  <pre><code>SLIQTLY_IMPORT_DIRS=/Users/me/photoalbum</code></pre>
+  <p>Then <code>create_presentation</code> and <code>update_presentation</code> also take a <code>path</code> for each picture or data file, e.g. <code>{"name": "cover.jpg", "path": "/Users/me/photoalbum/trip/cover.jpg"}</code>, and the server reads the file from disk. The usual limits apply (5 MB a picture, 10 MB a data file). Only files inside these folders are read: a path that leads out of them, through <code>..</code> or a link, is refused. The tools offer <code>path</code> only when the setting is on; sliqtly.com never reads files by path.</p>
+  <ul>
+    <li>Anyone who can use this server's <code>/mcp</code> can read the pictures and data files in these folders. Name only folders meant for presentations, and keep <code>SLIQTLY_LISTEN=local</code> or set <code>SLIQTLY_TOKEN</code>.</li>
+    <li>Ubuntu and Debian: the service runs as a user of its own with <code>/home</code> hidden. Use a folder outside <code>/home</code> that everyone can read, or allow home folders with <code>sudo systemctl edit sliqtly</code> and <code>[Service]</code> <code>ProtectHome=read-only</code>.</li>
+    <li>macOS: the service runs as you. Folders macOS protects (Desktop, Documents, Downloads, Pictures) may need Full Disk Access for <code>sliqtly-server</code>; a folder of your own elsewhere in your home folder needs nothing.</li>
+    <li>Docker: mount the folder and name the path inside the container, e.g. <code>-v /Users/me/photoalbum:/import:ro -e SLIQTLY_IMPORT_DIRS=/import</code>. The agent then gives paths such as <code>/import/trip/cover.jpg</code>.</li>
+  </ul>
 
   <h2 id="networks">5. Networks</h2>
   <p>The server decides which network interfaces it listens on. Pick the row that matches where other people are; the default, this computer only, needs nothing.</p>

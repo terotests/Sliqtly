@@ -447,6 +447,7 @@ class Files {
             def hasText:boolean ((f.field("text")).kind == 3)
             def b64:string (f.str_("data_base64"))
             def url:string (f.str_("url"))
+            def path:string (trim (f.str_("path")))
             def count:int 0
             if hasText {
                 count = (count + 1)
@@ -457,8 +458,11 @@ class Files {
             if ((strlen url) > 0) {
                 count = (count + 1)
             }
+            if ((strlen path) > 0) {
+                count = (count + 1)
+            }
             if (count != 1) {
-                res.err = ("File " + name + ": give one of text, data_base64 or url.")
+                res.err = ("File " + name + ": give one of text, data_base64" + (Deck.orPath(host)) + " or url.")
                 return res
             }
             def handle:int 0
@@ -519,6 +523,25 @@ class Files {
                 }
                 handle = (got2.int_("handle" 0))
                 size = (got2.int_("size" 0))
+            }
+            if ((strlen path) > 0) {
+                def dirs:string (host_import_dirs host)
+                if ((strlen dirs) == 0) {
+                    res.err = ("File " + name + ": path is read only by a Sliqtly server on your own computer started with import folders (SLIQTLY_IMPORT_DIRS); send the file as text, data_base64 or url.")
+                    return res
+                }
+                if ((Files.dataType((to_lowercase path))) != type) {
+                    res.err = ("File " + name + ": " + path + " is not the same kind of file as the name (.xlsx, .csv, .tsv, .json or .txt).")
+                    return res
+                }
+                def got3:MfJ (J.parse((host_import_file host path ((Files.MAX_DATA()) + 1))))
+                def why:string (got3.str_("error"))
+                if ((strlen why) > 0) {
+                    res.err = ("File " + name + ": " + path + " was not read (" + why + "). Import folders: " + dirs + ".")
+                    return res
+                }
+                handle = (got3.int_("handle" 0))
+                size = (got3.int_("size" 0))
             }
             if (size == 0) {
                 res.err = ("File " + name + " is empty.")

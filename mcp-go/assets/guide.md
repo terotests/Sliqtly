@@ -91,6 +91,12 @@ Write `![Alt text](media/<name>)` and pass the picture in the tool call's
 `## Title {bg=media/cover.jpg bg-dim=0.4}`. Give each picture either a
 public `https` URL or base64 data, or an SVG's source as `text` (readable,
 no base64). PNG, JPEG, GIF, WebP and SVG, up to 5 MB.
+A Sliqtly server on the user's own computer started with import folders
+(`SLIQTLY_IMPORT_DIRS`) also takes `path`: the absolute path of a file in
+one of those folders, e.g. `{ "name": "cover.jpg", "path":
+"/Users/me/photoalbum/cover.jpg" }`; the server reads it from disk. The
+tool's description of `path` names the folders; when it has no `path`, the
+server reads no files.
 A picture written with a web address (`![Logo](https://…/logo.png)`, or
 `![Logo][id]` with `[id]: https://…`) is fetched into `media/` when the deck
 is saved and the Markdown is pointed at it: a slide shows only pictures kept
@@ -448,7 +454,8 @@ pictures under 300 dpi in print ("media/sauna.jpg: 180 dpi in print, under
   a workbook's dates are written.
 - Adding data: `create_presentation` and `update_presentation` take `files`:
   `{ "name": "sales.xlsx", "data_base64": "…" }` (or `url`), or
-  `{ "name": "sales.csv", "text": "Region,Revenue\nNorth,120\n" }`. Each is
+  `{ "name": "sales.csv", "text": "Region,Revenue\nNorth,120\n" }`, or a
+  `path` in the import folders (as for pictures). Each is
   kept as `data/<name>` (.xlsx, .csv, .tsv, .json, .txt; 10 MB each) and read
   by the names above; the result lists a workbook's sheets.
 - Tidying a workbook: `write_workbook` with the deck_id, the workbook's

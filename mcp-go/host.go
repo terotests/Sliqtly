@@ -129,6 +129,10 @@ type Env struct {
 	// is refused to everyone else.
 	GitHubUsers []string
 	Themes      func(name string) (string, bool)
+	// ImportDirs: folders of this computer pictures and data files may be
+	// read from by path (importdirs.go); only on a server of one's own
+	// started with SLIQTLY_IMPORT_DIRS, empty elsewhere
+	ImportDirs importDirs
 	// the form a presentation's name must have (names.go): only on a server
 	// of one's own, set from its settings page; nil: any name
 	names atomic.Pointer[nameRule]
@@ -710,6 +714,27 @@ func (h *McpHost) Precision(n string, digits int64) string {
 func (h *McpHost) LocalUser() string { return h.env.LocalUser }
 
 func (h *McpHost) EditorOn() bool { return h.env.Editor }
+
+// the import folders, comma separated; "" when files are not read by path
+func (h *McpHost) ImportDirs() string {
+	if h.env.LocalUser == "" {
+		return ""
+	}
+	return strings.Join(h.env.ImportDirs.list(), ", ")
+}
+
+// {"handle","size"} of the file at path in an import folder, at most limit
+// bytes; {"size":0,"error":…} when it is not read
+func (h *McpHost) ImportFile(path string, limit int64) string {
+	if h.env.LocalUser == "" {
+		return toJSON(map[string]any{"handle": 0, "size": 0, "error": "this server reads no files by path"})
+	}
+	b, err := h.env.ImportDirs.read(path, limit)
+	if err != nil {
+		return toJSON(map[string]any{"handle": 0, "size": 0, "error": err.Error()})
+	}
+	return toJSON(map[string]any{"handle": h.keep(b), "size": len(b)})
+}
 
 func (h *McpHost) GitHubPrivateOK(uid string) bool {
 	if h.env.LocalUser != "" {

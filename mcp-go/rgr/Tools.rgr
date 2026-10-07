@@ -142,7 +142,7 @@ class Tools {
         return "Warning: the Sliqtly cloud is an experimental demo, not for private or confidential data. Anyone who has this presentation's link can open every slide, its pictures and its files (visibility link). Tell the user."
     }
 
-    sfn deckFields:void (p:MfJ) {
+    sfn deckFields:void (host:McpHost p:MfJ) {
         def theme:MfJ (Tools.prop("string" "Theme: aurora (default), nebula, carbon, ember, midnight (dark); corporate, editorial (light)"))
         theme.put("enum" (J.strs((Deck.THEMES()))))
         p.put("theme" theme)
@@ -158,6 +158,10 @@ class Tools {
         ip.put("url" (Tools.prop("string" "A public https URL of the picture")))
         ip.put("data_base64" (Tools.prop("string" "The picture's bytes as base64 (instead of url)")))
         ip.put("text" (Tools.prop("string" "An SVG's source as it is (instead of url or data_base64): readable and fixable, no base64. Name it .svg.")))
+        def dirs:string (host_import_dirs host)
+        if ((strlen dirs) > 0) {
+            ip.put("path" (Tools.prop("string" ("Instead of url or data_base64: the absolute path of the picture on this server's computer, inside the import folders " + dirs + "; the server reads it from disk"))))
+        }
         ip.put("mime_type" (Tools.prop("string" "image/png, image/jpeg, image/gif, image/webp or image/svg+xml, or a SmartArt diagram (a dgm:dataModel, name it .xml); inferred from the name when left out")))
         def item:MfJ (MfJ.newObj())
         item.putStr("type" "object")
@@ -171,6 +175,9 @@ class Tools {
         fp.put("text" (Tools.prop("string" "The file's text (CSV, TSV, JSON or plain text)")))
         fp.put("data_base64" (Tools.prop("string" "The file's bytes as base64 (an .xlsx workbook)")))
         fp.put("url" (Tools.prop("string" "A public https URL of the file")))
+        if ((strlen dirs) > 0) {
+            fp.put("path" (Tools.prop("string" ("Instead of text, data_base64 or url: the absolute path of the file on this server's computer, inside the import folders " + dirs + "; the server reads it from disk"))))
+        }
         def fitem:MfJ (MfJ.newObj())
         fitem.putStr("type" "object")
         fitem.put("properties" fp)
@@ -219,7 +226,7 @@ class Tools {
         title.putInt("maxLength" 200)
         cp.put("title" title)
         cp.put("markdown" (Tools.prop("string" "The whole deck as Sliqtly Markdown")))
-        Tools.deckFields(cp)
+        Tools.deckFields(host cp)
         if (host_has_tool host "list_rooms") {
             cp.put("room_id" (Tools.prop("string" "The room (project) the presentation goes to, room_id from list_rooms or create_room; left out, it goes to General. Look for the room it belongs to first (list_rooms with query, e.g. the ticket code in its name) and suggest it to the user, or ask whether to make a new one.")))
         }
@@ -251,7 +258,7 @@ class Tools {
         up.put("edits" edits)
         up.put("base_version" (Tools.prop("string" "The version your markdown started from (from get_presentation, begin_work or your last update). When the deck changed since, the changes are merged; a change to the same lines is refused. Needed with markdown when another assistant is working on the deck; edits are made on the deck as it is and need none.")))
         up.put("work_id" (Tools.prop("string" "Your work_id from begin_work; renews your claim")))
-        Tools.deckFields(up)
+        Tools.deckFields(host up)
         tools.add((Tools.tool("update_presentation" "Update a presentation" "Change a presentation made with create_presentation, keeping its link. Send only what changes: edits change parts of the text (a phrase, one slide, new slides), markdown replaces the whole text; images and files are added (or replace ones of the same name). With markdown send base_version, so edits saved meanwhile by someone else are merged rather than overwritten." (Tools.schema(up ([] _:string ("deck_id")))) (Tools.annotations(false 1 true true)) (Tools.uiMeta(host)))))
 
         def bp:MfJ (MfJ.newObj())
@@ -416,11 +423,15 @@ class Tools {
         wp.put("sheets" sheetsP)
         tools.add((Tools.tool("write_workbook" "Write a presentation's workbook" "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text; a cell may be a formula { f: \"=SUM(C2:C13)\", v: 1234.5 }. Use this rather than sending an .xlsx as base64, which gets corrupted when long. Formatting, colours, filters and column widths are not kept. Needs sign-in." (Tools.schema(wp ([] _:string ("deck_id" "path" "sheets")))) (Tools.annotations(false 1 true false)) eitherMeta)))
 
+        def dirs:string (host_import_dirs host)
         def vp:MfJ (MfJ.newObj())
         vp.put("deck_id" (Tools.prop("string" "A presentation's id (the id in https://sliqtly.com/s/<id>): vectorize one of its pictures and keep the SVG in it. Leave out to vectorize image_base64 or image_url and get the SVG back")))
         vp.put("path" (Tools.prop("string" "With deck_id: the picture's path from list_files, e.g. media/logo.png")))
         vp.put("image_base64" (Tools.prop("string" "Without deck_id: a PNG or JPEG as base64 (a data: URL is fine)")))
         vp.put("image_url" (Tools.prop("string" "Without deck_id: a public https address of a PNG or JPEG")))
+        if ((strlen dirs) > 0) {
+            vp.put("image_path" (Tools.prop("string" ("Without deck_id: the absolute path of a PNG or JPEG on this server's computer, inside the import folders " + dirs))))
+        }
         def vpre:MfJ (Tools.prop("string" "Starting point: logo (few flat colours, background dropped), illustration (8 colours, the default), poster (12 vivid colours), photo (24 colours, noise smoothed), lineart (black and white)"))
         vpre.put("enum" (J.strs((PresTraceSettings.presetNames()))))
         vp.put("preset" vpre)
@@ -991,7 +1002,7 @@ class Tools {
             if ((df.field("name")).kind != 3) {
                 return "Invalid arguments: every file needs a name."
             }
-            for ([] _:string ("text" "url" "data_base64")) ff:string fm {
+            for ([] _:string ("text" "url" "data_base64" "path")) ff:string fm {
                 def ffv:MfJ (df.field(ff))
                 if ((ffv.kind != 0) && (ffv.kind != 3)) {
                     return ("Invalid arguments: file " + ff + " is a string.")
@@ -1009,7 +1020,7 @@ class Tools {
             if ((img.field("name")).kind != 3) {
                 return "Invalid arguments: every image needs a name."
             }
-            for ([] _:string ("url" "data_base64" "mime_type")) f:string m {
+            for ([] _:string ("url" "data_base64" "path" "mime_type")) f:string m {
                 def fv:MfJ (img.field(f))
                 if ((fv.kind != 0) && (fv.kind != 3)) {
                     return ("Invalid arguments: image " + f + " is a string.")
@@ -2687,10 +2698,36 @@ class Tools {
     sfn vectorizeLoose:MfJ (host:McpHost a:MfJ settings:string) {
         def b64:string (trim (a.str_("image_base64")))
         def url:string (trim (a.str_("image_url")))
-        if (((strlen b64) == 0) == ((strlen url) == 0)) {
+        def path:string (trim (a.str_("image_path")))
+        def given:int 0
+        if ((strlen b64) > 0) {
+            given = (given + 1)
+        }
+        if ((strlen url) > 0) {
+            given = (given + 1)
+        }
+        if ((strlen path) > 0) {
+            given = (given + 1)
+        }
+        if (given != 1) {
             return (Tools.fail("Give deck_id and path, or one of image_base64 and image_url."))
         }
         def handle:int 0
+        if ((strlen path) > 0) {
+            def dirs:string (host_import_dirs host)
+            if ((strlen dirs) == 0) {
+                return (Tools.fail("image_path is read only by a Sliqtly server on your own computer started with import folders (SLIQTLY_IMPORT_DIRS); give image_base64 or image_url."))
+            }
+            def got3:MfJ (J.parse((host_import_file host path ((Deck.MAX_IMAGE()) + 1))))
+            def why:string (got3.str_("error"))
+            if ((strlen why) > 0) {
+                return (Tools.fail(("image_path " + path + " was not read (" + why + "). Import folders: " + dirs + ".")))
+            }
+            if ((got3.int_("size" 0)) > (Deck.MAX_IMAGE())) {
+                return (Tools.fail("image_path is larger than 5 MB."))
+            }
+            handle = (got3.int_("handle" 0))
+        }
         if ((strlen b64) > 0) {
             if (startsWith b64 "data:") {
                 def at:int (indexOf b64 ";base64,")
@@ -2703,7 +2740,8 @@ class Tools {
                 return (Tools.fail("image_base64 is not a picture."))
             }
             handle = (got.int_("handle" 0))
-        } {
+        }
+        if ((strlen url) > 0) {
             def u:MfJ (J.parse((host_parse_url host url)))
             if (((u.isObj()) == false) || (((u.str_("scheme")) != "https") || (Deck.privateHost((u.str_("hostname")))))) {
                 return (Tools.fail("image_url is a public https address."))
