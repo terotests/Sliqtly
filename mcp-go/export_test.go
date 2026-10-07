@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
 	"io"
 	"net/http"
@@ -267,4 +268,111 @@ func TestGalleryChecks(t *testing.T) {
 	match(t, text, `- gallery \(grid, 3 pictures, 1 text cell\) at `)
 	match(t, text, `Slide 3 "Every day \(2\)"`)
 	match(t, text, `- gallery \(full page, 1 picture\) at `)
+}
+
+// Text outside ASCII and SVG backgrounds in the exports: the PPTX and the
+// Word document carry "ä" and "·" as themselves (they came out as "Ã¤"),
+// and a slide's SVG background is in the PDF and the PPTX (it was left
+// out: their writers read PNG and JPEG only).
+func TestExportUnicodeAndSvgBackground(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	grad := `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1f2a4d"/><stop offset="1" stop-color="#4a5a8c"/></linearGradient></defs><rect width="1600" height="900" fill="url(#g)"/></svg>`
+	flat := `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#f4f5f9"/><rect width="1600" height="12" fill="#2e3a63"/></svg>`
+	md := "# Kasvusuunnitelma {bg=media/title.svg}\n\nJOHDON KATSAUS · 91 ASIAKASTA\n\nMissä kasvu on ja mitä teemme vuosineljänneksittäin.\n\n## Avainluvut {bg=media/content.svg}\n\n- Summa ≥ 800 → avainasiakas\n"
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "Kasvu", "markdown": md,
+		"images": []any{
+			map[string]any{"name": "title.svg", "text": grad},
+			map[string]any{"name": "content.svg", "text": flat},
+		},
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+
+	x := call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "pptx"})
+	if x.IsError {
+		t.Fatal(textOf(x))
+	}
+	pp := f.bucket.saved["shares/"+id+"/exports/Kasvu.pptx"]
+	all := ""
+	for _, sx := range pptxSlides(t, pp.data) {
+		all += sx
+	}
+	for _, want := range []string{"Missä kasvu on", "vuosineljänneksittäin", "KATSAUS · 91", "≥ 800 → avainasiakas"} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("%q is not in the slides: %s", want, all)
+		}
+	}
+	if strings.Contains(all, "Ã") {
+		t.Fatal("text written twice as UTF-8")
+	}
+	// each slide's background, drawn as the stage shows it, behind it
+	for name, sx := range pptxSlides(t, pp.data) {
+		if !strings.Contains(sx, "<p:bg><p:bgPr><a:blipFill>") {
+			t.Fatalf("%s has no background picture", name)
+		}
+	}
+	z, err := zip.NewReader(bytes.NewReader(pp.data), int64(len(pp.data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stills := 0
+	for _, zf := range z.File {
+		if strings.HasPrefix(zf.Name, "ppt/media/") {
+			r, _ := zf.Open()
+			b, _ := io.ReadAll(r)
+			r.Close()
+			im, err := jpeg.Decode(bytes.NewReader(b))
+			if err != nil {
+				t.Fatal(zf.Name, err)
+			}
+			// the title's dark gradient is drawn, not left white
+			if zf.Name == "ppt/media/image1.jpeg" && inked(im) < im.Bounds().Dx()*im.Bounds().Dy()/2 {
+				t.Fatalf("%s is not the gradient", zf.Name)
+			}
+			stills++
+		}
+	}
+	eq(t, stills, 2, "a background picture per slide")
+
+	p := call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "pdf"})
+	if p.IsError {
+		t.Fatal(textOf(p))
+	}
+	pdf := f.bucket.saved["shares/"+id+"/exports/Kasvu.pdf"]
+	if n := len(regexp.MustCompile(`/Subtype\s*/Image`).FindAll(pdf.data, -1)); n < 1 {
+		t.Fatalf("the gradient background is not in the PDF (%d pictures)", n)
+	}
+
+	w := call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "docx"})
+	if w.IsError {
+		t.Fatal(textOf(w))
+	}
+	wd := f.bucket.saved["shares/"+id+"/exports/Kasvu.docx"]
+	wz, err := zip.NewReader(bytes.NewReader(wd.data), int64(len(wd.data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, zf := range wz.File {
+		if zf.Name == "word/document.xml" {
+			r, _ := zf.Open()
+			b, _ := io.ReadAll(r)
+			r.Close()
+			if !strings.Contains(string(b), "Missä kasvu on") || strings.Contains(string(b), "Ã") {
+				t.Fatal("the Word document's text is not the deck's")
+			}
+		}
+	}
+	h := call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "html"})
+	if h.IsError {
+		t.Fatal(textOf(h))
+	}
+	page := string(f.bucket.saved["shares/"+id+"/exports/Kasvu.html"].data)
+	if !strings.Contains(page, "Missä kasvu on") || strings.Contains(page, "Ã") {
+		t.Fatal("the web page's text is not the deck's")
+	}
 }
