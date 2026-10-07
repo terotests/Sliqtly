@@ -70,10 +70,21 @@ class Layout {
         if (c == 62) {
             return "quote"
         }
+        if (startsWith line "$$") {
+            return "math"
+        }
+        ; an HTML list (`<ul>`, `<ol>`, an `<li>` line) is drawn as a list
+        def low:string (to_lowercase line)
+        if (((startsWith low "<ul") || (startsWith low "<ol")) || (startsWith low "<li")) {
+            return "list"
+        }
         if ((startsWith line "```") || (startsWith line "~~~")) {
             def info:string (trim (substring line 3 (strlen line)))
             if ((info == "gallery") || (startsWith info "gallery ")) {
                 return "gallery"
+            }
+            if ((info == "math") || (startsWith info "math ")) {
+                return "math"
             }
             return "code"
         }
@@ -251,9 +262,9 @@ class Layout {
                 }
                 blk.label = (Layout.baseName(b.imagePath))
             }
-            if (b.kind == 5) {
-                blk.kind = "math"
-            }
+            ; a formula is a block of its own only where the source says so
+            ; ($$ or ```math, kindOfLine): one in a table cell or a sentence
+            ; leaves the block what it is
             if ((b.kind == 0) && ((((blk.kind == "heading") || (blk.kind == "text")) || (blk.kind == "list")) || (blk.kind == "quote"))) {
                 def first:boolean ((strlen (itemAt rawLabel at)) == 0)
                 if (first || ((fabs (b.y - (itemAt labelY at))) < 0.5)) {

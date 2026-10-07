@@ -35,9 +35,11 @@
 ; larger (SaOptions.wrap), and a diagram with nothing beside it and no
 ; `{width}` / `{height}` of its own is laid out across the whole content
 ; width (PresDeck.smartArtSpan), not only the 16:9 box its picture fitted.
-; Text that would not stand out from its fill — a pale list column on a dark
-; theme — is set in the paper or the ink, whichever reads
-; (SaRender.keepReadable).
+; Text that would not stand out from what it is drawn on — a pale list
+; column on a dark theme, a label beside an arrow on the slide itself — is
+; set in the paper or the ink, whichever reads (SaRender.keepReadable), and
+; on a dark theme a quick style's shadows are cast in the ink, where black
+; would not show (SaRender.shadowsOn).
 ;
 ; The same drawing goes to the stage and to the PDF (both through
 ; PresDeck.slideList). The PowerPoint export (PresApp.stillSmartArt) gets the
@@ -235,6 +237,7 @@ class PresSmartArt {
             def pal:SaPalette (PresSmartArt.palette(st))
             SaRender.resolveAll(r.shape pal)
             SaRender.keepReadable(r.shape pal (pal.hexOf("lt1")))
+            SaRender.shadowsOn(r.shape pal (pal.hexOf("lt1")))
         }
         cache.put(key r)
         return r

@@ -342,6 +342,9 @@ class Check {
         for (d.chartStyleNotes()) csn:string csi {
             push c.warnings csn
         }
+        for (d.htmlNotes()) hn:string hi {
+            push c.warnings hn
+        }
         if c.laidOut {
             Check.contrast(c d l pics)
             d.still = true
