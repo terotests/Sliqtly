@@ -396,6 +396,14 @@ operators {
             go ( (e 1) ".VerifyIDToken(" (e 2) ")" )
         }
     }
+    ; a client the server knows without registration (a server of one's
+    ; own: its desktop app and web page), as the client document
+    ; {"client_id","client_name","redirect_uris"}; "" for any other id
+    host_builtin_client _:string (h:McpHost clientId:string) {
+        templates {
+            go ( (e 1) ".BuiltinClient(" (e 2) ")" )
+        }
+    }
 
     ; --- small things
 

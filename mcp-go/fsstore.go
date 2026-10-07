@@ -249,7 +249,7 @@ func (d *engineDB) Increment(ctx context.Context, col, id string, add Doc) error
 
 // the collections whose documents go once their `expires` has passed, as
 // Firestore's TTL policies have them (firestore.indexes.json)
-var ttlCollections = []string{"shares", "mcp_keys", "mcp_sessions", "mcp_quota", "mcp_oauth_requests", "mcp_oauth_codes", "mcp_oauth_tokens", "stats_salt", "stats_seen", "mcp_work", "mcp_bases"}
+var ttlCollections = []string{"shares", "mcp_keys", "mcp_sessions", "mcp_quota", "mcp_oauth_requests", "mcp_oauth_codes", "mcp_oauth_tokens", "mcp_oauth_oidc", "stats_salt", "stats_seen", "mcp_work", "mcp_bases"}
 
 // removes the documents of col whose `expires` is before t, each looked at
 // again as it is removed, so one given a later `expires` meanwhile stays.

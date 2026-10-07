@@ -12,6 +12,12 @@
 ;   POST /oauth/approve      /oauth.html hands back a Firebase ID token → code
 ;   POST /oauth/token        code + PKCE (S256) → tokens; refresh_token rotates
 ;
+; A server of one's own (../oidc.go) has no Firebase: there /oauth.html is
+; the server's own step that sends the browser to the OIDC provider set
+; with -oidc-issuer, and its /oauth/callback hands the verified account to
+; approve. Its desktop app and web page are clients known without
+; registration (host_builtin_client).
+;
 ; Codes and tokens are random; Firestore keeps only their SHA-256, under
 ; mcp_oauth_…, which no client rule reaches. The documents are the ones the
 ; Node server writes, so either server can finish a sign-in the other began.
@@ -73,6 +79,7 @@ class Who {
     def state:int 0
     def uid:string ""
     def name:string ""
+    def email:string ""
 }
 
 class OAuth {
@@ -167,6 +174,10 @@ class OAuth {
     ; the client: a registered one, or one known by its metadata document URL;
     ; a null value when there is none
     sfn client:MfJ (host:McpHost clientId:string) {
+        def builtin:string (host_builtin_client host clientId)
+        if ((strlen builtin) > 0) {
+            return (J.parse(builtin))
+        }
         if (startsWith clientId "https://") {
             def u:MfJ (J.parse((host_parse_url host clientId)))
             if ((u.isObj()) == false) {
@@ -377,7 +388,9 @@ class OAuth {
         return (MfJ.ofStr(s))
     }
 
-    ; /oauth.html: { request, id_token } or { request, deny: true } → { redirect }
+    ; /oauth.html: { request, id_token } or { request, deny: true, reason? }
+    ; → { redirect }. On a server of one's own the sign-in is the OIDC
+    ; provider's (../oidc.go), which calls this in-process.
     sfn approve:HttpOut (host:McpHost body:MfJ) {
         def rid:string (J.textOf(body "request"))
         if (((strlen rid) != 24) || ((Deck.allAlnum(rid)) == false)) {
@@ -405,6 +418,10 @@ class OAuth {
         if (J.truthy((body.field("deny")))) {
             host_delete_doc host (OAuth.col("requests")) rid
             p.putStr("error" "access_denied")
+            def reason:string (J.textOf(body "reason"))
+            if ((strlen reason) > 0) {
+                p.putStr("error_description" reason)
+            }
             def d:MfJ (MfJ.newObj())
             d.putStr("redirect" (host_url_set host (r.str_("redirect_uri")) (JOut.text(p))))
             return (HttpOut.of(200 d))
@@ -426,6 +443,7 @@ class OAuth {
         def c:MfJ (MfJ.newObj())
         c.putStr("uid" (who.str_("uid")))
         c.putStr("name" name)
+        c.putStr("email" (who.str_("email")))
         c.put("client_id" (r.field("client_id")))
         c.put("redirect_uri" (r.field("redirect_uri")))
         c.put("code_challenge" (r.field("code_challenge")))
@@ -472,6 +490,7 @@ class OAuth {
         def g:MfJ (MfJ.newObj())
         g.put("uid" (from.field("uid")))
         g.put("name" (from.field("name")))
+        g.put("email" (from.field("email")))
         g.put("client_id" (from.field("client_id")))
         g.put("resource" (from.field("resource")))
         return g
@@ -557,6 +576,7 @@ class OAuth {
         w.state = 1
         w.uid = (t.str_("uid"))
         w.name = (t.str_("name"))
+        w.email = (t.str_("email"))
         return w
     }
 }

@@ -14,22 +14,25 @@
 //	/files/shares/…       pictures and data files of a deck
 //	/themes/{name}.css    the built-in themes
 //
-// With a token (SLIQTLY_TOKEN), /mcp answers only requests that carry it as
-// "Authorization: Bearer <token>".
+// With a token (SLIQTLY_TOKEN), /mcp and /api/v1 answer only requests that
+// carry it as "Authorization: Bearer <token>"; with sign-in (-oidc-issuer,
+// oidc.go) also an access token the server's OAuth server issued. /api/v1
+// is apiv1.go.
 
 package main
 
 import (
 	"bytes"
 	"context"
-	"crypto/subtle"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -71,6 +74,11 @@ type localServer struct {
 	callMu sync.Mutex
 	cnet   *callNet
 	certs  *ownCerts // https:// (owncert.go); nil: none
+	// a certificate of the server's own name (-tls-cert, tlsfile.go),
+	// served instead of the own authority's; nil: none
+	fileCert *fileCert
+	cors     *corsPolicy // pages of other origins that may call /api/v1 (cors.go)
+	oidc     *oidcSignIn // sign-in through an OIDC provider (oidc.go); nil: off
 }
 
 // the env of a server whose decks are in dir, reached at baseURL
@@ -135,6 +143,8 @@ func newLocalServer(env *Env, bucket *localBucket, token string, web fs.FS) http
 			}()
 		}
 	}
+	s.cors, _ = newCORSPolicy(nil)
+	env.Clients = s.builtinClient
 	s.loadSettings()
 	return s
 }
@@ -152,12 +162,62 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !s.guard(w, r) {
 		return
 	}
-	if p == "/mcp" && s.token != "" && !s.authorized(r) {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("WWW-Authenticate", `Bearer realm="sliqtly"`)
-		w.WriteHeader(401)
-		io.WriteString(w, `{"jsonrpc":"2.0","error":{"code":-32001,"message":"This server needs Authorization: Bearer <token>."},"id":null}`)
+	if p == "/mcp" && s.authRequired() {
+		if _, err := s.authenticate(r); err != nil {
+			var ae *apiError
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			if !errors.Is(err, errNoToken) && !errors.As(err, &ae) {
+				log.Printf("token check: %v", err)
+				w.WriteHeader(500)
+				io.WriteString(w, `{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error"},"id":null}`)
+				return
+			}
+			w.Header().Set("WWW-Authenticate", s.challenge(r, "/.well-known/oauth-protected-resource/mcp", ae != nil))
+			w.WriteHeader(401)
+			io.WriteString(w, `{"jsonrpc":"2.0","error":{"code":-32001,"message":"This server needs Authorization: Bearer <token>."},"id":null}`)
+			return
+		}
+		// every caller of this server is its one user (LocalUser): the
+		// token was this layer's to check, and the Ranger side, which
+		// knows OAuth tokens only, would take the server's token for one
+		// that does not hold
+		r.Header.Del("Authorization")
+	}
+	if p == "/api/v1" || strings.HasPrefix(p, "/api/v1/") {
+		s.apiV1(w, r)
 		return
+	}
+	if oauthCORSPath(p) {
+		if o := r.Header.Get("Origin"); o != "" && !s.hosts.sameOrigin(r) {
+			if !s.cors.allowed(o) {
+				writeJSON(w, http.StatusForbidden, map[string]string{"error": "this page's origin may not use this server's sign-in"})
+				return
+			}
+			if r.Method == http.MethodOptions {
+				corsPreflight(w, r, o, "GET, POST, OPTIONS")
+				return
+			}
+			s.app.ServeHTTP(&corsWriter{ResponseWriter: w, origin: o}, r)
+			return
+		}
+	}
+	if s.oidc != nil {
+		switch {
+		case p == "/oauth.html" && r.Method == http.MethodGet:
+			s.signInPage(w, r)
+			return
+		case p == "/oauth/start" && r.Method == http.MethodPost:
+			s.signInStart(w, r)
+			return
+		case p == "/oauth/callback" && r.Method == http.MethodGet:
+			s.signInCallback(w, r)
+			return
+		case p == "/oauth/approve":
+			// approve is called in-process by the callback, after the
+			// provider's checks; from outside it would be a way round them
+			http.NotFound(w, r)
+			return
+		}
 	}
 	if p == "/api/status" {
 		st, _ := s.board.get()
@@ -226,14 +286,6 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		s.app.ServeHTTP(w, r)
 	}
-}
-
-func (s *localServer) authorized(r *http.Request) bool {
-	h := r.Header.Get("Authorization")
-	if !strings.HasPrefix(h, "Bearer ") {
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(h, "Bearer ")), []byte(s.token)) == 1
 }
 
 func (s *localServer) file(w http.ResponseWriter, r *http.Request, path string) {

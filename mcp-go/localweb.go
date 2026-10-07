@@ -372,11 +372,20 @@ func (s *localServer) createShare(r *http.Request) (any, error) {
 		return nil, err
 	}
 	d := shareFields(body)
-	d["owner"] = s.env.LocalUser
-	d["source"] = "web"
 	if deck, ok := body["deck"].(string); ok {
 		d["deck"] = deck
 	}
+	id, err := s.newShare(r.Context(), d, "web")
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{"id": id}, nil
+}
+
+// a new share of this server's user, made by source ("web", "api") → its id
+func (s *localServer) newShare(ctx context.Context, d Doc, source string) (string, error) {
+	d["owner"] = s.env.LocalUser
+	d["source"] = source
 	if _, ok := d["files"]; !ok {
 		d["files"] = []any{}
 	}
@@ -384,15 +393,15 @@ func (s *localServer) createShare(r *http.Request) (any, error) {
 	// Create writes only where there is nothing: a new id needs no turn
 	for range 5 {
 		id := newShareID()
-		had, err := s.env.DB.Create(r.Context(), "shares", id, d)
+		had, err := s.env.DB.Create(ctx, "shares", id, d)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 		if had == nil {
-			return map[string]string{"id": id}, nil
+			return id, nil
 		}
 	}
-	return nil, errors.New("no free id")
+	return "", errors.New("no free id")
 }
 
 // the share, read for a change: there, and this user's
@@ -401,13 +410,17 @@ func (s *localServer) own(ctx context.Context, id string) (Doc, error) {
 	if err != nil {
 		return nil, err
 	}
+	return cur, s.mine(cur)
+}
+
+func (s *localServer) mine(cur Doc) error {
 	if cur == nil {
-		return nil, fail(404, "not-found", "no such presentation")
+		return fail(404, "not-found", "no such presentation")
 	}
 	if cur["owner"] != s.env.LocalUser {
-		return nil, fail(403, "permission-denied", "not the owner")
+		return fail(403, "permission-denied", "not the owner")
 	}
-	return cur, nil
+	return nil
 }
 
 func (s *localServer) patchShare(r *http.Request, id string) (any, error) {
@@ -415,23 +428,44 @@ func (s *localServer) patchShare(r *http.Request, id string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer shareLocks.lock(id)()
-	cur, err := s.own(r.Context(), id)
-	if err != nil {
-		return nil, err
-	}
 	// changed since the page last read it: an assistant saved meanwhile
+	var check func(Doc, store.Rev) error
 	if want, ok := body["ifMd"].(string); ok {
-		if have, _ := cur["md"].(string); have != want {
-			return nil, fail(409, "changed-elsewhere", "changed elsewhere")
+		check = func(cur Doc, _ store.Rev) error {
+			if have, _ := cur["md"].(string); have != want {
+				return fail(409, "changed-elsewhere", "changed elsewhere")
+			}
+			return nil
 		}
 	}
-	patch := shareFields(body)
-	patch["updated"] = time.Now().UTC()
-	if err := s.env.DB.Update(r.Context(), "shares", id, patch); err != nil {
+	if _, _, err := s.saveShare(r.Context(), id, shareFields(body), check); err != nil {
 		return nil, err
 	}
 	return map[string]bool{"ok": true}, nil
+}
+
+// saveShare is every save of a share's fields, the page's and /api/v1's:
+// in the share's turn, read, checked (this user's, then check when not
+// nil) and written as one step of the store, whose change feed tells the
+// rooms editing it together (collab.go) and the open pages
+// (localevents.go). → what was written and its revision
+func (s *localServer) saveShare(ctx context.Context, id string, patch Doc, check func(Doc, store.Rev) error) (Doc, store.Rev, error) {
+	defer shareLocks.lock(id)()
+	patch["updated"] = time.Now().UTC()
+	return s.env.Store.Update(ctx, "shares", id, func(cur Doc, rev store.Rev) (Doc, error) {
+		if err := s.mine(cur); err != nil {
+			return nil, err
+		}
+		if check != nil {
+			if err := check(cur, rev); err != nil {
+				return nil, err
+			}
+		}
+		for k, v := range patch {
+			cur[k] = v
+		}
+		return cur, nil
+	})
 }
 
 func (s *localServer) deleteShare(ctx context.Context, id string) error {
