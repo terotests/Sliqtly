@@ -2,3 +2,4 @@ node_modules/
 build/
 native/build/
 web/gen/
+native/build-editor/

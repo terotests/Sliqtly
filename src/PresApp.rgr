@@ -33,6 +33,7 @@ Import "PresSlideSpans.rgr"
 Import "PresFollow.rgr"
 Import "PresPick.rgr"
 Import "PresNav.rgr"
+Import "PresScrollInput.rgr"
 Import "PresThemeEdit.rgr"
 Import "PresRecord.rgr"
 Import "PresExport.rgr"
@@ -5747,7 +5748,7 @@ class PresApp {
             }
             toolbar.tabDragTo("" "" x y)
         }
-        if ((touch == false) && (deckTabs.dragTo(x))) {
+        if ((touch == false) && (deckTabs.dragTabTo(x))) {
             push requests "deck:tabs"
         }
         if deckTabs.dragged {
@@ -5759,12 +5760,12 @@ class PresApp {
         deckDown = false
         def room:string (toolbar.tabDragEnd())
         if ((strlen room) > 0) {
-            deckTabs.release()
+            deckTabs.releaseTab()
             push requests ("room:tabdrop:" + room + ":" + deckPressed)
             chromeRev = (chromeRev + 1)
             return
         }
-        if (deckTabs.release()) {
+        if (deckTabs.releaseTab()) {
             chromeRev = (chromeRev + 1)
             return
         }

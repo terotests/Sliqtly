@@ -1,0 +1,167 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PresScrollInput — wheels, trackpads and fingers, as one direction and a glide
+; ==============================================================================
+;
+; A native host gets scrolling from the system in three shapes, and the editor
+; (`PresApp.wheelXY`) wants one: the browser's `wheel` delta, where a positive
+; `dy` moves the view toward the end of what it shows. This class turns each
+; shape into that, and adds the glide a system does not.
+;
+; THE DIRECTION IS THE USER'S. A trackpad with natural scrolling moves the
+; content with the fingers: the person has "taken hold of" the page. SDL
+; reports that setting as `direction == SDL_MOUSEWHEEL_FLIPPED`, but its values
+; already carry it, exactly as a browser's `deltaY` does. Multiplying by -1 on
+; FLIPPED (which the first desktop host did) undoes the user's own setting and
+; scrolls the wrong way. So `sdlWheel` takes the values and never the flag; the
+; only sign change is SDL's "up is positive" against the browser's "down is
+; positive" on y.
+;
+; A FINGER ON A TOUCH SCREEN HOLDS THE PAGE. It moves with the finger: a
+; finger going up moves the view down, so `dy` is the finger's travel
+; reversed. That is the same grab as the trackpad's, from a different device.
+;
+; THE GLIDE. A swipe that leaves the glass moving keeps scrolling and slows
+; down (EVGFling). macOS sends that glide itself, as more wheel events, so a
+; host there says `osMomentum` and nothing is added. Linux and Windows send
+; none for a touchpad and no system sends one for a touch screen, so here:
+; a finger's lift releases a fling, and a precise wheel stream (a touchpad)
+; that goes quiet for `quietMs` releases one too. A notched wheel never
+; glides, and any press or new wheel event stops a glide where it is.
+;
+; Time is the host's: `tick` advances the clock by the real frame time, and
+; the events between two ticks share that frame's time.
+; ==============================================================================
+
+Import "pkg:evg/EVGFling.rgr"
+
+class PresScrollInput {
+    def fx:EVGFling (new EVGFling())
+    def fy:EVGFling (new EVGFling())
+    ; The platform glides on its own (macOS): do not add another.
+    def osMomentum:boolean false
+    ; Pixels per SDL wheel unit. A host sets this for its platform.
+    def pxPerUnit:double 40.0
+    ; A touchpad stream silent this long has ended: the fingers left.
+    def quietMs:double 60.0
+
+    ; The answer of the last call: scroll by this much at (atX, atY).
+    def outX:double 0.0
+    def outY:double 0.0
+    def atX:double 0.0
+    def atY:double 0.0
+
+    def nowMs:double 0.0
+    def lastWheelMs:double 0.0
+    def tracking:boolean false
+    def fingerOn:boolean false
+    def fingerX:double 0.0
+    def fingerY:double 0.0
+    def fingerMs:double 0.0
+
+    Constructor () {
+    }
+
+    ; SDL's wheel event, in window points (x, y) and SDL's precise units.
+    ; `flipped` is read only to say why it is not used: see the head of the
+    ; file. `precise` is a touchpad rather than a notched wheel.
+    fn sdlWheel:boolean (x:double y:double unitsX:double unitsY:double flipped:boolean precise:boolean) {
+        return (this.wheel(x y (unitsX * pxPerUnit) ((0.0 - unitsY) * pxPerUnit) precise))
+    }
+
+    ; A wheel delta already in the browser's convention, in pixels.
+    fn wheel:boolean (x:double y:double dx:double dy:double precise:boolean) {
+        atX = x
+        atY = y
+        outX = dx
+        outY = dy
+        if (this.gliding()) {
+            this.halt()
+        }
+        if (precise && (osMomentum == false)) {
+            def dt:double (nowMs - lastWheelMs)
+            if (tracking == false) {
+                dt = 0.0
+            }
+            fx.track(dx dt)
+            fy.track(dy dt)
+            tracking = true
+            lastWheelMs = nowMs
+        }
+        return ((dx != 0.0) || (dy != 0.0))
+    }
+
+    ; A finger on a touch screen, in window points.
+    fn fingerDown:void (x:double y:double) {
+        this.halt()
+        fingerOn = true
+        fingerX = x
+        fingerY = y
+        fingerMs = nowMs
+        atX = x
+        atY = y
+    }
+
+    ; The page follows the finger: the view moves the other way.
+    fn fingerMove:boolean (x:double y:double) {
+        if (fingerOn == false) {
+            return false
+        }
+        outX = (fingerX - x)
+        outY = (fingerY - y)
+        fx.track(outX (nowMs - fingerMs))
+        fy.track(outY (nowMs - fingerMs))
+        fingerX = x
+        fingerY = y
+        fingerMs = nowMs
+        return ((outX != 0.0) || (outY != 0.0))
+    }
+
+    ; The finger left: a throw, or a stop.
+    fn fingerUp:boolean () {
+        if (fingerOn == false) {
+            return false
+        }
+        fingerOn = false
+        ; the time it rested before lifting is part of the speed: a finger
+        ; that stopped and then lifted has stopped the page
+        if (nowMs > fingerMs) {
+            fx.track(0.0 (nowMs - fingerMs))
+            fy.track(0.0 (nowMs - fingerMs))
+        }
+        return (this.release())
+    }
+
+    ; A press, a key, a new gesture: the page stops where it is.
+    fn halt:void () {
+        fx.halt()
+        fy.halt()
+        tracking = false
+    }
+
+    fn gliding:boolean () {
+        return ((fx.running()) || (fy.running()))
+    }
+
+    fn release:boolean () {
+        tracking = false
+        def a:boolean (fx.release())
+        def b:boolean (fy.release())
+        return (a || b)
+    }
+
+    ; One frame of `dtMs`. True when (outX, outY) is a glide step to apply.
+    fn tick:boolean (dtMs:double) {
+        nowMs = (nowMs + dtMs)
+        if (tracking && ((nowMs - lastWheelMs) >= quietMs)) {
+            this.release()
+        }
+        if ((this.gliding()) == false) {
+            return false
+        }
+        outX = (fx.step(dtMs))
+        outY = (fy.step(dtMs))
+        return ((outX != 0.0) || (outY != 0.0))
+    }
+}
