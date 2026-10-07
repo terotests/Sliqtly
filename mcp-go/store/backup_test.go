@@ -315,3 +315,37 @@ func TestBackupKeep(t *testing.T) {
 		t.Fatal("a zero rule removed backups")
 	}
 }
+
+// A process stopped while it wrote backup.json leaves a .tmp-* file in
+// the new repo folder; the next open takes the folder as new, not as
+// somebody else's files.
+func TestBackupOpenAfterInterruptedHead(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".tmp-1234567"), []byte(`{"kind":"sliq`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := store.OpenBackupRepo(dir)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	repo.Close()
+	if _, err := os.Stat(filepath.Join(dir, ".tmp-1234567")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("left-over temp file still there: %v", err)
+	}
+	// an existing repo cleans them too
+	os.WriteFile(filepath.Join(dir, ".tmp-89"), nil, 0o600)
+	repo, err = store.OpenBackupRepo(dir)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	repo.Close()
+	if _, err := os.Stat(filepath.Join(dir, ".tmp-89")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("left-over temp file still there: %v", err)
+	}
+	// other files still mean the folder is not ours
+	other := t.TempDir()
+	os.WriteFile(filepath.Join(other, "notes.txt"), []byte("x"), 0o600)
+	if _, err := store.OpenBackupRepo(other); err == nil || !strings.Contains(err.Error(), "not a backup folder and not empty") {
+		t.Fatalf("foreign folder opened: %v", err)
+	}
+}
