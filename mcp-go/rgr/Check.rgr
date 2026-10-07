@@ -275,7 +275,8 @@ class Check {
         c.width = d.pageW
         c.height = d.pageH
         c.slides = (d.slideCount())
-        c.splitLevel = ((d.layout()).splitLevel)
+        def lay:MdLayout (d.layout())
+        c.splitLevel = lay.splitLevel
         def ti:int 0
         while (ti < c.slides) {
             def ts:PresSlide (d.slideAt(ti))

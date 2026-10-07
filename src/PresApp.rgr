@@ -849,7 +849,8 @@ class PresApp {
             push titles sk.title
             k = (k + 1)
         }
-        def span:[int] (PresSlideSpans.linesIn((mdEditor.text()) starts titles i ((deck.layout()).splitLevel)))
+        def lay:MdLayout (deck.layout())
+        def span:[int] (PresSlideSpans.linesIn((mdEditor.text()) starts titles i lay.splitLevel))
         linesFrom = (itemAt span 0)
         linesAt = (itemAt span 1)
         if (linesFrom < 0) {
