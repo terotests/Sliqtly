@@ -1,0 +1,22 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Where the server's /oauth/authorize sends the browser back (client
+     sliqtly-web, redirect <origin>/callback.html). The code and the state are
+     handed to the app page, which checks the state and exchanges the code. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Sliqtly Editor: signing in</title>
+    <style>body { background: #121316; color: #e3dfd9; font: 15px system-ui, sans-serif; text-align: center; padding-top: 30vh; }</style>
+  </head>
+  <body>
+    <p>Signing in…</p>
+    <script>
+      const q = new URLSearchParams(location.search);
+      sessionStorage.setItem("sliqtly-editor.oauth-return", JSON.stringify({
+        code: q.get("code") || "", state: q.get("state") || "", error: q.get("error") ? q.get("error") + (q.get("error_description") ? ": " + q.get("error_description") : "") : "",
+      }));
+      location.replace("./");
+    </script>
+  </body>
+</html>

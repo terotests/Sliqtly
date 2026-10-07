@@ -1,0 +1,432 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; ApiClient — Sliqtly's REST API v1, without a network of its own
+; =============================================================================
+; Ranger has no sockets, and the two hosts reach the network differently
+; (libcurl on a worker thread natively, fetch() in a browser). So the client
+; never sends anything: it puts ApiRequest records in an outbox, the host
+; takes them (`take`), performs them however it can and hands the answer back
+; (`deliver`). What comes out is an ApiResult per request, by `tag`, for the
+; session above to act on. The same class is driven by Node's fetch in the
+; tests (test/run-tests.mjs), against test/mock-server.mjs.
+;
+; What the client does on its own, because every caller would otherwise do it:
+;
+;   Authorization   `Bearer <token>` on every API request that wants it
+;   401 + refresh   an OAuth session (a refresh token) is refreshed once
+;                   (POST <token endpoint>, grant_type=refresh_token) and the
+;                   requests that got the 401 are sent again with the new token;
+;                   requests made meanwhile wait for it. A refresh that is
+;                   refused ends the session (`signedOut`).
+;   CA pinning      each request names the pinned CA's fingerprint (`caFp`);
+;                   the native host turns that into libcurl's CAINFO
+; =============================================================================
+
+Import "Json.rgr"
+
+class ApiRequest {
+    def id:int 0
+    def method:string "GET"
+    def url:string ""
+    def headers:[string]
+    def body:string ""
+    def timeoutMs:int 20000
+    ; Fetch without verifying the certificate: only ever /api/v1/info, which
+    ; carries no token, to read the fingerprint of a server's own CA.
+    def insecure:boolean false
+    def caFp:string ""
+    def tag:string ""
+    def authed:boolean false
+    def retried:boolean false
+
+    Constructor () {
+    }
+
+    fn headerText:string () {
+        return (join headers "\n")
+    }
+}
+
+class ApiResult {
+    def id:int 0
+    def tag:string ""
+    def status:int 0
+    def body:string ""
+    def error:string ""
+    def json:JVal (new JVal())
+
+    Constructor () {
+    }
+
+    fn ok:boolean () {
+        return ((status >= 200) && (status < 300))
+    }
+
+    ; The server's own words for a failure, or the transport's.
+    fn message:string () {
+        if (status == 0) {
+            if ((strlen error) > 0) {
+                return error
+            }
+            return "no answer"
+        }
+        def said:string (json.strOr("error" ""))
+        if ((strlen said) > 0) {
+            return said
+        }
+        return ("HTTP " + (to_string status))
+    }
+
+    fn code:string () {
+        return (json.strOr("code" ""))
+    }
+}
+
+class ApiClient {
+    def base:string ""
+    def token:string ""
+    def refreshToken:string ""
+    def tokenEndpoint:string ""
+    def clientId:string "sliqtly-desktop"
+    def caFp:string ""
+
+    def outbox:[ApiRequest]
+    def inflight:[ApiRequest]
+    def waiting:[ApiRequest]
+    def results:[ApiResult]
+    def nextId:int 1
+    def refreshing:boolean false
+    ; set when tokens change (a refresh) so the owner saves them; cleared by it
+    def tokensChanged:boolean false
+    ; a refresh was refused: the user must sign in again
+    def signedOut:boolean false
+
+    Constructor () {
+    }
+
+    ; --- addresses -------------------------------------------------------------
+
+    ; "localhost:8080/" -> "http://localhost:8080"
+    sfn normalizeBase:string (url:string) {
+        def u:string (trim url)
+        if ((strlen u) == 0) {
+            return ""
+        }
+        if (((indexOf u "http://") != 0) && ((indexOf u "https://") != 0)) {
+            u = ("http://" + u)
+        }
+        while (((strlen u) > 0) && ((lastIndexOf u "/") == ((strlen u) - 1))) {
+            u = (substring u 0 ((strlen u) - 1))
+        }
+        ; an address pasted with the API path on it
+        def at:int (indexOf u "/api/v1")
+        if (at > 0) {
+            u = (substring u 0 at)
+        }
+        return u
+    }
+
+    sfn isHttps:boolean (url:string) {
+        return ((indexOf url "https://") == 0)
+    }
+
+    ; Percent-encoding of the UTF-8 bytes (RFC 3986 unreserved kept).
+    sfn enc:string (s:string) {
+        def hex:string "0123456789ABCDEF"
+        def cs:[int] (to_chars s)
+        def parts:[string]
+        def n:int (array_length cs)
+        def i:int 0
+        while (i < n) {
+            def c:int (itemAt cs i)
+            def keep:boolean false
+            if ((c >= 48) && (c <= 57)) {
+                keep = true
+            }
+            if ((c >= 65) && (c <= 90)) {
+                keep = true
+            }
+            if ((c >= 97) && (c <= 122)) {
+                keep = true
+            }
+            if ((((c == 45) || (c == 46)) || (c == 95)) || (c == 126)) {
+                keep = true
+            }
+            if keep {
+                push parts (strfromcode c)
+            } {
+                def bytes:[int]
+                if (c < 128) {
+                    push bytes c
+                } {
+                    if (c < 2048) {
+                        push bytes (192 + (to_int (c / 64)))
+                        push bytes (128 + (c % 64))
+                    } {
+                        if (c < 65536) {
+                            push bytes (224 + (to_int (c / 4096)))
+                            push bytes (128 + ((to_int (c / 64)) % 64))
+                            push bytes (128 + (c % 64))
+                        } {
+                            push bytes (240 + (to_int (c / 262144)))
+                            push bytes (128 + ((to_int (c / 4096)) % 64))
+                            push bytes (128 + ((to_int (c / 64)) % 64))
+                            push bytes (128 + (c % 64))
+                        }
+                    }
+                }
+                def k:int 0
+                while (k < (array_length bytes)) {
+                    def b:int (itemAt bytes k)
+                    def hi:int (to_int (b / 16))
+                    def lo:int (b % 16)
+                    push parts ("%" + (substring hex hi (hi + 1)) + (substring hex lo (lo + 1)))
+                    k = (k + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return (join parts "")
+    }
+
+    fn apiUrl:string (path:string) {
+        return (base + "/api/v1" + path)
+    }
+
+    ; --- requests --------------------------------------------------------------
+
+    fn send:int (method:string url:string body:string tag:string authed:boolean) {
+        def r (new ApiRequest())
+        r.id = nextId
+        nextId = (nextId + 1)
+        r.method = method
+        r.url = url
+        r.body = body
+        r.tag = tag
+        r.authed = authed
+        r.caFp = caFp
+        if ((strlen body) > 0) {
+            push r.headers "Content-Type: application/json"
+        }
+        push r.headers "Accept: application/json"
+        this.sign(r)
+        if (refreshing && authed) {
+            push waiting r
+            return r.id
+        }
+        push outbox r
+        return r.id
+    }
+
+    fn sign:void (r:ApiRequest) {
+        def kept:[string]
+        def n:int (array_length r.headers)
+        def i:int 0
+        while (i < n) {
+            def h:string (itemAt r.headers i)
+            if ((indexOf h "Authorization:") != 0) {
+                push kept h
+            }
+            i = (i + 1)
+        }
+        if (r.authed && ((strlen token) > 0)) {
+            push kept ("Authorization: Bearer " + token)
+        }
+        r.headers = kept
+    }
+
+    fn get:int (path:string tag:string) {
+        return (this.send("GET" (this.apiUrl(path)) "" tag true))
+    }
+
+    fn put:int (path:string body:string tag:string) {
+        return (this.send("PUT" (this.apiUrl(path)) body tag true))
+    }
+
+    fn post:int (path:string body:string tag:string) {
+        return (this.send("POST" (this.apiUrl(path)) body tag true))
+    }
+
+    fn del:int (path:string tag:string) {
+        return (this.send("DELETE" (this.apiUrl(path)) "" tag true))
+    }
+
+    ; A form POST (the OAuth token endpoint), never with a bearer token.
+    fn postForm:int (url:string form:string tag:string) {
+        def r (new ApiRequest())
+        r.id = nextId
+        nextId = (nextId + 1)
+        r.method = "POST"
+        r.url = url
+        r.body = form
+        r.tag = tag
+        r.caFp = caFp
+        push r.headers "Content-Type: application/x-www-form-urlencoded"
+        push r.headers "Accept: application/json"
+        push outbox r
+        return r.id
+    }
+
+    fn pendingCount:int () {
+        return ((array_length outbox) + (array_length inflight) + (array_length waiting))
+    }
+
+    fn busy:boolean () {
+        return ((this.pendingCount()) > 0)
+    }
+
+    ; The next request for the host to perform, or nothing.
+    fn take@(optional):ApiRequest () {
+        def none@(optional):ApiRequest
+        if ((array_length outbox) == 0) {
+            return none
+        }
+        def r:ApiRequest (itemAt outbox 0)
+        remove_index outbox 0
+        push inflight r
+        def out@(optional):ApiRequest
+        out = r
+        return out
+    }
+
+    fn findInflight:int (id:int) {
+        def n:int (array_length inflight)
+        def i:int 0
+        while (i < n) {
+            def r:ApiRequest (itemAt inflight i)
+            if (r.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn requestById@(optional):ApiRequest (id:int) {
+        def none@(optional):ApiRequest
+        def k:int (this.findInflight(id))
+        if (k < 0) {
+            return none
+        }
+        def r:ApiRequest (itemAt inflight k)
+        def out@(optional):ApiRequest
+        out = r
+        return out
+    }
+
+    fn startRefresh:void () {
+        refreshing = true
+        def form:string ("grant_type=refresh_token&refresh_token=" + (ApiClient.enc(refreshToken)) + "&client_id=" + (ApiClient.enc(clientId)))
+        def url:string tokenEndpoint
+        if ((strlen url) == 0) {
+            url = (base + "/oauth/token")
+        }
+        this.postForm(url form "__refresh")
+    }
+
+    fn result:ApiResult (r:ApiRequest status:int body:string error:string) {
+        def res (new ApiResult())
+        res.id = r.id
+        res.tag = r.tag
+        res.status = status
+        res.body = body
+        res.error = error
+        def t:string (trim body)
+        if ((strlen t) > 0) {
+            def first:int (charAt t 0)
+            if ((first == 123) || (first == 91)) {
+                def v:JVal (JVal.parse(t))
+                if (v.valid()) {
+                    res.json = v
+                }
+            }
+        }
+        return res
+    }
+
+    ; The host's answer to request `id`: the HTTP status (0 when none came,
+    ; with the transport's reason in `error`) and the body.
+    fn deliver:void (id:int status:int body:string error:string) {
+        def k:int (this.findInflight(id))
+        if (k < 0) {
+            return
+        }
+        def r:ApiRequest (itemAt inflight k)
+        remove_index inflight k
+
+        if (r.tag == "__refresh") {
+            refreshing = false
+            def res:ApiResult (this.result(r status body error))
+            def access:string (res.json.strOr("access_token" ""))
+            if ((res.ok()) && ((strlen access) > 0)) {
+                token = access
+                def next:string (res.json.strOr("refresh_token" ""))
+                if ((strlen next) > 0) {
+                    refreshToken = next
+                }
+                tokensChanged = true
+                ; everything that waited goes out again with the new token
+                def n:int (array_length waiting)
+                def i:int 0
+                while (i < n) {
+                    def w:ApiRequest (itemAt waiting i)
+                    this.sign(w)
+                    push outbox w
+                    i = (i + 1)
+                }
+                clear waiting
+                return
+            }
+            if ((status == 400) || (status == 401)) {
+                ; revoked or spent: the session is over
+                signedOut = true
+                refreshToken = ""
+                token = ""
+                tokensChanged = true
+            }
+            def m:int (array_length waiting)
+            def j:int 0
+            while (j < m) {
+                def w2:ApiRequest (itemAt waiting j)
+                push results (this.result(w2 401 "{\"error\":\"sign in again\",\"code\":\"unauthorized\"}" ""))
+                j = (j + 1)
+            }
+            clear waiting
+            return
+        }
+
+        if (((status == 401) && r.authed) && (((strlen refreshToken) > 0) && (r.retried == false))) {
+            r.retried = true
+            push waiting r
+            if (refreshing == false) {
+                this.startRefresh()
+            }
+            return
+        }
+        push results (this.result(r status body error))
+    }
+
+    fn takeResult@(optional):ApiResult () {
+        def none@(optional):ApiResult
+        if ((array_length results) == 0) {
+            return none
+        }
+        def r:ApiResult (itemAt results 0)
+        remove_index results 0
+        def out@(optional):ApiResult
+        out = r
+        return out
+    }
+
+    ; Forget everything in flight (switching servers): late answers are dropped.
+    fn reset:void () {
+        clear outbox
+        clear inflight
+        clear waiting
+        clear results
+        refreshing = false
+        signedOut = false
+        tokensChanged = false
+    }
+}

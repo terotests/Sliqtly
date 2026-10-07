@@ -1,0 +1,1250 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; Session — what the editor knows and does, without a screen
+; =============================================================================
+; The model under EditorApp: which server, who we are there, the deck list,
+; the open deck and its text (TextBuffer), saving with a version check, the
+; preview's slides, signing in and trusting a server's own CA. Every network
+; call goes through ApiClient's outbox; everything the host must do that
+; Ranger cannot (save the settings file, open the browser, put text on the
+; clipboard, fetch and pin a CA certificate, run the OAuth loopback) is a
+; COMMAND in `commands`, which the host drains.
+;
+; The tests (test/run-tests.mjs) drive this class with Node's fetch against
+; test/mock-server.mjs; EditorApp only draws it and turns input into calls.
+; =============================================================================
+
+Import "Json.rgr"
+Import "ApiClient.rgr"
+Import "Settings.rgr"
+Import "TextBuffer.rgr"
+
+class DeckInfo {
+    def id:string ""
+    def name:string ""
+    def updated:double 0.0
+    def slides:int 0
+
+    Constructor () {
+    }
+}
+
+class Session {
+    def api:ApiClient (new ApiClient())
+    def settings:Settings (new Settings())
+    def buffer:TextBuffer (new TextBuffer())
+
+    ; "mac", "linux", "windows" or "web": the OAuth client and the shortcut names
+    def platform:string "linux"
+    def webOrigin:string ""
+    def nowMs:double 0.0
+
+    ; connect | decks | editor | settings
+    def screen:string "connect"
+    ; "" | trust | delete | conflict | newdeck | discard | signin
+    def dialog:string ""
+    def message:string ""
+    def messageError:boolean false
+    def changes:int 0
+
+    ; --- connecting --------------------------------------------------------------
+    def connectUrl:string "http://localhost:8080"
+    def connectToken:string ""
+    def connecting:boolean false
+    def connectedUrl:string ""
+    def info:JVal (new JVal())
+    def infoUrl:string ""
+    def serverName:string ""
+    def serverVersion:string ""
+    def authRequired:boolean false
+    def oauth:boolean false
+    def provider:string ""
+    def issuer:string ""
+    def needsSignIn:boolean false
+    def tlsOwnCA:boolean false
+    def tlsFingerprint:string ""
+    def tlsCaPath:string "/ca.crt"
+    def trustUrl:string ""
+    def authorizeEndpoint:string ""
+    def tokenEndpoint:string ""
+    def signInWaiting:boolean false
+
+    ; servers found on this computer (localhost:8080-8090)
+    def probeUrls:[string]
+    def probeLabels:[string]
+    def probePorts:[int]
+    def probesOut:int 0
+    def probed:boolean false
+
+    def userName:string ""
+
+    ; --- decks ---------------------------------------------------------------------
+    def decks:[DeckInfo]
+    def decksLoading:boolean false
+    def decksLoaded:boolean false
+    def pendingId:string ""
+    def pendingName:string ""
+    def openAfterLoad:string ""
+
+    ; --- the open deck ---------------------------------------------------------------
+    def deckId:string ""
+    def deckName:string ""
+    def deckVersion:string ""
+    def deckLoading:boolean false
+    def savedText:string ""
+    def sentText:string ""
+    def saving:boolean false
+    def saveCount:int 0
+    def conflictCount:int 0
+    def conflictVersion:string ""
+    def conflictText:string ""
+    def dirtyAt:int -1
+    def dirtyCached:boolean false
+    def afterSave:string ""
+
+    ; --- the preview ---------------------------------------------------------------
+    def viewBody:string ""
+    def viewGen:int 0
+    def viewLoading:boolean false
+    def viewSlides:int 0
+    def viewW:double 1920.0
+    def viewH:double 1080.0
+    def slide:int 0
+    def caretSlide:int -1
+
+    ; --- host commands -------------------------------------------------------------
+    def cmdNames:[string]
+    def cmdArgs:[string]
+    def cmdArgs2:[string]
+
+    Constructor () {
+    }
+
+    ; =========================================================================
+    ; host commands
+    ; =========================================================================
+
+    fn command:void (name:string a:string b:string) {
+        push cmdNames name
+        push cmdArgs a
+        push cmdArgs2 b
+    }
+
+    fn hasCommand:boolean () {
+        return ((array_length cmdNames) > 0)
+    }
+
+    fn clientId:string () {
+        if (platform == "web") {
+            return "sliqtly-web"
+        }
+        return "sliqtly-desktop"
+    }
+
+    fn note:void (text:string) {
+        message = text
+        messageError = false
+        changes = (changes + 1)
+    }
+
+    fn fail:void (text:string) {
+        message = text
+        messageError = true
+        changes = (changes + 1)
+    }
+
+    fn saveSettings:void () {
+        this.command("save-settings" "" "")
+    }
+
+    ; =========================================================================
+    ; starting
+    ; =========================================================================
+
+    fn loadSettings:void (text:string) {
+        settings.load(text)
+    }
+
+    ; After the settings are loaded: back to the server in use, or the
+    ; connect screen with a look around this computer.
+    fn start:void () {
+        if (settings.hasCurrent()) {
+            def e:ServerEntry (settings.currentServer())
+            connectUrl = e.url
+            this.connectTo(e.url "" true)
+            return
+        }
+        screen = "connect"
+        this.probe()
+    }
+
+    ; =========================================================================
+    ; finding servers on this computer
+    ; =========================================================================
+
+    fn probe:void () {
+        clear probeUrls
+        clear probeLabels
+        clear probePorts
+        probed = false
+        def port:int 8080
+        while (port <= 8090) {
+            def url:string ("http://localhost:" + (to_string port))
+            def id:int (api.send("GET" (url + "/api/v1/info") "" ("probe " + url) false))
+            def r@(optional):ApiRequest (this.findOutbox(id))
+            if r {
+                def req:ApiRequest (unwrap r)
+                req.timeoutMs = 1500
+            }
+            port = (port + 1)
+            probesOut = (probesOut + 1)
+        }
+        changes = (changes + 1)
+    }
+
+    fn probeTimeoutMs:int () {
+        return 1500
+    }
+
+    fn onProbe:void (res:ApiResult) {
+        probesOut = (probesOut - 1)
+        if (probesOut <= 0) {
+            probesOut = 0
+            probed = true
+        }
+        if ((res.ok()) == false) {
+            return
+        }
+        def v:JVal res.json
+        if ((v.intOr("api" 0)) < 1) {
+            return
+        }
+        def url:string (substring res.tag 6 (strlen res.tag))
+        def label:string (v.strOr("name" "Sliqtly"))
+        def ver:string (v.strOr("version" ""))
+        if ((strlen ver) > 0) {
+            label = (label + " " + ver)
+        }
+        def user:string (v.strOr("user" ""))
+        if ((strlen user) > 0) {
+            label = (label + " · " + user)
+        }
+        def auth:JVal (v.get("auth"))
+        if (auth.boolOr("oauth" false)) {
+            label = (label + " · sign-in")
+        } {
+            if (auth.boolOr("required" false)) {
+                label = (label + " · token")
+            }
+        }
+        ; in port order
+        def colon:int (lastIndexOf url ":")
+        def port:int 0
+        def pp@(optional):int (to_int (substring url (colon + 1) (strlen url)))
+        if pp {
+            port = (unwrap pp)
+        }
+        def at:int 0
+        while (at < (array_length probePorts)) {
+            if ((itemAt probePorts at) > port) {
+                break
+            }
+            at = (at + 1)
+        }
+        insert probeUrls at url
+        insert probeLabels at label
+        insert probePorts at port
+    }
+
+    ; =========================================================================
+    ; connecting
+    ; =========================================================================
+
+    ; Connect to `url`. A typed token replaces what the settings hold for
+    ; that server; an empty one keeps it (a token or an OAuth session).
+    fn connectTo:void (url:string token:string quiet:boolean) {
+        def base:string (ApiClient.normalizeBase(url))
+        if ((strlen base) == 0) {
+            this.fail("Type the server's address, e.g. http://localhost:8080")
+            return
+        }
+        api.reset()
+        probesOut = 0
+        api.base = base
+        api.clientId = (this.clientId())
+        def known:int (settings.indexOfUrl(base))
+        api.token = ""
+        api.refreshToken = ""
+        api.tokenEndpoint = ""
+        api.caFp = ""
+        if (known >= 0) {
+            def e:ServerEntry (settings.at(known))
+            api.token = e.token
+            api.refreshToken = e.refresh
+            api.tokenEndpoint = e.tokenEndpoint
+            api.caFp = e.ca
+        }
+        if ((strlen (trim token)) > 0) {
+            api.token = (trim token)
+            api.refreshToken = ""
+        }
+        connectUrl = base
+        connecting = true
+        needsSignIn = false
+        connectedUrl = ""
+        info = (new JVal())
+        infoUrl = ""
+        if (quiet == false) {
+            this.note(("Connecting to " + base + " …"))
+        }
+        api.send("GET" (api.apiUrl("/info")) "" "info" false)
+    }
+
+    ; The answer looks like a certificate the system does not trust.
+    sfn certificateProblem:boolean (error:string) {
+        def e:string (to_lowercase error)
+        if ((indexOf e "certificate") >= 0) {
+            return true
+        }
+        if ((indexOf e "ssl") >= 0) {
+            return true
+        }
+        if ((indexOf e "tls") >= 0) {
+            return true
+        }
+        return false
+    }
+
+    fn readInfo:void (v:JVal) {
+        info = v
+        infoUrl = api.base
+        serverName = (v.strOr("name" "Sliqtly"))
+        serverVersion = (v.strOr("version" ""))
+        def auth:JVal (v.get("auth"))
+        authRequired = (auth.boolOr("required" false))
+        oauth = (auth.boolOr("oauth" false))
+        provider = (auth.strOr("provider" ""))
+        issuer = (auth.strOr("issuer" api.base))
+        def tls:JVal (v.get("tls"))
+        tlsOwnCA = (tls.boolOr("ownCA" false))
+        tlsFingerprint = (tls.strOr("fingerprint" ""))
+        tlsCaPath = (tls.strOr("ca" "/ca.crt"))
+    }
+
+    fn onInfo:void (res:ApiResult) {
+        if (res.ok()) {
+            this.readInfo(res.json)
+            if (((strlen api.token) > 0) || (authRequired == false)) {
+                api.get("/me" "me")
+                return
+            }
+            connecting = false
+            if oauth {
+                needsSignIn = true
+                screen = "connect"
+                this.note("This server wants you to sign in.")
+                return
+            }
+            screen = "connect"
+            this.fail("This server needs a token: paste the server's token (SLIQTLY_TOKEN) and connect.")
+            return
+        }
+        if ((res.status == 0) && ((ApiClient.isHttps(api.base)) && (Session.certificateProblem(res.error)))) {
+            ; Read the server's own CA fingerprint without verifying (no token goes out).
+            def id:int (api.send("GET" (api.apiUrl("/info")) "" "info-tls" false))
+            def r@(optional):ApiRequest (this.findOutbox(id))
+            if r {
+                def req:ApiRequest (unwrap r)
+                req.insecure = true
+                req.caFp = ""
+            }
+            return
+        }
+        connecting = false
+        screen = "connect"
+        if (res.status == 0) {
+            this.fail(("Cannot reach " + api.base + ": " + (res.message())))
+            return
+        }
+        if (res.status == 404) {
+            this.fail((api.base + " answers, but has no /api/v1 (is it a Sliqtly server, and new enough?)"))
+            return
+        }
+        this.fail(("The server said: " + (res.message())))
+    }
+
+    fn findOutbox@(optional):ApiRequest (id:int) {
+        def none@(optional):ApiRequest
+        def n:int (array_length api.outbox)
+        def i:int 0
+        while (i < n) {
+            def r:ApiRequest (itemAt api.outbox i)
+            if (r.id == id) {
+                def out@(optional):ApiRequest
+                out = r
+                return out
+            }
+            i = (i + 1)
+        }
+        return none
+    }
+
+    fn onInfoTls:void (res:ApiResult) {
+        connecting = false
+        screen = "connect"
+        if (res.ok()) {
+            this.readInfo(res.json)
+            if (tlsOwnCA && ((strlen tlsFingerprint) > 0)) {
+                trustUrl = api.base
+                dialog = "trust"
+                this.note("The server uses its own certificate authority.")
+                return
+            }
+            this.fail(("The certificate of " + api.base + " is not trusted by this computer."))
+            return
+        }
+        this.fail(("Cannot reach " + api.base + ": " + (res.message())))
+    }
+
+    ; The user compared the fingerprint and trusts it: the host fetches
+    ; <server>/ca.crt, checks its SHA-256 against the fingerprint, keeps it,
+    ; and answers with `caResult`.
+    fn trustAccept:void () {
+        dialog = ""
+        if (platform == "web") {
+            this.fail(("Open " + trustUrl + " in this browser once and accept its certificate, then connect again."))
+            this.command("open-url" trustUrl "")
+            return
+        }
+        this.note("Fetching the server's CA certificate …")
+        this.command("fetch-ca" (trustUrl + tlsCaPath) tlsFingerprint)
+    }
+
+    fn trustCancel:void () {
+        dialog = ""
+        this.note("Not connected: the server's certificate was not trusted.")
+    }
+
+    fn caResult:void (fingerprint:string ok:boolean why:string) {
+        if (ok == false) {
+            this.fail(("The CA certificate was not pinned: " + why))
+            return
+        }
+        def e:ServerEntry (settings.upsert(trustUrl))
+        e.ca = fingerprint
+        this.saveSettings()
+        this.connectTo(trustUrl connectToken false)
+    }
+
+    fn onMe:void (res:ApiResult) {
+        connecting = false
+        if (res.ok()) {
+            def v:JVal res.json
+            userName = (v.strOr("name" ""))
+            if ((strlen userName) == 0) {
+                userName = (v.strOr("email" (v.strOr("id" ""))))
+            }
+            def e:ServerEntry (settings.upsert(api.base))
+            e.token = api.token
+            e.refresh = api.refreshToken
+            e.tokenEndpoint = api.tokenEndpoint
+            e.ca = api.caFp
+            e.user = userName
+            settings.select(api.base)
+            settings.signingIn = ""
+            this.saveSettings()
+            connectedUrl = api.base
+            needsSignIn = false
+            connectToken = ""
+            screen = "decks"
+            this.note(("Connected to " + (Settings.nameFor(api.base))))
+            this.loadDecks()
+            return
+        }
+        screen = "connect"
+        if (res.status == 401) {
+            if oauth {
+                needsSignIn = true
+                this.fail("Sign in to this server (the saved session is not valid any more).")
+                return
+            }
+            this.fail("The token was not accepted.")
+            return
+        }
+        this.fail(("Cannot read /api/v1/me: " + (res.message())))
+    }
+
+    fn isConnected:boolean () {
+        return ((strlen connectedUrl) > 0)
+    }
+
+    ; Switch to a saved server (Settings).
+    fn useServer:void (i:int) {
+        if ((i < 0) || (i >= (settings.count()))) {
+            return
+        }
+        def e:ServerEntry (settings.at(i))
+        this.closeDeck()
+        this.connectTo(e.url "" false)
+    }
+
+    fn removeServer:void (i:int) {
+        if ((i < 0) || (i >= (settings.count()))) {
+            return
+        }
+        def e:ServerEntry (settings.at(i))
+        def wasCurrent:boolean (e.url == connectedUrl)
+        settings.removeAt(i)
+        this.saveSettings()
+        if wasCurrent {
+            api.reset()
+            connectedUrl = ""
+            this.closeDeck()
+        }
+        this.note(("Removed " + e.name))
+    }
+
+    ; =========================================================================
+    ; signing in (OAuth 2.1, PKCE S256, the host runs the browser part)
+    ; =========================================================================
+
+    fn signIn:void () {
+        def base:string (ApiClient.normalizeBase(connectUrl))
+        if ((infoUrl != base) || (oauth == false)) {
+            this.fail("Connect first: the server must say it offers sign-in.")
+            return
+        }
+        signInWaiting = true
+        this.note("Opening the sign-in page …")
+        api.send("GET" (base + "/.well-known/oauth-authorization-server") "" "oauth-meta" false)
+    }
+
+    fn onOAuthMeta:void (res:ApiResult) {
+        def base:string api.base
+        authorizeEndpoint = (base + "/oauth/authorize")
+        tokenEndpoint = (base + "/oauth/token")
+        if (res.ok()) {
+            authorizeEndpoint = (res.json.strOr("authorization_endpoint" authorizeEndpoint))
+            tokenEndpoint = (res.json.strOr("token_endpoint" tokenEndpoint))
+        }
+        def e:ServerEntry (settings.upsert(base))
+        e.tokenEndpoint = tokenEndpoint
+        e.ca = api.caFp
+        settings.signingIn = base
+        this.saveSettings()
+        this.command("oauth" base "")
+    }
+
+    ; The host made the PKCE pair and the state, and listens at `redirect`.
+    fn oauthAuthorizeUrl:string (challenge:string state:string redirect:string) {
+        def ep:string authorizeEndpoint
+        if ((strlen ep) == 0) {
+            ep = (api.base + "/oauth/authorize")
+        }
+        def sep:string "?"
+        if ((indexOf ep "?") >= 0) {
+            sep = "&"
+        }
+        return (ep + sep + "response_type=code&client_id=" + (ApiClient.enc((this.clientId()))) + "&redirect_uri=" + (ApiClient.enc(redirect)) + "&code_challenge=" + (ApiClient.enc(challenge)) + "&code_challenge_method=S256&state=" + (ApiClient.enc(state)))
+    }
+
+    ; The browser came back with a code: exchange it (POST <token endpoint>).
+    fn oauthCode:void (code:string verifier:string redirect:string) {
+        def base:string settings.signingIn
+        if ((strlen base) == 0) {
+            base = api.base
+        }
+        def e:ServerEntry (settings.upsert(base))
+        if (api.base != base) {
+            api.reset()
+            api.base = base
+            api.caFp = e.ca
+        }
+        api.clientId = (this.clientId())
+        def ep:string e.tokenEndpoint
+        if ((strlen ep) == 0) {
+            ep = (base + "/oauth/token")
+        }
+        api.tokenEndpoint = ep
+        signInWaiting = true
+        this.note("Signing in …")
+        def form:string ("grant_type=authorization_code&code=" + (ApiClient.enc(code)) + "&redirect_uri=" + (ApiClient.enc(redirect)) + "&client_id=" + (ApiClient.enc((this.clientId()))) + "&code_verifier=" + (ApiClient.enc(verifier)))
+        api.postForm(ep form "oauth-token")
+    }
+
+    fn oauthFailed:void (why:string) {
+        signInWaiting = false
+        settings.signingIn = ""
+        this.saveSettings()
+        this.fail(("Sign-in did not complete: " + why))
+    }
+
+    fn onOAuthToken:void (res:ApiResult) {
+        signInWaiting = false
+        def access:string (res.json.strOr("access_token" ""))
+        if (((res.ok()) == false) || ((strlen access) == 0)) {
+            settings.signingIn = ""
+            this.saveSettings()
+            this.fail(("Sign-in was refused: " + (res.message())))
+            return
+        }
+        def base:string api.base
+        def e:ServerEntry (settings.upsert(base))
+        e.token = access
+        e.refresh = (res.json.strOr("refresh_token" ""))
+        e.tokenEndpoint = api.tokenEndpoint
+        settings.signingIn = ""
+        this.saveSettings()
+        this.connectTo(base "" false)
+    }
+
+    fn signOut:void () {
+        if (settings.hasCurrent()) {
+            def e:ServerEntry (settings.currentServer())
+            e.token = ""
+            e.refresh = ""
+            this.saveSettings()
+        }
+        api.reset()
+        connectedUrl = ""
+        this.closeDeck()
+        screen = "connect"
+        this.note("Signed out.")
+    }
+
+    ; =========================================================================
+    ; decks
+    ; =========================================================================
+
+    fn loadDecks:void () {
+        decksLoading = true
+        api.get("/decks" "decks")
+        changes = (changes + 1)
+    }
+
+    fn onDecks:void (res:ApiResult) {
+        decksLoading = false
+        if ((this.authFailed(res)) || ((res.ok()) == false)) {
+            if ((res.ok()) == false) {
+                this.fail(("Could not list the presentations: " + (res.message())))
+            }
+            return
+        }
+        clear decks
+        def list:JVal (res.json.get("decks"))
+        def n:int (list.len())
+        def i:int 0
+        while (i < n) {
+            def o:JVal (list.at(i))
+            def d (new DeckInfo())
+            d.id = (o.strOr("id" ""))
+            d.name = (o.strOr("name" ""))
+            if ((strlen d.name) == 0) {
+                d.name = "(untitled)"
+            }
+            d.updated = (o.numOr("updated" 0.0))
+            d.slides = (o.intOr("slides" 0))
+            push decks d
+            i = (i + 1)
+        }
+        decksLoaded = true
+        if ((strlen openAfterLoad) > 0) {
+            def id:string openAfterLoad
+            openAfterLoad = ""
+            this.openDeck(id)
+        }
+    }
+
+    fn deckCount:int () {
+        return (array_length decks)
+    }
+
+    fn deckAt:DeckInfo (i:int) {
+        def d:DeckInfo (itemAt decks i)
+        return d
+    }
+
+    fn indexOfDeck:int (id:string) {
+        def n:int (array_length decks)
+        def i:int 0
+        while (i < n) {
+            def d:DeckInfo (itemAt decks i)
+            if (d.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; A 401 that the client could not cure (no refresh, or a refused one):
+    ; back to the connect screen to sign in or give a token again.
+    fn authFailed:boolean (res:ApiResult) {
+        if (res.status != 401) {
+            return false
+        }
+        connectedUrl = ""
+        screen = "connect"
+        if oauth {
+            needsSignIn = true
+            this.fail("Your sign-in has expired: sign in again.")
+        } {
+            this.fail("The server did not accept the token any more.")
+        }
+        return true
+    }
+
+    fn sampleMarkdown:string (name:string) {
+        return ("# " + name + "\n\nA new presentation\n\n## Second slide\n\n- One point\n- Another point\n")
+    }
+
+    fn newDeck:void (name:string) {
+        def n:string (trim name)
+        if ((strlen n) == 0) {
+            n = "Untitled presentation"
+        }
+        def body:JVal (JVal.mkObj())
+        body.setStr("name" n)
+        body.setStr("markdown" (this.sampleMarkdown(n)))
+        api.post("/decks" (body.toJson()) "create")
+        this.note(("Creating “" + n + "” …"))
+    }
+
+    fn onCreate:void (res:ApiResult) {
+        if (this.authFailed(res)) {
+            return
+        }
+        if ((res.ok()) == false) {
+            this.fail(("Could not create it: " + (res.message())))
+            return
+        }
+        def id:string (res.json.strOr("id" ""))
+        this.note("Created.")
+        if ((strlen id) > 0) {
+            openAfterLoad = id
+        }
+        this.loadDecks()
+    }
+
+    fn askDelete:void (id:string) {
+        def i:int (this.indexOfDeck(id))
+        if (i < 0) {
+            return
+        }
+        def d:DeckInfo (itemAt decks i)
+        pendingId = d.id
+        pendingName = d.name
+        dialog = "delete"
+        changes = (changes + 1)
+    }
+
+    fn confirmDelete:void () {
+        dialog = ""
+        if ((strlen pendingId) == 0) {
+            return
+        }
+        api.del(("/decks/" + (ApiClient.enc(pendingId))) "delete")
+        this.note(("Deleting “" + pendingName + "” …"))
+    }
+
+    fn onDelete:void (res:ApiResult) {
+        if (this.authFailed(res)) {
+            return
+        }
+        if ((res.ok()) == false) {
+            this.fail(("Could not delete it: " + (res.message())))
+            return
+        }
+        if (pendingId == deckId) {
+            this.closeDeck()
+        }
+        this.note(("Deleted “" + pendingName + "”."))
+        pendingId = ""
+        this.loadDecks()
+    }
+
+    ; =========================================================================
+    ; the open deck
+    ; =========================================================================
+
+    fn openDeck:void (id:string) {
+        if ((strlen id) == 0) {
+            return
+        }
+        deckLoading = true
+        api.get(("/decks/" + (ApiClient.enc(id))) "deck")
+        this.note("Opening …")
+    }
+
+    fn takeDeck:void (v:JVal) {
+        deckId = (v.strOr("id" deckId))
+        deckName = (v.strOr("name" deckName))
+        deckVersion = (v.strOr("version" ""))
+        def md:string (v.strOr("markdown" ""))
+        buffer.setText(md)
+        savedText = (buffer.getText())
+        dirtyAt = -1
+        slide = 0
+        caretSlide = -1
+    }
+
+    fn onDeck:void (res:ApiResult) {
+        deckLoading = false
+        if (this.authFailed(res)) {
+            return
+        }
+        if ((res.ok()) == false) {
+            this.fail(("Could not open it: " + (res.message())))
+            return
+        }
+        this.takeDeck(res.json)
+        viewBody = ""
+        viewSlides = 0
+        viewGen = (viewGen + 1)
+        screen = "editor"
+        this.note(("Opened “" + deckName + "”."))
+        this.loadView()
+    }
+
+    fn closeDeck:void () {
+        deckId = ""
+        deckName = ""
+        deckVersion = ""
+        buffer.setText("")
+        savedText = ""
+        dirtyAt = -1
+        viewBody = ""
+        viewSlides = 0
+        viewGen = (viewGen + 1)
+        if (dialog == "conflict") {
+            dialog = ""
+        }
+    }
+
+    fn isDirty:boolean () {
+        if ((strlen deckId) == 0) {
+            return false
+        }
+        if (dirtyAt != buffer.version) {
+            dirtyAt = buffer.version
+            dirtyCached = ((buffer.getText()) != savedText)
+        }
+        return dirtyCached
+    }
+
+    ; Back to the list; asks first when there are unsaved changes.
+    fn backToDecks:void () {
+        if (this.isDirty()) {
+            dialog = "discard"
+            changes = (changes + 1)
+            return
+        }
+        this.closeDeck()
+        screen = "decks"
+        this.loadDecks()
+    }
+
+    fn discardAndLeave:void () {
+        dialog = ""
+        this.closeDeck()
+        screen = "decks"
+        this.loadDecks()
+    }
+
+    fn saveAndLeave:void () {
+        dialog = ""
+        afterSave = "decks"
+        this.save()
+    }
+
+    fn save:void () {
+        if ((strlen deckId) == 0) {
+            return
+        }
+        if saving {
+            return
+        }
+        saving = true
+        sentText = (buffer.getText())
+        def body:JVal (JVal.mkObj())
+        body.setStr("markdown" sentText)
+        if ((strlen deckVersion) > 0) {
+            body.setStr("ifVersion" deckVersion)
+        }
+        api.put(("/decks/" + (ApiClient.enc(deckId))) (body.toJson()) "save")
+        this.note("Saving …")
+    }
+
+    fn onSave:void (res:ApiResult) {
+        saving = false
+        if (this.authFailed(res)) {
+            return
+        }
+        if (res.status == 409) {
+            def cur:JVal (res.json.get("current"))
+            conflictVersion = (cur.strOr("version" ""))
+            conflictText = (cur.strOr("markdown" ""))
+            conflictCount = (conflictCount + 1)
+            afterSave = ""
+            dialog = "conflict"
+            this.fail("This presentation was changed on the server.")
+            return
+        }
+        if ((res.ok()) == false) {
+            afterSave = ""
+            this.fail(("Not saved: " + (res.message())))
+            return
+        }
+        deckVersion = (res.json.strOr("version" deckVersion))
+        deckName = (res.json.strOr("name" deckName))
+        savedText = sentText
+        dirtyAt = -1
+        saveCount = (saveCount + 1)
+        this.note("Saved.")
+        if (afterSave == "decks") {
+            afterSave = ""
+            this.closeDeck()
+            screen = "decks"
+            this.loadDecks()
+            return
+        }
+        this.loadView()
+    }
+
+    ; 409: take the server's version, dropping the edits here.
+    fn conflictReload:void () {
+        dialog = ""
+        buffer.setText(conflictText)
+        savedText = (buffer.getText())
+        deckVersion = conflictVersion
+        dirtyAt = -1
+        this.note("Reloaded the server's version.")
+        this.loadView()
+    }
+
+    ; 409: write this version over the server's (against the version just seen).
+    fn conflictOverwrite:void () {
+        dialog = ""
+        deckVersion = conflictVersion
+        this.save()
+    }
+
+    fn conflictCancel:void () {
+        dialog = ""
+        this.note("Not saved: the server has a newer version (Save again to choose).")
+    }
+
+    fn reloadDeck:void () {
+        if ((strlen deckId) > 0) {
+            this.openDeck(deckId)
+        }
+    }
+
+    ; =========================================================================
+    ; the preview: the server's layout of every slide (GET …/view)
+    ; =========================================================================
+
+    fn loadView:void () {
+        if ((strlen deckId) == 0) {
+            return
+        }
+        viewLoading = true
+        api.get(("/decks/" + (ApiClient.enc(deckId)) + "/view") "view")
+    }
+
+    fn onView:void (res:ApiResult) {
+        viewLoading = false
+        if (this.authFailed(res)) {
+            return
+        }
+        if ((res.ok()) == false) {
+            this.fail(("No preview: " + (res.message())))
+            return
+        }
+        def deck:JVal (res.json.get("deck"))
+        def lists:JVal (res.json.get("lists"))
+        viewW = (deck.numOr("width" 1920.0))
+        viewH = (deck.numOr("height" 1080.0))
+        if ((viewW <= 0.0) || (viewH <= 0.0)) {
+            viewW = 1920.0
+            viewH = 1080.0
+        }
+        def before:int viewSlides
+        viewSlides = (lists.len())
+        ; The caret was on a slide the previous view did not have yet
+        ; (a new heading): show it now that it exists.
+        if ((caretSlide >= before) && (caretSlide > slide)) {
+            slide = caretSlide
+        }
+        viewBody = res.body
+        viewGen = (viewGen + 1)
+        if (slide >= viewSlides) {
+            slide = (viewSlides - 1)
+        }
+        if (slide < 0) {
+            slide = 0
+        }
+    }
+
+    fn nextSlide:void () {
+        if (slide < (viewSlides - 1)) {
+            slide = (slide + 1)
+            changes = (changes + 1)
+        }
+    }
+
+    fn prevSlide:void () {
+        if (slide > 0) {
+            slide = (slide - 1)
+            changes = (changes + 1)
+        }
+    }
+
+    ; Which slide a line of the Markdown is on: a slide starts at a `#` or
+    ; `##` heading outside code fences, after the front matter.
+    fn slideOfLine:int (line:int) {
+        def n:int (buffer.lineCount())
+        def i:int 0
+        def fence:boolean false
+        def starts:int 0
+        def content:boolean false
+        if ((n > 0) && ((trim (buffer.lineAt(0))) == "---")) {
+            i = 1
+            while ((i < n) && ((trim (buffer.lineAt(i))) != "---")) {
+                i = (i + 1)
+            }
+            i = (i + 1)
+        }
+        def frontEnd:int i
+        while ((i <= line) && (i < n)) {
+            def t:string (buffer.lineAt(i))
+            if (((indexOf t "```") == 0) || ((indexOf t "~~~") == 0)) {
+                fence = (fence == false)
+            } {
+                if (fence == false) {
+                    if (((indexOf t "# ") == 0) || ((indexOf t "## ") == 0)) {
+                        if ((starts > 0) || content) {
+                            starts = (starts + 1)
+                        } {
+                            starts = 1
+                        }
+                    } {
+                        if (((strlen (trim t)) > 0) && (starts == 0)) {
+                            content = true
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (line < frontEnd) {
+            return 0
+        }
+        if content {
+            return starts
+        }
+        if (starts == 0) {
+            return 0
+        }
+        return (starts - 1)
+    }
+
+    ; The preview follows the caret from slide to slide; prev / next win
+    ; until the caret crosses into another slide.
+    fn followCaret:void () {
+        def s:int (this.slideOfLine(buffer.caretLine))
+        if (s != caretSlide) {
+            caretSlide = s
+            def target:int s
+            if ((viewSlides > 0) && (target >= viewSlides)) {
+                target = (viewSlides - 1)
+            }
+            if (target != slide) {
+                slide = target
+                changes = (changes + 1)
+            }
+        }
+    }
+
+    ; =========================================================================
+    ; the network
+    ; =========================================================================
+
+    ; Every answer that came back, acted on.
+    fn process:void () {
+        def guard:int 0
+        while (guard < 1000) {
+            def r@(optional):ApiResult (api.takeResult())
+            if (null? r) {
+                break
+            }
+            def res:ApiResult (unwrap r)
+            this.handle(res)
+            guard = (guard + 1)
+        }
+        if api.tokensChanged {
+            api.tokensChanged = false
+            if ((strlen api.base) > 0) {
+                def known:int (settings.indexOfUrl(api.base))
+                if (known >= 0) {
+                    def e:ServerEntry (settings.at(known))
+                    e.token = api.token
+                    e.refresh = api.refreshToken
+                    this.saveSettings()
+                }
+            }
+        }
+    }
+
+    fn handle:void (res:ApiResult) {
+        changes = (changes + 1)
+        def tag:string res.tag
+        if ((indexOf tag "probe ") == 0) {
+            this.onProbe(res)
+            return
+        }
+        if (tag == "info") {
+            this.onInfo(res)
+            return
+        }
+        if (tag == "info-tls") {
+            this.onInfoTls(res)
+            return
+        }
+        if (tag == "me") {
+            this.onMe(res)
+            return
+        }
+        if (tag == "oauth-meta") {
+            this.onOAuthMeta(res)
+            return
+        }
+        if (tag == "oauth-token") {
+            this.onOAuthToken(res)
+            return
+        }
+        if (tag == "decks") {
+            this.onDecks(res)
+            return
+        }
+        if (tag == "create") {
+            this.onCreate(res)
+            return
+        }
+        if (tag == "delete") {
+            this.onDelete(res)
+            return
+        }
+        if (tag == "deck") {
+            this.onDeck(res)
+            return
+        }
+        if (tag == "save") {
+            this.onSave(res)
+            return
+        }
+        if (tag == "view") {
+            this.onView(res)
+            return
+        }
+        if (tag == "script") {
+            this.note(("script request: " + (to_string res.status)))
+            return
+        }
+    }
+
+    ; The host's answer to request `id`.
+    fn deliver:void (id:int status:int body:string error:string) {
+        api.deliver(id status body error)
+        this.process()
+    }
+
+    ; =========================================================================
+    ; words
+    ; =========================================================================
+
+    ; "just now", "5 min ago", "3 h ago", "yesterday", "12 days ago" or a date
+    sfn ago:string (now:double then:double) {
+        if (then <= 0.0) {
+            return ""
+        }
+        def d:double (now - then)
+        if (d < 60000.0) {
+            return "just now"
+        }
+        def mins:int (to_int (d / 60000.0))
+        if (mins < 60) {
+            return ((to_string mins) + " min ago")
+        }
+        def hours:int (to_int (d / 3600000.0))
+        if (hours < 24) {
+            return ((to_string hours) + " h ago")
+        }
+        def days:int (to_int (d / 86400000.0))
+        if (days == 1) {
+            return "yesterday"
+        }
+        if (days < 30) {
+            return ((to_string days) + " days ago")
+        }
+        return (Session.dateText(then))
+    }
+
+    ; YYYY-MM-DD (UTC) of a millisecond time (civil-from-days).
+    sfn dateText:string (ms:double) {
+        def z:int ((to_int (ms / 86400000.0)) + 719468)
+        def era:int (to_int (z / 146097))
+        def doe:int (z - (era * 146097))
+        def yoe:int (to_int ((doe - (to_int (doe / 1460)) + (to_int (doe / 36524)) - (to_int (doe / 146096))) / 365))
+        def y:int (yoe + (era * 400))
+        def doy:int (doe - ((365 * yoe) + (to_int (yoe / 4)) - (to_int (yoe / 100))))
+        def mp:int (to_int (((5 * doy) + 2) / 153))
+        def d:int ((doy - (to_int (((153 * mp) + 2) / 5))) + 1)
+        def m:int (mp + 3)
+        if (mp >= 10) {
+            m = (mp - 9)
+        }
+        if (m <= 2) {
+            y = (y + 1)
+        }
+        def ms2:string (to_string m)
+        if (m < 10) {
+            ms2 = ("0" + ms2)
+        }
+        def ds:string (to_string d)
+        if (d < 10) {
+            ds = ("0" + ds)
+        }
+        return ((to_string y) + "-" + ms2 + "-" + ds)
+    }
+
+    ; "AB:CD:…" in groups, for a person to compare
+    sfn fingerprintText:string (fp:string) {
+        def clean:string (to_uppercase (replace fp ":" ""))
+        def parts:[string]
+        def i:int 0
+        def n:int (strlen clean)
+        while (i < n) {
+            def e:int (i + 2)
+            if (e > n) {
+                e = n
+            }
+            push parts (substring clean i e)
+            i = (i + 2)
+        }
+        return (join parts ":")
+    }
+
+    fn debugState:string () {
+        def d:string "0"
+        if (this.isDirty()) {
+            d = "1"
+        }
+        def s:string "0"
+        if saving {
+            s = "1"
+        }
+        return ("screen=" + screen + " dialog=" + dialog + " decks=" + (to_string (array_length decks)) + " deck=" + deckId + " dirty=" + d + " saving=" + s + " saves=" + (to_string saveCount) + " conflicts=" + (to_string conflictCount) + " slides=" + (to_string viewSlides) + " slide=" + (to_string slide) + " user=" + userName + " msg=" + message)
+    }
+}

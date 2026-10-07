@@ -1,0 +1,94 @@
+# Sliqtly Editor (desktop/): builds the Ranger app for the web and as the
+# native SDL2 + OpenGL binary, runs the unit tests and the headless native
+# check against desktop/test/mock-server.mjs, on Linux and macOS. The macOS
+# job uploads the zipped "Sliqtly Editor.app". Deploys nothing.
+name: Desktop editor
+
+on:
+  push:
+    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+  pull_request:
+    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: desktop
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: SDL2, OpenGL (Mesa), libcurl, Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsdl2-dev libgl-dev libgl1-mesa-dri libcurl4-openssl-dev xvfb
+      - run: npm ci --no-audit --no-fund
+      - name: EVG (ranger.json, pinned)
+        run: npm run deps
+      - name: Unit tests (models, mock server, screens)
+        run: npm test
+      - name: Web build
+        run: npm run web:build
+      - name: Native build
+        run: npm run native
+      - name: Native check (headless, screenshots)
+        run: npm run native:check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sliqtly-editor-linux-shots
+          path: desktop/native/build/shots/
+          if-no-files-found: ignore
+
+  macos:
+    runs-on: macos-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: SDL2
+        run: brew install sdl2
+      - run: npm ci --no-audit --no-fund
+      - name: EVG (ranger.json, pinned)
+        run: npm run deps
+      - name: Unit tests
+        run: npm test
+      - name: Native build (and the .app bundle)
+        run: npm run native
+      - name: Check the bundle
+        run: |
+          plutil -lint "native/build/Sliqtly Editor.app/Contents/Info.plist"
+          test "$(plutil -extract CFBundleIdentifier raw "native/build/Sliqtly Editor.app/Contents/Info.plist")" = com.sliqtly.editor
+          test -x "native/build/Sliqtly Editor.app/Contents/MacOS/sliqtly-editor"
+          test -s "native/build/Sliqtly Editor.app/Contents/Resources/AppIcon.icns"
+      - name: Zip the app
+        run: ditto -c -k --sequesterRsrc --keepParent "native/build/Sliqtly Editor.app" "native/build/Sliqtly-Editor-macOS.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sliqtly-Editor-macOS
+          path: desktop/native/build/Sliqtly-Editor-macOS.zip
+      - name: Native check (screenshots)
+        run: npm run native:check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sliqtly-editor-macos-shots
+          path: desktop/native/build/shots/
+          if-no-files-found: ignore
