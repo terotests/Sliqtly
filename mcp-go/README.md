@@ -4,7 +4,8 @@ Sliqtly's MCP server for Claude, ChatGPT, Cursor and other MCP clients,
 written in Ranger and compiled to Go for Cloud Run: one static binary in a
 distroless container. It writes the same Firestore documents and Storage
 paths as the editor's Share. `assets/guide.md` is the syntax guide the
-`sliqtly_guide` tool returns; `assets/preview.html` is the inline preview.
+`sliqtly_guide` tool returns: Core without `topic`, one topic with it
+(`<!-- topic: name -->` lines cut it, [`rgr/Guide.rgr`](rgr/Guide.rgr)); `assets/preview.html` is the inline preview.
 
 It replaced a Node.js server (`mcp/`, a Cloud Function) on 2026-10-03; the
 two drifted apart with every change to one of them, so there is one server

@@ -15,6 +15,7 @@ Import "McpJson.rgr"
 Import "Deck.rgr"
 Import "Check.rgr"
 Import "Charts.rgr"
+Import "Guide.rgr"
 Import "Store.rgr"
 Import "Files.rgr"
 Import "WorkStore.rgr"
@@ -219,7 +220,11 @@ class Tools {
         def eitherMeta:MfJ (MfJ.newObj())
         eitherMeta.put("securitySchemes" (Tools.either()))
         def tools:MfJ (MfJ.newArr())
-        tools.add((Tools.tool("sliqtly_guide" "Sliqtly syntax guide" "How to write a Sliqtly deck: slide structure, build animations, effects, pictures, charts (Vega-Lite), diagrams (Mermaid, Graphviz), math, themes and the CSS selectors. Read before the first create_presentation." (Tools.schema((MfJ.newObj()) none)) (Tools.annotations(true -1 false false)) eitherMeta)))
+        def gp:MfJ (MfJ.newObj())
+        def topic:MfJ (Tools.prop("string" "One topic of the guide (the list is in Core). Without it, Core: the deck's syntax, the work loop, themes and the topics."))
+        topic.put("enum" (J.strs((Guide.names((host_asset host "guide.md"))))))
+        gp.put("topic" topic)
+        tools.add((Tools.tool("sliqtly_guide" "Sliqtly syntax guide" "How to write a Sliqtly deck. Without topic: Core (slide structure, the work loop, themes, the list of topics); read it before the first create_presentation. With topic: one subject (layout, text, charts, diagrams, figures, smartart, pictures, css, data, editing, export, limits…). A warning ending with → topic=x names the topic that explains it." (Tools.schema(gp none)) (Tools.annotations(true -1 false false)) eitherMeta)))
 
         def cp:MfJ (MfJ.newObj())
         def title:MfJ (Tools.prop("string" (Tools.withNameRule(host "The presentation's name."))))
@@ -818,6 +823,9 @@ class Tools {
         if ((strlen svgs) > 0) {
             push lines svgs
         }
+        def gv:string (Guide.version((host_asset host "guide.md")))
+        push lines ("Guide version " + gv + ".")
+        out.putStr("guide_version" gv)
         push lines "Give the user the presentation link."
         def r:MfJ (MfJ.newObj())
         r.put("content" (Tools.text((join lines "\n"))))
@@ -1287,12 +1295,20 @@ class Tools {
     sfn call:MfJ (host:McpHost caller:Caller name:string args:MfJ) {
         if (name == "sliqtly_guide") {
             def g:MfJ (MfJ.newObj())
-            def guide:string (host_asset host "guide.md")
+            def whole:string (host_asset host "guide.md")
+            def want:string (trim (to_lowercase (args.str_("topic"))))
+            def guide:string (Guide.core(whole))
+            if ((strlen want) > 0) {
+                guide = (Guide.topic(whole want))
+                if ((strlen guide) == 0) {
+                    return (Tools.fail(("There is no topic \"" + want + "\". Topics: " + (join (Guide.names(whole)) ", ") + ".")))
+                }
+            }
             def rule:string (host_name_rule host)
-            if ((strlen rule) > 0) {
+            if (((strlen rule) > 0) && (((strlen want) == 0) || (want == "limits"))) {
                 guide = (guide + "\n\n## Naming presentations on this server\n\n" + rule + " create_presentation and update_presentation refuse a title that does not follow it. list_presentations gives each presentation's key apart from its name.\n")
             }
-            if (Tools.limited(host)) {
+            if ((Tools.limited(host)) && (((strlen want) == 0) || (want == "limits"))) {
                 def room:string (Tools.deckRoom(host caller))
                 host_clear_error host
                 if ((strlen room) > 0) {

@@ -1,0 +1,105 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; sliqtly_guide's parts. assets/guide.md is cut into Core and topics by
+; `<!-- topic: name -->` lines: Core is the text before the first one, a
+; topic the text from its line to the next. `sliqtly_guide()` returns Core,
+; `sliqtly_guide(topic="charts")` one topic. A warning that a topic explains
+; ends with ` → topic=charts` (Guide.see).
+
+class Guide {
+    sfn MARK:string () {
+        return "<!-- topic: "
+    }
+
+    ; the topics' names, in the guide's order
+    sfn names:[string] (md:string) {
+        def out:[string]
+        def mark:string (Guide.MARK())
+        def rest:string md
+        def at:int (indexOf rest mark)
+        while (at >= 0) {
+            rest = (substring rest (at + (strlen mark)) (strlen rest))
+            def end:int (indexOf rest "-->")
+            if (end < 0) {
+                break
+            }
+            push out (trim (substring rest 0 end))
+            at = (indexOf rest mark)
+        }
+        return out
+    }
+
+    ; Core: the guide before its first topic
+    sfn core:string (md:string) {
+        def at:int (indexOf md (Guide.MARK()))
+        if (at < 0) {
+            return (trim md)
+        }
+        return (trim (substring md 0 at))
+    }
+
+    ; one topic's text; "" when the guide has no topic by that name
+    sfn topic:string (md:string name:string) {
+        def mark:string ((Guide.MARK()) + (trim (to_lowercase name)) + " -->")
+        def at:int (indexOf md mark)
+        if (at < 0) {
+            return ""
+        }
+        def rest:string (substring md (at + (strlen mark)) (strlen md))
+        def end:int (indexOf rest (Guide.MARK()))
+        if (end >= 0) {
+            rest = (substring rest 0 end)
+        }
+        return (trim rest)
+    }
+
+    ; the version Core names on its line "**Guide version 2026-10-07.**"
+    sfn version:string (md:string) {
+        def mark:string "Guide version "
+        def at:int (indexOf md mark)
+        if (at < 0) {
+            return ""
+        }
+        def rest:string (substring md (at + (strlen mark)) (strlen md))
+        def end:int (indexOf rest ".")
+        if (end < 0) {
+            return ""
+        }
+        return (trim (substring rest 0 end))
+    }
+
+    ; a warning with the topic that explains it
+    sfn see:string (text:string topic:string) {
+        if ((strlen topic) == 0) {
+            return text
+        }
+        return (text + " → topic=" + topic)
+    }
+
+    ; the topic for a block the slides could not show, by its fence word
+    sfn topicOfKind:string (kind:string) {
+        def k:string (to_lowercase kind)
+        if ((((k == "vega") || (k == "vega-lite")) || (k == "vegalite")) || (k == "chart")) {
+            return "charts"
+        }
+        if ((k == "table") || (k == "sheet")) {
+            return "data"
+        }
+        if ((((k == "mermaid") || (k == "plantuml")) || ((k == "puml") || (k == "dot"))) || (((k == "graphviz") || (k == "d2")) || (k == "diagram"))) {
+            return "diagrams"
+        }
+        if ((((k == "process") || (k == "swot")) || ((k == "stats") || (k == "timeline"))) || ((k == "cards") || (k == "figure"))) {
+            return "figures"
+        }
+        if (k == "smartart") {
+            return "smartart"
+        }
+        if (k == "math") {
+            return "text"
+        }
+        if (k == "gallery") {
+            return "pictures"
+        }
+        return ""
+    }
+}
