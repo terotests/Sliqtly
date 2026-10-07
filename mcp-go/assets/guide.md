@@ -118,7 +118,7 @@ Blocks are laid out top to bottom under the heading.
   (`## Title {container=box}`, also with `bg=media/x.jpg` on the same
   heading: the plate goes round the title, the picture fills the slide).
 - Plates take the slide's colour by default; `background=#ffffffcc` sets
-  one. The text on a plate turns dark or light to read on it. For every
+  one, `padding=12px` and `radius=8px` its padding and corners. The text on a plate turns dark or light to read on it. For every
   plate: `container { background-color; border-radius }` in `css`.
 - Under a chart's or diagram's fence `{container=box}` puts a plate round
   it, so its axes read over a bright background picture without dimming
@@ -204,13 +204,29 @@ hold: 2.5               # seconds after the last step
 - Lists: `-` bullets, `1.` numbers, nesting by indenting, `- [x]` / `- [ ]`
   checklists.
 - Quotes: `> text`; a source line under it with `{.right}`.
-- Inline HTML: `<mark>`, `<u>`, `<s>`, `<sub>`, `<sup>`, `<kbd>`, `<small>`,
-  `<br>`, and `<span style="color:#e33">`. Entities such as `&copy;`
-  `&euro;` `&mdash;`.
+- Inline HTML: `<b>`, `<strong>`, `<i>`, `<em>`, `<u>`, `<s>`, `<del>`,
+  `<ins>`, `<mark>`, `<code>`, `<kbd>`, `<sub>`, `<sup>`, `<small>`, `<q>`,
+  `<abbr>`, `<a href>`, `<span>` and `<br>`; entities (`&amp;`, `&copy;`,
+  `&#8364;`). A `style` on a span reads `color`, `background-color`,
+  `font-size` (pt, px, em, rem, %, `large`…), `font-weight`, `font-style`
+  and `text-decoration`; colours as `#hex`, `rgb()` or names.
+- HTML blocks: `<ul>` / `<ol start="3">` with `<li>` (nested too) become
+  lists. `<div style="background:#123; color:#fff; padding:16px;
+  border-radius:8px">` becomes a `container=box` plate. `<img src alt width
+  height>` on a line of its own is a picture like `![alt](src)` (a web
+  address is fetched into `media/`). An `<svg>…</svg>` on lines of its own
+  is drawn as a picture; scripts, event attributes, `<foreignObject>`,
+  `<image>` and outside links are removed from it. `<iframe>`, `<video>`,
+  `<audio>`, `<script>` and `<style>` are not drawn and show as text.
+  Tags and styles that are not drawn come back as warnings. `javascript:`
+  links are removed.
 - Tables: Markdown tables with `:---` / `---:` / `:---:` alignment, or HTML
-  `<table>` with `rowspan` / `colspan`. Colour cells by their text:
+  `<table>` with `rowspan` / `colspan`. An HTML cell reads
+  `style="background:…; color:…; font-weight:bold"` and `bgcolor`; a table
+  inside a cell is drawn as its rows on lines. Colour cells by their text:
   `{cells="Late=red Done=green"}` under the table (the whole cell's text,
-  any case; tones `red amber green blue grey` or a colour). A matched cell
+  any case; tones `red amber green blue grey` or a colour; on the line
+  after `</table>` for an HTML table). A matched cell
   gets a muted tint of the tone and bold, readable text, in the PDF,
   PowerPoint, Word and HTML too. For every table of a deck:
   `table { cell-tones: "Done=green Late=red" }` in `css`.

@@ -1247,6 +1247,28 @@ class Tools {
             push out.data (host_image_bytes host handle)
             push out.types type
         }
+        ; an <svg> written into the Markdown (MdSvg): a picture of its own
+        ; under the name the slide draws it by, as the editor's page makes it
+        for (MdSvg.inDoc((MdBlock.parseText(md)))) u:MdSvgUse ui {
+            def name:string ("/" + u.path)
+            def seen:boolean false
+            for out.pics op:CheckPic oi {
+                if (op.name == name) {
+                    seen = true
+                }
+            }
+            if seen {
+                continue
+            }
+            def f:SvgFacts (SvgCheck.read(u.svg))
+            def sp (new CheckPic)
+            sp.name = name
+            sp.w = (floor f.w)
+            sp.h = (floor f.h)
+            push out.pics sp
+            push out.data (buffer_from_string u.svg)
+            push out.types "image/svg+xml"
+        }
         return out
     }
 

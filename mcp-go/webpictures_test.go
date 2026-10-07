@@ -14,6 +14,7 @@ func TestWebPicturesFetchedIntoMedia(t *testing.T) {
 	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
 	defer s.close()
 	md := "## Images\n\n![Cat](https://images.test/cat.png)\n![Again](https://images.test/cat.png \"The cat\")\n\n" +
+		"<img src=\"https://images.test/cat.png\" width=\"64\">\n\n" +
 		"Like links: ![Alt text][id]\n\n`![code](https://images.test/cat.png)`\n\n" +
 		"![Gone](https://images.test/none.png)\n\n[id]: https://images.test/cat.png  \"The Dojocat\"\n\n[site]: https://images.test/cat.png\n"
 	c := call(t, s, "create_presentation", map[string]any{"title": "Web", "markdown": md})
@@ -23,6 +24,7 @@ func TestWebPicturesFetchedIntoMedia(t *testing.T) {
 	id := sc(c)["deck_id"].(string)
 	got := f.db.doc("shares/" + id)["md"].(string)
 	want := "## Images\n\n![Cat](media/cat.png)\n![Again](media/cat.png \"The cat\")\n\n" +
+		"<img src=\"media/cat.png\" width=\"64\">\n\n" +
 		"Like links: ![Alt text][id]\n\n`![code](https://images.test/cat.png)`\n\n" +
 		"![Gone](https://images.test/none.png)\n\n[id]: media/cat.png  \"The Dojocat\"\n\n[site]: https://images.test/cat.png\n"
 	eq(t, got, want)

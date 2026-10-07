@@ -243,6 +243,33 @@ async function addPicture(path, bytes, type) {
   return p;
 }
 
+// An <svg> written into the Markdown (MdSvg): drawn into the store under a
+// name of its own, as an SVG file is, the first time the deck shows it.
+let inlineSvgRev = "";
+const inlineSvgBusy = new Set();
+// a drawing that did not draw is not tried again on every change
+const inlineSvgFailed = new Set();
+function loadInlineSvgs(rev) {
+  inlineSvgRev = rev;
+  let list = [];
+  try { list = JSON.parse(app.inlineSvgsJson() || "[]"); } catch (_) { return; }
+  const fresh = list.filter((u) => !inlineSvgBusy.has(u.path) && !inlineSvgFailed.has(u.path));
+  if (!fresh.length) return;
+  for (const u of fresh) inlineSvgBusy.add(u.path);
+  Promise.all(fresh.map((u) => addPicture(u.path, new TextEncoder().encode(u.svg).buffer, "image/svg+xml")
+    .catch((e) => {
+      inlineSvgFailed.add(u.path);
+      console.warn("inline svg not drawn", e);
+    })))
+    .finally(() => {
+      for (const u of fresh) inlineSvgBusy.delete(u.path);
+      // laid out again with the pictures in the store
+      app.inlineSvgsAdded();
+      dropThumbs();
+      needsPaint = true;
+    });
+}
+
 // A picture pasted or dropped on the canvas opens the image window
 // (PresChartEditor's "paste" mode): the part to keep (CropCtl), and whether it
 // goes on the slide or behind this slide or every slide. Until Add is pressed
@@ -3450,6 +3477,7 @@ function frame() {
       syncCounter();
       syncRecBar();
       loadLookFaces();
+      if (rev !== inlineSvgRev) loadInlineSvgs(rev);
       paintOnce();
       handleRequests();
       followAddress();
