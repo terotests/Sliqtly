@@ -116,9 +116,12 @@ Blocks are laid out top to bottom under the heading.
 - Plates take the slide's colour by default; `background=#ffffffcc` sets
   one. The text on a plate turns dark or light to read on it. For every
   plate: `container { background-color; border-radius }` in `css`.
+- Under a chart's or diagram's fence `{container=box}` puts a plate round
+  it, so its axes read over a bright background picture without dimming
+  the whole picture.
 - When text on a picture is hard to read ("low contrast"), raise that
-  slide's `bg-dim` (0.6–0.8) or put the text on a plate; the picture stays
-  as it is.
+  slide's `bg-dim` (0.6–0.8) or put the text (or the chart) on a plate;
+  the picture stays as it is.
 - `{width=62%}` under a chart or table puts what follows beside it.
 - A table that runs a few rows over its slide is set smaller by itself.
 - A slide whose content runs over its height is split onto the next slide.
@@ -253,6 +256,11 @@ repositories work as they are; a private one needs separate access.
   a `"sort": "-x"` on the shared `y` orders both.
 - **Many categories**: horizontal bars (`y` category, `"sort": "-x"`).
 - **Beside text**: the chart first with `{width=60%}`, then the text.
+- **Pictures in a chart**: an `image` mark with `"url": {"field": "img"}`
+  draws the deck's own pictures (`"media/logo.svg"`), sized by the mark's
+  `width` / `height`; a picture the deck does not have is not drawn.
+- **Over a picture**: `{container=box}` under the fence puts a plate round
+  the chart.
 - The report lists missing data files and wrong encoding types.
 
 <!-- topic: diagrams -->
@@ -410,8 +418,8 @@ can edit.
 
 - `![alt](media/name)`, `{width=40%}` under it. Pass the picture in the
   call's `images` with the same `name`: a public `https` URL, base64 data,
-  or an SVG's source as `text`. PNG, JPEG, GIF, WebP, SVG up to 5 MB; 20 per
-  call.
+  or an SVG's source as `text`. PNG, JPEG, GIF, WebP, SVG up to 5 MB each,
+  at most 20 pictures in one call (send more with `update_presentation`).
 - A picture written with a web address (`![Logo](https://…/logo.png)`, or
   `![Logo][id]` with `[id]: https://…`) is fetched into `media/` when the
   deck is saved and the Markdown is pointed at it.
@@ -448,15 +456,27 @@ can edit.
 
 ## SVG
 
-- Sent as `text`: root with `xmlns="http://www.w3.org/2000/svg"` and a
-  `viewBox` (`0 0 1920 1080` for a 16:9 background). `bg=media/x.svg`
-  covers the slide like any picture (as `xMidYMid slice`).
-- Pictures inside an SVG go in as `data:` URLs; it loads nothing from
-  outside itself. Its text is drawn in each viewer's own fonts: words go on
-  the slide in Markdown or as paths.
+- Sent as `text`, with a `viewBox` (`0 0 1920 1080` for a 16:9
+  background). `bg=media/x.svg` covers the slide like any picture (as
+  `xMidYMid slice`).
+- A root without `xmlns="http://www.w3.org/2000/svg"` gets it when the
+  picture is saved (and `xmlns:xlink` when `xlink:` is used undeclared).
+- Shown as a picture, an SVG loads nothing from outside itself. A picture
+  it links to with a public `https` address (`<image href="https://…">`)
+  is fetched into it as a `data:` URL when it is saved (at most 8 in one
+  SVG); other addresses are not drawn.
+- Its text is drawn in each viewer's own fonts. `text_to_path: true` on
+  the picture in `images` turns the text into paths in the editor's fonts
+  when it is saved (it is then no longer editable as text); or write the
+  words on the slide in Markdown.
+- In a chart, a Vega-Lite `image` mark draws the deck's own pictures, SVG
+  included: `"url": {"field": "img"}` with values like `"media/logo.svg"`,
+  and the mark's `width` / `height` (topic `charts`).
 - The result of create/update has a line for each SVG ("SVG ok, viewBox
   1920×1080 (16:9), 14 paths") with a ⚠ for what will go wrong in the
-  player. `render_slide` and `render_overview` draw SVG pictures.
+  player (no viewBox, a background not in the slide's shape, things loaded
+  from outside, text, filter effects) and what was fixed when it was saved.
+  `render_slide` and `render_overview` draw SVG pictures.
 - In PDF and PPTX an SVG is a raster picture; the deck keeps the SVG.
 
 ## Vectorizing
