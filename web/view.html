@@ -86,6 +86,13 @@
   .deal .who { margin-top: 48px; padding-top: 28px; border-top: 1px solid var(--line); }
   .home .deal .who a:not(.btn) { color: var(--accent); }
   .home .deal .deal__turn { color: var(--paper); font: 600 15px/1.6 var(--mono); }
+  .tablebox { border: 1px solid var(--line-2); overflow-x: auto; margin: 0 0 8px; }
+  .compare { width: 100%; border-collapse: collapse; font: 14px/1.45 var(--grotesk); min-width: 720px; }
+  .compare th, .compare td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--dim); }
+  .compare tbody tr:last-child > * { border-bottom: 0; }
+  .compare thead th { font: 12px/1.3 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+  .compare tbody th { color: var(--paper); font-weight: 600; white-space: nowrap; }
+  .home .compare .accent { color: var(--accent); }
   .section { padding: clamp(64px, 8vw, 112px) 0; border-bottom: 1px solid var(--line); }
 
   /* thin boxes: the engine block, the flow */
@@ -182,13 +189,23 @@
         <h2 class="display display--lg">Sliqtly better Slides</h2>
         <p>A lot of people seem to be asking how to convert, for example, Markdown files to PDF, PowerPoint or Word. The point being... it gets pretty expensive (and potentially slow) when the document goes through the same chat many times!</p>
         <p>And <code>.md</code> files don't really have formatting. And what about charts, flowcharts, theming, not to mention pagination...</p>
-        <p>Crazy stuff, right? Feels like someone must have thought about how to do this better.</p>
-        <p class="deal__enter">So, enter <span class="accent">Sliqtly</span> — a slightly better solution to keep presentations up to date.</p>
-        <p>Give your agent a description, whether it's Markdown, an Excel file or a Git pull request, and the MCP service Sliqtly offers will create wonderful, readable, presentable...</p>
-        <p>Or should I say... <strong class="accent">Lovable?</strong></p>
-        <p>...slides.</p>
-        <p>So, here's the talk.</p>
-        <p class="deal__turn">Your turn. Give it a try and I think you just might be positively surprised.</p>
+        <p class="deal__enter">How <span class="accent">Sliqtly</span> compares</p>
+        <div class="tablebox">
+          <table class="compare">
+            <thead><tr><th></th><th>Google Slides (API)</th><th>Claude + PowerPoint skill</th><th class="accent">Sliqtly</th></tr></thead>
+            <tbody>
+              <tr><th>Speed</th><td>About 100 API requests for 6 slides, each a round trip</td><td>Fastest in our test: 2.3 min, done in one round</td><td>4.8 min and 4 fix rounds in the same test; the fixes it showed are in since</td></tr>
+              <tr><th>Size of the deck</th><td>Lives in Google Drive</td><td>91 KB .pptx for 15 slides</td><td class="accent">4 KB of Markdown for the same 15 slides</td></tr>
+              <tr><th>Look</th><td>Google's themes; every other style is set request by request</td><td>The most finished, native PowerPoint charts</td><td>Good: themes, charts, diagrams, cards</td></tr>
+              <tr><th>Works with any LLM</th><td>Any agent with Google API access and sign-in</td><td>Claude only</td><td class="accent">Any MCP client: Claude, ChatGPT, Cursor, VS Code…</td></tr>
+              <tr><th>Runs on your own machine</th><td>No, Google's cloud</td><td>In Claude Code yes; in claude.ai Anthropic's sandbox</td><td class="accent">Yes: .deb, Homebrew, Docker</td></tr>
+              <tr><th>Tokens the AI writes</th><td>High: about 5,200 for 6 slides</td><td>About 4,900 for 15 slides (the script); 7,600 of skill read first</td><td>About 1,600 for 15 slides; but 22,000 of guide and tool definitions read first</td></tr>
+              <tr><th>Changing it later</th><td>New API requests per change</td><td>Rewrite the script, or edit slide and chart XML (12,000 tokens for 6 charts)</td><td class="accent">An edit of about 70 tokens; the deck reads back as 1,400 tokens of Markdown</td></tr>
+              <tr><th>Reusing the source data</th><td>Medium: charts can link to Sheets</td><td>Low: the script is gone after the chat; chart data sits inside the .pptx</td><td class="accent">High: Markdown, CSV and Excel kept with the deck, charts read them or a live Sheet</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="fine">Measured 2026-10-07 on the same 15-slide deck (6 charts, 2 tables, a diagram, cards) made both ways; token counts with Anthropic's public tokenizer, which approximates current models. Google Slides and the timings are from our earlier 6-slide test.</p>
         <div class="actions" id="mcp">
           <a class="btn btn--solid btn--lg" href="/connect.html">Connect via MCP</a>
           <span class="cmd">https://sliqtly.com/mcp</span>
