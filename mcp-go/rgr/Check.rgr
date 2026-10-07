@@ -480,6 +480,8 @@ class Check {
         for l.embeds.entries e:MdEmbedEntry k {
             if (e.ok == false) {
                 push skip e.note
+                ; the slide shows the note under its kind (MdLayout's stand-in)
+                push skip ("⚠ " + e.kind + ": " + e.note)
             }
         }
         def i:int 0
