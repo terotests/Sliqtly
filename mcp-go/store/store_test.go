@@ -10,10 +10,27 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/terotests/sliqtly/mcp-go/store"
 	"github.com/terotests/sliqtly/mcp-go/store/storetest"
 )
+
+// A string cut from a big one (a request body) is copied, so a cloned
+// document does not keep the body alive (the change feed keeps clones).
+func TestCloneOwnsItsStrings(t *testing.T) {
+	body := strings.Repeat("x", 1<<20)
+	md := body[10:20]
+	got := store.Clone(store.Doc{"md": md, "list": []any{md}})
+	for _, v := range []string{got["md"].(string), got["list"].([]any)[0].(string)} {
+		if v != md {
+			t.Fatalf("clone changed the text: %q", v)
+		}
+		if unsafe.StringData(v) == unsafe.StringData(md) {
+			t.Fatal("the clone shares the body's bytes")
+		}
+	}
+}
 
 func TestMemStore(t *testing.T) {
 	storetest.Run(t, func(t *testing.T) store.Engine { return store.NewMemStore() })

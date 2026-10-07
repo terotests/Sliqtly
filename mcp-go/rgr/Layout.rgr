@@ -125,11 +125,15 @@ class Layout {
         ; boxes when its runs are (an underscore in "accent1_2" ends a run)
         def rawLabel:[string]
         def labelY:[double]
-        def bi:int 0
-        while (bi < (array_length l.boxes)) {
+        ; this slide's boxes only (every box once per slide was seconds for
+        ; a 200-slide deck)
+        def onPage:[int] (l.boxesOnPage(i))
+        def oi:int 0
+        while (oi < (array_length onPage)) {
+            def bi:int (itemAt onPage oi)
+            oi = (oi + 1)
             def b:MdBox (itemAt l.boxes bi)
-            if ((b.page != i) || (b.furniture > 0)) {
-                bi = (bi + 1)
+            if (b.furniture > 0) {
                 continue
             }
             def key:int b.srcStart
@@ -213,7 +217,6 @@ class Layout {
                 }
             }
             Layout.grow(blk b.x b.y b.w b.h)
-            bi = (bi + 1)
         }
         for blocks gb:RBlock gbi {
             if (gb.kind == "gallery") {

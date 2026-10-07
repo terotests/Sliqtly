@@ -188,6 +188,12 @@ func TestLocalServer(t *testing.T) {
 	match(t, body, `2 slides · theme aurora`)
 	match(t, body, `/s/`+id+`/2\.jpg`)
 	notMatch(t, body, `All presentations`)
+	// the viewer's downloads (they went to the folder API, which 404ed)
+	code, ct, body = get(t, srv.URL+"/api/export/"+id+"/pdf")
+	eq(t, []any{code, ct, strings.HasPrefix(body, "%PDF")}, []any{200, "application/pdf", true})
+	code, _, body = get(t, srv.URL+"/api/export/"+id+"/md")
+	eq(t, code, 200)
+	match(t, body, `# Hello`)
 	// the decks are not listed until listing is turned on
 	for _, p := range []string{"/", "/decks"} {
 		code, _, body = get(t, srv.URL+p)

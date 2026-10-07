@@ -2675,8 +2675,8 @@ class PresDeck {
         def mine:[MdBox]
         def mineAt:[int]
         def groupOfBox:[int]
-        def bi:int 0
-        while (bi < (array_length l.boxes)) {
+        ; this slide's boxes only, in box order (MdLayout.boxesOnPage)
+        for (l.boxesOnPage(i)) bi:int oi {
             def b:MdBox (itemAt l.boxes bi)
             if (b.page == i) {
                 push mine b
@@ -2693,7 +2693,6 @@ class PresDeck {
                 }
                 }
             }
-            bi = (bi + 1)
         }
         def m:int 0
         while (m < (array_length mine)) {

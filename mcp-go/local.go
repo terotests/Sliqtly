@@ -185,7 +185,8 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.settingsPage(w)
 		return
 	}
-	if strings.HasPrefix(p, "/api/") && p != "/api/hit" && !strings.HasPrefix(p, "/api/view/") {
+	// the viewer's slides and downloads are the app's (rgr/View.rgr)
+	if strings.HasPrefix(p, "/api/") && p != "/api/hit" && !strings.HasPrefix(p, "/api/view/") && !strings.HasPrefix(p, "/api/export/") {
 		s.api(w, r)
 		return
 	}
