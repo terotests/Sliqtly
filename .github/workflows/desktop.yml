@@ -63,8 +63,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: SDL2
-        run: brew install sdl2
+      - name: SDL2 (the official framework, universal, for macOS 11 and later)
+        env:
+          SDL_VERSION: "2.32.10"
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/SDL2.dmg" "https://github.com/libsdl-org/SDL/releases/download/release-$SDL_VERSION/SDL2-$SDL_VERSION.dmg"
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/sdl" "$RUNNER_TEMP/SDL2.dmg"
+          mkdir -p "$RUNNER_TEMP/fw"
+          ditto "$RUNNER_TEMP/sdl/SDL2.framework" "$RUNNER_TEMP/fw/SDL2.framework"
+          hdiutil detach "$RUNNER_TEMP/sdl"
+          echo "SDL2_FRAMEWORK=$RUNNER_TEMP/fw/SDL2.framework" >> "$GITHUB_ENV"
+          echo "UNIVERSAL=1" >> "$GITHUB_ENV"
       - run: npm ci --no-audit --no-fund
       - name: EVG (ranger.json, pinned)
         run: npm run deps
@@ -78,6 +87,18 @@ jobs:
           test "$(plutil -extract CFBundleIdentifier raw "native/build/Sliqtly Editor.app/Contents/Info.plist")" = com.sliqtly.editor
           test -x "native/build/Sliqtly Editor.app/Contents/MacOS/sliqtly-editor"
           test -s "native/build/Sliqtly Editor.app/Contents/Resources/AppIcon.icns"
+      - name: Check it opens on older macOS (minimum 11.0, both CPUs, nothing from Homebrew)
+        run: |
+          BIN="native/build/Sliqtly Editor.app/Contents/MacOS/sliqtly-editor"
+          lipo -archs "$BIN" | grep -q arm64
+          lipo -archs "$BIN" | grep -q x86_64
+          for a in arm64 x86_64; do
+            otool -arch $a -l "$BIN" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}' | grep -qx "11.0"
+          done
+          if otool -L "$BIN" | grep -E "/opt/homebrew|/usr/local"; then echo "links to Homebrew"; exit 1; fi
+          otool -L "$BIN" | grep -q "@rpath/SDL2.framework"
+          test -d "native/build/Sliqtly Editor.app/Contents/Frameworks/SDL2.framework"
+          codesign --verify --deep --strict "native/build/Sliqtly Editor.app"
       - name: Zip the app
         run: ditto -c -k --sequesterRsrc --keepParent "native/build/Sliqtly Editor.app" "native/build/Sliqtly-Editor-macOS.zip"
       - uses: actions/upload-artifact@v4

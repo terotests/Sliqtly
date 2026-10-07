@@ -27,7 +27,9 @@ import { spawn, spawnSync } from "node:child_process";
 import { ROOT } from "./ranger.mjs";
 import { pamToPng, readPam } from "./png.mjs";
 
-const bin = path.join(ROOT, "native", "build", "sliqtly-editor");
+// on macOS the bundle's own binary: it finds SDL2.framework inside the .app
+const appBin = path.join(ROOT, "native", "build", "Sliqtly Editor.app", "Contents", "MacOS", "sliqtly-editor");
+const bin = process.platform === "darwin" && fs.existsSync(appBin) ? appBin : path.join(ROOT, "native", "build", "sliqtly-editor");
 if (!fs.existsSync(bin)) { console.error("build it first: npm run native"); process.exit(2); }
 const SHOTS = path.join(ROOT, "native", "build", "shots");
 fs.mkdirSync(SHOTS, { recursive: true });

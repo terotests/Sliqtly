@@ -32,7 +32,7 @@ Native build needs:
 
 | | |
 |---|---|
-| macOS | Xcode command line tools, `brew install sdl2` (libcurl and OpenGL are part of macOS) |
+| macOS | Xcode command line tools, `brew install sdl2` (libcurl and OpenGL are part of macOS). For an app to give to others, set `SDL2_FRAMEWORK=<path>/SDL2.framework` (from the official SDL2 .dmg) and `UNIVERSAL=1`: the framework goes inside the .app, which then opens on macOS 11 and later on both Apple silicon and Intel, without Homebrew; CI builds it so |
 | Debian / Ubuntu | `sudo apt-get install libsdl2-dev libgl-dev libcurl4-openssl-dev` (`xvfb` for `native:check` without a display) |
 
 On macOS the build also writes `native/build/Sliqtly Editor.app`:

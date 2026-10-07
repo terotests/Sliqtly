@@ -53,8 +53,21 @@ console.log("  2/3 assets/editor.css -> native/build/assets.h");
 const has = (cmd) => spawnSync("sh", ["-c", `command -v ${cmd}`]).status === 0;
 const cxx = process.env.CXX || (MAC ? ["clang++", "g++"] : ["g++", "clang++"]).find(has);
 if (!cxx) die("no C++ compiler (clang++ / g++) found");
+// macOS: the oldest system the app opens on. Without it the binary takes the
+// build machine's version (a Tahoe runner made an app nothing older opens).
+const MAC_MIN = "11.0";
+// SDL2_FRAMEWORK: the official SDL2.framework (universal, built for old
+// systems) linked and copied into the bundle, so the app needs no Homebrew.
+// Without it pkg-config's SDL2 is linked, which is fine on the machine
+// that built it.
+const SDL_FW = MAC ? (process.env.SDL2_FRAMEWORK || "") : "";
+if (SDL_FW && !fs.existsSync(path.join(SDL_FW, "Headers", "SDL.h"))) die(`SDL2_FRAMEWORK is not an SDL2.framework: ${SDL_FW}`);
 let sdl = "";
-try { sdl = execSync("pkg-config --cflags --libs sdl2", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch {}
+if (SDL_FW) {
+  const dir = path.dirname(SDL_FW);
+  sdl = `-I${JSON.stringify(path.join(SDL_FW, "Headers"))} -F${JSON.stringify(dir)} -framework SDL2 -rpath @executable_path/../Frameworks`;
+}
+if (!sdl) { try { sdl = execSync("pkg-config --cflags --libs sdl2", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch {} }
 if (!sdl) { try { sdl = execSync("sdl2-config --cflags --libs", { encoding: "utf8" }).trim(); } catch {} }
 if (!sdl) die(MAC ? "SDL2 not found: brew install sdl2" : "SDL2 not found: sudo apt-get install libsdl2-dev");
 const gl = MAC ? "-framework OpenGL -framework Cocoa" : "-lGL";
@@ -66,7 +79,9 @@ const sources = [
 ].map((f) => JSON.stringify(f)).join(" ");
 const bin = path.join(BUILD, "sliqtly-editor");
 // -w: the generated EditorApp.cpp is large and not written for warnings.
-const cmd = `${cxx} -std=c++17 ${process.env.CXX_OPT || "-O2"} -w -I${JSON.stringify(NATIVE)} -I${JSON.stringify(BUILD)} -I${JSON.stringify(EVG_NATIVE)} ${sources} -o ${JSON.stringify(bin)} ${sdl} ${gl} -lcurl -lpthread`;
+// UNIVERSAL=1 (with SDL2_FRAMEWORK): one binary for Apple silicon and Intel.
+const macFlags = MAC ? `-mmacosx-version-min=${MAC_MIN}${SDL_FW && process.env.UNIVERSAL === "1" ? " -arch arm64 -arch x86_64" : ""} ` : "";
+const cmd = `${cxx} -std=c++17 ${macFlags}${process.env.CXX_OPT || "-O2"} -w -I${JSON.stringify(NATIVE)} -I${JSON.stringify(BUILD)} -I${JSON.stringify(EVG_NATIVE)} ${sources} -o ${JSON.stringify(bin)} ${sdl} ${gl} -lcurl -lpthread`;
 execSync(cmd, { stdio: "inherit" });
 const fonts = path.join(BUILD, "fonts");
 fs.mkdirSync(fonts, { recursive: true });
@@ -111,12 +126,19 @@ if (MAC) {
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundleVersion</key><string>${VERSION}</string>
-  <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <key>LSMinimumSystemVersion</key><string>${MAC_MIN}</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHighResolutionCapable</key><true/>${icon ? "\n  <key>CFBundleIconFile</key><string>AppIcon</string>" : ""}
 </dict></plist>
 `);
-  console.log(`  3/3 native/build/sliqtly-editor, native/build/${APP_NAME}.app${icon ? "" : " (no icon: run npm run icon)"}`);
+  if (SDL_FW) {
+    // ditto keeps the framework's symlinks and its signature
+    fs.mkdirSync(path.join(app, "Frameworks"), { recursive: true });
+    execFileSync("ditto", [SDL_FW, path.join(app, "Frameworks", "SDL2.framework")]);
+  }
+  // an ad-hoc signature over the whole bundle: Apple silicon runs nothing unsigned
+  if (has("codesign")) execFileSync("codesign", ["--force", "--deep", "--sign", "-", bundle], { stdio: "ignore" });
+  console.log(`  3/3 native/build/sliqtly-editor, native/build/${APP_NAME}.app${icon ? "" : " (no icon: run npm run icon)"}${SDL_FW ? ", SDL2.framework inside" : ""}`);
 } else {
   console.log("  3/3 native/build/sliqtly-editor");
 }
