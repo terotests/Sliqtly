@@ -127,13 +127,20 @@ const (
 var ErrBackupSourceChanged = errors.New("store: a kept file went while it was being backed up")
 
 // OpenBackupRepo opens the repo at dir, making it when the folder is new
-// or empty.
+// or empty. The caller holds the folder's lock.
 func OpenBackupRepo(dir string) (*BackupRepo, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Join(abs, "snapshots"), 0o750); err != nil {
+		return nil, err
+	}
+	// WriteAtomic's temp files a killed process left behind (a stop
+	// while backup.json was being written leaves the folder with only a
+	// .tmp-* file in it). The caller holds the folder's lock, so no
+	// write of ours is going on.
+	if err := removeTempFiles(abs); err != nil {
 		return nil, err
 	}
 	headPath := filepath.Join(abs, "backup.json")
@@ -171,6 +178,22 @@ func OpenBackupRepo(dir string) (*BackupRepo, error) {
 		return nil, err
 	}
 	return &BackupRepo{dir: abs, blobs: blobs}, nil
+}
+
+// removeTempFiles removes the .tmp-* files WriteAtomic left in dir
+func removeTempFiles(dir string) error {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range ents {
+		if e.Type().IsRegular() && strings.HasPrefix(e.Name(), ".tmp-") {
+			if err := os.Remove(filepath.Join(dir, e.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (r *BackupRepo) Dir() string { return r.dir }
