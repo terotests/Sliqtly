@@ -2205,6 +2205,11 @@ class PresDeck {
     ; room (MdLayout.overlayTypes) and is noted with the slide it is on.
     def sketchPaths:[string]
     def sketchModels:[PresSketch]
+    ; A drawing begun on a slide that does not refer to one yet: drawn on
+    ; that slide from the first stroke or letter, before its reference is
+    ; written (the editor writes it when the gesture or the text ends).
+    def newSketchSlide:int -1
+    def newSketchPath:string ""
 
     sfn sketchKey:string (path:string) {
         if (((strlen path) > 0) && ((substring path 0 1) == "/")) {
@@ -2282,8 +2287,34 @@ class PresDeck {
         }
     }
 
-    ; The slide's drawings at its time t (all of them when still).
-    fn paintSketches:void (out:EVGDisplayList s:PresSlide t:double l:MdLayout) {
+    ; The drawing begun on slide i, not yet referred to: "" when none.
+    fn newSketchOn:string (i:int) {
+        if (((i != newSketchSlide) || ((strlen newSketchPath) == 0)) || (i < 0)) {
+            return ""
+        }
+        if (i >= (array_length slides)) {
+            return ""
+        }
+        def s:PresSlide (itemAt slides i)
+        if ((array_length s.sketches) > 0) {
+            return ""
+        }
+        if ((indexOf sketchPaths newSketchPath) < 0) {
+            return ""
+        }
+        return newSketchPath
+    }
+
+    ; The slide's drawings at its time t (all of them when still), and the
+    ; one being begun on it, whole.
+    fn paintSketches:void (out:EVGDisplayList i:int s:PresSlide t:double l:MdLayout) {
+        def np:string (this.newSketchOn(i))
+        if ((strlen np) > 0) {
+            def nm:PresSketch (itemAt sketchModels (indexOf sketchPaths np))
+            nm.fitTo(pageW pageH)
+            nm.measure(l.engine l.style.bodyFamily)
+            nm.paint(out 1000000.0 l.style.bodyFamily -1)
+        }
         def k:int 0
         while (k < (array_length s.sketches)) {
             def u:PresSketchUse (itemAt s.sketches k)
@@ -2815,7 +2846,7 @@ class PresDeck {
             }
         }
         ; the drawings made on the slide, over its content
-        this.paintSketches(out s t l)
+        this.paintSketches(out i s t l)
         while ((array_length groupOfCmd) < (array_length out.cmds)) {
             push groupOfCmd -1
         }

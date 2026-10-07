@@ -271,11 +271,10 @@ class PresApp {
     ; review mode: comments pinned to the slides (PresReviewUi, PresReview)
     def review:PresReviewUi (new PresReviewUi())
     ; Slide → Draw on slide: what is drawn stays on the slide (PresSketchUi,
-    ; PresSketch); a drawing begun on a slide without one, until its
-    ; reference is written (`sketchNewPath` on `sketchNewSlide`)
+    ; PresSketch); a drawing begun on a slide without one is the deck's
+    ; until its reference is written (PresDeck.newSketchPath/newSketchSlide),
+    ; so the slide shows it from the first stroke
     def sketch:PresSketchUi (new PresSketchUi())
-    def sketchNewPath:string ""
-    def sketchNewSlide:int -1
     def sketchScratch:PresSketch (new PresSketch())
     ; a room's chat over the work area (PresRoomView, EVGUI ChannelCtl)
     def room:PresRoomView (new PresRoomView())
@@ -6900,8 +6899,8 @@ class PresApp {
             def u:PresSketchUse (itemAt sl.sketches 0)
             return u.path
         }
-        if ((sketchNewSlide == i) && ((strlen sketchNewPath) > 0)) {
-            return (PresDeck.sketchKey(sketchNewPath))
+        if ((deck.newSketchSlide == i) && ((strlen deck.newSketchPath) > 0)) {
+            return deck.newSketchPath
         }
         return ""
     }
@@ -6951,10 +6950,11 @@ class PresApp {
         }
         ; the first line or text on a slide without a drawing begins one
         if (((strlen sketch.path) == 0) && ((sketch.tool()) != "select")) {
-            sketchNewPath = (this.newSketchPath(selected))
-            sketchNewSlide = selected
-            deck.sketchFor(sketchNewPath)
-            sketch.path = (PresDeck.sketchKey(sketchNewPath))
+            def np:string (this.newSketchPath(selected))
+            deck.sketchFor(np)
+            deck.newSketchPath = (PresDeck.sketchKey(np))
+            deck.newSketchSlide = selected
+            sketch.path = deck.newSketchPath
         }
         sketch.pressSlide(x y clicks (this.sketchModel()))
         this.afterSketch()
@@ -6992,13 +6992,13 @@ class PresApp {
         if ((strlen path) == 0) {
             return
         }
-        if ((sketchNewSlide == selected) && ((PresDeck.sketchKey(sketchNewPath)) == path)) {
+        if ((deck.newSketchSlide == selected) && (deck.newSketchPath == path)) {
             def sl:PresSlide (deck.slideAt(selected))
             if ((array_length sl.sketches) == 0) {
                 this.sketchRef(selected (substring path 1 (strlen path)))
             }
-            sketchNewPath = ""
-            sketchNewSlide = -1
+            deck.newSketchPath = ""
+            deck.newSketchSlide = -1
         }
         push requests ("sketch-file:" + (substring path 1 (strlen path)))
     }
