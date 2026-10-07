@@ -80,6 +80,9 @@ class RBlock {
     def inkY:double 0.0
     def inkW:double 0.0
     def inkH:double 0.0
+    ; a picture set in a corner of the slide (`{float=top-right}`), out of
+    ; the flow: a logo, not content left small
+    def pinned:boolean false
 }
 
 class RSlide {
@@ -607,7 +610,7 @@ class Report {
         def biggest:double 0.0
         def big:RBlock (new RBlock)
         for s.blocks v:RBlock vi {
-            if ((Report.visual(v)) && (v.kind != "table")) {
+            if (((Report.visual(v)) && (v.kind != "table")) && (v.pinned == false)) {
                 visuals = (visuals + 1)
                 if ((v.w * v.h) > biggest) {
                     biggest = (v.w * v.h)
@@ -642,12 +645,18 @@ class Report {
             push o.flags (takes + ": give it the room (leave out a fixed width/height) or put more beside it.")
             return
         }
-        ; the lower part of a slide with content left empty (not a title
-        ; slide: one heading, perhaps a line under it)
-        if ((n >= 2) && (visuals > 0)) {
+        ; the lower part of a slide with content left empty: under a
+        ; picture or chart, or on any slide whose few elements are stacked
+        ; at its top (less than a quarter of it covered, the room under them
+        ; more than twice the room above). Not the deck's title slide (a
+        ; heading and a line under it), nor content set in the middle.
+        if (n >= 2) {
             def empty:double ((s.h - y1) / s.h)
-            if (empty > 0.4) {
-                push o.flags ("The lower " + (to_string (floor ((empty * 100.0) + 0.5))) + "% of the slide is empty.")
+            def above:double (y0 / s.h)
+            def titleSlide:boolean ((s.index == 0) && (n <= 2))
+            def sparse:boolean ((((o.fill < 0.25) && (empty > 0.35)) && (empty > (above * 2.0))) && (titleSlide == false))
+            if (((visuals > 0) && (empty > 0.4)) || sparse) {
+                push o.flags ("The lower " + (to_string (floor ((empty * 100.0) + 0.5))) + "% of the slide is empty (the elements cover " + (to_string (floor ((o.fill * 100.0) + 0.5))) + "%).")
             }
         }
     }
