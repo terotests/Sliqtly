@@ -172,6 +172,14 @@ class WebPictures {
                 i = (i + 2)
                 continue
             }
+            if (c == "<") {
+                ; `<img src="https://…">`: the same picture, written in HTML
+                def ie:int (WebPictures.htmlImg(line i at out))
+                if (ie > i) {
+                    i = ie
+                    continue
+                }
+            }
             if ((c != "!") || (((i + 1) >= n) || ((substring line (i + 1) (i + 2)) != "["))) {
                 i = (i + 1)
                 continue
@@ -253,6 +261,66 @@ class WebPictures {
             push used (WebPictures.labelKey(alt))
             i = j
         }
+    }
+
+    ; An `<img>` tag at `i` in line: its web `src` into out. One past the
+    ; tag, or `i` when there is no <img> tag there.
+    sfn htmlImg:int (line:string i:int at:int out:[WebPic]) {
+        def n:int (strlen line)
+        if ((i + 5) > n) {
+            return i
+        }
+        if ((to_lowercase (substring line i (i + 4))) != "<img") {
+            return i
+        }
+        def after:string (substring line (i + 4) (i + 5))
+        if (((after != " ") && (after != "/")) && ((after != ">") && (after != "\t"))) {
+            return i
+        }
+        def close:int (indexOfFrom line ">" i)
+        if (close < 0) {
+            close = n
+        }
+        def low:string (to_lowercase line)
+        def k:int (indexOfFrom low "src" (i + 4))
+        while ((k > 0) && (k < close)) {
+            def before:string (substring line (k - 1) k)
+            def v:int (k + 3)
+            while ((v < close) && ((substring line v (v + 1)) == " ")) {
+                v = (v + 1)
+            }
+            if ((((before == " ") || (before == "\t")) && (v < close)) && ((substring line v (v + 1)) == "=")) {
+                v = (v + 1)
+                while ((v < close) && ((substring line v (v + 1)) == " ")) {
+                    v = (v + 1)
+                }
+                def q:string (substring line v (v + 1))
+                def s:int v
+                def e:int v
+                if ((q == "\"") || (q == "'")) {
+                    s = (v + 1)
+                    e = (indexOfFrom line q s)
+                    if ((e < 0) || (e > close)) {
+                        e = close
+                    }
+                } {
+                    while (((e < close) && ((substring line e (e + 1)) != " ")) && ((substring line e (e + 1)) != "/")) {
+                        e = (e + 1)
+                    }
+                }
+                def url:string (substring line s e)
+                if (WebPictures.isWeb(url)) {
+                    def p (new WebPic)
+                    p.url = url
+                    p.start = (at + s)
+                    p.end = (at + e)
+                    push out p
+                }
+                return (close + 1)
+            }
+            k = (indexOfFrom low "src" (k + 3))
+        }
+        return (close + 1)
     }
 
     ; the name a fetched picture is kept as: the address's last part,

@@ -50,7 +50,8 @@ Speaker notes. Not shown on the slide.
   spans the column, `bubble` is as wide as the text with a speech-bubble
   tail. `background=#ffffffcc` picks the plate's colour (default: the
   slide's colour, see-through; the text turns dark or light to read on
-  it). Under a chart's fence `container=box` puts a plate round the chart,
+  it). `padding=12px` and `radius=8px` set the plate's padding and corner
+  rounding. Under a chart's fence `container=box` puts a plate round the chart,
   so its axes read over a bright background picture without dimming the
   whole picture. For every plate in `css`: `container { background-color; border-radius }`.
 - Effects (`fx=`): `starfield`, `plasma-wave`, `smoke`, `ambient-light`,
@@ -91,9 +92,9 @@ Write `![Alt text](media/<name>)` and pass the picture in the tool call's
 `images` list with the same `name` (for example `name: "team.jpg"` →
 `![](media/team.jpg)`). A picture can also cover the slide:
 `## Title {bg=media/cover.jpg bg-dim=0.4}`. Give each picture either a
-public `https` URL or base64 data, or an SVG's source as `text` (readable,
-no base64). PNG, JPEG, GIF, WebP and SVG, up to 5 MB each and at most 20
-pictures in one call (send more with update_presentation).
+public `https` URL or base64 data, or an SVG's (or a SmartArt file's) source
+as `text` (readable, no base64). PNG, JPEG, GIF, WebP and SVG, up to 5 MB each
+and at most 20 pictures in one call (send more with update_presentation).
 A Sliqtly server on the user's own computer started with import folders
 (`SLIQTLY_IMPORT_DIRS`) also takes `path`: the absolute path of a file in
 one of those folders, e.g. `{ "name": "cover.jpg", "path":
@@ -389,6 +390,9 @@ margin-inside: 20mm   # margin-inside (at the binding), margin-outside
   `git diff` output as it is; keep a slide to one hunk of about 15 lines.
 - Math: `$…$` inline, `$$…$$` as a display, or a ```` ```math ```` fence (TeX).
 - Tables: ordinary Markdown tables, or HTML `<table>` with `rowspan`/`colspan`.
+  An HTML cell reads `style="background:…; color:…; font-weight:bold"`
+  and `bgcolor`; `{cells=…}` on the line after `</table>` works for HTML
+  tables too. A table inside a cell is drawn as its rows on lines.
   Cells coloured by their text, for a risk or status table: under the table
   `{cells="Suuri=red Korkea=red Keskisuuri=amber Matala=green"}` (the whole
   cell's text, any case; tones `red`, `amber`, `green`, `blue`, `grey` or a
@@ -416,7 +420,8 @@ margin-inside: 20mm   # margin-inside (at the binding), margin-outside
   ````
 - SmartArt: a diagram from PowerPoint's SmartArt, as a FILE in the deck.
   Write its data model (`dgm:dataModel`, as in a .pptx's
-  `ppt/diagrams/data1.xml`), send it in `images` as `name: "steps.xml"`, and
+  `ppt/diagrams/data1.xml`), send it in `images` as `name: "steps.xml"`
+  with the XML as it is in `text` (or base64 in `data_base64`), and
   reference it like a picture, `![…](media/steps.xml)`. Only the picture
   form draws it: a link, `[…](media/steps.xml)`, is a link and shows only
   its text (the result warns). Options go on the line UNDER the reference:
@@ -444,20 +449,33 @@ margin-inside: 20mm   # margin-inside (at the binding), margin-outside
   </dgm:dataModel>
   ```
 
-  Layouts drawn today: `process1` (steps with arrows), `chevron1` (chevron
-  steps), `vList2` (a bar per item, its sub-items as bullets under it),
-  `hList1` (a column per item, its sub-items under its heading), `default`
-  (blocks in rows that wrap), `cycle2` (items on a circle, arrows round it),
-  `radial1` (the first item in the middle, the items under it round it),
-  `hierarchy1` and `orgChart1` (a tree: each item over the items under it;
-  in orgChart1 a point with `type="asst"` is an assistant, beside the line
-  down from its boss), `pyramid1` (a triangle cut into a level per
-  item, the first at the apex), `venn1` (overlapping circles), `matrix1`
-  (four quadrants), `target1` (nested rings), `funnel1`, `gear1` (up to
-  three gears), `arrow2` (points rising along an arrow), `bList2`
-  (an item per block, without its picture), `hProcess9` (blocks along one wide arrow),
-  `lProcess2` (a column per item, its sub-items as blocks) and `cycle4` (four items as
-  quarters of a circle). Another layout id is drawn as `default` and
+  Layouts drawn today, with the items each expects (an item is a point
+  connected to the document; a sub-item is connected to an item):
+
+  | Layout | Draws | Items |
+  | --- | --- | --- |
+  | `process1` | steps with arrows | any; sub-items under their step |
+  | `chevron1` | chevron steps | any |
+  | `hProcess9` | blocks along one wide arrow | any |
+  | `default` | blocks in rows that wrap | any |
+  | `vList2` | a bar per item, sub-items as bullets under it | any |
+  | `hList1` | a column per item, sub-items under its heading | any |
+  | `lProcess2` | a column per item, sub-items as blocks in it | any |
+  | `bList2` | blocks in rows (PowerPoint's pictures are not drawn) | any |
+  | `cycle2` | items on a circle, arrows round it | any |
+  | `cycle4` | quarters of one circle | 4 at most |
+  | `radial1` | one item in the middle, ITS sub-items round it | 1 item with sub-items |
+  | `venn1` | overlapping circles | any |
+  | `target1` | nested rings, the first outermost | 5 at most |
+  | `pyramid1` | a triangle cut into levels, the first at the apex | any |
+  | `funnel1` | items poured into a funnel, the last comes out | any |
+  | `gear1` | meshing gears | 3 at most |
+  | `arrow2` | points on a rising arrow, each named under it | 5 at most |
+  | `matrix1` | four quadrants | 4 items, or 1 item (the title, in the middle) with 4 sub-items |
+  | `hierarchy1`, `orgChart1` | a tree, each item over the items under it | 1 top item; in orgChart1 a point with `type="asst"` is an assistant, beside the line down from its boss |
+
+  Items a layout has no place for are not drawn, and the result names them.
+  Another layout id is drawn as `default` and
   the result says so. Colours (`colors=`): `accent0_1` … `accent0_3`,
   `accent1_1` … `accent6_5` (one theme colour), `colorful1` …
   `colorful5` (cycling accents). `accent1_2` is what a diagram has when no
@@ -465,9 +483,11 @@ margin-inside: 20mm   # margin-inside (at the binding), margin-outside
   beside it and no `width=`/`height=` is laid out across the whole content
   width, and a row of steps (`process1`, `chevron1`) that would be a thin
   strip wraps into rows of three or more; `width=` keeps it in its own box.
-  Text that would not read on its fill (a pale column on a dark theme) is
-  set in the theme's paper or ink colour instead. Styles (`style=`): `simple1` … `simple5` (thicker outlines,
-  then shadows). They come from the theme. A SmartArt from PowerPoint
+  Text that would not read on what is under it (a pale column on a dark
+  theme) is set in the theme's paper or ink colour instead. Styles
+  (`style=`): `simple1` (the default), `simple2` (a thicker outline),
+  `simple3` … `simple5` (a shadow, larger with each; on a dark theme it is
+  cast in the theme's ink). Colours come from the theme. A SmartArt from PowerPoint
   also works, taken out of the .pptx as one file: a Flat OPC package
   (`pkg:package`) holding its data, layout, style, colours and, when
   PowerPoint saved one, its drawing. Such a file is drawn as PowerPoint drew it (scaled to the box),
@@ -534,8 +554,23 @@ margin-inside: 20mm   # margin-inside (at the binding), margin-outside
   (or another tool this guide names) is not in your tool list, the
   connector's tool list is older than the server: ask the user to
   reconnect the Sliqtly connector.
-- Inline HTML: `<mark>`, `<u>`, `<s>`, `<sub>`, `<sup>`, `<kbd>`, `<small>`,
-  `<br>`, and `<span style="color:#e33">`.
+- Inline HTML: `<b>`, `<strong>`, `<i>`, `<em>`, `<u>`, `<s>`, `<del>`,
+  `<ins>`, `<mark>`, `<code>`, `<kbd>`, `<sub>`, `<sup>`, `<small>`, `<q>`,
+  `<abbr>`, `<a href>`, `<span>` and `<br>`; entities (`&amp;`, `&copy;`,
+  `&#8364;`). A `style` on a span reads `color`, `background-color`,
+  `font-size` (pt, px, em, rem, %, `large`…), `font-weight`, `font-style`
+  and `text-decoration`; colours as `#hex`, `rgb()` or names.
+- HTML blocks: `<ul>` / `<ol start="3">` with `<li>` (nested too) become
+  lists. `<div style="background:#123; color:#fff; padding:16px;
+  border-radius:8px">` becomes a `container=box` plate. `<img src alt
+  width height>` on a line of its own is a picture like `![alt](src)`
+  (a web address is fetched into media/). An `<svg>…</svg>` on lines of its
+  own is drawn as a picture; scripts, event attributes, `<foreignObject>`,
+  `<image>` and outside links are removed from it. `<iframe>`, `<video>`,
+  `<audio>`, `<script>` and `<style>` are not drawn and show as text.
+  Tags and styles that are not drawn come back as warnings from
+  `update_presentation` / `create_presentation`. `javascript:` links are
+  removed.
 
 ## Themes
 

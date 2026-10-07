@@ -946,6 +946,49 @@ class PresDeck {
         return (this.diagramSpan(page b))
     }
 
+    ; --- <svg> written into the Markdown (MdSvg) -------------------------------
+    ; The drawings the Markdown writes where they are shown, cleaned of
+    ; anything that is not a drawing, that the picture store does not have
+    ; yet. The page and the MCP server draw each into the store under its
+    ; path ("/" + path), as they draw an SVG file, and the slide shows it.
+    fn inlineSvgsMissing:[MdSvgUse] () {
+        def out:[MdSvgUse]
+        for (MdSvg.inDoc(md.edit.doc)) u:MdSvgUse i {
+            def st:VfsStat (md.edit.imageStore.stat(("/" + u.path)))
+            if (st.found == false) {
+                push out u
+            }
+        }
+        return out
+    }
+
+    ; What the HTML in the Markdown does not show as written (a tag nobody
+    ; draws, a style property nothing reads, a script handler or address),
+    ; as sentences naming the slide (`MdLayout.htmlNotes`).
+    fn htmlNotes:[string] () {
+        def out:[string]
+        def l:MdLayout (this.layout())
+        def i:int 0
+        while (i < (array_length l.htmlNotes)) {
+            def where:string ""
+            def at:int (itemAt l.htmlNoteSrc i)
+            if (at >= 0) {
+                def page:int (this.pageOfOffset(at))
+                if ((page >= 0) && (page < (array_length slides))) {
+                    def t:string ((itemAt slides page).title)
+                    if ((strlen t) > 0) {
+                        where = (" on slide \"" + t + "\"")
+                    } {
+                        where = (" on slide " + (to_string (page + 1)))
+                    }
+                }
+            }
+            push out ("HTML" + where + ": " + (itemAt l.htmlNotes i) + ".")
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; What the SmartArt diagrams on the slides could not do as asked, as
     ; sentences for whoever wrote the deck: a file that is not a diagram, a
     ; layout or colour set the engine does not have, text that does not fit.
