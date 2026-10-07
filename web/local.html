@@ -69,6 +69,7 @@
     <a href="#networks">Networks</a>
     <a href="#firewall">Firewall</a>
     <a href="#data">Data and backups</a>
+    <a href="#load">Memory and load</a>
   </nav>
 
   <h2 id="how">Advantages of running locally</h2>
@@ -309,6 +310,22 @@ brew services stop sliqtly && brew uninstall sliqtly   <span class="c"># the pre
 docker rm -f sliqtly                <span class="c"># then the same docker run as above</span>
 docker volume rm sliqtly-data sliqtly-backup   <span class="c"># only to delete the presentations too</span></code></pre>
   <p>Removing never deletes the presentations by itself; delete their folder or volume yourself if you want them gone.</p>
+
+  <h2 id="load">9. Memory and load</h2>
+  <p>We tested version 0.0.13 on Linux (amd64) for 15 minutes at a time, as the binary and in Docker with <code>--memory=512m</code>. Simulated AI agents and viewers worked in parallel: 4 for a minute, 16 for eight minutes, 64 for three minutes, then none for three minutes. The mix was what people and agents do: opening presentations in the viewer, reading and editing them, replacing Excel data (some of it damaged on purpose), drawing slide pictures, comments, and PDF and PowerPoint downloads. A backup ran every minute during the test.</p>
+  <div class="tablebox"><table>
+    <thead><tr><th>At once</th><th>Memory, binary</th><th>Memory, Docker 512 MB</th></tr></thead>
+    <tbody>
+      <tr><td>4</td><td>about 140 MB (at most 150 MB)</td><td>about 130 MB (at most 150 MB)</td></tr>
+      <tr><td>16</td><td>about 310 MB (at most 350 MB)</td><td>about 300 MB (at most 365 MB)</td></tr>
+      <tr><td>64</td><td>about 500 MB (at most 630 MB)</td><td>about 420 MB (at most 440 MB)</td></tr>
+      <tr><td>none, after the load</td><td>145 MB</td><td>135 MB</td></tr>
+    </tbody>
+  </table></div>
+  <p>Memory is the server's resident memory (RSS), sampled every 5 seconds. In both runs, about 60,000 requests were handled with no crashes or internal errors, and memory went back down when the load stopped. Opening a presentation in the viewer took 0.2 s for half of the requests and under 0.8 s for 95% of them, even at 64 at once. 3,000 presentations were created, and the data folder grew to about 300 MB.</p>
+  <p><strong>How much memory to give it.</strong> One person with an agent or two needs about 150 MB; 512 MB is enough for a team. In a container the server reads the memory limit and keeps itself below 80% of it, so it slows down instead of being stopped. With <code>GOMEMLIMIT</code> (e.g. <code>-e GOMEMLIMIT=400MiB</code>) you choose that limit yourself.</p>
+  <p class="note"><strong>Refusals under load are intended.</strong> One address can make 2,000 changes in 10 minutes, and each caller can draw two slide pictures or downloads at a time. Beyond that the server answers "try again" (HTTP 429) instead of queueing work without end. An agent that edits the same slides as another at the same moment is told so, and nothing is overwritten. In the test, all of the refused requests were these.</p>
+  <p>The test also found problems, which were fixed before these numbers were measured: memory that was never released after requests, slow saves of large presentations (a 200-slide presentation went from 25 s to 0.4 s), slow handling of long HTML comments and Excel data, damaged ZIP and PNG files that could stop the server, PDF downloads from the viewer that did not work, and a container that the kernel stopped when it ran out of memory with 64 at once.</p>
 
   <h2>License</h2>
   <p>Free for personal use and qualifying solo businesses with annual gross revenue below €200,000. All other commercial use requires a commercial license. <a href="/personal-license.txt">Read the license</a>. Sliqtly is experimental software, provided as is; see the <a href="/#terms">terms</a>.</p>
