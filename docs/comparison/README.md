@@ -38,7 +38,8 @@ same (output tokens cost more than input); the difference grows with more
 slides and with every later change, and prompt caching makes the fixed part
 cheaper.
 
-Speed and rounds (PowerPoint 2.3 min / 1 round, Sliqtly 4.8 min / 4 fix
-rounds) and the Google Slides numbers (about 5 200 tokens written, about 100
+Speed: about the same. Timings varied between tests (one run PowerPoint
+2.3 min / 1 round, Sliqtly 4.8 min / 4 fix rounds; other runs Sliqtly was
+faster). The Google Slides numbers (about 5 200 tokens written, about 100
 API requests for 6 slides) come from the earlier tests; the fixes the
 Sliqtly run showed were merged on 2026-10-06 (Sliqtly #287, #289).

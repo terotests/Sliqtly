@@ -203,7 +203,7 @@
           <table class="compare">
             <thead><tr><th></th><th>Google Slides (API)</th><th>Claude + PowerPoint skill</th><th class="accent">Sliqtly</th></tr></thead>
             <tbody>
-              <tr><th>Speed</th><td>About 100 API requests for 6 slides, each a round trip</td><td>Fastest in our test: 2.3 min, done in one round</td><td>4.8 min and 4 fix rounds in the same test; the fixes it showed are in since</td></tr>
+              <tr><th>Speed</th><td>About 100 API requests for 6 slides, each a round trip</td><td>Minutes for a deck; about the same as Sliqtly</td><td>Minutes for a deck; about the same, faster or slower from test to test</td></tr>
               <tr><th>Size of the deck</th><td>Lives in Google Drive</td><td>91 KB .pptx for 15 slides</td><td class="accent">4 KB of Markdown for the same 15 slides</td></tr>
               <tr><th>Look</th><td>Google's themes; every other style is set request by request</td><td>The most finished, native PowerPoint charts</td><td>Good: themes, charts, diagrams, cards</td></tr>
               <tr><th>Works with any LLM</th><td>Any agent with Google API access and sign-in</td><td>Claude only</td><td class="accent">Any MCP client: Claude, ChatGPT, Cursor, VS Code…</td></tr>
@@ -214,7 +214,7 @@
             </tbody>
           </table>
         </div>
-        <p class="fine">Measured 2026-10-07 on the same 15-slide deck (6 charts, 2 tables, a diagram, cards) made both ways; token counts with Anthropic's public tokenizer, which approximates current models. Google Slides and the timings are from our earlier 6-slide test.</p>
+        <p class="fine">Measured 2026-10-07 on the same 15-slide deck (6 charts, 2 tables, a diagram, cards) made both ways; token counts with Anthropic's public tokenizer, which approximates current models. Google Slides is from our earlier 6-slide test; timings varied between tests, either way.</p>
         <div class="actions" id="mcp">
           <a class="btn btn--solid btn--lg" href="/connect.html">Connect via MCP</a>
           <span class="cmd">https://sliqtly.com/mcp</span>
