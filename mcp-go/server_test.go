@@ -278,6 +278,8 @@ var fakeNet = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Res
 		return respond(200, "application/json", `{"projectId":"sliqtly-test","apiKey":"k"}`), nil
 	case "https://images.test/page.html":
 		return respond(200, "text/html", "<html>"), nil
+	case "https://images.test/favicon.ico":
+		return respond(200, "image/x-icon", "\x00\x00\x01\x00"), nil
 	}
 	return respond(404, "", "no"), nil
 })}

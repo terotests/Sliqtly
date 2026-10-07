@@ -51,3 +51,24 @@ func TestWebPicturesNames(t *testing.T) {
 	eq(t, WebPictures_static_nameFor("https://x.test/a/minion.png?x=1", []string{"minion.png"}), "minion-2.png")
 	eq(t, WebPictures_static_nameFor("https://x.test/", nil), "web-picture")
 }
+
+// a picture still at a web address (an .ico, which a slide does not draw,
+// or a deck written before pictures were fetched) is named on its slide
+// in the layout report, render_slide's too
+func TestWebPictureLeftIsFlaggedOnItsSlide(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "## Kuvat\n\n<img src=\"https://images.test/favicon.ico\" width=\"64\">\n\n## Muu\n\nTeksti.\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Web", "markdown": md})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	text := textOf(c)
+	match(t, text, `Picture https://images\.test/favicon\.ico was not fetched \(.*image/x-icon, a kind of picture a slide does not draw`)
+	match(t, text, `Slide 1 "Kuvat".*\n(.*\n)*  ⚠ picture https://images\.test/favicon\.ico is at a web address, not kept with the deck`)
+	nomatch(t, text, `Slide 2 "Muu".*\n(- .*\n)*  ⚠ picture`)
+	id := sc(c)["deck_id"]
+	r := call(t, s, "render_slide", map[string]any{"deck_id": id, "slide": 1})
+	match(t, lastText(r), `⚠ picture https://images\.test/favicon\.ico is at a web address`)
+}

@@ -593,6 +593,10 @@ class Deck {
                     if ((strlen type) == 0) {
                         type = (Deck.typeOf(name ct))
                     }
+                    if (((strlen type) == 0) && ((strlen ct) > 0)) {
+                        res.err = ("Image " + name + ": the URL gave " + ct + ", a kind of picture a slide does not draw (it draws .png, .jpg, .gif, .webp and .svg).")
+                        return res
+                    }
                 } {
                     if ((strlen path) > 0) {
                         def dirs:string (host_import_dirs host)

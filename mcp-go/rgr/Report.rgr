@@ -97,6 +97,9 @@ class RSlide {
     ; print sizes, and space left at the bottom is where the next section
     ; did not fit, not a slide left empty
     def page:boolean false
+    ; what the slide's source says that its drawing cannot show: a picture
+    ; still at a web address (not kept with the deck)
+    def notes:[string]
 }
 
 class RSlideOut {
@@ -419,6 +422,9 @@ class Report {
         for items it:string ii {
             push o.lines it
         }
+        for s.notes sn:string sni {
+            push o.flags sn
+        }
         Report.slideFlags(o s k x0 y0 x1 y1)
         return o
     }
@@ -646,19 +652,71 @@ class Report {
             return
         }
         ; the lower part of a slide with content left empty: under a
-        ; picture or chart, or on any slide whose few elements are stacked
-        ; at its top (less than a quarter of it covered, the room under them
-        ; more than twice the room above). Not the deck's title slide (a
-        ; heading and a line under it), nor content set in the middle.
+        ; picture, chart, diagram, figure or table that could have had the
+        ; room. Not a slide of text alone (a title and a few points, a
+        ; section or closing slide: an empty lower part is how such a slide
+        ; looks, and there is nothing to give the room to), not a logo-sized
+        ; picture, and not content set in the middle (`valign=center`, a
+        ; statement): the room under it about the room over it.
         if (n >= 2) {
             def empty:double ((s.h - y1) / s.h)
+            if ((Report.roomyVisuals(s)) == 0) {
+                return
+            }
+            if (Report.setInMiddle(s y1)) {
+                return
+            }
             def above:double (y0 / s.h)
-            def titleSlide:boolean ((s.index == 0) && (n <= 2))
-            def sparse:boolean ((((o.fill < 0.25) && (empty > 0.35)) && (empty > (above * 2.0))) && (titleSlide == false))
-            if (((visuals > 0) && (empty > 0.4)) || sparse) {
+            def sparse:boolean (((o.fill < 0.25) && (empty > 0.35)) && (empty > (above * 2.0)))
+            if ((empty > 0.4) || sparse) {
                 push o.flags ("The lower " + (to_string (floor ((empty * 100.0) + 0.5))) + "% of the slide is empty (the elements cover " + (to_string (floor ((o.fill * 100.0) + 0.5))) + "%).")
             }
         }
+    }
+
+    ; the slide's pictures, charts, diagrams, figures and tables that are
+    ; more than a logo: over 3% of the slide, not pinned to a corner
+    sfn roomyVisuals:int (s:RSlide) {
+        def area:double (s.w * s.h)
+        def c:int 0
+        for s.blocks v:RBlock vi {
+            if (((Report.visual(v)) && (v.pinned == false)) && ((v.w * v.h) > (area * 0.03))) {
+                c = (c + 1)
+            }
+        }
+        return c
+    }
+
+    ; whether what is under the slide's title is set in the middle of the
+    ; room left under it: the room below it no more than one and a half
+    ; times the room between the title and it
+    sfn setInMiddle:boolean (s:RSlide y1:double) {
+        def titleFoot:double 0.0
+        def top:double s.h
+        def any:boolean false
+        for s.blocks b:RBlock bi {
+            if (b.pinned == false) {
+                if (b.kind == "heading") {
+                    if ((b.y + b.h) > titleFoot) {
+                        titleFoot = (b.y + b.h)
+                    }
+                } {
+                    any = true
+                    if (b.y < top) {
+                        top = b.y
+                    }
+                }
+            }
+        }
+        if (any == false) {
+            return false
+        }
+        def over:double (top - titleFoot)
+        def under:double (s.h - y1)
+        if (over < (s.h * 0.08)) {
+            return false
+        }
+        return (under <= (over * 1.5))
     }
 
     ; the report as text: every slide's lines, its flags marked ⚠
