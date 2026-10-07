@@ -23,7 +23,7 @@
 ;                   the native host turns that into libcurl's CAINFO
 ; =============================================================================
 
-Import "Json.rgr"
+Import "JsonValue.rgr"
 
 class ApiRequest {
     def id:int 0

@@ -13,7 +13,7 @@
 ;     "signingIn": "<url>" }       a browser sign-in under way (web reloads)
 ; =============================================================================
 
-Import "Json.rgr"
+Import "JsonValue.rgr"
 
 class ServerEntry {
     def name:string ""

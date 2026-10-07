@@ -103,7 +103,7 @@ folder (the checks use it).
 
 ```
 src/            Ranger: the app, compiled to both targets
-  Json.rgr        a small JSON value + parser (UTF-8, \u escapes, surrogates)
+  JsonValue.rgr   a small JSON value + parser (UTF-8, \u escapes, surrogates)
   TextBuffer.rgr  the text model: lines, caret / selection in code points, undo
   ApiClient.rgr   REST v1 requests as a queue the host runs; Bearer, refresh on 401
   Settings.rgr    the servers and their tokens / CA, as JSON

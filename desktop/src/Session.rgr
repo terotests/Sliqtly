@@ -15,7 +15,7 @@
 ; test/mock-server.mjs; EditorApp only draws it and turns input into calls.
 ; =============================================================================
 
-Import "Json.rgr"
+Import "JsonValue.rgr"
 Import "ApiClient.rgr"
 Import "Settings.rgr"
 Import "TextBuffer.rgr"
