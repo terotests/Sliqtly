@@ -115,3 +115,28 @@ func TestSwotLettersAreNotContrastWarnings(t *testing.T) {
 		}
 	}
 }
+
+// a filled outline counts as the text's backdrop only where the text is
+// inside it: dark text inside a pale triangle reads, the same text in the
+// triangle's empty corner sits on the dark slide and is named
+func TestPolygonBackdropFollowsTheOutline(t *testing.T) {
+	list := CreateNew_EVGDisplayList()
+	list.addRect(0, 0, 960, 540, EVGColor_static_rgb(16, 20, 40))
+	list.addPolygon([]float64{100, 100, 700, 100, 100, 500}, EVGColor_static_rgb(240, 240, 235))
+	ink := EVGColor_static_rgb(30, 30, 40)
+	list.addText("Inside", 120, 120, 24, ink, "Inter", false, false, 120, 30)
+	list.addText("Outside", 560, 440, 24, ink, "Inter", false, false, 120, 30)
+	runs := Contrast_static_lowRuns(list, nil, "", 0, nil, nil)
+	low := map[string]bool{}
+	for _, r := range runs {
+		if r.low {
+			low[r.text] = true
+		}
+	}
+	if low["Inside"] {
+		t.Errorf("text inside the pale outline was flagged: %v", low)
+	}
+	if !low["Outside"] {
+		t.Errorf("text outside the outline on the dark slide was not flagged: %v", low)
+	}
+}
