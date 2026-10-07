@@ -15,12 +15,14 @@
 package main
 
 import (
+	"bytes"
 	lru "container/list"
 	"context"
 	"crypto/sha256"
 	_ "embed"
 	"errors"
 	"image"
+	"image/png"
 	"math"
 	"strings"
 	"sync"
@@ -281,4 +283,20 @@ func (h *McpHost) SvgError(data []byte) string {
 		return "every pixel of it is transparent"
 	}
 	return ""
+}
+
+// SvgPng is the SVG `data` drawn with its longer side `side` pixels as a
+// PNG: what web/picture.js decodePicture gives the exports in the editor
+// (SVG_RASTER for the slides and the PDF, SVG_FALLBACK beside the SVG in a
+// PPTX). Empty when it is not an SVG or does not draw.
+func (h *McpHost) SvgPng(data []byte, side int64) []byte {
+	img, err := drawSvg(data, int(side))
+	if err != nil {
+		return []byte{}
+	}
+	var b bytes.Buffer
+	if png.Encode(&b, img) != nil {
+		return []byte{}
+	}
+	return b.Bytes()
 }

@@ -831,6 +831,27 @@ func (h *McpHost) Render(listJSON string, slideW, slideH float64, width int64) s
 	return jpegBase64(dst)
 }
 
+// RenderStill is one slide's list as JPEG bytes `width` pixels wide, as
+// web/main.js renderFxStills makes a slide's background for the PPTX
+// (quality 0.9). nil when the list does not read.
+func (h *McpHost) RenderStill(listJSON string, slideW, slideH float64, width int64) []byte {
+	if slideW <= 0 || slideH <= 0 || width <= 0 {
+		return nil
+	}
+	ht := int(math.Round(float64(width) * slideH / slideW))
+	dst := image.NewRGBA(image.Rect(0, 0, int(width), ht))
+	draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
+	if err := renderList(dst, listJSON, slideW, slideH, dst.Bounds(), h.renderPics); err != nil {
+		h.Log("render: " + err.Error())
+		return nil
+	}
+	var b bytes.Buffer
+	if err := jpeg.Encode(&b, dst, &jpeg.Options{Quality: 90}); err != nil {
+		return nil
+	}
+	return b.Bytes()
+}
+
 // RenderCrop is the (x, y, w, h) rectangle of a slide's list, in slide
 // units, as a PNG `width` pixels wide (the height as w:h has it): the Word
 // and web page exports' picture of a block only the stage draws
