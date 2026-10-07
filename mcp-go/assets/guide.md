@@ -43,14 +43,16 @@ Speaker notes. Not shown on the slide.
   `# Title` then `{.center}` on the next line). In `css`, `text-align`
   does the same for a kind of block: `h1 { text-align: center }`,
   `.lead { text-align: center }`. Lists, tables and code stay left.
-- `container=box` or `container=bubble` under a paragraph, a list or a
-  heading (`## Title {container=box}`, also with `bg=media/x.jpg` on the
+- `container=box` or `container=bubble` under a paragraph, a list, a
+  chart or diagram fence, or a (`## Title {container=box}`, also with `bg=media/x.jpg` on the
   same heading: the plate goes round the title, the picture fills the slide)
   sets it on a rounded plate so its text reads over a busy picture: `box`
   spans the column, `bubble` is as wide as the text with a speech-bubble
   tail. `background=#ffffffcc` picks the plate's colour (default: the
   slide's colour, see-through; the text turns dark or light to read on
-  it). For every plate in `css`: `container { background-color; border-radius }`.
+  it). Under a chart's fence `container=box` puts a plate round the chart,
+  so its axes read over a bright background picture without dimming the
+  whole picture. For every plate in `css`: `container { background-color; border-radius }`.
 - Effects (`fx=`): `starfield`, `plasma-wave`, `smoke`, `ambient-light`,
   `liquid-glass`, `drops` (rain running down a window),
   `raindrops2` (rain whose running drops leave lines of water), `bubbles` (round
@@ -90,7 +92,8 @@ Write `![Alt text](media/<name>)` and pass the picture in the tool call's
 `![](media/team.jpg)`). A picture can also cover the slide:
 `## Title {bg=media/cover.jpg bg-dim=0.4}`. Give each picture either a
 public `https` URL or base64 data, or an SVG's source as `text` (readable,
-no base64). PNG, JPEG, GIF, WebP and SVG, up to 5 MB.
+no base64). PNG, JPEG, GIF, WebP and SVG, up to 5 MB each and at most 20
+pictures in one call (send more with update_presentation).
 A Sliqtly server on the user's own computer started with import folders
 (`SLIQTLY_IMPORT_DIRS`) also takes `path`: the absolute path of a file in
 one of those folders, e.g. `{ "name": "cover.jpg", "path":
@@ -122,7 +125,8 @@ too: its owner signed in, or the conversation that made it without sign-in.
 Ask the user first.
 When text on a picture is hard to read ("low contrast"), raise that slide's
 `bg-dim` (0.6–0.8) with update_presentation, or put the text on a plate
-(`{container=box}` under it); the picture stays as it is.
+(`{container=box}` under it, a chart's fence too); the picture stays as
+it is.
 
 SVG pictures, backgrounds included:
 
@@ -130,18 +134,30 @@ SVG pictures, backgrounds included:
   fill it with its middle kept and the rest cut off (as
   `preserveAspectRatio="xMidYMid slice"`). Give a background the slide's
   shape: `viewBox="0 0 1920 1080"` for a 16:9 slide.
-- The root needs `xmlns="http://www.w3.org/2000/svg"`; without it a
-  browser draws nothing. Give it a `viewBox`.
-- Shown as a picture, an SVG loads nothing from outside itself: put
-  pictures in it as `data:` URLs. Its text is drawn in each viewer's own
-  fonts, so draw words as paths, or write them on the slide in Markdown.
+- The root needs `xmlns="http://www.w3.org/2000/svg"` (a browser draws an
+  SVG without it as nothing); a root without it gets it, and `xmlns:xlink`
+  when `xlink:` is used undeclared, when the picture is saved. Give it a
+  `viewBox`.
+- Shown as a picture, an SVG loads nothing from outside itself. A picture
+  it links to with a public `https` address (`<image href="https://…">`)
+  is fetched into it as a `data:` URL when the SVG is saved (at most 8 in
+  one SVG); other addresses are left as they are and not drawn.
+- Its text is drawn in each viewer's own fonts. `text_to_path: true` on the
+  picture in `images` turns the text into paths in the editor's fonts when
+  it is saved, so it looks the same everywhere (it is no longer editable as
+  text); or write the words on the slide in Markdown.
+- In a chart, a Vega-Lite `image` mark draws the deck's own pictures, SVG
+  included: `"url": {"field": "img"}` with values like `"media/logo.svg"`,
+  and the mark's `width` / `height` (the picture keeps its proportions
+  inside them). A picture the deck does not have is not drawn.
 - In PDF and PPTX an SVG picture is a raster picture, not vectors. The deck
   keeps the SVG itself.
 - `render_slide` and `render_overview` draw SVG pictures, and the result of
   create/update has a line for each SVG ("SVG ok, viewBox 1920×1080
   (16:9), 14 paths") with a ⚠ for what will go wrong in the player: no
-  xmlns, no viewBox, a background not in the slide's shape, things loaded
-  from outside, text, filter effects.
+  viewBox, a background not in the slide's shape, things loaded from
+  outside, text, filter effects. The result also says what was fixed when
+  the SVG was saved.
 
 ### Photo albums
 
