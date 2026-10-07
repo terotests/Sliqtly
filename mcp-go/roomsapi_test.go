@@ -44,7 +44,9 @@ func TestRoomTools(t *testing.T) {
 
 	// a room for a ticket, a deck moved into it
 	room := ok("create_room", map[string]any{"title": "PAY-817 payments", "kind": "ticket"})["room_id"].(string)
-	ok("move_presentation", map[string]any{"deck_id": a, "room_id": room})
+	mv := ok("move_presentation", map[string]any{"deck_id": a, "room_id": room})
+	eq(t, []any{mv["from_room_id"], mv["room"], mv["moved"]}, []any{"general", "PAY-817 payments", true})
+	eq(t, ok("move_presentation", map[string]any{"deck_id": a, "room_id": room})["moved"], false)
 	g := ok("get_room", map[string]any{"room_id": room})
 	eq(t, mapOf(g["room"])["kind"], "ticket")
 	decks := list(g["presentations"])
@@ -103,6 +105,21 @@ func TestRoomTools(t *testing.T) {
 	bad("delete_room", map[string]any{"room_id": "playground"}, `denied|not allow`)
 
 	bad("get_room", map[string]any{}, `room_id is missing`)
+
+	// a deck made straight into a room; a room found by its ticket code,
+	// the latest worked in first, pages of it
+	n11 := ok("create_room", map[string]any{"title": "N11-1234 Review", "description": "Checkout retry review"})["room_id"].(string)
+	c := ok("create_presentation", map[string]any{"title": "N11-1234 review deck", "markdown": DECK, "room_id": n11})["deck_id"].(string)
+	in := list(ok("get_room", map[string]any{"room_id": n11})["presentations"])
+	eq(t, []any{len(in), mapOf(in[0])["deck_id"]}, []any{1, c})
+	found := ok("list_rooms", map[string]any{"query": "n11-1234"})
+	eq(t, []any{len(list(found["rooms"])), mapOf(list(found["rooms"])[0])["room_id"], found["total"]}, []any{1, n11, 1.0})
+	eq(t, mapOf(list(ok("list_rooms", map[string]any{"order": "active"})["rooms"])[0])["room_id"], n11)
+	paged := ok("list_rooms", map[string]any{"limit": 1, "offset": 1})
+	eq(t, []any{len(list(paged["rooms"])), paged["next_offset"]}, []any{1, 2.0})
+	bad("create_presentation", map[string]any{"title": "Lost", "markdown": DECK, "room_id": "nothere"}, `room_id nothere`)
+	ok("archive_room", map[string]any{"room_id": n11})
+	bad("create_presentation", map[string]any{"title": "Late", "markdown": DECK, "room_id": n11}, `read only`)
 }
 
 // the folder server has no access limits for now: another caller sees and

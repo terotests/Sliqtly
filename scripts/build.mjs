@@ -39,7 +39,18 @@ export function copyFaces(ranger, dir, { emoji = false } = {}) {
   for (const [d, face] of [["Gloria_Hallelujah", "GloriaHallelujah"], ["Fjalla_One", "FjallaOne-Regular"], ["Josefin_Sans", "JosefinSans-Bold"], ["Droid_Serif", "DroidSerif-BoldItalic"]]) {
     put(`${d}/${face}.ttf`, `${face}.ttf`);
   }
+  // the faces a deck's CSS can name besides Open Sans and Noto Sans
+  // (src/PresFonts.rgr), fetched when a deck uses them: Droid Serif from
+  // Ranger, Lato from this repository (fonts/Lato, OFL)
+  for (const face of ["DroidSerif", "DroidSerif-Bold", "DroidSerif-Italic"]) put(`Droid_Serif/${face}.ttf`, `${face}.ttf`);
+  for (const face of DECK_FACES) {
+    fs.mkdirSync(path.join(dir, "fonts"), { recursive: true });
+    fs.copyFileSync(path.join(root, "fonts", "Lato", `${face}.ttf`), path.join(dir, "fonts", `${face}.ttf`));
+  }
 }
+
+/** Lato, kept in this repository (fonts/Lato): the faces copyFaces adds. */
+export const DECK_FACES = ["Lato-Regular", "Lato-Bold", "Lato-Italic", "Lato-BoldItalic"];
 
 // The fonts change far more seldom than the code: their own hash, so a new
 // build is not 1.5 MB of the same faces again for every visitor.

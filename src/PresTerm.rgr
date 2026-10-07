@@ -1,0 +1,94 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PresTerm.rgr — what the interface calls a room
+; ==============================================================================
+;
+; A room (ADR 0001) is one whole piece of work; some teams call it a project.
+; File → Settings chooses the word, "room" (the default) or "project", and
+; every string the interface shows has the word swapped: whole words only,
+; the first letter's case kept, and in Finnish each case form of "huone" its
+; own form of "projekti" (huoneeseen → projektiin). The code, the server and
+; the assistant's tools keep calling it a room.
+; ==============================================================================
+
+class PresTerm {
+
+    ; the words of `lang` for a room, each beside its project form
+    sfn forms:[string] (lang:string) {
+        if (lang == "fi") {
+            return (strsplit "huone=projekti,huoneet=projektit,huoneen=projektin,huonetta=projektia,huoneeseen=projektiin,huoneessa=projektissa,huoneesta=projektista,huoneelle=projektille,huoneella=projektilla,huoneelta=projektilta,huoneeksi=projektiksi,huoneita=projekteja,huoneiden=projektien,huoneisiin=projekteihin,huoneissa=projekteissa,huoneista=projekteista,huoneille=projekteille,huoneilla=projekteilla,huoneiksi=projekteiksi" ",")
+        }
+        return (strsplit "room=project,rooms=projects" ",")
+    }
+
+    ; a letter of a word: ASCII letters and the Latin ones above them (ä,
+    ; ö, å; as UTF-8 bytes too), not × ÷ nor punctuation such as … or –
+    sfn letter:boolean (c:int) {
+        if ((c >= 65) && (c <= 90)) {
+            return true
+        }
+        if ((c >= 97) && (c <= 122)) {
+            return true
+        }
+        return (((c > 127) && (c < 592)) && ((c != 215) && (c != 247)))
+    }
+
+    ; the project form of one word, its first letter's case kept; the word
+    ; itself when it is not a form of room
+    sfn swapWord:string (w:string lang:string) {
+        def low:string (to_lowercase w)
+        def forms:[string] (PresTerm.forms(lang))
+        def i:int 0
+        while (i < (array_length forms)) {
+            def kv:[string] (strsplit (itemAt forms i) "=")
+            if ((itemAt kv 0) == low) {
+                def to:string (itemAt kv 1)
+                if (w == (to_uppercase w)) {
+                    if ((strlen w) > 1) {
+                        return (to_uppercase to)
+                    }
+                }
+                def c:int (charAt w 0)
+                if ((c >= 65) && (c <= 90)) {
+                    return ((to_uppercase (substring to 0 1)) + (substring to 1 (strlen to)))
+                }
+                return to
+            }
+            i = (i + 1)
+        }
+        return w
+    }
+
+    ; text with every room word as `term` says: "room" keeps it as it is
+    sfn apply:string (text:string lang:string term:string) {
+        if (term != "project") {
+            return text
+        }
+        def low:string (to_lowercase text)
+        if (((indexOf low "room") < 0) && ((indexOf low "huone") < 0)) {
+            return text
+        }
+        def out:string ""
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            if (PresTerm.letter((charAt text i))) {
+                def j:int i
+                while ((j < n) && (PresTerm.letter((charAt text j)))) {
+                    j = (j + 1)
+                }
+                out = (out + (PresTerm.swapWord((substring text i j) lang)))
+                i = j
+            } {
+                def k:int i
+                while ((k < n) && ((PresTerm.letter((charAt text k))) == false)) {
+                    k = (k + 1)
+                }
+                out = (out + (substring text i k))
+                i = k
+            }
+        }
+        return out
+    }
+}

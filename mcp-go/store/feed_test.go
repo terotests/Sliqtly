@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"unsafe"
 )
 
 // large documents: the history keeps what fits in keepBytes, the newest
@@ -44,5 +45,18 @@ func TestFeedKeepsBoundedHistory(t *testing.T) {
 	eq := len(f.recent) - f.start
 	if eq != 1 {
 		t.Fatalf("kept %d with a change over the budget", eq)
+	}
+}
+
+// an id cut out of a long text is copied, so the kept change does not
+// hold the whole text
+func TestFeedOwnsItsIds(t *testing.T) {
+	f := newFeed(10)
+	text := strings.Repeat("x", 1<<20) + "deck1"
+	id := text[len(text)-5:]
+	f.publish(Change{Col: "shares", ID: id})
+	kept := f.recent[len(f.recent)-1].ID
+	if kept != "deck1" || unsafe.StringData(kept) == unsafe.StringData(id) {
+		t.Fatalf("the feed keeps the caller's string")
 	}
 }

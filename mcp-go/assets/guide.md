@@ -63,67 +63,30 @@ Speaker notes. Not shown on the slide.
 - Keep a slide short: a heading and 3–6 bullets, or a heading and one
   picture, chart, table or diagram. A slide that runs over is split.
 
-## Designing the deck
+## Style is yours to choose
 
-The theme gives fonts, colours and spacing; what makes a deck look finished
-is how each slide uses them. Before writing, decide the story: one finding
-per slide, in order.
+Nothing here is a house style. Choose the look the content and the person
+asking call for: plain light slides with headings and bullets are as
+welcome as a themed deck with cards and charts. Use the layouts below
+when they help the content, not by default.
 
-- **The conclusion under the title.** Every content slide has a short
-  heading (the topic) and, under it, one sentence saying what the slide
-  shows, as a lead: `## Sales by country` then
-  `The four largest countries bring half of the total.` and `{.lead}`.
-  The reader gets the point before the chart.
-- **Key figures as cards, not bullets.** A ```` ```stats ```` fence draws
-  each `Number: label` line as a card with the number large (up to four in
-  a row, then rows of three or four), in the theme's colour, in the PDF and
-  PowerPoint too:
-
-  ````markdown
-  ```stats
-  - 91: customers
-  - 50 292: transactions in all
-  - 552,66: mean per customer
-  ```
-  ````
-- **One palette for the whole deck.** Leave chart colours to the theme:
-  a one-series chart is drawn in the theme's chart colour and a chart
-  coloured by category in the theme's palette (chart colour first), the
-  same on every slide. Do not set `scheme`, `range` or a mark `color` per
-  chart. To make a point, colour the few marks that matter and leave the
-  rest in the second colour: colour by a computed field
-  (`"calculate": "datum.rank <= 4 ? 'Top 4' : 'Others'"`) with
-  `"legend": null`. Every theme has such a palette, `corporate` too (dark
-  blue, then a light grey-blue), and the ```` ```stats ```` cards and side
-  cards take the same colours.
-- **Many categories: horizontal bars.** Over about 12 bars, put the
-  category on `y` and the value on `x` (`"sort": "-x"`): the names and
-  value labels read at full size instead of slanted and small. Leave the
-  font sizes to the theme; a `fontSize` of 10 is too small on a slide.
-- **A chart or table with a side card.** Under the chart or table
-  `{width=62%}`, then the takeaway as a short list or paragraph: it stands
-  beside it, not under it. `{container=box background=#00000010}` under it
-  sets it on a card (on a dark theme `#ffffff14`); its text stays the
-  theme's. A line under a full-width chart (a source, a note) stays on the
-  chart's slide.
-- **Tables** span the slide. One of ten or more rows reads better a little
-  smaller than the body text: `table { font-size: 13pt }` in `css` (the
-  body is 15pt in `corporate`, 20pt in the dark themes).
-- **Numbers in the deck's language.** `lang: fi` in the front matter (or
-  `sv`, `de`, `fr`…) writes every chart's numbers that language's way
-  (`50 292`, `552,66`), axes, value labels and tooltips alike, with no
-  `format` in the charts. Write the numbers in the text the same way.
-- **Title and closing slides** are not bare lines. The title: the `#`
-  heading, one `.lead` line, and the deck's three key figures as a
-  ```` ```stats ```` fence (or a picture, `bg=media/…`). The closing slide:
-  the conclusions or next steps as a ```` ```process ```` or
-  ```` ```stats ```` fence, or 3–4 lines on a card
-  (`{container=box}`), not a plain list on an empty slide.
-- Fill the slide: one chart takes its room; a lone short list or a few
-  words on an otherwise empty slide reads unfinished. Two related small
-  things go side by side (`.c2`), not on two slides.
-- Look at `render_overview` before saying the deck is done: same colours
-  on every slide, nothing small or crowded, no slide mostly empty.
+- `{.lead}` under a paragraph sets it as a lead line (larger, the theme's
+  accent colour).
+- A ```` ```stats ```` fence draws each `Number: label` line as a card with
+  the number large; ```` ```cards ````, ```` ```process ````,
+  ```` ```timeline ```` and ```` ```swot ```` are the other list layouts
+  (see below).
+- Chart colours come from the theme unless a chart sets its own. In a
+  chart coloured by a computed group, the groups take the palette in
+  alphabetical order unless the colour encoding gives `"sort": [...]`.
+- Over about 12 bars, horizontal bars (category on `y`, `"sort": "-x"`)
+  keep the names readable.
+- `{width=62%}` under a chart or table puts what follows beside it.
+- A table that runs a few rows over its slide is set smaller by itself.
+- `lang: fi` (or `sv`, `de`, `fr`…) in the front matter writes the charts'
+  numbers that language's way.
+- Look at `render_overview` before saying the deck is done: nothing cut,
+  too small or overlapping.
 
 ## Pictures
 
@@ -237,7 +200,7 @@ pictures under 300 dpi in print ("media/sauna.jpg: 180 dpi in print, under
   `"background": "rgba(0,0,0,0)"` so the theme shows through. Value labels
   beside bars are a layer of `bar` and a layer of `text` sharing the
   encoding; a `"sort": "-x"` on the shared `y` orders both. Numbers follow
-  the front matter's `lang:` (see Designing the deck). An encoding's
+  the front matter's `lang:` (see "Style is yours to choose"). An encoding's
   `type` is `quantitative`, `ordinal`, `nominal` or `temporal` (never
   `"point"`: that puts every mark at 0). The data is
   inline `data.values`, or live, read each time the deck opens:
@@ -348,7 +311,7 @@ pictures under 300 dpi in print ("media/sauna.jpg: 180 dpi in print, under
   text is about 20 px when four boxes stand in a row, 13 px at six, 10 px
   at eight (body text is about 40 px). For a Mermaid flowchart or DOT
   graph without `{layout=keep}` the slide also tries the other direction
-  and a long top-to-bottom chain cut into columns (not with
+  and a long chain cut into columns (or a left-to-right one into rows; not with
   subgraphs/clusters), and keeps whichever draws largest. Keep one
   diagram to about 4 boxes across and 10–12 boxes in all; split a bigger
   one over slides. A sequence diagram is never toured: keep it to 4–5
@@ -371,9 +334,19 @@ pictures under 300 dpi in print ("media/sauna.jpg: 180 dpi in print, under
   `git diff` output as it is; keep a slide to one hunk of about 15 lines.
 - Math: `$…$` inline, `$$…$$` as a display, or a ```` ```math ```` fence (TeX).
 - Tables: ordinary Markdown tables, or HTML `<table>` with `rowspan`/`colspan`.
+  Cells coloured by their text, for a risk or status table: under the table
+  `{cells="Suuri=red Korkea=red Keskisuuri=amber Matala=green"}` (the whole
+  cell's text, any case; tones `red`, `amber`, `green`, `blue`, `grey` or a
+  colour). A matched cell gets a muted tint of the tone and bold, readable
+  text, in the PDF, PowerPoint, Word and HTML too. For every table of a
+  deck: `table { cell-tones: "Done=green Late=red" }` in `css`.
 - Layouts from lists: a ```` ```process ```` fence (chevron steps),
   ```` ```swot ```` (a 2×2 grid of four items: Strengths, Weaknesses,
-  Opportunities, Threats), ```` ```timeline ```` or ```` ```stats ````
+  Opportunities, Threats), ```` ```timeline ```` (round badges on a line,
+  a card under each; a title starting with a short token such as
+  `Q1 Kickoff:` or `2027 Launch:` puts the token in the badge, otherwise
+  the badges are numbered), ```` ```cards ```` (numbered cards in a row,
+  for recommendations or decisions: 3–4 items) or ```` ```stats ````
   (key figures as cards, `Number: label`), one item per
   line as `Title: description`; an indented `- point` belongs to the item
   above. `{width=60%}` under the fence makes it narrower. They are drawn in
@@ -549,10 +522,16 @@ mark  { background-color: #ffd54a; color: #111; }
 chart   { color: #B96926; accent-color: #59C3C4; chart-style: forge; } /* flat | forge | neon | glass */
 diagram { color: #B96926; accent-color: #59C3C4; }
 figure  { colors: #1f6feb #0f9d8a #7c4dff #f08c00; } /* process, swot, timeline (else chart's) */
+figure  { card-background: #ffffff; box-shadow: 0 6pt 18pt rgba(46,58,99,.12); } /* white cards (stats, cards, swot, timeline) with a soft shadow */
+container { background-color: #ffffff; border-radius: 14pt; box-shadow: 0 6pt 18pt rgba(46,58,99,.12); } /* {container=box} plates */
 .lead { font-size: 26pt; }
 ```
 
-Fonts available: `Open Sans`, `Noto Sans`. Sizes in `pt` or `in`.
+Fonts available: `Open Sans`, `Noto Sans`, `Lato` and `Droid Serif` (a
+serif). In a list the first of these is used (`Georgia, serif` is Droid
+Serif, `sans-serif` Open Sans); a name that is none of them is said in the
+warnings. Headings take theirs from `heading { font-family: … }`, not from
+`h1`…`h6`. Sizes in `pt` or `in`.
 
 On `update_presentation`, `css` is added after the deck's own rules so
 far, so one new rule can be sent alone; sending all of the deck's own
@@ -598,7 +577,8 @@ whole `markdown`:
   { "find": "Revenue grew 12 %", "replace": "Revenue grew 14 %" },
   { "slide": 4, "markdown": "## Costs\n\n- Rent\n- Salaries" },
   { "slide_title": "Old plan", "markdown": "" },
-  { "after_slide": 6, "markdown": "## Next steps\n\n- Pilot in May" }
+  { "after_slide": 6, "markdown": "## Next steps\n\n- Pilot in May" },
+  { "slide": 9, "after_slide": 2 }
 ] }
 ```
 
@@ -609,6 +589,9 @@ whole `markdown`:
   over onto the next ones is replaced with all of them.
 - `after_slide` + `markdown`: new slides after that one (0 = before the
   first).
+- `slide` (or `slide_title`) + `after_slide`, no `markdown`: the slide moves
+  there as it is, notes and all (0 = before the first). Nothing is written
+  again; a slide whose text ran over moves with all of them.
 
 Slide numbers are the ones the layout report and `render_overview` show,
 before these edits; their order does not matter. An edit that does not
@@ -635,12 +618,21 @@ whether it is resolved, and its messages. Work through the open ones:
 
 On this server the presentations are kept in rooms. A room is one whole piece of work: a
 task, a Jira ticket, a user story, or another whole such as a project.
-Every presentation has one home room; new ones start in General.
+People may see rooms called projects (a setting in the editor). Every
+presentation has one home room; one made without `room_id` lands in
+General, and the user then has to move it by hand.
 
-- Work on a ticket or a story: find its room in `list_rooms` (newest
-  first) or make one with `create_room`, named as the work is known
+- Before `create_presentation`, find the room it belongs to:
+  `list_rooms` with `query` (a ticket code such as "N11-1234" in the
+  title, or words of the title or topic; every word must be in a room's
+  name or description) or with `order: "active"` for the rooms worked in
+  lately. Suggest the room that fits by its name or description (name a
+  second one if two fit) and ask the user; if none fits, ask what to call
+  a new one and make it with `create_room`, named as the work is known
   ("PROJ-123 Checkout retry") and with the ticket's summary or link as its
-  `description`. Then `move_presentation` the decks made for it there.
+  `description`. Then give `room_id` to `create_presentation`.
+- `list_rooms` gives at most 1000 rooms a page; `next_offset` is where
+  the next page starts (`offset`). `move_presentation` moves a deck later.
 - `get_room` lists a room's presentations; `update_room` renames or
   describes it; `archive_room` puts finished work away (read only,
   nothing removed); `delete_room` removes the room and moves its decks to

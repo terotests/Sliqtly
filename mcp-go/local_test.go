@@ -187,8 +187,31 @@ func TestLocalServer(t *testing.T) {
 	eq(t, code, 200)
 	match(t, body, `2 slides · theme aurora`)
 	match(t, body, `/s/`+id+`/2\.jpg`)
+	notMatch(t, body, `All presentations`)
+	// the viewer's downloads (they went to the folder API, which 404ed)
+	code, ct, body = get(t, srv.URL+"/api/export/"+id+"/pdf")
+	eq(t, []any{code, ct, strings.HasPrefix(body, "%PDF")}, []any{200, "application/pdf", true})
+	code, _, body = get(t, srv.URL+"/api/export/"+id+"/md")
+	eq(t, code, 200)
+	match(t, body, `# Hello`)
+	// the decks are not listed until listing is turned on
+	for _, p := range []string{"/", "/decks"} {
+		code, _, body = get(t, srv.URL+p)
+		eq(t, code, 200)
+		match(t, body, `not listed`)
+		notMatch(t, body, `Pilot`)
+	}
+	code, _ = req(t, "GET", srv.URL+"/api/shares", "", "")
+	eq(t, code, 404)
+	code, body = req(t, "GET", srv.URL+"/api/settings", "", "")
+	match(t, body, `"offNames":\[\]`)
+	code, body = req(t, "PUT", srv.URL+"/api/settings/listing", "application/json", `{"enabled":true}`)
+	eq(t, code, 200)
+	match(t, body, `"enabled":true`)
 	code, _, body = get(t, srv.URL+"/decks")
 	match(t, body, `href="/s/`+id+`">Pilot<`)
+	code, _, body = get(t, srv.URL+"/s/"+id)
+	match(t, body, `All presentations`)
 	code, _, _ = get(t, srv.URL+"/s/nothere123")
 	eq(t, code, 404)
 	code, ct, _ = get(t, srv.URL+"/themes/aurora.css")
@@ -201,6 +224,8 @@ func TestLocalServer(t *testing.T) {
 	defer srv2.Close()
 	defer session2.Close()
 	s2 := &testServer{root: srv2.URL, session: session2}
+	_, _, body = get(t, srv2.URL+"/decks")
+	match(t, body, `>Pilot<`)
 	u := call(t, s2, "update_presentation", map[string]any{"deck_id": id, "markdown": DECK + "\n## More\n\nText.\n"})
 	if u.IsError {
 		t.Fatal(textOf(u))
@@ -327,6 +352,7 @@ func TestLocalWebAndAPI(t *testing.T) {
 	code, body = req(t, "POST", srv.URL+"/api/shares/"+id+"/head", "application/json", `{"expect":"h0","head":"h2","entries":[{"id":"h2"}]}`)
 	match(t, body, `^\{"head":"h1",.*"ok":false\}`)
 
+	// the editor's Presentations window lists them whatever the setting
 	code, body = req(t, "GET", srv.URL+"/api/shares", "", "")
 	match(t, body, `"id":"`+id+`","name":"Web deck"`)
 
@@ -415,4 +441,25 @@ func TestFolderExpired(t *testing.T) {
 	_, errGone := ls.bucket.Read(ctx, "shares/gone1/media/p.png", 10)
 	_, errKept := ls.bucket.Read(ctx, "shares/kept1/media/p.png", 10)
 	eq(t, []bool{errGone != nil, errKept == nil}, []bool{true, true})
+}
+
+// listing the decks is turned on only from the server's own computer
+func TestLocalListingFromHereOnly(t *testing.T) {
+	e, bucket, err := localEnv(t.TempDir(), "http://127.0.0.1:1", "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := newLocalServer(e, bucket, "", nil).(*localServer)
+	r := httptest.NewRequest("PUT", "/api/settings/listing", strings.NewReader(`{"enabled":true}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.RemoteAddr = "192.0.2.7:4000"
+	w := httptest.NewRecorder()
+	s.listingAPI(w, r)
+	eq(t, w.Code, 403)
+	eq(t, s.listing.Load(), false)
+	r = httptest.NewRequest("GET", "/api/settings/listing", nil)
+	r.RemoteAddr = "192.0.2.7:4000"
+	w = httptest.NewRecorder()
+	s.listingAPI(w, r)
+	match(t, w.Body.String(), `"editable":false,"enabled":false`)
 }

@@ -91,7 +91,8 @@ class PresHints {
         if (key == "container") { return (PresI18n.t("The block above on a rounded plate, so its text reads over a busy picture: box (across the column) or bubble (as wide as the text, with a tail). none: no plate.")) }
         if (key == "background") { return (PresI18n.t("The plate's colour, e.g. #fff8 (the last digit is the opacity). By default the slide's colour, see-through; the text turns dark or light when it would not read on it.")) }
         if (key == "art") { return (PresI18n.t("PRO: line art drawn behind the slide in the theme's colours (waves). art=off leaves it off this slide.")) }
-        if (key == "list-style") { return (PresI18n.t("The list above drawn as a layout: process (steps), swot (a 2×2 grid), timeline or stats (key figures as cards). Items are Title: description.")) }
+        if (key == "list-style") { return (PresI18n.t("The list above drawn as a layout: process (steps), swot (a 2×2 grid), timeline (badges on a line), stats (key figures as cards) or cards (numbered cards). Items are Title: description.")) }
+        if (key == "cells") { return (PresI18n.t("Table cells coloured by their text: cells=\"High=red Medium=amber Low=green\". Tones red, amber, green, blue, grey or a colour.")) }
         if (key == "art-seed") { return (PresI18n.t("A number that moves the art's curves: another number, another picture.")) }
         if (key == "bg-dim") { return (PresI18n.t("How much of the slide's base color goes over the background image (0–1), so text stands out.")) }
         if (key == "header") { return (PresI18n.t("Header text on every slide. {page}, {pages} and {title} are filled in. On a heading, header=off leaves it off that slide.")) }
@@ -134,7 +135,7 @@ class PresHints {
         if (key == "style") { return "holo sketch mermaid jurassic cartoon romantic" }
         if (key == "furniture") { return "off" }
         if (key == "art") { return "waves off" }
-        if (key == "list-style") { return "process swot timeline stats" }
+        if (key == "list-style") { return "process swot timeline stats cards" }
         if (key == "container") { return "box bubble none" }
         if (((key == "align") || (key == "header-align")) || (key == "footer-align")) { return "left center right" }
         return ""
@@ -201,7 +202,7 @@ class PresHints {
         if (prop == "split-level") { return (PresI18n.t("Which heading level starts a new slide.")) }
         if (prop == "fx") { return (PresI18n.t("Background effect behind every slide; a slide's own {fx=…} wins. none: no effect.")) }
         if (((strlen prop) > 3) && ((substring prop 0 3) == "fx-")) { return ((PresI18n.t("Effect parameter ")) + (substring prop 3 (strlen prop)) + ".") }
-        if (prop == "list-style") { return (PresI18n.t("Lists drawn as a layout: process, swot, timeline or stats. #heading list { list-style: swot } for the lists under one heading.")) }
+        if (prop == "list-style") { return (PresI18n.t("Lists drawn as a layout: process, swot, timeline, stats or cards. #heading list { list-style: swot } for the lists under one heading.")) }
         if (prop == "colors") { return (PresI18n.t("Layout colours in order, separated by spaces.")) }
         if (prop == "overflow") { return (PresI18n.t("What to do with an overfull slide.")) }
         if (prop == "aspect-ratio") { return (PresI18n.t("Slide aspect ratio.")) }
@@ -215,7 +216,7 @@ class PresHints {
 
     sfn cssEnum:string (prop:string) {
         if (prop == "chart-style") { return "flat forge neon glass" }
-        if (prop == "list-style") { return "process swot timeline stats" }
+        if (prop == "list-style") { return "process swot timeline stats cards" }
         if (prop == "fx") { return ((PresHints.fxNames()) + " none") }
         if (prop == "justify-content") { return "center flex-start flex-end" }
         if (prop == "contrast") { return "auto off" }
@@ -337,7 +338,7 @@ class PresHints {
         if (PresHints.isDiagramLang(l)) {
             return "diagram"
         }
-        if ((((l == "process") || (l == "swot")) || (l == "timeline")) || (l == "stats")) {
+        if (((((l == "process") || (l == "swot")) || (l == "timeline")) || (l == "stats")) || (l == "cards")) {
             return "figure"
         }
         if (((l == "vega-lite") || (l == "vegalite")) || (l == "vega")) {
@@ -389,7 +390,7 @@ class PresHints {
         if (group == "figure") {
             h.name = (PresI18n.t("Layout"))
             h.doc = (PresI18n.t("A layout drawn from a list, one `Title: description` per line. Its colours are the theme's figure colors."))
-            h.options = "process swot timeline stats"
+            h.options = "process swot timeline stats cards"
             h.figure = true
             return (h.json())
         }

@@ -49,22 +49,21 @@ class PresData {
     sfn sheetCsv:string (sh:SpreadsheetModel) {
         def lastR:int (sh.usedRow())
         def lastC:int (sh.usedCol())
-        def out:string ""
+        ; joined once at the end: adding to one string copies it every time,
+        ; which in Go made a 100 kB workbook take seconds
+        def lines:[string]
         def r:int 0
         while (r <= lastR) {
-            def line:string ""
+            def cells:[string]
             def c:int 0
             while (c <= lastC) {
-                if (c > 0) {
-                    line = (line + ",")
-                }
-                line = (line + (PresData.csvField((PresData.valueOf(sh r c)))))
+                push cells (PresData.csvField((PresData.valueOf(sh r c))))
                 c = (c + 1)
             }
-            out = ((out + line) + (strfromcode 10))
+            push lines ((join cells ",") + (strfromcode 10))
             r = (r + 1)
         }
-        return out
+        return (join lines "")
     }
 
     ; the cell's value: a date as its format shows it, anything else raw
@@ -101,54 +100,53 @@ class PresData {
     }
 
     sfn replaceAll:string (s:string from:string to:string) {
-        def parts:[string] (strsplit s from)
-        def out:string ""
-        def i:int 0
-        while (i < (array_length parts)) {
-            if (i > 0) {
-                out = (out + to)
-            }
-            out = (out + (itemAt parts i))
-            i = (i + 1)
-        }
-        return out
+        return (join (strsplit s from) to)
     }
 
     ; a JSON string literal
     sfn quote:string (s:string) {
-        def out:string "\""
+        ; the runs that need no escape are copied whole, and everything is
+        ; joined once (adding to one string per character was quadratic)
+        def parts:[string]
+        push parts "\""
         def n:int (strlen s)
+        def from:int 0
         def i:int 0
         while (i < n) {
-            def ch:string (substring s i (i + 1))
             def code:int (charAt s i)
-            if (ch == "\"") {
-                out = (out + "\\\"")
+            def esc:string ""
+            if (code == 34) {
+                esc = "\\\""
             } {
-                if (ch == "\\") {
-                    out = (out + "\\\\")
+                if (code == 92) {
+                    esc = "\\\\"
                 } {
                     if (code == 10) {
-                        out = (out + "\\n")
+                        esc = "\\n"
                     } {
                         if (code == 13) {
-                            out = (out + "\\r")
+                            esc = "\\r"
                         } {
                             if (code == 9) {
-                                out = (out + "\\t")
+                                esc = "\\t"
                             } {
                                 if (code < 32) {
-                                    out = (out + " ")
-                                } {
-                                    out = (out + ch)
+                                    esc = " "
                                 }
                             }
                         }
                     }
                 }
             }
+            if ((strlen esc) > 0) {
+                push parts (substring s from i)
+                push parts esc
+                from = (i + 1)
+            }
             i = (i + 1)
         }
-        return (out + "\"")
+        push parts (substring s from n)
+        push parts "\""
+        return (join parts "")
     }
 }

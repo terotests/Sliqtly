@@ -4,6 +4,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"sync"
 )
 
@@ -77,6 +78,9 @@ func (f *feed) publish(c Change) {
 	defer f.mu.Unlock()
 	f.head++
 	c.Seq = f.head
+	// the feed outlives the request: an id cut from a request or a stored
+	// JSON text would keep that whole text alive (Doc and Old are clones)
+	c.Col, c.ID = strings.Clone(c.Col), strings.Clone(c.ID)
 	size := changeSize(c)
 	f.recent = append(f.recent, c)
 	f.sizes = append(f.sizes, size)

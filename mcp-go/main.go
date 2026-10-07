@@ -60,6 +60,7 @@ func main() {
 	oidcAllow := flag.String("oidc-allow", env("SLIQTLY_OIDC_ALLOW", ""), "who may sign in: emails and @domains, comma separated, or * for every account the provider signs in (SLIQTLY_OIDC_ALLOW)")
 	oidcScopes := flag.String("oidc-scopes", env("SLIQTLY_OIDC_SCOPES", "openid email profile"), "the scopes asked of the provider (SLIQTLY_OIDC_SCOPES)")
 	flag.Parse()
+	applyMemoryLimit()
 	oidcCfg := oidcConfig{Issuer: *oidcIssuer, ClientID: *oidcClient, ClientSecret: *oidcSecret, Allow: splitList(*oidcAllow), Scopes: *oidcScopes}
 	if err := oidcCfg.check(); err != nil {
 		log.Fatal(err)

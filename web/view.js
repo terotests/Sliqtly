@@ -16,7 +16,7 @@ import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
 import { decodePicture } from "./picture.js";
 import { INTRO_MS } from "./brand.js";
 import { currentUser, signIn, authHeaders } from "./viewauth.js";
-import { linkOf, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide } from "./viewlink.js";
+import { linkOf, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide, pinchView, panView, isZoomed } from "./viewlink.js";
 
 const FONTS = document.querySelector('meta[name="fonts"]')?.content || "";
 const fi = /^fi\b/i.test(navigator.language || "");
@@ -119,6 +119,8 @@ const pictures = new Map();
 let at = 0;
 let shownAt = 0;
 let raf = 0;
+// the slide seen closer by a pinch ({ x, y, scale }), or null: fitted
+let zoom = null;
 
 function paint() {
   raf = 0;
@@ -136,7 +138,7 @@ function paint() {
   const list = lists[at];
   const t = (performance.now() - shownAt) / 1000;
   for (const e of list.effects || []) e.time = t;
-  const doc = { width: w, height: h, view: fitSlide(w, h, deck.width, deck.height), list };
+  const doc = { width: w, height: h, view: zoom || fitSlide(w, h, deck.width, deck.height), list };
   const f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: true });
   f.draw(null, null, { clear: false });
   f.dispose();
@@ -146,14 +148,20 @@ function paint() {
 function repaint() {
   if (!raf) raf = requestAnimationFrame(paint);
 }
-window.addEventListener("resize", repaint);
+window.addEventListener("resize", () => {
+  zoom = null;
+  repaint();
+});
 
 // --- the way round ---------------------------------------------------------------
 function go(i) {
   const n = lists.length;
   if (!n) return;
   i = Math.max(0, Math.min(n - 1, i));
-  if (i !== at) shownAt = performance.now();
+  if (i !== at) {
+    shownAt = performance.now();
+    zoom = null;
+  }
   at = i;
   vCount.textContent = (at + 1) + " / " + n;
   if (!given) {
@@ -286,17 +294,68 @@ window.addEventListener("keydown", (ev) => {
   go(to);
 });
 
-// a click or a tap: on the left third back, elsewhere on; a swipe sideways
+// a click or a tap: on the left third back, elsewhere on; a swipe sideways.
+// Two fingers are a pinch: the slide is seen closer (or further) and moved
+// with them, and lifting them goes nowhere; while it is closer one finger
+// drags it about. The page itself does not zoom (touch-action: none), as
+// the slide is painted for the window and a page zoom would blur it.
 let down = null;
-canvas.addEventListener("pointerdown", (ev) => { down = { x: ev.clientX, y: ev.clientY }; });
+const fingers = new Map();
+let pinch = null;
+function fingerSpan() {
+  const [a, b] = [...fingers.values()];
+  return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+}
+canvas.addEventListener("pointerdown", (ev) => {
+  down = { x: ev.clientX, y: ev.clientY, lx: ev.clientX, ly: ev.clientY };
+  if (ev.pointerType === "mouse") return;
+  fingers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (fingers.size === 2 && lists.length) {
+    pinch = fingerSpan();
+    down = null;
+  }
+});
+canvas.addEventListener("pointermove", (ev) => {
+  if (fingers.has(ev.pointerId)) fingers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  if (pinch) {
+    if (fingers.size < 2) return;
+    const p = fingerSpan();
+    zoom = pinchView(zoom || fitSlide(w, h, deck.width, deck.height), w, h, deck.width, deck.height, p.d / pinch.d, p.mx, p.my, p.mx - pinch.mx, p.my - pinch.my);
+    pinch = p;
+    repaint();
+  } else if (down && zoom) {
+    zoom = panView(zoom, w, h, deck.width, deck.height, ev.clientX - down.lx, ev.clientY - down.ly);
+    down.lx = ev.clientX;
+    down.ly = ev.clientY;
+    repaint();
+  }
+});
+function lift(ev) {
+  fingers.delete(ev.pointerId);
+  if (pinch && fingers.size < 2) {
+    pinch = null;
+    // pinched back out to the fitted slide: fitted again
+    if (!isZoomed(zoom, canvas.clientWidth, canvas.clientHeight, deck.width, deck.height)) zoom = null;
+  }
+}
+canvas.addEventListener("pointercancel", (ev) => {
+  lift(ev);
+  down = null;
+});
 canvas.addEventListener("pointerup", (ev) => {
+  lift(ev);
   if (!down || !lists.length) return;
   const dx = ev.clientX - down.x;
   const dy = ev.clientY - down.y;
   down = null;
-  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) go(at + (dx < 0 ? 1 : -1));
+  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) && !zoom) go(at + (dx < 0 ? 1 : -1));
   else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) go(at + (ev.clientX < canvas.clientWidth / 3 ? -1 : 1));
 });
+// iOS Safari zooms the page on a pinch despite touch-action: not over the slide
+canvas.addEventListener("touchmove", (ev) => ev.preventDefault(), { passive: false });
+for (const g of ["gesturestart", "gesturechange", "gestureend"]) canvas.addEventListener(g, (ev) => ev.preventDefault());
 
 // --- start ---------------------------------------------------------------------
 async function pictureOf(p) {

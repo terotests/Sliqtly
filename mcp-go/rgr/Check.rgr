@@ -45,6 +45,8 @@ class Checked {
     def titles:[string]
     ; where each slide starts in the Markdown (-1: it drew nothing)
     def starts:[int]
+    ; the heading level that starts a slide (`deck { split-level }`)
+    def splitLevel:int 2
     def warnings:[string]
     ; the layout report, slide by slide
     def report:[RSlideOut]
@@ -62,7 +64,7 @@ class Check {
     ; the faces the editor lays slides out with (web/main.js FACES, and the
     ; emoji face it adds when one is typed)
     sfn FACES:[string] () {
-        return ([] _:string ("Open Sans" "Open Sans-Bold" "Open Sans-Italic" "Open Sans-BoldItalic" "Noto Sans" "Noto Sans-Bold" "Noto Emoji-Regular" "Gloria Hallelujah" "Fjalla One" "Josefin Sans-Bold" "Droid Serif-BoldItalic"))
+        return ([] _:string ("Open Sans" "Open Sans-Bold" "Open Sans-Italic" "Open Sans-BoldItalic" "Noto Sans" "Noto Sans-Bold" "Noto Emoji-Regular" "Gloria Hallelujah" "Fjalla One" "Josefin Sans-Bold" "Droid Serif" "Droid Serif-Bold" "Droid Serif-Italic" "Droid Serif-BoldItalic" "Lato" "Lato-Bold" "Lato-Italic" "Lato-BoldItalic"))
     }
 
     ; a file a chart reads, as text: this call's files, the deck's stored
@@ -192,8 +194,9 @@ class Check {
             }
         }
         if ((strlen css) > 0) {
-            d.setTheme(css)
-            d.md.setStyleSheet(css)
+            def own:string (d.useFonts(css))
+            d.setTheme(own)
+            d.md.setStyleSheet(own)
         }
         d.setText(md)
         def out:[int]
@@ -209,6 +212,20 @@ class Check {
     ; The deck laid out as the player lays it out: the editor's faces, the
     ; theme's sheet, the pictures and the files its charts read. What could
     ; not be read goes to c.warnings.
+    ; an SVG by its type or name, or (a file read back from the deck comes
+    ; without its type, Tools.backgrounds) by its first bytes
+    sfn isSvg:boolean (name:string type:string data:buffer) {
+        if ((type == "image/svg+xml") || (endsWith (to_lowercase name) ".svg")) {
+            return true
+        }
+        def n:int (buffer_length data)
+        if (n > 256) {
+            n = 256
+        }
+        def head:string (to_lowercase (buffer_to_string (buffer_slice data 0 n)))
+        return ((indexOf head "<svg") >= 0)
+    }
+
     sfn prepare:PresDeck (host:McpHost din:DeckIn c:Checked) {
         def d (new PresDeck)
         ; a cloud share opens with the PRO line art drawn
@@ -223,12 +240,30 @@ class Check {
             }
         }
         if ((strlen din.css) > 0) {
-            d.setTheme(din.css)
-            d.md.setStyleSheet(din.css)
+            def own2:string (d.useFonts(din.css))
+            d.setTheme(own2)
+            d.md.setStyleSheet(own2)
             c.laidOut = true
+            if ((strlen d.fontNote) > 0) {
+                push c.warnings d.fontNote
+            }
         }
         for din.pics pic:CheckPic pi {
-            d.addImage(pic.name (itemAt din.data pi) (itemAt din.types pi) pic.w pic.h)
+            def data:buffer (itemAt din.data pi)
+            ; an export gets an SVG picture as the editor's page hands it over
+            ; (web/main.js addPicture): its PNG for the stage and the PDF's
+            ; pixels, and the SVG itself with a small PNG for the vectors the
+            ; PDF and the PPTX keep. The PDF and PPTX writers read PNG and JPEG
+            ; only, so the SVG's own bytes were a picture left out.
+            if (((strlen din.export) > 0) && (Check.isSvg(pic.name (itemAt din.types pi) data))) {
+                def png:buffer (host_svg_png host data 2560)
+                if ((buffer_length png) > 0) {
+                    d.addImage(pic.name png "image/png" pic.w pic.h)
+                    d.addSvgPicture(pic.name (buffer_to_string data) data (host_svg_png host data 800))
+                    continue
+                }
+            }
+            d.addImage(pic.name data (itemAt din.types pi) pic.w pic.h)
         }
         d.setText(din.md)
         for (Check.chartData(host din d)) gone:string gi {
@@ -245,6 +280,8 @@ class Check {
         c.width = d.pageW
         c.height = d.pageH
         c.slides = (d.slideCount())
+        def lay:MdLayout (d.layout())
+        c.splitLevel = lay.splitLevel
         def ti:int 0
         while (ti < c.slides) {
             def ts:PresSlide (d.slideAt(ti))
@@ -331,6 +368,7 @@ class Check {
                 c.file = (ex.pdf())
             }
             if (din.export == "pptx") {
+                Check.bgStills(host din ex d)
                 c.file = (ex.pptx())
             }
             if (din.export == "docx") {
@@ -343,6 +381,34 @@ class Check {
             }
         }
         return c
+    }
+
+    ; A slide's own picture (`bg=`) for the PPTX: the slide's background
+    ; drawn as the stage cuts and dims it, as web/main.js renderFxStills
+    ; draws it in the editor (PresApp.bgSlidesJson: slides with no effect),
+    ; and PresExport.pptx makes it the slide's background picture.
+    sfn bgStills:void (host:McpHost din:DeckIn ex:PresExport d:PresDeck) {
+        for din.pics pic:CheckPic pi {
+            host_render_pic host pic.name (itemAt din.data pi)
+        }
+        d.still = true
+        def i:int 0
+        while (i < (d.slideCount())) {
+            def s:PresSlide (d.slideAt(i))
+            def wanted:boolean (((array_length din.only) == 0) || (PresExport.has(din.only i)))
+            if ((wanted && ((strlen s.bg) > 0)) && ((strlen s.fx) == 0)) {
+                def jpeg:buffer (host_render_still host ((d.fxOnlyList(i)).toJson()) d.pageW d.pageH 1600)
+                if ((buffer_length jpeg) > 0) {
+                    push ex.stillIdx i
+                    push ex.stillRgba (buffer_alloc 0)
+                    push ex.stillW 0
+                    push ex.stillH 0
+                    push ex.stillJpeg jpeg
+                }
+            }
+            i = (i + 1)
+        }
+        d.still = false
     }
 
     ; The Word and web page exports' pictures of what only the stage draws

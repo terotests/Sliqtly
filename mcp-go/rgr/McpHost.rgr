@@ -253,12 +253,27 @@ operators {
             go ( (e 1) ".SvgError(" (e 2) ")" )
         }
     }
+    ; the SVG in data drawn as a PNG with its longer side `side` pixels, as
+    ; web/picture.js decodePicture draws it for the exports; empty when it is
+    ; not an SVG or does not draw (svgraster.go)
+    host_svg_png _:buffer (h:McpHost data:buffer side:int) {
+        templates {
+            go ( (e 1) ".SvgPng(" (e 2) ", " (e 3) ")" )
+        }
+    }
     ; --- slides as pictures (render.go)
 
     ; a picture the display lists name (/media/<name>), for the painter
     host_render_pic _:void (h:McpHost name:string data:buffer) {
         templates {
             go ( (e 1) ".RenderPic(" (e 2) ", " (e 3) ")" nl )
+        }
+    }
+    ; one slide's display list painted `width` pixels wide as JPEG bytes:
+    ; a slide's background for the PPTX; empty when it could not be drawn
+    host_render_still _:buffer (h:McpHost list:string w:double ht:double width:int) {
+        templates {
+            go ( (e 1) ".RenderStill(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
         }
     }
     ; one slide's display list (EVGDisplayList.toJson) painted `width`

@@ -107,8 +107,14 @@ const roomIdea = "A room is one whole piece of work: a task, a Jira ticket, a us
 
 var roomTools = []roomTool{
 	{name: "list_rooms", title: "List rooms", readOnly: true,
-		desc:  "List the rooms you are in, newest first, with your role, description and how many presentations each holds. " + roomIdea + " Every presentation has one home room; new ones start in General, and there is a Playground for trying things.",
-		props: map[string]any{"archived": map[string]any{"type": "boolean", "description": "Also list archived rooms"}}},
+		desc: "List the rooms you are in (people may see them called projects), with your role, description, how many presentations each holds and when it was last active. " + roomIdea + " Every presentation has one home room; new ones start in General unless create_presentation is given a room_id, and there is a Playground for trying things. Before making a presentation, look for the room it belongs to: query with a ticket code (e.g. \"N11-1234\") or words of its name, or order \"active\" for the rooms worked in lately; then suggest the room (or two) to the user, or ask for a name for a new one (create_room). Pages of at most 1000 rooms: give offset next_offset for the next.",
+		props: map[string]any{
+			"archived": map[string]any{"type": "boolean", "description": "Also list archived rooms"},
+			"order":    map[string]any{"type": "string", "enum": []string{"created", "active", "title"}, "description": "created: General and Playground first, then the newest (default); active: the latest worked in first (presentations changed, chat); title: by name"},
+			"query":    strProp("Only rooms whose name or description holds every one of these words (any case), e.g. a ticket code"),
+			"limit":    map[string]any{"type": "integer", "description": "Rooms on the page (default and at most 1000)"},
+			"offset":   map[string]any{"type": "integer", "description": "Skip this many (next_offset of the page before)"},
+		}},
 	{name: "get_room", title: "Show a room", readOnly: true,
 		desc:     "A room's members, presentations (deck_id and name) and links.",
 		props:    map[string]any{"room_id": strProp("room_id from list_rooms")},
@@ -126,7 +132,7 @@ var roomTools = []roomTool{
 		props:    map[string]any{"room_id": strProp("The room")},
 		required: []string{"room_id"}},
 	{name: "move_presentation", title: "Move a presentation to a room",
-		desc:     "Make room_id the presentation's home room. Needs editor rights in both rooms. Its files stay its own; the room's files are not shared with it.",
+		desc:     "Make room_id the presentation's home room. Needs editor rights in both rooms. Its files stay its own; the room's files are not shared with it. The open pages show it in its new room at once. → the room it came from (from_room_id), the new room's name, and moved false when it was there already",
 		props:    map[string]any{"deck_id": strProp("The presentation's deck_id"), "room_id": strProp("The room to move it to")},
 		required: []string{"deck_id", "room_id"}},
 	{name: "set_room_member", title: "Set a room member's role", destructive: true,
@@ -275,10 +281,13 @@ var roomListChanges = map[string]bool{
 }
 
 type roomRow struct {
-	RoomID   string `json:"room_id"`
-	Title    string `json:"title"`
-	About    string `json:"description,omitempty"`
-	Created  int64  `json:"created,omitempty"`
+	RoomID  string `json:"room_id"`
+	Title   string `json:"title"`
+	About   string `json:"description,omitempty"`
+	Created int64  `json:"created,omitempty"`
+	// the latest change of the room's presentations (and, ordered by
+	// activity, of its chat), or when it was made
+	Active   int64  `json:"active,omitempty"`
 	Kind     string `json:"kind,omitempty"`
 	Role     string `json:"role"`
 	Archived bool   `json:"archived"`
@@ -294,6 +303,10 @@ type linkRow struct {
 func (s *roomService) run(ctx context.Context, p store.Principal, op string, a map[string]any) (any, error) {
 	switch op {
 	case "list_rooms":
+		q, err := roomQueryOf(a)
+		if err != nil {
+			return nil, err
+		}
 		rs, err := s.rooms.List(ctx, p, argBool(a, "archived", false))
 		if err != nil {
 			return nil, err
@@ -303,33 +316,33 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 			return nil, err
 		}
 		count := map[string]int{}
+		latest := map[string]int64{}
 		for _, d := range decks {
 			room, _ := d.Doc[store.RoomField].(string)
 			count[room]++
+			at := millisOf(d.Doc["updated"])
+			if c := millisOf(d.Doc["created"]); c > at {
+				at = c
+			}
+			if at > latest[room] {
+				latest[room] = at
+			}
 		}
 		rows := []roomRow{}
 		for _, r := range rs {
-			rows = append(rows, roomRowOf(r.ID, r.Role, r.Doc, count[r.ID]))
-		}
-		// General and Playground first, then the newest first: rooms are
-		// a running process, the latest work on top
-		first := func(id string) int {
-			switch id {
-			case store.GeneralRoom:
-				return 0
-			case store.PlaygroundRoom:
-				return 1
+			row := roomRowOf(r.ID, r.Role, r.Doc, count[r.ID])
+			row.Active = max(row.Created, latest[r.ID])
+			if q.Order == "active" {
+				row.Active = max(row.Active, s.chatLatest(ctx, p.TenantID, r.ID))
 			}
-			return 2
+			rows = append(rows, row)
 		}
-		sort.SliceStable(rows, func(i, j int) bool {
-			a, b := first(rows[i].RoomID), first(rows[j].RoomID)
-			if a != b {
-				return a < b
-			}
-			return rows[i].Created > rows[j].Created
-		})
-		return map[string]any{"rooms": rows}, nil
+		page, total := q.pick(rows)
+		out := map[string]any{"rooms": page, "total": total, "order": q.Order}
+		if next := q.Offset + len(page); next < total {
+			out["next_offset"] = next
+		}
+		return out, nil
 
 	case "get_room":
 		id := argStr(a, "room_id")
@@ -445,17 +458,24 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 		if p.Rooms[room] == store.NoRole {
 			return nil, store.ErrNotFound
 		}
+		from := ""
 		_, _, err := s.st.Update(ctx, p, "shares", deck, func(cur store.Doc, _ store.Rev) (store.Doc, error) {
 			if cur == nil {
 				return nil, store.ErrNotFound
 			}
+			from, _ = cur[store.RoomField].(string)
 			cur[store.RoomField] = room
 			return cur, nil
 		})
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"deck_id": deck, "room_id": room}, nil
+		// what the assistant tells the user: from where to where, by name
+		out := map[string]any{"deck_id": deck, "room_id": room, "from_room_id": from, "moved": from != room}
+		if d, _, err := s.rooms.Get(ctx, p, room); err == nil {
+			out["room"], _ = d["title"].(string)
+		}
+		return out, nil
 
 	case "set_room_member":
 		role := store.Role(argStr(a, "role"))

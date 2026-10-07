@@ -12,6 +12,7 @@ COPY presentation.config.json ./
 COPY scripts/lib.mjs scripts/format-css.mjs scripts/
 COPY src/ src/
 COPY themes/ themes/
+COPY fonts/ fonts/
 COPY mcp-go/gen.mjs mcp-go/
 COPY mcp-go/rgr/ mcp-go/rgr/
 COPY scripts/ci-git-auth.sh scripts/

@@ -60,6 +60,15 @@ export const LOOK_FACES = {
   "Fjalla One": "FjallaOne-Regular.ttf",
   "Josefin Sans-Bold": "JosefinSans-Bold.ttf",
   "Droid Serif-BoldItalic": "DroidSerif-BoldItalic.ttf",
+  // the faces a deck's CSS can name besides Open Sans and Noto Sans
+  // (src/PresFonts.rgr), fetched when a deck uses them
+  "Droid Serif": "DroidSerif.ttf",
+  "Droid Serif-Bold": "DroidSerif-Bold.ttf",
+  "Droid Serif-Italic": "DroidSerif-Italic.ttf",
+  "Lato": "Lato-Regular.ttf",
+  "Lato-Bold": "Lato-Bold.ttf",
+  "Lato-Italic": "Lato-Italic.ttf",
+  "Lato-BoldItalic": "Lato-BoldItalic.ttf",
 };
 
 /** The LOOK_FACES names the lists' text is set in. */
@@ -94,4 +103,35 @@ export function slideForKey(key, at, n) {
 export function fitSlide(w, h, pw, ph) {
   const scale = Math.max(0.01, Math.min(w / pw, h / ph));
   return { x: (w - pw * scale) / 2, y: (h - ph * scale) / 2, scale };
+}
+
+/**
+ * A view of the slide zoomed in by a pinch: `view` ({ x, y, scale }, as
+ * fitSlide gives) scaled by f about the fingers' midpoint (px, py), which
+ * moved (dx, dy) since `view`, so the point under the fingers stays under
+ * them. No smaller than the fitted slide and no more than six times it.
+ */
+export function pinchView(view, w, h, pw, ph, f, px, py, dx, dy) {
+  const fit = fitSlide(w, h, pw, ph).scale;
+  const scale = Math.max(fit, Math.min(fit * 6, view.scale * f));
+  const u = (px - dx - view.x) / view.scale;
+  const v = (py - dy - view.y) / view.scale;
+  return keepInView({ x: px - u * scale, y: py - v * scale, scale }, w, h, pw, ph);
+}
+
+/** `view` moved by (dx, dy): a zoomed slide dragged with one finger. */
+export function panView(view, w, h, pw, ph, dx, dy) {
+  return keepInView({ x: view.x + dx, y: view.y + dy, scale: view.scale }, w, h, pw, ph);
+}
+
+/** Whether `view` shows the slide larger than it fits the window. */
+export function isZoomed(view, w, h, pw, ph) {
+  return !!view && view.scale > fitSlide(w, h, pw, ph).scale * 1.0001;
+}
+
+// the slide covers the window where it is larger than it, and is centred
+// where it is not
+function keepInView(view, w, h, pw, ph) {
+  const along = (at, size, room) => (size <= room ? (room - size) / 2 : Math.min(0, Math.max(room - size, at)));
+  return { x: along(view.x, pw * view.scale, w), y: along(view.y, ph * view.scale, h), scale: view.scale };
 }

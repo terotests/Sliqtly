@@ -206,7 +206,9 @@ try {
     await touch("touchEnd", []);
     const s1 = await dlg(phone);
     check("…a finger scrolls it when it does not fit", s1 && (s0.max === 0 || s1.scroll > 0), JSON.stringify(s1));
-    await touch("touchStart", [[30, 30]]);
+    // outside: in the margin above it (a dialog taller than the phone
+    // keeps only its margins free)
+    await touch("touchStart", [[Math.max(1, s1.x / 2), Math.max(1, s1.y / 2)]]);
     await touch("touchEnd", []);
     check("…and a tap outside it closes it", (await dlg(phone)) === null);
     await ctx.close();
@@ -485,6 +487,38 @@ try {
     check("…a new comment while editing is a callout by its pin, no panel", r.dock === 0 && r.callout, JSON.stringify(r));
     check("…it can be marked serious, and its pin turns red", r.sev === "high" && r.pinFill.includes("#b8625b"), JSON.stringify(r));
     check("…sent, the callout closes and leaves the pin", r.made && !r.open && r.pin, JSON.stringify(r));
+  }
+
+  // An open comment docked on the right: its buttons (Resolve, Minor,
+  // Moderate, Serious, Copy, All) wrap onto two rows in the narrow panel, and
+  // the first message starts under the last of them, not over it.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app, rv = a.review;
+      const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const el = (id) => walk(rv.host.lastPage, id);
+      const wasOn = a.reviewMode();
+      a.setReviewMode(true);
+      a.takeRequest();
+      rv.startDraft(a.slideShown(), 0.3, 0.4);
+      a.text("The total is wrong");
+      a.key("enter", false, false);
+      const t = rv.model.threads[rv.model.threads.length - 1];
+      rv.openThread(t.id);
+      a.reviewJson();
+      const acts = ["resolve", "sev-low", "sev-medium", "sev-high", "copy", "list"].map((v) => el("rv-chat-act-" + v)).filter(Boolean);
+      const first = el(rv.chat.msgTid(0));
+      const out = {
+        n: acts.length,
+        rows: new Set(acts.map((e) => Math.round(e.calculatedY))).size,
+        lowest: Math.max(...acts.map((e) => e.calculatedY + e.calculatedHeight)),
+        first: first ? first.calculatedY : -1,
+      };
+      rv.model.setClosed(t.id, true, "", 0); rv.model.remove(t.id); rv.save();
+      a.setReviewMode(wasOn);
+      return out;
+    });
+    check("an open comment's buttons all show, the first message under the last of them", r.n === 6 && r.first >= r.lowest, JSON.stringify(r));
   }
 
   // Tips: hovering a button says what it does, the presenting bar's (its

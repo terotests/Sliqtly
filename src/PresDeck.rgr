@@ -29,6 +29,7 @@
 ;                 build steps), hold (seconds after the last step)
 ; ============================================================================
 
+Import "PresFonts.rgr"
 Import "../markdown/web/markdown_web.rgr"
 Import "PresSource.rgr"
 Import "PresDiagram.rgr"
@@ -1015,12 +1016,15 @@ class PresDeck {
             return
         }
         ; The layout that draws largest in the room it has, among: the
-        ; direction as written, the other direction, and the top-to-bottom
-        ; one wrapped into columns (a long chain is a strip either way round).
+        ; direction as written, the other direction, and each of them
+        ; wrapped by the flow engine (a top-to-bottom chain into columns, a
+        ; left-to-right one into rows: a long chain is a strip either way
+        ; round).
         ; For a tour the room counts as at most half again as wide as it is
         ; tall, so a squarer shape wins over a strip that fits a wide slide.
-        ; `{layout=keep}` keeps what was written.
-        if ((n.attrValue("layout")) != "keep") {
+        ; `{layout=keep}` keeps what was written, and so does a diagram
+        ; whose author placed its boxes (`PresDiagram.arranged`).
+        if (((n.attrValue("layout")) != "keep") && ((PresDiagram.arranged(notation n.literal)) == false)) {
             def room:double (this.roomBelow(page box))
             def span0:[double] (this.diagramSpan(page box))
             def aspect:double 1.5
@@ -1048,16 +1052,13 @@ class PresDeck {
                     push texts other
                 }
             }
-            ; the tall one, cut into columns by the flow engine
+            ; each, cut by the flow engine for the room's shape
             def ci:int 0
             def m:int (array_length cands)
             while (ci < m) {
-                def cd:PresDiagram (itemAt cands ci)
-                if (cd.worldH > cd.worldW) {
-                    def wr:PresDiagram (this.diagramAs(notation (itemAt texts ci) box.w aspect look))
-                    if wr.ok {
-                        push cands wr
-                    }
+                def wr:PresDiagram (this.diagramAs(notation (itemAt texts ci) box.w aspect look))
+                if wr.ok {
+                    push cands wr
                 }
                 ci = (ci + 1)
             }
@@ -1184,8 +1185,28 @@ class PresDeck {
     }
 
     fn setStyleSheet:void (css:string) {
-        this.setTheme(css)
-        md.edit.setStyleSheet(css)
+        def own:string (this.useFonts(css))
+        this.setTheme(own)
+        md.edit.setStyleSheet(own)
+    }
+
+    ; What the sheet's `font-family` lists come to (PresFonts): the CSS with
+    ; each one the first face there is, the faces that are not loaded with
+    ; every page asked of it, and a line on what could not be had.
+    def fontNote:string ""
+
+    fn useFonts:string (css:string) {
+        def f:PresFontsOut (PresFonts.read(css))
+        fontNote = (PresFonts.note(f))
+        for f.faces face:string fi {
+            if ((indexOf ("," + wantFaces + ",") ("," + face + ",")) < 0) {
+                if ((strlen wantFaces) > 0) {
+                    wantFaces = (wantFaces + ",")
+                }
+                wantFaces = (wantFaces + face)
+            }
+        }
+        return f.css
     }
 
     ; A named template (`theme: aurora` in the front matter), without a layout.
@@ -2675,8 +2696,8 @@ class PresDeck {
         def mine:[MdBox]
         def mineAt:[int]
         def groupOfBox:[int]
-        def bi:int 0
-        while (bi < (array_length l.boxes)) {
+        ; this slide's boxes only, in box order (MdLayout.boxesOnPage)
+        for (l.boxesOnPage(i)) bi:int oi {
             def b:MdBox (itemAt l.boxes bi)
             if (b.page == i) {
                 push mine b
@@ -2693,7 +2714,6 @@ class PresDeck {
                 }
                 }
             }
-            bi = (bi + 1)
         }
         def m:int 0
         while (m < (array_length mine)) {
@@ -2841,6 +2861,8 @@ class PresDeck {
     ;     colors: #1f6feb #0f9d8a #7c4dff #f08c00;   the series, in order
     ;     color: #B96926;  accent-color: #59C3C4;   or the first two
     ;     font-size: 18pt;                          the titles in them
+    ;     card-background: #ffffff;                 the cards, not tinted
+    ;     box-shadow: 0 6pt 18pt rgba(0,0,0,.12);   a soft shadow under them
     ;   }
     ;
     ; With no `figure` rule the chart's colours are used. Text and paper are
@@ -2891,6 +2913,19 @@ class PresDeck {
         def font:string (trim (this.themeRule("document" "font-family")))
         if ((strlen font) > 0) {
             st.font = (PresDeck.unQuote(font))
+        }
+        ; white cards with a soft shadow, as a template's key figures are:
+        ;   figure { card-background: #ffffff; box-shadow: 0 6pt 18pt rgba(…) }
+        def cardBg:string (trim (this.themeRule("figure" "card-background")))
+        if ((strlen cardBg) > 0) {
+            def cbc:EVGColor (EVGColor.parse(cardBg))
+            if cbc.isSet {
+                st.cardFill = (MdContainer.hexOf(cbc))
+            }
+        }
+        def shadowRule:string (trim (this.themeRule("figure" "box-shadow")))
+        if ((strlen shadowRule) > 0) {
+            st.cardShadow = (MdContainer.shadowColour(shadowRule))
         }
         ; in points, the layout's unit; without a size of its own a figure
         ; takes the document's, a little smaller: its titles are labels, not

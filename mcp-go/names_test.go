@@ -55,6 +55,11 @@ func TestNamingRule(t *testing.T) {
 	// turned on
 	code, body = req(t, "PUT", srv.URL+"/api/settings", "application/json", `{"naming":{"enabled":true,"pattern":"^([A-Z][A-Z0-9]+-[0-9]+) +\\S","example":"ABC-1234 Quarterly review","rule":"Start with the ticket key."}}`)
 	eq(t, code, 200)
+	match(t, body, `"offCount":1,"offNames":\[\]`)
+	// the names only when the decks are listed
+	code, _ = req(t, "PUT", srv.URL+"/api/settings/listing", "application/json", `{"enabled":true}`)
+	eq(t, code, 200)
+	_, body = req(t, "GET", srv.URL+"/api/settings", "", "")
 	match(t, body, `"offNames":\["Anything"\]`)
 
 	d := toolDescriptions(t, s)

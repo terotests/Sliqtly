@@ -3,6 +3,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -38,6 +39,12 @@ func insertEdit(after int64, md string) *DeckEdit {
 	return e
 }
 
+func moveEdit(n int64, title string, after int64) *DeckEdit {
+	e := CreateNew_DeckEdit()
+	e.kind, e.slide, e.title, e.after = "move", n, title, after
+	return e
+}
+
 func applyEdits(edits ...*DeckEdit) *DeckEditsOut {
 	starts, titles := edeckSlides()
 	return DeckEdits_static_apply(EDECK, edits, starts, titles)
@@ -54,6 +61,37 @@ func TestSlideSpansCoverSections(t *testing.T) {
 	t2 := []string{"Title", "One", "One", "Two", "Three"}
 	eq(t, PresSlideSpans_static_lines(EDECK, s2, t2, 2), []int64{7, 12})
 	eq(t, PresSlideSpans_static_lines(EDECK, s2, t2, 9), []int64{-1, 20})
+	// the layout leaves a slide the overflow went on to untitled
+	t3 := []string{"Title", "One", "", "Two", "Three"}
+	eq(t, PresSlideSpans_static_lines(EDECK, s2, t3, 1), []int64{7, 12})
+	eq(t, PresSlideSpans_static_lines(EDECK, s2, t3, 2), []int64{7, 12})
+}
+
+// A slide that runs over breaks before a sub-heading, and the layout names
+// the slide it went on to after that sub-heading. With the split level the
+// slide is still its heading's: replacing or deleting either takes both.
+func TestSlideSpansSubHeadingOverflow(t *testing.T) {
+	deck := "# Deck\n\nIntro\n\n## One\n\nLead.\n\n### Notes\n\n- a\n- b\n\n::: notes\nSaid.\n:::\n\n## Two\n\nText two\n"
+	starts := []int64{0, int64(strings.Index(deck, "## One")), int64(strings.Index(deck, "### Notes")), int64(strings.Index(deck, "## Two"))}
+	titles := []string{"Deck", "One", "Notes", "Two"}
+	eq(t, PresSlideSpans_static_linesIn(deck, starts, titles, 1, 2), []int64{4, 17})
+	eq(t, PresSlideSpans_static_linesIn(deck, starts, titles, 2, 2), []int64{4, 17})
+	eq(t, PresSlideSpans_static_linesIn(deck, starts, titles, 3, 2), []int64{17, 21})
+	// every heading ends a section without the split level, as before
+	eq(t, PresSlideSpans_static_lines(deck, starts, titles, 1), []int64{4, 8})
+	// a deck that starts slides at ### keeps them apart
+	eq(t, PresSlideSpans_static_linesIn(deck, starts, titles, 1, 3), []int64{4, 8})
+	out := DeckEdits_static_applyIn(deck, []*DeckEdit{slideEdit(2, "", "## One\n\nNew.")}, starts, titles, 2)
+	if out.err != "" {
+		t.Fatal(out.err)
+	}
+	if strings.Contains(out.md, "### Notes") || strings.Contains(out.md, "Said.") || !strings.Contains(out.md, "## One\n\nNew.\n\n## Two") {
+		t.Fatalf("the slide it ran over to is left behind:\n%s", out.md)
+	}
+	del := DeckEdits_static_applyIn(deck, []*DeckEdit{slideEdit(3, "", "")}, starts, titles, 2)
+	if strings.Contains(del.md, "## One") || strings.Contains(del.md, "### Notes") || !strings.Contains(del.md, "## Two") {
+		t.Fatalf("deleting the slide it ran over to:\n%s", del.md)
+	}
 }
 
 func TestEditsReplaceText(t *testing.T) {
@@ -102,6 +140,22 @@ func TestEditsReplaceDeleteAndAddSlides(t *testing.T) {
 	eq(t, o.md, "---\ntitle: T\n---\n# Title\n\nIntro\n\n## Mid\n\n## Two\n\nText two\n\n## Three\n\nFin\n")
 }
 
+func TestEditsMoveSlides(t *testing.T) {
+	o := applyEdits(moveEdit(4, "", 1))
+	eq(t, o.err, "")
+	eq(t, o.md, "---\ntitle: T\n---\n# Title\n\nIntro\n\n## Three\n\nThe end\n\n## One\n\n- a\n- b\n\n## Two\n\nText two\n")
+	eq(t, o.done, []string{`Edit 1: slide 4 "Three" moved after slide 1 "Title".`})
+	o = applyEdits(moveEdit(0, "one", 4))
+	eq(t, o.md, "---\ntitle: T\n---\n# Title\n\nIntro\n\n## Two\n\nText two\n\n## Three\n\nThe end\n\n## One\n\n- a\n- b\n")
+	o = applyEdits(moveEdit(3, "", 0))
+	eq(t, o.md, "---\ntitle: T\n---\n\n## Two\n\nText two\n\n# Title\n\nIntro\n\n## One\n\n- a\n- b\n\n## Three\n\nThe end\n")
+	match(t, applyEdits(moveEdit(3, "", 2)).err, `slide 3 "Two" is already there`)
+	match(t, applyEdits(moveEdit(3, "", 9)).err, `after_slide is a slide number from 0`)
+	// deleting the last slide leaves no blank line at the end
+	o = applyEdits(slideEdit(4, "", ""))
+	eq(t, o.md, "---\ntitle: T\n---\n# Title\n\nIntro\n\n## One\n\n- a\n- b\n\n## Two\n\nText two\n")
+}
+
 func TestEditsRefuseUnclearOnes(t *testing.T) {
 	match(t, applyEdits(slideEdit(9, "", "## x")).err, `^Edit 1: there is no slide 9; the deck has 4\.$`)
 	match(t, applyEdits(slideEdit(0, "Nope", "## x")).err, `no slide is titled "Nope"`)
@@ -148,4 +202,41 @@ func TestUpdateWithEdits(t *testing.T) {
 	match(t, textOf(both), `markdown \(the whole deck\) or edits, not both`)
 	odd := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edits": []any{map[string]any{"slide": 2}}})
 	match(t, textOf(odd), `Edit 1: markdown is needed`)
+}
+
+// A slide whose table runs over onto more slides is replaced whole, by the
+// number of its first slide, of a slide its table went on to, or by title.
+func TestUpdateReplacesSlideThatRanOver(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, testEnv(&f, nil), "")
+	defer s.close()
+	rows := ""
+	for i := 1; i <= 30; i++ {
+		rows += "| row " + strconv.Itoa(i) + " | v" + strconv.Itoa(i) + " |\n"
+	}
+	md := "# Deck\n\nIntro\n\n## Big\n\n| A | B |\n|---|---|\n" + rows + "\n## Next\n\nAfter\n"
+	want := "# Deck\n\nIntro\n\n## Small\n\nShort\n\n## Next\n\nAfter\n"
+	for _, edit := range []map[string]any{
+		{"slide": 2, "markdown": "## Small\n\nShort"},
+		// slide 3 is the first slide the table went on to: it is the Big
+		// slide's, so its whole section goes
+		{"slide": 3, "markdown": "## Small\n\nShort"},
+		{"slide_title": "Big", "markdown": "## Small\n\nShort"},
+	} {
+		c := call(t, s, "create_presentation", map[string]any{"title": "Over", "markdown": md})
+		if c.IsError {
+			t.Fatal(textOf(c))
+		}
+		id := sc(c)["deck_id"].(string)
+		// the numbers the layout report shows: the overflow slides count
+		match(t, textOf(c), `Slide "Big" does not fit and goes on over \d+ more slides`)
+		match(t, textOf(c), `Slide 3: `)
+		u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edits": []any{edit}})
+		if u.IsError {
+			t.Fatal(textOf(u))
+		}
+		eq(t, f.db.doc("shares/" + id)["md"], want)
+		eq(t, sc(u)["slides"], 3)
+		match(t, textOf(u), `Edit 1: slide \d+( "Big")? replaced \(with slides 2–\d+, which its text runs over\)\.`)
+	}
 }

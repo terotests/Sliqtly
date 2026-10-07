@@ -1,0 +1,14 @@
+table { font-size: 15pt }
+page { background-color: #0E1512; }
+document { color: #E8F1EC; }
+h1 { color: #FFFFFF; }
+h2 { color: #FFFFFF; }
+.lead { color: #9FD9BF; }
+chart { color: #0B6E4F; accent-color: #7FC8A9; }
+diagram { color: #0B6E4F; accent-color: #7FC8A9; }
+figure { colors: #0B6E4F #12936A #3FB68A #7FC8A9; }
+table { border-color: #1F3A2F; background-color: #13201B; }
+container { background-color: #0B6E4F33; }
+table { font-size: 13pt }
+.lead { font-size: 21pt; }
+h2 { font-size: 30pt; }

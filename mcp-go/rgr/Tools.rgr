@@ -220,6 +220,9 @@ class Tools {
         cp.put("title" title)
         cp.put("markdown" (Tools.prop("string" "The whole deck as Sliqtly Markdown")))
         Tools.deckFields(cp)
+        if (host_has_tool host "list_rooms") {
+            cp.put("room_id" (Tools.prop("string" "The room (project) the presentation goes to, room_id from list_rooms or create_room; left out, it goes to General. Look for the room it belongs to first (list_rooms with query, e.g. the ticket code in its name) and suggest it to the user, or ask whether to make a new one.")))
+        }
         tools.add((Tools.tool("create_presentation" "Create a presentation" (Tools.withNameRule(host "Create a Sliqtly slide presentation from Markdown (# title slide, ## per slide), an optional theme, extra CSS, pictures and data files (.xlsx, .csv, .json) its charts and tables read. Returns a link that opens the presentation and a link to edit a copy in the Sliqtly editor.")) (Tools.schema(cp ([] _:string ("title" "markdown")))) (Tools.annotations(false 0 false true)) (Tools.uiMeta(host)))))
 
         def up:MfJ (MfJ.newObj())
@@ -232,18 +235,18 @@ class Tools {
         ep.put("find" (Tools.prop("string" "Text to change, exactly as it is in the deck (spaces and line breaks too); it must be there once, or give all: true")))
         ep.put("replace" (Tools.prop("string" "What find becomes (\"\" removes it)")))
         ep.put("all" (Tools.prop("boolean" "Change every place find is, not just one")))
-        def sn:MfJ (Tools.prop("integer" "Slide to replace or delete, numbered as in render_overview and the layout report (1 = first)"))
+        def sn:MfJ (Tools.prop("integer" "Slide to replace, delete or move, numbered as in render_overview and the layout report (1 = first)"))
         sn.putInt("minimum" 1)
         ep.put("slide" sn)
-        ep.put("slide_title" (Tools.prop("string" "Slide to replace or delete by its title (instead of slide)")))
-        def an:MfJ (Tools.prop("integer" "Add the markdown's slides after this slide (0 = before the first)"))
+        ep.put("slide_title" (Tools.prop("string" "Slide to replace, delete or move by its title (instead of slide)")))
+        def an:MfJ (Tools.prop("integer" "Add the markdown's slides after this slide (0 = before the first); with slide or slide_title and no markdown, move that slide here"))
         an.putInt("minimum" 0)
         ep.put("after_slide" an)
         ep.put("markdown" (Tools.prop("string" "With slide/slide_title: the slide's whole new Markdown from its heading (\"\" deletes the slide). With after_slide: the new slides.")))
         def eitem:MfJ (MfJ.newObj())
         eitem.putStr("type" "object")
         eitem.put("properties" ep)
-        def edits:MfJ (Tools.prop("array" "Changes to the deck's Markdown instead of sending all of it: each edit is find + replace, slide (or slide_title) + markdown, or after_slide + markdown. Slide numbers and find refer to the deck as it is before these edits; two edits may not touch the same text. Not with markdown."))
+        def edits:MfJ (Tools.prop("array" "Changes to the deck's Markdown instead of sending all of it: each edit is find + replace, slide (or slide_title) + markdown, after_slide + markdown, or slide (or slide_title) + after_slide to move a slide as it is. Slide numbers and find refer to the deck as it is before these edits; two edits may not touch the same text. Not with markdown."))
         edits.put("items" eitem)
         up.put("edits" edits)
         up.put("base_version" (Tools.prop("string" "The version your markdown started from (from get_presentation, begin_work or your last update). When the deck changed since, the changes are merged; a change to the same lines is refused. Needed with markdown when another assistant is working on the deck; edits are made on the deck as it is and need none.")))
@@ -596,6 +599,32 @@ class Tools {
             return ("Not created: without sign-in one conversation makes at most " + (to_string (Limits.ANON_DECKS())) + " presentations. Change one of them with update_presentation, or sign in (Google) to keep more.")
         }
         return ""
+    }
+
+    ; The room a new deck goes to: "" for the server's own choice (General),
+    ; else the room's id; "!" and why when it cannot go there, said before
+    ; anything is written.
+    sfn roomFor:string (host:McpHost caller:Caller id:string) {
+        if ((strlen id) == 0) {
+            return ""
+        }
+        if ((host_has_tool host "get_room") == false) {
+            return "!Not created: this server keeps no rooms; leave room_id out."
+        }
+        def args:MfJ (MfJ.newObj())
+        args.putStr("room_id" id)
+        def answer:string (host_call_tool host caller.uid caller.who "get_room" (JOut.text(args)))
+        def herr:string (host_error host)
+        if ((strlen herr) > 0) {
+            host_clear_error host
+            return ("!Not created: room_id " + id + ": " + herr + ". list_rooms gives the rooms.")
+        }
+        def row:MfJ ((J.parse(answer)).field("room"))
+        def role:string (row.str_("role"))
+        if ((role != "editor") && (role != "owner")) {
+            return ("!Not created: room " + id + " is read only (archived, or your role is " + role + "). Choose another room, or leave room_id out.")
+        }
+        return id
     }
 
     ; how many more decks this caller may make, said before an assistant
@@ -1485,6 +1514,10 @@ class Tools {
                 return (Tools.fail(full))
             }
         }
+        def room:string (Tools.roomFor(host caller (trim (a.str_("room_id")))))
+        if ((indexOf room "!") == 0) {
+            return (Tools.fail((substring room 1 (strlen room))))
+        }
         def md:string (a.str_("markdown"))
         def theme:string "aurora"
         if (Tools.has(a "theme")) {
@@ -1594,7 +1627,7 @@ class Tools {
         for data.imgs di:Img dk {
             push kept di
         }
-        def made:Created (Store.create(host (a.str_("title")) md theme sh.hasCss sh.css kept owner vis))
+        def made:Created (Store.create(host (a.str_("title")) md theme sh.hasCss sh.css kept owner vis room))
         if ((strlen made.err) > 0) {
             return (Tools.failed(host "create_presentation" made.err))
         }
@@ -2208,15 +2241,24 @@ class Tools {
                 e.title = (ej.str_("slide_title"))
             }
             if ((ej.field("after_slide")).kind == 2) {
-                ways = (ways + 1)
-                e.kind = "insert"
                 e.after = (ej.int_("after_slide" 0))
+                if (e.kind == "slide") {
+                    ; slide (or slide_title) and after_slide: a move
+                    e.kind = "move"
+                } {
+                    ways = (ways + 1)
+                    e.kind = "insert"
+                }
             }
             if (ways != 1) {
-                out.err = (lead + "an edit has find (and replace), or slide (or slide_title) and markdown, or after_slide and markdown.")
+                out.err = (lead + "an edit has find (and replace), or slide (or slide_title) and markdown, or after_slide and markdown, or slide (or slide_title) and after_slide to move it.")
                 return out
             }
-            if ((e.kind != "text") && ((ej.field("markdown")).kind != 3)) {
+            if ((e.kind == "move") && ((ej.field("markdown")).kind != 0)) {
+                out.err = (lead + "a move (slide and after_slide) takes no markdown: the slide goes as it is.")
+                return out
+            }
+            if (((e.kind != "text") && (e.kind != "move")) && ((ej.field("markdown")).kind != 3)) {
                 out.err = (lead + "markdown is needed (\"\" deletes a slide).")
                 return out
             }
@@ -2226,6 +2268,7 @@ class Tools {
         def md:string (cur.str_("md"))
         def starts:[int]
         def titles:[string]
+        def lvl:int 2
         if (Tools.needsSlides(edits)) {
             def noImgs:[Img]
             def stored:[string]
@@ -2237,8 +2280,9 @@ class Tools {
             def ck:Checked (Tools.checkDeck(host md (cur.str_("theme")) (css.kind == 3) (cur.str_("css")) bgs noImgs id stored))
             starts = ck.starts
             titles = ck.titles
+            lvl = ck.splitLevel
         }
-        return (DeckEdits.apply(md edits starts titles))
+        return (DeckEdits.applyIn(md edits starts titles lvl))
     }
 
     sfn needsSlides:boolean (edits:[DeckEdit]) {

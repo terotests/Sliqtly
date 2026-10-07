@@ -16,11 +16,17 @@
 ;
 ; One table per compiled module (a singleton), set once at start: the page
 ; reloads to change language, so nothing built earlier is left in the old one.
+;
+; The word for a room (PresTerm: "room" or "project", File → Settings) is
+; swapped in every string `t` gives; `plain` gives a string without it.
 ; ==============================================================================
+
+Import "PresTerm.rgr"
 
 class PresI18n @singleton(true) {
     def table:[string:string]
     def code:string "en"
+    def word:string "room"
 
     ; `pairs`: the English and its translation separated by \u0001, the
     ; entries by \u0002 (no JSON to parse here: the page has done that)
@@ -42,11 +48,31 @@ class PresI18n @singleton(true) {
 
     sfn t:string (s:string) {
         def r:PresI18n (PresI18n.__singleton())
+        return (PresTerm.apply((PresI18n.plain(s)) r.code r.word))
+    }
+
+    ; the translation alone, the word for a room as it is written
+    sfn plain:string (s:string) {
+        def r:PresI18n (PresI18n.__singleton())
         def hit@(optional):string (get r.table s)
         if (!null? hit) {
             return (unwrap hit)
         }
         return s
+    }
+
+    ; what a room is called: "room" or "project"
+    sfn useTerm:void (word:string) {
+        def r:PresI18n (PresI18n.__singleton())
+        r.word = "room"
+        if (word == "project") {
+            r.word = "project"
+        }
+    }
+
+    sfn term:string () {
+        def r:PresI18n (PresI18n.__singleton())
+        return r.word
     }
 
     sfn lang:string () {
