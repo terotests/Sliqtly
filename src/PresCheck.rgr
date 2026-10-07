@@ -130,6 +130,25 @@ class PresCheck {
         this.reviewDiagram()
         this.helpGuide()
         this.fonts()
+        this.cssNotes()
+    }
+
+    ; A theme line the slides do not use is said, with where it is; the
+    ; rules Sliqtly reads itself (chart, diagram, figure, deck) are not
+    fn cssNotes:void () {
+        def sheet:string "chart { chart-style: neon; font-size: 14pt }\n#myynti chart { padding: 4pt }\ndiagram { color: #f00 }\nfigure { card-background: #fff; colors: #f00 #0f0 }\ndeck { fx: starfield; fx-hue: 200 }\n.tumma page { background-color: #101820 }"
+        def clean:[MdCssNote] (PresCssSupport.lint(sheet))
+        this.ok(((array_length clean) == 0) ("css notes: Sliqtly's own rules are read: " + (to_string (array_length clean))))
+        def bad:string ".haalea {\n  opacity: 0.4;\n}\np:hover { color: red }"
+        def ds:[EditorDiagnostic] (PresCssSupport.diagnostics(bad))
+        this.ok(((array_length ds) == 2) ("css notes: two lines ignored: " + (to_string (array_length ds))))
+        if ((array_length ds) == 2) {
+            def d0:EditorDiagnostic (itemAt ds 0)
+            this.ok(((d0.line == 1) && (d0.col == 2)) ("css notes: at the line it is on: " + (d0.label())))
+        }
+        def deck (new PresDeck())
+        deck.setStyleSheet(bad)
+        this.ok(((array_length deck.cssNotes) == 2) "css notes: the deck keeps them for the report")
     }
 
     ; Help → How to use Sliqtly: the guide parses as the help panel's parts
@@ -141,7 +160,9 @@ class PresCheck {
         this.ok(((indexOf o.css "font-family: Lato;") > 0) ("fonts: Lato is kept: " + o.css))
         this.ok(((indexOf o.css "font-family: Droid Serif;") > 0) ("fonts: Georgia, serif is Droid Serif: " + o.css))
         this.ok((((indexOf o.faces "Lato-Bold") >= 0) && ((indexOf o.faces "Droid Serif-Italic") >= 0)) "fonts: the faces are asked of the page")
-        this.ok(((indexOf o.unknown "Georgia") >= 0) "fonts: Georgia is said to be missing")
+        this.ok(((indexOf o.unknown "Georgia") < 0) "fonts: Georgia, serif is not said to be missing: the serif is had")
+        def lone:PresFontsOut (PresFonts.read("heading { font-family: Georgia; }"))
+        this.ok(((indexOf lone.unknown "Georgia") >= 0) "fonts: Georgia alone is said to be missing")
         this.ok(((indexOf (PresFonts.note(o)) "heading { font-family") > 0) "fonts: h2 font-family points at heading")
         def plain:PresFontsOut (PresFonts.read("document { font-family: Open Sans } code { font-family: monospace }"))
         this.ok((((array_length plain.faces) == 0) && ((strlen (PresFonts.note(plain))) == 0)) "fonts: the faces every page has ask for nothing")
@@ -1171,11 +1192,23 @@ class PresCheck {
         ; a heading's own colour beats its class
         def hl:PresCssElement ((PresCascade.of("h2 { color: #aa0000 } .lead { color: #00aa00 }")).element("h2" lead ""))
         this.ok(((hl.facet("color")).from == "h2") "h2 colour above its class")
-        ; what a rule says that the layout does not read is listed as unread
-        def un:PresCssElement ((PresCascade.of("p { color: red; margin-bottom: 4pt }")).element("p" none ""))
-        def uf:PresCssFacet (un.facet("unread:p:color"))
-        this.ok((uf.unread && (uf.value == "red")) ("p color is unread: " + (un.dump())))
+        ; a paragraph's own colour (MdStyle.paraColor) is over the document's
+        def un:PresCssElement ((PresCascade.of("document { color: #101010 } p { color: red; margin-bottom: 4pt; opacity: 0.5 }")).element("p" none ""))
+        this.ok((((un.facet("color")).from == "p") && ((un.facet("color")).own == "p")) ("p color: " + (un.dump())))
         this.ok(((un.facet("margin-bottom")).value == "4pt") "p margin-bottom")
+        ; what a rule says that the layout does not read is listed as unread
+        def uf:PresCssFacet (un.facet("unread:p:opacity"))
+        this.ok((uf.unread && (uf.value == "0.5")) ("opacity is unread: " + (un.dump())))
+        ; weight, case and spacing: class, then the element, then the document
+        def ty:PresCascade (PresCascade.of("document { letter-spacing: 1px } heading { font-weight: normal } h2 { text-transform: uppercase } .lead { font-weight: 800; background-color: #fff; padding: 8pt }"))
+        def th2:PresCssElement (ty.element("h2" none ""))
+        this.ok((((th2.facet("font-weight")).from == "heading") && ((th2.facet("text-transform")).from == "h2")) ("h2 typography: " + (th2.dump())))
+        this.ok(((th2.facet("letter-spacing")).from == "document") "letter-spacing from the document")
+        def tlead:PresCssElement (ty.element("p" lead ""))
+        this.ok((((tlead.facet("font-weight")).from == ".lead") && ((tlead.facet("box-padding")).value == "8pt")) ("a class's weight and box: " + (tlead.dump())))
+        ; a table's header row: th over table
+        def tc:PresCssElement ((PresCascade.of("table { background-color: #111111 } th { background-color: #222222; color: #ffffff }")).element("table" none ""))
+        this.ok((((tc.facet("background-color")).from == "th") && ((tc.facet("header-color")).value == "#ffffff")) ("th: " + (tc.dump())))
         ; the universal selector reaches every rule
         this.ok((((((PresCascade.of("* { color: #010203 }")).element("p" none "")).facet("color")).value) == "#010203") "* reaches the text")
         ; a block on a {container=…} plate: the theme's container rule, its
