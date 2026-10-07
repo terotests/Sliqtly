@@ -385,7 +385,7 @@ class Charts {
                 if ((strlen f.title) > 0) {
                     on = (" on \"" + f.title + "\"")
                 }
-                push ws ("Chart " + (i + 1) + on + ": " + (join bad ", ") + "; Vega-Lite types are quantitative, ordinal, nominal and temporal. Points on an axis of an unknown type all fall at 0.")
+                push ws ("Chart " + (i + 1) + on + ": " + (join bad ", ") + "; Vega-Lite types are quantitative, ordinal, nominal and temporal. Sliqtly reads the type from the data and draws the chart, but Vega-Lite itself and other tools reject it: write one of the four.")
             }
         }
         return ws

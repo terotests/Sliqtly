@@ -79,7 +79,7 @@ options do, not when to use them.
 - `{width=62%}` under a chart or table puts what follows beside it.
 - A table that runs a few rows over its slide is set smaller by itself.
 - `lang: fi` (or `sv`, `de`, `fr`…) in the front matter writes the charts'
-  numbers that language's way.
+  numbers, and their month and day names, that language's way.
 - Look at `render_overview` before saying the deck is done: nothing cut,
   too small or overlapping.
 
@@ -231,8 +231,10 @@ margin-inside: 20mm   # margin-inside (at the binding), margin-outside
   beside bars are a layer of `bar` and a layer of `text` sharing the
   encoding; a `"sort": "-x"` on the shared `y` orders both. Numbers follow
   the front matter's `lang:` (see "Style is yours to choose"). An encoding's
-  `type` is `quantitative`, `ordinal`, `nominal` or `temporal` (never
-  `"point"`: that puts every mark at 0). The data is
+  `type` is `quantitative`, `ordinal`, `nominal` or `temporal` (Vega-Lite
+  rejects any other, such as `"point"`). `{chart-style=neon}` under the
+  fence (flat, forge, neon, glass, or a look: mermaid, jurassic, cartoon,
+  romantic) styles that chart alone. The data is
   inline `data.values`, or live, read each time the deck opens:
   `"data": {"url": "https://…/x.csv"}` (or `.json`), a Google Sheet
   `{"source": "google-sheets", "id": "<id or link>", "sheet": "Monthly", "range": "A:B"}`

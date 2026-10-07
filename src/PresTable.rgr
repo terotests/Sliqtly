@@ -78,11 +78,23 @@ class PresTableUse {
     Constructor () {
     }
 
+    ; the rows a page shows: `rows:`, or fewer when the box it was given
+    ; holds fewer at a readable size (`PresTable.paint` sets it)
+    def shown:int 0
+
+    fn perShown:int () {
+        if ((shown > 0) && (shown < perPage)) {
+            return shown
+        }
+        return perPage
+    }
+
     fn pages:int () {
-        if ((rows <= 0) || (perPage <= 0)) {
+        def per:int (this.perShown())
+        if ((rows <= 0) || (per <= 0)) {
             return 1
         }
-        def q:int (to_int ((to_double (rows - 1)) / (to_double perPage)))
+        def q:int (to_int ((to_double (rows - 1)) / (to_double per)))
         return (q + 1)
     }
 
@@ -478,7 +490,25 @@ class PresTable {
         }
         def pagerH:double 34.0
         def rowsH:double (bh - pagerH)
-        def rh:double (rowsH / (to_double (u.perPage + 1)))
+        ; A box smaller than `rows:` asks for (a table sharing its slide)
+        ; shows fewer rows a page, never smaller text: the rows were set at
+        ; 10 (20 px on a 1080 screen), a stripe of print under the slide's
+        ; other table. The pages turn through the rest.
+        def rhMin:double (PresTable.minSize() / 0.42)
+        def fit:int ((to_int (rowsH / rhMin)) - 1)
+        if (fit < 1) {
+            fit = 1
+        }
+        u.shown = 0
+        if (fit < u.perPage) {
+            u.shown = fit
+        }
+        def per:int (u.perShown())
+        def pgAt:int pg
+        if (pgAt >= (u.pages())) {
+            pgAt = ((u.pages()) - 1)
+        }
+        def rh:double (rowsH / (to_double (per + 1)))
         if (rh > 54.0) {
             rh = 54.0
         }
@@ -486,12 +516,12 @@ class PresTable {
         if (size > 22.0) {
             size = 22.0
         }
-        if (size < 10.0) {
-            size = 10.0
+        if (size < (PresTable.minSize())) {
+            size = (PresTable.minSize())
         }
         def pad:double (size * 0.7)
-        def first:int (pg * u.perPage)
-        def last:int (first + u.perPage)
+        def first:int (pgAt * per)
+        def last:int (first + per)
         if (last > u.rows) {
             last = u.rows
         }
@@ -566,7 +596,7 @@ class PresTable {
         }
         def py:double ((by + (rh * (to_double ((last - first) + 1)))) + 8.0)
         def ps:double 14.0
-        def label:string (((to_string (pg + 1)) + " / ") + (to_string pages))
+        def label:string (((to_string (pgAt + 1)) + " / ") + (to_string pages))
         def lw:double (l.measureStyled(label "Open Sans" ps false false))
         def bwid:double 30.0
         def bhgt:double 26.0
@@ -575,10 +605,10 @@ class PresTable {
             def nx:double (right - bwid)
             def lx:double ((nx - 10.0) - lw)
             def pvx:double ((lx - 10.0) - bwid)
-            PresTable.rect(out pvx py bwid bhgt inkC (? (pg > 0) 0.10 0.04))
-            PresTable.rect(out nx py bwid bhgt inkC (? (pg < (pages - 1)) 0.10 0.04))
-            PresTable.text(out (pvx + 10.0) (py + 4.0) "‹" 16.0 true inkC (? (pg > 0) 0.9 0.3) l)
-            PresTable.text(out (nx + 11.0) (py + 4.0) "›" 16.0 true inkC (? (pg < (pages - 1)) 0.9 0.3) l)
+            PresTable.rect(out pvx py bwid bhgt inkC (? (pgAt > 0) 0.10 0.04))
+            PresTable.rect(out nx py bwid bhgt inkC (? (pgAt < (pages - 1)) 0.10 0.04))
+            PresTable.text(out (pvx + 10.0) (py + 4.0) "‹" 16.0 true inkC (? (pgAt > 0) 0.9 0.3) l)
+            PresTable.text(out (nx + 11.0) (py + 4.0) "›" 16.0 true inkC (? (pgAt < (pages - 1)) 0.9 0.3) l)
             PresTable.text(out lx (py + 5.0) label ps false inkC 0.7 l)
             u.prevX = pvx
             u.nextX = nx
@@ -588,6 +618,12 @@ class PresTable {
         } {
             PresTable.text(out (right - lw) (py + 5.0) label ps false inkC 0.6 l)
         }
+    }
+
+    ; the smallest a table's text is set (14 of a 540-high slide, 28 px
+    ; on a 1080 screen)
+    sfn minSize:double () {
+        return 14.0
     }
 
     ; -1 (‹), 1 (›) or 0: what a press at (x, y) on the slide turned.

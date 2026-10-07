@@ -309,9 +309,6 @@ class Check {
         }
         def l:MdLayout (d.layout())
         for l.embeds.entries e:MdEmbedEntry k {
-            if e.ok {
-                continue
-            }
             def where:string ""
             def at:int (indexOf md e.source)
             if (at >= 0) {
@@ -325,6 +322,14 @@ class Check {
                     }
                 }
             }
+            if e.ok {
+                ; drawn, but with a field its data does not have: an empty
+                ; frame where the bars should be
+                for e.warnings w:string wi {
+                    push c.warnings ("The " + e.kind + " block" + where + ": " + w + ".")
+                }
+                continue
+            }
             def why:string e.note
             if ((strlen why) == 0) {
                 why = "it could not be drawn"
@@ -333,6 +338,9 @@ class Check {
         }
         for (d.smartArtNotes()) note:string ni {
             push c.warnings note
+        }
+        for (d.chartStyleNotes()) csn:string csi {
+            push c.warnings csn
         }
         if c.laidOut {
             Check.contrast(c d l pics)
@@ -452,6 +460,26 @@ class Check {
         return out
     }
 
+    ; which commands a chart or a diagram drew (its box is an embed)
+    sfn inDrawing:[boolean] (d:PresDeck l:MdLayout n:int) {
+        def out:[boolean]
+        def owner:[int] d.boxOfCmd
+        def i:int 0
+        while (i < n) {
+            def q:boolean false
+            if (i < (array_length owner)) {
+                def ob:int (itemAt owner i)
+                if ((ob >= 0) && (ob < (array_length l.boxes))) {
+                    def b:MdBox (itemAt l.boxes ob)
+                    q = (b.kind == 3)
+                }
+            }
+            push out q
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; text that does not stand out from what it is drawn over, slide by
     ; slide, as the editor's painter judges it
     ; A text command's box is its slot (a centred letter's is the width of
@@ -475,6 +503,8 @@ class Check {
         for l.embeds.entries e:MdEmbedEntry k {
             if (e.ok == false) {
                 push skip e.note
+                ; …as the slide writes it in the empty box (MdLayout.embed)
+                push skip ("⚠ " + e.kind + ": " + e.note)
             }
         }
         def i:int 0
@@ -483,7 +513,8 @@ class Check {
             def list:EVGDisplayList (d.slideList(i groups 0.0))
             Check.toInk(list l)
             def quiet:[boolean] (Check.struck(d l (array_length list.cmds)))
-            def low:[LowRun] (Contrast.lowRuns(list pics "" -1.0 skip quiet))
+            def drawn:[boolean] (Check.inDrawing(d l (array_length list.cmds)))
+            def low:[LowRun] (Contrast.lowRuns(list pics "" -1.0 skip quiet drawn))
             if ((array_length low) > 0) {
                 def s:PresSlide (d.slideAt(i))
                 def bgSrc:string ""
@@ -502,13 +533,15 @@ class Check {
                     def step:int ((floor (s.bgDim * 20.0)) + 1)
                     while ((step <= 18) && (dimFix < 0.0)) {
                         def dim:double ((to_double step) / 20.0)
-                        if ((array_length (Contrast.lowRuns(list pics bgSrc dim skip quiet))) == 0) {
+                        if ((array_length (Contrast.lowRuns(list pics bgSrc dim skip quiet drawn))) == 0) {
                             dimFix = dim
                         }
                         step = (step + 1)
                     }
                 }
-                push c.warnings (Contrast.note(s.title i low hasBg dimFix))
+                for (Contrast.notes(s.title i low hasBg dimFix)) cn:string cni {
+                    push c.warnings cn
+                }
             }
             i = (i + 1)
         }

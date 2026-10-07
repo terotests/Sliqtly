@@ -230,7 +230,7 @@ func TestUpdateReplacesSlideThatRanOver(t *testing.T) {
 		id := sc(c)["deck_id"].(string)
 		// the numbers the layout report shows: the overflow slides count
 		match(t, textOf(c), `Slide "Big" does not fit and goes on over \d+ more slides`)
-		match(t, textOf(c), `Slide 3: `)
+		match(t, textOf(c), `Slide 3 "Big \(continued\)": `)
 		u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "edits": []any{edit}})
 		if u.IsError {
 			t.Fatal(textOf(u))

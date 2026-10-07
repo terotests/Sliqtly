@@ -474,9 +474,37 @@ func TestReportTableContinuationWithCard(t *testing.T) {
 	}
 	text := textOf(c)
 	t.Log(text)
-	match(t, text, `Slide 2: .*\n- heading "Asiakkaat" .*\n- table at 108,`)
-	match(t, text, `Slide \d+: .*\n- heading "Asiakkaat" .*\n- table at .*\n- list "•" at 1\d\d\d,`)
+	match(t, text, `Slide 2 "Asiakkaat \(continued\)": .*\n- heading "Asiakkaat" .*\n- table at 108,`)
+	match(t, text, `Slide \d+ "Asiakkaat \(continued\)": .*\n- heading "Asiakkaat" .*\n- table at .*\n- list "•" at 1\d\d\d,`)
 	if strings.Contains(text, "overlap") {
 		t.Fatal("the card beside the table's rest is reported as overlapping it")
 	}
+}
+
+// The chart test deck's findings: a field the data does not have is named
+// with the nearest one, a chart that is not drawn says so instead of being
+// called small, a ```table is reported as a table, an unknown chart style
+// is named, and text inside a chart is judged over the fill under it.
+func TestReportChartFindings(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	rows := `{"values":[{"alue":"Etelä","myynti":142},{"alue":"Itä","myynti":86}]}`
+	md := "---\nlang: fi\n---\n\n## Kenttä\n\n```vega-lite\n{\"data\":" + rows + ",\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"alueet\",\"type\":\"nominal\"},\"y\":{\"field\":\"myynti\",\"type\":\"quantitative\"}}}\n```\n\n" +
+		"## Rikki\n\n```vega-lite\n{\"data\": oops}\n```\n\n" +
+		"## Tyyli\n\n```vega-lite\n{\"data\":" + rows + ",\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"alue\",\"type\":\"nominal\"},\"y\":{\"field\":\"myynti\",\"type\":\"quantitative\"}}}\n```\n{chart-style=sparkly}\n\n" +
+		"## Ruudut\n\n```vega-lite\n{\"data\":" + rows + ",\"encoding\":{\"x\":{\"field\":\"alue\",\"type\":\"nominal\"}},\"layer\":[{\"mark\":\"rect\",\"encoding\":{\"color\":{\"value\":\"#f4f4a0\"}}},{\"mark\":{\"type\":\"text\",\"fontSize\":20},\"encoding\":{\"text\":{\"field\":\"myynti\"},\"color\":{\"value\":\"white\"}}}]}\n```\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Findings", "markdown": md})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	text := textOf(c)
+	t.Log(text)
+	match(t, text, `encoding x reads field "alueet", which the data does not have \(did you mean "alue"\?\)`)
+	match(t, text, `- chart \(Vega-Lite\) at .*: not drawn, `)
+	if strings.Contains(text, `"Rikki": the elements`) && strings.Contains(text, "most of the slide is empty") {
+		t.Fatal("a chart that is not drawn is reported as small")
+	}
+	match(t, text, `sparkly`)
+	match(t, text, `text in a chart or diagram is hard to read over the colour it is drawn on: "\d+" [\d.]+:1 on #f4f4a0`)
 }

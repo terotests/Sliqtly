@@ -67,6 +67,9 @@ class PresGroup {
 class PresChartUse {
     def source:string ""
     def srcStart:int 0
+    ; the block's own style: `{chart-style=neon}` or `{style=cartoon}`
+    ; under the fence (a dressing or a look), "" for none
+    def style:string ""
     ; seconds after the slide starts; set by PresTimeline (-1: not yet)
     def start:double -1.0
 }
@@ -776,9 +779,13 @@ class PresDeck {
             def u (new PresChartUse())
             u.source = n.literal
             u.srcStart = n.srcStart
+            u.style = (trim (n.attrValue("chart-style")))
+            if ((strlen u.style) == 0) {
+                u.style = (trim (n.attrValue("style")))
+            }
             push s.charts u
             ; a chart in a look: its faces asked of the page now
-            def lk:string (this.chartLookName(n.literal))
+            def lk:string (this.chartLookFor(n.literal u.style))
             if ((strlen lk) > 0) {
                 this.wantLookFaces((FlowLook.named(lk true)))
             }
@@ -1403,7 +1410,48 @@ class PresDeck {
     ; when it made one, else the document's `style:`, else the theme's
     ; `chart { chart-style }`.
     fn chartLookName:string (spec:string) {
-        return (PresChart.lookName((PresChart.specString(spec "presStyle")) docChartStyle (this.themeRule("chart" "chart-style"))))
+        return (this.chartLookFor(spec (this.blockChartStyle(spec))))
+    }
+
+    ; …with `block` the fence's own `{chart-style=…}`, under the chart
+    ; window's choice and over the document's
+    fn chartLookFor:string (spec:string block:string) {
+        def own:string (PresChart.specString(spec "presStyle"))
+        if ((strlen own) == 0) {
+            own = block
+        }
+        return (PresChart.lookName(own docChartStyle (this.themeRule("chart" "chart-style"))))
+    }
+
+    ; The style written under a chart's fence (`{chart-style=neon}`), "" for
+    ; none: the deck was read for its charts (`readCharts`).
+    fn blockChartStyle:string (spec:string) {
+        for slides sl:PresSlide si {
+            for sl.charts u:PresChartUse ui {
+                if (u.source == spec) {
+                    return u.style
+                }
+            }
+        }
+        return ""
+    }
+
+    ; The charts whose `{chart-style=…}` names neither a dressing (flat,
+    ; forge, neon, glass) nor a look: drawn as if it said nothing.
+    fn chartStyleNotes:[string] () {
+        def out:[string]
+        for slides sl:PresSlide si {
+            for sl.charts u:PresChartUse ui {
+                if (((strlen u.style) > 0) && (((PresChart.isDressing(u.style)) == false) && ((FlowLook.knows(u.style)) == false))) {
+                    def where:string ("slide " + (to_string (si + 1)))
+                    if ((strlen sl.title) > 0) {
+                        where = ("slide \"" + sl.title + "\"")
+                    }
+                    push out ("The chart on " + where + " has style \"" + u.style + "\", which is not one: flat, forge, neon, glass, or a look (mermaid, jurassic, cartoon, romantic).")
+                }
+            }
+        }
+        return out
     }
 
     ; A chart's commands from `before` on, dressed for the stage: in a look,
@@ -1423,7 +1471,21 @@ class PresDeck {
             PresChart.dressLook(out before t still look spec paper l haveFaces)
             return
         }
-        PresChart.dress(out before t still (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) spec (this.chartStyleWords()))
+        ; a block's own dressing (`{chart-style=neon}`) over the document's
+        ; and the theme's; the chart window's (`presStyle`) still wins
+        def words:string (this.chartStyleWords())
+        def block:string (this.blockChartStyle(spec))
+        if (PresChart.isDressing(block)) {
+            def ws:[string] (strsplit (trim words) " ")
+            def rest:string ""
+            def wi:int 1
+            while (wi < (array_length ws)) {
+                rest = (rest + " " + (itemAt ws wi))
+                wi = (wi + 1)
+            }
+            words = (block + rest)
+        }
+        PresChart.dress(out before t still (this.themeColour("chart" "accent-color")) (this.themeColour("chart" "color")) spec words)
     }
 
     ; The theme's chart-style and chart-effects, and "dark" on a dark slide
@@ -1551,7 +1613,9 @@ class PresDeck {
             def ft:string (VlJson.formatNumber((f + 1.0) 1))
             def guide:string ("{\"labelFontSize\": " + fs + ", \"titleFontSize\": " + ft + "}")
             if ((strlen parts) > 0) { parts = (parts + ", ") }
-            parts = (parts + "\"axis\": " + guide + ", \"legend\": " + guide)
+            ; …and a facet's headers (its panes' names) as large: Vega's 11
+            ; came out at 17 px on a 1080 screen under the panes' scaling
+            parts = (parts + "\"axis\": " + guide + ", \"legend\": " + guide + ", \"header\": " + guide)
             ; value labels (a `text` layer) as large as the axis labels:
             ; Vega's 11 read small beside them (Tero's cloud run 2026-10-06)
             if roomy {
@@ -1572,7 +1636,17 @@ class PresDeck {
         }
         if ((strlen pad) > 0) {
             if ((strlen out) > 0) { out = (out + ", ") }
-            out = (out + "\"padding\": " + pad)
+            ; a slide's chart keeps a little more air over it, under the
+            ; heading: at the padding all round it sat close to the title
+            ; (Tero's chart test 2026-10-07)
+            if (roomy && ((strlen (this.themeLength(key "chart" "padding"))) == 0)) {
+                def p0:double (?? (str2double pad) 14.0)
+                def side:string (VlJson.formatNumber(p0 1))
+                def over:string (VlJson.formatNumber((p0 + 8.0) 1))
+                out = (out + "\"padding\": {\"left\": " + side + ", \"right\": " + side + ", \"top\": " + over + ", \"bottom\": " + side + "}")
+            } {
+                out = (out + "\"padding\": " + pad)
+            }
         }
         ; where a chart narrower than the slide sits, as a flex row would put
         ; it: `chart { justify-content: center | flex-start | flex-end }`
@@ -1608,8 +1682,16 @@ class PresDeck {
     fn chartLook:string () {
         def out:string ""
         def loc:string (PresDeck.numberLocale(docLang))
+        def tl:string (PresDeck.timeLocale(docLang))
+        def parts:[string]
         if ((strlen loc) > 0) {
-            out = ("\"locale\": {\"number\": " + loc + "}, ")
+            push parts ("\"number\": " + loc)
+        }
+        if ((strlen tl) > 0) {
+            push parts ("\"time\": " + tl)
+        }
+        if ((array_length parts) > 0) {
+            out = ("\"locale\": {" + (join parts ", ") + "}, ")
         }
         if ((strlen docLang) > 0) {
             out = (out + "\"numberFormat\": \",\", ")
@@ -1712,6 +1794,82 @@ class PresDeck {
         }
         if ((indexOf dotted (" " + l + " ")) >= 0) {
             return "{\"decimal\": \",\", \"thousands\": \".\"}"
+        }
+        return ""
+    }
+
+    ; The month and day names of the charts (`config.locale.time`, as d3's
+    ; time format locales write them) for the deck's `lang:`; "" for English
+    ; and for a language not here. A Finnish deck's month axis read Jan,
+    ; Feb… beside numbers written the Finnish way (Tero 2026-10-07).
+    sfn timeLocale:string (lang:string) {
+        def l:string (MdHtml.lower((trim lang)))
+        def dash:int (indexOf l "-")
+        if (dash < 0) {
+            dash = (indexOf l "_")
+        }
+        if (dash > 0) {
+            l = (substring l 0 dash)
+        }
+        if (l == "fi") {
+            return "{\"months\":[\"tammikuu\",\"helmikuu\",\"maaliskuu\",\"huhtikuu\",\"toukokuu\",\"kesäkuu\",\"heinäkuu\",\"elokuu\",\"syyskuu\",\"lokakuu\",\"marraskuu\",\"joulukuu\"],\"shortMonths\":[\"Tammi\",\"Helmi\",\"Maalis\",\"Huhti\",\"Touko\",\"Kesä\",\"Heinä\",\"Elo\",\"Syys\",\"Loka\",\"Marras\",\"Joulu\"],\"days\":[\"sunnuntai\",\"maanantai\",\"tiistai\",\"keskiviikko\",\"torstai\",\"perjantai\",\"lauantai\"],\"shortDays\":[\"Su\",\"Ma\",\"Ti\",\"Ke\",\"To\",\"Pe\",\"La\"]}"
+        }
+        if (l == "sv") {
+            return "{\"months\":[\"Januari\",\"Februari\",\"Mars\",\"April\",\"Maj\",\"Juni\",\"Juli\",\"Augusti\",\"September\",\"Oktober\",\"November\",\"December\"],\"shortMonths\":[\"Jan\",\"Feb\",\"Mar\",\"Apr\",\"Maj\",\"Jun\",\"Jul\",\"Aug\",\"Sep\",\"Okt\",\"Nov\",\"Dec\"],\"days\":[\"Söndag\",\"Måndag\",\"Tisdag\",\"Onsdag\",\"Torsdag\",\"Fredag\",\"Lördag\"],\"shortDays\":[\"Sön\",\"Mån\",\"Tis\",\"Ons\",\"Tor\",\"Fre\",\"Lör\"]}"
+        }
+        if (l == "nb") {
+            return "{\"months\":[\"januar\",\"februar\",\"mars\",\"april\",\"mai\",\"juni\",\"juli\",\"august\",\"september\",\"oktober\",\"november\",\"desember\"],\"shortMonths\":[\"jan\",\"feb\",\"mars\",\"apr\",\"mai\",\"juni\",\"juli\",\"aug\",\"sep\",\"okt\",\"nov\",\"des\"],\"days\":[\"søndag\",\"mandag\",\"tirsdag\",\"onsdag\",\"torsdag\",\"fredag\",\"lørdag\"],\"shortDays\":[\"søn\",\"man\",\"tir\",\"ons\",\"tor\",\"fre\",\"lør\"]}"
+        }
+        if (l == "no") {
+            return "{\"months\":[\"januar\",\"februar\",\"mars\",\"april\",\"mai\",\"juni\",\"juli\",\"august\",\"september\",\"oktober\",\"november\",\"desember\"],\"shortMonths\":[\"jan\",\"feb\",\"mars\",\"apr\",\"mai\",\"juni\",\"juli\",\"aug\",\"sep\",\"okt\",\"nov\",\"des\"],\"days\":[\"søndag\",\"mandag\",\"tirsdag\",\"onsdag\",\"torsdag\",\"fredag\",\"lørdag\"],\"shortDays\":[\"søn\",\"man\",\"tir\",\"ons\",\"tor\",\"fre\",\"lør\"]}"
+        }
+        if (l == "nn") {
+            return "{\"months\":[\"januar\",\"februar\",\"mars\",\"april\",\"mai\",\"juni\",\"juli\",\"august\",\"september\",\"oktober\",\"november\",\"desember\"],\"shortMonths\":[\"jan\",\"feb\",\"mars\",\"apr\",\"mai\",\"juni\",\"juli\",\"aug\",\"sep\",\"okt\",\"nov\",\"des\"],\"days\":[\"søndag\",\"mandag\",\"tirsdag\",\"onsdag\",\"torsdag\",\"fredag\",\"lørdag\"],\"shortDays\":[\"søn\",\"man\",\"tir\",\"ons\",\"tor\",\"fre\",\"lør\"]}"
+        }
+        if (l == "da") {
+            return "{\"months\":[\"januar\",\"februar\",\"marts\",\"april\",\"maj\",\"juni\",\"juli\",\"august\",\"september\",\"oktober\",\"november\",\"december\"],\"shortMonths\":[\"jan\",\"feb\",\"mar\",\"apr\",\"maj\",\"jun\",\"jul\",\"aug\",\"sep\",\"okt\",\"nov\",\"dec\"],\"days\":[\"søndag\",\"mandag\",\"tirsdag\",\"onsdag\",\"torsdag\",\"fredag\",\"lørdag\"],\"shortDays\":[\"søn\",\"man\",\"tir\",\"ons\",\"tor\",\"fre\",\"lør\"]}"
+        }
+        if (l == "de") {
+            return "{\"months\":[\"Januar\",\"Februar\",\"März\",\"April\",\"Mai\",\"Juni\",\"Juli\",\"August\",\"September\",\"Oktober\",\"November\",\"Dezember\"],\"shortMonths\":[\"Jan\",\"Feb\",\"Mrz\",\"Apr\",\"Mai\",\"Jun\",\"Jul\",\"Aug\",\"Sep\",\"Okt\",\"Nov\",\"Dez\"],\"days\":[\"Sonntag\",\"Montag\",\"Dienstag\",\"Mittwoch\",\"Donnerstag\",\"Freitag\",\"Samstag\"],\"shortDays\":[\"So\",\"Mo\",\"Di\",\"Mi\",\"Do\",\"Fr\",\"Sa\"]}"
+        }
+        if (l == "fr") {
+            return "{\"months\":[\"janvier\",\"février\",\"mars\",\"avril\",\"mai\",\"juin\",\"juillet\",\"août\",\"septembre\",\"octobre\",\"novembre\",\"décembre\"],\"shortMonths\":[\"janv.\",\"févr.\",\"mars\",\"avr.\",\"mai\",\"juin\",\"juil.\",\"août\",\"sept.\",\"oct.\",\"nov.\",\"déc.\"],\"days\":[\"dimanche\",\"lundi\",\"mardi\",\"mercredi\",\"jeudi\",\"vendredi\",\"samedi\"],\"shortDays\":[\"dim.\",\"lun.\",\"mar.\",\"mer.\",\"jeu.\",\"ven.\",\"sam.\"]}"
+        }
+        if (l == "es") {
+            return "{\"months\":[\"enero\",\"febrero\",\"marzo\",\"abril\",\"mayo\",\"junio\",\"julio\",\"agosto\",\"septiembre\",\"octubre\",\"noviembre\",\"diciembre\"],\"shortMonths\":[\"ene\",\"feb\",\"mar\",\"abr\",\"may\",\"jun\",\"jul\",\"ago\",\"sep\",\"oct\",\"nov\",\"dic\"],\"days\":[\"domingo\",\"lunes\",\"martes\",\"miércoles\",\"jueves\",\"viernes\",\"sábado\"],\"shortDays\":[\"dom\",\"lun\",\"mar\",\"mié\",\"jue\",\"vie\",\"sáb\"]}"
+        }
+        if (l == "it") {
+            return "{\"months\":[\"Gennaio\",\"Febbraio\",\"Marzo\",\"Aprile\",\"Maggio\",\"Giugno\",\"Luglio\",\"Agosto\",\"Settembre\",\"Ottobre\",\"Novembre\",\"Dicembre\"],\"shortMonths\":[\"Gen\",\"Feb\",\"Mar\",\"Apr\",\"Mag\",\"Giu\",\"Lug\",\"Ago\",\"Set\",\"Ott\",\"Nov\",\"Dic\"],\"days\":[\"Domenica\",\"Lunedì\",\"Martedì\",\"Mercoledì\",\"Giovedì\",\"Venerdì\",\"Sabato\"],\"shortDays\":[\"Dom\",\"Lun\",\"Mar\",\"Mer\",\"Gio\",\"Ven\",\"Sab\"]}"
+        }
+        if (l == "nl") {
+            return "{\"months\":[\"januari\",\"februari\",\"maart\",\"april\",\"mei\",\"juni\",\"juli\",\"augustus\",\"september\",\"oktober\",\"november\",\"december\"],\"shortMonths\":[\"jan\",\"feb\",\"mrt\",\"apr\",\"mei\",\"jun\",\"jul\",\"aug\",\"sep\",\"okt\",\"nov\",\"dec\"],\"days\":[\"zondag\",\"maandag\",\"dinsdag\",\"woensdag\",\"donderdag\",\"vrijdag\",\"zaterdag\"],\"shortDays\":[\"zo\",\"ma\",\"di\",\"wo\",\"do\",\"vr\",\"za\"]}"
+        }
+        if (l == "pt") {
+            return "{\"months\":[\"Janeiro\",\"Fevereiro\",\"Março\",\"Abril\",\"Maio\",\"Junho\",\"Julho\",\"Agosto\",\"Setembro\",\"Outubro\",\"Novembro\",\"Dezembro\"],\"shortMonths\":[\"Jan\",\"Fev\",\"Mar\",\"Abr\",\"Mai\",\"Jun\",\"Jul\",\"Ago\",\"Set\",\"Out\",\"Nov\",\"Dez\"],\"days\":[\"Domingo\",\"Segunda\",\"Terça\",\"Quarta\",\"Quinta\",\"Sexta\",\"Sábado\"],\"shortDays\":[\"Dom\",\"Seg\",\"Ter\",\"Qua\",\"Qui\",\"Sex\",\"Sáb\"]}"
+        }
+        if (l == "pl") {
+            return "{\"months\":[\"Styczeń\",\"Luty\",\"Marzec\",\"Kwiecień\",\"Maj\",\"Czerwiec\",\"Lipiec\",\"Sierpień\",\"Wrzesień\",\"Październik\",\"Listopad\",\"Grudzień\"],\"shortMonths\":[\"Stycz.\",\"Luty\",\"Marz.\",\"Kwie.\",\"Maj\",\"Czerw.\",\"Lipc.\",\"Sierp.\",\"Wrz.\",\"Paźdz.\",\"Listop.\",\"Grudz.\"],\"days\":[\"Niedziela\",\"Poniedziałek\",\"Wtorek\",\"Środa\",\"Czwartek\",\"Piątek\",\"Sobota\"],\"shortDays\":[\"Niedz.\",\"Pon.\",\"Wt.\",\"Śr.\",\"Czw.\",\"Pt.\",\"Sob.\"]}"
+        }
+        if (l == "ru") {
+            return "{\"months\":[\"января\",\"февраля\",\"марта\",\"апреля\",\"мая\",\"июня\",\"июля\",\"августа\",\"сентября\",\"октября\",\"ноября\",\"декабря\"],\"shortMonths\":[\"янв\",\"фев\",\"мар\",\"апр\",\"май\",\"июн\",\"июл\",\"авг\",\"сен\",\"окт\",\"ноя\",\"дек\"],\"days\":[\"воскресенье\",\"понедельник\",\"вторник\",\"среда\",\"четверг\",\"пятница\",\"суббота\"],\"shortDays\":[\"вс\",\"пн\",\"вт\",\"ср\",\"чт\",\"пт\",\"сб\"]}"
+        }
+        if (l == "cs") {
+            return "{\"months\":[\"leden\",\"únor\",\"březen\",\"duben\",\"květen\",\"červen\",\"červenec\",\"srpen\",\"září\",\"říjen\",\"listopad\",\"prosinec\"],\"shortMonths\":[\"led\",\"úno\",\"břez\",\"dub\",\"kvě\",\"čer\",\"červ\",\"srp\",\"zář\",\"říj\",\"list\",\"pros\"],\"days\":[\"neděle\",\"pondělí\",\"úterý\",\"středa\",\"čvrtek\",\"pátek\",\"sobota\"],\"shortDays\":[\"ne.\",\"po.\",\"út.\",\"st.\",\"čt.\",\"pá.\",\"so.\"]}"
+        }
+        if (l == "uk") {
+            return "{\"months\":[\"січня\",\"лютого\",\"березня\",\"квітня\",\"травня\",\"червня\",\"липня\",\"серпня\",\"вересня\",\"жовтня\",\"листопада\",\"грудня\"],\"shortMonths\":[\"січ.\",\"лют.\",\"бер.\",\"квіт.\",\"трав.\",\"черв.\",\"лип.\",\"серп.\",\"вер.\",\"жовт.\",\"лист.\",\"груд.\"],\"days\":[\"неділя\",\"понеділок\",\"вівторок\",\"середа\",\"четвер\",\"п'ятниця\",\"субота\"],\"shortDays\":[\"нд\",\"пн\",\"вт\",\"ср\",\"чт\",\"пт\",\"сб\"]}"
+        }
+        if (l == "hu") {
+            return "{\"months\":[\"január\",\"február\",\"március\",\"április\",\"május\",\"június\",\"július\",\"augusztus\",\"szeptember\",\"október\",\"november\",\"december\"],\"shortMonths\":[\"jan.\",\"feb.\",\"már.\",\"ápr.\",\"máj.\",\"jún.\",\"júl.\",\"aug.\",\"szept.\",\"okt.\",\"nov.\",\"dec.\"],\"days\":[\"vasárnap\",\"hétfő\",\"kedd\",\"szerda\",\"csütörtök\",\"péntek\",\"szombat\"],\"shortDays\":[\"V\",\"H\",\"K\",\"Sze\",\"Cs\",\"P\",\"Szo\"]}"
+        }
+        if (l == "hr") {
+            return "{\"months\":[\"Siječanj\",\"Veljača\",\"Ožujak\",\"Travanj\",\"Svibanj\",\"Lipanj\",\"Srpanj\",\"Kolovoz\",\"Rujan\",\"Listopad\",\"Studeni\",\"Prosinac\"],\"shortMonths\":[\"Sij\",\"Velj\",\"Ožu\",\"Tra\",\"Svi\",\"Lip\",\"Srp\",\"Kol\",\"Ruj\",\"Lis\",\"Stu\",\"Pro\"],\"days\":[\"Nedjelja\",\"Ponedjeljak\",\"Utorak\",\"Srijeda\",\"Četvtrak\",\"Petak\",\"Subota\"],\"shortDays\":[\"Ne\",\"Po\",\"Ut\",\"Sr\",\"Če\",\"Pe\",\"Su\"]}"
+        }
+        if (l == "tr") {
+            return "{\"months\":[\"Ocak\",\"Şubat\",\"Mart\",\"Nisan\",\"Mayıs\",\"Haziran\",\"Temmuz\",\"Ağustos\",\"Eylül\",\"Ekim\",\"Kasım\",\"Aralık\"],\"shortMonths\":[\"Oca\",\"Şub\",\"Mar\",\"Nis\",\"May\",\"Haz\",\"Tem\",\"Ağu\",\"Eyl\",\"Eki\",\"Kas\",\"Ara\"],\"days\":[\"Pazar\",\"Pazartesi\",\"Salı\",\"Çarşamba\",\"Perşembe\",\"Cuma\",\"Cumartesi\"],\"shortDays\":[\"Paz\",\"Pzt\",\"Sal\",\"Çar\",\"Per\",\"Cum\",\"Cmt\"]}"
+        }
+        if (l == "ca") {
+            return "{\"months\":[\"gener\",\"febrer\",\"març\",\"abril\",\"maig\",\"juny\",\"juliol\",\"agost\",\"setembre\",\"octubre\",\"novembre\",\"desembre\"],\"shortMonths\":[\"gen.\",\"febr.\",\"març\",\"abr.\",\"maig\",\"juny\",\"jul.\",\"ag.\",\"set.\",\"oct.\",\"nov.\",\"des.\"],\"days\":[\"diumenge\",\"dilluns\",\"dimarts\",\"dimecres\",\"dijous\",\"divendres\",\"dissabte\"],\"shortDays\":[\"dg.\",\"dl.\",\"dt.\",\"dc.\",\"dj.\",\"dv.\",\"ds.\"]}"
         }
         return ""
     }

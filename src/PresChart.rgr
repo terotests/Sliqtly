@@ -31,6 +31,7 @@ class PresChart {
     sfn dress:void (out:EVGDisplayList from:int t:double still:boolean accentHex:string warmHex:string spec:string style:string) {
         ; `style` is the theme's chart-style and, after it, its chart-effects
         ; ("forge glow gradient")
+        def map:boolean (PresChart.isMap(spec))
         def words:[string] (strsplit (trim style) " ")
         def style0:string ""
         if ((array_length words) > 0) {
@@ -187,7 +188,7 @@ class PresChart {
         while (q < (array_length tail)) {
             def lc:EVGDrawCmd (itemAt tail q)
             if (lc.kind == 7) {
-                if (PresChart.isDataLine(lc)) {
+                if (PresChart.isDataLineIn(lc map)) {
                     if (firstLine < 0) {
                         firstLine = q
                     } {
@@ -307,7 +308,7 @@ class PresChart {
                     k = (k + 1)
                     continue
                 }
-                if ((c.kind == 7) && (PresChart.isDataLine(c))) {
+                if ((c.kind == 7) && (PresChart.isDataLineIn(c map))) {
                     ; a series' line: its own colour when the lines differ,
                     ; the warm colour when there is one; and what the chart
                     ; asked for under it
@@ -339,7 +340,8 @@ class PresChart {
                 }
                 if (c.kind == 7) {
                     ; grid and axes: the accent, the grid faint, the axis less so
-                    if (! keepLines) {
+                    ; (a map has neither: its lines are its shapes' outlines)
+                    if ((! keepLines) && (! map)) {
                         def axis:boolean (c.r > 70)
                         c.r = acR
                         c.g = acG
@@ -432,6 +434,7 @@ class PresChart {
     ; ink and, once the page has them, its faces — never wider than the
     ; words they replace, which the chart's layout made room for.
     sfn dressLook:void (out:EVGDisplayList from:int t:double still:boolean look:FlowLook spec:string ground:string l:MdLayout haveFaces:[string:boolean]) {
+        def map:boolean (PresChart.isMap(spec))
         def tail:[EVGDrawCmd]
         def i:int from
         while (i < (array_length out.cmds)) {
@@ -528,7 +531,7 @@ class PresChart {
                 k = (k + 1)
                 continue
             }
-            if ((c.kind == 7) && (PresChart.isDataLine(c))) {
+            if ((c.kind == 7) && (PresChart.isDataLineIn(c map))) {
                 def li:int si
                 if (li < 0) {
                     li = 0
@@ -545,7 +548,7 @@ class PresChart {
                 k = (k + 1)
                 continue
             }
-            if (c.kind == 7) {
+            if ((c.kind == 7) && (! map)) {
                 ; grid and axes in the look's line colour: the grid faint
                 def axis:boolean (c.r > 70)
                 c.r = (line.red())
@@ -872,6 +875,19 @@ class PresChart {
 
     ; A stroke that is data rather than furniture: coloured (the grid and the
     ; axes are grey), or a run of more than one segment.
+    ; …but not on a map: the outlines of its shapes are furniture, drawn
+    ; in the colour the chart gave them (a white border between regions)
+    sfn isDataLineIn:boolean (c:EVGDrawCmd map:boolean) {
+        if map {
+            return false
+        }
+        return (PresChart.isDataLine(c))
+    }
+
+    sfn isMap:boolean (spec:string) {
+        return ((indexOf spec "\"geoshape\"") >= 0)
+    }
+
     sfn isDataLine:boolean (c:EVGDrawCmd) {
         def grey:boolean (((PresChart.absI((c.r - c.g))) < 14) && ((PresChart.absI((c.g - c.b))) < 14))
         if (grey == false) {
@@ -1049,9 +1065,12 @@ class PresChart {
         return ((((c.w > 2.0) && (c.h > 0.5)) && (c.radius <= 0.0)) && (c.hasGrad == false))
     }
 
-    ; A chart of `rect` marks (a heat map): its cells are data coloured by
-    ; value, not columns to dress.
+    ; A chart of `rect` marks (a heat map) or a map: its cells and regions
+    ; are data coloured by value, not columns to dress.
     sfn rectChart:boolean (spec:string) {
+        if (PresChart.isMap(spec)) {
+            return true
+        }
         return (((indexOf spec "\"mark\": \"rect\"") >= 0) || (((indexOf spec "\"mark\":\"rect\"") >= 0) || ((indexOf spec "\"type\": \"rect\"") >= 0)))
     }
 
