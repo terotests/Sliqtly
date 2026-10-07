@@ -69,6 +69,20 @@ operators {
             go ( (e 1) ".EditorOn()" )
         }
     }
+    ; the folders files may be read from by path (SLIQTLY_IMPORT_DIRS on a
+    ; server of one's own), comma separated; "" when none
+    host_import_dirs _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".ImportDirs()" )
+        }
+    }
+    ; {"handle","size"} of the file at an absolute path inside the import
+    ; folders, at most limit bytes; {"size":0,"error":…} when it is refused
+    host_import_file _:string (h:McpHost path:string limit:int) {
+        templates {
+            go ( (e 1) ".ImportFile(" (e 2) ", " (e 3) ")" )
+        }
+    }
     ; the user every caller is on a server of one's own (decks in a folder,
     ; no sign-in); "" elsewhere
     host_local_user _:string (h:McpHost) {

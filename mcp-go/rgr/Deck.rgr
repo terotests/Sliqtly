@@ -388,6 +388,14 @@ class Deck {
         return false
     }
 
+    ; ", path" in a list of sources where files may be read by path
+    sfn orPath:string (host:McpHost) {
+        if ((strlen (host_import_dirs host)) > 0) {
+            return ", path"
+        }
+        return ""
+    }
+
     ; The pictures, fetched or decoded; the bytes stay with the host.
     sfn loadImages:Loaded (host:McpHost list:[MfJ]) {
         def res (new Loaded)
@@ -407,6 +415,8 @@ class Deck {
             def size:int 0
             def b64:string (img.str_("data_base64"))
             def url:string (img.str_("url"))
+            ; a file in the server's import folders (a server of one's own)
+            def path:string (trim (img.str_("path")))
             ; an SVG (or a SmartArt .xml) is text: it may come as it is
             def hasText:boolean ((img.field("text")).kind == 3)
             def given:int 0
@@ -419,8 +429,11 @@ class Deck {
             if ((strlen url) > 0) {
                 given = (given + 1)
             }
+            if ((strlen path) > 0) {
+                given = (given + 1)
+            }
             if (given > 1) {
-                res.err = ("Image " + name + ": give one of text, data_base64 or url.")
+                res.err = ("Image " + name + ": give one of text, data_base64" + (Deck.orPath(host)) + " or url.")
                 return res
             }
             if hasText {
@@ -487,9 +500,37 @@ class Deck {
                         type = (Deck.typeOf(name ct))
                     }
                 } {
-                    if (hasText == false) {
-                        res.err = ("Image " + name + ": give one of url, data_base64 or (for an SVG) text.")
-                        return res
+                    if ((strlen path) > 0) {
+                        def dirs:string (host_import_dirs host)
+                        if ((strlen dirs) == 0) {
+                            res.err = ("Image " + name + ": path is read only by a Sliqtly server on your own computer started with import folders (SLIQTLY_IMPORT_DIRS); send the picture as url or data_base64.")
+                            return res
+                        }
+                        def ptype:string (Deck.typeOf((to_lowercase path) ""))
+                        if ((strlen ptype) == 0) {
+                            res.err = ("Image " + name + ": " + path + " is not a .png, .jpg, .gif, .webp or .svg file (or .xml for a SmartArt diagram).")
+                            return res
+                        }
+                        if ((strlen type) == 0) {
+                            type = ptype
+                        }
+                        if (type != ptype) {
+                            res.err = ("Image " + name + ": the name and " + path + " are different kinds of picture.")
+                            return res
+                        }
+                        def got3:MfJ (J.parse((host_import_file host path ((Deck.MAX_IMAGE()) + 1))))
+                        def why:string (got3.str_("error"))
+                        if ((strlen why) > 0) {
+                            res.err = ("Image " + name + ": " + path + " was not read (" + why + "). Import folders: " + dirs + ".")
+                            return res
+                        }
+                        handle = (got3.int_("handle" 0))
+                        size = (got3.int_("size" 0))
+                    } {
+                        if (hasText == false) {
+                            res.err = ("Image " + name + ": give one of url, data_base64" + (Deck.orPath(host)) + " or (for an SVG) text.")
+                            return res
+                        }
                     }
                 }
             }

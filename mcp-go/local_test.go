@@ -111,6 +111,12 @@ func TestFolderBucketStaysInside(t *testing.T) {
 // the local server end to end: MCP over HTTP, the folder, the pages
 func startLocal(t *testing.T, dir, token string) (*httptest.Server, *mcp.ClientSession) {
 	t.Helper()
+	return startLocalWith(t, dir, token, nil)
+}
+
+// startLocal with the Env set up further by setup (nil: as it is)
+func startLocalWith(t *testing.T, dir, token string, setup func(*Env)) (*httptest.Server, *mcp.ClientSession) {
+	t.Helper()
 	srv := httptest.NewUnstartedServer(nil)
 	base := "http://" + srv.Listener.Addr().String()
 	e, bucket, err := localEnv(dir, base, "local")
@@ -118,6 +124,9 @@ func startLocal(t *testing.T, dir, token string) (*httptest.Server, *mcp.ClientS
 		t.Fatal(err)
 	}
 	e.Client = fakeNet
+	if setup != nil {
+		setup(e)
+	}
 	srv.Config.Handler = newLocalServer(e, bucket, token, nil)
 	srv.Start()
 	hc := &http.Client{}
