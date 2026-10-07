@@ -38,6 +38,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -71,6 +72,9 @@ type localServer struct {
 	callMu sync.Mutex
 	cnet   *callNet
 	certs  *ownCerts // https:// (owncert.go); nil: none
+	// the decks are listed on / and /decks (settings/listing); off unless
+	// turned on, so a deck opens only by its link
+	listing atomic.Bool
 }
 
 // the env of a server whose decks are in dir, reached at baseURL
@@ -165,7 +169,7 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeStatus(w, st, 200)
 		return
 	}
-	if p == "/api/settings" || p == "/api/settings/check" || p == "/api/settings/network" {
+	if p == "/api/settings" || p == "/api/settings/check" || p == "/api/settings/network" || p == "/api/settings/listing" {
 		s.settingsAPI(w, r)
 		return
 	}
@@ -349,7 +353,7 @@ figcaption { color: var(--muted); font-size: .85rem; margin-top: 6px; }
 pre { white-space: pre-wrap; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 12px; font-size: .85rem; }
 </style></head><body><main>
 {{if .Deck}}
-<p class="muted"><a href="/decks">All presentations</a>{{if .Web}} · <a href="/s/{{.ID}}">play</a>{{end}}{{if .Edit}} · <a href="/s/{{.ID}}?edit">edit</a>{{end}}</p>
+<p class="muted">{{if .Listing}}<a href="/decks">All presentations</a>{{else}}Sliqtly{{end}}{{if .Web}} · <a href="/s/{{.ID}}">play</a>{{end}}{{if .Edit}} · <a href="/s/{{.ID}}?edit">edit</a>{{end}}</p>
 <h1>{{.Title}}</h1>
 <p class="muted">{{.Slides}} slides · theme {{.Theme}} · <a href="/s/{{.ID}}/overview.jpg">overview</a></p>
 {{range .Numbers}}<figure><img loading="lazy" src="/s/{{$.ID}}/{{.N}}.jpg" alt="Slide {{.N}}: {{.Title}}" width="960" height="540"><figcaption>{{.N}}. {{.Title}}</figcaption></figure>
@@ -357,9 +361,10 @@ pre { white-space: pre-wrap; background: var(--card); border: 1px solid var(--li
 {{else}}
 <h1>Presentations</h1>
 <p class="muted">Kept in this server's folder. MCP: <code>{{.MCP}}</code> · <a href="/settings">Settings</a></p>
-<ul>{{range .Decks}}<li><a href="/s/{{.ID}}">{{.Name}}</a> <span class="muted">{{.When}} · <a href="/s/{{.ID}}/slides">slides</a>{{if $.Edit}} · <a href="/s/{{.ID}}?edit">edit</a>{{end}}</span></li>
+{{if not .Listing}}<p>Presentations here are not listed: each one opens only by its link. Listing them can be turned on in <a href="/settings">Settings</a>, on the server's own computer.</p>
+{{else}}<ul>{{range .Decks}}<li><a href="/s/{{.ID}}">{{.Name}}</a> <span class="muted">{{.When}} · <a href="/s/{{.ID}}/slides">slides</a>{{if $.Edit}} · <a href="/s/{{.ID}}?edit">edit</a>{{end}}</span></li>
 {{else}}<li class="muted">None yet. Ask an assistant connected to {{$.MCP}} to make one.</li>{{end}}</ul>
-{{end}}
+{{end}}{{end}}
 </main></body></html>`))
 
 type deckRow struct {
@@ -380,6 +385,14 @@ func millis(v any) int64 {
 }
 
 func (s *localServer) index(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	listed := s.listing.Load()
+	page := map[string]any{"Title": "Sliqtly", "MCP": s.env.BaseURL + "/mcp", "Web": s.web != nil, "Edit": s.web != nil && !s.viewer, "Listing": listed}
+	if !listed {
+		pageTmpl.Execute(w, page)
+		return
+	}
 	docs, ids, err := s.env.DB.WhereEq(r.Context(), "shares", "owner", s.env.LocalUser)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -402,8 +415,8 @@ func (s *localServer) index(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, deckRow{ID: ids[i], Name: name, When: when, at: at})
 	}
 	sort.Slice(rows, func(a, b int) bool { return rows[a].at > rows[b].at })
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTmpl.Execute(w, map[string]any{"Title": "Sliqtly", "Decks": rows, "MCP": s.env.BaseURL + "/mcp", "Web": s.web != nil, "Edit": s.web != nil && !s.viewer})
+	page["Decks"] = rows
+	pageTmpl.Execute(w, page)
 }
 
 var (
@@ -448,5 +461,5 @@ func (s *localServer) deck(w http.ResponseWriter, r *http.Request, id string) {
 		name = id
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTmpl.Execute(w, map[string]any{"Deck": true, "ID": id, "Title": name, "Slides": n, "Theme": theme, "Numbers": slides, "Web": s.web != nil, "Edit": s.web != nil && !s.viewer})
+	pageTmpl.Execute(w, map[string]any{"Deck": true, "ID": id, "Title": name, "Slides": n, "Theme": theme, "Numbers": slides, "Web": s.web != nil, "Edit": s.web != nil && !s.viewer, "Listing": s.listing.Load()})
 }
