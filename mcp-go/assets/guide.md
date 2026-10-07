@@ -577,7 +577,8 @@ whole `markdown`:
   { "find": "Revenue grew 12 %", "replace": "Revenue grew 14 %" },
   { "slide": 4, "markdown": "## Costs\n\n- Rent\n- Salaries" },
   { "slide_title": "Old plan", "markdown": "" },
-  { "after_slide": 6, "markdown": "## Next steps\n\n- Pilot in May" }
+  { "after_slide": 6, "markdown": "## Next steps\n\n- Pilot in May" },
+  { "slide": 9, "after_slide": 2 }
 ] }
 ```
 
@@ -588,6 +589,9 @@ whole `markdown`:
   over onto the next ones is replaced with all of them.
 - `after_slide` + `markdown`: new slides after that one (0 = before the
   first).
+- `slide` (or `slide_title`) + `after_slide`, no `markdown`: the slide moves
+  there as it is, notes and all (0 = before the first). Nothing is written
+  again; a slide whose text ran over moves with all of them.
 
 Slide numbers are the ones the layout report and `render_overview` show,
 before these edits; their order does not matter. An edit that does not

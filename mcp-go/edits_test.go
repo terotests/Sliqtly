@@ -39,6 +39,12 @@ func insertEdit(after int64, md string) *DeckEdit {
 	return e
 }
 
+func moveEdit(n int64, title string, after int64) *DeckEdit {
+	e := CreateNew_DeckEdit()
+	e.kind, e.slide, e.title, e.after = "move", n, title, after
+	return e
+}
+
 func applyEdits(edits ...*DeckEdit) *DeckEditsOut {
 	starts, titles := edeckSlides()
 	return DeckEdits_static_apply(EDECK, edits, starts, titles)
@@ -59,6 +65,33 @@ func TestSlideSpansCoverSections(t *testing.T) {
 	t3 := []string{"Title", "One", "", "Two", "Three"}
 	eq(t, PresSlideSpans_static_lines(EDECK, s2, t3, 1), []int64{7, 12})
 	eq(t, PresSlideSpans_static_lines(EDECK, s2, t3, 2), []int64{7, 12})
+}
+
+// A slide that runs over breaks before a sub-heading, and the layout names
+// the slide it went on to after that sub-heading. With the split level the
+// slide is still its heading's: replacing or deleting either takes both.
+func TestSlideSpansSubHeadingOverflow(t *testing.T) {
+	deck := "# Deck\n\nIntro\n\n## One\n\nLead.\n\n### Notes\n\n- a\n- b\n\n::: notes\nSaid.\n:::\n\n## Two\n\nText two\n"
+	starts := []int64{0, int64(strings.Index(deck, "## One")), int64(strings.Index(deck, "### Notes")), int64(strings.Index(deck, "## Two"))}
+	titles := []string{"Deck", "One", "Notes", "Two"}
+	eq(t, PresSlideSpans_static_linesIn(deck, starts, titles, 1, 2), []int64{4, 17})
+	eq(t, PresSlideSpans_static_linesIn(deck, starts, titles, 2, 2), []int64{4, 17})
+	eq(t, PresSlideSpans_static_linesIn(deck, starts, titles, 3, 2), []int64{17, 21})
+	// every heading ends a section without the split level, as before
+	eq(t, PresSlideSpans_static_lines(deck, starts, titles, 1), []int64{4, 8})
+	// a deck that starts slides at ### keeps them apart
+	eq(t, PresSlideSpans_static_linesIn(deck, starts, titles, 1, 3), []int64{4, 8})
+	out := DeckEdits_static_applyIn(deck, []*DeckEdit{slideEdit(2, "", "## One\n\nNew.")}, starts, titles, 2)
+	if out.err != "" {
+		t.Fatal(out.err)
+	}
+	if strings.Contains(out.md, "### Notes") || strings.Contains(out.md, "Said.") || !strings.Contains(out.md, "## One\n\nNew.\n\n## Two") {
+		t.Fatalf("the slide it ran over to is left behind:\n%s", out.md)
+	}
+	del := DeckEdits_static_applyIn(deck, []*DeckEdit{slideEdit(3, "", "")}, starts, titles, 2)
+	if strings.Contains(del.md, "## One") || strings.Contains(del.md, "### Notes") || !strings.Contains(del.md, "## Two") {
+		t.Fatalf("deleting the slide it ran over to:\n%s", del.md)
+	}
 }
 
 func TestEditsReplaceText(t *testing.T) {
@@ -105,6 +138,22 @@ func TestEditsReplaceDeleteAndAddSlides(t *testing.T) {
 	o = applyEdits(slideEdit(2, "", ""), textEdit("The end", "Fin", false), insertEdit(1, "## Mid"))
 	eq(t, o.err, "")
 	eq(t, o.md, "---\ntitle: T\n---\n# Title\n\nIntro\n\n## Mid\n\n## Two\n\nText two\n\n## Three\n\nFin\n")
+}
+
+func TestEditsMoveSlides(t *testing.T) {
+	o := applyEdits(moveEdit(4, "", 1))
+	eq(t, o.err, "")
+	eq(t, o.md, "---\ntitle: T\n---\n# Title\n\nIntro\n\n## Three\n\nThe end\n\n## One\n\n- a\n- b\n\n## Two\n\nText two\n")
+	eq(t, o.done, []string{`Edit 1: slide 4 "Three" moved after slide 1 "Title".`})
+	o = applyEdits(moveEdit(0, "one", 4))
+	eq(t, o.md, "---\ntitle: T\n---\n# Title\n\nIntro\n\n## Two\n\nText two\n\n## Three\n\nThe end\n\n## One\n\n- a\n- b\n")
+	o = applyEdits(moveEdit(3, "", 0))
+	eq(t, o.md, "---\ntitle: T\n---\n\n## Two\n\nText two\n\n# Title\n\nIntro\n\n## One\n\n- a\n- b\n\n## Three\n\nThe end\n")
+	match(t, applyEdits(moveEdit(3, "", 2)).err, `slide 3 "Two" is already there`)
+	match(t, applyEdits(moveEdit(3, "", 9)).err, `after_slide is a slide number from 0`)
+	// deleting the last slide leaves no blank line at the end
+	o = applyEdits(slideEdit(4, "", ""))
+	eq(t, o.md, "---\ntitle: T\n---\n# Title\n\nIntro\n\n## One\n\n- a\n- b\n\n## Two\n\nText two\n")
 }
 
 func TestEditsRefuseUnclearOnes(t *testing.T) {

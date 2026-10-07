@@ -62,13 +62,22 @@ jobs:
           GH_TOKEN_SECRET: ${{ secrets.SLIQTLY_GITHUB_TOKEN }}
           GH_USERS_SECRET: ${{ secrets.SLIQTLY_GITHUB_USERS }}
         run: |
-          ENV_ARGS=()
+          # GOMEMLIMIT: the Go heap kept under 400 MB of the 512 MB. Cloud
+          # Run's sandbox need not show the cgroup limit memlimit.go reads,
+          # and a heap left to grow to twice its live data was killed by
+          # the kernel under a burst of layouts: the client saw 502.
+          # --concurrency 8: a create or update lays the whole deck out and
+          # renders its report (seconds of CPU and tens of MB each); more
+          # at once on one CPU only queue and pile up memory, while a new
+          # instance (up to 10) takes them.
+          ENV_VARS="GOMEMLIMIT=400MiB"
           if [ -n "$GH_TOKEN_SECRET" ]; then
-            ENV_ARGS=(--update-env-vars "^@^SLIQTLY_GITHUB_TOKEN=$GH_TOKEN_SECRET@SLIQTLY_GITHUB_USERS=$GH_USERS_SECRET")
+            ENV_VARS="$ENV_VARS@SLIQTLY_GITHUB_TOKEN=$GH_TOKEN_SECRET@SLIQTLY_GITHUB_USERS=$GH_USERS_SECRET"
           fi
+          ENV_ARGS=(--update-env-vars "^@^$ENV_VARS")
           gcloud run deploy sliqtly-mcp --image "$IMAGE:$GITHUB_SHA" \
             --region "$REGION" --project "$PROJECT" --allow-unauthenticated \
-            --cpu 1 --memory 512Mi --concurrency 80 --max-instances 10 --cpu-boost "${ENV_ARGS[@]}"
+            --cpu 1 --memory 512Mi --concurrency 8 --max-instances 10 --cpu-boost "${ENV_ARGS[@]}"
           URL=$(gcloud run services describe sliqtly-mcp --region "$REGION" --project "$PROJECT" --format 'value(status.url)')
           echo "Service: $URL/mcp" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Check the service answers
