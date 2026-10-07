@@ -9149,6 +9149,13 @@ class PresApp {
     ; `pics` is the deck's pictures, one path a line, for the logo. Each change
     ; rewrites the front matter at once; closing the window makes all of them
     ; one undo step.
+    ; The rooms for the open Document settings window (PresChartEditor
+    ; setDocRooms); nothing when it is not open.
+    fn setDocRooms:void (rows:string current:string note:string) {
+        chart.setDocRooms(rows current note)
+        chromeRev = (chromeRev + 1)
+    }
+
     fn openDocSettings:boolean (pics:string) {
         if (mode == "present") {
             return false
@@ -9982,6 +9989,11 @@ class PresApp {
         ; a drag in the picker writes the fence when it ends, not at every move
         if ((chart.dragging()) == false) {
             this.writeChart()
+        }
+        ; Document settings' room: the page moves the presentation
+        if ((strlen chart.dsRoomAct) > 0) {
+            push requests ("docroom:" + chart.dsRoomAct)
+            chart.dsRoomAct = ""
         }
         if chart.wantsClose {
             chart.wantsClose = false

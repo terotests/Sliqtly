@@ -233,7 +233,8 @@ class Store {
     ; owner: the signed-in user's uid, or "mcp"; css "" with hasCss false
     ; stores null; visibility "private" or "link" (an "mcp" deck has no
     ; owner to keep it for: always "link")
-    sfn create:Created (host:McpHost name:string md:string theme:string hasCss:boolean css:string imgs:[Img] owner:string visibility:string) {
+    ; room: the deck's home room, "" for the server's own (General)
+    sfn create:Created (host:McpHost name:string md:string theme:string hasCss:boolean css:string imgs:[Img] owner:string visibility:string room:string) {
         def out (new Created)
         def id:string (host_short_id host 10)
         def files:MfJ (Store.upload(host id imgs))
@@ -261,6 +262,9 @@ class Store {
         doc.putStr("source" "mcp")
         doc.put("files" files)
         doc.put("created" (Store.serverTime()))
+        if ((strlen room) > 0) {
+            doc.putStr("room" room)
+        }
         if (owner == "mcp") {
             doc.put("expires" (Store.anonExpires(host)))
         }

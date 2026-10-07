@@ -20,7 +20,7 @@ import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { sortFiles, pastePlan, fileClipboard, CLIP_KEY } from "./fileclip.js";
 import { deckKey, canReturn, reopenPlan, tabLabel, readDeckTabs, keepDeckTabs, rowToKeep } from "./decktabs.js";
-import { lang, LANGS, t, pairs, translateDom, chooseLang } from "./i18n.js";
+import { lang, LANGS, t, translateDom, chooseLang, chooseTerm, handOver } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
 import { scaled, previewOf, render, asPicture } from "./image-adjust.js";
 import { decodePicture, isSvg, isSmartArt, SMARTART_TYPE } from "./picture.js";
@@ -30,7 +30,7 @@ import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, roomOf } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { Meet } from "./meet.js";
 import { RoomChat } from "./roomchat.js";
@@ -166,8 +166,9 @@ if (typeof globalThis.PresApp !== "function") {
   loadNote.textContent = t("pres_app.js is missing. Run `npm run build`.");
   throw new Error("engine bundle not loaded");
 }
-// the interface's language, before anything is built in it
-globalThis.PresI18n.use(lang, pairs());
+// the interface's language and its word for a room, before anything is
+// built in it
+handOver(globalThis.PresI18n);
 translateDom();
 // i18n: "Dark" "Light" (the theme list's groups)
 for (const g of document.querySelectorAll("optgroup[label]")) g.label = t(g.label);
@@ -1125,6 +1126,34 @@ async function roomRows(room) {
 async function currentRoomId() {
   if (ownServer()) return doc.cloud ? "cloud:" + doc.cloud : "";
   return (await allDocs()).find((d) => d.current)?.id || "";
+}
+// The room the presentation `id` (currentRoomId's) is in: on a server of
+// one's own its share's, else this browser's placement.
+async function deckRoom(id) {
+  if (!ownServer()) return roomOf(roomsHere, id);
+  const res = await fetch("/api/shares/" + encodeURIComponent(id.replace(/^cloud:/, "")));
+  if (!res.ok) return "";
+  return (await res.json()).room || "general";
+}
+// The Document settings window's rooms: the ones one may move the open
+// presentation to (not Onboarding, which holds the samples), and the one it
+// is in, archived or not.
+async function docRooms() {
+  const id = await currentRoomId();
+  if (!id) {
+    app.setDocRooms("", "", t("Make a change first: a sample becomes a presentation of your own when it is edited."));
+    needsPaint = true;
+    return;
+  }
+  const [rooms, all, cur] = await Promise.all([roomsList(), roomsList({ archived: true }), deckRoom(id)]);
+  const shown = rooms.filter((x) => x.room_id !== ONBOARDING);
+  if (cur && !shown.some((x) => x.room_id === cur)) {
+    const x = all.find((y) => y.room_id === cur);
+    if (x) shown.push(x);
+  }
+  const rows = shown.map((x) => x.room_id + "\t" + clean(x.title) + (x.archived ? " (" + t("archived") + ")" : ""));
+  app.setDocRooms(rows.join("\n"), cur, "");
+  needsPaint = true;
 }
 // the search field's text while it is open (null: the rooms one is active in)
 let roomsQuery = null;
@@ -3532,8 +3561,20 @@ function handleRequests() {
       // the document settings window: the deck's pictures for the logo
       docFiles().then((fs) => {
         const pics = fs.filter((f) => kindOf(f.path, f.type) === "image").map((f) => f.path).sort();
-        if (app.openDocSettings(pics.join("\n"))) needsPaint = true;
+        if (app.openDocSettings(pics.join("\n"))) {
+          needsPaint = true;
+          docRooms().catch((e) => console.warn("no rooms for the settings", e));
+        }
       });
+    } else if (r.startsWith("docroom:")) {
+      // Document settings moved the presentation to another room
+      const room = r.slice(8);
+      currentRoomId().then(async (id) => {
+        if (!id) return;
+        await roomsRequest("room:moveid:" + room + ":" + id);
+        const to = (await roomsList({ archived: true })).find((x) => x.room_id === room)?.title || room;
+        toast(t("Moved to ") + to);
+      }).catch((e) => toast(t("Rooms: ") + (e.message || e)));
     } else if (r === "about") {
       openAbout().catch(fail);
     } else if (r === "help-guide") {
@@ -3560,6 +3601,9 @@ function handleRequests() {
       setSkinName(r.endsWith(":retro") ? "retro" : "");
     } else if (r.startsWith("setting:mode:")) {
       setMode(r.slice("setting:mode:".length));
+    } else if (r.startsWith("setting:term:")) {
+      // the page opens again with the new word, the deck saved first
+      saveDoc(true).catch(() => {}).finally(() => chooseTerm(r.slice("setting:term:".length)));
     } else if (r.startsWith("setting:skinhue:")) {
       setSkinHue(parseInt(r.slice("setting:skinhue:".length), 10));
     } else if (r.startsWith("room:")) {
