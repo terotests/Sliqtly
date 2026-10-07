@@ -184,8 +184,16 @@ function syncBarExtras() {
   const rows = [...document.querySelectorAll("#bar [data-canvas]")]
     .filter((el) => el.id && !el.hidden)
     .map((el) => [el.id, el.textContent.trim().replace(/\s+/g, " "), el.dataset.canvas || "secondary", (el.dataset.short || "").replace(/\s+/g, " ")].join("\t"));
-  app.setToolbarExtras(rows.join("\n"));
+  const joined = rows.join("\n");
+  if (joined === barExtras) return;
+  barExtras = joined;
+  app.setToolbarExtras(joined);
   needsPaint = true;
+}
+let barExtras = null;
+
+function setText(el, text) {
+  if (el.textContent !== text) el.textContent = text;
 }
 
 let dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -2734,8 +2742,10 @@ function paintOnce() {
       paintList(app.panelsPartJson(PANEL_PART[layer]), pictures);
     }
   }
-  statusEl.textContent = app.statusText();
-  playBtn.textContent = layout.playing && layout.mode === "edit" ? t("⏸ Pause") : t("▶ Play");
+  // only when they change: the bar's observer reads every write as new
+  // buttons, and a frame that writes them asks for the next frame
+  setText(statusEl, app.statusText());
+  setText(playBtn, layout.playing && layout.mode === "edit" ? t("⏸ Pause") : t("▶ Play"));
   return layout;
 }
 

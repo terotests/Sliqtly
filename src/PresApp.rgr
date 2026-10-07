@@ -5802,7 +5802,12 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; The page's own buttons on the bar. The same rows again change nothing:
+    ; the page sends them whenever anything in its hidden bar is touched.
     fn setToolbarExtras:void (rows:string) {
+        if (rows == toolbar.extras) {
+            return
+        }
         toolbar.setExtras(rows)
         chromeRev = (chromeRev + 1)
     }
