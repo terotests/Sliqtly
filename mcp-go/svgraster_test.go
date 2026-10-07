@@ -164,3 +164,25 @@ func TestRenderPicDrawsOnlyWhatIsShown(t *testing.T) {
 		t.Error("a picture no list asked for was drawn")
 	}
 }
+
+// The deck faces a slide can be set in are drawn in themselves, not in Open Sans.
+func TestRasterFaces(t *testing.T) {
+	open := face("Open Sans", "", false)
+	for _, fam := range []string{"Lato", "Droid Serif"} {
+		for _, c := range []struct {
+			w  string
+			it bool
+		}{{"", false}, {"bold", false}, {"", true}, {"bold", true}} {
+			f := face(fam, c.w, c.it)
+			if f == nil {
+				t.Fatalf("%s %q italic=%v: no face", fam, c.w, c.it)
+			}
+			if f == open {
+				t.Errorf("%s %q italic=%v: drawn in Open Sans", fam, c.w, c.it)
+			}
+		}
+	}
+	if face("Georgia", "", false) != open {
+		t.Error("an unknown family should be Open Sans")
+	}
+}

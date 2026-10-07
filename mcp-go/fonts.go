@@ -111,7 +111,9 @@ func face(family, weight string, italic bool) *sfnt.Font {
 	if fam == "Noto Emoji" {
 		return loadFace("Noto Emoji-Regular")
 	}
-	if fam != "Noto Sans" {
+	switch fam {
+	case "Noto Sans", "Lato", "Droid Serif":
+	default:
 		fam = "Open Sans"
 	}
 	name := fam
