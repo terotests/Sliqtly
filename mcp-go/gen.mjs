@@ -99,8 +99,14 @@ for (const [dir, face] of [
   ["Noto_Sans", "NotoSans-Regular"], ["Noto_Sans", "NotoSans-Bold"], ["Noto_Sans", "NotoSans-Italic"], ["Noto_Sans", "NotoSans-BoldItalic"],
   ["Noto_Emoji", "NotoEmoji-Regular"],
   ["Gloria_Hallelujah", "GloriaHallelujah"], ["Fjalla_One", "FjallaOne-Regular"], ["Josefin_Sans", "JosefinSans-Bold"], ["Droid_Serif", "DroidSerif-BoldItalic"],
+  // the faces a deck's CSS can name (src/PresFonts.rgr)
+  ["Droid_Serif", "DroidSerif"], ["Droid_Serif", "DroidSerif-Bold"], ["Droid_Serif", "DroidSerif-Italic"],
 ]) {
   fs.copyFileSync(path.join(ranger, "gallery/pdf_writer/assets/fonts", dir, `${face}.ttf`), path.join(fontsDir, `${face}.ttf`));
+}
+// Lato is kept in this repository (fonts/Lato, OFL)
+for (const face of ["Lato-Regular", "Lato-Bold", "Lato-Italic", "Lato-BoldItalic"]) {
+  fs.copyFileSync(path.join(here, "..", "fonts", "Lato", `${face}.ttf`), path.join(fontsDir, `${face}.ttf`));
 }
 log("copied mcp-go/fonts/*.ttf");
 

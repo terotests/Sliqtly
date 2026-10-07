@@ -311,7 +311,7 @@ pictures under 300 dpi in print ("media/sauna.jpg: 180 dpi in print, under
   text is about 20 px when four boxes stand in a row, 13 px at six, 10 px
   at eight (body text is about 40 px). For a Mermaid flowchart or DOT
   graph without `{layout=keep}` the slide also tries the other direction
-  and a long top-to-bottom chain cut into columns (not with
+  and a long chain cut into columns (or a left-to-right one into rows; not with
   subgraphs/clusters), and keeps whichever draws largest. Keep one
   diagram to about 4 boxes across and 10–12 boxes in all; split a bigger
   one over slides. A sequence diagram is never toured: keep it to 4–5
@@ -522,10 +522,16 @@ mark  { background-color: #ffd54a; color: #111; }
 chart   { color: #B96926; accent-color: #59C3C4; chart-style: forge; } /* flat | forge | neon | glass */
 diagram { color: #B96926; accent-color: #59C3C4; }
 figure  { colors: #1f6feb #0f9d8a #7c4dff #f08c00; } /* process, swot, timeline (else chart's) */
+figure  { card-background: #ffffff; box-shadow: 0 6pt 18pt rgba(46,58,99,.12); } /* white cards (stats, cards, swot, timeline) with a soft shadow */
+container { background-color: #ffffff; border-radius: 14pt; box-shadow: 0 6pt 18pt rgba(46,58,99,.12); } /* {container=box} plates */
 .lead { font-size: 26pt; }
 ```
 
-Fonts available: `Open Sans`, `Noto Sans`. Sizes in `pt` or `in`.
+Fonts available: `Open Sans`, `Noto Sans`, `Lato` and `Droid Serif` (a
+serif). In a list the first of these is used (`Georgia, serif` is Droid
+Serif, `sans-serif` Open Sans); a name that is none of them is said in the
+warnings. Headings take theirs from `heading { font-family: … }`, not from
+`h1`…`h6`. Sizes in `pt` or `in`.
 
 On `update_presentation`, `css` is added after the deck's own rules so
 far, so one new rule can be sent alone; sending all of the deck's own

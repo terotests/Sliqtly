@@ -29,6 +29,7 @@
 ;                 build steps), hold (seconds after the last step)
 ; ============================================================================
 
+Import "PresFonts.rgr"
 Import "../markdown/web/markdown_web.rgr"
 Import "PresSource.rgr"
 Import "PresDiagram.rgr"
@@ -1184,8 +1185,28 @@ class PresDeck {
     }
 
     fn setStyleSheet:void (css:string) {
-        this.setTheme(css)
-        md.edit.setStyleSheet(css)
+        def own:string (this.useFonts(css))
+        this.setTheme(own)
+        md.edit.setStyleSheet(own)
+    }
+
+    ; What the sheet's `font-family` lists come to (PresFonts): the CSS with
+    ; each one the first face there is, the faces that are not loaded with
+    ; every page asked of it, and a line on what could not be had.
+    def fontNote:string ""
+
+    fn useFonts:string (css:string) {
+        def f:PresFontsOut (PresFonts.read(css))
+        fontNote = (PresFonts.note(f))
+        for f.faces face:string fi {
+            if ((indexOf ("," + wantFaces + ",") ("," + face + ",")) < 0) {
+                if ((strlen wantFaces) > 0) {
+                    wantFaces = (wantFaces + ",")
+                }
+                wantFaces = (wantFaces + face)
+            }
+        }
+        return f.css
     }
 
     ; A named template (`theme: aurora` in the front matter), without a layout.
@@ -2840,6 +2861,8 @@ class PresDeck {
     ;     colors: #1f6feb #0f9d8a #7c4dff #f08c00;   the series, in order
     ;     color: #B96926;  accent-color: #59C3C4;   or the first two
     ;     font-size: 18pt;                          the titles in them
+    ;     card-background: #ffffff;                 the cards, not tinted
+    ;     box-shadow: 0 6pt 18pt rgba(0,0,0,.12);   a soft shadow under them
     ;   }
     ;
     ; With no `figure` rule the chart's colours are used. Text and paper are
@@ -2890,6 +2913,19 @@ class PresDeck {
         def font:string (trim (this.themeRule("document" "font-family")))
         if ((strlen font) > 0) {
             st.font = (PresDeck.unQuote(font))
+        }
+        ; white cards with a soft shadow, as a template's key figures are:
+        ;   figure { card-background: #ffffff; box-shadow: 0 6pt 18pt rgba(…) }
+        def cardBg:string (trim (this.themeRule("figure" "card-background")))
+        if ((strlen cardBg) > 0) {
+            def cbc:EVGColor (EVGColor.parse(cardBg))
+            if cbc.isSet {
+                st.cardFill = (MdContainer.hexOf(cbc))
+            }
+        }
+        def shadowRule:string (trim (this.themeRule("figure" "box-shadow")))
+        if ((strlen shadowRule) > 0) {
+            st.cardShadow = (MdContainer.shadowColour(shadowRule))
         }
         ; in points, the layout's unit; without a size of its own a figure
         ; takes the document's, a little smaller: its titles are labels, not

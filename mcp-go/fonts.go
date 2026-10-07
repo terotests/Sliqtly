@@ -40,6 +40,14 @@ var faceFiles = map[string]string{
 	"Fjalla One":             "FjallaOne-Regular.ttf",
 	"Josefin Sans-Bold":      "JosefinSans-Bold.ttf",
 	"Droid Serif-BoldItalic": "DroidSerif-BoldItalic.ttf",
+	// the faces a deck's CSS can name (src/PresFonts.rgr)
+	"Droid Serif":        "DroidSerif.ttf",
+	"Droid Serif-Bold":   "DroidSerif-Bold.ttf",
+	"Droid Serif-Italic": "DroidSerif-Italic.ttf",
+	"Lato":               "Lato-Regular.ttf",
+	"Lato-Bold":          "Lato-Bold.ttf",
+	"Lato-Italic":        "Lato-Italic.ttf",
+	"Lato-BoldItalic":    "Lato-BoldItalic.ttf",
 }
 
 var symbolFaces = map[string]string{
