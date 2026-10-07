@@ -61,6 +61,76 @@ Speaker notes. Not shown on the slide.
 - `::: notes … :::` holds speaker notes for the slide above it.
 - A slide whose content runs over its height is split onto the next slide.
 
+## Placing content on a slide
+
+A slide's blocks go one under the other from the top, unless the slide or
+a container says otherwise.
+
+````markdown
+## Before and after {layout=comparison}
+
+### Before
+- Slides made by hand
+
+### After
+- Markdown
+
+## Results {layout=image-right}
+
+- Growth continued
+- Costs fell
+
+![Chart](media/growth.png)
+
+::: columns
+```ts
+const total = sum(rows);
+```
+{width=55%}
+
+- `sum` adds the rows
+:::
+````
+
+- `::: columns` … `:::` puts what is in it side by side. The columns are
+  read from what is inside, the first rule that applies: `::: col` blocks
+  (one column each; nest them in `:::: columns` with four colons, or write
+  `::: col` blocks one after another without a wrapper; `::: col Title`
+  sets a title over the column); `---` lines between the parts; headings
+  (a column starts at each heading of the highest level there, text
+  before the first one goes across above the columns); pictures, charts,
+  diagrams and galleries next to other blocks (the pictures in one column,
+  the rest in the other, on the side the first block is on); otherwise
+  each block is a column of its own.
+- Any block fits in a column: headings, lists, code, tables, pictures,
+  charts, diagrams. `{width=40%}` under a column's only block sets that
+  column's width (the block then fills its column);
+  `{widths="60 40"}` under the closing `:::` sets them all.
+- On a slide's heading, `layout=` does the same for the slide's content:
+  `columns` or `comparison` (columns by sub-headings, else by blocks),
+  `two-column`, `image-right` / `image-left` (pictures, charts and
+  diagrams in a column at that side, the rest in the other).
+  `widths="60 40"` goes on the heading too.
+- `valign=center` (or `layout=center`) or `valign=bottom` on a slide's
+  heading sets the content under the title in the middle or at the foot
+  of the room under it; `valign: center` in the front matter does it for
+  every slide that does not say `valign=` itself.
+- `layout=section` (also `layout=title`): the title and the lines under it
+  together in the middle of the slide, centred.
+- `layout=statement`: the text under the title set at the title's size, in
+  the middle of the slide; the title is not drawn but still names the
+  slide. A statement slide with no text under it shows its title larger,
+  in the middle.
+- `{float=top-right width=8%}` under a picture (also `top-left`,
+  `bottom-right`, `bottom-left`) sets it in that corner of the slide, out
+  of the flow: the title and the text after it go beside it. Write it right
+  under the slide's heading.
+- `{width=50%}` under a picture, chart, table or code block puts the
+  blocks after it beside it (paragraphs, lists, quotes), down to its
+  bottom.
+- Text beside a picture or chart, or in a column, is set as large as the
+  slide has room for, as text alone on a slide is.
+
 ## Style is yours to choose
 
 Nothing in this guide is a house style or a recommended structure: what
@@ -79,7 +149,6 @@ options do, not when to use them.
   alphabetical order unless the colour encoding gives `"sort": [...]`.
 - Over about 12 bars, horizontal bars (category on `y`, `"sort": "-x"`)
   keep the names readable.
-- `{width=62%}` under a chart or table puts what follows beside it.
 - A table that runs a few rows over its slide is set smaller by itself.
 - `lang: fi` (or `sv`, `de`, `fr`…) in the front matter writes the charts'
   numbers that language's way.
@@ -181,6 +250,9 @@ or plain text for a text cell. Under the fence:
 - `fit=cover` fills the cell and crops, `fit=contain` shows the whole
   picture. `focus=` keeps a part in the crop: `top`, `bottom left`,
   `30% 70%`. `span=2` makes a cell two columns wide.
+- Without `gallery { columns }` a grid on a slide takes as many columns
+  as show the most of its pictures: portraits side by side in tall cells,
+  landscapes two by two.
 - `caption=overlay|below|none`; an overlay caption is white text on a dark
   see-through band that reads (4.5:1) over light and dark pictures; a
   `caption { color }` set dark gets a light band. Captions below
