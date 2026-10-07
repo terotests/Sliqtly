@@ -19,6 +19,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -168,6 +169,11 @@ func cloneValue(v any) any {
 		return float64(x)
 	case time.Time:
 		return time.UnixMilli(x.UnixMilli()).UTC()
+	case string:
+		// its own bytes: a string cut from a request body keeps the whole
+		// body alive, and the change feed, which keeps clones of recent
+		// documents, counts only the string's own length
+		return strings.Clone(x)
 	}
 	return v
 }

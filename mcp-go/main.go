@@ -52,6 +52,7 @@ func main() {
 	listen := flag.String("listen", env("SLIQTLY_LISTEN", ""), "who can connect: local (this computer only, the default), wired (also computers on a wired network) or network (every interface); unset: the settings page decides (SLIQTLY_LISTEN)")
 	allow := flag.String("allow", env("SLIQTLY_ALLOW", ""), "other computers' address ranges let in, e.g. 10.20.0.0/16 (SLIQTLY_ALLOW)")
 	flag.Parse()
+	applyMemoryLimit()
 
 	// who can connect (netaccess.go): this computer only unless told
 	// otherwise; Cloud Run's own front is the only way in there

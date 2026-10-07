@@ -3,8 +3,8 @@
 package rdiff
 import (
   "math"
-  "strings"
   "strconv"
+  "strings"
 )
 
 type GoNullable struct {
@@ -777,6 +777,12 @@ func (this *ZipBuffer) readUint32LE () int64 {
   return ((b0 + b1 * int64(256)) + b2 * int64(65536)) + b3 * int64(16777216)
 }
 func (this *ZipBuffer) readBytes (count int64) []byte {
+  if  count > this.length - this.pos {
+    count = this.length - this.pos; 
+  }
+  if  count < int64(0) {
+    count = int64(0); 
+  }
   var result []byte= make([]byte, count);
   var i int64= int64(0);
   for i < count {
@@ -1093,6 +1099,7 @@ type InflateBitReader struct {
   bitPos int64 `json:"bitPos"` 
   currentByte int64 `json:"currentByte"` 
   dataLength int64 `json:"dataLength"` 
+  overrun bool `json:"overrun"` 
 }
 
 func CreateNew_InflateBitReader() *InflateBitReader {
@@ -1104,6 +1111,7 @@ func CreateNew_InflateBitReader() *InflateBitReader {
   me.bitPos = int64(0)
   me.currentByte = int64(0)
   me.dataLength = int64(0)
+  me.overrun = false
   return me;
 }
 func (this *InflateBitReader) init (buf []byte, offset int64, length int64) () {
@@ -1112,10 +1120,12 @@ func (this *InflateBitReader) init (buf []byte, offset int64, length int64) () {
   this.dataLength = offset + length; 
   this.bitPos = int64(0); 
   this.currentByte = int64(0); 
+  this.overrun = false; 
 }
 func (this *InflateBitReader) readBit () int64 {
   if  this.bitPos == int64(0) {
     if  this.bytePos >= this.dataLength {
+      this.overrun = true; 
       return int64(0)
     }
     this.currentByte = int64(this.data[this.bytePos]); 
@@ -1145,6 +1155,7 @@ func (this *InflateBitReader) alignToByte () () {
 func (this *InflateBitReader) readByte () int64 {
   this.alignToByte();
   if  this.bytePos >= this.dataLength {
+    this.overrun = true; 
     return int64(0)
   }
   var b int64= int64(this.data[this.bytePos]);
@@ -1168,6 +1179,9 @@ type Inflate struct {
   outBuf []byte `json:"outBuf"` 
   outLen int64 `json:"outLen"` 
   outCap int64 `json:"outCap"` 
+  maxOutput int64 `json:"maxOutput"` 
+  error string `json:"error"` 
+  truncated bool `json:"truncated"` 
   fixedLitLen *InflateHuffmanTable `json:"fixedLitLen"` 
   fixedDist *InflateHuffmanTable `json:"fixedDist"` 
   fixedTablesBuilt bool `json:"fixedTablesBuilt"` 
@@ -1188,6 +1202,9 @@ func CreateNew_Inflate() *Inflate {
   
   me.outLen = int64(0)
   me.outCap = int64(0)
+  me.maxOutput = int64(0)
+  me.error = ""
+  me.truncated = false
   me.fixedLitLen = CreateNew_InflateHuffmanTable()
   me.fixedDist = CreateNew_InflateHuffmanTable()
   me.fixedTablesBuilt = false
@@ -1203,26 +1220,47 @@ func (this *Inflate) resetOutput (hint int64) () {
   if  _cap < int64(4096) {
     _cap = int64(4096); 
   }
+  if  this.maxOutput > int64(0) && _cap > this.maxOutput {
+    _cap = this.maxOutput; 
+  }
   this.outBuf = make([]byte, _cap); 
   this.outCap = _cap; 
   this.outLen = int64(0); 
 }
-func (this *Inflate) ensureCapacity (extra int64) () {
+func (this *Inflate) fail (why string) () {
+  if  int64(len(this.error)) == int64(0) {
+    this.error = why; 
+  }
+}
+func (this *Inflate) going () bool {
+  return int64(len(this.error)) == int64(0) && this.reader.overrun == false
+}
+func (this *Inflate) ensureCapacity (extra int64) bool {
   var need int64= this.outLen + extra;
+  if  this.maxOutput > int64(0) && need > this.maxOutput {
+    this.fail(("output larger than " + strconv.FormatInt(this.maxOutput, 10)) + " bytes");
+    return false
+  }
   if  need <= this.outCap {
-    return
+    return true
   }
   var newCap int64= this.outCap * int64(2);
   if  newCap < need {
     newCap = need; 
   }
+  if  this.maxOutput > int64(0) && newCap > this.maxOutput {
+    newCap = this.maxOutput; 
+  }
   var grown []byte= make([]byte, newCap);
   copy(grown[int64(0):], this.outBuf[int64(0):int64(0)+this.outLen])
   this.outBuf = grown; 
   this.outCap = newCap; 
+  return true
 }
 func (this *Inflate) pushByte (b int64) () {
-  this.ensureCapacity(int64(1));
+  if  this.ensureCapacity(int64(1)) == false {
+    return
+  }
   this.outBuf[this.outLen] = byte(b)
   this.outLen = this.outLen + int64(1); 
 }
@@ -1397,6 +1435,8 @@ func (this *Inflate) decompress (data []byte) []byte {
 }
 func (this *Inflate) decompressFrom (data []byte, offset int64) []byte {
   this.input = data; 
+  this.error = ""; 
+  this.truncated = false; 
   var dataLen int64= int64(len(data));
   var from int64= offset;
   if  from < int64(0) {
@@ -1410,7 +1450,7 @@ func (this *Inflate) decompressFrom (data []byte, offset int64) []byte {
   this.reader.init(data, from, rest);
   this.buildFixedTables();
   var finalBlock bool= false;
-  for false == finalBlock {
+  for false == finalBlock && this.going() {
     var bfinal int64= this.reader.readBit();
     var btype int64= this.reader.readBits(int64(2));
     finalBlock = bfinal == int64(1); 
@@ -1423,7 +1463,15 @@ func (this *Inflate) decompressFrom (data []byte, offset int64) []byte {
     if  btype == int64(2) {
       this.decompressDynamic();
     }
+    if  btype == int64(3) {
+      this.fail("reserved block type");
+    }
   }
+  if  int64(len(this.error)) > int64(0) {
+    this.outLen = int64(0); 
+    return make([]byte, int64(0))
+  }
+  this.truncated = this.reader.overrun; 
   return this.finalOutput()
 }
 func (this *Inflate) inputPos () int64 {
@@ -1434,10 +1482,16 @@ func (this *Inflate) decompressStored () () {
   var __len int64= this.reader.readUint16LE();
   var nlen int64= this.reader.readUint16LE();
   if  __len + nlen != int64(65535) {
+    if  this.reader.overrun == false {
+      this.fail("stored block length does not match its complement");
+    }
+    return
   }
-  this.ensureCapacity(__len);
+  if  this.ensureCapacity(__len) == false {
+    return
+  }
   var i int64= int64(0);
-  for i < __len {
+  for i < __len && this.going() {
     var b int64= this.reader.readByte();
     this.pushByte(b);
     i = i + int64(1); 
@@ -1445,8 +1499,15 @@ func (this *Inflate) decompressStored () () {
 }
 func (this *Inflate) decompressHuffman (litLenTable *InflateHuffmanTable, distTable *InflateHuffmanTable) () {
   var done bool= false;
-  for false == done {
+  for false == done && this.going() {
     var sym int64= litLenTable.decode(this.reader);
+    if  this.reader.overrun {
+      return
+    }
+    if  sym < int64(0) || sym > int64(285) {
+      this.fail("invalid literal/length code");
+      return
+    }
     if  sym < int64(256) {
       this.pushByte(sym);
     }
@@ -1461,10 +1522,21 @@ func (this *Inflate) decompressHuffman (litLenTable *InflateHuffmanTable, distTa
         length = length + this.reader.readBits(extraBits); 
       }
       var distCode int64= distTable.decode(this.reader);
+      if  distCode < int64(0) || distCode > int64(29) {
+        this.fail("invalid distance code");
+        return
+      }
       var dist int64= this.distBase[distCode];
       var distExtraBits int64= this.distExtra[distCode];
       if  distExtraBits > int64(0) {
         dist = dist + this.reader.readBits(distExtraBits); 
+      }
+      if  this.reader.overrun {
+        return
+      }
+      if  dist > this.outLen {
+        this.fail("distance before the start of the output");
+        return
       }
       this.copyFromOutput(dist, length);
     }
@@ -1512,8 +1584,12 @@ func (this *Inflate) decompressDynamic () () {
   var allLengths []int64 = make([]int64, 0);
   var totalCodes int64= hlit + hdist;
   i = int64(0); 
-  for i < totalCodes {
+  for i < totalCodes && this.going() {
     var sym int64= clTable.decode(this.reader);
+    if  sym < int64(0) || sym > int64(18) {
+      this.fail("invalid code length code");
+      return
+    }
     if  sym < int64(16) {
       allLengths = append(allLengths,sym); 
       i = i + int64(1); 
@@ -1551,6 +1627,13 @@ func (this *Inflate) decompressDynamic () () {
       i = i + repeat_2; 
     }
   }
+  if  this.going() == false {
+    return
+  }
+  if  i > totalCodes {
+    this.fail("code lengths run past the table");
+    return
+  }
   var litLenLengths []int64 = make([]int64, 0);
   var distLengths []int64 = make([]int64, 0);
   i = int64(0); 
@@ -1570,7 +1653,9 @@ func (this *Inflate) decompressDynamic () () {
 }
 func (this *Inflate) copyFromOutput (distance int64, length int64) () {
   var srcPos int64= this.outLen - distance;
-  this.ensureCapacity(length);
+  if  this.ensureCapacity(length) == false {
+    return
+  }
   var i int64= int64(0);
   for i < length {
     var b int64= int64(0);
@@ -2422,6 +2507,7 @@ type RdZipEntry struct {
   raw []byte `json:"raw"` 
   hasContent bool `json:"hasContent"` 
   contentBuf []byte `json:"contentBuf"` 
+  bad bool `json:"bad"` 
 }
 
 func CreateNew_RdZipEntry() *RdZipEntry {
@@ -2438,6 +2524,7 @@ func CreateNew_RdZipEntry() *RdZipEntry {
   me.contentBuf = 
   make([]byte, int64(0))
   
+  me.bad = false
   return me;
 }
 func RdZipEntry_static_stored(name string, data []byte) *RdZipEntry {
@@ -2458,7 +2545,12 @@ func (this *RdZipEntry) content () []byte {
   }
   if  this.method == int64(8) {
     var inf *Inflate= CreateNew_Inflate(); _ = inf
+    inf.maxOutput = this.usize; 
     this.contentBuf = inf.decompress(this.raw); 
+    if  (int64(len(inf.error)) > int64(0) || inf.truncated) || int64(len(this.contentBuf)) != this.usize {
+      this.bad = true; 
+      this.contentBuf = make([]byte, int64(0)); 
+    }
   } else {
     this.contentBuf = this.raw; 
   }
@@ -2545,7 +2637,7 @@ func RdZip_static_read(b []byte) *RdZipArchive {
   var i int64= int64(0);
   var at int64= cd;
   for i < count {
-    if  at + int64(46) > n || RdZip_static_u32(b, at) != int64(33639248) {
+    if  (at < int64(0) || at + int64(46) > n) || RdZip_static_u32(b, at) != int64(33639248) {
       z.error = "broken central directory"; 
       return z
     }
@@ -2558,6 +2650,14 @@ func RdZip_static_read(b []byte) *RdZipArchive {
     var extraLen int64= RdZip_static_u16(b, (at + int64(30)));
     var commentLen int64= RdZip_static_u16(b, (at + int64(32)));
     var local int64= RdZip_static_u32(b, (at + int64(42)));
+    if  ((e.csize < int64(0) || e.usize < int64(0)) || local < int64(0)) || ((e.csize == int64(4294967295) || e.usize == int64(4294967295)) || local == int64(4294967295)) {
+      z.error = "ZIP64 is not supported"; 
+      return z
+    }
+    if  (at + int64(46)) + nameLen > n {
+      z.error = "broken central directory"; 
+      return z
+    }
     e.name = RdBytes_static_toText(append([]byte{}, b[(at + int64(46)):((at + int64(46)) + nameLen)]...)); 
     if  e.method != int64(0) && e.method != int64(8) {
       z.error = "unsupported compression in " + e.name; 
@@ -3499,7 +3599,11 @@ func RdPack_static_diff(base []byte, target []byte) []byte {
   if  za.ok == false || zb.ok == false {
     return RdDelta_static_diff(base, target)
   }
-  return RdPack_static_diffArchives(za, zb)
+  var d []byte= RdPack_static_diffArchives(za, zb);
+  if  int64(len(d)) == int64(0) {
+    return RdDelta_static_diff(base, target)
+  }
+  return d
 }
 func RdPack_static_diffArchives(za *RdZipArchive, zb *RdZipArchive) []byte {
   var w *RdWriter= CreateNew_RdWriter();
@@ -3526,12 +3630,16 @@ func RdPack_static_diffArchives(za *RdZipArchive, zb *RdZipArchive) []byte {
         w.byte(int64(0));
       } else {
         var nb []byte= e.content();
+        var ob []byte= o.content();
+        if  e.bad || o.bad {
+          return make([]byte, int64(0))
+        }
         var sheetForm bool= RdXlsx_static_isSheet(e.name) && RdXlsx_static_isEncoded(nb) == false;
         var d []byte= make([]byte, int64(0));
         if  sheetForm {
-          d = RdDelta_static_diff(RdXlsx_static_encode(o.content()), RdXlsx_static_encode(nb)); 
+          d = RdDelta_static_diff(RdXlsx_static_encode(ob), RdXlsx_static_encode(nb)); 
         } else {
-          d = RdDelta_static_diff(o.content(), nb); 
+          d = RdDelta_static_diff(ob, nb); 
         }
         if  int64(len(d)) < int64(len(e.raw)) {
           if  sheetForm {
@@ -3655,6 +3763,10 @@ func RdPack_static_apply(base []byte, delta []byte) *RdApplyResult {
         }
         var o2 *RdZipEntry= old2.value.(*RdZipEntry); _ = o2
         var from []byte= o2.content();
+        if  o2.bad {
+          res.error = "the base part cannot be read: " + name; 
+          return res
+        }
         if  kind == int64(5) {
           from = RdXlsx_static_encode(from); 
         }
@@ -3817,6 +3929,30 @@ func RdPng_static_isType(b []byte, p int64, t string) bool {
   }
   return true
 }
+func RdPng_static_rawSize(b []byte) int64 {
+  if  int64(len(b)) < int64(33) || RdPng_static_isType(b, int64(12), "IHDR") == false {
+    return int64(0)
+  }
+  var w int64= RdPng_static_u32be(b, int64(16));
+  var h int64= RdPng_static_u32be(b, int64(20));
+  var depth int64= int64(b[int64(24)]);
+  var color int64= int64(b[int64(25)]);
+  var channels int64= int64(1);
+  if  color == int64(2) {
+    channels = int64(3); 
+  }
+  if  color == int64(4) {
+    channels = int64(2); 
+  }
+  if  color == int64(6) {
+    channels = int64(4); 
+  }
+  if  ((w <= int64(0) || h <= int64(0)) || (w > int64(100000) || h > int64(100000))) || (depth <= int64(0) || depth > int64(16)) {
+    return int64(0)
+  }
+  var row int64= (w * channels) * int64(2);
+  return ((row + int64(1)) * h) * int64(2) + int64(1024)
+}
 func RdPng_static_split(b []byte) *RdPngParts {
   var parts *RdPngParts= CreateNew_RdPngParts();
   if  RdPng_static_isPng(b) == false {
@@ -3858,7 +3994,16 @@ func RdPng_static_split(b []byte) *RdPngParts {
     return parts
   }
   var inf *Inflate= CreateNew_Inflate(); _ = inf
+  inf.maxOutput = RdPng_static_rawSize(b); 
+  if  inf.maxOutput <= int64(0) {
+    parts.error = "broken IHDR"; 
+    return parts
+  }
   parts.pixels = inf.decompressFrom(z, int64(2)); 
+  if  int64(len(inf.error)) > int64(0) || inf.truncated {
+    parts.error = "broken pixels: " + inf.error; 
+    return parts
+  }
   parts.skeleton = skel.toBuffer(); 
   parts.ok = true; 
   return parts
