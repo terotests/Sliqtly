@@ -45,6 +45,8 @@ class Checked {
     def titles:[string]
     ; where each slide starts in the Markdown (-1: it drew nothing)
     def starts:[int]
+    ; the heading level that starts a slide (`deck { split-level }`)
+    def splitLevel:int 2
     def warnings:[string]
     ; the layout report, slide by slide
     def report:[RSlideOut]
@@ -273,6 +275,8 @@ class Check {
         c.width = d.pageW
         c.height = d.pageH
         c.slides = (d.slideCount())
+        def lay:MdLayout (d.layout())
+        c.splitLevel = lay.splitLevel
         def ti:int 0
         while (ti < c.slides) {
             def ts:PresSlide (d.slideAt(ti))

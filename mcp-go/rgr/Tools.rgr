@@ -235,18 +235,18 @@ class Tools {
         ep.put("find" (Tools.prop("string" "Text to change, exactly as it is in the deck (spaces and line breaks too); it must be there once, or give all: true")))
         ep.put("replace" (Tools.prop("string" "What find becomes (\"\" removes it)")))
         ep.put("all" (Tools.prop("boolean" "Change every place find is, not just one")))
-        def sn:MfJ (Tools.prop("integer" "Slide to replace or delete, numbered as in render_overview and the layout report (1 = first)"))
+        def sn:MfJ (Tools.prop("integer" "Slide to replace, delete or move, numbered as in render_overview and the layout report (1 = first)"))
         sn.putInt("minimum" 1)
         ep.put("slide" sn)
-        ep.put("slide_title" (Tools.prop("string" "Slide to replace or delete by its title (instead of slide)")))
-        def an:MfJ (Tools.prop("integer" "Add the markdown's slides after this slide (0 = before the first)"))
+        ep.put("slide_title" (Tools.prop("string" "Slide to replace, delete or move by its title (instead of slide)")))
+        def an:MfJ (Tools.prop("integer" "Add the markdown's slides after this slide (0 = before the first); with slide or slide_title and no markdown, move that slide here"))
         an.putInt("minimum" 0)
         ep.put("after_slide" an)
         ep.put("markdown" (Tools.prop("string" "With slide/slide_title: the slide's whole new Markdown from its heading (\"\" deletes the slide). With after_slide: the new slides.")))
         def eitem:MfJ (MfJ.newObj())
         eitem.putStr("type" "object")
         eitem.put("properties" ep)
-        def edits:MfJ (Tools.prop("array" "Changes to the deck's Markdown instead of sending all of it: each edit is find + replace, slide (or slide_title) + markdown, or after_slide + markdown. Slide numbers and find refer to the deck as it is before these edits; two edits may not touch the same text. Not with markdown."))
+        def edits:MfJ (Tools.prop("array" "Changes to the deck's Markdown instead of sending all of it: each edit is find + replace, slide (or slide_title) + markdown, after_slide + markdown, or slide (or slide_title) + after_slide to move a slide as it is. Slide numbers and find refer to the deck as it is before these edits; two edits may not touch the same text. Not with markdown."))
         edits.put("items" eitem)
         up.put("edits" edits)
         up.put("base_version" (Tools.prop("string" "The version your markdown started from (from get_presentation, begin_work or your last update). When the deck changed since, the changes are merged; a change to the same lines is refused. Needed with markdown when another assistant is working on the deck; edits are made on the deck as it is and need none.")))
@@ -2241,15 +2241,24 @@ class Tools {
                 e.title = (ej.str_("slide_title"))
             }
             if ((ej.field("after_slide")).kind == 2) {
-                ways = (ways + 1)
-                e.kind = "insert"
                 e.after = (ej.int_("after_slide" 0))
+                if (e.kind == "slide") {
+                    ; slide (or slide_title) and after_slide: a move
+                    e.kind = "move"
+                } {
+                    ways = (ways + 1)
+                    e.kind = "insert"
+                }
             }
             if (ways != 1) {
-                out.err = (lead + "an edit has find (and replace), or slide (or slide_title) and markdown, or after_slide and markdown.")
+                out.err = (lead + "an edit has find (and replace), or slide (or slide_title) and markdown, or after_slide and markdown, or slide (or slide_title) and after_slide to move it.")
                 return out
             }
-            if ((e.kind != "text") && ((ej.field("markdown")).kind != 3)) {
+            if ((e.kind == "move") && ((ej.field("markdown")).kind != 0)) {
+                out.err = (lead + "a move (slide and after_slide) takes no markdown: the slide goes as it is.")
+                return out
+            }
+            if (((e.kind != "text") && (e.kind != "move")) && ((ej.field("markdown")).kind != 3)) {
                 out.err = (lead + "markdown is needed (\"\" deletes a slide).")
                 return out
             }
@@ -2259,6 +2268,7 @@ class Tools {
         def md:string (cur.str_("md"))
         def starts:[int]
         def titles:[string]
+        def lvl:int 2
         if (Tools.needsSlides(edits)) {
             def noImgs:[Img]
             def stored:[string]
@@ -2270,8 +2280,9 @@ class Tools {
             def ck:Checked (Tools.checkDeck(host md (cur.str_("theme")) (css.kind == 3) (cur.str_("css")) bgs noImgs id stored))
             starts = ck.starts
             titles = ck.titles
+            lvl = ck.splitLevel
         }
-        return (DeckEdits.apply(md edits starts titles))
+        return (DeckEdits.applyIn(md edits starts titles lvl))
     }
 
     sfn needsSlides:boolean (edits:[DeckEdit]) {
