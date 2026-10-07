@@ -36,6 +36,14 @@ class Caller {
     def who:string ""
     ; the MCP session's record (Store.sessionKey), "" without one
     def session:string ""
+    ; the record of the session_key the call carried, "" without one: the
+    ; conversation's own hold on decks made without sign-in, which outlives
+    ; the connection (clients reconnect between turns with a new
+    ; Mcp-Session-Id)
+    def carried:string ""
+    ; a session_key create_presentation handed out in this call, to be said
+    ; in its answer
+    def minted:string ""
     ; the client's address
     def ip:string ""
 }
@@ -477,6 +485,17 @@ class Tools {
         tools.add((Tools.tool("end_work" "Finish work on a presentation" "Release the slides claimed with begin_work, once your changes are saved (or given up), so other assistants may work on them." (Tools.schema(ewp ([] _:string ("deck_id" "work_id")))) (Tools.annotations(false 0 true false)) eitherMeta)))
 
         tools.add((Tools.tool("list_presentations" "List my presentations" "List the signed-in user's own Sliqtly presentations (newest first) with their links and deck_ids. Needs sign-in." (Tools.schema((MfJ.newObj()) none)) (Tools.annotations(true -1 false false)) listMeta)))
+        ; decks made without sign-in are changed by the conversation that
+        ; made them, which says so with the session_key create_presentation
+        ; gave it
+        if (Tools.limited(host)) {
+            for tools.arr st:MfJ sti {
+                if (Deck.inList(([] _:string ("create_presentation" "update_presentation" "bind_chart_data" "delete_presentation" "export_presentation" "add_comment" "resolve_comment" "write_workbook" "vectorize_image" "begin_work" "end_work")) (st.str_("name")))) {
+                    def sprops:MfJ ((st.field("inputSchema")).field("properties"))
+                    sprops.put("session_key" (Tools.prop("string" "Without sign-in only: the session_key create_presentation gave this conversation. Send it with every call on a presentation this conversation made without sign-in, and with a further create_presentation.")))
+                }
+            }
+        }
         ; the host's own (rooms)
         def more:MfJ (J.parse((host_tools_json host)))
         if (more.kind == 4) {
@@ -597,6 +616,23 @@ class Tools {
         return (((host_store_kind host) != "link") && ((strlen (host_local_user host)) == 0))
     }
 
+    ; the session record that counts a caller's decks made without sign-in:
+    ; the session_key it carries, else its connection's
+    sfn anonKey:string (caller:Caller) {
+        if ((strlen caller.carried) > 0) {
+            return caller.carried
+        }
+        return caller.session
+    }
+
+    ; both records that may hold a caller's decks made without sign-in
+    sfn anonKeys:[string] (caller:Caller) {
+        def keys:[string]
+        push keys caller.carried
+        push keys caller.session
+        return keys
+    }
+
     ; why this caller may not make another deck, or "" (a storage error is
     ; left on the host)
     sfn decksFull:string (host:McpHost caller:Caller) {
@@ -607,7 +643,7 @@ class Tools {
             }
             return ""
         }
-        if ((Store.sessionCount(host caller.session)) >= (Limits.ANON_DECKS())) {
+        if ((Store.sessionCount(host (Tools.anonKey(caller)))) >= (Limits.ANON_DECKS())) {
             return ("Not created: without sign-in one conversation makes at most " + (to_string (Limits.ANON_DECKS())) + " presentations. Change one of them with update_presentation, or sign in (Google) to keep more.")
         }
         return ""
@@ -655,7 +691,7 @@ class Tools {
             most = (Limits.USER_DECKS())
             who = "This Sliqtly account"
         } {
-            have = (Store.sessionCount(host caller.session))
+            have = (Store.sessionCount(host (Tools.anonKey(caller))))
         }
         if (have >= most) {
             return (who + " already keeps " + (to_string have) + " presentations, the most it may: create_presentation will refuse a new one. Before writing a deck, ask the user which presentation to delete (list_presentations, then delete_presentation), or change an existing one with update_presentation.")
@@ -796,7 +832,10 @@ class Tools {
             }
         } {
             if (out.has("deck_id")) {
-                push lines "Not signed in: anyone with the link can view it; only this conversation's Sliqtly session can change it, until the session ends or goes unused for a day. It is deleted 7 days after its last change. Sign in to keep it, or to add pictures and files."
+                push lines "Not signed in: anyone with the link can view it; only this conversation can change it, until it goes a day without a change. It is deleted 7 days after its last change. Sign in to keep it, or to add pictures and files."
+            }
+            if ((strlen caller.minted) > 0) {
+                push lines ("session_key: " + caller.minted + " (this conversation's key to the presentations it makes without sign-in. Send it as session_key with every call that changes, exports or deletes them, and with your next create_presentation; a new connection to Sliqtly does not carry it. Keep it in this conversation: do not put it in slides, links or messages for others.)")
             }
         }
         if ((out.str_("visibility")) == "private") {
@@ -1356,6 +1395,16 @@ class Tools {
                 return (Tools.fail(whyR))
             }
         }
+        def sk:MfJ (args.field("session_key"))
+        if (sk.kind != 0) {
+            if (sk.kind != 3) {
+                return (Tools.fail("Invalid arguments: session_key is a string."))
+            }
+            caller.carried = (Store.sessionKey(host sk.str))
+            if ((strlen caller.carried) == 0) {
+                return (Tools.fail("Invalid arguments: session_key is the value create_presentation gave, exactly as it was."))
+            }
+        }
         def r:MfJ (new MfJ)
         if (name == "create_presentation") {
             r = (Tools.create(host caller args))
@@ -1678,13 +1727,25 @@ class Tools {
         Tools.links(host out base made.id)
         out.putStr("deck_id" made.id)
         if (owner == "mcp") {
-            ; changed later only by this session
-            if ((Store.sessionGrant(host caller.session made.id)) == false) {
+            ; changed later only by this conversation: the session_key it
+            ; carries (a new one when it carries none), and this connection
+            def held:boolean (Store.sessionGrant(host caller.session made.id))
+            if ((strlen caller.carried) == 0) {
+                def key:string (host_short_id host 44)
+                caller.carried = (Store.sessionKey(host key))
+                caller.minted = key
+            }
+            if (Store.sessionGrant(host caller.carried made.id)) {
+                held = true
+            } {
+                caller.minted = ""
+            }
+            if (held == false) {
                 if ((strlen (host_error host)) > 0) {
                     host_log host ("create_presentation session: " + (host_error host))
                     host_clear_error host
                 }
-                push ws "This connection keeps no Sliqtly session, so the presentation cannot be changed later; sign in to keep editing it."
+                push ws "This conversation keeps no Sliqtly session, so the presentation cannot be changed later; sign in to keep editing it."
                 out.put("warnings" (J.strs(ws)))
             }
         }
@@ -2365,20 +2426,24 @@ class Tools {
         }
         def owner:string (cur.str_("owner"))
         if ((mine == false) && (owner == "mcp")) {
-            ; made without sign-in: only the session that made it
-            mine = (Store.sessionHolds(host caller.session id))
-            if ((strlen (host_error host)) > 0) {
-                return ed
-            }
-            if mine {
-                ; held a day from this change
-                Store.sessionGrant(host caller.session id)
+            ; made without sign-in: only the conversation that made it, by
+            ; the session_key it carries or the connection it made it on
+            for (Tools.anonKeys(caller)) key:string ki {
+                if (Store.sessionHolds(host key id)) {
+                    mine = true
+                    ; held a day from this change
+                    Store.sessionGrant(host key id)
+                }
                 if ((strlen (host_error host)) > 0) {
                     return ed
                 }
             }
             if (mine == false) {
-                ed.fail = ("Not saved: presentation " + id + " was made without sign-in in another Sliqtly session (a conversation that has ended, or more than a day ago), and only that session could change it. Anyone with its link can still view it. Tell the user, and do not make a copy unasked; a copy made with create_presentation is a new presentation with its own link.")
+                if ((strlen caller.carried) > 0) {
+                    ed.fail = ("Not saved: presentation " + id + " was made without sign-in, and the session_key sent is not the one it was made with, or that key went a day without a change and ended. Only the conversation that made it can change it; anyone with its link can still view it. Tell the user, and do not make a copy unasked; a copy made with create_presentation is a new presentation with its own link.")
+                } {
+                    ed.fail = ("Not saved: presentation " + id + " was made without sign-in, and only the conversation that made it can change it. If this conversation made it, call again with session_key: the value create_presentation gave (a new connection to Sliqtly does not carry it). Otherwise tell the user, and do not make a copy unasked; anyone with its link can still view it, and a copy made with create_presentation is a new presentation with its own link.")
+                }
                 return ed
             }
         }
@@ -3312,9 +3377,11 @@ class Tools {
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host tool (host_error host)))
         }
-        if (((ed.cur.str_("owner")) == "mcp") && ((strlen caller.session) > 0)) {
-            Store.sessionDrop(host caller.session id)
-            host_clear_error host
+        if ((ed.cur.str_("owner")) == "mcp") {
+            for (Tools.anonKeys(caller)) key:string ki {
+                Store.sessionDrop(host key id)
+                host_clear_error host
+            }
         }
         def out:MfJ (MfJ.newObj())
         out.putStr("deck_id" id)
