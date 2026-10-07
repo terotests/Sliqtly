@@ -14,7 +14,10 @@
     "native:check": "node scripts/check-native.mjs",
     "icon": "node scripts/make-icon.mjs",
     "mock": "node test/mock-server.mjs",
-    "test": "node test/run-tests.mjs"
+    "test": "node test/run-tests.mjs",
+    "editor:native": "node scripts/build-editor-native.mjs",
+    "editor:native:run": "node scripts/build-editor-native.mjs --run",
+    "editor:native:check": "node scripts/check-editor-native.mjs"
   },
   "devDependencies": {
     "ranger-compiler": "4.0.2"
