@@ -328,11 +328,14 @@ repositories work as they are; a private one needs separate access.
 `"background": "rgba(0,0,0,0)"` so the theme shows through.
 
 - **Colours** come from the theme: `chart { color; accent-color;
-  chart-style: flat|forge|neon|glass }` in `css`. In a chart coloured by a
+  chart-style: flat|forge|neon|glass }` in `css`. `{chart-style=neon}`
+  under the fence (flat, forge, neon, glass, or a look: mermaid, jurassic,
+  cartoon, romantic) styles that chart alone. In a chart coloured by a
   computed group, the groups take the palette in alphabetical order unless
   the colour encoding gives `"sort": [...]`.
 - **Encoding types**: `quantitative`, `ordinal`, `nominal`, `temporal`
-  (never `"point"`: that puts every mark at 0).
+  (Vega-Lite rejects any other, such as `"point"`). A field the data does
+  not have is warned about with the nearest name.
 - **Data**: inline `values`; a deck file `data/x.csv`; a workbook sheet
   `data/<book>-<Sheet>.csv` (topic `data`); a public `https` URL
   (`"data": {"url": "https://…/x.csv"}`, or `.json`) or a Google Sheet
@@ -341,8 +344,8 @@ repositories work as they are; a private one needs separate access.
   each time the deck opens. The sheet must be shared as "Anyone with the
   link". `bind_chart_data` points an existing chart at a source. PDF and
   PPTX exports are snapshots of the data when exported.
-- **Numbers**: `lang: fi` (or `sv`, `de`, `fr`…) in the front matter writes
-  `1 234,50`; `format` in an encoding or a text mark sets the pattern
+- **Numbers and dates**: `lang: fi` (or `sv`, `de`, `fr`…) in the front
+  matter writes `1 234,50` and that language's month and day names; `format` in an encoding or a text mark sets the pattern
   (`",.2f"`).
 - **Value labels**: a `bar` layer and a `text` layer sharing the encoding;
   a `"sort": "-x"` on the shared `y` orders both.
@@ -353,7 +356,10 @@ repositories work as they are; a private one needs separate access.
   `width` / `height`; a picture the deck does not have is not drawn.
 - **Over a picture**: `{container=box}` under the fence puts a plate round
   the chart.
-- The report lists missing data files and wrong encoding types.
+- **Maps**: a `geoshape` mark with inline GeoJSON data.
+- The report lists missing data files, wrong encoding types, unknown
+  fields and chart styles, labels drawn over each other and text under
+  20 px.
 
 <!-- topic: diagrams -->
 # Topic: diagrams

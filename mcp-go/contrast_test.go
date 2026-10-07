@@ -126,7 +126,7 @@ func TestPolygonBackdropFollowsTheOutline(t *testing.T) {
 	ink := EVGColor_static_rgb(30, 30, 40)
 	list.addText("Inside", 120, 120, 24, ink, "Inter", false, false, 120, 30)
 	list.addText("Outside", 560, 440, 24, ink, "Inter", false, false, 120, 30)
-	runs := Contrast_static_lowRuns(list, nil, "", 0, nil, nil)
+	runs := Contrast_static_lowRuns(list, nil, "", 0, nil, nil, nil)
 	low := map[string]bool{}
 	for _, r := range runs {
 		if r.low {
