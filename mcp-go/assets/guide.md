@@ -899,5 +899,10 @@ work as they are; a private one needs separate access.
 presentation (full screen button, arrow keys). Keep `deck_id` to change the
 same deck later with `update_presentation`; the share link stays the same.
 The id finds a presentation, it does not let anyone change it: a signed-in
-user's is changed by its owner, one made without sign-in only in this
-connection's session (until it ends or goes unused for a day).
+user's is changed by its owner, one made without sign-in only by the
+conversation that made it. Without sign-in, create_presentation's answer
+gives a `session_key`: send it as `session_key` with every later call on
+that deck (update, begin_work, export, delete, comments) and with a further
+create_presentation, since a new connection to Sliqtly does not carry it.
+It holds until it goes a day without a change. Keep it in the conversation;
+never put it in slides or links.

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -67,7 +68,7 @@ func TestExportNeedsEditRights(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	id := sc(c)["deck_id"].(string)
-	match(t, textOf(call(t, stranger, "export_presentation", map[string]any{"deck_id": id, "format": "pdf"})), `made without sign-in in another Sliqtly session`)
+	match(t, textOf(call(t, stranger, "export_presentation", map[string]any{"deck_id": id, "format": "pdf"})), `made without sign-in, and only the conversation that made it can change it`)
 	for p := range f.bucket.saved {
 		if strings.Contains(p, "/exports/") {
 			t.Fatal("written by another session: " + p)
@@ -241,7 +242,14 @@ func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 	// a deck made without sign-in: read by anyone with its id, changed only
 	// in the session that made it, and no longer once that session ended
 	aid := str(sc(a)["deck_id"])
-	match(t, textOf(a), `only this conversation's Sliqtly session can change it`)
+	match(t, textOf(a), `only this conversation can change it`)
+	key := regexp.MustCompile(`session_key: (\S+) `).FindStringSubmatch(textOf(a))
+	if key == nil {
+		t.Fatal("no session_key in " + textOf(a))
+	}
+	if _, ok := sc(a)["session_key"]; ok {
+		t.Fatal("the session_key is said to the assistant only, not in structuredContent (the preview gets that)")
+	}
 	if r := call(t, anon, "update_presentation", map[string]any{"deck_id": aid, "markdown": "# Anon 2"}); r.IsError {
 		t.Fatal(textOf(r))
 	}
@@ -251,22 +259,50 @@ func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 		t.Fatal(textOf(r))
 	}
 	for _, who := range []*testServer{stranger, other, me} {
-		match(t, textOf(call(t, who, "update_presentation", map[string]any{"deck_id": aid, "markdown": "# x"})), `made without sign-in in another Sliqtly session`)
-		match(t, textOf(call(t, who, "add_comment", map[string]any{"deck_id": aid, "slide": 1, "text": "x"})), `made without sign-in in another Sliqtly session`)
+		match(t, textOf(call(t, who, "update_presentation", map[string]any{"deck_id": aid, "markdown": "# x"})), `made without sign-in, and only the conversation that made it can change it`)
+		match(t, textOf(call(t, who, "add_comment", map[string]any{"deck_id": aid, "slide": 1, "text": "x"})), `made without sign-in, and only the conversation that made it can change it`)
 	}
 	eq(t, f.db.doc("shares/" + aid)["md"], "# Anon 2")
-	// the session's record: the hash of its id, never the id
+	// the records of the connection and of the session_key: hashes, never
+	// the values
 	var held int
 	for k, d := range f.db.all("mcp_sessions/") {
 		held++
 		match(t, k, `^mcp_sessions/[0-9a-f]{64}$`)
 		eq(t, list(d["decks"]), []any{aid})
+		if strings.Contains(k, key[1]) {
+			t.Fatal("the session_key itself is kept")
+		}
 	}
-	eq(t, held, 1)
+	eq(t, held, 2)
 	anon.close()
-	if n := len(f.db.all("mcp_sessions/")); n != 0 {
-		t.Fatalf("%d sessions left after the client ended its own", n)
+	if n := len(f.db.all("mcp_sessions/")); n != 1 {
+		t.Fatalf("%d sessions left after the client ended its connection, want the session_key's", n)
 	}
+
+	// the same conversation on a new connection (Cursor reconnects between
+	// turns): the session_key still holds its deck, a wrong one does not
+	again := start(t, testEnv(&f, nil), "")
+	defer again.close()
+	match(t, textOf(call(t, again, "begin_work", map[string]any{"deck_id": aid})), `call again with session_key`)
+	w := call(t, again, "begin_work", map[string]any{"deck_id": aid, "session_key": key[1]})
+	if w.IsError {
+		t.Fatal(textOf(w))
+	}
+	if r := call(t, again, "update_presentation", map[string]any{"deck_id": aid, "markdown": "# Anon 3", "session_key": key[1], "work_id": sc(w)["work_id"], "base_version": sc(w)["version"]}); r.IsError {
+		t.Fatal(textOf(r))
+	}
+	eq(t, f.db.doc("shares/" + aid)["md"], "# Anon 3")
+	match(t, textOf(call(t, stranger, "update_presentation", map[string]any{"deck_id": aid, "markdown": "# x", "session_key": strings.Repeat("A", 44)})), `the session_key sent is not the one it was made with`)
+	match(t, textOf(call(t, stranger, "update_presentation", map[string]any{"deck_id": aid, "markdown": "# x", "session_key": "short"})), `session_key is the value create_presentation gave`)
+	// a further deck made with the key is held by it too, and counted there
+	b := call(t, again, "create_presentation", map[string]any{"title": "Anon B", "markdown": "# B", "session_key": key[1]})
+	if b.IsError {
+		t.Fatal(textOf(b))
+	}
+	notMatch(t, textOf(b), `session_key: `)
+	sum := sha256.Sum256([]byte(key[1]))
+	eq(t, list(f.db.doc("mcp_sessions/" + hex.EncodeToString(sum[:]))["decks"]), []any{aid, sc(b)["deck_id"]})
 
 	// a share from before visibility existed stays readable by its id
 	f.db.Set(context.Background(), "shares", "OldShare01", Doc{"name": "Old", "md": "# Old", "owner": "u1", "theme": "aurora", "files": []any{}})
@@ -442,7 +478,7 @@ func TestDeletePresentation(t *testing.T) {
 		}
 		made = append(made, str(sc(a)["deck_id"]))
 	}
-	match(t, textOf(call(t, stranger, "delete_presentation", map[string]any{"deck_id": made[0]})), `Not deleted: presentation \w+ was made without sign-in in another Sliqtly session`)
+	match(t, textOf(call(t, stranger, "delete_presentation", map[string]any{"deck_id": made[0]})), `Not deleted: presentation \w+ was made without sign-in, and only the conversation that made it can change it`)
 	if r := call(t, me, "delete_presentation", map[string]any{"deck_id": made[0]}); !r.IsError {
 		t.Fatal("a signed-in account deleted another session's deck")
 	}
