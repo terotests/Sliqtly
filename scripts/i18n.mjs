@@ -27,7 +27,7 @@ function collect() {
   const keys = new Set();
   for (const f of fs.readdirSync(path.join(root, "src")).filter((f) => f.endsWith(".rgr"))) {
     const s = fs.readFileSync(path.join(root, "src", f), "utf8");
-    for (const m of s.matchAll(new RegExp(String.raw`PresI18n\.t\(\s*` + LIT, "g"))) keys.add(unquote(m[1]));
+    for (const m of s.matchAll(new RegExp(String.raw`PresI18n\.(?:t|plain)\(\s*` + LIT, "g"))) keys.add(unquote(m[1]));
   }
   for (const f of ["main.js", "sliqtly.js", "sheets-live.js", "versions-ui.js", "decklist.js", "rooms.js", "roomchat.js"]) {
     const s = fs.readFileSync(path.join(root, "web", f), "utf8");

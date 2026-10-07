@@ -5,6 +5,7 @@ Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
 Import "PresSelect.rgr"
 Import "PresDocSettings.rgr"
+Import "PresTerm.rgr"
 Import "PresHints.rgr"
 Import "PresHelp.rgr"
 Import "PresFlowModel.rgr"
@@ -1482,6 +1483,22 @@ class PresCheck {
             i = (i + 1)
         }
         return n
+    }
+
+    ; File → Settings' word for a room: whole words swapped, case kept, each
+    ; Finnish case form its own
+    fn roomTerm:void () {
+        this.ok(((PresTerm.apply("New room" "en" "room")) == "New room") "term: room keeps the words")
+        this.ok(((PresTerm.apply("Search rooms…" "en" "project")) == "Search projects…") "term: rooms → projects")
+        this.ok(((PresTerm.apply("Room settings" "en" "project")) == "Project settings") "term: capital kept")
+        this.ok(((PresTerm.apply("ROOM" "en" "project")) == "PROJECT") "term: all capitals kept")
+        this.ok(((PresTerm.apply("Give it more roomy space, a bedroom" "en" "project")) == "Give it more roomy space, a bedroom") "term: whole words only")
+        this.ok(((PresTerm.apply("Siirretäänkö esitys huoneeseen?" "fi" "project")) == "Siirretäänkö esitys projektiin?") "term: huoneeseen → projektiin")
+        this.ok(((PresTerm.apply("Huoneen asetukset" "fi" "project")) == "Projektin asetukset") "term: Huoneen → Projektin")
+        this.ok(((PresTerm.apply("Hae huoneita… (3 lisää)" "fi" "project")) == "Hae projekteja… (3 lisää)") "term: huoneita → projekteja")
+        this.ok(((PresTerm.apply("Ei huonetta nimeltä #" "fi" "project")) == "Ei projektia nimeltä #") "term: huonetta → projektia")
+        this.ok(((PresTerm.apply("room" "fi" "project")) == "room") "term: the language's own words only")
+        this.ok(((PresTerm.apply("Room–room ×rooms" "en" "project")) == "Project–project ×projects") "term: dashes and signs are not letters")
     }
 
     ; The document settings window's model: the front matter read into the
@@ -3251,6 +3268,7 @@ class PresCheck {
         c.smartArtLayouts()
         c.smartArtSlides()
         c.docSettings()
+        c.roomTerm()
         c.ranges()
         c.limits()
         c.chartLocale()

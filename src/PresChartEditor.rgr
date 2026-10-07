@@ -213,6 +213,15 @@ class PresChartEditor {
     ; to do with it: "set:<path>", "none", "edit", "trace" ("" nothing)
     def dsBg:string ""
     def dsBgAct:string ""
+    ; the presentation's home room (ADR 0001), as the page gave the rooms
+    ; (setDocRooms): their ids and names, the one it is in, a note in place
+    ; of the list ("" none), and the room chosen here for the app to move it
+    ; to ("" nothing asked)
+    def dsRoomIds:[string]
+    def dsRoomNames:[string]
+    def dsRoom:string ""
+    def dsRoomNote:string ""
+    def dsRoomAct:string ""
     ; a field (or a text) whose text is being selected by a drag, by its tid
     def selecting:string ""
     ; Text that can be selected and copied (EVGUI TextCtl): the About lines,
@@ -360,7 +369,39 @@ class PresChartEditor {
         mode = "docset"
         ds = d
         dsPics = pics
+        def ni:[string]
+        dsRoomIds = ni
+        def nn:[string]
+        dsRoomNames = nn
+        dsRoom = ""
+        dsRoomNote = ""
+        dsRoomAct = ""
         this.openAt(px py pw ph)
+    }
+
+    ; The rooms the presentation can be in: `rows` one "id\tname" a line,
+    ; `current` the one it is in; `note` instead of the list when it cannot
+    ; be moved (not kept yet).
+    fn setDocRooms:void (rows:string current:string note:string) {
+        def ids:[string]
+        def names:[string]
+        def lines:[string] (strsplit rows "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def parts:[string] (strsplit (itemAt lines i) "\t")
+            if (((array_length parts) >= 2) && ((strlen (itemAt parts 0)) > 0)) {
+                push ids (itemAt parts 0)
+                push names (itemAt parts 1)
+            }
+            i = (i + 1)
+        }
+        dsRoomIds = ids
+        dsRoomNames = names
+        dsRoom = current
+        dsRoomNote = note
+        if (isOpen && (mode == "docset")) {
+            this.rebuild()
+        }
     }
 
     fn openConfirm:void (key:string title:string words:string ok:string px:double py:double pw:double ph:double) {
@@ -1806,6 +1847,17 @@ class PresChartEditor {
             this.dropdown("ds-fs" (PresI18n.t("Diagrams")) ds.diagramStyle fv fnm fr)
             sec3.addChild(fr)
             sec3.addChild((this.text("ce-doc" (PresI18n.t("For charts and diagrams that choose none; a chart's own Style on slide or a diagram's {style=…} goes over it.")))))
+            if (((array_length dsRoomIds) > 0) || ((strlen dsRoomNote) > 0)) {
+                def sec4:EVGElement (this.section(pane (PresI18n.t("Room"))))
+                if ((strlen dsRoomNote) > 0) {
+                    sec4.addChild((this.text("ce-doc" dsRoomNote)))
+                } {
+                    def rr:EVGElement (this.field((PresI18n.t("Room"))))
+                    this.dropdown("ds-room" (PresI18n.t("Room")) dsRoom dsRoomIds dsRoomNames rr)
+                    sec4.addChild(rr)
+                    sec4.addChild((this.text("ce-doc" (PresI18n.t("The presentation's home room. Choosing another moves it there, as dragging it onto a room in the left rail does.")))))
+                }
+            }
         } {
             if (dsTab != "bg") {
                 this.edgePane(pane (this.dsEdge()))
@@ -1972,6 +2024,14 @@ class PresChartEditor {
         def e:int (this.dsEdge())
         if (tid == "ds-done") {
             wantsClose = true
+            return true
+        }
+        if ((indexOf tid "ds-room-") == 0) {
+            def to:string (substring tid 8 (strlen tid))
+            if (((strlen to) > 0) && (to != dsRoom)) {
+                dsRoom = to
+                dsRoomAct = to
+            }
             return true
         }
         if ((indexOf tid "ds-cs-") == 0) {

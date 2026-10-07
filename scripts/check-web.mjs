@@ -206,7 +206,9 @@ try {
     await touch("touchEnd", []);
     const s1 = await dlg(phone);
     check("…a finger scrolls it when it does not fit", s1 && (s0.max === 0 || s1.scroll > 0), JSON.stringify(s1));
-    await touch("touchStart", [[30, 30]]);
+    // outside: in the margin above it (a dialog taller than the phone
+    // keeps only its margins free)
+    await touch("touchStart", [[Math.max(1, s1.x / 2), Math.max(1, s1.y / 2)]]);
     await touch("touchEnd", []);
     check("…and a tap outside it closes it", (await dlg(phone)) === null);
     await ctx.close();

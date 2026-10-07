@@ -651,12 +651,21 @@ whether it is resolved, and its messages. Work through the open ones:
 
 On this server the presentations are kept in rooms. A room is one whole piece of work: a
 task, a Jira ticket, a user story, or another whole such as a project.
-Every presentation has one home room; new ones start in General.
+People may see rooms called projects (a setting in the editor). Every
+presentation has one home room; one made without `room_id` lands in
+General, and the user then has to move it by hand.
 
-- Work on a ticket or a story: find its room in `list_rooms` (newest
-  first) or make one with `create_room`, named as the work is known
+- Before `create_presentation`, find the room it belongs to:
+  `list_rooms` with `query` (a ticket code such as "N11-1234" in the
+  title, or words of the title or topic; every word must be in a room's
+  name or description) or with `order: "active"` for the rooms worked in
+  lately. Suggest the room that fits by its name or description (name a
+  second one if two fit) and ask the user; if none fits, ask what to call
+  a new one and make it with `create_room`, named as the work is known
   ("PROJ-123 Checkout retry") and with the ticket's summary or link as its
-  `description`. Then `move_presentation` the decks made for it there.
+  `description`. Then give `room_id` to `create_presentation`.
+- `list_rooms` gives at most 1000 rooms a page; `next_offset` is where
+  the next page starts (`offset`). `move_presentation` moves a deck later.
 - `get_room` lists a room's presentations; `update_room` renames or
   describes it; `archive_room` puts finished work away (read only,
   nothing removed); `delete_room` removes the room and moves its decks to

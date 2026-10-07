@@ -517,7 +517,18 @@ func (h *McpHost) TakeDoc(col, id string) string {
 
 func (h *McpHost) SetDoc(col, id, text string) {
 	if d := h.parseDoc(text); d != nil && h.db() {
-		h.fail(h.env.DB.Set(h.ctx, col, id, d))
+		// a new presentation is one more in its room: the pages' room
+		// lists are read again
+		fresh := false
+		if col == "shares" && h.env.rooms != nil {
+			was, err := h.env.DB.Get(h.ctx, col, id)
+			fresh = err == nil && was == nil
+		}
+		err := h.env.DB.Set(h.ctx, col, id, d)
+		h.fail(err)
+		if err == nil && fresh {
+			h.env.rooms.tell("", map[string]any{"t": "rooms"})
+		}
 	}
 }
 

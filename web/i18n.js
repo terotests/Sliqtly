@@ -47,7 +47,33 @@ if (lang !== "en") {
   }
 }
 
+// What the interface calls a room: "room" or "project" (File → Settings,
+// src/PresTerm.rgr). Changing it reloads the page, as the language does.
+const TERM_KEY = "sliqtly.roomWord";
+export const term = (() => {
+  try { return localStorage.getItem(TERM_KEY) === "project" ? "project" : "room"; } catch (_) { return "room"; }
+})();
+
+export function chooseTerm(word) {
+  try { localStorage.setItem(TERM_KEY, word === "project" ? "project" : "room"); } catch (_) { return false; }
+  location.reload();
+  return true;
+}
+
+// the app's PresI18n once it has the table (handOver): t() asks it, so the
+// page's words get the same word for a room as the canvas's
+let viaApp = null;
+
+export function handOver(P) {
+  P.use(lang, pairs());
+  if (typeof P.useTerm === "function") {
+    P.useTerm(term);
+    viaApp = P;
+  }
+}
+
 export function t(s) {
+  if (viaApp) return viaApp.t(s);
   return Object.prototype.hasOwnProperty.call(table, s) ? table[s] : s;
 }
 

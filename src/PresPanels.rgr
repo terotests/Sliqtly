@@ -1977,6 +1977,16 @@ class PresPanels {
         this.button("pn-set-review" (? reviewOn (PresI18n.t("On")) (PresI18n.t("Off"))) (? reviewOn "primary" "secondary") rr)
         rv.addChild(rr)
         d.addChild(rv)
+        ; what a room is called (PresTerm); written as it is, not swapped
+        def tw:EVGElement (this.div("pn-opt"))
+        tw.addChild((this.words("pn-otitle" (PresI18n.plain("Name for rooms")))))
+        tw.addChild((this.words("pn-odesc" (PresI18n.plain("A room gathers the presentations of one whole piece of work. Call them rooms or projects; the editor opens again with the word you choose.")))))
+        def tr:EVGElement (this.div("pn-orow"))
+        def word:string (PresI18n.term())
+        this.button("pn-set-term-room" (PresI18n.plain("Room")) (? (word == "room") "primary" "secondary") tr)
+        this.button("pn-set-term-project" (PresI18n.plain("Project")) (? (word == "project") "primary" "secondary") tr)
+        tw.addChild(tr)
+        d.addChild(tw)
         def foot:EVGElement (this.div("pn-dfoot"))
         foot.addChild((this.div("pn-grow")))
         this.button("pn-set-close" (PresI18n.t("Close")) "secondary" foot)
@@ -2585,6 +2595,13 @@ class PresPanels {
                 reviewOn = (reviewOn == false)
                 push requests ("setting:review:" + (? reviewOn "on" "off"))
                 this.rebuild()
+                return
+            }
+            if ((sc == "pn-set-term-room") || (sc == "pn-set-term-project")) {
+                def want:string (substring sc 12 (strlen sc))
+                if (want != (PresI18n.term())) {
+                    push requests ("setting:term:" + want)
+                }
                 return
             }
             if ((indexOf sc "pn-set-hue-") == 0) {
