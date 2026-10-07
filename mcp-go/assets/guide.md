@@ -65,6 +65,10 @@ the first `create_presentation`.
 `corporate` is light slides; `editorial` is an A4 portrait document where
 `#` starts a page.
 
+`nebula` (starfield) and the `fx=` effects (`smoke`, `starfield`,
+`plasma-wave`…) are for show pieces; for an ordinary deck don't pick them
+by default. Readability comes first.
+
 ## Topics
 
 | `topic=` | Read when |
@@ -185,6 +189,8 @@ hold: 2.5               # seconds after the last step
   `liquid-glass`, `drops` (rain running down a window), `raindrops2` (rain
   whose running drops leave lines of water), `bubbles` (round drops).
   Parameters as `fx-density=1.6`, `fx-hue=228`, `fx-rain=2`.
+- Effects are for show pieces; for an ordinary deck don't pick them by
+  default. Readability comes first.
 - Line art: `art=waves` draws line art behind the slide; `art-seed=3` draws
   another picture of it, `art=off` none; `art: waves` in the front matter
   puts it behind every slide. Line art is drawn only for signed-in PRO
