@@ -1,0 +1,625 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; TextBuffer — the Markdown being edited, with a caret, a selection and undo
+; =============================================================================
+; No pixels here: lines of text, a caret at (line, column) and an anchor for
+; the selection. Columns count CHARACTERS (Unicode code points, `to_chars`),
+; never the target's storage unit, so the caret is in the same place in the
+; JavaScript build (UTF-16) and the C++ build (UTF-8 bytes), and the editor
+; above it can turn a column into x with one multiplication (monospace).
+;
+; Undo keeps whole snapshots (text + caret). Typing coalesces: a run of
+; characters typed in a row is one step, as in any editor.
+; =============================================================================
+
+Import "pkg:evg/EVGCodepoint.rgr"
+
+class TextBuffer {
+    def lines:[string]
+    def caretLine:int 0
+    def caretCol:int 0
+    def anchorLine:int 0
+    def anchorCol:int 0
+    ; The column up / down tries to keep, across short lines.
+    def goalCol:int -1
+
+    def undoTexts:[string]
+    def undoLines:[int]
+    def undoCols:[int]
+    def redoTexts:[string]
+    def redoLines:[int]
+    def redoCols:[int]
+    ; "type" while characters are typed in a row (one undo step for the run)
+    def lastEdit:string ""
+    def version:int 0
+
+    Constructor () {
+        push lines ""
+    }
+
+    ; --- characters ------------------------------------------------------------
+
+    sfn cpLen:int (s:string) {
+        return (char_length s)
+    }
+
+    ; Characters [a, b) of `s`, as a string.
+    sfn slice:string (s:string a:int b:int) {
+        def cs:[int] (to_chars s)
+        def n:int (array_length cs)
+        def from:int a
+        def to:int b
+        if (from < 0) {
+            from = 0
+        }
+        if (to > n) {
+            to = n
+        }
+        if (from >= to) {
+            return ""
+        }
+        if ((from == 0) && (to == n)) {
+            return s
+        }
+        def parts:[string]
+        def i:int from
+        while (i < to) {
+            push parts (EVGCodepoint.toStr((itemAt cs i)))
+            i = (i + 1)
+        }
+        return (join parts "")
+    }
+
+    sfn isWordChar:boolean (c:int) {
+        if ((c >= 48) && (c <= 57)) {
+            return true
+        }
+        if ((c >= 65) && (c <= 90)) {
+            return true
+        }
+        if ((c >= 97) && (c <= 122)) {
+            return true
+        }
+        if (c == 95) {
+            return true
+        }
+        return (c >= 192)
+    }
+
+    ; --- the whole text --------------------------------------------------------
+
+    fn setText:void (text:string) {
+        clear lines
+        def norm:string (replace text "\r\n" "\n")
+        def parts:[string] (strsplit norm "\n")
+        def n:int (array_length parts)
+        def i:int 0
+        while (i < n) {
+            push lines (itemAt parts i)
+            i = (i + 1)
+        }
+        if ((array_length lines) == 0) {
+            push lines ""
+        }
+        caretLine = 0
+        caretCol = 0
+        anchorLine = 0
+        anchorCol = 0
+        goalCol = -1
+        clear undoTexts
+        clear undoLines
+        clear undoCols
+        clear redoTexts
+        clear redoLines
+        clear redoCols
+        lastEdit = ""
+        version = (version + 1)
+    }
+
+    fn getText:string () {
+        return (join lines "\n")
+    }
+
+    fn lineCount:int () {
+        return (array_length lines)
+    }
+
+    fn lineAt:string (i:int) {
+        if ((i < 0) || (i >= (array_length lines))) {
+            return ""
+        }
+        return (itemAt lines i)
+    }
+
+    fn lineLength:int (i:int) {
+        return (TextBuffer.cpLen((this.lineAt(i))))
+    }
+
+    ; --- caret and selection ---------------------------------------------------
+
+    fn hasSelection:boolean () {
+        return ((anchorLine != caretLine) || (anchorCol != caretCol))
+    }
+
+    ; The selection's start and end as (line, col), start first.
+    fn selStartLine:int () {
+        if (this.caretBeforeAnchor()) {
+            return caretLine
+        }
+        return anchorLine
+    }
+
+    fn selStartCol:int () {
+        if (this.caretBeforeAnchor()) {
+            return caretCol
+        }
+        return anchorCol
+    }
+
+    fn selEndLine:int () {
+        if (this.caretBeforeAnchor()) {
+            return anchorLine
+        }
+        return caretLine
+    }
+
+    fn selEndCol:int () {
+        if (this.caretBeforeAnchor()) {
+            return anchorCol
+        }
+        return caretCol
+    }
+
+    fn caretBeforeAnchor:boolean () {
+        if (caretLine < anchorLine) {
+            return true
+        }
+        if (caretLine > anchorLine) {
+            return false
+        }
+        return (caretCol < anchorCol)
+    }
+
+    fn clampLine:int (l:int) {
+        if (l < 0) {
+            return 0
+        }
+        def n:int (array_length lines)
+        if (l >= n) {
+            return (n - 1)
+        }
+        return l
+    }
+
+    ; Put the caret at (line, col), clamped. `extend` keeps the anchor (a
+    ; shift-arrow, a drag); otherwise the selection collapses there.
+    fn moveTo:void (line:int col:int extend:boolean) {
+        def l:int (this.clampLine(line))
+        def c:int col
+        def len:int (this.lineLength(l))
+        if (c < 0) {
+            c = 0
+        }
+        if (c > len) {
+            c = len
+        }
+        caretLine = l
+        caretCol = c
+        if (extend == false) {
+            anchorLine = l
+            anchorCol = c
+        }
+        lastEdit = ""
+    }
+
+    fn selectAll:void () {
+        anchorLine = 0
+        anchorCol = 0
+        def last:int ((array_length lines) - 1)
+        caretLine = last
+        caretCol = (this.lineLength(last))
+        goalCol = -1
+    }
+
+    fn left:void (extend:boolean) {
+        goalCol = -1
+        if ((this.hasSelection()) && (extend == false)) {
+            this.moveTo((this.selStartLine()) (this.selStartCol()) false)
+            return
+        }
+        if (caretCol > 0) {
+            this.moveTo(caretLine (caretCol - 1) extend)
+            return
+        }
+        if (caretLine > 0) {
+            this.moveTo((caretLine - 1) (this.lineLength((caretLine - 1))) extend)
+            return
+        }
+        this.moveTo(caretLine caretCol extend)
+    }
+
+    fn right:void (extend:boolean) {
+        goalCol = -1
+        if ((this.hasSelection()) && (extend == false)) {
+            this.moveTo((this.selEndLine()) (this.selEndCol()) false)
+            return
+        }
+        if (caretCol < (this.lineLength(caretLine))) {
+            this.moveTo(caretLine (caretCol + 1) extend)
+            return
+        }
+        if (caretLine < ((array_length lines) - 1)) {
+            this.moveTo((caretLine + 1) 0 extend)
+            return
+        }
+        this.moveTo(caretLine caretCol extend)
+    }
+
+    ; Up or down by `n` lines (negative is up), keeping the goal column.
+    fn vertical:void (n:int extend:boolean) {
+        if (goalCol < 0) {
+            goalCol = caretCol
+        }
+        def target:int (caretLine + n)
+        if (target < 0) {
+            def g0:int goalCol
+            this.moveTo(0 0 extend)
+            goalCol = g0
+            return
+        }
+        if (target >= (array_length lines)) {
+            def g1:int goalCol
+            def last:int ((array_length lines) - 1)
+            this.moveTo(last (this.lineLength(last)) extend)
+            goalCol = g1
+            return
+        }
+        def g:int goalCol
+        this.moveTo(target g extend)
+        goalCol = g
+    }
+
+    fn up:void (extend:boolean) {
+        this.vertical(-1 extend)
+    }
+
+    fn down:void (extend:boolean) {
+        this.vertical(1 extend)
+    }
+
+    fn home:void (extend:boolean) {
+        goalCol = -1
+        ; first the indentation's end, then column 0 (as most code editors)
+        def cs:[int] (to_chars (this.lineAt(caretLine)))
+        def indent:int 0
+        while (indent < (array_length cs)) {
+            def c:int (itemAt cs indent)
+            if ((c == 32) || (c == 9)) {
+                indent = (indent + 1)
+            } {
+                break
+            }
+        }
+        if ((caretCol == indent) || (indent == (array_length cs))) {
+            this.moveTo(caretLine 0 extend)
+        } {
+            this.moveTo(caretLine indent extend)
+        }
+    }
+
+    fn end:void (extend:boolean) {
+        goalCol = -1
+        this.moveTo(caretLine (this.lineLength(caretLine)) extend)
+    }
+
+    fn docStart:void (extend:boolean) {
+        goalCol = -1
+        this.moveTo(0 0 extend)
+    }
+
+    fn docEnd:void (extend:boolean) {
+        goalCol = -1
+        def last:int ((array_length lines) - 1)
+        this.moveTo(last (this.lineLength(last)) extend)
+    }
+
+    ; One word left or right (alt / ctrl + arrow).
+    fn wordLeft:void (extend:boolean) {
+        goalCol = -1
+        if (caretCol == 0) {
+            this.left(extend)
+            return
+        }
+        def cs:[int] (to_chars (this.lineAt(caretLine)))
+        def c:int caretCol
+        while ((c > 0) && ((TextBuffer.isWordChar((itemAt cs (c - 1)))) == false)) {
+            c = (c - 1)
+        }
+        while ((c > 0) && (TextBuffer.isWordChar((itemAt cs (c - 1))))) {
+            c = (c - 1)
+        }
+        this.moveTo(caretLine c extend)
+    }
+
+    fn wordRight:void (extend:boolean) {
+        goalCol = -1
+        def len:int (this.lineLength(caretLine))
+        if (caretCol >= len) {
+            this.right(extend)
+            return
+        }
+        def cs:[int] (to_chars (this.lineAt(caretLine)))
+        def c:int caretCol
+        while ((c < len) && ((TextBuffer.isWordChar((itemAt cs c))) == false)) {
+            c = (c + 1)
+        }
+        while ((c < len) && (TextBuffer.isWordChar((itemAt cs c)))) {
+            c = (c + 1)
+        }
+        this.moveTo(caretLine c extend)
+    }
+
+    ; --- reading the selection ---------------------------------------------------
+
+    fn textBetween:string (l1:int c1:int l2:int c2:int) {
+        if (l1 == l2) {
+            return (TextBuffer.slice((this.lineAt(l1)) c1 c2))
+        }
+        def parts:[string]
+        def first:string (this.lineAt(l1))
+        push parts (TextBuffer.slice(first c1 (TextBuffer.cpLen(first))))
+        def i:int (l1 + 1)
+        while (i < l2) {
+            push parts (this.lineAt(i))
+            i = (i + 1)
+        }
+        push parts (TextBuffer.slice((this.lineAt(l2)) 0 c2))
+        return (join parts "\n")
+    }
+
+    fn selectedText:string () {
+        if ((this.hasSelection()) == false) {
+            return ""
+        }
+        return (this.textBetween((this.selStartLine()) (this.selStartCol()) (this.selEndLine()) (this.selEndCol())))
+    }
+
+    ; --- undo ------------------------------------------------------------------
+
+    fn snapshot:void (kind:string) {
+        ; a run of typing is one step
+        if ((kind == "type") && (lastEdit == "type")) {
+            return
+        }
+        push undoTexts (this.getText())
+        push undoLines caretLine
+        push undoCols caretCol
+        if ((array_length undoTexts) > 200) {
+            remove_index undoTexts 0
+            remove_index undoLines 0
+            remove_index undoCols 0
+        }
+        clear redoTexts
+        clear redoLines
+        clear redoCols
+    }
+
+    fn restore:void (text:string line:int col:int) {
+        def parts:[string] (strsplit text "\n")
+        clear lines
+        def n:int (array_length parts)
+        def i:int 0
+        while (i < n) {
+            push lines (itemAt parts i)
+            i = (i + 1)
+        }
+        if ((array_length lines) == 0) {
+            push lines ""
+        }
+        this.moveTo(line col false)
+        version = (version + 1)
+    }
+
+    fn canUndo:boolean () {
+        return ((array_length undoTexts) > 0)
+    }
+
+    fn undo:boolean () {
+        def n:int (array_length undoTexts)
+        if (n == 0) {
+            return false
+        }
+        push redoTexts (this.getText())
+        push redoLines caretLine
+        push redoCols caretCol
+        def t:string (itemAt undoTexts (n - 1))
+        def l:int (itemAt undoLines (n - 1))
+        def c:int (itemAt undoCols (n - 1))
+        removeLast undoTexts
+        removeLast undoLines
+        removeLast undoCols
+        this.restore(t l c)
+        lastEdit = ""
+        return true
+    }
+
+    fn redo:boolean () {
+        def n:int (array_length redoTexts)
+        if (n == 0) {
+            return false
+        }
+        push undoTexts (this.getText())
+        push undoLines caretLine
+        push undoCols caretCol
+        def t:string (itemAt redoTexts (n - 1))
+        def l:int (itemAt redoLines (n - 1))
+        def c:int (itemAt redoCols (n - 1))
+        removeLast redoTexts
+        removeLast redoLines
+        removeLast redoCols
+        this.restore(t l c)
+        lastEdit = ""
+        return true
+    }
+
+    ; --- editing ---------------------------------------------------------------
+
+    ; Remove the selection (no undo step of its own).
+    fn removeSelection:void () {
+        if ((this.hasSelection()) == false) {
+            return
+        }
+        def l1:int (this.selStartLine())
+        def c1:int (this.selStartCol())
+        def l2:int (this.selEndLine())
+        def c2:int (this.selEndCol())
+        def first:string (this.lineAt(l1))
+        def last:string (this.lineAt(l2))
+        def joined:string ((TextBuffer.slice(first 0 c1)) + (TextBuffer.slice(last c2 (TextBuffer.cpLen(last)))))
+        def k:int l2
+        while (k > l1) {
+            remove_index lines k
+            k = (k - 1)
+        }
+        set_at lines l1 joined
+        caretLine = l1
+        caretCol = c1
+        anchorLine = l1
+        anchorCol = c1
+        version = (version + 1)
+    }
+
+    ; Insert at the caret, over the selection. Newlines split lines.
+    fn insertRaw:void (text:string) {
+        this.removeSelection()
+        def norm:string (replace text "\r\n" "\n")
+        norm = (replace norm "\r" "\n")
+        def parts:[string] (strsplit norm "\n")
+        if ((array_length parts) == 0) {
+            return
+        }
+        def line:string (this.lineAt(caretLine))
+        def len:int (TextBuffer.cpLen(line))
+        def before:string (TextBuffer.slice(line 0 caretCol))
+        def after:string (TextBuffer.slice(line caretCol len))
+        def n:int (array_length parts)
+        if (n == 1) {
+            def only:string (itemAt parts 0)
+            set_at lines caretLine (before + only + after)
+            caretCol = (caretCol + (TextBuffer.cpLen(only)))
+        } {
+            set_at lines caretLine (before + (itemAt parts 0))
+            def i:int 1
+            while (i < n) {
+                def piece:string (itemAt parts i)
+                if (i == (n - 1)) {
+                    insert lines (caretLine + i) (piece + after)
+                } {
+                    insert lines (caretLine + i) piece
+                }
+                i = (i + 1)
+            }
+            caretLine = (caretLine + (n - 1))
+            caretCol = (TextBuffer.cpLen((itemAt parts (n - 1))))
+        }
+        anchorLine = caretLine
+        anchorCol = caretCol
+        goalCol = -1
+        version = (version + 1)
+    }
+
+    ; Typed text: one undo step per run of typing (a newline ends the run).
+    fn type:void (text:string) {
+        if ((strlen text) == 0) {
+            return
+        }
+        def kind:string "type"
+        if ((indexOf text "\n") >= 0) {
+            kind = "newline"
+        }
+        if (this.hasSelection()) {
+            kind = "replace"
+        }
+        this.snapshot(kind)
+        this.insertRaw(text)
+        if (kind == "type") {
+            lastEdit = "type"
+        } {
+            lastEdit = ""
+        }
+    }
+
+    ; Pasted text is always its own step.
+    fn paste:void (text:string) {
+        this.snapshot("paste")
+        this.insertRaw(text)
+        lastEdit = ""
+    }
+
+    ; Enter: a new line that keeps the current line's indentation.
+    fn newline:void () {
+        def cs:[int] (to_chars (this.lineAt(caretLine)))
+        def indent:int 0
+        while (indent < (array_length cs)) {
+            def c:int (itemAt cs indent)
+            if ((c == 32) || (c == 9)) {
+                indent = (indent + 1)
+            } {
+                break
+            }
+        }
+        if (indent > caretCol) {
+            indent = caretCol
+        }
+        def pad:string (TextBuffer.slice((this.lineAt(caretLine)) 0 indent))
+        this.snapshot("newline")
+        this.insertRaw(("\n" + pad))
+        lastEdit = ""
+    }
+
+    fn backspace:void () {
+        if (this.hasSelection()) {
+            this.snapshot("delete")
+            this.removeSelection()
+            lastEdit = ""
+            return
+        }
+        if ((caretLine == 0) && (caretCol == 0)) {
+            return
+        }
+        this.snapshot("delete")
+        this.left(true)
+        this.removeSelection()
+        lastEdit = ""
+    }
+
+    fn deleteForward:void () {
+        if (this.hasSelection()) {
+            this.snapshot("delete")
+            this.removeSelection()
+            lastEdit = ""
+            return
+        }
+        def last:int ((array_length lines) - 1)
+        if ((caretLine == last) && (caretCol == (this.lineLength(last)))) {
+            return
+        }
+        this.snapshot("delete")
+        this.right(true)
+        this.removeSelection()
+        lastEdit = ""
+    }
+
+    ; Cut: the selected text, removed (returns what to put on the clipboard).
+    fn cut:string () {
+        def t:string (this.selectedText())
+        if ((strlen t) == 0) {
+            return ""
+        }
+        this.snapshot("cut")
+        this.removeSelection()
+        lastEdit = ""
+        return t
+    }
+}

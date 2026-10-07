@@ -1,0 +1,22 @@
+{
+  "name": "sliqtly-editor",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Sliqtly Editor: a native (SDL2 + OpenGL) and web editor for Sliqtly decks, one Ranger app",
+  "type": "module",
+  "scripts": {
+    "deps": "rgrc install",
+    "web": "node scripts/build-web.mjs && node web/serve.mjs",
+    "web:build": "node scripts/build-web.mjs",
+    "native": "node scripts/build-native.mjs",
+    "native:run": "node scripts/build-native.mjs --run",
+    "native:check": "node scripts/check-native.mjs",
+    "icon": "node scripts/make-icon.mjs",
+    "mock": "node test/mock-server.mjs",
+    "test": "node test/run-tests.mjs"
+  },
+  "devDependencies": {
+    "ranger-compiler": "4.0.2"
+  }
+}
