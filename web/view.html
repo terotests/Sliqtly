@@ -86,6 +86,21 @@
   .deal .who { margin-top: 48px; padding-top: 28px; border-top: 1px solid var(--line); }
   .home .deal .who a:not(.btn) { color: var(--accent); }
   .home .deal .deal__turn { color: var(--paper); font: 600 15px/1.6 var(--mono); }
+  .tablebox { border: 1px solid var(--line-2); overflow-x: auto; margin: 0 0 8px; }
+  .compare { width: 100%; border-collapse: collapse; font: 14px/1.45 var(--grotesk); min-width: 720px; }
+  .compare th, .compare td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--dim); }
+  .compare tbody tr:last-child > * { border-bottom: 0; }
+  .compare thead th { font: 12px/1.3 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+  .compare tbody th { color: var(--paper); font-weight: 600; white-space: nowrap; }
+  .home .compare .accent { color: var(--accent); }
+  .features { display: grid; gap: 28px 40px; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); margin: 36px 0 32px; }
+  .features h3 { font: 600 18px/1.3 var(--grotesk); color: var(--paper); margin: 0 0 10px; }
+  .features p, .features li { color: var(--dim); font-size: 15px; line-height: 1.5; }
+  .features p { margin: 0 0 8px; }
+  .features ul { margin: 0; padding-left: 18px; }
+  .features b { color: var(--paper); font-weight: 600; }
+  .features .no { font: 12.5px/1.5 var(--mono); color: var(--dimmer); margin-top: 8px; }
+  .deal .who.who--last { margin-top: 0; padding-top: 0; border-top: 0; }
   .section { padding: clamp(64px, 8vw, 112px) 0; border-bottom: 1px solid var(--line); }
 
   /* thin boxes: the engine block, the flow */
@@ -170,6 +185,7 @@
   <header class="nav">
     <a class="nav__brand" href="/"><img src="./favicon.svg" alt="" width="22" height="22" />Sliqtly</a>
     <nav class="nav__links" aria-label="Sections">
+      <a href="#features">Features</a>
       <a href="/connect.html">Connect</a>
       <a href="#local">Get Local</a>
       <a href="#terms">Terms</a>
@@ -182,23 +198,49 @@
         <h2 class="display display--lg">Sliqtly better Slides</h2>
         <p>A lot of people seem to be asking how to convert, for example, Markdown files to PDF, PowerPoint or Word. The point being... it gets pretty expensive (and potentially slow) when the document goes through the same chat many times!</p>
         <p>And <code>.md</code> files don't really have formatting. And what about charts, flowcharts, theming, not to mention pagination...</p>
-        <p>Crazy stuff, right? Feels like someone must have thought about how to do this better.</p>
-        <p class="deal__enter">So, enter <span class="accent">Sliqtly</span> — a slightly better solution to keep presentations up to date.</p>
-        <p>Give your agent a description, whether it's Markdown, an Excel file or a Git pull request, and the MCP service Sliqtly offers will create wonderful, readable, presentable...</p>
-        <p>Or should I say... <strong class="accent">Lovable?</strong></p>
-        <p>...slides.</p>
-        <p>So, here's the talk.</p>
-        <p class="deal__turn">Your turn. Give it a try and I think you just might be positively surprised.</p>
+        <p class="deal__enter">How <span class="accent">Sliqtly</span> compares</p>
+        <div class="tablebox">
+          <table class="compare">
+            <thead><tr><th></th><th>Google Slides (API)</th><th>Claude + PowerPoint skill</th><th class="accent">Sliqtly</th></tr></thead>
+            <tbody>
+              <tr><th>Speed</th><td>About 100 API requests for 6 slides, each a round trip</td><td>Fastest in our test: 2.3 min, done in one round</td><td>4.8 min and 4 fix rounds in the same test; the fixes it showed are in since</td></tr>
+              <tr><th>Size of the deck</th><td>Lives in Google Drive</td><td>91 KB .pptx for 15 slides</td><td class="accent">4 KB of Markdown for the same 15 slides</td></tr>
+              <tr><th>Look</th><td>Google's themes; every other style is set request by request</td><td>The most finished, native PowerPoint charts</td><td>Good: themes, charts, diagrams, cards</td></tr>
+              <tr><th>Works with any LLM</th><td>Any agent with Google API access and sign-in</td><td>Claude only</td><td class="accent">Any MCP client: Claude, ChatGPT, Cursor, VS Code…</td></tr>
+              <tr><th>Runs on your own machine</th><td>No, Google's cloud</td><td>In Claude Code yes; in claude.ai Anthropic's sandbox</td><td class="accent">Yes: .deb, Homebrew, Docker</td></tr>
+              <tr><th>Tokens the AI writes</th><td>High: about 5,200 for 6 slides</td><td>About 4,900 for 15 slides (the script); 7,600 of skill read first</td><td>About 1,600 for 15 slides; but 22,000 of guide and tool definitions read first</td></tr>
+              <tr><th>Changing it later</th><td>New API requests per change</td><td>Rewrite the script, or edit slide and chart XML (12,000 tokens for 6 charts)</td><td class="accent">An edit of about 70 tokens; the deck reads back as 1,400 tokens of Markdown</td></tr>
+              <tr><th>Reusing the source data</th><td>Medium: charts can link to Sheets</td><td>Low: the script is gone after the chat; chart data sits inside the .pptx</td><td class="accent">High: Markdown, CSV and Excel kept with the deck, charts read them or a live Sheet</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="fine">Measured 2026-10-07 on the same 15-slide deck (6 charts, 2 tables, a diagram, cards) made both ways; token counts with Anthropic's public tokenizer, which approximates current models. Google Slides and the timings are from our earlier 6-slide test.</p>
         <div class="actions" id="mcp">
           <a class="btn btn--solid btn--lg" href="/connect.html">Connect via MCP</a>
           <span class="cmd">https://sliqtly.com/mcp</span>
         </div>
         <p class="demo-warn"><strong>The cloud service at sliqtly.com is a demo, not for private data.</strong> Every presentation made there can be opened by anyone who has its link, even though the link is not listed anywhere. For private material, <a href="/local.html">run Sliqtly locally</a>.</p>
-        <div class="who">
-          <p class="deal__enter">Who?</p>
-          <p>Just a software engineer working at a company called <a href="https://www.cirit.fi/" target="_blank" rel="noopener">Cirit</a>.</p>
-          <p>I build software for a living, but this is my passion.</p>
-          <p><a class="btn btn--solid" href="https://buymeacoffee.com/sliqtly" target="_blank" rel="noopener">Buy me a Coffee ☕</a></p>
+      </div>
+    </section>
+
+    <section class="section" id="features">
+      <div class="wrap">
+        <p class="label">Features</p>
+        <h2 class="display display--lg">What the <span class="accent">Markdown</span> can hold.</h2>
+        <p class="lead">PowerPoint and Google Slides are a slightly unfair yardstick for a project this young: they have decades of work behind them. Here is plainly what Sliqtly reads and draws today.</p>
+        <div class="features">
+          <div><h3>Charts</h3><p>Vega-Lite, drawn by Sliqtly's own Vega engine (46 chart types tested against Vega):</p><ul><li>bar, stacked, grouped and normalized bar, histogram</li><li>line, multi-series line, area, streamgraph</li><li>scatter, bubble, heat map, tick</li><li>pie, donut, text labels, layered, faceted and side-by-side charts</li><li>time and log scales; filter, calculate, aggregate, bin, window, fold, pivot, lookup, regression, loess, density</li><li>looks: flat, forge, neon, glass</li></ul><p class="no">Not yet: errorbar, errorband, impute, sample.</p></div>
+          <div><h3>Diagrams</h3><ul><li><b>Mermaid</b>: flowchart, sequence, class, state, ER, mindmap, timeline, journey, gantt, gitGraph, pie, quadrant, xychart, sankey, block, architecture, kanban, requirement, C4 context, packet, radar, treemap</li><li><b>PlantUML</b>: sequence, class, object, component, deployment, use case, activity</li><li><b>Graphviz DOT</b>, <b>D2</b></li><li>a guided tour, box by box</li></ul><p class="no">PlantUML state, timing, mind map, Gantt are not drawn.</p></div>
+          <div><h3>Diagram looks</h3><ul><li>classic</li><li>sketch (hand-drawn)</li><li>mermaid (pastel cards)</li><li>jurassic (poster)</li><li>cartoon (speech bubbles)</li><li>romantic (caption boxes)</li></ul></div>
+          <div><h3>Layouts from lists</h3><ul><li>process (chevron steps)</li><li>SWOT</li><li>timeline</li><li>cards</li><li>stats (key figures)</li><li>gallery (photo albums)</li></ul></div>
+          <div><h3>Text</h3><ul><li>tables, with rowspan/colspan and toned cells</li><li>math in LaTeX, inline and display</li><li>code with highlighting, line numbers and stepped lines</li><li>diffs</li><li>build steps, transitions, speaker notes</li></ul></div>
+          <div><h3>Pictures and art</h3><ul><li>SVG</li><li>PNG, JPEG, GIF, WebP</li><li>SmartArt (partial: 20 layouts)</li><li>a picture as a slide background</li></ul></div>
+          <div><h3>Data</h3><ul><li>inline values</li><li>CSV and JSON files or URLs</li><li>Excel workbooks kept with the deck</li><li>Google Sheets, read live</li></ul></div>
+          <div><h3>Output</h3><ul><li>the player (HTML, a link)</li><li>PDF, also for print with bleed and crop marks</li><li>PowerPoint (.pptx, editable text)</li><li>Word (.docx)</li><li>a web page (.html)</li></ul></div>
+          <div><h3>Themes</h3><ul><li>aurora, nebula, carbon, ember, midnight (dark)</li><li>corporate (light)</li><li>editorial (A4 pages)</li><li>your own CSS on top</li></ul></div>
+        </div>
+        <div class="actions">
+          <a class="btn btn--solid btn--lg" href="/examples/sliqtly-features.pdf" target="_blank" rel="noopener">Example PDF (29 slides)</a>
         </div>
       </div>
     </section>
@@ -228,6 +270,17 @@
         <p>To the maximum extent permitted by applicable law, the operator of Sliqtly shall not be liable for loss of data, loss of business, loss of profits, service interruptions, indirect or consequential damages, or other losses resulting from the use of or inability to use the service.</p>
         <p>By using the service, you acknowledge that it is experimental and that you use it at your own risk.</p>
       </div></div>
+    </section>
+
+    <section class="section deal" id="who">
+      <div class="wrap">
+        <div class="who who--last">
+          <p class="deal__enter">Who?</p>
+          <p>Just a software engineer working at a company called <a href="https://www.cirit.fi/" target="_blank" rel="noopener">Cirit</a>.</p>
+          <p>I build software for a living, but this is my passion.</p>
+          <p><a class="btn btn--solid" href="https://buymeacoffee.com/sliqtly" target="_blank" rel="noopener">Buy me a Coffee ☕</a></p>
+        </div>
+      </div>
     </section>
   </main>
   <footer class="foot">
