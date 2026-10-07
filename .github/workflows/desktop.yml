@@ -1,0 +1,115 @@
+# Sliqtly Editor (desktop/): builds the Ranger app for the web and as the
+# native SDL2 + OpenGL binary, runs the unit tests and the headless native
+# check against desktop/test/mock-server.mjs, on Linux and macOS. The macOS
+# job uploads the zipped "Sliqtly Editor.app". Deploys nothing.
+name: Desktop editor
+
+on:
+  push:
+    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+  pull_request:
+    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: desktop
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: SDL2, OpenGL (Mesa), libcurl, Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsdl2-dev libgl-dev libgl1-mesa-dri libcurl4-openssl-dev xvfb
+      - run: npm ci --no-audit --no-fund
+      - name: EVG (ranger.json, pinned)
+        run: npm run deps
+      - name: Unit tests (models, mock server, screens)
+        run: npm test
+      - name: Web build
+        run: npm run web:build
+      - name: Native build
+        run: npm run native
+      - name: Native check (headless, screenshots)
+        run: npm run native:check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sliqtly-editor-linux-shots
+          path: desktop/native/build/shots/
+          if-no-files-found: ignore
+
+  macos:
+    runs-on: macos-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: SDL2 (the official framework, universal, for macOS 11 and later)
+        env:
+          SDL_VERSION: "2.32.10"
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/SDL2.dmg" "https://github.com/libsdl-org/SDL/releases/download/release-$SDL_VERSION/SDL2-$SDL_VERSION.dmg"
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/sdl" "$RUNNER_TEMP/SDL2.dmg"
+          mkdir -p "$RUNNER_TEMP/fw"
+          ditto "$RUNNER_TEMP/sdl/SDL2.framework" "$RUNNER_TEMP/fw/SDL2.framework"
+          hdiutil detach "$RUNNER_TEMP/sdl"
+          echo "SDL2_FRAMEWORK=$RUNNER_TEMP/fw/SDL2.framework" >> "$GITHUB_ENV"
+          echo "UNIVERSAL=1" >> "$GITHUB_ENV"
+      - run: npm ci --no-audit --no-fund
+      - name: EVG (ranger.json, pinned)
+        run: npm run deps
+      - name: Unit tests
+        run: npm test
+      - name: Native build (and the .app bundle)
+        run: npm run native
+      - name: Check the bundle
+        run: |
+          plutil -lint "native/build/Sliqtly Editor.app/Contents/Info.plist"
+          test "$(plutil -extract CFBundleIdentifier raw "native/build/Sliqtly Editor.app/Contents/Info.plist")" = com.sliqtly.editor
+          test -x "native/build/Sliqtly Editor.app/Contents/MacOS/sliqtly-editor"
+          test -s "native/build/Sliqtly Editor.app/Contents/Resources/AppIcon.icns"
+      - name: Check it opens on older macOS (minimum 11.0, both CPUs, nothing from Homebrew)
+        run: |
+          BIN="native/build/Sliqtly Editor.app/Contents/MacOS/sliqtly-editor"
+          lipo -archs "$BIN" | grep -q arm64
+          lipo -archs "$BIN" | grep -q x86_64
+          for a in arm64 x86_64; do
+            otool -arch $a -l "$BIN" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}' | grep -qx "11.0"
+          done
+          if otool -L "$BIN" | grep -E "/opt/homebrew|/usr/local"; then echo "links to Homebrew"; exit 1; fi
+          otool -L "$BIN" | grep -q "@rpath/SDL2.framework"
+          test -d "native/build/Sliqtly Editor.app/Contents/Frameworks/SDL2.framework"
+          codesign --verify --deep --strict "native/build/Sliqtly Editor.app"
+      - name: Zip the app
+        run: ditto -c -k --sequesterRsrc --keepParent "native/build/Sliqtly Editor.app" "native/build/Sliqtly-Editor-macOS.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sliqtly-Editor-macOS
+          path: desktop/native/build/Sliqtly-Editor-macOS.zip
+      - name: Native check (screenshots)
+        run: npm run native:check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sliqtly-editor-macos-shots
+          path: desktop/native/build/shots/
+          if-no-files-found: ignore

@@ -1,0 +1,13 @@
+{
+  "name": "sliqtly-editor",
+  "version": "0.1.0",
+  "license": "MIT",
+  "entry": "src/EditorApp.rgr",
+  "dependencies": {
+    "evg": {
+      "git": "https://github.com/terotests/evg.git",
+      "rev": "4019de0c4835c11e206711cae278afaf77059058",
+      "subdir": "storm"
+    }
+  }
+}

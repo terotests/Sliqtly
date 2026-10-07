@@ -51,8 +51,27 @@ func main() {
 	web := flag.String("web", env("SLIQTLY_WEB", ""), "serve the editor and player from this built web/dist instead of the copy built in (SLIQTLY_WEB)")
 	listen := flag.String("listen", env("SLIQTLY_LISTEN", ""), "who can connect: local (this computer only, the default), wired (also computers on a wired network) or network (every interface); unset: the settings page decides (SLIQTLY_LISTEN)")
 	allow := flag.String("allow", env("SLIQTLY_ALLOW", ""), "other computers' address ranges let in, e.g. 10.20.0.0/16 (SLIQTLY_ALLOW)")
+	corsOrigins := flag.String("cors-origins", env("SLIQTLY_CORS_ORIGINS", ""), "pages of other origins that may call /api/v1 and /oauth/token, comma separated, e.g. https://editor.example.com; pages on this computer always may (SLIQTLY_CORS_ORIGINS)")
+	tlsCert := flag.String("tls-cert", env("SLIQTLY_TLS_CERT", ""), "serve https:// with this certificate (PEM, the chain after it) instead of the server's own authority; with -tls-key (SLIQTLY_TLS_CERT)")
+	tlsKey := flag.String("tls-key", env("SLIQTLY_TLS_KEY", ""), "the private key of -tls-cert (PEM) (SLIQTLY_TLS_KEY)")
+	oidcIssuer := flag.String("oidc-issuer", env("SLIQTLY_OIDC_ISSUER", ""), "sign-in through this OpenID Connect provider, e.g. https://accounts.google.com (SLIQTLY_OIDC_ISSUER)")
+	oidcClient := flag.String("oidc-client-id", env("SLIQTLY_OIDC_CLIENT_ID", ""), "this server's client id at the provider (SLIQTLY_OIDC_CLIENT_ID)")
+	oidcSecret := flag.String("oidc-client-secret", env("SLIQTLY_OIDC_CLIENT_SECRET", ""), "its client secret, if the provider gave one; the environment keeps it out of the process list (SLIQTLY_OIDC_CLIENT_SECRET)")
+	oidcAllow := flag.String("oidc-allow", env("SLIQTLY_OIDC_ALLOW", ""), "who may sign in: emails and @domains, comma separated, or * for every account the provider signs in (SLIQTLY_OIDC_ALLOW)")
+	oidcScopes := flag.String("oidc-scopes", env("SLIQTLY_OIDC_SCOPES", "openid email profile"), "the scopes asked of the provider (SLIQTLY_OIDC_SCOPES)")
 	flag.Parse()
 	applyMemoryLimit()
+	oidcCfg := oidcConfig{Issuer: *oidcIssuer, ClientID: *oidcClient, ClientSecret: *oidcSecret, Allow: splitList(*oidcAllow), Scopes: *oidcScopes}
+	if err := oidcCfg.check(); err != nil {
+		log.Fatal(err)
+	}
+	cors, err := newCORSPolicy(splitList(*corsOrigins))
+	if err != nil {
+		log.Fatal(err)
+	}
+	if (*tlsCert != "" || *tlsKey != "" || oidcCfg.on()) && *data == "" {
+		log.Fatal("-tls-cert, -tls-key and -oidc-* are for a server of one's own: start it with -data")
+	}
 
 	// who can connect (netaccess.go): this computer only unless told
 	// otherwise; Cloud Run's own front is the only way in there
@@ -114,9 +133,24 @@ func main() {
 		ls := newLocalServer(e, bucket, *token, page).(*localServer)
 		ls.board = board
 		ls.expo = expo
-		// https:// with the server's own certificate, for microphones on
-		// other computers
-		if certs, err := loadOwnCerts(filepath.Join(*data, "tls"), ls.hosts.list(), ls.hosts.hostOK); err != nil {
+		ls.cors = cors
+		if err := ls.useOIDC(oidcCfg); err != nil {
+			log.Fatal(err)
+		}
+		if oidcCfg.on() {
+			log.Printf("sign-in through %s; register %s as the redirect URI there", oidcCfg.Issuer, ls.oidcRedirect())
+		}
+		// https:// with a certificate of the server's name when one is
+		// given, else with the server's own, for microphones on other
+		// computers
+		if *tlsCert != "" || *tlsKey != "" {
+			fc, err := loadFileCert(*tlsCert, *tlsKey, log.Printf)
+			if err != nil {
+				log.Fatalf("tls certificate: %v", err)
+			}
+			ls.fileCert = fc
+			expo.tls.Store(fc.config())
+		} else if certs, err := loadOwnCerts(filepath.Join(*data, "tls"), ls.hosts.list(), ls.hosts.hostOK); err != nil {
 			log.Printf("own certificate: %v (https:// is off)", err)
 		} else {
 			ls.certs = certs

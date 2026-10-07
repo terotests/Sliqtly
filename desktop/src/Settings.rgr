@@ -1,0 +1,193 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; Settings — the servers this editor knows, and which one is in use
+; =============================================================================
+; Kept by the host as one JSON file (native: settings.json in the settings
+; folder, readable by the user only, since tokens are in it; web:
+; localStorage). This class only reads and writes the JSON:
+;
+;   { "current": 0,
+;     "servers": [ { "name", "url", "token", "refresh", "tokenEndpoint",
+;                    "ca", "user" } ],
+;     "signingIn": "<url>" }       a browser sign-in under way (web reloads)
+; =============================================================================
+
+Import "JsonValue.rgr"
+
+class ServerEntry {
+    def name:string ""
+    def url:string ""
+    ; a static token typed in, or an OAuth access token
+    def token:string ""
+    ; an OAuth refresh token ("" for a typed token)
+    def refresh:string ""
+    def tokenEndpoint:string ""
+    ; the fingerprint of the server's own CA, once the user trusted it
+    def ca:string ""
+    ; who the server said we are (/api/v1/me), for the list
+    def user:string ""
+
+    Constructor () {
+    }
+
+    fn toJVal:JVal () {
+        def o:JVal (JVal.mkObj())
+        o.setStr("name" name)
+        o.setStr("url" url)
+        o.setStr("token" token)
+        o.setStr("refresh" refresh)
+        o.setStr("tokenEndpoint" tokenEndpoint)
+        o.setStr("ca" ca)
+        o.setStr("user" user)
+        return o
+    }
+
+    sfn fromJVal:ServerEntry (o:JVal) {
+        def e (new ServerEntry())
+        e.name = (o.strOr("name" ""))
+        e.url = (o.strOr("url" ""))
+        e.token = (o.strOr("token" ""))
+        e.refresh = (o.strOr("refresh" ""))
+        e.tokenEndpoint = (o.strOr("tokenEndpoint" ""))
+        e.ca = (o.strOr("ca" ""))
+        e.user = (o.strOr("user" ""))
+        return e
+    }
+
+    fn signedInWithOAuth:boolean () {
+        return ((strlen refresh) > 0)
+    }
+}
+
+class Settings {
+    def servers:[ServerEntry]
+    def current:int -1
+    def signingIn:string ""
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length servers)
+    }
+
+    fn at:ServerEntry (i:int) {
+        def e:ServerEntry (itemAt servers i)
+        return e
+    }
+
+    fn hasCurrent:boolean () {
+        return ((current >= 0) && (current < (array_length servers)))
+    }
+
+    fn currentServer:ServerEntry () {
+        if (this.hasCurrent()) {
+            def e:ServerEntry (itemAt servers current)
+            return e
+        }
+        return (new ServerEntry())
+    }
+
+    fn indexOfUrl:int (url:string) {
+        def n:int (array_length servers)
+        def i:int 0
+        while (i < n) {
+            def e:ServerEntry (itemAt servers i)
+            if (e.url == url) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The entry for `url`, made when there is none.
+    fn upsert:ServerEntry (url:string) {
+        def i:int (this.indexOfUrl(url))
+        if (i >= 0) {
+            def found:ServerEntry (itemAt servers i)
+            return found
+        }
+        def e (new ServerEntry())
+        e.url = url
+        e.name = (Settings.nameFor(url))
+        push servers e
+        return e
+    }
+
+    fn select:void (url:string) {
+        current = (this.indexOfUrl(url))
+    }
+
+    fn removeAt:void (i:int) {
+        if ((i < 0) || (i >= (array_length servers))) {
+            return
+        }
+        remove_index servers i
+        if (current == i) {
+            current = -1
+        } {
+            if (current > i) {
+                current = (current - 1)
+            }
+        }
+    }
+
+    ; "https://slides.example.com:8443" -> "slides.example.com:8443"
+    sfn nameFor:string (url:string) {
+        def u:string url
+        def at:int (indexOf u "://")
+        if (at >= 0) {
+            u = (substring u (at + 3) (strlen u))
+        }
+        return u
+    }
+
+    fn toJson:string () {
+        def o:JVal (JVal.mkObj())
+        o.setInt("current" current)
+        def list:JVal (JVal.mkArr())
+        def n:int (array_length servers)
+        def i:int 0
+        while (i < n) {
+            def e:ServerEntry (itemAt servers i)
+            list.add((e.toJVal()))
+            i = (i + 1)
+        }
+        o.set("servers" list)
+        if ((strlen signingIn) > 0) {
+            o.setStr("signingIn" signingIn)
+        }
+        return (o.toJson())
+    }
+
+    fn load:boolean (text:string) {
+        clear servers
+        current = -1
+        signingIn = ""
+        def v:JVal (JVal.parse(text))
+        if ((v.valid()) == false) {
+            return false
+        }
+        if ((v.isObj()) == false) {
+            return false
+        }
+        def list:JVal (v.get("servers"))
+        def n:int (list.len())
+        def i:int 0
+        while (i < n) {
+            def e:ServerEntry (ServerEntry.fromJVal((list.at(i))))
+            if ((strlen e.url) > 0) {
+                push servers e
+            }
+            i = (i + 1)
+        }
+        current = (v.intOr("current" -1))
+        if (current >= (array_length servers)) {
+            current = -1
+        }
+        signingIn = (v.strOr("signingIn" ""))
+        return true
+    }
+}

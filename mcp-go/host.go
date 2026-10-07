@@ -134,6 +134,10 @@ type Env struct {
 	names atomic.Pointer[nameRule]
 	// rooms (roomsapi.go): with Store and LocalUser; nil elsewhere
 	rooms *roomService
+	// Clients: the OAuth clients a server of one's own knows without
+	// registration (oidc.go builtinClient), as their client document; nil,
+	// or nil for an id: none
+	Clients func(id string) map[string]any
 
 	themesMu sync.Mutex
 	themes   map[string]string

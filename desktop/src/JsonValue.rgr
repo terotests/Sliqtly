@@ -1,0 +1,682 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; Json — a JSON value, a reader and a writer, the same on every target
+; =============================================================================
+; The REST API speaks JSON, the settings file is JSON, and the app must read
+; both the same way whether it runs as JavaScript or as C++. So this file
+; never asks what a string is made of: the structure of JSON is ASCII, so it
+; is scanned with `charAt` (the target's own unit — a byte in C++, a UTF-16
+; unit in JavaScript, and ASCII is one unit in both), and every run of text
+; between two ASCII marks is cut out whole with `substring`, which keeps an
+; "ä" or an emoji as the target holds it. Only `\uXXXX` escapes are turned
+; into characters, by EVGCodepoint.toStr (UTF-8 in C++, a surrogate pair in
+; JavaScript).
+;
+; Missing keys answer with a null value (kind 0), not an optional, so a
+; reader can write `v.get("auth").boolOr("oauth" false)` without checks.
+; =============================================================================
+
+Import "pkg:evg/EVGCodepoint.rgr"
+
+class JVal {
+    ; 0 null, 1 boolean, 2 number, 3 string, 4 array, 5 object
+    def kind:int 0
+    def flag:boolean false
+    def num:double 0.0
+    def str:string ""
+    def arr:[JVal]
+    def keys:[string]
+    def vals:[JVal]
+
+    Constructor () {
+    }
+
+    sfn mkNull:JVal () {
+        return (new JVal())
+    }
+
+    sfn mkStr:JVal (s:string) {
+        def v (new JVal())
+        v.kind = 3
+        v.str = s
+        return v
+    }
+
+    sfn mkNum:JVal (n:double) {
+        def v (new JVal())
+        v.kind = 2
+        v.num = n
+        return v
+    }
+
+    sfn mkInt:JVal (n:int) {
+        def v (new JVal())
+        v.kind = 2
+        v.num = (to_double n)
+        return v
+    }
+
+    sfn mkBool:JVal (b:boolean) {
+        def v (new JVal())
+        v.kind = 1
+        v.flag = b
+        return v
+    }
+
+    sfn mkObj:JVal () {
+        def v (new JVal())
+        v.kind = 5
+        return v
+    }
+
+    sfn mkArr:JVal () {
+        def v (new JVal())
+        v.kind = 4
+        return v
+    }
+
+    fn isNull:boolean () {
+        return (kind == 0)
+    }
+
+    fn isObj:boolean () {
+        return (kind == 5)
+    }
+
+    fn isArr:boolean () {
+        return (kind == 4)
+    }
+
+    ; --- reading ---------------------------------------------------------------
+
+    fn indexOfKey:int (key:string) {
+        def n:int (array_length keys)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt keys i) == key) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn has:boolean (key:string) {
+        return ((this.indexOfKey(key)) >= 0)
+    }
+
+    fn get:JVal (key:string) {
+        def i:int (this.indexOfKey(key))
+        if (i < 0) {
+            return (new JVal())
+        }
+        def found:JVal (itemAt vals i)
+        return found
+    }
+
+    fn len:int () {
+        if (kind == 4) {
+            return (array_length arr)
+        }
+        if (kind == 5) {
+            return (array_length keys)
+        }
+        return 0
+    }
+
+    fn at:JVal (i:int) {
+        if (kind != 4) {
+            return (new JVal())
+        }
+        if ((i < 0) || (i >= (array_length arr))) {
+            return (new JVal())
+        }
+        def found:JVal (itemAt arr i)
+        return found
+    }
+
+    fn asStr:string (fallback:string) {
+        if (kind == 3) {
+            return str
+        }
+        if (kind == 2) {
+            return (JVal.numText(num))
+        }
+        return fallback
+    }
+
+    fn asNum:double (fallback:double) {
+        if (kind == 2) {
+            return num
+        }
+        return fallback
+    }
+
+    fn asBool:boolean (fallback:boolean) {
+        if (kind == 1) {
+            return flag
+        }
+        return fallback
+    }
+
+    fn strOr:string (key:string fallback:string) {
+        def v:JVal (this.get(key))
+        return (v.asStr(fallback))
+    }
+
+    fn numOr:double (key:string fallback:double) {
+        def v:JVal (this.get(key))
+        return (v.asNum(fallback))
+    }
+
+    fn intOr:int (key:string fallback:int) {
+        def v:JVal (this.get(key))
+        if (v.kind == 2) {
+            return (to_int v.num)
+        }
+        return fallback
+    }
+
+    fn boolOr:boolean (key:string fallback:boolean) {
+        def v:JVal (this.get(key))
+        return (v.asBool(fallback))
+    }
+
+    ; --- building --------------------------------------------------------------
+
+    fn set:JVal (key:string v:JVal) {
+        kind = 5
+        def i:int (this.indexOfKey(key))
+        if (i >= 0) {
+            set_at vals i v
+            return this
+        }
+        push keys key
+        push vals v
+        return this
+    }
+
+    fn setStr:JVal (key:string s:string) {
+        return (this.set(key (JVal.mkStr(s))))
+    }
+
+    fn setNum:JVal (key:string n:double) {
+        return (this.set(key (JVal.mkNum(n))))
+    }
+
+    fn setInt:JVal (key:string n:int) {
+        return (this.set(key (JVal.mkInt(n))))
+    }
+
+    fn setBool:JVal (key:string b:boolean) {
+        return (this.set(key (JVal.mkBool(b))))
+    }
+
+    fn add:JVal (v:JVal) {
+        kind = 4
+        push arr v
+        return this
+    }
+
+    ; --- writing ---------------------------------------------------------------
+
+    ; A number as JSON writes it: whole numbers without a fraction. A
+    ; millisecond timestamp is past what an int holds in C++ (32 bits), so the
+    ; whole part is printed as two halves of nine digits each.
+    sfn numText:string (n:double) {
+        def neg:boolean (n < 0.0)
+        def a:double n
+        if neg {
+            a = (0.0 - n)
+        }
+        if (a < 1000000000000000000.0) {
+            def hi:int (to_int (a / 1000000000.0))
+            def lo:double (a - ((to_double hi) * 1000000000.0))
+            if (lo >= 1000000000.0) {
+                hi = (hi + 1)
+                lo = (lo - 1000000000.0)
+            }
+            if (lo < 0.0) {
+                hi = (hi - 1)
+                lo = (lo + 1000000000.0)
+            }
+            def loInt:int (to_int lo)
+            if ((lo - (to_double loInt)) == 0.0) {
+                def body:string (to_string loInt)
+                if (hi > 0) {
+                    while ((strlen body) < 9) {
+                        body = ("0" + body)
+                    }
+                    body = ((to_string hi) + body)
+                }
+                if neg {
+                    return ("-" + body)
+                }
+                return body
+            }
+        }
+        def t:string (to_string n)
+        return t
+    }
+
+    sfn hexDigit:string (d:int) {
+        def h:string "0123456789abcdef"
+        return (substring h d (d + 1))
+    }
+
+    ; A string as a JSON literal. Runs of ordinary text are copied whole.
+    sfn quote:string (s:string) {
+        def parts:[string]
+        push parts "\""
+        def n:int (strlen s)
+        def start:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            def esc:string ""
+            if (c == 34) {
+                esc = "\\\""
+            }
+            if (c == 92) {
+                esc = "\\\\"
+            }
+            if (c == 10) {
+                esc = "\\n"
+            }
+            if (c == 13) {
+                esc = "\\r"
+            }
+            if (c == 9) {
+                esc = "\\t"
+            }
+            if ((strlen esc) == 0) {
+                if ((c >= 0) && (c < 32)) {
+                    esc = ("\\u00" + (JVal.hexDigit((to_int (c / 16)))) + (JVal.hexDigit((c % 16))))
+                }
+            }
+            if ((strlen esc) > 0) {
+                if (i > start) {
+                    push parts (substring s start i)
+                }
+                push parts esc
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        if (n > start) {
+            push parts (substring s start n)
+        }
+        push parts "\""
+        return (join parts "")
+    }
+
+    fn writeTo:void (parts:[string]) {
+        if (kind == 0) {
+            push parts "null"
+            return
+        }
+        if (kind == 1) {
+            if flag {
+                push parts "true"
+            } {
+                push parts "false"
+            }
+            return
+        }
+        if (kind == 2) {
+            push parts (JVal.numText(num))
+            return
+        }
+        if (kind == 3) {
+            push parts (JVal.quote(str))
+            return
+        }
+        if (kind == 4) {
+            push parts "["
+            def n:int (array_length arr)
+            def i:int 0
+            while (i < n) {
+                if (i > 0) {
+                    push parts ","
+                }
+                def item:JVal (itemAt arr i)
+                item.writeTo(parts)
+                i = (i + 1)
+            }
+            push parts "]"
+            return
+        }
+        push parts "{"
+        def m:int (array_length keys)
+        def j:int 0
+        while (j < m) {
+            if (j > 0) {
+                push parts ","
+            }
+            push parts (JVal.quote((itemAt keys j)))
+            push parts ":"
+            def fv:JVal (itemAt vals j)
+            fv.writeTo(parts)
+            j = (j + 1)
+        }
+        push parts "}"
+    }
+
+    fn toJson:string () {
+        def parts:[string]
+        this.writeTo(parts)
+        return (join parts "")
+    }
+
+    ; --- parsing ---------------------------------------------------------------
+
+    ; The value `text` holds, or a null value with `ok` false on the parser.
+    sfn parse:JVal (text:string) {
+        def p (new JParser())
+        p.src = text
+        def v:JVal (p.value())
+        p.skipWs()
+        if (p.at < (strlen text)) {
+            p.ok = false
+        }
+        if (p.ok == false) {
+            def bad (new JVal())
+            bad.kind = -1
+            return bad
+        }
+        return v
+    }
+
+    ; Did `parse` succeed (a failed parse has kind -1)?
+    fn valid:boolean () {
+        return (kind >= 0)
+    }
+}
+
+class JParser {
+    def src:string ""
+    def at:int 0
+    def ok:boolean true
+    def depth:int 0
+
+    Constructor () {
+    }
+
+    fn peek:int () {
+        if (at >= (strlen src)) {
+            return 0
+        }
+        return (charAt src at)
+    }
+
+    fn skipWs:void () {
+        def n:int (strlen src)
+        while (at < n) {
+            def c:int (charAt src at)
+            if ((((c == 32) || (c == 10)) || (c == 13)) || (c == 9)) {
+                at = (at + 1)
+            } {
+                return
+            }
+        }
+    }
+
+    fn word:boolean (w:string) {
+        def n:int (strlen w)
+        if ((at + n) > (strlen src)) {
+            return false
+        }
+        if ((substring src at (at + n)) == w) {
+            at = (at + n)
+            return true
+        }
+        return false
+    }
+
+    fn value:JVal () {
+        this.skipWs()
+        def v (new JVal())
+        if (ok == false) {
+            return v
+        }
+        depth = (depth + 1)
+        if (depth > 200) {
+            ok = false
+            return v
+        }
+        def c:int (this.peek())
+        if (c == 123) {
+            v.kind = 5
+            at = (at + 1)
+            this.skipWs()
+            if ((this.peek()) == 125) {
+                at = (at + 1)
+                depth = (depth - 1)
+                return v
+            }
+            while ok {
+                this.skipWs()
+                if ((this.peek()) != 34) {
+                    ok = false
+                    return v
+                }
+                def k:string (this.readString())
+                this.skipWs()
+                if ((this.peek()) != 58) {
+                    ok = false
+                    return v
+                }
+                at = (at + 1)
+                def item:JVal (this.value())
+                push v.keys k
+                push v.vals item
+                this.skipWs()
+                def d:int (this.peek())
+                if (d == 44) {
+                    at = (at + 1)
+                } {
+                    if (d == 125) {
+                        at = (at + 1)
+                        depth = (depth - 1)
+                        return v
+                    }
+                    ok = false
+                    return v
+                }
+            }
+            return v
+        }
+        if (c == 91) {
+            v.kind = 4
+            at = (at + 1)
+            this.skipWs()
+            if ((this.peek()) == 93) {
+                at = (at + 1)
+                depth = (depth - 1)
+                return v
+            }
+            while ok {
+                def item:JVal (this.value())
+                push v.arr item
+                this.skipWs()
+                def d:int (this.peek())
+                if (d == 44) {
+                    at = (at + 1)
+                } {
+                    if (d == 93) {
+                        at = (at + 1)
+                        depth = (depth - 1)
+                        return v
+                    }
+                    ok = false
+                    return v
+                }
+            }
+            return v
+        }
+        if (c == 34) {
+            v.kind = 3
+            v.str = (this.readString())
+            depth = (depth - 1)
+            return v
+        }
+        if (this.word("true")) {
+            v.kind = 1
+            v.flag = true
+            depth = (depth - 1)
+            return v
+        }
+        if (this.word("false")) {
+            v.kind = 1
+            depth = (depth - 1)
+            return v
+        }
+        if (this.word("null")) {
+            depth = (depth - 1)
+            return v
+        }
+        ; a number
+        def start:int at
+        def n:int (strlen src)
+        while (at < n) {
+            def e:int (charAt src at)
+            def numChar:boolean false
+            if ((e >= 48) && (e <= 57)) {
+                numChar = true
+            }
+            if ((((e == 45) || (e == 43)) || (e == 46)) || ((e == 101) || (e == 69))) {
+                numChar = true
+            }
+            if numChar {
+                at = (at + 1)
+            } {
+                break
+            }
+        }
+        if (at == start) {
+            ok = false
+            return v
+        }
+        def text:string (substring src start at)
+        def d@(optional):double (to_double text)
+        if (null? d) {
+            ok = false
+            return v
+        }
+        v.kind = 2
+        v.num = (unwrap d)
+        depth = (depth - 1)
+        return v
+    }
+
+    fn hex4:int () {
+        if ((at + 4) > (strlen src)) {
+            return -1
+        }
+        def out:int 0
+        def i:int 0
+        while (i < 4) {
+            def c:int (charAt src (at + i))
+            def d:int -1
+            if ((c >= 48) && (c <= 57)) {
+                d = (c - 48)
+            }
+            if ((c >= 97) && (c <= 102)) {
+                d = (c - 87)
+            }
+            if ((c >= 65) && (c <= 70)) {
+                d = (c - 55)
+            }
+            if (d < 0) {
+                return -1
+            }
+            out = ((out * 16) + d)
+            i = (i + 1)
+        }
+        at = (at + 4)
+        return out
+    }
+
+    ; At the opening quote; leaves `at` past the closing one.
+    fn readString:string () {
+        at = (at + 1)
+        def parts:[string]
+        def n:int (strlen src)
+        def start:int at
+        while (at < n) {
+            def c:int (charAt src at)
+            if (c == 34) {
+                if (at > start) {
+                    push parts (substring src start at)
+                }
+                at = (at + 1)
+                return (join parts "")
+            }
+            if (c == 92) {
+                if (at > start) {
+                    push parts (substring src start at)
+                }
+                at = (at + 1)
+                def e:int (this.peek())
+                at = (at + 1)
+                if (e == 110) {
+                    push parts "\n"
+                } {
+                    if (e == 116) {
+                        push parts "\t"
+                    } {
+                        if (e == 114) {
+                            push parts "\r"
+                        } {
+                            if (e == 98) {
+                                push parts (strfromcode 8)
+                            } {
+                                if (e == 102) {
+                                    push parts (strfromcode 12)
+                                } {
+                                    if (e == 117) {
+                                        push parts (this.readEscape())
+                                    } {
+                                        ; \" \\ \/
+                                        push parts (substring src (at - 1) at)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                start = at
+            } {
+                at = (at + 1)
+            }
+        }
+        ok = false
+        return (join parts "")
+    }
+
+    fn readEscape:string () {
+        def cp:int (this.hex4())
+        if (cp < 0) {
+            ok = false
+            return ""
+        }
+        if (EVGCodepoint.isHighSurrogate(cp)) {
+            if ((at + 1) < (strlen src)) {
+                if ((charAt src at) == 92) {
+                    if ((charAt src (at + 1)) == 117) {
+                        def save:int at
+                        at = (at + 2)
+                        def lo:int (this.hex4())
+                        if (EVGCodepoint.isLowSurrogate(lo)) {
+                            cp = (65536 + (((cp - 55296) * 1024) + (lo - 56320)))
+                        } {
+                            at = save
+                        }
+                    }
+                }
+            }
+        }
+        return (EVGCodepoint.toStr(cp))
+    }
+}

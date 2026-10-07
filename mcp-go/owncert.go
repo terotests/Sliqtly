@@ -272,6 +272,13 @@ func (o *ownCerts) fingerprint() string {
 	return strings.Join(parts, ":")
 }
 
+// the same as lower-case hex without colons, as /api/v1/info gives it for
+// a client to pin
+func (o *ownCerts) fingerprintHex() string {
+	sum := sha256.Sum256(o.ca.Raw)
+	return hex.EncodeToString(sum[:])
+}
+
 // what the authority may vouch for, for the page
 func (o *ownCerts) covers() []string {
 	out := append([]string{}, o.ca.PermittedDNSDomains...)

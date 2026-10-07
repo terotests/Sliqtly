@@ -1,0 +1,2203 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; EditorApp — Sliqtly Editor's screens, drawn by EVG
+; =============================================================================
+; One app for two hosts: compiled to C++ it runs in native/host.cpp (SDL2 +
+; OpenGL, EVG's native painter); compiled to JavaScript it runs in
+; web/main.js (WebGL 2, evg-webgl.js). The model is Session (the server, the
+; decks, the open deck, the preview); this file draws it and turns pointer and
+; keys into calls on it.
+;
+; The host asks the app for everything:
+;
+;   displayListJson()          what to draw (rebuilt only when something changed)
+;   previewX/Y/W/H, previewSlide, viewBody
+;                              where the host paints the server's display list
+;                              of the current slide, over the app's frame
+;   takeRequest / req*(id) / deliver(id, status, body, error)
+;                              the HTTP the app wants done
+;   takeCommand / commandArg   what else it wants done (settings file,
+;                              clipboard, browser, OAuth loopback, CA pinning)
+;
+; Geometry is computed here, in page points (the window's size); colours and
+; type are in assets/editor.css. Hit testing is the app's own: every element
+; that answers a press registers its rectangle as it is built.
+; =============================================================================
+
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
+Import "Session.rgr"
+
+class EditorApp {
+    def s:Session (new Session())
+
+    def sheet@(optional):EVGStyleSheet
+    def lay@(optional):EVGLayout
+    def W:double 1200.0
+    def H:double 760.0
+    def dirty:boolean true
+    def cachedJson:string ""
+    def paintGen:int 0
+    def lastChanges:int -1
+    def lastBufVersion:int -1
+    def lastMinute:int -1
+    def lastScreen:string ""
+    def lastDialog:string ""
+
+    def hovered:string ""
+    def pressed:string ""
+    ; url | token | name | text | ""
+    def focus:string "url"
+    def newName:string ""
+
+    def hitIds:[string]
+    def hitX:[double]
+    def hitY:[double]
+    def hitW:[double]
+    def hitH:[double]
+
+    ; --- the text area ---------------------------------------------------------
+    def fontSize:double 14.0
+    def lineH:double 20.0
+    def cw:double 8.4287
+    def edX:double 0.0
+    def edY:double 0.0
+    def edW:double 0.0
+    def edH:double 0.0
+    def textX:double 0.0
+    def textY:double 0.0
+    def scrollLine:int 0
+    def scrollCol:int 0
+    def dragging:boolean false
+    def lastClickMs:double 0.0
+    def clickCount:int 0
+
+    ; --- the deck list ---------------------------------------------------------
+    def deckScroll:int 0
+    def deckSel:int 0
+    def rowsShown:int 8
+
+    ; --- the preview -----------------------------------------------------------
+    def pvX:double 0.0
+    def pvY:double 0.0
+    def pvW:double 0.0
+    def pvH:double 0.0
+    def pvOn:boolean false
+
+    ; --- a scripted run (checks): one step at a time ----------------------------
+    def script:[string]
+    def scriptAt:int 0
+    def scriptWaitUntil:double 0.0
+    def scriptStepStart:double -1.0
+    def scriptOn:boolean false
+    def scriptFailed:string ""
+
+    def lastCmdArg:string ""
+    def lastCmdArg2:string ""
+
+    Constructor () {
+        cw = (fontSize * 0.60205)
+    }
+
+    ; =========================================================================
+    ; set up
+    ; =========================================================================
+
+    fn init:void (css:string) {
+        def st (new EVGStyleSheet())
+        st.parse(css)
+        sheet = st
+        dirty = true
+    }
+
+    fn styleErrorCount:int () {
+        def st:EVGStyleSheet (unwrap sheet)
+        return (st.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def st:EVGStyleSheet (unwrap sheet)
+        return (st.getError(i))
+    }
+
+    fn setPlatform:void (p:string) {
+        s.platform = p
+        s.api.clientId = (s.clientId())
+    }
+
+    fn setWebOrigin:void (o:string) {
+        s.webOrigin = o
+    }
+
+    fn setViewport:void (w:double h:double) {
+        def nw:double w
+        def nh:double h
+        if (nw < 640.0) {
+            nw = 640.0
+        }
+        if (nh < 420.0) {
+            nh = 420.0
+        }
+        if ((nw != W) || (nh != H)) {
+            W = nw
+            H = nh
+            lay = (new EVGLayout())
+            dirty = true
+        }
+    }
+
+    fn widthPx:double () {
+        return W
+    }
+
+    fn heightPx:double () {
+        return H
+    }
+
+    ; The wall clock (ms since 1970), for "5 min ago" and scripted waits.
+    fn setNow:void (ms:double) {
+        s.nowMs = ms
+        def minute:int (to_int (ms / 60000.0))
+        if (minute != lastMinute) {
+            lastMinute = minute
+            dirty = true
+        }
+    }
+
+    fn loadSettings:void (json:string) {
+        s.loadSettings(json)
+        dirty = true
+    }
+
+    fn settingsJson:string () {
+        return (s.settings.toJson())
+    }
+
+    fn start:void () {
+        s.start()
+        if (s.screen == "connect") {
+            focus = "url"
+        }
+        dirty = true
+    }
+
+    ; =========================================================================
+    ; host plumbing
+    ; =========================================================================
+
+    fn takeCommand:string () {
+        if ((array_length s.cmdNames) == 0) {
+            return ""
+        }
+        def name:string (itemAt s.cmdNames 0)
+        lastCmdArg = (itemAt s.cmdArgs 0)
+        lastCmdArg2 = (itemAt s.cmdArgs2 0)
+        remove_index s.cmdNames 0
+        remove_index s.cmdArgs 0
+        remove_index s.cmdArgs2 0
+        return name
+    }
+
+    fn commandArg:string () {
+        return lastCmdArg
+    }
+
+    fn commandArg2:string () {
+        return lastCmdArg2
+    }
+
+    ; The next HTTP request for the host, as its id (0: none).
+    fn takeRequest:int () {
+        def r@(optional):ApiRequest (s.api.take())
+        if (null? r) {
+            return 0
+        }
+        def req:ApiRequest (unwrap r)
+        return req.id
+    }
+
+    fn req:ApiRequest (id:int) {
+        def r@(optional):ApiRequest (s.api.requestById(id))
+        if (null? r) {
+            return (new ApiRequest())
+        }
+        def req:ApiRequest (unwrap r)
+        return req
+    }
+
+    fn reqMethod:string (id:int) {
+        def r:ApiRequest (this.req(id))
+        return r.method
+    }
+
+    fn reqUrl:string (id:int) {
+        def r:ApiRequest (this.req(id))
+        return r.url
+    }
+
+    ; Whole header lines, one per line.
+    fn reqHeaders:string (id:int) {
+        def r:ApiRequest (this.req(id))
+        return (r.headerText())
+    }
+
+    fn reqBody:string (id:int) {
+        def r:ApiRequest (this.req(id))
+        return r.body
+    }
+
+    fn reqTimeoutMs:int (id:int) {
+        def r:ApiRequest (this.req(id))
+        return r.timeoutMs
+    }
+
+    fn reqInsecure:boolean (id:int) {
+        def r:ApiRequest (this.req(id))
+        return r.insecure
+    }
+
+    ; The fingerprint of the CA pinned for this request's server ("" for none).
+    fn reqCa:string (id:int) {
+        def r:ApiRequest (this.req(id))
+        return r.caFp
+    }
+
+    fn deliver:void (id:int status:int body:string error:string) {
+        s.deliver(id status body error)
+        dirty = true
+    }
+
+    fn busy:boolean () {
+        return (s.api.busy())
+    }
+
+    fn oauthAuthorizeUrl:string (challenge:string state:string redirect:string) {
+        return (s.oauthAuthorizeUrl(challenge state redirect))
+    }
+
+    fn oauthCode:void (code:string verifier:string redirect:string) {
+        s.oauthCode(code verifier redirect)
+        dirty = true
+    }
+
+    fn oauthFailed:void (why:string) {
+        s.oauthFailed(why)
+        dirty = true
+    }
+
+    fn signingIn:string () {
+        return s.settings.signingIn
+    }
+
+    fn caResult:void (fp:string ok:boolean why:string) {
+        s.caResult(fp ok why)
+        dirty = true
+    }
+
+    ; --- the preview, for the host to paint ------------------------------------
+
+    fn viewGeneration:int () {
+        return s.viewGen
+    }
+
+    fn viewBody:string () {
+        return s.viewBody
+    }
+
+    fn previewVisible:boolean () {
+        return (pvOn && ((strlen s.viewBody) > 0))
+    }
+
+    fn previewSlide:int () {
+        return s.slide
+    }
+
+    fn previewX:double () {
+        return pvX
+    }
+
+    fn previewY:double () {
+        return pvY
+    }
+
+    fn previewW:double () {
+        return pvW
+    }
+
+    fn previewH:double () {
+        return pvH
+    }
+
+    fn windowTitle:string () {
+        if ((s.screen == "editor") && ((strlen s.deckName) > 0)) {
+            def mark:string ""
+            if (s.isDirty()) {
+                mark = "• "
+            }
+            return (mark + s.deckName + " — Sliqtly Editor")
+        }
+        return "Sliqtly Editor"
+    }
+
+    fn debugState:string () {
+        return (s.debugState() + " focus=" + focus + " caret=" + (to_string s.buffer.caretLine) + ":" + (to_string s.buffer.caretCol))
+    }
+
+    fn modKey:string () {
+        if (s.platform == "mac") {
+            return "⌘"
+        }
+        return "Ctrl+"
+    }
+
+    ; =========================================================================
+    ; drawing helpers
+    ; =========================================================================
+
+    sfn fmt:string (v:double) {
+        def neg:boolean (v < 0.0)
+        def a:double v
+        if neg {
+            a = (0.0 - v)
+        }
+        def hundredths:int (to_int ((a * 100.0) + 0.5))
+        def whole:int (to_int (hundredths / 100))
+        def frac:int (hundredths - (whole * 100))
+        def out:string (to_string whole)
+        if (frac > 0) {
+            if (frac < 10) {
+                out = (out + ".0" + (to_string frac))
+            } {
+                out = (out + "." + (to_string frac))
+            }
+        }
+        if neg {
+            return ("-" + out)
+        }
+        return out
+    }
+
+    sfn px:string (v:double) {
+        return ((EditorApp.fmt(v)) + "px")
+    }
+
+    sfn place:void (e:EVGElement x:double y:double w:double h:double) {
+        e.setAttribute("position" "absolute")
+        e.setAttribute("left" (EditorApp.px(x)))
+        e.setAttribute("top" (EditorApp.px(y)))
+        e.setAttribute("width" (EditorApp.px(w)))
+        e.setAttribute("height" (EditorApp.px(h)))
+    }
+
+    fn box:EVGElement (parent:EVGElement cls:string x:double y:double w:double h:double) {
+        def e (EVGElement.createDiv())
+        e.className = cls
+        EditorApp.place(e x y w h)
+        parent.addChild(e)
+        return e
+    }
+
+    fn text:EVGElement (parent:EVGElement cls:string x:double y:double w:double t:string) {
+        def e (EVGElement.createSpan())
+        e.className = cls
+        e.setAttribute("position" "absolute")
+        e.setAttribute("left" (EditorApp.px(x)))
+        e.setAttribute("top" (EditorApp.px(y)))
+        e.setAttribute("width" (EditorApp.px(w)))
+        e.setAttribute("white-space" "nowrap")
+        e.textContent = t
+        parent.addChild(e)
+        return e
+    }
+
+    ; Text that wraps in its width.
+    fn para:EVGElement (parent:EVGElement cls:string x:double y:double w:double t:string) {
+        def e (EVGElement.createSpan())
+        e.className = cls
+        e.setAttribute("position" "absolute")
+        e.setAttribute("left" (EditorApp.px(x)))
+        e.setAttribute("top" (EditorApp.px(y)))
+        e.setAttribute("width" (EditorApp.px(w)))
+        e.textContent = t
+        parent.addChild(e)
+        return e
+    }
+
+    fn hit:void (id:string x:double y:double w:double h:double) {
+        push hitIds id
+        push hitX x
+        push hitY y
+        push hitW w
+        push hitH h
+    }
+
+    fn hitAt:string (x:double y:double) {
+        def i:int ((array_length hitIds) - 1)
+        while (i >= 0) {
+            def hx:double (itemAt hitX i)
+            def hy:double (itemAt hitY i)
+            if ((x >= hx) && (y >= hy)) {
+                if ((x < (hx + (itemAt hitW i))) && (y < (hy + (itemAt hitH i)))) {
+                    return (itemAt hitIds i)
+                }
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+
+    ; A button: kind "" (plain), "primary", "danger", "ghost" or "off".
+    fn button:void (parent:EVGElement id:string label:string x:double y:double w:double h:double kind:string) {
+        def cls:string "btn"
+        if ((strlen kind) > 0) {
+            cls = ("btn-" + kind)
+        }
+        if ((hovered == id) && (kind != "off")) {
+            cls = (cls + "-hot")
+        }
+        this.box(parent cls x y w h)
+        def lc:string "btn-label"
+        if (kind == "off") {
+            lc = "btn-label-off"
+        }
+        if (kind == "ghost") {
+            lc = "btn-label-ghost"
+        }
+        this.text(parent lc x (y + ((h - 18.0) / 2.0)) w label)
+        if (kind != "off") {
+            this.hit(id x y w h)
+        }
+    }
+
+    ; Sliqtly's mark: three cards and the play shape (brand/sliqtly-icon.svg).
+    fn logo:void (parent:EVGElement x:double y:double size:double) {
+        def vb:string "12 6 225 225"
+        this.logoPath(parent x y size vb "M21.00 85.41Q21.00 75.33 30.87 77.35L69.51 85.28Q79.38 87.30 79.38 97.38L79.38 127.62Q79.38 137.70 69.51 139.72L30.87 147.65Q21.00 149.67 21.00 139.59Z" "#D4AA82" "linear-gradient(159deg, #E6C3A0, #D4AA82)")
+        this.logoPath(parent x y size vb "M49.00 65.41Q49.00 47.89 66.16 51.41L133.31 65.18Q150.47 68.70 150.47 86.22L150.47 138.78Q150.47 156.30 133.31 159.82L66.16 173.59Q49.00 177.11 49.00 159.59Z" "#C2875C" "linear-gradient(160deg, #D9A178, #C2875C)")
+        this.logoPath(parent x y size vb "M89.00 48.00Q89.00 24.00 112.51 28.82L204.49 47.68Q228.00 52.50 228.00 76.50L228.00 148.50Q228.00 172.50 204.49 177.32L112.51 196.18Q89.00 201.00 89.00 177.00Z" "#B5602F" "linear-gradient(142deg, #D27A45, #8F4A26)")
+        this.logoPath(parent x y size vb "M131.00 86.00Q131.00 73.00 142.23 79.55L191.77 108.45Q203.00 115.00 191.77 121.55L142.23 150.45Q131.00 157.00 131.00 144.00Z" "#F3E3CF" "linear-gradient(167deg, #FFF8EF, #F3E3CF)")
+    }
+
+    fn logoPath:void (parent:EVGElement x:double y:double size:double vb:string d:string fill:string grad:string) {
+        def e (EVGElement.createPath())
+        EditorApp.place(e x y size size)
+        e.setAttribute("d" d)
+        e.setAttribute("viewBox" vb)
+        e.setAttribute("fill" fill)
+        e.setAttribute("background" grad)
+        parent.addChild(e)
+    }
+
+    ; =========================================================================
+    ; the tree
+    ; =========================================================================
+
+    fn topH:double () {
+        return 48.0
+    }
+
+    fn statusH:double () {
+        return 26.0
+    }
+
+    fn build:EVGElement () {
+        clear hitIds
+        clear hitX
+        clear hitY
+        clear hitW
+        clear hitH
+        pvOn = false
+        def page (EVGElement.createDiv())
+        page.className = "app"
+        EditorApp.place(page 0.0 0.0 W H)
+
+        if (s.screen == "editor") {
+            this.buildEditor(page)
+        } {
+            if (s.screen == "decks") {
+                this.buildDecks(page)
+            } {
+                if (s.screen == "settings") {
+                    this.buildSettings(page)
+                } {
+                    this.buildConnect(page)
+                }
+            }
+        }
+        this.buildTop(page)
+        this.buildStatus(page)
+        if ((strlen s.dialog) > 0) {
+            pvOn = false
+            this.buildDialog(page)
+        }
+        return page
+    }
+
+    fn buildTop:void (page:EVGElement) {
+        def th:double (this.topH())
+        this.box(page "topbar" 0.0 0.0 W th)
+        this.box(page "rule" 0.0 (th - 1.0) W 1.0)
+        this.logo(page 14.0 10.0 28.0)
+        def x:double 50.0
+        if (s.screen == "editor") {
+            this.button(page "back-decks" "‹  Presentations" 50.0 9.0 128.0 30.0 "ghost")
+            def title:string s.deckName
+            if (s.isDirty()) {
+                title = (title + "  •")
+            }
+            this.text(page "title" 192.0 14.0 (W - 520.0) title)
+        } {
+            this.text(page "title" x 14.0 200.0 "Sliqtly Editor")
+            if ((s.isConnected()) && (s.screen != "connect")) {
+                this.text(page "dim" (x + 122.0) 17.0 (W - 500.0) ("· " + (Settings.nameFor(s.connectedUrl))))
+            }
+        }
+        ; right side
+        def rx:double (W - 14.0)
+        rx = (rx - 96.0)
+        def serversKind:string "ghost"
+        if (s.screen == "settings") {
+            serversKind = "off"
+        }
+        this.button(page "servers" "Servers" rx 9.0 96.0 30.0 serversKind)
+        if (s.screen == "editor") {
+            rx = (rx - 92.0)
+            def saveKind:string "primary"
+            if (((s.isDirty()) == false) || s.saving) {
+                saveKind = ""
+            }
+            def saveLabel:string "Save"
+            if s.saving {
+                saveLabel = "Saving…"
+            }
+            this.button(page "save" saveLabel rx 9.0 84.0 30.0 saveKind)
+            rx = (rx - 92.0)
+            this.button(page "reload" "Reload" rx 9.0 84.0 30.0 "ghost")
+        }
+        if (s.screen == "decks") {
+            rx = (rx - 92.0)
+            this.button(page "refresh" "Refresh" rx 9.0 84.0 30.0 "ghost")
+            rx = (rx - 130.0)
+            this.button(page "new" "+  New deck" rx 9.0 122.0 30.0 "primary")
+        }
+        if (((s.screen == "connect") || (s.screen == "settings")) && (s.isConnected())) {
+            rx = (rx - 140.0)
+            this.button(page "to-decks" "Presentations" rx 9.0 132.0 30.0 "ghost")
+        }
+    }
+
+    fn buildStatus:void (page:EVGElement) {
+        def sh:double (this.statusH())
+        def y:double (H - sh)
+        this.box(page "status" 0.0 y W sh)
+        this.box(page "rule" 0.0 y W 1.0)
+        def dotCls:string "dot-off"
+        def who:string "Not connected"
+        if (s.isConnected()) {
+            dotCls = "dot-on"
+            who = (Settings.nameFor(s.connectedUrl))
+            if ((strlen s.userName) > 0) {
+                who = (who + "  ·  " + s.userName)
+            }
+        }
+        this.box(page dotCls 12.0 (y + 9.0) 8.0 8.0)
+        this.text(page "status-text" 28.0 (y + 5.0) 320.0 who)
+        def mcls:string "status-text"
+        if s.messageError {
+            mcls = "status-err"
+        }
+        this.text(page mcls 360.0 (y + 5.0) (W - 640.0) s.message)
+        if (s.screen == "editor") {
+            def state:string "Saved"
+            def cls:string "status-ok"
+            if (s.isDirty()) {
+                state = "Unsaved changes"
+                cls = "status-warn"
+            }
+            if s.saving {
+                state = "Saving…"
+                cls = "status-text"
+            }
+            this.text(page cls (W - 270.0) (y + 5.0) 130.0 state)
+            this.text(page "status-text" (W - 130.0) (y + 5.0) 120.0 ("Ln " + (to_string (s.buffer.caretLine + 1)) + ", Col " + (to_string (s.buffer.caretCol + 1))))
+        }
+    }
+
+    ; --- the connect screen ----------------------------------------------------
+
+    fn field:void (page:EVGElement id:string value:string masked:boolean x:double y:double w:double) {
+        def cls:string "field"
+        if (focus == id) {
+            cls = "field-focus"
+        }
+        this.box(page cls x y w 36.0)
+        def shown:string value
+        if masked {
+            def n:int (char_length value)
+            def dots:[string]
+            def k:int 0
+            while ((k < n) && (k < 48)) {
+                push dots "•"
+                k = (k + 1)
+            }
+            shown = (join dots "")
+        }
+        def maxCols:int (to_int ((w - 24.0) / cw))
+        def len:int (char_length shown)
+        if (len > maxCols) {
+            shown = (TextBuffer.slice(shown (len - maxCols) len))
+            len = maxCols
+        }
+        this.text(page "field-text" (x + 10.0) (y + 8.0) (w - 20.0) shown)
+        if (focus == id) {
+            this.box(page "caret" ((x + 10.0) + ((to_double len) * cw)) (y + 8.0) 2.0 20.0)
+        }
+        this.hit(("f-" + id) x y w 36.0)
+    }
+
+    fn buildConnect:void (page:EVGElement) {
+        def cardW:double 580.0
+        def cx:double ((W - cardW) / 2.0)
+        def top:double ((this.topH()) + 36.0)
+        def cardH:double (H - top - (this.statusH()) - 36.0)
+        ; As tall as its rows: the form (about 366 px), then one 44 px row per
+        ; server found (at least one line for "Looking…").
+        def rows:int (array_length s.probeUrls)
+        if (rows < 1) {
+            rows = 1
+        }
+        def fits:double (382.0 + ((to_double rows) * 44.0))
+        if (cardH > fits) {
+            cardH = fits
+        }
+        this.box(page "card" cx top cardW cardH)
+        def x:double (cx + 32.0)
+        def w:double (cardW - 64.0)
+        def y:double (top + 28.0)
+        this.text(page "h1" x y w "Connect to a Sliqtly server")
+        y = (y + 36.0)
+        this.text(page "dim" x y w "The editor reads and saves presentations through the server's REST API.")
+        y = (y + 34.0)
+        this.text(page "label" x y w "Server address")
+        y = (y + 22.0)
+        this.field(page "url" s.connectUrl false x y w)
+        y = (y + 50.0)
+        this.text(page "label" x y w "Token (optional: the server's SLIQTLY_TOKEN)")
+        y = (y + 22.0)
+        this.field(page "token" s.connectToken true x y w)
+        y = (y + 52.0)
+        def connectLabel:string "Connect"
+        if s.connecting {
+            connectLabel = "Connecting…"
+        }
+        this.button(page "connect" connectLabel x y 140.0 34.0 "primary")
+        def base:string (ApiClient.normalizeBase(s.connectUrl))
+        if (s.oauth && (s.infoUrl == base)) {
+            def who:string "Sign in"
+            if ((strlen s.provider) > 0) {
+                who = ("Sign in with " + s.provider)
+            }
+            def kind:string ""
+            if s.needsSignIn {
+                kind = "primary"
+            }
+            if s.signInWaiting {
+                who = "Waiting for the browser…"
+                kind = "off"
+            }
+            this.button(page "signin" who (x + 152.0) y 230.0 34.0 kind)
+        }
+        y = (y + 46.0)
+        if ((s.infoUrl == base) && ((strlen s.infoUrl) > 0)) {
+            def auth:string "no sign-in"
+            if s.authRequired {
+                auth = "token"
+            }
+            if s.oauth {
+                auth = "token or sign-in"
+            }
+            def tls:string ""
+            if s.tlsOwnCA {
+                tls = " · own CA"
+            }
+            this.text(page "dim" x y w (s.serverName + " " + s.serverVersion + " · " + auth + tls))
+        }
+        y = (y + 30.0)
+        this.box(page "rule" x y w 1.0)
+        y = (y + 16.0)
+        this.text(page "label" x y 300.0 "Sliqtly servers on this computer")
+        def again:string "Search again"
+        if ((s.probed == false) && (s.probesOut > 0)) {
+            again = "Searching…"
+        }
+        this.button(page "probe" again ((x + w) - 120.0) (y - 6.0) 120.0 28.0 "ghost")
+        y = (y + 30.0)
+        def n:int (array_length s.probeUrls)
+        if (n == 0) {
+            def none:string "Looking at localhost:8080 – 8090 …"
+            if s.probed {
+                none = "None found on localhost:8080 – 8090."
+            }
+            this.text(page "dim" x y w none)
+        }
+        def i:int 0
+        def maxRows:int (to_int (((top + cardH) - y - 16.0) / 44.0))
+        while ((i < n) && (i < maxRows)) {
+            def id:string ("probe:" + (to_string i))
+            def rc:string "row"
+            if (hovered == id) {
+                rc = "row-hot"
+            }
+            this.box(page rc x y w 38.0)
+            this.text(page "row-title" (x + 12.0) (y + 4.0) (w - 140.0) (itemAt s.probeLabels i))
+            this.text(page "row-sub" (x + 12.0) (y + 21.0) (w - 140.0) (itemAt s.probeUrls i))
+            this.hit(id x y w 38.0)
+            this.text(page "row-action" ((x + w) - 90.0) (y + 10.0) 80.0 "Connect ›")
+            y = (y + 44.0)
+            i = (i + 1)
+        }
+    }
+
+    ; --- the servers -----------------------------------------------------------
+
+    fn buildSettings:void (page:EVGElement) {
+        def cardW:double 680.0
+        def cx:double ((W - cardW) / 2.0)
+        def top:double ((this.topH()) + 36.0)
+        def cardH:double (H - top - (this.statusH()) - 36.0)
+        this.box(page "card" cx top cardW cardH)
+        def x:double (cx + 32.0)
+        def w:double (cardW - 64.0)
+        def y:double (top + 28.0)
+        this.text(page "h1" x y w "Servers")
+        this.button(page "add-server" "+  Add a server" ((x + w) - 150.0) (y - 2.0) 150.0 32.0 "primary")
+        y = (y + 44.0)
+        def n:int (s.settings.count())
+        if (n == 0) {
+            this.text(page "dim" x y w "No servers yet.")
+        }
+        def i:int 0
+        while (i < n) {
+            def e:ServerEntry (s.settings.at(i))
+            def cur:boolean ((e.url == s.connectedUrl) && (s.isConnected()))
+            def rc:string "row"
+            if cur {
+                rc = "row-sel"
+            }
+            this.box(page rc x y w 56.0)
+            this.text(page "row-title" (x + 14.0) (y + 8.0) (w - 260.0) e.name)
+            def kind:string "no sign-in"
+            if ((strlen e.token) > 0) {
+                kind = "token"
+            }
+            if (e.signedInWithOAuth()) {
+                kind = "signed in"
+            }
+            if ((strlen e.ca) > 0) {
+                kind = (kind + " · CA pinned")
+            }
+            def who:string ""
+            if ((strlen e.user) > 0) {
+                who = (e.user + " · ")
+            }
+            this.text(page "row-sub" (x + 14.0) (y + 30.0) (w - 260.0) (who + e.url + " · " + kind))
+            if cur {
+                this.text(page "badge" ((x + w) - 228.0) (y + 18.0) 70.0 "In use")
+            } {
+                this.button(page ("use:" + (to_string i)) "Use" ((x + w) - 228.0) (y + 12.0) 80.0 32.0 "")
+            }
+            this.button(page ("rm:" + (to_string i)) "Remove" ((x + w) - 136.0) (y + 12.0) 120.0 32.0 "ghost")
+            y = (y + 64.0)
+            i = (i + 1)
+        }
+        y = (y + 8.0)
+        if ((s.isConnected()) && ((s.settings.currentServer()).signedInWithOAuth())) {
+            this.button(page "signout" "Sign out" x y 120.0 32.0 "ghost")
+        }
+    }
+
+    ; --- the deck list ---------------------------------------------------------
+
+    fn buildDecks:void (page:EVGElement) {
+        def top:double (this.topH())
+        def x:double 32.0
+        def w:double (W - 64.0)
+        def y:double (top + 26.0)
+        this.text(page "h1" x y w "Presentations")
+        def n:int (s.deckCount())
+        def sub:string ((to_string n) + " on " + (Settings.nameFor(s.connectedUrl)))
+        if s.decksLoading {
+            sub = (sub + " · loading…")
+        }
+        this.text(page "dim" x (y + 34.0) w sub)
+        y = (y + 72.0)
+        ; the head of the table
+        def colSlides:double ((x + w) - 420.0)
+        def colUpd:double ((x + w) - 330.0)
+        def colAct:double ((x + w) - 190.0)
+        this.text(page "th" (x + 16.0) y 200.0 "NAME")
+        this.text(page "th" colSlides y 80.0 "SLIDES")
+        this.text(page "th" colUpd y 120.0 "UPDATED")
+        y = (y + 24.0)
+        this.box(page "rule" x y w 1.0)
+        y = (y + 8.0)
+        def rowH:double 48.0
+        rowsShown = (to_int (((H - (this.statusH()) - 12.0) - y) / rowH))
+        if (rowsShown < 1) {
+            rowsShown = 1
+        }
+        if (deckSel >= n) {
+            deckSel = (n - 1)
+        }
+        if (deckSel < 0) {
+            deckSel = 0
+        }
+        if (deckScroll > (n - rowsShown)) {
+            deckScroll = (n - rowsShown)
+        }
+        if (deckScroll < 0) {
+            deckScroll = 0
+        }
+        if ((n == 0) && s.decksLoaded) {
+            this.text(page "dim" (x + 16.0) (y + 16.0) w "No presentations yet. Make one with “+ New deck”.")
+        }
+        def i:int deckScroll
+        while ((i < n) && (i < (deckScroll + rowsShown))) {
+            def d:DeckInfo (s.deckAt(i))
+            def id:string ("deck:" + (to_string i))
+            def rc:string "row"
+            if (i == deckSel) {
+                rc = "row-sel"
+            } {
+                if (hovered == id) {
+                    rc = "row-hot"
+                }
+            }
+            this.box(page rc x y w (rowH - 6.0))
+            this.hit(id x y w (rowH - 6.0))
+            this.text(page "row-title" (x + 16.0) (y + 12.0) ((colSlides - x) - 30.0) d.name)
+            this.text(page "row-cell" colSlides (y + 13.0) 80.0 (to_string d.slides))
+            this.text(page "row-cell" colUpd (y + 13.0) 140.0 (Session.ago(s.nowMs d.updated)))
+            this.button(page ("open:" + (to_string i)) "Open" colAct (y + 7.0) 80.0 28.0 "")
+            this.button(page ("del:" + (to_string i)) "Delete" (colAct + 88.0) (y + 7.0) 84.0 28.0 "ghost")
+            y = (y + rowH)
+            i = (i + 1)
+        }
+    }
+
+    ; --- the editor ------------------------------------------------------------
+
+    fn split:double () {
+        def sp:double (to_double (to_int (W * 0.5)))
+        if (sp < 360.0) {
+            sp = 360.0
+        }
+        return sp
+    }
+
+    fn visibleLines:int () {
+        def n:int (to_int ((edH - 20.0) / lineH))
+        if (n < 1) {
+            return 1
+        }
+        return n
+    }
+
+    fn visibleCols:int () {
+        def n:int (to_int (((edX + edW) - textX - 12.0) / cw))
+        if (n < 4) {
+            return 4
+        }
+        return n
+    }
+
+    fn layoutEditor:void () {
+        edX = 0.0
+        edY = (this.topH())
+        edW = (this.split())
+        edH = (H - edY - (this.statusH()))
+        textX = (edX + 62.0)
+        textY = (edY + 10.0)
+    }
+
+    ; Scroll so the caret is in view.
+    fn reveal:void () {
+        this.layoutEditor()
+        def b:TextBuffer s.buffer
+        def vis:int (this.visibleLines())
+        if (b.caretLine < scrollLine) {
+            scrollLine = b.caretLine
+        }
+        if (b.caretLine >= (scrollLine + vis)) {
+            scrollLine = ((b.caretLine - vis) + 1)
+        }
+        def cols:int (this.visibleCols())
+        if (b.caretCol < scrollCol) {
+            scrollCol = b.caretCol
+        }
+        if (b.caretCol > ((scrollCol + cols) - 1)) {
+            scrollCol = ((b.caretCol - cols) + 1)
+        }
+        if (scrollCol < 0) {
+            scrollCol = 0
+        }
+        this.clampScroll()
+    }
+
+    fn clampScroll:void () {
+        def maxTop:int ((s.buffer.lineCount()) - 1)
+        if (scrollLine > maxTop) {
+            scrollLine = maxTop
+        }
+        if (scrollLine < 0) {
+            scrollLine = 0
+        }
+    }
+
+    ; Tabs drawn as one space each (one column).
+    sfn shown:string (t:string) {
+        return (replace t "\t" " ")
+    }
+
+    fn buildEditor:void (page:EVGElement) {
+        this.layoutEditor()
+        def b:TextBuffer s.buffer
+        this.box(page "editor-bg" edX edY edW edH)
+        this.box(page "gutter" edX edY 52.0 edH)
+        this.hit("text" edX edY edW edH)
+        def vis:int (this.visibleLines())
+        def cols:int (this.visibleCols())
+        def selOn:boolean (b.hasSelection())
+        def l1:int (b.selStartLine())
+        def c1:int (b.selStartCol())
+        def l2:int (b.selEndLine())
+        def c2:int (b.selEndCol())
+        ; the caret's line
+        if (((b.caretLine >= scrollLine) && (b.caretLine < (scrollLine + vis))) && (selOn == false)) {
+            this.box(page "curline" (edX + 52.0) (textY + ((to_double (b.caretLine - scrollLine)) * lineH)) (edW - 52.0) lineH)
+        }
+        def i:int 0
+        def n:int (b.lineCount())
+        while ((i < vis) && ((scrollLine + i) < n)) {
+            def li:int (scrollLine + i)
+            def y:double (textY + ((to_double i) * lineH))
+            ; selection on this line
+            if (selOn && ((li >= l1) && (li <= l2))) {
+                def a:int 0
+                if (li == l1) {
+                    a = c1
+                }
+                def len:int (b.lineLength(li))
+                def e:int (len + 1)
+                if (li == l2) {
+                    e = c2
+                }
+                a = (a - scrollCol)
+                e = (e - scrollCol)
+                if (a < 0) {
+                    a = 0
+                }
+                if (e > (cols + 1)) {
+                    e = (cols + 1)
+                }
+                if (e > a) {
+                    this.box(page "sel" (textX + ((to_double a) * cw)) y ((to_double (e - a)) * cw) lineH)
+                }
+            }
+            def num:string (to_string (li + 1))
+            def ncls:string "lnum"
+            if (li == b.caretLine) {
+                ncls = "lnum-cur"
+            }
+            this.text(page ncls (edX + 4.0) (y + 3.0) 38.0 num)
+            def line:string (b.lineAt(li))
+            if ((strlen line) > 0) {
+                def part:string line
+                def ll:int (char_length line)
+                if ((scrollCol > 0) || (ll > (cols + 1))) {
+                    part = (TextBuffer.slice(line scrollCol (scrollCol + cols + 1)))
+                }
+                if ((strlen part) > 0) {
+                    this.text(page (this.lineClass(line)) textX (y + 1.0) ((to_double (cols + 2)) * cw) (EditorApp.shown(part)))
+                }
+            }
+            i = (i + 1)
+        }
+        ; the caret
+        if ((focus == "text") && ((strlen s.dialog) == 0)) {
+            def cl:int (b.caretLine - scrollLine)
+            def cc:int (b.caretCol - scrollCol)
+            if (((cl >= 0) && (cl < vis)) && (cc >= 0)) {
+                this.box(page "caret" ((textX + ((to_double cc) * cw)) - 1.0) ((textY + ((to_double cl) * lineH)) + 1.0) 2.0 (lineH - 2.0))
+            }
+        }
+        this.box(page "rule-v" (edX + edW) edY 1.0 edH)
+        this.buildPreview(page)
+    }
+
+    ; Headings and fences a little brighter: enough to find your way.
+    fn lineClass:string (line:string) {
+        if ((indexOf line "#") == 0) {
+            return "code-h"
+        }
+        if (((indexOf line "```") == 0) || ((indexOf line "---") == 0)) {
+            return "code-dim"
+        }
+        if (((indexOf line ":::") == 0) || ((indexOf line "{") == 0)) {
+            return "code-dim"
+        }
+        return "code"
+    }
+
+    fn buildPreview:void (page:EVGElement) {
+        def x0:double ((edX + edW) + 1.0)
+        def w0:double (W - x0)
+        def y0:double edY
+        def h0:double edH
+        this.box(page "preview-bg" x0 y0 w0 h0)
+        def hx:double (x0 + 20.0)
+        this.text(page "label" hx (y0 + 16.0) 120.0 "Preview")
+        def count:string "–"
+        if (s.viewSlides > 0) {
+            count = ("Slide " + (to_string (s.slide + 1)) + " / " + (to_string s.viewSlides))
+        }
+        this.text(page "dim" (hx + 76.0) (y0 + 17.0) 160.0 count)
+        def bx:double ((x0 + w0) - 20.0)
+        def prevKind:string "ghost"
+        if (s.slide <= 0) {
+            prevKind = "off"
+        }
+        def nextKind:string "ghost"
+        if (s.slide >= (s.viewSlides - 1)) {
+            nextKind = "off"
+        }
+        this.button(page "next" "›" (bx - 36.0) (y0 + 10.0) 36.0 30.0 nextKind)
+        this.button(page "prev" "‹" (bx - 78.0) (y0 + 10.0) 36.0 30.0 prevKind)
+        ; the slide, fitted
+        def ax:double (x0 + 20.0)
+        def ay:double (y0 + 52.0)
+        def aw:double (w0 - 40.0)
+        def ah:double (h0 - 52.0 - 44.0)
+        def scale:double (aw / s.viewW)
+        if ((s.viewH * scale) > ah) {
+            scale = (ah / s.viewH)
+        }
+        pvW = (s.viewW * scale)
+        pvH = (s.viewH * scale)
+        pvX = (ax + ((aw - pvW) / 2.0))
+        pvY = ay
+        this.box(page "preview-frame" (pvX - 1.0) (pvY - 1.0) (pvW + 2.0) (pvH + 2.0))
+        this.hit("preview" pvX pvY pvW pvH)
+        pvOn = true
+        if ((strlen s.viewBody) == 0) {
+            def what:string "Loading the preview…"
+            if (s.viewLoading == false) {
+                what = "No preview yet."
+            }
+            this.text(page "dim" (pvX + 20.0) ((pvY + (pvH / 2.0)) - 10.0) (pvW - 40.0) what)
+        }
+        def hint:string ("Laid out by the server · updates on Save (" + (this.modKey()) + "S)")
+        if s.viewLoading {
+            hint = "Updating the preview…"
+        }
+        this.text(page "dim" pvX ((pvY + pvH) + 14.0) pvW hint)
+    }
+
+    ; --- dialogs ---------------------------------------------------------------
+
+    fn buildDialog:void (page:EVGElement) {
+        this.box(page "overlay" 0.0 0.0 W H)
+        this.hit("modal" 0.0 0.0 W H)
+        def dw:double 500.0
+        def dh:double 220.0
+        if (s.dialog == "trust") {
+            dh = 300.0
+        }
+        if (s.dialog == "conflict") {
+            dh = 250.0
+        }
+        def x:double ((W - dw) / 2.0)
+        def y:double ((H - dh) / 2.0)
+        if (y < 60.0) {
+            y = 60.0
+        }
+        this.box(page "dialog" x y dw dh)
+        def ix:double (x + 28.0)
+        def iw:double (dw - 56.0)
+        ; Paragraphs wrap a little short of the inner width: line breaking
+        ; measures with the layout's metrics, the painter with the font's own.
+        def pw:double (iw - 36.0)
+        def ty:double (y + 24.0)
+        def by:double ((y + dh) - 56.0)
+        if (s.dialog == "delete") {
+            this.text(page "h2" ix ty iw ("Delete “" + s.pendingName + "”?"))
+            this.para(page "text" ix (ty + 40.0) pw "It is removed from the server for everyone. This cannot be undone.")
+            this.button(page "del-ok" "Delete" (((x + dw) - 28.0) - 110.0) by 110.0 34.0 "danger")
+            this.button(page "dlg-cancel" "Cancel" (((x + dw) - 28.0) - 228.0) by 110.0 34.0 "")
+        }
+        if (s.dialog == "conflict") {
+            this.text(page "h2" ix ty iw "Changed on the server")
+            this.para(page "text" ix (ty + 40.0) pw "Someone saved this presentation after you opened it.")
+            this.para(page "dim" ix (ty + 70.0) pw "Reload takes the server's version and drops your edits here. Overwrite saves your version over it.")
+            this.button(page "c-over" "Overwrite" (((x + dw) - 28.0) - 120.0) by 120.0 34.0 "danger")
+            this.button(page "c-reload" "Reload" (((x + dw) - 28.0) - 248.0) by 120.0 34.0 "primary")
+            this.button(page "dlg-cancel" "Cancel" ix by 100.0 34.0 "ghost")
+        }
+        if (s.dialog == "trust") {
+            this.text(page "h2" ix ty iw "Trust this server's certificate?")
+            this.para(page "text" ix (ty + 40.0) pw ((Settings.nameFor(s.trustUrl)) + " uses a certificate authority of its own. Compare its fingerprint with the one the server shows:"))
+            def fp:string (Session.fingerprintText(s.tlsFingerprint))
+            def fl:int (strlen fp)
+            def line:int 0
+            def at:int 0
+            while (at < fl) {
+                def e:int (at + 48)
+                if (e > fl) {
+                    e = fl
+                }
+                this.text(page "mono-small" ix ((ty + 100.0) + ((to_double line) * 20.0)) iw (substring fp at e))
+                at = e
+                line = (line + 1)
+            }
+            this.para(page "dim" ix (ty + 176.0) pw "The editor keeps this CA for this server only.")
+            this.button(page "trust-ok" "Trust and connect" (((x + dw) - 28.0) - 170.0) by 170.0 34.0 "primary")
+            this.button(page "dlg-cancel" "Cancel" (((x + dw) - 28.0) - 288.0) by 110.0 34.0 "")
+        }
+        if (s.dialog == "newdeck") {
+            this.text(page "h2" ix ty iw "New presentation")
+            this.text(page "label" ix (ty + 42.0) iw "Name")
+            this.field(page "name" newName false ix (ty + 64.0) iw)
+            this.button(page "new-ok" "Create" (((x + dw) - 28.0) - 110.0) by 110.0 34.0 "primary")
+            this.button(page "dlg-cancel" "Cancel" (((x + dw) - 28.0) - 228.0) by 110.0 34.0 "")
+        }
+        if (s.dialog == "discard") {
+            this.text(page "h2" ix ty iw "Unsaved changes")
+            this.para(page "text" ix (ty + 40.0) pw ("Save the changes to “" + s.deckName + "” before leaving?"))
+            this.button(page "d-save" "Save" (((x + dw) - 28.0) - 110.0) by 110.0 34.0 "primary")
+            this.button(page "d-discard" "Discard" (((x + dw) - 28.0) - 228.0) by 110.0 34.0 "danger")
+            this.button(page "dlg-cancel" "Cancel" ix by 100.0 34.0 "ghost")
+        }
+    }
+
+    ; =========================================================================
+    ; painting
+    ; =========================================================================
+
+    ; Something changed since the last list (the host then asks for it).
+    fn needsPaint:boolean () {
+        this.sync()
+        return dirty
+    }
+
+    fn sync:void () {
+        if ((s.screen != lastScreen) || (s.dialog != lastDialog)) {
+            lastScreen = s.screen
+            lastDialog = s.dialog
+            dirty = true
+        }
+        if (s.changes != lastChanges) {
+            lastChanges = s.changes
+            dirty = true
+        }
+        if (s.buffer.version != lastBufVersion) {
+            lastBufVersion = s.buffer.version
+            dirty = true
+        }
+        if (s.screen == "editor") {
+            s.followCaret()
+            if (s.changes != lastChanges) {
+                lastChanges = s.changes
+                dirty = true
+            }
+        }
+    }
+
+    fn paintGeneration:int () {
+        return paintGen
+    }
+
+    fn displayListJson:string () {
+        this.sync()
+        if ((dirty == false) && ((strlen cachedJson) > 0)) {
+            return cachedJson
+        }
+        dirty = false
+        def root:EVGElement (this.build())
+        def st:EVGStyleSheet (unwrap sheet)
+        st.setViewport(W H false)
+        st.applyTree(root "")
+        if (null? lay) {
+            lay = (new EVGLayout())
+        }
+        def l:EVGLayout (unwrap lay)
+        l.setPageSize(W H)
+        l.layout(root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((l.getTextEngine()))
+        dl.build(root)
+        cachedJson = (dl.toJson())
+        paintGen = (paintGen + 1)
+        return cachedJson
+    }
+
+    ; The application icon: the mark on a dark rounded square, `size` points.
+    fn iconDisplayListJson:string (size:double) {
+        def page (EVGElement.createDiv())
+        EditorApp.place(page 0.0 0.0 size size)
+        def bg:EVGElement (this.box(page "icon-bg" (size * 0.06) (size * 0.06) (size * 0.88) (size * 0.88)))
+        bg.setAttribute("border-radius" (EditorApp.px((size * 0.2))))
+        this.logo(page (size * 0.16) (size * 0.16) (size * 0.68))
+        def st:EVGStyleSheet (unwrap sheet)
+        st.setViewport(size size false)
+        st.applyTree(page "")
+        def l (new EVGLayout())
+        l.setPageSize(size size)
+        l.layout(page)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((l.getTextEngine()))
+        dl.build(page)
+        dirty = true
+        return (dl.toJson())
+    }
+
+    ; =========================================================================
+    ; input
+    ; =========================================================================
+
+    ; What the pointer should look like: "text", "pointer" or "".
+    fn cursorAt:string (x:double y:double) {
+        def id:string (this.hitAt(x y))
+        if (id == "text") {
+            return "text"
+        }
+        if ((strlen id) > 0) {
+            if ((indexOf id "f-") == 0) {
+                return "text"
+            }
+            if ((id == "modal") || (id == "preview")) {
+                return ""
+            }
+            return "pointer"
+        }
+        return ""
+    }
+
+    fn pointerMove:void (x:double y:double held:boolean) {
+        if (dragging && held) {
+            this.placeCaret(x y true)
+            return
+        }
+        if (dragging && (held == false)) {
+            dragging = false
+        }
+        def id:string (this.hitAt(x y))
+        if (id != hovered) {
+            hovered = id
+            dirty = true
+        }
+    }
+
+    fn pointerDown:void (x:double y:double shift:boolean) {
+        def id:string (this.hitAt(x y))
+        pressed = id
+        if (id == "text") {
+            focus = "text"
+            ; a second press soon after on the same spot selects the word
+            def now:double s.nowMs
+            if ((now - lastClickMs) < 400.0) {
+                clickCount = (clickCount + 1)
+            } {
+                clickCount = 1
+            }
+            lastClickMs = now
+            this.placeCaret(x y shift)
+            if (clickCount == 2) {
+                s.buffer.wordLeft(false)
+                s.buffer.wordRight(true)
+            }
+            if (clickCount >= 3) {
+                s.buffer.moveTo(s.buffer.caretLine 0 false)
+                s.buffer.moveTo(s.buffer.caretLine (s.buffer.lineLength(s.buffer.caretLine)) true)
+            }
+            dragging = true
+            dirty = true
+            return
+        }
+        dirty = true
+        if ((strlen id) > 0) {
+            this.press(id)
+        }
+    }
+
+    fn pointerUp:void (x:double y:double) {
+        dragging = false
+        pressed = ""
+        dirty = true
+    }
+
+    fn placeCaret:void (x:double y:double extend:boolean) {
+        this.layoutEditor()
+        def row:int (to_int ((y - textY) / lineH))
+        if (y < textY) {
+            row = -1
+        }
+        def colF:double (((x - textX) / cw) + 0.5)
+        def col:int (to_int colF)
+        if (colF < 0.0) {
+            col = 0
+        }
+        def line:int (scrollLine + row)
+        if (line < 0) {
+            line = 0
+            if (scrollLine > 0) {
+                scrollLine = (scrollLine - 1)
+            }
+        }
+        if (row >= (this.visibleLines())) {
+            scrollLine = (scrollLine + 1)
+            this.clampScroll()
+        }
+        s.buffer.moveTo(line (scrollCol + col) extend)
+        s.buffer.goalCol = -1
+        dirty = true
+    }
+
+    ; Wheel lines (positive: down) at a point.
+    fn wheel:void (x:double y:double lines:double) {
+        def n:int (to_int lines)
+        if ((n == 0) && (lines > 0.0)) {
+            n = 1
+        }
+        if ((n == 0) && (lines < 0.0)) {
+            n = -1
+        }
+        if (s.screen == "editor") {
+            this.layoutEditor()
+            if (x < (edX + edW)) {
+                scrollLine = (scrollLine + (n * 3))
+                this.clampScroll()
+                dirty = true
+                return
+            }
+            if (n > 0) {
+                s.nextSlide()
+            } {
+                s.prevSlide()
+            }
+            dirty = true
+            return
+        }
+        if (s.screen == "decks") {
+            deckScroll = (deckScroll + n)
+            dirty = true
+        }
+    }
+
+    fn fieldValue:string (id:string) {
+        if (id == "url") {
+            return s.connectUrl
+        }
+        if (id == "token") {
+            return s.connectToken
+        }
+        if (id == "name") {
+            return newName
+        }
+        return ""
+    }
+
+    fn setField:void (id:string v:string) {
+        if (id == "url") {
+            s.connectUrl = v
+        }
+        if (id == "token") {
+            s.connectToken = v
+        }
+        if (id == "name") {
+            newName = v
+        }
+        dirty = true
+    }
+
+    fn fieldFocused:boolean () {
+        return (((focus == "url") || (focus == "token")) || (focus == "name"))
+    }
+
+    ; Text typed (an SDL text event, a browser key): UTF-8 / UTF-16 as the host has it.
+    fn typeText:void (t:string) {
+        dirty = true
+        if (this.fieldFocused()) {
+            def one:string (replace (replace t "\n" "") "\r" "")
+            this.setField(focus ((this.fieldValue(focus)) + one))
+            return
+        }
+        if ((s.screen == "editor") && ((strlen s.dialog) == 0)) {
+            focus = "text"
+            s.buffer.type(t)
+            this.reveal()
+        }
+    }
+
+    ; The clipboard's text, after a paste key (the host read it).
+    fn paste:void (t:string) {
+        dirty = true
+        if (this.fieldFocused()) {
+            this.typeText(t)
+            return
+        }
+        if ((s.screen == "editor") && ((strlen s.dialog) == 0)) {
+            s.buffer.paste(t)
+            this.reveal()
+        }
+    }
+
+    ; The selection, for a copy the host does itself (a browser's copy event).
+    fn selectedText:string () {
+        if ((s.screen == "editor") && (focus == "text")) {
+            return (s.buffer.selectedText())
+        }
+        return ""
+    }
+
+    ; A cut the host does itself: the selection, removed.
+    fn cutText:string () {
+        if ((s.screen == "editor") && (focus == "text")) {
+            dirty = true
+            def t:string (s.buffer.cut())
+            this.reveal()
+            return t
+        }
+        return ""
+    }
+
+    fn fieldKey:boolean (name:string mod:boolean) {
+        if (name == "Backspace") {
+            def v:string (this.fieldValue(focus))
+            def n:int (char_length v)
+            if (n > 0) {
+                if mod {
+                    this.setField(focus "")
+                } {
+                    this.setField(focus (TextBuffer.slice(v 0 (n - 1))))
+                }
+            }
+            return true
+        }
+        if (name == "Tab") {
+            if (focus == "url") {
+                focus = "token"
+            } {
+                if (focus == "token") {
+                    focus = "url"
+                }
+            }
+            dirty = true
+            return true
+        }
+        if (name == "Enter") {
+            if (focus == "name") {
+                this.press("new-ok")
+            } {
+                this.press("connect")
+            }
+            return true
+        }
+        return false
+    }
+
+    ; A key: name ("Left", "Enter", "a"…), shift, the command modifier (Cmd
+    ; on macOS, Ctrl elsewhere) and alt. True when the app used it.
+    fn key:boolean (name:string shift:boolean mod:boolean alt:boolean) {
+        dirty = true
+        ; dialogs first
+        if ((strlen s.dialog) > 0) {
+            if (name == "Escape") {
+                this.press("dlg-cancel")
+                return true
+            }
+            if ((s.dialog == "newdeck") && (focus == "name")) {
+                if (mod && (name == "v")) {
+                    this.command("paste")
+                    return true
+                }
+                return (this.fieldKey(name mod))
+            }
+            if (name == "Enter") {
+                if (s.dialog == "delete") {
+                    this.press("del-ok")
+                }
+                if (s.dialog == "trust") {
+                    this.press("trust-ok")
+                }
+                if (s.dialog == "discard") {
+                    this.press("d-save")
+                }
+                return true
+            }
+            return false
+        }
+        if (mod && (name == "s")) {
+            if (s.screen == "editor") {
+                s.save()
+            }
+            return true
+        }
+        if (this.fieldFocused()) {
+            if (mod && (name == "v")) {
+                this.command("paste")
+                return true
+            }
+            return (this.fieldKey(name mod))
+        }
+        if (s.screen == "decks") {
+            return (this.deckKey(name mod))
+        }
+        if (s.screen != "editor") {
+            return false
+        }
+        return (this.editorKey(name shift mod alt))
+    }
+
+    fn command:void (name:string) {
+        s.command(name "" "")
+    }
+
+    fn deckKey:boolean (name:string mod:boolean) {
+        def n:int (s.deckCount())
+        if (name == "Down") {
+            if (deckSel < (n - 1)) {
+                deckSel = (deckSel + 1)
+            }
+            if (deckSel >= (deckScroll + rowsShown)) {
+                deckScroll = ((deckSel - rowsShown) + 1)
+            }
+            return true
+        }
+        if (name == "Up") {
+            if (deckSel > 0) {
+                deckSel = (deckSel - 1)
+            }
+            if (deckSel < deckScroll) {
+                deckScroll = deckSel
+            }
+            return true
+        }
+        if ((name == "Enter") && (n > 0)) {
+            this.press(("open:" + (to_string deckSel)))
+            return true
+        }
+        if (((name == "Delete") || (name == "Backspace")) && (n > 0)) {
+            this.press(("del:" + (to_string deckSel)))
+            return true
+        }
+        if (mod && (name == "n")) {
+            this.press("new")
+            return true
+        }
+        if ((name == "F5") || (mod && (name == "r"))) {
+            this.press("refresh")
+            return true
+        }
+        return false
+    }
+
+    fn editorKey:boolean (name:string shift:boolean mod:boolean alt:boolean) {
+        def b:TextBuffer s.buffer
+        focus = "text"
+        def handled:boolean true
+        def word:boolean alt
+        if ((s.platform != "mac") && mod) {
+            word = true
+        }
+        if (name == "Left") {
+            if (mod && (s.platform == "mac")) {
+                b.home(shift)
+            } {
+                if word {
+                    b.wordLeft(shift)
+                } {
+                    b.left(shift)
+                }
+            }
+        } {
+            if (name == "Right") {
+                if (mod && (s.platform == "mac")) {
+                    b.end(shift)
+                } {
+                    if word {
+                        b.wordRight(shift)
+                    } {
+                        b.right(shift)
+                    }
+                }
+            } {
+                if (name == "Up") {
+                    if mod {
+                        b.docStart(shift)
+                    } {
+                        b.up(shift)
+                    }
+                } {
+                    if (name == "Down") {
+                        if mod {
+                            b.docEnd(shift)
+                        } {
+                            b.down(shift)
+                        }
+                    } {
+                        handled = false
+                    }
+                }
+            }
+        }
+        if handled {
+            this.reveal()
+            return true
+        }
+        handled = true
+        def page:int ((this.visibleLines()) - 1)
+        if (name == "Home") {
+            if mod {
+                b.docStart(shift)
+            } {
+                b.home(shift)
+            }
+        } {
+            if (name == "End") {
+                if mod {
+                    b.docEnd(shift)
+                } {
+                    b.end(shift)
+                }
+            } {
+                if (name == "PageUp") {
+                    b.vertical((0 - page) shift)
+                    scrollLine = (scrollLine - page)
+                } {
+                    if (name == "PageDown") {
+                        b.vertical(page shift)
+                        scrollLine = (scrollLine + page)
+                    } {
+                        if (name == "Enter") {
+                            b.newline()
+                        } {
+                            if (name == "Backspace") {
+                                if (alt || (mod && (s.platform != "mac"))) {
+                                    if ((b.hasSelection()) == false) {
+                                        b.wordLeft(true)
+                                    }
+                                }
+                                if (mod && (s.platform == "mac")) {
+                                    if ((b.hasSelection()) == false) {
+                                        b.home(true)
+                                    }
+                                }
+                                b.backspace()
+                            } {
+                                if (name == "Delete") {
+                                    b.deleteForward()
+                                } {
+                                    if (name == "Tab") {
+                                        b.type("  ")
+                                    } {
+                                        handled = false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if handled {
+            this.clampScroll()
+            this.reveal()
+            return true
+        }
+        if (mod == false) {
+            if (name == "Escape") {
+                b.moveTo(b.caretLine b.caretCol false)
+                return true
+            }
+            return false
+        }
+        ; the command key
+        if (name == "a") {
+            b.selectAll()
+            return true
+        }
+        if (name == "c") {
+            def t:string (b.selectedText())
+            if ((strlen t) > 0) {
+                s.command("copy" t "")
+            }
+            return true
+        }
+        if (name == "x") {
+            def t2:string (b.cut())
+            if ((strlen t2) > 0) {
+                s.command("copy" t2 "")
+            }
+            this.reveal()
+            return true
+        }
+        if (name == "v") {
+            this.command("paste")
+            return true
+        }
+        if (name == "z") {
+            if shift {
+                b.redo()
+            } {
+                b.undo()
+            }
+            this.reveal()
+            return true
+        }
+        if (name == "y") {
+            b.redo()
+            this.reveal()
+            return true
+        }
+        if (name == "r") {
+            this.press("reload")
+            return true
+        }
+        return false
+    }
+
+    ; =========================================================================
+    ; what a press means
+    ; =========================================================================
+
+    sfn after:string (id:string prefix:string) {
+        return (substring id (strlen prefix) (strlen id))
+    }
+
+    sfn indexIn:int (id:string prefix:string) {
+        def t:string (EditorApp.after(id prefix))
+        def v@(optional):int (to_int t)
+        if (null? v) {
+            return -1
+        }
+        return (unwrap v)
+    }
+
+    fn press:void (id:string) {
+        dirty = true
+        if ((indexOf id "f-") == 0) {
+            focus = (EditorApp.after(id "f-"))
+            return
+        }
+        if (id == "modal") {
+            return
+        }
+        if (id == "connect") {
+            focus = ""
+            s.connectTo(s.connectUrl s.connectToken false)
+            return
+        }
+        if (id == "signin") {
+            s.signIn()
+            return
+        }
+        if (id == "probe") {
+            s.probe()
+            return
+        }
+        if ((indexOf id "probe:") == 0) {
+            def i:int (EditorApp.indexIn(id "probe:"))
+            if ((i >= 0) && (i < (array_length s.probeUrls))) {
+                s.connectUrl = (itemAt s.probeUrls i)
+                s.connectTo(s.connectUrl s.connectToken false)
+            }
+            return
+        }
+        if (id == "servers") {
+            s.screen = "settings"
+            focus = ""
+            return
+        }
+        if (id == "to-decks") {
+            if (s.isConnected()) {
+                if ((strlen s.deckId) > 0) {
+                    s.screen = "editor"
+                } {
+                    s.screen = "decks"
+                    s.loadDecks()
+                }
+            }
+            return
+        }
+        if (id == "add-server") {
+            s.screen = "connect"
+            s.connectUrl = "http://localhost:8080"
+            s.connectToken = ""
+            focus = "url"
+            s.probe()
+            return
+        }
+        if ((indexOf id "use:") == 0) {
+            s.useServer((EditorApp.indexIn(id "use:")))
+            return
+        }
+        if ((indexOf id "rm:") == 0) {
+            s.removeServer((EditorApp.indexIn(id "rm:")))
+            if ((s.isConnected()) == false) {
+                s.screen = "settings"
+            }
+            return
+        }
+        if (id == "signout") {
+            s.signOut()
+            focus = "url"
+            return
+        }
+        if (id == "refresh") {
+            s.loadDecks()
+            return
+        }
+        if (id == "new") {
+            newName = ""
+            focus = "name"
+            s.dialog = "newdeck"
+            return
+        }
+        if (id == "new-ok") {
+            s.dialog = ""
+            focus = ""
+            s.newDeck(newName)
+            return
+        }
+        if ((indexOf id "deck:") == 0) {
+            def k:int (EditorApp.indexIn(id "deck:"))
+            if (k == deckSel) {
+                this.press(("open:" + (to_string k)))
+                return
+            }
+            deckSel = k
+            return
+        }
+        if ((indexOf id "open:") == 0) {
+            def k2:int (EditorApp.indexIn(id "open:"))
+            if ((k2 >= 0) && (k2 < (s.deckCount()))) {
+                deckSel = k2
+                def d:DeckInfo (s.deckAt(k2))
+                scrollLine = 0
+                scrollCol = 0
+                focus = "text"
+                s.openDeck(d.id)
+            }
+            return
+        }
+        if ((indexOf id "del:") == 0) {
+            def k3:int (EditorApp.indexIn(id "del:"))
+            if ((k3 >= 0) && (k3 < (s.deckCount()))) {
+                deckSel = k3
+                def d3:DeckInfo (s.deckAt(k3))
+                s.askDelete(d3.id)
+            }
+            return
+        }
+        if (id == "del-ok") {
+            s.confirmDelete()
+            return
+        }
+        if (id == "dlg-cancel") {
+            if (s.dialog == "conflict") {
+                s.conflictCancel()
+                return
+            }
+            if (s.dialog == "trust") {
+                s.trustCancel()
+                return
+            }
+            if (s.dialog == "newdeck") {
+                focus = ""
+            }
+            s.dialog = ""
+            return
+        }
+        if (id == "trust-ok") {
+            s.trustAccept()
+            return
+        }
+        if (id == "back-decks") {
+            focus = ""
+            s.backToDecks()
+            return
+        }
+        if (id == "d-save") {
+            s.saveAndLeave()
+            return
+        }
+        if (id == "d-discard") {
+            s.discardAndLeave()
+            return
+        }
+        if (id == "save") {
+            s.save()
+            return
+        }
+        if (id == "reload") {
+            if (s.isDirty()) {
+                s.fail("Save or undo your changes first (Reload would drop them).")
+                return
+            }
+            s.reloadDeck()
+            return
+        }
+        if (id == "c-reload") {
+            s.conflictReload()
+            return
+        }
+        if (id == "c-over") {
+            s.conflictOverwrite()
+            return
+        }
+        if (id == "prev") {
+            s.prevSlide()
+            return
+        }
+        if (id == "next") {
+            s.nextSlide()
+            return
+        }
+    }
+
+    ; =========================================================================
+    ; scripted runs (native:check, the web smoke test)
+    ; =========================================================================
+    ;
+    ;   wait <condition> [seconds]   screen=decks, dialog=conflict, idle,
+    ;                                view, saved, dirty, decks>=N, msg~text
+    ;   press <id>                   as a click on it
+    ;   click <x> <y>
+    ;   field <url|token|name> <text>
+    ;   type <text>                  \n is Enter
+    ;   key <name> [shift] [mod] [alt]
+    ;   paste <text>
+    ;   select-deck <name>           the row of the deck with that name
+    ;   http <METHOD> <url>          a request of its own (a test hook)
+    ;   shot <file>                  the host saves the next frame
+    ;   expect <condition>           fails the run when it does not hold
+    ;   sleep <seconds>, log <text>, quit
+    ;
+    ; The host gets "log", "shot", "fail" and "quit" as commands.
+
+    fn runScript:void (text:string) {
+        clear script
+        def lines:[string] (strsplit text "\n")
+        def n:int (array_length lines)
+        def i:int 0
+        while (i < n) {
+            def t:string (trim (itemAt lines i))
+            if (((strlen t) > 0) && ((indexOf t "#") != 0)) {
+                push script t
+            }
+            i = (i + 1)
+        }
+        scriptAt = 0
+        scriptOn = true
+        scriptStepStart = -1.0
+    }
+
+    fn scriptRunning:boolean () {
+        return scriptOn
+    }
+
+    sfn word:string (line:string k:int) {
+        def parts:[string] (strsplit line " ")
+        def found:int 0
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (itemAt parts i)
+            if ((strlen p) > 0) {
+                if (found == k) {
+                    return p
+                }
+                found = (found + 1)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; Everything after the first `k` words.
+    sfn restAfter:string (line:string k:int) {
+        def at:int 0
+        def i:int 0
+        while (i < k) {
+            def sp:int (indexOf (substring line at (strlen line)) " ")
+            if (sp < 0) {
+                return ""
+            }
+            at = (at + sp + 1)
+            i = (i + 1)
+        }
+        return (substring line at (strlen line))
+    }
+
+    fn holds:boolean (cond:string) {
+        if (cond == "idle") {
+            return ((s.api.busy()) == false)
+        }
+        if (cond == "view") {
+            return (((s.viewLoading == false) && ((strlen s.viewBody) > 0)) && ((s.api.busy()) == false))
+        }
+        if (cond == "saved") {
+            return (((s.isDirty()) == false) && (s.saving == false))
+        }
+        if (cond == "dirty") {
+            return (s.isDirty())
+        }
+        if ((indexOf cond "screen=") == 0) {
+            return (s.screen == (EditorApp.after(cond "screen=")))
+        }
+        if ((indexOf cond "dialog=") == 0) {
+            return (s.dialog == (EditorApp.after(cond "dialog=")))
+        }
+        if ((indexOf cond "decks>=") == 0) {
+            return ((s.deckCount()) >= (EditorApp.indexIn(cond "decks>=")))
+        }
+        if ((indexOf cond "msg~") == 0) {
+            return ((indexOf s.message (EditorApp.after(cond "msg~"))) >= 0)
+        }
+        if ((indexOf cond "text~") == 0) {
+            return ((indexOf (s.buffer.getText()) (EditorApp.after(cond "text~"))) >= 0)
+        }
+        if ((indexOf cond "probe>=") == 0) {
+            return ((array_length s.probeUrls) >= (EditorApp.indexIn(cond "probe>=")))
+        }
+        return false
+    }
+
+    fn scriptFail:void (why:string) {
+        scriptFailed = why
+        scriptOn = false
+        s.command("fail" why "")
+    }
+
+    ; One step of the script, if its time has come.
+    fn scriptTick:void () {
+        if (scriptOn == false) {
+            return
+        }
+        def now:double s.nowMs
+        if (now < scriptWaitUntil) {
+            return
+        }
+        if (scriptAt >= (array_length script)) {
+            scriptOn = false
+            s.command("log" "script: done" "")
+            return
+        }
+        def line:string (itemAt script scriptAt)
+        def verb:string (EditorApp.word(line 0))
+        if (scriptStepStart < 0.0) {
+            scriptStepStart = now
+            s.command("log" ("script: " + line) "")
+        }
+        if (verb == "wait") {
+            def cond:string (EditorApp.word(line 1))
+            def limit:double 15.0
+            def given:string (EditorApp.word(line 2))
+            if ((strlen given) > 0) {
+                def g@(optional):double (to_double given)
+                if g {
+                    limit = (unwrap g)
+                }
+            }
+            if (this.holds(cond)) {
+                this.scriptNext()
+                return
+            }
+            if ((now - scriptStepStart) > (limit * 1000.0)) {
+                this.scriptFail(("timed out waiting for " + cond + " (" + (this.debugState()) + ")"))
+            }
+            return
+        }
+        if (verb == "expect") {
+            def c2:string (EditorApp.word(line 1))
+            if ((this.holds(c2)) == false) {
+                this.scriptFail(("expected " + c2 + " (" + (this.debugState()) + ")"))
+                return
+            }
+            this.scriptNext()
+            return
+        }
+        if (verb == "sleep") {
+            def secs@(optional):double (to_double (EditorApp.word(line 1)))
+            def ms:double 500.0
+            if secs {
+                ms = ((unwrap secs) * 1000.0)
+            }
+            scriptWaitUntil = (now + ms)
+            this.scriptNext()
+            return
+        }
+        if (verb == "press") {
+            this.press((EditorApp.word(line 1)))
+        }
+        if (verb == "click") {
+            def cx@(optional):double (to_double (EditorApp.word(line 1)))
+            def cy@(optional):double (to_double (EditorApp.word(line 2)))
+            if (cx && cy) {
+                this.pointerDown((unwrap cx) (unwrap cy) false)
+                this.pointerUp((unwrap cx) (unwrap cy))
+            }
+        }
+        if (verb == "field") {
+            def f:string (EditorApp.word(line 1))
+            focus = f
+            this.setField(f (EditorApp.restAfter(line 2)))
+        }
+        if (verb == "type") {
+            this.typeText((replace (EditorApp.restAfter(line 1)) "\\n" "\n"))
+        }
+        if (verb == "paste") {
+            this.paste((replace (EditorApp.restAfter(line 1)) "\\n" "\n"))
+        }
+        if (verb == "key") {
+            def kname:string (EditorApp.word(line 1))
+            def mods:string (EditorApp.restAfter(line 2))
+            this.key(kname ((indexOf mods "shift") >= 0) ((indexOf mods "mod") >= 0) ((indexOf mods "alt") >= 0))
+        }
+        if (verb == "select-deck") {
+            def want:string (EditorApp.restAfter(line 1))
+            def n:int (s.deckCount())
+            def i:int 0
+            while (i < n) {
+                def d:DeckInfo (s.deckAt(i))
+                if (d.name == want) {
+                    deckSel = i
+                }
+                i = (i + 1)
+            }
+        }
+        if (verb == "http") {
+            s.api.send((EditorApp.word(line 1)) (EditorApp.word(line 2)) "" "script" false)
+        }
+        if (verb == "shot") {
+            s.command("shot" (EditorApp.word(line 1)) "")
+        }
+        if (verb == "log") {
+            s.command("log" (EditorApp.restAfter(line 1)) "")
+        }
+        if (verb == "quit") {
+            scriptOn = false
+            s.command("quit" "" "")
+            return
+        }
+        dirty = true
+        this.scriptNext()
+    }
+
+    fn scriptNext:void () {
+        scriptAt = (scriptAt + 1)
+        scriptStepStart = -1.0
+    }
+}

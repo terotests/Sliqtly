@@ -112,6 +112,18 @@ func crossOriginReadable(r *http.Request) bool {
 	return true
 }
 
+// /api/v1 and the OAuth endpoints a browser client calls are for pages
+// of other origins: they take a bearer token, never a cookie, and answer
+// only the origins on -cors-origins (apiv1.go, cors.go)
+func ownCORSRule(p string) bool {
+	return p == "/api/v1" || strings.HasPrefix(p, "/api/v1/") || oauthCORSPath(p)
+}
+
+func oauthCORSPath(p string) bool {
+	return p == "/oauth/token" || p == "/.well-known/oauth-authorization-server" || p == "/.well-known/openid-configuration" ||
+		p == "/.well-known/oauth-protected-resource" || p == "/.well-known/oauth-protected-resource/mcp"
+}
+
 // false when the request was answered here (refused)
 func (s *localServer) guard(w http.ResponseWriter, r *http.Request) bool {
 	if !s.hosts.hostOK(r.Host) {
@@ -125,7 +137,7 @@ func (s *localServer) guard(w http.ResponseWriter, r *http.Request) bool {
 		io.WriteString(w, "This Sliqtly server does not answer to the name "+host+". If it is this server's own name, start the server with SLIQTLY_HOSTS="+host+" (or SLIQTLY_URL set to its address).\n")
 		return false
 	}
-	if !s.hosts.sameOrigin(r) && !crossOriginReadable(r) {
+	if !s.hosts.sameOrigin(r) && !crossOriginReadable(r) && !ownCORSRule(r.URL.Path) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "only this server's own pages may do this"})
 		return false
 	}
