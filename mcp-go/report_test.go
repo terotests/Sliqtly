@@ -544,7 +544,7 @@ func TestReportChartFindings(t *testing.T) {
 	text := textOf(c)
 	t.Log(text)
 	match(t, text, `encoding x reads field "alueet", which the data does not have \(did you mean "alue"\?\)`)
-	match(t, text, `- chart \(Vega-Lite\) at .*: not drawn, `)
+	match(t, text, `chart \(Vega-Lite\) is not drawn: that is not JSON\.`)
 	if strings.Contains(text, `"Rikki": the elements`) && strings.Contains(text, "most of the slide is empty") {
 		t.Fatal("a chart that is not drawn is reported as small")
 	}

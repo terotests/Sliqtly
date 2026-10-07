@@ -80,8 +80,6 @@ class RBlock {
     def inkY:double 0.0
     def inkW:double 0.0
     def inkH:double 0.0
-    ; a chart or diagram that is not drawn: why (its box says so on the slide)
-    def notDrawn:string ""
 }
 
 class RSlide {
@@ -354,10 +352,6 @@ class Report {
             y1 = (Report.mx(y1 (b.y + b.h)))
             def line:string ("- " + (Report.what(b)) + " at " + (Report.px(b.x k)) + "," + (Report.px(b.y k)) + " size " + (Report.px(b.w k)) + "×" + (Report.px(b.h k)))
             def ms:double (Report.minSize(b))
-            if ((strlen b.notDrawn) > 0) {
-                push items (line + ": not drawn, " + b.notDrawn)
-                continue
-            }
             if ((b.kind == "chart") || (b.kind == "diagram")) {
                 line = (line + ": " + (to_string (array_length b.runs)) + " labels, " + (to_string b.shapes) + " shapes")
                 if (ms > 0.0) {
@@ -613,7 +607,7 @@ class Report {
         def biggest:double 0.0
         def big:RBlock (new RBlock)
         for s.blocks v:RBlock vi {
-            if (((Report.visual(v)) && (v.kind != "table")) && ((strlen v.notDrawn) == 0)) {
+            if ((Report.visual(v)) && (v.kind != "table")) {
                 visuals = (visuals + 1)
                 if ((v.w * v.h) > biggest) {
                     biggest = (v.w * v.h)

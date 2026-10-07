@@ -211,8 +211,9 @@ class Layout {
                 blk.label = (Layout.baseName(tb.path))
                 blk.heads = tb.header
             }
-            if ((b.kind == 3) && ((strlen b.embedNote) > 0)) {
-                blk.notDrawn = b.embedNote
+            ; a chart not drawn (not JSON, no handler): why, as its box says
+            if (((b.kind == 3) && ((strlen b.embedNote) > 0)) && ((strlen blk.refused) == 0)) {
+                blk.refused = b.embedNote
             }
             if ((b.kind == 3) && (blk.kind != "table")) {
                 def word:string (MdEmbedKinds.firstWord(b.embedKind))
