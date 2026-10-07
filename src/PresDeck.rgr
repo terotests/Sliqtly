@@ -1015,12 +1015,15 @@ class PresDeck {
             return
         }
         ; The layout that draws largest in the room it has, among: the
-        ; direction as written, the other direction, and the top-to-bottom
-        ; one wrapped into columns (a long chain is a strip either way round).
+        ; direction as written, the other direction, and each of them
+        ; wrapped by the flow engine (a top-to-bottom chain into columns, a
+        ; left-to-right one into rows: a long chain is a strip either way
+        ; round).
         ; For a tour the room counts as at most half again as wide as it is
         ; tall, so a squarer shape wins over a strip that fits a wide slide.
-        ; `{layout=keep}` keeps what was written.
-        if ((n.attrValue("layout")) != "keep") {
+        ; `{layout=keep}` keeps what was written, and so does a diagram
+        ; whose author placed its boxes (`PresDiagram.arranged`).
+        if (((n.attrValue("layout")) != "keep") && ((PresDiagram.arranged(notation n.literal)) == false)) {
             def room:double (this.roomBelow(page box))
             def span0:[double] (this.diagramSpan(page box))
             def aspect:double 1.5
@@ -1048,16 +1051,13 @@ class PresDeck {
                     push texts other
                 }
             }
-            ; the tall one, cut into columns by the flow engine
+            ; each, cut by the flow engine for the room's shape
             def ci:int 0
             def m:int (array_length cands)
             while (ci < m) {
-                def cd:PresDiagram (itemAt cands ci)
-                if (cd.worldH > cd.worldW) {
-                    def wr:PresDiagram (this.diagramAs(notation (itemAt texts ci) box.w aspect look))
-                    if wr.ok {
-                        push cands wr
-                    }
+                def wr:PresDiagram (this.diagramAs(notation (itemAt texts ci) box.w aspect look))
+                if wr.ok {
+                    push cands wr
                 }
                 ci = (ci + 1)
             }

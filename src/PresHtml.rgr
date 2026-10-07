@@ -59,6 +59,9 @@ class PresHtml {
         def e:MarkdownEdit deck.md.edit
         maker = (new MdToHtml())
         maker.standalone = true
+        ; a theme's `table { cell-tones }` (a table's own {cells=} is read
+        ; by the maker)
+        maker.cellTones = e.layout.style.tableCellTones
         if e.haveImages {
             maker.setImages(e.imageStore "/")
         }

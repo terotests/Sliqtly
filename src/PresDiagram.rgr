@@ -427,9 +427,10 @@ class PresDiagram {
     ; How much larger than the look's sizes a label is set on a slide where
     ; its box has room for it (`FlowView.fillText`). A document's diagram has
     ; 13 px labels in boxes built with air round them; scaled to a slide that
-    ; was 10–15 px text at 1080p, too small to read across a room.
+    ; was 10–15 px text at 1080p, too small to read across a room. The
+    ; names on the lines grow at most 1.8 (`MdDiagram.sceneForSlide`).
     sfn textFill:double () {
-        return 1.8
+        return 2.4
     }
 
     ; A long top-to-bottom flow cut into columns by the flow engine
@@ -504,6 +505,35 @@ class PresDiagram {
         }
         if (notation == "plantuml") {
             return ((PlantUmlRender.kindOf(text)) == "sequence")
+        }
+        return false
+    }
+
+    ; Whether the author placed the boxes themselves, so the slide must not
+    ; turn or wrap the diagram to draw it larger: Graphviz's `rank=same`
+    ; (these boxes on one level) and a Mermaid subgraph's own `direction`.
+    sfn arranged:boolean (notation:string text:string) {
+        if (notation == "graphviz") {
+            def flat:string (join (strsplit (join (strsplit text " ") "") "\"") "")
+            return ((indexOf flat "rank=same") >= 0)
+        }
+        if (notation == "mermaid") {
+            def lines:[string] (strsplit text "\n")
+            def inside:int 0
+            def i:int 0
+            while (i < (array_length lines)) {
+                def t:string (trim (itemAt lines i))
+                if ((indexOf t "subgraph") == 0) {
+                    inside = (inside + 1)
+                }
+                if ((t == "end") && (inside > 0)) {
+                    inside = (inside - 1)
+                }
+                if ((inside > 0) && ((indexOf t "direction ") == 0)) {
+                    return true
+                }
+                i = (i + 1)
+            }
         }
         return false
     }
@@ -610,8 +640,50 @@ class PresDiagram {
         return (sum / (to_double (array_length nodes)))
     }
 
+    ; How large the boxes draw in a room of `aspect`, less for every time
+    ; after the first that the reader's eye is sent back across the drawing
+    ; (`returns`). One return is a chain in two rows, read like two lines
+    ; of text; a chain cut into columns of two has the larger boxes and
+    ; reads as a maze.
     fn readability:double (aspect:double) {
-        return ((this.fitIn(aspect)) * (this.boxSize()))
+        def r:double ((this.fitIn(aspect)) * (this.boxSize()))
+        def k:int ((this.returns()) - 1)
+        while (k > 0) {
+            r = (r * 0.9)
+            k = (k - 1)
+        }
+        return r
+    }
+
+    ; The edges that run back across the drawing — up most of its height
+    ; or left most of its width — as a flow wrapped into rows or columns
+    ; does from the end of one to the start of the next. A tree's edges fan
+    ; out less than that; a flow's go one way.
+    fn returns:int () {
+        def count:int 0
+        def i:int 0
+        while (i < (array_length edges)) {
+            def e:PresDEdge (itemAt edges i)
+            def up:double 0.0
+            def left:double 0.0
+            def k:int 2
+            while ((k + 1) < (array_length e.line)) {
+                def dx:double ((itemAt e.line k) - (itemAt e.line (k - 2)))
+                def dy:double ((itemAt e.line (k + 1)) - (itemAt e.line (k - 1)))
+                if (dx < 0.0) {
+                    left = (left - dx)
+                }
+                if (dy < 0.0) {
+                    up = (up - dy)
+                }
+                k = (k + 2)
+            }
+            if ((up > (worldH * 0.6)) || (left > (worldW * 0.6))) {
+                count = (count + 1)
+            }
+            i = (i + 1)
+        }
+        return count
     }
 
     fn nodeNamed:PresDNode (id:string) {
@@ -723,7 +795,7 @@ class PresDiagram {
                                 push n.ring (itemAt it.pts p)
                                 p = (p + 1)
                             }
-                            if ((strlen it.d) > 0) {
+                            if (PresDiagram.curved(it.d)) {
                                 PresDiagram.ovalOf(n)
                             }
                             if it.own {
@@ -745,6 +817,13 @@ class PresDiagram {
             }
             i = (i + 1)
         }
+    }
+
+    ; Whether an outline's path is a curve (a circle's or an ellipse's
+    ; arcs, `FlowShapes.arcPath`). Every polygon carries a path too, of
+    ; straight lines: a diamond read as round was drawn as an oval.
+    sfn curved:boolean (d:string) {
+        return ((indexOf d " C ") >= 0)
     }
 
     ; A round node's centre and radii, from the ring the scene gave it.
@@ -5166,6 +5245,13 @@ class PresDiagram {
         return (((0.2126 * (MdLayout.channel((to_double r)))) + (0.7152 * (MdLayout.channel((to_double g))))) + (0.0722 * (MdLayout.channel((to_double b)))))
     }
 
+    ; Dark ink or white for text on the colour r g b (RangerFlow's
+    ; `FlowLook.textOn`, by WCAG contrast).
+    sfn inkOn:EVGColor (r:int g:int b:int) {
+        def fill:string ((PresDiagram.rgba(r g b 1.0)).toHexString())
+        return (EVGColor.parse((FlowLook.textOn(fill))))
+    }
+
     sfn rgba:EVGColor (r:int g:int b:int a:double) {
         return (EVGColor.rgba(r g b a))
     }
@@ -5676,6 +5762,22 @@ class PresDiagram {
     ; A node as a pane of glass: a halo, a tinted body, a thin frame, bright
     ; corner brackets, a scan line on arrival. The node the camera is on
     ; glows amber and breathes.
+    ; Whether node `i`'s box holds another node's box: a frame.
+    fn holdsOther:boolean (i:int) {
+        def f:PresDNode (itemAt nodes i)
+        def j:int 0
+        while (j < (array_length nodes)) {
+            def o:PresDNode (itemAt nodes j)
+            if ((j != i) && (o.w > 0.0)) {
+                if ((((o.x >= f.x) && (o.y >= f.y)) && ((o.x + o.w) <= (f.x + f.w))) && ((o.y + o.h) <= (f.y + f.h))) {
+                    return true
+                }
+            }
+            j = (j + 1)
+        }
+        return false
+    }
+
     fn holoNodes:void (out:EVGDisplayList t:double l:MdLayout) {
         def active:int (this.activeNode(t))
         def i:int 0
@@ -5727,11 +5829,28 @@ class PresDiagram {
                 }
                 PresDiagram.tint(halo (PresDiagram.rgba(cr cg cb haloA)) 1.0)
                 push one.cmds halo
+                ; A box is filled with its colour, its label (bold on a slide,
+                ; `MdDiagram.sceneForSlide`) in dark ink or white, whichever
+                ; reads better on that fill (`PresDiagram.inkOn`): a pale
+                ; glass with light text read poorly on a projector.
+                ; A frame round other boxes (a subgraph) stays glass, its
+                ; title in the text colour: filled, it would hide the boxes.
+                def frame:boolean (this.holdsOther(i))
+                def fr:int (PresDiagram.mixI(cr deepR 0.15))
+                def fg:int (PresDiagram.mixI(cg deepG 0.15))
+                def fb:int (PresDiagram.mixI(cb deepB 0.15))
+                def ink:EVGColor (PresDiagram.inkOn(fr fg fb))
+                def topA:double 1.0
+                def lowA:double 1.0
+                if frame {
+                    ink = (PresDiagram.rgba(txR txG txB 1.0))
+                    topA = 0.18
+                    lowA = 0.4
+                }
                 def shaped:boolean ((array_length n.ring) >= 6)
                 if shaped {
-                    ; the node's own outline, as glass: deep, then the tint
-                    one.addPolygon(n.ring (PresDiagram.rgba(deepR deepG deepB 0.55)))
-                    one.addPolygon(n.ring (PresDiagram.rgba(cr cg cb 0.26)))
+                    ; the node's own outline, filled with its colour
+                    one.addPolygon(n.ring (PresDiagram.rgba(fr fg fb topA)))
                 } {
                     def body (new EVGDrawCmd())
                     body.kind = 0
@@ -5745,11 +5864,16 @@ class PresDiagram {
                     body.r = cr
                     body.g = cg
                     body.b = cb
-                    body.a = 0.26
-                    body.r2 = deepR
-                    body.g2 = deepG
-                    body.b2 = deepB
-                    body.a2 = 0.55
+                    body.a = topA
+                    body.r2 = (PresDiagram.mixI(cr deepR 0.3))
+                    body.g2 = (PresDiagram.mixI(cg deepG 0.3))
+                    body.b2 = (PresDiagram.mixI(cb deepB 0.3))
+                    body.a2 = lowA
+                    if frame {
+                        body.r2 = deepR
+                        body.g2 = deepG
+                        body.b2 = deepB
+                    }
                     push one.cmds body
                 }
                 if (shaped || (n.dash > 0.0)) {
@@ -5801,9 +5925,9 @@ class PresDiagram {
                         def ttag:string it.tag
                         def tl:int (strlen ttag)
                         if ((tl > 5) && ((substring ttag (tl - 5) tl) == ":type")) {
-                            this.textOf(one it (this.typeInk(cr cg cb)) 1.0 l)
+                            this.textOf(one it ink 0.75 l)
                         } {
-                            this.textOf(one it (PresDiagram.rgba(txR txG txB 1.0)) 1.0 l)
+                            this.textOf(one it ink 1.0 l)
                         }
                     }
                     m = (m + 1)
