@@ -240,6 +240,23 @@
             </tbody>
           </table>
         </div>
+        <p class="deal__enter">A deck and four rounds of changes, timed</p>
+        <p>We gave AI agents the same model and the same job on each platform: an 11-slide management deck from a customer spreadsheet (charts, a top-10 table, a flow diagram, a timeline, a risks table, speaker notes), styled after a reference picture. Then a manager's follow-ups: one wrong number fixed everywhere it shows, slides moved, deleted and added, the look changed, a PDF. Sliqtly makes the first version and changes the look fastest, and its edits change the deck in place. PowerPoint still looks the most finished, and its data fixes are quickest because a script regenerates every number. Sliqtly is behind on style control: fonts, card shadows and how a flow diagram is laid out.</p>
+        <div class="tablebox">
+          <table class="compare">
+            <thead><tr><th></th><th>Claude + PowerPoint skill</th><th>Markdown → Pandoc → Beamer</th><th>Claude Slides</th><th class="accent sl">Sliqtly</th></tr></thead>
+            <tbody>
+              <tr><th>First version</th><td><span class="rate rate--good">Good</span>3.6–6.3 min</td><td><span class="rate rate--fair">Fair</span>7.4 min, mostly raw LaTeX inside the Markdown</td><td><span class="rate rate--poor">Poor</span>19 min, most of it spent building a preview to check the slides</td><td class="accent sl"><span class="rate rate--ex">Excellent</span>1.8–4.5 min in four of five rounds</td></tr>
+              <tr><th>Fixing one wrong number</th><td><span class="rate rate--ex">Excellent</span>0.3–0.5 min: one line in the script, every number regenerated</td><td><span class="rate rate--fair">Fair</span>1.5 min, 47 replacements</td><td><span class="rate rate--poor">Poor</span>9 min, bars and rings redrawn by hand</td><td class="accent sl"><span class="rate rate--good">Good</span>0.8–1.2 min, 18–27 find-and-replace edits in one call</td></tr>
+              <tr><th>Moving and adding slides</th><td><span class="rate rate--good">Good</span>0.3–1.0 min, the whole file rebuilt</td><td><span class="rate rate--good">Good</span>0.6 min</td><td><span class="rate rate--fair">Fair</span>3.9 min</td><td class="accent sl"><span class="rate rate--good">Good</span>0.3–1.1 min, in place; a move is a delete and an insert</td></tr>
+              <tr><th>Changing the whole look</th><td><span class="rate rate--good">Good</span>0.8–1.1 min</td><td><span class="rate rate--na">N/A</span>Not tested</td><td><span class="rate rate--na">N/A</span>Not tested</td><td class="accent sl"><span class="rate rate--ex">Excellent</span>0.5–0.6 min: a theme and a few lines of CSS</td></tr>
+              <tr><th>Match to the reference style</th><td><span class="rate rate--ex">Excellent</span>Rings, shadowed cards, framed pictures</td><td><span class="rate rate--good">Good</span>Shapes right, text often small</td><td><span class="rate rate--ex">Excellent</span>Closest, with the reference's font</td><td class="sl"><span class="rate rate--fair">Fair</span>Colours and title right; grey cards, two fonts only, pale flow diagram</td></tr>
+              <tr><th>The agent checks its own slides</th><td><span class="rate rate--fair">Fair</span>Through LibreOffice</td><td><span class="rate rate--fair">Fair</span>PDF to images</td><td><span class="rate rate--poor">Poor</span>No tool for it</td><td class="accent sl"><span class="rate rate--ex">Excellent</span>render_overview and a layout report on every change</td></tr>
+              <tr><th>Shared as a link</th><td><span class="rate rate--poor">No</span>A file</td><td><span class="rate rate--poor">No</span>A PDF</td><td><span class="rate rate--ex">Yes</span>Private until shared</td><td class="accent sl"><span class="rate rate--ex">Yes</span>A link; anyone with it can open the deck</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="fine">Five rounds on 2026-10-06 and 2026-10-07, one agent per platform on the same model, numbers checked against pandas on every platform. Times are minutes per phase. The last round with all four took 7.0 min in PowerPoint, 9.5 with Beamer, 11.3 in Sliqtly (server errors and a slide-deletion bug, now being fixed) and 33.5 in Claude Slides. Google Slides was left out: the connector lacked the Slides and Drive permissions. Marp and Slidev could not be installed in the test environment.</p>
         <div class="actions" id="mcp">
           <a class="btn btn--solid btn--lg" href="/connect.html">Connect via MCP</a>
           <span class="cmd">https://sliqtly.com/mcp</span>
