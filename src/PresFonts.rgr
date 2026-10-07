@@ -1,0 +1,195 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; The faces a deck can be set in, and its CSS read for them. A
+; `font-family` names a list (`Lato, sans-serif`); the layout takes the first
+; name and, when there is no such face, quietly sets the text in Open Sans —
+; a deck that asked for Georgia or Noto Serif looked like every other. Here
+; each list becomes the first face Sliqtly has (`serif` is Droid Serif,
+; `sans-serif` Open Sans), the faces that are not loaded with every page are
+; asked of it (PresDeck.wantFaces), and what could not be had is said
+; (Check: a warning on create and update).
+
+class PresFontsOut {
+    def css:string ""
+    ; font names that were asked for and are not faces Sliqtly has
+    def unknown:[string]
+    ; the faces to load: family, -Bold, -Italic, -BoldItalic
+    def faces:[string]
+    ; `h2 { font-family: … }`: a heading's face comes from `heading`
+    def headingRules:[string]
+}
+
+class PresFonts {
+    ; the families, as the layout names them
+    sfn FAMILIES:[string] () {
+        return ([] _:string ("Open Sans" "Noto Sans" "Lato" "Droid Serif"))
+    }
+
+    ; the ones every page loads; the others are fetched when a deck uses them
+    sfn loadedAlways:boolean (family:string) {
+        return ((family == "Open Sans") || (family == "Noto Sans"))
+    }
+
+    ; a name as written (any case, quoted or not) → the family, "" for none
+    sfn familyOf:string (name:string) {
+        def n:string (to_lowercase (PresFonts.unquote(name)))
+        if ((n == "serif") || (n == "ui-serif")) {
+            return "Droid Serif"
+        }
+        if (((n == "sans-serif") || (n == "system-ui")) || (n == "ui-sans-serif")) {
+            return "Open Sans"
+        }
+        for (PresFonts.FAMILIES()) f:string fi {
+            if ((to_lowercase f) == n) {
+                return f
+            }
+        }
+        return ""
+    }
+
+    ; names that are not a face and are fine to leave as they are
+    sfn passes:boolean (name:string) {
+        def n:string (to_lowercase (PresFonts.unquote(name)))
+        return (((((n == "monospace") || (n == "ui-monospace")) || (n == "inherit")) || (n == "initial")) || (n == "cursive"))
+    }
+
+    sfn unquote:string (s:string) {
+        def t:string (trim s)
+        def n:int (strlen t)
+        if (n >= 2) {
+            def a:int (charAt t 0)
+            def b:int (charAt t (n - 1))
+            if (((a == 34) && (b == 34)) || ((a == 39) && (b == 39))) {
+                return (trim (substring t 1 (n - 1)))
+            }
+        }
+        return t
+    }
+
+    sfn addFaces:void (out:PresFontsOut family:string) {
+        if (PresFonts.loadedAlways(family)) {
+            return
+        }
+        for ([] _:string ("" "-Bold" "-Italic" "-BoldItalic")) suffix:string si {
+            def face:string (family + suffix)
+            if ((indexOf out.faces face) < 0) {
+                push out.faces face
+            }
+        }
+    }
+
+    ; the CSS with each `font-family` list made the first face there is
+    sfn read:PresFontsOut (css:string) {
+        def out (new PresFontsOut)
+        def lower:string (to_lowercase css)
+        def res:string ""
+        def at:int 0
+        def key:string "font-family"
+        def going:boolean true
+        while going {
+            def rest:string (substring lower at (strlen lower))
+            def k:int (indexOf rest key)
+            if (k < 0) {
+                break
+            }
+            def p:int (at + k)
+            ; the declaration's value: after the colon, up to ; or }
+            def colon:int (p + (strlen key))
+            while ((colon < (strlen css)) && (((charAt css colon) == 32) || ((charAt css colon) == 9))) {
+                colon = (colon + 1)
+            }
+            if ((colon >= (strlen css)) || ((charAt css colon) != 58)) {
+                res = (res + (substring css at (p + (strlen key))))
+                at = (p + (strlen key))
+                continue
+            }
+            def vfrom:int (colon + 1)
+            def vto:int vfrom
+            while ((vto < (strlen css)) && (((charAt css vto) != 59) && (((charAt css vto) != 125) && ((charAt css vto) != 10)))) {
+                vto = (vto + 1)
+            }
+            def value:string (substring css vfrom vto)
+            ; `h2 { font-family: … }` is not read: say where it goes
+            def selector:string (PresFonts.selectorBefore(css p))
+            if (PresFonts.namesHeadingLevel(selector)) {
+                if ((indexOf out.headingRules (trim selector)) < 0) {
+                    push out.headingRules (trim selector)
+                }
+            }
+            def chosen:string ""
+            def keep:boolean false
+            def names:[string] (strsplit value ",")
+            for names nm:string ni {
+                if (((strlen chosen) > 0) || keep) {
+                    continue
+                }
+                def fam:string (PresFonts.familyOf(nm))
+                if ((strlen fam) > 0) {
+                    chosen = fam
+                } {
+                    if (PresFonts.passes(nm)) {
+                        keep = true
+                    } {
+                        def shown:string (PresFonts.unquote(nm))
+                        if (((strlen shown) > 0) && ((indexOf out.unknown shown) < 0)) {
+                            push out.unknown shown
+                        }
+                    }
+                }
+            }
+            if ((strlen chosen) > 0) {
+                PresFonts.addFaces(out chosen)
+                res = (((res + (substring css at vfrom)) + " ") + chosen)
+            } {
+                res = (res + (substring css at vto))
+            }
+            at = vto
+        }
+        res = (res + (substring css at (strlen css)))
+        out.css = res
+        return out
+    }
+
+    ; the selector of the rule the declaration at `p` is in
+    sfn selectorBefore:string (css:string p:int) {
+        def open:int p
+        while ((open > 0) && ((charAt css open) != 123)) {
+            open = (open - 1)
+        }
+        if ((charAt css open) != 123) {
+            return ""
+        }
+        def from:int open
+        while ((from > 0) && (((charAt css (from - 1)) != 125) && ((charAt css (from - 1)) != 59))) {
+            from = (from - 1)
+        }
+        return (trim (substring css from open))
+    }
+
+    sfn namesHeadingLevel:boolean (selector:string) {
+        for (strsplit selector ",") part:string pi {
+            def s:string (to_lowercase (trim part))
+            def words:[string] (strsplit s " ")
+            def last:string (itemAt words ((array_length words) - 1))
+            if (((strlen last) == 2) && ((charAt last 0) == 104)) {
+                def d:int (charAt last 1)
+                if ((d >= 49) && (d <= 54)) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    ; what to tell the author, one line ("" when there is nothing)
+    sfn note:string (out:PresFontsOut) {
+        def lines:[string]
+        if ((array_length out.unknown) > 0) {
+            push lines ("font-family " + (join out.unknown ", ") + ": not a face Sliqtly has, so the text is set in another one. The faces are Open Sans, Noto Sans, Lato and Droid Serif; serif means Droid Serif and sans-serif Open Sans.")
+        }
+        if ((array_length out.headingRules) > 0) {
+            push lines ("font-family under " + (join out.headingRules ", ") + " is not read: a heading's face is set with heading { font-family: … } (all levels).")
+        }
+        return (join lines " ")
+    }
+}

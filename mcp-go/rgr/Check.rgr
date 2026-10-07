@@ -64,7 +64,7 @@ class Check {
     ; the faces the editor lays slides out with (web/main.js FACES, and the
     ; emoji face it adds when one is typed)
     sfn FACES:[string] () {
-        return ([] _:string ("Open Sans" "Open Sans-Bold" "Open Sans-Italic" "Open Sans-BoldItalic" "Noto Sans" "Noto Sans-Bold" "Noto Emoji-Regular" "Gloria Hallelujah" "Fjalla One" "Josefin Sans-Bold" "Droid Serif-BoldItalic"))
+        return ([] _:string ("Open Sans" "Open Sans-Bold" "Open Sans-Italic" "Open Sans-BoldItalic" "Noto Sans" "Noto Sans-Bold" "Noto Emoji-Regular" "Gloria Hallelujah" "Fjalla One" "Josefin Sans-Bold" "Droid Serif" "Droid Serif-Bold" "Droid Serif-Italic" "Droid Serif-BoldItalic" "Lato" "Lato-Bold" "Lato-Italic" "Lato-BoldItalic"))
     }
 
     ; a file a chart reads, as text: this call's files, the deck's stored
@@ -194,8 +194,9 @@ class Check {
             }
         }
         if ((strlen css) > 0) {
-            d.setTheme(css)
-            d.md.setStyleSheet(css)
+            def own:string (d.useFonts(css))
+            d.setTheme(own)
+            d.md.setStyleSheet(own)
         }
         d.setText(md)
         def out:[int]
@@ -239,9 +240,13 @@ class Check {
             }
         }
         if ((strlen din.css) > 0) {
-            d.setTheme(din.css)
-            d.md.setStyleSheet(din.css)
+            def own2:string (d.useFonts(din.css))
+            d.setTheme(own2)
+            d.md.setStyleSheet(own2)
             c.laidOut = true
+            if ((strlen d.fontNote) > 0) {
+                push c.warnings d.fontNote
+            }
         }
         for din.pics pic:CheckPic pi {
             def data:buffer (itemAt din.data pi)

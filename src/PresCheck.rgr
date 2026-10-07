@@ -128,10 +128,32 @@ class PresCheck {
         this.colorWords()
         this.reviewDiagram()
         this.helpGuide()
+        this.fonts()
     }
 
     ; Help → How to use Sliqtly: the guide parses as the help panel's parts
     ; and names the speaker view's key
+    ; `font-family` lists: the first face Sliqtly has, the faces asked of the
+    ; page, and a note on what could not be had (PresFonts)
+    fn fonts:void () {
+        def o:PresFontsOut (PresFonts.read("document { font-family: Lato, sans-serif; }\nheading { font-family: 'Georgia', serif; }\nh2 { font-family: Lato }"))
+        this.ok(((indexOf o.css "font-family: Lato;") > 0) ("fonts: Lato is kept: " + o.css))
+        this.ok(((indexOf o.css "font-family: Droid Serif;") > 0) ("fonts: Georgia, serif is Droid Serif: " + o.css))
+        this.ok((((indexOf o.faces "Lato-Bold") >= 0) && ((indexOf o.faces "Droid Serif-Italic") >= 0)) "fonts: the faces are asked of the page")
+        this.ok(((indexOf o.unknown "Georgia") >= 0) "fonts: Georgia is said to be missing")
+        this.ok(((indexOf (PresFonts.note(o)) "heading { font-family") > 0) "fonts: h2 font-family points at heading")
+        def plain:PresFontsOut (PresFonts.read("document { font-family: Open Sans } code { font-family: monospace }"))
+        this.ok((((array_length plain.faces) == 0) && ((strlen (PresFonts.note(plain))) == 0)) "fonts: the faces every page has ask for nothing")
+        def deck (new PresDeck())
+        deck.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 } document { font-family: Lato }")
+        this.ok(((indexOf deck.wantFaces "Lato-Italic") >= 0) ("fonts: a deck in Lato asks for its faces: " + deck.wantFaces))
+        ; white figure cards with a shadow, from the theme's figure rule
+        def cd (new PresDeck())
+        cd.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 } figure { card-background: #ffffff; box-shadow: 0 6pt 18pt rgba(46,58,99,0.12) }")
+        def fst:MdFigureStyle (cd.figureStyle())
+        this.ok(((fst.cardFill == "#FFFFFF") && (fst.cardShadow == "#2E3A63")) ("figure cards: white with a shadow: " + fst.cardFill + " " + fst.cardShadow))
+    }
+
     fn helpGuide:void () {
         def p (new VlJsonParser())
         def parts:VlJson (p.parse((PresHelp.guide())))
