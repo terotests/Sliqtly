@@ -746,7 +746,7 @@ func TestOptionalSignIn(t *testing.T) {
 	}
 	eq(t, sc(u)["slides"], 2)
 	// a deck made without sign-in: only the session that made it
-	match(t, textOf(call(t, me, "update_presentation", map[string]any{"deck_id": anonID, "markdown": "# x"})), `made without sign-in in another Sliqtly session`)
+	match(t, textOf(call(t, me, "update_presentation", map[string]any{"deck_id": anonID, "markdown": "# x"})), `made without sign-in, and only the conversation that made it can change it`)
 	// another account's editor deck: refused with the account named, no copy
 	f.db.Set(context.Background(), "shares", "EdOther001", Doc{"owner": "u2", "source": "editor", "md": "# theirs", "theme": "aurora"})
 	other := textOf(call(t, me, "update_presentation", map[string]any{"deck_id": "EdOther001", "markdown": "# x"}))

@@ -130,6 +130,76 @@ Blocks are laid out top to bottom under the heading.
 - A table that runs a few rows over its slide is set smaller by itself.
 - A slide whose content runs over its height is split onto the next slide.
 
+## Placing content on a slide
+
+A slide's blocks go one under the other from the top, unless the slide or
+a container says otherwise.
+
+````markdown
+## Before and after {layout=comparison}
+
+### Before
+- Slides made by hand
+
+### After
+- Markdown
+
+## Results {layout=image-right}
+
+- Growth continued
+- Costs fell
+
+![Chart](media/growth.png)
+
+::: columns
+```ts
+const total = sum(rows);
+```
+{width=55%}
+
+- `sum` adds the rows
+:::
+````
+
+- `::: columns` … `:::` puts what is in it side by side. The columns are
+  read from what is inside, the first rule that applies: `::: col` blocks
+  (one column each; nest them in `:::: columns` with four colons, or write
+  `::: col` blocks one after another without a wrapper; `::: col Title`
+  sets a title over the column); `---` lines between the parts; headings
+  (a column starts at each heading of the highest level there, text
+  before the first one goes across above the columns); pictures, charts,
+  diagrams and galleries next to other blocks (the pictures in one column,
+  the rest in the other, on the side the first block is on); otherwise
+  each block is a column of its own.
+- Any block fits in a column: headings, lists, code, tables, pictures,
+  charts, diagrams. `{width=40%}` under a column's only block sets that
+  column's width (the block then fills its column);
+  `{widths="60 40"}` under the closing `:::` sets them all.
+- On a slide's heading, `layout=` does the same for the slide's content:
+  `columns` or `comparison` (columns by sub-headings, else by blocks),
+  `two-column`, `image-right` / `image-left` (pictures, charts and
+  diagrams in a column at that side, the rest in the other).
+  `widths="60 40"` goes on the heading too.
+- `valign=center` (or `layout=center`) or `valign=bottom` on a slide's
+  heading sets the content under the title in the middle or at the foot
+  of the room under it; `valign: center` in the front matter does it for
+  every slide that does not say `valign=` itself.
+- `layout=section` (also `layout=title`): the title and the lines under it
+  together in the middle of the slide, centred.
+- `layout=statement`: the text under the title set at the title's size, in
+  the middle of the slide; the title is not drawn but still names the
+  slide. A statement slide with no text under it shows its title larger,
+  in the middle.
+- `{float=top-right width=8%}` under a picture (also `top-left`,
+  `bottom-right`, `bottom-left`) sets it in that corner of the slide, out
+  of the flow: the title and the text after it go beside it. Write it right
+  under the slide's heading.
+- `{width=50%}` under a picture, chart, table or code block puts the
+  blocks after it beside it (paragraphs, lists, quotes), down to its
+  bottom.
+- Text beside a picture or chart, or in a column, is set as large as the
+  slide has room for, as text alone on a slide is.
+
 ## Headers and footers
 
 In the front matter: `header`, `footer`, or one place on an edge:
@@ -486,6 +556,9 @@ can edit.
   edge, without the page margins; each slide is named by its caption).
 - `fit=cover` fills the cell and crops, `fit=contain` shows the whole
   picture. Per item `span=2` and `focus=top|bottom left|30% 70%`.
+- Without `gallery { columns }` a grid on a slide takes as many columns as
+  show the most of its pictures: portraits side by side in tall cells,
+  landscapes two by two.
 - `caption=overlay|below|none`; an overlay caption is white text on a dark
   see-through band; a `caption { color }` set dark gets a light band.
 - CSS: `gallery { gap: 8pt; columns: 3; background-color: … }`,
@@ -732,7 +805,8 @@ apply cleanly (text not found or found twice, two edits on the same text)
 saves nothing and says why. The answer lists what each edit changed.
 
 `create_presentation` returns a share link; keep `deck_id` to change the
-same deck with `update_presentation`; the link stays the same.
+same deck with `update_presentation`; the link stays the same. Without
+sign-in, also send the `session_key` it gave (topic `limits`).
 
 ## The layout report
 
@@ -741,7 +815,7 @@ the pixels of a 1920×1080 screen: each element with its place and size,
 the smallest text, and how much of the slide the elements cover. Lines
 marked ⚠ name what looks wrong: text under 20 px, elements on top of each
 other or past the slide's edge, a lone chart or picture on a mostly empty
-slide, a chart's or diagram's labels drawn over each other, a table column
+slide, a slide filled under a quarter or with its lower part empty, a chart's or diagram's labels drawn over each other, a table column
 that wraps its cells, a diagram that could not be read. For a small
 diagram it names the side of its place that holds it. A diagram with a
 tour has a `tour:` line in the order the tour goes: stops joined by →, a
@@ -843,7 +917,12 @@ pictures under 300 dpi in print ("media/x.jpg: 180 dpi in print, under
   a day (100 without sign-in, 500 signed in), two at a time.
 - The id finds a presentation; it does not let anyone change it. A
   signed-in user's is changed by its owner, one made without sign-in only
-  in this connection's session (until it ends or goes unused for a day).
+  by the conversation that made it. Without sign-in, create_presentation's
+  answer gives a `session_key`: send it as `session_key` with every later
+  call on that deck (update, begin_work, export, delete, comments) and with
+  a further create_presentation, since a new connection to Sliqtly does
+  not carry it. It holds until it goes a day without a change. Keep it in
+  the conversation; never put it in slides or links.
 - **The Sliqtly cloud (sliqtly.com) is an experimental demo, not for
   private or confidential data.** A presentation is seen by anyone who has
   its link: every slide, picture and file. Say so to the user when you give
