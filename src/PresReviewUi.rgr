@@ -893,6 +893,11 @@ class PresReviewUi {
                 coH = ce.calculatedHeight
             }
         }
+        ; the docked thread's messages get what its buttons (wrapped onto
+        ; more rows in a narrow panel) and its composer leave
+        if (host.settle()) {
+            lay.layout(pg)
+        }
         host.placeText((lay.getTextEngine()))
         host.lastPage = pg
         ; a draft placed with more or fewer lines than its box was built for
