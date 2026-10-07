@@ -1038,6 +1038,11 @@ class PresDeck {
             if ((n.attrValue("tour")) == "on") {
                 most = 1.5
             }
+            ; the room's own shape, which the whole diagram is drawn in
+            ; before and after a tour
+            def whole:double aspect
+            if (whole > 4.0) { whole = 4.0 }
+            if (whole < 0.6) { whole = 0.6 }
             if (aspect > most) { aspect = most }
             if (aspect < 0.6) { aspect = 0.6 }
             def cands:[PresDiagram]
@@ -1062,13 +1067,29 @@ class PresDeck {
                 }
                 ci = (ci + 1)
             }
-            def bf:double (base.readability(aspect))
+            ; A toured diagram prefers the squarer shape, but not at the
+            ; cost of the whole: one drawn at less than three quarters of
+            ; the size another draws at in the room is not a candidate
+            ; (a loop held top to bottom by the tour's shape was 18 px
+            ; text in a quarter of the slide).
+            def bestWhole:double 0.0
+            def cw:int 0
+            while (cw < (array_length cands)) {
+                def c1:PresDiagram (itemAt cands cw)
+                if ((c1.readability(whole)) > bestWhole) {
+                    bestWhole = (c1.readability(whole))
+                }
+                cw = (cw + 1)
+            }
+            def bf:double -1.0
             def cj:int 0
             while (cj < (array_length cands)) {
                 def c2:PresDiagram (itemAt cands cj)
-                if ((c2.readability(aspect)) > (bf * 1.02)) {
-                    base = c2
-                    bf = (c2.readability(aspect))
+                if ((c2.readability(whole)) >= (bestWhole * 0.75)) {
+                    if ((bf < 0.0) || ((c2.readability(aspect)) > (bf * 1.02))) {
+                        base = c2
+                        bf = (c2.readability(aspect))
+                    }
                 }
                 cj = (cj + 1)
             }

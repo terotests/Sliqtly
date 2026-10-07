@@ -103,6 +103,44 @@ class Layout {
         return p
     }
 
+    ; What the slide's drawing of a diagram knows that its ink does not:
+    ; which of the room's sides holds its size, the room, its own size in
+    ; it, its tour, and whether it reads across.
+    sfn diagramFacts:void (blk:RBlock d:PresDeck i:int b:MdBox) {
+        def k:int 0
+        def guard:int 0
+        while (guard < 64) {
+            guard = (guard + 1)
+            def u@(optional):PresDiaUse (d.diagramUse(i k))
+            if (null? u) {
+                ; not drawn by the slide: the text could not be read
+                def nota:string (MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(b.embedKind))))
+                blk.refused = (MdDiagram.refusal(nota b.embedSource))
+                return
+            }
+            def du:PresDiaUse (unwrap u)
+            k = (k + 1)
+            if (du.source != b.embedSource) {
+                continue
+            }
+            def dia:PresDiagram du.diagram
+            def room:double (d.roomBelow(i b))
+            def span:[double] (d.diagramSpan(i b))
+            def bw:double (itemAt span 1)
+            blk.slotW = bw
+            blk.slotH = room
+            blk.limit = (dia.fitLimit(bw room))
+            def fit:double (dia.fitOf(bw room))
+            blk.drawW = (dia.worldW * fit)
+            blk.drawH = (dia.worldH * fit)
+            blk.across = (blk.drawW > blk.drawH)
+            if (dia.style != "classic") {
+                blk.tour = (dia.tourText())
+            }
+            return
+        }
+    }
+
     sfn slide:RSlide (d:PresDeck md:string i:int) {
         def rs (new RSlide)
         rs.index = i
@@ -224,6 +262,24 @@ class Layout {
             }
             if (gb.kind == "diagram") {
                 gb.keep = ((indexOf (Layout.fenceAttrs(md (itemAt keys gbi))) "layout=keep") >= 0)
+            }
+        }
+        ; a diagram drawn by the slide (PresDiagram): what holds its size,
+        ; and its tour
+        def bk0:int 0
+        while (bk0 < (array_length onPage)) {
+            def dbi:int (itemAt onPage bk0)
+            bk0 = (bk0 + 1)
+            if ((has blockOfBox dbi) == false) {
+                continue
+            }
+            def db:MdBox (itemAt l.boxes dbi)
+            if (db.kind != 3) {
+                continue
+            }
+            def dblk:RBlock (itemAt blocks (unwrap (get blockOfBox dbi)))
+            if (dblk.kind == "diagram") {
+                Layout.diagramFacts(dblk d i db)
             }
         }
         ; what each block drew: the boxes give the slot, the commands the ink

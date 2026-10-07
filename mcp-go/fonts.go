@@ -111,21 +111,22 @@ func face(family, weight string, italic bool) *sfnt.Font {
 	if fam == "Noto Emoji" {
 		return loadFace("Noto Emoji-Regular")
 	}
-	switch fam {
-	case "Noto Sans", "Lato", "Droid Serif":
-	default:
-		fam = "Open Sans"
-	}
-	name := fam
+	suffix := ""
 	switch {
 	case bold && italic:
-		name += "-BoldItalic"
+		suffix = "-BoldItalic"
 	case bold:
-		name += "-Bold"
+		suffix = "-Bold"
 	case italic:
-		name += "-Italic"
+		suffix = "-Italic"
 	}
-	return loadFace(name)
+	// a face this server has (a look's Fjalla One or Gloria Hallelujah, a
+	// deck's Lato): the layout measured the words in it, so they are drawn
+	// in it too; drawn in Open Sans they came out wider than their box
+	if _, ok := faceFiles[fam+suffix]; ok {
+		return loadFace(fam + suffix)
+	}
+	return loadFace("Open Sans" + suffix)
 }
 
 func loadFace(name string) *sfnt.Font {

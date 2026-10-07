@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/sha256"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"image"
 	"image/png"
@@ -111,38 +112,50 @@ func (r *svgRasterizer) put(ctx context.Context, b []byte) (uint64, error) {
 	return res[0], nil
 }
 
-// draw is the SVG `data` at w×h pixels (its root already that size).
-func (r *svgRasterizer) draw(data []byte, w, h int) (*image.RGBA, error) {
+// call runs the module's export `fn` on `data` (and `args` after its
+// pointer and length): the code it returned and the bytes it left at
+// out_ptr.
+func (r *svgRasterizer) call(fn string, data []byte, args ...uint64) (uint64, []byte, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := r.start(); err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), svgRenderTime)
 	defer cancel()
 	p, err := r.put(ctx, data)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
-	res, err := r.mod.ExportedFunction("render").Call(ctx, p, uint64(len(data)), uint64(w), uint64(h))
+	res, err := r.mod.ExportedFunction(fn).Call(ctx, append([]uint64{p, uint64(len(data))}, args...)...)
 	if err != nil {
-		// a draw that ran out of time closed the module: start again next
+		// a call that ran out of time closed the module: start again next
 		// time, and let go of the old runtime's compiled code
 		r.rt.Close(context.Background())
 		r.mod, r.rt, r.err = nil, nil, nil
 		if ctx.Err() != nil {
-			return nil, errors.New("svg: it takes more than " + svgRenderTime.String() + " to draw")
+			return 0, nil, errors.New("svg: it takes more than " + svgRenderTime.String() + " to draw")
 		}
-		return nil, err
+		return 0, nil, err
 	}
 	r.mod.ExportedFunction("dealloc").Call(ctx, p, uint64(len(data)))
 	op, _ := r.mod.ExportedFunction("out_ptr").Call(ctx)
 	ol, _ := r.mod.ExportedFunction("out_len").Call(ctx)
 	out, ok := r.mod.Memory().Read(uint32(op[0]), uint32(ol[0]))
 	if !ok {
-		return nil, errors.New("svg: result out of range")
+		return 0, nil, errors.New("svg: result out of range")
 	}
-	switch res[0] {
+	// out is the module's memory: copied before the next call reuses it
+	return res[0], append([]byte(nil), out...), nil
+}
+
+// draw is the SVG `data` at w×h pixels (its root already that size).
+func (r *svgRasterizer) draw(data []byte, w, h int) (*image.RGBA, error) {
+	code, out, err := r.call("render", data, uint64(w), uint64(h))
+	if err != nil {
+		return nil, err
+	}
+	switch code {
 	case 0:
 	case 1:
 		return nil, errors.New("svg: " + string(out))
@@ -155,6 +168,20 @@ func (r *svgRasterizer) draw(data []byte, w, h int) (*image.RGBA, error) {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	copy(img.Pix, out) // premultiplied RGBA, as image.RGBA holds it
 	return img, nil
+}
+
+// outline is the SVG `data` written again by resvg with its text turned
+// into paths in the editor's faces (the ones render_slide draws text with),
+// so the picture looks the same on every viewer.
+func (r *svgRasterizer) outline(data []byte) (string, error) {
+	code, out, err := r.call("outline_text", data)
+	if err != nil {
+		return "", err
+	}
+	if code != 0 {
+		return "", errors.New("svg: " + string(out))
+	}
+	return string(out), nil
 }
 
 // drawSvg is the SVG `data` drawn with its longer side `side` pixels, as
@@ -299,4 +326,16 @@ func (h *McpHost) SvgPng(data []byte, side int64) []byte {
 		return []byte{}
 	}
 	return b.Bytes()
+}
+
+// SvgOutlined is host_svg_outlined: {"text": the SVG with its text as
+// paths} or {"error": why not}.
+func (h *McpHost) SvgOutlined(data []byte) string {
+	text, err := svgRaster.outline(data)
+	if err != nil {
+		b, _ := json.Marshal(map[string]string{"error": strings.TrimPrefix(err.Error(), "svg: ")})
+		return string(b)
+	}
+	b, _ := json.Marshal(map[string]string{"text": text})
+	return string(b)
 }

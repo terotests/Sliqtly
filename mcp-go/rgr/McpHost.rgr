@@ -267,6 +267,13 @@ operators {
             go ( (e 1) ".SvgError(" (e 2) ")" )
         }
     }
+    ; the SVG in data with its text turned into paths (svgraster.go):
+    ; {"text": svg} or {"error": why}
+    host_svg_outlined _:string (h:McpHost data:buffer) {
+        templates {
+            go ( (e 1) ".SvgOutlined(" (e 2) ")" )
+        }
+    }
     ; the SVG in data drawn as a PNG with its longer side `side` pixels, as
     ; web/picture.js decodePicture draws it for the exports; empty when it is
     ; not an SVG or does not draw (svgraster.go)

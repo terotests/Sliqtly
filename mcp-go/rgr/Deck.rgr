@@ -5,6 +5,7 @@
 Import "McpHost.rgr"
 Import "McpJson.rgr"
 Import "../pptx/smartart/SaFile.rgr"
+Import "SvgFix.rgr"
 
 class Img {
     def name:string ""
@@ -20,6 +21,8 @@ class Img {
 class Loaded {
     def err:string ""
     def imgs:[Img]
+    ; what was done to them on the way in (Deck.fixSvg), for the result
+    def notes:[string]
 }
 
 class Outline {
@@ -228,7 +231,14 @@ class Deck {
                 if ((strlen fence) == 0) {
                     fence = f
                     def info:string (trim (substring line ((indexOf line f) + (strlen f)) (strlen line)))
-                    gallery = ((info == "gallery") || (startsWith info "gallery "))
+                    def word:string info
+                    def sp:int (indexOf word " ")
+                    if (sp >= 0) {
+                        word = (substring word 0 sp)
+                    }
+                    ; a gallery's cells, and a chart's image marks
+                    ; ("url": "media/logo.svg"), name pictures too
+                    gallery = ((word == "gallery") || (((word == "vega-lite") || (word == "vegalite")) || (word == "vega")))
                 } {
                     if (((charAt f 0) == (charAt fence 0)) && ((strlen f) >= (strlen fence))) {
                         fence = ""
@@ -396,6 +406,89 @@ class Deck {
         return ""
     }
 
+    ; at most this many pictures an SVG links to are fetched into it
+    sfn MAX_INSIDE:int () {
+        return 8
+    }
+
+    ; An SVG picture made to draw as it was meant to before it is kept
+    ; (SvgFix): its missing namespaces added, the https pictures it links to
+    ; fetched into it as data: URLs (a picture's SVG loads nothing), and,
+    ; when asked, its text turned into paths. What was done goes in `notes`;
+    ; im's handle and size are the new text's. "" when it may be kept; why
+    ; not when the result is over the size limit.
+    sfn fixSvg:string (host:McpHost im:Img toPaths:boolean notes:[string]) {
+        def text:string (host_text host im.handle)
+        def out:string (SvgFix.withNamespaces(text))
+        def who:string ("media/" + im.name)
+        if (out != text) {
+            push notes (who + ": added xmlns to its <svg> (a browser draws an SVG without the SVG namespace as nothing).")
+        }
+        def fetched:[string]
+        for (SvgFix.outsidePictures(out)) raw:string k {
+            def url:string (SvgFix.unescaped(raw))
+            if ((array_length fetched) >= (Deck.MAX_INSIDE())) {
+                push notes (who + ": " + url + " not fetched: at most " + (to_string (Deck.MAX_INSIDE())) + " pictures inside one SVG; it is not drawn.")
+                continue
+            }
+            def u:MfJ (J.parse((host_parse_url host url)))
+            if (((u.isObj()) == false) || (((u.str_("scheme")) != "https") || (Deck.privateHost((u.str_("hostname")))))) {
+                push notes (who + ": " + url + " not fetched (only public https addresses are); it is not drawn.")
+                continue
+            }
+            def got:MfJ (J.parse((host_image_url host url ((Deck.MAX_IMAGE()) + 1))))
+            def status:int (got.int_("status" 0))
+            def ct:string (got.str_("type"))
+            def why:string ""
+            if (status == 0) {
+                why = "could not be fetched"
+            } {
+                if ((status < 200) || (status > 299)) {
+                    why = ("answered " + (to_string status))
+                }
+            }
+            if (((strlen why) == 0) && ((startsWith ct "image/") == false)) {
+                why = ("gave " + ct + ", not a picture")
+            }
+            if (((strlen why) == 0) && (((got.int_("length" 0)) > (Deck.MAX_IMAGE())) || ((got.int_("size" 0)) > (Deck.MAX_IMAGE())))) {
+                why = "is larger than 5 MB"
+            }
+            if ((strlen why) > 0) {
+                push notes (who + ": " + url + " " + why + "; it is not drawn.")
+                continue
+            }
+            def mime:string ct
+            def semi:int (indexOf mime ";")
+            if (semi >= 0) {
+                mime = (trim (substring mime 0 semi))
+            }
+            out = (SvgFix.withHref(out raw (SvgFix.dataUrl(mime (host_image_bytes host (got.int_("handle" 0)))))))
+            push fetched url
+        }
+        if ((array_length fetched) > 0) {
+            push notes (who + ": fetched " + (join fetched ", ") + " into it as data: URLs, so it draws (a picture's SVG loads nothing from outside).")
+        }
+        if toPaths {
+            def o:MfJ (J.parse((host_svg_outlined host (buffer_from_string out))))
+            def err:string (o.str_("error"))
+            if ((strlen err) > 0) {
+                push notes (who + ": text_to_path not done (" + err + "); its text is left to each viewer's fonts.")
+            } {
+                out = (o.str_("text"))
+                push notes (who + ": text turned into paths in the editor's fonts (text_to_path), so it looks the same everywhere and is no longer editable as text.")
+            }
+        }
+        if (out == text) {
+            return ""
+        }
+        if ((strlen out) > (Deck.MAX_IMAGE())) {
+            return ("Image " + im.name + " is larger than 5 MB with the pictures it links to put into it.")
+        }
+        im.handle = (host_keep_text host out)
+        im.size = (strlen out)
+        return ""
+    }
+
     ; The pictures, fetched or decoded; the bytes stay with the host.
     sfn loadImages:Loaded (host:McpHost list:[MfJ]) {
         def res (new Loaded)
@@ -558,6 +651,13 @@ class Deck {
             im.type = type
             im.handle = handle
             im.size = size
+            if (type == "image/svg+xml") {
+                def why:string (Deck.fixSvg(host im (img.bool_("text_to_path" false)) res.notes))
+                if ((strlen why) > 0) {
+                    res.err = why
+                    return res
+                }
+            }
             push res.imgs im
         }
         return res
