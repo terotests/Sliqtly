@@ -101,6 +101,18 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   page picked on the slide, or the popover of a front matter line) edits
   these keys, the title and the transition in a window and writes them back
   into the front matter (`PresDocSettings.rgr`).
+- **A book**: `mode: book` in the front matter shows the slides as the pages
+  of a book, two at a time: page 1 alone on the right (`book-start: left`
+  pairs 1 and 2), then 2–3, 4–5. `margin`, `margin-top`, `margin-bottom`,
+  `margin-inside` (at the binding) and `margin-outside` set the page's
+  margins; a right-hand page has its inside margin on the left. Which page
+  faces which and the mirrored margins are RangerMarkdown's (`MdBook`);
+  the stage shows the page being edited with the one facing it, presenting
+  goes a spread at a time ("2–3 / 12", `src/PresBook.rgr`), and the shared
+  viewer shows spreads too. `render: realistic` draws the viewer's book as
+  paper and turns a page dragged by its outer edge round a cylinder
+  (`web/book.js` the geometry, `web/bookgl.js` the WebGL). The PDF keeps
+  single pages.
 - A slide with room is set larger: text, headings and spacing together, up to
   1.6×, as long as it fits and a one-line title stays one line. Slides with a
   picture or a diagram keep their sizes. `slide-grow: 1.3` in the front matter

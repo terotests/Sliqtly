@@ -116,6 +116,25 @@ class View {
         deck.putNum("height" d.pageH)
         deck.putInt("slides" n)
         deck.put("files" files)
+        ; `mode: book`: the pages that face each other, [left, right] with
+        ; -1 for none, and how the book is drawn (PresBook)
+        def book:MdBook (d.book())
+        if (book.isBook()) {
+            def bj:MfJ (MfJ.newObj())
+            bj.putStr("render" book.render)
+            def spreads:MfJ (MfJ.newArr())
+            def sc:int (book.spreadCount(n))
+            def si:int 0
+            while (si < sc) {
+                def pair:MfJ (MfJ.newArr())
+                pair.add((MfJ.ofInt((book.leftOf(si n)))))
+                pair.add((MfJ.ofInt((book.rightOf(si n)))))
+                spreads.add(pair)
+                si = (si + 1)
+            }
+            bj.put("spreads" spreads)
+            deck.put("book" bj)
+        }
         return ("{\"deck\":" + (JOut.text(deck)) + ",\"lists\":[" + all + "]}")
     }
 }

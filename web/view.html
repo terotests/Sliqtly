@@ -135,6 +135,8 @@
   /* --------------------------------------------------- a presentation ---- */
   #c { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: default; }
   body.idle #c { cursor: none; }
+  /* a realistic book (web/bookgl.js) over the slide's canvas, which takes the presses */
+  #bookSheet { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; }
   /* Sliqtly's logo and name: the screen while the slides load, and the
      intro every shared presentation opens with (web/brand.js) */
   #brandIntro {

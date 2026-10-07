@@ -194,6 +194,34 @@ The result of create/update warns about text outside the safe area and
 pictures under 300 dpi in print ("media/sauna.jpg: 180 dpi in print, under
 300"). Colours stay RGB.
 
+### Books
+
+`mode: book` in the front matter makes the deck a book: its pages face
+each other in spreads, and the player and the shared link show a spread at
+a time.
+
+```yaml
+---
+mode: book            # slides (default) | book
+render: realistic     # flat (default) | realistic
+book-start: right     # right (default): page 1 alone on the right; left: 1 and 2 face each other
+page: 200x200mm       # the page's size, as for any deck
+margin: 14mm          # every edge, or one: margin-top, margin-bottom,
+margin-inside: 20mm   # margin-inside (at the binding), margin-outside
+---
+```
+
+- Each slide is one page. Page 1 is a right-hand page; with
+  `book-start: right` the spreads are 1, 2–3, 4–5, …
+- `margin-inside` is on the right of a left-hand page and on the left of a
+  right-hand one; pictures with `layout=full` are not moved by it. The
+  margin keys also work without `mode: book` (inside = left).
+- `render: realistic` shows the pages as paper on the shared link: a
+  shadow at the binding, and a page can be turned by dragging its outer
+  edge or with the arrow keys. `flat` shows the two pages side by side.
+- The PDF export has single pages (with `@media print`, the print page,
+  bleed and crop marks), as a printing house takes them.
+
 ## Charts, diagrams, math, tables
 
 - Charts: a ```` ```vega-lite ```` fence with a Vega-Lite JSON spec. Bar,
