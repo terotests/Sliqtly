@@ -124,6 +124,20 @@ class PresDEdge {
     def pLx:double 0.0
     def pLy:double 0.0
     def pTier:int 0
+    ; What kind of line the diagram wrote, as the scene carries it
+    ; (`SceneItem.head/tail/weight/own`): the mark at its end and at its
+    ; start ("arrowclosed", "arrow", "circle", "cross", …; "" none), dashed
+    ; (`-.->`, `style=dashed`), its weight over the look's (`==>`: 2), and
+    ; a colour of its own (`linkStyle`, DOT `color`). Every style draws them
+    ; its own way: an optional path stays dashed, an error path red.
+    def head:string "arrowclosed"
+    def tail:string ""
+    def dashed:boolean false
+    def weight:double 1.0
+    def own:boolean false
+    def ownR:int 0
+    def ownG:int 0
+    def ownB:int 0
 
     Constructor () {
         def r:[double]
@@ -478,6 +492,7 @@ class PresDiagram {
                             push ed.line (itemAt it.pts k)
                             k = (k + 1)
                         }
+                        PresDiagram.readKind(ed it)
                     } {
                         if ((it.kind == 0) || (it.kind == 1)) {
                             push ed.labels it
@@ -763,6 +778,38 @@ class PresDiagram {
     ; closed outline), the lines drawn on it, a dashed border, and whether the
     ; diagram gave it its colour. The styles redraw the body their own way and
     ; keep the shape, the colour and the dash.
+    ; The line's kind, from the scene item of its line.
+    sfn readKind:void (e:PresDEdge it:SceneItem) {
+        e.head = it.head
+        e.tail = it.tail
+        e.dashed = (it.dash > 0.0)
+        e.weight = 1.0
+        if (it.weight > 0.0) {
+            e.weight = (PresDiagram.weightOf(it.weight))
+        }
+        if (it.own && ((strlen it.stroke) > 0)) {
+            def c:EVGColor (EVGColor.parse(it.stroke))
+            if c.isSet {
+                e.own = true
+                e.ownR = (c.red())
+                e.ownG = (c.green())
+                e.ownB = (c.blue())
+            }
+        }
+    }
+
+    ; A line drawn heavier than the look's is heavier by at most 2.5: a
+    ; `penwidth=8` is a heavy line, not a bar.
+    sfn weightOf:double (w:double) {
+        if (w > 2.5) {
+            return 2.5
+        }
+        if (w < 0.5) {
+            return 0.5
+        }
+        return w
+    }
+
     fn readShapes:void () {
         boxText = 0.0
         labSize = -1.0
@@ -1168,6 +1215,40 @@ class PresDiagram {
         }
         e.line = pts
         e.len = (FlowScene.polyLength(pts))
+        this.labelBeside(e ((sx + ex) * 0.5) ((sy + ey) * 0.5) (nx * side) (ny * side))
+    }
+
+    ; e's name moved beside the middle (mx, my) of its new line, on the side
+    ; (nx, ny) the line was moved to: the router put it against the route it
+    ; drew, which is no longer there.
+    fn labelBeside:void (e:PresDEdge mx:double my:double nx:double ny:double) {
+        if ((array_length e.labels) == 0) {
+            return
+        }
+        def x0:double 1000000000.0
+        def y0:double 1000000000.0
+        def x1:double -1000000000.0
+        def y1:double -1000000000.0
+        def k:int 0
+        while (k < (array_length e.labels)) {
+            def it:SceneItem (itemAt e.labels k)
+            if (it.x < x0) { x0 = it.x }
+            if (it.y < y0) { y0 = it.y }
+            if ((it.x + it.w) > x1) { x1 = (it.x + it.w) }
+            if ((it.y + it.h) > y1) { y1 = (it.y + it.h) }
+            k = (k + 1)
+        }
+        ; how far the name reaches along the normal from its centre
+        def reach:double (((fabs nx) * ((x1 - x0) * 0.5)) + ((fabs ny) * ((y1 - y0) * 0.5)))
+        def dx:double (((mx + (nx * (reach + 6.0))) - ((x0 + x1) * 0.5)))
+        def dy:double (((my + (ny * (reach + 6.0))) - ((y0 + y1) * 0.5)))
+        k = 0
+        while (k < (array_length e.labels)) {
+            def it2:SceneItem (itemAt e.labels k)
+            it2.x = (it2.x + dx)
+            it2.y = (it2.y + dy)
+            k = (k + 1)
+        }
     }
 
     ; How far from a box's centre a ray in direction (ux, uy) leaves the box.
@@ -1738,6 +1819,201 @@ class PresDiagram {
                 this.keyframe((gT + 1.0) -1)
             }
         }
+    }
+
+    ; ------------------------------------------------------------------
+    ; The tour, in words
+    ; ------------------------------------------------------------------
+    ;
+    ; What the tour stops at, in order, and at a branch with named ways on
+    ; every way and where it leads, as one line of text:
+    ;
+    ;   Start → Order → In stock? ⟨yes: Pick → Done | no: Supplier → back to In stock?⟩
+    ;
+    ; The layout report gives it to whoever cannot watch the slide play (an
+    ; assistant working over MCP). It is the walk itself: `planPath` once
+    ; for each way at each branch (`planGuided` with {choose=off}), so it
+    ; says what the player does; the plan for the choices the viewer made
+    ; is restored after.
+    fn tourText:string () {
+        if (((array_length nodes) == 0) || (canTour == false)) {
+            return ""
+        }
+        def kept:[int]
+        def k:int 0
+        while (k < (array_length choices)) {
+            push kept (itemAt choices k)
+            k = (k + 1)
+        }
+        def none:[int]
+        def out:string ""
+        if choose {
+            def asked:[int]
+            out = (this.walkText(none 0 0 asked))
+        } {
+            this.planGuided()
+            out = (this.stopsText(0 true))
+        }
+        this.setChoices(kept)
+        this.plan()
+        return out
+    }
+
+    fn setChoices:void (list:[int]) {
+        clear choices
+        def k:int 0
+        while (k < (array_length list)) {
+            push choices (itemAt list k)
+            k = (k + 1)
+        }
+    }
+
+    ; The walk after the choices in `prefix`, from its leg `from` on; at a
+    ; branch, each way in turn (`depth` deep at most 3). `asked`: the
+    ; branches already on the way here, so a loop back to one ends there.
+    fn walkText:string (prefix:[int] from:int depth:int asked:[int]) {
+        this.setChoices(prefix)
+        this.planPath()
+        def out:string (this.stopsText(from (depth == 0)))
+        if (waiting == false) {
+            return out
+        }
+        def at:int waitNode
+        def ways:[int]
+        def o:int 0
+        while (o < (array_length options)) {
+            push ways (itemAt options o)
+            o = (o + 1)
+        }
+        def legsSoFar:int (array_length legs)
+        ; back at a branch already on the way here: the loop ends there
+        if ((indexOf asked at) >= 0) {
+            return (out + " (back)")
+        }
+        if (depth >= 3) {
+            return (out + " …")
+        }
+        def asked2:[int]
+        def a:int 0
+        while (a < (array_length asked)) {
+            push asked2 (itemAt asked a)
+            a = (a + 1)
+        }
+        push asked2 at
+        out = (out + " ⟨")
+        def w:int 0
+        while (w < (array_length ways)) {
+            def way:int (itemAt ways w)
+            def next:[int]
+            def p:int 0
+            while (p < (array_length prefix)) {
+                push next (itemAt prefix p)
+                p = (p + 1)
+            }
+            push next way
+            if (w > 0) {
+                out = (out + " | ")
+            }
+            def name:string (this.edgeText(way))
+            if ((strlen name) > 0) {
+                out = (out + name + ": ")
+            }
+            out = (out + (this.walkText(next legsSoFar (depth + 1) asked2)))
+            w = (w + 1)
+        }
+        out = (out + "⟩")
+        return out
+    }
+
+    ; The stops of the planned walk from its leg `from` on, joined by
+    ; arrows: where each leg lands, after the first box when `withStart`
+    ; (the walk's beginning; a branch's way leaves that out, its box is
+    ; already written before the branch).
+    fn stopsText:string (from:int withStart:boolean) {
+        def names:[string]
+        if (withStart && ((array_length legs) > 0)) {
+            def l0:PresLeg (itemAt legs 0)
+            if (l0.fromNode >= 0) {
+                push names (this.nodeText(l0.fromNode))
+            }
+        }
+        if (withStart && ((array_length legs) == 0) && ((array_length kfN) > 0)) {
+            def k:int 0
+            while (k < (array_length kfN)) {
+                if ((itemAt kfN k) >= 0) {
+                    return (this.nodeText((itemAt kfN k)))
+                }
+                k = (k + 1)
+            }
+        }
+        def i:int from
+        while (i < (array_length legs)) {
+            def lg:PresLeg (itemAt legs i)
+            if (lg.toNode >= 0) {
+                push names (this.nodeText(lg.toNode))
+            }
+            i = (i + 1)
+        }
+        return (join names " → ")
+    }
+
+    ; A box's words on one line; "•" for one with none (a start or end
+    ; dot, a fork bar), whose id would mean nothing to a reader.
+    fn nodeText:string (i:int) {
+        def n:PresDNode (itemAt nodes i)
+        def out:string ""
+        def k:int 0
+        while (k < (array_length n.items)) {
+            def it:SceneItem (itemAt n.items k)
+            if ((it.kind == 1) && ((strlen (trim it.text)) > 0)) {
+                if ((strlen out) > 0) {
+                    out = (out + " ")
+                }
+                out = (out + (trim it.text))
+            }
+            k = (k + 1)
+        }
+        if ((strlen out) == 0) {
+            return "•"
+        }
+        return (join (strsplit out "\n") " ")
+    }
+
+    fn edgeText:string (i:int) {
+        def e:PresDEdge (itemAt edges i)
+        def out:string ""
+        def k:int 0
+        while (k < (array_length e.labels)) {
+            def it:SceneItem (itemAt e.labels k)
+            if ((it.kind == 1) && ((strlen (trim it.text)) > 0)) {
+                if ((strlen out) > 0) {
+                    out = (out + " ")
+                }
+                out = (out + (trim it.text))
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; What holds the diagram's size in a room of bw × bh (`fitOf`): "width"
+    ; when it spans the room's width and has height to spare, "height" the
+    ; other way round, "scale" when neither does (it is as large as a
+    ; diagram is drawn, `fitOf`'s cap) and "" with nothing to draw.
+    fn fitLimit:string (bw:double bh:double) {
+        if ((worldW <= 0.0) || (worldH <= 0.0) || (bw <= 0.0) || (bh <= 0.0)) {
+            return ""
+        }
+        def byW:double ((bw * 0.97) / worldW)
+        def byH:double ((bh * 0.95) / worldH)
+        def fit:double (this.fitOf(bw bh))
+        if ((fit < (byW - 0.0001)) && (fit < (byH - 0.0001))) {
+            return "scale"
+        }
+        if (byW <= byH) {
+            return "width"
+        }
+        return "height"
     }
 
     ; Take option `i` at the branch the walk is waiting at.
@@ -4990,9 +5266,24 @@ class PresDiagram {
             if (((array_length e.line) >= 4) && (t >= e.at)) {
                 def p:double (PresDiagram.smooth(((t - e.at) / e.draw)))
                 def drawn:[double] (FlowScene.sliceByLength(e.line 0.0 (e.len * p)))
-                PresDiagram.sketch(out drawn 2.6 ink 0.9 ((boil * 3.1) + (to_double i)))
+                def col:EVGColor ink
+                if e.own {
+                    col = (PresDiagram.rgba(e.ownR e.ownG e.ownB 1.0))
+                }
+                def seed:double ((boil * 3.1) + (to_double i))
+                if e.dashed {
+                    ; pen strokes with gaps: a dashed line drawn by hand
+                    def parts:int (FlowScene.dashCount(drawn 11.0))
+                    def d:int 0
+                    while (d < parts) {
+                        PresDiagram.sketch(out (FlowScene.dashAt(drawn 11.0 d)) (2.6 * e.weight) col 0.9 (seed + (to_double (d * 7))))
+                        d = (d + 1)
+                    }
+                } {
+                    PresDiagram.sketch(out drawn (2.6 * e.weight) col 0.9 seed)
+                }
                 if (p >= 0.98) {
-                    this.arrow(out e ink ((boil * 1.7) + (to_double i)))
+                    this.arrow(out e col ((boil * 1.7) + (to_double i)))
                 }
                 ; the label arrives once the line is most of the way there
                 def la:double (PresDiagram.clamp01(((p - 0.6) / 0.4)))
@@ -5021,30 +5312,47 @@ class PresDiagram {
         }
     }
 
-    ; A drawn arrowhead: two strokes from the tip, not a stamped triangle.
+    ; A drawn arrowhead: two strokes from the tip, not a stamped triangle;
+    ; the other marks (`--o`, `--x`, a start's `<--`) drawn the same way.
     fn arrow:void (out:EVGDisplayList e:PresDEdge ink:EVGColor seed:double) {
-        def n:int (array_length e.line)
-        def tx:double (itemAt e.line (n - 2))
-        def ty:double (itemAt e.line (n - 1))
-        def px:double (itemAt e.line (n - 4))
-        def py:double (itemAt e.line (n - 3))
-        def dx:double (tx - px)
-        def dy:double (ty - py)
-        def len:double (sqrt ((dx * dx) + (dy * dy)))
-        if (len <= 0.0) {
+        this.sketchMark(out e false ink seed)
+        if ((strlen e.tail) > 0) {
+            this.sketchMark(out e true ink (seed + 5.0))
+        }
+    }
+
+    fn sketchMark:void (out:EVGDisplayList e:PresDEdge atStart:boolean ink:EVGColor seed:double) {
+        def kind:string e.head
+        def at:double e.len
+        if atStart {
+            kind = e.tail
+            at = 0.0
+        }
+        if ((strlen kind) == 0) {
             return
         }
-        def ux:double (dx / len)
-        def uy:double (dy / len)
-        def size:double 11.0
-        def wing:double 6.5
-        def ax:double ((tx - (ux * size)) - (uy * wing))
-        def ay:double ((ty - (uy * size)) + (ux * wing))
-        def bx:double ((tx - (ux * size)) + (uy * wing))
-        def by:double ((ty - (uy * size)) - (ux * wing))
-        def head:[double] ([] _:double (ax ay tx ty bx by))
-        out.addPolygon(head ink)
-        PresDiagram.sketch(out head 2.2 ink 0.9 seed)
+        def f:[double] (this.markFrame(e atStart at))
+        if ((array_length f) < 4) {
+            return
+        }
+        def grow:double (1.0 + ((e.weight - 1.0) * 0.4))
+        if (PresDiagram.isArrowhead(kind)) {
+            def head:[double] (PresDiagram.vee(f (11.0 * grow) (6.5 * grow)))
+            out.addPolygon(head ink)
+            PresDiagram.sketch(out head 2.2 ink 0.9 seed)
+            return
+        }
+        def deco:EdgeDecoration (PresDiagram.markShapes(kind f (15.0 * grow)))
+        def k:int 0
+        while (k < (deco.shapeCount())) {
+            def sh:DecoShape (deco.shapeAt(k))
+            def pts:[double] (PresDiagram.shapePts(sh))
+            if sh.filled {
+                out.addPolygon(sh.pts ink)
+            }
+            PresDiagram.sketch(out pts 2.2 ink 0.9 (seed + (to_double k)))
+            k = (k + 1)
+        }
     }
 
     fn paintNodes:void (out:EVGDisplayList t:double ink:EVGColor boil:double l:MdLayout) {
@@ -5383,11 +5691,31 @@ class PresDiagram {
         if (s1 > upto) { s1 = upto }
         if (s1 > s0) {
             def mid:[double] (FlowScene.sliceByLength(e.line s0 s1))
-            if lit {
-                PresDiagram.glow(out mid th r g b alpha)
-            } {
-                out.addPolyline(mid th (PresDiagram.rgba(r g b alpha)))
-                PresDiagram.roundLast(out)
+            ; a dashed line (`-.->`) is dashes of light, longer than the
+            ; short ones a line has inside a box
+            def dash:double 0.0
+            if e.dashed {
+                dash = ((th * 3.0) + 6.0)
+            }
+            def parts:int 1
+            if (dash > 0.0) {
+                parts = (FlowScene.dashCount(mid dash))
+            }
+            def d:int 0
+            while (d < parts) {
+                def piece:[double] mid
+                if (dash > 0.0) {
+                    piece = (FlowScene.dashAt(mid dash d))
+                }
+                if ((array_length piece) >= 4) {
+                    if lit {
+                        PresDiagram.glow(out piece th r g b alpha)
+                    } {
+                        out.addPolyline(piece th (PresDiagram.rgba(r g b alpha)))
+                        PresDiagram.roundLast(out)
+                    }
+                }
+                d = (d + 1)
             }
         }
         def dw:double (th * 0.8)
@@ -5442,8 +5770,12 @@ class PresDiagram {
             if (((array_length e.line) >= 4) && (t >= e.at)) {
                 def p:double (PresDiagram.smooth(((t - e.at) / e.draw)))
                 def on:boolean (i == active)
+                ; a heavier line (`==>`) is heavier in every state; the
+                ; walk's light stays warm, a line's own colour shows when
+                ; it is not lit
+                def wt:double e.weight
                 if on {
-                    this.strokeEdge(out e (e.len * p) (this.activeWidth()) wmR wmG wmB 1.0 true)
+                    this.strokeEdge(out e (e.len * p) ((this.activeWidth()) * (PresDiagram.minD(wt 1.6))) wmR wmG wmB 1.0 true)
                     if (p < 1.0) {
                         def head:[double]
                         PresDiagram.pointAt(e.line (e.len * p) head)
@@ -5452,12 +5784,20 @@ class PresDiagram {
                     }
                 } {
                     if ((way >= 0) && (this.exIsWay(i t))) {
-                        this.strokeEdge(out e (e.len * p) 1.6 acR acG acB 0.7 false)
+                        this.strokeEdge(out e (e.len * p) (1.6 * wt) acR acG acB 0.7 false)
                     } {
                         if (this.resting()) {
-                            this.strokeEdge(out e (e.len * p) 1.4 wmR wmG wmB 0.75 false)
+                            if e.own {
+                                this.strokeEdge(out e (e.len * p) (1.6 * wt) e.ownR e.ownG e.ownB 0.95 false)
+                            } {
+                                this.strokeEdge(out e (e.len * p) (1.4 * wt) wmR wmG wmB 0.75 false)
+                            }
                         } {
-                            this.strokeEdge(out e (e.len * p) 1.1 dmR dmG dmB 0.38 false)
+                            if e.own {
+                                this.strokeEdge(out e (e.len * p) (1.3 * wt) e.ownR e.ownG e.ownB 0.6 false)
+                            } {
+                                this.strokeEdge(out e (e.len * p) (1.1 * wt) dmR dmG dmB 0.38 false)
+                            }
                         }
                     }
                 }
@@ -5530,7 +5870,9 @@ class PresDiagram {
         return ((tour == false) || still)
     }
 
-    ; An arrowhead as a chevron of light, pointing along the curve's end.
+    ; The marks at a line's ends, as light: a chevron where it goes into
+    ; its end box, and the mark the diagram wrote at either end (`--o` a
+    ; ring, `--x` a cross, `<-->` a chevron at both).
     fn chevron:void (out:EVGDisplayList e:PresDEdge on:boolean) {
         ; at the box's edge, where the line goes in, not at its end inside
         this.cutsOf(e)
@@ -5538,33 +5880,130 @@ class PresDiagram {
         if ((tipAt < 12.0) || (tipAt > e.len)) {
             tipAt = e.len
         }
+        this.holoMark(out e false tipAt on)
+        if ((strlen e.tail) > 0) {
+            def fromAt:double e.cut0
+            if ((fromAt < 0.0) || (fromAt > (e.len - 12.0))) {
+                fromAt = 0.0
+            }
+            this.holoMark(out e true fromAt on)
+        }
+    }
+
+    ; Where a mark goes on e — `at` along it, pointing out of the line at
+    ; its end (atStart: back out of its start) — as [x y ux uy]; empty when
+    ; the line has no direction there.
+    fn markFrame:[double] (e:PresDEdge atStart:boolean at:double) {
+        def res:[double]
         def tip:[double]
-        PresDiagram.pointAt(e.line tipAt tip)
-        def tx:double (itemAt tip 0)
-        def ty:double (itemAt tip 1)
+        PresDiagram.pointAt(e.line at tip)
+        def toward:double (at - 10.0)
+        if atStart {
+            toward = (at + 10.0)
+        }
         def back:[double]
-        PresDiagram.pointAt(e.line (tipAt - 10.0) back)
-        def ddx:double (tx - (itemAt back 0))
-        def ddy:double (ty - (itemAt back 1))
+        PresDiagram.pointAt(e.line toward back)
+        def ddx:double ((itemAt tip 0) - (itemAt back 0))
+        def ddy:double ((itemAt tip 1) - (itemAt back 1))
         def len:double (sqrt ((ddx * ddx) + (ddy * ddy)))
         if (len <= 0.0) {
+            return res
+        }
+        push res (itemAt tip 0)
+        push res (itemAt tip 1)
+        push res (ddx / len)
+        push res (ddy / len)
+        return res
+    }
+
+    ; An arrowhead's two strokes, from the tip back: `size` long, `wing`
+    ; to either side.
+    sfn vee:[double] (f:[double] size:double wing:double) {
+        def tx:double (itemAt f 0)
+        def ty:double (itemAt f 1)
+        def ux:double (itemAt f 2)
+        def uy:double (itemAt f 3)
+        def pts:[double] ([] _:double (((tx - (ux * size)) - (uy * wing)) ((ty - (uy * size)) + (ux * wing)) tx ty ((tx - (ux * size)) + (uy * wing)) ((ty - (uy * size)) - (ux * wing))))
+        return pts
+    }
+
+    ; Any other mark (a ring, a cross, a diamond): the document's own
+    ; shapes (`EdgeDecoration`), each as a stroke, a closed one closed.
+    ; `kind` is not an arrowhead here.
+    sfn markShapes:EdgeDecoration (kind:string f:[double] size:double) {
+        def ang:double (atan2 (itemAt f 3) (itemAt f 2))
+        return (EdgeDecoration.build(kind (itemAt f 0) (itemAt f 1) ang size))
+    }
+
+    sfn isArrowhead:boolean (kind:string) {
+        return ((kind == "arrowclosed") || (kind == "arrow"))
+    }
+
+    sfn shapePts:[double] (sh:DecoShape) {
+        if (sh.closed || sh.filled) {
+            return (FlowScene.closeRing(sh.pts))
+        }
+        return sh.pts
+    }
+
+    fn holoMark:void (out:EVGDisplayList e:PresDEdge atStart:boolean at:double on:boolean) {
+        def kind:string e.head
+        if atStart {
+            kind = e.tail
+        }
+        if ((strlen kind) == 0) {
             return
         }
-        def ux:double (ddx / len)
-        def uy:double (ddy / len)
-        def size:double 10.0
-        def wing:double 6.0
-        def pts:[double] ([] _:double (((tx - (ux * size)) - (uy * wing)) ((ty - (uy * size)) + (ux * wing)) tx ty ((tx - (ux * size)) + (uy * wing)) ((ty - (uy * size)) - (ux * wing))))
+        def f:[double] (this.markFrame(e atStart at))
+        if ((array_length f) < 4) {
+            return
+        }
+        def wt:double e.weight
+        def grow:double (1.0 + ((wt - 1.0) * 0.4))
+        ; the line's own state decides the colour, as `holoEdges` does
+        def r:int dmR
+        def g:int dmG
+        def b:int dmB
+        def a:double 0.45
+        def th:double (1.1 * wt)
+        if (this.resting()) {
+            r = wmR
+            g = wmG
+            b = wmB
+            a = 0.8
+            th = (1.4 * wt)
+        }
+        if e.own {
+            r = e.ownR
+            g = e.ownG
+            b = e.ownB
+            a = 0.95
+        }
+        if (PresDiagram.isArrowhead(kind)) {
+            this.holoStroke(out (PresDiagram.vee(f (10.0 * grow) (6.0 * grow))) on th (PresDiagram.rgba(r g b a)))
+            return
+        }
+        ; a ring or a cross reads at the size of an arrowhead's length, not
+        ; of its half-width
+        def deco:EdgeDecoration (PresDiagram.markShapes(kind f (15.0 * grow)))
+        def k:int 0
+        while (k < (deco.shapeCount())) {
+            def sh:DecoShape (deco.shapeAt(k))
+            if (sh.filled && (on == false)) {
+                out.addPolygon(sh.pts (PresDiagram.rgba(r g b (a * 0.85))))
+            }
+            this.holoStroke(out (PresDiagram.shapePts(sh)) on th (PresDiagram.rgba(r g b a)))
+            k = (k + 1)
+        }
+    }
+
+    fn holoStroke:void (out:EVGDisplayList pts:[double] on:boolean th:double col:EVGColor) {
         if on {
             PresDiagram.glow(out pts ((this.activeWidth()) * 0.9) wmR wmG wmB 1.0)
-        } {
-            if (this.resting()) {
-                out.addPolyline(pts 1.4 (PresDiagram.rgba(wmR wmG wmB 0.8)))
-            } {
-                out.addPolyline(pts 1.1 (PresDiagram.rgba(dmR dmG dmB 0.45)))
-            }
-            PresDiagram.roundLast(out)
+            return
         }
+        out.addPolyline(pts th col)
+        PresDiagram.roundLast(out)
     }
 
     ; The smallest text in the boxes (scene units): a line's name is set
@@ -6046,6 +6485,14 @@ class PresDiagram {
             c.route = e.route
             c.at = e.at
             c.draw = e.draw
+            c.head = e.head
+            c.tail = e.tail
+            c.dashed = e.dashed
+            c.weight = e.weight
+            c.own = e.own
+            c.ownR = e.ownR
+            c.ownG = e.ownG
+            c.ownB = e.ownB
             if ((array_length e.route) >= 4) {
                 c.line = (FlowLook.roundCorners(e.route corner))
             } {
@@ -6188,21 +6635,38 @@ class PresDiagram {
                 def p:double (PresDiagram.smooth(((t - e.at) / e.draw)))
                 def on:boolean (i == active)
                 def col:EVGColor ink
-                def th:double look.edgeWidth
+                if e.own {
+                    col = (PresDiagram.rgba(e.ownR e.ownG e.ownB 1.0))
+                }
+                def th:double (look.edgeWidth * e.weight)
                 if on {
                     col = acc
-                    th = (look.edgeWidth * 1.6)
+                    th = (th * 1.6)
+                }
+                ; a dashed line in a look whose lines are dashes already
+                ; (romantic) is drawn in shorter ones
+                def dash:double look.edgeDash
+                if e.dashed {
+                    if (dash > 0.0) {
+                        dash = (dash * 0.45)
+                    } {
+                        dash = ((look.edgeWidth * 2.2) + 4.0)
+                    }
                 }
                 ; up to the end's outline, less the arrowhead
                 def s1:double e.lc1
-                if (look.arrow != "none") {
+                if ((look.arrow != "none") && (PresDiagram.isArrowhead(e.head))) {
                     s1 = (s1 - (look.arrowSize * 0.6))
                 }
                 if (s1 > (e.len * p)) {
                     s1 = (e.len * p)
                 }
-                if (s1 > e.lc0) {
-                    this.lookStroke(out (FlowScene.sliceByLength(e.line e.lc0 s1)) th col look.edgeDash)
+                def s0:double e.lc0
+                if ((look.arrow != "none") && (PresDiagram.isArrowhead(e.tail))) {
+                    s0 = (s0 + (look.arrowSize * 0.6))
+                }
+                if (s1 > s0) {
+                    this.lookStroke(out (FlowScene.sliceByLength(e.line s0 s1)) th col dash)
                 }
                 if look.dots {
                     def a0:[double]
@@ -6229,34 +6693,58 @@ class PresDiagram {
         if ((tipAt < 12.0) || (tipAt > e.len)) {
             tipAt = e.len
         }
-        def tip:[double]
-        PresDiagram.pointAt(e.line tipAt tip)
-        def tx:double (itemAt tip 0)
-        def ty:double (itemAt tip 1)
-        if look.dots {
-            PresDiagram.disc(out tx ty (look.edgeWidth * 1.9) col)
+        this.lookMark(out e false tipAt col th)
+        if ((strlen e.tail) > 0) {
+            def fromAt:double e.lc0
+            if ((fromAt < 0.0) || (fromAt > (e.len - 12.0))) {
+                fromAt = 0.0
+            }
+            this.lookMark(out e true fromAt col th)
         }
-        if (look.arrow == "none") {
+    }
+
+    ; The mark at one end of a line in a look: the look's own arrowhead
+    ; (solid, open, or none) for an arrow, the document's ring or cross for
+    ; the others, in the look's line.
+    fn lookMark:void (out:EVGDisplayList e:PresDEdge atStart:boolean at:double col:EVGColor th:double) {
+        def f:[double] (this.markFrame(e atStart at))
+        if ((array_length f) < 4) {
             return
         }
-        def back:[double]
-        PresDiagram.pointAt(e.line (tipAt - 8.0) back)
-        def ddx:double (tx - (itemAt back 0))
-        def ddy:double (ty - (itemAt back 1))
-        def len:double (sqrt ((ddx * ddx) + (ddy * ddy)))
-        if (len <= 0.0) {
+        if (look.dots && (atStart == false)) {
+            PresDiagram.disc(out (itemAt f 0) (itemAt f 1) (look.edgeWidth * 1.9) col)
+        }
+        def kind:string e.head
+        if atStart {
+            kind = e.tail
+        }
+        if ((strlen kind) == 0) {
             return
         }
-        def ux:double (ddx / len)
-        def uy:double (ddy / len)
         def size:double (look.arrowSize + (th * 0.8))
-        def wing:double (size * 0.55)
-        def pts:[double] ([] _:double (((tx - (ux * size)) - (uy * wing)) ((ty - (uy * size)) + (ux * wing)) tx ty ((tx - (ux * size)) + (uy * wing)) ((ty - (uy * size)) - (ux * wing))))
-        if (look.arrow == "solid") {
-            out.addPolygon(pts col)
-        } {
-            out.addPolyline(pts th col)
+        if (PresDiagram.isArrowhead(kind)) {
+            if (look.arrow == "none") {
+                return
+            }
+            def pts:[double] (PresDiagram.vee(f size (size * 0.55)))
+            if (look.arrow == "solid") {
+                out.addPolygon(pts col)
+            } {
+                out.addPolyline(pts th col)
+                PresDiagram.roundLast(out)
+            }
+            return
+        }
+        def deco:EdgeDecoration (PresDiagram.markShapes(kind f size))
+        def k:int 0
+        while (k < (deco.shapeCount())) {
+            def sh:DecoShape (deco.shapeAt(k))
+            if (sh.filled && (look.arrow == "solid")) {
+                out.addPolygon(sh.pts col)
+            }
+            out.addPolyline((PresDiagram.shapePts(sh)) th col)
             PresDiagram.roundLast(out)
+            k = (k + 1)
         }
     }
 

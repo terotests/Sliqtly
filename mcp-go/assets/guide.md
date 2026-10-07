@@ -254,18 +254,27 @@ margin-inside: 20mm   # margin-inside (at the binding), margin-outside
   `{ball=off}`, `{choose=off}` (do not stop at named branches),
   `{zoom=2}` (largest scale a box is drawn at, default 3),
   `{diagram=classic}` (the plain drawing on the slide's own background,
-  still, no tour). Node shapes, `classDef`/`style` fills and dashed
-  borders show in every style; other colours come from the theme's
+  still, no tour). Node shapes, `classDef`/`style` fills, dashed
+  borders and the kind of each link (`-.->` dashed, `==>` thick, `--o`,
+  `--x`, `<-->`, `~~~` invisible; DOT `style=dashed`, `penwidth`) show in
+  every style, and so do the colours a diagram gives its links
+  (`linkStyle`, DOT `color`); other colours come from the theme's
   `diagram` rule. A long flow is cut into columns only between two boxes
-  joined by a single link, never inside a loop or a branch. A diagram that cannot be read shows the reason
-  in its place (DOT gives the line).
+  joined by a single link, never inside a loop or a branch. A diagram that
+  cannot be read is not drawn: its place shows the reason with the line
+  number, and the layout report flags it. A Mermaid flowchart is refused
+  where Mermaid refuses it (an unclosed `[`, a link that ends at no box).
 - Mermaid: `flowchart`/`graph` (TD, TB, BT, LR, RL; every node shape and
   link, `subgraph`, `classDef`/`class`/`style`), `sequenceDiagram`,
   `classDiagram`, `stateDiagram-v2`, `erDiagram`, `mindmap`, `timeline`,
   `journey`, `gantt`, `gitGraph`, `pie`, `quadrantChart`, `xychart`,
   `sankey`, `block`, `architecture`, `kanban`, `requirement`, `C4Context`,
-  `packet`, `radar-beta`, `treemap`. `click` and `linkStyle` are ignored;
-  a node id may not contain `-` or `.`.
+  `packet`, `radar-beta`, `treemap`. `linkStyle n` (or `default`) takes
+  `stroke`, `stroke-width` and `stroke-dasharray`; `click` is ignored. A
+  node id may contain `-` and `.`; `end` is a keyword, not an id. A
+  Markdown label `` "`**Bold** text`" `` is drawn as plain text without the
+  marks; `"**Bold**"` without the backticks keeps the asterisks, as in
+  Mermaid.
 
   ````markdown
   ```mermaid
@@ -578,8 +587,13 @@ place and size, the smallest text, and how much of the slide the elements
 cover. Lines marked ⚠ name what looks wrong: text under 20 px, elements on
 top of each other or past the slide's edge, a lone chart or picture on a
 mostly empty slide, a chart's or diagram's labels drawn over each other, a
-table column that wraps its cells. The report is cheap; compare it between
-versions.
+table column that wraps its cells, a diagram that could not be read. For a
+small diagram it names the side of its place that holds it ("its height
+holds it: it is drawn 292×662 px in a place 1704×697 px"). A diagram with a
+tour has a `tour:` line in the order the tour goes: stops joined by →, a
+branch's ways as ⟨name: stops | …⟩, `(back)` where a way returns to a
+branch already passed, • for a box with no words. The report is cheap;
+compare it between versions.
 
 The report measures; it does not see. Look at the slides themselves:
 
