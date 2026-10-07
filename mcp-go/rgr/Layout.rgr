@@ -177,6 +177,8 @@ class Layout {
         ; this slide's boxes only (every box once per slide was seconds for
         ; a 200-slide deck)
         def onPage:[int] (l.boxesOnPage(i))
+        ; a slide that goes on from the one before says its title again
+        def retold:boolean false
         def oi:int 0
         while (oi < (array_length onPage)) {
             def bi:int (itemAt onPage oi)
@@ -191,6 +193,9 @@ class Layout {
             ; its own, not part of that block's extent
             if ((key < 0) || b.retold) {
                 key = (0 - (bi + 2))
+            }
+            if b.retold {
+                retold = true
             }
             def at:int (indexOf keys key)
             if (at < 0) {
@@ -208,7 +213,20 @@ class Layout {
             }
             def blk:RBlock (itemAt blocks at)
             set blockOfBox bi at
-            if (b.kind == 3) {
+            ; a ```table or ```sheet is masked as a chart naming a file of
+            ; its own (PresTable): it is reported as the table it draws
+            def tu@(optional):PresTableUse (d.tableOf(b))
+            if (!null? tu) {
+                def tb:PresTableUse (unwrap tu)
+                blk.kind = "table"
+                blk.label = (Layout.baseName(tb.path))
+                blk.heads = tb.header
+            }
+            ; a chart not drawn (not JSON, no handler): why, as its box says
+            if (((b.kind == 3) && ((strlen b.embedNote) > 0)) && ((strlen blk.refused) == 0)) {
+                blk.refused = b.embedNote
+            }
+            if ((b.kind == 3) && (blk.kind != "table")) {
                 def word:string (MdEmbedKinds.firstWord(b.embedKind))
                 def nota:string (MdEmbedKinds.notationOf(word))
                 if (nota == "vega") {
@@ -223,15 +241,7 @@ class Layout {
                             blk.kind = "diagram"
                             blk.label = (MdEmbedKinds.notationWord(word))
                         } {
-                            def tu@(optional):PresTableUse (d.tableOf(b))
-                            if (!null? tu) {
-                                def tb:PresTableUse (unwrap tu)
-                                blk.kind = "table"
-                                blk.label = (Layout.baseName(tb.path))
-                                blk.heads = tb.header
-                            } {
-                                blk.kind = word
-                            }
+                            blk.kind = word
                         }
                     }
                 }
@@ -445,6 +455,18 @@ class Layout {
             merged = next
         }
         rs.blocks = merged
+        ; its title is the slide's it goes on from (the report said
+        ; `Slide 24:` and nothing)
+        if (retold && ((strlen rs.title) == 0)) {
+            def back:int (i - 1)
+            while ((back >= 0) && ((strlen rs.title) == 0)) {
+                def before:PresSlide (d.slideAt(back))
+                if ((strlen before.title) > 0) {
+                    rs.title = (before.title + " (continued)")
+                }
+                back = (back - 1)
+            }
+        }
         return rs
     }
 

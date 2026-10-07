@@ -62,6 +62,12 @@ class LowRun {
     def fixR:int 0
     def fixG:int 0
     def fixB:int 0
+    ; what it is drawn over where it reads worst (a heatmap's cell, a
+    ; bar), and whether it is a chart's or a diagram's own text
+    def bgR:int 0
+    def bgG:int 0
+    def bgB:int 0
+    def inDrawing:boolean false
 }
 
 class Contrast {
@@ -398,6 +404,7 @@ class Contrast {
         def lt:double (Contrast.lum(tr tg tb))
         def ratios:[double]
         def lbs:[double]
+        def bgs:[double]
         def j:int 0
         while (j < 3) {
             def py:double (c.y + (lineH * (0.3 + (0.2 * (to_double j)))))
@@ -416,6 +423,9 @@ class Contrast {
                     }
                     push ratios (Contrast.ratioOf(li lb))
                     push lbs lb
+                    push bgs br
+                    push bgs bgg
+                    push bgs bb
                 }
                 i = (i + 1)
             }
@@ -439,6 +449,21 @@ class Contrast {
         low.text = c.text
         low.ratio = at
         low.need = need
+        ; the backdrop at the sample that reads as the judged ratio
+        def bi:int 0
+        def bestD:double 1000.0
+        def q:int 0
+        while (q < (array_length ratios)) {
+            def dq:double (fabs ((itemAt ratios q) - at))
+            if (dq < bestD) {
+                bestD = dq
+                bi = q
+            }
+            q = (q + 1)
+        }
+        low.bgR = (floor ((itemAt bgs (bi * 3)) + 0.5))
+        low.bgG = (floor ((itemAt bgs ((bi * 3) + 1)) + 0.5))
+        low.bgB = (floor ((itemAt bgs ((bi * 3) + 2)) + 0.5))
         def fix:[int] (Contrast.readableColour(tr tg tb (Contrast.sorted(lbs)) need))
         low.fixR = (itemAt fix 0)
         low.fixG = (itemAt fix 1)
@@ -542,7 +567,7 @@ class Contrast {
     ; skip: the notes of blocks that were not drawn, which stand in their
     ; place and are not the author's text. quiet: per command, true for a
     ; run drawn dim on purpose (struck through), which is not judged
-    sfn lowRuns:[LowRun] (list:EVGDisplayList pics:[CheckPic] bgSrc:string dim:double skip:[string] quiet:[boolean]) {
+    sfn lowRuns:[LowRun] (list:EVGDisplayList pics:[CheckPic] bgSrc:string dim:double skip:[string] quiet:[boolean] drawn:[boolean]) {
         def out:[LowRun]
         def painted:[Painted]
         def paperR:double 255.0
@@ -566,6 +591,13 @@ class Contrast {
                     placeholder = (itemAt quiet i)
                 }
                 def own:string (trim c.text)
+                ; a line cut to its box ends in "…", which the note does not
+                def cut:int ((strlen own) - (strlen "…"))
+                if (cut > 0) {
+                    if ((indexOf own "…") == cut) {
+                        own = (substring own 0 cut)
+                    }
+                }
                 for skip note:string si {
                     if ((indexOf note own) >= 0) {
                         placeholder = true
@@ -576,6 +608,9 @@ class Contrast {
                 if (((array_length painted) > 0) && ((placeholder == false) && (c.a > 0.0))) {
                     def low:LowRun (Contrast.judge(c painted))
                     if low.low {
+                        if (i < (array_length drawn)) {
+                            low.inDrawing = (itemAt drawn i)
+                        }
                         push out low
                     }
                 }
@@ -652,11 +687,40 @@ class Contrast {
 
     ; the note for one slide: its runs that fall short, the worst first, and
     ; what would fix them
-    sfn note:string (title:string page:int low:[LowRun] hasBg:boolean dimFix:double) {
-        def where:string ("Slide " + (to_string (page + 1)))
-        if ((strlen title) > 0) {
-            where = ("Slide \"" + title + "\"")
+    ; The notes for one slide: the slide's own text, and the text of its
+    ; charts and diagrams apart — a chart's label over a light heatmap cell
+    ; is fixed in the chart, not in the deck's css.
+    sfn notes:[string] (title:string page:int low:[LowRun] hasBg:boolean dimFix:double) {
+        def out:[string]
+        def own:[LowRun]
+        def drawn:[LowRun]
+        for low r:LowRun i {
+            if r.inDrawing {
+                push drawn r
+            } {
+                push own r
+            }
         }
+        if ((array_length own) > 0) {
+            push out (Contrast.note(title page own hasBg dimFix))
+        }
+        if ((array_length drawn) > 0) {
+            push out (Contrast.drawingNote(title page drawn))
+        }
+        return out
+    }
+
+    ; the slide as a note names it
+    sfn place:string (title:string page:int) {
+        if ((strlen title) > 0) {
+            return ("Slide \"" + title + "\"")
+        }
+        return ("Slide " + (to_string (page + 1)))
+    }
+
+    ; the runs of `low`, one per text, the worst first and words before
+    ; a list's numbers
+    sfn worstFirst:[LowRun] (low:[LowRun]) {
         def worst:[LowRun]
         def seen:[string]
         for low r:LowRun i {
@@ -671,7 +735,6 @@ class Contrast {
             }
             insert worst at r
         }
-        ; a list's number says less than the line after it: words first
         def words:[LowRun]
         for worst wr:LowRun wi {
             if ((strlen (trim wr.text)) >= 4) {
@@ -683,7 +746,50 @@ class Contrast {
                 push words mr
             }
         }
-        worst = words
+        return words
+    }
+
+    ; "\"75\" 1.1:1 on #f7fcb9 (needs 4.5:1), …and 3 more lines"
+    sfn listed:string (worst:[LowRun] withBg:boolean) {
+        def s:string ""
+        def shown:int 0
+        for worst w:LowRun k {
+            if (shown == 3) {
+                break
+            }
+            if (shown > 0) {
+                s = (s + ", ")
+            }
+            s = (s + (Contrast.quote(w.text)) + " " + (Contrast.one(w.ratio)) + ":1")
+            if withBg {
+                s = (s + " on " + (Contrast.hex(w.bgR w.bgG w.bgB)))
+            }
+            s = (s + " (needs " + (Contrast.one(w.need)) + ":1)")
+            shown = (shown + 1)
+        }
+        def more:int ((array_length worst) - shown)
+        if (more == 1) {
+            s = (s + " and 1 more")
+        }
+        if (more > 1) {
+            s = (s + " and " + (to_string more) + " more")
+        }
+        return s
+    }
+
+    ; A chart's or a diagram's own text over its own marks: what it is
+    ; drawn on is named (a cell, a bar), and the fix is the chart's.
+    sfn drawingNote:string (title:string page:int low:[LowRun]) {
+        def worst:[LowRun] (Contrast.worstFirst(low))
+        def s:string ((Contrast.place(title page)) + ": text in a chart or diagram is hard to read over the colour it is drawn on: " + (Contrast.listed(worst true)))
+        def first:LowRun (itemAt worst 0)
+        def colour:string (Contrast.hex(first.fixR first.fixG first.fixB))
+        return (s + ". Fix it in the chart: a text colour that reads on that fill, such as " + colour + " (one by condition when the fills go from light to dark), or labels outside the marks.")
+    }
+
+    sfn note:string (title:string page:int low:[LowRun] hasBg:boolean dimFix:double) {
+        def where:string (Contrast.place(title page))
+        def worst:[LowRun] (Contrast.worstFirst(low))
         def over:string "the slide's background"
         if hasBg {
             over = "the background picture"
