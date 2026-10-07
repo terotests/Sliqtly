@@ -7,6 +7,7 @@
 
 Import "../presentation/PresDeck.rgr"
 Import "Report.rgr"
+Import "WebPictures.rgr"
 
 class Layout {
     ; the deck must be laid out (setText) and `still` set
@@ -163,6 +164,23 @@ class Layout {
         ; a portrait page whose sections do not break it (split-level 1:
         ; `##` runs on) is a document page, not a slide
         rs.page = ((d.pageH > d.pageW) && (l.splitLevel <= 1))
+        ; a picture the slide's source takes from the web is not drawn: a
+        ; slide shows only pictures kept with the deck
+        def srcTo:int (strlen md)
+        def ni:int (i + 1)
+        while (ni < (d.slideCount())) {
+            def nx:PresSlide (d.slideAt(ni))
+            if (nx.srcStart > ps.srcStart) {
+                srcTo = nx.srcStart
+                ni = (d.slideCount())
+            }
+            ni = (ni + 1)
+        }
+        if ((ps.srcStart >= 0) && (srcTo > ps.srcStart)) {
+            for (WebPictures.find((substring md ps.srcStart srcTo))) wp:WebPic wpi {
+                push rs.notes ("picture " + wp.url + " is at a web address, not kept with the deck, so it is not drawn. Send the Markdown again with update_presentation (signed in) and Sliqtly fetches it into media/, or send it in images.")
+            }
+        }
         def groups:[int]
         def list:EVGDisplayList (d.slideList(i groups 0.0))
         def owner:[int] d.boxOfCmd

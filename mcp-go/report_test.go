@@ -255,9 +255,9 @@ func TestLayoutReportAndRender(t *testing.T) {
 	match(t, text, `⚠ chart \(Vega-Lite\): \d+ pairs of labels drawn over each other, e\.g\. "Month number 1"/"Month number 2"`)
 	// the chart read the data file: it drew its three bars' labels
 	match(t, text, `Slide 3 "From a file".*\n- heading "From a file".*\n- chart \(Vega-Lite\) at \d+,\d+ size \d+×\d+: \d+ labels`)
-	// a line of text at the top of an empty slide is flagged too
-	match(t, text, `Slide 4 "Plain".*\n.*\n.*\n  ⚠ The lower \d+% of the slide is empty \(the elements cover \d+%\)\.`)
-	match(t, text, `Look at slides 2, 4 with render_slide`)
+	// a line of text at the top of a slide is how a text slide looks
+	nomatch(t, text, `Slide 4 "Plain".*\n.*\n.*\n  ⚠ The lower`)
+	match(t, text, `Look at slides 2 with render_slide`)
 	lay := list(sc(c)["layout"])
 	eq(t, len(lay), 4)
 	eq(t, mapOf(lay[1])["slide"], float64(2))
@@ -554,9 +554,10 @@ func TestReportChartFindings(t *testing.T) {
 	match(t, text, `text in a chart or diagram is hard to read over the colour it is drawn on: "\d+" [\d.]+:1 on #f4f4a0`)
 }
 
-// Few elements stacked at the top of a slide: the empty room under them is
-// flagged on any slide (not only one with a picture), but not on the deck's
-// title slide nor on content set in the middle.
+// Elements stacked at the top of a slide with a chart or picture in them:
+// the empty room under them is flagged. Not on a slide of text alone (a
+// title and a few points, a section or closing slide), not for a logo, and
+// not for content set in the middle (valign=center).
 func TestReportSparseSlide(t *testing.T) {
 	h := block("heading", "Title", 54, 64, 852, 40)
 	h.runs = append(h.runs, run("Title", 54, 64, 200, 30, 30, 0))
@@ -564,21 +565,30 @@ func TestReportSparseSlide(t *testing.T) {
 	l.runs = append(l.runs, run("First point", 90, 120, 200, 24, 24, 0))
 	s := slideOf(h, l)
 	s.index = 3
-	if f := flagsOf(s); !strings.Contains(f, "is empty (the elements cover") {
-		t.Fatalf("a list at the top of an empty slide: %q", f)
-	}
-	s.index = 0
 	if f := flagsOf(s); strings.Contains(f, "is empty") {
-		t.Fatalf("the title slide: %q", f)
+		t.Fatalf("a short list is how a slide of text looks: %q", f)
 	}
-	// the same set in the middle (valign=center, layout=section)
-	mh := block("heading", "Title", 54, 200, 852, 40)
-	mh.runs = append(mh.runs, run("Title", 54, 200, 200, 30, 30, 0))
-	ml := block("list", "", 64, 256, 400, 90)
-	ml.runs = append(ml.runs, run("First point", 90, 256, 200, 24, 24, 0))
-	m := slideOf(mh, ml)
+	pic := block("picture", "kuva.svg", 480, 120, 400, 110)
+	p := slideOf(h, l, pic)
+	p.index = 3
+	if f := flagsOf(p); !strings.Contains(f, "is empty (the elements cover") {
+		t.Fatalf("a picture and a list at the top of an empty slide: %q", f)
+	}
+	logo := block("picture", "logo.svg", 860, 64, 40, 40)
+	g := slideOf(h, l, logo)
+	g.index = 3
+	if f := flagsOf(g); strings.Contains(f, "lower") {
+		t.Fatalf("a logo is not room to give: %q", f)
+	}
+	// the same set in the middle (valign=center)
+	mh := block("heading", "Title", 54, 64, 852, 40)
+	mh.runs = append(mh.runs, run("Title", 54, 64, 200, 30, 30, 0))
+	ml := block("list", "", 64, 265, 400, 90)
+	ml.runs = append(ml.runs, run("First point", 90, 265, 200, 24, 24, 0))
+	mp := block("picture", "kuva.svg", 480, 265, 400, 110)
+	m := slideOf(mh, ml, mp)
 	m.index = 3
-	if f := flagsOf(m); strings.Contains(f, "is empty") {
+	if f := flagsOf(m); strings.Contains(f, "lower") {
 		t.Fatalf("centred: %q", f)
 	}
 }
