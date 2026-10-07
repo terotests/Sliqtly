@@ -52,6 +52,8 @@ func TestLocalGuard(t *testing.T) {
 	id := regexpFind(t, body, `"id":"([A-Za-z0-9]+)"`)
 	code, _, _ = do(t, "PUT", srv.URL+"/api/files/shares/"+id+"/media/x.svg", "", "", "image/svg+xml", `<svg xmlns="http://www.w3.org/2000/svg"><script>fetch("/api/shares")</script></svg>`)
 	eq(t, code, 200)
+	code, _ = req(t, "PUT", srv.URL+"/api/settings/listing", "application/json", `{"enabled":true}`)
+	eq(t, code, 200)
 
 	// DNS rebinding: a name that is not this server's is answered by nothing
 	for _, p := range []string{"/api/shares", "/mcp", "/", "/api/settings/network"} {
@@ -78,6 +80,8 @@ func TestLocalGuard(t *testing.T) {
 		{"OPTIONS", "/mcp", "", "", 403},
 		{"POST", "/mcp", "application/json", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, 403},
 		{"PUT", "/api/settings/network", "application/json", `{"access":"network"}`, 403},
+		{"PUT", "/api/settings/listing", "application/json", `{"enabled":true}`, 403},
+		{"GET", "/decks", "", "", 403},
 		{"GET", "/api/events", "", "", 403},
 		{"GET", "/api/shares/" + id, "", "", 200},
 		{"GET", "/api/status", "", "", 200},

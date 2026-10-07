@@ -388,6 +388,13 @@ func match(t *testing.T, s, re string) {
 	}
 }
 
+func notMatch(t *testing.T, s, re string) {
+	t.Helper()
+	if regexp.MustCompile(re).MatchString(s) {
+		t.Fatalf("%q matches %s", s, re)
+	}
+}
+
 // --- the cases
 
 func TestToolsUIMetadataAndPreview(t *testing.T) {
