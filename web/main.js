@@ -1160,7 +1160,11 @@ let roomsQuery = null;
 // a room made, renamed, archived or removed, or a deck moved, by anyone:
 // the server says so on the page's stream, and the list is read again
 window.addEventListener("sliqtly:chat", (ev) => {
-  if ((ev.detail?.t === "rooms" || ev.detail?.t === "reopen") && ownServer()) roomsRequest("room:list").then(() => { needsPaint = true; }, () => {});
+  if ((ev.detail?.t === "rooms" || ev.detail?.t === "reopen") && ownServer()) {
+    roomsRequest("room:list").then(() => { needsPaint = true; }, () => {});
+    // an open Document settings window shows the deck's room as it is now
+    if (app.chartIsOpen()) docRooms().catch(() => {});
+  }
 });
 async function roomsRequest(r) {
   const [, action, ...rest] = r.split(":");

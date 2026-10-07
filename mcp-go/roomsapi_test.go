@@ -44,7 +44,9 @@ func TestRoomTools(t *testing.T) {
 
 	// a room for a ticket, a deck moved into it
 	room := ok("create_room", map[string]any{"title": "PAY-817 payments", "kind": "ticket"})["room_id"].(string)
-	ok("move_presentation", map[string]any{"deck_id": a, "room_id": room})
+	mv := ok("move_presentation", map[string]any{"deck_id": a, "room_id": room})
+	eq(t, []any{mv["from_room_id"], mv["room"], mv["moved"]}, []any{"general", "PAY-817 payments", true})
+	eq(t, ok("move_presentation", map[string]any{"deck_id": a, "room_id": room})["moved"], false)
 	g := ok("get_room", map[string]any{"room_id": room})
 	eq(t, mapOf(g["room"])["kind"], "ticket")
 	decks := list(g["presentations"])
