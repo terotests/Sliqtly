@@ -3381,6 +3381,58 @@ class PresCheck {
         this.ok(((w.gliding()) == false) "scroll: a wheel notch does not glide")
     }
 
+    ; Tero's flowchart test deck (2026-10-07): a line's kind is drawn in the
+    ; slide's own look, linkStyle colours a line, and the tour can be read
+    ; as text in the order it goes.
+    fn flowchartFindings:void () {
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Viivat\n\n```mermaid\nflowchart LR\n"
+            + "  A[Lähde] -.-> B[Kohde]\n  A ==> C[Kolmas]\n  A --o D[Ympyrä]\n  B <--> C\n"
+            + "  linkStyle 1 stroke:#ff0000\n```\n\n"
+            + "## Kierros\n\n```mermaid\nflowchart TD\n  S([Alku]) --> V{Varastossa?}\n"
+            + "  V -->|kyllä| K[Kerää]\n  V -->|ei| T[Tilaa]\n  T --> V\n```\n{tour=on}\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def s0:PresSlide (deck.slideAt(0))
+        if ((array_length s0.diagrams) == 0) {
+            this.ok(false "findings: the link-kind diagram is there")
+            return
+        }
+        def u0:PresDiaUse (itemAt s0.diagrams 0)
+        def dashed:int 0
+        def heavy:int 0
+        def circle:int 0
+        def both:int 0
+        def red:int 0
+        def i:int 0
+        while (i < (array_length u0.diagram.edges)) {
+            def e:PresDEdge (itemAt u0.diagram.edges i)
+            if e.dashed { dashed = (dashed + 1) }
+            if (e.weight > 1.5) { heavy = (heavy + 1) }
+            if (e.head == "circle") { circle = (circle + 1) }
+            if ((strlen e.tail) > 0) { both = (both + 1) }
+            if (e.own && (e.ownR == 255) && (e.ownG == 0)) { red = (red + 1) }
+            i = (i + 1)
+        }
+        this.ok((dashed == 1) ("findings: -.-> is dashed in the default look: " + (to_string dashed)))
+        this.ok((heavy == 1) ("findings: ==> is drawn heavier: " + (to_string heavy)))
+        this.ok((circle == 1) ("findings: --o ends in a circle: " + (to_string circle)))
+        this.ok((both == 1) ("findings: <--> has a mark at its start too: " + (to_string both)))
+        this.ok((red == 1) ("findings: linkStyle 1 colours that one line: " + (to_string red)))
+        this.ok(((u0.diagram.fitLimit(200.0 200.0)) == "width") ("findings: a wide flow in a small square place is held by its width: " + (u0.diagram.fitLimit(200.0 200.0))))
+        this.ok(((u0.diagram.fitLimit(20000.0 20000.0)) == "scale") ("findings: in a huge place, by how far it may grow: " + (u0.diagram.fitLimit(20000.0 20000.0))))
+        def s1:PresSlide (deck.slideAt(1))
+        if ((array_length s1.diagrams) == 0) {
+            this.ok(false "findings: the tour diagram is there")
+            return
+        }
+        def u1:PresDiaUse (itemAt s1.diagrams 0)
+        def tour:string (u1.diagram.tourText())
+        this.ok(((tour.indexOf("Alku → Varastossa? ⟨")) == 0) ("findings: the tour starts at the start: " + tour))
+        this.ok(((tour.indexOf("kyllä: Kerää")) > 0) ("findings: a branch's way names its stops after the branch: " + tour))
+        this.ok(((tour.indexOf("ei: Tilaa → Varastossa? (back)")) > 0) ("findings: a loop ends at the branch it came from: " + tour))
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -3404,6 +3456,7 @@ class PresCheck {
         c.gridModel()
         c.controlsFade()
         c.zoomMenu()
+        c.flowchartFindings()
         c.roundNodes()
         c.chainRows()
         c.followEdits()
