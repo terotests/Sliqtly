@@ -118,6 +118,9 @@ class PresFonts {
             }
             def chosen:string ""
             def keep:boolean false
+            ; a name we lack is said only when nothing after it in the list
+            ; is had either: `Georgia, serif` is set in the serif, as asked
+            def missing:[string]
             def names:[string] (strsplit value ",")
             for names nm:string ni {
                 if (((strlen chosen) > 0) || keep) {
@@ -131,9 +134,16 @@ class PresFonts {
                         keep = true
                     } {
                         def shown:string (PresFonts.unquote(nm))
-                        if (((strlen shown) > 0) && ((indexOf out.unknown shown) < 0)) {
-                            push out.unknown shown
+                        if ((strlen shown) > 0) {
+                            push missing shown
                         }
+                    }
+                }
+            }
+            if (((strlen chosen) == 0) && (keep == false)) {
+                for missing ms:string mi {
+                    if ((indexOf out.unknown ms) < 0) {
+                        push out.unknown ms
                     }
                 }
             }

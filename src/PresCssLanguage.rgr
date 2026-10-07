@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ==============================================================================
-; PresCssLanguage.rgr — colours for the theme tab
+; PresCssLanguage.rgr — colours and notes for the theme tab
 ; ==============================================================================
 ;
 ; The theme editor is the same ScriptEditor as the markdown one; all it needs
@@ -12,6 +12,7 @@
 ; ==============================================================================
 
 Import "../datagrid/src/script/lang/EditorLanguage.rgr"
+Import "PresCssSupport.rgr"
 
 class PresCssLanguage {
     Extends(EditorLanguage)
@@ -33,6 +34,18 @@ class PresCssLanguage {
             return false
         }
         return ((substring name (n - 4) n) == ".css")
+    }
+
+    ; A line the slides will not use — an unsupported property, a selector
+    ; the sheet cannot match, `color: ;` — is marked where it is written
+    ; (PresCssSupport). Cheap enough for every keystroke: one pass over the
+    ; text, no layout.
+    fn diagnose:[EditorDiagnostic] (source:string) {
+        return (PresCssSupport.diagnostics(source))
+    }
+
+    fn quickDiagnose:[EditorDiagnostic] (lines:[string]) {
+        return (PresCssSupport.diagnostics((join lines "\n")))
     }
 
     fn tokenize:[CodeTokenLine] (lines:[string]) {

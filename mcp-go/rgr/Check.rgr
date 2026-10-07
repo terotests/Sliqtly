@@ -248,6 +248,11 @@ class Check {
             if ((strlen d.fontNote) > 0) {
                 push c.warnings (Guide.see(d.fontNote "css"))
             }
+            ; every line of the sheet the slides do not use, and why
+            d.lintCss(din.css)
+            for d.cssNotes cn:string cni {
+                push c.warnings (Guide.see(cn "css"))
+            }
         }
         for din.pics pic:CheckPic pi {
             def data:buffer (itemAt din.data pi)
