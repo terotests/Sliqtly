@@ -140,6 +140,36 @@ try {
   if (!(await page.evaluate(() => document.getElementById("vMenu").hidden))) fail("the Export menu stayed open");
   await page.close();
 
+  // on a phone: two fingers spread zoom the slide in (and go to no other
+  // slide), pinched back it fits again, and a swipe goes on
+  const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+  page = await phone.newPage();
+  page.on("pageerror", (e) => fail(`phone: ${e.message}`));
+  await page.goto(base + "/s/" + ID, { waitUntil: "load" });
+  await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
+  await page.waitForTimeout(300);
+  const cdp = await phone.newCDPSession(page);
+  const touch = (type, points) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points.map(([x, y], id) => ({ x, y, id })) });
+  async function fingers(from, to) {
+    await touch("touchStart", from);
+    for (let i = 1; i <= 8; i++) {
+      await touch("touchMove", from.map(([x, y], k) => [x + ((to[k][0] - x) * i) / 8, y + ((to[k][1] - y) * i) / 8]));
+      await page.waitForTimeout(16);
+    }
+    await touch("touchEnd", []);
+    await page.waitForTimeout(150);
+  }
+  const look = () => page.evaluate(() => document.getElementById("c").toDataURL());
+  const fitted = await look();
+  await fingers([[175, 422], [215, 422]], [[95, 422], [295, 422]]);
+  if ((await look()) === fitted) fail("a pinch on a phone did not zoom the slide");
+  if ((await text(page, "vCount")) !== `1 / ${slides}`) fail("a pinch went to another slide");
+  await fingers([[95, 422], [295, 422]], [[175, 422], [215, 422]]);
+  if ((await look()) !== fitted) fail("pinched back, the slide does not fit the window again");
+  await fingers([[300, 422]], [[100, 422]]);
+  if ((await text(page, "vCount")) !== `2 / ${slides}`) fail("a swipe on a phone did not go to slide 2");
+  await phone.close();
+
   // the slide a link names
   page = await open("/s/" + ID + "#slide=3");
   await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
@@ -183,4 +213,4 @@ if (failures.length) {
   for (const f of failures) log(`FAIL ${f}`);
   process.exit(1);
 }
-log(`view   web/dist-view: ${slides} slides painted, keys, links, Export, 404 and the front page`);
+log(`view   web/dist-view: ${slides} slides painted, keys, a pinch and a swipe, links, Export, 404 and the front page`);

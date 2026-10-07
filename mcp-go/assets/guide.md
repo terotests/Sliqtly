@@ -83,9 +83,12 @@ per slide, in order.
   ```stats
   - 91: customers
   - 50 292: transactions in all
-  - 552,66: mean per customer
+  - 553: mean per customer
   ```
   ````
+
+  Round a key figure to what a listener remembers: `553`, not `552,66`;
+  `41 %`, not `41,2 %`. Keep decimals only where they are the point.
 - **One palette for the whole deck.** Leave chart colours to the theme:
   a one-series chart is drawn in the theme's chart colour and a chart
   coloured by category in the theme's palette (chart colour first), the
@@ -93,7 +96,10 @@ per slide, in order.
   chart. To make a point, colour the few marks that matter and leave the
   rest in the second colour: colour by a computed field
   (`"calculate": "datum.rank <= 4 ? 'Top 4' : 'Others'"`) with
-  `"legend": null`. Every theme has such a palette, `corporate` too (dark
+  `"legend": null` and the group to stress first in the colour's
+  `"sort": ["Top 4", "Others"]`: without it the groups are taken in
+  alphabetical order, and with `lang: fi` "Muut" comes before "Top 4"
+  and gets the first colour. Every theme has such a palette, `corporate` too (dark
   blue, then a light grey-blue), and the ```` ```stats ```` cards and side
   cards take the same colours.
 - **Many categories: horizontal bars.** Over about 12 bars, put the
@@ -106,9 +112,9 @@ per slide, in order.
   sets it on a card (on a dark theme `#ffffff14`); its text stays the
   theme's. A line under a full-width chart (a source, a note) stays on the
   chart's slide.
-- **Tables** span the slide. One of ten or more rows reads better a little
-  smaller than the body text: `table { font-size: 13pt }` in `css` (the
-  body is 15pt in `corporate`, 20pt in the dark themes).
+- **Tables** span the slide. Leave their font size to the theme: a table
+  that runs a few rows over its slide is set smaller by itself (its title
+  and lead stay as they are), so ten rows under a lead fit one slide.
 - **Numbers in the deck's language.** `lang: fi` in the front matter (or
   `sv`, `de`, `fr`…) writes every chart's numbers that language's way
   (`50 292`, `552,66`), axes, value labels and tooltips alike, with no
@@ -371,9 +377,19 @@ pictures under 300 dpi in print ("media/sauna.jpg: 180 dpi in print, under
   `git diff` output as it is; keep a slide to one hunk of about 15 lines.
 - Math: `$…$` inline, `$$…$$` as a display, or a ```` ```math ```` fence (TeX).
 - Tables: ordinary Markdown tables, or HTML `<table>` with `rowspan`/`colspan`.
+  Cells coloured by their text, for a risk or status table: under the table
+  `{cells="Suuri=red Korkea=red Keskisuuri=amber Matala=green"}` (the whole
+  cell's text, any case; tones `red`, `amber`, `green`, `blue`, `grey` or a
+  colour). A matched cell gets a muted tint of the tone and bold, readable
+  text, in the PDF, PowerPoint, Word and HTML too. For every table of a
+  deck: `table { cell-tones: "Done=green Late=red" }` in `css`.
 - Layouts from lists: a ```` ```process ```` fence (chevron steps),
   ```` ```swot ```` (a 2×2 grid of four items: Strengths, Weaknesses,
-  Opportunities, Threats), ```` ```timeline ```` or ```` ```stats ````
+  Opportunities, Threats), ```` ```timeline ```` (round badges on a line,
+  a card under each; a title starting with a short token such as
+  `Q1 Kickoff:` or `2027 Launch:` puts the token in the badge, otherwise
+  the badges are numbered), ```` ```cards ```` (numbered cards in a row,
+  for recommendations or decisions: 3–4 items) or ```` ```stats ````
   (key figures as cards, `Number: label`), one item per
   line as `Title: description`; an indented `- point` belongs to the item
   above. `{width=60%}` under the fence makes it narrower. They are drawn in

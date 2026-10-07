@@ -1,7 +1,7 @@
 // node --test: the public viewer's addresses and keys (web/viewlink.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { linkOf, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, slideForKey, fitSlide } from "../viewlink.js";
+import { linkOf, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, slideForKey, fitSlide, pinchView, panView, isZoomed } from "../viewlink.js";
 
 test("/s/{id} is a shared presentation, its picked slides and the slide shown", () => {
   assert.deepEqual(linkOf("/s/AbCdEf1234", "", ""), { id: "AbCdEf1234", slides: "", slide: 0 });
@@ -60,4 +60,29 @@ test("the slide fits the window, centred", () => {
   const tall = fitSlide(400, 800, 960, 540);
   assert.equal(tall.x, 0);
   assert.ok(Math.abs(tall.y - (800 - 540 * tall.scale) / 2) < 1e-9);
+});
+
+test("a pinch zooms about the fingers, between the fitted slide and six times it", () => {
+  const fit = fitSlide(400, 800, 960, 540);
+  // spread to twice apart about the slide's middle: twice the size, the middle kept
+  const z = pinchView(fit, 400, 800, 960, 540, 2, 200, 400, 0, 0);
+  assert.ok(Math.abs(z.scale - fit.scale * 2) < 1e-9);
+  assert.ok(Math.abs(z.x - (200 - 480 * z.scale)) < 1e-9);
+  assert.ok(isZoomed(z, 400, 800, 960, 540));
+  // the fingers moved together: the slide goes with them
+  const moved = pinchView(z, 400, 800, 960, 540, 1, 230, 400, 30, 0);
+  assert.ok(Math.abs(moved.x - (z.x + 30)) < 1e-9);
+  assert.equal(pinchView(z, 400, 800, 960, 540, 100, 200, 400, 0, 0).scale, fit.scale * 6);
+  // pinched in past the fitted size: fitted, not smaller
+  assert.deepEqual(pinchView(z, 400, 800, 960, 540, 0.1, 200, 400, 0, 0), fit);
+  assert.ok(!isZoomed(fit, 400, 800, 960, 540));
+  assert.ok(!isZoomed(null, 400, 800, 960, 540));
+});
+
+test("a zoomed slide is dragged no further than its edges", () => {
+  const z = pinchView(fitSlide(400, 800, 960, 540), 400, 800, 960, 540, 3, 200, 400, 0, 0);
+  assert.equal(panView(z, 400, 800, 960, 540, 5000, 0).x, 0);
+  assert.equal(panView(z, 400, 800, 960, 540, -5000, 0).x, 400 - 960 * z.scale);
+  // shorter than the window: it stays centred up and down
+  assert.equal(panView(z, 400, 800, 960, 540, 0, 300).y, (800 - 540 * z.scale) / 2);
 });
