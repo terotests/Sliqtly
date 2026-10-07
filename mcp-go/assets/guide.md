@@ -371,7 +371,7 @@ editable shapes. One item per line as `Title: description`; an indented
 
 A SmartArt data model (`dgm:dataModel`, as in a .pptx's
 `ppt/diagrams/data1.xml`), sent in `images` as `name: "steps.xml"` with the
-XML in `text`, drawn as a picture: `![The process](media/steps.xml)`. A
+XML as it is in `text` (or base64 in `data_base64`), drawn as a picture: `![The process](media/steps.xml)`. A
 link, `[…](media/steps.xml)`, shows only its text. Options on the line
 under it: `{layout=chevron1 colors=colorful1 style=simple2 width=80%}`.
 
@@ -393,25 +393,42 @@ sub-item connects to its item.
 </dgm:dataModel>
 ```
 
-| Layout | Items |
-|---|---|
-| `process1`, `chevron1`, `hProcess9`, `arrow2`, `default` | a flat list of steps |
-| `funnel1`, `pyramid1` (first = apex), `cycle2`, `cycle4` (four) | a flat list |
-| `venn1`, `target1`, `gear1` (up to three) | a flat list of about three |
-| `vList2`, `hList1`, `lProcess2`, `bList2` | items with sub-items |
-| `radial1` | one centre item with the others under it |
-| `matrix1` | four quadrants |
-| `hierarchy1`, `orgChart1` | a tree; `type="asst"` marks an assistant in `orgChart1` |
+Layouts drawn, with the items each expects (an item is a point connected
+to the document; a sub-item is connected to an item):
 
-Another layout id is drawn as `default` and the result says so; items a
-layout cannot show are named in the warnings. Colours: `accent0_1` …
+| Layout | Draws | Items |
+| --- | --- | --- |
+| `process1` | steps with arrows | any; sub-items under their step |
+| `chevron1` | chevron steps | any |
+| `hProcess9` | blocks along one wide arrow | any |
+| `default` | blocks in rows that wrap | any |
+| `vList2` | a bar per item, sub-items as bullets under it | any |
+| `hList1` | a column per item, sub-items under its heading | any |
+| `lProcess2` | a column per item, sub-items as blocks in it | any |
+| `bList2` | blocks in rows (PowerPoint's pictures are not drawn) | any |
+| `cycle2` | items on a circle, arrows round it | any |
+| `cycle4` | quarters of one circle | 4 at most |
+| `radial1` | one item in the middle, its sub-items round it | 1 item with sub-items |
+| `venn1` | overlapping circles | any |
+| `target1` | nested rings, the first outermost | 5 at most |
+| `pyramid1` | a triangle cut into levels, the first at the apex | any |
+| `funnel1` | items poured into a funnel, the last comes out | any |
+| `gear1` | meshing gears | 3 at most |
+| `arrow2` | points on a rising arrow, each named under it | 5 at most |
+| `matrix1` | four quadrants | 4 items, or 1 item (the title, in the middle) with 4 sub-items |
+| `hierarchy1`, `orgChart1` | a tree, each item over the items under it | 1 top item; in `orgChart1` a point with `type="asst"` is an assistant |
+
+Items a layout has no place for are not drawn, and the result names them.
+Another layout id is drawn as `default` and the result says so. Colours: `accent0_1` …
 `accent6_5` (one theme colour), `colorful1` … `colorful5` (cycling
-accents). Styles: `simple1` … `simple5` (thicker outlines, then shadows).
+accents). Styles: `simple1` (the default), `simple2` (a thicker outline), `simple3` …
+`simple5` (a shadow, larger with each; on a dark theme cast in the theme's
+ink).
 
 A diagram with nothing beside it and no `width=`/`height=` is laid out
 across the content width, and a row of steps that would be a thin strip
 wraps into rows; `width=` keeps it in its own box. Text that would not read
-on its fill is set in the theme's paper or ink colour.
+on what is under it is set in the theme's paper or ink colour.
 
 A SmartArt saved by PowerPoint (a Flat OPC `pkg:package` holding its data,
 layout, style, colours and drawing) is drawn as PowerPoint drew it, or
@@ -424,7 +441,7 @@ can edit.
 
 - `![alt](media/name)`, `{width=40%}` under it. Pass the picture in the
   call's `images` with the same `name`: a public `https` URL, base64 data,
-  or an SVG's source as `text`. PNG, JPEG, GIF, WebP, SVG up to 5 MB each,
+  or an SVG's (or a SmartArt file's) source as `text`. PNG, JPEG, GIF, WebP, SVG up to 5 MB each,
   at most 20 pictures in one call (send more with `update_presentation`).
 - A picture written with a web address (`![Logo](https://…/logo.png)`, or
   `![Logo][id]` with `[id]: https://…`) is fetched into `media/` when the

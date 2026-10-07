@@ -23,7 +23,8 @@ class CheckPic {
 ; something painted, as far as the judge needs to know
 class Painted {
     ; 0 a fill, 1 a picture, 2 something whose colour is not known here
-    ; (an effect, a vector shape, a picture that did not decode)
+    ; (an effect, a vector shape with a gradient, a picture that did not
+    ; decode), 3 a vector shape filled in one colour
     def t:int 0
     def x:double 0.0
     def y:double 0.0
@@ -44,6 +45,10 @@ class Painted {
     def u1:double 1.0
     def v1:double 1.0
     def grid:[int]
+    ; a filled vector shape (t 3): its rings, as the draw command has them
+    def pts:[double]
+    def ringEnds:[int]
+    def evenOdd:boolean false
 }
 
 ; one run of text that falls short
@@ -126,9 +131,21 @@ class Contrast {
             return p
         }
         if ((c.kind == 6) && ((array_length c.pts) >= 2)) {
-            ; a vector shape: its box is not its ink, so what is in the box
-            ; is not known
+            ; a vector shape: its box is not its ink. One filled in a plain
+            ; colour is judged by its outline (a SmartArt arrow, a diagram's
+            ; circle: the text beside it is on the slide, the text on it on
+            ; its colour); anything else in its box is not known
             p.t = 2
+            if (c.hasGrad == false) {
+                p.t = 3
+                p.r = (to_double c.r)
+                p.g = (to_double c.g)
+                p.b = (to_double c.b)
+                p.a = c.a
+                p.pts = c.pts
+                p.ringEnds = c.ringEnds
+                p.evenOdd = c.evenOdd
+            }
             def x0:double (itemAt c.pts 0)
             def y0:double (itemAt c.pts 1)
             def x1:double x0
@@ -220,7 +237,10 @@ class Contrast {
                 known = true
                 continue
             }
-            if (e.t == 0) {
+            if ((e.t == 3) && ((Contrast.inShape(e px py)) == false)) {
+                continue
+            }
+            if ((e.t == 0) || (e.t == 3)) {
                 def fr:double e.r
                 def fg:double e.g
                 def fb:double e.b
@@ -264,6 +284,53 @@ class Contrast {
             push col cb
         }
         return col
+    }
+
+    ; Is (px, py) inside a filled vector shape: its rings, even-odd or
+    ; non-zero as it is filled.
+    sfn inShape:boolean (e:Painted px:double py:double) {
+        def winding:int 0
+        def crossings:int 0
+        def start:int 0
+        def ri:int 0
+        def nr:int (array_length e.ringEnds)
+        if (nr == 0) {
+            push e.ringEnds (array_length e.pts)
+            nr = 1
+        }
+        while (ri < nr) {
+            def stop:int (itemAt e.ringEnds ri)
+            def n:int (idiv (stop - start) 2)
+            if (n >= 3) {
+                def j:int (n - 1)
+                def i:int 0
+                while (i < n) {
+                    def xi:double (itemAt e.pts (start + (i * 2)))
+                    def yi:double (itemAt e.pts ((start + (i * 2)) + 1))
+                    def xj:double (itemAt e.pts (start + (j * 2)))
+                    def yj:double (itemAt e.pts ((start + (j * 2)) + 1))
+                    if ((yi > py) != (yj > py)) {
+                        def xc:double (xi + (((py - yi) / (yj - yi)) * (xj - xi)))
+                        if (px < xc) {
+                            crossings = (crossings + 1)
+                            if (yj > yi) {
+                                winding = (winding + 1)
+                            } {
+                                winding = (winding - 1)
+                            }
+                        }
+                    }
+                    j = i
+                    i = (i + 1)
+                }
+            }
+            start = stop
+            ri = (ri + 1)
+        }
+        if e.evenOdd {
+            return ((crossings % 2) == 1)
+        }
+        return (winding != 0)
     }
 
     ; large text in WCAG's sense: 24px, or 18.66px bold
