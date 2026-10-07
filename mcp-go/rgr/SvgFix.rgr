@@ -1,0 +1,269 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; An SVG picture changed, before it is kept, where the change has one
+; answer and the picture would otherwise not draw as it was meant to:
+;
+;   withNamespaces    the SVG namespace (xmlns="http://www.w3.org/2000/svg")
+;                     on a root that lacks it, which a browser draws as
+;                     nothing, and xmlns:xlink when xlink: is used undeclared
+;   outsidePictures   the https pictures an <image> / <feImage> links to,
+;                     which a picture's SVG never loads; withHref puts each
+;                     one back as a data: URL once the host has fetched it
+;
+; Text only: the fetching (Deck.fixSvg) and the turning of text into paths
+; (svgraster.go) are the host's. svgfix_test.go tests it.
+
+Import "SvgCheck.rgr"
+
+class SvgFixTag {
+    ; as written ("image", "svg:image") and without its prefix
+    def name:string ""
+    def local:string ""
+    ; where its "<" is, and just after its name
+    def start:int 0
+    def nameEnd:int 0
+    def attrs:[string]
+    def vals:[string]
+
+    fn has:boolean (a:string) {
+        return ((indexOf attrs a) >= 0)
+    }
+
+    fn value:string (a:string) {
+        def k:int (indexOf attrs a)
+        if (k < 0) {
+            return ""
+        }
+        return (itemAt vals k)
+    }
+}
+
+class SvgFix {
+    sfn SVG_NS:string () {
+        return "http://www.w3.org/2000/svg"
+    }
+    sfn XLINK_NS:string () {
+        return "http://www.w3.org/1999/xlink"
+    }
+
+    ; The start tags, in order: comments, CDATA, <?…?>, <!…> and end tags
+    ; are passed over, as SvgCheck.read passes them.
+    sfn tags:[SvgFixTag] (text:string) {
+        def out:[SvgFixTag]
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            def lt:int (SvgCheck.find(text "<" i))
+            if (lt < 0) {
+                break
+            }
+            if (SvgCheck.startsAt(text "<!--" lt)) {
+                def ce:int (SvgCheck.find(text "-->" (lt + 4)))
+                if (ce < 0) {
+                    break
+                }
+                i = (ce + 3)
+                continue
+            }
+            if (SvgCheck.startsAt(text "<![CDATA[" lt)) {
+                def de:int (SvgCheck.find(text "]]>" (lt + 9)))
+                if (de < 0) {
+                    break
+                }
+                i = (de + 3)
+                continue
+            }
+            def c1:int 0
+            if ((lt + 1) < n) {
+                c1 = (charAt text (lt + 1))
+            }
+            if (((c1 == 63) || (c1 == 33)) || (c1 == 47)) {
+                def ge:int (SvgCheck.find(text ">" lt))
+                if (ge < 0) {
+                    break
+                }
+                i = (ge + 1)
+                continue
+            }
+            def p:int (lt + 1)
+            while ((p < n) && (SvgCheck.isNameChar((charAt text p)))) {
+                p = (p + 1)
+            }
+            def t (new SvgFixTag)
+            t.name = (substring text (lt + 1) p)
+            t.start = lt
+            t.nameEnd = p
+            if ((strlen t.name) == 0) {
+                i = (lt + 1)
+                continue
+            }
+            t.local = t.name
+            def colon:int (indexOf t.name ":")
+            if (colon >= 0) {
+                t.local = (substring t.name (colon + 1) (strlen t.name))
+            }
+            def closed:boolean false
+            while (p < n) {
+                def c:int (charAt text p)
+                if (c == 62) {
+                    p = (p + 1)
+                    closed = true
+                    break
+                }
+                if (SvgCheck.isNameChar(c)) {
+                    def an:int p
+                    while ((p < n) && (SvgCheck.isNameChar((charAt text p)))) {
+                        p = (p + 1)
+                    }
+                    def aname:string (substring text an p)
+                    while ((p < n) && (SvgCheck.isSpace((charAt text p)))) {
+                        p = (p + 1)
+                    }
+                    def val:string ""
+                    if ((p < n) && ((charAt text p) == 61)) {
+                        p = (p + 1)
+                        while ((p < n) && (SvgCheck.isSpace((charAt text p)))) {
+                            p = (p + 1)
+                        }
+                        if (p < n) {
+                            def q:int (charAt text p)
+                            if ((q == 34) || (q == 39)) {
+                                def qe:int (SvgCheck.find(text (substring text p (p + 1)) (p + 1)))
+                                if (qe < 0) {
+                                    qe = n
+                                }
+                                val = (substring text (p + 1) qe)
+                                p = (qe + 1)
+                            } {
+                                def vs:int p
+                                while (((p < n) && ((SvgCheck.isSpace((charAt text p))) == false)) && ((charAt text p) != 62)) {
+                                    p = (p + 1)
+                                }
+                                val = (substring text vs p)
+                            }
+                        }
+                    }
+                    push t.attrs aname
+                    push t.vals val
+                    continue
+                }
+                p = (p + 1)
+            }
+            if (closed == false) {
+                break
+            }
+            push out t
+            i = p
+        }
+        return out
+    }
+
+    ; The text with the namespaces its root needs and lacks: xmlns (or
+    ; xmlns:svg on an <svg:svg> root) and, when an attribute is written
+    ; xlink:… and no element declares the prefix, xmlns:xlink. A root that
+    ; names another namespace in xmlns is left as it is: that is not a fix
+    ; with one answer. Not an SVG: the text as it is.
+    sfn withNamespaces:string (text:string) {
+        def all:[SvgFixTag] (SvgFix.tags(text))
+        if ((array_length all) == 0) {
+            return text
+        }
+        def root:SvgFixTag (itemAt all 0)
+        if (root.local != "svg") {
+            return text
+        }
+        def add:string ""
+        def own:string "xmlns"
+        if (root.name != root.local) {
+            own = ("xmlns:" + (substring root.name 0 ((strlen root.name) - 4)))
+        }
+        if ((root.has(own)) == false) {
+            add = (add + " " + own + "=\"" + (SvgFix.SVG_NS()) + "\"")
+        }
+        if ((indexOf text "xlink:") >= 0) {
+            def declared:boolean false
+            for all t:SvgFixTag k {
+                if (t.has("xmlns:xlink")) {
+                    declared = true
+                }
+            }
+            def used:boolean false
+            for all u:SvgFixTag j {
+                for u.attrs a:string ai {
+                    if ((startsWith a "xlink:") && (a != "xlink:")) {
+                        used = true
+                    }
+                }
+            }
+            if (used && (declared == false)) {
+                add = (add + " xmlns:xlink=\"" + (SvgFix.XLINK_NS()) + "\"")
+            }
+        }
+        if ((strlen add) == 0) {
+            return text
+        }
+        return ((substring text 0 root.nameEnd) + add + (substring text root.nameEnd (strlen text)))
+    }
+
+    ; The addresses (as written, entities and all) of the pictures an
+    ; <image> or <feImage> links to on the web, once each: http and https.
+    sfn outsidePictures:[string] (text:string) {
+        def out:[string]
+        for (SvgFix.tags(text)) t:SvgFixTag k {
+            if ((t.local == "image") || (t.local == "feImage")) {
+                def v:string (t.value("href"))
+                if ((strlen v) == 0) {
+                    v = (t.value("xlink:href"))
+                }
+                def low:string (to_lowercase (trim v))
+                if ((startsWith low "https://") || (startsWith low "http://")) {
+                    SvgCheck.addOnce(out v)
+                }
+            }
+        }
+        return out
+    }
+
+    ; An address as written in an attribute, as the address it stands for:
+    ; the entities XML allows there read back (&amp; is the usual one).
+    sfn unescaped:string (raw:string) {
+        def s:string (trim raw)
+        s = (SvgFix.replaced(s "&quot;" "\""))
+        s = (SvgFix.replaced(s "&apos;" "'"))
+        s = (SvgFix.replaced(s "&lt;" "<"))
+        s = (SvgFix.replaced(s "&gt;" ">"))
+        s = (SvgFix.replaced(s "&#38;" "&"))
+        return (SvgFix.replaced(s "&amp;" "&"))
+    }
+
+    ; every `what` in s as `with`
+    sfn replaced:string (s:string what:string with:string) {
+        if ((strlen what) == 0) {
+            return s
+        }
+        def out:string ""
+        def from:int 0
+        while true {
+            def at:int (SvgCheck.find(s what from))
+            if (at < 0) {
+                break
+            }
+            out = (out + (substring s from at) + with)
+            from = (at + (strlen what))
+        }
+        return (out + (substring s from (strlen s)))
+    }
+
+    ; The text with every attribute value that is exactly `raw` (in double
+    ; or single quotes) written as `url` instead.
+    sfn withHref:string (text:string raw:string url:string) {
+        def out:string (SvgFix.replaced(text ("\"" + raw + "\"") ("\"" + url + "\"")))
+        return (SvgFix.replaced(out ("'" + raw + "'") ("'" + url + "'")))
+    }
+
+    ; data:<type>;base64,… for the bytes
+    sfn dataUrl:string (type:string data:buffer) {
+        return ("data:" + type + ";base64," + (buffer_to_base64 data))
+    }
+
+}
