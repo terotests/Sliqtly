@@ -397,7 +397,7 @@ func (h *McpHost) Asset(name string) string {
 		if h.env.rooms == nil {
 			return withoutRooms(guideMD)
 		}
-		return guideMD
+		return withRooms(guideMD)
 	case "preview.html":
 		return previewHTML
 	}
@@ -409,15 +409,24 @@ func themeUnavailable(theme string) error {
 	return fmt.Errorf("The theme %q could not be loaded. Try again in a moment, or choose another theme.", theme)
 }
 
-// the guide without its Rooms part, on a server that has no rooms
-// (sliqtly.com): <!-- rooms --> … <!-- /rooms --> in assets/guide.md
+// the guide without its Rooms parts, on a server that has no rooms
+// (sliqtly.com): each <!-- rooms --> … <!-- /rooms --> in assets/guide.md
+// (the rooms topic, its row in Core's list of topics)
 func withoutRooms(md string) string {
-	i := strings.Index(md, "<!-- rooms -->")
-	j := strings.Index(md, "<!-- /rooms -->")
-	if i < 0 || j < i {
-		return md
+	for {
+		i := strings.Index(md, "<!-- rooms -->")
+		j := strings.Index(md, "<!-- /rooms -->")
+		if i < 0 || j < i {
+			return md
+		}
+		md = md[:i] + strings.TrimLeft(md[j+len("<!-- /rooms -->"):], "\n")
 	}
-	return md[:i] + strings.TrimLeft(md[j+len("<!-- /rooms -->"):], "\n")
+}
+
+// the guide with its Rooms parts, the marker lines taken out
+func withRooms(md string) string {
+	md = strings.ReplaceAll(md, "<!-- rooms -->\n", "")
+	return strings.ReplaceAll(md, "<!-- /rooms -->\n", "")
 }
 
 // --- Firestore

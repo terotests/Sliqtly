@@ -35,7 +35,7 @@ var fb0 = fakeFirebase()
 var PNG, _ = base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
 
 // the deck's mermaid fence draws nothing, and the editor's own model says so
-const EMPTY_FLOW = "The mermaid block on slide \"Cat\" is not shown: a flowchart diagram — read, but nothing drew it."
+const EMPTY_FLOW = "The mermaid block on slide \"Cat\" is not shown: a flowchart diagram — read, but nothing drew it. → topic=diagrams"
 
 const DECK = "# Hello\n\nFirst.\n{.lead}\n\n## Cat {bg=media/cat.png}\n\n![](media/dot.png)\n\n```mermaid\nflowchart LR\n## not a slide\n```\n"
 
@@ -439,7 +439,43 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 	}
 	eq(t, old.Contents[0].URI, "ui://sliqtly/preview-0000000000.html")
 	eq(t, old.Contents[0].Text, r.Contents[0].Text)
-	match(t, textOf(call(t, s, "sliqtly_guide", map[string]any{})), `## Pictures`)
+	core := textOf(call(t, s, "sliqtly_guide", map[string]any{}))
+	match(t, core, `## Topics`)
+	if strings.Contains(core, "# Topic: pictures") || strings.Contains(core, "<!-- topic") {
+		t.Fatal("Core carries a topic")
+	}
+	pics := textOf(call(t, s, "sliqtly_guide", map[string]any{"topic": "pictures"}))
+	match(t, pics, `^# Topic: pictures\n`)
+	match(t, pics, `## Gallery`)
+	if strings.Contains(pics, "# Topic: css") {
+		t.Fatal("a topic runs on into the next")
+	}
+	bad := call(t, s, "sliqtly_guide", map[string]any{"topic": "nope"})
+	if !bad.IsError {
+		t.Fatal("an unknown topic was answered")
+	}
+	match(t, textOf(bad), `There is no topic "nope"\. Topics: layout, effects, text, charts, diagrams, figures, smartart, pictures, css, data, editing, export, limits\.`)
+}
+
+// every topic Core lists is there, and every topic is listed in Core
+func TestGuideTopics(t *testing.T) {
+	for _, md := range []string{withoutRooms(guideMD), withRooms(guideMD)} {
+		core := md[:strings.Index(md, "<!-- topic: ")]
+		names := regexp.MustCompile(`<!-- topic: ([a-z]+) -->`).FindAllStringSubmatch(md, -1)
+		listed := regexp.MustCompile("(?m)^\\| `([a-z]+)` \\|").FindAllStringSubmatch(core, -1)
+		if len(names) != len(listed) || len(names) < 13 {
+			t.Fatalf("%d topics, %d listed in Core", len(names), len(listed))
+		}
+		for i := range names {
+			eq(t, listed[i][1], names[i][1])
+		}
+		// a topic another names is there
+		for _, ref := range regexp.MustCompile("topic `([a-z]+)`").FindAllStringSubmatch(md, -1) {
+			if !strings.Contains(md, "<!-- topic: "+ref[1]+" -->") {
+				t.Fatal("no topic", ref[1])
+			}
+		}
+	}
 }
 
 func TestCreateUpdateReadWithPictures(t *testing.T) {
@@ -490,7 +526,7 @@ func TestCreateUpdateReadWithPictures(t *testing.T) {
 	uo := sc(u)
 	eq(t, uo["share_url"], out["share_url"])
 	eq(t, uo["slides"], 3)
-	eq(t, uo["warnings"], []string{"media/new.png is used in the Markdown but no image by that name was sent.", EMPTY_FLOW})
+	eq(t, uo["warnings"], []string{"media/new.png is used in the Markdown but no image by that name was sent. → topic=pictures", EMPTY_FLOW})
 	after := f.db.doc("shares/" + id)
 	eq(t, after["theme"], "corporate")
 	match(t, after["css"].(string), `added for this deck[\s\S]*font-size: 60pt`)

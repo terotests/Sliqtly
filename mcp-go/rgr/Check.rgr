@@ -6,6 +6,7 @@
 ; before anyone opens the link.
 
 Import "McpHost.rgr"
+Import "Guide.rgr"
 Import "../presentation/PresDeck.rgr"
 Import "Contrast.rgr"
 Import "Files.rgr"
@@ -245,12 +246,12 @@ class Check {
             d.md.setStyleSheet(own2)
             c.laidOut = true
             if ((strlen d.fontNote) > 0) {
-                push c.warnings d.fontNote
+                push c.warnings (Guide.see(d.fontNote "css"))
             }
             ; every line of the sheet the slides do not use, and why
             d.lintCss(din.css)
             for d.cssNotes cn:string cni {
-                push c.warnings cn
+                push c.warnings (Guide.see(cn "css"))
             }
         }
         for din.pics pic:CheckPic pi {
@@ -272,7 +273,7 @@ class Check {
         }
         d.setText(din.md)
         for (Check.chartData(host din d)) gone:string gi {
-            push c.warnings (gone + " is read by a chart or table but the presentation has no such file. list_files lists the names its files are read by; add the file with files.")
+            push c.warnings (Guide.see((gone + " is read by a chart or table but the presentation has no such file. list_files lists the names its files are read by; add the file with files.") "data"))
         }
         return d
     }
@@ -308,7 +309,7 @@ class Check {
                 if (more > 1) {
                     what = "slides"
                 }
-                push c.warnings ("Slide \"" + s.title + "\" does not fit and goes on over " + more + " more " + what + ": shorten it or split it with a ## heading.")
+                push c.warnings (Guide.see(("Slide \"" + s.title + "\" does not fit and goes on over " + more + " more " + what + ": shorten it or split it with a ## heading.") "layout"))
             }
             i = j
         }
@@ -331,7 +332,7 @@ class Check {
                 ; drawn, but with a field its data does not have: an empty
                 ; frame where the bars should be
                 for e.warnings w:string wi {
-                    push c.warnings ("The " + e.kind + " block" + where + ": " + w + ".")
+                    push c.warnings (Guide.see(("The " + e.kind + " block" + where + ": " + w + ".") (Guide.topicOfKind(e.kind))))
                 }
                 continue
             }
@@ -339,16 +340,16 @@ class Check {
             if ((strlen why) == 0) {
                 why = "it could not be drawn"
             }
-            push c.warnings ("The " + e.kind + " block" + where + " is not shown: " + why + ".")
+            push c.warnings (Guide.see(("The " + e.kind + " block" + where + " is not shown: " + why + ".") (Guide.topicOfKind(e.kind))))
         }
         for (d.smartArtNotes()) note:string ni {
-            push c.warnings note
+            push c.warnings (Guide.see(note "smartart"))
         }
         for (d.chartStyleNotes()) csn:string csi {
-            push c.warnings csn
+            push c.warnings (Guide.see(csn "charts"))
         }
         for (d.htmlNotes()) hn:string hi {
-            push c.warnings hn
+            push c.warnings (Guide.see(hn "text"))
         }
         if c.laidOut {
             Check.contrast(c d l pics)
@@ -371,7 +372,7 @@ class Check {
             if (d.hasPrint()) {
                 d.setMedia("print")
                 for (PrintReport.notes((Layout.printPages(d)))) pn:string pni {
-                    push c.warnings pn
+                    push c.warnings (Guide.see(pn "export"))
                 }
                 d.setMedia("screen")
             }
@@ -548,7 +549,7 @@ class Check {
                     }
                 }
                 for (Contrast.notes(s.title i low hasBg dimFix)) cn:string cni {
-                    push c.warnings cn
+                    push c.warnings (Guide.see(cn "layout"))
                 }
             }
             i = (i + 1)

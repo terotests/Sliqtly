@@ -3,6 +3,7 @@
 ; Checks on what a model sends, before anything is stored (mcp/src/deck.js).
 
 Import "McpHost.rgr"
+Import "Guide.rgr"
 Import "McpJson.rgr"
 Import "../pptx/smartart/SaFile.rgr"
 Import "SvgFix.rgr"
@@ -311,7 +312,7 @@ class Deck {
         def out:[string]
         for o.media m:string i {
             if (((Deck.inList(imageNames m)) == false) && ((Deck.inList(storedNames m)) == false)) {
-                push out ("media/" + m + " is used in the Markdown but no image by that name was sent.")
+                push out (Guide.see(("media/" + m + " is used in the Markdown but no image by that name was sent.") "pictures"))
             }
         }
         for imageNames nm:string j {
@@ -320,7 +321,7 @@ class Deck {
             }
         }
         for (Deck.linkedXml(md)) lx:string k {
-            push out ("media/" + lx + " is written as a link, [text](media/" + lx + "), so the slide shows only its text. A SmartArt file is shown like a picture: ![text](media/" + lx + ").")
+            push out (Guide.see(("media/" + lx + " is written as a link, [text](media/" + lx + "), so the slide shows only its text. A SmartArt file is shown like a picture: ![text](media/" + lx + ").") "smartart"))
         }
         return out
     }

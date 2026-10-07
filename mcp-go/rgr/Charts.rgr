@@ -4,6 +4,7 @@
 ; ```vega-lite chart of a deck pointed at live data, the rest of its spec kept.
 
 Import "McpHost.rgr"
+Import "Guide.rgr"
 Import "McpJson.rgr"
 
 ; a ```vega-lite fence: its line numbers, the spec's text and the title of
@@ -385,7 +386,7 @@ class Charts {
                 if ((strlen f.title) > 0) {
                     on = (" on \"" + f.title + "\"")
                 }
-                push ws ("Chart " + (i + 1) + on + ": " + (join bad ", ") + "; Vega-Lite types are quantitative, ordinal, nominal and temporal. Sliqtly reads the type from the data and draws the chart, but Vega-Lite itself and other tools reject it: write one of the four.")
+                push ws (Guide.see(("Chart " + (i + 1) + on + ": " + (join bad ", ") + "; Vega-Lite types are quantitative, ordinal, nominal and temporal. Sliqtly reads the type from the data and draws the chart, but Vega-Lite itself and other tools reject it: write one of the four.") "charts"))
             }
         }
         return ws

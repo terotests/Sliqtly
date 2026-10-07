@@ -47,10 +47,14 @@ func TestThemesBuiltIn(t *testing.T) {
 // sliqtly.com has no rooms, so its guide says nothing of them
 func TestGuideWithoutRooms(t *testing.T) {
 	g := withoutRooms(guideMD)
-	if strings.Contains(g, "## Rooms") || strings.Contains(g, "rooms -->") || !strings.Contains(guideMD, "## Rooms") {
-		t.Fatal("the Rooms part is not cut out as marked")
+	if strings.Contains(g, "Topic: rooms") || strings.Contains(g, "topic=rooms") || strings.Contains(g, "rooms -->") || !strings.Contains(guideMD, "# Topic: rooms") {
+		t.Fatal("the Rooms parts are not cut out as marked")
 	}
-	if !strings.Contains(g, "## When another assistant works on the same deck") {
-		t.Fatal("the part after Rooms went too")
+	if !strings.Contains(g, "## When another assistant works on the same deck") || !strings.Contains(g, "`delete_presentation`") {
+		t.Fatal("a part around Rooms went too")
+	}
+	r := withRooms(guideMD)
+	if strings.Contains(r, "<!-- rooms -->") || strings.Contains(r, "<!-- /rooms -->") || !strings.Contains(r, "# Topic: rooms") || !strings.Contains(r, "| `rooms` |") {
+		t.Fatal("a server with rooms does not get the Rooms parts as they are")
 	}
 }
