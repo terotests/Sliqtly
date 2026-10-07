@@ -63,73 +63,30 @@ Speaker notes. Not shown on the slide.
 - Keep a slide short: a heading and 3–6 bullets, or a heading and one
   picture, chart, table or diagram. A slide that runs over is split.
 
-## Designing the deck
+## Style is yours to choose
 
-The theme gives fonts, colours and spacing; what makes a deck look finished
-is how each slide uses them. Before writing, decide the story: one finding
-per slide, in order.
+Nothing here is a house style. Choose the look the content and the person
+asking call for: plain light slides with headings and bullets are as
+welcome as a themed deck with cards and charts. Use the layouts below
+when they help the content, not by default.
 
-- **The conclusion under the title.** Every content slide has a short
-  heading (the topic) and, under it, one sentence saying what the slide
-  shows, as a lead: `## Sales by country` then
-  `The four largest countries bring half of the total.` and `{.lead}`.
-  The reader gets the point before the chart.
-- **Key figures as cards, not bullets.** A ```` ```stats ```` fence draws
-  each `Number: label` line as a card with the number large (up to four in
-  a row, then rows of three or four), in the theme's colour, in the PDF and
-  PowerPoint too:
-
-  ````markdown
-  ```stats
-  - 91: customers
-  - 50 292: transactions in all
-  - 553: mean per customer
-  ```
-  ````
-
-  Round a key figure to what a listener remembers: `553`, not `552,66`;
-  `41 %`, not `41,2 %`. Keep decimals only where they are the point.
-- **One palette for the whole deck.** Leave chart colours to the theme:
-  a one-series chart is drawn in the theme's chart colour and a chart
-  coloured by category in the theme's palette (chart colour first), the
-  same on every slide. Do not set `scheme`, `range` or a mark `color` per
-  chart. To make a point, colour the few marks that matter and leave the
-  rest in the second colour: colour by a computed field
-  (`"calculate": "datum.rank <= 4 ? 'Top 4' : 'Others'"`) with
-  `"legend": null` and the group to stress first in the colour's
-  `"sort": ["Top 4", "Others"]`: without it the groups are taken in
-  alphabetical order, and with `lang: fi` "Muut" comes before "Top 4"
-  and gets the first colour. Every theme has such a palette, `corporate` too (dark
-  blue, then a light grey-blue), and the ```` ```stats ```` cards and side
-  cards take the same colours.
-- **Many categories: horizontal bars.** Over about 12 bars, put the
-  category on `y` and the value on `x` (`"sort": "-x"`): the names and
-  value labels read at full size instead of slanted and small. Leave the
-  font sizes to the theme; a `fontSize` of 10 is too small on a slide.
-- **A chart or table with a side card.** Under the chart or table
-  `{width=62%}`, then the takeaway as a short list or paragraph: it stands
-  beside it, not under it. `{container=box background=#00000010}` under it
-  sets it on a card (on a dark theme `#ffffff14`); its text stays the
-  theme's. A line under a full-width chart (a source, a note) stays on the
-  chart's slide.
-- **Tables** span the slide. Leave their font size to the theme: a table
-  that runs a few rows over its slide is set smaller by itself (its title
-  and lead stay as they are), so ten rows under a lead fit one slide.
-- **Numbers in the deck's language.** `lang: fi` in the front matter (or
-  `sv`, `de`, `fr`…) writes every chart's numbers that language's way
-  (`50 292`, `552,66`), axes, value labels and tooltips alike, with no
-  `format` in the charts. Write the numbers in the text the same way.
-- **Title and closing slides** are not bare lines. The title: the `#`
-  heading, one `.lead` line, and the deck's three key figures as a
-  ```` ```stats ```` fence (or a picture, `bg=media/…`). The closing slide:
-  the conclusions or next steps as a ```` ```process ```` or
-  ```` ```stats ```` fence, or 3–4 lines on a card
-  (`{container=box}`), not a plain list on an empty slide.
-- Fill the slide: one chart takes its room; a lone short list or a few
-  words on an otherwise empty slide reads unfinished. Two related small
-  things go side by side (`.c2`), not on two slides.
-- Look at `render_overview` before saying the deck is done: same colours
-  on every slide, nothing small or crowded, no slide mostly empty.
+- `{.lead}` under a paragraph sets it as a lead line (larger, the theme's
+  accent colour).
+- A ```` ```stats ```` fence draws each `Number: label` line as a card with
+  the number large; ```` ```cards ````, ```` ```process ````,
+  ```` ```timeline ```` and ```` ```swot ```` are the other list layouts
+  (see below).
+- Chart colours come from the theme unless a chart sets its own. In a
+  chart coloured by a computed group, the groups take the palette in
+  alphabetical order unless the colour encoding gives `"sort": [...]`.
+- Over about 12 bars, horizontal bars (category on `y`, `"sort": "-x"`)
+  keep the names readable.
+- `{width=62%}` under a chart or table puts what follows beside it.
+- A table that runs a few rows over its slide is set smaller by itself.
+- `lang: fi` (or `sv`, `de`, `fr`…) in the front matter writes the charts'
+  numbers that language's way.
+- Look at `render_overview` before saying the deck is done: nothing cut,
+  too small or overlapping.
 
 ## Pictures
 
@@ -243,7 +200,7 @@ pictures under 300 dpi in print ("media/sauna.jpg: 180 dpi in print, under
   `"background": "rgba(0,0,0,0)"` so the theme shows through. Value labels
   beside bars are a layer of `bar` and a layer of `text` sharing the
   encoding; a `"sort": "-x"` on the shared `y` orders both. Numbers follow
-  the front matter's `lang:` (see Designing the deck). An encoding's
+  the front matter's `lang:` (see "Style is yours to choose"). An encoding's
   `type` is `quantitative`, `ordinal`, `nominal` or `temporal` (never
   `"point"`: that puts every mark at 0). The data is
   inline `data.values`, or live, read each time the deck opens:
