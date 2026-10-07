@@ -7,23 +7,19 @@ slides are drawn by the Sliqtly player at https://sliqtly.com.
 
 ````markdown
 ---
-title: Quarterly review
+title: Deck title
 transition: fade        # default for every slide: fade | slide | zoom | none
 seconds: 0.6            # transition length in seconds
 step: 1.2               # seconds between build steps when played
 hold: 2.5               # seconds after the last step
 ---
 
-# Quarterly review
+# Deck title
 
-The opening line under the title.
-{.lead}
+## A slide {transition=slide}
 
-## Results {transition=slide fx=starfield}
-
-1. Revenue up 12 %
-2. Two new markets
-3. Churn halved
+- A point
+- Another point
 {.build anim=rise}
 
 ::: notes
@@ -60,15 +56,14 @@ Speaker notes. Not shown on the slide.
   `raindrops2` (rain whose running drops leave lines of water), `bubbles` (round
   drops). Parameters as `fx-density=1.6`, `fx-hue=228`, `fx-rain=2`.
 - `::: notes … :::` holds speaker notes for the slide above it.
-- Keep a slide short: a heading and 3–6 bullets, or a heading and one
-  picture, chart, table or diagram. A slide that runs over is split.
+- A slide whose content runs over its height is split onto the next slide.
 
 ## Style is yours to choose
 
-Nothing here is a house style. Choose the look the content and the person
-asking call for: plain light slides with headings and bullets are as
-welcome as a themed deck with cards and charts. Use the layouts below
-when they help the content, not by default.
+Nothing in this guide is a house style or a recommended structure: what
+the deck says, which slides it has, how it opens and what it looks like
+are up to the content and the person asking. The notes below say what
+options do, not when to use them.
 
 - `{.lead}` under a paragraph sets it as a lead line (larger, the theme's
   accent colour).
@@ -345,9 +340,8 @@ pictures under 300 dpi in print ("media/sauna.jpg: 180 dpi in print, under
   Opportunities, Threats), ```` ```timeline ```` (round badges on a line,
   a card under each; a title starting with a short token such as
   `Q1 Kickoff:` or `2027 Launch:` puts the token in the badge, otherwise
-  the badges are numbered), ```` ```cards ```` (numbered cards in a row,
-  for recommendations or decisions: 3–4 items) or ```` ```stats ````
-  (key figures as cards, `Number: label`), one item per
+  the badges are numbered), ```` ```cards ```` (numbered cards in a row)
+  or ```` ```stats ```` (`Number: label`, the number large on a card), one item per
   line as `Title: description`; an indented `- point` belongs to the item
   above. `{width=60%}` under the fence makes it narrower. They are drawn in
   the theme's colours and go into the PDF and PowerPoint as shapes, for
@@ -421,9 +415,7 @@ pictures under 300 dpi in print ("media/sauna.jpg: 180 dpi in print, under
   `style=` is given. A file that is not a diagram, and a data model with
   no items, is shown as the reason in its place and named in the warnings. The PDF
   carries it as drawn; the PowerPoint export carries it as SmartArt that
-  PowerPoint can edit. Prefer a Mermaid diagram or a
-  ```` ```process ```` list when either says it; SmartArt is for when the
-  deck should hold PowerPoint's own kind of diagram.
+  PowerPoint can edit.
 - The deck's own data: `list_files` (and `get_presentation`) list the files a
   deck keeps. For each `.xlsx` workbook they give its sheets, columns and row
   counts, and the name a sheet is read by (e.g. `data/sales-Sales.csv`). The
