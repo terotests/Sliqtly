@@ -1,0 +1,27 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="gen/icon.png" />
+    <title>Sliqtly Editor</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #121316; }
+      /* The canvas is the whole app: Ranger draws every pixel of it through EVG. */
+      #c { position: fixed; inset: 0; display: block; width: 100vw; height: 100vh; outline: none; touch-action: none; }
+      #err {
+        position: fixed; left: 12px; bottom: 34px; right: 12px; color: #ffdddd;
+        background: rgba(120, 0, 0, 0.7); font: 12px ui-monospace, Menlo, monospace;
+        white-space: pre-wrap; pointer-events: none; padding: 6px 8px; border-radius: 6px;
+      }
+      #err:empty { display: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c" tabindex="0"></canvas>
+    <div id="err"></div>
+    <noscript>Sliqtly Editor needs JavaScript and WebGL 2.</noscript>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
