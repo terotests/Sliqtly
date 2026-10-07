@@ -617,9 +617,89 @@ container { background-color: #ffffff; border-radius: 14pt; box-shadow: 0 6pt 18
 
 Fonts available: `Open Sans`, `Noto Sans`, `Lato` and `Droid Serif` (a
 serif). In a list the first of these is used (`Georgia, serif` is Droid
-Serif, `sans-serif` Open Sans); a name that is none of them is said in the
-warnings. Headings take theirs from `heading { font-family: … }`, not from
+Serif, `sans-serif` Open Sans); a list where none of the names is one of
+them is said in the warnings. Headings take theirs from `heading { font-family: … }`, not from
 `h1`…`h6`. Sizes in `pt` or `in`.
+
+A block's own class or id (`{.lead}` / `{#intro}` on the line under a
+paragraph, list, quote or heading) takes text and box styles:
+
+```css
+.kicker { font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
+.laatikko { background-color: #ffffff; padding: 12pt 16pt; border: 2px solid #2d3a7a; border-radius: 8pt; }
+```
+
+A block with a background, padding or border in its rule is drawn on a
+plate, with text in a colour readable on it.
+
+A slide or a section is named by its heading: `## Results {#results .dark}`.
+Rules that start with that id or class apply under that heading only:
+
+```css
+.dark page { background-color: #101820; }  /* this slide's paper */
+.dark p    { color: #e8ecff; }
+#results h2 { color: #ffd54a; }
+#results list { list-style: process; }
+#results chart { font-size: 14pt; }
+```
+
+Under a slide only colours, backgrounds, `font-family`, `font-weight`,
+`font-style`, `text-transform`, `letter-spacing`, `list-style` and
+`text-align` are read (and a chart's own properties); for another size
+give the block a class. A heading's own id is its anchor when it has none
+(`## Mihin raha menee` is `#mihin-raha-menee`).
+
+Variables: `:root { --brand: #e4003a; }` and `var(--brand)` (or
+`var(--brand, #000)`) wherever a value goes.
+
+Not supported, and named in the warnings when used: gradients, `opacity`,
+`text-shadow`, pseudo-classes and pseudo-elements (`:hover`, `::before`),
+the `>`, `+` and `~` combinators, attribute selectors, and `@`-rules other
+than `@media print` / `@media screen`.
+
+Every line of `css` the slides do not use is listed in the report's
+warnings with the reason, and marked in the editor's theme tab.
+
+What each selector reads:
+
+<!-- css-support -->
+- `page` (the slide or sheet): width, height, padding, background-color, background-image, bleed, safe-area
+- `deck` (how a document becomes slides): split-level, overflow, aspect-ratio, crop-marks, fx, fx-*, warm, accent
+- `document` (all text): font-family, font-size, line-height, color, font-weight, font-style, text-transform, letter-spacing
+- `body` (the same as document): font-family, font-size, line-height, color, font-weight, font-style, text-transform, letter-spacing
+- `p` (paragraphs): margin-bottom, color, text-align, font-weight, font-style, text-transform, letter-spacing
+- `heading` (every heading level): font-family, font-size, margin-top, margin-bottom, color, text-align, font-weight, font-style, text-transform, letter-spacing
+- `h1` (a level-1 heading): font-size, color, text-align, font-weight, font-style, text-transform, letter-spacing
+- `h2` (a level-2 heading): font-size, color, text-align, font-weight, font-style, text-transform, letter-spacing
+- `h3` (a level-3 heading): font-size, color, text-align, font-weight, font-style, text-transform, letter-spacing
+- `h4` (a level-4 heading): font-size, color, text-align, font-weight, font-style, text-transform, letter-spacing
+- `h5` (a level-5 heading): font-size, color, text-align, font-weight, font-style, text-transform, letter-spacing
+- `h6` (a level-6 heading): font-size, color, text-align, font-weight, font-style, text-transform, letter-spacing
+- `a` (links): color
+- `code` (code blocks and code in text): font-family, font-size, line-height, padding, color, background-color, border-color
+- `mark` (==highlighted== text): background-color, color
+- `kbd` (<kbd> keys): background-color, border-color
+- `hr` (--- rules): color
+- `blockquote` (> quotes): color, border-color, border-width, padding-left, padding-top, background-color, background, font-weight, font-style, text-transform, letter-spacing
+- `container` ({container=box|bubble} plates and ::: blocks): background-color, background, border-radius, box-shadow, padding, padding-top, padding-right, padding-bottom, padding-left, border, border-color, border-width, border-style
+- `list` (lists (color = the bullets)): padding-left, margin-left, color, list-style
+- `ul` (bulleted lists): list-style
+- `ol` (numbered lists): list-style
+- `li` (list items): margin-bottom, font-weight, font-style, text-transform, letter-spacing
+- `table` (tables (background-color = the header row)): border-color, background-color, padding-left, padding-top, font-size, cell-tones
+- `th` (a table's header row): background-color, color
+- `img` (pictures): justify-content, text-align, max-height
+- `header` (the band at the top of each page): content, content-left, content-center, content-right, background-image, background-color, border-color, font-weight, text-align, font-size, color, height
+- `footer` (the band at the foot of each page): content, content-left, content-center, content-right, background-image, background-color, border-color, font-weight, text-align, font-size, color, height
+- `gallery` (```gallery albums): gap, column-gap, columns, column-count, background-color
+- `cell` (a gallery's cells (cell:nth(n) for one)): padding, padding-top, padding-right, padding-bottom, padding-left, border-radius, border-width, border-color, background-color, font-size, color, font-family, text-align, font-weight
+- `caption` (a gallery cell's caption): padding, padding-top, padding-right, padding-bottom, padding-left, border-radius, border-width, border-color, background-color, font-size, color, font-family, text-align, font-weight
+- `chart` (charts (```vega-lite, ```chart)): color, accent-color, label-color, contrast, chart-style, chart-effects, font-size, title-font-size, title-gap, padding, justify-content, text-align
+- `diagram` (diagrams (```mermaid, ```flow)): color, accent-color
+- `figure` (list figures (list-style: process, swot, timeline, cards, stats)): color, accent-color, colors, card-background, box-shadow, font-size
+- `.class` / `#id` on a block (`{.lead}` under a paragraph or heading): font-size, color, font-family, text-align, column-count, column-gap, list-style, font-weight, font-style, text-transform, letter-spacing, background-color, background, padding, padding-top, padding-right, padding-bottom, padding-left, border, border-color, border-width, border-style, border-radius, box-shadow
+- `:root { --brand: #ff3d7f }` and `var(--brand)` (or `var(--brand, #000)`) anywhere a value goes.
+<!-- /css-support -->
 
 On `update_presentation`, `css` is added after the deck's own rules so
 far, so one new rule can be sent alone; sending all of the deck's own

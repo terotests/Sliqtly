@@ -384,15 +384,94 @@ class PresCascade {
         }
         def c:PresCssFacet (this.facet("color" "color" "text colour"))
         this.addBlock(c tag e.classes e.id)
+        ; `p { color }`: a paragraph's text over the document's (MdStyle.paraColor)
+        if (tag == "p") {
+            this.add(c "p")
+            if (((strlen own) == 0) && ((c.link("p")).isSet())) {
+                own = "p"
+            }
+        }
         this.add(c "body")
         this.add(c "document")
         push e.facets (this.finish(c defaults.textColor (this.docOwn(c own))))
+        if (tag == "p") {
+            own = ""
+            if classed {
+                own = (PresCascade.ownOfBlock(e.classes e.id))
+            }
+        }
         def s:PresCssFacet (this.facet("font-size" "font-size" "text size"))
         this.addBlock(s tag e.classes e.id)
         this.add(s "body")
         this.add(s "document")
         push e.facets (this.finish(s (PresCascade.pt(defaults.bodySize)) (this.docOwn(s own))))
         this.docFacets(e)
+        def rules:[string]
+        if ((tag == "p") || ((tag == "li") || (tag == "blockquote"))) {
+            push rules tag
+        }
+        if ((tag == "ul") || (tag == "ol")) {
+            push rules "li"
+        }
+        this.typoFacets(e tag rules)
+        this.boxFacets(e tag)
+    }
+
+    ; Weight, slant, case and spacing (MdTypo): the block's class or id, then
+    ; its element's rule (`h2`, `heading`, `p`, `li`), then the document's.
+    ; i18n: "weight" "slant" "letter case" "letter spacing"
+    fn typoFacets:void (e:PresCssElement tag:string rules:[string]) {
+        def classed:boolean (((array_length e.classes) > 0) || ((strlen e.id) > 0))
+        def props:[string] (strsplit "font-weight,font-style,text-transform,letter-spacing" ",")
+        def labels:[string] (strsplit "weight,slant,letter case,letter spacing" ",")
+        def k:int 0
+        while (k < (array_length props)) {
+            def prop:string (itemAt props k)
+            def f:PresCssFacet (this.facet(prop prop (itemAt labels k)))
+            this.addBlock(f tag e.classes e.id)
+            for rules r:string ri {
+                this.add(f r)
+            }
+            this.add(f "body")
+            this.add(f "document")
+            def own:string ""
+            if classed {
+                own = (PresCascade.ownOfBlock(e.classes e.id))
+            } {
+                if ((array_length rules) > 0) {
+                    own = (itemAt rules 0)
+                }
+            }
+            def def0:string ""
+            if (prop == "font-weight") {
+                def0 = (? ((PresCascade.headingLevel(tag)) > 0) "bold" "normal")
+            }
+            if (prop == "font-style") { def0 = "normal" }
+            if (prop == "text-transform") { def0 = "none" }
+            if (prop == "letter-spacing") { def0 = "normal" }
+            push e.facets (this.finish(f def0 (this.docOwn(f own))))
+            k = (k + 1)
+        }
+    }
+
+    ; A block with a class or an id: the plate its rule can put round it
+    ; (background, padding, border, corners); only that rule sets them.
+    ; i18n: "box background" "box padding" "box border" "box corners"
+    fn boxFacets:void (e:PresCssElement tag:string) {
+        if (((array_length e.classes) == 0) && ((strlen e.id) == 0)) {
+            return
+        }
+        def own:string (PresCascade.ownOfBlock(e.classes e.id))
+        def props:[string] (strsplit "background-color,padding,border,border-color,border-width,border-radius" ",")
+        def labels:[string] (strsplit "box background,box padding,box border,box border colour,box border width,box corners" ",")
+        def k:int 0
+        while (k < (array_length props)) {
+            def prop:string (itemAt props k)
+            def f:PresCssFacet (this.facet(("box-" + prop) prop (itemAt labels k)))
+            this.addBlock(f tag e.classes e.id)
+            push e.facets (this.finish(f "" own))
+            k = (k + 1)
+        }
     }
 
     ; Face and line height, which only `document` / `body` set.
@@ -480,6 +559,15 @@ class PresCascade {
             push e.facets (this.one("blockquote" "border-width" "border-width" "bar width" (PresCascade.pt(st.quoteBarWidth))))
             push e.facets (this.one("blockquote" "padding-left" "padding-left" "indent" (PresCascade.pt(st.quoteIndent))))
             push e.facets (this.one("blockquote" "padding-top" "padding-top" "padding above and below" (PresCascade.pt(st.quotePadY))))
+            def qb:PresCssFacet (this.facet("background-color" "background-color" "background"))
+            this.add(qb "blockquote")
+            def qb2:PresCssLink (this.named("blockquote" "background"))
+            push qb.chain qb2
+            push e.facets (this.finish(qb "" "blockquote"))
+            def qrules:[string]
+            push qrules "blockquote"
+            this.typoFacets(e "blockquote" qrules)
+            this.boxFacets(e "blockquote")
         }
         if (sel == "code") {
             push e.facets (this.one("code" "font-family" "font-family" "font" st.monoFamily))
@@ -488,11 +576,16 @@ class PresCascade {
             push e.facets (this.one("code" "padding" "padding" "padding" (PresCascade.pt(st.codePadding))))
             push e.facets (this.one("code" "background-color" "background-color" "background" st.codeBackground))
             push e.facets (this.one("code" "border-color" "border-color" "border colour" st.codeBorder))
+            push e.facets (this.one("code" "color" "color" "text colour" st.codePlain))
         }
         if (sel == "table") {
             this.textFacets(e "table")
             push e.facets (this.one("table" "border-color" "border-color" "line colour" st.tableBorder))
-            push e.facets (this.one("table" "background-color" "background-color" "header row background" st.tableHeadBackground))
+            def hb:PresCssFacet (this.facet("background-color" "background-color" "header row background"))
+            this.add(hb "th")
+            this.add(hb "table")
+            push e.facets (this.finish(hb st.tableHeadBackground "th"))
+            push e.facets (this.one("th" "header-color" "color" "header row text" ""))
             push e.facets (this.one("table" "padding-left" "padding-left" "cell padding, sides" (PresCascade.pt(st.cellPadX))))
             push e.facets (this.one("table" "padding-top" "padding-top" "cell padding, top and bottom" (PresCascade.pt(st.cellPadY))))
         }
@@ -592,6 +685,11 @@ class PresCascade {
         push e.facets (this.finish(lh (PresCascade.num(st.lineHeight)) (this.docOwn(lh ""))))
         push e.facets (this.one("heading" "margin-top" "margin-top" "space above" (PresCascade.pt(st.headingSpaceBefore))))
         push e.facets (this.one("heading" "margin-bottom" "margin-bottom" "space below" (PresCascade.pt(st.headingSpaceAfter))))
+        def rules:[string]
+        push rules hn
+        push rules "heading"
+        this.typoFacets(e hn rules)
+        this.boxFacets(e hn)
     }
 
     ; What the element's own rules say that the layout does not read: listed,
@@ -656,6 +754,9 @@ class PresCascade {
             return true
         }
         if ((rule == "img") && (prop == "text-align")) {
+            return true
+        }
+        if ((rule == "blockquote") && (prop == "background")) {
             return true
         }
         return false
