@@ -61,6 +61,76 @@ Speaker notes. Not shown on the slide.
 - `::: notes … :::` holds speaker notes for the slide above it.
 - A slide whose content runs over its height is split onto the next slide.
 
+## Placing content on a slide
+
+A slide's blocks go one under the other from the top, unless the slide or
+a container says otherwise.
+
+````markdown
+## Before and after {layout=comparison}
+
+### Before
+- Slides made by hand
+
+### After
+- Markdown
+
+## Results {layout=image-right}
+
+- Growth continued
+- Costs fell
+
+![Chart](media/growth.png)
+
+::: columns
+```ts
+const total = sum(rows);
+```
+{width=55%}
+
+- `sum` adds the rows
+:::
+````
+
+- `::: columns` … `:::` puts what is in it side by side. The columns are
+  read from what is inside, the first rule that applies: `::: col` blocks
+  (one column each; nest them in `:::: columns` with four colons, or write
+  `::: col` blocks one after another without a wrapper; `::: col Title`
+  sets a title over the column); `---` lines between the parts; headings
+  (a column starts at each heading of the highest level there, text
+  before the first one goes across above the columns); pictures, charts,
+  diagrams and galleries next to other blocks (the pictures in one column,
+  the rest in the other, on the side the first block is on); otherwise
+  each block is a column of its own.
+- Any block fits in a column: headings, lists, code, tables, pictures,
+  charts, diagrams. `{width=40%}` under a column's only block sets that
+  column's width (the block then fills its column);
+  `{widths="60 40"}` under the closing `:::` sets them all.
+- On a slide's heading, `layout=` does the same for the slide's content:
+  `columns` or `comparison` (columns by sub-headings, else by blocks),
+  `two-column`, `image-right` / `image-left` (pictures, charts and
+  diagrams in a column at that side, the rest in the other).
+  `widths="60 40"` goes on the heading too.
+- `valign=center` (or `layout=center`) or `valign=bottom` on a slide's
+  heading sets the content under the title in the middle or at the foot
+  of the room under it; `valign: center` in the front matter does it for
+  every slide that does not say `valign=` itself.
+- `layout=section` (also `layout=title`): the title and the lines under it
+  together in the middle of the slide, centred.
+- `layout=statement`: the text under the title set at the title's size, in
+  the middle of the slide; the title is not drawn but still names the
+  slide. A statement slide with no text under it shows its title larger,
+  in the middle.
+- `{float=top-right width=8%}` under a picture (also `top-left`,
+  `bottom-right`, `bottom-left`) sets it in that corner of the slide, out
+  of the flow: the title and the text after it go beside it. Write it right
+  under the slide's heading.
+- `{width=50%}` under a picture, chart, table or code block puts the
+  blocks after it beside it (paragraphs, lists, quotes), down to its
+  bottom.
+- Text beside a picture or chart, or in a column, is set as large as the
+  slide has room for, as text alone on a slide is.
+
 ## Style is yours to choose
 
 Nothing in this guide is a house style or a recommended structure: what
@@ -79,7 +149,6 @@ options do, not when to use them.
   alphabetical order unless the colour encoding gives `"sort": [...]`.
 - Over about 12 bars, horizontal bars (category on `y`, `"sort": "-x"`)
   keep the names readable.
-- `{width=62%}` under a chart or table puts what follows beside it.
 - A table that runs a few rows over its slide is set smaller by itself.
 - `lang: fi` (or `sv`, `de`, `fr`…) in the front matter writes the charts'
   numbers, and their month and day names, that language's way.
@@ -181,6 +250,9 @@ or plain text for a text cell. Under the fence:
 - `fit=cover` fills the cell and crops, `fit=contain` shows the whole
   picture. `focus=` keeps a part in the crop: `top`, `bottom left`,
   `30% 70%`. `span=2` makes a cell two columns wide.
+- Without `gallery { columns }` a grid on a slide takes as many columns
+  as show the most of its pictures: portraits side by side in tall cells,
+  landscapes two by two.
 - `caption=overlay|below|none`; an overlay caption is white text on a dark
   see-through band that reads (4.5:1) over light and dark pictures; a
   `caption { color }` set dark gets a light band. Captions below
@@ -619,9 +691,89 @@ container { background-color: #ffffff; border-radius: 14pt; box-shadow: 0 6pt 18
 
 Fonts available: `Open Sans`, `Noto Sans`, `Lato` and `Droid Serif` (a
 serif). In a list the first of these is used (`Georgia, serif` is Droid
-Serif, `sans-serif` Open Sans); a name that is none of them is said in the
-warnings. Headings take theirs from `heading { font-family: … }`, not from
+Serif, `sans-serif` Open Sans); a list where none of the names is one of
+them is said in the warnings. Headings take theirs from `heading { font-family: … }`, not from
 `h1`…`h6`. Sizes in `pt` or `in`.
+
+A block's own class or id (`{.lead}` / `{#intro}` on the line under a
+paragraph, list, quote or heading) takes text and box styles:
+
+```css
+.kicker { font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
+.laatikko { background-color: #ffffff; padding: 12pt 16pt; border: 2px solid #2d3a7a; border-radius: 8pt; }
+```
+
+A block with a background, padding or border in its rule is drawn on a
+plate, with text in a colour readable on it.
+
+A slide or a section is named by its heading: `## Results {#results .dark}`.
+Rules that start with that id or class apply under that heading only:
+
+```css
+.dark page { background-color: #101820; }  /* this slide's paper */
+.dark p    { color: #e8ecff; }
+#results h2 { color: #ffd54a; }
+#results list { list-style: process; }
+#results chart { font-size: 14pt; }
+```
+
+Under a slide only colours, backgrounds, `font-family`, `font-weight`,
+`font-style`, `text-transform`, `letter-spacing`, `list-style` and
+`text-align` are read (and a chart's own properties); for another size
+give the block a class. A heading's own id is its anchor when it has none
+(`## Mihin raha menee` is `#mihin-raha-menee`).
+
+Variables: `:root { --brand: #e4003a; }` and `var(--brand)` (or
+`var(--brand, #000)`) wherever a value goes.
+
+Not supported, and named in the warnings when used: gradients, `opacity`,
+`text-shadow`, pseudo-classes and pseudo-elements (`:hover`, `::before`),
+the `>`, `+` and `~` combinators, attribute selectors, and `@`-rules other
+than `@media print` / `@media screen`.
+
+Every line of `css` the slides do not use is listed in the report's
+warnings with the reason, and marked in the editor's theme tab.
+
+What each selector reads:
+
+<!-- css-support -->
+- `page` (the slide or sheet): width, height, padding, background-color, background-image, bleed, safe-area
+- `deck` (how a document becomes slides): split-level, overflow, aspect-ratio, crop-marks, fx, fx-*, warm, accent
+- `document` (all text): font-family, font-size, line-height, color, font-weight, font-style, text-transform, letter-spacing
+- `body` (the same as document): font-family, font-size, line-height, color, font-weight, font-style, text-transform, letter-spacing
+- `p` (paragraphs): margin-bottom, color, text-align, font-weight, font-style, text-transform, letter-spacing
+- `heading` (every heading level): font-family, font-size, margin-top, margin-bottom, color, text-align, font-weight, font-style, text-transform, letter-spacing
+- `h1` (a level-1 heading): font-size, color, text-align, font-weight, font-style, text-transform, letter-spacing
+- `h2` (a level-2 heading): font-size, color, text-align, font-weight, font-style, text-transform, letter-spacing
+- `h3` (a level-3 heading): font-size, color, text-align, font-weight, font-style, text-transform, letter-spacing
+- `h4` (a level-4 heading): font-size, color, text-align, font-weight, font-style, text-transform, letter-spacing
+- `h5` (a level-5 heading): font-size, color, text-align, font-weight, font-style, text-transform, letter-spacing
+- `h6` (a level-6 heading): font-size, color, text-align, font-weight, font-style, text-transform, letter-spacing
+- `a` (links): color
+- `code` (code blocks and code in text): font-family, font-size, line-height, padding, color, background-color, border-color
+- `mark` (==highlighted== text): background-color, color
+- `kbd` (<kbd> keys): background-color, border-color
+- `hr` (--- rules): color
+- `blockquote` (> quotes): color, border-color, border-width, padding-left, padding-top, background-color, background, font-weight, font-style, text-transform, letter-spacing
+- `container` ({container=box|bubble} plates and ::: blocks): background-color, background, border-radius, box-shadow, padding, padding-top, padding-right, padding-bottom, padding-left, border, border-color, border-width, border-style
+- `list` (lists (color = the bullets)): padding-left, margin-left, color, list-style
+- `ul` (bulleted lists): list-style
+- `ol` (numbered lists): list-style
+- `li` (list items): margin-bottom, font-weight, font-style, text-transform, letter-spacing
+- `table` (tables (background-color = the header row)): border-color, background-color, padding-left, padding-top, font-size, cell-tones
+- `th` (a table's header row): background-color, color
+- `img` (pictures): justify-content, text-align, max-height
+- `header` (the band at the top of each page): content, content-left, content-center, content-right, background-image, background-color, border-color, font-weight, text-align, font-size, color, height
+- `footer` (the band at the foot of each page): content, content-left, content-center, content-right, background-image, background-color, border-color, font-weight, text-align, font-size, color, height
+- `gallery` (```gallery albums): gap, column-gap, columns, column-count, background-color
+- `cell` (a gallery's cells (cell:nth(n) for one)): padding, padding-top, padding-right, padding-bottom, padding-left, border-radius, border-width, border-color, background-color, font-size, color, font-family, text-align, font-weight
+- `caption` (a gallery cell's caption): padding, padding-top, padding-right, padding-bottom, padding-left, border-radius, border-width, border-color, background-color, font-size, color, font-family, text-align, font-weight
+- `chart` (charts (```vega-lite, ```chart)): color, accent-color, label-color, contrast, chart-style, chart-effects, font-size, title-font-size, title-gap, padding, justify-content, text-align
+- `diagram` (diagrams (```mermaid, ```flow)): color, accent-color
+- `figure` (list figures (list-style: process, swot, timeline, cards, stats)): color, accent-color, colors, card-background, box-shadow, font-size
+- `.class` / `#id` on a block (`{.lead}` under a paragraph or heading): font-size, color, font-family, text-align, column-count, column-gap, list-style, font-weight, font-style, text-transform, letter-spacing, background-color, background, padding, padding-top, padding-right, padding-bottom, padding-left, border, border-color, border-width, border-style, border-radius, box-shadow
+- `:root { --brand: #ff3d7f }` and `var(--brand)` (or `var(--brand, #000)`) anywhere a value goes.
+<!-- /css-support -->
 
 On `update_presentation`, `css` is added after the deck's own rules so
 far, so one new rule can be sent alone; sending all of the deck's own
@@ -821,5 +973,10 @@ work as they are; a private one needs separate access.
 presentation (full screen button, arrow keys). Keep `deck_id` to change the
 same deck later with `update_presentation`; the share link stays the same.
 The id finds a presentation, it does not let anyone change it: a signed-in
-user's is changed by its owner, one made without sign-in only in this
-connection's session (until it ends or goes unused for a day).
+user's is changed by its owner, one made without sign-in only by the
+conversation that made it. Without sign-in, create_presentation's answer
+gives a `session_key`: send it as `session_key` with every later call on
+that deck (update, begin_work, export, delete, comments) and with a further
+create_presentation, since a new connection to Sliqtly does not carry it.
+It holds until it goes a day without a change. Keep it in the conversation;
+never put it in slides or links.

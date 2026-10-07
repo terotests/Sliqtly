@@ -30,6 +30,7 @@
 ; ============================================================================
 
 Import "PresFonts.rgr"
+Import "PresCssSupport.rgr"
 Import "../markdown/web/markdown_web.rgr"
 Import "PresSource.rgr"
 Import "PresDiagram.rgr"
@@ -450,11 +451,8 @@ class PresDeck {
         }
         def painter (new MdToEvg())
         painter.paintBox(dl l b 0.0)
-        this.dressChart(dl 0 1000000.0 true b.embedSource)
-        def ground:string l.style.pageBackground
-        if ((strlen ground) == 0) {
-            ground = "#ffffff"
-        }
+        this.dressChart(dl 0 1000000.0 true b.embedSource b.page)
+        def ground:string (PresDeck.paperOn(l b.page))
         PresChart.flatten(dl 0 ground)
         return dl
     }
@@ -1185,10 +1183,7 @@ class PresDeck {
         if seq {
             d.choose = false
         }
-        def paper:string lay.style.pageBackground
-        if ((strlen paper) == 0) {
-            paper = "#ffffff"
-        }
+        def paper:string (PresDeck.paperOn(lay page))
         d.setPalette(paper (this.themeColour("diagram" "accent-color")) (this.themeColour("diagram" "color")))
         d.rimFade = (this.flatGround(s))
         ; `{style=mermaid}` and the other RangerFlow looks; their faces are
@@ -1255,7 +1250,16 @@ class PresDeck {
         return (md.edit.sheet.hasPrint())
     }
 
+    ; What the sheet says that the slides do not use, one line each
+    ; (PresCssSupport): the MCP report's warnings.
+    def cssNotes:[string]
+
+    fn lintCss:void (css:string) {
+        cssNotes = (PresCssSupport.lines(css 12))
+    }
+
     fn setStyleSheet:void (css:string) {
+        this.lintCss(css)
         def own:string (this.useFonts(css))
         this.setTheme(own)
         md.edit.setStyleSheet(own)
@@ -1520,11 +1524,29 @@ class PresDeck {
 
     ; A chart's commands from `before` on, dressed for the stage: in a look,
     ; or the theme's way (`PresChart.dress`).
-    fn dressChart:void (out:EVGDisplayList before:int t:double still:boolean spec:string) {
+    ; The slide a chart is being dressed on, for its paper (a slide rule can
+    ; give one slide another, `.dark page`); -1: the theme's.
+    def chartPage:int -1
+
+    fn dressChart:void (out:EVGDisplayList before:int t:double still:boolean spec:string page:int) {
+        chartPage = page
+        this.dressChartOn(out before t still spec)
+        chartPage = -1
+    }
+
+    fn chartPaper:string () {
+        def l:MdLayout (this.layout())
+        if (chartPage >= 0) {
+            return (PresDeck.paperOn(l chartPage))
+        }
+        return l.style.pageBackground
+    }
+
+    fn dressChartOn:void (out:EVGDisplayList before:int t:double still:boolean spec:string) {
         def lk:string (this.chartLookName(spec))
         if ((strlen lk) > 0) {
             def l:MdLayout (this.layout())
-            def paper:string l.style.pageBackground
+            def paper:string (this.chartPaper())
             if ((strlen paper) == 0) {
                 paper = "#ffffff"
             }
@@ -1561,7 +1583,7 @@ class PresDeck {
             w = (docChartStyle + " " + (this.themeRule("chart" "chart-effects")))
         }
         def st:MdStyle (this.layout()).style
-        def paper:string st.pageBackground
+        def paper:string (this.chartPaper())
         def isDark:boolean false
         if ((strlen paper) > 0) {
             def c:EVGColor (EVGColor.parse(paper))
@@ -1981,7 +2003,21 @@ class PresDeck {
         if ((strlen s.bg) > 0) {
             return false
         }
-        return (PresDeck.noPicture((this.themeRule("page" "background-image"))))
+        if ((PresDeck.noPicture((this.themeRule("page" "background-image")))) == false) {
+            return false
+        }
+        ; `.dark page { background-image }` on this slide
+        return (PresDeck.noPicture(((this.layout()).pictureOf(s.index))))
+    }
+
+    ; The paper of slide `page`: the theme's, or a slide rule's (`.dark page
+    ; { background-color }`, MdLayout.paperOf); white when neither says.
+    sfn paperOn:string (l:MdLayout page:int) {
+        def paper:string (l.paperOf(page))
+        if ((strlen paper) == 0) {
+            return "#ffffff"
+        }
+        return paper
     }
 
     sfn noPicture:boolean (v:string) {
@@ -2296,12 +2332,15 @@ class PresDeck {
         if (lum >= 110.0) {
             return
         }
+        ; `code { color }` is the sheet's own choice for a dark slide: kept
+        def plainDefault:string (new MdStyle()).codePlain
+        def ownPlain:boolean ((PresDeck.lower(st.codePlain)) != (PresDeck.lower(plainDefault)))
         def i:int 0
         while (i < (array_length l.boxes)) {
             def b:MdBox (itemAt l.boxes i)
             if ((b.kind == 0) && (b.family == st.monoFamily)) {
                 def col:string (PresDeck.lower(b.color))
-                if (col == (PresDeck.lower(st.codePlain))) { b.color = "#e6edf3" }
+                if ((col == (PresDeck.lower(st.codePlain))) && (ownPlain == false)) { b.color = "#e6edf3" }
                 if (col == (PresDeck.lower(st.codeKeyword))) { b.color = "#ff7b72" }
                 if (col == (PresDeck.lower(st.codeString))) { b.color = "#a5d6ff" }
                 if (col == (PresDeck.lower(st.codeComment))) { b.color = "#8b949e" }
@@ -2910,12 +2949,9 @@ class PresDeck {
         def s:PresSlide (itemAt slides i)
         def out:EVGDisplayList (new EVGDisplayList())
         def painter (new MdToEvg())
-        def paper:string "#ffffff"
-        if ((strlen l.style.pageBackground) > 0) {
-            paper = l.style.pageBackground
-        }
+        def paper:string (PresDeck.paperOn(l i))
         painter.rect(out 0.0 0.0 pageW pageH paper)
-        painter.paper(out l 0.0 0.0 pageW pageH)
+        painter.paperAt(out l (l.pictureOf(i)) 0.0 0.0 pageW pageH)
         this.slideBackground(out l s paper)
         this.sectionBands(out l i paper)
         push groupOfCmd -1
@@ -3046,7 +3082,7 @@ class PresDeck {
                 def before:int (array_length out.cmds)
                 painter.paintBox(out l kb 0.0)
                 if ((kb.kind == 3) && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(kb.embedKind)))) == "vega")) {
-                    this.dressChart(out before (t - (this.chartStart(s kb.embedSource))) still kb.embedSource)
+                    this.dressChart(out before (t - (this.chartStart(s kb.embedSource))) still kb.embedSource i)
                     if still {
                         PresChart.flatten(out before paper)
                     }
@@ -3458,12 +3494,9 @@ class PresDeck {
         def s:PresSlide (itemAt slides i)
         def out:EVGDisplayList (new EVGDisplayList())
         def painter (new MdToEvg())
-        def paper:string "#ffffff"
-        if ((strlen l.style.pageBackground) > 0) {
-            paper = l.style.pageBackground
-        }
+        def paper:string (PresDeck.paperOn(l i))
         painter.rect(out 0.0 0.0 pageW pageH paper)
-        painter.paper(out l 0.0 0.0 pageW pageH)
+        painter.paperAt(out l (l.pictureOf(i)) 0.0 0.0 pageW pageH)
         this.slideBackground(out l s paper)
         if ((strlen s.fx) > 0) {
             if (PresDeck.fxOnTop(s.fx)) {

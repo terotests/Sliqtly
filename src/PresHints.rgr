@@ -108,7 +108,10 @@ class PresHints {
         if ((key == "header-image") || (key == "footer-image")) { return (PresI18n.t("Image next to the header or footer text, e.g. media/logo.png.")) }
         if ((key == "header-align") || (key == "footer-align")) { return (PresI18n.t("left, center or right.")) }
         if (key == "diagram") { return (PresI18n.t("classic: the diagram's original drawing, without a tour.")) }
-        if (key == "layout") { return (PresI18n.t("keep: the diagram's direction as written. Under a gallery: grid (default) or full, one picture per slide edge to edge.")) }
+        if (key == "layout") { return (PresI18n.t("On a slide's heading: columns or comparison (side by side, by sub-headings or blocks), image-right or image-left (pictures in a column at that side), section (title and text centred on the slide), statement (the text large in the middle), center (the content in the middle under the title). Under a diagram: keep, its direction as written. Under a gallery: grid (default) or full, one picture per slide edge to edge.")) }
+        if (key == "valign") { return (PresI18n.t("On a slide's heading: center or bottom sets the content under the title in the middle or at the foot of the room under it.")) }
+        if (key == "float") { return (PresI18n.t("Under a picture: top-right, top-left, bottom-right or bottom-left sets it in that corner of the slide, out of the flow (a logo); with width=8%.")) }
+        if (key == "widths") { return (PresI18n.t("Column widths of ::: columns or of a slide's layout=columns, e.g. widths=\"60 40\".")) }
         if (key == "heading") { return (PresI18n.t("hidden: the title names the slide (overview, contents, screen readers) but is not drawn.")) }
         if (key == "fit") { return (PresI18n.t("Gallery: cover fills the cell and crops, contain shows the whole picture.")) }
         if (key == "caption") { return (PresI18n.t("Gallery: overlay (on the picture, with a dim band), below or none.")) }

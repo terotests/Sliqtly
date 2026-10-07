@@ -1,0 +1,99 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresCssSupport.rgr — what a Sliqtly theme can say, and what it says for nothing
+; ============================================================================
+;
+; The markdown module lists the selectors and properties its layout reads
+; (MdCssSupport). Sliqtly reads rules of its own on top — `chart`,
+; `diagram`, `figure` and the deck's effect — in PresDeck, so they are added
+; here, once, for the theme editor's notes (PresCssLanguage), the MCP report
+; (mcp-go Check) and the guide's table. A rule PresDeck starts reading is
+; added here too, or the editor calls it ignored.
+; ============================================================================
+
+Import "../markdown/src/MdCssSupport.rgr"
+Import "../datagrid/src/script/lang/EditorDiagnostic.rgr"
+
+class PresCssSupport {
+    sfn make:MdCssSupport () {
+        def s (new MdCssSupport())
+        ; PresDeck.chartDefaults, chartLook, chartColour, chart placement
+        s.addElement("chart" "color,accent-color,label-color,contrast,chart-style,chart-effects,font-size,title-font-size,title-gap,padding,justify-content,text-align" "charts (```vega-lite, ```chart)")
+        ; PresDeck.diagram palette
+        s.addElement("diagram" "color,accent-color" "diagrams (```mermaid, ```flow)")
+        ; PresDeck.figureStyle
+        s.addElement("figure" "color,accent-color,colors,card-background,box-shadow,font-size" "list figures (list-style: process, swot, timeline, cards, stats)")
+        ; PresDeck.setTheme: the theme's effect
+        s.addElement("deck" "fx,fx-*,warm,accent" "")
+        ; `#anchor chart { font-size }`: the charts under one heading
+        s.readsUnderScope("chart")
+        return s
+    }
+
+    sfn lint:[MdCssNote] (css:string) {
+        def none:[string]
+        def s:MdCssSupport (PresCssSupport.make())
+        return (s.lint(css none))
+    }
+
+    ; The notes as the report's lines, at most `most` of them and a count of
+    ; the rest.
+    sfn lines:[string] (css:string most:int) {
+        def out:[string]
+        def notes:[MdCssNote] (PresCssSupport.lint(css))
+        def n:int (array_length notes)
+        def i:int 0
+        while ((i < n) && (i < most)) {
+            def nt:MdCssNote (itemAt notes i)
+            push out ("CSS: " + nt.message)
+            i = (i + 1)
+        }
+        if (n > most) {
+            push out ("CSS: " + (to_string (n - most)) + " more lines are ignored.")
+        }
+        return out
+    }
+
+    ; The notes for the theme editor's gutter: line and column of each, as
+    ; warnings.
+    sfn diagnostics:[EditorDiagnostic] (css:string) {
+        def out:[EditorDiagnostic]
+        def notes:[MdCssNote] (PresCssSupport.lint(css))
+        for notes nt:MdCssNote ni {
+            def d (new EditorDiagnostic())
+            def a:[int] (PresCssSupport.lineCol(css nt.at))
+            def b:[int] (PresCssSupport.lineCol(css nt.end))
+            d.line = (itemAt a 0)
+            d.col = (itemAt a 1)
+            d.endLine = (itemAt b 0)
+            d.endCol = (itemAt b 1)
+            d.severity = (DiagnosticSeverity.warning())
+            d.message = nt.message
+            d.source = "css"
+            push out d
+        }
+        return out
+    }
+
+    ; 0-based line and column of an offset
+    sfn lineCol:[int] (text:string at:int) {
+        def line:int 0
+        def col:int 0
+        def i:int 0
+        def n:int (strlen text)
+        while ((i < at) && (i < n)) {
+            if ((charAt text i) == 10) {
+                line = (line + 1)
+                col = 0
+            } {
+                col = (col + 1)
+            }
+            i = (i + 1)
+        }
+        def out:[int]
+        push out line
+        push out col
+        return out
+    }
+}

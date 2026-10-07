@@ -7,11 +7,14 @@
 ; so /s/{id} opens it with no change to the page.
 ;
 ; The id locates a deck; it grants nothing. A signed-in user's deck is
-; changed by its owner only. A deck made without sign-in is changed only in
-; the MCP session that made it: the session's id (a 256-bit random value the
-; server hands out at initialize, sent back in the Mcp-Session-Id header,
-; never in a URL or a tool's arguments) holds it in mcp_sessions/{sha256 of
-; the id} until the session ends (DELETE /mcp) or goes unused for a day.
+; changed by its owner only. A deck made without sign-in is changed only by
+; the conversation that made it. Two 256-bit random values hold it, each
+; kept only as mcp_sessions/{its sha256}: the connection's Mcp-Session-Id
+; (until DELETE /mcp), and the session_key create_presentation hands the
+; conversation, which it sends back as a tool argument. Clients reconnect
+; with a new Mcp-Session-Id (Cursor between turns), so the key is what
+; carries the hold across connections. Either lapses a day after its last
+; change.
 ;
 ; Without cloud storage ("link") nothing is kept: the deck travels in the link.
 
