@@ -93,6 +93,9 @@
   .compare thead th { font: 12px/1.3 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
   .compare tbody th { color: var(--paper); font-weight: 600; white-space: nowrap; }
   .home .compare .accent { color: var(--accent); }
+  .compare--run { min-width: 0; }
+  .compare .num { font-variant-numeric: tabular-nums; }
+  .compare .total > * { color: var(--paper); }
   .compare .sl { background: rgba(200, 255, 60, .07); }
   .compare .rate { display: block; width: max-content; margin: 0 0 6px; padding: 2px 8px; border-radius: 3px; font: 600 11px/1.5 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
   .compare .rate--ex { background: #1f7a4d; color: #e9fff3; }
@@ -221,6 +224,22 @@
           </table>
         </div>
         <p class="fine">Measured 2026-10-07 on the same 15-slide deck (6 charts, 2 tables, a diagram, cards) made both ways; token counts with Anthropic's public tokenizer, which approximates current models. Google Slides is from our earlier 6-slide test; timings varied between tests, either way.</p>
+        <p class="deal__enter">Example run</p>
+        <p>One deck made and then changed four times, in Claude, once with Sliqtly (cloud) and once with Claude's PowerPoint skill. Minutes per step; the first run in brackets.</p>
+        <div class="tablebox">
+          <table class="compare compare--run">
+            <thead><tr><th>Step</th><th class="accent sl">Sliqtly (cloud)</th><th>Claude + PowerPoint skill</th></tr></thead>
+            <tbody>
+              <tr><th>A, first version</th><td class="num sl">2.7 (1.8)</td><td class="num">3.6 (6.1)</td></tr>
+              <tr><th>E1, fix the data</th><td class="num sl">0.8 (1.2)</td><td class="num">0.3 (0.4)</td></tr>
+              <tr><th>E2, change the structure</th><td class="num sl">0.6 (1.0)</td><td class="num">0.7 (0.9)</td></tr>
+              <tr><th>E3, change the style</th><td class="num sl">0.5 (0.5)</td><td class="num">0.8 (1.1)</td></tr>
+              <tr><th>E4, export PDF</th><td class="num sl">0.15 (&lt;1)</td><td class="num">0.1 (0.2)</td></tr>
+              <tr class="total"><th>Total</th><td class="num sl"><strong>4.75</strong> (~5)</td><td class="num"><strong>5.4</strong> (8.7)</td></tr>
+              <tr><th>Tool calls</th><td class="num sl">~42</td><td class="num">~30</td></tr>
+            </tbody>
+          </table>
+        </div>
         <div class="actions" id="mcp">
           <a class="btn btn--solid btn--lg" href="/connect.html">Connect via MCP</a>
           <span class="cmd">https://sliqtly.com/mcp</span>
