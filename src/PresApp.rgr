@@ -391,6 +391,25 @@ class PresApp {
         return (deck.addImage(name data contentType w h))
     }
 
+    ; `[{"path":"/inline-svg/….svg","svg":"<svg …>"}]`: the <svg> drawings
+    ; the Markdown writes that the page has not drawn into the store yet
+    ; (`PresDeck.inlineSvgsMissing`)
+    fn inlineSvgsJson:string () {
+        def parts:[string]
+        for (deck.inlineSvgsMissing()) u:MdSvgUse i {
+            push parts ("{\"path\":" + (PresApp.jsonStr(("/" + u.path))) + ",\"svg\":" + (PresApp.jsonStr(u.svg)) + "}")
+        }
+        return ("[" + (join parts ",") + "]")
+    }
+
+    ; The pictures `inlineSvgsJson` named are in the store now: the slides
+    ; are laid out again to show them, and timed again (new slide objects).
+    fn inlineSvgsAdded:void () {
+        deck.rebuild()
+        PresTimeline.planAll(deck)
+        chromeRev = (chromeRev + 1)
+    }
+
     ; Another deck opened: the pictures of the one before are gone
     ; (PresDeck.clearImages); the page hands over the new one's.
     fn clearImages:void () {
