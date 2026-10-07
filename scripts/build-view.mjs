@@ -52,6 +52,7 @@ export function buildView({ ranger } = {}) {
   copy(path.join(root, "brand/sliqtly-icon.svg"), "favicon.svg");
   // the Personal package's license, linked from the front page
   copy(path.join(root, "mcp-go/packaging/personal/LICENSE"), "personal-license.txt");
+  copy(path.join(webDir, "examples/sliqtly-features.pdf"), "examples/sliqtly-features.pdf");
   copyFaces(ranger, viewDir);
 
   // every module's relative imports are among the files copied
