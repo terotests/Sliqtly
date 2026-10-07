@@ -216,7 +216,10 @@ docker run -p 8080:8080 -v sliqtly-data:/data -v /mnt/disk2/sliqtly:/backup -e S
 | `-port` | `PORT` | 8080 | |
 | `-url` | `SLIQTLY_URL` | `http://localhost:<port>` | the address in the links the tools return; set it to the name people reach the server by |
 | `-user` | `SLIQTLY_USER` | `local` | owner of the decks |
-| `-token` | `SLIQTLY_TOKEN` | | `/mcp` then needs `Authorization: Bearer <token>` |
+| `-token` | `SLIQTLY_TOKEN` | | `/mcp` and `/api/v1` then need `Authorization: Bearer <token>` |
+| `-cors-origins` | `SLIQTLY_CORS_ORIGINS` | | pages of other origins that may call `/api/v1` and `/oauth/token` (below) |
+| `-oidc-issuer`, `-oidc-client-id`, `-oidc-client-secret`, `-oidc-allow`, `-oidc-scopes` | `SLIQTLY_OIDC_ISSUER`, `…_CLIENT_ID`, `…_CLIENT_SECRET`, `…_ALLOW`, `…_SCOPES` | scopes `openid email profile` | sign-in through an OpenID Connect provider (below) |
+| `-tls-cert`, `-tls-key` | `SLIQTLY_TLS_CERT`, `SLIQTLY_TLS_KEY` | | a certificate (PEM) served on the port's https:// side instead of the server's own (below) |
 | `-web` | `SLIQTLY_WEB` | the copy built in | a built `web/dist` to serve |
 | `-listen` | `SLIQTLY_LISTEN` | `local` (the settings page decides) | who can connect: `local`, `wired` or `network` (below) |
 | `-allow` | `SLIQTLY_ALLOW` | | other computers' address ranges let in, e.g. `10.20.0.0/16` |
@@ -409,8 +412,73 @@ do not follow it.
 The page is sliqtly.com's own; only `/sliqtly.js` differs. The editor is
 signed in as the folder's user, so a deck opened with `?edit` is saved back
 to the folder as you type, and an assistant's change shows up in it. Google
-Sheets and Drive are not available. `/api/` has no sign-in, like the rest:
-whoever reaches the server can change its decks.
+Sheets and Drive are not available. `/api/` has no sign-in: whoever
+reaches the server can change its decks there (`-token` and the `-oidc-*`
+flags guard `/mcp` and `/api/v1`, below).
+
+### Sign-in, the REST API and https://
+
+`/api/v1` (`apiv1.go`, the contract in [`docs/api-v1.md`](../docs/api-v1.md))
+is the API for the desktop and web editors and other programs: decks
+listed, read, created, saved (with `ifVersion`: 409 when someone saved
+meanwhile) and deleted, and a deck's slides laid out as `/api/view` has
+them. A save goes the editor's own way (`saveShare`), so a deck open in a
+room hears it. The old `/api` is the built-in page's and stays as it is:
+no sign-in, guarded by `localguard.go`.
+
+**Who may call it.** With `-token`, `/mcp` and `/api/v1` need
+`Authorization: Bearer <token>`. With the `-oidc-*` flags the server is also
+an OAuth 2.1 authorization server (`rgr/OAuth.rgr`, `oidc.go`) whose sign-in
+is the provider's: MCP clients find it from the 401 on `/mcp` and register
+themselves, the desktop app signs in as `sliqtly-desktop` (its code to
+`http://127.0.0.1:<port>/callback`), a web editor as `sliqtly-web` (to
+`<its origin>/callback.html`). The ID token is verified against the
+provider's keys, and only the accounts `-oidc-allow` names get in:
+emails and `@domains` (an address the provider marks unverified never
+matches), or `*` for every account the provider signs in, which suits a
+provider that already holds only the company's accounts. The tokens work on
+`/mcp` and `/api/v1`, alongside `-token`. The server keeps only hashes of
+codes and tokens. Every caller still works as the server's one user
+(`-user`); sign-in decides who may, not whose decks.
+
+Register `<-url>/oauth/callback` as the redirect URI at the provider, and
+start the server with `-url` set to the address people use, so the two
+match. The secret is better in the environment than on the command line.
+
+```
+# Google: console.cloud.google.com → APIs & Services → Credentials → OAuth client ID (Web application)
+SLIQTLY_OIDC_CLIENT_SECRET=… sliqtly-server -data ./data -url https://slides.example.com \
+  -oidc-issuer https://accounts.google.com -oidc-client-id 1234-abc.apps.googleusercontent.com \
+  -oidc-allow @example.com,partner@other.org
+
+# Microsoft Entra ID: App registrations → New (Web, the redirect URI above), Certificates & secrets.
+# The tenant's issuer lets in that tenant's accounts only; add the optional claim "email" to the
+# ID token to match by address, or use *.
+SLIQTLY_OIDC_CLIENT_SECRET=… sliqtly-server -data ./data -url https://slides.example.com \
+  -oidc-issuer https://login.microsoftonline.com/<tenant id>/v2.0 -oidc-client-id <application id> \
+  -oidc-allow '*'
+
+# Keycloak: a confidential OpenID Connect client in the realm, the redirect URI above
+SLIQTLY_OIDC_CLIENT_SECRET=… sliqtly-server -data ./data -url https://slides.example.com \
+  -oidc-issuer https://sso.example.com/realms/company -oidc-client-id sliqtly \
+  -oidc-allow @example.com
+```
+
+**Pages of other origins.** A browser page on another origin may call
+`/api/v1` and `/oauth/token` when its origin is on `-cors-origins`
+(`https://editor.example.com,https://10.0.0.5:8443`); pages on this
+computer (`localhost`, `127.0.0.1`, `[::1]`, any port) always may. Their
+requests carry a bearer token, never a cookie. Without `-token` and sign-in,
+`/api/v1` answers only the server's own pages, pages on this computer and
+programs that send no `Origin`.
+
+**https://.** The port answers https:// with the server's own authority
+(`/ca`, above) unless `-tls-cert` and `-tls-key` name a certificate and its
+key (PEM, the chain after the certificate), such as the company's or one
+from Let's Encrypt: that one is served instead, and read again when the
+files change (a renewal), so nothing needs installing on the computers that
+connect. `/api/v1/info` says which (`tls.ownCA`) and, for the server's own,
+its fingerprint for a client to pin.
 
 ### A Debian/Ubuntu package
 
