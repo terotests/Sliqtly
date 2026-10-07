@@ -29,7 +29,7 @@ import { showHistory, askMerge } from "./versions-ui.js";
 import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
-import { deckRows, sortRows, deckListJson, nextSort, firstDir } from "./decklist.js";
+import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, roomOf } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { Meet } from "./meet.js";
@@ -1066,7 +1066,7 @@ async function newDeck(plan) {
 // Rooms beside the rail (ADR 0001): on a server of one's own its rooms
 // (POST /api/rooms/<op>); elsewhere this browser's (web/rooms.js), kept in
 // localStorage. The open room's presentations are listed under it, at most
-// five, "… Show all" opening the rest in the presentations window.
+// fifteen, "… Show all" opening the rest in the presentations window.
 // A change to the rooms: only what it changes is written, over what
 // localStorage holds now (web/rooms.js changeKept: other tabs write too)
 function keepRooms(fn) {
@@ -1307,7 +1307,7 @@ async function roomsRequest(r) {
       app.openOpen([...sampleSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
     } else {
       const title = (await roomsList()).find((x) => x.room_id === what)?.title || "";
-      decksRoom = { ids: new Set((await roomRows(what)).map((x) => x.id)), title };
+      decksRoom = { room: what, title };
       await openDecks();
     }
   } else if (action === "create") {
@@ -1768,20 +1768,30 @@ async function allDocs(fresh = false) {
 // { by, dir }, kept as "by" or "by:dir" (a column's head pressed again
 // turns its order round)
 let decksSort = { by: "updated", dir: "desc" };
-// the room the window lists, from its "… Show all" ({ ids, title }), or null
+// the room the window lists, from its "… Show all" ({ room, title }), or null
 // for every presentation
 let decksRoom = null;
 try {
   const [by, dir] = (localStorage.getItem("sliqtly.decksSort") || "updated").split(":");
   decksSort = { by, dir: dir || firstDir(by) };
 } catch (_) { /* the default */ }
+// The window's rows for a room's "… Show all": on a server of one's own the
+// room's presentations as the server keeps them (many are made by an
+// assistant and are not this browser's), else this browser's decks in it.
+async function roomWindowRows(room, fresh) {
+  if (ownServer()) {
+    const g = await roomsCall("get_room", { room_id: room });
+    return roomShareRows(g.presentations, await vfs.listDocs(), doc.id);
+  }
+  const ids = new Set((await roomRows(room)).map((x) => x.id));
+  return (await allDocs(fresh)).filter((d) => ids.has(d.id));
+}
 async function decksJson(fresh = false) {
   const signedOut = window.sliqtly && !window.sliqtly.user();
   const note = cloudList.error
     ? t("The presentations in your cloud could not be read: ") + cloudList.error
     : signedOut ? t("Sign in (PRO) to see the presentations in your cloud, such as those made by an assistant.") : "";
-  const all = await allDocs(fresh);
-  const rows = decksRoom ? all.filter((d) => decksRoom.ids.has(d.id)) : all;
+  const rows = decksRoom ? await roomWindowRows(decksRoom.room, fresh) : await allDocs(fresh);
   const inRoom = decksRoom ? t("Room: ") + decksRoom.title : "";
   return deckListJson(rows, decksSort.by, t, [inRoom, note].filter(Boolean).join(" · "), decksSort.dir);
 }

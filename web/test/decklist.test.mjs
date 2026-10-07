@@ -1,7 +1,7 @@
 // node --test: the presentations window's list (web/decklist.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deckRows, sortRows, whenText, deckListJson, nextSort } from "../decklist.js";
+import { deckRows, sortRows, whenText, deckListJson, nextSort, roomShareRows } from "../decklist.js";
 
 const local = [
   { id: "a", name: "Old deck", created: 100, updated: 200 },
@@ -92,4 +92,13 @@ test("oldest first and Z–A when turned round", () => {
   assert.deepEqual(j.rows.map((r) => r.id), ["a", "b", "cloud:M1"]);
   assert.equal(JSON.parse(deckListJson(rows, "name", (s) => s)).dir, "asc");
   assert.equal(JSON.parse(deckListJson(rows, "updated", (s) => s)).dir, "desc");
+});
+
+test("a room's presentations on the server: a deck kept here is its own row, the rest the server's", () => {
+  const rows = roomShareRows([{ deck_id: "S1", name: "Shared deck", updated: 900 }, { deck_id: "M1", name: "Made by Claude", updated: 50 }], local, "b");
+  assert.deepEqual(rows, [
+    { id: "b", name: "Shared deck", created: 300, updated: 900, where: "both", current: true },
+    { id: "cloud:M1", name: "Made by Claude", created: 50, updated: 50, where: "cloud", current: false },
+  ]);
+  assert.deepEqual(roomShareRows(undefined, local, "b"), []);
 });

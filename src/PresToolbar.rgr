@@ -228,9 +228,12 @@ class PresToolbar {
         c.icon = icon
         c.iconOnly = ((strlen icon) > 0)
         ; sized by its own class: "tb-icon-room-new", every room's gear
-        ; "tb-icon-roomgear"
+        ; and "+" "tb-icon-roomgear"
         c.iconClass = ("tb-icon-" + id)
         if ((indexOf id "roomgear-") == 0) {
+            c.iconClass = "tb-icon-roomgear"
+        }
+        if ((indexOf id "roomadd-") == 0) {
             c.iconClass = "tb-icon-roomgear"
         }
         c.build()
@@ -916,13 +919,29 @@ class PresToolbar {
             UiTree.addClass(rel "tb-room-dragged")
         }
         if ((rel.getChildCount()) > 0) {
+            ; a long name gives way to the count and the buttons after it
+            def keep:double 40.0
+            if ((strlen count) > 0) {
+                keep = (keep + 22.0)
+            }
+            if (id != "onboarding") {
+                keep = (keep + 26.0)
+            }
+            if ((PresToolbar.builtInRoom(id)) == false) {
+                keep = (keep + 26.0)
+            }
             def lb:EVGElement (rel.getChild(0))
-            lb.textContent = ("# " + name)
+            lb.textContent = (UiText.fit((this.engine()) ("# " + name) "Open Sans" 13.0 (roomsW - keep)))
             UiTree.addClass(lb "tb-room-name")
         }
         rel.addChild((this.div("tb-grow")))
         if ((strlen count) > 0) {
             rel.addChild((this.text("tb-room-count" count)))
+        }
+        ; a new presentation straight into the room
+        if (id != "onboarding") {
+            def add:ButtonCtl (this.iconButton(("roomadd-" + id) (PresI18n.t("New presentation in this room")) "ghost" "M12 5v14M5 12h14" rel))
+            UiTree.addClass((unwrap add.rootEl) "tb-roomgear")
         }
         ; a room made here: its settings (name, archive, delete) at the end
         if ((PresToolbar.builtInRoom(id)) == false) {
@@ -1029,6 +1048,9 @@ class PresToolbar {
             }
             if ((indexOf ct "tb-roomgear-") == 0) {
                 return (substring ct 12 (strlen ct))
+            }
+            if ((indexOf ct "tb-roomadd-") == 0) {
+                return (substring ct 11 (strlen ct))
             }
         }
         return ""
@@ -1866,6 +1888,10 @@ class PresToolbar {
         }
         if ((indexOf ctlTid "tb-roomgear-") == 0) {
             push requests ("room:settings:" + (substring ctlTid 12 (strlen ctlTid)))
+            return
+        }
+        if ((indexOf ctlTid "tb-roomadd-") == 0) {
+            push requests ("room:newin:" + (substring ctlTid 11 (strlen ctlTid)))
             return
         }
         if ((indexOf ctlTid "tb-room-") == 0) {
