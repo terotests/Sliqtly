@@ -34,7 +34,7 @@ import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, mov
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { planFiles, seenAfterSave } from "./sharefiles.js";
 import { Meet } from "./meet.js";
-import { RoomChat } from "./roomchat.js";
+import { RoomChat, unreadRooms } from "./roomchat.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
@@ -1032,11 +1032,14 @@ async function saveDocNow(force) {
   // a deck as it was opened is not kept until someone changes it (a shared
   // deck opens with its own CSS: that is as opened too), nor an empty one
   if (!doc.persisted && !force && ((md === doc.openedText && css === doc.openedCss) || !md.trim())) return;
+  let renamedNow = false;
   saving = (async () => {
     const cur = doc.persisted ? await vfs.getDoc(doc.id) : null;
     // another tab of this browser saved this deck since this one read it:
     // nothing is written over, the two are put together first
     if (cur && !collabOn() && changedElsewhere(cur)) return "merge";
+    // its name changed (a heading edited): the room's list shows it
+    if (cur && cur.name !== exportName()) renamedNow = true;
     await vfs.putDoc({
       ...(cur || {}), id: doc.id, name: exportName(), md, theme: key, css, created: doc.created, updated: Date.now(), by: TAB,
       cloud: doc.cloud, cloudMd: doc.cloudMd, cloudCss: doc.cloudCss, cloudTheme: doc.cloudTheme, cloudFiles: doc.cloudFiles,
@@ -1057,6 +1060,7 @@ async function saveDocNow(force) {
   let r;
   try { r = await saving; } finally { saving = null; }
   if (r === "merge") return takeLocal();
+  if (renamedNow) roomDecksAgain();
   refreshFiles();
   cloudSoon();
   tellTabs();
@@ -1163,19 +1167,25 @@ async function copyDeckTo(room, deck) {
 }
 // A room's presentations, [{ id, name, current, folder }], ids as
 // fileRequest's "doc:" takes them ("sample:<key>" for a sample), and its
-// folders, [{ id, name }].
+// folders, [{ id, name }]. The open deck shows its name as it is now
+// (renamed, not saved yet).
 async function roomView(room) {
+  const live = (r) => (r.current && !r.id.startsWith("sample:") ? { ...r, name: exportName() || r.name } : r);
   if (ownServer()) {
     const g = await roomsCall("get_room", { room_id: room });
     return {
-      rows: (g.presentations || []).map((p) => ({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "" })),
+      rows: (g.presentations || []).map((p) => live({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "" })),
       folders: (g.folders || []).map((f) => ({ id: f.folder_id, name: f.name })),
     };
   }
-  return { rows: roomDecks(roomsHere, room, await allDocs(), sampleRows()), folders: foldersOf(roomsHere, room) };
+  return { rows: roomDecks(roomsHere, room, await allDocs(), sampleRows()).map(live), folders: foldersOf(roomsHere, room) };
 }
 async function roomRows(room) {
   return (await roomView(room)).rows;
+}
+// The open room's presentations listed again (the open deck renamed).
+function roomDecksAgain() {
+  if (roomShown) roomsRequest("room:decks:" + roomShown).catch(() => {});
 }
 // The open presentation's id in the room lists ("" while it is not kept yet,
 // as an unedited sample is not).
@@ -1213,9 +1223,32 @@ async function docRooms() {
 }
 // the search field's text while it is open (null: the rooms one is active in)
 let roomsQuery = null;
+// the rooms the rail lists now (list_rooms' rows)
+let roomsListed = [];
+// The rail's room rows: "id TAB name TAB count TAB u", u when the room has
+// messages this browser has not read (a blue dot). An empty room shows no
+// count ("0" says nothing the empty list does not).
+function showRoomRows() {
+  let store = null;
+  try { store = localStorage; } catch (_) { store = { getItem: () => null }; }
+  const reading = roomChatOne && app.roomChatOpen() ? roomChatOne.room : "";
+  const unread = unreadRooms(roomsListed, store, reading);
+  const rows = roomsListed.map((x) => [x.room_id, clean(x.title) + (x.archived ? " (" + t("archived") + ")" : ""), x.presentations || "", unread.has(x.room_id) ? "u" : ""].join("\t"));
+  app.setToolbarOptions("rooms", rows.join("\n"), roomShown);
+  needsPaint = true;
+}
 // a room made, renamed, archived or removed, or a deck moved, by anyone:
 // the server says so on the page's stream, and the list is read again
 window.addEventListener("sliqtly:chat", (ev) => {
+  // a message in a listed room: its dot, unless its chat is open and read
+  const v = ev.detail;
+  if (v?.t === "msg" && v.msg) {
+    const r = roomsListed.find((x) => x.room_id === v.room);
+    if (r && Number(v.msg.seq) > Number(r.chat_seq || 0)) {
+      r.chat_seq = Number(v.msg.seq);
+      showRoomRows();
+    }
+  }
   if ((ev.detail?.t === "rooms" || ev.detail?.t === "reopen") && ownServer()) {
     roomsRequest("room:list").then(() => { needsPaint = true; }, () => {});
     // an open Document settings window shows the deck's room as it is now
@@ -1241,10 +1274,9 @@ async function roomsRequest(r) {
       if (open) rooms = [...rooms, open];
       else roomShown = rooms[0]?.room_id || "";
     }
-    // an empty room shows no count ("0" says nothing the empty list does not)
-    const rows = rooms.map((x) => [x.room_id, clean(x.title) + (x.archived ? " (" + t("archived") + ")" : ""), x.presentations || ""].join("\t"));
+    roomsListed = rooms;
     app.setToolbarOptions("roomsearch", "", t("Search rooms…") + (hidden ? " (" + hidden + t(" more") + ")" : ""));
-    app.setToolbarOptions("rooms", rows.join("\n"), roomShown);
+    showRoomRows();
     if (roomShown && rooms.some((x) => x.room_id === roomShown)) await roomsRequest("room:decks:" + roomShown);
     else app.setToolbarOptions("roomdecks", "", roomShown);
   } else if (action === "search") {
@@ -1473,6 +1505,8 @@ function roomChat() {
     zone: () => -new Date().getTimezoneOffset(),
     rooms: () => roomsList({ archived: true }),
     roomsChanged: () => roomsRequest("room:list"),
+    // the open room read: its dot goes
+    readChanged: () => showRoomRows(),
     openLink: (u) => { if (/^https?:\/\//i.test(u)) window.open(u, "_blank", "noopener"); },
     openDeck: async (deck, slide) => {
       await roomsRequest("room:deck:cloud:" + deck);
@@ -1537,6 +1571,7 @@ function renameDeck(name) {
   docName = name;
   if (shownKey) app.deckTabOpen(shownKey, tabLabel(exportName()));
   collab?.takeLocal();
+  roomDecksAgain();
   needsPaint = true;
 }
 function copyName() {
@@ -1582,6 +1617,27 @@ async function newSheet() {
     onSave: (raw) => saveWorkbook(path, raw),
     onClose: () => { keys.focus({ preventScroll: true }); refreshFiles(); needsPaint = true; },
   }).catch((e) => toast(t("The spreadsheet editor did not load: ") + (e.message || e)));
+}
+
+// A row of a presentation's menu in Rooms or on its deck tab
+// ("<room|tab>:<id>\t<request>"): the File menu's rows act on the open deck,
+// so that deck opens first; one that did not open has nothing done to the
+// deck open instead.
+async function deckDo(what) {
+  const tab = what.indexOf("\t");
+  if (tab < 0) return;
+  const [from, ...rest] = what.slice(0, tab).split(":");
+  const id = rest.join(":");
+  if (from === "tab") {
+    await switchDeck(id);
+    if (shownKey !== id) return;
+  } else {
+    await roomsRequest("room:deck:" + id);
+    if (!id.startsWith("sample:") && (await currentRoomId()) !== id) return;
+  }
+  app.request(what.slice(tab + 1));
+  handleRequests();
+  needsPaint = true;
 }
 
 // File → Delete presentation…, once confirmed: the open deck removed from
@@ -3160,6 +3216,17 @@ mirror.root.addEventListener("keydown", (ev) => {
     return;
   }
   if (/^thumb-\d+$/.test(id) && stripKey(ev)) return;
+  // Shift+F10 or the menu key on a presentation in Rooms or its tab: its menu
+  if ((id.startsWith("tb-roomdeck-d-") || id.startsWith("decktabs-tab-")) && node && (ev.key === "ContextMenu" || (ev.shiftKey && ev.key === "F10"))) {
+    ev.preventDefault();
+    let opened = false;
+    pressAtCentre(node, (x, y) => { opened = app.deckMenuAt(x, y); });
+    if (opened) {
+      afterInput();
+      focusSlideMenu();
+    }
+    return;
+  }
   if (node && node.role === "slider" && /^Arrow/.test(ev.key)) {
     ev.preventDefault();
     const up = ev.key === "ArrowRight" || ev.key === "ArrowUp";
@@ -3891,6 +3958,8 @@ function handleRequests() {
       refreshFiles();
     } else if (r.startsWith("files:")) {
       fileRequest(r.slice(6)).catch(fail);
+    } else if (r.startsWith("deckdo:")) {
+      deckDo(r.slice(7)).catch(fail);
     } else if (r.startsWith("deck:switch:")) {
       switchDeck(r.slice(12)).catch(fail);
     } else if (r === "deck:tabs") {
@@ -6798,7 +6867,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   if (pinch) return;
   // the secondary button (or Control + click on a Mac) on a slide of the
   // strip: its menu (contextmenu below), not a press that picks the slide
-  if (secondaryPress(ev, IS_MAC) && app.inStrip(x, y)) {
+  if (secondaryPress(ev, IS_MAC) && (app.inStrip(x, y) || app.inDeckRow(x, y))) {
     ev.preventDefault();
     return;
   }
@@ -7056,10 +7125,19 @@ for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
 let diagramTold = false;
 let diagramTimer = 0;
 canvas.addEventListener("pointerup", endPointer);
-// A right click on a slide of the strip: New, Duplicate, Move, Delete.
+// A right click on a slide of the strip: New, Duplicate, Move, Delete; on
+// a room's chat, a message's menu; on a presentation in Rooms or a deck tab:
+// the File menu's rows for it.
 canvas.addEventListener("contextmenu", (ev) => {
   const [x, y] = at(ev);
-  if (!app.slideMenuAt(x, y)) return;
+  // on a room's chat: the message's menu (React, Reply, Quote, Copy, Edit, Delete)
+  if (app.roomMenuAt(x, y)) {
+    ev.preventDefault();
+    closeHint();
+    afterInput();
+    return;
+  }
+  if (!app.deckMenuAt(x, y) && !app.slideMenuAt(x, y)) return;
   ev.preventDefault();
   closeHint();
   afterInput();
