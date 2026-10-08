@@ -1,15 +1,11 @@
-# Sliqtly Editor (desktop and web)
+# Sliqtly, native (desktop)
 
-A proof of concept: one Ranger app (`src/EditorApp.rgr`) that is
-
-- **native** on macOS and Linux: Ranger → C++, SDL2 + OpenGL, painted by
-  EVG's native painter (`evg::gl::Painter`), HTTP through libcurl;
-- **web**: Ranger → JavaScript, painted by `evg-webgl`, HTTP through `fetch`.
-
-It edits the presentations of a Sliqtly server of one's own through the
-server's REST API v1. Markdown is on the left. On the right is a preview of the
-slides, laid out by the server (`GET /api/v1/decks/{id}/view`) and painted by
-the client from the server's EVG display lists.
+The Sliqtly editor as a desktop app on macOS and Linux: the same editor the
+browser runs (`../src/PresApp.rgr` with EVGUI), compiled by Ranger to C++ and
+hosted in an SDL2 + OpenGL window (`native/editor_host.cpp`), painted by EVG's
+native painter (`evg::gl::Painter`). It edits the presentations of a Sliqtly
+server (File → Presentations…, Cmd/Ctrl+S saves there), or a Markdown deck
+file given on the command line.
 
 ## Quick start
 
@@ -18,24 +14,74 @@ cd desktop
 npm install               # the Ranger compiler (ranger-compiler 4.0.2)
 npm run deps              # EVG at the commit ranger.json pins (rgrc install)
 
-npm test                  # the models and the UI, against the mock server
-npm run mock -- --port 8080 --auth token --token secret   # a server to talk to
-
-npm run web               # http://127.0.0.1:8140/
-npm run native            # native/build/sliqtly-editor (+ "Sliqtly Editor.app" on macOS)
-npm run native:run        # build and start it
-npm run native:check      # headless smoke run with screenshots (native/build/shots/)
-npm run icon              # native/icon/icon-1024.png and AppIcon.icns, drawn by the app
+npm run native            # native/build-editor/sliqtly-native (+ Sliqtly.app on macOS)
+npm run native:run        # build and start it with the welcome deck
+npm run native:run -- ~/deck.md   # … or with a deck file of your own
+npm run native:check      # headless check: click, typing, wheel direction, a painted frame
 ```
 
-Native build needs:
+### The server
+
+At start the editor connects to `http://localhost:8080` (`npm run serve` in
+the repository root), or to `--server URL` / `SLIQTLY_SERVER`; `--token T` /
+`SLIQTLY_TOKEN` when the server was started with `-token`. `--server none`
+works on files only.
+
+```bash
+npm run native:run -- --server http://localhost:8080
+```
+
+- File → Presentations… lists the server's presentations (sort by a column,
+  delete one that is not open); a row opens it.
+- Cmd/Ctrl+S saves the open one there. If it was changed on the server since
+  it was opened (a browser, an assistant over MCP), the editor asks which to
+  keep: the server's version or this one.
+- The welcome deck, saved, becomes a new presentation on the server.
+- A deck file given on the command line saves to that file.
+
+What the editor does with the server is `../src/PresServer.rgr` (REST API v1,
+`../docs/api-v1.md`, over `../src/ApiClient.rgr`), tested in
+`../src/PresCheck.rgr`; the host only performs its HTTP requests with libcurl.
+Not yet here: sign-in (OAuth), a server's own HTTPS CA, rooms and pictures.
+
+The build compiles the whole editor (PresApp.cpp, some 360 000 lines), so it
+takes a few minutes. It uses the Ranger, EVGUI, RangerFlow, RangerMarkdown and
+RangerPPTX clones the web build uses (`../scripts/lib.mjs`, `.deps/`).
+`EVG_NATIVE=<evg>/storm/native` builds against a local EVG checkout.
+
+On macOS the build also writes `native/build-editor/Sliqtly.app` (bundle id
+`com.sliqtly.app`, the stylesheets, themes and fonts in its Resources).
+
+## The first editor (`old:*`)
+
+`src/EditorApp.rgr` is a separate, smaller editor written from scratch: a
+client of a Sliqtly server's REST API v1, native and web. It is kept for its
+server pieces (connect, OAuth sign-in, the server's own CA) until those move
+to the editor above. Its scripts are `old:*`:
+
+```bash
+npm test                  # its models and UI, against the mock server
+npm run old:mock -- --port 8080 --auth token --token secret   # a server to talk to
+npm run old:web           # http://127.0.0.1:8140/
+npm run old:native        # native/build/sliqtly-editor (+ "Sliqtly Editor.app" on macOS)
+npm run old:native:run    # build and start it
+npm run old:native:check  # headless smoke run with screenshots (native/build/shots/)
+npm run icon              # native/icon/icon-1024.png and AppIcon.icns, drawn by it
+```
+
+It edits the presentations of a Sliqtly server of one's own. Markdown is on
+the left. On the right is a preview of the slides, laid out by the server
+(`GET /api/v1/decks/{id}/view`) and painted by the client from the server's
+EVG display lists.
+
+Native build (both editors) needs:
 
 | | |
 |---|---|
 | macOS | Xcode command line tools, `brew install sdl2` (libcurl and OpenGL are part of macOS). For an app to give to others, set `SDL2_FRAMEWORK=<path>/SDL2.framework` (from the official SDL2 .dmg) and `UNIVERSAL=1`: the framework goes inside the .app, which then opens on macOS 11 and later on both Apple silicon and Intel, without Homebrew; CI builds it so |
-| Debian / Ubuntu | `sudo apt-get install libsdl2-dev libgl-dev libcurl4-openssl-dev` (`xvfb` for `native:check` without a display) |
+| Debian / Ubuntu | `sudo apt-get install libsdl2-dev libgl-dev libcurl4-openssl-dev` (`xvfb` for the headless checks without a display) |
 
-On macOS the build also writes `native/build/Sliqtly Editor.app`:
+On macOS `old:native` writes `native/build/Sliqtly Editor.app`:
 - bundle id `com.sliqtly.editor`;
 - `AppIcon.icns` made with sips / iconutil from `native/icon/icon-1024.png`, or the committed `native/icon/AppIcon.icns` when those tools are missing.
 
@@ -102,10 +148,11 @@ folder (the checks use it).
 ## How it is put together
 
 ```
-src/            Ranger: the app, compiled to both targets
+../src/         shared with the editor above
   JsonValue.rgr   a small JSON value + parser (UTF-8, \u escapes, surrogates)
-  TextBuffer.rgr  the text model: lines, caret / selection in code points, undo
   ApiClient.rgr   REST v1 requests as a queue the host runs; Bearer, refresh on 401
+src/            Ranger: the app, compiled to both targets
+  TextBuffer.rgr  the text model: lines, caret / selection in code points, undo
   Settings.rgr    the servers and their tokens / CA, as JSON
   Session.rgr     the state machine: connect, probe, sign-in, trust, decks, save, preview
   EditorApp.rgr   the UI: EVG element trees → display lists; input; a script runner
@@ -138,7 +185,7 @@ It returns 409 conflicts. `/view` is canned for the sample deck and generated fo
 `test/fixtures/view-sample.json` is a real `/api/view/<id>` answer from the Go
 server (`mcp-go`, at this branch's base) for `sample-deck.md`.
 
-**The headless check** (`npm run native:check`) runs the real binary three
+**The headless check** (`npm run old:native:check`) runs the real binary three
 times, scripted with the app's own steps:
 
 | Run | What it does |

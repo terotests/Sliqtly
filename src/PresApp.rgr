@@ -35,6 +35,7 @@ Import "PresPick.rgr"
 Import "PresNav.rgr"
 Import "PresBook.rgr"
 Import "PresScrollInput.rgr"
+Import "PresServer.rgr"
 Import "PresThemeEdit.rgr"
 Import "PresRecord.rgr"
 Import "PresExport.rgr"
@@ -60,6 +61,7 @@ Import "PresSelect.rgr"
 Import "../evgui/src/TabsCtl.rgr"
 Import "../evgui/src/UiLayers.rgr"
 Import "../evgui/src/DocTabsCtl.rgr"
+Import "../evgui/src/UiTree.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
@@ -103,6 +105,8 @@ class PresApp {
     ; always reads `mdEditor`.
     def mdEditor:ScriptEditor (new ScriptEditor())
     def cssEditor:ScriptEditor (new ScriptEditor())
+    ; a picture the slides name came after they were laid out (addImage)
+    def picturesArrived:boolean false
     ; the files tab: a file of the document's opened from it (data, a chart
     ; spec) in an editor of its own; "" while the list shows
     def fileEditor:ScriptEditor (new ScriptEditor())
@@ -145,6 +149,10 @@ class PresApp {
     def sheet:EVGStyleSheet (new EVGStyleSheet())
     def measurer@(optional):TTFTextMeasurer
     def chromeRoot@(optional):EVGElement
+    ; the chrome element under the pointer (UiTree.markHover), and the classes
+    ; the chrome sheet has a `:hover` look for
+    def chromeHover:string ""
+    def hoverCls:[string]
 
     def W:double 1200.0
     def H:double 700.0
@@ -333,6 +341,7 @@ class PresApp {
     ; =========================================================================
     fn init:void (css:string w:double h:double) {
         sheet.parse(css)
+        hoverCls = (UiTree.hoverClasses(sheet))
         mdEditor = editor
         cssEditor.setLanguage(cssLang)
         cssEditor.autoComplete = false
@@ -387,8 +396,28 @@ class PresApp {
         return deck.wantFaces
     }
 
+    ; A picture handed over after the slides that name it were laid out (a
+    ; file someone else in the deck's room added, read from the share after
+    ; their Markdown edit arrived) showed as its "[alt]" text: the slides are
+    ; laid out again on the next frame (`settle`), once however many came.
     fn addImage:boolean (name:string data:buffer contentType:string w:int h:int) {
-        return (deck.addImage(name data contentType w h))
+        def ok:boolean (deck.addImage(name data contentType w h))
+        if (ok && ((deck.slideCount()) > 0) && (this.namesPicture(name))) {
+            picturesArrived = true
+        }
+        return ok
+    }
+
+    ; The Markdown or the theme names the picture at `name` ("/media/a.png").
+    fn namesPicture:boolean (name:string) {
+        def rel:string name
+        if ((indexOf rel "/") == 0) {
+            rel = (substring rel 1 (strlen rel))
+        }
+        if ((strlen rel) == 0) {
+            return false
+        }
+        return (((indexOf (mdEditor.text()) rel) >= 0) || ((indexOf (cssEditor.text()) rel) >= 0))
     }
 
     ; `[{"path":"/inline-svg/….svg","svg":"<svg …>"}]`: the <svg> drawings
@@ -1266,9 +1295,31 @@ class PresApp {
 
     ; The pointer left the page.
     fn pointerLeft:void () {
+        if (barH > 0.0) {
+            toolbar.hoverAt(-1000000.0 -1000000.0)
+        }
+        this.chromeHoverAt(-1000000.0 -1000000.0 "")
+        sketch.hoverAt(-1000000.0 -1000000.0)
+        chart.hoverAt(-1000000.0 -1000000.0 false)
+        review.hoverAt(-1000000.0 -1000000.0 false)
+        chromeRev = (chromeRev + 1)
         deck.diagramPointer(selected -1 0.0 0.0 0.0)
         deck.chartPointer(-1 0.0 0.0)
         this.inkHide()
+    }
+
+    ; The chrome's own hover (the open presentations' tabs, the editor's
+    ; tabs, the filmstrip): what a `:hover` rule in the chrome sheet names, on
+    ; top under the pointer, and only when no window or menu is over it.
+    fn chromeHoverAt:void (x:double y:double top:string) {
+        def id:string ""
+        if ((((mode != "present") && ((strlen top) == 0)) && (!null? chromeRoot)) && ((toolbar.has(x y)) == false)) {
+            id = (UiTree.hoverIdAt((unwrap chromeRoot) x y hoverCls))
+        }
+        if (id != chromeHover) {
+            chromeHover = id
+            chromeRev = (chromeRev + 1)
+        }
     }
 
     ; A press on the stage that meant something to a diagram.
@@ -3349,6 +3400,11 @@ class PresApp {
         if deck.held {
             return false
         }
+        if picturesArrived {
+            picturesArrived = false
+            this.rebuildDeck()
+            return true
+        }
         def n:int (deck.slideCount())
         if ((selected >= 0) && (selected < n)) {
             if (this.undrawnIn((this.spanFrom(selected)) (this.spanTo(selected)))) {
@@ -3707,6 +3763,7 @@ class PresApp {
 
     fn layoutChrome:EVGLayout () {
         def root:EVGElement (this.chromeTree())
+        UiTree.markHover(root chromeHover)
         sheet.setViewport(W H coarse)
         sheet.applyTree(root skin)
         def lay (new EVGLayout())
@@ -4273,6 +4330,26 @@ class PresApp {
         }
         ; hover is the top surface's: one under a window shows none
         def top:string (this.layerAt(x y))
+        this.chromeHoverAt(x y top)
+        def sketchBefore:int sketch.rev
+        if (top == "sketch") {
+            sketch.hoverAt(x y)
+        } {
+            sketch.hoverAt(-1000000.0 -1000000.0)
+        }
+        if (sketch.rev != sketchBefore) {
+            chromeRev = (chromeRev + 1)
+        }
+        def winBefore:int (chart.rev + review.rev)
+        if chart.isOpen {
+            chart.hoverAt(x y (top == "chart"))
+        }
+        if review.on {
+            review.hoverAt(x y (top == "review"))
+        }
+        if ((chart.rev + review.rev) != winBefore) {
+            chromeRev = (chromeRev + 1)
+        }
         this.diagramPointer(x y top)
         if ((mode == "present") && (inkPress == false)) {
             this.inkHover(x y)
@@ -8131,6 +8208,7 @@ class PresApp {
         def fresh (new EVGStyleSheet())
         sheet = fresh
         sheet.parse(css)
+        hoverCls = (UiTree.hoverClasses(sheet))
         chromeRev = (chromeRev + 1)
     }
 

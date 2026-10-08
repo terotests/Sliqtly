@@ -76,6 +76,13 @@
 .theme-pn .ui-button-secondary { background-color: #ffffff; border: 1px solid #e4e4e7; }
 .theme-pn .ui-button-ghost { background-color: rgba(0,0,0,0); border-color: rgba(0,0,0,0); }
 .theme-pn .ui-button-label { font-weight: 500; font-size: 13px; color: #09090b; }
+/* under the pointer: each variant a step deeper in its own colour (the kit's
+   own hover colours are blue-grey, and `:hover` outranks these plain rules) */
+.theme-pn .ui-button:hover { background-color: #f4f4f5; }
+.theme-pn .ui-button-primary:hover { background-color: #3f3f46; border-color: #3f3f46; }
+.theme-pn .ui-button-secondary:hover { background-color: #f4f4f5; }
+.theme-pn .ui-button-ghost:hover { background-color: rgba(0, 0, 0, 0.05); }
+.theme-pn .ui-button-danger:hover { background-color: #b91c1c; border-color: #b91c1c; }
 .theme-pn .pn-onprimary { color: #fafafa; }
 .theme-pn .ui-input { background-color: #fafafa; border: 1px solid #e4e4e7; border-radius: 6px; height: 30px; padding: 0 8px; }
 .theme-pn .ui-input-text { color: #3f3f46; font-size: 12px; font-family: Open Sans; }
@@ -114,8 +121,10 @@
 .theme-pn .ch-cm-on { background-color: #f4f4f5; }
 /* The card is rebuilt on every change, so a transition would replay from its
    start each time (a checked switch sliding in again, a pressed control
-   squeezing): state is shown at once instead. */
-.theme-pn .ui-switch-track, .theme-pn .ui-switch-thumb, .theme-pn .ui-tab, .theme-pn .ui-slider-thumb, .theme-pn .ui-checkbox-box, .theme-pn .ui-button { transition: none; }
+   squeezing): state is shown at once instead, a hover colour too (a transition held it at
+   its start, so a select or a menu item showed no hover at all). */
+.theme-pn .ui-switch-track, .theme-pn .ui-switch-thumb, .theme-pn .ui-tab, .theme-pn .ui-slider-thumb, .theme-pn .ui-checkbox-box, .theme-pn .ui-button,
+.theme-pn .ui-select-trigger, .theme-pn .ui-select-item, .theme-pn .ui-menubar-trigger, .theme-pn .ui-menubar-item, .theme-pn .ui-dropdownmenu-item, .theme-pn .ui-contextmenu-item, .theme-pn .ui-toolbar-button, .theme-pn .ui-toggle, .theme-pn .ui-dialog-trigger, .theme-pn .ui-popover-trigger, .theme-pn .ui-navmenu-trigger, .theme-pn .ui-sortable-item { transition: none; }
 .theme-pn .ui-switch-track:active, .theme-pn .ui-tab:active, .theme-pn .ui-checkbox-box:active { transform: none; }
 .theme-pn .ui-button-state-pressed { transform: none; }
 .theme-pn .ui-switch-thumb-state-checked { transform: translate(18px, 0); }
@@ -182,6 +191,7 @@
 .pf-promo-text { font-size: 12px; color: #312e81; }
 .pf-promo-row { display: flex; flex-direction: row; padding-top: 2px; }
 .theme-pn .pf-promo-btn { background-color: #a34a24; border-color: #a34a24; }
+.theme-pn .pf-promo-btn:hover { background-color: #8a3d1d; border-color: #8a3d1d; }
 .pf-note { font-size: 11px; color: #71717a; padding: 10px 0 0; flex-shrink: 0; }
 .theme-pn .pf-act { height: 26px; padding: 0 9px; }
 /* the Open dialog's sample decks: a select as wide as its longest title */
@@ -374,14 +384,20 @@
 .theme-pn .chat-act-sev-medium { color: #8a6d22; }
 .theme-pn .chat-act-sev-high { color: #a14d46; }
 .theme-pn .chat-act-sev-low-on { background-color: #6f9a76; border-color: #6f9a76; color: #ffffff; }
+.theme-pn .chat-act-sev-low-on:hover { background-color: #6f9a76; }
 .theme-pn .chat-act-sev-medium-on { background-color: #c9a54e; border-color: #c9a54e; color: #ffffff; }
+.theme-pn .chat-act-sev-medium-on:hover { background-color: #c9a54e; }
 .theme-pn .chat-act-sev-high-on { background-color: #b8625b; border-color: #b8625b; color: #ffffff; }
+.theme-pn .chat-act-sev-high-on:hover { background-color: #b8625b; }
 .theme-rvg .chat-act-sev-low { color: #9cc4a2; }
 .theme-rvg .chat-act-sev-medium { color: #e2c57c; }
 .theme-rvg .chat-act-sev-high { color: #e09a93; }
 .theme-rvg .chat-act-sev-low-on { background-color: #6f9a76; border-color: #6f9a76; color: #ffffff; }
+.theme-rvg .chat-act-sev-low-on:hover { background-color: #6f9a76; }
 .theme-rvg .chat-act-sev-medium-on { background-color: #c9a54e; border-color: #c9a54e; color: #ffffff; }
+.theme-rvg .chat-act-sev-medium-on:hover { background-color: #c9a54e; }
 .theme-rvg .chat-act-sev-high-on { background-color: #b8625b; border-color: #b8625b; color: #ffffff; }
+.theme-rvg .chat-act-sev-high-on:hover { background-color: #b8625b; }
 
 /* the pins (src/PresReviewDot.rgr): a ball in the setting's colour with a
    glow and a ring that pulses out of it (sizes and colours set in code);

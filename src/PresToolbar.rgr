@@ -1692,6 +1692,8 @@ class PresToolbar {
         menus = noMenus
         def fresh (new UiHost())
         fresh.addStyleSheetFrom(css host)
+        ; what the pointer is over stays hovered across a rebuild
+        fresh.hoverTid = host.hoverTid
         host = fresh
         host.setTheme((trim ("tb " + skin)))
         host.setPageSize(w h)

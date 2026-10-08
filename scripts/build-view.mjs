@@ -18,6 +18,8 @@
  *   local.html                 how to run the Personal package on Ubuntu/Debian
  *   connect.html, oauth.html   the assistants' pages (/mcp sends a browser
  *                to the first; sign-in for the MCP server is the second)
+ *   main/admin.html, admin.js  the owner's dashboard at /main/admin
+ *                (numbers only for the accounts mcp-go/admin.go lets in)
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -30,8 +32,8 @@ export const viewDir = path.join(webDir, "dist-view");
 
 // everything the viewer's modules may import, and nothing more: a module
 // that imports anything else fails the build (below)
-const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["viewauth.js", "viewauth.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"], ["book.js", "book.js"], ["bookgl.js", "bookgl.js"], ["bookturn.js", "bookturn.js"]];
-const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"], ["local.html", "local.html"]];
+const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["viewauth.js", "viewauth.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"], ["book.js", "book.js"], ["bookgl.js", "bookgl.js"], ["bookturn.js", "bookturn.js"], ["admin.js", "admin.js"]];
+const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"], ["local.html", "local.html"], ["admin.html", "main/admin.html"]];
 
 function files(dir) {
   return fs.readdirSync(dir, { recursive: true })
@@ -71,8 +73,10 @@ export function buildView({ ranger } = {}) {
   for (const f of files(viewDir).filter((f) => !f.startsWith("fonts/"))) h.update(f).update(fs.readFileSync(path.join(viewDir, f)));
   const stamp = h.digest("hex").slice(0, 10);
   const fonts = facesStamp(viewDir);
-  const html = path.join(viewDir, "index.html");
-  fs.writeFileSync(html, fs.readFileSync(html, "utf8").split("__BUILD__").join(stamp).split("__FONTS__").join(fonts));
+  for (const page of ["index.html", "main/admin.html"]) {
+    const html = path.join(viewDir, page);
+    fs.writeFileSync(html, fs.readFileSync(html, "utf8").split("__BUILD__").join(stamp).split("__FONTS__").join(fonts));
+  }
   const modules = files(viewDir).filter((f) => /\.m?js$/.test(f));
   for (const f of modules) {
     const file = path.join(viewDir, f);

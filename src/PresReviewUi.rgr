@@ -261,6 +261,14 @@ class PresReviewUi {
         return ""
     }
 
+    ; The pointer over the bar or the panel (`inside` false: elsewhere, or
+    ; under another surface): what it is over shows its hover look.
+    fn hoverAt:void (px:double py:double inside:boolean) {
+        if (host.hoverTo(px py (inside && (this.has(px py))))) {
+            rev = (rev + 1)
+        }
+    }
+
     ; a press here is review mode's
     fn has:boolean (px:double py:double) {
         if (on == false) {
@@ -420,6 +428,8 @@ class PresReviewUi {
     fn rebuild:void () {
         def fresh (new UiHost())
         fresh.addStyleSheetFrom(css host)
+        ; what the pointer is over stays hovered across a rebuild
+        fresh.hoverTid = host.hoverTid
         host = fresh
         ; a callout's insides are dark (`.theme-rvg`)
         host.setTheme((trim ("pn " + (? (this.floating()) "rvg " "") + skin)))

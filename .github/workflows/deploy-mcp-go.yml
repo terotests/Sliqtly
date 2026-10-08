@@ -61,6 +61,11 @@ jobs:
           # for the Sliqtly user ids in SLIQTLY_GITHUB_USERS (mcp-go/README.md)
           GH_TOKEN_SECRET: ${{ secrets.SLIQTLY_GITHUB_TOKEN }}
           GH_USERS_SECRET: ${{ secrets.SLIQTLY_GITHUB_USERS }}
+          # the owner's dashboard, sliqtly.com/main/admin (mcp-go/admin.go):
+          # the Google accounts let in, and the Cloud Billing export's
+          # BigQuery table (project.dataset.table; unset: no costs shown)
+          ADMIN_EMAILS: ${{ vars.SLIQTLY_ADMIN_EMAILS || 'teroktolonen@gmail.com' }}
+          BILLING_TABLE: ${{ vars.SLIQTLY_BILLING_TABLE }}
         run: |
           # GOMEMLIMIT: the Go heap kept under 400 MB of the 512 MB. Cloud
           # Run's sandbox need not show the cgroup limit memlimit.go reads,
@@ -70,7 +75,7 @@ jobs:
           # renders its report (seconds of CPU and tens of MB each); more
           # at once on one CPU only queue and pile up memory, while a new
           # instance (up to 10) takes them.
-          ENV_VARS="GOMEMLIMIT=400MiB"
+          ENV_VARS="GOMEMLIMIT=400MiB@SLIQTLY_ADMIN_EMAILS=$ADMIN_EMAILS@SLIQTLY_BILLING_TABLE=$BILLING_TABLE"
           if [ -n "$GH_TOKEN_SECRET" ]; then
             ENV_VARS="$ENV_VARS@SLIQTLY_GITHUB_TOKEN=$GH_TOKEN_SECRET@SLIQTLY_GITHUB_USERS=$GH_USERS_SECRET"
           fi
@@ -92,3 +97,5 @@ jobs:
           done
           curl -fsS "$URL/.well-known/oauth-authorization-server" | grep -q '"token_endpoint"'
           test "$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$URL/api/hit" -H 'content-type: application/json' -d '{"p":"editor"}')" = 204
+          # the dashboard answers no one without a listed account's sign-in
+          test "$(curl -sS -o /dev/null -w '%{http_code}' "$URL/main/admin/api/stats")" = 401

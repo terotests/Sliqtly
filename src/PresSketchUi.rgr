@@ -194,6 +194,14 @@ class PresSketchUi {
         return (host.hitTest(px py))
     }
 
+    ; The pointer over the pill or its menu: what it is over shows its hover
+    ; look (a point off the palette clears it).
+    fn hoverAt:void (px:double py:double) {
+        if (host.hoverTo(px py true)) {
+            rev = (rev + 1)
+        }
+    }
+
     ; Whether a press at the point is the drawing's: the pill or its menu,
     ; anywhere on the stage while a menu is open (a press there closes it),
     ; or the slide while drawing.
@@ -579,6 +587,8 @@ class PresSketchUi {
     fn page:EVGElement () {
         def fresh (new UiHost())
         fresh.addStyleSheetFrom(css host)
+        ; what the pointer is over stays hovered across a rebuild
+        fresh.hoverTid = host.hoverTid
         host = fresh
         host.setTheme((trim ("pn " + skin)))
         host.setPageSize(w h)

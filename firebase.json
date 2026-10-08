@@ -6,6 +6,19 @@
     ],
     "headers": [
       {
+        "source": "/main/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          },
+          {
+            "key": "X-Robots-Tag",
+            "value": "noindex"
+          }
+        ]
+      },
+      {
         "source": "/",
         "headers": [
           {
@@ -107,6 +120,13 @@
     ],
     "rewrites": [
       {
+        "source": "/main/admin/api/**",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/mcp",
         "run": {
           "serviceId": "sliqtly-mcp",
@@ -189,6 +209,10 @@
           "serviceId": "sliqtly-mcp",
           "region": "europe-west1"
         }
+      },
+      {
+        "source": "/main/admin",
+        "destination": "/main/admin.html"
       }
     ],
     "redirects": [

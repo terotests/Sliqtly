@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: MIT
 //
-// A smoke check of the native editor (after `npm run native`), headless, against
+// A smoke check of the native editor (after `npm run old:native`), headless, against
 // test/mock-server.mjs. Each run is the real binary driven by a script of the
 // app's own steps (EditorApp.runScript), with a settings folder of its own:
 //
@@ -30,7 +30,7 @@ import { pamToPng, readPam } from "./png.mjs";
 // on macOS the bundle's own binary: it finds SDL2.framework inside the .app
 const appBin = path.join(ROOT, "native", "build", "Sliqtly Editor.app", "Contents", "MacOS", "sliqtly-editor");
 const bin = process.platform === "darwin" && fs.existsSync(appBin) ? appBin : path.join(ROOT, "native", "build", "sliqtly-editor");
-if (!fs.existsSync(bin)) { console.error("build it first: npm run native"); process.exit(2); }
+if (!fs.existsSync(bin)) { console.error("build it first: npm run old:native"); process.exit(2); }
 const SHOTS = path.join(ROOT, "native", "build", "shots");
 fs.mkdirSync(SHOTS, { recursive: true });
 const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1] : "";

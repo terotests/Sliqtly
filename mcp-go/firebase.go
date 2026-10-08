@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 
 	"cloud.google.com/go/firestore"
 	"cloud.google.com/go/storage"
@@ -227,7 +228,10 @@ func connectFirebase(ctx context.Context, env *Env, projectID, bucket string) er
 		}
 		name, _ := t.Claims["name"].(string)
 		email, _ := t.Claims["email"].(string)
-		return &IDToken{UID: t.UID, Name: name, Email: email}, nil
+		verified, _ := t.Claims["email_verified"].(bool)
+		return &IDToken{UID: t.UID, Name: name, Email: email, Verified: verified}, nil
 	}
+	// the owner's dashboard (admin.go), for the accounts listed
+	env.Admin = newAdminConfig(splitList(os.Getenv("SLIQTLY_ADMIN_EMAILS")), &cloudAdmin{fs: fs, auth: auth, project: projectID, table: os.Getenv("SLIQTLY_BILLING_TABLE")})
 	return nil
 }

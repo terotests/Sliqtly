@@ -651,6 +651,8 @@ class PresPanels {
     fn rebuild:void () {
         def fresh (new UiHost())
         fresh.addStyleSheetFrom(css host)
+        ; what the pointer is over stays hovered across a rebuild
+        fresh.hoverTid = host.hoverTid
         host = fresh
         host.setTheme((trim ("pn " + skin)))
         host.setPageSize(w h)

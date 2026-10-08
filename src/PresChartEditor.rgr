@@ -932,6 +932,8 @@ class PresChartEditor {
     fn rebuild:void () {
         def fresh (new UiHost())
         fresh.addStyleSheetFrom(css host)
+        ; what the pointer is over stays hovered across a rebuild
+        fresh.hoverTid = host.hoverTid
         host = fresh
         host.setTheme((trim ("ce " + skin)))
         host.setPageSize(w h)
@@ -4096,6 +4098,14 @@ class PresChartEditor {
             return "ew-resize"
         }
         return "default"
+    }
+
+    ; The pointer over the window (`inside` false: off it, or under another
+    ; surface): what it is over shows its hover look.
+    fn hoverAt:void (px:double py:double inside:boolean) {
+        if (host.hoverTo(px py (inside && (this.has(px py))))) {
+            rev = (rev + 1)
+        }
     }
 
     fn cursorAt:string (px:double py:double) {
