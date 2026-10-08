@@ -399,6 +399,8 @@ class PresRoomView {
 
     fn rebuild:void () {
         def fresh (new UiHost())
+        ; what the pointer is over stays hovered across a rebuild
+        fresh.hoverTid = host.hoverTid
         host = fresh
         host.addStyleSheet(css)
         host.setTheme((trim ("pn " + skin)))
@@ -570,6 +572,10 @@ class PresRoomView {
     ; the pointer moved over the channel: the message under it shows its
     ; actions. → true when that changed.
     fn hoverAt:boolean (px:double py:double) {
+        ; what the pointer is over shows its hover look
+        if (host.hoverTo(px py (this.has(px py)))) {
+            rev = (rev + 1)
+        }
         if ((this.has(px py)) == false) {
             if (ch.hoverSeq != 0) {
                 ch.unhover()

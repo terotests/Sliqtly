@@ -32,6 +32,13 @@
 .theme-tb .tb-accent { background-color: #a34a24; border-color: #a34a24; }
 .theme-tb .ui-button-label { font-weight: 500; font-size: 13px; color: #09090b; }
 .theme-tb .tb-onprimary { color: #fafafa; }
+/* under the pointer: each variant a step deeper in its own colour (the kit's
+   own hover colours are blue-grey, and `:hover` outranks these plain rules) */
+.theme-tb .ui-button:hover { background-color: #f3efea; }
+.theme-tb .ui-button-primary:hover { background-color: #3f3f46; border-color: #3f3f46; }
+.theme-tb .ui-button-secondary:hover { background-color: #f3efea; }
+.theme-tb .ui-button-ghost:hover { background-color: rgba(0, 0, 0, 0.05); }
+.theme-tb .tb-accent:hover { background-color: #8a3d1d; border-color: #8a3d1d; }
 
 .theme-tb .ui-select-trigger {
   display: flex; flex-direction: row; align-items: center;
@@ -137,8 +144,10 @@
 .theme-tb .ui-button { flex-shrink: 0; }
 /* The card is rebuilt on every change, so a transition would replay from its
    start each time (a checked switch sliding in again, a pressed control
-   squeezing): state is shown at once instead. */
-.theme-tb .ui-switch-track, .theme-tb .ui-switch-thumb, .theme-tb .ui-tab, .theme-tb .ui-slider-thumb, .theme-tb .ui-checkbox-box, .theme-tb .ui-button { transition: none; }
+   squeezing): state is shown at once instead, a hover colour too (a transition held it at
+   its start, so a select or a menu item showed no hover at all). */
+.theme-tb .ui-switch-track, .theme-tb .ui-switch-thumb, .theme-tb .ui-tab, .theme-tb .ui-slider-thumb, .theme-tb .ui-checkbox-box, .theme-tb .ui-button,
+.theme-tb .ui-select-trigger, .theme-tb .ui-select-item, .theme-tb .ui-menubar-trigger, .theme-tb .ui-menubar-item, .theme-tb .ui-dropdownmenu-item, .theme-tb .ui-contextmenu-item, .theme-tb .ui-toolbar-button, .theme-tb .ui-toggle, .theme-tb .ui-dialog-trigger, .theme-tb .ui-popover-trigger, .theme-tb .ui-navmenu-trigger, .theme-tb .ui-sortable-item { transition: none; }
 .theme-tb .ui-switch-track:active, .theme-tb .ui-tab:active, .theme-tb .ui-checkbox-box:active { transform: none; }
 .theme-tb .ui-button-state-pressed { transform: none; }
 .theme-tb .ui-switch-thumb-state-checked { transform: translate(18px, 0); }
@@ -192,6 +201,7 @@
 .tb-rooms-title { font-size: 15px; font-weight: 700; color: #09090b; height: 20px; line-height: 20px; }
 .theme-tb .tb-room { height: 30px; padding: 0 8px; display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: space-between; border-radius: 6px; }
 .theme-tb .tb-room-open { background-color: #e0e7ff; }
+.theme-tb .tb-room-open:hover { background-color: #e0e7ff; }
 .tb-room-name { font-size: 13px; font-weight: 500; color: #27272a; white-space: nowrap; }
 .tb-room-count { font-size: 11px; color: #71717a; }
 /* a room with chat messages this browser has not read: a small blue dot
@@ -206,6 +216,7 @@
 .theme-tb .tb-roomdeck { height: 28px; padding: 0 8px; border-radius: 6px; display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: flex-start; }
 .theme-tb .tb-roomdeck-label { text-align: left; font-size: 13px; font-weight: 400; color: #52525b; white-space: nowrap; }
 .theme-tb .tb-roomdeck-current { background-color: #eef2ff; }
+.theme-tb .tb-roomdeck-current:hover { background-color: #eef2ff; }
 .theme-tb .tb-roomdeck-label-current { color: #18181b; font-weight: 600; }
 .tb-rooms-sep { height: 1px; background-color: #e4e4e7; margin: 6px 4px; }
 .tb-rooms-note { font-size: 11px; color: #a1a1aa; padding: 0 8px 4px 8px; }

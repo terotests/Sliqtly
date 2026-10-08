@@ -373,6 +373,8 @@ class PresHintPopover {
 
     fn rebuild:void () {
         def fresh (new UiHost())
+        ; what the pointer is over stays hovered across a rebuild
+        fresh.hoverTid = host.hoverTid
         host = fresh
         host.addStyleSheet(css)
         host.setTheme((trim ("hp " + skin)))
@@ -1280,6 +1282,10 @@ class PresHintPopover {
     ; The doc line follows the pointer over a selector's properties; the
     ; emoji under it is named under the grid.
     fn hoverAt:void (px:double py:double) {
+        ; what the pointer is over shows its hover look (a button, a swatch)
+        if (host.hoverTo(px py (this.has(px py)))) {
+            rev = (rev + 1)
+        }
         if (kind == "emoji") {
             def was:int emoji.hot
             def t:string ""

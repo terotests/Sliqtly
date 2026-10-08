@@ -47,6 +47,13 @@
 .theme-hp .ui-button-secondary { background-color: #ffffff; border: 1px solid #e4e4e7; }
 .theme-hp .ui-button-danger { background-color: #dc2626; border-color: #dc2626; }
 .theme-hp .ui-button-label { font-weight: 500; font-size: 12px; color: #09090b; }
+/* under the pointer: each variant a step deeper in its own colour (the kit's
+   own hover colours are blue-grey, and `:hover` outranks these plain rules) */
+.theme-hp .ui-button:hover { background-color: #f4f4f5; }
+.theme-hp .ui-button-primary:hover { background-color: #3f3f46; border-color: #3f3f46; }
+.theme-hp .ui-button-secondary:hover { background-color: #f4f4f5; }
+.theme-hp .ui-button-ghost:hover { background-color: rgba(0, 0, 0, 0.05); }
+.theme-hp .ui-button-danger:hover { background-color: #b91c1c; border-color: #b91c1c; }
 .theme-hp .hp-onprimary { color: #fafafa; }
 .theme-hp .hp-ondanger { color: #ffffff; }
 /* the corner × and ‹: after the button rules above, which have the same
@@ -80,8 +87,10 @@
 .theme-hp .cp-box { width: auto; min-width: 0px; flex-grow: 1; flex-shrink: 1; height: 26px; padding: 0 6px; border-radius: 5px; }
 /* The card is rebuilt on every change, so a transition would replay from its
    start each time (a checked switch sliding in again, a pressed control
-   squeezing): state is shown at once instead. */
-.theme-hp .ui-switch-track, .theme-hp .ui-switch-thumb, .theme-hp .ui-tab, .theme-hp .ui-slider-thumb, .theme-hp .ui-checkbox-box, .theme-hp .ui-button { transition: none; }
+   squeezing): state is shown at once instead, a hover colour too (a transition held it at
+   its start, so a select or a menu item showed no hover at all). */
+.theme-hp .ui-switch-track, .theme-hp .ui-switch-thumb, .theme-hp .ui-tab, .theme-hp .ui-slider-thumb, .theme-hp .ui-checkbox-box, .theme-hp .ui-button,
+.theme-hp .ui-select-trigger, .theme-hp .ui-select-item, .theme-hp .ui-menubar-trigger, .theme-hp .ui-menubar-item, .theme-hp .ui-dropdownmenu-item, .theme-hp .ui-contextmenu-item, .theme-hp .ui-toolbar-button, .theme-hp .ui-toggle, .theme-hp .ui-dialog-trigger, .theme-hp .ui-popover-trigger, .theme-hp .ui-navmenu-trigger, .theme-hp .ui-sortable-item { transition: none; }
 .theme-hp .ui-switch-track:active, .theme-hp .ui-tab:active, .theme-hp .ui-checkbox-box:active { transform: none; }
 .theme-hp .ui-button-state-pressed { transform: none; }
 .theme-hp .ui-switch-thumb-state-checked { transform: translate(18px, 0); }
