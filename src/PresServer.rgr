@@ -30,6 +30,7 @@
 ; ==============================================================================
 
 Import "ApiClient.rgr"
+Import "PresRooms.rgr"
 
 class PresServerDeck {
     def id:string ""
@@ -43,6 +44,11 @@ class PresServerDeck {
 
 class PresServer {
     def api:ApiClient (new ApiClient())
+    ; the rail's Rooms, over the same client
+    def rooms:PresRooms (new PresRooms())
+    ; File → Presentations… shows only these (a room's "… Show all")
+    def windowIds:[string]
+    def windowNote:string ""
     ; the server's address once it answered /info
     def address:string ""
     def serverName:string ""
@@ -58,6 +64,12 @@ class PresServer {
     def deckId:string ""
     def deckName:string ""
     def deckVersion:string ""
+    ; the deck's theme ("" the server's default); a choice of theme here is
+    ; sent with the next save
+    def deckTheme:string ""
+    def themeChanged:boolean false
+    ; the open deck was deleted: the newest one opens when the list comes
+    def openNewest:boolean false
     def savedMd:string ""
     def sentMd:string ""
     def saving:boolean false
@@ -70,7 +82,12 @@ class PresServer {
 
     ; --- for the host to read and clear ---------------------------------------
     def loadMd:string ""
+    def loadTheme:string ""
     def loadPending:boolean false
+    ; a file for the host to write where downloads go: its name and bytes
+    def fileName:string ""
+    def fileBody:string ""
+    def filePending:boolean false
     def decksJson:string ""
     def decksOpen:boolean false
     def decksPending:boolean false
@@ -93,6 +110,7 @@ class PresServer {
             return
         }
         api.reset()
+        rooms.api = api
         api.base = base
         api.token = token
         address = ""
@@ -115,7 +133,22 @@ class PresServer {
         if ((this.connected()) == false) {
             return false
         }
+        if ((indexOf r "room:") == 0) {
+            def mine:boolean (rooms.request((substring r 5 (strlen r))))
+            this.roomsAsked()
+            return mine
+        }
+        if ((indexOf r "confirm:room") == 0) {
+            rooms.confirm(r)
+            return true
+        }
+        if ((indexOf r "docroom:") == 0) {
+            rooms.docRoom((substring r 8 (strlen r)))
+            return true
+        }
         if (r == "decks") {
+            clear windowIds
+            windowNote = ""
             windowOpen = true
             decksOpen = true
             this.listDecks()
@@ -134,6 +167,18 @@ class PresServer {
                 api.del(("/decks/" + (ApiClient.enc(id))) "delete")
             }
             return true
+        }
+        if ((indexOf r "select:theme:") == 0) {
+            deckTheme = (substring r 13 (strlen r))
+            themeChanged = true
+            return false
+        }
+        if (r == "confirm:deletedeck") {
+            this.deleteOpen()
+            return true
+        }
+        if ((indexOf r "click:") == 0) {
+            return (this.exportAs((substring r 6 (strlen r))))
         }
         if ((indexOf r "files:doc:") == 0) {
             this.open((substring r 10 (strlen r)))
@@ -168,6 +213,9 @@ class PresServer {
         sentMd = md
         def body:JVal (JVal.mkObj())
         body.setStr("markdown" md)
+        if themeChanged {
+            body.setStr("theme" deckTheme)
+        }
         if ((strlen deckVersion) > 0) {
             body.setStr("ifVersion" deckVersion)
         }
@@ -191,12 +239,24 @@ class PresServer {
     ; a plain new deck is made on the server and opened. True when it was
     ; this one's; a copy, a room's or a folder's window, or one's own name
     ; are the host's.
-    fn newDeck:boolean (planJson:string) {
+    fn newDeck:boolean (planJson:string md:string) {
         if ((this.connected()) == false) {
             return false
         }
         def plan:JVal (JVal.parse(planJson))
-        if (((strlen (plan.strOr("ask" ""))) > 0) || (plan.boolOr("dup" false))) {
+        if (rooms.plan(plan)) {
+            return true
+        }
+        if (plan.boolOr("dup" false)) {
+            ; File → Duplicate: this text, under the name asked
+            def copyName:string (trim (plan.strOr("name" "")))
+            if ((strlen copyName) == 0) {
+                copyName = (deckName + " " + (PresI18n.t("(copy)")))
+            }
+            this.create(copyName md deckTheme)
+            return true
+        }
+        if ((strlen (plan.strOr("ask" ""))) > 0) {
             return false
         }
         def name:string (trim (plan.strOr("name" "")))
@@ -205,6 +265,71 @@ class PresServer {
         }
         this.create(name ("# " + name + "\n\nWrite here.\n") (plan.strOr("theme" "")))
         return true
+    }
+
+    ; The open deck's link on the server: what Share copies.
+    fn shareUrl:string () {
+        if (((this.connected()) == false) || ((strlen deckId) == 0)) {
+            return ""
+        }
+        return (address + "/s/" + deckId)
+    }
+
+    ; File → Delete presentation…, answered: the open deck deleted, and the
+    ; newest one left opened.
+    fn deleteOpen:void () {
+        if ((strlen deckId) == 0) {
+            return
+        }
+        api.del(("/decks/" + (ApiClient.enc(deckId))) "delete")
+        openNewest = true
+    }
+
+    ; Export ▸ PDF, PowerPoint: the server draws the file from the deck as it
+    ; keeps it ("click:<id>" → "pdf", "pptx"); true when it was one of them.
+    ; What it does not export (Word, a web page, a zip) is said, not dropped.
+    fn exportAs:boolean (id:string) {
+        if (((this.connected()) == false) || ((strlen deckId) == 0)) {
+            return false
+        }
+        def format:string ""
+        if ((id == "pdf") || (id == "pptx")) {
+            format = id
+        }
+        if ((((id == "docx") || (id == "html")) || (id == "player")) || (id == "zip")) {
+            this.note((PresI18n.t("This export is in the browser editor for now.")))
+            return true
+        }
+        if ((strlen format) == 0) {
+            return false
+        }
+        if ((savedMd != sentMd) && saving) {
+            this.note((PresI18n.t("Saving first, then export again.")))
+            return true
+        }
+        this.note((PresI18n.t("Exporting…")))
+        api.send("GET" (address + "/api/export/" + (ApiClient.enc(deckId)) + "/" + format) "" ("export:" + format) true)
+        return true
+    }
+
+    ; a file name from the deck's name: no slashes or other path marks
+    sfn fileOf:string (name:string ext:string) {
+        def cs:[int] (to_chars (trim name))
+        def out:string ""
+        def i:int 0
+        while (i < (array_length cs)) {
+            def c:int (itemAt cs i)
+            if ((((c < 32) || (c == 47)) || (c == 92)) || (((c == 58) || (c == 42)) || (((c == 63) || (c == 34)) || (((c == 60) || (c == 62)) || (c == 124))))) {
+                out = (out + "-")
+            } {
+                out = (out + (strfromcode c))
+            }
+            i = (i + 1)
+        }
+        if ((strlen out) == 0) {
+            out = "presentation"
+        }
+        return (out + "." + ext)
     }
 
     fn dirty:boolean (md:string) {
@@ -258,8 +383,42 @@ class PresServer {
             if (null? r) {
                 go = false
             } {
-                this.handle((unwrap r))
+                def res:ApiResult (unwrap r)
+                if ((indexOf res.tag "room:") == 0) {
+                    rooms.handle(res)
+                } {
+                    this.handle(res)
+                }
             }
+        }
+        this.roomsAsked()
+    }
+
+    ; What the rooms asked of the presentations: one to open, or the
+    ; window for a room's presentations.
+    fn roomsAsked:void () {
+        if ((strlen rooms.openId) > 0) {
+            this.open(rooms.openId)
+            rooms.openId = ""
+        }
+        if rooms.allAsked {
+            rooms.allAsked = false
+            windowIds = rooms.windowIds
+            windowNote = ((PresI18n.t("Room: ")) + (rooms.titleOf(rooms.shown)))
+            windowOpen = true
+            decksOpen = true
+            this.listDecks()
+            this.makeJson()
+        }
+    }
+
+    ; the open deck as the rooms see it, and the rooms again (a deck made or
+    ; deleted changes their counts)
+    fn deckChanged:void () {
+        rooms.current = deckId
+        rooms.currentName = deckName
+        if ((strlen rooms.shown) > 0) {
+            rooms.list()
         }
     }
 
@@ -282,6 +441,23 @@ class PresServer {
                 return
             }
             this.takeList(res.json.get("decks"))
+            if openNewest {
+                openNewest = false
+                def newest:string ""
+                def best:double -1.0
+                def i:int 0
+                while (i < (array_length decks)) {
+                    def d:PresServerDeck (itemAt decks i)
+                    if (d.updated > best) {
+                        best = d.updated
+                        newest = d.id
+                    }
+                    i = (i + 1)
+                }
+                if ((strlen newest) > 0) {
+                    this.open(newest)
+                }
+            }
             if windowOpen {
                 this.makeJson()
                 decksPending = true
@@ -297,6 +473,7 @@ class PresServer {
             loadMd = savedMd
             loadPending = true
             windowOpen = false
+            this.deckChanged()
             return
         }
         if (res.tag == "create") {
@@ -308,6 +485,12 @@ class PresServer {
             loadMd = savedMd
             loadPending = true
             this.listDecks()
+            ; made by a room's "+ Add new presentation": it goes there
+            if ((strlen rooms.newIn) > 0) {
+                rooms.move(rooms.newIn deckId "")
+                rooms.newIn = ""
+            }
+            this.deckChanged()
             return
         }
         if (res.tag == "save") {
@@ -320,6 +503,7 @@ class PresServer {
                 return
             }
             deckName = (res.json.strOr("name" deckName))
+            this.deckChanged()
             ; the server's new version is still this text when nothing else
             ; was saved in between: later saves go over it
             if ((res.json.strOr("markdown" "")) == savedMd) {
@@ -332,9 +516,27 @@ class PresServer {
         }
         if (res.tag == "delete") {
             if ((res.ok()) == false) {
+                openNewest = false
                 this.note(("Not deleted: " + (res.message())))
             }
+            if openNewest {
+                deckId = ""
+                deckName = ""
+                deckVersion = ""
+                this.note((PresI18n.t("Presentation deleted.")))
+            }
             this.listDecks()
+            this.deckChanged()
+            return
+        }
+        if ((indexOf res.tag "export:") == 0) {
+            if ((res.ok()) == false) {
+                this.note(((PresI18n.t("Not exported: ")) + (res.message())))
+                return
+            }
+            fileName = (PresServer.fileOf(deckName (substring res.tag 7 (strlen res.tag))))
+            fileBody = res.body
+            filePending = true
             return
         }
     }
@@ -343,7 +545,11 @@ class PresServer {
         deckId = (v.strOr("id" ""))
         deckName = (v.strOr("name" ""))
         deckVersion = (v.strOr("version" ""))
+        deckTheme = (v.strOr("theme" ""))
+        themeChanged = false
+        loadTheme = deckTheme
         savedMd = (v.strOr("markdown" ""))
+        rooms.currentRoom = (v.strOr("room" ""))
     }
 
     fn takeList:void (list:JVal) {
@@ -436,20 +642,7 @@ class PresServer {
 
     ; a before b, by code points
     sfn textBefore:boolean (a:string b:string) {
-        def x:[int] (to_chars a)
-        def y:[int] (to_chars b)
-        def n:int (array_length x)
-        def m:int (array_length y)
-        def i:int 0
-        while ((i < n) && (i < m)) {
-            def p:int (itemAt x i)
-            def q:int (itemAt y i)
-            if (p != q) {
-                return (p < q)
-            }
-            i = (i + 1)
-        }
-        return (n < m)
+        return (PresRooms.textBefore(a b))
     }
 
     fn sorted:[PresServerDeck] () {
@@ -471,6 +664,21 @@ class PresServer {
 
     ; The window's JSON: {"sort", "dir", "rows": [{"id", "name", "added",
     ; "modified", "where", "cloudOnly", "current"}], "note"}.
+    ; in the window: every deck, or the room's when it shows a room's
+    fn inWindow:boolean (id:string) {
+        if ((array_length windowIds) == 0) {
+            return true
+        }
+        def i:int 0
+        while (i < (array_length windowIds)) {
+            if ((itemAt windowIds i) == id) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     fn makeJson:void () {
         def o:JVal (JVal.mkObj())
         ; the server keeps no creation time: Added sorts as Modified
@@ -482,23 +690,29 @@ class PresServer {
         def i:int 0
         while (i < n) {
             def d:PresServerDeck (itemAt list i)
-            def r:JVal (JVal.mkObj())
-            r.setStr("id" d.id)
-            def name:string d.name
-            if ((strlen name) == 0) {
-                name = "presentation"
+            if (this.inWindow(d.id)) {
+                def r:JVal (JVal.mkObj())
+                r.setStr("id" d.id)
+                def name:string d.name
+                if ((strlen name) == 0) {
+                    name = "presentation"
+                }
+                r.setStr("name" name)
+                r.setStr("added" "")
+                r.setStr("modified" (PresServer.whenText(d.updated utcOffsetMin)))
+                r.setStr("where" "On the server")
+                r.setBool("cloudOnly" false)
+                r.setBool("current" (d.id == deckId))
+                rows.add(r)
             }
-            r.setStr("name" name)
-            r.setStr("added" "")
-            r.setStr("modified" (PresServer.whenText(d.updated utcOffsetMin)))
-            r.setStr("where" "On the server")
-            r.setBool("cloudOnly" false)
-            r.setBool("current" (d.id == deckId))
-            rows.add(r)
             i = (i + 1)
         }
         o.set("rows" rows)
-        o.setStr("note" ("Server: " + address))
+        def note:string ("Server: " + address)
+        if ((strlen windowNote) > 0) {
+            note = (windowNote + " · " + note)
+        }
+        o.setStr("note" note)
         decksJson = (o.toJson())
     }
 

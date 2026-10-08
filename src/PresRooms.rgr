@@ -1,0 +1,1237 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PresRooms — the rail's Rooms on a Sliqtly server of one's own
+; ==============================================================================
+;
+; What web/main.js roomsRequest and web/rooms.js do in the browser for a
+; server of one's own (ADR 0001), as a model with no network and no UI: the
+; server keeps the rooms, their presentations and folders (POST
+; /api/rooms/<op>, mcp-go/roomsapi.go); this side keeps what is one's own
+; view of them: which rooms one was active in lately (`touched`), the order
+; the made rooms were dragged into, which folders are shown open, and the
+; room shown.
+;
+; The app's "room:<action>:…" requests come in through `request`; HTTP goes
+; through the ApiClient it is given (tag "room:<op>"); `handle` acts on the
+; answers. What the app should be told comes out as `calls` for the host to
+; make and clear (PresAppCall: setToolbarOptions, the room's and the
+; folder's windows, a question), and `openId` / `newIn` for PresServer.
+;
+; The view state survives a restart as `stateJson` / `loadState`, which the
+; host keeps in a file of its own (the browser keeps it in localStorage).
+; ==============================================================================
+
+Import "ApiClient.rgr"
+Import "PresI18n.rgr"
+
+; One call for the host to make on the app: `kind` names it, a…e are its
+; arguments in order.
+;   "opts"         setToolbarOptions(a b c)
+;   "roomDialog"   openRoomDialog(a b c d)
+;   "folderDialog" openFolderDialog(a b)
+;   "choice"       openChoice(a b c d e)
+;   "confirm"      openConfirm(a b c d)
+;   "docRooms"     setDocRooms(a b c)
+;   "toast"        toast(a)
+;   "newDeck"      the new presentation's window (File → New)
+class PresAppCall {
+    def kind:string ""
+    def a:string ""
+    def b:string ""
+    def c:string ""
+    def d:string ""
+    def e:string ""
+
+    Constructor () {
+    }
+}
+
+class PresRoom {
+    def id:string ""
+    def title:string ""
+    def created:double 0.0
+    def archived:boolean false
+    def count:int 0
+
+    Constructor () {
+    }
+}
+
+; A presentation of the shown room: `id` is "cloud:<deck id>", as the
+; browser's rows have it.
+class PresRoomDeck {
+    def id:string ""
+    def name:string ""
+    def folder:string ""
+
+    Constructor () {
+    }
+}
+
+class PresRoomFolder {
+    def id:string ""
+    def name:string ""
+
+    Constructor () {
+    }
+}
+
+class PresRooms {
+    def api:ApiClient (new ApiClient())
+    ; now, in ms since 1970: the host sets it before each request
+    def now:double 0.0
+
+    ; every room the server has, archived too, in the panel's order
+    def all:[PresRoom]
+    ; the rooms the panel lists
+    def listed:[PresRoom]
+    def hidden:int 0
+    def shown:string ""
+    def query:string ""
+    def searching:boolean false
+
+    ; one's own view (kept by the host)
+    def touchedIds:[string]
+    def touchedAt:[double]
+    def order:[string]
+    def foldersOpen:[string]
+
+    ; the shown room's presentations and folders
+    def decks:[PresRoomDeck]
+    def folders:[PresRoomFolder]
+
+    ; the open presentation's deck id ("" none), set by PresServer
+    def current:string ""
+    def currentName:string ""
+
+    ; for PresServer: a deck to open; the room a new deck goes to
+    def openId:string ""
+    def newIn:string ""
+    ; a copy in the making: the room it goes to, the name it gets
+    def copyTo:string ""
+    ; File → Presentations… for this room's presentations ("… Show all")
+    def windowIds:[string]
+    def allAsked:boolean false
+    ; the open presentation's room, as the server last said
+    def currentRoom:string ""
+
+    ; the folder window's room and folder ("" a new folder), and a deck the
+    ; new folder takes
+    def folderRoom:string ""
+    def folderId:string ""
+    def folderDeck:string ""
+    ; Document settings asked for its rooms
+    def docAsked:boolean false
+
+    def calls:[PresAppCall]
+    def stateChanged:boolean false
+
+    Constructor () {
+    }
+
+    sfn builtIn:boolean (id:string) {
+        return (((id == "general") || (id == "playground")) || (id == "onboarding"))
+    }
+
+    ; "cloud:abc" → "abc"
+    sfn deckOf:string (id:string) {
+        if ((indexOf id "cloud:") == 0) {
+            return (substring id 6 (strlen id))
+        }
+        return id
+    }
+
+    sfn clean:string (s:string) {
+        def t:string (PresRooms.replaceAll(s (strfromcode 9) " "))
+        t = (PresRooms.replaceAll(t (strfromcode 10) " "))
+        t = (PresRooms.replaceAll(t (strfromcode 13) " "))
+        return t
+    }
+
+    ; a before b, by code points
+    sfn textBefore:boolean (a:string b:string) {
+        def x:[int] (to_chars a)
+        def y:[int] (to_chars b)
+        def n:int (array_length x)
+        def m:int (array_length y)
+        def i:int 0
+        while ((i < n) && (i < m)) {
+            def p:int (itemAt x i)
+            def q:int (itemAt y i)
+            if (p != q) {
+                return (p < q)
+            }
+            i = (i + 1)
+        }
+        return (n < m)
+    }
+
+    sfn replaceAll:string (s:string from:string to:string) {
+        def parts:[string] (strsplit s from)
+        return (join parts to)
+    }
+
+    fn call:PresAppCall (kind:string) {
+        def c (new PresAppCall())
+        c.kind = kind
+        push calls c
+        return c
+    }
+
+    fn toast:void (text:string) {
+        def c:PresAppCall (this.call("toast"))
+        c.a = text
+    }
+
+    fn op:void (name:string args:JVal) {
+        api.send("POST" (api.base + "/api/rooms/" + name) (args.toJson()) ("room:" + name) true)
+    }
+
+    ; --- one's own view ---------------------------------------------------------------
+
+    fn touchedOf:double (id:string) {
+        def i:int 0
+        while (i < (array_length touchedIds)) {
+            if ((itemAt touchedIds i) == id) {
+                return (itemAt touchedAt i)
+            }
+            i = (i + 1)
+        }
+        return 0.0
+    }
+
+    fn touch:void (id:string) {
+        if ((strlen id) == 0) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length touchedIds)) {
+            if ((itemAt touchedIds i) == id) {
+                set touchedAt i now
+                stateChanged = true
+                return
+            }
+            i = (i + 1)
+        }
+        push touchedIds id
+        push touchedAt now
+        stateChanged = true
+    }
+
+    fn isOpen:boolean (room:string folder:string) {
+        def key:string (room + "/" + folder)
+        def i:int 0
+        while (i < (array_length foldersOpen)) {
+            if ((itemAt foldersOpen i) == key) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn setOpen:void (room:string folder:string on:boolean) {
+        def key:string (room + "/" + folder)
+        def keep:[string]
+        def i:int 0
+        while (i < (array_length foldersOpen)) {
+            if ((itemAt foldersOpen i) != key) {
+                push keep (itemAt foldersOpen i)
+            }
+            i = (i + 1)
+        }
+        if on {
+            push keep key
+        }
+        foldersOpen = keep
+        stateChanged = true
+    }
+
+    fn stateJson:string () {
+        def o:JVal (JVal.mkObj())
+        def t:JVal (JVal.mkObj())
+        def i:int 0
+        while (i < (array_length touchedIds)) {
+            t.setNum((itemAt touchedIds i) (itemAt touchedAt i))
+            i = (i + 1)
+        }
+        o.set("touched" t)
+        def ord:JVal (JVal.mkArr())
+        i = 0
+        while (i < (array_length order)) {
+            ord.add((JVal.mkStr((itemAt order i))))
+            i = (i + 1)
+        }
+        o.set("order" ord)
+        def op:JVal (JVal.mkArr())
+        i = 0
+        while (i < (array_length foldersOpen)) {
+            op.add((JVal.mkStr((itemAt foldersOpen i))))
+            i = (i + 1)
+        }
+        o.set("open" op)
+        o.setStr("shown" shown)
+        return (o.toJson())
+    }
+
+    fn loadState:void (text:string) {
+        def o:JVal (JVal.parse(text))
+        if ((o.isObj()) == false) {
+            return
+        }
+        clear touchedIds
+        clear touchedAt
+        clear order
+        clear foldersOpen
+        def t:JVal (o.get("touched"))
+        def i:int 0
+        while (i < (array_length t.keys)) {
+            push touchedIds (itemAt t.keys i)
+            def v:JVal (itemAt t.vals i)
+            push touchedAt (v.asNum(0.0))
+            i = (i + 1)
+        }
+        def ord:JVal (o.get("order"))
+        i = 0
+        while (i < (ord.len())) {
+            def x:JVal (ord.at(i))
+            push order (x.asStr(""))
+            i = (i + 1)
+        }
+        def op:JVal (o.get("open"))
+        i = 0
+        while (i < (op.len())) {
+            def y:JVal (op.at(i))
+            push foldersOpen (y.asStr(""))
+            i = (i + 1)
+        }
+        shown = (o.strOr("shown" ""))
+    }
+
+    ; --- the panel's order (web/rooms.js orderRooms, activeRooms, searchRooms) ----
+
+    fn orderAt:int (id:string) {
+        def i:int 0
+        while (i < (array_length order)) {
+            if ((itemAt order i) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; the made rooms first: those not in `order` newest first, then those in
+    ; it as dragged; the built-in rooms last, as they came
+    fn ordered:[PresRoom] (rows:[PresRoom]) {
+        def fresh:[PresRoom]
+        def placed:[PresRoom]
+        def fixed:[PresRoom]
+        def i:int 0
+        while (i < (array_length rows)) {
+            def r:PresRoom (itemAt rows i)
+            if (PresRooms.builtIn(r.id)) {
+                push fixed r
+            } {
+                def at:int (this.orderAt(r.id))
+                if (at < 0) {
+                    def k:int (array_length fresh)
+                    def go:boolean true
+                    while (go && (k > 0)) {
+                        def before:PresRoom (itemAt fresh (k - 1))
+                        if (before.created < r.created) {
+                            k = (k - 1)
+                        } {
+                            go = false
+                        }
+                    }
+                    insert fresh k r
+                } {
+                    def k2:int (array_length placed)
+                    def go2:boolean true
+                    while (go2 && (k2 > 0)) {
+                        def prev:PresRoom (itemAt placed (k2 - 1))
+                        if ((this.orderAt(prev.id)) > at) {
+                            k2 = (k2 - 1)
+                        } {
+                            go2 = false
+                        }
+                    }
+                    insert placed k2 r
+                }
+            }
+            i = (i + 1)
+        }
+        def out:[PresRoom]
+        i = 0
+        while (i < (array_length fresh)) {
+            push out (itemAt fresh i)
+            i = (i + 1)
+        }
+        i = 0
+        while (i < (array_length placed)) {
+            push out (itemAt placed i)
+            i = (i + 1)
+        }
+        i = 0
+        while (i < (array_length fixed)) {
+            push out (itemAt fixed i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn usedAt:double (r:PresRoom) {
+        def t:double (this.touchedOf(r.id))
+        if (r.created > t) {
+            return r.created
+        }
+        return t
+    }
+
+    ; the built-in three, then the made rooms used in the last 30 days, at
+    ; most 8 (the latest), in the panel's order; `hidden` counts the rest
+    fn active:[PresRoom] (rows:[PresRoom]) {
+        def recent:[PresRoom]
+        def i:int 0
+        while (i < (array_length rows)) {
+            def r:PresRoom (itemAt rows i)
+            if (((PresRooms.builtIn(r.id)) == false) && (r.archived == false)) {
+                if ((now - (this.usedAt(r))) <= (30.0 * 86400000.0)) {
+                    def k:int (array_length recent)
+                    def go:boolean true
+                    while (go && (k > 0)) {
+                        def prev:PresRoom (itemAt recent (k - 1))
+                        if ((this.usedAt(prev)) < (this.usedAt(r))) {
+                            k = (k - 1)
+                        } {
+                            go = false
+                        }
+                    }
+                    insert recent k r
+                }
+            }
+            i = (i + 1)
+        }
+        def out:[PresRoom]
+        def live:int 0
+        i = 0
+        while (i < (array_length rows)) {
+            def r2:PresRoom (itemAt rows i)
+            if (r2.archived == false) {
+                live = (live + 1)
+                def keep:boolean (PresRooms.builtIn(r2.id))
+                def j:int 0
+                while ((j < (array_length recent)) && (j < 8)) {
+                    def rj:PresRoom (itemAt recent j)
+                    if (rj.id == r2.id) {
+                        keep = true
+                    }
+                    j = (j + 1)
+                }
+                if keep {
+                    push out r2
+                }
+            }
+            i = (i + 1)
+        }
+        hidden = (live - (array_length out))
+        return out
+    }
+
+    ; lower case, and the accents of Latin letters left out
+    sfn fold:string (s:string) {
+        def cs:[int] (to_chars (to_lowercase s))
+        def out:string ""
+        def i:int 0
+        while (i < (array_length cs)) {
+            def c:int (itemAt cs i)
+            if ((c >= 192) && (c <= 222)) {
+                c = (c + 32)
+            }
+            if ((c >= 224) && (c <= 229)) {
+                c = 97
+            }
+            if (c == 231) {
+                c = 99
+            }
+            if ((c >= 232) && (c <= 235)) {
+                c = 101
+            }
+            if ((c >= 236) && (c <= 239)) {
+                c = 105
+            }
+            if (c == 241) {
+                c = 110
+            }
+            if (((c >= 242) && (c <= 246)) || (c == 248)) {
+                c = 111
+            }
+            if ((c >= 249) && (c <= 252)) {
+                c = 117
+            }
+            if ((c == 253) || (c == 255)) {
+                c = 121
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; the rooms whose name has every word of `q` in it, at most 20
+    fn search:[PresRoom] (rows:[PresRoom] q:string) {
+        def out:[PresRoom]
+        def words:[string]
+        def parts:[string] (strsplit (PresRooms.fold(q)) " ")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def w:string (trim (itemAt parts i))
+            if ((strlen w) > 0) {
+                push words w
+            }
+            i = (i + 1)
+        }
+        if ((array_length words) == 0) {
+            return out
+        }
+        i = 0
+        while ((i < (array_length rows)) && ((array_length out) < 20)) {
+            def r:PresRoom (itemAt rows i)
+            def name:string (PresRooms.fold(r.title))
+            def all:boolean true
+            def j:int 0
+            while (j < (array_length words)) {
+                if ((indexOf name (itemAt words j)) < 0) {
+                    all = false
+                }
+                j = (j + 1)
+            }
+            if all {
+                push out r
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn roomById@(optional):PresRoom (id:string) {
+        def out@(optional):PresRoom
+        def i:int 0
+        while (i < (array_length all)) {
+            def r:PresRoom (itemAt all i)
+            if (r.id == id) {
+                out = r
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn titleOf:string (id:string) {
+        def r@(optional):PresRoom (this.roomById(id))
+        if (null? r) {
+            return id
+        }
+        return r.title
+    }
+
+    ; --- what the app asks ----------------------------------------------------------
+
+    ; A "room:…" request, `r` without "room:"; true when it was this one's.
+    fn request:boolean (r:string) {
+        def parts:[string] (strsplit r ":")
+        def action:string (itemAt parts 0)
+        def what:string ""
+        if ((strlen r) > ((strlen action) + 1)) {
+            what = (substring r ((strlen action) + 1) (strlen r))
+        }
+        def p1:string ""
+        def p2:string ""
+        if ((array_length parts) > 1) {
+            p1 = (itemAt parts 1)
+        }
+        if ((array_length parts) > 2) {
+            p2 = (itemAt parts 2)
+        }
+        if (action == "list") {
+            this.list()
+            return true
+        }
+        if (action == "search") {
+            query = what
+            searching = true
+            this.show()
+            return true
+        }
+        if (action == "searchend") {
+            query = ""
+            searching = false
+            this.show()
+            return true
+        }
+        if ((action == "searchgo") || (action == "pick")) {
+            def pick:string what
+            if (action == "searchgo") {
+                pick = ""
+                def found:[PresRoom] (this.search(all what))
+                if ((array_length found) > 0) {
+                    def first:PresRoom (itemAt found 0)
+                    pick = first.id
+                }
+            }
+            query = ""
+            searching = false
+            if ((strlen pick) > 0) {
+                shown = pick
+                stateChanged = true
+                this.touch(pick)
+            }
+            this.list()
+            return true
+        }
+        if ((action == "open") || (action == "decks")) {
+            shown = what
+            stateChanged = true
+            if (action == "open") {
+                this.touch(what)
+            }
+            this.roomDecks(what)
+            return true
+        }
+        if (action == "fold") {
+            this.setOpen(p1 p2 ((this.isOpen(p1 p2)) == false))
+            this.showDecks()
+            return true
+        }
+        if (action == "deck") {
+            if ((indexOf what "sample:") == 0) {
+                this.toast((PresI18n.t("The samples are in the browser editor.")))
+                return true
+            }
+            openId = (PresRooms.deckOf(what))
+            return true
+        }
+        if (action == "all") {
+            clear windowIds
+            def i:int 0
+            while (i < (array_length decks)) {
+                def wd:PresRoomDeck (itemAt decks i)
+                push windowIds (PresRooms.deckOf(wd.id))
+                i = (i + 1)
+            }
+            allAsked = true
+            return true
+        }
+        if (action == "new") {
+            def c:PresAppCall (this.call("roomDialog"))
+            c.b = "new"
+            return true
+        }
+        if (action == "settings") {
+            def x@(optional):PresRoom (this.roomById(what))
+            if ((null? x) || (PresRooms.builtIn(what))) {
+                return true
+            }
+            def c2:PresAppCall (this.call("roomDialog"))
+            c2.a = what
+            c2.b = "made"
+            if x.archived {
+                c2.b = "archived"
+            }
+            c2.c = x.title
+            return true
+        }
+        if (action == "delete") {
+            this.deleteRoom(what)
+            return true
+        }
+        if (action == "moveid") {
+            this.move(p1 (PresRooms.deckOf((substring what ((strlen p1) + 1) (strlen what)))) "")
+            return true
+        }
+        if ((action == "drop") || (action == "tabdrop")) {
+            def deck:string (PresRooms.deckOf((substring what ((strlen p1) + 1) (strlen what))))
+            if ((action == "tabdrop") || ((strlen deck) == 0)) {
+                deck = current
+            }
+            if (((strlen deck) == 0) || ((indexOf deck "sample:") == 0)) {
+                this.toast((PresI18n.t("Make a change first: a sample becomes a presentation of your own when it is edited.")))
+                return true
+            }
+            if (p1 == "onboarding") {
+                this.toast((PresI18n.t("Onboarding holds the sample presentations only.")))
+                return true
+            }
+            def q:PresAppCall (this.call("choice"))
+            q.a = ("roomdrop:" + p1 + ":" + deck)
+            q.b = (PresI18n.t("Move or copy?"))
+            q.c = ((PresI18n.t("Move the presentation to the room, or make a copy of it there?")) + "\n# " + (this.titleOf(p1)))
+            q.d = (PresI18n.t("Move"))
+            q.e = (PresI18n.t("Copy"))
+            return true
+        }
+        if (action == "order") {
+            this.moveRoom(p1 p2)
+            this.show()
+            return true
+        }
+        if (action == "newfolder") {
+            folderRoom = p1
+            folderId = ""
+            folderDeck = ""
+            if ((strlen what) > ((strlen p1) + 1)) {
+                folderDeck = (PresRooms.deckOf((substring what ((strlen p1) + 1) (strlen what))))
+            }
+            this.call("folderDialog")
+            return true
+        }
+        if (action == "folderset") {
+            def i2:int 0
+            while (i2 < (array_length folders)) {
+                def f:PresRoomFolder (itemAt folders i2)
+                if (f.id == p2) {
+                    folderRoom = p1
+                    folderId = p2
+                    folderDeck = ""
+                    def fc:PresAppCall (this.call("folderDialog"))
+                    fc.a = f.id
+                    fc.b = f.name
+                }
+                i2 = (i2 + 1)
+            }
+            return true
+        }
+        if (action == "file") {
+            def rest:string (substring what ((strlen p1) + (strlen p2) + 2) (strlen what))
+            if ((indexOf rest "sample:") == 0) {
+                return true
+            }
+            if ((strlen p2) > 0) {
+                this.setOpen(p1 p2 true)
+            }
+            this.move(p1 (PresRooms.deckOf(rest)) p2)
+            return true
+        }
+        if (action == "newin") {
+            newIn = what
+            this.call("newDeck")
+            return true
+        }
+        return false
+    }
+
+    ; "confirm:…" answers to this one's questions; true when it was one.
+    fn confirm:boolean (r:string) {
+        if ((indexOf r "confirm:roomdelete:") == 0) {
+            this.deleteRoom((substring r 19 (strlen r)))
+            return true
+        }
+        if ((indexOf r "confirm:roomdrop:") == 0) {
+            def what:string (substring r 17 (strlen r))
+            def copy:boolean false
+            if (((strlen what) > 4) && ((substring what ((strlen what) - 4) (strlen what)) == ":alt")) {
+                copy = true
+                what = (substring what 0 ((strlen what) - 4))
+            }
+            def c:int (indexOf what ":")
+            if (c < 0) {
+                return true
+            }
+            def room:string (substring what 0 c)
+            def deck:string (substring what (c + 1) (strlen what))
+            if copy {
+                copyTo = room
+                api.get(("/decks/" + (ApiClient.enc(deck))) "room:copyread")
+            } {
+                this.move(room deck "")
+            }
+            return true
+        }
+        return false
+    }
+
+    ; The room's or the folder's window answered (newdeck-create, the plan's
+    ; "ask" "room" or "folder"). True when it was one of them.
+    fn plan:boolean (plan:JVal) {
+        def ask:string (plan.strOr("ask" ""))
+        def act:string (plan.strOr("act" ""))
+        def name:string (trim (plan.strOr("name" "")))
+        if (ask == "room") {
+            def id:string (plan.strOr("room" ""))
+            if (act == "delete") {
+                def q:PresAppCall (this.call("confirm"))
+                q.a = ("roomdelete:" + id)
+                q.b = (PresI18n.t("Delete room"))
+                q.c = ((PresI18n.t("Delete the room ")) + "\"" + (this.titleOf(id)) + "\"? " + (PresI18n.t("Its presentations move to General; none of them is deleted.")))
+                q.d = (PresI18n.t("Delete"))
+                return true
+            }
+            if ((act == "archive") || (act == "unarchive")) {
+                def a:JVal (JVal.mkObj())
+                a.setStr("room_id" id)
+                a.setBool("archived" (act == "archive"))
+                this.op("archive_room" a)
+                if ((act == "archive") && (shown == id)) {
+                    shown = ""
+                }
+                if (act == "archive") {
+                    this.toast((PresI18n.t("Room archived. Search finds it.")))
+                } {
+                    this.toast((PresI18n.t("Room restored.")))
+                }
+                return true
+            }
+            if ((strlen id) > 0) {
+                def u:JVal (JVal.mkObj())
+                u.setStr("room_id" id)
+                u.setStr("title" name)
+                u.setStr("description" (plan.strOr("desc" "")))
+                this.op("update_room" u)
+                return true
+            }
+            if ((strlen name) == 0) {
+                return true
+            }
+            def n:JVal (JVal.mkObj())
+            n.setStr("title" name)
+            n.setStr("description" (plan.strOr("desc" "")))
+            this.op("create_room" n)
+            return true
+        }
+        if (ask == "folder") {
+            def room:string folderRoom
+            def fid:string folderId
+            if ((strlen room) == 0) {
+                return true
+            }
+            if ((act == "delete") && ((strlen fid) > 0)) {
+                def d:JVal (JVal.mkObj())
+                d.setStr("room_id" room)
+                d.setStr("folder_id" fid)
+                this.op("delete_folder" d)
+                this.setOpen(room fid false)
+                this.toast((PresI18n.t("Folder deleted. Its presentations are at the room's top.")))
+                return true
+            }
+            if ((strlen fid) > 0) {
+                def rn:JVal (JVal.mkObj())
+                rn.setStr("room_id" room)
+                rn.setStr("folder_id" fid)
+                rn.setStr("name" name)
+                this.op("rename_folder" rn)
+                return true
+            }
+            if ((strlen name) > 0) {
+                def cf:JVal (JVal.mkObj())
+                cf.setStr("room_id" room)
+                cf.setStr("name" name)
+                this.op("create_folder" cf)
+            }
+            return true
+        }
+        return false
+    }
+
+    ; Document settings is open: its Room list.
+    fn docRooms:void () {
+        docAsked = true
+        this.fetchList()
+    }
+
+    ; Document settings moved the open presentation ("docroom:<room>").
+    fn docRoom:void (room:string) {
+        if ((strlen current) == 0) {
+            return
+        }
+        this.move(room current "")
+        currentRoom = room
+        this.toast(((PresI18n.t("Moved to ")) + (this.titleOf(room))))
+    }
+
+    ; --- the server ---------------------------------------------------------------
+
+    fn fetchList:void () {
+        def a:JVal (JVal.mkObj())
+        a.setBool("archived" true)
+        this.op("list_rooms" a)
+    }
+
+    fn list:void () {
+        this.fetchList()
+    }
+
+    fn roomDecks:void (room:string) {
+        if ((strlen room) == 0) {
+            def c:PresAppCall (this.call("opts"))
+            c.a = "roomdecks"
+            return
+        }
+        def a:JVal (JVal.mkObj())
+        a.setStr("room_id" room)
+        this.op("get_room" a)
+    }
+
+    fn move:void (room:string deck:string folder:string) {
+        if (((strlen room) == 0) || ((strlen deck) == 0)) {
+            return
+        }
+        def a:JVal (JVal.mkObj())
+        a.setStr("deck_id" deck)
+        a.setStr("room_id" room)
+        if ((strlen folder) > 0) {
+            a.setStr("folder_id" folder)
+        }
+        this.op("move_presentation" a)
+    }
+
+    fn deleteRoom:void (id:string) {
+        def a:JVal (JVal.mkObj())
+        a.setStr("room_id" id)
+        this.op("delete_room" a)
+        if (shown == id) {
+            shown = ""
+        }
+    }
+
+    ; a made room dragged before `before` ("" or a built-in one: the last)
+    fn moveRoom:void (id:string before:string) {
+        if ((PresRooms.builtIn(id)) || (id == before)) {
+            return
+        }
+        def rest:[string]
+        def found:boolean false
+        def i:int 0
+        while (i < (array_length all)) {
+            def r:PresRoom (itemAt all i)
+            if ((PresRooms.builtIn(r.id)) == false) {
+                if (r.id == id) {
+                    found = true
+                } {
+                    push rest r.id
+                }
+            }
+            i = (i + 1)
+        }
+        if (found == false) {
+            return
+        }
+        def at:int (array_length rest)
+        if (((strlen before) > 0) && ((PresRooms.builtIn(before)) == false)) {
+            def k:int 0
+            while (k < (array_length rest)) {
+                if ((itemAt rest k) == before) {
+                    at = k
+                }
+                k = (k + 1)
+            }
+        }
+        insert rest at id
+        order = rest
+        all = (this.ordered(all))
+        stateChanged = true
+    }
+
+    ; An answer delivered for a "room:…" tag.
+    fn handle:void (res:ApiResult) {
+        def op:string (substring res.tag 5 (strlen res.tag))
+        if ((res.ok()) == false) {
+            this.toast(((PresI18n.t("Rooms: ")) + (res.message())))
+            return
+        }
+        def j:JVal res.json
+        if (op == "list_rooms") {
+            this.takeRooms((j.get("rooms")))
+            this.show()
+            if docAsked {
+                docAsked = false
+                this.showDocRooms()
+            }
+            return
+        }
+        if (op == "get_room") {
+            def room:JVal (j.get("room"))
+            if ((room.strOr("room_id" "")) == shown) {
+                this.takeRoom(j)
+                this.showDecks()
+            }
+            return
+        }
+        if (op == "create_room") {
+            def id:string (j.strOr("room_id" ""))
+            if ((strlen id) > 0) {
+                shown = id
+                this.touch(id)
+            }
+            this.list()
+            return
+        }
+        if (op == "create_folder") {
+            def made:string (j.strOr("folder_id" ""))
+            if ((strlen made) > 0) {
+                this.setOpen(folderRoom made true)
+                if ((strlen folderDeck) > 0) {
+                    this.move(folderRoom folderDeck made)
+                    folderDeck = ""
+                    return
+                }
+            }
+            this.roomDecks(shown)
+            return
+        }
+        if (op == "copyread") {
+            ; the copy: the same Markdown and theme under a name of its own
+            def body:JVal (JVal.mkObj())
+            body.setStr("name" ((j.strOr("name" "presentation")) + " " + (PresI18n.t("(copy)"))))
+            body.setStr("markdown" (j.strOr("markdown" "")))
+            body.setStr("theme" (j.strOr("theme" "")))
+            api.post("/decks" (body.toJson()) "room:copymade")
+            return
+        }
+        if (op == "copymade") {
+            this.move(copyTo (j.strOr("id" "")) "")
+            copyTo = ""
+            return
+        }
+        ; anything that changed the rooms: the panel again
+        this.list()
+    }
+
+    fn takeRooms:void (rows:JVal) {
+        def got:[PresRoom]
+        def i:int 0
+        while (i < (rows.len())) {
+            def o:JVal (rows.at(i))
+            def r (new PresRoom())
+            r.id = (o.strOr("room_id" ""))
+            r.title = (o.strOr("title" ""))
+            r.created = (o.numOr("created" 0.0))
+            r.archived = (o.boolOr("archived" false))
+            r.count = (o.intOr("presentations" 0))
+            if ((strlen r.id) > 0) {
+                push got r
+            }
+            i = (i + 1)
+        }
+        all = (this.ordered(got))
+    }
+
+    fn takeRoom:void (g:JVal) {
+        clear decks
+        clear folders
+        def ps:JVal (g.get("presentations"))
+        def i:int 0
+        while (i < (ps.len())) {
+            def p:JVal (ps.at(i))
+            def d (new PresRoomDeck())
+            d.id = ("cloud:" + (p.strOr("deck_id" "")))
+            d.name = (p.strOr("name" ""))
+            if ((strlen d.name) == 0) {
+                d.name = (PresI18n.t("presentation"))
+            }
+            if (((p.strOr("deck_id" "")) == current) && ((strlen currentName) > 0)) {
+                d.name = currentName
+            }
+            d.folder = (p.strOr("folder_id" ""))
+            push decks d
+            i = (i + 1)
+        }
+        def fs:JVal (g.get("folders"))
+        i = 0
+        while (i < (fs.len())) {
+            def f:JVal (fs.at(i))
+            def x (new PresRoomFolder())
+            x.id = (f.strOr("folder_id" ""))
+            x.name = (f.strOr("name" ""))
+            ; by name, as web/rooms.js sortFolders
+            def k:int (array_length folders)
+            def go:boolean true
+            while (go && (k > 0)) {
+                def prev:PresRoomFolder (itemAt folders (k - 1))
+                if (PresRooms.textBefore((PresRooms.fold(x.name)) (PresRooms.fold(prev.name)))) {
+                    k = (k - 1)
+                } {
+                    go = false
+                }
+            }
+            insert folders k x
+            i = (i + 1)
+        }
+    }
+
+    ; --- what the app shows ------------------------------------------------------------
+
+    ; the panel's rooms (web/main.js showRoomRows)
+    fn show:void () {
+        def rows:[PresRoom]
+        if (searching && ((strlen (trim query)) > 0)) {
+            rows = (this.search(all query))
+            hidden = 0
+        } {
+            rows = (this.active(all))
+            def has:boolean false
+            def i:int 0
+            while (i < (array_length rows)) {
+                def ri:PresRoom (itemAt rows i)
+                if (ri.id == shown) {
+                    has = true
+                }
+                i = (i + 1)
+            }
+            if (has == false) {
+                def open@(optional):PresRoom (this.roomById(shown))
+                if (!null? open) {
+                    push rows (unwrap open)
+                } {
+                    shown = ""
+                    if ((array_length rows) > 0) {
+                        def r0:PresRoom (itemAt rows 0)
+                        shown = r0.id
+                    }
+                }
+            }
+        }
+        listed = rows
+        def lines:[string]
+        def i2:int 0
+        while (i2 < (array_length rows)) {
+            def r:PresRoom (itemAt rows i2)
+            def title:string (PresRooms.clean(r.title))
+            if r.archived {
+                title = (title + " (" + (PresI18n.t("archived")) + ")")
+            }
+            def count:string ""
+            if (r.count > 0) {
+                count = (to_string r.count)
+            }
+            push lines (r.id + "\t" + title + "\t" + count + "\t")
+            i2 = (i2 + 1)
+        }
+        def hint:string (PresI18n.t("Search rooms…"))
+        if (hidden > 0) {
+            hint = (hint + " (" + (to_string hidden) + (PresI18n.t(" more")) + ")")
+        }
+        def s:PresAppCall (this.call("opts"))
+        s.a = "roomsearch"
+        s.c = hint
+        def c:PresAppCall (this.call("opts"))
+        c.a = "rooms"
+        c.b = (join lines "\n")
+        c.c = shown
+        this.roomDecks(shown)
+    }
+
+    ; the shown room's presentations (web/rooms.js deckLines)
+    fn showDecks:void () {
+        def lines:[string]
+        def i:int 0
+        while (i < (array_length folders)) {
+            def f:PresRoomFolder (itemAt folders i)
+            def open:boolean (this.isOpen(shown f.id))
+            def n:int 0
+            def inside:[PresRoomDeck]
+            def k:int 0
+            while (k < (array_length decks)) {
+                def dk:PresRoomDeck (itemAt decks k)
+                if (dk.folder == f.id) {
+                    push inside (itemAt decks k)
+                    n = (n + 1)
+                }
+                k = (k + 1)
+            }
+            def openMark:string ""
+            if open {
+                openMark = "1"
+            }
+            def count:string ""
+            if (n > 0) {
+                count = (to_string n)
+            }
+            push lines ("f:" + f.id + "\t" + (PresRooms.clean(f.name)) + "\t" + openMark + "\tf\t" + count)
+            if open {
+                k = 0
+                while ((k < (array_length inside)) && (k < 15)) {
+                    push lines (this.deckLine((itemAt inside k) "i"))
+                    k = (k + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        def top:[PresRoomDeck]
+        i = 0
+        while (i < (array_length decks)) {
+            def d:PresRoomDeck (itemAt decks i)
+            if (((strlen d.folder) == 0) || ((this.hasFolder(d.folder)) == false)) {
+                push top d
+            }
+            i = (i + 1)
+        }
+        i = 0
+        while ((i < (array_length top)) && (i < 15)) {
+            push lines (this.deckLine((itemAt top i) ""))
+            i = (i + 1)
+        }
+        if ((array_length top) > 15) {
+            push lines ("all\t… " + (PresI18n.t("Show all")) + " (" + (to_string (array_length decks)) + ")\t\ta")
+        }
+        if (shown != "onboarding") {
+            push lines ("new\t+ " + (PresI18n.t("Add new presentation")) + "\t\tn")
+            push lines ("newfolder\t+ " + (PresI18n.t("New folder")) + "\t\tnf")
+        }
+        def c:PresAppCall (this.call("opts"))
+        c.a = "roomdecks"
+        c.b = (join lines "\n")
+        c.c = shown
+    }
+
+    fn hasFolder:boolean (id:string) {
+        def i:int 0
+        while (i < (array_length folders)) {
+            def fi:PresRoomFolder (itemAt folders i)
+            if (fi.id == id) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn deckLine:string (d:PresRoomDeck kind:string) {
+        def cur:string ""
+        if (((strlen current) > 0) && ((PresRooms.deckOf(d.id)) == current)) {
+            cur = "1"
+        }
+        return (d.id + "\t" + (PresRooms.clean(d.name)) + "\t" + cur + "\t" + kind)
+    }
+
+    ; Document settings' Room list (web/main.js docRooms)
+    fn showDocRooms:void () {
+        def c:PresAppCall (this.call("docRooms"))
+        if ((strlen current) == 0) {
+            c.c = (PresI18n.t("Save the presentation first: then it is in a room."))
+            return
+        }
+        ; the open presentation's room (General, the server's default, when
+        ; it did not say)
+        def cur:string currentRoom
+        if ((strlen cur) == 0) {
+            cur = "general"
+        }
+        def lines:[string]
+        def i:int 0
+        while (i < (array_length all)) {
+            def r:PresRoom (itemAt all i)
+            if ((r.id != "onboarding") && ((r.archived == false) || (r.id == cur))) {
+                def title:string (PresRooms.clean(r.title))
+                if r.archived {
+                    title = (title + " (" + (PresI18n.t("archived")) + ")")
+                }
+                push lines (r.id + "\t" + title)
+            }
+            i = (i + 1)
+        }
+        c.a = (join lines "\n")
+        c.b = cur
+    }
+}
