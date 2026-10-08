@@ -905,7 +905,9 @@ class PresToolbar {
     ; Rooms (ADR 0001): the rooms the page lists, the open one's presentations
     ; under it. The page fills both, from the server's rooms or from this
     ; browser's (web/rooms.js).
-    fn roomRow:void (body:EVGElement id:string name:string count:string) {
+    ; `unread`: the room's chat has messages this browser has not read, a
+    ; small blue dot after the name
+    fn roomRow:void (body:EVGElement id:string name:string count:string unread:boolean) {
         def open:boolean (id == roomOpen)
         def row:ButtonCtl (this.button(("room-" + id) name "ghost" body))
         def rel:EVGElement (unwrap row.rootEl)
@@ -929,6 +931,9 @@ class PresToolbar {
             if ((strlen count) > 0) {
                 keep = (keep + 22.0)
             }
+            if unread {
+                keep = (keep + 14.0)
+            }
             if (id != "onboarding") {
                 keep = (keep + 26.0)
             }
@@ -938,6 +943,9 @@ class PresToolbar {
             def lb:EVGElement (rel.getChild(0))
             lb.textContent = (UiText.fit((this.engine()) ("# " + name) "Open Sans" 13.0 (roomsW - keep)))
             UiTree.addClass(lb "tb-room-name")
+        }
+        if unread {
+            rel.addChild((this.div("tb-room-dot")))
         }
         rel.addChild((this.div("tb-grow")))
         if ((strlen count) > 0) {
@@ -1228,7 +1236,7 @@ class PresToolbar {
         return room
     }
 
-    ; Rows of "id TAB title TAB count"; under the open room its presentations,
+    ; Rows of "id TAB title TAB count TAB u" (u: unread chat messages); under the open room its presentations,
     ; "id TAB name TAB 1 if open TAB kind" (web/rooms.js deckLines).
     fn liveRooms:void (pane:EVGElement) {
         def lines:[string] (strsplit roomRows (strfromcode 10))
@@ -1244,6 +1252,10 @@ class PresToolbar {
                 if ((array_length parts) >= 3) {
                     count = (itemAt parts 2)
                 }
+                def unread:boolean false
+                if ((array_length parts) >= 4) {
+                    unread = ((itemAt parts 3) == "u")
+                }
                 if (PresToolbar.builtInRoom(id)) {
                     if madeAbove {
                         pane.addChild((this.div("tb-rooms-sep")))
@@ -1252,7 +1264,7 @@ class PresToolbar {
                 } {
                     madeAbove = true
                 }
-                this.roomRow(pane id (itemAt parts 1) count)
+                this.roomRow(pane id (itemAt parts 1) count unread)
                 if (id == roomOpen) {
                     ; the room's presentations hang from a thin line under its "#"
                     def nest:EVGElement (this.div("tb-roomdecks"))

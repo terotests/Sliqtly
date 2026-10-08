@@ -3818,6 +3818,7 @@ class PresApp {
         if (focus == "room") {
             focus = "editor"
             room.ch.keys = ""
+            room.closeMenu()
             room.changed()
         }
         if (PresApp.panelLayer(top)) {
@@ -10643,6 +10644,19 @@ class PresApp {
         this.syncEditor()
         this.selectSlide((deck.pageOfOffset((this.offsetOf(start 0)))))
         chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; --- the room chat's message menu ---------------------------------------------
+    ; A right click on the open room's chat: the menu of the message under
+    ; it. True when x, y is on the chat (no other menu there).
+    fn roomMenuAt:boolean (x:double y:double) {
+        this.place()
+        if (((room.open == false) || (mode == "present")) || ((this.layerAt(x y)) != "room")) {
+            return false
+        }
+        room.menuAt(x y)
+        this.afterRoom()
         return true
     }
 

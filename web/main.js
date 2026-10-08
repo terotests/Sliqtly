@@ -34,7 +34,7 @@ import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, mov
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { planFiles, seenAfterSave } from "./sharefiles.js";
 import { Meet } from "./meet.js";
-import { RoomChat } from "./roomchat.js";
+import { RoomChat, unreadRooms } from "./roomchat.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
@@ -1213,9 +1213,32 @@ async function docRooms() {
 }
 // the search field's text while it is open (null: the rooms one is active in)
 let roomsQuery = null;
+// the rooms the rail lists now (list_rooms' rows)
+let roomsListed = [];
+// The rail's room rows: "id TAB name TAB count TAB u", u when the room has
+// messages this browser has not read (a blue dot). An empty room shows no
+// count ("0" says nothing the empty list does not).
+function showRoomRows() {
+  let store = null;
+  try { store = localStorage; } catch (_) { store = { getItem: () => null }; }
+  const reading = roomChatOne && app.roomChatOpen() ? roomChatOne.room : "";
+  const unread = unreadRooms(roomsListed, store, reading);
+  const rows = roomsListed.map((x) => [x.room_id, clean(x.title) + (x.archived ? " (" + t("archived") + ")" : ""), x.presentations || "", unread.has(x.room_id) ? "u" : ""].join("\t"));
+  app.setToolbarOptions("rooms", rows.join("\n"), roomShown);
+  needsPaint = true;
+}
 // a room made, renamed, archived or removed, or a deck moved, by anyone:
 // the server says so on the page's stream, and the list is read again
 window.addEventListener("sliqtly:chat", (ev) => {
+  // a message in a listed room: its dot, unless its chat is open and read
+  const v = ev.detail;
+  if (v?.t === "msg" && v.msg) {
+    const r = roomsListed.find((x) => x.room_id === v.room);
+    if (r && Number(v.msg.seq) > Number(r.chat_seq || 0)) {
+      r.chat_seq = Number(v.msg.seq);
+      showRoomRows();
+    }
+  }
   if ((ev.detail?.t === "rooms" || ev.detail?.t === "reopen") && ownServer()) {
     roomsRequest("room:list").then(() => { needsPaint = true; }, () => {});
     // an open Document settings window shows the deck's room as it is now
@@ -1241,10 +1264,9 @@ async function roomsRequest(r) {
       if (open) rooms = [...rooms, open];
       else roomShown = rooms[0]?.room_id || "";
     }
-    // an empty room shows no count ("0" says nothing the empty list does not)
-    const rows = rooms.map((x) => [x.room_id, clean(x.title) + (x.archived ? " (" + t("archived") + ")" : ""), x.presentations || ""].join("\t"));
+    roomsListed = rooms;
     app.setToolbarOptions("roomsearch", "", t("Search rooms…") + (hidden ? " (" + hidden + t(" more") + ")" : ""));
-    app.setToolbarOptions("rooms", rows.join("\n"), roomShown);
+    showRoomRows();
     if (roomShown && rooms.some((x) => x.room_id === roomShown)) await roomsRequest("room:decks:" + roomShown);
     else app.setToolbarOptions("roomdecks", "", roomShown);
   } else if (action === "search") {
@@ -1473,6 +1495,8 @@ function roomChat() {
     zone: () => -new Date().getTimezoneOffset(),
     rooms: () => roomsList({ archived: true }),
     roomsChanged: () => roomsRequest("room:list"),
+    // the open room read: its dot goes
+    readChanged: () => showRoomRows(),
     openLink: (u) => { if (/^https?:\/\//i.test(u)) window.open(u, "_blank", "noopener"); },
     openDeck: async (deck, slide) => {
       await roomsRequest("room:deck:cloud:" + deck);
@@ -7056,9 +7080,17 @@ for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
 let diagramTold = false;
 let diagramTimer = 0;
 canvas.addEventListener("pointerup", endPointer);
-// A right click on a slide of the strip: New, Duplicate, Move, Delete.
+// A right click on a slide of the strip: New, Duplicate, Move, Delete; on
+// a room's chat, a message's menu.
 canvas.addEventListener("contextmenu", (ev) => {
   const [x, y] = at(ev);
+  // on a room's chat: the message's menu (React, Reply, Quote, Copy, Edit, Delete)
+  if (app.roomMenuAt(x, y)) {
+    ev.preventDefault();
+    closeHint();
+    afterInput();
+    return;
+  }
   if (!app.slideMenuAt(x, y)) return;
   ev.preventDefault();
   closeHint();

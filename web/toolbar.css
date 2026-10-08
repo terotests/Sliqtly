@@ -194,6 +194,9 @@
 .theme-tb .tb-room-open { background-color: #e0e7ff; }
 .tb-room-name { font-size: 13px; font-weight: 500; color: #27272a; white-space: nowrap; }
 .tb-room-count { font-size: 11px; color: #71717a; }
+/* a room with chat messages this browser has not read: a small blue dot
+   after its name */
+.tb-room-dot { width: 8px; height: 8px; border-radius: 4px; background-color: #2563eb; margin-left: 6px; flex-shrink: 0; }
 /* a room's presentations: rows on the panel's own ground, hung from a thin
    line under the room's "#" (EVG draws no one-sided border: the line is an
    element); the open one tinted like the open room, its name in bold */
