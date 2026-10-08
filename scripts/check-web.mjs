@@ -1182,9 +1182,11 @@ try {
     check("…Shift+F10 opens it from the keyboard, Esc closes it back to the slide", s8.menu === "tb-m-ctx" && /^tb-m-ctx-item-/.test(s8.on) && s9.menu === "" && s9.on === "thumb-2", JSON.stringify([s8.on, s9.on, s9.menu]));
     await page.evaluate((t) => window.__app.setSource(t), md);
 
-    // a drag puts the slide in another place
+    // a drag puts the slide in another place; the hand over a thumbnail says so
     p = await thumbAt(0);
     const q = await thumbAt(2);
+    const hand = await page.evaluate(([x, y]) => { const c = document.getElementById("c").getBoundingClientRect(); return window.__app.cursorAt(x - c.left, y - c.top); }, p);
+    check("…the pointer over a thumbnail is a hand that grabs", hand === "grab", hand);
     await page.mouse.move(p[0], p[1]);
     await page.mouse.down();
     for (let k = 1; k <= 10; k += 1) await page.mouse.move(p[0] + (q[0] + 70 - p[0]) * k / 10, p[1]);

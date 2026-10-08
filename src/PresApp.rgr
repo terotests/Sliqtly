@@ -4538,6 +4538,23 @@ class PresApp {
         return ((mode != "present") && (stripRect.has(x y)))
     }
 
+    ; The slide whose thumbnail is at x, y on the strip, or -1.
+    fn thumbIndexAt:int (x:double y:double) {
+        def ty:double (this.thumbY())
+        if ((y < ty) || (y > (ty + thumbH))) {
+            return -1
+        }
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def tx:double (this.thumbX(i))
+            if ((x >= tx) && (x <= (tx + thumbW))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
     ; The gap between thumbnails nearest to x: 0 before the first, n after
     ; the last.
     fn dropSlotAt:int (x:double) {
@@ -4787,6 +4804,12 @@ class PresApp {
             return "grabbing"
         }
         if (stripRect.has(x y)) {
+            ; a thumbnail can be carried to another place: a hand that grabs
+            if ((this.thumbIndexAt(x y)) >= 0) {
+                if ((deck.slideCount()) > 1) {
+                    return "grab"
+                }
+            }
             return "pointer"
         }
         if (trackRect.has(x y)) {
