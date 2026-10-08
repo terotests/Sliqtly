@@ -487,6 +487,11 @@ class PresChartEditor {
         if (f.calculatedWidth <= 0.0) {
             return false
         }
+        ; an open dropdown's list runs past the frame (Style near the foot):
+        ; a press on it is the window's, or it closed the window unchosen
+        if (host.surfaceAt(px py)) {
+            return true
+        }
         return (((px >= f.calculatedX) && (px <= (f.calculatedX + f.calculatedWidth))) && ((py >= f.calculatedY) && (py <= (f.calculatedY + f.calculatedHeight))))
     }
 
