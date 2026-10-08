@@ -8,9 +8,13 @@
 //          placed: { deckId: roomId },
 //          touched: { roomId: ms }  (when one last opened or used a room:
 //          the panel lists the rooms one is active in, the rest by search),
-//          order: [roomId] }  (the made rooms as one dragged them; a room
+//          order: [roomId],  (the made rooms as one dragged them; a room
 //          not in it is newer than the order and comes first, newest first:
 //          rooms are a running process, the latest work on top)
+//          folders: { roomId: [{ id, name }] },  (one level of folders in a
+//          room, e.g. its test decks out of the way; Onboarding has none)
+//          filed: { deckId: folderId } }  (the folder a deck is in, within
+//          its room; none, or a folder gone, is the room's top)
 //
 // The order is this browser's view of the rooms, the server's rooms too.
 
@@ -27,7 +31,7 @@ export const ACTIVE_MAX = 8;
 const DAY = 86400000;
 
 export function emptyRooms() {
-  return { rooms: [], placed: {}, touched: {}, order: [] };
+  return { rooms: [], placed: {}, touched: {}, order: [], folders: {}, filed: {} };
 }
 
 export const isBuiltIn = (id) => BUILT_IN.includes(id);
@@ -42,7 +46,10 @@ export function parseRooms(text) {
     const placed = s?.placed && typeof s.placed === "object" ? { ...s.placed } : {};
     const touched = s?.touched && typeof s.touched === "object" ? { ...s.touched } : {};
     const order = Array.isArray(s?.order) ? s.order.filter((x) => typeof x === "string") : [];
-    return { rooms, placed, touched, order };
+    const folders = {};
+    if (s?.folders && typeof s.folders === "object") for (const [r, list] of Object.entries(s.folders)) folders[r] = folderList(list);
+    const filed = s?.filed && typeof s.filed === "object" ? { ...s.filed } : {};
+    return { rooms, placed, touched, order, folders, filed };
   } catch (_) {
     return emptyRooms();
   }
@@ -50,7 +57,8 @@ export function parseRooms(text) {
 
 // Kept in `store` (localStorage) one fact per key under `key` + "/": each
 // room ("room/<id>", its JSON), each placed deck ("deck/<deckId>", its room),
-// each room's last use ("touched/<id>") and the order ("order"). Every tab of
+// each room's last use ("touched/<id>"), the order ("order"), each room's
+// folders ("folders/<roomId>") and each filed deck ("filed/<deckId>"). Every tab of
 // the browser shares them, and a tab hears another's writes only a while
 // later (later still when it is busy), so a tab writing all of the rooms as
 // one value would put back what it last heard over moves made in another
@@ -64,6 +72,8 @@ function factsOf(state) {
   for (const [deck, room] of Object.entries(state.placed)) out.set("deck/" + deck, String(room));
   for (const [room, ms] of Object.entries(state.touched)) out.set("touched/" + room, String(ms));
   if (state.order?.length) out.set("order", JSON.stringify(state.order));
+  for (const [room, list] of Object.entries(state.folders || {})) if (list.length) out.set("folders/" + room, JSON.stringify(list));
+  for (const [deck, folder] of Object.entries(state.filed || {})) out.set("filed/" + deck, String(folder));
   return out;
 }
 
@@ -87,6 +97,8 @@ export function readKept(store, key) {
         if (r && r.id === id && typeof r.title === "string") rooms.set(id, r);
       } else if (kind === "deck" && id) s.placed[id] = v;
       else if (kind === "touched" && id && Number.isFinite(Number(v))) s.touched[id] = Number(v);
+      else if (kind === "folders" && id) s.folders[id] = folderList(JSON.parse(v));
+      else if (kind === "filed" && id) s.filed[id] = v;
       else if (kind === "order") {
         const o = JSON.parse(v);
         if (Array.isArray(o)) s.order = o.filter((x) => typeof x === "string");
@@ -152,14 +164,15 @@ export function listRooms(state, decks, samples, { archived = false } = {}) {
   ], state.order);
 }
 
-// A room's presentations, last changed first: { id, name, current }. Those
-// of Onboarding are the samples, "sample:<key>".
+// A room's presentations, last changed first: { id, name, current, folder }
+// (folder "" at the room's top). Those of Onboarding are the samples,
+// "sample:<key>".
 export function roomDecks(state, roomId, decks, samples) {
   if (roomId === ONBOARDING) return samples.map((s) => ({ id: "sample:" + s.key, name: s.name, current: !!s.current }));
   return decks
     .filter((d) => roomOf(state, d.id) === roomId)
     .sort((a, b) => (b.updated || 0) - (a.updated || 0))
-    .map((d) => ({ id: d.id, name: d.name, current: !!d.current }));
+    .map((d) => ({ id: d.id, name: d.name, current: !!d.current, folder: folderOf(state, d.id) }));
 }
 
 export const roomTitle = (title) => String(title || "").replace(/\s+/g, " ").trim().slice(0, 200);
@@ -218,7 +231,11 @@ export function deleteRoom(state, id) {
   const placed = Object.fromEntries(Object.entries(state.placed).filter(([, r]) => r !== id));
   const touched = { ...state.touched };
   delete touched[id];
-  return { ...state, rooms: state.rooms.filter((r) => r.id !== id), placed, touched, order: (state.order || []).filter((x) => x !== id) };
+  // its folders go with it, and its decks are at General's top
+  const folders = { ...(state.folders || {}) };
+  delete folders[id];
+  const filed = Object.fromEntries(Object.entries(state.filed || {}).filter(([deck]) => state.placed[deck] !== id));
+  return { ...state, rooms: state.rooms.filter((r) => r.id !== id), placed, touched, order: (state.order || []).filter((x) => x !== id), folders, filed };
 }
 
 // A made room dragged before `beforeId`: "" or a built-in room (the group
@@ -237,24 +254,106 @@ export function moveRoom(state, rows, id, beforeId) {
   return { ...state, order: rest };
 }
 
-// A deck into a room (Onboarding holds only the samples).
-export function moveDeck(state, deckId, roomId) {
-  if (!deckId || roomId === ONBOARDING) return state;
-  if (roomId !== GENERAL && roomId !== PLAYGROUND && !state.rooms.some((r) => r.id === roomId)) return state;
+// A deck into a room (Onboarding holds only the samples), at its top or
+// into one of its folders (`folderId`; one not in that room is the top).
+export function moveDeck(state, deckId, roomId, folderId = "") {
+  if (!deckId || !hasRoom(state, roomId)) return state;
   const placed = { ...state.placed };
   if (roomId === GENERAL) delete placed[deckId];
   else placed[deckId] = roomId;
-  return { ...state, placed };
+  const filed = { ...(state.filed || {}) };
+  if (folderId && foldersOf(state, roomId).some((f) => f.id === folderId)) filed[deckId] = folderId;
+  else delete filed[deckId];
+  return { ...state, placed, filed };
 }
 
-// The rows the panel draws under the open room: at most SHOWN presentations,
-// then "… Show all" when there are more, then the row making a new
-// presentation in the room. "id TAB name TAB 1 if open TAB kind".
-export function deckLines(rows, { showAll = "", addNew = "" } = {}) {
+// a room decks can be in: General, Playground or one made here
+const hasRoom = (state, roomId) => roomId === GENERAL || roomId === PLAYGROUND || state.rooms.some((r) => r.id === roomId);
+
+// --- folders: one level of them in a room ---------------------------------
+export const folderName = (name) => String(name || "").replace(/\s+/g, " ").trim().slice(0, 100);
+const fold = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+// what a kept list of folders holds that reads as folders
+function folderList(list) {
+  return Array.isArray(list) ? list.filter((f) => f && typeof f.id === "string" && f.id && typeof f.name === "string").map((f) => ({ id: f.id, name: f.name })) : [];
+}
+
+// A room's folders by name (numbers in names as numbers: "Sprint 2"
+// before "Sprint 10"). folders: [{ id, name }], this browser's or the
+// server's (get_room's, folder_id as id).
+export function sortFolders(folders) {
+  return [...folders].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) || a.id.localeCompare(b.id));
+}
+
+export function foldersOf(state, roomId) {
+  return sortFolders(state.folders?.[roomId] || []);
+}
+
+// The folder a deck is in: "" at its room's top, also when the folder is
+// gone or the deck moved to another room since.
+export function folderOf(state, deckId) {
+  const f = state.filed?.[deckId];
+  return f && foldersOf(state, roomOf(state, deckId)).some((x) => x.id === f) ? f : "";
+}
+
+// A new folder in a room; a name the room has already (any case or
+// accent) is that folder: { state, id }, id "" when nothing was made.
+export function createFolder(state, roomId, name, idOf) {
+  const n = folderName(name);
+  if (!n || !hasRoom(state, roomId)) return { state, id: "" };
+  const list = state.folders?.[roomId] || [];
+  const same = list.find((f) => fold(f.name) === fold(n));
+  if (same) return { state, id: same.id };
+  let id = "f-" + idOf();
+  while (list.some((f) => f.id === id)) id = "f-" + idOf();
+  return { state: { ...state, folders: { ...(state.folders || {}), [roomId]: [...list, { id, name: n }] } }, id };
+}
+
+// A folder renamed (an empty name, or one another folder there has, keeps the old).
+export function renameFolder(state, roomId, id, name) {
+  const n = folderName(name);
+  const list = state.folders?.[roomId] || [];
+  if (!n || !list.some((f) => f.id === id) || list.some((f) => f.id !== id && fold(f.name) === fold(n))) return state;
+  return { ...state, folders: { ...state.folders, [roomId]: list.map((f) => (f.id === id ? { ...f, name: n } : f)) } };
+}
+
+// A folder removed: its decks are at the room's top again (none is deleted).
+export function deleteFolder(state, roomId, id) {
+  const list = state.folders?.[roomId] || [];
+  if (!list.some((f) => f.id === id)) return state;
+  const folders = { ...state.folders };
+  const rest = list.filter((f) => f.id !== id);
+  if (rest.length) folders[roomId] = rest;
+  else delete folders[roomId];
+  const filed = Object.fromEntries(Object.entries(state.filed || {}).filter(([deck, f]) => !(f === id && roomOf(state, deck) === roomId)));
+  return { ...state, folders, filed };
+}
+
+// The rows the panel draws under the open room: its folders by name, each
+// open one followed by its presentations; then at most SHOWN presentations
+// of the room's top, then "… Show all" when there are more, then the rows
+// making a new presentation and a new folder in the room.
+// "id TAB name TAB 1 if open TAB kind TAB count": kind "" a presentation at
+// the top, "i" one in a folder, "f" a folder (id "f:<folder id>", count its
+// presentations), "a" Show all, "n" new presentation, "nf" new folder.
+// rows: roomDecks's (or the server's, with folder); folders: [{ id, name }];
+// open: the ids of the folders shown open.
+export function deckLines(rows, { folders = [], open = [], showAll = "", addNew = "", newFolder = "" } = {}) {
   const clean = (s) => String(s || "").replace(/[\t\n\r]+/g, " ");
-  const lines = rows.slice(0, SHOWN).map((r) => [r.id, clean(r.name), r.current ? "1" : "", ""].join("\t"));
-  if (rows.length > SHOWN && showAll) lines.push(["all", showAll, "", "a"].join("\t"));
+  const known = new Set(folders.map((f) => f.id));
+  const isOpen = new Set(open);
+  const lines = [];
+  for (const f of sortFolders(folders)) {
+    const inside = rows.filter((r) => r.folder === f.id);
+    lines.push(["f:" + f.id, clean(f.name), isOpen.has(f.id) ? "1" : "", "f", inside.length ? String(inside.length) : ""].join("\t"));
+    if (isOpen.has(f.id)) for (const r of inside.slice(0, SHOWN)) lines.push([r.id, clean(r.name), r.current ? "1" : "", "i"].join("\t"));
+  }
+  const top = rows.filter((r) => !r.folder || !known.has(r.folder));
+  for (const r of top.slice(0, SHOWN)) lines.push([r.id, clean(r.name), r.current ? "1" : "", ""].join("\t"));
+  if (top.length > SHOWN && showAll) lines.push(["all", showAll, "", "a"].join("\t"));
   if (addNew) lines.push(["new", addNew, "", "n"].join("\t"));
+  if (newFolder) lines.push(["newfolder", newFolder, "", "nf"].join("\t"));
   return lines.join("\n");
 }
 

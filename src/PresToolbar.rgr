@@ -132,6 +132,8 @@ class PresToolbar {
     def dragY:double 0.0
     def dragOn:boolean false
     def dropRoom:string ""
+    ; ...or onto a folder of the open room (its id): the deck is filed there
+    def dropFolder:string ""
     ; a made room's row pressed: dragged, it goes before the room it is let
     ; go on (onto a built-in one: first); let go where it was pressed, the
     ; room opens
@@ -234,6 +236,9 @@ class PresToolbar {
             c.iconClass = "tb-icon-roomgear"
         }
         if ((indexOf id "roomadd-") == 0) {
+            c.iconClass = "tb-icon-roomgear"
+        }
+        if ((indexOf id "roomfolder-") == 0) {
             c.iconClass = "tb-icon-roomgear"
         }
         c.build()
@@ -972,11 +977,76 @@ class PresToolbar {
         }
         ; "… Show all" and the row moving the open one here: the room's own
         ; actions, quieter than its presentations
-        if ((id == "all") || (id == "new")) {
+        if (((id == "all") || (id == "new")) || (id == "newfolder")) {
             if ((el.getChildCount()) > 0) {
                 UiTree.addClass((el.getChild(0)) "tb-roomdeck-act")
             }
         }
+    }
+
+    ; A folder of the open room: a folder icon (open or shut) and its name,
+    ; its count, and its gear (rename, delete). Pressed, it opens or shuts; a
+    ; presentation let go on it is filed there.
+    fn roomFolder:void (body:EVGElement id:string name:string open:boolean count:string) {
+        def keep:double 85.0
+        if ((strlen count) > 0) {
+            keep = (keep + 22.0)
+        }
+        def c (new ButtonCtl())
+        c.tid = ("tb-roomdeck-f:" + id)
+        c.name = (UiText.fit((this.engine()) name "Open Sans" 13.0 (roomsW - keep)))
+        c.variant = "ghost"
+        c.icon = "M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"
+        if open {
+            c.icon = "M3 19V6a1 1 0 0 1 1-1h5l2 2h7a1 1 0 0 1 1 1v3M3 19l3-8h16l-3 8z"
+        }
+        c.iconClass = "tb-icon-folder"
+        c.build()
+        def el:EVGElement (unwrap c.rootEl)
+        UiTree.addClass(el "tb-button")
+        this.put(c body)
+        UiTree.addClass(el "tb-roomdeck")
+        UiTree.addClass(el "tb-roomfolder")
+        if ((el.getChildCount()) > 1) {
+            UiTree.addClass((el.getChild(1)) "tb-roomdeck-label")
+        }
+        if (dragOn && (id == dropFolder)) {
+            UiTree.addClass(el "tb-room-drop")
+        }
+        el.addChild((this.div("tb-grow")))
+        if ((strlen count) > 0) {
+            el.addChild((this.text("tb-room-count" count)))
+        }
+        def gear:ButtonCtl (this.iconButton(("roomfolder-" + id) (PresI18n.t("Folder settings")) "ghost" (PresToolbar.railIcon("gear")) el))
+        UiTree.addClass((unwrap gear.rootEl) "tb-roomgear")
+    }
+
+    ; The open room's presentation `id` is in one of its folders.
+    fn deckInFolder:boolean (id:string) {
+        def ds:[string] (strsplit roomDecks (strfromcode 10))
+        def k:int 0
+        while (k < (array_length ds)) {
+            def dp:[string] (strsplit (itemAt ds k) (strfromcode 9))
+            if ((((array_length dp) >= 4) && ((itemAt dp 0) == id)) && ((itemAt dp 3) == "i")) {
+                return true
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    ; The folder row under the pointer ("" none), its gear too.
+    fn folderAt:string (px:double py:double) {
+        def tid:string (host.hitTest(px py))
+        def maybe@(optional):UiCtl (host.ctlFor(tid))
+        if (!null? maybe) {
+            def owner:UiCtl (unwrap maybe)
+            def ct:string owner.tid
+            if (((indexOf ct "tb-roomdeck-f:") == 0) || ((indexOf ct "tb-roomfolder-") == 0)) {
+                return (substring ct 14 (strlen ct))
+            }
+        }
+        return ""
     }
 
     fn buildRooms:void (root:EVGElement) {
@@ -1068,6 +1138,11 @@ class PresToolbar {
             dragOn = true
         }
         dropRoom = (this.roomAt(px py))
+        ; a presentation onto a folder of its room (a room is not dropped in one)
+        dropFolder = ""
+        if ((strlen dragDeck) > 0) {
+            dropFolder = (this.folderAt(px py))
+        }
         this.rebuild()
     }
 
@@ -1088,8 +1163,17 @@ class PresToolbar {
             }
         } {
             if dragOn {
-                if (((strlen dropRoom) > 0) && (dropRoom != roomOpen)) {
-                    push requests ("room:drop:" + dropRoom + ":" + dragDeck)
+                ; onto a folder: filed there; onto its own room: out of its
+                ; folder to the room's top; onto another room: Move or Copy
+                if ((strlen dropFolder) > 0) {
+                    push requests ("room:file:" + roomOpen + ":" + dropFolder + ":" + dragDeck)
+                } {
+                    if (((strlen dropRoom) > 0) && (dropRoom != roomOpen)) {
+                        push requests ("room:drop:" + dropRoom + ":" + dragDeck)
+                    }
+                    if ((dropRoom == roomOpen) && (this.deckInFolder(dragDeck))) {
+                        push requests ("room:file:" + roomOpen + "::" + dragDeck)
+                    }
                 }
             } {
                 push requests ("room:deck:" + dragDeck)
@@ -1099,6 +1183,7 @@ class PresToolbar {
         dragRoom = ""
         dragOn = false
         dropRoom = ""
+        dropFolder = ""
         this.rebuild()
     }
 
@@ -1195,8 +1280,24 @@ class PresToolbar {
                             if (kind == "a") {
                                 this.roomDeck(list "all" (itemAt dp 1) false)
                             }
-                            if ((strlen kind) == 0) {
+                            if (kind == "nf") {
+                                this.roomDeck(list "newfolder" (itemAt dp 1) false)
+                            }
+                            ; a folder: "f:<id>", 1 when open, its count
+                            if (kind == "f") {
+                                def fcount:string ""
+                                if ((array_length dp) >= 5) {
+                                    fcount = (itemAt dp 4)
+                                }
+                                this.roomFolder(list (substring (itemAt dp 0) 2 (strlen (itemAt dp 0))) (itemAt dp 1) cur fcount)
+                            }
+                            if (((strlen kind) == 0) || (kind == "i")) {
                                 this.roomDeck(list ("d-" + (itemAt dp 0)) (itemAt dp 1) cur)
+                                ; one in an open folder, set in under it
+                                if (kind == "i") {
+                                    def last:EVGElement (list.getChild(((list.getChildCount()) - 1)))
+                                    UiTree.addClass(last "tb-roomdeck-in")
+                                }
                             }
                         }
                         k = (k + 1)
@@ -1910,6 +2011,18 @@ class PresToolbar {
                 return
             }
             push requests ("room:open:" + id)
+            return
+        }
+        if ((indexOf ctlTid "tb-roomfolder-") == 0) {
+            push requests ("room:folderset:" + roomOpen + ":" + (substring ctlTid 14 (strlen ctlTid)))
+            return
+        }
+        if ((indexOf ctlTid "tb-roomdeck-f:") == 0) {
+            push requests ("room:fold:" + roomOpen + ":" + (substring ctlTid 14 (strlen ctlTid)))
+            return
+        }
+        if (ctlTid == "tb-roomdeck-newfolder") {
+            push requests ("room:newfolder:" + roomOpen)
             return
         }
         if ((indexOf ctlTid "tb-roomdeck-d-") == 0) {

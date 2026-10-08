@@ -30,7 +30,7 @@ import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, roomOf } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, roomOf, foldersOf, createFolder, renameFolder, deleteFolder } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { Meet } from "./meet.js";
 import { RoomChat } from "./roomchat.js";
@@ -787,6 +787,15 @@ let roomShown = "";
 // the room whose "+ Add new presentation" opened File → New's window
 let roomForNew = "";
 let roomChatOne = null;
+// the folder whose window is open ({ room, id }, id "" for a new one), and
+// the folders shown open in the panel ("<room>/<folder>", this browser's)
+let folderFor = null;
+const FOLDERS_OPEN_KEY = "sliqtly.openFolders";
+let foldersOpen = new Set();
+try { foldersOpen = new Set(JSON.parse(localStorage.getItem(FOLDERS_OPEN_KEY) || "[]")); } catch (_) { /* none kept */ }
+function keepFoldersOpen() {
+  try { localStorage.setItem(FOLDERS_OPEN_KEY, JSON.stringify([...foldersOpen])); } catch (_) { /* this page only */ }
+}
 let roomsHere = emptyRooms();
 try { roomsHere = readKept(localStorage, ROOMS_KEY); } catch (_) { /* none kept */ }
 function shownDoc(text, quiet = false) {
@@ -1149,14 +1158,21 @@ async function copyDeckTo(room, deck) {
   const id = await currentRoomId();
   if (id) await roomsRequest("room:moveid:" + room + ":" + id);
 }
-// A room's presentations: [{ id, name, current }], ids as fileRequest's
-// "doc:" takes them ("sample:<key>" for a sample).
-async function roomRows(room) {
+// A room's presentations, [{ id, name, current, folder }], ids as
+// fileRequest's "doc:" takes them ("sample:<key>" for a sample), and its
+// folders, [{ id, name }].
+async function roomView(room) {
   if (ownServer()) {
     const g = await roomsCall("get_room", { room_id: room });
-    return (g.presentations || []).map((p) => ({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud }));
+    return {
+      rows: (g.presentations || []).map((p) => ({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "" })),
+      folders: (g.folders || []).map((f) => ({ id: f.folder_id, name: f.name })),
+    };
   }
-  return roomDecks(roomsHere, room, await allDocs(), sampleRows());
+  return { rows: roomDecks(roomsHere, room, await allDocs(), sampleRows()), folders: foldersOf(roomsHere, room) };
+}
+async function roomRows(room) {
+  return (await roomView(room)).rows;
 }
 // The open presentation's id in the room lists ("" while it is not kept yet,
 // as an unedited sample is not).
@@ -1326,13 +1342,78 @@ async function roomsRequest(r) {
     roomShown = what;
     // pressed: a room one is active in (the list shown again is no use of it)
     if (action === "open") keepRooms((s) => touchRoom(s, roomShown));
-    const rows = await roomRows(roomShown);
+    const { rows, folders } = await roomView(roomShown);
     const lines = deckLines(rows, {
+      folders,
+      open: folders.filter((f) => foldersOpen.has(roomShown + "/" + f.id)).map((f) => f.id),
       showAll: "… " + t("Show all") + " (" + rows.length + ")",
       addNew: roomShown === ONBOARDING ? "" : "+ " + t("Add new presentation"),
+      newFolder: roomShown === ONBOARDING ? "" : "+ " + t("New folder"),
     });
     app.setToolbarOptions("roomdecks", lines, roomShown);
     if (action === "open") await roomChat().open(roomShown);
+  } else if (action === "fold") {
+    // a folder pressed: open or shut, in this browser
+    const [room, folder] = rest;
+    const key = room + "/" + folder;
+    if (foldersOpen.has(key)) foldersOpen.delete(key);
+    else foldersOpen.add(key);
+    keepFoldersOpen();
+    await roomsRequest("room:decks:" + room);
+    return;
+  } else if (action === "newfolder") {
+    folderFor = { room: what, id: "" };
+    app.openFolderDialog("", "");
+  } else if (action === "folderset") {
+    const [room, folder] = rest;
+    const f = (await roomView(room)).folders.find((x) => x.id === folder);
+    if (!f) return;
+    folderFor = { room, id: folder };
+    app.openFolderDialog(folder, f.name);
+  } else if (action === "foldersave") {
+    // the folder's window answered (newdeck-create, "ask" "folder")
+    const plan = JSON.parse(what);
+    const at = folderFor;
+    folderFor = null;
+    if (!at) return;
+    const { room, id } = at;
+    if (plan.act === "delete" && id) {
+      if (ownServer()) await roomsCall("delete_folder", { room_id: room, folder_id: id });
+      else keepRooms((s) => deleteFolder(s, room, id));
+      foldersOpen.delete(room + "/" + id);
+      keepFoldersOpen();
+      toast(t("Folder deleted. Its presentations are at the room's top."));
+    } else if (id) {
+      if (ownServer()) await roomsCall("rename_folder", { room_id: room, folder_id: id, name: plan.name });
+      else keepRooms((s) => renameFolder(s, room, id, plan.name));
+    } else if (String(plan.name || "").trim()) {
+      let made = "";
+      if (ownServer()) made = (await roomsCall("create_folder", { room_id: room, name: plan.name })).folder_id || "";
+      else keepRooms((s) => {
+        const r = createFolder(s, room, plan.name, newId);
+        made = r.id;
+        return r.state;
+      });
+      // a new folder is shown open, ready for what is dragged onto it
+      if (made) {
+        foldersOpen.add(room + "/" + made);
+        keepFoldersOpen();
+      }
+    }
+    if (roomShown === room) await roomsRequest("room:decks:" + room);
+  } else if (action === "file") {
+    // a presentation let go on a folder of its room ("<room>:<folder>:<deck>"),
+    // or on its own room (folder ""): to the room's top
+    const [room, folder, ...deckParts] = rest;
+    const deck = deckParts.join(":");
+    if (deck.startsWith("sample:")) return;
+    if (ownServer()) await roomsCall("move_presentation", { deck_id: deck.replace(/^cloud:/, ""), room_id: room, folder_id: folder });
+    else keepRooms((s) => moveDeck(s, deck, room, folder));
+    if (folder) {
+      foldersOpen.add(room + "/" + folder);
+      keepFoldersOpen();
+    }
+    await roomsRequest("room:decks:" + room);
   } else if (action === "deck") {
     roomChat().close();
     if (what.startsWith("sample:")) await openSample(what.slice(7));
@@ -3836,6 +3917,8 @@ function handleRequests() {
       const plan = JSON.parse(app.newDeckPlan());
       if (plan.ask === "room") {
         roomsRequest("room:save:" + JSON.stringify(plan)).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+      } else if (plan.ask === "folder") {
+        roomsRequest("room:foldersave:" + JSON.stringify(plan)).catch((e) => toast(t("Rooms: ") + (e.message || e)));
       } else if (plan.ask === "name") {
         renameMe(plan.name);
       } else if (plan.dup) {
